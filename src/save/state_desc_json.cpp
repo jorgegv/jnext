@@ -493,7 +493,7 @@ void JsonReadDesc::bytes(const char* n, uint8_t* data, std::size_t len)
     }
 }
 
-void JsonReadDesc::blob(const char* n, uint8_t*, std::size_t)
+void JsonReadDesc::blob(const char* n, uint8_t* data, std::size_t len)
 {
     // The bytes come from a ZIP member, not from here (§6.1). The key is
     // claimed so it is not reported as unknown, and a document that DOES carry
@@ -503,7 +503,12 @@ void JsonReadDesc::blob(const char* n, uint8_t*, std::size_t)
     p_->claimed.insert(n);
     if (p_->obj.find(n) != p_->obj.end()) {
         refuse(n, "is a blob member and must not appear in the JSON");
+        return;
     }
+    // RECORD WHERE THE BYTES GO. The caller owns the archive and copies them
+    // in; this class cannot, and before it recorded the destination the caller
+    // had no way to find out what it was (see `blobs()`).
+    blobs_.push_back({std::string(n), data, len});
 }
 
 void JsonReadDesc::ram_window(const char* n, uint8_t* data, std::size_t len,

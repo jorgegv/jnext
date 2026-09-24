@@ -1619,7 +1619,12 @@ int main(int argc, char* argv[]) {
                     }
                 }
                 app.set_pending_load(load_file, 0);
-            } else if (ext == ".sna" || ext == ".szx" || ext == ".z80") {
+            } else if (ext == ".sna" || ext == ".szx" || ext == ".z80" ||
+                       ext == ".jns") {
+                // GH #27 S8 — a `.jns` is a whole-machine snapshot like the
+                // other three: it restores at once, with no boot delay, and
+                // the machine it names wins over `--machine` (design §7.3),
+                // which `Emulator::load_jns` handles by reconfiguring.
                 app.set_pending_load(load_file, 0);
             } else if (ext == ".tap") {
                 // Task 19: TAP loading uses the phantom typist
@@ -1640,7 +1645,7 @@ int main(int argc, char* argv[]) {
                 app.set_pending_load(load_file, 100);
                 app.set_tape_realtime(true);
             } else {
-                Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx)", ext);
+                Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex, .jns, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx)", ext);
                 audio_recorder.stop();
                 dac_trace_recorder.stop();
                 return 1;

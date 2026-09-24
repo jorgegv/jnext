@@ -218,13 +218,39 @@ lost.
 `szx_loader`, `szx_saver`, `z80_loader`, `tap_*`, `tzx_loader`, `wav_loader`,
 `rzx_*`. Integration points JNS inherits for free:
 
-- **Load by extension**: there are **three** dispatch sites, and a new format
-  must be added to each — `src/main.cpp:1490` (the CLI `--load` arm that routes
-  `.sna`/`.szx`/`.z80`), `Emulator::load_snapshot_buffer()`
-  (`emulator.cpp:8060`, the RZX-embedded-snapshot path, which does
-  `init(config_)` then `apply()`), and the GUI dialog's filter. The
-  `extension()` call at `emulator.cpp:1153` is **not** the dispatcher — it only
-  pre-detects `.nex` to arm `direct_nex_load`.
+- **Load by extension**: this paragraph said "**three** dispatch sites" and
+  named them, and **S8 measured it: there are seven**, plus four mirror
+  predicates that must move with the first. Three of the original sentence's
+  four claims were wrong, which is worth recording because it is this
+  project's most persistent defect class — a document describing the product
+  from memory. The corrections:
+
+  | Said | Actually |
+  |---|---|
+  | three sites | **seven**, plus four mirrors |
+  | `src/main.cpp:1490` | the CLI chain is `src/main.cpp:1566-1627` |
+  | `Emulator::load_snapshot_buffer()` at `emulator.cpp:8060` | **no such method**; it is `Emulator::load_snapshot_from_memory()`, and the stale name had propagated into `jns_container.h` |
+  | "the GUI dialog's filter" | a filter routes nothing; the GUI reaches the primary dispatcher through `handle_load_path` |
+  | — | the PRIMARY dispatcher is not named at all: `emulator_apply_load()`, `src/platform/emulator_boot.h:25`, created by Task 70 *because* the chain had been copy-pasted three times |
+
+  The seven, as S8 found and wired them: `emulator_apply_load()`
+  (`emulator_boot.h:25`, the one every frontend reaches); the CLI `--load`
+  pre-dispatch (`main.cpp:1566`), which **refuses** an unknown extension where
+  the primary one falls back to NEX; the CLI RZX-combination validator
+  (`main.cpp:849`); the `--warm-start-regenerate` gate (`main.cpp:903`);
+  `Emulator::load_snapshot_from_memory()` (`emulator.cpp:8075`, RZX-embedded,
+  and keyed on a snapshot-type string without a leading dot);
+  `MainWindow::handle_tape_path()` (`main_window.cpp:1352`, the Tape menu,
+  independent of all the above); and `screenshot_format_for_path()`
+  (`screenshot.cpp:83`, the same shape on the output side). The four mirrors
+  are `emulator_load_routes_to_nex/_rzx`, `emulator_boot_machine` and
+  `emulator_load_delay_frames`, all in `emulator_boot.h`.
+
+  `.jns` needed exactly two of them — the primary dispatcher and the CLI
+  pre-dispatch — plus the `routes_to_nex` mirror, because the others are about
+  tapes, RZX and screenshots. The `extension()` call at `emulator.cpp:1153` is
+  **not** a dispatcher, as the original paragraph correctly said; §15.1 then
+  cited it as one, which was wrong and is corrected there.
 - **Save by extension**: `MainWindow::on_save_snapshot()`
   (`main_window.cpp:1763`) picks `SzxSaver` / `NexSaver` / `SnaSaver` from the
   chosen suffix, defaulting to `.sna`.
@@ -1883,7 +1909,7 @@ table, a `case` in `main.cpp`'s switch (enforced by `-Wswitch`), and an entry in
 
 | Flag | Args | Purpose |
 |---|---|---|
-| `--load FILE` | — | **No new flag.** `.jns` joins the existing extension dispatch (`emulator.cpp:1153`). The man page's `--load` list gains `.jns`. |
+| `--load FILE` | — | **No new flag.** `.jns` joins the existing extension dispatch — `emulator_apply_load()` at `src/platform/emulator_boot.h:25` and the CLI pre-dispatch at `src/main.cpp:1566`, NOT `emulator.cpp:1153`, which this row cited and which is a `.nex` arming gate rather than a dispatcher (§3.3's S8 correction). The man page's `--load` list gains `.jns`. |
 | `--delayed-snapshot FILE` | — | **No new flag.** `.jns` joins the existing extension dispatch. Its man-page sentence — "the format is chosen by the extension of *FILE*: `.szx`, `.nex`, anything else `.sna`" — must be updated, and `cli-check` will not catch that, because it checks the flag set, not the prose. |
 | `--snapshot-uncompressed` | 0 | Write every member `STORED`. Settled point 6's debugging mode. |
 | `--snapshot-strict` | 0 | Turn the `state_model_revision` / ROM-digest / tape warnings into refusals. |
@@ -2109,6 +2135,49 @@ manifest and declares no `state/*.json` yet. That is the correct state, not an
 omission: the gate exists before the first migration so each of S3-S5's 34
 subsystems arrives as a schema diff, where §13.2(5) wants a human to see it. A
 gate added after the thirty-fourth would have missed every diff it exists for.
+
+#### The S8 revisit — and what the paragraph above hoped for did not happen
+
+The owner's recorded decision was that the registry stays empty through S7 and
+that this section is revisited at S8. Revisited, with the outcome stated
+plainly rather than softened:
+
+**`SchemaRegistry::register_subsystem` was never called, by anything, at any
+stage.** So the paragraph above describes an intent that was not carried out:
+all thirty-four of S3-S5's migrations produced **zero** schema diffs, and the
+"a human sees each one" control §13.2(5) rests on did not operate for any of
+them. That cannot be retro-fitted — the diffs it wanted are the ones between
+consecutive commits that no longer exist as separate schema states.
+
+**S8 declines the split gate, and does not populate the registry.** The
+reasons, in the order they weigh:
+
+1. **The cheap half of a split gate cannot detect the staleness that matters.**
+   A byte-diff against the committed file catches a change only if something
+   regenerated the file first. Split the generation into a heavier target and
+   the `state/*` half of the schema goes stale silently between runs of it —
+   which is the condition the section exists to prevent, reproduced with more
+   machinery. Making the heavy half a CI-only step is not available: CI runs
+   the same make targets a human runs, as a hard rule.
+2. **Populating the registry means CONSTRUCTING every subsystem.** A
+   declaration binds references to an object's members, so walking one needs an
+   instance — a `Ram`, a `Renderer`, an `Emulator`. That is the emulator link
+   the owner already rejected on cost, arriving by a different door.
+3. **S9 brings a stronger check for exactly this surface.** The spec-written
+   Python reader parses real `state/*.json` from a real machine against this
+   document, and the FUSE foreign-reader row compares the result with an
+   emulator that is not ours. A generated schema says the shape is what the
+   code says it is; an independent reader says the shape is what the SPEC says
+   it is, which is the claim worth making about a file other people will read.
+
+**What is therefore NOT covered, stated so nobody has to discover it.**
+`doc/formats/jns-snapshot.schema.json` describes `manifest.json` and nothing
+else. The `state/*.json` members that S8 began writing have **no schema and no
+staleness gate**: a field renamed in a declaration changes the file and no gate
+says so. The `JNSD`/`JNSE` rows still pin the encoding, `JNS-RT-02` still pins
+that every field round-trips, and `rewind_test`'s width rows still pin the
+binary side — so the field set is not unguarded, only the *published schema* of
+it is. S9 is where that closes.
 
 ## 17. Staged implementation plan and effort
 

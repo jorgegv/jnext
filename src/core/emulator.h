@@ -833,6 +833,23 @@ public:
                   const jnext::JnsLoadOptions& opt, jnext::JnsLoadReport& report,
                   std::string& why);
 
+    /// Path wrappers over the two above: read/write the file, log the reason,
+    /// and apply the `EmulatorConfig` flags (`--snapshot-uncompressed`,
+    /// `--snapshot-strict`, `--snapshot-force-sdcard`).
+    ///
+    /// These are what the DISPATCH SITES call. There are seven of them for
+    /// loading (`src/platform/emulator_boot.h:25` and six others), and giving
+    /// them a path-taking entry point is what keeps `.jns` a one-line addition
+    /// at each rather than a buffer dance repeated seven times.
+    bool load_jns_file(const std::string& path);
+    bool save_jns_file(const std::string& path);
+
+    /// What the last `load_jns_file` / `save_jns_file` had to say. The GUI
+    /// shows the warnings; §15.2: "it must be visible, not log-only — a user
+    /// who ignores a mismatch should have had to ignore it."
+    const jnext::JnsLoadReport& last_jns_report() const { return jns_report_; }
+    const std::string& last_jns_error() const { return jns_error_; }
+
     /// The ONE list of subsystems a `.jns` carries, walked by BOTH directions.
     ///
     /// A member template rather than two hand-kept lists, and that is the
@@ -1442,6 +1459,12 @@ private:
     bool     jns_stackless_retn_    = false;
     bool     jns_joy_uart_present_  = false;
     bool     jns_multiface_present_ = true;
+
+    /// What the last `.jns` file operation reported. Held here so every
+    /// frontend reads it the same way instead of each threading its own
+    /// out-params through a dispatch table.
+    jnext::JnsLoadReport jns_report_;
+    std::string          jns_error_;
     Mixer           mixer_;
 
     // Debugger-only source mute; NOT machine state (not reset, not serialised).

@@ -338,7 +338,7 @@ struct Verdict {
 
     /// Non-empty when `model.machine` differs from the constructed machine:
     /// the reader RECONFIGURES and restores rather than refusing (§7.3), the
-    /// same way `Emulator::load_snapshot_buffer` already does for
+    /// same way `Emulator::load_snapshot_from_memory` already does for
     /// `.sna`/`.szx`/`.z80`. The user must not have to get `--machine` right
     /// to reload their own save.
     std::string reconfigure_to;

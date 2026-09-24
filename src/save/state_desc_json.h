@@ -123,6 +123,26 @@ public:
     /// older jnext says what it dropped. Call after running the declaration.
     std::vector<std::string> unclaimed_keys() const;
 
+    /// The blob members this declaration says exist, with the buffer each one
+    /// must be read INTO — the read-side mirror of `JsonWriteDesc::blobs()`.
+    ///
+    /// It exists because `blob()` on this side deliberately does nothing with
+    /// the bytes: they are a ZIP member, and this class knows nothing about
+    /// the archive. Somebody has to carry them across, and without this the
+    /// caller has no way to learn where they go.
+    ///
+    /// ITS ABSENCE WAS A SHIPPED DEFECT, briefly (GH #27 S8). The assembler
+    /// wrote every blob and restored none, so a `.jns` round trip produced a
+    /// machine whose scalars were perfect and whose RAM was whatever `reset()`
+    /// left — and the field-level oracle could not see it, because there is no
+    /// field. `snapshot-jns-roundtrip-func` compares pixels for that reason.
+    struct BlobDest {
+        std::string key;
+        uint8_t*    data = nullptr;
+        std::size_t len  = 0;
+    };
+    const std::vector<BlobDest>& blobs() const { return blobs_; }
+
 protected:
     void do_boolean(const char*, bool&, Def<bool>) override;
     void do_u8 (const char*, uint8_t&,  Def<uint8_t>) override;
@@ -136,8 +156,9 @@ protected:
 
 private:
     struct Impl;
-    std::unique_ptr<Impl> p_;
-    std::string           refusal_;
+    std::unique_ptr<Impl>  p_;
+    std::string            refusal_;
+    std::vector<BlobDest>  blobs_;
 
     /// Latches `refusal_` and the sticky `failed()` flag. Every refusal names
     /// the key: G9 is a testable property, not a slogan (§16.1, `JNSM`).

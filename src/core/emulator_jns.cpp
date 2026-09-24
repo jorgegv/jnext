@@ -29,6 +29,7 @@
 
 #include "core/jns_snapshot.h"
 #include "core/log.h"
+#include "core/saveable.h"
 #include "core/embedded_nextboot_rom.h"
 #include "core/sd_snapshot_identity.h"
 #include "core/sdcard_provisioner.h"
@@ -55,13 +56,28 @@ std::string state_member(const std::string& name) {
     return std::string(jnext::jns::kStatePrefix) + name + ".json";
 }
 
-/// `mem/<subsystem>-<key>.bin`. The subsystem prefix is what keeps two
-/// declarations that both call their blob `ram` (`Ram` and `Multiface` do)
-/// from colliding in a namespace the container refuses duplicates in.
-std::string blob_member(const std::string& subsystem, const std::string& key) {
-    std::string k = key;
-    std::replace(k.begin(), k.end(), '_', '-');
-    return std::string(jnext::jns::kMemPrefix) + subsystem + "-" + k + ".bin";
+/// The blob member path for one declaration's blob key.
+///
+/// THE NAMES ARE THE SPEC'S, NOT A RULE (§6.1 lists them literally:
+/// `mem/ram.bin`, `mem/bank5-vram.bin`, `mem/sprite-patterns.bin`,
+/// `mem/bank7-bram.bin`, `mem/multiface-ram.bin`). A generated
+/// `mem/<subsystem>-<key>.bin` looks tidier and is wrong twice over: it is not
+/// what the document says a `.jns` contains, and `mem/ram.bin` in particular is
+/// spelled *in the code* — `JsonWriteDesc::ram_window` emits it as the `ref` of
+/// the DivMMC window and `JsonReadDesc::ram_window` refuses any other value. A
+/// derived name therefore produced an archive whose own RAM reference pointed
+/// at a member that did not exist.
+///
+/// A table, so adding a blob is a deliberate edit rather than whatever a
+/// generator happens to produce. An unknown pair is a hard failure: silently
+/// inventing a name is how the first version of this went wrong.
+const char* blob_member(const std::string& subsystem, const std::string& key) {
+    if (subsystem == "ram"       && key == "ram")         return "mem/ram.bin";
+    if (subsystem == "mmu"       && key == "bank5_vram")  return "mem/bank5-vram.bin";
+    if (subsystem == "mmu"       && key == "bank7_bram")  return "mem/bank7-bram.bin";
+    if (subsystem == "sprites"   && key == "pattern_ram") return "mem/sprite-patterns.bin";
+    if (subsystem == "multiface" && key == "ram")         return "mem/multiface-ram.bin";
+    return nullptr;
 }
 
 std::string iso8601_now_utc() {
@@ -254,10 +270,14 @@ struct SaveVisitor {
 
         if (!w->add_subsystem(name, text, *why)) { ok = false; return; }
         for (const auto& b : blobs) {
-            if (!w->add_blob(blob_member(name, b.key), b.data, b.len, *why)) {
+            const char* member = blob_member(name, b.key);
+            if (!member) {
+                *why = std::string("subsystem ") + name + " declares blob '" +
+                       b.key + "', which has no member name in §6.1's layout";
                 ok = false;
                 return;
             }
+            if (!w->add_blob(member, b.data, b.len, *why)) { ok = false; return; }
         }
     }
 };
@@ -505,6 +525,46 @@ struct LoadVisitor {
         if (d.failed()) {
             *why = std::string("state/") + name + ".json: " + d.refusal();
             ok = false;
+            return;
+        }
+
+        // THE BYTES. `JsonReadDesc::blob` records where they go and cannot
+        // fetch them — it knows nothing about the archive — so this is the one
+        // place that carries them across. Omitting it restored every scalar
+        // and no memory at all, which no field-level comparison could see.
+        //
+        // The length is checked against the DECLARATION, not taken from the
+        // file: a member that is not exactly the size the subsystem declared is
+        // refused, never truncated and never zero-padded.
+        for (const auto& b : d.blobs()) {
+            const char* member = blob_member(name, b.key);
+            if (!member) {
+                *why = std::string("subsystem ") + name + " declares blob '" +
+                       b.key + "', which has no member name in §6.1's layout";
+                ok = false;
+                return;
+            }
+            if (!zip->has(member)) {
+                *why = std::string(member) + " is missing, but state/" + name +
+                       ".json declares it";
+                ok = false;
+                return;
+            }
+            std::vector<uint8_t> bytes;
+            std::string read_why;
+            if (!zip->read(member, bytes, read_why)) {
+                *why = std::string(member) + ": " + read_why;
+                ok = false;
+                return;
+            }
+            if (bytes.size() != b.len) {
+                *why = std::string(member) + " is " +
+                       std::to_string(bytes.size()) + " bytes, but " + name +
+                       " declares " + std::to_string(b.len);
+                ok = false;
+                return;
+            }
+            if (b.data && b.len) std::memcpy(b.data, bytes.data(), b.len);
         }
     }
 };
@@ -697,13 +757,134 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
     // starts one cleanly.
     frame_in_progress_ = false;
 
-    // The same two post-restore steps `load_state` ends with, and for the same
-    // reasons stated there (`emulator.cpp:12412-12430`): the host-side input
-    // dispatchers keep their OWN shadow of the connector/wheel/button vectors
-    // and are not in this file, so they must be re-seeded or the next live
-    // event pushes a stale shadow back over the restore; and the ESP's outage
-    // clock just jumped, which no edge test can see.
-    if (on_input_state_restored) on_input_state_restored();
-    sync_esp_association(/*force=*/true);
+    // ── RE-DERIVE, BY ROUND-TRIPPING THROUGH `load_state` ────────────────
+    //
+    // Restoring every FIELD is not restoring the machine. `load_state`
+    // additionally performs about twenty cross-subsystem RE-DERIVATIONS,
+    // interleaved through its walk: the contention model rebuilt for the
+    // machine type and CPU speed, the video timing re-pushed, DivMMC's
+    // rom3 mirror, the I2C peripheral enables, and — the one that shows —
+    // GH #261's render-history rebuild, where the ULA's palette selectors are
+    // mirrors of the PaletteManager's and are in no stream at all.
+    //
+    // THIS WAS MEASURED, NOT ASSUMED. Without it a `.jns` round trip produced
+    // a machine whose BINARY STATE STREAM was byte-identical to the source's —
+    // `JNS-RT-02` passed — and whose rendered screen differed in 139 448
+    // pixels. A field-level oracle cannot see a derived-state defect, which is
+    // exactly why `snapshot-jns-roundtrip-func` compares PIXELS.
+    //
+    // Copying those twenty calls here was the obvious fix and is the wrong
+    // one: they are interleaved with the walk because several depend on a
+    // subsystem loaded just before them, the order is load-bearing, and a
+    // hand-kept second copy is the "two lists" failure this whole issue exists
+    // to avoid — one which no gate would catch, because the copy would be
+    // wrong only in the cases nobody tested.
+    //
+    // So: serialise the just-restored machine and load it straight back. The
+    // round trip is a no-op on every field (`RW-RT-03`/`RW-RT-04` pin that
+    // save->load->save is byte-identical) and runs every re-derivation in its
+    // own order, from the one place that defines it. It costs one ~2 MB
+    // serialise per FILE load, which is not a rate anyone notices, and it
+    // cannot drift from `load_state` because it IS `load_state`.
+    {
+        StateWriter measure;
+        save_state(measure);
+        std::vector<uint8_t> buf(measure.position());
+        StateWriter w(buf.data(), buf.size());
+        save_state(w);
+        StateReader rd(buf.data(), buf.size());
+        if (!load_state(rd)) {
+            why = "the restored machine could not be re-derived (" +
+                  last_state_error_ + ")";
+            Log::emulator()->error("load_jns: {}", why);
+            return false;
+        }
+    }
+
+    // `load_state` has now fired `on_input_state_restored` and re-synced the
+    // ESP association itself, so neither is repeated here.
+    return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Path wrappers — what the dispatch sites call
+// ─────────────────────────────────────────────────────────────────────────
+
+bool Emulator::save_jns_file(const std::string& path)
+{
+    jns_report_ = jnext::JnsLoadReport{};
+    jns_error_.clear();
+
+    jnext::JnsSaveOptions opt;
+    opt.uncompressed = config_.jns_uncompressed;
+
+    std::vector<uint8_t> out;
+    if (!save_jns(opt, out, jns_report_, jns_error_)) {
+        Log::emulator()->error("save_jns: {}: {}", path, jns_error_);
+        return false;
+    }
+
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (!f) {
+        jns_error_ = "cannot open '" + path + "' for writing";
+        Log::emulator()->error("save_jns: {}", jns_error_);
+        return false;
+    }
+    f.write(reinterpret_cast<const char*>(out.data()),
+            static_cast<std::streamsize>(out.size()));
+    if (!f.good()) {
+        jns_error_ = "short write to '" + path + "'";
+        Log::emulator()->error("save_jns: {}", jns_error_);
+        return false;
+    }
+    Log::emulator()->info("Snapshot saved: {} ({} bytes{})", path, out.size(),
+                          jns_report_.advanced_to_frame_boundary
+                              ? ", advanced to the next frame boundary" : "");
+    for (const std::string& w : jns_report_.warnings) {
+        Log::emulator()->warn("save_jns: {}", w);
+    }
+    return true;
+}
+
+bool Emulator::load_jns_file(const std::string& path)
+{
+    jns_report_ = jnext::JnsLoadReport{};
+    jns_error_.clear();
+
+    std::ifstream f(path, std::ios::binary);
+    if (!f) {
+        jns_error_ = "cannot open '" + path + "'";
+        Log::emulator()->error("load_jns: {}", jns_error_);
+        return false;
+    }
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)),
+                               std::istreambuf_iterator<char>());
+    if (bytes.empty()) {
+        jns_error_ = "'" + path + "' is empty";
+        Log::emulator()->error("load_jns: {}", jns_error_);
+        return false;
+    }
+
+    jnext::JnsLoadOptions opt;
+    opt.strict       = config_.jns_strict;
+    opt.force_sdcard = config_.jns_force_sdcard;
+
+    if (!load_jns(bytes.data(), bytes.size(), opt, jns_report_, jns_error_)) {
+        Log::emulator()->error("load_jns: {}: {}", path, jns_error_);
+        return false;
+    }
+    // Every warning is LOGGED here and SHOWN by the GUI (§15.2). Both, not
+    // either: the log is what a bug report carries and the status bar is what
+    // the user actually sees.
+    for (const std::string& w : jns_report_.warnings) {
+        Log::emulator()->warn("load_jns: {}", w);
+    }
+    for (const std::string& m : jns_report_.ignored_members) {
+        Log::emulator()->info("load_jns: ignored unknown member '{}'", m);
+    }
+    for (const std::string& k : jns_report_.ignored_keys) {
+        Log::emulator()->info("load_jns: ignored unknown key '{}'", k);
+    }
+    Log::emulator()->info("Snapshot loaded: {}", path);
     return true;
 }

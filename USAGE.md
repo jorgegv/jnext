@@ -118,8 +118,14 @@ Machine type: `48k`, `128k`, `plus3`, `next` (default).
 
 **--load** *FILE*  
 Load a program. The format is detected from the extension: `.nex`,
-`.sna`, `.szx`, `.z80`, `.tap`, `.tzx`, `.wav`, `.rzx`. (`.rzx` is
-accepted here and plays back, as **--rzx-play**.)
+`.jns`, `.sna`, `.szx`, `.z80`, `.tap`, `.tzx`, `.wav`, `.rzx`. (`.rzx`
+is accepted here and plays back, as **--rzx-play**.)
+
+`.jns` is jnext’s own whole-machine snapshot (see **JNEXT SNAPSHOTS**
+below). Loading one restores the machine it was taken on, including the
+machine *type*: a `.jns` taken on a Next loads as a Next even if
+**--machine** says otherwise, the same way a `.sna`, `.szx` or `.z80`
+already does.
 
 A NEX file with bytes after the banks its header declares is an
 *extended* NEX. If its header asks for the file to be kept open (any
@@ -632,17 +638,38 @@ its rule on work still to come.
 
 **--delayed-snapshot** *FILE*  
 Headless only: requires **--headless**. Save a snapshot after a delay in
-frames. The format is chosen by the extension of *FILE*: `.szx`, `.nex`,
-anything else `.sna`. A snapshot is only ever taken at a frame boundary,
-so if the debugger has paused the machine part-way through a frame — a
-magic breakpoint, say — the frame in flight is completed first and the
-snapshot is written from the boundary that follows it. The capture is
-never refused, and the saved machine is then up to one frame past the
-point the debugger stopped at.
+frames. The format is chosen by the extension of *FILE*: `.jns`, `.szx`,
+`.nex`, anything else `.sna`. A snapshot is only ever taken at a frame
+boundary, so if the debugger has paused the machine part-way through a
+frame — a magic breakpoint, say — the frame in flight is completed first
+and the snapshot is written from the boundary that follows it. The
+capture is never refused, and the saved machine is then up to one frame
+past the point the debugger stopped at.
 
 **--delayed-snapshot-frames** *N*  
 Delay in frames for **--delayed-snapshot** (default 0). Requires
 **--delayed-snapshot**.
+
+**--snapshot-uncompressed**  
+Write `.jns` snapshots with every member stored rather than deflated.
+The file is then readable with `unzip -p` and a hex editor at roughly
+five times the size. A debugging aid; it changes nothing about what the
+file contains, and jnext reads both forms.
+
+**--snapshot-strict**  
+When loading a `.jns`, turn the provenance warnings into refusals: a
+snapshot written by a jnext whose state model this build does not know,
+or one whose recorded ROM digests differ from the ROMs now loaded. A
+missing tape file is **not** covered — that always warns and never
+refuses, because a machine restores perfectly well without the tape it
+was loading from.
+
+**--snapshot-force-sdcard**  
+When loading a `.jns`, restore even though the mounted SD card is not
+the one the snapshot was taken on. A warning naming both cards is
+printed. This is the flag that lets you create exactly the
+silently-wrong case the identity check exists to prevent, which is why
+it is spelled out in full.
 
 **--delayed-keypress** *SECS* *KEY*  
 Press *KEY* after *SECS* seconds. Headless only (requires

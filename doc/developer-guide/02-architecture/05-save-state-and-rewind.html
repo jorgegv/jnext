@@ -782,6 +782,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-jns-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The .jns file
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-rewind-ring" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1846,7 +1857,7 @@ can corrupt memory.</p>
 <pre><code class="language-cpp">void save_state(StateWriter&amp; w) const;
 void load_state(StateReader&amp; r);        // or bool, where it can fail
 </code></pre>
-<p><code>Emulator::save_state()</code> (<code>emulator.cpp:9228</code>) calls them in a fixed order —
+<p><code>Emulator::save_state()</code> (<code>src/core/emulator.cpp</code>) calls them in a fixed order —
 core, video, peripherals, audio, then its own private fields — and writes a
 <strong>sentinel</strong> after every block: a <code>u32</code> holding <code>kStateSentinelMagic ^
 ordinal</code>, with a shared counter keeping the two sides in lockstep.
@@ -1881,8 +1892,82 @@ Every one of them — and the emulator's own scalars — declares its fields
 (<code>src/save/state_desc.h</code>). The binary realisation emits exactly the bytes the
 hand-written pair emitted, which is what let the migration be checked against
 a byte image of the pre-migration stream; the point of it is that the rewind
-ring and a future <code>.jns</code> file cannot disagree about which fields exist, because
+ring and the <code>.jns</code> file cannot disagree about which fields exist, because
 there is only one list.</p>
+<h2 id="the-jns-file">The <code>.jns</code> file<a class="headerlink" href="#the-jns-file" title="Permanent link">&para;</a></h2>
+<p>The rewind ring's stream is <strong>positional</strong> and never leaves the process. A
+<code>.jns</code> is the same machine written to disk, and it is a different shape for
+reasons that are worth being explicit about:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>rewind ring</th>
+<th><code>.jns</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>framing</td>
+<td>one flat byte stream</td>
+<td>a ZIP, <code>manifest.json</code> first</td>
+</tr>
+<tr>
+<td>a subsystem</td>
+<td>bytes at an offset</td>
+<td><code>state/&lt;name&gt;.json</code></td>
+</tr>
+<tr>
+<td>a field</td>
+<td>a position</td>
+<td>a <strong>name</strong></td>
+</tr>
+<tr>
+<td>desync</td>
+<td>a sentinel per block</td>
+<td>member and key names, structurally</td>
+</tr>
+<tr>
+<td>bulk memory</td>
+<td>inline</td>
+<td><code>mem/*.bin</code> members, declared with a length and a CRC</td>
+</tr>
+<tr>
+<td>lifetime</td>
+<td>this process</td>
+<td>somebody else's disk, next year</td>
+</tr>
+</tbody>
+</table>
+<p>Both are walks of the <strong>same</strong> <code>describe_state</code> declarations —
+<code>BinWriteDesc</code> for one, <code>JsonWriteDesc</code> for the other. That is the whole
+purpose of the descriptor layer: a field cannot exist in one and not the other,
+because there is only one place it is written down.</p>
+<p>What assembles a whole file is <code>Emulator::save_jns</code> / <code>load_jns</code>
+(<code>src/core/emulator_jns.cpp</code>). The list of subsystems it walks lives in
+<strong><code>Emulator::visit_jns_subsystems</code></strong>, a member template that both directions
+run through a visitor — one list, so a subsystem added to the save side and
+forgotten on the load side is not expressible.</p>
+<p>Four things have no declaration and are hand-written there, each for a stated
+reason: the folded monotonic T-state instant and the CPU's <code>/INT</code> window are
+written relative to a counter the stream does not carry and are re-seated with
+side effects on read; the esxDOS handle table is a variable-length list; and
+the joystick cable's presence is a flag rather than a member. The first two are
+staged into <code>jns_*_</code> members so a sixth <code>describe_*</code> method can still declare
+them by name.</p>
+<p>The manifest carries what the bytes cannot: the machine type and RAM size the
+file needs to be reconstructed into, the jnext version that wrote it, and the
+identity of every external resource the machine was using — the SD card, the
+ROMs, the tape. None of those are <em>copied</em>: an SD image is a gigabyte of
+somebody else's firmware. They are recorded so a mismatch is <strong>detected</strong>
+rather than silently wrong, which is the same shape the esxDOS handles already
+used.</p>
+<p>The test that matters is in <code>rewind_test</code>: save a running machine to a <code>.jns</code>,
+load it into a second machine, and require the two machines' <strong>binary</strong> state
+streams to be byte-identical. A subsystem missing from the one list is never
+written, so the restored machine keeps its reset defaults and the comparison
+fails. <code>JNS-RT-05</code> proves the comparison still discriminates by checking that a
+machine which was never loaded <em>does</em> differ.</p>
 <p>A save may only be taken at a frame boundary, and the debugger breaks
 mid-frame — which is exactly when a developer reaches for File ▸ Save
 Snapshot. <code>Emulator::advance_to_frame_boundary()</code> completes the in-flight frame

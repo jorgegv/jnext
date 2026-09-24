@@ -750,6 +750,23 @@ void HeadlessApp::run() {
                 ext = snapshot_file_.substr(dot);
                 for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
             }
+            // GH #27 S8 — `.jns` writes itself, because it is the only format
+            // here that needs the manifest, the SD identity and the blob
+            // declarations assembled rather than one flat buffer. It is
+            // handled before the buffer-producing savers for that reason, and
+            // it reports its own failure with a REASON, which none of the
+            // three below can.
+            if (ext == ".jns") {
+                const bool ok = emulator_.save_jns_file(snapshot_file_);
+                if (!ok) {
+                    Log::emulator()->error(
+                        "--delayed-snapshot: could not write '{}': {}",
+                        snapshot_file_, emulator_.last_jns_error());
+                    exit_code_ = 1;
+                }   // save_jns_file already logged the success
+                snapshot_file_.clear();
+                return;
+            }
             std::vector<uint8_t> bytes;
             if (ext == ".szx") {
                 // .szx is a classic-Spectrum interchange format: it can

@@ -73,6 +73,7 @@ nav:
       - 5.6 Networking: 05-running-programs/06-networking.md
       - 5.7 The joystick-port serial cable: 05-running-programs/07-the-joystick-port-serial-cable.md
       - 5.8 Host files for a directly loaded program: 05-running-programs/08-host-files-for-a-loaded-program.md
+      - 5.9 Snapshots: 05-running-programs/09-snapshots.md
   - 6. The debugger:
       - 06-debugger/index.md
       - Panels:
