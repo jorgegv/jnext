@@ -25,7 +25,7 @@ Updated 2026-04-17 (commit `d4ea4e1`):
   - **ML-05**: Pipeline delay fix covers ishift_r reset — first read returns 0xFF.
   - **SS-10**: Test bug fixed — was using 0x12 which matches VHDL SD card branch; changed to 0x00.
   - E3-04, E3-07, E3-08, EP-02/03/11, NR-01/02/05, SS-09/SS-11: fixed in prior sessions.
-- **Skips**: 56 rows. Genuinely unreachable — NMI lifecycle (NM-01..08), RETN hook (DA-06, IN-03), instant-vs-delayed pipeline (DMC-TM-01..04, TM-05), `automap_reset` vs `set_enabled` distinction (DA-08, NA-03), SRAM address ladder (SM-01..07), MISO priority ladder (SPI-MX-01/02/05), SPI state counter / SCK / MOSI pin (SX-06..10, ST-01..08), NR 0x09 bit 3 clear mapram (E3-05).
+- **Skips**: 56 rows as measured then. Genuinely unreachable — NMI lifecycle (NM-01..08), RETN hook (DA-06, IN-03), instant-vs-delayed pipeline (DMC-TM-01..04, TM-05), `automap_reset` vs `set_enabled` distinction (DA-08, NA-03), SRAM address ladder (SM-01..07), MISO priority ladder (SPI-MX-01/02/05), SPI state counter / SCK / MOSI pin (SX-06..10, ST-01..08), NR 0x09 bit 3 clear mapram (E3-05). **Four of those are no longer skips and four more are retired — see the GH #201 note below; this sentence is left as the historical snapshot it was.**
 
 > **GH #201 (2026-09-23): SM-01..05 are live rows now, not skips.** The
 > "unreachable" verdict above rested on jnext keeping DivMMC ROM and RAM in
@@ -38,6 +38,28 @@ Updated 2026-04-17 (commit `d4ea4e1`):
 >
 > SM-06/07 stay unreachable for a different and still-current reason: they need
 > expansion-bus ROMCS, which jnext does not model at all (G45).
+>
+> **GH #201 (2026-09-24), second pass.** Four more rows moved, and the same
+> failure mode explains three of them: a skip rationale written against a
+> premise that later changed, and never re-checked.
+>
+> * **SS-08 is LIVE**, in `divmmc_integration_test.cpp`. Its rationale said
+>   the config_mode signal was not modelled; `SpiMaster::set_flash_cs_enable`
+>   and `nr_03_config_mode` both landed 2026-05-09. It is a chip-select
+>   decode row, and the chip-select register is fully modelled.
+> * **SPI-MX-02 is LIVE**, in `divmmc_test.cpp`. Its rationale bundled it
+>   with SPI-MX-01 as "Flash + RPI out of scope"; but the RPI chip-selects
+>   ARE addressable (`kMaxDevices = 4` covers CS 0..3), so the mux arm's
+>   routing is checkable even without a Pi peripheral to put behind it.
+> * **SPI-MX-01 is RETIRED** — genuinely blocked, and for a sharper reason
+>   than "out of scope": CS bit 7 is outside `kMaxDevices`, so no Flash
+>   device can be attached at all.
+> * **SPI-MX-05 is RETIRED** — the competing state has no producer. The
+>   port-0xE7 decoder emits only single-select patterns, so the cascade's
+>   priority can never be exercised by any guest.
+>
+> **SM-06/07 are struck in the §11 table rather than left as prose**, so the
+> generator stops reporting them as an open backlog they are not.
 
 ## Architecture
 
@@ -327,8 +349,8 @@ DivMMC ROM and RAM occupy specific SRAM address ranges. VHDL reference:
 | SM-03 | DivMMC RAM bank 3 maps to SRAM 0x026000 | `sram_A21_A13 = "000010011"` |
 | SM-04 | DivMMC RAM bank 15 maps to SRAM 0x03E000 | `sram_A21_A13 = "000011111"` |
 | SM-05 | DivMMC has priority over Layer 2 mapping | Checked before L2 in priority chain |
-| SM-06 | DivMMC has priority over ROMCS | Checked before ROMCS |
-| SM-07 | ROMCS maps to DivMMC banks 14 and 15 | `sram_A21_A13 = "00001111" & A13(0)` |
+| ~~SM-06~~ | ~~DivMMC has priority over ROMCS~~ | **RETIRED 2026-09-24 (GH #201)** — scope, not a gap; re-derived from the VHDL rather than inherited. The arbiter at `zxnext.vhd:3081-3110` does test `divmmc_rom_en` / `divmmc_ram_en` before `sram_romcs`, but `sram_romcs <= sram_pre_override(0) and sram_pre_romcs_n` (`:3079`) and `sram_pre_romcs_n <= i_BUS_ROMCS_n and expbus_eff_en and not expbus_eff_disable_mem` (`:3018`). `i_BUS_ROMCS_n` is the expansion-bus ROMCS PIN; jnext wires no expansion bus (G45) and hard-deasserts it — `emulator.cpp`'s NR 0x81 read handler forces bit 7 to '1' for exactly that reason, and `divmmc.cpp:341` carries the matching `-- false in jnext` note. So `sram_romcs` is constantly '0' and the ROMCS arm never competes: the row cannot distinguish "DivMMC wins" from "nothing else entered". SM-05 covers the one priority contest jnext CAN stage (DivMMC over Layer 2). No `check()` row exists. |
+| ~~SM-07~~ | ~~ROMCS maps to DivMMC banks 14 and 15~~ | **RETIRED 2026-09-24 (GH #201)** — same absence, read from the other side: the branch that computes `sram_A21_A13 <= "00001111" & sram_pre_A21_A13(0)` is guarded by `elsif sram_romcs = '1'` (`zxnext.vhd:3108-3110`), which as above can never be taken in jnext. Un-retiring either row means implementing the expansion bus (G45), at which point FE-05 in the Input plan un-retires with them. No `check()` row exists. |
 
 **SM-01..05 live in the companion suite** `test/divmmc/divmmc_integration_test.cpp`
 (GH #201). They observe `Emulator::init`'s DivMMC ROM/RAM backing into physical
@@ -339,7 +361,13 @@ plants the Layer 2 byte through the Layer 2 write-over path rather than
 computing the page itself, so a Layer 2 addressing change cannot make a
 priority row fail for the wrong reason.
 
-**SM-06/07 remain unimplemented** — expansion-bus ROMCS is not modelled (G45).
+**SM-06/07 are RETIRED, not deferred** (GH #201, 2026-09-24). The earlier
+wording — "remain unimplemented" — implied a backlog item. It is not one:
+the ROMCS arm of the arbiter is driven by a physical pin jnext does not
+model and hard-deasserts, so both rows describe a state with no producer.
+The striking and the full derivation are in the table above. This is the
+same scope boundary as Input FE-05 (`port_fe_bus`), and the two un-retire
+together or not at all.
 
 ### 12. Port 0xE7 -- SPI Chip Select (Slave Select)
 
@@ -358,7 +386,7 @@ Active-low: a 0 bit means the device is selected.
 | SS-05 | Write 0x02 with sd_swap=1: selects SD1 (swapped) | Same `"10"` branch with swap=1 → **0xFD**; reverse of default (`zxnext.vhd:3311-3312`) |
 | SS-06 | Write 0xFB: selects RPI0 (bit 2 = 0) | Exact match required |
 | SS-07 | Write 0xF7: selects RPI1 (bit 3 = 0) | Exact match required |
-| SS-08 | Write 0x7F in config mode: selects Flash | Only allowed in config mode or reset type bit 2; jnext stub returns 0xFF (Flash device + config_mode signal not modelled) — see G136 (Cat-B promote 2026-04-27) |
+| SS-08 | Write 0x7F in config mode: selects Flash | **LIVE since GH #201 (2026-09-24)**, in the companion suite `test/divmmc/divmmc_integration_test.cpp`. The skip rationale ("jnext stub returns 0xFF — Flash device + config_mode signal not modelled") stopped being true on 2026-05-09, when the Pass-8 verify-audit added `SpiMaster::set_flash_cs_enable` and the `nr_03_config_mode` model; nobody re-checked the verdict when the premise changed. The row is a CHIP-SELECT DECODE row — `port_e7_reg <= X"7F"` at `zxnext.vhd:3319-3320` — and the chip-select register is fully modelled; the Flash DEVICE behind the select is SPI-MX-01's problem, not this one. It lives at the Emulator tier because the VHDL gate ORs TWO sources, `nr_03_config_mode` and `nr_02_reset_type(2)`, and `SpiMaster` sees only one composite boolean: SS-13 drives that boolean by hand, so it covers the mux and not the four `Emulator` fan-out sites that feed it. The row exercises both sources (reset_type `100` at cold boot; config_mode via NR 0x03 low bits "111") and both closed legs, and asserts the pattern deasserts the SD and RPI selects. Mutation: deleting either the NR 0x03 fan-out or the `init` seed fails it, and nothing else. |
 | SS-09 | Write 0x7F outside config mode: all deselected (0xFF) | Flash select blocked |
 | SS-10 | Write any other value: all deselected (0xFF) | Default case |
 | SS-11 | Only one device selected at a time | Hardware enforces single selection |
@@ -454,11 +482,11 @@ SS line is active. VHDL reference: `zxnext.vhd` lines 3278-3280.
 
 | ID   | Test | Notes |
 |------|------|-------|
-| SPI-MX-01 | Flash selected: MISO from flash | `spi_ss_flash_n=0` highest priority |
-| SPI-MX-02 | RPI selected: MISO from RPI | Second priority |
+| ~~SPI-MX-01~~ | ~~Flash selected: MISO from flash~~ | **RETIRED 2026-09-24 (GH #201)** — scope, no Flash backend (G136). `zxnext.vhd:3278` sources MISO from `i_SPI_FLASH_MISO`; jnext has no Flash device to source it from, and `SpiMaster::kMaxDevices` is 4 (CS bits 0..3), so the Flash line at CS bit 7 is not addressable by `attach_device` at all — the arm has no data path, not merely no data. Modelling it means the on-FPGA Flash chip (core image + TBBLUE.FW + tbblue config + a command/data state machine + persistence), which is FPGA-bitstream tooling rather than core behaviour — the same call as G45. The reachable half, that the Flash chip-select is produced only inside the `:3319` gate and deasserts every other slave, IS asserted: SS-13 (bare class) and SS-08 (Emulator tier). No `check()` row exists. |
+| SPI-MX-02 | RPI selected: MISO from RPI | **LIVE since GH #201.** `zxnext.vhd:3279` selects `pi_spi0_miso` when either RPI chip-select is low, reached by the two EXACT-match decode branches at `:3315-3318` — a different decode path from the `cpu_do(1 downto 0)` SD branches MX-03 uses, and a different pair of CS indices (`:3329-3330`). jnext has no Pi accelerator, so what is modelled and what the row pins is the ROUTING: a slave on an RPI chip-select receives the transfer and the SD card does not (`:3276` "do not AND together miso sources"). Mutation: narrowing `active_device()` to the two SD chip-selects — the only ones production uses — fails this row and nothing else. |
 | MX-03 | SD selected: MISO from SD | Third priority |
 | MX-04 | No device selected: MISO reads as 1 | Default pull-up |
-| SPI-MX-05 | Priority: Flash > RPI > SD > default | Cascaded if-else |
+| ~~SPI-MX-05~~ | ~~Priority: Flash > RPI > SD > default~~ | **RETIRED 2026-09-24 (GH #201)** — unreachable state, not a missing assertion. Priority is only observable with two arms live at once, and `port_e7_reg` has exactly one driver: the decode process at `zxnext.vhd:3308-3322`, every branch of which emits a pattern with AT MOST ONE bit low (`"10"`/`"01"` -> 0xFE/0xFD at `:3311-3314`, `X"FB"` at `:3315-3316`, `X"F7"` at `:3317-3318`, `X"7F"` at `:3319-3320`, OTHERS -> all ones at `:3322`). The five `spi_ss_*_n` lines come straight off that register (`:3328-3332`), so no guest program can make the cascade choose. SS-11 is the live row that pins the invariant (an ambiguous two-bits-clear write collapses to 0xFF). Noted honestly: jnext's `active_device()` scans CS 0..3, i.e. SD before RPI, the reverse of the VHDL cascade — inert for the same reason, and left alone rather than "fixed", since reordering a loop no stimulus can reach is a change no test could witness. No `check()` row exists. |
 
 ### 17. Integration -- DivMMC + SPI Typical Sequences
 
@@ -575,7 +603,7 @@ bash test/regression.sh
 | NMI / button | 8 | button_nmi lifecycle, disable_nmi |
 | NR 0x0A automap enable | 8 | Global enable/disable (+NA-04..08 G123/G124/G125/G131) |
 | SRAM address mapping | 7 | Physical address ranges |
-| Port 0xE7 chip select | 11 | SS register, sd_swap, flash protection (SS-08 reclassified to skip per G136) |
+| Port 0xE7 chip select | 11 | SS register, sd_swap, flash protection (SS-08 is LIVE again since GH #201 — see §12; the G136 skip rationale was stale) |
 | Port 0xEB SPI exchange | 10 | Full-duplex protocol |
 | SPI state machine | 9 | State counter, wait signal (+ST-09 G137) |
 | SPI MISO latch | 6 | Pipeline delay, synchronization |

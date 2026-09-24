@@ -2546,7 +2546,7 @@ void group_ss() {
               fmt("got=%02x exp=FD", m.read_cs()));
     }
 
-    // SS-06: Write 0xFB selects RPI0. VHDL: zxnext.vhd:3318.
+    // SS-06: Write 0xFB selects RPI0. VHDL: zxnext.vhd:3315-3316.
     // Emulator stores verbatim, and bit 2 clear selects device index 2.
     {
         SpiMaster m; m.reset();
@@ -2555,18 +2555,18 @@ void group_ss() {
         // is internal but we can verify the store.
         check("SS-06",
               "Write 0xFB selects RPI0 (bit 2 clear) "
-              "(VHDL zxnext.vhd:3318)",
+              "(VHDL zxnext.vhd:3315-3316)",
               m.read_cs() == 0xFB,
               fmt("got=%02x", m.read_cs()));
     }
 
-    // SS-07: Write 0xF7 selects RPI1. VHDL: zxnext.vhd:3320.
+    // SS-07: Write 0xF7 selects RPI1. VHDL: zxnext.vhd:3317-3318.
     {
         SpiMaster m; m.reset();
         m.write_cs(0xF7);
         check("SS-07",
               "Write 0xF7 selects RPI1 (bit 3 clear) "
-              "(VHDL zxnext.vhd:3320)",
+              "(VHDL zxnext.vhd:3317-3318)",
               m.read_cs() == 0xF7,
               fmt("got=%02x", m.read_cs()));
     }
@@ -3298,18 +3298,66 @@ void group_ml() {
 void group_mx() {
     set_group("16. MISO mux");
 
-    // MX-01, MX-02 — will-not-implement (Flash + RPI out of JNEXT scope).
+    // SPI-MX-01 — WONT, no SPI Flash backend (G136). VHDL zxnext.vhd:3278
+    // sources MISO from `i_SPI_FLASH_MISO` when `spi_ss_flash_n = '0'`, and
+    // jnext has no Flash device to source it from: `SpiMaster::kMaxDevices`
+    // is 4 (CS bits 0..3 = sd0/sd1/rpi0/rpi1), so the Flash line at CS bit 7
+    // is not even addressable by `attach_device` — the arm has no data path,
+    // not merely no data. Modelling it means the on-FPGA Flash chip itself
+    // (core image + TBBLUE.FW + tbblue config + a command/data state machine
+    // + persistence); jnext runs the FPGA core's behaviour, not the FPGA
+    // bitstream tooling, the same call as G45 (expansion bus). What IS
+    // reachable — that the Flash CS pattern is produced at all, and only
+    // inside the VHDL:3319 gate — is pinned by SS-13 here and by SS-08 at
+    // the Emulator tier (divmmc_integration_test.cpp).
     //
-    // VHDL zxnext.vhd:3278-3279 cascades Flash (highest priority) and
-    // RPI (second priority) above SD on the MISO source multiplexer.
-    // Flash is used only to reflash TBBlue firmware; RPI is an
-    // accelerator peripheral. Neither is on the JNEXT roadmap, so the
-    // priority cascade collapses to "SD / default (0xFF)" — already
-    // covered by MX-03/04 below. See 2026-04-17f handover for scope
-    // decision.
+    // SPI-MX-02 is a real row now; see below.
+
+    // SPI-MX-02 (GH #201): the RPI arm of the MISO mux.
     //
-    // MX-01: Flash MISO source highest priority (VHDL zxnext.vhd:3278)
-    // MX-02: RPI  MISO source second priority   (VHDL zxnext.vhd:3279)
+    // VHDL zxnext.vhd:3279:
+    //   pi_spi0_miso when spi_ss_rpi1_n = '0' or spi_ss_rpi0_n = '0' else
+    // with `spi_ss_rpi0_n <= port_e7_reg(2)` and `spi_ss_rpi1_n <=
+    // port_e7_reg(3)` (:3330, :3329), reached by the two EXACT-match decode
+    // branches `cpu_do = X"FB"` / `X"F7"` (:3315-3318) — a different decode
+    // path from the `cpu_do(1 downto 0)` SD branches MX-03 exercises, and a
+    // different pair of CS indices.
+    //
+    // jnext has no Pi accelerator, so what is modelled and what this row
+    // pins is the ROUTING: a slave sitting on an RPI chip-select receives
+    // the transfer, and the SD card on CS0 does NOT — VHDL's source comment
+    // at :3276 is literally "do not AND together miso sources". A master
+    // that scanned only the SD chip-selects (the only two production ever
+    // uses) would route an RPI transfer to nullptr and idle 0xFF, and every
+    // other SPI row would still pass.
+    {
+        SpiMaster m; m.reset();
+        MockSpiDevice sd;   sd.next_response   = 0x11;
+        MockSpiDevice rpi0; rpi0.next_response = 0x22;
+        MockSpiDevice rpi1; rpi1.next_response = 0x33;
+        m.attach_device(0, &sd);
+        m.attach_device(2, &rpi0);
+        m.attach_device(3, &rpi1);
+
+        m.write_cs(0xFB);               // bit 2 low -> RPI0 (zxnext.vhd:3315-3316)
+        (void)m.read_data();            // prime the miso_dat pipeline
+        const uint8_t v_rpi0 = m.read_data();
+        const int sd_seen_after_rpi0 = sd.exchange_count;
+
+        m.write_cs(0xF7);               // bit 3 low -> RPI1 (zxnext.vhd:3317-3318)
+        (void)m.read_data();
+        const uint8_t v_rpi1 = m.read_data();
+
+        check("SPI-MX-02",
+              "RPI selected: MISO comes from the slave on that chip-select "
+              "and the SD card is not consulted "
+              "(VHDL zxnext.vhd:3279 mux arm; :3315-3318 decode; "
+              ":3329-3330 spi_ss_rpi1_n/rpi0_n)",
+              v_rpi0 == 0x22 && v_rpi1 == 0x33 &&
+              sd_seen_after_rpi0 == 0 && sd.exchange_count == 0,
+              fmt("rpi0=%02x exp=22 rpi1=%02x exp=33 sd_exchanges=%d exp=0",
+                  v_rpi0, v_rpi1, sd.exchange_count));
+    }
 
     // MX-03: SD is third priority. Observable by attaching an SD device
     // to CS 0 and selecting it. VHDL: zxnext.vhd:3280.
@@ -3357,11 +3405,26 @@ void group_mx() {
               fmt("got=%02x", v));
     }
 
-    // MX-05 — will-not-implement (cascade moot without Flash/RPI).
-    // VHDL zxnext.vhd:3278-3280 cascaded if-else Flash > RPI > SD >
-    // default is reduced to SD > default in JNEXT (see MX-01/02
-    // scope decision). MX-03 + MX-04 together cover the reduced
-    // cascade end-to-end.
+    // SPI-MX-05 — WONT, the competing state is unreachable by construction.
+    //
+    // The row asks for the PRIORITY of the cascade at zxnext.vhd:3278-3280
+    // (Flash > RPI > SD > default) to be observed. Priority is only
+    // observable when two arms are live at once, and the chip-selects cannot
+    // do that: `port_e7_reg` has exactly one driver, the decode process at
+    // :3308-3322, and every one of its branches emits a pattern with AT MOST
+    // ONE bit low — "10"/"01" -> 0xFE/0xFD (:3311-3314), X"FB" (:3315-3316),
+    // X"F7" (:3317-3318), X"7F" (:3319-3320), and OTHERS -> all ones (:3322). The five
+    // spi_ss_*_n lines are assigned straight from that register (:3328-3332),
+    // so no guest program can ever raise two arms and make the cascade
+    // choose. SS-11 above is the live row that pins exactly this invariant:
+    // an ambiguous write with two bits clear collapses to 0xFF.
+    //
+    // jnext's `SpiMaster::active_device()` happens to scan its CS indices in
+    // the opposite order (0..3, i.e. SD before RPI). That disagrees with the
+    // VHDL cascade on paper and is INERT for the reason above — the state in
+    // which the two orders differ has no producer. Recorded here rather than
+    // "fixed", because reordering a loop that cannot be reached would be a
+    // change no test could witness.
 }
 
 // ══════════════════════════════════════════════════════════════════════
