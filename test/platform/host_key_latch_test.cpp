@@ -1218,6 +1218,36 @@ int main()
               new_g.kb.calls.empty() && r.pending() == 0, got(new_g.kb));
     }
 
+    // --- SER-16: GAMES — held keys accumulate, and none is ever lost --------
+    // The price the Router header states, pinned so it cannot quietly grow.
+    // Three keys pressed inside ONE gap and HELD DOWN: the serialiser stages
+    // them one frame apart instead of presenting them together, because at the
+    // moment the second press arrives nothing distinguishes two fingers at once
+    // from rollover while typing — and not staggering is exactly what loses
+    // both characters in SER-06.
+    //
+    // What must NOT happen is the part a player would feel: a key going
+    // missing, one key replacing another, a key coming up while the host still
+    // holds it, or the staging failing to converge. The cost is bounded at one
+    // frame per extra key (20 ms at 50 FPS) and the keys ACCUMULATE.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        mtick(r, g, Calls{{SC_1, true}, {SC_2, true}, {SC_3, true}}, 1);
+        msettle(r, g, 3);
+        check("SER-16a", "three keys held from one gap all end up down together",
+              g.down == std::set<int>{SC_1, SC_2, SC_3}, got(g.kb));
+        check("SER-16b", "and none of them is ever released while the host holds it",
+              g.kb.count(SC_1, false) == 0 && g.kb.count(SC_2, false) == 0 &&
+                  g.kb.count(SC_3, false) == 0,
+              got(g.kb));
+        check("SER-16c", "converging at exactly one extra key per frame",
+              g.samples.size() >= 3 &&
+                  g.samples[0] == std::vector<int>{SC_1} &&
+                  g.samples[1] == std::vector<int>{SC_1, SC_2} &&
+                  g.samples[2] == std::vector<int>{SC_1, SC_2, SC_3},
+              got(g.samples));
+    }
+
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);

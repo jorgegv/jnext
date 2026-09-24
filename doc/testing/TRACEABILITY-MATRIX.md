@@ -37,7 +37,7 @@ mentions them, so a test can no longer be absent from this document.
 | UART+I2C/RTC                               |   122 |  122 |    0 |    0 |       0 |          0 |
 | NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
-| Input                                      |   354 |  354 |    0 |    0 |       0 |          0 |
+| Input                                      |   355 |  355 |    0 |    0 |       0 |          0 |
 | Rewind                                     |    21 |   21 |    0 |    0 |       0 |          0 |
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |    64 |   64 |    0 |    0 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    30 |   24 |    0 |    6 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4757 | 4746 |    0 |   11 |       0 |          0 |
+| **Total**                                  |  4758 | 4747 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **4757**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4449**. Rows the 115 suites declared in `test/unit-tests.conf` run live: **8550**.
+Rows the sections above carry: **4758**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4450**. Rows the 115 suites declared in `test/unit-tests.conf` run live: **8583**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -77,7 +77,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 72 suites (4086 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 72 suites (4118 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -108,7 +108,7 @@ These 72 suites (4086 live rows) have no VHDL-derived plan row to map, so they h
 | `frame_sequencer_test` | 112 | host frame sequencer (wall-clock run/present ordering) |
 | `tick_stats_test` | 32 | host tick accounting for the status bar |
 | `speed_report_test` | 36 | host speed-percentage reporting |
-| `host_key_latch_test` | 69 | host key latch/debounce compensation; guest matrix is `## Input` |
+| `host_key_latch_test` | 101 | host key latch/debounce compensation; guest matrix is `## Input` |
 | `log_test` | 22 | jnext logging façade (spdlog wiring) |
 | `log_gate_test` | 27 | jnext log-level gating |
 | `cli_options_test` | 19 | CLI flag table vs the man page (see `make cli-check`) |
@@ -2764,26 +2764,26 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | KBDHYS-03 | the cancel bit does NOT clear the NR 0xB0/0xB1 raw readback (membrane.vhd:253 vs :183-186) | membrane.vhd:253 | pass | test/input/input_test.cpp:425 |
 | KBDHYS-04 | Emulator::run_frame() drives Keyboard::tick_scan() (membrane.vhd:178-191; G133 closure) | membrane.vhd:178-191 | pass | test/input/input_test.cpp:682 |
 | KBDHYS-05 | the NR 0x68 bit 4 cancel is re-applied on every scan cycle: the CS+7 fold stays out of the 8x5 matrix across three Emulator frames while NR 0xB0 still reports UP (membrane.vhd:183-186 flush above the :187 scan advance; :232, :236-240, :253) | membrane.vhd:183-186 | pass | test/input/input_test.cpp:753 |
-| EXT-01 | UP → NR 0xB0 bit 3 = 1 — VHDL zxnext.vhd:6203-6204,6208 | zxnext.vhd:6203-6204,6208 | pass | test/input/input_test.cpp:795 |
-| EXT-02 | DOWN → NR 0xB0 bit 2 — VHDL zxnext.vhd:6203-6204,6208 | zxnext.vhd:6203-6204,6208 | pass | test/input/input_test.cpp:800 |
-| EXT-03 | LEFT → NR 0xB0 bit 1 — VHDL zxnext.vhd:6203-6204,6208 | zxnext.vhd:6203-6204,6208 | pass | test/input/input_test.cpp:805 |
-| EXT-04 | RIGHT → NR 0xB0 bit 0 — VHDL zxnext.vhd:6203-6204,6208 | zxnext.vhd:6203-6204,6208 | pass | test/input/input_test.cpp:810 |
-| EXT-05 | ';' → NR 0xB0 bit 7 — VHDL zxnext.vhd:6203-6204,6208 | zxnext.vhd:6203-6204,6208 | pass | test/input/input_test.cpp:815 |
-| EXT-06 | '"' → NR 0xB0 bit 6 — VHDL zxnext.vhd:6203-6204,6208 | zxnext.vhd:6203-6204,6208 | pass | test/input/input_test.cpp:820 |
-| EXT-07 | ',' → NR 0xB0 bit 5 — VHDL zxnext.vhd:6203-6204,6208 | zxnext.vhd:6203-6204,6208 | pass | test/input/input_test.cpp:825 |
-| EXT-08 | '.' → NR 0xB0 bit 4 — VHDL zxnext.vhd:6203-6204,6208 | zxnext.vhd:6203-6204,6208 | pass | test/input/input_test.cpp:830 |
-| EXT-09 | DELETE → NR 0xB1 bit 7 — VHDL zxnext.vhd:6203-6204,6212 | zxnext.vhd:6203-6204,6212 | pass | test/input/input_test.cpp:841 |
-| EXT-10 | EDIT → NR 0xB1 bit 6 — VHDL zxnext.vhd:6203-6204,6212 | zxnext.vhd:6203-6204,6212 | pass | test/input/input_test.cpp:846 |
-| EXT-11 | BREAK → NR 0xB1 bit 5 — VHDL zxnext.vhd:6203-6204,6212 | zxnext.vhd:6203-6204,6212 | pass | test/input/input_test.cpp:851 |
-| EXT-12 | INV VIDEO → NR 0xB1 bit 4 — VHDL zxnext.vhd:6203-6204,6212 | zxnext.vhd:6203-6204,6212 | pass | test/input/input_test.cpp:856 |
-| EXT-13 | TRUE VIDEO → NR 0xB1 bit 3 — VHDL zxnext.vhd:6203-6204,6212 | zxnext.vhd:6203-6204,6212 | pass | test/input/input_test.cpp:861 |
-| EXT-14 | GRAPH → NR 0xB1 bit 2 — VHDL zxnext.vhd:6203-6204,6212 | zxnext.vhd:6203-6204,6212 | pass | test/input/input_test.cpp:866 |
-| EXT-15 | CAPS LOCK → NR 0xB1 bit 1 — VHDL zxnext.vhd:6203-6204,6212 | zxnext.vhd:6203-6204,6212 | pass | test/input/input_test.cpp:871 |
-| EXT-16 | EXTEND → NR 0xB1 bit 0 — VHDL zxnext.vhd:6203-6204,6212 | zxnext.vhd:6203-6204,6212 | pass | test/input/input_test.cpp:876 |
-| EXT-17 | EDIT folded into row 3 on 0xF7FE | membrane.vhd:236-240, membrane.vhd:208 | pass | test/input/input_test.cpp:895 |
-| EXT-18 | ',' alone does NOT affect row 5 on 0xDFFE (folds into row 7 via ex(16)) | membrane.vhd:217, membrane.vhd:239 | pass | test/input/input_test.cpp:911 |
-| EXT-19 | LEFT alone does NOT affect row 7 on 0x7FFE (folds into row 3 via ex(5)) | membrane.vhd:225, membrane.vhd:240 | pass | test/input/input_test.cpp:924 |
-| EXT-20 | UP+DOWN+LEFT+RIGHT → NR 0xB0 low nibble 0x0F | zxnext.vhd:6208 | pass | test/input/input_test.cpp:938 |
+| EXT-01 | UP → NR 0xB0 bit 3 = 1 — VHDL zxnext.vhd:6203-6204,6208 | zxnext.vhd:6203-6204,6208 | pass | test/input/input_test.cpp:859 |
+| EXT-02 | DOWN → NR 0xB0 bit 2 — VHDL zxnext.vhd:6203-6204,6208 | zxnext.vhd:6203-6204,6208 | pass | test/input/input_test.cpp:864 |
+| EXT-03 | LEFT → NR 0xB0 bit 1 — VHDL zxnext.vhd:6203-6204,6208 | zxnext.vhd:6203-6204,6208 | pass | test/input/input_test.cpp:869 |
+| EXT-04 | RIGHT → NR 0xB0 bit 0 — VHDL zxnext.vhd:6203-6204,6208 | zxnext.vhd:6203-6204,6208 | pass | test/input/input_test.cpp:874 |
+| EXT-05 | ';' → NR 0xB0 bit 7 — VHDL zxnext.vhd:6203-6204,6208 | zxnext.vhd:6203-6204,6208 | pass | test/input/input_test.cpp:879 |
+| EXT-06 | '"' → NR 0xB0 bit 6 — VHDL zxnext.vhd:6203-6204,6208 | zxnext.vhd:6203-6204,6208 | pass | test/input/input_test.cpp:884 |
+| EXT-07 | ',' → NR 0xB0 bit 5 — VHDL zxnext.vhd:6203-6204,6208 | zxnext.vhd:6203-6204,6208 | pass | test/input/input_test.cpp:889 |
+| EXT-08 | '.' → NR 0xB0 bit 4 — VHDL zxnext.vhd:6203-6204,6208 | zxnext.vhd:6203-6204,6208 | pass | test/input/input_test.cpp:894 |
+| EXT-09 | DELETE → NR 0xB1 bit 7 — VHDL zxnext.vhd:6203-6204,6212 | zxnext.vhd:6203-6204,6212 | pass | test/input/input_test.cpp:905 |
+| EXT-10 | EDIT → NR 0xB1 bit 6 — VHDL zxnext.vhd:6203-6204,6212 | zxnext.vhd:6203-6204,6212 | pass | test/input/input_test.cpp:910 |
+| EXT-11 | BREAK → NR 0xB1 bit 5 — VHDL zxnext.vhd:6203-6204,6212 | zxnext.vhd:6203-6204,6212 | pass | test/input/input_test.cpp:915 |
+| EXT-12 | INV VIDEO → NR 0xB1 bit 4 — VHDL zxnext.vhd:6203-6204,6212 | zxnext.vhd:6203-6204,6212 | pass | test/input/input_test.cpp:920 |
+| EXT-13 | TRUE VIDEO → NR 0xB1 bit 3 — VHDL zxnext.vhd:6203-6204,6212 | zxnext.vhd:6203-6204,6212 | pass | test/input/input_test.cpp:925 |
+| EXT-14 | GRAPH → NR 0xB1 bit 2 — VHDL zxnext.vhd:6203-6204,6212 | zxnext.vhd:6203-6204,6212 | pass | test/input/input_test.cpp:930 |
+| EXT-15 | CAPS LOCK → NR 0xB1 bit 1 — VHDL zxnext.vhd:6203-6204,6212 | zxnext.vhd:6203-6204,6212 | pass | test/input/input_test.cpp:935 |
+| EXT-16 | EXTEND → NR 0xB1 bit 0 — VHDL zxnext.vhd:6203-6204,6212 | zxnext.vhd:6203-6204,6212 | pass | test/input/input_test.cpp:940 |
+| EXT-17 | EDIT folded into row 3 on 0xF7FE | membrane.vhd:236-240, membrane.vhd:208 | pass | test/input/input_test.cpp:959 |
+| EXT-18 | ',' alone does NOT affect row 5 on 0xDFFE (folds into row 7 via ex(16)) | membrane.vhd:217, membrane.vhd:239 | pass | test/input/input_test.cpp:975 |
+| EXT-19 | LEFT alone does NOT affect row 7 on 0x7FFE (folds into row 3 via ex(5)) | membrane.vhd:225, membrane.vhd:240 | pass | test/input/input_test.cpp:988 |
+| EXT-20 | UP+DOWN+LEFT+RIGHT → NR 0xB0 low nibble 0x0F | zxnext.vhd:6208 | pass | test/input/input_test.cpp:1002 |
 | EXTC-01 | UP folds to CAPS SHIFT + 7 with the cancel bit clear (membrane.vhd:236 + :238) | membrane.vhd:236,238 | pass | test/input/input_test.cpp:449 |
 | EXTC-02 | cancel set: the CS+7 compound vanishes from the matrix while NR 0xB0 bit 3 still reads UP (nextreg.txt:952-974) | — | pass | test/input/input_test.cpp:468 |
 | EXTC-03 | the cancel bit is a level: clearing it restores the fold | membrane.vhd:183-186 | pass | test/input/input_test.cpp:486 |
@@ -2791,305 +2791,306 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | EXTC-05 | EXTEND MODE folds to CAPS SHIFT + SYMBOL SHIFT | membrane.vhd:195-197 | pass | test/input/input_test.cpp:515 |
 | EXTC-06 | a host key press reaches NR 0xB0 and clears on release | — | pass | test/input/input_test.cpp:528 |
 | EXTC-07 | a guest write of NR 0x68 bit 4 cancels the fold, and NR 0xB0 still reports the key (zxnext.vhd:5447 -> :1584) | zxnext.vhd:5447 | pass | test/input/input_test.cpp:624 |
-| JMODE-01 | NR 0x05=0x00 → (Sinclair2, Sinclair2) (zxnext.vhd:5157-5158) | zxnext.vhd:5157-5158 | pass | test/input/input_test.cpp:974 |
-| JMODE-02 | NR 0x05=0x68 → (Md3Left, Cursor) (zxnext.vhd:5157-5158) | zxnext.vhd:5157-5158 | pass | test/input/input_test.cpp:989 |
-| JMODE-02r | NR 0x05=0xC9 → (IoMode, Sinclair2) (zxnext.vhd:5157-5158) | zxnext.vhd:5157-5158 | pass | test/input/input_test.cpp:1004 |
-| JMODE-03 | NR 0x05=0x40 → (Kempston1, Sinclair2) (zxnext.vhd:5157-5158) | zxnext.vhd:5157-5158 | pass | test/input/input_test.cpp:1019 |
-| JMODE-04 | NR 0x05=0x08 → (Kempston2, Sinclair2) (zxnext.vhd:5157-5158) | zxnext.vhd:5157-5158 | pass | test/input/input_test.cpp:1034 |
-| JMODE-05 | NR 0x05=0x88 → (Md3Right, Sinclair2) (zxnext.vhd:5157-5158) | zxnext.vhd:5157-5158 | pass | test/input/input_test.cpp:1049 |
-| JMODE-06 | NR 0x05=0x22 → (Sinclair2, Md3Right) (zxnext.vhd:5157-5158) | zxnext.vhd:5157-5158 | pass | test/input/input_test.cpp:1064 |
-| JMODE-07 | NR 0x05=0x30 → (Sinclair2, Sinclair1) (zxnext.vhd:5157-5158) | zxnext.vhd:5157-5158 | pass | test/input/input_test.cpp:1079 |
-| JMODE-08 | reset NR 0x05 = 0x41 (joy0=Kempston1, joy1=Sinclair2, scandouble=1) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:1103 |
-| JMODE-09 | NR 0x05 propagates per-connector mode to MembraneStick fold | membrane_stick.vhd:117-149 | pass | test/input/input_test.cpp:1169 |
-| KEMP-01 | Kempston1 R → 0x01 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:1209 |
-| KEMP-02 | Kempston1 L → 0x02 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:1217 |
-| KEMP-03 | Kempston1 D → 0x04 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:1225 |
-| KEMP-04 | Kempston1 U → 0x08 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:1233 |
-| KEMP-05 | Kempston1 Fire1(B) → 0x10 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:1241 |
-| KEMP-06 | Kempston1 Fire2(C) → 0x20 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:1249 |
-| KEMP-07 | Kempston1 A masked → 0x00 | zxnext.vhd:3478 | pass | test/input/input_test.cpp:1258 |
-| KEMP-08 | Kempston1 START masked → 0x00 | zxnext.vhd:3478 | pass | test/input/input_test.cpp:1266 |
-| KEMP-09 | Kempston1 all dirs+F1+F2 → 0x3F | zxnext.vhd:3479 | pass | test/input/input_test.cpp:1275 |
-| KEMP-10 | Kempston2 L.U → 0x37=0x08 | zxnext.vhd:3482 | pass | test/input/input_test.cpp:1284 |
-| KEMP-11 | Kempston2 all dirs+F1+F2 → 0x37=0x3F | — | pass | test/input/input_test.cpp:1292 |
-| KEMP-12 | joy0=S2 → 0x1F joystick lane = 0x00 | zxnext.vhd:3475 | pass | test/input/input_test.cpp:1305 |
-| KEMP-13 | K1+K1 L.U\|R.R → 0x1F=0x09 | zxnext.vhd:3499 | pass | test/input/input_test.cpp:1316 |
-| KEMP-14 | K1+K2 split routing 0x1F=0x08 0x37=0x04 | zxnext.vhd:3475-3488 | pass | test/input/input_test.cpp:1327 |
-| KEMP-15 | joy0=MD1 L.A → 0x1F=0x40 | zxnext.vhd:3478 | pass | test/input/input_test.cpp:1338 |
-| KEMP-16 | NR 0x82 b7=0 un-decodes port 0x37 → 0xFF; b7=1 returns joystick byte (zxnext.vhd:2408, 2675; G128 closure) | zxnext.vhd:2408,2675 | pass | test/input/input_test.cpp:1377 |
-| KEMP-17 | port_1f / port_37 hw_en gates fire only in K1/MD3L / K2/MD3R modes | zxnext.vhd:2454-2455, zxnext.vhd:3475/3487,3476/3488 | pass | test/input/input_test.cpp:1452 |
-| MD-01 | MD1 U+D+L+R+A+B → 0x5F | zxnext.vhd:3441-3442, zxnext.vhd:3478-3479 | pass | test/input/input_test.cpp:1476 |
-| MD-02 | MD1 START → 0x80 | zxnext.vhd:3478 | pass | test/input/input_test.cpp:1484 |
-| MD-03 | MD1 A → 0x40 | zxnext.vhd:3478 | pass | test/input/input_test.cpp:1492 |
-| MD-04 | MD1 Fire2/C → 0x20 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:1500 |
-| MD-05 | MD1 START+A → 0xC0 | zxnext.vhd:3478 | pass | test/input/input_test.cpp:1508 |
-| MD-06 | Kempston1 START masked → 0x00 | zxnext.vhd:3478 | pass | test/input/input_test.cpp:1517 |
-| MD-07 | joy0=MD2 L.U → 0x37=0x08 | zxnext.vhd:3482 | pass | test/input/input_test.cpp:1527 |
-| MD-08 | joy1=MD2 R.U → 0x37=0x08 | zxnext.vhd:3494 | pass | test/input/input_test.cpp:1537 |
-| MD-09 | MD1+MD1 L.A\|R.START → 0x1F=0xC0 | zxnext.vhd:3499 | pass | test/input/input_test.cpp:1551 |
-| MD6-01 | L.MODE → NR 0xB2 bit 0 = 1 (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:1581 |
-| MD6-02 | L.Y → NR 0xB2 bit 1 = 1 (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:1589 |
-| MD6-03 | L.Z → NR 0xB2 bit 2 = 1 (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:1597 |
-| MD6-04 | L.X → NR 0xB2 bit 3 = 1 (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:1605 |
-| MD6-05 | R.MODE → NR 0xB2 bit 4 = 1 (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:1613 |
-| MD6-06 | R.Y → NR 0xB2 bit 5 = 1 (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:1621 |
-| MD6-07 | R.Z → NR 0xB2 bit 6 = 1 (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:1629 |
-| MD6-08 | R.X → NR 0xB2 bit 7 = 1 (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:1637 |
-| MD6-09 | all JOY_{L,R}(11..8) high → NR 0xB2 = 0xFF (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:1646 |
-| MD6-10 | Kempston mode, L.X=1 still sets NR 0xB2 bit 3 (no NR 0x05 gating) (zxnext.vhd:6215, 3441-3442) | zxnext.vhd:6215,3441-3442 | pass | test/input/input_test.cpp:1664 |
-| MD6-11a | phase 0000 clears both latches and 6-btn flags (md6_joystick_connector_x2.vhd:135-139) | md6_joystick_connector_x2.vhd:135-139 | pass | test/input/input_test.cpp:1691 |
-| MD6-11b | phase 0100 latches left bits 7:6 (md6_joystick_connector_x2.vhd:141-144) | md6_joystick_connector_x2.vhd:141-144 | pass | test/input/input_test.cpp:1710 |
-| MD6-11c | phase 0110 latches left bits 5:0 (md6_joystick_connector_x2.vhd:151-152) | md6_joystick_connector_x2.vhd:151-152 | pass | test/input/input_test.cpp:1724 |
-| MD6-11d | phase 1000 with U+D held → 6-button detect (left) (md6_joystick_connector_x2.vhd:157-158) | md6_joystick_connector_x2.vhd:157-158 | pass | test/input/input_test.cpp:1740 |
-| MD6-11e | phase 1010 + 6-btn: latch left bits 11:8 (md6_joystick_connector_x2.vhd:163-166) | md6_joystick_connector_x2.vhd:163-166 | pass | test/input/input_test.cpp:1756 |
-| MD6-11f | phase 0101 latches right bits 7:6 (md6_joystick_connector_x2.vhd:146-149) | md6_joystick_connector_x2.vhd:146-149 | pass | test/input/input_test.cpp:1770 |
-| MD6-11g | phase 0111 latches right bits 5:0 (md6_joystick_connector_x2.vhd:154-155) | md6_joystick_connector_x2.vhd:154-155 | pass | test/input/input_test.cpp:1784 |
-| MD6-11h | phase 1011 + 6-btn: latch right bits 11:8 (md6_joystick_connector_x2.vhd:168-171) | md6_joystick_connector_x2.vhd:168-171 | pass | test/input/input_test.cpp:1799 |
-| MD6-11i | phase 1010 without 6-btn: bits 11:8 NOT latched (md6_joystick_connector_x2.vhd:163-166 — six-button gate) | md6_joystick_connector_x2.vhd:163-166 | pass | test/input/input_test.cpp:1815 |
-| NRB2-01 | L.MODE → NR 0xB2 bit 0 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5375 |
-| NRB2-02 | L.Y → NR 0xB2 bit 1 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5376 |
-| NRB2-03 | L.Z → NR 0xB2 bit 2 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5377 |
-| NRB2-04 | L.X → NR 0xB2 bit 3 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5378 |
-| NRB2-05 | R.MODE → NR 0xB2 bit 4 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5393 |
-| NRB2-06 | R.Y → NR 0xB2 bit 5 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5394 |
-| NRB2-07 | R.Z → NR 0xB2 bit 6 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5395 |
-| NRB2-08 | R.X → NR 0xB2 bit 7 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5396 |
-| NRB2-09 | both pads, all extras → 0xFF (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:5415 |
-| NRB2-10 | no buttons / no pad → 0x00 | — | pass | test/input/input_test.cpp:5424 |
-| NRB2-11 | bits 7:0 of the vector do not leak into NR 0xB2 (mux reads only 11:8, zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:5435 |
-| NRB2-12 | Kempston mode does not gate NR 0xB2 (no NR 0x05 term at zxnext.vhd:6214-6215) | zxnext.vhd:6214-6215 | pass | test/input/input_test.cpp:5449 |
-| NRB2-13 | MD6 extras reach no port lane (zxnext.vhd:3470-3494) | zxnext.vhd:3470-3494 | pass | test/input/input_test.cpp:5463 |
-| NRB2-14 | guest read of NR 0xB2 returns the live pad extras | — | pass | test/input/input_test.cpp:5483 |
-| NRB2-15 | host raw pad buttons 5 / 7 reach NR 0xB2 as L.X / R.Z | — | pass | test/input/input_test.cpp:5498 |
-| NRB2-16 | controller shoulders → L.X / L.Z; face button does not | — | pass | test/input/input_test.cpp:5537 |
-| NRB2-17 | host raw pad button 6 reaches NR 0xB2 as L.Y | — | pass | test/input/input_test.cpp:5510 |
-| NRB2-18 | raw indices 5/6/7 map onto distinct X/Y/Z bits | — | pass | test/input/input_test.cpp:5523 |
-| NRB2-19 | LEFTSHOULDER alone → L.X (bit 3) | — | pass | test/input/input_test.cpp:5550 |
-| NRB2-20 | RIGHTSHOULDER alone → L.Z (bit 2) | — | pass | test/input/input_test.cpp:5558 |
-| SINC1-01 | S1 LEFT → row 4 bit 4 (key 6) low | — | pass | test/input/input_test.cpp:1873 |
-| SINC1-02 | S1 RIGHT → row 4 bit 3 (key 7) low | — | pass | test/input/input_test.cpp:1878 |
-| SINC1-03 | S1 DOWN → row 4 bit 2 (key 8) low | — | pass | test/input/input_test.cpp:1883 |
-| SINC1-04 | S1 UP → row 4 bit 1 (key 9) low | — | pass | test/input/input_test.cpp:1888 |
-| SINC1-05 | S1 FIRE → row 4 bit 0 (key 0) low | — | pass | test/input/input_test.cpp:1893 |
-| SINC2-01 | S2 LEFT → row 3 bit 0 (key 1) low | — | pass | test/input/input_test.cpp:1902 |
-| SINC2-02 | S2 RIGHT → row 3 bit 1 (key 2) low | — | pass | test/input/input_test.cpp:1907 |
-| SINC2-03 | S2 DOWN → row 3 bit 2 (key 3) low | — | pass | test/input/input_test.cpp:1912 |
-| SINC2-04 | S2 UP → row 3 bit 3 (key 4) low | — | pass | test/input/input_test.cpp:1917 |
-| SINC2-05 | S2 FIRE → row 3 bit 4 (key 5) low | — | pass | test/input/input_test.cpp:1922 |
-| SINC-06 | S1+S2 both LEFT → r4=0x0F (key 6 low), r3=0x1E (key 1 low) | membrane_stick.vhd:192 | pass | test/input/input_test.cpp:1946 |
-| CURS-01 | Cursor LEFT → row 3 bit 4 (key 5) low | — | pass | test/input/input_test.cpp:1982 |
-| CURS-02 | Cursor DOWN → row 4 bit 4 (key 6) low | — | pass | test/input/input_test.cpp:1988 |
-| CURS-03 | Cursor UP → row 4 bit 3 (key 7) low | — | pass | test/input/input_test.cpp:1994 |
-| CURS-04 | Cursor RIGHT → row 4 bit 2 (key 8) low | — | pass | test/input/input_test.cpp:2000 |
-| CURS-05 | Cursor FIRE → row 4 bit 0 (key 0) low | — | pass | test/input/input_test.cpp:2006 |
-| CURS-06 | Cursor LEFT+RIGHT → r3=0x0F (key 5), r4=0x1B (key 8) | — | pass | test/input/input_test.cpp:2019 |
-| IOMODE-01 | reset NR 0x0B = 0x01 (en=0, mode=00, iomode_0=1) | zxnext.vhd:3510-3539,5200-5203, zxnext.vhd:4939-4941 | pass | test/input/input_test.cpp:2046 |
-| IOMODE-02 | NR 0x0B=0x80 → joy_iomode_pin7 = 0 (zxnext.vhd:3520) | zxnext.vhd:3520 | pass | test/input/input_test.cpp:2056 |
-| IOMODE-03 | NR 0x0B=0x81 → joy_iomode_pin7 = 1 (zxnext.vhd:3520) | zxnext.vhd:3520 | pass | test/input/input_test.cpp:2066 |
-| IOMODE-04 | NR 0x0B=0x91 + ctc_zc_to(3) pulses → pin7 toggles (zxnext.vhd:3521-3524) | zxnext.vhd:3521-3524 | pass | test/input/input_test.cpp:2086 |
-| IOMODE-05 | NR 0x0B=0xA0 → pin7 tracks uart0_tx (zxnext.vhd:3526-3531) | zxnext.vhd:3526-3531 | pass | test/input/input_test.cpp:2103 |
-| IOMODE-06 | NR 0x0B=0xA1 → pin7 tracks uart1_tx (zxnext.vhd:3526-3531) | zxnext.vhd:3526-3531 | pass | test/input/input_test.cpp:2120 |
-| IOMODE-07 | mode "10" (0xA0/0xA1) → joy_uart_rx = NOT JOY_LEFT(5); RIGHT ignored (zxnext.vhd:3538, :90) | zxnext.vhd:3538,90 | pass | test/input/input_test.cpp:2148 |
-| IOMODE-08 | mode "11" (0xB0/0xB1) → joy_uart_rx = NOT JOY_RIGHT(5); LEFT ignored (zxnext.vhd:3538, :90-91) | zxnext.vhd:3538,90-91 | pass | test/input/input_test.cpp:2173 |
-| IOMODE-09 | NR 0x0B=0xA0 → joy_uart_en = 1 (zxnext.vhd:3537) | zxnext.vhd:3537 | pass | test/input/input_test.cpp:2192 |
-| IOMODE-10 | joy_uart_en = iomode_en AND mode(1) (zxnext.vhd:3537) | zxnext.vhd:3537 | pass | test/input/input_test.cpp:2211 |
-| IOMODE-11 | NR 0x05 joy*=111 + NR 0x0B configured (zxnext.vhd:5157-5158, 5200-5203) | zxnext.vhd:5157-5158,5200-5203 | pass | test/input/input_test.cpp:2241 |
-| IOMODE-11A | Emulator::run_frame() feeds IoMode UART injectors per tick from Uart::channel(N).tx_line_out() (zxnext.vhd:3526-3531; G72 closure) | zxnext.vhd:3526-3531 | pass | test/input/input_test.cpp:2318 |
-| IOMODE-11B | Emulator per-tick feed: Joystick line-5 → IoMode joy_uart_rx via run_frame() (zxnext.vhd:3538, :90-91; GH #90 closure) | zxnext.vhd:3538,90-91 | pass | test/input/input_test.cpp:2386 |
-| MOUSE-01 | 0xFBDF → i_MOUSE_X (0x5A) | zxnext.vhd:3546 | pass | test/input/input_test.cpp:2415 |
-| MOUSE-02 | 0xFFDF → i_MOUSE_Y (0xA5) | zxnext.vhd:3553 | pass | test/input/input_test.cpp:2427 |
-| MOUSE-03 | 0xFADF no buttons, wheel=0 → 0x0F (bit3=1, btns active-low) | zxnext.vhd:3560 | pass | test/input/input_test.cpp:2441 |
-| MOUSE-04 | 0xFADF L button → bit 1 = 0 | — | pass | test/input/input_test.cpp:2454 |
-| MOUSE-05 | 0xFADF R button → bit 0 = 0 | — | pass | test/input/input_test.cpp:2466 |
-| MOUSE-06 | 0xFADF M button → bit 2 = 0 | — | pass | test/input/input_test.cpp:2478 |
-| MOUSE-07 | 0xFADF wheel=0xA → bits[7:4]=0xA | zxnext.vhd:3560 | pass | test/input/input_test.cpp:2491 |
-| MOUSE-08 | KempstonMouse does not self-gate (gate lives in Emulator port handler; NR 0x83 b5 checked there per VHDL:2668-2670) | zxnext.vhd:2668-2670, zxnext.vhd:2422,2392-2393 | pass | test/input/input_test.cpp:2522 |
-| MOUSE-09 | NR 0x0A bit 3 (button reverse) does not touch the 0xFADF composition — reversal is host-adapter side (zxnext.vhd:3560 has no reverse term; :5197 -> :1599 o_MOUSE_CONTROL is the only consumer) | zxnext.vhd:3560 | pass | test/input/input_test.cpp:2563 |
-| MOUSE-10 | 0xFADF bits 7:4 track i_MOUSE_WHEEL as a pure 4-bit unsigned field: 0xF -> 0x0 wraps with no carry into the button nibble and a >4-bit value truncates (zxnext.vhd:104, :3560) | zxnext.vhd:104,3560 | pass | test/input/input_test.cpp:2591 |
-| MOUSE-11 | nr_0a_mouse_dpi = "00" vs "11" gives identical 0xFBDF / 0xFFDF bytes for the same motion — DPI scaling is applied by the host adapter before i_MOUSE_X/Y (zxnext.vhd:3546, :3553; :1128 default, :5198 write, :1599 the only consumer) | zxnext.vhd:3546,3553 | pass | test/input/input_test.cpp:2623 |
-| MOUSE-12 | 0xDF Kempston-joy alias gates: DAC=1 AND mouse=0 AND Kempston/MD-Left live (zxnext.vhd:2674; G130 closure) | zxnext.vhd:2674 | pass | test/input/input_test.cpp:2696 |
-| NMI-01 | NR 0x06 bit3=1 + hotkey_m1 → nmi_assert_mf=1 | — | pass | test/input/input_test.cpp:3048 |
-| NMI-02 | NR 0x06 bit3=0 + hotkey_m1 → nmi_assert_mf=0 | — | pass | test/input/input_test.cpp:3065 |
-| NMI-03 | NR 0x06 bit4=1 + hotkey_drive → nmi_assert_divmmc=1 | — | pass | test/input/input_test.cpp:3082 |
-| NMI-04 | NR 0x06 bit4=0 + hotkey_drive → nmi_assert_divmmc=0 | — | pass | test/input/input_test.cpp:3099 |
-| NMI-05 | NR 0x06 bit3=1 + nmi_sw_gen_mf → nmi_assert_mf=1 | zxnext.vhd:2090 | pass | test/input/input_test.cpp:3118 |
-| NMI-06 | NR 0x06 bit4=1 + nmi_sw_gen_divmmc → nmi_assert_divmmc=1 | — | pass | test/input/input_test.cpp:3136 |
-| NMI-07 | NR 0x06 bits 3+4=1 + both hotkeys → both gates assert | — | pass | test/input/input_test.cpp:3154 |
+| JMODE-01 | NR 0x05=0x00 → (Sinclair2, Sinclair2) (zxnext.vhd:5157-5158) | zxnext.vhd:5157-5158 | pass | test/input/input_test.cpp:1038 |
+| JMODE-02 | NR 0x05=0x68 → (Md3Left, Cursor) (zxnext.vhd:5157-5158) | zxnext.vhd:5157-5158 | pass | test/input/input_test.cpp:1053 |
+| JMODE-02r | NR 0x05=0xC9 → (IoMode, Sinclair2) (zxnext.vhd:5157-5158) | zxnext.vhd:5157-5158 | pass | test/input/input_test.cpp:1068 |
+| JMODE-03 | NR 0x05=0x40 → (Kempston1, Sinclair2) (zxnext.vhd:5157-5158) | zxnext.vhd:5157-5158 | pass | test/input/input_test.cpp:1083 |
+| JMODE-04 | NR 0x05=0x08 → (Kempston2, Sinclair2) (zxnext.vhd:5157-5158) | zxnext.vhd:5157-5158 | pass | test/input/input_test.cpp:1098 |
+| JMODE-05 | NR 0x05=0x88 → (Md3Right, Sinclair2) (zxnext.vhd:5157-5158) | zxnext.vhd:5157-5158 | pass | test/input/input_test.cpp:1113 |
+| JMODE-06 | NR 0x05=0x22 → (Sinclair2, Md3Right) (zxnext.vhd:5157-5158) | zxnext.vhd:5157-5158 | pass | test/input/input_test.cpp:1128 |
+| JMODE-07 | NR 0x05=0x30 → (Sinclair2, Sinclair1) (zxnext.vhd:5157-5158) | zxnext.vhd:5157-5158 | pass | test/input/input_test.cpp:1143 |
+| JMODE-08 | reset NR 0x05 = 0x41 (joy0=Kempston1, joy1=Sinclair2, scandouble=1) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:1167 |
+| JMODE-09 | NR 0x05 propagates per-connector mode to MembraneStick fold | membrane_stick.vhd:117-149 | pass | test/input/input_test.cpp:1233 |
+| KEMP-01 | Kempston1 R → 0x01 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:1273 |
+| KEMP-02 | Kempston1 L → 0x02 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:1281 |
+| KEMP-03 | Kempston1 D → 0x04 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:1289 |
+| KEMP-04 | Kempston1 U → 0x08 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:1297 |
+| KEMP-05 | Kempston1 Fire1(B) → 0x10 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:1305 |
+| KEMP-06 | Kempston1 Fire2(C) → 0x20 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:1313 |
+| KEMP-07 | Kempston1 A masked → 0x00 | zxnext.vhd:3478 | pass | test/input/input_test.cpp:1322 |
+| KEMP-08 | Kempston1 START masked → 0x00 | zxnext.vhd:3478 | pass | test/input/input_test.cpp:1330 |
+| KEMP-09 | Kempston1 all dirs+F1+F2 → 0x3F | zxnext.vhd:3479 | pass | test/input/input_test.cpp:1339 |
+| KEMP-10 | Kempston2 L.U → 0x37=0x08 | zxnext.vhd:3482 | pass | test/input/input_test.cpp:1348 |
+| KEMP-11 | Kempston2 all dirs+F1+F2 → 0x37=0x3F | — | pass | test/input/input_test.cpp:1356 |
+| KEMP-12 | joy0=S2 → 0x1F joystick lane = 0x00 | zxnext.vhd:3475 | pass | test/input/input_test.cpp:1369 |
+| KEMP-13 | K1+K1 L.U\|R.R → 0x1F=0x09 | zxnext.vhd:3499 | pass | test/input/input_test.cpp:1380 |
+| KEMP-14 | K1+K2 split routing 0x1F=0x08 0x37=0x04 | zxnext.vhd:3475-3488 | pass | test/input/input_test.cpp:1391 |
+| KEMP-15 | joy0=MD1 L.A → 0x1F=0x40 | zxnext.vhd:3478 | pass | test/input/input_test.cpp:1402 |
+| KEMP-16 | NR 0x82 b7=0 un-decodes port 0x37 → 0xFF; b7=1 returns joystick byte (zxnext.vhd:2408, 2675; G128 closure) | zxnext.vhd:2408,2675 | pass | test/input/input_test.cpp:1441 |
+| KEMP-17 | port_1f / port_37 hw_en gates fire only in K1/MD3L / K2/MD3R modes | zxnext.vhd:2454-2455, zxnext.vhd:3475/3487,3476/3488 | pass | test/input/input_test.cpp:1516 |
+| MD-01 | MD1 U+D+L+R+A+B → 0x5F | zxnext.vhd:3441-3442, zxnext.vhd:3478-3479 | pass | test/input/input_test.cpp:1540 |
+| MD-02 | MD1 START → 0x80 | zxnext.vhd:3478 | pass | test/input/input_test.cpp:1548 |
+| MD-03 | MD1 A → 0x40 | zxnext.vhd:3478 | pass | test/input/input_test.cpp:1556 |
+| MD-04 | MD1 Fire2/C → 0x20 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:1564 |
+| MD-05 | MD1 START+A → 0xC0 | zxnext.vhd:3478 | pass | test/input/input_test.cpp:1572 |
+| MD-06 | Kempston1 START masked → 0x00 | zxnext.vhd:3478 | pass | test/input/input_test.cpp:1581 |
+| MD-07 | joy0=MD2 L.U → 0x37=0x08 | zxnext.vhd:3482 | pass | test/input/input_test.cpp:1591 |
+| MD-08 | joy1=MD2 R.U → 0x37=0x08 | zxnext.vhd:3494 | pass | test/input/input_test.cpp:1601 |
+| MD-09 | MD1+MD1 L.A\|R.START → 0x1F=0xC0 | zxnext.vhd:3499 | pass | test/input/input_test.cpp:1615 |
+| MD6-01 | L.MODE → NR 0xB2 bit 0 = 1 (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:1645 |
+| MD6-02 | L.Y → NR 0xB2 bit 1 = 1 (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:1653 |
+| MD6-03 | L.Z → NR 0xB2 bit 2 = 1 (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:1661 |
+| MD6-04 | L.X → NR 0xB2 bit 3 = 1 (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:1669 |
+| MD6-05 | R.MODE → NR 0xB2 bit 4 = 1 (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:1677 |
+| MD6-06 | R.Y → NR 0xB2 bit 5 = 1 (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:1685 |
+| MD6-07 | R.Z → NR 0xB2 bit 6 = 1 (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:1693 |
+| MD6-08 | R.X → NR 0xB2 bit 7 = 1 (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:1701 |
+| MD6-09 | all JOY_{L,R}(11..8) high → NR 0xB2 = 0xFF (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:1710 |
+| MD6-10 | Kempston mode, L.X=1 still sets NR 0xB2 bit 3 (no NR 0x05 gating) (zxnext.vhd:6215, 3441-3442) | zxnext.vhd:6215,3441-3442 | pass | test/input/input_test.cpp:1728 |
+| MD6-11a | phase 0000 clears both latches and 6-btn flags (md6_joystick_connector_x2.vhd:135-139) | md6_joystick_connector_x2.vhd:135-139 | pass | test/input/input_test.cpp:1755 |
+| MD6-11b | phase 0100 latches left bits 7:6 (md6_joystick_connector_x2.vhd:141-144) | md6_joystick_connector_x2.vhd:141-144 | pass | test/input/input_test.cpp:1774 |
+| MD6-11c | phase 0110 latches left bits 5:0 (md6_joystick_connector_x2.vhd:151-152) | md6_joystick_connector_x2.vhd:151-152 | pass | test/input/input_test.cpp:1788 |
+| MD6-11d | phase 1000 with U+D held → 6-button detect (left) (md6_joystick_connector_x2.vhd:157-158) | md6_joystick_connector_x2.vhd:157-158 | pass | test/input/input_test.cpp:1804 |
+| MD6-11e | phase 1010 + 6-btn: latch left bits 11:8 (md6_joystick_connector_x2.vhd:163-166) | md6_joystick_connector_x2.vhd:163-166 | pass | test/input/input_test.cpp:1820 |
+| MD6-11f | phase 0101 latches right bits 7:6 (md6_joystick_connector_x2.vhd:146-149) | md6_joystick_connector_x2.vhd:146-149 | pass | test/input/input_test.cpp:1834 |
+| MD6-11g | phase 0111 latches right bits 5:0 (md6_joystick_connector_x2.vhd:154-155) | md6_joystick_connector_x2.vhd:154-155 | pass | test/input/input_test.cpp:1848 |
+| MD6-11h | phase 1011 + 6-btn: latch right bits 11:8 (md6_joystick_connector_x2.vhd:168-171) | md6_joystick_connector_x2.vhd:168-171 | pass | test/input/input_test.cpp:1863 |
+| MD6-11i | phase 1010 without 6-btn: bits 11:8 NOT latched (md6_joystick_connector_x2.vhd:163-166 — six-button gate) | md6_joystick_connector_x2.vhd:163-166 | pass | test/input/input_test.cpp:1879 |
+| NRB2-01 | L.MODE → NR 0xB2 bit 0 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5439 |
+| NRB2-02 | L.Y → NR 0xB2 bit 1 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5440 |
+| NRB2-03 | L.Z → NR 0xB2 bit 2 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5441 |
+| NRB2-04 | L.X → NR 0xB2 bit 3 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5442 |
+| NRB2-05 | R.MODE → NR 0xB2 bit 4 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5457 |
+| NRB2-06 | R.Y → NR 0xB2 bit 5 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5458 |
+| NRB2-07 | R.Z → NR 0xB2 bit 6 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5459 |
+| NRB2-08 | R.X → NR 0xB2 bit 7 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5460 |
+| NRB2-09 | both pads, all extras → 0xFF (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:5479 |
+| NRB2-10 | no buttons / no pad → 0x00 | — | pass | test/input/input_test.cpp:5488 |
+| NRB2-11 | bits 7:0 of the vector do not leak into NR 0xB2 (mux reads only 11:8, zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:5499 |
+| NRB2-12 | Kempston mode does not gate NR 0xB2 (no NR 0x05 term at zxnext.vhd:6214-6215) | zxnext.vhd:6214-6215 | pass | test/input/input_test.cpp:5513 |
+| NRB2-13 | MD6 extras reach no port lane (zxnext.vhd:3470-3494) | zxnext.vhd:3470-3494 | pass | test/input/input_test.cpp:5527 |
+| NRB2-14 | guest read of NR 0xB2 returns the live pad extras | — | pass | test/input/input_test.cpp:5547 |
+| NRB2-15 | host raw pad buttons 5 / 7 reach NR 0xB2 as L.X / R.Z | — | pass | test/input/input_test.cpp:5562 |
+| NRB2-16 | controller shoulders → L.X / L.Z; face button does not | — | pass | test/input/input_test.cpp:5601 |
+| NRB2-17 | host raw pad button 6 reaches NR 0xB2 as L.Y | — | pass | test/input/input_test.cpp:5574 |
+| NRB2-18 | raw indices 5/6/7 map onto distinct X/Y/Z bits | — | pass | test/input/input_test.cpp:5587 |
+| NRB2-19 | LEFTSHOULDER alone → L.X (bit 3) | — | pass | test/input/input_test.cpp:5614 |
+| NRB2-20 | RIGHTSHOULDER alone → L.Z (bit 2) | — | pass | test/input/input_test.cpp:5622 |
+| SINC1-01 | S1 LEFT → row 4 bit 4 (key 6) low | — | pass | test/input/input_test.cpp:1937 |
+| SINC1-02 | S1 RIGHT → row 4 bit 3 (key 7) low | — | pass | test/input/input_test.cpp:1942 |
+| SINC1-03 | S1 DOWN → row 4 bit 2 (key 8) low | — | pass | test/input/input_test.cpp:1947 |
+| SINC1-04 | S1 UP → row 4 bit 1 (key 9) low | — | pass | test/input/input_test.cpp:1952 |
+| SINC1-05 | S1 FIRE → row 4 bit 0 (key 0) low | — | pass | test/input/input_test.cpp:1957 |
+| SINC2-01 | S2 LEFT → row 3 bit 0 (key 1) low | — | pass | test/input/input_test.cpp:1966 |
+| SINC2-02 | S2 RIGHT → row 3 bit 1 (key 2) low | — | pass | test/input/input_test.cpp:1971 |
+| SINC2-03 | S2 DOWN → row 3 bit 2 (key 3) low | — | pass | test/input/input_test.cpp:1976 |
+| SINC2-04 | S2 UP → row 3 bit 3 (key 4) low | — | pass | test/input/input_test.cpp:1981 |
+| SINC2-05 | S2 FIRE → row 3 bit 4 (key 5) low | — | pass | test/input/input_test.cpp:1986 |
+| SINC-06 | S1+S2 both LEFT → r4=0x0F (key 6 low), r3=0x1E (key 1 low) | membrane_stick.vhd:192 | pass | test/input/input_test.cpp:2010 |
+| CURS-01 | Cursor LEFT → row 3 bit 4 (key 5) low | — | pass | test/input/input_test.cpp:2046 |
+| CURS-02 | Cursor DOWN → row 4 bit 4 (key 6) low | — | pass | test/input/input_test.cpp:2052 |
+| CURS-03 | Cursor UP → row 4 bit 3 (key 7) low | — | pass | test/input/input_test.cpp:2058 |
+| CURS-04 | Cursor RIGHT → row 4 bit 2 (key 8) low | — | pass | test/input/input_test.cpp:2064 |
+| CURS-05 | Cursor FIRE → row 4 bit 0 (key 0) low | — | pass | test/input/input_test.cpp:2070 |
+| CURS-06 | Cursor LEFT+RIGHT → r3=0x0F (key 5), r4=0x1B (key 8) | — | pass | test/input/input_test.cpp:2083 |
+| IOMODE-01 | reset NR 0x0B = 0x01 (en=0, mode=00, iomode_0=1) | zxnext.vhd:3510-3539,5200-5203, zxnext.vhd:4939-4941 | pass | test/input/input_test.cpp:2110 |
+| IOMODE-02 | NR 0x0B=0x80 → joy_iomode_pin7 = 0 (zxnext.vhd:3520) | zxnext.vhd:3520 | pass | test/input/input_test.cpp:2120 |
+| IOMODE-03 | NR 0x0B=0x81 → joy_iomode_pin7 = 1 (zxnext.vhd:3520) | zxnext.vhd:3520 | pass | test/input/input_test.cpp:2130 |
+| IOMODE-04 | NR 0x0B=0x91 + ctc_zc_to(3) pulses → pin7 toggles (zxnext.vhd:3521-3524) | zxnext.vhd:3521-3524 | pass | test/input/input_test.cpp:2150 |
+| IOMODE-05 | NR 0x0B=0xA0 → pin7 tracks uart0_tx (zxnext.vhd:3526-3531) | zxnext.vhd:3526-3531 | pass | test/input/input_test.cpp:2167 |
+| IOMODE-06 | NR 0x0B=0xA1 → pin7 tracks uart1_tx (zxnext.vhd:3526-3531) | zxnext.vhd:3526-3531 | pass | test/input/input_test.cpp:2184 |
+| IOMODE-07 | mode "10" (0xA0/0xA1) → joy_uart_rx = NOT JOY_LEFT(5); RIGHT ignored (zxnext.vhd:3538, :90) | zxnext.vhd:3538,90 | pass | test/input/input_test.cpp:2212 |
+| IOMODE-08 | mode "11" (0xB0/0xB1) → joy_uart_rx = NOT JOY_RIGHT(5); LEFT ignored (zxnext.vhd:3538, :90-91) | zxnext.vhd:3538,90-91 | pass | test/input/input_test.cpp:2237 |
+| IOMODE-09 | NR 0x0B=0xA0 → joy_uart_en = 1 (zxnext.vhd:3537) | zxnext.vhd:3537 | pass | test/input/input_test.cpp:2256 |
+| IOMODE-10 | joy_uart_en = iomode_en AND mode(1) (zxnext.vhd:3537) | zxnext.vhd:3537 | pass | test/input/input_test.cpp:2275 |
+| IOMODE-11 | NR 0x05 joy*=111 + NR 0x0B configured (zxnext.vhd:5157-5158, 5200-5203) | zxnext.vhd:5157-5158,5200-5203 | pass | test/input/input_test.cpp:2305 |
+| IOMODE-11A | Emulator::run_frame() feeds IoMode UART injectors per tick from Uart::channel(N).tx_line_out() (zxnext.vhd:3526-3531; G72 closure) | zxnext.vhd:3526-3531 | pass | test/input/input_test.cpp:2382 |
+| IOMODE-11B | Emulator per-tick feed: Joystick line-5 → IoMode joy_uart_rx via run_frame() (zxnext.vhd:3538, :90-91; GH #90 closure) | zxnext.vhd:3538,90-91 | pass | test/input/input_test.cpp:2450 |
+| MOUSE-01 | 0xFBDF → i_MOUSE_X (0x5A) | zxnext.vhd:3546 | pass | test/input/input_test.cpp:2479 |
+| MOUSE-02 | 0xFFDF → i_MOUSE_Y (0xA5) | zxnext.vhd:3553 | pass | test/input/input_test.cpp:2491 |
+| MOUSE-03 | 0xFADF no buttons, wheel=0 → 0x0F (bit3=1, btns active-low) | zxnext.vhd:3560 | pass | test/input/input_test.cpp:2505 |
+| MOUSE-04 | 0xFADF L button → bit 1 = 0 | — | pass | test/input/input_test.cpp:2518 |
+| MOUSE-05 | 0xFADF R button → bit 0 = 0 | — | pass | test/input/input_test.cpp:2530 |
+| MOUSE-06 | 0xFADF M button → bit 2 = 0 | — | pass | test/input/input_test.cpp:2542 |
+| MOUSE-07 | 0xFADF wheel=0xA → bits[7:4]=0xA | zxnext.vhd:3560 | pass | test/input/input_test.cpp:2555 |
+| MOUSE-08 | KempstonMouse does not self-gate (gate lives in Emulator port handler; NR 0x83 b5 checked there per VHDL:2668-2670) | zxnext.vhd:2668-2670, zxnext.vhd:2422,2392-2393 | pass | test/input/input_test.cpp:2586 |
+| MOUSE-09 | NR 0x0A bit 3 (button reverse) does not touch the 0xFADF composition — reversal is host-adapter side (zxnext.vhd:3560 has no reverse term; :5197 -> :1599 o_MOUSE_CONTROL is the only consumer) | zxnext.vhd:3560 | pass | test/input/input_test.cpp:2627 |
+| MOUSE-10 | 0xFADF bits 7:4 track i_MOUSE_WHEEL as a pure 4-bit unsigned field: 0xF -> 0x0 wraps with no carry into the button nibble and a >4-bit value truncates (zxnext.vhd:104, :3560) | zxnext.vhd:104,3560 | pass | test/input/input_test.cpp:2655 |
+| MOUSE-11 | nr_0a_mouse_dpi = "00" vs "11" gives identical 0xFBDF / 0xFFDF bytes for the same motion — DPI scaling is applied by the host adapter before i_MOUSE_X/Y (zxnext.vhd:3546, :3553; :1128 default, :5198 write, :1599 the only consumer) | zxnext.vhd:3546,3553 | pass | test/input/input_test.cpp:2687 |
+| MOUSE-12 | 0xDF Kempston-joy alias gates: DAC=1 AND mouse=0 AND Kempston/MD-Left live (zxnext.vhd:2674; G130 closure) | zxnext.vhd:2674 | pass | test/input/input_test.cpp:2760 |
+| NMI-01 | NR 0x06 bit3=1 + hotkey_m1 → nmi_assert_mf=1 | — | pass | test/input/input_test.cpp:3112 |
+| NMI-02 | NR 0x06 bit3=0 + hotkey_m1 → nmi_assert_mf=0 | — | pass | test/input/input_test.cpp:3129 |
+| NMI-03 | NR 0x06 bit4=1 + hotkey_drive → nmi_assert_divmmc=1 | — | pass | test/input/input_test.cpp:3146 |
+| NMI-04 | NR 0x06 bit4=0 + hotkey_drive → nmi_assert_divmmc=0 | — | pass | test/input/input_test.cpp:3163 |
+| NMI-05 | NR 0x06 bit3=1 + nmi_sw_gen_mf → nmi_assert_mf=1 | zxnext.vhd:2090 | pass | test/input/input_test.cpp:3182 |
+| NMI-06 | NR 0x06 bit4=1 + nmi_sw_gen_divmmc → nmi_assert_divmmc=1 | — | pass | test/input/input_test.cpp:3200 |
+| NMI-07 | NR 0x06 bits 3+4=1 + both hotkeys → both gates assert | — | pass | test/input/input_test.cpp:3218 |
 | FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:226 |
 | FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:247 |
 | FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:266 |
 | FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:330 |
 | FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1221 |
 | FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1239 |
-| JCAL-01 | NR 0x28 keymap_sel write handler routes bit 7 + bit 0 | membrane_stick.vhd | pass | test/input/input_test.cpp:3228 |
-| JCAL-02 | NR 0x29 addr-low + NR 0x2B data write + auto-inc | zxnext.vhd:6304-6308, membrane_stick.vhd:182 | pass | test/input/input_test.cpp:3267 |
-| JCAL-03 | NR 0x05=111 + UDK[16]=(4,3) + bit0 press → row4 col3 low | membrane_stick.vhd:172-183 | pass | test/input/input_test.cpp:3311 |
-| FNK-01 | F8 press increments NR 0x07 cpu_speed (VHDL :5789-5791) | input/membrane/emu_fnkeys.vhd:53-202 | pass | test/input/input_test.cpp:3351 |
+| JCAL-01 | NR 0x28 keymap_sel write handler routes bit 7 + bit 0 | membrane_stick.vhd | pass | test/input/input_test.cpp:3292 |
+| JCAL-02 | NR 0x29 addr-low + NR 0x2B data write + auto-inc | zxnext.vhd:6304-6308, membrane_stick.vhd:182 | pass | test/input/input_test.cpp:3331 |
+| JCAL-03 | NR 0x05=111 + UDK[16]=(4,3) + bit0 press → row4 col3 low | membrane_stick.vhd:172-183 | pass | test/input/input_test.cpp:3375 |
+| FNK-01 | F8 press increments NR 0x07 cpu_speed (VHDL :5789-5791) | input/membrane/emu_fnkeys.vhd:53-202 | pass | test/input/input_test.cpp:3415 |
 | HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5790-5791,6342-6347 | pass | test/input/input_integration_test.cpp:983 |
 | JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | membrane_stick.vhd:124-131 | pass | test/input/input_integration_test.cpp:638 |
-| FNK-02 | F3 press toggles NR 0x05 bit 2 (5060), readable after the frame edge only (VHDL :5839-5841; eff latch :6697-6700) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3384 |
-| FNK-03 | F2 press toggles NR 0x05 bit 0 (scandouble), readable after the frame edge only (VHDL :5849-5852; eff latch :6702) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3412 |
+| FNK-02 | F3 press toggles NR 0x05 bit 2 (5060), readable after the frame edge only (VHDL :5839-5841; eff latch :6697-6700) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3448 |
+| FNK-03 | F2 press toggles NR 0x05 bit 0 (scandouble), readable after the frame edge only (VHDL :5849-5852; eff latch :6702) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3476 |
 | EXTC-08a | LEFT folds to CAPS SHIFT + 5 (row 3 col 4) | — | pass | test/input/input_test.cpp:549 |
 | EXTC-08b | DOWN folds to CAPS SHIFT + 6 (row 4 col 4) | — | pass | test/input/input_test.cpp:550 |
 | EXTC-08c | UP folds to CAPS SHIFT + 7 (row 4 col 3) | — | pass | test/input/input_test.cpp:551 |
 | EXTC-08d | RIGHT folds to CAPS SHIFT + 8 (row 4 col 2) | — | pass | test/input/input_test.cpp:552 |
 | EXTC-09 | the NR 0x68 bit 4 cancel state survives save/load (rewind-safe) | — | pass | test/input/input_test.cpp:594 |
-| MOUSE-13 | SDL motion → inject_delta → 0xFBDF/0xFFDF; Y axis is negated (Kempston Cartesian-Y: UP increments Y register) (G43) | zxnext.vhd:3543-3561 | pass | test/input/input_test.cpp:2744 |
-| MOUSE-14 | SDL button → set_buttons → 0xFADF active-low (G43) | zxnext.vhd:3560 | pass | test/input/input_test.cpp:2783 |
-| MOUSE-15 | SDL wheel → 4-bit counter mod-16 → 0xFADF[7:4] (G43) | zxnext.vhd:3560 | pass | test/input/input_test.cpp:2815 |
-| MOUSE-13-14-15-SDL | handle_sdl_event routes motion/button/wheel; ignores other | — | pass | test/input/input_test.cpp:2863 |
-| MOUSE-SDL3-WHEEL | wheel counts SDL3 whole detents (integer_y), not the fractional y; FLIPPED negates the same field (GH #57) | zxnext.vhd:3560 | pass | test/input/input_test.cpp:2923 |
-| MOUSE-SDL3-MOTION | sub-unit float motion accumulates across events instead of truncating to nothing (GH #57) | zxnext.vhd:3560 | pass | test/input/input_test.cpp:2946 |
-| MOUSE-16 | reset() clears a held button so it cannot latch across a capture drop (issue #37) | — | pass | test/input/input_test.cpp:2970 |
-| MOUSE-17 | reset() clears EVERY button and the wheel, not just one (issue #37) | — | pass | test/input/input_test.cpp:2986 |
-| FNK-04 | F7 press increments NR 0x09 bits 1:0 (scanlines), readable after the frame edge only (VHDL :5861-5863; eff latch :6701) | zxnext.vhd:5909 | pass | test/input/input_test.cpp:3444 |
-| FNK-05 | F8 gated off (NR 0x06 bit 7 = 0) → NR 0x07 unchanged (VHDL :6347) | — | pass | test/input/input_test.cpp:3466 |
-| FNK-06 | F3 gated off (NR 0x06 bit 5 = 0) → NR 0x05 bit 2 unchanged (VHDL :6342) | — | pass | test/input/input_test.cpp:3489 |
-| FNK-07 | FSM IDLE→MF_ROW_A11→A12→CHECK→DONE→IDLE on M1 tap (VHDL :118-141) | — | pass | test/input/input_test.cpp:3521 |
-| FNK-08X | F8 press leaves NR 0x05 unchanged (row isolation, VHDL :159+:185) | — | pass | test/input/input_test.cpp:3542 |
-| FNK-08 | rows_filtered = 0xF7 in MF_ROW_A11, 0xEF in MF_ROW_A12 (VHDL :159) | — | pass | test/input/input_test.cpp:3563 |
-| SL-KBD-01 | Keyboard membrane matrix restored | — | pass | test/input/input_test.cpp:3648 |
-| SL-KBD-02 | Keyboard extended-key register (NR 0xB0/0xB1) restored | — | pass | test/input/input_test.cpp:3654 |
-| SL-KBD-03 | Keyboard in-flight auto-type queue restored | — | pass | test/input/input_test.cpp:3658 |
-| SL-JOY-01 | Joystick NR 0x05 modes + raw byte restored | — | pass | test/input/input_test.cpp:3679 |
-| SL-JOY-02 | Joystick raw 12-bit connector vectors restored | — | pass | test/input/input_test.cpp:3683 |
-| SL-MOU-01 | Kempston mouse X/Y counters restored | — | pass | test/input/input_test.cpp:3706 |
-| SL-MOU-02 | Kempston mouse buttons/wheel (port 0xFADF) restored | — | pass | test/input/input_test.cpp:3709 |
-| SL-MOU-03 | Kempston mouse NR 0x0A button-reverse + DPI restored | — | pass | test/input/input_test.cpp:3712 |
-| SL-MD6-01 | MD6 FSM state counter restored mid-sequence | — | pass | test/input/input_test.cpp:3734 |
-| SL-MD6-02 | MD6 latched connector words + NR 0xB2 restored | — | pass | test/input/input_test.cpp:3737 |
-| SL-MD6-03 | MD6 six-button-detect flags + seeded latches restored | — | pass | test/input/input_test.cpp:3756 |
-| SL-MD6-04 | MD6 CLK_EN accumulator restored (phase-accurate tick) | — | pass | test/input/input_test.cpp:3776 |
-| SL-MEM-01 | MembraneStick reprogrammed keymap cell restored | — | pass | test/input/input_test.cpp:3799 |
-| SL-MEM-02 | MembraneStick NR 0x28/0x29 sel + auto-inc addr restored | — | pass | test/input/input_test.cpp:3802 |
-| SL-IOM-01 | IoMode NR 0x0B raw byte + pin7 register restored | — | pass | test/input/input_test.cpp:3834 |
-| SL-IOM-02 | IoMode injected UART-TX / joystick-bit5 lines restored | — | pass | test/input/input_test.cpp:3848 |
-| SL-EMU-01 | Emulator::load_state accepts the input sentinel block | — | pass | test/input/input_test.cpp:3882 |
-| SL-EMU-02 | Emulator save/load restores mouse + MD6 + keyboard input | — | pass | test/input/input_test.cpp:3884 |
-| SL-REW-01 | rewind_to_frame restores MD6 FSM + mouse input state | — | pass | test/input/input_test.cpp:3912 |
-| SL-DISP-01 | JoystickDispatcher::resync stops stale bits_ stomping restored vector | — | pass | test/input/input_test.cpp:3934 |
-| SL-DISP-02 | MouseDispatcher::resync stops cumulative wheel shadow stomping restore | — | pass | test/input/input_test.cpp:3947 |
-| SL-DISP-03 | MouseDispatcher::resync stops stale button mask stomping restore | — | pass | test/input/input_test.cpp:3959 |
-| JSRC-D01 | default source is Sdl for both connectors | — | pass | test/input/input_test.cpp:3980 |
-| JSRC-D02 | cursor-key input ignored while source is Sdl | — | pass | test/input/input_test.cpp:3988 |
-| JSRC-D03 | cursor keys drive Kempston1 port 0x1F (R/L/D/U/Fire) | — | pass | test/input/input_test.cpp:4003 |
-| JSRC-D04 | SDL controller input ignored while source is CursorKeys | — | pass | test/input/input_test.cpp:4012 |
-| JSRC-D05 | changing source clears the held vector | — | pass | test/input/input_test.cpp:4021 |
-| JSRC-D06 | cursor keys route to the selected connector (Joy 2) | — | pass | test/input/input_test.cpp:4031 |
-| JSRC-K01 | arrow key drives joystick, not the ZX matrix, in cursor mode | — | pass | test/input/input_test.cpp:4048 |
-| JSRC-K02 | Space is Fire in cursor mode, not the ZX SPACE key | — | pass | test/input/input_test.cpp:4063 |
-| JSRC-K03 | with no cursor target, arrows remain ZX cursor keys | — | pass | test/input/input_test.cpp:4076 |
-| JSRC-K04 | non-arrow keys still reach the ZX matrix in cursor mode | — | pass | test/input/input_test.cpp:4090 |
-| JSRC-E01 | emulator default sources are Sdl/Sdl | — | pass | test/input/input_test.cpp:4098 |
-| JSRC-E02 | setting a connector to CursorKeys sets the keyboard target | — | pass | test/input/input_test.cpp:4105 |
-| JSRC-E03 | only one connector may use cursor keys (mutual exclusion) | — | pass | test/input/input_test.cpp:4114 |
-| JSRC-E04 | source change notifies the frontend callback | — | pass | test/input/input_test.cpp:4129 |
-| JSRC-E05 | refresh re-pushes both connectors to the frontend | — | pass | test/input/input_test.cpp:4138 |
-| JRAW-01 | raw button 0 -> Fire 1 (bit 4) | — | pass | test/input/input_test.cpp:4158 |
-| JRAW-02 | raw button 1 -> Fire 2 (bit 5) | — | pass | test/input/input_test.cpp:4165 |
-| JRAW-03 | raw button 2 -> MD A (bit 6) | — | pass | test/input/input_test.cpp:4172 |
-| JRAW-04 | raw button 3 -> START (bit 7) | — | pass | test/input/input_test.cpp:4182 |
-| JRAW-05 | raw button 4 -> MODE (bit 11) | — | pass | test/input/input_test.cpp:4191 |
-| JRAW-06 | raw buttons past the mapped range are dropped | — | pass | test/input/input_test.cpp:4205 |
-| JRAW-07 | raw button release clears its bit | — | pass | test/input/input_test.cpp:4213 |
-| JRAW-08 | raw axis 0 full negative -> LEFT (bit 1) | — | pass | test/input/input_test.cpp:4221 |
-| JRAW-09 | raw axis 0 full positive -> RIGHT (bit 0) | — | pass | test/input/input_test.cpp:4228 |
-| JRAW-10 | raw axis 1 full negative -> UP (bit 3) | — | pass | test/input/input_test.cpp:4236 |
-| JRAW-11 | raw axis 1 full positive -> DOWN (bit 2) | — | pass | test/input/input_test.cpp:4243 |
-| JRAW-12 | raw axis returning to the deadzone clears its bit | — | pass | test/input/input_test.cpp:4251 |
-| JRAW-13 | raw axis inside the deadzone does not fire | — | pass | test/input/input_test.cpp:4260 |
-| JRAW-14 | raw axes past index 1 are unmapped | — | pass | test/input/input_test.cpp:4268 |
-| JRAW-15 | raw hat UP -> bit 3 | — | pass | test/input/input_test.cpp:4275 |
-| JRAW-16 | raw hat diagonal sets both directions | — | pass | test/input/input_test.cpp:4284 |
-| JRAW-17 | raw hat centred clears every direction | — | pass | test/input/input_test.cpp:4292 |
-| JRAW-18 | raw hat centred leaves button bits untouched | — | pass | test/input/input_test.cpp:4301 |
-| JRAW-19 | raw button gated out on a CursorKeys connector | — | pass | test/input/input_test.cpp:4309 |
-| JRAW-20 | raw axis gated out on a CursorKeys connector | — | pass | test/input/input_test.cpp:4317 |
-| JRAW-21 | raw hat gated out on a CursorKeys connector | — | pass | test/input/input_test.cpp:4325 |
-| JRAW-22 | out-of-range connector index is ignored on raw paths | — | pass | test/input/input_test.cpp:4333 |
-| JRAW-23 | raw input on connector 1 drives the right lane | — | pass | test/input/input_test.cpp:4341 |
-| JRAW-24 | SDL_EVENT_JOYSTICK_BUTTON_DOWN routes via the instance map | — | pass | test/input/input_test.cpp:4353 |
-| JRAW-25 | SDL_EVENT_JOYSTICK_BUTTON_UP clears the bit | — | pass | test/input/input_test.cpp:4367 |
-| JRAW-26 | SDL_EVENT_JOYSTICK_AXIS_MOTION routes to the mapped connector | — | pass | test/input/input_test.cpp:4378 |
-| JRAW-27 | SDL_EVENT_JOYSTICK_HAT_MOTION routes to the mapped connector | — | pass | test/input/input_test.cpp:4389 |
-| JRAW-28 | raw event from an unmapped device is refused | — | pass | test/input/input_test.cpp:4401 |
-| JRAW-29 | instance id 0 (SDL3's invalid id) is never mapped nor resolved, and does not consume a device-map entry (GH #57) | — | pass | test/input/input_test.cpp:4437 |
-| JRAW-30 | unmapping frees the device-map entry for reuse (the free marker is 0, representable in SDL3's Uint32 id) and leaves the freed entries carrying no connector (GH #57) | — | pass | test/input/input_test.cpp:4467 |
-| JRAW-31 | mapping the invalid id 0 leaves no device-map entry that is both free and assigned to a connector (GH #57) | — | pass | test/input/input_test.cpp:4492 |
-| JRAW-32 | the invalid id matches no free entry and cannot disturb a live mapping (GH #57) | — | pass | test/input/input_test.cpp:4511 |
-| JMRG-01 | hat release keeps a direction the analogue stick still holds | — | pass | test/input/input_test.cpp:4541 |
-| JMRG-02 | D-pad release keeps a direction the analogue stick still holds | — | pass | test/input/input_test.cpp:4550 |
-| JMRG-03 | centring one hat does not cancel another still held | — | pass | test/input/input_test.cpp:4558 |
-| JMRG-04 | two hats OR their directions together | — | pass | test/input/input_test.cpp:4566 |
-| JMRG-05 | shared direction survives while one source still holds it | — | pass | test/input/input_test.cpp:4576 |
-| JMRG-06 | direction clears once every source has released it | — | pass | test/input/input_test.cpp:4587 |
-| JMRG-07 | hat index past MAX_HATS is ignored, not aliased to hat 0 | — | pass | test/input/input_test.cpp:4594 |
-| JMRG-08 | direction churn leaves the fire button held | — | pass | test/input/input_test.cpp:4604 |
-| JMRG-09 | switching source clears every held direction source | — | pass | test/input/input_test.cpp:4615 |
-| JMRG-10 | cursor direction release leaves fire held | — | pass | test/input/input_test.cpp:4629 |
-| JRST-01 | D-pad release after resync clears a restored direction | — | pass | test/input/input_test.cpp:4654 |
-| JRST-02 | hat centring after resync clears a restored direction | — | pass | test/input/input_test.cpp:4664 |
-| JRST-03 | cursor-key release after resync clears a restored direction | — | pass | test/input/input_test.cpp:4674 |
-| JRST-04 | axis returning to centre after resync clears it too | — | pass | test/input/input_test.cpp:4683 |
-| JRST-05 | fire press after resync preserves the restored direction | — | pass | test/input/input_test.cpp:4694 |
-| JRST-06 | a live direction supersedes the restored guess entirely | — | pass | test/input/input_test.cpp:4705 |
-| JRST-07 | D-pad release supersedes only its own pair, UP survives | — | pass | test/input/input_test.cpp:4725 |
-| JRST-08 | X-axis centring leaves a restored UP untouched | — | pass | test/input/input_test.cpp:4734 |
-| JRST-09 | cursor-key release supersedes only its own pair | — | pass | test/input/input_test.cpp:4744 |
-| JRST-10 | a hat speaks for both pairs, so it supersedes all four | — | pass | test/input/input_test.cpp:4756 |
-| JRST-11 | pressing the opposing direction replaces its pair only | — | pass | test/input/input_test.cpp:4766 |
-| JRST-12 | accepted: a second hat's event clobbers all restored bits | — | pass | test/input/input_test.cpp:4790 |
-| T77J-01 | raw btn0 → B, port 0x1F bit4, Kempston1 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:4838 |
-| T77J-02 | raw btn0 → B, port 0x1F bit4, Md3Left | — | pass | test/input/input_test.cpp:4840 |
-| T77J-03 | raw btn1 → C, port 0x1F bit5, Kempston1 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:4847 |
-| T77J-04 | raw btn1 → C, port 0x1F bit5, Md3Left | — | pass | test/input/input_test.cpp:4849 |
-| T77J-05 | raw btn2 → A, port 0x1F bit6 set in Md3Left | zxnext.vhd:3477-3478 | pass | test/input/input_test.cpp:4859 |
-| T77J-06 | raw btn2 → A, port 0x1F bit6 GATED OFF in Kempston1 | — | pass | test/input/input_test.cpp:4861 |
-| T77J-07 | raw btn3 → START, port 0x1F bit7 set in Md3Left | — | pass | test/input/input_test.cpp:4870 |
-| T77J-08 | raw btn3 → START, port 0x1F bit7 GATED OFF in Kempston1 | — | pass | test/input/input_test.cpp:4872 |
-| T77J-09 | raw btn0..3 → distinct bits 7:4 (0xF0) in Md3Left | — | pass | test/input/input_test.cpp:4884 |
-| T77J-10 | raw btn4 → MODE, bit 11 of the 12-bit vector | zxnext.vhd:3477-3479 | pass | test/input/input_test.cpp:4895 |
-| T77J-11 | raw btn4 (MODE) reaches no port in either mode | — | pass | test/input/input_test.cpp:4899 |
-| T77J-12 | raw btn3 release clears START | — | pass | test/input/input_test.cpp:4912 |
-| T77J-13 | controller Y → START, bit7 set in Md3Left | — | pass | test/input/input_test.cpp:4922 |
-| T77J-14 | controller Y → START, bit7 GATED OFF in Kempston1 | — | pass | test/input/input_test.cpp:4924 |
-| T77J-15 | controller A/B/X/Y → bits 7:4 (0xF0) in Md3Left | — | pass | test/input/input_test.cpp:4938 |
-| T77J-16 | controller BACK → MODE, bit 11 of the vector | — | pass | test/input/input_test.cpp:4948 |
-| T77J-17 | controller START still → START bit7 in Md3Left | — | pass | test/input/input_test.cpp:4955 |
-| T77J-18 | raw btn3 → START on port 0x37, Md3Right | zxnext.vhd:3489-3494 | pass | test/input/input_test.cpp:4967 |
-| T77K-01 | Tab → EXTEND MODE = CS + SYM SHIFT | — | pass | test/input/input_test.cpp:5018 |
-| T77K-19 | Esc → BREAK = CS + SPACE | — | pass | test/input/input_test.cpp:5022 |
-| T77K-02 | grave (key left of 1) → TRUE VIDEO = CS + 3 | — | pass | test/input/input_test.cpp:5025 |
-| T77K-03 | Alt+grave → INV VIDEO = CS + 4 | — | pass | test/input/input_test.cpp:5028 |
-| T77K-05 | Alt+E → EDIT = CS + 1 | — | pass | test/input/input_test.cpp:5031 |
-| T77K-20 | Alt+G → GRAPH = CS + 9 | — | pass | test/input/input_test.cpp:5034 |
-| T77K-21 | Alt+C → CAPS LOCK = CS + 2 | — | pass | test/input/input_test.cpp:5037 |
-| T77K-06 | apostrophe → '"' = SS + P | — | pass | test/input/input_test.cpp:5040 |
-| T77K-07 | semicolon → ';' = SS + O | — | pass | test/input/input_test.cpp:5043 |
-| T77K-08 | period → '.' = SS + M | — | pass | test/input/input_test.cpp:5046 |
-| T77K-09 | comma → ',' = SS + N | — | pass | test/input/input_test.cpp:5049 |
-| T77K-10 | Backspace → DELETE = CS + 0 (unchanged) | — | pass | test/input/input_test.cpp:5055 |
-| T77K-11 | Alt+E does not leak the plain ZX 'E' key | — | pass | test/input/input_test.cpp:5065 |
-| T77K-22 | Alt+G does not leak the plain ZX 'G' key | — | pass | test/input/input_test.cpp:5076 |
-| T77K-23 | Alt+C does not leak the plain ZX 'C' key | — | pass | test/input/input_test.cpp:5086 |
-| T77K-12 | plain E is still ZX 'E' and asserts no CS/1 | — | pass | test/input/input_test.cpp:5098 |
-| T77K-13 | Alt released before key still clears CS+1 | — | pass | test/input/input_test.cpp:5114 |
-| T77K-14 | Alt pressed mid-hold still clears the plain key | — | pass | test/input/input_test.cpp:5127 |
-| T77K-15 | Alt alone presses no ZX key | — | pass | test/input/input_test.cpp:5140 |
-| T77K-16 | RAlt+E → EDIT = CS + 1, same as LAlt | — | pass | test/input/input_test.cpp:5149 |
-| T77K-17 | reset clears held Alt; E resolves plain again | — | pass | test/input/input_test.cpp:5165 |
-| T77K-18 | cursor-target arrows still bypass the ZX matrix | — | pass | test/input/input_test.cpp:5183 |
-| GH115-01 | LShift → CAPS SHIFT (row 0 col 0) | keymaps.vhd:83,113, ps2_keyb.vhd:198 | pass | test/input/input_test.cpp:5261 |
-| GH115-02 | RShift → CAPS SHIFT (row 0 col 0) | keymaps.vhd:83,131, ps2_keyb.vhd:198 | pass | test/input/input_test.cpp:5266 |
-| GH115-03 | LCtrl → SYMBOL SHIFT (row 7 col 1) | keymaps.vhd:84,113, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5271 |
-| GH115-04 | RCtrl → SYMBOL SHIFT (row 7 col 1) | keymaps.vhd:84,165, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5276 |
-| GH115-05 | Shift leaves SYM SHIFT alone and Ctrl leaves CAPS SHIFT alone | keymaps.vhd:83-84, ps2_keyb.vhd:197-198 | pass | test/input/input_test.cpp:5293 |
-| GH115-06 | CapsLock → CAPS LOCK = CS + 2 | keymaps.vhd:43,89,131, membrane.vhd:236-237 | pass | test/input/input_test.cpp:5306 |
-| GH115-07 | backslash → INV VIDEO = CS + 4 | keymaps.vhd:44,94,131, membrane.vhd:236-237 | pass | test/input/input_test.cpp:5311 |
-| GH115-08 | slash → '/' = SS + V | keymaps.vhd:42,127, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5316 |
-| GH115-09 | minus → '-' = SS + J | keymaps.vhd:48,127, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5321 |
-| GH115-10 | equals → '=' = SS + L | keymaps.vhd:48,129, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5326 |
-| GH115-11 | CapsLock/backslash also report on NR 0xB1 | keymaps.vhd:43-44, membrane.vhd:253 | pass | test/input/input_test.cpp:5343 |
+| KBDHYS-06 | the CS/SYM extra-scan hold expires after one MEMBRANE SCAN (4608 master cycles), not after a whole frame (zxnext_top_issue2.vhd:1179 'complete scan every 2.5 scanlines'; membrane.vhd:99-108, :178) | zxnext_top_issue2.vhd:1179, membrane.vhd:99-108,178 | pass | test/input/input_test.cpp:821 |
+| MOUSE-13 | SDL motion → inject_delta → 0xFBDF/0xFFDF; Y axis is negated (Kempston Cartesian-Y: UP increments Y register) (G43) | zxnext.vhd:3543-3561 | pass | test/input/input_test.cpp:2808 |
+| MOUSE-14 | SDL button → set_buttons → 0xFADF active-low (G43) | zxnext.vhd:3560 | pass | test/input/input_test.cpp:2847 |
+| MOUSE-15 | SDL wheel → 4-bit counter mod-16 → 0xFADF[7:4] (G43) | zxnext.vhd:3560 | pass | test/input/input_test.cpp:2879 |
+| MOUSE-13-14-15-SDL | handle_sdl_event routes motion/button/wheel; ignores other | — | pass | test/input/input_test.cpp:2927 |
+| MOUSE-SDL3-WHEEL | wheel counts SDL3 whole detents (integer_y), not the fractional y; FLIPPED negates the same field (GH #57) | zxnext.vhd:3560 | pass | test/input/input_test.cpp:2987 |
+| MOUSE-SDL3-MOTION | sub-unit float motion accumulates across events instead of truncating to nothing (GH #57) | zxnext.vhd:3560 | pass | test/input/input_test.cpp:3010 |
+| MOUSE-16 | reset() clears a held button so it cannot latch across a capture drop (issue #37) | — | pass | test/input/input_test.cpp:3034 |
+| MOUSE-17 | reset() clears EVERY button and the wheel, not just one (issue #37) | — | pass | test/input/input_test.cpp:3050 |
+| FNK-04 | F7 press increments NR 0x09 bits 1:0 (scanlines), readable after the frame edge only (VHDL :5861-5863; eff latch :6701) | zxnext.vhd:5909 | pass | test/input/input_test.cpp:3508 |
+| FNK-05 | F8 gated off (NR 0x06 bit 7 = 0) → NR 0x07 unchanged (VHDL :6347) | — | pass | test/input/input_test.cpp:3530 |
+| FNK-06 | F3 gated off (NR 0x06 bit 5 = 0) → NR 0x05 bit 2 unchanged (VHDL :6342) | — | pass | test/input/input_test.cpp:3553 |
+| FNK-07 | FSM IDLE→MF_ROW_A11→A12→CHECK→DONE→IDLE on M1 tap (VHDL :118-141) | — | pass | test/input/input_test.cpp:3585 |
+| FNK-08X | F8 press leaves NR 0x05 unchanged (row isolation, VHDL :159+:185) | — | pass | test/input/input_test.cpp:3606 |
+| FNK-08 | rows_filtered = 0xF7 in MF_ROW_A11, 0xEF in MF_ROW_A12 (VHDL :159) | — | pass | test/input/input_test.cpp:3627 |
+| SL-KBD-01 | Keyboard membrane matrix restored | — | pass | test/input/input_test.cpp:3712 |
+| SL-KBD-02 | Keyboard extended-key register (NR 0xB0/0xB1) restored | — | pass | test/input/input_test.cpp:3718 |
+| SL-KBD-03 | Keyboard in-flight auto-type queue restored | — | pass | test/input/input_test.cpp:3722 |
+| SL-JOY-01 | Joystick NR 0x05 modes + raw byte restored | — | pass | test/input/input_test.cpp:3743 |
+| SL-JOY-02 | Joystick raw 12-bit connector vectors restored | — | pass | test/input/input_test.cpp:3747 |
+| SL-MOU-01 | Kempston mouse X/Y counters restored | — | pass | test/input/input_test.cpp:3770 |
+| SL-MOU-02 | Kempston mouse buttons/wheel (port 0xFADF) restored | — | pass | test/input/input_test.cpp:3773 |
+| SL-MOU-03 | Kempston mouse NR 0x0A button-reverse + DPI restored | — | pass | test/input/input_test.cpp:3776 |
+| SL-MD6-01 | MD6 FSM state counter restored mid-sequence | — | pass | test/input/input_test.cpp:3798 |
+| SL-MD6-02 | MD6 latched connector words + NR 0xB2 restored | — | pass | test/input/input_test.cpp:3801 |
+| SL-MD6-03 | MD6 six-button-detect flags + seeded latches restored | — | pass | test/input/input_test.cpp:3820 |
+| SL-MD6-04 | MD6 CLK_EN accumulator restored (phase-accurate tick) | — | pass | test/input/input_test.cpp:3840 |
+| SL-MEM-01 | MembraneStick reprogrammed keymap cell restored | — | pass | test/input/input_test.cpp:3863 |
+| SL-MEM-02 | MembraneStick NR 0x28/0x29 sel + auto-inc addr restored | — | pass | test/input/input_test.cpp:3866 |
+| SL-IOM-01 | IoMode NR 0x0B raw byte + pin7 register restored | — | pass | test/input/input_test.cpp:3898 |
+| SL-IOM-02 | IoMode injected UART-TX / joystick-bit5 lines restored | — | pass | test/input/input_test.cpp:3912 |
+| SL-EMU-01 | Emulator::load_state accepts the input sentinel block | — | pass | test/input/input_test.cpp:3946 |
+| SL-EMU-02 | Emulator save/load restores mouse + MD6 + keyboard input | — | pass | test/input/input_test.cpp:3948 |
+| SL-REW-01 | rewind_to_frame restores MD6 FSM + mouse input state | — | pass | test/input/input_test.cpp:3976 |
+| SL-DISP-01 | JoystickDispatcher::resync stops stale bits_ stomping restored vector | — | pass | test/input/input_test.cpp:3998 |
+| SL-DISP-02 | MouseDispatcher::resync stops cumulative wheel shadow stomping restore | — | pass | test/input/input_test.cpp:4011 |
+| SL-DISP-03 | MouseDispatcher::resync stops stale button mask stomping restore | — | pass | test/input/input_test.cpp:4023 |
+| JSRC-D01 | default source is Sdl for both connectors | — | pass | test/input/input_test.cpp:4044 |
+| JSRC-D02 | cursor-key input ignored while source is Sdl | — | pass | test/input/input_test.cpp:4052 |
+| JSRC-D03 | cursor keys drive Kempston1 port 0x1F (R/L/D/U/Fire) | — | pass | test/input/input_test.cpp:4067 |
+| JSRC-D04 | SDL controller input ignored while source is CursorKeys | — | pass | test/input/input_test.cpp:4076 |
+| JSRC-D05 | changing source clears the held vector | — | pass | test/input/input_test.cpp:4085 |
+| JSRC-D06 | cursor keys route to the selected connector (Joy 2) | — | pass | test/input/input_test.cpp:4095 |
+| JSRC-K01 | arrow key drives joystick, not the ZX matrix, in cursor mode | — | pass | test/input/input_test.cpp:4112 |
+| JSRC-K02 | Space is Fire in cursor mode, not the ZX SPACE key | — | pass | test/input/input_test.cpp:4127 |
+| JSRC-K03 | with no cursor target, arrows remain ZX cursor keys | — | pass | test/input/input_test.cpp:4140 |
+| JSRC-K04 | non-arrow keys still reach the ZX matrix in cursor mode | — | pass | test/input/input_test.cpp:4154 |
+| JSRC-E01 | emulator default sources are Sdl/Sdl | — | pass | test/input/input_test.cpp:4162 |
+| JSRC-E02 | setting a connector to CursorKeys sets the keyboard target | — | pass | test/input/input_test.cpp:4169 |
+| JSRC-E03 | only one connector may use cursor keys (mutual exclusion) | — | pass | test/input/input_test.cpp:4178 |
+| JSRC-E04 | source change notifies the frontend callback | — | pass | test/input/input_test.cpp:4193 |
+| JSRC-E05 | refresh re-pushes both connectors to the frontend | — | pass | test/input/input_test.cpp:4202 |
+| JRAW-01 | raw button 0 -> Fire 1 (bit 4) | — | pass | test/input/input_test.cpp:4222 |
+| JRAW-02 | raw button 1 -> Fire 2 (bit 5) | — | pass | test/input/input_test.cpp:4229 |
+| JRAW-03 | raw button 2 -> MD A (bit 6) | — | pass | test/input/input_test.cpp:4236 |
+| JRAW-04 | raw button 3 -> START (bit 7) | — | pass | test/input/input_test.cpp:4246 |
+| JRAW-05 | raw button 4 -> MODE (bit 11) | — | pass | test/input/input_test.cpp:4255 |
+| JRAW-06 | raw buttons past the mapped range are dropped | — | pass | test/input/input_test.cpp:4269 |
+| JRAW-07 | raw button release clears its bit | — | pass | test/input/input_test.cpp:4277 |
+| JRAW-08 | raw axis 0 full negative -> LEFT (bit 1) | — | pass | test/input/input_test.cpp:4285 |
+| JRAW-09 | raw axis 0 full positive -> RIGHT (bit 0) | — | pass | test/input/input_test.cpp:4292 |
+| JRAW-10 | raw axis 1 full negative -> UP (bit 3) | — | pass | test/input/input_test.cpp:4300 |
+| JRAW-11 | raw axis 1 full positive -> DOWN (bit 2) | — | pass | test/input/input_test.cpp:4307 |
+| JRAW-12 | raw axis returning to the deadzone clears its bit | — | pass | test/input/input_test.cpp:4315 |
+| JRAW-13 | raw axis inside the deadzone does not fire | — | pass | test/input/input_test.cpp:4324 |
+| JRAW-14 | raw axes past index 1 are unmapped | — | pass | test/input/input_test.cpp:4332 |
+| JRAW-15 | raw hat UP -> bit 3 | — | pass | test/input/input_test.cpp:4339 |
+| JRAW-16 | raw hat diagonal sets both directions | — | pass | test/input/input_test.cpp:4348 |
+| JRAW-17 | raw hat centred clears every direction | — | pass | test/input/input_test.cpp:4356 |
+| JRAW-18 | raw hat centred leaves button bits untouched | — | pass | test/input/input_test.cpp:4365 |
+| JRAW-19 | raw button gated out on a CursorKeys connector | — | pass | test/input/input_test.cpp:4373 |
+| JRAW-20 | raw axis gated out on a CursorKeys connector | — | pass | test/input/input_test.cpp:4381 |
+| JRAW-21 | raw hat gated out on a CursorKeys connector | — | pass | test/input/input_test.cpp:4389 |
+| JRAW-22 | out-of-range connector index is ignored on raw paths | — | pass | test/input/input_test.cpp:4397 |
+| JRAW-23 | raw input on connector 1 drives the right lane | — | pass | test/input/input_test.cpp:4405 |
+| JRAW-24 | SDL_EVENT_JOYSTICK_BUTTON_DOWN routes via the instance map | — | pass | test/input/input_test.cpp:4417 |
+| JRAW-25 | SDL_EVENT_JOYSTICK_BUTTON_UP clears the bit | — | pass | test/input/input_test.cpp:4431 |
+| JRAW-26 | SDL_EVENT_JOYSTICK_AXIS_MOTION routes to the mapped connector | — | pass | test/input/input_test.cpp:4442 |
+| JRAW-27 | SDL_EVENT_JOYSTICK_HAT_MOTION routes to the mapped connector | — | pass | test/input/input_test.cpp:4453 |
+| JRAW-28 | raw event from an unmapped device is refused | — | pass | test/input/input_test.cpp:4465 |
+| JRAW-29 | instance id 0 (SDL3's invalid id) is never mapped nor resolved, and does not consume a device-map entry (GH #57) | — | pass | test/input/input_test.cpp:4501 |
+| JRAW-30 | unmapping frees the device-map entry for reuse (the free marker is 0, representable in SDL3's Uint32 id) and leaves the freed entries carrying no connector (GH #57) | — | pass | test/input/input_test.cpp:4531 |
+| JRAW-31 | mapping the invalid id 0 leaves no device-map entry that is both free and assigned to a connector (GH #57) | — | pass | test/input/input_test.cpp:4556 |
+| JRAW-32 | the invalid id matches no free entry and cannot disturb a live mapping (GH #57) | — | pass | test/input/input_test.cpp:4575 |
+| JMRG-01 | hat release keeps a direction the analogue stick still holds | — | pass | test/input/input_test.cpp:4605 |
+| JMRG-02 | D-pad release keeps a direction the analogue stick still holds | — | pass | test/input/input_test.cpp:4614 |
+| JMRG-03 | centring one hat does not cancel another still held | — | pass | test/input/input_test.cpp:4622 |
+| JMRG-04 | two hats OR their directions together | — | pass | test/input/input_test.cpp:4630 |
+| JMRG-05 | shared direction survives while one source still holds it | — | pass | test/input/input_test.cpp:4640 |
+| JMRG-06 | direction clears once every source has released it | — | pass | test/input/input_test.cpp:4651 |
+| JMRG-07 | hat index past MAX_HATS is ignored, not aliased to hat 0 | — | pass | test/input/input_test.cpp:4658 |
+| JMRG-08 | direction churn leaves the fire button held | — | pass | test/input/input_test.cpp:4668 |
+| JMRG-09 | switching source clears every held direction source | — | pass | test/input/input_test.cpp:4679 |
+| JMRG-10 | cursor direction release leaves fire held | — | pass | test/input/input_test.cpp:4693 |
+| JRST-01 | D-pad release after resync clears a restored direction | — | pass | test/input/input_test.cpp:4718 |
+| JRST-02 | hat centring after resync clears a restored direction | — | pass | test/input/input_test.cpp:4728 |
+| JRST-03 | cursor-key release after resync clears a restored direction | — | pass | test/input/input_test.cpp:4738 |
+| JRST-04 | axis returning to centre after resync clears it too | — | pass | test/input/input_test.cpp:4747 |
+| JRST-05 | fire press after resync preserves the restored direction | — | pass | test/input/input_test.cpp:4758 |
+| JRST-06 | a live direction supersedes the restored guess entirely | — | pass | test/input/input_test.cpp:4769 |
+| JRST-07 | D-pad release supersedes only its own pair, UP survives | — | pass | test/input/input_test.cpp:4789 |
+| JRST-08 | X-axis centring leaves a restored UP untouched | — | pass | test/input/input_test.cpp:4798 |
+| JRST-09 | cursor-key release supersedes only its own pair | — | pass | test/input/input_test.cpp:4808 |
+| JRST-10 | a hat speaks for both pairs, so it supersedes all four | — | pass | test/input/input_test.cpp:4820 |
+| JRST-11 | pressing the opposing direction replaces its pair only | — | pass | test/input/input_test.cpp:4830 |
+| JRST-12 | accepted: a second hat's event clobbers all restored bits | — | pass | test/input/input_test.cpp:4854 |
+| T77J-01 | raw btn0 → B, port 0x1F bit4, Kempston1 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:4902 |
+| T77J-02 | raw btn0 → B, port 0x1F bit4, Md3Left | — | pass | test/input/input_test.cpp:4904 |
+| T77J-03 | raw btn1 → C, port 0x1F bit5, Kempston1 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:4911 |
+| T77J-04 | raw btn1 → C, port 0x1F bit5, Md3Left | — | pass | test/input/input_test.cpp:4913 |
+| T77J-05 | raw btn2 → A, port 0x1F bit6 set in Md3Left | zxnext.vhd:3477-3478 | pass | test/input/input_test.cpp:4923 |
+| T77J-06 | raw btn2 → A, port 0x1F bit6 GATED OFF in Kempston1 | — | pass | test/input/input_test.cpp:4925 |
+| T77J-07 | raw btn3 → START, port 0x1F bit7 set in Md3Left | — | pass | test/input/input_test.cpp:4934 |
+| T77J-08 | raw btn3 → START, port 0x1F bit7 GATED OFF in Kempston1 | — | pass | test/input/input_test.cpp:4936 |
+| T77J-09 | raw btn0..3 → distinct bits 7:4 (0xF0) in Md3Left | — | pass | test/input/input_test.cpp:4948 |
+| T77J-10 | raw btn4 → MODE, bit 11 of the 12-bit vector | zxnext.vhd:3477-3479 | pass | test/input/input_test.cpp:4959 |
+| T77J-11 | raw btn4 (MODE) reaches no port in either mode | — | pass | test/input/input_test.cpp:4963 |
+| T77J-12 | raw btn3 release clears START | — | pass | test/input/input_test.cpp:4976 |
+| T77J-13 | controller Y → START, bit7 set in Md3Left | — | pass | test/input/input_test.cpp:4986 |
+| T77J-14 | controller Y → START, bit7 GATED OFF in Kempston1 | — | pass | test/input/input_test.cpp:4988 |
+| T77J-15 | controller A/B/X/Y → bits 7:4 (0xF0) in Md3Left | — | pass | test/input/input_test.cpp:5002 |
+| T77J-16 | controller BACK → MODE, bit 11 of the vector | — | pass | test/input/input_test.cpp:5012 |
+| T77J-17 | controller START still → START bit7 in Md3Left | — | pass | test/input/input_test.cpp:5019 |
+| T77J-18 | raw btn3 → START on port 0x37, Md3Right | zxnext.vhd:3489-3494 | pass | test/input/input_test.cpp:5031 |
+| T77K-01 | Tab → EXTEND MODE = CS + SYM SHIFT | — | pass | test/input/input_test.cpp:5082 |
+| T77K-19 | Esc → BREAK = CS + SPACE | — | pass | test/input/input_test.cpp:5086 |
+| T77K-02 | grave (key left of 1) → TRUE VIDEO = CS + 3 | — | pass | test/input/input_test.cpp:5089 |
+| T77K-03 | Alt+grave → INV VIDEO = CS + 4 | — | pass | test/input/input_test.cpp:5092 |
+| T77K-05 | Alt+E → EDIT = CS + 1 | — | pass | test/input/input_test.cpp:5095 |
+| T77K-20 | Alt+G → GRAPH = CS + 9 | — | pass | test/input/input_test.cpp:5098 |
+| T77K-21 | Alt+C → CAPS LOCK = CS + 2 | — | pass | test/input/input_test.cpp:5101 |
+| T77K-06 | apostrophe → '"' = SS + P | — | pass | test/input/input_test.cpp:5104 |
+| T77K-07 | semicolon → ';' = SS + O | — | pass | test/input/input_test.cpp:5107 |
+| T77K-08 | period → '.' = SS + M | — | pass | test/input/input_test.cpp:5110 |
+| T77K-09 | comma → ',' = SS + N | — | pass | test/input/input_test.cpp:5113 |
+| T77K-10 | Backspace → DELETE = CS + 0 (unchanged) | — | pass | test/input/input_test.cpp:5119 |
+| T77K-11 | Alt+E does not leak the plain ZX 'E' key | — | pass | test/input/input_test.cpp:5129 |
+| T77K-22 | Alt+G does not leak the plain ZX 'G' key | — | pass | test/input/input_test.cpp:5140 |
+| T77K-23 | Alt+C does not leak the plain ZX 'C' key | — | pass | test/input/input_test.cpp:5150 |
+| T77K-12 | plain E is still ZX 'E' and asserts no CS/1 | — | pass | test/input/input_test.cpp:5162 |
+| T77K-13 | Alt released before key still clears CS+1 | — | pass | test/input/input_test.cpp:5178 |
+| T77K-14 | Alt pressed mid-hold still clears the plain key | — | pass | test/input/input_test.cpp:5191 |
+| T77K-15 | Alt alone presses no ZX key | — | pass | test/input/input_test.cpp:5204 |
+| T77K-16 | RAlt+E → EDIT = CS + 1, same as LAlt | — | pass | test/input/input_test.cpp:5213 |
+| T77K-17 | reset clears held Alt; E resolves plain again | — | pass | test/input/input_test.cpp:5229 |
+| T77K-18 | cursor-target arrows still bypass the ZX matrix | — | pass | test/input/input_test.cpp:5247 |
+| GH115-01 | LShift → CAPS SHIFT (row 0 col 0) | keymaps.vhd:83,113, ps2_keyb.vhd:198 | pass | test/input/input_test.cpp:5325 |
+| GH115-02 | RShift → CAPS SHIFT (row 0 col 0) | keymaps.vhd:83,131, ps2_keyb.vhd:198 | pass | test/input/input_test.cpp:5330 |
+| GH115-03 | LCtrl → SYMBOL SHIFT (row 7 col 1) | keymaps.vhd:84,113, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5335 |
+| GH115-04 | RCtrl → SYMBOL SHIFT (row 7 col 1) | keymaps.vhd:84,165, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5340 |
+| GH115-05 | Shift leaves SYM SHIFT alone and Ctrl leaves CAPS SHIFT alone | keymaps.vhd:83-84, ps2_keyb.vhd:197-198 | pass | test/input/input_test.cpp:5357 |
+| GH115-06 | CapsLock → CAPS LOCK = CS + 2 | keymaps.vhd:43,89,131, membrane.vhd:236-237 | pass | test/input/input_test.cpp:5370 |
+| GH115-07 | backslash → INV VIDEO = CS + 4 | keymaps.vhd:44,94,131, membrane.vhd:236-237 | pass | test/input/input_test.cpp:5375 |
+| GH115-08 | slash → '/' = SS + V | keymaps.vhd:42,127, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5380 |
+| GH115-09 | minus → '-' = SS + J | keymaps.vhd:48,127, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5385 |
+| GH115-10 | equals → '=' = SS + L | keymaps.vhd:48,129, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5390 |
+| GH115-11 | CapsLock/backslash also report on NR 0xB1 | keymaps.vhd:43-44, membrane.vhd:253 | pass | test/input/input_test.cpp:5407 |
 
 ## Rewind — `test/rewind/rewind_test.cpp`
 
