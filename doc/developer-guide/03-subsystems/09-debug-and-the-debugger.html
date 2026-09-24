@@ -1908,7 +1908,7 @@ nothing else — panels, menus, the debugger window.</p>
 debug state permanently without dragging Qt into the core. And because the
 backend is present in <em>every</em> build, <code>--magic-breakpoint</code> and <code>--trace</code> are
 plain CLI flags rather than GUI-only features.</p>
-<p>One caveat about "pure": <code>jnext_debug</code> does link SDL2, because
+<p>One caveat about "pure": <code>jnext_debug</code> does link SDL3, because
 <code>rewind_buffer.cpp</code> includes <code>core/emulator.h</code>, which reaches <code>input/keyboard.h</code>
 and thence <code>SDL.h</code>. The rule the split enforces is <em>no GUI toolkit</em>, not <em>no
 dependencies</em>.</p>

@@ -11,14 +11,14 @@ a Mac.
 To build the emulator on Fedora and its relatives:
 
 ```console
-$ sudo dnf install SDL2-devel cmake gcc-c++ qt6-qtbase-devel libpng-devel \
+$ sudo dnf install SDL3-devel cmake gcc-c++ qt6-qtbase-devel libpng-devel \
                    zlib-devel libcurl-devel openssl-devel
 ```
 
 On Debian and Ubuntu:
 
 ```console
-$ sudo apt install libsdl2-dev cmake g++ qt6-base-dev libpng-dev \
+$ sudo apt install libsdl3-dev cmake g++ qt6-base-dev libpng-dev \
                    zlib1g-dev libcurl4-openssl-dev libssl-dev
 ```
 

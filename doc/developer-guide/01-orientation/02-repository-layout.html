@@ -1985,7 +1985,7 @@ makes the unit suites and the regression suite possible.</p>
 <p>Qt is confined to <code>src/gui</code> and <code>src/debugger</code>. SDL is owned by <code>src/platform</code>
 — and, to be honest about it, by four headers in <code>src/input</code>: <code>keyboard.h</code>,
 <code>gamepad_host.h</code>, <code>joystick_dispatcher.h</code> and <code>mouse_dispatcher.h</code> all include
-<code>&lt;SDL2/SDL.h&gt;</code>. The keyboard case is structural rather than accidental.
+<code>&lt;SDL3/SDL.h&gt;</code>. The keyboard case is structural rather than accidental.
 <code>Keyboard::set_key()</code> takes an <code>SDL_Scancode</code>, which makes SDL's scancode enum
 the project's vocabulary for host keys; the Qt frontend translates its own key
 events into that vocabulary rather than introducing a second one. Traffic in

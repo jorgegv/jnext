@@ -28,7 +28,7 @@ compensate for an artefact of emulating a frame as an indivisible unit.
 **Knowing which group a class is in tells you what its correctness criterion
 is**: the VHDL, or a documented host policy. Nothing else does.
 
-`src/input` links SDL2 even in the Qt build, because SDL scancodes are the
+`src/input` links SDL3 even in the Qt build, because SDL scancodes are the
 project's canonical host-key type. `MainWindow::qt_key_to_sdl()` converts Qt
 keys into them, so both frontends feed `Keyboard::set_key()` identically and
 neither can drift from the other.

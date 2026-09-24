@@ -101,7 +101,7 @@ All three drive the same `Emulator` and differ only in what surrounds it.
   kept only for audio output. The debugger (`src/debugger/`) hangs off this
   frontend.
 - **SDL-only** — `src/platform/sdl_app.*`, the fallback when `ENABLE_QT_UI=OFF`.
-  Window, input and audio all go through SDL2.
+  Window, input and audio all go through SDL3.
 - **Headless** — `src/platform/headless_app.cpp`, selected at run time by
   `--headless` in either build. It opens no window, no audio device and no host
   input, runs uncapped instead of paced to real time, and schedules everything
