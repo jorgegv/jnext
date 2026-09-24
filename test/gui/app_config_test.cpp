@@ -417,88 +417,126 @@ static void test_debug_keys_grammar() {
     set_group("DK");
     using namespace jnext::dbgkeys;
 
-    Combo c;
-    std::string why;
+    // Parsed on its own statement, never inside the check() call: check()'s
+    // arguments are unsequenced, so a detail string computed from a combo the
+    // CONDITION fills can be printed stale. The verdicts were never affected;
+    // the diagnostics were, and a misleading failure message is a bug in a
+    // test.
+    struct P { bool ok; Combo c; std::string why; };
+    auto P_ = [](const char* text) {
+        P r; r.ok = parse_combo(text, r.c, r.why); return r;
+    };
 
-    check("DK-10", "a bare function key parses",
-          parse_combo("F7", c, why) && c.mods == MOD_NONE && c.key == Key::F7, why);
-
-    check("DK-11", "modifiers parse in any case and with stray spaces",
-          parse_combo("  cTRl + shift + f10 ", c, why)
-              && c.mods == (MOD_CTRL | MOD_SHIFT) && c.key == Key::F10, why);
-
-    check("DK-12", "rendering is canonical regardless of how it was typed",
-          parse_combo("shift+ctrl+F10", c, why) && render_combo(c) == "Ctrl+Shift+F10",
-          render_combo(c));
-
-    check("DK-13", "'none' and the empty string both mean unbound",
-          parse_combo("none", c, why) && !c.bound()
-              && parse_combo("", c, why) && !c.bound(), why);
-
+    {
+        const P r = P_("F7");
+        check("DK-10", "a bare function key parses",
+              r.ok && r.c.mods == MOD_NONE && r.c.key == Key::F7, r.why);
+    }
+    {
+        const P r = P_("  cTRl + shift + f10 ");
+        check("DK-11", "modifiers parse in any case and with stray spaces",
+              r.ok && r.c.mods == (MOD_CTRL | MOD_SHIFT) && r.c.key == Key::F10, r.why);
+    }
+    // Both halves matter. DK-12 pins that the order is NORMALISED at all;
+    // DK-19 pins WHICH order, with all four modifiers present — without it,
+    // swapping two of them inside render_combo() is invisible, because no
+    // other row uses a combination carrying more than two.
+    {
+        const P r = P_("shift+ctrl+F10");
+        check("DK-12", "rendering is canonical regardless of how it was typed",
+              r.ok && render_combo(r.c) == "Ctrl+Shift+F10", render_combo(r.c));
+    }
+    {
+        const P a = P_("none");
+        const P b = P_("");
+        check("DK-13", "'none' and the empty string both mean unbound",
+              a.ok && !a.c.bound() && b.ok && !b.c.bound(), a.why + b.why);
+    }
     check("DK-14", "an unbound combination renders as 'none'",
           render_combo(Combo{}) == "none", render_combo(Combo{}));
-
-    check("DK-15", "a key outside the vocabulary is refused BY NAME",
-          !parse_combo("F13", c, why) && why.find("F13") != std::string::npos, why);
-
-    check("DK-16", "an unknown modifier is refused by name",
-          !parse_combo("Hyper+F5", c, why) && why.find("Hyper") != std::string::npos, why);
-
-    check("DK-17", "a trailing '+' with no key is refused",
-          !parse_combo("Ctrl+", c, why), why);
+    {
+        const P r = P_("F13");
+        check("DK-15", "a key outside the vocabulary is refused BY NAME",
+              !r.ok && r.why.find("F13") != std::string::npos, r.why);
+    }
+    {
+        const P r = P_("Hyper+F5");
+        check("DK-16", "an unknown modifier is refused by name",
+              !r.ok && r.why.find("Hyper") != std::string::npos, r.why);
+    }
+    {
+        const P r = P_("Ctrl+");
+        check("DK-17", "a trailing '+' with no key is refused", !r.ok, r.why);
+    }
 
     // Every accepted text renders to something that parses back to the same
     // combination — the property the config file's round-trip depends on.
-    bool stable = true;
-    std::string bad;
-    int probed = 0;
-    for (int k = 1; k <= static_cast<int>(Key::Right) && stable; ++k) {
-        for (uint8_t m = 0; m < 16 && stable; ++m) {
-            const Combo probe{m, static_cast<Key>(k)};
-            Combo back;
-            ++probed;
-            if (!parse_combo(render_combo(probe), back, why) || !(back == probe)) {
-                stable = false;
-                bad = render_combo(probe);
+    {
+        bool stable = true;
+        std::string bad;
+        int probed = 0;
+        for (int k = 1; k <= static_cast<int>(Key::Right) && stable; ++k) {
+            for (uint8_t m = 0; m < 16 && stable; ++m) {
+                const Combo probe{m, static_cast<Key>(k)};
+                Combo back;
+                std::string why;
+                ++probed;
+                if (!parse_combo(render_combo(probe), back, why) || !(back == probe)) {
+                    stable = false;
+                    bad = render_combo(probe);
+                }
             }
         }
+        check("DK-18", "render -> parse is the identity for every combination",
+              stable && probed == static_cast<int>(Key::Right) * 16,
+              bad.empty() ? ("probed " + std::to_string(probed)) : bad);
     }
-    check("DK-18", "render -> parse is the identity for every combination",
-          stable && probed == static_cast<int>(Key::Right) * 16,
-          bad.empty() ? ("probed " + std::to_string(probed)) : bad);
+    {
+        const P r = P_("meta+shift+alt+ctrl+F1");
+        check("DK-19", "the modifier order is Ctrl, Alt, Shift, Meta",
+              r.ok && render_combo(r.c) == "Ctrl+Alt+Shift+Meta+F1", render_combo(r.c));
+    }
 }
 
 static void test_debug_keys_validation() {
     set_group("DK");
     using namespace jnext::dbgkeys;
 
-    Combo c;
-    std::string why;
+    // Same shape as above: parse, then validate, then check — so the reason
+    // printed on a failure is the reason for THIS row.
+    struct V { bool parsed; bool legal; std::string why; };
+    auto V_ = [](const char* text) {
+        V r;
+        Combo c;
+        r.parsed = parse_combo(text, c, r.why);
+        r.legal  = r.parsed && validate_combo(c, r.why);
+        return r;
+    };
 
-    // A window-wide bare letter is consumed by Qt's shortcut map before the
-    // focused panel sees it — and the memory panel types hex with bare 0-9/A-F.
-    check("DK-20", "a bare letter is refused as a binding",
-          parse_combo("K", c, why) && !validate_combo(c, why), why);
-    check("DK-21", "a bare arrow / Home / Return is refused as a binding",
-          parse_combo("Home", c, why) && !validate_combo(c, why), why);
-    check("DK-22", "Shift alone does not make a letter bindable",
-          parse_combo("Shift+K", c, why) && !validate_combo(c, why), why);
-    check("DK-23", "Ctrl+letter IS allowed (the debugger never feeds the guest)",
-          parse_combo("Ctrl+K", c, why) && validate_combo(c, why), why);
-    check("DK-24", "a bare function key is allowed",
-          parse_combo("F7", c, why) && validate_combo(c, why), why);
-    check("DK-25", "Shift + a function key is allowed",
-          parse_combo("Shift+F7", c, why) && validate_combo(c, why), why);
-    check("DK-26", "F11 is allowed — a separate window has its own shortcut map",
-          parse_combo("F11", c, why) && validate_combo(c, why), why);
-    check("DK-27", "Alt+letter is refused — the debugger's menu bar owns it",
-          parse_combo("Alt+D", c, why) && !validate_combo(c, why), why);
-    check("DK-28", "Alt + a function key is allowed",
-          parse_combo("Alt+F5", c, why) && validate_combo(c, why), why);
-    check("DK-29", "Ctrl+C is refused — the disassembly panel's Copy",
-          parse_combo("Ctrl+C", c, why) && !validate_combo(c, why), why);
-    check("DK-30", "Ctrl+A is refused — the disassembly panel's Select All",
-          parse_combo("Ctrl+A", c, why) && !validate_combo(c, why), why);
+    struct Row { const char* id; const char* text; bool want_legal; const char* desc; };
+    const Row rows[] = {
+        { "DK-20", "K",        false, "a bare letter is refused as a binding" },
+        { "DK-21", "Home",     false, "a bare arrow / Home / Return is refused as a binding" },
+        { "DK-22", "Shift+K",  false, "Shift alone does not make a letter bindable" },
+        { "DK-23", "Ctrl+K",   true,  "Ctrl+letter IS allowed (the debugger never feeds the guest)" },
+        { "DK-24", "F7",       true,  "a bare function key is allowed" },
+        { "DK-25", "Shift+F7", true,  "Shift + a function key is allowed" },
+        { "DK-26", "F11",      true,  "F11 is allowed — a separate window has its own shortcut map" },
+        { "DK-27", "Alt+D",    false, "Alt+letter is refused — the debugger's menu bar owns it" },
+        { "DK-28", "Alt+F5",   true,  "Alt + a function key is allowed" },
+        { "DK-29", "Ctrl+C",   false, "Ctrl+C is refused — the disassembly panel's Copy" },
+        { "DK-30", "Ctrl+A",   false, "Ctrl+A is refused — the disassembly panel's Select All" },
+    };
+    for (const Row& r : rows) {
+        const V v = V_(r.text);
+        // `parsed` is part of every condition on purpose: a row whose text
+        // stopped parsing would otherwise "pass" its refusal for the wrong
+        // reason.
+        check(r.id, r.desc, v.parsed && v.legal == r.want_legal,
+              std::string(r.text) + ": " + (v.legal ? "accepted" : "refused: " + v.why));
+    }
+
+    std::string why;
     check("DK-31", "unbound is always a legal state",
           validate_combo(Combo{}, why), why);
 }

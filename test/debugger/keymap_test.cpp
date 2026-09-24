@@ -10,6 +10,9 @@
 //   DKW  the debugger window's actions carry the keymap's combinations, its
 //        toolbar captions quote the SAME combinations, and pressing a rebound
 //        chord fires the action while the chord it replaced does not.
+//   DKP  the Preferences tab: a capture that is illegal, or that another action
+//        already holds, is REFUSED with a reason — and an untouched dialog
+//        hands the bindings back unchanged, which is the GH #25 wipe hazard.
 //   DKM  the emulator window forwards the five execution keys FROM THE KEYMAP.
 //        Before GH #1 that block switched on five hard-coded F-keys, so a
 //        rebind half-applied: the new chord worked in the debugger while the
@@ -59,6 +62,8 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "gui/main_window.h"
+#include "gui/preferences_dialog.h"
+#include "gui/shortcut_capture_button.h"
 
 using namespace jnext::dbgkeys;
 
@@ -346,6 +351,87 @@ void test_window_no_ambiguity() {
           seen.join(QStringLiteral(",")).toStdString());
 }
 
+// ── DKP: the Preferences tab ──────────────────────────────────────────────
+
+/// Drive a real chord into a real capture button, the way a user does.
+void capture_into(ShortcutCaptureButton* b, const Combo& c) {
+    b->start_capture();
+    QKeyEvent ev(QEvent::KeyPress, to_qt_key(c.key), to_qt_mods(c.mods));
+    QApplication::sendEvent(b, &ev);
+}
+
+void test_preferences_tab() {
+    AppConfigData before;   // every field at its default, keymap included
+    PreferencesDialog dlg(before);
+    const auto buttons = dlg.findChildren<ShortcutCaptureButton*>();
+
+    if (buttons.size() != ACTION_COUNT) {
+        for (const char* id : {"DKP-01", "DKP-02", "DKP-03", "DKP-04", "DKP-05"})
+            check(id, "the Debugger Keys tab", false,
+                  "found " + std::to_string(buttons.size()) + " capture buttons");
+        return;
+    }
+
+    // The captured result is only observable through what the dialog would
+    // hand MainWindow, so the rows read apply_requested's payload — the same
+    // AppConfigData OK and Apply emit.
+    AppConfigData emitted;
+    int emits = 0;
+    QObject::connect(&dlg, &PreferencesDialog::apply_requested, &dlg,
+                     [&emitted, &emits](const AppConfigData& cfg) {
+                         emitted = cfg;
+                         ++emits;
+                     });
+    auto press_apply = [&dlg]() {
+        for (QPushButton* b : dlg.findChildren<QPushButton*>())
+            if (b->text().remove(QLatin1Char('&')) == QStringLiteral("Apply"))
+                b->click();
+    };
+
+    // DKP-05 first, and it is the one that matters most: a dialog nobody
+    // touched must hand the bindings back IDENTICAL. collect() builds a fresh
+    // AppConfigData, so a field it forgets is silently reset the moment the
+    // user presses OK — which is exactly what happened to the ESP settings
+    // (GH #25) before they had a page.
+    press_apply();
+    check("DKP-05", "an untouched dialog hands the bindings back unchanged",
+          emits == 1 && emitted.debug_keys == before.debug_keys,
+          "emits=" + std::to_string(emits));
+
+    const int over = static_cast<int>(Action::StepOver);
+    capture_into(buttons[over], parsed("F10"));
+    press_apply();
+    check("DKP-01", "a legal capture reaches the collected settings",
+          render_combo(emitted.debug_keys.combo(Action::StepOver)) == "F10",
+          render_combo(emitted.debug_keys.combo(Action::StepOver)));
+
+    // F5 belongs to Run. Refused, not taken over: Qt fires two identical
+    // sequences round-robin and breaks both (GH #124).
+    capture_into(buttons[over], parsed("F5"));
+    press_apply();
+    check("DKP-02", "a capture another action already holds is refused",
+          render_combo(emitted.debug_keys.combo(Action::StepOver)) == "F10"
+              && render_combo(emitted.debug_keys.combo(Action::Run)) == "F5",
+          render_combo(emitted.debug_keys.combo(Action::StepOver)) + "/"
+              + render_combo(emitted.debug_keys.combo(Action::Run)));
+
+    // A bare letter would be taken from whichever panel has focus.
+    capture_into(buttons[over], parsed("K"));
+    press_apply();
+    check("DKP-03", "an illegal capture is refused",
+          render_combo(emitted.debug_keys.combo(Action::StepOver)) == "F10",
+          render_combo(emitted.debug_keys.combo(Action::StepOver)));
+
+    for (QPushButton* b : dlg.findChildren<QPushButton*>())
+        if (b->text().remove(QLatin1Char('&'))
+                == QStringLiteral("Reset All to Defaults"))
+            b->click();
+    press_apply();
+    check("DKP-04", "Reset All to Defaults restores every binding",
+          emitted.debug_keys == before.debug_keys,
+          render_combo(emitted.debug_keys.combo(Action::StepOver)));
+}
+
 // ── DKM: the emulator window's forwarding ─────────────────────────────────
 
 void test_main_window_forwarding() {
@@ -445,6 +531,7 @@ int main(int argc, char** argv) {
     test_window_defaults();
     test_window_rebind();
     test_window_no_ambiguity();
+    test_preferences_tab();
     test_main_window_forwarding();
     test_main_window_pushes_keymap();
 
