@@ -20,6 +20,8 @@
 #include "memory/ram.h"
 #include "peripheral/dma.h"
 #include "peripheral/divmmc.h"
+#include "peripheral/multiface.h"
+#include "core/warm_start_cache.h"
 #include "input/md6_connector_x2.h"
 #include "input/membrane_stick.h"
 #include "input/keyboard.h"
@@ -1618,8 +1620,8 @@ static int test_rewind_across_soft_reset()
 // re-extracted after every subsystem and `cmp`ed against a pre-migration
 // image, 2 292 965 bytes, clean each time. That gate is a one-shot scaffold —
 // it needs a pre-migration build to have produced the golden — so it cannot
-// be a row here, and §17.0 forbids committing the golden as a fixture now
-// (S5b is the stage that re-baselines and pins it).
+// be a row here. S5b then re-baselined that stream deliberately; its own rows
+// are Test 23, and the two re-baselined lengths are pinned there.
 //
 // What CAN be a row, and is what the gate leaves behind, is the LAYOUT the
 // gate proved: which fields each subsystem declares, in which order, at which
@@ -2425,7 +2427,14 @@ static int test_s5_descriptor_layout()
               "pre-migration golden's sentinel map measures");
     }
 
-    // ── divmmc — block 18 — the 128 KB window inline, as S5b will change: 131089 bytes ──
+    // ── divmmc — block 18 — 131 089 bytes DECLARED, 17 in an Emulator ──
+    //
+    // `RecordDesc` records the DECLARATION, and the declaration still names a
+    // 131 072-byte window: that is what the field IS, and it is what the JSON
+    // encoding writes a reference TO. What S5b changed is the binary
+    // realisation, which emits no bytes for it at machine level — so this
+    // width is the pre-S5b block length and the standalone one, while an
+    // Emulator-driven DivMmc block is 17 bytes (S5B-DIVMMC-BLOCK).
     {
         static const char* const want[] = {
             "bool enabled 1",
@@ -2458,7 +2467,9 @@ static int test_s5_descriptor_layout()
               "carries, in that order");
         check("S5-WIDTH-DIVMMC", rec.width() == 131089u,
               "the declaration is exactly as wide as the block the "
-              "pre-migration golden's sentinel map measures");
+              "pre-migration golden's sentinel map measured — which since "
+              "S5b is the STANDALONE block width, the machine-level one "
+              "being 17 because the window became a reference (§17.0)");
     }
 
     // ── beeper — block 19: 3 bytes ──
@@ -2669,7 +2680,12 @@ static int test_s5_descriptor_layout()
               "pre-migration golden's sentinel map measures");
     }
 
-    // ── multiface — the multiface block, less the presence byte before it: 8200 bytes ──
+    // ── multiface — the block less its presence byte: 8200 bytes on a 48K ──
+    //
+    // `emu` is a 48K, where nothing calls `set_ram_backing` and the private
+    // array IS the store, so the RAM member is declared and the width is the
+    // pre-S5b one. On the Next the member is absent entirely and the block is
+    // 8 bytes — S5b's one machine-dependent width (S5B-MF-NEXT-ABSENT).
     {
         static const char* const want[] = {
             "bool enabled 1",
@@ -4265,6 +4281,221 @@ static int test_s5_restore_behaviour()
     return 0;
 }
 
+// ── Test 23: GH #27 S5b — the duplicated RAM is gone ──────────────────────
+//
+// D3 and D4 (design §4.3, §17.0): 131 072 + 8 192 bytes travelled in every
+// snapshot that did not need to, 6.1 % of every rewind slot. The DivMMC
+// window is `Ram` page 16 onwards and the `ram` block already carries it; the
+// Multiface private array is, on the Next, eight kilobytes of zeros whose live
+// counterpart is `Ram` page 0x0B. S5b stops writing both.
+//
+// ── WHY THESE ROWS AND NOT THE GOLDEN ────────────────────────────────────
+//
+// The re-baselined golden was verified once, by hand, at the commit: the new
+// 2 153 701-byte stream is the old 2 292 965-byte one with exactly two
+// contiguous ranges excised and every other byte identical IN PLACE —
+// [2 152 291, 2 283 363) and [2 283 678, 2 291 870). Both were proved
+// redundant BEFORE the change, on the pre-S5b golden: the first was
+// byte-identical to that same stream's `Ram` page 16 at offset 131 096 across
+// all 131 072 bytes, and the second was entirely zero. That check needs a
+// pre-S5b build to have produced the old image, so it cannot be a row here
+// any more than the §17.1 gate could be.
+//
+// What CAN be a row is what the check leaves behind: the two re-baselined
+// LENGTHS, the two block widths either side of the machine-level boundary,
+// and — the ones that matter — that the bytes still arrive, through `Ram`,
+// after a whole-machine restore. A shorter stream that loses state would pass
+// a length row and fail these.
+static int test_s5b_duplicated_ram_removed()
+{
+    printf("\n--- Test 23: GH #27 S5b duplicated RAM removed ---\n");
+
+    // §17.0's two numbers. The Next differs from the other three by exactly
+    // the Multiface array, and by nothing else: on 48K/128K/+3 there is no
+    // backing, so that array IS the store and still travels (§4.3(2)).
+    {
+        struct { MachineType type; const char* name; size_t want; } cases[] = {
+            { MachineType::ZXN_ISSUE2, "next",   2153701 },
+            { MachineType::ZX48K,      "48k",    2161893 },
+            { MachineType::ZX128K,     "128k",   2161893 },
+            { MachineType::ZX_PLUS3,   "plus3",  2161893 },
+        };
+        bool all_ok = true;
+        std::string detail;
+        for (const auto& c : cases) {
+            Emulator emu;
+            EmulatorConfig cfg;
+            cfg.type = c.type;
+            emu.init(cfg);
+            StateWriter measure;
+            emu.save_state(measure);
+            if (measure.position() != c.want) {
+                all_ok = false;
+                detail += std::string(c.name) + "=" +
+                          std::to_string(measure.position()) + " (want " +
+                          std::to_string(c.want) + ") ";
+            }
+        }
+        if (!all_ok) fprintf(stderr, "  JNSX-S5B-LENGTHS: %s\n", detail.c_str());
+        check("JNSX-S5B-LENGTHS", all_ok,
+              "the re-baselined stream is 2 153 701 bytes on the Next and "
+              "2 161 893 on 48K/128K/+3 — the one deliberate change to the "
+              "byte stream is a number in a test rather than a fact in a "
+              "commit message, and the machine-dependence is exactly the "
+              "Multiface array and nothing else");
+    }
+
+    // The DivMMC block, either side of the machine-level boundary. 17 bytes
+    // of scalars at machine level; standalone the 128 KB is the only copy of
+    // itself and still travels, which is what keeps divmmc_test row DA-09 a
+    // round-trip rather than a silent no-op.
+    {
+        Emulator emu;
+        build_emulator(emu, 2);
+        StateWriter mw;
+        emu.divmmc().save_state(mw);
+        const size_t backed = mw.position();
+
+        DivMmc bare;                      // no set_ram_backing()
+        StateWriter sw;
+        bare.save_state(sw);
+        const size_t standalone = sw.position();
+
+        check("S5B-DIVMMC-BLOCK", backed == 17,
+              "a DivMmc the Emulator backed writes 17 bytes, not 131 089: the "
+              "128 KB window is a REFERENCE to Ram page 16, which the same "
+              "stream's `ram` block carries seventeen blocks earlier");
+        check("S5B-DIVMMC-STANDALONE", standalone == 131089,
+              "…while one nothing backed still writes all 131 089, because a "
+              "stream with no `ram` block in it has nowhere to point and the "
+              "private array is then the only copy of itself");
+    }
+
+    // The row that makes the removal safe rather than merely smaller: the
+    // bytes must still ARRIVE. Write through the DivMMC overlay, save the
+    // whole machine, scribble over the physical page, restore, read back
+    // through the overlay.
+    {
+        Emulator emu;
+        build_emulator(emu, 2);
+        emu.divmmc().write_control(0x80 | 0x02);      // conmem, bank 2
+        emu.divmmc().write(0x2123, 0x5A);             // -> Ram page 18
+        emu.ram().page_ptr(16)[0x0007] = 0xC9;
+
+        StateWriter measure;
+        emu.save_state(measure);
+        std::vector<uint8_t> buf(measure.position());
+        StateWriter w(buf.data(), buf.size());
+        emu.save_state(w);
+
+        // Destroy both the window's view and the physical page it aliases.
+        emu.ram().page_ptr(18)[0x0123] = 0x00;
+        emu.ram().page_ptr(16)[0x0007] = 0x00;
+
+        StateReader r(buf.data(), buf.size());
+        const bool loaded = emu.load_state(r);
+        emu.divmmc().write_control(0x80 | 0x02);
+        const uint8_t via_overlay = emu.divmmc().read(0x2123);
+        const uint8_t via_page    = emu.ram().page_ptr(16)[0x0007];
+
+        check("S5B-DIVMMC-RESTORE",
+              loaded && via_overlay == 0x5A && via_page == 0xC9 &&
+                  r.position() == buf.size() && !r.out_of_bounds(),
+              "DivMMC RAM still arrives after a whole-machine restore, now "
+              "through the `ram` block rather than its own copy — and the "
+              "stream is consumed exactly, so dropping 128 KB from the write "
+              "side did not leave the read side reading them");
+    }
+
+    // The Multiface array is machine-type conditional (§4.3(2)): the live 8 KB
+    // on the Next is Ram page 0x0B, and what the stream used to carry was the
+    // untouched private array — 8 192 zeros, verified on the pre-S5b golden.
+    {
+        Emulator next_emu;
+        EmulatorConfig ncfg;
+        ncfg.type = MachineType::ZXN_ISSUE2;
+        next_emu.init(ncfg);
+        StateWriter nw;
+        next_emu.multiface().save_state(nw);
+
+        s3::RecordDesc nrec;
+        next_emu.multiface().describe_state(nrec);
+        bool declares_ram = false;
+        for (const auto& f : nrec.fields()) {
+            if (f.rfind("blob ram ", 0) == 0) declares_ram = true;
+        }
+
+        Emulator k48;
+        build_emulator(k48, 2);                        // 48K: no MF backing
+        StateWriter kw;
+        k48.multiface().save_state(kw);
+
+        Multiface bare;                                // standalone: no backing
+        StateWriter bw;
+        bare.save_state(bw);
+
+        check("S5B-MF-NEXT-ABSENT",
+              nw.position() == 8 && !declares_ram,
+              "on the Next the Multiface RAM member is ABSENT, not "
+              "zero-filled: the declaration drops it and the block is 8 "
+              "bytes of flip-flops, because the live 8 KB is Ram page 0x0B "
+              "and the private array it used to write was dead zeros");
+        check("S5B-MF-STANDALONE-PRESENT",
+              kw.position() == 8200 && bw.position() == 8200,
+              "…and on 48K/128K/+3, and in a standalone round-trip, it is "
+              "still all 8 200 bytes, because with no backing the private "
+              "array is the real store (§4.3(2)) — the one place the stream's "
+              "width depends on the machine type");
+    }
+
+    // Multiface's counterpart of S5B-DIVMMC-RESTORE, on the machine where the
+    // member was dropped.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        emu.init(cfg);
+        emu.multiface().ram_data()[0x0100] = 0x3C;
+        emu.ram().page_ptr(0x0B)[0x0101]   = 0xA7;
+
+        StateWriter measure;
+        emu.save_state(measure);
+        std::vector<uint8_t> buf(measure.position());
+        StateWriter w(buf.data(), buf.size());
+        emu.save_state(w);
+
+        emu.ram().page_ptr(0x0B)[0x0100] = 0x00;
+        emu.ram().page_ptr(0x0B)[0x0101] = 0x00;
+
+        StateReader r(buf.data(), buf.size());
+        const bool loaded = emu.load_state(r);
+
+        check("S5B-MF-NEXT-RESTORE",
+              loaded && emu.multiface().ram_data()[0x0100] == 0x3C &&
+                  emu.multiface().ram_data()[0x0101] == 0xA7 &&
+                  r.position() == buf.size() && !r.out_of_bounds(),
+              "Multiface RAM still arrives on the Next after a whole-machine "
+              "restore, through Ram page 0x0B — the window the device reads "
+              "and writes is the page the `ram` block carries, which is why "
+              "the private array was droppable in the first place");
+    }
+
+    // The stream changed shape, so a cache recorded by a pre-S5b jnext must
+    // not be deserialised by this one. The length is part of the identity and
+    // moved by 139 264 bytes, so it would already have been discarded; the
+    // version is bumped anyway because `warm_start_cache.h`'s own rule says
+    // to bump it whenever `save_state` changes shape, and a version bumped
+    // only when nothing else would catch the change is one nobody can reason
+    // about.
+    check("S5B-WARMSTART-VERSION",
+          warm_start::kFormatVersion == 2,
+          "the warm-start state-stream format version is 2, because S5b "
+          "changed the shape of Emulator::save_state and a cache recorded by "
+          "an older jnext would otherwise be read field-for-field wrong");
+
+    return 0;
+}
+
 int main()
 {
     printf("=== Rewind tests ===\n");
@@ -4291,6 +4522,7 @@ int main()
     test_s4_restore_behaviour();
     test_s5_descriptor_layout();
     test_s5_restore_behaviour();
+    test_s5b_duplicated_ram_removed();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
            pass_count + fail_count + (int)g_skipped.size(),

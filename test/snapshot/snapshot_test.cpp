@@ -3392,13 +3392,15 @@ int main(int argc, char** argv) {
                   doc.find("\"bytes\": \"64\"") != std::string::npos,
               "");
 
-        // …while the BINARY realisation still writes them inline, because the
-        // byte-identity gate requires that stream to stay exactly as it is
-        // until S5b re-baselines it deliberately.
+        // …while the BINARY realisation writes them inline STANDALONE, which
+        // is what `desc_bytes` is: a stream with no `ram` block in it has
+        // nowhere to point, so the buffer is the only copy of itself. The
+        // machine-level half of the same rule is S5B-PILOT-* below.
         check("JNSD-J07",
-              "the BINARY realisation still writes the window's bytes inline, "
-              "reproducing today's stream — the gate is a migration scaffold, "
-              "and S5b is where it is deliberately re-baselined (§17.0)",
+              "the BINARY realisation writes the window's bytes inline on a "
+              "STANDALONE walk, because nothing else in that stream carries "
+              "them — the reference encoding needs a stream that holds the "
+              "referent, which is what `machine_level` means (§17.0)",
               desc_bytes.size() > s2::PilotState::kRamBytes &&
                   std::search(desc_bytes.begin(), desc_bytes.end(),
                               p.ram, p.ram + s2::PilotState::kRamBytes) !=
@@ -3444,16 +3446,20 @@ int main(int argc, char** argv) {
         {
             s2::Pilot src;
             const s2::PilotState& cref = src.s;   // as a `save_state() const`
+            // STANDALONE, so this compares against `desc_bytes` like with
+            // like: since S5b a machine-level walk is a whole window shorter
+            // (S5B-PILOT-SHORTER below), and this row is about the const_cast
+            // plumbing, not about the window's encoding.
             StateWriter measure;
-            jnext::save::save_via_desc(cref, measure, /*machine_level=*/true);
+            jnext::save::save_via_desc(cref, measure, /*machine_level=*/false);
             std::vector<uint8_t> out(measure.position());
             StateWriter w(out.data(), out.size());
-            jnext::save::save_via_desc(cref, w, /*machine_level=*/true);
+            jnext::save::save_via_desc(cref, w, /*machine_level=*/false);
 
             s2::Pilot dst;
             dst.s.bank = 0xFF;
             StateReader rr(out.data(), out.size());
-            jnext::save::load_via_desc(dst.s, rr, /*machine_level=*/true);
+            jnext::save::load_via_desc(dst.s, rr, /*machine_level=*/false);
 
             check("JNSD-B08",
                   "save_via_desc drives a declaration from a CONST object and "
@@ -3464,6 +3470,65 @@ int main(int argc, char** argv) {
                   out == desc_bytes && !rr.out_of_bounds() &&
                       dst.s.same_as(src.s),
                   det("%zu vs %zu bytes", out.size(), desc_bytes.size()));
+        }
+
+        // ── S5b (§17.0): at machine level a window is a REFERENCE ────────
+        //
+        // The stage's whole content, at the primitive: `machine_level` means
+        // the walk is Emulator-driven and its stream therefore carries the
+        // `ram` block, so a `ram_window`'s bytes are already in it and must
+        // not be written twice. The Pilot's 64-byte window stands in for the
+        // DivMMC's 128 KB — 6.1 % of every rewind slot in the real stream.
+        {
+            s2::Pilot src;
+            const s2::PilotState& cref = src.s;
+            StateWriter measure;
+            jnext::save::save_via_desc(cref, measure, /*machine_level=*/true);
+            std::vector<uint8_t> out(measure.position());
+            StateWriter w(out.data(), out.size());
+            jnext::save::save_via_desc(cref, w, /*machine_level=*/true);
+
+            check("S5B-PILOT-SHORTER",
+                  "a machine-level walk is exactly one window shorter than a "
+                  "standalone walk of the same declaration — the ONLY "
+                  "difference between the two, and the 139 264 bytes S5b "
+                  "takes out of the real stream",
+                  out.size() + s2::PilotState::kRamBytes == desc_bytes.size(),
+                  det("%zu vs %zu bytes", out.size(), desc_bytes.size()));
+
+            check("S5B-PILOT-NOT-COPIED",
+                  "and the window's bytes are ABSENT from it rather than "
+                  "merely uncounted: the pattern the standalone stream "
+                  "carries verbatim is nowhere in the machine-level one",
+                  std::search(out.begin(), out.end(), src.ram,
+                              src.ram + s2::PilotState::kRamBytes) ==
+                      out.end(),
+                  "");
+
+            s2::Pilot dst;
+            dst.s.bank         = 0xFF;
+            dst.s.current_line = 7;
+            dst.s.priv_ram[0]  = 0x00;
+            for (std::size_t i = 0; i < s2::PilotState::kRamBytes; ++i) {
+                dst.ram[i] = 0xEE;
+            }
+            StateReader rr(out.data(), out.size());
+            jnext::save::load_via_desc(dst.s, rr, /*machine_level=*/true);
+            bool window_untouched = true;
+            for (std::size_t i = 0; i < s2::PilotState::kRamBytes; ++i) {
+                if (dst.ram[i] != 0xEE) { window_untouched = false; break; }
+            }
+
+            check("S5B-PILOT-READ-SYMMETRIC",
+                  "…and the read direction mirrors it exactly: every other "
+                  "field restores, the stream is consumed to its last byte "
+                  "with no overrun — reading the window here would desync by "
+                  "a whole 128 KB at the very next sentinel — and the window "
+                  "is left for the machine's own `ram` restore to fill",
+                  dst.s.same_as(src.s) && window_untouched &&
+                      rr.position() == out.size() && !rr.out_of_bounds(),
+                  det("pos %zu of %zu, window %s", rr.position(), out.size(),
+                      window_untouched ? "untouched" : "OVERWRITTEN"));
         }
 
         // ── Found by mutation: BinReadDesc's own refusals ────────────────
