@@ -3443,7 +3443,12 @@ static void test_section14_frame_int() {
     //     -> ULA-INT-02, test/ctc_interrupts/ctc_interrupts_test.cpp:
     //        NR 0x22 bit 2 on a live Emulator, run_frame(), NR 0xC8 bit 0
     //        stays clear. ULA-INT-01 is the enabled-case discriminator.
-    //        VHDL zxnext.vhd:3635,:6711 / zxula_timing.vhd:551.
+    //        VHDL trace, walked rather than assumed: nr_22_we ->
+    //        port_ff_reg(6) <= nr_wr_dat(2) (zxnext.vhd:3619-3620) ->
+    //        port_ff_interrupt_disable (:3635) -> i_inten_ula_n on the
+    //        zxula_timing port map (:6750) -> the int_ula gate at
+    //        zxula_timing.vhd:551.  The row's inten_ula_n=1 IS NR 0x22
+    //        bit 2 set, which is what ULA-INT-02 drives.
     //   S14.05 (target N fires at cvc = N-1, hc_ula 255)
     //     -> VT-GH257-01/02/03, test/videotiming/videotiming_test.cpp:
     //        the int_line_num <= i_int_line - 1 map on Next / 48K /

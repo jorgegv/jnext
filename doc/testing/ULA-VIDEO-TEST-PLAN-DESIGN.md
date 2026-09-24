@@ -920,7 +920,14 @@ stimulus read before this retirement was written:
   `test/ctc_interrupts/ctc_interrupts_test.cpp`: writes NR 0x22 bit 2 on
   a live `Emulator`, runs a frame, asserts NR 0xC8 bit 0 stays clear.
   `ULA-INT-01` is the discriminator (same fixture, interrupts enabled,
-  bit 0 set). VHDL `zxnext.vhd:3635, :6711`, matching `zxula_timing.vhd:551`.
+  bit 0 set). The full VHDL trace, walked for this retirement rather than
+  assumed: `nr_22_we` → `port_ff_reg(6) <= nr_wr_dat(2)` (`zxnext.vhd:3619-3620`,
+  i.e. NR 0x22 bit 2) → `port_ff_interrupt_disable <= port_ff_reg(6)`
+  (`:3635`) → `i_inten_ula_n => port_ff_interrupt_disable` (`:6750`, the
+  `zxula_timing` port map) → `if (i_inten_ula_n = '0') and (hc = c_int_h)
+  and (vc = c_int_v) then int_ula <= '1'` (`zxula_timing.vhd:551`). So the
+  row's `inten_ula_n = 1` IS NR 0x22 bit 2 set, and `ULA-INT-02` drives
+  exactly that.
 - **S14.05** (target N fires at `cvc = N-1`, `hc_ula = 255`) →
   `VT-GH257-01/02/03` in `test/videotiming/videotiming_test.cpp` pin the
   `int_line_num <= i_int_line - 1` map (`zxula_timing.vhd:566-570`) on

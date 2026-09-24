@@ -919,11 +919,14 @@ void test_cat5_port_1ffd() {
     // zxnext_top_issue2.vhd:2468-2470 leaves all three "=> open" -- not
     // wired to a pin.  Only gen_fdc_5 (board issue >= 3) forwards them,
     // and then to a physically attached EXTERNAL controller.
-    // port_1ffd_mtr_n itself is latched at zxnext.vhd:3757 but on this
-    // board drives nothing; its one other reader is the Multiface
-    // register readback at :4312, which is MF-suite territory rather
-    // than paging.  So there is no motor state for the Mmu to expose,
-    // and modelling one would diverge from the emulated machine.
+    // port_1ffd_mtr_n itself is latched -- gated by NR 0x81 bit 3 at
+    // zxnext.vhd:3751-3753 and written from port 0x1FFD bit 3 at :3757
+    // -- but on this board it drives nothing: gen_fdc_234 forces the
+    // output pin inactive at :1685 without ever reading the latch.  Its
+    // one other reader is the Multiface register readback at :4312,
+    // which is MF-suite territory rather than paging.  So there is no
+    // motor state for the Mmu to expose, and modelling one would
+    // diverge from the emulated machine.
 }
 
 // ── Category 6: +3 special paging modes ───────────────────────────────
@@ -4946,10 +4949,28 @@ void test_boot_format_loaders() {
     //     NextZXOS automount with no controller in the path -- measured
     //     end-to-end in jnext v1.0.18, and carried as the
     //     `sdcard-dsk-automount-func` regression row.
-    //   * BOOT-FDC-03 was additionally wrong as written: NR 0x81 bit 3
-    //     (nr_81_expbus_fdc) gates the expansion-bus READ/WRITE strobes
-    //     (zxnext.vhd:1696-1697), NOT the motor -- o_BUS_P3_MTR_n comes
-    //     straight from port_1ffd_mtr_n at :1695, ungated by NR 0x81.
+    //   * BOOT-FDC-03's technical claim is CORRECT -- NR 0x81 bit 3 does
+    //     gate the motor, at the latch rather than at the output:
+    //     zxnext.vhd:3751-3753 is
+    //         elsif nr_81_expbus_fdc = '0' then
+    //             port_1ffd_mtr_n <= '1';   -- disk motor off
+    //     so clearing the bit forces the motor off, and the port 0x1FFD
+    //     bit 3 write at :3757 is only reachable while it is set.  The
+    //     row is retired because on Issue 2 there is no motor for it to
+    //     gate (see the P1F-07 note above: :1685 forces the output pin
+    //     inactive without reading the latch), and because its stimulus
+    //     -- "observe drive-motor LED state via NR introspection" -- has
+    //     no counterpart; no such NR read exists, and the latch is
+    //     visible on this board only via the Multiface readback (:4312).
+    //
+    //     CORRECTION OF A CORRECTION: the first version of this comment
+    //     (commit 903d7251) claimed the row was "wrong as written"
+    //     because the motor was "ungated by NR 0x81".  That was itself
+    //     wrong.  It cited :1695, which is inside gen_fdc_5 (board issue
+    //     >= 3) -- the branch the Issue 2 reference target does NOT take
+    //     -- and never read the latch process at :3744-3760 where the
+    //     gating happens.  An absence was claimed from one signal path
+    //     without searching the others.
     //
     // jnext's `--machine plus3` is the Next core's +3 compatibility mode
     // (NR 0x03 typ_sel/tim_sel = 0x03), not an Amstrad +3; a real Next
