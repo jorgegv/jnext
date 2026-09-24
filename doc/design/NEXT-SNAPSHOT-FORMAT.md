@@ -353,6 +353,11 @@ verification argument for encoding 2.29 MB of opaque buffers that way.
 
 ### 4.3 Three findings, all measured
 
+> **(1) and (2) below describe the PRE-S5b stream and are both FIXED** — see
+> §17.0's "What S5b did". They are left as written because they are the
+> measurement S5b acted on, and because both predictions were confirmed against
+> the pre-S5b golden byte for byte before the code moved.
+
 1. **131 072 bytes are stored twice, on every machine.**
    `Emulator::init()` does `divmmc_.set_ram_backing(ram_.page_ptr(16))`
    (`emulator.cpp:279`) **unconditionally**, and `DivMmc::save_state` writes
@@ -1060,7 +1065,10 @@ because a run-time-shaped field list is the complexity this whole layer exists
 to avoid, and because the two cases are each unconditionally true today:
 
 - **DivMMC is always a window.** `set_ram_backing` is unconditional and
-  `save_state` writes `ram_data()`. Declared `ram_window`, always.
+  `save_state` writes `ram_data()`. Declared `ram_window`, always. **Since S5b
+  that declaration is load-bearing in the binary encoding too**: at machine
+  level a `ram_window` emits no bytes, the restore resolving it through the
+  `ram` block (§17.0).
 - **Multiface is always private *in the stream*.** `save_state` writes
   `ram_.data()` regardless of backing (§4.3(2)). On the Next that array is dead
   zeros and the live 8 KB already travels inside `mem/ram.bin`; on
@@ -1073,6 +1081,15 @@ The static claim is then **asserted at run time** so it cannot go stale: a
 `ram_window` declaration checks `ram_ext_ != nullptr` and fails loudly if it is
 null. A comment claiming "always" with nothing checking it is how an earlier
 draft of §4 came to state the Multiface case backwards.
+
+> **That assertion is still unable to FIRE, and S5b left it that way on
+> purpose** (§17.0). `DivMmc` derives `machine_level` from the very pointer the
+> assertion would check, which makes it a tautology; the resulting branch is
+> fail-safe instead — an unbacked window at "machine level" is not a machine
+> level walk at all, so the bytes travel inline as they always did. It becomes
+> real for the Emulator-driven JSON realisation in S6, where the same fault
+> would write a reference to bytes no member carries. `snapshot_test` rows
+> `JNSD-J08`/`J09` keep the mechanism under test meanwhile.
 
 **Scope that assertion to machine-level saves, or it breaks a shipped test.**
 Row `DA-09` in `divmmc_test.cpp:1184-1191` builds a `DivMmc` from the suite's
@@ -1875,10 +1892,13 @@ outside the descriptor, and it is nearly free:
 - **A golden byte image.** Capture the *pre-migration* stream once and `cmp`
   against it (§17's S2-S5 gate). A field silently dropped, reordered or
   re-typed fails immediately.
-- **After S5b, the re-baselined lengths are pinned**: `JNSX` asserts
-  **2 153 701** on the Next and **2 161 893** on 48K/128K/+3, so the one
-  deliberate change to the stream is a number in a test rather than a fact in a
-  commit message.
+- **After S5b, the re-baselined lengths are pinned**: `JNSX-S5B-LENGTHS`
+  asserts **2 153 701** on the Next and **2 161 893** on 48K/128K/+3, so the
+  one deliberate change to the stream is a number in a test rather than a fact
+  in a commit message. It lives in **`rewind_test`**, not here: the row builds
+  four real `Emulator`s, and `snapshot_test` links `jnext_save` alone —
+  deliberately, so the descriptor layer's own rows cannot come to depend on the
+  emulator core.
 
 Every row is mutation-tested by its author before review: revert the
 behavioural branch the row exists for and confirm the row fails.
@@ -1972,7 +1992,7 @@ agent that did not write it, on its own branch and worktree.
 | **S3 — Migration, group 1** | Core: clock, RAM, MMU (incl. both blobs), NextREG, CPU, IM2 (+ timing) | **S–M** (1.5–2.5) | byte-identity holds after each subsystem |
 | **S4 — Migration, group 2** | Video: palette, layer2, sprites, tilemap, lores, ULA (incl. the three histories), renderer, copper | **S–M** (1.5–2.5) | as above |
 | **S5 — Migration, group 3** | Peripherals + audio + input: ctc, dma, spi, i2c, rtc, uart (FIFOs), divmmc, multiface, nmi, beeper, turbosound, dac, i2s, and the six input classes | **S–M** (1.5–2.5) | as above |
-| **S5b — Remove the duplicated RAM** | D3 + D4: the DivMMC window becomes a *reference* and the Multiface private array is dropped on the Next. Golden re-baselined **once**, with the diff explained field by field. | **XS** (~0.5) | New golden pinned by a `JNSX` row (below) |
+| **S5b — Remove the duplicated RAM** ✓ **DONE** | D3 + D4: the DivMMC window becomes a *reference* and the Multiface private array is dropped on the Next. Golden re-baselined **once**, with the diff explained field by field. | **XS** (~0.5) | `JNSX-S5B-LENGTHS` pins 2 153 701 / 2 161 893; the diff is §17.0's table |
 | **S6 — The gaps** | P1 `SdCardDevice`; P13 `mf_type_`; P3 ROM digests; P4 tape identity; P5 preview; P7's two save rules; `Emulator`'s own scalars | **M** (2–3) | P1 proven by a mid-CMD18 save/restore row; P7 by `snapshot-paused-refusal-func` |
 | **S7 — SD identity** | Tier 1 from MBR + BPB `BS_VolID` (a new exported entry point in `sd_rom_extractor`), Tier 2 reuse, the refusal/warning matrix, `JNSI` rows | **S** (1) | `snapshot-sdcard-mismatch-func`, all three legs |
 | **S8 — Integration** | CLI table + man page + `cli-check`; the three load-dispatch sites; GUI save/load/filter/status bar/grey-out; user guide; developer guide chapter; FEATURES; ChangeLog | **S** (1–2) | `make cli-check`, `docs-check`, full triplet |
@@ -2017,6 +2037,74 @@ commit the pre-S5b golden as a permanent fixture with a `JNSX` row pinning it.
 **Doing neither must not ship**: without one or the other, `ram_window`'s binary
 realisation exists solely to reproduce a known defect, with nothing pinning the
 bytes it is reproducing.
+
+#### What S5b did — measured, 2026-09-24
+
+**The predicted 2 153 701 was measured exactly**, on a Next warm-start
+recording of a booted NextZXOS machine, extracted the §17.1 way. `JNSX-S5B-LENGTHS`
+(`rewind_test`) confirms it by an independent path — four `Emulator`s it builds
+itself — and pins **2 161 893** on 48K/128K/+3 in the same row.
+
+**The mechanism is one rule, applied to two subsystems.** `machine_level` now
+means "this walk is Emulator-driven, so this stream already carries the `ram`
+block", and `BinWriteDesc::ram_window` emits nothing when it is set. `DivMmc`
+derives the flag from `ram_ext_ != nullptr`, which is exactly "an `Emulator`
+built me" — emulator.cpp:279 is the one line in the tree that sets it, and it
+is unconditional. The `Multiface` array is a `blob` and not a window (a
+`ram_window` would make the JSON encoding emit a reference to page 0x0B on a
+48K machine, where that page holds nothing of the sort), so §9.2's *presence*
+branch carries it: declared only when `ram_ext_ == nullptr`.
+
+**The diff, field by field.** The new stream is the old one with exactly two
+contiguous ranges excised and **every other byte identical in place** —
+verified as a splice, not as a hash:
+
+| Range in the old stream | Bytes | What | Verdict |
+|---|---|---|---|
+| `[0, 2 152 291)` | 2 152 291 | blocks 0-17 + the DivMMC block's 15 leading scalars | unchanged, in place |
+| `[2 152 291, 2 283 363)` | **131 072** | `divmmc.ram` — the `ram_window` | **removed** |
+| `[2 283 363, 2 283 678)` | 315 | the two DivMMC levers … the Multiface block's 8 booleans | unchanged, shifted −131 072 |
+| `[2 283 678, 2 291 870)` | **8 192** | `multiface.ram` — the private array | **removed** |
+| `[2 291 870, 2 292 965)` | 1 095 | the `multiface` sentinel … end of stream | unchanged, shifted −139 264 |
+
+2 152 291 + 315 + 1 095 = 2 153 701, and every one of the old 2 292 965 bytes
+is in exactly one row.
+
+**Both removals were proved redundant on the PRE-S5b golden, before the code
+changed** — which is what makes this a removal of duplication rather than a
+removal of state:
+
+- the 131 072 bytes at `2 152 291` were **byte-identical** to that same
+  stream's own `Ram` page 16 at `131 096`, across all of them;
+- the 8 192 bytes at `2 283 678` were **all zero**, confirming §4.3(2)'s "dead
+  zeros" by measurement rather than by reading `emulator.cpp:301`.
+
+Neither fact is provable by a row (both need a pre-S5b build to have produced
+the image), so what the rows carry instead is that the bytes still **arrive**:
+`S5B-DIVMMC-RESTORE` and `S5B-MF-NEXT-RESTORE` write through each device's
+window, save the whole machine, destroy the physical page, restore, and read
+the value back out of the device. A shorter stream that lost state would pass
+a length row and fail those two.
+
+**The old golden is kept**, beside the new one rather than overwritten, so the
+diff above stays reproducible: `golden-savestate.bin` (2 292 965) and
+`golden-savestate-s5b.bin` (2 153 701).
+
+**`warm_start::kFormatVersion` went 1 → 2.** The recording's identity also
+carries the stream length, which moved by 139 264 bytes, so a pre-S5b cache
+would have been discarded anyway; the bump is made because that constant's own
+rule says to make it whenever `save_state` changes shape, and a version bumped
+only when nothing else would catch the change is one nobody can reason about.
+
+**Two things S5b did NOT do**, both deliberate. §9.2's run-time null assertion
+on `ram_window` is still unable to fire, and stays S6's: with the flag derived
+from the pointer it would guard, an assertion on that pointer is a tautology,
+and the branch is fail-safe in the direction that matters — were
+emulator.cpp:279 removed, the window would simply travel inline again, a wider
+stream with no data loss. It becomes load-bearing for the Emulator-driven JSON
+realisation, where an unbacked window would emit a reference to bytes no member
+carries — a dangling pointer in a FILE, which no fallback can repair. And
+`SdCardDevice`'s missing `save_state` (D1) and `mf_type_` (D2) remain S6's.
 
 > Earlier drafts said 20–30 total and 13–18 for S2–S5. The
 > re-estimate follows the call-site classification in §9.4, which did not exist
@@ -2216,9 +2304,11 @@ and listed together so none is lost:
 Disposition:
 
 - **D1, D2** — correctness defects, fixed in **S6**.
-- **D3, D4** — fixed in **S5b** (§17.0), immediately after the migration, when a
-  golden diff is still explainable field by field. Together they are 6.1 % of
-  every rewind slot, which is too much to leave behind a scaffold.
+- **D3, D4** — **FIXED in S5b** (2026-09-24), immediately after the migration,
+  when a golden diff was still explainable field by field — and it was, as a
+  two-range splice with every other byte identical in place (§17.0). Together
+  they were 6.1 % of every rewind slot, which was too much to leave behind a
+  scaffold.
 - **D5 — deferred permanently, by design.** The same eight bytes round-trip:
   `save_state` casts `int64_t`→`uint64_t` and `load_state` casts straight back
   (`emulator.cpp:12287-12289`), so the binary stream has **no observable
@@ -2231,9 +2321,10 @@ Disposition:
 
 ---
 
-*Design document for issue #27. **Stages S1–S5 are implemented** — the
-descriptor layer and the binary realisations (§9), and the migration of every
-subsystem onto them; S5b and S6 onward are not. The §4 measurements were taken
+*Design document for issue #27. **Stages S1–S5b are implemented** — the
+descriptor layer and the binary realisations (§9), the migration of every
+subsystem onto them, and the removal of the duplicated RAM (§17.0); S6 onward
+is not. The §4 measurements were taken
 on 2026-09-23 against `main` @ `15430513`, i.e. the PRE-migration tree the
 byte-identity gate (§17.1) uses as its oracle, and the code references are to
 that commit; the §4.1/§4.2 corrections and the §17.1 `--rtc` measurement were
