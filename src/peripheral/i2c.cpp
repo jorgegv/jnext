@@ -422,30 +422,7 @@ void I2cController::on_scl_falling() {
     }
 }
 
-void I2cRtc::save_state(StateWriter& w) const
-{
-    w.write_u8(reg_ptr_);
-    w.write_bool(addr_set_);
-    // Phase-1 widened regs_ 8→64 per DS1307 NVRAM; Wave E added CH / 12h /
-    // use_real_time flags. Rewind buffer is in-process only (plan R3), so a
-    // straight size/field bump is safe. Order: regs_ first, then flag triple.
-    w.write_bytes(regs_.data(), regs_.size());
-    w.write_bool(osc_halt_);
-    w.write_bool(mode_12h_);
-    w.write_bool(use_real_time_);
-}
 
-void I2cRtc::load_state(StateReader& r)
-{
-    // Must mirror save_state field order exactly: reg_ptr, addr_set, regs_,
-    // then osc_halt / mode_12h / use_real_time flag triple.
-    reg_ptr_       = r.read_u8();
-    addr_set_      = r.read_bool();
-    r.read_bytes(regs_.data(), regs_.size());
-    osc_halt_      = r.read_bool();
-    mode_12h_      = r.read_bool();
-    use_real_time_ = r.read_bool();
-}
 
 // GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
 // binary stream order, so it must not be disturbed: the byte-identity gate
@@ -517,4 +494,35 @@ void I2cController::load_state(StateReader& r)
                          "match this build's declaration at '{}'",
                          d.failure() ? d.failure() : "?");
     }
+}
+
+// GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
+// binary stream order, so it must not be disturbed: the byte-identity gate
+// (§17.1) pins these 69 bytes as block 16 of the 2 292 965-byte stream.
+//
+// `regs_` is a `d.bytes` and not a `d.blob`: §6.1 puts a peripheral store in
+// a ZIP member of its own only from 8 KB up, and 64 bytes of DS1307 register
+// file plus NVRAM belong inline as one hex string. Its length comes from the
+// DECLARATION — `regs_.size()` is a compile-time `std::array` extent — so
+// there is no count in the stream that a restore could be made to obey.
+void I2cRtc::describe_state(jnext::save::StateDesc& d)
+{
+    d.u8("reg_ptr", reg_ptr_);
+    d.boolean("addr_set", addr_set_);
+    // Phase-1 widened regs_ 8->64 per DS1307 NVRAM; Wave E added CH / 12h /
+    // use_real_time flags. Order: regs_ first, then the flag triple.
+    d.bytes("regs", regs_.data(), regs_.size());
+    d.boolean("osc_halt", osc_halt_);
+    d.boolean("mode_12h", mode_12h_);
+    d.boolean("use_real_time", use_real_time_);
+}
+
+void I2cRtc::save_state(StateWriter& w) const
+{
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
+}
+
+void I2cRtc::load_state(StateReader& r)
+{
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
 }
