@@ -52,14 +52,14 @@ inline uint16_t axis_pair_of(uint16_t dir_bit) {
     return 0;
 }
 
-// Map an SDL_GameControllerButton to the corresponding 12-bit logical bit.
+// Map an SDL_GamepadButton to the corresponding 12-bit logical bit.
 // Returns 0 for unmapped buttons (GUIDE, triggers-as-buttons, paddle
 // buttons, …).
 inline uint16_t sdl_button_to_jbit(uint8_t sdl_button) {
     switch (sdl_button) {
-    case SDL_CONTROLLER_BUTTON_A:             return JBIT_B;
-    case SDL_CONTROLLER_BUTTON_B:             return JBIT_C;
-    case SDL_CONTROLLER_BUTTON_X:             return JBIT_A;
+    case SDL_GAMEPAD_BUTTON_SOUTH:             return JBIT_B;
+    case SDL_GAMEPAD_BUTTON_EAST:             return JBIT_C;
+    case SDL_GAMEPAD_BUTTON_WEST:             return JBIT_A;
     // Y is a FACE button, so it must land on a port-visible bit. Only four
     // non-directional bits ever reach port 0x1F / 0x37 — B(4), C(5), A(6),
     // START(7) (zxnext.vhd:3477-3479) — and A/B/X already take three of them,
@@ -67,24 +67,24 @@ inline uint16_t sdl_button_to_jbit(uint8_t sdl_button) {
     // START button: with five buttons and four reachable bits an alias is
     // unavoidable, and making the fourth face button invisible to every guest
     // program is the worse of the two outcomes.
-    case SDL_CONTROLLER_BUTTON_Y:             return JBIT_START;
-    case SDL_CONTROLLER_BUTTON_START:         return JBIT_START;
+    case SDL_GAMEPAD_BUTTON_NORTH:             return JBIT_START;
+    case SDL_GAMEPAD_BUTTON_START:         return JBIT_START;
     // MODE (bit 11) reaches no port under any mode — it is an MD6 latch bit
     // that surfaces only via NR 0xB2. Parked on BACK, a non-face button, so
     // nothing a player reaches for is dead.
-    case SDL_CONTROLLER_BUTTON_BACK:          return JBIT_MODE;
+    case SDL_GAMEPAD_BUTTON_BACK:          return JBIT_MODE;
     // MD6 top-row X / Z on the shoulders — the only free buttons left, and
     // like MODE they are readable solely through NR 0xB2. The top row's Y has
     // no binding here: the one remaining candidate is the Y face button, and
     // that is deliberately left aliased to START above, where it stays visible
     // to ordinary port-reading guests. A raw pad with >5 buttons does reach
     // all three (see handle_raw_button).
-    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:  return JBIT_X;
-    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return JBIT_Z;
-    case SDL_CONTROLLER_BUTTON_DPAD_UP:       return JBIT_U;
-    case SDL_CONTROLLER_BUTTON_DPAD_DOWN:     return JBIT_D;
-    case SDL_CONTROLLER_BUTTON_DPAD_LEFT:     return JBIT_L;
-    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:    return JBIT_R;
+    case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER:  return JBIT_X;
+    case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: return JBIT_Z;
+    case SDL_GAMEPAD_BUTTON_DPAD_UP:       return JBIT_U;
+    case SDL_GAMEPAD_BUTTON_DPAD_DOWN:     return JBIT_D;
+    case SDL_GAMEPAD_BUTTON_DPAD_LEFT:     return JBIT_L;
+    case SDL_GAMEPAD_BUTTON_DPAD_RIGHT:    return JBIT_R;
     default:                                  return 0;
     }
 }
@@ -281,11 +281,11 @@ void JoystickDispatcher::handle_axis(int controller_idx, uint8_t sdl_axis, int16
     // Y axes (LEFTY / RIGHTY) → U (negative) / D (positive — SDL Y is screen-down)
     bool is_x = false, is_y = false;
     switch (sdl_axis) {
-    case SDL_CONTROLLER_AXIS_LEFTX:
-    case SDL_CONTROLLER_AXIS_RIGHTX:
+    case SDL_GAMEPAD_AXIS_LEFTX:
+    case SDL_GAMEPAD_AXIS_RIGHTX:
         is_x = true; break;
-    case SDL_CONTROLLER_AXIS_LEFTY:
-    case SDL_CONTROLLER_AXIS_RIGHTY:
+    case SDL_GAMEPAD_AXIS_LEFTY:
+    case SDL_GAMEPAD_AXIS_RIGHTY:
         is_y = true; break;
     default:
         // Trigger axes (LEFT_TRIGGER / RIGHT_TRIGGER) are unmapped.
@@ -369,8 +369,8 @@ void JoystickDispatcher::handle_raw_axis(int connector_idx, uint8_t raw_axis, in
     // the same code path as the controller left stick so the threshold,
     // deadzone and sticky axis_state_ logic are shared rather than duplicated.
     switch (raw_axis) {
-    case 0: handle_axis(connector_idx, SDL_CONTROLLER_AXIS_LEFTX, value); break;
-    case 1: handle_axis(connector_idx, SDL_CONTROLLER_AXIS_LEFTY, value); break;
+    case 0: handle_axis(connector_idx, SDL_GAMEPAD_AXIS_LEFTX, value); break;
+    case 1: handle_axis(connector_idx, SDL_GAMEPAD_AXIS_LEFTY, value); break;
     default: break;   // throttle / twist / extra sticks — unmapped
     }
 }
@@ -421,8 +421,13 @@ void JoystickDispatcher::handle_raw_hat(int connector_idx, uint8_t hat_index, ui
     recompute(connector_idx);
 }
 
-void JoystickDispatcher::map_instance_to_slot(int32_t sdl_instance_id, int slot)
+void JoystickDispatcher::map_instance_to_slot(SDL_JoystickID sdl_instance_id, int slot)
 {
+    // 0 is SDL3's invalid instance id AND this table's free-entry marker, so
+    // it can never be stored: doing so would consume a free entry and then
+    // answer every stray id-0 event with that entry's connector. Rejecting it
+    // here is the ONLY place the two meanings are kept apart.
+    if (sdl_instance_id == 0) return;
     if (slot >= NUM_CONNECTORS) {
         // Reject — only two physical connectors. Slot 0/1 OK; -1 = unmap.
         slot = -1;
@@ -431,14 +436,14 @@ void JoystickDispatcher::map_instance_to_slot(int32_t sdl_instance_id, int slot)
     for (auto& d : device_map_) {
         if (d.instance_id == sdl_instance_id) {
             d.slot = slot;
-            if (slot < 0) d.instance_id = -1;
+            if (slot < 0) d.instance_id = 0;
             return;
         }
     }
     // Second pass: claim a free slot for a new mapping (slot >= 0 only).
     if (slot < 0) return;  // unmap of a non-mapped device — nothing to do
     for (auto& d : device_map_) {
-        if (d.instance_id < 0) {
+        if (d.instance_id == 0) {
             d.instance_id = sdl_instance_id;
             d.slot        = slot;
             return;
@@ -448,8 +453,11 @@ void JoystickDispatcher::map_instance_to_slot(int32_t sdl_instance_id, int slot)
     // we route only two; further ones never reach handle_sdl_event.
 }
 
-int JoystickDispatcher::resolve_instance_to_slot(int32_t sdl_instance_id) const
+int JoystickDispatcher::resolve_instance_to_slot(SDL_JoystickID sdl_instance_id) const
 {
+    // The invalid id can never name a device, and matching it would match
+    // every FREE entry of the table instead.
+    if (sdl_instance_id == 0) return -1;
     for (const auto& d : device_map_) {
         if (d.instance_id == sdl_instance_id) {
             return d.slot;
@@ -461,37 +469,37 @@ int JoystickDispatcher::resolve_instance_to_slot(int32_t sdl_instance_id) const
 bool JoystickDispatcher::handle_sdl_event(const SDL_Event& e)
 {
     switch (e.type) {
-    case SDL_CONTROLLERBUTTONDOWN:
-    case SDL_CONTROLLERBUTTONUP: {
-        const int slot = resolve_instance_to_slot(e.cbutton.which);
+    case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+    case SDL_EVENT_GAMEPAD_BUTTON_UP: {
+        const int slot = resolve_instance_to_slot(e.gbutton.which);
         if (slot < 0) return false;  // unmapped device
-        handle_button(slot, e.cbutton.button, e.type == SDL_CONTROLLERBUTTONDOWN);
+        handle_button(slot, e.gbutton.button, e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN);
         return true;
     }
-    case SDL_CONTROLLERAXISMOTION: {
-        const int slot = resolve_instance_to_slot(e.caxis.which);
+    case SDL_EVENT_GAMEPAD_AXIS_MOTION: {
+        const int slot = resolve_instance_to_slot(e.gaxis.which);
         if (slot < 0) return false;
-        handle_axis(slot, e.caxis.axis, e.caxis.value);
+        handle_axis(slot, e.gaxis.axis, e.gaxis.value);
         return true;
     }
     // Raw SDL_Joystick events (Task 83). Only devices GamepadHost opened as
     // raw joysticks reach here: for a device that IS a game controller SDL
     // emits BOTH families, and GamepadHost filters the JOY* copies out so a
     // single physical press cannot be applied twice.
-    case SDL_JOYBUTTONDOWN:
-    case SDL_JOYBUTTONUP: {
+    case SDL_EVENT_JOYSTICK_BUTTON_DOWN:
+    case SDL_EVENT_JOYSTICK_BUTTON_UP: {
         const int slot = resolve_instance_to_slot(e.jbutton.which);
         if (slot < 0) return false;
-        handle_raw_button(slot, e.jbutton.button, e.type == SDL_JOYBUTTONDOWN);
+        handle_raw_button(slot, e.jbutton.button, e.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN);
         return true;
     }
-    case SDL_JOYAXISMOTION: {
+    case SDL_EVENT_JOYSTICK_AXIS_MOTION: {
         const int slot = resolve_instance_to_slot(e.jaxis.which);
         if (slot < 0) return false;
         handle_raw_axis(slot, e.jaxis.axis, e.jaxis.value);
         return true;
     }
-    case SDL_JOYHATMOTION: {
+    case SDL_EVENT_JOYSTICK_HAT_MOTION: {
         const int slot = resolve_instance_to_slot(e.jhat.which);
         if (slot < 0) return false;
         handle_raw_hat(slot, e.jhat.hat, e.jhat.value);

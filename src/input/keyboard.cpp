@@ -13,19 +13,19 @@ namespace {
 
 struct MatrixPos { int8_t row; int8_t col; };
 
-// SDL_NUM_SCANCODES is 512; we use a flat array indexed by SDL_Scancode.
+// SDL_SCANCODE_COUNT is 512; we use a flat array indexed by SDL_Scancode.
 // Unrecognised scancodes have row == -1.
-static MatrixPos s_map[SDL_NUM_SCANCODES];
+static MatrixPos s_map[SDL_SCANCODE_COUNT];
 
 // Compound keys press two matrix positions simultaneously (e.g. DELETE = Caps Shift + 0).
 struct CompoundPos { MatrixPos a; MatrixPos b; };
-static CompoundPos s_compound[SDL_NUM_SCANCODES];
+static CompoundPos s_compound[SDL_SCANCODE_COUNT];
 
 // Task 77 — Alt-modified compounds. A scancode present here resolves to THIS
 // compound while a host Alt key is held, and to its s_compound / s_map entry
 // otherwise. Kept as a separate table (rather than a modifier field on
 // CompoundPos) so every existing lookup is untouched.
-static CompoundPos s_alt_compound[SDL_NUM_SCANCODES];
+static CompoundPos s_alt_compound[SDL_SCANCODE_COUNT];
 
 // Task 90 / issue #33 — host scancode -> extended-key ID. These 16 keys go
 // through the extended-key register, NOT s_compound: the hardware routes them
@@ -33,9 +33,9 @@ static CompoundPos s_alt_compound[SDL_NUM_SCANCODES];
 // into the 8x5 matrix as their classic compound, and NR 0x68 bit 4 cancels
 // only the fold. Asserting the compound directly, as jnext used to, cannot
 // express that split. -1 = not an extended key.
-static int8_t s_extkey[SDL_NUM_SCANCODES];
+static int8_t s_extkey[SDL_SCANCODE_COUNT];
 // Alt-modified variants, same idea as s_alt_compound.
-static int8_t s_alt_extkey[SDL_NUM_SCANCODES];
+static int8_t s_alt_extkey[SDL_SCANCODE_COUNT];
 
 static bool      s_map_init = false;
 
@@ -244,7 +244,7 @@ void Keyboard::reset() {
 }
 
 void Keyboard::set_key(SDL_Scancode sc, bool pressed) {
-    if (sc < 0 || sc >= SDL_NUM_SCANCODES) return;
+    if (sc < 0 || sc >= SDL_SCANCODE_COUNT) return;
 
     // Task 79 — cursor-keys-as-Kempston-joystick. When a connector is the
     // cursor-key target, the arrows drive its direction bits and Space is

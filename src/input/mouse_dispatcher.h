@@ -1,11 +1,11 @@
 #pragma once
 #include <cstdint>
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 
 class KempstonMouse;
 
-/// Host-side dispatcher: translates SDL_MOUSEMOTION / SDL_MOUSEBUTTON{DOWN,UP}
-/// / SDL_MOUSEWHEEL events into KempstonMouse counter / button / wheel
+/// Host-side dispatcher: translates SDL_EVENT_MOUSE_MOTION / SDL_MOUSEBUTTON{DOWN,UP}
+/// / SDL_EVENT_MOUSE_WHEEL events into KempstonMouse counter / button / wheel
 /// updates. Closes plan rows MOUSE-13/14/15 (gap G43).
 ///
 /// This class plays the role of the PS/2 host adapter on real Next hardware:
@@ -29,7 +29,7 @@ class KempstonMouse;
 /// bit 2 = M (mouse.h:33). The dispatcher tracks pressed buttons internally
 /// as an active-high mask and re-emits set_buttons() on every change.
 ///
-/// Wheel mapping (SDL → Kempston): SDL_MOUSEWHEEL.y is a signed step count
+/// Wheel mapping (SDL → Kempston): SDL_EVENT_MOUSE_WHEEL.y is a signed step count
 /// (positive = wheel rolled away from user). The Kempston wheel is a 4-bit
 /// unsigned counter (zxnext.vhd:3560 high nibble) — we accumulate signed
 /// steps modulo-16 (matching the VHDL roll-over at MOUSE-10 = G).
@@ -55,7 +55,7 @@ public:
 
     // ── Transport-agnostic API ──────────────────────────────────────────
 
-    /// SDL_MOUSEMOTION → inject relative delta into KempstonMouse counters.
+    /// SDL_EVENT_MOUSE_MOTION → inject relative delta into KempstonMouse counters.
     /// dx>0 = right, dy>0 = down (matches SDL's screen-space convention,
     /// which also matches the Kempston Y-counter polarity — both grow
     /// downward).
@@ -68,7 +68,7 @@ public:
     /// every change.
     void handle_button(uint8_t sdl_button, bool pressed);
 
-    /// SDL_MOUSEWHEEL → accumulate signed Y-axis step into the 4-bit
+    /// SDL_EVENT_MOUSE_WHEEL → accumulate signed Y-axis step into the 4-bit
     /// unsigned wheel counter modulo-16. SDL's `y` field is the signed
     /// step count (positive = away from user). X-axis wheel is ignored
     /// (no Kempston field).
@@ -77,8 +77,8 @@ public:
     // ── Production wiring ───────────────────────────────────────────────
 
     /// Convenience entry point for the SDL event loop: dispatches any of
-    /// SDL_MOUSEMOTION / SDL_MOUSEBUTTONDOWN / SDL_MOUSEBUTTONUP /
-    /// SDL_MOUSEWHEEL into the transport-agnostic API. Other event types
+    /// SDL_EVENT_MOUSE_MOTION / SDL_EVENT_MOUSE_BUTTON_DOWN / SDL_EVENT_MOUSE_BUTTON_UP /
+    /// SDL_EVENT_MOUSE_WHEEL into the transport-agnostic API. Other event types
     /// are ignored (returns false). Returns true if the event was a mouse
     /// event the dispatcher consumed.
     ///
@@ -104,4 +104,15 @@ private:
     KempstonMouse& mouse_;
     uint8_t        button_mask_  = 0;  // bit 0=R, 1=L, 2=M (matches mouse.h:33)
     uint8_t        wheel_nibble_ = 0;  // 4-bit unsigned, zxnext.vhd:3560 high nibble
+
+    // Sub-pixel motion carried over between SDL events (GH #57). SDL2
+    // delivered SDL_MouseMotionEvent::xrel/yrel as Sint32; SDL3 delivers them
+    // as float, and a backend with pointer scaling (Wayland fractional
+    // scaling, relative-mode acceleration) can report deltas smaller than one
+    // unit. Truncating each one independently would drop a slow drag on the
+    // floor forever — the pointer would simply not move. Only handle_sdl_event
+    // touches these; the Qt frontend calls handle_motion() with its own
+    // integer deltas and is bit-identical to before.
+    float          motion_residue_x_ = 0.0f;
+    float          motion_residue_y_ = 0.0f;
 };
