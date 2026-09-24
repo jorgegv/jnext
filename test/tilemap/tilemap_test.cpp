@@ -29,6 +29,12 @@
 #include "video/tilemap.h"
 #include "video/palette.h"
 #include "memory/ram.h"
+// TM-140/TM-141 drive the real Renderer::render_row so the `tm_en = 0`
+// below-flag wiring (zxnext.vhd:6863) is pinned at the production call
+// site, not only at the Tilemap tier.
+#include "memory/rom.h"
+#include "memory/mmu.h"
+#include "video/layer2.h"
 
 // G98/G101 — TM-95/TM-105 cross unit/compositor boundaries.  The
 // `private`/`protected` shim mirrors compositor_test.cpp so we can drop
@@ -773,13 +779,28 @@ void group5_textmode() {
                    "G104 40-col 2-cell pairs");
     }
 
-    // TM-44 — COVERED AT COMPOSITOR TIER (not a skip).  Text-mode RGB
-    // transparency comparison (tilemap.vhd:426-429, zxnext.vhd:7109)
-    // happens at the post-palette RGB stage in the compositor.  See
-    // test/compositor/compositor_test.cpp group "TR" row TR-20 (TM text-
-    // mode RGB==NR0x14 => tm_transparent) and TR-21 (non-text ignores the
-    // RGB compare).  Kept here as a source-level reference to the
-    // tilemap plan row.
+    // TM-44 — RETIRED, covered by live rows in THIS suite (GH #201).
+    //
+    // The pointer that stood here named compositor_test TR-20/TR-21. That
+    // was a bad retirement and is withdrawn: TR-20 sets the TM pixel to
+    // `rrrgggbb_to_argb(0xE3)` and asserts the output equals
+    // `vhdl_fallback_argb(0xE3)` — the SAME 32-bit value — so it passes
+    // whether or not the pixel was treated as transparent, and it never
+    // sets `tm_pixel_textmode_`, which is the precondition of the clause
+    // it claims to test (zxnext.vhd:7109).
+    //
+    // TM-44's claim — "text-mode transparency uses the RGB comparison, not
+    // the index" — is both halves of the pixel_en_f mux at
+    // tilemap.vhd:427-429 plus the compositor clause at zxnext.vhd:7109,
+    // and both are asserted here, discriminatively:
+    //   * NOT the index  → TM-98 (group 10): identical stimulus rendered
+    //     once with NR 0x6B b3 = 0 and once with b3 = 1; the index test
+    //     drops the pixel in standard mode and must NOT drop it in text
+    //     mode.
+    //   * IS the RGB     → TM-95 (group 10): a real text-mode pixel whose
+    //     palette colour equals NR 0x14 is driven through
+    //     Renderer::composite_scanline against an opaque ULA pixel, and the
+    //     ULA must win.
 }
 
 // ── Group 6: Strip flags (force_attr) mode ──────────────────────────────
@@ -1292,9 +1313,13 @@ void group10_transparency() {
               "VHDL tilemap.vhd:427 — custom transp idx 0x07 disables pixel");
     }
 
-    // TM-93 — COVERED AT COMPOSITOR TIER (not a skip).  Textmode RGB
-    // transparency (zxnext.vhd:7109) is verified at
-    // test/compositor/compositor_test.cpp row TR-20.
+    // TM-93 — RETIRED, covered by TM-95 immediately below (GH #201).
+    // TM-93 and TM-95 make the same claim — `tm_pixel_textmode_2 = 1 and
+    // tm_rgb_2(8:1) = transparent_rgb_2` marks the pixel transparent
+    // (zxnext.vhd:7109) — and TM-95 is the one that landed with a real
+    // stimulus (GH #98 + GH #101). The former pointer to compositor_test
+    // TR-20 is withdrawn for the reason given at TM-44: TR-20's expected
+    // value equals its stimulus, so it cannot fail.
 
     // ── GH #113: text mode bypasses the INDEX transparency test ──────────
     //
@@ -1381,11 +1406,14 @@ void group10_transparency() {
                    "standard mode and emits in text mode");
     }
 
-    // TM-94 — COVERED AT COMPOSITOR TIER (not a skip).  pixel_en_f
-    // selection between index- and RGB-based transparency pipelines
-    // (zxnext.vhd compositor) is verified at compositor_test.cpp rows
-    // TR-21 (non-text ignores RGB compare) and TR-22 (tm_pixel_en=0 →
-    // transparent).
+    // TM-94 — RETIRED, covered by live rows in THIS suite (GH #201).
+    // "Standard: index check; text: always enabled if pixel_en_s, then RGB
+    // check" is TM-98 (the pixel_en_f mux itself, tilemap.vhd:427/429)
+    // followed by TM-95 (the RGB check that then applies in text mode,
+    // zxnext.vhd:7109). Both are immediately above/below this line and both
+    // discriminate. The former pointer to compositor_test TR-21/TR-22 is
+    // withdrawn: neither of those rows sets `tm_pixel_textmode_`, so
+    // neither can distinguish the two pipelines TM-94 is about.
 
     // TM-95 — Text-mode RGB transparency at the compositor tier.
     // VHDL zxnext.vhd:7109 —
@@ -1792,11 +1820,62 @@ void group13_priority() {
               "VHDL tilemap.vhd:388 — attr(0)=1 with tm_on_top=0 sets below=1");
     }
 
-    // TM-123 — COVERED AT COMPOSITOR TIER (not a skip).  The ULA/TM
-    // layering decision `ulatm_rgb = tm when below=0 or ula_transp`
-    // (zxnext.vhd:7116) is verified at compositor_test.cpp group "UTB"
-    // rows UTB-10 (TM above: TM wins) and UTB-11 (TM below: ULA wins),
-    // plus UTB-30/31/40/41 exercising the NR 0x68 mode matrix.
+    // TM-123 — GH #201: asserted here END TO END, not re-homed.
+    //
+    // compositor_test UTB-10/UTB-11 do prove the mux at zxnext.vhd:7116,
+    // but they plant `tm_pixel_below_[0]` by hand. TM-122/124/125 above
+    // prove the other end — that attr(0)/mode_512/tm_on_top produce the
+    // right `ula_over` flag at tilemap.vhd:388. Neither side crosses the
+    // SEAM between them, and the seam is exactly where GH #113 lived.
+    //
+    // So: render a REAL tile whose attribute carries the below bit, feed
+    // the rendered line (pixels AND flags) into Renderer::composite_scanline
+    // against an opaque ULA pixel, and require
+    //     below = 0  →  the tile covers the ULA        (tm wins)
+    //     below = 1  →  the ULA covers the tile        (ula wins)
+    // which is `ulatm_rgb <= tm_rgb when (tm_transparent='0') and
+    // (tm_pixel_below_2='0' or ula_transparent='1') else ula_rgb`.
+    {
+        const uint32_t ula_pix = 0xFFAABBCCu;      // distinct opaque ULA
+
+        auto composite_first = [&](uint8_t attr_lo) -> uint32_t {
+            fresh(tm, pal, ram);
+            paint_tm_palette_entry(pal, 0x03, 0xE0);
+            fill_tile_pattern(ram, DEF_DEF_BASE, 0, 3);
+            write_map2(ram, DEF_MAP_BASE, 0, 0, 40, 0, attr_lo);
+            tm.set_control(0x80);                  // enable, tm_on_top = 0
+            auto s = render_line(tm, 0, ram, pal);
+
+            Renderer R; R.reset();
+            R.set_layer_priority(0);               // SLU
+            R.set_tm_enabled(true);
+            for (int i = 0; i < Renderer::FB_WIDTH; ++i) {
+                R.ula_line_[i]          = (i == 0) ? ula_pix : 0u;
+                R.layer2_line_[i]       = 0u;
+                R.sprite_line_[i]       = 0u;
+                R.tilemap_line_[i]      = s.pixels[i];
+                R.tm_pixel_below_[i]    = s.ula_over[i];
+                R.tm_pixel_textmode_[i] = s.textmode[i];
+                R.layer2_priority_[i]   = false;
+                R.ula_border_[i]        = false;
+            }
+            uint32_t out[Renderer::FB_WIDTH];
+            std::memset(out, 0, sizeof(out));
+            R.composite_scanline(out, /*fallback_argb=*/0u, /*row=*/0);
+            return out[0];
+        };
+
+        const uint32_t tm_pix   = pal.tilemap_colour(0x03);
+        const uint32_t got_over = composite_first(0x00);   // attr(0)=0 → below=0
+        const uint32_t got_under= composite_first(0x01);   // attr(0)=1 → below=1
+        check_pred("TM-123",
+                   got_over == tm_pix && got_under == ula_pix &&
+                   tm_pix != ula_pix,
+                   "VHDL zxnext.vhd:7116 + tilemap.vhd:388 — the per-tile "
+                   "below flag reaches the compositor: attr(0)=0 lets the "
+                   "tile cover an opaque ULA pixel, attr(0)=1 lets the ULA "
+                   "cover the tile");
+    }
 
     // TM-124: tm_on_top overrides the per-tile below bit even in 512 mode.
     // VHDL: tilemap.vhd:388 — NOT tm_on_top_q gates the whole OR term.
@@ -1829,23 +1908,174 @@ void group13_priority() {
 
 void group14_stencil() {
     set_group("G14 Stencil");
-    // TM-130 / TM-131 — COVERED AT COMPOSITOR TIER (not skips).  Stencil
-    // mode (NR 0x68 ula_stencil_mode, VHDL zxnext.vhd:7112-7113) is a
-    // compositor feature: stencil_rgb = ula_rgb AND tm_rgb, stencil
-    // transparency = ula_transp OR tm_transp.  See compositor_test.cpp
-    // group "STEN" rows STEN-10 (bitwise AND) and STEN-11 (AND with zero).
+    Tilemap tm; PaletteManager pal; Ram ram;
+
+    // TM-130 — GH #201: asserted here, NOT re-homed onto STEN-10/STEN-11.
+    //
+    // Those two rows pick ULA = 0xFF with TM = 0xE0 and TM = 0x00, and in
+    // both cases `ULA and TM` equals the TM value itself — so both pass
+    // unchanged if the compositor simply showed the tile and never ANDed
+    // anything. They cannot discriminate the stencil branch.
+    //
+    // This row picks a pair whose per-channel AND differs from BOTH inputs,
+    // and drives it from a REAL tilemap pixel:
+    //     ULA = 0xFC = 111 111 00   (r7 g7 b0)
+    //     TM  = 0x3F = 001 111 11   (r1 g7 b3)
+    //     AND = 001 111 00 = 0x3C   (r1 g7 b0)   ≠ 0xFC and ≠ 0x3F
+    // VHDL zxnext.vhd:7113 — `stencil_rgb <= (ula_rgb and tm_rgb)`.
+    {
+        fresh(tm, pal, ram);
+        paint_tm_palette_entry(pal, 0x03, 0x3F);
+        fill_tile_pattern(ram, DEF_DEF_BASE, 0, 3);
+        write_map2(ram, DEF_MAP_BASE, 0, 0, 40, 0, 0x00);
+        tm.set_control(0x80);                      // enable, tm_on_top = 0
+        auto s = render_line(tm, 0, ram, pal);
+
+        Renderer R; R.reset();
+        R.set_layer_priority(0);                   // SLU
+        R.set_tm_enabled(true);
+        R.set_stencil_mode(true);                  // NR 0x68 b0
+        R.set_transparent_rgb(0x01);               // keep both pixels opaque
+        R.init_stencil_mode_per_line();
+        R.init_transparent_rgb_per_line();
+        const uint32_t ula_pix = Renderer::rrrgggbb_to_argb(0xFC);
+        for (int i = 0; i < Renderer::FB_WIDTH; ++i) {
+            R.ula_line_[i]          = (i == 0) ? ula_pix : 0u;
+            R.layer2_line_[i]       = 0u;
+            R.sprite_line_[i]       = 0u;
+            R.tilemap_line_[i]      = s.pixels[i];
+            R.tm_pixel_below_[i]    = s.ula_over[i];
+            R.tm_pixel_textmode_[i] = s.textmode[i];
+            R.layer2_priority_[i]   = false;
+            R.ula_border_[i]        = false;
+        }
+        uint32_t out[Renderer::FB_WIDTH];
+        std::memset(out, 0, sizeof(out));
+        R.composite_scanline(out, /*fallback_argb=*/0u, /*row=*/0);
+        const uint32_t expected = Renderer::rrrgggbb_to_argb(0x3C);
+        check_pred("TM-130",
+                   out[0] == expected && expected != ula_pix &&
+                   expected != s.pixels[0],
+                   "VHDL zxnext.vhd:7113 — stencil output is the per-channel "
+                   "AND of the ULA and tilemap RGB (0xFC AND 0x3F = 0x3C), "
+                   "a value equal to neither input");
+    }
+
+    // TM-131 — RETIRED, covered by live compositor rows (GH #201).
+    // `stencil_transparent <= ula_transparent or tm_transparent`
+    // (zxnext.vhd:7112) is asserted three ways in
+    // test/compositor/compositor_test.cpp, each with a discriminating
+    // oracle (the NR 0x4A fallback, which is neither the ULA nor the TM
+    // pixel):
+    //   STEN-12  ULA transparent, TM opaque   → fallback (not the TM pixel)
+    //   STEN-13  TM transparent, ULA opaque   → fallback (not the ULA pixel)
+    //   STEN-14  both transparent             → fallback
+    // Unlike STEN-10/11 (see TM-130 above) these do not degenerate, so the
+    // re-home is sound and TM-131 adds nothing by repeating it.
 }
 
 // ── Group 15: Enable / below interaction ────────────────────────────────
 
+// Run one display row through the REAL Renderer::render_row with a
+// DISABLED tilemap and report the below flag the compositor would see.
+// Everything else is left at reset defaults — the row is about one bool.
+bool render_row_below_flag(bool tm_on_top) {
+    Ram  ram;
+    Rom  rom;
+    Mmu  mmu(ram, rom);
+    PaletteManager pal;
+    Renderer r;
+    Layer2 l2;
+    Tilemap tmp;
+
+    mmu.reset();
+    pal.reset();
+    r.reset();
+    l2.reset();
+    tmp.reset();
+    r.ula().set_ram(&ram);
+    r.ula().set_palette(&pal);
+    r.init_fallback_per_line();
+    r.init_ula_enabled_per_line();
+    r.init_transparent_rgb_per_line();
+    r.init_stencil_mode_per_line();
+    r.init_blend_mode_per_line();
+    r.init_ula_clip_per_line();
+    r.lores().init_per_line();
+
+    tmp.set_control(tm_on_top ? 0x01 : 0x00);   // b7 = 0 → layer OFF
+    tmp.init_scroll_per_line();
+
+    std::vector<uint32_t> out(Renderer::FB_WIDTH, 0u);
+    r.render_row(out.data(), /*row=*/Renderer::FB_HEIGHT / 2, mmu, ram, pal,
+                 l2, /*sprites=*/nullptr, &tmp);
+    return r.tm_pixel_below_[0];
+}
+
 void group15_enable_below() {
     set_group("G15 Enable/below");
-    // TM-140 / TM-141 — COVERED AT COMPOSITOR TIER (not skips).  When
-    // tm_en=0, VHDL zxnext.vhd:6863 derives below = NOT tm_on_top in the
-    // compositor's tm_pixel_below_1 path.  Tilemap::render_scanline
-    // short-circuits when enabled_=false, so this check cannot land at
-    // the Tilemap layer.  See compositor_test.cpp row TR-23 (tm_en=0 →
-    // TM transparent) for the downstream verification.
+    Tilemap tm; PaletteManager pal; Ram ram;
+
+    // TM-140 / TM-141 — GH #201. The re-home onto compositor_test TR-23
+    // is withdrawn: TR-23 asserts that a disabled tilemap is TRANSPARENT,
+    // which is a different claim and says nothing about the below flag.
+    //
+    // VHDL zxnext.vhd:6863:
+    //     tm_pixel_below_1 <= (tm_pixel_below and tm_en_1a)
+    //                         or ((not nr_6b_tm_control(0)) and not tm_en_1a);
+    // With tm_en = 0 the second term stands alone, so below = NOT tm_on_top.
+    // It is NOT zero, and the difference is observable: zxnext.vhd:7156-7177
+    // uses tm_pixel_below_2 to put the ULA in the mixer's mix_top or mix_bot
+    // slot, and the output cascade at :7300-7310 runs
+    //     l2_priority > mix_top > SPRITE > mix_bot > mixer,
+    // so the two slots sit on opposite sides of the sprite layer.
+    //
+    // jnext short-circuited `Tilemap::render_scanline` on `!enabled_` and
+    // left the renderer's all-false fill in place — the tm_on_top = 1
+    // answer, given unconditionally. Fixed in src/video/tilemap.cpp (the
+    // `!enabled_` branch now writes the flags) with the renderer calling it
+    // unconditionally; these two rows are that fix's regression cover.
+    {
+        // TM-140: tm_en = 0, tm_on_top = 0  →  below = 1 on every pixel.
+        fresh(tm, pal, ram);
+        tm.set_control(0x00);                  // b7 = 0 (off), b0 = 0
+        auto s0 = render_line(tm, 0, ram, pal);
+        bool all_below = true, no_pixels_0 = true;
+        for (int i = 0; i < 640; ++i) {
+            if (!s0.ula_over[i]) all_below = false;
+            if (s0.pixels[i] != 0u) no_pixels_0 = false;
+        }
+        // …and the same through the PRODUCTION call site. The renderer
+        // used to skip Tilemap::render_scanline entirely for a disabled
+        // layer (`if (tilemap && tilemap->enabled())`), so fixing only the
+        // Tilemap side would leave tm_pixel_below_ at the all-false fill
+        // where it actually matters. render_row is what composite_scanline
+        // reads, so that is what this asserts.
+        const bool wired_140 = render_row_below_flag(/*tm_on_top=*/false);
+
+        check_pred("TM-140", all_below && no_pixels_0 && wired_140,
+                   "VHDL zxnext.vhd:6863 — tm_en=0 with tm_on_top=0 gives "
+                   "below = NOT tm_on_top = 1 on every pixel (and the layer "
+                   "still emits nothing), both at the Tilemap tier and in "
+                   "Renderer::render_row");
+
+        // TM-141: tm_en = 0, tm_on_top = 1  →  below = 0 on every pixel.
+        fresh(tm, pal, ram);
+        tm.set_control(0x01);                  // b7 = 0 (off), b0 = 1
+        auto s1 = render_line(tm, 0, ram, pal);
+        bool none_below = true, no_pixels_1 = true;
+        for (int i = 0; i < 640; ++i) {
+            if (s1.ula_over[i]) none_below = false;
+            if (s1.pixels[i] != 0u) no_pixels_1 = false;
+        }
+        const bool wired_141 = !render_row_below_flag(/*tm_on_top=*/true);
+
+        check_pred("TM-141", none_below && no_pixels_1 && wired_141,
+                   "VHDL zxnext.vhd:6863 — tm_en=0 with tm_on_top=1 gives "
+                   "below = 0 on every pixel; paired with TM-140 this proves "
+                   "the flag follows NOT tm_on_top rather than being cleared "
+                   "(asserted through Renderer::render_row too)");
+    }
 }
 
 } // namespace

@@ -170,10 +170,139 @@ static void test_g117_cycle_accurate(Emulator& emu) {
               " expected 0x1F (last of 16 MOVEs)");
     }
 
-    // (MOVE-RASTER-style WAIT semantics are already exercised by
-    // copper_test Group 1-3; the G117 fix only changes call frequency
-    // from the Emulator, not Copper::execute internals — so a separate
-    // integration row would be redundant.)
+    // TIM-CYC-02 (GH #201) — a SATISFIED WAIT costs one 28 MHz cycle, not
+    // one Z80 instruction.
+    //
+    // The comment that stood here said a WAIT row would be redundant
+    // because "copper_test Group 1-3 already exercises WAIT semantics".
+    // Those rows step `Copper::execute` by hand, so they say what a WAIT
+    // does per CALL and nothing about how often the Emulator calls it — the
+    // whole content of the row. And the GH181-HCULA rows below, which DO
+    // measure a WAIT at the Emulator tier, bracket it to `kSlack = 16` raw
+    // pixels = two NOPs, so a Copper that advanced once per instruction
+    // lands inside their bound and passes. So nothing covered this.
+    //
+    // VHDL: `copper_mod` is clocked by `i_CLK_28` (zxnext.vhd:3944), and in
+    // copper.vhd:92-98 a WAIT whose condition holds does
+    // `copper_list_addr_s + 1` on THAT clock with `copper_dout_s <= '0'` —
+    // one 28 MHz cycle, no stall. The MOVE at the next address then emits
+    // its write pulse on the following cycle (:100-108) and clears it on
+    // the one after (:87-89). A whole burst therefore retires inside the 32
+    // master cycles of one 3.5 MHz NOP.
+    //
+    // Shape: part A calibrates that an 8-MOVE burst fits in ONE instruction
+    // with no WAIT in front (8 x 2 = 16 cycles, well inside 32). Part B puts
+    // an ALREADY-SATISFIED WAIT in front of the same burst and requires the
+    // one instruction to still be enough: 1 cycle for the WAIT, 16 for the
+    // MOVEs. Pre-G117 — one Copper step per instruction — part A reads 0x10
+    // and part B reads 0x00.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+
+        // A NOP sled makes every step exactly 4 T = 32 master cycles at the
+        // NR 0x07 power-on speed, so the window is a known quantity rather
+        // than whatever the boot ROM happens to be executing.
+        const uint16_t code_addr = 0xC000;
+        for (uint32_t a = code_addr; a <= 0xFFFF; ++a)
+            emu.mmu().write(static_cast<uint16_t>(a), 0x00);
+        auto regs = emu.cpu().get_registers();
+        regs.PC   = code_addr;
+        regs.IFF1 = 0;
+        regs.IFF2 = 0;
+        emu.cpu().set_registers(regs);
+
+        // ── Part A: 8 MOVEs, no WAIT. One instruction must retire all 8.
+        emu.copper().reset();
+        for (int i = 0; i < 32; ++i)
+            program_word(emu, static_cast<uint16_t>(i), enc_move(0, 0));
+        for (int i = 0; i < 8; ++i)
+            program_word(emu, static_cast<uint16_t>(i),
+                         enc_move(0x14, static_cast<uint8_t>(0x10 + i)));
+        program_word(emu, 8, enc_wait(0, 511));       // HALT
+        nr_write(emu, 0x64, 0);
+        nr_write(emu, 0x14, 0x00);
+        set_copper_mode(emu, 0);
+        set_copper_mode(emu, 1);
+        emu.execute_single_instruction();
+        const uint8_t burst_one_instr = nr_read(emu, 0x14);
+
+        // ── Part B: the same burst behind an ALREADY-SATISFIED WAIT. One
+        // instruction must still retire all 8, because the WAIT costs one
+        // 28 MHz cycle out of the window's 32, not the window.
+        //
+        // "Already satisfied" has to be established, not hoped for: the
+        // Copper compares against hc_ula / cvc (zxnext.vhd:3949-3950), so
+        // the row walks the raster to a point where the current cvc line is
+        // well inside its own satisfied span — hpos 0 means threshold 12
+        // (copper.vhd:94), and the span runs to hc_ula 455 — then programs
+        // the WAIT for THAT cvc. Programming goes through NR ports, which
+        // execute no Z80 instruction, so the raster does not move between
+        // the measurement and the one instruction that follows.
+        //
+        // This is the shape that discriminates. A version that merely
+        // stepped until the burst appeared and then allowed one more
+        // instruction passes even if a satisfied WAIT eats the rest of its
+        // window — measured with that exact mutation, which left the row
+        // green and had to be rewritten.
+        const int zero_hc = emu.video_timing().hc_ula_zero_raw_hc();
+        const int ppl_b   = emu.video_timing().hc_max() + 1;
+        const int lpf_b   = emu.video_timing().vc_max() + 1;
+        const int origin  = emu.video_timing().display_origin().vc;
+
+        auto hc_ula_now = [&]() {
+            const int hc = emu.current_hc();
+            return (hc >= zero_hc) ? (hc - zero_hc) : (hc + ppl_b - zero_hc);
+        };
+        auto cvc_now = [&]() {
+            const int hc = emu.current_hc();
+            const int vc = emu.current_scanline();
+            const int uline = (hc >= zero_hc) ? vc : ((vc - 1 + lpf_b) % lpf_b);
+            return (uline - origin + lpf_b) % lpf_b;
+        };
+
+        // Park somewhere with the WAIT condition true and ~150 pixels of the
+        // same cvc line still ahead, so one 32-master-cycle (8-pixel) window
+        // cannot roll the line under us.
+        bool parked = false;
+        for (int i = 0; i < 4000 && !parked; ++i) {
+            const int h = hc_ula_now();
+            if (h >= 20 && h <= 300) parked = true;
+            else emu.execute_single_instruction();
+        }
+        const int cvc_park = cvc_now();
+        const int hcu_park = hc_ula_now();
+
+        emu.copper().reset();
+        for (int i = 0; i < 32; ++i)
+            program_word(emu, static_cast<uint16_t>(i), enc_move(0, 0));
+        program_word(emu, 0, enc_wait(0, static_cast<uint16_t>(cvc_park)));
+        for (int i = 0; i < 8; ++i)
+            program_word(emu, static_cast<uint16_t>(i + 1),
+                         enc_move(0x14, static_cast<uint8_t>(0x10 + i)));
+        program_word(emu, 9, enc_wait(0, 511));       // HALT
+        nr_write(emu, 0x64, 0);
+        nr_write(emu, 0x14, 0x00);
+        set_copper_mode(emu, 0);
+        set_copper_mode(emu, 1);
+        emu.execute_single_instruction();
+        const uint8_t behind_wait = nr_read(emu, 0x14);
+
+        check("TIM-CYC-02",
+              "a satisfied Copper WAIT advances on a 28 MHz cycle, not on a "
+              "Z80 instruction: an 8-MOVE burst behind an already-satisfied "
+              "WAIT still retires inside ONE instruction window, the same "
+              "one an unguarded burst needs  [copper.vhd:92-98 WAIT advance "
+              "+ :100-108 MOVE, clocked by zxnext.vhd:3944 i_CLK_28; "
+              "hcount_i/vcount_i = hc_ula/cvc per zxnext.vhd:3949-3950]",
+              parked && burst_one_instr == 0x17 && behind_wait == 0x17,
+              "parked=" + std::to_string(parked ? 1 : 0) +
+              " at cvc=" + std::to_string(cvc_park) +
+              " hc_ula=" + std::to_string(hcu_park) +
+              "; no-WAIT burst in 1 instr = " + hex2(burst_one_instr) +
+              "; behind a satisfied WAIT = " + hex2(behind_wait) +
+              " (both want 0x17; pre-G117 0x10 / 0x00)");
+    }
 }
 
 // ── G65 — CPU vs Copper NR-write priority ─────────────────────────────

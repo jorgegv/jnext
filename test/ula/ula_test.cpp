@@ -3348,9 +3348,26 @@ static void test_section13_timing() {
               fmt("hc_max=%d vc_max=%d ts=%d", t.hc_max(), t.vc_max(), ts));
     }
 
-    // Plan row #3 — RETIRED 2026-05-04: standalone Pentagon machine type
-    // dropped (Wave 0.3 follow-up). VideoTiming no longer initialises any
-    // Pentagon-specific c_max_hc/c_max_vc constants; the row is unrunnable.
+    // Plan row #3 — Pentagon frame length: (447+1) * (319+1) / 2 = 71680
+    // T-states.
+    //
+    // GH #201: the comment that stood here claimed the row was unrunnable
+    // because "VideoTiming no longer initialises any Pentagon-specific
+    // c_max_hc/c_max_vc constants". That was true of the standalone
+    // `MachineType::Pentagon` enum dropped in Wave 0.3 (2026-05-04), but
+    // not of Pentagon timing, which NR 0x03 tim_sel bit 2 still selects
+    // at runtime and which `init_timing(MachineTimingMode::TimingPentagon)`
+    // still initialises. The row is runnable; only the entry point moved.
+    {
+        VideoTiming p;
+        p.init_timing(MachineTimingMode::TimingPentagon);
+        const int ts = (p.hc_max() + 1) * (p.vc_max() + 1) / 2;
+        check("S13.03",
+              "zxula_timing.vhd:160,168 — Pentagon c_max_hc=447, "
+              "c_max_vc=319 → 448*320/2 = 71680 T-states",
+              p.hc_max() == 447 && p.vc_max() == 319 && ts == 71680,
+              fmt("hc_max=%d vc_max=%d ts=%d", p.hc_max(), p.vc_max(), ts));
+    }
 
     // Plan row #4 — 48K active display origin (hc=128, vc=64).
     check("S13.04",
@@ -3403,24 +3420,45 @@ static void test_section14_frame_int() {
     // VHDL cite: zxula_timing.vhd:547-559. Plan may merge with the
     // VideoTiming production-wiring backlog.
 
-    // S14.04/05/06 — Post-closure walkback 2026-04-23: these three rows
-    // were flipped to live check()s by Wave E, driving the VideoTiming
-    // pulse-counter API directly. The underlying VHDL logic (zxula_timing.vhd
-    // :547-583) is faithfully modelled inside VideoTiming, BUT no production
-    // code path writes to those setters or reads those counters — the actual
-    // ULA frame + line interrupt emulation is done by Emulator::run_frame
-    // reading local line_int_enabled_/ula_int_disabled_/line_int_value_ fields
-    // (emulator.cpp:2138, :2154). VideoTiming's interrupt-related state is
-    // test-only dead code. Keeping the rows as check()s would validate logic
-    // that no user-visible emulation depends on — coverage theatre. See
-    // `.prompts/2026-04-23.md` "VideoTiming pulse-counter production wiring"
-    // backlog item for the architectural-unification reasoning and the
-    // decision to defer indefinitely. Un-comment these blocks if/when the
-    // Emulator scheduler is funnelled through a production VideoTiming
-    // instance.
-    // G: S14.04 — VideoTiming inten_ula gate: test-only surface, no production consumer.
-    // G: S14.05 — VideoTiming line-int fire at target-1: test-only surface, no production consumer.
-    // G: S14.06 — VideoTiming target=0 → c_max_vc wrap: test-only surface, no production consumer.
+    // S14.04/05/06 — RETIRED 2026-09-24 (GH #201). All three claims are
+    // asserted live, at the production tier, by rows in other suites.
+    //
+    // History, because the previous disposition here is now wrong and
+    // someone will otherwise re-derive it. The 2026-04-23 post-closure
+    // walkback removed these rows on the grounds that VideoTiming's
+    // interrupt state was "test-only dead code" with "no production code
+    // path writing those setters or reading those counters". The writer
+    // half of that is no longer true: Emulator writes
+    // set_interrupt_enable() (emulator.cpp:397, 3164, 4241, 4901, 12158),
+    // writes set_line_interrupt_enable()/_target() from the NR 0x22 /
+    // NR 0x23 / port 0xFF handlers, reads line_interrupt_enable() in
+    // reschedule_line_interrupt() (:11264), and calls advance() every
+    // frame (:9919). The reader half IS still true — the pulse counters
+    // have no production consumer — so resurrecting the rows against
+    // those counters would still measure an output nothing depends on.
+    //
+    // Hence retirement rather than resurrection, onto rows whose
+    // stimulus was read before this comment was written:
+    //   S14.04 (inten_ula_n=1 -> no pulse)
+    //     -> ULA-INT-02, test/ctc_interrupts/ctc_interrupts_test.cpp:
+    //        NR 0x22 bit 2 on a live Emulator, run_frame(), NR 0xC8 bit 0
+    //        stays clear. ULA-INT-01 is the enabled-case discriminator.
+    //        VHDL trace, walked rather than assumed: nr_22_we ->
+    //        port_ff_reg(6) <= nr_wr_dat(2) (zxnext.vhd:3619-3620) ->
+    //        port_ff_interrupt_disable (:3635) -> i_inten_ula_n on the
+    //        zxula_timing port map (:6750) -> the int_ula gate at
+    //        zxula_timing.vhd:551.  The row's inten_ula_n=1 IS NR 0x22
+    //        bit 2 set, which is what ULA-INT-02 drives.
+    //   S14.05 (target N fires at cvc = N-1, hc_ula 255)
+    //     -> VT-GH257-01/02/03, test/videotiming/videotiming_test.cpp:
+    //        the int_line_num <= i_int_line - 1 map on Next / 48K /
+    //        Pentagon timing, discriminative (dropping the -1 moves the
+    //        Pentagon answer 515792 -> 517584). VT-GH257-05 pins the
+    //        production fire at hc_ula 255. VHDL zxula_timing.vhd:566-577.
+    //   S14.06 (target 0 = last line)
+    //     -> VT-GH257-04: target 0 gives 116432, reachable only if
+    //        int_line_num == c_max_vc (310); a literal 0 gives 118256.
+    //        VHDL zxula_timing.vhd:566-567.
 }
 
 // =========================================================================

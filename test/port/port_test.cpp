@@ -31,6 +31,12 @@
 #include "port/nextreg.h"
 #include "input/keyboard.h"
 
+// CTN-01/CTN-02 park the FUSE T-state counter on the first active display
+// line before timing an IN. `seek_to_display_window()` derives that anchor
+// from the machine's own ULA counter origin; reuse the canonical one rather
+// than re-deriving it here.
+#include "../contention/contention_helpers.h"
+
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -433,19 +439,52 @@ static void test_group_registration() {
               DETAIL("NR07=0x%02x expected 0x01", rb));
     }
 
-    // REG-06 / REG-07: AY register select 0xFFFD, data 0xBFFD.
-    // VHDL zxnext.vhd:2647-2648.
+    // REG-06: OUT 0xFFFD reaches the real AY register-SELECT latch.
+    //
+    // VHDL zxnext.vhd:2647 decodes port_fffd; turbosound.vhd:141-143 gates
+    // `psg0_addr` on `psg_d_i(7 downto 5) = "000"` AND ay_select = "11";
+    // ym2149.vhd:173 latches `addr <= I_DA(4 downto 0)`. The latch is read
+    // back on its own, without any data write, through the register-query
+    // path `O_DA <= AY_ID & '0' & addr` (ym2149.vhd:221) with AY_ID = "11"
+    // for PSG0 (turbosound.vhd:157) — so selecting register 8 must read
+    // back 0xC8.
+    //
+    // Split from the former combined "REG-06+07" row (GH #201): one check
+    // asserting "the volume came back" could not distinguish a broken
+    // select latch from a broken data path, because a select failure
+    // shows up only as the wrong register being read.
     {
-        emu.port().out(0xFFFD, 0x08);           // select ch A volume
-        emu.port().out(0xBFFD, 0x0F);           // volume = 15
-        // Reading AY reg 8 via the turbosound read path:
-        emu.port().out(0xFFFD, 0x08);
-        uint8_t vol = emu.port().in(0xFFFD);
-        check("REG-06+07",
-              "AY select+data latch visible via 0xFFFD read "
-              "[zxnext.vhd:2647,2648]",
-              (vol & 0x1F) == 0x0F,
-              DETAIL("AY08=0x%02x expected low5=0x0F", vol));
+        Emulator emu6; build_next_emulator(emu6);
+        emu6.port().out(0xFFFD, 0x08);          // select ch A volume
+        const uint8_t latch = emu6.turbosound().reg_read(/*reg_mode=*/true);
+        check("REG-06",
+              "OUT 0xFFFD latches the real AY register select (PSG0 "
+              "register-query readback = AY_ID \"11\" | 8) "
+              "[zxnext.vhd:2647; turbosound.vhd:141-143,157; "
+              "ym2149.vhd:173,221]",
+              latch == 0xC8,
+              DETAIL("query=0x%02x expected 0xC8", latch));
+    }
+
+    // REG-07: OUT 0xBFFD writes the real AY register file.
+    //
+    // VHDL zxnext.vhd:2648 decodes port_bffd into `psg_reg_wr`;
+    // turbosound.vhd:144 routes it to the selected PSG's `busctrl_we`;
+    // ym2149.vhd:188 commits `reg(addr) <= I_DA`. Observable as the stored
+    // channel-A volume (register 8) read straight out of the AY register
+    // file — ym2149.vhd:234 returns reg(8)(4:0) with the top bits masked in
+    // AY mode, and 0x0F has none set.
+    {
+        Emulator emu7; build_next_emulator(emu7);
+        emu7.port().out(0xFFFD, 0x08);          // select ch A volume
+        emu7.port().out(0xBFFD, 0x0F);          // volume = 15
+        const uint8_t vol = emu7.turbosound().reg_read();
+        check("REG-07",
+              "OUT 0xBFFD writes the selected real AY register (ch A "
+              "volume = 0x0F) [zxnext.vhd:2648; turbosound.vhd:144; "
+              "ym2149.vhd:188,234]",
+              vol == 0x0F,
+              DETAIL("AY08=0x%02x expected 0x0F", vol));
     }
 
     // REG-08: 0x7FFD MMU bank select. VHDL zxnext.vhd:2593.
@@ -1523,8 +1562,9 @@ static void test_group_nr_gating() {
 //
 // VHDL zxnext.vhd:2392-2393. When expbus_eff_en=0, NR 0x86-0x89 are inert.
 // When expbus_eff_en=1, each byte is ANDed with the corresponding NR 0x82-
-// 0x85 enable byte. Current C++ does not implement this AND; expected
-// FAIL across the board.
+// 0x85 enable byte. The AND is implemented (V16-NMP-02) via
+// Emulator::effective_internal_port_enable(), which every port-decode gate
+// routes through; the rows below drive it from the port side.
 
 static void test_group_expbus() {
     set_group("Group D — NR 0x86..0x89 expansion-bus masks");
@@ -1545,10 +1585,158 @@ static void test_group_expbus() {
               DETAIL("NR82=0x%02x", n82));
     }
 
-    // BUS-86-02, BUS-86-03, BUS-87-D, BUS-88-00, BUS-89-00 all require
-    // expbus_eff_en toggling and the expansion-bus AND term. The emulator
-    // exposes no expbus enable switch today. Mark as STUB and assert
-    // forward-compatible state: NR 0x86..0x89 are writable.
+    // BUS-86-02 — with expbus_eff_en=1, NR 0x86 bit 0 gates port 0xFF.
+    //
+    // VHDL zxnext.vhd:2392-2393 replaces the raw NR 0x82 enable vector with
+    // `nr_86 AND nr_82` once expbus_eff_en (NR 0x80 b7) is set, and :2397
+    // takes port_ff_io_en from bit 0 of that vector. So with NR 0x82 b0 = 1
+    // and NR 0x86 b0 = 0 the Timex SCLD write at :2583 must be dropped —
+    // the same silencing NR82-00 proves for the un-masked bit.
+    //
+    // Bit 0 / port 0xFF is a different bit and a different handler from the
+    // NR 0x86 b1 / port 0x7FFD pair asserted by V16-NMP-02-EXPBUS-ON-MASK
+    // (test/nextreg/nextreg_integration_test.cpp), so this row is not a
+    // duplicate of it. Both directions are asserted so the row cannot pass
+    // by the port being dead for an unrelated reason.
+    {
+        Emulator emu; build_next_emulator(emu);
+        emu.port().out(0x00FF, 0x08);                  // seed while open
+        const uint8_t seeded = emu.renderer().ula().get_screen_mode_reg();
+
+        nr_write(emu, 0x80, 0x80);                     // expbus_eff_en = 1
+        nr_write(emu, 0x82, 0xFF);                     // NR 0x82 b0 = 1
+        nr_write(emu, 0x86, 0xFE);                     // NR 0x86 b0 = 0
+        emu.port().out(0x00FF, 0x30);                  // must be dropped
+        const uint8_t masked = emu.renderer().ula().get_screen_mode_reg();
+
+        nr_write(emu, 0x86, 0xFF);                     // re-open the AND term
+        emu.port().out(0x00FF, 0x30);                  // must land now
+        const uint8_t reopened = emu.renderer().ula().get_screen_mode_reg();
+
+        check("BUS-86-02",
+              "expbus_eff_en=1: NR 0x86 b0=0 silences OUT 0xFF even with "
+              "NR 0x82 b0=1, and restoring NR 0x86 b0 reopens it "
+              "[zxnext.vhd:2392-2393, :2397, :2583]",
+              seeded == 0x08 && masked == 0x08 && reopened == 0x30,
+              DETAIL("scld seeded=0x%02x masked=0x%02x reopened=0x%02x",
+                     seeded, masked, reopened));
+    }
+
+    // BUS-86-03 — RETIRED 2026-09-24 (GH #201).
+    //
+    // The row is "NR 0x82 bit 1 = 1, NR 0x86 bit 1 = 0, expbus_eff_en = 1 →
+    // 0x7FFD blocked", oracle zxnext.vhd:2393 + :2399. That is assertion
+    // for assertion the same claim, stimulus and oracle as
+    // V16-NMP-02-EXPBUS-ON-MASK in
+    // test/nextreg/nextreg_integration_test.cpp ("NR 0x86 b1=0 silences
+    // OUT 0x7FFD when expbus_eff_en=1 ... [zxnext.vhd:2392-2393 / :2399]"),
+    // which observes the same `Mmu::port_7ffd()` latch. Its neighbours
+    // V16-NMP-02-EXPBUS-OFF / -ON-PASS / -TOGGLE cover the expbus_eff_en=0,
+    // AND-term-set and live-toggle corners of the same bit.
+    // Struck in IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md Group D; no check()
+    // row exists here.
+
+    // BUS-87-D — RETIRED 2026-09-24 (GH #201).
+    //
+    // `port_divmmc_io_en_diff <= nr_83_internal_port_enable(0) xor
+    // nr_87_bus_port_enable(0)` (zxnext.vhd:2413) is not a port-decode
+    // signal — it is NOT an input to `internal_port_enable`. Its ONLY
+    // consumer in the whole core is `hotkey_expbus_freeze` (:2180), whose
+    // only consumer in turn is the gate on the F5 / F6 expansion-bus
+    // enable/disable hotkeys writing `nr_80_expbus(7)` (:2189, :2191,
+    // fed from :6344-6345).
+    //
+    // jnext models neither end of that chain: there is no NextBUS device
+    // emulation at all (src/memory/contention.cpp:122-128 records the
+    // expbus WONT) and F5/F6 deliberately have no expansion-bus side
+    // effect (owner decision, src/gui/main_window.cpp:2024-2031). The XOR
+    // therefore has nothing observable downstream — an absent subsystem,
+    // not an untested behaviour. The AND-side of NR 0x83/NR 0x87 that
+    // jnext DOES model stays covered by V16-NMP-02-DIVMMC-MASK and
+    // V16-NMP-02-MF-MASK. Struck in IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md
+    // Group D; no check() row exists.
+
+    // BUS-88-00 — with expbus_eff_en=1, NR 0x88 bit 0 gates the AY ports.
+    //
+    // VHDL zxnext.vhd:2393 ANDs NR 0x88 into the NR 0x84 byte and :2428
+    // takes `port_ay_io_en` from bit 16 of the combined vector, i.e. NR
+    // 0x84 b0 AND NR 0x88 b0. :2647-2648 gate both port_fffd and port_bffd
+    // on that signal, so with NR 0x84 b0 = 1 and NR 0x88 b0 = 0 neither the
+    // register-select latch nor the register file may move, and the read
+    // mux (:2825) contributes nothing so the bus floats to 0xFF (:1877).
+    // No existing row drives NR 0x88 at all — NR84-00 only checks that
+    // NR 0x84's own bit reads back cleared.
+    {
+        Emulator emu; build_next_emulator(emu);
+        emu.port().out(0xFFFD, 0x08);                  // select reg 8
+        emu.port().out(0xBFFD, 0x0F);                  // reg 8 = 0x0F
+
+        nr_write(emu, 0x80, 0x80);                     // expbus_eff_en = 1
+        nr_write(emu, 0x84, 0xFF);                     // NR 0x84 b0 = 1
+        nr_write(emu, 0x88, 0xFE);                     // NR 0x88 b0 = 0
+        emu.port().out(0xFFFD, 0x07);                  // must be dropped
+        emu.port().out(0xBFFD, 0x3F);                  // must be dropped
+        const uint8_t sel_masked = emu.turbosound().reg_read(true);
+        const uint8_t dat_masked = emu.turbosound().reg_read();
+        const uint8_t rd_masked  = emu.port().in(0xFFFD);
+
+        nr_write(emu, 0x88, 0xFF);                     // re-open the AND term
+        emu.port().out(0xFFFD, 0x07);                  // must land now
+        const uint8_t sel_open = emu.turbosound().reg_read(true);
+
+        check("BUS-88-00",
+              "expbus_eff_en=1: NR 0x88 b0=0 silences 0xFFFD/0xBFFD even "
+              "with NR 0x84 b0=1 (select latch and register file frozen, "
+              "read floats 0xFF); restoring NR 0x88 b0 reopens them "
+              "[zxnext.vhd:2392-2393, :2428, :2647-2648, :2825]",
+              sel_masked == 0xC8 && dat_masked == 0x0F &&
+              rd_masked == 0xFF && sel_open == 0xC7,
+              DETAIL("sel_masked=0x%02x dat_masked=0x%02x rd=0x%02x "
+                     "sel_open=0x%02x (want C8/0F/FF/C7)",
+                     sel_masked, dat_masked, rd_masked, sel_open));
+    }
+
+    // BUS-89-00 — with expbus_eff_en=1, NR 0x89 bit 0 gates the ULA+ ports.
+    //
+    // VHDL zxnext.vhd:2393 ANDs NR 0x89 into the NR 0x85 byte and :2439
+    // takes `port_ulap_io_en` from bit 24, i.e. NR 0x85 b0 AND NR 0x89 b0.
+    // :2685-2686 gate port_bf3b / port_ff3b on it, so with NR 0x85 b0 = 1
+    // and NR 0x89 b0 = 0 a 0xBF3B write must not reach the ULA+ mode/index
+    // latches (:4532-4535).
+    //
+    // V16-NMP-02-NR85-NR89-B0 asserts the same AND on the CONTENTION
+    // shadow (`ContentionModel::port_ulap_io_en()`). This row asserts the
+    // port handler itself honours it — a handler reading the raw cached
+    // NR 0x85 byte instead of the effective one would pass that row and
+    // fail this one.
+    {
+        Emulator emu; build_next_emulator(emu);
+        emu.port().out(0xBF3B, 0x2A);                  // mode "00", index 0x2A
+        const uint8_t seeded = emu.renderer().ula().get_ulap_index();
+
+        nr_write(emu, 0x80, 0x80);                     // expbus_eff_en = 1
+        nr_write(emu, 0x85, 0x0F);                     // NR 0x85 b0 = 1
+        nr_write(emu, 0x89, 0x0E);                     // NR 0x89 b0 = 0
+        emu.port().out(0xBF3B, 0x15);                  // must be dropped
+        const uint8_t masked = emu.renderer().ula().get_ulap_index();
+
+        nr_write(emu, 0x89, 0x0F);                     // re-open the AND term
+        emu.port().out(0xBF3B, 0x15);                  // must land now
+        const uint8_t reopened = emu.renderer().ula().get_ulap_index();
+
+        check("BUS-89-00",
+              "expbus_eff_en=1: NR 0x89 b0=0 silences the 0xBF3B ULA+ "
+              "write even with NR 0x85 b0=1, and restoring NR 0x89 b0 "
+              "reopens it [zxnext.vhd:2392-2393, :2439, :2685-2686, "
+              ":4532-4535]",
+              seeded == 0x2A && masked == 0x2A && reopened == 0x15,
+              DETAIL("ulap_index seeded=0x%02x masked=0x%02x reopened=0x%02x",
+                     seeded, masked, reopened));
+    }
+
+    // BUS-86..89-W: the bare writability of the four bus-port bytes. This
+    // proves ONLY that the registers store what is written — the AND-gating
+    // claims live in BUS-86-02 / BUS-88-00 / BUS-89-00 above.
     {
         Emulator emu; build_next_emulator(emu);
         nr_write(emu, 0x86, 0x00);
@@ -1874,6 +2062,78 @@ static void test_group_iorq() {
     // test/ctc_interrupts/ctc_interrupts_test.cpp (ULA-INT-V19-IM2-04),
     // both of which assert the IM2 daisy-chain FSM actually advances off
     // the on_int_ack() call rather than off any port-dispatch path.
+    //
+    // Those two rows prove the vector ARRIVES through on_int_ack. Neither
+    // proves the negative half — that PortDispatch::in() was not ALSO
+    // consulted — because neither has a PortDispatch in the picture. The
+    // row below closes that: a real PortDispatch with a single catch-all
+    // handler (mask 0, value 0 — matches every address, so nothing can
+    // slip past it) counts every in() the CPU performs.
+    //
+    // VHDL zxnext.vhd:2705 gates the whole internal read response on
+    // `iord`, which is `cpu_ioreq_n = '0' AND cpu_m1_n = '1'` — an M1+IORQ
+    // interrupt-acknowledge cycle is excluded by construction, and the
+    // vector comes from the IM2 daisy chain instead (im2_*.vhd).
+    //
+    // Positive control first, so a counter that never increments cannot
+    // make the negative claim vacuously: one ordinary IN A,(n) must be
+    // seen by the catch-all. The acknowledge that follows must not.
+    {
+        struct StubMem : MemoryInterface {
+            uint8_t ram[0x10000] = {0};
+            uint8_t read(uint16_t a) override { return ram[a]; }
+            void write(uint16_t a, uint8_t v) override { ram[a] = v; }
+        } mem;
+
+        PortDispatch pd;
+        pd.clear_handlers();
+        int port_reads = 0;
+        pd.register_handler(0x0000, 0x0000,
+            [&](uint16_t) -> uint8_t { ++port_reads; return 0x5A; },
+            [&](uint16_t, uint8_t) {});
+
+        Z80Cpu cpu(mem, pd);
+        int acks = 0;
+        cpu.on_int_ack = [&]() -> uint8_t { ++acks; return 0x80; };
+
+        auto regs = cpu.get_registers();
+        regs.PC = 0x8000;
+        regs.SP = 0xBF00;
+        regs.IM = 2;
+        regs.I  = 0x90;
+        regs.IFF1 = 1;
+        regs.IFF2 = 1;
+        regs.halted = false;
+        cpu.set_registers(regs);
+
+        // Vector table entry for I=0x90, vector 0x80 -> ISR at 0x0000.
+        mem.ram[0x9080] = 0x00;
+        mem.ram[0x9081] = 0x00;
+
+        // Positive control: an ordinary IN A,(0x12).
+        mem.ram[0x8000] = 0xDB;                 // IN A,(n)
+        mem.ram[0x8001] = 0x12;
+        cpu.execute();
+        const int reads_after_in = port_reads;
+
+        // Now the acknowledge. request_interrupt() opens the pulse window
+        // from the current T-state; the next execute() takes it.
+        mem.ram[0x8002] = 0x00;                 // NOP (the displaced opcode)
+        cpu.request_interrupt(0x80);
+        cpu.execute();
+        const int reads_after_ack = port_reads;
+
+        check("IORQ-01",
+              "the interrupt-acknowledge cycle is not routed through "
+              "PortDispatch::in(): a catch-all handler sees the ordinary "
+              "IN A,(n) and nothing more, while on_int_ack() supplies the "
+              "vector [zxnext.vhd:2705; src/cpu/z80_cpu.cpp on_int_ack]",
+              reads_after_in == 1 && acks == 1 &&
+              reads_after_ack == reads_after_in,
+              DETAIL("reads_after_in=%d acks=%d reads_after_ack=%d "
+                     "(want 1/1/1)",
+                     reads_after_in, acks, reads_after_ack));
+    }
 
     // RMW-01: OUT 0xFE sets border then beeper latch. VHDL 2582.
     {
@@ -1887,26 +2147,143 @@ static void test_group_iorq() {
               DETAIL("border=%u expected 7", b));
     }
 
-    // CTN-01 / CTN-02 — REAL GAP, currently untested (not skips).
-    // Contended-port T-state accounting is a CPU-execution-time concern,
-    // not observable at PortDispatch's public in()/out() boundary — the
-    // boundary only sees port_value, never the cycle-level stretch. A
-    // prior version of this comment claimed both patterns were
+    // CTN-01 / CTN-02 — contended vs uncontended port timing on a real
+    // IN A,(n) executed through the dispatcher.
+    //
+    // A prior version of this comment claimed both patterns were
     // "exercised end-to-end by the FUSE Z80 opcode suite" — that is
     // FALSE (GH #196 phase 1.1 review): the FUSE Z80 test harness path
     // nulls the contention runtime entirely (src/cpu/z80_cpu.cpp:62-64
     // — "when null, no contention is applied ... preserves the
     // 1356/1356 compliance score"), and test/fuse/fuse_z80_test.cpp
     // never installs a ContentionModel, so every FUSE opcode test —
-    // including any IN/OUT case — runs with contention completely
-    // inert.
+    // including any IN/OUT case — runs with contention completely inert.
+    // The rows below are the real coverage (GH #201).
     //
-    // This is the identical gap independently found in the Contention
-    // suite as CT-FUSE-03/CT-FUSE-04 (doc/testing/CONTENTION-TEST-PLAN-
-    // DESIGN.md §16): real, currently untested, and constructible with
-    // the same ON/OFF T-state-delta idiom used there (re-verified there
-    // with a throwaway probe: on=2995, off=2806, delta=189 T-states for
-    // a contended OUT (0xFE),A loop). Status stays `missing`.
+    // What the VHDL says. `port_contend <= (not cpu_a(0)) or
+    // port_7ffd_active or port_bf3b or port_ff3b` (zxnext.vhd:4496) — a
+    // port is contended when address bit 0 is CLEAR, not by which 16 KB
+    // window its high byte falls in. `o_cpu_contend` (zxula.vhd:595) then
+    // ORs that with the memory-page term over the same address, gated by
+    // `wait_s` so nothing stretches outside the active display.
+    //
+    // PLAN CORRECTION (GH #201). Both rows were written from the classic
+    // 48K "is the port address in the 0x4000 window" table rather than
+    // from their own cited oracle, and neither stimulus survives contact
+    // with zxnext.vhd:4496:
+    //
+    //   * CTN-02's `IN A,(0x00FE)` with A=0 is an EVEN port, so it IS
+    //     port-contended and cannot be the uncontended control.
+    //   * CTN-01's `IN A,(0x4000|n)` is contended by BOTH terms at once —
+    //     the memory term alone carries it, so the row could not tell a
+    //     working port term from an absent one. (Measured: deleting the
+    //     `not cpu_a(0)` term from `ContentionModel::port_contend` left
+    //     that form of the row green.)
+    //
+    // Both rows therefore hold the PAGE constant and vary only address
+    // bit 0 — the single axis zxnext.vhd:4496 actually decodes. Port
+    // 0x00FE and port 0x00FF both live in slot 0, a ROM page, so
+    // `mem_active_page(7 downto 4) /= "0000"` and the memory term is off
+    // for both (zxnext.vhd:4489). The only difference between them is the
+    // port term.
+    //
+    // Idiom: the ON/OFF T-state delta from CT-FUSE-01, on one Emulator so
+    // the static contention singleton in src/cpu/z80_cpu.cpp:67 cannot be
+    // raced. `seek_to_display_window()` parks the FUSE counter on the
+    // first active display line, since contention exists nowhere else.
+    {
+        // Helper: T-states for one IN A,(n) started `phase` T after the
+        // display-window origin. `seek_to_display_window()` parks the FUSE
+        // counter on the first active display line; contention exists
+        // nowhere else (zxula.vhd:583 `border_active_v = '0'`).
+        auto in_a_n_tstates = [](Emulator& e, uint8_t a, uint8_t n,
+                                 int phase) -> int {
+            e.mmu().write(0x8000, 0xDB);        // IN A,(n) — code in slot 4,
+            e.mmu().write(0x8001, n);           // an uncontended page on 48K
+            auto r = e.cpu().get_registers();
+            r.PC = 0x8000;
+            r.AF = static_cast<uint16_t>(a << 8);
+            r.IFF1 = 0;
+            r.IFF2 = 0;
+            r.halted = false;
+            e.cpu().set_registers(r);
+            seek_to_display_window(e);
+            *fuse_z80_tstates_ptr() += static_cast<uint32_t>(phase);
+            return e.cpu().execute();
+        };
+
+        // Sweep one full 8-T contention period. `wait_s` (zxula.vhd:583)
+        // is a function of `hc_adj`, so WHICH phase of the period the I/O
+        // cycle lands in decides the size of the stretch — and two of the
+        // eight phases stretch by zero. A single fixed start offset is
+        // therefore not a safe probe in either direction: it can read zero
+        // on a working port term, or hide a broken one.
+        struct Sweep { int off[8]; int on[8]; };
+        auto sweep = [&](uint8_t a, uint8_t n, Sweep& out) -> bool {
+            Emulator emu;
+            EmulatorConfig cfg;
+            cfg.type = MachineType::ZX48K;
+            cfg.rewind_buffer_frames = 0;
+            if (!emu.init(cfg)) return false;
+            for (int k = 0; k < 8; ++k) out.on[k] = in_a_n_tstates(emu, a, n, k);
+            emu.contention().set_contention_disable(true);
+            for (int k = 0; k < 8; ++k) out.off[k] = in_a_n_tstates(emu, a, n, k);
+            return true;
+        };
+
+        // CTN-01 — EVEN port in an uncontended page: the only live term of
+        // zxnext.vhd:4496 is `not cpu_a(0)`, so the whole stretch is the
+        // port term. Port 0x00FE sits in slot 0, a ROM page, so
+        // `mem_active_page(7 downto 4) /= "0000"` keeps the memory term
+        // off (zxnext.vhd:4489).
+        {
+            Sweep sw{};
+            const bool ok = sweep(0x00, 0xFE, sw);
+            int max_on = 0;
+            bool off_flat = true;
+            for (int k = 0; k < 8; ++k) {
+                if (sw.on[k] > max_on) max_on = sw.on[k];
+                if (sw.off[k] != 11) off_flat = false;
+            }
+            check("CTN-01",
+                  "IN A,(0xFE) with A=0 (port 0x00FE — EVEN, uncontended "
+                  "ROM page, so port_contend is the only live term) "
+                  "stretches inside the display on at least one phase of "
+                  "the 8-T period, within the 6-T wait_s envelope; with "
+                  "contention disabled it is a flat 11 T "
+                  "[zxnext.vhd:4489,4496; zxula.vhd:583,595]",
+                  ok && off_flat && max_on > 11 && max_on <= 11 + 6,
+                  DETAIL("on=%d,%d,%d,%d,%d,%d,%d,%d off_flat=%d max_on=%d",
+                         sw.on[0], sw.on[1], sw.on[2], sw.on[3],
+                         sw.on[4], sw.on[5], sw.on[6], sw.on[7],
+                         off_flat ? 1 : 0, max_on));
+        }
+
+        // CTN-02 — the control: same page, same sweep, address bit 0 SET.
+        // cpu_a(0)=1 clears the port term and 0x00FF is not one of the
+        // ULA+ ports, so NO term fires on ANY phase and the instruction
+        // costs exactly its fixed 11 T-states with contention enabled and
+        // disabled alike — the plan's "only the fixed +1/+3".
+        {
+            Sweep sw{};
+            const bool ok = sweep(0x00, 0xFF, sw);
+            bool flat = true;
+            for (int k = 0; k < 8; ++k) {
+                if (sw.on[k] != 11 || sw.off[k] != 11) flat = false;
+            }
+            check("CTN-02",
+                  "IN A,(0xFF) with A=0 (port 0x00FF — ODD, same "
+                  "uncontended page as CTN-01) never stretches on ANY "
+                  "phase of the 8-T period: 11 T-states with contention on "
+                  "and off alike [zxnext.vhd:4489,4496; zxula.vhd:583,595]",
+                  ok && flat,
+                  DETAIL("on=%d,%d,%d,%d,%d,%d,%d,%d off=%d,%d,%d,%d,%d,%d,%d,%d",
+                         sw.on[0], sw.on[1], sw.on[2], sw.on[3],
+                         sw.on[4], sw.on[5], sw.on[6], sw.on[7],
+                         sw.off[0], sw.off[1], sw.off[2], sw.off[3],
+                         sw.off[4], sw.off[5], sw.off[6], sw.off[7]));
+        }
+    }
 }
 
 // ── Group G. DivMMC automap ────────────────────────────────────────────
@@ -1940,14 +2317,26 @@ static void test_group_automap() {
               DETAIL("divmmc before=0x%02x after=0x%02x", before, after));
     }
 
-    // AMAP-01 — VHDL-INTERNAL SIGNAL (not a skip).
-    // hotkey_expbus_freeze at zxnext.vhd:2180 is a one-cycle internal
-    // latch asserted when the DivMMC enable state changes via the
-    // drive-NMI hotkey path. It has no emulator-level observable — the
-    // C++ DivMmc exposes enable state but not the edge-detected freeze
-    // latch, and the expansion bus itself isn't modelled. Would require
-    // a debug-only accessor that mirrors a VHDL internal signal; deferred
-    // because no end-to-end behaviour depends on it.
+    // AMAP-01 — RETIRED 2026-09-24 (GH #201).
+    //
+    // `hotkey_expbus_freeze` (zxnext.vhd:2180) is combinational, not a
+    // latch, and it is not an automap signal: it is
+    //     (port_divmmc_io_en_diff and divmmc_automap_held)
+    //  or (port_multiface_io_en_diff and mf_mem_en)
+    // where the two `_diff` terms are the NR 0x83 / NR 0x87 XORs at :2413
+    // and :2416. Its ONLY consumers are the two guards at :2189 and :2191
+    // that stop the F5 / F6 expansion-bus hotkeys (:6344-6345) from
+    // writing `nr_80_expbus(7)` mid-automap. It gates nothing else — no
+    // port decode, no memory map, no NMI.
+    //
+    // jnext has no NextBUS emulation (src/memory/contention.cpp:122-128
+    // records that WONT) and F5/F6 have no expansion-bus side effect by
+    // owner decision (src/gui/main_window.cpp:2024-2031), so there is no
+    // hotkey write for the freeze to hold off. Asserting it would mean
+    // adding a debug accessor whose value nothing in the emulator reads —
+    // a scope decision, not a coverage gap. Same reasoning retires
+    // BUS-87-D in Group D. Struck in
+    // IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md Group G; no check() row exists.
 }
 
 // ── Group H. Wired-OR / read-data gating ───────────────────────────────

@@ -25,13 +25,36 @@ with dashboard refresh at `0336c20`.
   - Delta from pre-Task-3 baseline (150/44/0/106): **−101 skip, +84 pass, −17 total**.
 - **Historical Phase-3 follow-ups** (five plan items; a mix of runtime skips,
   source-level re-homes, and WONT rows):
-  - **CTC-NR-04** — NR 0xC5 vs port-write overlap; cycle-accurate bus arbitration; user-deferred review-later (WONT-sweep candidate, not WONT this wave).
-  - **NR-C0-02** — NR 0xC0 `stackless_nmi` execution; re-homed to `atic_atac_nmi_test` ATIC-NMI-02 after GH #84 closed G49.
+  - **CTC-NR-04** — NR 0xC5 vs port-write overlap; cycle-accurate bus arbitration; **RETIRED 2026-09-24 (GH #201)** as (D) structurally unreachable — see the struck row in Section 6.
+  - **NR-C0-02** — NR 0xC0 `stackless_nmi` execution; **CLOSED 2026-09-24 (GH #201)** by a live row in `ctc_interrupts_test.cpp` covering both arms of bit 3, on top of the `atic_atac_nmi_test` ATIC-NMI-02 end-to-end row GH #84 added.
   - **DMA-04** — NMI-driven DMA delay; blocked on the same NMI subsystem.
   - **ULA-INT-04** — line interrupt at `cvc` match; re-home candidate to `ctc_interrupts_test.cpp` (needs live ULA line-counter state).
   - **ULA-INT-06** — line 0 → `c_max_vc` wrap; re-home candidate (needs ULA `c_max_vc` observable).
 - **New companion suite `test/ctc_interrupts/ctc_interrupts_test.cpp`** (created Phase 3c, commit `87fb998`): 10 rows re-homed from `ctc_test.cpp` — **`Total:   10  Passed:   10  Failed:    0  Skipped:    0`** — covering ULA-INT-01/02/03/05, NR-C0-04, NR-C4-02/03, NR-C6-02, ISC-09/10 against a full `Emulator` fixture.
 - **Architectural change**: the IM2 fabric, previously a 45-line priority-mask stub in `src/cpu/im2.{h,cpp}`, expanded to a full VHDL-faithful `Im2Controller` + `Im2Client` mixin (~171 lines of `.h` + ~800 lines of `.cpp` + new `src/cpu/im2_client.h`). It now covers `device/im2_control.vhd` (RETI/RETN/IM-mode decoder, DMA delay), `device/im2_device.vhd` (per-device state machine `S_0`/`S_REQ`/`S_ACK`/`S_ISR`), `device/im2_peripheral.vhd` (edge detect + int_unq + int_status latches), `device/peripherals.vhd` (daisy chain), and the NR 0xC0/C4/C5/C6/C8/C9/CA/CC/CD/CE handlers in `emulator.cpp`. The legacy `Im2Level` enum is preserved as a compatibility wrapper. `Z80Cpu` gained an opt-in `on_int_ack` callback that is byte-identical to the legacy path when null. Regression (34/0/0) and FUSE Z80 (1356/1356) unchanged throughout.
+- **GH #201 (2026-09-24)** — the plan's `missing` rows were resolved in both
+  directions. Four became live `check()` rows in
+  `test/ctc_interrupts/ctc_interrupts_test.cpp` (group `GH201`): **NR-C0-02**
+  (both arms of the NR 0xC0 stackless-NMI bit), **NR-C5-02** (NR 0xC5 reads
+  the live `ctc_int_en`, 4 bits in / 4 bits out), **CTC-JOY-01** and
+  **CTC-JOY-02** (CTC ch3 ZC/TO driving the NR 0x0B pin-7 mux, and its guard
+  term). Six were RETIRED with rationale in place: CTC-CW-11, CTC-NR-04,
+  IM2C-13, IM2W-09 (all VHDL-internal, no observable surface at jnext's
+  granularity), PULSE-09 (expansion-bus pin, out of scope) and PULSE-G90-01
+  (closed by GH #92 at the contention tier), plus the five duplicate
+  carried-over IDs in the last section. Stale `skip` notes on NR-C2-01,
+  NR-C3-01 and PULSE-G89-01..04 — all passing since G88/G89 closed — were
+  corrected at the same time.
+- **GH #201 review round (2026-09-24)** — the first pass retired IM2-G89-02/03/04
+  on the strength of `PULSE-G89-INT`, which runs LDIRX only; the INT sample for
+  LDDRX, LDPIRX and LDIRSCALE was an INFERENCE from the shared /INT check at the
+  top of `Z80Cpu::execute()`, and each of the four opcodes is a separately
+  hand-written case block in `src/cpu/z80n_ext.cpp`, so a copy-paste divergence
+  in one was not structurally excluded. The probe is now parametrised over all
+  four opcodes — **PULSE-G89-INT-02/03/04** join PULSE-G89-INT, each running a
+  real pending /INT against its own opcode — and all four are recorded in
+  Section 10. No emulator defect was found: all three new rows passed first run,
+  so the inference was correct, but it is now measured rather than argued.
 - **Follow-up closure:** NR-C0-02 now passes in `atic_atac_nmi_test`
   ATIC-NMI-02 (GH #84 / G49). Historical phase counts below remain as the landing
   record for the original CTC skip-reduction work.
@@ -202,7 +225,7 @@ Tests based on the register logic in `ctc_chan.vhd`.
 | CTC-CW-08 | External int_en_wr overrides D7 bit | i_int_en_wr writes i_int_en to control_reg[7-3] |
 | CTC-CW-09 | Hard reset clears control_reg to all zeros | All control bits default to 0 |
 | CTC-CW-10 | Hard reset clears time_constant_reg to 0x00 | TC defaults to 0 |
-| CTC-CW-11 | Write edge: iowr is rising-edge detected (i_iowr AND NOT iowr_d) | Double-write prevention on held signals |
+| ~~CTC-CW-11~~ | ~~Write edge: iowr is rising-edge detected (i_iowr AND NOT iowr_d)~~ | **RETIRED 2026-09-24** (GH #201) — (D) structurally unreachable stimulus. `ctc_chan.vhd:248-255` registers `i_iowr` and derives `iowr <= i_iowr and not iowr_d`, a rising-edge detect whose only job is to stop a HELD `i_iowr` level issuing several writes. `Ctc::write()` is a discrete call — there is no held level to construct at this abstraction layer — so the invariant has no outcome-observable surface. The outcome it protects (exactly one register update per write) is what every CTC-SM-\* / CTC-CW-\* row above depends on: CTC-CW-04 alone fails if a single write applied twice, because the control word would be consumed as the time constant. Matches the RETIRED comment in `test/ctc/ctc_test.cpp` at CTC-CW-11. No `check()` row exists. |
 
 ### Section 6: CTC Interrupt Enable via NextREG
 
@@ -213,7 +236,7 @@ Tests based on zxnext.vhd CTC interrupt enable wiring.
 | CTC-NR-01 | NextREG 0xC5 write: sets CTC interrupt enable bits [3:0] | nr_c5_we triggers i_int_en_wr for CTC |
 | CTC-NR-02 | NextREG 0xC5 read: returns ctc_int_en[7:0] | All 8 bits readable, upper 4 always 0 |
 | CTC-NR-03 | CTC control word D7 also sets int_en independently | Both paths (CW and NextREG) can set int_en |
-| CTC-NR-04 | NextREG 0xC5 write does not overlap with port CTC write | Constraint from VHDL: i_int_en_wr must not overlap i_iowr |
+| ~~CTC-NR-04~~ | ~~NextREG 0xC5 write does not overlap with port CTC write~~ | **RETIRED 2026-09-24** (GH #201) — (D) structurally unreachable stimulus, same pattern as CTC-CW-11. `ctc.vhd:71` states the constraint as a PORT CONTRACT on the instantiating module ("must not overlap port_ctc_wr"), because `control_reg` is single-ported (`ctc_chan.vhd:263-274`). jnext's two writers — `Ctc::set_int_enable()` (NR 0xC5) and `Ctc::write()` (port) — are sequential C++ calls with no cycle-level simultaneity to construct; the same harness limitation that keeps Copper ARB-01/02/03 at stimulus-ordering. The VHDL outcome ("whichever strobe is active wins") is covered by CTC-CW-08 and CTC-NR-01/02/03, and by CTC-CW-INTEN-01/02/03 in `test/ctc_interrupts/ctc_interrupts_test.cpp` for the fabric side. No `check()` row exists. |
 
 > `CTC-NR-03` covers the control-word path only as far as the NR 0xC5
 > readback. Its propagation into the IM2 fabric's per-device `int_en` —
@@ -237,7 +260,7 @@ Tests based on `im2_control.vhd` state machine.
 | IM2C-10 | IM mode detection: ED 46 = IM 0 | im_mode = "00" |
 | IM2C-11 | IM mode detection: ED 56 = IM 1 | im_mode = "01" |
 | IM2C-12 | IM mode detection: ED 5E = IM 2 | im_mode = "10" |
-| IM2C-13 | IM mode updates on falling edge of CLK_CPU | Per VHDL: `falling_edge(i_CLK_CPU)` |
+| ~~IM2C-13~~ | ~~IM mode updates on falling edge of CLK_CPU~~ | **RETIRED 2026-09-24** (GH #201) — (B) VHDL-internal clock phase. `im2_control.vhd:218-227` clocks `im_mode` on `falling_edge(i_CLK_CPU)` while the decoder state machine it reads runs on the rising edge, so the latch lands half a CPU cycle early. jnext evaluates the decoder once per instruction, which collapses both phases into one call — there is no sub-instruction observer for the half-cycle to move. The value it carries (`im_mode` reflects the latest ED 4[6E]/56/5E decode) is covered by IM2C-10/11/12 and its reset default by IM2C-14. Matches the RETIRED comment in `test/ctc/ctc_test.cpp` at IM2C-13. No `check()` row exists. |
 | IM2C-14 | IM mode default after reset: IM 0 | im_mode = "00" after reset |
 | IM2C-G87-01 | RETI (ED 4D) seen by Im2Controller via real Z80Cpu M1 stream | skip — Z80Cpu::on_m1_cycle fires once per execute() with FIRST byte only; ED 2nd byte unobserved (see G87) |
 | IM2C-G87-02 | RETN (ED 45) seen by Im2Controller via real Z80Cpu M1 stream | skip — same per-byte-M1-hook prerequisite as IM2C-G87-01 (see G87) |
@@ -293,12 +316,16 @@ Tests based on `im2_peripheral.vhd` pulse mode and zxnext.vhd pulse logic.
 | PULSE-06 | 128K/Pentagon timing: pulse duration = 36 CPU cycles | pulse_count[5] AND pulse_count[2] terminates |
 | PULSE-07 | Pulse counter resets when pulse_int_n=1 | Counter only runs while interrupt is active |
 | PULSE-08 | INT_n to Z80 = pulse_int_n AND im2_int_n | Both paths combined |
-| PULSE-09 | External bus INT: o_BUS_INT_n = pulse_int_n AND im2_int_n | Same signal output to expansion bus |
-| PULSE-G89-01 | LDIRX samples INT/NMI between iterations | skip — z80n_ext.cpp:352-427 closed C for-loop runs all iterations without INT/NMI sample (see G89) |
-| PULSE-G89-02 | LDDRX samples INT/NMI between iterations | skip — same closed-loop prerequisite as PULSE-G89-01 (see G89) |
-| PULSE-G89-03 | LDPIRX samples INT/NMI between iterations | skip — same closed-loop prerequisite as PULSE-G89-01 (see G89) |
-| PULSE-G89-04 | LDIRSCALE samples INT/NMI between iterations | skip — same closed-loop prerequisite as PULSE-G89-01 (see G89) |
-| PULSE-G90-01 | 28 MHz turbo SRAM-read wait state asserts sram_wait_n | skip — ContentionModel gated OFF at 28 MHz; no sram_wait references in jnext (see G90) |
+| ~~PULSE-09~~ | ~~External bus INT: o_BUS_INT_n = pulse_int_n AND im2_int_n~~ | **RETIRED 2026-09-24** (GH #201) — not modelled, by scope. `zxnext.vhd:1675` drives the composed interrupt out of the FPGA on the expansion-bus connector pin `o_BUS_INT_n`. jnext models no expansion-bus peripheral at all (EMULATOR-DESIGN-PLAN.md Phase 5: NR 0x80-0x8F are "intentionally stubbed (cached only); no emulation effect, only relevant to physical hardware"), and the matching input `i_BUS_INT_n` has no source either — so there is nothing the pin could be observed by. The EXPRESSION is asserted by PULSE-08, which pins the same `pulse_int_n AND im2_int_n` product on its other consumer, the internal Z80 /INT at `zxnext.vhd:1840`. No `check()` row exists. |
+| PULSE-G89-01 | LDIRX samples INT/NMI between iterations | pass — G89 closed; `test/ctc_interrupts/ctc_interrupts_test.cpp` asserts LDIRX (ED B4) runs ONE iteration per execute() and rewinds PC by 2 while BC != 0 (`t80n_mcode.vhd:2095-2138`). This row pins the step and rewind only; the inter-iteration sample itself is `PULSE-G89-INT` below |
+| PULSE-G89-02 | LDDRX samples INT/NMI between iterations | pass — same closure and suite as PULSE-G89-01 (ED BC). This row pins the per-iteration step and PC rewind; the INT sample it names is pinned by `PULSE-G89-INT-02` below |
+| PULSE-G89-03 | LDPIRX samples INT/NMI between iterations | pass — same closure and suite as PULSE-G89-01 (ED B7). This row pins the per-iteration step and PC rewind; the INT sample it names is pinned by `PULSE-G89-INT-03` below |
+| PULSE-G89-04 | LDIRSCALE samples INT/NMI between iterations | pass — same closure and suite as PULSE-G89-01 (ED B6). This row pins the per-iteration step and PC rewind; the INT sample it names is pinned by `PULSE-G89-INT-04` below |
+| PULSE-G89-INT | LDIRX: a pending /INT is SERVICED between iterations, not dropped | pass — `test/ctc_interrupts/ctc_interrupts_test.cpp`. One iteration, then `request_interrupt`, then one more `execute()`: the INT is taken (PC = IM 1 vector 0x0038, IFF1 cleared, 0xC000 pushed) and BC is UNCHANGED — no second iteration ran inside that call |
+| PULSE-G89-INT-02 | LDDRX: same, measured for ED BC (GH #201 review) | pass — identical stimulus, opcode byte only difference |
+| PULSE-G89-INT-03 | LDPIRX: same, measured for ED B7 (GH #201 review) | pass — identical stimulus, opcode byte only difference |
+| PULSE-G89-INT-04 | LDIRSCALE: same, measured for ED B6 (GH #201 review) | pass — identical stimulus, opcode byte only difference |
+| ~~PULSE-G90-01~~ | ~~28 MHz turbo SRAM-read wait state asserts sram_wait_n~~ | **RETIRED 2026-09-24** (GH #201) — G90 is CLOSED and the row belongs to another subsystem. The behaviour (`zxnext.vhd:3171-3181`: at `cpu_speed="11"` every memory READ that asserts `sram_req` or `cpu_bank5_sched` stretches by one 28 MHz cycle) was implemented under GH #92 (2026-07-25) and is asserted by **CT-SW28-01..21** in `test/contention/contention_test.cpp`, all passing — see the "GH #92 append" section of [CONTENTION-TEST-PLAN-DESIGN.md](CONTENTION-TEST-PLAN-DESIGN.md). It is a contention/timing concern, not interrupt routing, which is what the re-home comment in `test/ctc_interrupts/ctc_interrupts_test.cpp` already said (it named a plan row, `NEW-CONT-3`, that was never created — the real landing place is the CT-SW28 block). `IM2-G90-01` below is the SAME behaviour under a second ID and is retired with it. No `check()` row exists. |
 | PULSE-G121-01 | NR 0x03 machine-timing post-boot updates pulse_count_end | skip — Im2Controller::set_machine_timing_48_or_p3 called once at Emulator::reset_machine only; tape loaders flipping NR 0x03 see wrong pulse width (see G121) |
 
 ### Section 11: IM2 Peripheral Wrapper
@@ -315,7 +342,7 @@ Tests based on `im2_peripheral.vhd` edge detection and status logic.
 | IM2W-06 | o_int_status = int_status OR im2_int_req | Combined status visible to software |
 | IM2W-07 | im2_reset_n = mode_pulse AND NOT reset | IM2 device held in reset during pulse mode |
 | IM2W-08 | Unqualified interrupt (int_unq): bypasses int_en | Direct interrupt regardless of enable bit |
-| IM2W-09 | isr_serviced edge detection across clock domains | isr_serviced_d used for CLK_28 domain crossing |
+| ~~IM2W-09~~ | ~~isr_serviced edge detection across clock domains~~ | **RETIRED 2026-09-24** (GH #201) — (B) VHDL-internal domain crossing. `im2_peripheral.vhd:137-148` registers `isr_serviced` (a CLK_CPU-domain one-CPU-cycle pulse, `im2_device.vhd:159`) into CLK_28 and narrows it to one CLK_28 edge, so the `im2_int_req` clear at `:175` is an edge and not a level held for the whole CPU cycle. jnext has no CLK_28/CLK_CPU split: `Im2Controller` collapses the pulse into the S_ISR → S_0 transition itself (`src/cpu/im2.cpp:1399-1400`), which is one-shot by construction. What the edge protects is asserted: IM2W-03 pins the clear, and `V22-IM2-01-ON-RETI-CLEARS-IM2-INT-REQ-LATCH-VHDL-175` in `test/cpu/cpu_z80n_im2_regressions_test.cpp` pins that the latch does not survive to re-fire the same interrupt. Matches the RETIRED comment in `test/ctc/ctc_test.cpp` at IM2W-09. No `check()` row exists. |
 | IM2W-G119-01 | ZC/TO raised unconditionally; int_en AND at fabric edge | skip — ctc.cpp:251-282 only calls on_interrupt when channel int_enabled; mid-pulse int_en flip drops prior edge (see G119) |
 
 ### Section 12: ULA and Line Interrupts
@@ -341,14 +368,14 @@ Tests based on NextREG read/write logic in zxnext.vhd.
 | ID | Test | Expected |
 |----|------|----------|
 | NR-C0-01 | Write NextREG 0xC0: bits [7:5] = IM2 vector MSBs | nr_c0_im2_vector set |
-| NR-C0-02 | Write NextREG 0xC0: bit [3] = stackless NMI | pass — re-homed to `atic_atac_nmi_test` ATIC-NMI-02 after GH #84 / Atic Atac supplied the user-visible driver; pins suppressed NMIACK stack writes, C2/C3 capture, live RETN substitution and save/load |
+| NR-C0-02 | Write NextREG 0xC0: bit [3] = stackless NMI | pass — `test/ctc_interrupts/ctc_interrupts_test.cpp` (GH #201) asserts BOTH arms from one stimulus: bit 3 set, the acknowledge writes leave RAM untouched and arm the RETN substitution; bit 3 clear, the interrupted PC really is written to the stack and nothing is armed (SP -= 2 either way). The enabled arm end-to-end — C2/C3 capture, live RETN substitution, save/load — additionally passes as `atic_atac_nmi_test` ATIC-NMI-02 after GH #84 |
 | NR-C0-03 | Write NextREG 0xC0: bit [0] = pulse(0)/IM2(1) mode | nr_c0_int_mode_pulse_0_im2_1 set |
 | NR-C0-04 | Read NextREG 0xC0: returns vector, stackless, im_mode, int_mode | Format: VVV_0_S_MM_I |
 | NR-C4-01 | Write NextREG 0xC4: bit [7] = expansion bus int enable | nr_c4_int_en_0_expbus set |
 | NR-C4-02 | Write NextREG 0xC4: bit [1] = line interrupt enable | nr_22_line_interrupt_en updated |
 | NR-C4-03 | Read NextREG 0xC4: returns expbus & ula_int_en | Format: E_00000_UU |
 | NR-C5-01 | Write NextREG 0xC5: CTC interrupt enable bits [3:0] | Writes to CTC via i_int_en_wr |
-| NR-C5-02 | Read NextREG 0xC5: returns ctc_int_en[7:0] | Upper 4 bits always 0 |
+| NR-C5-02 | Read NextREG 0xC5: returns ctc_int_en[7:0] | pass — `test/ctc_interrupts/ctc_interrupts_test.cpp` (GH #201): upper 4 bits hardwired 0 (`zxnext.vhd:4093`), only `nr_wr_dat(3:0)` reaches the CTC on a write (`:4079`), and the value read is the channels' LIVE `o_int_en`, so a control word's D7 moves it with no NR 0xC5 write in between |
 | NR-C6-01 | Write NextREG 0xC6: UART interrupt enable | nr_c6_int_en_2_654[6:4] and nr_c6_int_en_2_210[2:0] |
 | NR-C6-02 | Read NextREG 0xC6: returns 0_654_0_210 | Format matches write |
 | NR-C8-01 | Read NextREG 0xC8: line and ULA interrupt status | Bits: 000000_line_ula |
@@ -357,8 +384,8 @@ Tests based on NextREG read/write logic in zxnext.vhd.
 | NR-CC-01 | Write NextREG 0xCC: DMA interrupt enable group 0 | Bit 7 = dma_int_en_0_7, bits [1:0] = dma_int_en_0_10 |
 | NR-CD-01 | Write NextREG 0xCD: DMA interrupt enable group 1 | Full byte = nr_cd_dma_int_en_1 |
 | NR-CE-01 | Write NextREG 0xCE: DMA interrupt enable group 2 | Bits [6:4] and [2:0] |
-| NR-C2-01 | NMI captures PC into NR 0xC2 (RETN address LSB) | skip — no NR 0xC2/0xC3 read handler in jnext; fuse_z80_nmi() pushes PC but does not propagate to NextReg shadow (see G88) |
-| NR-C3-01 | NMI captures PC into NR 0xC3 (RETN address MSB) | skip — same handler-missing prerequisite as NR-C2-01 (see G88) |
+| NR-C2-01 | NMI captures PC into NR 0xC2 (RETN address LSB) | pass — G88 closed; `test/ctc_interrupts/ctc_interrupts_test.cpp` asserts NR 0xC2 mirrors the NMI return-address LSB (`zxnext.vhd:2050-2085`, `:6232`) |
+| NR-C3-01 | NMI captures PC into NR 0xC3 (RETN address MSB) | pass — same suite and closure as NR-C2-01 (`zxnext.vhd:6236`) |
 
 ### Section 14: Interrupt Status and Clear
 
@@ -408,8 +435,8 @@ Tests based on zxnext.vhd joystick IO mode wiring.
 
 | ID | Test | Expected |
 |----|------|----------|
-| CTC-JOY-01 | Joystick IO mode 01: CTC channel 3 ZC/TO toggles pin7 | ctc_zc_to(3) toggles joy_iomode_pin7 |
-| CTC-JOY-02 | Toggle conditioned on nr_0b_joy_iomode_0 or pin7=0 | Guard condition for toggle |
+| CTC-JOY-01 | Joystick IO mode 01: CTC channel 3 ZC/TO toggles pin7 | pass — `test/ctc_interrupts/ctc_interrupts_test.cpp` (GH #201): channel 3 in counter mode with TC=1 gives exactly one ZC/TO per CLK/TRG edge, each toggling `joy_iomode_pin7`; a channel-0 ZC/TO does not (only element 3 of `ctc_zc_to` is read, `zxnext.vhd:3522`, `:4088`). The channel's own IRQ enable is not in the path, so the control word carries D7=0 |
+| CTC-JOY-02 | Toggle conditioned on nr_0b_joy_iomode_0 or pin7=0 | pass — `test/ctc_interrupts/ctc_interrupts_test.cpp` (GH #201): with NR 0x0B bit 0 clear, a ZC/TO arriving at pin7='1' does nothing, and one arriving at pin7='0' (reached through iomode "00"'s continuous assign, `zxnext.vhd:3519-3520`) moves it to '1' and then sticks |
 
 ### Section 18: Debugger Single-Step Interrupt Delivery (Task 60a)
 
@@ -767,18 +794,24 @@ bash test/regression.sh
 ## Planned rows carried over from the traceability matrix (GH #196)
 
 These rows were recorded only in `TRACEABILITY-MATRIX.md`, which is now a
-generated artifact and can no longer hold a claim of its own. They are
-planned and NOT implemented, so they are recorded here — the one place the
-generator reads planned rows from — and the matrix emits them as `missing`,
-which is what they are.
+generated artifact and can no longer hold a claim of its own. They were
+recorded here — the one place the generator reads planned rows from — and
+the matrix emitted them as `missing`.
+
+**All five are RETIRED as of 2026-09-24 (GH #201), and the section is now
+empty of live rows.** Every one of them was a second ID for a row Section 10
+already owns: IM2-G89-01..04 duplicate PULSE-G89-01..04 (live and passing),
+and IM2-G90-01 duplicates PULSE-G90-01 (one behaviour, closed by GH #92 at
+the contention tier). They read `missing` not because the behaviour was
+untested but because the behaviour was tested under its other name.
 
 | ID | Description | VHDL file:line |
 |----|-------------|----------------|
-| IM2-G89-01 | LDIRX samples INT/NMI between iterations | — |
-| IM2-G89-02 | LDDRX samples INT/NMI between iterations | — |
-| IM2-G89-03 | LDPIRX samples INT/NMI between iterations | — |
-| IM2-G89-04 | LDIRSCALE samples INT/NMI between iterations | — |
-| IM2-G90-01 | 28 MHz turbo SRAM-read wait state asserts sram_wait_n | — |
+| ~~IM2-G89-01~~ | ~~LDIRX samples INT/NMI between iterations~~ | **RETIRED 2026-09-24** (GH #201) — duplicate ID, and both halves of its claim are measured for THIS opcode. `PULSE-G89-01` in Section 10 pins the per-iteration step and PC rewind (`t80n_mcode.vhd`), and **`PULSE-G89-INT`** pins the INT sample itself: a frame /INT raised mid-block is serviced between iterations with BC intact, run against LDIRX (ED B4) specifically. Until the GH #201 review that second half was measured for LDIRX alone and inferred for the rest from the shared /INT check at the top of `Z80Cpu::execute()`; each of the four opcodes is a separately hand-written case block in `src/cpu/z80n_ext.cpp`, so the inference was not evidence and each now runs the stimulus for itself. No `check()` row exists under this ID. |
+| ~~IM2-G89-02~~ | ~~LDDRX samples INT/NMI between iterations~~ | **RETIRED 2026-09-24** (GH #201) — duplicate ID, and both halves of its claim are measured for THIS opcode. `PULSE-G89-02` in Section 10 pins the per-iteration step and PC rewind (`t80n_mcode.vhd`), and **`PULSE-G89-INT-02`** pins the INT sample itself: a frame /INT raised mid-block is serviced between iterations with BC intact, run against LDDRX (ED BC) specifically. Until the GH #201 review that second half was measured for LDIRX alone and inferred for the rest from the shared /INT check at the top of `Z80Cpu::execute()`; each of the four opcodes is a separately hand-written case block in `src/cpu/z80n_ext.cpp`, so the inference was not evidence and each now runs the stimulus for itself. No `check()` row exists under this ID. |
+| ~~IM2-G89-03~~ | ~~LDPIRX samples INT/NMI between iterations~~ | **RETIRED 2026-09-24** (GH #201) — duplicate ID, and both halves of its claim are measured for THIS opcode. `PULSE-G89-03` in Section 10 pins the per-iteration step and PC rewind (`t80n_mcode.vhd`), and **`PULSE-G89-INT-03`** pins the INT sample itself: a frame /INT raised mid-block is serviced between iterations with BC intact, run against LDPIRX (ED B7) specifically. Until the GH #201 review that second half was measured for LDIRX alone and inferred for the rest from the shared /INT check at the top of `Z80Cpu::execute()`; each of the four opcodes is a separately hand-written case block in `src/cpu/z80n_ext.cpp`, so the inference was not evidence and each now runs the stimulus for itself. No `check()` row exists under this ID. |
+| ~~IM2-G89-04~~ | ~~LDIRSCALE samples INT/NMI between iterations~~ | **RETIRED 2026-09-24** (GH #201) — duplicate ID, and both halves of its claim are measured for THIS opcode. `PULSE-G89-04` in Section 10 pins the per-iteration step and PC rewind (`t80n_mcode.vhd`), and **`PULSE-G89-INT-04`** pins the INT sample itself: a frame /INT raised mid-block is serviced between iterations with BC intact, run against LDIRSCALE (ED B6) specifically. Until the GH #201 review that second half was measured for LDIRX alone and inferred for the rest from the shared /INT check at the top of `Z80Cpu::execute()`; each of the four opcodes is a separately hand-written case block in `src/cpu/z80n_ext.cpp`, so the inference was not evidence and each now runs the stimulus for itself. No `check()` row exists under this ID. |
+| ~~IM2-G90-01~~ | ~~28 MHz turbo SRAM-read wait state asserts sram_wait_n~~ | **RETIRED 2026-09-24** (GH #201) — duplicate ID for `PULSE-G90-01` in Section 10, retired with it: one behaviour, two owner IDs, closed by GH #92 and asserted by CT-SW28-01..21 in `test/contention/contention_test.cpp`. No `check()` row exists under this ID. |
 
 ## Coverage notes (moved from the traceability matrix, GH #196)
 
@@ -786,4 +819,4 @@ The matrix is a generated artifact now and carries no prose of its own; it
 links here instead. These notes were written alongside the rows they explain.
 
 Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md`) landed 2026-04-21 Phase 0 → 5. `ctc_test.cpp` moved from `150/44/0/106` to `133/128/0/5` **as of that merge**; it runs at `134 / 134 pass / 0 fail / 0 skip` today (GH #265 added CTC-CH-GH265-01/02). 17 rows migrated from `check()`/`skip()` to source-level re-home or category-merge comments. NR-C0-02 was subsequently closed by GH #84 and now passes in `atic_atac_nmi_test` ATIC-NMI-02. See `doc/testing/audits/task3-ctc-phase5.md` for the historical row-by-row rationale.
-Created 2026-04-21 (commit `87fb998`) to host the 10 integration-tier re-home targets from `ctc_test.cpp` that require a full `Emulator` fixture (port 0xFF / NR 0x22 / NR 0xC0-0xCA read-path composition). Runtime: `Total:   48  Passed:   48  Failed:    0  Skipped:    0`. The suite has grown well past those original 10: the 10 rows listed below are only the ones recorded here, 16 more that it asserts are recorded in the parent `## CTC+Interrupts` table above (`ULA-INT-01..06`, `NR-C0-04`, `NR-C2-01`, `NR-C3-01`, `NR-C4-02/03`, `NR-C6-02`, `ISC-09/10`, `IM2C-G87-01/02`), and the rest are reported `unrecorded` on every run. Each entry below cross-references the CTC+Interrupts plan row.
+Created 2026-04-21 (commit `87fb998`) to host the 10 integration-tier re-home targets from `ctc_test.cpp` that require a full `Emulator` fixture (port 0xFF / NR 0x22 / NR 0xC0-0xCA read-path composition). Runtime: `Total:   88  Passed:   88  Failed:    0  Skipped:    0` (GH #201 added the four-row `GH201` group and, at review, the three per-opcode INT-sampling rows PULSE-G89-INT-02/03/04; the count in the Current status block above is the Phase 3c landing record, not the live one). The suite has grown well past those original 10: the 10 rows listed below are only the ones recorded here, 16 more that it asserts are recorded in the parent `## CTC+Interrupts` table above (`ULA-INT-01..06`, `NR-C0-04`, `NR-C2-01`, `NR-C3-01`, `NR-C4-02/03`, `NR-C6-02`, `ISC-09/10`, `IM2C-G87-01/02`), and the rest are reported `unrecorded` on every run. Each entry below cross-references the CTC+Interrupts plan row.

@@ -215,8 +215,23 @@ void AyChip::update_divider()
         cnt_div_ = 7;  // Reload: (not I_SEL_L) & "111" with I_SEL_L=1 → "0111"
         ena_div_ = true;
 
+        // VHDL ym2149.vhd:270-272 —
+        //     noise_div <= not noise_div;          -- signal assignment
+        //     if (noise_div = '1') then            -- reads the OLD value
+        //        ena_div_noise <= '1';
+        //     end if;
+        // The `if` is evaluated against the value `noise_div` held on entry
+        // to the process, because the VHDL assignment on the previous line
+        // does not take effect until the process suspends. `noise_div`
+        // powers on at '0' (ym2149.vhd:106), so `ena_div_noise` fires on the
+        // SECOND ena_div pulse and every even one thereafter.
+        //
+        // Reading the toggled value here instead (the pre-2026-09-24 code)
+        // kept the /2 rate but inverted the phase: the noise clock fired on
+        // the 1st, 3rd, 5th ena_div. Pinned by AY-43.
+        const bool noise_div_prev = noise_div_;
         noise_div_ = !noise_div_;
-        if (noise_div_) {
+        if (noise_div_prev) {
             ena_div_noise_ = true;
         }
     } else {

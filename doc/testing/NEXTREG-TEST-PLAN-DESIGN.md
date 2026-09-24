@@ -13,6 +13,13 @@ register encoding, and arbitration between CPU and copper requesters.
 
 ## Current status
 
+> **2026-09-24 (GH #201).** The 24 rows this plan declared that no suite
+> asserted have been dispositioned: 22 RETIRED (struck in place, each naming
+> the live row that covers it — or, for COP-02/03, the standing WONT), 2
+> implemented (PE-04, NR-MMU-04). See the [GH #201 append](#gh-201-append-2026-09-24--the-24-plan-only-rows-dispositioned)
+> at the foot of this document for the full disposition table. The measured
+> numbers below are from 2026-04-20 and are historical.
+
 Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave2-nextreg`).
 
 Measured on main 2026-04-20 post-Task-3 NextREG Phase 2 Wave 2 merges:
@@ -74,10 +81,10 @@ Arbitration: `nr_wr_en = copper_req or cpu_req`. Copper always wins.
 | SEL-02 | Reset, read 0x243B | Returns 0x24 (protection default) |
 | SEL-03 | Write 0x243B = 0x00, write 0x253B = 0x42, read NR 0x00 | Machine ID unaffected (read-only) |
 | SEL-04 | Write 0x243B = 0x7F, write 0x253B = 0xAB, read NR 0x7F | Returns 0xAB (user register) |
-| NR-SEL-05 | NEXTREG ED 91 instruction | Writes correct register without changing nr_register (today defers to fuse_z80_test/z80n_test, coverage unverified — split into SEL-05a/05b below) |
-| SEL-05a | Pre-select NR 0x7F via 0x243B; execute Z80N `NEXTREG 0x54, 0x04` (ED 91 54 04); read 0x253B without re-selecting | NR 0x7F returned (selection preserved). VHDL `zxnext.vhd:4739-4744` injects `(reg, val)` directly via `cpu_requester_0` and never writes `nr_register` (:4592-4603). **IMPLEMENTED** as `nextreg_integration_test` Z80N-SEL-01 (was a skip; the defect it described was GH #54 and is fixed) |
-| SEL-05b | Same setup with `NEXTREG 0x54,A` (ED 92); after it, write 0x253B ← 0x5C (raw data port) | NR 0x7F receives 0x5C (selection still pointed at 0x7F). **IMPLEMENTED** as `nextreg_integration_test` Z80N-SEL-02 |
-| SEL-05c | Execute `NEXTREG 0x7E, 0x3C`; read NR 0x7E | NR 0x7E == 0x3C — the opcode still writes the register named by its own operand (`cpu_requester_reg <= Z80N_data_s(15 downto 8)`). Guards SEL-05a/05b against a no-op "fix". **IMPLEMENTED** as `nextreg_integration_test` Z80N-SEL-03 |
+| ~~NR-SEL-05~~ | ~~NEXTREG ED 91 instruction~~ | **RETIRED 2026-09-24 (GH #201)** — this row was never a test of its own: it was the umbrella row that the plan itself split into SEL-05a/05b/05c, each of which is now live under a different ID (see the three rows below). Keeping it emitted a fourth `missing` row for a claim that is asserted three times over. No `check()` row exists. |
+| ~~SEL-05a~~ | ~~Pre-select NR 0x7F via 0x243B; execute Z80N `NEXTREG 0x54, 0x04` (ED 91 54 04); read 0x253B without re-selecting~~ | **RETIRED 2026-09-24 (GH #201)** — asserted LIVE as `Z80N-SEL-01` in `test/nextreg/nextreg_integration_test.cpp` (group `Z80N-NEXTREG-Select`): pre-selects NR 0x7F, runs `ED 91 54 04` from RAM through `execute_single_instruction()`, then checks both `NextReg::selected() == 0x7F` and `IN (0x253B) == 0xAB`. Same VHDL oracle (`zxnext.vhd:4739-4744` vs :4592-4603). Renamed, not lost. No `check("SEL-05a")` row exists. |
+| ~~SEL-05b~~ | ~~Same setup with `NEXTREG 0x54,A` (ED 92); after it, write 0x253B ← 0x5C (raw data port)~~ | **RETIRED 2026-09-24 (GH #201)** — asserted LIVE as `Z80N-SEL-02` in `test/nextreg/nextreg_integration_test.cpp`, same stimulus (`ED 92 54` with A=0x04, then `OUT (0x253B),0x5C`) and same oracle (`zxnext.vhd:4739-4744`). No `check("SEL-05b")` row exists. |
+| ~~SEL-05c~~ | ~~Execute `NEXTREG 0x7E, 0x3C`; read NR 0x7E~~ | **RETIRED 2026-09-24 (GH #201)** — asserted LIVE as `Z80N-SEL-03` in `test/nextreg/nextreg_integration_test.cpp`; it is the guard that keeps Z80N-SEL-01/02 from being satisfied by a no-op opcode (`cpu_requester_reg <= Z80N_data_s(15 downto 8)`). No `check("SEL-05c")` row exists. |
 
 ### 2. Read-Only Registers
 
@@ -209,10 +216,10 @@ From `zxnext.vhd` lines 4607-4700:
 
 | Test | Scenario | Expected |
 |------|----------|----------|
-| NR-MMU-01 | Reset defaults | 0xFF,0xFF,0x0A,0x0B,0x04,0x05,0x00,0x01 |
+| ~~NR-MMU-01~~ | ~~Reset defaults~~ | **RETIRED 2026-09-24 (GH #201)** — asserted LIVE as `NREG-RST-05` in `test/nextreg/nextreg_integration_test.cpp` (group `Reset-Integration`), which reads NR 0x50-0x57 through the port path after a power-on reset and compares against the identical VHDL default vector `0xFF,0xFF,0x0A,0x0B,0x04,0x05,0x00,0x01` with the same citation (`zxnext.vhd:4610-4618`). Reset defaults are subsystem-owned (the `Mmu` mirror), so the bare tier could never assert them — `nextreg_test.cpp` has recorded the re-home as a source comment since the Phase 1 re-home. No `check("NR-MMU-01")` row exists. |
 | NR-MMU-02 | Write NR 0x52 = 0x20, read back | 0x20 |
-| NR-MMU-03 | Write port 0x7FFD, check MMU6/7 | Updated from 7FFD bank field |
-| NR-MMU-04 | NextREG write overrides port write | Last writer wins |
+| ~~NR-MMU-03~~ | ~~Write port 0x7FFD, check MMU6/7~~ | **RETIRED 2026-09-24 (GH #201)** — asserted LIVE as `P7F-01..P7F-08` in `test/mmu/mmu_test.cpp` (group `Cat3 port 0x7FFD`), which drives `map_128k_bank()` for all eight banks and checks `MMU6 == 2*B` / `MMU7 == 2*B+1` against the same VHDL rebuild arm. The port 0x7FFD decoder is `Mmu`-owned; bare `NextReg` has none. No `check("NR-MMU-03")` row exists. |
+| NR-MMU-04 | NextREG write overrides port write | Last writer wins — MMU0..7 are one clocked register with three mutually exclusive arms (`reset` / `port_memory_change_dly` / `nr_mmu_we`, `zxnext.vhd:4607-4699`), so whichever arm fires on the later clock edge survives. **IMPLEMENTED 2026-09-24 (GH #201)** as `check("NR-MMU-04")` in `test/nextreg/nextreg_integration_test.cpp` (group `NR-MMU-Arbitration`): port 0x7FFD←bank 3 → MMU6/7 = 0x06/0x07; NR 0x56←0x20 → MMU6 = 0x20 with MMU7 untouched; port 0x7FFD←bank 1 → MMU6/7 = 0x02/0x03. The middle step is the direction `N8E-RAM-REBUILD-1` does not cover. |
 | N8E-RAM-PRESERVE-0 | NR 0x56=0x20 override, then NR 0x8E=0x00 (bit 3 = 0) | MMU6 stays 0x20 — VHDL:3814 drives `port_memory_ram_change_dly='0'`, :4677 skips MMU6/7 update |
 | N8E-RAM-REBUILD-1  | port_7ffd=0x03, NR 0x56=0x20 override, then NR 0x8E=0x08 (bit 3 = 1, bits 6:4 = 000) | MMU6 becomes 0x00 — 7FFD(2:0) forced to 0 by NR 0x8E bit 3 branch, :4677 rebuild runs and clobbers override |
 
@@ -256,12 +263,12 @@ Effective enable = internal AND bus (when bus is active).
 | PE-01 | Write NR 0x82 = 0x00 | All peripherals in group disabled |
 | PE-02 | Read NR 0x82 after write | Returns written value |
 | PE-03 | Disable joystick port (bit 6) | Port 0x1F not decoded |
-| PE-04 | Reset with reset_type=1 | Internal ports reset to 0xFF |
+| PE-04 | Reset with reset_type=1 | Internal ports reset to 0xFF (NR 0x85 reads 0x8F — its enable field is 4 bits and bits 6:4 are hard "000" in the read mux, `zxnext.vhd:6138`). **IMPLEMENTED 2026-09-24 (GH #201)** as `check("PE-04")` in `test/nextreg/nextreg_test.cpp` (group `Port-Enable`), asserting BOTH axes of the gate at `zxnext.vhd:5052-5058`: with NR 0x85 bit 7 = 1 the group reloads to 0xFF/0xFF/0xFF/0x8F, and with bit 7 = 0 it survives the reset verbatim. The negative axis is the discriminative one — `NREG-RST-08` reads the group only after a power-on reset, where `nr_85_internal_port_reset_type` is already '1' from its `:1230` initialiser, so an unconditional reload still satisfies it. |
 | PE-05 | Reset with bus reset_type=0 | Bus ports reset to 0xFF |
-| PE-06 | Read NR 0x82 after a write, full VHDL packing | Write NR 0x82 ← 0x55; read NR 0x82 | Returned byte equals VHDL composition (`zxnext.vhd:5508-5522`) — internal-port-enable bits AND with reset_type-derived defaults; NOT raw shadow. skip — jnext stores raw write byte in `regs_[]` (see G154) |
-| PE-07 | Read NR 0x86 (bus-port-enable, no read_handler today) | Write NR 0x86 ← 0x33; read NR 0x86 | Returned byte equals VHDL packing at `zxnext.vhd:5061-5067`. skip — jnext returns raw `regs_[0x86]` because no read_handler is installed (see G154) |
-| PE-08 | Read NR 0x89 inverted-reset semantics | After power-on with `reset_type=0` (NR 0x02 b0=0), read NR 0x89 | NR 0x89 bit 7 is INVERTED — VHDL `zxnext.vhd:6138, 6150` clears NR 0x89 to 0xFF on `reset_type=0`. skip — jnext returns raw stored byte (0x00 default) (see G154) |
-| PE-09 | Read NR 0x80 / 0x88 not initialised | Power-on, read NR 0x80 / 0x88 | Returned byte matches the VHDL reset-table value, not zero. skip — jnext skips initialisation for NRs without explicit handlers (see G154) |
+| ~~PE-06~~ | ~~Read NR 0x82 after a write, full VHDL packing~~ | **RETIRED 2026-09-24 (GH #201)** — two reasons. (a) The stated oracle was a PLAN BUG: `zxnext.vhd:5499` stores all 8 written bits into `nr_82_internal_port_enable` and `:6128-6129` returns all 8 verbatim, so the VHDL read IS the raw shadow — there is no "AND with reset_type-derived defaults" composition on this register. (b) The corrected claim is asserted LIVE as `PE-INT-82` in `test/nextreg/nextreg_integration_test.cpp` (write 0xA5, read 0xA5, no pack mask), whose header block records the corrected oracle with the same citations. No `check("PE-06")` row exists. |
+| ~~PE-07~~ | ~~Read NR 0x86 (bus-port-enable, no read_handler today)~~ | **RETIRED 2026-09-24 (GH #201)** — asserted LIVE as `PE-INT-86` in `test/nextreg/nextreg_integration_test.cpp`: observes the reset default 0xFF (`zxnext.vhd:1231`) and the write/read round-trip (`:5512` write 8 bits, `:6140-6141` read 8 bits). The "no read_handler today" skip reason is stale — NR 0x86 needs none, because the VHDL read is an identity on the stored byte. `PE-INT-87` adds the same shape for NR 0x87. No `check("PE-07")` row exists. |
+| ~~PE-08~~ | ~~Read NR 0x89 inverted-reset semantics~~ | **RETIRED 2026-09-24 (GH #201)** — split and asserted LIVE in `test/nextreg/nextreg_integration_test.cpp` across two rows: `PE-INT-89` pins the read PACKING (write 0xF7 → read 0x87, because `:5520-5522` routes bit 7 to `nr_89_bus_port_reset_type` and bits 3:0 to the enable field while discarding bits 6:4, and `:6149-6150` recomposes `reset_type & "000" & enable`), and `PE-05` pins the post-reset default 0x8F (`:1234-1235`). The inverted polarity the row names — the bus group reloads when `nr_89_bus_port_reset_type` is '0', the opposite of the `0x82-0x85` group — lives in `NextReg::reset()` and is documented there. No `check("PE-08")` row exists. |
+| ~~PE-09~~ | ~~Read NR 0x80 / 0x88 not initialised~~ | **RETIRED 2026-09-24 (GH #201)** — asserted LIVE as `PE-INT-80-88` in `test/nextreg/nextreg_integration_test.cpp`: NR 0x80 reads 0x00 (`zxnext.vhd:360`) and NR 0x88 reads 0xFF (`:1233`) after a power-on reset. The "jnext skips initialisation" skip reason is stale — the G154 closure seeded both bytes in `NextReg::reset()`. No `check("PE-09")` row exists. |
 
 ### 10. Copper Arbitration
 
@@ -270,9 +277,9 @@ From `zxnext.vhd` lines 4706-4777:
 | Test | Scenario | Expected |
 |------|----------|----------|
 | COP-01 | CPU write NR 0x15 | Value written |
-| COP-02 | Copper write NR 0x15 simultaneously | Copper wins |
-| COP-03 | CPU write while copper active | CPU waits |
-| COP-04 | Copper register limited to 0x7F | MSB of copper reg forced to 0 |
+| ~~COP-02~~ | ~~Copper write NR 0x15 simultaneously~~ | **RETIRED 2026-09-24 (GH #201) — WONT, not a gap.** jnext has no shared `nr_wr_*` bus: the CPU and Copper NextREG write paths are serialised at the C++ call level, so "the same 28 MHz cycle" is a state the emulator cannot enter and a row here could only order the two writes by hand and then assert that the later one won — which is NOT what `zxnext.vhd:4769,4775-4777` claims (there the Copper wins even when the CPU asked first on that cycle). Writing it anyway would be a row that passes for a reason unrelated to its claim. The decision was taken 2026-04-21 (recorded as a WONT comment in `test/nextreg/nextreg_test.cpp`, group `Copper-Arb`) and re-confirmed by Task 65 (2026-07-17) in `doc/design/EMULATOR-DESIGN-PLAN.md` — "Model cycle-accurate CPU/Copper NR write priority", resolved as option (a): priority stays a test-harness convention and a documented modelling limitation, because option (b) was gated on a cycle-accurate refactor the copper/beast 400% assessment ruled out as negative-payoff. Re-open only if concrete software reveals a divergence. No `check()` row exists. |
+| ~~COP-03~~ | ~~CPU write while copper active~~ | **RETIRED 2026-09-24 (GH #201) — WONT, not a gap.** Same decision, same evidence as COP-02: this is the CPU-held-back half of the `cpu_req` guard at `zxnext.vhd:4769`, and jnext has no cycle in which a CPU write can be held. Both writes land; only the cycle-level overlap is absent. No `check()` row exists. |
+| ~~COP-04~~ | ~~Copper register limited to 0x7F~~ | **RETIRED 2026-09-24 (GH #201)** — asserted LIVE as `ARB-04` ("Copper cannot address NR 0x80..0xFF") in `test/copper/copper_test.cpp`, which drives a Copper MOVE at a masked and an unmasked register index and checks NR 0x7F took the byte while NR 0xFF did not; `MOV-02` and `MOV-07` cover the positive side (a full 7-bit register index reaching NR 0x7F through MOVE). The mask lives in the `Copper` class, not in `NextReg`, which is why the bare NextREG tier could never assert it. No `check("COP-04")` row exists. |
 
 ### 11. Write-Only Register Read Behaviour (G149)
 
@@ -284,10 +291,10 @@ Distinct from G56 (composed-read divergence on NRs *with* read entries).
 
 | Test  | Scenario                                                    | Expected                                                                                  |
 |-------|-------------------------------------------------------------|-------------------------------------------------------------------------------------------|
-| WO-01 | Write NR 0x04 ← 0xA5; read NR 0x04 via 0x243B/0x253B        | Returns 0x00 — `zxnext.vhd:5878-6289` read-mux falls through to `(others => '0')`. skip — jnext leaks last-written byte (see G149) |
-| WO-02 | Write NR 0x29 ← 0x55; read NR 0x29                          | Returns 0x00; sprite stream NRs (0x29/0x2A/0x2B) are write-only per VHDL. skip — leaks last-written byte (see G149) |
-| WO-03 | Write NR 0x60 ← 0x42; read NR 0x60                          | Returns 0x00; copper data port is write-only per VHDL `:5878-6289`. skip — leaks last-written byte (see G149) |
-| WO-04 | Write NR 0x35 ← 0x33; read NR 0x35                          | Returns 0x00; sprite-attribute mirror NR is write-only per VHDL. skip — leaks last-written byte (see G149) |
+| ~~WO-01~~ | ~~Write NR 0x04 ← 0xA5; read NR 0x04 via 0x243B/0x253B~~ | **RETIRED 2026-09-24 (GH #201)** — G149 is CLOSED and the row is asserted LIVE as `WO-INT-04` in `test/nextreg/nextreg_integration_test.cpp` (group `WO-Integration`): write 0xAA, read 0x00, same oracle (`zxnext.vhd:5878-6289` falls through to `(others => '0')`). The fix is per-register: the Emulator's NR 0x04 write_handler returns 0, so the canonicalised `regs_[0x04]` stores 0 — which only exists on a fully-wired `Emulator`, hence the integration tier. The skip reason above ("jnext leaks last-written byte") is stale. No `check("WO-01")` row exists. |
+| ~~WO-02~~ | ~~Write NR 0x29 ← 0x55; read NR 0x29~~ | **RETIRED 2026-09-24 (GH #201)** — asserted LIVE as `WO-INT-29`; the sibling keymap NRs are covered too, by `WO-INT-2A` (dead register, write strobe commented out at `zxnext.vhd:4850`) and `WO-INT-2B` (`nr_2b_we` at `:6306-6307`). No `check("WO-02")` row exists. |
+| ~~WO-03~~ | ~~Write NR 0x60 ← 0x42; read NR 0x60~~ | **RETIRED 2026-09-24 (GH #201)** — asserted LIVE as `WO-INT-60`; the other write-only Copper data port is covered by `WO-INT-63` (`nr_copper_we` at `zxnext.vhd:4887`, write side `:5433-5439`), both of which keep the write side-effect and pin only the read. No `check("WO-03")` row exists. |
+| ~~WO-04~~ | ~~Write NR 0x35 ← 0x33; read NR 0x35~~ | **RETIRED 2026-09-24 (GH #201)** — asserted LIVE as `WO-INT-35`. `WO-INT-FF` extends the same class to NR 0xFF (ULA+ palette poke, `zxnext.vhd:4906`/`:4919`). No `check("WO-04")` row exists. |
 
 ## Test Count Summary
 
@@ -301,10 +308,10 @@ Distinct from G56 (composed-read divergence on NRs *with* read entries).
 | MMU registers | ~4 |
 | Machine config | ~5 |
 | Palette registers | ~6 |
-| Port enable registers | ~9 (+PE-06..09 G154) |
-| Copper arbitration | ~4 |
-| Write-only read behaviour | 4 (WO-01..04 G149) |
-| **Total** | **~74** |
+| Port enable registers | ~9 (PE-06..09 RETIRED 2026-09-24 → `PE-INT-*`; PE-04 now live) |
+| Copper arbitration | ~4 (COP-02/03 RETIRED as WONT, COP-04 RETIRED → `copper_test` ARB-04) |
+| Write-only read behaviour | 4 — all RETIRED 2026-09-24 → `WO-INT-04/29/35/60` |
+| **Total** | **~74** declared, of which 22 are RETIRED (see the GH #201 append) |
 
 ## Task 58 append (2026-07-14) — NR 0x05 bits 2/0 readback is frame-edge-latched
 
@@ -421,11 +428,11 @@ which is what they are.
 
 | ID | Description | VHDL file:line |
 |----|-------------|----------------|
-| FT-D8-01 | NR 0xD8 nr_d8_io_trap_fdc_en write/read-back | zxnext.vhd:5639-5640, 6265-6266 |
-| FT-D8-02 | NR 0xD8 enable=1 must allow strobe_iotrap to assert MF | zxnext.vhd:2601-2602, 3835, 3837 |
-| FT-D9-01 | NR 0xD9 nr_d9_iotrap_write captures CPU write byte | zxnext.vhd:3892-3893 |
-| FT-DA-01 | NR 0xDA nr_da_iotrap_cause encoding 01/10/11 | zxnext.vhd:3872-3877 |
-| FT-DA-02 | NR 0xDA cause clears via NR 0x02 b4 write=0 | zxnext.vhd:3879-3880 |
+| ~~FT-D8-01~~ | ~~NR 0xD8 nr_d8_io_trap_fdc_en write/read-back~~ — **RETIRED 2026-09-24 (GH #201)**: asserted LIVE as `FT-INT-D8-01` in `test/nextreg/nextreg_integration_test.cpp`, group `FT-Integration` (write 1 → read 0x01, write 0 → read 0x00; the bits-7:1-are-zero shape of the read mux). The whole FT family was re-homed to the `FT-INT-*` names when the iotrap chain landed — `test/nextreg/nextreg_test.cpp` records the five-row mapping as a source comment — and the old plan IDs were left behind. | ~~zxnext.vhd:5639-5640, 6265-6266~~ |
+| ~~FT-D8-02~~ | ~~NR 0xD8 enable=1 must allow strobe_iotrap to assert MF~~ — **RETIRED 2026-09-24 (GH #201)**: asserted LIVE as `FT-INT-D8-02` (NR 0xD8 b0 = 1 plus NR 0x06 b3 = 1, then a port 0x3FFD write, then `NmiSource::nmi_assert_mf()`). | ~~zxnext.vhd:2601-2602, 3835, 3837~~ |
+| ~~FT-D9-01~~ | ~~NR 0xD9 nr_d9_iotrap_write captures CPU write byte~~ — **RETIRED 2026-09-24 (GH #201)**: asserted LIVE as the pair `FT-INT-D9-01a` (the firmware direct-write arm, `nr_d9_we` at `zxnext.vhd:4901` — note the `:5643` copy is a commented-out vestigial duplicate) and `FT-INT-D9-01b` (the port 0x3FFD capture arm, `:3892-3893`). `TC-IOTRAP-IDLE-GATE` adds the `nmi_accept_cause` gate on both. | ~~zxnext.vhd:3892-3893~~ |
+| ~~FT-DA-01~~ | ~~NR 0xDA nr_da_iotrap_cause encoding 01/10/11~~ — **RETIRED 2026-09-24 (GH #201)**: asserted LIVE as the triple `FT-INT-DA-01a` (0x2FFD read → "01"), `FT-INT-DA-01b` (0x3FFD read → "10") and `FT-INT-DA-01c` (0x3FFD write → "11"), one per arm of `zxnext.vhd:3871-3878`. | ~~zxnext.vhd:3872-3877~~ |
+| ~~FT-DA-02~~ | ~~NR 0xDA cause clears via NR 0x02 b4 write=0~~ — **RETIRED 2026-09-24 (GH #201)**: asserted LIVE as `FT-INT-DA-02` (cause ← "11" via a 0x3FFD write, then NR 0x02 ← 0x00, then cause reads 0x00). | ~~zxnext.vhd:3879-3880~~ |
 | G56-CR-05 | NR 0x05 composed-read divergence | zxnext.vhd:5896-5897 |
 | G56-CR-06 | NR 0x06 psg_mode source-of-truth | zxnext.vhd:5899-5900 |
 | G56-CR-09 | NR 0x09 sprite_tie composed-read | zxnext.vhd:5908-5909 |
@@ -457,3 +464,54 @@ The matrix is a generated artifact now and carries no prose of its own; it
 links here instead. These notes were written alongside the rows they explain.
 
 Created 2026-04-15 onwards (Phase 2 Wave 1 commit `0dc128e` and beyond) to host integration-tier rows from the NextREG plan that require the full `Emulator` fixture (subsystem wiring for reset defaults, MMU/Layer2/Sprite/Tilemap clip-window cycling, palette pipeline, NR 0x82-bit-6 port-1F gate, NR 0x07/0x08 read composition, NR 0x03 machine-config state, DMA IM2-delay composition, soft-reset semantics, NR 0x8E RAM-rebuild gate, Layer 2 bank routing). Runtime: `Total:  301  Passed:  301  Failed:    0  Skipped:    0`. The 74 rows listed below are only the ones recorded here; 37 more that the suite asserts are recorded in the parent `## NextREG` table above, and the rest are reported `unrecorded` on every run. Each row cross-references the bare-suite plan row when a re-home applies.
+
+
+## GH #201 append (2026-09-24) — the 24 plan-only rows, dispositioned
+
+`doc/testing/TRACEABILITY-MATRIX.md` reported 24 NextREG rows as `missing`:
+rows this plan declares that no suite asserts. Twenty-two of them turned out
+to be **bookkeeping**, not coverage: the work had been done and landed under a
+different ID, and only the plan doc was never told. Two were real.
+
+The bookkeeping cases cluster by era, and each cluster has the same shape —
+a bare-tier row that could not stay bare, re-homed to the integration tier or
+to the owning subsystem's suite, with the re-home recorded as a source comment
+in `test/nextreg/nextreg_test.cpp` and nowhere else:
+
+| Cluster | Plan IDs | Now asserted as | Suite |
+|---------|----------|-----------------|-------|
+| Z80N `NEXTREG` select latch | NR-SEL-05, SEL-05a/b/c | Z80N-SEL-01/02/03 | `nextreg_integration_test` |
+| MMU defaults + port path | NR-MMU-01 | NREG-RST-05 | `nextreg_integration_test` |
+| | NR-MMU-03 | P7F-01..P7F-08 | `mmu_test` |
+| Port enables (G154 closure) | PE-06, PE-07, PE-08, PE-09 | PE-INT-82, PE-INT-86/87, PE-INT-89, PE-INT-80-88 | `nextreg_integration_test` |
+| Copper register mask | COP-04 | ARB-04 (+ MOV-02/07) | `copper_test` |
+| Write-only reads (G149 closure) | WO-01..WO-04 | WO-INT-04/29/35/60 (+ 2A/2B/63/FF) | `nextreg_integration_test` |
+| +3 floppy I/O traps | FT-D8-01/02, FT-D9-01, FT-DA-01/02 | FT-INT-D8-01/02, FT-INT-D9-01a/b, FT-INT-DA-01a/b/c, FT-INT-DA-02 | `nextreg_integration_test` |
+
+Two are WONT rather than covered — **COP-02** and **COP-03**, the cycle-accurate
+CPU-vs-Copper `nr_wr_*` arbitration. jnext serialises both write paths at the
+C++ call level, so the contested cycle the rows describe is a state the emulator
+cannot enter; a row would have to order the stimulus by hand and would then be
+asserting "the later write won", which is not what `zxnext.vhd:4769,4775-4777`
+says. The decision is from 2026-04-21 and was re-confirmed by Task 65
+(2026-07-17) in `doc/design/EMULATOR-DESIGN-PLAN.md` as option (a): documented
+modelling limitation, not backlog.
+
+Two became real `check()` rows:
+
+- **PE-04** (`nextreg_test`, bare tier) — the `nr_85_internal_port_reset_type`
+  gate at `zxnext.vhd:5052-5058`, asserted on both axes. The positive axis alone
+  was already implied by `NREG-RST-08`, but not *discriminatively*: that row
+  reads the group after a power-on reset, where reset_type is already '1' from
+  its `:1230` initialiser, so an emulator that reloaded unconditionally would
+  still pass it. The reset_type='0' axis is what pins the gate.
+- **NR-MMU-04** (`nextreg_integration_test`) — last-writer-wins between the
+  port-0x7FFD rebuild arm and the `nr_mmu_we` arm of the single MMU register
+  process. `N8E-RAM-REBUILD-1` covered the rebuild-clobbers-NR direction; this
+  row adds NR-clobbers-port and a closing second port write.
+
+One stale claim was corrected rather than carried forward: **PE-06**'s stated
+oracle ("internal-port-enable bits AND with reset_type-derived defaults; NOT
+raw shadow") disagrees with the VHDL — `:5499` stores all eight written bits
+and `:6128-6129` returns them verbatim, so the read on NR 0x82 *is* the raw
+shadow. The live `PE-INT-82` already carries the corrected oracle.

@@ -55,6 +55,17 @@ closed end-to-end (Phases 0→4) over 2026-04-24. Summary of what landed:
   writes to the prescaler low 14 bits are not exposed to any VHDL read
   path, indirectly covered by BAUD-07's post-prescaler TX-empty latency
   assertion.
+  **Reversed by GH #201 (2026-09-24): both are real `check()` rows now.**
+  The D-UNOBSERVABLE verdict was a true statement about the VHDL — no port
+  reads the low 14 prescaler bits back — applied to the wrong tier. These
+  tests run against `UartChannel`, whose public `byte_transfer_ticks()` IS
+  `prescaler * frame_bits`, so the stored value is observable as a period
+  with no accessor added. And the claimed indirect coverage did not hold:
+  BAUD-07 only measures that SOME prescaler took effect. Measured by
+  mutation — replacing the bit7=0 branch with a whole-field store (which
+  clears bits 13:7) fails BAUD-02 and BAUD-03 and **nothing else in the
+  103-row suite**, so the low-half half-selective write had zero coverage
+  before this change.
 
 ### Historical C-class bugs (fixed, retained for reference)
 
@@ -266,8 +277,8 @@ Write values are latched on the **rising edge** of i_CLK_28.
 | ID | Test | Expected |
 |----|------|----------|
 | BAUD-01 | Default prescaler = 243 (115200 @ 28MHz) | Full 17-bit value = 0x000F3 |
-| BAUD-02 | Write 0x33 to port 0x143B (bit7=0): sets LSB bits 6:0 = 0x33 | Prescaler LSB[6:0] = 0x33 |
-| BAUD-03 | Write 0x85 to port 0x143B (bit7=1): sets LSB bits 13:7 = 0x05 | Prescaler LSB[13:7] = 0x05 |
+| BAUD-02 | Write 0x33 to port 0x143B (bit7=0): sets LSB bits 6:0 = 0x33 | Prescaler LSB[6:0] = 0x33 and LSB[13:7] KEPT at its reset value 1, so the full LSB is 179. **LIVE since GH #201** — observed as a period through the public `UartChannel::byte_transfer_ticks()` (`prescaler * frame_bits`), with `frame_bits` recovered by dividing the reset period by the known reset prescaler 243 (`uart.vhd:319-320`) rather than assumed. `uart.vhd:322-324` |
+| BAUD-03 | Write 0x85 to port 0x143B (bit7=1): sets LSB bits 13:7 = 0x05 | Prescaler LSB[13:7] = 0x05 with LSB[6:0] kept from BAUD-02, so the full LSB is 691; a following bit7=0 write replaces only 6:0 and keeps 13:7 = 5 (708). The 3-bit MSB (`uart.vhd:281-286`) is untouched throughout. **LIVE since GH #201.** `uart.vhd:322,325-326` |
 | BAUD-04 | Write prescaler MSB via select register | Full prescaler = {MSB, LSB} concatenated |
 | BAUD-05 | Prescaler applies to selected UART independently | UART 0 and UART 1 can have different baud rates |
 | BAUD-06 | Hard reset restores default prescaler for both UARTs | Both = 0x000F3 |
@@ -351,7 +362,7 @@ Write values are latched on the **rising edge** of i_CLK_28.
 | I2C-11 | Pi I2C1 AND-gating: if pi_i2c1_scl = 0, SCL reads 0 | External Pi I2C can pull SCL low |
 | I2C-12 | Reset releases both lines | After reset, both outputs = 1 |
 | I2C-13 | NR 0xA0 bit 3 (`pi_i2c1_en`) gates GPIO 2/3 → I2C1 wired-AND mux | Reset default 0x00: pi_i2c1_scl/sda inputs must be ignored (mux opens). VHDL `zxnext.vhd:2280, 2309-2318`. skip — `i2c.cpp:171-185` has the wired-AND but no NR 0xA0 gate (see G138) |
-| I2C-14 | EEPROM at 0x50 (write addr 0xA0): device ACKs | TBBlue board attaches a 24LC256 alongside the DS1307. jnext `i2c.cpp` registers only `I2cRtc`; address 0xA0 NACKs. skip — EEPROM device class missing (see G139) |
+| ~~I2C-14~~ | ~~EEPROM at 0x50 (write addr 0xA0): device ACKs~~ | **RETIRED 2026-09-24 (GH #201)** — the row's premise is not supported by the authoritative sources, and it has no VHDL oracle either way. The core models only the two bit-banged pins; the DEVICES on that bus are physical, so "an EEPROM ACKs" is a board fact, not a `zxnext.vhd` fact. The FPGA project's own port reference says what is on the bus: `cores/zxnext/ports.txt:334` — "a simple bit-banged i2c interface ... connected to the RTC, optionally to the PI GPIO (see nextreg 0xa0) and an internal connector" — no EEPROM; and the Issue-2 top level labels the pins "I2C (RTC and HDMI)" (`zxnext_top_issue2.vhd:136-138`). The claim of a 24LC256 at 0x50 appears to have come from the common DS1307 breakout module rather than from the Next. Modelling a speculative device would be inventing behaviour, and anything hung off the internal connector is by definition user hardware. I2C-01..12 cover every line the core actually drives; `I2cController::attach_device()` already takes any 7-bit address, so a future device needs no plan row to become reachable. No `check()` row exists. |
 
 ### Group 9: I2C Protocol Sequences (software-level)
 

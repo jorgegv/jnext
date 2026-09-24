@@ -391,7 +391,11 @@ void Renderer::render_row(uint32_t* out, int row, Mmu& mmu, Ram& ram,
 
     // Tilemap — covers the full 640-wide framebuffer (VHDL: vcounter(8)='0').
     // G104 phase 4: native 640 emit (80-col 1:1, 40-col internal double).
-    if (tilemap && tilemap->enabled()) {
+    // Called even when the layer is OFF: Tilemap::render_scanline owns the
+    // `tm_en = 0` branch of the below-flag latch at zxnext.vhd:6863, which
+    // resolves to NOT tm_on_top rather than 0 (GH #201). It emits no pixels
+    // in that case, so tilemap_line_ keeps the TRANSPARENT fill above.
+    if (tilemap) {
         // GH #168: the tilemap palette bank (NR 0x6B b4) is read from the
         // per-scanline-replayed Ula selector, NOT the live PaletteManager
         // member — the third lane of the GH #163 defect, same reason and

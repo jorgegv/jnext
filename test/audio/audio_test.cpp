@@ -567,10 +567,15 @@ static void g_ay_divider() {
               "VHDL ym2149.vhd:260-279 (I_SEL_L hard-tied '1')");
     }
 
-    // G: AY-41: I_SEL_L=0 (/16 divider) path unreachable. turbosound.vhd:164
-    // hard-wires I_SEL_L='1', so the /16 branch is dead in the hardware
-    // contract; AyChip has no set_sel_l() API. Defensive coverage only —
-    // no VHDL path exercises it.
+    // AY-41 — RETIRED 2026-09-24 (GH #201). The ZX Next instantiates all
+    // three PSGs with `I_SEL_L => '1'` (turbosound.vhd:164, :219, :274), so
+    // `cnt_div <= (not I_SEL_L) & "111"` (ym2149.vhd:267) can only ever
+    // reload "0111". The "1111" (/16) reload is a branch of the generic
+    // ym2149 IP core that no ZX Next signal can select — the hardware
+    // cannot enter the state this row describes. AY-44 asserts the /8
+    // reload that IS reachable, and cites turbosound.vhd:164 for exactly
+    // this reason. Struck in AUDIO-TEST-PLAN-DESIGN.md §1.4; no check()
+    // row exists.
 
     // AY-42 - ena_div clocks tone generators once per /8 pulse. Verified
     // via R7=0x3F force-high + fixed vol 15 settling at table max.
@@ -585,9 +590,87 @@ static void g_ay_divider() {
               fmt("got=0x%02x VHDL ym2149.vhd:264-268", ay.output_a()));
     }
 
-    // G: AY-43: ena_div_noise runs at half ena_div rate (ym2149.vhd:264-268).
-    // No noise_cnt accessor on AyChip; the LFSR output is stochastic so a
-    // statistical indirect check would be unreliable.
+    // AY-43 — ena_div_noise runs at HALF the ena_div rate, and lags it by
+    // one ena_div period.
+    //
+    // ym2149.vhd:266-272, one ENA tick per AyChip::tick():
+    //     if (cnt_div = "0000") then
+    //        cnt_div <= (not I_SEL_L) & "111";   -- reload 7 (:267)
+    //        ena_div <= '1';                     -- (:268)
+    //        noise_div <= not noise_div;         -- (:270) signal assignment
+    //        if (noise_div = '1') then           -- (:271) reads the OLD value
+    //           ena_div_noise <= '1';            -- (:272)
+    //        end if;
+    //
+    // `cnt_div` and `noise_div` both power on at 0 (ym2149.vhd:105-106), so
+    // ena_div fires on tick 1 and every 8th thereafter, while ena_div_noise
+    // fires on the SECOND ena_div and every second one after it — half the
+    // rate, offset by one full ena_div period.
+    //
+    // Both clocks are observable on one chip at once, on separate channels:
+    // R7 = 0x35 leaves tone B enabled (b1=0) with noise B off (b4=1), and
+    // noise A enabled (b3=0) with tone A off (b0=1) — ym2149.vhd:470-471.
+    // Tone B with period 0 (comparator 0, :309) toggles on every ena_div, so
+    // channel B's edges ARE the ena_div grid. Noise with R6=0 (comparator 0,
+    // :283) shifts poly17 on every ena_div_noise, and the LFSR output can
+    // only change at a shift, so every channel-A edge lands on the
+    // ena_div_noise grid.
+    //
+    // Three measurements, all differences (immune to the whole-chip
+    // one-tick output-pipeline phase):
+    //   tone edge spacing            == 8   (the ena_div period)
+    //   noise edge spacing           %  16  == 0  (the ena_div_noise period)
+    //   (first noise edge - first tone edge) % 16 == 8
+    // The last one is the phase: reading the toggled `noise_div` instead of
+    // the old value keeps the /2 rate but puts ena_div_noise on the FIRST,
+    // third, fifth ena_div — the offset becomes 0 and this row fails.
+    {
+        AyChip ay;
+        ay.set_ay_mode(true);
+        ay.select_register(7);  ay.write_data(0x35);  // tone B on, noise A on
+        ay.select_register(8);  ay.write_data(0x0F);  // ch A volume 15
+        ay.select_register(9);  ay.write_data(0x0F);  // ch B volume 15
+        ay.select_register(2);  ay.write_data(0x00);  // tone B period = 0
+        ay.select_register(3);  ay.write_data(0x00);
+        ay.select_register(6);  ay.write_data(0x00);  // noise period -> comp 0
+
+        int first_tone = -1, first_noise = -1, prev_noise = -1;
+        bool tone_grid_8 = true, noise_grid_16 = true;
+        int tone_edges = 0, noise_edges = 0;
+        uint8_t pt = ay.output_b(), pn = ay.output_a();
+        int last_tone = -1;
+        for (int t = 1; t <= 3000; ++t) {
+            ay.tick();
+            if (ay.output_b() != pt) {
+                pt = ay.output_b();
+                ++tone_edges;
+                if (first_tone < 0) first_tone = t;
+                else if ((t - last_tone) != 8) tone_grid_8 = false;
+                last_tone = t;
+            }
+            if (ay.output_a() != pn) {
+                pn = ay.output_a();
+                ++noise_edges;
+                if (first_noise < 0) first_noise = t;
+                else if (((t - prev_noise) % 16) != 0) noise_grid_16 = false;
+                prev_noise = t;
+            }
+        }
+        const int phase = (first_noise >= 0 && first_tone >= 0)
+                          ? ((first_noise - first_tone) % 16) : -1;
+        check("AY-43",
+              "ena_div_noise is half ena_div and lags it by one ena_div "
+              "period: tone edges on an 8-tick grid, noise edges on a "
+              "16-tick grid, offset 8",
+              tone_edges > 8 && noise_edges > 4 &&
+              tone_grid_8 && noise_grid_16 && phase == 8,
+              fmt("tone_edges=%d(grid8=%d) noise_edges=%d(grid16=%d) "
+                  "first_tone=%d first_noise=%d phase=%d (want 8) "
+                  "VHDL ym2149.vhd:266-272,283,309,470-471",
+                  tone_edges, tone_grid_8 ? 1 : 0,
+                  noise_edges, noise_grid_16 ? 1 : 0,
+                  first_tone, first_noise, phase));
+    }
 
     // AY-44 - turbosound.vhd:164 hard-wires I_SEL_L='1', so AyChip uses the
     // /8 counter. With tone period=2 (comp=1), the square wave toggles
@@ -752,11 +835,144 @@ static void g_ay_noise() {
               fmt("high=%d low=%d VHDL ym2149.vhd:284,293", seen_high, seen_low));
     }
 
-    // A: AY-63: noise_gen_op = poly17(0) (ym2149.vhd:302) already exercised
-    // by AY-62's bit-sequence assertion — a separate row would just re-state
-    // the same observation.
-    // G: AY-64: noise clocked at ena_div_noise rate (ym2149.vhd:290, half
-    // ena_div) — same unobservable-without-accessor constraint as AY-43.
+    // AY-63 — the noise output is poly17 BIT 0, and it is the single shared
+    // noise for all three channels.
+    //
+    // ym2149.vhd:302 `noise_gen_op <= poly17(0)`, and the channel mixers at
+    // :470-472 all consume that one signal. AY-62 only asserts the stream is
+    // non-constant, which every bit of poly17 satisfies; this row pins WHICH
+    // bit and that all three channels see the same one.
+    //
+    // Part A — bit-exact stream. The reference below re-implements the VHDL
+    // recurrence independently of src/:
+    //     poly17_zero <= '1' when poly17 = 0                      (:284)
+    //     poly17 <= (poly17(0) xor poly17(2) xor poly17_zero)
+    //               & poly17(16 downto 1)                          (:293)
+    //     noise_gen_op <= poly17(0)                                (:302)
+    // starting from the declared power-on value `(others => '0')` (:111).
+    // With R6 = 0 the comparator is 0 (:283) so poly17 shifts on every
+    // ena_div_noise, i.e. every 16 ticks starting at tick 9 (see AY-43), and
+    // the output sampled just after shift k must equal the reference's k-th
+    // bit. Sampling bit 16 or bit 1 instead diverges inside the first dozen
+    // shifts.
+    {
+        AyChip ay;
+        ay.set_ay_mode(true);
+        ay.select_register(7); ay.write_data(0x37);  // noise A only
+        ay.select_register(8); ay.write_data(0x0F);
+        ay.select_register(6); ay.write_data(0x00);  // comparator 0
+
+        uint32_t ref_poly = 0;
+        int mismatches = 0, first_bad = -1, ones = 0;
+        int now = 0;
+        for (int k = 0; k < 96; ++k) {
+            const int target = 9 + 16 * k;           // the k-th shift tick
+            while (now < target) { ay.tick(); ++now; }
+            // Reference shift, ym2149.vhd:284,293.
+            const uint32_t fb = ((ref_poly & 1u) ^ ((ref_poly >> 2) & 1u)
+                                 ^ (ref_poly == 0u ? 1u : 0u)) & 1u;
+            ref_poly = (fb << 16) | (ref_poly >> 1);
+            const int want = static_cast<int>(ref_poly & 1u);   // :302
+            const int got  = ay.output_a() ? 1 : 0;
+            ones += want;
+            if (got != want && first_bad < 0) first_bad = k;
+            if (got != want) ++mismatches;
+        }
+        check("AY-63a",
+              "noise output is poly17 BIT 0: 96 shifts match an independent "
+              "re-implementation of the VHDL LFSR recurrence bit for bit",
+              mismatches == 0 && ones > 0 && ones < 96,
+              fmt("mismatches=%d first_bad=%d ref_ones=%d/96 "
+                  "VHDL ym2149.vhd:111,284,293,302",
+                  mismatches, first_bad, ones));
+    }
+
+    // Part B — one shared noise generator, not one per channel. R7 = 0x07
+    // sets b2:0 = 111 (all three tone terms forced high, i.e. tones off) and
+    // b5:3 = 000 (noise enabled on A, B and C). Per ym2149.vhd:470-472 every
+    // channel is then exactly `noise_gen_op`, so with equal volumes the three
+    // outputs must be equal at every tick. Per-channel LFSRs would
+    // decorrelate within a few shifts.
+    {
+        AyChip ay;
+        ay.set_ay_mode(true);
+        ay.select_register(7);  ay.write_data(0x07);
+        ay.select_register(8);  ay.write_data(0x0F);
+        ay.select_register(9);  ay.write_data(0x0F);
+        ay.select_register(10); ay.write_data(0x0F);
+        ay.select_register(6);  ay.write_data(0x00);
+        int diffs = 0, transitions = 0;
+        uint8_t prev = ay.output_a();
+        for (int t = 0; t < 4096; ++t) {
+            ay.tick();
+            if (ay.output_a() != ay.output_b() || ay.output_a() != ay.output_c())
+                ++diffs;
+            if (ay.output_a() != prev) { ++transitions; prev = ay.output_a(); }
+        }
+        check("AY-63b",
+              "a single shared noise drives all three channel mixers "
+              "(A == B == C on every tick, with the stream actually moving)",
+              diffs == 0 && transitions > 4,
+              fmt("diffs=%d transitions=%d VHDL ym2149.vhd:302,470-472",
+                  diffs, transitions));
+    }
+
+    // AY-64 — the noise generator is clocked at the ena_div_noise rate, not
+    // at ena_div and not at the ENA rate.
+    //
+    // ym2149.vhd:290 gates the whole noise process on `ena_div_noise = '1'`,
+    // and :291-296 shift poly17 only once the period counter has reached
+    // `noise_gen_comp` (= R6[4:0] - 1, or 0 when R6[4:1] = "0000", :283).
+    // So one shift every (comp + 1) ena_div_noise pulses = 16 * (comp + 1)
+    // ENA ticks, and the output can change only on a shift. Measuring the
+    // spacing of the output's edges therefore reads the shift period back
+    // out directly, and it must scale with R6:
+    //     R6 = 0  -> comp 0 -> 16 ticks
+    //     R6 = 3  -> comp 2 -> 48 ticks
+    //     R6 = 5  -> comp 4 -> 80 ticks
+    // Clocking at ena_div instead would halve every figure; clocking at the
+    // ENA rate would divide them by 16.
+    {
+        struct Case { uint8_t r6; int comp; int period; };
+        const Case cases[3] = { {0x00, 0, 16}, {0x03, 2, 48}, {0x05, 4, 80} };
+        bool all_ok = true;
+        char detail[256] = {0};
+        int used = 0;
+        for (const Case& c : cases) {
+            AyChip ay;
+            ay.set_ay_mode(true);
+            ay.select_register(7); ay.write_data(0x37);   // noise A only
+            ay.select_register(8); ay.write_data(0x0F);
+            ay.select_register(6); ay.write_data(c.r6);
+            const int comp = static_cast<int>(ay.noise_comp());
+            int edges = 0, prev_edge = -1;
+            bool on_grid = true;
+            uint8_t pv = ay.output_a();
+            for (int t = 1; t <= 80 * 17 * 3; ++t) {
+                ay.tick();
+                if (ay.output_a() != pv) {
+                    pv = ay.output_a();
+                    ++edges;
+                    if (prev_edge >= 0 && ((t - prev_edge) % c.period) != 0)
+                        on_grid = false;
+                    prev_edge = t;
+                }
+            }
+            const bool ok = (comp == c.comp) && on_grid && edges >= 2;
+            if (!ok) all_ok = false;
+            used += snprintf(detail + used,
+                             sizeof(detail) - static_cast<size_t>(used),
+                             "[R6=%02x comp=%d(want %d) edges=%d grid%d=%d]",
+                             c.r6, comp, c.comp, edges, c.period,
+                             on_grid ? 1 : 0);
+            if (used >= static_cast<int>(sizeof(detail)) - 1) break;
+        }
+        check("AY-64",
+              "noise shifts once per (comp+1) ena_div_noise pulses: the "
+              "output-edge grid is 16*(comp+1) ticks for R6 = 0 / 3 / 5",
+              all_ok,
+              fmt("%s VHDL ym2149.vhd:283,290-296", detail));
+    }
 }
 
 // =====================================================================
@@ -1875,9 +2091,62 @@ static void g_ts_routing() {
                   ts.reg_read()));
     }
 
-    // A: TS-17: psgN_we shares the ay_select gate with psgN_addr — covered
-    // structurally by TS-16 (reg write routed only to selected PSG, which
-    // would fail if the write-enable gate differed from the addr gate).
+    // TS-17 — the register WRITE-ENABLE is routed to the selected AY only,
+    // and its gate is NOT the address gate.
+    //
+    // turbosound.vhd:141-150:
+    //     psg_addr <= '1' when psg_reg_addr_i = '1'
+    //                      and psg_d_i(7 downto 5) = "000" else '0';   (:141)
+    //     psg0_addr <= '1' when ay_select = "11" and psg_addr = '1' ... (:143)
+    //     psg0_we   <= '1' when ay_select = "11"
+    //                       and psg_reg_wr_i = '1' else '0';           (:144)
+    // `psgN_we` carries NO data-pattern condition — only ay_select. TS-16
+    // pins the ADDRESS gate; this row pins the WRITE gate, using the very
+    // asymmetry that separates them: the select byte 0xFE has bits 7:5 =
+    // "111", so `psg_addr` is 0 while it is on the bus and NO PSG's address
+    // latch moves. Each PSG therefore keeps its own, different latched
+    // register across the selection change, and the data write that follows
+    // must land in the newly selected PSG's own register while leaving every
+    // other PSG's register file untouched.
+    {
+        TurboSound ts;
+        ts.set_enabled(true);
+        ts.set_ay_mode(false);
+
+        ts.reg_addr(0xFF);              // select PSG0 (bits 7:5 = 111: no addr latch)
+        ts.reg_addr(0x02);              // PSG0 addr latch = 2
+        ts.reg_write(0x11);             // PSG0 R2 = 0x11
+
+        ts.reg_addr(0xFE);              // select PSG1 — again no addr latch
+        ts.reg_addr(0x03);              // PSG1 addr latch = 3
+        ts.reg_write(0x22);             // PSG1 R3 = 0x22 (psg0_we must be 0)
+
+        ts.reg_addr(0xFD);              // select PSG2
+        ts.reg_addr(0x02);              // PSG2 addr latch = 2 (same reg as PSG0)
+        ts.reg_write(0x33);             // PSG2 R2 = 0x33 (psg0_we must be 0)
+
+        // PSG0's address latch never moved, so re-selecting it reads R2 back.
+        ts.reg_addr(0xFF);
+        const uint8_t psg0_r2 = ts.reg_read();
+        ts.reg_addr(0xFE);
+        const uint8_t psg1_r3 = ts.reg_read();
+        ts.reg_addr(0xFD);
+        const uint8_t psg2_r2 = ts.reg_read();
+        // PSG0's R3 must still be 0 — the 0x22 write went to PSG1 alone.
+        ts.reg_addr(0xFF);
+        ts.reg_addr(0x03);
+        const uint8_t psg0_r3 = ts.reg_read();
+
+        check("TS-17",
+              "psgN_we follows ay_select alone: each PSG keeps its own "
+              "register contents and its own address latch across selection "
+              "changes; a write never leaks into an unselected PSG",
+              psg0_r2 == 0x11 && psg1_r3 == 0x22 && psg2_r2 == 0x33 &&
+              psg0_r3 == 0x00,
+              fmt("psg0_r2=0x%02x psg1_r3=0x%02x psg2_r2=0x%02x "
+                  "psg0_r3=0x%02x VHDL turbosound.vhd:141,143-150",
+                  psg0_r2, psg1_r3, psg2_r2, psg0_r3));
+    }
 
     // TS-18 - turbosound.vhd:321 readback muxes on ay_select.
     {
@@ -2267,8 +2536,45 @@ static void g_ts_enable() {
 static void g_ts_panning() {
     set_group("TS-panning");
 
-    // A: TS-40: pan="11" (both channels) — covered by TS-10 default pan
-    // state which exercises the both-channels-active code path.
+    // TS-40 — pan "11" routes the PSG to BOTH L and R.
+    //
+    // turbosound.vhd:323-329 gates each side independently:
+    //     psg0_L_pan <= psg0_L when psg0_pan(1) = '1' else (others => '0');
+    //     psg0_R_pan <= psg0_R when psg0_pan(0) = '1' else (others => '0');
+    // TS-10 asserts that RESET leaves the pan at "11"; this row asserts what
+    // the value "11" DOES, and that it is reached through the select-byte
+    // write path (turbosound.vhd:129-134, psg_d_i(6 downto 5) -> psgN_pan)
+    // rather than only as a power-on state. Starting from pan "00" (both
+    // sides gated off) and writing "11" must open both gates.
+    {
+        TurboSound ts;
+        ts.set_enabled(true);
+        ts.set_ay_mode(true);
+        ts.reg_addr(0x9F);      // PSG0 pan = 00, select PSG0
+        ts.reg_addr(0x9E);      // PSG1 pan = 00
+        ts.reg_addr(0x9D);      // PSG2 pan = 00
+        ts.reg_addr(0x9F);      // re-select PSG0 (pan stays 00)
+        ts.reg_addr(7);  ts.reg_write(0x3F);   // all tone/noise terms high
+        ts.reg_addr(8);  ts.reg_write(0x0F);   // ch A vol 15
+        ts.reg_addr(9);  ts.reg_write(0x0F);   // ch B vol 15
+        ts.reg_addr(10); ts.reg_write(0x0F);   // ch C vol 15
+        settle(ts);
+        const uint16_t l_off = ts.pcm_left();
+        const uint16_t r_off = ts.pcm_right();
+
+        ts.reg_addr(0xFF);      // PSG0 pan = 11, select PSG0
+        settle(ts);
+        const uint16_t l_on = ts.pcm_left();
+        const uint16_t r_on = ts.pcm_right();
+
+        check("TS-40",
+              "pan \"11\" opens both pan gates: L and R both carry the PSG "
+              "(and pan \"00\" had silenced both)",
+              l_off == 0 && r_off == 0 && l_on > 0 && r_on > 0,
+              fmt("pan00 L=%u R=%u -> pan11 L=%u R=%u "
+                  "VHDL turbosound.vhd:129-134,323,327",
+                  l_off, r_off, l_on, r_on));
+    }
 
     // TS-41 - pan=10 L only.
     // All channels active so R_sum = B + C > 0 before gating; pan=10
@@ -2471,14 +2777,27 @@ static void g_dac() {
                   dac.pcm_left(), dac.pcm_right()));
     }
 
-    // WONT SD-09 — G31: per-clock if/elsif write priority between port-I/O
-    // and NextREG mirror writes is a clocked-process pipeline ordering
-    // artefact of the VHDL core. The standalone Dac class has frame-level
-    // last-write-wins semantics; modelling per-clock priority would
-    // require a time-ordered event queue refactor on Dac. Per
-    // feedback_wont_taxonomy.md: explicit decision NOT to implement until
-    // the larger refactor lands. Revisit trigger: scanline-level audio
-    // refactor lands (G31 plan entry literally states this dependency).
+    // SD-09 — RETIRED 2026-09-24 (GH #201), was the G31 WONT.
+    //
+    // soundrive.vhd:80-84 is an if/elsif inside ONE clocked process:
+    //     if chA_wr_i = '1' then chA <= cpu_d_i;
+    //     elsif nr_mono_we_i = '1' then chA <= nr_audio_dat_i;
+    // so the row only has content when both strobes are high on the SAME
+    // 28 MHz edge. A CPU cycle drives exactly one `iowr`, so the CPU cannot
+    // produce both: the only hardware source of a genuine collision is the
+    // Copper writing NR 0x2D in the same cycle as a CPU OUT to a Soundrive
+    // port. jnext serialises CPU and Copper NextREG writes — they do not
+    // share a bus — and modelling their per-cycle arbitration is the
+    // project-level WONT recorded in doc/design/EMULATOR-DESIGN-PLAN.md
+    // Phase 11 ("Model cycle-accurate CPU/Copper NR write priority",
+    // resolved as option (a): priority stays a test-harness convention,
+    // documented as a known modelling limitation). The same decision is why
+    // Copper ARB-01/02/03 order their stimulus by hand.
+    //
+    // This row is therefore a scope decision, not a coverage gap: the
+    // simultaneity it needs cannot arise in jnext's execution model at all.
+    // SD-02..SD-08 cover both write paths individually. Struck in
+    // AUDIO-TEST-PLAN-DESIGN.md §3.1; no check() row exists.
 
     // RE-HOME: SD-10 — Soundrive mode 1 port decode moved to
     //   test/audio/audio_port_dispatch_test.cpp (F-skip: 0x5F unwired).
@@ -2742,15 +3061,25 @@ static void g_mixer() {
                   "audio_mixer.vhd:89-90", s[0], s[1]));
     }
 
-    // WONT MX-30 — G29: Pi I2S real audio emulation. Today's I2s class is
-    // a single-latch stub; faithful emulation needs an --i2s-input file.wav
-    // driver, 48 kHz host capture, and a continuous 10-bit synchronous
-    // sample bus over time (VHDL audio_mixer.vhd:43-52 expects this).
-    // This is a v1.x feature, not a bug — no Z80 software on the platform
-    // exercises the Pi I2S path. Per feedback_wont_taxonomy.md: explicit
-    // decision NOT to implement now. Distinct from G73 (NR/port wiring of
-    // I2S into the Mixer gate, which is closed). Revisit trigger:
-    // --i2s-input feature is added.
+    // MX-30 — RETIRED 2026-09-24 (GH #201), was the G29 WONT.
+    //
+    // The row asks for a Pi I2S SOURCE delivering a continuous 10-bit
+    // stream. jnext models no such source and, by project scope decision,
+    // never will:
+    //   * doc/design/EMULATOR-DESIGN-PLAN.md §3.1 lists `audio/i2s*.vhd`
+    //     with scope "no" — "I2S; SDL audio queue used instead".
+    //   * the same plan's Phase 5 records Pi GPIO (NR 0x90-0xA9) as
+    //     "intentionally stubbed (cached only); no emulation effect".
+    //   * src/audio/i2s.h:10-13 states the class is "a pure latched
+    //     sample-pair register — no real I2S wire / clocking / protocol
+    //     emulation", and nothing in src/ ever calls I2s::set_sample().
+    // There is no Raspberry Pi in the emulated machine to be the producer,
+    // so this is an absent SUBSYSTEM, not an untested behaviour.
+    //
+    // What jnext does model — the mixer's consumption of the 10-bit input
+    // and its NR 0xA2 gating — stays covered by MX-06 (zero-extension into
+    // the 13-bit sum) and MX-07 (the offset-binary midpoint, GH #116).
+    // Struck in AUDIO-TEST-PLAN-DESIGN.md §5.1; no check() row exists.
 
     // MX-10 - silence: pcm_L = 0.
     {
@@ -2840,15 +3169,104 @@ static void g_mixer() {
               fmt("L=%d VHDL audio_mixer.vhd:99", s[0]));
     }
 
-    // A: MX-15: non-saturation — confirmed by MX-05 (full-scale sum = 5998,
-    // fits within 13-bit unsigned range 0..8191) and MX-14 (EAR+MIC+DAC
-    // subset exact arithmetic). A saturation bug would change those exact
-    // values.
+    // MX-15 — the mixer does not saturate at full scale.
+    //
+    // audio_mixer.vhd:99-100 is a plain 13-bit addition with no clamp:
+    //     pcm_L <= ear + mic + ay_L + dac_L + i2s_L;   -- 0 - 5998
+    // and the VHDL's own comment gives the maximum. Every term at its
+    // documented ceiling (audio_mixer.vhd:80-89) sums to
+    //     512 + 128 + 2295 + 2040 + 1023 = 5998
+    // which still fits the 13-bit signal (0..8191), so no term can be lost.
+    // MX-05 and MX-14 assert sub-maximal sums; only driving ALL FIVE terms
+    // to their ceiling at once tests the headroom claim, and it is the only
+    // row that does. Reaching ay = 2295 needs all three PSGs in mono mode
+    // (L = A+B+C = 765 each, turbosound.vhd:186-205).
+    //
+    // Observed through the suite's usual signed transform: the resting DC
+    // (DAC 1024 + I2S 512 = 1536) is subtracted and the result scaled x4,
+    // so the expected sample is 4 * (5998 - 1536) = 17848. A saturating
+    // mixer would report less.
+    {
+        Beeper bp; TurboSound ts; Dac dac; Mixer mx; I2s i2s;
+        mx.set_i2s_source(&i2s);
+        bp.set_ear(true);                      // 512  (audio_mixer.vhd:63,80)
+        bp.set_mic(true);                      // 128  (:64,81)
+        dac.write_channel(0, 0xFF);            // dac_L = 0x1FE << 2 = 2040
+        dac.write_channel(1, 0xFF);            //       (:86)
+        dac.write_channel(2, 0xFF);            // same for dac_R (:87)
+        dac.write_channel(3, 0xFF);
+        i2s.set_nr_a2_ctl(0xC0);               // enL=1 enR=1 (zxnext.vhd:2358)
+        i2s.set_sample(1023, 1023);            // i2s = 1023 (:89-90)
+        ts.set_enabled(true);
+        ts.set_ay_mode(true);
+        ts.set_mono_mode(0x07);                // all three PSGs mono
+        for (uint8_t sel : {0xFFu, 0xFEu, 0xFDu}) {
+            ts.reg_addr(sel);                  // select + pan "11"
+            ts.reg_addr(7);  ts.reg_write(0x3F);
+            ts.reg_addr(8);  ts.reg_write(0x0F);
+            ts.reg_addr(9);  ts.reg_write(0x0F);
+            ts.reg_addr(10); ts.reg_write(0x0F);
+        }
+        settle(ts, 64);
+        const uint16_t ay_l = ts.pcm_left();
+        const uint16_t ay_r = ts.pcm_right();
+        mx.generate_sample(bp, ts, dac);
+        int16_t s[2];
+        mx.read_samples(s, 1);
+        check("MX-15",
+              "full-scale mix does not saturate: 512+128+2295+2040+1023 "
+              "= 5998 arrives intact on both channels",
+              ay_l == 2295 && ay_r == 2295 && s[0] == 17848 && s[1] == 17848,
+              fmt("ay_L=%u ay_R=%u L=%d R=%d (want 2295/2295/17848/17848) "
+                  "VHDL audio_mixer.vhd:63-64,80-89,99-100",
+                  ay_l, ay_r, s[0], s[1]));
+    }
     // RE-HOME: MX-20 — exc_i silencing of EAR/MIC (zxnext.vhd:6504).
     // Re-homed to test/audio/audio_nextreg_test.cpp (2026-04-24 Wave C).
-    // A: MX-21: exc_i=0 default — covered implicitly by MX-01 (EAR active)
-    // and MX-02 (MIC active), both of which execute under exc_i=0 by
-    // default and would fail if the default were non-zero.
+    // MX-21 — with exc_i = 0 the EAR and MIC muxes pass their full volumes.
+    //
+    // audio_mixer.vhd:80-81:
+    //     ear <= ear_volume when (ear_i = '1' and exc_i = '0') else 0;
+    //     mic <= mic_volume when (mic_i = '1' and exc_i = '0') else 0;
+    // These are COMBINATIONAL muxes, so exc_i returning to '0' must reopen
+    // them on the spot. MX-01/MX-02 assert the two volumes on a freshly
+    // constructed Mixer, i.e. under the power-on default — they cannot tell
+    // a combinational gate from a latched power-on value. MX-20 and MX-23
+    // (audio_nextreg_test) cover the exc_i = 1 side and a single-source
+    // delta. This row drives exc_i 1 -> 0 on one Mixer and asserts BOTH
+    // terms come back with their exact weights, together and separately:
+    //     EAR only  -> 512 * 4 = 2048
+    //     MIC only  -> 128 * 4 =  512
+    //     EAR + MIC -> 640 * 4 = 2560
+    {
+        Beeper bp; TurboSound ts; Dac dac; Mixer mx;
+        auto sample = [&](bool ear, bool mic) {
+            bp.set_ear(ear);
+            bp.set_mic(mic);
+            mx.generate_sample(bp, ts, dac);
+            int16_t s[2] = {0, 0};
+            mx.read_samples(s, 1);
+            return static_cast<int>(s[0]);
+        };
+        // Gate shut first, so the reopening is what is measured.
+        mx.set_exc_i(true);
+        const int shut = sample(true, true);
+        mx.set_exc_i(false);
+        const int base     = sample(false, false);
+        const int ear_only = sample(true,  false);
+        const int mic_only = sample(false, true);
+        const int both     = sample(true,  true);
+        check("MX-21",
+              "exc_i=0 reopens both beeper muxes combinationally: EAR "
+              "contributes 512, MIC 128, together 640 (x4 into int16)",
+              shut == base &&
+              ear_only - base == 512 * 4 &&
+              mic_only - base == 128 * 4 &&
+              both     - base == 640 * 4,
+              fmt("shut=%d base=%d ear=%d mic=%d both=%d "
+                  "VHDL audio_mixer.vhd:63-64,80-81",
+                  shut, base, ear_only, mic_only, both));
+    }
     // RE-HOME: MX-22 — exc_i derivation (zxnext.vhd:6504). Re-homed to
     // test/audio/audio_nextreg_test.cpp (2026-04-24 Wave C).
 
