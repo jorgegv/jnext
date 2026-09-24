@@ -1,4 +1,6 @@
 #include "peripheral/sd_card.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <cstring>
@@ -1549,4 +1551,172 @@ void SdCardDevice::queue_r1(uint8_t r1) {
     resp_buf_ = { kIdle, kIdle, r1 };
     resp_idx_ = 0;
     state_ = State::RESPONDING;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// State serialisation — GH #27 stage S6, design §10.2 P1 (defect D1)
+// ─────────────────────────────────────────────────────────────────────────
+
+namespace {
+
+// §6.2 — an enum travels as a NAME in JSON, so an FSM renumbering is a visible
+// name change in a schema diff instead of a silent re-interpretation of old
+// files. Ordinals are `SdCardDevice::State`'s declaration order; a hole would
+// be spelled `nullptr` and refused in both directions.
+const char* const kSdStateNames[] = {
+    "idle", "receiving_cmd", "responding", "sending_data",
+    "receiving_data", "write_resp", "write_busy",
+};
+const jnext::save::EnumNames kSdStateEnum{
+    kSdStateNames, sizeof(kSdStateNames) / sizeof(kSdStateNames[0])};
+
+}  // namespace
+
+void SdCardDevice::describe_state(jnext::save::StateDesc& d)
+{
+    // ── DECLARED DEFAULTS (§12.2) ────────────────────────────────────────
+    //
+    // The scalars below are the FIRST declarations in the tree to carry one,
+    // and they carry one for a reason rather than as a habit: `state/
+    // sdcard.json` is a new member whose field set has already grown twice
+    // (GH #94 added `host_supports_sdhc_` and `block_len_`), so a reader
+    // meeting a PARTIAL sdcard object is the realistic case, and the right
+    // answer to a missing key is a coherent power-on card — not a refusal
+    // and not a half-initialised FSM.
+    //
+    // Every default below is the value `SdCardDevice::reset()` establishes,
+    // and row S6-SD-DEFAULTS-01 ASSERTS that field by field: §12.2's gate
+    // exists because the default is a SECOND COPY of a power-on value with
+    // nothing comparing it to the first, which is the shape of GH #246. The
+    // gate runs here with no exemption — `reset()` is non-destructive and
+    // value-establishing for every one of these.
+    //
+    // The AGGREGATES (`cmd_buf`, `resp_buf`, `data_block`) deliberately have
+    // none: §12.2 marks a key required when no honest default exists, and a
+    // missing command buffer or data block is "this file is not a snapshot",
+    // not "take the power-on value".
+
+    uint8_t st = static_cast<uint8_t>(state_);
+    d.enum8("state", st, kSdStateEnum, static_cast<uint8_t>(State::IDLE));
+    state_ = static_cast<State>(st);
+
+    d.bytes("cmd_buf", cmd_buf_, sizeof(cmd_buf_));
+
+    // `cmd_idx_` is an `int` indexing a 6-byte array; it travels as the u8 it
+    // is, marshalled through a local. The read direction clamps, because the
+    // value has come from a file by then and an index past `cmd_buf_` would
+    // be a write out of bounds at the next command byte.
+    uint8_t cmd_idx = static_cast<uint8_t>(cmd_idx_);
+    d.u8("cmd_idx", cmd_idx, 0);
+    if (cmd_idx > sizeof(cmd_buf_)) cmd_idx = sizeof(cmd_buf_);
+    cmd_idx_ = static_cast<int>(cmd_idx);
+
+    // `resp_buf_` is the one variable-length member, and it is declared at a
+    // FIXED capacity: a count plus `kRespBufCapacity` bytes, padded. The
+    // count is a description, never a size — the staging array is sized by
+    // the declaration and the loop below is bounded by it, so a file
+    // claiming 4 billion response bytes resizes nothing.
+    {
+        // Marshalled UNCONDITIONALLY in both directions — the idiom
+        // `Keyboard::describe_state` uses for `auto_queue_`, and for the same
+        // reason: a declaration must not branch on `d.writing()`, or the
+        // schema walk and the two data walks stop being provably the same
+        // field list. On the write path the rebuild at the foot stores back
+        // exactly what it just took, which is `state_desc.h`'s write-back
+        // shape (c) and is pinned by row S6-SD-SAVE-PURE.
+        if (resp_buf_.size() > kRespBufCapacity) {
+            // Unreachable for every response this class builds — the longest
+            // is CMD9/CMD10's 23 bytes — but a future longer one must be a
+            // LOUD failure and not a silently truncated stream.
+            d.fail("sdcard.resp_buf longer than the declared capacity");
+        }
+        uint8_t staging[kRespBufCapacity] = {};
+        std::size_t live = resp_buf_.size();
+        if (live > kRespBufCapacity) live = kRespBufCapacity;
+        for (std::size_t i = 0; i < live; ++i) staging[i] = resp_buf_[i];
+        uint8_t resp_n = static_cast<uint8_t>(live);
+
+        d.u8("resp_count", resp_n, 0);
+        d.bytes("resp_buf", staging, kRespBufCapacity);
+
+        // The count is CHECKED, never obeyed. `staging` is sized by the
+        // DECLARATION and the stream always carries exactly
+        // `kRespBufCapacity` bytes whatever the count claims, so a forged
+        // count can neither desync the stream nor size a write — it only
+        // decides how many of the declared bytes become live.
+        std::size_t restored = resp_n;
+        if (restored > kRespBufCapacity) restored = kRespBufCapacity;
+        resp_buf_.assign(staging, staging + restored);
+    }
+
+    uint16_t resp_idx = static_cast<uint16_t>(resp_idx_);
+    d.u16("resp_idx", resp_idx, 0);
+    resp_idx_ = resp_idx;
+
+    // The block in flight. 512 bytes, so §6.1 case 3 would make it a blob on
+    // a peripheral store >= 8 KB — it is well under that, so it is `bytes`
+    // and travels as a hex string in the JSON, like the sprite attributes.
+    d.bytes("data_block", data_block_, sizeof(data_block_));
+
+    uint16_t data_idx = static_cast<uint16_t>(data_idx_);
+    d.u16("data_idx", data_idx, 0);
+    if (data_idx > sizeof(data_block_)) data_idx = sizeof(data_block_);
+    data_idx_ = static_cast<int>(data_idx);
+
+    uint8_t data_crc_count = static_cast<uint8_t>(data_crc_count_);
+    d.u8("data_crc_count", data_crc_count, 0);
+    data_crc_count_ = static_cast<int>(data_crc_count);
+
+    // NO DECLARED DEFAULT, and the §12.2 gate is what found that: `reset()`
+    // does not clear `data_crc_` — it is recomputed by `load_read_block()`
+    // whenever a block is primed, so there is no power-on value for it to
+    // establish. Declaring 0 here would have been a second copy of a value
+    // the first copy does not hold, which is exactly the drift the gate
+    // exists to catch. It is REQUIRED instead, which is also the right
+    // coupling: it is the CRC of `data_block`, and that aggregate is
+    // required too.
+    d.u16("data_crc", data_crc_);
+    d.boolean("data_token_received", data_token_received_, false);
+
+    d.boolean("initialized", initialized_, false);
+    d.boolean("app_cmd", app_cmd_, false);
+    d.boolean("host_supports_sdhc", host_supports_sdhc_, false);
+    d.u32("block_len", block_len_, kBlockLen);
+
+    d.boolean("multi_block", multi_block_, false);
+    d.u64("multi_block_addr", multi_block_addr_, 0);
+
+    d.boolean("pending_write_after_r1", pending_write_after_r1_, false);
+    d.boolean("write_busy_pending", write_busy_pending_, false);
+    d.u8("busy_remaining", busy_remaining_, 0);
+    d.u8("persistent_response_byte", persistent_response_byte_, 0xFF);
+
+    // The read-overlay WINDOW, not the overlay itself (§10.2 P1 asks for the
+    // window). The `ReadOverlay` is a host-side `std::function` installed by
+    // the extended-NEX file bridge and cannot travel; `is_overlay_sector()`
+    // tests it first, so a restored window with no reader installed is inert
+    // rather than wrong — the card simply serves the image, which is what a
+    // machine with no bridge has.
+    d.u32("overlay_first_sector", overlay_first_sector_, 0);
+    d.u32("overlay_sector_count", overlay_sector_count_, 0);
+}
+
+void SdCardDevice::save_state(StateWriter& w) const
+{
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
+}
+
+void SdCardDevice::load_state(StateReader& r)
+{
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
+}
+
+bool SdCardDevice::transfer_in_flight() const
+{
+    // IDLE with nothing queued is the only state in which the card owes the
+    // host nothing. `multi_block_` is checked independently because an open
+    // CMD18 stream survives a CS deassert (row CMD18-05) and is therefore in
+    // flight while `state_` is back at IDLE.
+    return multi_block_ || state_ != State::IDLE ||
+           resp_idx_ < resp_buf_.size();
 }

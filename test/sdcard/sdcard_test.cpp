@@ -39,6 +39,8 @@
 
 #include "peripheral/sd_card.h"
 #include "core/log.h"
+#include "core/saveable.h"
+#include "save/state_desc_defaults.h"
 
 #include <spdlog/sinks/ringbuffer_sink.h>
 
@@ -3459,6 +3461,229 @@ static void test_sdsc_csd() {
     std::remove(big.c_str());
 }
 
+
+// ─── GH #27 S6 — the SD FSM travels (design §10.2 P1, defect D1) ─────
+//
+// Until S6 this class had NO save_state at all, and its own header said so.
+// A rewind or snapshot taken while a loader was streaming a CMD18 multi-block
+// read restored a card that was no longer streaming, so the replayed frames
+// received a fresh IDLE card's framing where sector bytes belonged. On a Next
+// that is most loaders.
+//
+// The oracle is a SECOND CARD driven identically and never interrupted: the
+// bytes the restored card emits for the rest of the stream must be the bytes
+// the uninterrupted one emits. Comparing against a hand-written expectation
+// would only pin what this test's author believed the stream to be.
+void test_s6_state_roundtrip() {
+    std::printf("\n--- GH #27 S6: the SD FSM round-trips (P1 / D1) ---\n");
+
+    const std::string img = make_image(16);
+
+    // ── S6-SD-CMD18-MID: interrupted mid-BLOCK, mid-STREAM ──────────────
+    //
+    // The save is taken 200 bytes into the SECOND sector of a CMD18 stream,
+    // which is the state the header comment enumerated and nothing could
+    // restore: `multi_block_` + `multi_block_addr_` (which sector comes
+    // next), `state_` + `data_block_` + `data_idx_` (where inside this one),
+    // and `resp_buf_`/`resp_idx_` (the token framing still owed).
+    {
+        SdCardDevice live, oracle;
+        live.mount(img);
+        oracle.mount(img);
+        init_card(live);
+        init_card(oracle);
+
+        // Both cards start the same CMD18 at sector 3 and are clocked
+        // identically up to the save point.
+        (void)send_cmd_r1(live, 18, 3);
+        (void)send_cmd_r1(oracle, 18, 3);
+        for (auto* c : {&live, &oracle}) {
+            uint8_t blk[512];
+            if (!wait_token(*c)) { std::printf("  (token not found)\n"); }
+            read_block(*c, blk);          // sector 3 complete
+            (void)wait_token(*c);         // 0xFE of sector 4
+            for (int i = 0; i < 200; ++i) (void)spi_read(*c);
+        }
+
+        const bool in_flight = live.transfer_in_flight();
+
+        StateWriter w;
+        live.save_state(w);
+        std::vector<uint8_t> buf(w.position());
+        StateWriter w2(buf.data(), buf.size());
+        live.save_state(w2);
+
+        // Destroy the FSM as thoroughly as the API allows, then restore.
+        // `reset()` is what a fresh process has, and it is exactly what the
+        // pre-S6 rewind left behind.
+        live.reset();
+        StateReader r(buf.data(), buf.size());
+        live.load_state(r);
+
+        // The rest of the stream, from both cards, byte for byte: the
+        // remaining 312 data bytes + 2 CRC of sector 4, then two whole
+        // further sectors with their inter-block tokens.
+        std::vector<uint8_t> got, want;
+        for (int i = 0; i < 312 + 2 + 2 * (1 + 512 + 2); ++i) {
+            got.push_back(spi_read(live));
+            want.push_back(spi_read(oracle));
+        }
+
+        std::string detail;
+        if (got != want) {
+            for (size_t i = 0; i < got.size(); ++i) {
+                if (got[i] != want[i]) {
+                    detail = "first divergence at offset " + std::to_string(i) +
+                             ": got 0x" + std::to_string(got[i]) + " want 0x" +
+                             std::to_string(want[i]);
+                    break;
+                }
+            }
+        }
+        check("S6-SD-CMD18-MID",
+              "a save taken 200 bytes into the second sector of a CMD18 "
+              "stream restores a card that is still streaming: the rest of "
+              "the stream is byte-identical to an uninterrupted card",
+              got == want && !got.empty(), detail);
+
+        // The same instant is what §11.3's last row calls mid-transfer, and
+        // `jns::ReaderEnv::sd_transfer_in_flight` has had no producer since
+        // S1. This is it.
+        check("S6-SD-INFLIGHT-01",
+              "a card part-way through a CMD18 block reports the transfer "
+              "in flight (the input §11.3's Tier-2 refusal rule needs)",
+              in_flight);
+    }
+
+    // ── S6-SD-INFLIGHT-02: and an idle card does not ─────────────────────
+    {
+        SdCardDevice sd;
+        sd.mount(img);
+        init_card(sd);
+        uint8_t blk[512];
+        (void)send_cmd_r1(sd, 17, 2);
+        (void)wait_token(sd);
+        read_block(sd, blk);
+        // The SENDING_DATA -> IDLE transition happens on the send() AFTER
+        // the last CRC byte (sd_card.cpp's `case State::SENDING_DATA`), so
+        // the card is still legitimately in flight at the CRC and settles on
+        // the next clock the host gives it. Clock it, as a host does.
+        (void)spi_read(sd);
+        check("S6-SD-INFLIGHT-02",
+              "a card that has finished a CMD17 block and been clocked once "
+              "more owes the host nothing and reports no transfer in flight",
+              !sd.transfer_in_flight());
+    }
+
+    // ── S6-SD-ADDRESSING: the capacity class survives the round trip ─────
+    //
+    // GH #94's two fields decide how EVERY subsequent address is read. A
+    // restore that lost them would serve sector N*512 for sector N with no
+    // error anywhere, which is the silent-corruption failure D1 names.
+    {
+        SdCardDevice sd;
+        sd.mount(img);
+        init_card_sdsc(sd);              // HCS = 0 -> byte addressing
+        (void)send_cmd_r1(sd, 16, 512);
+
+        StateWriter m;
+        sd.save_state(m);
+        std::vector<uint8_t> buf(m.position());
+        StateWriter w(buf.data(), buf.size());
+        sd.save_state(w);
+        sd.reset();                      // wipes sdhc + block_len + init
+        StateReader r(buf.data(), buf.size());
+        sd.load_state(r);
+
+        // A byte-addressed card reads sector 2 at BYTE address 1024. If the
+        // restore had lost `host_supports_sdhc_`, the same argument would be
+        // read as block 1024 and the read would fail past end-of-image.
+        uint8_t blk[512] = {};
+        (void)send_cmd_r1(sd, 17, 2 * 512);
+        const bool tok = wait_token(sd);
+        read_block(sd, blk);
+        check("S6-SD-ADDRESSING",
+              "the negotiated capacity class (host_supports_sdhc_ + "
+              "block_len_) survives save/restore: a byte-addressed card "
+              "still reads sector 2 from byte address 1024",
+              tok && blk[0] == 2 && blk[1] == 0 && blk[2] == 0);
+    }
+
+    // ── S6-SD-SAVE-PURE: the write path does not disturb the card ───────
+    //
+    // `describe_state` marshals `resp_buf_` through a staging array and
+    // rebuilds the vector from it on BOTH paths (the declaration must not
+    // branch on `d.writing()`). That makes the write direction a container
+    // REBUILD, which is `state_desc.h`'s write-back shape (c) — the one that
+    // rests on an invariant rather than on construction, and therefore the
+    // one that needs a row. Save twice and require the two streams to be
+    // byte-identical AND the queued response to have survived intact.
+    {
+        SdCardDevice sd, oracle;
+        sd.mount(img);
+        oracle.mount(img);
+        init_card(sd);
+        init_card(oracle);
+        (void)send_cmd_r1(sd, 9, 0);      // CMD9: the LONGEST response, 23 B
+        (void)send_cmd_r1(oracle, 9, 0);
+
+        StateWriter m;
+        sd.save_state(m);
+        std::vector<uint8_t> a(m.position()), b(m.position());
+        StateWriter wa(a.data(), a.size());
+        sd.save_state(wa);
+        StateWriter wb(b.data(), b.size());
+        sd.save_state(wb);
+
+        // The oracle was never saved. Both must now emit the same tail.
+        std::vector<uint8_t> got, want;
+        for (int i = 0; i < 24; ++i) {
+            got.push_back(spi_read(sd));
+            want.push_back(spi_read(oracle));
+        }
+        check("S6-SD-SAVE-PURE",
+              "saving twice emits byte-identical streams and leaves the "
+              "queued CMD9 response advancing exactly as an unsaved card's "
+              "does: the staging round-trip on the write path is a no-op",
+              a == b && !a.empty() && got == want);
+    }
+
+    // ── S6-SD-DEFAULTS-01: §12.2's gate ─────────────────────────────────
+    //
+    // Every declared default in `describe_state` is a SECOND COPY of a
+    // power-on value that also lives in `reset()`, and §12.2 requires the
+    // two to be compared or the copy silently keeps a pre-audit value
+    // (GH #246 in miniature). This is that comparison, field by field.
+    {
+        SdCardDevice sd;
+        sd.mount(img);
+        init_card(sd);
+        (void)send_cmd_r1(sd, 18, 1);     // leave the FSM far from power-on
+        sd.reset();
+
+        jnext::save::DefaultCheckDesc d;
+        sd.describe_state(d);
+
+        std::string detail;
+        for (const auto& m : d.mismatches())
+            detail += m.field + " declared=" + m.declared + " reset=" +
+                      m.actual + " ";
+        check("S6-SD-DEFAULTS-01",
+              "every declared default equals the value reset() leaves, per "
+              "field (§12.2's gate on the second copy of a power-on value)",
+              d.mismatches().empty(), detail);
+        check("S6-SD-DEFAULTS-02",
+              "…and the gate actually saw the fields, so a pass cannot mean "
+              "it saw none: 19 scalars declare a default and exactly one "
+              "(data_crc, which reset() does not establish) does not",
+              d.defaulted() == 19 && d.undefaulted() == 1,
+              "defaulted=" + std::to_string(d.defaulted()) +
+                  " undefaulted=" + std::to_string(d.undefaulted()));
+    }
+
+    std::remove(img.c_str());
+}
+
 int main() {
     std::printf("SD card compliance tests\n");
     std::printf("====================================\n\n");
@@ -3503,6 +3728,9 @@ int main() {
     // images so they don't disturb the shared `sd` and `img` above.
     test_boot_sd_01();
     test_boot_sd_02();
+
+    // GH #27 S6 — the SD FSM travels in a snapshot (design §10.2 P1).
+    test_s6_state_roundtrip();
     test_sd_15_mount_full_reset();   // 24a1bc4 (pass-5)
     test_sd_21_cmd24_past_eof();     // V12-DIVMMC-02 + V13-DIVMMC-01 (pass-13 verify-audit)
     test_sd_22_cmd8_r7_cmdver(sd);   // V12-DIVMMC-03 (pass-12 reviewer-promoted)

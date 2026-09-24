@@ -21,6 +21,7 @@
 #include "peripheral/dma.h"
 #include "peripheral/divmmc.h"
 #include "peripheral/multiface.h"
+#include "peripheral/sd_card.h"
 #include "core/warm_start_cache.h"
 #include "input/md6_connector_x2.h"
 #include "input/membrane_stick.h"
@@ -2696,6 +2697,7 @@ static int test_s5_descriptor_layout()
             "bool mode_p3 1",
             "bool mode_128 1",
             "bool mode_48 1",
+            "u8 mf_type 1",
             "blob ram 8192",
         };
         s3::RecordDesc rec;
@@ -2707,7 +2709,7 @@ static int test_s5_descriptor_layout()
         check("S5-DECL-MULTIFACE", d.empty(),
               "the declaration walks exactly the fields the golden's block "
               "carries, in that order");
-        check("S5-WIDTH-MULTIFACE", rec.width() == 8200u,
+        check("S5-WIDTH-MULTIFACE", rec.width() == 8201u,
               "the declaration is exactly as wide as the block the "
               "pre-migration golden's sentinel map measures");
     }
@@ -4315,10 +4317,10 @@ static int test_s5b_duplicated_ram_removed()
     // backing, so that array IS the store and still travels (§4.3(2)).
     {
         struct { MachineType type; const char* name; size_t want; } cases[] = {
-            { MachineType::ZXN_ISSUE2, "next",   2153701 },
-            { MachineType::ZX48K,      "48k",    2161893 },
-            { MachineType::ZX128K,     "128k",   2161893 },
-            { MachineType::ZX_PLUS3,   "plus3",  2161893 },
+            { MachineType::ZXN_ISSUE2, "next",   2154295 },
+            { MachineType::ZX48K,      "48k",    2162487 },
+            { MachineType::ZX128K,     "128k",   2162487 },
+            { MachineType::ZX_PLUS3,   "plus3",  2162487 },
         };
         bool all_ok = true;
         std::string detail;
@@ -4338,11 +4340,15 @@ static int test_s5b_duplicated_ram_removed()
         }
         if (!all_ok) fprintf(stderr, "  JNSX-S5B-LENGTHS: %s\n", detail.c_str());
         check("JNSX-S5B-LENGTHS", all_ok,
-              "the re-baselined stream is 2 153 701 bytes on the Next and "
-              "2 161 893 on 48K/128K/+3 — the one deliberate change to the "
-              "byte stream is a number in a test rather than a fact in a "
-              "commit message, and the machine-dependence is exactly the "
-              "Multiface array and nothing else");
+              "the stream is 2 154 295 bytes on the Next and 2 162 487 on "
+              "48K/128K/+3 — every deliberate change to the byte stream is a "
+              "number in a test rather than a fact in a commit message, and "
+              "the machine-dependence is exactly the Multiface array and "
+              "nothing else. S5b re-baselined it to 2 153 701 / 2 161 893 by "
+              "removing the duplicated RAM; S6 adds 594: mf_type (1 byte, "
+              "§10.2 P13) and the SD card's SPI FSM (589 + its 4-byte "
+              "sentinel, §10.2 P1). Both deltas are machine-independent, so "
+              "the 8 192-byte gap between the two numbers is unchanged");
     }
 
     // The DivMMC block, either side of the machine-level boundary. 17 bytes
@@ -4435,15 +4441,16 @@ static int test_s5b_duplicated_ram_removed()
         bare.save_state(bw);
 
         check("S5B-MF-NEXT-ABSENT",
-              nw.position() == 8 && !declares_ram,
+              nw.position() == 9 && !declares_ram,
               "on the Next the Multiface RAM member is ABSENT, not "
               "zero-filled: the declaration drops it and the block is 8 "
-              "bytes of flip-flops, because the live 8 KB is Ram page 0x0B "
-              "and the private array it used to write was dead zeros");
+              "bytes of flip-flops plus S6's mf_type byte, because the live "
+              "8 KB is Ram page 0x0B and the private array it used to write "
+              "was dead zeros");
         check("S5B-MF-STANDALONE-PRESENT",
-              kw.position() == 8200 && bw.position() == 8200,
+              kw.position() == 8201 && bw.position() == 8201,
               "…and on 48K/128K/+3, and in a standalone round-trip, it is "
-              "still all 8 200 bytes, because with no backing the private "
+              "still all 8 201 bytes, because with no backing the private "
               "array is the real store (§4.3(2)) — the one place the stream's "
               "width depends on the machine type");
     }
@@ -4488,11 +4495,154 @@ static int test_s5b_duplicated_ram_removed()
     // only when nothing else would catch the change is one nobody can reason
     // about.
     check("S5B-WARMSTART-VERSION",
-          warm_start::kFormatVersion == 2,
-          "the warm-start state-stream format version is 2, because S5b "
-          "changed the shape of Emulator::save_state and a cache recorded by "
-          "an older jnext would otherwise be read field-for-field wrong");
+          warm_start::kFormatVersion == 3,
+          "the warm-start state-stream format version is 3: S5b changed the "
+          "shape of Emulator::save_state and S6 changed it again (mf_type + "
+          "the SD FSM), and a cache recorded by an older jnext would "
+          "otherwise be read field-for-field wrong");
 
+    return 0;
+}
+
+
+// =====================================================================
+// Test 24 — GH #27 S6: the gaps (design §10.2 P1, P13)
+// =====================================================================
+//
+// S5b proved the removals; these prove the ADDITIONS, at the level that
+// matters for a user: a whole-machine save and restore.
+static int test_s6_gaps()
+{
+    printf("\n--- Test 24: GH #27 S6 gaps (SD FSM, mf_type) ---\n");
+
+    // A scratch image with per-sector magic, so a block can be identified
+    // from its first bytes alone.
+    char tmpl[] = "/tmp/jnext-rewind-s6-XXXXXX";
+    int fd = mkstemp(tmpl);
+    if (fd < 0) {
+        check("S6-EMU-CMD18-MID", false, "could not create a scratch SD image");
+        return 1;
+    }
+    for (uint32_t sec = 0; sec < 16; ++sec) {
+        unsigned char blk[512] = {};
+        blk[0] = static_cast<unsigned char>(sec);
+        blk[1] = 0xA5;
+        for (int i = 2; i < 512; ++i)
+            blk[i] = static_cast<unsigned char>((sec * 3 + i) & 0xFF);
+        if (write(fd, blk, 512) != 512) { /* checked by the rows below */ }
+    }
+    close(fd);
+    const std::string img = tmpl;
+
+    // ── S6-EMU-CMD18-MID — the stage's own acceptance criterion ─────────
+    //
+    // The SD FSM reaches the file through Emulator::save_state's appended
+    // "sdcard" block, which is what makes the device-level round trip
+    // (sdcard_test S6-SD-CMD18-MID) a property of a SNAPSHOT rather than of
+    // a class nothing serialises. Pre-S6 there was no block at all and this
+    // row's restored card answered 0xFF forever.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        emu.init(cfg);
+        SdCardDevice& sd = emu.sd_card();
+        sd.mount(img);
+
+        auto cmd = [&sd](uint8_t c, uint32_t arg) {
+            sd.receive(static_cast<uint8_t>(0x40 | (c & 0x3F)));
+            sd.receive(static_cast<uint8_t>((arg >> 24) & 0xFF));
+            sd.receive(static_cast<uint8_t>((arg >> 16) & 0xFF));
+            sd.receive(static_cast<uint8_t>((arg >> 8) & 0xFF));
+            sd.receive(static_cast<uint8_t>(arg & 0xFF));
+            sd.receive(0x95);
+            for (int i = 0; i < 16; ++i) if (sd.send() != 0xFF) break;
+        };
+        cmd(0, 0);
+        cmd(8, 0x1AA);
+        cmd(55, 0);
+        cmd(41, 0x40000000);
+        cmd(58, 0);
+        cmd(18, 3);                       // stream from sector 3
+        for (int i = 0; i < 16; ++i) if (sd.send() == 0xFE) break;
+        uint8_t first[512];
+        for (int i = 0; i < 512; ++i) first[i] = sd.send();
+        (void)sd.send(); (void)sd.send();  // CRC
+        for (int i = 0; i < 16; ++i) if (sd.send() == 0xFE) break;
+        uint8_t part[100];
+        for (int i = 0; i < 100; ++i) part[i] = sd.send();
+
+        StateWriter measure;
+        emu.save_state(measure);
+        std::vector<uint8_t> buf(measure.position());
+        StateWriter w(buf.data(), buf.size());
+        emu.save_state(w);
+
+        // Destroy the stream as thoroughly as a fresh process would: the
+        // pre-S6 restore left exactly this.
+        sd.reset();
+
+        StateReader r(buf.data(), buf.size());
+        const bool loaded = emu.load_state(r);
+
+        // The rest of sector 4, then the whole of sector 5's framing.
+        bool tail_ok = true;
+        for (int i = 100; i < 512; ++i) {
+            if (sd.send() != static_cast<uint8_t>((4 * 3 + i) & 0xFF)) {
+                tail_ok = false;
+                break;
+            }
+        }
+        (void)sd.send(); (void)sd.send();  // CRC
+        bool token = false;
+        for (int i = 0; i < 16; ++i) if (sd.send() == 0xFE) { token = true; break; }
+        const uint8_t next0 = sd.send();
+        const uint8_t next1 = sd.send();
+
+        check("S6-EMU-CMD18-MID",
+              loaded && first[0] == 3 && part[0] == static_cast<uint8_t>(4) &&
+                  tail_ok && token && next0 == 5 && next1 == 0xA5 &&
+                  r.position() == buf.size() && !r.out_of_bounds(),
+              "a whole-machine save taken 100 bytes into the second sector "
+              "of a CMD18 stream restores a card that is STILL streaming: "
+              "the rest of that sector arrives, then sector 5's token and "
+              "its magic. Pre-S6 the SD FSM was not in the stream at all "
+              "and the restored card answered 0xFF for ever (design §10.2 "
+              "P1, defect D1)");
+    }
+
+    // ── S6-EMU-MF-TYPE — mf_type survives a whole-machine round trip ────
+    //
+    // multiface_test's S6-MF-TYPE-01 proves the device; this proves it
+    // through `Emulator::save_state`, where the value is what NR 0x0A reads
+    // back to the guest.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        emu.init(cfg);
+        emu.multiface().set_mode(0x02);          // "10": the lossy encoding
+
+        StateWriter measure;
+        emu.save_state(measure);
+        std::vector<uint8_t> buf(measure.position());
+        StateWriter w(buf.data(), buf.size());
+        emu.save_state(w);
+
+        emu.multiface().set_mode(0x00);
+        StateReader r(buf.data(), buf.size());
+        const bool loaded = emu.load_state(r);
+
+        check("S6-EMU-MF-TYPE",
+              loaded && emu.multiface().mf_type() == 0x02 &&
+                  emu.multiface().mode_128(),
+              "NR 0x0A's mf_type \"10\" survives a whole-machine save: the "
+              "pre-S6 rebuild from the three mode booleans returned \"01\", "
+              "so a guest could watch a bit it had written change under a "
+              "save (design §10.2 P13, defect D2)");
+    }
+
+    std::remove(img.c_str());
     return 0;
 }
 
@@ -4523,6 +4673,7 @@ int main()
     test_s5_descriptor_layout();
     test_s5_restore_behaviour();
     test_s5b_duplicated_ram_removed();
+    test_s6_gaps();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
            pass_count + fail_count + (int)g_skipped.size(),

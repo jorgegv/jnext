@@ -74,6 +74,7 @@
 #include "save/state_desc_bin.h"
 #include "save/state_desc_json.h"
 #include "save/state_desc_schema.h"
+#include "save/state_desc_defaults.h"
 #include "save/zip_archive.h"
 
 #include <zlib.h>
@@ -4749,6 +4750,115 @@ int main(int argc, char** argv) {
                   "makes the golden's 33-block framing survive the migration",
                   out == want && out.size() == 8,
                   det("%zu bytes", out.size()));
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // S6 — §12.2's declared-default gate, and the proof it can FAIL
+    // ─────────────────────────────────────────────────────────────────────
+    //
+    // S6 is the first stage to declare a default on a shipped field (the SD
+    // card's, `sd_card.cpp`), and §12.2 requires the second copy of a
+    // power-on value to be COMPARED against the first or it silently keeps a
+    // pre-audit value — the shape of GH #246. `DefaultCheckDesc` is that
+    // comparison, and the rows that matter are the ones proving it is not a
+    // tautology: a gate nobody has watched fail is a gate nobody can trust.
+    {
+        std::printf("\n--- S6: §12.2 declared defaults, and the gate ---\n");
+
+        // The pilot's declared defaults ARE its power-on values, so a pilot
+        // in the state a `reset()` would leave must produce no mismatch.
+        {
+            s2::PilotState p;
+            uint8_t ram[s2::PilotState::kRamBytes]{};
+            p.window = ram;
+            jnext::save::DefaultCheckDesc d;
+            p.describe_state(d);
+            check("S6-DEF-01",
+                  "a subsystem whose fields hold their declared defaults "
+                  "produces no mismatch, and the walk actually visited them "
+                  "(6 defaulted scalars, 3 required)",
+                  d.mismatches().empty() && d.defaulted() == 6 &&
+                      d.undefaulted() == 3,
+                  det("defaulted=%zu undefaulted=%zu mismatches=%zu",
+                      d.defaulted(), d.undefaulted(), d.mismatches().size()));
+        }
+
+        // THE ONE THAT MATTERS. `bank` is declared `0x00`; give the
+        // "post-reset" object 0x0A — the exact drift §12.2 describes, a VHDL
+        // audit correcting `reset()` and leaving the declaration behind — and
+        // require the gate to name the field, both values included.
+        {
+            s2::PilotState p;
+            uint8_t ram[s2::PilotState::kRamBytes]{};
+            p.window = ram;
+            p.bank = 0x0A;
+            jnext::save::DefaultCheckDesc d;
+            p.describe_state(d);
+            const bool named = d.mismatches().size() == 1 &&
+                               d.mismatches()[0].field == "bank" &&
+                               d.mismatches()[0].declared == "0" &&
+                               d.mismatches()[0].actual == "10";
+            check("S6-DEF-02",
+                  "the gate FAILS when a declared default and the value "
+                  "reset() leaves disagree, and NAMES the field with both "
+                  "numbers — G9 is a testable property, not a slogan",
+                  named,
+                  det("%zu mismatch(es)%s", d.mismatches().size(),
+                      d.mismatches().empty()
+                          ? ""
+                          : (" first=" + d.mismatches()[0].field).c_str()));
+        }
+
+        // …in every primitive that carries one, not just `u8`. A gate that
+        // only looked at one type would pass S6-DEF-02 and miss the other
+        // five kinds of drift.
+        {
+            s2::PilotState p;
+            uint8_t ram[s2::PilotState::kRamBytes]{};
+            p.window = ram;
+            p.enabled       = true;   // declared false
+            p.current_line  = 7;      // declared 0
+            p.monotonic     = 9;      // declared 0
+            p.flash_counter = -3;     // declared 0
+            p.mode          = 1;      // declared ordinal 0
+            jnext::save::DefaultCheckDesc d;
+            p.describe_state(d);
+            std::set<std::string> got;
+            for (const auto& m : d.mismatches()) got.insert(m.field);
+            const std::set<std::string> want = {
+                "enabled", "current_line", "monotonic", "flash_counter",
+                "mode"};
+            check("S6-DEF-03",
+                  "the gate covers every scalar primitive that can carry a "
+                  "default — bool, u16, u64, i32 and enum8 — not only the u8 "
+                  "S6-DEF-02 drifts",
+                  got == want, det("%zu mismatch(es)", got.size()));
+        }
+
+        // And the aggregates contribute NOTHING in either direction. §12.2's
+        // three exemptions (NR 0x03 config mode, the NextReg machine type and
+        // the Multiface RAM) are exempt because they declare no default, not
+        // because a checker excludes them — a distinction this row makes
+        // structural: `bytes`/`blob`/`ram_window`/`log`/`fifo` cannot declare
+        // one, so they are neither gated nor silently counted as gated.
+        {
+            s2::PilotState p;
+            uint8_t ram[s2::PilotState::kRamBytes]{};
+            p.window = ram;
+            std::memset(p.priv_ram, 0xEE, sizeof(p.priv_ram));
+            std::memset(p.entry_points, 0xEE, sizeof(p.entry_points));
+            std::memset(ram, 0xEE, sizeof(ram));
+            p.log_count = 3;
+            p.tx.push(0x11);
+            jnext::save::DefaultCheckDesc d;
+            p.describe_state(d);
+            check("S6-DEF-04",
+                  "aggregates carry no default by construction, so a "
+                  "non-power-on blob, byte array, window, log or FIFO is "
+                  "neither a mismatch nor counted as a gated field",
+                  d.mismatches().empty() && d.defaulted() == 6 &&
+                      d.undefaulted() == 3);
         }
     }
 

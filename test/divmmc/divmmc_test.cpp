@@ -1173,6 +1173,55 @@ void group_da() {
     // starts persisting rom3_active_ inside DivMmc::save/load_state
     // can't silently land without re-evaluating the external sync's
     // double-write hazards.
+    // ── GH #27 S6 — the standalone RAM-window round trip ────────────────
+    //
+    // S5b made `ram_window` emit NOTHING at machine level, because the
+    // Emulator's stream already carries those 128 KB as `Ram` page 16. The
+    // STANDALONE path — a `DivMmc` no `Emulator` ever backed — still writes
+    // the bytes inline, because there is no `ram` block to point at. That
+    // branch had its SIZE pinned (`S5B-DIVMMC-STANDALONE`, 131 089 bytes)
+    // and its CONTENT pinned by nothing: a `BinWriteDesc::ram_window` that
+    // wrote 131 072 zeros would satisfy the length row exactly.
+    //
+    // Multiface has the equivalent (`MF-CORE-12` stamps `ram_data()`,
+    // round-trips and compares). This is DivMMC's. The reviewer who found
+    // the gap rated it low risk because `ram_window`'s generic behaviour is
+    // proven by `snapshot_test`'s `JNSD-J07` — and low risk is not covered,
+    // and the risk is not the generic primitive but THIS class's use of it.
+    {
+        DivMmc d_src = make_divmmc();     // never set_ram_backing()
+        for (int i = 0; i < DivMmc::kRamSize; ++i) {
+            // A pattern no zero-fill, no memset and no single-page copy can
+            // reproduce: it varies across the whole 128 KB and differs
+            // between pages at the same offset.
+            d_src.ram_data()[i] =
+                static_cast<uint8_t>((i * 31 + (i >> 13) * 7 + 0xA5) & 0xFF);
+        }
+
+        StateWriter measure;
+        d_src.save_state(measure);
+        std::vector<uint8_t> buf(measure.position(), 0);
+        StateWriter w(buf.data(), buf.size());
+        d_src.save_state(w);
+
+        DivMmc d_dst;                     // fresh, RAM all zero
+        StateReader r(buf.data(), buf.size());
+        d_dst.load_state(r);
+
+        int first_bad = -1;
+        for (int i = 0; i < DivMmc::kRamSize; ++i) {
+            if (d_dst.ram_data()[i] != d_src.ram_data()[i]) { first_bad = i; break; }
+        }
+        check("S6-DIVMMC-RAM-STANDALONE",
+              "a standalone DivMmc's 128 KB window round-trips BY CONTENT, "
+              "not merely by width: every byte of a whole-buffer pattern "
+              "comes back, so the inline branch cannot be a zero-fill that "
+              "still measures 131 089",
+              first_bad < 0 && measure.position() == 131089,
+              first_bad < 0 ? "" :
+                  ("first mismatch at " + std::to_string(first_bad)));
+    }
+
     {
         DivMmc d_src = make_divmmc();
         d_src.set_rom3_active(true);            // simulate ROM3 selected

@@ -406,6 +406,21 @@ void Multiface::describe_state(jnext::save::StateDesc& d)
     d.boolean("mode_p3", mode_p3_);
     d.boolean("mode_128", mode_128_);
     d.boolean("mode_48", mode_48_);
+    // GH #27 S6 — the 2-bit NR 0x0A mf_type, declared DIRECTLY (design
+    // §10.2 P13, defect D2). It used to be RECONSTRUCTED from the three
+    // booleans above by `load_state`, and the reconstruction was knowingly
+    // lossy: `multiface.vhd:105-118` decodes both "01" and "10" to mode_128,
+    // so the rebuild had to pick one and a session running mf_type=10 came
+    // back as 01. That is a G1 violation with no symptom — `mf_type()` is
+    // read back by NR 0x0A, so the guest could see a bit it had written
+    // silently change across a save.
+    //
+    // NO DECLARED DEFAULT, deliberately, and this is §12.2's "required only
+    // when no honest default exists" applied to a real field: the power-on
+    // value depends on the MACHINE (0b00 on a +3, 0b11 on a 48K), so any
+    // constant here would restore the wrong Multiface on two machines out of
+    // three. A `.jns` without this key is refused rather than guessed at.
+    d.u8("mf_type", mf_type_);
     // RAM contents (8 KB), on the machines where the private array is the
     // store. ROM is reloaded fresh from SD each session, so it is not state
     // and is not declared at all.
@@ -430,14 +445,8 @@ void Multiface::load_state(StateReader& r)
     fetch_66_live_ = false;
     mf_port_en_    = false;
 
-    // `mf_type_` is RECONSTRUCTED from the three mode booleans, and the
-    // reconstruction is knowingly LOSSY: mode_128 maps to "01" by convention
-    // (the lower of the two mode_128 codes), so a session running mf_type=10
-    // loses the bit. That is §9.5(6) and §4.3(3), and the fix — serialising
-    // the 2-bit value directly — belongs to S6 (design §17's stage table,
-    // "P13 mf_type_"), NOT here: adding a field would move the stream that
-    // the byte-identity gate exists to freeze.
-    if (mode_p3_)       mf_type_ = 0x00;
-    else if (mode_48_)  mf_type_ = 0x03;
-    else                mf_type_ = 0x01;
+    // `mf_type_` is NOT reconstructed here any more: S6 declares it (see
+    // describe_state), so the value the guest wrote is the value that comes
+    // back. The rebuild this replaced — `mode_p3 ? 00 : mode_48 ? 11 : 01` —
+    // could not express mf_type=10 at all (§4.3(3), §10.2 P13).
 }

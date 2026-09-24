@@ -65,7 +65,13 @@ namespace warm_start {
 /// made because the rule above says to make it: `save_state` changed shape,
 /// and a version that is bumped only when nothing else would catch the change
 /// is a version nobody can reason about.
-constexpr uint32_t kFormatVersion = 2;
+/// **3 — GH #27 S6 (2026-09-24).** `Emulator::save_state` grew two fields it
+/// had never carried: `Multiface::mf_type_` (1 byte, design §10.2 P13) and
+/// the SD card's whole SPI FSM (589 bytes + its sentinel, §10.2 P1). The
+/// stream went 2 153 701 -> 2 154 295 on the Next, so the length check would
+/// again have discarded a pre-S6 cache on its own; the bump is made because
+/// the rule above says to make it whenever `save_state` changes shape.
+constexpr uint32_t kFormatVersion = 3;
 
 /// Everything a cached recording must agree with before it may be restored.
 ///
