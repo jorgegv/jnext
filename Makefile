@@ -147,7 +147,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        docs-devguide docs-devguide-check docs-devguide-diagrams read-devguide \
        docs-schema schema-check snapshot-zip-check \
        bump bump-patch bump-minor bump-major version publish-release \
-       package-src package-rpm package-deb package-flatpak package-win package-macos win-release package-test \
+       package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
        package-contract-test packaging-selftest verify-macos-dmg
@@ -275,7 +275,7 @@ win-release:
 	fi
 	mingw64-cmake -S . -B $(BUILD_DIR_WIN_RELEASE) $(MINGW64_RC) -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
 	$(CMAKE) --build $(BUILD_DIR_WIN_RELEASE) -j$(JOBS)
-	@# Bundle the Qt6/SDL2 runtime DLLs + Qt plugins next to the exe so it runs
+	@# Bundle the Qt6/SDL3 runtime DLLs + Qt plugins next to the exe so it runs
 	@# in place (jnext.exe alone can't start — missing Qt6Core.dll and, even with
 	@# the DLLs, the platforms/qwindows.dll plugin).
 	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_RELEASE)/jnext.exe $(BUILD_DIR_WIN_RELEASE)
@@ -1347,10 +1347,20 @@ package-rpm:
 	cd $(BUILD_DIR_RPM_RELEASE) && cpack -G RPM
 	@printf "$(BOLD)RPM(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_RPM_RELEASE)/*.rpm
 
+# Provide SDL3 dev files on a distro that ships none (Ubuntu 24.04 LTS); no-op elsewhere
+sdl3-vendor:
+	bash packaging/build-sdl3.sh
+
 # Build a DEB package via CPack (Debian/Ubuntu); dep autodetection is weak off-Debian
-package-deb:
+package-deb: sdl3-vendor
+	@# GH #57: sdl3-vendor runs first, because Ubuntu 24.04 LTS has no libsdl3 at
+	@# any version and is the one platform whose package must build SDL3 itself.
+	@# It is a no-op on every distro that does ship SDL3 (and leaves no prefix),
+	@# so the $$(...) below adds CMAKE_PREFIX_PATH only when there is something to
+	@# add — keeping this target the SAME command locally and in CI, on both.
 	$(CMAKE) -B $(BUILD_DIR_DEB_RELEASE) -S . \
-		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
+		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF \
+		$$([ -d build/sdl3-vendor/prefix ] && echo "-DCMAKE_PREFIX_PATH=$(CURDIR)/build/sdl3-vendor/prefix -DJNEXT_SDL3_VENDORED=ON")
 	$(CMAKE) --build $(BUILD_DIR_DEB_RELEASE) -j$(JOBS)
 	cd $(BUILD_DIR_DEB_RELEASE) && cpack -G DEB
 	@printf "$(BOLD)DEB(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_DEB_RELEASE)/*.deb
@@ -1401,14 +1411,15 @@ package-win: win-release
 	@# failed bundle zipped the docs, printed "ZIP(s) produced:" and exited 0 — an
 	@# artifact with no executable in it, published by release.yml. Required set:
 	@# the exe, the Qt6 core DLL, the mandatory qwindows platform plugin (no GUI
-	@# without it) and the SDL2+SDL3 pair (SDL2.dll is fedora's sdl2-compat shim,
-	@# which LoadLibrary()s SDL3.dll at runtime).
+	@# without it) and SDL3.dll, which jnext links directly since GH #57. SDL2.dll
+	@# is NOT expected any more: it used to appear because fedora's mingw SDL2 was
+	@# the sdl2-compat shim that LoadLibrary()s SDL3.dll at runtime.
 	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}') && \
 	 name="jnext-$$ver-windows-x64" && \
 	 stage="$(BUILD_DIR_WIN_RELEASE)/dist/$$name" && \
 	 rm -rf "$(BUILD_DIR_WIN_RELEASE)/dist" && mkdir -p "$$stage" && \
 	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_RELEASE)/jnext.exe "$$stage" && \
-	 for f in jnext.exe Qt6Core.dll platforms/qwindows.dll SDL2.dll SDL3.dll; do \
+	 for f in jnext.exe Qt6Core.dll platforms/qwindows.dll SDL3.dll; do \
 		if [ ! -f "$$stage/$$f" ]; then \
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Windows bundle.\n"; exit 1; \
 		fi; \
@@ -1423,8 +1434,8 @@ package-win: win-release
 package-win-sdl: win-sdl-release
 	@# Mirrors package-win. Extra structural checks: the SDL-only bundle must carry
 	@# no Qt DLL/plugin (that would silently re-raise the OS floor to Windows 10)
-	@# and must include the SDL2+SDL3 pair (SDL2.dll is fedora's sdl2-compat shim,
-	@# which LoadLibrary()s SDL3.dll at runtime).
+	@# and must include SDL3.dll, which jnext links directly since GH #57 (SDL2.dll
+	@# used to be here too, as fedora's sdl2-compat shim over SDL3).
 	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}') && \
 	 name="jnext-$$ver-windows-x64-sdl" && \
 	 stage="$(BUILD_DIR_WIN_SDL_RELEASE)/dist/$$name" && \
@@ -1433,7 +1444,7 @@ package-win-sdl: win-sdl-release
 	 if ls "$$stage"/Qt6*.dll >/dev/null 2>&1 || [ -d "$$stage/platforms" ]; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) Qt files leaked into the SDL-only bundle.\n"; exit 1; \
 	 fi && \
-	 for f in jnext.exe SDL2.dll SDL3.dll; do \
+	 for f in jnext.exe SDL3.dll; do \
 		if [ ! -f "$$stage/$$f" ]; then \
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the SDL-only bundle.\n"; exit 1; \
 		fi; \
@@ -1459,7 +1470,7 @@ package-win-qt5: win-qt5-release
 	 if ls "$$stage"/Qt6*.dll >/dev/null 2>&1; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) Qt6 DLLs leaked into the Qt5 bundle.\n"; exit 1; \
 	 fi && \
-	 for f in jnext.exe Qt5Core.dll platforms/qwindows.dll SDL2.dll SDL3.dll; do \
+	 for f in jnext.exe Qt5Core.dll platforms/qwindows.dll SDL3.dll; do \
 		if [ ! -f "$$stage/$$f" ]; then \
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Qt5 bundle.\n"; exit 1; \
 		fi; \
@@ -1485,7 +1496,7 @@ package-win32-qt5: win32-qt5-release
 	 if ls "$$stage"/Qt6*.dll >/dev/null 2>&1; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) Qt6 DLLs leaked into the Qt5 bundle.\n"; exit 1; \
 	 fi && \
-	 for f in jnext.exe Qt5Core.dll platforms/qwindows.dll SDL2.dll SDL3.dll; do \
+	 for f in jnext.exe Qt5Core.dll platforms/qwindows.dll SDL3.dll; do \
 		if [ ! -f "$$stage/$$f" ]; then \
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Qt5 bundle.\n"; exit 1; \
 		fi; \
@@ -1499,7 +1510,7 @@ package-win32-qt5: win32-qt5-release
 # Cross-compile + ZIP the SDL-only 32-bit (i686) Windows build — repo-internal (GH #108 Phase C)
 package-win32-sdl: win32-sdl-release
 	@# Mirrors package-win-sdl exactly, including its structural checks (no Qt leak,
-	@# SDL2+SDL3 pair present). Naming follows the x64 convention: -windows-x86-sdl.
+	@# SDL3 present, SDL2 shim absent). Naming follows the x64 convention: -windows-x86-sdl.
 	@# REPO-INTERNAL (owner decision 2026-07-26): not a published release artifact —
 	@# the published 32-bit leg will be i686-Qt5 (WINDOWS-COMPAT-PLAN.md §7 Phase C).
 	@# Exercised in CI by the package-win32-sdl row of `make package-test`.
@@ -1511,7 +1522,7 @@ package-win32-sdl: win32-sdl-release
 	 if ls "$$stage"/Qt6*.dll >/dev/null 2>&1 || [ -d "$$stage/platforms" ]; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) Qt files leaked into the SDL-only bundle.\n"; exit 1; \
 	 fi && \
-	 for f in jnext.exe SDL2.dll SDL3.dll; do \
+	 for f in jnext.exe SDL3.dll; do \
 		if [ ! -f "$$stage/$$f" ]; then \
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the SDL-only bundle.\n"; exit 1; \
 		fi; \

@@ -11,7 +11,7 @@ Source0:        https://github.com/jorgegv/jnext/archive/refs/tags/v%{version}.t
 BuildRequires:  cmake >= 3.16
 BuildRequires:  gcc-c++
 BuildRequires:  git
-BuildRequires:  SDL2-devel
+BuildRequires:  SDL3-devel
 BuildRequires:  zlib-devel
 BuildRequires:  libcurl-devel
 BuildRequires:  openssl-devel

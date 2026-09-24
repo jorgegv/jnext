@@ -12,7 +12,7 @@ matters mainly when you invoke CMake directly.
 | `JNEXT_ENABLE_LTO` | ON | LTO/IPO for Release builds. Flipped OFF in exactly one place — see below |
 | `JNEXT_FORCE_QT5` | OFF | Build the GUI and debugger against Qt 5 instead of Qt 6 (the legacy Windows legs only) |
 | `CYCLE_ACCURATE` | OFF | 28 MHz cycle-accurate mode |
-| `STATIC_BUILD` | OFF | Link statically; needs static SDL2/Qt6 builds, which distribution packages are not |
+| `STATIC_BUILD` | OFF | Link statically; needs static SDL3/Qt6 builds, which distribution packages are not |
 | `MACOS_APP_BUNDLE` | OFF | Build a relocatable `jnext.app` bundle (macOS packaging only) |
 | `GIT_SUBMODULE` | ON | Run `git submodule update --init --recursive` at configure time |
 

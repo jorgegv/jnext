@@ -143,7 +143,7 @@ else bad VB-02 "expected non-zero naming the dep, got $rc: $(cat "$WORK/out.log"
 
 # --- VB-03: /usr/local (Intel Homebrew) and MacPorts are rejected too --------
 APP=$WORK/usrlocal.app
-macho "$APP" Contents/MacOS/jnext '/usr/local/opt/sdl2/lib/libSDL2-2.0.0.dylib'
+macho "$APP" Contents/MacOS/jnext '/usr/local/opt/sdl3/lib/libSDL3.0.dylib'
 rc=$(run "$APP")
 if [ "$rc" -ne 0 ]; then ok VB-03 "/usr/local dependency rejected"
 else bad VB-03 "expected non-zero, got $rc"; fi
@@ -274,32 +274,13 @@ rc=$(run "$APP")
 if [ "$rc" -eq 0 ]; then ok VB-14 "@rpath resolved via the executable's rpaths"
 else bad VB-14 "expected 0, got $rc: $(cat "$WORK/out.log")"; fi
 
-# --- VB-15: a dlopen'd dependency that is MISSING is caught -------------------
-# THE ONE otool CANNOT SEE. Homebrew's sdl2 is sdl2-compat: an SDL2 API over
-# SDL3 that dlopen()s libSDL3 by leaf name, so it appears in no load command.
-# v0.98.72 passed every structural check in this file and still aborted at
-# launch on a clean Mac for want of it (GH #46). A dependency walk is
-# structurally incapable of catching this; only an explicit rule can.
-APP=$WORK/sdl2compat-missing.app
-macho "$APP" Contents/MacOS/jnext '@executable_path/../Frameworks/libSDL2-2.0.0.dylib'
-macho "$APP" Contents/Frameworks/libSDL2-2.0.0.dylib '/usr/lib/libSystem.B.dylib'
-printf 'this build dlopens libSDL3 by name\n' >> "$APP/Contents/Frameworks/libSDL2-2.0.0.dylib"
-rc=$(run "$APP")
-if [ "$rc" -ne 0 ] && grep -qi 'libSDL3' "$WORK/out.log"; then
-    ok VB-15 "missing dlopen'd libSDL3 caught despite being invisible to otool"
-else bad VB-15 "expected non-zero naming libSDL3, got $rc: $(cat "$WORK/out.log")"; fi
-
-# --- VB-16: ...and accepted once it IS bundled --------------------------------
-# The other direction: the rule must not fire on a correctly bundled app, or it
-# would block every macOS package permanently.
-APP=$WORK/sdl2compat-ok.app
-macho "$APP" Contents/MacOS/jnext '@executable_path/../Frameworks/libSDL2-2.0.0.dylib'
-macho "$APP" Contents/Frameworks/libSDL2-2.0.0.dylib '/usr/lib/libSystem.B.dylib'
-printf 'this build dlopens libSDL3 by name\n' >> "$APP/Contents/Frameworks/libSDL2-2.0.0.dylib"
-macho "$APP" Contents/Frameworks/libSDL3.dylib '/usr/lib/libSystem.B.dylib'
-rc=$(run "$APP")
-if [ "$rc" -eq 0 ]; then ok VB-16 "sdl2-compat bundle with libSDL3 accepted"
-else bad VB-16 "expected 0, got $rc: $(cat "$WORK/out.log")"; fi
+# NOTE (GH #57): VB-15 and VB-16 lived here. They pinned verify-bundle.sh's
+# dlopen rule — the one thing otool could not see — for the case of Homebrew's
+# `sdl2` being sdl2-compat, which dlopen()s libSDL3 by leaf name and shipped a
+# broken .app in GH #46. jnext links SDL3 directly now, so libSDL3 is an
+# ordinary load command that VB-01..VB-14 already cover, the rule they pinned
+# was removed from verify-bundle.sh, and two rows asserting a deleted rule
+# would only assert themselves. Removed with the rule, in the same change.
 
 # --- VB-07: wrong usage exits 2 ----------------------------------------------
 bash "$SCRIPT" >/dev/null 2>&1; rc=$?

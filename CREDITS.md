@@ -25,7 +25,7 @@ and it will be changed.
 
 | Library | License | Used for |
 |---------|---------|----------|
-| [SDL2](https://www.libsdl.org/) | zlib | Cross-platform multimedia (audio + input) |
+| [SDL3](https://www.libsdl.org/) | zlib | Cross-platform multimedia (audio + input) |
 | [Qt6](https://www.qt.io/) | LGPLv3 | GUI framework (optional: `ENABLE_QT_UI`) |
 | [libcurl](https://curl.se/libcurl/) | curl | HTTP(S) download of the NextZXOS distribution SD-card image |
 | [OpenSSL](https://www.openssl.org/) (libcrypto) | Apache-2.0 | SHA-256 integrity hash of the cached SD-card image |

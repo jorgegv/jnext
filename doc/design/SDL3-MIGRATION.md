@@ -1,7 +1,13 @@
 # SDL2 → SDL3 Migration — Design Note
 
-> **Status: DESIGN ONLY. Implementation is BLOCKED on one owner decision (§8, Q1).**
-> GitHub issue [#57](https://github.com/jorgegv/jnext/issues/57), milestone v1.1.
+> **Status: IMPLEMENTED (2026-09-24). GH [#57](https://github.com/jorgegv/jnext/issues/57).**
+> The note below is the design as written *before* the work; it is kept as
+> written so the analysis and the reasoning stay readable. **What actually
+> changed, and where this note turned out to be wrong, is recorded in §9 at the
+> end — read that alongside any section here.** In particular §5.5's blocker
+> and §8's Q1 are RESOLVED, not open: the owner withdrew the deferral the same
+> day, on the grounds that this project already builds a dependency from source
+> (the Flatpak SDL2 module) and already bundles libraries for two platforms.
 >
 > The original SDL2 choice is recorded at `doc/design/EMULATOR-DESIGN-PLAN.md:97`
 > ("SDL2 (SDL3 migration later)"). That document is a frozen historical artifact
@@ -660,3 +666,230 @@ All package/API facts in this note were checked against the dev host on
 - Ubuntu series data from the Launchpad published-sources API.
 - The audio A/B (§2.3) and the env-var probes (§6.2) are runnable programs, built
   against this tree's `src/platform/audio_fill.h`.
+
+---
+
+## 9. Implementation outcome (2026-09-24)
+
+Written after the migration landed. Everything above is the design as it stood
+beforehand; this section is what the work actually found. Where the two
+disagree, this one is right.
+
+### 9.1 What the design note got right
+
+- The audio model maps exactly. `SDL_OpenAudioDeviceStream` +
+  `SDL_AudioStreamCallback` replaced the SDL2 device callback, the lock moved
+  from the device to the stream with the same mutual-exclusion contract, and
+  **not one line of `audio_fill.h` / `audio_pacing.h` changed**. §2.3's
+  conclusion that `queued_ms()` must stay ring-only is carried into the code as
+  a comment at the function, so the "improvement" it warns against is refused
+  at the point someone would make it.
+- The joystick instance-id sentinel was real and silent. Both sites named in
+  §3.3 were wrong under a mechanical type swap.
+- The env-var trap was real. `SDL_DISKAUDIOFILE` is gone;
+  `SDL_AUDIO_DISK_OUTPUT_FILE` is the name.
+- The two packaging special cases deleted, exactly as predicted, and so did the
+  Flatpak `sdl2` module.
+- `SDL_AUDIODRIVER` / `SDL_VIDEODRIVER` are still honoured, so 14 of the 16
+  regression scripts needed no change.
+
+### 9.2 What it got wrong or missed
+
+1. **Q1 was not the blocker it claimed.** §5.5 called Ubuntu 24.04's missing
+   `libsdl3` a hard blocker and §8 recommended dropping the artifact. Both were
+   wrong, for a reason the note itself contains: the Flatpak manifest had been
+   building SDL2 from a pinned, checksummed tarball for years. The answer is
+   `packaging/build-sdl3.sh`, driven by a new `make sdl3-vendor` target that
+   `package-deb` depends on. It self-skips when the distro provides SDL3, so
+   `make package-deb` is byte-identical on both LTS legs and on a developer's
+   machine.
+   The note's objection that `dpkg-shlibdeps` "cannot express the dependency"
+   was also answered rather than accepted: linking SDL3 **statically** means
+   there is no bundled `.so`, no rpath and nothing for `dpkg-shlibdeps` to
+   resolve — only SDL3's own link-time dependencies, which map to real Ubuntu
+   packages. No CMake special case was needed, because SDL3's own
+   `SDL3Config.cmake` points the `SDL3::SDL3` alias at whichever library the
+   prefix was built with.
+
+2. **The mouse event fields changed type, and the note did not mention it.**
+   §3.2 lists the keyboard and tick changes but not the mouse. SDL3 delivers
+   `SDL_MouseMotionEvent::xrel/yrel` and `SDL_MouseWheelEvent::y` as `float`
+   where SDL2 gave integers, and the right answer differs per field:
+   - **Wheel** has an integer twin, `integer_y`, which is SDL's accumulation of
+     fractional detents into whole ones — i.e. exactly SDL2's `y`. Reading the
+     float would truncate every sub-detent scroll of a high-resolution wheel to
+     zero. (`integer_x/y` were added in SDL 3.2.12; every SDL3 jnext targets is
+     newer, and an older header fails to compile rather than mis-scrolling.)
+   - **Motion** has no integer twin and the deltas really can be sub-unit, so
+     `MouseDispatcher::handle_sdl_event` carries the remainder forward between
+     events. Truncating each one alone would drop a slow drag entirely.
+   Rows `MOUSE-SDL3-WHEEL` and `MOUSE-SDL3-MOTION` pin the two apart; neither
+   can be satisfied by the other's implementation.
+
+3. **`SDL_SetRenderVSync` can fail, and that must not be fatal.** §3.4 said
+   vsync "needs deliberate care", which was right, but not why: in SDL3 it is a
+   separate call that returns a status, and drivers without a refresh to sync
+   to — the `dummy` video driver the regression suite renders under, and the
+   software renderer generally — legitimately refuse it. It is requested (so
+   the default is ON, as `SDL_RENDERER_PRESENTVSYNC` gave us, which
+   `sdl_app.h`'s >100 %-speed present throttle depends on) and a refusal is
+   logged, not fatal.
+
+4. **Q3 answers itself.** §4 and §8 Q3 treated the Windows `main()` entry as an
+   open question between `SDL_main.h` and `SDL_MAIN_HANDLED`. It is not a
+   choice any more, because **SDL3's `SDL.h` does not include `SDL_main.h` at
+   all** — so there is no rename to disarm and no include-order race with Qt's
+   `main=qMain`. The Qt build simply never sees the header; the Windows
+   SDL-only build includes it explicitly, in one translation unit, under
+   `#if defined(_WIN32) && !defined(ENABLE_QT_UI)`. The configuration is now
+   stated rather than inferred from include order, which is strictly better
+   than what SDL2 forced.
+
+5. **`SDL_oldnames.h` is the rename oracle.** Not a defect in the note, but
+   worth recording: SDL3 ships a header that turns every SDL2 spelling into a
+   compile error naming its SDL3 replacement
+   (`SDL_CONTROLLER_BUTTON_A_renamed_SDL_GAMEPAD_BUTTON_SOUTH`). The rename
+   half of this migration was therefore mechanically checked by the compiler,
+   not by a table someone wrote out.
+
+6. **The audio-underrun row got a stronger fix than a rename.** §6.2 asked for
+   `SDL_DISKAUDIOFILE` → `SDL_AUDIO_DISK_OUTPUT_FILE` and for the migration to
+   confirm the row reports PASS. Both done — but the rename alone leaves the
+   trap armed for the *next* change. The missing-capture branch in
+   `audio-underrun-func.sh` and `silent-func.sh` is now a **`fail_row`, not a
+   `skip_row`**. There is no honest reason for the capture to be absent: the
+   `disk` driver is compiled in unconditionally and needs no sound server, no
+   device and no permissions. The remaining skips in those scripts
+   (`xvfb-run`, `python3`, ImageMagick) are genuine host-tool absences and stay.
+
+### 9.3 Test removals, and why
+
+Three removals, all of things the migration structurally eliminated rather than
+merely disabled — each replaced by an in-place note saying what was there and
+why it went, so nobody re-derives the bug class from scratch:
+
+- `packaging/macos/bundle-dlopen-deps.sh` and its contract suite
+  (`bundle-dlopen-deps-test.sh`, rows BD-01..04). The script existed solely
+  because Homebrew's `sdl2` was sdl2-compat and `dlopen`ed libSDL3 by leaf
+  name. Linking SDL3 directly makes it an ordinary `LC_LOAD_DYLIB` entry.
+- `verify-bundle.sh`'s matching dlopen rule, and its two pinning rows
+  (`VB-15`, `VB-16`). The rule could no longer fire on anything.
+- `packaging/windows/bundle-dlls.sh` lines detecting the same shim and
+  force-queueing `SDL3.dll`. It is a real PE import now.
+
+Against those, the Windows packaging rows gained an assertion they did not have:
+every Windows zip must contain `SDL3.dll` **and must not contain `SDL2.dll`** —
+so a build that silently resolved back to `mingw-sdl2-compat` fails the package
+test instead of shipping.
+
+**And one of those removals shipped broken, which is the lesson worth keeping.**
+`test/packaging/packaging-selftest.sh` lists the contract sub-tests by filename
+in a `SUBTESTS` array and pins their pass counts (`"Pass: 7"` / `"Pass: 6"`).
+Deleting `bundle-dlopen-deps-test.sh` invalidated all three, so
+`make packaging-selftest` — the **first prerequisite of `make package-test`**,
+which is what CI's packaging job runs — failed at 1/3 and aborted that job
+before it built a single artifact. **The required triplet cannot see this**:
+`packaging-selftest` is not part of `make unit-test`, the FUSE suite or the
+regression suite, so all three stayed green over a broken CI job. Caught in
+review, not by any gate.
+
+The prose above discussed this removal at length and never mentioned the file
+that referenced it. **Deleting a test means grepping the tree for its filename
+first** — `git grep bundle-dlopen-deps` would have found the one live
+reference in seconds — and then running the suite that owns it, not only the
+triplet.
+
+---
+
+## 10. Review round 1 (2026-09-24) — findings and what changed
+
+The migration itself came through review essentially unscathed; nearly the whole
+surface was re-verified by execution, including an independent reproduction of
+the Ubuntu 24.04 container build and the Windows `objdump`. Four things changed.
+
+### 10.1 A broken CI job the required triplet could not see (BLOCKER)
+
+`make packaging-selftest` went 3/3 → 1/3 and `make package-test` aborted on it.
+Cause and lesson are recorded in §9.3 above, at the point where the removal is
+justified, rather than here — that is where someone deleting the next test will
+be reading. Fixed: the roster and both pinned counts. `make package-test` now
+runs end to end (20 pass, 1 pre-existing skip), which also exercised
+`package-flatpak` for the first time and so confirmed by execution that the
+deleted `sdl2` module really is unnecessary under the KDE 6.10 runtime.
+
+### 10.2 The id-0 guards pinned nothing individually (MAJOR)
+
+`JRAW-29/30` asserted the outcome, and an outcome test cannot see this table's
+real hazard. Removing **either** id-0 guard alone left all 342 rows green;
+only removing both failed anything. So a later "simplification" deleting one on
+the theory that the other covers it would have gone undetected.
+
+Measuring it explains why, and the explanation changed the fix. The invalid id
+and the free marker are the same value (0), **and a free entry's slot is -1** —
+so an entry corrupted into "free AND connector N" still answers "unmapped" to
+every public query. The corruption is real; its consequences are not observable
+until some later change starts trusting the slot field. Two hand-written guards
+at two call sites could therefore never be pinned behaviourally, however many
+outcome rows were added.
+
+What landed instead:
+
+- The two duplicated guards become **one shared `entry_matches()`** used by both
+  readers, so the id-0/free disambiguation is written once rather than copied.
+- A white-box accessor, `device_map_free_entries_are_clean()`, asserts the
+  **invariant** the treatment maintains — a free entry carries no connector.
+- `JRAW-31` (write half), `JRAW-32` (read half + no collateral damage on a live
+  mapping), and an extension to `JRAW-30` (the unmap path) assert it directly.
+
+Mutation results, run individually rather than assumed:
+
+| mutation | result |
+|---|---|
+| remove `map_instance_to_slot`'s id-0 rejection | **JRAW-31 + JRAW-32 fail** |
+| unmap clears the id but leaves a stale slot | **JRAW-30 fails** |
+| remove `entry_matches`' `!= 0` term | *no row fails — and no behaviour changes* |
+
+The third is stated rather than papered over. That term is **provably**
+unobservable while the invariant holds, because matching a free entry still
+returns slot -1. It is kept as the safety net that makes a *broken* invariant
+non-catastrophic, and the invariant rows are the tripwire that fires the moment
+it breaks — which is the realistic defect it guards against, and which the
+second mutation above shows is now caught. Neither is dressed up as the other.
+
+The comment claiming the write-side rejection was "the ONLY place the two
+meanings are kept apart" was false and is replaced by a description of the real
+two-part arrangement.
+
+### 10.3 A stale constant name (MINOR)
+
+`host_key_latch.h` still named `SDL_NUM_SCANCODES` in a comment. The hard-coded
+512 is correct — `SDL_SCANCODE_COUNT` is still 512 in 3.4.16, so the constant
+was renamed, not renumbered, and the comment now says exactly that.
+
+### 10.4 The vendored `.deb` audio dependency is Depends, not Recommends
+
+Owner decision on the reviewer's evidence, reversing §9.2's first answer.
+`dpkg -i` + `apt-get install -f` honours Depends but **not** Recommends, so the
+package installed with zero audio backends and jnext ran silently mute — and
+`dpkg -i` is what most "download the .deb" instructions say. The
+keep-it-soft argument does not apply to a package that already hard-Depends on
+the entire Qt6 GUI stack: there is no minimal or headless install being spared.
+
+Written as **alternatives**, `libpipewire-0.3-0 | libpulse0 | libasound2t64`:
+any one backend is sufficient, and a conjunction would drag PulseAudio onto a
+PipeWire desktop and vice versa.
+
+Two things verified in a container rather than assumed, both of which could
+have been silent regressions:
+
+- `CPACK_DEBIAN_PACKAGE_DEPENDS` **appends** to the `SHLIBDEPS`-generated list
+  rather than replacing it. The shipped `Depends:` carries the alternatives
+  *and* libc6, the three Qt6 libraries, libcurl, libpng, libssl, libstdc++ and
+  zlib. Had it replaced, the package would have declared almost none of its
+  real dependencies.
+- The `dpkg -i` path now installs an audio backend and leaves
+  `Status: install ok installed`, with `jnext --version` running.
+
+The non-vendored legs are untouched: the block is gated on
+`JNEXT_SDL3_VENDORED`, and the Fedora-built `.deb` carries no injected audio
+dependency.

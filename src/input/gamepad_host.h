@@ -1,11 +1,11 @@
 #pragma once
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 #include "input/joystick_dispatcher.h"
 #include "input/joy_source.h"
 
 class Joystick;
 
-/// Host-side owner of the two Next pad headers' SDL_GameController lifecycle
+/// Host-side owner of the two Next pad headers' SDL_Gamepad lifecycle
 /// plus the JoystickDispatcher that translates their events into the Joystick
 /// raw 12-bit vectors (Task 79).
 ///
@@ -29,9 +29,9 @@ public:
     JoystickDispatcher&       dispatcher()       { return dispatcher_; }
     const JoystickDispatcher& dispatcher() const { return dispatcher_; }
 
-    /// Feed one SDL event. Consumes SDL_CONTROLLERDEVICEADDED /
-    /// SDL_CONTROLLERDEVICEREMOVED and SDL_JOYDEVICEADDED /
-    /// SDL_JOYDEVICEREMOVED (open/close + slot mapping) and forwards
+    /// Feed one SDL event. Consumes SDL_EVENT_GAMEPAD_ADDED /
+    /// SDL_EVENT_GAMEPAD_REMOVED and SDL_EVENT_JOYSTICK_ADDED /
+    /// SDL_EVENT_JOYSTICK_REMOVED (open/close + slot mapping) and forwards
     /// button/axis/hat events to the dispatcher. Other events are ignored.
     void handle_event(const SDL_Event& e);
 
@@ -53,18 +53,22 @@ public:
 
 private:
     JoystickDispatcher dispatcher_;
-    // Open SDL_GameController* per connector slot; nullptr = free.
-    SDL_GameController* controllers_[JoystickDispatcher::NUM_CONNECTORS] = { nullptr, nullptr };
+    // Open SDL_Gamepad* per connector slot; nullptr = free.
+    SDL_Gamepad* controllers_[JoystickDispatcher::NUM_CONNECTORS] = { nullptr, nullptr };
 
     // Task 83 — devices SDL has no game-controller mapping for are opened
     // through the raw SDL_Joystick API instead. A slot holds EITHER a
     // controller or a raw joystick, never both.
     SDL_Joystick* raw_joysticks_[JoystickDispatcher::NUM_CONNECTORS] = { nullptr, nullptr };
 
-    // Open the device at `dev_idx` into a free slot, as a game controller if
-    // SDL has a mapping for it and as a raw joystick otherwise. No-op when
+    // Open the device with instance id `iid` into a free slot, as a gamepad
+    // if SDL has a mapping for it and as a raw joystick otherwise. No-op when
     // the device is already open or no slot is free. Logs the outcome.
-    void open_device(int dev_idx);
+    //
+    // SDL3 takes an INSTANCE ID here, not SDL2's device index: the two-step
+    // "open by index, then ask what instance id that was" dance is gone, and
+    // with it the dedupe hazard that made it necessary.
+    void open_device(SDL_JoystickID iid);
 
     // First free connector slot whose source is Sdl, or -1 if none.
     int first_free_slot() const;

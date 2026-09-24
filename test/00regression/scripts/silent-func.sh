@@ -11,7 +11,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # stall, or otherwise perturb CPU/video execution.
 #
 #   - SDL's `disk` audio driver only ever creates its output file inside
-#     SDL_OpenAudioDevice. An ABSENT file is direct proof no device was opened
+#     SDL_OpenAudioDeviceStream. An ABSENT file is direct proof no device was opened
 #     — stronger than grepping a log line, which would still pass if the
 #     message were renamed while the device kept opening underneath it.
 #   - The pixel-compare content-verifies that --silent didn't perturb
@@ -31,20 +31,28 @@ if want silent-func; then
     png_silent="$TMP_DIR/silent_silent.png"
     rm -f "$raw_normal" "$raw_silent" "$png_normal" "$png_silent"
 
-    SDL_AUDIODRIVER=disk SDL_DISKAUDIOFILE="$raw_normal" QT_QPA_PLATFORM=offscreen \
+    SDL_AUDIODRIVER=disk SDL_AUDIO_DISK_OUTPUT_FILE="$raw_normal" QT_QPA_PLATFORM=offscreen \
     timeout --foreground --kill-after=5s 30s "$JNEXT" \
         "${SD_CARD_ARGS[@]}" --machine 48k --rewind-buffer-size 0 \
         --delayed-screenshot "$png_normal" --delayed-screenshot-frames 150 \
         --delayed-automatic-exit 5 &>/dev/null || true
 
-    SDL_AUDIODRIVER=disk SDL_DISKAUDIOFILE="$raw_silent" QT_QPA_PLATFORM=offscreen \
+    SDL_AUDIODRIVER=disk SDL_AUDIO_DISK_OUTPUT_FILE="$raw_silent" QT_QPA_PLATFORM=offscreen \
     timeout --foreground --kill-after=5s 30s "$JNEXT" \
         "${SD_CARD_ARGS[@]}" --machine 48k --rewind-buffer-size 0 --silent \
         --delayed-screenshot "$png_silent" --delayed-screenshot-frames 150 \
         --delayed-automatic-exit 5 &>/dev/null || true
 
     if [[ ! -s "$raw_normal" ]]; then
-        skip_row " (no SDL audio backend available; control run captured nothing)"
+        # NOT a skip (GH #57): this row's whole claim is "--silent opens no
+        # audio device, a normal run does". A control run that captured
+        # nothing cannot distinguish the two, so the row proves nothing — and
+        # SDL's `disk` driver, forced above, needs no backend, no device and
+        # no permissions. An empty control means a wrong hint name or a jnext
+        # that opened no device, both of which are the defect, not the host.
+        fail_row " (control run captured no audio: SDL's disk driver wrote \
+nothing — wrong SDL_AUDIO_DISK_OUTPUT_FILE hint name, or jnext opened no audio \
+device. Without a control this row cannot tell --silent from a broken build)"
     elif [[ ! -s "$png_normal" || ! -s "$png_silent" ]]; then
         fail_row " (screenshot missing: normal=$([[ -s "$png_normal" ]] && echo y || echo n) silent=$([[ -s "$png_silent" ]] && echo y || echo n))"
     elif [[ -e "$raw_silent" ]]; then

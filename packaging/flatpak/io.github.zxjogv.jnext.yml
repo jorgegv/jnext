@@ -2,7 +2,9 @@ app-id: io.github.zxjogv.jnext
 # KDE runtime chosen over org.freedesktop.Platform because jnext's Qt6 GUI
 # (ENABLE_QT_UI=ON, ENABLE_DEBUGGER=ON) needs Qt6::Widgets; the KDE runtime
 # ships a full Qt6 stack out of the box, so it doesn't need to be built as
-# a separate module the way SDL2 does. 6.10 is the newest KDE runtime the CI
+# a separate module. Since GH #57 the same is true of SDL3 (see the note in
+# `modules:` below), so this manifest builds nothing from source at all.
+# 6.10 is the newest KDE runtime the CI
 # flatpak-builder image (ghcr…:kde-6.10) provides; 6.8 is deprecated on flathub
 # and kde-6.11 has no CI image yet. Bump both this and the CI image together.
 runtime: org.kde.Platform
@@ -19,22 +21,13 @@ finish-args:
   - --filesystem=home
 
 modules:
-  # SDL2 is not part of the KDE runtime; built from source. Version should
-  # track whatever CMakeLists.txt's find_package(SDL2 REQUIRED) resolves to
-  # on the dev host (2.32.x at the time of writing).
-  - name: sdl2
-    buildsystem: cmake-ninja
-    # SDL2's CMakeLists.txt refuses an in-tree build; flatpak-builder's
-    # cmake-ninja default builds in the source dir, so force a separate one.
-    builddir: true
-    config-opts:
-      - -DCMAKE_BUILD_TYPE=Release
-      - -DSDL_STATIC=OFF
-    sources:
-      - type: archive
-        url: https://github.com/libsdl-org/SDL/releases/download/release-2.32.6/SDL2-2.32.6.tar.gz
-        sha256: 6a7a40d6c2e00016791815e1a9f4042809210bdf10cc78d2c75b45c4f52f93ad
-
+  # NOTE (GH #57): an `sdl2` module used to be built from source here, with a
+  # pinned tarball + sha256, because SDL2 was not part of the KDE runtime.
+  # SDL3 IS: org.kde.Platform//6.10 ships libSDL3.so.0 and org.kde.Sdk//6.10
+  # ships the headers, the CMake package and sdl3.pc. So the module was
+  # DELETED rather than re-pinned, and with it a recurring
+  # bump-the-tarball-and-its-hash maintenance item. If the runtime version
+  # below is ever moved to one without SDL3, this module has to come back.
   - name: jnext
     buildsystem: cmake-ninja
     config-opts:

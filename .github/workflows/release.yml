@@ -77,8 +77,8 @@ jobs:
   # DEB only. The .deb's dependency autodetection (CPACK_DEBIAN_PACKAGE_SHLIBDEPS)
   # runs dpkg-shlibdeps, which bakes in the LIBRARY PACKAGE NAMES of the Ubuntu
   # it runs on. ubuntu-latest (24.04) produces the t64-transition names
-  # (libcurl4t64, libpng16-16t64, libssl3t64, libqt6core6t64/gui6t64/widgets6t64,
-  # libsdl2-2.0-0); Ubuntu 26.04 renamed/bumped several of them, so a single
+  # (libcurl4t64, libpng16-16t64, libssl3t64, libqt6core6t64/gui6t64/widgets6t64);
+  # Ubuntu 26.04 renamed/bumped several of them, so a single
   # 24.04-built deb is UNINSTALLABLE on 26. Fix: build one deb PER supported LTS
   # in its own PINNED container (mirrors the `rpm` job's fedora:44 container),
   # rename each with its Ubuntu release, and ship both. The RPM is built in a
@@ -102,9 +102,36 @@ jobs:
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            cmake make g++ git file dpkg-dev \
-            libsdl2-dev zlib1g-dev libcurl4-openssl-dev libssl-dev libpng-dev \
+            cmake make g++ git file dpkg-dev curl ca-certificates \
+            zlib1g-dev libcurl4-openssl-dev libssl-dev libpng-dev \
             qt6-base-dev
+          # SDL3 (GH #57). Ubuntu 24.04 LTS has no libsdl3 at ANY version, and
+          # neither does 24.10 — it first appears in 25.04. That one series
+          # therefore installs nothing here: `make package-deb` depends on the
+          # `sdl3-vendor` target, which builds SDL3 from a pinned, checksummed
+          # source tarball and links it statically (packaging/build-sdl3.sh
+          # explains why static rather than bundled-shared). On every other
+          # series that target is a no-op and the distro package is used, so
+          # the make command below is identical on both legs — which is the
+          # rule: CI runs the exact same plain make target a developer types.
+          if [ "${{ matrix.rel }}" = "24.04" ]; then
+            # SDL3's own build dependencies. This list was not guessed: it is
+            # what an actual ubuntu:24.04 container needed to configure SDL
+            # 3.4.16, arrived at by running the build until it stopped naming a
+            # missing package (libxss-dev and libxtst-dev were the two a reading
+            # of SDL's docs missed). SDL hard-fails on a missing sub-feature of
+            # an ENABLED subsystem, so an incomplete list breaks the release
+            # loudly rather than quietly shipping a crippled SDL.
+            DEBIAN_FRONTEND=noninteractive apt-get install -y \
+              libasound2-dev libpulse-dev libdbus-1-dev libudev-dev \
+              libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
+              libxfixes-dev libxss-dev libxtst-dev libxkbcommon-dev \
+              libwayland-dev libdecor-0-dev libdrm-dev libgbm-dev \
+              libegl-dev libgl-dev libgles-dev libibus-1.0-dev \
+              libsamplerate0-dev libpipewire-0.3-dev
+          else
+            DEBIAN_FRONTEND=noninteractive apt-get install -y libsdl3-dev
+          fi
       - uses: actions/checkout@v5
         with:
           submodules: recursive
@@ -145,7 +172,7 @@ jobs:
         run: |
           dnf install -y \
             cmake make gcc-c++ git \
-            SDL2-devel libcurl-devel openssl-devel zlib-devel libpng-devel \
+            SDL3-devel libcurl-devel openssl-devel zlib-devel libpng-devel \
             qt6-qtbase-devel rpm-build
       - uses: actions/checkout@v5
         with:
@@ -189,7 +216,7 @@ jobs:
   # ---- Windows: make package-win in a Fedora container --------------------
   # The SAME path as a local `make package-win` — a MinGW cross-build in a
   # Fedora container (Ubuntu/Debian do not package MinGW-Qt6; only Fedora does).
-  # The zip bundles the Qt6/SDL2/SDL3 runtime DLLs + qwindows plugin via
+  # The zip bundles the Qt6/SDL3 runtime DLLs + qwindows plugin via
   # packaging/windows/bundle-dlls.sh. Pinned to fedora:44 to match the verified
   # dev host. Proven in a fedora:44 docker container; the exe runs under wine.
   windows:
@@ -211,11 +238,11 @@ jobs:
           dnf install -y \
             make git findutils gawk grep coreutils diffutils zip \
             mingw64-gcc mingw64-gcc-c++ mingw64-binutils mingw64-filesystem \
-            mingw64-qt6-qtbase mingw64-sdl2-compat \
+            mingw64-qt6-qtbase mingw64-SDL3 \
             mingw64-qt5-qtbase mingw64-qt5-qtbase-devel mingw64-qt5-qmake \
             mingw64-zlib mingw64-libpng mingw64-winpthreads \
             mingw32-gcc mingw32-gcc-c++ mingw32-binutils mingw32-filesystem \
-            mingw32-sdl2-compat \
+            mingw32-SDL3 \
             mingw32-qt5-qtbase mingw32-qt5-qtbase-devel mingw32-qt5-qmake \
             mingw32-zlib mingw32-libpng mingw32-winpthreads \
             qt6-qtbase-devel
@@ -352,7 +379,7 @@ jobs:
         with:
           submodules: recursive
       - name: Install dependencies (Homebrew)
-        run: brew install cmake sdl2 qt@6 curl openssl libpng
+        run: brew install cmake sdl3 qt@6 curl openssl libpng
       # The project's own target, same as a local Mac build: configure, build,
       # package, then mount the .dmg and assert with otool that nothing inside
       # it references Homebrew (GH #46 — the v0.98.34 .dmg did, and aborted in

@@ -4,7 +4,7 @@
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "*.cpp")
 list(FILTER SOURCES EXCLUDE REGEX "${JNEXT_GENERATED_DIR_REGEX}")
 add_library(jnext_platform STATIC ${SOURCES})
-find_package(SDL2 REQUIRED)
+find_package(SDL3 REQUIRED)
 find_package(PNG REQUIRED)
 # jnext_input provides MouseDispatcher (sdl_app uses it as host adapter for
 # Kempston mouse — closes G43, plan rows MOUSE-13/14/15).
@@ -15,7 +15,7 @@ find_package(PNG REQUIRED)
 # (ENABLE_QT_UI=OFF + ENABLE_DEBUGGER=OFF, the lean/ARM64 combo) broke the link
 # with undefined references to exactly those two symbols. jnext_core does not
 # depend on jnext_platform, so this introduces no cycle.
-target_link_libraries(jnext_platform PUBLIC SDL2::SDL2 spdlog::spdlog PNG::PNG jnext_input jnext_core)
+target_link_libraries(jnext_platform PUBLIC ${JNEXT_SDL3_TARGET} spdlog::spdlog PNG::PNG jnext_input jnext_core)
 target_include_directories(jnext_platform PUBLIC ${CMAKE_SOURCE_DIR}/src)
 # Bake the build type into the --benchmark BENCH line (Task 27 T1), so a
 # benchmark result always states which optimisation level produced it.

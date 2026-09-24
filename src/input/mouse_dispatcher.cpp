@@ -86,7 +86,7 @@ void MouseDispatcher::handle_wheel(int sdl_wheel_y)
     // zxnext.vhd:3560 / :104 (plan row MOUSE-10 = G — VHDL exposes only
     // the raw 4-bit field, signed/unsigned is host-adapter semantics).
     //
-    // We treat SDL_MOUSEWHEEL.y as a signed step count: positive (wheel
+    // We treat SDL_EVENT_MOUSE_WHEEL.y as a signed step count: positive (wheel
     // rolled away from user) increments the counter, negative decrements,
     // both with 4-bit wrap. This matches the documented Kempston "wheel
     // ticks" behaviour observed by NextZXOS mouse drivers.
@@ -101,21 +101,37 @@ void MouseDispatcher::handle_wheel(int sdl_wheel_y)
 bool MouseDispatcher::handle_sdl_event(const SDL_Event& e)
 {
     switch (e.type) {
-    case SDL_MOUSEMOTION:
-        handle_motion(e.motion.xrel, e.motion.yrel);
+    case SDL_EVENT_MOUSE_MOTION: {
+        // SDL3 delivers xrel/yrel as float (SDL2: Sint32). Accumulate the
+        // sub-unit remainder rather than truncating each event on its own —
+        // see motion_residue_* in the header for why (GH #57).
+        const float fx = motion_residue_x_ + e.motion.xrel;
+        const float fy = motion_residue_y_ + e.motion.yrel;
+        const int   dx = static_cast<int>(fx);   // truncates toward zero
+        const int   dy = static_cast<int>(fy);
+        motion_residue_x_ = fx - static_cast<float>(dx);
+        motion_residue_y_ = fy - static_cast<float>(dy);
+        handle_motion(dx, dy);
         return true;
-    case SDL_MOUSEBUTTONDOWN:
+    }
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
         handle_button(e.button.button, true);
         return true;
-    case SDL_MOUSEBUTTONUP:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
         handle_button(e.button.button, false);
         return true;
-    case SDL_MOUSEWHEEL: {
-        // SDL2 mousewheel events have a `direction` field — when set to
-        // SDL_MOUSEWHEEL_FLIPPED, the y/x values are negated relative to
-        // the natural direction. Normalise so `+y` always means "away
-        // from user" regardless of OS preference.
-        int y = e.wheel.y;
+    case SDL_EVENT_MOUSE_WHEEL: {
+        // The `direction` field is set to SDL_MOUSEWHEEL_FLIPPED when the OS
+        // reports "natural" scrolling — the y/x values are then negated
+        // relative to the natural direction. Normalise so `+y` always means
+        // "away from user" regardless of OS preference.
+        //
+        // `integer_y`, not `y`: SDL3's `y` is a float that carries FRACTIONAL
+        // ticks from a high-resolution wheel, while `integer_y` is SDL's own
+        // accumulation of those into whole detents — which is exactly what
+        // SDL2's integer `y` was. Reading `y` here would truncate every
+        // fractional tick to zero and break high-resolution wheels outright.
+        int y = e.wheel.integer_y;
         if (e.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) {
             y = -y;
         }

@@ -7,7 +7,7 @@ RUN dnf install -y \
     make \
     ninja-build \
     git \
-    SDL2-devel \
+    SDL3-devel \
     qt6-qtbase-devel \
     libpng-devel \
     zlib-devel \

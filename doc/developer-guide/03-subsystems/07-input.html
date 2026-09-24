@@ -1853,7 +1853,7 @@ the FPGA merely assumes is present — the PS/2 driver, the pad cable — or
 compensate for an artefact of emulating a frame as an indivisible unit.
 <strong>Knowing which group a class is in tells you what its correctness criterion
 is</strong>: the VHDL, or a documented host policy. Nothing else does.</p>
-<p><code>src/input</code> links SDL2 even in the Qt build, because SDL scancodes are the
+<p><code>src/input</code> links SDL3 even in the Qt build, because SDL scancodes are the
 project's canonical host-key type. <code>MainWindow::qt_key_to_sdl()</code> converts Qt
 keys into them, so both frontends feed <code>Keyboard::set_key()</code> identically and
 neither can drift from the other.</p>

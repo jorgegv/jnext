@@ -2831,24 +2831,27 @@ static void test_mouse() {
         MouseDispatcher d(m);
 
         SDL_Event mot{};
-        mot.type = SDL_MOUSEMOTION;
+        mot.type = SDL_EVENT_MOUSE_MOTION;
         mot.motion.xrel = 0x33;
         mot.motion.yrel = 0x44;
         bool consumed_mot = d.handle_sdl_event(mot);
 
         SDL_Event bdn{};
-        bdn.type = SDL_MOUSEBUTTONDOWN;
+        bdn.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
         bdn.button.button = SDL_BUTTON_LEFT;
         bool consumed_bdn = d.handle_sdl_event(bdn);
 
         SDL_Event whl{};
-        whl.type = SDL_MOUSEWHEEL;
-        whl.wheel.y = 3;
+        whl.type = SDL_EVENT_MOUSE_WHEEL;
+        // integer_y, not y: see MOUSE-SDL3-WHEEL below for why production
+        // reads SDL3's whole-detent accumulator rather than the float.
+        whl.wheel.y = 3.0f;
+        whl.wheel.integer_y = 3;
         whl.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
         bool consumed_whl = d.handle_sdl_event(whl);
 
         SDL_Event other{};
-        other.type = SDL_KEYDOWN;
+        other.type = SDL_EVENT_KEY_DOWN;
         bool consumed_other = d.handle_sdl_event(other);
 
         const uint8_t fbdf = m.read_port_fbdf();
@@ -2868,6 +2871,84 @@ static void test_mouse() {
                      "fadf=0x%02X (bit1 clear, hi nib 0x3)",
                      consumed_mot, consumed_bdn, consumed_whl, consumed_other,
                      fbdf, ffdf, fadf));
+    }
+
+    // ── MOUSE-SDL3-WHEEL / MOUSE-SDL3-MOTION: the SDL3 field-type change ──
+    //
+    // GH #57. SDL2 delivered SDL_MouseWheelEvent::y and
+    // SDL_MouseMotionEvent::xrel/yrel as INTEGERS. SDL3 delivers both as
+    // float, and each one needs a different answer — a single mechanical
+    // float->int cast gets one of them wrong whichever way it is written:
+    //
+    //   * Wheel. SDL3's `y` carries FRACTIONAL detents from a high-resolution
+    //     wheel; `integer_y` is SDL's own accumulation of those into whole
+    //     detents, which is exactly what SDL2's integer `y` was. Reading `y`
+    //     would truncate every sub-detent scroll to zero and break such a
+    //     wheel outright. The Kempston counter is a 4-bit whole-step field
+    //     (zxnext.vhd:3560), so whole detents are the only meaningful unit.
+    //
+    //   * Motion. There is no integer twin, and the deltas really can be
+    //     sub-unit (pointer scaling / relative-mode acceleration).
+    //     Truncating each event on its own would drop a slow drag on the
+    //     floor for ever, so MouseDispatcher carries the remainder forward.
+    //
+    // Neither row can be satisfied by the other's implementation, which is
+    // the point: they pin the two halves apart.
+    {
+        KempstonMouse m;
+        MouseDispatcher d(m);
+
+        // Three events whose float `y` alone would total 3 detents, but whose
+        // whole-detent accumulator says 1. Production must report 1.
+        for (int i = 0; i < 3; ++i) {
+            SDL_Event w{};
+            w.type = SDL_EVENT_MOUSE_WHEEL;
+            w.wheel.y = 1.0f;          // what a naive `y` read would see
+            w.wheel.integer_y = (i == 2) ? 1 : 0;   // SDL's real detent count
+            w.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+            d.handle_sdl_event(w);
+        }
+        const uint8_t whole = static_cast<uint8_t>((m.read_port_fadf() >> 4) & 0x0F);
+
+        // FLIPPED (natural scrolling) must still negate the accumulator, not
+        // the float: 1 detent down from 1 leaves 0.
+        SDL_Event fl{};
+        fl.type = SDL_EVENT_MOUSE_WHEEL;
+        fl.wheel.y = 1.0f;
+        fl.wheel.integer_y = 1;
+        fl.wheel.direction = SDL_MOUSEWHEEL_FLIPPED;
+        d.handle_sdl_event(fl);
+        const uint8_t flipped = static_cast<uint8_t>((m.read_port_fadf() >> 4) & 0x0F);
+
+        check("MOUSE-SDL3-WHEEL",
+              "wheel counts SDL3 whole detents (integer_y), not the fractional "
+              "y; FLIPPED negates the same field (GH #57)",
+              whole == 0x01 && flipped == 0x00,
+              DETAIL("after 3 events with y=1.0 each but integer_y totalling 1: "
+                     "wheel=0x%X (want 0x1); after one FLIPPED detent: 0x%X (want 0x0)",
+                     whole, flipped));
+    }
+    {
+        KempstonMouse m;
+        MouseDispatcher d(m);
+
+        // Four 0.3-unit steps: every one truncates to 0 on its own, but they
+        // total 1.2 so exactly ONE unit must reach the guest.
+        for (int i = 0; i < 4; ++i) {
+            SDL_Event mv{};
+            mv.type = SDL_EVENT_MOUSE_MOTION;
+            mv.motion.xrel = 0.3f;
+            mv.motion.yrel = 0.0f;
+            d.handle_sdl_event(mv);
+        }
+        const uint8_t x_after = m.read_port_fbdf();
+
+        check("MOUSE-SDL3-MOTION",
+              "sub-unit float motion accumulates across events instead of "
+              "truncating to nothing (GH #57)",
+              x_after == 0x01,
+              DETAIL("4 x xrel=0.3 (total 1.2) -> X=0x%02X (want 0x01; a "
+                     "per-event truncation gives 0x00)", x_after));
     }
 
     // ── MOUSE-16/17: capture-drop button hygiene (issue #37) ──────────────
@@ -3843,12 +3924,12 @@ static void test_saveload() {
     {
         Joystick joy; joy.reset();
         JoystickDispatcher jd(joy);
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_A, true);   // shadow bits_[0]=B(0x10)
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_SOUTH, true);   // shadow bits_[0]=B(0x10)
         // Simulate a rewind/load_state restoring a DIFFERENT connector vector.
         joy.set_joy_left(0x005);                              // R|L
         jd.resync();                                          // reseed shadow from joy
         // A new event toggles ONE bit; it must OR against the restored 0x005.
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_START, true);  // add START(0x80)
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_START, true);  // add START(0x80)
         const uint16_t got = joy.joy_left_bits();
         check("SL-DISP-01",
               "JoystickDispatcher::resync stops stale bits_ stomping restored vector",
@@ -3927,7 +4008,7 @@ static void test_joy_source() {
         JoystickDispatcher jd(joy);
         jd.set_source(0, JoySource::CursorKeys);
         // An SDL controller event on a cursor-key connector is gated out.
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_DPAD_UP, true);
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_DPAD_UP, true);
         check("JSRC-D04", "SDL controller input ignored while source is CursorKeys",
               joy.joy_left_bits() == 0, DETAIL("joy_left=%03X", joy.joy_left_bits()));
     }
@@ -4061,7 +4142,7 @@ static void test_joy_source() {
     // --- Task 83: raw SDL_Joystick path (issue #13) -------------------------
     //
     // Devices with no SDL game-controller mapping emit only the SDL_JOY*
-    // family. Before Task 83 they were dropped at SDL_IsGameController() and
+    // family. Before Task 83 they were dropped at SDL_IsGamepad() and
     // never reached the dispatcher at all, so a plugged-in stick did nothing
     // and said nothing. These rows pin the positional raw mapping, the shared
     // axis/threshold behaviour, the hat decode, and the source gate on all
@@ -4267,9 +4348,9 @@ static void test_joy_source() {
         JoystickDispatcher jd(joy);
         jd.map_instance_to_slot(77, 0);
         SDL_Event e{};
-        e.type = SDL_JOYBUTTONDOWN; e.jbutton.which = 77; e.jbutton.button = 0;
+        e.type = SDL_EVENT_JOYSTICK_BUTTON_DOWN; e.jbutton.which = 77; e.jbutton.button = 0;
         const bool consumed = jd.handle_sdl_event(e);
-        check("JRAW-24", "SDL_JOYBUTTONDOWN routes via the instance map",
+        check("JRAW-24", "SDL_EVENT_JOYSTICK_BUTTON_DOWN routes via the instance map",
               consumed && jd.bits12(0) == 0x010,
               DETAIL("consumed=%d bits=%03X", (int)consumed, jd.bits12(0)));
     }
@@ -4277,13 +4358,13 @@ static void test_joy_source() {
         Joystick joy; joy.reset();
         JoystickDispatcher jd(joy);
         jd.map_instance_to_slot(77, 0);
-        SDL_Event down{}; down.type = SDL_JOYBUTTONDOWN;
+        SDL_Event down{}; down.type = SDL_EVENT_JOYSTICK_BUTTON_DOWN;
         down.jbutton.which = 77; down.jbutton.button = 0;
         jd.handle_sdl_event(down);
-        SDL_Event up{}; up.type = SDL_JOYBUTTONUP;
+        SDL_Event up{}; up.type = SDL_EVENT_JOYSTICK_BUTTON_UP;
         up.jbutton.which = 77; up.jbutton.button = 0;
         jd.handle_sdl_event(up);
-        check("JRAW-25", "SDL_JOYBUTTONUP clears the bit",
+        check("JRAW-25", "SDL_EVENT_JOYSTICK_BUTTON_UP clears the bit",
               jd.bits12(0) == 0x000, DETAIL("bits=%03X", jd.bits12(0)));
     }
     {
@@ -4291,10 +4372,10 @@ static void test_joy_source() {
         JoystickDispatcher jd(joy);
         jd.map_instance_to_slot(77, 1);
         SDL_Event e{};
-        e.type = SDL_JOYAXISMOTION; e.jaxis.which = 77; e.jaxis.axis = 1;
+        e.type = SDL_EVENT_JOYSTICK_AXIS_MOTION; e.jaxis.which = 77; e.jaxis.axis = 1;
         e.jaxis.value = -32768;
         const bool consumed = jd.handle_sdl_event(e);
-        check("JRAW-26", "SDL_JOYAXISMOTION routes to the mapped connector",
+        check("JRAW-26", "SDL_EVENT_JOYSTICK_AXIS_MOTION routes to the mapped connector",
               consumed && jd.bits12(1) == 0x008,
               DETAIL("consumed=%d bits=%03X", (int)consumed, jd.bits12(1)));
     }
@@ -4303,9 +4384,9 @@ static void test_joy_source() {
         JoystickDispatcher jd(joy);
         jd.map_instance_to_slot(77, 0);
         SDL_Event e{};
-        e.type = SDL_JOYHATMOTION; e.jhat.which = 77; e.jhat.value = SDL_HAT_LEFT;
+        e.type = SDL_EVENT_JOYSTICK_HAT_MOTION; e.jhat.which = 77; e.jhat.value = SDL_HAT_LEFT;
         const bool consumed = jd.handle_sdl_event(e);
-        check("JRAW-27", "SDL_JOYHATMOTION routes to the mapped connector",
+        check("JRAW-27", "SDL_EVENT_JOYSTICK_HAT_MOTION routes to the mapped connector",
               consumed && jd.bits12(0) == 0x002,
               DETAIL("consumed=%d bits=%03X", (int)consumed, jd.bits12(0)));
     }
@@ -4315,11 +4396,129 @@ static void test_joy_source() {
         Joystick joy; joy.reset();
         JoystickDispatcher jd(joy);
         SDL_Event e{};
-        e.type = SDL_JOYBUTTONDOWN; e.jbutton.which = 999; e.jbutton.button = 0;
+        e.type = SDL_EVENT_JOYSTICK_BUTTON_DOWN; e.jbutton.which = 999; e.jbutton.button = 0;
         const bool consumed = jd.handle_sdl_event(e);
         check("JRAW-28", "raw event from an unmapped device is refused",
               !consumed && jd.bits12(0) == 0x000 && jd.bits12(1) == 0x000,
               DETAIL("consumed=%d", (int)consumed));
+    }
+
+    // --- GH #57: SDL3's invalid instance id is 0, not -1 --------------------
+    //
+    // SDL2's SDL_JoystickID was SIGNED and used -1 for "invalid"; SDL3's is
+    // Uint32 and uses 0. The device map's free-entry marker is the same
+    // value, so the two meanings sit on top of each other and only an
+    // explicit rejection keeps them apart. Missing it is SILENT: a stray
+    // id-0 event would be mapped onto whatever connector the first free
+    // entry got claimed for, and the free-entry scan would then hand that
+    // same entry out again to a real device.
+    //
+    // No pre-existing row can fail on this — every one of them uses a
+    // nonzero id — which is exactly why it is written out here.
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        // Mapping the invalid id must be refused outright...
+        jd.map_instance_to_slot(0, 0);
+        SDL_Event zero{};
+        zero.type = SDL_EVENT_JOYSTICK_BUTTON_DOWN;
+        zero.jbutton.which = 0; zero.jbutton.button = 0;
+        const bool consumed_zero = jd.handle_sdl_event(zero);
+        const uint16_t after_zero = jd.bits12(0);
+
+        // ...and must not have consumed a table entry either: a REAL device
+        // arriving afterwards still gets slot 0 and still works.
+        jd.map_instance_to_slot(42, 0);
+        SDL_Event real{};
+        real.type = SDL_EVENT_JOYSTICK_BUTTON_DOWN;
+        real.jbutton.which = 42; real.jbutton.button = 0;
+        const bool consumed_real = jd.handle_sdl_event(real);
+
+        check("JRAW-29",
+              "instance id 0 (SDL3's invalid id) is never mapped nor resolved, "
+              "and does not consume a device-map entry (GH #57)",
+              !consumed_zero && after_zero == 0x000 &&
+              consumed_real && jd.bits12(0) != 0x000,
+              DETAIL("id0: consumed=%d bits=%03X | real id 42 after: consumed=%d "
+                     "bits=%03X", (int)consumed_zero, after_zero,
+                     (int)consumed_real, jd.bits12(0)));
+    }
+    {
+        // The unmap path writes the free marker back. Under SDL2 that marker
+        // was -1, which a Uint32 cannot hold: a mechanical type swap would
+        // have written 4294967295 and left the entry permanently occupied,
+        // so a reconnecting pad would find the table full.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.map_instance_to_slot(11, 0);
+        jd.map_instance_to_slot(12, 1);
+        jd.map_instance_to_slot(13, 0);
+        jd.map_instance_to_slot(14, 1);          // table (MAX_DEVICES=4) now full
+        jd.map_instance_to_slot(11, -1);         // unplug one
+        jd.map_instance_to_slot(11, -1);
+        jd.map_instance_to_slot(12, -1);
+        jd.map_instance_to_slot(13, -1);
+        jd.map_instance_to_slot(14, -1);         // unplug the rest
+        jd.map_instance_to_slot(55, 1);          // a fresh pad must fit again
+        SDL_Event e{};
+        e.type = SDL_EVENT_JOYSTICK_BUTTON_DOWN;
+        e.jbutton.which = 55; e.jbutton.button = 0;
+        const bool consumed = jd.handle_sdl_event(e);
+        check("JRAW-30",
+              "unmapping frees the device-map entry for reuse (the free marker "
+              "is 0, representable in SDL3's Uint32 id) and leaves the freed "
+              "entries carrying no connector (GH #57)",
+              consumed && jd.bits12(1) != 0x000 &&
+              jd.device_map_free_entries_are_clean(),
+              DETAIL("consumed=%d bits1=%03X free entries clean=%d",
+                     (int)consumed, jd.bits12(1),
+                     (int)jd.device_map_free_entries_are_clean()));
+    }
+
+    // GH #57 review: JRAW-29/30 above assert the OUTCOME, and an outcome test
+    // cannot see this table's real hazard. The invalid id and the free marker
+    // are the same value (0), and a free entry's slot is -1 — so an entry that
+    // has been corrupted into "free AND connector N" still answers "unmapped"
+    // to every public query. Mutating either half of the id-0 treatment away
+    // therefore passed all 342 rows. These two pin the INVARIANT the halves
+    // jointly maintain, which is the thing that actually breaks.
+    {
+        // JRAW-31 — the WRITE half. Refusing to store the invalid id is what
+        // stops the second pass claiming a free entry and writing 0 back into
+        // it. Aimed at connector 2 so a corrupted entry is unmistakable.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.map_instance_to_slot(0, 1);
+        check("JRAW-31",
+              "mapping the invalid id 0 leaves no device-map entry that is both "
+              "free and assigned to a connector (GH #57)",
+              jd.device_map_free_entries_are_clean(),
+              DETAIL("free entries clean = %d after map_instance_to_slot(0, 1)",
+                     (int)jd.device_map_free_entries_are_clean()));
+    }
+    {
+        // JRAW-32 — the READ half, plus the no-collateral-damage claim. With a
+        // live device already in the table, a lookup for the invalid id must
+        // not match any of the remaining FREE entries, and the live mapping
+        // must survive untouched. entry_matches() is what makes both true.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.map_instance_to_slot(42, 0);
+        const int before = jd.slot_for_instance(42);
+        jd.map_instance_to_slot(0, 1);
+        const int zero_slot = jd.slot_for_instance(0);
+        const int after     = jd.slot_for_instance(42);
+        check("JRAW-32",
+              "the invalid id matches no free entry and cannot disturb a live "
+              "mapping (GH #57)",
+              zero_slot < 0 && before == 0 && after == 0 &&
+              jd.device_map_free_entries_are_clean() &&
+              jd.instance_for_slot(1) == 0,
+              DETAIL("id0 -> slot %d (want <0); device 42: %d -> %d (want 0 -> 0); "
+                     "free entries clean = %d; connector 2 owner = %u",
+                     zero_slot, before, after,
+                     (int)jd.device_map_free_entries_are_clean(),
+                     (unsigned)jd.instance_for_slot(1)));
     }
 
     // --- Task 83: multi-source direction merge ------------------------------
@@ -4345,9 +4544,9 @@ static void test_joy_source() {
     {
         Joystick joy; joy.reset();
         JoystickDispatcher jd(joy);
-        jd.handle_axis(0, SDL_CONTROLLER_AXIS_LEFTX, -32768);   // stick LEFT
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_DPAD_LEFT, true);
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_DPAD_LEFT, false);
+        jd.handle_axis(0, SDL_GAMEPAD_AXIS_LEFTX, -32768);   // stick LEFT
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_DPAD_LEFT, true);
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_DPAD_LEFT, false);
         check("JMRG-02", "D-pad release keeps a direction the analogue stick still holds",
               jd.bits12(0) == 0x002, DETAIL("bits=%03X", jd.bits12(0)));
     }
@@ -4451,7 +4650,7 @@ static void test_joy_source() {
         // Restore with LEFT held, as a rewind mid-press would.
         joy.set_joy_left(0x002);
         jd.resync();
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_DPAD_LEFT, false);   // release
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_DPAD_LEFT, false);   // release
         check("JRST-01", "D-pad release after resync clears a restored direction",
               jd.bits12(0) == 0x000 && joy.joy_left_bits() == 0x000,
               DETAIL("bits=%03X joy=%03X", jd.bits12(0), joy.joy_left_bits()));
@@ -4491,7 +4690,7 @@ static void test_joy_source() {
         JoystickDispatcher jd(joy);
         joy.set_joy_left(0x002);                                        // LEFT held
         jd.resync();
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_A, true);             // fire
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_SOUTH, true);             // fire
         check("JRST-05", "fire press after resync preserves the restored direction",
               jd.bits12(0) == 0x012, DETAIL("bits=%03X", jd.bits12(0)));
     }
@@ -4502,7 +4701,7 @@ static void test_joy_source() {
         JoystickDispatcher jd(joy);
         joy.set_joy_left(0x002);                                        // LEFT held
         jd.resync();
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_DPAD_RIGHT, true);
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_DPAD_RIGHT, true);
         check("JRST-06", "a live direction supersedes the restored guess entirely",
               jd.bits12(0) == 0x001, DETAIL("bits=%03X", jd.bits12(0)));
     }
@@ -4522,7 +4721,7 @@ static void test_joy_source() {
         JoystickDispatcher jd(joy);
         joy.set_joy_left(0x00A);                       // UP+LEFT held (diagonal)
         jd.resync();
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_DPAD_LEFT, false);   // release LEFT
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_DPAD_LEFT, false);   // release LEFT
         check("JRST-07", "D-pad release supersedes only its own pair, UP survives",
               jd.bits12(0) == 0x008, DETAIL("bits=%03X", jd.bits12(0)));
     }
@@ -4563,7 +4762,7 @@ static void test_joy_source() {
         JoystickDispatcher jd(joy);
         joy.set_joy_left(0x00A);                       // UP+LEFT
         jd.resync();
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_DPAD_RIGHT, true);
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_DPAD_RIGHT, true);
         check("JRST-11", "pressing the opposing direction replaces its pair only",
               jd.bits12(0) == 0x009, DETAIL("bits=%03X", jd.bits12(0)));
     }
@@ -4715,11 +4914,11 @@ static void test_t77_joy() {
     }
 
     // --- controller (SDL game-controller DB) path -------------------------
-    // T77J-13/14: SDL_CONTROLLER_BUTTON_Y → START (bit 7), Md3Left-gated.
+    // T77J-13/14: SDL_GAMEPAD_BUTTON_NORTH → START (bit 7), Md3Left-gated.
     // Y is a FACE button; it previously sat on MODE and was equally dead.
     {
-        uint8_t d = btn_1f(Joystick::Mode::Md3Left,   SDL_CONTROLLER_BUTTON_Y);
-        uint8_t k = btn_1f(Joystick::Mode::Kempston1, SDL_CONTROLLER_BUTTON_Y);
+        uint8_t d = btn_1f(Joystick::Mode::Md3Left,   SDL_GAMEPAD_BUTTON_NORTH);
+        uint8_t k = btn_1f(Joystick::Mode::Kempston1, SDL_GAMEPAD_BUTTON_NORTH);
         check("T77J-13", "controller Y → START, bit7 set in Md3Left",
               d == 0x80, DETAIL("got=0x%02X", d));
         check("T77J-14", "controller Y → START, bit7 GATED OFF in Kempston1",
@@ -4731,10 +4930,10 @@ static void test_t77_joy() {
         JoystickDispatcher jd(j);
         jd.set_source(0, JoySource::Sdl);
         j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Sinclair2);
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_A, true);
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_B, true);
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_X, true);
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_Y, true);
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_SOUTH, true);
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_EAST, true);
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_WEST, true);
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_NORTH, true);
         uint8_t v = j.read_port_1f();
         check("T77J-15", "controller A/B/X/Y → bits 7:4 (0xF0) in Md3Left",
               v == 0xF0, DETAIL("got=0x%02X", v));
@@ -4745,14 +4944,14 @@ static void test_t77_joy() {
         Joystick j; j.reset();
         JoystickDispatcher jd(j);
         jd.set_source(0, JoySource::Sdl);
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_BACK, true);
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_BACK, true);
         check("T77J-16", "controller BACK → MODE, bit 11 of the vector",
               jd.bits12(0) == 0x800, DETAIL("bits=%03X", jd.bits12(0)));
     }
     // T77J-17: START button still drives START (Y aliases onto it, it is not
     // displaced by it).
     {
-        uint8_t d = btn_1f(Joystick::Mode::Md3Left, SDL_CONTROLLER_BUTTON_START);
+        uint8_t d = btn_1f(Joystick::Mode::Md3Left, SDL_GAMEPAD_BUTTON_START);
         check("T77J-17", "controller START still → START bit7 in Md3Left",
               d == 0x80, DETAIL("got=0x%02X", d));
     }
@@ -5331,9 +5530,9 @@ static void test_nr_b2() {
     {
         Joystick j;
         JoystickDispatcher jd(j);
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_LEFTSHOULDER,  true);
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, true);
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_A,             true);
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER,  true);
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, true);
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_SOUTH,             true);
         const uint8_t v = j.nr_b2_byte();
         check("NRB2-16", "controller shoulders → L.X / L.Z; face button does not",
               v == (0x08 | 0x04), DETAIL("got=0x%02X want=0x%02X", v, 0x08 | 0x04));
@@ -5346,7 +5545,7 @@ static void test_nr_b2() {
     {
         Joystick j;
         JoystickDispatcher jd(j);
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_LEFTSHOULDER, true);
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, true);
         const uint8_t v = j.nr_b2_byte();
         check("NRB2-19", "LEFTSHOULDER alone → L.X (bit 3)",
               v == 0x08, DETAIL("got=0x%02X want=0x08", v));
@@ -5354,7 +5553,7 @@ static void test_nr_b2() {
     {
         Joystick j;
         JoystickDispatcher jd(j);
-        jd.handle_button(0, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, true);
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, true);
         const uint8_t v = j.nr_b2_byte();
         check("NRB2-20", "RIGHTSHOULDER alone → L.Z (bit 2)",
               v == 0x04, DETAIL("got=0x%02X want=0x04", v));

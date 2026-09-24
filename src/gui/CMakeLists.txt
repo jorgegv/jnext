@@ -1,7 +1,7 @@
 # JNEXT_QT_MAJOR (5 or 6) is decided once in the root CMakeLists (GH #108
 # Phase A); Qt6 is the default whenever present.
 find_package(Qt${JNEXT_QT_MAJOR} REQUIRED COMPONENTS Widgets)
-find_package(SDL2 REQUIRED)
+find_package(SDL3 REQUIRED)
 # std::thread in sdcard_download_dialog.cpp (SD-image busy dialog) — link the
 # platform threads library explicitly so the MinGW/macOS release legs link it
 # too (glibc >= 2.34 folds pthread into libc, but the cross builds may not).
@@ -18,7 +18,7 @@ set_target_properties(jnext_gui PROPERTIES AUTOMOC ON)
 
 target_link_libraries(jnext_gui PUBLIC
     Qt${JNEXT_QT_MAJOR}::Widgets
-    SDL2::SDL2
+    ${JNEXT_SDL3_TARGET}
     spdlog::spdlog
     Threads::Threads
     jnext_core jnext_cpu jnext_memory

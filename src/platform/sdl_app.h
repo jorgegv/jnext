@@ -1,5 +1,5 @@
 #pragma once
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 #include <memory>
 #include <string>
 #include "sdl_display.h"
@@ -103,8 +103,8 @@ private:
     bool mouse_captured_ = false;
     void set_mouse_captured(bool on);
 
-    // Joystick / gamepad host adapter — wires SDL_CONTROLLER* events into
-    // the emulator's Joystick and owns the SDL_GameController lifecycle for
+    // Joystick / gamepad host adapter — wires SDL_EVENT_GAMEPAD_* events into
+    // the emulator's Joystick and owns the SDL_Gamepad lifecycle for
     // the two Next pad headers. Created in init() once emulator_ is bound.
     // Closes G42 (JOY-WIRE-02/03/04); Task 79 moved the controller
     // open/close/route logic into the shared GamepadHost.
@@ -153,7 +153,8 @@ private:
     // --speed (see set_speed_percent()); 1.0 = real time.
     double      speed_multiplier_ = 1.0;
     // SDL_GetTicks() of the last present, for the >1x present throttle.
-    uint32_t    last_present_ms_ = 0;
+    // Uint64-wide because SDL3's SDL_GetTicks() is (SDL2's was Uint32).
+    uint64_t    last_present_ms_ = 0;
 
     // Pending --rzx-play / --rzx-record, started at the top of run().
     std::string rzx_play_file_;

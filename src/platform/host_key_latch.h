@@ -64,10 +64,12 @@
 /// beats none, and the residue is documented rather than dressed up.
 namespace host_key_latch {
 
-/// SDL_NUM_SCANCODES. Hard-coded rather than included so this header stays
-/// pure (no SDL dependency) and unit-testable on its own; the wiring in
-/// src/gui/qt_app.cpp is what feeds it real SDL_Scancode values, and anything
-/// out of range is passed through unlatched.
+/// SDL_SCANCODE_COUNT — still 512 in SDL 3.4.16, exactly as SDL2's
+/// SDL_NUM_SCANCODES was; the constant was renamed, not renumbered (GH #57).
+/// Hard-coded rather than included so this header stays pure (no SDL
+/// dependency) and unit-testable on its own; the wiring in src/gui/qt_app.cpp
+/// is what feeds it real SDL_Scancode values, and anything out of range is
+/// passed through unlatched.
 inline constexpr int MAX_KEYS = 512;
 
 class Latch {

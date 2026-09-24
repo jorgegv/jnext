@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <vector>
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 
 // Forward decl: MembraneStick (Task 3 Input) is wired as an optional
 // upstream joystick-to-keyboard adapter. Runtime (full Emulator) installs
@@ -215,7 +215,7 @@ private:
     /// Spectrum's membrane, not which physical host keys happen to be down.
     /// reset() clears them so a machine reset cannot leave a stale latch.
     bool alt_held_ = false;
-    bool alt_variant_[SDL_NUM_SCANCODES] = {};
+    bool alt_variant_[SDL_SCANCODE_COUNT] = {};
 
     /// Non-owning back-pointer to the owning MembraneStick (installed by
     /// Emulator via set_membrane_stick()). Null in bare-Keyboard unit

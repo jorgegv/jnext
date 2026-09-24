@@ -2,13 +2,13 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 #include "input/joy_source.h"
 
 class Joystick;
 
-/// Host-side dispatcher: translates SDL_CONTROLLERBUTTONDOWN/UP and
-/// SDL_CONTROLLERAXISMOTION events into Joystick raw 12-bit per-connector
+/// Host-side dispatcher: translates SDL_EVENT_GAMEPAD_BUTTON_DOWN/UP and
+/// SDL_EVENT_GAMEPAD_AXIS_MOTION events into Joystick raw 12-bit per-connector
 /// vectors. Closes plan rows JOY-WIRE-02/03/04 (gap G42).
 ///
 /// This class plays the role of the host-side adapter for the two physical
@@ -56,19 +56,19 @@ class Joystick;
 ///
 /// **Button mapping** (SDL → Kempston/MD6 logical bits):
 ///
-///   SDL_CONTROLLER_BUTTON_A             → bit 4  (B / Fire 1)
-///   SDL_CONTROLLER_BUTTON_B             → bit 5  (C / Fire 2)
-///   SDL_CONTROLLER_BUTTON_X             → bit 6  (A — MD3 lower-row)
-///   SDL_CONTROLLER_BUTTON_Y             → bit 7  (START — aliased with the
+///   SDL_GAMEPAD_BUTTON_SOUTH             → bit 4  (B / Fire 1)
+///   SDL_GAMEPAD_BUTTON_EAST             → bit 5  (C / Fire 2)
+///   SDL_GAMEPAD_BUTTON_WEST             → bit 6  (A — MD3 lower-row)
+///   SDL_GAMEPAD_BUTTON_NORTH             → bit 7  (START — aliased with the
 ///                                         START button; see the .cpp note)
-///   SDL_CONTROLLER_BUTTON_START         → bit 7  (START)
-///   SDL_CONTROLLER_BUTTON_BACK          → bit 11 (MODE — MD6 latch, no port)
-///   SDL_CONTROLLER_BUTTON_LEFTSHOULDER  → bit 10 (X — MD6 latch, no port)
-///   SDL_CONTROLLER_BUTTON_RIGHTSHOULDER → bit  9 (Z — MD6 latch, no port)
-///   SDL_CONTROLLER_BUTTON_DPAD_UP       → bit 3  (U)
-///   SDL_CONTROLLER_BUTTON_DPAD_DOWN     → bit 2  (D)
-///   SDL_CONTROLLER_BUTTON_DPAD_LEFT     → bit 1  (L)
-///   SDL_CONTROLLER_BUTTON_DPAD_RIGHT    → bit 0  (R)
+///   SDL_GAMEPAD_BUTTON_START         → bit 7  (START)
+///   SDL_GAMEPAD_BUTTON_BACK          → bit 11 (MODE — MD6 latch, no port)
+///   SDL_GAMEPAD_BUTTON_LEFT_SHOULDER  → bit 10 (X — MD6 latch, no port)
+///   SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER → bit  9 (Z — MD6 latch, no port)
+///   SDL_GAMEPAD_BUTTON_DPAD_UP       → bit 3  (U)
+///   SDL_GAMEPAD_BUTTON_DPAD_DOWN     → bit 2  (D)
+///   SDL_GAMEPAD_BUTTON_DPAD_LEFT     → bit 1  (L)
+///   SDL_GAMEPAD_BUTTON_DPAD_RIGHT    → bit 0  (R)
 ///
 /// **Raw (non-controller-DB) pads** — `handle_raw_button()` maps button
 /// INDICES positionally onto the same four reachable bits:
@@ -77,7 +77,7 @@ class Joystick;
 ///   raw 3 → bit 7 (START)                   raw 4 → bit 11 (MODE)
 ///   raw 5 → bit 10 (X)  raw 6 → bit 8 (Y)   raw 7 → bit  9 (Z)
 ///
-/// **Axis mapping** (SDL_CONTROLLERAXISMOTION):
+/// **Axis mapping** (SDL_EVENT_GAMEPAD_AXIS_MOTION):
 ///
 ///   left-stick X / RIGHT_X axes  → digital L (bit 1) / R (bit 0)
 ///   left-stick Y / RIGHT_Y axes  → digital U (bit 3) / D (bit 2)
@@ -150,21 +150,21 @@ public:
 
     // ── Transport-agnostic API ──────────────────────────────────────────
 
-    /// SDL_CONTROLLERBUTTONDOWN/UP → set/clear the corresponding 12-bit
+    /// SDL_EVENT_GAMEPAD_BUTTON_DOWN/UP → set/clear the corresponding 12-bit
     /// vector bit for the indicated connector. Out-of-range connector
     /// indices (>= NUM_CONNECTORS) are silently ignored — this is the
     /// JOY-WIRE-04 routing policy. Unmapped SDL buttons (e.g. LEFT/RIGHT
     /// shoulders, GUIDE) are also ignored.
     ///
-    /// `sdl_button` is one of the SDL_GameControllerButton enum values
-    /// (SDL_CONTROLLER_BUTTON_A etc.). `pressed` selects down vs. up. The
+    /// `sdl_button` is one of the SDL_GamepadButton enum values
+    /// (SDL_GAMEPAD_BUTTON_SOUTH etc.). `pressed` selects down vs. up. The
     /// updated 12-bit vector is re-emitted to the bound Joystick on every
     /// change via `set_joy_left()` / `set_joy_right()`.
     void handle_button(int controller_idx, uint8_t sdl_button, bool pressed);
 
-    /// SDL_CONTROLLERAXISMOTION → apply digital threshold to derive the
+    /// SDL_EVENT_GAMEPAD_AXIS_MOTION → apply digital threshold to derive the
     /// U/D/L/R bits for the indicated connector. `sdl_axis` is one of the
-    /// SDL_GameControllerAxis enum values; `value` is the signed 16-bit
+    /// SDL_GamepadAxis enum values; `value` is the signed 16-bit
     /// axis position. The updated 12-bit vector is re-emitted on every
     /// transition that changes a D-pad bit.
     ///
@@ -178,7 +178,7 @@ public:
     //
     // Devices SDL has no game-controller mapping for (older USB sticks, many
     // generic pads, the Logitech WingMan Precision, …) never produce
-    // SDL_CONTROLLER* events at all — SDL_IsGameController() is false and only
+    // SDL_EVENT_GAMEPAD_* events at all — SDL_IsGamepad() is false and only
     // the raw SDL_JOY* event family is emitted. Before Task 83 those devices
     // were dropped outright, which is issue #13: the pad is plugged in, and
     // jnext neither uses nor mentions it.
@@ -200,16 +200,16 @@ public:
     // Axis and hat both fold into the SAME direction bits as the controller
     // path, so a stick with both a hat and an X/Y axis pair works either way.
 
-    /// SDL_JOYBUTTONDOWN/UP → set/clear the logical bit for `raw_button`
-    /// (a positional index, not an SDL_GameControllerButton). Buttons beyond
+    /// SDL_EVENT_JOYSTICK_BUTTON_DOWN/UP → set/clear the logical bit for `raw_button`
+    /// (a positional index, not an SDL_GamepadButton). Buttons beyond
     /// the mapped range are ignored.
     void handle_raw_button(int connector_idx, uint8_t raw_button, bool pressed);
 
-    /// SDL_JOYAXISMOTION → digital threshold on raw axis index `raw_axis`
+    /// SDL_EVENT_JOYSTICK_AXIS_MOTION → digital threshold on raw axis index `raw_axis`
     /// (0 = X, 1 = Y). Other axes are ignored.
     void handle_raw_axis(int connector_idx, uint8_t raw_axis, int16_t value);
 
-    /// SDL_JOYHATMOTION → set the four direction bits from an SDL_HAT_* mask.
+    /// SDL_EVENT_JOYSTICK_HAT_MOTION → set the four direction bits from an SDL_HAT_* mask.
     /// A centred hat (SDL_HAT_CENTERED) clears that hat's contribution only.
     /// `hat_index` is SDL's per-device hat number: a device with several hats
     /// keeps one mask each and they OR together, so centring one does not
@@ -219,12 +219,12 @@ public:
     // ── Production wiring ───────────────────────────────────────────────
 
     /// Convenience entry point for the SDL event loop: dispatches any of
-    /// SDL_CONTROLLERBUTTONDOWN / SDL_CONTROLLERBUTTONUP /
-    /// SDL_CONTROLLERAXISMOTION into the transport-agnostic API. Other
+    /// SDL_EVENT_GAMEPAD_BUTTON_DOWN / SDL_EVENT_GAMEPAD_BUTTON_UP /
+    /// SDL_EVENT_GAMEPAD_AXIS_MOTION into the transport-agnostic API. Other
     /// event types are ignored (returns false). Returns true if the
     /// event was a controller event the dispatcher consumed.
     ///
-    /// SDL's `cbutton.which` / `caxis.which` field is an
+    /// SDL's `gbutton.which` / `gaxis.which` field is an
     /// `SDL_JoystickID` (the device-instance id assigned at open time);
     /// we rely on the host (SdlApp) to translate that id into a
     /// connector slot 0..NUM_CONNECTORS-1 BEFORE calling the
@@ -233,13 +233,57 @@ public:
     bool handle_sdl_event(const SDL_Event& e);
 
     /// Register a host-resolved (instance-id → connector slot) mapping.
-    /// SdlApp calls this on SDL_CONTROLLERDEVICEADDED with the
-    /// `cdevice.which` joystick instance-id and the desired slot. Calling
+    /// SdlApp calls this on SDL_EVENT_GAMEPAD_ADDED with the
+    /// `gdevice.which` joystick instance-id and the desired slot. Calling
     /// with `slot < 0` removes the mapping. Slots >= NUM_CONNECTORS are
     /// rejected (no-op).
-    void map_instance_to_slot(int32_t sdl_instance_id, int slot);
+    ///
+    /// Instance id 0 is SDL3's INVALID id (SDL_JoystickID is Uint32 and 0
+    /// never names a device — SDL2's id was signed with -1 for invalid).
+    /// It is rejected outright: it is also this table's "entry is free"
+    /// marker, so storing it would leave an entry that is both free and
+    /// mapped to a connector. See the comment above the definition in
+    /// joystick_dispatcher.cpp for the two halves of that treatment.
+    void map_instance_to_slot(SDL_JoystickID sdl_instance_id, int slot);
 
     // ── Test introspection ──────────────────────────────────────────────
+
+    /// True while every FREE device-map entry (instance id 0) also carries no
+    /// connector slot — the "id 0 means free means slot -1" coupling that the
+    /// whole id-0 treatment exists to preserve.
+    ///
+    /// White-box on purpose. Corrupting that coupling has NO behavioural
+    /// consequence on its own (a free entry's slot is -1, so even a wrong
+    /// match answers "unmapped"), which is exactly why the guards were
+    /// unpinnable through the public API and why a mutation of either one
+    /// used to pass every row. Asserting the invariant directly is the only
+    /// way to make the defect visible at the moment it is introduced instead
+    /// of when some later change starts trusting the slot field.
+    bool device_map_free_entries_are_clean() const {
+        for (const auto& d : device_map_) {
+            if (d.instance_id == 0 && d.slot >= 0) return false;
+        }
+        return true;
+    }
+
+    /// Connector slot currently mapped to `sdl_instance_id`, or -1 when the
+    /// device is not mapped. Exposes the host-side device map so a test can
+    /// assert WHERE GamepadHost put a device, not merely that some connector
+    /// moved (GH #57).
+    int slot_for_instance(SDL_JoystickID sdl_instance_id) const {
+        return resolve_instance_to_slot(sdl_instance_id);
+    }
+
+    /// Instance id currently mapped to connector `slot`, or 0 — SDL3's
+    /// invalid id, which is also this table's free marker — when that
+    /// connector holds no device.
+    SDL_JoystickID instance_for_slot(int slot) const {
+        if (slot < 0 || slot >= NUM_CONNECTORS) return 0;
+        for (const auto& d : device_map_) {
+            if (d.instance_id != 0 && d.slot == slot) return d.instance_id;
+        }
+        return 0;
+    }
 
     /// Current 12-bit vector for connector `idx` (0 or 1). Mirrors what
     /// was last forwarded to Joystick::set_joy_left() / set_joy_right().
@@ -327,13 +371,41 @@ private:
 
     // SDL instance-id → connector slot translation. SDL emits events
     // tagged with the joystick instance-id, NOT the controller index, so
-    // we maintain a host-installed dispatch map. -1 means "not mapped".
+    // we maintain a host-installed dispatch map. instance_id == 0 means
+    // "entry free" — SDL3's SDL_JoystickID is Uint32 with 0 as the invalid
+    // id, so it can never collide with a real device (under SDL2 the
+    // corresponding marker was -1, which a Uint32 cannot hold: a mechanical
+    // type swap without changing this constant would have made every entry
+    // look permanently occupied by device 4294967295).
     // Keep this small and fixed-size — a plain linear scan is faster than
     // a std::unordered_map for ≤4 entries on every controller event.
     struct DeviceSlot {
-        int32_t instance_id = -1;
-        int     slot        = -1;
+        SDL_JoystickID instance_id = 0;
+        int            slot        = -1;
     };
+
+    // The ONE place that decides whether a table entry belongs to `id`.
+    //
+    // It has to say "in use" explicitly, because the free marker and SDL3's
+    // invalid id are the SAME VALUE (0). A plain `d.instance_id == id` test
+    // would therefore match EVERY free entry when asked about the invalid id.
+    // Both readers go through this, so the disambiguation is written once
+    // rather than copied per call site — which is what let an earlier version
+    // carry two hand-written guards that were each removable without a single
+    // row failing.
+    //
+    // HONEST NOTE ON WHAT PINS THIS. Removing the `!= 0` term alone changes no
+    // observable behaviour, and that was MEASURED, not assumed: a free entry's
+    // slot is -1, so matching one still answers "unmapped". What the term buys
+    // is that the answer stays right if a free entry ever stops carrying -1 —
+    // e.g. an unmap that clears instance_id but leaves slot alone. That is the
+    // realistic future defect, and it is caught: it breaks the free-entry
+    // invariant, which JRAW-30/31/32 assert directly. So the term is the
+    // safety net and the invariant rows are the tripwire; neither pretends to
+    // be the other.
+    static bool entry_matches(const DeviceSlot& d, SDL_JoystickID id) {
+        return d.instance_id != 0 && d.instance_id == id;
+    }
     static constexpr int MAX_DEVICES = 4;  // SDL allows many; we map up to 4
     std::array<DeviceSlot, MAX_DEVICES> device_map_{};
 
@@ -342,6 +414,6 @@ private:
     void emit_to_joystick(int idx);
 
     // Helper: translate SDL_JoystickID → connector slot via device_map_.
-    // Returns -1 if not mapped.
-    int  resolve_instance_to_slot(int32_t sdl_instance_id) const;
+    // Returns -1 if not mapped, and always for the invalid id 0.
+    int  resolve_instance_to_slot(SDL_JoystickID sdl_instance_id) const;
 };

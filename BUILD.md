@@ -20,14 +20,14 @@ bundling, the `.app` bundle deployment and its verification — lives in
 **Fedora / RHEL:**
 
 ```sh
-sudo dnf install SDL2-devel cmake gcc-c++ qt6-qtbase-devel libpng-devel \
+sudo dnf install SDL3-devel cmake gcc-c++ qt6-qtbase-devel libpng-devel \
                  zlib-devel libcurl-devel openssl-devel
 ```
 
 **Debian / Ubuntu:**
 
 ```sh
-sudo apt install libsdl2-dev cmake g++ qt6-base-dev libpng-dev \
+sudo apt install libsdl3-dev cmake g++ qt6-base-dev libpng-dev \
                  zlib1g-dev libcurl4-openssl-dev libssl-dev
 ```
 
@@ -106,7 +106,7 @@ targets: build variants, per-variant `-run`/`-clean`, tests, packaging, versioni
 | Target | Description |
 |--------|-------------|
 | `make package-rpm` / `package-deb` | Fedora/RHEL `.rpm` / Debian/Ubuntu `.deb` |
-| `make package-win` | Windows `.zip` (exe + bundled Qt6/SDL2 DLLs + plugins) |
+| `make package-win` | Windows `.zip` (exe + bundled Qt6/SDL3 DLLs + plugins) |
 | `make package-flatpak` / `package-src` | Flatpak bundle / source tarball |
 | `make package-test` | Build every package (except macOS) and check each artifact |
 
@@ -132,7 +132,7 @@ The `make` targets pass these for you; use them when invoking CMake directly.
 | `ENABLE_TESTS`    | ON      | Build the unit-test binaries                                                                                                         |
 | `USE_CCACHE`      | ON      | Use ccache as the compiler launcher when it is found (no-op if it is not)                                                            |
 | `CYCLE_ACCURATE`  | OFF     | 28 MHz cycle-accurate mode                                                                                                           |
-| `STATIC_BUILD`    | OFF     | Link statically (needs static SDL2/Qt6 builds)                                                                                       |
+| `STATIC_BUILD`    | OFF     | Link statically (needs static SDL3/Qt6 builds)                                                                                       |
 
 Directly, without the Makefile:
 
