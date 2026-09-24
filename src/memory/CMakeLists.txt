@@ -10,4 +10,6 @@ target_include_directories(jnext_memory PUBLIC ${CMAKE_SOURCE_DIR}/src)
 # jnext_peripheral and jnext_debug so consumers (jnext_cpu and any test
 # executable that links jnext_memory transitively) resolve those symbols
 # in Release builds where the optimizer leaves them as external calls.
-target_link_libraries(jnext_memory PUBLIC spdlog::spdlog jnext_peripheral jnext_debug)
+# jnext_save carries the GH #27 `StateDesc` descriptor layer: ram.cpp's and
+# mmu.cpp's save_state/load_state are a walk of its declaration (stage S3).
+target_link_libraries(jnext_memory PUBLIC spdlog::spdlog jnext_peripheral jnext_debug jnext_save)
