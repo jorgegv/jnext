@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <vector>
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// Convert a ZX RGB333 colour (3 bits each, as used internally on the ZX Next)
 /// to ARGB8888.
 uint32_t rgb333_to_argb8888(uint8_t r3, uint8_t g3, uint8_t b3);
@@ -458,6 +460,11 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S4 — the ONE field list (design §9.2). `save_state` /
+    /// `load_state` are both a walk of this declaration, so the rewind
+    /// stream and a `.jns` cannot disagree about which fields exist.
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     // Internal RGB333 storage (uint16_t, bits 8:0 = RRRGGGBBB).

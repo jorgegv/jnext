@@ -7,6 +7,8 @@
 class Ram;
 class PaletteManager;
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// ZX Spectrum Next sprite engine — 128 hardware sprites, 16x16 pixels each.
 ///
 /// Implements the sprite subsystem as defined in the FPGA VHDL (sprites.vhd).
@@ -393,6 +395,9 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S4 — the ONE field list (design §9.2).
+    void describe_state(jnext::save::StateDesc& d);
 
     // -----------------------------------------------------------------
     // Debug / introspection accessors

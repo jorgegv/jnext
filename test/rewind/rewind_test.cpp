@@ -29,6 +29,7 @@
 #include "video/ula.h"
 #include "memory/rom.h"
 #include "port/nextreg.h"
+#include "peripheral/copper.h"
 #include "save/state_desc.h"
 
 #include <cstring>
@@ -2310,6 +2311,725 @@ static int test_s3_restore_behaviour()
     return 0;
 }
 
+
+// ── Test 19: GH #27 S4 — the video declarations ───────────────────────────
+//
+// S4 replaced eight hand-written save_state/load_state pairs with a walk of
+// one `describe_state` declaration each. The MIGRATION was proved by the
+// §17.1 byte-identity gate: the warm-start recording of a booted NextZXOS
+// machine re-extracted after every subsystem and `cmp`ed against the
+// pre-migration image, 2 292 965 bytes, clean each time. That gate is a
+// one-shot scaffold — it needs a pre-migration build to have produced the
+// golden — so it cannot be a row here, exactly as S3 found.
+//
+// What CAN be a row is the LAYOUT the gate proved. The expected lists below
+// are a TRANSCRIPTION of the PRE-MIGRATION `save_state` bodies (the code that
+// wrote the golden) plus the block widths the golden's sentinel map reports —
+// NOT a re-derivation from the new declarations, which would only prove
+// self-consistency (`feedback_self_consistent_generated_data`).
+//
+// The six widths below are exactly the block lengths that map reports:
+// palette 4 622 (block 6), layer2 12 (7), sprites 17 039 (8), tilemap 26 (9),
+// renderer+ULA+LoRes 3 688 (10), copper 2 057 (11).
+
+static int test_s4_descriptor_layout()
+{
+    printf("\n--- Test 19: GH #27 S4 video descriptor declarations ---\n");
+
+    Emulator emu;
+    build_emulator(emu, 2);
+
+    std::vector<std::pair<std::string, std::vector<std::string>>> all_decls;
+
+    // ── PaletteManager — block 6, 4 622 bytes ────────────────────────────
+    //
+    // The four `uint16_t` stores and the priority store are §9.4's loop
+    // collapse: ten `for` statements became five declarations. Each width is
+    // the loop's own: 2 banks x 256 entries x sizeof(element).
+    {
+        static const char* const want[] = {
+            "bytes ula_rgb333 1024",
+            "bytes layer2_rgb333 1024",
+            "bytes sprite_rgb333 1024",
+            "bytes tilemap_rgb333 1024",
+            "u8 control 1",
+            "u8 index 1",
+            "enum8 target_palette 1",
+            "bool auto_inc_disabled 1",
+            "bool active_ula_second 1",
+            "bool active_l2_second 1",
+            "bool active_spr_second 1",
+            "bool active_tm_second 1",
+            "bool ulanext_mode 1",
+            "bool nine_bit_first_written 1",
+            "u8 nine_bit_first_byte 1",
+            "u8 global_transparency 1",
+            "u8 sprite_transparency 1",
+            "u8 tilemap_transparency 1",
+            "bytes layer2_priority 512",
+        };
+        s3::RecordDesc rec;
+        emu.palette().describe_state(rec);
+        all_decls.push_back({"palette", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S4-DECL-PALETTE: %s\n", d.c_str());
+        check("S4-DECL-PALETTE", d.empty(),
+              "PaletteManager declares the four RGB333 stores, the "
+              "14 scalars and the Layer 2 priority store in the "
+              "order the golden carries them");
+        check("S4-WIDTH-PALETTE", rec.width() == 4622,
+              "PaletteManager's declaration is 4 622 bytes wide — block 6 of "
+              "the 2 292 965-byte stream");
+    }
+
+    // ── Layer2 — block 7, 12 bytes ───────────────────────────────────────
+    {
+        static const char* const want[] = {
+            "u8 active_bank 1",
+            "u8 shadow_bank 1",
+            "u16 scroll_x 2",
+            "u8 scroll_y 1",
+            "u8 palette_offset 1",
+            "u8 resolution 1",
+            "bool enabled 1",
+            "u8 clip_x1 1", "u8 clip_x2 1", "u8 clip_y1 1", "u8 clip_y2 1",
+        };
+        s3::RecordDesc rec;
+        emu.layer2().describe_state(rec);
+        all_decls.push_back({"layer2", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S4-DECL-LAYER2: %s\n", d.c_str());
+        check("S4-DECL-LAYER2", d.empty(),
+              "Layer2 declares its 11 registers in stream order");
+        check("S4-WIDTH-LAYER2", rec.width() == 12,
+              "Layer2's declaration is 12 bytes wide — block 7");
+    }
+
+    // ── SpriteEngine — block 8, 17 039 bytes ─────────────────────────────
+    //
+    // `attributes` is the 128-sprite loop collapsed: 128 x 5 = 640 bytes, the
+    // exact count the five `write_u8` sites produced. `pattern_ram` is a
+    // BLOB and not `bytes` — §6.1 names it, a peripheral store at or above
+    // 8 KB.
+    {
+        static const char* const want[] = {
+            "bytes attributes 640",
+            "blob pattern_ram 16384",
+            "u8 attr_slot 1",
+            "u8 attr_byte 1",
+            "u16 pattern_offset 2",
+            "u8 pattern_slot_msb 1",
+            "bool sprites_visible 1",
+            "bool over_border 1",
+            "bool zero_on_top 1",
+            "u8 clip_x1 1", "u8 clip_x2 1", "u8 clip_y1 1", "u8 clip_y2 1",
+            "bool collision 1",
+            "bool max_sprites 1",
+            "bool border_clip_en 1",
+        };
+        s3::RecordDesc rec;
+        emu.sprites().describe_state(rec);
+        all_decls.push_back({"sprites", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S4-DECL-SPRITES: %s\n", d.c_str());
+        check("S4-DECL-SPRITES", d.empty(),
+              "SpriteEngine declares the 640-byte attribute file, "
+              "the 16 KB pattern blob and the 15 control bytes");
+        check("S4-WIDTH-SPRITES", rec.width() == 17039,
+              "SpriteEngine's declaration is 17 039 bytes wide — block 8");
+    }
+
+    // ── Tilemap — block 9, 26 bytes ──────────────────────────────────────
+    {
+        static const char* const want[] = {
+            "u8 control_raw 1",
+            "bool enabled 1",
+            "bool mode_80col 1",
+            "bool text_mode 1",
+            "bool force_attr 1",
+            "bool mode_512 1",
+            "bool ula_on_top 1",
+            "u8 default_attr 1",
+            "u8 map_base_raw 1",
+            "u8 def_base_raw 1",
+            "u32 map_base_addr 4",
+            "u32 def_base_addr 4",
+            "u16 scroll_x 2",
+            "u8 scroll_y 1",
+            "u8 clip_x1 1", "u8 clip_x2 1", "u8 clip_y1 1", "u8 clip_y2 1",
+            "bool palette_sel 1",
+        };
+        s3::RecordDesc rec;
+        emu.tilemap().describe_state(rec);
+        all_decls.push_back({"tilemap", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S4-DECL-TILEMAP: %s\n", d.c_str());
+        check("S4-DECL-TILEMAP", d.empty(),
+              "Tilemap declares its 19 fields, both decoded base "
+              "addresses included, in stream order");
+        check("S4-WIDTH-TILEMAP", rec.width() == 26,
+              "Tilemap's declaration is 26 bytes wide — block 9");
+    }
+
+    // ── Renderer (+ ULA + LoRes) — block 10, 3 688 bytes ─────────────────
+    //
+    // The one block built from THREE declarations. `Renderer::describe_state`
+    // nests the ULA's first and LoRes's last, which is the order the
+    // pre-migration `Renderer::save_state` called `ula_.save_state(w)` and
+    // `lores_.save_state(w)` in.
+    //
+    // `log port_ff_log 3074` is §9.5(1)'s padded history: a u16 count plus
+    // EXACTLY 1 024 three-byte entries, which is what `RewindBuffer`'s
+    // constant slot width requires and what issue #42 broke when it was
+    // variable-length.
+    static const char* const want_block10[] = {
+        // Ula
+        "bool ula_enabled 1",
+        "bool vram_use_bank7 1",
+        "u8 ula_clip_x1 1", "u8 ula_clip_x2 1",
+        "u8 ula_clip_y1 1", "u8 ula_clip_y2 1",
+        "u8 border_colour 1",
+        "bytes border_per_line 256",
+        "i32 flash_counter 4",
+        "bool flash_phase 1",
+        "u8 screen_mode_reg 1",
+        "enum8 screen_mode 1",
+        "u8 ula_scroll_x_coarse 1",
+        "u8 ula_scroll_y 1",
+        "bool ula_fine_scroll_x 1",
+        "u8 ulanext_format 1",
+        "bool ulanext_en 1",
+        "bool ulap_en 1",
+        "bool alt_file 1",
+        "bool shadow_screen_en 1",
+        "bool border_clr_tmx_src 1",
+        "u8 ulap_mode 1",
+        "u8 baseline_port_ff 1",
+        "u16 current_line 2",
+        "log port_ff_log 3074",
+        // Renderer's own
+        "u8 layer_priority 1",
+        "u8 fallback_colour 1",
+        "u8 transparent_rgb 1",
+        "bool sprite_en 1",
+        "bool stencil_mode 1",
+        "bool tm_enabled 1",
+        "u8 blend_mode 1",
+        "bytes fallback_per_line 320",
+        // Lores
+        "bool lores_enabled 1",
+        "u8 lores_scroll_x 1",
+        "u8 lores_scroll_y 1",
+        "u8 lores_nr6a 1",
+    };
+    constexpr std::size_t kBlock10Fields =
+        sizeof(want_block10) / sizeof(want_block10[0]);
+    constexpr std::size_t kUlaFields  = 25;   // through "log port_ff_log 3074"
+    constexpr std::size_t kLoresFields = 4;   // the trailing lores_* group
+    {
+        s3::RecordDesc rec;
+        emu.renderer().describe_state(rec);
+        all_decls.push_back({"block10", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want_block10, kBlock10Fields));
+        if (!d.empty()) fprintf(stderr, "  S4-DECL-BLOCK10: %s\n", d.c_str());
+        check("S4-DECL-BLOCK10", d.empty(),
+              "Renderer's declaration nests the ULA's, then its "
+              "own eight fields, then LoRes's four — the order "
+              "the golden carries block 10 in");
+        check("S4-WIDTH-BLOCK10", rec.width() == 3688,
+              "the nested declaration is 3 688 bytes wide — block 10, of "
+              "which the ULA is 3 357");
+    }
+
+    // The nested halves must be the SAME declaration the two subsystems walk
+    // standalone. Without these two rows, `Ula::load_state` (which
+    // `ula_test.cpp` uses on its own) and `Renderer::load_state` could drift
+    // into reading two different field lists — the exact failure this layer
+    // exists to make impossible, applied to its own nesting.
+    {
+        s3::RecordDesc rec;
+        emu.ula().describe_state(rec);
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want_block10, kUlaFields));
+        if (!d.empty()) fprintf(stderr, "  S4-DECL-ULA-PREFIX: %s\n", d.c_str());
+        check("S4-DECL-ULA-PREFIX", d.empty() && rec.width() == 3357,
+              "Ula::describe_state walked standalone is EXACTLY "
+              "the first 25 fields / 3 357 bytes of block 10");
+    }
+    {
+        s3::RecordDesc rec;
+        emu.renderer().lores().describe_state(rec);
+        const std::string d = s3::diff(
+            rec.fields(),
+            s3::vec(want_block10 + (kBlock10Fields - kLoresFields), kLoresFields));
+        if (!d.empty()) fprintf(stderr, "  S4-DECL-LORES-SUFFIX: %s\n", d.c_str());
+        check("S4-DECL-LORES-SUFFIX", d.empty() && rec.width() == 4,
+              "Lores::describe_state walked standalone is EXACTLY "
+              "the last four fields of block 10");
+    }
+
+    // ── Copper — block 11, 2 057 bytes ───────────────────────────────────
+    {
+        static const char* const want[] = {
+            "bytes instructions 2048",
+            "u16 pc 2",
+            "enum8 mode 1",
+            "enum8 last_mode 1",
+            "bool move_pending 1",
+            "u16 write_addr 2",
+            "u8 write_data_stored 1",
+            "u8 offset 1",
+        };
+        s3::RecordDesc rec;
+        emu.copper().describe_state(rec);
+        all_decls.push_back({"copper", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S4-DECL-COPPER: %s\n", d.c_str());
+        check("S4-DECL-COPPER", d.empty(),
+              "Copper declares the 2 KB instruction RAM as one "
+              "array, then the seven control fields");
+        check("S4-WIDTH-COPPER", rec.width() == 2057,
+              "Copper's declaration is 2 057 bytes wide — block 11");
+    }
+
+    // ── Every key of these declarations must be UNIQUE ───────────────────
+    //
+    // The same fault S3-KEYS-UNIQUE covers, extended to S4's declarations —
+    // and it matters MORE here, because block 10 is three declarations
+    // flattened into one object: `enabled` is a name the ULA, the Renderer
+    // and LoRes would all otherwise want, and a collision across the nesting
+    // is one a per-subsystem check could not see. A duplicate is invisible to
+    // the byte-identity gate (the binary encoding ignores names entirely) and
+    // silently drops a field from `JsonWriteDesc`'s `obj[name] = value`.
+    {
+        std::string dup;
+        for (const auto& sub : all_decls) {
+            std::vector<std::string> seen;
+            for (const auto& f : sub.second) {
+                const std::size_t a = f.find(' ');
+                const std::size_t b = f.rfind(' ');
+                const std::string key = f.substr(a + 1, b - a - 1);
+                for (const auto& k : seen) {
+                    if (k == key && dup.empty())
+                        dup = sub.first + "." + key;
+                }
+                seen.push_back(key);
+            }
+        }
+        if (!dup.empty()) fprintf(stderr, "  S4-KEYS-UNIQUE: %s\n", dup.c_str());
+        check("S4-KEYS-UNIQUE", dup.empty(),
+              "no video declaration names the same key twice, block 10's "
+              "three-way nesting included");
+    }
+
+    return 0;
+}
+
+// ── Test 20: GH #27 S4 — what the migration CHANGED, not just transcribed ─
+//
+// Derived from `git diff`, not from the row list above: every behaviour S4
+// MOVED or ADDED gets a row, and each poke-a-byte row is paired with an
+// OFFSET row proving the byte it corrupts really is the field it names. A
+// corruption row that hits the wrong field passes for the wrong reason.
+
+namespace s4 {
+
+/// Save a subsystem into a right-sized buffer, the standard two-pass idiom.
+template <typename T>
+std::vector<uint8_t> save_bytes(const T& obj)
+{
+    StateWriter measure;
+    obj.save_state(measure);
+    std::vector<uint8_t> buf(measure.position(), 0);
+    StateWriter w(buf.data(), buf.size());
+    obj.save_state(w);
+    return buf;
+}
+
+// Offsets into a STANDALONE subsystem save, each derived by adding up the
+// declaration above it — the same arithmetic S3's S3-ENUM-OFFSET row does,
+// and each one pinned by its own OFFSET row below.
+constexpr std::size_t kPalTargetOff   = 4 * 1024 + 2;   // after the four stores
+constexpr std::size_t kPalPriorityOff = 4 * 1024 + 14;  // after the 14 scalars
+constexpr std::size_t kUlaModeOff     = 269;
+constexpr std::size_t kUlaLogCountOff = 283;
+constexpr std::size_t kUlaBytes       = 3357;
+constexpr std::size_t kCopperModeOff  = 2048 + 2;
+
+}  // namespace s4
+
+static int test_s4_restore_behaviour()
+{
+    printf("\n--- Test 20: GH #27 S4 restore behaviour ---\n");
+
+    // ── PaletteManager: the ARGB caches are rebuilt AFTER the walk ────────
+    //
+    // Pre-S4 the loader recomputed each ARGB entry inline as it read its
+    // RGB333 word. S4 moved the rebuild to a single post-walk pass, which is
+    // a behaviour MOVED rather than transcribed — and nothing pinned that it
+    // covers all four palettes in BOTH banks. Poke one entry per palette per
+    // bank straight into the stream and read it back through the ARGB
+    // accessors: dropping any palette from the rebuild, or looping only
+    // bank 0, fails here.
+    {
+        PaletteManager pal;
+        std::vector<uint8_t> buf = s4::save_bytes(pal);
+
+        // RGB333 0x1B5 = r3 6, g3 6, b3 5 — distinct in every component, so a
+        // rebuild that transposed two of them would not survive either.
+        const uint16_t rgb333 = 0x1B5;
+        const uint32_t argb = rgb333_to_argb8888((rgb333 >> 6) & 7,
+                                                 (rgb333 >> 3) & 7,
+                                                 rgb333 & 7);
+        // store s in {ula, layer2, sprite, tilemap}, bank p, entry 200.
+        for (std::size_t s = 0; s < 4; ++s)
+            for (std::size_t p = 0; p < 2; ++p) {
+                const std::size_t off = (s * 1024) + (p * 512) + 200 * 2;
+                buf[off]     = static_cast<uint8_t>(rgb333 & 0xFF);
+                buf[off + 1] = static_cast<uint8_t>(rgb333 >> 8);
+            }
+
+        PaletteManager back;
+        StateReader r(buf.data(), buf.size());
+        back.load_state(r);
+
+        bool ok = r.position() == buf.size();
+        for (int p = 0; p < 2 && ok; ++p) {
+            const bool second = (p == 1);
+            ok = ok && back.ula_colour(second, 200)     == argb
+                    && back.layer2_colour(second, 200)  == argb
+                    && back.sprite_colour(second, 200)  == argb
+                    && back.tilemap_colour(second, 200) == argb
+                    && back.ula_rgb333(second, 200)     == rgb333;
+        }
+        check("S4-PALETTE-ARGB", ok,
+              "the post-walk ARGB rebuild covers all FOUR palettes in BOTH "
+              "banks, and the u16 entries land little-endian at 2*(bank*256 + "
+              "index) — which is what makes the ten-loop collapse into five "
+              "`bytes` a transcription");
+    }
+
+    // ── PaletteManager: target_palette is an enum8 ────────────────────────
+    {
+        PaletteManager pal;
+        // NR 0x43 = 0x60 -> target_palette 6 (SPRITE_SECOND), every other
+        // bit of the byte clear; the index latch takes an unrelated value.
+        // Distinct neighbours are the point: an OFFSET row whose field
+        // happens to equal the byte beside it proves nothing.
+        pal.write_control(0x60);
+        pal.set_index(0x5A);
+        std::vector<uint8_t> buf = s4::save_bytes(pal);
+        check("S4-PALETTE-TARGET-OFFSET",
+              buf.size() == 4622 && s4::kPalTargetOff == 4098 &&
+                  buf[4096] == 0x60 && buf[4097] == 0x5A &&
+                  buf[4098] == 6 && buf[4099] == 0,
+              "target_palette really is the byte at offset 4 098, between the "
+              "control byte and the auto-increment flag and equal to neither "
+              "— the row below is meaningless if it corrupts another field");
+        buf[s4::kPalTargetOff] = 0x2A;   // no PaletteId has ordinal 42
+
+        PaletteManager back;
+        back.write_control(0x10);   // target 1 (LAYER2_FIRST) before the load
+        StateReader r(buf.data(), buf.size());
+        back.load_state(r);
+        // Read the restored target back through the stream: the class has no
+        // getter for it. Asserting only `r.position()` would NOT discriminate
+        // — a plain `u8` consumes the same byte and ends in the same place,
+        // and a mutation replacing the enum8 with a u8 proved exactly that.
+        const std::vector<uint8_t> after = s4::save_bytes(back);
+        check("S4-PALETTE-TARGET",
+              after[s4::kPalTargetOff] == 1 && after[4096] == 0x60 &&
+                  r.position() == buf.size(),
+              "an out-of-range target_palette ordinal is REFUSED: the field "
+              "keeps its pre-load target instead of being cast in, the plain "
+              "control byte beside it IS restored, and the stream still ends "
+              "exactly where it should — the byte was consumed either way");
+    }
+
+    // ── Ula: screen_mode is an enum8 WITH HOLES ───────────────────────────
+    //
+    // TimexScreenMode is not contiguous: 3, 4 and 5 are states
+    // `set_screen_mode` cannot produce, spelled `nullptr` in the name table,
+    // and refused in both directions. Pre-S4 this was
+    // `static_cast<TimexScreenMode>(r.read_u8())` and ANY byte became a mode.
+    {
+        Ula ula;
+        // Port 0xFF = 0x07 gives screen_mode_reg 0x07 and mode HI_RES (6),
+        // so the raw register byte and the enum ordinal DIFFER. With
+        // set_screen_mode(0x02) they would both be 2 and the offset row
+        // would pass at either of the two adjacent offsets.
+        ula.set_screen_mode(0x07);
+        std::vector<uint8_t> buf = s4::save_bytes(ula);
+        check("S4-ULA-MODE-OFFSET",
+              buf.size() == s4::kUlaBytes && buf[268] == 0x07 &&
+                  buf[s4::kUlaModeOff] ==
+                      static_cast<uint8_t>(TimexScreenMode::HI_RES),
+              "screen_mode really is at offset 269 of a 3 357-byte ULA save, "
+              "and is 6 where the raw port-0xFF register beside it is 7");
+        buf[s4::kUlaModeOff] = 4;           // a HOLE: unreachable ordinal
+
+        Ula back;
+        back.set_screen_mode(0x02);         // HI_COLOUR, so a wrong restore shows
+        StateReader r(buf.data(), buf.size());
+        back.load_state(r);
+        // Read the restored mode back through the stream rather than an
+        // accessor the class does not expose.
+        const std::vector<uint8_t> after = s4::save_bytes(back);
+        check("S4-ULA-MODE",
+              after[s4::kUlaModeOff] ==
+                      static_cast<uint8_t>(TimexScreenMode::HI_COLOUR) &&
+                  after[268] == 0x07 && r.position() == buf.size(),
+              "ordinal 4 is a HOLE in TimexScreenMode and is refused: the "
+              "enum field keeps its pre-load mode instead of becoming a state "
+              "the ULA cannot be in, the plain register byte beside it IS "
+              "restored, and the stream still ends where it should");
+    }
+
+    // ── Ula: the port-0xFF log count is CLAMPED, never obeyed ─────────────
+    //
+    // The stream always carries exactly MAX_CHANGES_PER_FRAME entries
+    // (issue #42 — RewindBuffer needs a constant slot width), so a forged
+    // count can neither move the stream nor make the live count exceed the
+    // array. Pre-S4 a hand-written clamp did this; `d.log` now does, and
+    // nothing pinned the property across the move.
+    {
+        Ula ula;
+        ula.start_frame();
+        ula.set_current_line(40);
+        ula.set_screen_mode(0x02);      // one logged change
+        std::vector<uint8_t> buf = s4::save_bytes(ula);
+        const uint16_t live = static_cast<uint16_t>(buf[s4::kUlaLogCountOff] |
+                                (buf[s4::kUlaLogCountOff + 1] << 8));
+        check("S4-ULA-LOG-COUNT-OFFSET", live == 1 && buf.size() == s4::kUlaBytes,
+              "the port-0xFF log count really is the u16 at offset 283, and "
+              "one logged change reads as 1");
+        buf[s4::kUlaLogCountOff]     = 0xFF;   // 65 535 — 64x the capacity
+        buf[s4::kUlaLogCountOff + 1] = 0xFF;
+
+        Ula back;
+        StateReader r(buf.data(), buf.size());
+        back.load_state(r);
+        check("S4-ULA-LOG-COUNT",
+              back.port_ff_change_log_size() == Ula::MAX_CHANGES_PER_FRAME &&
+                  r.position() == buf.size(),
+              "a forged count 64x the capacity is clamped to the capacity "
+              "declared IN THE CODE and the stream still ends where it "
+              "should: the entry loop is bounded by the declaration, never by "
+              "the file");
+    }
+
+    // ── Lores: the NR $6A 6-bit mask survived the move ───────────────────
+    //
+    // Pre-S4 the mask was part of the read expression
+    // (`r.read_u8() & 0x3F`); S4 moved it after the walk, because a mask in
+    // the declaration would change what the WRITE direction emits. Nothing
+    // pinned it in either place.
+    {
+        Lores lo;
+        lo.set_nr6a(0x25);
+        std::vector<uint8_t> buf = s4::save_bytes(lo);
+        check("S4-LORES-NR6A-OFFSET", buf.size() == 4 && buf[3] == 0x25,
+              "lores_nr6a really is the fourth and last byte of a LoRes save");
+        buf[3] = 0xC5;   // bits 7:6 set — not part of a 6-bit register
+
+        Lores back;
+        StateReader r(buf.data(), buf.size());
+        back.load_state(r);
+        check("S4-LORES-NR6A-MASK",
+              back.nr6a() == 0x05 && r.position() == buf.size(),
+              "NR $6A is restored masked to its six hardware bits "
+              "(zxnext.vhd:5032-5034), so a stream carrying bits 7:6 cannot "
+              "put the register in a state a live write could not");
+    }
+
+    // ── Renderer: the NR 0x68 blend-mode 2-bit mask survived the move ─────
+    {
+        Renderer ren;
+        std::vector<uint8_t> buf = s4::save_bytes(ren);
+        const std::size_t blend_off = s4::kUlaBytes + 6;
+        check("S4-BLEND-OFFSET",
+              buf.size() == 3688 && blend_off == 3363 && buf[blend_off] == 0,
+              "blend_mode really is at offset 3 363 — after the ULA's 3 357 "
+              "bytes and the Renderer's first six");
+        buf[blend_off] = 0xFE;   // bits 7:2 set — not part of a 2-bit field
+
+        Renderer back;
+        StateReader r(buf.data(), buf.size());
+        back.load_state(r);
+        check("S4-BLEND-MASK",
+              back.blend_mode() == 0x02 && r.position() == buf.size(),
+              "NR 0x68 bits 6:5 are restored masked to two bits, so a stream "
+              "carrying more cannot select a blend mode the VHDL has no "
+              "encoding for");
+    }
+
+    // ── SpriteEngine: the 128x5 collapse really is the 128x5 order ────────
+    //
+    // `d.bytes("attributes", …, 640)` replaced five `write_u8` sites inside a
+    // 128-iteration loop. If `SpriteAttr` ever gained padding, or the
+    // collapse used the wrong length, the golden would move — but only on a
+    // full-machine save. This row pins the mapping directly: byte 5*i+k of
+    // the attribute file is sprite i's attribute byte k.
+    {
+        SpriteEngine spr;
+        // Sprite 37, attribute byte 3 = visible + pattern 0x11.
+        spr.set_attr_slot(37);
+        // Byte 3 carries bit 6 (extended) SET: write_attr_byte
+        // auto-increments the slot after byte 3 when it is clear, which would
+        // put byte 4 on sprite 38 and make this row test the wrong thing.
+        static const uint8_t vals[5] = {0x40, 0x41, 0x42, 0xD1, 0x44};
+        for (uint8_t k = 0; k < 5; ++k) spr.write_attr_byte(k, vals[k]);
+        std::vector<uint8_t> buf = s4::save_bytes(spr);
+        const std::size_t base = 37 * 5;
+        check("S4-SPRITE-ATTR-ORDER",
+              buf.size() == 17039 &&
+                  buf[base + 0] == 0x40 && buf[base + 1] == 0x41 &&
+                  buf[base + 2] == 0x42 && buf[base + 3] == 0xD1 &&
+                  buf[base + 4] == 0x44 &&
+                  buf[base - 1] == 0 && buf[base + 5] == 0,
+              "the 640-byte attribute file is sprite-major, five bytes each: "
+              "sprite 37's five bytes are at offsets 185-189, exactly where "
+              "the pre-migration 128-iteration loop put them");
+    }
+
+    // ── Ula: the port-0xFF replay cursor restarts at the restored log ────
+    //
+    // `port_ff_render_cursor_` is transient render state and is NOT in the
+    // stream, so after a restore it still points into the log the restoring
+    // object had BEFORE the load — a log that no longer exists. S4 moved that
+    // reset out of `load_state` into `after_load_state` (so `Renderer` can run
+    // it while performing the nested walk itself), and a mutation deleting it
+    // killed no row in any suite. It does now.
+    {
+        Ula a;
+        a.start_frame();
+        a.set_current_line(7);
+        a.set_screen_mode(0x02);    // log entry {line 7, value 0x02}
+        a.rewind_to_baseline();     // live register back to the baseline 0x00
+        std::vector<uint8_t> buf = s4::save_bytes(a);
+
+        Ula b;
+        b.start_frame();
+        b.set_current_line(3);
+        b.set_screen_mode(0x06);    // b's OWN log: {line 3, value 0x06}
+        b.rewind_to_baseline();
+        b.apply_changes_for_line(3);  // b's cursor advances past its entry
+        StateReader r(buf.data(), buf.size());
+        b.load_state(r);
+        b.apply_changes_for_line(7);  // replay the RESTORED log, no rewind first
+
+        const std::vector<uint8_t> after = s4::save_bytes(b);
+        check("S4-ULA-CURSOR-RESET",
+              after[268] == 0x02 && r.position() == buf.size(),
+              "a restore restarts the port-0xFF replay cursor at the top of "
+              "the RESTORED log: replaying line 7 applies the entry the "
+              "stream carried, instead of finding a cursor left past the end "
+              "by the log the object had before the load");
+    }
+
+    // ── Ula: the per-line control snapshot is DEACTIVATED by a restore ───
+    //
+    // `control_per_line_` holds the pre-restore frame's rows and is not in
+    // the stream. Leaving `control_per_line_active_` set makes the render
+    // `Emulator::rewind_to_frame` does immediately after a load read those
+    // rows instead of the registers it just restored (GH #256). S4 moved that
+    // clear into `after_load_state` and a mutation deleting it killed no row.
+    {
+        Ula a;
+        a.set_ulanext_en(false);
+        std::vector<uint8_t> buf = s4::save_bytes(a);
+
+        Ula b;
+        b.set_ulanext_en(true);
+        b.init_control_per_line();   // every row says "true", flag active
+        StateReader r(buf.data(), buf.size());
+        b.load_state(r);
+        check("S4-ULA-PERLINE-CLEARED",
+              b.ulanext_en_for_line(5) == false && r.position() == buf.size(),
+              "a restore deactivates the per-line control snapshot, so a "
+              "render taken before the next frame initialises it reads the "
+              "RESTORED live registers and not the pre-restore frame's rows");
+    }
+
+    // ── Renderer: the nested restore runs BOTH children's post-walk work ──
+    //
+    // `Renderer::load_state` performs the ULA's and LoRes's walks itself, as
+    // part of its own nested declaration, so it must call both
+    // `after_load_state()`s. This is the path the emulator actually uses —
+    // `Emulator::load_state` calls `renderer_.load_state(r)`, never
+    // `ula_.load_state` — and the rows above exercise the two subsystems
+    // STANDALONE, which is a different entry point.
+    {
+        Renderer a;
+        a.ula().set_ulanext_en(false);
+        a.lores().set_nr6a(0x05);
+        std::vector<uint8_t> buf = s4::save_bytes(a);
+        // lores_nr6a is the LAST byte of block 10 (S4-DECL-LORES-SUFFIX).
+        check("S4-RENDERER-NESTED-OFFSET",
+              buf.size() == 3688 && buf[3687] == 0x05,
+              "lores_nr6a really is the last byte of a Renderer save — the "
+              "row below is meaningless if it corrupts another field");
+        buf[3687] = 0xC5;   // bits 7:6 set: not part of a 6-bit register
+
+        Renderer b;
+        b.ula().set_ulanext_en(true);
+        b.ula().init_control_per_line();
+        StateReader r(buf.data(), buf.size());
+        b.load_state(r);
+        check("S4-RENDERER-NESTED-AFTER-LOAD",
+              b.lores().nr6a() == 0x05 &&
+                  b.ula().ulanext_en_for_line(5) == false &&
+                  r.position() == buf.size(),
+              "a restore driven through Renderer — the path Emulator::"
+              "load_state uses — runs BOTH nested subsystems' post-walk work: "
+              "LoRes's NR $6A mask and the ULA's per-line deactivation, "
+              "neither of which the nested walk itself performs");
+    }
+
+    // ── Copper: the instruction RAM collapse, and the mode enum8 ──────────
+    {
+        Copper cop;
+        // NR 0x61/0x62 set the write address; NR 0x63 writes 16 bits.
+        cop.write_reg_0x62(0x00);        // mode 00, addr MSB 0
+        cop.write_reg_0x61(0x14);        // byte address 0x14 -> instruction 10
+        cop.write_reg_0x63(0xAB);
+        cop.write_reg_0x63(0xCD);
+        cop.write_reg_0x62(0x80);        // mode 10 = run from last point
+        std::vector<uint8_t> buf = s4::save_bytes(cop);
+        check("S4-COPPER-INSTR-ORDER",
+              buf.size() == 2057 && buf[0x14] == 0xCD && buf[0x15] == 0xAB &&
+                  cop.instruction(10) == 0xABCD,
+              "the 2 048-byte instruction array is instruction-major and "
+              "little-endian within each 16-bit word: instruction 10 lands at "
+              "byte offsets 0x14/0x15, exactly where 1 024 write_u16 calls "
+              "put it");
+        check("S4-COPPER-MODE-OFFSET",
+              s4::kCopperModeOff == 2050 && buf[s4::kCopperModeOff] == 2,
+              "mode really is at offset 2 050, straight after the array and "
+              "the 16-bit PC");
+        buf[s4::kCopperModeOff] = 0x0C;   // no NR 0x62 mode has ordinal 12
+
+        Copper back;
+        back.write_reg_0x62(0xC0);        // mode 11, so a wrong restore shows
+        StateReader r(buf.data(), buf.size());
+        back.load_state(r);
+        check("S4-COPPER-MODE",
+              back.mode() == 3 && r.position() == buf.size(),
+              "an out-of-range NR 0x62 mode ordinal is refused: the field "
+              "keeps its pre-load mode instead of taking one the two-bit "
+              "register cannot hold, and the stream still ends where it "
+              "should");
+    }
+
+    return 0;
+}
+
 int main()
 {
     printf("=== Rewind tests ===\n");
@@ -2332,6 +3052,8 @@ int main()
     test_rewind_across_soft_reset();
     test_s3_descriptor_layout();
     test_s3_restore_behaviour();
+    test_s4_descriptor_layout();
+    test_s4_restore_behaviour();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
            pass_count + fail_count + (int)g_skipped.size(),

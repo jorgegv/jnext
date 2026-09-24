@@ -6,7 +6,11 @@ list(FILTER SOURCES EXCLUDE REGEX "${JNEXT_GENERATED_DIR_REGEX}")
 if(SOURCES)
     add_library(jnext_peripheral STATIC ${SOURCES})
     target_include_directories(jnext_peripheral PUBLIC ${CMAKE_SOURCE_DIR}/src)
-    target_link_libraries(jnext_peripheral PUBLIC spdlog::spdlog)
+    # jnext_save carries the GH #27 `StateDesc` descriptor layer; copper.cpp's
+    # save_state/load_state are a walk of its declaration (stage S4), so the
+    # BinWriteDesc/BinReadDesc bodies in jnext_save must resolve here.
+    # jnext_save depends only on zlib, so there is no cycle.
+    target_link_libraries(jnext_peripheral PUBLIC spdlog::spdlog jnext_save)
     # The emulated ESP-01 (GH #25) lives in src/esp01 as a self-contained
     # module with no jnext dependencies at all; what lives HERE is the thin
     # adapter (esp_uart_adapter.*) that implements `UartDevice` in terms of
