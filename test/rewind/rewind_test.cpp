@@ -4961,6 +4961,13 @@ static int test_s8_jns_roundtrip()
 {
     printf("\n--- Test S8: .jns whole-machine round trip ---\n");
 
+    // EVERY `Emulator` HERE IS HEAP-ALLOCATED, and that is not style. The
+    // compiler reserves frame space for all of a function's locals at once,
+    // nested scopes notwithstanding, and an `Emulator` is a very large object;
+    // the sixth one in this function overflowed the stack and the suite
+    // segfaulted before its first row. Other tests get away with plain locals
+    // because each builds one machine per FUNCTION.
+
     auto stream_of = [](Emulator& e) {
         StateWriter measure;
         e.save_state(measure);
@@ -4990,7 +4997,8 @@ static int test_s8_jns_roundtrip()
     std::vector<uint8_t> jns;
     std::vector<uint8_t> src_stream;
     {
-        Emulator a;
+        auto a_up = std::make_unique<Emulator>();
+        Emulator& a = *a_up;
         build_busy(a);
         src_stream = stream_of(a);
 
@@ -5005,7 +5013,8 @@ static int test_s8_jns_roundtrip()
     }
 
     {
-        Emulator b;
+        auto b_up = std::make_unique<Emulator>();
+        Emulator& b = *b_up;
         build_emulator(b, 2);            // same machine type, NOT run
         jnext::JnsLoadOptions lopt;
         jnext::JnsLoadReport  rep;
@@ -5049,7 +5058,8 @@ static int test_s8_jns_roundtrip()
     // is one flag on the member writer, not a second code path, and this row
     // is what says so: the restore is identical, not merely successful.
     {
-        Emulator a;
+        auto a_up = std::make_unique<Emulator>();
+        Emulator& a = *a_up;
         build_busy(a);
         jnext::JnsSaveOptions opt;
         opt.uncompressed = true;
@@ -5058,7 +5068,9 @@ static int test_s8_jns_roundtrip()
         std::vector<uint8_t> plain;
         const bool wrote = a.save_jns(opt, plain, rep, why);
 
-        Emulator b;
+        auto b_up = std::make_unique<Emulator>();
+
+        Emulator& b = *b_up;
         build_emulator(b, 2);
         jnext::JnsLoadOptions lopt;
         jnext::JnsLoadReport  lrep;
@@ -5149,6 +5161,51 @@ static int test_s8_jns_roundtrip()
               "cannot declare a subsystem it did not write");
     }
 
+    // ── §8: capture.frame, WITH REWIND OFF ──────────────────────────────
+    //
+    // The condition that matters, and the one the first version of this row
+    // missed. `frame_num_` is incremented only by the rewind ring's
+    // `take_snapshot`, so a manifest built from it is correct whenever rewind
+    // is ON — which every fixture above has — and reads 0 whenever it is OFF,
+    // which is the default, every headless run and most real saves. A reader
+    // cannot tell a wrong 0 from a real frame 0.
+    //
+    // A mutation putting `frame_num_` back survived against a rewind-enabled
+    // fixture. This one disables the ring, which is the only way to see it.
+    {
+        auto e_up = std::make_unique<Emulator>();
+        Emulator& e = *e_up;
+        build_emulator(e, 0);            // rewind OFF — the default
+        for (int i = 0; i < 120; ++i) e.run_frame();
+
+        jnext::JnsSaveOptions opt;
+        jnext::JnsLoadReport  rep;
+        std::string why;
+        std::vector<uint8_t> out;
+        const bool wrote = e.save_jns(opt, out, rep, why);
+
+        jnext::jns::Manifest m;
+        bool read_ok = false;
+        if (wrote) {
+            jnext::zip::Reader r;
+            std::string text, w2;
+            std::vector<std::string> unk;
+            read_ok = r.open(out.data(), out.size(), w2) &&
+                      r.read_text(jnext::jns::kManifestMember, text, w2) &&
+                      jnext::jns::manifest_from_json(text, m, unk, w2);
+        }
+        if (read_ok && m.capture.frame < 100) {
+            fprintf(stderr, "  JNS-RT-13: capture.frame=%llu after 120 frames\n",
+                    (unsigned long long)m.capture.frame);
+        }
+        check("JNS-RT-13", read_ok && m.capture.frame >= 100,
+              "capture.frame counts the MACHINE's frames even with the rewind "
+              "ring disabled — 120 were run. Built from `frame_num_` it would "
+              "read 0 here, and every save made with rewind off (the default) "
+              "would carry a provenance field a reader cannot tell from a real "
+              "frame 0");
+    }
+
     // ── NON-VACUITY ─────────────────────────────────────────────────────
     //
     // JNS-RT-02 compares two byte streams and passes. That is worth exactly
@@ -5157,7 +5214,8 @@ static int test_s8_jns_roundtrip()
     // genuinely different machines. So: a third machine, built the same way
     // and NEVER loaded, must differ from the source.
     {
-        Emulator c;
+        auto c_up = std::make_unique<Emulator>();
+        Emulator& c = *c_up;
         build_emulator(c, 2);
         const std::vector<uint8_t> fresh = stream_of(c);
         check("JNS-RT-05",
@@ -5211,7 +5269,9 @@ static int test_s8_jns_roundtrip()
             return w.finish(out, why);
         };
 
-        Emulator a;
+        auto a_up = std::make_unique<Emulator>();
+
+        Emulator& a = *a_up;
         build_busy(a);
         jnext::JnsSaveOptions opt;
         jnext::JnsLoadReport  rep;
@@ -5264,7 +5324,8 @@ static int test_s8_jns_roundtrip()
                   "it says (fix it, do not delete it)");
             check("JNS-RT-07", false, "(not reached)");
         } else {
-            Emulator b;
+            auto b_up = std::make_unique<Emulator>();
+            Emulator& b = *b_up;
             build_emulator(b, 2);
             jnext::JnsLoadOptions lopt;
             jnext::JnsLoadReport  lrep;
@@ -5340,7 +5401,9 @@ static int test_s8_jns_roundtrip()
             return w.finish(out, why);
         };
 
-        Emulator a;
+        auto a_up = std::make_unique<Emulator>();
+
+        Emulator& a = *a_up;
         build_busy(a);
         jnext::JnsSaveOptions opt;
         jnext::JnsLoadReport  rep;
@@ -5400,7 +5463,8 @@ static int test_s8_jns_roundtrip()
         bool refused = false;
         std::string refusal;
         if (built) {
-            Emulator b;
+            auto b_up = std::make_unique<Emulator>();
+            Emulator& b = *b_up;
             build_emulator(b, 2);
             jnext::JnsLoadOptions lopt;
             jnext::JnsLoadReport  lrep;
@@ -5425,7 +5489,8 @@ static int test_s8_jns_roundtrip()
 
     // ── §10.2 P7: a save from MID-FRAME advances, and says so ───────────
     {
-        Emulator a;
+        auto a_up = std::make_unique<Emulator>();
+        Emulator& a = *a_up;
         build_emulator(a, 2);
         for (int i = 0; i < 10; ++i) a.run_frame();
 

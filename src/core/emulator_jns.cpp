@@ -332,7 +332,23 @@ bool Emulator::save_jns(const jnext::JnsSaveOptions& opt,
     m.model.timing         = manifest_machine_name(config_.type);
     m.model.cpu_speed_nr07 = nextreg_.read(0x07) & 0x03;
 
-    m.capture.frame          = frame_num_;
+    // §8 — WHICH FRAME THIS IS, and deliberately NOT `frame_num_`. That
+    // member is the REWIND RING's ordinal: it is incremented only by
+    // `take_snapshot`, so with rewind off — which is every headless run and
+    // the default — it stays 0 and every manifest would carry `"frame": 0`.
+    // A provenance field that reads zero in the common case is worse than
+    // none, because a reader cannot tell it apart from a real frame 0.
+    //
+    // The monotonic T-state clock is the honest source: it counts from the
+    // machine's start, is continuous across restores, and divided by the
+    // machine's own frame length gives the frame ordinal a reader means by
+    // "when was this taken".
+    {
+        const uint64_t per_frame =
+            static_cast<uint64_t>(timing_.lines_per_frame) *
+            static_cast<uint64_t>(timing_.tstates_per_line);
+        m.capture.frame = per_frame ? (monotonic_tstates() / per_frame) : 0;
+    }
     m.capture.frame_boundary = true;   // guaranteed by the advance above
 
     // ── media.sdcard (§11.3, S7's producer) ─────────────────────────────
