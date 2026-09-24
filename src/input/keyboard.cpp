@@ -15,8 +15,9 @@ namespace {
 // `d.log()` is `u16` count + (`u16`,`u8`) entries in raw order, and
 // `d.fifo()` is `u64` count + `u8`/`u16` elements oldest-first. This one is a
 // `u32` count followed by MAX_AUTO_TYPE_KEYS x 5 x `i32` in raw slot order.
-// §4.1's "fourteen rows" inventory does not list it at all and says the
-// count-prefixed-and-padded class has "five buffers in all" — it has six.
+// §4.1's inventory used to omit it entirely and to call the
+// count-prefixed-and-padded class "five buffers in all"; it is six, and the
+// design doc now says so (§4.1, §6.2's three-layout table, §9.5(1)).
 //
 // Rather than add a third primitive for one 324-byte buffer, the sixteen
 // slots are declared as ordinary `i32` fields: exactly the §9.4 loop-collapse

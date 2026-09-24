@@ -271,10 +271,11 @@ sentinel-delimited blocks**:
 | 15 | `i2c` | 13 | 32 | *esxdos hostfs* | 4 |
 | 16 | `rtc` | 69 | | **33 sentinels × 4** | **132** |
 
-### 4.1 The flat buffers — fourteen rows, not eight
+### 4.1 The flat buffers — fifteen rows, not eight
 
 The buffers inside those blocks, exactly (constants, cross-checked against the
-measured block sizes):
+measured block sizes). The **Bytes** column is the buffer's *stream footprint*,
+so a count prefix counts toward the row that carries it.
 
 | Buffer | Declared size | Bytes |
 |---|---|---|
@@ -285,23 +286,37 @@ measured block sizes):
 | `Mmu::bank7_bram_` | 8 KB bank-7 BRAM (`mmu.cpp:980`) | 8 192 |
 | `Multiface` RAM | `kRamSize` = 0x2000 | 8 192 |
 | `PaletteManager` | 4 palettes × 2 banks × 256 × `u16` + 2 × 256 priority | 4 608 |
-| `Ula::port_ff_log_` | `MAX_CHANGES_PER_FRAME` 1024 × (`u16`+`u8`) | 3 072 |
+| `Ula::port_ff_log_` | `MAX_CHANGES_PER_FRAME` 1024 × (`u16`+`u8`) + 2-byte count prefix | 3 074 |
 | UART FIFOs | 2 ch × (RX 512 × `u16` + TX 64 × `u8`), padded to capacity | 2 208 |
 | `Copper::instructions_` | 1024 × `u16` | 2 048 |
 | `SpriteEngine` attributes | 128 × 5 | 640 |
+| `Keyboard::auto_queue_` | `MAX_AUTO_TYPE_KEYS` 16 × 5 × `i32`, padded, + 4-byte count prefix | 324 |
 | `Renderer::fallback_per_line_` | 320 × `u8` | 320 |
 | `NextReg::regs_` | 256 | 256 |
 | `Ula::border_per_line_` | `FB_HEIGHT` 256 × `u8` | 256 |
-| **Total flat buffers** | | **2 290 792** |
+| **Total flat buffers** | | **2 291 118** |
 
-Four of those rows are **per-scanline / in-flight history**, not static memory,
-and they split into two shapes that must not be conflated:
+> Two of those rows **changed on 2026-09-24**, both measured on the S1–S5
+> branch rather than re-derived. `Keyboard::auto_queue_` was
+> missing entirely. `Ula::port_ff_log_` was listed at 3 072, which is its
+> element payload without the `u16` count the same stream carries: the
+> `renderer` block's declared widths — `Ula` 3 357 + `Renderer` 327 + `LoRes` 4
+> — sum to **3 688**, exactly the measured block, only with the count included.
+> Both bytes were previously inside §4.2's residual, so the stream total never
+> moved; what moved is the classification.
 
-- **Count-prefixed and padded to full capacity** — `Ula::port_ff_log_` and the
-  UART's four `FifoBuffer`s (2 channels × RX + TX), five buffers in all. The
-  padding exists because `RewindBuffer` requires a constant width; the count
-  says how much of it is live. This shape needs its own descriptor primitive
-  (§6.2, §9.5(1)).
+Five of those rows are **per-scanline / in-flight history**, not static memory,
+and they split into two CLASSES that must not be conflated:
+
+- **Count-prefixed and padded to full capacity** — `Ula::port_ff_log_`, the
+  UART's four `FifoBuffer`s (2 channels × RX + TX) and `Keyboard::auto_queue_`,
+  **six buffers in all**. The padding exists because `RewindBuffer` requires a
+  constant width; the count says how much of it is live. Within this one class
+  there are **three distinct byte layouts**, differing in count width, element
+  form and order (§6.2's table). Two of them get a descriptor primitive each;
+  the third — `Keyboard::auto_queue_`, a `u32` count then 16 × 5 × `i32` in raw
+  slot order — fits neither, and S5 resolved it by §9.4 loop collapse rather
+  than by a third primitive (§9.5(1)).
 - **Plain fixed arrays** — `Ula::border_per_line_` and
   `Renderer::fallback_per_line_` are written with a bare `write_bytes` of the
   whole array, no count. Ordinary declarations; they are listed here only
@@ -311,24 +326,30 @@ and they split into two shapes that must not be conflated:
 
 | Part | Bytes | Share |
 |---|---|---|
-| Flat buffers (the 14 rows above, across 11 owners) | 2 290 792 | 99.904 % |
+| Flat buffers (the 15 rows above, across 12 owners) | 2 291 118 | 99.919 % |
 | Framing sentinels (33 × 4) | 132 | 0.006 % |
-| **Genuine scalar/register/FSM state, all 34 classes** | **2 041** | **0.089 %** |
+| **Genuine scalar/register/FSM state, all 34 classes** | **1 715** | **0.075 %** |
 
-**Two thousand and forty-one bytes.** That is every register, latch, FSM state,
-counter and flag in the whole machine outside a flat buffer.
+**One thousand seven hundred and fifteen bytes.** That is every register, latch,
+FSM state, counter and flag in the whole machine outside a flat buffer.
 
-> An earlier draft of this document put the residual at 32 605 bytes / 1.42 %.
-> That was wrong by a factor of ~16: it omitted the four buffers above the
-> earlier table missed (30 432 bytes) and folded the 132 sentinel bytes into the
-> residual. Both numbers are now derived from the per-block measurement, and
-> 2 290 792 + 132 + 2 041 = 2 292 965 exactly.
+> **The residual is a SUBTRACTION, and that is its weakness.** It is
+> `2 292 965 − buffers − sentinels`, so it can never disagree with the buffer
+> table: a buffer the table omits does not show up as an inconsistency, it
+> silently inflates the residual. Both of this table's corrections arrived that
+> way — an earlier draft put the residual at 32 605 bytes / 1.42 %, wrong by a
+> factor of ~16 because it omitted four buffers (30 432 bytes) and folded the
+> sentinels in; and the 2 041 that replaced it was still 326 bytes high, because
+> §4.1 was missing `Keyboard::auto_queue_` (324) and the `port_ff_log_` count
+> prefix (2). Nothing in the arithmetic could have caught either. Only
+> enumerating the buffers against the code can, which is what §4.1's note
+> records. 2 291 118 + 132 + 1 715 = 2 292 965 exactly.
 
-The correction makes the Option C argument in §5 **stronger, not weaker**: the
-part worth naming, typing, diffing and schema-validating is not 1.4 % of the
-stream, it is 0.09 % of it. There is no size argument against encoding 2 KB of
-scalars as JSON, and no verification argument for encoding 2.29 MB of opaque
-buffers that way.
+Every correction has moved the same way, and each makes the Option C argument in
+§5 **stronger, not weaker**: the part worth naming, typing, diffing and
+schema-validating is not 1.4 % of the stream, it is 0.075 % of it. There is no
+size argument against encoding under 2 KB of scalars as JSON, and no
+verification argument for encoding 2.29 MB of opaque buffers that way.
 
 ### 4.3 Three findings, all measured
 
@@ -390,7 +411,7 @@ buffers that way.
 **Option C — ZIP container: JSON manifest + JSON per-subsystem state + binary
 blob members for the flat buffers.** ← **recommended**
 
-- *Size*: the **0.089 %** that is genuine scalars (2 041 bytes, §4.2) becomes
+- *Size*: the **0.075 %** that is genuine scalars (1 715 bytes, §4.2) becomes
   roughly **15–30 KB** of JSON text — key names dominate, not values. The
   99.9 % stays binary. Both are deflated by the ZIP itself. Expected file:
   **~130–140 KB** for a full 2 MB-RAM Next snapshot, against the **128 657
@@ -659,7 +680,7 @@ Rules:
 | `NextReg::regs_` 256 B | 3, < 8 KB | JSON |
 
 An earlier draft stated only "guest-writable memory is a blob, size is a
-tie-breaker", **and that rule cannot decide two of the fourteen buffers**: the
+tie-breaker", **and that rule cannot decide two of the fifteen buffers**: the
 Copper instruction RAM and the sprite pattern RAM are the same class — peripheral
 stores outside the CPU address space, written by the guest only through ports —
 yet §6 correctly puts one in JSON and the other in a blob. The only thing
@@ -682,7 +703,7 @@ the threshold never applies to it.
 | **`u64` / `i64`** | JSON **string** of decimal digits, sign allowed | `pattern` — see §7.4 and the note below |
 | **Open-ended sentinel** (`INT64_MAX`) | the JSON string `"open"` | `enum` alongside the numeric pattern |
 | Enum / FSM state | JSON string from a closed set | `enum` — an FSM renumbering becomes a *name* change, visible in a diff |
-| Fixed array, not guest memory | one lower-case hex string, no separators | `pattern: "^[0-9a-f]{N}$"` with N literal — **exact length checked by the schema** |
+| Fixed array, not guest memory | one lower-case hex string, no separators — **element order UNDECLARED for multi-byte elements, §18.2(7)** | `pattern: "^[0-9a-f]{N}$"` with N literal — **exact length checked by the schema**, but blind to element order |
 | **Count-prefixed history** (see below) | JSON array of exactly `count` items | `maxItems` = the binary capacity |
 | Variable-length list | JSON array of objects | `items`, `minItems`/`maxItems` |
 | Guest memory | ZIP member, declared in `manifest.members` | the *declaration*, not the bytes (§5.3) |
@@ -706,30 +727,37 @@ encoding table with no signed type would have forced every one of them through
 an unsigned reinterpretation, which is precisely the defect §7.4 describes.
 
 **The count-prefixed-history primitives — `d.log()` and `d.fifo()`, not one
-`d.history()`.** Five buffers (§4.1) are written `count`-first and then **padded
-to full capacity**, because `RewindBuffer` requires every snapshot to be exactly
-the width it measured at construction. The binary encoding **must** stay padded;
-the JSON encoding **must not** be, or a snapshot's text would carry 1 024 entries
-to express three.
+`d.history()`.** **Six** buffers (§4.1) are written `count`-first and then
+**padded to full capacity**, because `RewindBuffer` requires every snapshot to be
+exactly the width it measured at construction. The binary encoding **must** stay
+padded; the JSON encoding **must not** be, or a snapshot's text would carry 1 024
+entries to express three.
 
-A single signature cannot reproduce both byte layouts, and the byte-identity gate
-(§17.1) tests every one of the differences:
+A single signature cannot reproduce the byte layouts, and the byte-identity gate
+(§17.1) tests every one of the differences. There are **three** layouts, not two:
 
-| | `Ula::port_ff_log_` (`ula.cpp:1586-1590`) | UART `FifoBuffer` (`uart.h:53-57`) |
-|---|---|---|
-| Count width | **`u16`** | **`u64`** |
-| Element | struct: `u16 line` + `u8 value` = 3 B, unpadded | scalar via `write_elem` → `u8` (TX) / `u16` (RX) |
-| Order | **raw array order**, `port_ff_log_[i]` | **ring-normalised**, `buf_[(tail_+i) % Capacity]`, oldest first |
-| Padding past `count` | whatever was there — **stale entries**, ignored on load | **`T{0}`** |
+| | `Ula::port_ff_log_` (`ula.cpp:1586-1590`) | UART `FifoBuffer` (`uart.h:53-57`) | `Keyboard::auto_queue_` (`keyboard.cpp:679-691`) |
+|---|---|---|---|
+| Count width | **`u16`** | **`u64`** | **`u32`** |
+| Element | struct: `u16 line` + `u8 value` = 3 B, unpadded | scalar via `write_elem` → `u8` (TX) / `u16` (RX) | 5 × `i32` per slot = 20 B |
+| Order | **raw array order**, `port_ff_log_[i]` | **ring-normalised**, `buf_[(tail_+i) % Capacity]`, oldest first | **raw slot order**, `auto_queue_[i]` |
+| Padding past `count` | whatever was there — **stale entries**, ignored on load | **`T{0}`** | **`AutoKey{}`** — zeros |
+| Capacity | 1 024 | 512 (RX) / 64 (TX) | **16** |
 
-So there are two primitives, each pinning its own layout:
-`d.log(name, array, count, Capacity, elem_desc)` — `u16` count, raw order, stale
-tail — and `d.fifo(name, ring, count, tail, Capacity)` — `u64` count,
-ring-normalised, zero-padded. Both emit exactly `count` items in JSON. A single
-parameterised `d.history(count_type, elem, pad_policy, ring_or_raw)` would work
-equally well and is the alternative if a third shape ever appears; two named
-primitives are preferred while there are exactly two shapes, because the
-parameter set would otherwise be a vocabulary nobody can read at a call site.
+Two of the three get a primitive, each pinning its own layout:
+`d.log(name, entries, count, Capacity)` — `u16` count, raw order, stale
+tail — and `d.fifo(name, ring, elem)` — `u64` count, ring-normalised,
+zero-padded. Both emit exactly `count` items in JSON.
+
+The third gets **no primitive at all**. A single parameterised
+`d.history(count_type, elem, pad_policy, ring_or_raw)` was named here as the
+alternative "if a third shape ever appears"; one has, and S5 declined it. The
+auto-type queue's capacity is **16**, so §9.4's loop collapse spells it out as
+80 ordinary `i32` declarations and costs nothing but a key table — whereas a
+third primitive would buy one 324-byte buffer a fourth parameter axis in a
+vocabulary already hard to read at a call site. **That answer is a function of
+the capacity, not of the shape**: at 512 slots the same reasoning inverts, and
+the parameterised `d.history()` becomes the right call. See §9.5(1).
 
 The hazard behind that requirement is on record: `AttributeMux`
 (`src/memory/attribute_mux.h:216-235`) documents that serialising its
@@ -1148,9 +1176,10 @@ realisation, not of any declaration.
 
 An earlier draft named three of these. All eight, from the classification:
 
-1. **Count-prefixed-and-padded history** — `Ula::port_ff_log_` and the UART's
-   four FIFOs (§4.1, §6.2). **Two primitives, `d.log()` and `d.fifo()`**, because
-   the two layouts differ in count width, element form and padding policy
+1. **Count-prefixed-and-padded history** — `Ula::port_ff_log_`, the UART's
+   four FIFOs **and `Keyboard::auto_queue_`**: six buffers, three layouts
+   (§4.1, §6.2). **Two primitives, `d.log()` and `d.fifo()`**, because those
+   two layouts differ in count width, element form and padding policy
    (§6.2's table) and the byte-identity gate tests all three. The binary form must stay padded to capacity because
    `RewindBuffer` requires constant width; the JSON form must carry exactly
    `count` items. **One declaration, two shapes**, so these are explicit
@@ -1165,6 +1194,23 @@ An earlier draft named three of these. All eight, from the classification:
    serialising a variable-length log "was tried first and was the actual bug
    behind a `free(): invalid size` heap-corruption crash"
    (`src/memory/attribute_mux.h:216-235`).
+
+   **That two-primitive decision was sized against FIVE buffers and two
+   layouts, and the sixth was not in the inventory it was sized against** —
+   §4.1 omitted `Keyboard::auto_queue_` entirely and this paragraph named only
+   the UART's four beside the ULA's one. S5 found the third layout (a `u32`
+   count, then `MAX_AUTO_TYPE_KEYS` × 5 × `i32` in raw slot order, 324 bytes)
+   and confirmed against the **pre-migration** source
+   (`git show 00aef129^:src/input/keyboard.cpp`) that the hand-written pair
+   already wrote exactly that — so it is a gap in the inventory, not a shape
+   the migration introduced. **S5 did not add a third primitive.** The queue is
+   declared as **80 ordinary `i32` fields** — §9.4's loop collapse, marshalled
+   through a local staging array — plus the `u32` count and a literal key
+   table. That answer turns entirely on `MAX_AUTO_TYPE_KEYS` being **16**:
+   eighty declarations and eighty key literals stay legible, and the same
+   treatment at 512 slots would not, at which point §6.2's parameterised
+   `d.history()` becomes the right call instead. Recorded as
+   **capacity-dependent, not as a precedent**.
 2. **A second serialisation entry point per subsystem.**
    `Im2Controller::save_timing` and `Ctc::save_timing` are called from a
    *different block* than those subsystems' own — block 31, `int_timing`, at the
@@ -1998,7 +2044,8 @@ captured **before** the migration.
 That image is nearly free, because the machine already writes one:
 
 ```bash
-# BEFORE the migration, on a build of current main:
+# BEFORE the migration, on a build of current main.
+# NO --rtc. Not on this run, and not on any run compared against it (below).
 jnext --headless --machine next --warm-start-regenerate ... # records the cache
 # JNEXTWS2 (current): 96-byte plain header, then a DEFLATE payload.
 python3 -c "import zlib,sys; d=open(sys.argv[1],'rb').read(); \
@@ -2015,6 +2062,49 @@ the payload *uncompressed*, so `d[96:]` is already the stream; check the magic
 rather than assuming. Because the cache is regenerable and machine-keyed, the
 golden should be **copied somewhere stable** before the migration starts, not
 left in `~/.jnext` where the next run replaces it.
+
+**Omit `--rtc` — on the golden run and on every run compared against it.**
+Three separate agents rediscovered this the hard way, each time reading the
+resulting diff as a migration fault. `Emulator::record_warm_start_state()`
+carries `--rtc` into the recording boot *deliberately* — it copies `config_`
+into `boot_cfg` and clears only the per-load and per-host fields, with the
+reason stated at `emulator.cpp:7417` ("the SD image, `--rtc`, the machine type
+… left alone on purpose") — and `I2cRtc::set_fixed_time()` calls
+`snapshot_time()`, which encodes the pinned date into the DS1307 BCD registers —
+so they travel in the stream, in block 16.
+
+Measured on the S1–S5 branch (2026-09-24): without `--rtc` those seven registers
+are **all zero**. `snapshot_time()` has exactly three callers — the `I2cRtc`
+constructor, `set_fixed_time()` and `start()` (an I2C START) — and
+`Emulator::init()` calls `rtc_.reset()` at `emulator.cpp:318`, whose
+`regs_.fill(0)` wipes what the constructor put there, *before* reaching the
+`set_fixed_time()` call at `:6601`. So with no `--rtc` the registers are only
+ever repopulated by a guest I2C transaction, and a 500-frame NextZXOS boot
+issues none. **`--rtc` does not record "the time you recorded at" — it
+POPULATES registers that are otherwise zero**, which is why the host clock does
+not leak into a golden and why two no-`--rtc` recordings agree. (If a future
+boot did touch the RTC inside the recorded window, that would stop being true,
+and the two-recordings-agree check below is what would catch it.)
+
+With `--rtc` they hold sec/min/hour/weekday/date/month/year at **0-based
+offsets 2 149 871–2 149 877** (`regs_[0..6]`, two bytes into the 69-byte `rtc`
+block, which starts at 2 149 869 — read off the stream's own sentinel chain,
+not computed from §4's table).
+**The number of differing bytes is data-dependent, not a constant**:
+a pinned time ending `:00:00` matches the zero baseline in two of the seven and
+differs in **five** (2 149 873–2 149 877), one ending `:00` differs in **six**,
+any other in all **seven**. Two no-`--rtc` recordings taken seconds apart are
+byte-identical, and so are two recordings pinned to the same time, so a diff
+here is never noise.
+
+Two things that are *not* traps, both measured the same day: the `--load` file
+does not reach the recording (it is taken on a fresh `Emulator` with
+`load_file` cleared — `blue.nex` and `beast.nex` give byte-identical streams),
+and the pinned *value* changes nothing outside those seven bytes. One thing that
+is: the cache directory comes from `$JNEXT_CONFIG_DIR` (default `~/.jnext`),
+**not** from `--sdcard`, so `--sdcard /elsewhere/sd.img` still writes
+`~/.jnext/warm-start/`. Set `JNEXT_CONFIG_DIR` per run to keep two goldens
+apart and to leave the user's own cache alone.
 
 The gate is then: `cmp` clean at every step, and the stream length still exactly
 **2 292 965**. Both are cheap enough to run per subsystem, which is what turns
@@ -2072,6 +2162,43 @@ mentions `.jns` is the one that freezes it.
    is still one of the larger remaining v1.1 items — confirm it is wanted now,
    at that cost, against the other open features.
 
+7. **The JSON hex string for a MULTI-BYTE-element array has no declared
+   element order — for S9.** *Recorded by S4's review, 2026-09-24. Not to be
+   fixed before S6 defines `JsonWriteDesc`: it is a hole in §6.2's
+   specification, not a defect in shipped code.*
+
+   §6.1 keeps `PaletteManager` (4 608 B) and `Copper::instructions_` (2 048 B)
+   in JSON, and §6.2's only array encoding is "one lower-case hex string, no
+   separators". Both of those are `uint16_t` arrays — and they are the **only**
+   multi-byte-element `d.bytes()` collapses in the tree (checked: of the
+   eighteen `d.bytes()` call sites, every other one is a `uint8_t` array, and
+   `SpriteEngine::sprites_` is a `SpriteAttr[128]` whose five members are each
+   one byte, so its `static_assert` is about *padding*, not byte order).
+
+   **The binary side has no such hole, by construction.** `write_bytes` memcpys
+   the host representation and `write_u16` *is* a `write_bytes` of 2
+   (`saveable.h:36-38`), and a `std::array<uint16_t, N>` is contiguous and
+   unpadded — so N sequential `write_u16`s and one `write_bytes` of 2N copy the
+   same bytes in the same order on any host, big-endian included. S4 pinned the
+   contiguity half with `static_assert`s (`palette.cpp:724-728`,
+   `copper.cpp:338`), so a member that changed type or gained an element fails
+   to compile rather than shifting the stream under the byte-identity gate.
+
+   **The JSON side has the hole.** A hex string of a `uint16_t` array is the
+   HOST byte image, so `0x1234` writes `3412` on this box and `1234` on a
+   big-endian one, and §6.2's `pattern: "^[0-9a-f]{N}$"` accepts both — the
+   schema cannot see the difference either. §6.2's worked example
+   (`"instructions": "0000ffff1234…"`) is an instance of the unspecified case.
+   §13's independent spec-written reader is written from §6.2 and will hit this
+   the first time it decodes one of the five arrays.
+
+   Three ways out, none chosen here: declare the hex string **little-endian per
+   element** and have `JsonWriteDesc` byte-swap on a big-endian host; declare it
+   a **JSON array of numbers** for multi-byte elements, which also lets the
+   schema bound each value; or add a `d.words()` primitive so the declaration
+   states the element width instead of the encoder inferring it from a byte
+   count. The choice belongs with whoever writes `JsonWriteDesc`.
+
 ### 18.3 Defects this design surfaced in shipped code
 
 Not questions — findings, to be fixed inside this work per the no-deferral rule,
@@ -2103,6 +2230,10 @@ Disposition:
 
 ---
 
-*Design document for issue #27. Nothing here is implemented. The measurements in
-§4 are from the current build on 2026-09-23; the code references are to
-`main` @ `15430513`.*
+*Design document for issue #27. **Stages S1–S5 are implemented** — the
+descriptor layer and the binary realisations (§9), and the migration of every
+subsystem onto them; S5b and S6 onward are not. The §4 measurements were taken
+on 2026-09-23 against `main` @ `15430513`, i.e. the PRE-migration tree the
+byte-identity gate (§17.1) uses as its oracle, and the code references are to
+that commit; the §4.1/§4.2 corrections and the §17.1 `--rtc` measurement were
+re-taken on the S1–S5 branch on 2026-09-24 and are marked where they appear.*
