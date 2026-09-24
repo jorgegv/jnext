@@ -27,9 +27,12 @@
 #include "video/sprites.h"
 #include "video/tilemap.h"
 #include "video/ula.h"
+#include "memory/rom.h"
+#include "save/state_desc.h"
 
 #include <cstring>
 #include <cstdio>
+#include <string>
 #include <vector>
 #include <cassert>
 #include <unistd.h>   // mkstemp/write/close/unlink — TZX fixture for the G36 tape-clock row
@@ -1599,6 +1602,555 @@ static int test_rewind_across_soft_reset()
 // per EMULATOR-DESIGN-PLAN.md Phase 8 Step 4 (frame snapshots ring
 // buffer). Will become a row only if a user asks; not a skip() entry.
 
+// ── Test 17: GH #27 S3 — the descriptor layer's declarations ──────────────
+//
+// S3 replaced six hand-written save_state/load_state pairs with a walk of one
+// `describe_state` declaration each. The MIGRATION was proved by the §17.1
+// byte-identity gate: the warm-start recording of a booted NextZXOS machine
+// re-extracted after every subsystem and `cmp`ed against a pre-migration
+// image, 2 292 965 bytes, clean each time. That gate is a one-shot scaffold —
+// it needs a pre-migration build to have produced the golden — so it cannot
+// be a row here, and §17.0 forbids committing the golden as a fixture now
+// (S5b is the stage that re-baselines and pins it).
+//
+// What CAN be a row, and is what the gate leaves behind, is the LAYOUT the
+// gate proved: which fields each subsystem declares, in which order, at which
+// width. `rewind_test`'s existing round-trip rows cannot see it —
+// save→load→save is idempotence, and a consistently reordered pair of
+// same-width fields passes it (design §17.1 says so in as many words). So the
+// rows below record the declaration itself and compare it against a list
+// spelled out here as literals.
+//
+// The expected lists are a TRANSCRIPTION of the layout the golden proved, not
+// a re-derivation from the code: that is what makes them an oracle rather
+// than `feedback_self_consistent_generated_data`. Each block's total width is
+// also pinned, and those seven numbers are exactly the block lengths the
+// §17.1 sentinel map reports for blocks 0-5 and the IM2 half of block 31.
+
+namespace s3 {
+
+/// A `StateDesc` realisation that RECORDS a declaration instead of encoding
+/// it: one `"<kind> <name> <width>"` line per call, in declaration order.
+///
+/// It is a realisation and not a parse of the source, so it sees exactly what
+/// `BinWriteDesc` sees — including a field declared inside a loop, which no
+/// grep of the source could enumerate.
+class RecordDesc final : public jnext::save::StateDesc {
+public:
+    bool writing() const override { return true; }
+
+    const std::vector<std::string>& fields() const { return f_; }
+    std::size_t width() const { return width_; }
+
+    void bytes(const char* n, uint8_t*, std::size_t len) override {
+        add("bytes", n, len);
+    }
+    void blob(const char* n, uint8_t*, std::size_t len) override {
+        add("blob", n, len);
+    }
+    void ram_window(const char* n, uint8_t*, std::size_t len,
+                    uint32_t) override {
+        add("ram_window", n, len);
+    }
+    void log(const char* n, jnext::save::LogAccess&, std::size_t&,
+             std::size_t capacity) override {
+        add("log", n, 2 + capacity * 3);
+    }
+    void fifo(const char* n, jnext::save::FifoAccess& ring,
+              jnext::save::FifoElem elem) override {
+        add("fifo", n,
+            8 + ring.capacity() *
+                    (elem == jnext::save::FifoElem::U8 ? 1u : 2u));
+    }
+    void sentinel(const char* n, uint32_t, uint32_t) override {
+        add("sentinel", n ? n : "?", 4);
+    }
+
+protected:
+    void do_boolean(const char* n, bool&, jnext::save::Def<bool>) override {
+        add("bool", n, 1);
+    }
+    void do_u8(const char* n, uint8_t&, jnext::save::Def<uint8_t>) override {
+        add("u8", n, 1);
+    }
+    void do_u16(const char* n, uint16_t&, jnext::save::Def<uint16_t>) override {
+        add("u16", n, 2);
+    }
+    void do_u32(const char* n, uint32_t&, jnext::save::Def<uint32_t>) override {
+        add("u32", n, 4);
+    }
+    void do_u64(const char* n, uint64_t&, jnext::save::Def<uint64_t>) override {
+        add("u64", n, 8);
+    }
+    void do_i32(const char* n, int32_t&, jnext::save::Def<int32_t>) override {
+        add("i32", n, 4);
+    }
+    void do_i64(const char* n, int64_t&, jnext::save::Def<int64_t>) override {
+        add("i64", n, 8);
+    }
+    void do_i64_open(const char* n, int64_t&,
+                     jnext::save::Def<int64_t>) override {
+        add("i64_open", n, 8);
+    }
+    void do_enum8(const char* n, uint8_t&, const jnext::save::EnumNames&,
+                  jnext::save::Def<uint8_t>) override {
+        add("enum8", n, 1);
+    }
+
+private:
+    void add(const char* kind, const char* name, std::size_t w) {
+        char buf[160];
+        std::snprintf(buf, sizeof(buf), "%s %s %zu", kind, name ? name : "?", w);
+        f_.push_back(buf);
+        width_ += w;
+    }
+    std::vector<std::string> f_;
+    std::size_t              width_ = 0;
+};
+
+/// Compare a recording against an expected list and report the FIRST
+/// disagreement by index, because "the layout changed" is not a diagnosis.
+std::string diff(const std::vector<std::string>& got,
+                 const std::vector<std::string>& want)
+{
+    const std::size_t n = got.size() < want.size() ? got.size() : want.size();
+    for (std::size_t i = 0; i < n; ++i) {
+        if (got[i] != want[i]) {
+            return "field " + std::to_string(i) + ": got '" + got[i] +
+                   "', want '" + want[i] + "'";
+        }
+    }
+    if (got.size() != want.size()) {
+        return "field count: got " + std::to_string(got.size()) + ", want " +
+               std::to_string(want.size());
+    }
+    return "";
+}
+
+std::vector<std::string> vec(const char* const* a, std::size_t n) {
+    return std::vector<std::string>(a, a + n);
+}
+
+// The 14 IM2 devices, in DevIdx order (src/cpu/im2.h). Spelled here rather
+// than shared with im2.cpp: a table the code and the test both read could
+// not catch the code renaming a device.
+const char* const kIm2Devices[] = {
+    "line", "uart0_rx", "uart1_rx",
+    "ctc0", "ctc1", "ctc2", "ctc3", "ctc4", "ctc5", "ctc6", "ctc7",
+    "ula", "uart0_tx", "uart1_tx",
+};
+
+}  // namespace s3
+
+static int test_s3_descriptor_layout()
+{
+    printf("\n--- Test 17: GH #27 S3 descriptor declarations ---\n");
+
+    Emulator emu;
+    build_emulator(emu, 2);
+
+    // ── Clock — stream block 0, 12 bytes ─────────────────────────────────
+    {
+        static const char* const want[] = {
+            "u64 cycle 8",
+            "i32 cpu_divisor 4",
+        };
+        s3::RecordDesc rec;
+        emu.clock().describe_state(rec);
+        const std::string d = s3::diff(rec.fields(), s3::vec(want, 2));
+        check("S3-DECL-CLOCK", d.empty(),
+              d.empty() ? "Clock declares exactly the two fields the §17.1 "
+                          "golden carries, in that order"
+                        : d.c_str());
+        check("S3-WIDTH-CLOCK", rec.width() == 12,
+              "Clock's declaration is 12 bytes wide — block 0 of the "
+              "2 292 965-byte stream");
+    }
+
+    // ── Ram — block 1, 2 097 160 bytes ───────────────────────────────────
+    {
+        static const char* const want[] = {
+            "u64 size_bytes 8",
+            "blob ram 2097152",
+        };
+        s3::RecordDesc rec;
+        emu.ram().describe_state(rec);
+        const std::string d = s3::diff(rec.fields(), s3::vec(want, 2));
+        check("S3-DECL-RAM", d.empty(),
+              d.empty() ? "Ram declares a u64 count prefix and the 2 MB blob "
+                          "— and the blob's length comes from the DECLARATION, "
+                          "which is what makes the prefix un-obeyable"
+                        : d.c_str());
+        check("S3-WIDTH-RAM", rec.width() == 2097160,
+              "Ram's declaration is 2 097 160 bytes wide — block 1");
+    }
+
+    // ── Mmu — block 2, 24 634 bytes ──────────────────────────────────────
+    {
+        static const char* const want[] = {
+            "bytes slots 8",
+            "bool read_only_0 1", "bool read_only_1 1", "bool read_only_2 1",
+            "bool read_only_3 1", "bool read_only_4 1", "bool read_only_5 1",
+            "bool read_only_6 1", "bool read_only_7 1",
+            "bool paging_locked 1",
+            "u8 port_7ffd 1",
+            "u8 port_1ffd 1",
+            "bool l2_write_enable 1",
+            "u8 l2_segment_mask 1",
+            "u8 l2_bank 1",
+            "bool boot_rom_en 1",
+            "bool config_mode 1",
+            "u8 nr_04_romram_bank 1",
+            "bool rom_in_sram 1",
+            "bool contention_disabled 1",
+            "u8 nr_8c_reg 1",
+            "enum8 machine_type 1",
+            "u8 port_dffd_reg 1",
+            "bool port_eff7_reg_2 1",
+            "bool port_eff7_reg_3 1",
+            "u8 nr_8f_mode 1",
+            "bool l2_read_enable 1",
+            "u8 p3_floating_bus_dat 1",
+            "bool slot_contended_0 1", "bool slot_contended_1 1",
+            "bool slot_contended_2 1", "bool slot_contended_3 1",
+            "u8 l2_segment_raw 1",
+            "bool l2_enable 1",
+            "bool l2_map_shadow 1",
+            "u8 l2_offset 1",
+            "u8 l2_shadow_bank 1",
+            "bool port_dffd_reg_6 1",
+            "bool port_1ffd_special_old 1",
+            "bytes nr_mmu 8",
+            "enum8 machine_timing 1",
+            "enum8 pending_machine_timing 1",
+            "blob bank7_bram 8192",
+            "blob bank5_vram 16384",
+            "u16 attr_mux_current_line 2",
+        };
+        s3::RecordDesc rec;
+        emu.mmu().describe_state(rec);
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        check("S3-DECL-MMU", d.empty(),
+              d.empty() ? "Mmu declares 45 fields in the order the golden "
+                          "carries them, ending with both BRAM blobs and the "
+                          "attribute-mux cursor"
+                        : d.c_str());
+        check("S3-WIDTH-MMU", rec.width() == 24634,
+              "Mmu's declaration is 24 634 bytes wide — block 2");
+    }
+
+    // ── NextReg — block 3, 262 bytes ─────────────────────────────────────
+    {
+        static const char* const want[] = {
+            "u8 selected 1",
+            "bytes regs 256",
+            "bool nr_03_config_mode 1",
+            "u8 nr_04_romram_bank 1",
+            "u8 nr_03_machine_timing 1",
+            "bool nr_03_user_dt_lock 1",
+            "u8 nr_03_machine_type 1",
+        };
+        s3::RecordDesc rec;
+        emu.nextreg().describe_state(rec);
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        check("S3-DECL-NEXTREG", d.empty(),
+              d.empty() ? "NextReg declares the select latch, the 256-byte "
+                          "register file as a `bytes` (not a blob — under the "
+                          "§6.1 8 KB line) and the five appended scalars"
+                        : d.c_str());
+        check("S3-WIDTH-NEXTREG", rec.width() == 262,
+              "NextReg's declaration is 262 bytes wide — block 3");
+    }
+
+    // ── Z80Cpu — block 4, 45 bytes ───────────────────────────────────────
+    {
+        static const char* const want[] = {
+            "u16 af 2", "u16 bc 2", "u16 de 2", "u16 hl 2",
+            "u16 af2 2", "u16 bc2 2", "u16 de2 2", "u16 hl2 2",
+            "u16 ix 2", "u16 iy 2", "u16 sp 2", "u16 pc 2",
+            "u8 i 1", "u8 r 1",
+            "u8 iff1 1", "u8 iff2 1", "u8 im 1",
+            "bool halted 1",
+            "u16 memptr 2",
+            "u8 q 1",
+            "i32 ei_grace 4",
+            "u8 iff2_read 1",
+            "bool nmi_pending 1",
+            "bool int_pending 1",
+            "u8 int_vector 1",
+            "u32 int_first_ts_rel 4",
+        };
+        s3::RecordDesc rec;
+        emu.cpu().describe_state(rec);
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        check("S3-DECL-CPU", d.empty(),
+              d.empty() ? "Z80Cpu declares the register file, MEMPTR/Q, and "
+                          "the three §9.5(3) values that are relative to the "
+                          "FUSE T-state counter"
+                        : d.c_str());
+        check("S3-WIDTH-CPU", rec.width() == 45,
+              "Z80Cpu's declaration is 45 bytes wide — block 4");
+    }
+
+    // ── Im2Controller state — block 5, 149 bytes ─────────────────────────
+    {
+        // The nine per-device fields, in declaration order. Spelled here so a
+        // reordering INSIDE the loop — which no width check and no round-trip
+        // can see — has to be made twice to pass.
+        static const char* const dev[] = {
+            "bool %s_int_req 1",
+            "bool %s_int_req_d 1",
+            "bool %s_int_en 1",
+            "bool %s_int_unq 1",
+            "bool %s_int_status 1",
+            "bool %s_im2_int_req 1",
+            "enum8 %s_state 1",
+            "bool %s_dma_int_en 1",
+            "bool %s_exception 1",
+        };
+        std::vector<std::string> want;
+        for (const char* name : s3::kIm2Devices) {
+            for (const char* f : dev) {
+                char buf[96];
+                std::snprintf(buf, sizeof(buf), f, name);
+                want.push_back(buf);
+            }
+        }
+        static const char* const tail[] = {
+            "enum8 dec_state 1",
+            "bool reti_seen_pulse 1",
+            "bool retn_seen_pulse 1",
+            "bool reti_decode 1",
+            "bool dma_delay_ctrl 1",
+            "u8 im_mode 1",
+            "bool pulse_int_n 1",
+            "u8 pulse_count 1",
+            "bool machine_48_or_p3 1",
+            "u8 vector_base_msb3 1",
+            "bool im2_mode 1",
+            "bool stackless_nmi 1",
+            "u16 dma_int_en_mask14 2",
+            "bool im2_dma_delay_latched 1",
+            "bool nmi_activated 1",
+            "bool nr_cc_dma_int_en_0_7 1",
+            "i32 last_acked 4",
+            "u16 legacy_mask 2",
+        };
+        for (const char* t : tail) want.push_back(t);
+
+        s3::RecordDesc rec;
+        emu.im2().describe_state(rec);
+        const std::string d = s3::diff(rec.fields(), want);
+        check("S3-DECL-IM2", d.empty(),
+              d.empty() ? "Im2Controller declares 14 named devices x 9 fields "
+                          "then the decoder / pulse / NR 0xC0 / DMA-delay "
+                          "scalars — 144 declarations, one per field, not 126 "
+                          "per device"
+                        : d.c_str());
+        check("S3-WIDTH-IM2", rec.width() == 149,
+              "Im2Controller's state declaration is 149 bytes wide — block 5");
+    }
+
+    // ── Im2Controller timing — the IM2 half of block 31 ──────────────────
+    {
+        static const char* const dev[] = {
+            "u64 %s_req_at 8",
+            "u64 %s_unq_at 8",
+            "u64 %s_status_at 8",
+            "u64 %s_im2_req_at 8",
+            "u64 %s_sreq_at 8",
+        };
+        std::vector<std::string> want;
+        for (const char* name : s3::kIm2Devices) {
+            for (const char* f : dev) {
+                char buf[96];
+                std::snprintf(buf, sizeof(buf), f, name);
+                want.push_back(buf);
+            }
+        }
+        static const char* const tail[] = {
+            "bool pulse_timed 1",
+            "u64 pulse_te 8",
+            "u64 pulse_e1 8",
+            "u64 pulse_en 8",
+            "u32 pulse_d 4",
+        };
+        for (const char* t : tail) want.push_back(t);
+
+        s3::RecordDesc rec;
+        emu.im2().describe_timing(rec);
+        const std::string d = s3::diff(rec.fields(), want);
+        check("S3-DECL-IM2-TIMING", d.empty(),
+              d.empty() ? "Im2Controller's SECOND declaration (§9.5(2)) is the "
+                          "GH #265 timing block, which travels in `int_timing` "
+                          "at the end of the Emulator stream and not in block 5"
+                        : d.c_str());
+        check("S3-WIDTH-IM2-TIMING", rec.width() == 589,
+              "the IM2 timing declaration is 589 bytes wide — the first 589 of "
+              "block 31's 609, the remaining 20 being the CPU's /INT pair and "
+              "the CTC's chained triggers");
+    }
+
+    return 0;
+}
+
+// ── Test 18: GH #27 S3 — what the migration CHANGED, not just transcribed ─
+
+static int test_s3_restore_behaviour()
+{
+    printf("\n--- Test 18: GH #27 S3 restore behaviour ---\n");
+
+    // ── Ram: the count prefix is CHECKED, never obeyed ───────────────────
+    //
+    // Before S3 the prefix WAS the write length for the 2 MB buffer:
+    //     uint64_t sz = r.read_u64();
+    //     r.read_bytes(data_.data(), static_cast<size_t>(sz));
+    // Both of StateReader::read_bytes' branches are unbounded there. The
+    // warm-start loader checks only the TOTAL stream length, so a tampered
+    // cache of the right total size reaches Ram::load_state with a hostile
+    // number. The row asserts the property that makes that impossible: the
+    // restore consumes 8 + the DECLARED length, whatever the prefix says.
+    {
+        Ram ram(64 * 1024);
+        for (uint32_t i = 0; i < 64 * 1024; ++i)
+            ram.write(i, static_cast<uint8_t>(i * 7 + 3));
+
+        StateWriter measure;
+        ram.save_state(measure);
+        const size_t n = measure.position();
+        std::vector<uint8_t> buf(n, 0);
+        StateWriter w(buf.data(), n);
+        ram.save_state(w);
+
+        // Forge a prefix twelve times the real size — in range for a size_t,
+        // so pre-fix this took read_bytes' memset branch and zeroed 768 KB
+        // over a 64 KB heap buffer.
+        const uint64_t lie = 12ull * 64 * 1024;
+        std::memcpy(buf.data(), &lie, sizeof(lie));
+
+        Ram back(64 * 1024);
+        StateReader r(buf.data(), n);
+        back.load_state(r);
+
+        bool content_ok = true;
+        for (uint32_t i = 0; i < 64 * 1024; ++i)
+            if (back.read(i) != static_cast<uint8_t>(i * 7 + 3)) { content_ok = false; break; }
+
+        check("S3-RAM-PREFIX", r.position() == 8 + 64u * 1024 && content_ok,
+              "a RAM count prefix twelve times the real size neither moves the "
+              "stream nor reaches past the buffer: the restore takes its "
+              "length from the DECLARATION and the content is intact");
+        check("S3-RAM-PREFIX-SANE", n == 8 + 64u * 1024,
+              "…and an honest save is still exactly the prefix plus the RAM");
+    }
+
+    // ── enum8: an ordinal outside the declared set is REFUSED ────────────
+    //
+    // Pre-S3 both of these were `static_cast<Enum>(r.read_u8())` — any byte
+    // became a state. §16.1: a wrong FSM state is not a safe default. The
+    // stream must still stay in sync, because the byte was consumed either
+    // way, and that is the half a refusal usually gets wrong.
+    {
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.set_machine_type(MachineType::ZX128K);
+
+        StateWriter measure;
+        mmu.save_state(measure);
+        const size_t n = measure.position();
+        std::vector<uint8_t> buf(n, 0);
+        StateWriter w(buf.data(), n);
+        mmu.save_state(w);
+
+        // machine_type is declaration index 21, at stream offset 28: 8 (slots)
+        // + 8 (read_only) + 12 single-byte scalars.
+        check("S3-ENUM-OFFSET", buf[28] == static_cast<uint8_t>(MachineType::ZX128K),
+              "the machine_type ordinal really is at stream offset 28 — the "
+              "row below is meaningless if it corrupts some other field");
+        buf[28] = 0x7F;   // no MachineType has ordinal 127
+
+        Mmu back(ram, rom);
+        back.set_machine_type(MachineType::ZX_PLUS3);
+        StateReader r(buf.data(), n);
+        back.load_state(r);
+
+        check("S3-ENUM-MMU", back.machine_type() == MachineType::ZX_PLUS3 &&
+                             r.position() == n,
+              "an out-of-range machine_type ordinal leaves the field at its "
+              "pre-load value instead of casting garbage into it, and the "
+              "stream still ends exactly where it should");
+    }
+
+    // ── Mmu: the pending/effective timing pair survives a machine restore ─
+    //
+    // The pair used to be read behind `if (!r.eof())`, with a flag recording
+    // whether both halves arrived so Emulator::load_state could fall back to
+    // re-deriving them from NR 0x03. S3 declares them, so the flag is now
+    // unconditionally true and the fallback is unreachable. That is only safe
+    // if the declared pair really does survive — including the case the
+    // fallback would get WRONG, where pending differs from effective.
+    {
+        Emulator emu;
+        build_emulator(emu, 2);
+        emu.mmu().set_machine_timing(MachineTimingMode::Timing128);
+        emu.mmu().set_pending_machine_timing(MachineTimingMode::TimingPentagon);
+
+        StateWriter measure;
+        emu.save_state(measure);
+        const size_t n = measure.position();
+        std::vector<uint8_t> buf(n, 0);
+        StateWriter w(buf.data(), n);
+        emu.save_state(w);
+
+        emu.mmu().set_machine_timing(MachineTimingMode::Timing48);
+        emu.mmu().set_pending_machine_timing(MachineTimingMode::Timing48);
+
+        StateReader r(buf.data(), n);
+        const bool ok = emu.load_state(r);
+        check("S3-MMU-TIMING-PAIR", ok &&
+              emu.mmu().machine_timing() == MachineTimingMode::Timing128 &&
+              emu.mmu().pending_machine_timing() == MachineTimingMode::TimingPentagon,
+              "a deferred NR 0x03 timing commit — pending != effective — "
+              "survives a full Emulator save/load, which is the case the "
+              "retired old-format fallback would have collapsed");
+    }
+
+    // ── Mmu: the BRAM blobs are restored BEFORE the dispatch rebuild ─────
+    //
+    // The hand-written load_state called rebuild_ptr() twice, once mid-stream
+    // and once at the end; S3 calls it once, at the end. The end call is the
+    // load-bearing one: a slot holding page 0x0E (bank-7 lower half) must
+    // point at the freshly restored buffer, not at the pre-load one.
+    {
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.set_page(3, 0x0E);          // bank-7 lower half — the BRAM page
+        mmu.write(0x7000, 0xA5);
+
+        StateWriter measure;
+        mmu.save_state(measure);
+        const size_t n = measure.position();
+        std::vector<uint8_t> buf(n, 0);
+        StateWriter w(buf.data(), n);
+        mmu.save_state(w);
+
+        Mmu back(ram, rom);
+        StateReader r(buf.data(), n);
+        back.load_state(r);
+        check("S3-MMU-BRAM-PTR", back.read(0x7000) == 0xA5,
+              "a byte written into the bank-7 BRAM is readable through the "
+              "restored slot: the single rebuild_ptr() pass runs AFTER the "
+              "blobs land, which the mid-stream call never did");
+    }
+
+    return 0;
+}
+
 int main()
 {
     printf("=== Rewind tests ===\n");
@@ -1619,6 +2171,8 @@ int main()
     test_rewind_restores_render_state();
     test_rewind_callers_render_state();
     test_rewind_across_soft_reset();
+    test_s3_descriptor_layout();
+    test_s3_restore_behaviour();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
            pass_count + fail_count + (int)g_skipped.size(),
