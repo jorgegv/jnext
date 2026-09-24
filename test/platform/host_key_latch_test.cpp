@@ -1,4 +1,4 @@
-// Host key minimum-hold latch test (GitHub issue #120).
+// Host key minimum-hold latch + serialiser test (GitHub issues #120, #268).
 //
 // No VHDL oracle: this is a HOST input-sampling policy, not emulated hardware.
 // Its oracle is the stated contract in src/platform/host_key_latch.h, which in
@@ -12,7 +12,7 @@
 //     (membrane.vhd), so a real press outlasts many scans and can never be
 //     missed. The one-frame sampling is purely an emulation artefact.
 //
-// The contract under test:
+// The LATCH contract under test (HKL-*, unchanged by #268):
 //
 //   * a press is NEVER delayed;
 //   * a release is deferred if and only if no frame has run since the press;
@@ -21,6 +21,30 @@
 //     not become a permanent one-frame lag on every key-up;
 //   * a re-press cancels a pending release;
 //   * a tick that emulated nothing must not discharge the latch.
+//
+// The ROUTER SERIALISER contract (SER-*, issue #268). "A press is never
+// delayed" is a statement about the Latch and stops being one about the Router:
+//
+//   * a press is applied only when the queue is empty, no release is deferred,
+//     and no non-modifier press is still waiting to be shown to a frame;
+//     otherwise it QUEUES, and everything behind it queues too;
+//   * the guest must therefore never sample a two-key state the host did not
+//     have, which is the whole of #268 — two taps fused into a chord that the
+//     ZX ROM either rejects (both characters lost) or decodes as a DIFFERENT
+//     character (SYM tap + P tap typed `"` instead of PRINT);
+//   * the SDL modifier block 224..231 — CAPS SHIFT, SYMBOL SHIFT and host Alt —
+//     never starts a keystroke group, so a genuine shift+key chord still
+//     reaches the guest in ONE frame. This is the regression surface: get it
+//     wrong and EVERY shifted character breaks;
+//   * what separates "shift held as a modifier" from "shift tapped on its own"
+//     is the host's key-up, and nothing else;
+//   * autorepeat is not a keystroke and never enters the queue.
+//
+// WHY A WHOLE-MATRIX FAKE GUEST (MatrixGuest below). The pre-#268 fixtures
+// track exactly ONE key, so they cannot express a chord at all — that is
+// structurally why no row caught this. #268 needs two keys down at once to be
+// OBSERVABLE, so the SER-* rows sample the entire down-set once per emulated
+// frame and assert on the sequence of states the guest actually saw.
 //
 // TWO LAYERS, DELIBERATELY. The HKL-* rows pin the Latch POLICY. The RT-* rows
 // pin the Router — the GLUE that connects it to the emulated keyboard — because
@@ -40,7 +64,9 @@
 
 #include "platform/host_key_latch.h"
 
+#include <algorithm>
 #include <cstdio>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -147,6 +173,106 @@ struct GuestView {
 
 using GuestRouter = host_key_latch::Router<GuestView, int>;
 
+// --- Whole-matrix fixtures (issue #268) -----------------------------------
+// GuestView above tracks ONE key, which is exactly why nothing caught #268: a
+// chord needs two. This sink tracks the WHOLE down-set and snapshots it once
+// per emulated frame — the guest's real view, since the matrix is constant for
+// the duration of a run_frame() (host events can only land between ticks).
+struct MatrixGuest {
+    FakeKeyboard          kb;
+    std::set<int>         down;
+    /// One sorted down-set per emulated frame.
+    std::vector<std::vector<int>> samples;
+
+    void set_key(int sc, bool pressed)
+    {
+        kb.set_key(sc, pressed);
+        if (pressed) down.insert(sc);
+        else         down.erase(sc);
+    }
+    void run_frame() { samples.emplace_back(down.begin(), down.end()); }
+
+    /// The frames in which the guest saw ANY key — i.e. what it was offered to
+    /// decode, with the idle frames between keystrokes dropped.
+    std::vector<std::vector<int>> keystrokes() const
+    {
+        std::vector<std::vector<int>> out;
+        for (const auto& s : samples)
+            if (!s.empty()) out.push_back(s);
+        return out;
+    }
+    /// True if any single frame sampled BOTH of these keys down — the defect.
+    bool ever_together(int a, int b) const
+    {
+        for (const auto& s : samples) {
+            const bool ha = std::find(s.begin(), s.end(), a) != s.end();
+            const bool hb = std::find(s.begin(), s.end(), b) != s.end();
+            if (ha && hb) return true;
+        }
+        return false;
+    }
+};
+
+using MatrixRouter = host_key_latch::Router<MatrixGuest, int>;
+
+std::string got(const std::vector<std::vector<int>>& seq)
+{
+    std::string s = "frames=[";
+    for (size_t i = 0; i < seq.size(); ++i) {
+        if (i) s += " ";
+        s += "{";
+        for (size_t j = 0; j < seq[i].size(); ++j) {
+            if (j) s += ",";
+            s += std::to_string(seq[i][j]);
+        }
+        s += "}";
+    }
+    return s + "]";
+}
+
+/// One frontend tick: the gap's host events, then the frames, then the
+/// discharge+drain — the order both frontends really use (sdl_app.cpp:228/276/394,
+/// qt_app.cpp:279 then TickEffects::post_frames).
+void mtick(MatrixRouter& r, MatrixGuest& g, const Calls& batch, int frames)
+{
+    for (const auto& e : batch) r.on_host_key(e.first, e.second);
+    for (int i = 0; i < frames; ++i) g.run_frame();
+    r.on_tick_end(frames);
+}
+
+/// Run `ticks` further empty ticks, to let a queue drain out.
+void msettle(MatrixRouter& r, MatrixGuest& g, int ticks)
+{
+    for (int i = 0; i < ticks; ++i) mtick(r, g, Calls{}, 1);
+}
+
+/// One complete tap: press then release, back to back, inside one gap.
+Calls tap(int sc) { return Calls{{sc, true}, {sc, false}}; }
+
+Calls operator+(Calls a, const Calls& b)
+{
+    a.insert(a.end(), b.begin(), b.end());
+    return a;
+}
+
+// Scancodes used by the SER-* rows. SDL3 values, SDL_scancode.h:
+//   modifier block 224..231 (LCTRL..RGUI, contiguous — the same block
+//   host_key_latch.h hard-codes and src/input/keyboard.cpp static_asserts).
+constexpr int SC_SYM   = 224;   // SDL_SCANCODE_LCTRL  -> SYMBOL SHIFT (7,1)
+constexpr int SC_CAPS  = 225;   // SDL_SCANCODE_LSHIFT -> CAPS SHIFT   (0,0)
+constexpr int SC_ALT   = 226;   // SDL_SCANCODE_LALT   -> host Alt modifier
+constexpr int SC_P     = 19;    // SDL_SCANCODE_P      -> (5,0)
+constexpr int SC_M     = 16;    // SDL_SCANCODE_M      -> (7,2)
+constexpr int SC_N     = 17;    // SDL_SCANCODE_N      -> (7,3)
+constexpr int SC_O     = 18;    // SDL_SCANCODE_O      -> (5,1)
+constexpr int SC_1     = 30;    // SDL_SCANCODE_1      -> (3,0)
+constexpr int SC_2     = 31;    // SDL_SCANCODE_2      -> (3,1)
+constexpr int SC_3     = 32;    // SDL_SCANCODE_3      -> (3,2)
+constexpr int SC_4     = 33;    // SDL_SCANCODE_4      -> (3,3)
+constexpr int SC_ENTER = 40;    // SDL_SCANCODE_RETURN -> (6,0)
+constexpr int SC_DOWN  = 81;    // SDL_SCANCODE_DOWN   -> extended key DOWN
+constexpr int SC_UP    = 82;    // SDL_SCANCODE_UP     -> extended key UP
+
 /// One SdlApp::run() iteration, in its real order: SDL_PollEvent() drains the
 /// whole host event queue first (sdl_app.cpp:228), then the audio pacer's
 /// frame count is emulated (sdl_app.cpp:276-287), then the tick discharges
@@ -166,7 +292,7 @@ int main()
 {
     using host_key_latch::Latch;
 
-    std::printf("Host key latch test (GitHub issue #120)\n");
+    std::printf("Host key latch + serialiser test (GitHub issues #120, #268)\n");
     std::printf("====================================================\n");
 
     // --- HKL-01: a press is never delayed ----------------------------------
@@ -505,11 +631,19 @@ int main()
         check("RT-07a", "the deferred release names the key that was pressed",
               kb.calls == Calls{{KEY_B, true}, {KEY_B, false}}, got(kb));
 
+        // TWO TICKS, NOT ONE — changed for issue #268, and the change IS the
+        // fix. B is a second non-modifier press inside the gap that A has not
+        // been shown in yet, so the router now queues it instead of piling it
+        // on top of A: the serialisation costs one more tick before the traffic
+        // is complete. The property this row exists for is untouched — both
+        // keys are released, once each, by name — and the SER-* rows below
+        // pin the ordering itself.
         FakeKeyboard kb2; TestRouter r2; r2.attach(kb2);
         r2.on_host_key(KEY_A, true);
         r2.on_host_key(KEY_B, true);
         r2.on_host_key(KEY_A, false);
         r2.on_host_key(KEY_B, false);
+        r2.on_tick_end(1);
         r2.on_tick_end(1);
         check("RT-07b", "two keys deferred together are both released, once each",
               kb2.count(KEY_A, false) == 1 && kb2.count(KEY_B, false) == 1 &&
@@ -773,6 +907,315 @@ int main()
               got(g.kb));
         check("SDL-07c", "and the key is left up",
               !g.down && !r.latch().has_deferred());
+    }
+
+    // =======================================================================
+    // Keystroke serialisation (GitHub issue #268).
+    //
+    // Every row below needs TWO keys to be expressible at all, which is
+    // precisely why the 69 rows above could not see this defect: their fake
+    // guest tracks one key. These assert on the SEQUENCE OF STATES the guest
+    // sampled, one per emulated frame — the only thing the ZX ROM ever sees.
+    // =======================================================================
+
+    // --- SER-01: THE DEFECT — two taps in one gap must not fuse into a chord -
+    // Measured against v1.0.30 under Xvfb: `xdotool key --delay 0 1 2` typed
+    // NOTHING into 48K BASIC. Both digits were asserted at once, KEY-SCAN
+    // (ROM 0x028E) returns "more than one key" for a two-key chord, and the
+    // ROM discarded them.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        mtick(r, g, tap(SC_1) + tap(SC_2), 1);
+        msettle(r, g, 4);
+        check("SER-01a", "no frame ever samples two tapped keys together",
+              !g.ever_together(SC_1, SC_2), got(g.samples));
+        check("SER-01b", "the guest sees them sequentially, one per frame",
+              g.keystrokes() == std::vector<std::vector<int>>{{SC_1}, {SC_2}},
+              got(g.keystrokes()));
+    }
+
+    // --- SER-02: the WRONG-CHARACTER case, verbatim from the issue ----------
+    // `xdotool key --delay 0 ctrl p` typed `"` — SYMBOL SHIFT + P — instead of
+    // PRINT. Two independent taps decoded as one chord. A tap of SYMBOL SHIFT
+    // alone types nothing (K-TEST returns no character for a shift on its own),
+    // exactly as on hardware, so the correct outcome is one dead frame then P.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        mtick(r, g, tap(SC_SYM) + tap(SC_P), 1);
+        msettle(r, g, 4);
+        check("SER-02a", "a SYM tap and a P tap never coincide in one frame",
+              !g.ever_together(SC_SYM, SC_P), got(g.samples));
+        check("SER-02b", "the guest sees SYM alone, then P alone",
+              g.keystrokes() == std::vector<std::vector<int>>{{SC_SYM}, {SC_P}},
+              got(g.keystrokes()));
+    }
+
+    // --- SER-03: the genuine chord MUST survive -----------------------------
+    // The mirror image of SER-02 and the reason this needed a design pass:
+    // SYMBOL SHIFT still HELD when P goes down is how `"` is typed, and it must
+    // reach the guest in ONE frame. The only difference from SER-02 is where
+    // the shift's key-up sits in the stream.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        mtick(r, g, Calls{{SC_SYM, true}, {SC_P, true},
+                          {SC_P, false},  {SC_SYM, false}}, 1);
+        msettle(r, g, 4);
+        check("SER-03a", "a held-shift chord occupies exactly one frame",
+              g.keystrokes().size() == 1, got(g.keystrokes()));
+        check("SER-03b", "and that frame has both the shift and the key down",
+              g.keystrokes() == std::vector<std::vector<int>>{{SC_P, SC_SYM}},
+              got(g.keystrokes()));
+    }
+
+    // --- SER-04: EVERY shifted character — the regression surface -----------
+    // If the modifier set is wrong in either direction, every shifted character
+    // breaks: a shift treated as an ordinary keystroke splits the chord across
+    // two frames and the guest types the unshifted key instead. Both ZX shifts
+    // against ten keys, each chord inside one gap. One literal row ID per
+    // shift; the detail names the first key that failed.
+    {
+        const int keys[] = {SC_P, SC_M, SC_N, SC_O, SC_1,
+                            SC_2, SC_3, SC_4, KEY_A, KEY_B};
+        for (const int shift : {SC_CAPS, SC_SYM}) {
+            bool        all_ok = true;
+            std::string first_bad;
+            for (const int k : keys) {
+                MatrixGuest g; MatrixRouter r; r.attach(g);
+                mtick(r, g, Calls{{shift, true}, {k, true},
+                                  {k, false},    {shift, false}}, 1);
+                msettle(r, g, 3);
+                const std::vector<std::vector<int>> want{{k, shift}};   // k < 224
+                if (g.keystrokes() != want) {
+                    all_ok = false;
+                    if (first_bad.empty())
+                        first_bad = "key=" + std::to_string(k) + " " +
+                                    got(g.keystrokes());
+                }
+            }
+            if (shift == SC_CAPS)
+                check("SER-04a", "CAPS SHIFT + every key lands in ONE frame",
+                      all_ok, first_bad);
+            else
+                check("SER-04b", "SYMBOL SHIFT + every key lands in ONE frame",
+                      all_ok, first_bad);
+        }
+    }
+
+    // --- SER-05: a shift HELD across two keys shifts BOTH of them -----------
+    // The serialiser splits the two keys into separate frames; the shift must
+    // travel into both, or the second character comes out unshifted. Fails on
+    // any design that treats the shift as one queue entry consumed by the first
+    // key.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        mtick(r, g, Calls{{SC_SYM, true},
+                          {SC_P, true}, {SC_P, false},
+                          {SC_O, true}, {SC_O, false},
+                          {SC_SYM, false}}, 1);
+        msettle(r, g, 4);
+        check("SER-05", "a held shift accompanies every key it was held across",
+              g.keystrokes() == std::vector<std::vector<int>>{{SC_P, SC_SYM},
+                                                             {SC_O, SC_SYM}},
+              got(g.keystrokes()));
+    }
+
+    // --- SER-06: ROLLOVER — the next key pressed before the last is released -
+    // The normal fast-typing pattern, and the one the issue's reporter would
+    // actually hit: v1 v2 ^1 ^2. Before the fix the only frame in the gap
+    // sampled {1,2} and both characters were lost.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        mtick(r, g, Calls{{SC_1, true}, {SC_2, true},
+                          {SC_1, false}, {SC_2, false}}, 1);
+        msettle(r, g, 4);
+        check("SER-06a", "rollover never presents the two keys in one frame",
+              !g.ever_together(SC_1, SC_2), got(g.samples));
+        check("SER-06b", "and both keys reach the guest, in order",
+              g.keystrokes() == std::vector<std::vector<int>>{{SC_1}, {SC_2}},
+              got(g.keystrokes()));
+    }
+
+    // --- SER-07: host Alt is a modifier too ---------------------------------
+    // Keyboard::set_key latches the Alt VARIANT of a scancode at the key's
+    // PRESS edge (keyboard.cpp:270-290), so Alt must still be down in the same
+    // frame as the key it modifies. Split them and Alt+E stops being EDIT.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        mtick(r, g, Calls{{SC_ALT, true}, {SC_P, true},
+                          {SC_P, false},  {SC_ALT, false}}, 1);
+        msettle(r, g, 3);
+        check("SER-07", "host Alt stays in the same frame as the key it modifies",
+              g.keystrokes() == std::vector<std::vector<int>>{{SC_P, SC_ALT}},
+              got(g.keystrokes()));
+    }
+
+    // --- SER-08: a shift tapped ALONE is still a keystroke ------------------
+    // It must be shown to a frame, not swallowed as "only a modifier". On
+    // hardware a tap of SYMBOL SHIFT is a real matrix event that the ROM sees
+    // and decodes to nothing; software that polls port 0xFE directly can read
+    // it, so the emulator may not discard it.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        mtick(r, g, tap(SC_SYM), 1);
+        msettle(r, g, 2);
+        check("SER-08", "a modifier tapped on its own is shown to a frame",
+              g.keystrokes() == std::vector<std::vector<int>>{{SC_SYM}},
+              got(g.keystrokes()));
+    }
+
+    // --- SER-09: NextZXOS menu navigation (the second symptom of #120) ------
+    // Menu input is arrows + ENTER, all ordinary non-modifier scancodes (the
+    // arrows via the extended-key register, keyboard.cpp:146-149). An arrow and
+    // ENTER fused into {DOWN,ENTER} is not a menu input at all, and two
+    // different arrows fused is a diagonal the menu never asked for.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        mtick(r, g, tap(SC_DOWN) + tap(SC_ENTER), 1);
+        msettle(r, g, 4);
+        check("SER-09a", "an arrow tap and an ENTER tap never coincide",
+              !g.ever_together(SC_DOWN, SC_ENTER) &&
+                  g.keystrokes() == std::vector<std::vector<int>>{{SC_DOWN},
+                                                                 {SC_ENTER}},
+              got(g.keystrokes()));
+
+        MatrixGuest g2; MatrixRouter r2; r2.attach(g2);
+        mtick(r2, g2, tap(SC_DOWN) + tap(SC_UP), 1);
+        msettle(r2, g2, 4);
+        check("SER-09b", "two different arrows in one gap stay two moves",
+              !g2.ever_together(SC_DOWN, SC_UP) &&
+                  g2.keystrokes() == std::vector<std::vector<int>>{{SC_DOWN},
+                                                                  {SC_UP}},
+              got(g2.keystrokes()));
+    }
+
+    // --- SER-10: FRAME-RATE INDEPENDENCE ------------------------------------
+    // The whole point of the issue: severity was controlled entirely by the
+    // frame rate. Six keystrokes delivered one per gap (a host keeping up) and
+    // the SAME six crammed into ONE gap (a host at 18 FPS, or a paste) must
+    // reach the guest identically. Nothing may be lost or reordered by
+    // bunching — only delayed.
+    {
+        const int seq[] = {SC_1, SC_2, SC_3, SC_4, SC_P, SC_O};
+
+        MatrixGuest ga; MatrixRouter ra; ra.attach(ga);
+        for (const int k : seq) mtick(ra, ga, tap(k), 1);
+        msettle(ra, ga, 10);
+
+        MatrixGuest gb; MatrixRouter rb; rb.attach(gb);
+        Calls all;
+        for (const int k : seq) all = all + tap(k);
+        mtick(rb, gb, all, 1);
+        msettle(rb, gb, 10);
+
+        check("SER-10a", "bunching six keystrokes into one gap loses nothing",
+              ga.keystrokes() == gb.keystrokes(),
+              got(ga.keystrokes()) + " vs " + got(gb.keystrokes()));
+        check("SER-10b", "and that shared sequence is the CORRECT one",
+              gb.keystrokes() == std::vector<std::vector<int>>{
+                  {SC_1}, {SC_2}, {SC_3}, {SC_4}, {SC_P}, {SC_O}},
+              got(gb.keystrokes()));
+    }
+
+    // --- SER-11: autorepeat is not a keystroke ------------------------------
+    // sdl_input.cpp:12 forwards every SDL_EVENT_KEY_DOWN, repeat flag and all
+    // (Qt filters them itself, main_window.cpp:2250). A repeat enqueued as a
+    // keystroke would drain at one per frame — slower than the host emits them
+    // on a slow machine — and the key would stay down for seconds after the
+    // user let go. It must be dropped outright.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        Calls held{{KEY_A, true}};
+        for (int i = 0; i < 100; ++i) held.push_back({KEY_A, true});
+        mtick(r, g, held, 1);
+        check("SER-11a", "100 autorepeats of a held key are one press",
+              g.kb.calls == Calls{{KEY_A, true}}, got(g.kb));
+        check("SER-11b", "and none of them are queued",
+              r.pending() == 0, "pending=" + std::to_string(r.pending()));
+        mtick(r, g, Calls{{KEY_A, false}}, 1);
+        msettle(r, g, 2);
+        check("SER-11c", "the key still comes up when the host releases it",
+              g.down.empty() && g.kb.count(KEY_A, false) == 1, got(g.kb));
+    }
+
+    // --- SER-12: the queue is BOUNDED and can never strand a key ------------
+    // 800 events with no frame at all — the debugger-paused-and-mashing case,
+    // the only way to outrun a one-keystroke-per-frame drain. The bound must
+    // hold, and the overflow path must leave the matrix agreeing with the
+    // host's real fingers: a stuck key is a far worse bug than a lost one.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        for (int i = 0; i < 200; ++i)
+            for (const int k : {SC_1, SC_2}) {
+                r.on_host_key(k, true);
+                r.on_host_key(k, false);
+            }
+        check("SER-12a", "the pending queue never exceeds its bound",
+              r.pending() <= host_key_latch::MAX_PENDING,
+              "pending=" + std::to_string(r.pending()));
+        msettle(r, g, 400);
+        check("SER-12b", "after the flood no key is left stranded down",
+              g.down.empty() && r.pending() == 0, got(g.samples));
+        r.on_host_key(SC_1, true);
+        msettle(r, g, 3);
+        check("SER-12c", "and the host's next real keypress still arrives",
+              g.down == std::set<int>{SC_1}, got(g.kb));
+    }
+
+    // --- SER-13: the SCOPE BOUNDARY, asserted rather than assumed -----------
+    // Two taps of the SAME key inside one gap still reach the guest as one
+    // continuous press across two frames. That is issue #120's documented
+    // residue and is deliberately NOT in #268's scope: separating them needs a
+    // released frame between the two presses, which halves the drain rate and
+    // makes a sustained tap stream grow the queue without bound. A human cannot
+    // tap one key twice inside 20 ms (or even 55 ms at 18 FPS), whereas two
+    // DIFFERENT keys in one gap is ordinary rollover — which is why the two
+    // cases are treated differently. This row exists so the limit is visible to
+    // the next reader instead of being rediscovered.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        mtick(r, g, tap(KEY_A) + tap(KEY_A), 1);
+        msettle(r, g, 3);
+        check("SER-13a", "same-key double tap is still ONE continuous press",
+              g.keystrokes() == std::vector<std::vector<int>>{{KEY_A}, {KEY_A}},
+              got(g.keystrokes()));
+        check("SER-13b", "with no released frame between the two presses",
+              g.samples.size() >= 2 && g.samples[0] == std::vector<int>{KEY_A} &&
+                  g.samples[1] == std::vector<int>{KEY_A},
+              got(g.samples));
+    }
+
+    // --- SER-14: a tick that emulated NOTHING must not drain ----------------
+    // The #120 gate, extended to the queue. A paused tick has shown the guest
+    // nothing, so releasing the keystroke in flight and applying the next one
+    // would put two keystrokes into the same frame — the very defect.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        mtick(r, g, tap(SC_1) + tap(SC_2), 0);       // debugger paused
+        check("SER-14a", "a zero-frame tick drains nothing",
+              g.down == std::set<int>{SC_1} && r.pending() == 2,
+              got(g.kb) + " pending=" + std::to_string(r.pending()));
+        mtick(r, g, Calls{}, 1);
+        mtick(r, g, Calls{}, 1);
+        msettle(r, g, 3);
+        check("SER-14b", "and the first tick that emulates resumes the order",
+              g.keystrokes() == std::vector<std::vector<int>>{{SC_1}, {SC_2}},
+              got(g.keystrokes()));
+    }
+
+    // --- SER-15: attach() clears the queue ----------------------------------
+    // Cold boot reconstructs the Keyboard. RT-08/RT-09 pin that for the latch's
+    // deferred release; the queue is a second thing that could be replayed into
+    // a machine that never saw the keypress — a phantom keystroke at boot, and
+    // again after every cold boot.
+    {
+        MatrixGuest old_g, new_g; MatrixRouter r; r.attach(old_g);
+        mtick(r, old_g, tap(SC_1) + tap(SC_2), 0);   // queue loaded, nothing drained
+        check("SER-15a", "the queue really is loaded before the cold boot",
+              r.pending() == 2, "pending=" + std::to_string(r.pending()));
+        r.attach(new_g);
+        for (int i = 0; i < 5; ++i) { new_g.run_frame(); r.on_tick_end(1); }
+        check("SER-15b", "no queued keystroke is replayed into the new machine",
+              new_g.kb.calls.empty() && r.pending() == 0, got(new_g.kb));
     }
 
     std::printf("\n====================================================\n");
