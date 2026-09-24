@@ -2,8 +2,38 @@
 #include "port/nextreg.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 
 #include <cstring>
+
+namespace {
+
+// GH #27 S4 — the enum name table for NR 0x62 bits 7:6, the Copper control
+// mode. Names from `cores/zxnext/nextreg.txt:634-638`:
+//
+//   00 = Copper fully stopped
+//   01 = Copper start, execute the list from index 0, and loop to the start
+//   10 = Copper start, execute the list from last point, and loop to the start
+//   11 = Copper start, execute the list from index 0, and restart the list
+//        (at each frame)
+//
+// The field is two bits and `write_reg_0x62` masks every write to them
+// (`copper.cpp` — `mode_ = (val >> 6) & 0x03`), and `last_mode_` is only ever
+// assigned from `mode_`, so all four ordinals are reachable and there is no
+// hole. Design §6.2's worked `state/copper.json` example encodes `mode` and
+// `last_mode` as strings for exactly this reason: renumbering the control
+// field becomes a visible name change rather than a silent re-interpretation.
+const char* const kCopperModeNameArr[] = {
+    "stopped",               // 00
+    "run_loop_from_0",       // 01
+    "run_loop_from_last",    // 10
+    "run_restart_per_frame", // 11
+};
+const jnext::save::EnumNames kCopperModeNames{
+    kCopperModeNameArr, sizeof(kCopperModeNameArr) / sizeof(kCopperModeNameArr[0])};
+
+}  // namespace
 
 // ─── Instruction decoding helpers ──────────────────────────────────
 
@@ -281,30 +311,73 @@ uint8_t Copper::read_reg_0x62() const {
     return static_cast<uint8_t>((mode_ << 6) | ((write_addr_ >> 8) & 0x07));
 }
 
+// GH #27 S4 — the ONE field list (design §9.2). Block 11 of the byte-identity
+// stream (§17.1), 2 057 bytes. Declaration order IS the stream order.
+//
+// The 1 024-entry instruction RAM is §9.4's loop collapse: one `for` becomes
+// one `d.bytes` of 2 048. §6.1 puts it in JSON explicitly — "Copper::
+// instructions_ 2 048 B (NR 0x60-0x63) | 3, < 8 KB | JSON" — and §6.2's
+// worked `state/copper.json` shows exactly this field as a 4 096-character
+// hex string, which is what `bytes` produces.
+//
+// COLLAPSING A `uint16_t` ARRAY INTO `bytes` IS BYTE-IDENTICAL ON EVERY HOST.
+// `StateWriter::write_u16` is `write_bytes(&v, 2)` — a memcpy of the host
+// representation (`saveable.h:36-38`) — and `std::array<uint16_t, 1024>` is
+// contiguous with no padding, so 1 024 sequential `write_u16` calls and one
+// `write_bytes` of 2 048 copy the same bytes in the same order whatever the
+// endianness. The `static_assert` is what keeps that true.
+//
+// NOT DECLARED: `c_max_vc_`, which is timing-mode CONFIGURATION rather than
+// hardware state — the Emulator re-sets it at init time from the machine
+// timing model, so it is §9.5(7)'s derived class and has never been in the
+// stream.
+//
+// No field carries a DECLARED DEFAULT: §12.2's gate for them is S6's.
+void Copper::describe_state(jnext::save::StateDesc& d)
+{
+    static_assert(sizeof(instructions_) == 1024 * sizeof(uint16_t), "");
+
+    d.bytes("instructions", reinterpret_cast<uint8_t*>(instructions_.data()),
+            sizeof(instructions_));
+    d.u16("pc", pc_);
+    // Marshalled through a local `uint8_t` although `mode_` already IS one:
+    // the `enum8` idiom then reads identically at every call site, including
+    // the ones where the field is an `enum class` that is `int`-wide.
+    {
+        uint8_t mode = mode_;
+        d.enum8("mode", mode, kCopperModeNames);
+        mode_ = mode;
+    }
+    {
+        uint8_t last_mode = last_mode_;
+        d.enum8("last_mode", last_mode, kCopperModeNames);
+        last_mode_ = last_mode;
+    }
+    d.boolean("move_pending", move_pending_);
+    d.u16("write_addr", write_addr_);
+    d.u8("write_data_stored", write_data_stored_);
+    // NR 0x64 vertical offset (appended after the existing sequence).
+    d.u8("offset", offset_);
+}
+
 void Copper::save_state(StateWriter& w) const
 {
-    // 1024 × uint16_t instruction RAM (2048 bytes)
-    for (const auto& ins : instructions_) w.write_u16(ins);
-    w.write_u16(pc_);
-    w.write_u8(mode_);
-    w.write_u8(last_mode_);
-    w.write_bool(move_pending_);
-    w.write_u16(write_addr_);
-    w.write_u8(write_data_stored_);
-    // NR 0x64 vertical offset (appended after existing sequence).
-    // c_max_vc_ is timing-mode config, not persisted — it is re-set by
-    // the Emulator at init-time from the machine timing model.
-    w.write_u8(offset_);
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void Copper::load_state(StateReader& r)
 {
-    for (auto& ins : instructions_) ins = r.read_u16();
-    pc_                = r.read_u16();
-    mode_              = r.read_u8();
-    last_mode_         = r.read_u8();
-    move_pending_      = r.read_bool();
-    write_addr_        = r.read_u16();
-    write_data_stored_ = r.read_u8();
-    offset_            = r.read_u8();
+    jnext::save::BinReadDesc d(r);
+    describe_state(d);
+    if (d.failed()) {
+        // The only way this fires is an `enum8` ordinal the declaration does
+        // not name — impossible for a two-bit field this build wrote, so it
+        // means a stream and a build that disagree. The field keeps its
+        // pre-load value rather than taking a wrong mode (§16.1: "a wrong FSM
+        // state is not a safe default"), the stream stays in sync (the byte
+        // was consumed either way), and the fault is NAMED.
+        Log::copper()->error("Copper::load_state: the stream does not match "
+                             "this build\'s declaration at \'{}\'",
+                             d.failure() ? d.failure() : "?");
+    }
 }
