@@ -34,7 +34,11 @@
 //                             verbatim. A mismatch WARNS — except when the SD
 //                             FSM was mid-transfer at capture, where it
 //                             refuses (§11.3's last row, enforced by the
-//                             container).
+//                             container). An UNKNOWN stamp is a third case and
+//                             not a mismatch: the container says the contents
+//                             could not be compared, and still refuses
+//                             mid-transfer, because that row requires a MATCH
+//                             and an absence is not one.
 //
 // `informational.fat32_bs_vollab` is CARRIED AND NEVER COMPARED. It is a
 // stale copy of the authoritative root-directory label, and a tool that
@@ -54,14 +58,16 @@ namespace jnext {
 /// `present == false` so a caller that ignores the return value records "no
 /// card" rather than a half-filled identity.
 ///
-/// COST, STATED RATHER THAN HIDDEN. Tier 2 digests the WHOLE image: ~0.5 s
-/// warm / ~1.2 s cold on a 1 GB card, paid once per save and once per load.
-/// §11.3 recommends shipping it EAGER and measuring, and that is what this
-/// does — `sd_identity_test` row `JNSI-P20` prints the measured figure. The
-/// lazy variant (`want_content_stamp = false`) exists for callers that have
-/// already established Tier 1 does not match, where digesting a gigabyte to
-/// fill a field nobody will read is pure waste; it is NOT a way to skip the
-/// check.
+/// COST, STATED RATHER THAN HIDDEN. Tier 2 digests the WHOLE image: measured
+/// 0.49 s warm and 0.72 s cold on the canonical 1 GB card, paid once per save
+/// and once per load. §11.3 recommends shipping it EAGER and measuring, and
+/// that is what this does — `sd_identity_test` row `JNSI-P33` re-measures it on
+/// every run and PRINTS the figure, so the number above is one the suite
+/// reproduces rather than a claim nobody re-checks. The lazy variant
+/// (`want_content_stamp = false`) exists for callers that have already
+/// established Tier 1 does not match, where digesting a gigabyte to fill a
+/// field nobody will read is pure waste; it is NOT a way to skip the check,
+/// and `JNSI-P23` says so.
 bool describe_sdcard_for_snapshot(const std::string& image_path,
                                   bool read_only,
                                   jns::SdCardInfo& out,
