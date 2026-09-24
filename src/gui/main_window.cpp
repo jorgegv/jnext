@@ -1999,8 +1999,10 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
 void MainWindow::push_debug_keymap() {
 #ifdef ENABLE_DEBUGGER
     if (!debugger_mgr_) return;
-    if (auto* win = debugger_mgr_->debugger_window_ptr())
-        win->set_keymap(debug_keys_);
+    // Through the MANAGER, not straight at the window: the window is created
+    // lazily, so a rebind made before the debugger was ever opened must be
+    // remembered rather than dropped (GH #1).
+    debugger_mgr_->set_keymap(debug_keys_);
 #endif
 }
 

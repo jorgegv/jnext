@@ -491,6 +491,7 @@ void test_main_window_pushes_keymap() {
         return;
     }
     mgr->set_enabled(true);
+    settle(80);
     DebuggerWindow* dbg = mgr->debugger_window_ptr();
     if (!dbg) {
         check("DKM-10", "Preferences pushes the new bindings into the debugger window",
@@ -509,6 +510,56 @@ void test_main_window_pushes_keymap() {
           over != nullptr
               && over->text().remove(QLatin1Char('&')).contains(QStringLiteral("Step Over")),
           over ? over->text().toStdString() : "nothing answers Ctrl+F11");
+}
+
+/// DKM-11 — the order DKM-10 does NOT cover, and the one a user actually hits.
+///
+/// The debugger window is created LAZILY, the first time the debugger is
+/// enabled. A rebind made before that has nowhere to go: pushing it straight
+/// at `debugger_window_ptr()` is a no-op against a null pointer, and the
+/// window is then built on the compiled-in defaults. This shipped, and was
+/// found by driving the real GUI rather than by any test — DKM-10 enables the
+/// debugger FIRST, so it cannot see it. The keymap now lives on
+/// DebuggerManager and is applied inside ensure_window().
+void test_keymap_survives_a_late_window() {
+    MainWindowFixture fx;
+    DebuggerManager* mgr = fx.ok ? fx.win.debugger_manager() : nullptr;
+    if (!mgr) {
+        check("DKM-11", "a rebind made before the debugger was ever opened survives",
+              false, "fixture failed");
+        check("DKM-12", "and the toolbar caption of that late window follows it",
+              false, "fixture failed");
+        return;
+    }
+    // Deliberately NOT enabled yet: there is no debugger window at this point.
+    AppConfigData cfg = fx.win.app_config().data();
+    cfg.debug_keys.set(Action::StepOver, parsed("F10"));
+    fx.win.apply_preferences(cfg);
+    QApplication::processEvents();
+
+    mgr->set_enabled(true);          // the window is built HERE
+    settle(80);
+    DebuggerWindow* dbg = mgr->debugger_window_ptr();
+    if (!dbg) {
+        check("DKM-11", "a rebind made before the debugger was ever opened survives",
+              false, "no debugger window");
+        check("DKM-12", "and the toolbar caption of that late window follows it",
+              false, "no debugger window");
+        return;
+    }
+
+    QAction* over = action_with_shortcut(dbg, to_key_sequence(parsed("F10")));
+    check("DKM-11", "a rebind made before the debugger was ever opened survives",
+          over != nullptr
+              && over->text().remove(QLatin1Char('&')).contains(QStringLiteral("Step Over"))
+              && action_with_shortcut(dbg, to_key_sequence(parsed("F7"))) == nullptr,
+          over ? over->text().toStdString() : "nothing answers F10");
+
+    const QString caps = toolbar_captions(dbg);
+    check("DKM-12", "and the toolbar caption of that late window follows it",
+          caps.contains(QStringLiteral("F10: Step Over"))
+              && !caps.contains(QStringLiteral("F7: Step Over")),
+          caps.toStdString());
 }
 
 } // namespace
@@ -534,6 +585,7 @@ int main(int argc, char** argv) {
     test_preferences_tab();
     test_main_window_forwarding();
     test_main_window_pushes_keymap();
+    test_keymap_survives_a_late_window();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);
