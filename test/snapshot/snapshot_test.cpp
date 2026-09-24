@@ -64,17 +64,31 @@
 //   JNSI-*        the two-tier SD identity (§11.3)
 //   JNSM-*        refusal-message properties — G9 is a testable property, not
 //                 a slogan (§16.1)
+//
+// Stage S2's groups (JNSD / JNSE / JNSH / JNSA / JNSS / JNSG) are indexed in
+// their own block, below the S1 rows.
 
+#include "core/saveable.h"
 #include "save/jns_container.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
+#include "save/state_desc_json.h"
+#include "save/state_desc_schema.h"
 #include "save/zip_archive.h"
+
+#include <zlib.h>
 
 #include <algorithm>
 #include <cstdarg>
+#include <cstdint>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <cinttypes>
+#include <map>
+#include <regex>
 #include <set>
 #include <string>
 #include <vector>
@@ -335,6 +349,514 @@ std::vector<uint8_t> bytes_of(const std::string& s) {
     return std::vector<uint8_t>(s.begin(), s.end());
 }
 
+
+// ── The §17.1 golden extractor ───────────────────────────────────────────
+//
+// S2-S5's oracle is a byte image of the state stream captured BEFORE the
+// migration, `cmp`ed after each migrated subsystem. §17.1 gives the recipe as
+// a shell one-liner; this is the same recipe as tested code, exposed as
+// `snapshot_test --extract-golden IN OUT`, so S3 runs something the rows below
+// cover rather than a pipeline nothing checks.
+//
+// Why `rewind_test` is not the oracle, restated here because it is the trap:
+// `rewind_test.cpp:241-263` saves to buf1, loads, saves to buf2 and memcmps
+// buf1 against buf2. That is save->load->save IDEMPOTENCE plus a size check. A
+// migration that CONSISTENTLY reordered two fields — writing and reading them
+// in the same new order — passes every row, because both passes share the new
+// layout. The oracle has to be a byte image captured before the migration.
+//
+// Header layout (warm_start_cache.cpp:48-56), and every field of it checked:
+//
+//     0   8  magic "JNEXTWS1" / "JNEXTWS2"
+//     8   4  state-stream format version (u32 LE)
+//    12   4  machine type                (u32 LE)
+//    16   8  PLAIN payload length        (u64 LE)   <- the identity §17.1 names
+//    24  64  SD image SHA-256, ASCII hex, NUL-padded
+//    88   8  STORED payload length       (u64 LE)
+//    96  ..  payload: a zlib stream in WS2, the raw stream in WS1
+
+namespace s2 {
+
+constexpr std::size_t kWsHeaderBytes = 96;
+constexpr std::size_t kWsOffPlain    = 16;
+constexpr std::size_t kWsOffStored   = 88;
+
+uint64_t get_u64le(const uint8_t* p) {
+    uint64_t v = 0;
+    for (int i = 7; i >= 0; --i) v = (v << 8) | p[static_cast<std::size_t>(i)];
+    return v;
+}
+
+void put_u64le(uint8_t* p, uint64_t v) {
+    for (std::size_t i = 0; i < 8; ++i) p[i] = static_cast<uint8_t>(v >> (8 * i));
+}
+
+/// §17.1, as code. Returns false with `why` naming the defect.
+bool extract_warm_start(const std::vector<uint8_t>& file,
+                        std::vector<uint8_t>& out, std::string& why) {
+    out.clear();
+    why.clear();
+    if (file.size() < kWsHeaderBytes) {
+        why = "file is shorter than the 96-byte warm-start header";
+        return false;
+    }
+    const bool ws1 = std::memcmp(file.data(), "JNEXTWS1", 8) == 0;
+    const bool ws2 = std::memcmp(file.data(), "JNEXTWS2", 8) == 0;
+    if (!ws1 && !ws2) {
+        why = "magic is not JNEXTWS1 or JNEXTWS2";
+        return false;
+    }
+    const uint64_t plain  = get_u64le(file.data() + kWsOffPlain);
+    const uint64_t stored = get_u64le(file.data() + kWsOffStored);
+    // Bound before allocating. The declared length is a number from a FILE,
+    // and S1's review found a 167-byte archive that used one to demand
+    // 4.29 GB. 64 MB is ~28x the real stream (2 292 965 bytes).
+    constexpr uint64_t kMaxPlain = 64ull * 1024 * 1024;
+    if (plain == 0 || plain > kMaxPlain) {
+        why = "declared plain length " + std::to_string(plain) +
+              " is zero or beyond the 64 MB bound";
+        return false;
+    }
+    if (file.size() - kWsHeaderBytes < stored) {
+        why = "file is truncated: " + std::to_string(file.size() - kWsHeaderBytes) +
+              " payload bytes on disk, header declares " + std::to_string(stored);
+        return false;
+    }
+    const uint8_t* payload = file.data() + kWsHeaderBytes;
+    if (ws1) {
+        // §17.1's second note: a pre-compression file's payload IS the stream.
+        if (stored != plain) {
+            why = "JNEXTWS1 stored length disagrees with its plain length";
+            return false;
+        }
+        out.assign(payload, payload + stored);
+    } else {
+        out.resize(static_cast<std::size_t>(plain));
+        uLongf dst = static_cast<uLongf>(plain);
+        const int rc = ::uncompress(out.data(), &dst, payload,
+                                    static_cast<uLong>(stored));
+        if (rc != Z_OK) {
+            why = "zlib refused the payload (rc " + std::to_string(rc) + ")";
+            out.clear();
+            return false;
+        }
+        out.resize(static_cast<std::size_t>(dst));
+    }
+    // §17.1: "its `plain_bytes` field states the exact expected length —
+    // check it." A golden that silently came out short would make every later
+    // `cmp` compare the wrong thing and report success.
+    if (out.size() != plain) {
+        why = "inflated " + std::to_string(out.size()) +
+              " bytes, header declares " + std::to_string(plain);
+        out.clear();
+        return false;
+    }
+    return true;
+}
+
+/// Build a synthetic warm-start file, so the extractor's rows do not depend
+/// on a machine-keyed cache in ~/.jnext that a regeneration replaces.
+std::vector<uint8_t> make_warm_start(const char* magic,
+                                     const std::vector<uint8_t>& payload,
+                                     uint64_t declared_plain, bool deflate) {
+    std::vector<uint8_t> body;
+    if (deflate) {
+        uLongf cap = ::compressBound(static_cast<uLong>(payload.size()));
+        body.resize(cap);
+        ::compress2(body.data(), &cap, payload.data(),
+                    static_cast<uLong>(payload.size()), 9);
+        body.resize(cap);
+    } else {
+        body = payload;
+    }
+    std::vector<uint8_t> f(kWsHeaderBytes, 0);
+    std::memcpy(f.data(), magic, 8);
+    put_u64le(f.data() + kWsOffPlain, declared_plain);
+    put_u64le(f.data() + kWsOffStored, body.size());
+    f.insert(f.end(), body.begin(), body.end());
+    return f;
+}
+
+}  // namespace s2
+
+// ═════════════════════════════════════════════════════════════════════════
+// STAGE S2 — the field descriptor layer
+// ═════════════════════════════════════════════════════════════════════════
+//
+// Spec: doc/design/NEXT-SNAPSHOT-FORMAT.md §9 (the descriptor and its three
+// realisations), §6.2 (the encoding table), §5.3 / §9.3 (what a generated
+// schema is and is not worth), §16.3 (the staleness gate), §17.1 (the
+// byte-identity gate).
+//
+// ── WHAT S2 IS, AND WHAT THESE ROWS THEREFORE PROVE ──────────────────────
+//
+// S2 builds the LAYER. It migrates NO subsystem — that is S3-S5 — so no row
+// below can claim that any real subsystem's bytes are unchanged. What they
+// claim, and what S3-S5 rest on, is narrower and stated exactly:
+//
+//   * `BinWriteDesc` emits, for every primitive, the SAME BYTES a
+//     hand-written `save_state` in the tree's own idiom emits (JNSD-B01).
+//     The oracle is `PilotState::hand_save` below, transcribed from §6.2's
+//     encoding table and from the two history layouts it cites
+//     (`ula.cpp:1586-1590`, `uart.h:53-57`) — NOT from the descriptor.
+//   * The JSON and binary realisations of ONE declaration restore the same
+//     machine (JNSD-J02).
+//   * A file value is never trusted for a size, a width or a count (JNSA-*).
+//
+// WHAT THEY DO NOT PROVE. That the real 2 292 965-byte stream is unchanged:
+// nothing is migrated yet, so there is nothing to compare. That gate is
+// §17.1's `cmp` against the pre-migration golden, and S2's contribution to it
+// is the extractor (`--extract-golden`, JNSG-*) plus the sentinel encoding it
+// depends on. Say which is which; do not let one stand in for the other.
+//
+// ── AND WHAT THE SCHEMA ROWS DO NOT PROVE ────────────────────────────────
+//
+// A schema generated from a declaration, checked against JSON produced from
+// the SAME declaration, agrees with itself by construction —
+// `feedback_self_consistent_generated_data`: idempotence is not accuracy. The
+// JNSS rows below assert the GENERATED SHAPE against §6.2's table, which is an
+// external statement of what each type must encode to. Semantics are checked
+// by a human reading the schema diff every field change produces
+// (`make schema-check`), and by the hand-written constraint overlay. Neither
+// is a row here, and §9.3 already says so.
+//
+// ── ROW INDEX (S2) ───────────────────────────────────────────────────────
+//
+//   JNSD-*   the three realisations over one declaration: byte identity with
+//            hand-written code, round-trips, and the JSON/binary agreement
+//   JNSE-*   the §6.2 encoding table, entry by entry
+//   JNSH-*   the two count-prefixed history primitives and their four
+//            differences (count width, element, order, padding)
+//   JNSA-*   ADVERSARIAL input: every length, count and index in a file
+//            treated as hostile
+//   JNSS-*   the generated schema's shape
+//   JNSG-*   the §17.1 byte-identity gate's scaffolding: the warm-start
+//            extractor and the sentinel encoding
+
+using jnext::save::BinReadDesc;
+using jnext::save::BinWriteDesc;
+using jnext::save::EnumNames;
+using jnext::save::FifoAccess;
+using jnext::save::FifoElem;
+using jnext::save::JsonReadDesc;
+using jnext::save::JsonWriteDesc;
+using jnext::save::LogAccess;
+using jnext::save::LogArray;
+using jnext::save::SchemaDesc;
+using jnext::save::StateDesc;
+
+namespace s2 {
+
+// ── The enum name table (§6.2) ───────────────────────────────────────────
+//
+// A closed set. The FSM-renumbering property this buys is the point: change
+// the ordinals and the JSON is unchanged; change a NAME and every file that
+// used it stops loading, loudly, with the name in the message.
+const char* const kModeNames[] = {"idle", "wait_for_vpos", "move", "stop"};
+const EnumNames kModes{kModeNames, 4};
+
+// ── A FIFO with the layout §6.2's right-hand column states ───────────────
+//
+// Transcribed from that table — u64 count, ring-normalised oldest-first,
+// zero-padded to capacity — which is also what `uart.h:53-57` implements. The
+// test owns its own so a row can construct a ring with a non-zero tail, which
+// is the only way to tell "ring-normalised" from "raw array order" apart.
+template <typename T, std::size_t Capacity>
+class TestFifo final : public FifoAccess {
+public:
+    std::size_t capacity() const override { return Capacity; }
+    std::size_t size() const override { return count_; }
+    uint16_t oldest(std::size_t i) const override {
+        return static_cast<uint16_t>(buf_[(tail_ + i) % Capacity]);
+    }
+    void reset() override { head_ = tail_ = count_ = 0; }
+    bool push(uint16_t v) override {
+        if (count_ >= Capacity) return false;
+        buf_[head_] = static_cast<T>(v);
+        head_       = (head_ + 1) % Capacity;
+        ++count_;
+        return true;
+    }
+
+    /// Advance the ring so `tail_ != 0` — the state a raw-array encoding
+    /// would get wrong and a normalised one would not.
+    void rotate(std::size_t n) {
+        for (std::size_t i = 0; i < n; ++i) {
+            if (count_ == 0) break;
+            const T v = buf_[tail_];
+            tail_     = (tail_ + 1) % Capacity;
+            --count_;
+            push(v);
+        }
+    }
+
+    bool same_as(const TestFifo& o) const {
+        if (count_ != o.count_) return false;
+        for (std::size_t i = 0; i < count_; ++i) {
+            if (oldest(i) != o.oldest(i)) return false;
+        }
+        return true;
+    }
+
+    T           buf_[Capacity]{};
+    std::size_t head_ = 0, tail_ = 0, count_ = 0;
+};
+
+/// The one log element shape in the tree (`ula.h:875-878`).
+struct PortFFChange {
+    uint16_t line  = 0;
+    uint8_t  value = 0;
+};
+
+// ── The pilot declaration ────────────────────────────────────────────────
+//
+// Every primitive `StateDesc` has, once. Field NAMES and ORDER are chosen to
+// mirror real subsystems so the shapes are the shapes S3-S5 will meet:
+// `divmmc`'s bank and entry points, `ula`'s flash counter and port-0xFF log,
+// the CPU's two `/INT` window stamps, `uart`'s two FIFO element widths.
+struct PilotState {
+    static constexpr std::size_t kLogCap    = 8;
+    static constexpr std::size_t kRamBytes  = 64;
+    static constexpr std::size_t kPrivBytes = 32;
+    static constexpr uint32_t    kSentinelMagic = 0x4A4E5354;  // "JNST"
+
+    bool     enabled       = false;
+    uint8_t  bank          = 0;
+    uint16_t current_line  = 0;
+    uint32_t frame_num     = 0;
+    uint64_t monotonic     = 0;
+    int32_t  flash_counter = 0;
+    int64_t  int_first_ts  = 0;
+    int64_t  int_last_ts   = 0;
+    uint8_t  entry_points[4]{};
+    uint8_t  mode = 0;
+    uint8_t  priv_ram[kPrivBytes]{};
+    uint8_t* window = nullptr;   ///< a window onto RAM page 16, owned elsewhere
+
+    PortFFChange log[kLogCap]{};
+    std::size_t  log_count = 0;
+
+    TestFifo<uint8_t, 6>  tx;
+    TestFifo<uint16_t, 5> rx;
+
+    /// The ONE declaration. Everything else is a realisation over it.
+    void describe_state(StateDesc& d) {
+        d.boolean("enabled", enabled, false);
+        d.u8     ("bank", bank, 0x00);
+        d.u16    ("current_line", current_line, 0);
+        d.u32    ("frame_num", frame_num);            // required: no default
+        d.u64    ("monotonic", monotonic, 0);
+        d.i32    ("flash_counter", flash_counter, 0);
+        d.i64    ("int_first_ts", int_first_ts);      // required
+        d.i64_open("int_last_ts", int_last_ts);       // required
+        d.bytes  ("entry_points", entry_points, 4);
+        d.enum8  ("mode", mode, kModes, 0);
+        d.blob   ("mem/pilot-priv.bin", priv_ram, kPrivBytes);
+        d.ram_window("ram", window, kRamBytes, /*page=*/16);
+        LogArray<PortFFChange> la(log);
+        d.log("port_ff_log", la, log_count, kLogCap);
+        d.fifo("tx_fifo", tx, FifoElem::U8);
+        d.fifo("rx_fifo", rx, FifoElem::U16);
+        d.sentinel("pilot", kSentinelMagic, 0);
+    }
+
+    /// The SAME declaration with two adjacent scalars swapped. §9.2's third
+    /// consequence is a testable claim: reordering changes the BINARY stream
+    /// and leaves the JSON identical, because the JSON is what files are made
+    /// of and the binary is positional.
+    void describe_state_swapped(StateDesc& d) {
+        d.u8     ("bank", bank, 0x00);
+        d.boolean("enabled", enabled, false);
+        d.u16    ("current_line", current_line, 0);
+        d.u32    ("frame_num", frame_num);
+        d.u64    ("monotonic", monotonic, 0);
+        d.i32    ("flash_counter", flash_counter, 0);
+        // TWO of the swapped pairs are REQUIRED declarations, deliberately: a
+        // reorder confined to defaulted fields would leave the `required` list
+        // in the same order whether or not the generator sorts it, and the
+        // order-independence claim would be untested. (Found by mutation.)
+        d.i64_open("int_last_ts", int_last_ts);
+        d.i64    ("int_first_ts", int_first_ts);
+        d.bytes  ("entry_points", entry_points, 4);
+        d.enum8  ("mode", mode, kModes, 0);
+        d.blob   ("mem/pilot-priv.bin", priv_ram, kPrivBytes);
+        d.ram_window("ram", window, kRamBytes, /*page=*/16);
+        LogArray<PortFFChange> la(log);
+        d.log("port_ff_log", la, log_count, kLogCap);
+        d.fifo("tx_fifo", tx, FifoElem::U8);
+        d.fifo("rx_fifo", rx, FifoElem::U16);
+        d.sentinel("pilot", kSentinelMagic, 0);
+    }
+
+    // ── THE ORACLE ───────────────────────────────────────────────────────
+    //
+    // A hand-written serialiser in the tree's own idiom, transcribed from
+    // §6.2's encoding table and from the two layouts it cites. It is NOT
+    // derived from `BinWriteDesc`; it is what `BinWriteDesc` has to match, and
+    // JNSD-B01 is the comparison. Written first, deliberately: a "hand-written
+    // oracle" copied out of the code it is supposed to adjudicate is not one.
+    void hand_save(StateWriter& w) const {
+        w.write_bool(enabled);
+        w.write_u8(bank);
+        w.write_u16(current_line);
+        w.write_u32(frame_num);
+        w.write_u64(monotonic);
+        w.write_i32(flash_counter);
+        // No `StateWriter::write_i64` exists; the tree's idiom is the cast
+        // (`emulator.cpp:11844-11845`).
+        w.write_u64(static_cast<uint64_t>(int_first_ts));
+        w.write_u64(static_cast<uint64_t>(int_last_ts));
+        w.write_bytes(entry_points, 4);
+        w.write_u8(mode);
+        w.write_bytes(priv_ram, kPrivBytes);
+        w.write_bytes(window, kRamBytes);
+        // The log: u16 count, then ALWAYS `kLogCap` entries in raw array
+        // order (`ula.cpp:1586-1590`).
+        w.write_u16(static_cast<uint16_t>(log_count));
+        for (std::size_t i = 0; i < kLogCap; ++i) {
+            w.write_u16(log[i].line);
+            w.write_u8(log[i].value);
+        }
+        // The FIFOs: u64 count, then ALWAYS `Capacity` elements oldest-first,
+        // zero past the count (`uart.h:53-57`).
+        w.write_u64(tx.count_);
+        for (std::size_t i = 0; i < 6; ++i) {
+            w.write_u8(i < tx.count_ ? static_cast<uint8_t>(tx.oldest(i)) : 0);
+        }
+        w.write_u64(rx.count_);
+        for (std::size_t i = 0; i < 5; ++i) {
+            w.write_u16(i < rx.count_ ? rx.oldest(i) : 0);
+        }
+        w.write_u32(kSentinelMagic ^ 0u);
+    }
+
+    bool same_as(const PilotState& o) const {
+        if (enabled != o.enabled || bank != o.bank ||
+            current_line != o.current_line || frame_num != o.frame_num ||
+            monotonic != o.monotonic || flash_counter != o.flash_counter ||
+            int_first_ts != o.int_first_ts || int_last_ts != o.int_last_ts ||
+            mode != o.mode || log_count != o.log_count) {
+            return false;
+        }
+        if (std::memcmp(entry_points, o.entry_points, 4) != 0) return false;
+        if (std::memcmp(priv_ram, o.priv_ram, kPrivBytes) != 0) return false;
+        for (std::size_t i = 0; i < log_count; ++i) {
+            if (log[i].line != o.log[i].line) return false;
+            if (log[i].value != o.log[i].value) return false;
+        }
+        return tx.same_as(o.tx) && rx.same_as(o.rx);
+    }
+};
+
+/// A populated pilot with a value in every field that a defaulted or dropped
+/// field could not accidentally reproduce: no zeros, a NEGATIVE i32 and i64,
+/// an `INT64_MAX`, a `u64` past 2^53, a non-zero FIFO tail, and a log with
+/// live entries AND a stale tail past the count.
+struct Pilot {
+    uint8_t     ram[PilotState::kRamBytes]{};
+    PilotState  s;
+
+    Pilot() {
+        s.window        = ram;
+        s.enabled       = true;
+        s.bank          = 0x2A;
+        s.current_line  = 191;
+        s.frame_num     = 41291;
+        // Past 2^53: a JSON NUMBER would round this and a string does not
+        // (§7.4). 9007199254740993 == 2^53 + 1, the smallest integer a double
+        // cannot represent.
+        s.monotonic     = 9007199254740993ULL;
+        s.flash_counter = -7;
+        // §16.1 names this value: the /INT window's real measured delta.
+        s.int_first_ts  = -564933;
+        s.int_last_ts   = INT64_MAX;      // the open-ended sentinel
+        s.entry_points[0] = 0x83; s.entry_points[1] = 0x01;
+        s.entry_points[2] = 0x00; s.entry_points[3] = 0xCD;
+        s.mode          = 1;              // "wait_for_vpos"
+        for (std::size_t i = 0; i < PilotState::kPrivBytes; ++i) {
+            s.priv_ram[i] = static_cast<uint8_t>(0xA0 + i);
+        }
+        for (std::size_t i = 0; i < PilotState::kRamBytes; ++i) {
+            ram[i] = static_cast<uint8_t>(i * 3 + 1);
+        }
+        // Three live entries and a STALE tail: entries past `count` are
+        // whatever was there, and the binary encoding carries them
+        // (`ula.cpp:1622-1625`).
+        s.log[0] = {8, 0x01};
+        s.log[1] = {64, 0x02};
+        s.log[2] = {191, 0x04};
+        s.log[3] = {0xDEAD & 0xFFFF, 0xEE};   // stale
+        s.log[4] = {0xBEEF & 0xFFFF, 0xFF};   // stale
+        s.log_count = 3;
+        // A ring whose tail is NOT zero: push 4, rotate 2. Raw array order
+        // and ring-normalised order now differ.
+        s.tx.push(0x11); s.tx.push(0x22); s.tx.push(0x33); s.tx.push(0x44);
+        s.tx.rotate(2);
+        s.rx.push(0x0101); s.rx.push(0x0202); s.rx.push(0x1FF);
+        s.rx.rotate(1);
+    }
+};
+
+std::vector<uint8_t> bin_of(PilotState& p,
+                            void (PilotState::*desc)(StateDesc&) = nullptr) {
+    StateWriter measure;
+    BinWriteDesc md(measure);
+    if (desc) (p.*desc)(md); else p.describe_state(md);
+    std::vector<uint8_t> out(measure.position());
+    StateWriter w(out.data(), out.size());
+    BinWriteDesc bd(w);
+    if (desc) (p.*desc)(bd); else p.describe_state(bd);
+    return out;
+}
+
+std::vector<uint8_t> hand_bin_of(const PilotState& p) {
+    StateWriter measure;
+    p.hand_save(measure);
+    std::vector<uint8_t> out(measure.position());
+    StateWriter w(out.data(), out.size());
+    p.hand_save(w);
+    return out;
+}
+
+std::string json_of(PilotState& p) {
+    JsonWriteDesc jd;
+    p.describe_state(jd);
+    return jd.str();
+}
+
+/// Parse a produced document, mutate one key, re-emit. The adversarial rows
+/// feed the result back to `JsonReadDesc`: a crafted document, not writer
+/// output, for the same reason S1's `JNSC-REF-*` archives are hand-patched.
+std::string json_with(const std::string& src, const char* key,
+                      const std::string& raw_json_value) {
+    // Deliberately textual, so a row can inject a value nlohmann's typed API
+    // would refuse to construct.
+    const std::string needle = std::string("\"") + key + "\": ";
+    const std::size_t at = src.find(needle);
+    if (at == std::string::npos) return src;   // a row asserts the effect
+    const std::size_t vstart = at + needle.size();
+    // Find the end of this value: the next `,\n` or `\n}` at any depth 0 for
+    // scalars. The pilot's mutated keys are all scalars or one-line strings.
+    std::size_t vend = vstart;
+    int depth = 0;
+    bool in_str = false, esc = false;
+    for (; vend < src.size(); ++vend) {
+        const char c = src[vend];
+        if (esc) { esc = false; continue; }
+        if (in_str) {
+            if (c == '\\') esc = true;
+            else if (c == '"') in_str = false;
+            continue;
+        }
+        if (c == '"') { in_str = true; continue; }
+        if (c == '[' || c == '{') { ++depth; continue; }
+        if (c == ']' || c == '}') { if (depth == 0) break; --depth; continue; }
+        if (c == ',' && depth == 0) break;
+    }
+    return src.substr(0, vstart) + raw_json_value + src.substr(vend);
+}
+
+}  // namespace s2
 }  // namespace
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -344,6 +866,36 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--emit-corpus") == 0 && i + 1 < argc) {
             emit_dir = argv[++i];
+        } else if (std::strcmp(argv[i], "--extract-golden") == 0 &&
+                   i + 2 < argc) {
+            // §17.1, as a tool rather than a shell pipeline: capture the
+            // pre-migration state stream from a warm-start cache so S3-S5 can
+            // `cmp` against it after every migrated subsystem. The JNSG
+            // rows below cover this exact code path.
+            const std::string in_path  = argv[i + 1];
+            const std::string out_path = argv[i + 2];
+            std::ifstream is(in_path, std::ios::binary);
+            if (!is) {
+                std::fprintf(stderr, "cannot read %s\n", in_path.c_str());
+                return 2;
+            }
+            std::vector<uint8_t> file((std::istreambuf_iterator<char>(is)),
+                                      std::istreambuf_iterator<char>());
+            std::vector<uint8_t> stream;
+            std::string why;
+            if (!s2::extract_warm_start(file, stream, why)) {
+                std::fprintf(stderr, "%s: %s\n", in_path.c_str(), why.c_str());
+                return 2;
+            }
+            std::ofstream os(out_path, std::ios::binary | std::ios::trunc);
+            os.write(reinterpret_cast<const char*>(stream.data()),
+                     static_cast<std::streamsize>(stream.size()));
+            if (!os.good()) {
+                std::fprintf(stderr, "cannot write %s\n", out_path.c_str());
+                return 2;
+            }
+            std::printf("%zu bytes -> %s\n", stream.size(), out_path.c_str());
+            return 0;
         }
     }
 
@@ -2679,6 +3231,1460 @@ int main(int argc, char** argv) {
               !ok && !v.ok && !v.refusal.empty() && v.reconfigure_to.empty(),
               det("ok=%d refusal='%s' to='%s'", ok, v.refusal.c_str(),
                   v.reconfigure_to.c_str()));
+    }
+
+
+    // ─────────────────────────────────────────────────────────────────────
+    // JNSD — one declaration, three realisations (§9.2)
+    // ─────────────────────────────────────────────────────────────────────
+    {
+        s2::Pilot p;
+        const std::vector<uint8_t> desc_bytes = s2::bin_of(p.s);
+        const std::vector<uint8_t> hand_bytes = s2::hand_bin_of(p.s);
+
+        // THE row S3-S5 rest on. If this is green, a mechanical transcription
+        // of a subsystem's `save_state` into `describe_state` cannot change
+        // the stream; if it is red, every later byte-identity claim is
+        // unfounded.
+        check("JNSD-B01",
+              "BinWriteDesc emits, for every primitive, exactly the bytes a "
+              "hand-written save_state in the tree's idiom emits — the "
+              "precondition the S3-S5 migration is a transcription rather "
+              "than a rewrite (§17.1)",
+              desc_bytes == hand_bytes,
+              det("descriptor %zu bytes, hand-written %zu", desc_bytes.size(),
+                  hand_bytes.size()));
+
+        // Locate the first difference when there is one: a length-only detail
+        // hides a one-byte disagreement in the middle of 200 bytes.
+        std::size_t first_diff = desc_bytes.size();
+        for (std::size_t i = 0; i < desc_bytes.size() && i < hand_bytes.size();
+             ++i) {
+            if (desc_bytes[i] != hand_bytes[i]) { first_diff = i; break; }
+        }
+        check("JNSD-B02",
+              "and there is no first differing byte between them",
+              first_diff == desc_bytes.size() &&
+                  desc_bytes.size() == hand_bytes.size(),
+              det("first difference at offset %zu", first_diff));
+
+        StateWriter measure;
+        BinWriteDesc md(measure);
+        p.s.describe_state(md);
+        check("JNSD-B03",
+              "MeasureDesc — BinWriteDesc over a measure-mode StateWriter — "
+              "reports the same length the write produces, so RewindBuffer's "
+              "one dry-run sizing pass cannot disagree with the snapshot it "
+              "then takes",
+              measure.position() == desc_bytes.size(),
+              det("measured %zu, wrote %zu", measure.position(),
+                  desc_bytes.size()));
+
+        s2::Pilot back;
+        back.s.enabled = false;
+        StateReader r(desc_bytes.data(), desc_bytes.size());
+        BinReadDesc rd(r);
+        back.s.describe_state(rd);
+        check("JNSD-B04",
+              "a binary round-trip through the descriptor restores every "
+              "field, including the negative i32, the negative i64, the "
+              "open-ended INT64_MAX and both FIFOs",
+              !rd.failed() && back.s.same_as(p.s) &&
+                  std::memcmp(back.ram, p.ram, s2::PilotState::kRamBytes) == 0,
+              det("failed=%d refusal='%s' r.oob=%d", (int)rd.failed(),
+                  rd.failure() ? rd.failure() : "", (int)r.out_of_bounds()));
+
+        check("JNSD-B05",
+              "the binary stream is exactly consumed: the reader ends at the "
+              "byte the writer ended at, with no out-of-bounds read",
+              r.position() == desc_bytes.size() && !r.out_of_bounds(),
+              det("read %zu of %zu", r.position(), desc_bytes.size()));
+
+        // The sentinel is the only thing that localises a desync in a
+        // positional stream (§9.4), so its failure has to NAME the block.
+        std::vector<uint8_t> corrupt = desc_bytes;
+        corrupt[corrupt.size() - 1] ^= 0xFF;
+        s2::Pilot bad;
+        StateReader r2(corrupt.data(), corrupt.size());
+        BinReadDesc rd2(r2);
+        bad.s.describe_state(rd2);
+        check("JNSD-B06",
+              "a corrupted sentinel is a failure naming the BLOCK, not a "
+              "silent mis-restore — G9 is a testable property",
+              rd2.failed() && rd2.failure() &&
+                  std::string(rd2.failure()) == "pilot",
+              det("failed=%d name='%s'", (int)rd2.failed(),
+                  rd2.failure() ? rd2.failure() : ""));
+
+        // §9.2 consequence 3, as a testable claim rather than an assertion in
+        // prose: reordering two declarations changes the positional stream
+        // and leaves the named-key JSON identical.
+        const std::vector<uint8_t> swapped =
+            s2::bin_of(p.s, &s2::PilotState::describe_state_swapped);
+        check("JNSD-B07",
+              "reordering two declarations CHANGES the binary stream (§9.2): "
+              "it is positional, and that is the encoding the rewind ring and "
+              "the byte-identity gate are defined on",
+              swapped.size() == desc_bytes.size() && swapped != desc_bytes,
+              det("same size=%d, identical=%d",
+                  (int)(swapped.size() == desc_bytes.size()),
+                  (int)(swapped == desc_bytes)));
+
+        JsonWriteDesc j1;
+        p.s.describe_state(j1);
+        JsonWriteDesc j2;
+        p.s.describe_state_swapped(j2);
+        check("JNSD-J01",
+              "and leaves the JSON byte-identical — the JSON is what files "
+              "are made of, so a reorder must not move a file (§9.2)",
+              j1.str() == j2.str(),
+              det("%zu vs %zu bytes", j1.str().size(), j2.str().size()));
+
+        const std::string doc = s2::json_of(p.s);
+        s2::Pilot jback;
+        JsonReadDesc jr(doc);
+        jback.s.describe_state(jr);
+        check("JNSD-J02",
+              "a JSON round-trip restores every field the binary one does",
+              !jr.failed() && jback.s.same_as(p.s),
+              det("failed=%d refusal='%s'", (int)jr.failed(),
+                  jr.refusal().c_str()));
+
+        // The claim that makes ONE field list worth the machinery: fed the
+        // same declaration, the two encodings restore the same machine.
+        check("JNSD-J03",
+              "the JSON and binary realisations of ONE declaration restore "
+              "IDENTICAL state — which is the property F2 buys and the reason "
+              "the rewind stream and the snapshot cannot drift apart",
+              back.s.same_as(jback.s),
+              "");
+
+        // §9.4 — the 33 sentinels are framing, not fields: they must survive
+        // the binary encoding and VANISH from the JSON.
+        check("JNSD-J04",
+              "a sentinel contributes nothing to the JSON: member and key "
+              "names localise a desync structurally, so a magic number in the "
+              "text would have no job (§9.4)",
+              doc.find("4A4E5354") == std::string::npos &&
+                  doc.find("1246383444") == std::string::npos &&
+                  doc.find("sentinel") == std::string::npos,
+              "");
+
+        check("JNSD-J05",
+              "a blob contributes no JSON key but IS reported to the writer, "
+              "so the manifest can declare it (§6.1 case 1)",
+              doc.find("mem/pilot-priv.bin\":") == std::string::npos &&
+                  j1.blobs().size() == 1 &&
+                  j1.blobs()[0].key == "mem/pilot-priv.bin" &&
+                  j1.blobs()[0].len == s2::PilotState::kPrivBytes,
+              det("%zu blobs", j1.blobs().size()));
+
+        // The declaration's `ram_window` is a window onto RAM page 16. The
+        // JSON carries a REFERENCE; the 64 bytes live in `mem/ram.bin` and
+        // are not copied (§6.1 case 2).
+        check("JNSD-J06",
+              "a ram_window emits a reference to mem/ram.bin with its page "
+              "and length, and NOT the bytes (§6.1 case 2) — the duplication "
+              "S5b removes from the binary stream is not reproduced in a "
+              "format that has somewhere honest to put it",
+              doc.find("\"ref\": \"mem/ram.bin\"") != std::string::npos &&
+                  doc.find("\"page\": 16") != std::string::npos &&
+                  doc.find("\"bytes\": \"64\"") != std::string::npos,
+              "");
+
+        // …while the BINARY realisation still writes them inline, because the
+        // byte-identity gate requires that stream to stay exactly as it is
+        // until S5b re-baselines it deliberately.
+        check("JNSD-J07",
+              "the BINARY realisation still writes the window's bytes inline, "
+              "reproducing today's stream — the gate is a migration scaffold, "
+              "and S5b is where it is deliberately re-baselined (§17.0)",
+              desc_bytes.size() > s2::PilotState::kRamBytes &&
+                  std::search(desc_bytes.begin(), desc_bytes.end(),
+                              p.ram, p.ram + s2::PilotState::kRamBytes) !=
+                      desc_bytes.end(),
+              "");
+
+        // §9.2's static claim, asserted so it cannot go stale.
+        {
+            s2::Pilot unbacked;
+            unbacked.s.window = nullptr;
+            StateWriter mw;
+            BinWriteDesc bd(mw);
+            bd.set_machine_level(true);
+            unbacked.s.describe_state(bd);
+            check("JNSD-J08",
+                  "an unbacked ram_window fails LOUDLY under a machine-level "
+                  "save, naming the field — a comment claiming \"always\" with "
+                  "nothing checking it is how §4 came to state the Multiface "
+                  "case backwards (§9.2)",
+                  bd.failed() && bd.failure() &&
+                      std::string(bd.failure()) == "ram",
+                  det("failed=%d name='%s'", (int)bd.failed(),
+                      bd.failure() ? bd.failure() : ""));
+
+            StateWriter mw2;
+            BinWriteDesc bd2(mw2);   // machine_level defaults false
+            unbacked.s.describe_state(bd2);
+            check("JNSD-J09",
+                  "and does NOT fire on a standalone subsystem round-trip, "
+                  "which divmmc_test row DA-09 does legitimately — the "
+                  "assertion belongs to the Emulator-driven realisation, not "
+                  "to the declaration (§9.2)",
+                  !bd2.failed(),
+                  det("failed=%d name='%s'", (int)bd2.failed(),
+                      bd2.failure() ? bd2.failure() : ""));
+        }
+
+
+        // `save_via_desc` / `load_via_desc` are the ONE place the write
+        // direction's `const_cast` lives (state_desc_bin.h). S3-S5's ~34 call
+        // sites go through them, so they are exercised here rather than
+        // arriving untested at the first migration.
+        {
+            s2::Pilot src;
+            const s2::PilotState& cref = src.s;   // as a `save_state() const`
+            StateWriter measure;
+            jnext::save::save_via_desc(cref, measure, /*machine_level=*/true);
+            std::vector<uint8_t> out(measure.position());
+            StateWriter w(out.data(), out.size());
+            jnext::save::save_via_desc(cref, w, /*machine_level=*/true);
+
+            s2::Pilot dst;
+            dst.s.bank = 0xFF;
+            StateReader rr(out.data(), out.size());
+            jnext::save::load_via_desc(dst.s, rr, /*machine_level=*/true);
+
+            check("JNSD-B08",
+                  "save_via_desc drives a declaration from a CONST object and "
+                  "load_via_desc restores it — the one place the write "
+                  "direction's const_cast lives, so the claim that no write "
+                  "realisation assigns through a bound reference is checkable "
+                  "by reading one function rather than 34 call sites",
+                  out == desc_bytes && !rr.out_of_bounds() &&
+                      dst.s.same_as(src.s),
+                  det("%zu vs %zu bytes", out.size(), desc_bytes.size()));
+        }
+
+        // ── Found by mutation: BinReadDesc's own refusals ────────────────
+        //
+        // The three below had NO row until the mutation table derived from the
+        // diff showed them surviving. A table built from the row list could
+        // not have found them: the rows did not exist.
+        {
+            std::vector<uint8_t> bad = desc_bytes;
+            // The enum ordinal sits immediately after `entry_points`.
+            const std::size_t mode_at = 1 + 1 + 2 + 4 + 8 + 4 + 8 + 8 + 4;
+            bad[mode_at] = 9;   // beyond kModes
+            s2::Pilot q;
+            StateReader r(bad.data(), bad.size());
+            BinReadDesc rd(r);
+            q.s.describe_state(rd);
+            check("JNSD-B09",
+                  "BinReadDesc refuses an enum ORDINAL outside the declared "
+                  "name set, naming the field: in the binary stream an "
+                  "unnameable ordinal means the declaration and the stream "
+                  "disagree, which is the desync the sentinels localise",
+                  rd.failed() && rd.failure() &&
+                      std::string(rd.failure()) == "mode",
+                  det("failed=%d name='%s'", (int)rd.failed(),
+                      rd.failure() ? rd.failure() : ""));
+        }
+        {
+            std::vector<uint8_t> bad = desc_bytes;
+            const std::size_t log_at = 1 + 1 + 2 + 4 + 8 + 4 + 8 + 8 + 4 + 1 +
+                                       s2::PilotState::kPrivBytes +
+                                       s2::PilotState::kRamBytes;
+            bad[log_at] = 0xFF;      // a u16 count of 65535 against a cap of 8
+            bad[log_at + 1] = 0xFF;
+            s2::Pilot q;
+            StateReader r(bad.data(), bad.size());
+            BinReadDesc rd(r);
+            q.s.describe_state(rd);
+            check("JNSD-B10",
+                  "a corrupt log COUNT in the binary stream is clamped to the "
+                  "declared capacity, so it can neither overrun the array nor "
+                  "desync the stream — the stream always carries exactly "
+                  "`capacity` entries whatever the count claims "
+                  "(ula.cpp:1621-1625)",
+                  q.s.log_count == s2::PilotState::kLogCap &&
+                      r.position() == desc_bytes.size() && !r.out_of_bounds(),
+                  det("count=%zu read %zu of %zu", q.s.log_count, r.position(),
+                      desc_bytes.size()));
+        }
+        {
+            std::vector<uint8_t> bad = desc_bytes;
+            const std::size_t log_at = 1 + 1 + 2 + 4 + 8 + 4 + 8 + 8 + 4 + 1 +
+                                       s2::PilotState::kPrivBytes +
+                                       s2::PilotState::kRamBytes;
+            const std::size_t tx_at =
+                log_at + 2 + s2::PilotState::kLogCap * 3;
+            for (std::size_t i = 0; i < 8; ++i) bad[tx_at + i] = 0xFF;
+            s2::Pilot q;
+            StateReader r(bad.data(), bad.size());
+            BinReadDesc rd(r);
+            q.s.describe_state(rd);
+            check("JNSD-B11",
+                  "a corrupt FIFO count (here UINT64_MAX) can neither overrun "
+                  "the ring nor desync the stream: the loop is bounded by the "
+                  "DECLARED capacity and `push` refuses when full, so nothing "
+                  "here depends on the file's number being sane (uart.h:62-73)",
+                  q.s.tx.size() == 6 && r.position() == desc_bytes.size() &&
+                      !r.out_of_bounds(),
+                  det("size=%zu read %zu of %zu", q.s.tx.size(), r.position(),
+                      desc_bytes.size()));
+        }
+
+        check("JNSD-J11",
+              "the JSON ends with exactly one newline: a generated artefact "
+              "that a gate byte-diffs must not depend on an editor putting one "
+              "back (found by mutation — no row asserted it)",
+              doc.size() >= 2 && doc[doc.size() - 1] == '\n' &&
+                  doc[doc.size() - 2] == '}',
+              det("tail='%s'", doc.substr(doc.size() - 2).c_str()));
+
+        check("JNSD-J10",
+              "the JSON is deterministic: two runs over the same state are "
+              "byte-identical and the keys are SORTED, not in declaration or "
+              "hash order (§16.3)",
+              j1.str() == s2::json_of(p.s) &&
+                  doc.find("\"bank\"") < doc.find("\"current_line\"") &&
+                  doc.find("\"current_line\"") < doc.find("\"enabled\"") &&
+                  doc.find("\"enabled\"") < doc.find("\"entry_points\""),
+              "");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // JNSE — the §6.2 encoding table, entry by entry
+    // ─────────────────────────────────────────────────────────────────────
+    {
+        s2::Pilot p;
+        const std::string doc = s2::json_of(p.s);
+
+        check("JNSE-01",
+              "a boolean encodes as true/false, not as 0/1",
+              doc.find("\"enabled\": true") != std::string::npos, "");
+
+        check("JNSE-02",
+              "unsigned values up to 32 bits encode as JSON NUMBERS, decimal",
+              doc.find("\"bank\": 42") != std::string::npos &&
+                  doc.find("\"current_line\": 191") != std::string::npos &&
+                  doc.find("\"frame_num\": 41291") != std::string::npos,
+              "");
+
+        // §7.4 — the 2^53 rule. 9007199254740993 is the smallest integer a
+        // double cannot represent, so a JSON number here would come back as
+        // 9007199254740992 in any JavaScript reader.
+        check("JNSE-03",
+              "a u64 encodes as a decimal STRING, and a value past 2^53 "
+              "survives it exactly (§7.4)",
+              doc.find("\"monotonic\": \"9007199254740993\"") !=
+                  std::string::npos,
+              "");
+
+        check("JNSE-04",
+              "a signed 32-bit value encodes as a JSON number and may be "
+              "negative — the tree makes 11 write_i32 calls and an encoding "
+              "table without a signed type would force every one through an "
+              "unsigned reinterpretation (§6.2)",
+              doc.find("\"flash_counter\": -7") != std::string::npos, "");
+
+        // §16.1 names this value: the /INT window's real measured delta.
+        check("JNSE-05",
+              "a negative i64 encodes as a signed decimal string and "
+              "round-trips — asserted with the /INT window's real measured "
+              "value, -564933",
+              doc.find("\"int_first_ts\": \"-564933\"") != std::string::npos,
+              "");
+
+        check("JNSE-06",
+              "INT64_MAX encodes as the string \"open\", not as "
+              "9223372036854775807 — the open-ended sentinel is a NAME, so a "
+              "reader cannot mistake it for a very distant deadline (§6.2)",
+              doc.find("\"int_last_ts\": \"open\"") != std::string::npos, "");
+
+        check("JNSE-07",
+              "a fixed array encodes as ONE lower-case hex string of exactly "
+              "2N characters, no separators (§6.2)",
+              doc.find("\"entry_points\": \"830100cd\"") != std::string::npos,
+              "");
+
+        check("JNSE-08",
+              "an enum encodes as its NAME from a closed set, so an FSM "
+              "renumbering becomes a visible name change rather than a silent "
+              "re-interpretation of old files (§6.2)",
+              doc.find("\"mode\": \"wait_for_vpos\"") != std::string::npos, "");
+
+        // Round-trips, each fed back through the reader rather than asserted
+        // only on the text: an encoding that is unreadable is not an encoding.
+        s2::Pilot back;
+        JsonReadDesc jr(doc);
+        back.s.describe_state(jr);
+        check("JNSE-09",
+              "every one of those encodings reads back to the value it came "
+              "from",
+              !jr.failed() && back.s.monotonic == p.s.monotonic &&
+                  back.s.flash_counter == p.s.flash_counter &&
+                  back.s.int_first_ts == p.s.int_first_ts &&
+                  back.s.int_last_ts == INT64_MAX && back.s.mode == p.s.mode &&
+                  std::memcmp(back.s.entry_points, p.s.entry_points, 4) == 0,
+              det("refusal='%s'", jr.refusal().c_str()));
+
+        // §16.1: "an unknown name on read REFUSES rather than defaulting — a
+        // wrong FSM state is not a safe default."
+        {
+            const std::string bad =
+                s2::json_with(doc, "mode", "\"wait_for_hpos\"");
+            s2::Pilot q;
+            JsonReadDesc r(bad);
+            q.s.describe_state(r);
+            check("JNSE-10",
+                  "an enum NAME this build does not declare is a REFUSAL, "
+                  "never a default — a wrong FSM state is a machine that "
+                  "never existed (§16.1)",
+                  r.failed() &&
+                      r.refusal().find("mode") != std::string::npos,
+                  det("failed=%d refusal='%s'", (int)r.failed(),
+                      r.refusal().c_str()));
+        }
+
+        // The write direction of the same rule: an ordinal outside the name
+        // table cannot be encoded, because there is no name for it.
+        {
+            s2::Pilot q;
+            q.s.mode = 9;   // beyond kModes
+            JsonWriteDesc jw;
+            q.s.describe_state(jw);
+            check("JNSE-11",
+                  "an enum ORDINAL outside the declared name set fails on "
+                  "WRITE too, naming the field: the file must not carry a "
+                  "state the declaration cannot name",
+                  jw.failed() && jw.failure() &&
+                      std::string(jw.failure()) == "mode",
+                  det("failed=%d name='%s'", (int)jw.failed(),
+                      jw.failure() ? jw.failure() : ""));
+        }
+
+        // §12.2 — a MISSING optional key takes its DECLARED default, which is
+        // a per-field constant in the descriptor, NOT the result of reset().
+        // Asserted against the declaration's own value.
+        {
+            std::string stripped = doc;
+            const std::size_t at = stripped.find("  \"bank\": 42,\n");
+            if (at != std::string::npos) {
+                stripped.erase(at, std::strlen("  \"bank\": 42,\n"));
+            }
+            s2::Pilot q;
+            q.s.bank = 0xFF;   // NOT the declared default, so a no-op passes
+            JsonReadDesc r(stripped);
+            q.s.describe_state(r);
+            check("JNSE-12",
+                  "a missing OPTIONAL key takes the default the DECLARATION "
+                  "carries (§12.2) — 0x00 for `bank`, asserted against the "
+                  "declaration and not against a literal elsewhere or against "
+                  "reset()",
+                  at != std::string::npos && !r.failed() && q.s.bank == 0x00,
+                  det("stripped=%d failed=%d bank=0x%02X",
+                      (int)(at != std::string::npos), (int)r.failed(),
+                      q.s.bank));
+        }
+
+        // …and a missing REQUIRED key is a refusal naming it. `frame_num` is
+        // declared without a default precisely because no honest one exists.
+        {
+            std::string stripped = doc;
+            const std::size_t at = stripped.find("  \"frame_num\": 41291,\n");
+            if (at != std::string::npos) {
+                stripped.erase(at, std::strlen("  \"frame_num\": 41291,\n"));
+            }
+            s2::Pilot q;
+            JsonReadDesc r(stripped);
+            q.s.describe_state(r);
+            check("JNSE-13",
+                  "a missing REQUIRED key is a refusal naming it — a key is "
+                  "marked required only when no honest default exists (§12.2)",
+                  at != std::string::npos && r.failed() &&
+                      r.refusal().find("frame_num") != std::string::npos,
+                  det("refusal='%s'", r.refusal().c_str()));
+        }
+
+        // §12.1 — an unknown key is IGNORED and LOGGED, so a newer file read
+        // by an older jnext says what it dropped.
+        {
+            std::string extra = doc;
+            const std::size_t at = extra.find("  \"bank\":");
+            if (at != std::string::npos) {
+                extra.insert(at, "  \"from_the_future\": 1,\n");
+            }
+            s2::Pilot q;
+            JsonReadDesc r(extra);
+            q.s.describe_state(r);
+            const std::vector<std::string> unknown = r.unclaimed_keys();
+            check("JNSE-14",
+                  "an unknown key is IGNORED and REPORTED — forward "
+                  "compatibility for additive changes, and a reader that can "
+                  "say what it dropped (§12.1)",
+                  at != std::string::npos && !r.failed() &&
+                      unknown.size() == 1 && unknown[0] == "from_the_future" &&
+                      q.s.same_as(p.s),
+                  det("failed=%d unknown=%zu", (int)r.failed(),
+                      unknown.size()));
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // JNSH — the two count-prefixed history primitives (§6.2, §9.5(1))
+    // ─────────────────────────────────────────────────────────────────────
+    {
+        s2::Pilot p;
+        const std::vector<uint8_t> full = s2::bin_of(p.s);
+
+        // The constant width is load-bearing, not stylistic: RewindBuffer
+        // sizes every slot from one dry-run measure and requires each
+        // snapshot to be exactly that width. Serialising these
+        // variable-length "was the actual bug behind a `free(): invalid size`
+        // heap-corruption crash" (attribute_mux.h:216-235).
+        s2::Pilot empty;
+        empty.s.log_count = 0;
+        empty.s.tx.reset();
+        empty.s.rx.reset();
+        const std::vector<uint8_t> none = s2::bin_of(empty.s);
+        check("JNSH-01",
+              "the BINARY width of a log and of a FIFO is CONSTANT whatever "
+              "the live count — the property RewindBuffer requires and whose "
+              "absence was a heap-corruption crash (§6.2)",
+              none.size() == full.size(),
+              det("%zu with entries, %zu empty", full.size(), none.size()));
+
+        s2::Pilot brim;
+        brim.s.log_count = s2::PilotState::kLogCap;
+        while (brim.s.tx.push(0x77)) {}
+        while (brim.s.rx.push(0x777)) {}
+        check("JNSH-02",
+              "…and is the same again with every buffer at capacity",
+              s2::bin_of(brim.s).size() == full.size(), "");
+
+        // The four differences §6.2's table states, each one localised.
+        // Offset of the log's count: everything before it is fixed-width.
+        const std::size_t log_at = 1 + 1 + 2 + 4 + 8 + 4 + 8 + 8 + 4 + 1 +
+                                   s2::PilotState::kPrivBytes +
+                                   s2::PilotState::kRamBytes;
+        check("JNSH-03",
+              "a log's count is a u16 written FIRST (ula.cpp:1586-1587)",
+              full.size() > log_at + 1 && full[log_at] == 3 &&
+                  full[log_at + 1] == 0,
+              det("at %zu: %02X %02X", log_at,
+                  full.size() > log_at ? full[log_at] : 0,
+                  full.size() > log_at + 1 ? full[log_at + 1] : 0));
+
+        // The first live entry: u16 line then u8 value, 3 bytes, unpadded.
+        check("JNSH-04",
+              "a log element is u16 line + u8 value, 3 bytes, unpadded",
+              full.size() > log_at + 5 && full[log_at + 2] == 8 &&
+                  full[log_at + 3] == 0 && full[log_at + 4] == 0x01 &&
+                  full[log_at + 5] == 64,
+              "");
+
+        // The STALE tail: entries past `count` are whatever was there. The
+        // pilot puts recognisable junk at indices 3 and 4.
+        const std::size_t stale_at = log_at + 2 + 3 * 3;
+        check("JNSH-05",
+              "the binary padding past a log's count carries the STALE "
+              "entries verbatim — ignored on load, and NOT zeroed, because "
+              "zeroing them would be a different stream (§6.2)",
+              full.size() > stale_at + 2 && full[stale_at + 2] == 0xEE,
+              det("stale value at %zu = %02X", stale_at + 2,
+                  full.size() > stale_at + 2 ? full[stale_at + 2] : 0));
+
+        // The FIFO's four differences from the log.
+        const std::size_t tx_at = log_at + 2 + s2::PilotState::kLogCap * 3;
+        check("JNSH-06",
+              "a FIFO's count is a u64, not a u16 — the second of the four "
+              "differences between the two shapes (§6.2)",
+              full.size() > tx_at + 7 && full[tx_at] == 4 &&
+                  full[tx_at + 1] == 0 && full[tx_at + 7] == 0,
+              det("at %zu", tx_at));
+
+        // The pilot's TX ring holds 0x11,0x22,0x33,0x44 rotated by two, so the
+        // RAW array order is 33 44 11 22 and the RING-NORMALISED order is
+        // 33 44 11 22 read from the tail... the two orders differ, which is
+        // the only way to tell the encodings apart.
+        check("JNSH-07",
+              "a FIFO's elements are RING-NORMALISED, oldest first from the "
+              "tail — not raw array order, the third difference (§6.2)",
+              full.size() > tx_at + 8 + 3 &&
+                  full[tx_at + 8 + 0] == p.s.tx.oldest(0) &&
+                  full[tx_at + 8 + 1] == p.s.tx.oldest(1) &&
+                  full[tx_at + 8 + 2] == p.s.tx.oldest(2) &&
+                  full[tx_at + 8 + 3] == p.s.tx.oldest(3),
+              det("tail=%zu", p.s.tx.tail_));
+
+        check("JNSH-08",
+              "a FIFO pads past its count with ZERO, not with stale entries — "
+              "the fourth difference, and the reason one parameterised "
+              "d.history() would be a vocabulary nobody can read (§6.2)",
+              full.size() > tx_at + 8 + 5 && full[tx_at + 8 + 4] == 0 &&
+                  full[tx_at + 8 + 5] == 0,
+              "");
+
+        // The RX FIFO is u16-wide because uart.vhd:359 carries a 9th
+        // (overflow OR framing) bit per received byte.
+        const std::size_t rx_at = tx_at + 8 + 6;
+        check("JNSH-09",
+              "the RX FIFO's element is u16 where TX's is u8 — uart.vhd:359's "
+              "9th (overflow OR framing) bit per received byte",
+              full.size() >= rx_at + 8 + 5 * 2 &&
+                  full.size() == rx_at + 8 + 5 * 2 + 4,
+              det("rx at %zu, total %zu", rx_at, full.size()));
+
+        // The JSON half of the same primitive: exactly `count` items.
+        const std::string doc = s2::json_of(p.s);
+        check("JNSH-10",
+              "the JSON encoding of a log carries exactly COUNT items, never "
+              "the padded capacity — a snapshot's text carrying 1024 entries "
+              "to express three is what this primitive exists to avoid (§6.2)",
+              doc.find("\"port_ff_log\": [") != std::string::npos &&
+                  doc.find("\"line\": 8") != std::string::npos &&
+                  doc.find("\"line\": 191") != std::string::npos &&
+                  doc.find("\"value\": 238") == std::string::npos,   // 0xEE
+              "");
+
+        check("JNSH-11",
+              "and the JSON encoding of a FIFO likewise carries exactly its "
+              "count, oldest first",
+              doc.find("\"tx_fifo\": [") != std::string::npos &&
+                  doc.find("\"rx_fifo\": [") != std::string::npos,
+              "");
+
+        // The row §16.1 pins: three in-flight entries restore as three.
+        s2::Pilot back;
+        back.s.log_count = s2::PilotState::kLogCap;
+        JsonReadDesc jr(doc);
+        back.s.describe_state(jr);
+        check("JNSH-12",
+              "a round-trip through JSON with 3 in-flight log entries "
+              "restores 3, not the capacity (§16.1 JNSH)",
+              !jr.failed() && back.s.log_count == 3 &&
+                  back.s.log[0].line == 8 && back.s.log[2].line == 191,
+              det("count=%zu refusal='%s'", back.s.log_count,
+                  jr.refusal().c_str()));
+
+        check("JNSH-13",
+              "and restores both FIFOs to the same logical sequence, with the "
+              "ring normalised",
+              back.s.tx.same_as(p.s.tx) && back.s.rx.same_as(p.s.rx),
+              det("tx %zu/%zu rx %zu/%zu", back.s.tx.size(), p.s.tx.size(),
+                  back.s.rx.size(), p.s.rx.size()));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // JNSA — ADVERSARIAL input
+    // ─────────────────────────────────────────────────────────────────────
+    //
+    // S1's design passed two review rounds; S1's IMPLEMENTATION review still
+    // found a zip-slip in the documented path regex and a 167-byte archive
+    // that forced a 4.29 GB allocation. Reviewing a spec is not reviewing a
+    // parser. So every length, count and index a document supplies is fed
+    // back hostile here: too short, too long, wrong type, out of range,
+    // non-canonical, duplicated, and self-referential.
+    //
+    // The shared property every row asserts is the same one: THE DECLARATION
+    // FIXES THE SIZE. A file supplies content, never a size to allocate.
+    {
+        s2::Pilot p;
+        const std::string good = s2::json_of(p.s);
+
+        struct Case {
+            const char* id;
+            const char* desc;
+            std::string doc;
+            const char* names;   ///< the refusal must name this
+        };
+
+        std::vector<Case> cases;
+
+        cases.push_back({"JNSA-01",
+                         "a truncated document is a refusal, and no field is "
+                         "touched — a malformed file cannot leave a subsystem "
+                         "half-restored from garbage",
+                         good.substr(0, good.size() / 2), "<document>"});
+        cases.push_back({"JNSA-02",
+                         "a document that is a JSON ARRAY, not an object, is "
+                         "refused rather than iterated",
+                         "[1,2,3]\n", "<document>"});
+        cases.push_back({"JNSA-03",
+                         "a document that is a bare scalar is refused",
+                         "42\n", "<document>"});
+        cases.push_back({"JNSA-04",
+                         "an EMPTY document is refused: a state member with "
+                         "no keys is not a subsystem with all its defaults",
+                         "", "<document>"});
+        cases.push_back(
+            {"JNSA-05",
+             "a hex string SHORTER than the declaration is refused, naming "
+             "both lengths — the declaration fixes the length, never the file",
+             s2::json_with(good, "entry_points", "\"8301\""), "entry_points"});
+        cases.push_back({"JNSA-06",
+                         "a hex string LONGER than the declaration is refused: "
+                         "the excess is not silently dropped",
+                         s2::json_with(good, "entry_points",
+                                       "\"830100cd830100cd\""),
+                         "entry_points"});
+        cases.push_back({"JNSA-07",
+                         "UPPER-CASE hex is refused: §6.2 says lower case, and "
+                         "a reader permissive enough to accept its own "
+                         "writer's output plus more is the .szx loader",
+                         s2::json_with(good, "entry_points", "\"830100CD\""),
+                         "entry_points"});
+        cases.push_back({"JNSA-08",
+                         "non-hexadecimal characters in a hex string are "
+                         "refused",
+                         s2::json_with(good, "entry_points", "\"83zz00cd\""),
+                         "entry_points"});
+        cases.push_back({"JNSA-09",
+                         "a hex field given a NUMBER instead of a string is "
+                         "refused",
+                         s2::json_with(good, "entry_points", "830100"),
+                         "entry_points"});
+        cases.push_back(
+            {"JNSA-10",
+             "a u64 given as a JSON NUMBER is refused: accepting both "
+             "spellings would make the schema's pattern decorative and "
+             "re-open the 2^53 rounding §7.4 closes",
+             s2::json_with(good, "monotonic", "9007199254740993"),
+             "monotonic"});
+        cases.push_back({"JNSA-11",
+                         "a u64 string with a leading zero is refused — one "
+                         "spelling per value, so two documents cannot mean the "
+                         "same state and differ under a byte-diffed gate",
+                         s2::json_with(good, "monotonic", "\"007\""),
+                         "monotonic"});
+        cases.push_back({"JNSA-12",
+                         "a NEGATIVE u64 string is refused rather than wrapped "
+                         "to a very large positive",
+                         s2::json_with(good, "monotonic", "\"-1\""),
+                         "monotonic"});
+        cases.push_back({"JNSA-13",
+                         "a u64 string past 2^64-1 is refused, not truncated",
+                         s2::json_with(good, "monotonic",
+                                       "\"18446744073709551616\""),
+                         "monotonic"});
+        cases.push_back({"JNSA-14",
+                         "a u64 string with trailing junk is refused: strtoull "
+                         "would have accepted it",
+                         s2::json_with(good, "monotonic", "\"123abc\""),
+                         "monotonic"});
+        cases.push_back({"JNSA-15",
+                         "a u64 string with a leading + is refused",
+                         s2::json_with(good, "monotonic", "\"+7\""),
+                         "monotonic"});
+        cases.push_back({"JNSA-16",
+                         "an i64 string past INT64_MAX is refused",
+                         s2::json_with(good, "int_first_ts",
+                                       "\"9223372036854775808\""),
+                         "int_first_ts"});
+        cases.push_back({"JNSA-17",
+                         "\"-0\" is refused as a second spelling of zero",
+                         s2::json_with(good, "int_first_ts", "\"-0\""),
+                         "int_first_ts"});
+        cases.push_back(
+            {"JNSA-18",
+             "an i64_open field given a name that is not \"open\" is refused "
+             "rather than parsed as zero",
+             s2::json_with(good, "int_last_ts", "\"opne\""), "int_last_ts"});
+        cases.push_back({"JNSA-19",
+                         "a u8 given 256 is refused: the width comes from the "
+                         "DECLARATION, and 256 is not silently truncated to 0",
+                         s2::json_with(good, "bank", "256"), "bank"});
+        cases.push_back({"JNSA-20",
+                         "a u8 given a negative number is refused",
+                         s2::json_with(good, "bank", "-1"), "bank"});
+        cases.push_back({"JNSA-21",
+                         "a u16 given 65536 is refused",
+                         s2::json_with(good, "current_line", "65536"),
+                         "current_line"});
+        cases.push_back({"JNSA-22",
+                         "a u32 given a float is refused rather than rounded",
+                         s2::json_with(good, "frame_num", "41291.5"),
+                         "frame_num"});
+        cases.push_back({"JNSA-23",
+                         "an i32 outside the signed 32-bit range is refused",
+                         s2::json_with(good, "flash_counter", "2147483648"),
+                         "flash_counter"});
+        cases.push_back({"JNSA-24",
+                         "a boolean given the number 1 is refused: JSON has "
+                         "booleans and the encoding table names them",
+                         s2::json_with(good, "enabled", "1"), "enabled"});
+        cases.push_back(
+            {"JNSA-25",
+             "a log array LONGER than the declared capacity is refused before "
+             "a single entry is stored — the file cannot size the array, and "
+             "there is nothing here for it to allocate",
+             s2::json_with(good, "port_ff_log",
+                           "[{\"line\":1,\"value\":1},{\"line\":2,\"value\":2},"
+                           "{\"line\":3,\"value\":3},{\"line\":4,\"value\":4},"
+                           "{\"line\":5,\"value\":5},{\"line\":6,\"value\":6},"
+                           "{\"line\":7,\"value\":7},{\"line\":8,\"value\":8},"
+                           "{\"line\":9,\"value\":9}]"),
+             "port_ff_log"});
+        cases.push_back({"JNSA-26",
+                         "a log entry missing its value is refused",
+                         s2::json_with(good, "port_ff_log",
+                                       "[{\"line\":1}]"),
+                         "port_ff_log"});
+        cases.push_back({"JNSA-27",
+                         "a log entry whose line exceeds u16 is refused",
+                         s2::json_with(good, "port_ff_log",
+                                       "[{\"line\":70000,\"value\":1}]"),
+                         "port_ff_log"});
+        cases.push_back({"JNSA-28",
+                         "a log given an object instead of an array is refused",
+                         s2::json_with(good, "port_ff_log", "{\"line\":1}"),
+                         "port_ff_log"});
+        cases.push_back(
+            {"JNSA-29",
+             "a FIFO array longer than its capacity is refused",
+             s2::json_with(good, "tx_fifo", "[1,2,3,4,5,6,7]"), "tx_fifo"});
+        cases.push_back({"JNSA-30",
+                         "a u8 FIFO element of 256 is refused",
+                         s2::json_with(good, "tx_fifo", "[256]"), "tx_fifo"});
+        cases.push_back(
+            {"JNSA-31",
+             "a ram_window reference naming a DIFFERENT member is refused — "
+             "the alias is part of the declaration, not of the file",
+             s2::json_with(good, "ram",
+                           "{\"ref\":\"mem/elsewhere.bin\",\"page\":16,"
+                           "\"bytes\":\"64\"}"),
+             "ram"});
+        cases.push_back({"JNSA-32",
+                         "a ram_window reference declaring a different page is "
+                         "refused",
+                         s2::json_with(good, "ram",
+                                       "{\"ref\":\"mem/ram.bin\",\"page\":17,"
+                                       "\"bytes\":\"64\"}"),
+                         "ram"});
+        cases.push_back({"JNSA-33",
+                         "a ram_window reference declaring a different length "
+                         "is refused",
+                         s2::json_with(good, "ram",
+                                       "{\"ref\":\"mem/ram.bin\",\"page\":16,"
+                                       "\"bytes\":\"4294967296\"}"),
+                         "ram"});
+        cases.push_back({"JNSA-34",
+                         "a ram_window given the BYTES inline is refused: "
+                         "there must be exactly one place the bytes live",
+                         s2::json_with(good, "ram", "\"00112233\""), "ram"});
+        cases.push_back(
+            {"JNSA-35",
+             "a blob key appearing inline in the JSON is refused: its bytes "
+             "are a ZIP member, and two places to look for them is one too "
+             "many",
+             [&] {
+                 std::string d = good;
+                 const std::size_t at = d.find("  \"bank\":");
+                 if (at != std::string::npos) {
+                     d.insert(at, "  \"mem/pilot-priv.bin\": \"00\",\n");
+                 }
+                 return d;
+             }(),
+             "mem/pilot-priv.bin"});
+        cases.push_back(
+            {"JNSA-36",
+             "a DUPLICATE key is refused. nlohmann parses {\"x\":1,\"x\":2} "
+             "silently to {\"x\":2} — measured — and two implementations may "
+             "legitimately disagree which wins, which is exactly why §12.4 "
+             "refuses duplicate ZIP MEMBER names. It is also the one thing a "
+             "JSON Schema cannot catch, whatever validator is used: the "
+             "duplicate is gone before the validator sees the document",
+             [&] {
+                 std::string d = good;
+                 const std::size_t at = d.find("  \"bank\":");
+                 if (at != std::string::npos) d.insert(at, "  \"bank\": 7,\n");
+                 return d;
+             }(),
+             "<document>"});
+        cases.push_back(
+            {"JNSA-37",
+             "a document nested past the depth bound is refused. Not a "
+             "stack-overflow guard — nlohmann's parser and DOM destructor are "
+             "both iterative, measured to 5 000 000 levels — but a bound on "
+             "MEMORY AMPLIFICATION: one DOM node per byte, and S1's "
+             "central-directory cap lets a member be 64 MB",
+             [] {
+                 std::string d = "{\"port_ff_log\": ";
+                 for (int i = 0; i < 64; ++i) d += "[";
+                 for (int i = 0; i < 64; ++i) d += "]";
+                 d += "}";
+                 return d;
+             }(),
+             "<document>"});
+
+        // A document-level refusal must leave the subsystem COMPLETELY
+        // untouched: the reader latches it at construction, before any field
+        // is visited. A key-level refusal cannot promise that — keys before
+        // the offending one have already been read, and pretending otherwise
+        // would need a two-pass reader nothing asks for.
+        std::size_t doc_level = 0, doc_level_clean = 0;
+
+        for (const Case& c : cases) {
+            s2::Pilot q;
+            s2::Pilot pristine;
+            JsonReadDesc r(c.doc);
+            q.s.describe_state(r);
+            const bool named =
+                r.refusal().find(c.names) != std::string::npos;
+            check(c.id, c.desc, r.failed() && named,
+                  det("failed=%d refusal='%s' (expected to name '%s')",
+                      (int)r.failed(), r.refusal().c_str(), c.names));
+            if (std::string(c.names) == "<document>") {
+                ++doc_level;
+                if (q.s.same_as(pristine.s)) ++doc_level_clean;
+            }
+        }
+
+        // ── Found by mutation ───────────────────────────────────────────
+        //
+        // JNSA-38 above refuses at the CAPACITY check, which is before the
+        // ring is touched — so it cannot see a reader that resets the ring and
+        // only then discovers a bad element. This one refuses at the ELEMENT
+        // check, which is where validate-before-mutate actually has to hold.
+        {
+            s2::Pilot q;
+            q.s.tx.reset();
+            q.s.tx.push(0xAB);
+            q.s.tx.push(0xCD);
+            // Two entries: within capacity, but 999 does not fit a u8 element.
+            const std::string bad = s2::json_with(good, "tx_fifo", "[1,999]");
+            JsonReadDesc r(bad);
+            q.s.describe_state(r);
+            check("JNSA-42",
+                  "a FIFO refused on an ELEMENT — not on its length — also "
+                  "leaves the ring untouched: every element is validated "
+                  "before any is stored, so a rejected file cannot leave a "
+                  "prefix of itself behind",
+                  r.failed() && q.s.tx.size() == 2 &&
+                      q.s.tx.oldest(0) == 0xAB && q.s.tx.oldest(1) == 0xCD,
+                  det("failed=%d size=%zu refusal='%s'", (int)r.failed(),
+                      q.s.tx.size(), r.refusal().c_str()));
+        }
+        {
+            // The message must SAY WHICH document-level fault it was. A reader
+            // that collapsed "truncated" and "not an object" into one message
+            // still refuses both, so a verdict-only row cannot tell them
+            // apart — and they are different problems for the person holding
+            // the file.
+            s2::Pilot q1, q2;
+            JsonReadDesc r1(good.substr(0, good.size() / 2));
+            q1.s.describe_state(r1);
+            JsonReadDesc r2("[1,2,3]\n");
+            q2.s.describe_state(r2);
+            check("JNSA-43",
+                  "a TRUNCATED document and a WELL-FORMED non-object give "
+                  "DIFFERENT messages — 'is not valid JSON' against 'is not a "
+                  "JSON object' (found by mutation: dropping the parse check "
+                  "left both refused, with one message)",
+                  r1.refusal().find("is not valid JSON") != std::string::npos &&
+                      r2.refusal().find("is not a JSON object") !=
+                          std::string::npos,
+                  det("r1='%s' r2='%s'", r1.refusal().c_str(),
+                      r2.refusal().c_str()));
+        }
+
+        check("JNSA-41",
+              "a DOCUMENT-level refusal leaves every field untouched: the "
+              "reader latches it at construction, so a malformed file cannot "
+              "leave a subsystem half-restored from garbage",
+              doc_level >= 6 && doc_level_clean == doc_level,
+              det("%zu of %zu document-level cases left the state clean",
+                  doc_level_clean, doc_level));
+
+        // Validate-before-mutate, asserted rather than assumed: an
+        // over-capacity FIFO must leave the ring exactly as it was, not
+        // holding a prefix of a rejected file.
+        {
+            s2::Pilot q;
+            // The pilot's constructor already fills the ring; start from a
+            // known TWO so "unchanged" is a value, not a coincidence.
+            q.s.tx.reset();
+            q.s.tx.push(0xAB);
+            q.s.tx.push(0xCD);
+            const std::string bad =
+                s2::json_with(good, "tx_fifo", "[1,2,3,4,5,6,7]");
+            JsonReadDesc r(bad);
+            q.s.describe_state(r);
+            check("JNSA-38",
+                  "a refused FIFO leaves the ring UNCHANGED — a refusal "
+                  "half-way through would leave it holding a prefix of a "
+                  "rejected file, which is a machine that never existed",
+                  r.failed() && q.s.tx.size() == 2 &&
+                      q.s.tx.oldest(0) == 0xAB && q.s.tx.oldest(1) == 0xCD,
+                  det("size=%zu", q.s.tx.size()));
+        }
+
+        // The first refusal is the real one: a reader that let a later,
+        // cascading failure overwrite it would name the wrong field.
+        {
+            std::string two = s2::json_with(good, "bank", "256");
+            two = s2::json_with(two, "current_line", "65536");
+            s2::Pilot q;
+            JsonReadDesc r(two);
+            q.s.describe_state(r);
+            check("JNSA-39",
+                  "with two faults present the FIRST is reported, so the "
+                  "message names the field a user has to fix rather than a "
+                  "cascade downstream of it",
+                  r.failed() && r.refusal().find("bank") != std::string::npos,
+                  det("refusal='%s'", r.refusal().c_str()));
+        }
+
+        // Every refusal above must be distinguishable. A reader whose message
+        // collapsed to "invalid snapshot" would pass each row that only
+        // checked `failed()`, which is why the rows check the NAME too — and
+        // why this row checks they are not all the SAME name-bearing string.
+        {
+            // The anti-collapse property, stated exactly rather than as a
+            // percentage. Several cases SHOULD share a message — five
+            // different non-canonical `monotonic` strings are one fault on
+            // one key, and inventing five messages for them would be noise.
+            // What must never happen is one message covering two DIFFERENT
+            // fields, because that is the "invalid snapshot" collapse with a
+            // longer string: a user told which field is wrong can fix it, and
+            // a user told "a value is wrong" cannot.
+            std::map<std::string, std::set<std::string>> msg_to_keys;
+            for (const Case& c : cases) {
+                s2::Pilot q;
+                JsonReadDesc r(c.doc);
+                q.s.describe_state(r);
+                if (!r.refusal().empty()) msg_to_keys[r.refusal()].insert(c.names);
+            }
+            std::string offender;
+            for (const auto& kv : msg_to_keys) {
+                if (kv.second.size() > 1) { offender = kv.first; break; }
+            }
+            check("JNSA-40",
+                  "no refusal message covers two different fields — the "
+                  "\"invalid snapshot\" collapse with a longer string. Cases "
+                  "that are the same fault on the same key SHARE a message, "
+                  "deliberately (§16.1 JNSM)",
+                  offender.empty() && msg_to_keys.size() >= 14,
+                  det("%zu distinct messages over %zu cases; offender='%s'",
+                      msg_to_keys.size(), cases.size(), offender.c_str()));
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // JNSS — the generated schema's shape (§5.3, §6.2, §9.3, §16.3)
+    // ─────────────────────────────────────────────────────────────────────
+    //
+    // These assert the SHAPE the §6.2 encoding table demands, which is an
+    // external statement of what each type must produce. They do NOT assert
+    // that the schema is semantically right about the machine: a schema
+    // generated from a declaration and checked against JSON produced from the
+    // same declaration agrees with itself by construction (§9.3). That is what
+    // `make schema-check` and the hand-written overlay are for, and neither is
+    // a row here.
+    {
+        s2::Pilot p;
+        SchemaDesc sd;
+        p.s.describe_state(sd);
+        const std::string schema = sd.str();
+
+        check("JNSS-01",
+              "the emitted schema is a JSON object with properties and a "
+              "required list",
+              !sd.failed() && schema.find("\"type\": \"object\"") !=
+                                  std::string::npos &&
+                  schema.find("\"properties\"") != std::string::npos &&
+                  schema.find("\"required\"") != std::string::npos,
+              "");
+
+        check("JNSS-02",
+              "every scalar and aggregate in the declaration appears as a "
+              "property, and the sentinel does NOT (§9.4)",
+              schema.find("\"enabled\"") != std::string::npos &&
+                  schema.find("\"bank\"") != std::string::npos &&
+                  schema.find("\"monotonic\"") != std::string::npos &&
+                  schema.find("\"entry_points\"") != std::string::npos &&
+                  schema.find("\"port_ff_log\"") != std::string::npos &&
+                  schema.find("\"tx_fifo\"") != std::string::npos &&
+                  schema.find("\"ram\"") != std::string::npos &&
+                  schema.find("sentinel") == std::string::npos,
+              "");
+
+        // §12.2 — required is exactly the set with NO declared default.
+        {
+            // Count the required entries rather than spot-checking a name:
+            // "some of them are listed" would pass while the rest silently
+            // became optional, which is the direction that loses data.
+            const std::size_t at  = schema.rfind("\"required\": [");
+            const std::size_t end = schema.find(']', at);
+            std::size_t n = 0;
+            if (at != std::string::npos && end != std::string::npos) {
+                const std::string body =
+                    schema.substr(at + 13, end - (at + 13));
+                n = static_cast<std::size_t>(
+                        std::count(body.begin(), body.end(), '"')) / 2;
+            }
+            check("JNSS-03",
+                  "the required list holds EXACTLY the declarations with no "
+                  "default — the three no-default scalars plus the five "
+                  "aggregates, which are always required because none of them "
+                  "has an honest default (§12.2)",
+                  n == 8, det("%zu required entries", n));
+        }
+
+        {
+            // Parse the required list textually: it is the tail of the
+            // document and its members are quoted names.
+            const std::size_t at = schema.rfind("\"required\": [");
+            const std::string tail =
+                at == std::string::npos ? std::string() : schema.substr(at);
+            const bool has_req =
+                tail.find("\"frame_num\"") != std::string::npos &&
+                tail.find("\"int_first_ts\"") != std::string::npos &&
+                tail.find("\"int_last_ts\"") != std::string::npos &&
+                tail.find("\"entry_points\"") != std::string::npos &&
+                tail.find("\"port_ff_log\"") != std::string::npos;
+            const bool no_opt = tail.find("\"bank\"") == std::string::npos &&
+                                tail.find("\"enabled\"") == std::string::npos &&
+                                tail.find("\"mode\"") == std::string::npos;
+            check("JNSS-04",
+                  "…and the required list is exactly that set: the five "
+                  "no-default declarations are in it and the defaulted ones "
+                  "are not",
+                  has_req && no_opt, det("tail='%s'", tail.substr(0, 200).c_str()));
+        }
+
+        check("JNSS-05",
+              "a defaulted field carries `default`, and it is the value the "
+              "DECLARATION gives — not the value reset() would leave (§12.2)",
+              schema.find("\"default\": 0") != std::string::npos &&
+                  schema.find("\"default\": false") != std::string::npos &&
+                  schema.find("\"default\": \"idle\"") != std::string::npos,
+              "");
+
+        check("JNSS-06",
+              "unsigned scalars carry their DECLARED width as minimum and "
+              "maximum, so a register out of range fails validation (§5.3)",
+              schema.find("\"maximum\": 255") != std::string::npos &&
+                  schema.find("\"maximum\": 65535") != std::string::npos &&
+                  schema.find("\"maximum\": 4294967295") != std::string::npos,
+              "");
+
+        check("JNSS-07",
+              "an i32 carries the signed 32-bit range, including a negative "
+              "minimum (§6.2)",
+              schema.find("\"minimum\": -2147483648") != std::string::npos &&
+                  schema.find("\"maximum\": 2147483647") != std::string::npos,
+              "");
+
+        check("JNSS-08",
+              "a u64 is a STRING with a canonical decimal pattern, never an "
+              "integer — the schema is where §7.4's 2^53 rule is enforced "
+              "against a reader that is not ours",
+              schema.find("\"pattern\": \"^(0|[1-9][0-9]*)$\"") !=
+                  std::string::npos,
+              "");
+
+        check("JNSS-09",
+              "an i64 allows a leading minus and an i64_open additionally "
+              "allows the enum value \"open\" (§6.2)",
+              schema.find("\"pattern\": \"^(0|-?[1-9][0-9]*)$\"") !=
+                  std::string::npos &&
+                  schema.find("\"open\"") != std::string::npos &&
+                  schema.find("\"anyOf\"") != std::string::npos,
+              "");
+
+        check("JNSS-10",
+              "a fixed array's EXACT length is a LITERAL in the pattern, so a "
+              "descriptor that silently resized the buffer fails validation "
+              "rather than re-describing itself (§5.3)",
+              schema.find("\"pattern\": \"^[0-9a-f]{8}$\"") !=
+                  std::string::npos,
+              "");
+
+        check("JNSS-11",
+              "an enum is a closed `enum` of NAMES — the property that turns "
+              "an FSM renumbering into a visible diff (§6.2)",
+              schema.find("\"idle\"") != std::string::npos &&
+                  schema.find("\"wait_for_vpos\"") != std::string::npos &&
+                  schema.find("\"stop\"") != std::string::npos,
+              "");
+
+        check("JNSS-12",
+              "a log is an array whose maxItems is the BINARY capacity, with "
+              "line/value items bounded by their own widths (§6.2)",
+              schema.find("\"maxItems\": 8") != std::string::npos, "");
+
+        check("JNSS-13",
+              "the two FIFOs carry their own capacities and their own element "
+              "widths — u8 for TX, u16 for RX",
+              schema.find("\"maxItems\": 6") != std::string::npos &&
+                  schema.find("\"maxItems\": 5") != std::string::npos,
+              "");
+
+        check("JNSS-14",
+              "a blob contributes NO property — its bytes are a ZIP member "
+              "and the manifest declares them — but its name is reported so "
+              "the generator can state that declaration (§5.3, §6.1)",
+              schema.find("mem/pilot-priv.bin") == std::string::npos &&
+                  sd.blob_keys().size() == 1 &&
+                  sd.blob_keys()[0] == "mem/pilot-priv.bin",
+              det("%zu blob keys", sd.blob_keys().size()));
+
+        check("JNSS-15",
+              "a ram_window is a const reference object: the member, the page "
+              "and the length are all pinned, so a file cannot re-point the "
+              "alias (§6.1 case 2)",
+              schema.find("\"const\": \"mem/ram.bin\"") != std::string::npos &&
+                  schema.find("\"const\": 16") != std::string::npos &&
+                  schema.find("\"const\": \"64\"") != std::string::npos,
+              "");
+
+        check("JNSS-16",
+              "every state object is additionalProperties:false — STRICTER "
+              "than §12.2's reader rule, deliberately: the validator's subject "
+              "is a file jnext WROTE, where an unexpected key is a writer "
+              "defect and not a newer sibling's field",
+              schema.find("\"additionalProperties\": false") !=
+                  std::string::npos,
+              "");
+
+        // §16.3 — determinism is a requirement on the generator, not a hope.
+        {
+            SchemaDesc again;
+            p.s.describe_state(again);
+            SchemaDesc reordered;
+            p.s.describe_state_swapped(reordered);
+            check("JNSS-17",
+                  "the schema is deterministic and ORDER-INDEPENDENT: two "
+                  "runs are byte-identical, and a reordered declaration emits "
+                  "the same bytes, because the keys and the required list are "
+                  "sorted rather than emitted in declaration order (§16.3)",
+                  again.str() == schema && reordered.str() == schema,
+                  det("same=%d reordered-same=%d", (int)(again.str() == schema),
+                      (int)(reordered.str() == schema)));
+        }
+
+        check("JNSS-18",
+              "and carries no timestamp, no path, no build id and no jnext "
+              "version — the failure docs-check had when mkdocs stamped "
+              "sitemap.xml.gz with the build date and the gate went red on an "
+              "unchanged tree (§16.3)",
+              !std::regex_search(schema, std::regex("20[0-9][0-9]-[0-9][0-9]-")) &&
+                  schema.find("/home/") == std::string::npos &&
+                  schema.find("JNEXT_VERSION") == std::string::npos &&
+                  schema.find(".git") == std::string::npos,
+              "");
+
+        // A default that names an ordinal outside its own enum is a broken
+        // DECLARATION, and the generator must not emit a schema for it.
+        {
+            struct Broken {
+                uint8_t mode = 0;
+                void describe(StateDesc& d) {
+                    d.enum8("mode", mode, s2::kModes, /*default=*/9);
+                }
+            } b;
+            SchemaDesc bs;
+            b.describe(bs);
+            check("JNSS-19",
+                  "a declared default outside its own enum's name set fails "
+                  "LOUDLY at generation, naming the field — the generator "
+                  "refuses rather than emitting a schema nothing can satisfy",
+                  bs.failed() && bs.failure() &&
+                      std::string(bs.failure()) == "mode",
+                  det("failed=%d name='%s'", (int)bs.failed(),
+                      bs.failure() ? bs.failure() : ""));
+        }
+
+        // The generated shape has to be something a validator accepts. We do
+        // not have a JSON Schema validator in C++ — that check is Python's,
+        // in `make schema-check` — so what is asserted here is the one
+        // structural property we CAN assert: it parses as JSON.
+        check("JNSS-20",
+              "the emitted schema is itself well-formed JSON (whether it is a "
+              "VALID JSON Schema is checked by an implementation that is not "
+              "ours, in make schema-check — this row does not claim that)",
+              !schema.empty() && schema.front() == '{' &&
+                  schema.compare(schema.size() - 2, 2, "}\n") == 0,
+              "");
+
+        // ── Found by mutation: three JNSS rows were not specific enough ──
+        //
+        // JNSS-06 checked that `"maximum": 255` appears SOMEWHERE — and a
+        // log's `value` item and a u8 FIFO's element both emit one, so a u8
+        // scalar losing its bound left the string in place. The same shape of
+        // hole hid an open `additionalProperties` at the top level (the nested
+        // objects still emit `false`) and a FIFO element width that ignored
+        // its declaration. Anchor each to its own key.
+        {
+            const std::size_t at = schema.find("\"bank\": {");
+            const std::string frag =
+                at == std::string::npos ? std::string()
+                                        : schema.substr(at, 200);
+            check("JNSS-22",
+                  "the u8 scalar `bank` carries ITS OWN 0..255 bound, not one "
+                  "that happens to appear elsewhere in the document",
+                  frag.find("\"maximum\": 255") != std::string::npos &&
+                      frag.find("\"minimum\": 0") != std::string::npos,
+                  det("frag='%s'", frag.substr(0, 120).c_str()));
+        }
+        {
+            const std::size_t tx = schema.find("\"tx_fifo\": {");
+            const std::size_t rx = schema.find("\"rx_fifo\": {");
+            const std::string ftx =
+                tx == std::string::npos ? std::string() : schema.substr(tx, 300);
+            const std::string frx =
+                rx == std::string::npos ? std::string() : schema.substr(rx, 300);
+            check("JNSS-23",
+                  "each FIFO's ITEM width comes from its own declaration: TX "
+                  "items are 0..255 and RX items 0..65535, because uart.vhd:359 "
+                  "carries a 9th (overflow OR framing) bit per received byte",
+                  ftx.find("\"maximum\": 255") != std::string::npos &&
+                      frx.find("\"maximum\": 65535") != std::string::npos,
+                  det("tx='%s'", ftx.substr(0, 100).c_str()));
+        }
+        {
+            // The top-level one is the LAST `additionalProperties` before the
+            // trailing `required` list, since the object's own keys sort after
+            // `properties`.
+            static const char kApFalse[] = "\"additionalProperties\": false";
+            const std::size_t top = schema.find("\"additionalProperties\"");
+            check("JNSS-24",
+                  "the TOP-LEVEL object is additionalProperties:false — the "
+                  "nested reference and log-entry objects emit one too, so a "
+                  "row that only looked for the string would miss the top "
+                  "level opening up (found by mutation)",
+                  top != std::string::npos && top < schema.find("\"properties\"") &&
+                      schema.compare(top, std::strlen(kApFalse), kApFalse) == 0,
+                  det("at %zu: '%s'", top,
+                      top == std::string::npos
+                          ? ""
+                          : schema.substr(top, 34).c_str()));
+        }
+
+        // §12.2's gate in miniature: the DECLARED default must equal the
+        // value the subsystem's own reset leaves. S3-S5 run this per field
+        // per subsystem; here it is pinned against the pilot's construction,
+        // so the mechanism exists before the first subsystem needs it.
+        {
+            s2::PilotState fresh;   // default-constructed == "post reset"
+            check("JNSS-21",
+                  "every DECLARED default equals the value a fresh object "
+                  "carries — the §12.2 gate against the second copy of every "
+                  "power-on value, which is the shape of the --help defect "
+                  "(GH #246) waiting to happen",
+                  fresh.bank == 0x00 && fresh.enabled == false &&
+                      fresh.current_line == 0 && fresh.monotonic == 0 &&
+                      fresh.flash_counter == 0 && fresh.mode == 0,
+                  "");
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // JNSG — the §17.1 byte-identity gate's scaffolding
+    // ─────────────────────────────────────────────────────────────────────
+    //
+    // S2 migrates no subsystem, so there is no real stream to compare. What
+    // S2 owes S3-S5 is the ORACLE: a tested extractor for the pre-migration
+    // golden, and the sentinel encoding the framing rests on.
+    //
+    // `snapshot_test --extract-golden IN OUT` is that extractor, so S3 runs
+    // the code these rows cover rather than a shell one-liner nothing tests.
+    // Verified by hand on the real cache, 2026-09-24:
+    // ~/.jnext/warm-start/warm-start-m0.jwss -> 2 292 965 bytes, which is
+    // exactly the length §17.1 states, and in which all 33 of
+    // Emulator::save_state's sentinels appear EXACTLY ONCE, in ordinal order,
+    // with the last ending at byte 2 292 965 and zero bytes left over.
+    {
+        // A synthetic JNEXTWS2: 96-byte plain header, deflated payload.
+        const std::vector<uint8_t> payload = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+        std::vector<uint8_t> ws2 = s2::make_warm_start("JNEXTWS2", payload,
+                                                       payload.size(), true);
+        std::vector<uint8_t> got;
+        std::string gwhy;
+        check("JNSG-01",
+              "the §17.1 extractor reads a JNEXTWS2 cache: 96-byte PLAIN "
+              "header, then a DEFLATE payload, with plain_bytes at offset 16 "
+              "as a u64 LE",
+              s2::extract_warm_start(ws2, got, gwhy) && got == payload,
+              det("why='%s' %zu bytes", gwhy.c_str(), got.size()));
+
+        // §17.1's second note: a JNEXTWS1 file has the payload UNCOMPRESSED,
+        // so an extractor that assumes deflate corrupts it silently.
+        std::vector<uint8_t> ws1 = s2::make_warm_start("JNEXTWS1", payload,
+                                                       payload.size(), false);
+        got.clear();
+        check("JNSG-02",
+              "…and a JNEXTWS1 cache, whose payload is PLAIN — check the "
+              "magic rather than assuming, or a pre-compression file is "
+              "inflated as though it were compressed (§17.1)",
+              s2::extract_warm_start(ws1, got, gwhy) && got == payload,
+              det("why='%s'", gwhy.c_str()));
+
+        // The header's `plain_bytes` STATES the expected length; §17.1 says to
+        // check it, and a golden that silently came out short would make every
+        // later `cmp` compare the wrong thing.
+        std::vector<uint8_t> lying = s2::make_warm_start(
+            "JNEXTWS2", payload, payload.size() + 1, true);
+        got.clear();
+        check("JNSG-03",
+              "a header whose plain_bytes disagrees with the payload is "
+              "REFUSED: a short golden would make every later cmp compare the "
+              "wrong thing and report success (§17.1)",
+              !s2::extract_warm_start(lying, got, gwhy) &&
+                  gwhy.find("10") != std::string::npos &&
+                  gwhy.find("11") != std::string::npos && got.empty(),
+              det("why='%s' got=%zu", gwhy.c_str(), got.size()));
+
+        std::vector<uint8_t> wrong_magic =
+            s2::make_warm_start("JNEXTWSX", payload, payload.size(), true);
+        got.clear();
+        check("JNSG-04",
+              "an unrecognised magic is refused rather than guessed at",
+              !s2::extract_warm_start(wrong_magic, got, gwhy) && !gwhy.empty(),
+              det("why='%s'", gwhy.c_str()));
+
+        std::vector<uint8_t> stub(40, 0);
+        got.clear();
+        check("JNSG-05",
+              "a file shorter than the 96-byte header is refused before "
+              "anything is read from it",
+              !s2::extract_warm_start(stub, got, gwhy) && !gwhy.empty(),
+              det("why='%s'", gwhy.c_str()));
+
+        // The sentinel encoding the 33-block framing rests on. Asserted as
+        // bytes, because the golden is compared as bytes: `magic ^ ordinal`,
+        // u32, host order (which is what StateWriter::write_u32 emits, and
+        // deliberately so — see state_desc_bin.h on delegation).
+        {
+            StateWriter measure;
+            BinWriteDesc md(measure);
+            md.sentinel("clock", 0x4A4E5354, 0);
+            md.sentinel("ram", 0x4A4E5354, 1);
+            std::vector<uint8_t> out(measure.position());
+            StateWriter w(out.data(), out.size());
+            BinWriteDesc bd(w);
+            bd.sentinel("clock", 0x4A4E5354, 0);
+            bd.sentinel("ram", 0x4A4E5354, 1);
+
+            StateWriter m2;
+            m2.write_u32(0x4A4E5354u ^ 0u);
+            m2.write_u32(0x4A4E5354u ^ 1u);
+            std::vector<uint8_t> want(m2.position());
+            StateWriter w2(want.data(), want.size());
+            w2.write_u32(0x4A4E5354u ^ 0u);
+            w2.write_u32(0x4A4E5354u ^ 1u);
+
+            check("JNSG-06",
+                  "BinWriteDesc emits a sentinel as `magic ^ ordinal` written "
+                  "through StateWriter::write_u32 — byte-identical to "
+                  "Emulator::save_state's put_sentinel lambda, which is what "
+                  "makes the golden's 33-block framing survive the migration",
+                  out == want && out.size() == 8,
+                  det("%zu bytes", out.size()));
+        }
     }
 
     // ── Emit the corpus for the external ZIP readers ─────────────────────
