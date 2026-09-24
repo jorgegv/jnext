@@ -1351,10 +1351,17 @@ private:
     /// see GH #268 there.
     static constexpr uint32_t MEMBRANE_SCAN_CYCLES = 9u * 512u;   // 4608
 
-    /// Master cycles accumulated towards the next membrane scan. Sub-frame
-    /// phase only, and deliberately NOT snapshotted — neither is the
-    /// shift_hist_ it feeds (Keyboard has no save_state for it), and the worst
-    /// a restore can do is move a 165 us hysteresis boundary.
+    /// Master cycles accumulated towards the next membrane scan. Sub-scan
+    /// PHASE only, and deliberately not snapshotted.
+    ///
+    /// The state it drives IS snapshotted: `Keyboard::save_state` /
+    /// `load_state` round-trip `shift_hist_` (`w.write_bytes(shift_hist_, 2)`
+    /// / `r.read_bytes(shift_hist_, 2)`, keyboard.cpp:639 and :670,
+    /// pre-existing), so the hysteresis buffer itself survives a rewind or a
+    /// save/load intact. This counter is the only part that does not, and all
+    /// it can do is put the next scan boundary somewhere else inside one
+    /// 4608-cycle window — at most ~165 us of hysteresis phase, and the
+    /// buffer it would advance is already correct.
     uint32_t membrane_scan_accum_ = 0;
 
     /// When true, snapshot-taking is active (independent of buffer allocation).
