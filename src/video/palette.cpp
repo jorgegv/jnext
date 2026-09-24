@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <type_traits>
 
 namespace {
 
