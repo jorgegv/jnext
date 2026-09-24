@@ -4947,8 +4947,16 @@ static int test_s6_gaps()
 // is a complete oracle for the assembler's own field coverage, using as its
 // reference the one stream this project has already gated byte-for-byte.
 //
-// `JNS-RT-05` is the row that proves the comparison is not vacuous: it removes
-// one member from the archive and requires the streams to DIFFER.
+// `JNS-RT-05` is the row that proves the comparison is not vacuous: a machine
+// that was never loaded must DIFFER from the source.
+//
+// AND IT IS STILL NOT ENOUGH ON ITS OWN, which a mutation found rather than
+// review. Both fixtures are built by the same helper, so their RAM agrees
+// BEFORE the load, and the stream comparison is structurally blind to whether
+// RAM travelled at all: removing the assembler's blob-read left every row here
+// green, and the defect had to be found by rendering a frame in the shipped
+// binary. `build_busy` therefore writes a marker at an address the destination
+// never touches, and `JNS-RT-02b` checks it on the far side.
 static int test_s8_jns_roundtrip()
 {
     printf("\n--- Test S8: .jns whole-machine round trip ---\n");
@@ -4966,9 +4974,17 @@ static int test_s8_jns_roundtrip()
     // the CPU, the raster histories, the audio phases and the frame counter
     // are all somewhere other than their reset values. A round trip on a
     // machine at reset would pass for a neighbouring reason.
+    // A MARKER THE DESTINATION CANNOT ALREADY HAVE — see JNS-RT-02b.
+    constexpr uint16_t kMarkerAddr = 0xBF00;
+    static const uint8_t kMarker[8] = {0xC0, 0xDE, 0xF0, 0x0D,
+                                       0x5A, 0xA5, 0x13, 0x37};
+
     auto build_busy = [&](Emulator& e) {
         build_emulator(e, 2);
         for (int i = 0; i < 200; ++i) e.run_frame();
+        for (int i = 0; i < 8; ++i) {
+            e.mmu().write(static_cast<uint16_t>(kMarkerAddr + i), kMarker[i]);
+        }
     };
 
     std::vector<uint8_t> jns;
@@ -5012,6 +5028,21 @@ static int test_s8_jns_roundtrip()
               "a machine restored from a .jns produces a BYTE-IDENTICAL binary "
               "state stream to the machine it was saved from — the complete "
               "oracle for the assembler's field coverage");
+
+        bool marker_ok = ok;
+        for (int i = 0; ok && i < 8; ++i) {
+            if (b.mmu().read(static_cast<uint16_t>(kMarkerAddr + i)) !=
+                kMarker[i]) {
+                marker_ok = false;
+            }
+        }
+        check("JNS-RT-02b", marker_ok,
+              "…and RAM REALLY TRAVELLED: bytes the destination machine never "
+              "wrote are present after the restore. The stream comparison "
+              "above cannot see this on its own — both fixtures are built by "
+              "the same helper, so their RAM agrees before the load, and "
+              "dropping the blob read left every row green until a rendered "
+              "frame caught it");
     }
 
     // The same, STORED rather than DEFLATE. Settled point 6's debugging mode
@@ -5044,6 +5075,78 @@ static int test_s8_jns_roundtrip()
         check("JNS-RT-04", wrote && plain.size() > jns.size(),
               "…and it really is uncompressed: the STORED archive is bigger "
               "than the DEFLATE one");
+    }
+
+    // ── THE MEMBER LIST, PINNED ─────────────────────────────────────────
+    //
+    // A STRUCTURAL check, and it exists because the comparison above cannot be
+    // one. `JNS-RT-02` is only as strong as how much of the machine the
+    // fixture has MOVED: a 48K NOP loop leaves the sprite engine, the tilemap,
+    // the DMA and half the audio at their reset values, so dropping any of
+    // them from `visit_jns_subsystems` changes neither machine's stream and
+    // every row above stays green. A mutation proved exactly that by
+    // commenting out `sprites`.
+    //
+    // So the list itself is pinned, by name. Making the fixture touch all
+    // thirty-four subsystems would be the other way to close it, and would be
+    // a large fixture whose own coverage nothing checks; a literal list is
+    // shorter, and it fails with the NAME of what went missing.
+    {
+        jnext::zip::Reader r;
+        std::string w;
+        jnext::jns::Manifest m;
+        std::string text;
+        std::vector<std::string> unknown;
+        const bool opened = r.open(jns.data(), jns.size(), w) &&
+                            r.read_text(jnext::jns::kManifestMember, text, w) &&
+                            jnext::jns::manifest_from_json(text, m, unknown, w);
+
+        static const char* const kExpected[] = {
+            "beeper", "clock", "copper", "cpu", "ctc", "dac", "divmmc", "dma",
+            "emulator", "esxdos", "i2c", "i2s", "im2", "iomode", "joystick",
+            "keyboard", "layer2", "md6", "membrane_stick", "mmu", "mouse",
+            "multiface", "nextreg", "nmi", "palette", "ram", "renderer", "rtc",
+            "sdcard", "spi", "sprites", "tilemap", "turbosound", "uart",
+        };
+        std::vector<std::string> want(std::begin(kExpected), std::end(kExpected));
+        std::vector<std::string> got = m.subsystems;
+        std::sort(got.begin(), got.end());
+        std::sort(want.begin(), want.end());
+
+        std::string missing, extra;
+        for (const auto& x : want) {
+            if (!std::binary_search(got.begin(), got.end(), x)) missing += x + " ";
+        }
+        for (const auto& x : got) {
+            if (!std::binary_search(want.begin(), want.end(), x)) extra += x + " ";
+        }
+        if (!missing.empty() || !extra.empty()) {
+            fprintf(stderr, "  JNS-RT-09: missing=[%s] extra=[%s]\n",
+                    missing.c_str(), extra.c_str());
+        }
+        check("JNS-RT-09", opened && missing.empty() && extra.empty(),
+              "the archive declares EXACTLY the expected subsystem members "
+              "(`joy_uart` is absent here and that is correct — it is written "
+              "only when a cable is attached, §9.5(5))");
+
+        // And every declared member is really IN the archive. The manifest
+        // listing a subsystem the ZIP does not carry is a torn file, which the
+        // container refuses on read — this asserts the WRITER cannot produce
+        // one, which is a different claim.
+        bool all_present = opened;
+        std::string absent;
+        for (const auto& name : m.subsystems) {
+            if (!r.has("state/" + name + ".json")) {
+                all_present = false;
+                absent += name + " ";
+            }
+        }
+        if (!absent.empty()) {
+            fprintf(stderr, "  JNS-RT-10: absent=[%s]\n", absent.c_str());
+        }
+        check("JNS-RT-10", all_present,
+              "…and every one of them is actually in the archive: the writer "
+              "cannot declare a subsystem it did not write");
     }
 
     // ── NON-VACUITY ─────────────────────────────────────────────────────
@@ -5204,25 +5307,158 @@ static int test_s8_jns_roundtrip()
         }
     }
 
+    // ── A BLOB THAT IS NOT THE DECLARED LENGTH ──────────────────────────
+    //
+    // The same "in range for its type, out of range for what it sizes" family
+    // one level down, and a mutation found it unguarded: removing the
+    // length-vs-declaration check left every row green, because nothing fed
+    // the reader a member of the wrong size.
+    //
+    // A SHORT `mem/ram.bin` must be refused, never truncated and never
+    // zero-padded: `Ram`'s buffer is sized by the build, and a file that
+    // supplies fewer bytes is a file that would leave the tail as whatever was
+    // there — which is the silently-wrong restore the whole format exists to
+    // prevent.
+    {
+        auto repack_raw = [](const std::vector<uint8_t>& in,
+                             const std::string& member,
+                             const std::vector<uint8_t>& body,
+                             std::vector<uint8_t>& out) {
+            jnext::zip::Reader r;
+            std::string why;
+            if (!r.open(in.data(), in.size(), why)) return false;
+            jnext::zip::Writer w{jnext::jns::kArchiveComment};
+            for (const auto& e : r.entries()) {
+                std::vector<uint8_t> bytes;
+                if (e.name == member) bytes = body;
+                else if (!r.read(e.name, bytes, why)) return false;
+                if (!w.add(e.name, bytes.data(), bytes.size(),
+                           jnext::zip::Method::Deflate, why)) {
+                    return false;
+                }
+            }
+            return w.finish(out, why);
+        };
+
+        Emulator a;
+        build_busy(a);
+        jnext::JnsSaveOptions opt;
+        jnext::JnsLoadReport  rep;
+        std::string why;
+        std::vector<uint8_t> good;
+        const bool wrote = a.save_jns(opt, good, rep, why);
+
+        std::vector<uint8_t> ram;
+        bool got = wrote && [&]{
+            jnext::zip::Reader r;
+            std::string w2;
+            return r.open(good.data(), good.size(), w2) &&
+                   r.read("mem/ram.bin", ram, w2);
+        }();
+
+        // The manifest must be forged TO MATCH, or the container refuses on
+        // its own declaration-vs-member rule and the row never reaches the
+        // check it is about. That is not a hypothetical: the first version of
+        // this row shortened only the member, the container caught it, and a
+        // mutation that deleted the length check below still passed.
+        //
+        // What stays reachable once the manifest agrees is the case a snapshot
+        // format really has to survive: a file written by a build whose buffer
+        // was a different size. The manifest and the archive are then perfectly
+        // consistent with each OTHER and disagree with this build's
+        // declaration, and only the check below stands between that and a
+        // 1 024-byte heap overread.
+        std::vector<uint8_t> forged;
+        bool built = false;
+        if (got && ram.size() > 1024) {
+            std::vector<uint8_t> shorter(ram.begin(), ram.end() - 1024);
+            std::string mtext;
+            jnext::zip::Reader r0;
+            std::string w0;
+            if (r0.open(good.data(), good.size(), w0) &&
+                r0.read_text(jnext::jns::kManifestMember, mtext, w0)) {
+                jnext::jns::Manifest m0;
+                std::vector<std::string> unk;
+                if (jnext::jns::manifest_from_json(mtext, m0, unk, w0)) {
+                    auto it = m0.members.find("mem/ram.bin");
+                    if (it != m0.members.end()) {
+                        it->second.bytes = shorter.size();
+                        it->second.crc32 = static_cast<uint32_t>(::crc32(
+                            0L, shorter.data(),
+                            static_cast<unsigned>(shorter.size())));
+                        std::vector<uint8_t> step;
+                        const std::string newm = jnext::jns::manifest_to_json(m0);
+                        std::vector<uint8_t> newm_bytes(newm.begin(), newm.end());
+                        built = repack_raw(good, "mem/ram.bin", shorter, step) &&
+                                repack_raw(step, jnext::jns::kManifestMember,
+                                           newm_bytes, forged);
+                    }
+                }
+            }
+        }
+
+        bool refused = false;
+        std::string refusal;
+        if (built) {
+            Emulator b;
+            build_emulator(b, 2);
+            jnext::JnsLoadOptions lopt;
+            jnext::JnsLoadReport  lrep;
+            refused = !b.load_jns(forged.data(), forged.size(), lopt, lrep,
+                                  refusal);
+        }
+        if (!refused) {
+            fprintf(stderr, "  JNS-RT-11: built=%d refusal='%s'\n",
+                    built ? 1 : 0, refusal.c_str());
+        }
+        check("JNS-RT-11", built && refused,
+              "a `mem/ram.bin` 1 024 bytes SHORT of what the declaration says "
+              "is REFUSED even when the MANIFEST agrees with it — not "
+              "truncated, not zero-padded. That is the cross-version case: a "
+              "file whose archive and manifest are perfectly consistent with "
+              "each other and disagree with this build's declaration");
+        check("JNS-RT-12",
+              refused && refusal.find("ram") != std::string::npos,
+              "…and the refusal NAMES the member, so a user can tell a corrupt "
+              "file from an unsupported one");
+    }
+
     // ── §10.2 P7: a save from MID-FRAME advances, and says so ───────────
     {
         Emulator a;
         build_emulator(a, 2);
         for (int i = 0; i < 10; ++i) a.run_frame();
-        // Leave a frame genuinely in flight.
-        a.debug_state().pause();
+
+        // Leave a frame GENUINELY in flight, and assert that it is — the first
+        // version of this row called `pause()` then `run_frame()`, which does
+        // NOT leave a frame half-executed, so the row asserted nothing and a
+        // mutation removing the advance left it green.
+        //
+        // `run_to_cycle` is what `S6-P7-ADVANCE-01` uses and is the real
+        // shape: it pauses inside `run_frame`'s loop exactly as a breakpoint
+        // does, half-way down the frame.
+        const uint64_t mid = a.current_frame_cycle() +
+                             a.timing().master_cycles_per_frame / 2;
+        a.debug_state().set_active(true);
+        a.debug_state().run_to_cycle(mid);
         a.run_frame();
-        a.debug_state().resume();
+        const bool mid_frame = a.debug_state().paused() && a.frame_in_progress();
+        check("JNS-RT-08a", mid_frame,
+              "the fixture really is paused MID-FRAME before the save — "
+              "without this the row below asserts nothing");
 
         jnext::JnsSaveOptions opt;
         jnext::JnsLoadReport rep;
         std::string why;
         std::vector<uint8_t> out;
         const bool ok = a.save_jns(opt, out, rep, why);
-        check("JNS-RT-08", ok && !a.frame_in_progress(),
-              "a .jns save leaves the machine at a frame BOUNDARY: §10.2 P7's "
-              "always-advance-never-refuse rule, so there is no unavailable "
-              "menu item and no failure mode");
+        a.debug_state().resume();
+        check("JNS-RT-08", ok && mid_frame && !a.frame_in_progress() &&
+                              rep.advanced_to_frame_boundary,
+              "a .jns save ADVANCES a mid-frame machine to a frame boundary "
+              "and REPORTS that it did (§10.2 P7's always-advance, "
+              "never-refuse rule): no unavailable menu item, no failure mode, "
+              "and the caller can tell the user once");
     }
 
     printf("Total so far: %d passed, %d failed\n", pass_count, fail_count);
