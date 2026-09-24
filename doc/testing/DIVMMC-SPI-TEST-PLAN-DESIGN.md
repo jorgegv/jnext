@@ -22,7 +22,13 @@ Updated 2026-04-17 (commit `d4ea4e1`):
 - **Previously failing, now fixed**:
   - **SX-03**: SPI pipeline delay implemented. `read_data()` returns previous `rx_data_`.
   - **SX-05**: `write_data()` captures MISO via `receive()` (changed from void to uint8_t).
-  - **ML-05**: Pipeline delay fix covers ishift_r reset — first read returns 0xFF.
+  - **ML-05**: Pipeline delay fix covers the reset path — first read returns
+    `miso_dat`'s power-on value 0x00. **Corrected 2026-09-24 (GH #201)**: this
+    bullet said 0xFF and named `ishift_r`; the row is about `miso_dat`, and 0xFF
+    is the value of the `i_reset` clause (`spi_master.vhd:162-163`) that never
+    fires because `i_reset` is hardwired `'0'` at `zxnext.vhd:3285`. The row
+    itself was re-pinned to 0x00 by V12-DIVMMC-01-NIT on 2026-05-10; this line
+    was not followed through.
   - **SS-10**: Test bug fixed — was using 0x12 which matches VHDL SD card branch; changed to 0x00.
   - E3-04, E3-07, E3-08, EP-02/03/11, NR-01/02/05, SS-09/SS-11: fixed in prior sessions.
 - **Skips**: 56 rows as measured then. Genuinely unreachable — NMI lifecycle (NM-01..08), RETN hook (DA-06, IN-03), instant-vs-delayed pipeline (DMC-TM-01..04, TM-05), `automap_reset` vs `set_enabled` distinction (DA-08, NA-03), SRAM address ladder (SM-01..07), MISO priority ladder (SPI-MX-01/02/05), SPI state counter / SCK / MOSI pin (SX-06..10, ST-01..08), NR 0x09 bit 3 clear mapram (E3-05). **Four of those are no longer skips and four more are retired — see the GH #201 note below; this sentence is left as the historical snapshot it was.**
@@ -522,10 +528,22 @@ ordinary memory reads.
 ### Pipeline delay in SPI reads
 
 A read from port 0xEB returns the MISO data from the PREVIOUS SPI exchange,
-not the current one. The first read after reset returns 0xFF. This is because
-the read itself triggers a new exchange (sending 0xFF), and the result of that
-exchange only becomes available after the next read/write. Tests must account
-for this one-exchange pipeline delay.
+not the current one: `miso_dat` is latched at `state_last_d`, one cycle after
+the transfer ends (`spi_master.vhd:164-165`), so the exchange a read starts
+only becomes readable on the NEXT read or write. Tests must account for this
+one-exchange pipeline delay.
+
+The first read after reset therefore returns `miso_dat`'s power-on value
+**0x00** (signal-declaration init, `spi_master.vhd:74`) — not 0xFF.
+**Corrected 2026-09-24 (GH #201)**: this paragraph claimed 0xFF "because the
+read itself triggers a new exchange (sending 0xFF)". That conflates two
+different bytes. The 0xFF is what the master puts on MOSI — `oshift_r <=
+(others => '1')` on a read, `spi_master.vhd:109-110` — not what comes back on
+MISO. The only clause that would make `miso_dat` all-ones is the `i_reset`
+branch at `spi_master.vhd:162-163`, and `i_reset` is hardwired `'0'` on the
+instance at `zxnext.vhd:3285`, so it never fires. SX-04 and ML-05 have
+asserted 0x00 since V12-DIVMMC-01-NIT (2026-05-10); this prose was not
+followed through.
 
 ### mapram latch behaviour
 
