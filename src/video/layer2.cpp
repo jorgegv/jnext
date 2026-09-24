@@ -3,6 +3,8 @@
 #include "memory/ram.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 
 // ---------------------------------------------------------------------------
 // Reset
@@ -839,30 +841,40 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
     }
 }
 
+// GH #27 S4 — the ONE field list (design §9.2). Block 7 of the byte-identity
+// stream (§17.1), 12 bytes. Declaration order IS the stream order.
+//
+// NOT DECLARED: the per-scanline scroll / clip / bank / enable / NR 0x70
+// change-logs and their baselines — §9.5(8), rebuilt every frame by
+// `start_frame()`, which `load_state` calls after the walk (GH #261).
+//
+// `resolution_` is NR 0x70 bits 5:4 and is a plain `u8` rather than an
+// `enum8`: it is not a C++ enum in this class, and three of its four
+// ordinals are meaningful (256x192x8, 320x256x8, 640x256x4) with the fourth
+// reserved, so there is no closed name set the VHDL sanctions for it.
+//
+// No field carries a DECLARED DEFAULT: §12.2's gate for them is S6's.
+void Layer2::describe_state(jnext::save::StateDesc& d)
+{
+    d.u8("active_bank", active_bank_);
+    d.u8("shadow_bank", shadow_bank_);
+    d.u16("scroll_x", scroll_x_);
+    d.u8("scroll_y", scroll_y_);
+    d.u8("palette_offset", palette_offset_);
+    d.u8("resolution", resolution_);
+    d.boolean("enabled", enabled_);
+    d.u8("clip_x1", clip_x1_); d.u8("clip_x2", clip_x2_);
+    d.u8("clip_y1", clip_y1_); d.u8("clip_y2", clip_y2_);
+}
+
 void Layer2::save_state(StateWriter& w) const
 {
-    w.write_u8(active_bank_);
-    w.write_u8(shadow_bank_);
-    w.write_u16(scroll_x_);
-    w.write_u8(scroll_y_);
-    w.write_u8(palette_offset_);
-    w.write_u8(resolution_);
-    w.write_bool(enabled_);
-    w.write_u8(clip_x1_); w.write_u8(clip_x2_);
-    w.write_u8(clip_y1_); w.write_u8(clip_y2_);
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void Layer2::load_state(StateReader& r)
 {
-    active_bank_ = r.read_u8();
-    shadow_bank_ = r.read_u8();
-    scroll_x_ = r.read_u16();
-    scroll_y_ = r.read_u8();
-    palette_offset_ = r.read_u8();
-    resolution_ = r.read_u8();
-    enabled_ = r.read_bool();
-    clip_x1_ = r.read_u8(); clip_x2_ = r.read_u8();
-    clip_y1_ = r.read_u8(); clip_y2_ = r.read_u8();
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
 
     // GH #261 — re-baseline the scroll/clip/bank/enable/NR 0x70 logs from
     // the state just loaded, so a render before the next begin_new_frame()
