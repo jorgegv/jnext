@@ -14,6 +14,7 @@
 #include "core/emulator_config.h"
 #include "core/saveable.h"
 #include "core/esxdos_hostfs.h"
+#include "peripheral/joy_uart_source.h"
 #include "core/jns_snapshot.h"
 #include "save/jns_container.h"
 #include "save/zip_archive.h"
@@ -5599,6 +5600,161 @@ static int test_s8_jns_roundtrip()
               "single value says which file was reopened AND where in it");
 
         fs::remove_all(root, ec);
+    }
+
+    // ── THE joy_uart JSON PATH — THE SEVENTH, AND A SMALLER SHAPE ───────
+    //
+    // KEEP THE DISTINCTION FROM THE SIXTH, because it is not the same defect.
+    //
+    // `esxdos_hostfs_` and `preview_png` are hand-written into a `.jns` and are
+    // in NO oracle at all: `Emulator::save_state` does not carry them, so
+    // `JNS-RT-02`'s binary-stream comparison is structurally blind and a broken
+    // field mapping would be UNSEEABLE.
+    //
+    // `joy_uart_source_` is different. It IS inside `save_state`/`load_state`'s
+    // regular walk (`emulator.cpp:11929`, `:12350`), so `JNS-RT-02` WOULD catch
+    // a broken mapping — if any fixture ever attached a cable. None did: no row
+    // here ever set `EmulatorConfig::joy_uart_rx_file`, and no functional script
+    // combines a cable with a snapshot. So the `.jns`-specific arms —
+    // `if (joy_uart_source_)` in both `save_jns` and `load_jns` — had ZERO
+    // EXECUTION coverage.
+    //
+    // "Never exercised", not "unseeable". A smaller hole, and still a hole:
+    // untaken branches ship.
+    //
+    // The claim is usability through the RESTORED object, as `JNS-RT-16`'s is:
+    // the cable's byte at index N is N, so after a restore the next byte the
+    // source pushes THROUGH THE MUX AND INTO THE UART is the continuation, and
+    // its value says both that the cursor travelled and that the source is
+    // still live. A restored source that had silently rewound would deliver 0.
+    {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path dir = fs::temp_directory_path() /
+            ("jnext_jns_joy_" + std::to_string(::getpid()));
+        fs::remove_all(dir, ec);
+        fs::create_directories(dir, ec);
+        const std::string cable = (dir / "cable.bin").string();
+        {
+            // 256 bytes, so the pre-save run consumes only part of it and
+            // there is a REMAINDER for the restored source to deliver. The
+            // first version used 64 and the cable was exhausted before the
+            // save, leaving nothing on the far side to observe.
+            std::ofstream f(cable, std::ios::binary);
+            for (int i = 0; i < 256; ++i) f.put(static_cast<char>(i));
+        }
+
+        auto cfg_with_cable = [&](EmulatorConfig& cfg) {
+            cfg.type                     = MachineType::ZX48K;
+            cfg.rewind_buffer_frames     = 2;
+            cfg.joy_uart_rx_file         = cable;
+            cfg.joy_uart_rx_delay_frames = 0;
+        };
+
+        // NR 0x0B = en(b7) + mode "10"(b5) + CONNECTOR joy 2 (b4) + iomode_0=0
+        // -> the joy-2 serial pin is routed to UART 0 (zxnext.vhd:3537 for the
+        // enable, :3538 for the connector, :3340-3341 for the channel).
+        //
+        // BIT 4 IS THE ONE THAT CATCHES YOU, and the precondition row below is
+        // why this fixture is correct rather than merely green: with bit 4
+        // clear the mux reads joy 1, `EmulatorConfig::joy_uart_connector`
+        // defaults to joy 2, and all 64 bytes are DROPPED — which is exactly
+        // what hardware does with a cable in the socket the FPGA is not
+        // looking at. The first version of this fixture used 0xA0 and measured
+        // a stream nothing received.
+        constexpr uint8_t kMuxToUart0 = 0xB0;
+
+        std::size_t delivered_before = 0;
+        std::vector<uint8_t> jns_joy;
+        bool prepared = false;
+        {
+            auto a_up = std::make_unique<Emulator>();
+            Emulator& a = *a_up;
+            EmulatorConfig cfg;
+            cfg_with_cable(cfg);
+            a.init(cfg);
+            a.nextreg().write(0x0B, kMuxToUart0);
+
+            // Run until PART of the cable has been delivered, and stop while
+            // a remainder is left. Self-adjusting rather than a tuned frame
+            // count: the rate is the UART channel's baud (about 28 bytes a
+            // frame here), and a magic number would silently become either
+            // "nothing delivered" or "cable exhausted" the day that changes.
+            // Both of those are failures this row already hit while being
+            // written, and neither is the row's subject.
+            const bool attached = a.joy_uart_source() != nullptr;
+            for (int i = 0; i < 60 && attached; ++i) {
+                if (a.joy_uart_source()->delivered() >= 40) break;
+                a.run_frame();
+            }
+            delivered_before =
+                attached ? a.joy_uart_source()->delivered() : 0;
+            const bool has_remainder =
+                attached && !a.joy_uart_source()->exhausted();
+
+            // Drain whatever is sitting in the RX FIFO, so the byte read after
+            // the restore is one the RESTORED source pushed rather than one
+            // that merely survived in a buffer.
+            a.port().out(0x153B, 0x00);
+            while (!a.uart().channel(0).rx_empty()) (void)a.port().in(0x143B);
+
+            jnext::JnsSaveOptions opt;
+            jnext::JnsLoadReport  rep;
+            std::string why;
+            prepared = attached && delivered_before > 0 && has_remainder &&
+                       delivered_before < 256 &&
+                       a.save_jns(opt, jns_joy, rep, why);
+        }
+
+        check("JNS-RT-20", prepared,
+              "the fixture really attaches a cable, really delivers bytes "
+              "through the mux, and stops with a REMAINDER still to send — "
+              "without all three the row below asserts nothing, which is how "
+              "this path went six stages with no coverage at all");
+
+        int got_byte = -1;
+        bool loaded = false;
+        if (prepared) {
+            auto b_up = std::make_unique<Emulator>();
+            Emulator& b = *b_up;
+            EmulatorConfig cfg;
+            cfg_with_cable(cfg);
+            b.init(cfg);                       // same cable, cursor at 0
+            b.nextreg().write(0x0B, kMuxToUart0);
+
+            jnext::JnsLoadOptions lopt;
+            jnext::JnsLoadReport  lrep;
+            std::string refusal;
+            loaded = b.load_jns(jns_joy.data(), jns_joy.size(), lopt, lrep,
+                                refusal);
+            if (loaded) {
+                // The mux is a NextREG the snapshot restored, so re-assert it
+                // only if the restore cleared it; then run until a byte lands.
+                b.nextreg().write(0x0B, kMuxToUart0);
+                b.port().out(0x153B, 0x00);
+                for (int i = 0; i < 12 && got_byte < 0; ++i) {
+                    b.run_frame();
+                    if (!b.uart().channel(0).rx_empty()) {
+                        got_byte = b.port().in(0x143B);
+                    }
+                }
+            }
+        }
+
+        const int want_byte = static_cast<int>(delivered_before);
+        if (got_byte != want_byte) {
+            fprintf(stderr,
+                    "  JNS-RT-21: delivered_before=%zu got_byte=%d want=%d "
+                    "loaded=%d\n",
+                    delivered_before, got_byte, want_byte, loaded ? 1 : 0);
+        }
+        check("JNS-RT-21", loaded && got_byte == want_byte,
+              "…and the RESTORED cable delivers the CONTINUATION byte through "
+              "the mux into the UART — the file's byte at index N is N, so the "
+              "value proves the cursor travelled and the source is still live. "
+              "A source that silently rewound would deliver 0");
+
+        fs::remove_all(dir, ec);
     }
 
     // ── meta/preview.png — THE SIXTH BLIND SPOT ─────────────────────────
