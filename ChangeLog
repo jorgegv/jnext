@@ -1,9 +1,34 @@
 # ChangeLog
 
-## Unreleased (2026-09-23)
+## Unreleased (2026-09-25)
+
+### User Features
+- Save and restore the exact state of the machine as a `.jns` snapshot, from the menu or the command line
+- The Next can now set up WiFi, look up names, ping, and read the time from the network
+- NEX files start on an already-booted NextZXOS machine instead of waiting for the boot sequence
+- Screenshots save in `.SCR` format, and a quick capture writes one without asking for a name
+- Copy a host file straight into the SD image with `--sdcard-file-add`
+- Older byte-addressed SD cards (SDSC) work alongside block-addressed ones
+- A working serial cable on the joystick port, in both directions
+
+### Developer Features
+- Debugger keys are redefinable in Preferences, and only the ones you change are saved
+- Breakpoints can be disabled without deleting them, singly or all at once
+- The debugger shows the raster position and whether the ULA is fetching
+- Assembly can be selected and copied out of the disassembly panel
 
 ### Bug Fixes
-- AY hardware envelopes now play the right shape; the two triangle shapes no longer stick at a flat tone
+- Typing in NextBASIC no longer drops or corrupts letters, and the menu bar no longer steals the keyboard
+- The keyboard is scanned at the hardware rate, so a released shift no longer alters the next keystroke
+- AY envelopes, noise phase and registers 14/15 now play as the hardware does
+- Tilemap priority, mid-line Copper writes to Layer 2, and the startup ULA palette match hardware
+- The Flatpak build can reach the network at all
+
+### Internal JNEXT Development
+- Migrated from SDL2 to SDL3 directly
+- 158 missing traceability rows closed, finding and fixing several emulation bugs on the way
+- Every subsystem's save state now comes from one field declaration, shared by binary and JSON
+- Test harness hardening: timeouts escalate to SIGKILL, source globs can't match generated output
 
 ## v1.0.1 (2026-09-22)
 
