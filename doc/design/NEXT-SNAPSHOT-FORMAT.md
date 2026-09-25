@@ -741,6 +741,38 @@ the threshold never applies to it.
 
 ### 6.2 Encoding rules inside the JSON
 
+**SCOPE: this table is the FIELD DESCRIPTOR's encoding — it governs
+`state/*.json` and nothing else.** `manifest.json` has its own grammar, shown
+by example in §8 and §11.3, and it uses plain JSON numbers for its sizes and
+counts.
+
+That sentence was missing until S9, and its absence was found the way it should
+be: the independent reader of §13.2, written from this document by someone who
+could not see the writer, applied the `u64`-as-string rule below to
+`manifest.capture.frame` and **refused every file jnext produces**. The rule is
+stated unconditionally in §7.4 ("every 64-bit field"), the table's own rows are
+descriptor primitives that exist only in `state/*.json` (`blob`, `ram_window`,
+`log`, `fifo`), and §8's example shows `"frame": 41291` as a number — three
+statements a careful reader cannot reconcile. Now it can.
+
+**Why the manifest is safe with numbers, stated rather than assumed.** §7.4's
+hazard is real and measured: the `/INT` window exceeds 2^53 in *every*
+snapshot, so a JavaScript validator would silently corrupt it. Every `u64` in
+the manifest is bounded well below that — `members[].bytes` by the ZIP format's
+4 GB (no ZIP64, §6), `partition_lba` by a 32-bit sector index, `capture.frame`
+at 2^53 frames being 5.7 billion years, `tape.position_tstates` at 2^53
+T-states being ~81 years of tape, and `sdcard.identity.image_bytes` at 2^53
+bytes being 8 PB. **§7.4 explicitly rejects per-field judgements of this kind**,
+and it is right to inside `state/*.json`, where the descriptor emits whatever a
+subsystem declares and a future field could be anything. The manifest's field
+list is fixed by this document and changes only when this document does, which
+is the difference that makes the judgement safe here and unsafe there.
+
+**This is an owner decision if you disagree**: `format_version` is 1 and
+nothing has shipped, so making the manifest's `u64`s strings too is still a
+cheap change. It would cost the schema, the overlay, both examples and the
+reader; it would buy one fewer rule to remember.
+
 | Kind | Encoding | Schema can check |
 |---|---|---|
 | Boolean flag | `true` / `false` | type |
@@ -943,10 +975,14 @@ does Python's `json` (arbitrary-precision ints) — but a JavaScript validator
 (`ajv`) silently rounds above 2^53, which would let an external validation pass
 on a file a JavaScript reader had already corrupted.
 
-**Rule: any `u64` or `i64` field is encoded as a decimal *string*,** with
-`"pattern": "^-?[0-9]+$"` in the schema. Not "any field that might one day be
-large" — every 64-bit field, unconditionally, because the alternative is a
-per-field judgement that goes stale.
+**Rule: any `u64` or `i64` field IN `state/*.json` is encoded as a decimal
+*string*,** with `"pattern": "^-?[0-9]+$"` in the schema. Not "any field that
+might one day be large" — every 64-bit field there, unconditionally, because
+the alternative is a per-field judgement that goes stale.
+
+*(The scope qualifier is S9's; see §6.2. `manifest.json` uses plain numbers,
+and §6.2 says why that is safe for its fixed, document-controlled field list
+and would not be safe here.)*
 
 > An earlier draft of this document asserted that **no field qualifies today**,
 > reasoning that `monotonic_tstates()` and `Clock::cycle_` need about ten years
