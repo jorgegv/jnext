@@ -379,12 +379,15 @@ program is serving, which is the companion to closing one by number with
 
 `AT+CIPDOMAIN="somewhere.example"` looks a name up **without connecting to it**
 and answers `+CIPDOMAIN:<address>`. It answers only for a host a connection
-would have been allowed to reach: if you restricted the guest with
-`--esp-allow`, or if the name points at an address jnext blocks anyway (your
-own machine, a cloud metadata service), the lookup answers `DNS Fail` and
-`ERROR` — the same reply it gives a name that does not exist, so a program
-cannot use it to map what is being blocked. The run's own log says which of the
-two it was.
+would have been allowed to reach, and it needs a station for the same reason a
+connection does — after `AT+CWMODE=2` or `AT+CWQAP` there is no access point to
+ask, so it answers `ERROR`.
+
+If you restricted the guest with `--esp-allow`, or if the name points at an
+address jnext blocks anyway (your own machine, a cloud metadata service), the
+lookup answers `DNS Fail` and `ERROR` — the same reply it gives a name that does
+not exist, so a program cannot use it to map what is being blocked. The run's
+own log says which of the two it was.
 
 ## What is not emulated yet
 

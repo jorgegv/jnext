@@ -3404,6 +3404,41 @@ int main() {
         check_eq("DOM-21", "a resolver that rejects the request answers ERROR from dispatch",
                  r.take(), "\r\nERROR\r\n"); }
 
+    {   // A LOOKUP NEEDS A STATION AT LEAST AS MUCH AS A CONNECT DOES. A real
+        // ESP8266 with no AP association has no DNS server to ask, and
+        // `AT+CIPSTART` already refuses in this state (CWM-07). The first
+        // version of this command did not, and nothing caught it: not one of
+        // the other DOM rows, none of RSLV-* or RGATE-*, and not the functional
+        // row, because none of them turns the station off before looking a
+        // name up.
+        Rig r; parse_ip("1.2.3.4", r.rsv.answer);
+        r.send("AT+CWMODE=2\r\n"); r.drain(); r.take();          // SoftAP only
+        r.send("AT+CIPDOMAIN=\"example.test\"\r\n"); r.settle();
+        check_eq("DOM-23", "with the station turned off by AT+CWMODE=2, a lookup is refused",
+                 r.take(), "\r\nERROR\r\n");
+        check("DOM-23b", "...and the resolver is never even asked", r.rsv.begins == 0); }
+
+    {   Rig r; parse_ip("1.2.3.4", r.rsv.answer);
+        r.send("AT+CWQAP\r\n"); r.drain(); r.take();             // left the AP
+        r.send("AT+CIPDOMAIN=\"example.test\"\r\n"); r.settle();
+        check_eq("DOM-24", "and the same after AT+CWQAP — no AP, no name server",
+                 r.take(), "\r\nERROR\r\n");
+        check("DOM-24b", "...resolver untouched here too", r.rsv.begins == 0); }
+
+    {   // THE PREDICATE MATTERS, and this row is what pins WHICH one. A
+        // HOST-scheduled outage must NOT refuse a lookup: GH #246 confined
+        // itself to the address report, the user guide promises new
+        // connections still open during one, and ASSOC-13 + CWQ-08 pin that
+        // for `AT+CIPSTART`. Gating on `station_has_ip()` here would have been
+        // the easy mistake and would have broken that precedent silently.
+        Rig r; parse_ip("1.2.3.4", r.rsv.answer);
+        r.eng.set_associated(false);
+        r.send("AT+CIPDOMAIN=\"example.test\"\r\n"); r.settle();
+        check_eq("DOM-25",
+                 "a HOST outage does NOT refuse a lookup — only the guest's own "
+                 "AT+CWMODE=2 / AT+CWQAP do",
+                 r.take(), "\r\n+CIPDOMAIN:1.2.3.4\r\n\r\nOK\r\n"); }
+
     {   Rig r; parse_ip("9.9.9.9", r.rsv.answer);
         r.send("AT+CIPDOMAIN=\"a.test\"\r\n"); r.settle(); r.take();
         r.send("AT+CIPDOMAIN=\"b.test\"\r\n"); r.settle();

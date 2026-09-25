@@ -1132,6 +1132,27 @@ void AtEngine::cmd_cipdomain(const std::string& args) {
         return;
     }
 
+    // NO STATION, NO NAME SERVER. A real ESP8266 with no AP association has
+    // nothing to send a DNS query to, so a lookup needs a station at least as
+    // much as `AT+CIPSTART` does — and `AT+CIPSTART` has refused in this state
+    // since GH #154's first increment (`station_enabled_by_guest`, CWM-07).
+    // The first version of THIS command did not, and nothing caught it: every
+    // other `DOM` row, all of `RSLV-*` and `RGATE-*`, and the functional row
+    // all pass with the gap present, because not one of them turns the station
+    // off before looking a name up. DOM-23/24 are the rows that do.
+    //
+    // THE PREDICATE IS THE GUEST'S TWO GATES ONLY, never `station_has_ip()`.
+    // Including `associated_` would make a HOST-scheduled outage refuse
+    // lookups, and GH #246 deliberately confined an outage to the address
+    // REPORT — the user guide promises new connections still open during one,
+    // ASSOC-13 and CWQ-08 pin it for connects, and DOM-25 now pins it here.
+    if (!station_enabled_by_guest()) {
+        log_debug("AT+CIPDOMAIN with no station (mode {}, joined {}) — answering ERROR",
+                  cwmode_, joined_);
+        queue_error();
+        return;
+    }
+
     std::string rest = args;
     std::string host;
     if (!take_quoted(rest, host) || host.empty()) {

@@ -49,7 +49,7 @@ mentions them, so a test can no longer be absent from this document.
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
 | CPU/Z80N/IM2 regressions                   |    56 |   56 |    0 |    0 |       0 |          0 |
 | ESP-01 socket transport                    |   203 |  199 |    0 |    4 |       0 |          0 |
-| ESP-01 AT engine                           |   432 |  432 |    0 |    0 |       0 |          0 |
+| ESP-01 AT engine                           |   437 |  437 |    0 |    0 |       0 |          0 |
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
 | Companion: mmu_integration_test            |    68 |   68 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |    17 |   17 |    0 |    0 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    30 |   24 |    0 |    6 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4859 | 4848 |    0 |   11 |       0 |          0 |
+| **Total**                                  |  4864 | 4853 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **4859**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4551**. Rows the 116 suites declared in `test/unit-tests.conf` run live: **8778**.
+Rows the sections above carry: **4864**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4556**. Rows the 116 suites declared in `test/unit-tests.conf` run live: **8783**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -4504,8 +4504,13 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | DOM-19 | a resolver that never answers holds the guest, it does not answer early | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:3395 |
 | DOM-20 | ...and the deadline ends it with the ordinary failure reply | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:3399 |
 | DOM-21 | a resolver that rejects the request answers ERROR from dispatch | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:3404 |
-| DOM-22 | a second lookup after the first has answered works normally | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:3410 |
-| DOM-22b | ...and the engine really started two lookups | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:3412 |
+| DOM-23 | with the station turned off by AT+CWMODE=2, a lookup is refused | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:3417 |
+| DOM-23b | ...and the resolver is never even asked | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:3419 |
+| DOM-24 | and the same after AT+CWQAP — no AP, no name server | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:3424 |
+| DOM-24b | ...resolver untouched here too | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:3426 |
+| DOM-25 | a HOST outage does NOT refuse a lookup — only the guest's own AT+CWMODE=2 / AT+CWQAP do | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:3437 |
+| DOM-22 | a second lookup after the first has answered works normally | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:3445 |
+| DOM-22b | ...and the engine really started two lookups | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:3447 |
 
 ## ESP-01 jnext UART adapter — `test/esp/esp_uart_adapter_test.cpp`
 

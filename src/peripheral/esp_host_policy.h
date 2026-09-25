@@ -243,6 +243,18 @@ private:
 /// that can tell "blocked by the allowlist" from "did not resolve" has an
 /// oracle for the allowlist's contents. `AT+CIPSTART` already answers `ERROR`
 /// for both, so this keeps the two commands from leaking different amounts.
+///
+/// THE CLAIM IS ABOUT WIRE CONTENT, NOT TIMING. A blocked host is decided
+/// HERE, synchronously, and fails on the very next service pass; a real lookup
+/// of a NAME goes to a detached thread and takes as long as DNS takes. So an
+/// observer with a wall clock on the UART can still tell a refusal from a miss
+/// by LATENCY, however identical the bytes. That is not specific to this class
+/// — `AT+CIPSTART` refuses an allowlisted host immediately and fails a genuine
+/// one deferred, exactly the same shape — and an IP literal is unaffected
+/// either way, since both arms are synchronous. It is RECORDED rather than
+/// fixed: closing it means inventing a delay nobody has measured, to defend
+/// against an observer who is already host-side and can read the `warn` line
+/// below, which names the refusal outright.
 class EspGatedResolver final : public esp::EspResolver {
 public:
     EspGatedResolver(std::unique_ptr<esp::EspResolver> inner, EspHostPolicy policy,

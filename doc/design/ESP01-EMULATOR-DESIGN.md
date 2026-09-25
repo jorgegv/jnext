@@ -2299,27 +2299,67 @@ the fakes across two suites. A host that wants neither a server nor a resolver
 passes null for both, and the commands that need them answer `ERROR`, exactly
 as they did before either existed.
 
-### 19.3 One rule, two commands
+### 19.3 Which gates apply, command by command
 
 **`AT+CIPDOMAIN` answers only for a host `AT+CIPSTART` would have been allowed
-to dial.** Both of the transport's gates apply:
+to dial.** An earlier draft of this section said "one rule, two commands" and
+listed the two policy layers — and that framing is exactly what hid a missing
+gate through a whole review cycle, because it invited the reader to check that
+the *policies* matched and stop there. `AT+CIPSTART` carries more gates than
+its policies, and the first version of `AT+CIPDOMAIN` implemented all of the
+policies and one of the rest. So the mapping is now stated in full:
 
-| Gate | Why it must apply to a lookup |
-|---|---|
-| `esp::AddressPolicy` | A resolver without it would hand the guest the loopback, link-local and **cloud-metadata** addresses the transport is careful never to reach. `AT+CIPDOMAIN="169.254.169.254"` would answer with it. |
-| `--esp-allow` (`EspGatedResolver`) | An ungated resolver would give the guest the address of every host it may not dial. Smaller than a connection, and still the leak the flag exists to prevent. |
+| Gate | `AT+CIPSTART` | `AT+CIPDOMAIN` | |
+|---|---|---|---|
+| **Capability** — the object exists at all | slot 0's transport always does | **resolver may be null** → `ERROR` | a host that wants neither passes null for both |
+| **Busy** — one at a time | `c.open \|\| c.connecting` | `domain_pending_` | both are unreachable while `receive()` defers, both kept: the thing that makes them unreachable is non-local |
+| **Station** — the guest has a station at all | `station_enabled_by_guest()` | `station_enabled_by_guest()` | **this is the one that was missing.** A real ESP8266 with no AP association has no name server to query, so a lookup needs a station at least as much as a connect does |
+| **`--esp-allow` host list** | `EspGatedTransport` | `EspGatedResolver` | an ungated resolver hands the guest the address of every host it may not dial |
+| **`esp::AddressPolicy`** | `SocketTransport` | `SocketResolver` | without it, `AT+CIPDOMAIN="169.254.169.254"` would answer with the cloud-metadata address the transport is careful never to reach |
+| **Argument validation** | protocol, host, port, UDP local port and mode | quoted name, <64 bytes | command-specific; a lookup has no protocol and no port, so there is nothing to mirror |
 
-**A refusal is INDISTINGUISHABLE from a DNS miss on the wire** — both answer
-`DNS Fail` + `ERROR`. If they differed, the command would be an oracle for
-"does this name point at something the policy hides?", which is the question
-the policy exists to refuse. `AT+CIPSTART` already answers `ERROR` for both, so
-this keeps the two commands leaking the same amount: nothing.
+**There is no further gate.** `AT+CIPSTART`'s remaining refusals are all
+argument validation in the row above, which is why they have no lookup
+analogue rather than being an omission.
 
-That is also why `EspGatedResolver::begin()` returns **true** for a blocked
-host and reports `Failed`, rather than returning false. Returning false would
-have produced a bare `ERROR` where a real miss produces `DNS Fail` + `ERROR`,
-and that difference is the oracle. The **operator** still learns which control
+**The station gate uses the GUEST's two flags, never `station_has_ip()`.**
+Including `associated_` would make a HOST-scheduled outage refuse lookups, and
+GH #246 deliberately confined an outage to the address **report** —
+[§16.3](#163-what-was-added-and-where-it-stops), the user guide's "new ones
+still open", `ASSOC-13` and `CWQ-08`. `DOM-25` pins it from this side, and
+mutating the predicate to `station_has_ip()` fails exactly that one row.
+
+### 19.3.1 Indistinguishable — in the BYTES, and that is the whole claim
+
+A policy or allowlist refusal answers `DNS Fail` + `ERROR`, byte for byte the
+same as a name that does not resolve. If they differed, the command would be an
+oracle for "does this name point at something the policy hides?", which is the
+question the policy exists to refuse. `AT+CIPSTART` already answers `ERROR` for
+both, so the two commands leak the same amount: nothing. `DOM-05` asserts it as
+an **equality** rather than as two expectations, so the two replies cannot drift
+apart.
+
+That is also why `EspGatedResolver::begin()` returns **true** for a blocked host
+and reports `Failed`, rather than returning false. Returning false would have
+produced a bare `ERROR` where a real miss produces `DNS Fail` + `ERROR`, and
+that difference is the oracle. The **operator** still learns which control
 fired, from a `warn` line — the asymmetry is the design.
+
+**THE CLAIM IS ABOUT WIRE CONTENT, NOT ABOUT TIMING, and it is worth saying so
+because the bytes are identical enough to invite over-reading.** A blocked host
+is decided synchronously and fails on the very next service pass, while a real
+lookup of a NAME spawns a detached thread and takes as long as DNS takes. A
+host-side tool watching the UART with a wall clock can therefore distinguish
+"refused" from "did not resolve" by latency, however identical the bytes.
+
+This is **not** specific to `AT+CIPDOMAIN` and was not introduced by it:
+`AT+CIPSTART` has the same shape, refusing an allowlisted host immediately
+while a genuine failure arrives deferred. An IP literal is unaffected either
+way, since both arms are synchronous. Closing it would mean delaying a refusal
+by a fabricated interval — inventing a timing profile nobody has measured, to
+defend against an observer who is already on the host side of the UART and can
+read the `warn` line that names the refusal outright. It is therefore
+**recorded, not fixed**.
 
 ### 19.4 The reply is 1.x
 
@@ -2368,12 +2408,15 @@ engine and the resolver, only a run of the real binary proves the wiring.
 
 ### 19.7 How it is proved
 
-- **28 `esp_at_test` rows** (`DOM-01..22`, 432 total): the deferred reply, the
+- **31 `esp_at_test` rows** (`DOM-01..25`, 437 total): the deferred reply, the
   1.x byte forms, the 63/64-byte boundary, a 600-byte name refused whole, a
   hostname carrying a **forged `+CIPDOMAIN` reply** that cannot inject, a NUL-
   and 8-bit-bearing name, deferral and in-order replay, a deferred line that is
   itself a lookup, the deadline, and — asserted as an **equality** — that a
-  policy refusal is byte-identical to a DNS miss.
+  policy refusal is byte-identical to a DNS miss. `DOM-23/24` are the station
+  gate, and `DOM-25` is what pins the **predicate**: a host-scheduled outage
+  must NOT refuse a lookup, and mutating `station_enabled_by_guest()` to
+  `station_has_ip()` fails exactly that one row.
 - **13 `esp_socket_test` rows** (`RSLV-01..12`, 201 total): the policy on a path
   nobody dials, the literal fast path and that it never consults the injected
   resolver, one-at-a-time, a resolver that throws, one that reports success with
@@ -2385,7 +2428,7 @@ engine and the resolver, only a run of the real binary proves the wiring.
 - **`esp-cipdomain-func`**: three IP literals through the real binary, asserting
   that the RFC1918 one is answered and that **neither denied address appears
   anywhere the guest can see**, while the operator's log names both refusals.
-- **24 mutations** from the diff. Two survived: one an **equivalent mutant**
+- **28 mutations** from the diff. Two survived: one an **equivalent mutant**
   (an `addrs.empty()` guard that `select_candidate` already covers — documented
   in place rather than deleted), one a **real gap** in `reset()`'s contract,
   closed by strengthening `RGATE-08`. The harness itself was caught reporting
