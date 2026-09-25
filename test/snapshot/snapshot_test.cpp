@@ -119,6 +119,15 @@ void check(const char* id, const char* desc, bool cond,
     }
 }
 
+/// Join every complaint into one detail line. `check()` prints a single
+/// string, and reporting only the first would hide the other three cases this
+/// suite's sweeps run.
+std::string all_of_them(const std::vector<std::string>& v) {
+    std::string out;
+    for (const std::string& s : v) out += (out.empty() ? "" : "; ") + s;
+    return out;
+}
+
 std::string det(const char* f, ...) {
     char buf[1024];
     va_list ap;
@@ -2386,6 +2395,79 @@ int main(int argc, char** argv) {
               verdicts == n,
               det("%zu of %zu produced a verdict; first bad: %s", verdicts, n,
                   first_bad.c_str()));
+    }
+    {
+        // §6.2's bound on `partition_lba`, asserted on the READ side and in
+        // BOTH directions.
+        //
+        // The bound exists because an MBR partition entry's start LBA is a
+        // four-byte field (`rd_u32(pe + 8)`), so 2^32-1 is the largest value
+        // that can come out of one. §6.2 claimed the reader enforced it and
+        // the reader did not: the field was parsed with `get_u64_key`, which
+        // checks only non-negativity, and the schema overlay carried no
+        // `maximum` either — so the documented proof rested on nothing. Found
+        // by the review of the commit that wrote §6.2's rule.
+        //
+        // The row forges the manifest as TEXT rather than through
+        // `manifest_to_json`, because a `uint64_t` member cannot be made to
+        // emit an out-of-range value by the writer — only a hand-edited or
+        // foreign file can, which is exactly the input this guards.
+        struct LbaCase {
+            const char* lba;       // as it appears in the JSON
+            bool        accepted;
+            const char* what;
+        };
+        const LbaCase kCases[] = {
+            {"2048",       true,  "an ordinary start LBA"},
+            {"4294967295", true,  "UINT32_MAX — the largest an MBR can name, "
+                                  "which must NOT be refused"},
+            {"4294967296", false, "one past UINT32_MAX"},
+            {"9007199254740993", false,
+                                  "past 2^53 as well, the §7.4 hazard value"},
+        };
+        std::vector<std::string> bad;
+        for (const LbaCase& c : kCases) {
+            const std::string text =
+                std::string(R"({"format_version":1,)"
+                            R"("model":{"state_model_revision":1,"machine":"next","ram_kb":2048},)"
+                            R"("capture":{"frame":1,"frame_boundary":true},)"
+                            R"("media":{"sdcard":{"identity":{"partition_lba":)") +
+                c.lba + R"(}}}})";
+            std::string w;
+            std::vector<uint8_t> z = build_with_manifest_text(text, w);
+            jnext::zip::Reader r;
+            Manifest m;
+            Verdict v;
+            jnext::jns::open_snapshot(z.data(), z.size(), make_env(), r, m, v);
+            if (c.accepted) {
+                // Accepted here means "not refused FOR THIS REASON": the
+                // fixture carries no blobs, so the open may still object to
+                // something else. Only the 32-bit complaint is this row's
+                // business, and requiring its ABSENCE is what makes the
+                // UINT32_MAX case an off-by-one detector.
+                if (v.refusal.find("32-bit") != std::string::npos) {
+                    bad.push_back(std::string(c.what) + " was refused: " +
+                                  v.refusal);
+                }
+                if (m.sdcard.identity.partition_lba != std::stoull(c.lba)) {
+                    bad.push_back(std::string(c.what) + " did not round-trip");
+                }
+            } else {
+                if (v.refusal.empty()) {
+                    bad.push_back(std::string(c.what) + " was ACCEPTED");
+                } else if (v.refusal.find("32-bit") == std::string::npos ||
+                           v.refusal.find("partition_lba") == std::string::npos) {
+                    bad.push_back(std::string(c.what) +
+                                  " refused for the wrong reason: " + v.refusal);
+                }
+            }
+        }
+        check("JNSN-29",
+              "media.sdcard.identity.partition_lba is REFUSED above "
+              "UINT32_MAX, naming the key and the width — and UINT32_MAX "
+              "itself is accepted, so the bound §6.2 states is the real one "
+              "and not an off-by-one",
+              bad.empty(), all_of_them(bad));
     }
     {
         Manifest m = make_manifest();

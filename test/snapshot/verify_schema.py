@@ -190,6 +190,14 @@ def main(argv):
         ("§12.1: media is a closed key set; an unknown member of it is a "
          "writer defect",
          mutate(good["manifest.json"], ["media", "cassette"], {})),
+        # §6.2's bound, on the SCHEMA side. The C++ reader enforces it too
+        # (JNSN-29); this case is what stops the two drifting apart, and it
+        # exists because for a while NEITHER of them enforced it while §6.2
+        # said both did.
+        ("§11.3/§6.2: partition_lba is a 32-bit MBR start LBA, so 2^32 is "
+         "past what an MBR can name",
+         mutate(good["manifest.json"],
+                ["media", "sdcard", "identity", "partition_lba"], 4294967296)),
         ("the manifest itself is required",
          None),
     ]

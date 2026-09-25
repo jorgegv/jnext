@@ -764,7 +764,7 @@ something, not asserted**:
 | Manifest `u64` | Bound | What makes it true |
 |---|---|---|
 | `members[].bytes` | ≤ 64 MiB | **Enforced, twice.** `zip::` refuses any member over `kMaxMemberBytes` = 64 MiB on write and on read (`zip_archive.h:152`, `zip_archive.cpp:256`, `:665`), and the manifest's declaration must EQUAL the member's actual `uncomp_size` or the file is refused (`jns_container.cpp:881-886`). The ZIP64-free 4 GiB ceiling (`kMaxU32Field`, `zip_archive.cpp:38`, `:265-268`) sits outside that as a second wall. |
-| `media.sdcard.identity.partition_lba` | ≤ 2^32 - 1 | **Enforced.** It IS a 32-bit MBR start-LBA — `rd_u32(pe + 8)` on the write side (`sd_rom_extractor.cpp:100`), and the reader refuses anything above `UINT32_MAX` (`jns_container.cpp:76-80`). |
+| `media.sdcard.identity.partition_lba` | ≤ 2^32 - 1 | **Enforced on both sides.** It IS a 32-bit MBR start-LBA: the writer reads it as `rd_u32(pe + 8)` from a four-byte partition-entry field (`sd_rom_extractor.cpp:100`), and the reader parses it through `get_u32_key`, which refuses anything above `UINT32_MAX` (`jns_container.cpp:76-80`) — the member stays a `uint64_t` and the value is widened after the check. The schema carries the matching `"maximum"`, so the published grammar says the same thing. `JNSN-29` pins the refusal **and** that `UINT32_MAX` itself is accepted; `verify_schema.py`'s fault matrix pins the schema half. |
 | `capture.frame` | ≤ 2^53 - 1 | **Arithmetic, not calendar.** It is `monotonic_tstates() / per_frame`, with `per_frame = lines_per_frame × tstates_per_line` (`emulator_jns.cpp:346-350`). A `uint64_t` divided by any divisor ≥ 2 048 cannot exceed `(2^64 - 1) / 2^11` = 2^53 - 1, and the real divisor is 69 888 on the 48K (312 lines × 224 T-states — `timing.h:36-37`, `tstates_per_line = pixels_per_line / 2` at `emulator.cpp:8342-8343`). Thirty-four times the margin the bound needs. |
 | `media.tape.position_tstates` | ~81 years of tape | 2^53 T-states at 3.5 MHz is 2.57 × 10^9 s. The only bound here that is a calendar, and the tape would have to be longer than that. |
 | `media.sdcard.identity.image_bytes` | **the next paragraph** | The one whose bound is a property of the INPUT rather than of the format, and the one an earlier revision waved at. |
@@ -773,6 +773,19 @@ something, not asserted**:
 years". The figure was the **2^63** one: 2^53 frames at 50 Hz is 5.7
 **million** years. The conclusion never turned on it, and now it does not turn
 on a calendar at all.)*
+
+*(And the `partition_lba` row is the rule catching its own author. The first
+revision of this table asserted the reader "refuses anything above
+`UINT32_MAX`" and cited `get_u32_key` — a function `partition_lba` **was not
+parsed with**. It went through `get_u64_key`, which checks only
+non-negativity, and the schema overlay carried no `maximum` either, so the
+stated proof rested on nothing at all and no row exercised it. Review of this
+very commit found it. The fix was to make the claim TRUE — bound the read side,
+add the schema `maximum`, add `JNSN-29` — rather than to weaken the row,
+because the bound is a fact about the MBR rather than a limit jnext invented.
+Recorded here because "the documentation states a proof that does not exist"
+is exactly the failure the rule below was written to prevent, and it is worth
+knowing it can reach the person writing the rule.)*
 
 **`image_bytes`, derived rather than waved at.** The earlier text bounded it
 "at 2^53 bytes being 8 PB", which restates the *field's own width* and is not a
@@ -814,11 +827,14 @@ where the honesty is.
    §11.3 — measured at 0.49 s per GiB — would spend about **47 days** on such a
    file before either saving or loading it.
 
-   **This is the one manifest `u64` whose bound is not enforced anywhere, and
-   saying so is the point.** If that is ever judged insufficient the fix is a
-   refusal inside `read_sd_image_identity` — reject an image longer than its
-   own MBR can address — and **not** a change to the encoding. That is a code
-   change, and it is deliberately not made here.
+   **This is the weakest of the five bounds, and saying so is the point.**
+   Two of them rest on no refusal at all — this one and
+   `media.tape.position_tstates` — but the tape's is a property of physical
+   media (there is no 81-year tape to record a position in), while this one is
+   a statement about what somebody might hand jnext. If that is ever judged
+   insufficient the fix is a refusal inside `read_sd_image_identity` — reject
+   an image longer than its own MBR can address — and **not** a change to the
+   encoding. That is a code change, and it is deliberately not made here.
 
 **§7.4 explicitly rejects per-field judgements of this kind**, and it is right
 to inside `state/*.json`, where the descriptor emits whatever a subsystem

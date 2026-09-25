@@ -882,6 +882,17 @@ int main() {
             // unknown flag. A back-compat alias sneaking back in would pass
             // every other row in this file.
             std::vector<std::string> jns;
+            // PIN THE ASSUMPTION THE TRICK RESTS ON, before relying on it.
+            // The whole row depends on `--version` being parsed AFTER the flag
+            // under test and returning immediately. If a future parser hoisted
+            // `--version` ahead of the loop, every "accepted" case below would
+            // exit 0 for the wrong reason and the row would go green while
+            // testing nothing. One invocation says otherwise: an invalid value
+            // FOLLOWED BY `--version` must still fail, which is only possible
+            // if the value was parsed first.
+            if (run("--snapshot-mode definitely-not-a-mode --version") == 0)
+                jns.push_back("--version is parsed BEFORE the flag under test, "
+                              "so every acceptance below is vacuous");
             for (const char* ok_args : {
                      "--snapshot-mode normal", "--snapshot-mode strict",
                      "--snapshot-mode force", "--snapshot-compression on",

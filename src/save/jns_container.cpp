@@ -438,11 +438,37 @@ bool manifest_parse(const std::string& text, Manifest& out,
                                  where + ".identity", why) ||
                     !get_str_key(id, "fat32_volume_id",
                                  out.sdcard.identity.fat32_volume_id,
-                                 where + ".identity", why) ||
-                    !get_u64_key(id, "partition_lba",
-                                 out.sdcard.identity.partition_lba,
                                  where + ".identity", why)) {
                     return false;
+                }
+                // `partition_lba` is read through the 32-BIT getter and then
+                // widened, although the member is a `uint64_t`.
+                //
+                // It IS a 32-bit quantity by construction: the write side is
+                // `rd_u32(pe + 8)` on a 16-byte MBR partition entry
+                // (`sd_rom_extractor.cpp:100`), whose start-LBA field is four
+                // bytes. So the bound is a fact about the FORMAT, not a limit
+                // invented here, and a file claiming a larger one did not come
+                // from an MBR.
+                //
+                // It used to go through `get_u64_key`, which enforces only
+                // non-negativity — so design §6.2 claimed a bound the reader
+                // did not hold anyone to. Found by the review of the very
+                // commit that wrote §6.2's "state the bound and prove it" rule
+                // (GH #27, 2026-09-25). The member stays `uint64_t` so the
+                // manifest grammar, `describe()` and `operator==` are
+                // untouched; only the refusal is new.
+                {
+                    uint32_t lba = 0;
+                    bool lba_present = false;
+                    if (!get_u32_key(id, "partition_lba", lba, lba_present,
+                                     where + ".identity", why)) {
+                        return false;
+                    }
+                    // Absent leaves the default in place, exactly as
+                    // `get_u64_key` did — §12.2's missing-key rule, not a
+                    // refusal.
+                    if (lba_present) out.sdcard.identity.partition_lba = lba;
                 }
                 note_unknown(unknown_keys, "media.sdcard.identity.", id,
                              {"image_bytes", "mbr_partition_table_sha256", "fat32_volume_id",
