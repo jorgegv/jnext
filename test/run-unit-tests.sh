@@ -10,6 +10,12 @@
 #     * registered in CMake but not declared here     -> Task 32's bug
 #     * declared here but the binary is not built     -> Task 35's shape
 #     * declared here twice                           -> inflated counts
+#     * a suite MISSING from the configuration its `# gate:` says owns it, or
+#       PRESENT in one that gate excludes                -> GH #273
+#
+# The configuration is read from the build tree's own CMakeCache.txt, so the
+# same manifest is exact for every configuration instead of merely permissive
+# in all of them. See the `# gate:` section of test/unit-tests.conf.
 #   FAIL (exit 1):
 #     * ran, but printed no parseable summary line    -> used to score PASS with 0 rows
 #     * ran, but reported a row count != the declared one -> Task 37's shape
@@ -150,15 +156,81 @@ die() {
 [[ -f "$CTEST_FILE" ]] || die "Build directory '$BUILD' is not configured." \
                               "Run: make unit-test-build"
 
+# --- Which build configuration is this? (GH #273) ---
+#
+# Read out of the build tree's OWN CMakeCache.txt, never from a caller-supplied
+# flag: the cache is what cmake actually configured, so it cannot disagree with
+# the CTestTestfile.cmake read below. A cache that does not state both options
+# is a refusal rather than an assumption — the whole point of the gates is that
+# the harness knows which suites this build owes it, and it cannot know that
+# from a guess.
+CACHE_FILE="$BUILD/CMakeCache.txt"
+[[ -f "$CACHE_FILE" ]] || die "Build directory '$BUILD' has no CMakeCache.txt." \
+                              "The harness cannot tell which suites this configuration owes it." \
+                              "Run: make unit-test-build"
+cache_bool() {
+    local v
+    v=$(grep -m1 -oP "^$1:[A-Z]+=\K.*" "$CACHE_FILE" || true)
+    [[ -n "$v" ]] || die "$CACHE_FILE does not define ${BOLD}$1${RESET}." \
+                         "Every build of this project sets it; the harness will not guess."
+    [[ "${v^^}" == ON || "${v^^}" == 1 || "${v^^}" == TRUE || "${v^^}" == YES ]] && return 0
+    return 1
+}
+# `if`, not `&&`: under `set -e` a top-level `cmd && var=1` whose cmd fails takes
+# the whole list's non-zero status and kills the script. An OFF option is a normal
+# answer here, not a fault.
+HAS_QT=0; HAS_DBG=0
+if cache_bool ENABLE_QT_UI;    then HAS_QT=1;  fi
+if cache_bool ENABLE_DEBUGGER; then HAS_DBG=1; fi
+qt_txt=OFF;  if (( HAS_QT ));  then qt_txt=ON;  fi
+dbg_txt=OFF; if (( HAS_DBG )); then dbg_txt=ON; fi
+CONFIG_DESC="ENABLE_QT_UI=$qt_txt ENABLE_DEBUGGER=$dbg_txt"
+
+# The closed set of gate names. Spelled out here so an unknown one is a refusal
+# rather than a gate that silently never applies.
+gate_known() { case "$1" in none|qt|dbg|qt+dbg) return 0 ;; *) return 1 ;; esac; }
+
+# gate_active <spec> — does this build satisfy the gate? Call it in an `if`.
+gate_active() {
+    case "$1" in
+        none)   return 0 ;;
+        qt)     (( HAS_QT ))  && return 0; return 1 ;;
+        dbg)    (( HAS_DBG )) && return 0; return 1 ;;
+        qt+dbg) (( HAS_QT && HAS_DBG )) && return 0; return 1 ;;
+    esac
+    return 1
+}
+
 # --- The declared contract (test/unit-tests.conf) ---
-# <executable> <expected_rows> [args...]   — a leading '?' marks an optional suite
-# (one that a legitimate build configuration may not register; see the manifest).
+# <executable> <expected_rows> [args...]   — a leading '?' marks a build-gated
+# suite, and the `# gate:` directive in force says WHICH configurations own it.
+# The two must agree, so neither can drift away from the other unnoticed.
 DECLARED=()
-declare -A EXPECTED ARGS OPTIONAL
+declare -A EXPECTED ARGS GATE
+gate=none
 while read -r name rows rest; do
-    [[ -z "$name" || "$name" == \#* ]] && continue
+    # `# gate:` is a DIRECTIVE, not a comment — read before comments are dropped.
+    if [[ "$name" == \#* ]]; then
+        if [[ "$name $rows $rest" =~ ^\#[[:space:]]*gate:[[:space:]]*([a-z+]+) ]]; then
+            gate="${BASH_REMATCH[1]}"
+            gate_known "$gate" || die "Unknown gate '${BOLD}$gate${RESET}' in $CONF." \
+                                      "Valid gates: none, qt, dbg, qt+dbg."
+        fi
+        continue
+    fi
+    [[ -z "$name" ]] && continue
     opt=0
     if [[ "$name" == \?* ]]; then opt=1; name="${name#\?}"; fi
+    # The `?` and the gate are two statements of one fact, cross-checked so that
+    # editing either alone is a refusal instead of a silent disagreement.
+    if [[ "$gate" == none && "$opt" == 1 ]]; then
+        die "'${BOLD}?$name${RESET}' is marked build-gated but sits under '${BOLD}# gate: none${RESET}' in $CONF." \
+            "Either drop the '?' or put the suite under the gate that owns it."
+    fi
+    if [[ "$gate" != none && "$opt" == 0 ]]; then
+        die "'${BOLD}$name${RESET}' sits under '${BOLD}# gate: $gate${RESET}' in $CONF but is not marked '?'." \
+            "A gated suite must carry the '?' marker."
+    fi
     # A pin of 0 must not be expressible: a suite pinned at 0 that reports 0 rows would
     # PASS, while the same suite reporting no summary at all is a hard FAIL. Zeroing a
     # suite is exactly the silent-truncation move this manifest exists to forbid.
@@ -171,9 +243,11 @@ while read -r name rows rest; do
     done
     DECLARED+=("$name")
     EXPECTED["$name"]="$rows"
-    OPTIONAL["$name"]="$opt"
+    GATE["$name"]="$gate"
     ARGS["$name"]="${rest//@BUILD@/$BUILD}"
-done < <(sed 's/#.*//' "$CONF")
+    # Inline comments are stripped from SUITE lines only. A whole-line comment is
+    # handed through intact, because `# gate:` is read out of it above.
+done < <(awk '{ if ($0 !~ /^[[:space:]]*#/) sub(/#.*/, ""); print }' "$CONF")
 
 # --- What CMake actually registered (authoritative, machine-generated) ---
 # add_test(<name> "<abs/path/to/binary>" [args...])  ->  basename of the binary.
@@ -244,16 +318,23 @@ for name in "${DECLARED[@]}";   do IS_DECLARED["$name"]=1;   done
 for name in "${REGISTERED[@]}"; do IS_REGISTERED["$name"]=1; done
 
 # --- Cross-check both directions, plus buildness. Any drift is fatal. ---
-errors=(); notices=(); RUNNABLE=()
+#
+# The gate (GH #273) makes the expectation EXACT in this configuration rather
+# than merely permissive: a suite whose gate this build satisfies must be here,
+# and one whose gate it does not must be absent. "Not registered" is therefore
+# never an excuse on its own — it is expected only where the manifest said so.
+errors=(); GATED_OUT=(); RUNNABLE=()
 for name in "${DECLARED[@]}"; do
-    if [[ -z "${IS_REGISTERED[$name]:-}" ]]; then
-        if [[ "${OPTIONAL[$name]}" == "1" ]]; then
-            # A legitimate build configuration may not register it (e.g.
-            # -DENABLE_DEBUGGER=OFF). Skipped — but never silently.
-            notices+=("optional suite not registered by this build, NOT RUN: ${BOLD}$name${RESET}")
-            continue
+    if ! gate_active "${GATE[$name]}"; then
+        if [[ -n "${IS_REGISTERED[$name]:-}" ]]; then
+            errors+=("registered by CMake although $CONF gates it to '${BOLD}${GATE[$name]}${RESET}', which this build is not ($CONFIG_DESC): ${BOLD}$name${RESET}")
+        else
+            GATED_OUT+=("$name")
         fi
-        errors+=("declared in $CONF but NOT registered by CMake: ${BOLD}$name${RESET}")
+        continue
+    fi
+    if [[ -z "${IS_REGISTERED[$name]:-}" ]]; then
+        errors+=("declared in $CONF under '${BOLD}# gate: ${GATE[$name]}${RESET}', which this build satisfies ($CONFIG_DESC), but NOT registered by CMake: ${BOLD}$name${RESET}")
         continue
     fi
     if [[ ! -x "$BUILD/test/$name" ]]; then
@@ -271,9 +352,14 @@ if (( ${#errors[@]} )); then
         "The manifest and the build must agree exactly. Add the suite to $CONF," \
         "remove the stale entry, or run 'make unit-test-build' — whichever is true."
 fi
-for n in ${notices[@]+"${notices[@]}"}; do
-    printf "${BADGE_SKIP} NOTICE ${RESET} %b\n" "$n"
-done
+printf "  ${CYAN}config${RESET}   %s\n" "$CONFIG_DESC"
+if (( ${#GATED_OUT[@]} )); then
+    # Named, not just counted: the point of the gate is that the reader can see
+    # exactly which suites this configuration is not answerable for.
+    printf "${BADGE_SKIP} NOTICE ${RESET} %b\n" \
+           "${BOLD}${#GATED_OUT[@]}${RESET} suite(s) gated out by this configuration, NOT RUN:"
+    printf "           %s\n" "${GATED_OUT[*]}"
+fi
 
 # --- Run every runnable suite in parallel ---
 TMPDIR_RUN=$(mktemp -d)
@@ -383,15 +469,16 @@ printf "\n${BOLD}Total: %d  Passed: %d  Failed: %d  Skipped: %d${RESET}\n" \
     "$sum_total" "$sum_passed" "$sum_failed" "$sum_skipped"
 printf "${BOLD}Suites: %d pass, %d fail  (%d run, %d declared, %d registered; manifest: %s)${RESET}\n" \
     "$suites_pass" "$suites_fail" "${#RUNNABLE[@]}" "${#DECLARED[@]}" "${#REGISTERED[@]}" "$CONF"
-if (( ${#notices[@]} )); then
-    printf "${BOLD}%d optional suite(s) not registered by this build — see NOTICE above.${RESET}\n" "${#notices[@]}"
+if (( ${#GATED_OUT[@]} )); then
+    printf "${BOLD}%d suite(s) gated out by %s — see NOTICE above.${RESET}\n" \
+           "${#GATED_OUT[@]}" "$CONFIG_DESC"
 fi
 
 # The three counts in that footer are an invariant, not a decoration: every declared
-# suite either ran or was a NOTICE'd optional, and the manifest and the build agree.
-# If they ever disagree, the footer must not be allowed to read like agreement.
-if (( ${#RUNNABLE[@]} + ${#notices[@]} != ${#DECLARED[@]} )); then
-    die "Internal: ${#RUNNABLE[@]} run + ${#notices[@]} skipped != ${#DECLARED[@]} declared."
+# suite either ran or was gated out by this configuration, and the manifest and the
+# build agree. If they ever disagree, the footer must not read like agreement.
+if (( ${#RUNNABLE[@]} + ${#GATED_OUT[@]} != ${#DECLARED[@]} )); then
+    die "Internal: ${#RUNNABLE[@]} run + ${#GATED_OUT[@]} gated out != ${#DECLARED[@]} declared."
 fi
 
 # A pin violation or a failing suite must NOT leave a green-looking headline behind:
