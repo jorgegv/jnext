@@ -226,7 +226,6 @@ int main(int argc, char* argv[]) {
     std::string snapshot_file;
     int         snapshot_delay_frames = 0;    // --delayed-snapshot-frames
     bool        snapshot_delay_frames_set = false;
-    // GH #27 S8 — the three `.jns` flags (design §15.1).
     // GH #27 — the two `.jns` flags, held as the three booleans the restore
     // policy already reads. `--snapshot-mode` is ONE axis: setting a position
     // writes BOTH members, so "strict and force at once" — which the two
