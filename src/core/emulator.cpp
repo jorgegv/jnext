@@ -10119,13 +10119,19 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     static constexpr uint64_t PSG_DIVISOR = 16;
 
     // Execute the Copper at 28 MHz granularity over the master-cycle
-    // window covered by this CPU instruction (G117). Pre-G117 this
-    // path stepped the Copper exactly once per Z80 instruction, so
-    // dense Copper bursts (tilemap-class effects with 32 MOVEs per
-    // scanline) collapsed into 1-2 effective writes per scanline.
-    tick_copper_for_master_cycles(master_cycles);
+    // window covered by this CPU instruction (G117), stopping at each
+    // video-row boundary inside that window so the row a write belongs
+    // to is decided by the write's own master cycle and not by where
+    // the CPU's instruction boundaries happen to fall (GH #272).
+    // Pre-G117 this path stepped the Copper exactly once per Z80
+    // instruction, so dense Copper bursts (tilemap-class effects with
+    // 32 MOVEs per scanline) collapsed into 1-2 effective writes per
+    // scanline.
+    advance_copper_across_row_boundaries(master_cycles);
 
-    // G65 — drain CPU NR writes deferred during the instruction.
+    // G65 — drain the CPU NR writes deferred during the instruction that
+    // the row-boundary walk above has not already committed (all of them
+    // when no boundary fell inside the window, which is the usual case).
     // They commit AFTER the Copper-loop, so any same-NR collision
     // ends with the CPU's value (VHDL: cpu_req held while
     // copper_req=1, served the next cycle).
@@ -11127,19 +11133,32 @@ void Emulator::enqueue_cpu_nr_write(uint8_t reg, uint8_t val)
     pending_cpu_nr_writes_.push_back(PendingNrWrite{reg, val, edge});
 }
 
-void Emulator::flush_pending_cpu_nr_writes()
+void Emulator::flush_pending_cpu_nr_writes(uint64_t edge_limit)
 {
     if (pending_cpu_nr_writes_.empty()) return;
     // Drain in FIFO order. Each commit goes through the regular
     // NextReg::write path so write_handlers fire (any side effect
     // landing here is the same as if the CPU had written directly,
     // just shifted later by the per-instruction Copper window).
+    //
+    // GH #272 — a write whose commit edge is at or after `edge_limit`
+    // stays queued: the caller is standing at a video-row boundary and
+    // that write belongs on the far side of it. Edges are monotonic
+    // within an instruction (`clock_` is fixed and
+    // `tstates_into_instruction()` only grows), so this is a prefix
+    // drain; it is written as a filter anyway so it cannot silently
+    // reorder if that ever stops holding.
+    std::size_t kept = 0;
     for (const auto& w : pending_cpu_nr_writes_) {
+        if (w.edge >= edge_limit) {
+            pending_cpu_nr_writes_[kept++] = w;
+            continue;
+        }
         nr_write_edge_ = w.edge;
         nextreg_.write(w.reg, w.val);
     }
     nr_write_edge_ = Im2Controller::kNoTime;
-    pending_cpu_nr_writes_.clear();
+    pending_cpu_nr_writes_.resize(kept);
 }
 
 uint64_t Emulator::io_request_edge() const
@@ -11328,20 +11347,56 @@ void Emulator::reschedule_line_interrupt()
         });
 }
 
-void Emulator::tick_copper_for_master_cycles(uint64_t master_cycles)
+void Emulator::advance_copper_across_row_boundaries(uint64_t master_cycles)
+{
+    // See the declaration for what this exists to prevent (GH #272).
+    //
+    // `clock_` was already advanced by `master_cycles` before we are
+    // called (see run_frame / step_frame_slot / execute_single_instruction,
+    // the three call sites of tick_devices_after_instruction), so the
+    // window the instruction consumed is [post - master_cycles, post) and
+    // the Copper steps at each of those master cycles.
+    const uint64_t post = clock_.get();
+    uint64_t       cur  = post - master_cycles;
+
+    // `scheduler_` carries ONLY the video-row queue: one SCANLINE event
+    // per raw line (schedule_frame_events()) plus the frame's VSYNC.
+    // The interrupt fabric lives in `irq_scheduler_`, which is left
+    // exactly where it was at the end of the cluster — moving interrupt
+    // requests relative to an instruction is not what this fixes.
+    //
+    // An event due at exactly `post` is NOT taken here. The Copper steps
+    // at cycles strictly below `post`, so it is already ordered after all
+    // of them, and leaving it to the cluster's own
+    // run_scheduled_until(clock_) keeps it after the deferred CPU NR
+    // writes — which is right, since every CPU write of THIS instruction
+    // physically precedes a boundary that sits at the instruction's end.
+    while (!scheduler_.empty() && scheduler_.next_cycle() < post) {
+        const uint64_t boundary = scheduler_.next_cycle();
+        if (boundary > cur) {
+            tick_copper_for_master_cycles(cur, boundary - cur);
+            cur = boundary;
+        }
+        // The CPU's own deferred writes that commit before this boundary
+        // belong to the row that is ending, exactly as they did when the
+        // whole window was one segment.
+        flush_pending_cpu_nr_writes(boundary);
+        scheduler_.run_until(boundary);
+    }
+
+    if (cur < post) tick_copper_for_master_cycles(cur, post - cur);
+}
+
+void Emulator::tick_copper_for_master_cycles(uint64_t begin, uint64_t master_cycles)
 {
     // Hot-path early-out — most of every frame the Copper is in mode 0
     // (stopped) and the loop body would be pure overhead.
     if (!copper_.is_running()) return;
     if (master_cycles == 0) return;
 
-    // `clock_` was already advanced by `master_cycles` before we are
-    // called (see emulator.cpp run_frame / single-step paths). The
-    // pre-instruction master-clock value is therefore `clock_.get() -
-    // master_cycles`, and the Copper steps fire at master cycles
-    // [pre, pre+1, ..., pre+master_cycles-1].
-    const uint64_t post_clock = clock_.get();
-    const uint64_t pre_clock  = post_clock - master_cycles;
+    // The Copper steps fire at master cycles
+    // [begin, begin+1, ..., begin+master_cycles-1].
+    const uint64_t pre_clock  = begin;
 
     // C9 (Task 27 Wave 2) — strength-reduce the per-master-cycle div/mod.
     // The loop steps the absolute master-cycle counter by exactly 1 each

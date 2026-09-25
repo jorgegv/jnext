@@ -1909,7 +1909,8 @@ stepping.</p>
 <p><strong>Then a data-breakpoint check</strong>, which returns early if one fired.</p>
 <p><strong>Finally <code>tick_devices_after_instruction(master_cycles)</code></strong> (<code>:8045</code>), the
 shared post-instruction cluster. Its order matters: the Copper is stepped at
-28 MHz granularity across the window the instruction consumed; the deferred CPU
+28 MHz granularity across the window the instruction consumed, stopping at every
+video-row boundary inside that window; the deferred CPU
 NextREG writes are drained, so that a same-register collision ends up holding
 the CPU's value exactly as the VHDL does; the NR 0x07 and NR 0x08 bit-6 commit
 edges are applied; CTC, UART and MD6 are ticked for whatever part of the
@@ -1920,10 +1921,24 @@ drains the scheduler and the separate queue that holds the ULA frame and line
 interrupt requests; and last of all <code>finish_slot_interrupts()</code> ticks the IM2
 fabric for the instruction and hands the CPU the exact /INT window for the
 next boundary.</p>
-<p>The scheduler drain is where the scheduled events actually fire, and it has a
-consequence worth internalising: <strong><code>on_scanline</code> and the interrupt callbacks
-run at instruction boundaries</strong>, on the first instruction that carries the
-clock past their timestamp — not at the exact cycle they were scheduled for.</p>
+<p>The scheduler drain is where the <strong>interrupt</strong> events actually fire, and it has a
+consequence worth internalising: <strong>the interrupt callbacks run at instruction
+boundaries</strong>, on the first instruction that carries the clock past their
+timestamp — not at the exact cycle they were scheduled for.</p>
+<p><code>on_scanline</code> is the exception, and it is one on purpose. It decides which
+framebuffer row a display register write belongs to — it snapshots the row that
+is ending and retags the per-scanline change logs — so running it late means
+attributing writes to the wrong row. The Copper writes at 28 MHz, so a burst
+released in horizontal blanking straddles a row boundary within a single Z80
+instruction; before GH #272 the whole window was stepped first and the boundary
+fired afterwards, which put writes that were physically <em>after</em> the boundary
+into the row <em>before</em> it, and split a burst across two rows at a point that
+drifted with the CPU's phase from frame to frame. That is a flickering line, and
+it was reported as one. <code>advance_copper_across_row_boundaries()</code> therefore walks
+the video-row queue across the instruction's window and crosses each boundary at
+its own master cycle, carrying the part of the deferred CPU NextREG queue that
+commits before it across with it. The walk is unconditional — not gated on the
+Copper running — so a boundary always falls at the same point in the cluster.</p>
 <p>For interrupts that is not the whole story (GH #265). Every request — frame and
 line interrupt, CTC ZC/TO, UART — carries the CLK_28 edge it happened on, and
 because the IM2 tick runs <em>after</em> the devices and the event queues, the fabric
