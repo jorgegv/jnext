@@ -997,7 +997,7 @@ bool open_snapshot(const uint8_t* data, size_t len, const ReaderEnv& env,
             }
             v.warnings.push_back(
                 "the mounted SD card is not the one the snapshot was taken "
-                "on, but --snapshot-force-sdcard was given: " + detail);
+                "on, but --snapshot-mode force was given: " + detail);
         }
 
         if (manifest.sdcard.read_only != env.card.read_only) {
@@ -1075,8 +1075,8 @@ bool open_snapshot(const uint8_t* data, size_t len, const ReaderEnv& env,
     // DIFFERENT CODE with no indication anywhere. It warns rather than
     // refuses by default, because a corrected or regionalised ROM is a thing
     // people legitimately have and the machine may well run fine on it;
-    // `--snapshot-strict` turns it into a refusal for the cases where "well"
-    // is not good enough.
+    // `--snapshot-mode strict` turns it into a refusal for the cases where
+    // "well" is not good enough.
     //
     // Only names present in BOTH sides are compared. A name this build does
     // not have is a ROM this machine does not use (a 48K snapshot against a
@@ -1103,7 +1103,7 @@ bool open_snapshot(const uint8_t* data, size_t len, const ReaderEnv& env,
                 "the snapshot was taken against different ROM content (" +
                 names + ")";
             if (env.strict) {
-                return refuse(v, msg + "; --snapshot-strict refuses it");
+                return refuse(v, msg + "; --snapshot-mode strict refuses it");
             }
             v.warnings.push_back(msg + "; restoring anyway");
         }
@@ -1116,9 +1116,10 @@ bool open_snapshot(const uint8_t* data, size_t len, const ReaderEnv& env,
     // load restores a machine waiting for a tape that is not playing. The
     // file is recorded by reopenable identity — the esxDOS-handle shape — and
     // an absent one WARNS and restores without it. Never a refusal, and not
-    // under `--snapshot-strict` either: a machine whose tape has finished
-    // loading is a perfectly good machine, and refusing to restore it because
-    // the .tzx has been moved would be the format getting in the way.
+    // under `--snapshot-mode strict` either: a machine whose tape has
+    // finished loading is a perfectly good machine, and refusing to restore
+    // it because the .tzx has been moved would be the format getting in the
+    // way.
     if (manifest.tape.present && !env.tape_file_available) {
         v.warnings.push_back(
             "the tape " +
@@ -1139,7 +1140,7 @@ bool open_snapshot(const uint8_t* data, size_t len, const ReaderEnv& env,
             ") and this build models revision " +
             u64s(env.state_model_revision);
         if (env.strict) {
-            return refuse(v, msg + "; --snapshot-strict refuses it");
+            return refuse(v, msg + "; --snapshot-mode strict refuses it");
         }
         v.warnings.push_back(msg + "; restoring anyway");
     }

@@ -60,9 +60,8 @@ enum class OptId {
     DelayedAutomaticExitFrames,
     DelayedSnapshot,
     DelayedSnapshotFrames,
-    SnapshotUncompressed,
-    SnapshotStrict,
-    SnapshotForceSdcard,
+    SnapshotCompression,
+    SnapshotMode,
     Machine,
     Headless,
     Benchmark,
@@ -552,24 +551,38 @@ inline constexpr Option OPTIONS[] = {
     { "--delayed-snapshot-frames", 1, Doc::Documented, OptId::DelayedSnapshotFrames,
       "N",
       "Delay in frames for --delayed-snapshot (default 0)" },
-    // GH #27 S8 — the three `.jns` flags. Five were designed (design §15.1);
-    // `--load` and `--delayed-snapshot` take `.jns` through their EXISTING
-    // extension dispatch and need no flag of their own, which is why there are
-    // three rows here and not five.
-    { "--snapshot-uncompressed", 0, Doc::Documented, OptId::SnapshotUncompressed,
-      "",
-      "Write .jns snapshots with every member STORED instead\n"
-      "of deflated: readable with unzip -p, ~5x larger" },
-    { "--snapshot-strict", 0, Doc::Documented, OptId::SnapshotStrict,
-      "",
-      "Loading a .jns: turn the provenance warnings (state\n"
-      "model revision, ROM digests) into refusals" },
-    { "--snapshot-force-sdcard", 0, Doc::Documented, OptId::SnapshotForceSdcard,
-      "",
-      "Loading a .jns: restore even when the mounted SD card\n"
-      "is not the one it was taken on. Deliberately verbose:\n"
-      "this is the flag that lets you create the silently-\n"
-      "wrong case the identity check exists to prevent" },
+    // GH #27 — the `.jns` flags. Five were designed (design §15.1); `--load`
+    // and `--delayed-snapshot` take `.jns` through their EXISTING extension
+    // dispatch and need no flag of their own, which is why the surface is
+    // TWO rows and not five.
+    //
+    // S8 shipped THREE 0-arg booleans. `--snapshot-strict` and
+    // `--snapshot-force-sdcard` are one axis with three positions — strict
+    // refuses MORE (a ROM-digest or state-model mismatch becomes fatal),
+    // force refuses LESS (a Tier-1 SD identity mismatch becomes a warning),
+    // normal is in between — and nothing rejected the pair being given
+    // together, which asks for stricter and laxer at once. One valued flag
+    // makes that state UNREPRESENTABLE rather than merely unchecked; a
+    // mutual-exclusion check would only have papered over it (owner,
+    // 2026-09-25). Clean rename, no back-compat aliases: `format_version` is 1
+    // and no public release carries the old spellings.
+    //
+    // `--snapshot-compression` stays a SEPARATE flag because it is a WRITE
+    // option — how the members are stored — and not a restore policy. It
+    // takes a value rather than being a 0-arg `--snapshot-compress`, which
+    // would be a no-op given compression is already the default.
+    { "--snapshot-compression", 1, Doc::Documented, OptId::SnapshotCompression,
+      "STATE",
+      "Deflate .jns members: on (default) or off. off stores\n"
+      "them instead: readable with unzip -p, ~5x larger" },
+    { "--snapshot-mode", 1, Doc::Documented, OptId::SnapshotMode,
+      "MODE",
+      "Loading a .jns, how much to refuse: normal (default),\n"
+      "strict (provenance warnings -- state model revision,\n"
+      "ROM digests -- become refusals), or force (restore\n"
+      "even when the mounted SD card is not the one it was\n"
+      "taken on: this is the setting that lets you create the\n"
+      "silently-wrong case the identity check prevents)" },
     // The two-value options: SECS/N and KEY (or BUTTON) are consumed together.
     { "--delayed-keypress", 2, Doc::Documented, OptId::DelayedKeypress,
       "SECS KEY",
@@ -696,6 +709,46 @@ inline const char* prescan_value(int argc, const char* const argv[], OptId id) {
         i += opt->arity;
     }
     return found;
+}
+
+// ---------------------------------------------------------------------------
+// `.jns` value parsing (GH #27, owner 2026-09-25)
+//
+// These live beside the table rather than inside main.cpp's switch for one
+// reason: the mapping is the whole point of the change, so it has to be
+// assertable. `--snapshot-mode` collapsed two independent booleans
+// (`--snapshot-strict`, `--snapshot-force-sdcard`) that nothing stopped a user
+// from giving TOGETHER — asking to refuse more and less at once. As a function
+// of one MODE string, "both set" is not in the range, and a test can say so
+// over every input rather than over the three that happen to be spelled here.
+// ---------------------------------------------------------------------------
+
+/// `--snapshot-mode MODE` -> the two restore-policy booleans.
+///
+/// ONE axis, three positions: `strict` refuses more, `force` refuses less,
+/// `normal` is neither. EVERY arm writes BOTH outputs, so a later
+/// `--snapshot-mode normal` undoes an earlier `strict` instead of accumulating
+/// with it, and no input sets both.
+///
+/// Returns false and leaves both outputs UNTOUCHED for an unrecognised MODE.
+inline bool parse_snapshot_mode(const char* mode, bool& strict,
+                                bool& force_sdcard) {
+    if (mode == nullptr) return false;
+    if (std::strcmp(mode, "normal") == 0) { strict = false; force_sdcard = false; return true; }
+    if (std::strcmp(mode, "strict") == 0) { strict = true;  force_sdcard = false; return true; }
+    if (std::strcmp(mode, "force")  == 0) { strict = false; force_sdcard = true;  return true; }
+    return false;
+}
+
+/// `--snapshot-compression STATE` -> "write every member STORED".
+///
+/// A WRITE option, not a restore policy, which is why it is a separate flag.
+/// Returns false and leaves the output UNTOUCHED for an unrecognised STATE.
+inline bool parse_snapshot_compression(const char* state, bool& uncompressed) {
+    if (state == nullptr) return false;
+    if (std::strcmp(state, "on")  == 0) { uncompressed = false; return true; }
+    if (std::strcmp(state, "off") == 0) { uncompressed = true;  return true; }
+    return false;
 }
 
 // The one option that also accepts an inline value (`--log-level=warn`). It

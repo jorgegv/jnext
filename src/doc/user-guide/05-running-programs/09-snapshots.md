@@ -77,7 +77,7 @@ holds NextZXOS, which is not ours to redistribute. It records the card's
 - **A different card** — different size, different partitioning, different
   volume serial — is **refused**. Restoring a Next mid-way through reading a
   file, against a card where that file is somewhere else, is the kind of wrong
-  that looks like a crash an hour later. `--snapshot-force-sdcard` overrides
+  that looks like a crash an hour later. `--snapshot-mode force` overrides
   it, and says what it is overriding.
 - **The same card, changed since** — which happens constantly, because JNEXT
   writes guest changes back to the card — **restores with one warning line**.
@@ -96,12 +96,19 @@ If you want to hand somebody a program, hand them the `.nex`.
 
 ## Two flags for when something is wrong
 
-`--snapshot-uncompressed` writes the file with nothing deflated. It is then an
-ordinary ZIP you can open with `unzip -p` and read with a text editor — the
+`--snapshot-compression off` writes the file with nothing deflated. It is then
+an ordinary ZIP you can open with `unzip -p` and read with a text editor — the
 manifest, and one JSON document per subsystem. About five times the size, and
-JNEXT reads both forms.
+JNEXT reads both forms. `on` is the default.
 
-`--snapshot-strict` turns the warnings into refusals: a snapshot from a JNEXT
-whose state model this build does not know, or one whose recorded ROM digests
-differ from the ROMs now loaded. A missing tape file is never a refusal even
-here — a machine restores perfectly well without the tape it was reading.
+`--snapshot-mode` says how much a load refuses, and it has three positions
+because they are one dial rather than a set of switches:
+
+- `normal` — the default, described above: warnings for a changed state model
+  or changed ROMs, a refusal for a different card.
+- `strict` — turns those warnings into refusals: a snapshot from a JNEXT whose
+  state model this build does not know, or one whose recorded ROM digests
+  differ from the ROMs now loaded. A missing tape file is never a refusal even
+  here — a machine restores perfectly well without the tape it was reading.
+- `force` — restores against a different SD card anyway, saying what it is
+  overriding.

@@ -5084,7 +5084,7 @@ static int test_s8_jns_roundtrip()
               read && dst.size() == src_stream.size() &&
                   std::memcmp(dst.data(), src_stream.data(),
                               src_stream.size()) == 0,
-              "--snapshot-uncompressed round-trips IDENTICALLY, and the "
+              "--snapshot-compression off round-trips IDENTICALLY, and the "
               "archive is larger than the deflated one");
         check("JNS-RT-04", wrote && plain.size() > jns.size(),
               "…and it really is uncompressed: the STORED archive is bigger "

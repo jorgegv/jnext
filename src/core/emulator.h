@@ -845,8 +845,8 @@ public:
                   std::string& why);
 
     /// Path wrappers over the two above: read/write the file, log the reason,
-    /// and apply the `EmulatorConfig` flags (`--snapshot-uncompressed`,
-    /// `--snapshot-strict`, `--snapshot-force-sdcard`).
+    /// and apply the `EmulatorConfig` flags (`--snapshot-compression`,
+    /// `--snapshot-mode`).
     ///
     /// These are what the DISPATCH SITES call. There are seven of them for
     /// loading (`src/platform/emulator_boot.h:25` and six others), and giving

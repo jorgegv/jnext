@@ -677,30 +677,39 @@ frame past the point the debugger stopped at.
 Delay in frames for \f[B]\-\-delayed\-snapshot\f[R] (default 0).
 Requires \f[B]\-\-delayed\-snapshot\f[R].
 .TP
-\f[B]\-\-snapshot\-uncompressed\f[R]
-Write \f[CR].jns\f[R] snapshots with every member stored rather than
-deflated.
-The file is then readable with \f[CR]unzip \-p\f[R] and a hex editor at
-roughly five times the size.
+\f[B]\-\-snapshot\-compression\f[R] \f[I]STATE\f[R]
+Whether \f[CR].jns\f[R] snapshots are written deflated.
+\f[CR]on\f[R] (the default) deflates every member; \f[CR]off\f[R] stores
+them instead, so the file is readable with \f[CR]unzip \-p\f[R] and a
+hex editor at roughly five times the size.
 A debugging aid; it changes nothing about what the file contains, and
 jnext reads both forms.
+Any other \f[I]STATE\f[R] is an error.
 .TP
-\f[B]\-\-snapshot\-strict\f[R]
-When loading a \f[CR].jns\f[R], turn the provenance warnings into
-refusals: a snapshot written by a jnext whose state model this build
-does not know, or one whose recorded ROM digests differ from the ROMs
-now loaded.
+\f[B]\-\-snapshot\-mode\f[R] \f[I]MODE\f[R]
+How much a \f[CR].jns\f[R] load refuses.
+One setting with three positions, because they are one axis and asking
+for two of them at once is not a thing to want.
+.RS
+.PP
+\f[CR]normal\f[R] (the default) warns about a mismatched state model
+revision or mismatched ROM digests and refuses a different SD card.
+.PP
+\f[CR]strict\f[R] turns those provenance warnings into refusals: a
+snapshot written by a jnext whose state model this build does not know,
+or one whose recorded ROM digests differ from the ROMs now loaded.
 A missing tape file is \f[B]not\f[R] covered \(em that always warns and
 never refuses, because a machine restores perfectly well without the
 tape it was loading from.
-.TP
-\f[B]\-\-snapshot\-force\-sdcard\f[R]
-When loading a \f[CR].jns\f[R], restore even though the mounted SD card
-is not the one the snapshot was taken on.
-A warning naming both cards is printed.
-This is the flag that lets you create exactly the silently\-wrong case
-the identity check exists to prevent, which is why it is spelled out in
-full.
+.PP
+\f[CR]force\f[R] restores even though the mounted SD card is not the one
+the snapshot was taken on, printing a warning that names both cards.
+This is the setting that lets you create exactly the silently\-wrong
+case the identity check exists to prevent, which is why it is spelled
+out in full.
+.PP
+Any other \f[I]MODE\f[R] is an error.
+.RE
 .TP
 \f[B]\-\-delayed\-keypress\f[R] \f[I]SECS\f[R] \f[I]KEY\f[R]
 Press \f[I]KEY\f[R] after \f[I]SECS\f[R] seconds.

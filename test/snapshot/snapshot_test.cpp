@@ -920,7 +920,7 @@ int main(int argc, char** argv) {
         const bool read   = opened && r.read_text("state/cpu.json", got, why);
         check("JNSC-01",
               "a STORED member round-trips through the writer and the reader "
-              "byte for byte (§6: the --snapshot-uncompressed mode is the same "
+              "byte for byte (§6: the --snapshot-compression off mode is the same "
               "code path as the compressed one)",
               added && fin && opened && read && got == payload,
               det("added=%d fin=%d open=%d read=%d got=%zu", added, fin, opened,
@@ -1138,7 +1138,7 @@ int main(int argc, char** argv) {
         const bool readc = okc && rc.read("mem/bank5-vram.bin", bc, why);
         const bool reads = oks && rs.read("mem/bank5-vram.bin", bs, why);
         check("JNSC-13",
-              "--snapshot-uncompressed stores EVERY member (method 0) while "
+              "--snapshot-compression off stores EVERY member (method 0) while "
               "the default deflates, and both restore the identical bytes "
               "through the identical reader — settled point 6's debug mode is "
               "a flag on the member writer, not a second code path",
@@ -2570,9 +2570,9 @@ int main(int argc, char** argv) {
         Verdict v2;
         jnext::jns::open_snapshot(z.data(), z.size(), strict, r2, got, v2);
         check("JNSV-12",
-              "…and --snapshot-strict turns that same mismatch into a refusal "
-              "(§7.3)",
-              refused_naming("JNSV-12", v2, "snapshot-strict"), v2.refusal);
+              "…and --snapshot-mode strict turns that same mismatch into a "
+              "refusal (§7.3)",
+              refused_naming("JNSV-12", v2, "snapshot-mode strict"), v2.refusal);
     }
     {
         const std::vector<uint8_t> z = build_good("");
@@ -3055,7 +3055,7 @@ int main(int argc, char** argv) {
                            s.find("1a2b3c4d") != std::string::npos;
                 });
             check("JNSI-07",
-                  "--snapshot-force-sdcard downgrades the Tier-1 refusal to a "
+                  "--snapshot-mode force downgrades the Tier-1 refusal to a "
                   "warning that still names both identities (§11.3)",
                   ok && named,
                   det("ok=%d warnings=%zu", ok, v2.warnings.size()));
@@ -4918,7 +4918,7 @@ int main(int argc, char** argv) {
                   v.ok && named, v.warnings.empty() ? "no warning" : v.warnings[0]);
         }
 
-        // ── …and REFUSES under --snapshot-strict ──────────────────────────
+        // ── …and REFUSES under --snapshot-mode strict ──────────────────────
         {
             Manifest m = with_media();
             std::vector<uint8_t> z = build_raw(m, {}, why);
@@ -4930,7 +4930,7 @@ int main(int argc, char** argv) {
             Verdict v;
             jnext::jns::open_snapshot(z.data(), z.size(), e, r, got, v);
             check("S6-ROMS-02",
-                  "…and --snapshot-strict turns that warning into a refusal "
+                  "…and --snapshot-mode strict turns that warning into a refusal "
                   "that still names the ROM",
                   refused_naming("S6-ROMS-02", v, "128.rom"), v.refusal);
         }
@@ -4948,7 +4948,8 @@ int main(int argc, char** argv) {
             jnext::jns::open_snapshot(z.data(), z.size(), e, r, got, v);
             check("S6-ROMS-03",
                   "a ROM name only one side has is NOT a mismatch, even under "
-                  "--snapshot-strict: it is a ROM this machine does not use, "
+                  "--snapshot-mode strict: it is a ROM this machine does not "
+                  "use, "
                   "and calling that a mismatch is the cries-wolf failure "
                   "§11.1 rejects for the SD card — an identity that is "
                   "ignored is worse than none",
@@ -4995,7 +4996,8 @@ int main(int argc, char** argv) {
             check("S6-TAPE-01",
                   "a snapshot whose tape cannot be reopened WARNS, names the "
                   "file and restores WITHOUT it — and is not a refusal even "
-                  "under --snapshot-strict, because a machine whose tape has "
+                  "under --snapshot-mode strict, because a machine whose tape "
+                  "has "
                   "finished loading is a perfectly good machine and refusing "
                   "it over a moved .tzx would be the format getting in the "
                   "way",

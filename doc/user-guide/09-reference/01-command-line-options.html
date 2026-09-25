@@ -3497,24 +3497,32 @@ stopped at.</dd>
 <dt><strong>--delayed-snapshot-frames</strong> <em>N</em></dt>
 <dd>Delay in frames for <strong>--delayed-snapshot</strong> (default 0). Requires
 <strong>--delayed-snapshot</strong>.</dd>
-<dt><strong>--snapshot-uncompressed</strong></dt>
-<dd>Write <code>.jns</code> snapshots with every member stored rather than
-deflated. The file is then readable with <code>unzip -p</code> and a hex editor
-at roughly five times the size. A debugging aid; it changes nothing
-about what the file contains, and jnext reads both forms.</dd>
-<dt><strong>--snapshot-strict</strong></dt>
-<dd>When loading a <code>.jns</code>, turn the provenance warnings into refusals: a
-snapshot written by a jnext whose state model this build does not
-know, or one whose recorded ROM digests differ from the ROMs now
-loaded. A missing tape file is <strong>not</strong> covered — that always warns
-and never refuses, because a machine restores perfectly well without
-the tape it was loading from.</dd>
-<dt><strong>--snapshot-force-sdcard</strong></dt>
-<dd>When loading a <code>.jns</code>, restore even though the mounted SD card is
-not the one the snapshot was taken on. A warning naming both cards
-is printed. This is the flag that lets you create exactly the
-silently-wrong case the identity check exists to prevent, which is
-why it is spelled out in full.</dd>
+<dt><strong>--snapshot-compression</strong> <em>STATE</em></dt>
+<dd>Whether <code>.jns</code> snapshots are written deflated. <code>on</code> (the default)
+deflates every member; <code>off</code> stores them instead, so the file is
+readable with <code>unzip -p</code> and a hex editor at roughly five times the
+size. A debugging aid; it changes nothing about what the file
+contains, and jnext reads both forms. Any other <em>STATE</em> is an error.</dd>
+<dt><strong>--snapshot-mode</strong> <em>MODE</em></dt>
+<dd>
+<p>How much a <code>.jns</code> load refuses. One setting with three positions,
+because they are one axis and asking for two of them at once is not
+a thing to want.</p>
+<p><code>normal</code> (the default) warns about a mismatched state model revision
+or mismatched ROM digests and refuses a different SD card.</p>
+<p><code>strict</code> turns those provenance warnings into refusals: a snapshot
+written by a jnext whose state model this build does not know, or
+one whose recorded ROM digests differ from the ROMs now loaded. A
+missing tape file is <strong>not</strong> covered — that always warns and never
+refuses, because a machine restores perfectly well without the tape
+it was loading from.</p>
+<p><code>force</code> restores even though the mounted SD card is not the one the
+snapshot was taken on, printing a warning that names both cards.
+This is the setting that lets you create exactly the silently-wrong
+case the identity check exists to prevent, which is why it is
+spelled out in full.</p>
+<p>Any other <em>MODE</em> is an error.</p>
+</dd>
 <dt><strong>--delayed-keypress</strong> <em>SECS</em> <em>KEY</em></dt>
 <dd>Press <em>KEY</em> after <em>SECS</em> seconds. Headless only (requires
 <strong>--headless</strong>), repeatable.</dd>

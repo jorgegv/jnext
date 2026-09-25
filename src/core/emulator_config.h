@@ -225,9 +225,16 @@ struct EmulatorConfig {
     // load happen inside `Emulator` (`save_jns` / `load_jns`); a frontend only
     // ever carries the file name. That also means the GUI and the headless
     // path get the same behaviour from one place.
-    bool jns_uncompressed = false;   ///< --snapshot-uncompressed
-    bool jns_strict       = false;   ///< --snapshot-strict
-    bool jns_force_sdcard = false;   ///< --snapshot-force-sdcard
+    //
+    // `jns_strict` and `jns_force_sdcard` are the two ends of ONE axis, and
+    // the CLI spells them as one valued flag so that setting both is not
+    // expressible (GH #27, owner 2026-09-25). Nothing here enforces that —
+    // the restore policy reads the two members independently, exactly as it
+    // did — so a caller constructing this struct by hand still must not set
+    // both: it would be asking to refuse more and less at the same time.
+    bool jns_uncompressed = false;   ///< --snapshot-compression off
+    bool jns_strict       = false;   ///< --snapshot-mode strict
+    bool jns_force_sdcard = false;   ///< --snapshot-mode force
 
     // Magic port: debug output port that logs bytes to stderr
     bool     magic_port_enabled = false;

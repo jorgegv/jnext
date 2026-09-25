@@ -47,6 +47,15 @@
 //               a different pandoc that check SKIPs, and a hand-edited guide
 //               page would then be seen by nothing at all. This row is the
 //               independent witness, and it needs no pandoc to run.
+//   CLI-JNS-01  --snapshot-mode's three positions map onto the two restore-
+//               policy booleans. CLI-JNS-02 is the one that matters: NO value
+//               reaches strict AND force, which is the state the two flags it
+//               replaced could express and nothing rejected (GH #27).
+//   CLI-JNS-03  An unrecognised --snapshot-mode is refused and writes nothing.
+//   CLI-JNS-04  --snapshot-compression on|off, both ways, same refusal contract.
+//   CLI-JNS-05  The same through the REAL BINARY, plus: the three old
+//               spellings are GONE, not aliased.
+//
 //   CLI-SRC-01  main.cpp's parse loop holds no hand-rolled `arg == "--flag"`
 //               comparison. That pattern is exactly how the flag set stopped
 //               being enumerable; a new one would re-open the gap invisibly,
@@ -84,6 +93,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <map>
 #include <set>
@@ -501,6 +511,146 @@ int main() {
         }
     }
 
+    // -----------------------------------------------------------------
+    // The `.jns` valued flags (GH #27, owner 2026-09-25).
+    //
+    // `--snapshot-mode` replaced TWO independent booleans, `--snapshot-strict`
+    // and `--snapshot-force-sdcard`, which are the two ends of ONE axis and
+    // which nothing in the tree stopped a user from giving TOGETHER. The value
+    // of the change is not that the pair is now rejected — it is that the
+    // combination has no spelling at all, so CLI-JNS-02 is the row that
+    // matters and it is written as a claim about the FUNCTION's range rather
+    // than about three hand-picked inputs.
+    // -----------------------------------------------------------------
+    {
+        struct ModeCase { const char* mode; bool strict; bool force; };
+        static const ModeCase kModes[] = {
+            { "normal", false, false },
+            { "strict", true,  false },
+            { "force",  false, true  },
+        };
+
+        {
+            // Every position is asserted from BOTH starting states, which is
+            // what makes this a mapping rather than an accumulation. From a
+            // clean start an arm that forgets to clear the other end looks
+            // correct; from a dirty one it does not. Mutation-found: dropping
+            // `force_sdcard = false` from the `normal` arm passed every row
+            // written from a clean start, and it is a real defect —
+            // `--snapshot-mode force --snapshot-mode normal` would restore in
+            // force mode.
+            std::vector<std::string> bad;
+            for (const ModeCase& c : kModes) {
+                for (const bool dirty : { false, true }) {
+                    bool strict = dirty, force = dirty;
+                    if (!cli::parse_snapshot_mode(c.mode, strict, force)) {
+                        bad.push_back(std::string(c.mode) + " rejected");
+                        continue;
+                    }
+                    if (strict != c.strict || force != c.force) {
+                        bad.push_back(std::string(c.mode) +
+                                      (dirty ? " (from set) -> strict="
+                                             : " (from clear) -> strict=") +
+                                      (strict ? "1" : "0") + " force=" +
+                                      (force ? "1" : "0"));
+                    }
+                }
+            }
+            check("CLI-JNS-01",
+                  "--snapshot-mode strict|normal|force maps onto the two "
+                  "restore-policy booleans — the same pair whatever they held "
+                  "before, so a later position REPLACES an earlier one",
+                  bad.empty(), join(bad));
+        }
+
+        {
+            // THE ROW THAT MATTERS. Start from the nonsense state the two old
+            // flags could reach — both true — and require every ACCEPTED value
+            // to leave at most one end set. An arm that wrote only its own
+            // member would leave the other one true and fail here; the old
+            // pair of flags fails it by construction, because neither of them
+            // ever cleared the other.
+            std::vector<std::string> bad;
+            for (const ModeCase& c : kModes) {
+                bool strict = true, force = true;       // pre-dirtied
+                if (!cli::parse_snapshot_mode(c.mode, strict, force)) {
+                    bad.push_back(std::string(c.mode) + " rejected");
+                    continue;
+                }
+                if (strict && force)
+                    bad.push_back(std::string(c.mode) + " left BOTH set");
+            }
+            // And nothing outside the three can reach it either: a rejected
+            // value writes nothing, so it cannot turn a clean state into the
+            // nonsense one. Swept over the old flag spellings among others,
+            // because those are what a stale script or a muscle-memory typist
+            // will actually pass.
+            for (const char* v : { "", "Strict", "strict force", "--snapshot-strict",
+                                   "--snapshot-force-sdcard", "normal,force", "1",
+                                   "none", "off", "forced" }) {
+                bool strict = false, force = false;
+                if (cli::parse_snapshot_mode(v, strict, force))
+                    bad.push_back(std::string("accepted \"") + v + "\"");
+                if (strict || force)
+                    bad.push_back(std::string("\"") + v + "\" wrote through a rejection");
+            }
+            check("CLI-JNS-02",
+                  "no --snapshot-mode value reaches strict AND force: the state "
+                  "the two flags this replaced could express is unrepresentable",
+                  bad.empty(), join(bad));
+        }
+
+        {
+            // A rejected value must leave the caller's variables ALONE, not
+            // fall back to a default. main.cpp exits on false, so a helper
+            // that wrote a default first would be invisible there — and would
+            // silently downgrade `--snapshot-mode strikt` to `normal` the day
+            // somebody made the error non-fatal.
+            std::vector<std::string> bad;
+            for (const char* v : { "strikt", "FORCE", "normal ",
+                                   static_cast<const char*>(nullptr) }) {
+                bool strict = true, force = false;
+                if (cli::parse_snapshot_mode(v, strict, force))
+                    bad.push_back(std::string("accepted \"") +
+                                  (v ? v : "(null)") + "\"");
+                if (!strict || force)
+                    bad.push_back(std::string("\"") + (v ? v : "(null)") +
+                                  "\" overwrote the caller's state");
+            }
+            check("CLI-JNS-03",
+                  "an unrecognised --snapshot-mode is refused and leaves both "
+                  "booleans untouched",
+                  bad.empty(), join(bad));
+        }
+
+        {
+            std::vector<std::string> bad;
+            bool uncompressed = true;
+            if (!cli::parse_snapshot_compression("on", uncompressed) || uncompressed)
+                bad.push_back("on did not select DEFLATE");
+            uncompressed = false;
+            if (!cli::parse_snapshot_compression("off", uncompressed) || !uncompressed)
+                bad.push_back("off did not select STORED");
+            // Same refusal contract as CLI-JNS-03, including the old flag
+            // spelling this one replaced.
+            for (const char* v : { "", "ON", "true", "1", "yes", "none",
+                                   "--snapshot-uncompressed",
+                                   static_cast<const char*>(nullptr) }) {
+                bool u = true;
+                if (cli::parse_snapshot_compression(v, u))
+                    bad.push_back(std::string("accepted \"") +
+                                  (v ? v : "(null)") + "\"");
+                if (!u)
+                    bad.push_back(std::string("\"") + (v ? v : "(null)") +
+                                  "\" overwrote the caller's state");
+            }
+            check("CLI-JNS-04",
+                  "--snapshot-compression on|off is honoured both ways, and any "
+                  "other STATE is refused without writing through",
+                  bad.empty(), join(bad));
+        }
+    }
+
     {
         const std::string bin = JNEXT_BINARY;
         std::ifstream probe(bin);
@@ -522,6 +672,12 @@ int main() {
                  "jnext binary not built at " + bin);
             skip("CLI-BIN-03", "a usage error stays on stderr",
                  "jnext binary not built at " + bin);
+            // CLI-BIN-04 had no skip arm, so this suite reported 18 rows
+            // against a manifest pinning 19 whenever the binary was absent.
+            skip("CLI-BIN-04", "`jnext --help` lists every documented flag",
+                 "jnext binary not built at " + bin);
+            skip("CLI-JNS-05", "the real binary honours the .jns flag values",
+                 "jnext binary not built at " + bin);
         } else if (!have_timeout) {
             skip("CLI-BIN-01", "real binary honours the table",
                  "no timeout(1) on this host; refusing to run unbounded");
@@ -529,11 +685,27 @@ int main() {
                  "no timeout(1) on this host; refusing to run unbounded");
             skip("CLI-BIN-03", "a usage error stays on stderr",
                  "no timeout(1) on this host; refusing to run unbounded");
+            // CLI-BIN-04 had no skip arm, so this suite reported 18 rows
+            // against a manifest pinning 19 whenever the binary was absent.
+            skip("CLI-BIN-04", "`jnext --help` lists every documented flag",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-JNS-05", "the real binary honours the .jns flag values",
+                 "no timeout(1) on this host; refusing to run unbounded");
         } else {
             probe.close();
             const std::string quoted = "'" + bin + "'";
+            // `--kill-after` is NOT optional, and the comment above is the
+            // reason: a bare `timeout 20` sends only SIGTERM, which a Qt
+            // jnext that has reached its event loop does not die on. The
+            // row then hangs exactly as the mis-parse it exists to catch
+            // would — measured, GH #27: a mutation that made an invalid
+            // `--snapshot-mode` non-fatal let `--snapshot-mode --version`
+            // boot a machine, and the "bounded" invocation was still alive
+            // twelve minutes later. Same rule as test/lint-timeouts.sh
+            // enforces for shell rows; nothing lints C++.
             auto run = [&](const std::string& args) {
-                return std::system(("timeout 20 " + quoted + " " + args +
+                return std::system(("timeout --kill-after=5s 20s " + quoted +
+                                    " " + args +
                                     " >/dev/null 2>&1 </dev/null").c_str());
             };
             // These four spellings are read straight out of the table, so the
@@ -564,7 +736,8 @@ int main() {
             auto run_split = [&](const std::string& args) {
                 std::remove(out_path.c_str());
                 std::remove(err_path.c_str());
-                std::system(("timeout 20 " + quoted + " " + args +
+                std::system(("timeout --kill-after=5s 20s " + quoted + " " +
+                             args +
                              " >'" + out_path + "' 2>'" + err_path +
                              "' </dev/null").c_str());
             };
@@ -693,6 +866,51 @@ int main() {
             check("CLI-BIN-04", "`jnext --help` lists every flag the table documents",
                   missing_from_help.empty(),
                   "missing from --help: " + join(missing_from_help));
+
+            // --- CLI-JNS-05: the values, through the REAL BINARY ------------
+            //
+            // The four rows above assert the mapping function. This one
+            // asserts the wiring reaches it: the table's arity, the switch
+            // arm and the error path. `--version` is appended so an ACCEPTED
+            // value exits instead of booting a machine — it is parsed after
+            // the flag under test, and its arm returns immediately.
+            //
+            // It also pins the RENAME. `--snapshot-strict`,
+            // `--snapshot-force-sdcard` and `--snapshot-uncompressed` were
+            // removed outright rather than kept as aliases (nothing public
+            // shipped them), so the binary must reject them like any other
+            // unknown flag. A back-compat alias sneaking back in would pass
+            // every other row in this file.
+            std::vector<std::string> jns;
+            for (const char* ok_args : {
+                     "--snapshot-mode normal", "--snapshot-mode strict",
+                     "--snapshot-mode force", "--snapshot-compression on",
+                     "--snapshot-compression off" }) {
+                if (run(std::string(ok_args) + " --version") != 0)
+                    jns.push_back(std::string("rejected: ") + ok_args);
+            }
+            for (const char* bad_args : {
+                     "--snapshot-mode", "--snapshot-mode forced",
+                     "--snapshot-mode \"\"", "--snapshot-compression",
+                     "--snapshot-compression yes", "--snapshot-strict",
+                     "--snapshot-force-sdcard", "--snapshot-uncompressed" }) {
+                if (run(std::string(bad_args) + " --version") == 0)
+                    jns.push_back(std::string("accepted: ") + bad_args);
+            }
+            // The refusal must NAME the flag. A bare "invalid argument" makes
+            // the user guess which of the two valued flags they got wrong.
+            for (const char* pair : { "--snapshot-mode forced",
+                                      "--snapshot-compression yes" }) {
+                run_split(std::string(pair) + " --version");
+                const std::string e = slurp(err_path);
+                const std::string flag(pair, std::strchr(pair, ' ') - pair);
+                if (e.find(flag) == std::string::npos)
+                    jns.push_back("refusal does not name " + flag);
+            }
+            check("CLI-JNS-05",
+                  "the real binary accepts every valid .jns flag value, refuses "
+                  "the rest BY NAME, and no longer knows the three old spellings",
+                  jns.empty(), join(jns));
 
             std::remove(out_path.c_str());
             std::remove(err_path.c_str());

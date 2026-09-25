@@ -320,8 +320,11 @@ struct ReaderEnv {
     /// cheap and its dependencies none), so the caller stats and answers.
     bool tape_file_available = false;
 
-    bool strict        = false;   ///< --snapshot-strict
-    bool force_sdcard  = false;   ///< --snapshot-force-sdcard
+    // One axis, three positions, spelled `--snapshot-mode`: `strict`
+    // refuses more, `force` refuses less, neither is `normal`. The CLI
+    // makes both-at-once unspellable; this struct does not enforce it.
+    bool strict        = false;   ///< --snapshot-mode strict
+    bool force_sdcard  = false;   ///< --snapshot-mode force
 };
 
 /// The outcome. Every refusal NAMES the offending thing: G9 is a testable

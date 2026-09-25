@@ -227,9 +227,14 @@ int main(int argc, char* argv[]) {
     int         snapshot_delay_frames = 0;    // --delayed-snapshot-frames
     bool        snapshot_delay_frames_set = false;
     // GH #27 S8 — the three `.jns` flags (design §15.1).
-    bool        snapshot_uncompressed = false;
-    bool        snapshot_strict       = false;
-    bool        snapshot_force_sdcard = false;
+    // GH #27 — the two `.jns` flags, held as the three booleans the restore
+    // policy already reads. `--snapshot-mode` is ONE axis: setting a position
+    // writes BOTH members, so "strict and force at once" — which the two
+    // separate booleans this replaced could express and nothing rejected —
+    // has no spelling.
+    bool        snapshot_uncompressed = false;  // --snapshot-compression off
+    bool        snapshot_strict       = false;  // --snapshot-mode strict
+    bool        snapshot_force_sdcard = false;  // --snapshot-mode force
     MachineType machine_type = MachineType::ZXN_ISSUE2;
     bool        machine_type_set = false;
     std::string machine_arg = "next";  // raw --machine string, for the benchmark label
@@ -435,18 +440,34 @@ int main(int argc, char* argv[]) {
                 snapshot_delay_frames = std::stoi(v[0]);
                 snapshot_delay_frames_set = true;
                 break;
-            // GH #27 S8 — the three `.jns` flags (design §15.1). They reach
-            // the emulator through EmulatorConfig, because both the save and
-            // the load happen inside it and the frontends only carry the file
+            // GH #27 — the two `.jns` flags (design §15.1). They reach the
+            // emulator through EmulatorConfig, because both the save and the
+            // load happen inside it and the frontends only carry the file
             // name.
-            case cli::OptId::SnapshotUncompressed:
-                snapshot_uncompressed = true;
+            case cli::OptId::SnapshotCompression:
+                // A WRITE option, not a restore policy — which is why it is
+                // its own flag and not a `--snapshot-mode` position.
+                if (!cli::parse_snapshot_compression(v[0], snapshot_uncompressed)) {
+                    std::fprintf(stderr,
+                                 "--snapshot-compression: STATE must be on or off, "
+                                 "not \"%s\".\n",
+                                 v[0]);
+                    return 1;
+                }
                 break;
-            case cli::OptId::SnapshotStrict:
-                snapshot_strict = true;
-                break;
-            case cli::OptId::SnapshotForceSdcard:
-                snapshot_force_sdcard = true;
+            case cli::OptId::SnapshotMode:
+                // The mapping lives in `cli_options.h` so a test can assert it
+                // directly. It writes BOTH booleans on every accepted MODE,
+                // which is what makes "strict and force at once" — spellable
+                // with the two flags this replaced — unreachable here.
+                if (!cli::parse_snapshot_mode(v[0], snapshot_strict,
+                                              snapshot_force_sdcard)) {
+                    std::fprintf(stderr,
+                                 "--snapshot-mode: MODE must be strict, normal or "
+                                 "force, not \"%s\".\n",
+                                 v[0]);
+                    return 1;
+                }
                 break;
             case cli::OptId::Machine:
                 if (!parse_machine_type(v[0], machine_type)) {

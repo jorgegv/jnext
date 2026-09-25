@@ -55,12 +55,12 @@ if want snapshot-spec-reader-func; then
         --delayed-snapshot "$k48" --delayed-snapshot-frames 60 \
         --delayed-automatic-exit 20 >/dev/null 2>&1 && k48_rc=0
 
-    # --snapshot-uncompressed: every member STORED. The reader must not care,
-    # because the compression method is the container's business and none of
-    # the spec's rules mention it.
+    # --snapshot-compression off: every member STORED. The reader must not
+    # care, because the compression method is the container's business and
+    # none of the spec's rules mention it.
     plain_rc=1
     timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --machine 48k \
-        "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 --snapshot-uncompressed \
+        "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 --snapshot-compression off \
         --delayed-snapshot "$plain" --delayed-snapshot-frames 60 \
         --delayed-automatic-exit 20 >/dev/null 2>&1 && plain_rc=0
 

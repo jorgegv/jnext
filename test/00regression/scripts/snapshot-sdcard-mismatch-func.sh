@@ -109,7 +109,7 @@ if want snapshot-sdcard-mismatch-func; then
         && grep -q '1a2b3c4d' <<<"$leg2_out" \
         && grep -q '1a2b3c99' <<<"$leg2_out" && leg2_ok=1
 
-    # ── LEG 2b: …and --snapshot-force-sdcard downgrades it to a warning ───
+    # ── LEG 2b: …and --snapshot-mode force downgrades it to a warning ─────
     leg2b_rc=1
     if leg2b_out=$(timeout --foreground --kill-after=5s 60s \
                      "$SDID" --verdict "$base" "$mutant" --force 2>/dev/null)
@@ -117,7 +117,7 @@ if want snapshot-sdcard-mismatch-func; then
     leg2b_ok=0
     [[ "$leg2b_rc" -eq 0 ]] \
         && grep -q '^VERDICT: ok$' <<<"$leg2b_out" \
-        && grep -q '^WARNING:.*--snapshot-force-sdcard.*1a2b3c4d.*1a2b3c99' <<<"$leg2b_out" \
+        && grep -q '^WARNING:.*--snapshot-mode force.*1a2b3c4d.*1a2b3c99' <<<"$leg2b_out" \
         && leg2b_ok=1
 
     # ── LEG 3: a mutated BS_VolLab — NO refusal, NO label warning ─────────
