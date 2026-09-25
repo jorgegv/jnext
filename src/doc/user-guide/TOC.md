@@ -110,6 +110,7 @@ function, so it can be used as a reference while debugging.
 - The trace log
 - Backward execution (rewind)
 - The magic breakpoint and the magic port
+- Changing the keys (rebinding every debugger command)
 
 ## 7. Automation and CI
 

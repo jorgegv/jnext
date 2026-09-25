@@ -148,7 +148,12 @@ public:
     /// the SAME lifetime obligation as the transport — hazard 2 below applies
     /// to both — and the same non-blocking `poll()` contract, because the
     /// worker drives it from the same loop.
+    /// `resolver` (GH #154) is driven by the WORKER, like the transport and
+    /// the listener, because a DNS lookup is socket work and must not run on
+    /// the emulation thread. It therefore carries the same obligation they do:
+    /// **it must outlive this wrapper**, whose destructor joins the worker.
     explicit ThreadedEsp(EspTransport& transport, EspListener* listener = nullptr,
+                         EspResolver*              resolver      = nullptr,
                          std::chrono::milliseconds poll_interval = DEFAULT_POLL_INTERVAL);
     ~ThreadedEsp() override;
 

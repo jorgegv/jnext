@@ -1,4 +1,5 @@
 #include "debugger/debugger_window.h"
+#include "debug/debug_keymap_qt.h"
 #include "debugger/cpu_panel.h"
 #include "debugger/disasm_panel.h"
 #include "debugger/memory_panel.h"
@@ -209,7 +210,7 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     toolbar->setMovable(false);
 
     // F2: Trace On/Off toggle with integrated ball icon
-    trace_toggle_btn_ = new QPushButton(tr("F2: Trace"), this);
+    trace_toggle_btn_ = new QPushButton(this);
     update_trace_indicator();
     connect(trace_toggle_btn_, &QPushButton::clicked, this, [this]() {
         if (!emulator_) return;
@@ -224,9 +225,10 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     });
     toolbar->addWidget(trace_toggle_btn_);
 
-    // F3: Export Trace
-    auto* export_trace_btn = new QPushButton(tr("F3: Export Trace"), this);
-    connect(export_trace_btn, &QPushButton::clicked, this, [this]() {
+    // F3: Export Trace. Caption set by apply_keymap() at the end of this
+    // function — it quotes a key, so it must follow the binding (GH #1).
+    export_trace_btn_ = new QPushButton(this);
+    connect(export_trace_btn_, &QPushButton::clicked, this, [this]() {
         if (!emulator_) return;
         QString path = QFileDialog::getSaveFileName(
             this, tr("Export Trace Log"), QString(),
@@ -239,7 +241,7 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
             }
         }
     });
-    toolbar->addWidget(export_trace_btn);
+    toolbar->addWidget(export_trace_btn_);
 
     // Spacer to push execution controls to the right
     auto* spacer = new QWidget(this);
@@ -247,13 +249,12 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     toolbar->addWidget(spacer);
 
     // Execution controls on the right
-    auto* continue_btn = new QPushButton(tr("F5: Continue"), this);
-    connect(continue_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_run);
-    toolbar->addWidget(continue_btn);
+    continue_btn_ = new QPushButton(this);
+    connect(continue_btn_, &QPushButton::clicked, mgr, &DebuggerManager::on_run);
+    toolbar->addWidget(continue_btn_);
 
-    auto* frame_back_btn = new QPushButton(tr("|\u25C4 Frame Back"), this);
-    frame_back_btn->setToolTip(tr("Rewind to previous frame (Shift+F6)"));
-    connect(frame_back_btn, &QPushButton::clicked, this, [this]() {
+    frame_back_btn_ = new QPushButton(tr("|\u25C4 Frame Back"), this);
+    connect(frame_back_btn_, &QPushButton::clicked, this, [this]() {
         if (debugger_mgr_ && emulator_ && emulator_->rewind_buffer()
                 && !emulator_->rewind_buffer()->empty()) {
             uint32_t prev = emulator_->frame_num() > 0
@@ -261,38 +262,35 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
             debugger_mgr_->on_rewind_to_frame(prev);
         }
     });
-    toolbar->addWidget(frame_back_btn);
+    toolbar->addWidget(frame_back_btn_);
 
-    auto* step_back_btn = new QPushButton(tr("\u25C4 Step Back"), this);
-    step_back_btn->setToolTip(tr("Step back one instruction (Shift+F7)"));
-    connect(step_back_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_step_back);
-    toolbar->addWidget(step_back_btn);
+    step_back_btn_ = new QPushButton(tr("\u25C4 Step Back"), this);
+    connect(step_back_btn_, &QPushButton::clicked, mgr, &DebuggerManager::on_step_back);
+    toolbar->addWidget(step_back_btn_);
 
-    auto* step_into_btn = new QPushButton(tr("F6: Single Step"), this);
-    connect(step_into_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_step_into);
-    toolbar->addWidget(step_into_btn);
+    step_into_btn_ = new QPushButton(this);
+    connect(step_into_btn_, &QPushButton::clicked, mgr, &DebuggerManager::on_step_into);
+    toolbar->addWidget(step_into_btn_);
 
-    auto* step_over_btn = new QPushButton(tr("F7: Step Over"), this);
-    connect(step_over_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_step_over);
-    toolbar->addWidget(step_over_btn);
+    step_over_btn_ = new QPushButton(this);
+    connect(step_over_btn_, &QPushButton::clicked, mgr, &DebuggerManager::on_step_over);
+    toolbar->addWidget(step_over_btn_);
 
-    auto* step_out_btn = new QPushButton(tr("F8: Step Out"), this);
-    connect(step_out_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_step_out);
-    toolbar->addWidget(step_out_btn);
+    step_out_btn_ = new QPushButton(this);
+    connect(step_out_btn_, &QPushButton::clicked, mgr, &DebuggerManager::on_step_out);
+    toolbar->addWidget(step_out_btn_);
 
-    auto* run_to_eosl_btn = new QPushButton(tr("Run to EOSL"), this);
-    run_to_eosl_btn->setToolTip(tr("Run to End of Scan Line"));
-    connect(run_to_eosl_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_run_to_eosl);
-    toolbar->addWidget(run_to_eosl_btn);
+    run_to_eosl_btn_ = new QPushButton(tr("Run to EOSL"), this);
+    connect(run_to_eosl_btn_, &QPushButton::clicked, mgr, &DebuggerManager::on_run_to_eosl);
+    toolbar->addWidget(run_to_eosl_btn_);
 
-    auto* run_to_eof_btn = new QPushButton(tr("Run to EOF"), this);
-    run_to_eof_btn->setToolTip(tr("Run to End of Frame"));
-    connect(run_to_eof_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_run_to_eof);
-    toolbar->addWidget(run_to_eof_btn);
+    run_to_eof_btn_ = new QPushButton(tr("Run to EOF"), this);
+    connect(run_to_eof_btn_, &QPushButton::clicked, mgr, &DebuggerManager::on_run_to_eof);
+    toolbar->addWidget(run_to_eof_btn_);
 
-    auto* break_btn = new QPushButton(tr("F9: Break"), this);
-    connect(break_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_pause);
-    toolbar->addWidget(break_btn);
+    break_btn_ = new QPushButton(this);
+    connect(break_btn_, &QPushButton::clicked, mgr, &DebuggerManager::on_pause);
+    toolbar->addWidget(break_btn_);
 
     addToolBar(Qt::BottomToolBarArea, toolbar);
 
@@ -336,6 +334,75 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
 
     rewind_toolbar_->setVisible(false);
     addToolBar(Qt::BottomToolBarArea, rewind_toolbar_);
+
+    // GH #1 — last, because it writes both the actions' shortcuts (created in
+    // create_menus() above) and the toolbar captions (created just above).
+    apply_keymap();
+}
+
+void DebuggerWindow::set_keymap(const jnext::dbgkeys::Keymap& km) {
+    keymap_ = km;
+    apply_keymap();
+}
+
+void DebuggerWindow::apply_keymap() {
+    using namespace jnext::dbgkeys;
+
+    // Safe before set_debugger_manager(): every pointer below may still be
+    // null, which is the state a DebuggerWindow is in between construction and
+    // wiring — and MainWindow applies the saved keymap in that window.
+    auto bind = [this](QAction* a, Action id) {
+        if (a) a->setShortcut(to_key_sequence(keymap_.combo(id)));
+    };
+    bind(run_action_,           Action::Run);
+    bind(pause_action_,         Action::Pause);
+    bind(step_into_action_,     Action::StepInto);
+    bind(step_over_action_,     Action::StepOver);
+    bind(step_out_action_,      Action::StepOut);
+    bind(step_back_action_,     Action::StepBack);
+    bind(frame_back_action_,    Action::FrameBack);
+    bind(run_to_cursor_action_, Action::RunToCursor);
+    bind(run_to_eof_action_,    Action::RunToEof);
+    bind(run_to_eosl_action_,   Action::RunToEosl);
+    bind(trace_enable_action_,  Action::TraceToggle);
+    bind(trace_export_action_,  Action::TraceExport);
+
+    // The captions. "F5: Continue" is "<key>: <name>" with the key dropped
+    // when the action is unbound — so the default keymap reproduces exactly
+    // the strings this toolbar has always shown.
+    auto caption = [this](QPushButton* b, Action id, const QString& name) {
+        if (!b) return;
+        const Combo& c = keymap_.combo(id);
+        b->setText(c.bound()
+                       ? QStringLiteral("%1: %2")
+                             .arg(QString::fromStdString(render_combo(c)), name)
+                       : name);
+    };
+    caption(trace_toggle_btn_, Action::TraceToggle, tr("Trace"));
+    caption(export_trace_btn_, Action::TraceExport, tr("Export Trace"));
+    caption(continue_btn_,     Action::Run,         tr("Continue"));
+    caption(step_into_btn_,    Action::StepInto,    tr("Single Step"));
+    caption(step_over_btn_,    Action::StepOver,    tr("Step Over"));
+    caption(step_out_btn_,     Action::StepOut,     tr("Step Out"));
+    caption(break_btn_,        Action::Pause,       tr("Break"));
+
+    // The four buttons that name their key in the TOOLTIP instead, because
+    // their captions are icons or abbreviations.
+    auto tip = [this](QPushButton* b, Action id, const QString& text) {
+        if (!b) return;
+        const Combo& c = keymap_.combo(id);
+        b->setToolTip(c.bound()
+                          ? QStringLiteral("%1 (%2)")
+                                .arg(text, QString::fromStdString(render_combo(c)))
+                          : text);
+    };
+    tip(frame_back_btn_,  Action::FrameBack, tr("Rewind to previous frame"));
+    tip(step_back_btn_,   Action::StepBack,  tr("Step back one instruction"));
+    tip(run_to_eosl_btn_, Action::RunToEosl, tr("Run to End of Scan Line"));
+    tip(run_to_eof_btn_,  Action::RunToEof,  tr("Run to End of Frame"));
+
+    // The rewind status line quotes the resume key too (update_rewind_ui()).
+    update_rewind_ui();
 }
 
 void DebuggerWindow::showEvent(QShowEvent* event) {
@@ -397,36 +464,33 @@ void DebuggerWindow::create_menus() {
     // --- Debug menu ---
     QMenu* debug_menu = bar->addMenu(tr("&Debug"));
 
+    // GH #1: every shortcut in this window is installed by apply_keymap(),
+    // from the user's keymap. Nothing here calls setShortcut() — a second
+    // place that did would win or lose by construction order.
     run_action_ = debug_menu->addAction(tr("Run / &Continue"));
-    run_action_->setShortcut(QKeySequence(Qt::Key_F5));
     connect(run_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_run);
 
     // Mnemonic on "Pause", not on "Break": Alt+B belongs to "Step &Back"
     // below. Two items in one menu cannot share a mnemonic (issue #124).
     pause_action_ = debug_menu->addAction(tr("&Pause / Break"));
-    pause_action_->setShortcut(QKeySequence(Qt::Key_F9));
     connect(pause_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_pause);
 
     debug_menu->addSeparator();
 
     step_into_action_ = debug_menu->addAction(tr("&Single Step"));
-    step_into_action_->setShortcut(QKeySequence(Qt::Key_F6));
     connect(step_into_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_into);
 
     step_over_action_ = debug_menu->addAction(tr("Step &Over"));
-    step_over_action_->setShortcut(QKeySequence(Qt::Key_F7));
     connect(step_over_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_over);
 
     // Alt+U, not Alt+T: "&Trace" below owns T (issue #124).
     step_out_action_ = debug_menu->addAction(tr("Step O&ut"));
-    step_out_action_->setShortcut(QKeySequence(Qt::Key_F8));
     connect(step_out_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_out);
 
     // Alt+K: F is reserved for "Run to End of &Frame", which pairs with
     // "Run to End of Scan &Line" (issue #124).
-    QAction* frame_back_action = debug_menu->addAction(tr("|< Frame Bac&k"));
-    frame_back_action->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F6));
-    connect(frame_back_action, &QAction::triggered, this, [this]() {
+    frame_back_action_ = debug_menu->addAction(tr("|< Frame Bac&k"));
+    connect(frame_back_action_, &QAction::triggered, this, [this]() {
         if (debugger_mgr_ && emulator_ && emulator_->rewind_buffer()
                 && !emulator_->rewind_buffer()->empty()) {
             uint32_t prev = emulator_->frame_num() > 0
@@ -436,16 +500,24 @@ void DebuggerWindow::create_menus() {
     });
 
     step_back_action_ = debug_menu->addAction(tr("Step &Back"));
-    step_back_action_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F7));
     connect(step_back_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_back);
 
     debug_menu->addSeparator();
 
-    QAction* run_to_eof_action = debug_menu->addAction(tr("Run to End of &Frame"));
-    connect(run_to_eof_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_run_to_eof);
+    run_to_eof_action_ = debug_menu->addAction(tr("Run to End of &Frame"));
+    connect(run_to_eof_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_run_to_eof);
 
-    QAction* run_to_eosl_action = debug_menu->addAction(tr("Run to End of Scan &Line"));
-    connect(run_to_eosl_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_run_to_eosl);
+    run_to_eosl_action_ = debug_menu->addAction(tr("Run to End of Scan &Line"));
+    connect(run_to_eosl_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_run_to_eosl);
+
+    // GH #1 — "Run to Cursor", bindable but unbound by default and NOT a menu
+    // item (see the header). addAction() on the window is what gives it a
+    // window-wide shortcut context without putting it in the menu tree.
+    run_to_cursor_action_ = new QAction(tr("Run to Cursor"), this);
+    connect(run_to_cursor_action_, &QAction::triggered, this, [this]() {
+        if (disasm_panel_) disasm_panel_->run_to_selected();
+    });
+    addAction(run_to_cursor_action_);
 
     debug_menu->addSeparator();
 
@@ -454,7 +526,6 @@ void DebuggerWindow::create_menus() {
 
     trace_enable_action_ = trace_menu->addAction(tr("&Enable Trace"));
     trace_enable_action_->setCheckable(true);
-    trace_enable_action_->setShortcut(QKeySequence(Qt::Key_F2));
     connect(trace_enable_action_, &QAction::triggered, this, [this](bool checked) {
         if (emulator_) {
             emulator_->trace_log().set_enabled(checked);
@@ -470,9 +541,8 @@ void DebuggerWindow::create_menus() {
             emulator_->trace_log().clear();
     });
 
-    QAction* export_trace = trace_menu->addAction(tr("E&xport Trace..."));
-    export_trace->setShortcut(QKeySequence(Qt::Key_F3));
-    connect(export_trace, &QAction::triggered, this, [this]() {
+    trace_export_action_ = trace_menu->addAction(tr("E&xport Trace..."));
+    connect(trace_export_action_, &QAction::triggered, this, [this]() {
         if (!emulator_) return;
         QString path = QFileDialog::getSaveFileName(
             this, tr("Export Trace Log"), QString(),
@@ -720,9 +790,11 @@ void DebuggerWindow::update_rewind_ui() {
         bool is_rewound = emulator_->frame_num() < rb->newest_frame_num();
         if (is_rewound) {
             statusBar()->showMessage(
-                tr("\u23EE Rewound: frame %1 of %2  (F5 / Continue to resume)")
+                tr("\u23EE Rewound: frame %1 of %2  (%3 / Continue to resume)")
                     .arg(emulator_->frame_num())
-                    .arg(rb->newest_frame_num()));
+                    .arg(rb->newest_frame_num())
+                    .arg(QString::fromStdString(jnext::dbgkeys::render_combo(
+                        keymap_.combo(jnext::dbgkeys::Action::Run)))));
         } else {
             size_t mb = (rb->depth() * rb->snapshot_bytes() + 524288) / 1048576;
             statusBar()->showMessage(

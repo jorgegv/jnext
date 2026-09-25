@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "core/emulator_config.h"
+#include "debug/debug_keymap.h"
 #include "platform/audio_pacing.h"
 #include "platform/screenshot.h"
 
@@ -88,6 +89,18 @@ struct AppConfigData {
     // not be the one jnext is running under.
     QString quick_screenshot_dir;
 
+    // GH #1 — the debugger's redefinable key bindings. Defaults are the
+    // compiled-in ones, so a machine with no config file behaves exactly as
+    // before; only REDEFINITIONS are written back (see AppConfig::save()).
+    //
+    // Deliberately present even in a build with ENABLE_DEBUGGER=OFF. This
+    // struct is what PreferencesDialog::collect() rebuilds from scratch, so a
+    // field that is not carried through is silently RESET the moment the user
+    // presses OK — which is exactly what happened to the two ESP fields above.
+    // A debugger-less build has no tab to edit these, so it must carry them
+    // through untouched instead.
+    jnext::dbgkeys::Keymap debug_keys;
+
     // Which format Quick Screenshot writes — the point at which GH #18 and
     // GH #19 meet, since a no-dialog capture has no filename for an extension
     // to be read from. Persisted as "png"/"scr".
@@ -139,6 +152,16 @@ public:
     /// nothing in AppConfig gates behaviour on it.
     bool loaded_from_existing_file() const { return loaded_from_existing_file_; }
 
+    /// GH #1 — everything load() refused inside `[debugger_keys]`: an
+    /// unparseable combination, an illegal one, an unknown action id, a
+    /// conflict. Never empty-and-silent: MainWindow logs every entry at error
+    /// level and Preferences lists them. Diagnostics, NOT settings, which is
+    /// why they live here and not in AppConfigData — PreferencesDialog rebuilds
+    /// that struct wholesale and would drop them.
+    const std::vector<jnext::dbgkeys::LoadIssue>& debug_key_issues() const {
+        return debug_key_issues_;
+    }
+
 private:
     // mutable: QSettings::setValue()/sync() are non-const, but writing the
     // backing store is not part of AppConfig's logical (AppConfigData) state,
@@ -146,4 +169,5 @@ private:
     mutable QSettings settings_;
     AppConfigData      data_;
     bool               loaded_from_existing_file_ = false;
+    std::vector<jnext::dbgkeys::LoadIssue> debug_key_issues_;
 };

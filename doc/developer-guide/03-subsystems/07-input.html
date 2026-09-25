@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.30</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.30</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.34</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1866,7 +1866,14 @@ row <em>N</em>), and <code>read_rows()</code> returns the 5-bit AND of every sel
 <ol>
 <li><strong>Shift hysteresis.</strong> <code>membrane.vhd:178</code> holds the Caps-Shift and
    Symbol-Shift column state for one extra scan, which delays a release.
-   <code>tick_scan()</code> advances the two-entry history once per frame.</li>
+   <code>tick_scan()</code> advances the two-entry history once per <strong>membrane scan</strong> —
+   4608 master cycles, which the VHDL annotates as "complete scan every 2.5
+   scanlines" (<code>zxnext_top_issue2.vhd:1179</code>) — driven from
+   <code>Emulator::on_scanline()</code> by a cycle accumulator. It used to run once per
+   video frame, which stretched a 165 µs hold to 20 ms and left a released
+   Symbol Shift contaminating the <em>next</em> frame's keystroke: a tap of Symbol
+   Shift followed by a tap of <code>P</code> typed <code>"</code> instead of <code>PRINT</code> (issue #268).
+   The rate is part of the spec, not an implementation detail.</li>
 <li><strong>The extended-key fold</strong>, described below.</li>
 <li><strong>The <code>MembraneStick</code> fold</strong>, also below, matching
    <code>keyb_col &lt;= keyb_col_i_q AND membrane_stick_col AND ps2_kbd_col</code>.</li>
@@ -1953,16 +1960,36 @@ in the machine-side class, plus a stated policy.</p>
   because its relative mode does the equivalent natively.</p>
 </li>
 <li>
-<p><strong><code>host_key_latch.h</code></strong> (also <code>src/platform/</code>) is a minimum-hold latch, and it
-  exists because of the frame boundary. Host key events are delivered <em>between</em>
-  <code>run_frame()</code> calls, so the matrix is sampled once per emulated frame, and a
-  press plus its release arriving in the same gap would be invisible to the
-  guest. The latch defers such a release until a frame has actually run. Its
-  header is explicit that this is <strong>not</strong> hardware equivalence: real hardware
-  scans at pixel-clock rate and merges nothing, so two very rapid taps
-  collapsing into one is a documented residual limitation rather than a
-  fidelity claim.</p>
+<p><strong><code>host_key_latch.h</code></strong> (also <code>src/platform/</code>) holds two policies, and both
+  exist because of the frame boundary. Host key events are delivered <em>between</em>
+  <code>run_frame()</code> calls, so the matrix is sampled once per emulated frame.</p>
 </li>
+</ul>
+<p><code>Latch</code> is the <strong>minimum-hold</strong> half (issue #120): a press plus its release
+  arriving in the same gap would be invisible to the guest, so the latch defers
+  such a release until a frame has actually run.</p>
+<p><code>Router</code> is the <strong>serialiser</strong> (issue #268), and it is the half that decides
+  when a <em>press</em> may land. Holding a press was never enough on its own: the
+  next key pressed while the first one's release was still deferred used to be
+  asserted on top of it, so the frame sampled a two-key chord the host never
+  had. <code>KEY-SCAN</code> rejects a two-key chord, so both characters vanished — and a
+  tap of Symbol Shift followed by a tap of <code>P</code> decoded as Symbol-Shift + <code>P</code>,
+  producing the <em>wrong</em> character rather than none. The router therefore queues
+  host events and applies a press only when the queue is empty, no release is
+  deferred, and no non-modifier press is still waiting for a frame. The SDL
+  modifier block 224..231 — the two ZX shifts and host Alt — never arms that
+  last condition, which is what keeps a genuine shift-plus-key chord in a
+  single frame; what separates "shift held as a modifier" from "shift tapped on
+  its own" is the host's own key-up event and nothing else. Autorepeat presses
+  are dropped rather than queued, because SDL forwards them and Qt does not.</p>
+<p>Real hardware has neither problem — it scans at membrane rate and merges
+  nothing — so neither policy is a fidelity claim about the Next; both are
+  compensation for jnext delivering host input once per frame. One residue is
+  deliberately left: two taps of the <em>same</em> key inside one gap still reach the
+  guest as one continuous press, since separating them needs a released frame
+  between the presses, which halves the drain rate for a case no human hand can
+  produce.</p>
+<ul>
 <li>
 <p><strong><code>phantom_typist.{h,cpp}</code></strong> types <code>LOAD ""</code> for you. Loading a tape on a
   real Spectrum starts with the user typing it and pressing ENTER — or, on a

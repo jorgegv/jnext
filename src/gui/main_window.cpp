@@ -1,6 +1,7 @@
 #include "gui/main_window.h"
 #include "version.h"
 #include "gui/emulator_widget.h"
+#include "gui/host_chords.h"
 #include "gui/preferences_dialog.h"
 #include "gui/preferences_apply_policy.h"
 #include "core/emulator.h"
@@ -21,6 +22,7 @@
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
+#include "debug/debug_keymap_qt.h"
 #endif
 #include <ctime>
 
@@ -230,6 +232,17 @@ MainWindow::MainWindow(QWidget* parent)
     // regression.sh).
     app_config_.load();
 
+    // GH #1 \u2014 every [debugger_keys] entry the config layer refused, said out
+    // loud. A bad binding must never look like an accepted one: the action
+    // falls back to its default (or to unbound, for a conflict) and the reason
+    // is on the log AND at the top of Preferences > Debugger Keys.
+    for (const auto& issue : app_config_.debug_key_issues()) {
+        Log::platform()->error(
+            "Config [debugger_keys] {}={}: {}",
+            issue.action_id, issue.text, issue.reason);
+    }
+    debug_keys_ = app_config_.data().debug_keys;
+
     // Central widget: the emulator display (fixed-size, pixel-perfect).
     emulator_widget_ = new EmulatorWidget(this);
     setCentralWidget(emulator_widget_);
@@ -297,6 +310,10 @@ void MainWindow::set_emulator(Emulator* emu) {
     if (!debugger_mgr_ && emu) {
         debugger_mgr_ = new DebuggerManager(this, emu, this);
         // Debugger starts disabled — main window stays fixed-size.
+        // GH #1 — hand it the user's key bindings straight away: the window is
+        // built now, and a keymap pushed only when it is first SHOWN would
+        // leave the emulator window forwarding keys the debugger does not have.
+        push_debug_keymap();
     }
 #endif
 }
@@ -2054,14 +2071,35 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
             cfg.esp_enabled ? "enabled" : "disabled");
     }
 
+    // GH #1 — the debugger key bindings apply LIVE, in both windows. This is
+    // the ONLY place that makes them live: the forwarding in keyPressEvent()
+    // and the push into the debugger window both read debug_keys_, so an
+    // Apply can never leave the two windows on different maps.
+    debug_keys_ = cfg.debug_keys;
+    push_debug_keymap();
+
     // cfg.silent has no live setter (the SDL audio device is opened once at
     // QtApp::init() time and MainWindow has no handle to it) — persisted
     // only, applied on next launch. Host output gain is deliberately different:
     // apply_startup_config() updates the mixer immediately.
 }
 
+void MainWindow::push_debug_keymap() {
+#ifdef ENABLE_DEBUGGER
+    if (!debugger_mgr_) return;
+    // Through the MANAGER, not straight at the window: the window is created
+    // lazily, so a rebind made before the debugger was ever opened must be
+    // remembered rather than dropped (GH #1).
+    debugger_mgr_->set_keymap(debug_keys_);
+#endif
+}
+
 void MainWindow::on_open_preferences() {
-    PreferencesDialog dlg(app_config_.data(), this);
+    // GH #1 review follow-up — hand the dialog the combinations THIS window
+    // already answers to, harvested from the real QActions rather than
+    // hand-listed, so a menu item added later is picked up with no edit here.
+    PreferencesDialog dlg(app_config_.data(), this, app_config_.debug_key_issues(),
+                          harvest_host_chords(this));
     connect(&dlg, &PreferencesDialog::apply_requested, this, [this](const AppConfigData& cfg) {
         app_config_.data() = cfg;
         app_config_.save();
@@ -2097,48 +2135,65 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         }
 
 #ifdef ENABLE_DEBUGGER
-        // When debugger is enabled, intercept debug shortcuts.
+        // When the debugger is enabled, intercept its execution-control keys.
+        //
+        // GH #1 — driven from the USER'S KEYMAP, not from five hard-coded
+        // F-keys. Without that a rebind half-applies: the new combination
+        // works in the debugger window while the old one keeps working — and
+        // keeps being swallowed — here. Exactly FIVE actions are forwarded,
+        // the same five this block has always forwarded. Notably not
+        // trace_toggle, whose default F2 is this window's scale cycler.
+        //
+        // Modifiers are matched EXACTLY now; this block used to switch on the
+        // key alone, so Shift+F7 in this window triggered Step Over. It no
+        // longer does, which is what lets Shift+F7 mean Step Back.
         if (debugger_mgr_ && debugger_mgr_->is_enabled()) {
-            if (key == Qt::Key_F5) {
-                // GH #223: the debugger owns F5 whenever it is enabled, whether
-                // or not the machine is paused. on_run() is now a deliberate
-                // no-op on a running machine, and the key is STILL consumed —
-                // do not "fix" this into a fall-through.
+            using namespace jnext::dbgkeys;
+            const Combo pressed = combo_from_event(key, modifiers);
+            const Keymap& km = debug_keys_;
+            if (pressed.bound()) {
+                // GH #223: the debugger owns Run whenever it is enabled,
+                // whether or not the machine is paused. on_run() is now a
+                // deliberate no-op on a running machine, and the key is STILL
+                // consumed — do not "fix" this into a fall-through.
                 //
                 // A fall-through would be INERT TODAY: it would reach
-                // `case Qt::Key_F5` below and drive the EmuFnKeys FSM, but
-                // jnext implements no F5 side effect at all — emu_fnkeys.h:68-69
-                // puts F5/F6 out of scope for G132 (tracked under G147) and
-                // fire_mf_side_effects() dispatches F2/F3/F7/F8 only — so no
-                // NextREG is written. On real HARDWARE F5 is the expansion-bus
-                // enable hotkey (zxnext.vhd:6344 -> :2190 `nr_80_expbus(7) <=
-                // '1'`). Consuming the key keeps "F5 while running does nothing"
-                // true by construction rather than by G147 being unfinished,
-                // which is what this defends. Owner decision: F5 while running
-                // is fully ignored. GH223-03 fails on a fall-through.
-                debugger_mgr_->on_run();
-                event->accept();
-                return;
-            }
-            if (key == Qt::Key_F6) {
-                debugger_mgr_->on_step_into();
-                event->accept();
-                return;
-            }
-            if (key == Qt::Key_F7) {
-                debugger_mgr_->on_step_over();
-                event->accept();
-                return;
-            }
-            if (key == Qt::Key_F8) {
-                debugger_mgr_->on_step_out();
-                event->accept();
-                return;
-            }
-            if (key == Qt::Key_F9) {
-                debugger_mgr_->on_pause();
-                event->accept();
-                return;
+                // `case Qt::Key_F5` further down and drive the EmuFnKeys FSM,
+                // but jnext implements no F5 side effect at all —
+                // emu_fnkeys.h:68-69 puts F5/F6 out of scope for G132 (tracked
+                // under G147) and fire_mf_side_effects() dispatches F2/F3/F7/F8
+                // only — so no NextREG is written. On real HARDWARE F5 is the
+                // expansion-bus enable hotkey (zxnext.vhd:6344 -> :2190
+                // `nr_80_expbus(7) <= '1'`). Consuming the key keeps "F5 while
+                // running does nothing" true by construction rather than by
+                // G147 being unfinished, which is what this defends. Owner
+                // decision: F5 while running is fully ignored. GH223-03 fails
+                // on a fall-through.
+                if (pressed == km.combo(Action::Run)) {
+                    debugger_mgr_->on_run();
+                    event->accept();
+                    return;
+                }
+                if (pressed == km.combo(Action::StepInto)) {
+                    debugger_mgr_->on_step_into();
+                    event->accept();
+                    return;
+                }
+                if (pressed == km.combo(Action::StepOver)) {
+                    debugger_mgr_->on_step_over();
+                    event->accept();
+                    return;
+                }
+                if (pressed == km.combo(Action::StepOut)) {
+                    debugger_mgr_->on_step_out();
+                    event->accept();
+                    return;
+                }
+                if (pressed == km.combo(Action::Pause)) {
+                    debugger_mgr_->on_pause();
+                    event->accept();
+                    return;
+                }
             }
         }
 #endif

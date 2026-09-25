@@ -18,6 +18,8 @@
 
 #include "gui/app_config.h"
 
+#include "debug/debug_keymap.h"
+
 #include <QDir>
 #include <QFile>
 #include <QSettings>
@@ -349,6 +351,443 @@ static void test_default_path() {
           over == QStringLiteral("/tmp/jnext-cfg-test/jnext.conf"), over.toStdString());
 }
 
+
+// ── DK: GH #1 — the debugger key bindings ──────────────────────────────────
+//
+// The model (grammar, validation, conflict resolution) is Qt-free and lives in
+// src/debug/debug_keymap.cpp; its persistence is AppConfig's. Both are covered
+// here because the persistence RULE — only redefinitions are written — is only
+// meaningful against the defaults the model declares.
+//
+// No VHDL oracle: host UI configuration, not emulated hardware.
+
+static void test_debug_keys_defaults(QTemporaryDir& dir) {
+    set_group("DK");
+    using namespace jnext::dbgkeys;
+
+    AppConfig cfg(fresh_ini_path(dir, "dk_defaults"));
+    cfg.load();
+    const Keymap& km = cfg.data().debug_keys;
+
+    // DK-01 is the guard on the ONE promise GH #1 makes about behaviour: it
+    // adds redefinability and changes no default. Every value below was read
+    // out of DebuggerWindow::create_menus() in the running product.
+    struct Expect { Action a; const char* text; };
+    const Expect expected[] = {
+        { Action::Run,         "F5"       },
+        { Action::Pause,       "F9"       },
+        { Action::StepInto,    "F6"       },
+        { Action::StepOver,    "F7"       },
+        { Action::StepOut,     "F8"       },
+        { Action::StepBack,    "Shift+F7" },
+        { Action::FrameBack,   "Shift+F6" },
+        { Action::RunToCursor, "none"     },
+        { Action::RunToEof,    "none"     },
+        { Action::RunToEosl,   "none"     },
+        { Action::TraceToggle, "F2"       },
+        { Action::TraceExport, "F3"       },
+    };
+    bool all_ok = true;
+    std::string detail;
+    for (const Expect& e : expected) {
+        const std::string got = render_combo(km.combo(e.a));
+        if (got != e.text) {
+            all_ok = false;
+            detail += std::string(info(e.a).id) + "=" + got + " (want " + e.text + ") ";
+        }
+    }
+    check("DK-01", "with no config file every action carries its shipped default",
+          all_ok, detail);
+
+    check("DK-02", "no entry is refused when there is no [debugger_keys] section",
+          cfg.debug_key_issues().empty(),
+          std::to_string(cfg.debug_key_issues().size()) + " issues");
+
+    // The ids are the config-file surface; a rename orphans every existing
+    // user binding, so the list is pinned rather than merely used.
+    std::string ids;
+    for (int i = 0; i < ACTION_COUNT; ++i) ids += std::string(action_table()[i].id) + " ";
+    check("DK-03", "the action ids are exactly the twelve published names",
+          ids == "run pause step_into step_over step_out step_back frame_back "
+                 "run_to_cursor run_to_eof run_to_eosl trace_toggle trace_export ",
+          ids);
+}
+
+static void test_debug_keys_grammar() {
+    set_group("DK");
+    using namespace jnext::dbgkeys;
+
+    // Parsed on its own statement, never inside the check() call: check()'s
+    // arguments are unsequenced, so a detail string computed from a combo the
+    // CONDITION fills can be printed stale. The verdicts were never affected;
+    // the diagnostics were, and a misleading failure message is a bug in a
+    // test.
+    struct P { bool ok; Combo c; std::string why; };
+    auto P_ = [](const char* text) {
+        P r; r.ok = parse_combo(text, r.c, r.why); return r;
+    };
+
+    {
+        const P r = P_("F7");
+        check("DK-10", "a bare function key parses",
+              r.ok && r.c.mods == MOD_NONE && r.c.key == Key::F7, r.why);
+    }
+    {
+        const P r = P_("  cTRl + shift + f10 ");
+        check("DK-11", "modifiers parse in any case and with stray spaces",
+              r.ok && r.c.mods == (MOD_CTRL | MOD_SHIFT) && r.c.key == Key::F10, r.why);
+    }
+    // Both halves matter. DK-12 pins that the order is NORMALISED at all;
+    // DK-19 pins WHICH order, with all four modifiers present — without it,
+    // swapping two of them inside render_combo() is invisible, because no
+    // other row uses a combination carrying more than two.
+    {
+        const P r = P_("shift+ctrl+F10");
+        check("DK-12", "rendering is canonical regardless of how it was typed",
+              r.ok && render_combo(r.c) == "Ctrl+Shift+F10", render_combo(r.c));
+    }
+    {
+        const P a = P_("none");
+        const P b = P_("");
+        check("DK-13", "'none' and the empty string both mean unbound",
+              a.ok && !a.c.bound() && b.ok && !b.c.bound(), a.why + b.why);
+    }
+    check("DK-14", "an unbound combination renders as 'none'",
+          render_combo(Combo{}) == "none", render_combo(Combo{}));
+    {
+        const P r = P_("F13");
+        check("DK-15", "a key outside the vocabulary is refused BY NAME",
+              !r.ok && r.why.find("F13") != std::string::npos, r.why);
+    }
+    {
+        const P r = P_("Hyper+F5");
+        check("DK-16", "an unknown modifier is refused by name",
+              !r.ok && r.why.find("Hyper") != std::string::npos, r.why);
+    }
+    {
+        const P r = P_("Ctrl+");
+        check("DK-17", "a trailing '+' with no key is refused", !r.ok, r.why);
+    }
+
+    // Every accepted text renders to something that parses back to the same
+    // combination — the property the config file's round-trip depends on.
+    {
+        bool stable = true;
+        std::string bad;
+        int probed = 0;
+        for (int k = 1; k <= static_cast<int>(Key::Right) && stable; ++k) {
+            for (uint8_t m = 0; m < 16 && stable; ++m) {
+                const Combo probe{m, static_cast<Key>(k)};
+                Combo back;
+                std::string why;
+                ++probed;
+                if (!parse_combo(render_combo(probe), back, why) || !(back == probe)) {
+                    stable = false;
+                    bad = render_combo(probe);
+                }
+            }
+        }
+        check("DK-18", "render -> parse is the identity for every combination",
+              stable && probed == static_cast<int>(Key::Right) * 16,
+              bad.empty() ? ("probed " + std::to_string(probed)) : bad);
+    }
+    {
+        const P r = P_("meta+shift+alt+ctrl+F1");
+        check("DK-19", "the modifier order is Ctrl, Alt, Shift, Meta",
+              r.ok && render_combo(r.c) == "Ctrl+Alt+Shift+Meta+F1", render_combo(r.c));
+    }
+}
+
+static void test_debug_keys_validation() {
+    set_group("DK");
+    using namespace jnext::dbgkeys;
+
+    // Same shape as above: parse, then validate, then check — so the reason
+    // printed on a failure is the reason for THIS row.
+    struct V { bool parsed; bool legal; std::string why; };
+    auto V_ = [](const char* text) {
+        V r;
+        Combo c;
+        r.parsed = parse_combo(text, c, r.why);
+        r.legal  = r.parsed && validate_combo(c, r.why);
+        return r;
+    };
+
+    struct Row { const char* id; const char* text; bool want_legal; const char* desc; };
+    const Row rows[] = {
+        { "DK-20", "K",        false, "a bare letter is refused as a binding" },
+        { "DK-21", "Home",     false, "a bare arrow / Home / Return is refused as a binding" },
+        { "DK-22", "Shift+K",  false, "Shift alone does not make a letter bindable" },
+        { "DK-23", "Ctrl+K",   true,  "Ctrl+letter IS allowed (the debugger never feeds the guest)" },
+        { "DK-24", "F7",       true,  "a bare function key is allowed" },
+        { "DK-25", "Shift+F7", true,  "Shift + a function key is allowed" },
+        { "DK-26", "F11",      true,  "F11 is allowed — a separate window has its own shortcut map" },
+        { "DK-27", "Alt+D",    false, "Alt+letter is refused — the debugger's menu bar owns it" },
+        { "DK-28", "Alt+F5",   true,  "Alt + a function key is allowed" },
+        { "DK-29", "Ctrl+C",   false, "Ctrl+C is refused — the disassembly panel's Copy" },
+        { "DK-30", "Ctrl+A",   false, "Ctrl+A is refused — the disassembly panel's Select All" },
+    };
+    for (const Row& r : rows) {
+        const V v = V_(r.text);
+        // `parsed` is part of every condition on purpose: a row whose text
+        // stopped parsing would otherwise "pass" its refusal for the wrong
+        // reason.
+        check(r.id, r.desc, v.parsed && v.legal == r.want_legal,
+              std::string(r.text) + ": " + (v.legal ? "accepted" : "refused: " + v.why));
+    }
+
+    std::string why;
+    check("DK-31", "unbound is always a legal state",
+          validate_combo(Combo{}, why), why);
+}
+
+static void test_debug_keys_roundtrip(QTemporaryDir& dir) {
+    set_group("DK");
+    using namespace jnext::dbgkeys;
+
+    const QString path = fresh_ini_path(dir, "dk_roundtrip");
+    {
+        AppConfig cfg(path);
+        cfg.load();
+        Combo c; std::string why;
+        parse_combo("F10", c, why);   cfg.data().debug_keys.set(Action::StepOver, c);
+        parse_combo("F11", c, why);   cfg.data().debug_keys.set(Action::StepInto, c);
+        parse_combo("Ctrl+F10", c, why);
+        cfg.data().debug_keys.set(Action::RunToCursor, c);
+        cfg.save();
+    }
+
+    AppConfig reloaded(path);
+    reloaded.load();
+    const Keymap& km = reloaded.data().debug_keys;
+    check("DK-40", "a redefinition survives save -> load",
+          render_combo(km.combo(Action::StepOver)) == "F10"
+              && render_combo(km.combo(Action::StepInto)) == "F11",
+          render_combo(km.combo(Action::StepOver)) + "/"
+              + render_combo(km.combo(Action::StepInto)));
+
+    check("DK-41", "binding a default-unbound action survives too",
+          render_combo(km.combo(Action::RunToCursor)) == "Ctrl+F10",
+          render_combo(km.combo(Action::RunToCursor)));
+
+    check("DK-42", "the untouched actions are still at their defaults",
+          km.is_default(Action::Run) && km.is_default(Action::Pause)
+              && km.is_default(Action::TraceToggle),
+          render_combo(km.combo(Action::Run)));
+
+    check("DK-43", "a clean reload reports no problems",
+          reloaded.debug_key_issues().empty(),
+          std::to_string(reloaded.debug_key_issues().size()) + " issues");
+}
+
+static void test_debug_keys_only_redefinitions(QTemporaryDir& dir) {
+    set_group("DK");
+    using namespace jnext::dbgkeys;
+
+    // A file written with every action at its default must carry NO
+    // [debugger_keys] entry at all. That is what lets this project change a
+    // default later and have it reach a user who never overrode one.
+    const QString all_default = fresh_ini_path(dir, "dk_alldefault");
+    {
+        AppConfig cfg(all_default);
+        cfg.load();
+        cfg.save();
+    }
+    {
+        QSettings raw(all_default, QSettings::IniFormat);
+        raw.beginGroup("debugger_keys");
+        const QStringList keys = raw.childKeys();
+        raw.endGroup();
+        check("DK-50", "an all-default keymap writes no [debugger_keys] entries",
+              keys.isEmpty(), keys.join(QStringLiteral(",")).toStdString());
+    }
+
+    const QString one = fresh_ini_path(dir, "dk_one");
+    {
+        AppConfig cfg(one);
+        cfg.load();
+        Combo c; std::string why;
+        parse_combo("F10", c, why);
+        cfg.data().debug_keys.set(Action::StepOver, c);
+        cfg.save();
+    }
+    {
+        QSettings raw(one, QSettings::IniFormat);
+        raw.beginGroup("debugger_keys");
+        const QStringList keys = raw.childKeys();
+        const QString val = raw.value("step_over").toString();
+        raw.endGroup();
+        check("DK-51", "exactly the one redefined action is written",
+              keys.size() == 1 && keys.first() == QStringLiteral("step_over")
+                  && val == QStringLiteral("F10"),
+              keys.join(QStringLiteral(",")).toStdString() + " -> " + val.toStdString());
+    }
+
+    // Resetting it back must REMOVE the line, not leave a stale one. The group
+    // is cleared before each write for exactly this.
+    {
+        AppConfig cfg(one);
+        cfg.load();
+        cfg.data().debug_keys.reset(Action::StepOver);
+        cfg.save();
+    }
+    {
+        QSettings raw(one, QSettings::IniFormat);
+        raw.beginGroup("debugger_keys");
+        const QStringList keys = raw.childKeys();
+        raw.endGroup();
+        check("DK-52", "resetting an action removes its line from the file",
+              keys.isEmpty(), keys.join(QStringLiteral(",")).toStdString());
+    }
+
+    // reset_all() is the "Reset All to Defaults" button's whole implementation.
+    {
+        Keymap km;
+        Combo c; std::string why;
+        parse_combo("Ctrl+F12", c, why);
+        km.set(Action::Run, c);
+        km.set(Action::TraceExport, c);   // conflicting on purpose; reset clears both
+        km.reset_all();
+        bool all_def = true;
+        for (int i = 0; i < ACTION_COUNT; ++i)
+            if (!km.is_default(static_cast<Action>(i))) all_def = false;
+        check("DK-53", "reset_all() restores every action", all_def, "");
+    }
+}
+
+static void test_debug_keys_bad_entries(QTemporaryDir& dir) {
+    set_group("DK");
+    using namespace jnext::dbgkeys;
+
+    const QString path = fresh_ini_path(dir, "dk_bad");
+    {
+        QSettings raw(path, QSettings::IniFormat);
+        raw.beginGroup("debugger_keys");
+        raw.setValue("step_over",  "F13");        // unparseable
+        raw.setValue("step_out",   "K");          // parses, illegal as a binding
+        raw.setValue("step_ovr",   "F10");        // unknown action id (a typo)
+        raw.setValue("trace_toggle", "Ctrl+C");   // reserved
+        raw.endGroup();
+        raw.sync();
+    }
+
+    AppConfig cfg(path);
+    cfg.load();
+    const Keymap& km = cfg.data().debug_keys;
+    const auto& issues = cfg.debug_key_issues();
+
+    check("DK-60", "an unparseable value keeps the default",
+          render_combo(km.combo(Action::StepOver)) == "F7",
+          render_combo(km.combo(Action::StepOver)));
+    check("DK-61", "an illegal binding keeps the default",
+          render_combo(km.combo(Action::StepOut)) == "F8",
+          render_combo(km.combo(Action::StepOut)));
+    check("DK-62", "a reserved chord keeps the default",
+          render_combo(km.combo(Action::TraceToggle)) == "F2",
+          render_combo(km.combo(Action::TraceToggle)));
+
+    check("DK-63", "every bad entry is REPORTED, none swallowed",
+          issues.size() == 4, std::to_string(issues.size()) + " issues");
+
+    bool named_all = true;
+    std::string missing;
+    for (const char* id : {"step_over", "step_out", "step_ovr", "trace_toggle"}) {
+        bool found = false;
+        for (const auto& i : issues) if (i.action_id == id) found = true;
+        if (!found) { named_all = false; missing += std::string(id) + " "; }
+    }
+    check("DK-64", "each report names the entry it refused", named_all, missing);
+
+    // The unknown id is kept, not deleted: it may be a NEWER jnext's binding,
+    // and an older jnext must not be destructive. It is reported every load,
+    // which is what stops a real typo from hiding.
+    check("DK-65", "an unknown action id is preserved verbatim",
+          km.unknown_entries().size() == 1
+              && km.unknown_entries()[0].first == "step_ovr"
+              && km.unknown_entries()[0].second == "F10",
+          std::to_string(km.unknown_entries().size()));
+
+    cfg.save();
+    {
+        QSettings raw(path, QSettings::IniFormat);
+        raw.beginGroup("debugger_keys");
+        const QString kept = raw.value("step_ovr").toString();
+        const QStringList keys = raw.childKeys();
+        raw.endGroup();
+        check("DK-66", "a preserved unknown id is written back on save",
+              kept == QStringLiteral("F10"), kept.toStdString());
+        check("DK-67", "the refused entries are NOT written back as overrides",
+              !keys.contains(QStringLiteral("step_over"))
+                  && !keys.contains(QStringLiteral("step_out"))
+                  && !keys.contains(QStringLiteral("trace_toggle")),
+              keys.join(QStringLiteral(",")).toStdString());
+    }
+}
+
+static void test_debug_keys_conflicts() {
+    set_group("DK");
+    using namespace jnext::dbgkeys;
+
+    // Qt makes two identical sequences AMBIGUOUS and fires them round-robin, so
+    // a clash breaks BOTH bindings (GH #124). The UI refuses one outright; a
+    // hand-edited file is resolved here, deterministically and loudly.
+    {
+        std::vector<LoadIssue> issues;
+        // step_into asks for F5, which is run's DEFAULT: the explicit entry wins.
+        Keymap km = build_keymap({{"step_into", "F5"}}, issues);
+        check("DK-70", "an explicit override beats a colliding default",
+              render_combo(km.combo(Action::StepInto)) == "F5"
+                  && !km.combo(Action::Run).bound(),
+              render_combo(km.combo(Action::StepInto)) + "/"
+                  + render_combo(km.combo(Action::Run)));
+        check("DK-71", "the displaced action is left UNBOUND, not re-defaulted",
+              !km.combo(Action::Run).bound(), render_combo(km.combo(Action::Run)));
+        check("DK-72", "the collision is reported, naming both actions",
+              issues.size() == 1
+                  && issues[0].action_id == "run"
+                  && issues[0].reason.find("step_into") != std::string::npos,
+              issues.empty() ? "no issue" : issues[0].reason);
+    }
+    {
+        // Two explicit overrides on one chord: the earlier action wins.
+        std::vector<LoadIssue> issues;
+        Keymap km = build_keymap({{"step_over", "Ctrl+F1"}, {"step_out", "Ctrl+F1"}},
+                                 issues);
+        check("DK-73", "between two explicit overrides the earlier action wins",
+              render_combo(km.combo(Action::StepOver)) == "Ctrl+F1"
+                  && !km.combo(Action::StepOut).bound(),
+              render_combo(km.combo(Action::StepOver)) + "/"
+                  + render_combo(km.combo(Action::StepOut)));
+        check("DK-74", "that collision is reported too", issues.size() == 1,
+              std::to_string(issues.size()));
+    }
+    {
+        // A SWAP is not a conflict and must survive intact — the single most
+        // likely thing a user does with this feature.
+        std::vector<LoadIssue> issues;
+        Keymap km = build_keymap({{"step_into", "F7"}, {"step_over", "F6"}}, issues);
+        check("DK-75", "swapping two actions' keys is accepted with no complaint",
+              issues.empty()
+                  && render_combo(km.combo(Action::StepInto)) == "F7"
+                  && render_combo(km.combo(Action::StepOver)) == "F6",
+              std::to_string(issues.size()) + " issues");
+    }
+    {
+        // action_for() is what the Preferences tab asks before accepting a
+        // capture; unbound must never "match" the three unbound actions.
+        Keymap km;
+        check("DK-76", "action_for() finds the owner of a bound chord",
+              km.action_for(Combo{MOD_NONE, Key::F5}) != nullptr
+                  && km.action_for(Combo{MOD_NONE, Key::F5})->action == Action::Run,
+              "");
+        check("DK-77", "action_for() never matches an unbound combination",
+              km.action_for(Combo{}) == nullptr, "");
+        check("DK-78", "a default keymap has no conflicts at all",
+              find_conflicts(km).empty(),
+              std::to_string(find_conflicts(km).size()));
+    }
+}
+
 int main() {
     QTemporaryDir dir;
     if (!dir.isValid()) {
@@ -362,6 +801,13 @@ int main() {
     test_malformed_values(dir);
     test_merge_precedence();
     test_default_path();
+    test_debug_keys_defaults(dir);
+    test_debug_keys_grammar();
+    test_debug_keys_validation();
+    test_debug_keys_roundtrip(dir);
+    test_debug_keys_only_redefinitions(dir);
+    test_debug_keys_bad_entries(dir);
+    test_debug_keys_conflicts();
 
     std::printf("\n");
     for (const auto& r : g_results) {

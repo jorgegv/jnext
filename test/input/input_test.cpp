@@ -764,6 +764,70 @@ static void test_kbdhys() {
                      "(want folded, 1, bit3 set)",
                      row0_pre, row4_pre, stayed_cancelled ? 1 : 0, b0));
     }
+
+    // KBDHYS-06 (GH #268): the hysteresis lasts ONE MEMBRANE SCAN, not one
+    // video frame.
+    //
+    // The VHDL fixes the rate and says so in the same line that sets it:
+    //
+    //   CLK_28_MEMBRANE_EN <= clkdiv_8_7 and clkdiv_6_4 and clkdiv_3_0;
+    //      -- complete scan every 2.5 scanlines (0.018ms per row)
+    //                              (zxnext_top_issue2.vhd:1179, :1168-1170)
+    //
+    // — one enable per 2^9 CLK_28 cycles, nine of them per turn of the 9-state
+    // rotator (membrane.vhd:99-108) = 4608 master cycles, ~165 us. jnext drove
+    // tick_scan() ONCE PER FRAME instead, stretching the extra-scan hold to
+    // 20 ms, and that is observable and wrong: a SYMBOL SHIFT released at the
+    // end of one frame was still reported pressed throughout the NEXT one, so
+    // a tap of SYMBOL SHIFT followed by a tap of P one frame later decoded as
+    // SYM+P and typed `"` instead of PRINT (issue #268, reproduced end to end).
+    //
+    // KBDHYS-04 above CANNOT see this: it only ever reads at frame boundaries,
+    // where both cadences answer identically. The discriminator has to look
+    // INSIDE a frame, so this row steps instructions until several membrane
+    // scans have elapsed and re-reads. Under the old per-frame cadence the row
+    // still reads CS-pressed here; under the VHDL rate the hold has expired.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        emu.keyboard().set_key(sc_for(0, 0), true);    // Caps Shift down
+        emu.run_frame();                               // scans snapshot "pressed"
+        emu.keyboard().set_key(sc_for(0, 0), false);   // released between frames
+
+        // Still held by the extra-scan AND — this is the hysteresis working,
+        // and it is the same reading KBDHYS-04 takes.
+        const uint8_t held_now = emu.keyboard().read_rows(row_addr(0));
+
+        // Now advance ~8 scanlines INTO THE NEXT FRAME: 8 * 448 * 4 = 14336
+        // master cycles, over three complete 4608-cycle membrane scans, and
+        // about 2.5% of a frame. One scan is enough for the hold to expire;
+        // three removes any doubt about which side of a boundary a step landed
+        // on.
+        //
+        // debugger_step(), not execute_single_instruction(): the per-scanline
+        // events are scheduled by begin_new_frame() (schedule_frame_events(),
+        // emulator.cpp:8680) and all of the completed frame's have already
+        // fired, so the raw one-slot primitive would advance the clock with no
+        // SCANLINE event left to deliver. debugger_step() runs the frame loop
+        // (GH #207) and therefore begins the next frame.
+        int guard = 100000;
+        while (emu.current_scanline() < 8 && --guard > 0) emu.debugger_step();
+        const uint8_t after_scans = emu.keyboard().read_rows(row_addr(0));
+
+        check("KBDHYS-06",
+              "the CS/SYM extra-scan hold expires after one MEMBRANE SCAN "
+              "(4608 master cycles), not after a whole frame  "
+              "(zxnext_top_issue2.vhd:1179 'complete scan every 2.5 "
+              "scanlines'; membrane.vhd:99-108, :178)",
+              held_now == 0x1E && after_scans == 0x1F && guard > 0,
+              DETAIL("held=0x%02X after_8_lines=0x%02X guard=%d "
+                     "(want 0x1E, 0x1F, >0)",
+                     held_now, after_scans, guard));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════

@@ -48,6 +48,8 @@
 // ===========================================================================
 
 #include <QApplication>
+
+#include "debug/debug_keymap.h"
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -793,6 +795,67 @@ void test_when_slow_prefer_reaches_the_frontend()
 
 }  // namespace
 
+
+// ── PA-19: the debugger key bindings survive a dialog nobody touched ──────
+//
+// GH #1's wipe hazard, and the ONE row that covers it in a build with
+// ENABLE_DEBUGGER=OFF.
+//
+// PreferencesDialog::collect() builds a fresh AppConfigData, so any field it
+// does not read back is silently reset the moment the user presses OK. That is
+// not hypothetical: it is exactly what happened to the two ESP fields before
+// they had a page (GH #25), and `debug_keys` is the newest field of that shape.
+//
+// It is here rather than in debugger_keymap_test on purpose. That suite is
+// gated on ENABLE_DEBUGGER, so it cannot see the configuration where the
+// hazard is WORST: a Qt build with the debugger compiled out has no Debugger
+// Keys tab at all, so nothing in the dialog reads or writes the field and the
+// only thing keeping it is the pair of unconditional lines in the constructor
+// and in collect(). This suite is gated on ENABLE_QT_UI alone, so this row
+// runs in both configurations and pins the same promise in each.
+void test_debug_keymap_passthrough()
+{
+    AppConfigData initial;
+    jnext::dbgkeys::Combo custom;
+    std::string why;
+    parse_combo("Ctrl+F12", custom, why);
+    initial.debug_keys.set(jnext::dbgkeys::Action::StepOver, custom);
+    initial.debug_keys.add_unknown_entry("future_action", "Ctrl+F11");
+
+    PreferencesDialog untouched(initial);
+    AppConfigData passthrough;
+    bool emitted = false;
+    QObject::connect(&untouched, &PreferencesDialog::apply_requested,
+                     [&](const AppConfigData& cfg) { emitted = true; passthrough = cfg; });
+    auto* buttons = untouched.findChild<QDialogButtonBox*>();
+    if (buttons && buttons->button(QDialogButtonBox::Apply))
+        buttons->button(QDialogButtonBox::Apply)->click();
+
+    check("PA-19a", "an untouched dialog does NOT wipe a redefined debugger key",
+          emitted
+              && render_combo(passthrough.debug_keys.combo(jnext::dbgkeys::Action::StepOver))
+                     == "Ctrl+F12",
+          emitted ? render_combo(
+                        passthrough.debug_keys.combo(jnext::dbgkeys::Action::StepOver))
+                  : "nothing emitted");
+
+    // The preserved-unknown entries ride along too: they are the mechanism that
+    // stops an OLDER jnext deleting a NEWER one's binding, so a dialog that
+    // dropped them would reintroduce exactly that.
+    check("PA-19b", "and it does not drop the preserved unknown entries",
+          emitted && passthrough.debug_keys.unknown_entries().size() == 1
+              && passthrough.debug_keys.unknown_entries()[0].first == "future_action"
+              && passthrough.debug_keys.unknown_entries()[0].second == "Ctrl+F11",
+          std::to_string(passthrough.debug_keys.unknown_entries().size()) + " kept");
+
+    // The untouched dialog must leave EVERY action alone, not just the one the
+    // row above happens to read.
+    AppConfigData expected = initial;
+    check("PA-19c", "every other action is untouched as well",
+          emitted && passthrough.debug_keys == expected.debug_keys,
+          render_combo(passthrough.debug_keys.combo(jnext::dbgkeys::Action::Run)));
+}
+
 int main(int argc, char** argv)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -815,6 +878,7 @@ int main(int argc, char** argv)
     test_when_slow_prefer_reaches_the_frontend();
     test_quick_screenshot_controls();
     test_quick_screenshot_writes_a_file();
+    test_debug_keymap_passthrough();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

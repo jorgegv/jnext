@@ -3,6 +3,7 @@
 #include <QMainWindow>
 #include <QSettings>
 #include "debug/breakpoints.h"
+#include "debug/debug_keymap.h"
 #include "debugger/window_attach.h"
 
 class Emulator;
@@ -41,6 +42,15 @@ public:
 
     /// Save window position to QSettings (called before hide/close).
     void save_position();
+
+    /// GH #1 — install the user's debugger key bindings. Safe to call before
+    /// or after set_debugger_manager(), and safe to call again whenever
+    /// Preferences changes them: it re-derives every shortcut AND every
+    /// toolbar label from scratch, so a rebind can never leave a button
+    /// advertising a key that no longer works.
+    void set_keymap(const jnext::dbgkeys::Keymap& km);
+
+    const jnext::dbgkeys::Keymap& keymap() const { return keymap_; }
 
     /// Re-attach this window to the right-hand edge of the given main window.
     /// Honours the Window > "Attach to Emulator Window" toggle, stands down
@@ -97,6 +107,8 @@ private:
     void show_rewind_buffer_size_dialog();
     void update_trace_indicator();
     void update_rewind_ui();
+    /// GH #1 — push keymap_ onto the actions and the toolbar text.
+    void apply_keymap();
 
     Emulator* emulator_;
     DebuggerManager* debugger_mgr_ = nullptr;
@@ -160,6 +172,11 @@ private:
     QPushButton* trace_toggle_btn_ = nullptr;
     QAction* trace_enable_action_ = nullptr;
 
+    // GH #1 — the user's key bindings. Defaults until set_keymap() says
+    // otherwise, so a DebuggerWindow built without a config behaves exactly
+    // as it did before this existed.
+    jnext::dbgkeys::Keymap keymap_;
+
     // Menu bar actions (owned by this window)
     QAction* run_action_ = nullptr;
     QAction* pause_action_ = nullptr;
@@ -167,7 +184,32 @@ private:
     QAction* step_over_action_ = nullptr;
     QAction* step_out_action_ = nullptr;
     QAction* step_back_action_ = nullptr;
+    QAction* frame_back_action_ = nullptr;
+    QAction* run_to_eof_action_ = nullptr;
+    QAction* run_to_eosl_action_ = nullptr;
+    QAction* trace_export_action_ = nullptr;
+    /// GH #1 — "Run to Cursor" as a bindable window command. Deliberately NOT
+    /// in any menu: the disassembly panel's Enter key and its "Run to Here"
+    /// context entry are how it is discovered, and adding a menu item would
+    /// change the menu shape that debugger_accel_test pins. Unbound by
+    /// default, so it does nothing until the user binds it.
+    QAction* run_to_cursor_action_ = nullptr;
     QAction* rewind_enable_action_ = nullptr;
+
+    // GH #1 — toolbar buttons whose captions or tooltips quote a key. They are
+    // members because a rebind has to rewrite them; a button that still says
+    // "F5: Continue" after F5 stopped being Continue is a lie the user cannot
+    // see through.
+    QPushButton* export_trace_btn_ = nullptr;
+    QPushButton* continue_btn_     = nullptr;
+    QPushButton* frame_back_btn_   = nullptr;
+    QPushButton* step_back_btn_    = nullptr;
+    QPushButton* step_into_btn_    = nullptr;
+    QPushButton* step_over_btn_    = nullptr;
+    QPushButton* step_out_btn_     = nullptr;
+    QPushButton* run_to_eosl_btn_  = nullptr;
+    QPushButton* run_to_eof_btn_   = nullptr;
+    QPushButton* break_btn_        = nullptr;
 
     // Rewind toolbar (second bottom toolbar, shown when rewind buffer has data)
     QToolBar* rewind_toolbar_ = nullptr;

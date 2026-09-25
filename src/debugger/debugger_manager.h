@@ -5,6 +5,8 @@
 #include <QToolBar>
 #include <memory>
 
+#include "debug/debug_keymap.h"
+
 #include "debug/symbol_table.h"
 #include "debug/resume_guard.h"
 
@@ -46,6 +48,13 @@ public:
 
     /// Access the debugger window (may be null if not yet created).
     DebuggerWindow* debugger_window_ptr() const { return debugger_window_; }
+
+    /// GH #1 — the user's debugger key bindings. Held HERE rather than only
+    /// pushed at the window, because the window is created lazily: a rebind
+    /// made before the debugger has ever been opened would otherwise be lost,
+    /// and ensure_window() would build a window on the compiled-in defaults.
+    /// Applies immediately when a window already exists.
+    void set_keymap(const jnext::dbgkeys::Keymap& km);
 
     /// Access the symbol table.
     SymbolTable& symbol_table() { return symbol_table_; }
@@ -111,6 +120,7 @@ private:
 
     // The separate debugger window (created lazily on first enable)
     DebuggerWindow* debugger_window_ = nullptr;
+    jnext::dbgkeys::Keymap keymap_;      // GH #1
 
     // Enable/disable action (points to View menu's Debugger action)
     QAction* enable_action_ = nullptr;

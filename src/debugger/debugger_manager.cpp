@@ -164,12 +164,25 @@ bool DebuggerManager::set_enabled(bool enabled, bool prompt_on_corrupt) {
     return true;
 }
 
+void DebuggerManager::set_keymap(const jnext::dbgkeys::Keymap& km) {
+    keymap_ = km;
+    if (debugger_window_)
+        debugger_window_->set_keymap(km);
+}
+
 void DebuggerManager::ensure_window() {
     if (debugger_window_)
         return;
 
     debugger_window_ = new DebuggerWindow(emulator_, nullptr);
     debugger_window_->set_debugger_manager(this);
+    // GH #1 — BEFORE anything else touches the window. The window is created
+    // lazily (the first time the debugger is enabled, from the menu, a magic
+    // breakpoint or anywhere else), so a rebind made while it did not exist
+    // has to be applied here or it is silently lost. Measured, not reasoned
+    // about: rebinding and then opening the debugger for the first time left
+    // the toolbar on the old keys.
+    debugger_window_->set_keymap(keymap_);
 
     // Closing the debugger window disables the debugger.
     connect(debugger_window_, &DebuggerWindow::window_closed, this, [this]() {

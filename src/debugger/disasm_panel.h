@@ -35,11 +35,19 @@ public:
     ///
     /// This is the caret, not the selection: after a drag or a Shift-click the
     /// caret sits at the end the cursor moved to, and the selection spans back
-    /// to its anchor (`selection_range()`). Nothing in the product calls this
-    /// today — Enter and the context menu's "Run to Here" both read the line
-    /// they act on directly — so read it as "where the caret is", not as a
-    /// promise about what Run to Cursor is wired to.
+    /// to its anchor (`selection_range()`).
+    ///
+    /// GH #1 made this load-bearing: the bindable "Run to Cursor" action reads
+    /// it (via run_to_selected()). Enter and the context menu's "Run to Here"
+    /// still read the line they act on directly, because they already know it.
     uint16_t selected_address() const;
+
+    /// GH #1 — "Run to Cursor" as a WINDOW command, for the bindable action.
+    /// Emits run_to_requested() for selected_address(), so it goes through the
+    /// exact same path as Enter and the context menu, corruption gate included.
+    /// With no caret, selected_address() is the PC, so this runs a full lap —
+    /// the same thing "Run to Here" on the current line has always done.
+    void run_to_selected();
 
     /// Activate "Follow PC" mode (called when Break or Step is used).
     void activate_follow_pc();

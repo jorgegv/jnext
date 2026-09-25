@@ -540,6 +540,13 @@ public:
     /// cannot be rejected as overlong.
     static constexpr std::size_t MAX_COMMAND_LEN = 512;
 
+    /// `AT+CIPDOMAIN`'s documented limit: the NONOS AT instruction set §5.2.2
+    /// says the domain name's "length should be less than 64 bytes", so 64 is
+    /// the first length REFUSED. Enforced before the name reaches the resolver
+    /// — a host string is the one guest-supplied value on this path that leaves
+    /// the module, so its bound is checked where it enters.
+    static constexpr std::size_t MAX_DOMAIN_NAME = 64;
+
     /// Bytes read from the socket per `recv` attempt, and the cap on attempts
     /// per `poll()` — together they bound one frame's socket work at 64 KB.
     static constexpr std::size_t RECV_CHUNK    = 1024;
@@ -596,6 +603,25 @@ public:
     static constexpr const char* UNASSOCIATED_IP = "0.0.0.0";
     static constexpr const char* GATEWAY_IP = "192.168.1.1";
     static constexpr const char* NETMASK    = "255.255.255.0";
+    /// The synthetic AP as `AT+CWLAP` reports it (GH #154). Deliberately the
+    /// SAME channel, RSSI and BSSID `AT+CWJAP?` already answers: a guest that
+    /// scans and then asks what it is joined to must not be told two stories.
+    /// `<ecn>` 3 is WPA2_PSK — the only value consistent with a network that
+    /// takes a password, which is what `AT+CWJAP` accepts.
+    static constexpr int AP_ECN     = 3;
+    static constexpr int AP_CHANNEL = 1;
+    static constexpr int AP_RSSI    = -55;
+
+    /// Power-on Wi-Fi mode: 1 = station. The module is a station and nothing
+    /// else, so this is both the default and the only mode with a station in it
+    /// besides 3.
+    static constexpr int DEFAULT_CWMODE = 1;
+    static constexpr int CWMODE_SOFTAP_ONLY = 2;
+
+    /// The UART frame `AT+UART_CUR?` reports before the guest sets one. A real
+    /// module powers up at 115200,8,1,0,0 and jnext advertises the same.
+    static constexpr std::uint32_t DEFAULT_UART_BAUD = 115200;
+
     static constexpr const char* DNS1       = "192.168.1.1";
     static constexpr const char* DNS2       = "8.8.8.8";
 
@@ -611,7 +637,13 @@ public:
     /// client already handles. So "this build cannot listen" and "this port
     /// could not be bound" look identical to the guest, deliberately — neither
     /// tells it anything it can act on differently.
-    explicit AtEngine(EspTransport& transport, EspListener* listener = nullptr);
+    /// `listener` and `resolver` are both OPTIONAL, and a host that passes
+    /// null for one simply cannot use the commands that need it — `AT+CIPSERVER`
+    /// and `AT+CIPDOMAIN` answer `ERROR`, which is what they answered before
+    /// either existed. That keeps every consumer that only wants outbound TCP
+    /// on a one-argument constructor.
+    explicit AtEngine(EspTransport& transport, EspListener* listener = nullptr,
+                      EspResolver* resolver = nullptr);
 
     // ── EspDevice ─────────────────────────────────────────────
 
@@ -655,6 +687,19 @@ public:
     /// (`send`/`recv`/`close`), and mutates engine state throughout — so a
     /// threaded host must serialise this against `receive()` and `tick()`.
     void service_transports();
+
+    /// Service an `AT+CIPDOMAIN` in flight (GH #154). PUBLIC for the same
+    /// reason the two above are: `ThreadedEsp`'s worker does NOT call `poll()`,
+    /// it calls the halves directly so that `advance_transports()` can run
+    /// UNLOCKED. A hook added only to `poll()` is therefore invisible to every
+    /// threaded consumer — which is exactly what happened when this one was
+    /// written, and what no unit row could catch, because they all drive the
+    /// passive core.
+    ///
+    /// Belongs with `service_transports()`, under the core lock: it queues a
+    /// reply. The resolver's own `poll()` is a non-blocking flag test, so
+    /// holding the lock across it costs nothing.
+    void service_domain_lookup();
 
     /// Emulated-time service: frame `+IPD` when the wire is quiet and release
     /// guest-bound bytes at one per `ticks_per_byte`.
@@ -898,6 +943,71 @@ private:
     void cmd_cipsta(const std::string& args);
     void cmd_cifsr(const std::string& args);
     void cmd_cipdns(const std::string& args);
+    // GH #154 — the Wi-Fi configuration category and the query forms.
+    void cmd_cwmode(const std::string& args);
+    void cmd_cwmode_query(const std::string& args);
+    void cmd_cwjap_set(const std::string& args);
+    void cmd_cwlap(const std::string& args);
+    void cmd_cwqap(const std::string& args);
+    void cmd_cipmux_query(const std::string& args);
+    void cmd_uart_query(const std::string& args);
+    void cmd_uart_query_cur(const std::string& args);
+    void cmd_uart_query_def(const std::string& args);
+    /// Emit one `+UART*:<baud>,<db>,<sb>,<parity>,<flow>` reply under the
+    /// spelling the guest asked for.
+    void queue_uart_query(const char* prefix);
+    void cmd_cipserver_query(const std::string& args);
+    void cmd_cipmode(const std::string& args);
+    void cmd_cipmode_query(const std::string& args);
+    void cmd_cipstatus(const std::string& args);
+    void cmd_cipdomain(const std::string& args);
+    /// Service an `AT+CIPDOMAIN` in flight. Called from `poll()`, never from
+    /// dispatch — the answer is not knowable when the command arrives.
+    /// Emit `AT+CIPDOMAIN`'s reply and let the guest's queued input through.
+    void finish_domain(bool ok);
+    /// Feed back whatever the guest typed while an answer was outstanding.
+    /// Shared by the connect path and the lookup path, and it re-checks BOTH
+    /// gates because a deferred line may itself be another deferring command.
+    void replay_deferred();
+
+    /// Does the station have an ADDRESS TO REPORT right now? All three gates.
+    /// This is what `AT+CIFSR` and `AT+CIPSTATUS` answer from — see
+    /// `associated_`.
+    bool station_has_ip() const {
+        return associated_ && station_enabled_by_guest();
+    }
+
+    /// Has the GUEST asked for a station at all? `joined_` and `cwmode_` only —
+    /// deliberately NOT `associated_`.
+    ///
+    /// THE OMISSION IS THE WHOLE POINT, and it is GH #246's boundary rather
+    /// than an oversight. A host-scheduled outage changes the address REPORT
+    /// and nothing else: design-doc §16.3 says so, the user guide promises it
+    /// in as many words ("Connections already open keep running, new ones still
+    /// open"), and `ASSOC-13` pins it. So `AT+CIPSTART` gates on this, not on
+    /// `station_has_ip()` — an outage must not start refusing connections, or
+    /// jnext would invent traffic behaviour nobody has measured.
+    ///
+    /// What the guest turned off with `AT+CWQAP` or `AT+CWMODE=2` is different:
+    /// it asked for no station, so there is nothing to connect from.
+    bool station_enabled_by_guest() const {
+        return joined_ && cwmode_ != CWMODE_SOFTAP_ONLY;
+    }
+
+    /// THE JOIN POLICY, in one place on purpose (GH #154).
+    ///
+    /// jnext's network is synthetic, so there is no real sense in which a given
+    /// SSID is reachable or not. Every join therefore succeeds, whatever the
+    /// guest names. The ZX Spectrum Next's own shipped WiFi instructions tell
+    /// the user to type their REAL network's name, so an implementation that
+    /// only accepted `JNextWifiHost` would fail the exact documented workflow
+    /// this command exists for — the one SSID guaranteed not to be typed.
+    ///
+    /// If failure injection is ever wanted it belongs HERE and on a host-side
+    /// flag, like the existing `--esp-delayed-disassociate-frames` outage: a
+    /// failure a TEST schedules, never one a guest can trip by spelling its own
+    /// network's name correctly.
+    static bool join_accepted(const std::string& /*ssid*/) { return true; }
 
     /// Shared by `AT+CIPSEND` and `AT+CIPSENDEX` — see simplification (3).
     void begin_send(const std::string& args, const char* name);
@@ -1001,6 +1111,18 @@ private:
     /// configuration and a security decision (design doc §13.4).
     EspListener* listener_ = nullptr;
 
+    /// GH #154 — `AT+CIPDOMAIN`. Null unless the host supplied one.
+    EspResolver* resolver_ = nullptr;
+
+    /// True from the moment `AT+CIPDOMAIN` is dispatched until its reply is
+    /// queued. It is the SECOND command in this surface whose answer does not
+    /// come from its own dispatch, and it therefore needs everything the first
+    /// one needed: input deferral (so nothing is answered out of order) and a
+    /// deadline (so a resolver that never answers cannot hang a guest that
+    /// busy-waits with no timeout of its own).
+    bool                      domain_pending_ = false;
+    std::chrono::steady_clock::time_point domain_deadline_{};
+
     /// `AT+CIPMUX`. FALSE at power-on and after `AT+RST`, and that default is
     /// load-bearing rather than arbitrary: nextsync never sends the command and
     /// cannot survive the multiplexed `+IPD` form.
@@ -1031,7 +1153,53 @@ private:
 
     /// GH #246 — see `associated()`. Survives `AT+RST` because the guest is
     /// not what took the network away.
+    ///
+    /// THREE INDEPENDENT THINGS GATE THE STATION ADDRESS (GH #154), and keeping
+    /// them apart is what stops the guest and the host fighting over one flag:
+    ///   * `associated_` — THE HOST's radio state. `--esp-delayed-disassociate-frames`
+    ///     drives it and no AT command may, or a guest could cancel a scheduled
+    ///     outage a test had just arranged.
+    ///   * `joined_`     — THE GUEST's association. `AT+CWQAP` clears it,
+    ///     `AT+CWJAP=` sets it.
+    ///   * `cwmode_`     — whether a station exists at all. Mode 2 is SoftAP-only.
+    /// `station_has_ip()` is the one place they combine.
     bool                      associated_ = true;
+
+    /// GH #154. The guest's own association, distinct from `associated_` above.
+    /// Powers on true: the module comes up joined to its synthetic AP, which is
+    /// what every pre-#154 session saw and must keep seeing.
+    bool                      joined_ = true;
+
+    /// GH #154. `AT+CWMODE`. Goes back to `DEFAULT_CWMODE` on `AT+RST`, with
+    /// `joined_` and `ssid_`, because THIS MODULE HAS NO FLASH.
+    ///
+    /// THAT IS A STATED DEVIATION FROM 1.x, not an oversight. On real NONOS-AT
+    /// the BARE `AT+CWMODE` carries `_DEF` semantics — its dispatch entry binds
+    /// `at_setupCmdCwmodeDef`, verified from `libat.a`'s decoded `at_fun[]` —
+    /// so a mode set with the bare spelling really does survive a reset on
+    /// hardware. jnext resets it because `AT+RST`'s fixed reply announces
+    /// `WIFI CONNECTED` / `WIFI GOT IP`, and that reply is a LIE if a
+    /// SoftAP-only mode outlives the reset. Choosing between a persisted mode
+    /// and an honest reset banner, the banner wins: three guest parsers wait on
+    /// it, and none of them can ask what mode the module came back in. That is the
+    /// same rule `echo_`, `cipmux_` and `server_timeout_` already follow, and
+    /// it is the rule the `_CUR`/`_DEF` decision settled: jnext persists
+    /// nothing, so nothing guest-set survives a restart. Only `associated_` and
+    /// `sta_ip_` outlive a reset, and those are the HOST's, not the guest's.
+    int                       cwmode_ = DEFAULT_CWMODE;
+
+    /// GH #154. The SSID the guest last asked to join, reported back by
+    /// `AT+CWJAP?`. Echoing the guest's OWN string leaks nothing about the host
+    /// (§8.3 forbids harvesting; it does not forbid repeating).
+    std::string               ssid_ = SSID;
+
+    /// GH #154. The rest of the `AT+UART*` frame, for the query form. The baud
+    /// is not duplicated here — the query reads `requested_baud_`, falling back
+    /// to `DEFAULT_UART_BAUD` when the guest has never set one.
+    int                       uart_databits_ = 8;
+    int                       uart_stopbits_ = 1;
+    int                       uart_parity_   = 0;
+    int                       uart_flow_     = 0;
 
     /// GH #246 — see `station_ip()`. Survives `AT+RST` for the same reason a
     /// real module's does: it is configuration, not session state.

@@ -44,7 +44,14 @@ Three layers apply before that row-select AND, in this order:
 
 1. **Shift hysteresis.** `membrane.vhd:178` holds the Caps-Shift and
    Symbol-Shift column state for one extra scan, which delays a release.
-   `tick_scan()` advances the two-entry history once per frame.
+   `tick_scan()` advances the two-entry history once per **membrane scan** —
+   4608 master cycles, which the VHDL annotates as "complete scan every 2.5
+   scanlines" (`zxnext_top_issue2.vhd:1179`) — driven from
+   `Emulator::on_scanline()` by a cycle accumulator. It used to run once per
+   video frame, which stretched a 165 µs hold to 20 ms and left a released
+   Symbol Shift contaminating the *next* frame's keystroke: a tap of Symbol
+   Shift followed by a tap of `P` typed `"` instead of `PRINT` (issue #268).
+   The rate is part of the spec, not an implementation detail.
 2. **The extended-key fold**, described below.
 3. **The `MembraneStick` fold**, also below, matching
    `keyb_col <= keyb_col_i_q AND membrane_stick_col AND ps2_kbd_col`.
@@ -143,15 +150,36 @@ in the machine-side class, plus a stated policy.
   delta, re-centre, or ignore the echo of its own warp. SDL does not use it,
   because its relative mode does the equivalent natively.
 
-- **`host_key_latch.h`** (also `src/platform/`) is a minimum-hold latch, and it
-  exists because of the frame boundary. Host key events are delivered *between*
-  `run_frame()` calls, so the matrix is sampled once per emulated frame, and a
-  press plus its release arriving in the same gap would be invisible to the
-  guest. The latch defers such a release until a frame has actually run. Its
-  header is explicit that this is **not** hardware equivalence: real hardware
-  scans at pixel-clock rate and merges nothing, so two very rapid taps
-  collapsing into one is a documented residual limitation rather than a
-  fidelity claim.
+- **`host_key_latch.h`** (also `src/platform/`) holds two policies, and both
+  exist because of the frame boundary. Host key events are delivered *between*
+  `run_frame()` calls, so the matrix is sampled once per emulated frame.
+
+  `Latch` is the **minimum-hold** half (issue #120): a press plus its release
+  arriving in the same gap would be invisible to the guest, so the latch defers
+  such a release until a frame has actually run.
+
+  `Router` is the **serialiser** (issue #268), and it is the half that decides
+  when a *press* may land. Holding a press was never enough on its own: the
+  next key pressed while the first one's release was still deferred used to be
+  asserted on top of it, so the frame sampled a two-key chord the host never
+  had. `KEY-SCAN` rejects a two-key chord, so both characters vanished — and a
+  tap of Symbol Shift followed by a tap of `P` decoded as Symbol-Shift + `P`,
+  producing the *wrong* character rather than none. The router therefore queues
+  host events and applies a press only when the queue is empty, no release is
+  deferred, and no non-modifier press is still waiting for a frame. The SDL
+  modifier block 224..231 — the two ZX shifts and host Alt — never arms that
+  last condition, which is what keeps a genuine shift-plus-key chord in a
+  single frame; what separates "shift held as a modifier" from "shift tapped on
+  its own" is the host's own key-up event and nothing else. Autorepeat presses
+  are dropped rather than queued, because SDL forwards them and Qt does not.
+
+  Real hardware has neither problem — it scans at membrane rate and merges
+  nothing — so neither policy is a fidelity claim about the Next; both are
+  compensation for jnext delivering host input once per frame. One residue is
+  deliberately left: two taps of the *same* key inside one gap still reach the
+  guest as one continuous press, since separating them needs a released frame
+  between the presses, which halves the drain rate for a case no human hand can
+  produce.
 
 - **`phantom_typist.{h,cpp}`** types `LOAD ""` for you. Loading a tape on a
   real Spectrum starts with the user typing it and pressing ENTER — or, on a

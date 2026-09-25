@@ -3,6 +3,7 @@
 #include "input/joystick_dispatcher.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "platform/host_key_latch.h"
 #include "save/state_desc.h"
 #include "save/state_desc_bin.h"
 
@@ -46,6 +47,39 @@ const char* const kAutoKeys[16][5] = {
 
 }  // namespace
 #include <cstring>
+
+// ---------------------------------------------------------------------------
+// Pin the SDL scancode constants that platform/host_key_latch.h hard-codes.
+//
+// That header is deliberately SDL-free so its suite builds with no SDL, no Qt
+// and no emulator core, which means the numbers in it are copies. This file is
+// compiled in EVERY configuration and does include SDL, so it is where the
+// copies are proved right — a renumbered or reordered SDL modifier block would
+// otherwise silently turn CAPS SHIFT / SYMBOL SHIFT into ordinary keystrokes
+// and break every shifted character (issue #268), with no test able to see it.
+// ---------------------------------------------------------------------------
+static_assert(host_key_latch::MAX_KEYS == SDL_SCANCODE_COUNT,
+              "host_key_latch::MAX_KEYS must match SDL_SCANCODE_COUNT");
+static_assert(host_key_latch::MOD_FIRST == SDL_SCANCODE_LCTRL,
+              "host_key_latch modifier block must start at SDL_SCANCODE_LCTRL");
+static_assert(host_key_latch::MOD_LAST == SDL_SCANCODE_RGUI,
+              "host_key_latch modifier block must end at SDL_SCANCODE_RGUI");
+// The block must be contiguous AND must contain exactly the eight keys the
+// serialiser treats as companions — the two ZX shifts above all else.
+static_assert(host_key_latch::is_modifier(SDL_SCANCODE_LSHIFT) &&
+              host_key_latch::is_modifier(SDL_SCANCODE_RSHIFT),
+              "CAPS SHIFT must be a serialiser modifier");
+static_assert(host_key_latch::is_modifier(SDL_SCANCODE_LCTRL) &&
+              host_key_latch::is_modifier(SDL_SCANCODE_RCTRL),
+              "SYMBOL SHIFT must be a serialiser modifier");
+static_assert(host_key_latch::is_modifier(SDL_SCANCODE_LALT) &&
+              host_key_latch::is_modifier(SDL_SCANCODE_RALT),
+              "the host Alt modifier must be a serialiser modifier");
+static_assert(!host_key_latch::is_modifier(SDL_SCANCODE_P) &&
+              !host_key_latch::is_modifier(SDL_SCANCODE_SPACE) &&
+              !host_key_latch::is_modifier(SDL_SCANCODE_RETURN) &&
+              !host_key_latch::is_modifier(SDL_SCANCODE_DOWN),
+              "ordinary ZX keys must NOT be serialiser modifiers");
 
 // ---------------------------------------------------------------------------
 // Scancode → (row, col) lookup table

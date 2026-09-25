@@ -179,6 +179,7 @@ BEGIN {
     M["debugger_window_size_test"]     = "Debugger Window Sizing"
     M["debugger_window_grow_test"]     = "Debugger Window Growing"
     M["debugger_accel_test"]           = "Debugger Accelerators"
+    M["debugger_keymap_test"]          = "Debugger Key Bindings"
     M["debugger_menu_test"]            = "Debugger Menus"
     M["rzx_menu_test"]                 = "RZX Menus"
     M["debugger_disasm_copy_test"]     = "Debugger Disasm Copy"

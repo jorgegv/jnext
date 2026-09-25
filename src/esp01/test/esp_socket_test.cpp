@@ -495,6 +495,15 @@ bool never(const std::string&, std::vector<IpAddress>&, std::string& err) {
     return false;
 }
 
+/// Reports SUCCESS and fills NOTHING — a contract violation a consumer really
+/// can make (a proxy resolver that finds no records but returns true). Without
+/// its own guard the module would treat "ok, here are zero addresses" as a
+/// successful lookup and then read an empty list.
+bool empty_but_ok(const std::string&, std::vector<IpAddress>&, std::string&) {
+    entered.fetch_add(1);
+    return true;
+}
+
 /// Appends an address and THEN throws, which is the nastier half of the
 /// contract: the module has to both survive the exception and discard the
 /// half-produced list. The address appended is a perfectly connectable one
@@ -2019,6 +2028,128 @@ int main() {
             for (const char* id : {"LSN-19", "LSN-20"})
                 skip(id, "this host has no RFC1918 address to test the boundary against");
         }
+    }
+
+    // ══ SocketResolver — the standalone lookup behind AT+CIPDOMAIN (GH #154) ══
+    //
+    // It shares `launch_resolve` with the transport, so the thread-lifetime
+    // properties the ASYNC rows above prove are not re-proved here. What IS
+    // proved here is everything the sharing does NOT give for free: the policy
+    // verdict on an address nobody dials, the literal fast path, one-at-a-time,
+    // and that a lookup can be abandoned mid-flight.
+    {
+        {   auto r = make_socket_resolver(kDefault);
+            check("RSLV-01", "a fresh resolver is Idle and holds no error",
+                  r->state() == ResolveState::Idle && r->last_error().empty()); }
+
+        {   auto r = make_socket_resolver(kDefault);
+            const bool refused = r->begin("");
+            check("RSLV-02", "an empty host is REFUSED outright, leaving the state untouched",
+                  !refused && r->state() == ResolveState::Idle); }
+
+        {   fake_dns::literal_leak.store(false);
+            auto r = make_socket_resolver(loopback_ok(), fake_dns::never);
+            const bool ok = r->begin("127.0.0.1");
+            r->poll();
+            check("RSLV-03",
+                  "an IP literal resolves synchronously, and the injected resolver is never "
+                  "consulted for one",
+                  ok && r->state() == ResolveState::Done && !fake_dns::literal_leak.load() &&
+                      to_string(r->address()) == "127.0.0.1"); }
+
+        {   // THE LAUNDERING GUARD. Without the policy on this path, a guest
+            // could ask AT+CIPDOMAIN for an address the transport would refuse
+            // to dial and get it handed straight back.
+            auto r = make_socket_resolver(kDefault);  // loopback DENIED
+            r->begin("127.0.0.1");
+            r->poll();
+            check("RSLV-04",
+                  "a literal the policy denies FAILS rather than being echoed back — the "
+                  "command cannot launder a refused address",
+                  r->state() == ResolveState::Failed &&
+                      r->denial_reason() != DenyReason::None); }
+
+        {   fake_dns::gate.store(true);
+            auto r = make_socket_resolver(kDefault, fake_dns::gated);  // answers 127.0.0.1
+            r->begin("points-at-loopback.test");
+            const bool settled = wait_until(
+                [&] { r->poll(); return r->state() != ResolveState::Resolving; }, 4000);
+            check("RSLV-05",
+                  "a NAME that resolves to a denied address is refused on the address, not "
+                  "on the name",
+                  settled && r->state() == ResolveState::Failed &&
+                      r->denial_reason() != DenyReason::None); }
+
+        {   fake_dns::gate.store(true);
+            fake_dns::off_thread.store(false);
+            auto r = make_socket_resolver(loopback_ok(), fake_dns::gated);
+            r->begin("allowed.test");
+            const bool settled = wait_until(
+                [&] { r->poll(); return r->state() != ResolveState::Resolving; }, 4000);
+            check("RSLV-06", "an allowed name reaches Done carrying the resolved address",
+                  settled && r->state() == ResolveState::Done &&
+                      to_string(r->address()) == "127.0.0.1");
+            check("RSLV-07", "...and the lookup really ran off the calling thread",
+                  fake_dns::off_thread.load()); }
+
+        {   fake_dns::gate.store(false);
+            auto       r      = make_socket_resolver(loopback_ok(), fake_dns::gated);
+            const bool first  = r->begin("one.test");
+            const bool second = r->begin("two.test");
+            check("RSLV-08",
+                  "a second begin() while one is in flight is refused, so an answer can "
+                  "never be silently replaced",
+                  first && !second && r->state() == ResolveState::Resolving);
+            fake_dns::gate.store(true); }
+
+        {   auto r = make_socket_resolver(loopback_ok(), fake_dns::throws_after_appending);
+            r->begin("throws.test");
+            const bool settled = wait_until(
+                [&] { r->poll(); return r->state() != ResolveState::Resolving; }, 4000);
+            check("RSLV-09",
+                  "a resolver that throws AFTER appending an address fails the lookup and "
+                  "adopts nothing",
+                  settled && r->state() == ResolveState::Failed); }
+
+        {   fake_dns::gate.store(true);
+            auto r = make_socket_resolver(loopback_ok(), fake_dns::gated);
+            r->begin("reset.test");
+            wait_until([&] { r->poll(); return r->state() != ResolveState::Resolving; }, 4000);
+            r->reset();
+            check("RSLV-10", "reset() returns it to Idle and drops the result",
+                  r->state() == ResolveState::Idle && r->last_error().empty()); }
+
+        {   auto r = make_socket_resolver(loopback_ok(), fake_dns::empty_but_ok);
+            r->begin("no-records.test");
+            const bool settled = wait_until(
+                [&] { r->poll(); return r->state() != ResolveState::Resolving; }, 4000);
+            check("RSLV-12",
+                  "a resolver that says SUCCESS but returns no addresses is a FAILED "
+                  "lookup, not a success with nothing in it",
+                  settled && r->state() == ResolveState::Failed); }
+
+        {   // THE LIFETIME PROPERTY, from this side. The gate is held SHUT, so
+            // a lookup is provably parked in the resolver function when the
+            // object is destroyed; destruction must not wait for it.
+            fake_dns::gate.store(false);
+            const int entered0   = fake_dns::entered.load();
+            long      destroy_ms = -1;
+            {
+                auto r = make_socket_resolver(loopback_ok(), fake_dns::gated);
+                r->begin("abandoned.test");
+                const bool in_flight = wait_until(
+                    [&] { return fake_dns::entered.load() > entered0; }, 2000);
+                check("RSLV-11a", "the lookup is genuinely in flight before we destroy it",
+                      in_flight);
+                const auto t0 = std::chrono::steady_clock::now();
+                r.reset();  // destroy mid-lookup
+                destroy_ms = since_ms(t0);
+            }
+            check("RSLV-11",
+                  "destroying a resolver mid-lookup returns immediately — one shared_ptr "
+                  "dropped, no join, nothing to wait for",
+                  destroy_ms >= 0 && destroy_ms < 100);
+            fake_dns::gate.store(true); }
     }
 
     std::printf("\n======================================================\n");

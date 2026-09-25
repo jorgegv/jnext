@@ -350,6 +350,97 @@ int main() {
               gated.begin_connect("anything.test", 1, Protocol::Tcp, 0) && tr->begin_calls == 1 &&
                   gated.refusals() == 0);
     }
+    // ─────────────────────────────────────────────────────────────────────
+    // RGATE — EspGatedResolver (GH #154). The same allowlist, over
+    // AT+CIPDOMAIN. An ungated resolver would hand the guest the address of
+    // every host it may not dial, which is a smaller leak than a connection
+    // and still the leak `--esp-allow` exists to prevent.
+    // ─────────────────────────────────────────────────────────────────────
+    {
+        /// Records whether it was reached at all, which is the assertion that
+        /// matters: a blocked lookup must never touch the real resolver.
+        struct ScriptedResolver final : esp::EspResolver {
+            bool begin(const std::string& host) override {
+                ++begins;
+                last_host = host;
+                state_    = esp::ResolveState::Done;
+                return true;
+            }
+            void poll() override {}
+            esp::ResolveState     state() const override         { return state_; }
+            const esp::IpAddress& address() const override       { return addr_; }
+            const std::string&    last_error() const override    { return err_; }
+            esp::DenyReason       denial_reason() const override { return esp::DenyReason::None; }
+            void reset() override { state_ = esp::ResolveState::Idle; }
+
+            int               begins = 0;
+            std::string       last_host;
+            esp::ResolveState state_ = esp::ResolveState::Idle;
+            esp::IpAddress    addr_{};
+            std::string       err_;
+        };
+
+        auto  raw = std::make_unique<ScriptedResolver>();
+        auto* rs  = raw.get();
+        EspHostPolicy policy;
+        policy.add("allowed.test");
+        EspConnectionLog log;
+        EspGatedResolver gated{std::move(raw), policy, log};
+
+        check("RGATE-01", "an allowed host reaches the wrapped resolver",
+              gated.begin("allowed.test") && rs->begins == 1 &&
+                  rs->last_host == "allowed.test");
+
+        const bool accepted = gated.begin("evil.test");
+        check("RGATE-02", "a refused host NEVER reaches the wrapped resolver",
+              rs->begins == 1);
+        check("RGATE-03",
+              "a refusal is ACCEPTED-then-FAILED, not rejected — returning false would "
+              "answer a bare ERROR where a real miss answers DNS Fail + ERROR, and that "
+              "difference is an allowlist oracle",
+              accepted && gated.state() == esp::ResolveState::Failed);
+        check("RGATE-04", "a refusal is recorded as an event naming the host",
+              log.sequence() == 1 && log.snapshot().back().kind == EspEvent::Kind::Refused &&
+                  log.snapshot().back().host == "evil.test");
+        check("RGATE-05", "a refusal is counted", gated.refusals() == 1);
+        check("RGATE-06", "a blocked lookup reports no ADDRESS-policy reason — the host "
+              "list is not an address verdict",
+              gated.denial_reason() == esp::DenyReason::None);
+        check("RGATE-07", "...and it does carry an error for the operator's log",
+              !gated.last_error().empty());
+
+        gated.reset();
+        // THE CONTRACT IS "BACK TO IDLE", and asserting only that the next
+        // lookup works would not have held the gate to it: `begin()` clears
+        // the block itself, so a `reset()` that forgot to would still let the
+        // next call through while leaving `state()` stuck on Failed in
+        // between. Mutation testing found exactly that hole.
+        check("RGATE-08", "reset() really returns it to Idle, as EspResolver promises",
+              gated.state() == esp::ResolveState::Idle);
+        check("RGATE-08b", "...and the next lookup is then judged afresh",
+              gated.begin("allowed.test") && rs->begins == 2);
+    }
+    {
+        struct NullResolver final : esp::EspResolver {
+            bool begin(const std::string&) override { ++begins; return true; }
+            void poll() override {}
+            esp::ResolveState     state() const override         { return esp::ResolveState::Idle; }
+            const esp::IpAddress& address() const override       { return addr_; }
+            const std::string&    last_error() const override    { return err_; }
+            esp::DenyReason       denial_reason() const override { return esp::DenyReason::None; }
+            void reset() override {}
+            int            begins = 0;
+            esp::IpAddress addr_{};
+            std::string    err_;
+        };
+        auto  raw = std::make_unique<NullResolver>();
+        auto* rs  = raw.get();
+        EspConnectionLog log;
+        EspGatedResolver gated{std::move(raw), EspHostPolicy{}, log};
+        check("RGATE-09", "an empty allowlist forwards every name, exactly as it does for "
+              "connections",
+              gated.begin("anything.test") && rs->begins == 1 && gated.refusals() == 0);
+    }
     {
         // GH #198. UDP would be a way straight round `--esp-allow` if the gate
         // had been written as a TCP gate, so both directions are pinned: a name

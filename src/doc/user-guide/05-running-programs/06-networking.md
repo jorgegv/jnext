@@ -350,13 +350,59 @@ mean a test that only measures the invention. What *has* been measured is a
 program listening for connections on a real Next surviving a five-minute outage
 without noticing.
 
+## Setting up the Wi-Fi by hand
+
+The ZX Spectrum Next's own WiFi documentation walks you through bringing the
+module online from a terminal, and that whole session works:
+
+| Command | What jnext answers |
+|---|---|
+| `AT+CWMODE?` | the current mode — `1`, station, at power-on |
+| `AT+CWMODE=1` | `OK`. Mode `3` (station + access point) also works |
+| `AT+CWLAP` | one access point: jnext's own `JNextWifiHost` |
+| `AT+CWJAP="yournetwork","yourpassword"` | `WIFI CONNECTED`, `WIFI GOT IP`, `OK` |
+| `AT+CIFSR` | the station address, `192.168.1.50` by default |
+| `AT+CWQAP` | `WIFI DISCONNECT`, and the address goes away |
+
+**Any network name is accepted.** jnext's Wi-Fi is synthetic — nothing routes
+through it, and your real connection is the host machine's — so there is no
+password to get wrong and no network that is out of range. Type whatever your
+program or your notes expect.
+
+`AT+CWMODE=2` is access-point-only, which on real hardware means the module
+stops being a station. jnext models that: after it, `AT+CIFSR` reports
+`0.0.0.0` and a connection attempt fails, until you set mode `1` or `3` again.
+
+`AT+CIPSTATUS` lists the connections that are open right now, including any a
+program is serving, which is the companion to closing one by number with
+`AT+CIPCLOSE=<id>`.
+
+`AT+CIPDOMAIN="somewhere.example"` looks a name up **without connecting to it**
+and answers `+CIPDOMAIN:<address>`. It answers only for a host a connection
+would have been allowed to reach, and it needs a station for the same reason a
+connection does — after `AT+CWMODE=2` or `AT+CWQAP` there is no access point to
+ask, so it answers `ERROR`.
+
+If you restricted the guest with `--esp-allow`, or if the name points at an
+address jnext blocks anyway (your own machine, a cloud metadata service), the
+lookup answers `DNS Fail` and `ERROR` — the same reply it gives a name that does
+not exist, so a program cannot use it to map what is being blocked. The run's
+own log says which of the two it was.
+
 ## What is not emulated yet
 
-The command set is the one **evidenced** in software that actually runs on a
-Next, so a couple of things a physical ESP-01 can do are not built:
+The command set covers the Next's own documented setup session and everything
+evidenced in software that actually runs on a Next. Beyond that:
 
-- **transparent mode** (`AT+CIPMODE`);
-- **TLS**, so a program cannot make an `https` request.
+- **transparent mode** (`AT+CIPMODE=1`), where the module stops interpreting AT
+  commands and every byte becomes data. `AT+CIPMODE=0` — asking to stay in the
+  normal mode jnext is always in — does work;
+- **TLS**, so a program cannot make an `https` request;
+- **being an access point** — `AT+CWMODE=2` records that the station is gone,
+  but nothing can connect *to* jnext over Wi-Fi. A program that wants to be
+  connected to should listen with `AT+CIPSERVER` instead;
+- **saving settings** — `AT+UART_DEF` behaves like `AT+UART_CUR`, and nothing a
+  program configures survives an `AT+RST`.
 
 UDP **is** emulated, including `AT+CIPSTART="UDP",…` with its optional local
 port. That is what `newt` needs to set the clock from an internet time server,

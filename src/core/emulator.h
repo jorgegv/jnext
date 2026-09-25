@@ -79,6 +79,7 @@ namespace jnext { namespace save { class StateDesc; } }
 namespace esp {
 class EspTransport;
 class EspListener;
+class EspResolver;
 class ThreadedEsp;
 }  // namespace esp
 class EspUartAdapter;
@@ -1309,14 +1310,18 @@ private:
     //                                  call it again.
     //   esp_device_     dies SECOND -> ~ThreadedEsp JOINS the worker, so no
     //                                  thread survives into anything below.
-    //   esp_listener_   dies THIRD  -> the wrapper drove it too (GH #210), so
+    //   esp_resolver_   dies THIRD  -> the wrapper drove it too (GH #154); a
+    //                                  DNS lookup is socket work, so it has the
+    //                                  same obligation as the other two.
+    //   esp_listener_   dies FOURTH -> the wrapper drove it too (GH #210), so
     //                                  it carries the transport's obligation:
     //                                  outlive the thing that polls it.
-    //   esp_transport_  dies FOURTH -> the transport outlived the wrapper that
+    //   esp_transport_  dies FIFTH  -> the transport outlived the wrapper that
     //                                  was driving it, as esp_threaded.h
     //                                  requires.
-    //   esp_events_     dies FIFTH  -> the transport wrote into it from the
-    //                                  worker; it must outlive both.
+    //   esp_events_     dies LAST   -> the transport AND the resolver wrote
+    //                                  into it from the worker; it must outlive
+    //                                  all of them.
     //
     // ...and ALL of them die before `uart_`, which is declared above, so the
     // RxSink capturing `&uart_` can never be called against a dead UART.
@@ -1341,6 +1346,9 @@ private:
     /// GH #210. Null when the configured listen address would not parse, which
     /// makes `AT+CIPSERVER` answer ERROR — see setup_esp().
     std::unique_ptr<esp::EspListener>   esp_listener_;
+    /// GH #154. Always built when the ESP is enabled; `AT+CIPDOMAIN` answers
+    /// ERROR without it. Gated by the SAME `--esp-allow` list as the transport.
+    std::unique_ptr<esp::EspResolver>   esp_resolver_;
     std::unique_ptr<esp::ThreadedEsp>   esp_device_;
     std::unique_ptr<EspUartAdapter>     esp_adapter_;
     /// One-shot latch for esp_note_transport_fault(); see its header comment.
@@ -1506,6 +1514,27 @@ private:
 
     /// Logical frame counter — incremented each run_frame(); saved in snapshots.
     uint32_t frame_num_   = 0;
+
+    /// One complete membrane scan, in 28 MHz master cycles: nine
+    /// CLK_28_MEMBRANE_EN pulses of 2^9 cycles each (zxnext_top_issue2.vhd:1179
+    /// with :1168-1170, and the 9-state rotator at membrane.vhd:99-108). The
+    /// VHDL annotates the same number as "complete scan every 2.5 scanlines
+    /// (0.018ms per row)". Drives Keyboard::tick_scan() from on_scanline();
+    /// see GH #268 there.
+    static constexpr uint32_t MEMBRANE_SCAN_CYCLES = 9u * 512u;   // 4608
+
+    /// Master cycles accumulated towards the next membrane scan. Sub-scan
+    /// PHASE only, and deliberately not snapshotted.
+    ///
+    /// The state it drives IS snapshotted: `Keyboard::save_state` /
+    /// `load_state` round-trip `shift_hist_` (`w.write_bytes(shift_hist_, 2)`
+    /// / `r.read_bytes(shift_hist_, 2)`, keyboard.cpp:639 and :670,
+    /// pre-existing), so the hysteresis buffer itself survives a rewind or a
+    /// save/load intact. This counter is the only part that does not, and all
+    /// it can do is put the next scan boundary somewhere else inside one
+    /// 4608-cycle window — at most ~165 us of hysteresis phase, and the
+    /// buffer it would advance is already correct.
+    uint32_t membrane_scan_accum_ = 0;
 
     /// When true, snapshot-taking is active (independent of buffer allocation).
     bool rewind_enabled_ = false;
