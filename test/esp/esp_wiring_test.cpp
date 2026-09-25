@@ -475,6 +475,51 @@ int main() {
               gated.begin("allowed.test") && ps->begins == 2);
     }
     {
+        // ── SGATE — EspGatedSntp (GH #154, owner Q7) ────────────────────
+        // An NTP server is a host like any other, so --esp-allow governs it.
+        struct ScriptedSntp final : esp::EspSntpClient {
+            bool begin(const std::string& sv) override {
+                ++begins;
+                last = sv;
+                state_ = esp::SntpState::Done;
+                return true;
+            }
+            void poll() override {}
+            esp::SntpState     state() const override      { return state_; }
+            std::int64_t       unix_time() const override   { return 1470322085LL; }
+            const std::string& last_error() const override  { return err_; }
+            void reset() override { state_ = esp::SntpState::Idle; }
+            int            begins = 0;
+            std::string    last;
+            esp::SntpState state_ = esp::SntpState::Idle;
+            std::string    err_;
+        };
+        auto  raw = std::make_unique<ScriptedSntp>();
+        auto* sc  = raw.get();
+        EspHostPolicy policy;
+        policy.add("allowed.ntp.test");
+        EspConnectionLog log;
+        EspGatedSntp gated{std::move(raw), policy, log};
+
+        check("SGATE-01", "an allowed server reaches the wrapped client",
+              gated.begin("allowed.ntp.test") && sc->begins == 1);
+        const bool accepted = gated.begin("evil.ntp.test");
+        check("SGATE-02", "a refused server NEVER reaches the wrapped client", sc->begins == 1);
+        check("SGATE-03",
+              "a refusal is ACCEPTED-then-FAILED, which is what makes it indistinguishable "
+              "from a server that did not answer: the engine renders both as the epoch",
+              accepted && gated.state() == esp::SntpState::Failed);
+        check("SGATE-04", "a refusal is recorded as an event naming the server",
+              log.sequence() == 1 && log.snapshot().back().kind == EspEvent::Kind::Refused &&
+                  log.snapshot().back().host == "evil.ntp.test");
+        check("SGATE-05", "a refusal is counted", gated.refusals() == 1);
+        gated.reset();
+        check("SGATE-06", "reset() returns it to Idle, as EspSntpClient promises",
+              gated.state() == esp::SntpState::Idle);
+        check("SGATE-07", "...so the next query is judged afresh",
+              gated.begin("allowed.ntp.test") && sc->begins == 2);
+    }
+    {
         struct NullPinger final : esp::EspPinger {
             bool begin(const std::string&) override { ++begins; return true; }
             void poll() override {}

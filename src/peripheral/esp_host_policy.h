@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esp01/esp_ping.h"
+#include "esp01/esp_sntp.h"
 #include "esp01/esp_socket.h"
 
 #include <cstddef>
@@ -320,6 +321,36 @@ private:
     bool                            blocked_ = false;
     std::string                     refused_error_;
     std::uint64_t                   refusals_ = 0;
+};
+
+/// And once more for SNTP (GH #154, owner Q7).
+///
+/// An NTP server is a host like any other, so `--esp-allow` governs which one
+/// the guest may query. The refusal needs no special shape here: a blocked
+/// server and an unreachable one both end as `Failed`, and the engine answers
+/// BOTH with the epoch — so the guest cannot tell them apart, which is the same
+/// anti-oracle property the rest of this surface has, arrived at for free.
+class EspGatedSntp final : public esp::EspSntpClient {
+public:
+    EspGatedSntp(std::unique_ptr<esp::EspSntpClient> inner, EspHostPolicy policy,
+                 EspConnectionLog& log);
+
+    bool               begin(const std::string& server) override;
+    void               poll() override;
+    esp::SntpState     state() const override;
+    std::int64_t       unix_time() const override;
+    const std::string& last_error() const override;
+    void               reset() override;
+
+    std::uint64_t refusals() const { return refusals_; }
+
+private:
+    std::unique_ptr<esp::EspSntpClient> inner_;
+    EspHostPolicy                       policy_;
+    EspConnectionLog&                   log_;
+    bool                                blocked_ = false;
+    std::string                         refused_error_;
+    std::uint64_t                       refusals_ = 0;
 };
 
 // ---------------------------------------------------------------------------

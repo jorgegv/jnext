@@ -81,6 +81,7 @@ class EspTransport;
 class EspListener;
 class EspResolver;
 class EspPinger;
+class EspSntpClient;
 class ThreadedEsp;
 }  // namespace esp
 class EspUartAdapter;
@@ -1353,6 +1354,8 @@ private:
     /// GH #154 (owner Q6). Always built when the ESP is enabled; `AT+PING`
     /// answers `+timeout`/`ERROR` without a usable platform `ping`.
     std::unique_ptr<esp::EspPinger>     esp_pinger_;
+    /// GH #154 (owner Q7). Always built when the ESP is enabled.
+    std::unique_ptr<esp::EspSntpClient> esp_sntp_;
     std::unique_ptr<esp::ThreadedEsp>   esp_device_;
     std::unique_ptr<EspUartAdapter>     esp_adapter_;
     /// One-shot latch for esp_note_transport_fault(); see its header comment.

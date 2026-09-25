@@ -60,6 +60,7 @@
 #include "esp01/esp_at.h"
 #include "esp01/esp_log.h"
 #include "esp01/esp_ping.h"
+#include "esp01/esp_sntp.h"
 #include "esp01/esp_socket.h"
 
 #include <arpa/inet.h>
@@ -2268,6 +2269,106 @@ int main() {
                       p->last_error().find("IPv4") != std::string::npos);
         }
     
+    }
+
+    // ══ the REAL SNTP client, for what happens before the socket ════════
+    //
+    // Same reasoning as PICMP: the command surface is covered by a fake in
+    // `esp_at_test`, and what a fake cannot prove is that the REAL client
+    // applies the address policy. That half is deterministic — the policy
+    // refuses before any datagram is sent, and an IP literal needs no DNS — so
+    // these rows touch no network. The exchange itself is left unasserted for
+    // the same reason the echo is: it would be an environment dependency.
+    {
+        auto c = make_udp_sntp_client(kDefault);      // loopback DENIED
+        const bool accepted = c->begin("127.0.0.1");
+        const bool settled  = wait_until(
+            [&] { c->poll(); return c->state() != SntpState::Querying; }, 4000);
+        // ASSERTS THE REASON, NOT THE OUTCOME. Skipping the policy check does
+        // not make this succeed — it sends to an unset address, which fails
+        // too — so `Failed` alone cannot tell the two apart. Mutation testing
+        // caught exactly that: `if (false)` on the policy left every row green
+        // until this row looked at WHY it failed. The same trap as PICMP-05.
+        check("SNTPR-01",
+              "a server the address policy denies FAILS *on the policy*, without a datagram "
+              "being sent — an NTP server is not an exception to the rule the rest of this "
+              "surface follows",
+              accepted && settled && c->state() == SntpState::Failed &&
+                  c->last_error().find("policy") != std::string::npos);
+    }
+    {
+        auto c = make_udp_sntp_client(kDefault);
+        check("SNTPR-02", "an implausible server name is refused outright",
+              !c->begin("a;rm -rf b") && !c->begin("") && c->state() == SntpState::Idle);
+    }
+
+    // ══ SNTP's two pure pieces (GH #154, owner Q7) ══════════════════════
+    //
+    // THE EPOCH CONVERSION AND THE DATE FORMATTING ARE WHERE THIS COMMAND CAN
+    // BE SILENTLY WRONG — an off-by-70-years, a leap year, a timezone applied
+    // the wrong way round. Both are pure functions so both can be asserted
+    // exactly, with no socket and no clock. The expected strings were checked
+    // against `date -u -d @<t>` independently of the implementation, and one
+    // of them is the manual's own worked example.
+    {
+        std::int64_t u = 0;
+        // §5.2.29's example: `+CIPSNTPTIME:Thu Aug 04 14:48:05 2016`.
+        // 2016-08-04 14:48:05 UTC = unix 1470322085 = NTP 3679310885.
+        const bool ok = ntp_to_unix(3679310885u, u);
+        check("NTPC-01", "the NTP epoch offset is applied exactly (2 208 988 800 s)",
+              ok && u == 1470322085LL);
+        check("NTPC-02",
+              "and it formats to the string the 1.x manual's own example gives",
+              format_sntp_time(u, 0) == "Thu Aug 04 14:48:05 2016");
+
+        std::int64_t z = 0;
+        check("NTPC-03",
+              "a ZERO timestamp means 'unsynchronised' and is REFUSED, not turned into 1900",
+              !ntp_to_unix(0, z));
+        check("NTPC-04", "a pre-1970 timestamp is refused too", !ntp_to_unix(1, z));
+        std::int64_t big = 0;
+        check("NTPC-05", "the largest NTP second still converts",
+              ntp_to_unix(0xFFFFFFFFu, big) && big == 0xFFFFFFFFLL - 2208988800LL);
+
+        // TIMEZONE, both directions and both documented bounds. §5.2.28 gives
+        // the range as [-11,13], so these are the edges a guest may set.
+        check("SNTP-01", "a positive timezone moves the clock forward",
+              format_sntp_time(1470322085LL, 8) == "Thu Aug 04 22:48:05 2016");
+        check("SNTP-02", "a negative one moves it back, across a day boundary",
+              format_sntp_time(1470322085LL, -11) == "Thu Aug 04 03:48:05 2016");
+        check("SNTP-03", "+13 crosses into the next day and the weekday follows",
+              format_sntp_time(1470322085LL, 13) == "Fri Aug 05 03:48:05 2016");
+
+        // CALENDAR EDGES. A hand-rolled civil-date conversion is exactly where
+        // a leap year goes wrong, so the cases are asserted rather than
+        // assumed. All three were cross-checked with `date -u`.
+        check("SNTP-04", "the Unix epoch itself formats as a Thursday",
+              format_sntp_time(0, 0) == "Thu Jan 01 00:00:00 1970");
+        check("SNTP-05", "a leap day is a real day, not the 1st of March",
+              format_sntp_time(1709208000LL, 0) == "Thu Feb 29 12:00:00 2024");
+        check("SNTP-06", "and the arithmetic survives past the 32-bit time_t wrap",
+              format_sntp_time(2147483647LL, 0) == "Tue Jan 19 03:14:07 2038");
+        // THE CENTURY RULE, and it needs a date past 2100 to bite. A leap year
+        // is `%4 && (!%100 || %400)`; the naive `%4` agrees with it for every
+        // year between 1970 and 2099, so 2024 (the row above) cannot tell them
+        // apart. 2100 is the first divergence — divisible by 4, NOT a leap
+        // year — and mutation testing proved the point: replacing the rule
+        // with a bare `%4` left every other row green.
+        check("SNTP-08", "2100 is NOT a leap year, so 1 March falls where it should",
+              format_sntp_time(4107542400LL, 0) == "Mon Mar 01 00:00:00 2100");
+        check("SNTP-09", "...and February 2100 has 28 days, not 29",
+              format_sntp_time(4107499200LL, 0) == "Sun Feb 28 12:00:00 2100");
+        // THE RULE IS TESTED TWICE BECAUSE IT IS WRITTEN TWICE — once to size
+        // the YEAR in the year-skipping loop, once to size FEBRUARY in the
+        // month loop. Mutation testing caught that distinction: breaking the
+        // month one fails SNTP-08/09, breaking the year one does NOT, because a
+        // date inside 2100 exits the year loop before the year's length
+        // matters. A date PAST 2100 is what sees it — under a naive `%4` rule
+        // 2100 would absorb an extra day and this would render as 2100-12-31.
+        check("SNTP-10", "a date after 2100 is not shifted by a phantom leap day",
+              format_sntp_time(4133980800LL, 0) == "Sat Jan 01 00:00:00 2101");
+        check("SNTP-07", "a negative result is clamped rather than wrapping",
+              format_sntp_time(0, -11) == "Thu Jan 01 00:00:00 1970");
     }
 
     std::printf("\n======================================================\n");

@@ -21,6 +21,7 @@ add_library(esp01 STATIC
     src/esp_log.cpp
     src/esp_socket.cpp
     src/esp_ping.cpp
+    src/esp_sntp.cpp
     src/esp_socket_posix.cpp
     src/esp_socket_win.cpp
     src/esp_address_policy.cpp

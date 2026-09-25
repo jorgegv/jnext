@@ -157,6 +157,7 @@ public:
     /// carries the same obligation — **it must outlive this wrapper**.
     explicit ThreadedEsp(EspTransport& transport, EspListener* listener = nullptr,
                          EspResolver* resolver = nullptr, EspPinger* pinger = nullptr,
+                         EspSntpClient*            sntp          = nullptr,
                          std::chrono::milliseconds poll_interval = DEFAULT_POLL_INTERVAL);
     ~ThreadedEsp() override;
 

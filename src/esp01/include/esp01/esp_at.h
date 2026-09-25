@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esp01/esp_ping.h"
+#include "esp01/esp_sntp.h"
 #include "esp01/esp_socket.h"
 
 #include <array>
@@ -644,7 +645,8 @@ public:
     /// either existed. That keeps every consumer that only wants outbound TCP
     /// on a one-argument constructor.
     explicit AtEngine(EspTransport& transport, EspListener* listener = nullptr,
-                      EspResolver* resolver = nullptr, EspPinger* pinger = nullptr);
+                      EspResolver* resolver = nullptr, EspPinger* pinger = nullptr,
+                      EspSntpClient* sntp = nullptr);
 
     // ── EspDevice ─────────────────────────────────────────────
 
@@ -708,6 +710,11 @@ public:
     /// threaded consumer — which is every real one. That cost a whole review
     /// cycle once, and the mistake is not repeated here.
     void service_ping();
+
+    /// Service an `AT+CIPSNTPTIME?` in flight (GH #154 Q7). PUBLIC for the
+    /// reason the two above are, and PWORK-01 is the row that proves it: the
+    /// threaded worker calls these halves directly, never `poll()`.
+    void service_sntp();
 
     /// Emulated-time service: frame `+IPD` when the wire is quiet and release
     /// guest-bound bytes at one per `ticks_per_byte`.
@@ -970,6 +977,10 @@ private:
     void cmd_cipstatus(const std::string& args);
     void cmd_cipdomain(const std::string& args);
     void cmd_ping(const std::string& args);
+    void cmd_cipsntpcfg(const std::string& args);
+    void cmd_cipsntpcfg_query(const std::string& args);
+    void cmd_cipsntptime_query(const std::string& args);
+    void finish_sntp(bool ok);
     void finish_ping(bool ok);
     /// Service an `AT+CIPDOMAIN` in flight. Called from `poll()`, never from
     /// dispatch — the answer is not knowable when the command arrives.
@@ -1126,6 +1137,22 @@ private:
 
     /// GH #154 (owner Q6) — `AT+PING`. Null unless the host supplied one.
     EspPinger* pinger_ = nullptr;
+
+    /// GH #154 (owner Q7) — SNTP. Null unless the host supplied one.
+    EspSntpClient* sntp_ = nullptr;
+
+    /// `AT+CIPSNTPCFG` state. The three server slots and the timezone are the
+    /// command's own parameters; the defaults are the ones the 1.x manual
+    /// names (§5.2.28) so a guest that enables SNTP without naming a server
+    /// gets what hardware would give it.
+    bool        sntp_enable_   = false;
+    int         sntp_timezone_ = 0;
+    std::string sntp_servers_[3] = {"cn.ntp.org.cn", "ntp.sjtu.edu.cn", "us.pool.ntp.org"};
+
+    /// True from `AT+CIPSNTPTIME?`'s dispatch until its reply is queued. The
+    /// FOURTH deferred command.
+    bool                                  sntp_pending_ = false;
+    std::chrono::steady_clock::time_point sntp_deadline_{};
 
     /// True from `AT+PING`'s dispatch until its reply is queued. The THIRD
     /// deferred command; everything the first two needed, it needs.

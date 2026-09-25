@@ -309,6 +309,50 @@ void EspGatedPinger::reset() {
     inner_->reset();
 }
 
+// ---------------------------------------------------------------------------
+// EspGatedSntp (GH #154, owner Q7)
+// ---------------------------------------------------------------------------
+
+EspGatedSntp::EspGatedSntp(std::unique_ptr<esp::EspSntpClient> inner, EspHostPolicy policy,
+                           EspConnectionLog& log)
+    : inner_(std::move(inner)), policy_(std::move(policy)), log_(log) {}
+
+bool EspGatedSntp::begin(const std::string& server) {
+    blocked_ = false;
+    refused_error_.clear();
+    if (!policy_.allows(server)) {
+        ++refusals_;
+        blocked_       = true;
+        refused_error_ = "host is not in the --esp-allow list";
+        Log::esp01()->warn("REFUSED SNTP query to '{}' — host is not in the --esp-allow list",
+                           server);
+        log_.push({EspEvent::Kind::Refused, server, 0, "not in the allowlist"});
+        return true;  // accepted-then-failed, as elsewhere on this surface
+    }
+    return inner_->begin(server);
+}
+
+void EspGatedSntp::poll() {
+    if (blocked_) return;
+    inner_->poll();
+}
+
+esp::SntpState EspGatedSntp::state() const {
+    return blocked_ ? esp::SntpState::Failed : inner_->state();
+}
+
+std::int64_t EspGatedSntp::unix_time() const { return inner_->unix_time(); }
+
+const std::string& EspGatedSntp::last_error() const {
+    return blocked_ ? refused_error_ : inner_->last_error();
+}
+
+void EspGatedSntp::reset() {
+    blocked_ = false;
+    refused_error_.clear();
+    inner_->reset();
+}
+
 void EspGatedResolver::reset() {
     blocked_ = false;
     refused_error_.clear();

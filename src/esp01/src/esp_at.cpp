@@ -4,6 +4,8 @@
 
 #include "esp01/esp_at.h"
 
+#include <cstdlib>
+
 #include "esp01/esp_log.h"
 
 #include <algorithm>
@@ -169,6 +171,9 @@ const AtEngine::CommandEntry AtEngine::kCommands[] = {
     {"AT+CIPSTATUS",   false, &AtEngine::cmd_cipstatus},
     {"AT+CIPDOMAIN=",  true,  &AtEngine::cmd_cipdomain},
     {"AT+PING=",       true,  &AtEngine::cmd_ping},
+    {"AT+CIPSNTPCFG?", false, &AtEngine::cmd_cipsntpcfg_query},
+    {"AT+CIPSNTPCFG=", true,  &AtEngine::cmd_cipsntpcfg},
+    {"AT+CIPSNTPTIME?", false, &AtEngine::cmd_cipsntptime_query},
     {"AT+UART_CUR?",   false, &AtEngine::cmd_uart_query_cur},
     {"AT+UART_DEF?",   false, &AtEngine::cmd_uart_query_def},
     {"AT+UART?",       false, &AtEngine::cmd_uart_query},
@@ -176,8 +181,8 @@ const AtEngine::CommandEntry AtEngine::kCommands[] = {
 const std::size_t AtEngine::kCommandCount = sizeof(kCommands) / sizeof(kCommands[0]);
 
 AtEngine::AtEngine(EspTransport& transport, EspListener* listener, EspResolver* resolver,
-                   EspPinger* pinger)
-    : listener_(listener), resolver_(resolver), pinger_(pinger) {
+                   EspPinger* pinger, EspSntpClient* sntp)
+    : listener_(listener), resolver_(resolver), pinger_(pinger), sntp_(sntp) {
     // Slot 0 borrows the host's transport — `owned=false`, so clearing the slot
     // can never free an object the host still holds. Slots 1..4 start empty and
     // are filled with OWNED transports by `accept_connections()`, which is what
@@ -188,7 +193,7 @@ AtEngine::AtEngine(EspTransport& transport, EspListener* listener, EspResolver* 
 // ─── Guest TX -> engine ───────────────────────────────────────────────
 
 void AtEngine::receive(std::uint8_t byte) {
-    if (conn_[SINGLE_CID].connecting || domain_pending_ || ping_pending_) {
+    if (conn_[SINGLE_CID].connecting || domain_pending_ || ping_pending_ || sntp_pending_) {
         // A connect is in flight and its OK/ERROR has not been decided yet.
         // Real firmware answers `busy p...`, which is on the never-emit list,
         // so instead the input waits: nothing is lost and nothing is answered
@@ -1349,6 +1354,150 @@ void AtEngine::finish_ping(bool ok) {
     refresh_tick_gate();
 }
 
+// ─── SNTP (GH #154, owner decision on Q7) ─────────────────────────────
+//
+// `AT+CIPSNTPCFG` / `AT+CIPSNTPTIME?` per the 1.x manual §5.2.28-29. The owner
+// asked for a REAL query — "configuring the server and querying the real NTP
+// server" — so `AT+CIPSNTPTIME?` sends an actual SNTP request rather than
+// answering from a clock jnext already has.
+//
+// THAT DIVERGES FROM `--rtc`, DELIBERATELY. `--rtc` pins the emulated RTC so
+// boot screenshots are deterministic; SNTP answers wall-clock regardless,
+// because that is what a time server returns. The two clocks disagree on
+// purpose. It is documented in design doc §21 and in the user guide, and no
+// regression row screenshots an SNTP-derived date — which is the practical
+// consequence and the reason to say it out loud rather than leave it to be
+// found in a flaky screenshot.
+
+void AtEngine::cmd_cipsntpcfg(const std::string& args) {
+    std::string   rest = args;
+    std::uint32_t enable = 0;
+    if (!parse_uint(take_field(rest), 1, enable)) {
+        log_debug("AT+CIPSNTPCFG enable \"{}\" unparseable — answering ERROR", escape(args));
+        queue_error();
+        return;
+    }
+
+    // `<timezone>` is optional in the grammar but REQUIRED when enabling —
+    // "if SNTP is enabled, the <timezone> has to be set" (§5.2.28).
+    int timezone = sntp_timezone_;
+    if (!rest.empty() && rest.front() != '"') {
+        const std::string tz_text = take_field(rest);
+        // Signed, so `parse_uint` cannot do it: the range is [-11,13].
+        char*             end = nullptr;
+        const long        v   = std::strtol(tz_text.c_str(), &end, 10);
+        if (tz_text.empty() || end == tz_text.c_str() || *end != '\0' || v < -11 || v > 13) {
+            log_debug("AT+CIPSNTPCFG timezone \"{}\" out of range [-11,13] — answering ERROR",
+                      escape(tz_text));
+            queue_error();
+            return;
+        }
+        timezone = static_cast<int>(v);
+    } else if (enable) {
+        log_debug("AT+CIPSNTPCFG=1 with no timezone — answering ERROR");
+        queue_error();
+        return;
+    }
+
+    // Up to three optional quoted servers. A malformed one is an ERROR rather
+    // than a silently ignored argument: a guest that named a server and was not
+    // told it was rejected would query a different one than it asked for.
+    std::string servers[3];
+    int         given = 0;
+    while (!rest.empty() && given < 3) {
+        std::string one;
+        if (!take_quoted(rest, one) || one.empty() || !plausible_ping_host(one)) {
+            log_debug("AT+CIPSNTPCFG server \"{}\" is not a usable host — answering ERROR",
+                      escape(rest));
+            queue_error();
+            return;
+        }
+        servers[given++] = one;
+    }
+    if (!rest.empty()) {
+        log_debug("AT+CIPSNTPCFG has trailing arguments — answering ERROR");
+        queue_error();
+        return;
+    }
+
+    sntp_enable_   = enable != 0;
+    sntp_timezone_ = timezone;
+    for (int i = 0; i < given; ++i) sntp_servers_[i] = servers[i];
+    log_debug("AT+CIPSNTPCFG enable={} timezone={} server='{}'", sntp_enable_, sntp_timezone_,
+              sntp_servers_[0]);
+    queue_ok();
+}
+
+void AtEngine::cmd_cipsntpcfg_query(const std::string&) {
+    // `+CIPSNTPCFG:<enable>,<timezone>,<server1>[,<server2>,<server3>]`
+    std::string out = "\r\n+CIPSNTPCFG:" + std::string(sntp_enable_ ? "1" : "0") + "," +
+                      std::to_string(sntp_timezone_);
+    for (const std::string& sv : sntp_servers_) {
+        if (!sv.empty()) out += ",\"" + sv + "\"";
+    }
+    queue(out + "\r\n\r\nOK\r\n");
+}
+
+void AtEngine::cmd_cipsntptime_query(const std::string&) {
+    if (sntp_pending_) {
+        log_debug("AT+CIPSNTPTIME? while a query is in flight — answering ERROR");
+        queue_error();
+        return;
+    }
+    // DISABLED, OR NO CLIENT WIRED: answer the epoch rather than ERROR. The
+    // manual does not say what an unsynchronised module returns, so this is
+    // INFERRED rather than cited — but it is how the command is used, a guest
+    // polls it until the year looks sane, and a module that has never synced
+    // genuinely has no time. `ERROR` would be a defensible alternative; the
+    // epoch keeps a polling loop working, which `ERROR` would not.
+    if (!sntp_enable_ || !sntp_ || !station_enabled_by_guest()) {
+        queue("\r\n+CIPSNTPTIME:" + format_sntp_time(0, sntp_timezone_) + "\r\n\r\nOK\r\n");
+        return;
+    }
+    if (!sntp_->begin(sntp_servers_[0])) {
+        queue("\r\n+CIPSNTPTIME:" + format_sntp_time(0, sntp_timezone_) + "\r\n\r\nOK\r\n");
+        return;
+    }
+    sntp_pending_  = true;
+    sntp_deadline_ = now() + connect_timeout_;
+    log_debug("AT+CIPSNTPTIME? querying '{}'", sntp_servers_[0]);
+    refresh_tick_gate();
+}
+
+void AtEngine::service_sntp() {
+    if (!sntp_pending_ || !sntp_) return;
+    sntp_->poll();
+    switch (sntp_->state()) {
+        case SntpState::Querying:
+            if (now() >= sntp_deadline_) {
+                log_warn("AT+CIPSNTPTIME? timed out after {} ms", connect_timeout_.count());
+                sntp_->reset();
+                finish_sntp(false);
+            }
+            return;
+        case SntpState::Done:   finish_sntp(true);  return;
+        case SntpState::Failed:
+            log_debug("AT+CIPSNTPTIME? failed: {}", sntp_->last_error());
+            finish_sntp(false);
+            return;
+        case SntpState::Idle:   finish_sntp(false); return;
+    }
+}
+
+void AtEngine::finish_sntp(bool ok) {
+    // A FAILED QUERY ANSWERS THE EPOCH, NOT AN ERROR — the same reasoning as
+    // the disabled case above, and the same consequence: a guest polling for a
+    // sane year keeps polling. It also means a server refused by the allowlist
+    // or the address policy is indistinguishable from one that did not answer,
+    // which is the anti-oracle shape the rest of this surface already has.
+    const std::int64_t when = ok ? sntp_->unix_time() : 0;
+    queue("\r\n+CIPSNTPTIME:" + format_sntp_time(when, sntp_timezone_) + "\r\n\r\nOK\r\n");
+    sntp_pending_ = false;
+    sntp_->reset();
+    replay_deferred();
+    refresh_tick_gate();
+}
+
 void AtEngine::cmd_cipstatus(const std::string&) {
     // `STATUS:<stat>` then one `+CIPSTATUS:` line per live link.
     //
@@ -1472,6 +1621,7 @@ void AtEngine::poll() {
     // first keeps the stream in the order the guest's own commands created.
     service_domain_lookup();
     service_ping();
+    service_sntp();
 }
 
 void AtEngine::advance_transports() {
@@ -1669,7 +1819,7 @@ void AtEngine::replay_deferred() {
     // it is, everything after it must go back to waiting rather than being
     // dispatched against a half-finished transaction.
     while (!deferred_.empty() && !conn_[SINGLE_CID].connecting && !domain_pending_ &&
-           !ping_pending_) {
+           !ping_pending_ && !sntp_pending_) {
         const std::uint8_t b = deferred_.front();
         deferred_.pop_front();
         feed(b);

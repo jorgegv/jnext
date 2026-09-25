@@ -26,10 +26,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Layer 2               |      153 |      153 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART + I2C/RTC        |      103 |      103 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 socket transport |      201 |      201 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 AT command engine |      437 |      437 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 socket transport |      238 |      238 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 AT command engine |      489 |      489 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext UART adapter |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 jnext policy + wiring |      111 |      111 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 jnext policy + wiring |      127 |      127 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DivMMC + SPI          |      148 |      148 |      0 |       0 |    100% | 🟢 All tests pass. |
 | divmmc_integration_test |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "divmmc_integration_test" to the label map in refresh-subsystem-status.sh. |
 | Multiface (core)      |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -123,6 +123,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Key Bindings |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **9064** | **9064** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **9169** | **9169** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
