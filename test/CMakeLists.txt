@@ -749,8 +749,19 @@ add_test(NAME speed_report_tests COMMAND speed_report_test)
 
 # Host key minimum-hold latch (issue #120). Header-only policy under test
 # (src/platform/host_key_latch.h) — no Qt, no SDL, no emulator core.
-add_executable(host_key_latch_test platform/host_key_latch_test.cpp)
+# GH #268 — the WIRE-* rows drive the REAL SdlInput::poll() with a real
+# SDL_EVENT_WINDOW_FOCUS_LOST pushed onto SDL's own queue, so the SDL half of
+# the focus-loss fix rests on a test rather than on reading a `case` label.
+# sdl_input.cpp is compiled in DIRECTLY rather than linking jnext_platform:
+# the translation unit's only dependency is SDL3 itself, and pulling the whole
+# platform library in would drag the emulator core behind it for one seam.
+# Only SDL_INIT_EVENTS is used, so this needs no display and the suite stays
+# ungated — which matters, because host_hotkey_test is Qt-only and an SDL-only
+# build would otherwise have no coverage of this at all.
+add_executable(host_key_latch_test platform/host_key_latch_test.cpp
+                                   ${CMAKE_SOURCE_DIR}/src/platform/sdl_input.cpp)
 target_include_directories(host_key_latch_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(host_key_latch_test PRIVATE ${JNEXT_SDL3_TARGET})
 add_test(NAME host_key_latch_tests COMMAND host_key_latch_test)
 
 # NMI source pipeline compliance test (Phase 1 scaffold + Wave A, 2026-04-24).
@@ -962,6 +973,18 @@ add_test(NAME raster_state_tests COMMAND raster_state_test)
 # library itself. No display needed — only QSettings is exercised, always
 # against a temp INI file, never the real user config.
 if(ENABLE_QT_UI)
+    # GH #268 — host_hotkey_test's H268-01/02/03 rows need the PLATFORM key
+    # path (QTest::keyPress/keyRelease on a real QWindow): QMenuBar arms its
+    # Alt navigation on the ShortcutOverride event, which QApplication::
+    # sendEvent() does not produce, so a sendEvent-driven row cannot see the
+    # defect at all. Found here, and not only inside the ENABLE_DEBUGGER block
+    # below where the same find_package already lived, because ENABLE_QT_UI=ON
+    # with ENABLE_DEBUGGER=OFF is one of the three build configurations and
+    # failed to CONFIGURE without it. Idempotent: CMake tolerates the repeat.
+    # Qt Test ships in the same qtbase devel package as Widgets, so this is not
+    # a new dependency for any build that already compiles the Qt UI.
+    find_package(Qt${JNEXT_QT_MAJOR} REQUIRED COMPONENTS Test)
+
     add_executable(app_config_test gui/app_config_test.cpp)
     target_link_libraries(app_config_test PRIVATE jnext_gui)
     target_include_directories(app_config_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -1058,7 +1081,7 @@ if(ENABLE_QT_UI)
     # forced in main()).
     add_executable(host_hotkey_test gui/host_hotkey_test.cpp)
     set_target_properties(host_hotkey_test PROPERTIES AUTOMOC ON)
-    target_link_libraries(host_hotkey_test PRIVATE jnext_gui)
+    target_link_libraries(host_hotkey_test PRIVATE jnext_gui Qt${JNEXT_QT_MAJOR}::Test)
     target_include_directories(host_hotkey_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     # H115-29 reads FEATURES.md and asserts every chord it advertises is one the
     # product really binds. Same idiom cli_options_test uses for the man page:

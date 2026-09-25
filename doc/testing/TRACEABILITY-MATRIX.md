@@ -65,7 +65,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  5045 | 5034 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **5045**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4737**. Rows the 117 suites declared in `test/unit-tests.conf` run live: **9032**.
+Rows the sections above carry: **5045**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4737**. Rows the 117 suites declared in `test/unit-tests.conf` run live: **9064**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -77,7 +77,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 74 suites (4280 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 74 suites (4312 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -109,7 +109,7 @@ These 74 suites (4280 live rows) have no VHDL-derived plan row to map, so they h
 | `frame_sequencer_test` | 112 | host frame sequencer (wall-clock run/present ordering) |
 | `tick_stats_test` | 32 | host tick accounting for the status bar |
 | `speed_report_test` | 36 | host speed-percentage reporting |
-| `host_key_latch_test` | 101 | host key latch/debounce compensation; guest matrix is `## Input` |
+| `host_key_latch_test` | 122 | host key latch/debounce compensation; guest matrix is `## Input` |
 | `log_test` | 22 | jnext logging façade (spdlog wiring) |
 | `log_gate_test` | 27 | jnext log-level gating |
 | `cli_options_test` | 24 | CLI flag table vs the man page (see `make cli-check`) |
@@ -138,7 +138,7 @@ These 74 suites (4280 live rows) have no VHDL-derived plan row to map, so they h
 | `rzx_menu_test` | 15 | RZX File-menu error dialogs (GUI), no core counterpart |
 | `load_error_test` | 15 | GUI load-failure reporting, the Tape menu, and the file-dialog FILTERS (GUI), no core counterpart |
 | `esc_break_test` | 6 | host ESC->BREAK binding; guest matrix is `## Input` |
-| `host_hotkey_test` | 37 | host hotkey bindings (Alt vs the guest Symbol Shift) |
+| `host_hotkey_test` | 45 | host hotkey bindings (Alt vs the guest Symbol Shift) |
 | `main_window_accel_test` | 5 | main-window menu mnemonics (host GUI) |
 | `shifted_keys_test` | 22 | host shifted-scancode translation; guest matrix is `## Input` |
 | `window_scale_test` | 10 | main-window scale/fullscreen geometry (host GUI) |
@@ -152,7 +152,7 @@ These 74 suites (4280 live rows) have no VHDL-derived plan row to map, so they h
 | `debugger_window_size_test` | 21 | debugger window geometry (host GUI) |
 | `debugger_window_grow_test` | 4 | debugger window geometry (host GUI) |
 | `debugger_accel_test` | 8 | debugger keyboard accelerators (host GUI) |
-| `debugger_keymap_test` | 31 | user-redefinable debugger key bindings (host GUI + jnext.conf, GH #1); the commands they invoke are traced by the suites of the hardware each one drives |
+| `debugger_keymap_test` | 34 | user-redefinable debugger key bindings (host GUI + jnext.conf, GH #1); the commands they invoke are traced by the suites of the hardware each one drives |
 | `debugger_menu_test` | 45 | debugger menu reachability (host GUI) |
 | `debugger_disasm_copy_test` | 33 | disassembly-panel selection and clipboard text (host GUI, GH #21); the disassembler it copies is traced in `## Z80N` |
 

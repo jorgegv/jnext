@@ -19,6 +19,7 @@ class MouseDispatcher;
 class QTimer;
 class QMouseEvent;
 class QWheelEvent;
+class QFocusEvent;
 #ifdef ENABLE_DEBUGGER
 class DebuggerManager;
 #endif
@@ -70,6 +71,16 @@ public:
     /// Signature: (SDL_Scancode scancode, bool pressed).
     using KeyCallback = std::function<void(SDL_Scancode, bool)>;
     void set_key_callback(KeyCallback cb) { key_callback_ = std::move(cb); }
+
+    /// GH #268 — "this window can no longer see key-ups". Fired on every
+    /// focus-out: a Qt popup or another window has taken the keyboard, so the
+    /// key-up half of anything currently held will be delivered THERE and never
+    /// here. The receiver releases every guest key it is holding; see
+    /// `host_key_latch::Router::release_all()` for what goes wrong otherwise.
+    using KeyboardLostCallback = std::function<void()>;
+    void set_keyboard_lost_callback(KeyboardLostCallback cb) {
+        keyboard_lost_callback_ = std::move(cb);
+    }
 
     /// Toggle between windowed and fullscreen mode.
     void toggle_fullscreen();
@@ -262,6 +273,9 @@ protected:
     /// Task 77 — intercepts Tab/Backtab before Qt's focus-navigation
     /// handling can swallow them, so Tab can act as ZX EXTEND MODE.
     bool event(QEvent* event) override;
+    /// GH #268 — the keyboard has gone elsewhere; drop every key the guest is
+    /// holding before its key-up is delivered to whatever took it.
+    void focusOutEvent(QFocusEvent* event) override;
     // Kempston-mouse host-event handlers (G43 closure). Each forwards into
     // the MouseDispatcher's transport-agnostic API after translating Qt
     // conventions to SDL ones (button codes, wheel-detent units). The
@@ -356,6 +370,7 @@ private:
     EmulatorWidget* emulator_widget_ = nullptr;
     Emulator*       emulator_        = nullptr;
     KeyCallback      key_callback_;
+    KeyboardLostCallback keyboard_lost_callback_;
     SpeedCallback    speed_callback_;
     WhenSlowPreferCallback when_slow_prefer_callback_;
     LoadFileCallback load_file_callback_;

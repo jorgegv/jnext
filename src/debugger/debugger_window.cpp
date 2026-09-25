@@ -1,4 +1,5 @@
 #include "debugger/debugger_window.h"
+#include "debug/menu_bar_alt_nav_qt.h"   // GH #268
 #include "debug/debug_keymap_qt.h"
 #include "debugger/cpu_panel.h"
 #include "debugger/disasm_panel.h"
@@ -460,6 +461,22 @@ void DebuggerWindow::grow_default_size_to_natural() {
 
 void DebuggerWindow::create_menus() {
     QMenuBar* bar = menuBar();
+
+    // GH #268 — a bare Alt tap must not take the keyboard from whatever the
+    // user is typing into. Found in the emulator window, where it eats guest
+    // keystrokes; this window has the identical mechanism and its own harm,
+    // because it hosts hex-entry QLineEdits (memory and disassembly address
+    // bars, the watch and breakpoint dialogs). A stray Alt mid-address moves
+    // focus to this menu bar and the next letter that is a top-level mnemonic
+    // is swallowed by it instead of typed.
+    //
+    // ONLY this one of the three #268 fixes belongs here, deliberately:
+    //   * the popup guard in MainWindow::handle_key has nothing to guard —
+    //     this window forwards no key to the guest matrix at all;
+    //   * the focus-out release has nothing to release, for the same reason,
+    //     and the guest keys ARE already released when this window takes the
+    //     keyboard, by the emulator window's own focusOutEvent.
+    jnext::disable_alt_menu_navigation(bar, this);
 
     // --- Debug menu ---
     QMenu* debug_menu = bar->addMenu(tr("&Debug"));

@@ -69,7 +69,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Frame-tick sequencer (wiring) |      112 |      112 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tick-delivery stats   |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Achieved-speed report |       36 |       36 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Host key minimum-hold latch |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Host key minimum-hold latch |      122 |      122 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging               |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CLI options / docs    |       24 |       24 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -106,7 +106,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | RZX Menus             |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI load-failure dialogs |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Esc/BREAK + fullscreen routing |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Host hotkeys on Alt (Ctrl to guest) |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Host hotkeys on Alt (Ctrl to guest) |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Main-window menu mnemonics |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Shifted symbols reach the guest |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Window scale + fullscreen geometry |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -120,9 +120,9 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Sizing |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Key Bindings |       31 |       31 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Key Bindings |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **9032** | **9032** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **9064** | **9064** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

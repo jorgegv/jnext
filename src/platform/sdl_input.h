@@ -1,6 +1,7 @@
 #pragma once
 #include <SDL3/SDL.h>
 #include <functional>
+#include <utility>
 
 class SdlInput {
 public:
@@ -11,6 +12,24 @@ public:
 
     // Called for each KEYDOWN/KEYUP event: (scancode, pressed)
     std::function<void(SDL_Scancode, bool)> on_key;
+
+    // GH #268 — called when this window loses the keyboard
+    // (SDL_EVENT_WINDOW_FOCUS_LOST). Every key-up it is still owed goes to
+    // whatever took the keyboard, so the guest must let go of what it holds:
+    // hold a key, alt-tab away, release it there, and without this the matrix
+    // bit stays set and the ROM's own auto-repeat runs for the rest of the
+    // session. The Qt frontend answers the equivalent focus-out the same way.
+    std::function<void()> on_keyboard_lost;
+
+    // Setters with the names wire_host_keys() expects, so ONE wiring function
+    // serves both frontends and one mutation covers both. See
+    // platform/host_key_wiring.h for why the wiring is a function at all.
+    void set_key_callback(std::function<void(SDL_Scancode, bool)> cb) {
+        on_key = std::move(cb);
+    }
+    void set_keyboard_lost_callback(std::function<void()> cb) {
+        on_keyboard_lost = std::move(cb);
+    }
 
     // Called on SDL_EVENT_QUIT
     std::function<void()> on_quit;

@@ -11,6 +11,13 @@ bool SdlInput::poll() {
         case SDL_EVENT_KEY_UP:
             if (on_key) on_key(e.key.scancode, e.type == SDL_EVENT_KEY_DOWN);
             break;
+        case SDL_EVENT_WINDOW_FOCUS_LOST:
+            // GH #268 — the keyboard has gone elsewhere, so every key-up we are
+            // still owed will be delivered there. Say so; SdlApp answers by
+            // releasing everything the guest holds. Without it, a key held
+            // while the user alt-tabs away is stranded down for good.
+            if (on_keyboard_lost) on_keyboard_lost();
+            break;
         case SDL_EVENT_MOUSE_MOTION:
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
         case SDL_EVENT_MOUSE_BUTTON_UP:

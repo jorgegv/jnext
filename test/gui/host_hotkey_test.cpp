@@ -56,6 +56,10 @@
 #include <QRegularExpression>
 #include <QString>
 #include <QStringList>
+#include <QStyle>
+#include <QEventLoop>
+#include <QTest>
+#include <QWindow>
 
 #include <cstdio>
 #include <string>
@@ -64,6 +68,8 @@
 #include "core/emulator.h"
 #include "gui/main_window.h"
 #include "input/keyboard.h"
+#include "platform/host_key_latch.h"
+#include "platform/host_key_wiring.h"
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_window.h"
 #endif
@@ -697,6 +703,254 @@ void test_features_md(const QStringList& live) {
           ("found=" + found.join(',') + " unbound=" + bad.join(',')).toStdString());
 }
 
+// ---------------------------------------------------------------------------
+// Group 6 (GH #268) — the menu bar must never take the keyboard from the guest
+//
+// The third symptom of #268, reported as: "press A I got A, press G nothing is
+// shown, but somehow the focus went to the UI menu of the application".
+// Reproduced on the product and traced end to end; two distinct mechanisms,
+// both of which are about Qt taking the keyboard away MID-KEYSTROKE.
+//
+//   1. FOCUS THEFT. QMenuBar arms itself on the Alt SHORTCUT-OVERRIDE and, on
+//      the matching Alt key-up with nothing in between, calls
+//      setKeyboardMode(true) -> setFocus() (qmenubar.cpp:252,1463). The next
+//      letter that is a top-level mnemonic (F/M/I/A/B/V/N/H — A is "T&ape") is
+//      then eaten by the menu bar and opens that popup. Nothing on screen says
+//      focus has left the emulator.
+//
+//   2. THE KEY-UP THAT NEVER ARRIVES. Whatever took the keyboard is where the
+//      key-ups go. Measured: Alt+F consumes both the `F` key-up AND the `Alt`
+//      key-up, so Keyboard::alt_held_ stays true for the rest of the session —
+//      after which E/G/C resolve to their ALT variants, EDIT / GRAPH /
+//      CAPS LOCK (keyboard.cpp:248-250), and those three letters silently stop
+//      appearing while every other letter still types. That is the report,
+//      word for word. With an ordinary letter stranded instead, the 48K ROM's
+//      own auto-repeat fills the BASIC line with it.
+//
+// DELIVERY MECHANISM — why these rows do not use send() like the rest of the
+// file. QApplication::sendEvent() delivers a KeyPress and nothing else; the
+// ShortcutOverride that arms QMenuBar is synthesised by Qt from a PLATFORM key
+// event, so a sendEvent-driven row cannot see mechanism 1 at all and would
+// pass with the fix reverted. H268-01/02/03/08 go through
+// QTest::keyPress/keyRelease on the real QWindow, which is the same path a
+// keystroke takes in the product. The modifier state is the platform's, not
+// ours: an Alt key-DOWN really does arrive carrying Qt::AltModifier (measured
+// on the running product), and passing NoModifier there would silently disarm
+// the very filter under test.
+// ---------------------------------------------------------------------------
+
+// G's own matrix cell (keyboard.cpp:156) and Caps Shift's (keyboard.cpp:144).
+// GRAPH is CS+9, so "the guest saw a plain G" and "the guest saw GRAPH" differ
+// in both: G's cell down and Caps Shift UP is the letter; Caps Shift down is
+// the extended key.
+constexpr int G_ROW = 1, G_COL = 4;
+constexpr int CS_ROW = 0, CS_COL = 0;
+
+void plat_press(MainWindow& w, Qt::Key k, Qt::KeyboardModifiers mods) {
+    if (QWindow* wh = w.windowHandle()) QTest::keyPress(wh, k, mods);
+    QApplication::processEvents();
+}
+
+void plat_release(MainWindow& w, Qt::Key k, Qt::KeyboardModifiers mods) {
+    if (QWindow* wh = w.windowHandle()) QTest::keyRelease(wh, k, mods);
+    QApplication::processEvents();
+}
+
+/// A bare Alt tap, exactly as the platform delivers one: the key-DOWN carries
+/// Qt::AltModifier, the key-UP does not.
+void tap_alt(MainWindow& w) {
+    plat_press(w, Qt::Key_Alt, Qt::AltModifier);
+    plat_release(w, Qt::Key_Alt, Qt::NoModifier);
+}
+
+void test_menu_focus(MainWindow& w) {
+    // The whole group is about where keyboard focus is, so a window that never
+    // got it would make every row vacuous. Say so instead.
+    w.setFocus();
+    QApplication::processEvents();
+    const bool focused_at_start = (QApplication::focusWidget() == &w);
+    check("H268-00", "fixture: the emulator window starts with keyboard focus",
+          focused_at_start && w.windowHandle() != nullptr,
+          std::string("focus=") +
+              (QApplication::focusWidget()
+                   ? QApplication::focusWidget()->metaObject()->className()
+                   : "(null)") +
+              " windowHandle=" + (w.windowHandle() ? "yes" : "no"));
+
+    // --- 1. the style hint, which is what makes the rest of it impossible ---
+    check("H268-04", "the menu bar's style reports Alt-key navigation OFF",
+          w.menuBar()->style()->styleHint(QStyle::SH_MenuBar_AltKeyNavigation,
+                                          nullptr, w.menuBar()) == 0,
+          "menubar hint=" +
+              std::to_string(w.menuBar()->style()->styleHint(
+                  QStyle::SH_MenuBar_AltKeyNavigation, nullptr, w.menuBar())));
+
+    // --- 2. a bare Alt tap changes nothing ---
+    tap_alt(w);
+    QWidget* after = QApplication::focusWidget();
+    check("H268-01", "a bare Alt tap leaves keyboard focus on the emulator window",
+          after == &w,
+          std::string("focus=") +
+              (after ? after->metaObject()->className() : "(null)"));
+
+    // ...and the letter that follows it still reaches the guest. A is the
+    // sharpest choice available: it is the "T&ape" mnemonic, so it is exactly
+    // the letter the menu bar would swallow.
+    bool a_pressed = false;
+    w.set_key_callback([&a_pressed](SDL_Scancode sc, bool pressed) {
+        if (sc == SDL_SCANCODE_A && pressed) a_pressed = true;
+    });
+    plat_press(w, Qt::Key_A, Qt::NoModifier);
+    plat_release(w, Qt::Key_A, Qt::NoModifier);
+    check("H268-02", "and the letter after it still reaches the guest, mnemonic or not",
+          a_pressed, std::string("a_pressed=") + (a_pressed ? "1" : "0"));
+    w.set_key_callback(nullptr);
+
+    // --- 3. the scope guard: Alt+<mnemonic> must still open its menu ---
+    //
+    // SH_MenuBar_AltKeyNavigation does NOT gate the mnemonic itself
+    // (qmenubar.cpp:1687 opens the popup either way and consults the hint only
+    // for whether to ALSO enter keyboard mode), and this row is what keeps that
+    // reading honest rather than asserted.
+    QMenu* file_menu = nullptr;
+    for (QAction* m : w.menuBar()->actions())
+        if (m->text() == QStringLiteral("&File")) file_menu = m->menu();
+
+    plat_press(w, Qt::Key_Alt, Qt::AltModifier);
+    plat_press(w, Qt::Key_F, Qt::AltModifier);
+    const bool opened = file_menu && file_menu->isVisible()
+                        && QApplication::activePopupWidget() != nullptr;
+    check("H268-03", "Alt+F still opens the File menu",
+          opened,
+          std::string("menu=") + (file_menu ? "found" : "missing") +
+              " visible=" + (file_menu && file_menu->isVisible() ? "1" : "0") +
+              " popup=" + (QApplication::activePopupWidget() ? "1" : "0"));
+
+    // --- 4. while that popup is up, the guest gets nothing ---
+    //
+    // QMenu::keyPressEvent forwards an unmatched key-DOWN back to the menu bar,
+    // which propagates it up to this window, and swallows the matching key-UP.
+    // Measured on the product: one tap of `g` with a menu open delivered a
+    // key-down and no key-up at all, and the guest held G until the ROM had
+    // filled the line with it.
+    bool guest_saw_anything = false;
+    w.set_key_callback([&guest_saw_anything](SDL_Scancode, bool) {
+        guest_saw_anything = true;
+    });
+    send(w, Qt::Key_G, Qt::NoModifier, true);
+    send(w, Qt::Key_G, Qt::NoModifier, false);
+    check("H268-05", "a key arriving while a menu is open reaches the guest not at all",
+          opened && !guest_saw_anything,
+          std::string("popup_was_open=") + (opened ? "1" : "0") +
+              " guest_saw=" + (guest_saw_anything ? "1" : "0"));
+    w.set_key_callback(nullptr);
+
+    // Put the window back the way the group found it. Escape would do it via
+    // the popup, but closing the menu directly is what the next rows need and
+    // does not depend on the popup's key handling.
+    if (file_menu) file_menu->close();
+    plat_release(w, Qt::Key_F, Qt::AltModifier);
+    plat_release(w, Qt::Key_Alt, Qt::NoModifier);
+    w.setFocus();
+    QApplication::processEvents();
+
+    // --- 5. losing the keyboard tells the frontend so ---
+    int lost = 0;
+    w.set_keyboard_lost_callback([&lost]() { ++lost; });
+    w.clearFocus();
+    QApplication::processEvents();
+    check("H268-06", "losing keyboard focus reports it, so held keys can be dropped",
+          lost == 1, "callbacks=" + std::to_string(lost));
+    w.set_keyboard_lost_callback(nullptr);
+    w.setFocus();
+    QApplication::processEvents();
+}
+
+// ---------------------------------------------------------------------------
+// The reported symptom itself, through the production key path.
+//
+// MainWindow -> host_key_latch::Router -> Keyboard, wired exactly as
+// qt_app.cpp:278-289 wires it, then the matrix is read back through
+// read_rows() — the same call port 0xFE makes. The row asserts the USER-VISIBLE
+// fact: after the keyboard has been taken away mid-Alt and given back, `G`
+// types a G. With host Alt stranded it types GRAPH instead, which prints
+// nothing at all, and every other letter keeps working — "press A I got A,
+// press G nothing is shown".
+// ---------------------------------------------------------------------------
+void test_stranded_alt() {
+    // ITS OWN WINDOW, and its own drained event queue. Neither is what was
+    // actually broken here — see kb.reset() below for that — but the groups
+    // above drive this suite's shared MainWindow through QTest's PLATFORM key
+    // path, which POSTS events rather than delivering them, and through a real
+    // menu popup. A row that ends by reading a key matrix should not be
+    // downstream of either. Isolation is cheap; diagnosing a leak into it is
+    // not.
+    MainWindow w;
+    w.show();
+    w.activateWindow();
+    w.setFocus();
+    for (int i = 0; i < 20; ++i) {
+        QApplication::sendPostedEvents();
+        QApplication::processEvents(QEventLoop::AllEvents, 10);
+    }
+
+    Keyboard kb;
+    // THE BUG THIS ROW SHIPPED WITH, recorded because it nearly went unnoticed.
+    // Keyboard::reset() is what builds the static scancode maps and clears the
+    // matrix (keyboard.cpp:294 -> init_map); every other Keyboard in this file
+    // calls it and this row did not. Without it the row read G and CAPS SHIFT
+    // as already down and asserted against uninitialised state — it PASSED, and
+    // it passed under mutation too, for reasons that had nothing to do with
+    // what it claims to test. The matrix_clean precondition below is what
+    // exposed it, and it stays for the same reason.
+    kb.reset();
+    host_key_latch::Router<Keyboard, SDL_Scancode> router;
+    router.attach(kb);
+    // The PRODUCTION wiring, called rather than copied: qt_app.cpp connects the
+    // window to the router through this same function. A copy here would leave
+    // both callbacks free to be deleted from the product in silence — measured,
+    // before wire_host_keys() existed, by deleting them and watching every row
+    // stay green.
+    wire_host_keys(w, router);
+
+    // Two preconditions, ASSERTED rather than assumed, because clearFocus() is
+    // silent on a widget that does not have focus and an already-dirty matrix
+    // would make the outcome meaningless. Both appear in the detail string, so
+    // a failure says which half broke.
+    const bool focused_before = (QApplication::focusWidget() == &w);
+    const bool matrix_clean   = !key_down(kb, G_ROW, G_COL)
+                                && !key_down(kb, CS_ROW, CS_COL);
+
+    // Host Alt goes down and its key-up is delivered somewhere else — the exact
+    // shape of what Alt+F does (both the F and the Alt key-up go to the menu).
+    send(w, Qt::Key_Alt, Qt::NoModifier, true);
+    router.on_tick_end(1);                 // a frame samples the matrix
+
+    // NOTHING is installed over wire_host_keys() here, deliberately. An earlier
+    // draft wrapped the keyboard-lost callback to count it, and that silently
+    // COST the row its reach: with the production callback replaced, deleting
+    // it from wire_host_keys() failed nothing at all. "release_all() did not
+    // fix this" and "nothing ever told it to" are still separable — H268-06 is
+    // the second half, and it is the row to read when this one fails.
+    w.clearFocus();                        // the keyboard goes elsewhere
+    QApplication::processEvents();
+    w.setFocus();                          // ...and comes back
+    QApplication::processEvents();
+
+    // Now type G, as the reporter did.
+    send(w, Qt::Key_G, Qt::NoModifier, true);
+    router.on_tick_end(1);
+
+    const bool g_down  = key_down(kb, G_ROW, G_COL);
+    const bool cs_down = key_down(kb, CS_ROW, CS_COL);
+    check("H268-07", "after the keyboard is taken away mid-Alt, G still types G",
+          focused_before && matrix_clean && g_down && !cs_down,
+          std::string("focused_before=") + (focused_before ? "1" : "0") +
+              " matrix_clean=" + (matrix_clean ? "1" : "0") +
+              " G_cell=" + (g_down ? "down" : "up") +
+              " CapsShift=" + (cs_down ? "down (GRAPH)" : "up"));
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -721,6 +975,8 @@ int main(int argc, char** argv) {
     test_preferences_chord(w);
     test_quick_screenshot_chord(w);
     test_alt_namespace(w);
+    test_menu_focus(w);
+    test_stranded_alt();
 
     // Group 5 needs a SECOND window, with an emulator attached: the bug-button
     // whose tooltip regressed lives on the debug toolbar, and MainWindow only
