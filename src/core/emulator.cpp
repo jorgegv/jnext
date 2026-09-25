@@ -11374,6 +11374,18 @@ void Emulator::advance_copper_across_row_boundaries(uint64_t master_cycles)
     // run_scheduled_until(clock_) keeps it after the deferred CPU NR
     // writes — which is right, since every CPU write of THIS instruction
     // physically precedes a boundary that sits at the instruction's end.
+    // That `<` is NOT pinned by any row, and this says so rather than
+    // leaving a future reader to re-derive it. The two spellings differ
+    // only for an event due at exactly `post`, and nothing observable
+    // separates them there: instruction N+1 has not run in either
+    // ordering, so `pending_cpu_nr_writes_` and `clock_` hold the same
+    // state whether the event is the tail of this cluster or the head of
+    // the next. The equivalence was reasoned through, not proven across
+    // every subsystem on_scanline touches, so `<` is also the
+    // CONSERVATIVE spelling: a boundary landing on an instruction's end
+    // fires exactly where it fired before GH #272, which keeps the fix
+    // from moving CPU-write row attribution on the very common alignment
+    // of an instruction ending on a line boundary.
     while (!scheduler_.empty() && scheduler_.next_cycle() < post) {
         const uint64_t boundary = scheduler_.next_cycle();
         if (boundary > cur) {
