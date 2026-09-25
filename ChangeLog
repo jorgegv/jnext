@@ -1,6 +1,6 @@
 # ChangeLog
 
-## Unreleased (2026-09-25)
+## v1.0.41 (2026-09-25)
 
 ### User Features
 - Save and restore the exact state of the machine as a `.jns` snapshot, from the menu or the command line

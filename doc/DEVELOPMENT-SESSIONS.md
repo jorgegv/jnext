@@ -163,4 +163,12 @@
 |         |      | for directly loaded NEX (#250); #258-#261; RZX in every frontend. v0.99.156->.163                      |
 | 22/9    | 13h  | No-deferral day: 8 branches, 14 issues closed; loaders, RZX, soft reset, timing vs FUSE                |
 |         |      | (floating bus, I/O contention, in-instruction reads). v0.99.164->.172; v1.0.0 + v1.0.1 PUBLIC          |
+| 23/9    |      | 11 v1.1 issues closed overnight + 4 follow-ons; a Flatpak CI regression found and fixed                |
+|         |      | v1.0.2->.17                                                                                            |
+| 24/9    |      | #201 traceability 158 missing rows -> 18; #57 #271 #9 closed; #27 snapshot format S1-S6                |
+|         |      | v1.0.18->.30                                                                                           |
+| 25/9    |      | #268 keyboard (3 defects incl. scan rate 122x slow); #1 debugger keys; #27 .jns snapshots              |
+|         |      | #154 ESP-01 class-A surface (WiFi, CIPDOMAIN, in-process ping, SNTP). v1.0.31->.38                     |
+|         |      | #272 Copper row-boundary ordering; #273 suites run in two build configurations                         |
+|         |      | v1.0.39->.41; v1.0.41 PUBLIC RELEASE                                                                   |
 | TOTAL:  | 666h |                                                                                                        |
