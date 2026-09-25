@@ -317,6 +317,40 @@ crashes, or times out. `make unit-test` **exits non-zero** when a suite fails.
 > deliberately. The CMake side is not a second hand-kept list — it is read from the
 > generated `build/test/CTestTestfile.cmake`.
 
+### TWO build configurations run their suites (GH #273)
+
+`ENABLE_QT_UI` × `ENABLE_DEBUGGER` gives four combinations. **`make build-matrix`
+builds all four** — it catches link rot, which only appears at build time — but it
+never ran a suite in any of them, so `make unit-test` and CI only ever exercised
+the default one and a suite could stay red in a supported configuration
+indefinitely. That is not hypothetical: `host_hotkey_test` had three rows failing
+in `ENABLE_QT_UI=ON / ENABLE_DEBUGGER=OFF` and nothing noticed.
+
+**Two configurations are worth RUNNING** (owner decision, 2026-09-25):
+
+| target | configuration | build dir | suites |
+|--------|---------------|-----------|--------|
+| `make unit-test`     | Qt + debugger (the shipped one) | `build/`              | 117 |
+| `make unit-test-sdl` | SDL-only, no Qt, no debugger    | `build/sdl-unit-test` |  91 |
+
+The other two (Qt without the debugger; SDL with it) are not used in practice and
+stay **build-only**. CI runs both targets — the same two commands a human types —
+and `make unit-test` deliberately does **not** pull the second one in, so the
+everyday inner loop does not pay for a second build and suite run. The SDL tree
+gets its own build directory: `build/` must stay the Qt tree that `unit-test-build`
+guards. `make clean` takes both.
+
+**A gated suite's absence is CHECKED, not excused.** `test/unit-tests.conf` carries
+`# gate: none | qt | dbg | qt+dbg` directives; each names the CMake options a suite
+needs to exist, and the `?` marker on the suite line must agree with the gate in
+force. `run-unit-tests.sh` reads `ENABLE_QT_UI` / `ENABLE_DEBUGGER` out of the build
+tree's **own `CMakeCache.txt`**, so the configuration comes from the build and never
+from the caller, and it **refuses** (exit 2) when a suite is missing from a
+configuration whose gate is satisfied, or present in one the gate excludes. Before
+this, `?` meant "skip it quietly if CMake did not register it" — a suite that
+stopped being registered in the configuration that owns it printed a NOTICE and the
+run stayed green, which is the same silent shrinking the manifest exists to forbid.
+
 **`test/00regression/regression_tests.conf`** (screenshots) + **`functional_tests.conf`**
 (functional). At the end of a full run, `regression.sh` asserts every declared functional
 test reported exactly one row, no undeclared row appeared, and the total equals

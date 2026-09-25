@@ -1868,8 +1868,10 @@ them they pull in a set of structural gates as prerequisites —
 your inner loop instead of leaving them for CI to discover. Alongside them,
 <code>make harness-selftest</code> proves that the test harness itself fails loudly when
 faults are injected into it, <code>make build-matrix</code> builds every combination of the
-frontend options, and <code>make unit-test-dashboard</code> runs the unit tests and
-refreshes the committed per-subsystem status table.</p>
+frontend options, <code>make unit-test-sdl</code> runs the declared suites a second time in
+the SDL-only configuration (its own <code>build/sdl-unit-test</code> tree, so <code>build/</code> stays
+the Qt one), and <code>make unit-test-dashboard</code> runs the unit tests and refreshes the
+committed per-subsystem status table.</p>
 <p>Chapter <a href="../04-testing/index.html">4. Testing</a> covers what each of these actually
 proves.</p>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>

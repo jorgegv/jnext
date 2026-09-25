@@ -1847,11 +1847,13 @@ it more briefly — <em>this file is a contract, not a convenience.</em></p>
 </code></pre>
 <ul>
 <li><code>&lt;executable&gt;</code> is the binary under <code>&lt;build&gt;/test/</code>. A leading <code>?</code> marks the
-  suite <strong>optional</strong>, meaning a legitimate build configuration may not register
-  it at all: the <code>debugger_*</code> suites exist only under <code>-DENABLE_DEBUGGER=ON</code>
-  and <code>app_config_test</code> only under <code>-DENABLE_QT_UI=ON</code>, so all of them are
-  declared with <code>?</code>. When an optional suite is absent, the harness prints a
-  NOTICE and counts it as not-run — skipped, but never silently.</li>
+  suite <strong>build-gated</strong>: it exists only in some configurations — the
+  <code>debugger_*</code> suites only under <code>-DENABLE_DEBUGGER=ON</code>, <code>app_config_test</code> only
+  under <code>-DENABLE_QT_UI=ON</code>. <em>Which</em> configurations is stated by the
+  <code># gate: none | qt | dbg | qt+dbg</code> directive in force, which applies to every
+  line below it until the next one, and the <code>?</code> and the gate must agree. When a
+  suite's gate is not satisfied the harness prints a NOTICE naming it and counts
+  it as not-run — skipped, but never silently.</li>
 <li><code>&lt;expected_rows&gt;</code> is the exact <code>Total:</code> the suite must report, and it must be
   at least 1. A pin of <code>0</code> is rejected outright at parse time, because a suite
   pinned at 0 that reports 0 rows would pass, whereas the same suite printing
@@ -1882,7 +1884,15 @@ everything look as though it were registered twice. It refuses when:</p>
 <li>the parser read fewer <code>add_test()</code> lines than the file contains, so it cannot
   vouch for the list it just built;</li>
 <li>the <code># expect: N</code> pin is missing, or disagrees with the number of declared
-  suites.</li>
+  suites;</li>
+<li>a suite is <strong>missing from a configuration whose gate it satisfies</strong>, or
+  <strong>present in one the gate excludes</strong>. The harness reads <code>ENABLE_QT_UI</code> and
+  <code>ENABLE_DEBUGGER</code> out of the build tree's own <code>CMakeCache.txt</code>, so the
+  configuration is taken from the build rather than from the caller, and the
+  same manifest is exact in every configuration instead of merely permissive in
+  all of them. Before this (GH #273) the <code>?</code> alone meant "skip it quietly if
+  CMake did not register it", so a suite that stopped being registered in the
+  configuration that owns it printed a NOTICE and the run stayed green.</li>
 </ul>
 <p>That last condition is the subtle one, and it is what makes the whole check
 more than bookkeeping. Without it, "N declared equals N registered" is a

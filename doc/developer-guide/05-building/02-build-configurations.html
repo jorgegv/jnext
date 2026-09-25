@@ -1886,6 +1886,14 @@ exercise, so the only way to find it is to build them all. The matrix keeps
 going after a failure and reports every broken combination rather than stopping
 at the first, because knowing whether three are broken or only one is the
 difference between a single missing edge and a wrong graph.</p>
+<p>Building is not the same as running, though, and for a long time it was all the
+matrix did: every configuration was proved to link, and only the default one ever
+had a suite run in it, so a suite could stay red in a supported configuration
+indefinitely — which is what GH #273 found. Two configurations now run their
+suites: the default Qt+debugger build through <code>make unit-test</code>, and the SDL-only
+build through <code>make unit-test-sdl</code>. The other two, Qt without the debugger and
+SDL with it, are not used in practice and remain build-only. CI runs both
+targets.</p>
 <h2 id="where-each-target-builds">Where each target builds<a class="headerlink" href="#where-each-target-builds" title="Permanent link">&para;</a></h2>
 <p>There is one scheme, <code>build/&lt;variant&gt;-&lt;config&gt;</code>, and everything lives under
 <code>build/</code>: <code>build/sdl-release</code>, <code>build/gui-release</code>, <code>build/win-release</code>,
