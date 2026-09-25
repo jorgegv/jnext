@@ -1,27 +1,27 @@
 {
   "_comment": [
     "HAND-WRITTEN. The constraint overlay of doc/design/NEXT-SNAPSHOT-FORMAT.md",
-    "\u00a713.2(4), merged into the generated schema by tools/gen-snapshot-schema.",
+    "§13.2(4), merged into the generated schema by tools/gen-snapshot-schema.",
     "",
     "WHY IT EXISTS. A schema generated from the writer and validated against a",
     "file the same writer produced proves self-consistency and nothing else",
-    "(\u00a79.3). This file is EXTERNAL KNOWLEDGE: facts written by a human from the",
+    "(§9.3). This file is EXTERNAL KNOWLEDGE: facts written by a human from the",
     "design document, which the generator cannot know and therefore cannot get",
     "consistently wrong in the same direction the writer does.",
     "",
     "IT IS ALSO WHERE THE MANIFEST SCHEMA LIVES. `manifest.json` is a",
     "description of the FILE, not of emulator state, so it has no StateDesc",
-    "declaration to generate from \u2014 `jns_container.h` keeps the container free",
+    "declaration to generate from — `jns_container.h` keeps the container free",
     "of any dependency on the emulated machine on purpose. It is transcribed",
-    "here from \u00a76/\u00a77/\u00a78 and from `manifest_to_json` (jns_container.cpp:142-212).",
+    "here from §6/§7/§8 and from `manifest_to_json` (jns_container.cpp:142-212).",
     "",
     "MERGE CONTRACT. The generator copies $schema/$id/title/description to the",
     "root, merges $defs, properties, required and allOf, and REFUSES on any key",
-    "collision between this file and a generated subsystem \u2014 a silent overwrite",
+    "collision between this file and a generated subsystem — a silent overwrite",
     "here would mask exactly the generated defect the overlay exists beside.",
     "",
     "NOT YET HERE, and deliberately: the cross-field presence rules that depend",
-    "on state no subsystem writes yet \u2014 `mem/multiface-ram.bin` present iff the",
+    "on state no subsystem writes yet — `mem/multiface-ram.bin` present iff the",
     "machine is not the Next, the MMU slot map against `model.ram_kb`, a",
     "sprite's pattern index against its colour-depth bit. Those arrive with the",
     "subsystems that emit them (S5b, S9). Asserting them now would fail every",
@@ -45,7 +45,7 @@
   },
   "allOf": [
     {
-      "_why": "\u00a78 \u2014 frame_boundary is always true, or the file was not written. It is recorded as a fact a reader can CHECK, not as a mode.",
+      "_why": "§8 — frame_boundary is always true, or the file was not written. It is recorded as a fact a reader can CHECK, not as a mode.",
       "properties": {
         "manifest.json": {
           "properties": {
@@ -61,7 +61,7 @@
       }
     },
     {
-      "_why": "\u00a713.2(4) \u2014 literals, so a descriptor that silently resized a buffer fails validation rather than re-describing itself. Mmu::bank5_vram_ is 16384 and Mmu::bank7_bram_ is 8192, both by hardware, not by policy.",
+      "_why": "§13.2(4) — literals, so a descriptor that silently resized a buffer fails validation rather than re-describing itself. Mmu::bank5_vram_ is 16384 and Mmu::bank7_bram_ is 8192, both by hardware, not by policy.",
       "properties": {
         "manifest.json": {
           "properties": {
@@ -88,7 +88,7 @@
       }
     },
     {
-      "_why": "\u00a713.2(4) \u2014 ram_kb * 1024 == members['mem/ram.bin'].bytes. JSON Schema has no arithmetic, so the relation is enumerated over the sizes this build can construct (ReaderEnv::constructible_ram_kb). A new RAM size is a line here as well as a line there, which is the point: an unenumerated size fails validation instead of passing unchecked.",
+      "_why": "§13.2(4) — ram_kb * 1024 == members['mem/ram.bin'].bytes. JSON Schema has no arithmetic, so the relation is enumerated over the sizes this build can construct (ReaderEnv::constructible_ram_kb). A new RAM size is a line here as well as a line there, which is the point: an unenumerated size fails validation instead of passing unchecked.",
       "if": {
         "properties": {
           "manifest.json": {
@@ -182,6 +182,47 @@
           }
         }
       }
+    },
+    {
+      "_why": "§13.2(4) / §4.3(2) — mem/multiface-ram.bin is present IFF the machine is not the Next. On a Next the Multiface store is a WINDOW into Ram (the live MF RAM is page 0x0B, already inside mem/ram.bin), so a private copy would be 8 192 dead zeros; on 48K/128K/+3 the private array IS the store and its absence would lose real state. Neither direction is expressible by the generator, which sees one declaration and not the machine it ran on — this is exactly the external knowledge §13.2(4) exists to add.",
+      "properties": {
+        "manifest.json": {
+          "if": {
+            "properties": {
+              "model": {
+                "properties": {
+                  "machine": {
+                    "const": "next"
+                  }
+                }
+              }
+            },
+            "required": [
+              "model"
+            ]
+          },
+          "then": {
+            "properties": {
+              "members": {
+                "not": {
+                  "required": [
+                    "mem/multiface-ram.bin"
+                  ]
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "members": {
+                "required": [
+                  "mem/multiface-ram.bin"
+                ]
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -190,7 +231,7 @@
       "pattern": "^[0-9a-f]{8}$"
     },
     "blob_decl": {
-      "_why": "\u00a75.3 \u2014 the schema validates a blob's DECLARATION, never its contents. Nothing can validate the contents short of running the machine; the ZIP's own per-member CRC-32 and the reader's length equality cover the bytes.",
+      "_why": "§5.3 — the schema validates a blob's DECLARATION, never its contents. Nothing can validate the contents short of running the machine; the ZIP's own per-member CRC-32 and the reader's length equality cover the bytes.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -221,12 +262,12 @@
       ],
       "properties": {
         "format_version": {
-          "_why": "\u00a77.1 \u2014 the FROZEN grammar version. An integer, and a refusal names both numbers when it is one this build cannot read.",
+          "_why": "§7.1 — the FROZEN grammar version. An integer, and a refusal names both numbers when it is one this build cannot read.",
           "type": "integer",
           "minimum": 1
         },
         "created": {
-          "_why": "\u00a78 \u2014 provenance only, omitted when the caller has none.",
+          "_why": "§8 — provenance only, omitted when the caller has none.",
           "type": "string"
         },
         "producer": {
@@ -259,12 +300,12 @@
           ],
           "properties": {
             "state_model_revision": {
-              "_why": "\u00a77.2 \u2014 the MOVING number: a provenance stamp for the emulated model, not a compatibility contract.",
+              "_why": "§7.2 — the MOVING number: a provenance stamp for the emulated model, not a compatibility contract.",
               "type": "integer",
               "minimum": 1
             },
             "machine": {
-              "_why": "\u00a78 \u2014 drives reconstruction, not validation. A string rather than an enum in the CONTAINER, but the set this build can construct is closed, and a file naming anything else is refused by the reader with the name in the message.",
+              "_why": "§8 — drives reconstruction, not validation. A string rather than an enum in the CONTAINER, but the set this build can construct is closed, and a file naming anything else is refused by the reader with the name in the message.",
               "type": "string",
               "enum": [
                 "48k",
@@ -275,7 +316,7 @@
               ]
             },
             "ram_kb": {
-              "_why": "\u00a78 \u2014 never assume 2048. A size this build cannot construct is a refusal.",
+              "_why": "§8 — never assume 2048. A size this build cannot construct is a refusal.",
               "type": "integer",
               "minimum": 1
             },
@@ -283,7 +324,7 @@
               "type": "string"
             },
             "cpu_speed_nr07": {
-              "_why": "NR 0x07 bits 1:0 \u2014 four software-selectable speeds.",
+              "_why": "NR 0x07 bits 1:0 — four software-selectable speeds.",
               "type": "integer",
               "minimum": 0,
               "maximum": 3
@@ -308,7 +349,7 @@
           }
         },
         "media": {
-          "_why": "\u00a711.3 \u2014 the two-tier SD identity. `sdcard` is absent when no card was mounted, which is a different fact from a card with an empty identity.",
+          "_why": "§11.3 — the two-tier SD identity. `sdcard` is absent when no card was mounted, which is a different fact from a card with an empty identity.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -330,7 +371,7 @@
                   "type": "boolean"
                 },
                 "identity": {
-                  "_why": "Tier 1 \u2014 'is this the same card?'. Every field is one a FILE WRITE DOES NOT TOUCH, because jnext opens the image read-write and a whole-image digest would report a mismatch against the very card the snapshot was taken on.",
+                  "_why": "Tier 1 — 'is this the same card?'. Every field is one a FILE WRITE DOES NOT TOUCH, because jnext opens the image read-write and a whole-image digest would report a mismatch against the very card the snapshot was taken on.",
                   "type": "object",
                   "additionalProperties": false,
                   "required": [
@@ -359,7 +400,7 @@
                   }
                 },
                 "informational": {
-                  "_why": "\u00a711.3 \u2014 carried and NEVER compared. BS_VolLab is a stale copy of a label whose authority is the root-directory ATTR_VOLUME_ID entry, and a tool that rewrites it would produce a FALSE REFUSAL on the same physical card.",
+                  "_why": "§11.3 — carried and NEVER compared. BS_VolLab is a stale copy of a label whose authority is the root-directory ATTR_VOLUME_ID entry, and a tool that rewrites it would produce a FALSE REFUSAL on the same physical card.",
                   "type": "object",
                   "additionalProperties": false,
                   "required": [
@@ -372,7 +413,7 @@
                   }
                 },
                 "content_stamp": {
-                  "_why": "Tier 2 \u2014 'has it changed since?'. A mismatch warns; it refuses only when the SD FSM was mid-transfer at capture.",
+                  "_why": "Tier 2 — 'has it changed since?'. A mismatch warns; it refuses only when the SD FSM was mid-transfer at capture.",
                   "type": "object",
                   "additionalProperties": false,
                   "required": [
@@ -392,7 +433,7 @@
               }
             },
             "roms": {
-              "_why": "\u00a710.2 P3 \u2014 ROM identity. DIGESTS, never content: N3 forbids redistributing firmware, so a .jns records what the ROMs were and never carries them. Absent when the writer recorded none, which is a different fact from a machine with no ROMs.",
+              "_why": "§10.2 P3 — ROM identity. DIGESTS, never content: N3 forbids redistributing firmware, so a .jns records what the ROMs were and never carries them. Absent when the writer recorded none, which is a different fact from a machine with no ROMs.",
               "type": "object",
               "additionalProperties": false,
               "properties": {
@@ -400,7 +441,7 @@
                   "type": "string"
                 },
                 "sha256": {
-                  "_why": "Basename -> lower-case hex sha256. Only names present on BOTH sides are compared on read: a name this build does not have is a ROM this machine does not use, and treating that as a mismatch is the cries-wolf failure \u00a711.1 rejects.",
+                  "_why": "Basename -> lower-case hex sha256. Only names present on BOTH sides are compared on read: a name this build does not have is a ROM this machine does not use, and treating that as a mismatch is the cries-wolf failure §11.1 rejects.",
                   "type": "object",
                   "additionalProperties": {
                     "type": "string",
@@ -415,7 +456,7 @@
               "pattern": "^([0-9a-f]{64})?$"
             },
             "tape": {
-              "_why": "\u00a710.2 P4 \u2014 tape identity. The tape objects are excluded from the state stream by design (tape position is independent of CPU rewind), so the file is recorded by reopenable identity \u2014 the esxDOS-handle shape. Absent when no tape was attached, which is how a reader tells 'no tape' from 'a tape it cannot find'.",
+              "_why": "§10.2 P4 — tape identity. The tape objects are excluded from the state stream by design (tape position is independent of CPU rewind), so the file is recorded by reopenable identity — the esxDOS-handle shape. Absent when no tape was attached, which is how a reader tells 'no tape' from 'a tape it cannot find'.",
               "type": "object",
               "additionalProperties": false,
               "required": [
@@ -448,7 +489,7 @@
           }
         },
         "members": {
-          "_why": "\u00a75.3 \u2014 one declaration per blob. `mem/` is a CLOSED namespace: an undeclared blob has no length or CRC to check, so the reader refuses it rather than ignoring it.",
+          "_why": "§5.3 — one declaration per blob. `mem/` is a CLOSED namespace: an undeclared blob has no length or CRC to check, so the reader refuses it rather than ignoring it.",
           "type": "object",
           "propertyNames": {
             "pattern": "^mem/[a-z0-9._-]+$"
@@ -458,7 +499,7 @@
           }
         },
         "subsystems": {
-          "_why": "\u00a78 \u2014 the writer's own list of what it wrote, so a reader can tell 'deliberately not saved' from 'missing or corrupt'. Those are different failures and must not be conflated.",
+          "_why": "§8 — the writer's own list of what it wrote, so a reader can tell 'deliberately not saved' from 'missing or corrupt'. Those are different failures and must not be conflated.",
           "type": "array",
           "items": {
             "type": "string",
@@ -467,7 +508,7 @@
           "uniqueItems": true
         },
         "preview": {
-          "_why": "\u00a710.2 P5 \u2014 the preview image's declaration; the bytes are the ZIP member meta/preview.png. The framebuffer is regenerated by the next render, so a snapshot restored PAUSED shows the previous frame until the user steps, and this doubles as the restore-time paused image. Declared rather than merely present so a reader can size it without inflating it.",
+          "_why": "§10.2 P5 — the preview image's declaration; the bytes are the ZIP member meta/preview.png. The framebuffer is regenerated by the next render, so a snapshot restored PAUSED shows the previous frame until the user steps, and this doubles as the restore-time paused image. Declared rather than merely present so a reader can size it without inflating it.",
           "type": "object",
           "additionalProperties": false,
           "required": [

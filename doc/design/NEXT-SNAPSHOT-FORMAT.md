@@ -2145,9 +2145,9 @@ length of 2 153 701 follows arithmetically.
 | Row | What |
 |---|---|
 | `snapshot-jns-roundtrip-func` ✓ **LANDED (S8)** — designed here as `snapshot-roundtrip-func` | Save at frame N, restart with `--load out.jns`, run M more frames, screenshot, compare **pixel-exact** against one uninterrupted run of **N+1+M** frames. **The `+1` is not a fudge**: a save always advances to the next frame boundary (§10.2 P7), so a snapshot requested at N holds N+1. Comparing against N+M reports ~16 000 differing pixels on `beast.nex`, which looks exactly like a defect and is the test's arithmetic. As shipped: the 48K leg (static BASIC prompt, no offset arithmetic) and the `beast.nex` leg at M=10, both **0 pixels**, plus a control asserting the workload really moves — without it the Next leg would pass against a demo that had stopped animating. The `copper-demo` and mid-CMD18 workloads below remain for S9. Original text: **Named workloads, because a quiescent 48K boot passes for a neighbouring reason**: `beast.nex` (per-scanline change logs + Copper gradient — the §10.3 class), `copper-demo` (Copper PC mid-list), and a run captured **mid-CMD18 SD stream** (P1). A pass on any one of those means something; a pass on a BASIC prompt does not. |
-| `snapshot-foreign-fuse-func` | §13.2(1): on a **128K** machine, write `.jns` and `.szx` at the same instant; load the `.szx` in **real FUSE** headless (`/usr/bin/fuse` + Xvfb + `--debugger-command`, which is documented in `man fuse`, not `--help`); assert the spec-written Python reader's extraction from the `.jns` agrees with FUSE on registers, paging and sampled RAM. **The row FAILS if FUSE produced no output** — asserted before any comparison, because an empty-vs-empty comparison would pass vacuously. Skips without FUSE/Xvfb locally; hard-fails in CI. |
-| `snapshot-schema-func` | Validate the written file with Python `jsonschema` against the committed schema **plus the constraint overlay**, and `unzip -t` it. Skips if the tools are absent; hard-fails in CI. |
-| `snapshot-uncompressed-func` | The same round-trip with `--snapshot-uncompressed`; assert every member is `STORED` (read by `zipfile`, not by us) and the restore is pixel-identical to the compressed one. |
+| `snapshot-foreign-szx-func` ✓ **LANDED (S9)** — designed here as `snapshot-foreign-fuse-func`, and it links **libspectrum** instead of scraping FUSE's debugger; see §17's S9 append for why the substitution is stronger rather than weaker. Original text: §13.2(1): on a **128K** machine, write `.jns` and `.szx` at the same instant; load the `.szx` in **real FUSE** headless (`/usr/bin/fuse` + Xvfb + `--debugger-command`, which is documented in `man fuse`, not `--help`); assert the spec-written Python reader's extraction from the `.jns` agrees with FUSE on registers, paging and sampled RAM. **The row FAILS if FUSE produced no output** — asserted before any comparison, because an empty-vs-empty comparison would pass vacuously. Skips without FUSE/Xvfb locally; hard-fails in CI. |
+| `snapshot-schema-func` ✓ **LANDED (S9)** | Validate the written file with Python `jsonschema` against the committed schema **plus the constraint overlay**, and `unzip -t` it. As shipped it validates REAL Next and 48K archives (`make schema-check` validates a hand-transcribed manifest, which is a different claim), and carries a mutation leg: relabelling a Next manifest as `48k` must be rejected by the overlay's §4.3(2) invariant, or every validation above it is decorative. Skips if the tools are absent; hard-fails in CI. |
+| `snapshot-uncompressed-func` — **covered, not added as its own row (S9)** | Its two claims already have homes, and a third row asserting them again would be duplication rather than coverage: `rewind_test`'s `JNS-RT-03`/`04` prove the STORED round trip restores IDENTICALLY and that the archive really is larger than the deflated one, and `snapshot-spec-reader-func` feeds a `--snapshot-uncompressed` archive to the independent reader — which reads it with Python's `zipfile`, i.e. not by us. |
 | `snapshot-sdcard-mismatch-func` ✓ **LANDED (S7)** | Save; mutate a sector of a **copy** of the card; restore → assert the Tier-2 warning and that the run proceeds. Then mutate `BS_VolID` → assert the Tier-1 refusal **and a non-zero exit**. Then mutate **only** `BS_VolLab` → assert no refusal and **no warning naming the label or the identity** — the "no warning at all" this row originally asked for is unreachable, because the label is a byte of the image and Tier 2 digests the image (see §11.3's S7 correction). As shipped it also carries the two legs the three above do not reach: the same Tier-2 drift **mid-transfer**, which must refuse, and `--snapshot-force-sdcard`, which must downgrade the Tier-1 refusal to a warning naming both serials. **It drives `sd_identity_test --verdict`, not `jnext --load out.jns`**, for the reason `snapshot-paused-advance-func` drives the existing save path: the `.jns` CLI does not exist until S8. That is not a test double — the sub-mode calls `describe_sdcard_for_snapshot`, writes a real `.jns` through `SnapshotWriter` and opens it through `open_snapshot`; S8 replaces the front end without touching the legs. Leg 0 runs the **real** per-run NextZXOS card against itself (no copy, must be silent); the mutation legs use a real MBR + FAT32 image the test binary emits, because three mutated copies of a 1 GB card would cost 3 GB per run wherever reflink is unavailable — CI included — and a Tier-1 field is the same 81 bytes whatever the image's size. |
 | `snapshot-paused-advance-func` ✓ **LANDED (S6)** | **As shipped it drives the existing save path**, not `.jns`, which does not exist until S8: headless, `--magic-breakpoint` + `magic_bp_demo.nex` (the same pause `screenshot-paused-func` drives) + `--delayed-snapshot`, asserting the paused save WRITES, exits zero, reloads in a fresh process and reports the advance — with a control run that never pauses and must never report one. The pixel half of the original design below is deliberately NOT claimed there: a `.sna` carries no scheduler queue and no per-scanline history, so the comparison would be vacuous. It is pinned at the unit tier instead, where the oracle exists — `rewind_test` row `S6-P7-HISTORY-01` breaks the advance and watches the frame's change log vanish. The `beast.nex` form below returns at S9, when `.jns` can carry what it needs to mean something. Original design: pause mid-frame in the debugger (on `beast.nex`, which has a live per-scanline Copper gradient), save, and assert three things: the save **succeeds**; the restored machine replays the frame **pixel-identically** — i.e. the advance did not wipe the change logs, the Task 40 defect (§15.2); and the live machine is left at the following frame boundary. The workload is `beast.nex` specifically because a quiescent screen cannot distinguish a preserved raster history from a destroyed one. |
 
@@ -2248,9 +2248,67 @@ agent that did not write it, on its own branch and worktree.
 | **S6 — The gaps** ✓ **DONE** | P1 `SdCardDevice`; P13 `mf_type_`; P3 ROM digests; P4 tape identity; P5 preview; P7's two save rules; `Emulator`'s own scalars | **M** (2–3) | P1 proven by a mid-CMD18 save/restore row (`S6-SD-CMD18-MID` + `S6-EMU-CMD18-MID`); P7 by `snapshot-paused-advance-func`. **The gate row named `snapshot-paused-refusal-func` and that was stale**: the owner's 2026-09-23 decision overruled the refusal, §16.2 has carried the advance row's name since, and a gate naming a test that must not exist is one nobody can meet. |
 | **S7 — SD identity** ✓ **DONE** | Tier 1 from MBR + BPB `BS_VolID` (`read_sd_image_identity`, the new exported entry point in `sd_rom_extractor`), Tier 2 reuse (`read_sd_image_content_stamp`), the producer that assembles both (`describe_sdcard_for_snapshot`), the refusal/warning matrix, and **two** row groups: `JNSI-14…17` in `snapshot_test` for the unknown-vs-changed stamp the matrix had not distinguished, and `JNSI-P01…P34` in the new `sd_identity_test` for the producer | **S** (1) | `snapshot-sdcard-mismatch-func`, all three legs — landed, plus the mid-transfer and `--force` legs. Two corrections to §11.3 fell out of implementing it (the `BS_VolLab` row and the unknown stamp), both recorded there |
 | **S8 — Integration** ✓ **DONE** | **THE ASSEMBLER FIRST — this row did not name it and it did not exist.** S1-S7 built every PART of a `.jns` and nothing assembled one: no code walked the declarations with `JsonWriteDesc`, emitted the members and blobs, filled the manifest and handed it to `SnapshotWriter`. `Emulator::save_jns`/`load_jns` + `visit_jns_subsystems` (the ONE list, walked by both directions) are that. Then: CLI table + man page + `cli-check`; the load-dispatch sites (**seven, not three** — §3.3's correction); GUI save/load/filter/status-bar provenance; user guide §5.9; developer guide chapter; FEATURES; §16.3's revisit | **S** (1–2) → **M** | `make cli-check`, `docs-check`, full triplet — and `snapshot-jns-roundtrip-func`, which is the row that matters: a field-level oracle passed through a defect that restored NO MEMORY AT ALL, and only a rendered frame caught it |
-| **S9 — Validation** | The spec-written Python reader; **the FUSE foreign-reader row**; the constraint overlay; the full functional set; CI tool install | **S** (1–2) | All §16.2 rows green in CI |
+| **S9 — Validation** ✓ **DONE** | The spec-written Python reader (`test/snapshot/jns_reader.py`); **the foreign-reader row, via libspectrum rather than a scraped FUSE debugger** — see below; the overlay's §4.3(2) invariant; `snapshot-spec-reader-func`, `snapshot-foreign-szx-func`, `snapshot-schema-func`; `libspectrum-devel` in CI | **S** (1–2) | All §16.2 rows green |
 
 **Total: 14–23 focused sessions; S2–S5 is 7–10 of them, S5b about half of one.**
+
+#### S9's two substantive departures from this document
+
+**(1) The foreign reader links libspectrum instead of scraping FUSE.**
+§13.2(1) prescribes `fuse --debugger-command` under Xvfb, and every mechanical
+claim it makes is CORRECT — verified on this box: 0 hits in `--help`, 2 in
+`man fuse`, FUSE 1.6.0. The first attempt at that route still produced a
+syntax error and **zero bytes of output**, which is exactly the hazard the same
+paragraph names: an invocation that produces nothing compares an empty
+extraction against an empty expectation and passes vacuously, "which converts
+the best evidence in §13.2 into the most confident lie".
+
+`test/snapshot/szx_probe.c` links **libspectrum** — the library FUSE itself
+uses, and the one whose `read_ramp_chunk()` rejected every `.szx` jnext used to
+write (§13.1). It removes four ways to produce nothing (no X server, no GTK UI,
+no breakpoint that must be hit, no text scraped from a GUI) and returns the
+registers as values rather than as parsed output. The claim is strictly
+stronger, not weaker. `libspectrum-devel` is optional: without it the binary is
+not built and `snapshot-foreign-szx-func` SKIPS saying so; CI installs it.
+
+**(2) The `.szx`/`.jns` pair comes from two runs, and that is measured, not
+assumed.** `--delayed-snapshot` takes one path, so "at the same instant" is
+achieved by two runs to the same frame — and the row writes a THIRD file to
+prove two independent runs are byte-identical. Without that control the
+comparison would rest on an assumption about determinism.
+
+#### What the spec-written reader found, and why that is the point
+
+Built from this document alone, `jns_reader.py` **refused every file jnext
+produces** on its first run. §7.4 says "any `u64` or `i64` field is encoded as
+a decimal *string* … every 64-bit field, unconditionally"; `capture.frame` is a
+`uint64_t`; the writer emits a number. Three statements in this document could
+not be reconciled — §7.4's unconditional rule, §6.2's table whose rows are
+descriptor primitives that exist only in `state/*.json`, and §8's own manifest
+example showing `"frame": 41291` as a number.
+
+**The specification was what needed fixing**, and §6.2 now carries the scope
+sentence it was missing. That is precisely what §13.2(6) exists to produce: a
+second implementation written by someone who cannot see the first, disagreeing
+in a way that finds a real ambiguity rather than a real bug.
+
+The row then found a defect in the READER — a one-byte corruption made it print
+a **traceback** instead of a refusal, because `zipfile.testzip()` itself raises
+on a damaged DEFLATE stream. Members are read one at a time now, so the refusal
+can NAME the member; `testzip()` returns the bad member's name only when the
+decompressor finishes, and loses it when it raises.
+
+#### What S9 did NOT close
+
+**`state/*.json` still has no schema and no staleness gate.** §16.3's S8
+revisit declined the split gate and said S9 would close it; S9 has not.
+`SchemaRegistry::register_subsystem` still has zero call sites, and filling it
+still means constructing every subsystem — the emulator link the owner
+rejected. What S9 added instead is an independent reader that parses every
+`state/*.json` structurally and a foreign reader that adjudicates the CPU, and
+`snapshot-schema-func` validates the real manifest rather than a hand-written
+one. The schema gap is narrower and is **not closed**, and §13.3's posture
+applies to it unchanged.
 
 #### What S8 actually landed — read this, not the commit messages
 

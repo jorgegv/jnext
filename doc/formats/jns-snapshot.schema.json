@@ -428,6 +428,46 @@
           }
         }
       }
+    },
+    {
+      "properties": {
+        "manifest.json": {
+          "else": {
+            "properties": {
+              "members": {
+                "required": [
+                  "mem/multiface-ram.bin"
+                ]
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "model": {
+                "properties": {
+                  "machine": {
+                    "const": "next"
+                  }
+                }
+              }
+            },
+            "required": [
+              "model"
+            ]
+          },
+          "then": {
+            "properties": {
+              "members": {
+                "not": {
+                  "required": [
+                    "mem/multiface-ram.bin"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "description": "A .jns archive presented to a validator as an object mapping each JSON member's path to its parsed document. Members under mem/ are binary and are described by their manifest declaration, not by a document here.",
