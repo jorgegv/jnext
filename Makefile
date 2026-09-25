@@ -16,6 +16,10 @@ BUILD_DIR_MAC_RELEASE := build/mac-release
 BUILD_DIR_RPM_RELEASE := build/rpm-release
 BUILD_DIR_DEB_RELEASE := build/deb-release
 BUILD_DIR_FPK_RELEASE := build/flatpak-release
+# The SDL-only TEST tree (GH #273) — the second configuration whose unit suites are
+# actually run. Separate from build/, which must stay the Qt tree unit-test-build
+# guards, and from build/sdl-release, which is a product build with no test targets.
+BUILD_DIR_SDL_UNIT_TEST := build/sdl-unit-test
 CMAKE             := cmake
 JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
 CC                := /usr/bin/gcc
@@ -140,7 +144,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
-       unit-test-clean unit-test-build \
+       unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build \
        kloc-count regression unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
@@ -623,6 +627,53 @@ unit-test: lint-assertions lint-makefile-help traceability-accounting-check trac
 		fi; \
 		rm -f $$tmp; \
 	fi
+
+# Run the unit suites in the SDL-only configuration (no Qt, no debugger)
+unit-test-sdl: unit-test-sdl-build
+	@# GH #273. The four-combination matrix proves every configuration LINKS; it
+	@# never ran a suite in any of them, so `make unit-test` and CI only ever
+	@# exercised the default one and a suite could stay red in a supported
+	@# configuration indefinitely. Owner decision, 2026-09-25: two configurations
+	@# are worth RUNNING — the default Qt+debugger build, and this SDL-only one.
+	@# The other two (Qt without the debugger; SDL with it) are not used in
+	@# practice and stay build-only. `make build-matrix` keeps compiling all four.
+	@#
+	@# A SEPARATE build directory on purpose: build/ is the canonical Qt tree that
+	@# unit-test-build guards ("./build/jnext would not be the Qt binary this
+	@# project mandates"), and reconfiguring it Qt-less would silently downgrade
+	@# the binary everyone GUI-verifies against. Living under build/ means
+	@# `make clean` takes it, and run-unit-tests.sh already prunes nested build
+	@# roots when it enumerates CTestTestfile.cmake, so the two never see each
+	@# other's suites.
+	@#
+	@# This is NOT folded into `make unit-test`: the everyday inner loop would
+	@# then pay for a second full build and a second suite run. CI calls both
+	@# targets, which is the same pair of commands a human types here.
+	@bash test/run-unit-tests.sh $(BUILD_DIR_SDL_UNIT_TEST)
+
+# Configure + build the SDL-only test tree (prerequisite for unit-test-sdl)
+unit-test-sdl-build:
+	@# Same shape as unit-test-build's else-branch, inverted: this directory must be
+	@# the Qt-LESS one, so a directory configured with either option ON is refused
+	@# rather than reused — otherwise `make unit-test-sdl` would quietly re-run the
+	@# default configuration and report it as the SDL-only one.
+	@if [ ! -f $(BUILD_DIR_SDL_UNIT_TEST)/CMakeCache.txt ]; then \
+		$(CMAKE) -B $(BUILD_DIR_SDL_UNIT_TEST) -S . \
+			-DCMAKE_C_COMPILER=$(CC) \
+			-DCMAKE_CXX_COMPILER=$(CXX) \
+			-DENABLE_QT_UI=OFF \
+			-DENABLE_DEBUGGER=OFF; \
+	else \
+		for flag in ENABLE_QT_UI ENABLE_DEBUGGER; do \
+			if $(call CMAKE_CACHE_HAS,$(BUILD_DIR_SDL_UNIT_TEST),$$flag,ON); then \
+				printf "$(BADGE_FAIL) ERROR $(RESET) $(BUILD_DIR_SDL_UNIT_TEST)/ is configured with $(BOLD)$$flag=ON$(RESET).\n"; \
+				printf "  It would not be the SDL-only configuration this target reports on.\n"; \
+				printf "  Run '$(BOLD)rm -rf $(BUILD_DIR_SDL_UNIT_TEST)$(RESET)' first, then retry.\n"; \
+				exit 1; \
+			fi; \
+		done; \
+	fi
+	@$(CMAKE) --build $(BUILD_DIR_SDL_UNIT_TEST) -j$(JOBS)
 
 # Build every ENABLE_QT_UI x ENABLE_DEBUGGER combination; fails if any breaks
 build-matrix:
