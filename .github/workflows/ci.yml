@@ -284,6 +284,18 @@ jobs:
       - name: make unit-test (ctest — FUSE Z80 + every subsystem/integration suite)
         run: LANG=C make unit-test
 
+      # The SECOND configuration whose suites are actually run (GH #273). The
+      # build matrix above proves all four LINK; until now nothing RAN a suite
+      # in any configuration but the default, so a suite could stay red in a
+      # supported one indefinitely — which is exactly what had happened. Owner
+      # decision, 2026-09-25: the two configurations worth running are the
+      # default Qt+debugger build and this SDL-only one; the other two are not
+      # used in practice and stay build-only. Its own build directory, so it
+      # never reconfigures the Qt build/ tree, and cheap here because ccache is
+      # warm from the steps above.
+      - name: make unit-test-sdl (the same suites in the SDL-only configuration)
+        run: LANG=C make unit-test-sdl
+
       # Golden-screenshot + functional regression, in two steps.
       #
       # Step A (preflight) asserts the manifest pins agree — every declared

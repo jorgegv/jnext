@@ -45,6 +45,17 @@
 // MainWindow owns QWidgets, so a QApplication is required — but not a
 // display: the offscreen QPA platform is forced in main() (same idiom as
 // esc_break_test and the debugger panel suites).
+//
+// BUILD CONFIGURATION (GH #273). This suite is gated on ENABLE_QT_UI, which
+// does NOT imply ENABLE_DEBUGGER — the project builds and verifies a Qt-only
+// configuration, and three rows compared documentation against the product
+// while assuming the debugger was always there: H115-19 and H115-25 (View >
+// Debugger, inside main_window.cpp's `#ifdef`) and H115-29 (FEATURES.md names
+// the disassembly panel's Ctrl+A / Ctrl+C and rewind's Shift+F6 / Shift+F7).
+// Every one of the 45 rows runs in BOTH configurations — the row count is
+// pinned in test/unit-tests.conf and a vanishing row is a harness failure —
+// and the three above assert the property their configuration actually has.
+// The default build is byte-for-byte unaffected.
 // ===========================================================================
 #include <QAction>
 #include <QApplication>
@@ -97,21 +108,39 @@ struct Hotkey {
     const char*  action_text;
     const char*  portable;      // expected QKeySequence, PortableText form
     const char*  ss_meaning;    // what Symbol Shift + letter types on a Next
+    bool         debugger_only; // the action exists only under ENABLE_DEBUGGER
 };
 
 const Hotkey HOTKEYS[] = {
-    { Qt::Key_Q, SDL_SCANCODE_Q, 2, 0, "&Quit",              "Alt+Q", "<=" },
+    { Qt::Key_Q, SDL_SCANCODE_Q, 2, 0, "&Quit",              "Alt+Q", "<=", false },
     // GH #217 moved this label's mnemonic from N to L ("Load &NEX File..." ->
     // "&Load NEX File..."): N was claimed by "Save S&napshot..." as well. The
     // ACTION is located by its exact text, so the string tracks the product;
     // the binding under test here — Alt+O — is untouched.
-    { Qt::Key_O, SDL_SCANCODE_O, 5, 1, "&Load NEX File...",  "Alt+O", ";"  },
-    { Qt::Key_S, SDL_SCANCODE_S, 1, 1, "Save &Screenshot...","Alt+S", "|"  },
-    { Qt::Key_R, SDL_SCANCODE_R, 2, 3, "&Power Reset",       "Alt+R", "<"  },
-    { Qt::Key_T, SDL_SCANCODE_T, 2, 4, "&Open Tape File...", "Alt+T", ">"  },
-    { Qt::Key_D, SDL_SCANCODE_D, 1, 2, "&Debugger",          "Alt+D", "STEP" },
+    { Qt::Key_O, SDL_SCANCODE_O, 5, 1, "&Load NEX File...",  "Alt+O", ";",  false },
+    { Qt::Key_S, SDL_SCANCODE_S, 1, 1, "Save &Screenshot...","Alt+S", "|",  false },
+    { Qt::Key_R, SDL_SCANCODE_R, 2, 3, "&Power Reset",       "Alt+R", "<",  false },
+    { Qt::Key_T, SDL_SCANCODE_T, 2, 4, "&Open Tape File...", "Alt+T", ">",  false },
+    // GH #273 — View > Debugger is inside main_window.cpp's `#ifdef
+    // ENABLE_DEBUGGER`, and ENABLE_QT_UI (which gates this suite) does NOT
+    // imply ENABLE_DEBUGGER: the project builds and verifies a Qt-only
+    // configuration too. Its rows below therefore assert the mirror-image
+    // property in that build instead of the one this one names.
+    { Qt::Key_D, SDL_SCANCODE_D, 1, 2, "&Debugger",          "Alt+D", "STEP", true },
 };
 constexpr int N_HOTKEYS = int(sizeof(HOTKEYS) / sizeof(HOTKEYS[0]));
+
+// True when this build compiles the debugger in, i.e. when a `debugger_only`
+// action exists at all. Rows that name one branch on this rather than
+// disappearing: `test/unit-tests.conf` pins this suite's row count EXACTLY, in
+// both directions, so a row that vanished in one configuration would be a hard
+// harness failure there — and a row asserting the OTHER configuration's real
+// property is worth more than one that skips anyway.
+#ifdef ENABLE_DEBUGGER
+constexpr bool kDebuggerBuilt = true;
+#else
+constexpr bool kDebuggerBuilt = false;
+#endif
 
 // Symbol Shift's own matrix cell (keyboard.cpp:124).
 constexpr int SYM_ROW = 7, SYM_COL = 1;
@@ -273,11 +302,36 @@ void test_bindings(MainWindow& w) {
     }
 
     // H115-14..19 — each migrated action carries exactly its Alt+<letter>.
+    //
+    // A `debugger_only` action in a build with no debugger asserts the
+    // mirror-image claim instead (GH #273): the action is absent, and its
+    // chord is therefore claimed by NOBODY — not by a leftover QAction that
+    // escaped the `#ifdef`, and not by a menubar mnemonic that drifted onto
+    // the letter now that nothing else holds it. That is a real property of
+    // that configuration, and it fails loudly if either happens.
     for (int i = 0; i < N_HOTKEYS; ++i) {
         const Hotkey& h = HOTKEYS[i];
         QAction* a = find_action(w, h.action_text);
-        char id[16], desc[160];
+        char id[16], desc[192];
         std::snprintf(id, sizeof(id), "H115-%02d", 14 + i);
+
+        if (h.debugger_only && !kDebuggerBuilt) {
+            const QString chord = QString::fromUtf8(h.portable);
+            QStringList claimants;
+            for (const QString& s : action_shortcuts(w))
+                if (s == chord) claimants << "shortcut";
+            for (const QString& s : menubar_mnemonics(w))
+                if (s == chord) claimants << "mnemonic";
+            std::snprintf(desc, sizeof(desc),
+                          "no debugger build: \"%s\" is absent and nothing binds %s",
+                          h.action_text, h.portable);
+            check(id, desc,
+                  a == nullptr && claimants.isEmpty(),
+                  std::string(a ? "action present; " : "action absent; ") +
+                      ("claimed by=" + claimants.join(',')).toStdString());
+            continue;
+        }
+
         std::snprintf(desc, sizeof(desc), "action \"%s\" is bound to %s",
                       h.action_text, h.portable);
         check(id, desc,
@@ -332,14 +386,29 @@ void test_alt_activation(MainWindow& w) {
         send(w, h.qt_key,    Qt::AltModifier, false);
         send(w, Qt::Key_Alt, Qt::NoModifier,  false);
 
-        char id[16], desc[160];
+        char id[16], desc[192];
         std::snprintf(id, sizeof(id), "H115-%02d", 20 + i);
-        std::snprintf(desc, sizeof(desc),
-                      "%s activates \"%s\" and types nothing into the guest",
-                      h.portable, h.action_text);
-        check(id, desc, a != nullptr && fired && !letter_pressed_in_guest,
-              std::string("fired=") + (fired ? "1" : "0") +
-              " letter_pressed_in_guest=" + (letter_pressed_in_guest ? "1" : "0"));
+        const std::string detail =
+            std::string("fired=") + (fired ? "1" : "0") +
+            " letter_pressed_in_guest=" + (letter_pressed_in_guest ? "1" : "0");
+
+        if (h.debugger_only && !kDebuggerBuilt) {
+            // Mirror image of the row above, measured the way this group
+            // measures everything — through the LIVE shortcut map rather than
+            // by enumerating QKeySequences. With the action compiled out the
+            // chord belongs to no host binding, so the press is not swallowed
+            // and reaches the guest. Anything that quietly claimed Alt+D in a
+            // debugger-less build would swallow it and fail this row.
+            std::snprintf(desc, sizeof(desc),
+                          "no debugger build: %s is not a host hotkey, so it reaches the guest",
+                          h.portable);
+            check(id, desc, a == nullptr && !fired && letter_pressed_in_guest, detail);
+        } else {
+            std::snprintf(desc, sizeof(desc),
+                          "%s activates \"%s\" and types nothing into the guest",
+                          h.portable, h.action_text);
+            check(id, desc, a != nullptr && fired && !letter_pressed_in_guest, detail);
+        }
 
         // `fired` dies with this iteration — drop the connection with it.
         if (a) QObject::disconnect(a, nullptr, nullptr, nullptr);
@@ -685,6 +754,39 @@ void test_ui_strings(MainWindow& w2, const QStringList& live) {
 // how a real defect hides. Those files stay a human-review responsibility.
 // README.md is not scanned either: it contains no chord at all today, so the
 // branch would be vacuous.
+//
+// BUILD CONFIGURATION (GH #273). FEATURES.md describes the SHIPPED build, which
+// has the debugger in it; this suite is gated on ENABLE_QT_UI, which does not
+// imply ENABLE_DEBUGGER. A Qt-only build binds neither the disassembly panel's
+// Ctrl+A / Ctrl+C nor rewind's Shift+F6 / Shift+F7, so the unmodified row
+// failed there on four chords the product is right not to bind and the document
+// is right to advertise. The fix is NOT a list of chords to forgive — that is
+// the checker exclusion this comment already warns about, and it would rot the
+// moment a debugger feature gained a chord. It is to scope the CLAIM to what
+// this build can witness, by dropping FEATURES.md's own "## Debugger" section:
+// the document's structure is the product's own statement of which features
+// belong to the debugger, so the scoping tracks new debugger chords by itself.
+// The default build is untouched and still reads the whole file.
+QString features_md_in_scope(const QString& text, QString& why_not) {
+    if (kDebuggerBuilt) return text;
+    // Match "## Debugger (Qt 6)" and any re-titling of it, up to the next
+    // top-level section. A heading that no longer matches is reported, never
+    // silently ignored: this row's meaning in this configuration rests on that
+    // section existing.
+    static const QRegularExpression head("^##\\s+Debugger\\b.*$",
+                                         QRegularExpression::MultilineOption);
+    static const QRegularExpression next("^##\\s",
+                                         QRegularExpression::MultilineOption);
+    const auto m = head.match(text);
+    if (!m.hasMatch()) {
+        why_not = "FEATURES.md has no '## Debugger' section to scope out";
+        return text;
+    }
+    const int start = m.capturedStart();
+    const int after = next.match(text, m.capturedEnd()).capturedStart();
+    return text.left(start) + (after < 0 ? QString() : text.mid(after));
+}
+
 void test_features_md(const QStringList& live) {
     QFile f(QString::fromUtf8(JNEXT_FEATURES_MD));
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -692,15 +794,25 @@ void test_features_md(const QStringList& live) {
               false, std::string("cannot open ") + JNEXT_FEATURES_MD);
         return;
     }
-    const QStringList found = chords_in(QString::fromUtf8(f.readAll()));
+    QString why_not;
+    const QString text =
+        features_md_in_scope(QString::fromUtf8(f.readAll()), why_not);
+    const char* desc = kDebuggerBuilt
+        ? "every chord in FEATURES.md is one the product binds"
+        : "every chord in FEATURES.md outside its Debugger section is one the product binds";
+    const QStringList found = chords_in(text);
     QStringList bad;
     for (const QString& c : found)
         if (!live.contains(c)) bad << c;
     // `!found.isEmpty()` is part of the condition on purpose: an unreadable
-    // file or a broken pattern must FAIL, not pass vacuously.
-    check("H115-29", "every chord in FEATURES.md is one the product binds",
-          !found.isEmpty() && bad.isEmpty(),
-          ("found=" + found.join(',') + " unbound=" + bad.join(',')).toStdString());
+    // file or a broken pattern must FAIL, not pass vacuously. So must a
+    // Debugger section this build could not find — `why_not` is empty on the
+    // path that did find one, and on every path of a debugger build.
+    check("H115-29", desc,
+          why_not.isEmpty() && !found.isEmpty() && bad.isEmpty(),
+          (why_not.isEmpty()
+               ? "found=" + found.join(',') + " unbound=" + bad.join(',')
+               : why_not).toStdString());
 }
 
 // ---------------------------------------------------------------------------

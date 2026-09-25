@@ -63,7 +63,7 @@ the count — and the driver must still call it.
 
 ## It pins its own count
 
-`EXPECTED_TOTAL = 51` sits in the script, right next to the rows it counts, and
+`EXPECTED_TOTAL = 59` sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is

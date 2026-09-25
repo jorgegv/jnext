@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=53
+EXPECTED_TOTAL=59
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -47,10 +47,24 @@ INVOKE_TIMEOUT=30
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 
+# The harness reads the build's configuration out of its CMakeCache.txt to decide
+# which `# gate:`d suites this build owes it (GH #273), so every fake build tree
+# needs one. Default: the canonical configuration, both options ON, under which
+# every gate is satisfied and the pre-#273 rows below behave exactly as they did.
+ensure_cache() {
+    [[ -f "$T/build/CMakeCache.txt" ]] || cache ON ON
+}
+# cache <qt> <dbg> — (re)write the fake build tree's configuration
+cache() {
+    mkdir -p "$T/build"
+    { echo "ENABLE_QT_UI:BOOL=$1"; echo "ENABLE_DEBUGGER:BOOL=$2"; } > "$T/build/CMakeCache.txt"
+}
+
 # stub <name> <rows> <exit_code> [body]  — a fake suite binary
 stub() {
     local name=$1 rows=$2 rc=$3 body=${4:-}
     mkdir -p "$T/build/test"
+    ensure_cache
     { echo '#!/usr/bin/env bash'
       [[ -n "$body" ]] && echo "$body"
       [[ "$rows" -ge 0 ]] && printf 'echo "Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d"\n' \
@@ -62,15 +76,20 @@ stub() {
 
 # register <name...> — write a CTestTestfile.cmake naming exactly these binaries
 register() {
+    ensure_cache
     : > "$T/build/test/CTestTestfile.cmake"
     for n in "$@"; do
         echo "add_test(${n}s \"$T/build/test/$n\")" >> "$T/build/test/CTestTestfile.cmake"
     done
 }
 
-# manifest <line...> — write the manifest, with a matching `# expect: N` pin
+# manifest <line...> — write the manifest, with a matching `# expect: N` pin.
+# `# gate:` directives may be passed as lines too; they are not suites, so they
+# do not count towards the pin.
 manifest() {
-    { echo "# expect: $#"; printf '%s\n' "$@"; } > "$T/manifest.conf"
+    local n=0 l
+    for l in "$@"; do [[ "$l" == \#* ]] || n=$((n + 1)); done
+    { echo "# expect: $n"; printf '%s\n' "$@"; } > "$T/manifest.conf"
 }
 # manifest_pinned <pin> <line...> — same, but with a deliberately chosen pin
 manifest_pinned() {
@@ -196,22 +215,73 @@ out=$(run_harness); rc=$?
 check "HS-11" "a suite that runs, exits 0 and asserts NOTHING" 1 $rc "$out" \
     "silent_test" "FAIL" "asserted nothing"
 
-# --------------------------------------------------------- optional suites
-# '?name': mandatory if CMake registered it, loudly skipped if it did not — so a
-# legitimate config (-DENABLE_DEBUGGER=OFF) can still run the other 45 suites.
+# --------------------------------------------------- build-gated suites (GH #273)
+# '# gate: qt|dbg|qt+dbg' + '?name' says WHICH configurations own a suite, and the
+# harness reads the configuration from the build tree's own CMakeCache.txt. So
+# absence is CHECKED, not excused: expected where the gate is off, a refusal where
+# it is on. Before #273 the '?' alone meant "skip it quietly if CMake did not
+# register it", which is the same silent shrinking the manifest exists to forbid —
+# HS-13a is the hole that closed.
 stub good_test 10 0
-register good_test                       # optional_test NOT registered
-manifest "good_test 10" "?optional_test 7"
+register good_test                       # gated_test NOT registered
+cache OFF OFF                            # ...and this configuration does not own it
+manifest "good_test 10" "# gate: qt" "?gated_test 7"
 out=$(run_harness); rc=$?
-check "HS-12" "an optional suite the build did not register: NOTICE, not silence" 0 $rc "$out" \
-    "NOTICE" "optional_test" "Suites: 1 pass, 0 fail"
+check "HS-12" "a suite gated out by this configuration: NOTICE, not silence" 0 $rc "$out" \
+    "NOTICE" "gated out" "gated_test" "Suites: 1 pass, 0 fail" "ENABLE_QT_UI=OFF"
 
-stub optional_test 7 0
-register good_test optional_test         # now it IS registered -> mandatory
-manifest "good_test 10" "?optional_test 7"
+stub gated_test 7 0
+register good_test gated_test            # owned by this configuration AND registered
+cache ON ON
+manifest "good_test 10" "# gate: qt" "?gated_test 7"
 out=$(run_harness); rc=$?
-check "HS-13" "an optional suite the build DID register is run like any other" 0 $rc "$out" \
-    "optional_test" "Total: 17"
+check "HS-13" "a gated suite whose configuration owns it is run like any other" 0 $rc "$out" \
+    "gated_test" "Total: 17"
+
+register good_test                       # owned by this configuration but GONE from CMake
+cache ON ON
+manifest "good_test 10" "# gate: qt" "?gated_test 7"
+out=$(run_harness); rc=$?
+check "HS-13a" "a suite MISSING from the configuration that owns it is a refusal" 2 $rc "$out" \
+    "REFUSES TO RUN" "gated_test" "NOT registered by CMake"
+
+stub gated_test 7 0
+register good_test gated_test            # present although the gate excludes it
+cache OFF OFF
+manifest "good_test 10" "# gate: qt" "?gated_test 7"
+out=$(run_harness); rc=$?
+check "HS-13b" "a suite PRESENT although its gate excludes it is a refusal" 2 $rc "$out" \
+    "REFUSES TO RUN" "gated_test" "gates it to"
+
+register good_test
+cache ON ON
+manifest "good_test 10" "# gate: qt" "gated_test 7"   # under a gate, but no '?'
+out=$(run_harness); rc=$?
+check "HS-13c" "a gated suite without the '?' marker is a refusal (the two must agree)" 2 $rc "$out" \
+    "REFUSES TO RUN" "not marked"
+
+register good_test
+cache ON ON
+manifest "?good_test 10"                              # '?' with no gate in force
+out=$(run_harness); rc=$?
+check "HS-13d" "a '?' suite under 'gate: none' is a refusal (the two must agree)" 2 $rc "$out" \
+    "REFUSES TO RUN" "gate: none"
+
+register good_test
+cache ON ON
+manifest "good_test 10" "# gate: gui" "?gated_test 7" # not one of the four gates
+out=$(run_harness); rc=$?
+check "HS-13e" "an unknown gate name is a refusal, not a gate that never applies" 2 $rc "$out" \
+    "REFUSES TO RUN" "Unknown gate"
+
+stub good_test 10 0
+register good_test
+rm -f "$T/build/CMakeCache.txt"          # configured tree, unreadable configuration
+manifest "good_test 10"
+out=$(run_harness); rc=$?
+check "HS-13f" "a build tree whose configuration cannot be read is a refusal, not a guess" 2 $rc "$out" \
+    "REFUSES TO RUN" "CMakeCache.txt"
+cache ON ON
 
 # ------------------------------------------------------------ malformed input
 register good_test
@@ -337,12 +407,17 @@ check "HS-26" "an add_test() line the parser cannot read is a refusal, not a sil
 # flaps, the fix is MORE padding, never fewer iterations.
 stub good_test 10 0
 register good_test
+# The fillers exist to make the DECLARED list huge; they are not registered, so
+# they go under a gate this configuration does NOT satisfy (GH #273) — which is
+# the only way a declared suite may legitimately be absent.
+cache ON OFF
 filler_a="pad_a_$(head -c 200000 /dev/zero | tr '\0' 'a')"
 filler_b="pad_b_$(head -c 200000 /dev/zero | tr '\0' 'b')"
-manifest "good_test 10" "?$filler_a 1" "?$filler_b 1"
+manifest "good_test 10" "# gate: dbg" "?$filler_a 1" "?$filler_b 1"
 out=$(run_harness); rc=$?
 check "HS-27" "manifest/build AGREEMENT is never reported as drift (no SIGPIPE race)" 0 $rc "$out" \
     "Total: 10  Passed: 10  Failed: 0  Skipped: 0" "Suites: 1 pass, 0 fail"
+cache ON ON
 
 # ------------------------------------- the per-invocation bound itself (GH #81)
 # Every row above and every preflight row below runs a REAL script end to end,

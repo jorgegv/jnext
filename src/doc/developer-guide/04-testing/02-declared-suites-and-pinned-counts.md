@@ -23,11 +23,13 @@ it more briefly — *this file is a contract, not a convenience.*
 ```
 
 - `<executable>` is the binary under `<build>/test/`. A leading `?` marks the
-  suite **optional**, meaning a legitimate build configuration may not register
-  it at all: the `debugger_*` suites exist only under `-DENABLE_DEBUGGER=ON`
-  and `app_config_test` only under `-DENABLE_QT_UI=ON`, so all of them are
-  declared with `?`. When an optional suite is absent, the harness prints a
-  NOTICE and counts it as not-run — skipped, but never silently.
+  suite **build-gated**: it exists only in some configurations — the
+  `debugger_*` suites only under `-DENABLE_DEBUGGER=ON`, `app_config_test` only
+  under `-DENABLE_QT_UI=ON`. *Which* configurations is stated by the
+  `# gate: none | qt | dbg | qt+dbg` directive in force, which applies to every
+  line below it until the next one, and the `?` and the gate must agree. When a
+  suite's gate is not satisfied the harness prints a NOTICE naming it and counts
+  it as not-run — skipped, but never silently.
 - `<expected_rows>` is the exact `Total:` the suite must report, and it must be
   at least 1. A pin of `0` is rejected outright at parse time, because a suite
   pinned at 0 that reports 0 rows would pass, whereas the same suite printing
@@ -60,7 +62,15 @@ everything look as though it were registered twice. It refuses when:
 - the parser read fewer `add_test()` lines than the file contains, so it cannot
   vouch for the list it just built;
 - the `# expect: N` pin is missing, or disagrees with the number of declared
-  suites.
+  suites;
+- a suite is **missing from a configuration whose gate it satisfies**, or
+  **present in one the gate excludes**. The harness reads `ENABLE_QT_UI` and
+  `ENABLE_DEBUGGER` out of the build tree's own `CMakeCache.txt`, so the
+  configuration is taken from the build rather than from the caller, and the
+  same manifest is exact in every configuration instead of merely permissive in
+  all of them. Before this (GH #273) the `?` alone meant "skip it quietly if
+  CMake did not register it", so a suite that stopped being registered in the
+  configuration that owns it printed a NOTICE and the run stayed green.
 
 That last condition is the subtle one, and it is what makes the whole check
 more than bookkeeping. Without it, "N declared equals N registered" is a

@@ -36,6 +36,15 @@ going after a failure and reports every broken combination rather than stopping
 at the first, because knowing whether three are broken or only one is the
 difference between a single missing edge and a wrong graph.
 
+Building is not the same as running, though, and for a long time it was all the
+matrix did: every configuration was proved to link, and only the default one ever
+had a suite run in it, so a suite could stay red in a supported configuration
+indefinitely — which is what GH #273 found. Two configurations now run their
+suites: the default Qt+debugger build through `make unit-test`, and the SDL-only
+build through `make unit-test-sdl`. The other two, Qt without the debugger and
+SDL with it, are not used in practice and remain build-only. CI runs both
+targets.
+
 ## Where each target builds
 
 There is one scheme, `build/<variant>-<config>`, and everything lives under

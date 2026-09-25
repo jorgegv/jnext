@@ -90,7 +90,9 @@ code comments.
 The single authoritative protocol for landing any implemented change on `main`:
 
 1. **Dedicated branch + worktree** off current `main` — never edit `main` directly. Each independent feature gets its own branch (so parallel agents don't trash each other).
-2. **Full test triplet green on the branch** before review: `make clean && make gui-release`, then `make unit-test`, the FUSE Z80 suite (`./build/test/fuse_z80_test build/test/fuse` → 1356/1356), and `JNEXT_TEST_JOBS=4 bash test/00regression/regression.sh`. No FAIL anywhere (SKIPs only where already declared).
+2. **Full test triplet green on the branch, plus the SDL-only unit run** before review: `make clean && make gui-release`, then `make unit-test`, **`make unit-test-sdl`**, the FUSE Z80 suite (`./build/test/fuse_z80_test build/test/fuse` → 1356/1356), and `JNEXT_TEST_JOBS=4 make regression`. No FAIL anywhere (SKIPs only where already declared).
+   - `make unit-test-sdl` applies to **every** branch, not only GUI-touching ones (owner decision, 2026-09-25). Its 91 suites are the core emulator plus the platform decision-logic both frontends share, minus Qt and the debugger — and they INCLUDE `host_key_latch_test`, which drives the real `SdlInput::poll()` (GH #268) precisely because an SDL-only build is the only place that coverage survives. So an SDL-frontend change needs this run just as much as a core one does; do not read “the non-Qt set” as “no frontends”. Cost on a branch that actually changed code: ~17 s with a warm ccache (a no-op re-run of just the suites is ~9 s). See the two-configuration rule under **Testing**.
+   - Use **`make regression`**, never bare `bash test/00regression/regression.sh`: the suite's `sdl-keypress-func` row needs `build/sdl-release`, which only the make target builds, so the bare script aborts as a harness fault. Two separate agents lost a run to this on 2026-09-25.
 3. **Independent code review** by an agent/person that did NOT write the change — never self-review. The reviewer works in its own worktree, never the author's. Verdict is binary APPROVE / REJECT; on REJECT, fix and re-review.
 4. **Merge on green APPROVE**, one branch at a time. The manager (not the authoring agent) does the merge. If a merge conflicts, the agent who merged last fixes it on their own branch.
 5. **Immediately after each merge to `main`, bump the patch version: `make bump-patch`** (bumps `version.yaml`, commits, and creates the git tag). Every feature/fix that lands on `main` gets its own patch bump — per merge, not batched. This is separate from the deliberate minor/major release flow in "Version bumping" below.
@@ -316,6 +318,40 @@ crashes, or times out. `make unit-test` **exits non-zero** when a suite fails.
 > the point: the number is the project's claim about how much it tests, and it is made
 > deliberately. The CMake side is not a second hand-kept list — it is read from the
 > generated `build/test/CTestTestfile.cmake`.
+
+### TWO build configurations run their suites (GH #273)
+
+`ENABLE_QT_UI` × `ENABLE_DEBUGGER` gives four combinations. **`make build-matrix`
+builds all four** — it catches link rot, which only appears at build time — but it
+never ran a suite in any of them, so `make unit-test` and CI only ever exercised
+the default one and a suite could stay red in a supported configuration
+indefinitely. That is not hypothetical: `host_hotkey_test` had three rows failing
+in `ENABLE_QT_UI=ON / ENABLE_DEBUGGER=OFF` and nothing noticed.
+
+**Two configurations are worth RUNNING** (owner decision, 2026-09-25):
+
+| target | configuration | build dir | suites |
+|--------|---------------|-----------|--------|
+| `make unit-test`     | Qt + debugger (the shipped one) | `build/`              | 117 |
+| `make unit-test-sdl` | SDL-only, no Qt, no debugger    | `build/sdl-unit-test` |  91 |
+
+The other two (Qt without the debugger; SDL with it) are not used in practice and
+stay **build-only**. CI runs both targets — the same two commands a human types —
+and `make unit-test` deliberately does **not** pull the second one in, so the
+everyday inner loop does not pay for a second build and suite run. The SDL tree
+gets its own build directory: `build/` must stay the Qt tree that `unit-test-build`
+guards. `make clean` takes both.
+
+**A gated suite's absence is CHECKED, not excused.** `test/unit-tests.conf` carries
+`# gate: none | qt | dbg | qt+dbg` directives; each names the CMake options a suite
+needs to exist, and the `?` marker on the suite line must agree with the gate in
+force. `run-unit-tests.sh` reads `ENABLE_QT_UI` / `ENABLE_DEBUGGER` out of the build
+tree's **own `CMakeCache.txt`**, so the configuration comes from the build and never
+from the caller, and it **refuses** (exit 2) when a suite is missing from a
+configuration whose gate is satisfied, or present in one the gate excludes. Before
+this, `?` meant "skip it quietly if CMake did not register it" — a suite that
+stopped being registered in the configuration that owns it printed a NOTICE and the
+run stayed green, which is the same silent shrinking the manifest exists to forbid.
 
 **`test/00regression/regression_tests.conf`** (screenshots) + **`functional_tests.conf`**
 (functional). At the end of a full run, `regression.sh` asserts every declared functional

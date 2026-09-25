@@ -63,8 +63,10 @@ them they pull in a set of structural gates as prerequisites —
 your inner loop instead of leaving them for CI to discover. Alongside them,
 `make harness-selftest` proves that the test harness itself fails loudly when
 faults are injected into it, `make build-matrix` builds every combination of the
-frontend options, and `make unit-test-dashboard` runs the unit tests and
-refreshes the committed per-subsystem status table.
+frontend options, `make unit-test-sdl` runs the declared suites a second time in
+the SDL-only configuration (its own `build/sdl-unit-test` tree, so `build/` stays
+the Qt one), and `make unit-test-dashboard` runs the unit tests and refreshes the
+committed per-subsystem status table.
 
 Chapter [4. Testing](../04-testing/index.md) covers what each of these actually
 proves.
