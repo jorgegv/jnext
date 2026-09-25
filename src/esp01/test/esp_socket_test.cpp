@@ -2246,6 +2246,27 @@ int main() {
             check("PICMP-04", "reset() returns it to Idle, as EspPinger promises",
                   p->state() == PingState::Idle && p->last_error().empty());
         }
+        {
+            // IPv4 ONLY, and the row asserts the REASON rather than just the
+            // outcome — because without the family check the code would memcpy
+            // the first four bytes of a v6 address into an IPv4 `sin_addr` and
+            // echo a fabricated host, which also ends in `Failed` (by timeout)
+            // and would therefore look identical. Mutation testing found
+            // exactly that: deleting the check left every row green.
+            //
+            // A documentation-range literal (RFC 3849) needs no DNS and is not
+            // denied by the default policy, so this is deterministic and
+            // network-free.
+            auto p = make_icmp_pinger(kDefault, /*timeout_s=*/1);
+            p->begin("2001:db8::1");
+            const bool settled = wait_until(
+                [&] { p->poll(); return p->state() != PingState::Pinging; }, 4000);
+            check("PICMP-05",
+                  "an IPv6-only address is refused as having no IPv4 address, not echoed "
+                  "at four bytes of itself",
+                  settled && p->state() == PingState::Failed &&
+                      p->last_error().find("IPv4") != std::string::npos);
+        }
     
     }
 

@@ -3606,6 +3606,48 @@ int main() {
         check_eq("PING-20", "...and the deadline ends it with the ordinary failure reply",
                  r.take(), "\r\n+timeout\r\n\r\nERROR\r\n"); }
 
+    {   // ══ THE WORKER HOOK ═══════════════════════════════════════════════
+        //
+        // `ThreadedEsp`'s worker does NOT call `AtEngine::poll()`. It calls the
+        // halves — `advance_transports()`, `service_transports()`,
+        // `service_domain_lookup()`, `service_ping()` — directly, so the
+        // transport pass can run unlocked. A service step added only to
+        // `poll()` therefore never runs for ANY threaded consumer, which is
+        // every real one: jnext builds a `ThreadedEsp`, never a bare engine.
+        //
+        // THAT EXACT BUG SHIPPED ONCE ON `AT+CIPDOMAIN` and cost a review
+        // cycle; 744 unit rows passed while the product did nothing. Every
+        // other row in this suite drives the PASSIVE core, so none of them can
+        // see it — which mutation testing confirmed by deleting the worker's
+        // `service_ping()` call and watching all 802 rows stay green.
+        //
+        // This row is the one that looks. It drives the REAL wrapper.
+        FakeTransport tr;
+        FakeListener  lsn;
+        FakeResolver  rsv;
+        FakePinger    png;
+        png.rtt = 21;
+        ThreadedEsp   esp{tr, &lsn, &rsv, &png};
+        std::string   guest;
+        esp.set_output([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+
+        // Fed INLINE, before the worker exists, so the command is dispatched
+        // and `ping_pending_` is set deterministically rather than raced.
+        for (unsigned char c : std::string("AT+PING=\"example.test\"\r\n")) esp.receive(c);
+        esp.start();
+
+        // Drain toward the guest for as long as the worker needs to service the
+        // ping. Bounded so a missing hook FAILS rather than hanging the suite.
+        for (int i = 0; i < 4000 && guest.find("OK\r\n") == std::string::npos; ++i) {
+            esp.tick(BYTE_TICKS, BYTE_TICKS);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        esp.stop();
+        check_eq("PWORK-01",
+                 "the THREADED wrapper services a ping — a hook added only to poll() would "
+                 "never run for any real consumer, and this is the only row that looks",
+                 guest, "\r\n+21\r\n\r\nOK\r\n"); }
+
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail,
                 g_skip);
