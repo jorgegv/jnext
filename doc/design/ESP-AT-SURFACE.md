@@ -22,13 +22,17 @@
 > when the reference turned out to document none — recorded in place at
 > [§5.5](#55-what-could-not-be-verified-and-one-thing-this-changed).
 >
-> The owner's answers to [§7](#7-questions-for-the-owner) were **not yet in**
-> when the implementation was made; it follows the recommendations below, which
-> are provisional until confirmed.
+> **THE OWNER HAS NOW ANSWERED ALL SEVEN QUESTIONS.** Nothing below is a
+> provisional default any more. Q1-Q5 were ratified exactly as recommended and
+> as built. **Q6 and Q7 were answered BUILD — the opposite of the
+> recommendation in each case** — and both are built:
+> [§20](ESP01-EMULATOR-DESIGN.md#20-atping-gh-154) and
+> [§21](ESP01-EMULATOR-DESIGN.md#21-sntp-gh-154).
 >
-> Companion to [ESP01-EMULATOR-DESIGN.md](ESP01-EMULATOR-DESIGN.md), which is
-> the authoritative design of the module as shipped. This document does not
-> restate it; it says what should be added to it and what should not, and why.
+> The recommendations that were overruled are **kept, not deleted**, with what
+> changed recorded under each. In Q6's case the recommendation rested on a
+> factual claim that turned out to be wrong, and saying so is more useful than
+> quietly rewriting it.
 
 ---
 
@@ -701,11 +705,34 @@ privileges.
   a ping time.
 - **(c)** Implement as a synthetic constant.
 
-**Recommendation: (a).** (c) is fiction. (b) measures something real but not the
-thing it reports — a host that black-holes the port reads as "down" when ICMP
-would say "up", so a guest using it as a reachability test gets a wrong answer
-that looks authoritative. With no consumer asking, `ERROR` is the honest answer.
-Revisit if something specific needs it.
+**Recommendation was (a).** (c) is fiction. (b) measures something real but not
+the thing it reports — a host that black-holes the port reads as "down" when
+ICMP would say "up", so a guest using it as a reachability test gets a wrong
+answer that looks authoritative.
+
+> **OWNER ANSWER: BUILD IT — and the recommendation above was WRONG on a point
+> of fact, not of taste.**
+>
+> Its premise was the first sentence of this section: *"ICMP needs
+> `CAP_NET_RAW` or admin rights."* That is false on a modern Linux, and
+> measurably false on this project's own host. `/usr/bin/ping` there is plain
+> `0755` with no setuid bit and no file capabilities; it works because
+> `net.ipv4.ping_group_range` is `0 2147483647`, i.e. the kernel permits any
+> group to open a `SOCK_DGRAM`/`IPPROTO_ICMP` socket. **jnext has that
+> capability on identical terms**, so there was never a privilege to acquire
+> and option (d) — do it in process, properly — was available all along and
+> went unconsidered.
+>
+> The route was found by the owner asking for something else: *"can you
+> implement ping by calling each platform's ping command?"* Checking what
+> privilege that binary actually holds is what revealed that it holds none, and
+> the implementation became an in-process ICMP socket instead — which also
+> works in the Flatpak (whose runtimes ship no `ping` at all), parses no output,
+> and exposes no argv to a guest-supplied hostname.
+>
+> Built in [§20](ESP01-EMULATOR-DESIGN.md#20-atping-gh-154). The lesson worth
+> keeping: **a recommendation to decline should state the fact it rests on
+> plainly enough to be checked.** This one did, and the check overturned it.
 
 ### Q7 — SNTP
 
@@ -718,11 +745,24 @@ deterministic screenshots.
 - **(b)** Answer from the **emulated RTC**, so `--rtc` keeps a test deterministic.
 - **(c)** Answer from the host clock, or by really querying an NTP server.
 
-**Recommendation: (a), and (b) if it is wanted at all.** (c) breaks determinism
-and puts host state into the guest. The strongest argument for (a) is that the
-only known consumer deliberately does **not** use these commands — it asks the
-module for a UDP socket and speaks NTP itself, which is both already supported
-and strictly more honest about where the time came from.
+**Recommendation was (a), and (b) if it is wanted at all.** (c) breaks
+determinism and puts host state into the guest.
+
+> **OWNER ANSWER: BUILD IT, AND BUILD (c)** — *"implement SNTP cfg and time by
+> configuring the server and querying the real NTP server"*.
+>
+> The determinism objection was real and is **not** dismissed: it is met by
+> documenting the divergence instead of hiding it. `--rtc` pins the emulated
+> clock so boot screenshots are reproducible; a guest that asks SNTP for the
+> time gets wall-clock regardless, because that is what a real time server
+> returns. The two clocks disagree **on purpose**, it is stated in
+> [§21](ESP01-EMULATOR-DESIGN.md#21-sntp-gh-154) and in the user guide, and no
+> regression row screenshots an SNTP-derived date.
+>
+> The "no consumer" argument also survives unchanged and is simply overruled:
+> `newt` still does NTP itself over `AT+CIPSTART="UDP"`. Building the AT form
+> serves software that has not been written yet, which is the whole premise of
+> this issue.
 
 ---
 
