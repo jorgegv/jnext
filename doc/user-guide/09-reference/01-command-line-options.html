@@ -3008,11 +3008,11 @@ right — please <a href="https://github.com/jorgegv/jnext/issues">report it</a>
 <p>Load a program. The format is detected from the extension: <code>.nex</code>,
 <code>.jns</code>, <code>.sna</code>, <code>.szx</code>, <code>.z80</code>, <code>.tap</code>, <code>.tzx</code>, <code>.wav</code>, <code>.rzx</code>.
 (<code>.rzx</code> is accepted here and plays back, as <strong>--rzx-play</strong>.)</p>
-<p><code>.jns</code> is jnext’s own whole-machine snapshot (see <strong>JNEXT
-SNAPSHOTS</strong> below). Loading one restores the machine it was taken
-on, including the machine <em>type</em>: a <code>.jns</code> taken on a Next loads as
-a Next even if <strong>--machine</strong> says otherwise, the same way a <code>.sna</code>,
-<code>.szx</code> or <code>.z80</code> already does.</p>
+<p><code>.jns</code> is jnext’s own whole-machine snapshot (see <a href="../05-running-programs/09-snapshots.html">5.9
+Snapshots</a>). Loading one
+restores the machine it was taken on, including the machine <em>type</em>:
+a <code>.jns</code> taken on a Next loads as a Next even if <strong>--machine</strong> says
+otherwise, the same way a <code>.sna</code>, <code>.szx</code> or <code>.z80</code> already does.</p>
 <p>A NEX file with bytes after the banks its header declares is an
 <em>extended</em> NEX. If its header asks for the file to be kept open (any
 non-zero <code>file_handle</code>: 1 to 0x3FFF hands the program the handle in

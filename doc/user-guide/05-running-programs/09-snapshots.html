@@ -3022,8 +3022,16 @@
 </table>
 <p><code>.sna</code> and <code>.szx</code> describe a machine the Next is not: no Layer 2, no sprites,
 no tilemap, no Copper, no DivMMC, 128 KB of RAM where a Next has 768 KB or
-more. Asking for one on a Next is refused rather than half-written, which is
-why <code>.jns</code> exists.</p>
+more. That is why <code>.jns</code> exists, and it is worth knowing what the other two do
+if you ask for one on a Next anyway:</p>
+<ul>
+<li><strong><code>.szx</code> is refused</strong>, with an error naming the machines it can describe,
+  rather than writing something that misrepresents the one you have.</li>
+<li><strong><code>.sna</code> is written, and it is a 48K snapshot</strong> — the 64 KB the CPU can see
+  at that instant and nothing else. JNEXT only ever writes the 48K form of
+  SNA. It will load back into another emulator, but everything that makes the
+  machine a Next is missing from it, so do not use it to keep a Next session.</li>
+</ul>
 <h2 id="saving">Saving<a class="headerlink" href="#saving" title="Permanent link">&para;</a></h2>
 <p><strong>File ▸ Save Snapshot…</strong> (Alt+Shift+S), or headless:</p>
 <pre><code>jnext --headless --load game.nex \

@@ -931,6 +931,10 @@ v1.0/1.1/1.2; pages, Layer 2 screen and palette from the header.
 V1.3 is experimental and unsupported \- it loads only with
 \f[B]\-\-experimental\-nex\-v1.3\f[R] (or the GUI warning\(cqs Proceed).
 .TP
+\f[CR].jns\f[R]
+jnext\(cqs own whole\-machine snapshot, including the machine type \-
+see \f[B]JNEXT SNAPSHOTS\f[R].
+.TP
 \f[CR].sna\f[R]
 48K and 128K snapshots.
 .TP
@@ -974,8 +978,10 @@ On a real Next a NEX file is always started by NextZXOS, so the program
 can use NextZXOS\(cqs esxDOS services (an \f[CR]RST $08\f[R] followed by
 a call number).
 A NEX loaded directly by jnext (\f[B]\-\-load\f[R], a bare file name, or
-\f[B]File > Load NEX File\&...\f[R]) has no NextZXOS behind it, so jnext
-answers those calls itself.
+\f[B]File > Load NEX File\&...\f[R]) is not started by NextZXOS, so
+jnext answers those calls itself \- ahead of the NextZXOS a warm start
+leaves resident (\f[B]\-\-warm\-start\-regenerate\f[R]), exactly as
+\f[B]\-\-esxdos\-stub\f[R] does with NextZXOS booted.
 This starts when the NEX is loaded and stops at the next reset or soft
 reset.
 It answers:
@@ -1082,6 +1088,45 @@ Every other call goes to the code at \f[CR]$0008\f[R] as usual.
 It is meant for programs run without NextZXOS: with NextZXOS booted, it
 answers those calls in front of NextZXOS\(cqs own esxDOS, and
 NextZXOS\(cqs file commands stop working.
+.SH JNEXT SNAPSHOTS
+A \f[CR].jns\f[R] file is jnext\(cqs own whole\-machine snapshot, and
+the only format that can represent a ZX Spectrum Next: \f[CR].sna\f[R]
+and \f[CR].szx\f[R] describe a 48K/128K/+3 machine, which a Next is not.
+.PP
+Write one with \f[B]File > Save Snapshot\&...\f[R] (Alt+Shift+S), or
+headless with \f[B]\-\-delayed\-snapshot\f[R] naming a \f[CR].jns\f[R]
+file.
+Read one back with \f[B]\-\-load\f[R], a bare file name, or \f[B]File >
+Load NEX File\&...\f[R], which lists \f[CR].jns\f[R] alongside every
+other format.
+On a Next the save dialog offers \f[CR].jns\f[R] first and appends it to
+a name typed without an extension; on a 48K, 128K or +3 it offers
+\f[CR].sna\f[R] first and appends that instead.
+.PP
+Loading a \f[CR].jns\f[R] restores the machine \f[I]type\f[R] as well as
+its contents, so one taken on a Next comes back as a Next whatever
+\f[B]\-\-machine\f[R] says.
+A snapshot is only ever taken at a frame boundary: if the debugger has
+stopped the machine part\-way through a frame, that frame is completed
+first and the restored machine is up to one frame past where you
+stopped.
+.PP
+The file does \f[B]not\f[R] contain the SD card \- a card image is a
+gigabyte, and it holds NextZXOS.
+It records the card\(cqs identity instead and checks it on load: a
+different card is refused unless \f[B]\-\-snapshot\-mode\f[R]
+\f[CR]force\f[R], while the same card changed since (which happens on
+any run that writes to it) restores with a warning.
+\f[B]\-\-snapshot\-mode\f[R] \f[CR]strict\f[R] additionally turns the
+state\-model and ROM\-digest warnings into refusals, and
+\f[B]\-\-snapshot\-compression\f[R] \f[CR]off\f[R] writes the members
+stored rather than deflated, so the file can be read with
+\f[CR]unzip \-p\f[R].
+.PP
+It does contain \f[B]all of RAM\f[R], which on a Next includes NextZXOS
+and DivMMC ROM code paged into it.
+Those are not redistributable: keep your snapshots rather than posting
+them, and hand somebody a \f[CR].nex\f[R] instead.
 .SH HEADLESS MODE, SCREENSHOTS AND RECORDING
 \f[B]\-\-headless\f[R] runs the emulator with no window and no audio
 device, as fast as the host allows: the mode built for scripting and CI.
@@ -1531,10 +1576,10 @@ the Spectrum\(cqs Symbol Shift, so a Ctrl shortcut would eat a key the
 guest needs (see \f[B]THE KEYBOARD\f[R] below).
 .TP
 \f[B]File\f[R]
-Load a program (Alt+O \- NEX/SNA/SZX/Z80/TAP/TZX/WAV/RZX), Mount SD Card
-Image, Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record
-RZX / Stop RZX, Save Screenshot (Alt+S), Quick Screenshot (Alt+K), Save
-Snapshot (Alt+Shift+S), Quit (Alt+Q).
+Load a program (Alt+O \- NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX), Mount SD
+Card Image, Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX /
+Record RZX / Stop RZX, Save Screenshot (Alt+S), Quick Screenshot
+(Alt+K), Save Snapshot (Alt+Shift+S), Quit (Alt+Q).
 .RS
 .PP
 \f[B]Save Screenshot\&...\f[R] asks for a name; the extension chooses
@@ -1581,7 +1626,8 @@ Scale 1x / 2x / 3x, Fullscreen (F11, letterboxed), CRT Filter, Debugger
 \f[B]Settings\f[R]
 Preferences\&...
 (Alt+P), which opens the settings dialog (Startup, Input, Audio, Network
-and Paths tabs).
+and Paths tabs, plus Debugger Keys in a build with the debugger compiled
+in).
 Its values are saved to the configuration file; command\-line options
 always take precedence over them.
 .TP
@@ -1797,7 +1843,11 @@ SDL\-only build has no way to open it.
 type) and the 128K bank mappings
 .IP \(bu 2
 \f[B]Disassembly\f[R] \- Z80 + Z80N, PC highlight, breakpoint gutter,
-follow\-PC, run\-to\-cursor, symbol names from MAP files
+follow\-PC, run\-to\-cursor, symbol names from MAP files.
+Lines can be selected (drag, Shift+click, Shift plus the navigation
+keys, Ctrl+A) and copied with Ctrl+C as assembly only \- no address
+column, no opcode bytes \- or with the right\-click menu\(cqs \f[B]Copy
+with Addresses\f[R] to keep both
 .IP \(bu 2
 \f[B]Memory hex editor\f[R] \- full 64K, hex and ASCII, inline editing,
 page/bank selector
@@ -1815,7 +1865,13 @@ high byte holds); \f[B]0100\f[R] and above matches that exact 16\-bit
 port (\f[B]243B\f[R], not \f[B]253B\f[R]).
 They are armed only while the debugger window is open; start jnext with
 \f[B]\-\-persistent\-breakpoints\f[R] to keep them armed with it closed,
-in which case a hit reopens the window at the breakpoint
+in which case a hit reopens the window at the breakpoint.
+Each row has an \f[B]On\f[R] checkbox that suspends that one without
+deleting it, and the panel has a \f[B]Breakpoints enabled\f[R] master
+switch that suspends every breakpoint and watchpoint at once and
+restores each one\(cqs own state when ticked back; a suspended execute
+breakpoint is drawn in the gutter as a hollow ring rather than a filled
+dot
 .IP \(bu 2
 \f[B]Watch expressions\f[R] \- byte, word or long at arbitrary
 addresses, with custom labels
@@ -1824,7 +1880,13 @@ addresses, with custom labels
 live compositor), ULA (primary and shadow), Layer 2 (active and shadow),
 Sprites, Tilemap, Background (the NR 0x4A fallback colour);
 per\-scanline view up to the current raster position, checkerboard for
-transparent pixels
+transparent pixels.
+The header gives the raster position in all four coordinate systems at
+once (raw \f[CR]hc\f[R]/\f[CR]vc\f[R], the ULA\(cqs
+\f[CR]hc_ula\f[R]/\f[CR]vc_ula\f[R], the Copper \f[CR]cvc\f[R] that NR
+0x1E/0x1F report, and the pixel being generated), whether the beam is in
+paper, border or blanking, and whether the ULA is fetching a bitmap
+byte, an attribute byte or nothing
 .IP \(bu 2
 \f[B]Sprite viewer\f[R] \- all 128 hardware sprites with their attribute
 table
@@ -1911,6 +1973,15 @@ T}@T{
 Step Back
 T}
 .TE
+.PP
+Those are defaults.
+All twelve debugger commands \- the nine above plus Run to Cursor, Run
+to End of Frame and Run to End of Scan Line, which ship unbound \- can
+be rebound under \f[B]Settings > Preferences > Debugger Keys\f[R] in the
+emulator window, or by hand in the \f[CR][debugger_keys]\f[R] section of
+the configuration file (\f[CR]step_over=F10\f[R]).
+Only the commands you change are written there, so a default that
+changes in a later release still reaches you.
 .PP
 The window may be resized below what the panels need: the panel area
 then scrolls rather than clipping, and the control toolbar along the
@@ -2031,6 +2102,15 @@ never read it.
 Where \f[B]File > Quick Screenshot\f[R] writes, unless
 \f[CR][screenshot] quick_dir\f[R] says otherwise.
 Created on the first capture.
+.TP
+\f[CR]\(ti/.jnext/warm\-start/\f[R]
+The recorded NextZXOS\-resident machine a \f[B]\-\-load\f[R] of a
+\f[CR].nex\f[R] starts from, one file per machine type, around 100 KB
+each.
+Written on the first such load with a given SD image and re\-recorded
+whenever the image, the machine type or the state format changes \- see
+\f[B]\-\-warm\-start\-regenerate\f[R].
+Deleting it costs one cold boot, nothing else.
 .TP
 \f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img\f[R]
 The default SD\-card image, used when \f[B]\-\-sdcard\f[R] is not given.

@@ -90,7 +90,7 @@ static void print_usage(const char* prog) {
         "\n"
         "  Usage: %s [options] [file]\n"
         "\n"
-        "  [file]  Program to load (NEX, TAP, TZX, SNA, SZX, Z80, WAV, RZX).\n"
+        "  [file]  Program to load (NEX, JNS, TAP, TZX, SNA, SZX, Z80, WAV, RZX).\n"
         "          Equivalent to --load FILE, so 'jnext game.tap' just works.\n"
         "\n",
         prog);

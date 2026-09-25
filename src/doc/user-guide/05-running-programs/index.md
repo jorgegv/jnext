@@ -57,8 +57,10 @@ Everything else in this chapter is about shaping that session.
 ## Programs that need NextZXOS
 
 Loading a file directly (with `--load`, a bare file name, or **File > Load NEX
-File…**) skips NextZXOS: the program starts on a machine with nothing else
-running. That is all most games and demos need. On a real Next, though, every
+File…**) skips NextZXOS's *loader*: nothing navigates a menu, and NextZXOS is
+not the thing that starts your program. (The machine underneath it is still one
+NextZXOS booted, for a NEX file — see [the section below](#the-machine-a-nex-file-starts-on).)
+That is all most games and demos need. On a real Next, though, every
 NEX program is started by NextZXOS, and some programs also use it while they
 run: to ask which drive they are on, to save a high score, or to read their
 levels, music or settings from files next to them.
@@ -78,14 +80,26 @@ Everything else is refused with an error. In practice:
 - A program that only checks its drive or saves a high score runs normally.
 - A program that needs data files from disk (levels, music, a configuration
   file) stops with its own error message, or runs with parts missing. NXtel,
-  for example, says it cannot read `NXTEL.CFG`. JNEXT cannot give a directly
-  loaded program files from your computer.
+  for example, says it cannot read `NXTEL.CFG`.
 
-For those, do what a real Next does: boot NextZXOS from the SD card image and
-start the program from the **Browser**, with its files next to it on the card.
-Many programs, games included, are already on the image JNEXT uses by default.
-To add your own, copy the program and its files into the image with a tool that
-can write to FAT32 disk images, such as `mcopy` from mtools.
+There are two ways round that. The first is
+[`--esxdos-stub-root`](08-host-files-for-a-loaded-program.md), which hands a
+directly loaded program a real directory on your computer to read its files
+from — the quickest route while you are developing one. The second is to do
+what a real Next does: boot NextZXOS from the SD card image and start the
+program from the **Browser**, with its files next to it on the card. Many
+programs, games included, are already on the image JNEXT uses by default. To
+add your own, copy each file in with JNEXT itself:
+
+```
+jnext --sdcard-file-add game.nex --sdcard-file-dest /DEMOS/game.nex
+```
+
+That copies one host file into the card and exits without starting the
+machine, creating any missing directories on the way; `--sdcard-file-force`
+lets it replace a file that is already there. For a whole directory at once,
+any tool that writes FAT32 disk images — `mcopy` from mtools, say — still
+works.
 
 (A NEX file whose header asks to keep its own file open can also read that
 file, and read files next to it, when loaded directly. It cannot write them.)

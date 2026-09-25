@@ -9,7 +9,7 @@
 | Storage and peripherals | DivMMC and SD card, Multiface, DMA, UART, CTC, SPI / I²C / real-time clock |
 | Input | Keyboard, USB gamepads, Kempston mouse |
 | Networking | The ESP-01 WiFi module, so Next software can reach the real network — off by default ([5.6](../05-running-programs/06-networking.md)) |
-| File formats | NEX, SNA, SZX, Z80, TAP, TZX, WAV, RZX |
+| File formats | NEX, JNS (JNEXT's own whole-machine snapshot, [5.9](../05-running-programs/09-snapshots.md)), SNA, SZX, Z80, TAP, TZX, WAV, RZX |
 
 The Next boots the real NextZXOS operating system, through the real boot chain,
 from a real SD-card image — exactly as the hardware does. Every ROM the machine
