@@ -23,12 +23,14 @@
 - AY envelopes, noise phase and registers 14/15 now play as the hardware does
 - Tilemap priority, mid-line Copper writes to Layer 2, and the startup ULA palette match hardware
 - The Flatpak build can reach the network at all
+- Copper writes just after a line boundary no longer split across two rows, which showed as flickering lines
 
 ### Internal JNEXT Development
 - Migrated from SDL2 to SDL3 directly
 - 158 missing traceability rows closed, finding and fixing several emulation bugs on the way
 - Every subsystem's save state now comes from one field declaration, shared by binary and JSON
 - Test harness hardening: timeouts escalate to SIGKILL, source globs can't match generated output
+- Unit suites run in two build configurations, and a suite vanishing from either is now a hard failure
 
 ## v1.0.1 (2026-09-22)
 
