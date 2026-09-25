@@ -380,6 +380,63 @@ private:
 /// Queue one inbound connection on `lsn` and return a borrowed pointer to it,
 /// so a row can drive the peer side (`queue_from_peer`) and read what the guest
 /// sent it (`sent`) after the engine has taken ownership.
+/// A resolver under the row's control (GH #154).
+///
+/// Nothing here is asynchronous: the engine's contract with an `EspResolver` is
+/// "begin, then poll until the state moves", and a fake that moves the state
+/// when the row says so exercises every branch of that contract without a
+/// thread. The ASYNCHRONY itself is proved in `esp_socket_test`, against the
+/// real resolver, which is where the threads are.
+class FakeResolver : public EspResolver {
+public:
+    bool begin(const std::string& host) override {
+        if (refuse_begin || host.empty() || state_ == ResolveState::Resolving) return false;
+        ++begins;
+        last_host = host;
+        state_    = ResolveState::Resolving;
+        return true;
+    }
+    void poll() override {
+        if (state_ != ResolveState::Resolving) return;
+        if (park) return;  // the resolver-that-never-answers, for the deadline row
+        if (fail_with_policy) {
+            reason_ = DenyReason::Loopback;
+            err_    = "address policy refused every address";
+            state_  = ResolveState::Failed;
+        } else if (fail) {
+            err_   = "no addresses";
+            state_ = ResolveState::Failed;
+        } else {
+            address_ = answer;
+            state_   = ResolveState::Done;
+        }
+    }
+    ResolveState       state() const override         { return state_; }
+    const IpAddress&   address() const override       { return address_; }
+    const std::string& last_error() const override    { return err_; }
+    DenyReason         denial_reason() const override { return reason_; }
+    void reset() override {
+        state_  = ResolveState::Idle;
+        reason_ = DenyReason::None;
+        err_.clear();
+    }
+
+    // Row-controlled knobs.
+    bool        refuse_begin     = false;  ///< begin() rejects the request outright
+    bool        fail             = false;  ///< the lookup fails (no addresses)
+    bool        fail_with_policy = false;  ///< the lookup fails on the ADDRESS policy
+    bool        park             = false;  ///< never answers, for the deadline row
+    IpAddress   answer{};
+    std::string last_host;
+    int         begins = 0;
+
+private:
+    ResolveState state_   = ResolveState::Idle;
+    IpAddress    address_{};
+    std::string  err_;
+    DenyReason   reason_ = DenyReason::None;
+};
+
 static FakeTransport* add_inbound(FakeListener& lsn) {
     auto peer = std::unique_ptr<FakeTransport>(new FakeTransport);
     peer->arrive_connected();
@@ -594,12 +651,16 @@ static constexpr std::uint32_t BYTE_TICKS = 243 * 10;
 
 struct Rig {
     FakeTransport tr;
+    /// Every rig gets a resolver too (GH #154), for the same reason it gets a
+    /// listener: a command that cannot be asked for is not implemented. Rows
+    /// that need the NO-resolver behaviour build their own engine.
+    FakeResolver  rsv;
     /// Every rig gets one, because a server that cannot be asked for is not a
     /// server. It costs the pre-GH #210 rows nothing: an unopened listener is
     /// polled and accepted from on every pass and answers "nothing", so the
     /// bytes those rows assert are unchanged.
     FakeListener  lsn;
-    AtEngine      eng{tr, &lsn};
+    AtEngine      eng{tr, &lsn, &rsv};
     std::string   guest;  ///< everything the engine has released toward the guest
 
     /// What the engine believes the time is, once `freeze_clock()` has been
@@ -1897,7 +1958,8 @@ int main() {
         //     lookup, not a later one.)
         AsyncResolveTransport tr;
         auto esp = std::unique_ptr<ThreadedEsp>(
-            new ThreadedEsp(tr, /*listener=*/nullptr, std::chrono::milliseconds(2000)));
+            new ThreadedEsp(tr, /*listener=*/nullptr, /*resolver=*/nullptr,
+                            std::chrono::milliseconds(2000)));
         esp->start();
         for (unsigned char c : std::string("AT+CIPSTART=\"TCP\",\"example.test\",80\r\n"))
             esp->receive(c);
@@ -3174,6 +3236,180 @@ int main() {
         Rig r; r.send("AT+CIPSTA?\r\n"); r.drain();
         check("CSTAT-07", "AT+CIPSTA? is not shadowed by the new AT+CIPSTATUS row",
               r.take().find("+CIPSTA:ip:") != std::string::npos); }
+
+    // ══ Group L — AT+CIPDOMAIN (GH #154) ════════════════════════════════
+    //
+    // THE ORACLE IS THE 1.x MANUAL, §5.2.2, which gives the reply as
+    // `+CIPDOMAIN:<IP address>` — UNQUOTED, where ESP-AT v2.3.0.0 quotes it —
+    // and the failure as `DNS Fail` then `ERROR`. jnext advertises AT 1.7.4.0
+    // and ships `AT+CIPDNS_CUR?`, which does not exist in 2.x at all, so the
+    // unquoted form is the one that matches what this module claims to be.
+
+    {   // No resolver wired: the module genuinely cannot do this.
+        FakeTransport tr; FakeListener lsn;
+        AtEngine      e{tr, &lsn};
+        std::string   out;
+        e.set_output([&out](std::uint8_t b) { out.push_back(static_cast<char>(b)); });
+        for (unsigned char c : std::string("AT+CIPDOMAIN=\"example.test\"\r\n")) e.receive(c);
+        for (int i = 0; i < 200000 && e.wants_tick(); ++i) e.tick(1, 1);
+        check_eq("DOM-01", "with no resolver wired the command answers ERROR", out,
+                 "\r\nERROR\r\n"); }
+
+    {   Rig r; parse_ip("93.184.216.34", r.rsv.answer);
+        r.send("AT+CIPDOMAIN=\"example.test\"\r\n"); r.drain();
+        check_eq("DOM-02",
+                 "AT+CIPDOMAIN answers NOTHING from its own dispatch — the address is not "
+                 "knowable yet",
+                 r.take(), "");
+        r.settle();
+        check_eq("DOM-03", "...and the reply arrives from poll(), unquoted per the 1.x manual",
+                 r.take(), "\r\n+CIPDOMAIN:93.184.216.34\r\n\r\nOK\r\n");
+        check("DOM-03b", "...and the resolver was asked for the name the guest typed",
+              r.rsv.last_host == "example.test"); }
+
+    {   Rig r; r.rsv.fail = true;
+        r.send("AT+CIPDOMAIN=\"nx.test\"\r\n"); r.settle();
+        check_eq("DOM-04", "a lookup that finds nothing answers DNS Fail then ERROR (§5.2.2)",
+                 r.take(), "\r\nDNS Fail\r\n\r\nERROR\r\n"); }
+
+    {   // THE NON-DISCLOSURE PROPERTY, asserted as an EQUALITY rather than as
+        // two separate expectations: if these two ever diverge, AT+CIPDOMAIN
+        // becomes an oracle for "does this name point somewhere the policy
+        // hides?" — which is the question AddressPolicy exists to refuse.
+        Rig a; a.rsv.fail = true;
+        a.send("AT+CIPDOMAIN=\"nx.test\"\r\n"); a.settle();
+        Rig b; b.rsv.fail_with_policy = true;
+        b.send("AT+CIPDOMAIN=\"metadata.test\"\r\n"); b.settle();
+        check_eq("DOM-05",
+                 "a POLICY refusal is byte-identical to a DNS miss — the guest cannot use "
+                 "this command as an allowlist or address-policy oracle",
+                 b.take(), a.take()); }
+
+    {   Rig r; r.send("AT+CIPDOMAIN=example.test\r\n"); r.drain();
+        check_eq("DOM-06", "an unquoted name is refused", r.take(), "\r\nERROR\r\n"); }
+    {   Rig r; r.send("AT+CIPDOMAIN=\"\"\r\n"); r.drain();
+        check_eq("DOM-07", "an empty name is refused", r.take(), "\r\nERROR\r\n"); }
+    {   Rig r; r.send("AT+CIPDOMAIN\r\n"); r.drain();
+        check_eq("DOM-08", "the bare command with no argument is refused", r.take(),
+                 "\r\nERROR\r\n"); }
+    {   Rig r; r.send("AT+CIPDOMAIN=?\r\n"); r.drain();
+        check_eq("DOM-09", "the =? test form is refused, as everywhere else", r.take(),
+                 "\r\nERROR\r\n"); }
+
+    {   // THE DOCUMENTED BOUND, both sides of it. §5.2.2: "length should be
+        // less than 64 bytes", so 63 is the longest accepted and 64 is the
+        // first refused. A host string is the one guest-supplied value on this
+        // path that leaves the module, so its bound is worth pinning exactly.
+        Rig r; parse_ip("10.0.0.1", r.rsv.answer);
+        r.send("AT+CIPDOMAIN=\"" + std::string(63, 'a') + "\"\r\n"); r.settle();
+        check_eq("DOM-10", "a 63-byte name is accepted — the longest the manual allows",
+                 r.take(), "\r\n+CIPDOMAIN:10.0.0.1\r\n\r\nOK\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPDOMAIN=\"" + std::string(64, 'a') + "\"\r\n"); r.drain();
+        check_eq("DOM-11", "a 64-byte name is the first one refused", r.take(),
+                 "\r\nERROR\r\n");
+        check("DOM-11b", "...and it never reached the resolver at all", r.rsv.begins == 0); }
+    {   Rig r;
+        r.send("AT+CIPDOMAIN=\"" + std::string(600, 'a') + "\"\r\n"); r.drain();
+        check_eq("DOM-12",
+                 "a name longer than the whole command buffer is refused WHOLE, never "
+                 "truncated to something resolvable",
+                 r.take(), "\r\nERROR\r\n");
+        check("DOM-12b", "...and it too never reached the resolver", r.rsv.begins == 0); }
+
+    {   // FORGING. The reply is built from the RESOLVED ADDRESS and nothing
+        // else, so a hostname carrying reply-shaped bytes cannot smuggle them
+        // onto the wire. If the name were ever echoed, this is the row that
+        // would say so.
+        Rig r; r.rsv.fail = true;
+        r.send("AT+CIPDOMAIN=\"a\r\n+CIPDOMAIN:6.6.6.6\r\n\r\nOK\r\n\"\r\n");
+        r.settle();
+        const std::string out = r.take();
+        check("DOM-13",
+              "a hostname containing a forged +CIPDOMAIN reply cannot inject it — the "
+              "answer is built from the resolved address, never from the name",
+              out.find("6.6.6.6") == std::string::npos); }
+
+    {   // BUILT BYTE BY BYTE, not from a literal: a `\0` inside a string
+        // literal truncates it, so the first version of this row never sent a
+        // complete line at all and was asserting against an empty reply.
+        //
+        // The NUL is the interesting byte. jnext's length check sees the WHOLE
+        // name while a platform `getaddrinfo` would stop at the NUL, so the two
+        // disagree about what was asked — which is only safe because the
+        // allowlist compares the whole string (so a NUL can only make a name
+        // match LESS, never more) and the address policy judges whatever came
+        // back regardless of the name. Pinned so that reasoning stays true.
+        Rig         r;
+        r.rsv.fail = true;
+        std::string name = "\xff\xfe binary ";
+        name.push_back('\0');
+        name += " name";
+        r.send("AT+CIPDOMAIN=\"" + name + "\"\r\n");
+        r.settle();
+        check_eq("DOM-14",
+                 "a name carrying 8-bit and NUL bytes produces only the ordinary failure "
+                 "reply — no crash, no echo, nothing extra",
+                 r.take(), "\r\nDNS Fail\r\n\r\nERROR\r\n");
+        check("DOM-14b", "...and the resolver was handed the name WHOLE, NUL included",
+              r.rsv.last_host == name); }
+
+    {   // DEFERRAL. The guest types ahead while the answer is outstanding; the
+        // bytes must be held and replayed IN ORDER afterwards, never answered
+        // out of order.
+        Rig r; parse_ip("1.2.3.4", r.rsv.answer);
+        r.send("AT+CIPDOMAIN=\"example.test\"\r\n");
+        r.send("AT\r\n");                       // typed ahead, must be held
+        r.drain();
+        check_eq("DOM-15", "input typed during a lookup is DEFERRED, not answered", r.take(),
+                 "");
+        r.settle();
+        check_eq("DOM-16",
+                 "...and once the answer is out, the deferred line is replayed in order",
+                 r.take(), "\r\n+CIPDOMAIN:1.2.3.4\r\n\r\nOK\r\n\r\nOK\r\n"); }
+
+    {   // A DEFERRED LINE THAT IS ITSELF A LOOKUP. The replay loop must stop
+        // at it rather than dispatching everything behind it against a
+        // half-finished transaction.
+        Rig r; parse_ip("5.6.7.8", r.rsv.answer);
+        r.send("AT+CIPDOMAIN=\"one.test\"\r\n");
+        r.send("AT+CIPDOMAIN=\"two.test\"\r\n");
+        r.send("AT\r\n");
+        r.drain(); r.take();
+        r.settle();
+        check_eq("DOM-17", "the first lookup answers and the second is started, not merged",
+                 r.take(), "\r\n+CIPDOMAIN:5.6.7.8\r\n\r\nOK\r\n");
+        check("DOM-17b", "...and the second really is the one now in flight",
+              r.rsv.last_host == "two.test");
+        r.settle();
+        check_eq("DOM-18", "the second answers next, and only then the line behind it",
+                 r.take(), "\r\n+CIPDOMAIN:5.6.7.8\r\n\r\nOK\r\n\r\nOK\r\n"); }
+
+    {   // THE DEADLINE. Simplification (6) said no command but AT+CIPSTART can
+        // outlive its own dispatch; this is the second one that can, so it
+        // needs the same bound — a guest busy-waiting with no timeout of its
+        // own would otherwise wait for the OS resolver to give up.
+        Rig r; r.freeze_clock(); r.rsv.park = true;
+        r.send("AT+CIPDOMAIN=\"never-answers.test\"\r\n");
+        r.settle();
+        check_eq("DOM-19", "a resolver that never answers holds the guest, it does not "
+                 "answer early", r.take(), "");
+        r.advance(11);  // past the 10 s connect timeout
+        r.settle();
+        check_eq("DOM-20", "...and the deadline ends it with the ordinary failure reply",
+                 r.take(), "\r\nDNS Fail\r\n\r\nERROR\r\n"); }
+
+    {   Rig r; r.rsv.refuse_begin = true;
+        r.send("AT+CIPDOMAIN=\"example.test\"\r\n"); r.drain();
+        check_eq("DOM-21", "a resolver that rejects the request answers ERROR from dispatch",
+                 r.take(), "\r\nERROR\r\n"); }
+
+    {   Rig r; parse_ip("9.9.9.9", r.rsv.answer);
+        r.send("AT+CIPDOMAIN=\"a.test\"\r\n"); r.settle(); r.take();
+        r.send("AT+CIPDOMAIN=\"b.test\"\r\n"); r.settle();
+        check_eq("DOM-22", "a second lookup after the first has answered works normally",
+                 r.take(), "\r\n+CIPDOMAIN:9.9.9.9\r\n\r\nOK\r\n");
+        check("DOM-22b", "...and the engine really started two lookups", r.rsv.begins == 2); }
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail,

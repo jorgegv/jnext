@@ -1,10 +1,12 @@
 # ESP-01 Wi-Fi configuration — test plan (GH #154)
 
-> **Scope: the GH #154 Wi-Fi configuration group only** — `AT+CWMODE`,
-> `AT+CWJAP=`, `AT+CWLAP`, `AT+CWQAP`, `AT+CIPSTATUS`, `AT+CIPMODE=0`/`?`, and
-> the query forms of `AT+CIPMUX` / `AT+CIPSERVER` / `AT+UART*`. The design is
-> [ESP01-EMULATOR-DESIGN.md §18](../design/ESP01-EMULATOR-DESIGN.md#18-the-wi-fi-configuration-category-gh-154);
-> the evaluation that scoped it is
+> **Scope: the GH #154 class-A command set** — the Wi-Fi configuration group
+> (`AT+CWMODE`, `AT+CWJAP=`, `AT+CWLAP`, `AT+CWQAP`, `AT+CIPSTATUS`,
+> `AT+CIPMODE=0`/`?`, and the query forms of `AT+CIPMUX` / `AT+CIPSERVER` /
+> `AT+UART*`), plus **`AT+CIPDOMAIN`**. The designs are
+> [ESP01-EMULATOR-DESIGN.md §18](../design/ESP01-EMULATOR-DESIGN.md#18-the-wi-fi-configuration-category-gh-154)
+> and [§19](../design/ESP01-EMULATOR-DESIGN.md#19-atcipdomain-gh-154); the
+> evaluation that scoped both is
 > [ESP-AT-SURFACE.md](../design/ESP-AT-SURFACE.md).
 
 **This file is deliberately NOT a `*-TEST-PLAN-DESIGN.md`, and it is not indexed
@@ -35,7 +37,7 @@ binary** wins over the manual, and the Next's own documentation decides what
 jnext must answer regardless. That disagreement is recorded in
 [ESP-AT-SURFACE.md Q1](../design/ESP-AT-SURFACE.md#q1--which-firmware-is-jnext-emulating).
 
-## 2. Unit coverage — 60 rows in `esp_at_test` (404 total)
+## 2. Unit coverage — 88 rows in `esp_at_test` (432 total)
 
 | Group | IDs | What it pins |
 |---|---|---|
@@ -46,12 +48,25 @@ jnext must answer regardless. That disagreement is recorded in
 | Query forms | `QRY-01..08` | `AT+CIPMUX?`, `AT+UART_CUR?`/`_DEF?`/`AT+UART?` each under its **own** prefix, `AT+CIPSERVER?` with and without a listener |
 | `AT+CIPMODE` | `CPM-01..05` | `=0` accepted, `=1` refused, the query, out-of-range, `=?` |
 | `AT+CIPSTATUS` | `CSTAT-01..11` | Status 2/3/5; an outbound link's fields; **an inbound link's `tetype` and `<local port>`**; a closed link disappearing; the host-outage status; no shadowing of `AT+CIPSTA?` |
+| `AT+CIPDOMAIN` | `DOM-01..22` | The deferred reply and the 1.x unquoted byte form; the 63/64-byte boundary and a 600-byte name refused whole; a **forged `+CIPDOMAIN` reply inside the hostname** that cannot inject; a NUL- and 8-bit-bearing name; deferral, in-order replay, and a deferred line that is itself a lookup; the deadline; and — as an **equality** — that a policy refusal is byte-identical to a DNS miss |
+
+### 2.1 The two suites below the engine
+
+`AT+CIPDOMAIN` is the one command in this set that reaches outside the engine,
+so it carries coverage in two more suites:
+
+| Suite | Rows | What only it can prove |
+|---|---|---|
+| `esp_socket_test` | `RSLV-01..12` (201 total) | The real `SocketResolver`: the address policy on a path nobody dials, the literal fast path and that it **never consults the injected resolver**, one-at-a-time, a resolver that throws, one that reports success with no addresses, and that **destroying a resolver mid-lookup returns immediately** |
+| `esp_wiring_test` | `RGATE-01..09` (111 total) | `EspGatedResolver`: the `--esp-allow` list over lookups, that a blocked name **never reaches the wrapped resolver**, and that a refusal is **accepted-then-failed rather than rejected** — the property that stops the command being an allowlist oracle |
 
 Every reply is asserted **byte-exact** via `check_eq`, not by substring, except
 where a row deliberately asserts a relationship between two replies
 (`CWL-02/03`) or an ordering (`CSTAT-08..10`).
 
-## 3. Functional coverage — `esp-wifi-setup-func`
+## 3. Functional coverage
+
+### 3.1 `esp-wifi-setup-func`
 
 The Next's own documented session, executed against the real binary through the
 whole path (Z80 → port `0x133B` → `UartChannel` → `EspUartAdapter` → `AtEngine`).
@@ -63,6 +78,27 @@ all. Three things stop that passing vacuously — a pinned 21-line denominator, 
 individual replies that carry state, and an **ordering** check that the station
 address is present before `AT+CWQAP` and gone after.
 
+### 3.2 `esp-cipdomain-func`
+
+Three IP **literals** through the real binary — no DNS server, no peer, nothing
+to race, because a literal takes the synchronous fast path while the address
+policy still applies to it exactly as it would to a resolved name. One RFC1918
+address (answered), loopback and cloud-metadata (both refused).
+
+Its strongest assertion is also a negative: **neither denied address may appear
+anywhere in what the guest was told.** A resolver without the policy would have
+answered `+CIPDOMAIN:127.0.0.1` quite happily. It additionally asserts the
+*asymmetry* — the operator's log names both refusals while the guest's wire
+cannot tell them apart.
+
+**This row earned itself immediately.** The first version of `AT+CIPDOMAIN`
+passed all 744 unit rows while the product did nothing: the service hook had
+been added to `AtEngine::poll()`, and `ThreadedEsp`'s worker does not call
+`poll()` — it calls `advance_transports()` and `service_transports()` directly
+so the transport pass can run unlocked. Every unit suite drives the passive
+core, so none of them could see it. Both guest scripts come from the same
+generator and the **same** 76-byte Z80 walker; only the table differs.
+
 ## 4. What is deliberately NOT tested
 
 | Not tested | Why |
@@ -72,7 +108,7 @@ address is present before `AT+CWQAP` and gone after.
 | `AT+CWJAP` failure | Every join succeeds by policy ([§18.2](../design/ESP01-EMULATOR-DESIGN.md#182-the-join-policy)); there is no failure to test until a flag creates one |
 | Persistence across a process restart | Nothing persists; `AT+RST` is the boundary the rows assert |
 
-## 5. Mutation results
+## 5. Mutation results — the Wi-Fi configuration group
 
 36 mutations derived **from the diff**, not from the row list. The harness was
 validated against a known answer first (a pinned reply prefix must be caught; a
@@ -107,3 +143,27 @@ worth recording because neither was in the product:
   as **not found**. On a negative assertion that is the worst possible failure
   mode. Replaced with a herestring. HS-30 refuses the idiom across every suite
   source precisely so a new row cannot reintroduce it, and it worked.
+
+## 6. Mutation results — `AT+CIPDOMAIN`
+
+24 further mutations, again derived from the diff, across all three suites.
+
+**The harness itself was the first thing caught.** A mutation removing the
+null-resolver guard made `esp_at_test` **crash**, and the harness reported that
+as `SURVIVED` — a crashed suite prints no `Total:` line, and "no failures
+counted" looked identical to "nothing failed". It now pins each suite's expected
+row count, so an absent or short denominator is a CAUGHT rather than a pass, and
+the known-answer validation was extended to cover a crash as well as a real
+mutation and a no-op comment edit. A harness that has not been shown to report a
+*known* failure cannot be trusted to report an unknown one.
+
+**Two survivors:**
+
+| Survivor | Disposition |
+|---|---|
+| `addrs.empty()` removed from `SocketResolver::poll()` | **Equivalent mutant.** `select_candidate` already refuses an empty candidate list, so `finish()` fails anyway. Kept as defence in depth — the reason the transport keeps its `out.clear()` handlers — and **documented in place** as not being the barrier. `RSLV-12` pins the outcome, which is the right thing to pin. |
+| `blocked_ = false` removed from `EspGatedResolver::reset()` | **A real gap.** `begin()` clears the flag itself, so the next lookup worked either way — but `state()` stayed stuck on `Failed` in between, breaking the `reset()` contract `EspResolver` documents. Closed by strengthening `RGATE-08` to assert the contract (`state() == Idle`) rather than only its consequence. |
+
+The functional row was mutation-tested against the **product**: removing the
+address policy from `SocketResolver::finish()` makes it fail loudly, naming the
+addresses that leaked.

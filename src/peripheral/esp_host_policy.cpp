@@ -209,3 +209,62 @@ bool esp_note_transport_fault(std::uint64_t pass_exceptions, bool& already_repor
     already_reported = true;
     return true;
 }
+
+// ---------------------------------------------------------------------------
+// EspGatedResolver (GH #154)
+// ---------------------------------------------------------------------------
+
+EspGatedResolver::EspGatedResolver(std::unique_ptr<esp::EspResolver> inner, EspHostPolicy policy,
+                                   EspConnectionLog& log)
+    : inner_(std::move(inner)), policy_(std::move(policy)), log_(log) {}
+
+bool EspGatedResolver::begin(const std::string& host) {
+    blocked_ = false;
+    refused_error_.clear();
+    if (!policy_.allows(host)) {
+        ++refusals_;
+        blocked_       = true;
+        refused_error_ = "host is not in the --esp-allow list";
+        // Straight to jnext's logger, for the reason `EspGatedTransport` gives:
+        // a security event must not be silenced by a seam threshold that exists
+        // to save formatting work.
+        Log::esp01()->warn("REFUSED lookup of '{}' — host is not in the --esp-allow list", host);
+        log_.push({EspEvent::Kind::Refused, host, 0, "not in the allowlist"});
+        // TRUE, not false. See the class comment: a rejected request would
+        // answer bare `ERROR` where a failed one answers `DNS Fail` + `ERROR`,
+        // and that difference is an allowlist oracle.
+        return true;
+    }
+    return inner_->begin(host);
+}
+
+void EspGatedResolver::poll() {
+    // A blocked lookup never reached `inner_`, so there is nothing to advance
+    // and `inner_` may still be Idle from a previous cycle.
+    if (blocked_) return;
+    inner_->poll();
+}
+
+esp::ResolveState EspGatedResolver::state() const {
+    return blocked_ ? esp::ResolveState::Failed : inner_->state();
+}
+
+const esp::IpAddress& EspGatedResolver::address() const { return inner_->address(); }
+
+const std::string& EspGatedResolver::last_error() const {
+    return blocked_ ? refused_error_ : inner_->last_error();
+}
+
+esp::DenyReason EspGatedResolver::denial_reason() const {
+    // The HOST allowlist is not an address policy, so there is no address-level
+    // reason to give. `None` here means "not an AddressPolicy verdict", which
+    // is exactly true — `last_error()` carries the real one, and neither
+    // reaches the guest.
+    return blocked_ ? esp::DenyReason::None : inner_->denial_reason();
+}
+
+void EspGatedResolver::reset() {
+    blocked_ = false;
+    refused_error_.clear();
+    inner_->reset();
+}

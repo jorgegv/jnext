@@ -377,6 +377,15 @@ stops being a station. jnext models that: after it, `AT+CIFSR` reports
 program is serving, which is the companion to closing one by number with
 `AT+CIPCLOSE=<id>`.
 
+`AT+CIPDOMAIN="somewhere.example"` looks a name up **without connecting to it**
+and answers `+CIPDOMAIN:<address>`. It answers only for a host a connection
+would have been allowed to reach: if you restricted the guest with
+`--esp-allow`, or if the name points at an address jnext blocks anyway (your
+own machine, a cloud metadata service), the lookup answers `DNS Fail` and
+`ERROR` — the same reply it gives a name that does not exist, so a program
+cannot use it to map what is being blocked. The run's own log says which of the
+two it was.
+
 ## What is not emulated yet
 
 The command set covers the Next's own documented setup session and everything

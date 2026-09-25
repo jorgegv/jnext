@@ -560,4 +560,86 @@ public:
 /// kernel.
 std::unique_ptr<EspListener> make_socket_listener(const IpAddress& bind_address);
 
+// ---------------------------------------------------------------------------
+
+/// Where a standalone name lookup is in its life (GH #154, `AT+CIPDOMAIN`).
+enum class ResolveState {
+    Idle,       ///< nothing asked for
+    Resolving,  ///< `begin()` accepted; the answer arrives via `poll()`
+    Done,       ///< `address()` is valid
+    Failed,     ///< `last_error()` says why; `address()` is meaningless
+};
+
+/// A name lookup with NO connection attached.
+///
+/// WHY THIS IS A SECOND INTERFACE RATHER THAN TWO MORE METHODS ON
+/// `EspTransport`. `AT+CIPDOMAIN` resolves a name and reports the address
+/// WITHOUT dialling it, and `EspTransport` cannot express that: its resolution
+/// is a private stage of `begin_connect`, reachable only by opening a socket.
+/// Widening that interface would have made every one of its implementations —
+/// the real one, `EspGatedTransport`, and the fakes across two suites — grow
+/// two methods that have nothing to do with carrying bytes.
+///
+/// So it follows the shape the module ALREADY chose for exactly this situation:
+/// `EspListener` is a separate interface handed in beside the transport,
+/// because listening is not connecting. Resolving is not connecting either.
+/// A host that wants neither passes null for both and the engine simply
+/// refuses the commands that need them.
+///
+/// THE ADDRESS POLICY APPLIES HERE, AND IT IS NOT DECORATION. `AT+CIPDOMAIN`
+/// hands an address to the guest, so a resolver that answered with an address
+/// the policy would refuse to DIAL would be a way to read exactly what the
+/// policy exists to keep away from the guest — a name pointing at
+/// `169.254.169.254` would disclose the cloud-metadata address the transport
+/// is careful never to reach. The implementation therefore reports the address
+/// `AT+CIPSTART` WOULD have used, and fails when there is none: one rule, two
+/// commands, nothing the guest can learn one way that it could not learn the
+/// other.
+class EspResolver {
+public:
+    virtual ~EspResolver() = default;
+
+    /// Start a lookup, replacing any previous RESULT. Returns false — state
+    /// untouched — when a lookup is already in flight or `host` is empty.
+    /// NEVER blocks and never resolves inline; a name goes to a thread and an
+    /// IP literal is decided immediately, exactly as `begin_connect` does.
+    virtual bool begin(const std::string& host) = 0;
+
+    /// Advance. Idempotent, cheap in every state, and bound by the same
+    /// contract as `EspTransport::poll` — **it must not block**, for the same
+    /// reason: a host may call it from a thread whose shutdown is bounded.
+    virtual void poll() = 0;
+
+    virtual ResolveState state() const = 0;
+
+    /// Valid only in `Done`. The address the policy allowed.
+    virtual const IpAddress& address() const = 0;
+
+    /// Empty unless the last transition was a failure.
+    virtual const std::string& last_error() const = 0;
+
+    /// Why a `Failed` state is a POLICY REFUSAL rather than a lookup fault.
+    /// `DenyReason::None` when DNS simply did not answer.
+    ///
+    /// IT EXISTS FOR THE LOG, NOT FOR THE GUEST. The two outcomes are
+    /// deliberately INDISTINGUISHABLE on the wire (both answer `DNS Fail` +
+    /// `ERROR`), because a guest that could tell them apart could use
+    /// `AT+CIPDOMAIN` as an oracle for "does this name point somewhere the
+    /// policy hides?" — which is the question the policy exists to refuse. The
+    /// host operator still gets the truth, on stderr.
+    virtual DenyReason denial_reason() const = 0;
+
+    /// Abandon any in-flight lookup and return to `Idle`. Always safe.
+    virtual void reset() = 0;
+};
+
+/// Build the real resolver. `resolver` replaces the lookup of NAMES only, and
+/// has exactly the contract documented for `make_socket_transport`'s: it runs
+/// on a short-lived DETACHED thread which captures a heap result block, a host
+/// copy and a copy of the function — never the resolver object — so destroying
+/// this while a lookup is in flight drops one `shared_ptr` and returns at once.
+/// Both users share one launcher, so that safety argument has one home.
+std::unique_ptr<EspResolver> make_socket_resolver(const AddressPolicy& policy,
+                                                  ResolveFn            resolver = nullptr);
+
 }  // namespace esp

@@ -167,14 +167,15 @@ const AtEngine::CommandEntry AtEngine::kCommands[] = {
     // `AT+CIPSTATUS` cannot be shadowed by the exact `AT+CIPSTA?` entry above:
     // that entry's 9th character is `?` where this line's is `T`.
     {"AT+CIPSTATUS",   false, &AtEngine::cmd_cipstatus},
+    {"AT+CIPDOMAIN=",  true,  &AtEngine::cmd_cipdomain},
     {"AT+UART_CUR?",   false, &AtEngine::cmd_uart_query_cur},
     {"AT+UART_DEF?",   false, &AtEngine::cmd_uart_query_def},
     {"AT+UART?",       false, &AtEngine::cmd_uart_query},
 };
 const std::size_t AtEngine::kCommandCount = sizeof(kCommands) / sizeof(kCommands[0]);
 
-AtEngine::AtEngine(EspTransport& transport, EspListener* listener)
-    : listener_(listener) {
+AtEngine::AtEngine(EspTransport& transport, EspListener* listener, EspResolver* resolver)
+    : listener_(listener), resolver_(resolver) {
     // Slot 0 borrows the host's transport — `owned=false`, so clearing the slot
     // can never free an object the host still holds. Slots 1..4 start empty and
     // are filled with OWNED transports by `accept_connections()`, which is what
@@ -185,7 +186,7 @@ AtEngine::AtEngine(EspTransport& transport, EspListener* listener)
 // ─── Guest TX -> engine ───────────────────────────────────────────────
 
 void AtEngine::receive(std::uint8_t byte) {
-    if (conn_[SINGLE_CID].connecting) {
+    if (conn_[SINGLE_CID].connecting || domain_pending_) {
         // A connect is in flight and its OK/ERROR has not been decided yet.
         // Real firmware answers `busy p...`, which is on the never-emit list,
         // so instead the input waits: nothing is lost and nothing is answered
@@ -1095,6 +1096,127 @@ void AtEngine::cmd_cipmode_query(const std::string&) {
     queue("\r\n+CIPMODE:0\r\n\r\nOK\r\n");
 }
 
+// ─── AT+CIPDOMAIN (GH #154) ───────────────────────────────────────────
+//
+// DNS WITHOUT A CONNECTION. It is the SECOND command in this surface whose
+// answer does not come from its own dispatch, and the first was `AT+CIPSTART`,
+// so everything that one needed this one needs too: the reply is emitted from
+// `poll()`, guest input is DEFERRED meanwhile so nothing is answered out of
+// order, and a deadline bounds a resolver that never answers. Design-doc
+// simplification (6) said "no other command can outlive its own dispatch, so
+// none needs a deadline" — that sentence was true when it was written and this
+// command is the exception it anticipated.
+//
+// THE REPLY BYTES ARE 1.x, NOT 2.x, and the difference is real: the NONOS AT
+// instruction set §5.2.2 gives `+CIPDOMAIN:<IP address>` UNQUOTED, where
+// ESP-AT v2.3.0.0 quotes it. jnext advertises AT 1.7.4.0 and ships
+// `AT+CIPDNS_CUR?`, which does not exist in 2.x at all, so the unquoted form is
+// the one that matches what this module claims to be.
+
+void AtEngine::cmd_cipdomain(const std::string& args) {
+    if (!resolver_) {
+        // No resolver was supplied, so the module genuinely cannot do this —
+        // the same shape as `AT+CIPSERVER` without a listener.
+        log_debug("AT+CIPDOMAIN with no resolver wired — answering ERROR");
+        queue_error();
+        return;
+    }
+    if (domain_pending_) {
+        // Unreachable while `receive()` defers every byte during a lookup, and
+        // kept for the reason the matching guard in `cmd_cipstart` is kept: the
+        // thing that makes it unreachable is NON-LOCAL, so a reader of this
+        // function cannot see it, and a second lookup would silently discard
+        // the first one's answer.
+        log_debug("AT+CIPDOMAIN while a lookup is in flight — answering ERROR");
+        queue_error();
+        return;
+    }
+
+    std::string rest = args;
+    std::string host;
+    if (!take_quoted(rest, host) || host.empty()) {
+        log_debug("AT+CIPDOMAIN=\"{}\" has no quoted name — answering ERROR", escape(args));
+        queue_error();
+        return;
+    }
+    // The documented bound, enforced BEFORE the name reaches the resolver.
+    // `<domain name>: the domain name, length should be less than 64 bytes`
+    // (NONOS AT instruction set §5.2.2). A guest-supplied string that leaves
+    // the module is exactly where a length check belongs.
+    if (host.size() >= MAX_DOMAIN_NAME) {
+        log_debug("AT+CIPDOMAIN name is {} bytes, limit is {} — answering ERROR", host.size(),
+                  MAX_DOMAIN_NAME - 1);
+        queue_error();
+        return;
+    }
+    if (!resolver_->begin(host)) {
+        log_debug("AT+CIPDOMAIN resolver refused '{}' — answering ERROR", escape(host));
+        queue_error();
+        return;
+    }
+
+    domain_pending_  = true;
+    domain_deadline_ = now() + connect_timeout_;
+    // Nothing is queued here on purpose: the answer is not knowable yet, and
+    // the guest is held at `receive()` until it is.
+    log_debug("AT+CIPDOMAIN looking up '{}'", escape(host));
+    refresh_tick_gate();
+}
+
+void AtEngine::service_domain_lookup() {
+    if (!domain_pending_ || !resolver_) return;
+    resolver_->poll();
+
+    switch (resolver_->state()) {
+        case ResolveState::Resolving:
+            if (now() >= domain_deadline_) {
+                // The same bound `AT+CIPSTART` has, for the same reason: a
+                // guest busy-waiting on this reply with no timeout of its own
+                // would otherwise wait for the OS resolver to give up (~127 s
+                // on Linux), and NXtel-class clients do that under `di`.
+                log_warn("AT+CIPDOMAIN lookup timed out after {} ms", connect_timeout_.count());
+                resolver_->reset();
+                finish_domain(false);
+            }
+            return;
+        case ResolveState::Done:
+            finish_domain(true);
+            return;
+        case ResolveState::Failed:
+            log_debug("AT+CIPDOMAIN lookup failed: {}", resolver_->last_error());
+            finish_domain(false);
+            return;
+        case ResolveState::Idle:
+            // Only reachable if a host reset the resolver underneath us. Answer
+            // rather than hang: an unanswered guest is the worse failure.
+            finish_domain(false);
+            return;
+    }
+}
+
+void AtEngine::finish_domain(bool ok) {
+    if (ok) {
+        queue("\r\n+CIPDOMAIN:" + to_string(resolver_->address()) + "\r\n\r\nOK\r\n");
+    } else {
+        // `DNS Fail` then `ERROR`, the documented failure response (§5.2.2).
+        // It is NOT on the never-emit list and it is SOLICITED — the guest
+        // asked a question and this is the answer to it, not an unexpected URC.
+        //
+        // A POLICY REFUSAL ANSWERS IDENTICALLY, and that is a security
+        // decision rather than laziness. If a refused address produced a
+        // different reply, `AT+CIPDOMAIN` would become an oracle for "does this
+        // name point at something the policy hides?" — which is precisely the
+        // question `AddressPolicy` exists to refuse. The host operator still
+        // learns which it was, from the `warn` line the resolver logs.
+        queue("\r\nDNS Fail\r\n\r\nERROR\r\n");
+    }
+    domain_pending_ = false;
+    resolver_->reset();
+    // Let through whatever the guest typed while it waited.
+    replay_deferred();
+    refresh_tick_gate();
+}
+
 void AtEngine::cmd_cipstatus(const std::string&) {
     // `STATUS:<stat>` then one `+CIPSTATUS:` line per live link.
     //
@@ -1213,6 +1335,10 @@ void AtEngine::poll() {
     // is serviced, which is the ordering that matters.
     advance_transports();
     service_transports();
+    // AFTER the transports, deliberately. A `+IPD` that arrived on this same
+    // pass belongs to a connection the guest opened earlier, and framing it
+    // first keeps the stream in the order the guest's own commands created.
+    service_domain_lookup();
 }
 
 void AtEngine::advance_transports() {
@@ -1400,10 +1526,16 @@ void AtEngine::resolve_connect(std::size_t cid) {
             break;
     }
 
-    // Replay anything the guest typed while the connect was in flight, in
-    // order. The loop re-checks `connecting` because a deferred line may
-    // itself be another AT+CIPSTART.
-    while (!deferred_.empty() && !conn_[SINGLE_CID].connecting) {
+    replay_deferred();
+}
+
+void AtEngine::replay_deferred() {
+    // Replay anything the guest typed while an answer was outstanding, in
+    // order. The loop re-checks BOTH gates on every byte because a deferred
+    // line may itself be another AT+CIPSTART or another AT+CIPDOMAIN — and if
+    // it is, everything after it must go back to waiting rather than being
+    // dispatched against a half-finished transaction.
+    while (!deferred_.empty() && !conn_[SINGLE_CID].connecting && !domain_pending_) {
         const std::uint8_t b = deferred_.front();
         deferred_.pop_front();
         feed(b);

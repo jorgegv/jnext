@@ -226,6 +226,52 @@ private:
     std::uint64_t       refusals_   = 0;
 };
 
+/// The same gate, for `AT+CIPDOMAIN` (GH #154).
+///
+/// WHY THE LOOKUP NEEDS GATING AT ALL, given it opens no socket: `--esp-allow`
+/// restricts which hosts the guest may REACH, and an ungated resolver would
+/// hand it the address of every host it may not reach. That is a smaller leak
+/// than a connection and it is still the leak the flag exists to prevent, so
+/// the rule is one rule: **`AT+CIPDOMAIN` answers only for a host
+/// `AT+CIPSTART` would have been allowed to dial.**
+///
+/// A REFUSAL IS ACCEPTED-THEN-FAILED, NOT REJECTED, and that is the whole
+/// subtlety of this class. `begin()` returns TRUE for a blocked host and the
+/// state goes straight to `Failed`, so the engine emits its ordinary
+/// `DNS Fail` + `ERROR`. Returning false instead would have produced a BARE
+/// `ERROR`, which differs from the failure reply on the wire — and a guest
+/// that can tell "blocked by the allowlist" from "did not resolve" has an
+/// oracle for the allowlist's contents. `AT+CIPSTART` already answers `ERROR`
+/// for both, so this keeps the two commands from leaking different amounts.
+class EspGatedResolver final : public esp::EspResolver {
+public:
+    EspGatedResolver(std::unique_ptr<esp::EspResolver> inner, EspHostPolicy policy,
+                     EspConnectionLog& log);
+
+    bool                  begin(const std::string& host) override;
+    void                  poll() override;
+    esp::ResolveState     state() const override;
+    const esp::IpAddress& address() const override;
+    const std::string&    last_error() const override;
+    esp::DenyReason       denial_reason() const override;
+    void                  reset() override;
+
+    /// How many lookups the allowlist refused. Exposed so a test can ASSERT
+    /// the refusal rather than grep a log for it.
+    std::uint64_t refusals() const { return refusals_; }
+
+private:
+    std::unique_ptr<esp::EspResolver> inner_;
+    EspHostPolicy                     policy_;
+    EspConnectionLog&                 log_;
+
+    /// Set while the CURRENT lookup was blocked before it ever reached `inner_`.
+    /// Cleared by the next `begin()` or by `reset()`.
+    bool          blocked_   = false;
+    std::string   refused_error_;
+    std::uint64_t refusals_  = 0;
+};
+
 // ---------------------------------------------------------------------------
 // Transport fault reporting
 // ---------------------------------------------------------------------------

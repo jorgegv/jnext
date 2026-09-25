@@ -53,6 +53,7 @@ engineering reasons in §1.3.
 - [16. Losing and regaining the association (GH #246)](#16-losing-and-regaining-the-association-gh-246)
 - [17. The address may MOVE across the outage (GH #247)](#17-the-address-may-move-across-the-outage-gh-247)
 - [18. The Wi-Fi configuration category (GH #154)](#18-the-wi-fi-configuration-category-gh-154)
+- [19. AT+CIPDOMAIN (GH #154)](#19-atcipdomain-gh-154)
 
 ---
 
@@ -392,6 +393,7 @@ column *is* the version boundary, and it carries more than a heading could.
 | `AT+CWJAP="<ssid>","<pw>"` | `\r\nWIFI CONNECTED\r\n\r\nWIFI GOT IP\r\n\r\nOK\r\n` | GH #154. **Every join succeeds, whatever the SSID** — the Next's own documentation tells the user to type their REAL network name ([§18.2](#182-the-join-policy)). **Both arguments are required**, as on hardware; the password is then discarded. An unquoted/empty SSID, and a missing or unquoted password, are `ERROR`. A third argument (the optional BSSID) is accepted and ignored |
 | `AT+CWLAP` | one `\r\n+CWLAP:(3,"<SSID>",-55,"<BSSID>",1)\r\n\r\nOK\r\n` | GH #154. Exactly one entry: the module's own synthetic AP, sharing the channel/RSSI/BSSID `AT+CWJAP?` reports. **Never a scan of the host's radio** ([§8.3](#83-no-host-network-information-may-leak-into-the-guest)) |
 | `AT+CWQAP` | `\r\nWIFI DISCONNECT\r\n\r\nOK\r\n` | GH #154. The **one** exception to the never-emit list ([§5.4](#54-strings-that-must-never-be-emitted)): the guest asked for this disconnect, so it is not the unexpected URC that list is about |
+| `AT+CIPDOMAIN="<name>"` | deferred → `\r\n+CIPDOMAIN:<IP address>\r\n\r\nOK\r\n` or `\r\nDNS Fail\r\n\r\nERROR\r\n` | GH #154, [§19](#19-atcipdomain-gh-154). DNS with no connection. **The address is UNQUOTED** — the 1.x form (§5.2.2); 2.x quotes it. The reply comes from `poll()`, so guest input is deferred meanwhile, and a deadline bounds a resolver that never answers. A name of 64 bytes or more is `ERROR` (the documented limit). **A policy or allowlist refusal is byte-identical to a DNS miss**, so the command cannot be used as an oracle for either |
 | `AT+CIPSTATUS` | `\r\nSTATUS:<stat>\r\n` + one `+CIPSTATUS:<id>,"<type>","<remote IP>",<rport>,<lport>,<tetype>` per live link + `\r\n\r\nOK\r\n` | GH #154. The missing half of `AT+CIPCLOSE=<id>` ([§14](#14-per-connection-close-gh-211)). `<stat>` 2 = got IP, 3 = connected, 5 = no AP; **4 is never emitted** ([§18.4](#184-what-atcipstatus-does-not-claim)). `<lport>` is 0 for outbound and the listener's port for inbound; `<tetype>` 0 = client, 1 = server |
 | `AT+CIPMODE=0` | `\r\nOK\r\n` | GH #154. **Refuse a change, not the command** — the `AT+CIPMUX` precedent ([§13.7c](#137-what-implementation-decided-that-13-did-not)). `AT+CIPMODE=1` (passthrough) is still `ERROR`, and so is any other value |
 | `AT+CIPMODE?` | `\r\n+CIPMODE:0\r\n\r\nOK\r\n` | GH #154 |
@@ -2223,12 +2225,12 @@ precisely so a wedged peer can be named and dropped, and a command to close link
 
 ### 18.6 What this does NOT add
 
-- **No `AT+CIPDOMAIN`**, though the evaluation puts it in class A. The estimate
-  there rested on "the async resolver already exists", and it does — but it is
-  **bound to a connection**: `EspTransport` has no standalone resolve, so a
-  DNS-without-connect command needs a new interface method and its own
-  `esp_socket_test` coverage. That is a seam change, not a table row, and it is
-  not bundled into a change whose gate is the readme walk-through.
+- ~~**No `AT+CIPDOMAIN`**~~ — **BUILT, in [§19](#19-atcipdomain-gh-154).** It was
+  held back here because the async resolver, though it exists, is **bound to a
+  connection**, so a standalone lookup needed a seam change rather than a table
+  row. The owner authorised that seam change; §19 is what it turned out to be,
+  and the estimate's shape was right — it was a new interface, not a new
+  threading model.
 - **No SoftAP.** `AT+CWMODE=2` records that the station is gone; it does not
   make jnext an access point. `AT+CWSAP`, `AT+CWLIF`, `AT+CWQIF` and `AT+CIPAP`
   stay unimplemented — an AP is a radio function with nothing to associate over,
@@ -2257,3 +2259,135 @@ precisely so a wedged peer can be named and dropped, and a command to close link
   adding `CSTAT-08..10`; the third was closed by **deleting** the fallback,
   which no path reached. A fourth survivor (`CSTAT-11`, the host-outage status)
   was found the same way.
+
+---
+
+## 19. `AT+CIPDOMAIN` (GH #154)
+
+The seventh and last of the class-A commands from
+[ESP-AT-SURFACE.md](ESP-AT-SURFACE.md). It was deliberately left out of
+[§18](#18-the-wi-fi-configuration-category-gh-154) and escalated instead,
+because it needed a seam change rather than a table row; the owner authorised
+the seam change, and this section is what it became.
+
+### 19.1 Why it was not "a table row"
+
+The evaluation priced it at one session on the strength of "the async resolver
+already exists". It does — and it is **bound to a connection**. Resolution is a
+private stage of `SocketTransport::begin_connect`, reachable only by opening a
+socket, so there was no way to ask "what does this name resolve to?" without
+dialling it.
+
+**What the implementation did NOT have to change, which is why it stayed
+tractable:** the resolver thread already captures a heap `ResolveJob`, a host
+copy and a function copy — and **no `this`**. That is the whole safety
+argument for detaching it, and it means a second user needed no new ownership
+model and no new threading. `launch_resolve` was lifted out of
+`SocketTransport` verbatim, comments and all, and both users now share it, so
+the argument has exactly one home.
+
+### 19.2 A second interface, not two more methods on `EspTransport`
+
+`EspResolver` is a separate interface handed in beside the transport, and that
+follows the shape the module already chose for exactly this situation:
+`EspListener` exists because listening is not connecting. Resolving is not
+connecting either.
+
+Widening `EspTransport` would have made **every** implementation grow two
+methods irrelevant to carrying bytes — the real one, `EspGatedTransport`, and
+the fakes across two suites. A host that wants neither a server nor a resolver
+passes null for both, and the commands that need them answer `ERROR`, exactly
+as they did before either existed.
+
+### 19.3 One rule, two commands
+
+**`AT+CIPDOMAIN` answers only for a host `AT+CIPSTART` would have been allowed
+to dial.** Both of the transport's gates apply:
+
+| Gate | Why it must apply to a lookup |
+|---|---|
+| `esp::AddressPolicy` | A resolver without it would hand the guest the loopback, link-local and **cloud-metadata** addresses the transport is careful never to reach. `AT+CIPDOMAIN="169.254.169.254"` would answer with it. |
+| `--esp-allow` (`EspGatedResolver`) | An ungated resolver would give the guest the address of every host it may not dial. Smaller than a connection, and still the leak the flag exists to prevent. |
+
+**A refusal is INDISTINGUISHABLE from a DNS miss on the wire** — both answer
+`DNS Fail` + `ERROR`. If they differed, the command would be an oracle for
+"does this name point at something the policy hides?", which is the question
+the policy exists to refuse. `AT+CIPSTART` already answers `ERROR` for both, so
+this keeps the two commands leaking the same amount: nothing.
+
+That is also why `EspGatedResolver::begin()` returns **true** for a blocked
+host and reports `Failed`, rather than returning false. Returning false would
+have produced a bare `ERROR` where a real miss produces `DNS Fail` + `ERROR`,
+and that difference is the oracle. The **operator** still learns which control
+fired, from a `warn` line — the asymmetry is the design.
+
+### 19.4 The reply is 1.x
+
+`+CIPDOMAIN:<IP address>`, **unquoted**, per the ESP8266 Non-OS AT instruction
+set §5.2.2; ESP-AT v2.3.0.0 quotes it. jnext advertises AT 1.7.4.0 and ships
+`AT+CIPDNS_CUR?`, which does not exist in 2.x at all
+([ESP-AT-SURFACE.md Q1](ESP-AT-SURFACE.md#q1--which-firmware-is-jnext-emulating)).
+The failure is `DNS Fail` then `ERROR`, also §5.2.2 — not on the never-emit
+list, and **solicited**: the guest asked a question and this is the answer, not
+an unexpected URC.
+
+The documented bound is enforced: *"length should be less than 64 bytes"*, so 63
+is the longest name accepted and 64 is the first refused, checked **before** the
+name reaches the resolver.
+
+### 19.5 The second deferred command, and what that cost
+
+Simplification (6) says *"ONLY `AT+CIPSTART` HAS A TIMEOUT… no other command can
+outlive its own dispatch, so none needs a deadline."* This is the exception that
+sentence anticipated. `AT+CIPDOMAIN` is answered from `poll()`, so it needed
+everything the first deferred command needed:
+
+- **input deferral**, so nothing is answered out of order — `receive()` now
+  holds bytes while a lookup is in flight as well as while a connect is;
+- **a replay that re-checks both gates**, because a deferred line may itself be
+  another deferring command. `replay_deferred()` is now shared by both paths;
+- **a deadline**, the same 10 s, for the same reason: a guest busy-waiting with
+  no timeout of its own would otherwise wait for the OS resolver to give up.
+
+### 19.6 The bug the unit suites could not see
+
+The service hook was first added to `AtEngine::poll()` — and **744 unit rows
+passed while the product did nothing at all**.
+
+`ThreadedEsp`'s worker does not call `poll()`. It calls `advance_transports()`
+and `service_transports()` directly, so that the transport pass can run
+**unlocked**. A hook added only to `poll()` is therefore invisible to every
+threaded consumer, which is every real one: jnext builds a `ThreadedEsp`, never
+a bare `AtEngine`. The unit suites all drive the passive core, so not one of
+them could tell.
+
+`service_domain_lookup()` is public for that reason, beside the two halves it
+belongs with, and the worker calls it explicitly. **`esp-cipdomain-func` is what
+found this**, and it is the row's whole justification: the unit suites prove the
+engine and the resolver, only a run of the real binary proves the wiring.
+
+### 19.7 How it is proved
+
+- **28 `esp_at_test` rows** (`DOM-01..22`, 432 total): the deferred reply, the
+  1.x byte forms, the 63/64-byte boundary, a 600-byte name refused whole, a
+  hostname carrying a **forged `+CIPDOMAIN` reply** that cannot inject, a NUL-
+  and 8-bit-bearing name, deferral and in-order replay, a deferred line that is
+  itself a lookup, the deadline, and — asserted as an **equality** — that a
+  policy refusal is byte-identical to a DNS miss.
+- **13 `esp_socket_test` rows** (`RSLV-01..12`, 201 total): the policy on a path
+  nobody dials, the literal fast path and that it never consults the injected
+  resolver, one-at-a-time, a resolver that throws, one that reports success with
+  no addresses, `reset()`, and that **destroying a resolver mid-lookup returns
+  immediately**.
+- **10 `esp_wiring_test` rows** (`RGATE-01..09`, 111 total): the allowlist over
+  lookups, including that a refusal is accepted-then-failed rather than
+  rejected — the property that keeps it from being an oracle.
+- **`esp-cipdomain-func`**: three IP literals through the real binary, asserting
+  that the RFC1918 one is answered and that **neither denied address appears
+  anywhere the guest can see**, while the operator's log names both refusals.
+- **24 mutations** from the diff. Two survived: one an **equivalent mutant**
+  (an `addrs.empty()` guard that `select_candidate` already covers — documented
+  in place rather than deleted), one a **real gap** in `reset()`'s contract,
+  closed by strengthening `RGATE-08`. The harness itself was caught reporting
+  a **crashed suite as a survivor**, and now pins each suite's expected row
+  count so an absent denominator is a failure rather than a pass.
