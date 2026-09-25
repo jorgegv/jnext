@@ -54,7 +54,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: mmu_integration_test            |    68 |   68 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |    17 |   17 |    0 |    0 |       0 |          0 |
 | Companion: compositor_integration_test     |    50 |   50 |    0 |    0 |       0 |          0 |
-| Companion: copper_integration_test         |    11 |   11 |    0 |    0 |       0 |          0 |
+| Companion: copper_integration_test         |    14 |   14 |    0 |    0 |       0 |          0 |
 | Companion: tilemap_fetch_split_test        |    12 |   12 |    0 |    0 |       0 |          0 |
 | Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
 | Companion: divmmc_integration_test         |     6 |    6 |    0 |    0 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    30 |   24 |    0 |    6 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5134 | 5123 |    0 |   11 |       0 |          0 |
+| **Total**                                  |  5137 | 5126 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **5134**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4826**. Rows the 117 suites declared in `test/unit-tests.conf` run live: **9169**.
+Rows the sections above carry: **5137**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4829**. Rows the 117 suites declared in `test/unit-tests.conf` run live: **9172**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -4991,6 +4991,9 @@ Notes and rationale: [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md).
 | GH270-HPOS-01 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxula_timing.vhd:423-436 | pass | test/copper/copper_integration_test.cpp:811 |
 | GH270-HPOS-02 | Emulator::init(ZXN_ISSUE2) failed | — | pass | test/copper/copper_integration_test.cpp:846 |
 | GH270-HPOS-03 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxnext.vhd:5220,5226, layer2.vhd:110-122 | pass | test/copper/copper_integration_test.cpp:995 |
+| GH272-ROWATOM-01 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxula_timing.vhd:423-436, tilemap.vhd:345-354,427 | pass | test/copper/copper_integration_test.cpp:1150 |
+| GH272-ROWATOM-02 | Emulator::init(ZXN_ISSUE2) failed | zxnext.vhd:4739-4777 | pass | test/copper/copper_integration_test.cpp:1285 |
+| GH272-ROWATOM-03 | Emulator::init(ZXN_ISSUE2) failed | zxnext.vhd:4739-4777 | pass | test/copper/copper_integration_test.cpp:1348 |
 
 ### Companion regression suite — `test/tilemap/tilemap_fetch_split_test.cpp`
 

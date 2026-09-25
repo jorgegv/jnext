@@ -12,7 +12,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | CPU/Z80N IM2 regr.    |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Rewind                |      261 |      261 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper                |       82 |       82 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Copper (integration)  |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Copper (integration)  |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      252 |      252 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU (int)      |       68 |       68 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -123,6 +123,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Key Bindings |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **9169** | **9169** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **9172** | **9172** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

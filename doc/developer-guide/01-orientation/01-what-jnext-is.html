@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.38</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.39</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.38</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.39</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1849,7 +1849,7 @@ four selectable CPU speeds from it by division.</p>
 </tr>
 <tr>
 <td>Copper</td>
-<td>Per 28 MHz cycle, across the window each instruction consumed — <code>Emulator::tick_copper_for_master_cycles()</code>.</td>
+<td>Per 28 MHz cycle, across the window each instruction consumed, split at every video-row boundary inside it — <code>Emulator::advance_copper_across_row_boundaries()</code>.</td>
 </tr>
 <tr>
 <td>Interrupts</td>

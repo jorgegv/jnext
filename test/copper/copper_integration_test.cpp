@@ -1006,6 +1006,361 @@ static void test_gh270_tagged_handlers()
           " (expected 5 segments at 67,131,195,259)");
 }
 
+// ── GH #272 — a row boundary is crossed at its own master cycle ────────
+
+// The framebuffer row a display register belongs to is decided by
+// `Emulator::on_scanline()`: it snapshots the finished row's render state
+// and retags the per-scanline change logs. Those events sit on the video-row
+// scheduler and are due at raw hc 0.
+//
+// The per-instruction device cluster used to step the Copper across the
+// WHOLE master-cycle window the instruction consumed and only then drain
+// that scheduler. So a Copper MOVE that is physically AFTER a row boundary
+// was counted into the row BEFORE it whenever one Z80 instruction happened
+// to straddle the boundary — and which MOVEs of a burst were caught that way
+// depended on where the CPU's instruction boundaries fell, which drifts from
+// frame to frame in any real program. The reported symptom was a flickering
+// line: next-point's controls menu, whose Copper writes NR 0x6F / 0x4C /
+// 0x6B together at `WAIT(n, 40)`, showed a pink row on 3 frames in every 7.
+//
+// `WAIT(n, 40)` is the shape that makes this reachable: the threshold is
+// `(40<<3)+12 = 332` in the hc_ula domain (copper.vhd:94), hc_ula 0 is raw
+// hc 125 (zxula_timing.vhd:423-436) and a raw line is 456 pixels, so it is
+// satisfied at raw hc 1 of the NEXT raw line, a handful of master cycles
+// past the boundary. The MOVEs follow it two 28 MHz cycles apart
+// (copper.vhd:87-89 clears the write pulse on the cycle after :100-108
+// raises it), i.e. at raw offsets ~5, ~7 and ~9.
+//
+// Hardware puts all of them in that next raw line's OWN row: the tilemap's
+// counters `whc` / `wvc` — which gate its per-character S_IDLE register
+// latch (tilemap.vhd:345-354) and its fetch pipeline (:213-231) — are not
+// reloaded for the row until raw hc 89 (`wide_min_hactive = c_min_hactive -
+// 32 - 16 = 88`, registered, zxula_timing.vhd:475-503), well after the
+// writes, and the transparency index is compared live per pixel (:427).
+static void test_gh272_row_boundary_atomic() {
+    set_group("GH272-RowBoundary");
+
+    // Six consecutive Copper lines, each writing three registers that live
+    // in DIFFERENT subsystems but share one snapshot point
+    // (Emulator::snapshot_row_render_state): NR 0x4A fallback colour,
+    // NR 0x14 transparent RGB, NR 0x31 tilemap Y scroll.
+    //
+    // Six lines is what sweeps the CPU phase. The CPU runs the reporter's
+    // loop — `INC HL` + `JR` = 18 T — at 28 MHz, so 18 master cycles, and a
+    // raw line is 1824: 1824 mod 18 = 6, so consecutive lines meet the loop
+    // at all three of its phases. One of them ends an instruction between
+    // the first MOVE and the second (the split that draws the pink row),
+    // one ends past all three (the whole group one row early) and one is
+    // aligned. Before the fix the six groups therefore land on a MIXTURE of
+    // rows; after it, every group lands on the row the VHDL puts it in.
+    static constexpr int kGroups   = 6;
+    static constexpr int kFirstCvc = 100;
+    static constexpr int kHpos     = 40;
+
+    Emulator emu;
+    if (!build_next_emulator(emu)) {
+        check("GH272-ROWATOM-01", "Emulator::init(ZXN_ISSUE2) failed", false, "");
+        return;
+    }
+
+    // The CPU: the reported program's 18 T-state loop at 28 MHz, in an
+    // uncontended bank (0xC000 holds RAM bank 0 at reset, and the +3-class
+    // contention rule only contends banks 4-7).
+    emu.mmu().write(0xC000, 0x23);   // INC HL
+    emu.mmu().write(0xC001, 0x18);   // JR -3
+    emu.mmu().write(0xC002, 0xFD);
+    auto regs = emu.cpu().get_registers();
+    regs.PC   = 0xC000;
+    regs.IFF1 = 0;
+    regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+    nr_write(emu, 0x07, 0x03);       // 28 MHz
+
+    // Baseline the three observables, and the Copper's vertical offset.
+    nr_write(emu, 0x64, 0x00);
+    nr_write(emu, 0x4A, 0x00);
+    nr_write(emu, 0x14, 0x00);
+    nr_write(emu, 0x31, 0x00);
+
+    emu.copper().reset();
+    for (int i = 0; i < 64; ++i)
+        program_word(emu, static_cast<uint16_t>(i), enc_move(0, 0));
+    for (int g = 0; g < kGroups; ++g) {
+        const uint16_t base = static_cast<uint16_t>(g * 4);
+        program_word(emu, base,
+                     enc_wait(kHpos, static_cast<uint16_t>(kFirstCvc + g)));
+        program_word(emu, base + 1, enc_move(0x4A, static_cast<uint8_t>(0x10 + g)));
+        program_word(emu, base + 2, enc_move(0x14, static_cast<uint8_t>(0x20 + g)));
+        program_word(emu, base + 3, enc_move(0x31, static_cast<uint8_t>(0x30 + g)));
+    }
+    program_word(emu, kGroups * 4, enc_wait(0, 511));   // HALT
+
+    set_copper_mode(emu, 0);
+    set_copper_mode(emu, 3);   // run, reset the PC at every VBI
+
+    // Three frames: the first commits the CPU-speed change and starts the
+    // Copper, the next two run it from the top. The snapshot arrays hold
+    // the LAST completed frame.
+    emu.run_frame();
+    emu.run_frame();
+    emu.run_frame();
+
+    // Where the VHDL puts group g. The WAIT threshold `(hpos<<3)+12` is in
+    // the hc_ula domain, whose zero is raw hc `hc_ula_zero_raw_hc()`; if
+    // that lands past the end of the raw line the MOVEs belong to the NEXT
+    // raw line. cvc counts from the first active display line
+    // (`display_origin().vc`) plus the NR 0x64 offset, which is 0 here, and
+    // the framebuffer row is the raw line minus the vblank top.
+    const int ppl  = emu.video_timing().hc_max() + 1;
+    const int zero = emu.video_timing().hc_ula_zero_raw_hc();
+    const int thr  = (kHpos << 3) + 12;
+    const int carry = (zero + thr) / ppl;
+    const int first_row = kFirstCvc + emu.video_timing().display_origin().vc
+                        + carry - emu.video_timing().vblank_top();
+
+    // The row before the first group must still carry what the registers
+    // held when the frame opened — which is the LAST group's values, since
+    // the Copper program reruns from the top every frame. That is the
+    // assertion for group 0: before the fix its writes leak into this row
+    // on the CPU phases where an instruction straddles the boundary.
+    const uint8_t carry_fb = static_cast<uint8_t>(0x10 + kGroups - 1);
+    const uint8_t carry_tr = static_cast<uint8_t>(0x20 + kGroups - 1);
+    const uint8_t carry_sy = static_cast<uint8_t>(0x30 + kGroups - 1);
+    bool   pre_ok = false;
+    bool   all_ok = true;
+    std::string detail;
+    if (first_row >= 1 && first_row + kGroups <= Renderer::FB_HEIGHT) {
+        pre_ok = emu.renderer().fallback_for_line(first_row - 1) == carry_fb
+              && emu.renderer().transparent_rgb_for_line(first_row - 1) == carry_tr
+              && emu.tilemap().scroll_y_for_line(first_row - 1) == carry_sy;
+        for (int g = 0; g < kGroups; ++g) {
+            const int r = first_row + g;
+            const uint8_t fb = emu.renderer().fallback_for_line(r);
+            const uint8_t tr = emu.renderer().transparent_rgb_for_line(r);
+            const uint8_t sy = emu.tilemap().scroll_y_for_line(r);
+            if (fb != 0x10 + g || tr != 0x20 + g || sy != 0x30 + g) all_ok = false;
+            detail += " row" + std::to_string(r) + "=" + hex2(fb) + "/"
+                    + hex2(tr) + "/" + hex2(sy);
+        }
+    } else {
+        all_ok = false;
+        detail = " first_row=" + std::to_string(first_row) + " out of range";
+    }
+
+    check("GH272-ROWATOM-01",
+          "a Copper MOVE burst released in horizontal blanking lands "
+          "ENTIRELY in the row it physically precedes, on every CPU phase: "
+          "six groups on consecutive Copper lines each own one framebuffer "
+          "row, all three registers together, instead of splitting across "
+          "two rows wherever a Z80 instruction straddles the boundary "
+          "[copper.vhd:94 WAIT threshold + :87-89/:100-108 MOVE cadence; "
+          "zxula_timing.vhd:423-436 hc_ula origin, :475-503 the tilemap's "
+          "whc/wvc reload at raw hc 89; tilemap.vhd:345-354, :427]",
+          pre_ok && all_ok,
+          "carried row " + std::to_string(first_row - 1) +
+          (pre_ok ? " ok;" : " NOT the carried value;") + detail +
+          " (want 0x10+g/0x20+g/0x30+g on rows " +
+          std::to_string(first_row) + ".." +
+          std::to_string(first_row + kGroups - 1) + ")");
+}
+
+// GH #272, the CPU half — the row boundary is crossed at its own master
+// cycle even when the Copper is stopped, and a deferred CPU NextREG write
+// is placed by the 28 MHz edge it commits on rather than by the end of the
+// instruction that issued it.
+//
+// A CPU NR write is enqueued during the instruction and committed after it
+// (G65), carrying the edge `io_request_edge() + 2` — VHDL
+// zxnext.vhd:4739-4777, where the request is edge-detected into `cpu_req`
+// and the registers take it on the following CLK_28 edge. Which row it
+// belongs to is decided by that edge and the boundary, not by the
+// instruction's extent.
+//
+// Two instructions straddle the same boundary from the same starting
+// cycle and differ only in WHERE inside themselves they raise the request,
+// so the pair pins both directions at once:
+//
+//   * `OUT (C),A` raises IORQ several T-states in, so at 28 MHz its commit
+//     edge lands PAST the boundary — the write belongs to the next row.
+//     Before the fix the whole deferred queue drained at the end of the
+//     instruction, ahead of the boundary event, and it landed one row
+//     early. This is the half that fails on unfixed code.
+//   * the Z80N `NEXTREG nn,n` opcode requests at the instruction's first
+//     cycle, so its edge precedes the boundary and the write belongs to
+//     the row that is ending — exactly as it did before the fix. This is
+//     the half that fails if the boundary commits the WHOLE deferred queue
+//     instead of the part of it that precedes the boundary.
+//
+// Both run with the Copper stopped, which is also what pins the boundary
+// walk as unconditional: gate it on `Copper::is_running()` and neither row
+// is reached at its own cycle at all.
+
+// Step NOPs until the NEXT instruction will start on the last pixel of a
+// raw line, far enough down the frame that the following frame's first
+// rows cannot overwrite the snapshot we are about to read. Returns the raw
+// scanline parked on, or -1.
+static int park_at_end_of_line(Emulator& emu, int pixels_before_end) {
+    const int ppl = emu.video_timing().hc_max() + 1;
+    for (int i = 0; i < 400000; ++i) {
+        emu.debugger_step();
+        const int row = emu.current_scanline() - emu.video_timing().vblank_top();
+        // The test instruction is patched in at PC, so PC must be inside the
+        // RAM sled with room for four bytes before its closing JP.
+        const uint16_t pc = emu.cpu().get_registers().PC;
+        if (emu.current_hc() == ppl - pixels_before_end && row > 64
+                && row < Renderer::FB_HEIGHT - 8
+                && pc >= 0xC000 && pc < 0xFFF0)
+            return emu.current_scanline();
+    }
+    return -1;
+}
+
+// Finish the frame the write landed in WITHOUT starting to overwrite the
+// rows we care about: step until the scanline wraps past the frame end.
+static void finish_frame_by_stepping(Emulator& emu, int park_vc) {
+    for (int i = 0; i < 400000; ++i) {
+        if (emu.current_scanline() < park_vc) return;
+        emu.debugger_step();
+    }
+}
+
+static void prepare_cpu_write_emulator(Emulator& emu, bool turbo) {
+    // 28 MHz makes one T-state one master cycle, so a NOP is exactly one
+    // 7 MHz pixel and parking walks `current_hc()` one at a time; 3.5 MHz
+    // makes a NOP 8 pixels and every instruction eight times longer, which
+    // is what puts a row boundary comfortably PAST an OUT's request edge
+    // while still inside the instruction.
+    if (turbo) nr_write(emu, 0x07, 0x03);
+    nr_write(emu, 0x4A, 0x00);      // the observable's baseline
+    for (uint32_t a = 0xC000; a <= 0xFFFF; ++a)
+        emu.mmu().write(static_cast<uint16_t>(a), 0x00);   // NOP sled
+    // Close the sled into a loop: 16 K of NOPs is a few lines' worth at
+    // 28 MHz, and a PC that walks off the end lands in ROM, where the
+    // `mmu().write()` that patches the test instruction in is a no-op and
+    // the row under test never gets written at all.
+    emu.mmu().write(0xFFFD, 0xC3);   // JP 0xC000
+    emu.mmu().write(0xFFFE, 0x00);
+    emu.mmu().write(0xFFFF, 0xC0);
+    auto regs = emu.cpu().get_registers();
+    regs.PC   = 0xC000;
+    regs.IFF1 = 0;
+    regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+    emu.copper().reset();           // and deliberately NOT started
+}
+
+static void test_gh272_cpu_write_past_boundary() {
+    set_group("GH272-RowBoundary");
+
+    // ── GH272-ROWATOM-02 — commit edge PAST the boundary → the next row.
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) {
+            check("GH272-ROWATOM-02", "Emulator::init(ZXN_ISSUE2) failed", false, "");
+        } else {
+            prepare_cpu_write_emulator(emu, /*turbo=*/true);
+            // Select NR 0x4A up front so the CPU executes only the DATA
+            // write, whose request edge is the one under test.
+            emu.port().out(0x243B, 0x4A);
+            auto r = emu.cpu().get_registers();
+            r.BC = 0x253B;
+            r.AF = static_cast<uint16_t>(0x3C00 | (r.AF & 0x00FF));
+            emu.cpu().set_registers(r);
+
+            const int park_vc = park_at_end_of_line(emu, 1);
+            uint8_t before = 0xFF, after = 0xFF;
+            int row_before = -1;
+            if (park_vc >= 0) {
+                auto r2 = emu.cpu().get_registers();
+                emu.mmu().write(r2.PC + 0, 0xED);   // OUT (C),A
+                emu.mmu().write(r2.PC + 1, 0x79);
+                emu.debugger_step();
+                emu.mmu().write(r2.PC + 0, 0x00);
+                emu.mmu().write(r2.PC + 1, 0x00);
+                finish_frame_by_stepping(emu, park_vc);
+                row_before = park_vc - emu.video_timing().vblank_top();
+                before = emu.renderer().fallback_for_line(row_before);
+                after  = emu.renderer().fallback_for_line(row_before + 1);
+            }
+            check("GH272-ROWATOM-02",
+                  "a deferred CPU NextREG write whose commit edge falls PAST "
+                  "a row boundary inside the same instruction lands in the "
+                  "row AFTER the boundary: `OUT (C),A` on 0x253B started on "
+                  "the line's last pixel raises IORQ past the boundary, and "
+                  "the boundary is reached at its own master cycle although "
+                  "the Copper is stopped "
+                  "[zxnext.vhd:4739-4777 cpu_req edge-detect + next-edge "
+                  "commit]",
+                  park_vc >= 0 && before == 0x00 && after == 0x3C,
+                  "park_vc=" + std::to_string(park_vc) +
+                  " row " + std::to_string(row_before) + "=" + hex2(before) +
+                  " (want 0x00) row " + std::to_string(row_before + 1) + "=" +
+                  hex2(after) + " (want 0x3C)");
+        }
+    }
+
+    // ── GH272-ROWATOM-03 — commit edge BEFORE the boundary → the row that
+    // is ending. The companion direction: splitting an instruction at a row
+    // boundary must not sweep the CPU's earlier writes over it.
+    //
+    // At the 3.5 MHz power-on speed one T-state is 8 master cycles, so
+    // `OUT (C),A` spans 96 and its IORQ edge sits partway in (measured
+    // between 64 and 80 by bisecting the park position — the row's detail
+    // string prints enough to re-bisect if the CPU core's cycle placement
+    // ever moves). Parking 32 pixels before the line's end puts the next
+    // instruction 128 master cycles before the boundary; one `INC HL` (48,
+    // and it does not touch A) advances that to 80, so the boundary falls
+    // strictly inside the OUT and strictly AFTER its request edge. The
+    // write therefore belongs to the row that is ending, exactly as it did
+    // before the split existed.
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) {
+            check("GH272-ROWATOM-03", "Emulator::init(ZXN_ISSUE2) failed", false, "");
+            return;
+        }
+        prepare_cpu_write_emulator(emu, /*turbo=*/false);
+        emu.port().out(0x243B, 0x4A);
+        auto r = emu.cpu().get_registers();
+        r.BC = 0x253B;
+        r.AF = static_cast<uint16_t>(0x3C00 | (r.AF & 0x00FF));
+        emu.cpu().set_registers(r);
+
+        const int park_vc = park_at_end_of_line(emu, 32);
+        uint8_t before = 0xFF, after = 0xFF;
+        int row_before = -1;
+        if (park_vc >= 0) {
+            uint16_t at = emu.cpu().get_registers().PC;
+            emu.mmu().write(at, 0x23);          // INC HL — the 48-cycle shim
+            emu.debugger_step();
+            emu.mmu().write(at, 0x00);
+            at = emu.cpu().get_registers().PC;
+            emu.mmu().write(at + 0, 0xED);      // OUT (C),A  with BC = 0x253B
+            emu.mmu().write(at + 1, 0x79);
+            emu.debugger_step();
+            emu.mmu().write(at + 0, 0x00);
+            emu.mmu().write(at + 1, 0x00);
+            finish_frame_by_stepping(emu, park_vc);
+            row_before = park_vc - emu.video_timing().vblank_top();
+            before = emu.renderer().fallback_for_line(row_before);
+            after  = emu.renderer().fallback_for_line(row_before + 1);
+        }
+        check("GH272-ROWATOM-03",
+              "a deferred CPU NextREG write whose commit edge precedes the "
+              "row boundary stays in the row that is ENDING, although the "
+              "instruction that issued it runs on past the boundary: "
+              "splitting the instruction's window at the boundary must "
+              "carry the writes that precede it across, not defer the whole "
+              "queue past it "
+              "[zxnext.vhd:4739-4777 cpu_req edge-detect + next-edge commit]",
+              park_vc >= 0 && before == 0x3C && after == 0x3C,
+              "park_vc=" + std::to_string(park_vc) +
+              " row " + std::to_string(row_before) + "=" + hex2(before) +
+              " (want 0x3C) row " + std::to_string(row_before + 1) + "=" +
+              hex2(after) + " (want 0x3C)");
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1039,6 +1394,10 @@ int main() {
 
     test_gh270_tagged_handlers();
     std::printf("  Group: GH270-Handlers — done\n");
+
+    test_gh272_row_boundary_atomic();
+    test_gh272_cpu_write_past_boundary();
+    std::printf("  Group: GH272-RowBoundary — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

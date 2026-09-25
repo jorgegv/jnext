@@ -2188,14 +2188,45 @@ private:
     /// Called by the VSYNC event handler.
     void on_vsync();
 
-    /// Step the Copper for `master_cycles` 28-MHz cycles ending at the
-    /// current `clock_.get()`. VHDL `device/copper.vhd:54-119` runs at
-    /// the i_CLK_28 rising edge — at most one MOVE / WAIT-compare per
-    /// 28 MHz cycle. Pre-G117 jnext stepped the Copper exactly once per
-    /// Z80 instruction, collapsing dense Copper bursts (e.g. tilemap
+    /// Step the Copper for `count` 28-MHz cycles starting at master cycle
+    /// `begin`. VHDL `device/copper.vhd:54-119` runs at the i_CLK_28
+    /// rising edge — at most one MOVE / WAIT-compare per 28 MHz cycle.
+    /// Pre-G117 jnext stepped the Copper exactly once per Z80
+    /// instruction, collapsing dense Copper bursts (e.g. tilemap
     /// effects with 32 MOVEs/scanline) into 1-2 effective writes per
     /// scanline. This helper restores per-cycle granularity.
-    void tick_copper_for_master_cycles(uint64_t master_cycles);
+    ///
+    /// GH #272 — `begin` is explicit rather than derived from
+    /// `clock_.get() - count` because an instruction's window is stepped
+    /// in SEGMENTS, split at the row boundaries inside it. See
+    /// advance_copper_across_row_boundaries().
+    void tick_copper_for_master_cycles(uint64_t begin, uint64_t count);
+
+    /// GH #272 — advance the Copper across the master-cycle window this
+    /// instruction consumed, stopping at every video-row boundary inside
+    /// it so that the boundary's row work happens at the master cycle it
+    /// is due, not at the instruction's end.
+    ///
+    /// Which framebuffer row a register write belongs to is decided by
+    /// `on_scanline()` — it snapshots the finished row's render state
+    /// (`snapshot_row_render_state`) and retags the per-scanline change
+    /// logs. Those events live on `scheduler_` and are due at raw hc 0.
+    /// Stepping the whole window first and firing them afterwards made a
+    /// Copper MOVE that is physically AFTER a boundary land in the row
+    /// BEFORE it whenever one Z80 instruction happened to straddle the
+    /// boundary — so a group of MOVEs issued in horizontal blanking
+    /// (`WAIT(n, 40)` releases at hc_ula 332 = raw hc 1 of the next raw
+    /// line, copper.vhd:94 + zxula_timing.vhd:423-436) was split across
+    /// two rows at a position that drifts with the CPU's phase. That is
+    /// a flickering line: GH #272, reported against next-point's controls
+    /// menu, where rows 167/248 turned pink on 3 frames in every 7.
+    ///
+    /// The walk is UNCONDITIONAL — not gated on `copper_.is_running()` —
+    /// so a boundary falls at the same point in the cluster whether or
+    /// not the Copper happens to be running. Gating it would make the
+    /// row a deferred CPU NR write lands in depend on the Copper's mode,
+    /// which is exactly the class of surprise this fixes.
+    void advance_copper_across_row_boundaries(uint64_t master_cycles);
 
     /// Task 60a — the SINGLE shared per-instruction body: executes one
     /// CPU instruction (or one DMA burst when the DMA holds the bus, or
@@ -2254,13 +2285,30 @@ private:
     /// jnext models this as: while inside the per-instruction tick
     /// (set_defer_cpu_nr_writes(true) below), CPU NR writes via port
     /// 0x253B enqueue here instead of committing through NextReg.
-    /// After tick_copper_for_master_cycles runs, the queue is drained
-    /// so CPU writes apply LAST in the instruction window. If both
-    /// Copper and CPU touched the same NR, the CPU value wins —
-    /// matching VHDL's "Copper writes first, CPU held over by one
-    /// cycle, both writes happen, CPU value persists" semantic.
+    /// Once the Copper has been stepped across the window, the queue is
+    /// drained so CPU writes apply LAST in it. If both Copper and CPU
+    /// touched the same NR, the CPU value wins — matching VHDL's "Copper
+    /// writes first, CPU held over by one cycle, both writes happen, CPU
+    /// value persists" semantic. GH #272 — a video-row boundary inside
+    /// the window splits that drain at the boundary's own master cycle,
+    /// by each write's commit edge; within each segment the ordering
+    /// above is unchanged.
     void enqueue_cpu_nr_write(uint8_t reg, uint8_t val);
-    void flush_pending_cpu_nr_writes();
+    /// Commit every enqueued CPU NR write whose commit edge is strictly
+    /// before `edge_limit`, leaving the rest queued. `kNoEdgeLimit`
+    /// commits the lot.
+    ///
+    /// GH #272 — each PendingNrWrite already carries the 28 MHz edge it
+    /// commits on (`io_request_edge() + 2`), so when the instruction's
+    /// window is split at a row boundary the writes can be placed on the
+    /// side of that boundary they physically belong to. Without the
+    /// limit, splitting the window would push EVERY deferred CPU write
+    /// past the boundary — including ones whose edge precedes it — and
+    /// so make a CPU write land one row LATE, reversing the one-
+    /// directional bound documented for GH #170 (a write can land early,
+    /// never late).
+    static constexpr uint64_t kNoEdgeLimit = ~uint64_t{0};
+    void flush_pending_cpu_nr_writes(uint64_t edge_limit = kNoEdgeLimit);
     void set_defer_cpu_nr_writes(bool v) { defer_cpu_nr_writes_ = v; }
     bool defer_cpu_nr_writes() const { return defer_cpu_nr_writes_; }
 

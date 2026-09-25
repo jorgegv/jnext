@@ -35,7 +35,7 @@ four selectable CPU speeds from it by division.
 |---|---|
 | CPU | Per instruction. The FUSE Z80 core (`third_party/fuse-z80/`) executes one instruction; Z80N opcodes are intercepted before FUSE sees them. |
 | Memory contention | Per bus cycle. FUSE's read/write callbacks call `ContentionModel::contention_tick()`, wired by `z80_set_contention_runtime()` (`src/cpu/z80_cpu.h`). |
-| Copper | Per 28 MHz cycle, across the window each instruction consumed — `Emulator::tick_copper_for_master_cycles()`. |
+| Copper | Per 28 MHz cycle, across the window each instruction consumed, split at every video-row boundary inside it — `Emulator::advance_copper_across_row_boundaries()`. |
 | Interrupts | Scheduled into a min-heap by master cycle (`src/core/scheduler.h`), drained after every instruction. |
 | Audio | Integrated over each instruction's cycle span, not point-sampled — `Emulator::advance_audio()` into `Mixer`. |
 | Video | **Composited once, at the end of the frame.** |
