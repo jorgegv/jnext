@@ -40,7 +40,7 @@ profiler — surround the emulation rather than being part of it.
 
 | Directory | Responsibility |
 |---|---|
-| `core/` | `Emulator` — the top-level machine that owns every subsystem — plus `Clock`, `Scheduler`, `EmulatorConfig`, the CLI option table (`cli_options.h`), the logging wrapper (`log.h`), the state-serialisation primitives (`saveable.h`), all the file loaders and savers (NEX, SNA, SZX, Z80, TAP, TZX, WAV, RZX), the host-side FAT32 reader that extracts ROMs from the SD image, the SD-card provisioner, and the video recorder. |
+| `core/` | `Emulator` — the top-level machine that owns every subsystem — plus `Clock`, `Scheduler`, `EmulatorConfig`, the CLI option table (`cli_options.h`), the logging wrapper (`log.h`), the state-serialisation primitives (`saveable.h`), all the file loaders and savers (NEX, SNA, SZX, Z80, TAP, TZX, WAV, RZX, JNS), the host-side FAT32 reader that extracts ROMs from the SD image, the SD-card provisioner, and the video recorder. |
 | `cpu/` | `Z80Cpu`, the wrapper around the vendored FUSE core; the Z80N extension opcodes (`z80n_ext` — 31 of them, not the 26 the roadmap still says); and the IM2 interrupt controller with its client mixin. |
 | `memory/` | `Mmu` (8 × 8 K slots, the `MemoryInterface` implementation), `Ram`, `Rom`, the `ContentionModel`, and `AttributeMux` — the per-scanline replay of mid-frame attribute writes. |
 | `video/` | The layers and the compositor: `Ula`, `Lores`, `Layer2`, `Tilemap`, `SpriteEngine`, `PaletteManager`, `VideoTiming` (raster counters), and `Renderer`, which composites them. |
