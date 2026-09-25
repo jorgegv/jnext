@@ -540,6 +540,13 @@ public:
     /// cannot be rejected as overlong.
     static constexpr std::size_t MAX_COMMAND_LEN = 512;
 
+    /// `AT+CIPDOMAIN`'s documented limit: the NONOS AT instruction set §5.2.2
+    /// says the domain name's "length should be less than 64 bytes", so 64 is
+    /// the first length REFUSED. Enforced before the name reaches the resolver
+    /// — a host string is the one guest-supplied value on this path that leaves
+    /// the module, so its bound is checked where it enters.
+    static constexpr std::size_t MAX_DOMAIN_NAME = 64;
+
     /// Bytes read from the socket per `recv` attempt, and the cap on attempts
     /// per `poll()` — together they bound one frame's socket work at 64 KB.
     static constexpr std::size_t RECV_CHUNK    = 1024;
@@ -630,7 +637,13 @@ public:
     /// client already handles. So "this build cannot listen" and "this port
     /// could not be bound" look identical to the guest, deliberately — neither
     /// tells it anything it can act on differently.
-    explicit AtEngine(EspTransport& transport, EspListener* listener = nullptr);
+    /// `listener` and `resolver` are both OPTIONAL, and a host that passes
+    /// null for one simply cannot use the commands that need it — `AT+CIPSERVER`
+    /// and `AT+CIPDOMAIN` answer `ERROR`, which is what they answered before
+    /// either existed. That keeps every consumer that only wants outbound TCP
+    /// on a one-argument constructor.
+    explicit AtEngine(EspTransport& transport, EspListener* listener = nullptr,
+                      EspResolver* resolver = nullptr);
 
     // ── EspDevice ─────────────────────────────────────────────
 
@@ -674,6 +687,19 @@ public:
     /// (`send`/`recv`/`close`), and mutates engine state throughout — so a
     /// threaded host must serialise this against `receive()` and `tick()`.
     void service_transports();
+
+    /// Service an `AT+CIPDOMAIN` in flight (GH #154). PUBLIC for the same
+    /// reason the two above are: `ThreadedEsp`'s worker does NOT call `poll()`,
+    /// it calls the halves directly so that `advance_transports()` can run
+    /// UNLOCKED. A hook added only to `poll()` is therefore invisible to every
+    /// threaded consumer — which is exactly what happened when this one was
+    /// written, and what no unit row could catch, because they all drive the
+    /// passive core.
+    ///
+    /// Belongs with `service_transports()`, under the core lock: it queues a
+    /// reply. The resolver's own `poll()` is a non-blocking flag test, so
+    /// holding the lock across it costs nothing.
+    void service_domain_lookup();
 
     /// Emulated-time service: frame `+IPD` when the wire is quiet and release
     /// guest-bound bytes at one per `ticks_per_byte`.
@@ -934,6 +960,15 @@ private:
     void cmd_cipmode(const std::string& args);
     void cmd_cipmode_query(const std::string& args);
     void cmd_cipstatus(const std::string& args);
+    void cmd_cipdomain(const std::string& args);
+    /// Service an `AT+CIPDOMAIN` in flight. Called from `poll()`, never from
+    /// dispatch — the answer is not knowable when the command arrives.
+    /// Emit `AT+CIPDOMAIN`'s reply and let the guest's queued input through.
+    void finish_domain(bool ok);
+    /// Feed back whatever the guest typed while an answer was outstanding.
+    /// Shared by the connect path and the lookup path, and it re-checks BOTH
+    /// gates because a deferred line may itself be another deferring command.
+    void replay_deferred();
 
     /// Does the station have an ADDRESS TO REPORT right now? All three gates.
     /// This is what `AT+CIFSR` and `AT+CIPSTATUS` answer from — see
@@ -1075,6 +1110,18 @@ private:
     /// never creates one — a listener needs a bind address, which is host
     /// configuration and a security decision (design doc §13.4).
     EspListener* listener_ = nullptr;
+
+    /// GH #154 — `AT+CIPDOMAIN`. Null unless the host supplied one.
+    EspResolver* resolver_ = nullptr;
+
+    /// True from the moment `AT+CIPDOMAIN` is dispatched until its reply is
+    /// queued. It is the SECOND command in this surface whose answer does not
+    /// come from its own dispatch, and it therefore needs everything the first
+    /// one needed: input deferral (so nothing is answered out of order) and a
+    /// deadline (so a resolver that never answers cannot hang a guest that
+    /// busy-waits with no timeout of its own).
+    bool                      domain_pending_ = false;
+    std::chrono::steady_clock::time_point domain_deadline_{};
 
     /// `AT+CIPMUX`. FALSE at power-on and after `AT+RST`, and that default is
     /// load-bearing rather than arbitrary: nextsync never sends the command and

@@ -4,17 +4,19 @@
 > A/B/C evaluation of all 99 ESP8266-reachable AT commands, and the seven worth
 > building. It ends in [§7 Questions for the owner](#7-questions-for-the-owner).
 >
-> **STATUS: six of the seven class-A commands have since been BUILT**
+> **STATUS: ALL SEVEN class-A commands are now BUILT.**
 > ([ESP01-EMULATOR-DESIGN.md §18](ESP01-EMULATOR-DESIGN.md#18-the-wi-fi-configuration-category-gh-154),
 > tests in [ESP-WIFI-CONFIG-TEST-PLAN.md](../testing/ESP-WIFI-CONFIG-TEST-PLAN.md)):
 > `AT+CWMODE`, `AT+CWJAP=`, `AT+CWLAP`, `AT+CWQAP`, `AT+CIPSTATUS`, and
 > `AT+CIPMODE=0`/`?`, plus the query forms of [§5.1 A2](#a2-the-symmetry-gaps--query-and-test-forms).
-> The seventh, **`AT+CIPDOMAIN`, was not built**, and the reason is a correction
-> to this document rather than a change of mind: its estimate rested on "the
-> async resolver already exists", and it does — but it is **bound to a
-> connection**, so a standalone lookup needs a new `EspTransport` method and its
-> own socket-suite coverage. That is a seam change, not the table row this
-> document priced. See [§18.6](ESP01-EMULATOR-DESIGN.md#186-what-this-does-not-add).
+> The seventh, **`AT+CIPDOMAIN`**, followed in
+> [§19](ESP01-EMULATOR-DESIGN.md#19-atcipdomain-gh-154) once the owner
+> authorised the seam change it needed. This document priced it as a table row
+> and it was not one: the async resolver exists but is **bound to a
+> connection**, so a standalone lookup took a new interface (`EspResolver`,
+> beside `EspListener`). The estimate's *shape* held, though — it was a new
+> interface, not a new ownership model and not new threading, because the
+> resolver thread already captured no owner of any kind.
 >
 > The **test (`=?`) forms** were likewise dropped from A during phase 1 itself,
 > when the reference turned out to document none — recorded in place at

@@ -29,7 +29,15 @@ The guest program is byte-identical to `esp-loopback-peer.py`'s — the same
 Z80 program in the suite and not two to keep in step. Only the script table
 differs. See that file for the annotated assembly listing.
 
-Usage: esp-wifi-setup-guest.py <guest.bin>
+Usage: esp-wifi-setup-guest.py <guest.bin> [script]
+
+`script` selects which AT session to emit; it defaults to `wifi-setup`, the one
+described above. The second, `cipdomain`, drives AT+CIPDOMAIN against three IP
+LITERALS so that the row needs no DNS server and no network at all — see
+SCRIPTS below.
+
+There is deliberately ONE copy of the Z80 walker in the suite rather than a
+file per session: the program is identical, only the table differs.
 """
 import sys
 
@@ -57,7 +65,7 @@ SCRIPT_TABLE_ORG = 0x8100
 # That is harmless — the trace stays in order because the engine serialises a
 # reply against the command in flight — and it is recorded here so a reader
 # does not "fix" a sync byte that is deliberately early.
-SCRIPT = [
+WIFI_SETUP = [
     (b'AT+CWMODE?\r\n',                          b'K'),   # readme:232
     (b'AT+CWMODE=1\r\n',                         b'K'),   # readme:238
     (b'AT+CWLAP\r\n',                            b'K'),   # readme:240
@@ -68,10 +76,37 @@ SCRIPT = [
     (b'AT+CIFSR\r\n',                            b'K'),   # the address is gone
 ]
 
+# AT+CIPDOMAIN over IP LITERALS (GH #154). Literals are used on purpose: they
+# take the synchronous fast path, so this row needs no DNS server, no peer and
+# no network — and it still exercises the whole product path, because the
+# ADDRESS POLICY is applied to a literal exactly as it is to a resolved name.
+#
+# That is what makes this worth a functional row at all. The unit suites prove
+# the resolver and the engine; only a run of the real binary proves that
+# `setup_esp()` actually handed the engine a resolver and wrapped it in the
+# allowlist gate. An engine that was perfect and a wiring step that forgot it
+# would pass every unit row and fail here.
+#
+# The sync byte for the two REFUSALS is `R` — the first one in `ERROR`, since
+# `DNS Fail` contains none.
+CIPDOMAIN = [
+    # RFC1918 is deliberately reachable (design doc §8.1 item 4), so this one
+    # answers with the address.
+    (b'AT+CIPDOMAIN="192.168.100.238"\r\n', b'K'),
+    # Loopback is denied by the DEFAULT policy. If the policy were not wired
+    # into the resolver, this would answer with 127.0.0.1 instead.
+    (b'AT+CIPDOMAIN="127.0.0.1"\r\n',       b'R'),
+    # Cloud metadata — the address the transport is most careful never to
+    # reach, and therefore the one a lookup must never disclose either.
+    (b'AT+CIPDOMAIN="169.254.169.254"\r\n', b'R'),
+]
 
-def build_guest():
+SCRIPTS = {'wifi-setup': WIFI_SETUP, 'cipdomain': CIPDOMAIN}
+
+
+def build_guest(script):
     table = b''
-    for line, expect in SCRIPT:
+    for line, expect in script:
         assert len(line) < 256, line
         table += bytes([len(line)]) + line + expect
     table += b'\x00'                      # end of script
@@ -81,11 +116,16 @@ def build_guest():
 
 
 def main(argv):
-    if len(argv) != 2:
+    if len(argv) not in (2, 3):
         sys.stderr.write(__doc__)
         return 2
+    name = argv[2] if len(argv) == 3 else 'wifi-setup'
+    if name not in SCRIPTS:
+        sys.stderr.write('unknown script %r; known: %s\n'
+                         % (name, ', '.join(sorted(SCRIPTS))))
+        return 2
     with open(argv[1], 'wb') as f:
-        f.write(build_guest())
+        f.write(build_guest(SCRIPTS[name]))
     return 0
 
 

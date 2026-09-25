@@ -58,6 +58,81 @@ struct ResolveJob {
     std::chrono::steady_clock::time_point started{};
 };
 
+/// Hand `host` to a resolver thread and return the job block, or null with
+/// `err` set when the thread cannot be started.
+///
+/// The thread captures the result block plus COPIES of the host and the
+/// resolver function — deliberately no `this` and no owner of any kind, which
+/// is the whole safety argument and the reason BOTH the connecting transport
+/// and the standalone resolver (GH #154) can share one launcher rather than
+/// keeping two copies of it in step.
+std::shared_ptr<ResolveJob> launch_resolve(const std::string& host, ResolveFn fn,
+                                           std::string& err_out) {
+    auto job     = std::make_shared<ResolveJob>();
+    job->started = std::chrono::steady_clock::now();
+    try {
+        std::thread([job, host, fn]() {
+            // NOTHING MAY ESCAPE THIS LAMBDA. An exception that leaves a
+            // `std::thread`'s entry point does not propagate anywhere — it
+            // goes straight to `std::terminate`, killing the whole process.
+            // `resolver` is a PUBLIC seam documented for consumers who
+            // already own a resolver, and reporting failure by exception is
+            // ordinary in C++ network libraries, so this is a reachable
+            // path for anyone reusing the module rather than a theoretical
+            // one. A library that converts its caller's exception into a
+            // process abort is not reusable. Degrade to a FAILED LOOKUP
+            // instead: the engine already handles that (`AT+CIPSTART`
+            // answers `ERROR`), so a throwing resolver costs a connection,
+            // not the emulator.
+            //
+            // WHICH PROPERTY IS LOAD-BEARING, stated because the handlers
+            // below LOOK like they carry the guarantee and do not. `ok` is
+            // initialised false above, and `ok = fn(...)` cannot complete
+            // its assignment when the right-hand side throws — so a thrown
+            // lookup is a FAILED lookup by construction, and the consumer's
+            // `!job->ok` gate refuses it without ever examining the address
+            // list. The `ok = false` / `out.clear()` in the handlers
+            // RESTATE that; they do not establish it. Verified in review by
+            // deleting both `out.clear()` calls: the suite stays at 142/142
+            // and still connects nowhere. They are kept as defence in depth
+            // because they cost nothing and they keep the two properties
+            // independent — a later refactor that decouples the emptiness
+            // check from the `ok` check must not be able to turn a
+            // half-built list into a connect.
+            std::vector<IpAddress> out;
+            std::string            err;
+            bool                   ok = false;
+            try {
+                ok = fn ? fn(host, out, err)
+                        : net::resolve(host, /*numeric_only=*/false, out, err);
+            } catch (const std::exception& e) {
+                ok  = false;
+                out.clear();  // defence in depth, not the barrier — see above
+                err = std::string("the resolver threw: ") + e.what();
+            } catch (...) {
+                ok  = false;
+                out.clear();
+                err = "the resolver threw a non-std exception";
+            }
+            job->ok    = ok;
+            job->addrs = std::move(out);
+            job->err   = std::move(err);
+            // Publish LAST. Everything above happens-before any acquire of
+            // this flag, and nothing is written after it.
+            job->done.store(true, std::memory_order_release);
+        }).detach();
+    } catch (const std::system_error& e) {
+        // Thread exhaustion is a real failure mode, not an impossibility,
+        // and silently parking in Resolving forever would be the worst
+        // possible answer to it.
+        err_out = std::string("cannot start resolver thread: ") + e.what();
+        return nullptr;
+    }
+    // Returned only once the thread exists, so a failed spawn cannot leave
+    // behind a job nobody will ever complete.
+    return job;
+}
+
 class SocketTransport final : public EspTransport {
 public:
     SocketTransport(const AddressPolicy& policy, ResolveFn resolver)
@@ -335,75 +410,14 @@ private:
         connect_to_resolved(found);
     }
 
-    /// Hand `host_` to a resolver thread and return. The thread captures a
-    /// reference to the result block plus COPIES of the host and the resolver
-    /// function — deliberately no `this`, which is the whole safety argument.
+    /// Hand `host_` to the shared launcher and adopt the job it returns.
     void start_async_resolve() {
-        auto job     = std::make_shared<ResolveJob>();
-        job->started = std::chrono::steady_clock::now();
-
-        ResolveFn         fn   = resolver_;
-        const std::string host = host_;
-        try {
-            std::thread([job, host, fn]() {
-                // NOTHING MAY ESCAPE THIS LAMBDA. An exception that leaves a
-                // `std::thread`'s entry point does not propagate anywhere — it
-                // goes straight to `std::terminate`, killing the whole process.
-                // `resolver` is a PUBLIC seam documented for consumers who
-                // already own a resolver, and reporting failure by exception is
-                // ordinary in C++ network libraries, so this is a reachable
-                // path for anyone reusing the module rather than a theoretical
-                // one. A library that converts its caller's exception into a
-                // process abort is not reusable. Degrade to a FAILED LOOKUP
-                // instead: the engine already handles that (`AT+CIPSTART`
-                // answers `ERROR`), so a throwing resolver costs a connection,
-                // not the emulator.
-                //
-                // WHICH PROPERTY IS LOAD-BEARING, stated because the handlers
-                // below LOOK like they carry the guarantee and do not. `ok` is
-                // initialised false above, and `ok = fn(...)` cannot complete
-                // its assignment when the right-hand side throws — so a thrown
-                // lookup is a FAILED lookup by construction, and the consumer's
-                // `!job->ok` gate refuses it without ever examining the address
-                // list. The `ok = false` / `out.clear()` in the handlers
-                // RESTATE that; they do not establish it. Verified in review by
-                // deleting both `out.clear()` calls: the suite stays at 142/142
-                // and still connects nowhere. They are kept as defence in depth
-                // because they cost nothing and they keep the two properties
-                // independent — a later refactor that decouples the emptiness
-                // check from the `ok` check must not be able to turn a
-                // half-built list into a connect.
-                std::vector<IpAddress> out;
-                std::string            err;
-                bool                   ok = false;
-                try {
-                    ok = fn ? fn(host, out, err)
-                            : net::resolve(host, /*numeric_only=*/false, out, err);
-                } catch (const std::exception& e) {
-                    ok  = false;
-                    out.clear();  // defence in depth, not the barrier — see above
-                    err = std::string("the resolver threw: ") + e.what();
-                } catch (...) {
-                    ok  = false;
-                    out.clear();
-                    err = "the resolver threw a non-std exception";
-                }
-                job->ok    = ok;
-                job->addrs = std::move(out);
-                job->err   = std::move(err);
-                // Publish LAST. Everything above happens-before any acquire of
-                // this flag, and nothing is written after it.
-                job->done.store(true, std::memory_order_release);
-            }).detach();
-        } catch (const std::system_error& e) {
-            // Thread exhaustion is a real failure mode, not an impossibility,
-            // and silently parking in Resolving forever would be the worst
-            // possible answer to it.
-            fail(std::string("cannot start resolver thread: ") + e.what());
+        std::string err;
+        auto        job = launch_resolve(host_, resolver_, err);
+        if (!job) {
+            fail(err);
             return;
         }
-        // Adopted only once the thread exists, so a failed spawn cannot leave
-        // behind a job nobody will ever complete.
         job_ = std::move(job);
         log_debug("resolving '{}' off the emulation thread", host_);
     }
@@ -651,6 +665,135 @@ std::unique_ptr<EspTransport> make_socket_transport(const AddressPolicy& policy,
         return nullptr;
     }
     return std::unique_ptr<EspTransport>(new SocketTransport(policy, std::move(resolver)));
+}
+
+/// A name lookup with no socket attached (GH #154, `AT+CIPDOMAIN`).
+///
+/// It is deliberately SMALL: it owns a host string, a job block and a verdict,
+/// and it shares `launch_resolve` with the transport so the thread-lifetime
+/// argument has exactly one home. There is no socket, no FD and no timeout
+/// here — a lookup that never answers is bounded by the AT engine's deadline,
+/// which is where a visible warning belongs, exactly as `AT+CIPSTART`'s is.
+class SocketResolver final : public EspResolver {
+public:
+    explicit SocketResolver(const AddressPolicy& policy, ResolveFn resolver)
+        : policy_(policy), resolver_(std::move(resolver)) {}
+
+    bool begin(const std::string& host) override {
+        if (host.empty() || state_ == ResolveState::Resolving) return false;
+        host_    = host;
+        address_ = IpAddress{};
+        last_error_.clear();
+        reason_ = DenyReason::None;
+        state_  = ResolveState::Resolving;
+        job_.reset();
+
+        // THE LITERAL FAST PATH STAYS SYNCHRONOUS AND STAYS FIRST, for the same
+        // reason the transport's does: a literal involves no network, so a
+        // thread would be pure cost. It is also the one case where the answer
+        // is the question, and a guest asking `AT+CIPDOMAIN="192.168.1.1"`
+        // still gets the POLICY applied — otherwise the command would be a way
+        // to launder a denied address back out as an "answer".
+        std::vector<IpAddress> literal;
+        std::string            err;
+        if (net::resolve(host_, /*numeric_only=*/true, literal, err) && !literal.empty()) {
+            log_debug("'{}' is a numeric address — no DNS lookup", host_);
+            finish(literal);
+            return true;
+        }
+
+        std::string spawn_err;
+        auto        job = launch_resolve(host_, resolver_, spawn_err);
+        if (!job) {
+            fail(spawn_err);
+            return true;  // ACCEPTED then failed — the caller reads state(), not this
+        }
+        job_ = std::move(job);
+        log_debug("resolving '{}' off the emulation thread (AT+CIPDOMAIN)", host_);
+        return true;
+    }
+
+    void poll() override {
+        if (state_ != ResolveState::Resolving || !job_) return;
+        if (!job_->done.load(std::memory_order_acquire)) return;
+
+        // CONSUME ONCE, ON OUR OWN COPY — the transport's rule, and for the
+        // same reason: the list the policy judges must be bit-for-bit the list
+        // reported, with no second reader able to substitute an address
+        // between the verdict and the answer.
+        const std::shared_ptr<ResolveJob> job = std::move(job_);
+        // `addrs.empty()` IS DEFENCE IN DEPTH, NOT THE BARRIER — established by
+        // mutation, not by inspection: deleting it leaves every row green,
+        // because `select_candidate` already refuses an empty candidate list
+        // and `finish()` therefore fails anyway. It is kept for the reason the
+        // transport keeps its `out.clear()` handlers: it costs nothing, and it
+        // keeps "the lookup produced nothing" independent of "the policy liked
+        // nothing", so a later refactor of either cannot turn an empty list
+        // into a reported address. RSLV-12 pins the OUTCOME rather than this
+        // line, which is the right thing to pin.
+        if (!job->ok || job->addrs.empty()) {
+            fail("cannot resolve '" + host_ + "': " +
+                 (job->err.empty() ? "no addresses" : job->err));
+            return;
+        }
+        finish(job->addrs);
+    }
+
+    ResolveState       state() const override         { return state_; }
+    const IpAddress&   address() const override       { return address_; }
+    const std::string& last_error() const override    { return last_error_; }
+    DenyReason         denial_reason() const override { return reason_; }
+
+    void reset() override {
+        job_.reset();
+        state_ = ResolveState::Idle;
+        address_ = IpAddress{};
+        last_error_.clear();
+        reason_ = DenyReason::None;
+    }
+
+private:
+    /// Apply the policy and publish a verdict. Runs on the owning thread,
+    /// always — a resolver thread never reaches this.
+    void finish(const std::vector<IpAddress>& found) {
+        IpAddress  chosen;
+        DenyReason reason = DenyReason::None;
+        if (!select_candidate(found, policy_, chosen, reason)) {
+            // Warn, not debug: the owner requires a visible line on every
+            // address the policy refuses, and this is one (GH #25 decision 1).
+            // The GUEST is told nothing about which of the two happened — see
+            // `EspResolver::denial_reason`.
+            log_warn("AT+CIPDOMAIN lookup of '{}' REFUSED by address policy: {}", host_,
+                     deny_reason_text(reason));
+            reason_ = reason;
+            fail("address policy refused every address for '" + host_ + "'");
+            return;
+        }
+        address_ = chosen;
+        state_   = ResolveState::Done;
+        log_info("ESP resolved '{}' to {}", host_, to_string(address_));
+    }
+
+    void fail(std::string why) {
+        job_.reset();
+        last_error_ = std::move(why);
+        state_      = ResolveState::Failed;
+        log_debug("AT+CIPDOMAIN lookup failed: {}", last_error_);
+    }
+
+    AddressPolicy               policy_;
+    ResolveFn                   resolver_;
+    std::string                 host_;
+    IpAddress                   address_{};
+    std::string                 last_error_;
+    DenyReason                  reason_ = DenyReason::None;
+    ResolveState                state_  = ResolveState::Idle;
+    std::shared_ptr<ResolveJob> job_;
+};
+
+std::unique_ptr<EspResolver> make_socket_resolver(const AddressPolicy& policy,
+                                                 ResolveFn            resolver) {
+    return std::unique_ptr<EspResolver>(new SocketResolver(policy, std::move(resolver)));
 }
 
 std::unique_ptr<EspListener> make_socket_listener(const IpAddress& bind_address) {

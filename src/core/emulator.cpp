@@ -8704,8 +8704,17 @@ void Emulator::setup_esp()
     // metadata / unspecified / multicast denied, RFC1918 allowed so the guest
     // can reach the user's own LAN (owner decision, design doc §8.1 item 4).
     esp_transport_ = std::make_unique<EspGatedTransport>(
-        esp::make_socket_transport(esp::AddressPolicy{}), std::move(host_policy),
-        *esp_events_);
+        esp::make_socket_transport(esp::AddressPolicy{}), host_policy, *esp_events_);
+
+    // GH #154 — `AT+CIPDOMAIN`. It gets BOTH of the transport's policies, and
+    // that is the point rather than tidiness: a resolver the allowlist did not
+    // gate would hand the guest the address of every host it may not dial, and
+    // one without the address policy would disclose the loopback and
+    // cloud-metadata addresses the transport is careful never to reach. One
+    // rule, two commands — `AT+CIPDOMAIN` answers only for a host
+    // `AT+CIPSTART` would have been allowed to try.
+    esp_resolver_ = std::make_unique<EspGatedResolver>(
+        esp::make_socket_resolver(esp::AddressPolicy{}), std::move(host_policy), *esp_events_);
 
     // GH #210 — the INBOUND half. Built here so that the bind address is fixed
     // before anything can listen: the guest chooses the PORT with
@@ -8735,7 +8744,8 @@ void Emulator::setup_esp()
     // `EspTransport::poll()` off the frame loop, and its destructor joins the
     // worker (see the member declarations in emulator.h for why that matters
     // at exactly this address).
-    esp_device_ = std::make_unique<esp::ThreadedEsp>(*esp_transport_, esp_listener_.get());
+    esp_device_ = std::make_unique<esp::ThreadedEsp>(*esp_transport_, esp_listener_.get(),
+                                                     esp_resolver_.get());
     esp_adapter_ = std::make_unique<EspUartAdapter>(*esp_device_);
     // GH #246 — the reported station address, BEFORE the worker starts, so no
     // guest command can ever be answered with the default and then a second
