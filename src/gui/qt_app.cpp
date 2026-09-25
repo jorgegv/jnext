@@ -1,5 +1,6 @@
 #include "gui/qt_app.h"
 #include "gui/main_window.h"
+#include "gui/host_key_wiring.h"
 #include "gui/emulator_widget.h"
 #include "platform/emulator_boot.h"
 #include "platform/auto_exit.h"
@@ -275,9 +276,12 @@ bool QtApp::init(int argc, char* argv[]) {
     // there, rows RT-*): this callback must stay a plain forward, so that the
     // logic the guest depends on is not once again reachable only through a
     // live QApplication.
-    main_window_->set_key_callback([this](SDL_Scancode sc, bool pressed) {
-        key_router_.on_host_key(sc, pressed);
-    });
+    //
+    // GH #268 added a SECOND callback beside it — "the keyboard has gone
+    // elsewhere", which releases everything the guest holds. Both now live in
+    // wire_host_keys(), which host_hotkey_test CALLS rather than copies; left
+    // inline here, deleting either one failed no row anywhere.
+    wire_host_keys(*main_window_, key_router_);
 
     // Task 79 — SDL gamepad host + per-connector input-source wiring.
     wire_gamepad_and_sources(cfg);

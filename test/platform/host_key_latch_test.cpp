@@ -1248,6 +1248,176 @@ int main()
               got(g.samples));
     }
 
+    // =======================================================================
+    // Releasing everything when the keyboard goes away (GitHub issue #268,
+    // third symptom).
+    //
+    // A Qt popup or a focus change takes the keyboard MID-KEYSTROKE, and the
+    // key-up that follows is delivered to whatever took it, never to the
+    // emulator window. Measured on the product: opening the File menu with
+    // Alt+F swallowed both the `F` key-up and the `Alt` key-up, leaving the
+    // guest with host Alt asserted for the rest of the session — after which
+    // Keyboard::set_key reads E/G/C as their ALT variants (EDIT / GRAPH /
+    // CAPS LOCK, keyboard.cpp:248-250) and those letters silently stop
+    // appearing. With an ordinary letter stranded instead, the 48K ROM's own
+    // auto-repeat fills the BASIC line with it.
+    //
+    // The frontend answers with release_all(). The rows below pin WHAT it
+    // releases, and just as importantly what it does NOT.
+    // =======================================================================
+
+    // --- RLS-01: the key the sink is holding really is released -------------
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        r.on_host_key(SC_P, true);
+        r.on_tick_end(1);                  // a frame has sampled it; still down
+        kb.calls.clear();
+        r.release_all();
+        check("RLS-01", "losing the keyboard releases the key the guest is holding",
+              kb.count(SC_P, false) == 1 && kb.count(SC_P, true) == 0, got(kb));
+    }
+
+    // --- RLS-02: the reported case — host Alt, whose key-up never came ------
+    // A modifier is the damaging one precisely because it is invisible: no
+    // character is stuck on screen, three letters just stop working.
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        r.on_host_key(SC_ALT, true);
+        r.on_tick_end(1);
+        kb.calls.clear();
+        r.release_all();                   // the menu ate the Alt key-up
+        check("RLS-02", "a stranded host modifier is released too",
+              kb.count(SC_ALT, false) == 1, got(kb));
+    }
+
+    // --- RLS-03: a key the SINK never held is not "released" ----------------
+    // Not mere tidiness. The compound keys share matrix bits — DELETE is
+    // Caps Shift + 0 — so clearing a key that was never pressed would clear a
+    // Caps Shift the user really is holding. Only what was applied is undone,
+    // which is why the Router tracks the SINK's state and not the host's.
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        r.on_host_key(SC_P, true);         // applied
+        r.on_host_key(SC_O, true);         // queued: gate (c) is armed
+        check("RLS-03a", "the second press really is still queued",
+              r.pending() == 1 && kb.count(SC_O, true) == 0, got(kb));
+        kb.calls.clear();
+        r.release_all();
+        check("RLS-03b", "only the applied key is released, never the queued one",
+              kb.count(SC_P, false) == 1 && kb.count(SC_O, false) == 0 &&
+                  kb.count(SC_O, true) == 0,
+              got(kb));
+        // ...and it must not arrive LATER either. A queued press was aimed at
+        // the guest before the keyboard went away; draining it afterwards
+        // types a character into a machine the user had already left.
+        kb.calls.clear();
+        r.on_tick_end(1);
+        check("RLS-03c", "and the queued press is not drained in afterwards",
+              kb.count(SC_O, true) == 0, got(kb));
+    }
+
+    // --- RLS-04: the Router is usable again immediately ---------------------
+    // A release_all() that left ANY piece of its state behind turns one focus
+    // change into a half-wedged keyboard, which is worse than the defect it
+    // fixes. There is one row per piece, because a single row covering the lot
+    // passes as soon as any one of them is right.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        mtick(r, g, Calls{{SC_P, true}}, 1);
+        r.release_all();
+        const size_t before = g.samples.size();
+        mtick(r, g, tap(SC_O), 1);
+        msettle(r, g, 3);
+        bool saw_o = false, saw_p_again = false;
+        for (size_t i = before; i < g.samples.size(); ++i) {
+            for (int sc : g.samples[i]) {
+                if (sc == SC_O) saw_o = true;
+                if (sc == SC_P) saw_p_again = true;
+            }
+        }
+        check("RLS-04a", "the next keystroke is shown to a frame as usual",
+              saw_o && !saw_p_again, got(g.samples));
+    }
+
+    // The LATCH's deferred list. A release held back for the minimum-hold
+    // refers to a key release_all() has just cleared; leaving it there would
+    // hold gate (b) shut and stall the very next press.
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        r.on_host_key(SC_P, true);
+        r.on_host_key(SC_P, false);        // no frame yet -> the Latch defers it
+        check("RLS-04b", "the release really is deferred before the focus loss",
+              r.latch().has_deferred(), got(kb));
+        r.release_all();
+        check("RLS-04c", "and losing the keyboard clears the deferred release",
+              !r.latch().has_deferred(), got(kb));
+    }
+
+    // The HOST-held set. It is what suppresses autorepeat, so a key still
+    // listed there swallows the host's next genuine key-DOWN for it.
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        r.on_host_key(SC_P, true);
+        r.release_all();
+        kb.calls.clear();
+        r.on_host_key(SC_P, true);         // the host presses it again
+        check("RLS-04d", "a key pressed again after the focus loss is not eaten as autorepeat",
+              kb.count(SC_P, true) == 1, got(kb));
+    }
+
+    // Gate (c). Left armed, the first press after the focus loss is applied but
+    // the SECOND one queues behind a keystroke that no longer exists.
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        r.on_host_key(SC_P, true);         // arms gate (c)
+        r.release_all();
+        r.on_host_key(SC_O, true);
+        check("RLS-04e", "and the first press after it is applied, not queued",
+              r.pending() == 0 && kb.count(SC_O, true) == 1, got(kb));
+    }
+
+    // --- RLS-05: before attach(), it does nothing at all --------------------
+    // The frontend can lose focus before the first cold boot has bound a
+    // Keyboard — MainWindow is shown and can be focused out well before
+    // QtApp::init() reaches wire_host_keys(). A null sink must be a no-op that
+    // leaves the Router usable, not a crash and not a wedge.
+    {
+        TestRouter r;
+        r.release_all();                   // no sink yet
+        FakeKeyboard kb; r.attach(kb);
+        r.on_host_key(SC_P, true);
+        check("RLS-05", "release_all before attach() leaves the Router usable",
+              r.pending() == 0 && !r.latch().has_deferred() &&
+                  kb.count(SC_P, true) == 1,
+              got(kb));
+    }
+
+    // --- RLS-06: a key already UP is not released a second time -------------
+    // A spurious set_key(sc, false) is not free: the compound keys share matrix
+    // bits, so re-clearing a key that is already up can clear a Caps Shift that
+    // is legitimately held. There are two ways a key leaves the sink — the
+    // release path and the Latch's discharge — and each has to say so.
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        r.on_host_key(SC_P, true);
+        r.on_tick_end(1);                  // a frame ran: the release is immediate
+        r.on_host_key(SC_P, false);
+        kb.calls.clear();
+        r.release_all();
+        check("RLS-06a", "a key released the ordinary way is not released again",
+              kb.calls.empty(), got(kb));
+    }
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        r.on_host_key(SC_P, true);
+        r.on_host_key(SC_P, false);        // deferred by the Latch
+        r.on_tick_end(1);                  // ...and discharged here
+        kb.calls.clear();
+        r.release_all();
+        check("RLS-06b", "nor is one the Latch discharged",
+              kb.calls.empty(), got(kb));
+    }
+
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);

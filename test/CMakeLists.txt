@@ -1058,7 +1058,7 @@ if(ENABLE_QT_UI)
     # forced in main()).
     add_executable(host_hotkey_test gui/host_hotkey_test.cpp)
     set_target_properties(host_hotkey_test PROPERTIES AUTOMOC ON)
-    target_link_libraries(host_hotkey_test PRIVATE jnext_gui)
+    target_link_libraries(host_hotkey_test PRIVATE jnext_gui Qt${JNEXT_QT_MAJOR}::Test)
     target_include_directories(host_hotkey_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     # H115-29 reads FEATURES.md and asserts every chord it advertises is one the
     # product really binds. Same idiom cli_options_test uses for the man page:

@@ -297,6 +297,7 @@ public:
         latch_.reset();
         pending_.clear();
         host_down_.reset();
+        sink_down_.reset();
         key_awaiting_frame_ = false;
     }
 
@@ -332,6 +333,43 @@ public:
         }
     }
 
+    /// The host can no longer see this window's key-ups — release EVERYTHING
+    /// the sink is holding (GitHub issue #268, third symptom).
+    ///
+    /// WHY A KEY-UP CAN GO MISSING AT ALL. A Qt popup (a menu, a combo
+    /// drop-down) and a focus change both take the keyboard away mid-keystroke,
+    /// and the key-up that follows is delivered to whatever took it, never to
+    /// the emulator window. Measured on the product: opening the File menu with
+    /// Alt+F consumes both the `F` key-up AND the `Alt` key-up, so the guest is
+    /// left with LALT asserted forever — after which `Keyboard::set_key` reads
+    /// every later E/G/C as the ALT variant (EDIT / GRAPH / CAPS LOCK,
+    /// keyboard.cpp:248-250) and those letters silently stop appearing, while
+    /// every other letter still types. That is exactly the reported
+    /// "press A I got A, press G nothing is shown".
+    ///
+    /// The invariant this restores: jnext never holds a guest key down whose
+    /// release it cannot observe. Anything the host really still holds is
+    /// re-asserted by its next key-down, because `host_down_` is cleared too.
+    ///
+    /// PRICE, STATED PLAINLY: a keystroke pressed but not yet shown to a frame
+    /// is dropped rather than held, so the #120 minimum-hold does not apply
+    /// across a focus loss. That is the right trade — the user has moved to a
+    /// menu, so the keystroke was not for the guest, and the alternative is a
+    /// key stuck down for the rest of the session.
+    void release_all()
+    {
+        if (!sink_) return;
+        pending_.clear();
+        for (std::size_t i = 0; i < MAX_KEYS; ++i) {
+            if (!sink_down_.test(i)) continue;
+            sink_->set_key(static_cast<Scancode>(i), false);
+        }
+        sink_down_.reset();
+        latch_.reset();
+        host_down_.reset();
+        key_awaiting_frame_ = false;
+    }
+
     /// End of a frontend tick. `frames_rendered` is the number of
     /// Emulator::run_frame() calls the tick made; a tick that emulated NOTHING
     /// (debugger paused, audio-pacer skip) must not discharge, because no frame
@@ -343,7 +381,10 @@ public:
         if (!sink_ || frames_rendered <= 0) return;
         due_.clear();
         latch_.on_frames_ran(due_);
-        for (int sc : due_) sink_->set_key(static_cast<Scancode>(sc), false);
+        for (int sc : due_) {
+            sink_->set_key(static_cast<Scancode>(sc), false);
+            mark_sink(sc, false);
+        }
         key_awaiting_frame_ = false;
         drain();
     }
@@ -369,10 +410,22 @@ private:
         return !latch_.has_deferred() && !key_awaiting_frame_;
     }
 
+    /// Record what the SINK is holding, so release_all() can undo exactly that
+    /// and nothing else. Releasing a key the sink never had would be wrong, not
+    /// merely wasteful: the compound keys share matrix bits (DELETE is
+    /// Caps Shift + 0), so clearing an unpressed one would clear a Caps Shift
+    /// the user really is holding.
+    void mark_sink(int sc, bool down)
+    {
+        if (!in_range(sc)) return;
+        sink_down_.set(static_cast<std::size_t>(sc), down);
+    }
+
     void apply_press(int sc)
     {
         latch_.on_press(sc);
         sink_->set_key(static_cast<Scancode>(sc), true);
+        mark_sink(sc, true);
         // Gate (c). A modifier never starts a keystroke group, so it does not
         // arm it — that is what keeps SYM+P in one frame.
         if (!is_modifier(sc)) key_awaiting_frame_ = true;
@@ -386,6 +439,7 @@ private:
     {
         if (!latch_.on_release(sc)) return false;
         sink_->set_key(static_cast<Scancode>(sc), false);
+        mark_sink(sc, false);
         return true;
     }
 
@@ -440,6 +494,11 @@ private:
     /// at ARRIVAL, not at application, because it answers a question about the
     /// user's fingers, not about the matrix.
     std::bitset<MAX_KEYS> host_down_;
+    /// Scancodes the SINK currently has asserted — maintained at APPLICATION,
+    /// which is the complement of `host_down_`: it answers what the guest
+    /// matrix holds. The two differ whenever the queue or the Latch is holding
+    /// something. Only release_all() reads it.
+    std::bitset<MAX_KEYS> sink_down_;
     /// Gate (c): a non-modifier press has been applied that no emulated frame
     /// has sampled yet.
     bool key_awaiting_frame_ = false;

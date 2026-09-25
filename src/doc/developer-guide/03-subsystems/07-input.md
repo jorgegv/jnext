@@ -181,6 +181,24 @@ in the machine-side class, plus a stated policy.
   between the presses, which halves the drain rate for a case no human hand can
   produce.
 
+  `Router::release_all()` is the third policy, and it answers a different
+  question: **what if the key-up never arrives at all?** A Qt popup and a focus
+  change both take the keyboard away mid-keystroke, and the key-up then goes to
+  whatever took it. Opening the File menu with Alt+F swallows the `F` key-up
+  *and* the `Alt` key-up, which leaves host Alt asserted in `Keyboard` for the
+  rest of the session — after which E, G and C resolve to EDIT, GRAPH and
+  CAPS LOCK and those three letters silently stop typing while every other
+  letter still works. With an ordinary letter stranded instead, the ROM's own
+  auto-repeat fills the BASIC line. `MainWindow::focusOutEvent` therefore
+  reports the loss, the frontend releases everything the sink holds, and the
+  invariant is that jnext never holds a guest key down whose release it cannot
+  observe. The Router tracks what the *sink* holds separately from what the
+  *host* holds for this: releasing a key that was never pressed would clear
+  matrix bits a compound key shares, such as the Caps Shift inside DELETE.
+  The price is stated rather than hidden — a press not yet shown to a frame is
+  dropped instead of held, which is correct, because the user has moved to a
+  menu (GH #268).
+
 - **`phantom_typist.{h,cpp}`** types `LOAD ""` for you. Loading a tape on a
   real Spectrum starts with the user typing it and pressing ENTER — or, on a
   128K or +3, accepting the boot menu's default entry — and jnext does that
@@ -223,3 +241,13 @@ and Alt+E, Alt+G, Alt+C and Alt+`` ` `` are reserved for the guest's EDIT,
 GRAPH, CAPS LOCK and INV VIDEO. Adding a menu on one of those would silently
 kill a guest key, so `host_hotkey_test` pins the two sets disjoint — see
 [Testing](../04-testing/index.md).
+
+Qt has its own claim on Alt, and jnext declines it. A bare Alt tap normally
+moves keyboard focus to the menu bar, where the next letter that is a top-level
+mnemonic is swallowed and opens that popup instead of typing. In an ordinary
+application that is a convenience; here Alt is part of typing, so the main
+window's menu bar is given a `QProxyStyle` that reports
+`SH_MenuBar_AltKeyNavigation` as off. Alt+*letter* mnemonics are unaffected —
+Qt opens those through the shortcut map, not through this hint — and
+`handle_key()` additionally feeds the guest nothing at all while a Qt popup
+owns the keyboard (GH #268).

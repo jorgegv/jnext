@@ -27,6 +27,7 @@
 #include <ctime>
 
 #include <QKeyEvent>
+#include <QFocusEvent>
 #include <QCloseEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
@@ -44,6 +45,7 @@
 #include <QApplication>
 #include <QInputDialog>
 #include <QStyle>
+#include <QProxyStyle>
 #include <QTimer>
 #include <QFileInfo>
 
@@ -52,6 +54,19 @@
 // ---------------------------------------------------------------------------
 
 namespace {
+
+/// GH #268 — the menu bar's style, with Alt-only keyboard navigation turned
+/// off. Why, and exactly what it does and does not change, is documented at
+/// the single place it is installed (the MainWindow constructor).
+class NoAltMenuNavigationStyle : public QProxyStyle {
+public:
+    int styleHint(QStyle::StyleHint hint, const QStyleOption* option = nullptr,
+                  const QWidget* widget = nullptr,
+                  QStyleHintReturn* ret = nullptr) const override {
+        if (hint == QStyle::SH_MenuBar_AltKeyNavigation) return 0;
+        return QProxyStyle::styleHint(hint, option, widget, ret);
+    }
+};
 
 SDL_Scancode qt_key_to_sdl(int key) {
     switch (key) {
@@ -251,6 +266,36 @@ MainWindow::MainWindow(QWidget* parent)
     create_menus();
     create_toolbar();
     create_statusbar();
+
+    // GH #268 — a bare Alt tap must not hand the menu bar the keyboard.
+    //
+    // QMenuBar arms itself on the Alt SHORTCUT-OVERRIDE and, on the matching
+    // Alt key-up with nothing pressed in between, calls setKeyboardMode(true)
+    // -> setFocus(Qt::MenuBarFocusReason) (qmenubar.cpp:252,1463). That runs in
+    // a qApp-level event filter, BEFORE this window's handlers and regardless
+    // of whether they accept the event, so keyPressEvent cannot defend against
+    // it: measured on the product, the focus-out lands between the Alt key-down
+    // and the Alt key-up. The next letter that happens to be a top-level
+    // mnemonic (F/M/I/A/B/V/N/H) is then eaten by the menu bar and opens that
+    // popup, with nothing on screen having warned the user that focus had left
+    // the emulator. That is the reported symptom.
+    //
+    // jnext is exposed to this far more than an ordinary application because
+    // Alt is BOTH its host-shortcut namespace (see create_menus()) AND a guest
+    // modifier — Alt+E is EDIT, Alt+G is GRAPH, Alt+C is CAPS LOCK
+    // (keyboard.cpp:248-250) — so pressing Alt is an ordinary part of typing
+    // here, and letting go of it without a letter is an ordinary slip.
+    //
+    // Scope of the hint, checked against the Qt source rather than assumed:
+    // SH_MenuBar_AltKeyNavigation gates exactly four things — the arming above,
+    // the keyboard-mode entry, Up/Down/Enter on a focused menu bar
+    // (qmenubar.cpp:1039) and whether a menu opened BY A MNEMONIC additionally
+    // enters keyboard mode (qmenubar.cpp:1687). It does NOT gate the mnemonic
+    // itself: Alt+F still opens the File menu, which is then driven by the
+    // popup's own key handling. H268-03 pins that.
+    auto* menu_bar_style = new NoAltMenuNavigationStyle();
+    menu_bar_style->setParent(this);      // QWidget::setStyle takes no ownership
+    menuBar()->setStyle(menu_bar_style);
 
     // Ensure the window receives key events even when focus is on a child widget.
     setFocusPolicy(Qt::StrongFocus);
@@ -2387,9 +2432,44 @@ bool MainWindow::event(QEvent* ev) {
     return QMainWindow::event(ev);
 }
 
+void MainWindow::focusOutEvent(QFocusEvent* event) {
+    // GH #268 — the keyboard has gone somewhere else, so every key-up still
+    // owed to us will be delivered THERE. Release whatever the guest is
+    // holding now, while we still know what that is.
+    //
+    // This is the general form of the defect: the popup guard in handle_key()
+    // stops a NEW press from being stranded, but by the time a popup opens the
+    // user may already be holding keys — and the same is true of Alt+Tab, of a
+    // modal dialog, and of a menu opened with the mouse. The worst case is the
+    // one that was reported: Alt+F opens the File menu and BOTH the F key-up
+    // and the Alt key-up go to the menu, leaving Keyboard::alt_held_ true for
+    // the rest of the session. After that every E/G/C resolves to its ALT
+    // variant — EDIT / GRAPH / CAPS LOCK (keyboard.cpp:248-250) — so those
+    // three letters silently stop appearing while every other letter still
+    // types. "press A I got A, press G nothing is shown", exactly.
+    if (keyboard_lost_callback_) keyboard_lost_callback_();
+    QMainWindow::focusOutEvent(event);
+}
+
 void MainWindow::handle_key(QKeyEvent* event, bool pressed) {
     // Ignore auto-repeat (ZX keyboard matrix doesn't auto-repeat).
     if (event->isAutoRepeat()) {
+        event->accept();
+        return;
+    }
+
+    // GH #268 — while a Qt popup owns the keyboard, the guest gets NOTHING.
+    //
+    // A popup (a menu, a combo drop-down) is a window of its own, so
+    // QApplication::notify stops propagating at it — but QMenu::keyPressEvent
+    // deliberately FORWARDS an unmatched key-down back to the menu bar
+    // (qmenu.cpp), which then propagates up to this window, while the matching
+    // key-UP is simply swallowed. Measured on the product: with the Tape menu
+    // open, one tap of `g` delivered a key-down here and no key-up at all, so
+    // the guest was left holding G and the 48K ROM's own auto-repeat filled the
+    // BASIC line with it. Feeding a press whose release cannot arrive is the
+    // bug; the user is driving a menu, so dropping it is also what they meant.
+    if (QApplication::activePopupWidget()) {
         event->accept();
         return;
     }
