@@ -467,7 +467,20 @@ bool manifest_parse(const std::string& text, Manifest& out,
                     }
                     // Absent leaves the default in place, exactly as
                     // `get_u64_key` did — §12.2's missing-key rule, not a
-                    // refusal.
+                    // refusal. `JNSN-30` pins that, and two of this getter's
+                    // other callers (`state_model_revision`, `ram_kb`)
+                    // deliberately do the OPPOSITE, so the distinction is
+                    // worth a row rather than a reading.
+                    //
+                    // The guard itself is belt-and-braces and is NOT
+                    // observable: `manifest_parse` opens with
+                    // `out = Manifest{}`, so the member is already 0 when it
+                    // runs and the local it guards is 0 too — removing it
+                    // writes 0 over 0. Measured, not assumed (mutation MU-2,
+                    // GH #27 re-review). It stays because it states the
+                    // intent locally instead of depending on a reset in
+                    // another function, and because a future non-zero default
+                    // would make it load-bearing with no other warning.
                     if (lba_present) out.sdcard.identity.partition_lba = lba;
                 }
                 note_unknown(unknown_keys, "media.sdcard.identity.", id,

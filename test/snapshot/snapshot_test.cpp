@@ -2470,6 +2470,81 @@ int main(int argc, char** argv) {
               bad.empty(), all_of_them(bad));
     }
     {
+        // The ABSENT case, which `JNSN-29` does not reach — all four of its
+        // fixtures carry the key.
+        //
+        // §12.2: a missing key is not a refusal, it leaves the declared
+        // default. That matters here because `partition_lba` changed parse
+        // FUNCTION (GH #27): `get_u64_key` had no notion of "present", and
+        // `get_u32_key` does, so the obvious wrong conversion — treating
+        // `present == false` as an error, or requiring the key — would refuse
+        // every manifest written before the field existed and every one whose
+        // card could not be identified. Two of `get_u32_key`'s other callers
+        // DO refuse on absent (`state_model_revision`, `ram_kb`), which is
+        // exactly the neighbouring pattern a future editor would copy.
+        //
+        // Parsed directly rather than through `open_snapshot`, because this
+        // row is about the manifest grammar and an `open_snapshot` on a
+        // card-declaring manifest refuses for an unrelated reason (no card
+        // mounted) that would mask the verdict.
+        //
+        // HONEST LIMIT, stated rather than left for a reviewer: the
+        // `if (lba_present)` guard at the call site is NOT independently
+        // observable. `manifest_parse` begins with `out = Manifest{}`, so the
+        // member is already 0 when the guard runs, and the local it guards is
+        // also 0 — dropping the guard writes 0 over 0. There is no fixture
+        // where the default differs, because the reset is unconditional; the
+        // mutation was run and SURVIVED, and that is reported rather than
+        // papered over. What this row IS lethal to are the two mutations a
+        // person would actually write: making an absent key a refusal, and
+        // parsing the key and then ignoring it. Both were run; both fail here.
+        struct AbsentCase {
+            const char* row_desc;
+            const char* identity;   // the identity object, verbatim
+            bool        expect_lba; // 2048, or the 0 default
+        };
+        const AbsentCase kCases[] = {
+            {"no partition_lba key", R"({"image_bytes":1073741824})", false},
+            {"an empty identity object", R"({})", false},
+            {"partition_lba present", R"({"partition_lba":2048})", true},
+        };
+        std::vector<std::string> bad;
+        for (const AbsentCase& c : kCases) {
+            const std::string text =
+                std::string(R"({"format_version":1,)"
+                            R"("model":{"state_model_revision":1,"machine":"next","ram_kb":2048},)"
+                            R"("capture":{"frame":1,"frame_boundary":true},)"
+                            R"("media":{"sdcard":{"identity":)") +
+                c.identity + R"(}}})";
+            Manifest m;
+            std::vector<std::string> unknown;
+            std::string w;
+            if (!jnext::jns::manifest_from_json(text, m, unknown, w)) {
+                bad.push_back(std::string(c.row_desc) + " was REFUSED: " + w);
+                continue;
+            }
+            const uint64_t want = c.expect_lba ? 2048u : 0u;
+            if (m.sdcard.identity.partition_lba != want) {
+                bad.push_back(std::string(c.row_desc) + " gave lba=" +
+                              std::to_string(m.sdcard.identity.partition_lba) +
+                              ", expected " + std::to_string(want));
+            }
+            // An absent key is not an UNKNOWN key either: nothing may be
+            // reported about a field the file simply does not carry.
+            for (const std::string& u : unknown) {
+                if (u.find("partition_lba") != std::string::npos)
+                    bad.push_back(std::string(c.row_desc) +
+                                  " reported it as unknown: " + u);
+            }
+        }
+        check("JNSN-30",
+              "a manifest with NO media.sdcard.identity.partition_lba loads "
+              "and leaves the default — §12.2's missing-key rule, which the "
+              "change of parse function to the `present`-aware getter must not "
+              "have turned into a requirement",
+              bad.empty(), all_of_them(bad));
+    }
+    {
         Manifest m = make_manifest();
         std::vector<uint8_t> z =
             build_raw(m, {}, why, "some other archive comment");
