@@ -18,7 +18,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NextREG (bare)        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      349 |      349 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub           |      159 |      159 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Input                 |      344 |      344 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Input                 |      345 |      345 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input (integration)   |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Phantom Typist        |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC + Interrupts      |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -26,10 +26,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Layer 2               |      153 |      153 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART + I2C/RTC        |      103 |      103 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 socket transport |      188 |      188 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 AT command engine |      344 |      344 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 socket transport |      201 |      201 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 AT command engine |      437 |      437 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext UART adapter |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 jnext policy + wiring |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 jnext policy + wiring |      111 |      111 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DivMMC + SPI          |      148 |      148 |      0 |       0 |    100% | 🟢 All tests pass. |
 | divmmc_integration_test |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "divmmc_integration_test" to the label map in refresh-subsystem-status.sh. |
 | Multiface (core)      |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -69,7 +69,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Frame-tick sequencer (wiring) |      112 |      112 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tick-delivery stats   |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Achieved-speed report |       36 |       36 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Host key minimum-hold latch |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Host key minimum-hold latch |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging               |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CLI options / docs    |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -97,7 +97,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger BP Enable/Disable |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger resume step-off |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Raster State (beam + ULA fetch) |       86 |       86 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI Preferences (AppConfig) |       66 |       66 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI Preferences (AppConfig) |      116 |      116 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain configuration |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain Preferences |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Present count (widget) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -111,7 +111,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Shifted symbols reach the guest |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Window scale + fullscreen geometry |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Quit runs closeEvent cleanup |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI Preferences (Apply) |       53 |       53 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI Preferences (Apply) |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Video Panel  |      106 |      106 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -120,8 +120,9 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Sizing |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Key Bindings |       31 |       31 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **8790** | **8790** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **9023** | **9023** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
