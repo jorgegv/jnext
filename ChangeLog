@@ -16,6 +16,7 @@
 - Breakpoints can be disabled without deleting them, singly or all at once
 - The debugger shows the raster position and whether the ULA is fetching
 - Assembly can be selected and copied out of the disassembly panel
+- A directly loaded program can read files from a host directory with `--esxdos-stub-root`
 
 ### Bug Fixes
 - Typing in NextBASIC no longer drops or corrupts letters, and the menu bar no longer steals the keyboard
