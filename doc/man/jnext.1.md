@@ -788,6 +788,10 @@ format is detected from the extension:
     experimental and unsupported - it loads only with
     **\--experimental-nex-v1.3** (or the GUI warning's Proceed).
 
+`.jns`
+:   jnext's own whole-machine snapshot, including the machine type - see
+    **JNEXT SNAPSHOTS**.
+
 `.sna`
 :   48K and 128K snapshots.
 
@@ -828,7 +832,9 @@ Raw binaries go straight into RAM with **\--inject** *FILE*
 On a real Next a NEX file is always started by NextZXOS, so the program can
 use NextZXOS's esxDOS services (an `RST $08` followed by a call number). A NEX
 loaded directly by jnext (**\--load**, a bare file name, or **File > Load NEX
-File...**) has no NextZXOS behind it, so jnext answers those calls itself. This
+File...**) is not started by NextZXOS, so jnext answers those calls itself -
+ahead of the NextZXOS a warm start leaves resident (**\--warm-start-regenerate**),
+exactly as **\--esxdos-stub** does with NextZXOS booted. This
 starts when the NEX is loaded and stops at the next reset or soft reset. It
 answers:
 
@@ -911,6 +917,38 @@ host directory described above. Every other call goes to the code at
 `$0008` as usual. It is meant for programs run without NextZXOS: with
 NextZXOS booted, it answers those calls in front of NextZXOS's own esxDOS, and
 NextZXOS's file commands stop working.
+
+# JNEXT SNAPSHOTS
+
+A `.jns` file is jnext's own whole-machine snapshot, and the only format that
+can represent a ZX Spectrum Next: `.sna` and `.szx` describe a 48K/128K/+3
+machine, which a Next is not.
+
+Write one with **File > Save Snapshot...** (Alt+Shift+S), or headless with
+**\--delayed-snapshot** naming a `.jns` file. Read one back with **\--load**, a
+bare file name, or **File > Load NEX File...**, which lists `.jns` alongside
+every other format. On a Next the save dialog offers `.jns` first and appends
+it to a name typed without an extension; on a 48K, 128K or +3 it offers `.sna`
+first and appends that instead.
+
+Loading a `.jns` restores the machine *type* as well as its contents, so one
+taken on a Next comes back as a Next whatever **\--machine** says. A snapshot
+is only ever taken at a frame boundary: if the debugger has stopped the machine
+part-way through a frame, that frame is completed first and the restored
+machine is up to one frame past where you stopped.
+
+The file does **not** contain the SD card - a card image is a gigabyte, and it
+holds NextZXOS. It records the card's identity instead and checks it on load: a
+different card is refused unless **\--snapshot-mode** `force`, while the same
+card changed since (which happens on any run that writes to it) restores with a
+warning. **\--snapshot-mode** `strict` additionally turns the state-model and
+ROM-digest warnings into refusals, and **\--snapshot-compression** `off` writes
+the members stored rather than deflated, so the file can be read with
+`unzip -p`.
+
+It does contain **all of RAM**, which on a Next includes NextZXOS and DivMMC
+ROM code paged into it. Those are not redistributable: keep your snapshots
+rather than posting them, and hand somebody a `.nex` instead.
 
 # HEADLESS MODE, SCREENSHOTS AND RECORDING
 
@@ -1241,7 +1279,7 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
 **THE KEYBOARD** below).
 
 **File**
-:   Load a program (Alt+O - NEX/SNA/SZX/Z80/TAP/TZX/WAV/RZX), Mount SD Card Image,
+:   Load a program (Alt+O - NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX), Mount SD Card Image,
     Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record RZX / Stop
     RZX, Save Screenshot (Alt+S), Quick Screenshot (Alt+K), Save Snapshot
     (Alt+Shift+S), Quit (Alt+Q).
@@ -1285,7 +1323,8 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
 
 **Settings**
 :   Preferences... (Alt+P), which opens the settings dialog (Startup, Input,
-    Audio, Network and Paths tabs). Its values are saved to the configuration
+    Audio, Network and Paths tabs, plus Debugger Keys in a build with the
+    debugger compiled in). Its values are saved to the configuration
     file; command-line options always take precedence over them.
 
 **Help**
@@ -1386,7 +1425,10 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` or
 - **MMU panel** - the Next 8-slot MMU table (page numbers and type) and the
   128K bank mappings
 - **Disassembly** - Z80 + Z80N, PC highlight, breakpoint gutter, follow-PC,
-  run-to-cursor, symbol names from MAP files
+  run-to-cursor, symbol names from MAP files. Lines can be selected (drag,
+  Shift+click, Shift plus the navigation keys, Ctrl+A) and copied with Ctrl+C
+  as assembly only - no address column, no opcode bytes - or with the
+  right-click menu's **Copy with Addresses** to keep both
 - **Memory hex editor** - full 64K, hex and ASCII, inline editing, page/bank
   selector
 - **Stack** - SP-relative word view, SP row highlighted
@@ -1397,13 +1439,23 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` or
   **0100** and above matches that exact 16-bit port (**243B**, not **253B**).
   They are armed only while the debugger window is open; start jnext with
   **\--persistent-breakpoints** to keep them armed with it closed, in which
-  case a hit reopens the window at the breakpoint
+  case a hit reopens the window at the breakpoint. Each row has an **On**
+  checkbox that suspends that one without deleting it, and the panel has a
+  **Breakpoints enabled** master switch that suspends every breakpoint and
+  watchpoint at once and restores each one's own state when ticked back; a
+  suspended execute breakpoint is drawn in the gutter as a hollow ring rather
+  than a filled dot
 - **Watch expressions** - byte, word or long at arbitrary addresses, with
   custom labels
 - **Video panels** - All layers (the real composite, through the live
   compositor), ULA (primary and shadow), Layer 2 (active and shadow), Sprites,
   Tilemap, Background (the NR 0x4A fallback colour); per-scanline view up to the
-  current raster position, checkerboard for transparent pixels
+  current raster position, checkerboard for transparent pixels. The header
+  gives the raster position in all four coordinate systems at once (raw
+  `hc`/`vc`, the ULA's `hc_ula`/`vc_ula`, the Copper `cvc` that NR 0x1E/0x1F
+  report, and the pixel being generated), whether the beam is in paper, border
+  or blanking, and whether the ULA is fetching a bitmap byte, an attribute byte
+  or nothing
 - **Sprite viewer** - all 128 hardware sprites with their attribute table
 - **Copper disassembly** - decoded WAIT/MOVE, with the current Copper PC
 - **NextREG panel** - all 256 registers, named, editable inline
@@ -1434,6 +1486,13 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` or
 | F9       | Pause / Break       |
 | Shift+F6 | Frame Back          |
 | Shift+F7 | Step Back           |
+
+Those are defaults. All twelve debugger commands - the nine above plus Run to
+Cursor, Run to End of Frame and Run to End of Scan Line, which ship unbound -
+can be rebound under **Settings > Preferences > Debugger Keys** in the emulator
+window, or by hand in the `[debugger_keys]` section of the configuration file
+(`step_over=F10`). Only the commands you change are written there, so a default
+that changes in a later release still reaches you.
 
 The window may be resized below what the panels need: the panel area then
 scrolls rather than clipping, and the control toolbar along the bottom stays
@@ -1529,6 +1588,14 @@ Capture Layer 2 on its own, then the ULA and sprites together:
 `~/.jnext/screenshots/`
 :   Where **File > Quick Screenshot** writes, unless `[screenshot] quick_dir`
     says otherwise. Created on the first capture.
+
+`~/.jnext/warm-start/`
+:   The recorded NextZXOS-resident machine a **\--load** of a `.nex` starts
+    from, one file per machine type, around 100 KB each. Written on the first
+    such load with a given SD image and re-recorded whenever the image, the
+    machine type or the state format changes - see
+    **\--warm-start-regenerate**. Deleting it costs one cold boot, nothing
+    else.
 
 `~/.jnext/sdcard/cspect-next-1gb-fixed.img`
 :   The default SD-card image, used when **\--sdcard** is not given.

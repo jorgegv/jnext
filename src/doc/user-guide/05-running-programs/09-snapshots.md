@@ -15,8 +15,15 @@ JNEXT writes four, and the extension picks one:
 
 `.sna` and `.szx` describe a machine the Next is not: no Layer 2, no sprites,
 no tilemap, no Copper, no DivMMC, 128 KB of RAM where a Next has 768 KB or
-more. Asking for one on a Next is refused rather than half-written, which is
-why `.jns` exists.
+more. That is why `.jns` exists, and it is worth knowing what the other two do
+if you ask for one on a Next anyway:
+
+- **`.szx` is refused**, with an error naming the machines it can describe,
+  rather than writing something that misrepresents the one you have.
+- **`.sna` is written, and it is a 48K snapshot** — the 64 KB the CPU can see
+  at that instant and nothing else. JNEXT only ever writes the 48K form of
+  SNA. It will load back into another emulator, but everything that makes the
+  machine a Next is missing from it, so do not use it to keep a Next session.
 
 ## Saving
 

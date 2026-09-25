@@ -41,11 +41,11 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     `.jns`, `.sna`, `.szx`, `.z80`, `.tap`, `.tzx`, `.wav`, `.rzx`.
     (`.rzx` is accepted here and plays back, as **--rzx-play**.)
 
-    `.jns` is jnext’s own whole-machine snapshot (see **JNEXT
-    SNAPSHOTS** below). Loading one restores the machine it was taken
-    on, including the machine *type*: a `.jns` taken on a Next loads as
-    a Next even if **--machine** says otherwise, the same way a `.sna`,
-    `.szx` or `.z80` already does.
+    `.jns` is jnext’s own whole-machine snapshot (see [5.9
+    Snapshots](../05-running-programs/09-snapshots.md)). Loading one
+    restores the machine it was taken on, including the machine *type*:
+    a `.jns` taken on a Next loads as a Next even if **--machine** says
+    otherwise, the same way a `.sna`, `.szx` or `.z80` already does.
 
     A NEX file with bytes after the banks its header declares is an
     *extended* NEX. If its header asks for the file to be kept open (any

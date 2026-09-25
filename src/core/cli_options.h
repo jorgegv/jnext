@@ -204,7 +204,7 @@ inline constexpr Option OPTIONS[] = {
     { "--load", 1, Doc::Documented, OptId::Load,
       "FILE",
       "Load a program file (auto-detect format by extension)\n"
-      "Supported: .nex, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx\n"
+      "Supported: .nex, .jns, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx\n"
       "(.rzx is accepted here and plays back, as --rzx-play)" },
     { "--nex-args", 1, Doc::Documented, OptId::NexArgs,
       "LINE",

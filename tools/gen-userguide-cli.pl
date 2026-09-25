@@ -50,6 +50,8 @@ my %SECTION_LINK = (
         . '(../03-first-run/01-why-jnext-needs-an-sd-card-image.md)',
     'NETWORKING' =>
         '[5.6 Networking](../05-running-programs/06-networking.md)',
+    'JNEXT SNAPSHOTS' =>
+        '[5.9 Snapshots](../05-running-programs/09-snapshots.md)',
     'LOADING PROGRAMS' =>
         '[Programs that need NextZXOS]'
         . '(../05-running-programs/index.md#programs-that-need-nextzxos)',
