@@ -3421,6 +3421,31 @@ address jnext blocks anyway (your own machine, a cloud metadata service), the
 lookup answers <code>DNS Fail</code> and <code>ERROR</code> — the same reply it gives a name that does
 not exist, so a program cannot use it to map what is being blocked. The run's
 own log says which of the two it was.</p>
+<p><code>AT+PING="somewhere.example"</code> sends a real ICMP echo and answers with the
+round-trip time in milliseconds. It needs no special privileges and no <code>ping</code>
+program — jnext opens the same kind of socket the system's own <code>ping</code> uses — so
+it works in the Flatpak build as well, where there is no <code>ping</code> to run.</p>
+<p>It follows the same rules as everything else: the host must be one
+<code>--esp-allow</code> permits, it must not be an address jnext blocks anyway (your own
+machine, a cloud metadata service), and the module needs a station, so it
+refuses after <code>AT+CWMODE=2</code> or <code>AT+CWQAP</code>. A blocked host and a host that
+simply did not answer both reply <code>+timeout</code> and <code>ERROR</code>, so a program cannot
+use the difference to work out what is being blocked — and on a machine whose
+configuration forbids the socket outright, that is the same answer you get.</p>
+<p><code>AT+CIPSNTPCFG=1,&lt;timezone&gt;[,"server"]</code> and <code>AT+CIPSNTPTIME?</code> let a program set
+the clock from the internet. jnext queries a <strong>real</strong> NTP server, so the answer
+is the true time.</p>
+<p><strong>That deliberately ignores <code>--rtc</code>.</strong> If you pinned the emulated clock with
+<code>--rtc</code> so screenshots come out the same every run, a program that asks SNTP
+still gets wall-clock, because that is what a time server returns. The two
+clocks disagree on purpose — if you need a reproducible date, read the
+machine's own clock rather than SNTP.</p>
+<p>The timezone is in hours, from -11 to +13, and is required when you enable
+SNTP. The server must be one <code>--esp-allow</code> permits, like any other host. Until
+a query succeeds — and if one fails, or the server is blocked — the module
+reports <code>Thu Jan 01 00:00:00 1970</code>, which is what a real module that has never
+synchronised reports, so a program that polls until the year looks sensible
+keeps working.</p>
 <h2 id="what-is-not-emulated-yet">What is not emulated yet<a class="headerlink" href="#what-is-not-emulated-yet" title="Permanent link">&para;</a></h2>
 <p>The command set covers the Next's own documented setup session and everything
 evidenced in software that actually runs on a Next. Beyond that:</p>

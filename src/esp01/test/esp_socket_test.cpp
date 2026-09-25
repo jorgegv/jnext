@@ -59,6 +59,8 @@
 
 #include "esp01/esp_at.h"
 #include "esp01/esp_log.h"
+#include "esp01/esp_ping.h"
+#include "esp01/esp_sntp.h"
 #include "esp01/esp_socket.h"
 
 #include <arpa/inet.h>
@@ -2150,6 +2152,223 @@ int main() {
                   "dropped, no join, nothing to wait for",
                   destroy_ms >= 0 && destroy_ms < 100);
             fake_dns::gate.store(true); }
+    }
+
+    // ══ AT+PING's two pure pieces (GH #154, owner Q6) ═══════════════════
+    //
+    // NEITHER ROW SPAWNS A PROCESS OR TOUCHES A NETWORK. The spawning half is
+    // behind the `EspPinger` seam and is driven by a fake in `esp_at_test`;
+    // what is tested HERE is the two functions that decide what a guest may
+    // ask for and what the tool actually said — the parts most likely to be
+    // wrong, and the parts a seam cannot exercise.
+    {
+        // ── plausible_ping_host: a SECURITY check on a guest-supplied string ──
+        check("PHOST-01", "an ordinary hostname is accepted",
+              plausible_ping_host("example.com"));
+        check("PHOST-02", "an IPv4 literal is accepted", plausible_ping_host("192.0.2.1"));
+        check("PHOST-03", "an IPv6 literal is accepted", plausible_ping_host("2001:db8::1"));
+        check("PHOST-04", "underscores and hyphens inside a name are accepted",
+              plausible_ping_host("my_host-1.example"));
+        check("PHOST-05", "an empty host is refused", !plausible_ping_host(""));
+        // OPTION INJECTION. An argv array stops a SHELL, and does nothing at
+        // all about this: `-f` is an ordinary argv element that `ping` reads as
+        // flood-ping. The implementation also passes `--`, but Windows `ping`
+        // has no `--`, so on that platform this check is the ONLY defence.
+        check("PHOST-06", "a leading '-' is refused — it would be an OPTION, not a host",
+              !plausible_ping_host("-f"));
+        check("PHOST-07", "...including a long-form option", !plausible_ping_host("--flood"));
+        // SHELL metacharacters are inert against an argv array, and refused
+        // anyway: two independent defences against the worst outcome.
+        check("PHOST-08", "a shell metacharacter is refused", !plausible_ping_host("a;rm -rf b"));
+        check("PHOST-09", "a command substitution is refused",
+              !plausible_ping_host("$(id)") && !plausible_ping_host("`id`"));
+        check("PHOST-10", "a pipe or redirect is refused",
+              !plausible_ping_host("a|b") && !plausible_ping_host("a>b"));
+        check("PHOST-11", "an embedded space is refused — it would split into two argv words",
+              !plausible_ping_host("two words"));
+        check("PHOST-12", "an embedded NUL truncates nothing, because the whole string is "
+              "checked and the NUL itself is refused",
+              !plausible_ping_host(std::string("ok\0-f", 5)));
+        check("PHOST-13", "a newline is refused", !plausible_ping_host("a\nb"));
+        check("PHOST-14", "255 bytes is the longest accepted",
+              plausible_ping_host(std::string(255, 'a')));
+        check("PHOST-15", "256 bytes is the first refused",
+              !plausible_ping_host(std::string(256, 'a')));
+
+        // ── the REAL pinger, for everything that happens before the socket ──
+        //
+        // WHY THESE ROWS EXIST AND WHY THEY STOP WHERE THEY DO. The command
+        // surface is covered by a fake in `esp_at_test`, as the resolver's is.
+        // What a fake cannot cover is that the REAL pinger applies the address
+        // policy at all — and that half is completely deterministic, because
+        // the policy refuses before any socket is opened and an IP LITERAL
+        // needs no DNS. So these rows touch no network and need no privilege.
+        //
+        // THE ECHO ITSELF IS DELIBERATELY NOT ASSERTED HERE. Whether an
+        // unprivileged ICMP socket may be opened depends on the host
+        // (`net.ipv4.ping_group_range`) and on whatever a CI container allows.
+        // A row asserting success would be an environment dependency dressed
+        // up as a unit test; one accepting "Done OR Failed" would be vacuous,
+        // which is a defect this issue has already produced more than once.
+        // Neither is worth having, so the socket is left to manual
+        // verification and the honest-failure path below.
+        {
+            AddressPolicy permissive = loopback_ok();
+            auto          p = make_icmp_pinger(permissive);
+            check("PICMP-01", "an implausible host is refused before anything is opened",
+                  !p->begin("-f") && !p->begin("") && p->state() == PingState::Idle);
+        }
+        {
+            // THE POLICY REACHES THE PING. Without this the command would be a
+            // way to probe exactly the addresses AT+CIPSTART and AT+CIPDOMAIN
+            // refuse — "is the cloud-metadata service there?" answered by
+            // latency instead of by a connection.
+            auto p = make_icmp_pinger(kDefault);   // loopback DENIED
+            const bool accepted = p->begin("127.0.0.1");
+            const bool settled  = wait_until(
+                [&] { p->poll(); return p->state() != PingState::Pinging; }, 4000);
+            check("PICMP-02",
+                  "a literal the address policy denies FAILS without an echo ever being sent",
+                  accepted && settled && p->state() == PingState::Failed);
+        }
+        {
+            auto p = make_icmp_pinger(kDefault);
+            p->begin("169.254.169.254");           // cloud metadata
+            const bool settled = wait_until(
+                [&] { p->poll(); return p->state() != PingState::Pinging; }, 4000);
+            check("PICMP-03", "and so does the cloud-metadata address",
+                  settled && p->state() == PingState::Failed);
+        }
+        {
+            auto p = make_icmp_pinger(kDefault);
+            p->begin("127.0.0.1");
+            wait_until([&] { p->poll(); return p->state() != PingState::Pinging; }, 4000);
+            p->reset();
+            check("PICMP-04", "reset() returns it to Idle, as EspPinger promises",
+                  p->state() == PingState::Idle && p->last_error().empty());
+        }
+        {
+            // IPv4 ONLY, and the row asserts the REASON rather than just the
+            // outcome — because without the family check the code would memcpy
+            // the first four bytes of a v6 address into an IPv4 `sin_addr` and
+            // echo a fabricated host, which also ends in `Failed` (by timeout)
+            // and would therefore look identical. Mutation testing found
+            // exactly that: deleting the check left every row green.
+            //
+            // A documentation-range literal (RFC 3849) needs no DNS and is not
+            // denied by the default policy, so this is deterministic and
+            // network-free.
+            auto p = make_icmp_pinger(kDefault, /*timeout_s=*/1);
+            p->begin("2001:db8::1");
+            const bool settled = wait_until(
+                [&] { p->poll(); return p->state() != PingState::Pinging; }, 4000);
+            check("PICMP-05",
+                  "an IPv6-only address is refused as having no IPv4 address, not echoed "
+                  "at four bytes of itself",
+                  settled && p->state() == PingState::Failed &&
+                      p->last_error().find("IPv4") != std::string::npos);
+        }
+    
+    }
+
+    // ══ the REAL SNTP client, for what happens before the socket ════════
+    //
+    // Same reasoning as PICMP: the command surface is covered by a fake in
+    // `esp_at_test`, and what a fake cannot prove is that the REAL client
+    // applies the address policy. That half is deterministic — the policy
+    // refuses before any datagram is sent, and an IP literal needs no DNS — so
+    // these rows touch no network. The exchange itself is left unasserted for
+    // the same reason the echo is: it would be an environment dependency.
+    {
+        auto c = make_udp_sntp_client(kDefault);      // loopback DENIED
+        const bool accepted = c->begin("127.0.0.1");
+        const bool settled  = wait_until(
+            [&] { c->poll(); return c->state() != SntpState::Querying; }, 4000);
+        // ASSERTS THE REASON, NOT THE OUTCOME. Skipping the policy check does
+        // not make this succeed — it sends to an unset address, which fails
+        // too — so `Failed` alone cannot tell the two apart. Mutation testing
+        // caught exactly that: `if (false)` on the policy left every row green
+        // until this row looked at WHY it failed. The same trap as PICMP-05.
+        check("SNTPR-01",
+              "a server the address policy denies FAILS *on the policy*, without a datagram "
+              "being sent — an NTP server is not an exception to the rule the rest of this "
+              "surface follows",
+              accepted && settled && c->state() == SntpState::Failed &&
+                  c->last_error().find("policy") != std::string::npos);
+    }
+    {
+        auto c = make_udp_sntp_client(kDefault);
+        check("SNTPR-02", "an implausible server name is refused outright",
+              !c->begin("a;rm -rf b") && !c->begin("") && c->state() == SntpState::Idle);
+    }
+
+    // ══ SNTP's two pure pieces (GH #154, owner Q7) ══════════════════════
+    //
+    // THE EPOCH CONVERSION AND THE DATE FORMATTING ARE WHERE THIS COMMAND CAN
+    // BE SILENTLY WRONG — an off-by-70-years, a leap year, a timezone applied
+    // the wrong way round. Both are pure functions so both can be asserted
+    // exactly, with no socket and no clock. The expected strings were checked
+    // against `date -u -d @<t>` independently of the implementation, and one
+    // of them is the manual's own worked example.
+    {
+        std::int64_t u = 0;
+        // §5.2.29's example: `+CIPSNTPTIME:Thu Aug 04 14:48:05 2016`.
+        // 2016-08-04 14:48:05 UTC = unix 1470322085 = NTP 3679310885.
+        const bool ok = ntp_to_unix(3679310885u, u);
+        check("NTPC-01", "the NTP epoch offset is applied exactly (2 208 988 800 s)",
+              ok && u == 1470322085LL);
+        check("NTPC-02",
+              "and it formats to the string the 1.x manual's own example gives",
+              format_sntp_time(u, 0) == "Thu Aug 04 14:48:05 2016");
+
+        std::int64_t z = 0;
+        check("NTPC-03",
+              "a ZERO timestamp means 'unsynchronised' and is REFUSED, not turned into 1900",
+              !ntp_to_unix(0, z));
+        check("NTPC-04", "a pre-1970 timestamp is refused too", !ntp_to_unix(1, z));
+        std::int64_t big = 0;
+        check("NTPC-05", "the largest NTP second still converts",
+              ntp_to_unix(0xFFFFFFFFu, big) && big == 0xFFFFFFFFLL - 2208988800LL);
+
+        // TIMEZONE, both directions and both documented bounds. §5.2.28 gives
+        // the range as [-11,13], so these are the edges a guest may set.
+        check("SNTP-01", "a positive timezone moves the clock forward",
+              format_sntp_time(1470322085LL, 8) == "Thu Aug 04 22:48:05 2016");
+        check("SNTP-02", "a negative one moves it back, across a day boundary",
+              format_sntp_time(1470322085LL, -11) == "Thu Aug 04 03:48:05 2016");
+        check("SNTP-03", "+13 crosses into the next day and the weekday follows",
+              format_sntp_time(1470322085LL, 13) == "Fri Aug 05 03:48:05 2016");
+
+        // CALENDAR EDGES. A hand-rolled civil-date conversion is exactly where
+        // a leap year goes wrong, so the cases are asserted rather than
+        // assumed. All three were cross-checked with `date -u`.
+        check("SNTP-04", "the Unix epoch itself formats as a Thursday",
+              format_sntp_time(0, 0) == "Thu Jan 01 00:00:00 1970");
+        check("SNTP-05", "a leap day is a real day, not the 1st of March",
+              format_sntp_time(1709208000LL, 0) == "Thu Feb 29 12:00:00 2024");
+        check("SNTP-06", "and the arithmetic survives past the 32-bit time_t wrap",
+              format_sntp_time(2147483647LL, 0) == "Tue Jan 19 03:14:07 2038");
+        // THE CENTURY RULE, and it needs a date past 2100 to bite. A leap year
+        // is `%4 && (!%100 || %400)`; the naive `%4` agrees with it for every
+        // year between 1970 and 2099, so 2024 (the row above) cannot tell them
+        // apart. 2100 is the first divergence — divisible by 4, NOT a leap
+        // year — and mutation testing proved the point: replacing the rule
+        // with a bare `%4` left every other row green.
+        check("SNTP-08", "2100 is NOT a leap year, so 1 March falls where it should",
+              format_sntp_time(4107542400LL, 0) == "Mon Mar 01 00:00:00 2100");
+        check("SNTP-09", "...and February 2100 has 28 days, not 29",
+              format_sntp_time(4107499200LL, 0) == "Sun Feb 28 12:00:00 2100");
+        // THE RULE IS TESTED TWICE BECAUSE IT IS WRITTEN TWICE — once to size
+        // the YEAR in the year-skipping loop, once to size FEBRUARY in the
+        // month loop. Mutation testing caught that distinction: breaking the
+        // month one fails SNTP-08/09, breaking the year one does NOT, because a
+        // date inside 2100 exits the year loop before the year's length
+        // matters. A date PAST 2100 is what sees it — under a naive `%4` rule
+        // 2100 would absorb an extra day and this would render as 2100-12-31.
+        check("SNTP-10", "a date after 2100 is not shifted by a phantom leap day",
+              format_sntp_time(4133980800LL, 0) == "Sat Jan 01 00:00:00 2101");
+        check("SNTP-07", "a negative result is clamped rather than wrapping",
+              format_sntp_time(0, -11) == "Thu Jan 01 00:00:00 1970");
     }
 
     std::printf("\n======================================================\n");

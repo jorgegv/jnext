@@ -8716,7 +8716,22 @@ void Emulator::setup_esp()
     // rule, two commands — `AT+CIPDOMAIN` answers only for a host
     // `AT+CIPSTART` would have been allowed to try.
     esp_resolver_ = std::make_unique<EspGatedResolver>(
-        esp::make_socket_resolver(esp::AddressPolicy{}), std::move(host_policy), *esp_events_);
+        esp::make_socket_resolver(esp::AddressPolicy{}), host_policy, *esp_events_);
+
+    // GH #154 (owner Q6) — `AT+PING`, gated by the same allowlist. There is no
+    // `AddressPolicy` here and its absence is deliberate: that policy judges an
+    // address the module RESOLVED, and `ping` does its own resolution inside a
+    // child process we do not get to inspect. The host allowlist is the gate
+    // that can be enforced on this path, and it is enforced on the NAME, which
+    // is what the guest actually supplied.
+    esp_pinger_ = std::make_unique<EspGatedPinger>(esp::make_icmp_pinger(esp::AddressPolicy{}),
+                                                   host_policy, *esp_events_);
+
+    // GH #154 (owner Q7) — SNTP, under BOTH policies for the same reason the
+    // pinger is: an NTP server is a host the guest named, and a query it may
+    // not make is a query it may not make.
+    esp_sntp_ = std::make_unique<EspGatedSntp>(esp::make_udp_sntp_client(esp::AddressPolicy{}),
+                                               std::move(host_policy), *esp_events_);
 
     // GH #210 — the INBOUND half. Built here so that the bind address is fixed
     // before anything can listen: the guest chooses the PORT with
@@ -8747,7 +8762,8 @@ void Emulator::setup_esp()
     // worker (see the member declarations in emulator.h for why that matters
     // at exactly this address).
     esp_device_ = std::make_unique<esp::ThreadedEsp>(*esp_transport_, esp_listener_.get(),
-                                                     esp_resolver_.get());
+                                                     esp_resolver_.get(), esp_pinger_.get(),
+                                                     esp_sntp_.get());
     esp_adapter_ = std::make_unique<EspUartAdapter>(*esp_device_);
     // GH #246 — the reported station address, BEFORE the worker starts, so no
     // guest command can ever be answered with the default and then a second

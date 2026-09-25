@@ -1,5 +1,7 @@
 #pragma once
 
+#include "esp01/esp_ping.h"
+#include "esp01/esp_sntp.h"
 #include "esp01/esp_socket.h"
 
 #include <cstddef>
@@ -282,6 +284,88 @@ private:
     bool          blocked_   = false;
     std::string   refused_error_;
     std::uint64_t refusals_  = 0;
+};
+
+/// The same gate again, for `AT+PING` (GH #154, owner Q6).
+///
+/// An ungated pinger is a HOST PROBE the allowlist never agreed to: a guest
+/// restricted to one host could still map reachability across the user's whole
+/// LAN. So the rule stays one rule — **jnext pings only a host it would have
+/// let the guest dial.**
+///
+/// A REFUSAL IS ACCEPTED-THEN-FAILED, exactly as `EspGatedResolver`'s is, and
+/// for exactly the same reason: `AT+PING`'s failure reply is `+timeout` +
+/// `ERROR`, and a rejected REQUEST would answer a bare `ERROR` instead. That
+/// difference would be an allowlist oracle, so `begin()` returns true for a
+/// blocked host and the state goes straight to `Failed`.
+///
+/// THE CLAIM IS ABOUT WIRE CONTENT, NOT TIMING — the same caveat
+/// `EspGatedResolver` carries, and it applies here for the same reason. A
+/// blocked host is decided HERE, synchronously, and fails on the very next
+/// service pass; an allowed one goes to a detached thread and takes as long as
+/// a resolve plus an echo takes. So an observer with a wall clock on the UART
+/// can still tell a refusal from a real failure by LATENCY, however identical
+/// the bytes. Recorded rather than fixed, for the reason design-doc §19.3.1
+/// gives: closing it means inventing a delay nobody has measured, to defend
+/// against someone already host-side who can read the `warn` line below.
+class EspGatedPinger final : public esp::EspPinger {
+public:
+    EspGatedPinger(std::unique_ptr<esp::EspPinger> inner, EspHostPolicy policy,
+                   EspConnectionLog& log);
+
+    bool               begin(const std::string& host) override;
+    void               poll() override;
+    esp::PingState     state() const override;
+    unsigned           rtt_ms() const override;
+    const std::string& last_error() const override;
+    void               reset() override;
+
+    /// How many pings the allowlist refused. Exposed so a test can ASSERT the
+    /// refusal rather than grep a log for it.
+    std::uint64_t refusals() const { return refusals_; }
+
+private:
+    std::unique_ptr<esp::EspPinger> inner_;
+    EspHostPolicy                   policy_;
+    EspConnectionLog&               log_;
+    bool                            blocked_ = false;
+    std::string                     refused_error_;
+    std::uint64_t                   refusals_ = 0;
+};
+
+/// And once more for SNTP (GH #154, owner Q7).
+///
+/// An NTP server is a host like any other, so `--esp-allow` governs which one
+/// the guest may query. The refusal needs no special shape here: a blocked
+/// server and an unreachable one both end as `Failed`, and the engine answers
+/// BOTH with the epoch — so the guest cannot tell them apart, which is the same
+/// anti-oracle property the rest of this surface has, arrived at for free.
+///
+/// AND THE SAME CAVEAT: that is a claim about WIRE CONTENT, not timing. A
+/// blocked server fails synchronously on the next service pass, while an
+/// allowed one costs a resolve and a UDP round trip, so latency still
+/// distinguishes them. Recorded rather than fixed — design-doc §19.3.1.
+class EspGatedSntp final : public esp::EspSntpClient {
+public:
+    EspGatedSntp(std::unique_ptr<esp::EspSntpClient> inner, EspHostPolicy policy,
+                 EspConnectionLog& log);
+
+    bool               begin(const std::string& server) override;
+    void               poll() override;
+    esp::SntpState     state() const override;
+    std::int64_t       unix_time() const override;
+    const std::string& last_error() const override;
+    void               reset() override;
+
+    std::uint64_t refusals() const { return refusals_; }
+
+private:
+    std::unique_ptr<esp::EspSntpClient> inner_;
+    EspHostPolicy                       policy_;
+    EspConnectionLog&                   log_;
+    bool                                blocked_ = false;
+    std::string                         refused_error_;
+    std::uint64_t                       refusals_ = 0;
 };
 
 // ---------------------------------------------------------------------------

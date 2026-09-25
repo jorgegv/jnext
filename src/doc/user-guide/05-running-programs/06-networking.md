@@ -389,6 +389,36 @@ lookup answers `DNS Fail` and `ERROR` — the same reply it gives a name that do
 not exist, so a program cannot use it to map what is being blocked. The run's
 own log says which of the two it was.
 
+`AT+PING="somewhere.example"` sends a real ICMP echo and answers with the
+round-trip time in milliseconds. It needs no special privileges and no `ping`
+program — jnext opens the same kind of socket the system's own `ping` uses — so
+it works in the Flatpak build as well, where there is no `ping` to run.
+
+It follows the same rules as everything else: the host must be one
+`--esp-allow` permits, it must not be an address jnext blocks anyway (your own
+machine, a cloud metadata service), and the module needs a station, so it
+refuses after `AT+CWMODE=2` or `AT+CWQAP`. A blocked host and a host that
+simply did not answer both reply `+timeout` and `ERROR`, so a program cannot
+use the difference to work out what is being blocked — and on a machine whose
+configuration forbids the socket outright, that is the same answer you get.
+
+`AT+CIPSNTPCFG=1,<timezone>[,"server"]` and `AT+CIPSNTPTIME?` let a program set
+the clock from the internet. jnext queries a **real** NTP server, so the answer
+is the true time.
+
+**That deliberately ignores `--rtc`.** If you pinned the emulated clock with
+`--rtc` so screenshots come out the same every run, a program that asks SNTP
+still gets wall-clock, because that is what a time server returns. The two
+clocks disagree on purpose — if you need a reproducible date, read the
+machine's own clock rather than SNTP.
+
+The timezone is in hours, from -11 to +13, and is required when you enable
+SNTP. The server must be one `--esp-allow` permits, like any other host. Until
+a query succeeds — and if one fails, or the server is blocked — the module
+reports `Thu Jan 01 00:00:00 1970`, which is what a real module that has never
+synchronised reports, so a program that polls until the year looks sensible
+keeps working.
+
 ## What is not emulated yet
 
 The command set covers the Next's own documented setup session and everything

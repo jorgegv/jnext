@@ -152,8 +152,12 @@ public:
     /// the listener, because a DNS lookup is socket work and must not run on
     /// the emulation thread. It therefore carries the same obligation they do:
     /// **it must outlive this wrapper**, whose destructor joins the worker.
+    /// `pinger` (GH #154, owner Q6) is driven by the WORKER like the rest:
+    /// spawning a child process is emphatically not emulation-thread work. It
+    /// carries the same obligation — **it must outlive this wrapper**.
     explicit ThreadedEsp(EspTransport& transport, EspListener* listener = nullptr,
-                         EspResolver*              resolver      = nullptr,
+                         EspResolver* resolver = nullptr, EspPinger* pinger = nullptr,
+                         EspSntpClient*            sntp          = nullptr,
                          std::chrono::milliseconds poll_interval = DEFAULT_POLL_INTERVAL);
     ~ThreadedEsp() override;
 

@@ -54,6 +54,8 @@ engineering reasons in §1.3.
 - [17. The address may MOVE across the outage (GH #247)](#17-the-address-may-move-across-the-outage-gh-247)
 - [18. The Wi-Fi configuration category (GH #154)](#18-the-wi-fi-configuration-category-gh-154)
 - [19. AT+CIPDOMAIN (GH #154)](#19-atcipdomain-gh-154)
+- [20. AT+PING (GH #154)](#20-atping-gh-154)
+- [21. SNTP (GH #154)](#21-sntp-gh-154)
 
 ---
 
@@ -2309,18 +2311,24 @@ the *policies* matched and stop there. `AT+CIPSTART` carries more gates than
 its policies, and the first version of `AT+CIPDOMAIN` implemented all of the
 policies and one of the rest. So the mapping is now stated in full:
 
-| Gate | `AT+CIPSTART` | `AT+CIPDOMAIN` | |
-|---|---|---|---|
-| **Capability** — the object exists at all | slot 0's transport always does | **resolver may be null** → `ERROR` | a host that wants neither passes null for both |
-| **Busy** — one at a time | `c.open \|\| c.connecting` | `domain_pending_` | both are unreachable while `receive()` defers, both kept: the thing that makes them unreachable is non-local |
-| **Station** — the guest has a station at all | `station_enabled_by_guest()` | `station_enabled_by_guest()` | **this is the one that was missing.** A real ESP8266 with no AP association has no name server to query, so a lookup needs a station at least as much as a connect does |
-| **`--esp-allow` host list** | `EspGatedTransport` | `EspGatedResolver` | an ungated resolver hands the guest the address of every host it may not dial |
-| **`esp::AddressPolicy`** | `SocketTransport` | `SocketResolver` | without it, `AT+CIPDOMAIN="169.254.169.254"` would answer with the cloud-metadata address the transport is careful never to reach |
-| **Argument validation** | protocol, host, port, UDP local port and mode | quoted name, <64 bytes | command-specific; a lookup has no protocol and no port, so there is nothing to mirror |
+| Gate | `AT+CIPSTART` | `AT+CIPDOMAIN` | `AT+PING` | `AT+CIPSNTPTIME?` | |
+|---|---|---|---|---|---|
+| **Capability** — the object exists at all | slot 0's transport always does | **resolver may be null** → `ERROR` | **pinger may be null** → `ERROR` | **client may be null** → the epoch | a host that wants none of them passes null and the commands refuse |
+| **Busy** — one at a time | `c.open \|\| c.connecting` | `domain_pending_` | `ping_pending_` | `sntp_pending_` | all unreachable while `receive()` defers, all kept: what makes them unreachable is non-local |
+| **Station** — the guest has a station at all | `station_enabled_by_guest()` | `station_enabled_by_guest()` | `station_enabled_by_guest()` | `station_enabled_by_guest()` | **the one that was missing on `AT+CIPDOMAIN`**, and applied to `AT+PING` from the start. No AP association means no name server and no echo alike. The GUEST's two flags only — a host-scheduled outage must not refuse ([§16.3](#163-what-was-added-and-where-it-stops)) |
+| **`--esp-allow` host list** | `EspGatedTransport` | `EspGatedResolver` | `EspGatedPinger` | `EspGatedSntp` | an ungated lookup or ping hands the guest information about every host it may not dial |
+| **`esp::AddressPolicy`** | `SocketTransport` | `SocketResolver` | `IcmpPinger` | `UdpSntpClient` | without it, `AT+CIPDOMAIN="169.254.169.254"` reports the cloud-metadata address and `AT+PING` **confirms it is alive and measures its distance** — a latency oracle for exactly the addresses the other two refuse. See [§20.3](#203-the-gate-that-was-not-asked-for) |
+| **Argument validation** | protocol, host, port, UDP local port and mode | quoted name, <64 bytes | quoted host, <64 bytes, `plausible_ping_host` | enable 0/1, timezone [-11,13], quoted servers | command-specific; a lookup and a ping have no protocol and no port, so there is nothing to mirror |
 
 **There is no further gate.** `AT+CIPSTART`'s remaining refusals are all
-argument validation in the row above, which is why they have no lookup
+argument validation in the row above, which is why they have no lookup or ping
 analogue rather than being an omission.
+
+**This table is the point, not the prose above it.** The `AT+CIPDOMAIN` blocker
+existed because an earlier draft said "one rule, two commands" and listed the
+two policy layers, which invites a reader to check the policies match and stop.
+Every command added to this surface gets a column here, before it gets a
+section of its own.
 
 **The station gate uses the GUEST's two flags, never `station_has_ip()`.**
 Including `associated_` would make a HOST-scheduled outage refuse lookups, and
@@ -2352,10 +2360,21 @@ lookup of a NAME spawns a detached thread and takes as long as DNS takes. A
 host-side tool watching the UART with a wall clock can therefore distinguish
 "refused" from "did not resolve" by latency, however identical the bytes.
 
-This is **not** specific to `AT+CIPDOMAIN` and was not introduced by it:
-`AT+CIPSTART` has the same shape, refusing an allowlisted host immediately
-while a genuine failure arrives deferred. An IP literal is unaffected either
-way, since both arms are synchronous. Closing it would mean delaying a refusal
+This is **not** specific to `AT+CIPDOMAIN` and was not introduced by it. It is
+a property of **every gated command on this surface**, and the list is spelled
+out rather than implied, because an earlier version of this paragraph said "not
+specific to `AT+CIPDOMAIN`" and then discussed only `AT+CIPSTART` — while two
+more commands with the identical shape were landing:
+
+| Command | Refused | Allowed |
+|---|---|---|
+| `AT+CIPSTART` | rejected at dispatch, immediately | deferred: resolve + TCP handshake |
+| `AT+CIPDOMAIN` | `EspGatedResolver`, next service pass | detached thread: a DNS lookup |
+| `AT+PING` | `EspGatedPinger`, next service pass | detached thread: resolve + ICMP echo |
+| `AT+CIPSNTPTIME?` | `EspGatedSntp`, next service pass | detached thread: resolve + UDP round trip |
+
+An IP literal is unaffected in every row, since both arms are then
+synchronous. Closing it would mean delaying a refusal
 by a fabricated interval — inventing a timing profile nobody has measured, to
 defend against an observer who is already on the host side of the UART and can
 read the `warn` line that names the refusal outright. It is therefore
@@ -2434,3 +2453,199 @@ engine and the resolver, only a run of the real binary proves the wiring.
   closed by strengthening `RGATE-08`. The harness itself was caught reporting
   a **crashed suite as a survivor**, and now pins each suite's expected row
   count so an absent denominator is a failure rather than a pass.
+
+---
+
+## 20. `AT+PING` (GH #154)
+
+Owner decision on Q7's sibling, Q6: *build it*. The evaluation had recommended
+declining ([ESP-AT-SURFACE.md Q6](ESP-AT-SURFACE.md#q6--ping)) on the grounds
+that ICMP needs privileges jnext must not require. **That recommendation was
+wrong, and the measurement that disproved it is the whole of this section.**
+
+### 20.1 Nobody needed a privilege
+
+The decline assumed an echo request needs `CAP_NET_RAW`. The owner's first
+route — call the platform `ping`, which the system has already trusted —
+prompted a check of what that trust actually is on this host:
+
+```
+$ ls -l /usr/bin/ping        →  -rwxr-xr-x   (no setuid)
+$ getcap /usr/bin/ping       →  (nothing)
+$ sysctl net.ipv4.ping_group_range → 0  2147483647
+```
+
+`ping(8)` here holds **no** privilege. It works because the kernel lets any
+group open a `SOCK_DGRAM`/`IPPROTO_ICMP` socket — a capability **jnext already
+has, on identical terms**. So the command is implemented in process, and the
+original objection evaporates rather than being worked around.
+
+### 20.2 Why in-process beat shelling out
+
+| | shell out to `ping(8)` | in-process ICMP |
+|---|---|---|
+| Flatpak | **impossible.** MEASURED: `org.kde.Platform` 6.8, 6.10 and 6.11 all ship `ffmpeg` and **no `ping`** (`flatpak run --command=sh … -c 'command -v ping'` reports nothing in each). 6.10 is the version `packaging/flatpak/*.yml` pins. `--share=network` grants a network, not a binary | **works.** MEASURED, not asserted — an earlier version of this table claimed "works exactly as native" without having run it, which is the mixing of a measured and an assumed cell this row now avoids. A standalone probe inside `org.kde.Platform//6.10` with `--share=network` got echo replies from **127.0.0.1 and 8.8.8.8**; the same probe with `--unshare=network` was refused `EPERM` at `socket()`, which is exactly the honest-failure path [§20.5](#205-unavailability-is-an-outcome-not-an-edge-case) describes — so that path is measured too |
+| Output parsing | required, and locale-dependent: this host prints `tiempo=` for `time=`, the summary carries a decoy English `time 0ms`, and a comma-decimal locale turns `12.3` into `12,3` | **none** |
+| Guest-supplied hostname | reaches an argv array; option injection (`-f` is flood-ping) needs `--` plus a charset check | reaches a resolver, never a command line |
+| Privilege | borrowed from a binary that may not have any | the same socket, opened directly |
+
+The locale work that shelling out required is not wasted: it produced the
+project-wide `LANG=C` rule for external processes (CLAUDE.md), which still
+binds the FFmpeg spawn.
+
+### 20.3 The gate that was not asked for
+
+`AT+PING` applies **`esp::AddressPolicy`**, which the brief did not request.
+
+It is the most important line in the change. The shell-out draft *could not*
+apply it — `ping` resolved the name inside a process we never saw — but an
+in-process ping resolves on our own worker, so the address is ours to judge.
+Without it, `AT+PING` would answer a question the other two commands refuse:
+`AT+CIPSTART` will not connect to `169.254.169.254` and `AT+CIPDOMAIN` will not
+report it, but an ungated ping would **confirm it is alive and measure its
+distance**. On a cloud host that address is a credential endpoint. A command
+that cannot fetch from somewhere but can prove it exists is still an
+information leak.
+
+That is the [§19.3](#193-which-gates-apply-command-by-command) lesson arriving
+one command later, which is why `AT+PING` was added to that table as a column
+before this section was written.
+
+### 20.4 The reply is 1.x, and not what the request assumed
+
+§5.2.21 of the NONOS instruction set gives success as **`+<time>`** — a bare
+plus and the number — and failure as **`+timeout`**. The request for this work
+specified `+PING:<time>`, which is the **2.x** spelling; on a module that
+advertises `AT version:1.7.4.0` and ships `AT+CIPDNS_CUR?` it would be wrong.
+Confirmed against the manual before building, which is what the request asked
+for.
+
+### 20.5 Unavailability is an outcome, not an edge case
+
+A host with a restrictive `ping_group_range` refuses the socket with
+`EACCES`/`EPERM`; a Windows `IcmpSendEcho` can fail; the Flatpak case is gone
+but the class is not. Every one of them produces `+timeout` + `ERROR` — never a
+crash, never a hang, never a silent success. It is also, deliberately, the same
+reply a refused host gets, so the failure mode cannot be used to tell "this
+host blocks me" from "this host is down".
+
+### 20.6 How it is proved
+
+- **`PING-01..20`** (`esp_at_test`, 461): the deferred reply, the 1.x bare
+  form, `+0` for a sub-millisecond answer, the station gate both ways and the
+  host-outage row that pins the *predicate*, the 63/64-byte boundary, a forged
+  `+<time>` inside the hostname that cannot inject, deferral and in-order
+  replay, the deadline, and — as an **equality** — that an allowlist refusal is
+  byte-identical to a host that did not answer.
+- **`PHOST-01..15`** (`esp_socket_test`, 220): what a guest may name, including
+  a leading `-`, shell metacharacters, an embedded NUL and the length bound.
+- **`PICMP-01..04`**: the **real** pinger, for everything that happens before
+  the socket — and no further. Whether an unprivileged ICMP socket may be
+  opened depends on `ping_group_range` and on whatever a CI container allows,
+  so a row asserting success would be an environment dependency dressed as a
+  unit test, and one accepting "Done or Failed" would be vacuous. What *is*
+  deterministic — an implausible host refused, and two address-policy literals
+  refused without an echo ever being sent — is asserted exactly.
+- **`PGATE-01..09`** (`esp_wiring_test`, 120): the allowlist over pings,
+  including the accepted-then-failed shape that keeps it from being an oracle.
+
+---
+
+## 21. SNTP (GH #154)
+
+Owner decision on Q7: *build it, and query a real server* — "implement SNTP cfg
+and time by configuring the server and querying the real NTP server". The
+evaluation had recommended declining
+([ESP-AT-SURFACE.md Q7](ESP-AT-SURFACE.md#q7--sntp)); the objection it raised
+was real and is **met rather than dismissed**, which is what §21.1 is about.
+
+`AT+CIPSNTPCFG` / `AT+CIPSNTPCFG?` / `AT+CIPSNTPTIME?`, per the 1.x manual
+§5.2.28-29.
+
+### 21.1 It diverges from `--rtc`, deliberately
+
+**`--rtc` pins the emulated clock so boot screenshots are reproducible. SNTP
+answers wall-clock regardless, because that is what a real time server
+returns.** The two clocks disagree, on purpose, and the divergence is recorded
+here and in the user guide rather than left to be discovered from a flaky
+screenshot.
+
+The practical consequences, stated so nobody has to rediscover them:
+
+- **No regression row may screenshot an SNTP-derived date.** None does.
+- A guest that wants a deterministic clock reads the RTC, which is what
+  `--rtc` exists for. A guest that asks SNTP is asking the network what time it
+  is, and gets the true answer.
+- A cheap way to make `--rtc` also pin SNTP was considered and **not**
+  implemented, because it would contradict the instruction. It is recorded as
+  an option rather than taken: feeding the SNTP client the emulated RTC when
+  `--rtc` is in force would make the whole surface deterministic at the cost of
+  no longer querying a real server. That is the owner's call to make, not one
+  to take unilaterally.
+
+### 21.2 No dependency, and no new pattern
+
+SNTP client mode is a 48-byte datagram whose only interesting field is a
+big-endian 32-bit second count. There is no library here. The worker is the
+same detached-thread shape the resolver established and the pinger reused, so
+destroying the client mid-query drops one `shared_ptr` and returns.
+
+Both gates apply, for the reason [§20.3](#203-the-gate-that-was-not-asked-for)
+gives: an NTP server is a host the guest named, and a host it may not reach is
+a host it may not reach.
+
+### 21.3 Two pure functions, because that is where it can be silently wrong
+
+`ntp_to_unix` and `format_sntp_time` are separate, exported and separately
+tested, because the failure modes here are quiet ones: an off-by-70-years, a
+leap year, a timezone applied the wrong way round. All three would produce a
+plausible date.
+
+- **The epoch offset** is 2 208 988 800 s (1900 → 1970). A **zero** timestamp
+  means *unsynchronised* and is refused rather than turned into 1900.
+- **The formatter does not use `localtime`/`asctime`**, which consult the
+  HOST's timezone and locale. The string must be a function of the guest's
+  configured `<timezone>` alone — a module reporting the developer's timezone,
+  or Spanish weekday names, would leak host state into the guest, which
+  [§8.3](#83-no-host-network-information-may-leak-into-the-guest) forbids.
+- Expected strings in the tests were checked against `date -u` independently of
+  the implementation, and one is the manual's own worked example.
+
+### 21.4 An unsynchronised module reports the epoch, and that is INFERRED
+
+`AT+CIPSNTPTIME?` answers `+CIPSNTPTIME:<time>` + `OK` in **every** case. When
+SNTP is disabled, when no client is wired, when there is no station, when the
+server was refused and when the query failed, the time is the Unix epoch.
+
+The manual does not say what an unsynchronised module returns, so this is
+**inferred, not cited**. The reasoning: a guest polls this command until the
+year looks sane, and `ERROR` would break that loop where the epoch does not. It
+also gives the anti-oracle property for free — a server the allowlist refused
+and one that did not answer are byte-identical. `ERROR` would have been a
+defensible alternative, and this is the one place in the SNTP surface a real
+Next could contradict us.
+
+### 21.5 How it is proved
+
+- **`SCFG-01..14`, `STIME-01..10`** (`esp_at_test`, 489): the configuration
+  grammar including both documented timezone bounds and the first value refused
+  on each side, the timezone required only when enabling, servers replacing the
+  defaults, an unquoted or implausible server **refused rather than ignored**,
+  deferral and in-order replay, the deadline, and — as an **equality** — that a
+  refused server is byte-identical to one that did not answer.
+- **`NTPC-01..05`, `SNTP-01..10`** (`esp_socket_test`, 238): the epoch offset
+  against the manual's own example, zero and pre-epoch refused, both timezone
+  extremes, the Unix epoch, a leap day, past the 32-bit `time_t` wrap, and
+  **the century rule twice** — 2100 itself and a date after it, because the
+  rule is written twice and a mutation proved that breaking one of them is
+  invisible to a test of the other.
+- **`SNTPR-01..02`**: the real client, for what happens before the socket. Like
+  `PICMP`, the exchange itself is not asserted; unlike a naive version,
+  `SNTPR-01` asserts the *reason* it failed, because skipping the policy check
+  still ends in `Failed` and the outcome alone cannot discriminate.
+- **`SGATE-01..07`** (`esp_wiring_test`, 127): the allowlist over NTP servers.
+- **`PWORK-02`**: the threaded wrapper services an SNTP query. Its own row,
+  because mutation testing showed `PWORK-01` said nothing about
+  `service_sntp()` — **each service step added to the worker needs its own
+  row**, since the worker is the only place they are called for a real
+  consumer.
