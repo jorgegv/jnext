@@ -19,9 +19,32 @@ namespace {
 int run_native(const std::string& cmd)
 {
 #ifdef _WIN32
+    // WINDOWS IS NOT BROUGHT UNDER THE `LANG=C` RULE HERE, and that is
+    // reported rather than hidden. `win_run_hidden` passes a null
+    // `lpEnvironment` to `CreateProcess`, so the child inherits; setting a
+    // variable would mean building an environment block, which is a change to
+    // that function rather than to this call. It would also buy nothing
+    // measurable: Windows localises a console tool by UI language, not by
+    // `LANG`. Since nothing here reads ffmpeg's output (see below), the rule
+    // has no functional effect on this platform either way.
     return win_run_hidden(cmd);
 #else
-    return system(cmd.c_str());
+    // EXTERNAL PROCESSES RUN UNDER `LANG=C` (CLAUDE.md). A shell assignment
+    // prefix applies it to this command only, without touching jnext's own
+    // environment.
+    //
+    // NOTHING HERE PARSES FFMPEG'S OUTPUT — every command built by this class
+    // ends in `>/dev/null 2>&1` and only the exit status is read — so this is
+    // conformance with a general rule rather than a fix for a live defect. It
+    // is applied anyway, because the next person to add a command here should
+    // inherit a locale-clean call site rather than have to think of it.
+    //
+    // RESIDUAL, stated because it is invisible otherwise: this child INHERITS
+    // jnext's environment, and POSIX ranks `LC_ALL` above `LANG`. On a host
+    // that exports `LC_ALL`, this prefix does not win. The ESP-01 pinger does
+    // not have that problem because it passes an explicit, minimal envp
+    // (esp_ping.cpp) — which is the more robust shape where output is parsed.
+    return system(("LANG=C " + cmd).c_str());
 #endif
 }
 

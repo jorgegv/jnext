@@ -45,6 +45,31 @@ code comments.
 - When a commit is made, check that the FEATURES.md file is updated to include the new feature if it's a significant one. Ask the user if in doubt of the relevance of the change meriting an update. Pending features and known bugs are NOT tracked in the repo — they live in GitHub issues (https://github.com/jorgegv/jnext/issues); `TODO.md` is only a pointer to that page.
 - When a new development is made that changes any interface in any subsystem, make sure there are enough test cases in that subsystem's test  plan to fully test that new code/interface. Modify the plan if needed and do an independent code review for the new code.
 - When a bug is fixed in any subsystem, make sure there are enough test cases in that subsystem's test  plan to fully test the fixed new code/interface. Modify the plan if needed and do an independent code review for the new test code.
+- **Every external process jnext spawns runs under `LANG=C`** — set in the
+  CHILD's environment, never by changing jnext's own. A child's output is
+  otherwise a function of the user's locale, and this project's own development
+  host runs Spanish: `ping` prints `tiempo=` for `time=`, and a comma-decimal
+  locale turns `12.3 ms` into `12,3 ms`, which `strtod` reads as 12. Forcing
+  the locale makes the whole output deterministic instead of making the parser
+  guess which fields happen not to translate. Prefer the child's **exit status**
+  to its text either way; `LANG=C` makes parsing safe, not preferable.
+  - Spawn with an **explicit, minimal `envp`** wherever the output is parsed.
+    POSIX ranks `LC_ALL` above `LANG`, so a child that INHERITS the environment
+    is not fully protected by `LANG=C` alone — an inherited `LC_ALL` outranks
+    it. A child that inherits nothing has no such problem.
+  - The FFmpeg spawn (`src/core/video_recorder.cpp`) inherits and therefore
+    carries that residual; it is documented at the call site.
+  - Its Windows twin (`src/core/win_process.h`) is **exempt for cause, not
+    skipped**, and the reasons are independent: `LANG` is not how Windows
+    localises a console tool, the call passes a null `lpEnvironment` so there is
+    no block to set a variable in, and nothing reads ffmpeg's output anyway
+    (every command built there ends `>/dev/null 2>&1`). Recorded at that call
+    site so the rule does not read as violated by code it does not reach.
+  - **The strongest form of this rule is not to spawn at all.** `AT+PING` was
+    first built by running `ping(8)` and is now an in-process ICMP socket
+    (`src/esp01/src/esp_ping.cpp`), which deletes the locale question along
+    with the output parsing and the argv surface. Where a platform API exists,
+    prefer it to a command whose output you would have to read.
 - For git commands that run against another directory (e.g. a worktree), always use `git -C /abs/path <cmd> ...` instead of `cd /abs/path && git <cmd> ...`. The `-C` flag avoids shell-state side effects and keeps the current working directory stable across tool calls. It also avoids needless permission prompts to the user.
 
 ### Pull requests
