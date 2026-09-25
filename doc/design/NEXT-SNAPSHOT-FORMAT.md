@@ -2355,8 +2355,10 @@ The reasoning, re-affirmed rather than re-argued:
 2. **The substitutes are real, and they are not a schema's weaker cousin.**
    The spec-written Python reader (`test/snapshot/jns_reader.py`) parses
    **every** real `state/*.json` against THIS DOCUMENT rather than against the
-   code; `JNS-RT-02` pins field-level round-trip; and the `JNSD`/`JNSE` rows
-   pin the encoding. A generated schema would assert that the shape is what the
+   code; `JNS-RT-02` requires a machine restored from a `.jns` to emit a
+   **byte-identical binary state stream** to the machine it was saved
+   from, which is a field-level oracle for the assembler's coverage; and
+   the `JNSD`/`JNSE` rows pin the encoding. A generated schema would assert that the shape is what the
    code says it is; the reader asserts it is what the SPEC says it is, which is
    the stronger of the two claims about a file other people will read.
 
