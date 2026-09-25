@@ -168,14 +168,16 @@ const AtEngine::CommandEntry AtEngine::kCommands[] = {
     // that entry's 9th character is `?` where this line's is `T`.
     {"AT+CIPSTATUS",   false, &AtEngine::cmd_cipstatus},
     {"AT+CIPDOMAIN=",  true,  &AtEngine::cmd_cipdomain},
+    {"AT+PING=",       true,  &AtEngine::cmd_ping},
     {"AT+UART_CUR?",   false, &AtEngine::cmd_uart_query_cur},
     {"AT+UART_DEF?",   false, &AtEngine::cmd_uart_query_def},
     {"AT+UART?",       false, &AtEngine::cmd_uart_query},
 };
 const std::size_t AtEngine::kCommandCount = sizeof(kCommands) / sizeof(kCommands[0]);
 
-AtEngine::AtEngine(EspTransport& transport, EspListener* listener, EspResolver* resolver)
-    : listener_(listener), resolver_(resolver) {
+AtEngine::AtEngine(EspTransport& transport, EspListener* listener, EspResolver* resolver,
+                   EspPinger* pinger)
+    : listener_(listener), resolver_(resolver), pinger_(pinger) {
     // Slot 0 borrows the host's transport — `owned=false`, so clearing the slot
     // can never free an object the host still holds. Slots 1..4 start empty and
     // are filled with OWNED transports by `accept_connections()`, which is what
@@ -186,7 +188,7 @@ AtEngine::AtEngine(EspTransport& transport, EspListener* listener, EspResolver* 
 // ─── Guest TX -> engine ───────────────────────────────────────────────
 
 void AtEngine::receive(std::uint8_t byte) {
-    if (conn_[SINGLE_CID].connecting || domain_pending_) {
+    if (conn_[SINGLE_CID].connecting || domain_pending_ || ping_pending_) {
         // A connect is in flight and its OK/ERROR has not been decided yet.
         // Real firmware answers `busy p...`, which is on the never-emit list,
         // so instead the input waits: nothing is lost and nothing is answered
@@ -1238,6 +1240,115 @@ void AtEngine::finish_domain(bool ok) {
     refresh_tick_gate();
 }
 
+// ─── AT+PING (GH #154, owner decision on Q6) ──────────────────────────
+//
+// THE REPLY BYTES ARE 1.x, AND THEY ARE NOT WHAT 2.x USES. The NONOS AT
+// instruction set §5.2.21 gives success as `+<time>` — a bare plus and the
+// number — and failure as `+timeout`. ESP-AT v2.3.0.0 uses `+PING:<time>` and
+// `+PING:TIMEOUT` instead. Q1 settled this module as 1.x, so the bare form is
+// the right one; the `+PING:` spelling would be a 2.x reply on a module that
+// advertises AT 1.7.4.0 and ships `AT+CIPDNS_CUR?`.
+//
+// It is the THIRD deferred command (after AT+CIPSTART and AT+CIPDOMAIN), so it
+// carries the same three consequences: the reply comes from poll(), guest
+// input is deferred meanwhile, and a deadline bounds it.
+
+void AtEngine::cmd_ping(const std::string& args) {
+    if (!pinger_) {
+        log_debug("AT+PING with no pinger wired — answering ERROR");
+        queue_error();
+        return;
+    }
+    if (ping_pending_) {
+        // Unreachable while `receive()` defers, kept for the reason the
+        // matching guards in cmd_cipstart and cmd_cipdomain are kept: what
+        // makes it unreachable is NON-LOCAL.
+        log_debug("AT+PING while one is in flight — answering ERROR");
+        queue_error();
+        return;
+    }
+    // NO STATION, NO ECHO — the gate whose absence was the last review's
+    // blocker on AT+CIPDOMAIN. A module with no AP association cannot send an
+    // ICMP echo any more than it can open a socket, and `AT+CIPSTART` has
+    // refused in this state since the first increment. The GUEST's two flags
+    // only, never `station_has_ip()`: a HOST-scheduled outage must not refuse,
+    // because GH #246 confined an outage to the address report.
+    if (!station_enabled_by_guest()) {
+        log_debug("AT+PING with no station (mode {}, joined {}) — answering ERROR", cwmode_,
+                  joined_);
+        queue_error();
+        return;
+    }
+
+    std::string rest = args;
+    std::string host;
+    if (!take_quoted(rest, host) || host.empty()) {
+        log_debug("AT+PING=\"{}\" has no quoted host — answering ERROR", escape(args));
+        queue_error();
+        return;
+    }
+    if (host.size() >= MAX_DOMAIN_NAME) {
+        log_debug("AT+PING host is {} bytes, limit is {} — answering ERROR", host.size(),
+                  MAX_DOMAIN_NAME - 1);
+        queue_error();
+        return;
+    }
+    if (!pinger_->begin(host)) {
+        // Covers a hostile or implausible host: `plausible_ping_host` refuses a
+        // leading `-` and anything outside the hostname alphabet, so a guest
+        // cannot turn this into an option or a shell fragment.
+        log_debug("AT+PING refused the host \"{}\" — answering ERROR", escape(host));
+        queue_error();
+        return;
+    }
+
+    ping_pending_  = true;
+    ping_deadline_ = now() + connect_timeout_;
+    log_debug("AT+PING pinging '{}'", escape(host));
+    refresh_tick_gate();
+}
+
+void AtEngine::service_ping() {
+    if (!ping_pending_ || !pinger_) return;
+    pinger_->poll();
+    switch (pinger_->state()) {
+        case PingState::Pinging:
+            if (now() >= ping_deadline_) {
+                // The child has its own deadline, so this one only fires if the
+                // tool itself wedged. Answering beats hanging a guest that
+                // busy-waits with no timeout of its own.
+                log_warn("AT+PING timed out after {} ms", connect_timeout_.count());
+                pinger_->reset();
+                finish_ping(false);
+            }
+            return;
+        case PingState::Done:   finish_ping(true);  return;
+        case PingState::Failed:
+            log_debug("AT+PING failed: {}", pinger_->last_error());
+            finish_ping(false);
+            return;
+        case PingState::Idle:   finish_ping(false); return;
+    }
+}
+
+void AtEngine::finish_ping(bool ok) {
+    if (ok) {
+        // `+<time>` — bare plus, no label. See the note above.
+        queue("\r\n+" + std::to_string(pinger_->rtt_ms()) + "\r\n\r\nOK\r\n");
+    } else {
+        // `+timeout` + `ERROR` (§5.2.21). Every failure answers this: an
+        // unreachable host, a host the allowlist refused, and a machine with no
+        // usable `ping` at all — the Flatpak runtime ships none, verified by
+        // running it. A refusal that looked different from a timeout would be
+        // an allowlist oracle, exactly as it would for AT+CIPDOMAIN.
+        queue("\r\n+timeout\r\n\r\nERROR\r\n");
+    }
+    ping_pending_ = false;
+    pinger_->reset();
+    replay_deferred();
+    refresh_tick_gate();
+}
+
 void AtEngine::cmd_cipstatus(const std::string&) {
     // `STATUS:<stat>` then one `+CIPSTATUS:` line per live link.
     //
@@ -1360,6 +1471,7 @@ void AtEngine::poll() {
     // pass belongs to a connection the guest opened earlier, and framing it
     // first keeps the stream in the order the guest's own commands created.
     service_domain_lookup();
+    service_ping();
 }
 
 void AtEngine::advance_transports() {
@@ -1556,7 +1668,8 @@ void AtEngine::replay_deferred() {
     // line may itself be another AT+CIPSTART or another AT+CIPDOMAIN — and if
     // it is, everything after it must go back to waiting rather than being
     // dispatched against a half-finished transaction.
-    while (!deferred_.empty() && !conn_[SINGLE_CID].connecting && !domain_pending_) {
+    while (!deferred_.empty() && !conn_[SINGLE_CID].connecting && !domain_pending_ &&
+           !ping_pending_) {
         const std::uint8_t b = deferred_.front();
         deferred_.pop_front();
         feed(b);

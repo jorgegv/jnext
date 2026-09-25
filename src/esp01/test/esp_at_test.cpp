@@ -437,6 +437,51 @@ private:
     DenyReason   reason_ = DenyReason::None;
 };
 
+/// A pinger under the row's control (GH #154, owner Q6).
+///
+/// No process, no network. The engine's contract with an `EspPinger` is
+/// "begin, then poll until the state moves", and a fake that moves it when the
+/// row says so exercises every branch. The SPAWNING is proved separately —
+/// `esp_socket_test` tests the two pure pieces (`plausible_ping_host`,
+/// `parse_ping_rtt_ms`) against real captured output, which is where the risk
+/// actually lives.
+class FakePinger : public EspPinger {
+public:
+    bool begin(const std::string& host) override {
+        if (refuse_begin || host.empty() || state_ == PingState::Pinging) return false;
+        ++begins;
+        last_host = host;
+        state_    = PingState::Pinging;
+        return true;
+    }
+    void poll() override {
+        if (state_ != PingState::Pinging) return;
+        if (park) return;
+        if (fail) {
+            err_   = fail_reason;
+            state_ = PingState::Failed;
+        } else {
+            state_ = PingState::Done;
+        }
+    }
+    PingState          state() const override      { return state_; }
+    unsigned           rtt_ms() const override     { return rtt; }
+    const std::string& last_error() const override { return err_; }
+    void reset() override { state_ = PingState::Idle; err_.clear(); }
+
+    bool        refuse_begin = false;
+    bool        fail         = false;
+    bool        park         = false;
+    std::string fail_reason  = "host did not answer";
+    unsigned    rtt          = 0;
+    std::string last_host;
+    int         begins = 0;
+
+private:
+    PingState   state_ = PingState::Idle;
+    std::string err_;
+};
+
 static FakeTransport* add_inbound(FakeListener& lsn) {
     auto peer = std::unique_ptr<FakeTransport>(new FakeTransport);
     peer->arrive_connected();
@@ -655,12 +700,14 @@ struct Rig {
     /// listener: a command that cannot be asked for is not implemented. Rows
     /// that need the NO-resolver behaviour build their own engine.
     FakeResolver  rsv;
+    /// And a pinger (GH #154 Q6), for the same reason.
+    FakePinger    png;
     /// Every rig gets one, because a server that cannot be asked for is not a
     /// server. It costs the pre-GH #210 rows nothing: an unopened listener is
     /// polled and accepted from on every pass and answers "nothing", so the
     /// bytes those rows assert are unchanged.
     FakeListener  lsn;
-    AtEngine      eng{tr, &lsn, &rsv};
+    AtEngine      eng{tr, &lsn, &rsv, &png};
     std::string   guest;  ///< everything the engine has released toward the guest
 
     /// What the engine believes the time is, once `freeze_clock()` has been
@@ -1958,7 +2005,7 @@ int main() {
         //     lookup, not a later one.)
         AsyncResolveTransport tr;
         auto esp = std::unique_ptr<ThreadedEsp>(
-            new ThreadedEsp(tr, /*listener=*/nullptr, /*resolver=*/nullptr,
+            new ThreadedEsp(tr, /*listener=*/nullptr, /*resolver=*/nullptr, /*pinger=*/nullptr,
                             std::chrono::milliseconds(2000)));
         esp->start();
         for (unsigned char c : std::string("AT+CIPSTART=\"TCP\",\"example.test\",80\r\n"))
@@ -3445,6 +3492,119 @@ int main() {
         check_eq("DOM-22", "a second lookup after the first has answered works normally",
                  r.take(), "\r\n+CIPDOMAIN:9.9.9.9\r\n\r\nOK\r\n");
         check("DOM-22b", "...and the engine really started two lookups", r.rsv.begins == 2); }
+
+    // ══ Group M — AT+PING (GH #154, owner decision on Q6) ═══════════════
+    //
+    // THE ORACLE IS THE 1.x MANUAL, §5.2.21: success is `+<time>` — a bare
+    // plus and the number — and failure is `+timeout`. ESP-AT v2.3.0.0 uses
+    // `+PING:<time>` / `+PING:TIMEOUT` instead, and Q1 settled this module as
+    // 1.x, so the bare form is the correct one here.
+
+    {   FakeTransport tr; FakeListener lsn; FakeResolver rsv;
+        AtEngine      e{tr, &lsn, &rsv};            // no pinger
+        std::string   out;
+        e.set_output([&out](std::uint8_t b) { out.push_back(static_cast<char>(b)); });
+        for (unsigned char c : std::string("AT+PING=\"example.test\"\r\n")) e.receive(c);
+        for (int i = 0; i < 200000 && e.wants_tick(); ++i) e.tick(1, 1);
+        check_eq("PING-01", "with no pinger wired the command answers ERROR", out,
+                 "\r\nERROR\r\n"); }
+
+    {   Rig r; r.png.rtt = 12;
+        r.send("AT+PING=\"example.test\"\r\n"); r.drain();
+        check_eq("PING-02", "AT+PING answers NOTHING from its own dispatch", r.take(), "");
+        r.settle();
+        check_eq("PING-03", "...and the reply is the 1.x bare form: +<time> then OK",
+                 r.take(), "\r\n+12\r\n\r\nOK\r\n");
+        check("PING-03b", "...for the host the guest named", r.png.last_host == "example.test"); }
+
+    {   Rig r; r.png.rtt = 0;
+        r.send("AT+PING=\"127.0.0.1\"\r\n"); r.settle();
+        check_eq("PING-04", "a sub-millisecond reply reports +0, which is a real answer",
+                 r.take(), "\r\n+0\r\n\r\nOK\r\n"); }
+
+    {   Rig r; r.png.fail = true;
+        r.send("AT+PING=\"nx.test\"\r\n"); r.settle();
+        check_eq("PING-05", "an unreachable host answers +timeout then ERROR (§5.2.21)",
+                 r.take(), "\r\n+timeout\r\n\r\nERROR\r\n"); }
+
+    {   // THE ANTI-ORACLE PROPERTY, as an EQUALITY. A host the allowlist
+        // refused and a host that simply did not answer must be the same
+        // bytes, or AT+PING becomes a way to enumerate the allowlist. The
+        // gate's own half is pinned in esp_wiring_test; this is the engine's.
+        Rig a; a.png.fail = true; a.png.fail_reason = "host did not answer";
+        a.send("AT+PING=\"nx.test\"\r\n"); a.settle();
+        Rig b; b.png.fail = true; b.png.fail_reason = "host is not in the --esp-allow list";
+        b.send("AT+PING=\"blocked.test\"\r\n"); b.settle();
+        check_eq("PING-06",
+                 "an allowlist refusal is byte-identical to a host that did not answer",
+                 b.take(), a.take()); }
+
+    {   // NO STATION, NO ECHO — the gate whose absence was the last review's
+        // blocker on AT+CIPDOMAIN, applied here from the start.
+        Rig r; r.png.rtt = 5;
+        r.send("AT+CWMODE=2\r\n"); r.drain(); r.take();
+        r.send("AT+PING=\"example.test\"\r\n"); r.settle();
+        check_eq("PING-07", "with the station off by AT+CWMODE=2, a ping is refused",
+                 r.take(), "\r\nERROR\r\n");
+        check("PING-07b", "...and the pinger is never even asked", r.png.begins == 0); }
+    {   Rig r; r.png.rtt = 5;
+        r.send("AT+CWQAP\r\n"); r.drain(); r.take();
+        r.send("AT+PING=\"example.test\"\r\n"); r.settle();
+        check_eq("PING-08", "and the same after AT+CWQAP", r.take(), "\r\nERROR\r\n");
+        check("PING-08b", "...pinger untouched here too", r.png.begins == 0); }
+    {   // ...but a HOST-scheduled outage must NOT refuse. Same predicate
+        // question as DOM-25; mutating it to station_has_ip() fails this row.
+        Rig r; r.png.rtt = 5;
+        r.eng.set_associated(false);
+        r.send("AT+PING=\"example.test\"\r\n"); r.settle();
+        check_eq("PING-09", "a HOST outage does NOT refuse a ping — only the guest's own "
+                 "AT+CWMODE=2 / AT+CWQAP do", r.take(), "\r\n+5\r\n\r\nOK\r\n"); }
+
+    {   Rig r; r.send("AT+PING=example.test\r\n"); r.drain();
+        check_eq("PING-10", "an unquoted host is refused", r.take(), "\r\nERROR\r\n"); }
+    {   Rig r; r.send("AT+PING=\"\"\r\n"); r.drain();
+        check_eq("PING-11", "an empty host is refused", r.take(), "\r\nERROR\r\n"); }
+    {   Rig r; r.send("AT+PING=?\r\n"); r.drain();
+        check_eq("PING-12", "the =? test form is refused", r.take(), "\r\nERROR\r\n"); }
+    {   Rig r; r.png.refuse_begin = true;
+        r.send("AT+PING=\"-f\"\r\n"); r.drain();
+        check_eq("PING-13",
+                 "a host the pinger refuses — a leading '-' would be an OPTION, not a host "
+                 "— answers ERROR from dispatch",
+                 r.take(), "\r\nERROR\r\n"); }
+    {   Rig r; r.png.rtt = 1;
+        r.send("AT+PING=\"" + std::string(63, 'a') + "\"\r\n"); r.settle();
+        check_eq("PING-14", "a 63-byte host is accepted", r.take(), "\r\n+1\r\n\r\nOK\r\n"); }
+    {   Rig r;
+        r.send("AT+PING=\"" + std::string(64, 'a') + "\"\r\n"); r.drain();
+        check_eq("PING-15", "a 64-byte host is the first refused", r.take(), "\r\nERROR\r\n");
+        check("PING-15b", "...and never reaches the pinger", r.png.begins == 0); }
+
+    {   // FORGING. The reply is built from the RTT and nothing else, so a host
+        // carrying a reply-shaped string cannot smuggle it onto the wire.
+        Rig r; r.png.fail = true;
+        r.send("AT+PING=\"a\r\n+999\r\n\r\nOK\r\n\"\r\n"); r.settle();
+        check("PING-16",
+              "a host containing a forged +<time> reply cannot inject it — the answer is "
+              "built from the measured RTT, never from the host string",
+              r.take().find("+999") == std::string::npos); }
+
+    {   Rig r; r.png.rtt = 3;
+        r.send("AT+PING=\"example.test\"\r\n");
+        r.send("AT\r\n");                        // typed ahead, must be held
+        r.drain();
+        check_eq("PING-17", "input typed during a ping is DEFERRED", r.take(), "");
+        r.settle();
+        check_eq("PING-18", "...and replayed in order once the answer is out", r.take(),
+                 "\r\n+3\r\n\r\nOK\r\n\r\nOK\r\n"); }
+
+    {   Rig r; r.freeze_clock(); r.png.park = true;
+        r.send("AT+PING=\"never-answers.test\"\r\n"); r.settle();
+        check_eq("PING-19", "a pinger that never answers holds the guest", r.take(), "");
+        r.advance(11);
+        r.settle();
+        check_eq("PING-20", "...and the deadline ends it with the ordinary failure reply",
+                 r.take(), "\r\n+timeout\r\n\r\nERROR\r\n"); }
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail,

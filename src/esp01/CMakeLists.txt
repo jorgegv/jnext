@@ -20,6 +20,7 @@
 add_library(esp01 STATIC
     src/esp_log.cpp
     src/esp_socket.cpp
+    src/esp_ping.cpp
     src/esp_socket_posix.cpp
     src/esp_socket_win.cpp
     src/esp_address_policy.cpp
@@ -45,7 +46,9 @@ target_link_libraries(esp01 PUBLIC Threads::Threads)
 # this file can see why ws2_32 is linked. PUBLIC so every consumer — jnext and
 # the suites below — inherits it.
 if(WIN32)
-    target_link_libraries(esp01 PUBLIC ws2_32)
+    # iphlpapi carries IcmpSendEcho (GH #154 Q6) — an OS component like ws2_32,
+    # so the no-new-dependency rule is untouched.
+    target_link_libraries(esp01 PUBLIC ws2_32 iphlpapi)
 endif()
 
 # --- The module's own test suites ------------------------------------------

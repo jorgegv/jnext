@@ -13,8 +13,8 @@ namespace esp {
 constexpr std::chrono::milliseconds ThreadedEsp::DEFAULT_POLL_INTERVAL;
 
 ThreadedEsp::ThreadedEsp(EspTransport& transport, EspListener* listener, EspResolver* resolver,
-                         std::chrono::milliseconds poll_interval)
-    : core_(transport, listener, resolver), poll_interval_(poll_interval) {
+                         EspPinger* pinger, std::chrono::milliseconds poll_interval)
+    : core_(transport, listener, resolver, pinger), poll_interval_(poll_interval) {
     // THE TRAMPOLINE, installed once and never replaced. `set_output` then
     // swaps `user_sink_` behind `sink_mutex_` alone and never touches
     // `core_mutex_`, so installing a sink cannot be delayed by whatever the
@@ -108,6 +108,9 @@ void ThreadedEsp::run() {
                 // it never runs for any threaded consumer (which is every real
                 // one: jnext builds a `ThreadedEsp`, never a bare `AtEngine`).
                 core_.service_domain_lookup();
+                // GH #154 Q6. Added HERE as well as in poll(), for the reason
+                // the line above carries: this loop calls the halves directly.
+                core_.service_ping();
                 wants_tick_.store(core_.wants_tick(), std::memory_order_release);
             }
         } catch (const std::exception& e) {

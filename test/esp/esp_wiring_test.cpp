@@ -421,6 +421,79 @@ int main() {
               gated.begin("allowed.test") && rs->begins == 2);
     }
     {
+        // ── PGATE — EspGatedPinger (GH #154, owner Q6) ──────────────────
+        // An ungated pinger is a HOST PROBE the allowlist never agreed to: a
+        // guest restricted to one host could still map reachability across the
+        // user's whole LAN.
+        struct ScriptedPinger final : esp::EspPinger {
+            bool begin(const std::string& host) override {
+                ++begins;
+                last_host = host;
+                state_    = esp::PingState::Done;
+                return true;
+            }
+            void poll() override {}
+            esp::PingState     state() const override      { return state_; }
+            unsigned           rtt_ms() const override     { return 7; }
+            const std::string& last_error() const override { return err_; }
+            void reset() override { state_ = esp::PingState::Idle; }
+            int            begins = 0;
+            std::string    last_host;
+            esp::PingState state_ = esp::PingState::Idle;
+            std::string    err_;
+        };
+
+        auto  raw = std::make_unique<ScriptedPinger>();
+        auto* ps  = raw.get();
+        EspHostPolicy policy;
+        policy.add("allowed.test");
+        EspConnectionLog log;
+        EspGatedPinger gated{std::move(raw), policy, log};
+
+        check("PGATE-01", "an allowed host reaches the wrapped pinger",
+              gated.begin("allowed.test") && ps->begins == 1 &&
+                  ps->last_host == "allowed.test");
+
+        const bool accepted = gated.begin("evil.test");
+        check("PGATE-02", "a refused host NEVER reaches the wrapped pinger", ps->begins == 1);
+        check("PGATE-03",
+              "a refusal is ACCEPTED-then-FAILED, not rejected — returning false would "
+              "answer a bare ERROR where a real failure answers +timeout + ERROR, and that "
+              "difference is an allowlist oracle",
+              accepted && gated.state() == esp::PingState::Failed);
+        check("PGATE-04", "a refusal is recorded as an event naming the host",
+              log.sequence() == 1 && log.snapshot().back().kind == EspEvent::Kind::Refused &&
+                  log.snapshot().back().host == "evil.test");
+        check("PGATE-05", "a refusal is counted", gated.refusals() == 1);
+        check("PGATE-06", "...and carries an error for the operator's log",
+              !gated.last_error().empty());
+
+        gated.reset();
+        check("PGATE-07", "reset() clears the block, as EspPinger promises",
+              gated.state() == esp::PingState::Idle);
+        check("PGATE-08", "...so the next ping is judged afresh",
+              gated.begin("allowed.test") && ps->begins == 2);
+    }
+    {
+        struct NullPinger final : esp::EspPinger {
+            bool begin(const std::string&) override { ++begins; return true; }
+            void poll() override {}
+            esp::PingState     state() const override      { return esp::PingState::Idle; }
+            unsigned           rtt_ms() const override     { return 0; }
+            const std::string& last_error() const override { return err_; }
+            void reset() override {}
+            int         begins = 0;
+            std::string err_;
+        };
+        auto  raw = std::make_unique<NullPinger>();
+        auto* ps  = raw.get();
+        EspConnectionLog log;
+        EspGatedPinger gated{std::move(raw), EspHostPolicy{}, log};
+        check("PGATE-09", "an empty allowlist forwards every host, as it does for "
+              "connections and lookups",
+              gated.begin("anything.test") && ps->begins == 1 && gated.refusals() == 0);
+    }
+    {
         struct NullResolver final : esp::EspResolver {
             bool begin(const std::string&) override { ++begins; return true; }
             void poll() override {}

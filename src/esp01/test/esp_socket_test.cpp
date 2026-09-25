@@ -59,6 +59,7 @@
 
 #include "esp01/esp_at.h"
 #include "esp01/esp_log.h"
+#include "esp01/esp_ping.h"
 #include "esp01/esp_socket.h"
 
 #include <arpa/inet.h>
@@ -2150,6 +2151,102 @@ int main() {
                   "dropped, no join, nothing to wait for",
                   destroy_ms >= 0 && destroy_ms < 100);
             fake_dns::gate.store(true); }
+    }
+
+    // ══ AT+PING's two pure pieces (GH #154, owner Q6) ═══════════════════
+    //
+    // NEITHER ROW SPAWNS A PROCESS OR TOUCHES A NETWORK. The spawning half is
+    // behind the `EspPinger` seam and is driven by a fake in `esp_at_test`;
+    // what is tested HERE is the two functions that decide what a guest may
+    // ask for and what the tool actually said — the parts most likely to be
+    // wrong, and the parts a seam cannot exercise.
+    {
+        // ── plausible_ping_host: a SECURITY check on a guest-supplied string ──
+        check("PHOST-01", "an ordinary hostname is accepted",
+              plausible_ping_host("example.com"));
+        check("PHOST-02", "an IPv4 literal is accepted", plausible_ping_host("192.0.2.1"));
+        check("PHOST-03", "an IPv6 literal is accepted", plausible_ping_host("2001:db8::1"));
+        check("PHOST-04", "underscores and hyphens inside a name are accepted",
+              plausible_ping_host("my_host-1.example"));
+        check("PHOST-05", "an empty host is refused", !plausible_ping_host(""));
+        // OPTION INJECTION. An argv array stops a SHELL, and does nothing at
+        // all about this: `-f` is an ordinary argv element that `ping` reads as
+        // flood-ping. The implementation also passes `--`, but Windows `ping`
+        // has no `--`, so on that platform this check is the ONLY defence.
+        check("PHOST-06", "a leading '-' is refused — it would be an OPTION, not a host",
+              !plausible_ping_host("-f"));
+        check("PHOST-07", "...including a long-form option", !plausible_ping_host("--flood"));
+        // SHELL metacharacters are inert against an argv array, and refused
+        // anyway: two independent defences against the worst outcome.
+        check("PHOST-08", "a shell metacharacter is refused", !plausible_ping_host("a;rm -rf b"));
+        check("PHOST-09", "a command substitution is refused",
+              !plausible_ping_host("$(id)") && !plausible_ping_host("`id`"));
+        check("PHOST-10", "a pipe or redirect is refused",
+              !plausible_ping_host("a|b") && !plausible_ping_host("a>b"));
+        check("PHOST-11", "an embedded space is refused — it would split into two argv words",
+              !plausible_ping_host("two words"));
+        check("PHOST-12", "an embedded NUL truncates nothing, because the whole string is "
+              "checked and the NUL itself is refused",
+              !plausible_ping_host(std::string("ok\0-f", 5)));
+        check("PHOST-13", "a newline is refused", !plausible_ping_host("a\nb"));
+        check("PHOST-14", "255 bytes is the longest accepted",
+              plausible_ping_host(std::string(255, 'a')));
+        check("PHOST-15", "256 bytes is the first refused",
+              !plausible_ping_host(std::string(256, 'a')));
+
+        // ── the REAL pinger, for everything that happens before the socket ──
+        //
+        // WHY THESE ROWS EXIST AND WHY THEY STOP WHERE THEY DO. The command
+        // surface is covered by a fake in `esp_at_test`, as the resolver's is.
+        // What a fake cannot cover is that the REAL pinger applies the address
+        // policy at all — and that half is completely deterministic, because
+        // the policy refuses before any socket is opened and an IP LITERAL
+        // needs no DNS. So these rows touch no network and need no privilege.
+        //
+        // THE ECHO ITSELF IS DELIBERATELY NOT ASSERTED HERE. Whether an
+        // unprivileged ICMP socket may be opened depends on the host
+        // (`net.ipv4.ping_group_range`) and on whatever a CI container allows.
+        // A row asserting success would be an environment dependency dressed
+        // up as a unit test; one accepting "Done OR Failed" would be vacuous,
+        // which is a defect this issue has already produced more than once.
+        // Neither is worth having, so the socket is left to manual
+        // verification and the honest-failure path below.
+        {
+            AddressPolicy permissive = loopback_ok();
+            auto          p = make_icmp_pinger(permissive);
+            check("PICMP-01", "an implausible host is refused before anything is opened",
+                  !p->begin("-f") && !p->begin("") && p->state() == PingState::Idle);
+        }
+        {
+            // THE POLICY REACHES THE PING. Without this the command would be a
+            // way to probe exactly the addresses AT+CIPSTART and AT+CIPDOMAIN
+            // refuse — "is the cloud-metadata service there?" answered by
+            // latency instead of by a connection.
+            auto p = make_icmp_pinger(kDefault);   // loopback DENIED
+            const bool accepted = p->begin("127.0.0.1");
+            const bool settled  = wait_until(
+                [&] { p->poll(); return p->state() != PingState::Pinging; }, 4000);
+            check("PICMP-02",
+                  "a literal the address policy denies FAILS without an echo ever being sent",
+                  accepted && settled && p->state() == PingState::Failed);
+        }
+        {
+            auto p = make_icmp_pinger(kDefault);
+            p->begin("169.254.169.254");           // cloud metadata
+            const bool settled = wait_until(
+                [&] { p->poll(); return p->state() != PingState::Pinging; }, 4000);
+            check("PICMP-03", "and so does the cloud-metadata address",
+                  settled && p->state() == PingState::Failed);
+        }
+        {
+            auto p = make_icmp_pinger(kDefault);
+            p->begin("127.0.0.1");
+            wait_until([&] { p->poll(); return p->state() != PingState::Pinging; }, 4000);
+            p->reset();
+            check("PICMP-04", "reset() returns it to Idle, as EspPinger promises",
+                  p->state() == PingState::Idle && p->last_error().empty());
+        }
+    
     }
 
     std::printf("\n======================================================\n");

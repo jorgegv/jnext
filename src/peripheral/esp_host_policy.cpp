@@ -263,6 +263,52 @@ esp::DenyReason EspGatedResolver::denial_reason() const {
     return blocked_ ? esp::DenyReason::None : inner_->denial_reason();
 }
 
+// ---------------------------------------------------------------------------
+// EspGatedPinger (GH #154, owner Q6)
+// ---------------------------------------------------------------------------
+
+EspGatedPinger::EspGatedPinger(std::unique_ptr<esp::EspPinger> inner, EspHostPolicy policy,
+                               EspConnectionLog& log)
+    : inner_(std::move(inner)), policy_(std::move(policy)), log_(log) {}
+
+bool EspGatedPinger::begin(const std::string& host) {
+    blocked_ = false;
+    refused_error_.clear();
+    if (!policy_.allows(host)) {
+        ++refusals_;
+        blocked_       = true;
+        refused_error_ = "host is not in the --esp-allow list";
+        Log::esp01()->warn("REFUSED ping of '{}' — host is not in the --esp-allow list", host);
+        log_.push({EspEvent::Kind::Refused, host, 0, "not in the allowlist"});
+        // TRUE, not false — see the class comment. A rejected request answers a
+        // bare ERROR where a real failure answers `+timeout` + ERROR, and that
+        // difference is an allowlist oracle.
+        return true;
+    }
+    return inner_->begin(host);
+}
+
+void EspGatedPinger::poll() {
+    if (blocked_) return;
+    inner_->poll();
+}
+
+esp::PingState EspGatedPinger::state() const {
+    return blocked_ ? esp::PingState::Failed : inner_->state();
+}
+
+unsigned EspGatedPinger::rtt_ms() const { return inner_->rtt_ms(); }
+
+const std::string& EspGatedPinger::last_error() const {
+    return blocked_ ? refused_error_ : inner_->last_error();
+}
+
+void EspGatedPinger::reset() {
+    blocked_ = false;
+    refused_error_.clear();
+    inner_->reset();
+}
+
 void EspGatedResolver::reset() {
     blocked_ = false;
     refused_error_.clear();

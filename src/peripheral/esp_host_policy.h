@@ -1,5 +1,6 @@
 #pragma once
 
+#include "esp01/esp_ping.h"
 #include "esp01/esp_socket.h"
 
 #include <cstddef>
@@ -282,6 +283,43 @@ private:
     bool          blocked_   = false;
     std::string   refused_error_;
     std::uint64_t refusals_  = 0;
+};
+
+/// The same gate again, for `AT+PING` (GH #154, owner Q6).
+///
+/// An ungated pinger is a HOST PROBE the allowlist never agreed to: a guest
+/// restricted to one host could still map reachability across the user's whole
+/// LAN. So the rule stays one rule — **jnext pings only a host it would have
+/// let the guest dial.**
+///
+/// A REFUSAL IS ACCEPTED-THEN-FAILED, exactly as `EspGatedResolver`'s is, and
+/// for exactly the same reason: `AT+PING`'s failure reply is `+timeout` +
+/// `ERROR`, and a rejected REQUEST would answer a bare `ERROR` instead. That
+/// difference would be an allowlist oracle, so `begin()` returns true for a
+/// blocked host and the state goes straight to `Failed`.
+class EspGatedPinger final : public esp::EspPinger {
+public:
+    EspGatedPinger(std::unique_ptr<esp::EspPinger> inner, EspHostPolicy policy,
+                   EspConnectionLog& log);
+
+    bool               begin(const std::string& host) override;
+    void               poll() override;
+    esp::PingState     state() const override;
+    unsigned           rtt_ms() const override;
+    const std::string& last_error() const override;
+    void               reset() override;
+
+    /// How many pings the allowlist refused. Exposed so a test can ASSERT the
+    /// refusal rather than grep a log for it.
+    std::uint64_t refusals() const { return refusals_; }
+
+private:
+    std::unique_ptr<esp::EspPinger> inner_;
+    EspHostPolicy                   policy_;
+    EspConnectionLog&               log_;
+    bool                            blocked_ = false;
+    std::string                     refused_error_;
+    std::uint64_t                   refusals_ = 0;
 };
 
 // ---------------------------------------------------------------------------

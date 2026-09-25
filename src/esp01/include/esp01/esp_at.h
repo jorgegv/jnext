@@ -1,5 +1,6 @@
 #pragma once
 
+#include "esp01/esp_ping.h"
 #include "esp01/esp_socket.h"
 
 #include <array>
@@ -643,7 +644,7 @@ public:
     /// either existed. That keeps every consumer that only wants outbound TCP
     /// on a one-argument constructor.
     explicit AtEngine(EspTransport& transport, EspListener* listener = nullptr,
-                      EspResolver* resolver = nullptr);
+                      EspResolver* resolver = nullptr, EspPinger* pinger = nullptr);
 
     // ── EspDevice ─────────────────────────────────────────────
 
@@ -700,6 +701,13 @@ public:
     /// reply. The resolver's own `poll()` is a non-blocking flag test, so
     /// holding the lock across it costs nothing.
     void service_domain_lookup();
+
+    /// Service an `AT+PING` in flight (GH #154). PUBLIC for the same reason
+    /// `service_domain_lookup` is: `ThreadedEsp`'s worker calls the halves of
+    /// `poll()` directly, so a hook added only to `poll()` never runs for a
+    /// threaded consumer — which is every real one. That cost a whole review
+    /// cycle once, and the mistake is not repeated here.
+    void service_ping();
 
     /// Emulated-time service: frame `+IPD` when the wire is quiet and release
     /// guest-bound bytes at one per `ticks_per_byte`.
@@ -961,6 +969,8 @@ private:
     void cmd_cipmode_query(const std::string& args);
     void cmd_cipstatus(const std::string& args);
     void cmd_cipdomain(const std::string& args);
+    void cmd_ping(const std::string& args);
+    void finish_ping(bool ok);
     /// Service an `AT+CIPDOMAIN` in flight. Called from `poll()`, never from
     /// dispatch — the answer is not knowable when the command arrives.
     /// Emit `AT+CIPDOMAIN`'s reply and let the guest's queued input through.
@@ -1113,6 +1123,14 @@ private:
 
     /// GH #154 — `AT+CIPDOMAIN`. Null unless the host supplied one.
     EspResolver* resolver_ = nullptr;
+
+    /// GH #154 (owner Q6) — `AT+PING`. Null unless the host supplied one.
+    EspPinger* pinger_ = nullptr;
+
+    /// True from `AT+PING`'s dispatch until its reply is queued. The THIRD
+    /// deferred command; everything the first two needed, it needs.
+    bool                                  ping_pending_ = false;
+    std::chrono::steady_clock::time_point ping_deadline_{};
 
     /// True from the moment `AT+CIPDOMAIN` is dispatched until its reply is
     /// queued. It is the SECOND command in this surface whose answer does not
