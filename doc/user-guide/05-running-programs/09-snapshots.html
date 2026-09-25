@@ -3069,7 +3069,7 @@ holds NextZXOS, which is not ours to redistribute. It records the card's
 <li><strong>A different card</strong> — different size, different partitioning, different
   volume serial — is <strong>refused</strong>. Restoring a Next mid-way through reading a
   file, against a card where that file is somewhere else, is the kind of wrong
-  that looks like a crash an hour later. <code>--snapshot-force-sdcard</code> overrides
+  that looks like a crash an hour later. <code>--snapshot-mode force</code> overrides
   it, and says what it is overriding.</li>
 <li><strong>The same card, changed since</strong> — which happens constantly, because JNEXT
   writes guest changes back to the card — <strong>restores with one warning line</strong>.
@@ -3084,14 +3084,22 @@ and DivMMC ROM code paged into it. Those are not ours to redistribute and they
 are not yours either. Keep your snapshots; do not post them.</p>
 <p>If you want to hand somebody a program, hand them the <code>.nex</code>.</p>
 <h2 id="two-flags-for-when-something-is-wrong">Two flags for when something is wrong<a class="headerlink" href="#two-flags-for-when-something-is-wrong" title="Permanent link">&para;</a></h2>
-<p><code>--snapshot-uncompressed</code> writes the file with nothing deflated. It is then an
-ordinary ZIP you can open with <code>unzip -p</code> and read with a text editor — the
+<p><code>--snapshot-compression off</code> writes the file with nothing deflated. It is then
+an ordinary ZIP you can open with <code>unzip -p</code> and read with a text editor — the
 manifest, and one JSON document per subsystem. About five times the size, and
-JNEXT reads both forms.</p>
-<p><code>--snapshot-strict</code> turns the warnings into refusals: a snapshot from a JNEXT
-whose state model this build does not know, or one whose recorded ROM digests
-differ from the ROMs now loaded. A missing tape file is never a refusal even
-here — a machine restores perfectly well without the tape it was reading.</p>
+JNEXT reads both forms. <code>on</code> is the default.</p>
+<p><code>--snapshot-mode</code> says how much a load refuses, and it has three positions
+because they are one dial rather than a set of switches:</p>
+<ul>
+<li><code>normal</code> — the default, described above: warnings for a changed state model
+  or changed ROMs, a refusal for a different card.</li>
+<li><code>strict</code> — turns those warnings into refusals: a snapshot from a JNEXT whose
+  state model this build does not know, or one whose recorded ROM digests
+  differ from the ROMs now loaded. A missing tape file is never a refusal even
+  here — a machine restores perfectly well without the tape it was reading.</li>
+<li><code>force</code> — restores against a different SD card anyway, saying what it is
+  overriding.</li>
+</ul>
 
 
 

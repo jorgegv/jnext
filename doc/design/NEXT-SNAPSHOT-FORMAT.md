@@ -660,7 +660,7 @@ Rules:
   chosen so `unzip -l` reads sensibly and so `manifest.json` is first.
 - **Members may be `STORED` or `DEFLATE`.** Default `DEFLATE` level 9 (the
   warm-start cache's reasoning applies: written once, read often).
-  `--snapshot-uncompressed` writes everything `STORED` — the settled point-6
+  `--snapshot-compression off` writes everything `STORED` — the settled point-6
   debugging mode, and one flag on the member writer rather than a second code
   path.
 - **ZIP64 is not written and is refused on read.** No member can approach 4 GB;
@@ -758,20 +758,110 @@ statements a careful reader cannot reconcile. Now it can.
 **Why the manifest is safe with numbers, stated rather than assumed.** §7.4's
 hazard is real and measured: the `/INT` window exceeds 2^53 in *every*
 snapshot, so a JavaScript validator would silently corrupt it. Every `u64` in
-the manifest is bounded well below that — `members[].bytes` by the ZIP format's
-4 GB (no ZIP64, §6), `partition_lba` by a 32-bit sector index, `capture.frame`
-at 2^53 frames being 5.7 billion years, `tape.position_tstates` at 2^53
-T-states being ~81 years of tape, and `sdcard.identity.image_bytes` at 2^53
-bytes being 8 PB. **§7.4 explicitly rejects per-field judgements of this kind**,
-and it is right to inside `state/*.json`, where the descriptor emits whatever a
-subsystem declares and a future field could be anything. The manifest's field
-list is fixed by this document and changes only when this document does, which
-is the difference that makes the judgement safe here and unsafe there.
+the manifest is bounded well below that — and **each bound is derived from
+something, not asserted**:
 
-**This is an owner decision if you disagree**: `format_version` is 1 and
-nothing has shipped, so making the manifest's `u64`s strings too is still a
-cheap change. It would cost the schema, the overlay, both examples and the
-reader; it would buy one fewer rule to remember.
+| Manifest `u64` | Bound | What makes it true |
+|---|---|---|
+| `members[].bytes` | ≤ 64 MiB | **Enforced, twice.** `zip::` refuses any member over `kMaxMemberBytes` = 64 MiB on write and on read (`zip_archive.h:152`, `zip_archive.cpp:256`, `:665`), and the manifest's declaration must EQUAL the member's actual `uncomp_size` or the file is refused (`jns_container.cpp:881-886`). The ZIP64-free 4 GiB ceiling (`kMaxU32Field`, `zip_archive.cpp:38`, `:265-268`) sits outside that as a second wall. |
+| `media.sdcard.identity.partition_lba` | ≤ 2^32 - 1 | **Enforced on both sides.** It IS a 32-bit MBR start-LBA: the writer reads it as `rd_u32(pe + 8)` from a four-byte partition-entry field (`sd_rom_extractor.cpp:100`), and the reader parses it through `get_u32_key`, which refuses anything above `UINT32_MAX` (`jns_container.cpp:76-80`) — the member stays a `uint64_t` and the value is widened after the check. The schema carries the matching `"maximum"`, so the published grammar says the same thing. `JNSN-29` pins the refusal **and** that `UINT32_MAX` itself is accepted; `verify_schema.py`'s fault matrix pins the schema half. |
+| `capture.frame` | ≤ 2^53 - 1 | **Arithmetic, not calendar.** It is `monotonic_tstates() / per_frame`, with `per_frame = lines_per_frame × tstates_per_line` (`emulator_jns.cpp:346-350`). A `uint64_t` divided by any divisor ≥ 2 048 cannot exceed `(2^64 - 1) / 2^11` = 2^53 - 1, and the real divisor is 69 888 on the 48K (312 lines × 224 T-states — `timing.h:36-37`, `tstates_per_line = pixels_per_line / 2` at `emulator.cpp:8342-8343`). Thirty-four times the margin the bound needs. |
+| `media.tape.position_tstates` | ~81 years of tape | 2^53 T-states at 3.5 MHz is 2.57 × 10^9 s. The only bound here that is a calendar, and the tape would have to be longer than that. |
+| `media.sdcard.identity.image_bytes` | **the next paragraph** | The one whose bound is a property of the INPUT rather than of the format, and the one an earlier revision waved at. |
+
+*(That `capture.frame` row previously read "2^53 frames being 5.7 billion
+years". The figure was the **2^63** one: 2^53 frames at 50 Hz is 5.7
+**million** years. The conclusion never turned on it, and now it does not turn
+on a calendar at all.)*
+
+*(And the `partition_lba` row is the rule catching its own author. The first
+revision of this table asserted the reader "refuses anything above
+`UINT32_MAX`" and cited `get_u32_key` — a function `partition_lba` **was not
+parsed with**. It went through `get_u64_key`, which checks only
+non-negativity, and the schema overlay carried no `maximum` either, so the
+stated proof rested on nothing at all and no row exercised it. Review of this
+very commit found it. The fix was to make the claim TRUE — bound the read side,
+add the schema `maximum`, add `JNSN-29` — rather than to weaken the row,
+because the bound is a fact about the MBR rather than a limit jnext invented.
+Recorded here because "the documentation states a proof that does not exist"
+is exactly the failure the rule below was written to prevent, and it is worth
+knowing it can reach the person writing the rule.)*
+
+**`image_bytes`, derived rather than waved at.** The earlier text bounded it
+"at 2^53 bytes being 8 PB", which restates the *field's own width* and is not a
+constraint on anything. The real derivation has two steps, and the second is
+where the honesty is.
+
+1. **What jnext can ADDRESS inside an image is bounded at 2 TiB.** The field is
+   recorded only for an image `read_sd_image_identity` accepted
+   (`sd_rom_extractor.cpp:508-604`; every failure path zeroes the whole struct,
+   `:520`), and acceptance requires an MBR partition entry of type `0x0B`/`0x0C`
+   whose start LBA is a **32-bit** sector index (`rd_u32(pe + 8)`, `:100`),
+   followed by a BPB found at `partition_lba × 512` — a literal 512, `:127`.
+   `2^32 × 512 = 2^41 B = 2 TiB`, which is **4 096×** below 2^53. Taking
+   instead the largest `bytes_per_sector` `parse_bpb` will accept, 4 096
+   (`:149-150`), the FAT walk's own `off = lba × bytes_per_sector` with a
+   `uint32_t` lba (`read_sectors`, `:63-66`) tops out at
+   `2^32 × 4 096 = 2^44 = 16 TiB` — still **512×** below 2^53. Either way the
+   *volume* is nowhere near the hazard.
+
+2. **But `image_bytes` is not the volume.** It is the length of the FILE —
+   `seekg(0, end)` then `tellg()`, `:531-538` — and **nothing in the tree ties
+   the two together**. An image carrying arbitrary bytes past the end of its
+   partition is accepted; the runtime card reads the same file length the same
+   way and merely *declares* a capacity derived from it — capped at the
+   register maximum in CSD v1.0 (`sd_card.cpp:1213-1219`) and silently
+   truncated to the 22-bit `C_SIZE` field in v2.0 (`:1299-1303`) — while
+   refusing transfers past the end of the file rather than refusing the file
+   (`:943`, `:1105-1107`). So step 1 bounds what jnext READS, not what this
+   field RECORDS, and there is no refusal anywhere that bounds the field.
+
+   What remains is therefore a statement about inputs, and it is written as
+   one: to reach 2^53 a user must present a file of **8 PiB or more** whose
+   valid MBR and FAT32 boot sector live in its first 2 TiB — 4 096× more file
+   than the largest volume jnext could address inside it. Two facts bound the
+   *damage* rather than the value. jnext's own arithmetic is exact at any
+   `uint64_t` (`nlohmann` round-trips it; `get_u64_key` reads it through an
+   `int64_t`, `jns_container.cpp:85-100`), so only an external JavaScript
+   validator is exposed at all; and the eager Tier-2 whole-file SHA-256 of
+   §11.3 — measured at 0.49 s per GiB — would spend about **47 days** on such a
+   file before either saving or loading it.
+
+   **This is the weakest of the five bounds, and saying so is the point.**
+   Two of them rest on no refusal at all — this one and
+   `media.tape.position_tstates` — but the tape's is a property of physical
+   media (there is no 81-year tape to record a position in), while this one is
+   a statement about what somebody might hand jnext. If that is ever judged
+   insufficient the fix is a refusal inside `read_sd_image_identity` — reject
+   an image longer than its own MBR can address — and **not** a change to the
+   encoding. That is a code change, and it is deliberately not made here.
+
+**§7.4 explicitly rejects per-field judgements of this kind**, and it is right
+to inside `state/*.json`, where the descriptor emits whatever a subsystem
+declares and a future field could be anything. The manifest's field list is
+fixed by this document and changes only when this document does, which is the
+difference that makes the judgement safe here and unsafe there — provided the
+list stays honest, which is what the rule below is for.
+
+**DECIDED by the owner, 2026-09-25 — the manifest's `u64`s stay NUMBERS.**
+Making them strings too was a live option (`format_version` is 1 and nothing
+had shipped); it was considered and declined. It would have cost the schema,
+the overlay, both examples and the reader, and bought one fewer rule to
+remember — while the scope sentence at the head of this section already
+answers the ambiguity that raised the question. The exception above stands as
+written.
+
+> **RULE — the guard rail that exception needs.** Any **new** `u64` field added
+> to `manifest.json` must EITHER have its upper bound stated in the table above
+> and **proved below 2^53**, OR be encoded as a decimal string exactly as
+> `state/*.json`'s are. There is no third option, and "it will never get that
+> big" is not a proof.
+
+The rule exists because a scope sentence repairs today's readers and does
+nothing about tomorrow's field. S9's incident was not that the rule was wrong
+— it was that there were **two** rules and only one of them was written down
+(§17, S9). The exception is written down now, and so is the obligation that
+comes with it.
 
 | Kind | Encoding | Schema can check |
 |---|---|---|
@@ -959,7 +1049,7 @@ file. What remains are genuine model changes, which is what the number is for.
 | `format_version` **<** this build's, reader removed | **Refuse**, naming the version and the release that dropped it. |
 | A **required** member or key (per the schema) is missing | **Refuse**, naming it. |
 | `model.machine` ≠ the machine currently constructed | **Reconfigure and restore.** The reader calls `init()` with `model.machine` and then applies — exactly what `Emulator::load_snapshot_buffer` already does for `.sna`/`.szx`/`.z80` (`emulator.cpp:8066-8083`, GH #239). The user must not have to get `--machine` right to reload their own save. (An earlier draft of this row said "Refuse" while justifying reconfiguration in the same sentence, and contradicted §8; the refusal is deleted.) |
-| `model.state_model_revision` ≠ this build's | **Restore, loudly.** One log line and a GUI status-bar note naming both revisions and both jnext versions. `--snapshot-strict` turns this into a refusal. |
+| `model.state_model_revision` ≠ this build's | **Restore, loudly.** One log line and a GUI status-bar note naming both revisions and both jnext versions. `--snapshot-mode strict` turns this into a refusal. |
 | An **unknown** member or key | Ignore it, and log one line per subsystem that had any (§12). |
 
 **Policy on dropping an old reader**: a `format_version` bump ships with the
@@ -982,7 +1072,17 @@ the alternative is a per-field judgement that goes stale.
 
 *(The scope qualifier is S9's; see §6.2. `manifest.json` uses plain numbers,
 and §6.2 says why that is safe for its fixed, document-controlled field list
-and would not be safe here.)*
+and would not be safe here. The owner **ratified that exception on 2026-09-25**
+— and it comes with an obligation, stated normatively in §6.2 and repeated
+here because this is the section a contributor adding a field lands on:*
+
+> *Any **new** `manifest.json` `u64` field must either have its upper bound
+> stated in §6.2's table and **proved below 2^53**, or be encoded as a decimal
+> string. "It will never get that big" is not a proof.*
+
+*§6.2 carries the proof for each of the five that exist today, including the
+one — `image_bytes` — whose bound is a property of the input and is not
+enforced anywhere.)*
 
 > An earlier draft of this document asserted that **no field qualifies today**,
 > reasoning that `monotonic_tstates()` and `Clock::cycle_` need about ten years
@@ -1398,7 +1498,7 @@ JNS re-expresses it through the descriptor and does not add state.
 |---|---|---|---|
 | **P1** ✓ **DONE (S6)** | **`SdCardDevice` has no `save_state` at all.** Its own header says so and enumerates what would be needed: `multi_block_`, `multi_block_sector_`, `state_`, `resp_buf_`, `resp_idx_`, `data_idx_`, `data_crc_count_`, `data_block_`. A snapshot taken mid-CMD18 stream restores a card that is not streaming. | **High** — this is the one that silently corrupts a running loader | **Serialise the FSM** into `state/sdcard.json`, plus the mounted path, the read-only flag and the read-overlay window. The field list is already written down in the header comment. |
 | **P2** | **SD image contents.** §11. | High | §11. |
-| **P3** ✓ **DONE (S6)** | **`rom_` is not serialised** — for 48K/128K/+3, ROM content comes from the SD image at load time and never travels. | Medium | Record `media.roms` digests (§8) and refuse on mismatch under `--snapshot-strict`, warn otherwise. Do **not** embed 64 KB of ROM: it is firmware, and N3 applies. |
+| **P3** ✓ **DONE (S6)** | **`rom_` is not serialised** — for 48K/128K/+3, ROM content comes from the SD image at load time and never travels. | Medium | Record `media.roms` digests (§8) and refuse on mismatch under `--snapshot-mode strict`, warn otherwise. Do **not** embed 64 KB of ROM: it is firmware, and N3 applies. |
 | **P4** ✓ **DONE (S6)** | **Tape state.** `tape_`/`tzx_tape_`/`wav_tape_` are excluded by design (tape position is independent of CPU rewind). A snapshot taken *during* a tape load restores a machine waiting for a tape that is not playing. | Medium | Record `media.tape` = (path, sha256, position in T-states, realtime flag) and reopen on restore — the esxDOS-handle shape. If the file is absent, warn and restore without it. |
 | **P5** ✓ **DONE (S6)** | **Framebuffer.** Regenerated by the next render, so a snapshot restored *paused* shows the previous frame until the user steps. | Low | `meta/preview.png` doubles as the restore-time paused image. Free — jnext already writes PNG. |
 | **P6** | **Mixer integration accumulator.** Deliberately not snapshotted; the first sample after a restore averages a short window. | Negligible | Keep the existing decision; document it. |
@@ -1535,7 +1635,7 @@ and mtime, the warm-start cache's existing mechanism reused verbatim.
 | Condition | Behaviour |
 |---|---|
 | No card mounted now, snapshot had one | **Refuse.** Naming the path and the volume label. |
-| `identity` differs (size, MBR or `BS_VolID`) | **Refuse.** This is the silently-wrong case settled point 4 demands be caught. `--snapshot-force-sdcard` overrides, with a warning that names both identities. |
+| `identity` differs (size, MBR or `BS_VolID`) | **Refuse.** This is the silently-wrong case settled point 4 demands be caught. `--snapshot-mode force` overrides, with a warning that names both identities. |
 | Only `informational.fat32_bs_vollab` differs | **No refusal, and no warning about the label or the identity.** It is never compared. *(Corrected at S7 — see the note under the table: it was written "nothing at all", and that is unreachable for an ON-DISK label change.)* |
 | `identity` matches, `content_stamp` differs | **Restore, with one warning line** naming the snapshot's digest and the current one. Legitimate and common — the card drifts. |
 | Both match | Silent. |
@@ -1741,7 +1841,7 @@ changes, which §7.1 makes the common case; refuses cleanly on a
 `format_version` bump. **Backward compatibility** (new jnext reads old file):
 works for additive changes and for renames covered by the retired-name table; a
 `state_model_revision` mismatch restores with a warning, or refuses under
-`--snapshot-strict`.
+`--snapshot-mode strict`.
 
 **Not promised:** that a snapshot taken by jnext 1.1 restores correctly in jnext
 2.0. The stamp exists so that when it does not, the failure is legible.
@@ -1962,14 +2062,34 @@ table, a `case` in `main.cpp`'s switch (enforced by `-Wswitch`), and an entry in
 |---|---|---|
 | `--load FILE` | — | **No new flag.** `.jns` joins the existing extension dispatch — `emulator_apply_load()` at `src/platform/emulator_boot.h:25` and the CLI pre-dispatch at `src/main.cpp:1566`, NOT `emulator.cpp:1153`, which this row cited and which is a `.nex` arming gate rather than a dispatcher (§3.3's S8 correction). The man page's `--load` list gains `.jns`. |
 | `--delayed-snapshot FILE` | — | **No new flag.** `.jns` joins the existing extension dispatch. Its man-page sentence — "the format is chosen by the extension of *FILE*: `.szx`, `.nex`, anything else `.sna`" — must be updated, and `cli-check` will not catch that, because it checks the flag set, not the prose. |
-| `--snapshot-uncompressed` | 0 | Write every member `STORED`. Settled point 6's debugging mode. |
-| `--snapshot-strict` | 0 | Turn the `state_model_revision` / ROM-digest / tape warnings into refusals. |
-| `--snapshot-force-sdcard` | 0 | Override the Tier-1 SD identity refusal (§11.3). Deliberately verbose, because it is the flag that lets a user create the silently-wrong case the design exists to prevent. |
+| `--snapshot-compression STATE` | 1 | `on` (default) deflates every member; `off` writes them all `STORED`. Settled point 6's debugging mode. |
+| `--snapshot-mode MODE` | 1 | `normal` (default), `strict` — turn the `state_model_revision` / ROM-digest warnings into refusals — or `force` — override the Tier-1 SD identity refusal (§11.3), with a warning naming both identities. Deliberately verbose, because `force` is what lets a user create the silently-wrong case the design exists to prevent. |
 
-Five new flags is more surface than this feature deserves; the last three are
-all "make a warning a refusal" or "override a refusal". An alternative worth the
-owner's opinion: collapse them into one `--snapshot-mode strict|normal|force`.
-Listed in §18.
+**DECIDED by the owner, 2026-09-25 — the collapse happened.** S8 shipped three
+0-arg booleans, and this section's own suggestion (§18.2's question 2) is now
+the shipped surface. `--snapshot-strict` and `--snapshot-force-sdcard` are
+**one axis with three positions**: strict refuses more, force refuses less,
+normal sits between them. As two independent booleans, nothing rejected
+`--snapshot-strict --snapshot-force-sdcard` — asking to refuse more and less at
+once — and that was not merely unchecked prose, it was reachable: there was no
+mutual-exclusion check anywhere in the tree. **One valued flag makes the state
+unrepresentable rather than rejected**, which is the point; a rejection check
+would have papered over it.
+
+**`--snapshot-uncompressed` was deliberately NOT folded in.** It is a *write*
+option — how the members are stored — and does not belong on a restore-policy
+axis at all. It was renamed to `--snapshot-compression on|off` to read
+symmetrically with `--snapshot-mode`, and takes a value rather than becoming a
+0-arg `--snapshot-compress` because compression is already the default and a
+positively-named switch for it would be a no-op.
+
+**Clean rename, no back-compat aliases.** `format_version` is 1 and no public
+release carries the old spellings, so the three old flags are *gone*, not
+deprecated. (`--sd-card` exists in the table as a declared back-compat alias;
+that is the exception pattern and it is not what was wanted here.) The three
+internals — `jns_uncompressed`, `jns_strict`, `jns_force_sdcard` — are
+unchanged, and so is the §11.3 restore matrix: the three `--snapshot-mode`
+positions map onto the two booleans and nothing about the policy was rewritten.
 
 ### 15.2 GUI
 
@@ -2116,7 +2236,7 @@ none of these either, because it was written before the gaps were closed:
 | **SD FSM** | `S6-SD-*`, `S6-EMU-CMD18-MID` | §10.2 P1. A save taken mid-block, mid-stream of a CMD18 restores a card that is STILL streaming — asserted against a second card driven identically and never interrupted, because a hand-written expectation would only pin what the row's author believed the stream to be. Plus the negotiated capacity class surviving (GH #94's two fields decide how every later address is read), the transfer-in-flight predicate §11.3's last row needs, and the write path's purity. |
 | **Multiface type** | `S6-MF-TYPE-01`, `S6-EMU-MF-TYPE` | §10.2 P13, all four NR 0x0A encodings. `MF-CORE-12` is built with `mf_type=10` and did NOT catch this, because it asserts `mode_128()` and the VHDL decodes both `"01"` and `"10"` to that. |
 | **Declared defaults** | `S6-DEF-*`, `S6-SD-DEFAULTS-*`, `S6-MF-DEFAULTS-01` | §12.2's gate, and the rows that make it more than a tautology: one drifts a default and requires the failure to name the field with both numbers, one covers every scalar primitive rather than the `u8` the first one drifts, one asserts the aggregates contribute nothing in either direction, and two assert the defaulted/undefaulted SPLIT so "the gate passed" cannot mean "the gate saw nothing". |
-| **Media identity** | `S6-MEDIA-01`, `S6-ROMS-*`, `S6-TAPE-*`, `S6-PREVIEW-*` | §10.2 P3/P4/P5: the round trip through the manifest TEXT, the ROM-digest warn/refuse matrix (including that a name only one side has is not a mismatch, and that the boot ROM is named separately), the absent-tape warning that is never a refusal even under `--snapshot-strict`, and the preview's declaration versus its mere presence. |
+| **Media identity** | `S6-MEDIA-01`, `S6-ROMS-*`, `S6-TAPE-*`, `S6-PREVIEW-*` | §10.2 P3/P4/P5: the round trip through the manifest TEXT, the ROM-digest warn/refuse matrix (including that a name only one side has is not a mismatch, and that the boot ROM is named separately), the absent-tape warning that is never a refusal even under `--snapshot-mode strict`, and the preview's declaration versus its mere presence. |
 | **Mid-frame save** | `S6-P7-*` | §10.2 P7. The advance happens, the debugging session survives it intact, a machine already at a boundary is not advanced — and, the row that matters, the frame's per-scanline change log is NOT wiped. Mutation-tested: re-running `begin_new_frame()` in the advance kills `S6-P7-HISTORY-01` and nothing else. |
 | **Emulator declaration** | `S6-DECL-EMULATOR`, `S6-WIDTH-EMULATOR*` | The field list and the width of each of the five blocks §10.1's last row became. |
 
@@ -2147,8 +2267,8 @@ length of 2 153 701 follows arithmetically.
 | `snapshot-jns-roundtrip-func` ✓ **LANDED (S8)** — designed here as `snapshot-roundtrip-func` | Save at frame N, restart with `--load out.jns`, run M more frames, screenshot, compare **pixel-exact** against one uninterrupted run of **N+1+M** frames. **The `+1` is not a fudge**: a save always advances to the next frame boundary (§10.2 P7), so a snapshot requested at N holds N+1. Comparing against N+M reports ~16 000 differing pixels on `beast.nex`, which looks exactly like a defect and is the test's arithmetic. As shipped: the 48K leg (static BASIC prompt, no offset arithmetic) and the `beast.nex` leg at M=10, both **0 pixels**, plus a control asserting the workload really moves — without it the Next leg would pass against a demo that had stopped animating. The `copper-demo` and mid-CMD18 workloads below remain for S9. Original text: **Named workloads, because a quiescent 48K boot passes for a neighbouring reason**: `beast.nex` (per-scanline change logs + Copper gradient — the §10.3 class), `copper-demo` (Copper PC mid-list), and a run captured **mid-CMD18 SD stream** (P1). A pass on any one of those means something; a pass on a BASIC prompt does not. |
 | `snapshot-foreign-szx-func` ✓ **LANDED (S9)** — designed here as `snapshot-foreign-fuse-func`, and it links **libspectrum** instead of scraping FUSE's debugger; see §17's S9 append for why the substitution is stronger rather than weaker. Original text: §13.2(1): on a **128K** machine, write `.jns` and `.szx` at the same instant; load the `.szx` in **real FUSE** headless (`/usr/bin/fuse` + Xvfb + `--debugger-command`, which is documented in `man fuse`, not `--help`); assert the spec-written Python reader's extraction from the `.jns` agrees with FUSE on registers, paging and sampled RAM. **The row FAILS if FUSE produced no output** — asserted before any comparison, because an empty-vs-empty comparison would pass vacuously. Skips without FUSE/Xvfb locally; hard-fails in CI. |
 | `snapshot-schema-func` ✓ **LANDED (S9)** | Validate the written file with Python `jsonschema` against the committed schema **plus the constraint overlay**, and `unzip -t` it. As shipped it validates REAL Next and 48K archives (`make schema-check` validates a hand-transcribed manifest, which is a different claim), and carries a mutation leg: relabelling a Next manifest as `48k` must be rejected by the overlay's §4.3(2) invariant, or every validation above it is decorative. Skips if the tools are absent; hard-fails in CI. |
-| `snapshot-uncompressed-func` — **covered, not added as its own row (S9)** | Its two claims already have homes, and a third row asserting them again would be duplication rather than coverage: `rewind_test`'s `JNS-RT-03`/`04` prove the STORED round trip restores IDENTICALLY and that the archive really is larger than the deflated one, and `snapshot-spec-reader-func` feeds a `--snapshot-uncompressed` archive to the independent reader — which reads it with Python's `zipfile`, i.e. not by us. |
-| `snapshot-sdcard-mismatch-func` ✓ **LANDED (S7)** | Save; mutate a sector of a **copy** of the card; restore → assert the Tier-2 warning and that the run proceeds. Then mutate `BS_VolID` → assert the Tier-1 refusal **and a non-zero exit**. Then mutate **only** `BS_VolLab` → assert no refusal and **no warning naming the label or the identity** — the "no warning at all" this row originally asked for is unreachable, because the label is a byte of the image and Tier 2 digests the image (see §11.3's S7 correction). As shipped it also carries the two legs the three above do not reach: the same Tier-2 drift **mid-transfer**, which must refuse, and `--snapshot-force-sdcard`, which must downgrade the Tier-1 refusal to a warning naming both serials. **It drives `sd_identity_test --verdict`, not `jnext --load out.jns`**, for the reason `snapshot-paused-advance-func` drives the existing save path: the `.jns` CLI does not exist until S8. That is not a test double — the sub-mode calls `describe_sdcard_for_snapshot`, writes a real `.jns` through `SnapshotWriter` and opens it through `open_snapshot`; S8 replaces the front end without touching the legs. Leg 0 runs the **real** per-run NextZXOS card against itself (no copy, must be silent); the mutation legs use a real MBR + FAT32 image the test binary emits, because three mutated copies of a 1 GB card would cost 3 GB per run wherever reflink is unavailable — CI included — and a Tier-1 field is the same 81 bytes whatever the image's size. |
+| `snapshot-uncompressed-func` — **covered, not added as its own row (S9)** | Its two claims already have homes, and a third row asserting them again would be duplication rather than coverage: `rewind_test`'s `JNS-RT-03`/`04` prove the STORED round trip restores IDENTICALLY and that the archive really is larger than the deflated one, and `snapshot-spec-reader-func` feeds a `--snapshot-compression off` archive to the independent reader — which reads it with Python's `zipfile`, i.e. not by us. |
+| `snapshot-sdcard-mismatch-func` ✓ **LANDED (S7)** | Save; mutate a sector of a **copy** of the card; restore → assert the Tier-2 warning and that the run proceeds. Then mutate `BS_VolID` → assert the Tier-1 refusal **and a non-zero exit**. Then mutate **only** `BS_VolLab` → assert no refusal and **no warning naming the label or the identity** — the "no warning at all" this row originally asked for is unreachable, because the label is a byte of the image and Tier 2 digests the image (see §11.3's S7 correction). As shipped it also carries the two legs the three above do not reach: the same Tier-2 drift **mid-transfer**, which must refuse, and `--snapshot-mode force`, which must downgrade the Tier-1 refusal to a warning naming both serials. **It drives `sd_identity_test --verdict`, not `jnext --load out.jns`**, for the reason `snapshot-paused-advance-func` drives the existing save path: the `.jns` CLI does not exist until S8. That is not a test double — the sub-mode calls `describe_sdcard_for_snapshot`, writes a real `.jns` through `SnapshotWriter` and opens it through `open_snapshot`; S8 replaces the front end without touching the legs. Leg 0 runs the **real** per-run NextZXOS card against itself (no copy, must be silent); the mutation legs use a real MBR + FAT32 image the test binary emits, because three mutated copies of a 1 GB card would cost 3 GB per run wherever reflink is unavailable — CI included — and a Tier-1 field is the same 81 bytes whatever the image's size. |
 | `snapshot-paused-advance-func` ✓ **LANDED (S6)** | **As shipped it drives the existing save path**, not `.jns`, which does not exist until S8: headless, `--magic-breakpoint` + `magic_bp_demo.nex` (the same pause `screenshot-paused-func` drives) + `--delayed-snapshot`, asserting the paused save WRITES, exits zero, reloads in a fresh process and reports the advance — with a control run that never pauses and must never report one. The pixel half of the original design below is deliberately NOT claimed there: a `.sna` carries no scheduler queue and no per-scanline history, so the comparison would be vacuous. It is pinned at the unit tier instead, where the oracle exists — `rewind_test` row `S6-P7-HISTORY-01` breaks the advance and watches the frame's change log vanish. The `beast.nex` form below returns at S9, when `.jns` can carry what it needs to mean something. Original design: pause mid-frame in the debugger (on `beast.nex`, which has a live per-scanline Copper gradient), save, and assert three things: the save **succeeds**; the restored machine replays the frame **pixel-identically** — i.e. the advance did not wipe the change logs, the Task 40 defect (§15.2); and the live machine is left at the following frame boundary. The workload is `beast.nex` specifically because a quiescent screen cannot distinguish a preserved raster history from a destroyed one. |
 
 `JNEXT_TEST_JOBS=4` on every regression invocation, as always.
@@ -2228,7 +2348,51 @@ staleness gate**: a field renamed in a declaration changes the file and no gate
 says so. The `JNSD`/`JNSE` rows still pin the encoding, `JNS-RT-02` still pins
 that every field round-trips, and `rewind_test`'s width rows still pin the
 binary side — so the field set is not unguarded, only the *published schema* of
-it is. S9 is where that closes.
+it is. ~~S9 is where that closes.~~ **S9 did not close it, and the owner has
+since ACCEPTED the gap — see immediately below.**
+
+#### The owner's decision, 2026-09-25 — ACCEPTED, not outstanding
+
+The struck sentence above said S9 would close it; S9 did not (§17, "What S9
+did NOT close"). That left this reading as an open TODO, which is the wrong
+record: it invites the next contributor to re-derive a cost the owner has
+already weighed twice. **The owner considered the gap on 2026-09-25 and
+accepted it.** It is a recorded decision from here on, not an item of work.
+
+The reasoning, re-affirmed rather than re-argued:
+
+1. **`SchemaRegistry::register_subsystem` still has zero call sites, and
+   filling it means constructing all thirty-four subsystems.** A declaration
+   binds references to an object's members, so walking one needs an instance —
+   a `Ram`, a `Renderer`, an `Emulator`. That is the emulator link the owner
+   already rejected on cost, arriving by another door. The cost has not moved
+   since S8 assessed it.
+2. **The substitutes are real, and they are not a schema's weaker cousin.**
+   The spec-written Python reader (`test/snapshot/jns_reader.py`) parses
+   **every** real `state/*.json` against THIS DOCUMENT rather than against the
+   code; `JNS-RT-02` requires a machine restored from a `.jns` to emit a
+   **byte-identical binary state stream** to the machine it was saved
+   from, which is a field-level oracle for the assembler's coverage; and the
+   `JNSD`/`JNSE` rows pin the encoding. A generated schema would assert that
+   the shape is what the CODE says it is; the reader asserts it is what the
+   SPEC says it is, which is the stronger of the two claims about a file other
+   people will read.
+
+**What is still uncovered, and this decision does not soften it by one word.**
+A field renamed in a declaration changes `state/*.json` and **no gate says
+so**. The spec-written reader deliberately does not know the field names — it
+reads key names out of the file rather than guessing them, because the spec
+fixes a field's *encoding* and not its *name* (`jns_reader.py`, `cpu()`) — so
+it cannot detect a rename either. §13.3's "narrowed, not closed" posture
+applies to this surface unchanged, and nothing here is a claim of coverage.
+
+**The split gate remains available if it is ever wanted.** A cheap byte-diff
+`schema-check` over a committed `state/*` schema, plus a heavier, separately
+invoked regeneration target that needs the emulator link. The S8 revisit
+declined it because the cheap half cannot detect staleness the heavy half has
+not refreshed — a reason it is not *sufficient* on its own, not a reason it is
+unavailable. Reaching for it is a decision to revisit deliberately, not a gap
+to rediscover by accident.
 
 ## 17. Staged implementation plan and effort
 
@@ -2309,6 +2473,12 @@ rejected. What S9 added instead is an independent reader that parses every
 `snapshot-schema-func` validates the real manifest rather than a hand-written
 one. The schema gap is narrower and is **not closed**, and §13.3's posture
 applies to it unchanged.
+
+**The owner ACCEPTED that gap on 2026-09-25**, with the reasoning and the
+substitutes recorded in §16.3. It is therefore a decision, not an outstanding
+TODO for a later stage to pick up — and the split gate stays on the table as
+an option to reach for, not as unfinished business. What remains uncovered is
+unchanged and is stated there in full.
 
 #### What S8 actually landed — read this, not the commit messages
 
@@ -2694,15 +2864,28 @@ mentions `.jns` is the one that freezes it.
 | Effort | Re-measured from the §9.4 call-site classification: **S2–S5 is 7–10 sessions**. §17 updated (whole project 14–23, incl. S5b). |
 | **Mid-frame save** | **Always advance to the next frame boundary; never refuse.** This overruled the recommendation in revision 2, which was to refuse while paused. §10.2 P7, §15.2 and §16.2 follow the decision; the cost — the machine ends up to one frame past where the user paused — is documented rather than hidden. |
 
+**Answered — 2026-09-25, same status, do not reopen.** Two questions this
+document left open after S9, decided by the owner:
+
+| Q | Answer |
+|---|---|
+| **`manifest.json` `u64` encoding** | **Numbers, as implemented.** `state/*.json` keeps §7.4's string rule; the manifest keeps plain JSON numbers; §6.2's scope sentence stands. The exception now carries a **rule** — any new manifest `u64` must have its bound stated in §6.2 and proved below 2^53, or be a decimal string — and §6.2 carries a derived bound for each of the five that exist, `image_bytes` included. |
+| **The `state/*.json` schema gap (§16.3)** | **Accepted, not closed.** Populating `SchemaRegistry` means constructing all thirty-four subsystems — the rejected emulator link by another door. The spec-written reader, `JNS-RT-02` and the `JNSD`/`JNSE` rows stand in its place; the split gate stays available. §13.3's "narrowed, not closed" posture is unchanged, and what is uncovered is stated in §16.3. |
+
 ### 18.2 Still open
 
 1. **File extension**: `.jns`? Alternatives considered: `.jnx` (too close to
    `.nex`), `.nxs`, `.jsnap`. The warm-start cache uses `.jwss`, so `.jns` is
    consistent with it.
 
-2. **CLI surface**: five flags, or collapse `--snapshot-strict` /
+2. ~~**CLI surface**: five flags, or collapse `--snapshot-strict` /
    `--snapshot-force-sdcard` into one `--snapshot-mode strict|normal|force`
-   (§15.1)?
+   (§15.1)?~~ **ANSWERED 2026-09-25 — collapsed.** The surface is
+   `--snapshot-mode strict|normal|force` plus `--snapshot-compression on|off`
+   (renamed from `--snapshot-uncompressed`, a *write* option that deliberately
+   stays off the restore-policy axis). Clean rename, no aliases. §15.1 carries
+   the decision and the reason — the pair of booleans made
+   "stricter and laxer at once" *representable*, and nothing rejected it.
 
 3. **Debugger state (§10.2 P9)**: confirm breakpoints, watches and the rewind
    ring do **not** travel. A case can be made for breakpoints — cheap, and a

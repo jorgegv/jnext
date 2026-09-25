@@ -65,7 +65,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  5045 | 5034 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **5045**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4737**. Rows the 117 suites declared in `test/unit-tests.conf` run live: **9025**.
+Rows the sections above carry: **5045**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4737**. Rows the 117 suites declared in `test/unit-tests.conf` run live: **9032**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -77,7 +77,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 74 suites (4273 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 74 suites (4280 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -91,7 +91,7 @@ These 74 suites (4273 live rows) have no VHDL-derived plan row to map, so they h
 | `fat32_image_test` | 16 | FAT32 on-disk format (host image reader) |
 | `sdcard_provisioner_test` | 64 | jnext SD-image download/patch policy (host side) |
 | `warm_start_test` | 39 | warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify |
-| `snapshot_test` | 295 | the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file |
+| `snapshot_test` | 297 | the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file |
 | `sd_identity_test` | 37 | the .jns snapshot SD-card MEDIA IDENTITY (doc/design/NEXT-SNAPSHOT-FORMAT.md §11.3): the two-tier identity read off a REAL image -- MBR partition table, FAT32 BS_VolID, whole-image digest -- and the refusal/warning matrix it feeds. The oracle is that design section plus the FAT32 on-disk format; the FPGA core never sees a filesystem, only SPI blocks, which `## SD Card` traces |
 | `audio_pacing_test` | 50 | host SDL audio pacing/underrun policy, downstream of the mixer |
 | `audio_fill_test` | 39 | host SDL device-boundary fill/hold policy (GH #208), downstream of the mixer |
@@ -112,7 +112,7 @@ These 74 suites (4273 live rows) have no VHDL-derived plan row to map, so they h
 | `host_key_latch_test` | 101 | host key latch/debounce compensation; guest matrix is `## Input` |
 | `log_test` | 22 | jnext logging façade (spdlog wiring) |
 | `log_gate_test` | 27 | jnext log-level gating |
-| `cli_options_test` | 19 | CLI flag table vs the man page (see `make cli-check`) |
+| `cli_options_test` | 24 | CLI flag table vs the man page (see `make cli-check`) |
 | `video_recorder_cmd_test` | 33 | FFmpeg command-line construction (host encoder) |
 | `nex_loader_test` | 147 | NEX file-format spec (host loader), no core counterpart |
 | `nex_v13_test` | 79 | NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart |
@@ -3269,7 +3269,7 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | JNS-RT-01 | save_jns writes a non-empty archive from a machine that has been running | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5011 |
 | JNS-RT-02 | a machine restored from a .jns produces a BYTE-IDENTICAL binary state stream to the machine it was saved from — the complete oracle for the assembler's field coverage | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5038 |
 | JNS-RT-02b | …and RAM REALLY TRAVELLED: bytes the destination machine never wrote are present after the restore. The stream comparison above cannot see this on its own — both fixtures are built by the same helper, so their RAM agrees before the load, and dropping the blob read left every row green until a rendered frame caught it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5050 |
-| JNS-RT-03 | --snapshot-uncompressed round-trips IDENTICALLY, and the archive is larger than the deflated one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5083 |
+| JNS-RT-03 | --snapshot-compression off round-trips IDENTICALLY, and the archive is larger than the deflated one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5083 |
 | JNS-RT-04 | …and it really is uncompressed: the STORED archive is bigger than the DEFLATE one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5089 |
 | JNS-RT-09 | the archive declares EXACTLY the expected subsystem members (`joy_uart` is absent here and that is correct — it is written only when a cable is attached, §9.5(5)) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5143 |
 | JNS-RT-10 | …and every one of them is actually in the archive: the writer cannot declare a subsystem it did not write | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5163 |

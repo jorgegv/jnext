@@ -119,6 +119,15 @@ void check(const char* id, const char* desc, bool cond,
     }
 }
 
+/// Join every complaint into one detail line. `check()` prints a single
+/// string, and reporting only the first would hide the other three cases this
+/// suite's sweeps run.
+std::string all_of_them(const std::vector<std::string>& v) {
+    std::string out;
+    for (const std::string& s : v) out += (out.empty() ? "" : "; ") + s;
+    return out;
+}
+
 std::string det(const char* f, ...) {
     char buf[1024];
     va_list ap;
@@ -920,7 +929,7 @@ int main(int argc, char** argv) {
         const bool read   = opened && r.read_text("state/cpu.json", got, why);
         check("JNSC-01",
               "a STORED member round-trips through the writer and the reader "
-              "byte for byte (§6: the --snapshot-uncompressed mode is the same "
+              "byte for byte (§6: the --snapshot-compression off mode is the same "
               "code path as the compressed one)",
               added && fin && opened && read && got == payload,
               det("added=%d fin=%d open=%d read=%d got=%zu", added, fin, opened,
@@ -1138,7 +1147,7 @@ int main(int argc, char** argv) {
         const bool readc = okc && rc.read("mem/bank5-vram.bin", bc, why);
         const bool reads = oks && rs.read("mem/bank5-vram.bin", bs, why);
         check("JNSC-13",
-              "--snapshot-uncompressed stores EVERY member (method 0) while "
+              "--snapshot-compression off stores EVERY member (method 0) while "
               "the default deflates, and both restore the identical bytes "
               "through the identical reader — settled point 6's debug mode is "
               "a flag on the member writer, not a second code path",
@@ -2388,6 +2397,154 @@ int main(int argc, char** argv) {
                   first_bad.c_str()));
     }
     {
+        // §6.2's bound on `partition_lba`, asserted on the READ side and in
+        // BOTH directions.
+        //
+        // The bound exists because an MBR partition entry's start LBA is a
+        // four-byte field (`rd_u32(pe + 8)`), so 2^32-1 is the largest value
+        // that can come out of one. §6.2 claimed the reader enforced it and
+        // the reader did not: the field was parsed with `get_u64_key`, which
+        // checks only non-negativity, and the schema overlay carried no
+        // `maximum` either — so the documented proof rested on nothing. Found
+        // by the review of the commit that wrote §6.2's rule.
+        //
+        // The row forges the manifest as TEXT rather than through
+        // `manifest_to_json`, because a `uint64_t` member cannot be made to
+        // emit an out-of-range value by the writer — only a hand-edited or
+        // foreign file can, which is exactly the input this guards.
+        struct LbaCase {
+            const char* lba;       // as it appears in the JSON
+            bool        accepted;
+            const char* what;
+        };
+        const LbaCase kCases[] = {
+            {"2048",       true,  "an ordinary start LBA"},
+            {"4294967295", true,  "UINT32_MAX — the largest an MBR can name, "
+                                  "which must NOT be refused"},
+            {"4294967296", false, "one past UINT32_MAX"},
+            {"9007199254740993", false,
+                                  "past 2^53 as well, the §7.4 hazard value"},
+        };
+        std::vector<std::string> bad;
+        for (const LbaCase& c : kCases) {
+            const std::string text =
+                std::string(R"({"format_version":1,)"
+                            R"("model":{"state_model_revision":1,"machine":"next","ram_kb":2048},)"
+                            R"("capture":{"frame":1,"frame_boundary":true},)"
+                            R"("media":{"sdcard":{"identity":{"partition_lba":)") +
+                c.lba + R"(}}}})";
+            std::string w;
+            std::vector<uint8_t> z = build_with_manifest_text(text, w);
+            jnext::zip::Reader r;
+            Manifest m;
+            Verdict v;
+            jnext::jns::open_snapshot(z.data(), z.size(), make_env(), r, m, v);
+            if (c.accepted) {
+                // Accepted here means "not refused FOR THIS REASON": the
+                // fixture carries no blobs, so the open may still object to
+                // something else. Only the 32-bit complaint is this row's
+                // business, and requiring its ABSENCE is what makes the
+                // UINT32_MAX case an off-by-one detector.
+                if (v.refusal.find("32-bit") != std::string::npos) {
+                    bad.push_back(std::string(c.what) + " was refused: " +
+                                  v.refusal);
+                }
+                if (m.sdcard.identity.partition_lba != std::stoull(c.lba)) {
+                    bad.push_back(std::string(c.what) + " did not round-trip");
+                }
+            } else {
+                if (v.refusal.empty()) {
+                    bad.push_back(std::string(c.what) + " was ACCEPTED");
+                } else if (v.refusal.find("32-bit") == std::string::npos ||
+                           v.refusal.find("partition_lba") == std::string::npos) {
+                    bad.push_back(std::string(c.what) +
+                                  " refused for the wrong reason: " + v.refusal);
+                }
+            }
+        }
+        check("JNSN-29",
+              "media.sdcard.identity.partition_lba is REFUSED above "
+              "UINT32_MAX, naming the key and the width — and UINT32_MAX "
+              "itself is accepted, so the bound §6.2 states is the real one "
+              "and not an off-by-one",
+              bad.empty(), all_of_them(bad));
+    }
+    {
+        // The ABSENT case, which `JNSN-29` does not reach — all four of its
+        // fixtures carry the key.
+        //
+        // §12.2: a missing key is not a refusal, it leaves the declared
+        // default. That matters here because `partition_lba` changed parse
+        // FUNCTION (GH #27): `get_u64_key` had no notion of "present", and
+        // `get_u32_key` does, so the obvious wrong conversion — treating
+        // `present == false` as an error, or requiring the key — would refuse
+        // every manifest written before the field existed and every one whose
+        // card could not be identified. Two of `get_u32_key`'s other callers
+        // DO refuse on absent (`state_model_revision`, `ram_kb`), which is
+        // exactly the neighbouring pattern a future editor would copy.
+        //
+        // Parsed directly rather than through `open_snapshot`, because this
+        // row is about the manifest grammar and an `open_snapshot` on a
+        // card-declaring manifest refuses for an unrelated reason (no card
+        // mounted) that would mask the verdict.
+        //
+        // HONEST LIMIT, stated rather than left for a reviewer: the
+        // `if (lba_present)` guard at the call site is NOT independently
+        // observable. `manifest_parse` begins with `out = Manifest{}`, so the
+        // member is already 0 when the guard runs, and the local it guards is
+        // also 0 — dropping the guard writes 0 over 0. There is no fixture
+        // where the default differs, because the reset is unconditional; the
+        // mutation was run and SURVIVED, and that is reported rather than
+        // papered over. What this row IS lethal to are the two mutations a
+        // person would actually write: making an absent key a refusal, and
+        // parsing the key and then ignoring it. Both were run; both fail here.
+        struct AbsentCase {
+            const char* row_desc;
+            const char* identity;   // the identity object, verbatim
+            bool        expect_lba; // 2048, or the 0 default
+        };
+        const AbsentCase kCases[] = {
+            {"no partition_lba key", R"({"image_bytes":1073741824})", false},
+            {"an empty identity object", R"({})", false},
+            {"partition_lba present", R"({"partition_lba":2048})", true},
+        };
+        std::vector<std::string> bad;
+        for (const AbsentCase& c : kCases) {
+            const std::string text =
+                std::string(R"({"format_version":1,)"
+                            R"("model":{"state_model_revision":1,"machine":"next","ram_kb":2048},)"
+                            R"("capture":{"frame":1,"frame_boundary":true},)"
+                            R"("media":{"sdcard":{"identity":)") +
+                c.identity + R"(}}})";
+            Manifest m;
+            std::vector<std::string> unknown;
+            std::string w;
+            if (!jnext::jns::manifest_from_json(text, m, unknown, w)) {
+                bad.push_back(std::string(c.row_desc) + " was REFUSED: " + w);
+                continue;
+            }
+            const uint64_t want = c.expect_lba ? 2048u : 0u;
+            if (m.sdcard.identity.partition_lba != want) {
+                bad.push_back(std::string(c.row_desc) + " gave lba=" +
+                              std::to_string(m.sdcard.identity.partition_lba) +
+                              ", expected " + std::to_string(want));
+            }
+            // An absent key is not an UNKNOWN key either: nothing may be
+            // reported about a field the file simply does not carry.
+            for (const std::string& u : unknown) {
+                if (u.find("partition_lba") != std::string::npos)
+                    bad.push_back(std::string(c.row_desc) +
+                                  " reported it as unknown: " + u);
+            }
+        }
+        check("JNSN-30",
+              "a manifest with NO media.sdcard.identity.partition_lba loads "
+              "and leaves the default — §12.2's missing-key rule, which the "
+              "change of parse function to the `present`-aware getter must not "
+              "have turned into a requirement",
+              bad.empty(), all_of_them(bad));
+    }
+    {
         Manifest m = make_manifest();
         std::vector<uint8_t> z =
             build_raw(m, {}, why, "some other archive comment");
@@ -2570,9 +2727,9 @@ int main(int argc, char** argv) {
         Verdict v2;
         jnext::jns::open_snapshot(z.data(), z.size(), strict, r2, got, v2);
         check("JNSV-12",
-              "…and --snapshot-strict turns that same mismatch into a refusal "
-              "(§7.3)",
-              refused_naming("JNSV-12", v2, "snapshot-strict"), v2.refusal);
+              "…and --snapshot-mode strict turns that same mismatch into a "
+              "refusal (§7.3)",
+              refused_naming("JNSV-12", v2, "snapshot-mode strict"), v2.refusal);
     }
     {
         const std::vector<uint8_t> z = build_good("");
@@ -3055,7 +3212,7 @@ int main(int argc, char** argv) {
                            s.find("1a2b3c4d") != std::string::npos;
                 });
             check("JNSI-07",
-                  "--snapshot-force-sdcard downgrades the Tier-1 refusal to a "
+                  "--snapshot-mode force downgrades the Tier-1 refusal to a "
                   "warning that still names both identities (§11.3)",
                   ok && named,
                   det("ok=%d warnings=%zu", ok, v2.warnings.size()));
@@ -4918,7 +5075,7 @@ int main(int argc, char** argv) {
                   v.ok && named, v.warnings.empty() ? "no warning" : v.warnings[0]);
         }
 
-        // ── …and REFUSES under --snapshot-strict ──────────────────────────
+        // ── …and REFUSES under --snapshot-mode strict ──────────────────────
         {
             Manifest m = with_media();
             std::vector<uint8_t> z = build_raw(m, {}, why);
@@ -4930,7 +5087,7 @@ int main(int argc, char** argv) {
             Verdict v;
             jnext::jns::open_snapshot(z.data(), z.size(), e, r, got, v);
             check("S6-ROMS-02",
-                  "…and --snapshot-strict turns that warning into a refusal "
+                  "…and --snapshot-mode strict turns that warning into a refusal "
                   "that still names the ROM",
                   refused_naming("S6-ROMS-02", v, "128.rom"), v.refusal);
         }
@@ -4948,7 +5105,8 @@ int main(int argc, char** argv) {
             jnext::jns::open_snapshot(z.data(), z.size(), e, r, got, v);
             check("S6-ROMS-03",
                   "a ROM name only one side has is NOT a mismatch, even under "
-                  "--snapshot-strict: it is a ROM this machine does not use, "
+                  "--snapshot-mode strict: it is a ROM this machine does not "
+                  "use, "
                   "and calling that a mismatch is the cries-wolf failure "
                   "§11.1 rejects for the SD card — an identity that is "
                   "ignored is worse than none",
@@ -4995,7 +5153,8 @@ int main(int argc, char** argv) {
             check("S6-TAPE-01",
                   "a snapshot whose tape cannot be reopened WARNS, names the "
                   "file and restores WITHOUT it — and is not a refusal even "
-                  "under --snapshot-strict, because a machine whose tape has "
+                  "under --snapshot-mode strict, because a machine whose tape "
+                  "has "
                   "finished loading is a perfectly good machine and refusing "
                   "it over a moved .tzx would be the format getting in the "
                   "way",

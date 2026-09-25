@@ -438,11 +438,50 @@ bool manifest_parse(const std::string& text, Manifest& out,
                                  where + ".identity", why) ||
                     !get_str_key(id, "fat32_volume_id",
                                  out.sdcard.identity.fat32_volume_id,
-                                 where + ".identity", why) ||
-                    !get_u64_key(id, "partition_lba",
-                                 out.sdcard.identity.partition_lba,
                                  where + ".identity", why)) {
                     return false;
+                }
+                // `partition_lba` is read through the 32-BIT getter and then
+                // widened, although the member is a `uint64_t`.
+                //
+                // It IS a 32-bit quantity by construction: the write side is
+                // `rd_u32(pe + 8)` on a 16-byte MBR partition entry
+                // (`sd_rom_extractor.cpp:100`), whose start-LBA field is four
+                // bytes. So the bound is a fact about the FORMAT, not a limit
+                // invented here, and a file claiming a larger one did not come
+                // from an MBR.
+                //
+                // It used to go through `get_u64_key`, which enforces only
+                // non-negativity — so design §6.2 claimed a bound the reader
+                // did not hold anyone to. Found by the review of the very
+                // commit that wrote §6.2's "state the bound and prove it" rule
+                // (GH #27, 2026-09-25). The member stays `uint64_t` so the
+                // manifest grammar, `describe()` and `operator==` are
+                // untouched; only the refusal is new.
+                {
+                    uint32_t lba = 0;
+                    bool lba_present = false;
+                    if (!get_u32_key(id, "partition_lba", lba, lba_present,
+                                     where + ".identity", why)) {
+                        return false;
+                    }
+                    // Absent leaves the default in place, exactly as
+                    // `get_u64_key` did — §12.2's missing-key rule, not a
+                    // refusal. `JNSN-30` pins that, and two of this getter's
+                    // other callers (`state_model_revision`, `ram_kb`)
+                    // deliberately do the OPPOSITE, so the distinction is
+                    // worth a row rather than a reading.
+                    //
+                    // The guard itself is belt-and-braces and is NOT
+                    // observable: `manifest_parse` opens with
+                    // `out = Manifest{}`, so the member is already 0 when it
+                    // runs and the local it guards is 0 too — removing it
+                    // writes 0 over 0. Measured, not assumed (mutation MU-2,
+                    // GH #27 re-review). It stays because it states the
+                    // intent locally instead of depending on a reset in
+                    // another function, and because a future non-zero default
+                    // would make it load-bearing with no other warning.
+                    if (lba_present) out.sdcard.identity.partition_lba = lba;
                 }
                 note_unknown(unknown_keys, "media.sdcard.identity.", id,
                              {"image_bytes", "mbr_partition_table_sha256", "fat32_volume_id",
@@ -997,7 +1036,7 @@ bool open_snapshot(const uint8_t* data, size_t len, const ReaderEnv& env,
             }
             v.warnings.push_back(
                 "the mounted SD card is not the one the snapshot was taken "
-                "on, but --snapshot-force-sdcard was given: " + detail);
+                "on, but --snapshot-mode force was given: " + detail);
         }
 
         if (manifest.sdcard.read_only != env.card.read_only) {
@@ -1075,8 +1114,8 @@ bool open_snapshot(const uint8_t* data, size_t len, const ReaderEnv& env,
     // DIFFERENT CODE with no indication anywhere. It warns rather than
     // refuses by default, because a corrected or regionalised ROM is a thing
     // people legitimately have and the machine may well run fine on it;
-    // `--snapshot-strict` turns it into a refusal for the cases where "well"
-    // is not good enough.
+    // `--snapshot-mode strict` turns it into a refusal for the cases where
+    // "well" is not good enough.
     //
     // Only names present in BOTH sides are compared. A name this build does
     // not have is a ROM this machine does not use (a 48K snapshot against a
@@ -1103,7 +1142,7 @@ bool open_snapshot(const uint8_t* data, size_t len, const ReaderEnv& env,
                 "the snapshot was taken against different ROM content (" +
                 names + ")";
             if (env.strict) {
-                return refuse(v, msg + "; --snapshot-strict refuses it");
+                return refuse(v, msg + "; --snapshot-mode strict refuses it");
             }
             v.warnings.push_back(msg + "; restoring anyway");
         }
@@ -1116,9 +1155,10 @@ bool open_snapshot(const uint8_t* data, size_t len, const ReaderEnv& env,
     // load restores a machine waiting for a tape that is not playing. The
     // file is recorded by reopenable identity — the esxDOS-handle shape — and
     // an absent one WARNS and restores without it. Never a refusal, and not
-    // under `--snapshot-strict` either: a machine whose tape has finished
-    // loading is a perfectly good machine, and refusing to restore it because
-    // the .tzx has been moved would be the format getting in the way.
+    // under `--snapshot-mode strict` either: a machine whose tape has
+    // finished loading is a perfectly good machine, and refusing to restore
+    // it because the .tzx has been moved would be the format getting in the
+    // way.
     if (manifest.tape.present && !env.tape_file_available) {
         v.warnings.push_back(
             "the tape " +
@@ -1139,7 +1179,7 @@ bool open_snapshot(const uint8_t* data, size_t len, const ReaderEnv& env,
             ") and this build models revision " +
             u64s(env.state_model_revision);
         if (env.strict) {
-            return refuse(v, msg + "; --snapshot-strict refuses it");
+            return refuse(v, msg + "; --snapshot-mode strict refuses it");
         }
         v.warnings.push_back(msg + "; restoring anyway");
     }

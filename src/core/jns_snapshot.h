@@ -22,7 +22,7 @@
 
 namespace jnext {
 
-/// §15.1 — `--snapshot-uncompressed`.
+/// §15.1 — `--snapshot-compression off`.
 struct JnsSaveOptions {
     /// Every ZIP member `STORED` instead of `DEFLATE`. Settled point 6's
     /// debugging mode: the file is readable with `unzip -p` and a hex editor,
@@ -39,7 +39,7 @@ struct JnsSaveOptions {
     uint32_t             preview_height = 0;
 };
 
-/// §15.1 — `--snapshot-strict` and `--snapshot-force-sdcard`.
+/// §15.1 — the two ends of `--snapshot-mode strict|normal|force`.
 struct JnsLoadOptions {
     /// Turn the provenance WARNINGS into refusals: a `state_model_revision`
     /// this build did not write, a ROM digest that differs. NOT the tape:

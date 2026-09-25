@@ -394,8 +394,10 @@
                       "pattern": "^([0-9a-f]{8})?$"
                     },
                     "partition_lba": {
+                      "_why": "§11.3 / §6.2 — an MBR partition entry's start LBA is a FOUR-BYTE field, read as rd_u32(pe + 8) (sd_rom_extractor.cpp:100), so 2^32-1 is the largest value that can come from one. The reader enforces the same bound (jns_container.cpp, via get_u32_key); this maximum is here so the published schema agrees with it instead of both sides being silently open. It is the one manifest u64 whose §6.2 bound is PROVED on both sides — image_bytes, deliberately, is not.",
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "maximum": 4294967295
                     }
                   }
                 },

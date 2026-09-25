@@ -939,7 +939,7 @@ int main(int argc, char** argv) {
         const bool ran_f = prepared &&
                            run_verdict(base_img, m, false, true, vf, w);
         check("JNSI-P30",
-              "…and `--snapshot-force-sdcard` downgrades that refusal to a "
+              "…and `--snapshot-mode force` downgrades that refusal to a "
               "warning that still names both serials",
               ran_f && vf.ok &&
                   std::any_of(vf.warnings.begin(), vf.warnings.end(),

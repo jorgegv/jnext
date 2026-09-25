@@ -602,26 +602,36 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
 :   Delay in frames for **--delayed-snapshot** (default 0). Requires
     **--delayed-snapshot**.
 
-**--snapshot-uncompressed**
-:   Write `.jns` snapshots with every member stored rather than
-    deflated. The file is then readable with `unzip -p` and a hex editor
-    at roughly five times the size. A debugging aid; it changes nothing
-    about what the file contains, and jnext reads both forms.
+**--snapshot-compression** *STATE*
+:   Whether `.jns` snapshots are written deflated. `on` (the default)
+    deflates every member; `off` stores them instead, so the file is
+    readable with `unzip -p` and a hex editor at roughly five times the
+    size. A debugging aid; it changes nothing about what the file
+    contains, and jnext reads both forms. Any other *STATE* is an error.
 
-**--snapshot-strict**
-:   When loading a `.jns`, turn the provenance warnings into refusals: a
-    snapshot written by a jnext whose state model this build does not
-    know, or one whose recorded ROM digests differ from the ROMs now
-    loaded. A missing tape file is **not** covered — that always warns
-    and never refuses, because a machine restores perfectly well without
-    the tape it was loading from.
+**--snapshot-mode** *MODE*
 
-**--snapshot-force-sdcard**
-:   When loading a `.jns`, restore even though the mounted SD card is
-    not the one the snapshot was taken on. A warning naming both cards
-    is printed. This is the flag that lets you create exactly the
-    silently-wrong case the identity check exists to prevent, which is
-    why it is spelled out in full.
+:   How much a `.jns` load refuses. One setting with three positions,
+    because they are one axis and asking for two of them at once is not
+    a thing to want.
+
+    `normal` (the default) warns about a mismatched state model revision
+    or mismatched ROM digests and refuses a different SD card.
+
+    `strict` turns those provenance warnings into refusals: a snapshot
+    written by a jnext whose state model this build does not know, or
+    one whose recorded ROM digests differ from the ROMs now loaded. A
+    missing tape file is **not** covered — that always warns and never
+    refuses, because a machine restores perfectly well without the tape
+    it was loading from.
+
+    `force` restores even though the mounted SD card is not the one the
+    snapshot was taken on, printing a warning that names both cards.
+    This is the setting that lets you create exactly the silently-wrong
+    case the identity check exists to prevent, which is why it is
+    spelled out in full.
+
+    Any other *MODE* is an error.
 
 **--delayed-keypress** *SECS* *KEY*
 :   Press *KEY* after *SECS* seconds. Headless only (requires

@@ -70,7 +70,7 @@ namespace jnext {
 namespace zip {
 
 /// The two compression methods this container uses. `Stored` is the
-/// `--snapshot-uncompressed` debugging mode of settled point 6 — a flag on the
+/// `--snapshot-compression off` debugging mode of settled point 6 — a flag on the
 /// member writer, not a second code path, which is what makes the debug mode
 /// exercised by the same reader as the compressed one.
 enum class Method : uint16_t {
