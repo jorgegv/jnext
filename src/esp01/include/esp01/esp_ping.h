@@ -22,8 +22,13 @@
 /// process:
 ///   * THE FLATPAK BUILD COULD NEVER PING AT ALL. Verified by running all
 ///     three installed runtimes: `org.kde.Platform` 6.8, 6.10 and 6.11 ship
-///     `ffmpeg` but NO `ping`. `--share=network` grants a network, not a
-///     binary. An in-process socket works there exactly as it does natively.
+///     `ffmpeg` but NO `ping` (6.10 is what the manifest pins).
+///     `--share=network` grants a network, not a binary.
+///     THE IN-PROCESS SOCKET WAS THEN MEASURED THERE, rather than assumed: a
+///     standalone probe inside `6.10` with `--share=network` got echo replies
+///     from 127.0.0.1 and 8.8.8.8, and the same probe with `--unshare=network`
+///     was refused `EPERM` at `socket()` — which is the honest-failure path
+///     below, so that is measured too.
 ///   * OUTPUT PARSING AND ITS LOCALE TRAPS. There is no text to read, so
 ///     `tiempo=` versus `time=`, the summary line's decoy `time 0ms`, and the
 ///     comma-decimal separator stop being hazards rather than being defended

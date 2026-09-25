@@ -25,8 +25,10 @@ int run_native(const std::string& cmd)
     // variable would mean building an environment block, which is a change to
     // that function rather than to this call. It would also buy nothing
     // measurable: Windows localises a console tool by UI language, not by
-    // `LANG`. Since nothing here reads ffmpeg's output (see below), the rule
-    // has no functional effect on this platform either way.
+    // `LANG`. And nothing reads ffmpeg's output on EITHER platform — this one
+    // redirects to NUL through `STARTUPINFOA` handles (win_process.cpp) where
+    // the POSIX branch below puts `>/dev/null 2>&1` in the command string —
+    // so the rule has no functional effect here whichever way it is spelled.
     return win_run_hidden(cmd);
 #else
     // EXTERNAL PROCESSES RUN UNDER `LANG=C` (CLAUDE.md). A shell assignment

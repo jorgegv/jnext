@@ -298,6 +298,16 @@ private:
 /// `ERROR`, and a rejected REQUEST would answer a bare `ERROR` instead. That
 /// difference would be an allowlist oracle, so `begin()` returns true for a
 /// blocked host and the state goes straight to `Failed`.
+///
+/// THE CLAIM IS ABOUT WIRE CONTENT, NOT TIMING — the same caveat
+/// `EspGatedResolver` carries, and it applies here for the same reason. A
+/// blocked host is decided HERE, synchronously, and fails on the very next
+/// service pass; an allowed one goes to a detached thread and takes as long as
+/// a resolve plus an echo takes. So an observer with a wall clock on the UART
+/// can still tell a refusal from a real failure by LATENCY, however identical
+/// the bytes. Recorded rather than fixed, for the reason design-doc §19.3.1
+/// gives: closing it means inventing a delay nobody has measured, to defend
+/// against someone already host-side who can read the `warn` line below.
 class EspGatedPinger final : public esp::EspPinger {
 public:
     EspGatedPinger(std::unique_ptr<esp::EspPinger> inner, EspHostPolicy policy,
@@ -330,6 +340,11 @@ private:
 /// server and an unreachable one both end as `Failed`, and the engine answers
 /// BOTH with the epoch — so the guest cannot tell them apart, which is the same
 /// anti-oracle property the rest of this surface has, arrived at for free.
+///
+/// AND THE SAME CAVEAT: that is a claim about WIRE CONTENT, not timing. A
+/// blocked server fails synchronously on the next service pass, while an
+/// allowed one costs a resolve and a UDP round trip, so latency still
+/// distinguishes them. Recorded rather than fixed — design-doc §19.3.1.
 class EspGatedSntp final : public esp::EspSntpClient {
 public:
     EspGatedSntp(std::unique_ptr<esp::EspSntpClient> inner, EspHostPolicy policy,

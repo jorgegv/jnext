@@ -2360,10 +2360,21 @@ lookup of a NAME spawns a detached thread and takes as long as DNS takes. A
 host-side tool watching the UART with a wall clock can therefore distinguish
 "refused" from "did not resolve" by latency, however identical the bytes.
 
-This is **not** specific to `AT+CIPDOMAIN` and was not introduced by it:
-`AT+CIPSTART` has the same shape, refusing an allowlisted host immediately
-while a genuine failure arrives deferred. An IP literal is unaffected either
-way, since both arms are synchronous. Closing it would mean delaying a refusal
+This is **not** specific to `AT+CIPDOMAIN` and was not introduced by it. It is
+a property of **every gated command on this surface**, and the list is spelled
+out rather than implied, because an earlier version of this paragraph said "not
+specific to `AT+CIPDOMAIN`" and then discussed only `AT+CIPSTART` — while two
+more commands with the identical shape were landing:
+
+| Command | Refused | Allowed |
+|---|---|---|
+| `AT+CIPSTART` | rejected at dispatch, immediately | deferred: resolve + TCP handshake |
+| `AT+CIPDOMAIN` | `EspGatedResolver`, next service pass | detached thread: a DNS lookup |
+| `AT+PING` | `EspGatedPinger`, next service pass | detached thread: resolve + ICMP echo |
+| `AT+CIPSNTPTIME?` | `EspGatedSntp`, next service pass | detached thread: resolve + UDP round trip |
+
+An IP literal is unaffected in every row, since both arms are then
+synchronous. Closing it would mean delaying a refusal
 by a fabricated interval — inventing a timing profile nobody has measured, to
 defend against an observer who is already on the host side of the UART and can
 read the `warn` line that names the refusal outright. It is therefore
@@ -2473,7 +2484,7 @@ original objection evaporates rather than being worked around.
 
 | | shell out to `ping(8)` | in-process ICMP |
 |---|---|---|
-| Flatpak | **impossible** — `org.kde.Platform` 6.8, 6.10 and 6.11 all ship `ffmpeg` and **no `ping`** (verified by running them; `--share=network` grants a network, not a binary) | works exactly as native |
+| Flatpak | **impossible.** MEASURED: `org.kde.Platform` 6.8, 6.10 and 6.11 all ship `ffmpeg` and **no `ping`** (`flatpak run --command=sh … -c 'command -v ping'` reports nothing in each). 6.10 is the version `packaging/flatpak/*.yml` pins. `--share=network` grants a network, not a binary | **works.** MEASURED, not asserted — an earlier version of this table claimed "works exactly as native" without having run it, which is the mixing of a measured and an assumed cell this row now avoids. A standalone probe inside `org.kde.Platform//6.10` with `--share=network` got echo replies from **127.0.0.1 and 8.8.8.8**; the same probe with `--unshare=network` was refused `EPERM` at `socket()`, which is exactly the honest-failure path [§20.5](#205-unavailability-is-an-outcome-not-an-edge-case) describes — so that path is measured too |
 | Output parsing | required, and locale-dependent: this host prints `tiempo=` for `time=`, the summary carries a decoy English `time 0ms`, and a comma-decimal locale turns `12.3` into `12,3` | **none** |
 | Guest-supplied hostname | reaches an argv array; option injection (`-f` is flood-ping) needs `--` plus a charset check | reaches a resolver, never a command line |
 | Privilege | borrowed from a binary that may not have any | the same socket, opened directly |

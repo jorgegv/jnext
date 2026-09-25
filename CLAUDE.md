@@ -62,9 +62,13 @@ code comments.
   - Its Windows twin (`src/core/win_process.h`) is **exempt for cause, not
     skipped**, and the reasons are independent: `LANG` is not how Windows
     localises a console tool, the call passes a null `lpEnvironment` so there is
-    no block to set a variable in, and nothing reads ffmpeg's output anyway
-    (every command built there ends `>/dev/null 2>&1`). Recorded at that call
-    site so the rule does not read as violated by code it does not reach.
+    no block to set a variable in, and **nothing reads ffmpeg's output on
+    either platform** — POSIX redirects it with `>/dev/null 2>&1` in the
+    command string, Windows with NUL `STARTUPINFOA` handles, and only the exit
+    status is consulted. The PROPERTY is what the exemption rests on; the two
+    mechanisms that achieve it differ, so do not read one platform's spelling
+    as the rule. Recorded at that call site too, so this does not read as
+    violated by code it does not reach.
   - **The strongest form of this rule is not to spawn at all.** `AT+PING` was
     first built by running `ping(8)` and is now an in-process ICMP socket
     (`src/esp01/src/esp_ping.cpp`), which deletes the locale question along
