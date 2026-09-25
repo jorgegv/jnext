@@ -758,20 +758,91 @@ statements a careful reader cannot reconcile. Now it can.
 **Why the manifest is safe with numbers, stated rather than assumed.** §7.4's
 hazard is real and measured: the `/INT` window exceeds 2^53 in *every*
 snapshot, so a JavaScript validator would silently corrupt it. Every `u64` in
-the manifest is bounded well below that — `members[].bytes` by the ZIP format's
-4 GB (no ZIP64, §6), `partition_lba` by a 32-bit sector index, `capture.frame`
-at 2^53 frames being 5.7 billion years, `tape.position_tstates` at 2^53
-T-states being ~81 years of tape, and `sdcard.identity.image_bytes` at 2^53
-bytes being 8 PB. **§7.4 explicitly rejects per-field judgements of this kind**,
-and it is right to inside `state/*.json`, where the descriptor emits whatever a
-subsystem declares and a future field could be anything. The manifest's field
-list is fixed by this document and changes only when this document does, which
-is the difference that makes the judgement safe here and unsafe there.
+the manifest is bounded well below that — and **each bound is derived from
+something, not asserted**:
 
-**This is an owner decision if you disagree**: `format_version` is 1 and
-nothing has shipped, so making the manifest's `u64`s strings too is still a
-cheap change. It would cost the schema, the overlay, both examples and the
-reader; it would buy one fewer rule to remember.
+| Manifest `u64` | Bound | What makes it true |
+|---|---|---|
+| `members[].bytes` | ≤ 64 MiB | **Enforced, twice.** `zip::` refuses any member over `kMaxMemberBytes` = 64 MiB on write and on read (`zip_archive.h:152`, `zip_archive.cpp:256`, `:665`), and the manifest's declaration must EQUAL the member's actual `uncomp_size` or the file is refused (`jns_container.cpp:881-886`). The ZIP64-free 4 GiB ceiling (`kMaxU32Field`, `zip_archive.cpp:38`, `:265-268`) sits outside that as a second wall. |
+| `media.sdcard.identity.partition_lba` | ≤ 2^32 - 1 | **Enforced.** It IS a 32-bit MBR start-LBA — `rd_u32(pe + 8)` on the write side (`sd_rom_extractor.cpp:100`), and the reader refuses anything above `UINT32_MAX` (`jns_container.cpp:76-80`). |
+| `capture.frame` | ≤ 2^53 - 1 | **Arithmetic, not calendar.** It is `monotonic_tstates() / per_frame`, with `per_frame = lines_per_frame × tstates_per_line` (`emulator_jns.cpp:346-350`). A `uint64_t` divided by any divisor ≥ 2 048 cannot exceed `(2^64 - 1) / 2^11` = 2^53 - 1, and the real divisor is 69 888 on the 48K (312 lines × 224 T-states — `timing.h:36-37`, `tstates_per_line = pixels_per_line / 2` at `emulator.cpp:8342-8343`). Thirty-four times the margin the bound needs. |
+| `media.tape.position_tstates` | ~81 years of tape | 2^53 T-states at 3.5 MHz is 2.57 × 10^9 s. The only bound here that is a calendar, and the tape would have to be longer than that. |
+| `media.sdcard.identity.image_bytes` | **the next paragraph** | The one whose bound is a property of the INPUT rather than of the format, and the one an earlier revision waved at. |
+
+*(That `capture.frame` row previously read "2^53 frames being 5.7 billion
+years". The figure was the **2^63** one: 2^53 frames at 50 Hz is 5.7
+**million** years. The conclusion never turned on it, and now it does not turn
+on a calendar at all.)*
+
+**`image_bytes`, derived rather than waved at.** The earlier text bounded it
+"at 2^53 bytes being 8 PB", which restates the *field's own width* and is not a
+constraint on anything. The real derivation has two steps, and the second is
+where the honesty is.
+
+1. **What jnext can ADDRESS inside an image is bounded at 2 TiB.** The field is
+   recorded only for an image `read_sd_image_identity` accepted
+   (`sd_rom_extractor.cpp:508-604`; every failure path zeroes the whole struct,
+   `:520`), and acceptance requires an MBR partition entry of type `0x0B`/`0x0C`
+   whose start LBA is a **32-bit** sector index (`rd_u32(pe + 8)`, `:100`),
+   followed by a BPB found at `partition_lba × 512` — a literal 512, `:127`.
+   `2^32 × 512 = 2^41 B = 2 TiB`, which is **4 096×** below 2^53. Taking
+   instead the largest `bytes_per_sector` `parse_bpb` will accept, 4 096
+   (`:149-150`), the FAT walk's own `off = lba × bytes_per_sector` with a
+   `uint32_t` lba (`read_sectors`, `:63-66`) tops out at
+   `2^32 × 4 096 = 2^44 = 16 TiB` — still **512×** below 2^53. Either way the
+   *volume* is nowhere near the hazard.
+
+2. **But `image_bytes` is not the volume.** It is the length of the FILE —
+   `seekg(0, end)` then `tellg()`, `:531-538` — and **nothing in the tree ties
+   the two together**. An image carrying arbitrary bytes past the end of its
+   partition is accepted; the runtime card reads the same file length and only
+   *clamps the declared CSD capacity* for it, refusing transfers past the end
+   rather than refusing the image (`sd_card.cpp:1200-1242`, `:1296-1301`). So
+   step 1 bounds what jnext READS, not what this field RECORDS, and there is no
+   refusal anywhere that bounds the field.
+
+   What remains is therefore a statement about inputs, and it is written as
+   one: to reach 2^53 a user must present a file of **8 PiB or more** whose
+   valid MBR and FAT32 boot sector live in its first 2 TiB — 4 096× more file
+   than the largest volume jnext could address inside it. Two facts bound the
+   *damage* rather than the value. jnext's own arithmetic is exact at any
+   `uint64_t` (`nlohmann` round-trips it; `get_u64_key` reads it through an
+   `int64_t`, `jns_container.cpp:85-100`), so only an external JavaScript
+   validator is exposed at all; and the eager Tier-2 whole-file SHA-256 of
+   §11.3 — measured at 0.49 s per GiB — would spend about **47 days** on such a
+   file before either saving or loading it.
+
+   **This is the one manifest `u64` whose bound is not enforced anywhere, and
+   saying so is the point.** If that is ever judged insufficient the fix is a
+   refusal inside `read_sd_image_identity` — reject an image longer than its
+   own MBR can address — and **not** a change to the encoding. That is a code
+   change, and it is deliberately not made here.
+
+**§7.4 explicitly rejects per-field judgements of this kind**, and it is right
+to inside `state/*.json`, where the descriptor emits whatever a subsystem
+declares and a future field could be anything. The manifest's field list is
+fixed by this document and changes only when this document does, which is the
+difference that makes the judgement safe here and unsafe there — provided the
+list stays honest, which is what the rule below is for.
+
+**DECIDED by the owner, 2026-09-25 — the manifest's `u64`s stay NUMBERS.**
+Making them strings too was a live option (`format_version` is 1 and nothing
+had shipped); it was considered and declined. It would have cost the schema,
+the overlay, both examples and the reader, and bought one fewer rule to
+remember — while §6.2's scope sentence already answers the ambiguity that
+raised the question. The exception above stands as written.
+
+> **RULE — the guard rail that exception needs.** Any **new** `u64` field added
+> to `manifest.json` must EITHER have its upper bound stated in the table above
+> and **proved below 2^53**, OR be encoded as a decimal string exactly as
+> `state/*.json`'s are. There is no third option, and "it will never get that
+> big" is not a proof.
+
+The rule exists because a scope sentence repairs today's readers and does
+nothing about tomorrow's field. S9's incident was not that the rule was wrong
+— it was that there were **two** rules and only one of them was written down
+(§17, S9). The exception is written down now, and so is the obligation that
+comes with it.
 
 | Kind | Encoding | Schema can check |
 |---|---|---|
@@ -982,7 +1053,17 @@ the alternative is a per-field judgement that goes stale.
 
 *(The scope qualifier is S9's; see §6.2. `manifest.json` uses plain numbers,
 and §6.2 says why that is safe for its fixed, document-controlled field list
-and would not be safe here.)*
+and would not be safe here. The owner **ratified that exception on 2026-09-25**
+— and it comes with an obligation, stated normatively in §6.2 and repeated
+here because this is the section a contributor adding a field lands on:*
+
+> *Any **new** `manifest.json` `u64` field must either have its upper bound
+> stated in §6.2's table and **proved below 2^53**, or be encoded as a decimal
+> string. "It will never get that big" is not a proof.*
+
+*§6.2 carries the proof for each of the five that exist today, including the
+one — `image_bytes` — whose bound is a property of the input and is not
+enforced anywhere.)*
 
 > An earlier draft of this document asserted that **no field qualifies today**,
 > reasoning that `monotonic_tstates()` and `Clock::cycle_` need about ten years
@@ -2228,7 +2309,49 @@ staleness gate**: a field renamed in a declaration changes the file and no gate
 says so. The `JNSD`/`JNSE` rows still pin the encoding, `JNS-RT-02` still pins
 that every field round-trips, and `rewind_test`'s width rows still pin the
 binary side — so the field set is not unguarded, only the *published schema* of
-it is. S9 is where that closes.
+it is. ~~S9 is where that closes.~~ **S9 did not close it, and the owner has
+since ACCEPTED the gap — see immediately below.**
+
+#### The owner's decision, 2026-09-25 — ACCEPTED, not outstanding
+
+The struck sentence above said S9 would close it; S9 did not (§17, "What S9
+did NOT close"). That left this reading as an open TODO, which is the wrong
+record: it invites the next contributor to re-derive a cost the owner has
+already weighed and paid attention to twice. **The owner considered the gap on
+2026-09-25 and accepted it.** It is a recorded decision from here on, not an
+item of work.
+
+The reasoning, re-affirmed rather than re-argued:
+
+1. **`SchemaRegistry::register_subsystem` still has zero call sites, and
+   filling it means constructing all thirty-four subsystems.** A declaration
+   binds references to an object's members, so walking one needs an instance —
+   a `Ram`, a `Renderer`, an `Emulator`. That is the emulator link the owner
+   already rejected on cost, arriving by another door. The cost has not moved
+   since S8 assessed it.
+2. **The substitutes are real, and they are not a schema's weaker cousin.**
+   The spec-written Python reader (`test/snapshot/jns_reader.py`) parses
+   **every** real `state/*.json` against THIS DOCUMENT rather than against the
+   code; `JNS-RT-02` pins field-level round-trip; and the `JNSD`/`JNSE` rows
+   pin the encoding. A generated schema would assert that the shape is what the
+   code says it is; the reader asserts it is what the SPEC says it is, which is
+   the stronger of the two claims about a file other people will read.
+
+**What is still uncovered, and this decision does not soften it by one word.**
+A field renamed in a declaration changes `state/*.json` and **no gate says
+so**. The spec-written reader deliberately does not know the field names — it
+reads key names out of the file rather than guessing them, because the spec
+fixes a field's *encoding* and not its *name* (`jns_reader.py`, `cpu()`) — so
+it cannot detect a rename either. §13.3's "narrowed, not closed" posture
+applies to this surface unchanged, and nothing here is a claim of coverage.
+
+**The split gate remains available if it is ever wanted.** A cheap byte-diff
+`schema-check` over a committed `state/*` schema, plus a heavier, separately
+invoked regeneration target that needs the emulator link. The S8 revisit
+declined it because the cheap half cannot detect staleness the heavy half has
+not refreshed — a reason it is not *sufficient* on its own, not a reason it is
+unavailable. Reaching for it is a decision to revisit deliberately, not a gap
+to rediscover by accident.
 
 ## 17. Staged implementation plan and effort
 
@@ -2309,6 +2432,12 @@ rejected. What S9 added instead is an independent reader that parses every
 `snapshot-schema-func` validates the real manifest rather than a hand-written
 one. The schema gap is narrower and is **not closed**, and §13.3's posture
 applies to it unchanged.
+
+**The owner ACCEPTED that gap on 2026-09-25**, with the reasoning and the
+substitutes recorded in §16.3. It is therefore a decision, not an outstanding
+TODO for a later stage to pick up — and the split gate stays on the table as
+an option to reach for, not as unfinished business. What remains uncovered is
+unchanged and is stated there in full.
 
 #### What S8 actually landed — read this, not the commit messages
 
@@ -2693,6 +2822,14 @@ mentions `.jns` is the one that freezes it.
 | SD card | **The two-tier identity of §11.3**, with the §11.3 refusal/warning matrix. |
 | Effort | Re-measured from the §9.4 call-site classification: **S2–S5 is 7–10 sessions**. §17 updated (whole project 14–23, incl. S5b). |
 | **Mid-frame save** | **Always advance to the next frame boundary; never refuse.** This overruled the recommendation in revision 2, which was to refuse while paused. §10.2 P7, §15.2 and §16.2 follow the decision; the cost — the machine ends up to one frame past where the user paused — is documented rather than hidden. |
+
+**Answered — 2026-09-25, same status, do not reopen.** Two questions this
+document left open after S9, decided by the owner:
+
+| Q | Answer |
+|---|---|
+| **`manifest.json` `u64` encoding** | **Numbers, as implemented.** `state/*.json` keeps §7.4's string rule; the manifest keeps plain JSON numbers; §6.2's scope sentence stands. The exception now carries a **rule** — any new manifest `u64` must have its bound stated in §6.2 and proved below 2^53, or be a decimal string — and §6.2 carries a derived bound for each of the five that exist, `image_bytes` included. |
+| **The `state/*.json` schema gap (§16.3)** | **Accepted, not closed.** Populating `SchemaRegistry` means constructing all thirty-four subsystems — the rejected emulator link by another door. The spec-written reader, `JNS-RT-02` and the `JNSD`/`JNSE` rows stand in its place; the split gate stays available. §13.3's "narrowed, not closed" posture is unchanged, and what is uncovered is stated in §16.3. |
 
 ### 18.2 Still open
 
