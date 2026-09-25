@@ -19,6 +19,7 @@
 #include "input/mouse_dispatcher.h"
 #include "platform/pointer_capture.h"
 #include "platform/speed_report.h"
+#include "debug/menu_bar_alt_nav_qt.h"   // GH #268
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
@@ -45,7 +46,6 @@
 #include <QApplication>
 #include <QInputDialog>
 #include <QStyle>
-#include <QProxyStyle>
 #include <QTimer>
 #include <QFileInfo>
 
@@ -54,19 +54,6 @@
 // ---------------------------------------------------------------------------
 
 namespace {
-
-/// GH #268 — the menu bar's style, with Alt-only keyboard navigation turned
-/// off. Why, and exactly what it does and does not change, is documented at
-/// the single place it is installed (the MainWindow constructor).
-class NoAltMenuNavigationStyle : public QProxyStyle {
-public:
-    int styleHint(QStyle::StyleHint hint, const QStyleOption* option = nullptr,
-                  const QWidget* widget = nullptr,
-                  QStyleHintReturn* ret = nullptr) const override {
-        if (hint == QStyle::SH_MenuBar_AltKeyNavigation) return 0;
-        return QProxyStyle::styleHint(hint, option, widget, ret);
-    }
-};
 
 SDL_Scancode qt_key_to_sdl(int key) {
     switch (key) {
@@ -286,16 +273,11 @@ MainWindow::MainWindow(QWidget* parent)
     // (keyboard.cpp:248-250) — so pressing Alt is an ordinary part of typing
     // here, and letting go of it without a letter is an ordinary slip.
     //
-    // Scope of the hint, checked against the Qt source rather than assumed:
-    // SH_MenuBar_AltKeyNavigation gates exactly four things — the arming above,
-    // the keyboard-mode entry, Up/Down/Enter on a focused menu bar
-    // (qmenubar.cpp:1039) and whether a menu opened BY A MNEMONIC additionally
-    // enters keyboard mode (qmenubar.cpp:1687). It does NOT gate the mnemonic
-    // itself: Alt+F still opens the File menu, which is then driven by the
-    // popup's own key handling. H268-03 pins that.
-    auto* menu_bar_style = new NoAltMenuNavigationStyle();
-    menu_bar_style->setParent(this);      // QWidget::setStyle takes no ownership
-    menuBar()->setStyle(menu_bar_style);
+    // The mechanism, the Qt line numbers and the exact scope of the hint are
+    // documented once, at the shared helper. It does NOT gate the mnemonic
+    // itself: Alt+F still opens the File menu. H268-03 pins that. The debugger
+    // window installs the same style for the same reason.
+    jnext::disable_alt_menu_navigation(menuBar(), this);
 
     // Ensure the window receives key events even when focus is on a child widget.
     setFocusPolicy(Qt::StrongFocus);

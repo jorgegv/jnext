@@ -1,4 +1,5 @@
 #include "sdl_app.h"
+#include "platform/host_key_wiring.h"   // GH #268
 #include "platform/emulator_boot.h"
 #include "platform/auto_exit.h"
 #include "platform/rzx_startup.h"
@@ -98,8 +99,12 @@ bool SdlApp::init(int argc, char* argv[]) {
     // to a key of a machine that no longer exists (rows RT-08a/b/c, RT-09a/b).
     key_router_.attach(emulator_.keyboard());
 
-    // Route SDL key events into emulator keyboard matrix; intercept host shortcuts.
-    input_.on_key  = [this](SDL_Scancode sc, bool pressed) {
+    // Route SDL key events into emulator keyboard matrix; intercept host
+    // shortcuts. Both this and the focus-loss binding go in through ONE call
+    // (GH #268): a frontend must not be able to end up with keys wired and the
+    // "the keyboard went elsewhere" signal forgotten, which is the failure the
+    // Qt side shipped with and no test saw. See platform/host_key_wiring.h.
+    wire_host_keys(input_, key_router_, [this](SDL_Scancode sc, bool pressed) {
         if (pressed) {
             // Ctrl+Alt releases the pointer — the VirtualBox/VMware
             // convention, and the same combo the Qt frontend uses. It is
@@ -167,7 +172,7 @@ bool SdlApp::init(int argc, char* argv[]) {
         // as in QtApp, so the logic the guest depends on is not once again
         // reachable only through a live SDL window.
         key_router_.on_host_key(sc, pressed);
-    };
+    });
 
     running_ = true;
     return true;

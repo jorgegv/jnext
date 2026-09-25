@@ -51,6 +51,9 @@
 #include <QStringList>
 #include <QEventLoop>
 #include <QTemporaryDir>
+#include <QLineEdit>
+#include <QMenuBar>
+#include <QStyle>
 #include <QTest>
 #include <QTimer>
 #include <QToolBar>
@@ -864,6 +867,82 @@ void test_keymap_survives_a_late_window() {
           caps.toStdString());
 }
 
+
+// ── DBGF: the debugger window's menu bar must not take the keyboard ────────
+//
+// GH #268 was reported against the EMULATOR window, where a bare Alt tap hands
+// keyboard focus to QMenuBar and the next letter that is a top-level mnemonic
+// is swallowed instead of typed. The mechanism is QMenuBar's, not
+// MainWindow's, so it is live in every window that has a menu bar — and this
+// one has five menus (&Debug, &Map, &Breakpoints, &Watches, Wi&ndow) and a
+// window full of hex-entry QLineEdits: the memory and disassembly address
+// bars, the watch and breakpoint dialogs. A stray Alt part-way through typing
+// an address moves focus out of the field, silently.
+//
+// Only the style half of the #268 fix belongs here. The other two — refusing
+// to feed the guest while a popup is up, and releasing every held guest key on
+// focus-out — are about the GUEST KEY MATRIX, which this window never touches.
+//
+// DBGF-02 goes through QTest on the real QWindow, not sendEvent: the arming
+// happens on the ShortcutOverride event, which only the platform path
+// produces. Against the product with the style install removed it fails.
+void test_debugger_menu_focus() {
+    DebuggerFixture fx;
+    if (!fx.ok) {
+        for (const char* id : {"DBGF-01", "DBGF-02", "DBGF-03"})
+            check(id, "debugger menu-bar focus", false, "fixture failed");
+        return;
+    }
+    QMenuBar* bar = fx.dbg->menuBar();
+
+    check("DBGF-01", "the debugger menu bar reports Alt-key navigation OFF",
+          bar && bar->style()->styleHint(QStyle::SH_MenuBar_AltKeyNavigation,
+                                         nullptr, bar) == 0,
+          bar ? ("hint=" + std::to_string(bar->style()->styleHint(
+                     QStyle::SH_MenuBar_AltKeyNavigation, nullptr, bar)))
+              : std::string("no menu bar"));
+
+    // Put the keyboard where a user really has it — in a hex-entry field — and
+    // tap Alt. The field must still have it afterwards.
+    QLineEdit* edit = nullptr;
+    for (QLineEdit* e : fx.dbg->findChildren<QLineEdit*>())
+        if (e->isVisible() && e->isEnabled()) { edit = e; break; }
+    if (edit) {
+        edit->setFocus(Qt::OtherFocusReason);
+        settle(60);
+    }
+    const bool had_focus = (edit && QApplication::focusWidget() == edit);
+    if (QWindow* wh = fx.dbg->windowHandle()) {
+        QTest::keyPress(wh, Qt::Key_Alt, Qt::AltModifier);
+        QTest::keyRelease(wh, Qt::Key_Alt, Qt::NoModifier);
+    }
+    settle(80);
+    QWidget* now = QApplication::focusWidget();
+    // `had_focus` is part of the condition on purpose: a fixture with no
+    // reachable text field must FAIL here, not pass vacuously.
+    check("DBGF-02", "a bare Alt tap leaves the keyboard in the field being typed into",
+          had_focus && now == edit,
+          std::string("had_focus=") + (had_focus ? "1" : "0") + " focus=" +
+              (now ? now->metaObject()->className() : "(null)"));
+
+    // The scope guard, the same one H268-03 makes for the emulator window: the
+    // style hint does not gate the mnemonic, so Alt+D must still open &Debug.
+    QMenu* debug_menu = nullptr;
+    for (QAction* m : bar->actions())
+        if (m->text() == QStringLiteral("&Debug")) debug_menu = m->menu();
+    if (QWindow* wh = fx.dbg->windowHandle())
+        QTest::keyPress(wh, Qt::Key_D, Qt::AltModifier);
+    settle(80);
+    check("DBGF-03", "Alt+D still opens the debugger's Debug menu",
+          debug_menu && debug_menu->isVisible(),
+          std::string("menu=") + (debug_menu ? "found" : "missing") + " visible=" +
+              (debug_menu && debug_menu->isVisible() ? "1" : "0"));
+    if (debug_menu) debug_menu->close();
+    if (QWindow* wh = fx.dbg->windowHandle())
+        QTest::keyRelease(wh, Qt::Key_D, Qt::AltModifier);
+    settle(60);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -893,6 +972,7 @@ int main(int argc, char** argv) {
     test_main_window_forwarding();
     test_main_window_pushes_keymap();
     test_keymap_survives_a_late_window();
+    test_debugger_menu_focus();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);

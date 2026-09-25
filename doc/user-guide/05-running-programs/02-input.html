@@ -3056,6 +3056,17 @@ and function keys have no Spectrum meaning to lose.</p>
 does not do that: Alt is reserved for the host, and Extend Mode is on Tab —
 the same convention FUSE and ZEsarUX use. That is a deliberate trade, made so
 that Ctrl could be given back to the guest.</p>
+<p><strong>Tapping Alt on its own does nothing, and that is on purpose.</strong> In most
+applications a bare Alt press-and-release moves the keyboard into the menu
+bar, so the next letter you type opens a menu instead of typing. JNEXT turns
+that off (decided 2026-09-25): here Alt is simultaneously a key the <em>guest</em>
+needs — Alt+E, Alt+G, Alt+C — and the modifier every JNEXT shortcut lives on,
+so a stray Alt while typing used to hand the keyboard to the menu bar with
+nothing on screen to say so, and the next letter vanished into it. The menus
+are still fully reachable from the keyboard: <strong>Alt+F</strong>, <strong>Alt+M</strong>, <strong>Alt+I</strong>,
+<strong>Alt+A</strong>, <strong>Alt+B</strong>, <strong>Alt+V</strong>, <strong>Alt+N</strong> and <strong>Alt+H</strong> open File, Machine,
+Input, Tape, Debug, View, Settings and Help, and the arrow keys work inside
+them as usual. Only the tap-Alt-then-arrow route is gone.</p>
 <p>The machine's own front-panel keys are on function keys: <strong>F1</strong> hard reset,
 <strong>F4</strong> soft reset, <strong>F9</strong> Multiface NMI, <strong>F10</strong> DivMMC. (With the debugger
 open, F9 belongs to the debugger.) The two resets are also in the <strong>Machine</strong>

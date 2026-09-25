@@ -57,6 +57,7 @@
 #include <QString>
 #include <QStringList>
 #include <QStyle>
+#include <QEventLoop>
 #include <QTest>
 #include <QWindow>
 
@@ -68,7 +69,7 @@
 #include "gui/main_window.h"
 #include "input/keyboard.h"
 #include "platform/host_key_latch.h"
-#include "gui/host_key_wiring.h"
+#include "platform/host_key_wiring.h"
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_window.h"
 #endif
@@ -876,8 +877,33 @@ void test_menu_focus(MainWindow& w) {
 // nothing at all, and every other letter keeps working — "press A I got A,
 // press G nothing is shown".
 // ---------------------------------------------------------------------------
-void test_stranded_alt(MainWindow& w) {
+void test_stranded_alt() {
+    // ITS OWN WINDOW, and its own drained event queue. Neither is what was
+    // actually broken here — see kb.reset() below for that — but the groups
+    // above drive this suite's shared MainWindow through QTest's PLATFORM key
+    // path, which POSTS events rather than delivering them, and through a real
+    // menu popup. A row that ends by reading a key matrix should not be
+    // downstream of either. Isolation is cheap; diagnosing a leak into it is
+    // not.
+    MainWindow w;
+    w.show();
+    w.activateWindow();
+    w.setFocus();
+    for (int i = 0; i < 20; ++i) {
+        QApplication::sendPostedEvents();
+        QApplication::processEvents(QEventLoop::AllEvents, 10);
+    }
+
     Keyboard kb;
+    // THE BUG THIS ROW SHIPPED WITH, recorded because it nearly went unnoticed.
+    // Keyboard::reset() is what builds the static scancode maps and clears the
+    // matrix (keyboard.cpp:294 -> init_map); every other Keyboard in this file
+    // calls it and this row did not. Without it the row read G and CAPS SHIFT
+    // as already down and asserted against uninitialised state — it PASSED, and
+    // it passed under mutation too, for reasons that had nothing to do with
+    // what it claims to test. The matrix_clean precondition below is what
+    // exposed it, and it stays for the same reason.
+    kb.reset();
     host_key_latch::Router<Keyboard, SDL_Scancode> router;
     router.attach(kb);
     // The PRODUCTION wiring, called rather than copied: qt_app.cpp connects the
@@ -886,13 +912,26 @@ void test_stranded_alt(MainWindow& w) {
     // before wire_host_keys() existed, by deleting them and watching every row
     // stay green.
     wire_host_keys(w, router);
-    w.setFocus();
-    QApplication::processEvents();
+
+    // Two preconditions, ASSERTED rather than assumed, because clearFocus() is
+    // silent on a widget that does not have focus and an already-dirty matrix
+    // would make the outcome meaningless. Both appear in the detail string, so
+    // a failure says which half broke.
+    const bool focused_before = (QApplication::focusWidget() == &w);
+    const bool matrix_clean   = !key_down(kb, G_ROW, G_COL)
+                                && !key_down(kb, CS_ROW, CS_COL);
 
     // Host Alt goes down and its key-up is delivered somewhere else — the exact
     // shape of what Alt+F does (both the F and the Alt key-up go to the menu).
     send(w, Qt::Key_Alt, Qt::NoModifier, true);
     router.on_tick_end(1);                 // a frame samples the matrix
+
+    // NOTHING is installed over wire_host_keys() here, deliberately. An earlier
+    // draft wrapped the keyboard-lost callback to count it, and that silently
+    // COST the row its reach: with the production callback replaced, deleting
+    // it from wire_host_keys() failed nothing at all. "release_all() did not
+    // fix this" and "nothing ever told it to" are still separable — H268-06 is
+    // the second half, and it is the row to read when this one fails.
     w.clearFocus();                        // the keyboard goes elsewhere
     QApplication::processEvents();
     w.setFocus();                          // ...and comes back
@@ -905,14 +944,11 @@ void test_stranded_alt(MainWindow& w) {
     const bool g_down  = key_down(kb, G_ROW, G_COL);
     const bool cs_down = key_down(kb, CS_ROW, CS_COL);
     check("H268-07", "after the keyboard is taken away mid-Alt, G still types G",
-          g_down && !cs_down,
-          std::string("G_cell=") + (g_down ? "down" : "up") +
+          focused_before && matrix_clean && g_down && !cs_down,
+          std::string("focused_before=") + (focused_before ? "1" : "0") +
+              " matrix_clean=" + (matrix_clean ? "1" : "0") +
+              " G_cell=" + (g_down ? "down" : "up") +
               " CapsShift=" + (cs_down ? "down (GRAPH)" : "up"));
-
-    send(w, Qt::Key_G, Qt::NoModifier, false);
-    router.on_tick_end(1);
-    w.set_key_callback(nullptr);
-    w.set_keyboard_lost_callback(nullptr);
 }
 
 } // namespace
@@ -940,7 +976,7 @@ int main(int argc, char** argv) {
     test_quick_screenshot_chord(w);
     test_alt_namespace(w);
     test_menu_focus(w);
-    test_stranded_alt(w);
+    test_stranded_alt();
 
     // Group 5 needs a SECOND window, with an emulator attached: the bug-button
     // whose tooltip regressed lives on the debug toolbar, and MainWindow only

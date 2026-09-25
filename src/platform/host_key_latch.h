@@ -412,9 +412,13 @@ private:
 
     /// Record what the SINK is holding, so release_all() can undo exactly that
     /// and nothing else. Releasing a key the sink never had would be wrong, not
-    /// merely wasteful: the compound keys share matrix bits (DELETE is
-    /// Caps Shift + 0), so clearing an unpressed one would clear a Caps Shift
-    /// the user really is holding.
+    /// merely wasteful: the three `s_compound[]` keys write TWO matrix bits
+    /// directly — `/` is Symbol Shift + V, `-` is SS + J, `=` is SS + L
+    /// (keyboard.cpp:280-282) — and all three share the Symbol Shift cell
+    /// {7,1}, so clearing an unpressed `/` would clear a Symbol Shift the user
+    /// really is holding. (DELETE is NOT an example: it goes through the
+    /// extended-key register and is folded against Caps Shift only at
+    /// read_rows() time, keyboard.cpp:227.)
     void mark_sink(int sc, bool down)
     {
         if (!in_range(sc)) return;

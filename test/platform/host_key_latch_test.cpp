@@ -62,7 +62,11 @@
 //
 // Run: ./build/test/host_key_latch_test
 
+#include <functional>
+
 #include "platform/host_key_latch.h"
+#include "platform/host_key_wiring.h"
+#include "platform/sdl_input.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -1291,10 +1295,12 @@ int main()
     }
 
     // --- RLS-03: a key the SINK never held is not "released" ----------------
-    // Not mere tidiness. The compound keys share matrix bits — DELETE is
-    // Caps Shift + 0 — so clearing a key that was never pressed would clear a
-    // Caps Shift the user really is holding. Only what was applied is undone,
-    // which is why the Router tracks the SINK's state and not the host's.
+    // Not mere tidiness. The three `s_compound[]` keys write two matrix bits
+    // directly and all three share the Symbol Shift cell {7,1} — `/` is SS+V,
+    // `-` is SS+J, `=` is SS+L (keyboard.cpp:280-282) — so clearing a `/` that
+    // was never pressed would clear a Symbol Shift the user really is holding.
+    // Only what was applied is undone, which is why the Router tracks the
+    // SINK's state and not the host's.
     {
         FakeKeyboard kb; TestRouter r; r.attach(kb);
         r.on_host_key(SC_P, true);         // applied
@@ -1339,18 +1345,35 @@ int main()
               saw_o && !saw_p_again, got(g.samples));
     }
 
-    // The LATCH's deferred list. A release held back for the minimum-hold
-    // refers to a key release_all() has just cleared; leaving it there would
-    // hold gate (b) shut and stall the very next press.
+    // The LATCH's deferred list, and — the row that matters — the key it
+    // refers to. This is the ONE state in which the two bitsets disagree, and
+    // it is why they are two:
+    //
+    //   press P   -> sink_down_[P]=1, host_down_[P]=1
+    //   release P -> host_down_[P] is cleared UNCONDITIONALLY at the top of
+    //                on_host_key, while latch_.on_release() DEFERS the sink
+    //                release because no frame has run. sink_down_[P] is still 1.
+    //   focus lost -> release_all() must find P through sink_down_.
+    //
+    // A release_all() that consulted host_down_ — the obvious "simplification"
+    // of the split — skips P here, and because it also calls latch_.reset() the
+    // deferred record is discarded with it. P is then down in the guest matrix
+    // for the rest of the session with nothing left that could ever clear it:
+    // the stuck key #120 and #268 are both about, reintroduced by the fix for
+    // them. RLS-04f is what refuses it; asserting only has_deferred() passes
+    // whichever bitset the loop reads.
     {
         FakeKeyboard kb; TestRouter r; r.attach(kb);
         r.on_host_key(SC_P, true);
         r.on_host_key(SC_P, false);        // no frame yet -> the Latch defers it
-        check("RLS-04b", "the release really is deferred before the focus loss",
-              r.latch().has_deferred(), got(kb));
+        check("RLS-04b", "the release really is deferred, and the sink has not had it",
+              r.latch().has_deferred() && kb.count(SC_P, false) == 0, got(kb));
+        kb.calls.clear();
         r.release_all();
         check("RLS-04c", "and losing the keyboard clears the deferred release",
               !r.latch().has_deferred(), got(kb));
+        check("RLS-04f", "by RELEASING the key to the sink, not by forgetting it",
+              kb.count(SC_P, false) == 1, got(kb));
     }
 
     // The HOST-held set. It is what suppresses autorepeat, so a key still
@@ -1393,10 +1416,11 @@ int main()
     }
 
     // --- RLS-06: a key already UP is not released a second time -------------
-    // A spurious set_key(sc, false) is not free: the compound keys share matrix
-    // bits, so re-clearing a key that is already up can clear a Caps Shift that
-    // is legitimately held. There are two ways a key leaves the sink — the
-    // release path and the Latch's discharge — and each has to say so.
+    // A spurious set_key(sc, false) is not free: the `s_compound[]` keys share
+    // the Symbol Shift cell, so re-clearing one that is already up can clear a
+    // Symbol Shift that is legitimately held. There are two ways a key leaves
+    // the sink — the release path and the Latch's discharge — and each has to
+    // say so.
     {
         FakeKeyboard kb; TestRouter r; r.attach(kb);
         r.on_host_key(SC_P, true);
@@ -1416,6 +1440,128 @@ int main()
         r.release_all();
         check("RLS-06b", "nor is one the Latch discharged",
               kb.calls.empty(), got(kb));
+    }
+
+    // =======================================================================
+    // THE WIRING (GitHub issue #268). Ungated on purpose: host_hotkey_test is
+    // Qt-only, and the SDL frontend needs the same guarantee.
+    //
+    // WHY THESE ROWS EXIST AT ALL. The policy above is proved to death and
+    // that proves nothing about whether a frontend CALLS it. Measured, not
+    // supposed: with the Qt keyboard-lost binding written inline in QtApp,
+    // deleting it failed no row in any suite. wire_host_keys() exists so the
+    // binding is a named function a test can drive, and these rows are what
+    // make deleting a line of it fail.
+    //
+    // The residual, stated rather than hidden: a frontend that never calls
+    // wire_host_keys() at all is not caught here. It cannot be — that needs a
+    // live QApplication or a live SDL window. It IS caught elsewhere, and by
+    // construction rather than by luck: the call binds the KEY path too, so
+    // dropping it leaves the frontend with no keyboard, which is exactly what
+    // the `qt-keypress-func` and `sdl-keypress-func` regression rows assert.
+    // That is why the three-argument overload takes the key callback instead
+    // of letting the caller bind it separately.
+    // =======================================================================
+
+    // A stand-in for a frontend's key surface: the two setters wire_host_keys()
+    // uses, and nothing else. Deliberately NOT MainWindow or SdlInput — this is
+    // about the wiring function, and either of those would drag a whole
+    // frontend in to prove one binding.
+    struct FakeSource {
+        std::function<void(int, bool)> on_key;
+        std::function<void()>          on_lost;
+        void set_key_callback(std::function<void(int, bool)> cb) { on_key = std::move(cb); }
+        void set_keyboard_lost_callback(std::function<void()> cb) { on_lost = std::move(cb); }
+    };
+
+    // --- HKW-01: the two-argument form binds BOTH directions ---------------
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        FakeSource src;
+        wire_host_keys(src, r);
+        check("HKW-01a", "the plain-forward form binds the key path",
+              static_cast<bool>(src.on_key), "on_key unset");
+        check("HKW-01b", "and the keyboard-loss path with it",
+              static_cast<bool>(src.on_lost), "on_keyboard_lost unset");
+    }
+
+    // --- HKW-02: the three-argument form keeps the caller's key callback ---
+    // The SDL frontend filters its host hotkeys (F1..F11, Ctrl+Alt) inside its
+    // own callback, so it supplies one. The overload must install THAT and
+    // still bind the loss path.
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        FakeSource src;
+        int mine = 0;
+        wire_host_keys(src, r, [&mine](int, bool) { ++mine; });
+        if (src.on_key) src.on_key(SC_P, true);
+        check("HKW-02a", "the caller's own key callback is the one installed",
+              mine == 1 && kb.calls.empty(),
+              "mine=" + std::to_string(mine) + " " + got(kb));
+        check("HKW-02b", "and the keyboard-loss path is bound anyway",
+              static_cast<bool>(src.on_lost), "on_keyboard_lost unset");
+    }
+
+    // --- HKW-03: what the loss callback actually does ----------------------
+    // Binding something is not the claim; releasing the guest's keys is.
+    {
+        FakeKeyboard kb; TestRouter r; r.attach(kb);
+        FakeSource src;
+        wire_host_keys(src, r);
+        // Both callbacks are INVOKED here, so both must be checked before the
+        // call: a mutation that leaves one unbound has to FAIL this row, not
+        // throw bad_function_call out of the suite. (Measured — it did.)
+        if (src.on_key) src.on_key(SC_P, true);
+        r.on_tick_end(1);
+        kb.calls.clear();
+        if (src.on_lost) src.on_lost();
+        check("HKW-03", "firing it releases the key the guest is holding",
+              static_cast<bool>(src.on_key) && static_cast<bool>(src.on_lost) &&
+                  kb.count(SC_P, false) == 1,
+              std::string("on_key=") + (src.on_key ? "set" : "UNSET") +
+                  " on_lost=" + (src.on_lost ? "set" : "UNSET") + " " + got(kb));
+    }
+
+    // --- HKW-04: the SDL frontend really raises it -------------------------
+    // Through the REAL SdlInput::poll() and a REAL SDL_EVENT_WINDOW_FOCUS_LOST
+    // pushed onto SDL's own queue. Only the events subsystem is needed — no
+    // window, no video driver — which is what lets this live in an ungated
+    // suite. Without it the SDL side of #268 would rest on a hand-read `case`.
+    {
+        if (!SDL_Init(SDL_INIT_EVENTS)) {
+            check("HKW-04a", "SdlInput reports a lost keyboard", false,
+                  std::string("SDL_Init(EVENTS) failed: ") + SDL_GetError());
+            check("HKW-04b", "and a key event still reaches on_key", false,
+                  "SDL_Init(EVENTS) failed");
+        } else {
+            SdlInput in;
+            int lost = 0, keys = 0;
+            in.on_keyboard_lost = [&lost]() { ++lost; };
+            in.on_key = [&keys](SDL_Scancode, bool) { ++keys; };
+
+            SDL_Event ev{};
+            ev.type = SDL_EVENT_WINDOW_FOCUS_LOST;
+            ev.window.windowID = 1;
+            const bool pushed = SDL_PushEvent(&ev);
+
+            SDL_Event kev{};
+            kev.type = SDL_EVENT_KEY_DOWN;
+            kev.key.scancode = SDL_SCANCODE_P;
+            const bool pushed_key = SDL_PushEvent(&kev);
+
+            in.poll();
+            // `pushed` is part of the condition: a push that silently failed
+            // would leave lost == 0 and read exactly like a missing case.
+            check("HKW-04a", "SdlInput reports a lost keyboard",
+                  pushed && lost == 1,
+                  "pushed=" + std::to_string((int)pushed) +
+                      " lost=" + std::to_string(lost));
+            check("HKW-04b", "and a key event still reaches on_key",
+                  pushed_key && keys == 1,
+                  "pushed=" + std::to_string((int)pushed_key) +
+                      " keys=" + std::to_string(keys));
+            SDL_Quit();
+        }
     }
 
     std::printf("\n====================================================\n");

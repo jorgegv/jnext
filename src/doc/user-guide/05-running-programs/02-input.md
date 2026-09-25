@@ -61,6 +61,18 @@ does not do that: Alt is reserved for the host, and Extend Mode is on Tab —
 the same convention FUSE and ZEsarUX use. That is a deliberate trade, made so
 that Ctrl could be given back to the guest.
 
+**Tapping Alt on its own does nothing, and that is on purpose.** In most
+applications a bare Alt press-and-release moves the keyboard into the menu
+bar, so the next letter you type opens a menu instead of typing. JNEXT turns
+that off (decided 2026-09-25): here Alt is simultaneously a key the *guest*
+needs — Alt+E, Alt+G, Alt+C — and the modifier every JNEXT shortcut lives on,
+so a stray Alt while typing used to hand the keyboard to the menu bar with
+nothing on screen to say so, and the next letter vanished into it. The menus
+are still fully reachable from the keyboard: **Alt+F**, **Alt+M**, **Alt+I**,
+**Alt+A**, **Alt+B**, **Alt+V**, **Alt+N** and **Alt+H** open File, Machine,
+Input, Tape, Debug, View, Settings and Help, and the arrow keys work inside
+them as usual. Only the tap-Alt-then-arrow route is gone.
+
 The machine's own front-panel keys are on function keys: **F1** hard reset,
 **F4** soft reset, **F9** Multiface NMI, **F10** DivMMC. (With the debugger
 open, F9 belongs to the debugger.) The two resets are also in the **Machine**

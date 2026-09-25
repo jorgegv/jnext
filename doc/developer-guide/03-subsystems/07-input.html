@@ -2002,7 +2002,8 @@ in the machine-side class, plus a stated policy.</p>
   invariant is that jnext never holds a guest key down whose release it cannot
   observe. The Router tracks what the <em>sink</em> holds separately from what the
   <em>host</em> holds for this: releasing a key that was never pressed would clear
-  matrix bits a compound key shares, such as the Caps Shift inside DELETE.
+  matrix bits a compound key shares — <code>/</code>, <code>-</code> and <code>=</code> each write two bits
+  directly and all three share the Symbol Shift cell.
   The price is stated rather than hidden — a press not yet shown to a frame is
   dropped instead of held, which is correct, because the user has moved to a
   menu (GH #268).</p>
@@ -2053,12 +2054,22 @@ kill a guest key, so <code>host_hotkey_test</code> pins the two sets disjoint �
 <p>Qt has its own claim on Alt, and jnext declines it. A bare Alt tap normally
 moves keyboard focus to the menu bar, where the next letter that is a top-level
 mnemonic is swallowed and opens that popup instead of typing. In an ordinary
-application that is a convenience; here Alt is part of typing, so the main
-window's menu bar is given a <code>QProxyStyle</code> that reports
-<code>SH_MenuBar_AltKeyNavigation</code> as off. Alt+<em>letter</em> mnemonics are unaffected —
-Qt opens those through the shortcut map, not through this hint — and
-<code>handle_key()</code> additionally feeds the guest nothing at all while a Qt popup
-owns the keyboard (GH #268).</p>
+application that is a convenience; here Alt is part of typing, so the menu bar
+is given a <code>QProxyStyle</code> reporting <code>SH_MenuBar_AltKeyNavigation</code> as off
+(<code>src/debug/menu_bar_alt_nav_qt.h</code>, installed by both the emulator window and
+the debugger window). Alt+<em>letter</em> mnemonics are unaffected — Qt opens those
+through the shortcut map, not through this hint — and <code>handle_key()</code>
+additionally feeds the guest nothing at all while a Qt popup owns the keyboard
+(GH #268).</p>
+<p><strong>This is a settled decision, taken 2026-09-25, not a provisional workaround.</strong>
+The reasoning: Alt is simultaneously a guest modifier (EDIT / GRAPH / CAPS
+LOCK) and this project's entire host-hotkey namespace, so pressing it is an
+ordinary part of typing here in a way it is not in other applications; every
+menu remains reachable by Alt+<em>letter</em> and navigable with the arrow keys once
+open; and the only thing given up is the tap-Alt-then-arrow convenience, which
+in this application was silently eating keystrokes rather than helping. For an
+emulator with an overloaded Alt it is a net accessibility improvement, and the
+user guide says so to anyone who used the old route.</p>
 
 
 
