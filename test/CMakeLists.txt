@@ -361,6 +361,33 @@ target_link_libraries(snapshot_test PRIVATE jnext_save)
 target_include_directories(snapshot_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME snapshot_tests COMMAND snapshot_test)
 
+# ---------------------------------------------------------------------------
+# szx_probe — the FOREIGN reader (GH #27 S9, design §13.2(1)).
+#
+# Links LIBSPECTRUM, the library FUSE itself uses. It is the only adjudicator
+# in this project that can say "the file jnext produced is not a valid
+# snapshot" without consulting jnext code — which is precisely the defect class
+# §13.1 records: jnext's .szx saver wrote RAM pages 0-111, its own loader
+# accepted them, every test passed, and libspectrum rejected every file.
+#
+# NOT a test suite: it is a helper the functional row drives, so it gets no
+# add_test() and no row count. OPTIONAL by design — a machine without
+# libspectrum-devel builds everything else and the row SKIPS, with the skip
+# saying why. CI installs it, so there the row runs.
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(LIBSPECTRUM QUIET libspectrum)
+endif()
+if(LIBSPECTRUM_FOUND)
+    add_executable(szx_probe snapshot/szx_probe.c)
+    target_include_directories(szx_probe PRIVATE ${LIBSPECTRUM_INCLUDE_DIRS})
+    target_link_libraries(szx_probe PRIVATE ${LIBSPECTRUM_LIBRARIES})
+    target_link_directories(szx_probe PRIVATE ${LIBSPECTRUM_LIBRARY_DIRS})
+    message(STATUS "libspectrum ${LIBSPECTRUM_VERSION} found: building szx_probe (GH #27 S9 foreign reader)")
+else()
+    message(STATUS "libspectrum NOT found: szx_probe not built, snapshot-foreign-szx-func will SKIP")
+endif()
+
 # The .jns snapshot's SD-card media IDENTITY (GH #27 S7). A separate binary
 # from snapshot_test on purpose: that one links jnext_save ALONE so the
 # container's rules are provable with no emulator, no card and no filesystem
