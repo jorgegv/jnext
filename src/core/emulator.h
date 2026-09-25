@@ -617,6 +617,16 @@ public:
     I2cController& i2c()     { return i2c_; }
     Uart&         uart()      { return uart_; }
 
+    /// The esxDOS host-filesystem sandbox (`--esxdos-stub-root`).
+    ///
+    /// PUBLIC since GH #27 S8's review: its open-handle table is hand-written
+    /// into a `.jns` (§9.5(4) — a variable-length list no declaration can
+    /// express) and is NOT in `save_state`'s stream either, so the
+    /// binary-stream oracle is structurally blind to it. The only way to prove
+    /// a restored handle is genuinely usable is to read through it, and that
+    /// needs the object.
+    EsxdosHostFs& esxdos_hostfs() { return esxdos_hostfs_; }
+
     // ── Emulated ESP-01 (GH #25) ──────────────────────────────────────────
     /// True when `EmulatorConfig::esp_enabled` built one. Everything below is
     /// null / empty when it did not, which is the default.

@@ -411,7 +411,7 @@ int main(int argc, char** argv) {
     // and jnext has shipped a format the dialog did not list before.
     {
         const QString lf = MainWindow::load_filter();
-        check("LE-11",
+        check("LE-15",
               "the Load dialog offers *.jns, both in the combined first entry "
               "and as a format of its own",
               lf.contains("*.jns") &&
@@ -421,16 +421,16 @@ int main(int argc, char** argv) {
 
         const QString sn = MainWindow::save_filter(/*next_machine=*/true);
         const QString sc = MainWindow::save_filter(/*next_machine=*/false);
-        check("LE-12",
+        check("LE-16",
               "the Save dialog LEADS with *.jns on a Next — the leading entry "
               "is the default the dialog offers, and nothing else can "
               "represent a Next at all",
               sn.startsWith("jnext snapshot (*.jns)"), q(sn));
-        check("LE-13",
+        check("LE-17",
               "…and leads with *.sna on 48K/128K/+3, where a .sna is what "
               "other emulators read",
               sc.startsWith("Spectrum snapshot (*.sna)"), q(sc));
-        check("LE-14",
+        check("LE-18",
               "…but BOTH still offer every format, so the machine changes the "
               "recommendation and never the choice",
               sn.contains("*.jns") && sn.contains("*.sna") &&

@@ -2216,6 +2216,41 @@ agent that did not write it, on its own branch and worktree.
 
 **Total: 14–23 focused sessions; S2–S5 is 7–10 of them, S5b about half of one.**
 
+#### What S8 actually landed — read this, not the commit messages
+
+**The commit messages across S8 do not reliably describe their diffs**, and a
+`git bisect` over that range will get a wrong answer from them. Three known
+cases: the commit titled "the three required fixes" also adds the three
+`--snapshot-*` CLI flags; "the blobs were written and never read back" also
+carries the whole GUI wiring; and "CLI, GUI, docs and FEATURES" claims
+design-doc edits that an earlier commit made. Nothing was pushed, and an
+interactive rebase across the range was judged not worth the risk, so the cost
+is paid and recorded here instead.
+
+The landing, by area:
+
+| Area | What |
+|---|---|
+| **Assembler** | `src/core/emulator_jns.cpp` — `Emulator::save_jns`/`load_jns`, `visit_jns_subsystems` (the ONE list), `describe_jns_exceptions` (the §9.5 staging), the hand-written esxDOS table and joystick cable, and the path wrappers the dispatch sites call |
+| **Container** | `JsonReadDesc::blobs()` — the read-side blob destinations, whose absence was a shipped defect |
+| **CLI** | three flags in `cli_options.h`'s table + `main.cpp`'s switch + `EmulatorConfig`; `.jns` in the `--load` chain and `--delayed-snapshot`; man page, `USAGE.md`, the user-guide option page (`CLI-DOC-06` requires all three) |
+| **Dispatch** | `emulator_apply_load` + `emulator_load_routes_to_nex` (`emulator_boot.h`), the CLI pre-dispatch (`main.cpp`), the headless save site |
+| **GUI** | Load filter, Save filter (machine-led) + default suffix, the `.jns` save arm, the restore-time provenance status line, and `load_filter()`/`save_filter()` extracted so a test can reach them |
+| **Docs** | user guide §5.9, developer guide 2.5's `.jns` section, `FEATURES.md`, §16.3's revisit, §3.3's dispatch-site correction, §6.1's listing corrections |
+| **Tests** | `rewind_test` `JNS-RT-01`…`19` (+ `02b`, `08a`, `09a`), `load_error_test` `LE-15`…`18`, `snapshot-jns-roundtrip-func` |
+
+**Five defects were found during S8, all by driving the shipped binary rather
+than by any test that existed**: the blobs were written and never read back;
+the blob member names were invented rather than §6.1's; `capture.frame` came
+from the rewind ring's counter; two `state/` member names diverged from §6.1;
+and an absent subsystem restored silently.
+
+**Nine mutations, four of which survived the first pass** — every one a row
+asserting something its fixture could not distinguish. The review then found a
+fifth (the esxDOS table's legitimate round trip) and asking the same question
+again found a sixth (`meta/preview.png`, which had zero mentions anywhere in
+the tree). Both are covered now, by `JNS-RT-16` and `JNS-RT-17`…`19`.
+
 ### 17.0 Why S5b exists, and why it is not deferred
 
 D3 and D4 (§18.3) put **131 072 + 8 192 = 139 264 bytes** into every snapshot

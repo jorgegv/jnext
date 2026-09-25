@@ -13,6 +13,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/saveable.h"
+#include "core/esxdos_hostfs.h"
 #include "core/jns_snapshot.h"
 #include "save/jns_container.h"
 #include "save/zip_archive.h"
@@ -5487,6 +5488,218 @@ static int test_s8_jns_roundtrip()
               refused && refusal.find("ram") != std::string::npos,
               "…and the refusal NAMES the member, so a user can tell a corrupt "
               "file from an unsupported one");
+    }
+
+    // ── THE esxDOS HANDLE TABLE, ROUND-TRIPPED FOR REAL ─────────────────
+    //
+    // THE GAP THIS CLOSES, and why it is the same gap as the blob one.
+    //
+    // The handle table is hand-written (§9.5(4) — a variable-length list no
+    // declaration can express), so it is outside `visit_jns_subsystems`. It is
+    // ALSO not in `Emulator::save_state`'s descriptor walk. So `JNS-RT-02`'s
+    // binary-stream comparison is structurally blind to it, exactly as it was
+    // blind to the blobs — and that blindness let the blob read-back defect
+    // hide for six stages.
+    //
+    // `JNS-RT-06`/`07` only prove a handle pointing OUTSIDE the sandbox is
+    // refused. The legitimate in-sandbox case — the one users have — had no
+    // coverage anywhere in the tree.
+    //
+    // So this reads a byte THROUGH the restored handle. Inspecting the
+    // re-saved JSON would prove the fields travelled; reading proves the
+    // handle is open, bound to the right file, at the right offset, and
+    // usable. Those are different claims and only the second is what a user
+    // has.
+    {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path root = fs::temp_directory_path() /
+            ("jnext_jns_esx_" + std::to_string(::getpid()));
+        fs::remove_all(root, ec);
+        fs::create_directories(root, ec);
+
+        // A file whose byte at offset N is N: reading one byte then says both
+        // WHICH file was reopened and WHERE in it, in a single value.
+        std::vector<uint8_t> content(256);
+        for (int i = 0; i < 256; ++i) content[i] = static_cast<uint8_t>(i);
+        {
+            std::ofstream f((root / "data.bin").string(), std::ios::binary);
+            f.write(reinterpret_cast<const char*>(content.data()),
+                    static_cast<std::streamsize>(content.size()));
+        }
+
+        auto cfg_with_root = [&](EmulatorConfig& cfg) {
+            cfg.type                 = MachineType::ZX48K;
+            cfg.rewind_buffer_frames = 2;
+            cfg.esxdos_stub          = true;
+            cfg.esxdos_stub_root     = root.string();
+        };
+
+        constexpr uint32_t kSeekTo = 100;
+        uint8_t handle = 0;
+        std::vector<uint8_t> jns_esx;
+        bool prepared = false;
+        {
+            auto a_up = std::make_unique<Emulator>();
+            Emulator& a = *a_up;
+            EmulatorConfig cfg;
+            cfg_with_root(cfg);
+            a.init(cfg);
+
+            const bool opened =
+                a.esxdos_hostfs().open("/data.bin",
+                                       EsxdosHostFs::kModeRead, handle) ==
+                EsxdosHostFs::kOk;
+            // Advance the position by READING, so the offset that has to
+            // travel is one the machine really reached.
+            std::vector<uint8_t> skip;
+            const bool advanced =
+                opened && a.esxdos_hostfs().read(handle, kSeekTo, skip) ==
+                          EsxdosHostFs::kOk && skip.size() == kSeekTo;
+
+            jnext::JnsSaveOptions opt;
+            jnext::JnsLoadReport  rep;
+            std::string why;
+            prepared = advanced && a.save_jns(opt, jns_esx, rep, why);
+        }
+
+        bool restored = false;
+        std::vector<uint8_t> got;
+        if (prepared) {
+            auto b_up = std::make_unique<Emulator>();
+            Emulator& b = *b_up;
+            EmulatorConfig cfg;
+            cfg_with_root(cfg);
+            b.init(cfg);          // same root, NO handle open
+
+            jnext::JnsLoadOptions lopt;
+            jnext::JnsLoadReport  lrep;
+            std::string refusal;
+            if (b.load_jns(jns_esx.data(), jns_esx.size(), lopt, lrep,
+                           refusal)) {
+                restored = b.esxdos_hostfs().read(handle, 1, got) ==
+                           EsxdosHostFs::kOk;
+            }
+        }
+
+        const bool right_byte =
+            restored && got.size() == 1 && got[0] == kSeekTo;
+        if (!right_byte) {
+            fprintf(stderr,
+                    "  JNS-RT-16: prepared=%d restored=%d n=%zu byte=%d "
+                    "(want %u)\n",
+                    prepared ? 1 : 0, restored ? 1 : 0, got.size(),
+                    got.empty() ? -1 : (int)got[0], kSeekTo);
+        }
+        check("JNS-RT-16", right_byte,
+              "an esxDOS handle open INSIDE the sandbox survives a .jns round "
+              "trip and is genuinely USABLE: reading one byte through the "
+              "restored handle returns the byte at the offset the saved "
+              "machine had reached. The file's byte at offset N is N, so that "
+              "single value says which file was reopened AND where in it");
+
+        fs::remove_all(root, ec);
+    }
+
+    // ── meta/preview.png — THE SIXTH BLIND SPOT ─────────────────────────
+    //
+    // Found by asking the same question the esxDOS gap answered: what else is
+    // hand-written OUTSIDE `visit_jns_subsystems`, where the binary-stream
+    // oracle cannot reach? `preview_png` had **zero mentions** anywhere in the
+    // tree — not in a test, not in a functional row. The `meta/preview.png`
+    // member, the three `manifest.preview` fields and the `report.preview_png`
+    // read-back were all unexercised, which is the blob defect's shape exactly.
+    //
+    // It is in `meta/`, the OPEN namespace (§12.1), so nothing else would ever
+    // have complained: a writer that silently dropped it produces a file every
+    // reader accepts.
+    {
+        auto a_up = std::make_unique<Emulator>();
+        Emulator& a = *a_up;
+        build_busy(a);
+
+        // Not a real PNG — the container stores bytes and never decodes them,
+        // and a recognisable pattern makes a truncation or an offset slip
+        // visible in the failure detail. The PNG signature is on the front so
+        // the member is at least the right SHAPE for what claims to be one.
+        std::vector<uint8_t> png = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+        for (int i = 0; i < 64; ++i) png.push_back(static_cast<uint8_t>(i * 3));
+
+        jnext::JnsSaveOptions opt;
+        opt.preview_png    = png;
+        opt.preview_width  = 320;
+        opt.preview_height = 256;
+        jnext::JnsLoadReport rep;
+        std::string why;
+        std::vector<uint8_t> out;
+        const bool wrote = a.save_jns(opt, out, rep, why);
+
+        // Declared in the manifest…
+        jnext::jns::Manifest m;
+        bool declared = false;
+        if (wrote) {
+            jnext::zip::Reader r;
+            std::string text, w2;
+            std::vector<std::string> unk;
+            declared = r.open(out.data(), out.size(), w2) &&
+                       r.read_text(jnext::jns::kManifestMember, text, w2) &&
+                       jnext::jns::manifest_from_json(text, m, unk, w2) &&
+                       m.preview.present && m.preview.width == 320 &&
+                       m.preview.height == 256 &&
+                       r.has("meta/preview.png");
+        }
+        check("JNS-RT-17", declared,
+              "a preview is DECLARED in the manifest (present, width, height) "
+              "and the meta/preview.png member is really in the archive — "
+              "§10.2 P5's declared-rather-than-merely-present rule, so a "
+              "reader can size it without inflating it");
+
+        // …and handed back on load, byte for byte.
+        bool came_back = false;
+        if (wrote) {
+            auto b_up = std::make_unique<Emulator>();
+            Emulator& b = *b_up;
+            build_emulator(b, 2);
+            jnext::JnsLoadOptions lopt;
+            jnext::JnsLoadReport  lrep;
+            std::string refusal;
+            came_back = b.load_jns(out.data(), out.size(), lopt, lrep,
+                                   refusal) &&
+                        lrep.preview_png == png;
+        }
+        check("JNS-RT-18", came_back,
+              "…and the bytes come back BYTE-FOR-BYTE on load. meta/ is an "
+              "OPEN namespace, so a writer that silently dropped the preview "
+              "would produce a file every reader accepts — nothing else in the "
+              "tree would ever have complained");
+
+        // The absent case is legal and must stay quiet: no member, nothing
+        // declared, and no warning. Without this the two rows above would be
+        // satisfied by a writer that always emitted a preview.
+        auto c_up = std::make_unique<Emulator>();
+        Emulator& c = *c_up;
+        build_busy(c);
+        jnext::JnsSaveOptions bare;
+        jnext::JnsLoadReport  brep;
+        std::vector<uint8_t> bare_out;
+        std::string bw;
+        const bool bare_wrote = c.save_jns(bare, bare_out, brep, bw);
+        bool quiet = false;
+        if (bare_wrote) {
+            jnext::zip::Reader r;
+            std::string text, w2;
+            jnext::jns::Manifest bm;
+            std::vector<std::string> unk;
+            quiet = r.open(bare_out.data(), bare_out.size(), w2) &&
+                    !r.has("meta/preview.png") &&
+                    r.read_text(jnext::jns::kManifestMember, text, w2) &&
+                    jnext::jns::manifest_from_json(text, bm, unk, w2) &&
+                    !bm.preview.present;
+        }
+        check("JNS-RT-19", quiet,
+              "no preview supplied means no member and nothing declared — "
+              "legal and silent. Without this the two rows above would pass "
+              "against a writer that always emitted one");
     }
 
     // ── A SUBSYSTEM THE FILE DOES NOT CARRY ─────────────────────────────
