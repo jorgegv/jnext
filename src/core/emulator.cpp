@@ -11149,7 +11149,10 @@ void Emulator::flush_pending_cpu_nr_writes(uint64_t edge_limit)
     // drain; it is written as a filter anyway so it cannot silently
     // reorder if that ever stops holding.
     std::size_t kept = 0;
-    for (const auto& w : pending_cpu_nr_writes_) {
+    for (std::size_t i = 0; i < pending_cpu_nr_writes_.size(); ++i) {
+        // By value, and indexed: the compaction writes back into the vector
+        // at or before `i`, and `nextreg_.write()` reaches write handlers.
+        const PendingNrWrite w = pending_cpu_nr_writes_[i];
         if (w.edge >= edge_limit) {
             pending_cpu_nr_writes_[kept++] = w;
             continue;
@@ -11395,7 +11398,8 @@ void Emulator::tick_copper_for_master_cycles(uint64_t begin, uint64_t master_cyc
     if (master_cycles == 0) return;
 
     // The Copper steps fire at master cycles
-    // [begin, begin+1, ..., begin+master_cycles-1].
+    // [begin, begin+1, ..., begin+master_cycles-1]. Kept under the old
+    // name so the rest of the body below is untouched by GH #272.
     const uint64_t pre_clock  = begin;
 
     // C9 (Task 27 Wave 2) — strength-reduce the per-master-cycle div/mod.

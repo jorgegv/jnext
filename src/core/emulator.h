@@ -2285,11 +2285,14 @@ private:
     /// jnext models this as: while inside the per-instruction tick
     /// (set_defer_cpu_nr_writes(true) below), CPU NR writes via port
     /// 0x253B enqueue here instead of committing through NextReg.
-    /// After tick_copper_for_master_cycles runs, the queue is drained
-    /// so CPU writes apply LAST in the instruction window. If both
-    /// Copper and CPU touched the same NR, the CPU value wins —
-    /// matching VHDL's "Copper writes first, CPU held over by one
-    /// cycle, both writes happen, CPU value persists" semantic.
+    /// Once the Copper has been stepped across the window, the queue is
+    /// drained so CPU writes apply LAST in it. If both Copper and CPU
+    /// touched the same NR, the CPU value wins — matching VHDL's "Copper
+    /// writes first, CPU held over by one cycle, both writes happen, CPU
+    /// value persists" semantic. GH #272 — a video-row boundary inside
+    /// the window splits that drain at the boundary's own master cycle,
+    /// by each write's commit edge; within each segment the ordering
+    /// above is unchanged.
     void enqueue_cpu_nr_write(uint8_t reg, uint8_t val);
     /// Commit every enqueued CPU NR write whose commit edge is strictly
     /// before `edge_limit`, leaving the rest queued. `kNoEdgeLimit`
