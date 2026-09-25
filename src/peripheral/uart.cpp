@@ -1,6 +1,74 @@
 #include "peripheral/uart.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
+
+namespace {
+
+// GH #27 S5 — the per-channel key table for the §9.4 loop collapse in
+// `Uart::describe_state`.
+//
+// Two channels share one field list, so the keys carry the channel number: a
+// `.jns` says `ch1_tx_shift`, not a second anonymous `tx_shift` that
+// `JsonWriteDesc` would silently drop on top of the first.
+//
+// LITERALS, concatenated by the preprocessor, and NOT built at run time —
+// `StateDesc::fail()` STORES the `const char*` it is handed rather than
+// copying it, so a key formatted into a stack buffer would dangle in exactly
+// the refusal path whose job is to name the field.
+#define UART_CHAN_KEYS(p)                                                   \
+    { /*  0 */ p "_tx_fifo",            p "_rx_fifo",                       \
+      /*  2 */ p "_prescaler_msb",      p "_prescaler_lsb",                 \
+      /*  4 */ p "_framing",            p "_tx_busy",                       \
+      /*  6 */ p "_tx_timer_byte",      p "_err_overflow",                  \
+      /*  8 */ p "_err_framing",        p "_err_break",                     \
+      /* 10 */ p "_bitlevel_mode",      p "_tx_state",                      \
+      /* 12 */ p "_tx_state_next",      p "_tx_shift",                      \
+      /* 14 */ p "_tx_timer",           p "_tx_prescaler_snap",             \
+      /* 16 */ p "_tx_bit_count",       p "_tx_parity_live",                \
+      /* 18 */ p "_tx_frame_parity_en", p "_tx_frame_stop_bits",            \
+      /* 20 */ p "_tx_parity_odd_snap", p "_cts_n",                         \
+      /* 22 */ p "_tx_line_out",        p "_tx_busy_bitlevel",              \
+      /* 24 */ p "_tx_en",              p "_rx_state",                      \
+      /* 26 */ p "_rx_state_next",      p "_rx_shift",                      \
+      /* 28 */ p "_rx_timer",           p "_rx_prescaler_snap",             \
+      /* 30 */ p "_rx_timer_updated",   p "_rx_bit_count",                  \
+      /* 32 */ p "_rx_parity_live",     p "_rx_frame_bits",                 \
+      /* 34 */ p "_rx_frame_parity_en", p "_rx_frame_stop_bits",            \
+      /* 36 */ p "_rx_parity_odd_snap", p "_rx_debounce_counter",           \
+      /* 38 */ p "_rx_button_sync",     p "_rx_raw",                        \
+      /* 40 */ p "_rx_debounced",       p "_rx_d",                          \
+      /* 42 */ p "_rx_edge",            p "_rx_byte_parity_err",            \
+      /* 44 */ p "_rx_byte_framing_err" }
+
+const char* const kChanKeys[2][45] = {
+    UART_CHAN_KEYS("ch0"), UART_CHAN_KEYS("ch1"),
+};
+
+#undef UART_CHAN_KEYS
+
+// Enum name tables (design §6.2, §9.4). The binary encoding stays the u8
+// ordinal the stream has always carried; the NAME is what a `.jns` writes, so
+// renumbering either engine's FSM becomes a visible schema diff rather than a
+// silent re-interpretation of old files.
+//
+// UartChannel::TxState (uart.h:418) — serial/uart_tx.vhd.
+const char* const kTxStateNameArr[] = {
+    "s_idle", "s_rtr", "s_start", "s_bits", "s_parity", "s_stop_1", "s_stop_2",
+};
+const jnext::save::EnumNames kTxStateNames{
+    kTxStateNameArr, sizeof(kTxStateNameArr) / sizeof(kTxStateNameArr[0])};
+
+// UartChannel::RxState (uart.h:429) — serial/uart_rx.vhd:90-316.
+const char* const kRxStateNameArr[] = {
+    "s_idle", "s_start", "s_bits", "s_parity", "s_stop_1", "s_stop_2",
+    "s_error", "s_pause",
+};
+const jnext::save::EnumNames kRxStateNames{
+    kRxStateNameArr, sizeof(kRxStateNameArr) / sizeof(kRxStateNameArr[0])};
+
+}  // namespace
 
 // ─── UART logger ──────────────────────────────────────────────────────
 
@@ -891,118 +959,118 @@ UartDevice* Uart::device(int channel) const {
     return channels_[channel].device();
 }
 
-void UartChannel::save_state(StateWriter& w) const
+// GH #27 S5 — the ONE field list for a channel (design §9.2). Declaration
+// order IS the binary stream order, so it must not be disturbed: the
+// byte-identity gate (§17.1) pins two of these, plus the selector, as the
+// 2 330 bytes of block 17.
+//
+// The two FIFOs are `d.fifo` (design §9.5(1)): a count-prefixed,
+// RING-NORMALISED, zero-padded history that a plain array descriptor cannot
+// express. The padding to full capacity is load-bearing rather than
+// stylistic — `RewindBuffer` sizes every slot from one dry-run measure and
+// requires each snapshot to be exactly that width, so a variable-length FIFO
+// made a single received byte silently invalidate every subsequent rewind
+// (issue #42). RX is `U16` because uart.vhd:359 carries a 9th
+// `(overflow OR framing)` bit per byte; TX models no such bit and stays `U8`.
+//
+// The two FSMs are marshalled through a local `uint8_t`. Both ARE
+// `: uint8_t`-backed, so a `reinterpret_cast<uint8_t&>` would work — it is
+// not used, because the same idiom then reads identically where an enum has
+// no fixed underlying type and is `int`-wide, where it would NOT work.
+void UartChannel::describe_state(jnext::save::StateDesc& d, const char* const* k)
 {
-    tx_fifo_.save_state(w);
-    rx_fifo_.save_state(w);
-    w.write_u8(prescaler_msb_);
-    w.write_u16(prescaler_lsb_);
-    w.write_u8(framing_);
-    w.write_bool(tx_busy_);
-    w.write_u32(tx_timer_byte_);
-    w.write_bool(err_overflow_);
-    w.write_bool(err_framing_);
-    w.write_bool(err_break_);
+    FifoBufferAccess<uint8_t,  TX_FIFO_SIZE> tx(tx_fifo_);
+    FifoBufferAccess<uint16_t, RX_FIFO_SIZE> rx(rx_fifo_);
+    d.fifo(k[0], tx, jnext::save::FifoElem::U8);
+    d.fifo(k[1], rx, jnext::save::FifoElem::U16);
 
-    // Phase-1: bit-level engine state. Rewind buffer is in-process, no on-disk
-    // compat required — adding fields here is safe (plan R2/R3).
-    w.write_bool(bitlevel_mode_);
-    w.write_u8(static_cast<uint8_t>(tx_state_));
-    w.write_u8(static_cast<uint8_t>(tx_state_next_));
-    w.write_u8(tx_shift_);
-    w.write_u32(tx_timer_);
-    w.write_u32(tx_prescaler_snap_);
-    w.write_u8(tx_bit_count_);
-    w.write_bool(tx_parity_live_);
-    w.write_bool(tx_frame_parity_en_);
-    w.write_bool(tx_frame_stop_bits_);
-    w.write_bool(tx_parity_odd_snap_);
-    w.write_bool(cts_n_);
-    w.write_bool(tx_line_out_);
-    w.write_bool(tx_busy_bitlevel_);
-    w.write_bool(tx_en_);
+    d.u8(k[2], prescaler_msb_);
+    d.u16(k[3], prescaler_lsb_);
+    d.u8(k[4], framing_);
+    d.boolean(k[5], tx_busy_);
+    d.u32(k[6], tx_timer_byte_);
+    d.boolean(k[7], err_overflow_);
+    d.boolean(k[8], err_framing_);
+    d.boolean(k[9], err_break_);
 
-    w.write_u8(static_cast<uint8_t>(rx_state_));
-    w.write_u8(static_cast<uint8_t>(rx_state_next_));
-    w.write_u8(rx_shift_);
-    w.write_u32(rx_timer_);
-    w.write_u32(rx_prescaler_snap_);
-    w.write_bool(rx_timer_updated_);
-    w.write_u8(rx_bit_count_);
-    w.write_bool(rx_parity_live_);
-    w.write_u8(rx_frame_bits_);
-    w.write_bool(rx_frame_parity_en_);
-    w.write_bool(rx_frame_stop_bits_);
-    w.write_bool(rx_parity_odd_snap_);
-    w.write_u8(rx_debounce_counter_);
-    w.write_u8(rx_button_sync_);
-    w.write_bool(rx_raw_);
-    w.write_bool(rx_debounced_);
-    w.write_bool(rx_d_);
-    w.write_bool(rx_edge_);
-    w.write_bool(rx_byte_parity_err_);
-    w.write_bool(rx_byte_framing_err_);
+    // Phase-1: bit-level engine state.
+    d.boolean(k[10], bitlevel_mode_);
+    {
+        uint8_t tx_st = static_cast<uint8_t>(tx_state_);
+        d.enum8(k[11], tx_st, kTxStateNames);
+        tx_state_ = static_cast<TxState>(tx_st);
+        uint8_t tx_nx = static_cast<uint8_t>(tx_state_next_);
+        d.enum8(k[12], tx_nx, kTxStateNames);
+        tx_state_next_ = static_cast<TxState>(tx_nx);
+    }
+    d.u8(k[13], tx_shift_);
+    d.u32(k[14], tx_timer_);
+    d.u32(k[15], tx_prescaler_snap_);
+    d.u8(k[16], tx_bit_count_);
+    d.boolean(k[17], tx_parity_live_);
+    d.boolean(k[18], tx_frame_parity_en_);
+    d.boolean(k[19], tx_frame_stop_bits_);
+    d.boolean(k[20], tx_parity_odd_snap_);
+    d.boolean(k[21], cts_n_);
+    d.boolean(k[22], tx_line_out_);
+    d.boolean(k[23], tx_busy_bitlevel_);
+    d.boolean(k[24], tx_en_);
+
+    {
+        uint8_t rx_st = static_cast<uint8_t>(rx_state_);
+        d.enum8(k[25], rx_st, kRxStateNames);
+        rx_state_ = static_cast<RxState>(rx_st);
+        uint8_t rx_nx = static_cast<uint8_t>(rx_state_next_);
+        d.enum8(k[26], rx_nx, kRxStateNames);
+        rx_state_next_ = static_cast<RxState>(rx_nx);
+    }
+    d.u8(k[27], rx_shift_);
+    d.u32(k[28], rx_timer_);
+    d.u32(k[29], rx_prescaler_snap_);
+    d.boolean(k[30], rx_timer_updated_);
+    d.u8(k[31], rx_bit_count_);
+    d.boolean(k[32], rx_parity_live_);
+    d.u8(k[33], rx_frame_bits_);
+    d.boolean(k[34], rx_frame_parity_en_);
+    d.boolean(k[35], rx_frame_stop_bits_);
+    d.boolean(k[36], rx_parity_odd_snap_);
+    d.u8(k[37], rx_debounce_counter_);
+    d.u8(k[38], rx_button_sync_);
+    d.boolean(k[39], rx_raw_);
+    d.boolean(k[40], rx_debounced_);
+    d.boolean(k[41], rx_d_);
+    d.boolean(k[42], rx_edge_);
+    d.boolean(k[43], rx_byte_parity_err_);
+    d.boolean(k[44], rx_byte_framing_err_);
 }
 
-void UartChannel::load_state(StateReader& r)
+// GH #27 S5 — the ONE field list (design §9.2): the selector, then both
+// channels. §9.4's "array elements inside loops" class, which COLLAPSES to
+// one declaration per field rather than expanding to ninety.
+void Uart::describe_state(jnext::save::StateDesc& d)
 {
-    tx_fifo_.load_state(r);
-    rx_fifo_.load_state(r);
-    prescaler_msb_ = r.read_u8();
-    prescaler_lsb_ = r.read_u16();
-    framing_       = r.read_u8();
-    tx_busy_       = r.read_bool();
-    tx_timer_byte_ = r.read_u32();
-    err_overflow_  = r.read_bool();
-    err_framing_   = r.read_bool();
-    err_break_     = r.read_bool();
-
-    bitlevel_mode_     = r.read_bool();
-    tx_state_          = static_cast<TxState>(r.read_u8());
-    tx_state_next_     = static_cast<TxState>(r.read_u8());
-    tx_shift_          = r.read_u8();
-    tx_timer_          = r.read_u32();
-    tx_prescaler_snap_ = r.read_u32();
-    tx_bit_count_      = r.read_u8();
-    tx_parity_live_    = r.read_bool();
-    tx_frame_parity_en_= r.read_bool();
-    tx_frame_stop_bits_= r.read_bool();
-    tx_parity_odd_snap_= r.read_bool();
-    cts_n_             = r.read_bool();
-    tx_line_out_       = r.read_bool();
-    tx_busy_bitlevel_  = r.read_bool();
-    tx_en_             = r.read_bool();
-
-    rx_state_          = static_cast<RxState>(r.read_u8());
-    rx_state_next_     = static_cast<RxState>(r.read_u8());
-    rx_shift_          = r.read_u8();
-    rx_timer_          = r.read_u32();
-    rx_prescaler_snap_ = r.read_u32();
-    rx_timer_updated_  = r.read_bool();
-    rx_bit_count_      = r.read_u8();
-    rx_parity_live_    = r.read_bool();
-    rx_frame_bits_     = r.read_u8();
-    rx_frame_parity_en_= r.read_bool();
-    rx_frame_stop_bits_= r.read_bool();
-    rx_parity_odd_snap_= r.read_bool();
-    rx_debounce_counter_ = r.read_u8();
-    rx_button_sync_    = r.read_u8();
-    rx_raw_            = r.read_bool();
-    rx_debounced_      = r.read_bool();
-    rx_d_              = r.read_bool();
-    rx_edge_           = r.read_bool();
-    rx_byte_parity_err_  = r.read_bool();
-    rx_byte_framing_err_ = r.read_bool();
+    d.i32("select", select_);
+    for (int i = 0; i < 2; ++i) channels_[i].describe_state(d, kChanKeys[i]);
 }
 
 void Uart::save_state(StateWriter& w) const
 {
-    w.write_i32(select_);
-    for (const auto& ch : channels_) ch.save_state(w);
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void Uart::load_state(StateReader& r)
 {
-    select_ = r.read_i32();
-    for (auto& ch : channels_) ch.load_state(r);
+    jnext::save::BinReadDesc d(r);
+    describe_state(d);
+    if (d.failed()) {
+        // The only way this fires is an `enum8` ordinal the declaration does
+        // not name — a stream and a build that disagree about a TX or RX
+        // engine FSM. The field keeps its pre-load value rather than taking a
+        // wrong FSM state (§16.1: "a wrong FSM state is not a safe default"),
+        // the stream stays in sync (the byte was consumed either way), and
+        // the fault is named.
+        uart_log()->error("Uart::load_state: the stream does not match this "
+                          "build's declaration at '{}'",
+                          d.failure() ? d.failure() : "?");
+    }
 }

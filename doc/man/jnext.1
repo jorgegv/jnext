@@ -38,11 +38,18 @@ Machine type: \f[CR]48k\f[R], \f[CR]128k\f[R], \f[CR]plus3\f[R],
 \f[B]\-\-load\f[R] \f[I]FILE\f[R]
 Load a program.
 The format is detected from the extension: \f[CR].nex\f[R],
-\f[CR].sna\f[R], \f[CR].szx\f[R], \f[CR].z80\f[R], \f[CR].tap\f[R],
-\f[CR].tzx\f[R], \f[CR].wav\f[R], \f[CR].rzx\f[R].
+\f[CR].jns\f[R], \f[CR].sna\f[R], \f[CR].szx\f[R], \f[CR].z80\f[R],
+\f[CR].tap\f[R], \f[CR].tzx\f[R], \f[CR].wav\f[R], \f[CR].rzx\f[R].
 (\f[CR].rzx\f[R] is accepted here and plays back, as
 \f[B]\-\-rzx\-play\f[R].)
 .RS
+.PP
+\f[CR].jns\f[R] is jnext\(cqs own whole\-machine snapshot (see
+\f[B]JNEXT SNAPSHOTS\f[R] below).
+Loading one restores the machine it was taken on, including the machine
+\f[I]type\f[R]: a \f[CR].jns\f[R] taken on a Next loads as a Next even
+if \f[B]\-\-machine\f[R] says otherwise, the same way a \f[CR].sna\f[R],
+\f[CR].szx\f[R] or \f[CR].z80\f[R] already does.
 .PP
 A NEX file with bytes after the banks its header declares is an
 \f[I]extended\f[R] NEX.
@@ -657,11 +664,43 @@ work still to come.
 Headless only: requires \f[B]\-\-headless\f[R].
 Save a snapshot after a delay in frames.
 The format is chosen by the extension of \f[I]FILE\f[R]:
-\f[CR].szx\f[R], \f[CR].nex\f[R], anything else \f[CR].sna\f[R].
+\f[CR].jns\f[R], \f[CR].szx\f[R], \f[CR].nex\f[R], anything else
+\f[CR].sna\f[R].
+A snapshot is only ever taken at a frame boundary, so if the debugger
+has paused the machine part\-way through a frame \(em a magic
+breakpoint, say \(em the frame in flight is completed first and the
+snapshot is written from the boundary that follows it.
+The capture is never refused, and the saved machine is then up to one
+frame past the point the debugger stopped at.
 .TP
 \f[B]\-\-delayed\-snapshot\-frames\f[R] \f[I]N\f[R]
 Delay in frames for \f[B]\-\-delayed\-snapshot\f[R] (default 0).
 Requires \f[B]\-\-delayed\-snapshot\f[R].
+.TP
+\f[B]\-\-snapshot\-uncompressed\f[R]
+Write \f[CR].jns\f[R] snapshots with every member stored rather than
+deflated.
+The file is then readable with \f[CR]unzip \-p\f[R] and a hex editor at
+roughly five times the size.
+A debugging aid; it changes nothing about what the file contains, and
+jnext reads both forms.
+.TP
+\f[B]\-\-snapshot\-strict\f[R]
+When loading a \f[CR].jns\f[R], turn the provenance warnings into
+refusals: a snapshot written by a jnext whose state model this build
+does not know, or one whose recorded ROM digests differ from the ROMs
+now loaded.
+A missing tape file is \f[B]not\f[R] covered \(em that always warns and
+never refuses, because a machine restores perfectly well without the
+tape it was loading from.
+.TP
+\f[B]\-\-snapshot\-force\-sdcard\f[R]
+When loading a \f[CR].jns\f[R], restore even though the mounted SD card
+is not the one the snapshot was taken on.
+A warning naming both cards is printed.
+This is the flag that lets you create exactly the silently\-wrong case
+the identity check exists to prevent, which is why it is spelled out in
+full.
 .TP
 \f[B]\-\-delayed\-keypress\f[R] \f[I]SECS\f[R] \f[I]KEY\f[R]
 Press \f[I]KEY\f[R] after \f[I]SECS\f[R] seconds.

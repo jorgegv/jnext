@@ -1,5 +1,7 @@
 #include "audio/dac.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 
 Dac::Dac() { reset(); }
 
@@ -35,12 +37,30 @@ void Dac::write_right(uint8_t val)
     write_channel(2, val);
 }
 
+// GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
+// binary stream order, so it must not be disturbed: the byte-identity gate
+// (§17.1) pins these 4 bytes as block 21 of the 2 292 965-byte stream.
+//
+// ONE `d.bytes` and not four `d.u8`s, because that is what the stream
+// carries: the hand-written pair wrote `write_bytes(ch_, 4)`, a single
+// 4-byte run, and a `.jns` therefore renders it as one 8-character hex
+// string. Its length comes from the DECLARATION, so no count in the stream
+// can size the write. (Four scalars would be byte-identical here — the
+// choice is about the JSON shape, which is what files are made of.)
+//
+// The four channels are A, B, C, D; the mixer sums A+B to the left and C+D
+// to the right (dac.h:37-38, soundrive.vhd:112-113).
+void Dac::describe_state(jnext::save::StateDesc& d)
+{
+    d.bytes("channels", ch_, 4);
+}
+
 void Dac::save_state(StateWriter& w) const
 {
-    w.write_bytes(ch_, 4);
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void Dac::load_state(StateReader& r)
 {
-    r.read_bytes(ch_, 4);
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
 }

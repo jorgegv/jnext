@@ -134,7 +134,7 @@ jobs:
           dnf install -y \
             cmake gcc-c++ git make ccache \
             SDL3-devel zlib-devel libcurl-devel openssl-devel libpng-devel \
-            qt6-qtbase-devel \
+            qt6-qtbase-devel libspectrum-devel \
             ImageMagick xorg-x11-server-Xvfb xdotool python3 python3-pyyaml python3-jsonschema unzip diffutils \
             ripgrep ffmpeg-free bc file xxd \
             mtools dosfstools \
@@ -158,6 +158,18 @@ jobs:
           # alone is not. Depending on another package's dependency graph is
           # precisely the "discover them one CI run at a time" failure the
           # comment above says this list exists to prevent.
+          # libspectrum-devel is the ONLY foreign adjudication in this project
+          # (GH #27 S9, design §13.2(1)). It builds `szx_probe`, which links the
+          # library FUSE itself uses and reads a `.szx` jnext wrote, so
+          # snapshot-foreign-szx-func can require jnext's `.jns` to agree with
+          # an implementation nobody here can accidentally make permissive.
+          # §13.1 is why that matters: jnext's `.szx` saver once wrote RAM
+          # pages 0-111, its own loader accepted them, every test passed
+          # byte-exact — and libspectrum rejects any page > 63, so every file
+          # jnext could produce failed to load in real FUSE. Without this
+          # package the row SKIPS rather than failing, which is deliberate for
+          # a developer's machine and would be a silent loss of the best
+          # evidence in the design here.
           # python3-jsonschema is `make schema-check`'s FOREIGN validator, and is
           # declared for the same reason mtools is: the second half of that gate
           # hands doc/formats/jns-snapshot.schema.json to an implementation that

@@ -13,11 +13,25 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/saveable.h"
+#include "core/esxdos_hostfs.h"
+#include "peripheral/joy_uart_source.h"
+#include "core/jns_snapshot.h"
+#include "save/jns_container.h"
+#include "save/zip_archive.h"
 #include "debug/rewind_buffer.h"
 #include "debug/debug_state.h"
 #include "memory/attribute_mux.h"
 #include "memory/mmu.h"
 #include "memory/ram.h"
+#include "peripheral/dma.h"
+#include "peripheral/divmmc.h"
+#include "peripheral/multiface.h"
+#include "peripheral/sd_card.h"
+#include "core/warm_start_cache.h"
+#include "input/md6_connector_x2.h"
+#include "input/membrane_stick.h"
+#include "input/keyboard.h"
+#include "peripheral/i2c.h"
 #include "audio/mixer.h"
 #include "cpu/z80_cpu.h"
 #include "video/layer2.h"
@@ -27,9 +41,15 @@
 #include "video/sprites.h"
 #include "video/tilemap.h"
 #include "video/ula.h"
+#include "memory/rom.h"
+#include "port/nextreg.h"
+#include "peripheral/copper.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 
 #include <cstring>
 #include <cstdio>
+#include <string>
 #include <vector>
 #include <cassert>
 #include <unistd.h>   // mkstemp/write/close/unlink — TZX fixture for the G36 tape-clock row
@@ -1599,6 +1619,4379 @@ static int test_rewind_across_soft_reset()
 // per EMULATOR-DESIGN-PLAN.md Phase 8 Step 4 (frame snapshots ring
 // buffer). Will become a row only if a user asks; not a skip() entry.
 
+// ── Test 17: GH #27 S3 — the descriptor layer's declarations ──────────────
+//
+// S3 replaced six hand-written save_state/load_state pairs with a walk of one
+// `describe_state` declaration each. The MIGRATION was proved by the §17.1
+// byte-identity gate: the warm-start recording of a booted NextZXOS machine
+// re-extracted after every subsystem and `cmp`ed against a pre-migration
+// image, 2 292 965 bytes, clean each time. That gate is a one-shot scaffold —
+// it needs a pre-migration build to have produced the golden — so it cannot
+// be a row here. S5b then re-baselined that stream deliberately; its own rows
+// are Test 23, and the two re-baselined lengths are pinned there.
+//
+// What CAN be a row, and is what the gate leaves behind, is the LAYOUT the
+// gate proved: which fields each subsystem declares, in which order, at which
+// width. `rewind_test`'s existing round-trip rows cannot see it —
+// save→load→save is idempotence, and a consistently reordered pair of
+// same-width fields passes it (design §17.1 says so in as many words). So the
+// rows below record the declaration itself and compare it against a list
+// spelled out here as literals.
+//
+// The expected lists are a TRANSCRIPTION of the layout the golden proved, not
+// a re-derivation from the code: that is what makes them an oracle rather
+// than `feedback_self_consistent_generated_data`. Each block's total width is
+// also pinned, and those seven numbers are exactly the block lengths the
+// §17.1 sentinel map reports for blocks 0-5 and the IM2 half of block 31.
+//
+// Every description below is a STRING LITERAL, and the `fprintf` beside each
+// one is why. The traceability generator reads a row's text from its own
+// `check()` call, so a `cond ? "text" : detail.c_str()` description publishes
+// as a bare em-dash — which is exactly what the first run of these rows put
+// in TRACEABILITY-MATRIX.md. The diagnosis goes to stderr, where a failing
+// run shows it and a passing one costs nothing.
+
+namespace s3 {
+
+/// A `StateDesc` realisation that RECORDS a declaration instead of encoding
+/// it: one `"<kind> <name> <width>"` line per call, in declaration order.
+///
+/// It is a realisation and not a parse of the source, so it sees exactly what
+/// `BinWriteDesc` sees — including a field declared inside a loop, which no
+/// grep of the source could enumerate.
+class RecordDesc final : public jnext::save::StateDesc {
+public:
+    bool writing() const override { return true; }
+
+    const std::vector<std::string>& fields() const { return f_; }
+    std::size_t width() const { return width_; }
+
+    void bytes(const char* n, uint8_t*, std::size_t len) override {
+        add("bytes", n, len);
+    }
+    void blob(const char* n, uint8_t*, std::size_t len) override {
+        add("blob", n, len);
+    }
+    void ram_window(const char* n, uint8_t*, std::size_t len,
+                    uint32_t) override {
+        add("ram_window", n, len);
+    }
+    void log(const char* n, jnext::save::LogAccess&, std::size_t&,
+             std::size_t capacity) override {
+        add("log", n, 2 + capacity * 3);
+    }
+    void fifo(const char* n, jnext::save::FifoAccess& ring,
+              jnext::save::FifoElem elem) override {
+        add("fifo", n,
+            8 + ring.capacity() *
+                    (elem == jnext::save::FifoElem::U8 ? 1u : 2u));
+    }
+    void sentinel(const char* n, uint32_t, uint32_t) override {
+        add("sentinel", n ? n : "?", 4);
+    }
+
+protected:
+    void do_boolean(const char* n, bool&, jnext::save::Def<bool>) override {
+        add("bool", n, 1);
+    }
+    void do_u8(const char* n, uint8_t&, jnext::save::Def<uint8_t>) override {
+        add("u8", n, 1);
+    }
+    void do_u16(const char* n, uint16_t&, jnext::save::Def<uint16_t>) override {
+        add("u16", n, 2);
+    }
+    void do_u32(const char* n, uint32_t&, jnext::save::Def<uint32_t>) override {
+        add("u32", n, 4);
+    }
+    void do_u64(const char* n, uint64_t&, jnext::save::Def<uint64_t>) override {
+        add("u64", n, 8);
+    }
+    void do_i32(const char* n, int32_t&, jnext::save::Def<int32_t>) override {
+        add("i32", n, 4);
+    }
+    void do_i64(const char* n, int64_t&, jnext::save::Def<int64_t>) override {
+        add("i64", n, 8);
+    }
+    void do_i64_open(const char* n, int64_t&,
+                     jnext::save::Def<int64_t>) override {
+        add("i64_open", n, 8);
+    }
+    void do_enum8(const char* n, uint8_t&, const jnext::save::EnumNames&,
+                  jnext::save::Def<uint8_t>) override {
+        add("enum8", n, 1);
+    }
+
+private:
+    void add(const char* kind, const char* name, std::size_t w) {
+        char buf[160];
+        std::snprintf(buf, sizeof(buf), "%s %s %zu", kind, name ? name : "?", w);
+        f_.push_back(buf);
+        width_ += w;
+    }
+    std::vector<std::string> f_;
+    std::size_t              width_ = 0;
+};
+
+/// Compare a recording against an expected list and report the FIRST
+/// disagreement by index, because "the layout changed" is not a diagnosis.
+std::string diff(const std::vector<std::string>& got,
+                 const std::vector<std::string>& want)
+{
+    const std::size_t n = got.size() < want.size() ? got.size() : want.size();
+    for (std::size_t i = 0; i < n; ++i) {
+        if (got[i] != want[i]) {
+            return "field " + std::to_string(i) + ": got '" + got[i] +
+                   "', want '" + want[i] + "'";
+        }
+    }
+    if (got.size() != want.size()) {
+        return "field count: got " + std::to_string(got.size()) + ", want " +
+               std::to_string(want.size());
+    }
+    return "";
+}
+
+std::vector<std::string> vec(const char* const* a, std::size_t n) {
+    return std::vector<std::string>(a, a + n);
+}
+
+// The 14 IM2 devices, in DevIdx order (src/cpu/im2.h). Spelled here rather
+// than shared with im2.cpp: a table the code and the test both read could
+// not catch the code renaming a device.
+const char* const kIm2Devices[] = {
+    "line", "uart0_rx", "uart1_rx",
+    "ctc0", "ctc1", "ctc2", "ctc3", "ctc4", "ctc5", "ctc6", "ctc7",
+    "ula", "uart0_tx", "uart1_tx",
+};
+
+}  // namespace s3
+
+static int test_s3_descriptor_layout()
+{
+    printf("\n--- Test 17: GH #27 S3 descriptor declarations ---\n");
+
+    Emulator emu;
+    build_emulator(emu, 2);
+
+    // Every recording, kept for the uniqueness row at the foot of this test.
+    std::vector<std::pair<std::string, std::vector<std::string>>> all_decls;
+
+    // ── Clock — stream block 0, 12 bytes ─────────────────────────────────
+    {
+        static const char* const want[] = {
+            "u64 cycle 8",
+            "i32 cpu_divisor 4",
+        };
+        s3::RecordDesc rec;
+        emu.clock().describe_state(rec);
+        all_decls.push_back({"clock", rec.fields()});
+        const std::string d = s3::diff(rec.fields(), s3::vec(want, 2));
+        if (!d.empty()) fprintf(stderr, "  S3-DECL-CLOCK: %s\n", d.c_str());
+        check("S3-DECL-CLOCK", d.empty(),
+              "Clock declares exactly the two fields the §17.1 "
+              "golden carries, in that order");
+        check("S3-WIDTH-CLOCK", rec.width() == 12,
+              "Clock's declaration is 12 bytes wide — block 0 of the "
+              "2 292 965-byte stream");
+    }
+
+    // ── Ram — block 1, 2 097 160 bytes ───────────────────────────────────
+    {
+        static const char* const want[] = {
+            "u64 size_bytes 8",
+            "blob ram 2097152",
+        };
+        s3::RecordDesc rec;
+        emu.ram().describe_state(rec);
+        all_decls.push_back({"ram", rec.fields()});
+        const std::string d = s3::diff(rec.fields(), s3::vec(want, 2));
+        if (!d.empty()) fprintf(stderr, "  S3-DECL-RAM: %s\n", d.c_str());
+        check("S3-DECL-RAM", d.empty(),
+              "Ram declares a u64 count prefix and the 2 MB blob "
+              "— and the blob's length comes from the DECLARATION, "
+              "which is what makes the prefix un-obeyable");
+        check("S3-WIDTH-RAM", rec.width() == 2097160,
+              "Ram's declaration is 2 097 160 bytes wide — block 1");
+    }
+
+    // ── Mmu — block 2, 24 634 bytes ──────────────────────────────────────
+    {
+        static const char* const want[] = {
+            "bytes slots 8",
+            "bool read_only_0 1", "bool read_only_1 1", "bool read_only_2 1",
+            "bool read_only_3 1", "bool read_only_4 1", "bool read_only_5 1",
+            "bool read_only_6 1", "bool read_only_7 1",
+            "bool paging_locked 1",
+            "u8 port_7ffd 1",
+            "u8 port_1ffd 1",
+            "bool l2_write_enable 1",
+            "u8 l2_segment_mask 1",
+            "u8 l2_bank 1",
+            "bool boot_rom_en 1",
+            "bool config_mode 1",
+            "u8 nr_04_romram_bank 1",
+            "bool rom_in_sram 1",
+            "bool contention_disabled 1",
+            "u8 nr_8c_reg 1",
+            "enum8 machine_type 1",
+            "u8 port_dffd_reg 1",
+            "bool port_eff7_reg_2 1",
+            "bool port_eff7_reg_3 1",
+            "u8 nr_8f_mode 1",
+            "bool l2_read_enable 1",
+            "u8 p3_floating_bus_dat 1",
+            "bool slot_contended_0 1", "bool slot_contended_1 1",
+            "bool slot_contended_2 1", "bool slot_contended_3 1",
+            "u8 l2_segment_raw 1",
+            "bool l2_enable 1",
+            "bool l2_map_shadow 1",
+            "u8 l2_offset 1",
+            "u8 l2_shadow_bank 1",
+            "bool port_dffd_reg_6 1",
+            "bool port_1ffd_special_old 1",
+            "bytes nr_mmu 8",
+            "enum8 machine_timing 1",
+            "enum8 pending_machine_timing 1",
+            "blob bank7_bram 8192",
+            "blob bank5_vram 16384",
+            "u16 attr_mux_current_line 2",
+        };
+        s3::RecordDesc rec;
+        emu.mmu().describe_state(rec);
+        all_decls.push_back({"mmu", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S3-DECL-MMU: %s\n", d.c_str());
+        check("S3-DECL-MMU", d.empty(),
+              "Mmu declares 45 fields in the order the golden "
+              "carries them, ending with both BRAM blobs and the "
+              "attribute-mux cursor");
+        check("S3-WIDTH-MMU", rec.width() == 24634,
+              "Mmu's declaration is 24 634 bytes wide — block 2");
+    }
+
+    // ── NextReg — block 3, 262 bytes ─────────────────────────────────────
+    {
+        static const char* const want[] = {
+            "u8 selected 1",
+            "bytes regs 256",
+            "bool nr_03_config_mode 1",
+            "u8 nr_04_romram_bank 1",
+            "u8 nr_03_machine_timing 1",
+            "bool nr_03_user_dt_lock 1",
+            "u8 nr_03_machine_type 1",
+        };
+        s3::RecordDesc rec;
+        emu.nextreg().describe_state(rec);
+        all_decls.push_back({"nextreg", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S3-DECL-NEXTREG: %s\n", d.c_str());
+        check("S3-DECL-NEXTREG", d.empty(),
+              "NextReg declares the select latch, the 256-byte "
+              "register file as a `bytes` (not a blob — under the "
+              "§6.1 8 KB line) and the five appended scalars");
+        check("S3-WIDTH-NEXTREG", rec.width() == 262,
+              "NextReg's declaration is 262 bytes wide — block 3");
+    }
+
+    // ── Z80Cpu — block 4, 45 bytes ───────────────────────────────────────
+    {
+        static const char* const want[] = {
+            "u16 af 2", "u16 bc 2", "u16 de 2", "u16 hl 2",
+            "u16 af2 2", "u16 bc2 2", "u16 de2 2", "u16 hl2 2",
+            "u16 ix 2", "u16 iy 2", "u16 sp 2", "u16 pc 2",
+            "u8 i 1", "u8 r 1",
+            "u8 iff1 1", "u8 iff2 1", "u8 im 1",
+            "bool halted 1",
+            "u16 memptr 2",
+            "u8 q 1",
+            "i32 ei_grace 4",
+            "u8 iff2_read 1",
+            "bool nmi_pending 1",
+            "bool int_pending 1",
+            "u8 int_vector 1",
+            "u32 int_first_ts_rel 4",
+        };
+        s3::RecordDesc rec;
+        emu.cpu().describe_state(rec);
+        all_decls.push_back({"cpu", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S3-DECL-CPU: %s\n", d.c_str());
+        check("S3-DECL-CPU", d.empty(),
+              "Z80Cpu declares the register file, MEMPTR/Q, and "
+              "the three §9.5(3) values that are relative to the "
+              "FUSE T-state counter");
+        check("S3-WIDTH-CPU", rec.width() == 45,
+              "Z80Cpu's declaration is 45 bytes wide — block 4");
+    }
+
+    // ── Im2Controller state — block 5, 149 bytes ─────────────────────────
+    {
+        // The nine per-device fields, in declaration order. Spelled here so a
+        // reordering INSIDE the loop — which no width check and no round-trip
+        // can see — has to be made twice to pass.
+        static const char* const dev[] = {
+            "bool %s_int_req 1",
+            "bool %s_int_req_d 1",
+            "bool %s_int_en 1",
+            "bool %s_int_unq 1",
+            "bool %s_int_status 1",
+            "bool %s_im2_int_req 1",
+            "enum8 %s_state 1",
+            "bool %s_dma_int_en 1",
+            "bool %s_exception 1",
+        };
+        std::vector<std::string> want;
+        for (const char* name : s3::kIm2Devices) {
+            for (const char* f : dev) {
+                char buf[96];
+                std::snprintf(buf, sizeof(buf), f, name);
+                want.push_back(buf);
+            }
+        }
+        static const char* const tail[] = {
+            "enum8 dec_state 1",
+            "bool reti_seen_pulse 1",
+            "bool retn_seen_pulse 1",
+            "bool reti_decode 1",
+            "bool dma_delay_ctrl 1",
+            "u8 im_mode 1",
+            "bool pulse_int_n 1",
+            "u8 pulse_count 1",
+            "bool machine_48_or_p3 1",
+            "u8 vector_base_msb3 1",
+            "bool im2_mode 1",
+            "bool stackless_nmi 1",
+            "u16 dma_int_en_mask14 2",
+            "bool im2_dma_delay_latched 1",
+            "bool nmi_activated 1",
+            "bool nr_cc_dma_int_en_0_7 1",
+            "i32 last_acked 4",
+            "u16 legacy_mask 2",
+        };
+        for (const char* t : tail) want.push_back(t);
+
+        s3::RecordDesc rec;
+        emu.im2().describe_state(rec);
+        all_decls.push_back({"im2", rec.fields()});
+        const std::string d = s3::diff(rec.fields(), want);
+        if (!d.empty()) fprintf(stderr, "  S3-DECL-IM2: %s\n", d.c_str());
+        check("S3-DECL-IM2", d.empty(),
+              "Im2Controller declares 14 named devices x 9 fields "
+              "then the decoder / pulse / NR 0xC0 / DMA-delay "
+              "scalars — 144 declarations, one per field, not 126 "
+              "per device");
+        check("S3-WIDTH-IM2", rec.width() == 149,
+              "Im2Controller's state declaration is 149 bytes wide — block 5");
+    }
+
+    // ── Im2Controller timing — the IM2 half of block 31 ──────────────────
+    {
+        static const char* const dev[] = {
+            "u64 %s_req_at 8",
+            "u64 %s_unq_at 8",
+            "u64 %s_status_at 8",
+            "u64 %s_im2_req_at 8",
+            "u64 %s_sreq_at 8",
+        };
+        std::vector<std::string> want;
+        for (const char* name : s3::kIm2Devices) {
+            for (const char* f : dev) {
+                char buf[96];
+                std::snprintf(buf, sizeof(buf), f, name);
+                want.push_back(buf);
+            }
+        }
+        static const char* const tail[] = {
+            "bool pulse_timed 1",
+            "u64 pulse_te 8",
+            "u64 pulse_e1 8",
+            "u64 pulse_en 8",
+            "u32 pulse_d 4",
+        };
+        for (const char* t : tail) want.push_back(t);
+
+        s3::RecordDesc rec;
+        emu.im2().describe_timing(rec);
+        all_decls.push_back({"im2_timing", rec.fields()});
+        const std::string d = s3::diff(rec.fields(), want);
+        if (!d.empty()) fprintf(stderr, "  S3-DECL-IM2-TIMING: %s\n", d.c_str());
+        check("S3-DECL-IM2-TIMING", d.empty(),
+              "Im2Controller's SECOND declaration (§9.5(2)) is the "
+              "GH #265 timing block, which travels in `int_timing` "
+              "at the end of the Emulator stream and not in block 5");
+        check("S3-WIDTH-IM2-TIMING", rec.width() == 589,
+              "the IM2 timing declaration is 589 bytes wide — the first 589 of "
+              "block 31's 609, the remaining 20 being the CPU's /INT pair and "
+              "the CTC's chained triggers");
+    }
+
+    // ── Every key of a declaration must be UNIQUE ────────────────────────
+    //
+    // A duplicate name is invisible to the byte-identity gate: the binary
+    // encoding ignores names entirely, so the stream stays correct to the
+    // byte while `JsonWriteDesc` — which writes `obj[name] = value` — drops
+    // the first field of the pair and `.jns` silently loses it. That is a
+    // fault in exactly the property S3 exists to establish (one field list,
+    // two encodings), and the only place it can be caught is here.
+    {
+        std::string dup;
+        for (const auto& sub : all_decls) {
+            std::vector<std::string> seen;
+            for (const auto& f : sub.second) {
+                // "kind name width" -> "name"
+                const std::size_t a = f.find(' ');
+                const std::size_t b = f.rfind(' ');
+                const std::string key = f.substr(a + 1, b - a - 1);
+                for (const auto& k : seen) {
+                    if (k == key && dup.empty())
+                        dup = sub.first + "." + key;
+                }
+                seen.push_back(key);
+            }
+        }
+        if (!dup.empty()) fprintf(stderr, "  S3-KEYS-UNIQUE: %s\n", dup.c_str());
+        check("S3-KEYS-UNIQUE", dup.empty(),
+              "no declaration names the same key twice — a duplicate is "
+              "invisible to the byte stream, which ignores names, and silently "
+              "drops a field from the JSON encoding, which does not");
+    }
+
+    return 0;
+}
+
+
+// ── Test 21: GH #27 S5 — the peripheral / audio / input declarations ──────
+//
+// S5 replaced twenty hand-written save_state/load_state pairs with a walk of
+// one `describe_state` declaration each (CTC also gains a `describe_timing`,
+// design §9.5(2)). The MIGRATION was proved by the §17.1 byte-identity gate:
+// the warm-start recording of a booted NextZXOS machine re-extracted after
+// every subsystem and `cmp`ed against a pre-migration image, 2 292 965 bytes,
+// clean each time. That gate is a one-shot scaffold — it needs a pre-migration
+// build to have produced the golden — so it cannot be a row here.
+//
+// What CAN be a row, and is what the gate leaves behind, is the LAYOUT the
+// gate proved. The existing round-trip rows cannot see it: save->load->save is
+// idempotence, and a consistently reordered pair of same-width fields passes it
+// (design §17.1 says so in as many words).
+//
+// ── WHERE THE TWO HALVES OF EACH PAIR COME FROM ──────────────────────────
+//
+// The `S5-WIDTH-*` numbers are an INDEPENDENT oracle. They were read out of
+// the pre-migration golden itself, not out of the new code: the stream carries
+// a `kStateSentinelMagic ^ ordinal` u32 after every subsystem
+// (`emulator.cpp:11606`), so scanning the 2 292 965-byte image for the 33
+// sentinels in order gives every block's exact length, and those lengths sum
+// to the file size with nothing left over. A declaration whose width is right
+// cannot have dropped, gained or resized a field.
+//
+// The `S5-DECL-*` field lists are a transcription of the declarations, and
+// their job is narrower and worth being honest about: they are a CHANGE
+// DETECTOR. Widths alone cannot see two same-width fields swapped, which is
+// exactly the fault §17.1 says the round-trip rows are blind to, so the names
+// have to be spelled out somewhere. Spelling them here means a reordering
+// shows up as a failing row rather than as a silently different `.jns`.
+//
+// Every description below is a STRING LITERAL, and the `fprintf` beside each
+// one is why: the traceability generator reads a row's text from its own
+// `check()` call, so a `cond ? "text" : detail.c_str()` description publishes
+// as a bare em-dash.
+
+static int test_s5_descriptor_layout()
+{
+    printf("\n--- Test 21: GH #27 S5 descriptor declarations ---\n");
+
+    Emulator emu;
+    build_emulator(emu, 2);
+
+    // `rtc_` has no Emulator accessor, and it does not need one: a declaration
+    // is a property of the CLASS, so a standalone instance walks the same
+    // field list the Emulator's does.
+    I2cRtc rtc;
+
+    // Every recording, kept for the uniqueness row at the foot of this test.
+    std::vector<std::pair<std::string, std::vector<std::string>>> all_decls;
+
+    // ── ctc — block 12 — four channels of ten fields: 40 bytes ──
+    {
+        static const char* const want[] = {
+            "bool ch0_control_int_en 1",
+            "bool ch0_control_counter 1",
+            "bool ch0_control_prescale 1",
+            "bool ch0_control_edge 1",
+            "bool ch0_control_trigger 1",
+            "u8 ch0_time_constant 1",
+            "u8 ch0_counter 1",
+            "u8 ch0_prescaler 1",
+            "enum8 ch0_state 1",
+            "bool ch0_clk_trg_prev 1",
+            "bool ch1_control_int_en 1",
+            "bool ch1_control_counter 1",
+            "bool ch1_control_prescale 1",
+            "bool ch1_control_edge 1",
+            "bool ch1_control_trigger 1",
+            "u8 ch1_time_constant 1",
+            "u8 ch1_counter 1",
+            "u8 ch1_prescaler 1",
+            "enum8 ch1_state 1",
+            "bool ch1_clk_trg_prev 1",
+            "bool ch2_control_int_en 1",
+            "bool ch2_control_counter 1",
+            "bool ch2_control_prescale 1",
+            "bool ch2_control_edge 1",
+            "bool ch2_control_trigger 1",
+            "u8 ch2_time_constant 1",
+            "u8 ch2_counter 1",
+            "u8 ch2_prescaler 1",
+            "enum8 ch2_state 1",
+            "bool ch2_clk_trg_prev 1",
+            "bool ch3_control_int_en 1",
+            "bool ch3_control_counter 1",
+            "bool ch3_control_prescale 1",
+            "bool ch3_control_edge 1",
+            "bool ch3_control_trigger 1",
+            "u8 ch3_time_constant 1",
+            "u8 ch3_counter 1",
+            "u8 ch3_prescaler 1",
+            "enum8 ch3_state 1",
+            "bool ch3_clk_trg_prev 1",
+        };
+        s3::RecordDesc rec;
+        emu.ctc().describe_state(rec);
+        all_decls.push_back({"ctc", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-CTC: %s\n", d.c_str());
+        check("S5-DECL-CTC", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-CTC", rec.width() == 40u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── ctc_timing — the CTC part of block 31 int_timing: 4 bytes ──
+    {
+        static const char* const want[] = {
+            "u8 ch0_trg_delay 1",
+            "u8 ch1_trg_delay 1",
+            "u8 ch2_trg_delay 1",
+            "u8 ch3_trg_delay 1",
+        };
+        s3::RecordDesc rec;
+        emu.ctc().describe_timing(rec);
+        all_decls.push_back({"ctc_timing", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-CTC-TIMING: %s\n", d.c_str());
+        check("S5-DECL-CTC-TIMING", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-CTC-TIMING", rec.width() == 4u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── dma — block 13: 43 bytes ──
+    {
+        static const char* const want[] = {
+            "bool dir_a_to_b 1",
+            "u16 port_a_addr 2",
+            "u16 block_len 2",
+            "bool port_a_is_io 1",
+            "u8 port_a_addr_mode 1",
+            "u8 port_a_timing 1",
+            "bool port_b_is_io 1",
+            "u8 port_b_addr_mode 1",
+            "u8 port_b_timing 1",
+            "u8 port_b_prescaler 1",
+            "bool dma_en 1",
+            "u8 mode 1",
+            "u16 port_b_addr 2",
+            "bool ce_wait 1",
+            "bool auto_restart 1",
+            "u8 read_mask 1",
+            "enum8 state 1",
+            "u16 src 2",
+            "u16 dst 2",
+            "u16 counter 2",
+            "bool status_at_least_one 1",
+            "bool status_end_of_block 1",
+            "enum8 wr_seq 1",
+            "enum8 rd_seq 1",
+            "u8 reg_temp 1",
+            "bool z80_compat 1",
+            "u8 turbo 1",
+            "u16 dma_timer_s 2",
+            "bool in_waiting_cycles 1",
+            "enum8 phase 1",
+            "bool cpu_busreq_n 1",
+            "bool cpu_bao_n 1",
+            "bool cpu_bai_n 1",
+            "bool bus_busreq_n 1",
+            "bool dma_delay 1",
+            "bool daisy_busy 1",
+        };
+        s3::RecordDesc rec;
+        emu.dma().describe_state(rec);
+        all_decls.push_back({"dma", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-DMA: %s\n", d.c_str());
+        check("S5-DECL-DMA", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-DMA", rec.width() == 43u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── spi — block 14: 3 bytes ──
+    {
+        static const char* const want[] = {
+            "u8 cs 1",
+            "u8 rx_data 1",
+            "bool sd_swap 1",
+        };
+        s3::RecordDesc rec;
+        emu.spi().describe_state(rec);
+        all_decls.push_back({"spi", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-SPI: %s\n", d.c_str());
+        check("S5-DECL-SPI", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-SPI", rec.width() == 3u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── i2c — block 15: 13 bytes ──
+    {
+        static const char* const want[] = {
+            "u8 scl 1",
+            "u8 sda_out 1",
+            "u8 sda_in 1",
+            "u8 prev_scl 1",
+            "u8 prev_sda 1",
+            "enum8 state 1",
+            "u8 bit_count 1",
+            "u8 shift_reg 1",
+            "u8 device_addr 1",
+            "bool is_read 1",
+            "u8 read_data 1",
+            "bool pi_i2c1_scl 1",
+            "bool pi_i2c1_sda 1",
+        };
+        s3::RecordDesc rec;
+        emu.i2c().describe_state(rec);
+        all_decls.push_back({"i2c", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-I2C: %s\n", d.c_str());
+        check("S5-DECL-I2C", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-I2C", rec.width() == 13u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── rtc — block 16 — no Emulator accessor, so a standalone I2cRtc: 69 bytes ──
+    {
+        static const char* const want[] = {
+            "u8 reg_ptr 1",
+            "bool addr_set 1",
+            "bytes regs 64",
+            "bool osc_halt 1",
+            "bool mode_12h 1",
+            "bool use_real_time 1",
+        };
+        s3::RecordDesc rec;
+        rtc.describe_state(rec);
+        all_decls.push_back({"rtc", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-RTC: %s\n", d.c_str());
+        check("S5-DECL-RTC", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-RTC", rec.width() == 69u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── uart — block 17 — the selector and two channels, FIFOs included: 2330 bytes ──
+    {
+        static const char* const want[] = {
+            "i32 select 4",
+            "fifo ch0_tx_fifo 72",
+            "fifo ch0_rx_fifo 1032",
+            "u8 ch0_prescaler_msb 1",
+            "u16 ch0_prescaler_lsb 2",
+            "u8 ch0_framing 1",
+            "bool ch0_tx_busy 1",
+            "u32 ch0_tx_timer_byte 4",
+            "bool ch0_err_overflow 1",
+            "bool ch0_err_framing 1",
+            "bool ch0_err_break 1",
+            "bool ch0_bitlevel_mode 1",
+            "enum8 ch0_tx_state 1",
+            "enum8 ch0_tx_state_next 1",
+            "u8 ch0_tx_shift 1",
+            "u32 ch0_tx_timer 4",
+            "u32 ch0_tx_prescaler_snap 4",
+            "u8 ch0_tx_bit_count 1",
+            "bool ch0_tx_parity_live 1",
+            "bool ch0_tx_frame_parity_en 1",
+            "bool ch0_tx_frame_stop_bits 1",
+            "bool ch0_tx_parity_odd_snap 1",
+            "bool ch0_cts_n 1",
+            "bool ch0_tx_line_out 1",
+            "bool ch0_tx_busy_bitlevel 1",
+            "bool ch0_tx_en 1",
+            "enum8 ch0_rx_state 1",
+            "enum8 ch0_rx_state_next 1",
+            "u8 ch0_rx_shift 1",
+            "u32 ch0_rx_timer 4",
+            "u32 ch0_rx_prescaler_snap 4",
+            "bool ch0_rx_timer_updated 1",
+            "u8 ch0_rx_bit_count 1",
+            "bool ch0_rx_parity_live 1",
+            "u8 ch0_rx_frame_bits 1",
+            "bool ch0_rx_frame_parity_en 1",
+            "bool ch0_rx_frame_stop_bits 1",
+            "bool ch0_rx_parity_odd_snap 1",
+            "u8 ch0_rx_debounce_counter 1",
+            "u8 ch0_rx_button_sync 1",
+            "bool ch0_rx_raw 1",
+            "bool ch0_rx_debounced 1",
+            "bool ch0_rx_d 1",
+            "bool ch0_rx_edge 1",
+            "bool ch0_rx_byte_parity_err 1",
+            "bool ch0_rx_byte_framing_err 1",
+            "fifo ch1_tx_fifo 72",
+            "fifo ch1_rx_fifo 1032",
+            "u8 ch1_prescaler_msb 1",
+            "u16 ch1_prescaler_lsb 2",
+            "u8 ch1_framing 1",
+            "bool ch1_tx_busy 1",
+            "u32 ch1_tx_timer_byte 4",
+            "bool ch1_err_overflow 1",
+            "bool ch1_err_framing 1",
+            "bool ch1_err_break 1",
+            "bool ch1_bitlevel_mode 1",
+            "enum8 ch1_tx_state 1",
+            "enum8 ch1_tx_state_next 1",
+            "u8 ch1_tx_shift 1",
+            "u32 ch1_tx_timer 4",
+            "u32 ch1_tx_prescaler_snap 4",
+            "u8 ch1_tx_bit_count 1",
+            "bool ch1_tx_parity_live 1",
+            "bool ch1_tx_frame_parity_en 1",
+            "bool ch1_tx_frame_stop_bits 1",
+            "bool ch1_tx_parity_odd_snap 1",
+            "bool ch1_cts_n 1",
+            "bool ch1_tx_line_out 1",
+            "bool ch1_tx_busy_bitlevel 1",
+            "bool ch1_tx_en 1",
+            "enum8 ch1_rx_state 1",
+            "enum8 ch1_rx_state_next 1",
+            "u8 ch1_rx_shift 1",
+            "u32 ch1_rx_timer 4",
+            "u32 ch1_rx_prescaler_snap 4",
+            "bool ch1_rx_timer_updated 1",
+            "u8 ch1_rx_bit_count 1",
+            "bool ch1_rx_parity_live 1",
+            "u8 ch1_rx_frame_bits 1",
+            "bool ch1_rx_frame_parity_en 1",
+            "bool ch1_rx_frame_stop_bits 1",
+            "bool ch1_rx_parity_odd_snap 1",
+            "u8 ch1_rx_debounce_counter 1",
+            "u8 ch1_rx_button_sync 1",
+            "bool ch1_rx_raw 1",
+            "bool ch1_rx_debounced 1",
+            "bool ch1_rx_d 1",
+            "bool ch1_rx_edge 1",
+            "bool ch1_rx_byte_parity_err 1",
+            "bool ch1_rx_byte_framing_err 1",
+        };
+        s3::RecordDesc rec;
+        emu.uart().describe_state(rec);
+        all_decls.push_back({"uart", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-UART: %s\n", d.c_str());
+        check("S5-DECL-UART", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-UART", rec.width() == 2330u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── divmmc — block 18 — 131 089 bytes DECLARED, 17 in an Emulator ──
+    //
+    // `RecordDesc` records the DECLARATION, and the declaration still names a
+    // 131 072-byte window: that is what the field IS, and it is what the JSON
+    // encoding writes a reference TO. What S5b changed is the binary
+    // realisation, which emits no bytes for it at machine level — so this
+    // width is the pre-S5b block length and the standalone one, while an
+    // Emulator-driven DivMmc block is 17 bytes (S5B-DIVMMC-BLOCK).
+    {
+        static const char* const want[] = {
+            "bool enabled 1",
+            "bool conmem 1",
+            "bool mapram 1",
+            "u8 bank 1",
+            "u8 control_reg 1",
+            "bool automap_active 1",
+            "u8 entry_points_0 1",
+            "u8 entry_valid_0 1",
+            "u8 entry_timing_0 1",
+            "u8 entry_points_1 1",
+            "bool automap_hold 1",
+            "bool automap_held 1",
+            "bool button_nmi 1",
+            "bool layer2_map_read 1",
+            "bool retn_pending_clear 1",
+            "ram_window ram 131072",
+            "bool port_io_enable 1",
+            "bool nr_0a_4_enable 1",
+        };
+        s3::RecordDesc rec;
+        emu.divmmc().describe_state(rec);
+        all_decls.push_back({"divmmc", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-DIVMMC: %s\n", d.c_str());
+        check("S5-DECL-DIVMMC", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-DIVMMC", rec.width() == 131089u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measured — which since "
+              "S5b is the STANDALONE block width, the machine-level one "
+              "being 17 because the window became a reference (§17.0)");
+    }
+
+    // ── beeper — block 19: 3 bytes ──
+    {
+        static const char* const want[] = {
+            "bool ear 1",
+            "bool mic 1",
+            "bool tape_ear 1",
+        };
+        s3::RecordDesc rec;
+        emu.beeper().describe_state(rec);
+        all_decls.push_back({"beeper", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-BEEPER: %s\n", d.c_str());
+        check("S5-DECL-BEEPER", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-BEEPER", rec.width() == 3u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── turbosound — block 20 — three chips of 25 fields: 152 bytes ──
+    {
+        static const char* const want[] = {
+            "bool ay0_ay_mode 1",
+            "bytes ay0_reg 16",
+            "u8 ay0_addr 1",
+            "u8 ay0_cnt_div 1",
+            "bool ay0_noise_div 1",
+            "bool ay0_ena_div 1",
+            "bool ay0_ena_div_noise 1",
+            "u16 ay0_tone_cnt_a 2",
+            "u16 ay0_tone_cnt_b 2",
+            "u16 ay0_tone_cnt_c 2",
+            "bool ay0_tone_op_a 1",
+            "bool ay0_tone_op_b 1",
+            "bool ay0_tone_op_c 1",
+            "u8 ay0_noise_cnt 1",
+            "u32 ay0_poly17 4",
+            "bool ay0_noise_op 1",
+            "u16 ay0_env_cnt 2",
+            "bool ay0_env_ena 1",
+            "bool ay0_env_reset 1",
+            "u8 ay0_env_vol 1",
+            "bool ay0_env_inc 1",
+            "bool ay0_env_hold 1",
+            "u8 ay0_out_a 1",
+            "u8 ay0_out_b 1",
+            "u8 ay0_out_c 1",
+            "bool ay1_ay_mode 1",
+            "bytes ay1_reg 16",
+            "u8 ay1_addr 1",
+            "u8 ay1_cnt_div 1",
+            "bool ay1_noise_div 1",
+            "bool ay1_ena_div 1",
+            "bool ay1_ena_div_noise 1",
+            "u16 ay1_tone_cnt_a 2",
+            "u16 ay1_tone_cnt_b 2",
+            "u16 ay1_tone_cnt_c 2",
+            "bool ay1_tone_op_a 1",
+            "bool ay1_tone_op_b 1",
+            "bool ay1_tone_op_c 1",
+            "u8 ay1_noise_cnt 1",
+            "u32 ay1_poly17 4",
+            "bool ay1_noise_op 1",
+            "u16 ay1_env_cnt 2",
+            "bool ay1_env_ena 1",
+            "bool ay1_env_reset 1",
+            "u8 ay1_env_vol 1",
+            "bool ay1_env_inc 1",
+            "bool ay1_env_hold 1",
+            "u8 ay1_out_a 1",
+            "u8 ay1_out_b 1",
+            "u8 ay1_out_c 1",
+            "bool ay2_ay_mode 1",
+            "bytes ay2_reg 16",
+            "u8 ay2_addr 1",
+            "u8 ay2_cnt_div 1",
+            "bool ay2_noise_div 1",
+            "bool ay2_ena_div 1",
+            "bool ay2_ena_div_noise 1",
+            "u16 ay2_tone_cnt_a 2",
+            "u16 ay2_tone_cnt_b 2",
+            "u16 ay2_tone_cnt_c 2",
+            "bool ay2_tone_op_a 1",
+            "bool ay2_tone_op_b 1",
+            "bool ay2_tone_op_c 1",
+            "u8 ay2_noise_cnt 1",
+            "u32 ay2_poly17 4",
+            "bool ay2_noise_op 1",
+            "u16 ay2_env_cnt 2",
+            "bool ay2_env_ena 1",
+            "bool ay2_env_reset 1",
+            "u8 ay2_env_vol 1",
+            "bool ay2_env_inc 1",
+            "bool ay2_env_hold 1",
+            "u8 ay2_out_a 1",
+            "u8 ay2_out_b 1",
+            "u8 ay2_out_c 1",
+            "u8 ay_select 1",
+            "u8 ay0_pan 1",
+            "u8 ay1_pan 1",
+            "u8 ay2_pan 1",
+            "bool enabled 1",
+            "bool stereo_mode 1",
+            "u8 mono_mode 1",
+            "u16 pcm_l 2",
+            "u16 pcm_r 2",
+        };
+        s3::RecordDesc rec;
+        emu.turbosound().describe_state(rec);
+        all_decls.push_back({"turbosound", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-TURBOSOUND: %s\n", d.c_str());
+        check("S5-DECL-TURBOSOUND", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-TURBOSOUND", rec.width() == 152u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── dac — block 21: 4 bytes ──
+    {
+        static const char* const want[] = {
+            "bytes channels 4",
+        };
+        s3::RecordDesc rec;
+        emu.dac().describe_state(rec);
+        all_decls.push_back({"dac", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-DAC: %s\n", d.c_str());
+        check("S5-DECL-DAC", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-DAC", rec.width() == 4u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── i2s — the i2s block: 4 bytes ──
+    {
+        static const char* const want[] = {
+            "u16 left 2",
+            "u16 right 2",
+        };
+        s3::RecordDesc rec;
+        emu.i2s().describe_state(rec);
+        all_decls.push_back({"i2s", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-I2S: %s\n", d.c_str());
+        check("S5-DECL-I2S", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-I2S", rec.width() == 4u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── nmi_source — the nmi_source block, less the Emulator byte after it: 28 bytes ──
+    {
+        static const char* const want[] = {
+            "bool mf_button 1",
+            "bool divmmc_button 1",
+            "bool expbus_nmi_n 1",
+            "bool strobe_mf_button_pending 1",
+            "bool strobe_divmmc_button_pending 1",
+            "bool nmi_sw_gen_mf 1",
+            "bool nmi_sw_gen_divmmc 1",
+            "bool iotrap_strobe_pending 1",
+            "bool mf_enable 1",
+            "bool divmmc_enable 1",
+            "bool expbus_debounce_disable 1",
+            "bool expbus_eff_en 1",
+            "bool expbus_eff_disable_mem 1",
+            "bool config_mode 1",
+            "bool mf_nmi_hold 1",
+            "bool mf_is_active 1",
+            "bool divmmc_nmi_hold 1",
+            "bool divmmc_conmem 1",
+            "bool nmi_mf 1",
+            "bool nmi_divmmc 1",
+            "bool nmi_expbus 1",
+            "enum8 state 1",
+            "bool nr_02_pending_mf 1",
+            "bool nr_02_pending_divmmc 1",
+            "bool prev_wr_n 1",
+            "bool mf_button_strobe 1",
+            "bool divmmc_button_strobe 1",
+            "u8 reset_type 1",
+        };
+        s3::RecordDesc rec;
+        emu.nmi_source().describe_state(rec);
+        all_decls.push_back({"nmi_source", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-NMI: %s\n", d.c_str());
+        check("S5-DECL-NMI", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-NMI", rec.width() == 28u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── multiface — the block less its presence byte: 8200 bytes on a 48K ──
+    //
+    // `emu` is a 48K, where nothing calls `set_ram_backing` and the private
+    // array IS the store, so the RAM member is declared and the width is the
+    // pre-S5b one. On the Next the member is absent entirely and the block is
+    // 8 bytes — S5b's one machine-dependent width (S5B-MF-NEXT-ABSENT).
+    {
+        static const char* const want[] = {
+            "bool enabled 1",
+            "bool nmi_active 1",
+            "bool invisible 1",
+            "bool mf_enable 1",
+            "bool port_io_dly 1",
+            "bool mode_p3 1",
+            "bool mode_128 1",
+            "bool mode_48 1",
+            "u8 mf_type 1",
+            "blob ram 8192",
+        };
+        s3::RecordDesc rec;
+        emu.multiface().describe_state(rec);
+        all_decls.push_back({"multiface", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-MULTIFACE: %s\n", d.c_str());
+        check("S5-DECL-MULTIFACE", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-MULTIFACE", rec.width() == 8201u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── keyboard — the head of the input block: 342 bytes ──
+    {
+        static const char* const want[] = {
+            "bytes matrix 8",
+            "u16 ex_matrix 2",
+            "bytes shift_hist 2",
+            "u32 auto_queue_count 4",
+            "i32 auto00_row1 4",
+            "i32 auto00_col1 4",
+            "i32 auto00_row2 4",
+            "i32 auto00_col2 4",
+            "i32 auto00_frames 4",
+            "i32 auto01_row1 4",
+            "i32 auto01_col1 4",
+            "i32 auto01_row2 4",
+            "i32 auto01_col2 4",
+            "i32 auto01_frames 4",
+            "i32 auto02_row1 4",
+            "i32 auto02_col1 4",
+            "i32 auto02_row2 4",
+            "i32 auto02_col2 4",
+            "i32 auto02_frames 4",
+            "i32 auto03_row1 4",
+            "i32 auto03_col1 4",
+            "i32 auto03_row2 4",
+            "i32 auto03_col2 4",
+            "i32 auto03_frames 4",
+            "i32 auto04_row1 4",
+            "i32 auto04_col1 4",
+            "i32 auto04_row2 4",
+            "i32 auto04_col2 4",
+            "i32 auto04_frames 4",
+            "i32 auto05_row1 4",
+            "i32 auto05_col1 4",
+            "i32 auto05_row2 4",
+            "i32 auto05_col2 4",
+            "i32 auto05_frames 4",
+            "i32 auto06_row1 4",
+            "i32 auto06_col1 4",
+            "i32 auto06_row2 4",
+            "i32 auto06_col2 4",
+            "i32 auto06_frames 4",
+            "i32 auto07_row1 4",
+            "i32 auto07_col1 4",
+            "i32 auto07_row2 4",
+            "i32 auto07_col2 4",
+            "i32 auto07_frames 4",
+            "i32 auto08_row1 4",
+            "i32 auto08_col1 4",
+            "i32 auto08_row2 4",
+            "i32 auto08_col2 4",
+            "i32 auto08_frames 4",
+            "i32 auto09_row1 4",
+            "i32 auto09_col1 4",
+            "i32 auto09_row2 4",
+            "i32 auto09_col2 4",
+            "i32 auto09_frames 4",
+            "i32 auto10_row1 4",
+            "i32 auto10_col1 4",
+            "i32 auto10_row2 4",
+            "i32 auto10_col2 4",
+            "i32 auto10_frames 4",
+            "i32 auto11_row1 4",
+            "i32 auto11_col1 4",
+            "i32 auto11_row2 4",
+            "i32 auto11_col2 4",
+            "i32 auto11_frames 4",
+            "i32 auto12_row1 4",
+            "i32 auto12_col1 4",
+            "i32 auto12_row2 4",
+            "i32 auto12_col2 4",
+            "i32 auto12_frames 4",
+            "i32 auto13_row1 4",
+            "i32 auto13_col1 4",
+            "i32 auto13_row2 4",
+            "i32 auto13_col2 4",
+            "i32 auto13_frames 4",
+            "i32 auto14_row1 4",
+            "i32 auto14_col1 4",
+            "i32 auto14_row2 4",
+            "i32 auto14_col2 4",
+            "i32 auto14_frames 4",
+            "i32 auto15_row1 4",
+            "i32 auto15_col1 4",
+            "i32 auto15_row2 4",
+            "i32 auto15_col2 4",
+            "i32 auto15_frames 4",
+            "i32 auto_frame_count 4",
+            "bool auto_gap 1",
+            "bool cancel_extended 1",
+        };
+        s3::RecordDesc rec;
+        emu.keyboard().describe_state(rec);
+        all_decls.push_back({"keyboard", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-KEYBOARD: %s\n", d.c_str());
+        check("S5-DECL-KEYBOARD", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-KEYBOARD", rec.width() == 342u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── joystick — the input block: 7 bytes ──
+    {
+        static const char* const want[] = {
+            "u8 nr_05_raw 1",
+            "enum8 joy0_mode 1",
+            "enum8 joy1_mode 1",
+            "u16 joy_left_bits 2",
+            "u16 joy_right_bits 2",
+        };
+        s3::RecordDesc rec;
+        emu.joystick().describe_state(rec);
+        all_decls.push_back({"joystick", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-JOYSTICK: %s\n", d.c_str());
+        check("S5-DECL-JOYSTICK", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-JOYSTICK", rec.width() == 7u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── mouse — the input block: 6 bytes ──
+    {
+        static const char* const want[] = {
+            "u8 x 1",
+            "u8 y 1",
+            "u8 buttons 1",
+            "u8 wheel 1",
+            "bool button_reverse 1",
+            "u8 dpi 1",
+        };
+        s3::RecordDesc rec;
+        emu.mouse().describe_state(rec);
+        all_decls.push_back({"mouse", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-MOUSE: %s\n", d.c_str());
+        check("S5-DECL-MOUSE", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-MOUSE", rec.width() == 6u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── md6 — the input block: 16 bytes ──
+    {
+        static const char* const want[] = {
+            "u16 raw_left 2",
+            "u16 raw_right 2",
+            "u16 latched_left 2",
+            "u16 latched_right 2",
+            "u16 state 2",
+            "bool six_button_left 1",
+            "bool six_button_right 1",
+            "u32 clk_en_accum 4",
+        };
+        s3::RecordDesc rec;
+        emu.md6().describe_state(rec);
+        all_decls.push_back({"md6", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-MD6: %s\n", d.c_str());
+        check("S5-DECL-MD6", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-MD6", rec.width() == 16u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── membrane_stick — the input block: 73 bytes ──
+    {
+        static const char* const want[] = {
+            "enum8 mode_left 1",
+            "enum8 mode_right 1",
+            "u16 state_left 2",
+            "u16 state_right 2",
+            "bytes keymap 64",
+            "u8 keymap_sel 1",
+            "u16 keymap_addr 2",
+        };
+        s3::RecordDesc rec;
+        emu.membrane_stick().describe_state(rec);
+        all_decls.push_back({"membrane_stick", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-MEMBRANE: %s\n", d.c_str());
+        check("S5-DECL-MEMBRANE", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-MEMBRANE", rec.width() == 73u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── iomode — the input block: 6 bytes ──
+    {
+        static const char* const want[] = {
+            "u8 nr_0b_raw 1",
+            "bool pin7 1",
+            "bool uart0_tx 1",
+            "bool uart1_tx 1",
+            "bool joy_left_bit5 1",
+            "bool joy_right_bit5 1",
+        };
+        s3::RecordDesc rec;
+        emu.iomode().describe_state(rec);
+        all_decls.push_back({"iomode", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-IOMODE: %s\n", d.c_str());
+        check("S5-DECL-IOMODE", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-IOMODE", rec.width() == 6u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+
+    // ── Every key of a declaration must be UNIQUE ────────────────────────
+    //
+    // The same fault S3-KEYS-UNIQUE catches for the core subsystems, and it
+    // matters more here: five of these declarations are built by REPEATING
+    // one field list over several instances (four CTC channels, two UART
+    // channels, three AY chips, sixteen auto-type slots), so a key table that
+    // forgot to carry the instance number would produce a declaration that is
+    // byte-perfect and silently loses three quarters of its JSON.
+    {
+        std::string dup;
+        for (const auto& sub : all_decls) {
+            std::vector<std::string> seen;
+            for (const auto& f : sub.second) {
+                // "kind name width" -> "name"
+                const std::size_t a = f.find(' ');
+                const std::size_t b = f.rfind(' ');
+                const std::string key = f.substr(a + 1, b - a - 1);
+                for (const auto& k : seen) {
+                    if (k == key && dup.empty())
+                        dup = sub.first + "." + key;
+                }
+                seen.push_back(key);
+            }
+        }
+        if (!dup.empty()) fprintf(stderr, "  S5-KEYS-UNIQUE: %s\n", dup.c_str());
+        check("S5-KEYS-UNIQUE", dup.empty(),
+              "no S5 declaration names the same key twice — a duplicate is "
+              "invisible to the byte stream, which ignores names, and silently "
+              "drops a field from the JSON encoding, which does not");
+    }
+
+    // ── The six input classes sum to the `input` block ───────────────────
+    //
+    // Each of the six is pinned above on its own, but the block they share is
+    // 450 bytes and the golden's sentinel map is what says so. Summing them
+    // here is the row that would catch a SEVENTH class being appended to
+    // `Emulator::save_state`'s input group without the stream being
+    // re-measured — which is how the joy_uart block came to vary in width.
+    {
+        std::size_t sum = 0;
+        for (const auto& sub : all_decls) {
+            if (sub.first == "keyboard" || sub.first == "joystick" ||
+                sub.first == "mouse" || sub.first == "md6" ||
+                sub.first == "membrane_stick" || sub.first == "iomode") {
+                for (const auto& f : sub.second)
+                    sum += std::stoul(f.substr(f.rfind(' ') + 1));
+            }
+        }
+        if (sum != 450) fprintf(stderr, "  S5-INPUT-BLOCK: sum is %zu\n", sum);
+        check("S5-INPUT-BLOCK", sum == 450,
+              "the six input declarations sum to the 450 bytes the golden's "
+              "sentinel map measures for the input block");
+    }
+
+    return 0;
+}
+
+// ── Test 18: GH #27 S3 — what the migration CHANGED, not just transcribed ─
+
+static int test_s3_restore_behaviour()
+{
+    printf("\n--- Test 18: GH #27 S3 restore behaviour ---\n");
+
+    // ── Ram: the count prefix is CHECKED, never obeyed ───────────────────
+    //
+    // Before S3 the prefix WAS the write length for the 2 MB buffer:
+    //     uint64_t sz = r.read_u64();
+    //     r.read_bytes(data_.data(), static_cast<size_t>(sz));
+    // Both of StateReader::read_bytes' branches are unbounded there. The
+    // warm-start loader checks only the TOTAL stream length, so a tampered
+    // cache of the right total size reaches Ram::load_state with a hostile
+    // number. The row asserts the property that makes that impossible: the
+    // restore consumes 8 + the DECLARED length, whatever the prefix says.
+    {
+        Ram ram(64 * 1024);
+        for (uint32_t i = 0; i < 64 * 1024; ++i)
+            ram.write(i, static_cast<uint8_t>(i * 7 + 3));
+
+        StateWriter measure;
+        ram.save_state(measure);
+        const size_t n = measure.position();
+        std::vector<uint8_t> buf(n, 0);
+        StateWriter w(buf.data(), n);
+        ram.save_state(w);
+
+        // Forge a prefix twelve times the real size — in range for a size_t,
+        // so pre-fix this took read_bytes' memset branch and zeroed 768 KB
+        // over a 64 KB heap buffer.
+        const uint64_t lie = 12ull * 64 * 1024;
+        std::memcpy(buf.data(), &lie, sizeof(lie));
+
+        Ram back(64 * 1024);
+        StateReader r(buf.data(), n);
+        back.load_state(r);
+
+        bool content_ok = true;
+        for (uint32_t i = 0; i < 64 * 1024; ++i)
+            if (back.read(i) != static_cast<uint8_t>(i * 7 + 3)) { content_ok = false; break; }
+
+        check("S3-RAM-PREFIX", r.position() == 8 + 64u * 1024 && content_ok,
+              "a RAM count prefix twelve times the real size neither moves the "
+              "stream nor reaches past the buffer: the restore takes its "
+              "length from the DECLARATION and the content is intact");
+        check("S3-RAM-PREFIX-SANE", n == 8 + 64u * 1024,
+              "…and an honest save is still exactly the prefix plus the RAM");
+    }
+
+    // ── enum8: an ordinal outside the declared set is REFUSED ────────────
+    //
+    // Pre-S3 both of these were `static_cast<Enum>(r.read_u8())` — any byte
+    // became a state. §16.1: a wrong FSM state is not a safe default. The
+    // stream must still stay in sync, because the byte was consumed either
+    // way, and that is the half a refusal usually gets wrong.
+    {
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.set_machine_type(MachineType::ZX128K);
+
+        StateWriter measure;
+        mmu.save_state(measure);
+        const size_t n = measure.position();
+        std::vector<uint8_t> buf(n, 0);
+        StateWriter w(buf.data(), n);
+        mmu.save_state(w);
+
+        // machine_type is declaration index 21, at stream offset 28: 8 (slots)
+        // + 8 (read_only) + 12 single-byte scalars.
+        check("S3-ENUM-OFFSET", buf[28] == static_cast<uint8_t>(MachineType::ZX128K),
+              "the machine_type ordinal really is at stream offset 28 — the "
+              "row below is meaningless if it corrupts some other field");
+        buf[28] = 0x7F;   // no MachineType has ordinal 127
+
+        Mmu back(ram, rom);
+        back.set_machine_type(MachineType::ZX_PLUS3);
+        StateReader r(buf.data(), n);
+        back.load_state(r);
+
+        check("S3-ENUM-MMU", back.machine_type() == MachineType::ZX_PLUS3 &&
+                             r.position() == n,
+              "an out-of-range machine_type ordinal leaves the field at its "
+              "pre-load value instead of casting garbage into it, and the "
+              "stream still ends exactly where it should");
+    }
+
+    // ── Mmu: the pending/effective timing pair survives a machine restore ─
+    //
+    // The pair used to be read behind `if (!r.eof())`, with a flag recording
+    // whether both halves arrived so Emulator::load_state could fall back to
+    // re-deriving them from NR 0x03. S3 declares them, so the flag is now
+    // unconditionally true and the fallback is unreachable. That is only safe
+    // if the declared pair really does survive — including the case the
+    // fallback would get WRONG, where pending differs from effective.
+    {
+        Emulator emu;
+        build_emulator(emu, 2);
+        emu.mmu().set_machine_timing(MachineTimingMode::Timing128);
+        emu.mmu().set_pending_machine_timing(MachineTimingMode::TimingPentagon);
+
+        StateWriter measure;
+        emu.save_state(measure);
+        const size_t n = measure.position();
+        std::vector<uint8_t> buf(n, 0);
+        StateWriter w(buf.data(), n);
+        emu.save_state(w);
+
+        emu.mmu().set_machine_timing(MachineTimingMode::Timing48);
+        emu.mmu().set_pending_machine_timing(MachineTimingMode::Timing48);
+
+        StateReader r(buf.data(), n);
+        const bool ok = emu.load_state(r);
+        check("S3-MMU-TIMING-PAIR", ok &&
+              emu.mmu().machine_timing() == MachineTimingMode::Timing128 &&
+              emu.mmu().pending_machine_timing() == MachineTimingMode::TimingPentagon,
+              "a deferred NR 0x03 timing commit — pending != effective — "
+              "survives a full Emulator save/load, which is the case the "
+              "retired old-format fallback would have collapsed");
+    }
+
+    // ── Mmu: the BRAM blobs are restored BEFORE the dispatch rebuild ─────
+    //
+    // The hand-written load_state called rebuild_ptr() twice, once mid-stream
+    // and once at the end; S3 calls it once, at the end. The end call is the
+    // load-bearing one: a slot holding page 0x0E (bank-7 lower half) must
+    // point at the freshly restored buffer, not at the pre-load one.
+    {
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.set_page(3, 0x0E);          // bank-7 lower half — the BRAM page
+        mmu.write(0x7000, 0xA5);
+
+        StateWriter measure;
+        mmu.save_state(measure);
+        const size_t n = measure.position();
+        std::vector<uint8_t> buf(n, 0);
+        StateWriter w(buf.data(), n);
+        mmu.save_state(w);
+
+        Mmu back(ram, rom);
+        StateReader r(buf.data(), n);
+        back.load_state(r);
+        check("S3-MMU-BRAM-PTR", back.read(0x7000) == 0xA5,
+              "a byte written into the bank-7 BRAM is readable through the "
+              "restored slot: the single rebuild_ptr() pass runs AFTER the "
+              "blobs land, which the mid-stream call never did");
+    }
+
+    // ── The restore-time masks, which S3 MOVED ───────────────────────────
+    //
+    // NR 0x8F is 2 bits (VHDL zxnext.vhd:3787-3794) and the two NR 0x03
+    // sub-fields are 3 bits each (:1099, :1103). Before S3 each mask was
+    // applied to the value as it was read; S3 applies it to the member after
+    // the walk, because in the declaration it would change what the WRITE
+    // direction emits. Identical result — and NOTHING covered it either way:
+    // reverting all three masks killed no row in any suite. A mask nothing
+    // asserts is a mask the next edit deletes, so the three rows below are
+    // the answer the mutation table owed.
+    {
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.write_nr_8f(0x01);
+        mmu.set_machine_type(MachineType::ZX128K);   // a neighbour, to pin the offset
+
+        StateWriter measure;
+        mmu.save_state(measure);
+        const size_t n = measure.position();
+        std::vector<uint8_t> buf(n, 0);
+        StateWriter w(buf.data(), n);
+        mmu.save_state(w);
+
+        // nr_8f_mode is declaration index 25, stream offset 32.
+        check("S3-MMU-NR8F-OFFSET",
+              buf[32] == 0x01 &&
+                  buf[28] == static_cast<uint8_t>(MachineType::ZX128K),
+              "nr_8f_mode is at stream offset 32 and machine_type at 28 — the "
+              "row below is meaningless if it pokes some other field");
+        buf[32] = 0xFF;
+
+        Mmu back(ram, rom);
+        StateReader r(buf.data(), n);
+        back.load_state(r);
+        check("S3-MMU-NR8F-MASK",
+              back.nr_8f_mode() == 0x03 &&
+                  back.machine_type() == MachineType::ZX128K &&
+                  r.position() == n,
+              "a restored NR 0x8F keeps only its 2 declared bits "
+              "(zxnext.vhd:3787-3794), its neighbour is untouched and the "
+              "stream still ends where it should");
+    }
+    {
+        NextReg nr;
+        nr.set_nr_03_machine_timing(0x05);
+        nr.set_nr_03_machine_type(0x02);
+        nr.select(0x42);                    // a neighbour, to pin the offset
+
+        StateWriter measure;
+        nr.save_state(measure);
+        const size_t n = measure.position();
+        std::vector<uint8_t> buf(n, 0);
+        StateWriter w(buf.data(), n);
+        nr.save_state(w);
+
+        // selected 0, regs 1..256, nr_03_config_mode 257,
+        // nr_04_romram_bank 258, nr_03_machine_timing 259,
+        // nr_03_user_dt_lock 260, nr_03_machine_type 261.
+        check("S3-NEXTREG-NR03-OFFSET",
+              buf[0] == 0x42 && buf[259] == 0x05 && buf[261] == 0x02,
+              "the two NR 0x03 sub-fields are at stream offsets 259 and 261, "
+              "behind the 256-byte register file");
+        buf[259] = 0xFF;
+        buf[261] = 0xFF;
+
+        NextReg back;
+        StateReader r(buf.data(), n);
+        back.load_state(r);
+        check("S3-NEXTREG-NR03-MASK",
+              back.nr_03_machine_timing() == 0x07 &&
+                  back.nr_03_machine_type() == 0x07 &&
+                  back.selected() == 0x42 && r.position() == n,
+              "both restored NR 0x03 sub-fields keep only their 3 declared "
+              "bits (zxnext.vhd:1099, :1103) and the select latch is intact");
+    }
+
+    // ── The CPU's /INT window is RELATIVE to a counter that is re-seeded ──
+    //
+    // §9.5(3): the u32 in the CPU block is int_first_ts_ minus the FUSE
+    // T-state counter, because load_state does not restore that counter.
+    // Marshalling a constant instead killed no row: at the EMULATOR level the
+    // appended int_timing block (31) replaces the pair straight afterwards,
+    // so the CPU block's copy is invisible there. It is not invisible to a
+    // standalone Z80Cpu save/load, which is what this row exercises.
+    {
+        Emulator emu;
+        build_emulator(emu, 2);
+        Z80Cpu& cpu = emu.cpu();
+
+        *fuse_z80_tstates_ptr() = 0x1000;
+        cpu.request_interrupt(0xFD, 0x1000, 0x1020);
+        *fuse_z80_tstates_ptr() = 0x1050;      // the window is now 0x50 behind
+
+        uint8_t buf[256];
+        StateWriter w(buf, sizeof(buf));
+        cpu.save_state(w);
+        const size_t n = w.position();
+
+        *fuse_z80_tstates_ptr() = 0x9000;      // a different frame's counter
+        StateReader r(buf, n);
+        cpu.load_state(r);
+
+        check("S3-CPU-INT-WINDOW",
+              cpu.int_window_first_ts() == 0x9000 - 0x50,
+              "the /INT window's first boundary is restored RELATIVE to "
+              "whatever the T-state counter now is (0x50 behind it), not as "
+              "the absolute stamp it was saved from");
+    }
+
+    return 0;
+}
+
+
+// ── Test 19: GH #27 S4 — the video declarations ───────────────────────────
+//
+// S4 replaced eight hand-written save_state/load_state pairs with a walk of
+// one `describe_state` declaration each. The MIGRATION was proved by the
+// §17.1 byte-identity gate: the warm-start recording of a booted NextZXOS
+// machine re-extracted after every subsystem and `cmp`ed against the
+// pre-migration image, 2 292 965 bytes, clean each time. That gate is a
+// one-shot scaffold — it needs a pre-migration build to have produced the
+// golden — so it cannot be a row here, exactly as S3 found.
+//
+// What CAN be a row is the LAYOUT the gate proved. The expected lists below
+// are a TRANSCRIPTION of the PRE-MIGRATION `save_state` bodies (the code that
+// wrote the golden) plus the block widths the golden's sentinel map reports —
+// NOT a re-derivation from the new declarations, which would only prove
+// self-consistency (`feedback_self_consistent_generated_data`).
+//
+// The six widths below are exactly the block lengths that map reports:
+// palette 4 622 (block 6), layer2 12 (7), sprites 17 039 (8), tilemap 26 (9),
+// renderer+ULA+LoRes 3 688 (10), copper 2 057 (11).
+
+static int test_s4_descriptor_layout()
+{
+    printf("\n--- Test 19: GH #27 S4 video descriptor declarations ---\n");
+
+    Emulator emu;
+    build_emulator(emu, 2);
+
+    std::vector<std::pair<std::string, std::vector<std::string>>> all_decls;
+
+    // ── PaletteManager — block 6, 4 622 bytes ────────────────────────────
+    //
+    // The four `uint16_t` stores and the priority store are §9.4's loop
+    // collapse: ten `for` statements became five declarations. Each width is
+    // the loop's own: 2 banks x 256 entries x sizeof(element).
+    {
+        static const char* const want[] = {
+            "bytes ula_rgb333 1024",
+            "bytes layer2_rgb333 1024",
+            "bytes sprite_rgb333 1024",
+            "bytes tilemap_rgb333 1024",
+            "u8 control 1",
+            "u8 index 1",
+            "enum8 target_palette 1",
+            "bool auto_inc_disabled 1",
+            "bool active_ula_second 1",
+            "bool active_l2_second 1",
+            "bool active_spr_second 1",
+            "bool active_tm_second 1",
+            "bool ulanext_mode 1",
+            "bool nine_bit_first_written 1",
+            "u8 nine_bit_first_byte 1",
+            "u8 global_transparency 1",
+            "u8 sprite_transparency 1",
+            "u8 tilemap_transparency 1",
+            "bytes layer2_priority 512",
+        };
+        s3::RecordDesc rec;
+        emu.palette().describe_state(rec);
+        all_decls.push_back({"palette", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S4-DECL-PALETTE: %s\n", d.c_str());
+        check("S4-DECL-PALETTE", d.empty(),
+              "PaletteManager declares the four RGB333 stores, the "
+              "14 scalars and the Layer 2 priority store in the "
+              "order the golden carries them");
+        check("S4-WIDTH-PALETTE", rec.width() == 4622,
+              "PaletteManager's declaration is 4 622 bytes wide — block 6 of "
+              "the 2 292 965-byte stream");
+    }
+
+    // ── Layer2 — block 7, 12 bytes ───────────────────────────────────────
+    {
+        static const char* const want[] = {
+            "u8 active_bank 1",
+            "u8 shadow_bank 1",
+            "u16 scroll_x 2",
+            "u8 scroll_y 1",
+            "u8 palette_offset 1",
+            "u8 resolution 1",
+            "bool enabled 1",
+            "u8 clip_x1 1", "u8 clip_x2 1", "u8 clip_y1 1", "u8 clip_y2 1",
+        };
+        s3::RecordDesc rec;
+        emu.layer2().describe_state(rec);
+        all_decls.push_back({"layer2", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S4-DECL-LAYER2: %s\n", d.c_str());
+        check("S4-DECL-LAYER2", d.empty(),
+              "Layer2 declares its 11 registers in stream order");
+        check("S4-WIDTH-LAYER2", rec.width() == 12,
+              "Layer2's declaration is 12 bytes wide — block 7");
+    }
+
+    // ── SpriteEngine — block 8, 17 039 bytes ─────────────────────────────
+    //
+    // `attributes` is the 128-sprite loop collapsed: 128 x 5 = 640 bytes, the
+    // exact count the five `write_u8` sites produced. `pattern_ram` is a
+    // BLOB and not `bytes` — §6.1 names it, a peripheral store at or above
+    // 8 KB.
+    {
+        static const char* const want[] = {
+            "bytes attributes 640",
+            "blob pattern_ram 16384",
+            "u8 attr_slot 1",
+            "u8 attr_byte 1",
+            "u16 pattern_offset 2",
+            "u8 pattern_slot_msb 1",
+            "bool sprites_visible 1",
+            "bool over_border 1",
+            "bool zero_on_top 1",
+            "u8 clip_x1 1", "u8 clip_x2 1", "u8 clip_y1 1", "u8 clip_y2 1",
+            "bool collision 1",
+            "bool max_sprites 1",
+            "bool border_clip_en 1",
+        };
+        s3::RecordDesc rec;
+        emu.sprites().describe_state(rec);
+        all_decls.push_back({"sprites", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S4-DECL-SPRITES: %s\n", d.c_str());
+        check("S4-DECL-SPRITES", d.empty(),
+              "SpriteEngine declares the 640-byte attribute file, "
+              "the 16 KB pattern blob and the 15 control bytes");
+        check("S4-WIDTH-SPRITES", rec.width() == 17039,
+              "SpriteEngine's declaration is 17 039 bytes wide — block 8");
+    }
+
+    // ── Tilemap — block 9, 26 bytes ──────────────────────────────────────
+    {
+        static const char* const want[] = {
+            "u8 control_raw 1",
+            "bool enabled 1",
+            "bool mode_80col 1",
+            "bool text_mode 1",
+            "bool force_attr 1",
+            "bool mode_512 1",
+            "bool ula_on_top 1",
+            "u8 default_attr 1",
+            "u8 map_base_raw 1",
+            "u8 def_base_raw 1",
+            "u32 map_base_addr 4",
+            "u32 def_base_addr 4",
+            "u16 scroll_x 2",
+            "u8 scroll_y 1",
+            "u8 clip_x1 1", "u8 clip_x2 1", "u8 clip_y1 1", "u8 clip_y2 1",
+            "bool palette_sel 1",
+        };
+        s3::RecordDesc rec;
+        emu.tilemap().describe_state(rec);
+        all_decls.push_back({"tilemap", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S4-DECL-TILEMAP: %s\n", d.c_str());
+        check("S4-DECL-TILEMAP", d.empty(),
+              "Tilemap declares its 19 fields, both decoded base "
+              "addresses included, in stream order");
+        check("S4-WIDTH-TILEMAP", rec.width() == 26,
+              "Tilemap's declaration is 26 bytes wide — block 9");
+    }
+
+    // ── Renderer (+ ULA + LoRes) — block 10, 3 688 bytes ─────────────────
+    //
+    // The one block built from THREE declarations. `Renderer::describe_state`
+    // nests the ULA's first and LoRes's last, which is the order the
+    // pre-migration `Renderer::save_state` called `ula_.save_state(w)` and
+    // `lores_.save_state(w)` in.
+    //
+    // `log port_ff_log 3074` is §9.5(1)'s padded history: a u16 count plus
+    // EXACTLY 1 024 three-byte entries, which is what `RewindBuffer`'s
+    // constant slot width requires and what issue #42 broke when it was
+    // variable-length.
+    static const char* const want_block10[] = {
+        // Ula
+        "bool ula_enabled 1",
+        "bool vram_use_bank7 1",
+        "u8 ula_clip_x1 1", "u8 ula_clip_x2 1",
+        "u8 ula_clip_y1 1", "u8 ula_clip_y2 1",
+        "u8 border_colour 1",
+        "bytes border_per_line 256",
+        "i32 flash_counter 4",
+        "bool flash_phase 1",
+        "u8 screen_mode_reg 1",
+        "enum8 screen_mode 1",
+        "u8 ula_scroll_x_coarse 1",
+        "u8 ula_scroll_y 1",
+        "bool ula_fine_scroll_x 1",
+        "u8 ulanext_format 1",
+        "bool ulanext_en 1",
+        "bool ulap_en 1",
+        "bool alt_file 1",
+        "bool shadow_screen_en 1",
+        "bool border_clr_tmx_src 1",
+        "u8 ulap_mode 1",
+        "u8 baseline_port_ff 1",
+        "u16 current_line 2",
+        "log port_ff_log 3074",
+        // Renderer's own
+        "u8 layer_priority 1",
+        "u8 fallback_colour 1",
+        "u8 transparent_rgb 1",
+        "bool sprite_en 1",
+        "bool stencil_mode 1",
+        "bool tm_enabled 1",
+        "u8 blend_mode 1",
+        "bytes fallback_per_line 320",
+        // Lores
+        "bool lores_enabled 1",
+        "u8 lores_scroll_x 1",
+        "u8 lores_scroll_y 1",
+        "u8 lores_nr6a 1",
+    };
+    constexpr std::size_t kBlock10Fields =
+        sizeof(want_block10) / sizeof(want_block10[0]);
+    constexpr std::size_t kUlaFields  = 25;   // through "log port_ff_log 3074"
+    constexpr std::size_t kLoresFields = 4;   // the trailing lores_* group
+    {
+        s3::RecordDesc rec;
+        emu.renderer().describe_state(rec);
+        all_decls.push_back({"block10", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want_block10, kBlock10Fields));
+        if (!d.empty()) fprintf(stderr, "  S4-DECL-BLOCK10: %s\n", d.c_str());
+        check("S4-DECL-BLOCK10", d.empty(),
+              "Renderer's declaration nests the ULA's, then its "
+              "own eight fields, then LoRes's four — the order "
+              "the golden carries block 10 in");
+        check("S4-WIDTH-BLOCK10", rec.width() == 3688,
+              "the nested declaration is 3 688 bytes wide — block 10, of "
+              "which the ULA is 3 357");
+    }
+
+    // The nested halves must be the SAME declaration the two subsystems walk
+    // standalone. Without these two rows, `Ula::load_state` (which
+    // `ula_test.cpp` uses on its own) and `Renderer::load_state` could drift
+    // into reading two different field lists — the exact failure this layer
+    // exists to make impossible, applied to its own nesting.
+    {
+        s3::RecordDesc rec;
+        emu.ula().describe_state(rec);
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want_block10, kUlaFields));
+        if (!d.empty()) fprintf(stderr, "  S4-DECL-ULA-PREFIX: %s\n", d.c_str());
+        check("S4-DECL-ULA-PREFIX", d.empty() && rec.width() == 3357,
+              "Ula::describe_state walked standalone is EXACTLY "
+              "the first 25 fields / 3 357 bytes of block 10");
+    }
+    {
+        s3::RecordDesc rec;
+        emu.renderer().lores().describe_state(rec);
+        const std::string d = s3::diff(
+            rec.fields(),
+            s3::vec(want_block10 + (kBlock10Fields - kLoresFields), kLoresFields));
+        if (!d.empty()) fprintf(stderr, "  S4-DECL-LORES-SUFFIX: %s\n", d.c_str());
+        check("S4-DECL-LORES-SUFFIX", d.empty() && rec.width() == 4,
+              "Lores::describe_state walked standalone is EXACTLY "
+              "the last four fields of block 10");
+    }
+
+    // ── Copper — block 11, 2 057 bytes ───────────────────────────────────
+    {
+        static const char* const want[] = {
+            "bytes instructions 2048",
+            "u16 pc 2",
+            "enum8 mode 1",
+            "enum8 last_mode 1",
+            "bool move_pending 1",
+            "u16 write_addr 2",
+            "u8 write_data_stored 1",
+            "u8 offset 1",
+        };
+        s3::RecordDesc rec;
+        emu.copper().describe_state(rec);
+        all_decls.push_back({"copper", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S4-DECL-COPPER: %s\n", d.c_str());
+        check("S4-DECL-COPPER", d.empty(),
+              "Copper declares the 2 KB instruction RAM as one "
+              "array, then the seven control fields");
+        check("S4-WIDTH-COPPER", rec.width() == 2057,
+              "Copper's declaration is 2 057 bytes wide — block 11");
+    }
+
+    // ── Every key of these declarations must be UNIQUE ───────────────────
+    //
+    // The same fault S3-KEYS-UNIQUE covers, extended to S4's declarations —
+    // and it matters MORE here, because block 10 is three declarations
+    // flattened into one object: `enabled` is a name the ULA, the Renderer
+    // and LoRes would all otherwise want, and a collision across the nesting
+    // is one a per-subsystem check could not see. A duplicate is invisible to
+    // the byte-identity gate (the binary encoding ignores names entirely) and
+    // silently drops a field from `JsonWriteDesc`'s `obj[name] = value`.
+    {
+        std::string dup;
+        for (const auto& sub : all_decls) {
+            std::vector<std::string> seen;
+            for (const auto& f : sub.second) {
+                const std::size_t a = f.find(' ');
+                const std::size_t b = f.rfind(' ');
+                const std::string key = f.substr(a + 1, b - a - 1);
+                for (const auto& k : seen) {
+                    if (k == key && dup.empty())
+                        dup = sub.first + "." + key;
+                }
+                seen.push_back(key);
+            }
+        }
+        if (!dup.empty()) fprintf(stderr, "  S4-KEYS-UNIQUE: %s\n", dup.c_str());
+        check("S4-KEYS-UNIQUE", dup.empty(),
+              "no video declaration names the same key twice, block 10's "
+              "three-way nesting included");
+    }
+
+    return 0;
+}
+
+// ── Test 20: GH #27 S4 — what the migration CHANGED, not just transcribed ─
+//
+// Derived from `git diff`, not from the row list above: every behaviour S4
+// MOVED or ADDED gets a row, and each poke-a-byte row is paired with an
+// OFFSET row proving the byte it corrupts really is the field it names. A
+// corruption row that hits the wrong field passes for the wrong reason.
+
+namespace s4 {
+
+/// Save a subsystem into a right-sized buffer, the standard two-pass idiom.
+template <typename T>
+std::vector<uint8_t> save_bytes(const T& obj)
+{
+    StateWriter measure;
+    obj.save_state(measure);
+    std::vector<uint8_t> buf(measure.position(), 0);
+    StateWriter w(buf.data(), buf.size());
+    obj.save_state(w);
+    return buf;
+}
+
+// Offsets into a STANDALONE subsystem save, each derived by adding up the
+// declaration above it — the same arithmetic S3's S3-ENUM-OFFSET row does,
+// and each one pinned by its own OFFSET row below.
+constexpr std::size_t kPalTargetOff   = 4 * 1024 + 2;   // after the four stores
+constexpr std::size_t kPalPriorityOff = 4 * 1024 + 14;  // after the 14 scalars
+constexpr std::size_t kUlaModeOff     = 269;
+constexpr std::size_t kUlaLogCountOff = 283;
+constexpr std::size_t kUlaBytes       = 3357;
+constexpr std::size_t kCopperModeOff  = 2048 + 2;
+
+}  // namespace s4
+
+static int test_s4_restore_behaviour()
+{
+    printf("\n--- Test 20: GH #27 S4 restore behaviour ---\n");
+
+    // ── PaletteManager: the ARGB caches are rebuilt AFTER the walk ────────
+    //
+    // Pre-S4 the loader recomputed each ARGB entry inline as it read its
+    // RGB333 word. S4 moved the rebuild to a single post-walk pass, which is
+    // a behaviour MOVED rather than transcribed — and nothing pinned that it
+    // covers all four palettes in BOTH banks. Poke one entry per palette per
+    // bank straight into the stream and read it back through the ARGB
+    // accessors: dropping any palette from the rebuild, or looping only
+    // bank 0, fails here.
+    {
+        PaletteManager pal;
+        std::vector<uint8_t> buf = s4::save_bytes(pal);
+
+        // RGB333 0x1B5 = r3 6, g3 6, b3 5 — distinct in every component, so a
+        // rebuild that transposed two of them would not survive either.
+        const uint16_t rgb333 = 0x1B5;
+        const uint32_t argb = rgb333_to_argb8888((rgb333 >> 6) & 7,
+                                                 (rgb333 >> 3) & 7,
+                                                 rgb333 & 7);
+        // store s in {ula, layer2, sprite, tilemap}, bank p, entry 200.
+        for (std::size_t s = 0; s < 4; ++s)
+            for (std::size_t p = 0; p < 2; ++p) {
+                const std::size_t off = (s * 1024) + (p * 512) + 200 * 2;
+                buf[off]     = static_cast<uint8_t>(rgb333 & 0xFF);
+                buf[off + 1] = static_cast<uint8_t>(rgb333 >> 8);
+            }
+
+        PaletteManager back;
+        StateReader r(buf.data(), buf.size());
+        back.load_state(r);
+
+        bool ok = r.position() == buf.size();
+        for (int p = 0; p < 2 && ok; ++p) {
+            const bool second = (p == 1);
+            ok = ok && back.ula_colour(second, 200)     == argb
+                    && back.layer2_colour(second, 200)  == argb
+                    && back.sprite_colour(second, 200)  == argb
+                    && back.tilemap_colour(second, 200) == argb
+                    && back.ula_rgb333(second, 200)     == rgb333;
+        }
+        check("S4-PALETTE-ARGB", ok,
+              "the post-walk ARGB rebuild covers all FOUR palettes in BOTH "
+              "banks, and the u16 entries land little-endian at 2*(bank*256 + "
+              "index) — which is what makes the ten-loop collapse into five "
+              "`bytes` a transcription");
+    }
+
+    // ── PaletteManager: target_palette is an enum8 ────────────────────────
+    {
+        PaletteManager pal;
+        // NR 0x43 = 0x60 -> target_palette 6 (SPRITE_SECOND), every other
+        // bit of the byte clear; the index latch takes an unrelated value.
+        // Distinct neighbours are the point: an OFFSET row whose field
+        // happens to equal the byte beside it proves nothing.
+        pal.write_control(0x60);
+        pal.set_index(0x5A);
+        std::vector<uint8_t> buf = s4::save_bytes(pal);
+        check("S4-PALETTE-TARGET-OFFSET",
+              buf.size() == 4622 && s4::kPalTargetOff == 4098 &&
+                  buf[4096] == 0x60 && buf[4097] == 0x5A &&
+                  buf[4098] == 6 && buf[4099] == 0,
+              "target_palette really is the byte at offset 4 098, between the "
+              "control byte and the auto-increment flag and equal to neither "
+              "— the row below is meaningless if it corrupts another field");
+        buf[s4::kPalTargetOff] = 0x2A;   // no PaletteId has ordinal 42
+
+        PaletteManager back;
+        back.write_control(0x10);   // target 1 (LAYER2_FIRST) before the load
+        StateReader r(buf.data(), buf.size());
+        back.load_state(r);
+        // Read the restored target back through the stream: the class has no
+        // getter for it. Asserting only `r.position()` would NOT discriminate
+        // — a plain `u8` consumes the same byte and ends in the same place,
+        // and a mutation replacing the enum8 with a u8 proved exactly that.
+        const std::vector<uint8_t> after = s4::save_bytes(back);
+        check("S4-PALETTE-TARGET",
+              after[s4::kPalTargetOff] == 1 && after[4096] == 0x60 &&
+                  r.position() == buf.size(),
+              "an out-of-range target_palette ordinal is REFUSED: the field "
+              "keeps its pre-load target instead of being cast in, the plain "
+              "control byte beside it IS restored, and the stream still ends "
+              "exactly where it should — the byte was consumed either way");
+    }
+
+    // ── Ula: screen_mode is an enum8 WITH HOLES ───────────────────────────
+    //
+    // TimexScreenMode is not contiguous: 3, 4 and 5 are states
+    // `set_screen_mode` cannot produce, spelled `nullptr` in the name table,
+    // and refused in both directions. Pre-S4 this was
+    // `static_cast<TimexScreenMode>(r.read_u8())` and ANY byte became a mode.
+    {
+        Ula ula;
+        // Port 0xFF = 0x07 gives screen_mode_reg 0x07 and mode HI_RES (6),
+        // so the raw register byte and the enum ordinal DIFFER. With
+        // set_screen_mode(0x02) they would both be 2 and the offset row
+        // would pass at either of the two adjacent offsets.
+        ula.set_screen_mode(0x07);
+        std::vector<uint8_t> buf = s4::save_bytes(ula);
+        check("S4-ULA-MODE-OFFSET",
+              buf.size() == s4::kUlaBytes && buf[268] == 0x07 &&
+                  buf[s4::kUlaModeOff] ==
+                      static_cast<uint8_t>(TimexScreenMode::HI_RES),
+              "screen_mode really is at offset 269 of a 3 357-byte ULA save, "
+              "and is 6 where the raw port-0xFF register beside it is 7");
+        buf[s4::kUlaModeOff] = 4;           // a HOLE: unreachable ordinal
+
+        Ula back;
+        back.set_screen_mode(0x02);         // HI_COLOUR, so a wrong restore shows
+        StateReader r(buf.data(), buf.size());
+        back.load_state(r);
+        // Read the restored mode back through the stream rather than an
+        // accessor the class does not expose.
+        const std::vector<uint8_t> after = s4::save_bytes(back);
+        check("S4-ULA-MODE",
+              after[s4::kUlaModeOff] ==
+                      static_cast<uint8_t>(TimexScreenMode::HI_COLOUR) &&
+                  after[268] == 0x07 && r.position() == buf.size(),
+              "ordinal 4 is a HOLE in TimexScreenMode and is refused: the "
+              "enum field keeps its pre-load mode instead of becoming a state "
+              "the ULA cannot be in, the plain register byte beside it IS "
+              "restored, and the stream still ends where it should");
+    }
+
+    // ── Ula: the port-0xFF log count is CLAMPED, never obeyed ─────────────
+    //
+    // The stream always carries exactly MAX_CHANGES_PER_FRAME entries
+    // (issue #42 — RewindBuffer needs a constant slot width), so a forged
+    // count can neither move the stream nor make the live count exceed the
+    // array. Pre-S4 a hand-written clamp did this; `d.log` now does, and
+    // nothing pinned the property across the move.
+    {
+        Ula ula;
+        ula.start_frame();
+        ula.set_current_line(40);
+        ula.set_screen_mode(0x02);      // one logged change
+        std::vector<uint8_t> buf = s4::save_bytes(ula);
+        const uint16_t live = static_cast<uint16_t>(buf[s4::kUlaLogCountOff] |
+                                (buf[s4::kUlaLogCountOff + 1] << 8));
+        check("S4-ULA-LOG-COUNT-OFFSET", live == 1 && buf.size() == s4::kUlaBytes,
+              "the port-0xFF log count really is the u16 at offset 283, and "
+              "one logged change reads as 1");
+        buf[s4::kUlaLogCountOff]     = 0xFF;   // 65 535 — 64x the capacity
+        buf[s4::kUlaLogCountOff + 1] = 0xFF;
+
+        Ula back;
+        StateReader r(buf.data(), buf.size());
+        back.load_state(r);
+        check("S4-ULA-LOG-COUNT",
+              back.port_ff_change_log_size() == Ula::MAX_CHANGES_PER_FRAME &&
+                  r.position() == buf.size(),
+              "a forged count 64x the capacity is clamped to the capacity "
+              "declared IN THE CODE and the stream still ends where it "
+              "should: the entry loop is bounded by the declaration, never by "
+              "the file");
+    }
+
+    // ── Lores: the NR $6A 6-bit mask survived the move ───────────────────
+    //
+    // Pre-S4 the mask was part of the read expression
+    // (`r.read_u8() & 0x3F`); S4 moved it after the walk, because a mask in
+    // the declaration would change what the WRITE direction emits. Nothing
+    // pinned it in either place.
+    {
+        Lores lo;
+        lo.set_nr6a(0x25);
+        std::vector<uint8_t> buf = s4::save_bytes(lo);
+        check("S4-LORES-NR6A-OFFSET", buf.size() == 4 && buf[3] == 0x25,
+              "lores_nr6a really is the fourth and last byte of a LoRes save");
+        buf[3] = 0xC5;   // bits 7:6 set — not part of a 6-bit register
+
+        Lores back;
+        StateReader r(buf.data(), buf.size());
+        back.load_state(r);
+        check("S4-LORES-NR6A-MASK",
+              back.nr6a() == 0x05 && r.position() == buf.size(),
+              "NR $6A is restored masked to its six hardware bits "
+              "(zxnext.vhd:5032-5034), so a stream carrying bits 7:6 cannot "
+              "put the register in a state a live write could not");
+    }
+
+    // ── Renderer: the NR 0x68 blend-mode 2-bit mask survived the move ─────
+    {
+        Renderer ren;
+        std::vector<uint8_t> buf = s4::save_bytes(ren);
+        const std::size_t blend_off = s4::kUlaBytes + 6;
+        check("S4-BLEND-OFFSET",
+              buf.size() == 3688 && blend_off == 3363 && buf[blend_off] == 0,
+              "blend_mode really is at offset 3 363 — after the ULA's 3 357 "
+              "bytes and the Renderer's first six");
+        buf[blend_off] = 0xFE;   // bits 7:2 set — not part of a 2-bit field
+
+        Renderer back;
+        StateReader r(buf.data(), buf.size());
+        back.load_state(r);
+        check("S4-BLEND-MASK",
+              back.blend_mode() == 0x02 && r.position() == buf.size(),
+              "NR 0x68 bits 6:5 are restored masked to two bits, so a stream "
+              "carrying more cannot select a blend mode the VHDL has no "
+              "encoding for");
+    }
+
+    // ── SpriteEngine: the 128x5 collapse really is the 128x5 order ────────
+    //
+    // `d.bytes("attributes", …, 640)` replaced five `write_u8` sites inside a
+    // 128-iteration loop. If `SpriteAttr` ever gained padding, or the
+    // collapse used the wrong length, the golden would move — but only on a
+    // full-machine save. This row pins the mapping directly: byte 5*i+k of
+    // the attribute file is sprite i's attribute byte k.
+    {
+        SpriteEngine spr;
+        // Sprite 37, attribute byte 3 = visible + pattern 0x11.
+        spr.set_attr_slot(37);
+        // Byte 3 carries bit 6 (extended) SET: write_attr_byte
+        // auto-increments the slot after byte 3 when it is clear, which would
+        // put byte 4 on sprite 38 and make this row test the wrong thing.
+        static const uint8_t vals[5] = {0x40, 0x41, 0x42, 0xD1, 0x44};
+        for (uint8_t k = 0; k < 5; ++k) spr.write_attr_byte(k, vals[k]);
+        std::vector<uint8_t> buf = s4::save_bytes(spr);
+        const std::size_t base = 37 * 5;
+        check("S4-SPRITE-ATTR-ORDER",
+              buf.size() == 17039 &&
+                  buf[base + 0] == 0x40 && buf[base + 1] == 0x41 &&
+                  buf[base + 2] == 0x42 && buf[base + 3] == 0xD1 &&
+                  buf[base + 4] == 0x44 &&
+                  buf[base - 1] == 0 && buf[base + 5] == 0,
+              "the 640-byte attribute file is sprite-major, five bytes each: "
+              "sprite 37's five bytes are at offsets 185-189, exactly where "
+              "the pre-migration 128-iteration loop put them");
+    }
+
+    // ── Ula: the port-0xFF replay cursor restarts at the restored log ────
+    //
+    // `port_ff_render_cursor_` is transient render state and is NOT in the
+    // stream, so after a restore it still points into the log the restoring
+    // object had BEFORE the load — a log that no longer exists. S4 moved that
+    // reset out of `load_state` into `after_load_state` (so `Renderer` can run
+    // it while performing the nested walk itself), and a mutation deleting it
+    // killed no row in any suite. It does now.
+    {
+        Ula a;
+        a.start_frame();
+        a.set_current_line(7);
+        a.set_screen_mode(0x02);    // log entry {line 7, value 0x02}
+        a.rewind_to_baseline();     // live register back to the baseline 0x00
+        std::vector<uint8_t> buf = s4::save_bytes(a);
+
+        Ula b;
+        b.start_frame();
+        b.set_current_line(3);
+        b.set_screen_mode(0x06);    // b's OWN log: {line 3, value 0x06}
+        b.rewind_to_baseline();
+        b.apply_changes_for_line(3);  // b's cursor advances past its entry
+        StateReader r(buf.data(), buf.size());
+        b.load_state(r);
+        b.apply_changes_for_line(7);  // replay the RESTORED log, no rewind first
+
+        const std::vector<uint8_t> after = s4::save_bytes(b);
+        check("S4-ULA-CURSOR-RESET",
+              after[268] == 0x02 && r.position() == buf.size(),
+              "a restore restarts the port-0xFF replay cursor at the top of "
+              "the RESTORED log: replaying line 7 applies the entry the "
+              "stream carried, instead of finding a cursor left past the end "
+              "by the log the object had before the load");
+    }
+
+    // ── Ula: the per-line control snapshot is DEACTIVATED by a restore ───
+    //
+    // `control_per_line_` holds the pre-restore frame's rows and is not in
+    // the stream. Leaving `control_per_line_active_` set makes the render
+    // `Emulator::rewind_to_frame` does immediately after a load read those
+    // rows instead of the registers it just restored (GH #256). S4 moved that
+    // clear into `after_load_state` and a mutation deleting it killed no row.
+    {
+        Ula a;
+        a.set_ulanext_en(false);
+        std::vector<uint8_t> buf = s4::save_bytes(a);
+
+        Ula b;
+        b.set_ulanext_en(true);
+        b.init_control_per_line();   // every row says "true", flag active
+        StateReader r(buf.data(), buf.size());
+        b.load_state(r);
+        check("S4-ULA-PERLINE-CLEARED",
+              b.ulanext_en_for_line(5) == false && r.position() == buf.size(),
+              "a restore deactivates the per-line control snapshot, so a "
+              "render taken before the next frame initialises it reads the "
+              "RESTORED live registers and not the pre-restore frame's rows");
+    }
+
+    // ── Renderer: the nested restore runs BOTH children's post-walk work ──
+    //
+    // `Renderer::load_state` performs the ULA's and LoRes's walks itself, as
+    // part of its own nested declaration, so it must call both
+    // `after_load_state()`s. This is the path the emulator actually uses —
+    // `Emulator::load_state` calls `renderer_.load_state(r)`, never
+    // `ula_.load_state` — and the rows above exercise the two subsystems
+    // STANDALONE, which is a different entry point.
+    {
+        Renderer a;
+        a.ula().set_ulanext_en(false);
+        a.lores().set_nr6a(0x05);
+        std::vector<uint8_t> buf = s4::save_bytes(a);
+        // lores_nr6a is the LAST byte of block 10 (S4-DECL-LORES-SUFFIX).
+        check("S4-RENDERER-NESTED-OFFSET",
+              buf.size() == 3688 && buf[3687] == 0x05,
+              "lores_nr6a really is the last byte of a Renderer save — the "
+              "row below is meaningless if it corrupts another field");
+        buf[3687] = 0xC5;   // bits 7:6 set: not part of a 6-bit register
+
+        Renderer b;
+        b.ula().set_ulanext_en(true);
+        b.ula().init_control_per_line();
+        StateReader r(buf.data(), buf.size());
+        b.load_state(r);
+        check("S4-RENDERER-NESTED-AFTER-LOAD",
+              b.lores().nr6a() == 0x05 &&
+                  b.ula().ulanext_en_for_line(5) == false &&
+                  r.position() == buf.size(),
+              "a restore driven through Renderer — the path Emulator::"
+              "load_state uses — runs BOTH nested subsystems' post-walk work: "
+              "LoRes's NR $6A mask and the ULA's per-line deactivation, "
+              "neither of which the nested walk itself performs");
+    }
+
+    // ── Copper: the instruction RAM collapse, and the mode enum8 ──────────
+    {
+        Copper cop;
+        // NR 0x61/0x62 set the write address; NR 0x63 writes 16 bits.
+        cop.write_reg_0x62(0x00);        // mode 00, addr MSB 0
+        cop.write_reg_0x61(0x14);        // byte address 0x14 -> instruction 10
+        cop.write_reg_0x63(0xAB);
+        cop.write_reg_0x63(0xCD);
+        cop.write_reg_0x62(0x80);        // mode 10 = run from last point
+        std::vector<uint8_t> buf = s4::save_bytes(cop);
+        check("S4-COPPER-INSTR-ORDER",
+              buf.size() == 2057 && buf[0x14] == 0xCD && buf[0x15] == 0xAB &&
+                  cop.instruction(10) == 0xABCD,
+              "the 2 048-byte instruction array is instruction-major and "
+              "little-endian within each 16-bit word: instruction 10 lands at "
+              "byte offsets 0x14/0x15, exactly where 1 024 write_u16 calls "
+              "put it");
+        check("S4-COPPER-MODE-OFFSET",
+              s4::kCopperModeOff == 2050 && buf[s4::kCopperModeOff] == 2,
+              "mode really is at offset 2 050, straight after the array and "
+              "the 16-bit PC");
+        buf[s4::kCopperModeOff] = 0x0C;   // no NR 0x62 mode has ordinal 12
+
+        Copper back;
+        back.write_reg_0x62(0xC0);        // mode 11, so a wrong restore shows
+        StateReader r(buf.data(), buf.size());
+        back.load_state(r);
+        check("S4-COPPER-MODE",
+              back.mode() == 3 && r.position() == buf.size(),
+              "an out-of-range NR 0x62 mode ordinal is refused: the field "
+              "keeps its pre-load mode instead of taking one the two-bit "
+              "register cannot hold, and the stream still ends where it "
+              "should");
+    }
+
+    return 0;
+}
+
+
+// ── Test 22: GH #27 S5 — what the migration CHANGED, not just transcribed ─
+//
+// The mutation table for S5 was derived from `git diff`, not from the row
+// list, and eight reverts killed nothing in any suite:
+//
+//   * the two Dma restore masks (turbo_ & 0x03, dma_timer_s_ & 0x3FFF)
+//   * the three Md6ConnectorX2 masks (two 12-bit latches, the 9-bit counter)
+//   * the MembraneStick keymap_addr_ & 0x01FF mask
+//   * DivMmc restoring its two split enable levers from the STREAM rather
+//     than deriving them from the composite `enabled_` byte
+//   * I2cController restoring its two pi_i2c1 line inputs at all
+//
+// Every one of them is behaviour S5 MOVED rather than introduced — the masks
+// out of the read expressions and into the line after the walk, the DivMMC
+// levers by dropping a dead mid-read seed — and every one was uncovered
+// before S5 as well. A ninth, the auto-type queue's count clamp, is behaviour
+// S5 RESHAPED: the rebuild loop is now bounded by MAX_AUTO_TYPE_KEYS with the
+// count gating the push, which is `BinReadDesc::fifo`'s idiom and is what
+// makes a forged count unable to index past the staging array.
+//
+// Each poke-a-byte row is PAIRED with an OFFSET row asserting that the byte
+// it pokes really is the field it names. A corruption row that hits the wrong
+// field passes for the wrong reason, which is the failure mode this pairing
+// exists to close.
+//
+// The offsets are read off the declarations the S5-DECL-* rows pin, so a
+// reordering that moved a field would fail there first and these rows second,
+// rather than silently testing a neighbour.
+
+namespace s5 {
+
+/// Save `obj` into a fresh buffer sized by a measure pass. Returns the bytes.
+template <typename T>
+std::vector<uint8_t> save_bytes(const T& obj)
+{
+    StateWriter measure;
+    obj.save_state(measure);
+    std::vector<uint8_t> buf(measure.position(), 0);
+    StateWriter w(buf.data(), buf.size());
+    obj.save_state(w);
+    return buf;
+}
+
+void poke16(std::vector<uint8_t>& b, std::size_t off, uint16_t v)
+{
+    std::memcpy(b.data() + off, &v, sizeof(v));
+}
+
+uint16_t peek16(const std::vector<uint8_t>& b, std::size_t off)
+{
+    uint16_t v = 0;
+    std::memcpy(&v, b.data() + off, sizeof(v));
+    return v;
+}
+
+}  // namespace s5
+
+static int test_s5_restore_behaviour()
+{
+    printf("\n--- Test 22: GH #27 S5 restore behaviour ---\n");
+
+    // ── Dma: turbo_ is masked to 2 bits, dma_timer_s_ to 14 ──────────────
+    //
+    // `turbo_` is NR 0x06 bits 1:0 (zxnext.vhd:4966) and `dma_timer_s_` is
+    // device/dma.vhd's 14-bit burst prescaler timer, so a wider value in the
+    // stream is not a state the hardware can be in. Pre-S5 the masks were
+    // part of the read expressions; they are now the line after the walk, and
+    // nothing pinned them in either place.
+    {
+        Dma dma;
+        dma.set_turbo(0x02);
+        std::vector<uint8_t> b = s5::save_bytes(dma);
+
+        check("S5-DMA-OFFSET", b.size() == 43 && b[32] == 0x02,
+              "byte 32 of Dma's 43-byte block is turbo_ — the field the next "
+              "row pokes, proved by an honest save of a known value");
+
+        b[32] = 0xFF;                    // turbo_:       6 bits too wide
+        s5::poke16(b, 33, 0xFFFF);       // dma_timer_s_: 2 bits too wide
+
+        Dma back;
+        StateReader r(b.data(), b.size());
+        back.load_state(r);
+
+        check("S5-DMA-TURBO", back.turbo() == 0x03,
+              "an over-wide turbo_ in the stream restores masked to its two "
+              "VHDL bits instead of carrying six bits the hardware has no "
+              "encoding for");
+        check("S5-DMA-TIMER", back.dma_timer() == 0x3FFF,
+              "an over-wide dma_timer_s_ restores masked to the 14 bits "
+              "device/dma.vhd's burst prescaler actually has");
+        check("S5-DMA-TIMER-OFFSET", r.position() == 43,
+              "…and the restore consumed exactly the declared 43 bytes, so "
+              "the two pokes landed inside Dma's block and not past it");
+    }
+
+    // ── Md6ConnectorX2: two 12-bit latches and a 9-bit counter ───────────
+    {
+        Md6ConnectorX2 md6;
+        md6.set_latched_left_for_test(0x0A5A);
+        md6.set_latched_right_for_test(0x05A5);
+        md6.set_state_for_test(0x0155);
+        std::vector<uint8_t> b = s5::save_bytes(md6);
+
+        check("S5-MD6-OFFSET",
+              b.size() == 16 && s5::peek16(b, 4) == 0x0A5A &&
+                  s5::peek16(b, 6) == 0x05A5 && s5::peek16(b, 8) == 0x0155,
+              "bytes 4, 6 and 8 of Md6ConnectorX2's 16-byte block are the two "
+              "latches and the select counter — the three fields the next row "
+              "pokes, proved by an honest save of three known values");
+
+        s5::poke16(b, 4, 0xFFFF);
+        s5::poke16(b, 6, 0xFFFF);
+        s5::poke16(b, 8, 0xFFFF);
+
+        Md6ConnectorX2 back;
+        StateReader r(b.data(), b.size());
+        back.load_state(r);
+        // The two latches have setters but no getters, so the masked values
+        // are read back out through an honest re-save at the same offsets the
+        // OFFSET row above proved are theirs.
+        std::vector<uint8_t> again = s5::save_bytes(back);
+
+        check("S5-MD6-LATCH",
+              s5::peek16(again, 4) == 0x0FFF && s5::peek16(again, 6) == 0x0FFF,
+              "two over-wide latches restore masked to the 12 bits the MD "
+              "6-button word has, which a re-save reads straight back out");
+        check("S5-MD6-STATE", back.state_for_test() == 0x01FF,
+              "an over-wide select counter restores masked to the 9 bits "
+              "md6_connector_x2.vhd's FSM counter has");
+        check("S5-MD6-POS", r.position() == 16 && again.size() == 16,
+              "…and the restore consumed exactly the declared 16 bytes, so "
+              "the three pokes landed inside Md6's block and not past it");
+    }
+
+    // ── MembraneStick: NR 0x28's keymap address is 9-bit ─────────────────
+    {
+        MembraneStick ms;
+        std::vector<uint8_t> b = s5::save_bytes(ms);
+
+        check("S5-MEMBRANE-OFFSET", b.size() == 73 && s5::peek16(b, 71) == 0,
+              "bytes 71-72 of MembraneStick's 73-byte block are keymap_addr_ "
+              "— the field the next row pokes, at the end of a block whose "
+              "length is itself the proof that nothing follows it");
+
+        s5::poke16(b, 71, 0xFFFF);
+
+        MembraneStick back;
+        StateReader r(b.data(), b.size());
+        back.load_state(r);
+        std::vector<uint8_t> again = s5::save_bytes(back);
+
+        check("S5-MEMBRANE-ADDR", s5::peek16(again, 71) == 0x01FF,
+              "an over-wide keymap_addr_ restores masked to the 9 bits "
+              "NR 0x28 gives it, which a re-save reads straight back out");
+        check("S5-MEMBRANE-ADDR-POS", r.position() == 73,
+              "…and the restore consumed exactly the declared 73 bytes, so "
+              "the poke landed inside MembraneStick's block and not past it");
+    }
+
+    // ── DivMmc: the split levers come from the STREAM ────────────────────
+    //
+    // The hand-written pair seeded them from the composite `enabled_` byte
+    // mid-read and then overwrote both from their own persisted values at the
+    // end of the same read; the seed was dead and S5 dropped it. The property
+    // that makes the drop safe is the one this row pins, and it is the whole
+    // reason the two levers are persisted separately: the firmware-reset
+    // shape is port_io=1 with nr_0a_4=0, whose composite is 0, so deriving
+    // either lever from the composite loses it.
+    {
+        DivMmc mmc;
+        mmc.set_enabled(false);
+        mmc.set_port_io_enable(true);
+        mmc.set_nr_0a_4_enable(false);
+        std::vector<uint8_t> b = s5::save_bytes(mmc);
+
+        check("S5-DIVMMC-OFFSET",
+              b.size() == 131089 && b[0] == 0 && b[131087] == 1 &&
+                  b[131088] == 0,
+              "byte 0 of DivMmc's 131 089-byte block is the composite "
+              "`enabled_` and bytes 131 087-131 088 are the two split levers "
+              "— the exact firmware-reset shape, saved honestly");
+
+        DivMmc back;
+        back.set_port_io_enable(false);
+        back.set_nr_0a_4_enable(true);
+        StateReader r(b.data(), b.size());
+        back.load_state(r);
+
+        check("S5-DIVMMC-LEVERS",
+              back.port_io_enable() && !back.nr_0a_4_enable(),
+              "the two split enable levers restore from the STREAM, not from "
+              "the composite byte: a snapshot holding port_io=1 / nr_0a_4=0 "
+              "with enabled=0 survives, which deriving either from the "
+              "composite would lose");
+        check("S5-DIVMMC-LEVERS-POS", r.position() == 131089,
+              "…and the restore consumed exactly the declared 131 089 bytes, "
+              "128 KB window included");
+    }
+
+    // ── I2cController: the two pi_i2c1 line inputs travel ────────────────
+    //
+    // Both are `uint8_t` members the stream has always carried as BOOLEANS,
+    // so S5 marshals them through a local `bool` and writes back 0/1.
+    // Reverting the write-back left them at their pre-load values and no row
+    // noticed.
+    {
+        I2cController i2c;
+        i2c.set_pi_i2c1_scl(false);
+        i2c.set_pi_i2c1_sda(true);
+        std::vector<uint8_t> b = s5::save_bytes(i2c);
+
+        check("S5-I2C-OFFSET",
+              b.size() == 13 && b[11] == 0 && b[12] == 1,
+              "bytes 11 and 12 of I2cController's 13-byte block are the two "
+              "pi_i2c1 line inputs — the fields the next row restores, proved "
+              "by an honest save of a known pair");
+
+        I2cController back;
+        back.set_pi_i2c1_scl(true);     // the OPPOSITE of what the stream has
+        back.set_pi_i2c1_sda(false);
+        StateReader r(b.data(), b.size());
+        back.load_state(r);
+
+        check("S5-I2C-PI",
+              !back.pi_i2c1_scl() && back.pi_i2c1_sda(),
+              "both pi_i2c1 line inputs restore from the stream, over the "
+              "opposite live values — so a rewind replays the Pi's lines "
+              "rather than keeping the ones the run had reached");
+        check("S5-I2C-PI-POS", r.position() == 13,
+              "…and the restore consumed exactly the declared 13 bytes");
+    }
+
+    // ── Keyboard: the auto-type count is CHECKED, never obeyed ───────────
+    //
+    // S5 marshals the queue through a LOCAL staging array, so the rebuild
+    // loop indexes it — and a count taken from the file deciding how far to
+    // index is precisely the `Ram::load_state` shape S3 found. Both loops are
+    // therefore bounded by MAX_AUTO_TYPE_KEYS, with the count only gating the
+    // push, which is what `BinReadDesc::fifo` does and for the same reason.
+    {
+        Keyboard kb;
+        std::vector<Keyboard::AutoKey> keys;
+        keys.push_back({1, 3, -1, -1, 2});   // row 1 col 3 = F
+        keys.push_back({2, 0, -1, -1, 2});
+        kb.queue_auto_type(keys);
+        std::vector<uint8_t> b = s5::save_bytes(kb);
+
+        uint32_t cnt = 0;
+        std::memcpy(&cnt, b.data() + 12, sizeof(cnt));
+        check("S5-KB-COUNT-OFFSET", b.size() == 342 && cnt == 2,
+              "bytes 12-15 of Keyboard's 342-byte block are the auto-type "
+              "queue count — the field the next row forges, proved by an "
+              "honest save of a two-key queue");
+
+        // A count far past the sixteen slots the stream actually carries.
+        const uint32_t lie = 0x40000000u;
+        std::memcpy(b.data() + 12, &lie, sizeof(lie));
+
+        Keyboard back;
+        StateReader r(b.data(), b.size());
+        back.load_state(r);
+        std::vector<uint8_t> again = s5::save_bytes(back);
+
+        uint32_t restored = 0;
+        std::memcpy(&restored, again.data() + 12, sizeof(restored));
+        check("S5-KB-COUNT", restored == 16 && again.size() == 342,
+              "a forged auto-type count of 2^30 restores clamped to the "
+              "sixteen slots the stream actually carries — the rebuild loop "
+              "is bounded by the DECLARED capacity, so it can neither index "
+              "past the staging array nor resize the block");
+        check("S5-KB-COUNT-POS", r.position() == 342,
+              "…and the restore consumed exactly the declared 342 bytes, so "
+              "the forged count did not move the stream either");
+
+        // The hazard S5 INTRODUCED, as opposed to moved. One declaration has
+        // to serve both directions, so the queue is marshalled out of the
+        // staging array on the WRITE path too — and a rebuild that put back
+        // anything other than what was there would make `save_state` mutate
+        // the machine it is saving. Two saves of the same object must
+        // therefore agree to the byte, and the second must still see two
+        // keys: `StateWriter`'s measure pass is itself a save, so a rebuild
+        // that inflated the queue would be visible in the very buffer the
+        // measure pass sized.
+        Keyboard pure;
+        pure.queue_auto_type(keys);
+        const std::vector<uint8_t> first  = s5::save_bytes(pure);
+        const std::vector<uint8_t> second = s5::save_bytes(pure);
+        uint32_t after = 0;
+        std::memcpy(&after, second.data() + 12, sizeof(after));
+        check("S5-KB-SAVE-PURE", first == second && after == 2,
+              "saving twice gives byte-identical buffers and the queue still "
+              "holds its two keys — one declaration serves both directions, "
+              "so the write path's rebuild must put back exactly what it "
+              "took and never mutate the machine being saved");
+    }
+
+    return 0;
+}
+
+// ── Test 23: GH #27 S5b — the duplicated RAM is gone ──────────────────────
+//
+// D3 and D4 (design §4.3, §17.0): 131 072 + 8 192 bytes travelled in every
+// snapshot that did not need to, 6.1 % of every rewind slot. The DivMMC
+// window is `Ram` page 16 onwards and the `ram` block already carries it; the
+// Multiface private array is, on the Next, eight kilobytes of zeros whose live
+// counterpart is `Ram` page 0x0B. S5b stops writing both.
+//
+// ── WHY THESE ROWS AND NOT THE GOLDEN ────────────────────────────────────
+//
+// The re-baselined golden was verified once, by hand, at the commit: the new
+// 2 153 701-byte stream is the old 2 292 965-byte one with exactly two
+// contiguous ranges excised and every other byte identical IN PLACE —
+// [2 152 291, 2 283 363) and [2 283 678, 2 291 870). Both were proved
+// redundant BEFORE the change, on the pre-S5b golden: the first was
+// byte-identical to that same stream's `Ram` page 16 at offset 131 096 across
+// all 131 072 bytes, and the second was entirely zero. That check needs a
+// pre-S5b build to have produced the old image, so it cannot be a row here
+// any more than the §17.1 gate could be.
+//
+// What CAN be a row is what the check leaves behind: the two re-baselined
+// LENGTHS, the two block widths either side of the machine-level boundary,
+// and — the ones that matter — that the bytes still arrive, through `Ram`,
+// after a whole-machine restore. A shorter stream that loses state would pass
+// a length row and fail these.
+static int test_s5b_duplicated_ram_removed()
+{
+    printf("\n--- Test 23: GH #27 S5b duplicated RAM removed ---\n");
+
+    // §17.0's two numbers. The Next differs from the other three by exactly
+    // the Multiface array, and by nothing else: on 48K/128K/+3 there is no
+    // backing, so that array IS the store and still travels (§4.3(2)).
+    {
+        struct { MachineType type; const char* name; size_t want; } cases[] = {
+            { MachineType::ZXN_ISSUE2, "next",   2154295 },
+            { MachineType::ZX48K,      "48k",    2162487 },
+            { MachineType::ZX128K,     "128k",   2162487 },
+            { MachineType::ZX_PLUS3,   "plus3",  2162487 },
+        };
+        bool all_ok = true;
+        std::string detail;
+        for (const auto& c : cases) {
+            Emulator emu;
+            EmulatorConfig cfg;
+            cfg.type = c.type;
+            emu.init(cfg);
+            StateWriter measure;
+            emu.save_state(measure);
+            if (measure.position() != c.want) {
+                all_ok = false;
+                detail += std::string(c.name) + "=" +
+                          std::to_string(measure.position()) + " (want " +
+                          std::to_string(c.want) + ") ";
+            }
+        }
+        if (!all_ok) fprintf(stderr, "  JNSX-S5B-LENGTHS: %s\n", detail.c_str());
+        check("JNSX-S5B-LENGTHS", all_ok,
+              "the stream is 2 154 295 bytes on the Next and 2 162 487 on "
+              "48K/128K/+3 — every deliberate change to the byte stream is a "
+              "number in a test rather than a fact in a commit message, and "
+              "the machine-dependence is exactly the Multiface array and "
+              "nothing else. S5b re-baselined it to 2 153 701 / 2 161 893 by "
+              "removing the duplicated RAM; S6 adds 594: mf_type (1 byte, "
+              "§10.2 P13) and the SD card's SPI FSM (589 + its 4-byte "
+              "sentinel, §10.2 P1). Both deltas are machine-independent, so "
+              "the 8 192-byte gap between the two numbers is unchanged");
+    }
+
+    // The DivMMC block, either side of the machine-level boundary. 17 bytes
+    // of scalars at machine level; standalone the 128 KB is the only copy of
+    // itself and still travels. The row that proves those bytes are the REAL
+    // ones rather than a zero-fill of the right width is `divmmc_test`'s
+    // `S6-DIVMMC-RAM-STANDALONE`, which compares all 131 072 against a
+    // whole-buffer pattern; this one pins only the WIDTH.
+    {
+        Emulator emu;
+        build_emulator(emu, 2);
+        StateWriter mw;
+        emu.divmmc().save_state(mw);
+        const size_t backed = mw.position();
+
+        DivMmc bare;                      // no set_ram_backing()
+        StateWriter sw;
+        bare.save_state(sw);
+        const size_t standalone = sw.position();
+
+        check("S5B-DIVMMC-BLOCK", backed == 17,
+              "a DivMmc the Emulator backed writes 17 bytes, not 131 089: the "
+              "128 KB window is a REFERENCE to Ram page 16, which the same "
+              "stream's `ram` block carries seventeen blocks earlier");
+        check("S5B-DIVMMC-STANDALONE", standalone == 131089,
+              "…while one nothing backed still writes all 131 089, because a "
+              "stream with no `ram` block in it has nowhere to point and the "
+              "private array is then the only copy of itself");
+    }
+
+    // The row that makes the removal safe rather than merely smaller: the
+    // bytes must still ARRIVE. Write through the DivMMC overlay, save the
+    // whole machine, scribble over the physical page, restore, read back
+    // through the overlay.
+    {
+        Emulator emu;
+        build_emulator(emu, 2);
+        emu.divmmc().write_control(0x80 | 0x02);      // conmem, bank 2
+        emu.divmmc().write(0x2123, 0x5A);             // -> Ram page 18
+        emu.ram().page_ptr(16)[0x0007] = 0xC9;
+
+        StateWriter measure;
+        emu.save_state(measure);
+        std::vector<uint8_t> buf(measure.position());
+        StateWriter w(buf.data(), buf.size());
+        emu.save_state(w);
+
+        // Destroy both the window's view and the physical page it aliases.
+        emu.ram().page_ptr(18)[0x0123] = 0x00;
+        emu.ram().page_ptr(16)[0x0007] = 0x00;
+
+        StateReader r(buf.data(), buf.size());
+        const bool loaded = emu.load_state(r);
+        emu.divmmc().write_control(0x80 | 0x02);
+        const uint8_t via_overlay = emu.divmmc().read(0x2123);
+        const uint8_t via_page    = emu.ram().page_ptr(16)[0x0007];
+
+        check("S5B-DIVMMC-RESTORE",
+              loaded && via_overlay == 0x5A && via_page == 0xC9 &&
+                  r.position() == buf.size() && !r.out_of_bounds(),
+              "DivMMC RAM still arrives after a whole-machine restore, now "
+              "through the `ram` block rather than its own copy — and the "
+              "stream is consumed exactly, so dropping 128 KB from the write "
+              "side did not leave the read side reading them");
+    }
+
+    // The Multiface array is machine-type conditional (§4.3(2)): the live 8 KB
+    // on the Next is Ram page 0x0B, and what the stream used to carry was the
+    // untouched private array — 8 192 zeros, verified on the pre-S5b golden.
+    {
+        Emulator next_emu;
+        EmulatorConfig ncfg;
+        ncfg.type = MachineType::ZXN_ISSUE2;
+        next_emu.init(ncfg);
+        StateWriter nw;
+        next_emu.multiface().save_state(nw);
+
+        s3::RecordDesc nrec;
+        next_emu.multiface().describe_state(nrec);
+        bool declares_ram = false;
+        for (const auto& f : nrec.fields()) {
+            if (f.rfind("blob ram ", 0) == 0) declares_ram = true;
+        }
+
+        Emulator k48;
+        build_emulator(k48, 2);                        // 48K: no MF backing
+        StateWriter kw;
+        k48.multiface().save_state(kw);
+
+        Multiface bare;                                // standalone: no backing
+        StateWriter bw;
+        bare.save_state(bw);
+
+        check("S5B-MF-NEXT-ABSENT",
+              nw.position() == 9 && !declares_ram,
+              "on the Next the Multiface RAM member is ABSENT, not "
+              "zero-filled: the declaration drops it and the block is 8 "
+              "bytes of flip-flops plus S6's mf_type byte, because the live "
+              "8 KB is Ram page 0x0B and the private array it used to write "
+              "was dead zeros");
+        check("S5B-MF-STANDALONE-PRESENT",
+              kw.position() == 8201 && bw.position() == 8201,
+              "…and on 48K/128K/+3, and in a standalone round-trip, it is "
+              "still all 8 201 bytes, because with no backing the private "
+              "array is the real store (§4.3(2)) — the one place the stream's "
+              "width depends on the machine type");
+    }
+
+    // Multiface's counterpart of S5B-DIVMMC-RESTORE, on the machine where the
+    // member was dropped.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        emu.init(cfg);
+        emu.multiface().ram_data()[0x0100] = 0x3C;
+        emu.ram().page_ptr(0x0B)[0x0101]   = 0xA7;
+
+        StateWriter measure;
+        emu.save_state(measure);
+        std::vector<uint8_t> buf(measure.position());
+        StateWriter w(buf.data(), buf.size());
+        emu.save_state(w);
+
+        emu.ram().page_ptr(0x0B)[0x0100] = 0x00;
+        emu.ram().page_ptr(0x0B)[0x0101] = 0x00;
+
+        StateReader r(buf.data(), buf.size());
+        const bool loaded = emu.load_state(r);
+
+        check("S5B-MF-NEXT-RESTORE",
+              loaded && emu.multiface().ram_data()[0x0100] == 0x3C &&
+                  emu.multiface().ram_data()[0x0101] == 0xA7 &&
+                  r.position() == buf.size() && !r.out_of_bounds(),
+              "Multiface RAM still arrives on the Next after a whole-machine "
+              "restore, through Ram page 0x0B — the window the device reads "
+              "and writes is the page the `ram` block carries, which is why "
+              "the private array was droppable in the first place");
+    }
+
+    // The stream changed shape, so a cache recorded by a pre-S5b jnext must
+    // not be deserialised by this one. The length is part of the identity and
+    // moved by 139 264 bytes, so it would already have been discarded; the
+    // version is bumped anyway because `warm_start_cache.h`'s own rule says
+    // to bump it whenever `save_state` changes shape, and a version bumped
+    // only when nothing else would catch the change is one nobody can reason
+    // about.
+    check("S5B-WARMSTART-VERSION",
+          warm_start::kFormatVersion == 3,
+          "the warm-start state-stream format version is 3: S5b changed the "
+          "shape of Emulator::save_state and S6 changed it again (mf_type + "
+          "the SD FSM), and a cache recorded by an older jnext would "
+          "otherwise be read field-for-field wrong");
+
+    return 0;
+}
+
+
+// =====================================================================
+// Test 24 — GH #27 S6: the gaps (design §10.2 P1, P13)
+// =====================================================================
+//
+// S5b proved the removals; these prove the ADDITIONS, at the level that
+// matters for a user: a whole-machine save and restore.
+static int test_s6_gaps()
+{
+    printf("\n--- Test 24: GH #27 S6 gaps (SD FSM, mf_type) ---\n");
+
+    // A scratch image with per-sector magic, so a block can be identified
+    // from its first bytes alone.
+    char tmpl[] = "/tmp/jnext-rewind-s6-XXXXXX";
+    int fd = mkstemp(tmpl);
+    if (fd < 0) {
+        check("S6-EMU-CMD18-MID", false, "could not create a scratch SD image");
+        return 1;
+    }
+    for (uint32_t sec = 0; sec < 16; ++sec) {
+        unsigned char blk[512] = {};
+        blk[0] = static_cast<unsigned char>(sec);
+        blk[1] = 0xA5;
+        for (int i = 2; i < 512; ++i)
+            blk[i] = static_cast<unsigned char>((sec * 3 + i) & 0xFF);
+        if (write(fd, blk, 512) != 512) { /* checked by the rows below */ }
+    }
+    close(fd);
+    const std::string img = tmpl;
+
+    // ── S6-EMU-CMD18-MID — the stage's own acceptance criterion ─────────
+    //
+    // The SD FSM reaches the file through Emulator::save_state's appended
+    // "sdcard" block, which is what makes the device-level round trip
+    // (sdcard_test S6-SD-CMD18-MID) a property of a SNAPSHOT rather than of
+    // a class nothing serialises. Pre-S6 there was no block at all and this
+    // row's restored card answered 0xFF forever.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        emu.init(cfg);
+        SdCardDevice& sd = emu.sd_card();
+        sd.mount(img);
+
+        auto cmd = [&sd](uint8_t c, uint32_t arg) {
+            sd.receive(static_cast<uint8_t>(0x40 | (c & 0x3F)));
+            sd.receive(static_cast<uint8_t>((arg >> 24) & 0xFF));
+            sd.receive(static_cast<uint8_t>((arg >> 16) & 0xFF));
+            sd.receive(static_cast<uint8_t>((arg >> 8) & 0xFF));
+            sd.receive(static_cast<uint8_t>(arg & 0xFF));
+            sd.receive(0x95);
+            for (int i = 0; i < 16; ++i) if (sd.send() != 0xFF) break;
+        };
+        cmd(0, 0);
+        cmd(8, 0x1AA);
+        cmd(55, 0);
+        cmd(41, 0x40000000);
+        cmd(58, 0);
+        cmd(18, 3);                       // stream from sector 3
+        for (int i = 0; i < 16; ++i) if (sd.send() == 0xFE) break;
+        uint8_t first[512];
+        for (int i = 0; i < 512; ++i) first[i] = sd.send();
+        (void)sd.send(); (void)sd.send();  // CRC
+        for (int i = 0; i < 16; ++i) if (sd.send() == 0xFE) break;
+        uint8_t part[100];
+        for (int i = 0; i < 100; ++i) part[i] = sd.send();
+
+        StateWriter measure;
+        emu.save_state(measure);
+        std::vector<uint8_t> buf(measure.position());
+        StateWriter w(buf.data(), buf.size());
+        emu.save_state(w);
+
+        // Destroy the stream as thoroughly as a fresh process would. `reset()`
+        // alone does NOT: it leaves `data_block_` holding the sector being
+        // streamed, so a declaration that dropped that field would still pass
+        // — mutation testing found exactly that at the device tier. Read a
+        // DIFFERENT sector over it first.
+        sd.reset();
+        cmd(0, 0);
+        cmd(8, 0x1AA);
+        cmd(55, 0);
+        cmd(41, 0x40000000);
+        cmd(17, 9);                       // overwrite data_block_ with sector 9
+        for (int i = 0; i < 16; ++i) if (sd.send() == 0xFE) break;
+        for (int i = 0; i < 512; ++i) (void)sd.send();
+        (void)sd.send(); (void)sd.send();
+        sd.reset();
+
+        StateReader r(buf.data(), buf.size());
+        const bool loaded = emu.load_state(r);
+
+        // The rest of sector 4, then the whole of sector 5's framing.
+        bool tail_ok = true;
+        for (int i = 100; i < 512; ++i) {
+            if (sd.send() != static_cast<uint8_t>((4 * 3 + i) & 0xFF)) {
+                tail_ok = false;
+                break;
+            }
+        }
+        (void)sd.send(); (void)sd.send();  // CRC
+        bool token = false;
+        for (int i = 0; i < 16; ++i) if (sd.send() == 0xFE) { token = true; break; }
+        const uint8_t next0 = sd.send();
+        const uint8_t next1 = sd.send();
+
+        check("S6-EMU-CMD18-MID",
+              loaded && first[0] == 3 && part[0] == static_cast<uint8_t>(4) &&
+                  tail_ok && token && next0 == 5 && next1 == 0xA5 &&
+                  r.position() == buf.size() && !r.out_of_bounds(),
+              "a whole-machine save taken 100 bytes into the second sector "
+              "of a CMD18 stream restores a card that is STILL streaming: "
+              "the rest of that sector arrives, then sector 5's token and "
+              "its magic. Pre-S6 the SD FSM was not in the stream at all "
+              "and the restored card answered 0xFF for ever (design §10.2 "
+              "P1, defect D1)");
+    }
+
+    // ── S6-EMU-MF-TYPE — mf_type survives a whole-machine round trip ────
+    //
+    // multiface_test's S6-MF-TYPE-01 proves the device; this proves it
+    // through `Emulator::save_state`, where the value is what NR 0x0A reads
+    // back to the guest.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        emu.init(cfg);
+        emu.multiface().set_mode(0x02);          // "10": the lossy encoding
+
+        StateWriter measure;
+        emu.save_state(measure);
+        std::vector<uint8_t> buf(measure.position());
+        StateWriter w(buf.data(), buf.size());
+        emu.save_state(w);
+
+        emu.multiface().set_mode(0x00);
+        StateReader r(buf.data(), buf.size());
+        const bool loaded = emu.load_state(r);
+
+        check("S6-EMU-MF-TYPE",
+              loaded && emu.multiface().mf_type() == 0x02 &&
+                  emu.multiface().mode_128(),
+              "NR 0x0A's mf_type \"10\" survives a whole-machine save: the "
+              "pre-S6 rebuild from the three mode booleans returned \"01\", "
+              "so a guest could watch a bit it had written change under a "
+              "save (design §10.2 P13, defect D2)");
+    }
+
+    // ══ The Emulator's OWN scalars, migrated (design §10.1's last row) ═══
+    //
+    // S3-S5 migrated the thirty-four subsystems and left these behind: the
+    // last un-migrated part of the stream, and the one §10.1 says becomes
+    // NAMED KEYS in a `.jns`, so the append-order chronology disappears. The
+    // migration is a TRANSCRIPTION with a byte-exact oracle — the golden is
+    // byte-identical across it — and these rows pin the field list and the
+    // width of each of the five blocks so a future edit that drops or
+    // reorders a field is a diff a reviewer sees.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        emu.init(cfg);
+
+        static const char* const want[] = {
+            "u32 frame_num 4",
+            "u32 boot_hold_frames_remaining 4",
+            "u32 esp_frames 4",
+            "bool cpu_parked 1",
+            "u64 psg_accum 8",
+            "u64 sample_accum 8",
+            "bool dac_enabled 1",
+            "bool line_interrupt_enable 1",
+            "bool ula_int_disabled 1",
+            "u16 line_interrupt_target 2",
+            "bool im2_hw_mode 1",
+            "u8 im2_vector_base 1",
+            "bytes im2_int_enable 3",
+            "bytes im2_int_status 3",
+            "bool im2_c4_expbus 1",
+            "u8 nr_c6_uart_int_en 1",
+            "u8 clip_l2_idx 1",
+            "u8 clip_spr_idx 1",
+            "u8 clip_ula_idx 1",
+            "u8 clip_tm_idx 1",
+            "bool nr_cc_dma_delay_on_nmi 1",
+            "u8 nr_cc_dma_delay_en_ula 1",
+            "u8 nr_cd_dma_delay_en_ctc 1",
+            "u8 nr_ce_dma_delay_en_uart1 1",
+            "u8 nr_ce_dma_delay_en_uart0 1",
+            "bool im2_dma_delay_latched 1",
+            "u8 nr_08_stored_low 1",
+            "bool joy_iomode_pin7 1",
+        };
+        s3::RecordDesc rec;
+        emu.describe_state(rec);
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S6-DECL-EMULATOR: %s\n", d.c_str());
+        check("S6-DECL-EMULATOR", d.empty(),
+              "the Emulator's own scalar declaration walks exactly the fields "
+              "the golden's \"emulator\" block carries, in that order — the "
+              "two hand-written values that open the block (the frame origin "
+              "and the §9.5(3) monotonic fold) are not in it");
+        check("S6-WIDTH-EMULATOR", rec.width() == 56u,
+              "…and is exactly 56 bytes wide, which with the 8-byte frame "
+              "origin and the 8-byte monotonic fold is the 72-byte block the "
+              "pre-migration golden measures");
+
+        s3::RecordDesc org, nmi, apx, tail;
+        emu.describe_frame_origin(org);
+        emu.describe_nmi_tail(nmi);
+        emu.describe_nextreg_appends(apx);
+        emu.describe_tail(tail);
+        check("S6-WIDTH-EMULATOR-BLOCKS",
+              org.width() == 8u && nmi.width() == 1u && apx.width() == 8u &&
+                  tail.width() == 2u && apx.fields().size() == 8u &&
+                  tail.fields().size() == 2u,
+              "the four companion blocks measure 8 / 1 / 8 / 2 bytes: one "
+              "declaration per SENTINEL-DELIMITED block, because one "
+              "describe_state cannot put its fields in two blocks (§9.5(2))");
+    }
+
+    // ══ …and the migrated fields actually ROUND-TRIP ════════════════════
+    //
+    // `S6-DECL-EMULATOR` above compares the field LIST — names, types and
+    // widths — and a mutation proved that is not enough: binding a
+    // declaration to a LOCAL instead of its member keeps the list identical
+    // and drops the field silently. This is the behavioural half, and it
+    // covers every field of all five blocks at once rather than naming a
+    // representative few.
+    //
+    // The trick is the pattern. A stream of all-`0x01` bytes is ALREADY
+    // NORMALISED — a bool reads 1 and writes 1, a `u8` is 1, a `u16` is
+    // 0x0101 which survives `line_interrupt_target`'s 0x1FF mask, and the
+    // wider types likewise — so a walk that reads it into the members and
+    // writes them straight back must reproduce it byte for byte. A field
+    // bound to a local writes its own default instead, and a zero appears
+    // where a one belongs.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        emu.init(cfg);
+
+        struct Block {
+            const char* name;
+            void (Emulator::*m)(jnext::save::StateDesc&);
+        };
+        const Block blocks[] = {
+            {"frame_origin",    &Emulator::describe_frame_origin},
+            {"emulator",        &Emulator::describe_state},
+            {"nmi_tail",        &Emulator::describe_nmi_tail},
+            {"nextreg_appends", &Emulator::describe_nextreg_appends},
+            {"tail",            &Emulator::describe_tail},
+        };
+
+        bool all_ok = true;
+        std::string detail;
+        for (const auto& b : blocks) {
+            s3::RecordDesc rec;
+            (emu.*(b.m))(rec);
+            const std::size_t width = rec.width();
+
+            std::vector<uint8_t> ones(width, 0x01);
+            StateReader in(ones.data(), ones.size());
+            jnext::save::load_via_desc_method(emu, b.m, in, true);
+
+            std::vector<uint8_t> back(width, 0x00);
+            StateWriter out(back.data(), back.size());
+            jnext::save::save_via_desc_method(emu, b.m, out, true);
+
+            if (back != ones || out.position() != width) {
+                all_ok = false;
+                std::size_t at = 0;
+                while (at < width && back[at] == 0x01) ++at;
+                detail += std::string(b.name) + ": byte " +
+                          std::to_string(at) + " came back " +
+                          std::to_string(at < width ? back[at] : 0) + " ";
+            }
+        }
+        check("S6-EMU-SCALARS-01", all_ok,
+              "every field of all five Emulator blocks round-trips through "
+              "the declaration: a stream of all-0x01 is already normalised, "
+              "so a walk that reads it into the members and writes them back "
+              "must reproduce it exactly, and a field bound to a local "
+              "instead of its member writes a zero where a one belongs");
+        if (!all_ok) fprintf(stderr, "  S6-EMU-SCALARS-01: %s\n", detail.c_str());
+    }
+
+    // ── S6-EMU-SCALARS-02: the one DERIVED field beside them ────────────
+    //
+    // `video_timing_`'s ULA interrupt enable is the inverse of the NR 0x22
+    // bit the walk restores, not a field of its own, so it is re-derived
+    // after the walk (§9.5(7)). Deleting that line killed no row until this
+    // one existed — the derived value is invisible to both the declaration
+    // rows and the round trip above, by construction.
+    {
+        Emulator src;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        src.init(cfg);
+        rw_nr(src, 0x22, 0x04);                 // NR 0x22 b2: disable the ULA int
+
+        StateWriter measure;
+        src.save_state(measure);
+        std::vector<uint8_t> buf(measure.position());
+        StateWriter w(buf.data(), buf.size());
+        src.save_state(w);
+
+        Emulator dst;
+        dst.init(cfg);                          // ULA int ENABLED here
+        const bool before = dst.video_timing().interrupt_enable();
+        StateReader r(buf.data(), buf.size());
+        const bool loaded = dst.load_state(r);
+
+        check("S6-EMU-SCALARS-02",
+              loaded && before && !dst.video_timing().interrupt_enable(),
+              "the ULA interrupt enable is RE-DERIVED from the restored "
+              "NR 0x22 bit after the walk: it is not a field, so nothing in "
+              "the declaration carries it, and a restore that skipped the "
+              "re-derivation would leave the machine taking frame interrupts "
+              "the snapshot had switched off");
+    }
+
+    // ══ P7 — the mid-frame pause a save must never refuse ═══════════════
+    //
+    // `save_state` documents that snapshots "are only ever taken at a frame
+    // boundary … so a restored machine has no frame in flight". The debugger
+    // breaks MID-frame, which is exactly when a developer reaches for File ▸
+    // Save Snapshot. The owner's rule (2026-09-23) is ALWAYS ADVANCE, NEVER
+    // REFUSE, and the advance has to be safe.
+    {
+        Emulator emu;
+        rw_build_s0(emu, 4);
+
+        // One whole frame first, so the machine is at a real boundary and the
+        // rows below are not measuring the very first frame's specialities.
+        emu.run_frame();
+
+        // A tilemap scroll set at the TOP of the frame. Its change-log entry
+        // is tagged at row 0 and the compositor replays it from there.
+        rw_nr(emu, 0x2F, 0x00); rw_nr(emu, 0x30, 0x11);
+
+        // Break half-way down. RUN_TO_CYCLE pauses inside `run_frame`'s loop
+        // exactly as a breakpoint does, leaving the frame half-executed.
+        const uint64_t mid = emu.current_frame_cycle() +
+                             emu.timing().master_cycles_per_frame / 2;
+        emu.debug_state().set_active(true);
+        emu.debug_state().breakpoints().set_oneshot(0xBEEF);
+        emu.debug_state().run_to_cycle(mid);
+        emu.run_frame();
+
+        const bool broke_mid_frame =
+            emu.debug_state().paused() && emu.frame_in_progress();
+
+        // …and a SECOND scroll, written from the paused machine, which the
+        // log tags at the row the break landed on.
+        rw_nr(emu, 0x30, 0x77);
+
+        const bool advanced   = emu.advance_to_frame_boundary();
+        const bool at_boundary = !emu.frame_in_progress();
+
+        // THE ROW THAT MATTERS. If the advance had re-run `begin_new_frame()`
+        // on a frame already in progress — the Task 40 defect — the
+        // per-scanline change log would have been cleared and re-baselined to
+        // the MID-frame value, so every line would read 0x77 and beast.nex's
+        // Copper gradient would render as a flat sky. Both values must
+        // survive, on the sides of the break they were written on.
+        const uint16_t top    = emu.tilemap().scroll_x_for_line(0);
+        const uint16_t bottom =
+            emu.tilemap().scroll_x_for_line(Renderer::FB_HEIGHT - 1);
+
+        check("S6-P7-ADVANCE-01",
+              broke_mid_frame && advanced && at_boundary,
+              "a machine paused mid-frame is ADVANCED to the next frame "
+              "boundary rather than refused: the save always works, and the "
+              "cost — up to one frame past where the user paused — is the "
+              "documented trade (design §10.2 P7, owner decision "
+              "2026-09-23)");
+
+        check("S6-P7-HISTORY-01",
+              top == 0x11 && bottom == 0x77,
+              "…and the advance does NOT wipe the frame's per-scanline "
+              "change log: the scroll written at the top of the frame is "
+              "still replayed at row 0 and the one written from the paused "
+              "machine at the bottom. Re-running begin_new_frame() mid-frame "
+              "is the Task 40 defect that flattened beast.nex's Copper sky, "
+              "and a save that quietly destroyed a frame's raster history "
+              "would be worse than one that refused");
+
+        check("S6-P7-DEBUG-INTACT",
+              emu.debug_state().paused() && emu.debug_state().active() &&
+                  emu.debug_state().breakpoints().has_oneshot() &&
+                  emu.debug_state().breakpoints().oneshot_addr() == 0xBEEF,
+              "…and the debugging session is left exactly as it was found: "
+              "still paused, still active, with its pending one-shot "
+              "breakpoint intact — which resume()+pause() would have "
+              "destroyed");
+
+        // Calling it again at a boundary is a no-op that says so.
+        check("S6-P7-ADVANCE-02",
+              !emu.advance_to_frame_boundary() && !emu.frame_in_progress(),
+              "a machine already at a frame boundary is not advanced, and "
+              "the call reports that it did nothing — the running-machine "
+              "case (the save queued to the next begin_new_frame()) lands "
+              "here");
+    }
+
+    std::remove(img.c_str());
+    return 0;
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// GH #27 S8 — the `.jns` ASSEMBLER, round-tripped through a real machine
+// ═════════════════════════════════════════════════════════════════════════
+//
+// WHAT THE ORACLE IS, AND WHY IT IS NOT CIRCULAR.
+//
+// §16.1 warns that "each encoding is the other's oracle" is a real cross-check
+// for CONTENT and circular for OMISSIONS: a field left out of `describe_state`
+// is absent from the JSON and from the binary alike, and every comparison
+// passes. That warning is about a field missing from a DECLARATION, and S3-S5's
+// byte-identity gate plus `JNSX-S5B-LENGTHS` already cover it.
+//
+// The risk THIS stage introduces is different and the comparison below does
+// catch it: a subsystem missing from `visit_jns_subsystems`, or walked on one
+// side and not the other. Such a subsystem is never written to the `.jns`, so
+// the restored machine keeps what `reset()` left there — and its BINARY stream,
+// which does carry it, then differs from the source machine's. So:
+//
+//     save_state(A) == save_state(B), where A --.jns--> B
+//
+// is a complete oracle for the assembler's own field coverage, using as its
+// reference the one stream this project has already gated byte-for-byte.
+//
+// `JNS-RT-05` is the row that proves the comparison is not vacuous: a machine
+// that was never loaded must DIFFER from the source.
+//
+// AND IT IS STILL NOT ENOUGH ON ITS OWN, which a mutation found rather than
+// review. Both fixtures are built by the same helper, so their RAM agrees
+// BEFORE the load, and the stream comparison is structurally blind to whether
+// RAM travelled at all: removing the assembler's blob-read left every row here
+// green, and the defect had to be found by rendering a frame in the shipped
+// binary. `build_busy` therefore writes a marker at an address the destination
+// never touches, and `JNS-RT-02b` checks it on the far side.
+static int test_s8_jns_roundtrip()
+{
+    printf("\n--- Test S8: .jns whole-machine round trip ---\n");
+
+    // EVERY `Emulator` HERE IS HEAP-ALLOCATED, and that is not style. The
+    // compiler reserves frame space for all of a function's locals at once,
+    // nested scopes notwithstanding, and an `Emulator` is a very large object;
+    // the sixth one in this function overflowed the stack and the suite
+    // segfaulted before its first row. Other tests get away with plain locals
+    // because each builds one machine per FUNCTION.
+
+    auto stream_of = [](Emulator& e) {
+        StateWriter measure;
+        e.save_state(measure);
+        std::vector<uint8_t> buf(measure.position());
+        StateWriter w(buf.data(), buf.size());
+        e.save_state(w);
+        return buf;
+    };
+
+    // A machine with something IN it: 200 frames of the injected program, so
+    // the CPU, the raster histories, the audio phases and the frame counter
+    // are all somewhere other than their reset values. A round trip on a
+    // machine at reset would pass for a neighbouring reason.
+    // A MARKER THE DESTINATION CANNOT ALREADY HAVE — see JNS-RT-02b.
+    constexpr uint16_t kMarkerAddr = 0xBF00;
+    static const uint8_t kMarker[8] = {0xC0, 0xDE, 0xF0, 0x0D,
+                                       0x5A, 0xA5, 0x13, 0x37};
+
+    auto build_busy = [&](Emulator& e) {
+        build_emulator(e, 2);
+        for (int i = 0; i < 200; ++i) e.run_frame();
+        for (int i = 0; i < 8; ++i) {
+            e.mmu().write(static_cast<uint16_t>(kMarkerAddr + i), kMarker[i]);
+        }
+    };
+
+    std::vector<uint8_t> jns;
+    std::vector<uint8_t> src_stream;
+    {
+        auto a_up = std::make_unique<Emulator>();
+        Emulator& a = *a_up;
+        build_busy(a);
+        src_stream = stream_of(a);
+
+        jnext::JnsSaveOptions opt;
+        jnext::JnsLoadReport rep;
+        std::string why;
+        const bool ok = a.save_jns(opt, jns, rep, why);
+        check("JNS-RT-01", ok && !jns.empty(),
+              "save_jns writes a non-empty archive from a machine that has "
+              "been running");
+        if (!ok) fprintf(stderr, "  JNS-RT-01: %s\n", why.c_str());
+    }
+
+    {
+        auto b_up = std::make_unique<Emulator>();
+        Emulator& b = *b_up;
+        build_emulator(b, 2);            // same machine type, NOT run
+        jnext::JnsLoadOptions lopt;
+        jnext::JnsLoadReport  rep;
+        std::string why;
+        const bool ok = b.load_jns(jns.data(), jns.size(), lopt, rep, why);
+        if (!ok) fprintf(stderr, "  JNS-RT-02: %s\n", why.c_str());
+        const std::vector<uint8_t> dst_stream = ok ? stream_of(b)
+                                                   : std::vector<uint8_t>();
+        const bool same = ok && dst_stream.size() == src_stream.size() &&
+                          std::memcmp(dst_stream.data(), src_stream.data(),
+                                      src_stream.size()) == 0;
+        if (ok && !same) {
+            size_t at = 0;
+            while (at < src_stream.size() && at < dst_stream.size() &&
+                   src_stream[at] == dst_stream[at]) ++at;
+            fprintf(stderr, "  JNS-RT-02: first difference at byte %zu of %zu\n",
+                    at, src_stream.size());
+        }
+        check("JNS-RT-02", same,
+              "a machine restored from a .jns produces a BYTE-IDENTICAL binary "
+              "state stream to the machine it was saved from — the complete "
+              "oracle for the assembler's field coverage");
+
+        bool marker_ok = ok;
+        for (int i = 0; ok && i < 8; ++i) {
+            if (b.mmu().read(static_cast<uint16_t>(kMarkerAddr + i)) !=
+                kMarker[i]) {
+                marker_ok = false;
+            }
+        }
+        check("JNS-RT-02b", marker_ok,
+              "…and RAM REALLY TRAVELLED: bytes the destination machine never "
+              "wrote are present after the restore. The stream comparison "
+              "above cannot see this on its own — both fixtures are built by "
+              "the same helper, so their RAM agrees before the load, and "
+              "dropping the blob read left every row green until a rendered "
+              "frame caught it");
+    }
+
+    // The same, STORED rather than DEFLATE. Settled point 6's debugging mode
+    // is one flag on the member writer, not a second code path, and this row
+    // is what says so: the restore is identical, not merely successful.
+    {
+        auto a_up = std::make_unique<Emulator>();
+        Emulator& a = *a_up;
+        build_busy(a);
+        jnext::JnsSaveOptions opt;
+        opt.uncompressed = true;
+        jnext::JnsLoadReport rep;
+        std::string why;
+        std::vector<uint8_t> plain;
+        const bool wrote = a.save_jns(opt, plain, rep, why);
+
+        auto b_up = std::make_unique<Emulator>();
+
+        Emulator& b = *b_up;
+        build_emulator(b, 2);
+        jnext::JnsLoadOptions lopt;
+        jnext::JnsLoadReport  lrep;
+        const bool read = wrote && b.load_jns(plain.data(), plain.size(), lopt,
+                                              lrep, why);
+        const std::vector<uint8_t> dst = read ? stream_of(b)
+                                              : std::vector<uint8_t>();
+        check("JNS-RT-03",
+              read && dst.size() == src_stream.size() &&
+                  std::memcmp(dst.data(), src_stream.data(),
+                              src_stream.size()) == 0,
+              "--snapshot-uncompressed round-trips IDENTICALLY, and the "
+              "archive is larger than the deflated one");
+        check("JNS-RT-04", wrote && plain.size() > jns.size(),
+              "…and it really is uncompressed: the STORED archive is bigger "
+              "than the DEFLATE one");
+    }
+
+    // ── THE MEMBER LIST, PINNED ─────────────────────────────────────────
+    //
+    // A STRUCTURAL check, and it exists because the comparison above cannot be
+    // one. `JNS-RT-02` is only as strong as how much of the machine the
+    // fixture has MOVED: a 48K NOP loop leaves the sprite engine, the tilemap,
+    // the DMA and half the audio at their reset values, so dropping any of
+    // them from `visit_jns_subsystems` changes neither machine's stream and
+    // every row above stays green. A mutation proved exactly that by
+    // commenting out `sprites`.
+    //
+    // So the list itself is pinned, by name. Making the fixture touch all
+    // thirty-four subsystems would be the other way to close it, and would be
+    // a large fixture whose own coverage nothing checks; a literal list is
+    // shorter, and it fails with the NAME of what went missing.
+    {
+        jnext::zip::Reader r;
+        std::string w;
+        jnext::jns::Manifest m;
+        std::string text;
+        std::vector<std::string> unknown;
+        const bool opened = r.open(jns.data(), jns.size(), w) &&
+                            r.read_text(jnext::jns::kManifestMember, text, w) &&
+                            jnext::jns::manifest_from_json(text, m, unknown, w);
+
+        static const char* const kExpected[] = {
+            "beeper", "clock", "copper", "cpu", "ctc", "dac", "divmmc", "dma",
+            "emulator", "esxdos_hostfs", "i2c", "i2s", "im2", "iomode",
+            "joystick",
+            "keyboard", "layer2", "md6", "membrane_stick", "mmu", "mouse",
+            "multiface", "nextreg", "nmi_source", "palette", "ram", "renderer",
+            "rtc",
+            "sdcard", "spi", "sprites", "tilemap", "turbosound", "uart",
+        };
+        std::vector<std::string> want(std::begin(kExpected), std::end(kExpected));
+        std::vector<std::string> got = m.subsystems;
+        std::sort(got.begin(), got.end());
+        std::sort(want.begin(), want.end());
+
+        std::string missing, extra;
+        for (const auto& x : want) {
+            if (!std::binary_search(got.begin(), got.end(), x)) missing += x + " ";
+        }
+        for (const auto& x : got) {
+            if (!std::binary_search(want.begin(), want.end(), x)) extra += x + " ";
+        }
+        if (!missing.empty() || !extra.empty()) {
+            fprintf(stderr, "  JNS-RT-09: missing=[%s] extra=[%s]\n",
+                    missing.c_str(), extra.c_str());
+        }
+        check("JNS-RT-09", opened && missing.empty() && extra.empty(),
+              "the archive declares EXACTLY the expected subsystem members "
+              "(`joy_uart` is absent here and that is correct — it is written "
+              "only when a cable is attached, §9.5(5))");
+
+        // And every declared member is really IN the archive. The manifest
+        // listing a subsystem the ZIP does not carry is a torn file, which the
+        // container refuses on read — this asserts the WRITER cannot produce
+        // one, which is a different claim.
+        bool all_present = opened;
+        std::string absent;
+        for (const auto& name : m.subsystems) {
+            if (!r.has("state/" + name + ".json")) {
+                all_present = false;
+                absent += name + " ";
+            }
+        }
+        if (!absent.empty()) {
+            fprintf(stderr, "  JNS-RT-10: absent=[%s]\n", absent.c_str());
+        }
+        check("JNS-RT-10", all_present,
+              "…and every one of them is actually in the archive: the writer "
+              "cannot declare a subsystem it did not write");
+    }
+
+    // ── §8: capture.frame, WITH REWIND OFF ──────────────────────────────
+    //
+    // The condition that matters, and the one the first version of this row
+    // missed. `frame_num_` is incremented only by the rewind ring's
+    // `take_snapshot`, so a manifest built from it is correct whenever rewind
+    // is ON — which every fixture above has — and reads 0 whenever it is OFF,
+    // which is the default, every headless run and most real saves. A reader
+    // cannot tell a wrong 0 from a real frame 0.
+    //
+    // A mutation putting `frame_num_` back survived against a rewind-enabled
+    // fixture. This one disables the ring, which is the only way to see it.
+    {
+        auto e_up = std::make_unique<Emulator>();
+        Emulator& e = *e_up;
+        build_emulator(e, 0);            // rewind OFF — the default
+        for (int i = 0; i < 120; ++i) e.run_frame();
+
+        jnext::JnsSaveOptions opt;
+        jnext::JnsLoadReport  rep;
+        std::string why;
+        std::vector<uint8_t> out;
+        const bool wrote = e.save_jns(opt, out, rep, why);
+
+        jnext::jns::Manifest m;
+        bool read_ok = false;
+        if (wrote) {
+            jnext::zip::Reader r;
+            std::string text, w2;
+            std::vector<std::string> unk;
+            read_ok = r.open(out.data(), out.size(), w2) &&
+                      r.read_text(jnext::jns::kManifestMember, text, w2) &&
+                      jnext::jns::manifest_from_json(text, m, unk, w2);
+        }
+        if (read_ok && m.capture.frame < 100) {
+            fprintf(stderr, "  JNS-RT-13: capture.frame=%llu after 120 frames\n",
+                    (unsigned long long)m.capture.frame);
+        }
+        check("JNS-RT-13", read_ok && m.capture.frame >= 100,
+              "capture.frame counts the MACHINE's frames even with the rewind "
+              "ring disabled — 120 were run. Built from `frame_num_` it would "
+              "read 0 here, and every save made with rewind off (the default) "
+              "would carry a provenance field a reader cannot tell from a real "
+              "frame 0");
+    }
+
+    // ── NON-VACUITY ─────────────────────────────────────────────────────
+    //
+    // JNS-RT-02 compares two byte streams and passes. That is worth exactly
+    // nothing unless the comparison can FAIL, and the way it would silently
+    // stop discriminating is if `stream_of` returned the same bytes for two
+    // genuinely different machines. So: a third machine, built the same way
+    // and NEVER loaded, must differ from the source.
+    {
+        auto c_up = std::make_unique<Emulator>();
+        Emulator& c = *c_up;
+        build_emulator(c, 2);
+        const std::vector<uint8_t> fresh = stream_of(c);
+        check("JNS-RT-05",
+              fresh.size() == src_stream.size() &&
+                  std::memcmp(fresh.data(), src_stream.data(),
+                              src_stream.size()) != 0,
+              "a machine that was NEVER loaded differs from the source — "
+              "without this, JNS-RT-02 would pass just as happily against a "
+              "comparison that had stopped discriminating");
+    }
+
+    // ── HOSTILE: a value in range for its type, out of range for what it
+    //    INDEXES ───────────────────────────────────────────────────────────
+    //
+    // The standing mutation class of this issue, five times over, now at the
+    // assembler tier: a `state/*.json` a user was handed, carrying a number
+    // that parses, fits its declared width, and is not a legal index.
+    //
+    // THE FIRST ATTEMPT AT THIS ROW TESTED THE WRONG THING and is worth
+    // recording. It patched the manifest's declared blob length in place; the
+    // ZIP's own CRC-32 over `manifest.json` caught the edit first, so the row
+    // went green while exercising the container's framing check and never
+    // reaching the rule it named. Repacking properly is what makes the
+    // assertion land where the comment says it does — and the blob-length rule
+    // itself is the CONTAINER's, already pinned by `snapshot_test`'s `JNSR-*`.
+    //
+    // `repack` rebuilds the archive with one member replaced and every CRC and
+    // length recomputed, so the ONLY thing wrong with the result is the value
+    // under test.
+    {
+        auto repack = [](const std::vector<uint8_t>& in,
+                         const std::string& member,
+                         const std::string& body,
+                         std::vector<uint8_t>& out) {
+            jnext::zip::Reader r;
+            std::string why;
+            if (!r.open(in.data(), in.size(), why)) return false;
+            jnext::zip::Writer w{jnext::jns::kArchiveComment};
+            for (const auto& e : r.entries()) {
+                std::vector<uint8_t> bytes;
+                if (e.name == member) {
+                    bytes.assign(body.begin(), body.end());
+                } else if (!r.read(e.name, bytes, why)) {
+                    return false;
+                }
+                if (!w.add(e.name, bytes.data(), bytes.size(),
+                           jnext::zip::Method::Deflate, why)) {
+                    return false;
+                }
+            }
+            return w.finish(out, why);
+        };
+
+        auto a_up = std::make_unique<Emulator>();
+
+        Emulator& a = *a_up;
+        build_busy(a);
+        jnext::JnsSaveOptions opt;
+        jnext::JnsLoadReport  rep;
+        std::string why;
+        std::vector<uint8_t> good;
+        const bool wrote = a.save_jns(opt, good, rep, why);
+
+        // ── THE TARGET, AND WHY IT IS NOT THE ONE THIS ROW FIRST PICKED ──
+        //
+        // `state/mmu.json`'s slot pages were the first candidate and are a bad
+        // one: they are declared `bytes("slots", …, 8)`, so every value is a
+        // `u8` landing in a `uint8_t[8]`, and no number a file can supply is
+        // out of range for what it indexes. A row there would assert a
+        // property the TYPE already guarantees.
+        //
+        // The right target is the parser S8 itself added: `state/esxdos.json`
+        // is hand-written (§9.5(4) — a variable-length list no declaration can
+        // express), and its `path` is REOPENED on the host.
+        //
+        // The trust level is what changed. `EsxdosHostFs::restore()` has
+        // always been fed by the rewind ring, which is in-process data the
+        // machine produced itself. A `.jns` is a FILE A USER WAS HANDED. The
+        // guard that makes that safe already exists — `contained()` at
+        // `esxdos_hostfs.cpp:899` — and this row is what proves the new entry
+        // point reaches it rather than bypassing it.
+        std::string esx_text;
+        bool got = wrote && [&]{
+            jnext::zip::Reader r;
+            std::string w2;
+            return r.open(good.data(), good.size(), w2) &&
+                   r.read_text("state/esxdos_hostfs.json", esx_text, w2);
+        }();
+
+        std::vector<uint8_t> forged;
+        bool forged_ok = false;
+        if (got) {
+            // One handle, pointing at a host file far outside any sandbox.
+            const std::string hostile =
+                "{\n  \"cwd\": \"\",\n  \"handles\": [\n    {\n"
+                "      \"handle\": 1,\n      \"is_dir\": false,\n"
+                "      \"mode\": 1,\n      \"path\": \"/etc/passwd\",\n"
+                "      \"position\": \"0\"\n    }\n  ]\n}\n";
+            forged_ok = repack(good, "state/esxdos_hostfs.json", hostile, forged);
+        }
+
+        if (!forged_ok) {
+            check("JNS-RT-06", false,
+                  "could not build the forged archive — state/esxdos_hostfs.json is "
+                  "not in the file any more, so this row is not testing what "
+                  "it says (fix it, do not delete it)");
+            check("JNS-RT-07", false, "(not reached)");
+        } else {
+            auto b_up = std::make_unique<Emulator>();
+            Emulator& b = *b_up;
+            build_emulator(b, 2);
+            jnext::JnsLoadOptions lopt;
+            jnext::JnsLoadReport  lrep;
+            std::string refusal;
+            const bool loaded = b.load_jns(forged.data(), forged.size(), lopt,
+                                           lrep, refusal);
+            // The machine has no esxDOS root configured here, so `restore()`
+            // returns at its `!active_` guard — and with one configured it
+            // returns at `contained()`. Either way NO handle is opened, which
+            // is the property; the row asserts the observable consequence
+            // rather than the branch taken, because both branches are correct.
+            check("JNS-RT-06", loaded,
+                  "a .jns carrying a hostile esxDOS handle still LOADS — the "
+                  "path is not a reason to refuse the whole machine, it is a "
+                  "reason not to open that file");
+            // Observed end to end rather than through a test-only accessor:
+            // save the restored machine again and read its OWN esxDOS member.
+            // A handle that was opened would be in it.
+            bool no_handle = false;
+            if (loaded) {
+                std::vector<uint8_t> again;
+                jnext::JnsSaveOptions o2;
+                jnext::JnsLoadReport  r2;
+                std::string w3, text;
+                if (b.save_jns(o2, again, r2, w3)) {
+                    jnext::zip::Reader rr;
+                    if (rr.open(again.data(), again.size(), w3) &&
+                        rr.read_text("state/esxdos_hostfs.json", text, w3)) {
+                        no_handle = text.find("/etc/passwd") == std::string::npos;
+                    }
+                }
+            }
+            check("JNS-RT-07", no_handle,
+                  "…and the handle is NOT opened — the restored machine's own "
+                  "esxDOS state carries no trace of it. `restore()` "
+                  "re-validates against the sandbox root, and this row proves "
+                  "S8's new entry point reaches that guard: the rewind ring "
+                  "feeds it in-process data the machine made, a .jns feeds it "
+                  "a file a user was handed");
+        }
+    }
+
+    // ── A BLOB THAT IS NOT THE DECLARED LENGTH ──────────────────────────
+    //
+    // The same "in range for its type, out of range for what it sizes" family
+    // one level down, and a mutation found it unguarded: removing the
+    // length-vs-declaration check left every row green, because nothing fed
+    // the reader a member of the wrong size.
+    //
+    // A SHORT `mem/ram.bin` must be refused, never truncated and never
+    // zero-padded: `Ram`'s buffer is sized by the build, and a file that
+    // supplies fewer bytes is a file that would leave the tail as whatever was
+    // there — which is the silently-wrong restore the whole format exists to
+    // prevent.
+    {
+        auto repack_raw = [](const std::vector<uint8_t>& in,
+                             const std::string& member,
+                             const std::vector<uint8_t>& body,
+                             std::vector<uint8_t>& out) {
+            jnext::zip::Reader r;
+            std::string why;
+            if (!r.open(in.data(), in.size(), why)) return false;
+            jnext::zip::Writer w{jnext::jns::kArchiveComment};
+            for (const auto& e : r.entries()) {
+                std::vector<uint8_t> bytes;
+                if (e.name == member) bytes = body;
+                else if (!r.read(e.name, bytes, why)) return false;
+                if (!w.add(e.name, bytes.data(), bytes.size(),
+                           jnext::zip::Method::Deflate, why)) {
+                    return false;
+                }
+            }
+            return w.finish(out, why);
+        };
+
+        auto a_up = std::make_unique<Emulator>();
+
+        Emulator& a = *a_up;
+        build_busy(a);
+        jnext::JnsSaveOptions opt;
+        jnext::JnsLoadReport  rep;
+        std::string why;
+        std::vector<uint8_t> good;
+        const bool wrote = a.save_jns(opt, good, rep, why);
+
+        std::vector<uint8_t> ram;
+        bool got = wrote && [&]{
+            jnext::zip::Reader r;
+            std::string w2;
+            return r.open(good.data(), good.size(), w2) &&
+                   r.read("mem/ram.bin", ram, w2);
+        }();
+
+        // The manifest must be forged TO MATCH, or the container refuses on
+        // its own declaration-vs-member rule and the row never reaches the
+        // check it is about. That is not a hypothetical: the first version of
+        // this row shortened only the member, the container caught it, and a
+        // mutation that deleted the length check below still passed.
+        //
+        // What stays reachable once the manifest agrees is the case a snapshot
+        // format really has to survive: a file written by a build whose buffer
+        // was a different size. The manifest and the archive are then perfectly
+        // consistent with each OTHER and disagree with this build's
+        // declaration, and only the check below stands between that and a
+        // 1 024-byte heap overread.
+        std::vector<uint8_t> forged;
+        bool built = false;
+        if (got && ram.size() > 1024) {
+            std::vector<uint8_t> shorter(ram.begin(), ram.end() - 1024);
+            std::string mtext;
+            jnext::zip::Reader r0;
+            std::string w0;
+            if (r0.open(good.data(), good.size(), w0) &&
+                r0.read_text(jnext::jns::kManifestMember, mtext, w0)) {
+                jnext::jns::Manifest m0;
+                std::vector<std::string> unk;
+                if (jnext::jns::manifest_from_json(mtext, m0, unk, w0)) {
+                    auto it = m0.members.find("mem/ram.bin");
+                    if (it != m0.members.end()) {
+                        it->second.bytes = shorter.size();
+                        it->second.crc32 = static_cast<uint32_t>(::crc32(
+                            0L, shorter.data(),
+                            static_cast<unsigned>(shorter.size())));
+                        std::vector<uint8_t> step;
+                        const std::string newm = jnext::jns::manifest_to_json(m0);
+                        std::vector<uint8_t> newm_bytes(newm.begin(), newm.end());
+                        built = repack_raw(good, "mem/ram.bin", shorter, step) &&
+                                repack_raw(step, jnext::jns::kManifestMember,
+                                           newm_bytes, forged);
+                    }
+                }
+            }
+        }
+
+        bool refused = false;
+        std::string refusal;
+        if (built) {
+            auto b_up = std::make_unique<Emulator>();
+            Emulator& b = *b_up;
+            build_emulator(b, 2);
+            jnext::JnsLoadOptions lopt;
+            jnext::JnsLoadReport  lrep;
+            refused = !b.load_jns(forged.data(), forged.size(), lopt, lrep,
+                                  refusal);
+        }
+        if (!refused) {
+            fprintf(stderr, "  JNS-RT-11: built=%d refusal='%s'\n",
+                    built ? 1 : 0, refusal.c_str());
+        }
+        check("JNS-RT-11", built && refused,
+              "a `mem/ram.bin` 1 024 bytes SHORT of what the declaration says "
+              "is REFUSED even when the MANIFEST agrees with it — not "
+              "truncated, not zero-padded. That is the cross-version case: a "
+              "file whose archive and manifest are perfectly consistent with "
+              "each other and disagree with this build's declaration");
+        check("JNS-RT-12",
+              refused && refusal.find("ram") != std::string::npos,
+              "…and the refusal NAMES the member, so a user can tell a corrupt "
+              "file from an unsupported one");
+    }
+
+    // ── THE esxDOS HANDLE TABLE, ROUND-TRIPPED FOR REAL ─────────────────
+    //
+    // THE GAP THIS CLOSES, and why it is the same gap as the blob one.
+    //
+    // The handle table is hand-written (§9.5(4) — a variable-length list no
+    // declaration can express), so it is outside `visit_jns_subsystems`. It is
+    // ALSO not in `Emulator::save_state`'s descriptor walk. So `JNS-RT-02`'s
+    // binary-stream comparison is structurally blind to it, exactly as it was
+    // blind to the blobs — and that blindness let the blob read-back defect
+    // hide for six stages.
+    //
+    // `JNS-RT-06`/`07` only prove a handle pointing OUTSIDE the sandbox is
+    // refused. The legitimate in-sandbox case — the one users have — had no
+    // coverage anywhere in the tree.
+    //
+    // So this reads a byte THROUGH the restored handle. Inspecting the
+    // re-saved JSON would prove the fields travelled; reading proves the
+    // handle is open, bound to the right file, at the right offset, and
+    // usable. Those are different claims and only the second is what a user
+    // has.
+    {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path root = fs::temp_directory_path() /
+            ("jnext_jns_esx_" + std::to_string(::getpid()));
+        fs::remove_all(root, ec);
+        fs::create_directories(root, ec);
+
+        // A file whose byte at offset N is N: reading one byte then says both
+        // WHICH file was reopened and WHERE in it, in a single value.
+        std::vector<uint8_t> content(256);
+        for (int i = 0; i < 256; ++i) content[i] = static_cast<uint8_t>(i);
+        {
+            std::ofstream f((root / "data.bin").string(), std::ios::binary);
+            f.write(reinterpret_cast<const char*>(content.data()),
+                    static_cast<std::streamsize>(content.size()));
+        }
+
+        auto cfg_with_root = [&](EmulatorConfig& cfg) {
+            cfg.type                 = MachineType::ZX48K;
+            cfg.rewind_buffer_frames = 2;
+            cfg.esxdos_stub          = true;
+            cfg.esxdos_stub_root     = root.string();
+        };
+
+        constexpr uint32_t kSeekTo = 100;
+        uint8_t handle = 0;
+        std::vector<uint8_t> jns_esx;
+        bool prepared = false;
+        {
+            auto a_up = std::make_unique<Emulator>();
+            Emulator& a = *a_up;
+            EmulatorConfig cfg;
+            cfg_with_root(cfg);
+            a.init(cfg);
+
+            const bool opened =
+                a.esxdos_hostfs().open("/data.bin",
+                                       EsxdosHostFs::kModeRead, handle) ==
+                EsxdosHostFs::kOk;
+            // Advance the position by READING, so the offset that has to
+            // travel is one the machine really reached.
+            std::vector<uint8_t> skip;
+            const bool advanced =
+                opened && a.esxdos_hostfs().read(handle, kSeekTo, skip) ==
+                          EsxdosHostFs::kOk && skip.size() == kSeekTo;
+
+            jnext::JnsSaveOptions opt;
+            jnext::JnsLoadReport  rep;
+            std::string why;
+            prepared = advanced && a.save_jns(opt, jns_esx, rep, why);
+        }
+
+        bool restored = false;
+        std::vector<uint8_t> got;
+        if (prepared) {
+            auto b_up = std::make_unique<Emulator>();
+            Emulator& b = *b_up;
+            EmulatorConfig cfg;
+            cfg_with_root(cfg);
+            b.init(cfg);          // same root, NO handle open
+
+            jnext::JnsLoadOptions lopt;
+            jnext::JnsLoadReport  lrep;
+            std::string refusal;
+            if (b.load_jns(jns_esx.data(), jns_esx.size(), lopt, lrep,
+                           refusal)) {
+                restored = b.esxdos_hostfs().read(handle, 1, got) ==
+                           EsxdosHostFs::kOk;
+            }
+        }
+
+        const bool right_byte =
+            restored && got.size() == 1 && got[0] == kSeekTo;
+        if (!right_byte) {
+            fprintf(stderr,
+                    "  JNS-RT-16: prepared=%d restored=%d n=%zu byte=%d "
+                    "(want %u)\n",
+                    prepared ? 1 : 0, restored ? 1 : 0, got.size(),
+                    got.empty() ? -1 : (int)got[0], kSeekTo);
+        }
+        check("JNS-RT-16", right_byte,
+              "an esxDOS handle open INSIDE the sandbox survives a .jns round "
+              "trip and is genuinely USABLE: reading one byte through the "
+              "restored handle returns the byte at the offset the saved "
+              "machine had reached. The file's byte at offset N is N, so that "
+              "single value says which file was reopened AND where in it");
+
+        fs::remove_all(root, ec);
+    }
+
+    // ── THE joy_uart JSON PATH — THE SEVENTH, AND A SMALLER SHAPE ───────
+    //
+    // KEEP THE DISTINCTION FROM THE SIXTH, because it is not the same defect.
+    //
+    // `esxdos_hostfs_` and `preview_png` are hand-written into a `.jns` and are
+    // in NO oracle at all: `Emulator::save_state` does not carry them, so
+    // `JNS-RT-02`'s binary-stream comparison is structurally blind and a broken
+    // field mapping would be UNSEEABLE.
+    //
+    // `joy_uart_source_` is different. It IS inside `save_state`/`load_state`'s
+    // regular walk (`emulator.cpp:11929`, `:12350`), so `JNS-RT-02` WOULD catch
+    // a broken mapping — if any fixture ever attached a cable. None did: no row
+    // here ever set `EmulatorConfig::joy_uart_rx_file`, and no functional script
+    // combines a cable with a snapshot. So the `.jns`-specific arms —
+    // `if (joy_uart_source_)` in both `save_jns` and `load_jns` — had ZERO
+    // EXECUTION coverage.
+    //
+    // "Never exercised", not "unseeable". A smaller hole, and still a hole:
+    // untaken branches ship.
+    //
+    // The claim is usability through the RESTORED object, as `JNS-RT-16`'s is:
+    // the cable's byte at index N is N, so after a restore the next byte the
+    // source pushes THROUGH THE MUX AND INTO THE UART is the continuation, and
+    // its value says both that the cursor travelled and that the source is
+    // still live. A restored source that had silently rewound would deliver 0.
+    {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path dir = fs::temp_directory_path() /
+            ("jnext_jns_joy_" + std::to_string(::getpid()));
+        fs::remove_all(dir, ec);
+        fs::create_directories(dir, ec);
+        const std::string cable = (dir / "cable.bin").string();
+        {
+            // 256 bytes, so the pre-save run consumes only part of it and
+            // there is a REMAINDER for the restored source to deliver. The
+            // first version used 64 and the cable was exhausted before the
+            // save, leaving nothing on the far side to observe.
+            std::ofstream f(cable, std::ios::binary);
+            for (int i = 0; i < 256; ++i) f.put(static_cast<char>(i));
+        }
+
+        auto cfg_with_cable = [&](EmulatorConfig& cfg) {
+            cfg.type                     = MachineType::ZX48K;
+            cfg.rewind_buffer_frames     = 2;
+            cfg.joy_uart_rx_file         = cable;
+            cfg.joy_uart_rx_delay_frames = 0;
+        };
+
+        // NR 0x0B = en(b7) + mode "10"(b5) + CONNECTOR joy 2 (b4) + iomode_0=0
+        // -> the joy-2 serial pin is routed to UART 0 (zxnext.vhd:3537 for the
+        // enable, :3538 for the connector, :3340-3341 for the channel).
+        //
+        // BIT 4 IS THE ONE THAT CATCHES YOU, and the precondition row below is
+        // why this fixture is correct rather than merely green: with bit 4
+        // clear the mux reads joy 1, `EmulatorConfig::joy_uart_connector`
+        // defaults to joy 2, and all 64 bytes are DROPPED — which is exactly
+        // what hardware does with a cable in the socket the FPGA is not
+        // looking at. The first version of this fixture used 0xA0 and measured
+        // a stream nothing received.
+        constexpr uint8_t kMuxToUart0 = 0xB0;
+
+        std::size_t delivered_before = 0;
+        std::vector<uint8_t> jns_joy;
+        bool prepared = false;
+        {
+            auto a_up = std::make_unique<Emulator>();
+            Emulator& a = *a_up;
+            EmulatorConfig cfg;
+            cfg_with_cable(cfg);
+            a.init(cfg);
+            a.nextreg().write(0x0B, kMuxToUart0);
+
+            // Run until PART of the cable has been delivered, and stop while
+            // a remainder is left. Self-adjusting rather than a tuned frame
+            // count: the rate is the UART channel's baud (about 28 bytes a
+            // frame here), and a magic number would silently become either
+            // "nothing delivered" or "cable exhausted" the day that changes.
+            // Both of those are failures this row already hit while being
+            // written, and neither is the row's subject.
+            const bool attached = a.joy_uart_source() != nullptr;
+            for (int i = 0; i < 60 && attached; ++i) {
+                if (a.joy_uart_source()->delivered() >= 40) break;
+                a.run_frame();
+            }
+            delivered_before =
+                attached ? a.joy_uart_source()->delivered() : 0;
+            const bool has_remainder =
+                attached && !a.joy_uart_source()->exhausted();
+
+            // Drain whatever is sitting in the RX FIFO, so the byte read after
+            // the restore is one the RESTORED source pushed rather than one
+            // that merely survived in a buffer.
+            a.port().out(0x153B, 0x00);
+            while (!a.uart().channel(0).rx_empty()) (void)a.port().in(0x143B);
+
+            jnext::JnsSaveOptions opt;
+            jnext::JnsLoadReport  rep;
+            std::string why;
+            prepared = attached && delivered_before > 0 && has_remainder &&
+                       delivered_before < 256 &&
+                       a.save_jns(opt, jns_joy, rep, why);
+        }
+
+        check("JNS-RT-20", prepared,
+              "the fixture really attaches a cable, really delivers bytes "
+              "through the mux, and stops with a REMAINDER still to send — "
+              "without all three the row below asserts nothing, which is how "
+              "this path went six stages with no coverage at all");
+
+        int got_byte = -1;
+        bool loaded = false;
+        if (prepared) {
+            auto b_up = std::make_unique<Emulator>();
+            Emulator& b = *b_up;
+            EmulatorConfig cfg;
+            cfg_with_cable(cfg);
+            b.init(cfg);                       // same cable, cursor at 0
+            b.nextreg().write(0x0B, kMuxToUart0);
+
+            jnext::JnsLoadOptions lopt;
+            jnext::JnsLoadReport  lrep;
+            std::string refusal;
+            loaded = b.load_jns(jns_joy.data(), jns_joy.size(), lopt, lrep,
+                                refusal);
+            if (loaded) {
+                // The mux is a NextREG the snapshot restored, so re-assert it
+                // only if the restore cleared it; then run until a byte lands.
+                b.nextreg().write(0x0B, kMuxToUart0);
+                b.port().out(0x153B, 0x00);
+                for (int i = 0; i < 12 && got_byte < 0; ++i) {
+                    b.run_frame();
+                    if (!b.uart().channel(0).rx_empty()) {
+                        got_byte = b.port().in(0x143B);
+                    }
+                }
+            }
+        }
+
+        const int want_byte = static_cast<int>(delivered_before);
+        if (got_byte != want_byte) {
+            fprintf(stderr,
+                    "  JNS-RT-21: delivered_before=%zu got_byte=%d want=%d "
+                    "loaded=%d\n",
+                    delivered_before, got_byte, want_byte, loaded ? 1 : 0);
+        }
+        check("JNS-RT-21", loaded && got_byte == want_byte,
+              "…and the RESTORED cable delivers the CONTINUATION byte through "
+              "the mux into the UART — the file's byte at index N is N, so the "
+              "value proves the cursor travelled and the source is still live. "
+              "A source that silently rewound would deliver 0");
+
+        fs::remove_all(dir, ec);
+    }
+
+    // ── meta/preview.png — THE SIXTH BLIND SPOT ─────────────────────────
+    //
+    // Found by asking the same question the esxDOS gap answered: what else is
+    // hand-written OUTSIDE `visit_jns_subsystems`, where the binary-stream
+    // oracle cannot reach? `preview_png` had **zero mentions** anywhere in the
+    // tree — not in a test, not in a functional row. The `meta/preview.png`
+    // member, the three `manifest.preview` fields and the `report.preview_png`
+    // read-back were all unexercised, which is the blob defect's shape exactly.
+    //
+    // It is in `meta/`, the OPEN namespace (§12.1), so nothing else would ever
+    // have complained: a writer that silently dropped it produces a file every
+    // reader accepts.
+    {
+        auto a_up = std::make_unique<Emulator>();
+        Emulator& a = *a_up;
+        build_busy(a);
+
+        // Not a real PNG — the container stores bytes and never decodes them,
+        // and a recognisable pattern makes a truncation or an offset slip
+        // visible in the failure detail. The PNG signature is on the front so
+        // the member is at least the right SHAPE for what claims to be one.
+        std::vector<uint8_t> png = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+        for (int i = 0; i < 64; ++i) png.push_back(static_cast<uint8_t>(i * 3));
+
+        jnext::JnsSaveOptions opt;
+        opt.preview_png    = png;
+        opt.preview_width  = 320;
+        opt.preview_height = 256;
+        jnext::JnsLoadReport rep;
+        std::string why;
+        std::vector<uint8_t> out;
+        const bool wrote = a.save_jns(opt, out, rep, why);
+
+        // Declared in the manifest…
+        jnext::jns::Manifest m;
+        bool declared = false;
+        if (wrote) {
+            jnext::zip::Reader r;
+            std::string text, w2;
+            std::vector<std::string> unk;
+            declared = r.open(out.data(), out.size(), w2) &&
+                       r.read_text(jnext::jns::kManifestMember, text, w2) &&
+                       jnext::jns::manifest_from_json(text, m, unk, w2) &&
+                       m.preview.present && m.preview.width == 320 &&
+                       m.preview.height == 256 &&
+                       r.has("meta/preview.png");
+        }
+        check("JNS-RT-17", declared,
+              "a preview is DECLARED in the manifest (present, width, height) "
+              "and the meta/preview.png member is really in the archive — "
+              "§10.2 P5's declared-rather-than-merely-present rule, so a "
+              "reader can size it without inflating it");
+
+        // …and handed back on load, byte for byte.
+        bool came_back = false;
+        if (wrote) {
+            auto b_up = std::make_unique<Emulator>();
+            Emulator& b = *b_up;
+            build_emulator(b, 2);
+            jnext::JnsLoadOptions lopt;
+            jnext::JnsLoadReport  lrep;
+            std::string refusal;
+            came_back = b.load_jns(out.data(), out.size(), lopt, lrep,
+                                   refusal) &&
+                        lrep.preview_png == png;
+        }
+        check("JNS-RT-18", came_back,
+              "…and the bytes come back BYTE-FOR-BYTE on load. meta/ is an "
+              "OPEN namespace, so a writer that silently dropped the preview "
+              "would produce a file every reader accepts — nothing else in the "
+              "tree would ever have complained");
+
+        // The absent case is legal and must stay quiet: no member, nothing
+        // declared, and no warning. Without this the two rows above would be
+        // satisfied by a writer that always emitted a preview.
+        auto c_up = std::make_unique<Emulator>();
+        Emulator& c = *c_up;
+        build_busy(c);
+        jnext::JnsSaveOptions bare;
+        jnext::JnsLoadReport  brep;
+        std::vector<uint8_t> bare_out;
+        std::string bw;
+        const bool bare_wrote = c.save_jns(bare, bare_out, brep, bw);
+        bool quiet = false;
+        if (bare_wrote) {
+            jnext::zip::Reader r;
+            std::string text, w2;
+            jnext::jns::Manifest bm;
+            std::vector<std::string> unk;
+            quiet = r.open(bare_out.data(), bare_out.size(), w2) &&
+                    !r.has("meta/preview.png") &&
+                    r.read_text(jnext::jns::kManifestMember, text, w2) &&
+                    jnext::jns::manifest_from_json(text, bm, unk, w2) &&
+                    !bm.preview.present;
+        }
+        check("JNS-RT-19", quiet,
+              "no preview supplied means no member and nothing declared — "
+              "legal and silent. Without this the two rows above would pass "
+              "against a writer that always emitted one");
+    }
+
+    // ── A SUBSYSTEM THE FILE DOES NOT CARRY ─────────────────────────────
+    //
+    // §12.4 says a subsystem the manifest does not list was deliberately not
+    // saved, and that is not a failure — an older or foreign writer may simply
+    // not have had it. It must not be SILENT, though: that subsystem keeps
+    // whatever `reset()` left, which is a real difference from the machine the
+    // file came from, and "the sound is wrong and nothing said anything" is
+    // the support question this warning exists to prevent.
+    //
+    // Forged by removing the member AND its manifest entry, because removing
+    // only the member is the torn-file case the container refuses first — the
+    // same trap `JNS-RT-11` fell into.
+    {
+        auto repack_drop = [](const std::vector<uint8_t>& in,
+                              const std::string& drop,
+                              const std::string& manifest_text,
+                              std::vector<uint8_t>& out) {
+            jnext::zip::Reader r;
+            std::string why;
+            if (!r.open(in.data(), in.size(), why)) return false;
+            jnext::zip::Writer w{jnext::jns::kArchiveComment};
+            for (const auto& e : r.entries()) {
+                if (e.name == drop) continue;
+                std::vector<uint8_t> bytes;
+                if (e.name == jnext::jns::kManifestMember) {
+                    bytes.assign(manifest_text.begin(), manifest_text.end());
+                } else if (!r.read(e.name, bytes, why)) {
+                    return false;
+                }
+                if (!w.add(e.name, bytes.data(), bytes.size(),
+                           jnext::zip::Method::Deflate, why)) {
+                    return false;
+                }
+            }
+            return w.finish(out, why);
+        };
+
+        auto a_up = std::make_unique<Emulator>();
+        Emulator& a = *a_up;
+        build_busy(a);
+        jnext::JnsSaveOptions opt;
+        jnext::JnsLoadReport  rep;
+        std::string why;
+        std::vector<uint8_t> good;
+        const bool wrote = a.save_jns(opt, good, rep, why);
+
+        std::vector<uint8_t> forged;
+        bool built = false;
+        if (wrote) {
+            jnext::zip::Reader r;
+            std::string text, w2;
+            jnext::jns::Manifest m0;
+            std::vector<std::string> unk;
+            if (r.open(good.data(), good.size(), w2) &&
+                r.read_text(jnext::jns::kManifestMember, text, w2) &&
+                jnext::jns::manifest_from_json(text, m0, unk, w2)) {
+                auto& v = m0.subsystems;
+                v.erase(std::remove(v.begin(), v.end(), std::string("beeper")),
+                        v.end());
+                built = repack_drop(good, "state/beeper.json",
+                                    jnext::jns::manifest_to_json(m0), forged);
+            }
+        }
+
+        bool loaded = false;
+        bool warned = false;
+        if (built) {
+            auto b_up = std::make_unique<Emulator>();
+            Emulator& b = *b_up;
+            build_emulator(b, 2);
+            jnext::JnsLoadOptions lopt;
+            jnext::JnsLoadReport  lrep;
+            std::string refusal;
+            loaded = b.load_jns(forged.data(), forged.size(), lopt, lrep,
+                                refusal);
+            for (const auto& wmsg : lrep.warnings) {
+                if (wmsg.find("beeper") != std::string::npos &&
+                    wmsg.find("power-on defaults") != std::string::npos) {
+                    warned = true;
+                }
+            }
+        }
+        check("JNS-RT-14", built && loaded,
+              "a .jns that does not list a subsystem still LOADS — §12.4 says "
+              "that is a deliberate omission by the writer, not a broken file");
+        check("JNS-RT-15", warned,
+              "…and it WARNS, naming the subsystem: it has been left at its "
+              "power-on defaults, which is a real difference from the machine "
+              "the file came from and must not be silent");
+    }
+
+    // ── §10.2 P7: a save from MID-FRAME advances, and says so ───────────
+    {
+        auto a_up = std::make_unique<Emulator>();
+        Emulator& a = *a_up;
+        build_emulator(a, 2);
+        for (int i = 0; i < 10; ++i) a.run_frame();
+
+        // Leave a frame GENUINELY in flight, and assert that it is — the first
+        // version of this row called `pause()` then `run_frame()`, which does
+        // NOT leave a frame half-executed, so the row asserted nothing and a
+        // mutation removing the advance left it green.
+        //
+        // `run_to_cycle` is what `S6-P7-ADVANCE-01` uses and is the real
+        // shape: it pauses inside `run_frame`'s loop exactly as a breakpoint
+        // does, half-way down the frame.
+        const uint64_t mid = a.current_frame_cycle() +
+                             a.timing().master_cycles_per_frame / 2;
+        a.debug_state().set_active(true);
+        a.debug_state().run_to_cycle(mid);
+        a.run_frame();
+        const bool mid_frame = a.debug_state().paused() && a.frame_in_progress();
+        check("JNS-RT-08a", mid_frame,
+              "the fixture really is paused MID-FRAME before the save — "
+              "without this the row below asserts nothing");
+
+        jnext::JnsSaveOptions opt;
+        jnext::JnsLoadReport rep;
+        std::string why;
+        std::vector<uint8_t> out;
+        const bool ok = a.save_jns(opt, out, rep, why);
+        a.debug_state().resume();
+        check("JNS-RT-08", ok && mid_frame && !a.frame_in_progress() &&
+                              rep.advanced_to_frame_boundary,
+              "a .jns save ADVANCES a mid-frame machine to a frame boundary "
+              "and REPORTS that it did (§10.2 P7's always-advance, "
+              "never-refuse rule): no unavailable menu item, no failure mode, "
+              "and the caller can tell the user once");
+    }
+
+    printf("Total so far: %d passed, %d failed\n", pass_count, fail_count);
+    return 0;
+}
+
 int main()
 {
     printf("=== Rewind tests ===\n");
@@ -1619,6 +6012,15 @@ int main()
     test_rewind_restores_render_state();
     test_rewind_callers_render_state();
     test_rewind_across_soft_reset();
+    test_s3_descriptor_layout();
+    test_s3_restore_behaviour();
+    test_s4_descriptor_layout();
+    test_s4_restore_behaviour();
+    test_s5_descriptor_layout();
+    test_s5_restore_behaviour();
+    test_s5b_duplicated_ram_removed();
+    test_s6_gaps();
+    test_s8_jns_roundtrip();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
            pass_count + fail_count + (int)g_skipped.size(),

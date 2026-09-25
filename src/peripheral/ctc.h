@@ -4,6 +4,8 @@
 #include <array>
 #include <functional>
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// CTC (Counter/Timer Controller) — 4-channel counter/timer peripheral.
 ///
 /// The ZX Next CTC provides 4 independent counter/timer channels, each
@@ -134,8 +136,19 @@ private:
     bool count_step();
 
 public:
-    void save_state(class StateWriter& w) const;
-    void load_state(class StateReader& r);
+    /// GH #27 S5 — the ONE field list for a channel (design §9.2).
+    ///
+    /// It takes its KEY TABLE from the owning `Ctc`, because four channels
+    /// sharing one declaration would name `counter` four times — and a
+    /// duplicate key is the one fault the byte-identity gate structurally
+    /// cannot see (the binary encoding ignores names; `JsonWriteDesc`'s
+    /// `obj[name] = value` silently drops the earlier field). `keys` is a row
+    /// of `kChanKeys` in ctc.cpp: ten string LITERALS, never built at run
+    /// time, because `StateDesc::fail()` stores the pointer it is handed.
+    ///
+    /// There is no `save_state`/`load_state` pair here any more: their only
+    /// callers were `Ctc`'s, which now walk this declaration directly.
+    void describe_state(jnext::save::StateDesc& d, const char* const* keys);
 };
 
 /// CTC controller — 4 channels with daisy-chain.
@@ -216,10 +229,22 @@ public:
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
+    /// GH #27 S5 — the ONE field list (design §9.2): the four channels'
+    /// declarations back to back, in `channels_` order.
+    void describe_state(jnext::save::StateDesc& d);
+
     /// GH #265 — the chained triggers in flight (see tick()), for the
     /// Emulator's appended interrupt-timing snapshot block.
     void save_timing(class StateWriter& w) const;
     void load_timing(class StateReader& r);
+
+    /// GH #27 S5 — the SECOND declaration (design §9.5(2)). `save_timing` is
+    /// called from a DIFFERENT block than `save_state`: the chained-trigger
+    /// delays travel in `int_timing`, the last block of the Emulator stream,
+    /// not in block 12. One `describe_state` cannot put its fields in two
+    /// blocks and the byte-identity gate forbids moving them, so — exactly as
+    /// for `Im2Controller` — there are two describe methods.
+    void describe_timing(jnext::save::StateDesc& d);
     static constexpr std::size_t kTimingStateBytes = 4;   ///< one u8 per channel
 
 private:

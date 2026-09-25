@@ -21,6 +21,7 @@
 #include "core/saveable.h"
 #include "peripheral/multiface.h"
 #include "port/port_dispatch.h"
+#include "save/state_desc_defaults.h"
 
 #include <cstdarg>
 #include <cstdint>
@@ -438,6 +439,73 @@ static void g_mf_core()
               "save_state / load_state round-trips FFs + mode + RAM",
               nmi_eq && inv_eq && mfe_eq && dly_eq && mode_eq && ram_eq,
               "header has 8 bools, RAM 8 KB; constructor defaults survive when sentinel absent");
+    }
+
+    // ── GH #27 S6 — mf_type travels (design §10.2 P13, defect D2) ────────
+    //
+    // MF-CORE-12 above is built with `make_mf(0x02)` — mf_type "10" — and it
+    // did NOT catch this, which is why the row exists: it asserts
+    // `mode_128()`, and `multiface.vhd:105-118` decodes BOTH "01" and "10" to
+    // mode_128, so the reconstruction `load_state` used to do (mode_p3 ? 00 :
+    // mode_48 ? 11 : 01) came back as "01" and every observable the row
+    // checked still agreed. `mf_type()` is read back through NR 0x0A, so a
+    // guest could watch a bit it had written change under a save.
+    //
+    // All four encodings, because the lossy one is only visible by contrast.
+    {
+        struct { uint8_t type; const char* what; } cases[] = {
+            { 0x00, "p3"    },
+            { 0x01, "128-A" },
+            { 0x02, "128-B" },   // the bit the rebuild could not express
+            { 0x03, "48"    },
+        };
+        bool all_ok = true;
+        std::string detail;
+        for (const auto& c : cases) {
+            Multiface src = make_mf(c.type);
+            StateWriter measure;
+            src.save_state(measure);
+            std::vector<uint8_t> snap(measure.position());
+            StateWriter w(snap.data(), snap.size());
+            src.save_state(w);
+
+            Multiface dst;
+            StateReader r(snap.data(), snap.size());
+            dst.load_state(r);
+            if (dst.mf_type() != c.type) {
+                all_ok = false;
+                detail += std::string(c.what) + ": got " +
+                          std::to_string(dst.mf_type()) + " want " +
+                          std::to_string(c.type) + " ";
+            }
+        }
+        check("S6-MF-TYPE-01",
+              "mf_type round-trips all four NR 0x0A encodings, including "
+              "\"10\" which the pre-S6 rebuild from the three mode booleans "
+              "could not express",
+              all_ok, detail.empty() ? "multiface.vhd:105-118" : detail);
+    }
+
+    // ── S6-MF-DEFAULTS-01 — §12.2, the other direction ──────────────────
+    //
+    // §12.2's exemption table names the Multiface RAM because `reset(true)`
+    // WIPES it, so running the declared-default gate against it would destroy
+    // state and there is no scalar default to compare anyway. That exemption
+    // is STRUCTURAL here rather than an entry in a checker's exclusion list:
+    // this declaration declares no defaults at all, so the gate has nothing
+    // to compare and `mf_type` is required for the reason stated at its
+    // declaration (its power-on value is machine-dependent).
+    {
+        Multiface mf = make_mf(0x02);
+        jnext::save::DefaultCheckDesc d;
+        mf.describe_state(d);
+        check("S6-MF-DEFAULTS-01",
+              "the Multiface declares no defaults, so §12.2's RAM exemption "
+              "holds by construction rather than by an exclusion list",
+              d.defaulted() == 0 && d.undefaulted() == 9 &&
+                  d.mismatches().empty(),
+              "defaulted=" + std::to_string(d.defaulted()) +
+                  " undefaulted=" + std::to_string(d.undefaulted()));
     }
 }
 

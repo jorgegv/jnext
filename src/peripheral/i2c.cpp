@@ -1,6 +1,27 @@
 #include "peripheral/i2c.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
+
+namespace {
+
+// Enum name table (design §6.2, §9.4). The binary encoding stays the u8
+// ordinal the stream has always carried; the NAME is what a `.jns` writes, so
+// renumbering the bit-bang FSM becomes a visible schema diff rather than a
+// silent re-interpretation of old files. Ordinals are I2cController::State
+// (i2c.h:197), the decoder over ports 0x103B/0x113B.
+const char* const kI2cStateNameArr[] = {
+    "idle",       // State::IDLE      — waiting for START
+    "address",    // State::ADDRESS   — receiving 7-bit address + R/W
+    "ack_addr",   // State::ACK_ADDR
+    "data",       // State::DATA
+    "ack_data",   // State::ACK_DATA
+};
+const jnext::save::EnumNames kI2cStateNames{
+    kI2cStateNameArr, sizeof(kI2cStateNameArr) / sizeof(kI2cStateNameArr[0])};
+
+}  // namespace
 
 // Local I2C logger — created on first use, follows the same pattern as Log::make()
 namespace {
@@ -401,67 +422,107 @@ void I2cController::on_scl_falling() {
     }
 }
 
-void I2cRtc::save_state(StateWriter& w) const
-{
-    w.write_u8(reg_ptr_);
-    w.write_bool(addr_set_);
-    // Phase-1 widened regs_ 8→64 per DS1307 NVRAM; Wave E added CH / 12h /
-    // use_real_time flags. Rewind buffer is in-process only (plan R3), so a
-    // straight size/field bump is safe. Order: regs_ first, then flag triple.
-    w.write_bytes(regs_.data(), regs_.size());
-    w.write_bool(osc_halt_);
-    w.write_bool(mode_12h_);
-    w.write_bool(use_real_time_);
-}
 
-void I2cRtc::load_state(StateReader& r)
+
+// GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
+// binary stream order, so it must not be disturbed: the byte-identity gate
+// (§17.1) pins these 13 bytes as block 15 of the 2 292 965-byte stream.
+//
+// `state_` is marshalled through a local `uint8_t`. `enum class State`
+// (i2c.h:197) has NO fixed underlying type, so it is `int`-wide: binding a
+// `uint8_t&` to it would touch one byte of four, and which byte depends on
+// the host's endianness.
+//
+// G138 — the NR 0xA0 bit 3 mirror (`pi_i2c1_en_`) is deliberately NOT
+// declared here. Its owning byte (`nr_a0_pi_peripheral_en_`) is appended at
+// the end of the Emulator stream and synced into this object by
+// `Emulator::load_state`, so declaring it would both duplicate the value and
+// grow this sub-block mid-stream.
+void I2cController::describe_state(jnext::save::StateDesc& d)
 {
-    // Must mirror save_state field order exactly: reg_ptr, addr_set, regs_,
-    // then osc_halt / mode_12h / use_real_time flag triple.
-    reg_ptr_       = r.read_u8();
-    addr_set_      = r.read_bool();
-    r.read_bytes(regs_.data(), regs_.size());
-    osc_halt_      = r.read_bool();
-    mode_12h_      = r.read_bool();
-    use_real_time_ = r.read_bool();
+    d.u8("scl", scl_);
+    d.u8("sda_out", sda_out_);
+    d.u8("sda_in", sda_in_);
+    d.u8("prev_scl", prev_scl_);
+    d.u8("prev_sda", prev_sda_);
+    uint8_t state = static_cast<uint8_t>(state_);
+    d.enum8("state", state, kI2cStateNames);
+    state_ = static_cast<State>(state);
+    d.u8("bit_count", bit_count_);
+    d.u8("shift_reg", shift_reg_);
+    d.u8("device_addr", device_addr_);
+    d.boolean("is_read", is_read_);
+    d.u8("read_data", read_data_);
+    // Phase-1: pi_i2c1 inputs — declared so rewind replays them correctly.
+    //
+    // Both members are `uint8_t` but the stream has always carried them as
+    // BOOLEANS (`w.write_bool` / `r.read_bool`), so they are marshalled
+    // through a local `bool` and written back as 0/1. That reproduces the
+    // hand-written pair exactly: `write_bool` already collapsed any non-zero
+    // to 1 and `read_bool` already assigned 0 or 1. The write-back is a no-op
+    // in practice — every assignment in the class is `? 1 : 0`, `= true` or a
+    // `bool` parameter (i2c.h:164-165, :180-183, i2c.cpp:204-205) — but it is
+    // spelled out rather than assumed, because the alternative is a
+    // reinterpret_cast whose correctness depends on sizeof(bool).
+    {
+        bool scl = pi_i2c1_scl_ != 0;
+        d.boolean("pi_i2c1_scl", scl);
+        pi_i2c1_scl_ = scl ? 1 : 0;
+        bool sda = pi_i2c1_sda_ != 0;
+        d.boolean("pi_i2c1_sda", sda);
+        pi_i2c1_sda_ = sda ? 1 : 0;
+    }
 }
 
 void I2cController::save_state(StateWriter& w) const
 {
-    w.write_u8(scl_);
-    w.write_u8(sda_out_);
-    w.write_u8(sda_in_);
-    w.write_u8(prev_scl_);
-    w.write_u8(prev_sda_);
-    w.write_u8(static_cast<uint8_t>(state_));
-    w.write_u8(bit_count_);
-    w.write_u8(shift_reg_);
-    w.write_u8(device_addr_);
-    w.write_bool(is_read_);
-    w.write_u8(read_data_);
-    // Phase-1: pi_i2c1 inputs — saved so rewind replays them correctly.
-    w.write_bool(pi_i2c1_scl_);
-    w.write_bool(pi_i2c1_sda_);
-    // G138 — NR 0xA0 bit 3 mirror (pi_i2c1_en_) is intentionally NOT
-    // serialised here. The owning byte (nr_a0_pi_peripheral_en_) is
-    // appended at the end of the Emulator snapshot stream and synced into
-    // I2cController via Emulator::load_state. This avoids growing the i2c
-    // sub-block mid-stream and breaking snapshots predating G135/G138.
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void I2cController::load_state(StateReader& r)
 {
-    scl_         = r.read_u8();
-    sda_out_     = r.read_u8();
-    sda_in_      = r.read_u8();
-    prev_scl_    = r.read_u8();
-    prev_sda_    = r.read_u8();
-    state_       = static_cast<State>(r.read_u8());
-    bit_count_   = r.read_u8();
-    shift_reg_   = r.read_u8();
-    device_addr_ = r.read_u8();
-    is_read_     = r.read_bool();
-    read_data_   = r.read_u8();
-    pi_i2c1_scl_ = r.read_bool();
-    pi_i2c1_sda_ = r.read_bool();
+    jnext::save::BinReadDesc d(r);
+    describe_state(d);
+    if (d.failed()) {
+        // The only way this fires is an `enum8` ordinal the declaration does
+        // not name — a stream and a build that disagree about the bit-bang
+        // FSM. The field keeps its pre-load value rather than taking a wrong
+        // FSM state (§16.1: "a wrong FSM state is not a safe default"), the
+        // stream stays in sync (the byte was consumed either way), and the
+        // fault is named.
+        i2c_log()->error("I2cController::load_state: the stream does not "
+                         "match this build's declaration at '{}'",
+                         d.failure() ? d.failure() : "?");
+    }
+}
+
+// GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
+// binary stream order, so it must not be disturbed: the byte-identity gate
+// (§17.1) pins these 69 bytes as block 16 of the 2 292 965-byte stream.
+//
+// `regs_` is a `d.bytes` and not a `d.blob`: §6.1 puts a peripheral store in
+// a ZIP member of its own only from 8 KB up, and 64 bytes of DS1307 register
+// file plus NVRAM belong inline as one hex string. Its length comes from the
+// DECLARATION — `regs_.size()` is a compile-time `std::array` extent — so
+// there is no count in the stream that a restore could be made to obey.
+void I2cRtc::describe_state(jnext::save::StateDesc& d)
+{
+    d.u8("reg_ptr", reg_ptr_);
+    d.boolean("addr_set", addr_set_);
+    // Phase-1 widened regs_ 8->64 per DS1307 NVRAM; Wave E added CH / 12h /
+    // use_real_time flags. Order: regs_ first, then the flag triple.
+    d.bytes("regs", regs_.data(), regs_.size());
+    d.boolean("osc_halt", osc_halt_);
+    d.boolean("mode_12h", mode_12h_);
+    d.boolean("use_real_time", use_real_time_);
+}
+
+void I2cRtc::save_state(StateWriter& w) const
+{
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
+}
+
+void I2cRtc::load_state(StateReader& r)
+{
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
 }

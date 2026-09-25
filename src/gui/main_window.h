@@ -118,6 +118,20 @@ public:
     // dialog-to-decision wiring — the picker itself is modal and untestable,
     // and this glue once had zero coverage (a Cancel-grants inversion kept
     // every suite green).
+
+    // ── The file-dialog FILTERS, as data (GH #27 S8) ────────────────────
+    //
+    // Built here rather than inline in the slots so they can be ASSERTED. A
+    // filter string that lives only inside a `QFileDialog::getOpenFileName`
+    // call is unreachable from a test, and going stale is the one thing a new
+    // format's filter reliably does. `load_error_test` pins both.
+    //
+    // `save_filter` takes the machine because the right default differs: a
+    // `.jns` is the only format that can represent a Next at all, and on a
+    // 48K/128K/+3 a `.sna` is what other emulators read (design §15.2).
+    static QString load_filter();
+    static QString save_filter(bool next_machine);
+
     void handle_load_path(const QString& path);
 
     // The File menu's RZX actions — everything each does AFTER its file picker

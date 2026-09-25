@@ -31,18 +31,18 @@
     "being declared) for the same reason: true today, when no writer declares",
     "them, and true after S3-S5, when one does."
   ],
-
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/jorgegv/jnext/schema/jns-snapshot-1.json",
   "title": "jnext .jns snapshot, format_version 1",
   "description": "A .jns archive presented to a validator as an object mapping each JSON member's path to its parsed document. Members under mem/ are binary and are described by their manifest declaration, not by a document here.",
-
-  "required": ["manifest.json"],
-
+  "required": [
+    "manifest.json"
+  ],
   "properties": {
-    "manifest.json": { "$ref": "#/$defs/manifest" }
+    "manifest.json": {
+      "$ref": "#/$defs/manifest"
+    }
   },
-
   "allOf": [
     {
       "_why": "§8 — frame_boundary is always true, or the file was not written. It is recorded as a fact a reader can CHECK, not as a mode.",
@@ -50,7 +50,11 @@
         "manifest.json": {
           "properties": {
             "capture": {
-              "properties": { "frame_boundary": { "const": true } }
+              "properties": {
+                "frame_boundary": {
+                  "const": true
+                }
+              }
             }
           }
         }
@@ -63,8 +67,20 @@
           "properties": {
             "members": {
               "properties": {
-                "mem/bank5-vram.bin": { "properties": { "bytes": { "const": 16384 } } },
-                "mem/bank7-bram.bin": { "properties": { "bytes": { "const": 8192 } } }
+                "mem/bank5-vram.bin": {
+                  "properties": {
+                    "bytes": {
+                      "const": 16384
+                    }
+                  }
+                },
+                "mem/bank7-bram.bin": {
+                  "properties": {
+                    "bytes": {
+                      "const": 8192
+                    }
+                  }
+                }
               }
             }
           }
@@ -76,13 +92,21 @@
       "if": {
         "properties": {
           "manifest.json": {
-            "required": ["members"],
+            "required": [
+              "members"
+            ],
             "properties": {
-              "members": { "required": ["mem/ram.bin"] }
+              "members": {
+                "required": [
+                  "mem/ram.bin"
+                ]
+              }
             }
           }
         },
-        "required": ["manifest.json"]
+        "required": [
+          "manifest.json"
+        ]
       },
       "then": {
         "properties": {
@@ -90,29 +114,117 @@
             "anyOf": [
               {
                 "properties": {
-                  "model":   { "properties": { "ram_kb": { "const": 2048 } } },
-                  "members": { "properties": { "mem/ram.bin": { "properties": { "bytes": { "const": 2097152 } } } } }
+                  "model": {
+                    "properties": {
+                      "ram_kb": {
+                        "const": 2048
+                      }
+                    }
+                  },
+                  "members": {
+                    "properties": {
+                      "mem/ram.bin": {
+                        "properties": {
+                          "bytes": {
+                            "const": 2097152
+                          }
+                        }
+                      }
+                    }
+                  }
                 }
               },
               {
                 "properties": {
-                  "model":   { "properties": { "ram_kb": { "const": 1024 } } },
-                  "members": { "properties": { "mem/ram.bin": { "properties": { "bytes": { "const": 1048576 } } } } }
+                  "model": {
+                    "properties": {
+                      "ram_kb": {
+                        "const": 1024
+                      }
+                    }
+                  },
+                  "members": {
+                    "properties": {
+                      "mem/ram.bin": {
+                        "properties": {
+                          "bytes": {
+                            "const": 1048576
+                          }
+                        }
+                      }
+                    }
+                  }
                 }
               },
               {
                 "properties": {
-                  "model":   { "properties": { "ram_kb": { "const": 768 } } },
-                  "members": { "properties": { "mem/ram.bin": { "properties": { "bytes": { "const": 786432 } } } } }
+                  "model": {
+                    "properties": {
+                      "ram_kb": {
+                        "const": 768
+                      }
+                    }
+                  },
+                  "members": {
+                    "properties": {
+                      "mem/ram.bin": {
+                        "properties": {
+                          "bytes": {
+                            "const": 786432
+                          }
+                        }
+                      }
+                    }
+                  }
                 }
               }
             ]
           }
         }
       }
+    },
+    {
+      "_why": "§13.2(4) / §4.3(2) — mem/multiface-ram.bin is present IFF the machine is not the Next. On a Next the Multiface store is a WINDOW into Ram (the live MF RAM is page 0x0B, already inside mem/ram.bin), so a private copy would be 8 192 dead zeros; on 48K/128K/+3 the private array IS the store and its absence would lose real state. Neither direction is expressible by the generator, which sees one declaration and not the machine it ran on — this is exactly the external knowledge §13.2(4) exists to add.",
+      "properties": {
+        "manifest.json": {
+          "if": {
+            "properties": {
+              "model": {
+                "properties": {
+                  "machine": {
+                    "const": "next"
+                  }
+                }
+              }
+            },
+            "required": [
+              "model"
+            ]
+          },
+          "then": {
+            "properties": {
+              "members": {
+                "not": {
+                  "required": [
+                    "mem/multiface-ram.bin"
+                  ]
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "members": {
+                "required": [
+                  "mem/multiface-ram.bin"
+                ]
+              }
+            }
+          }
+        }
+      }
     }
   ],
-
   "$defs": {
     "hex8": {
       "type": "string",
@@ -122,16 +234,32 @@
       "_why": "§5.3 — the schema validates a blob's DECLARATION, never its contents. Nothing can validate the contents short of running the machine; the ZIP's own per-member CRC-32 and the reader's length equality cover the bytes.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["bytes", "crc32"],
+      "required": [
+        "bytes",
+        "crc32"
+      ],
       "properties": {
-        "bytes": { "type": "integer", "minimum": 0 },
-        "crc32": { "$ref": "#/$defs/hex8" }
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "crc32": {
+          "$ref": "#/$defs/hex8"
+        }
       }
     },
     "manifest": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["capture", "format_version", "media", "members", "model", "producer", "subsystems"],
+      "required": [
+        "capture",
+        "format_version",
+        "media",
+        "members",
+        "model",
+        "producer",
+        "subsystems"
+      ],
       "properties": {
         "format_version": {
           "_why": "§7.1 — the FROZEN grammar version. An integer, and a refusal names both numbers when it is one this build cannot read.",
@@ -145,17 +273,31 @@
         "producer": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["jnext_version", "platform"],
+          "required": [
+            "jnext_version",
+            "platform"
+          ],
           "properties": {
-            "jnext_version": { "type": "string" },
-            "git_describe":  { "type": "string" },
-            "platform":      { "type": "string" }
+            "jnext_version": {
+              "type": "string"
+            },
+            "git_describe": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            }
           }
         },
         "model": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["cpu_speed_nr07", "machine", "ram_kb", "state_model_revision"],
+          "required": [
+            "cpu_speed_nr07",
+            "machine",
+            "ram_kb",
+            "state_model_revision"
+          ],
           "properties": {
             "state_model_revision": {
               "_why": "§7.2 — the MOVING number: a provenance stamp for the emulated model, not a compatibility contract.",
@@ -165,14 +307,22 @@
             "machine": {
               "_why": "§8 — drives reconstruction, not validation. A string rather than an enum in the CONTAINER, but the set this build can construct is closed, and a file naming anything else is refused by the reader with the name in the message.",
               "type": "string",
-              "enum": ["48k", "128k", "plus3", "pentagon", "next"]
+              "enum": [
+                "48k",
+                "128k",
+                "plus3",
+                "pentagon",
+                "next"
+              ]
             },
             "ram_kb": {
               "_why": "§8 — never assume 2048. A size this build cannot construct is a refusal.",
               "type": "integer",
               "minimum": 1
             },
-            "timing": { "type": "string" },
+            "timing": {
+              "type": "string"
+            },
             "cpu_speed_nr07": {
               "_why": "NR 0x07 bits 1:0 — four software-selectable speeds.",
               "type": "integer",
@@ -184,10 +334,18 @@
         "capture": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["frame", "frame_boundary"],
+          "required": [
+            "frame",
+            "frame_boundary"
+          ],
           "properties": {
-            "frame":          { "type": "integer", "minimum": 0 },
-            "frame_boundary": { "type": "boolean" }
+            "frame": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "frame_boundary": {
+              "type": "boolean"
+            }
           }
         },
         "media": {
@@ -198,54 +356,180 @@
             "sdcard": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["content_stamp", "identity", "informational", "mounted_path", "read_only"],
+              "required": [
+                "content_stamp",
+                "identity",
+                "informational",
+                "mounted_path",
+                "read_only"
+              ],
               "properties": {
-                "mounted_path": { "type": "string" },
-                "read_only":    { "type": "boolean" },
+                "mounted_path": {
+                  "type": "string"
+                },
+                "read_only": {
+                  "type": "boolean"
+                },
                 "identity": {
                   "_why": "Tier 1 — 'is this the same card?'. Every field is one a FILE WRITE DOES NOT TOUCH, because jnext opens the image read-write and a whole-image digest would report a mismatch against the very card the snapshot was taken on.",
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["fat32_volume_id", "image_bytes", "mbr_sha256", "partition_lba"],
+                  "required": [
+                    "fat32_volume_id",
+                    "image_bytes",
+                    "mbr_partition_table_sha256",
+                    "partition_lba"
+                  ],
                   "properties": {
-                    "image_bytes":     { "type": "integer", "minimum": 0 },
-                    "mbr_sha256":      { "type": "string", "pattern": "^([0-9a-f]{64})?$" },
-                    "fat32_volume_id": { "type": "string", "pattern": "^([0-9a-f]{8})?$" },
-                    "partition_lba":   { "type": "integer", "minimum": 0 }
+                    "image_bytes": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "mbr_partition_table_sha256": {
+                      "type": "string",
+                      "pattern": "^([0-9a-f]{64})?$"
+                    },
+                    "fat32_volume_id": {
+                      "type": "string",
+                      "pattern": "^([0-9a-f]{8})?$"
+                    },
+                    "partition_lba": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
                   }
                 },
                 "informational": {
                   "_why": "§11.3 — carried and NEVER compared. BS_VolLab is a stale copy of a label whose authority is the root-directory ATTR_VOLUME_ID entry, and a tool that rewrites it would produce a FALSE REFUSAL on the same physical card.",
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["fat32_bs_vollab"],
-                  "properties": { "fat32_bs_vollab": { "type": "string" } }
+                  "required": [
+                    "fat32_bs_vollab"
+                  ],
+                  "properties": {
+                    "fat32_bs_vollab": {
+                      "type": "string"
+                    }
+                  }
                 },
                 "content_stamp": {
                   "_why": "Tier 2 — 'has it changed since?'. A mismatch warns; it refuses only when the SD FSM was mid-transfer at capture.",
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["mtime_utc", "sha256"],
+                  "required": [
+                    "mtime_utc",
+                    "sha256"
+                  ],
                   "properties": {
-                    "sha256":    { "type": "string", "pattern": "^([0-9a-f]{64})?$" },
-                    "mtime_utc": { "type": "string" }
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^([0-9a-f]{64})?$"
+                    },
+                    "mtime_utc": {
+                      "type": "string"
+                    }
                   }
                 }
               }
+            },
+            "roms": {
+              "_why": "§10.2 P3 — ROM identity. DIGESTS, never content: N3 forbids redistributing firmware, so a .jns records what the ROMs were and never carries them. Absent when the writer recorded none, which is a different fact from a machine with no ROMs.",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source": {
+                  "type": "string"
+                },
+                "sha256": {
+                  "_why": "Basename -> lower-case hex sha256. Only names present on BOTH sides are compared on read: a name this build does not have is a ROM this machine does not use, and treating that as a mismatch is the cries-wolf failure §11.1 rejects.",
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "pattern": "^([0-9a-f]{64})?$"
+                  }
+                }
+              }
+            },
+            "boot_rom_sha256": {
+              "_why": "The FPGA boot ROM, baked into the binary rather than read from the card, so it is carried separately from media.roms.sha256: a mismatch means the two builds disagree about silicon.",
+              "type": "string",
+              "pattern": "^([0-9a-f]{64})?$"
+            },
+            "tape": {
+              "_why": "§10.2 P4 — tape identity. The tape objects are excluded from the state stream by design (tape position is independent of CPU rewind), so the file is recorded by reopenable identity — the esxDOS-handle shape. Absent when no tape was attached, which is how a reader tells 'no tape' from 'a tape it cannot find'.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "position_tstates",
+                "realtime",
+                "sha256"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^([0-9a-f]{64})?$"
+                },
+                "position_tstates": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "realtime": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "esxdos_root": {
+              "_why": "--esxdos-stub-root. The open handles travel in the state stream as (path, offset, mode); this is the root they are relative to, recorded so a restore onto a different root is visible rather than silently reopening the wrong files.",
+              "type": "string"
             }
           }
         },
         "members": {
           "_why": "§5.3 — one declaration per blob. `mem/` is a CLOSED namespace: an undeclared blob has no length or CRC to check, so the reader refuses it rather than ignoring it.",
           "type": "object",
-          "propertyNames": { "pattern": "^mem/[a-z0-9._-]+$" },
-          "additionalProperties": { "$ref": "#/$defs/blob_decl" }
+          "propertyNames": {
+            "pattern": "^mem/[a-z0-9._-]+$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/blob_decl"
+          }
         },
         "subsystems": {
           "_why": "§8 — the writer's own list of what it wrote, so a reader can tell 'deliberately not saved' from 'missing or corrupt'. Those are different failures and must not be conflated.",
           "type": "array",
-          "items": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
           "uniqueItems": true
+        },
+        "preview": {
+          "_why": "§10.2 P5 — the preview image's declaration; the bytes are the ZIP member meta/preview.png. The framebuffer is regenerated by the next render, so a snapshot restored PAUSED shows the previous frame until the user steps, and this doubles as the restore-time paused image. Declared rather than merely present so a reader can size it without inflating it.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "height",
+            "path",
+            "width"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "const": "meta/preview.png"
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
         }
       }
     }

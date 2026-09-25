@@ -4,6 +4,58 @@
 #include <cstdint>
 #include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
+
+namespace {
+
+// GH #27 S5 — the per-channel key tables for the §9.4 loop collapse in
+// `Ctc::describe_state` / `describe_timing`.
+//
+// Four channels share one field list, so the keys carry the channel number:
+// a `.jns` says `ch2_counter`, not a fourth anonymous `counter` that
+// `JsonWriteDesc` would silently drop on top of the third.
+//
+// LITERALS, concatenated by the preprocessor, and NOT built at run time —
+// `StateDesc::fail()` STORES the `const char*` it is handed rather than
+// copying it, so a key formatted into a stack buffer would dangle in exactly
+// the refusal path whose job is to name the field.
+#define CTC_CHAN_KEYS(p)                                                   \
+    { p "_control_int_en",   p "_control_counter", p "_control_prescale",  \
+      p "_control_edge",     p "_control_trigger", p "_time_constant",     \
+      p "_counter",          p "_prescaler",       p "_state",             \
+      p "_clk_trg_prev" }
+
+const char* const kChanKeys[4][10] = {
+    CTC_CHAN_KEYS("ch0"), CTC_CHAN_KEYS("ch1"),
+    CTC_CHAN_KEYS("ch2"), CTC_CHAN_KEYS("ch3"),
+};
+
+#undef CTC_CHAN_KEYS
+
+// The chained-trigger delay of each channel, in the `int_timing` block.
+const char* const kTrgDelayKeys[4] = {
+    "ch0_trg_delay", "ch1_trg_delay", "ch2_trg_delay", "ch3_trg_delay",
+};
+
+// Enum name table (design §6.2, §9.4). The binary encoding stays the u8
+// ordinal the stream has always carried; the NAME is what a `.jns` writes, so
+// renumbering the FSM becomes a visible schema diff rather than a silent
+// re-interpretation of old files. Ordinals are CtcChannel::State (ctc.h:116),
+// which models `device/ctc_chan.vhd`.
+const char* const kChanStateNameArr[] = {
+    "reset",         // State::RESET
+    "reset_tc",      // State::RESET_TC
+    "trigger",       // State::TRIGGER
+    "run",           // State::RUN
+    "run_tc",        // State::RUN_TC
+    "trigger_auto",  // State::TRIGGER_AUTO
+};
+const jnext::save::EnumNames kChanStateNames{
+    kChanStateNameArr,
+    sizeof(kChanStateNameArr) / sizeof(kChanStateNameArr[0])};
+
+}  // namespace
 
 // ─── CTC logger ───────────────────────────────────────────────────────
 
@@ -396,53 +448,83 @@ void Ctc::handle_zc_to(int channel) {
                          static_cast<int>(trg_delay_[next]));
 }
 
-void CtcChannel::save_state(StateWriter& w) const
+// GH #27 S5 — the ONE field list for a channel (design §9.2). Declaration
+// order IS the binary stream order, so it must not be disturbed: the
+// byte-identity gate (§17.1) pins four of these back to back as the 40 bytes
+// of block 12.
+//
+// `state_` is marshalled through a local `uint8_t` rather than bound with a
+// `reinterpret_cast`. `enum class State` (ctc.h:116) has NO fixed underlying
+// type, so it is `int`-wide: binding a `uint8_t&` to it would touch one byte
+// of four, and which byte depends on the host's endianness. The local makes
+// the width explicit, and it is the same idiom S3 used in `Im2Controller`.
+void CtcChannel::describe_state(jnext::save::StateDesc& d, const char* const* k)
 {
-    w.write_bool(control_int_en_);
-    w.write_bool(control_counter_);
-    w.write_bool(control_prescale_);
-    w.write_bool(control_edge_);
-    w.write_bool(control_trigger_);
-    w.write_u8(time_constant_);
-    w.write_u8(counter_);
-    w.write_u8(prescaler_);
-    w.write_u8(static_cast<uint8_t>(state_));
-    w.write_bool(clk_trg_prev_);
+    d.boolean(k[0], control_int_en_);
+    d.boolean(k[1], control_counter_);
+    d.boolean(k[2], control_prescale_);
+    d.boolean(k[3], control_edge_);
+    d.boolean(k[4], control_trigger_);
+    d.u8(k[5], time_constant_);
+    d.u8(k[6], counter_);
+    d.u8(k[7], prescaler_);
+    uint8_t state = static_cast<uint8_t>(state_);
+    d.enum8(k[8], state, kChanStateNames);
+    state_ = static_cast<State>(state);
+    d.boolean(k[9], clk_trg_prev_);
 }
 
-void CtcChannel::load_state(StateReader& r)
+// GH #27 S5 — the ONE field list (design §9.2). The four channels' ten
+// fields each, in `channels_` order: §9.4's "array elements inside loops"
+// class, which COLLAPSES to one declaration per field rather than expanding
+// to forty.
+void Ctc::describe_state(jnext::save::StateDesc& d)
 {
-    control_int_en_   = r.read_bool();
-    control_counter_  = r.read_bool();
-    control_prescale_ = r.read_bool();
-    control_edge_     = r.read_bool();
-    control_trigger_  = r.read_bool();
-    time_constant_    = r.read_u8();
-    counter_          = r.read_u8();
-    prescaler_        = r.read_u8();
-    state_            = static_cast<State>(r.read_u8());
-    clk_trg_prev_     = r.read_bool();
+    for (int i = 0; i < 4; ++i) channels_[i].describe_state(d, kChanKeys[i]);
 }
 
 void Ctc::save_state(StateWriter& w) const
 {
-    for (const auto& ch : channels_) ch.save_state(w);
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void Ctc::load_state(StateReader& r)
 {
-    for (auto& ch : channels_) ch.load_state(r);
+    jnext::save::BinReadDesc d(r);
+    describe_state(d);
+    if (d.failed()) {
+        // The only way this fires is an `enum8` ordinal the declaration does
+        // not name — a stream and a build that disagree about the channel
+        // FSM. The field keeps its pre-load value rather than taking a wrong
+        // FSM state (§16.1: "a wrong FSM state is not a safe default"), the
+        // stream stays in sync (the byte was consumed either way), and the
+        // fault is named.
+        ctc_log()->error("Ctc::load_state: the stream does not match this "
+                         "build's declaration at '{}'",
+                         d.failure() ? d.failure() : "?");
+    }
     // The pending chained triggers travel in the Emulator's appended
-    // interrupt-timing block (save_timing / load_timing).
+    // interrupt-timing block (describe_timing), NOT here — so a load must not
+    // leave the previous machine's delays behind while that block is still
+    // ahead in the stream. Kept OUTSIDE the declaration deliberately: it is a
+    // reset, not a field.
     for (auto& t : trg_delay_) t = 0;
+}
+
+// GH #27 S5 — the SECOND declaration (design §9.5(2)); see the header.
+void Ctc::describe_timing(jnext::save::StateDesc& d)
+{
+    for (int i = 0; i < 4; ++i) d.u8(kTrgDelayKeys[i], trg_delay_[i]);
 }
 
 void Ctc::save_timing(StateWriter& w) const
 {
-    for (uint8_t t : trg_delay_) w.write_u8(t);
+    jnext::save::BinWriteDesc d(w);
+    const_cast<Ctc*>(this)->describe_timing(d);
 }
 
 void Ctc::load_timing(StateReader& r)
 {
-    for (auto& t : trg_delay_) t = r.read_u8();
+    jnext::save::BinReadDesc d(r);
+    describe_timing(d);
 }

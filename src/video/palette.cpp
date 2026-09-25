@@ -1,9 +1,37 @@
 #include "video/palette.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 
 #include <algorithm>
 #include <cstring>
+
+namespace {
+
+// GH #27 S4 — the enum name table for the `enum8` declaration in
+// `PaletteManager::describe_state`. The binary encoding stays the u8 ordinal
+// the stream has always carried; the name is what a `.jns` writes, so
+// renumbering PaletteId becomes a visible schema diff rather than a silent
+// re-interpretation of old files.
+//
+// All eight ordinals are reachable — NR 0x43 bits 6:4 select the target
+// directly (`palette.cpp` write_nextreg_0x43) — so there is no hole.
+const char* const kPaletteIdNameArr[] = {
+    "ula_first",      // PaletteId::ULA_FIRST      = 0 (NR 0x43 b6:4 = 000)
+    "layer2_first",   // PaletteId::LAYER2_FIRST   = 1                  001
+    "sprite_first",   // PaletteId::SPRITE_FIRST   = 2                  010
+    "tilemap_first",  // PaletteId::TILEMAP_FIRST  = 3                  011
+    "ula_second",     // PaletteId::ULA_SECOND     = 4                  100
+    "layer2_second",  // PaletteId::LAYER2_SECOND  = 5                  101
+    "sprite_second",  // PaletteId::SPRITE_SECOND  = 6                  110
+    "tilemap_second", // PaletteId::TILEMAP_SECOND = 7                  111
+};
+const jnext::save::EnumNames kPaletteIdNames{
+    kPaletteIdNameArr,
+    sizeof(kPaletteIdNameArr) / sizeof(kPaletteIdNameArr[0])};
+
+}  // namespace
 
 // ---------------------------------------------------------------------------
 // RGB333 → ARGB8888 helper
@@ -651,84 +679,127 @@ uint16_t PaletteManager::rrrgggbb_to_rgb333(uint8_t val)
     return static_cast<uint16_t>((r3 << 6) | (g3 << 3) | b3);
 }
 
+// ---------------------------------------------------------------------------
+// GH #27 S4 — the ONE field list (design §9.2)
+// ---------------------------------------------------------------------------
+//
+// Block 6 of the byte-identity stream (§17.1), 4 622 bytes. Declaration order
+// IS the stream order and must not be disturbed.
+//
+// THE FIVE ARRAY DECLARATIONS ARE §9.4's LOOP COLLAPSE: the ten `for`
+// statements this used to be become five `d.bytes` lines, which is the count
+// §9.4 predicts for this file ("palette.cpp's 10 loops become 5
+// declarations"). §6.1 classes the 4 608-byte palette store as case 3 below
+// the 8 KB line — JSON, and §6.2's encoding for a fixed array that is not
+// guest memory is one lower-case hex string, which is exactly `bytes`. It is
+// also what S3 did with `NextReg::regs_`, the same class of register file.
+//
+// COLLAPSING A `uint16_t` ARRAY INTO `bytes` IS BYTE-IDENTICAL ON EVERY HOST,
+// not merely on this one. `StateWriter::write_u16` is
+// `write_bytes(&v, 2)` — a memcpy of the host representation
+// (`saveable.h:36-38`) — and `std::array<uint16_t, N>` is contiguous with no
+// padding, so N sequential `write_u16` calls and one `write_bytes` of 2N
+// bytes copy the same bytes in the same order whatever the endianness. The
+// `static_assert`s below are what keeps that true if a member ever changes
+// type or gains an element.
+//
+// NOT DECLARED, and each for a stated reason:
+//
+//   * `*_argb_` — DERIVED (§9.5(7)). Rebuilt from the RGB333 store by
+//     `load_state` after the walk, exactly as the hand-written loader did
+//     entry by entry. A derived field is never written, in either encoding.
+//   * `baseline_*` and the per-scanline change log — rebuilt every frame by
+//     `start_frame()`, §9.5(8). `load_state` re-baselines them from the
+//     state it just loaded (GH #261).
+//
+// No field carries a DECLARED DEFAULT: §12.2's gate for them (declared ==
+// post-`reset()`) is S6's, and an ungated second copy of a power-on value is
+// the `--help` defect (GH #246) in miniature.
+void PaletteManager::describe_state(jnext::save::StateDesc& d)
+{
+    // A C array of two `std::array`s is 2 * FULL_SIZE contiguous elements;
+    // if either ever stops being true, the collapse above stops being a
+    // transcription and this fails to compile rather than shifting the
+    // stream under the byte-identity gate.
+    static_assert(sizeof(ula_rgb333_)     == 2 * FULL_SIZE * sizeof(uint16_t), "");
+    static_assert(sizeof(layer2_rgb333_)  == 2 * FULL_SIZE * sizeof(uint16_t), "");
+    static_assert(sizeof(sprite_rgb333_)  == 2 * FULL_SIZE * sizeof(uint16_t), "");
+    static_assert(sizeof(tilemap_rgb333_) == 2 * FULL_SIZE * sizeof(uint16_t), "");
+    static_assert(sizeof(layer2_priority_) == 2 * FULL_SIZE * sizeof(uint8_t), "");
+
+    // G102 — single 256-entry × 2-bank store per layer.
+    d.bytes("ula_rgb333",
+            reinterpret_cast<uint8_t*>(ula_rgb333_[0].data()), sizeof(ula_rgb333_));
+    d.bytes("layer2_rgb333",
+            reinterpret_cast<uint8_t*>(layer2_rgb333_[0].data()), sizeof(layer2_rgb333_));
+    d.bytes("sprite_rgb333",
+            reinterpret_cast<uint8_t*>(sprite_rgb333_[0].data()), sizeof(sprite_rgb333_));
+    d.bytes("tilemap_rgb333",
+            reinterpret_cast<uint8_t*>(tilemap_rgb333_[0].data()), sizeof(tilemap_rgb333_));
+    d.u8("control", control_);
+    d.u8("index", index_);
+    // Marshalled through a local `uint8_t` rather than bound directly.
+    // `PaletteId` IS `: uint8_t`-backed, so a `reinterpret_cast<uint8_t&>`
+    // would work here — it is not used, because the same idiom then reads
+    // identically where an `enum class` has NO fixed underlying type and is
+    // `int`-wide (`Mmu::describe_state`), and there a bound `uint8_t&` would
+    // touch one byte of four. One idiom that is always right beats two that
+    // differ by a property of the enum a reader has to go and check.
+    {
+        uint8_t target = static_cast<uint8_t>(target_palette_);
+        d.enum8("target_palette", target, kPaletteIdNames);
+        target_palette_ = static_cast<PaletteId>(target);
+    }
+    d.boolean("auto_inc_disabled", auto_inc_disabled_);
+    d.boolean("active_ula_second", active_ula_second_);
+    d.boolean("active_l2_second", active_l2_second_);
+    d.boolean("active_spr_second", active_spr_second_);
+    d.boolean("active_tm_second", active_tm_second_);
+    d.boolean("ulanext_mode", ulanext_mode_);
+    d.boolean("nine_bit_first_written", nine_bit_first_written_);
+    d.u8("nine_bit_first_byte", nine_bit_first_byte_);
+    d.u8("global_transparency", global_transparency_);
+    d.u8("sprite_transparency", sprite_transparency_);
+    d.u8("tilemap_transparency", tilemap_transparency_);
+    // Layer 2 palette priority (NR 0x44 b7:6 capture). Declared AFTER the
+    // scalars because that is where the stream carries it.
+    d.bytes("layer2_priority",
+            reinterpret_cast<uint8_t*>(layer2_priority_[0].data()),
+            sizeof(layer2_priority_));
+}
+
 void PaletteManager::save_state(StateWriter& w) const
 {
-    // G102 — single 256-entry × 2-bank ULA palette store.
-    for (int p = 0; p < 2; ++p)
-        for (int i = 0; i < FULL_SIZE; ++i) w.write_u16(ula_rgb333_[p][i]);
-    for (int p = 0; p < 2; ++p)
-        for (int i = 0; i < FULL_SIZE; ++i) w.write_u16(layer2_rgb333_[p][i]);
-    for (int p = 0; p < 2; ++p)
-        for (int i = 0; i < FULL_SIZE; ++i) w.write_u16(sprite_rgb333_[p][i]);
-    for (int p = 0; p < 2; ++p)
-        for (int i = 0; i < FULL_SIZE; ++i) w.write_u16(tilemap_rgb333_[p][i]);
-    w.write_u8(control_);
-    w.write_u8(index_);
-    w.write_u8(static_cast<uint8_t>(target_palette_));
-    w.write_bool(auto_inc_disabled_);
-    w.write_bool(active_ula_second_);
-    w.write_bool(active_l2_second_);
-    w.write_bool(active_spr_second_);
-    w.write_bool(active_tm_second_);
-    w.write_bool(ulanext_mode_);
-    w.write_bool(nine_bit_first_written_);
-    w.write_u8(nine_bit_first_byte_);
-    w.write_u8(global_transparency_);
-    w.write_u8(sprite_transparency_);
-    w.write_u8(tilemap_transparency_);
-    // Layer 2 palette priority (NR 0x44 b7:6 capture). Save AFTER the
-    // existing fields so older save-states keep loading via the
-    // backward-compat read path below (priority defaults to 0).
-    for (int p = 0; p < 2; ++p)
-        for (int i = 0; i < FULL_SIZE; ++i) w.write_u8(layer2_priority_[p][i]);
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void PaletteManager::load_state(StateReader& r)
 {
-    // G102 — single 256-entry × 2-bank ULA palette store (paired with
-    // matching save_state writer above).
+    jnext::save::BinReadDesc d(r);
+    describe_state(d);
+    if (d.failed()) {
+        // The only way this fires is an `enum8` ordinal the declaration does
+        // not name — a stream and a build that disagree about PaletteId. The
+        // field keeps its pre-load value rather than taking a wrong target
+        // (§16.1: "a wrong FSM state is not a safe default"), the stream
+        // stays in sync (the byte was consumed either way), and the fault is
+        // NAMED rather than swallowed.
+        Log::video()->error("PaletteManager::load_state: the stream does not "
+                            "match this build\'s declaration at \'{}\'",
+                            d.failure() ? d.failure() : "?");
+    }
+
+    // The ARGB caches are DERIVED (§9.5(7)) and therefore not declared: the
+    // hand-written loader recomputed each one as it read its RGB333 entry, so
+    // the rebuild moves here, after the walk, and covers exactly the same
+    // entries. `save_state` never wrote them, so this changes no byte.
     for (int p = 0; p < 2; ++p)
         for (int i = 0; i < FULL_SIZE; ++i) {
-            ula_rgb333_[p][i] = r.read_u16();
-            ula_argb_[p][i] = rgb333_to_argb(ula_rgb333_[p][i]);
-        }
-    for (int p = 0; p < 2; ++p)
-        for (int i = 0; i < FULL_SIZE; ++i) {
-            layer2_rgb333_[p][i] = r.read_u16();
-            layer2_argb_[p][i] = rgb333_to_argb(layer2_rgb333_[p][i]);
-        }
-    for (int p = 0; p < 2; ++p)
-        for (int i = 0; i < FULL_SIZE; ++i) {
-            sprite_rgb333_[p][i] = r.read_u16();
-            sprite_argb_[p][i] = rgb333_to_argb(sprite_rgb333_[p][i]);
-        }
-    for (int p = 0; p < 2; ++p)
-        for (int i = 0; i < FULL_SIZE; ++i) {
-            tilemap_rgb333_[p][i] = r.read_u16();
+            ula_argb_[p][i]     = rgb333_to_argb(ula_rgb333_[p][i]);
+            layer2_argb_[p][i]  = rgb333_to_argb(layer2_rgb333_[p][i]);
+            sprite_argb_[p][i]  = rgb333_to_argb(sprite_rgb333_[p][i]);
             tilemap_argb_[p][i] = rgb333_to_argb(tilemap_rgb333_[p][i]);
         }
-    control_ = r.read_u8();
-    index_ = r.read_u8();
-    target_palette_ = static_cast<PaletteId>(r.read_u8());
-    auto_inc_disabled_ = r.read_bool();
-    active_ula_second_ = r.read_bool();
-    active_l2_second_ = r.read_bool();
-    active_spr_second_ = r.read_bool();
-    active_tm_second_ = r.read_bool();
-    ulanext_mode_ = r.read_bool();
-    nine_bit_first_written_ = r.read_bool();
-    nine_bit_first_byte_ = r.read_u8();
-    global_transparency_ = r.read_u8();
-    sprite_transparency_ = r.read_u8();
-    tilemap_transparency_ = r.read_u8();
-    // Layer 2 palette priority slots — must be paired with the matching
-    // save_state writer above. The L2/sprite dpram word in VHDL holds
-    // priority (bits 15:14) alongside the colour, so the priority is
-    // re-derivable from rgb333_ alone for entries written via NR 0x44;
-    // we still serialise it explicitly so 8-bit-write entries stay 0.
-    for (int p = 0; p < 2; ++p)
-        for (int i = 0; i < FULL_SIZE; ++i)
-            layer2_priority_[p][i] = r.read_u8();
 
     // GH #261 — the per-scanline log is render history, not machine state:
     // re-baseline it from the palette just loaded. Otherwise the next

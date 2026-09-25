@@ -6,6 +6,8 @@
 class Ram;
 class PaletteManager;
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// Layer 2 bitmap renderer (256×192 @ 8-bit colour).
 ///
 /// Layer 2 reads pixel data directly from physical RAM banks, bypassing
@@ -248,6 +250,9 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S4 — the ONE field list (design §9.2).
+    void describe_state(jnext::save::StateDesc& d);
 
     // -----------------------------------------------------------------
     // Per-scanline scroll snapshot

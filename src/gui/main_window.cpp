@@ -1151,7 +1151,7 @@ void MainWindow::update_status(double fps, double presented_fps,
 void MainWindow::on_load_nex() {
     QString path = QFileDialog::getOpenFileName(
         this, tr("Load Program"), app_config_.data().last_load_dir,
-        tr("Spectrum Files (*.nex *.sna *.szx *.z80 *.tap *.tzx *.wav *.rzx);;NEX Files (*.nex);;SNA Snapshots (*.sna);;SZX Snapshots (*.szx);;Z80 Snapshots (*.z80);;TAP Files (*.tap);;TZX Files (*.tzx);;WAV Files (*.wav);;RZX Recordings (*.rzx);;All Files (*)"));
+        load_filter());
     if (!path.isEmpty()) {
         // Task 66 — remember the containing directory for the next dialog.
         app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
@@ -1233,6 +1233,36 @@ void MainWindow::load_finished(const std::string& file, bool ok) {
     const bool from_menu = !menu_load_pending_.empty() && file == menu_load_pending_;
     menu_load_pending_.clear();
     update_tape_status();
+
+    // GH #27 S8 (§15.2) — the restore-time PROVENANCE line. A `.jns` can load
+    // perfectly well and still have something the user must be told: the SD
+    // card drifted, the ROM digests differ, the tape it named is gone.
+    //
+    // "It must be VISIBLE, not log-only — a user who ignores a mismatch should
+    // have had to ignore it." So it goes in the status bar for every load, not
+    // only a menu one: a `--load` from the command line into the GUI is the
+    // same restore with the same mismatches.
+    //
+    // 10 s, matching `DebuggerManager::warn_state_corrupt` — the one existing
+    // line in this product that reports a restore the user should think about.
+    // Warnings are joined rather than shown in turn, because `showMessage`
+    // REPLACES: showing three in a loop would leave only the last on screen.
+    //
+    // GATED ON THE FILE, not merely on the report being non-empty: the report
+    // is cleared when a `.jns` load starts and not by any other loader, so
+    // loading a `.jns` with warnings and then a `.nex` would otherwise show
+    // the `.jns`'s warnings again against the wrong file.
+    if (ok && emulator_ && jnext::is_jns_path(file) &&
+        !emulator_->last_jns_report().warnings.empty()) {
+        QStringList lines;
+        for (const std::string& w : emulator_->last_jns_report().warnings) {
+            lines << QString::fromStdString(w);
+        }
+        statusBar()->showMessage(tr("Snapshot restored — %1")
+                                     .arg(lines.join(QStringLiteral("; "))),
+                                 10000);
+    }
+
     if (ok || !from_menu) return;
     const QString path = QString::fromStdString(file);
     QTimer::singleShot(0, this, [this, path]() { report_load_failure(path); });
@@ -1777,16 +1807,73 @@ void MainWindow::on_quick_screenshot() {
 // G35: wires SnaSaver/SzxSaver/NexSaver to File > Save Snapshot... —
 // closes BOOT-SNAPSAVE-01/02/03/04 in mmu_test. Format is chosen by the
 // extension the user picks (or types); defaults to .sna if none/unknown.
+QString MainWindow::load_filter() {
+    return tr("Spectrum Files (*.nex *.jns *.sna *.szx *.z80 *.tap *.tzx *.wav *.rzx);;"
+              "NEX Files (*.nex);;jnext Snapshots (*.jns);;SNA Snapshots (*.sna);;"
+              "SZX Snapshots (*.szx);;Z80 Snapshots (*.z80);;TAP Files (*.tap);;"
+              "TZX Files (*.tzx);;WAV Files (*.wav);;RZX Recordings (*.rzx);;"
+              "All Files (*)");
+}
+
+QString MainWindow::save_filter(bool next_machine) {
+    // The LEADING entry is the default the dialog offers, so the order is the
+    // recommendation: `.jns` on a Next because nothing else can represent one,
+    // `.sna` elsewhere because that is what other emulators read (§15.2).
+    return next_machine
+        ? tr("jnext snapshot (*.jns);;Spectrum snapshot (*.sna);;"
+             "ZX-State snapshot (*.szx);;NEX program (*.nex);;All Files (*)")
+        : tr("Spectrum snapshot (*.sna);;jnext snapshot (*.jns);;"
+             "ZX-State snapshot (*.szx);;NEX program (*.nex);;All Files (*)");
+}
+
 void MainWindow::on_save_snapshot() {
     if (!emulator_) return;
+    // GH #27 S8 (§15.2) — `.jns` leads the filter on a Next and `.sna` leads
+    // it elsewhere, because they are the right default on their own machines:
+    // a `.jns` is the only format that can represent a Next at all, and on a
+    // 48K/128K/+3 a `.sna` is what other emulators read.
+    const bool next_machine =
+        emulator_->config().type == MachineType::ZXN_ISSUE2;
     QString path = QFileDialog::getSaveFileName(
-        this, tr("Save Snapshot"), QString(),
-        tr("Spectrum snapshot (*.sna);;ZX-State snapshot (*.szx);;NEX program (*.nex);;All Files (*)"));
+        this, tr("Save Snapshot"), QString(), save_filter(next_machine));
     if (path.isEmpty()) return;
     if (!path.endsWith(".sna", Qt::CaseInsensitive) &&
         !path.endsWith(".szx", Qt::CaseInsensitive) &&
-        !path.endsWith(".nex", Qt::CaseInsensitive)) {
-        path += ".sna";
+        !path.endsWith(".nex", Qt::CaseInsensitive) &&
+        !path.endsWith(".jns", Qt::CaseInsensitive)) {
+        // The DEFAULT SUFFIX follows the machine for the same reason the
+        // filter order does. It is still suffix-driven rather than
+        // filter-row-driven, which is this slot's existing behaviour and is
+        // deliberately left alone here.
+        path += next_machine ? ".jns" : ".sna";
+    }
+
+    // GH #27 S6 (design §10.2 P7, §15.2) — ALWAYS ADVANCE, NEVER REFUSE.
+    // A snapshot may only be taken at a frame boundary, and the debugger
+    // breaks MID-frame, which is precisely when a developer reaches for this
+    // menu item. Complete the in-flight frame through the ordinary path
+    // first; the machine is then up to one frame past where the user paused,
+    // which the status bar says once rather than leaving it silent.
+    if (emulator_->advance_to_frame_boundary()) {
+        statusBar()->showMessage(
+            tr("Paused mid-frame: advanced to the next frame boundary to "
+               "save from."), 4000);
+    }
+
+    // `.jns` assembles a manifest, an SD identity and blob declarations rather
+    // than producing one flat buffer, so it writes its own file — and it is
+    // the only arm here that can report a REASON when it fails.
+    if (path.endsWith(".jns", Qt::CaseInsensitive)) {
+        if (!emulator_->save_jns_file(path.toStdString())) {
+            QMessageBox::warning(this, tr("Save Snapshot"),
+                QString::fromStdString(emulator_->last_jns_error()));
+            return;
+        }
+        for (const std::string& w : emulator_->last_jns_report().warnings) {
+            statusBar()->showMessage(QString::fromStdString(w), 8000);
+        }
+        statusBar()->showMessage(tr("Snapshot saved: %1").arg(path), 3000);
+        return;
     }
 
     std::vector<uint8_t> bytes;

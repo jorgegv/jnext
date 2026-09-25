@@ -4,9 +4,35 @@
 #include "memory/ram.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 
 #include <algorithm>
 #include <cstring>
+
+namespace {
+
+// GH #27 S4 — the enum name table for `Ula::mode_`.
+//
+// `TimexScreenMode` is NOT contiguous: the SCLD mode field is port 0xFF bits
+// 2:0 and only 000/001/010/110 reach this enum (`Ula::set_screen_mode`, which
+// folds 011 into HI_COLOUR and 111 into HI_RES and clamps everything else to
+// STANDARD). Ordinals 3, 4 and 5 are therefore states the ULA cannot be in,
+// and `EnumNames` spells such a hole `nullptr`, which both directions refuse:
+// an ordinal a subsystem cannot hold must not round-trip through a file.
+const char* const kTimexModeNameArr[] = {
+    "standard",    // TimexScreenMode::STANDARD   = 0 (zxula.vhd:218)
+    "standard_1",  // TimexScreenMode::STANDARD_1 = 1, alternate 0x6000 base
+    "hi_colour",   // TimexScreenMode::HI_COLOUR  = 2
+    nullptr,       // 3 — unreachable
+    nullptr,       // 4 — unreachable
+    nullptr,       // 5 — unreachable
+    "hi_res",      // TimexScreenMode::HI_RES     = 6
+};
+const jnext::save::EnumNames kTimexModeNames{
+    kTimexModeNameArr, sizeof(kTimexModeNameArr) / sizeof(kTimexModeNameArr[0])};
+
+}  // namespace
 
 // ---------------------------------------------------------------------------
 // G102 — Std-ULA encoder helpers (VHDL zxula.vhd:543-553).
@@ -1539,104 +1565,131 @@ void Ula::flush_remaining_scroll_changes()
     }
 }
 
+// ---------------------------------------------------------------------------
+// GH #27 S4 — the ONE field list (design §9.2)
+// ---------------------------------------------------------------------------
+//
+// The HEAD of block 10 of the byte-identity stream (§17.1), 3 357 of its
+// 3 688 bytes; `Renderer::describe_state` nests this call first, then its own
+// scalars, then `Lores`'s four. Declaration order IS the stream order and
+// must not be disturbed.
+//
+// THE ONE HISTORY. `port_ff_log_` is §9.5(1)'s count-prefixed, raw-order,
+// stale-tail log, and `d.log` is the primitive that pins exactly that layout:
+// a `u16` count, then EXACTLY `MAX_CHANGES_PER_FRAME` entries in array order,
+// entries past the count being whatever was there. The padding is
+// load-bearing, not stylistic — `RewindBuffer` sizes every slot from one
+// dry-run measure and requires each snapshot to be exactly that width, and a
+// count-prefixed VARIABLE-length field is what broke rewind the first time a
+// guest touched port 0xFF (issue #42, 3 bytes over, snapshot dropped).
+// `LogArray` adapts `port_ff_log_` in place, so this is one declaration line
+// and not a rewrite of the struct the renderer indexes into.
+//
+// The class carries THREE per-scanline change-logs and only this one travels.
+// The other two are §9.5(7)/(8) and are stated here so "the ULA's histories"
+// is answered rather than assumed:
+//
+//   * `scroll_change_log_` (G08, NR 0x26/0x27/0x68 b2) — re-baselined from
+//     the scroll just loaded by `start_frame_scroll()` after the walk, so a
+//     render before the next `begin_new_frame()` cannot rewind to the
+//     pre-restore frame's baseline (GH #261).
+//   * `palsel43_change_log_` / the NR 0x6B b4 log (G10, active-palette
+//     selects) — DERIVED mirrors of `PaletteManager` state, §9.5(7), which
+//     `Emulator::load_state` re-syncs after re-reading the palette.
+//
+// No field carries a DECLARED DEFAULT: §12.2's gate for them is S6's.
+void Ula::describe_state(jnext::save::StateDesc& d)
+{
+    d.boolean("ula_enabled", ula_enabled_);
+    d.boolean("vram_use_bank7", vram_use_bank7_);
+    d.u8("ula_clip_x1", clip_x1_); d.u8("ula_clip_x2", clip_x2_);
+    d.u8("ula_clip_y1", clip_y1_); d.u8("ula_clip_y2", clip_y2_);
+    d.u8("border_colour", border_colour_);
+    d.bytes("border_per_line", border_per_line_.data(), FB_HEIGHT);
+    d.i32("flash_counter", flash_counter_);
+    d.boolean("flash_phase", flash_phase_);
+    d.u8("screen_mode_reg", screen_mode_reg_);
+    // Marshalled through a local `uint8_t` rather than bound directly, for
+    // the reason `Mmu::describe_state` gives: one idiom that is always right,
+    // including where an `enum class` has no fixed underlying type.
+    {
+        uint8_t mode = static_cast<uint8_t>(mode_);
+        d.enum8("screen_mode", mode, kTimexModeNames);
+        mode_ = static_cast<TimexScreenMode>(mode);
+    }
+
+    // Phase-1 scaffold state.
+    d.u8("ula_scroll_x_coarse", ula_scroll_x_coarse_);
+    d.u8("ula_scroll_y", ula_scroll_y_);
+    d.boolean("ula_fine_scroll_x", ula_fine_scroll_x_);
+    d.u8("ulanext_format", ulanext_format_);
+    d.boolean("ulanext_en", ulanext_en_);
+    d.boolean("ulap_en", ulap_en_);
+    d.boolean("alt_file", alt_file_);
+    d.boolean("shadow_screen_en", shadow_screen_en_);
+    d.boolean("border_clr_tmx_src", border_clr_tmx_src_);
+    d.u8("ulap_mode", ulap_mode_);
+
+    // Per-scanline port-0xFF change-log (G07). S5-PSL.05 requires the
+    // in-flight log to survive a round-trip so the post-load re-render
+    // through apply_changes_for_line() reproduces the pre-save frame; the
+    // render cursor and the overflow flag are transient render-time state and
+    // are re-initialised by `load_state` instead.
+    d.u8("baseline_port_ff", baseline_port_ff_);
+    d.u16("current_line", current_line_);
+    jnext::save::LogArray<PortFFChange> port_ff(port_ff_log_.data());
+    d.log("port_ff_log", port_ff, port_ff_count_, MAX_CHANGES_PER_FRAME);
+}
+
 void Ula::save_state(StateWriter& w) const
 {
-    w.write_bool(ula_enabled_);
-    w.write_bool(vram_use_bank7_);
-    w.write_u8(clip_x1_); w.write_u8(clip_x2_);
-    w.write_u8(clip_y1_); w.write_u8(clip_y2_);
-    w.write_u8(border_colour_);
-    w.write_bytes(border_per_line_.data(), FB_HEIGHT);
-    w.write_i32(flash_counter_);
-    w.write_bool(flash_phase_);
-    w.write_u8(screen_mode_reg_);
-    w.write_u8(static_cast<uint8_t>(mode_));
-
-    // Phase-1 scaffold state — appended so legacy snapshots still load the
-    // prefix cleanly while new snapshots round-trip the full register file.
-    w.write_u8(ula_scroll_x_coarse_);
-    w.write_u8(ula_scroll_y_);
-    w.write_bool(ula_fine_scroll_x_);
-    w.write_u8(ulanext_format_);
-    w.write_bool(ulanext_en_);
-    w.write_bool(ulap_en_);
-    w.write_bool(alt_file_);
-    w.write_bool(shadow_screen_en_);
-    w.write_bool(border_clr_tmx_src_);
-    w.write_u8(ulap_mode_);
-
-    // Per-scanline port-0xFF change-log (G07).  Layer 2 / palette only
-    // serialise the live state because the log is regenerated each
-    // frame, but S5-PSL.05 explicitly requires a save/load round-trip
-    // that preserves the in-flight log so post-load re-render through
-    // apply_changes_for_line() reproduces the pre-save frame.  Persist
-    // the baseline + tagged entries; cursor + overflow flag are
-    // transient render-time state and don't need to round-trip.
-    //
-    // Issue #42 — the log is written at its FULL CAPACITY, not at the
-    // live count: RewindBuffer sizes every slot from a single dry-run
-    // save_state() and then requires each snapshot to be exactly that
-    // size, so a count-prefixed variable-length field silently broke
-    // rewind the first time a guest touched port 0xFF (3 bytes over,
-    // snapshot dropped).  Entries past `n` are stale, and load_state
-    // ignores them; the constant width is what keeps the snapshot size
-    // an invariant instead of a property of guest behaviour.
-    w.write_u8(baseline_port_ff_);
-    w.write_u16(current_line_);
-    const uint16_t n = static_cast<uint16_t>(port_ff_count_);
-    w.write_u16(n);
-    for (size_t i = 0; i < MAX_CHANGES_PER_FRAME; ++i) {
-        w.write_u16(port_ff_log_[i].line);
-        w.write_u8(port_ff_log_[i].value);
-    }
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void Ula::load_state(StateReader& r)
 {
-    ula_enabled_ = r.read_bool();
-    vram_use_bank7_ = r.read_bool();
-    clip_x1_ = r.read_u8(); clip_x2_ = r.read_u8();
-    clip_y1_ = r.read_u8(); clip_y2_ = r.read_u8();
-    border_colour_ = r.read_u8();
-    r.read_bytes(border_per_line_.data(), FB_HEIGHT);
-    flash_counter_ = r.read_i32();
-    flash_phase_ = r.read_bool();
-    screen_mode_reg_ = r.read_u8();
-    mode_ = static_cast<TimexScreenMode>(r.read_u8());
+    jnext::save::BinReadDesc d(r);
+    describe_state(d);
+    if (d.failed()) {
+        // The only way this fires is an `enum8` ordinal the declaration does
+        // not name — a stream and a build that disagree about the Timex mode
+        // set, including one of the three ordinals the ULA cannot be in. The
+        // field keeps its pre-load value rather than casting an unreachable
+        // mode in (§16.1: "a wrong FSM state is not a safe default"), the
+        // stream stays in sync (the byte was consumed either way), and the
+        // fault is NAMED rather than swallowed.
+        Log::ula()->error("Ula::load_state: the stream does not match this "
+                          "build\'s declaration at \'{}\'",
+                          d.failure() ? d.failure() : "?");
+    }
+    after_load_state();
+}
 
-    ula_scroll_x_coarse_ = r.read_u8();
-    ula_scroll_y_        = r.read_u8();
-    ula_fine_scroll_x_   = r.read_bool();
-    ulanext_format_      = r.read_u8();
-    ulanext_en_          = r.read_bool();
-    ulap_en_             = r.read_bool();
-    alt_file_            = r.read_bool();
-    shadow_screen_en_    = r.read_bool();
-    border_clr_tmx_src_  = r.read_bool();
-    ulap_mode_           = r.read_u8();
+// GH #27 S4 — everything `load_state` does BESIDES the walk.
+//
+// Split out because `Renderer::describe_state` NESTS this subsystem's
+// declaration (block 10 is one walk over three declarations, in the order the
+// stream has always carried them), so `Renderer::load_state` performs the
+// ULA's walk itself and needs somewhere to call the ULA's own post-walk work
+// from. `Ula::load_state` keeps working standalone — `ula_test.cpp:1589-1598`
+// round-trips an `Ula` on its own, which is a legitimate thing for a unit
+// test to do.
+void Ula::after_load_state()
+{
     control_per_line_active_ = false;  // GH #256 — live until the next frame
 
-    // Per-scanline port-0xFF change-log (G07) — paired with save_state.
-    baseline_port_ff_      = r.read_u8();
-    current_line_          = r.read_u16();
-    const uint16_t n       = r.read_u16();
-    // A corrupt count cannot overrun the array: the stream always carries
-    // exactly MAX_CHANGES_PER_FRAME entries (see save_state), so clamp the
-    // live count and read the full fixed-width block regardless.
-    port_ff_count_         = (n <= MAX_CHANGES_PER_FRAME) ? n : MAX_CHANGES_PER_FRAME;
-    port_ff_render_cursor_ = 0;
+    // Transient render-time state that is deliberately not in the stream: the
+    // cursor restarts at the top of the restored log, and the overflow warning
+    // is re-armed.
+    port_ff_render_cursor_   = 0;
     port_ff_overflow_warned_ = false;
-    for (size_t i = 0; i < MAX_CHANGES_PER_FRAME; ++i) {
-        port_ff_log_[i].line  = r.read_u16();
-        port_ff_log_[i].value = r.read_u8();
-    }
 
-    // GH #261 — unlike the port-0xFF log above, the scroll log (G08) is not
-    // in the stream: re-baseline it from the scroll just loaded, so a render
-    // before the next begin_new_frame() (Emulator::rewind_to_frame) cannot
-    // rewind NR 0x26/0x27/0x68 b2 to the pre-restore frame's baseline. The
-    // selector logs (G10) are re-baselined by Emulator::load_state, which
-    // must first re-sync their mirrors from the PaletteManager.
+    // GH #261 — unlike the port-0xFF log, the scroll log (G08) is not in the
+    // stream: re-baseline it from the scroll just loaded, so a render before
+    // the next begin_new_frame() (Emulator::rewind_to_frame) cannot rewind
+    // NR 0x26/0x27/0x68 b2 to the pre-restore frame's baseline. The selector
+    // logs (G10) are re-baselined by Emulator::load_state, which must first
+    // re-sync their mirrors from the PaletteManager.
     start_frame_scroll();
 }
 

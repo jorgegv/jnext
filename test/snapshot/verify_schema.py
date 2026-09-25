@@ -63,15 +63,25 @@ def manifest_from_the_spec():
                 "read_only": False,
                 "identity": {
                     "image_bytes": 1073741824,
-                    "mbr_sha256": "a" * 64,
+                    "mbr_partition_table_sha256": "a" * 64,
                     "fat32_volume_id": "1a2b3c4d",
                     "partition_lba": 2048,
                 },
                 "informational": {"fat32_bs_vollab": "NEXT       "},
                 "content_stamp": {"sha256": "b" * 64,
                                   "mtime_utc": "2026-09-24T07:00:00Z"},
-            }
+            },
+            # §8 / §10.2 P3 — ROM identity. Digests, never content (N3).
+            "roms": {"source": "sdcard",
+                     "sha256": {"48.rom": "c" * 64, "128.rom": "d" * 64}},
+            "boot_rom_sha256": "e" * 64,
+            # §8 / §10.2 P4 — tape identity, the esxDOS-handle shape.
+            "tape": {"path": "/home/user/game.tzx", "sha256": "f" * 64,
+                     "position_tstates": 123456789, "realtime": True},
+            "esxdos_root": "/home/user/nextdev",
         },
+        # §10.2 P5 — the preview image's declaration.
+        "preview": {"path": "meta/preview.png", "width": 320, "height": 256},
         "members": {
             "mem/ram.bin": {"bytes": 2097152, "crc32": "8f3a21bd"},
             "mem/bank5-vram.bin": {"bytes": 16384, "crc32": "5511aa02"},
@@ -163,6 +173,23 @@ def main(argv):
         ("§8: subsystems is a list of names, and they are unique",
          mutate(good["manifest.json"], ["subsystems"],
                 ["clock", "clock"])),
+        ("§10.2 P3: a ROM digest is 64 lower-case hex digits or absent",
+         mutate(good["manifest.json"],
+                ["media", "roms", "sha256", "48.rom"], "deadbeef")),
+        ("§10.2 P3: media.roms takes source and sha256 and nothing else",
+         mutate(good["manifest.json"], ["media", "roms", "embed"], True)),
+        ("§10.2 P4: a tape record without its position is not one",
+         mutate(good["manifest.json"],
+                ["media", "tape", "position_tstates"], None)),
+        ("§10.2 P4: the realtime flag is a boolean, not the string 'true'",
+         mutate(good["manifest.json"], ["media", "tape", "realtime"], "true")),
+        ("§10.2 P5: the preview is meta/preview.png, at that exact path",
+         mutate(good["manifest.json"], ["preview", "path"], "meta/thumb.png")),
+        ("§10.2 P5: a preview with no pixels is not a preview",
+         mutate(good["manifest.json"], ["preview", "width"], 0)),
+        ("§12.1: media is a closed key set; an unknown member of it is a "
+         "writer defect",
+         mutate(good["manifest.json"], ["media", "cassette"], {})),
         ("the manifest itself is required",
          None),
     ]

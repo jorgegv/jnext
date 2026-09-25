@@ -30,9 +30,13 @@ public:
     uint8_t alt_rom_config() const { return alt_rom_config_; }
     bool alt_rom_enabled() const { return (alt_rom_config_ & 0x80) != 0; }
 
+    /// The whole ROM image, 4 x 16K. PUBLIC since GH #27 S8: a `.jns` records
+    /// a digest of the ROM this machine is RUNNING (design §8, §10.2 P3), and
+    /// the caller computing it needs the extent.
+    static constexpr size_t ROM_SIZE = 64 * 1024;  // 4 x 16K
+
 private:
     uint8_t alt_rom_config_ = 0;
-    static constexpr size_t ROM_SIZE = 64 * 1024;  // 4 x 16K
     std::array<uint8_t, ROM_SIZE> data_;
     bool loaded_[4] = {};
 };

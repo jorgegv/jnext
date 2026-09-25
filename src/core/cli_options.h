@@ -60,6 +60,9 @@ enum class OptId {
     DelayedAutomaticExitFrames,
     DelayedSnapshot,
     DelayedSnapshotFrames,
+    SnapshotUncompressed,
+    SnapshotStrict,
+    SnapshotForceSdcard,
     Machine,
     Headless,
     Benchmark,
@@ -544,10 +547,29 @@ inline constexpr Option OPTIONS[] = {
     { "--delayed-snapshot", 1, Doc::Documented, OptId::DelayedSnapshot,
       "FILE",
       "Headless-only: save a snapshot after a delay (frames);\n"
-      "format chosen by FILE's extension (.szx/.nex/other->.sna)" },
+      "format chosen by FILE's extension\n"
+      "(.jns/.szx/.nex/other->.sna)" },
     { "--delayed-snapshot-frames", 1, Doc::Documented, OptId::DelayedSnapshotFrames,
       "N",
       "Delay in frames for --delayed-snapshot (default 0)" },
+    // GH #27 S8 — the three `.jns` flags. Five were designed (design §15.1);
+    // `--load` and `--delayed-snapshot` take `.jns` through their EXISTING
+    // extension dispatch and need no flag of their own, which is why there are
+    // three rows here and not five.
+    { "--snapshot-uncompressed", 0, Doc::Documented, OptId::SnapshotUncompressed,
+      "",
+      "Write .jns snapshots with every member STORED instead\n"
+      "of deflated: readable with unzip -p, ~5x larger" },
+    { "--snapshot-strict", 0, Doc::Documented, OptId::SnapshotStrict,
+      "",
+      "Loading a .jns: turn the provenance warnings (state\n"
+      "model revision, ROM digests) into refusals" },
+    { "--snapshot-force-sdcard", 0, Doc::Documented, OptId::SnapshotForceSdcard,
+      "",
+      "Loading a .jns: restore even when the mounted SD card\n"
+      "is not the one it was taken on. Deliberately verbose:\n"
+      "this is the flag that lets you create the silently-\n"
+      "wrong case the identity check exists to prevent" },
     // The two-value options: SECS/N and KEY (or BUTTON) are consumed together.
     { "--delayed-keypress", 2, Doc::Documented, OptId::DelayedKeypress,
       "SECS KEY",

@@ -3,6 +3,8 @@
 #include <vector>
 #include <SDL3/SDL.h>
 
+namespace jnext { namespace save { class StateDesc; } }
+
 // Forward decl: MembraneStick (Task 3 Input) is wired as an optional
 // upstream joystick-to-keyboard adapter. Runtime (full Emulator) installs
 // a pointer via set_membrane_stick(); unit tests that construct bare
@@ -170,6 +172,11 @@ public:
     // -----------------------------------------------------------------------
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S5 — the ONE field list (design §9.2). `save_state` /
+    /// `load_state` are both a walk of this declaration, so the rewind
+    /// stream and a `.jns` cannot disagree about which fields exist.
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     /// matrix_[row]: 5-bit state; bit N = 0 means column N key is pressed.

@@ -1,5 +1,7 @@
 #include "audio/i2s.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 
 I2s::I2s() { reset(); }
 
@@ -56,22 +58,28 @@ uint16_t I2s::pi_audio_R() const
     return enR ? right_ : left_;
 }
 
+// GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
+// binary stream order, so it must not be disturbed: the byte-identity gate
+// (§17.1) pins these 4 bytes as the `i2s` block of the 2 292 965-byte stream.
+//
+// `nr_a2_ctl_` is deliberately NOT declared here (G113). `Emulator::save_state`
+// appends it at the very END of the snapshot instead, because putting it in
+// this block would grow a slot that older snapshots have at exactly four
+// bytes and byte-shift every following block. That is the same pattern G112
+// uses for `nr_2d_i2s_sample_`, and it makes the field one of §9.5's
+// hand-written exceptions — an Emulator scalar rather than an I2s one.
+void I2s::describe_state(jnext::save::StateDesc& d)
+{
+    d.u16("left", left_);
+    d.u16("right", right_);
+}
+
 void I2s::save_state(StateWriter& w) const
 {
-    w.write_u16(left_);
-    w.write_u16(right_);
-    // NB: nr_a2_ctl_ is intentionally NOT serialised here. Older
-    // emulator save snapshots predate G113 and append further subsystem
-    // bytes immediately after the I2s slot (nmi_source, etc.); appending
-    // a byte inside this method would shift those bytes and break
-    // forwards compatibility. Instead, Emulator::save_state() appends
-    // nr_a2_ctl_ at the very end of the snapshot with eof()-tolerant
-    // load, mirroring the G112 pattern for nr_2d_i2s_sample_.
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void I2s::load_state(StateReader& r)
 {
-    left_  = r.read_u16();
-    right_ = r.read_u16();
-    // nr_a2_ctl_ restored by Emulator::load_state() — see save_state().
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
 }

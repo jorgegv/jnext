@@ -47,7 +47,13 @@ set(FATFS_SOURCES ${FATFS_DIR}/ff.c ${FATFS_DIR}/ffunicode.c)
 add_library(jnext_core STATIC ${SOURCES} ${FATFS_SOURCES} ${NEXTBOOT_ROM_GEN})
 # ${CMAKE_SOURCE_DIR} is on the path so that #include "third_party/fatfs/ff.h"
 # resolves now that FatFs sits with the other vendored libraries at the root.
-target_include_directories(jnext_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR})
+# "${CMAKE_BINARY_DIR}/generated" carries the generated version.h. GH #27 S8
+# needs it: a `.jns` manifest records the jnext version that WROTE it
+# (`producer.jnext_version`, design §8), which is provenance a bug report is
+# bisected from. jnext_gui and the jnext executable already add the same
+# directory; jnext_core did not, because nothing in it had asked until now.
+target_include_directories(jnext_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}
+                                             "${CMAKE_BINARY_DIR}/generated")
 # emulator.h includes input/keyboard.h; Keyboard symbols live in jnext_input.
 # src/input is added before src/core in the root CMakeLists so this target exists.
 # Declare what jnext_core ACTUALLY uses. emulator.cpp alone reaches into the
@@ -59,9 +65,13 @@ target_include_directories(jnext_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOU
 # the debugger off removed that accident and the link broke (undefined
 # Dac::reset, Layer2::log_bank_change, NexSaver/SzxSaver::save). None of these
 # libraries depend on jnext_core, so there is no cycle.
+# jnext_save carries the GH #27 `StateDesc` descriptor layer; clock.cpp's
+# save_state/load_state are a walk of its declaration (stage S3), so the
+# BinWriteDesc/BinReadDesc bodies in jnext_save must resolve here.
 target_link_libraries(jnext_core PUBLIC
     jnext_input jnext_peripheral jnext_debug jnext_profiler
     jnext_cpu jnext_memory jnext_video jnext_audio jnext_port
+    jnext_save
     spdlog::spdlog zot_tzx ZLIB::ZLIB)
 # SD-card provisioner network/hash backend (GH #108 Phase B): OS-native
 # WinHTTP + BCrypt on Windows (system import libs, present in every MinGW

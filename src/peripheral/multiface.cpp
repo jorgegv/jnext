@@ -1,6 +1,8 @@
 #include "peripheral/multiface.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 #include <algorithm>
 #include <cstring>
 
@@ -356,43 +358,95 @@ bool Multiface::load_rom_bytes(const uint8_t* data, size_t size)
 
 // ── Save / load state ────────────────────────────────────────────────
 
-void Multiface::save_state(StateWriter& w) const
+// GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
+// binary stream order, so it must not be disturbed.
+//
+// ── THE 8 KB IS A `blob`, AND IT IS CONDITIONALLY PRESENT (S5b, §17.0) ──
+//
+// §9.2 makes the KIND a static declaration and the PRESENCE machine-dependent
+// — "declared `blob`, and emitted only on the machines where it is live" —
+// and the two halves have different reasons.
+//
+// `blob` rather than `ram_window`, because the aliasing is NOT unconditional
+// the way DivMMC's is: `set_ram_backing` is gated on the machine type
+// (emulator.cpp:301/:304 — Ram page 0x0B on the Next, nullptr on
+// 48K/128K/+3). A `ram_window` declaration would make the JSON encoding emit
+// a reference to page 0x0B on a 48K machine, where that page holds nothing of
+// the sort. The declaration must stay true on every machine, so it is a blob.
+//
+// Present only when there is no backing, because that is exactly when the
+// private array is the store. On the Next the live 8 KB IS Ram page 0x0B and
+// already travels in the `ram` block, and what `save_state` used to write
+// here was the untouched private array — verified, not assumed: all 8 192
+// bytes of the pre-S5b golden's Multiface RAM, at offset 2 283 678, were
+// zero. Dropping them costs nothing and is §4.3(2). On 48K/128K/+3 (and in a
+// standalone `multiface_test` round-trip, where nothing calls
+// `set_ram_backing` either) the array is the real thing and still travels.
+//
+// This is the one place in the tree where the stream's WIDTH depends on the
+// machine type: 2 153 701 bytes on the Next against 2 161 893 on the others.
+// `RewindBuffer` needs the width constant only within a run and measures it
+// once per `init()`; a machine-type change is a power cycle that reconstructs
+// the Emulator (`MainWindow::on_machine_type`), and the G67 bound guard drops
+// a mis-sized snapshot loudly rather than publishing it.
+//
+// The `1` presence byte that precedes this block is written by
+// `Emulator::save_state`, not here — it is framing for an append-only
+// extension, in the class §9.4 calls sentinels rather than fields.
+void Multiface::describe_state(jnext::save::StateDesc& d)
 {
     // FF state.
-    w.write_bool(enabled_);
-    w.write_bool(nmi_active_);
-    w.write_bool(invisible_);
-    w.write_bool(mf_enable_);
-    w.write_bool(port_io_dly_);
-    // Mode (re-derivable from NR 0x0A but preserved here so a Multiface
-    // restored standalone doesn't depend on NR 0x0A load order).
-    w.write_bool(mode_p3_);
-    w.write_bool(mode_128_);
-    w.write_bool(mode_48_);
-    // RAM contents (8 KB). ROM is reloaded fresh from SD each session.
-    w.write_bytes(ram_.data(), ram_.size());
+    d.boolean("enabled", enabled_);
+    d.boolean("nmi_active", nmi_active_);
+    d.boolean("invisible", invisible_);
+    d.boolean("mf_enable", mf_enable_);
+    d.boolean("port_io_dly", port_io_dly_);
+    // Mode (re-derivable from NR 0x0A but declared here so a Multiface
+    // restored standalone does not depend on NR 0x0A load order).
+    d.boolean("mode_p3", mode_p3_);
+    d.boolean("mode_128", mode_128_);
+    d.boolean("mode_48", mode_48_);
+    // GH #27 S6 — the 2-bit NR 0x0A mf_type, declared DIRECTLY (design
+    // §10.2 P13, defect D2). It used to be RECONSTRUCTED from the three
+    // booleans above by `load_state`, and the reconstruction was knowingly
+    // lossy: `multiface.vhd:105-118` decodes both "01" and "10" to mode_128,
+    // so the rebuild had to pick one and a session running mf_type=10 came
+    // back as 01. That is a G1 violation with no symptom — `mf_type()` is
+    // read back by NR 0x0A, so the guest could see a bit it had written
+    // silently change across a save.
+    //
+    // NO DECLARED DEFAULT, deliberately, and this is §12.2's "required only
+    // when no honest default exists" applied to a real field: the power-on
+    // value depends on the MACHINE (0b00 on a +3, 0b11 on a 48K), so any
+    // constant here would restore the wrong Multiface on two machines out of
+    // three. A `.jns` without this key is refused rather than guessed at.
+    d.u8("mf_type", mf_type_);
+    // RAM contents (8 KB), on the machines where the private array is the
+    // store. ROM is reloaded fresh from SD each session, so it is not state
+    // and is not declared at all.
+    if (ram_ext_ == nullptr) {
+        d.blob("ram", ram_.data(), ram_.size());
+    }
+}
+
+void Multiface::save_state(StateWriter& w) const
+{
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void Multiface::load_state(StateReader& r)
 {
-    enabled_     = r.read_bool();
-    nmi_active_  = r.read_bool();
-    invisible_   = r.read_bool();
-    mf_enable_   = r.read_bool();
-    port_io_dly_ = r.read_bool();
-    mode_p3_     = r.read_bool();
-    mode_128_    = r.read_bool();
-    mode_48_     = r.read_bool();
-    r.read_bytes(ram_.data(), ram_.size());
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
+
+    // Everything below is post-walk and deliberately OUTSIDE the declaration.
+    //
+    // The two flags are derived, per-fetch working state that a restore must
+    // clear (§9.5(7)/(8)) — not fields.
     fetch_66_live_ = false;
     mf_port_en_    = false;
-    // mf_type_ is reconstructed from the mode booleans: we serialise the
-    // booleans (Wave 1 B1 schema) and recover the 2-bit raw value here.
-    // mode_128 maps to "01" by convention (the lower of the two
-    // mode_128 codes); save state from a session running mf_type=10
-    // will lose the bit. Wave 1 B2 added mf_type_ for port dispatch and
-    // accepts this lossy serialisation rather than bumping the schema.
-    if (mode_p3_)       mf_type_ = 0x00;
-    else if (mode_48_)  mf_type_ = 0x03;
-    else                mf_type_ = 0x01;
+
+    // `mf_type_` is NOT reconstructed here any more: S6 declares it (see
+    // describe_state), so the value the guest wrote is the value that comes
+    // back. The rebuild this replaced — `mode_p3 ? 00 : mode_48 ? 11 : 01` —
+    // could not express mf_type=10 at all (§4.3(3), §10.2 P13).
 }

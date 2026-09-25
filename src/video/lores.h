@@ -7,6 +7,8 @@ class Ram;
 class StateWriter;
 class StateReader;
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// LoRes 128x96 chunky display generator.
 ///
 /// A 1:1 model of the FPGA entity `lores`
@@ -255,6 +257,17 @@ public:
 
     void save_state(StateWriter& w) const;
     void load_state(StateReader& r);
+
+    /// GH #27 S4 — everything `load_state` does besides the walk, so
+    /// `Renderer::load_state` (which performs this subsystem's walk as part
+    /// of its own nested declaration) can still run it.
+    void after_load_state();
+
+    /// GH #27 S4 — the ONE field list (design §9.2). Declared ALONGSIDE
+    /// `Renderer`'s rather than in a block of its own: `Renderer::save_state`
+    /// nests this call, so the fields land inside block 10 exactly where the
+    /// stream has always carried them.
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     static constexpr int MAX_LINES = 320;

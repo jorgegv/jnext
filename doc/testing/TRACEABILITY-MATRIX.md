@@ -31,19 +31,19 @@ mentions them, so a test can no longer be absent from this document.
 | Compositor                                 |   284 |  284 |    0 |    0 |       0 |          0 |
 | Audio                                      |   221 |  221 |    0 |    0 |       0 |          0 |
 | DMA                                        |   160 |  160 |    0 |    0 |       0 |          0 |
-| DivMMC+SPI                                 |   155 |  155 |    0 |    0 |       0 |          0 |
-| Multiface                                  |    55 |   55 |    0 |    0 |       0 |          0 |
+| DivMMC+SPI                                 |   156 |  156 |    0 |    0 |       0 |          0 |
+| Multiface                                  |    57 |   57 |    0 |    0 |       0 |          0 |
 | CTC+Interrupts                             |   203 |  203 |    0 |    0 |       0 |          0 |
 | UART+I2C/RTC                               |   122 |  122 |    0 |    0 |       0 |          0 |
 | NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
 | Input                                      |   355 |  355 |    0 |    0 |       0 |          0 |
-| Rewind                                     |    21 |   21 |    0 |    0 |       0 |          0 |
+| Rewind                                     |   186 |  186 |    0 |    0 |       0 |          0 |
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |    64 |   64 |    0 |    0 |       0 |          0 |
 | Contention                                 |   160 |  160 |    0 |    0 |       0 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
-| SD Card                                    |    75 |   74 |    0 |    1 |       0 |          0 |
+| SD Card                                    |    88 |   87 |    0 |    1 |       0 |          0 |
 | NMI Source Pipeline                        |    78 |   78 |    0 |    0 |       0 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    30 |   24 |    0 |    6 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4864 | 4853 |    0 |   11 |       0 |          0 |
+| **Total**                                  |  5045 | 5034 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **4864**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4556**. Rows the 116 suites declared in `test/unit-tests.conf` run live: **8783**.
+Rows the sections above carry: **5045**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4737**. Rows the 117 suites declared in `test/unit-tests.conf` run live: **9025**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -77,7 +77,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 73 suites (4212 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 74 suites (4273 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -91,7 +91,8 @@ These 73 suites (4212 live rows) have no VHDL-derived plan row to map, so they h
 | `fat32_image_test` | 16 | FAT32 on-disk format (host image reader) |
 | `sdcard_provisioner_test` | 64 | jnext SD-image download/patch policy (host side) |
 | `warm_start_test` | 39 | warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify |
-| `snapshot_test` | 275 | the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file |
+| `snapshot_test` | 295 | the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file |
+| `sd_identity_test` | 37 | the .jns snapshot SD-card MEDIA IDENTITY (doc/design/NEXT-SNAPSHOT-FORMAT.md §11.3): the two-tier identity read off a REAL image -- MBR partition table, FAT32 BS_VolID, whole-image digest -- and the refusal/warning matrix it feeds. The oracle is that design section plus the FAT32 on-disk format; the FPGA core never sees a filesystem, only SPI blocks, which `## SD Card` traces |
 | `audio_pacing_test` | 50 | host SDL audio pacing/underrun policy, downstream of the mixer |
 | `audio_fill_test` | 39 | host SDL device-boundary fill/hold policy (GH #208), downstream of the mixer |
 | `audio_capture_test` | 17 | host WAV capture of the mixer output |
@@ -135,7 +136,7 @@ These 73 suites (4212 live rows) have no VHDL-derived plan row to map, so they h
 | `esp_status_test` | 15 | host status-bar ESP indicator (GUI), no core counterpart |
 | `nex_v13_dialog_test` | 4 | experimental NEX V1.3 warning dialog (GUI), no core counterpart |
 | `rzx_menu_test` | 15 | RZX File-menu error dialogs (GUI), no core counterpart |
-| `load_error_test` | 11 | GUI load-failure reporting and Tape menu (GUI), no core counterpart |
+| `load_error_test` | 15 | GUI load-failure reporting, the Tape menu, and the file-dialog FILTERS (GUI), no core counterpart |
 | `esc_break_test` | 6 | host ESC->BREAK binding; guest matrix is `## Input` |
 | `host_hotkey_test` | 37 | host hotkey bindings (Alt vs the guest Symbol Shift) |
 | `main_window_accel_test` | 5 | main-window menu mnemonics (host GUI) |
@@ -325,10 +326,10 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | L2M-04 | L2 write-over does not apply to 0xC000-0xFFFF — VHDL zxnext.vhd:3077 | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3257 |
 | L2M-05 | NR 0x12 write sets Layer 2 active bank (7-bit) [zxnext.vhd:4945 nr_12_layer2_active_bank] | zxnext.vhd:4945 | pass | test/nextreg/nextreg_integration_test.cpp:3030 |
 | L2M-06 | NR 0x13 write sets Layer 2 shadow bank (7-bit) [zxnext.vhd:4946 nr_13_layer2_shadow_bank] | zxnext.vhd:4946 | pass | test/nextreg/nextreg_integration_test.cpp:3066 |
-| PRI-01 | DivMMC ROM overrides MMU at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084) | zxnext.vhd:3084 | pass | test/divmmc/divmmc_test.cpp:2365 |
-| PRI-02 | DivMMC RAM overrides MMU at 0x2000-0x3FFF when overlay active (VHDL zxnext.vhd:3087) | zxnext.vhd:3087 | pass | test/divmmc/divmmc_test.cpp:2399 |
+| PRI-01 | DivMMC ROM overrides MMU at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084) | zxnext.vhd:3084 | pass | test/divmmc/divmmc_test.cpp:2414 |
+| PRI-02 | DivMMC RAM overrides MMU at 0x2000-0x3FFF when overlay active (VHDL zxnext.vhd:3087) | zxnext.vhd:3087 | pass | test/divmmc/divmmc_test.cpp:2448 |
 | PRI-03 | L2 write-over outranks MMU in 0-16K — VHDL zxnext.vhd:3077 | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3316 |
-| PRI-04 | DivMMC beats Layer 2 write-over at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084-3100 chain) | zxnext.vhd:3084-3100 | pass | test/divmmc/divmmc_test.cpp:2445 |
+| PRI-04 | DivMMC beats Layer 2 write-over at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084-3100 chain) | zxnext.vhd:3084-3100 | pass | test/divmmc/divmmc_test.cpp:2494 |
 | PRI-05 | MMU-only path at 0xC000 with no overrides — VHDL zxnext.vhd:2933-3133 | zxnext.vhd:2933-3133 | pass | test/mmu/mmu_test.cpp:3337 |
 | PRI-06 | altrom overrides normal ROM when altrom_en=1, altrom_rw=0 — VHDL zxnext.vhd:3078 arbiter priority | zxnext.vhd:3078 | pass | test/mmu/mmu_test.cpp:3362 |
 | PRI-07 | config_mode ROMRAM routing outranks normal ROM read path — VHDL zxnext.vhd:3044-3052 | zxnext.vhd:3044-3052 | pass | test/mmu/mmu_test.cpp:3386 |
@@ -341,8 +342,8 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | BOOT-NEX-05 | start_delay honoured unconditionally before code-entry, on top of any inter-bank loading_delay total | — | pass | test/mmu/mmu_test.cpp:3649 |
 | BOOT-NEX-06 | loading_bar_colour byte is written verbatim, not a fixed default — nexload.asm:617,619-620 `ld a,(LoadCol):ld e,a` | — | pass | test/mmu/mmu_test.cpp:3617 |
 | BOOT-NEX-07 | G16 fix: zero_bank5_screen_pages() clears pages 10+11 (16 KB) before screen-format ingest, eliminating attribute-area leak from stale pre-load RAM (BEAST-NEX-INVESTIGATION.md §Verdict) | — | pass | test/mmu/mmu_test.cpp:3729 |
-| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | — | pass | test/sdcard/sdcard_test.cpp:1119 |
-| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | — | pass | test/sdcard/sdcard_test.cpp:2307 |
+| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | — | pass | test/sdcard/sdcard_test.cpp:1121 |
+| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | — | pass | test/sdcard/sdcard_test.cpp:2309 |
 | BOOT-TAPESAVE-01 | TapSaver::build_block header block: LE length prefix (payload+2), flag 0x00, payload verbatim, XOR checksum — hand-computed TAP image (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3790 |
 | BOOT-TAPESAVE-02 | TapSaver data block (non-trivial XOR checksum) + append_block file ordering: file bytes == header-block \|\| data-block, hand-computed images (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3859 |
 | BOOT-TAPESAVE-03 | TapSaver → TapLoader::parse_blocks round-trip: 2 blocks, correct boundaries/flags, payload identity, loader checksum verification, zero parse warnings (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3907 |
@@ -1982,71 +1983,71 @@ Notes and rationale: [DIVMMC-SPI-TEST-PLAN-DESIGN.md](DIVMMC-SPI-TEST-PLAN-DESIG
 | DA-06 | on_retn() clears automap_active_ (VHDL divmmc.vhd:126,139) | divmmc.vhd:126,139 | pass | test/divmmc/divmmc_test.cpp:1118 |
 | DA-07 | reset() clears automap_active (VHDL divmmc.vhd:127) | divmmc.vhd:127 | pass | test/divmmc/divmmc_test.cpp:1131 |
 | DA-08 | set_enabled(false) clears automap_active_ latch (VHDL divmmc.vhd:126) | divmmc.vhd:126 | pass | test/divmmc/divmmc_test.cpp:1147 |
-| DMC-TM-01 | instant_on: active=1 and hold=1 after fetch 1 (held=0 yet); held=1 after fetch 2 (VHDL divmmc.vhd:141 latches held from hold on MREQ rising edge) | divmmc.vhd:141 | pass | test/divmmc/divmmc_test.cpp:1239 |
-| DMC-TM-02 | delayed_on: hold=1 this M1, active stays 0; next M1 active=1 (VHDL divmmc.vhd:129,141,148) | divmmc.vhd:129,141,148 | pass | test/divmmc/divmmc_test.cpp:1261 |
-| DMC-TM-03 | held persists across non-trigger M1 via hold propagation (VHDL divmmc.vhd:141-142,131) | divmmc.vhd:141-142,131 | pass | test/divmmc/divmmc_test.cpp:1282 |
-| DMC-TM-04 | non-M1 access at entry-point does NOT alter hold/held (VHDL divmmc.vhd:128 gates on M1+MREQ) | divmmc.vhd:128 | pass | test/divmmc/divmmc_test.cpp:1305 |
-| TM-05 | held persists across 5 non-trigger M1 fetches (VHDL divmmc.vhd:131 — held AND NOT off keeps hold at 1) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:1322 |
-| R3-01 | ROM3-only entry (NR 0xB9 bit=0) fires when rom3_active=1 (VHDL zxnext.vhd:2856,3138 + divmmc.vhd:130) | zxnext.vhd:2856,3138, divmmc.vhd:130 | pass | test/divmmc/divmmc_test.cpp:1355 |
-| R3-02 | ROM3-only entry does NOT fire when rom3_active=0 (VHDL zxnext.vhd:2856 gates on sram_pre_rom3) | zxnext.vhd:2856 | pass | test/divmmc/divmmc_test.cpp:1373 |
-| R3-03 | Layer 2 read-map suppresses ROM3-only automap path (VHDL zxnext.vhd:3138 — sram_divmmc_automap_rom3_en AND NOT sram_layer2_map_en) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:1407 |
-| R3-04 | DivMMC enabled + conmem: non-ROM3 automap path active (VHDL zxnext.vhd:3137) | zxnext.vhd:3137 | pass | test/divmmc/divmmc_test.cpp:1425 |
-| NM-01 | Arbiter IDLE->FETCH pulses nmi_divmmc_button; DivMmc::set_button_nmi(true) latches button_nmi_ (VHDL divmmc.vhd:108-111, zxnext.vhd:2170) | divmmc.vhd:108-111, zxnext.vhd:2170 | pass | test/divmmc/divmmc_test.cpp:1513 |
-| NM-02 | PC=0x0066 M1 with button_nmi=1 -> automap_nmi_instant_on fires (VHDL divmmc.vhd:120-121) | divmmc.vhd:120-121 | pass | test/divmmc/divmmc_test.cpp:1533 |
-| NM-03 | PC=0x0066 M1 with button_nmi=0 -> no NMI instant-on automap (VHDL divmmc.vhd:120) | divmmc.vhd:120 | pass | test/divmmc/divmmc_test.cpp:1553 |
-| NM-04 | reset() clears button_nmi_ (VHDL divmmc.vhd:108 i_reset) | divmmc.vhd:108 | pass | test/divmmc/divmmc_test.cpp:1569 |
-| NM-05 | enabled(true->false) (i_automap_reset) clears button_nmi_ (VHDL divmmc.vhd:108 / zxnext.vhd:4112) | divmmc.vhd:108, zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:1587 |
-| NM-06 | on_retn_seen() (i_retn_seen) clears button_nmi_ (VHDL divmmc.vhd:108) | divmmc.vhd:108 | pass | test/divmmc/divmmc_test.cpp:1605 |
-| NM-07 | automap_held rising 0->1 clears button_nmi_ (VHDL divmmc.vhd:112-113) | divmmc.vhd:112-113 | pass | test/divmmc/divmmc_test.cpp:1636 |
-| NM-08 | is_nmi_hold() steady-state = automap OR button_nmi across all 4 input combinations after held has caught up to hold (VHDL divmmc.vhd:148,150 o_disable_nmi). Discriminative first-M1 active-vs-held case is in NM-10. | divmmc.vhd:148,150 | pass | test/divmmc/divmmc_test.cpp:1725 |
-| NA-01 | enable=false (NR 0x0A[4]=0 equivalent): no mapping on automap trigger (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:1958 |
-| NA-02 | enable=true releases reset, automap functions (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:2022 |
-| NA-03 | port_io_enable and nr_0a_4_enable are independent levers; enabled_ = port_io_enable AND nr_0a_4_enable (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:2046 |
-| NA-04 | NR 0x0A bit 4 wired through to DivMmc::set_nr_0a_4_enable (VHDL zxnext.vhd:1126,5196) | zxnext.vhd:1126,5196 | pass | test/divmmc/divmmc_test.cpp:2089 |
-| NA-05 | NR 0x83 bit 0 wired through to DivMmc::set_port_io_enable (VHDL zxnext.vhd:2412) | zxnext.vhd:2412 | pass | test/divmmc/divmmc_test.cpp:2119 |
-| NA-06 | NR 0x06 power-on default = 0xA0 (b7=1, b5=1) (VHDL zxnext.vhd:1107-1108) | zxnext.vhd:1107-1108 | pass | test/divmmc/divmmc_test.cpp:2133 |
-| NA-07 | NR 0x06 bits 7/5 round-trip through NextReg storage (VHDL zxnext.vhd:5162,5164,5900) | zxnext.vhd:5162,5164,5900 | pass | test/divmmc/divmmc_test.cpp:2158 |
-| NA-08 | NR 0x0A bit 5 (sd_swap) write blocked when nr_03_config_mode=0 (VHDL zxnext.vhd:5191-5194) | zxnext.vhd:5191-5194 | pass | test/divmmc/divmmc_test.cpp:2201 |
+| DMC-TM-01 | instant_on: active=1 and hold=1 after fetch 1 (held=0 yet); held=1 after fetch 2 (VHDL divmmc.vhd:141 latches held from hold on MREQ rising edge) | divmmc.vhd:141 | pass | test/divmmc/divmmc_test.cpp:1288 |
+| DMC-TM-02 | delayed_on: hold=1 this M1, active stays 0; next M1 active=1 (VHDL divmmc.vhd:129,141,148) | divmmc.vhd:129,141,148 | pass | test/divmmc/divmmc_test.cpp:1310 |
+| DMC-TM-03 | held persists across non-trigger M1 via hold propagation (VHDL divmmc.vhd:141-142,131) | divmmc.vhd:141-142,131 | pass | test/divmmc/divmmc_test.cpp:1331 |
+| DMC-TM-04 | non-M1 access at entry-point does NOT alter hold/held (VHDL divmmc.vhd:128 gates on M1+MREQ) | divmmc.vhd:128 | pass | test/divmmc/divmmc_test.cpp:1354 |
+| TM-05 | held persists across 5 non-trigger M1 fetches (VHDL divmmc.vhd:131 — held AND NOT off keeps hold at 1) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:1371 |
+| R3-01 | ROM3-only entry (NR 0xB9 bit=0) fires when rom3_active=1 (VHDL zxnext.vhd:2856,3138 + divmmc.vhd:130) | zxnext.vhd:2856,3138, divmmc.vhd:130 | pass | test/divmmc/divmmc_test.cpp:1404 |
+| R3-02 | ROM3-only entry does NOT fire when rom3_active=0 (VHDL zxnext.vhd:2856 gates on sram_pre_rom3) | zxnext.vhd:2856 | pass | test/divmmc/divmmc_test.cpp:1422 |
+| R3-03 | Layer 2 read-map suppresses ROM3-only automap path (VHDL zxnext.vhd:3138 — sram_divmmc_automap_rom3_en AND NOT sram_layer2_map_en) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:1456 |
+| R3-04 | DivMMC enabled + conmem: non-ROM3 automap path active (VHDL zxnext.vhd:3137) | zxnext.vhd:3137 | pass | test/divmmc/divmmc_test.cpp:1474 |
+| NM-01 | Arbiter IDLE->FETCH pulses nmi_divmmc_button; DivMmc::set_button_nmi(true) latches button_nmi_ (VHDL divmmc.vhd:108-111, zxnext.vhd:2170) | divmmc.vhd:108-111, zxnext.vhd:2170 | pass | test/divmmc/divmmc_test.cpp:1562 |
+| NM-02 | PC=0x0066 M1 with button_nmi=1 -> automap_nmi_instant_on fires (VHDL divmmc.vhd:120-121) | divmmc.vhd:120-121 | pass | test/divmmc/divmmc_test.cpp:1582 |
+| NM-03 | PC=0x0066 M1 with button_nmi=0 -> no NMI instant-on automap (VHDL divmmc.vhd:120) | divmmc.vhd:120 | pass | test/divmmc/divmmc_test.cpp:1602 |
+| NM-04 | reset() clears button_nmi_ (VHDL divmmc.vhd:108 i_reset) | divmmc.vhd:108 | pass | test/divmmc/divmmc_test.cpp:1618 |
+| NM-05 | enabled(true->false) (i_automap_reset) clears button_nmi_ (VHDL divmmc.vhd:108 / zxnext.vhd:4112) | divmmc.vhd:108, zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:1636 |
+| NM-06 | on_retn_seen() (i_retn_seen) clears button_nmi_ (VHDL divmmc.vhd:108) | divmmc.vhd:108 | pass | test/divmmc/divmmc_test.cpp:1654 |
+| NM-07 | automap_held rising 0->1 clears button_nmi_ (VHDL divmmc.vhd:112-113) | divmmc.vhd:112-113 | pass | test/divmmc/divmmc_test.cpp:1685 |
+| NM-08 | is_nmi_hold() steady-state = automap OR button_nmi across all 4 input combinations after held has caught up to hold (VHDL divmmc.vhd:148,150 o_disable_nmi). Discriminative first-M1 active-vs-held case is in NM-10. | divmmc.vhd:148,150 | pass | test/divmmc/divmmc_test.cpp:1774 |
+| NA-01 | enable=false (NR 0x0A[4]=0 equivalent): no mapping on automap trigger (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:2007 |
+| NA-02 | enable=true releases reset, automap functions (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:2071 |
+| NA-03 | port_io_enable and nr_0a_4_enable are independent levers; enabled_ = port_io_enable AND nr_0a_4_enable (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:2095 |
+| NA-04 | NR 0x0A bit 4 wired through to DivMmc::set_nr_0a_4_enable (VHDL zxnext.vhd:1126,5196) | zxnext.vhd:1126,5196 | pass | test/divmmc/divmmc_test.cpp:2138 |
+| NA-05 | NR 0x83 bit 0 wired through to DivMmc::set_port_io_enable (VHDL zxnext.vhd:2412) | zxnext.vhd:2412 | pass | test/divmmc/divmmc_test.cpp:2168 |
+| NA-06 | NR 0x06 power-on default = 0xA0 (b7=1, b5=1) (VHDL zxnext.vhd:1107-1108) | zxnext.vhd:1107-1108 | pass | test/divmmc/divmmc_test.cpp:2182 |
+| NA-07 | NR 0x06 bits 7/5 round-trip through NextReg storage (VHDL zxnext.vhd:5162,5164,5900) | zxnext.vhd:5162,5164,5900 | pass | test/divmmc/divmmc_test.cpp:2207 |
+| NA-08 | NR 0x0A bit 5 (sd_swap) write blocked when nr_03_config_mode=0 (VHDL zxnext.vhd:5191-5194) | zxnext.vhd:5191-5194 | pass | test/divmmc/divmmc_test.cpp:2250 |
 | SM-01 | DivMMC ROM window 0x0000-0x1FFF is physical SRAM page 0x08 (byte 0x010000), per sram_A21_A13 = "000001000" [zxnext.vhd:3084-3085, divmmc.vhd:93] | zxnext.vhd:3084-3085, divmmc.vhd:93 | pass | test/divmmc/divmmc_integration_test.cpp:129 |
 | SM-02 | DivMMC RAM bank 0 is physical SRAM page 16 (byte 0x020000), per sram_A21_A13 = "000010000" [zxnext.vhd:3092-3093, divmmc.vhd:94-96] | zxnext.vhd:3092-3093, divmmc.vhd:94-96 | pass | test/divmmc/divmmc_integration_test.cpp:146 |
 | SM-03 | DivMMC RAM bank 3 is physical SRAM page 19 (byte 0x026000), per sram_A21_A13 = "000010011" [zxnext.vhd:3092-3093] | zxnext.vhd:3092-3093 | pass | test/divmmc/divmmc_integration_test.cpp:161 |
 | SM-04 | DivMMC RAM bank 15 is physical SRAM page 31 (byte 0x03E000), per sram_A21_A13 = "000011111" [zxnext.vhd:3092-3093] | zxnext.vhd:3092-3093 | pass | test/divmmc/divmmc_integration_test.cpp:180 |
 | SM-05 | DivMMC outranks the Layer 2 mapping in the SRAM arbiter: the same address reads the Layer 2 byte, then the DivMMC ROM byte while conmem is set, then the Layer 2 byte again [zxnext.vhd:3081-3104] | zxnext.vhd:3081-3104 | pass | test/divmmc/divmmc_integration_test.cpp:214 |
-| SS-01 | Reset sets port_e7 to 0xFF (all deselected) (VHDL zxnext.vhd:3302) | zxnext.vhd:3302 | pass | test/divmmc/divmmc_test.cpp:2471 |
-| SS-02 | sd_swap=0: write 0x01 selects SD1 (0xFD) (VHDL zxnext.vhd:3313-3314,3331) | zxnext.vhd:3313-3314,3331 | pass | test/divmmc/divmmc_test.cpp:2502 |
-| SS-03 | sd_swap=0: write 0x02 selects SD0 (0xFE) (VHDL zxnext.vhd:3311-3312,3332) | zxnext.vhd:3311-3312,3332 | pass | test/divmmc/divmmc_test.cpp:2516 |
-| SS-04 | sd_swap=1: write 0x01 maps to SD0 pattern 0xFE (VHDL zxnext.vhd:3313-3314,3332) | zxnext.vhd:3313-3314,3332 | pass | test/divmmc/divmmc_test.cpp:2529 |
-| SS-05 | sd_swap=1: write 0x02 maps to SD1 pattern 0xFD (VHDL zxnext.vhd:3311-3312,3331) | zxnext.vhd:3311-3312,3331 | pass | test/divmmc/divmmc_test.cpp:2542 |
-| SS-06 | Write 0xFB selects RPI0 (bit 2 clear) (VHDL zxnext.vhd:3315-3316) | zxnext.vhd:3315-3316 | pass | test/divmmc/divmmc_test.cpp:2556 |
-| SS-07 | Write 0xF7 selects RPI1 (bit 3 clear) (VHDL zxnext.vhd:3317-3318) | zxnext.vhd:3317-3318 | pass | test/divmmc/divmmc_test.cpp:2567 |
+| SS-01 | Reset sets port_e7 to 0xFF (all deselected) (VHDL zxnext.vhd:3302) | zxnext.vhd:3302 | pass | test/divmmc/divmmc_test.cpp:2520 |
+| SS-02 | sd_swap=0: write 0x01 selects SD1 (0xFD) (VHDL zxnext.vhd:3313-3314,3331) | zxnext.vhd:3313-3314,3331 | pass | test/divmmc/divmmc_test.cpp:2551 |
+| SS-03 | sd_swap=0: write 0x02 selects SD0 (0xFE) (VHDL zxnext.vhd:3311-3312,3332) | zxnext.vhd:3311-3312,3332 | pass | test/divmmc/divmmc_test.cpp:2565 |
+| SS-04 | sd_swap=1: write 0x01 maps to SD0 pattern 0xFE (VHDL zxnext.vhd:3313-3314,3332) | zxnext.vhd:3313-3314,3332 | pass | test/divmmc/divmmc_test.cpp:2578 |
+| SS-05 | sd_swap=1: write 0x02 maps to SD1 pattern 0xFD (VHDL zxnext.vhd:3311-3312,3331) | zxnext.vhd:3311-3312,3331 | pass | test/divmmc/divmmc_test.cpp:2591 |
+| SS-06 | Write 0xFB selects RPI0 (bit 2 clear) (VHDL zxnext.vhd:3315-3316) | zxnext.vhd:3315-3316 | pass | test/divmmc/divmmc_test.cpp:2605 |
+| SS-07 | Write 0xF7 selects RPI1 (bit 3 clear) (VHDL zxnext.vhd:3317-3318) | zxnext.vhd:3317-3318 | pass | test/divmmc/divmmc_test.cpp:2616 |
 | SS-08 | port 0xE7 <- 0x7F stands as 0x7F only while nr_03_config_mode OR nr_02_reset_type(2) is set, and is rewritten to 0xFF otherwise — both VHDL sources reach the SpiMaster gate from the Emulator, and the pattern deasserts the SD and RPI selects (zxnext.vhd:3319-3322; :1306, :1735, :5147-5149) | zxnext.vhd:3319-3320 | pass | test/divmmc/divmmc_integration_test.cpp:325 |
-| SS-09 | Write 0x7F outside config mode: all deselected (0xFF) (VHDL zxnext.vhd:3326) | zxnext.vhd:3326 | pass | test/divmmc/divmmc_test.cpp:2597 |
-| SS-10 | Write unrecognised value: all deselected (0xFF) (VHDL zxnext.vhd:3322) | zxnext.vhd:3322 | pass | test/divmmc/divmmc_test.cpp:2613 |
-| SS-11 | Ambiguous SS write (two bits clear) must collapse to 0xFF — single-device enforcement (VHDL zxnext.vhd:3328) | zxnext.vhd:3328 | pass | test/divmmc/divmmc_test.cpp:2627 |
-| SX-01 | Write 0xEB forwards byte to MOSI (VHDL spi_master.vhd:111-112) | spi_master.vhd:111-112 | pass | test/divmmc/divmmc_test.cpp:2946 |
-| SX-02 | Read 0xEB pushes 0xFF on MOSI and triggers one exchange (VHDL spi_master.vhd:109-110) | spi_master.vhd:109-110 | pass | test/divmmc/divmmc_test.cpp:2974 |
-| SX-03 | First read after select returns previous-cycle result (VHDL spi_master.vhd:162-166); with no prior transfer the value is the miso_dat signal-init 0x00 (spi_master.vhd:74) | spi_master.vhd:162-166, spi_master.vhd:74 | pass | test/divmmc/divmmc_test.cpp:3004 |
-| SX-04 | First read after reset (no device) returns miso_dat signal-init 0x00 (VHDL spi_master.vhd:74; i_reset hardwired '0' at zxnext.vhd:3285) | spi_master.vhd:74, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:3030 |
-| SX-05 | Read after write returns MISO of the write exchange (VHDL spi_master.vhd:164-165) | spi_master.vhd:164-165 | pass | test/divmmc/divmmc_test.cpp:3052 |
-| ST-09 | SPI o_spi_wait_n surfaced via spi_wait_n() accessor; byte-wrapper master is always idle when observed (VHDL serial/spi_master.vhd:56,177) | serial/spi_master.vhd:56,177 | pass | test/divmmc/divmmc_test.cpp:3198 |
-| ML-03 | miso_dat stable across reads with same response (VHDL spi_master.vhd:164-165) | spi_master.vhd:164-165 | pass | test/divmmc/divmmc_test.cpp:3240 |
-| ML-05 | First read after reset reflects miso_dat power-on initial value 0x00 (VHDL spi_master.vhd:74 signal-init `(others => '0')`; i_reset hardwired '0' at zxnext.vhd:3285 means the synchronous-reset clause spi_master.vhd:151-152 never fires) | spi_master.vhd:74, zxnext.vhd:3285, spi_master.vhd:151-152 | pass | test/divmmc/divmmc_test.cpp:3277 |
-| SPI-MX-02 | RPI selected: MISO comes from the slave on that chip-select and the SD card is not consulted (VHDL zxnext.vhd:3279 mux arm; :3315-3318 decode; :3329-3330 spi_ss_rpi1_n/rpi0_n) | zxnext.vhd:3279 | pass | test/divmmc/divmmc_test.cpp:3351 |
-| MX-03 | SD selected: MISO sourced from SD device (VHDL zxnext.vhd:3280) | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:3372 |
-| MX-04 | No device selected: MISO reads as 0xFF after pipeline prime (VHDL zxnext.vhd:3280 default-else `spi_miso <= '1'` propagates to miso_dat at next state_last_d) | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:3400 |
-| IN-01 | Boot automap: M1 at 0x0000 maps DivMMC ROM (VHDL divmmc.vhd:94, zxnext.vhd:2850) | divmmc.vhd:94, zxnext.vhd:2850 | pass | test/divmmc/divmmc_test.cpp:3442 |
-| IN-02 | SD init sequence: select, write, deselect (VHDL zxnext.vhd:3302, spi_master.vhd:109) | zxnext.vhd:3302, spi_master.vhd:109 | pass | test/divmmc/divmmc_test.cpp:3462 |
-| IN-03 | RETN after handler clears automap overlay (VHDL divmmc.vhd:126,139) | divmmc.vhd:126,139 | pass | test/divmmc/divmmc_test.cpp:3480 |
-| IN-04 | RST 0x08 fires only when rom3_active=1 with default NR 0xB9=0x01 (EP1 flagged ROM3-only) (VHDL zxnext.vhd:2856,3138) | zxnext.vhd:2856,3138 | pass | test/divmmc/divmmc_test.cpp:3504 |
-| IN-05 | Two back-to-back writes both reach device (VHDL spi_master.vhd:82) | spi_master.vhd:82 | pass | test/divmmc/divmmc_test.cpp:3522 |
-| IN-06 | conmem during automap: mapping remains active (VHDL divmmc.vhd:94) | divmmc.vhd:94 | pass | test/divmmc/divmmc_test.cpp:3536 |
-| IN-07 | DivMMC disabled: no automap mapping, SPI still exchanges (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:3560 |
-| CM1-01 | candidate superset contains every VHDL entry-point address (RSTs, 0x0066, tape traps, 0x1FF8-0x1FFF, $3Dxx) | divmmc.vhd:120, zxnext.vhd:2898-2902, zxnext.vhd:2907-2908, zxnext.vhd:2902-2905, divmmc.vhd:131, zxnext.vhd:2898-2899 | pass | test/divmmc/divmmc_test.cpp:3807 |
-| CM1-02 | non-entry addresses are rejected by the candidate filter | — | pass | test/divmmc/divmmc_test.cpp:3829 |
-| CM1-03 | quiescent + non-candidate pc: may_react=false and check_automap is a state no-op (skip equivalence) | divmmc.vhd:112-148 | pass | test/divmmc/divmmc_test.cpp:3849 |
-| CM1-04 | pending hold: may_react=true at non-candidate pc and the hold→held promotion fires there (divmmc.vhd:141,148) | divmmc.vhd:141,148 | pass | test/divmmc/divmmc_test.cpp:3870 |
-| CM1-05 | active overlay: gate passes any pc; 0x1FF8 off-trigger deactivates through the gated path (divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:3892 |
-| CM1-06 | button_nmi latched: gate conservatively passes any pc | — | pass | test/divmmc/divmmc_test.cpp:3907 |
+| SS-09 | Write 0x7F outside config mode: all deselected (0xFF) (VHDL zxnext.vhd:3326) | zxnext.vhd:3326 | pass | test/divmmc/divmmc_test.cpp:2646 |
+| SS-10 | Write unrecognised value: all deselected (0xFF) (VHDL zxnext.vhd:3322) | zxnext.vhd:3322 | pass | test/divmmc/divmmc_test.cpp:2662 |
+| SS-11 | Ambiguous SS write (two bits clear) must collapse to 0xFF — single-device enforcement (VHDL zxnext.vhd:3328) | zxnext.vhd:3328 | pass | test/divmmc/divmmc_test.cpp:2676 |
+| SX-01 | Write 0xEB forwards byte to MOSI (VHDL spi_master.vhd:111-112) | spi_master.vhd:111-112 | pass | test/divmmc/divmmc_test.cpp:2995 |
+| SX-02 | Read 0xEB pushes 0xFF on MOSI and triggers one exchange (VHDL spi_master.vhd:109-110) | spi_master.vhd:109-110 | pass | test/divmmc/divmmc_test.cpp:3023 |
+| SX-03 | First read after select returns previous-cycle result (VHDL spi_master.vhd:162-166); with no prior transfer the value is the miso_dat signal-init 0x00 (spi_master.vhd:74) | spi_master.vhd:162-166, spi_master.vhd:74 | pass | test/divmmc/divmmc_test.cpp:3053 |
+| SX-04 | First read after reset (no device) returns miso_dat signal-init 0x00 (VHDL spi_master.vhd:74; i_reset hardwired '0' at zxnext.vhd:3285) | spi_master.vhd:74, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:3079 |
+| SX-05 | Read after write returns MISO of the write exchange (VHDL spi_master.vhd:164-165) | spi_master.vhd:164-165 | pass | test/divmmc/divmmc_test.cpp:3101 |
+| ST-09 | SPI o_spi_wait_n surfaced via spi_wait_n() accessor; byte-wrapper master is always idle when observed (VHDL serial/spi_master.vhd:56,177) | serial/spi_master.vhd:56,177 | pass | test/divmmc/divmmc_test.cpp:3247 |
+| ML-03 | miso_dat stable across reads with same response (VHDL spi_master.vhd:164-165) | spi_master.vhd:164-165 | pass | test/divmmc/divmmc_test.cpp:3289 |
+| ML-05 | First read after reset reflects miso_dat power-on initial value 0x00 (VHDL spi_master.vhd:74 signal-init `(others => '0')`; i_reset hardwired '0' at zxnext.vhd:3285 means the synchronous-reset clause spi_master.vhd:151-152 never fires) | spi_master.vhd:74, zxnext.vhd:3285, spi_master.vhd:151-152 | pass | test/divmmc/divmmc_test.cpp:3326 |
+| SPI-MX-02 | RPI selected: MISO comes from the slave on that chip-select and the SD card is not consulted (VHDL zxnext.vhd:3279 mux arm; :3315-3318 decode; :3329-3330 spi_ss_rpi1_n/rpi0_n) | zxnext.vhd:3279 | pass | test/divmmc/divmmc_test.cpp:3400 |
+| MX-03 | SD selected: MISO sourced from SD device (VHDL zxnext.vhd:3280) | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:3421 |
+| MX-04 | No device selected: MISO reads as 0xFF after pipeline prime (VHDL zxnext.vhd:3280 default-else `spi_miso <= '1'` propagates to miso_dat at next state_last_d) | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:3449 |
+| IN-01 | Boot automap: M1 at 0x0000 maps DivMMC ROM (VHDL divmmc.vhd:94, zxnext.vhd:2850) | divmmc.vhd:94, zxnext.vhd:2850 | pass | test/divmmc/divmmc_test.cpp:3491 |
+| IN-02 | SD init sequence: select, write, deselect (VHDL zxnext.vhd:3302, spi_master.vhd:109) | zxnext.vhd:3302, spi_master.vhd:109 | pass | test/divmmc/divmmc_test.cpp:3511 |
+| IN-03 | RETN after handler clears automap overlay (VHDL divmmc.vhd:126,139) | divmmc.vhd:126,139 | pass | test/divmmc/divmmc_test.cpp:3529 |
+| IN-04 | RST 0x08 fires only when rom3_active=1 with default NR 0xB9=0x01 (EP1 flagged ROM3-only) (VHDL zxnext.vhd:2856,3138) | zxnext.vhd:2856,3138 | pass | test/divmmc/divmmc_test.cpp:3553 |
+| IN-05 | Two back-to-back writes both reach device (VHDL spi_master.vhd:82) | spi_master.vhd:82 | pass | test/divmmc/divmmc_test.cpp:3571 |
+| IN-06 | conmem during automap: mapping remains active (VHDL divmmc.vhd:94) | divmmc.vhd:94 | pass | test/divmmc/divmmc_test.cpp:3585 |
+| IN-07 | DivMMC disabled: no automap mapping, SPI still exchanges (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:3609 |
+| CM1-01 | candidate superset contains every VHDL entry-point address (RSTs, 0x0066, tape traps, 0x1FF8-0x1FFF, $3Dxx) | divmmc.vhd:120, zxnext.vhd:2898-2902, zxnext.vhd:2907-2908, zxnext.vhd:2902-2905, divmmc.vhd:131, zxnext.vhd:2898-2899 | pass | test/divmmc/divmmc_test.cpp:3856 |
+| CM1-02 | non-entry addresses are rejected by the candidate filter | — | pass | test/divmmc/divmmc_test.cpp:3878 |
+| CM1-03 | quiescent + non-candidate pc: may_react=false and check_automap is a state no-op (skip equivalence) | divmmc.vhd:112-148 | pass | test/divmmc/divmmc_test.cpp:3898 |
+| CM1-04 | pending hold: may_react=true at non-candidate pc and the hold→held promotion fires there (divmmc.vhd:141,148) | divmmc.vhd:141,148 | pass | test/divmmc/divmmc_test.cpp:3919 |
+| CM1-05 | active overlay: gate passes any pc; 0x1FF8 off-trigger deactivates through the gated path (divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:3941 |
+| CM1-06 | button_nmi latched: gate conservatively passes any pc | — | pass | test/divmmc/divmmc_test.cpp:3956 |
 | E3-V19-NIT-01 | Stored control_reg_ raw byte preserves VHDL invariant port_e3_reg(5:4) = '00' even when input bits 5:4 are set (F19-DIVMMC-NIT-01, VHDL zxnext.vhd:4177-4183) | zxnext.vhd:4177-4183 | pass | test/divmmc/divmmc_test.cpp:345 |
 | NR-09 | M1 at 0x3D00 with BB[7]=1 + rom3_active=1: rom3_instant_on fires automap (VHDL zxnext.vhd:2898-2899) | zxnext.vhd:2898-2899 | pass | test/divmmc/divmmc_test.cpp:917 |
 | NR-10 | M1 at 0x3D7F (mid wildcard) with BB[7]=1 + rom3_active=1: rom3_instant_on fires (VHDL zxnext.vhd:2898-2899) | zxnext.vhd:2898-2899 | pass | test/divmmc/divmmc_test.cpp:930 |
@@ -2055,36 +2056,37 @@ Notes and rationale: [DIVMMC-SPI-TEST-PLAN-DESIGN.md](DIVMMC-SPI-TEST-PLAN-DESIG
 | NR-12b | M1 after 0x0066 + BB[0]=1 + button_nmi=1: held promotes (VHDL divmmc.vhd:128-141) | divmmc.vhd:128-141 | pass | test/divmmc/divmmc_test.cpp:971 |
 | NR-13 | M1 at 0x0066 + BB[0]=1 + button_nmi=0: no trigger (VHDL divmmc.vhd:121) | divmmc.vhd:121 | pass | test/divmmc/divmmc_test.cpp:986 |
 | NR-14 | CONTRACT-PIN: M1 at $3D42 with BB[7]=1 + rom3_active=0: rom3_instant_on stays gated; automap not active (VHDL zxnext.vhd:2898-2899, divmmc.vhd:130). NOT a discriminative regression sentinel for 399c9ae — pre-fix the wildcard branch did not exist; this row guards against future regressions that remove the && rom3_path_eligible gate. | zxnext.vhd:2898-2899, divmmc.vhd:130 | pass | test/divmmc/divmmc_test.cpp:1019 |
-| DA-09 | CONTRACT-PIN: DivMmc::save_state does NOT persist rom3_active_; load_state yields constructor default (false). Pre-condition for the external Emulator::load_state set_rom3_active(mmu_.sram_rom3()) re-sync (VHDL feeder shadow of sram_pre_rom3, zxnext.vhd:2981-3008,:3138). NOT a discriminative sentinel for 770f78d — reverting the Emulator-tier fix does not fail this test (integration-tier coverage required for the actual fix path). | zxnext.vhd:2981-3008,3138 | pass | test/divmmc/divmmc_test.cpp:1195 |
-| DM-NMI-BTN-OFF | PC=0x0066 M1 with NR BB[1]=1 but button_nmi=0: automap stays off (VHDL divmmc.vhd:120) | divmmc.vhd:120 | pass | test/divmmc/divmmc_test.cpp:1459 |
-| DM-NMI-BTN-ON | PC=0x0066 M1 with NR BB[1]=1 and button_nmi=1: instant-on automap activates (VHDL divmmc.vhd:120) | divmmc.vhd:120 | pass | test/divmmc/divmmc_test.cpp:1471 |
-| NM-09 | button_nmi set while automap_held=1 is cleared on the next check_automap call (continuous-while-held semantics) (VHDL divmmc.vhd:112-113) | divmmc.vhd:112-113 | pass | test/divmmc/divmmc_test.cpp:1681 |
-| NM-10 | First-M1 instant-on entry-point: is_nmi_hold() reflects the COMBINATIONAL automap (held(0) OR instant_match(1) = 1) immediately, not the registered held bit (still 0 until the next M1 promotes hold→held). VHDL divmmc.vhd:148+150 — `o_disable_nmi <= automap or button_nmi`, where `automap` is line 148 combinational. | divmmc.vhd:148 | pass | test/divmmc/divmmc_test.cpp:1771 |
-| DM-RETN-PROPER-01 | ED 45 RETN clears automap_held one M1 after the RETN fetch (VHDL divmmc.vhd:139 + im2_control.vhd:236, modelled via DivMmc::on_m1_retn_delay one-M1 delay register) | divmmc.vhd:139, im2_control.vhd:236 | pass | test/divmmc/divmmc_test.cpp:1842 |
-| DM-RETN-PROPER-02 | RETN-alias bytes (ED 4D/55/5D/65/6D/75/7D, standalone 0x45) do NOT clear automap_held — only canonical ED 45 matches Im2Controller::retn_seen_this_cycle() (VHDL im2_control.vhd:236) | im2_control.vhd:236 | pass | test/divmmc/divmmc_test.cpp:1930 |
-| NA-01b | set_enabled(true) alone (nr_0a_4_enable_=false) keeps automap reset (VHDL zxnext.vhd:1126,4112) | zxnext.vhd:1126,4112 | pass | test/divmmc/divmmc_test.cpp:1980 |
-| NA-01c | CONMEM with set_enabled(true) alone (nr_0a_4=0): is_active() true (VHDL divmmc.vhd:94 + zxnext.vhd:4147) | divmmc.vhd:94, zxnext.vhd:4147 | pass | test/divmmc/divmmc_test.cpp:2005 |
-| NA-09 | CONTRACT-PIN: NR 0x83 reset reloads cache to 0xFF without firing the registered write_handler; explicit Emulator::init sync from cached(0x83) bit 0 brings DivMmc::port_io_enable_ back into agreement (VHDL zxnext.vhd:5052-5057 reload; handler not on reset path). NOT a discriminative sentinel for c54192d — reverting the Emulator-tier fix does not fail this test (integration-tier coverage required for the actual fix path). | zxnext.vhd:5052 | pass | test/divmmc/divmmc_test.cpp:2271 |
-| PRI-01 | DivMMC ROM overrides MMU at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084) | zxnext.vhd:3084 | pass | test/divmmc/divmmc_test.cpp:2365 |
-| PRI-02 | DivMMC RAM overrides MMU at 0x2000-0x3FFF when overlay active (VHDL zxnext.vhd:3087) | zxnext.vhd:3087 | pass | test/divmmc/divmmc_test.cpp:2399 |
-| PRI-04 | DivMMC beats Layer 2 write-over at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084-3100 chain) | zxnext.vhd:3084-3100 | pass | test/divmmc/divmmc_test.cpp:2445 |
-| SS-12 | SpiMaster::reset() preserves device bindings — wires are not in the FPGA reset domain (VHDL zxnext.vhd:3308-3322 only resets port_e7_reg FF, not connectivity) | zxnext.vhd:3308-3322 | pass | test/divmmc/divmmc_test.cpp:2667 |
-| SS-13 | Write 0x7F: gate OPEN (flash_cs_enable=1) preserves 0x7F; gate CLOSED falls through to 0xFF (VHDL zxnext.vhd:3319 composite gate; jnext SpiMaster::set_flash_cs_enable feeds nr_03_config_mode \| nr_02_reset_type(2)) | zxnext.vhd:3319 | pass | test/divmmc/divmmc_test.cpp:2700 |
-| SS-14 | CONTRACT-PIN: SD card attached to BOTH CS0 (sd_swap=0) and CS1 (sd_swap=1): round-trip surfaces device byte in either orientation (VHDL zxnext.vhd:3280 single i_SPI_SD_MISO MUX; pass-9 emulator wires same backend on both CS). NOT a discriminative sentinel for ff84d3e — test attaches dev directly to both CS lines, bypassing Emulator::init. Reverting the Emulator-tier fix does not fail this test (integration-tier coverage required). | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:2761 |
-| SS-15 | SpiMaster::reset() pulses deselect() on every currently-selected device before clearing cs_=0xFF (VHDL zxnext.vhd:3308-3309 — port_e7_reg → all-ones on reset, physical CS rising edge resets connected SPI slaves' protocol state). Pre-fix dropped this notification; SD card protocol-state FFs survived reset until the next firmware-driven CS write. | zxnext.vhd:3308-3309 | pass | test/divmmc/divmmc_test.cpp:2812 |
-| SS-16 | SpiMaster::reset() preserves rx_data_ across system reset (VHDL spi_master.vhd:159-168 miso_dat register has no effective reset because zxnext.vhd:3285 hardwires i_reset='0'). Pre-fix forced rx_data_=0xFF on every reset, diverging from VHDL whenever firmware reads port 0xEB after a soft reset before issuing a new SPI write. | spi_master.vhd:159-168, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:2872 |
-| SS-17 | Fresh SpiMaster surfaces VHDL miso_dat power-on default 0x00 on first port-0xEB read (VHDL spi_master.vhd:74 signal-init `(others => '0')` — i_reset hardwired '0' at zxnext.vhd:3285 means the synchronous-reset clause never fires). Pre-fix the C++ member-init was 0xFF, diverging from the FPGA bitstream-load default whenever a caller read port 0xEB before any SPI transfer. | spi_master.vhd:74, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:2917 |
-| SX-11 | write_data with no slave forces rx_data_=0xFF (no stale-byte leak from previously-selected slave) (VHDL zxnext.vhd:3278-3280 default-else spi_miso<='1') | zxnext.vhd:3278-3280 | pass | test/divmmc/divmmc_test.cpp:3085 |
-| SX-12 | read_data with no slave forces rx_data_=0xFF on subsequent reads (post-deselect pipeline drains to 0xFF, no stale leak) (VHDL zxnext.vhd:3278-3280 default-else) | zxnext.vhd:3278-3280 | pass | test/divmmc/divmmc_test.cpp:3125 |
-| PO-01 | Main path blocked when sram_pre_override(2)=0 (VHDL zxnext.vhd:3137) | zxnext.vhd:3137 | pass | test/divmmc/divmmc_test.cpp:3595 |
-| PO-02 | ROM3 path blocked when sram_pre_override(0)=0 (VHDL zxnext.vhd:3138) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:3615 |
-| PO-03 | Main path fires when sram_pre_override(2)=1 (VHDL zxnext.vhd:3137) | zxnext.vhd:3137 | pass | test/divmmc/divmmc_test.cpp:3632 |
-| PO-04 | ROM3 path fires when full sram_divmmc_automap_rom3_en composite is high (VHDL zxnext.vhd:3138) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:3649 |
-| PO-05 | check_automap default args fire main path (back-compat) | — | pass | test/divmmc/divmmc_test.cpp:3666 |
-| PO-06 | Off trigger gated by pre_override(2) — held propagates when MF owns slot 0/1 (VHDL divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:3704 |
-| RB-01 | config-window write to SRAM page 16 is visible via DivMMC overlay (bank 0) — one SRAM, two views (zxnext.vhd:3044+3093) | zxnext.vhd:3044 | pass | test/divmmc/divmmc_test.cpp:3738 |
-| RB-02 | DivMMC overlay write (bank 2) lands in physical SRAM page 18 — VHDL zxnext.vhd:3092-3093 sram_A21_A13 <= "00001" & divmmc_bank | zxnext.vhd:3092-3093 | pass | test/divmmc/divmmc_test.cpp:3753 |
-| RB-03 | no backing → private buffer serves reads; SRAM page 16 untouched | — | pass | test/divmmc/divmmc_test.cpp:3766 |
+| S6-DIVMMC-RAM-STANDALONE | a standalone DivMmc's 128 KB window round-trips BY CONTENT, not merely by width: every byte of a whole-buffer pattern comes back, so the inline branch cannot be a zero-fill that still measures 131 089 | — | pass | test/divmmc/divmmc_test.cpp:1215 |
+| DA-09 | CONTRACT-PIN: DivMmc::save_state does NOT persist rom3_active_; load_state yields constructor default (false). Pre-condition for the external Emulator::load_state set_rom3_active(mmu_.sram_rom3()) re-sync (VHDL feeder shadow of sram_pre_rom3, zxnext.vhd:2981-3008,:3138). NOT a discriminative sentinel for 770f78d — reverting the Emulator-tier fix does not fail this test (integration-tier coverage required for the actual fix path). | zxnext.vhd:2981-3008,3138 | pass | test/divmmc/divmmc_test.cpp:1244 |
+| DM-NMI-BTN-OFF | PC=0x0066 M1 with NR BB[1]=1 but button_nmi=0: automap stays off (VHDL divmmc.vhd:120) | divmmc.vhd:120 | pass | test/divmmc/divmmc_test.cpp:1508 |
+| DM-NMI-BTN-ON | PC=0x0066 M1 with NR BB[1]=1 and button_nmi=1: instant-on automap activates (VHDL divmmc.vhd:120) | divmmc.vhd:120 | pass | test/divmmc/divmmc_test.cpp:1520 |
+| NM-09 | button_nmi set while automap_held=1 is cleared on the next check_automap call (continuous-while-held semantics) (VHDL divmmc.vhd:112-113) | divmmc.vhd:112-113 | pass | test/divmmc/divmmc_test.cpp:1730 |
+| NM-10 | First-M1 instant-on entry-point: is_nmi_hold() reflects the COMBINATIONAL automap (held(0) OR instant_match(1) = 1) immediately, not the registered held bit (still 0 until the next M1 promotes hold→held). VHDL divmmc.vhd:148+150 — `o_disable_nmi <= automap or button_nmi`, where `automap` is line 148 combinational. | divmmc.vhd:148 | pass | test/divmmc/divmmc_test.cpp:1820 |
+| DM-RETN-PROPER-01 | ED 45 RETN clears automap_held one M1 after the RETN fetch (VHDL divmmc.vhd:139 + im2_control.vhd:236, modelled via DivMmc::on_m1_retn_delay one-M1 delay register) | divmmc.vhd:139, im2_control.vhd:236 | pass | test/divmmc/divmmc_test.cpp:1891 |
+| DM-RETN-PROPER-02 | RETN-alias bytes (ED 4D/55/5D/65/6D/75/7D, standalone 0x45) do NOT clear automap_held — only canonical ED 45 matches Im2Controller::retn_seen_this_cycle() (VHDL im2_control.vhd:236) | im2_control.vhd:236 | pass | test/divmmc/divmmc_test.cpp:1979 |
+| NA-01b | set_enabled(true) alone (nr_0a_4_enable_=false) keeps automap reset (VHDL zxnext.vhd:1126,4112) | zxnext.vhd:1126,4112 | pass | test/divmmc/divmmc_test.cpp:2029 |
+| NA-01c | CONMEM with set_enabled(true) alone (nr_0a_4=0): is_active() true (VHDL divmmc.vhd:94 + zxnext.vhd:4147) | divmmc.vhd:94, zxnext.vhd:4147 | pass | test/divmmc/divmmc_test.cpp:2054 |
+| NA-09 | CONTRACT-PIN: NR 0x83 reset reloads cache to 0xFF without firing the registered write_handler; explicit Emulator::init sync from cached(0x83) bit 0 brings DivMmc::port_io_enable_ back into agreement (VHDL zxnext.vhd:5052-5057 reload; handler not on reset path). NOT a discriminative sentinel for c54192d — reverting the Emulator-tier fix does not fail this test (integration-tier coverage required for the actual fix path). | zxnext.vhd:5052 | pass | test/divmmc/divmmc_test.cpp:2320 |
+| PRI-01 | DivMMC ROM overrides MMU at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084) | zxnext.vhd:3084 | pass | test/divmmc/divmmc_test.cpp:2414 |
+| PRI-02 | DivMMC RAM overrides MMU at 0x2000-0x3FFF when overlay active (VHDL zxnext.vhd:3087) | zxnext.vhd:3087 | pass | test/divmmc/divmmc_test.cpp:2448 |
+| PRI-04 | DivMMC beats Layer 2 write-over at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084-3100 chain) | zxnext.vhd:3084-3100 | pass | test/divmmc/divmmc_test.cpp:2494 |
+| SS-12 | SpiMaster::reset() preserves device bindings — wires are not in the FPGA reset domain (VHDL zxnext.vhd:3308-3322 only resets port_e7_reg FF, not connectivity) | zxnext.vhd:3308-3322 | pass | test/divmmc/divmmc_test.cpp:2716 |
+| SS-13 | Write 0x7F: gate OPEN (flash_cs_enable=1) preserves 0x7F; gate CLOSED falls through to 0xFF (VHDL zxnext.vhd:3319 composite gate; jnext SpiMaster::set_flash_cs_enable feeds nr_03_config_mode \| nr_02_reset_type(2)) | zxnext.vhd:3319 | pass | test/divmmc/divmmc_test.cpp:2749 |
+| SS-14 | CONTRACT-PIN: SD card attached to BOTH CS0 (sd_swap=0) and CS1 (sd_swap=1): round-trip surfaces device byte in either orientation (VHDL zxnext.vhd:3280 single i_SPI_SD_MISO MUX; pass-9 emulator wires same backend on both CS). NOT a discriminative sentinel for ff84d3e — test attaches dev directly to both CS lines, bypassing Emulator::init. Reverting the Emulator-tier fix does not fail this test (integration-tier coverage required). | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:2810 |
+| SS-15 | SpiMaster::reset() pulses deselect() on every currently-selected device before clearing cs_=0xFF (VHDL zxnext.vhd:3308-3309 — port_e7_reg → all-ones on reset, physical CS rising edge resets connected SPI slaves' protocol state). Pre-fix dropped this notification; SD card protocol-state FFs survived reset until the next firmware-driven CS write. | zxnext.vhd:3308-3309 | pass | test/divmmc/divmmc_test.cpp:2861 |
+| SS-16 | SpiMaster::reset() preserves rx_data_ across system reset (VHDL spi_master.vhd:159-168 miso_dat register has no effective reset because zxnext.vhd:3285 hardwires i_reset='0'). Pre-fix forced rx_data_=0xFF on every reset, diverging from VHDL whenever firmware reads port 0xEB after a soft reset before issuing a new SPI write. | spi_master.vhd:159-168, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:2921 |
+| SS-17 | Fresh SpiMaster surfaces VHDL miso_dat power-on default 0x00 on first port-0xEB read (VHDL spi_master.vhd:74 signal-init `(others => '0')` — i_reset hardwired '0' at zxnext.vhd:3285 means the synchronous-reset clause never fires). Pre-fix the C++ member-init was 0xFF, diverging from the FPGA bitstream-load default whenever a caller read port 0xEB before any SPI transfer. | spi_master.vhd:74, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:2966 |
+| SX-11 | write_data with no slave forces rx_data_=0xFF (no stale-byte leak from previously-selected slave) (VHDL zxnext.vhd:3278-3280 default-else spi_miso<='1') | zxnext.vhd:3278-3280 | pass | test/divmmc/divmmc_test.cpp:3134 |
+| SX-12 | read_data with no slave forces rx_data_=0xFF on subsequent reads (post-deselect pipeline drains to 0xFF, no stale leak) (VHDL zxnext.vhd:3278-3280 default-else) | zxnext.vhd:3278-3280 | pass | test/divmmc/divmmc_test.cpp:3174 |
+| PO-01 | Main path blocked when sram_pre_override(2)=0 (VHDL zxnext.vhd:3137) | zxnext.vhd:3137 | pass | test/divmmc/divmmc_test.cpp:3644 |
+| PO-02 | ROM3 path blocked when sram_pre_override(0)=0 (VHDL zxnext.vhd:3138) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:3664 |
+| PO-03 | Main path fires when sram_pre_override(2)=1 (VHDL zxnext.vhd:3137) | zxnext.vhd:3137 | pass | test/divmmc/divmmc_test.cpp:3681 |
+| PO-04 | ROM3 path fires when full sram_divmmc_automap_rom3_en composite is high (VHDL zxnext.vhd:3138) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:3698 |
+| PO-05 | check_automap default args fire main path (back-compat) | — | pass | test/divmmc/divmmc_test.cpp:3715 |
+| PO-06 | Off trigger gated by pre_override(2) — held propagates when MF owns slot 0/1 (VHDL divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:3753 |
+| RB-01 | config-window write to SRAM page 16 is visible via DivMMC overlay (bank 0) — one SRAM, two views (zxnext.vhd:3044+3093) | zxnext.vhd:3044 | pass | test/divmmc/divmmc_test.cpp:3787 |
+| RB-02 | DivMMC overlay write (bank 2) lands in physical SRAM page 18 — VHDL zxnext.vhd:3092-3093 sram_A21_A13 <= "00001" & divmmc_bank | zxnext.vhd:3092-3093 | pass | test/divmmc/divmmc_test.cpp:3802 |
+| RB-03 | no backing → private buffer serves reads; SRAM page 16 untouched | — | pass | test/divmmc/divmmc_test.cpp:3815 |
 
 ## Multiface — `test/multiface/multiface_test.cpp`
 
@@ -2092,61 +2094,63 @@ Notes and rationale: [MULTIFACE-TEST-PLAN-DESIGN.md](MULTIFACE-TEST-PLAN-DESIGN.
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| MF-CORE-01 | reset defaults: nmi=0 invisible=1 mf_enable=0 port_io_dly=0 mem=0 hold=0 | multiface.vhd:126,141,156,175 | pass | test/multiface/multiface_test.cpp:118 |
-| MF-CORE-02 | button_press: arms nmi_active 0->1; second press no-op while nmi_active=1 | multiface.vhd:135 | pass | test/multiface/multiface_test.cpp:149 |
-| MF-CORE-03 | button_press clears invisible -> 0; invisible_eff = invisible AND NOT mode_48 | multiface.vhd:158 | pass | test/multiface/multiface_test.cpp:171 |
-| MF-CORE-04 | 0x0066 + m1 + mreq + nmi_active=1 -> mf_enable=1 (else stays 0) | multiface.vhd:169 | pass | test/multiface/multiface_test.cpp:204 |
-| MF-CORE-05 | on_retn_seen clears both nmi_active and mf_enable | multiface.vhd:144 | pass | test/multiface/multiface_test.cpp:221 |
-| MF-CORE-06 | port_io_dly edge detector suppresses nmi_active clear when prior-cycle dly=1 | multiface.vhd:128 | pass | test/multiface/multiface_test.cpp:272 |
-| MF-CORE-07 | INVISIBLE: dis_wr+mode_128=set, en_wr+mode_p3=set, button=clear | multiface.vhd:158 | pass | test/multiface/multiface_test.cpp:305 |
-| MF-CORE-08 | mf_enable_eff = mf_enable OR fetch_66 (FF carries forward post-fetch) | multiface.vhd:186 | pass | test/multiface/multiface_test.cpp:338 |
-| MF-CORE-09 | mode dispatch: 00->p3, 11->48, 01/10->128 (combinational, ungated) | multiface.vhd:105-118 | pass | test/multiface/multiface_test.cpp:356 |
-| MF-CORE-10 | is_active() = is_mem_active() OR is_nmi_hold() | zxnext.vhd:4305 | pass | test/multiface/multiface_test.cpp:380 |
-| MF-CORE-11 | load_rom_bytes round-trips 8 KB buffer into rom_data() | — | pass | test/multiface/multiface_test.cpp:398 |
-| MF-CORE-12 | save_state / load_state round-trips FFs + mode + RAM | — | pass | test/multiface/multiface_test.cpp:437 |
-| MF-PORT-01 | Emulator init failed | zxnext.vhd:2612,2615,2730-2733 | pass | test/multiface/multiface_test.cpp:537 |
-| MF-PORT-02 | MF+3 (mf_type=00): IN 0x3F → enable_rd strobe (port_io_dly=1) | zxnext.vhd:2612,2615,2730-2733 | pass | test/multiface/multiface_test.cpp:540 |
-| MF-PORT-03 | MF+3 (mf_type=00): OUT 0xBF → disable_wr strobe (port_io_dly=1) | zxnext.vhd:2613,2616,2730-2733 | pass | test/multiface/multiface_test.cpp:543 |
-| MF-PORT-04 | MF+3 (mf_type=00): IN 0xBF → disable_rd strobe (port_io_dly=1) | zxnext.vhd:2613,2616,2730-2733 | pass | test/multiface/multiface_test.cpp:546 |
-| MF-PORT-05 | MF+3 (mf_type=00): OUT 0x9F → no MF strobe (LSB not active) | zxnext.vhd:2612-2613,2615-2616 | pass | test/multiface/multiface_test.cpp:549 |
-| MF-PORT-06 | MF+3 (mf_type=00): OUT 0x1F → no MF strobe (LSB not active) | zxnext.vhd:2612-2613,2615-2616 | pass | test/multiface/multiface_test.cpp:552 |
-| MF-PORT-07 | MF128 var A (mf_type=01): OUT 0xBF → enable_wr strobe | zxnext.vhd:2612 | pass | test/multiface/multiface_test.cpp:565 |
-| MF-PORT-08 | MF128 var A (mf_type=01): OUT 0x3F → disable_wr strobe | zxnext.vhd:2613 | pass | test/multiface/multiface_test.cpp:568 |
-| MF-PORT-09 | MF128 var B (mf_type=10): OUT 0x9F → enable_wr strobe | zxnext.vhd:2612 | pass | test/multiface/multiface_test.cpp:586 |
-| MF-PORT-10 | MF128 var B (mf_type=10): IN 0x1F → disable_rd strobe | zxnext.vhd:2613 | pass | test/multiface/multiface_test.cpp:589 |
-| MF-PORT-11 | MF128 var B (mf_type=10): OUT 0xBF → no MF strobe (var-A LSB) | zxnext.vhd:2612-2613,2615-2616 | pass | test/multiface/multiface_test.cpp:592 |
-| MF-PORT-12 | MF1 (mf_type=11): IN 0x9F → enable_rd strobe | zxnext.vhd:2612 | pass | test/multiface/multiface_test.cpp:610 |
-| MF-PORT-13 | MF1 (mf_type=11): OUT 0x1F → disable_wr strobe | zxnext.vhd:2613 | pass | test/multiface/multiface_test.cpp:613 |
-| MF-PORT-14 | MF1 (mf_type=11): IN 0x3F → no MF strobe (MF+3 LSB only) | zxnext.vhd:2612-2613,2615-2616 | pass | test/multiface/multiface_test.cpp:616 |
-| MF-PORT-15 | OUT 0x3F with NR 0x83 b1 = 0 → no MF strobe (gate held off) | zxnext.vhd:2615 | pass | test/multiface/multiface_test.cpp:633 |
-| MF-PORT-16 | OUT 0x3F: fires when mf_type b1=0, suppressed when mf_type b1=1 | zxnext.vhd:2612-2613 | pass | test/multiface/multiface_test.cpp:647 |
-| MF-MUX-01 | Emulator init failed | zxnext.vhd:4312 | pass | test/multiface/multiface_test.cpp:729 |
-| MF-MUX-01b | Emulator init failed | zxnext.vhd:4312 | pass | test/multiface/multiface_test.cpp:757 |
-| MF-MUX-02 | Emulator init failed | zxnext.vhd:4313 | pass | test/multiface/multiface_test.cpp:777 |
-| MF-MUX-03 | Emulator init failed | zxnext.vhd:4314 | pass | test/multiface/multiface_test.cpp:802 |
-| MF-MUX-04 | Emulator init failed | zxnext.vhd:4315 | pass | test/multiface/multiface_test.cpp:823 |
-| MF-MUX-05 | Emulator init failed | zxnext.vhd:4316 | pass | test/multiface/multiface_test.cpp:849 |
-| MF-MUX-06 | Emulator init failed | multiface.vhd:195 | pass | test/multiface/multiface_test.cpp:887 |
-| MF-MUX-07 | Emulator init failed | multiface.vhd:103,195, zxnext.vhd:2816 | pass | test/multiface/multiface_test.cpp:906 |
-| MF-MUX-08 | Emulator init failed | zxnext.vhd:4319 | pass | test/multiface/multiface_test.cpp:937 |
-| MF-MUX-09 | Emulator init failed | zxnext.vhd:4312-4313 | pass | test/multiface/multiface_test.cpp:959 |
-| MF-MUX-10 | Emulator init failed | zxnext.vhd:4318-4320 | pass | test/multiface/multiface_test.cpp:986 |
-| MF-OVL-01 | Emulator init failed | multiface.vhd:186 | pass | test/multiface/multiface_test.cpp:1080 |
-| MF-OVL-02 | Emulator init failed | zxnext.vhd:3028-3035 | pass | test/multiface/multiface_test.cpp:1104 |
-| MF-OVL-03 | Emulator init failed | zxnext.vhd:3028-3035 | pass | test/multiface/multiface_test.cpp:1127 |
-| MF-OVL-04 | Emulator init failed | zxnext.vhd:3035 | pass | test/multiface/multiface_test.cpp:1156 |
-| MF-OVL-05 | Emulator init failed | zxnext.vhd:3035 | pass | test/multiface/multiface_test.cpp:1178 |
-| MF-OVL-06 | Emulator init failed | zxnext.vhd:3029 | pass | test/multiface/multiface_test.cpp:1205 |
-| MF-OVL-07 | Emulator init failed | multiface.vhd:186 | pass | test/multiface/multiface_test.cpp:1240 |
-| MF-OVL-08 | Emulator init failed | multiface.vhd:144-145,178-179 | pass | test/multiface/multiface_test.cpp:1265 |
-| MF-OVL-09 | Emulator init failed | zxnext.vhd:3030,3036,3084 | pass | test/multiface/multiface_test.cpp:1303 |
-| MF-OVL-10 | Emulator init failed | zxnext.vhd:1856-1857 | pass | test/multiface/multiface_test.cpp:1331 |
-| MF-M1G-01 | quiescent M1 at 0x0066: no FF changes (fetch_66 gated on nmi_active, multiface.vhd:169) | multiface.vhd:169,176 | pass | test/multiface/multiface_test.cpp:1358 |
-| MF-M1G-02 | M1 after a port strobe clocks port_io_dly 1->0 (multiface.vhd:122-131) | multiface.vhd:122-131 | pass | test/multiface/multiface_test.cpp:1376 |
-| MF-M1G-03 | NMI armed: 0x0066 M1 latches mf_enable through the gate (multiface.vhd:169,176) | multiface.vhd:169,176 | pass | test/multiface/multiface_test.cpp:1390 |
-| MF-M1G-04 | M1 after enable-rd strobe drops combinational mf_port_en and port_io_dly, preserves mf_enable (multiface.vhd:195) | multiface.vhd:128,195 | pass | test/multiface/multiface_test.cpp:1411 |
-| MF-M1G-05 | mapped overlay survives quiescent M1s (incl. 0x0066 with nmi_active=0) — mf_enable untouched (multiface.vhd:171-184) | multiface.vhd:169,171-184 | pass | test/multiface/multiface_test.cpp:1432 |
-| MF-M1G-06 | disabled: M1 preserves forced reset state (multiface.vhd:103) | multiface.vhd:103,126,141,156,175 | pass | test/multiface/multiface_test.cpp:1446 |
+| MF-CORE-01 | reset defaults: nmi=0 invisible=1 mf_enable=0 port_io_dly=0 mem=0 hold=0 | multiface.vhd:126,141,156,175 | pass | test/multiface/multiface_test.cpp:119 |
+| MF-CORE-02 | button_press: arms nmi_active 0->1; second press no-op while nmi_active=1 | multiface.vhd:135 | pass | test/multiface/multiface_test.cpp:150 |
+| MF-CORE-03 | button_press clears invisible -> 0; invisible_eff = invisible AND NOT mode_48 | multiface.vhd:158 | pass | test/multiface/multiface_test.cpp:172 |
+| MF-CORE-04 | 0x0066 + m1 + mreq + nmi_active=1 -> mf_enable=1 (else stays 0) | multiface.vhd:169 | pass | test/multiface/multiface_test.cpp:205 |
+| MF-CORE-05 | on_retn_seen clears both nmi_active and mf_enable | multiface.vhd:144 | pass | test/multiface/multiface_test.cpp:222 |
+| MF-CORE-06 | port_io_dly edge detector suppresses nmi_active clear when prior-cycle dly=1 | multiface.vhd:128 | pass | test/multiface/multiface_test.cpp:273 |
+| MF-CORE-07 | INVISIBLE: dis_wr+mode_128=set, en_wr+mode_p3=set, button=clear | multiface.vhd:158 | pass | test/multiface/multiface_test.cpp:306 |
+| MF-CORE-08 | mf_enable_eff = mf_enable OR fetch_66 (FF carries forward post-fetch) | multiface.vhd:186 | pass | test/multiface/multiface_test.cpp:339 |
+| MF-CORE-09 | mode dispatch: 00->p3, 11->48, 01/10->128 (combinational, ungated) | multiface.vhd:105-118 | pass | test/multiface/multiface_test.cpp:357 |
+| MF-CORE-10 | is_active() = is_mem_active() OR is_nmi_hold() | zxnext.vhd:4305 | pass | test/multiface/multiface_test.cpp:381 |
+| MF-CORE-11 | load_rom_bytes round-trips 8 KB buffer into rom_data() | — | pass | test/multiface/multiface_test.cpp:399 |
+| MF-CORE-12 | save_state / load_state round-trips FFs + mode + RAM | multiface.vhd:105-118 | pass | test/multiface/multiface_test.cpp:438 |
+| S6-MF-TYPE-01 | mf_type round-trips all four NR 0x0A encodings, including "10" which the pre-S6 rebuild from the three mode booleans could not express | multiface.vhd:105-118 | pass | test/multiface/multiface_test.cpp:482 |
+| S6-MF-DEFAULTS-01 | the Multiface declares no defaults, so §12.2's RAM exemption holds by construction rather than by an exclusion list | — | pass | test/multiface/multiface_test.cpp:502 |
+| MF-PORT-01 | Emulator init failed | zxnext.vhd:2612,2615,2730-2733 | pass | test/multiface/multiface_test.cpp:605 |
+| MF-PORT-02 | MF+3 (mf_type=00): IN 0x3F → enable_rd strobe (port_io_dly=1) | zxnext.vhd:2612,2615,2730-2733 | pass | test/multiface/multiface_test.cpp:608 |
+| MF-PORT-03 | MF+3 (mf_type=00): OUT 0xBF → disable_wr strobe (port_io_dly=1) | zxnext.vhd:2613,2616,2730-2733 | pass | test/multiface/multiface_test.cpp:611 |
+| MF-PORT-04 | MF+3 (mf_type=00): IN 0xBF → disable_rd strobe (port_io_dly=1) | zxnext.vhd:2613,2616,2730-2733 | pass | test/multiface/multiface_test.cpp:614 |
+| MF-PORT-05 | MF+3 (mf_type=00): OUT 0x9F → no MF strobe (LSB not active) | zxnext.vhd:2612-2613,2615-2616 | pass | test/multiface/multiface_test.cpp:617 |
+| MF-PORT-06 | MF+3 (mf_type=00): OUT 0x1F → no MF strobe (LSB not active) | zxnext.vhd:2612-2613,2615-2616 | pass | test/multiface/multiface_test.cpp:620 |
+| MF-PORT-07 | MF128 var A (mf_type=01): OUT 0xBF → enable_wr strobe | zxnext.vhd:2612 | pass | test/multiface/multiface_test.cpp:633 |
+| MF-PORT-08 | MF128 var A (mf_type=01): OUT 0x3F → disable_wr strobe | zxnext.vhd:2613 | pass | test/multiface/multiface_test.cpp:636 |
+| MF-PORT-09 | MF128 var B (mf_type=10): OUT 0x9F → enable_wr strobe | zxnext.vhd:2612 | pass | test/multiface/multiface_test.cpp:654 |
+| MF-PORT-10 | MF128 var B (mf_type=10): IN 0x1F → disable_rd strobe | zxnext.vhd:2613 | pass | test/multiface/multiface_test.cpp:657 |
+| MF-PORT-11 | MF128 var B (mf_type=10): OUT 0xBF → no MF strobe (var-A LSB) | zxnext.vhd:2612-2613,2615-2616 | pass | test/multiface/multiface_test.cpp:660 |
+| MF-PORT-12 | MF1 (mf_type=11): IN 0x9F → enable_rd strobe | zxnext.vhd:2612 | pass | test/multiface/multiface_test.cpp:678 |
+| MF-PORT-13 | MF1 (mf_type=11): OUT 0x1F → disable_wr strobe | zxnext.vhd:2613 | pass | test/multiface/multiface_test.cpp:681 |
+| MF-PORT-14 | MF1 (mf_type=11): IN 0x3F → no MF strobe (MF+3 LSB only) | zxnext.vhd:2612-2613,2615-2616 | pass | test/multiface/multiface_test.cpp:684 |
+| MF-PORT-15 | OUT 0x3F with NR 0x83 b1 = 0 → no MF strobe (gate held off) | zxnext.vhd:2615 | pass | test/multiface/multiface_test.cpp:701 |
+| MF-PORT-16 | OUT 0x3F: fires when mf_type b1=0, suppressed when mf_type b1=1 | zxnext.vhd:2612-2613 | pass | test/multiface/multiface_test.cpp:715 |
+| MF-MUX-01 | Emulator init failed | zxnext.vhd:4312 | pass | test/multiface/multiface_test.cpp:797 |
+| MF-MUX-01b | Emulator init failed | zxnext.vhd:4312 | pass | test/multiface/multiface_test.cpp:825 |
+| MF-MUX-02 | Emulator init failed | zxnext.vhd:4313 | pass | test/multiface/multiface_test.cpp:845 |
+| MF-MUX-03 | Emulator init failed | zxnext.vhd:4314 | pass | test/multiface/multiface_test.cpp:870 |
+| MF-MUX-04 | Emulator init failed | zxnext.vhd:4315 | pass | test/multiface/multiface_test.cpp:891 |
+| MF-MUX-05 | Emulator init failed | zxnext.vhd:4316 | pass | test/multiface/multiface_test.cpp:917 |
+| MF-MUX-06 | Emulator init failed | multiface.vhd:195 | pass | test/multiface/multiface_test.cpp:955 |
+| MF-MUX-07 | Emulator init failed | multiface.vhd:103,195, zxnext.vhd:2816 | pass | test/multiface/multiface_test.cpp:974 |
+| MF-MUX-08 | Emulator init failed | zxnext.vhd:4319 | pass | test/multiface/multiface_test.cpp:1005 |
+| MF-MUX-09 | Emulator init failed | zxnext.vhd:4312-4313 | pass | test/multiface/multiface_test.cpp:1027 |
+| MF-MUX-10 | Emulator init failed | zxnext.vhd:4318-4320 | pass | test/multiface/multiface_test.cpp:1054 |
+| MF-OVL-01 | Emulator init failed | multiface.vhd:186 | pass | test/multiface/multiface_test.cpp:1148 |
+| MF-OVL-02 | Emulator init failed | zxnext.vhd:3028-3035 | pass | test/multiface/multiface_test.cpp:1172 |
+| MF-OVL-03 | Emulator init failed | zxnext.vhd:3028-3035 | pass | test/multiface/multiface_test.cpp:1195 |
+| MF-OVL-04 | Emulator init failed | zxnext.vhd:3035 | pass | test/multiface/multiface_test.cpp:1224 |
+| MF-OVL-05 | Emulator init failed | zxnext.vhd:3035 | pass | test/multiface/multiface_test.cpp:1246 |
+| MF-OVL-06 | Emulator init failed | zxnext.vhd:3029 | pass | test/multiface/multiface_test.cpp:1273 |
+| MF-OVL-07 | Emulator init failed | multiface.vhd:186 | pass | test/multiface/multiface_test.cpp:1308 |
+| MF-OVL-08 | Emulator init failed | multiface.vhd:144-145,178-179 | pass | test/multiface/multiface_test.cpp:1333 |
+| MF-OVL-09 | Emulator init failed | zxnext.vhd:3030,3036,3084 | pass | test/multiface/multiface_test.cpp:1371 |
+| MF-OVL-10 | Emulator init failed | zxnext.vhd:1856-1857 | pass | test/multiface/multiface_test.cpp:1399 |
+| MF-M1G-01 | quiescent M1 at 0x0066: no FF changes (fetch_66 gated on nmi_active, multiface.vhd:169) | multiface.vhd:169,176 | pass | test/multiface/multiface_test.cpp:1426 |
+| MF-M1G-02 | M1 after a port strobe clocks port_io_dly 1->0 (multiface.vhd:122-131) | multiface.vhd:122-131 | pass | test/multiface/multiface_test.cpp:1444 |
+| MF-M1G-03 | NMI armed: 0x0066 M1 latches mf_enable through the gate (multiface.vhd:169,176) | multiface.vhd:169,176 | pass | test/multiface/multiface_test.cpp:1458 |
+| MF-M1G-04 | M1 after enable-rd strobe drops combinational mf_port_en and port_io_dly, preserves mf_enable (multiface.vhd:195) | multiface.vhd:128,195 | pass | test/multiface/multiface_test.cpp:1479 |
+| MF-M1G-05 | mapped overlay survives quiescent M1s (incl. 0x0066 with nmi_active=0) — mf_enable untouched (multiface.vhd:171-184) | multiface.vhd:169,171-184 | pass | test/multiface/multiface_test.cpp:1500 |
+| MF-M1G-06 | disabled: M1 preserves forced reset state (multiface.vhd:103) | multiface.vhd:103,126,141,156,175 | pass | test/multiface/multiface_test.cpp:1514 |
 
 ## CTC+Interrupts — `test/ctc/ctc_test.cpp`
 
@@ -3099,27 +3103,192 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| RING-01 | rewind buffer starts empty | (jnext-internal) | pass | test/rewind/rewind_test.cpp:140 |
-| RING-02 | ring depth caps at its 4-frame capacity after 6 frames | (jnext-internal) | pass | test/rewind/rewind_test.cpp:146 |
-| RING-03 | newest frame_num is 5 after the wrap (frames 0..5 taken) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:147 |
-| RING-04 | oldest frame_num is 2 after the wrap (the two earliest were overwritten) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:148 |
-| SB-01 | step_back(5) reports success | (jnext-internal) | pass | test/rewind/rewind_test.cpp:180 |
-| SB-02 | step_back(5) lands on the PC the trace recorded 5 instructions back | (jnext-internal) | pass | test/rewind/rewind_test.cpp:183 |
-| SB-03 | step_back(10) reports success | (jnext-internal) | pass | test/rewind/rewind_test.cpp:196 |
-| SB-04 | step_back(10) lands on the PC the trace recorded 10 instructions back | (jnext-internal) | pass | test/rewind/rewind_test.cpp:199 |
-| RTF-01 | five frame snapshots are held after five frames | (jnext-internal) | pass | test/rewind/rewind_test.cpp:226 |
-| RTF-02 | rewind_to_frame() reports success for a frame still in the ring | (jnext-internal) | pass | test/rewind/rewind_test.cpp:234 |
-| RTF-03 | frame_num is target+1 after the rewind (the snapshot is taken at the start of the target frame) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:237 |
-| RW-RT-01 | a measured snapshot is larger than zero bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:261 |
-| RW-RT-02 | a measured snapshot stays under the 3 MB sanity bound | (jnext-internal) | pass | test/rewind/rewind_test.cpp:262 |
-| RW-RT-03 | save_state writes exactly the measured snap_size bytes (pass 1) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:268 |
-| RT-04 | save_state writes exactly the measured snap_size bytes again after a load (pass 2) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:278 |
-| RT-05 | save -> load -> save produces byte-identical snapshots (determinism) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:291 |
-| SBD-01 | no rewind buffer is allocated when rewind is disabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:305 |
-| SBD-02 | step_back reports failure when rewind is disabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:313 |
-| RB-FRAME-01 | undersized slot (simulated post-construction widening): the snapshot is dropped, not published | (jnext-internal) | pass | test/rewind/rewind_test.cpp:753 |
-| RB-FRAME-02 | exact-size slot still publishes normally: the size guard refuses only mismatched writes and is not sticky | (jnext-internal) | pass | test/rewind/rewind_test.cpp:761 |
-| RB-FRAME-03 | oversized slot (save_state shrank since construction) is refused too: the size claim would otherwise be a lie | (jnext-internal) | pass | test/rewind/rewind_test.cpp:770 |
+| RING-01 | rewind buffer starts empty | (jnext-internal) | pass | test/rewind/rewind_test.cpp:160 |
+| RING-02 | ring depth caps at its 4-frame capacity after 6 frames | (jnext-internal) | pass | test/rewind/rewind_test.cpp:166 |
+| RING-03 | newest frame_num is 5 after the wrap (frames 0..5 taken) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:167 |
+| RING-04 | oldest frame_num is 2 after the wrap (the two earliest were overwritten) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:168 |
+| SB-01 | step_back(5) reports success | (jnext-internal) | pass | test/rewind/rewind_test.cpp:200 |
+| SB-02 | step_back(5) lands on the PC the trace recorded 5 instructions back | (jnext-internal) | pass | test/rewind/rewind_test.cpp:203 |
+| SB-03 | step_back(10) reports success | (jnext-internal) | pass | test/rewind/rewind_test.cpp:216 |
+| SB-04 | step_back(10) lands on the PC the trace recorded 10 instructions back | (jnext-internal) | pass | test/rewind/rewind_test.cpp:219 |
+| RTF-01 | five frame snapshots are held after five frames | (jnext-internal) | pass | test/rewind/rewind_test.cpp:246 |
+| RTF-02 | rewind_to_frame() reports success for a frame still in the ring | (jnext-internal) | pass | test/rewind/rewind_test.cpp:254 |
+| RTF-03 | frame_num is target+1 after the rewind (the snapshot is taken at the start of the target frame) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:257 |
+| RW-RT-01 | a measured snapshot is larger than zero bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:281 |
+| RW-RT-02 | a measured snapshot stays under the 3 MB sanity bound | (jnext-internal) | pass | test/rewind/rewind_test.cpp:282 |
+| RW-RT-03 | save_state writes exactly the measured snap_size bytes (pass 1) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:288 |
+| RT-04 | save_state writes exactly the measured snap_size bytes again after a load (pass 2) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:298 |
+| RT-05 | save -> load -> save produces byte-identical snapshots (determinism) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:311 |
+| SBD-01 | no rewind buffer is allocated when rewind is disabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:325 |
+| SBD-02 | step_back reports failure when rewind is disabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:333 |
+| RB-FRAME-01 | undersized slot (simulated post-construction widening): the snapshot is dropped, not published | (jnext-internal) | pass | test/rewind/rewind_test.cpp:773 |
+| RB-FRAME-02 | exact-size slot still publishes normally: the size guard refuses only mismatched writes and is not sticky | (jnext-internal) | pass | test/rewind/rewind_test.cpp:781 |
+| RB-FRAME-03 | oversized slot (save_state shrank since construction) is refused too: the size claim would otherwise be a lie | (jnext-internal) | pass | test/rewind/rewind_test.cpp:790 |
+| S3-DECL-CLOCK | Clock declares exactly the two fields the §17.1 golden carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1790 |
+| S3-WIDTH-CLOCK | Clock's declaration is 12 bytes wide — block 0 of the 2 292 965-byte stream | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1793 |
+| S3-DECL-RAM | Ram declares a u64 count prefix and the 2 MB blob — and the blob's length comes from the DECLARATION, which is what makes the prefix un-obeyable | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1809 |
+| S3-WIDTH-RAM | Ram's declaration is 2 097 160 bytes wide — block 1 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1813 |
+| S3-DECL-MMU | Mmu declares 45 fields in the order the golden carries them, ending with both BRAM blobs and the attribute-mux cursor | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1865 |
+| S3-WIDTH-MMU | Mmu's declaration is 24 634 bytes wide — block 2 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1869 |
+| S3-DECL-NEXTREG | NextReg declares the select latch, the 256-byte register file as a `bytes` (not a blob — under the §6.1 8 KB line) and the five appended scalars | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1890 |
+| S3-WIDTH-NEXTREG | NextReg's declaration is 262 bytes wide — block 3 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1894 |
+| S3-DECL-CPU | Z80Cpu declares the register file, MEMPTR/Q, and the three §9.5(3) values that are relative to the FUSE T-state counter | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1922 |
+| S3-WIDTH-CPU | Z80Cpu's declaration is 45 bytes wide — block 4 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1926 |
+| S3-DECL-IM2 | Im2Controller declares 14 named devices x 9 fields then the decoder / pulse / NR 0xC0 / DMA-delay scalars — 144 declarations, one per field, not 126 per device | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1981 |
+| S3-WIDTH-IM2 | Im2Controller's state declaration is 149 bytes wide — block 5 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1986 |
+| S3-DECL-IM2-TIMING | Im2Controller's SECOND declaration (§9.5(2)) is the GH #265 timing block, which travels in `int_timing` at the end of the Emulator stream and not in block 5 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2021 |
+| S3-WIDTH-IM2-TIMING | the IM2 timing declaration is 589 bytes wide — the first 589 of block 31's 609, the remaining 20 being the CPU's /INT pair and the CTC's chained triggers | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2025 |
+| S3-KEYS-UNIQUE | no declaration names the same key twice — a duplicate is invisible to the byte stream, which ignores names, and silently drops a field from the JSON encoding, which does not | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2056 |
+| S5-DECL-CTC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2168 |
+| S5-WIDTH-CTC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2171 |
+| S5-DECL-CTC-TIMING | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2190 |
+| S5-WIDTH-CTC-TIMING | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2193 |
+| S5-DECL-DMA | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2244 |
+| S5-WIDTH-DMA | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2247 |
+| S5-DECL-SPI | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2265 |
+| S5-WIDTH-SPI | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2268 |
+| S5-DECL-I2C | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2296 |
+| S5-WIDTH-I2C | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2299 |
+| S5-DECL-RTC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2320 |
+| S5-WIDTH-RTC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2323 |
+| S5-DECL-UART | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2429 |
+| S5-WIDTH-UART | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2432 |
+| S5-DECL-DIVMMC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2472 |
+| S5-WIDTH-DIVMMC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measured — which since S5b is the STANDALONE block width, the machine-level one being 17 because the window became a reference (§17.0) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2475 |
+| S5-DECL-BEEPER | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2495 |
+| S5-WIDTH-BEEPER | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2498 |
+| S5-DECL-TURBOSOUND | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2597 |
+| S5-WIDTH-TURBOSOUND | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2600 |
+| S5-DECL-DAC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2616 |
+| S5-WIDTH-DAC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2619 |
+| S5-DECL-I2S | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2636 |
+| S5-WIDTH-I2S | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2639 |
+| S5-DECL-NMI | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2682 |
+| S5-WIDTH-NMI | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2685 |
+| S5-DECL-MULTIFACE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2715 |
+| S5-WIDTH-MULTIFACE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2718 |
+| S5-DECL-KEYBOARD | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2820 |
+| S5-WIDTH-KEYBOARD | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2823 |
+| S5-DECL-JOYSTICK | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2843 |
+| S5-WIDTH-JOYSTICK | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2846 |
+| S5-DECL-MOUSE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2867 |
+| S5-WIDTH-MOUSE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2870 |
+| S5-DECL-MD6 | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2893 |
+| S5-WIDTH-MD6 | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2896 |
+| S5-DECL-MEMBRANE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2918 |
+| S5-WIDTH-MEMBRANE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2921 |
+| S5-DECL-IOMODE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2942 |
+| S5-WIDTH-IOMODE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2945 |
+| S5-KEYS-UNIQUE | no S5 declaration names the same key twice — a duplicate is invisible to the byte stream, which ignores names, and silently drops a field from the JSON encoding, which does not | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2976 |
+| S5-INPUT-BLOCK | the six input declarations sum to the 450 bytes the golden's sentinel map measures for the input block | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3000 |
+| S3-RAM-PREFIX | a RAM count prefix twelve times the real size neither moves the stream nor reaches past the buffer: the restore takes its length from the DECLARATION and the content is intact | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3050 |
+| S3-RAM-PREFIX-SANE | …and an honest save is still exactly the prefix plus the RAM | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3054 |
+| S3-ENUM-OFFSET | the machine_type ordinal really is at stream offset 28 — the row below is meaningless if it corrupts some other field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3079 |
+| S3-ENUM-MMU | an out-of-range machine_type ordinal leaves the field at its pre-load value instead of casting garbage into it, and the stream still ends exactly where it should | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3089 |
+| S3-MMU-TIMING-PAIR | a deferred NR 0x03 timing commit — pending != effective — survives a full Emulator save/load, which is the case the retired old-format fallback would have collapsed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3122 |
+| S3-MMU-BRAM-PTR | a byte written into the bank-7 BRAM is readable through the restored slot: the single rebuild_ptr() pass runs AFTER the blobs land, which the mid-stream call never did | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3153 |
+| S3-MMU-NR8F-OFFSET | nr_8f_mode is at stream offset 32 and machine_type at 28 — the row below is meaningless if it pokes some other field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3184 |
+| S3-MMU-NR8F-MASK | a restored NR 0x8F keeps only its 2 declared bits (zxnext.vhd:3787-3794), its neighbour is untouched and the stream still ends where it should | zxnext.vhd:3787-3794 | pass | test/rewind/rewind_test.cpp:3194 |
+| S3-NEXTREG-NR03-OFFSET | the two NR 0x03 sub-fields are at stream offsets 259 and 261, behind the 256-byte register file | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3218 |
+| S3-NEXTREG-NR03-MASK | both restored NR 0x03 sub-fields keep only their 3 declared bits (zxnext.vhd:1099, :1103) and the select latch is intact | zxnext.vhd:1099,1103 | pass | test/rewind/rewind_test.cpp:3228 |
+| S3-CPU-INT-WINDOW | the /INT window's first boundary is restored RELATIVE to whatever the T-state counter now is (0x50 behind it), not as the absolute stamp it was saved from | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3262 |
+| S4-DECL-PALETTE | PaletteManager declares the four RGB333 stores, the 14 scalars and the Layer 2 priority store in the order the golden carries them | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3335 |
+| S4-WIDTH-PALETTE | PaletteManager's declaration is 4 622 bytes wide — block 6 of the 2 292 965-byte stream | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3339 |
+| S4-DECL-LAYER2 | Layer2 declares its 11 registers in stream order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3362 |
+| S4-WIDTH-LAYER2 | Layer2's declaration is 12 bytes wide — block 7 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3364 |
+| S4-DECL-SPRITES | SpriteEngine declares the 640-byte attribute file, the 16 KB pattern blob and the 15 control bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3396 |
+| S4-WIDTH-SPRITES | SpriteEngine's declaration is 17 039 bytes wide — block 8 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3399 |
+| S4-DECL-TILEMAP | Tilemap declares its 19 fields, both decoded base addresses included, in stream order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3429 |
+| S4-WIDTH-TILEMAP | Tilemap's declaration is 26 bytes wide — block 9 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3432 |
+| S4-DECL-BLOCK10 | Renderer's declaration nests the ULA's, then its own eight fields, then LoRes's four — the order the golden carries block 10 in | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3498 |
+| S4-WIDTH-BLOCK10 | the nested declaration is 3 688 bytes wide — block 10, of which the ULA is 3 357 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3502 |
+| S4-DECL-ULA-PREFIX | Ula::describe_state walked standalone is EXACTLY the first 25 fields / 3 357 bytes of block 10 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3518 |
+| S4-DECL-LORES-SUFFIX | Lores::describe_state walked standalone is EXACTLY the last four fields of block 10 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3529 |
+| S4-DECL-COPPER | Copper declares the 2 KB instruction RAM as one array, then the seven control fields | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3552 |
+| S4-WIDTH-COPPER | Copper's declaration is 2 057 bytes wide — block 11 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3555 |
+| S4-KEYS-UNIQUE | no video declaration names the same key twice, block 10's three-way nesting included | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3584 |
+| S4-PALETTE-ARGB | the post-walk ARGB rebuild covers all FOUR palettes in BOTH banks, and the u16 entries land little-endian at 2*(bank*256 + index) — which is what makes the ten-loop collapse into five `bytes` a transcription | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3669 |
+| S4-PALETTE-TARGET-OFFSET | target_palette really is the byte at offset 4 098, between the control byte and the auto-increment flag and equal to neither — the row below is meaningless if it corrupts another field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3686 |
+| S4-PALETTE-TARGET | an out-of-range target_palette ordinal is REFUSED: the field keeps its pre-load target instead of being cast in, the plain control byte beside it IS restored, and the stream still ends exactly where it should — the byte was consumed either way | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3704 |
+| S4-ULA-MODE-OFFSET | screen_mode really is at offset 269 of a 3 357-byte ULA save, and is 6 where the raw port-0xFF register beside it is 7 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3727 |
+| S4-ULA-MODE | ordinal 4 is a HOLE in TimexScreenMode and is refused: the enum field keeps its pre-load mode instead of becoming a state the ULA cannot be in, the plain register byte beside it IS restored, and the stream still ends where it should | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3742 |
+| S4-ULA-LOG-COUNT-OFFSET | the port-0xFF log count really is the u16 at offset 283, and one logged change reads as 1 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3767 |
+| S4-ULA-LOG-COUNT | a forged count 64x the capacity is clamped to the capacity declared IN THE CODE and the stream still ends where it should: the entry loop is bounded by the declaration, never by the file | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3776 |
+| S4-LORES-NR6A-OFFSET | lores_nr6a really is the fourth and last byte of a LoRes save | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3795 |
+| S4-LORES-NR6A-MASK | NR $6A is restored masked to its six hardware bits (zxnext.vhd:5032-5034), so a stream carrying bits 7:6 cannot put the register in a state a live write could not | zxnext.vhd:5032-5034 | pass | test/rewind/rewind_test.cpp:3802 |
+| S4-BLEND-OFFSET | blend_mode really is at offset 3 363 — after the ULA's 3 357 bytes and the Renderer's first six | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3814 |
+| S4-BLEND-MASK | NR 0x68 bits 6:5 are restored masked to two bits, so a stream carrying more cannot select a blend mode the VHDL has no encoding for | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3823 |
+| S4-SPRITE-ATTR-ORDER | the 640-byte attribute file is sprite-major, five bytes each: sprite 37's five bytes are at offsets 185-189, exactly where the pre-migration 128-iteration loop put them | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3848 |
+| S4-ULA-CURSOR-RESET | a restore restarts the port-0xFF replay cursor at the top of the RESTORED log: replaying line 7 applies the entry the stream carried, instead of finding a cursor left past the end by the log the object had before the load | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3886 |
+| S4-ULA-PERLINE-CLEARED | a restore deactivates the per-line control snapshot, so a render taken before the next frame initialises it reads the RESTORED live registers and not the pre-restore frame's rows | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3911 |
+| S4-RENDERER-NESTED-OFFSET | lores_nr6a really is the last byte of a Renderer save — the row below is meaningless if it corrupts another field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3932 |
+| S4-RENDERER-NESTED-AFTER-LOAD | a restore driven through Renderer — the path Emulator::load_state uses — runs BOTH nested subsystems' post-walk work: LoRes's NR $6A mask and the ULA's per-line deactivation, neither of which the nested walk itself performs | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3943 |
+| S4-COPPER-INSTR-ORDER | the 2 048-byte instruction array is instruction-major and little-endian within each 16-bit word: instruction 10 lands at byte offsets 0x14/0x15, exactly where 1 024 write_u16 calls put it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3963 |
+| S4-COPPER-MODE-OFFSET | mode really is at offset 2 050, straight after the array and the 16-bit PC | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3970 |
+| S4-COPPER-MODE | an out-of-range NR 0x62 mode ordinal is refused: the field keeps its pre-load mode instead of taking one the two-bit register cannot hold, and the stream still ends where it should | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3980 |
+| S5-DMA-OFFSET | byte 32 of Dma's 43-byte block is turbo_ — the field the next row pokes, proved by an honest save of a known value | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4065 |
+| S5-DMA-TURBO | an over-wide turbo_ in the stream restores masked to its two VHDL bits instead of carrying six bits the hardware has no encoding for | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4076 |
+| S5-DMA-TIMER | an over-wide dma_timer_s_ restores masked to the 14 bits device/dma.vhd's burst prescaler actually has | device/dma.vhd | pass | test/rewind/rewind_test.cpp:4080 |
+| S5-DMA-TIMER-OFFSET | …and the restore consumed exactly the declared 43 bytes, so the two pokes landed inside Dma's block and not past it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4083 |
+| S5-MD6-OFFSET | bytes 4, 6 and 8 of Md6ConnectorX2's 16-byte block are the two latches and the select counter — the three fields the next row pokes, proved by an honest save of three known values | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4096 |
+| S5-MD6-LATCH | two over-wide latches restore masked to the 12 bits the MD 6-button word has, which a re-save reads straight back out | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4115 |
+| S5-MD6-STATE | an over-wide select counter restores masked to the 9 bits md6_connector_x2.vhd's FSM counter has | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4119 |
+| S5-MD6-POS | …and the restore consumed exactly the declared 16 bytes, so the three pokes landed inside Md6's block and not past it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4122 |
+| S5-MEMBRANE-OFFSET | bytes 71-72 of MembraneStick's 73-byte block are keymap_addr_ — the field the next row pokes, at the end of a block whose length is itself the proof that nothing follows it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4132 |
+| S5-MEMBRANE-ADDR | an over-wide keymap_addr_ restores masked to the 9 bits NR 0x28 gives it, which a re-save reads straight back out | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4144 |
+| S5-MEMBRANE-ADDR-POS | …and the restore consumed exactly the declared 73 bytes, so the poke landed inside MembraneStick's block and not past it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4147 |
+| S5-DIVMMC-OFFSET | byte 0 of DivMmc's 131 089-byte block is the composite `enabled_` and bytes 131 087-131 088 are the two split levers — the exact firmware-reset shape, saved honestly | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4168 |
+| S5-DIVMMC-LEVERS | the two split enable levers restore from the STREAM, not from the composite byte: a snapshot holding port_io=1 / nr_0a_4=0 with enabled=0 survives, which deriving either from the composite would lose | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4181 |
+| S5-DIVMMC-LEVERS-POS | …and the restore consumed exactly the declared 131 089 bytes, 128 KB window included | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4187 |
+| S5-I2C-OFFSET | bytes 11 and 12 of I2cController's 13-byte block are the two pi_i2c1 line inputs — the fields the next row restores, proved by an honest save of a known pair | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4204 |
+| S5-I2C-PI | both pi_i2c1 line inputs restore from the stream, over the opposite live values — so a rewind replays the Pi's lines rather than keeping the ones the run had reached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4216 |
+| S5-I2C-PI-POS | …and the restore consumed exactly the declared 13 bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4221 |
+| S5-KB-COUNT-OFFSET | bytes 12-15 of Keyboard's 342-byte block are the auto-type queue count — the field the next row forges, proved by an honest save of a two-key queue | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4242 |
+| S5-KB-COUNT | a forged auto-type count of 2^30 restores clamped to the sixteen slots the stream actually carries — the rebuild loop is bounded by the DECLARED capacity, so it can neither index past the staging array nor resize the block | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4258 |
+| S5-KB-COUNT-POS | …and the restore consumed exactly the declared 342 bytes, so the forged count did not move the stream either | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4263 |
+| S5-KB-SAVE-PURE | saving twice gives byte-identical buffers and the queue still holds its two keys — one declaration serves both directions, so the write path's rebuild must put back exactly what it took and never mutate the machine being saved | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4282 |
+| JNSX-S5B-LENGTHS | the stream is 2 154 295 bytes on the Next and 2 162 487 on 48K/128K/+3 — every deliberate change to the byte stream is a number in a test rather than a fact in a commit message, and the machine-dependence is exactly the Multiface array and nothing else. S5b re-baselined it to 2 153 701 / 2 161 893 by removing the duplicated RAM; S6 adds 594: mf_type (1 byte, §10.2 P13) and the SD card's SPI FSM (589 + its 4-byte sentinel, §10.2 P1). Both deltas are machine-independent, so the 8 192-byte gap between the two numbers is unchanged | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4348 |
+| S5B-DIVMMC-BLOCK | a DivMmc the Emulator backed writes 17 bytes, not 131 089: the 128 KB window is a REFERENCE to Ram page 16, which the same stream's `ram` block carries seventeen blocks earlier | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4378 |
+| S5B-DIVMMC-STANDALONE | …while one nothing backed still writes all 131 089, because a stream with no `ram` block in it has nowhere to point and the private array is then the only copy of itself | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4382 |
+| S5B-DIVMMC-RESTORE | DivMMC RAM still arrives after a whole-machine restore, now through the `ram` block rather than its own copy — and the stream is consumed exactly, so dropping 128 KB from the write side did not leave the read side reading them | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4415 |
+| S5B-MF-NEXT-ABSENT | on the Next the Multiface RAM member is ABSENT, not zero-filled: the declaration drops it and the block is 8 bytes of flip-flops plus S6's mf_type byte, because the live 8 KB is Ram page 0x0B and the private array it used to write was dead zeros | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4451 |
+| S5B-MF-STANDALONE-PRESENT | …and on 48K/128K/+3, and in a standalone round-trip, it is still all 8 201 bytes, because with no backing the private array is the real store (§4.3(2)) — the one place the stream's width depends on the machine type | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4458 |
+| S5B-MF-NEXT-RESTORE | Multiface RAM still arrives on the Next after a whole-machine restore, through Ram page 0x0B — the window the device reads and writes is the page the `ram` block carries, which is why the private array was droppable in the first place | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4488 |
+| S5B-WARMSTART-VERSION | the warm-start state-stream format version is 3: S5b changed the shape of Emulator::save_state and S6 changed it again (mf_type + the SD FSM), and a cache recorded by an older jnext would otherwise be read field-for-field wrong | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4505 |
+| S6-EMU-CMD18-MID | could not create a scratch SD image | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4531 |
+| S6-EMU-MF-TYPE | NR 0x0A's mf_type "10" survives a whole-machine save: the pre-S6 rebuild from the three mode booleans returned "01", so a guest could watch a bit it had written change under a save (design §10.2 P13, defect D2) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4656 |
+| S6-DECL-EMULATOR | the Emulator's own scalar declaration walks exactly the fields the golden's "emulator" block carries, in that order — the two hand-written values that open the block (the frame origin and the §9.5(3) monotonic fold) are not in it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4715 |
+| S6-WIDTH-EMULATOR | …and is exactly 56 bytes wide, which with the 8-byte frame origin and the 8-byte monotonic fold is the 72-byte block the pre-migration golden measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4720 |
+| S6-WIDTH-EMULATOR-BLOCKS | the four companion blocks measure 8 / 1 / 8 / 2 bytes: one declaration per SENTINEL-DELIMITED block, because one describe_state cannot put its fields in two blocks (§9.5(2)) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4730 |
+| S6-EMU-SCALARS-01 | every field of all five Emulator blocks round-trips through the declaration: a stream of all-0x01 is already normalised, so a walk that reads it into the members and writes them back must reproduce it exactly, and a field bound to a local instead of its member writes a zero where a one belongs | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4797 |
+| S6-EMU-SCALARS-02 | the ULA interrupt enable is RE-DERIVED from the restored NR 0x22 bit after the walk: it is not a field, so nothing in the declaration carries it, and a restore that skipped the re-derivation would leave the machine taking frame interrupts the snapshot had switched off | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4832 |
+| S6-P7-ADVANCE-01 | a machine paused mid-frame is ADVANCED to the next frame boundary rather than refused: the save always works, and the cost — up to one frame past where the user paused — is the documented trade (design §10.2 P7, owner decision 2026-09-23) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4889 |
+| S6-P7-HISTORY-01 | …and the advance does NOT wipe the frame's per-scanline change log: the scroll written at the top of the frame is still replayed at row 0 and the one written from the paused machine at the bottom. Re-running begin_new_frame() mid-frame is the Task 40 defect that flattened beast.nex's Copper sky, and a save that quietly destroyed a frame's raster history would be worse than one that refused | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4897 |
+| S6-P7-DEBUG-INTACT | …and the debugging session is left exactly as it was found: still paused, still active, with its pending one-shot breakpoint intact — which resume()+pause() would have destroyed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4907 |
+| S6-P7-ADVANCE-02 | a machine already at a frame boundary is not advanced, and the call reports that it did nothing — the running-machine case (the save queued to the next begin_new_frame()) lands here | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4917 |
+| JNS-RT-01 | save_jns writes a non-empty archive from a machine that has been running | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5011 |
+| JNS-RT-02 | a machine restored from a .jns produces a BYTE-IDENTICAL binary state stream to the machine it was saved from — the complete oracle for the assembler's field coverage | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5038 |
+| JNS-RT-02b | …and RAM REALLY TRAVELLED: bytes the destination machine never wrote are present after the restore. The stream comparison above cannot see this on its own — both fixtures are built by the same helper, so their RAM agrees before the load, and dropping the blob read left every row green until a rendered frame caught it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5050 |
+| JNS-RT-03 | --snapshot-uncompressed round-trips IDENTICALLY, and the archive is larger than the deflated one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5083 |
+| JNS-RT-04 | …and it really is uncompressed: the STORED archive is bigger than the DEFLATE one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5089 |
+| JNS-RT-09 | the archive declares EXACTLY the expected subsystem members (`joy_uart` is absent here and that is correct — it is written only when a cable is attached, §9.5(5)) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5143 |
+| JNS-RT-10 | …and every one of them is actually in the archive: the writer cannot declare a subsystem it did not write | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5163 |
+| JNS-RT-13 | capture.frame counts the MACHINE's frames even with the rewind ring disabled — 120 were run. Built from `frame_num_` it would read 0 here, and every save made with rewind off (the default) would carry a provenance field a reader cannot tell from a real frame 0 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5205 |
+| JNS-RT-05 | a machine that was NEVER loaded differs from the source — without this, JNS-RT-02 would pass just as happily against a comparison that had stopped discriminating | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5225 |
+| JNS-RT-06 | could not build the forged archive — state/esxdos_hostfs.json is not in the file any more, so this row is not testing what it says (fix it, do not delete it) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5325 |
+| JNS-RT-07 | (not reached) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5329 |
+| JNS-RT-11 | a `mem/ram.bin` 1 024 bytes SHORT of what the declaration says is REFUSED even when the MANIFEST agrees with it — not truncated, not zero-padded. That is the cross-version case: a file whose archive and manifest are perfectly consistent with each other and disagree with this build's declaration | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5482 |
+| JNS-RT-12 | …and the refusal NAMES the member, so a user can tell a corrupt file from an unsupported one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5488 |
+| JNS-RT-16 | an esxDOS handle open INSIDE the sandbox survives a .jns round trip and is genuinely USABLE: reading one byte through the restored handle returns the byte at the offset the saved machine had reached. The file's byte at offset N is N, so that single value says which file was reopened AND where in it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5595 |
+| JNS-RT-20 | the fixture really attaches a cable, really delivers bytes through the mux, and stops with a REMAINDER still to send — without all three the row below asserts nothing, which is how this path went six stages with no coverage at all | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5709 |
+| JNS-RT-21 | …and the RESTORED cable delivers the CONTINUATION byte through the mux into the UART — the file's byte at index N is N, so the value proves the cursor travelled and the source is still live. A source that silently rewound would deliver 0 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5751 |
+| JNS-RT-17 | a preview is DECLARED in the manifest (present, width, height) and the meta/preview.png member is really in the archive — §10.2 P5's declared-rather-than-merely-present rule, so a reader can size it without inflating it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5807 |
+| JNS-RT-18 | …and the bytes come back BYTE-FOR-BYTE on load. meta/ is an OPEN namespace, so a writer that silently dropped the preview would produce a file every reader accepts — nothing else in the tree would ever have complained | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5826 |
+| JNS-RT-19 | no preview supplied means no member and nothing declared — legal and silent. Without this the two rows above would pass against a writer that always emitted one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5855 |
+| JNS-RT-14 | a .jns that does not list a subsystem still LOADS — §12.4 says that is a deliberate omission by the writer, not a broken file | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5943 |
+| JNS-RT-15 | …and it WARNS, naming the subsystem: it has been left at its power-on defaults, which is a real difference from the machine the file came from and must not be silent | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5946 |
+| JNS-RT-08a | the fixture really is paused MID-FRAME before the save — without this the row below asserts nothing | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5973 |
+| JNS-RT-08 | a .jns save ADVANCES a mid-frame machine to a frame boundary and REPORTS that it did (§10.2 P7's always-advance, never-refuse rule): no unavailable menu item, no failure mode, and the caller can tell the user once | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5983 |
 
 ## Floating Bus — `test/floating_bus/floating_bus_test.cpp`
 
@@ -3529,81 +3698,94 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| INIT-01 | CMD0 returns R1=0x01 (in-idle) before ACMD41 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:261 |
-| INIT-02 | After init sequence, CMD17 R1=0x00 (ready) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:269 |
-| CMD17-01 | CMD17 sector=1 returns the correct first 4 sector-identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:295 |
-| CMD18-01 | CMD18 first block at sector=3 has correct identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:339 |
-| CMD18-02 | CMD18 second and third streamed blocks cover sector+1 and +2 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:347 |
-| CMD18-03 | CMD12 aborts CMD18 stream cleanly; card ready for subsequent CMD17 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:355 |
-| CMD18-06 | CMD18 that hits end-of-image (sectors 14..15) terminates cleanly; no spurious token; follow-up CMD17 works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:395 |
-| CMD18-04 | CS deassert during CMD18 stream aborts cleanly; CMD17 afterward works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:434 |
-| SD-NAC-01 | CMD17: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:456 |
-| SD-NAC-02 | CMD18 first block: >=1 idle (0xFF) Nac gap byte before 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:474 |
-| SD-NAC-03 | CMD18 with one host flush byte after R1 still delivers the FIRST requested sector | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:497 |
-| SD-NAC-04 | CMD9 SEND_CSD: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:516 |
-| SD-NAC-05 | CMD10 SEND_CID: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:532 |
-| CMD18-05 | open CMD18 stream survives CS deassert; next block streams on reselect without a command (esxDOS cross-call streaming) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:564 |
-| SD-02 | CMD13 SEND_STATUS returns R2 (2-byte): R1=0x00 then R2=0x00 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:602 |
-| SD-12 | CMD16 SET_BLOCKLEN: arg=512 ack (R1=0x00); arg=1024 (>512) is BLOCK_LEN_ERROR → R1 bit 6 PARAMETER_ERROR (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:638 |
-| SD-13 | CMD23 SET_BLOCK_COUNT acks (R1=0x00); subsequent CMD17 still works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:661 |
-| SD-BUSY-01 | CMD24 accepted: the byte after the 0x05 data-response token is 0x00 (card drives DataOut low while programming, SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:753 |
-| SD-BUSY-02 | the busy window ends with a PARTIAL byte (neither 0x00 nor 0xFF) — DataOut is released part-way through a byte — and the line idles at 0xFF afterwards | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:760 |
-| SD-BUSY-03 | esxdos's post-write busy poll (enNxtmmc.rom $1FB9) completes in a handful of SPI reads instead of hitting its 12800-read timeout | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:781 |
-| SD-BUSY-05 | a CS deassert ENDS the post-write busy window — on reselect the card reads $FF (programming is modelled as instantaneous, so it has already completed); the firmware never takes this path | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:827 |
-| SD-BUSY-04 | a REJECTED CMD24 (0x0D write-error token) is NOT followed by a busy window — nothing was programmed, so the line stays idle at 0xFF | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:869 |
-| SD-RO-01 | read-only mount: CMD24 is REJECTED with the 0x0D write-error token (SD spec 7.3.3.3), not accepted with 0x05 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:930 |
-| SD-RO-02 | read-only mount: the host image is byte-identical after a rejected CMD24 — the write is not silently applied | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:938 |
-| SD-14 | CMD24 WRITE_BLOCK round-trip: R1=0x00 + data-response 0x05 + CMD17 readback returns identical 512 bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:994 |
-| MMC-01 | CMD1 (legacy MMC init) sets card to ready; subsequent CMD17 returns R1=0x00 and reads the byte address it was given | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1054 |
-| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1119 |
-| SD-15 | mount() does full reset() — persistent_response_byte_ MUST NOT leak across a runtime mount swap. Probe: after CMD0 on img1 (which sets persistent_response_byte_=0x01), mount(img2) must clear it back to 0xFF. A bare send() in IDLE state then returns 0xFF (post-fix) instead of the leaked 0x01 (pre-fix). Round-trip integrity also pinned via subsequent CMD17 on img2. Pre-fix mount() cleared only state_/initialized_/app_cmd_/cmd_idx_; post-fix calls reset() canonically (TASK2-VERIFY5 commit 24a1bc4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1226 |
-| SD-16 | CMD16 SET_BLOCKLEN over-long arg R1: initialized card -> 0x40 (parameter error only, idle CLEAR); uninitialized card -> 0x41 (idle + parameter error). Idle bit must derive from initialized_, not be hard-coded (SD spec § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1276 |
-| SD-17 | CMD24 tolerates leading 0xFF gap bytes between R1 and the 0xFE start-of-data token; readback equals payload byte-for-byte (SD Phys Layer Spec 6.00 § 7.3.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1346 |
-| SD-18 | Unhandled CMD20 returns R1 with bit 2 (illegal command) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1398 |
-| SD-19 | CMD55+ACMD42 (or CMD42 fall-through): R1 bit 2 (illegal cmd) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix derives idle from initialized_) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1436 |
-| SD-20 | CMD55 followed by non-ACMD (CMD17) falls through to regular CMD switch; R1=0x00 + data block matches sector 2 fixture (SD spec § 4.3.9.1; TASK2-VERIFY9 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1476 |
-| SD-21 | CMD24 past EOF rejects at R1 with PARAMETER_ERROR (0x40) and skips the data phase; in-bounds case still returns R1=0x00 + data-accepted (0x05) (SD Physical Layer Simplified Spec § 7.3.2.1 Table 7-9 + § 4.3.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1571 |
-| SD-25 | CMD24 past EOF leaves FSM in IDLE — a follow-up CMD13 dispatches cleanly (proves data phase fully suppressed) (SD Physical Layer Simplified Spec § 4.3.4 + § 7.3.2.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1659 |
-| SD-22 | CMD8 R7 register byte 0 = 0x10 (cmd version 1, SD Physical Layer Simplified Spec § 7.3.2.6). Pre-fix hardcoded 0x00 in the cmd-version field. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1701 |
-| SD-23 | CMD17/CMD18 past EOF set R1 bit 6 PARAMETER_ERROR per SD Phys Layer Spec § 7.3.2.1 Table 7-9. In-bounds R1=0x00. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1753 |
-| SD-24 | CMD24 ignores stray pre-token bytes (other than 0xFE/0xFF) — data block boundary preserved per SD Phys Layer Spec § 7.3.3.2. Pre-fix absorbed stray byte as data_block_[0], shifting payload. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1820 |
-| SD-26 | CMD18 mid-stream past-EOF emits data error token 0x08 per SD Phys Layer Spec § 7.3.3.3 (V14-DIVMMC-01). Pre-fix silently aborted with 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1892 |
-| SD-27 | CMD8 R7 byte 0 (R1) reflects `initialized_` per SD Phys Layer Spec § 7.3.2.6 / R1 layout. Post-init CMD8 returns R1=0x00 (ready), not the pre-fix hardcoded 0x01 (idle). | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1950 |
-| SD-28 | running as root; cannot construct a read-only image | (SD SPI spec) | skip | test/sdcard/sdcard_test.cpp:1998 |
-| SD-29 | ACMD41 HCS bit (arg bit 30) is reflected in CMD58 OCR CCS bit (byte 0 bit 6) per SD Phys Layer Spec § 4.2.3 / § 5.1. HCS=0 → CCS=0 (SDSC mode); HCS=1 → CCS=1 (SDHC mode). Pre-fix unconditionally reported CCS=1. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2133 |
-| SD-30 | receive(non-CMD-byte) in SENDING_DATA / RESPONDING / WRITE_RESP returns the next MISO byte and advances the response stream (full-duplex SPI per spi_master.vhd:104-168). Pre-fix returned 0xFF and left resp_idx_/data_idx_ un-advanced. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2206 |
-| SD-31 | receive(non-CMD-byte) in RESPONDING state observes the next response byte on MISO and advances resp_idx_ per VHDL full-duplex semantics (spi_master.vhd:104-168). Pre-fix the receive() default branch returned 0xFF and the R1 byte would never be observable via the write-side channel. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2261 |
-| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2307 |
-| SD-33-MOUNT | image mount | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2342 |
-| SD-33 | CMD10 CID Manufacturing Date encodes year=2026 month=05 per SD Physical Layer Simplified Spec § 5.2 Table 5-1. Pre-fix CID[14] was 0x65 encoding year_offset=0x16 = 2022 (off-by-4); post-fix CID[14] = 0xA5 encoding year_offset=0x1A = 2026. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2388 |
-| TASK26-NCR-01 | CMD0 response has exactly 2 idle ($FF) bytes before R1 (SD Phys Layer § 7.5.4 Ncr). Pre-fix emitted 1 idle byte so byte[1] was R1=0x01, not $FF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2431 |
-| TASK26-OCR-01 | CMD58 OCR payload contains no $FF byte (tbblue.fw skips $FF as idle and would misalign). Pre-fix OCR[1] (voltage window) = 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2455 |
-| TASK26-CRC-00 | reference CRC-16/XMODEM("123456789") == 0x31C3 (SD data-block CRC variant: poly 0x1021, init 0x0000) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2472 |
-| TASK26-CRC-01 | CMD17 data block emits the real CRC-16 (poly 0x1021, init 0x0000) over the 512 data bytes, high byte first. Pre-fix emitted dummy 0x0000. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2495 |
-| SD-LOGHOT-01 | streaming into the next CMD18 block logs its trace line with sdcard at trace | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2536 |
-| SD-LOGHOT-02 | no CMD18 next-block trace line is emitted with the level off | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2544 |
-| SDSC-ADDR-01 | SDSC (ACMD41 HCS=0 → OCR CCS=0): CMD17 argument is a BYTE address (§ 4.7.4) — arg 2*512 delivers sector 2 with a 512-byte CRC | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2579 |
-| SDSC-ADDR-02 | SDHC (ACMD41 HCS=1 → OCR CCS=1): CMD17 argument stays a 512-byte BLOCK address (§ 4.7.4) — arg 2 delivers sector 2 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2600 |
-| MMC-03 | byte-vs-block addressing duality: argument 1536 is byte 1536 (sector 3) with CCS=0 and block 1536 (past end of a 8 KB image) with CCS=1 (§ 4.7.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2630 |
-| SDSC-ADDR-03 | SDSC CMD17 with a misaligned byte address (a sector index used as one) → R1 bit 5 ADDRESS_ERROR and no data token (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2653 |
-| SDSC-ADDR-07 | SDSC CMD18 with a misaligned byte address → R1 bit 5 ADDRESS_ERROR, no data token and no stream started (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2672 |
-| SDSC-ADDR-04 | SDSC CMD18 starts at the byte address given and advances one 512-byte block per streamed block (§ 4.7.4, § 4.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2692 |
-| SDSC-ADDR-05 | SDSC CMD24 writes at the BYTE address given (§ 4.7.4): a block written at byte 6*512 reads back as sector 6 in an SDHC session | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2735 |
-| SDSC-ADDR-06 | SDSC CMD24 with a misaligned byte address → R1 bit 5 ADDRESS_ERROR and no data phase; the pushed bytes never reach the image (§ 4.3.2, § 4.3.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2767 |
-| SDSC-CMD16-01 | SDSC CMD16 arg=256 is accepted and takes effect: the next CMD17 transfers exactly 256 bytes from the byte address given, with a CRC-16 over those 256 bytes (§ 4.3.2, § 5.3.2 READ_BL_PARTIAL=1, § 7.2.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2816 |
-| SDSC-CMD16-02 | CMD16 over 512 bytes is BLOCK_LEN_ERROR in both capacity classes (R1 bit 6) and leaves the block length unchanged — the next read still transfers 512 bytes (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2846 |
-| SDSC-CMD16-03 | SDHC CMD16 arg=256 is accepted (R1=0x00) but does NOT change the transfer length — the next CMD17 still delivers 512 bytes (§ 4.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2870 |
-| SDSC-CMD16-04 | SDSC CMD24 after CMD16 256 → R1 bit 6 PARAMETER_ERROR (WRITE_BL_PARTIAL=0, § 5.3.2) with no data phase (§ 4.3.4); the pushed bytes never reach the image | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2906 |
-| SDSC-CMD16-05 | SDSC CMD18 after CMD16 256 streams 256-byte blocks and advances one BLOCK LENGTH between them at BOTH stride sites — three blocks are image bytes 256..511, 512..767, 768..1023, not a hardcoded 512-byte stride (§ 4.3.2, § 4.3.3, § 7.2.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2962 |
-| SDSC-CMD16-06 | SDSC shortened block at the very end of the image is delivered, not refused: the end-of-image bound and the host read both use the current block length, not a fixed 512 (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3006 |
-| SDSC-OVL-01 | the sector-indexed read overlay answers a block-addressed card and never a byte-addressed one — not at an address that happens to be sector-aligned, nor at one that merely divides into an overlaid sector | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3075 |
-| SDSC-CMD16-07 | re-negotiating HCS=1 after a standard-capacity CMD16 restores the 512-byte block length (§ 4.3.2): the CMD18 stream transfers 512 bytes per block and strides 512, so a block-addressed card never forms an address that is not a block boundary | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3147 |
-| SDSC-CMD16-08 | CMD0 restores the power-up block length (§ 4.3.2): after CMD16 256, a CMD0 + legacy-MMC CMD1 init — the one flow that initialises without ACMD41 — leaves the next read a full 512-byte block | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3202 |
-| SDSC-ADDR-08 | CMD0 clears the negotiated capacity class: after ACMD41(HCS=1) → CMD0 → legacy-MMC CMD1 the card reports CCS=0 (§ 4.2.3, § 5.1) and is byte-addressed (§ 4.7.4), instead of carrying a declaration from a previous initialisation | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3264 |
-| SDSC-CSD-01 | SDSC CMD9 returns a CSD Version 1.0 register (CSD_STRUCTURE=00, READ_BL_LEN=9, READ_BL_PARTIAL=1) whose (C_SIZE+1)*2^(C_SIZE_MULT+2)*2^READ_BL_LEN decodes to the image size (§ 5.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3318 |
-| SDSC-CSD-02 | SDHC CMD9 returns a CSD Version 2.0 register (CSD_STRUCTURE=01, READ_BL_PARTIAL=0) whose 22-bit C_SIZE counts 512 KB units (§ 5.3.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3355 |
-| SDSC-CSD-03 | SDSC CSD v1.0 capacity encoding scales with the image: a 16 MiB card needs C_SIZE_MULT=1 (12-bit C_SIZE cannot reach it at MULT=4) and still decodes to the exact size (§ 5.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3392 |
-| SDSC-CSD-04 | an image below one MULT unit is declared at the v1.0 floor (C_SIZE=0, C_SIZE_MULT=0 → 2048 bytes, § 5.3.2) — the only size the encoding cannot round down — and a read inside that declaration but past the real file is still refused with OUT_OF_RANGE (§ 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3443 |
+| INIT-01 | CMD0 returns R1=0x01 (in-idle) before ACMD41 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:263 |
+| INIT-02 | After init sequence, CMD17 R1=0x00 (ready) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:271 |
+| CMD17-01 | CMD17 sector=1 returns the correct first 4 sector-identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:297 |
+| CMD18-01 | CMD18 first block at sector=3 has correct identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:341 |
+| CMD18-02 | CMD18 second and third streamed blocks cover sector+1 and +2 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:349 |
+| CMD18-03 | CMD12 aborts CMD18 stream cleanly; card ready for subsequent CMD17 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:357 |
+| CMD18-06 | CMD18 that hits end-of-image (sectors 14..15) terminates cleanly; no spurious token; follow-up CMD17 works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:397 |
+| CMD18-04 | CS deassert during CMD18 stream aborts cleanly; CMD17 afterward works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:436 |
+| SD-NAC-01 | CMD17: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:458 |
+| SD-NAC-02 | CMD18 first block: >=1 idle (0xFF) Nac gap byte before 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:476 |
+| SD-NAC-03 | CMD18 with one host flush byte after R1 still delivers the FIRST requested sector | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:499 |
+| SD-NAC-04 | CMD9 SEND_CSD: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:518 |
+| SD-NAC-05 | CMD10 SEND_CID: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:534 |
+| CMD18-05 | open CMD18 stream survives CS deassert; next block streams on reselect without a command (esxDOS cross-call streaming) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:566 |
+| SD-02 | CMD13 SEND_STATUS returns R2 (2-byte): R1=0x00 then R2=0x00 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:604 |
+| SD-12 | CMD16 SET_BLOCKLEN: arg=512 ack (R1=0x00); arg=1024 (>512) is BLOCK_LEN_ERROR → R1 bit 6 PARAMETER_ERROR (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:640 |
+| SD-13 | CMD23 SET_BLOCK_COUNT acks (R1=0x00); subsequent CMD17 still works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:663 |
+| SD-BUSY-01 | CMD24 accepted: the byte after the 0x05 data-response token is 0x00 (card drives DataOut low while programming, SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:755 |
+| SD-BUSY-02 | the busy window ends with a PARTIAL byte (neither 0x00 nor 0xFF) — DataOut is released part-way through a byte — and the line idles at 0xFF afterwards | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:762 |
+| SD-BUSY-03 | esxdos's post-write busy poll (enNxtmmc.rom $1FB9) completes in a handful of SPI reads instead of hitting its 12800-read timeout | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:783 |
+| SD-BUSY-05 | a CS deassert ENDS the post-write busy window — on reselect the card reads $FF (programming is modelled as instantaneous, so it has already completed); the firmware never takes this path | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:829 |
+| SD-BUSY-04 | a REJECTED CMD24 (0x0D write-error token) is NOT followed by a busy window — nothing was programmed, so the line stays idle at 0xFF | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:871 |
+| SD-RO-01 | read-only mount: CMD24 is REJECTED with the 0x0D write-error token (SD spec 7.3.3.3), not accepted with 0x05 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:932 |
+| SD-RO-02 | read-only mount: the host image is byte-identical after a rejected CMD24 — the write is not silently applied | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:940 |
+| SD-14 | CMD24 WRITE_BLOCK round-trip: R1=0x00 + data-response 0x05 + CMD17 readback returns identical 512 bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:996 |
+| MMC-01 | CMD1 (legacy MMC init) sets card to ready; subsequent CMD17 returns R1=0x00 and reads the byte address it was given | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1056 |
+| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1121 |
+| SD-15 | mount() does full reset() — persistent_response_byte_ MUST NOT leak across a runtime mount swap. Probe: after CMD0 on img1 (which sets persistent_response_byte_=0x01), mount(img2) must clear it back to 0xFF. A bare send() in IDLE state then returns 0xFF (post-fix) instead of the leaked 0x01 (pre-fix). Round-trip integrity also pinned via subsequent CMD17 on img2. Pre-fix mount() cleared only state_/initialized_/app_cmd_/cmd_idx_; post-fix calls reset() canonically (TASK2-VERIFY5 commit 24a1bc4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1228 |
+| SD-16 | CMD16 SET_BLOCKLEN over-long arg R1: initialized card -> 0x40 (parameter error only, idle CLEAR); uninitialized card -> 0x41 (idle + parameter error). Idle bit must derive from initialized_, not be hard-coded (SD spec § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1278 |
+| SD-17 | CMD24 tolerates leading 0xFF gap bytes between R1 and the 0xFE start-of-data token; readback equals payload byte-for-byte (SD Phys Layer Spec 6.00 § 7.3.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1348 |
+| SD-18 | Unhandled CMD20 returns R1 with bit 2 (illegal command) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1400 |
+| SD-19 | CMD55+ACMD42 (or CMD42 fall-through): R1 bit 2 (illegal cmd) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix derives idle from initialized_) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1438 |
+| SD-20 | CMD55 followed by non-ACMD (CMD17) falls through to regular CMD switch; R1=0x00 + data block matches sector 2 fixture (SD spec § 4.3.9.1; TASK2-VERIFY9 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1478 |
+| SD-21 | CMD24 past EOF rejects at R1 with PARAMETER_ERROR (0x40) and skips the data phase; in-bounds case still returns R1=0x00 + data-accepted (0x05) (SD Physical Layer Simplified Spec § 7.3.2.1 Table 7-9 + § 4.3.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1573 |
+| SD-25 | CMD24 past EOF leaves FSM in IDLE — a follow-up CMD13 dispatches cleanly (proves data phase fully suppressed) (SD Physical Layer Simplified Spec § 4.3.4 + § 7.3.2.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1661 |
+| SD-22 | CMD8 R7 register byte 0 = 0x10 (cmd version 1, SD Physical Layer Simplified Spec § 7.3.2.6). Pre-fix hardcoded 0x00 in the cmd-version field. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1703 |
+| SD-23 | CMD17/CMD18 past EOF set R1 bit 6 PARAMETER_ERROR per SD Phys Layer Spec § 7.3.2.1 Table 7-9. In-bounds R1=0x00. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1755 |
+| SD-24 | CMD24 ignores stray pre-token bytes (other than 0xFE/0xFF) — data block boundary preserved per SD Phys Layer Spec § 7.3.3.2. Pre-fix absorbed stray byte as data_block_[0], shifting payload. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1822 |
+| SD-26 | CMD18 mid-stream past-EOF emits data error token 0x08 per SD Phys Layer Spec § 7.3.3.3 (V14-DIVMMC-01). Pre-fix silently aborted with 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1894 |
+| SD-27 | CMD8 R7 byte 0 (R1) reflects `initialized_` per SD Phys Layer Spec § 7.3.2.6 / R1 layout. Post-init CMD8 returns R1=0x00 (ready), not the pre-fix hardcoded 0x01 (idle). | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1952 |
+| SD-28 | running as root; cannot construct a read-only image | (SD SPI spec) | skip | test/sdcard/sdcard_test.cpp:2000 |
+| SD-29 | ACMD41 HCS bit (arg bit 30) is reflected in CMD58 OCR CCS bit (byte 0 bit 6) per SD Phys Layer Spec § 4.2.3 / § 5.1. HCS=0 → CCS=0 (SDSC mode); HCS=1 → CCS=1 (SDHC mode). Pre-fix unconditionally reported CCS=1. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2135 |
+| SD-30 | receive(non-CMD-byte) in SENDING_DATA / RESPONDING / WRITE_RESP returns the next MISO byte and advances the response stream (full-duplex SPI per spi_master.vhd:104-168). Pre-fix returned 0xFF and left resp_idx_/data_idx_ un-advanced. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2208 |
+| SD-31 | receive(non-CMD-byte) in RESPONDING state observes the next response byte on MISO and advances resp_idx_ per VHDL full-duplex semantics (spi_master.vhd:104-168). Pre-fix the receive() default branch returned 0xFF and the R1 byte would never be observable via the write-side channel. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2263 |
+| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2309 |
+| SD-33-MOUNT | image mount | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2344 |
+| SD-33 | CMD10 CID Manufacturing Date encodes year=2026 month=05 per SD Physical Layer Simplified Spec § 5.2 Table 5-1. Pre-fix CID[14] was 0x65 encoding year_offset=0x16 = 2022 (off-by-4); post-fix CID[14] = 0xA5 encoding year_offset=0x1A = 2026. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2390 |
+| TASK26-NCR-01 | CMD0 response has exactly 2 idle ($FF) bytes before R1 (SD Phys Layer § 7.5.4 Ncr). Pre-fix emitted 1 idle byte so byte[1] was R1=0x01, not $FF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2433 |
+| TASK26-OCR-01 | CMD58 OCR payload contains no $FF byte (tbblue.fw skips $FF as idle and would misalign). Pre-fix OCR[1] (voltage window) = 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2457 |
+| TASK26-CRC-00 | reference CRC-16/XMODEM("123456789") == 0x31C3 (SD data-block CRC variant: poly 0x1021, init 0x0000) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2474 |
+| TASK26-CRC-01 | CMD17 data block emits the real CRC-16 (poly 0x1021, init 0x0000) over the 512 data bytes, high byte first. Pre-fix emitted dummy 0x0000. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2497 |
+| SD-LOGHOT-01 | streaming into the next CMD18 block logs its trace line with sdcard at trace | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2538 |
+| SD-LOGHOT-02 | no CMD18 next-block trace line is emitted with the level off | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2546 |
+| SDSC-ADDR-01 | SDSC (ACMD41 HCS=0 → OCR CCS=0): CMD17 argument is a BYTE address (§ 4.7.4) — arg 2*512 delivers sector 2 with a 512-byte CRC | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2581 |
+| SDSC-ADDR-02 | SDHC (ACMD41 HCS=1 → OCR CCS=1): CMD17 argument stays a 512-byte BLOCK address (§ 4.7.4) — arg 2 delivers sector 2 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2602 |
+| MMC-03 | byte-vs-block addressing duality: argument 1536 is byte 1536 (sector 3) with CCS=0 and block 1536 (past end of a 8 KB image) with CCS=1 (§ 4.7.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2632 |
+| SDSC-ADDR-03 | SDSC CMD17 with a misaligned byte address (a sector index used as one) → R1 bit 5 ADDRESS_ERROR and no data token (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2655 |
+| SDSC-ADDR-07 | SDSC CMD18 with a misaligned byte address → R1 bit 5 ADDRESS_ERROR, no data token and no stream started (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2674 |
+| SDSC-ADDR-04 | SDSC CMD18 starts at the byte address given and advances one 512-byte block per streamed block (§ 4.7.4, § 4.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2694 |
+| SDSC-ADDR-05 | SDSC CMD24 writes at the BYTE address given (§ 4.7.4): a block written at byte 6*512 reads back as sector 6 in an SDHC session | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2737 |
+| SDSC-ADDR-06 | SDSC CMD24 with a misaligned byte address → R1 bit 5 ADDRESS_ERROR and no data phase; the pushed bytes never reach the image (§ 4.3.2, § 4.3.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2769 |
+| SDSC-CMD16-01 | SDSC CMD16 arg=256 is accepted and takes effect: the next CMD17 transfers exactly 256 bytes from the byte address given, with a CRC-16 over those 256 bytes (§ 4.3.2, § 5.3.2 READ_BL_PARTIAL=1, § 7.2.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2818 |
+| SDSC-CMD16-02 | CMD16 over 512 bytes is BLOCK_LEN_ERROR in both capacity classes (R1 bit 6) and leaves the block length unchanged — the next read still transfers 512 bytes (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2848 |
+| SDSC-CMD16-03 | SDHC CMD16 arg=256 is accepted (R1=0x00) but does NOT change the transfer length — the next CMD17 still delivers 512 bytes (§ 4.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2872 |
+| SDSC-CMD16-04 | SDSC CMD24 after CMD16 256 → R1 bit 6 PARAMETER_ERROR (WRITE_BL_PARTIAL=0, § 5.3.2) with no data phase (§ 4.3.4); the pushed bytes never reach the image | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2908 |
+| SDSC-CMD16-05 | SDSC CMD18 after CMD16 256 streams 256-byte blocks and advances one BLOCK LENGTH between them at BOTH stride sites — three blocks are image bytes 256..511, 512..767, 768..1023, not a hardcoded 512-byte stride (§ 4.3.2, § 4.3.3, § 7.2.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2964 |
+| SDSC-CMD16-06 | SDSC shortened block at the very end of the image is delivered, not refused: the end-of-image bound and the host read both use the current block length, not a fixed 512 (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3008 |
+| SDSC-OVL-01 | the sector-indexed read overlay answers a block-addressed card and never a byte-addressed one — not at an address that happens to be sector-aligned, nor at one that merely divides into an overlaid sector | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3077 |
+| SDSC-CMD16-07 | re-negotiating HCS=1 after a standard-capacity CMD16 restores the 512-byte block length (§ 4.3.2): the CMD18 stream transfers 512 bytes per block and strides 512, so a block-addressed card never forms an address that is not a block boundary | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3149 |
+| SDSC-CMD16-08 | CMD0 restores the power-up block length (§ 4.3.2): after CMD16 256, a CMD0 + legacy-MMC CMD1 init — the one flow that initialises without ACMD41 — leaves the next read a full 512-byte block | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3204 |
+| SDSC-ADDR-08 | CMD0 clears the negotiated capacity class: after ACMD41(HCS=1) → CMD0 → legacy-MMC CMD1 the card reports CCS=0 (§ 4.2.3, § 5.1) and is byte-addressed (§ 4.7.4), instead of carrying a declaration from a previous initialisation | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3266 |
+| SDSC-CSD-01 | SDSC CMD9 returns a CSD Version 1.0 register (CSD_STRUCTURE=00, READ_BL_LEN=9, READ_BL_PARTIAL=1) whose (C_SIZE+1)*2^(C_SIZE_MULT+2)*2^READ_BL_LEN decodes to the image size (§ 5.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3320 |
+| SDSC-CSD-02 | SDHC CMD9 returns a CSD Version 2.0 register (CSD_STRUCTURE=01, READ_BL_PARTIAL=0) whose 22-bit C_SIZE counts 512 KB units (§ 5.3.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3357 |
+| SDSC-CSD-03 | SDSC CSD v1.0 capacity encoding scales with the image: a 16 MiB card needs C_SIZE_MULT=1 (12-bit C_SIZE cannot reach it at MULT=4) and still decodes to the exact size (§ 5.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3394 |
+| SDSC-CSD-04 | an image below one MULT unit is declared at the v1.0 floor (C_SIZE=0, C_SIZE_MULT=0 → 2048 bytes, § 5.3.2) — the only size the encoding cannot round down — and a read inside that declaration but past the real file is still refused with OUT_OF_RANGE (§ 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3445 |
+| S6-SD-CMD18-MID | a save taken 200 bytes into the second sector of a CMD18 stream restores a card that is still streaming: the rest of the stream is byte-identical to an uninterrupted card | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3547 |
+| S6-SD-INFLIGHT-01 | a card part-way through a CMD18 block reports the transfer in flight (the input §11.3's Tier-2 refusal rule needs) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3556 |
+| S6-SD-INFLIGHT-02 | a card that has finished a CMD17 block and been clocked once more owes the host nothing and reports no transfer in flight | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3576 |
+| S6-SD-ADDRESSING | the negotiated capacity class (host_supports_sdhc_ + block_len_) survives save/restore: a byte-addressed card still reads sector 2 from byte address 1024 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3609 |
+| S6-SD-ADDRESSING-HC | …and the SDHC direction, which is the one that discriminates: a block-addressed card still reads sector 3 from argument 3 after a restore, where a card that had fallen back to reset()'s byte addressing would serve sector 0 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3646 |
+| S6-SD-BLOCKLEN | the CMD16 block length survives save/restore OBSERVABLY: the restored card's data field is 256 bytes and its CRC is the one over those 256, where a card that had fallen back to reset()'s 512 would still be delivering data when the CRC was read | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3683 |
+| S6-SD-INFLIGHT-03 | a paused-but-open CMD18 stream still reports the transfer in flight after a CS deassert — the case `multi_block_` is tested for independently of `state_`, and the one NextZXOS's esxDOS driver is in between driver calls | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3711 |
+| S6-SD-RESP-FORGED | a stream claiming 255 response bytes restores at most the 32 the DECLARATION allows: the count is checked, never obeyed, so a file can neither size a write nor keep the card responding past the bytes the stream actually carried | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3751 |
+| S6-SD-BLOCKLEN-FORGED | a forged block length is checked against the class's own CMD16 invariant (1..512) and restored to the power-on 512: the one field that SIZES A WRITE cannot be set out of range by a stream, and the card still serves its sectors afterwards | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3851 |
+| S6-SD-CMDIDX-FORGED | a forged command cursor is clamped to the LAST WRITABLE SLOT (5), not to the array's size: `cmd_buf_[cmd_idx_++] = tx` has no bound of its own, so a restored 6 wrote one byte past a 6-byte array through a clamp that was there and was off by one | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3904 |
+| S6-SD-SAVE-PURE | saving twice emits byte-identical streams and leaves the queued CMD9 response advancing exactly as an unsaved card's does: the staging round-trip on the write path is a no-op | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3944 |
+| S6-SD-DEFAULTS-01 | every declared default equals the value reset() leaves, per field (§12.2's gate on the second copy of a power-on value) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3971 |
+| S6-SD-DEFAULTS-02 | …and the gate actually saw the fields, so a pass cannot mean it saw none: 19 scalars declare a default and exactly one (data_crc, which reset() does not establish) does not | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3975 |
 
 ## NMI Source Pipeline — `test/nmi/nmi_test.cpp`
 

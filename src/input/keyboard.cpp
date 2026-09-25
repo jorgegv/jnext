@@ -4,6 +4,48 @@
 #include "core/log.h"
 #include "core/saveable.h"
 #include "platform/host_key_latch.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
+
+namespace {
+
+// GH #27 S5 — the auto-type queue's key table.
+//
+// The queue is a THIRD count-prefixed-and-padded history shape, and the
+// descriptor layer has only two primitives for that class (design §9.5(1)):
+// `d.log()` is `u16` count + (`u16`,`u8`) entries in raw order, and
+// `d.fifo()` is `u64` count + `u8`/`u16` elements oldest-first. This one is a
+// `u32` count followed by MAX_AUTO_TYPE_KEYS x 5 x `i32` in raw slot order.
+// §4.1's inventory used to omit it entirely and to call the
+// count-prefixed-and-padded class "five buffers in all"; it is six, and the
+// design doc now says so (§4.1, §6.2's three-layout table, §9.5(1)).
+//
+// Rather than add a third primitive for one 324-byte buffer, the sixteen
+// slots are declared as ordinary `i32` fields: exactly the §9.4 loop-collapse
+// treatment `Im2Controller` gives its 14 devices x 9 fields, and the reason
+// MAX_AUTO_TYPE_KEYS being 16 rather than 512 matters.
+//
+// LITERALS, concatenated by the preprocessor, and NOT built at run time —
+// `StateDesc::fail()` STORES the `const char*` it is handed rather than
+// copying it, so a key formatted into a stack buffer would dangle in exactly
+// the refusal path whose job is to name the field.
+#define KB_AUTO_KEYS(p)                                                     \
+    { p "_row1", p "_col1", p "_row2", p "_col2", p "_frames" }
+
+const char* const kAutoKeys[16][5] = {
+    KB_AUTO_KEYS("auto00"), KB_AUTO_KEYS("auto01"),
+    KB_AUTO_KEYS("auto02"), KB_AUTO_KEYS("auto03"),
+    KB_AUTO_KEYS("auto04"), KB_AUTO_KEYS("auto05"),
+    KB_AUTO_KEYS("auto06"), KB_AUTO_KEYS("auto07"),
+    KB_AUTO_KEYS("auto08"), KB_AUTO_KEYS("auto09"),
+    KB_AUTO_KEYS("auto10"), KB_AUTO_KEYS("auto11"),
+    KB_AUTO_KEYS("auto12"), KB_AUTO_KEYS("auto13"),
+    KB_AUTO_KEYS("auto14"), KB_AUTO_KEYS("auto15"),
+};
+
+#undef KB_AUTO_KEYS
+
+}  // namespace
 #include <cstring>
 
 // ---------------------------------------------------------------------------
@@ -629,62 +671,98 @@ uint8_t Keyboard::nr_b1_byte() const {
 // Task 60c — state serialisation
 // ---------------------------------------------------------------------------
 
+// GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
+// binary stream order, so it must not be disturbed: the byte-identity gate
+// (§17.1) pins these 342 bytes at the head of the 450-byte `input` block of the
+// 2 292 965-byte stream.
+//
+// ── THE AUTO-TYPE QUEUE ─────────────────────────────────────────────────
+//
+// It is a count-prefixed history PADDED to MAX_AUTO_TYPE_KEYS, and the
+// padding is load-bearing rather than stylistic: `RewindBuffer` sizes every
+// slot from one dry-run measure and requires each snapshot to be exactly that
+// width, so a variable-length queue made a single `LOAD ""` silently
+// invalidate every subsequent rewind (issue #42).
+//
+// Neither `d.log()` nor `d.fifo()` fits it — see the key table above for the
+// three layouts side by side — so the sixteen slots are declared as ordinary
+// `i32` fields, the §9.4 loop-collapse treatment.
+//
+// The queue is marshalled through a LOCAL staging array in both directions,
+// which is the same in-then-out idiom every enum in this stage uses:
+//
+//   * writing, `slots` is filled from `auto_queue_` and the rebuild at the
+//     end puts back exactly what was there — `queue_auto_type()` clamps the
+//     queue to MAX_AUTO_TYPE_KEYS (keyboard.cpp:471-474) and `erase()` only
+//     shrinks it, so `count <= 16` is an invariant and nothing is truncated;
+//   * reading, `slots` takes the stream's values and the rebuild is the
+//     restore.
+//
+// The staging array is `int32_t`, not `AutoKey`: `AutoKey`'s members are
+// `int`, and `int32_t` is only a typedef FOR `int` on the platforms jnext
+// builds for. Binding `d.i32` to a local of the declared width says so
+// explicitly instead of relying on that.
+void Keyboard::describe_state(jnext::save::StateDesc& d)
+{
+    // 8-row membrane matrix (active-low, bit N=0 => col N pressed).
+    d.bytes("matrix", matrix_, 8);
+    // 16-bit extended-key register (active-high).
+    d.u16("ex_matrix", ex_matrix_);
+    // Two-scan shift-hysteresis buffer (active-low).
+    d.bytes("shift_hist", shift_hist_, 2);
+
+    int32_t  slots[MAX_AUTO_TYPE_KEYS][5] = {};
+    uint32_t n = static_cast<uint32_t>(auto_queue_.size());
+    for (size_t i = 0; i < MAX_AUTO_TYPE_KEYS && i < auto_queue_.size(); ++i) {
+        slots[i][0] = auto_queue_[i].row1;
+        slots[i][1] = auto_queue_[i].col1;
+        slots[i][2] = auto_queue_[i].row2;
+        slots[i][3] = auto_queue_[i].col2;
+        slots[i][4] = auto_queue_[i].frames;
+    }
+    d.u32("auto_queue_count", n);
+    for (size_t i = 0; i < MAX_AUTO_TYPE_KEYS; ++i) {
+        for (int f = 0; f < 5; ++f) d.i32(kAutoKeys[i][f], slots[i][f]);
+    }
+    // The count is CHECKED, never obeyed. BOTH loops are bounded by the
+    // DECLARED capacity — the declaration one above, and this one — so the
+    // stream always carries exactly sixteen slots whatever `n` claims, a
+    // forged count can neither desync the stream nor size a write, and
+    // `slots` cannot be indexed past its extent. The count only gates how
+    // many of the sixteen become live entries.
+    //
+    // That is the shape `BinReadDesc::fifo` uses for the same reason, and it
+    // is deliberately NOT `min(n, capacity)` driving the loop: a bound that
+    // comes from the code cannot be defeated by a file, whereas a clamped
+    // bound is only as good as the clamp. A `for (i < live)` form was written
+    // here first, and a mutation proved that deleting its clamp read past the
+    // end of `slots`.
+    auto_queue_.clear();
+    for (size_t i = 0; i < MAX_AUTO_TYPE_KEYS; ++i) {
+        if (i >= n) break;
+        AutoKey k;
+        k.row1   = slots[i][0];
+        k.col1   = slots[i][1];
+        k.row2   = slots[i][2];
+        k.col2   = slots[i][3];
+        k.frames = slots[i][4];
+        auto_queue_.push_back(k);
+    }
+
+    d.i32("auto_frame_count", auto_frame_count_);
+    d.boolean("auto_gap", auto_gap_);
+    // NR 0x68 bit 4 mirror. Machine state — a register bit the guest sets —
+    // so it travels with the snapshot. Declared LAST, where the hand-written
+    // pair appended it.
+    d.boolean("cancel_extended", cancel_extended_);
+}
+
 void Keyboard::save_state(StateWriter& w) const
 {
-    // 8-row membrane matrix (active-low, bit N=0 ⇒ col N pressed).
-    w.write_bytes(matrix_, 8);
-    // 16-bit extended-key register (active-high).
-    w.write_u16(ex_matrix_);
-    // Two-scan shift-hysteresis buffer (active-low).
-    w.write_bytes(shift_hist_, 2);
-    // Auto-type FSM: the in-flight queue plus the frame counter and the
-    // inter-key gap flag. The queue can be non-empty mid-play (e.g. an
-    // instant-TAP LOAD"" sequence), so it must travel with the snapshot.
-    //
-    // Issue #42 — written at the full MAX_AUTO_TYPE_KEYS width rather than
-    // at the live size, so the snapshot has a constant length whatever the
-    // guest is doing (RewindBuffer drops any snapshot whose size differs
-    // from the one it measured at construction). Slots past the count are
-    // padding and load_state ignores them.
-    w.write_u32(static_cast<uint32_t>(auto_queue_.size()));
-    for (size_t i = 0; i < MAX_AUTO_TYPE_KEYS; ++i) {
-        const AutoKey k = (i < auto_queue_.size()) ? auto_queue_[i] : AutoKey{};
-        w.write_i32(k.row1);
-        w.write_i32(k.col1);
-        w.write_i32(k.row2);
-        w.write_i32(k.col2);
-        w.write_i32(k.frames);
-    }
-    w.write_i32(auto_frame_count_);
-    w.write_bool(auto_gap_);
-    // NR 0x68 bit 4 mirror. Machine state — a register bit the guest sets —
-    // so it must travel with the snapshot. Written LAST so the field order of
-    // every pre-existing reader is untouched.
-    w.write_bool(cancel_extended_);
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void Keyboard::load_state(StateReader& r)
 {
-    r.read_bytes(matrix_, 8);
-    ex_matrix_ = r.read_u16();
-    r.read_bytes(shift_hist_, 2);
-    const uint32_t n = r.read_u32();
-    auto_queue_.clear();
-    // The stream always carries exactly MAX_AUTO_TYPE_KEYS entries (see
-    // save_state), so read the full fixed-width block and keep the first
-    // `n`. A corrupt count therefore cannot desync the stream; it is
-    // clamped, and Emulator::load_state's sentinel reports the corruption.
-    const uint32_t live = (n <= MAX_AUTO_TYPE_KEYS) ? n : MAX_AUTO_TYPE_KEYS;
-    for (size_t i = 0; i < MAX_AUTO_TYPE_KEYS; ++i) {
-        AutoKey k;
-        k.row1   = r.read_i32();
-        k.col1   = r.read_i32();
-        k.row2   = r.read_i32();
-        k.col2   = r.read_i32();
-        k.frames = r.read_i32();
-        if (i < live) auto_queue_.push_back(k);
-    }
-    auto_frame_count_ = r.read_i32();
-    auto_gap_         = r.read_bool();
-    cancel_extended_  = r.read_bool();
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
 }

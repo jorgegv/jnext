@@ -1,5 +1,7 @@
 #pragma once
 
+namespace jnext { namespace save { class StateDesc; } }
+
 #include <cstdint>
 #include <cstdio>
 #include <functional>
@@ -11,6 +13,7 @@
 #include "core/clock.h"
 #include "core/emulator_config.h"
 #include "core/esxdos_hostfs.h"
+#include "core/jns_snapshot.h"
 #include "core/extended_nex_host.h"
 #include "core/scheduler.h"
 #include "cpu/z80_cpu.h"
@@ -151,6 +154,39 @@ public:
     ///   - At each scanline boundary: renders the scanline, accumulates
     ///     audio samples, checks interrupts.
     void run_frame();
+
+    /// GH #27 S6 (design §10.2 P7, §15.2) — bring the machine to the next
+    /// frame boundary so a snapshot can be written from it.
+    ///
+    /// `save_state` documents that snapshots "are only ever taken at a frame
+    /// boundary (`begin_new_frame()`), so a restored machine has no frame in
+    /// flight". The queue is empty exactly there and nowhere else — but the
+    /// DEBUGGER breaks MID-frame, and that is precisely when a developer
+    /// reaches for File ▸ Save Snapshot. The owner's rule (2026-09-23) is one
+    /// sentence: ALWAYS ADVANCE, NEVER REFUSE. A save that always works beats
+    /// one that is sometimes unavailable, and the cost — the machine ends up
+    /// to one frame past where the user paused — is documented rather than
+    /// hidden.
+    ///
+    /// WHAT MAKES IT SAFE: it completes the in-flight frame through the
+    /// ORDINARY `run_frame()` path, which re-enters the loop without
+    /// re-running `begin_new_frame()` (the `if (!frame_in_progress_)` guard).
+    /// Re-running frame start mid-frame is the Task 40 defect: it clears the
+    /// per-scanline change logs, and beast.nex's Copper palette gradient
+    /// vanished into a flat sky. A save that quietly wiped a frame's raster
+    /// history would be worse than one that refused, so a row pins it.
+    ///
+    /// Breakpoints and step modes are suspended for the duration: a save is
+    /// not a debugging action, and a breakpoint in the remainder of the frame
+    /// would leave the machine mid-frame again, which is the state this
+    /// exists to leave.
+    ///
+    /// @return true if a frame was in flight and has been completed.
+    bool advance_to_frame_boundary();
+
+    /// True while a frame is half-executed — i.e. the machine is NOT at a
+    /// point a snapshot may be taken from (design §10.2 P7).
+    bool frame_in_progress() const { return frame_in_progress_; }
 
     /// Perform a soft reset (tbblue RESET_SOFT / NR 0x02 bit 0).
     /// Resets flip-flops (CPU, MMU, peripherals, NextReg) but preserves
@@ -582,6 +618,16 @@ public:
     I2cController& i2c()     { return i2c_; }
     Uart&         uart()      { return uart_; }
 
+    /// The esxDOS host-filesystem sandbox (`--esxdos-stub-root`).
+    ///
+    /// PUBLIC since GH #27 S8's review: its open-handle table is hand-written
+    /// into a `.jns` (§9.5(4) — a variable-length list no declaration can
+    /// express) and is NOT in `save_state`'s stream either, so the
+    /// binary-stream oracle is structurally blind to it. The only way to prove
+    /// a restored handle is genuinely usable is to read through it, and that
+    /// needs the object.
+    EsxdosHostFs& esxdos_hostfs() { return esxdos_hostfs_; }
+
     // ── Emulated ESP-01 (GH #25) ──────────────────────────────────────────
     /// True when `EmulatorConfig::esp_enabled` built one. Everything below is
     /// null / empty when it did not, which is the default.
@@ -733,6 +779,97 @@ public:
     /// mismatch or out-of-bounds read; the restore is aborted at that point
     /// and the machine state is NOT trustworthy.
     bool load_state(class StateReader& r);
+
+    // ── The ONE field list for the Emulator's OWN scalars (GH #27 S6) ────
+    //
+    // Design §9.2, §10.1's last row. S3-S5 migrated the thirty-four
+    // subsystems; these ~40 fields — `frame_cycle_`, the monotonic T-state
+    // clock, the IM2 shadows, the four clip-window write indices, the NextREG
+    // appends, the tail latches — are the last un-migrated part of the
+    // stream, and they are exactly the ones §10.1 says become NAMED KEYS in a
+    // `.jns`, so the append-order chronology they carry today disappears.
+    //
+    // FIVE methods, not one, and the reason is the stream's own shape: each
+    // corresponds to a sentinel-delimited BLOCK, and one `describe_state`
+    // cannot put its fields in two blocks (§9.5(2), the precedent
+    // `Im2Controller::save_timing` set). The JSON side is free to merge them
+    // all into `state/emulator.json`, where they belong logically.
+    //
+    // What is NOT here, and why, each a named §9.5 exception:
+    //   * the monotonic T-state fold, written relative to the FUSE counter
+    //     the stream does not carry and re-seated with side effects on the
+    //     read side — §9.5(3);
+    //   * the CPU `/INT` window pair, same class, in the `int_timing` block;
+    //   * the esxDOS handle table (variable-length list) — §9.5(4);
+    //   * the `joy_uart` and `multiface` presence flags — §9.5(5).
+    void describe_frame_origin(jnext::save::StateDesc& d);
+    void describe_state(jnext::save::StateDesc& d);
+    void describe_nmi_tail(jnext::save::StateDesc& d);
+    void describe_nextreg_appends(jnext::save::StateDesc& d);
+    void describe_tail(jnext::save::StateDesc& d);
+
+    /// A SIXTH declaration, and one the binary stream never walks: the four
+    /// §9.5 exceptions above, staged into members so they can be DECLARED like
+    /// everything else (GH #27 S8, `src/core/emulator_jns.cpp`).
+    ///
+    /// They are exceptions in the BINARY stream because each is written
+    /// relative to something the stream does not carry, or re-seated with side
+    /// effects on read. A `.jns` has named keys and no positional chronology,
+    /// so in JSON they are ordinary fields — provided the fold and the
+    /// re-seating happen OUTSIDE the walk, which is what the `jns_*_` staging
+    /// members below are for. `save_jns` fills them, `load_jns` consumes them,
+    /// and nothing else touches them.
+    void describe_jns_exceptions(jnext::save::StateDesc& d);
+
+    // ── `.jns` whole-machine save and load (GH #27 S8, design §15) ───────
+
+    /// Serialise the whole machine into `out`.
+    ///
+    /// ALWAYS ADVANCES TO A FRAME BOUNDARY FIRST when one is in flight
+    /// (§10.2 P7, owner decision 2026-09-23): there is no refusal path, no
+    /// unavailable menu item and no failure mode, and `report.advanced_to_frame_boundary`
+    /// says whether it happened so the caller can tell the user once.
+    bool save_jns(const jnext::JnsSaveOptions& opt, std::vector<uint8_t>& out,
+                  jnext::JnsLoadReport& report, std::string& why);
+
+    /// Restore the whole machine from a `.jns`.
+    ///
+    /// On refusal returns false with `why` NAMING the offending thing and the
+    /// machine LEFT ALONE — every check the container and the manifest can do
+    /// runs before a single subsystem is touched. A refusal mid-restore is
+    /// still possible (a malformed `state/*.json`), and it is reported the
+    /// same way `load_state`'s sentinel mismatch is: the machine is not
+    /// trustworthy and the caller must say so.
+    bool load_jns(const uint8_t* data, std::size_t len,
+                  const jnext::JnsLoadOptions& opt, jnext::JnsLoadReport& report,
+                  std::string& why);
+
+    /// Path wrappers over the two above: read/write the file, log the reason,
+    /// and apply the `EmulatorConfig` flags (`--snapshot-uncompressed`,
+    /// `--snapshot-strict`, `--snapshot-force-sdcard`).
+    ///
+    /// These are what the DISPATCH SITES call. There are seven of them for
+    /// loading (`src/platform/emulator_boot.h:25` and six others), and giving
+    /// them a path-taking entry point is what keeps `.jns` a one-line addition
+    /// at each rather than a buffer dance repeated seven times.
+    bool load_jns_file(const std::string& path);
+    bool save_jns_file(const std::string& path);
+
+    /// What the last `load_jns_file` / `save_jns_file` had to say. The GUI
+    /// shows the warnings; §15.2: "it must be visible, not log-only — a user
+    /// who ignores a mismatch should have had to ignore it."
+    const jnext::JnsLoadReport& last_jns_report() const { return jns_report_; }
+    const std::string& last_jns_error() const { return jns_error_; }
+
+    /// The ONE list of subsystems a `.jns` carries, walked by BOTH directions.
+    ///
+    /// A member template rather than two hand-kept lists, and that is the
+    /// whole point: a subsystem added to the save side and forgotten on the
+    /// load side is not expressible here. `v(name, obj)` walks `describe_state`;
+    /// `v(name, obj, &T::a, &T::b, ...)` walks several declarations into one
+    /// member (§9.5(2) — the JSON side is free to merge blocks the binary
+    /// stream must keep apart).
+    template <typename V> void visit_jns_subsystems(V&& v);
 
     /// Name of the subsystem whose sentinel failed in the last load_state
     /// (empty if the last load succeeded). Non-empty means the machine is
@@ -1319,6 +1456,33 @@ private:
     TurboSound      turbosound_;
     Dac             dac_;
     I2s             i2s_;
+
+    // ── `.jns` staging for the four §9.5 exceptions (GH #27 S8) ──────────
+    //
+    // NOT MACHINE STATE, and never in the binary stream: `save_state` does not
+    // write them and `load_state` does not read them. They exist so
+    // `describe_jns_exceptions` can DECLARE values whose computation has to
+    // happen outside a declaration walk — a fold against a counter the stream
+    // does not carry, and a re-seating with side effects on the read side.
+    //
+    // Staged into members rather than passed as locals because a declaration
+    // binds by REFERENCE and a `StateDesc` method takes no arguments. The same
+    // shape `describe_state` already uses for `esp_frames`, one scope wider.
+    //
+    // Their lifetime is one `save_jns` or one `load_jns` call. Nothing else
+    // reads them, and a reviewer should treat any other reader as a defect.
+    uint64_t jns_monotonic_tstates_ = 0;   ///< base + live, folded at capture
+    int64_t  jns_int_first_ts_      = 0;   ///< /INT window, relative to FUSE
+    int64_t  jns_int_last_ts_       = 0;   ///< INT64_MAX stays INT64_MAX
+    bool     jns_stackless_retn_    = false;
+    bool     jns_joy_uart_present_  = false;
+    bool     jns_multiface_present_ = true;
+
+    /// What the last `.jns` file operation reported. Held here so every
+    /// frontend reads it the same way instead of each threading its own
+    /// out-params through a dispatch table.
+    jnext::JnsLoadReport jns_report_;
+    std::string          jns_error_;
     Mixer           mixer_;
 
     // Debugger-only source mute; NOT machine state (not reset, not serialised).

@@ -361,6 +361,50 @@ target_link_libraries(snapshot_test PRIVATE jnext_save)
 target_include_directories(snapshot_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME snapshot_tests COMMAND snapshot_test)
 
+# ---------------------------------------------------------------------------
+# szx_probe — the FOREIGN reader (GH #27 S9, design §13.2(1)).
+#
+# Links LIBSPECTRUM, the library FUSE itself uses. It is the only adjudicator
+# in this project that can say "the file jnext produced is not a valid
+# snapshot" without consulting jnext code — which is precisely the defect class
+# §13.1 records: jnext's .szx saver wrote RAM pages 0-111, its own loader
+# accepted them, every test passed, and libspectrum rejected every file.
+#
+# NOT a test suite: it is a helper the functional row drives, so it gets no
+# add_test() and no row count. OPTIONAL by design — a machine without
+# libspectrum-devel builds everything else and the row SKIPS, with the skip
+# saying why. CI installs it, so there the row runs.
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(LIBSPECTRUM QUIET libspectrum)
+endif()
+if(LIBSPECTRUM_FOUND)
+    add_executable(szx_probe snapshot/szx_probe.c)
+    target_include_directories(szx_probe PRIVATE ${LIBSPECTRUM_INCLUDE_DIRS})
+    target_link_libraries(szx_probe PRIVATE ${LIBSPECTRUM_LIBRARIES})
+    target_link_directories(szx_probe PRIVATE ${LIBSPECTRUM_LIBRARY_DIRS})
+    message(STATUS "libspectrum ${LIBSPECTRUM_VERSION} found: building szx_probe (GH #27 S9 foreign reader)")
+else()
+    message(STATUS "libspectrum NOT found: szx_probe not built, snapshot-foreign-szx-func will SKIP")
+endif()
+
+# The .jns snapshot's SD-card media IDENTITY (GH #27 S7). A separate binary
+# from snapshot_test on purpose: that one links jnext_save ALONE so the
+# container's rules are provable with no emulator, no card and no filesystem
+# (design §16.1), and this one needs jnext_core for the FAT32 parser and real
+# images on disk. Keeping them apart is what stops the descriptor layer's own
+# suite acquiring a dependency on the emulator core.
+#
+# WORKING_DIRECTORY and the canonical 1 GB fixture: same contract as
+# sd_rom_extractor_tests — JNEXT_TEST_SD_IMAGE overrides, and a missing
+# fixture is a fatal refusal rather than a shrinking row count.
+add_executable(sd_identity_test snapshot/sd_identity_test.cpp)
+target_link_libraries(sd_identity_test PRIVATE jnext_core)
+target_include_directories(sd_identity_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME sd_identity_tests
+         COMMAND sd_identity_test
+         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
 # Sprites subsystem compliance test
 add_executable(sprites_test sprites/sprites_test.cpp)
 target_link_libraries(sprites_test PRIVATE jnext_video jnext_memory jnext_port jnext_peripheral jnext_debug)

@@ -1,5 +1,7 @@
 #include "core/clock.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 
 Clock::Clock()
     : cycle_(0)
@@ -58,11 +60,22 @@ void Clock::commit_pending_cpu_speed_on_bus_idle(bool bus_idle, bool dma_holds_b
     cpu_divisor_ = cpu_speed_divisor(pending_cpu_speed_);
 }
 
-void Clock::save_state(StateWriter& w) const
+// GH #27 S3 — the ONE field list (design §9.2). Declaration order IS the
+// binary stream order, so it must not be disturbed: the byte-identity gate
+// (§17.1) pins these 12 bytes as block 0 of the 2 292 965-byte stream.
+//
+// No field here carries a DECLARED DEFAULT. §12.2 wants one "only when no
+// honest default exists", and the gate that would keep a declared default
+// honest — a JNSX row asserting declared == post-`reset()` — does not exist
+// yet (it is S6's, with the rest of §12.2). A second copy of a power-on value
+// with nothing checking it is the shape of the `--help` defect (GH #246), so
+// S3 declares every key REQUIRED: a `.jns` that is missing the CPU divisor is
+// not a snapshot of a machine.
+void Clock::describe_state(jnext::save::StateDesc& d)
 {
-    w.write_u64(cycle_);
-    w.write_i32(cpu_divisor_);
-    // Note: pending_cpu_speed_ is intentionally NOT persisted to keep
+    d.u64("cycle", cycle_);
+    d.i32("cpu_divisor", cpu_divisor_);
+    // pending_cpu_speed_ is intentionally NOT declared, to keep the
     // savestate format stable. On load() we reconcile the shadow to
     // mirror the effective divisor — any mid-flight pending NR 0x07
     // shadow that hadn't yet committed at save time is collapsed into
@@ -70,10 +83,14 @@ void Clock::save_state(StateWriter& w) const
     // shadow normally.
 }
 
+void Clock::save_state(StateWriter& w) const
+{
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
+}
+
 void Clock::load_state(StateReader& r)
 {
-    cycle_       = r.read_u64();
-    cpu_divisor_ = r.read_i32();
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
     // Reconcile shadow with effective: derive a CpuSpeed from the loaded
     // divisor so post-load NR 0x07 readback / commit paths behave
     // consistently. Map divisor → CpuSpeed (8→0, 4→1, 2→2, 1→3); fall

@@ -4,6 +4,8 @@
 
 class NextReg;
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// Copper co-processor — display-synchronized instruction engine.
 ///
 /// Executes WAIT and MOVE instructions from a 1K x 16-bit instruction RAM,
@@ -130,6 +132,9 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S4 — the ONE field list (design §9.2).
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     std::array<uint16_t, 1024> instructions_{};  // 1K instruction RAM

@@ -38,6 +38,7 @@ inline bool emulator_apply_load(Emulator& emu, const std::string& file,
     if (ext == ".z80") return emu.load_z80(file);
     if (ext == ".wav") return emu.load_wav(file);
     if (ext == ".rzx") return emu.load_rzx(file);
+    if (ext == ".jns") return emu.load_jns_file(file);   // GH #27 S8
     return emu.load_nex(file);   // .nex + unknown extensions
 }
 
@@ -56,7 +57,7 @@ inline bool emulator_load_routes_to_nex(const std::string& file) {
             c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
     return ext != ".tap" && ext != ".tzx" && ext != ".sna" && ext != ".szx" &&
-           ext != ".z80" && ext != ".wav" && ext != ".rzx";
+           ext != ".z80" && ext != ".wav" && ext != ".rzx" && ext != ".jns";
 }
 
 /// True when emulator_apply_load() above routes `file` to Emulator::load_rzx()

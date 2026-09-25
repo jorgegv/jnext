@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// MD6 (Mega-Drive 3/6-button) dual-connector joystick state machine.
 ///
 /// **NOT ON ANY LIVE READ PATH — reference model only.** Nothing in
@@ -117,6 +119,11 @@ public:
     // is the core correctness fix of Task 60c.
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S5 — the ONE field list (design §9.2). `save_state` /
+    /// `load_state` are both a walk of this declaration, so the rewind
+    /// stream and a `.jns` cannot disagree about which fields exist.
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     /// Apply the case-phase action for a given 4-bit phase. Pure

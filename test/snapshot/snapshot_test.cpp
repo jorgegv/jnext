@@ -74,6 +74,7 @@
 #include "save/state_desc_bin.h"
 #include "save/state_desc_json.h"
 #include "save/state_desc_schema.h"
+#include "save/state_desc_defaults.h"
 #include "save/zip_archive.h"
 
 #include <zlib.h>
@@ -274,7 +275,7 @@ Manifest make_manifest() {
 SdIdentity make_identity() {
     SdIdentity i;
     i.image_bytes     = 1073741824ull;
-    i.mbr_sha256      = "aa11bb22cc33dd44ee55ff6600778899"
+    i.mbr_partition_table_sha256      = "aa11bb22cc33dd44ee55ff6600778899"
                         "aa11bb22cc33dd44ee55ff6600778899";
     i.fat32_volume_id = "1a2b3c4d";
     i.partition_lba   = 2048;
@@ -3016,7 +3017,7 @@ int main(int argc, char** argv) {
             SdIdentity other = base;
             if (std::strcmp(c.field, "volid") == 0) other.fat32_volume_id = "99887766";
             if (std::strcmp(c.field, "size") == 0)  other.image_bytes = 2147483648ull;
-            if (std::strcmp(c.field, "mbr") == 0)   other.mbr_sha256 = "ff00";
+            if (std::strcmp(c.field, "mbr") == 0)   other.mbr_partition_table_sha256 = "ff00";
             if (std::strcmp(c.field, "lba") == 0)   other.partition_lba = 63;
 
             ReaderEnv e = env_with_card(other, "NEXT       ", "aabbccdd");
@@ -3135,6 +3136,89 @@ int main(int argc, char** argv) {
                   "whole Tier-1 check for any file written before the identity "
                   "could be computed",
                   refused_naming("JNSI-13", v, "not the one"), v.refusal);
+        }
+        {
+            // ── AN UNKNOWN TIER-2 STAMP IS NOT A CHANGED ONE (GH #27 S7) ──
+            //
+            // The defect S7 found by wiring the producer: the stamps were
+            // compared with a plain `==`, so an ABSENT digest on either side
+            // read as a change, and the warning then quoted an empty string as
+            // the new digest. That message is not true and not actionable, and
+            // on the mid-transfer path the same `==` produced a REFUSAL whose
+            // stated reason ("changed from X to '' ") was a fabrication.
+            //
+            // Absence is real: a snapshot written before the stamp existed, or
+            // a live card whose digest failed part-way through a gigabyte of
+            // I/O (`describe_sdcard_for_snapshot` keeps Tier 1 and drops Tier 2
+            // in exactly that case). Tier 1 already distinguished the two
+            // (`identity_known`); this is the same rule one tier down.
+            struct Unknown {
+                const char* row;
+                const char* snap;     // digest IN the snapshot
+                const char* live;     // digest of the card mounted now
+                const char* names;    // what the message must say
+                const char* desc;
+            };
+            const Unknown unknowns[] = {
+                {"JNSI-14", "", "aabbccdd", "the snapshot has none",
+                 "a snapshot with NO Tier-2 stamp warns that the contents "
+                 "COULD NOT BE COMPARED — it does not claim they changed, and "
+                 "it does not quote an empty string as a digest"},
+                {"JNSI-15", "aabbccdd", "", "the mounted card has none",
+                 "…and so does a mounted card whose digest could not be "
+                 "computed: a failed hash of the live image is not evidence "
+                 "that the image changed"},
+                {"JNSI-16", "", "", "neither the snapshot nor the mounted card",
+                 "…and when NEITHER side has one, the message says so rather "
+                 "than reporting '' -> '' as a match"},
+            };
+            for (const Unknown& u : unknowns) {
+                const std::vector<uint8_t> zu =
+                    build_with_card(base, "NEXT       ", u.snap);
+                ReaderEnv e = env_with_card(base, "NEXT       ", u.live);
+                jnext::zip::Reader r;
+                Manifest m;
+                Verdict v;
+                const bool ok = jnext::jns::open_snapshot(zu.data(), zu.size(),
+                                                          e, r, m, v);
+                const bool one_warning = ok && v.warnings.size() == 1;
+                const bool says_uncompared =
+                    one_warning &&
+                    v.warnings[0].find("could not be compared") !=
+                        std::string::npos &&
+                    v.warnings[0].find(u.names) != std::string::npos;
+                const bool no_false_change =
+                    one_warning &&
+                    v.warnings[0].find("changed since") == std::string::npos;
+                check(u.row, u.desc,
+                      says_uncompared && no_false_change,
+                      det("ok=%d n=%zu '%s'", ok, v.warnings.size(),
+                          v.warnings.empty() ? "" : v.warnings[0].c_str()));
+            }
+            {
+                // §11.3's last row REQUIRES the stamp to match when the FSM was
+                // mid-transfer, and an unknown stamp is not a match — so this
+                // still refuses. What changed is the REASON: it says the
+                // contents could not be VERIFIED, not that they changed to an
+                // empty digest.
+                const std::vector<uint8_t> zu =
+                    build_with_card(base, "NEXT       ", "");
+                ReaderEnv e = env_with_card(base, "NEXT       ", "aabbccdd");
+                e.sd_transfer_in_flight = true;
+                jnext::zip::Reader r;
+                Manifest m;
+                Verdict v;
+                jnext::jns::open_snapshot(zu.data(), zu.size(), e, r, m, v);
+                check("JNSI-17",
+                      "an UNKNOWN Tier-2 stamp with the SD FSM mid-transfer "
+                      "still REFUSES — §11.3 requires a match there — but the "
+                      "refusal says the contents could not be VERIFIED rather "
+                      "than inventing a change to an empty digest",
+                      refused_naming("JNSI-17", v, "could not be verified") &&
+                          v.refusal.find("mid-transfer") != std::string::npos &&
+                          v.refusal.find("changed since") == std::string::npos,
+                      v.refusal);
+            }
         }
     }
 
@@ -3392,13 +3476,15 @@ int main(int argc, char** argv) {
                   doc.find("\"bytes\": \"64\"") != std::string::npos,
               "");
 
-        // …while the BINARY realisation still writes them inline, because the
-        // byte-identity gate requires that stream to stay exactly as it is
-        // until S5b re-baselines it deliberately.
+        // …while the BINARY realisation writes them inline STANDALONE, which
+        // is what `desc_bytes` is: a stream with no `ram` block in it has
+        // nowhere to point, so the buffer is the only copy of itself. The
+        // machine-level half of the same rule is S5B-PILOT-* below.
         check("JNSD-J07",
-              "the BINARY realisation still writes the window's bytes inline, "
-              "reproducing today's stream — the gate is a migration scaffold, "
-              "and S5b is where it is deliberately re-baselined (§17.0)",
+              "the BINARY realisation writes the window's bytes inline on a "
+              "STANDALONE walk, because nothing else in that stream carries "
+              "them — the reference encoding needs a stream that holds the "
+              "referent, which is what `machine_level` means (§17.0)",
               desc_bytes.size() > s2::PilotState::kRamBytes &&
                   std::search(desc_bytes.begin(), desc_bytes.end(),
                               p.ram, p.ram + s2::PilotState::kRamBytes) !=
@@ -3444,16 +3530,20 @@ int main(int argc, char** argv) {
         {
             s2::Pilot src;
             const s2::PilotState& cref = src.s;   // as a `save_state() const`
+            // STANDALONE, so this compares against `desc_bytes` like with
+            // like: since S5b a machine-level walk is a whole window shorter
+            // (S5B-PILOT-SHORTER below), and this row is about the const_cast
+            // plumbing, not about the window's encoding.
             StateWriter measure;
-            jnext::save::save_via_desc(cref, measure, /*machine_level=*/true);
+            jnext::save::save_via_desc(cref, measure, /*machine_level=*/false);
             std::vector<uint8_t> out(measure.position());
             StateWriter w(out.data(), out.size());
-            jnext::save::save_via_desc(cref, w, /*machine_level=*/true);
+            jnext::save::save_via_desc(cref, w, /*machine_level=*/false);
 
             s2::Pilot dst;
             dst.s.bank = 0xFF;
             StateReader rr(out.data(), out.size());
-            jnext::save::load_via_desc(dst.s, rr, /*machine_level=*/true);
+            jnext::save::load_via_desc(dst.s, rr, /*machine_level=*/false);
 
             check("JNSD-B08",
                   "save_via_desc drives a declaration from a CONST object and "
@@ -3464,6 +3554,65 @@ int main(int argc, char** argv) {
                   out == desc_bytes && !rr.out_of_bounds() &&
                       dst.s.same_as(src.s),
                   det("%zu vs %zu bytes", out.size(), desc_bytes.size()));
+        }
+
+        // ── S5b (§17.0): at machine level a window is a REFERENCE ────────
+        //
+        // The stage's whole content, at the primitive: `machine_level` means
+        // the walk is Emulator-driven and its stream therefore carries the
+        // `ram` block, so a `ram_window`'s bytes are already in it and must
+        // not be written twice. The Pilot's 64-byte window stands in for the
+        // DivMMC's 128 KB — 6.1 % of every rewind slot in the real stream.
+        {
+            s2::Pilot src;
+            const s2::PilotState& cref = src.s;
+            StateWriter measure;
+            jnext::save::save_via_desc(cref, measure, /*machine_level=*/true);
+            std::vector<uint8_t> out(measure.position());
+            StateWriter w(out.data(), out.size());
+            jnext::save::save_via_desc(cref, w, /*machine_level=*/true);
+
+            check("S5B-PILOT-SHORTER",
+                  "a machine-level walk is exactly one window shorter than a "
+                  "standalone walk of the same declaration — the ONLY "
+                  "difference between the two, and the 139 264 bytes S5b "
+                  "takes out of the real stream",
+                  out.size() + s2::PilotState::kRamBytes == desc_bytes.size(),
+                  det("%zu vs %zu bytes", out.size(), desc_bytes.size()));
+
+            check("S5B-PILOT-NOT-COPIED",
+                  "and the window's bytes are ABSENT from it rather than "
+                  "merely uncounted: the pattern the standalone stream "
+                  "carries verbatim is nowhere in the machine-level one",
+                  std::search(out.begin(), out.end(), src.ram,
+                              src.ram + s2::PilotState::kRamBytes) ==
+                      out.end(),
+                  "");
+
+            s2::Pilot dst;
+            dst.s.bank         = 0xFF;
+            dst.s.current_line = 7;
+            dst.s.priv_ram[0]  = 0x00;
+            for (std::size_t i = 0; i < s2::PilotState::kRamBytes; ++i) {
+                dst.ram[i] = 0xEE;
+            }
+            StateReader rr(out.data(), out.size());
+            jnext::save::load_via_desc(dst.s, rr, /*machine_level=*/true);
+            bool window_untouched = true;
+            for (std::size_t i = 0; i < s2::PilotState::kRamBytes; ++i) {
+                if (dst.ram[i] != 0xEE) { window_untouched = false; break; }
+            }
+
+            check("S5B-PILOT-READ-SYMMETRIC",
+                  "…and the read direction mirrors it exactly: every other "
+                  "field restores, the stream is consumed to its last byte "
+                  "with no overrun — reading the window here would desync by "
+                  "a whole 128 KB at the very next sentinel — and the window "
+                  "is left for the machine's own `ram` restore to fill",
+                  dst.s.same_as(src.s) && window_untouched &&
+                      rr.position() == out.size() && !rr.out_of_bounds(),
+                  det("pos %zu of %zu, window %s", rr.position(), out.size(),
+                      window_untouched ? "untouched" : "OVERWRITTEN"));
         }
 
         // ── Found by mutation: BinReadDesc's own refusals ────────────────
@@ -4684,6 +4833,372 @@ int main(int argc, char** argv) {
                   "makes the golden's 33-block framing survive the migration",
                   out == want && out.size() == 8,
                   det("%zu bytes", out.size()));
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // S6 — media identity: ROM digests (P3), the tape (P4), the preview (P5)
+    // ─────────────────────────────────────────────────────────────────────
+    //
+    // All three are things the `.jns` SHOULD carry and did not. They live in
+    // the manifest rather than the state stream for the same reason the SD
+    // image does (§11): they are external resources, recorded by reopenable
+    // identity and never copied — a .jns that embedded 64 KB of ROM would be
+    // a firmware redistribution on every save (N3).
+    {
+        std::printf("\n--- S6: media identity (ROMs, tape, preview) ---\n");
+
+        auto with_media = []() {
+            Manifest m = make_manifest();
+            m.roms.source = "sdcard";
+            m.roms.sha256["48.rom"]  = std::string(64, 'c');
+            m.roms.sha256["128.rom"] = std::string(64, 'd');
+            m.roms.boot_rom_sha256   = std::string(64, 'e');
+            m.tape.present          = true;
+            m.tape.path             = "/home/user/game.tzx";
+            m.tape.sha256           = std::string(64, 'f');
+            m.tape.position_tstates = 123456789ull;
+            m.tape.realtime         = true;
+            m.esxdos_root           = "/home/user/nextdev";
+            return m;
+        };
+        auto env_matching = [&]() {
+            ReaderEnv e = make_env();
+            e.roms.sha256["48.rom"]  = std::string(64, 'c');
+            e.roms.sha256["128.rom"] = std::string(64, 'd');
+            e.roms.boot_rom_sha256   = std::string(64, 'e');
+            e.tape_file_available    = true;
+            return e;
+        };
+
+        // ── Round trip through the manifest text, not through the struct ──
+        {
+            const Manifest m = with_media();
+            Manifest got;
+            std::vector<std::string> unknown;
+            const bool ok = manifest_from_json(manifest_to_json(m), got, unknown,
+                                               why);
+            check("S6-MEDIA-01",
+                  "media.roms, media.tape and media.esxdos_root survive a "
+                  "round trip through the manifest TEXT — the digests, the "
+                  "tape's T-state position and its realtime flag included, "
+                  "because a position without the flag describes a different "
+                  "machine",
+                  ok && got.roms.source == "sdcard" &&
+                      got.roms.sha256.size() == 2 &&
+                      got.roms.sha256["48.rom"] == std::string(64, 'c') &&
+                      got.roms.boot_rom_sha256 == std::string(64, 'e') &&
+                      got.tape.present && got.tape.path == m.tape.path &&
+                      got.tape.position_tstates == 123456789ull &&
+                      got.tape.realtime &&
+                      got.esxdos_root == "/home/user/nextdev" &&
+                      unknown.empty(),
+                  why);
+        }
+
+        // ── P3: a differing ROM WARNS and restores, naming the ROM ────────
+        {
+            Manifest m = with_media();
+            std::vector<uint8_t> z = build_raw(m, {}, why);
+            ReaderEnv e = env_matching();
+            e.roms.sha256["48.rom"] = std::string(64, '9');   // a different ROM
+            jnext::zip::Reader r;
+            Manifest got;
+            Verdict v;
+            jnext::jns::open_snapshot(z.data(), z.size(), e, r, got, v);
+            bool named = false;
+            for (const std::string& w2 : v.warnings)
+                if (w2.find("48.rom") != std::string::npos) named = true;
+            check("S6-ROMS-01",
+                  "a snapshot taken against different ROM content WARNS and "
+                  "restores, naming the ROM: for 48k/128k/plus3 the ROM lives "
+                  "in `Rom rom_` and is not serialised, so without this the "
+                  "machine silently runs different code — but a corrected or "
+                  "regionalised ROM is a thing people legitimately have",
+                  v.ok && named, v.warnings.empty() ? "no warning" : v.warnings[0]);
+        }
+
+        // ── …and REFUSES under --snapshot-strict ──────────────────────────
+        {
+            Manifest m = with_media();
+            std::vector<uint8_t> z = build_raw(m, {}, why);
+            ReaderEnv e = env_matching();
+            e.roms.sha256["128.rom"] = std::string(64, '9');
+            e.strict = true;
+            jnext::zip::Reader r;
+            Manifest got;
+            Verdict v;
+            jnext::jns::open_snapshot(z.data(), z.size(), e, r, got, v);
+            check("S6-ROMS-02",
+                  "…and --snapshot-strict turns that warning into a refusal "
+                  "that still names the ROM",
+                  refused_naming("S6-ROMS-02", v, "128.rom"), v.refusal);
+        }
+
+        // ── A ROM only ONE side has is not a mismatch ─────────────────────
+        {
+            Manifest m = with_media();
+            m.roms.sha256["plus3.rom"] = std::string(64, '1');
+            std::vector<uint8_t> z = build_raw(m, {}, why);
+            ReaderEnv e = env_matching();          // has no plus3.rom at all
+            e.strict = true;                       // even at the strictest
+            jnext::zip::Reader r;
+            Manifest got;
+            Verdict v;
+            jnext::jns::open_snapshot(z.data(), z.size(), e, r, got, v);
+            check("S6-ROMS-03",
+                  "a ROM name only one side has is NOT a mismatch, even under "
+                  "--snapshot-strict: it is a ROM this machine does not use, "
+                  "and calling that a mismatch is the cries-wolf failure "
+                  "§11.1 rejects for the SD card — an identity that is "
+                  "ignored is worse than none",
+                  v.ok && v.warnings.empty(),
+                  v.warnings.empty() ? v.refusal : v.warnings[0]);
+        }
+
+        // ── The boot ROM is compared SEPARATELY ───────────────────────────
+        {
+            Manifest m = with_media();
+            std::vector<uint8_t> z = build_raw(m, {}, why);
+            ReaderEnv e = env_matching();
+            e.roms.boot_rom_sha256 = std::string(64, '9');
+            jnext::zip::Reader r;
+            Manifest got;
+            Verdict v;
+            jnext::jns::open_snapshot(z.data(), z.size(), e, r, got, v);
+            bool named = false;
+            for (const std::string& w2 : v.warnings)
+                if (w2.find("nextboot.rom") != std::string::npos) named = true;
+            check("S6-ROMS-04",
+                  "the FPGA boot ROM is compared separately and named "
+                  "separately: it is baked into the binary rather than read "
+                  "from the card, so a mismatch means the two jnext builds "
+                  "disagree about silicon, not about a file",
+                  v.ok && named,
+                  v.warnings.empty() ? "no warning" : v.warnings[0]);
+        }
+
+        // ── P4: an absent tape WARNS, naming it, and restores ─────────────
+        {
+            Manifest m = with_media();
+            std::vector<uint8_t> z = build_raw(m, {}, why);
+            ReaderEnv e = env_matching();
+            e.tape_file_available = false;
+            e.strict = true;                       // NOT a refusal even here
+            jnext::zip::Reader r;
+            Manifest got;
+            Verdict v;
+            jnext::jns::open_snapshot(z.data(), z.size(), e, r, got, v);
+            bool named = false;
+            for (const std::string& w2 : v.warnings)
+                if (w2.find("game.tzx") != std::string::npos) named = true;
+            check("S6-TAPE-01",
+                  "a snapshot whose tape cannot be reopened WARNS, names the "
+                  "file and restores WITHOUT it — and is not a refusal even "
+                  "under --snapshot-strict, because a machine whose tape has "
+                  "finished loading is a perfectly good machine and refusing "
+                  "it over a moved .tzx would be the format getting in the "
+                  "way",
+                  v.ok && named,
+                  v.warnings.empty() ? v.refusal : v.warnings[0]);
+        }
+
+        // ── …and no tape recorded means no warning, ever ──────────────────
+        {
+            Manifest m = with_media();
+            m.tape = jnext::jns::TapeInfo{};        // no tape was attached
+            std::vector<uint8_t> z = build_raw(m, {}, why);
+            ReaderEnv e = env_matching();
+            e.tape_file_available = false;
+            jnext::zip::Reader r;
+            Manifest got;
+            Verdict v;
+            jnext::jns::open_snapshot(z.data(), z.size(), e, r, got, v);
+            check("S6-TAPE-02",
+                  "a snapshot taken with NO tape attached warns about none: "
+                  "the member's absence is how a reader tells 'no tape' from "
+                  "'a tape it cannot find', which is the same distinction "
+                  "`subsystems` draws for state members (§8)",
+                  v.ok && v.warnings.empty() && !got.tape.present,
+                  v.warnings.empty() ? "" : v.warnings[0]);
+        }
+
+        // ── P5: the preview travels as a declared meta member ─────────────
+        {
+            // A 1-pixel PNG is not needed: the row is about the DECLARATION
+            // and the member, and inventing a decoder here would test libpng.
+            const std::vector<uint8_t> png = {0x89, 'P', 'N', 'G', 0x0D, 0x0A,
+                                              0x1A, 0x0A, 0x00, 0x01};
+            SnapshotWriter w(false);
+            Manifest m = make_manifest();
+            m.preview.present = true;
+            m.preview.width   = 320;
+            m.preview.height  = 256;
+            w.set_manifest(m);
+            w.add_subsystem("cpu", kJson, why);
+            w.add_meta("meta/preview.png", png.data(), png.size(), why);
+            std::vector<uint8_t> z;
+            const bool built = w.finish(z, why);
+
+            jnext::zip::Reader r;
+            Manifest got;
+            Verdict v;
+            const bool opened =
+                built && jnext::jns::open_snapshot(z.data(), z.size(),
+                                                   make_env(), r, got, v);
+            std::vector<uint8_t> back;
+            std::string rwhy;
+            const bool read_back =
+                opened && r.read("meta/preview.png", back, rwhy);
+            check("S6-PREVIEW-01",
+                  "`meta/preview.png` is written, DECLARED with its "
+                  "dimensions and read back: the framebuffer is regenerated "
+                  "by the next render, so a snapshot restored PAUSED shows "
+                  "the previous frame until the user steps, and this is the "
+                  "restore-time paused image (§10.2 P5)",
+                  read_back && back == png && got.preview.present &&
+                      got.preview.width == 320 && got.preview.height == 256,
+                  why + rwhy);
+        }
+
+        // ── …and a reader that does not know it just ignores it ───────────
+        {
+            const std::vector<uint8_t> png = {0x89, 'P', 'N', 'G'};
+            SnapshotWriter w(false);
+            w.set_manifest(make_manifest());        // NO preview declaration
+            w.add_subsystem("cpu", kJson, why);
+            w.add_meta("meta/preview.png", png.data(), png.size(), why);
+            std::vector<uint8_t> z;
+            const bool built = w.finish(z, why);
+            jnext::zip::Reader r;
+            Manifest got;
+            Verdict v;
+            const bool opened =
+                built && jnext::jns::open_snapshot(z.data(), z.size(),
+                                                   make_env(), r, got, v);
+            std::vector<uint8_t> back;
+            std::string rwhy;
+            const bool read_back =
+                opened && r.read("meta/preview.png", back, rwhy);
+            check("S6-PREVIEW-02",
+                  "a preview MEMBER with no declaration is accepted and "
+                  "readable, and the reader does NOT invent the declaration "
+                  "from it: `meta/` is an open namespace whose members are "
+                  "carried, not interpreted (JNSR-15), so `preview` stays "
+                  "absent and a consumer can tell 'no preview was declared' "
+                  "from 'a preview 320x256 is there'",
+                  opened && v.ok && read_back && back == png &&
+                      !got.preview.present && v.ignored_members.empty(),
+                  v.refusal + rwhy);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // S6 — §12.2's declared-default gate, and the proof it can FAIL
+    // ─────────────────────────────────────────────────────────────────────
+    //
+    // S6 is the first stage to declare a default on a shipped field (the SD
+    // card's, `sd_card.cpp`), and §12.2 requires the second copy of a
+    // power-on value to be COMPARED against the first or it silently keeps a
+    // pre-audit value — the shape of GH #246. `DefaultCheckDesc` is that
+    // comparison, and the rows that matter are the ones proving it is not a
+    // tautology: a gate nobody has watched fail is a gate nobody can trust.
+    {
+        std::printf("\n--- S6: §12.2 declared defaults, and the gate ---\n");
+
+        // The pilot's declared defaults ARE its power-on values, so a pilot
+        // in the state a `reset()` would leave must produce no mismatch.
+        {
+            s2::PilotState p;
+            uint8_t ram[s2::PilotState::kRamBytes]{};
+            p.window = ram;
+            jnext::save::DefaultCheckDesc d;
+            p.describe_state(d);
+            check("S6-DEF-01",
+                  "a subsystem whose fields hold their declared defaults "
+                  "produces no mismatch, and the walk actually visited them "
+                  "(6 defaulted scalars, 3 required)",
+                  d.mismatches().empty() && d.defaulted() == 6 &&
+                      d.undefaulted() == 3,
+                  det("defaulted=%zu undefaulted=%zu mismatches=%zu",
+                      d.defaulted(), d.undefaulted(), d.mismatches().size()));
+        }
+
+        // THE ONE THAT MATTERS. `bank` is declared `0x00`; give the
+        // "post-reset" object 0x0A — the exact drift §12.2 describes, a VHDL
+        // audit correcting `reset()` and leaving the declaration behind — and
+        // require the gate to name the field, both values included.
+        {
+            s2::PilotState p;
+            uint8_t ram[s2::PilotState::kRamBytes]{};
+            p.window = ram;
+            p.bank = 0x0A;
+            jnext::save::DefaultCheckDesc d;
+            p.describe_state(d);
+            const bool named = d.mismatches().size() == 1 &&
+                               d.mismatches()[0].field == "bank" &&
+                               d.mismatches()[0].declared == "0" &&
+                               d.mismatches()[0].actual == "10";
+            check("S6-DEF-02",
+                  "the gate FAILS when a declared default and the value "
+                  "reset() leaves disagree, and NAMES the field with both "
+                  "numbers — G9 is a testable property, not a slogan",
+                  named,
+                  det("%zu mismatch(es)%s", d.mismatches().size(),
+                      d.mismatches().empty()
+                          ? ""
+                          : (" first=" + d.mismatches()[0].field).c_str()));
+        }
+
+        // …in every primitive that carries one, not just `u8`. A gate that
+        // only looked at one type would pass S6-DEF-02 and miss the other
+        // five kinds of drift.
+        {
+            s2::PilotState p;
+            uint8_t ram[s2::PilotState::kRamBytes]{};
+            p.window = ram;
+            p.enabled       = true;   // declared false
+            p.current_line  = 7;      // declared 0
+            p.monotonic     = 9;      // declared 0
+            p.flash_counter = -3;     // declared 0
+            p.mode          = 1;      // declared ordinal 0
+            jnext::save::DefaultCheckDesc d;
+            p.describe_state(d);
+            std::set<std::string> got;
+            for (const auto& m : d.mismatches()) got.insert(m.field);
+            const std::set<std::string> want = {
+                "enabled", "current_line", "monotonic", "flash_counter",
+                "mode"};
+            check("S6-DEF-03",
+                  "the gate covers every scalar primitive that can carry a "
+                  "default — bool, u16, u64, i32 and enum8 — not only the u8 "
+                  "S6-DEF-02 drifts",
+                  got == want, det("%zu mismatch(es)", got.size()));
+        }
+
+        // And the aggregates contribute NOTHING in either direction. §12.2's
+        // three exemptions (NR 0x03 config mode, the NextReg machine type and
+        // the Multiface RAM) are exempt because they declare no default, not
+        // because a checker excludes them — a distinction this row makes
+        // structural: `bytes`/`blob`/`ram_window`/`log`/`fifo` cannot declare
+        // one, so they are neither gated nor silently counted as gated.
+        {
+            s2::PilotState p;
+            uint8_t ram[s2::PilotState::kRamBytes]{};
+            p.window = ram;
+            std::memset(p.priv_ram, 0xEE, sizeof(p.priv_ram));
+            std::memset(p.entry_points, 0xEE, sizeof(p.entry_points));
+            std::memset(ram, 0xEE, sizeof(ram));
+            p.log_count = 3;
+            p.tx.push(0x11);
+            jnext::save::DefaultCheckDesc d;
+            p.describe_state(d);
+            check("S6-DEF-04",
+                  "aggregates carry no default by construction, so a "
+                  "non-power-on blob, byte array, window, log or FIFO is "
+                  "neither a mismatch nor counted as a gated field",
+                  d.mismatches().empty() && d.defaulted() == 6 &&
+                      d.undefaulted() == 3);
         }
     }
 

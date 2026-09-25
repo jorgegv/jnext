@@ -64,6 +64,8 @@ enum class MachineType;
 class ContentionModel;
 class Mmu;
 
+namespace jnext { namespace save { class StateDesc; } }
+
 // G53 (2026-05-01) — z80_build_contention_tables() and
 // z80_set_page_contended() were retired with the FUSE legacy
 // contention-table consumer. The FUSE in-opcode contention path now
@@ -314,6 +316,15 @@ public:
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
+    /// GH #27 S3 — the ONE field list (design §9.2).
+    ///
+    /// Three of its fields are §9.5(3) — "values written relative to
+    /// something the stream does not carry". They bind the `ser_*` scratch
+    /// members below; `save_state` marshals INTO them and `load_state`
+    /// marshals OUT of them, so the declaration stays one flat list and the
+    /// conversion stays visible at exactly two places.
+    void describe_state(jnext::save::StateDesc& d);
+
     /// V20R-CPU-NIT-02 — Test observable: count of `request_interrupt()`
     /// invocations since the last `reset_request_interrupt_count()`. Used
     /// by the V20R-CPU-NIT-02-NO-DOUBLE-STAMP regression to assert that a
@@ -339,6 +350,24 @@ private:
     // rebase can move a still-pending window below zero.
     int64_t          int_first_ts_ = 0;
     int64_t          int_last_ts_  = 0;
+    // GH #27 S3 — §9.5(3) serialisation scratch. NOT machine state: these
+    // hold the three values the stream carries that no member holds directly,
+    // for the duration of one `describe_state` walk.
+    //   ser_ei_grace_      0 when the EI grace is pending AT THIS boundary,
+    //                      -1 otherwise — the FUSE `interrupts_enabled_at`
+    //                      stamp made relative, since the T-state counter it
+    //                      was stamped against is re-seeded, not restored.
+    //   ser_iff2_read_     the FUSE `z80.iff2_read` quirk flag, which lives
+    //                      only in the global struct and has no Z80Registers
+    //                      mirror.
+    //   ser_int_first_rel_ int_first_ts_ as a delta against that same
+    //                      counter, in the u32 slot the single-stamp window
+    //                      used.
+    // `mutable` because `save_state` is const and marshals into them; nothing
+    // else in the class reads or writes them.
+    mutable int32_t  ser_ei_grace_      = -1;
+    mutable uint8_t  ser_iff2_read_     = 0;
+    mutable uint32_t ser_int_first_rel_ = 0;
     /// V20R-CPU-NIT-02 — Test-observable monotonic counter of
     /// `request_interrupt()` invocations. Reset via the public
     /// `reset_request_interrupt_count()`. Not persisted in save/load.

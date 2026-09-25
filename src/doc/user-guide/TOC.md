@@ -71,6 +71,12 @@ session as subsections.
 - **5.6 Networking** — the emulated ESP-01 WiFi module: turning it on, the
   host allowlist, the status-bar cell, and a worked NXtel session. Added
   2026-07-29, after the TOC was agreed; the ESP did not exist then.
+- **5.7 The joystick-port serial cable** and **5.8 Host files for a directly
+  loaded program** — also added after the TOC was agreed.
+- **5.9 Snapshots** — the four formats and which to use, what travels and
+  what deliberately does not, the SD-card identity check and why a snapshot
+  may complain, and why a `.jns` is not to be shared. Added 2026-09-25
+  (GH #27); `.jns` did not exist when the TOC was agreed.
 
 ## 6. The debugger
 

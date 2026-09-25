@@ -20,6 +20,8 @@
 #include "z80n_ext.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 #include "memory/contention.h"
 #include "memory/mmu.h"
 
@@ -1344,106 +1346,105 @@ void Z80Cpu::request_nmi() {
     nmi_pending_ = true;
 }
 
+// ---------------------------------------------------------------------------
+// GH #27 S3 — the ONE field list (design §9.2)
+// ---------------------------------------------------------------------------
+//
+// Block 4 of the byte-identity stream (§17.1), 45 bytes. Declaration order IS
+// the stream order and must not be disturbed.
+//
+// NOT DECLARED, and each for a stated reason:
+//
+//   * `regs_.IncDecZ` (Pass-9). Adding bytes mid-stream would shift every
+//     subsequent subsystem read. The worst-case effect of dropping it at a
+//     save/load boundary is a single LDWS reading P=0 instead of its prior
+//     value, immediately resynced by the next BC-dec block transfer or DJNZ.
+//   * the FUSE T-state counter itself. `Emulator::load_state` re-seeds it at
+//     the next frame start rather than restoring it, which is why the three
+//     `ser_*` fields below are DELTAS against it (§7.4, §9.5(3)).
+//   * `int_last_ts_`, derived on restore from `int_first_ts_` and the machine
+//     timing — §9.5(7), a derived field is never written.
+//   * `request_interrupt_count_`, a test observable, not machine state.
+void Z80Cpu::describe_state(jnext::save::StateDesc& d)
+{
+    d.u16("af",  regs_.AF);   d.u16("bc",  regs_.BC);
+    d.u16("de",  regs_.DE);   d.u16("hl",  regs_.HL);
+    d.u16("af2", regs_.AF2);  d.u16("bc2", regs_.BC2);
+    d.u16("de2", regs_.DE2);  d.u16("hl2", regs_.HL2);
+    d.u16("ix",  regs_.IX);   d.u16("iy",  regs_.IY);
+    d.u16("sp",  regs_.SP);   d.u16("pc",  regs_.PC);
+    d.u8("i", regs_.I);       d.u8("r", regs_.R);
+    d.u8("iff1", regs_.IFF1); d.u8("iff2", regs_.IFF2);
+    d.u8("im", regs_.IM);
+    d.boolean("halted", regs_.halted);
+    // Pass-3 — the hidden WZ/MEMPTR register and the F-assembly shadow Q.
+    // Without these, save/load loses the undocumented X/Y flag composition
+    // state used by BIT (HL)/(IX+d)/(IY+d) and by SCF/CCF (FUSE consults
+    // `last_Q = z80.q` at the start of every opcode and BIT_MEMPTR uses
+    // `z80.memptr.b.h` for X/Y composition).
+    d.u16("memptr", regs_.MEMPTR);
+    d.u8("q", regs_.Q);
+    // Pass-4 — FUSE-internal interrupt state that lives ONLY in the global
+    // `z80` struct and is not mirrored into Z80Registers.
+    //
+    //   ei_grace — `interrupts_enabled_at` is a signed T-state stamp set by
+    //     EI, gating fuse_z80_interrupt() on the immediately-following
+    //     instruction (VHDL t80n.vhd EI semantics: IFF1 takes effect AFTER
+    //     the next opcode boundary). GH #265 — the stamp is only ever
+    //     compared with the counter for equality at the boundary straight
+    //     after the EI, and the counter is re-seeded rather than restored, so
+    //     what travels is whether that grace is pending HERE: 0 yes, -1 no.
+    //   iff2_read — the NMOS LD A,I / LD A,R quirk flag: if INT is accepted
+    //     on the next instruction boundary, the P flag (holding the IFF2 the
+    //     LD stored) gets cleared.
+    d.i32("ei_grace", ser_ei_grace_);
+    d.u8("iff2_read", ser_iff2_read_);
+    // Interrupt state.
+    d.boolean("nmi_pending", nmi_pending_);
+    d.boolean("int_pending", int_pending_);
+    d.u8("int_vector", int_vector_);
+    // The /INT window's first boundary, in the u32 slot the single-stamp
+    // window used, relative to the T-state counter. The exact pair is
+    // appended at the end of the Emulator stream ("int_timing", block 31).
+    d.u32("int_first_ts_rel", ser_int_first_rel_);
+}
+
 void Z80Cpu::save_state(StateWriter& w) const
 {
-    // Registers
-    w.write_u16(regs_.AF);  w.write_u16(regs_.BC);
-    w.write_u16(regs_.DE);  w.write_u16(regs_.HL);
-    w.write_u16(regs_.AF2); w.write_u16(regs_.BC2);
-    w.write_u16(regs_.DE2); w.write_u16(regs_.HL2);
-    w.write_u16(regs_.IX);  w.write_u16(regs_.IY);
-    w.write_u16(regs_.SP);  w.write_u16(regs_.PC);
-    w.write_u8(regs_.I);    w.write_u8(regs_.R);
-    w.write_u8(regs_.IFF1); w.write_u8(regs_.IFF2);
-    w.write_u8(regs_.IM);
-    w.write_bool(regs_.halted);
-    // Pass-3 fix: include the hidden WZ/MEMPTR register and the F-assembly
-    // shadow Q. Without these, save/load loses the undocumented X/Y flag
-    // composition state used by BIT (HL)/(IX+d)/(IY+d) and by SCF/CCF
-    // (FUSE consults `last_Q = z80.q` at the start of every opcode and
-    // BIT_MEMPTR uses `z80.memptr.b.h` for X/Y composition). Both fields
-    // are already present in Z80Registers and synced by sync_*regs.
-    w.write_u16(regs_.MEMPTR);
-    w.write_u8(regs_.Q);
-    // Pass-9 note: IncDecZ shadow (Z80Registers::IncDecZ) is intentionally
-    // NOT persisted here. Adding bytes mid-stream would shift all
-    // subsequent subsystem reads (im2_, palette_, layer2_, ...) and break
-    // backwards compatibility with existing rewind/snapshot buffers. The
-    // worst-case effect of dropping IncDecZ at save/load boundary is a
-    // single LDWS instruction reading P=0 instead of its actual prior
-    // value, which is then immediately resynced by the next BC-dec block
-    // transfer or DJNZ. Trading observably-undetectable bug for snapshot
-    // format compatibility is the right call here.
-    // Pass-4 fix: persist FUSE-internal interrupt-related state that lives
-    // ONLY in the global `z80` struct and is not mirrored into Z80Registers.
-    //   - interrupts_enabled_at: signed_dword tstate stamp set by EI; gates
-    //     fuse_z80_interrupt() on the immediately-following instruction
-    //     (VHDL t80n.vhd EI semantics — IFF1 takes effect AFTER the next
-    //     opcode boundary, mirroring real-hardware NMI/INT acceptance
-    //     window). Without persisting this across save/load, a snapshot
-    //     taken on the cycle immediately after EI would let an INT fire
-    //     one instruction earlier than spec when restored.
-    //   - iff2_read: NMOS LD A,I / LD A,R quirk flag — if INT is accepted
-    //     on the next instruction boundary, the P flag (which holds IFF2
-    //     stored by the LD) gets cleared. Without persistence, a snapshot
-    //     taken between LD A,I and an immediately-pending INT would skip
-    //     the quirk on restore.
-    //
-    // GH #265 — the stamp is only ever compared with the counter for
-    // equality at the boundary straight after the EI, and the counter is not
-    // restored as such (Emulator::load_state() re-seeds it). So what is
-    // saved is whether that grace is pending HERE: 0 when the stamp is this
-    // boundary's counter value, -1 otherwise (a stamp in the past can never
-    // match again). An older snapshot's absolute stamp reads as "none"
-    // unless it happens to be 0.
-    w.write_i32(z80.interrupts_enabled_at >= 0
-                && static_cast<libspectrum_dword>(z80.interrupts_enabled_at) == tstates
-                    ? 0 : -1);
-    w.write_u8(static_cast<uint8_t>(z80.iff2_read ? 1 : 0));
-    // Interrupt state
-    w.write_bool(nmi_pending_);
-    w.write_bool(int_pending_);
-    w.write_u8(int_vector_);
-    // The window's first boundary, in the u32 slot the single-stamp window
-    // used, relative to the T-state counter (which Emulator::load_state()
-    // re-seeds rather than restores); the exact pair is appended at the end
-    // of the Emulator stream (see Emulator::save_state, "int_timing").
-    w.write_u32(static_cast<uint32_t>(int_first_ts_ - static_cast<int64_t>(tstates)));
+    // §9.5(3) — marshal the three relative values into the scratch the
+    // declaration binds. Done HERE and undone in `load_state`, so the
+    // conversion is visible at exactly two places rather than smeared through
+    // a declaration that would then have to know which direction it is in.
+    ser_ei_grace_ = (z80.interrupts_enabled_at >= 0 &&
+                     static_cast<libspectrum_dword>(z80.interrupts_enabled_at) == tstates)
+                        ? 0 : -1;
+    ser_iff2_read_ = static_cast<uint8_t>(z80.iff2_read ? 1 : 0);
+    ser_int_first_rel_ =
+        static_cast<uint32_t>(int_first_ts_ - static_cast<int64_t>(tstates));
+
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void Z80Cpu::load_state(StateReader& r)
 {
-    regs_.AF  = r.read_u16(); regs_.BC  = r.read_u16();
-    regs_.DE  = r.read_u16(); regs_.HL  = r.read_u16();
-    regs_.AF2 = r.read_u16(); regs_.BC2 = r.read_u16();
-    regs_.DE2 = r.read_u16(); regs_.HL2 = r.read_u16();
-    regs_.IX  = r.read_u16(); regs_.IY  = r.read_u16();
-    regs_.SP  = r.read_u16(); regs_.PC  = r.read_u16();
-    regs_.I   = r.read_u8();  regs_.R   = r.read_u8();
-    regs_.IFF1 = r.read_u8(); regs_.IFF2 = r.read_u8();
-    regs_.IM  = r.read_u8();
-    regs_.halted = r.read_bool();
-    // Pass-3 fix: restore MEMPTR + Q (see save_state comment).
-    regs_.MEMPTR = r.read_u16();
-    regs_.Q      = r.read_u8();
-    // Pass-4 fix: restore FUSE-internal interrupts_enabled_at + iff2_read.
-    // Push directly into the global z80 struct; sync_fuse_from_regs() does
-    // NOT touch these fields (they have no Z80Registers mirror).
-    // GH #265 — 0 means the grace is pending at this boundary: stamp it
-    // with the counter as it stands (see save_state).
-    z80.interrupts_enabled_at = (r.read_i32() == 0)
-        ? static_cast<libspectrum_signed_dword>(tstates) : -1;
-    z80.iff2_read = (r.read_u8() != 0) ? 1 : 0;
-    nmi_pending_ = r.read_bool();
-    int_pending_ = r.read_bool();
-    int_vector_  = r.read_u8();
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
+
+    // §9.5(3), the other direction. Push the FUSE-only fields straight into
+    // the global z80 struct; sync_fuse_from_regs() does NOT touch them (they
+    // have no Z80Registers mirror).
+    //
+    // GH #265 — 0 means the grace is pending at this boundary: stamp it with
+    // the counter as it stands (see save_state).
+    z80.interrupts_enabled_at =
+        (ser_ei_grace_ == 0) ? static_cast<libspectrum_signed_dword>(tstates) : -1;
+    z80.iff2_read = (ser_iff2_read_ != 0) ? 1 : 0;
     // An older snapshot carries only the stamp: its window was the pulse
     // width from there. Emulator::load_state() replaces both from the
     // appended "int_timing" block when the snapshot has one.
-    int_first_ts_ = static_cast<int64_t>(static_cast<int32_t>(r.read_u32()))
-                  + static_cast<int64_t>(tstates);
+    int_first_ts_ = static_cast<int64_t>(static_cast<int32_t>(ser_int_first_rel_)) +
+                    static_cast<int64_t>(tstates);
     int_last_ts_  = int_first_ts_ + (machine_48_or_p3_ ? 32 : 36);
-    // FUSE global z80 struct is synced on the next execute() call via
+    // The FUSE global z80 struct is synced on the next execute() call via
     // sync_fuse_from_regs(regs_) — no explicit sync needed here.
 }
 

@@ -138,15 +138,44 @@ private:
 /// Drive a subsystem's `describe_state` in the WRITE direction from a
 /// `save_state() const`.
 ///
-/// THE ONE `const_cast` (see `state_desc.h`). It is safe because no
-/// write-direction realisation assigns through a bound reference; putting it
-/// here rather than at each of the ~34 call sites is what keeps that claim
-/// checkable by reading one function.
+/// THE ONE `const_cast`. Putting it here rather than at each of the ~34 call
+/// sites is what keeps the safety argument checkable by reading one function.
+///
+/// That argument is NOT "nothing on the write path assigns to a member" —
+/// thirteen declarations do. It is that no bound object is really `const`, that
+/// no write-direction REALISATION assigns through a bound reference, and that
+/// every declaration's write-back is value-preserving. `state_desc.h` states it
+/// in full, with the three shapes and which of them rests on a test rather than
+/// on construction. Read that before adding a declaration that writes.
 template <typename T>
 inline void save_via_desc(const T& obj, StateWriter& w, bool machine_level) {
     BinWriteDesc d(w);
     d.set_machine_level(machine_level);
     const_cast<T&>(obj).describe_state(d);
+}
+
+/// The same, for a subsystem whose declaration is split across SEVERAL
+/// describe methods because the stream puts its fields in several
+/// sentinel-delimited BLOCKS (§9.5(2) — `Im2Controller::save_timing` set the
+/// precedent, and GH #27 S6's `Emulator` has five).
+///
+/// The `const_cast` argument is unchanged and lives in one place still: this
+/// overload takes a pointer-to-member-function instead of assuming the name
+/// `describe_state`, and nothing else about it differs.
+template <typename T>
+inline void save_via_desc_method(const T& obj, void (T::*m)(StateDesc&),
+                                 StateWriter& w, bool machine_level) {
+    BinWriteDesc d(w);
+    d.set_machine_level(machine_level);
+    (const_cast<T&>(obj).*m)(d);
+}
+
+template <typename T>
+inline void load_via_desc_method(T& obj, void (T::*m)(StateDesc&),
+                                 StateReader& r, bool machine_level) {
+    BinReadDesc d(r);
+    d.set_machine_level(machine_level);
+    (obj.*m)(d);
 }
 
 template <typename T>

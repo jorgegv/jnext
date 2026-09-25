@@ -13,6 +13,8 @@
 #include "memory/attribute_mux.h" // G12 — Nirvana-class attribute replay
 
 
+namespace jnext { namespace save { class StateDesc; } }
+
 class DivMmc;     // forward declaration for overlay
 class Multiface;  // forward declaration for MF memory overlay (Wave 1 E)
 
@@ -1284,6 +1286,9 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S3 — the ONE field list (design §9.2).
+    void describe_state(jnext::save::StateDesc& d);
 
     // VHDL zxnext.vhd:2964 mmu_A21_A13 formula: logical MMU page →
     // physical SRAM page. In Next mode (rom_in_sram_=true) the formula

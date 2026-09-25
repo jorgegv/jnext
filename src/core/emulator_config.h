@@ -219,6 +219,16 @@ struct EmulatorConfig {
     // SAVE trap is inactive (real-time MIC capture is G33 Phase 2).
     std::string tape_save_file;
 
+    // ── `.jns` snapshot options (GH #27 S8, design §15.1) ────────────────
+    //
+    // In the CONFIG rather than in the frontends because both the save and the
+    // load happen inside `Emulator` (`save_jns` / `load_jns`); a frontend only
+    // ever carries the file name. That also means the GUI and the headless
+    // path get the same behaviour from one place.
+    bool jns_uncompressed = false;   ///< --snapshot-uncompressed
+    bool jns_strict       = false;   ///< --snapshot-strict
+    bool jns_force_sdcard = false;   ///< --snapshot-force-sdcard
+
     // Magic port: debug output port that logs bytes to stderr
     bool     magic_port_enabled = false;
     uint16_t magic_port_address = 0x0000;  // 16-bit port address (default disabled)

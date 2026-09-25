@@ -29,4 +29,6 @@ target_include_directories(jnext_cpu PUBLIC
 # wiring 2026-04-26). PUBLIC-link jnext_memory so callers (incl. test
 # binaries) resolve those symbols transitively. Static-library cycle is
 # benign — the linker resolves both archives in a single pass.
-target_link_libraries(jnext_cpu PUBLIC spdlog::spdlog jnext_memory)
+# jnext_save carries the GH #27 `StateDesc` descriptor layer: z80_cpu.cpp's
+# and im2.cpp's save_state/load_state are a walk of its declaration (S3).
+target_link_libraries(jnext_cpu PUBLIC spdlog::spdlog jnext_memory jnext_save)

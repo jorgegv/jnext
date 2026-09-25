@@ -218,13 +218,39 @@ lost.
 `szx_loader`, `szx_saver`, `z80_loader`, `tap_*`, `tzx_loader`, `wav_loader`,
 `rzx_*`. Integration points JNS inherits for free:
 
-- **Load by extension**: there are **three** dispatch sites, and a new format
-  must be added to each — `src/main.cpp:1490` (the CLI `--load` arm that routes
-  `.sna`/`.szx`/`.z80`), `Emulator::load_snapshot_buffer()`
-  (`emulator.cpp:8060`, the RZX-embedded-snapshot path, which does
-  `init(config_)` then `apply()`), and the GUI dialog's filter. The
-  `extension()` call at `emulator.cpp:1153` is **not** the dispatcher — it only
-  pre-detects `.nex` to arm `direct_nex_load`.
+- **Load by extension**: this paragraph said "**three** dispatch sites" and
+  named them, and **S8 measured it: there are seven**, plus four mirror
+  predicates that must move with the first. Three of the original sentence's
+  four claims were wrong, which is worth recording because it is this
+  project's most persistent defect class — a document describing the product
+  from memory. The corrections:
+
+  | Said | Actually |
+  |---|---|
+  | three sites | **seven**, plus four mirrors |
+  | `src/main.cpp:1490` | the CLI chain is `src/main.cpp:1566-1627` |
+  | `Emulator::load_snapshot_buffer()` at `emulator.cpp:8060` | **no such method**; it is `Emulator::load_snapshot_from_memory()`, and the stale name had propagated into `jns_container.h` |
+  | "the GUI dialog's filter" | a filter routes nothing; the GUI reaches the primary dispatcher through `handle_load_path` |
+  | — | the PRIMARY dispatcher is not named at all: `emulator_apply_load()`, `src/platform/emulator_boot.h:25`, created by Task 70 *because* the chain had been copy-pasted three times |
+
+  The seven, as S8 found and wired them: `emulator_apply_load()`
+  (`emulator_boot.h:25`, the one every frontend reaches); the CLI `--load`
+  pre-dispatch (`main.cpp:1566`), which **refuses** an unknown extension where
+  the primary one falls back to NEX; the CLI RZX-combination validator
+  (`main.cpp:849`); the `--warm-start-regenerate` gate (`main.cpp:903`);
+  `Emulator::load_snapshot_from_memory()` (`emulator.cpp:8075`, RZX-embedded,
+  and keyed on a snapshot-type string without a leading dot);
+  `MainWindow::handle_tape_path()` (`main_window.cpp:1352`, the Tape menu,
+  independent of all the above); and `screenshot_format_for_path()`
+  (`screenshot.cpp:83`, the same shape on the output side). The four mirrors
+  are `emulator_load_routes_to_nex/_rzx`, `emulator_boot_machine` and
+  `emulator_load_delay_frames`, all in `emulator_boot.h`.
+
+  `.jns` needed exactly two of them — the primary dispatcher and the CLI
+  pre-dispatch — plus the `routes_to_nex` mirror, because the others are about
+  tapes, RZX and screenshots. The `extension()` call at `emulator.cpp:1153` is
+  **not** a dispatcher, as the original paragraph correctly said; §15.1 then
+  cited it as one, which was wrong and is corrected there.
 - **Save by extension**: `MainWindow::on_save_snapshot()`
   (`main_window.cpp:1763`) picks `SzxSaver` / `NexSaver` / `SnaSaver` from the
   chosen suffix, defaulting to `.sna`.
@@ -271,10 +297,11 @@ sentinel-delimited blocks**:
 | 15 | `i2c` | 13 | 32 | *esxdos hostfs* | 4 |
 | 16 | `rtc` | 69 | | **33 sentinels × 4** | **132** |
 
-### 4.1 The flat buffers — fourteen rows, not eight
+### 4.1 The flat buffers — fifteen rows, not eight
 
 The buffers inside those blocks, exactly (constants, cross-checked against the
-measured block sizes):
+measured block sizes). The **Bytes** column is the buffer's *stream footprint*,
+so a count prefix counts toward the row that carries it.
 
 | Buffer | Declared size | Bytes |
 |---|---|---|
@@ -285,23 +312,37 @@ measured block sizes):
 | `Mmu::bank7_bram_` | 8 KB bank-7 BRAM (`mmu.cpp:980`) | 8 192 |
 | `Multiface` RAM | `kRamSize` = 0x2000 | 8 192 |
 | `PaletteManager` | 4 palettes × 2 banks × 256 × `u16` + 2 × 256 priority | 4 608 |
-| `Ula::port_ff_log_` | `MAX_CHANGES_PER_FRAME` 1024 × (`u16`+`u8`) | 3 072 |
+| `Ula::port_ff_log_` | `MAX_CHANGES_PER_FRAME` 1024 × (`u16`+`u8`) + 2-byte count prefix | 3 074 |
 | UART FIFOs | 2 ch × (RX 512 × `u16` + TX 64 × `u8`), padded to capacity | 2 208 |
 | `Copper::instructions_` | 1024 × `u16` | 2 048 |
 | `SpriteEngine` attributes | 128 × 5 | 640 |
+| `Keyboard::auto_queue_` | `MAX_AUTO_TYPE_KEYS` 16 × 5 × `i32`, padded, + 4-byte count prefix | 324 |
 | `Renderer::fallback_per_line_` | 320 × `u8` | 320 |
 | `NextReg::regs_` | 256 | 256 |
 | `Ula::border_per_line_` | `FB_HEIGHT` 256 × `u8` | 256 |
-| **Total flat buffers** | | **2 290 792** |
+| **Total flat buffers** | | **2 291 118** |
 
-Four of those rows are **per-scanline / in-flight history**, not static memory,
-and they split into two shapes that must not be conflated:
+> Two of those rows **changed on 2026-09-24**, both measured on the S1–S5
+> branch rather than re-derived. `Keyboard::auto_queue_` was
+> missing entirely. `Ula::port_ff_log_` was listed at 3 072, which is its
+> element payload without the `u16` count the same stream carries: the
+> `renderer` block's declared widths — `Ula` 3 357 + `Renderer` 327 + `LoRes` 4
+> — sum to **3 688**, exactly the measured block, only with the count included.
+> Both bytes were previously inside §4.2's residual, so the stream total never
+> moved; what moved is the classification.
 
-- **Count-prefixed and padded to full capacity** — `Ula::port_ff_log_` and the
-  UART's four `FifoBuffer`s (2 channels × RX + TX), five buffers in all. The
-  padding exists because `RewindBuffer` requires a constant width; the count
-  says how much of it is live. This shape needs its own descriptor primitive
-  (§6.2, §9.5(1)).
+Five of those rows are **per-scanline / in-flight history**, not static memory,
+and they split into two CLASSES that must not be conflated:
+
+- **Count-prefixed and padded to full capacity** — `Ula::port_ff_log_`, the
+  UART's four `FifoBuffer`s (2 channels × RX + TX) and `Keyboard::auto_queue_`,
+  **six buffers in all**. The padding exists because `RewindBuffer` requires a
+  constant width; the count says how much of it is live. Within this one class
+  there are **three distinct byte layouts**, differing in count width, element
+  form and order (§6.2's table). Two of them get a descriptor primitive each;
+  the third — `Keyboard::auto_queue_`, a `u32` count then 16 × 5 × `i32` in raw
+  slot order — fits neither, and S5 resolved it by §9.4 loop collapse rather
+  than by a third primitive (§9.5(1)).
 - **Plain fixed arrays** — `Ula::border_per_line_` and
   `Renderer::fallback_per_line_` are written with a bare `write_bytes` of the
   whole array, no count. Ordinary declarations; they are listed here only
@@ -311,26 +352,37 @@ and they split into two shapes that must not be conflated:
 
 | Part | Bytes | Share |
 |---|---|---|
-| Flat buffers (the 14 rows above, across 11 owners) | 2 290 792 | 99.904 % |
+| Flat buffers (the 15 rows above, across 12 owners) | 2 291 118 | 99.919 % |
 | Framing sentinels (33 × 4) | 132 | 0.006 % |
-| **Genuine scalar/register/FSM state, all 34 classes** | **2 041** | **0.089 %** |
+| **Genuine scalar/register/FSM state, all 34 classes** | **1 715** | **0.075 %** |
 
-**Two thousand and forty-one bytes.** That is every register, latch, FSM state,
-counter and flag in the whole machine outside a flat buffer.
+**One thousand seven hundred and fifteen bytes.** That is every register, latch,
+FSM state, counter and flag in the whole machine outside a flat buffer.
 
-> An earlier draft of this document put the residual at 32 605 bytes / 1.42 %.
-> That was wrong by a factor of ~16: it omitted the four buffers above the
-> earlier table missed (30 432 bytes) and folded the 132 sentinel bytes into the
-> residual. Both numbers are now derived from the per-block measurement, and
-> 2 290 792 + 132 + 2 041 = 2 292 965 exactly.
+> **The residual is a SUBTRACTION, and that is its weakness.** It is
+> `2 292 965 − buffers − sentinels`, so it can never disagree with the buffer
+> table: a buffer the table omits does not show up as an inconsistency, it
+> silently inflates the residual. Both of this table's corrections arrived that
+> way — an earlier draft put the residual at 32 605 bytes / 1.42 %, wrong by a
+> factor of ~16 because it omitted four buffers (30 432 bytes) and folded the
+> sentinels in; and the 2 041 that replaced it was still 326 bytes high, because
+> §4.1 was missing `Keyboard::auto_queue_` (324) and the `port_ff_log_` count
+> prefix (2). Nothing in the arithmetic could have caught either. Only
+> enumerating the buffers against the code can, which is what §4.1's note
+> records. 2 291 118 + 132 + 1 715 = 2 292 965 exactly.
 
-The correction makes the Option C argument in §5 **stronger, not weaker**: the
-part worth naming, typing, diffing and schema-validating is not 1.4 % of the
-stream, it is 0.09 % of it. There is no size argument against encoding 2 KB of
-scalars as JSON, and no verification argument for encoding 2.29 MB of opaque
-buffers that way.
+Every correction has moved the same way, and each makes the Option C argument in
+§5 **stronger, not weaker**: the part worth naming, typing, diffing and
+schema-validating is not 1.4 % of the stream, it is 0.075 % of it. There is no
+size argument against encoding under 2 KB of scalars as JSON, and no
+verification argument for encoding 2.29 MB of opaque buffers that way.
 
 ### 4.3 Three findings, all measured
+
+> **(1) and (2) below describe the PRE-S5b stream and are both FIXED** — see
+> §17.0's "What S5b did". They are left as written because they are the
+> measurement S5b acted on, and because both predictions were confirmed against
+> the pre-S5b golden byte for byte before the code moved.
 
 1. **131 072 bytes are stored twice, on every machine.**
    `Emulator::init()` does `divmmc_.set_ram_backing(ram_.page_ptr(16))`
@@ -390,7 +442,7 @@ buffers that way.
 **Option C — ZIP container: JSON manifest + JSON per-subsystem state + binary
 blob members for the flat buffers.** ← **recommended**
 
-- *Size*: the **0.089 %** that is genuine scalars (2 041 bytes, §4.2) becomes
+- *Size*: the **0.075 %** that is genuine scalars (1 715 bytes, §4.2) becomes
   roughly **15–30 KB** of JSON text — key names dominate, not values. The
   99.9 % stays binary. Both are deflated by the ZIP itself. Expected file:
   **~130–140 KB** for a full 2 MB-RAM Next snapshot, against the **128 657
@@ -512,8 +564,6 @@ snapshot.jns
 ├── state/sprites.json          (attributes + registers; patterns are a blob)
 ├── state/tilemap.json
 ├── state/renderer.json         (+ fallback_per_line)
-├── state/ula.json              (+ border_per_line + the port-0xFF change log)
-├── state/lores.json
 ├── state/copper.json           (registers + the 1K instruction RAM as hex)
 ├── state/ctc.json              (+ its chained-trigger timing, §9.4)
 ├── state/dma.json
@@ -538,6 +588,7 @@ snapshot.jns
 ├── state/joy_uart.json         present only when a cable is attached
 ├── state/esxdos_hostfs.json    handles + cwd + root
 ├── state/emulator.json         Emulator's own scalars, §10
+├── state/ram.json              Ram's own scalars; the bytes are the blob below
 ├── mem/ram.bin                 2 097 152 B
 ├── mem/bank5-vram.bin          16 384 B  (Mmu::bank5_vram_)
 ├── mem/sprite-patterns.bin     16 384 B
@@ -546,6 +597,22 @@ snapshot.jns
 ├── meta/preview.png            OPTIONAL — the framebuffer at capture time
 └── meta/README.txt             OPTIONAL — human-readable "do not share" notice
 ```
+
+**Two corrections S8 made to this listing, both where the implementation is
+right and the listing was written before it existed.** `state/ula.json` and
+`state/lores.json` are NOT separate members: `Ula::describe_state` and
+`Lores::describe_state` are called from inside `Renderer::describe_state`
+(`renderer.cpp:1080-1093`), so their fields are keys of `state/renderer.json`
+and splitting them would mean either emitting them twice or restructuring a
+declaration that the binary stream also walks. And `state/ram.json` was
+missing: `Ram` declares scalars as well as its blob, and they have to go
+somewhere.
+
+The member NAMES above are authoritative, and S8 moved the code to match them
+twice — `state/esxdos.json` -> `state/esxdos_hostfs.json` and
+`state/nmi.json` -> `state/nmi_source.json`. This listing is what S9's
+spec-written reader is built from, so a name that differs here is a reader that
+does not find the member.
 
 Rules:
 
@@ -659,7 +726,7 @@ Rules:
 | `NextReg::regs_` 256 B | 3, < 8 KB | JSON |
 
 An earlier draft stated only "guest-writable memory is a blob, size is a
-tie-breaker", **and that rule cannot decide two of the fourteen buffers**: the
+tie-breaker", **and that rule cannot decide two of the fifteen buffers**: the
 Copper instruction RAM and the sprite pattern RAM are the same class — peripheral
 stores outside the CPU address space, written by the guest only through ports —
 yet §6 correctly puts one in JSON and the other in a blob. The only thing
@@ -674,6 +741,38 @@ the threshold never applies to it.
 
 ### 6.2 Encoding rules inside the JSON
 
+**SCOPE: this table is the FIELD DESCRIPTOR's encoding — it governs
+`state/*.json` and nothing else.** `manifest.json` has its own grammar, shown
+by example in §8 and §11.3, and it uses plain JSON numbers for its sizes and
+counts.
+
+That sentence was missing until S9, and its absence was found the way it should
+be: the independent reader of §13.2, written from this document by someone who
+could not see the writer, applied the `u64`-as-string rule below to
+`manifest.capture.frame` and **refused every file jnext produces**. The rule is
+stated unconditionally in §7.4 ("every 64-bit field"), the table's own rows are
+descriptor primitives that exist only in `state/*.json` (`blob`, `ram_window`,
+`log`, `fifo`), and §8's example shows `"frame": 41291` as a number — three
+statements a careful reader cannot reconcile. Now it can.
+
+**Why the manifest is safe with numbers, stated rather than assumed.** §7.4's
+hazard is real and measured: the `/INT` window exceeds 2^53 in *every*
+snapshot, so a JavaScript validator would silently corrupt it. Every `u64` in
+the manifest is bounded well below that — `members[].bytes` by the ZIP format's
+4 GB (no ZIP64, §6), `partition_lba` by a 32-bit sector index, `capture.frame`
+at 2^53 frames being 5.7 billion years, `tape.position_tstates` at 2^53
+T-states being ~81 years of tape, and `sdcard.identity.image_bytes` at 2^53
+bytes being 8 PB. **§7.4 explicitly rejects per-field judgements of this kind**,
+and it is right to inside `state/*.json`, where the descriptor emits whatever a
+subsystem declares and a future field could be anything. The manifest's field
+list is fixed by this document and changes only when this document does, which
+is the difference that makes the judgement safe here and unsafe there.
+
+**This is an owner decision if you disagree**: `format_version` is 1 and
+nothing has shipped, so making the manifest's `u64`s strings too is still a
+cheap change. It would cost the schema, the overlay, both examples and the
+reader; it would buy one fewer rule to remember.
+
 | Kind | Encoding | Schema can check |
 |---|---|---|
 | Boolean flag | `true` / `false` | type |
@@ -682,7 +781,7 @@ the threshold never applies to it.
 | **`u64` / `i64`** | JSON **string** of decimal digits, sign allowed | `pattern` — see §7.4 and the note below |
 | **Open-ended sentinel** (`INT64_MAX`) | the JSON string `"open"` | `enum` alongside the numeric pattern |
 | Enum / FSM state | JSON string from a closed set | `enum` — an FSM renumbering becomes a *name* change, visible in a diff |
-| Fixed array, not guest memory | one lower-case hex string, no separators | `pattern: "^[0-9a-f]{N}$"` with N literal — **exact length checked by the schema** |
+| Fixed array, not guest memory | one lower-case hex string, no separators — **element order UNDECLARED for multi-byte elements, §18.2(7)** | `pattern: "^[0-9a-f]{N}$"` with N literal — **exact length checked by the schema**, but blind to element order |
 | **Count-prefixed history** (see below) | JSON array of exactly `count` items | `maxItems` = the binary capacity |
 | Variable-length list | JSON array of objects | `items`, `minItems`/`maxItems` |
 | Guest memory | ZIP member, declared in `manifest.members` | the *declaration*, not the bytes (§5.3) |
@@ -706,30 +805,37 @@ encoding table with no signed type would have forced every one of them through
 an unsigned reinterpretation, which is precisely the defect §7.4 describes.
 
 **The count-prefixed-history primitives — `d.log()` and `d.fifo()`, not one
-`d.history()`.** Five buffers (§4.1) are written `count`-first and then **padded
-to full capacity**, because `RewindBuffer` requires every snapshot to be exactly
-the width it measured at construction. The binary encoding **must** stay padded;
-the JSON encoding **must not** be, or a snapshot's text would carry 1 024 entries
-to express three.
+`d.history()`.** **Six** buffers (§4.1) are written `count`-first and then
+**padded to full capacity**, because `RewindBuffer` requires every snapshot to be
+exactly the width it measured at construction. The binary encoding **must** stay
+padded; the JSON encoding **must not** be, or a snapshot's text would carry 1 024
+entries to express three.
 
-A single signature cannot reproduce both byte layouts, and the byte-identity gate
-(§17.1) tests every one of the differences:
+A single signature cannot reproduce the byte layouts, and the byte-identity gate
+(§17.1) tests every one of the differences. There are **three** layouts, not two:
 
-| | `Ula::port_ff_log_` (`ula.cpp:1586-1590`) | UART `FifoBuffer` (`uart.h:53-57`) |
-|---|---|---|
-| Count width | **`u16`** | **`u64`** |
-| Element | struct: `u16 line` + `u8 value` = 3 B, unpadded | scalar via `write_elem` → `u8` (TX) / `u16` (RX) |
-| Order | **raw array order**, `port_ff_log_[i]` | **ring-normalised**, `buf_[(tail_+i) % Capacity]`, oldest first |
-| Padding past `count` | whatever was there — **stale entries**, ignored on load | **`T{0}`** |
+| | `Ula::port_ff_log_` (`ula.cpp:1586-1590`) | UART `FifoBuffer` (`uart.h:53-57`) | `Keyboard::auto_queue_` (`keyboard.cpp:679-691`) |
+|---|---|---|---|
+| Count width | **`u16`** | **`u64`** | **`u32`** |
+| Element | struct: `u16 line` + `u8 value` = 3 B, unpadded | scalar via `write_elem` → `u8` (TX) / `u16` (RX) | 5 × `i32` per slot = 20 B |
+| Order | **raw array order**, `port_ff_log_[i]` | **ring-normalised**, `buf_[(tail_+i) % Capacity]`, oldest first | **raw slot order**, `auto_queue_[i]` |
+| Padding past `count` | whatever was there — **stale entries**, ignored on load | **`T{0}`** | **`AutoKey{}`** — zeros |
+| Capacity | 1 024 | 512 (RX) / 64 (TX) | **16** |
 
-So there are two primitives, each pinning its own layout:
-`d.log(name, array, count, Capacity, elem_desc)` — `u16` count, raw order, stale
-tail — and `d.fifo(name, ring, count, tail, Capacity)` — `u64` count,
-ring-normalised, zero-padded. Both emit exactly `count` items in JSON. A single
-parameterised `d.history(count_type, elem, pad_policy, ring_or_raw)` would work
-equally well and is the alternative if a third shape ever appears; two named
-primitives are preferred while there are exactly two shapes, because the
-parameter set would otherwise be a vocabulary nobody can read at a call site.
+Two of the three get a primitive, each pinning its own layout:
+`d.log(name, entries, count, Capacity)` — `u16` count, raw order, stale
+tail — and `d.fifo(name, ring, elem)` — `u64` count, ring-normalised,
+zero-padded. Both emit exactly `count` items in JSON.
+
+The third gets **no primitive at all**. A single parameterised
+`d.history(count_type, elem, pad_policy, ring_or_raw)` was named here as the
+alternative "if a third shape ever appears"; one has, and S5 declined it. The
+auto-type queue's capacity is **16**, so §9.4's loop collapse spells it out as
+80 ordinary `i32` declarations and costs nothing but a key table — whereas a
+third primitive would buy one 324-byte buffer a fourth parameter axis in a
+vocabulary already hard to read at a call site. **That answer is a function of
+the capacity, not of the shape**: at 512 slots the same reasoning inverts, and
+the parameterised `d.history()` becomes the right call. See §9.5(1).
 
 The hazard behind that requirement is on record: `AttributeMux`
 (`src/memory/attribute_mux.h:216-235`) documents that serialising its
@@ -869,10 +975,14 @@ does Python's `json` (arbitrary-precision ints) — but a JavaScript validator
 (`ajv`) silently rounds above 2^53, which would let an external validation pass
 on a file a JavaScript reader had already corrupted.
 
-**Rule: any `u64` or `i64` field is encoded as a decimal *string*,** with
-`"pattern": "^-?[0-9]+$"` in the schema. Not "any field that might one day be
-large" — every 64-bit field, unconditionally, because the alternative is a
-per-field judgement that goes stale.
+**Rule: any `u64` or `i64` field IN `state/*.json` is encoded as a decimal
+*string*,** with `"pattern": "^-?[0-9]+$"` in the schema. Not "any field that
+might one day be large" — every 64-bit field there, unconditionally, because
+the alternative is a per-field judgement that goes stale.
+
+*(The scope qualifier is S9's; see §6.2. `manifest.json` uses plain numbers,
+and §6.2 says why that is safe for its fixed, document-controlled field list
+and would not be safe here.)*
 
 > An earlier draft of this document asserted that **no field qualifies today**,
 > reasoning that `monotonic_tstates()` and `Clock::cycle_` need about ten years
@@ -1032,7 +1142,10 @@ because a run-time-shaped field list is the complexity this whole layer exists
 to avoid, and because the two cases are each unconditionally true today:
 
 - **DivMMC is always a window.** `set_ram_backing` is unconditional and
-  `save_state` writes `ram_data()`. Declared `ram_window`, always.
+  `save_state` writes `ram_data()`. Declared `ram_window`, always. **Since S5b
+  that declaration is load-bearing in the binary encoding too**: at machine
+  level a `ram_window` emits no bytes, the restore resolving it through the
+  `ram` block (§17.0).
 - **Multiface is always private *in the stream*.** `save_state` writes
   `ram_.data()` regardless of backing (§4.3(2)). On the Next that array is dead
   zeros and the live 8 KB already travels inside `mem/ram.bin`; on
@@ -1046,17 +1159,41 @@ The static claim is then **asserted at run time** so it cannot go stale: a
 null. A comment claiming "always" with nothing checking it is how an earlier
 draft of §4 came to state the Multiface case backwards.
 
+> **That assertion is still unable to FIRE, and S5b left it that way on
+> purpose** (§17.0). `DivMmc` derives `machine_level` from the very pointer the
+> assertion would check, which makes it a tautology; the resulting branch is
+> fail-safe instead — an unbacked window at "machine level" is not a machine
+> level walk at all, so the bytes travel inline as they always did. It becomes
+> real for the Emulator-driven JSON realisation in S6, where the same fault
+> would write a reference to bytes no member carries. `snapshot_test` rows
+> `JNSD-J08`/`J09` keep the mechanism under test meanwhile.
+
 **Scope that assertion to machine-level saves, or it breaks a shipped test.**
-Row `DA-09` in `divmmc_test.cpp:1184-1191` builds a `DivMmc` from the suite's
-`make_divmmc()` helper — which calls `reset()`, `set_enabled()`,
-`set_nr_0a_4_enable()` and `set_entry_timing_0()`, and **never
-`set_ram_backing()`** — then calls `save_state` on it directly. A bare null-check
-inside the descriptor fires on that row. Round-tripping a subsystem standalone is
-a legitimate and useful thing for a unit test to do, so the assertion belongs to
-the **`Emulator`-driven** realisation of the descriptor, where `init()` has
-provably run, and not to the declaration itself. (`multiface_test.cpp:419-422`
-does the same thing and is unaffected: Multiface is declared `blob`, not
-`ram_window`.)
+`divmmc_test` builds a `DivMmc` from the suite's `make_divmmc()` helper — which
+calls `reset()`, `set_enabled()`, `set_nr_0a_4_enable()` and
+`set_entry_timing_0()`, and **never `set_ram_backing()`** — and then calls
+`save_state` on it directly. A bare null-check inside the descriptor fires on
+every such row. Round-tripping a subsystem standalone is a legitimate and useful
+thing for a unit test to do, so the assertion belongs to the
+**`Emulator`-driven** realisation of the descriptor, where `init()` has provably
+run, and not to the declaration itself. (`multiface_test.cpp:419-422` does the
+same thing and is unaffected: Multiface is declared `blob`, not `ram_window`.)
+
+**Which row proves what, corrected at S6** — revision 3 cited `DA-09` alone and
+left the impression that it was a RAM-window round trip. It is not: `DA-09` is a
+**contract-pin on `rom3_active_` non-persistence**, and it only happens to share
+the shape (built by `make_divmmc()`, never backed, `save_state` called
+directly). It is therefore still a correct example of *the row a bare null-check
+would break* — which is the only claim this paragraph needs — but it proves
+nothing about the window's contents. The row that does is
+**`S6-DIVMMC-RAM-STANDALONE`** (S6): it stamps all 131 072 bytes with a pattern
+that varies across the whole buffer, round-trips, and compares every byte, so
+the standalone inline branch cannot be a zero-fill that still measures 131 089.
+The size half stays `S5B-DIVMMC-STANDALONE` in `rewind_test`. Multiface's
+equivalent has always been `MF-CORE-12`; DivMMC's simply did not exist until an
+S5b reviewer looked for it, and "the generic `ram_window` primitive is proven by
+`snapshot_test`'s `JNSD-J07`" was a reason the risk was low, not a reason the
+case was covered.
 
 `StateDesc` is an interface with several realisations over the *same*
 declaration:
@@ -1148,12 +1285,14 @@ realisation, not of any declaration.
 
 An earlier draft named three of these. All eight, from the classification:
 
-1. **Count-prefixed-and-padded history** — `Ula::port_ff_log_` and the UART's
-   four FIFOs (§4.1, §6.2). **Two primitives, `d.log()` and `d.fifo()`**, because
-   the two layouts differ in count width, element form and padding policy
-   (§6.2's table) and the byte-identity gate tests all three. The binary form must stay padded to capacity because
+1. **Count-prefixed-and-padded history** — `Ula::port_ff_log_`, the UART's
+   four FIFOs **and `Keyboard::auto_queue_`**: six buffers, three layouts
+   (§4.1, §6.2). **Two primitives, `d.log()` and `d.fifo()`**, because those
+   two layouts differ in count width, element form and padding policy
+   (§6.2's table) and the byte-identity gate tests every one of those
+   differences. The binary form must stay padded to capacity because
    `RewindBuffer` requires constant width; the JSON form must carry exactly
-   `count` items. **One declaration, two shapes**, so these are explicit
+   `count` items. **One declaration, two ENCODINGS**, so these are explicit
    primitives — `d.log("port_ff_log", entries, count_, MAX_CHANGES_PER_FRAME)`
    and `d.fifo("rx_fifo", ring, FifoElem::U16)` — not something a plain array
    descriptor can express. (An earlier revision gave a single
@@ -1165,6 +1304,23 @@ An earlier draft named three of these. All eight, from the classification:
    serialising a variable-length log "was tried first and was the actual bug
    behind a `free(): invalid size` heap-corruption crash"
    (`src/memory/attribute_mux.h:216-235`).
+
+   **That two-primitive decision was sized against FIVE buffers and two
+   layouts, and the sixth was not in the inventory it was sized against** —
+   §4.1 omitted `Keyboard::auto_queue_` entirely and this paragraph named only
+   the UART's four beside the ULA's one. S5 found the third layout (a `u32`
+   count, then `MAX_AUTO_TYPE_KEYS` × 5 × `i32` in raw slot order, 324 bytes)
+   and confirmed against the **pre-migration** source
+   (`git show 00aef129^:src/input/keyboard.cpp`) that the hand-written pair
+   already wrote exactly that — so it is a gap in the inventory, not a shape
+   the migration introduced. **S5 did not add a third primitive.** The queue is
+   declared as **80 ordinary `i32` fields** — §9.4's loop collapse, marshalled
+   through a local staging array — plus the `u32` count and a literal key
+   table. That answer turns entirely on `MAX_AUTO_TYPE_KEYS` being **16**:
+   eighty declarations and eighty key literals stay legible, and the same
+   treatment at 512 slots would not, at which point §6.2's parameterised
+   `d.history()` becomes the right call instead. Recorded as
+   **capacity-dependent, not as a precedent**.
 2. **A second serialisation entry point per subsystem.**
    `Im2Controller::save_timing` and `Ctc::save_timing` are called from a
    *different block* than those subsystems' own — block 31, `int_timing`, at the
@@ -1234,20 +1390,20 @@ JNS re-expresses it through the descriptor and does not add state.
 | Joystick cable | `JoyUartSource` | optional; present only when attached (GH #251) |
 | esxDOS host FS | hand-rolled in `Emulator` | (path, offset, mode) per handle + cwd. **The precedent for §11**: an external resource is recorded by reopenable identity, not copied. |
 | **Deliberately excluded, documented in place** | `AudioMute` (`src/audio/audio_mute.h:20-26`), `AttributeMux` (`src/memory/attribute_mux.h:216-235`) | Named here so "complete" is true. `AudioMute` is the user's volume knob, not machine state — "a rewind must not silently un-mute", **and that reasoning transfers verbatim to a file snapshot**: restoring somebody's save must not move their mute settings. `AttributeMux` is rebuilt from live RAM by `start_frame()` before any CPU execution; serialising its log caused a heap-corruption crash (§9.5(1)). Neither travels in a `.jns`. |
-| `Emulator` scalars | ~40 fields | `frame_cycle_`, monotonic T-states, `frame_num_`, `boot_hold_frames_remaining_`, `esp_frames_`, `cpu_parked_`, the PSG/sample Bresenham phases, the IM2 enable/status/DMA-delay registers, the four clip-window write indices, `port_ff_reg_`, `nr_10_coreid_`, the G55 IO-trap trio, `nr_2d_i2s_sample_`, `nr_a0/a2`, `nr_02_bus_reset_`, `prev_pulse_int_n_`. In JNS these are **named keys**, so the append-order chronology they carry today disappears. |
+| `Emulator` scalars | ~40 fields | `frame_cycle_`, monotonic T-states, `frame_num_`, `boot_hold_frames_remaining_`, `esp_frames_`, `cpu_parked_`, the PSG/sample Bresenham phases, the IM2 enable/status/DMA-delay registers, the four clip-window write indices, `port_ff_reg_`, `nr_10_coreid_`, the G55 IO-trap trio, `nr_2d_i2s_sample_`, `nr_a0/a2`, `nr_02_bus_reset_`, `prev_pulse_int_n_`. In JNS these are **named keys**, so the append-order chronology they carry today disappears. **Migrated in S6** onto five `describe_*` methods, one per sentinel-delimited block (§9.5(2)); byte-neutral, and pinned by `S6-DECL-EMULATOR` / `S6-WIDTH-EMULATOR` / `S6-WIDTH-EMULATOR-BLOCKS`. |
 
 ### 10.2 Gaps a snapshot must close
 
 | # | Gap | Severity | Recommendation |
 |---|---|---|---|
-| **P1** | **`SdCardDevice` has no `save_state` at all.** Its own header says so and enumerates what would be needed: `multi_block_`, `multi_block_sector_`, `state_`, `resp_buf_`, `resp_idx_`, `data_idx_`, `data_crc_count_`, `data_block_`. A snapshot taken mid-CMD18 stream restores a card that is not streaming. | **High** — this is the one that silently corrupts a running loader | **Serialise the FSM** into `state/sdcard.json`, plus the mounted path, the read-only flag and the read-overlay window. The field list is already written down in the header comment. |
+| **P1** ✓ **DONE (S6)** | **`SdCardDevice` has no `save_state` at all.** Its own header says so and enumerates what would be needed: `multi_block_`, `multi_block_sector_`, `state_`, `resp_buf_`, `resp_idx_`, `data_idx_`, `data_crc_count_`, `data_block_`. A snapshot taken mid-CMD18 stream restores a card that is not streaming. | **High** — this is the one that silently corrupts a running loader | **Serialise the FSM** into `state/sdcard.json`, plus the mounted path, the read-only flag and the read-overlay window. The field list is already written down in the header comment. |
 | **P2** | **SD image contents.** §11. | High | §11. |
-| **P3** | **`rom_` is not serialised** — for 48K/128K/+3, ROM content comes from the SD image at load time and never travels. | Medium | Record `media.roms` digests (§8) and refuse on mismatch under `--snapshot-strict`, warn otherwise. Do **not** embed 64 KB of ROM: it is firmware, and N3 applies. |
-| **P4** | **Tape state.** `tape_`/`tzx_tape_`/`wav_tape_` are excluded by design (tape position is independent of CPU rewind). A snapshot taken *during* a tape load restores a machine waiting for a tape that is not playing. | Medium | Record `media.tape` = (path, sha256, position in T-states, realtime flag) and reopen on restore — the esxDOS-handle shape. If the file is absent, warn and restore without it. |
-| **P5** | **Framebuffer.** Regenerated by the next render, so a snapshot restored *paused* shows the previous frame until the user steps. | Low | `meta/preview.png` doubles as the restore-time paused image. Free — jnext already writes PNG. |
+| **P3** ✓ **DONE (S6)** | **`rom_` is not serialised** — for 48K/128K/+3, ROM content comes from the SD image at load time and never travels. | Medium | Record `media.roms` digests (§8) and refuse on mismatch under `--snapshot-strict`, warn otherwise. Do **not** embed 64 KB of ROM: it is firmware, and N3 applies. |
+| **P4** ✓ **DONE (S6)** | **Tape state.** `tape_`/`tzx_tape_`/`wav_tape_` are excluded by design (tape position is independent of CPU rewind). A snapshot taken *during* a tape load restores a machine waiting for a tape that is not playing. | Medium | Record `media.tape` = (path, sha256, position in T-states, realtime flag) and reopen on restore — the esxDOS-handle shape. If the file is absent, warn and restore without it. |
+| **P5** ✓ **DONE (S6)** | **Framebuffer.** Regenerated by the next render, so a snapshot restored *paused* shows the previous frame until the user steps. | Low | `meta/preview.png` doubles as the restore-time paused image. Free — jnext already writes PNG. |
 | **P6** | **Mixer integration accumulator.** Deliberately not snapshotted; the first sample after a restore averages a short window. | Negligible | Keep the existing decision; document it. |
-| **P7** | **Scheduler queue — and the mid-frame pause it forbids.** `emulator.cpp:11871` states snapshots "are only ever taken at a frame boundary (`begin_new_frame()`), so a restored machine has no frame in flight". The queue is empty exactly there and nowhere else. **But the debugger breaks MID-frame**, so a paused machine is normally not at a boundary — and that is precisely when a developer reaches for File ▸ Save Snapshot. The bug that proves the stakes is on record at `emulator.cpp:9144` (Task 40, `beast.nex`): stepping a machine past a mid-frame point cleared the per-scanline change logs and the Copper's palette gradient vanished, rendering a flat sky. | **High** — it is the *debugging* save that is most likely to hit it | **One rule — always advance to the next frame boundary; never refuse** (owner decision, 2026-09-23). A **running** machine's save is queued to the next `begin_new_frame()`, which is required anyway because the GUI cannot serialise from inside `run_frame()`. A machine **paused mid-frame is advanced** to the next `begin_new_frame()` and saved there. There is no refusal path, no unavailable menu item and no failure mode. **The consequence, stated plainly: the restored machine is up to one frame past the moment the user paused at.** That is the accepted trade — a save that always works beats one that is sometimes unavailable, and a developer who needs the exact mid-frame instant has the rewind buffer, which exists for precisely that. §15.2 carries the implementation note that makes the advance safe. |
-| **P13** | **`Multiface::mf_type_` is knowingly lossy.** `multiface.cpp:383-400` rebuilds it from three mode booleans and its own comment states a session running `mf_type=10` "will lose the bit". | Medium — a **G1 violation**, silent | Serialise the 2-bit value directly. A rewind can absorb a lost bit; a save the user expects to resume cannot. Cheap, and it makes §9.5(6) a fix rather than an exception. |
+| **P7** ✓ **DONE (S6)** | **Scheduler queue — and the mid-frame pause it forbids.** `emulator.cpp:11871` states snapshots "are only ever taken at a frame boundary (`begin_new_frame()`), so a restored machine has no frame in flight". The queue is empty exactly there and nowhere else. **But the debugger breaks MID-frame**, so a paused machine is normally not at a boundary — and that is precisely when a developer reaches for File ▸ Save Snapshot. The bug that proves the stakes is on record at `emulator.cpp:9144` (Task 40, `beast.nex`): stepping a machine past a mid-frame point cleared the per-scanline change logs and the Copper's palette gradient vanished, rendering a flat sky. | **High** — it is the *debugging* save that is most likely to hit it | **One rule — always advance to the next frame boundary; never refuse** (owner decision, 2026-09-23). A **running** machine's save is queued to the next `begin_new_frame()`, which is required anyway because the GUI cannot serialise from inside `run_frame()`. A machine **paused mid-frame is advanced** to the next `begin_new_frame()` and saved there. There is no refusal path, no unavailable menu item and no failure mode. **The consequence, stated plainly: the restored machine is up to one frame past the moment the user paused at.** That is the accepted trade — a save that always works beats one that is sometimes unavailable, and a developer who needs the exact mid-frame instant has the rewind buffer, which exists for precisely that. §15.2 carries the implementation note that makes the advance safe. |
+| **P13** ✓ **DONE (S6)** | **`Multiface::mf_type_` is knowingly lossy.** `multiface.cpp:383-400` rebuilds it from three mode booleans and its own comment states a session running `mf_type=10` "will lose the bit". | Medium — a **G1 violation**, silent | Serialise the 2-bit value directly. A rewind can absorb a lost bit; a save the user expects to resume cannot. Cheap, and it makes §9.5(6) a fix rather than an exception. |
 | **P8** | **Host input dispatchers.** Platform-owned, hold their own shadow of the connector/wheel/button vector that would stomp a restore. | — | Keep the `on_input_state_restored` callback. |
 | **P9** | **Debug state**: breakpoints, watches, trace log, call stack, rewind ring. | Low | **Out of scope.** Not machine state. Worth an explicit sentence in the user guide, because "my breakpoints vanished" is a predictable support question. |
 | **P10** | **RZX / video recorder.** | — | Out of scope; a recording in progress is a host activity. A `.jns` written during one records nothing about it. |
@@ -1333,7 +1489,7 @@ identity split in two so it can be both stable and informative.
 
     "identity": {
       "image_bytes": 1073741824,
-      "mbr_sha256": "…",
+      "mbr_partition_table_sha256": "…",
       "fat32_volume_id": "1a2b3c4d",
       "partition_lba": 2048
     },
@@ -1380,7 +1536,7 @@ and mtime, the warm-start cache's existing mechanism reused verbatim.
 |---|---|
 | No card mounted now, snapshot had one | **Refuse.** Naming the path and the volume label. |
 | `identity` differs (size, MBR or `BS_VolID`) | **Refuse.** This is the silently-wrong case settled point 4 demands be caught. `--snapshot-force-sdcard` overrides, with a warning that names both identities. |
-| Only `informational.fat32_bs_vollab` differs | **Nothing.** Not compared, not warned on. See above. |
+| Only `informational.fat32_bs_vollab` differs | **No refusal, and no warning about the label or the identity.** It is never compared. *(Corrected at S7 — see the note under the table: it was written "nothing at all", and that is unreachable for an ON-DISK label change.)* |
 | `identity` matches, `content_stamp` differs | **Restore, with one warning line** naming the snapshot's digest and the current one. Legitimate and common — the card drifts. |
 | Both match | Silent. |
 | The SD FSM (P1) was mid-transfer at capture | Restore it (P1), and additionally require `content_stamp` to match — a half-finished sector read against changed bytes is exactly the "streams garbage" failure. Mismatch here is a **refusal**, not a warning. |
@@ -1390,11 +1546,101 @@ most of the time the card's drift is irrelevant, but when the machine is *in the
 middle of reading a sector* it is not, and the design should be strict exactly
 where strictness is earned.
 
-**Cost**: the Tier-2 digest is ~0.5 s warm, ~1.2 s cold on a 1 GB image
-(measured for the warm-start cache). Paid once per save and once per load. For a
-manual save-state that is acceptable; if it proves annoying, it is cheap to make
-the digest lazy — Tier 1 alone on load, Tier 2 only when Tier 1 matches and the
-FSM was mid-transfer. Recommend shipping it eager and measuring.
+**S7 correction to the `BS_VolLab` row.** It read "**Nothing.** Not compared,
+not warned on", and the second half of that cannot be true of a label change
+made ON DISK. `BS_VolLab` sits at `partition_lba * 512 + 0x47` — *inside the
+file* — so rewriting it necessarily moves the whole-image SHA-256 that Tier 2
+**is**, and a Tier-2 drift warning is emitted. That warning is correct: a byte
+of the card did change.
+
+Carving the boot sector out of Tier 2 to suppress it is rejected on two
+grounds, both structural:
+
+1. **Tier 2 would stop being the warm-start cache's digest *reused verbatim*.**
+   That is a stated property, and a tested one — `JNSI-P34` asserts the stamp
+   is byte-for-byte `sdcard::sha256_file` of the same image. A second digest
+   implementation that skips a range is a different mechanism wearing the same
+   name, and the next person to change one of the two would have no gate
+   telling them the other moved.
+2. **It would couple Tier 2 to Tier 1.** To exclude the boot sector you must
+   first know where the partition starts, which is Tier 1's MBR parse.
+   `read_sd_image_content_stamp` today needs nothing but a path — it works on
+   an image whose BPB is unreadable — and that independence is why a Tier-1
+   failure can leave Tier 2 intact and vice versa (`JNSI-P26`, `JNSI-P26b`).
+
+*An earlier draft of this paragraph argued instead that suppressing it "would
+buy nothing — the user gets the same warning the first time NextZXOS touches a
+directory entry anyway". That overstates the case and is withdrawn: a
+label-only edit made by an offline tool with no intervening boot would not
+otherwise move the digest, so in that one scenario the carve-out really would
+suppress something. The adjudication is unchanged; the two reasons above are
+the ones that carry it.*
+
+What the row promises, and what is implemented and tested, is that the **label
+is never part of the refusal test and is never itself reported**: no refusal,
+and no warning naming the label or the identity. A reader that compared labels
+fails `JNSI-11`, `JNSI-P31b` and `snapshot-sdcard-mismatch-func` leg 3, and
+passes every other row — which is exactly the discrimination the rule needs.
+§16.2's row carries the same correction.
+
+**S7 addition to the `content_stamp` rows: an UNKNOWN stamp is not a CHANGED
+one.** The matrix above names only "differs", and the reader compared the two
+digests with a plain `==`, so an **absent** stamp on either side — a snapshot
+written before the field existed, or a live card whose digest failed part-way
+through a gigabyte of I/O — was reported as a change, in a message quoting the
+empty string as the new digest. On the mid-transfer path that produced a
+**refusal whose stated reason was a fabrication**. Tier 1 had always
+distinguished the two (`SdIdentity::populated()`); Tier 2 now does as well:
+
+| `content_stamp` | Behaviour |
+|---|---|
+| both known, equal | Silent. |
+| both known, differing | One warning naming both digests. Refusal if the FSM was mid-transfer. |
+| either unknown | One warning saying the contents **could not be compared**, and which side is missing one. **Refusal if the FSM was mid-transfer** — §11.3's last row requires a *match* there, and an unknown stamp is not a match. |
+
+`JNSI-14` … `JNSI-17` pin the new branch — the three ways a stamp can be
+unknown, and the mid-transfer refusal. `JNSI-01` and `JNSI-08`/`09`/`10` were
+already pinning the other two rows.
+
+**Cost, MEASURED (S7), not estimated.** §11.3 recommended shipping the Tier-2
+digest eager and measuring it; it ships eager, and `sd_identity_test` row
+`JNSI-P33` times it on the real 1 GB card on every run and **prints** the
+figure, so the number below is one the suite reproduces rather than a claim
+nobody re-checks:
+
+| | Measured (dev host, 2026-09-24) | Estimated above |
+|---|---|---|
+| warm (page cache hot) | **0.49 s** | ~0.5 s |
+| cold (`POSIX_FADV_DONTNEED` first) | **0.72 s** | ~1.2 s |
+
+Both on an otherwise quiet host; under a three-agent load the same row reported
+0.52-0.80 s, which is the figure a reviewer re-running this will see. That
+spread is why the row **prints** the number and does not assert a threshold: a
+wall-clock bound on a shared build host is a flaky row, not a measurement.
+
+Paid once per save and once per load. The estimate was right warm and
+pessimistic cold on NVMe. It stays eager; the lazy variant exists as
+`describe_sdcard_for_snapshot(..., want_content_stamp = false)` for a caller
+that has *already* established Tier 1 does not match, where digesting a
+gigabyte to fill a field nobody will read is pure waste. It is not a way to
+skip the check, and `JNSI-P23` says so.
+
+**The producer** is `read_sd_image_identity` in `src/core/sd_rom_extractor.{h,cpp}`
+— the new exported entry point this section called for — plus
+`describe_sdcard_for_snapshot` / `read_sd_image_content_stamp` in
+`src/core/sd_snapshot_identity.{h,cpp}`, which assemble the `jns::SdCardInfo`
+the container compares. The split is deliberate: `snapshot_test` links
+`jnext_save` alone, so the container's *rules* stay provable with no emulator,
+no card and no filesystem, and the producer's rows live in `sd_identity_test`,
+which links `jnext_core` and works on real images.
+
+`mbr_partition_table_sha256` digests the **64-byte partition table plus the 2-byte 0x55AA
+signature**, not the whole 512-byte sector. The prose above names "the MBR
+partition table" and the narrower window survives the same argument that
+removed `BS_VolLab` from the refusal test: the first 446 bytes are bootstrap
+code, which `fdisk`, `syslinux` and several imaging tools rewrite without
+touching the partitioning. `JNSI-P07` requires a partition-table byte to move
+the digest; `JNSI-P08` requires a bootstrap byte **not** to.
 
 ---
 
@@ -1714,7 +1960,7 @@ table, a `case` in `main.cpp`'s switch (enforced by `-Wswitch`), and an entry in
 
 | Flag | Args | Purpose |
 |---|---|---|
-| `--load FILE` | — | **No new flag.** `.jns` joins the existing extension dispatch (`emulator.cpp:1153`). The man page's `--load` list gains `.jns`. |
+| `--load FILE` | — | **No new flag.** `.jns` joins the existing extension dispatch — `emulator_apply_load()` at `src/platform/emulator_boot.h:25` and the CLI pre-dispatch at `src/main.cpp:1566`, NOT `emulator.cpp:1153`, which this row cited and which is a `.nex` arming gate rather than a dispatcher (§3.3's S8 correction). The man page's `--load` list gains `.jns`. |
 | `--delayed-snapshot FILE` | — | **No new flag.** `.jns` joins the existing extension dispatch. Its man-page sentence — "the format is chosen by the extension of *FILE*: `.szx`, `.nex`, anything else `.sna`" — must be updated, and `cli-check` will not catch that, because it checks the flag set, not the prose. |
 | `--snapshot-uncompressed` | 0 | Write every member `STORED`. Settled point 6's debugging mode. |
 | `--snapshot-strict` | 0 | Turn the `state_model_revision` / ROM-digest / tape warnings into refusals. |
@@ -1801,6 +2047,20 @@ once functional rows exist, and the generator's `%NO_MATRIX_SECTION` entry
 above. `test/refresh-subsystem-status.sh` needs the suite's friendly name too,
 or the dashboard emits a TODO.
 
+**S7 adds a SECOND unit suite, `sd_identity_test`**, and the same four manifests
+cover it. It is separate from `snapshot_test` on purpose. That one links
+`jnext_save` **alone** — the rule this section states three paragraphs up — so
+the container's rules are provable with no emulator, no card and no filesystem.
+The SD identity's *producer* needs `jnext_core` (the FAT32 parser) and real
+images on disk, and folding it in would give the descriptor layer's own suite a
+dependency on the emulator core. Its rows are `JNSI-P01…`, and the distinction
+between the two groups is worth stating plainly: `JNSI-*` proves the reader
+applies §11.3's matrix to two identities it is handed; `JNSI-P*` proves the
+identity handed to it **describes the card**. A producer returning a constant
+passes every `JNSI-*` row — both sides agree, every restore is silent, and the
+whole mechanism is decorative — so every `JNSI-P*` row moves exactly one byte of
+a real image and asserts what must, and must not, move with it.
+
 ### 16.1 Unit rows — `test/snapshot/snapshot_test.cpp`
 
 | Group | IDs | What |
@@ -1809,7 +2069,7 @@ or the dashboard emits a TODO.
 | **Version** | `JNSV-01…` | Every row of §7.3, both directions: `format_version` too new → refuse naming both numbers; too old with reader present → reads; too old with reader absent → refuse; missing → refuse; non-integer → refuse. |
 | **Reader rules** | `JNSR-01…` | **One row per line of §12.4** — that table is the row list. Blob declared but absent; blob present but undeclared; manifest CRC vs ZIP CRC disagreement; subsystem listed but member absent; member present but unlisted; inflated length ≠ declared; card-present/absent both directions; `read_only` mismatch; unconstructible `ram_kb`. |
 | **Unknown / retired names** | `JNSU-01…` | Unknown member ignored + logged; unknown key ignored; missing optional key takes its **declared default** (asserted against the declaration, never against a literal, and never against `reset()` — §12.2); missing required key refuses; a **retired** key is migrated to its successor, not ignored; a tombstoned key is ignored deliberately; a key in neither table is "unknown". |
-| **Identity** | `JNSI-01…` | SD Tier-1 mismatch refuses; Tier-2 mismatch warns and restores; Tier-2 mismatch **with the SD FSM mid-transfer** refuses; `BS_VolLab` differing alone changes **nothing** (§11.3); no card mounted refuses; ROM digest mismatch warns / refuses under strict; tape file absent warns. |
+| **Identity** | `JNSI-01…` | SD Tier-1 mismatch refuses; Tier-2 mismatch warns and restores; Tier-2 mismatch **with the SD FSM mid-transfer** refuses; `BS_VolLab` differing alone produces no refusal and no label/identity warning (§11.3, as corrected at S7); an **unknown** Tier-2 stamp is not a changed one — it says "could not be compared", and still refuses mid-transfer (`JNSI-14`…`17`, S7); no card mounted refuses; ROM digest mismatch warns / refuses under strict; tape file absent warns. |
 | **Encoding** | `JNSE-01…` | Hex strings exactly the declared length; every `u64`/`i64` emits a **string**; a negative `i64` round-trips (**the `/INT` window with its real measured value, −564 933**, §7.4); `INT64_MAX` emits `"open"` and round-trips; `i32` round-trips negative; enums emit names, and an unknown name on read **refuses** rather than defaulting — a wrong FSM state is not a safe default. |
 | **History primitive** | `JNSH-01…` | The binary encoding of `port_ff_log_` and the UART's four FIFOs is **padded to capacity** (constant width, per `RewindBuffer`); the JSON encoding carries exactly `count` items; a round-trip through JSON with 3 in-flight entries restores 3, not 1 024; **an in-flight port-0xFF log survives save→restore and the replayed frame is pixel-identical** (the §10.3 defect, pinned). |
 | **Descriptor** | `JNSD-01…` | For every subsystem: the JSON and binary encodings, fed the same machine, restore to identical machines. |
@@ -1828,10 +2088,13 @@ outside the descriptor, and it is nearly free:
 - **A golden byte image.** Capture the *pre-migration* stream once and `cmp`
   against it (§17's S2-S5 gate). A field silently dropped, reordered or
   re-typed fails immediately.
-- **After S5b, the re-baselined lengths are pinned**: `JNSX` asserts
-  **2 153 701** on the Next and **2 161 893** on 48K/128K/+3, so the one
-  deliberate change to the stream is a number in a test rather than a fact in a
-  commit message.
+- **After S5b, the re-baselined lengths are pinned**: `JNSX-S5B-LENGTHS`
+  asserts **2 153 701** on the Next and **2 161 893** on 48K/128K/+3, so the
+  one deliberate change to the stream is a number in a test rather than a fact
+  in a commit message. It lives in **`rewind_test`**, not here: the row builds
+  four real `Emulator`s, and `snapshot_test` links `jnext_save` alone —
+  deliberately, so the descriptor layer's own rows cannot come to depend on the
+  emulator core.
 
 Every row is mutation-tested by its author before review: revert the
 behavioural branch the row exists for and confirm the row fails.
@@ -1843,6 +2106,19 @@ written before the descriptor layer existed and named neither:
 |---|---|---|
 | **Schema** | `JNSS-01…` | The GENERATED SHAPE, per §6.2's table: a field without a declared default is `required` and one with it carries `default`; unsigned widths become `minimum`/`maximum`; a `u64` becomes a string with a canonical pattern; `i64_open` carries the `"open"` alternative; a fixed array's length is a LITERAL in the pattern; an enum is a closed name set; a `log`/`fifo` carries the BINARY capacity as `maxItems`; a `blob` contributes no property and a `ram_window` a `const` reference; `additionalProperties: false`; and the output is deterministic and ORDER-INDEPENDENT. Plus: a declared default outside its own enum's name set fails generation. |
 | **Golden / byte identity** | `JNSG-01…` | §17.1's extractor as tested code rather than a shell pipeline (`snapshot_test --extract-golden IN OUT`): `JNEXTWS2` deflated and `JNEXTWS1` plain, a header whose `plain_bytes` lies, an unknown magic, a file shorter than the 96-byte header. Plus the sentinel encoding the golden's 33-block framing rests on. |
+
+**And the groups S6 added, recorded the same way** — the table above named
+none of these either, because it was written before the gaps were closed:
+
+| Group | IDs | What |
+|---|---|---|
+| **Hostile values** | `S6-SD-RESP-FORGED`, `S6-SD-BLOCKLEN-FORGED`, `S6-SD-CMDIDX-FORGED` | The class the first battery did not have: a value that is PRESENT and IN RANGE for its type but out of range for what it sizes or indexes. `S6-SD-BLOCKLEN-FORGED` drives the faulting path deliberately rather than checking the invariant and stopping — a row that avoids the path is not a regression test for what happens on it — and `S6-SD-CMDIDX-FORGED` states plainly that its fault is a one-byte out-of-bounds WRITE no behavioural assertion on a sanitizer-less build can see, so it asserts the invariant through an accessor that exists for the purpose. |
+| **SD FSM** | `S6-SD-*`, `S6-EMU-CMD18-MID` | §10.2 P1. A save taken mid-block, mid-stream of a CMD18 restores a card that is STILL streaming — asserted against a second card driven identically and never interrupted, because a hand-written expectation would only pin what the row's author believed the stream to be. Plus the negotiated capacity class surviving (GH #94's two fields decide how every later address is read), the transfer-in-flight predicate §11.3's last row needs, and the write path's purity. |
+| **Multiface type** | `S6-MF-TYPE-01`, `S6-EMU-MF-TYPE` | §10.2 P13, all four NR 0x0A encodings. `MF-CORE-12` is built with `mf_type=10` and did NOT catch this, because it asserts `mode_128()` and the VHDL decodes both `"01"` and `"10"` to that. |
+| **Declared defaults** | `S6-DEF-*`, `S6-SD-DEFAULTS-*`, `S6-MF-DEFAULTS-01` | §12.2's gate, and the rows that make it more than a tautology: one drifts a default and requires the failure to name the field with both numbers, one covers every scalar primitive rather than the `u8` the first one drifts, one asserts the aggregates contribute nothing in either direction, and two assert the defaulted/undefaulted SPLIT so "the gate passed" cannot mean "the gate saw nothing". |
+| **Media identity** | `S6-MEDIA-01`, `S6-ROMS-*`, `S6-TAPE-*`, `S6-PREVIEW-*` | §10.2 P3/P4/P5: the round trip through the manifest TEXT, the ROM-digest warn/refuse matrix (including that a name only one side has is not a mismatch, and that the boot ROM is named separately), the absent-tape warning that is never a refusal even under `--snapshot-strict`, and the preview's declaration versus its mere presence. |
+| **Mid-frame save** | `S6-P7-*` | §10.2 P7. The advance happens, the debugging session survives it intact, a machine already at a boundary is not advanced — and, the row that matters, the frame's per-scanline change log is NOT wiped. Mutation-tested: re-running `begin_new_frame()` in the advance kills `S6-P7-HISTORY-01` and nothing else. |
+| **Emulator declaration** | `S6-DECL-EMULATOR`, `S6-WIDTH-EMULATOR*` | The field list and the width of each of the five blocks §10.1's last row became. |
 
 The **adversarial** rows are `JNSA-*`, a group the table above also did not
 name. They exist because reviewing a spec is not reviewing a parser: S1's
@@ -1868,12 +2144,12 @@ length of 2 153 701 follows arithmetically.
 
 | Row | What |
 |---|---|
-| `snapshot-roundtrip-func` | Save at frame N, restart with `--load out.jns`, run M more frames, screenshot, compare **pixel-exact** against one uninterrupted run of N+M frames. **Named workloads, because a quiescent 48K boot passes for a neighbouring reason**: `beast.nex` (per-scanline change logs + Copper gradient — the §10.3 class), `copper-demo` (Copper PC mid-list), and a run captured **mid-CMD18 SD stream** (P1). A pass on any one of those means something; a pass on a BASIC prompt does not. |
-| `snapshot-foreign-fuse-func` | §13.2(1): on a **128K** machine, write `.jns` and `.szx` at the same instant; load the `.szx` in **real FUSE** headless (`/usr/bin/fuse` + Xvfb + `--debugger-command`, which is documented in `man fuse`, not `--help`); assert the spec-written Python reader's extraction from the `.jns` agrees with FUSE on registers, paging and sampled RAM. **The row FAILS if FUSE produced no output** — asserted before any comparison, because an empty-vs-empty comparison would pass vacuously. Skips without FUSE/Xvfb locally; hard-fails in CI. |
-| `snapshot-schema-func` | Validate the written file with Python `jsonschema` against the committed schema **plus the constraint overlay**, and `unzip -t` it. Skips if the tools are absent; hard-fails in CI. |
-| `snapshot-uncompressed-func` | The same round-trip with `--snapshot-uncompressed`; assert every member is `STORED` (read by `zipfile`, not by us) and the restore is pixel-identical to the compressed one. |
-| `snapshot-sdcard-mismatch-func` | Save; mutate a sector of a **copy** of the card; restore → assert the Tier-2 warning and that the run proceeds. Then mutate `BS_VolID` → assert the Tier-1 refusal and a non-zero exit. Then mutate **only** `BS_VolLab` → assert **no** warning and **no** refusal (§11.3). |
-| `snapshot-paused-advance-func` | Pause mid-frame in the debugger (on `beast.nex`, which has a live per-scanline Copper gradient), save, and assert three things: the save **succeeds**; the restored machine replays the frame **pixel-identically** — i.e. the advance did not wipe the change logs, the Task 40 defect (§15.2); and the live machine is left at the following frame boundary. The workload is `beast.nex` specifically because a quiescent screen cannot distinguish a preserved raster history from a destroyed one. |
+| `snapshot-jns-roundtrip-func` ✓ **LANDED (S8)** — designed here as `snapshot-roundtrip-func` | Save at frame N, restart with `--load out.jns`, run M more frames, screenshot, compare **pixel-exact** against one uninterrupted run of **N+1+M** frames. **The `+1` is not a fudge**: a save always advances to the next frame boundary (§10.2 P7), so a snapshot requested at N holds N+1. Comparing against N+M reports ~16 000 differing pixels on `beast.nex`, which looks exactly like a defect and is the test's arithmetic. As shipped: the 48K leg (static BASIC prompt, no offset arithmetic) and the `beast.nex` leg at M=10, both **0 pixels**, plus a control asserting the workload really moves — without it the Next leg would pass against a demo that had stopped animating. The `copper-demo` and mid-CMD18 workloads below remain for S9. Original text: **Named workloads, because a quiescent 48K boot passes for a neighbouring reason**: `beast.nex` (per-scanline change logs + Copper gradient — the §10.3 class), `copper-demo` (Copper PC mid-list), and a run captured **mid-CMD18 SD stream** (P1). A pass on any one of those means something; a pass on a BASIC prompt does not. |
+| `snapshot-foreign-szx-func` ✓ **LANDED (S9)** — designed here as `snapshot-foreign-fuse-func`, and it links **libspectrum** instead of scraping FUSE's debugger; see §17's S9 append for why the substitution is stronger rather than weaker. Original text: §13.2(1): on a **128K** machine, write `.jns` and `.szx` at the same instant; load the `.szx` in **real FUSE** headless (`/usr/bin/fuse` + Xvfb + `--debugger-command`, which is documented in `man fuse`, not `--help`); assert the spec-written Python reader's extraction from the `.jns` agrees with FUSE on registers, paging and sampled RAM. **The row FAILS if FUSE produced no output** — asserted before any comparison, because an empty-vs-empty comparison would pass vacuously. Skips without FUSE/Xvfb locally; hard-fails in CI. |
+| `snapshot-schema-func` ✓ **LANDED (S9)** | Validate the written file with Python `jsonschema` against the committed schema **plus the constraint overlay**, and `unzip -t` it. As shipped it validates REAL Next and 48K archives (`make schema-check` validates a hand-transcribed manifest, which is a different claim), and carries a mutation leg: relabelling a Next manifest as `48k` must be rejected by the overlay's §4.3(2) invariant, or every validation above it is decorative. Skips if the tools are absent; hard-fails in CI. |
+| `snapshot-uncompressed-func` — **covered, not added as its own row (S9)** | Its two claims already have homes, and a third row asserting them again would be duplication rather than coverage: `rewind_test`'s `JNS-RT-03`/`04` prove the STORED round trip restores IDENTICALLY and that the archive really is larger than the deflated one, and `snapshot-spec-reader-func` feeds a `--snapshot-uncompressed` archive to the independent reader — which reads it with Python's `zipfile`, i.e. not by us. |
+| `snapshot-sdcard-mismatch-func` ✓ **LANDED (S7)** | Save; mutate a sector of a **copy** of the card; restore → assert the Tier-2 warning and that the run proceeds. Then mutate `BS_VolID` → assert the Tier-1 refusal **and a non-zero exit**. Then mutate **only** `BS_VolLab` → assert no refusal and **no warning naming the label or the identity** — the "no warning at all" this row originally asked for is unreachable, because the label is a byte of the image and Tier 2 digests the image (see §11.3's S7 correction). As shipped it also carries the two legs the three above do not reach: the same Tier-2 drift **mid-transfer**, which must refuse, and `--snapshot-force-sdcard`, which must downgrade the Tier-1 refusal to a warning naming both serials. **It drives `sd_identity_test --verdict`, not `jnext --load out.jns`**, for the reason `snapshot-paused-advance-func` drives the existing save path: the `.jns` CLI does not exist until S8. That is not a test double — the sub-mode calls `describe_sdcard_for_snapshot`, writes a real `.jns` through `SnapshotWriter` and opens it through `open_snapshot`; S8 replaces the front end without touching the legs. Leg 0 runs the **real** per-run NextZXOS card against itself (no copy, must be silent); the mutation legs use a real MBR + FAT32 image the test binary emits, because three mutated copies of a 1 GB card would cost 3 GB per run wherever reflink is unavailable — CI included — and a Tier-1 field is the same 81 bytes whatever the image's size. |
+| `snapshot-paused-advance-func` ✓ **LANDED (S6)** | **As shipped it drives the existing save path**, not `.jns`, which does not exist until S8: headless, `--magic-breakpoint` + `magic_bp_demo.nex` (the same pause `screenshot-paused-func` drives) + `--delayed-snapshot`, asserting the paused save WRITES, exits zero, reloads in a fresh process and reports the advance — with a control run that never pauses and must never report one. The pixel half of the original design below is deliberately NOT claimed there: a `.sna` carries no scheduler queue and no per-scanline history, so the comparison would be vacuous. It is pinned at the unit tier instead, where the oracle exists — `rewind_test` row `S6-P7-HISTORY-01` breaks the advance and watches the frame's change log vanish. The `beast.nex` form below returns at S9, when `.jns` can carry what it needs to mean something. Original design: pause mid-frame in the debugger (on `beast.nex`, which has a live per-scanline Copper gradient), save, and assert three things: the save **succeeds**; the restored machine replays the frame **pixel-identically** — i.e. the advance did not wipe the change logs, the Task 40 defect (§15.2); and the live machine is left at the following frame boundary. The workload is `beast.nex` specifically because a quiescent screen cannot distinguish a preserved raster history from a destroyed one. |
 
 `JNEXT_TEST_JOBS=4` on every regression invocation, as always.
 
@@ -1911,6 +2187,49 @@ omission: the gate exists before the first migration so each of S3-S5's 34
 subsystems arrives as a schema diff, where §13.2(5) wants a human to see it. A
 gate added after the thirty-fourth would have missed every diff it exists for.
 
+#### The S8 revisit — and what the paragraph above hoped for did not happen
+
+The owner's recorded decision was that the registry stays empty through S7 and
+that this section is revisited at S8. Revisited, with the outcome stated
+plainly rather than softened:
+
+**`SchemaRegistry::register_subsystem` was never called, by anything, at any
+stage.** So the paragraph above describes an intent that was not carried out:
+all thirty-four of S3-S5's migrations produced **zero** schema diffs, and the
+"a human sees each one" control §13.2(5) rests on did not operate for any of
+them. That cannot be retro-fitted — the diffs it wanted are the ones between
+consecutive commits that no longer exist as separate schema states.
+
+**S8 declines the split gate, and does not populate the registry.** The
+reasons, in the order they weigh:
+
+1. **The cheap half of a split gate cannot detect the staleness that matters.**
+   A byte-diff against the committed file catches a change only if something
+   regenerated the file first. Split the generation into a heavier target and
+   the `state/*` half of the schema goes stale silently between runs of it —
+   which is the condition the section exists to prevent, reproduced with more
+   machinery. Making the heavy half a CI-only step is not available: CI runs
+   the same make targets a human runs, as a hard rule.
+2. **Populating the registry means CONSTRUCTING every subsystem.** A
+   declaration binds references to an object's members, so walking one needs an
+   instance — a `Ram`, a `Renderer`, an `Emulator`. That is the emulator link
+   the owner already rejected on cost, arriving by a different door.
+3. **S9 brings a stronger check for exactly this surface.** The spec-written
+   Python reader parses real `state/*.json` from a real machine against this
+   document, and the FUSE foreign-reader row compares the result with an
+   emulator that is not ours. A generated schema says the shape is what the
+   code says it is; an independent reader says the shape is what the SPEC says
+   it is, which is the claim worth making about a file other people will read.
+
+**What is therefore NOT covered, stated so nobody has to discover it.**
+`doc/formats/jns-snapshot.schema.json` describes `manifest.json` and nothing
+else. The `state/*.json` members that S8 began writing have **no schema and no
+staleness gate**: a field renamed in a declaration changes the file and no gate
+says so. The `JNSD`/`JNSE` rows still pin the encoding, `JNS-RT-02` still pins
+that every field round-trips, and `rewind_test`'s width rows still pin the
+binary side — so the field set is not unguarded, only the *published schema* of
+it is. S9 is where that closes.
+
 ## 17. Staged implementation plan and effort
 
 Effort is in *agent-sessions of focused work*, the unit this project has
@@ -1925,13 +2244,106 @@ agent that did not write it, on its own branch and worktree.
 | **S3 — Migration, group 1** | Core: clock, RAM, MMU (incl. both blobs), NextREG, CPU, IM2 (+ timing) | **S–M** (1.5–2.5) | byte-identity holds after each subsystem |
 | **S4 — Migration, group 2** | Video: palette, layer2, sprites, tilemap, lores, ULA (incl. the three histories), renderer, copper | **S–M** (1.5–2.5) | as above |
 | **S5 — Migration, group 3** | Peripherals + audio + input: ctc, dma, spi, i2c, rtc, uart (FIFOs), divmmc, multiface, nmi, beeper, turbosound, dac, i2s, and the six input classes | **S–M** (1.5–2.5) | as above |
-| **S5b — Remove the duplicated RAM** | D3 + D4: the DivMMC window becomes a *reference* and the Multiface private array is dropped on the Next. Golden re-baselined **once**, with the diff explained field by field. | **XS** (~0.5) | New golden pinned by a `JNSX` row (below) |
-| **S6 — The gaps** | P1 `SdCardDevice`; P13 `mf_type_`; P3 ROM digests; P4 tape identity; P5 preview; P7's two save rules; `Emulator`'s own scalars | **M** (2–3) | P1 proven by a mid-CMD18 save/restore row; P7 by `snapshot-paused-refusal-func` |
-| **S7 — SD identity** | Tier 1 from MBR + BPB `BS_VolID` (a new exported entry point in `sd_rom_extractor`), Tier 2 reuse, the refusal/warning matrix, `JNSI` rows | **S** (1) | `snapshot-sdcard-mismatch-func`, all three legs |
-| **S8 — Integration** | CLI table + man page + `cli-check`; the three load-dispatch sites; GUI save/load/filter/status bar/grey-out; user guide; developer guide chapter; FEATURES; ChangeLog | **S** (1–2) | `make cli-check`, `docs-check`, full triplet |
-| **S9 — Validation** | The spec-written Python reader; **the FUSE foreign-reader row**; the constraint overlay; the full functional set; CI tool install | **S** (1–2) | All §16.2 rows green in CI |
+| **S5b — Remove the duplicated RAM** ✓ **DONE** | D3 + D4: the DivMMC window becomes a *reference* and the Multiface private array is dropped on the Next. Golden re-baselined **once**, with the diff explained field by field. | **XS** (~0.5) | `JNSX-S5B-LENGTHS` pins 2 153 701 / 2 161 893; the diff is §17.0's table |
+| **S6 — The gaps** ✓ **DONE** | P1 `SdCardDevice`; P13 `mf_type_`; P3 ROM digests; P4 tape identity; P5 preview; P7's two save rules; `Emulator`'s own scalars | **M** (2–3) | P1 proven by a mid-CMD18 save/restore row (`S6-SD-CMD18-MID` + `S6-EMU-CMD18-MID`); P7 by `snapshot-paused-advance-func`. **The gate row named `snapshot-paused-refusal-func` and that was stale**: the owner's 2026-09-23 decision overruled the refusal, §16.2 has carried the advance row's name since, and a gate naming a test that must not exist is one nobody can meet. |
+| **S7 — SD identity** ✓ **DONE** | Tier 1 from MBR + BPB `BS_VolID` (`read_sd_image_identity`, the new exported entry point in `sd_rom_extractor`), Tier 2 reuse (`read_sd_image_content_stamp`), the producer that assembles both (`describe_sdcard_for_snapshot`), the refusal/warning matrix, and **two** row groups: `JNSI-14…17` in `snapshot_test` for the unknown-vs-changed stamp the matrix had not distinguished, and `JNSI-P01…P34` in the new `sd_identity_test` for the producer | **S** (1) | `snapshot-sdcard-mismatch-func`, all three legs — landed, plus the mid-transfer and `--force` legs. Two corrections to §11.3 fell out of implementing it (the `BS_VolLab` row and the unknown stamp), both recorded there |
+| **S8 — Integration** ✓ **DONE** | **THE ASSEMBLER FIRST — this row did not name it and it did not exist.** S1-S7 built every PART of a `.jns` and nothing assembled one: no code walked the declarations with `JsonWriteDesc`, emitted the members and blobs, filled the manifest and handed it to `SnapshotWriter`. `Emulator::save_jns`/`load_jns` + `visit_jns_subsystems` (the ONE list, walked by both directions) are that. Then: CLI table + man page + `cli-check`; the load-dispatch sites (**seven, not three** — §3.3's correction); GUI save/load/filter/status-bar provenance; user guide §5.9; developer guide chapter; FEATURES; §16.3's revisit | **S** (1–2) → **M** | `make cli-check`, `docs-check`, full triplet — and `snapshot-jns-roundtrip-func`, which is the row that matters: a field-level oracle passed through a defect that restored NO MEMORY AT ALL, and only a rendered frame caught it |
+| **S9 — Validation** ✓ **DONE** | The spec-written Python reader (`test/snapshot/jns_reader.py`); **the foreign-reader row, via libspectrum rather than a scraped FUSE debugger** — see below; the overlay's §4.3(2) invariant; `snapshot-spec-reader-func`, `snapshot-foreign-szx-func`, `snapshot-schema-func`; `libspectrum-devel` in CI | **S** (1–2) | All §16.2 rows green |
 
 **Total: 14–23 focused sessions; S2–S5 is 7–10 of them, S5b about half of one.**
+
+#### S9's two substantive departures from this document
+
+**(1) The foreign reader links libspectrum instead of scraping FUSE.**
+§13.2(1) prescribes `fuse --debugger-command` under Xvfb, and every mechanical
+claim it makes is CORRECT — verified on this box: 0 hits in `--help`, 2 in
+`man fuse`, FUSE 1.6.0. The first attempt at that route still produced a
+syntax error and **zero bytes of output**, which is exactly the hazard the same
+paragraph names: an invocation that produces nothing compares an empty
+extraction against an empty expectation and passes vacuously, "which converts
+the best evidence in §13.2 into the most confident lie".
+
+`test/snapshot/szx_probe.c` links **libspectrum** — the library FUSE itself
+uses, and the one whose `read_ramp_chunk()` rejected every `.szx` jnext used to
+write (§13.1). It removes four ways to produce nothing (no X server, no GTK UI,
+no breakpoint that must be hit, no text scraped from a GUI) and returns the
+registers as values rather than as parsed output. The claim is strictly
+stronger, not weaker. `libspectrum-devel` is optional: without it the binary is
+not built and `snapshot-foreign-szx-func` SKIPS saying so; CI installs it.
+
+**(2) The `.szx`/`.jns` pair comes from two runs, and that is measured, not
+assumed.** `--delayed-snapshot` takes one path, so "at the same instant" is
+achieved by two runs to the same frame — and the row writes a THIRD file to
+prove two independent runs are byte-identical. Without that control the
+comparison would rest on an assumption about determinism.
+
+#### What the spec-written reader found, and why that is the point
+
+Built from this document alone, `jns_reader.py` **refused every file jnext
+produces** on its first run. §7.4 says "any `u64` or `i64` field is encoded as
+a decimal *string* … every 64-bit field, unconditionally"; `capture.frame` is a
+`uint64_t`; the writer emits a number. Three statements in this document could
+not be reconciled — §7.4's unconditional rule, §6.2's table whose rows are
+descriptor primitives that exist only in `state/*.json`, and §8's own manifest
+example showing `"frame": 41291` as a number.
+
+**The specification was what needed fixing**, and §6.2 now carries the scope
+sentence it was missing. That is precisely what §13.2(6) exists to produce: a
+second implementation written by someone who cannot see the first, disagreeing
+in a way that finds a real ambiguity rather than a real bug.
+
+The row then found a defect in the READER — a one-byte corruption made it print
+a **traceback** instead of a refusal, because `zipfile.testzip()` itself raises
+on a damaged DEFLATE stream. Members are read one at a time now, so the refusal
+can NAME the member; `testzip()` returns the bad member's name only when the
+decompressor finishes, and loses it when it raises.
+
+#### What S9 did NOT close
+
+**`state/*.json` still has no schema and no staleness gate.** §16.3's S8
+revisit declined the split gate and said S9 would close it; S9 has not.
+`SchemaRegistry::register_subsystem` still has zero call sites, and filling it
+still means constructing every subsystem — the emulator link the owner
+rejected. What S9 added instead is an independent reader that parses every
+`state/*.json` structurally and a foreign reader that adjudicates the CPU, and
+`snapshot-schema-func` validates the real manifest rather than a hand-written
+one. The schema gap is narrower and is **not closed**, and §13.3's posture
+applies to it unchanged.
+
+#### What S8 actually landed — read this, not the commit messages
+
+**The commit messages across S8 do not reliably describe their diffs**, and a
+`git bisect` over that range will get a wrong answer from them. Three known
+cases: the commit titled "the three required fixes" also adds the three
+`--snapshot-*` CLI flags; "the blobs were written and never read back" also
+carries the whole GUI wiring; and "CLI, GUI, docs and FEATURES" claims
+design-doc edits that an earlier commit made. Nothing was pushed, and an
+interactive rebase across the range was judged not worth the risk, so the cost
+is paid and recorded here instead.
+
+The landing, by area:
+
+| Area | What |
+|---|---|
+| **Assembler** | `src/core/emulator_jns.cpp` — `Emulator::save_jns`/`load_jns`, `visit_jns_subsystems` (the ONE list), `describe_jns_exceptions` (the §9.5 staging), the hand-written esxDOS table and joystick cable, and the path wrappers the dispatch sites call |
+| **Container** | `JsonReadDesc::blobs()` — the read-side blob destinations, whose absence was a shipped defect |
+| **CLI** | three flags in `cli_options.h`'s table + `main.cpp`'s switch + `EmulatorConfig`; `.jns` in the `--load` chain and `--delayed-snapshot`; man page, `USAGE.md`, the user-guide option page (`CLI-DOC-06` requires all three) |
+| **Dispatch** | `emulator_apply_load` + `emulator_load_routes_to_nex` (`emulator_boot.h`), the CLI pre-dispatch (`main.cpp`), the headless save site |
+| **GUI** | Load filter, Save filter (machine-led) + default suffix, the `.jns` save arm, the restore-time provenance status line, and `load_filter()`/`save_filter()` extracted so a test can reach them |
+| **Docs** | user guide §5.9, developer guide 2.5's `.jns` section, `FEATURES.md`, §16.3's revisit, §3.3's dispatch-site correction, §6.1's listing corrections |
+| **Tests** | `rewind_test` `JNS-RT-01`…`19` (+ `02b`, `08a`, `09a`), `load_error_test` `LE-15`…`18`, `snapshot-jns-roundtrip-func` |
+
+**Five defects were found during S8, all by driving the shipped binary rather
+than by any test that existed**: the blobs were written and never read back;
+the blob member names were invented rather than §6.1's; `capture.frame` came
+from the rewind ring's counter; two `state/` member names diverged from §6.1;
+and an absent subsystem restored silently.
+
+**Nine mutations, four of which survived the first pass** — every one a row
+asserting something its fixture could not distinguish. The review then found a
+fifth (the esxDOS table's legitimate round trip) and asking the same question
+again found a sixth (`meta/preview.png`, which had zero mentions anywhere in
+the tree). Both are covered now, by `JNS-RT-16` and `JNS-RT-17`…`19`.
 
 ### 17.0 Why S5b exists, and why it is not deferred
 
@@ -1971,6 +2383,74 @@ commit the pre-S5b golden as a permanent fixture with a `JNSX` row pinning it.
 realisation exists solely to reproduce a known defect, with nothing pinning the
 bytes it is reproducing.
 
+#### What S5b did — measured, 2026-09-24
+
+**The predicted 2 153 701 was measured exactly**, on a Next warm-start
+recording of a booted NextZXOS machine, extracted the §17.1 way. `JNSX-S5B-LENGTHS`
+(`rewind_test`) confirms it by an independent path — four `Emulator`s it builds
+itself — and pins **2 161 893** on 48K/128K/+3 in the same row.
+
+**The mechanism is one rule, applied to two subsystems.** `machine_level` now
+means "this walk is Emulator-driven, so this stream already carries the `ram`
+block", and `BinWriteDesc::ram_window` emits nothing when it is set. `DivMmc`
+derives the flag from `ram_ext_ != nullptr`, which is exactly "an `Emulator`
+built me" — emulator.cpp:279 is the one line in the tree that sets it, and it
+is unconditional. The `Multiface` array is a `blob` and not a window (a
+`ram_window` would make the JSON encoding emit a reference to page 0x0B on a
+48K machine, where that page holds nothing of the sort), so §9.2's *presence*
+branch carries it: declared only when `ram_ext_ == nullptr`.
+
+**The diff, field by field.** The new stream is the old one with exactly two
+contiguous ranges excised and **every other byte identical in place** —
+verified as a splice, not as a hash:
+
+| Range in the old stream | Bytes | What | Verdict |
+|---|---|---|---|
+| `[0, 2 152 291)` | 2 152 291 | blocks 0-17 + the DivMMC block's 15 leading scalars | unchanged, in place |
+| `[2 152 291, 2 283 363)` | **131 072** | `divmmc.ram` — the `ram_window` | **removed** |
+| `[2 283 363, 2 283 678)` | 315 | the two DivMMC levers … the Multiface block's 8 booleans | unchanged, shifted −131 072 |
+| `[2 283 678, 2 291 870)` | **8 192** | `multiface.ram` — the private array | **removed** |
+| `[2 291 870, 2 292 965)` | 1 095 | the `multiface` sentinel … end of stream | unchanged, shifted −139 264 |
+
+2 152 291 + 315 + 1 095 = 2 153 701, and every one of the old 2 292 965 bytes
+is in exactly one row.
+
+**Both removals were proved redundant on the PRE-S5b golden, before the code
+changed** — which is what makes this a removal of duplication rather than a
+removal of state:
+
+- the 131 072 bytes at `2 152 291` were **byte-identical** to that same
+  stream's own `Ram` page 16 at `131 096`, across all of them;
+- the 8 192 bytes at `2 283 678` were **all zero**, confirming §4.3(2)'s "dead
+  zeros" by measurement rather than by reading `emulator.cpp:301`.
+
+Neither fact is provable by a row (both need a pre-S5b build to have produced
+the image), so what the rows carry instead is that the bytes still **arrive**:
+`S5B-DIVMMC-RESTORE` and `S5B-MF-NEXT-RESTORE` write through each device's
+window, save the whole machine, destroy the physical page, restore, and read
+the value back out of the device. A shorter stream that lost state would pass
+a length row and fail those two.
+
+**The old golden is kept**, beside the new one rather than overwritten, so the
+diff above stays reproducible: `golden-savestate.bin` (2 292 965) and
+`golden-savestate-s5b.bin` (2 153 701).
+
+**`warm_start::kFormatVersion` went 1 → 2.** The recording's identity also
+carries the stream length, which moved by 139 264 bytes, so a pre-S5b cache
+would have been discarded anyway; the bump is made because that constant's own
+rule says to make it whenever `save_state` changes shape, and a version bumped
+only when nothing else would catch the change is one nobody can reason about.
+
+**Two things S5b did NOT do**, both deliberate. §9.2's run-time null assertion
+on `ram_window` is still unable to fire, and stays S6's: with the flag derived
+from the pointer it would guard, an assertion on that pointer is a tautology,
+and the branch is fail-safe in the direction that matters — were
+emulator.cpp:279 removed, the window would simply travel inline again, a wider
+stream with no data loss. It becomes load-bearing for the Emulator-driven JSON
+realisation, where an unbacked window would emit a reference to bytes no member
+carries — a dangling pointer in a FILE, which no fallback can repair. And
+`SdCardDevice`'s missing `save_state` (D1) and `mf_type_` (D2) remain S6's.
+
 > Earlier drafts said 20–30 total and 13–18 for S2–S5. The
 > re-estimate follows the call-site classification in §9.4, which did not exist
 > when the first number was written: **404 of 532 sites (76 %) are a bare member
@@ -1978,6 +2458,133 @@ bytes it is reproducing.
 > declarations rather than 29, and the 33 sentinel sites are not fields at all.
 > The migration is a transcription with a byte-exact oracle, not a redesign.
 > Only ~20 sites in 8 places (§9.5) need judgement.
+
+#### What S6 did — measured, 2026-09-24
+
+**The stream grew by 594 bytes, predicted before it was measured and then
+measured exactly.** 2 153 701 → **2 154 295** on the Next and 2 161 893 →
+**2 162 487** on 48K/128K/+3; `JNSX-S5B-LENGTHS` pins both, and the 8 192-byte
+gap between them is unchanged because both additions are machine-independent.
+
+**The diff, field by field** — verified as a splice against
+`golden-savestate-s5b.bin`, not as a hash:
+
+| Range in the S5b stream | Bytes | What | Verdict |
+|---|---|---|---|
+| `[0, 2 152 606)` | 2 152 606 | blocks 0-30 … the Multiface block's 8 booleans | unchanged, in place |
+| at `2 152 606` | **+1** | `multiface.mf_type` (§10.2 P13) | **inserted** |
+| `[2 152 606, 2 153 701)` | 1 095 | the Multiface sentinel … end of stream | unchanged, shifted +1 |
+| after the end | **+593** | the `sdcard` block: 589 declared bytes + its 4-byte sentinel (§10.2 P1) | **appended** |
+
+The longest common prefix ends at exactly 2 152 606, the remainder of the old
+stream matches the new one shifted by one byte, and the 593-byte tail decodes
+field for field into the SD declaration with **zero bytes left over** — on a
+booted NextZXOS machine it reads `initialized=1`, `host_supports_sdhc=1`,
+`block_len=512`, the last command CMD17 for sector 0x02A373 and that block's
+real CRC. A new golden is **not** committed: the pinned lengths plus that
+decode plus the content round-trips are a stronger oracle than a byte image
+for a stage that ADDS fields, and the two existing goldens stay where they are
+so the splice above remains reproducible. The capture recipe was validated
+first by re-recording `golden-savestate-s5b.bin` and finding it byte-identical.
+
+**The `Emulator`'s own scalars moved in the same stage and moved NOTHING**: the
+golden re-recorded across that migration is byte-identical at 2 154 295, which
+is the byte-identity gate of §17.1 doing its job for the last un-migrated
+block.
+
+**`warm_start::kFormatVersion` went 2 → 3**, for the reason that constant's own
+rule gives: `save_state` changed shape. The length check would have discarded a
+pre-S6 cache anyway.
+
+**A buffer overflow this stage SHIPPED, and what it says about the battery
+that missed it.** S6's review found `block_len_` restored from the stream
+without a bound and then passed to `file_.read(data_block_, block_len_)`,
+where `data_block_` is `uint8_t[512]`. A forged 4 096 wrote **3 584 bytes** of
+real SD-image content past the array — through `data_idx_`, the booleans, the
+overlay `std::function` and into the `std::fstream` member declared after it,
+corrupting its locale and killing the process in `~SdCardDevice`. It is
+trivially reachable: `load_read_block()`'s own `byte_addr + block_len_ >
+file_size_` bound stops nothing, because a real card is far larger than 512
+bytes. Reproduced here against the pre-fix build — SIGSEGV, with `file_size_`
+itself visible in the log as `5063528411713060927` where the write had run
+over it — and gone after the fix, with the row driving the same path.
+
+The invariant was not new and was not absent: `cmd16_set_blocklen()` answers
+`arg == 0 || arg > kBlockLen` with R1 PARAMETER_ERROR, because the allowed
+range is 1..2^READ_BL_LEN. **The loader simply did not enforce what the
+command enforces.** Beside it, `cmd_idx_`'s clamp was off by one — `>` where
+`>=` belongs, for a WRITE cursor — so a forged 6 passed untouched into
+`cmd_buf_[cmd_idx_++]`, a bound that was present and read as covered.
+
+**Why the 30-mutation battery could not find either**, and this is the part
+worth keeping: every mutation in it was *drop the field* or *do not clamp to
+the reset default* shaped. Both defects are a different class — **value
+present, in the stream, out of range** — and no mutation in the battery had
+that shape. The narrative below originally claimed the P1 risk class had been
+audited, and named `cmd_idx`, `data_idx` and `resp_count`; it had missed the
+one field that sizes an `ifstream::read()` into a fixed buffer. **A list of
+the fields someone thought to check is not a sweep.** So the answer is not
+the two fixes: it is the **per-field sweep** now written into
+`SdCardDevice::describe_state`, which gives EVERY restored field a line
+stating what it sizes or indexes and what bounds it, with a rule that a new
+field gets a line or the sweep stops being one — plus
+**out-of-range forging as a standing mutation class** beside the drop-the-field
+one. This is the fifth appearance of the family in #27 (S1's 4.29 GB
+allocation, S3's `Ram::load_state`, S5's staging array, S6's `resp_count`,
+this), and every time the fields on someone's list were checked and the field
+on nobody's list was not.
+
+**The harness had the same blindness twice, and that is the second lesson.**
+Its first version restored mutated files with `shutil.copy2`, which preserves
+mtime, so make skipped the rebuild and every later mutation ran against a
+binary still carrying the earlier ones — caught only because a CLEAN tree then
+reported two failures it could not have. Its second version read the printed
+`FAIL` lines and nothing else, so the `block_len_` mutation, which **crashes
+the suite**, came back as "no row failed": the process dies before the
+summary. Both times the harness was looking at the wrong signal and reporting
+absence. A mutation battery is a measuring instrument, and an instrument that
+has never been checked against a known answer is not evidence.
+
+**What the mutation table found, because it was derived from the DIFF and not
+from the row list.** Six behavioural changes had no row when first asked:
+`host_supports_sdhc_`/`block_len_` (the shipped row tested the SDSC direction,
+where a lost value coincides with `reset()`'s — only the SDHC direction
+discriminates), `data_block_` (the row destroyed the card with `reset()`,
+which does not clear that array, so the restore had nothing to prove), the
+`resp_count` clamp (no row forged a count), two migrated `Emulator` scalars
+(the declaration rows compare names and widths, and a field bound to a LOCAL
+keeps both), and the derived ULA-interrupt re-sync. Five became rows —
+`S6-SD-ADDRESSING-HC`, `S6-SD-BLOCKLEN`, `S6-SD-RESP-FORGED`,
+`S6-EMU-SCALARS-01` (a stream of all-`0x01` is already normalised, so it must
+round-trip byte for byte through every field of all five blocks at once) and
+`S6-EMU-SCALARS-02`. The sixth became a DELETION: `transfer_in_flight()`'s
+`multi_block_ ||` term could not change any outcome, because `deselect()`'s
+pause path freezes `state_` at `SENDING_DATA` and every path that reaches
+`IDLE` clears `multi_block_` in the same breath.
+
+**The harness itself was wrong first**, and that is worth recording: it
+restored each mutated file with `shutil.copy2`, which preserves mtime, so make
+saw the restored source as older than the object built from the mutated one
+and skipped the rebuild. Every later mutation then ran against a binary still
+carrying the earlier ones, and a clean tree reported two failures it could not
+have. Caught by re-running the suites on the untouched tree — which is the
+only reason the six holes above are trustworthy rather than an artefact.
+
+**Defects D1 and D2 are CLOSED.** The SD card's SPI FSM travels
+(`sd_card.cpp`), and `mf_type_` is declared rather than rebuilt from three
+booleans that cannot express `"10"`.
+
+**§12.2's declared defaults are now real, and gated.** S6 is the first stage to
+declare one on a shipped field: the SD card's nineteen scalars carry the value
+`reset()` establishes, and `DefaultCheckDesc` (`src/save/state_desc_defaults.h`)
+asserts the two agree field by field (`S6-SD-DEFAULTS-01`). The gate was built
+before it was used and it is provably able to fail — `S6-DEF-02` drifts one
+default and requires the refusal to name the field with both numbers — and it
+earned its keep immediately: it caught a wrong default of the author's own
+(`data_crc`, which `reset()` does not establish, so it is declared **required**
+instead). `mf_type` is likewise required, for §12.2's stated reason applied to
+a real field for the first time: its power-on value is machine-dependent, so no
+constant is honest.
 
 ### 17.1 The byte-identity gate — and why `rewind_test` is not it
 
@@ -1998,7 +2605,8 @@ captured **before** the migration.
 That image is nearly free, because the machine already writes one:
 
 ```bash
-# BEFORE the migration, on a build of current main:
+# BEFORE the migration, on a build of current main.
+# NO --rtc. Not on this run, and not on any run compared against it (below).
 jnext --headless --machine next --warm-start-regenerate ... # records the cache
 # JNEXTWS2 (current): 96-byte plain header, then a DEFLATE payload.
 python3 -c "import zlib,sys; d=open(sys.argv[1],'rb').read(); \
@@ -2016,6 +2624,49 @@ rather than assuming. Because the cache is regenerable and machine-keyed, the
 golden should be **copied somewhere stable** before the migration starts, not
 left in `~/.jnext` where the next run replaces it.
 
+**Omit `--rtc` — on the golden run and on every run compared against it.**
+Three separate agents rediscovered this the hard way, each time reading the
+resulting diff as a migration fault. `Emulator::record_warm_start_state()`
+carries `--rtc` into the recording boot *deliberately* — it copies `config_`
+into `boot_cfg` and clears only the per-load and per-host fields, with the
+reason stated at `emulator.cpp:7417` ("the SD image, `--rtc`, the machine type
+… left alone on purpose") — and `I2cRtc::set_fixed_time()` calls
+`snapshot_time()`, which encodes the pinned date into the DS1307 BCD registers —
+so they travel in the stream, in block 16.
+
+Measured on the S1–S5 branch (2026-09-24): without `--rtc` those seven registers
+are **all zero**. `snapshot_time()` has exactly three callers — the `I2cRtc`
+constructor, `set_fixed_time()` and `start()` (an I2C START) — and
+`Emulator::init()` calls `rtc_.reset()` at `emulator.cpp:318`, whose
+`regs_.fill(0)` wipes what the constructor put there, *before* reaching the
+`set_fixed_time()` call at `:6601`. So with no `--rtc` the registers are only
+ever repopulated by a guest I2C transaction, and a 500-frame NextZXOS boot
+issues none. **`--rtc` does not record "the time you recorded at" — it
+POPULATES registers that are otherwise zero**, which is why the host clock does
+not leak into a golden and why two no-`--rtc` recordings agree. (If a future
+boot did touch the RTC inside the recorded window, that would stop being true,
+and the two-recordings-agree check below is what would catch it.)
+
+With `--rtc` they hold sec/min/hour/weekday/date/month/year at **0-based
+offsets 2 149 871–2 149 877** (`regs_[0..6]`, two bytes into the 69-byte `rtc`
+block, which starts at 2 149 869 — read off the stream's own sentinel chain,
+not computed from §4's table).
+**The number of differing bytes is data-dependent, not a constant**:
+a pinned time ending `:00:00` matches the zero baseline in two of the seven and
+differs in **five** (2 149 873–2 149 877), one ending `:00` differs in **six**,
+any other in all **seven**. Two no-`--rtc` recordings taken seconds apart are
+byte-identical, and so are two recordings pinned to the same time, so a diff
+here is never noise.
+
+Two things that are *not* traps, both measured the same day: the `--load` file
+does not reach the recording (it is taken on a fresh `Emulator` with
+`load_file` cleared — `blue.nex` and `beast.nex` give byte-identical streams),
+and the pinned *value* changes nothing outside those seven bytes. One thing that
+is: the cache directory comes from `$JNEXT_CONFIG_DIR` (default `~/.jnext`),
+**not** from `--sdcard`, so `--sdcard /elsewhere/sd.img` still writes
+`~/.jnext/warm-start/`. Set `JNEXT_CONFIG_DIR` per run to keep two goldens
+apart and to leave the user's own cache alone.
+
 The gate is then: `cmp` clean at every step, and the stream length still exactly
 **2 292 965**. Both are cheap enough to run per subsystem, which is what turns
 S3–S5 into a transcription with immediate feedback rather than a big-bang
@@ -2025,7 +2676,8 @@ rewrite.
 
 There is no partial-restore value: a snapshot that restores half a machine is
 not a snapshot. So `.jns` stays behind the `--snapshot-*` flags and out of the
-GUI's default suffix until **S6** lands, and `format_version` is not frozen —
+GUI's default suffix until **S8** wires them (S6 closed the state-coverage
+gaps but added no CLI or GUI surface), and `format_version` is not frozen —
 i.e. not promised — until **S9** is green. The first public release that
 mentions `.jns` is the one that freezes it.
 
@@ -2072,6 +2724,43 @@ mentions `.jns` is the one that freezes it.
    is still one of the larger remaining v1.1 items — confirm it is wanted now,
    at that cost, against the other open features.
 
+7. **The JSON hex string for a MULTI-BYTE-element array has no declared
+   element order — for S9.** *Recorded by S4's review, 2026-09-24. Not to be
+   fixed before S6 defines `JsonWriteDesc`: it is a hole in §6.2's
+   specification, not a defect in shipped code.*
+
+   §6.1 keeps `PaletteManager` (4 608 B) and `Copper::instructions_` (2 048 B)
+   in JSON, and §6.2's only array encoding is "one lower-case hex string, no
+   separators". Both of those are `uint16_t` arrays — and they are the **only**
+   multi-byte-element `d.bytes()` collapses in the tree (checked: of the
+   eighteen `d.bytes()` call sites, every other one is a `uint8_t` array, and
+   `SpriteEngine::sprites_` is a `SpriteAttr[128]` whose five members are each
+   one byte, so its `static_assert` is about *padding*, not byte order).
+
+   **The binary side has no such hole, by construction.** `write_bytes` memcpys
+   the host representation and `write_u16` *is* a `write_bytes` of 2
+   (`saveable.h:36-38`), and a `std::array<uint16_t, N>` is contiguous and
+   unpadded — so N sequential `write_u16`s and one `write_bytes` of 2N copy the
+   same bytes in the same order on any host, big-endian included. S4 pinned the
+   contiguity half with `static_assert`s (`palette.cpp:724-728`,
+   `copper.cpp:338`), so a member that changed type or gained an element fails
+   to compile rather than shifting the stream under the byte-identity gate.
+
+   **The JSON side has the hole.** A hex string of a `uint16_t` array is the
+   HOST byte image, so `0x1234` writes `3412` on this box and `1234` on a
+   big-endian one, and §6.2's `pattern: "^[0-9a-f]{N}$"` accepts both — the
+   schema cannot see the difference either. §6.2's worked example
+   (`"instructions": "0000ffff1234…"`) is an instance of the unspecified case.
+   §13's independent spec-written reader is written from §6.2 and will hit this
+   the first time it decodes one of the five arrays.
+
+   Three ways out, none chosen here: declare the hex string **little-endian per
+   element** and have `JsonWriteDesc` byte-swap on a big-endian host; declare it
+   a **JSON array of numbers** for multi-byte elements, which also lets the
+   schema bound each value; or add a `d.words()` primitive so the declaration
+   states the element width instead of the encoder inferring it from a byte
+   count. The choice belongs with whoever writes `JsonWriteDesc`.
+
 ### 18.3 Defects this design surfaced in shipped code
 
 Not questions — findings, to be fixed inside this work per the no-deferral rule,
@@ -2087,10 +2776,18 @@ and listed together so none is lost:
 
 Disposition:
 
-- **D1, D2** — correctness defects, fixed in **S6**.
-- **D3, D4** — fixed in **S5b** (§17.0), immediately after the migration, when a
-  golden diff is still explainable field by field. Together they are 6.1 % of
-  every rewind slot, which is too much to leave behind a scaffold.
+- **D1, D2** — correctness defects, **FIXED in S6** (2026-09-24). `SdCardDevice`
+  has a `describe_state` and its FSM travels in an appended `sdcard` block
+  (589 bytes + sentinel), proved by a mid-CMD18 save/restore at both the device
+  tier (`S6-SD-CMD18-MID`, against an uninterrupted oracle card) and the machine
+  tier (`S6-EMU-CMD18-MID`). `Multiface::mf_type_` is a declared field, proved
+  across all four NR 0x0A encodings (`S6-MF-TYPE-01`) including the `"10"` the
+  rebuild could not express.
+- **D3, D4** — **FIXED in S5b** (2026-09-24), immediately after the migration,
+  when a golden diff was still explainable field by field — and it was, as a
+  two-range splice with every other byte identical in place (§17.0). Together
+  they were 6.1 % of every rewind slot, which was too much to leave behind a
+  scaffold.
 - **D5 — deferred permanently, by design.** The same eight bytes round-trip:
   `save_state` casts `int64_t`→`uint64_t` and `load_state` casts straight back
   (`emulator.cpp:12287-12289`), so the binary stream has **no observable
@@ -2103,6 +2800,11 @@ Disposition:
 
 ---
 
-*Design document for issue #27. Nothing here is implemented. The measurements in
-§4 are from the current build on 2026-09-23; the code references are to
-`main` @ `15430513`.*
+*Design document for issue #27. **Stages S1–S5b are implemented** — the
+descriptor layer and the binary realisations (§9), the migration of every
+subsystem onto them, and the removal of the duplicated RAM (§17.0); S6 onward
+is not. The §4 measurements were taken
+on 2026-09-23 against `main` @ `15430513`, i.e. the PRE-migration tree the
+byte-identity gate (§17.1) uses as its oracle, and the code references are to
+that commit; the §4.1/§4.2 corrections and the §17.1 `--rtc` measurement were
+re-taken on the S1–S5 branch on 2026-09-24 and are marked where they appear.*

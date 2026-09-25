@@ -3,6 +3,8 @@
 #include <cstdint>
 #include "core/emulator_config.h"
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// 28 MHz master clock with derived clock-enable signals.
 ///
 /// The ZX Spectrum Next uses a 28 MHz master clock from which all derived
@@ -72,6 +74,11 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S3 — the ONE field list (design §9.2). `save_state` /
+    /// `load_state` are both a walk of this declaration, so the rewind
+    /// stream and a `.jns` cannot disagree about which fields exist.
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     uint64_t cycle_;              ///< Master cycle counter

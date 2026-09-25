@@ -22,14 +22,30 @@ void BinWriteDesc::ram_window(const char* name, uint8_t* data, std::size_t len,
     // §9.2 — the STATIC `ram_window` claim, asserted at run time so it cannot
     // go stale. Scoped to machine-level saves: a unit test that round-trips a
     // subsystem which never had `set_ram_backing()` called is legitimate
-    // (`divmmc_test.cpp` row DA-09), and a bare null-check would fire on it.
+    // (`divmmc_test` rows `DA-09` and `S6-DIVMMC-RAM-STANDALONE` both do),
+    // and a bare null-check would fire on them.
     if (machine_level() && data == nullptr) {
         fail(name);
         return;
     }
-    // Today's stream writes the window's bytes INLINE. That is the duplication
-    // §17.0 removes in S5b; reproducing it here is what the byte-identity gate
-    // requires of S2-S5, and the gate is a migration scaffold, not a contract.
+    // ── S5b (§17.0): AT MACHINE LEVEL THE WINDOW IS A REFERENCE ─────────
+    //
+    // `machine_level` means the walk is Emulator-driven, and an Emulator's
+    // stream ALWAYS carries the `ram` block — first, long before any
+    // peripheral's. A `ram_window`'s bytes ARE that block's page `page`, so
+    // emitting them again is the 131 072-byte duplication §4.3(1) measured:
+    // 6.1 % of every rewind slot, ~41 MB across a 300-frame ring. Emit
+    // nothing; the restore resolves the window through `Ram`, which
+    // `Ram::load_state` has already filled by the time this runs (and does
+    // not reallocate, so the pointer the backing was taken from still
+    // addresses it).
+    //
+    // Standalone there is NO `ram` block to reference, so the buffer is the
+    // only copy of itself and must travel inline. That is what keeps a
+    // unit-test round-trip of a subsystem which never had `set_ram_backing()`
+    // called a real round-trip instead of a silent no-op — degraded coverage
+    // no gate can see being the worse failure of the two.
+    if (machine_level()) return;
     w_.write_bytes(data, len);
 }
 
@@ -93,6 +109,10 @@ void BinReadDesc::ram_window(const char* name, uint8_t* data, std::size_t len,
         fail(name);
         return;
     }
+    // S5b — the exact mirror of the write direction: at machine level the
+    // window carries no bytes of its own, so consume none. Reading `len` here
+    // would desync the stream by a full 128 KB at the very next sentinel.
+    if (machine_level()) return;
     r_.read_bytes(data, len);
 }
 

@@ -1,5 +1,8 @@
 #include "input/membrane_stick.h"
+#include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 
 #include <cstddef>
 
@@ -308,24 +311,57 @@ void MembraneStick::write_nr_2b(uint8_t v)
 // is genuine emulated state that must round-trip across rewind / save-load.
 // =============================================================================
 
+// GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
+// binary stream order, so it must not be disturbed: the byte-identity gate
+// (§17.1) pins these 73 bytes inside the `input` block of the 2 292 965-byte
+// stream.
+//
+// The two modes are `Joystick::Mode` and reuse `Joystick`'s name table, which
+// is the point of naming an enum once: the same ordinal means the same thing
+// in `state/joystick.json` and `state/membrane_stick.json`, and a renumbering
+// is one schema diff rather than two that could disagree.
+//
+// `keymap_` is a `d.bytes` and not a `d.blob` — §6.1 gives a store a ZIP
+// member of its own only from 8 KB up, and 64 cells belong inline as one hex
+// string. Its length comes from the DECLARATION (a compile-time `std::array`
+// extent), so no count in the stream can size the write.
+void MembraneStick::describe_state(jnext::save::StateDesc& d)
+{
+    uint8_t ml = static_cast<uint8_t>(mode_left_);
+    d.enum8("mode_left", ml, jnext::input::joystick_mode_names());
+    mode_left_ = static_cast<Joystick::Mode>(ml);
+    uint8_t mr = static_cast<uint8_t>(mode_right_);
+    d.enum8("mode_right", mr, jnext::input::joystick_mode_names());
+    mode_right_ = static_cast<Joystick::Mode>(mr);
+    d.u16("state_left", state_left_);
+    d.u16("state_right", state_right_);
+    d.bytes("keymap", keymap_.data(), keymap_.size());
+    d.u8("keymap_sel", keymap_sel_);
+    d.u16("keymap_addr", keymap_addr_);
+}
+
 void MembraneStick::save_state(StateWriter& w) const
 {
-    w.write_u8(static_cast<uint8_t>(mode_left_));
-    w.write_u8(static_cast<uint8_t>(mode_right_));
-    w.write_u16(state_left_);
-    w.write_u16(state_right_);
-    w.write_bytes(keymap_.data(), keymap_.size());
-    w.write_u8(keymap_sel_);
-    w.write_u16(keymap_addr_);
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void MembraneStick::load_state(StateReader& r)
 {
-    mode_left_   = static_cast<Joystick::Mode>(r.read_u8());
-    mode_right_  = static_cast<Joystick::Mode>(r.read_u8());
-    state_left_  = r.read_u16();
-    state_right_ = r.read_u16();
-    r.read_bytes(keymap_.data(), keymap_.size());
-    keymap_sel_  = r.read_u8();
-    keymap_addr_ = static_cast<uint16_t>(r.read_u16() & 0x01FFu);
+    jnext::save::BinReadDesc d(r);
+    describe_state(d);
+    if (d.failed()) {
+        // The only way this fires is an `enum8` ordinal the declaration does
+        // not name. The field keeps its pre-load value rather than taking a
+        // mode the hardware has no encoding for, the stream stays in sync
+        // (the byte was consumed either way), and the fault is named.
+        Log::input()->error("MembraneStick::load_state: the stream does not "
+                            "match this build's declaration at '{}'",
+                            d.failure() ? d.failure() : "?");
+    }
+    // The RESTORE MASK. It was part of the read expression
+    // (`keymap_addr_ = r.read_u16() & 0x01FF`) and a declaration has no room
+    // for it, so it moves here — same field, same width. NR 0x28's keymap
+    // address is 9-bit, so a wider value in the stream is not a state the
+    // hardware can be in.
+    keymap_addr_ = static_cast<uint16_t>(keymap_addr_ & 0x01FFu);
 }

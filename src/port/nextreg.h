@@ -5,6 +5,8 @@
 
 // ZX Spectrum Next NextREG register file.
 // Accessed via ports 0x243B (select) and 0x253B (data).
+namespace jnext { namespace save { class StateDesc; } }
+
 class NextReg {
 public:
     NextReg();
@@ -127,6 +129,9 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S3 — the ONE field list (design §9.2).
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     std::array<uint8_t, 256> regs_{};

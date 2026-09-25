@@ -35,10 +35,48 @@
 // `describe_state` binds members by NON-CONST reference, because one declaration
 // has to serve both reading and writing. A subsystem's `save_state` is `const`,
 // so the write direction needs a `const_cast`. It is done in exactly ONE place —
-// `save_via_desc`, at the foot of `state_desc_bin.h` — and it is safe because no
-// write-direction realisation ever assigns through a bound reference.
-// Thirty-four hand-rolled `const_cast`s at the call sites would not be: the
-// claim is checkable by reading one function, and would not be by reading 34.
+// `save_via_desc`, at the foot of `state_desc_bin.h`. Thirty-four hand-rolled
+// `const_cast`s at the call sites would not be checkable by reading one
+// function; this is.
+//
+// WHAT MAKES IT SAFE, exactly — and it is NOT "nothing on the write path ever
+// assigns to a member", which is false:
+//
+//   1. No bound object is really `const`. Every subsystem is a non-const member
+//      of `Emulator` (or a non-const local in a unit test) reached through a
+//      `const&` only because `save_state()` is `const`. Writing through a
+//      `const_cast` is UB only for an object DECLARED const, and none is.
+//   2. The write-direction REALISATIONS never assign through a bound reference:
+//      `BinWriteDesc`'s `do_*` overrides read `v`, and `bytes`/`blob`/
+//      `ram_window`/`log`/`fifo` only read. `MeasureDesc` IS a `BinWriteDesc`.
+//   3. The DECLARATIONS do assign to members on the write path — thirteen of
+//      them — and that is the part that has to hold. Every such write-back
+//      must be VALUE-PRESERVING. Three shapes, in descending order of how
+//      solid the guarantee is:
+//
+//      a. The enum round-trip, `local = member; d.enum8(.., local, ..);
+//         member = local` (Im2, Mmu, Ula, Palette, Copper, Ctc, Dma, I2c,
+//         NmiSource, Uart, Joystick, MembraneStick). By (2) the realisation
+//         leaves `local` untouched, so the write-back stores back the value it
+//         just took. A no-op BY CONSTRUCTION.
+//      b. A normalising write-back: `I2cController`'s two `pi_i2c1_*` members
+//         are `uint8_t` but travel as `bool`, so the write-back stores
+//         `flag ? 1 : 0`. A no-op only given the class's own 0/1 invariant —
+//         true, and stated at that call site, but an INVARIANT rather than a
+//         construction.
+//      c. A container rebuild: `Keyboard::describe_state` does
+//         `auto_queue_.clear()` and re-`push_back()`s the staging array on
+//         both paths. Idempotent only while `auto_queue_.size() <=
+//         MAX_AUTO_TYPE_KEYS`, which `queue_auto_type()` enforces at the one
+//         place the queue grows. This is the genuinely risky shape, and it is
+//         the one pinned by a test — row `S5-KB-SAVE-PURE` saves twice and
+//         asserts the two buffers are byte-identical AND the queue survived.
+//
+// So the rule for a future declaration: marshalling through a local is fine,
+// but if your write-back's value-preservation rests on an invariant rather
+// than on construction, it needs a row like `S5-KB-SAVE-PURE`. Read this as a
+// property of the declarations, which are checkable one at a time — not as a
+// blanket guarantee the realisation provides on their behalf.
 //
 // ── HOSTILE INPUT ────────────────────────────────────────────────────────
 //
@@ -244,15 +282,19 @@ public:
     virtual void blob(const char* name, uint8_t* data, std::size_t len) = 0;
 
     /// Guest memory that ALIASES another blob (§6.1 case 2): the DivMMC RAM
-    /// window onto `Ram` page `page`. Binary writes it inline — reproducing
-    /// today's stream, which is the duplication S5b removes — and JSON writes a
-    /// REFERENCE, not the bytes.
+    /// window onto `Ram` page `page`. BOTH encodings now write a REFERENCE
+    /// rather than the bytes — JSON always, binary at machine level (S5b,
+    /// §17.0). Standalone, the binary encoding still writes the bytes inline,
+    /// because a stream with no `ram` block in it has nowhere to point.
     ///
     /// STATICALLY DECLARED, and asserted at run time (§9.2): `data` must be
     /// non-null. The assertion is scoped to machine-level saves via
     /// `set_machine_level()`, because a unit test legitimately round-trips a
-    /// subsystem that never had `set_ram_backing()` called (`divmmc_test.cpp`
-    /// row DA-09).
+    /// subsystem that never had `set_ram_backing()` called — `divmmc_test`'s
+    /// `DA-09` and `S6-DIVMMC-RAM-STANDALONE` both do, and a bare null-check
+    /// would fire on either. The one that proves the CONTENTS of the
+    /// standalone branch is the latter; `DA-09` is a contract-pin on
+    /// `rom3_active_` that merely shares the shape.
     virtual void ram_window(const char* name, uint8_t* data, std::size_t len,
                             uint32_t page) = 0;
 
@@ -282,9 +324,9 @@ public:
     /// read at a call site (§6.2).
     ///
     /// The read direction calls `reset()` and then `push()`es the live
-    /// elements, which is exactly what `FifoBuffer::load_state` does today —
-    /// so a corrupt count can neither desync the stream (the stream always
-    /// carries `capacity` elements) nor push past the ring.
+    /// elements, which is exactly what `FifoBuffer::load_state` did before S5
+    /// migrated it away — so a corrupt count can neither desync the stream
+    /// (the stream always carries `capacity` elements) nor push past the ring.
     virtual void fifo(const char* name, FifoAccess& ring, FifoElem elem) = 0;
 
     /// A per-subsystem desync sentinel. NOT A FIELD (§9.4): it is framing.
@@ -310,9 +352,13 @@ public:
         if (!failed_) { failed_ = true; failure_ = detail; }
     }
 
-    /// §9.2 — only an `Emulator`-driven realisation asserts that a
-    /// `ram_window` is really backed. A standalone subsystem round-trip in a
-    /// unit test is legitimate and must not trip it.
+    /// "This walk is Emulator-driven", and therefore "this stream carries the
+    /// `ram` block". Two consequences, both on `ram_window` and both §9.2's:
+    /// only here is a `ram_window` asserted to be really backed (a standalone
+    /// subsystem round-trip in a unit test is legitimate and must not trip
+    /// it), and only here does the BINARY encoding emit a reference instead of
+    /// the bytes (S5b, §17.0) — there being somewhere to point only in a
+    /// stream that carries the referent.
     void set_machine_level(bool on) { machine_level_ = on; }
     bool machine_level() const { return machine_level_; }
 

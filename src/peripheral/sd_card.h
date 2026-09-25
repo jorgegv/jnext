@@ -8,6 +8,10 @@
 #include <fstream>
 #include "peripheral/spi.h"
 
+class StateWriter;
+class StateReader;
+namespace jnext { namespace save { class StateDesc; } }
+
 /// SD card SPI-mode emulation backend.
 ///
 /// Implements the SpiDevice interface to emulate an SD card in SPI mode.
@@ -130,6 +134,43 @@ public:
 
     /// Called when CS is deasserted — reset SPI protocol state.
     void deselect() override;
+
+    // ── State serialisation (GH #27 stage S6, design §10.2 P1) ──────────
+    //
+    // D1, the defect this closes: until S6 this class had NO `save_state` at
+    // all, and its own header said so. A snapshot or rewind taken while the
+    // guest was streaming a CMD18 multi-block read restored a card that was
+    // no longer streaming, so the replayed frames received the R1/token
+    // framing of a fresh IDLE card in place of the sector bytes the loader
+    // was half-way through. On a Next that is most loaders.
+
+    void save_state(StateWriter& w) const;
+    void load_state(StateReader& r);
+
+    /// The ONE field list (design §9.2). `save_state` / `load_state` are both
+    /// a walk of this declaration.
+    void describe_state(jnext::save::StateDesc& d);
+
+    /// True while the card owes the host bytes of a transfer it has already
+    /// begun — a queued response, a block being sent or received, or an open
+    /// CMD18 stream.
+    ///
+    /// This is the one input §11.3's last row needs and `jns::ReaderEnv::
+    /// sd_transfer_in_flight` has been waiting for since S1: when the machine
+    /// was mid-transfer at capture, a Tier-2 content drift in the card image
+    /// stops being a warning and becomes a refusal, because half a sector
+    /// read against changed bytes is the "streams garbage" failure rather
+    /// than a divergence the user can judge.
+    bool transfer_in_flight() const;
+
+    /// The two restored cursors whose only observable fault is an
+    /// out-of-bounds ACCESS, which no behavioural assertion can see on a
+    /// build without a sanitizer. The rows that forge them assert the
+    /// invariant directly instead, and say so.
+    std::size_t cmd_cursor_for_test() const {
+        return static_cast<std::size_t>(cmd_idx_);
+    }
+    uint32_t block_len_for_test() const { return block_len_; }
 
 private:
     // SD card state machine
@@ -282,14 +323,17 @@ private:
     uint32_t overlay_sector_count_ = 0;
     ReadOverlay read_overlay_;
 
-    // NOTE: SdCardDevice intentionally has NO save_state/load_state.  The rewind
-    // snapshot ring currently skips the SD back end.  If this class is
-    // ever serialised, the CMD18 stream state (multi_block_,
-    // multi_block_addr_, plus state_/resp_buf_/resp_idx_/data_idx_/
-    // data_crc_count_/data_block_ for mid-block snapshots) must be
-    // included so rewinding mid-stream doesn't corrupt the host view —
-    // and, since GH #94, host_supports_sdhc_ and block_len_, which
-    // together decide how every subsequent address is interpreted.
+    // The capacity `resp_buf_` is DECLARED to have in the stream, and the
+    // bound every read of it is taken from — never from the file (design
+    // §9.2's hostile-input rule; a length read from a stream sizing a write
+    // is the bug that has appeared four times in GH #27 already).
+    //
+    // 23 is the most the card can ever queue: CMD9/CMD10 emit 2 NCR + R1 +
+    // Nac + token + 16 register bytes + 2 CRC, and every other response is
+    // shorter (CMD12's 8 stuff bytes + NCR + R1 is 10). 32 is that bound
+    // rounded up, and `describe_state` FAILS the walk rather than truncating
+    // if the class ever queues more, so the number cannot go quietly stale.
+    static constexpr std::size_t kRespBufCapacity = 32;
 
     // Command processing
     void process_command();

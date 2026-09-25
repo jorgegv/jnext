@@ -1,5 +1,7 @@
 #include "input/md6_connector_x2.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 
 // =============================================================================
 // Md6ConnectorX2 — dual-connector MD 3/6-button joystick FSM.
@@ -283,26 +285,42 @@ void Md6ConnectorX2::step_fsm_once_for_test()
 // read — the core correctness fix of Task 60c.
 // =============================================================================
 
+// GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
+// binary stream order, so it must not be disturbed: the byte-identity gate
+// (§17.1) pins these 16 bytes inside the `input` block of the 2 292 965-byte
+// stream.
+//
+// `state_` is a plain `uint16_t` and NOT an `enum8`: it is the MD 6-button
+// select-pulse counter of `md6_connector_x2.vhd`, a 9-bit value with no
+// closed name set, so `d.u16` is the honest declaration.
+void Md6ConnectorX2::describe_state(jnext::save::StateDesc& d)
+{
+    d.u16("raw_left", raw_left_);
+    d.u16("raw_right", raw_right_);
+    d.u16("latched_left", latched_left_);
+    d.u16("latched_right", latched_right_);
+    d.u16("state", state_);
+    d.boolean("six_button_left", six_button_left_);
+    d.boolean("six_button_right", six_button_right_);
+    d.u32("clk_en_accum", clk_en_accum_);
+}
+
 void Md6ConnectorX2::save_state(StateWriter& w) const
 {
-    w.write_u16(raw_left_);
-    w.write_u16(raw_right_);
-    w.write_u16(latched_left_);
-    w.write_u16(latched_right_);
-    w.write_u16(state_);
-    w.write_bool(six_button_left_);
-    w.write_bool(six_button_right_);
-    w.write_u32(clk_en_accum_);
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void Md6ConnectorX2::load_state(StateReader& r)
 {
-    raw_left_         = r.read_u16();
-    raw_right_        = r.read_u16();
-    latched_left_     = static_cast<uint16_t>(r.read_u16() & 0x0FFFu);
-    latched_right_    = static_cast<uint16_t>(r.read_u16() & 0x0FFFu);
-    state_            = static_cast<uint16_t>(r.read_u16() & 0x01FFu);
-    six_button_left_  = r.read_bool();
-    six_button_right_ = r.read_bool();
-    clk_en_accum_     = r.read_u32();
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
+
+    // The three RESTORE MASKS. They were part of the read expressions
+    // (`latched_left_ = r.read_u16() & 0x0FFF` and the two beside it) and a
+    // declaration has no room for them, so they move here — applied after the
+    // walk, to the same three fields, with the same widths. The latches are
+    // 12-bit (the MD 6-button word) and the select counter is 9-bit, so a
+    // wider value in the stream is not a state the connector can be in.
+    latched_left_  = static_cast<uint16_t>(latched_left_  & 0x0FFFu);
+    latched_right_ = static_cast<uint16_t>(latched_right_ & 0x0FFFu);
+    state_         = static_cast<uint16_t>(state_         & 0x01FFu);
 }

@@ -1,4 +1,6 @@
 #include "core/emulator.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 
 #include "core/embedded_nextboot_rom.h"
 #include "core/log.h"
@@ -11598,6 +11600,155 @@ void Emulator::on_vsync()
     //   - Reset per-frame state (floating bus cache, sprite collision flags).
 }
 
+// ── The Emulator's OWN scalars, as declarations (GH #27 S6) ──────────────
+//
+// Design §9.2 (the one field list), §10.1's last row. See emulator.h for why
+// there are five methods rather than one, and for what deliberately stays
+// hand-written beside them.
+
+void Emulator::describe_frame_origin(jnext::save::StateDesc& d)
+{
+    // The frame's cycle origin. It opens the "emulator" block, and the value
+    // that follows it — the folded monotonic T-state instant — is §9.5(3)
+    // hand-written work the walk is split around.
+    d.u64("frame_cycle", frame_cycle_);
+}
+
+void Emulator::describe_state(jnext::save::StateDesc& d)
+{
+    d.u32("frame_num", frame_num_);
+    d.u32("boot_hold_frames_remaining", boot_hold_frames_remaining_);   // G156
+
+    // GH #246 — the ESP outage clock. An `int` in the class, a `u32` in the
+    // stream since it was added; marshalled rather than widened, because
+    // widening it would move every byte after it.
+    uint32_t esp_frames = static_cast<uint32_t>(esp_frames_);
+    d.u32("esp_frames", esp_frames);
+    esp_frames_ = static_cast<int>(esp_frames);
+
+    d.boolean("cpu_parked", cpu_parked_);                                // GH #164
+    d.u64("psg_accum", psg_accum_);
+    // The Bresenham phase only. The Mixer's in-progress integration
+    // accumulator is deliberately NOT snapshotted (§10.2 P6).
+    d.u64("sample_accum", sample_accum_);
+    d.boolean("dac_enabled", dac_enabled_);
+
+    // G71 — the line-interrupt state is owned by `video_timing_`, and the
+    // stream's layout interleaves it with `ula_int_disabled_`. An accessor
+    // pair marshalled through a local: on the write path the setter stores
+    // back the value it just took, which is `state_desc.h`'s write-back
+    // shape (a), a no-op by construction.
+    bool line_int_enable = video_timing_.line_interrupt_enable();
+    d.boolean("line_interrupt_enable", line_int_enable);
+    video_timing_.set_line_interrupt_enable(line_int_enable);
+
+    d.boolean("ula_int_disabled", ula_int_disabled_);
+
+    uint16_t line_int_target = video_timing_.line_interrupt_target();
+    d.u16("line_interrupt_target", line_int_target);
+    video_timing_.set_line_interrupt_target(line_int_target);
+
+    // The deprecated IM2 shadows (the live fabric is `Im2Controller`), kept
+    // because they are in the stream and the byte-identity gate freezes it.
+    d.boolean("im2_hw_mode", im2_hw_mode_);
+    d.u8("im2_vector_base", im2_vector_base_);
+    d.bytes("im2_int_enable", im2_int_enable_, 3);
+    d.bytes("im2_int_status", im2_int_status_, 3);
+    d.boolean("im2_c4_expbus", im2_c4_expbus_);
+    d.u8("nr_c6_uart_int_en", nr_c6_uart_int_en_);
+
+    // The four rotating clip-window write indices (NR 0x18-0x1C).
+    d.u8("clip_l2_idx", clip_l2_idx_);
+    d.u8("clip_spr_idx", clip_spr_idx_);
+    d.u8("clip_ula_idx", clip_ula_idx_);
+    d.u8("clip_tm_idx", clip_tm_idx_);
+
+    // IM2 DMA delay enables (NR 0xCC/0xCD/0xCE) + the latched output.
+    d.boolean("nr_cc_dma_delay_on_nmi", nr_cc_dma_delay_on_nmi_);
+    d.u8("nr_cc_dma_delay_en_ula", nr_cc_dma_delay_en_ula_);
+    d.u8("nr_cd_dma_delay_en_ctc", nr_cd_dma_delay_en_ctc_);
+    d.u8("nr_ce_dma_delay_en_uart1", nr_ce_dma_delay_en_uart1_);
+    d.u8("nr_ce_dma_delay_en_uart0", nr_ce_dma_delay_en_uart0_);
+    d.boolean("im2_dma_delay_latched", im2_dma_delay_latched_);
+
+    // Branch C — the NR 0x08 read mirror (bits 5..0 of the last write).
+    d.u8("nr_08_stored_low", nr_08_stored_low_);
+
+    // Agent H — joy_iomode_pin7 (NR 0x0B / CTC ch3), VHDL zxnext.vhd:3516.
+    // It lives in `IoMode` since Phase 2 Wave 2; the single-bool slot is kept
+    // and sampled/restored through the accessor pair.
+    bool pin7 = iomode_.pin7();
+    d.boolean("joy_iomode_pin7", pin7);
+    iomode_.set_pin7_for_load(pin7);
+}
+
+void Emulator::describe_nmi_tail(jnext::save::StateDesc& d)
+{
+    // The one field the "nmi_source" block carries beyond `NmiSource`'s own.
+    d.boolean("prev_nmi_generate_n", prev_nmi_generate_n_);
+}
+
+void Emulator::describe_nextreg_appends(jnext::save::StateDesc& d)
+{
+    // G108 / G56-B / G55 / G112 / G113 / G135 — registers appended one at a
+    // time to the end of the stream as they were implemented. They are one
+    // block now, and their NAMES are what a `.jns` carries, so the
+    // append-order chronology stops being load-bearing (§10.1).
+    d.u8("port_ff_reg", port_ff_reg_);          // VHDL zxnext.vhd:3610-3635
+    d.u8("nr_10_coreid", nr_10_coreid_);        // VHDL zxnext.vhd:1133
+    d.boolean("nr_d8_io_trap_fdc_en", nr_d8_io_trap_fdc_en_);
+    d.u8("nr_d9_iotrap_write", nr_d9_iotrap_write_);
+    d.u8("nr_da_iotrap_cause", nr_da_iotrap_cause_);
+    d.u8("nr_2d_i2s_sample", nr_2d_i2s_sample_);
+
+    // G113 — NR 0xA2, stored OUTSIDE `I2s`'s own block so the two older
+    // snapshot layouts did not shift. Accessor pair, same shape as pin7.
+    uint8_t nr_a2 = i2s_.nr_a2_ctl();
+    d.u8("nr_a2_pi_i2s_ctl", nr_a2);
+    i2s_.set_nr_a2_ctl(nr_a2);
+
+    d.u8("nr_a0_pi_peripheral_en", nr_a0_pi_peripheral_en_);  // zxnext.vhd:5080
+}
+
+void Emulator::describe_tail(jnext::save::StateDesc& d)
+{
+    // NR 0x02 bit 7. VHDL zxnext.vhd:1095 has no reset clause, so it
+    // persists across resets and must round-trip.
+    d.boolean("nr_02_bus_reset", nr_02_bus_reset_);
+    // V20R-CPU-NIT-01 — the falling-edge shadow of the pulse-mode CPU /INT
+    // poll. Without it a restore mid-pulse would see `!cur && prev` on the
+    // next tick and fire a spurious request_interrupt(0xFF).
+    d.boolean("prev_pulse_int_n", prev_pulse_int_n_);
+}
+
+bool Emulator::advance_to_frame_boundary()
+{
+    // Nothing in flight: the machine is already where a snapshot may be taken
+    // from, and the ordinary running case (the GUI queueing a save to the next
+    // begin_new_frame()) lands here too.
+    if (!frame_in_progress_) return false;
+
+    // Suspend the debugger for the advance. `run_frame()` returns immediately
+    // while `debug_state_.paused()`, so without this nothing would move; and
+    // with breakpoints still armed, one inside the remainder of the frame
+    // would pause mid-frame again — the exact state this exists to leave. A
+    // save is not a debugging action, and the scope restores the session
+    // exactly as it found it (one-shots and the breakpoint set included).
+    {
+        DebugState::SuspendScope suspend(debug_state_);
+
+        // ONE call. `run_frame()` RESUMES the half-executed frame rather than
+        // restarting it (the `if (!frame_in_progress_)` guard), so the frame
+        // runs to its own `frame_end` and clears the flag on the way out.
+        // With the debugger suspended there is no early-return path left
+        // inside it, so a loop here would be a loop that cannot iterate — and
+        // a `while` around a body that can no longer fail is how a hang gets
+        // written.
+        run_frame();
+    }
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // State serialisation — save_state / load_state
 // ---------------------------------------------------------------------------
@@ -11624,7 +11775,13 @@ void Emulator::on_vsync()
 //   call_stack_   — debug call stack, not emulated state
 //   tape_/tzx_tape_/wav_tape_ — tape position independent of CPU rewind
 //   video_recorder_, rzx_player_, rzx_recorder_ — recording, not state
-//   sd_card_      — external device, not serialised
+//   sd_card_      — SERIALISED since GH #27 S6 (design §10.2 P1): the SPI
+//                   FSM travels in the appended "sdcard" block at the end
+//                   of the stream, so a rewind or snapshot taken mid-CMD18
+//                   restores a card that is still streaming. The IMAGE
+//                   itself does not travel — it is an external resource
+//                   recorded by reopenable identity (§11), like the esxDOS
+//                   handles below
 //   boot_rom_     — loaded from file, never changes
 //   framebuffer_  — regenerated by render_frame()
 //   paused_vc_, paused_hc_, last_frame_vc_, last_frame_hc_ — raster transient
@@ -11677,75 +11834,22 @@ void Emulator::save_state(StateWriter& w) const
     turbosound_.save_state(w); put_sentinel();
     dac_.save_state(w);        put_sentinel();
 
-    // Emulator private state.
-    w.write_u64(frame_cycle_);
+    // Emulator private state — one declaration, walked (GH #27 S6, §9.2).
+    // See `describe_state` above for what is here and what is not.
+    jnext::save::save_via_desc_method(*this, &Emulator::describe_frame_origin,
+                                      w, /*machine_level=*/true);
     // G36 review fix: the monotonic tape clock MUST travel with the
-    // snapshot — without it, a rewind during --tape-realtime playback
-    // left tstates_frame_base_ at its pre-rewind value and the tape
-    // clock jumped, desyncing TZX/WAV playback. The live FUSE tstates
-    // counter is NOT serialised anywhere (Z80Cpu::save_state Pass-9
-    // note), so save the FOLDED value (base + live at capture) and let
-    // load_state re-establish it as the new base with a zeroed live
-    // counter — monotonic_tstates() is then exactly continuous across
-    // save/load, including restores taken from a mid-frame pause.
+    // snapshot — without it, a rewind during --tape-realtime playback left
+    // tstates_frame_base_ at its pre-rewind value and the tape clock jumped,
+    // desyncing TZX/WAV playback. HAND-WRITTEN because it is §9.5(3): the
+    // live FUSE tstates counter is not serialised anywhere, so the FOLDED
+    // value (base + live at capture) is written and `load_state`
+    // re-establishes it as the new base with a zeroed live counter —
+    // monotonic_tstates() is then exactly continuous across save/load,
+    // including restores taken from a mid-frame pause.
     w.write_u64(monotonic_tstates());
-    w.write_u32(frame_num_);
-    w.write_u32(boot_hold_frames_remaining_);  // G156
-    // GH #246 — the ESP outage clock travels with the snapshot for the same
-    // reason boot_hold_frames_remaining_ does: it is a per-frame countdown the
-    // guest can observe, and a rewind that left it at its pre-rewind value
-    // would answer AT+CIFSR differently on the second pass through the same
-    // instant. The ASSOCIATION itself is not saved — it is derived from this
-    // number, so there is only one thing to restore.
-    //
-    // Placed HERE, beside the countdown it mirrors, rather than appended after
-    // the trailing eof-guarded additions below: those are guarded because they
-    // were added to a format that had to tolerate older buffers, and this
-    // format has no such reader — `StateWriter`/`StateReader` are an in-memory
-    // pair used only by the in-process `RewindBuffer` (SNA/SZX go through
-    // entirely different savers). Grouping beats a guard that guards nothing.
-    w.write_u32(static_cast<uint32_t>(esp_frames_));
-    w.write_bool(cpu_parked_);                 // GH #164
-    w.write_u64(psg_accum_);
-    // Note: this is the Bresenham phase only. The Mixer's in-progress
-    // integration accumulator is deliberately NOT snapshotted — after a restore
-    // the first emitted sample averages over a short window instead of a full
-    // one. That is a single sample, and strictly smaller than the discontinuity a
-    // restore already puts into the beeper/AY/DAC levels themselves.
-    w.write_u64(sample_accum_);
-    w.write_bool(dac_enabled_);
-    // G71: line_int state owned by video_timing_; mirror through the
-    // existing save layout (bool + u16) for backwards compatibility.
-    w.write_bool(video_timing_.line_interrupt_enable());
-    w.write_bool(ula_int_disabled_);
-    w.write_u16(video_timing_.line_interrupt_target());
-    w.write_bool(im2_hw_mode_);
-    w.write_u8(im2_vector_base_);
-    w.write_bytes(im2_int_enable_, 3);
-    w.write_bytes(im2_int_status_, 3);
-    w.write_bool(im2_c4_expbus_);
-    w.write_u8(nr_c6_uart_int_en_);
-    w.write_u8(clip_l2_idx_);
-    w.write_u8(clip_spr_idx_);
-    w.write_u8(clip_ula_idx_);
-    w.write_u8(clip_tm_idx_);
-
-    // IM2 DMA delay enables (NR 0xCC/0xCD/0xCE) + latched output.
-    w.write_bool(nr_cc_dma_delay_on_nmi_);
-    w.write_u8(nr_cc_dma_delay_en_ula_);
-    w.write_u8(nr_cd_dma_delay_en_ctc_);
-    w.write_u8(nr_ce_dma_delay_en_uart1_);
-    w.write_u8(nr_ce_dma_delay_en_uart0_);
-    w.write_bool(im2_dma_delay_latched_);
-
-    // Branch C: NR 0x08 read mirror (bits 5..0 of last NR 0x08 write).
-    w.write_u8(nr_08_stored_low_);
-
-    // Agent H: joy_iomode_pin7 (NR 0x0B / CTC ch3) — VHDL zxnext.vhd:3516.
-    // Phase 2 Wave 2 Agent E migrated this field into IoMode; we keep the
-    // single-bool save-state slot for binary compatibility with prior saves
-    // and just sample/restore through the IoMode accessor.
-    w.write_bool(iomode_.pin7());
+    jnext::save::save_via_desc_method(*this, &Emulator::describe_state, w,
+                                      /*machine_level=*/true);
     put_sentinel();   // "emulator" scalar block
 
     // Audio Phase 1: I2s stub latched sample pair. Appended at the END
@@ -11758,46 +11862,16 @@ void Emulator::save_state(StateWriter& w) const
     // NMI pipeline Phase 1 scaffold — appended after i2s for the same
     // reason (backwards-compatible append-only save layout).
     nmi_source_.save_state(w);
-    w.write_bool(prev_nmi_generate_n_);
+    jnext::save::save_via_desc_method(*this, &Emulator::describe_nmi_tail, w,
+                                      /*machine_level=*/true);
     put_sentinel();   // "nmi_source"
 
-    // G108 — port_ff_reg storage. Appended at the very end so old
-    // saves that predate the field deserialise cleanly (load_state
-    // reads it last and tolerates EOF by leaving the reset default).
-    w.write_u8(port_ff_reg_);
-
-    // G56-B — NR 0x10 coreid shadow. Cluster B's read_handler returns
-    // (nr_10_coreid_ << 2) instead of regs_[0x10], so without this slot
-    // the field would be re-init()ed to 0x01 on load_state and the
-    // post-load read of NR 0x10 would not match the pre-save read.
-    // Append-only at the very end (after port_ff_reg_) for backwards
-    // compatibility with prior saves; load_state tolerates EOF.
-    w.write_u8(nr_10_coreid_);
-
-    // G55 — IO-trap registers (NR 0xD8/0xD9/0xDA). Appended after
-    // nr_10_coreid_ for backwards-compatible save layout (load tolerates
-    // EOF by leaving reset defaults).
-    w.write_bool(nr_d8_io_trap_fdc_en_);
-    w.write_u8(nr_d9_iotrap_write_);
-    w.write_u8(nr_da_iotrap_cause_);
-
-    // G112 — NR 0x2D I2S sample latch (pre-shifted into bits [7:6]).
-    // Appended at the very end so older saves remain forwards-readable;
-    // load_state tolerates EOF by leaving the reset default of 0.
-    w.write_u8(nr_2d_i2s_sample_);
-
-    // G113 — NR 0xA2 Pi I2S control byte. Same end-of-snapshot append +
-    // eof()-tolerant load pattern as nr_2d_i2s_sample_ above. Stored
-    // outside I2s::save_state() so older snapshots whose I2s slot was
-    // exactly 4 bytes (left+right) keep working without byte-shifting
-    // the subsequent nmi_source_/prev_nmi_generate_n_ slots.
-    w.write_u8(i2s_.nr_a2_ctl());
-
-    // G135 — NR 0xA0 Pi peripheral enable byte. End-of-snapshot append
-    // + eof()-tolerant load (same pattern as the surrounding G108 / G55 /
-    // G112 / G113 slots above). Older snapshots leave the field at its
-    // reset default of 0, matching VHDL zxnext.vhd:5080.
-    w.write_u8(nr_a0_pi_peripheral_en_);
+    // The NextREG appends — one declaration, walked (GH #27 S6). They were
+    // added one at a time to the end of the stream as they were implemented
+    // (G108, G56-B, G55, G112, G113, G135), each with its own
+    // backwards-compatibility comment; the block is one field list now.
+    jnext::save::save_via_desc_method(*this, &Emulator::describe_nextreg_appends,
+                                      w, /*machine_level=*/true);
     put_sentinel();   // "nextreg_appends" (G108/G56-B/G55/G112/G113/G135)
 
     // Wave 1 B1 — Multiface subsystem state (FFs + RAM, ~16 bytes header
@@ -11808,25 +11882,9 @@ void Emulator::save_state(StateWriter& w) const
     multiface_.save_state(w);
     put_sentinel();   // "multiface"
 
-    // Pass-3 verify-audit (Task 2) — NR 0x02 bit 7 `nr_02_bus_reset` latch.
-    // VHDL zxnext.vhd:1095 has no reset clause for this signal, so the
-    // value persists across resets and must round-trip via save/load.
-    // Appended at the very end for backwards-compat (load tolerates EOF).
-    w.write_bool(nr_02_bus_reset_);
-
-    // V20R-CPU-NIT-01 — persist `prev_pulse_int_n_` (the falling-edge
-    // shadow used by the pulse-mode CPU /INT poll at line 5791+). The
-    // shadow is net-new Pass-20 state. Im2Controller::save_state()
-    // already persists `pulse_int_n_`; without this companion slot a
-    // load_state taken mid-pulse (cur=0) would restore the shadow to
-    // its construction default `true`, so the next tick would see
-    // `!cur && prev` = falling edge and fire a spurious
-    // request_interrupt(0xFF). The 32/36-cycle drop arm in
-    // Z80Cpu::execute() would clean up the phantom INT within one
-    // pulse window — but the V20 fix's "exactly ONCE per pulse"
-    // invariant is locally violated. End-of-stream append + eof()
-    // tolerance so prior snapshots load with the reset default.
-    w.write_bool(prev_pulse_int_n_);
+    // The tail latches — one declaration, walked (GH #27 S6).
+    jnext::save::save_via_desc_method(*this, &Emulator::describe_tail, w,
+                                      /*machine_level=*/true);
     put_sentinel();   // "tail" (nr_02_bus_reset_ + prev_pulse_int_n_)
 
     // Task 60c — input subsystem state. Previously ABSENT from snapshots,
@@ -11915,6 +11973,20 @@ void Emulator::save_state(StateWriter& w) const
         put_str(esxdos_hostfs_.cwd_for_snapshot());
     }
     put_sentinel();   // "esxdos_hostfs"
+
+    // GH #27 S6 — the SD card's SPI FSM (design §10.2 P1, defect D1). Until
+    // S6 this class had no save_state at all, so a rewind taken while a
+    // loader was streaming a CMD18 multi-block read restored a card that was
+    // no longer streaming and the replayed frames got R1/token framing where
+    // sector bytes belonged. Appended last, after esxdos_hostfs, so every
+    // byte before it is exactly where S5b left it.
+    //
+    // Only the PROTOCOL state travels. The mounted image is an external
+    // resource: it is recorded by reopenable identity in a `.jns` manifest
+    // (`media.sdcard`, §11.3) and shared in-process by a rewind, exactly as
+    // the esxDOS handles above are.
+    sd_card_.save_state(w);
+    put_sentinel();   // "sdcard"
 
     // Task 60b — bounds check: a snapshot buffer smaller than the state
     // stream would previously scribble past the allocation silently; the
@@ -12163,65 +12235,31 @@ bool Emulator::load_state(StateReader& r)
     dac_.load_state(r);
     if (!check_sentinel("dac")) return false;
 
-    // Emulator private state.
-    frame_cycle_      = r.read_u64();
-    // G36 review fix: restore the monotonic tape clock (see save_state).
-    // The saved value is the folded monotonic instant; re-establish it as
-    // the base and zero the live FUSE counter so monotonic_tstates() is
-    // exactly the saved value. Safe: restores only happen between frames
-    // (frame_in_progress_ = false above), so the next run_frame() or
-    // step_frame_slot() calls begin_new_frame() before any
-    // instruction consults the counter, and its rebase_fuse_tstates_()
-    // re-seeds it from (clock_ - frame_cycle_) / divisor while moving the
-    // same amount out of the base — monotonic_tstates() stays the saved
-    // value, and contention sees the restored raster position.
+    // Emulator private state — the same declaration, walked (GH #27 S6).
+    jnext::save::load_via_desc_method(*this, &Emulator::describe_frame_origin,
+                                      r, /*machine_level=*/true);
+    // G36 review fix — see save_state. The saved value is the FOLDED
+    // monotonic instant; re-establish it as the base and zero the live FUSE
+    // counter so monotonic_tstates() is exactly the saved value. Safe:
+    // restores only happen between frames (frame_in_progress_ = false above),
+    // so the next run_frame() or step_frame_slot() calls begin_new_frame()
+    // before any instruction consults the counter, and its
+    // rebase_fuse_tstates_() re-seeds it from (clock_ - frame_cycle_) /
+    // divisor while moving the same amount out of the base —
+    // monotonic_tstates() stays the saved value and contention sees the
+    // restored raster position.
     tstates_frame_base_ = r.read_u64();
     // GH #265 — what the CPU block restored against the counter (the /INT
     // window, the EI stamp) moves with it.
     cpu_.rebase_interrupt_window(static_cast<int64_t>(*fuse_z80_tstates_ptr()));
     *fuse_z80_tstates_ptr() = 0;
-    frame_num_        = r.read_u32();
-    boot_hold_frames_remaining_ = r.read_u32();  // G156
-    // GH #246 — see save_state. The forced re-sync is at the end of this
-    // function, once every field is in place.
-    esp_frames_                 = static_cast<int>(r.read_u32());
-    cpu_parked_                 = r.read_bool(); // GH #164
-    psg_accum_        = r.read_u64();
-    sample_accum_     = r.read_u64();
-    dac_enabled_      = r.read_bool();
-    // G71: line_int state owned by video_timing_; mirror through the
-    // existing save layout (bool + u16) for backwards compatibility.
-    const bool     saved_line_int_en  = r.read_bool();
-    ula_int_disabled_                 = r.read_bool();
-    const uint16_t saved_line_int_tgt = r.read_u16();
-    video_timing_.set_line_interrupt_enable(saved_line_int_en);
-    video_timing_.set_line_interrupt_target(saved_line_int_tgt);
+
+    jnext::save::load_via_desc_method(*this, &Emulator::describe_state, r,
+                                      /*machine_level=*/true);
+    // DERIVED, and therefore outside the declaration (§9.5(7)): the ULA
+    // interrupt enable is the inverse of the NR 0x22 bit the walk just
+    // restored, not a field of its own.
     video_timing_.set_interrupt_enable(!ula_int_disabled_);
-    im2_hw_mode_      = r.read_bool();
-    im2_vector_base_  = r.read_u8();
-    r.read_bytes(im2_int_enable_, 3);
-    r.read_bytes(im2_int_status_, 3);
-    im2_c4_expbus_    = r.read_bool();
-    nr_c6_uart_int_en_ = r.read_u8();
-    clip_l2_idx_  = r.read_u8();
-    clip_spr_idx_ = r.read_u8();
-    clip_ula_idx_ = r.read_u8();
-    clip_tm_idx_  = r.read_u8();
-
-    nr_cc_dma_delay_on_nmi_    = r.read_bool();
-    nr_cc_dma_delay_en_ula_    = r.read_u8();
-    nr_cd_dma_delay_en_ctc_    = r.read_u8();
-    nr_ce_dma_delay_en_uart1_  = r.read_u8();
-    nr_ce_dma_delay_en_uart0_  = r.read_u8();
-    im2_dma_delay_latched_     = r.read_bool();
-
-    // Branch C: NR 0x08 read mirror.
-    nr_08_stored_low_ = r.read_u8();
-
-    // Agent H: joy_iomode_pin7 (NR 0x0B / CTC ch3) — VHDL zxnext.vhd:3516.
-    // Phase 2 Wave 2 Agent E: pin7 now lives in IoMode; restore via the
-    // dedicated save-state setter to keep the single-bool slot intact.
-    iomode_.set_pin7_for_load(r.read_bool());
     if (!check_sentinel("emulator")) return false;
 
     // Audio Phase 1: I2s stub latched sample pair — appended at the
@@ -12232,56 +12270,22 @@ bool Emulator::load_state(StateReader& r)
     // NMI pipeline Phase 1 scaffold — matches the append order in
     // save_state().
     nmi_source_.load_state(r);
-    prev_nmi_generate_n_ = r.read_bool();
+    jnext::save::load_via_desc_method(*this, &Emulator::describe_nmi_tail, r,
+                                      /*machine_level=*/true);
     if (!check_sentinel("nmi_source")) return false;
 
-    // G108 — port_ff_reg storage. Appended after prev_nmi_generate_n_.
-    // Tolerate older saves that predate the field by checking eof()
-    // first; they keep the reset default (port_ff_reg_ = 0).
-    if (!r.eof()) {
-        port_ff_reg_ = r.read_u8();
-    }
-
-    // G56-B — NR 0x10 coreid shadow. Appended after port_ff_reg_; saves
-    // that predate this slot leave nr_10_coreid_ at its init() default
-    // of 0x01 (VHDL zxnext.vhd:1133), which is the correct power-on
-    // behaviour for a fresh boot.
-    if (!r.eof()) {
-        nr_10_coreid_ = r.read_u8();
-    }
-
-    // G55 — IO-trap registers. Same backwards-compat tolerance: older
-    // saves predate these fields and we keep the reset defaults.
-    if (!r.eof()) {
-        nr_d8_io_trap_fdc_en_ = r.read_bool();
-    }
-    if (!r.eof()) {
-        nr_d9_iotrap_write_ = r.read_u8();
-    }
-    if (!r.eof()) {
-        nr_da_iotrap_cause_ = r.read_u8();
-    }
-
-    // G112 — NR 0x2D I2S sample latch. Saves predating this slot leave
-    // the field at its init() default of 0.
-    if (!r.eof()) {
-        nr_2d_i2s_sample_ = r.read_u8();
-    }
-
-    // G113 — NR 0xA2 Pi I2S control byte. Saves predating this slot
-    // leave I2s.nr_a2_ctl_ at its reset() default of 0 — which is the
-    // VHDL power-on value (no Pi I2S enabled, so pi_audio_L/R are at
-    // the 10-bit DC midpoint 0x200, silence).
-    if (!r.eof()) {
-        i2s_.set_nr_a2_ctl(r.read_u8());
-    }
-
-    // G135 — NR 0xA0 Pi peripheral enable byte. Saves predating this slot
-    // leave nr_a0_pi_peripheral_en_ at its reset() default of 0 (VHDL
-    // power-on, zxnext.vhd:5080 — no Pi peripherals enabled).
-    if (!r.eof()) {
-        nr_a0_pi_peripheral_en_ = r.read_u8();
-    }
+    // The NextREG appends — the same declaration, walked (GH #27 S6).
+    //
+    // The eight `if (!r.eof())` guards this replaces existed so buffers
+    // written by a jnext that predated each field stayed readable. There is
+    // no such buffer: this stream is the in-process `RewindBuffer`'s, whose
+    // width comes from a measure pass of THIS code, and the warm-start cache
+    // checks both `kFormatVersion` and an exact length before it is handed
+    // here. A short stream is therefore corruption, and the walk makes it
+    // LOUD — `StateReader` latches `out_of_bounds()` and the sentinel below
+    // names the block — where the guards made it silently take defaults.
+    jnext::save::load_via_desc_method(*this, &Emulator::describe_nextreg_appends,
+                                      r, /*machine_level=*/true);
     if (!check_sentinel("nextreg_appends")) return false;
     // G138 — re-sync the I2cController gate from the loaded byte. Older
     // snapshots fall through with nr_a0_pi_peripheral_en_ == 0, matching
@@ -12299,27 +12303,10 @@ bool Emulator::load_state(StateReader& r)
     }
     if (!check_sentinel("multiface")) return false;
 
-    // Pass-3 verify-audit (Task 2) — NR 0x02 bit 7 `nr_02_bus_reset` latch.
-    // Saves predating this slot leave the field at its constructor default
-    // of false (matching VHDL power-on signal initializer at :1095).
-    if (!r.eof()) {
-        nr_02_bus_reset_ = r.read_bool();
-    }
-
-    // V20R-CPU-NIT-01 — `prev_pulse_int_n_` (Pass-20 falling-edge shadow
-    // for the pulse-mode CPU /INT poll at line 5791+). Pairs with the
-    // matching save_state append above. Saves predating Pass-20 leave
-    // the shadow at its reset default `true` (matches
-    // Im2Controller::reset() default pulse_int_n_=true; if the loaded
-    // im2_ state actually has pulse_int_n_=false the next-tick poll
-    // would fire a spurious request_interrupt(0xFF) — harmless since
-    // Z80Cpu::execute()'s 32/36T drop arm cleans it up, but the V20
-    // "exactly ONCE per pulse" invariant is locally violated. New
-    // saves persist the shadow exactly so a save-during-pulse +
-    // load round-trips faithfully.
-    if (!r.eof()) {
-        prev_pulse_int_n_ = r.read_bool();
-    }
+    // The tail latches — the same declaration, walked (GH #27 S6). Same
+    // reasoning about the dropped eof() guards as the block above.
+    jnext::save::load_via_desc_method(*this, &Emulator::describe_tail, r,
+                                      /*machine_level=*/true);
     if (!check_sentinel("tail")) return false;
 
     // Task 60c — input subsystem state. Mirrors the save_state append order
@@ -12406,6 +12393,15 @@ bool Emulator::load_state(StateReader& r)
         esxdos_hostfs_.restore_cwd(cwd);
         esxdos_hostfs_.restore(handles);
         if (!check_sentinel("esxdos_hostfs")) return false;
+    }
+
+    // GH #27 S6 — the SD card's SPI FSM, matching the append in save_state().
+    // The mounted IMAGE is not restored from here: it is the card the host
+    // has open right now, which for a rewind is the same file and for a
+    // `.jns` is the one the manifest's identity checks matched (§11.3).
+    if (!r.eof()) {
+        sd_card_.load_state(r);
+        if (!check_sentinel("sdcard")) return false;
     }
 
     // Pass-8 verify-audit (2026-05-09): re-sync the SpiMaster Flash-CS

@@ -730,11 +730,42 @@ void HeadlessApp::run() {
         // never written" is a loud non-zero-exit failure, same contract
         // as --delayed-screenshot above.
         if (snapshot_countdown_ == 0) {
+            // GH #27 S6 (design §10.2 P7) — ALWAYS ADVANCE, NEVER REFUSE.
+            // A snapshot may only be taken at a frame boundary, and a
+            // debugger break (a magic breakpoint, say) leaves the machine
+            // half-way through a frame with run_frame() returning
+            // immediately, so the capture would otherwise serialise a frame
+            // in flight. Completing it through the ordinary path also keeps
+            // the per-scanline change logs intact — re-running frame start
+            // mid-frame is the Task 40 defect.
+            if (emulator_.advance_to_frame_boundary()) {
+                Log::platform()->info(
+                    "--delayed-snapshot: the machine was paused mid-frame; "
+                    "advanced to the next frame boundary to save from "
+                    "(the restored machine is up to one frame on)");
+            }
             std::string ext;
             auto dot = snapshot_file_.rfind('.');
             if (dot != std::string::npos) {
                 ext = snapshot_file_.substr(dot);
                 for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
+            // GH #27 S8 — `.jns` writes itself, because it is the only format
+            // here that needs the manifest, the SD identity and the blob
+            // declarations assembled rather than one flat buffer. It is
+            // handled before the buffer-producing savers for that reason, and
+            // it reports its own failure with a REASON, which none of the
+            // three below can.
+            if (ext == ".jns") {
+                const bool ok = emulator_.save_jns_file(snapshot_file_);
+                if (!ok) {
+                    Log::emulator()->error(
+                        "--delayed-snapshot: could not write '{}': {}",
+                        snapshot_file_, emulator_.last_jns_error());
+                    exit_code_ = 1;
+                }   // save_jns_file already logged the success
+                snapshot_file_.clear();
+                return;
             }
             std::vector<uint8_t> bytes;
             if (ext == ".szx") {

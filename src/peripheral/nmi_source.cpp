@@ -1,5 +1,26 @@
 #include "peripheral/nmi_source.h"
 #include "core/saveable.h"
+#include "core/log.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
+
+namespace {
+
+// Enum name table (design §6.2, §9.4). The binary encoding stays the u8
+// ordinal the stream has always carried; the NAME is what a `.jns` writes, so
+// renumbering the arbiter FSM becomes a visible schema diff rather than a
+// silent re-interpretation of old files. Ordinals are NmiSource::State
+// (nmi_source.h:71), whose VHDL names are in the comments there.
+const char* const kNmiStateNameArr[] = {
+    "idle",   // State::Idle  — VHDL S_NMI_IDLE
+    "fetch",  // State::Fetch — VHDL S_NMI_FETCH
+    "hold",   // State::Hold  — VHDL S_NMI_HOLD
+    "end",    // State::End   — VHDL S_NMI_END
+};
+const jnext::save::EnumNames kNmiStateNames{
+    kNmiStateNameArr, sizeof(kNmiStateNameArr) / sizeof(kNmiStateNameArr[0])};
+
+}  // namespace
 
 // NmiSource — central NMI arbiter subsystem.
 //
@@ -509,101 +530,92 @@ void NmiSource::tick(uint32_t master_cycles)
 // State persistence.
 // ---------------------------------------------------------------------
 
-void NmiSource::save_state(StateWriter& w) const
+// GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
+// binary stream order, so it must not be disturbed: the byte-identity gate
+// (§17.1) pins these 28 bytes of the 29-byte `nmi_source` block of the
+// 2 292 965-byte stream.
+//
+// `state_` is marshalled through a local `uint8_t`. It IS `: uint8_t`-backed,
+// so a `reinterpret_cast<uint8_t&>` would work — it is not used, because the
+// same idiom then reads identically where an enum has no fixed underlying
+// type and is `int`-wide, where it would NOT work.
+//
+// `prev_nmi_generate_n_` is NOT declared here: it is an `Emulator` member
+// that `Emulator::save_state` writes immediately after this block, outside
+// the subsystem.
+void NmiSource::describe_state(jnext::save::StateDesc& d)
 {
     // Producer inputs.
-    w.write_bool(mf_button_);
-    w.write_bool(divmmc_button_);
-    w.write_bool(expbus_nmi_n_);
-    w.write_bool(strobe_mf_button_pending_);
-    w.write_bool(strobe_divmmc_button_pending_);
-    w.write_bool(nmi_sw_gen_mf_);
-    w.write_bool(nmi_sw_gen_divmmc_);
-    w.write_bool(iotrap_strobe_pending_);
+    d.boolean("mf_button", mf_button_);
+    d.boolean("divmmc_button", divmmc_button_);
+    d.boolean("expbus_nmi_n", expbus_nmi_n_);
+    d.boolean("strobe_mf_button_pending", strobe_mf_button_pending_);
+    d.boolean("strobe_divmmc_button_pending", strobe_divmmc_button_pending_);
+    d.boolean("nmi_sw_gen_mf", nmi_sw_gen_mf_);
+    d.boolean("nmi_sw_gen_divmmc", nmi_sw_gen_divmmc_);
+    d.boolean("iotrap_strobe_pending", iotrap_strobe_pending_);
 
     // Gate flags.
-    w.write_bool(mf_enable_);
-    w.write_bool(divmmc_enable_);
-    w.write_bool(expbus_debounce_disable_);
-    // Pass-9: NR 0x80 bit 7 / bit 4 latched gates (expbus_eff_en /
-    // expbus_eff_disable_mem). Appended at the end of the gate-flag
-    // group so older snapshots that lack the bytes still load via the
-    // tail-of-format extension dance below.
-    w.write_bool(expbus_eff_en_);
-    w.write_bool(expbus_eff_disable_mem_);
-    w.write_bool(config_mode_);
+    d.boolean("mf_enable", mf_enable_);
+    d.boolean("divmmc_enable", divmmc_enable_);
+    d.boolean("expbus_debounce_disable", expbus_debounce_disable_);
+    // Pass-9: NR 0x80 bit 7 / bit 4 latched gates.
+    d.boolean("expbus_eff_en", expbus_eff_en_);
+    d.boolean("expbus_eff_disable_mem", expbus_eff_disable_mem_);
+    d.boolean("config_mode", config_mode_);
 
     // Consumer feedback.
-    w.write_bool(mf_nmi_hold_);
-    w.write_bool(mf_is_active_);
-    w.write_bool(divmmc_nmi_hold_);
-    w.write_bool(divmmc_conmem_);
+    d.boolean("mf_nmi_hold", mf_nmi_hold_);
+    d.boolean("mf_is_active", mf_is_active_);
+    d.boolean("divmmc_nmi_hold", divmmc_nmi_hold_);
+    d.boolean("divmmc_conmem", divmmc_conmem_);
 
     // Latches.
-    w.write_bool(nmi_mf_);
-    w.write_bool(nmi_divmmc_);
-    w.write_bool(nmi_expbus_);
+    d.boolean("nmi_mf", nmi_mf_);
+    d.boolean("nmi_divmmc", nmi_divmmc_);
+    d.boolean("nmi_expbus", nmi_expbus_);
 
     // FSM.
-    w.write_u8(static_cast<uint8_t>(state_));
+    uint8_t state = static_cast<uint8_t>(state_);
+    d.enum8("state", state, kNmiStateNames);
+    state_ = static_cast<State>(state);
 
     // Readback-pending.
-    w.write_bool(nr_02_pending_mf_);
-    w.write_bool(nr_02_pending_divmmc_);
+    d.boolean("nr_02_pending_mf", nr_02_pending_mf_);
+    d.boolean("nr_02_pending_divmmc", nr_02_pending_divmmc_);
 
     // Edge tracking.
-    w.write_bool(prev_wr_n_);
+    d.boolean("prev_wr_n", prev_wr_n_);
 
-    // Button strobes (VHDL:2169-2170). Normally low between ticks; saved
-    // to keep the snapshot stream complete and future-proof.
-    w.write_bool(mf_button_strobe_);
-    w.write_bool(divmmc_button_strobe_);
+    // Button strobes (VHDL:2169-2170). Normally low between ticks; declared
+    // to keep the snapshot complete.
+    d.boolean("mf_button_strobe", mf_button_strobe_);
+    d.boolean("divmmc_button_strobe", divmmc_button_strobe_);
 
-    // VHDL:1306, 1732-1739 — `nr_02_reset_type` 3-bit FSM. Persist so
-    // a snapshot taken after one or more soft resets reloads with the
-    // same FSM advance position.
-    w.write_u8(reset_type_);
+    // VHDL:1306, 1732-1739 — `nr_02_reset_type` 3-bit FSM. Declared so a
+    // snapshot taken after one or more soft resets reloads with the same FSM
+    // advance position.
+    d.u8("reset_type", reset_type_);
+}
+
+void NmiSource::save_state(StateWriter& w) const
+{
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void NmiSource::load_state(StateReader& r)
 {
-    mf_button_                     = r.read_bool();
-    divmmc_button_                 = r.read_bool();
-    expbus_nmi_n_                  = r.read_bool();
-    strobe_mf_button_pending_      = r.read_bool();
-    strobe_divmmc_button_pending_  = r.read_bool();
-    nmi_sw_gen_mf_                 = r.read_bool();
-    nmi_sw_gen_divmmc_             = r.read_bool();
-    iotrap_strobe_pending_         = r.read_bool();
-
-    mf_enable_                     = r.read_bool();
-    divmmc_enable_                 = r.read_bool();
-    expbus_debounce_disable_       = r.read_bool();
-    // Pass-9: NR 0x80 effective gate flags. See save_state() for the
-    // append point. The snapshot ring is rewind-only (in-process), so
-    // older snapshots are not a concern.
-    expbus_eff_en_                 = r.read_bool();
-    expbus_eff_disable_mem_        = r.read_bool();
-    config_mode_                   = r.read_bool();
-
-    mf_nmi_hold_                   = r.read_bool();
-    mf_is_active_                  = r.read_bool();
-    divmmc_nmi_hold_               = r.read_bool();
-    divmmc_conmem_                 = r.read_bool();
-
-    nmi_mf_                        = r.read_bool();
-    nmi_divmmc_                    = r.read_bool();
-    nmi_expbus_                    = r.read_bool();
-
-    state_                         = static_cast<State>(r.read_u8());
-
-    nr_02_pending_mf_              = r.read_bool();
-    nr_02_pending_divmmc_          = r.read_bool();
-
-    prev_wr_n_                     = r.read_bool();
-
-    mf_button_strobe_              = r.read_bool();
-    divmmc_button_strobe_          = r.read_bool();
-
-    reset_type_                    = r.read_u8();
+    jnext::save::BinReadDesc d(r);
+    describe_state(d);
+    if (d.failed()) {
+        // The only way this fires is an `enum8` ordinal the declaration does
+        // not name — a stream and a build that disagree about the arbiter
+        // FSM. The field keeps its pre-load value rather than taking a wrong
+        // FSM state (§16.1: "a wrong FSM state is not a safe default"), the
+        // stream stays in sync (the byte was consumed either way), and the
+        // fault is named.
+        Log::emulator()->error("NmiSource::load_state: the stream does not "
+                                "match this build's declaration at '{}'",
+                                d.failure() ? d.failure() : "?");
+    }
 }

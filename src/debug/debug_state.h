@@ -118,6 +118,50 @@ public:
     void pause();
     void resume();
 
+    /// GH #27 S6 — suspend the debugger for a NON-debugging action that has
+    /// to run the machine: the frame-boundary advance a snapshot needs when
+    /// the user hit Save while paused mid-frame (design §10.2 P7, §15.2).
+    ///
+    /// It is deliberately NOT `resume()` then `pause()`. `resume()` clears
+    /// one-shot breakpoints and `pause()` clears the step mode, so that pair
+    /// would quietly destroy a pending "Run to Here" and whatever step the
+    /// user was in — a save must leave the debugging session exactly as it
+    /// found it. This scope saves and restores the four execution-control
+    /// fields and the GH #221 step-off arm, and touches nothing else:
+    /// one-shot breakpoints, the breakpoint set and the data-breakpoint
+    /// latch all survive untouched.
+    class SuspendScope {
+    public:
+        explicit SuspendScope(DebugState& ds)
+            : ds_(ds), paused_(ds.paused_), active_(ds.active_),
+              persistent_(ds.persistent_), step_(ds.step_mode_),
+              step_off_(ds.step_off_pending_) {
+            ds_.paused_     = false;
+            ds_.active_     = false;
+            ds_.persistent_ = false;
+            ds_.step_mode_  = StepMode::NONE;
+            ds_.refresh_gates_();          // disarms breakpoints
+        }
+        ~SuspendScope() {
+            ds_.paused_     = paused_;
+            ds_.active_     = active_;
+            ds_.persistent_ = persistent_;
+            ds_.step_mode_  = step_;
+            ds_.refresh_gates_();
+            ds_.step_off_pending_ = step_off_;   // after refresh_gates_
+        }
+        SuspendScope(const SuspendScope&) = delete;
+        SuspendScope& operator=(const SuspendScope&) = delete;
+
+    private:
+        DebugState& ds_;
+        bool        paused_;
+        bool        active_;
+        bool        persistent_;
+        StepMode    step_;
+        bool        step_off_;
+    };
+
     // Step modes.
     void step_into();
     void step_over(uint16_t next_pc);
