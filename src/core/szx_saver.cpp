@@ -22,7 +22,7 @@ SzxSaver::SaveResult SzxSaver::save(Emulator& emu)
             result.error =
                 "SZX saver: the '.szx' format cannot represent this machine's RAM — "
                 "it only supports 48K, 128K and +2A/+3 (--machine 48k|128k|plus3). "
-                "Use '.nex' for a Next-native snapshot instead.";
+                "Use '.jns' for a Next-native snapshot instead.";
             Log::emulator()->error("{}", result.error);
             return result;
     }
