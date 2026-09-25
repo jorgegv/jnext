@@ -2341,8 +2341,7 @@ The struck sentence above said S9 would close it; S9 did not (§17, "What S9
 did NOT close"). That left this reading as an open TODO, which is the wrong
 record: it invites the next contributor to re-derive a cost the owner has
 already weighed twice. **The owner considered the gap on 2026-09-25 and
-accepted it.** It is a recorded decision from here on, not an
-item of work.
+accepted it.** It is a recorded decision from here on, not an item of work.
 
 The reasoning, re-affirmed rather than re-argued:
 
@@ -2357,10 +2356,11 @@ The reasoning, re-affirmed rather than re-argued:
    **every** real `state/*.json` against THIS DOCUMENT rather than against the
    code; `JNS-RT-02` requires a machine restored from a `.jns` to emit a
    **byte-identical binary state stream** to the machine it was saved
-   from, which is a field-level oracle for the assembler's coverage; and
-   the `JNSD`/`JNSE` rows pin the encoding. A generated schema would assert that the shape is what the
-   code says it is; the reader asserts it is what the SPEC says it is, which is
-   the stronger of the two claims about a file other people will read.
+   from, which is a field-level oracle for the assembler's coverage; and the
+   `JNSD`/`JNSE` rows pin the encoding. A generated schema would assert that
+   the shape is what the CODE says it is; the reader asserts it is what the
+   SPEC says it is, which is the stronger of the two claims about a file other
+   people will read.
 
 **What is still uncovered, and this decision does not soften it by one word.**
 A field renamed in a declaration changes `state/*.json` and **no gate says
