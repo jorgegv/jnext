@@ -139,7 +139,7 @@ std::vector<uint8_t> SnaSaver::save(Emulator& emu, std::string* error) {
             // the only bank it can honestly have at 0xC000.
             const std::string w = window_refusal(0);
             if (!w.empty()) return refuse(w);
-            return save_cpu_view_unchecked(emu);
+            return save_48k(emu);
         }
 
         case MachineType::ZX128K: {
@@ -254,7 +254,7 @@ std::vector<uint8_t> SnaSaver::save_128k(Emulator& emu) {
     return data;
 }
 
-std::vector<uint8_t> SnaSaver::save_cpu_view_unchecked(Emulator& emu) {
+std::vector<uint8_t> SnaSaver::save_48k(Emulator& emu) {
     // 48K SNA: 27-byte header + 49152 bytes RAM
     static constexpr size_t SNA_48K_SIZE = 49179;
     static constexpr size_t HEADER_SIZE = 27;
