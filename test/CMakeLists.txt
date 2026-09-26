@@ -383,9 +383,19 @@ if(LIBSPECTRUM_FOUND)
     target_include_directories(szx_probe PRIVATE ${LIBSPECTRUM_INCLUDE_DIRS})
     target_link_libraries(szx_probe PRIVATE ${LIBSPECTRUM_LIBRARIES})
     target_link_directories(szx_probe PRIVATE ${LIBSPECTRUM_LIBRARY_DIRS})
-    message(STATUS "libspectrum ${LIBSPECTRUM_VERSION} found: building szx_probe (GH #27 S9 foreign reader)")
+    # sna_probe — the same adjudicator for the `.sna` forms (GH #274). jnext
+    # writes the 128K SNA form as the exact inverse of its OWN SnaLoader, which
+    # is the §13.1 pairing: an offset or a bank order both sides agree on
+    # round-trips perfectly and interoperates with nothing. Also not a test
+    # suite, also optional, for the same reasons.
+    add_executable(sna_probe snapshot/sna_probe.c)
+    target_include_directories(sna_probe PRIVATE ${LIBSPECTRUM_INCLUDE_DIRS})
+    target_link_libraries(sna_probe PRIVATE ${LIBSPECTRUM_LIBRARIES})
+    target_link_directories(sna_probe PRIVATE ${LIBSPECTRUM_LIBRARY_DIRS})
+    message(STATUS "libspectrum ${LIBSPECTRUM_VERSION} found: building szx_probe + sna_probe (foreign readers)")
 else()
-    message(STATUS "libspectrum NOT found: szx_probe not built, snapshot-foreign-szx-func will SKIP")
+    message(STATUS "libspectrum NOT found: szx_probe/sna_probe not built, "
+                   "snapshot-foreign-szx-func and snapshot-foreign-sna-func will SKIP")
 endif()
 
 # The .jns snapshot's SD-card media IDENTITY (GH #27 S7). A separate binary
