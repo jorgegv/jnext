@@ -1,5 +1,17 @@
 # ChangeLog
 
+## v1.0.44 (2026-09-26)
+
+### Bug Fixes
+- Loading a tape in 48K mode from the NextZXOS browser no longer hangs
+- A 128K or +3 snapshot now saves all its banks and paging, not a 48K-only file
+- A snapshot the format cannot describe is refused, instead of silently written lossy
+- RZX recording is refused on a Next, whose state no RZX snapshot format can hold
+
+### Internal JNEXT Development
+- The user guide's screenshots are generated, so they can no longer go stale unnoticed
+- Unit suites run in two build configurations, and a vanished suite is now a hard failure
+
 ## v1.0.41 (2026-09-25)
 
 ### User Features
