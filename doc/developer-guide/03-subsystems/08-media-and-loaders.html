@@ -2489,18 +2489,36 @@ and why it only works at all if the emulator executes the same instructions in
 the same order both times.</p>
 <p><code>rzx.h</code> holds the format, <code>rzx_player.*</code> and <code>rzx_recorder.*</code> the two
 directions. The snapshot a recording embeds is an SZX on the 128K and +3
-(<code>SzxSaver</code> — all eight banks and the paging ports) and a 48K SNA otherwise
-(<code>SnaSaver::save_cpu_view_unchecked()</code>, which exists for this): neither <code>.szx</code>
-nor <code>.sna</code> can hold the Next's own state, so a Next program replays only as far
-as its 48K part does. That is the <em>unchecked</em> entry point deliberately —
-<code>SnaSaver::save()</code>, the one a user reaches through <code>--delayed-snapshot</code> or the
-GUI, refuses a Next outright (GH #274), because a <code>.sna</code> FILE of a Next is a
-file that lies about its machine. An RZX does not: it names the machine in its
-own creator block, so playback rebuilds the Next and the embedded snapshot only
-has to restore the 64 KB the CPU saw. The 128K/+3 arm is unchanged by GH #274
-and stays SZX: an SNA now carries those machines' RAM fully, but not the +3's
-second paging register, and <code>SzxSaver</code> already covers both.
-A command-line recording starts once the <code>--load</code>/<code>--inject</code> is in the
+(<code>SzxSaver</code> — all eight banks and the paging ports) and an SNA on the 48K
+(<code>SnaSaver::save()</code>, where the CPU view IS the machine).</p>
+<p><strong>RECORDING IS REFUSED ON A NEXT</strong> — <code>Emulator::rzx_refused_by_machine()</code>, owner
+decision 2026-09-26 (GH #274), and the derivation with its measurements lives at
+that definition. In short, an RZX holds a classic-Spectrum snapshot AND a
+per-frame log of IN VALUES WITHOUT THE PORTS THEY CAME FROM, and a Next fails
+both halves. The snapshot: none of SNA, SZX or Z80 describes a Next, so a 48K SNA
+of one — which jnext embedded until this change — holds no NextREGs, Layer 2,
+tilemap, sprites or Copper, and a recording replayed correctly only when the
+program happened to redraw its display every frame. The log: because it stores
+values and not ports, the snapshot and the log must agree on the guest's exact
+sequence of port reads, and nothing can detect it when they do not. Embedding a
+<code>.jns</code> — the one format that CAN represent a Next — was built and measured
+against that: the replayed guest made two reads the recording never captured
+(0x00E3, 0x243B), every value was consumed two positions early, and the guest
+wedged in a HALT with IFF1 clear.</p>
+<p><strong>Two facts from that experiment are worth keeping, because nothing in the tree
+demonstrates them any more.</strong> First, a <code>.jns</code> restore is faithful enough to RUN
+and not bit-exact enough to REPLAY: at the first <code>run_frame</code> the CPU state
+matched the recording exactly and the same snapshot animates correctly under
+<code>--load</code>, yet from that identical PC the first port read differed. Do not assume
+<code>.jns</code> is replay-grade. Second, <code>dma_.read_io</code> is wired to <code>port_.read()</code> — the
+pre-override path — so a DMA port read is neither recorded nor replayed, on any
+machine and for any snapshot type; that is a pre-existing RZX limitation and
+still true.</p>
+<p>Playing a Next recording an older jnext wrote is NOT refused: <code>load_rzx()</code> warns,
+names what the embedded snapshot cannot restore, and plays. The file is a fait
+accompli and there is something to see — a program living in the 48K view replays
+correctly, which is why this went unnoticed.</p>
+<p>A command-line recording starts once the <code>--load</code>/<code>--inject</code> is in the
 machine (<code>emulator_start_rzx_record_when_loaded()</code>), so that snapshot is the
 loaded program. The tape ROM traps stand down while RZX records or plays —
 see the trap block in <code>run_frame()</code> — and a fast-load tape already attached is
@@ -2519,7 +2537,8 @@ nothing.</p>
 <p>For the same reason a playback builds the machine the recording was made on.
 The recorder names it in the RZX creator block's custom data
 (<code>rzx::set_recorded_machine()</code>, <code>machine=48k</code> — a <code>--machine</code> value), because
-the snapshot cannot: a Next recording embeds a 48K SNA. <code>rzx::recorded_machine()</code>
+the snapshot cannot always: a pre-GH #274 Next recording embeds a 48K SNA, which
+names no machine. <code>rzx::recorded_machine()</code>
 reads that marker first and otherwise judges a recording by its snapshot
 (<code>rzx::snapshot_machine()</code>: SNA size, SZX machine ID, <code>.z80</code> version and
 hardware mode); a pre-marker jnext recording with an SNA names no machine.
