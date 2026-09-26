@@ -32,11 +32,19 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #         a cold-boot load into a Next boot (headless), the hard reset that
 #         follows — the frontend's own reset path — boots the 48K again, not
 #         the Next (the machine stays selected, ColdBootHooks::keep_machine).
-#   next  recorded on the Next (test05print.nex); replayed with no --machine,
-#         and by a cold-boot load into a 48K boot, equals the truth. This
-#         program's picture happens to be the same on a 48K, so the case guards
-#         the Next routes, not the choice of machine: emulator_boot_test EB-46
-#         pins that a Next recording boots the Next.
+#   next  recorded on the Next (test02layer2.nex); replayed with no --machine,
+#         and by a cold-boot load into a 48K boot, equals the truth.
+#
+#         THE FIXTURE CHANGED WITH GH #274, and the reason is the point. It was
+#         test05print.nex, whose picture — as the comment here used to say —
+#         "happens to be the same on a 48K": the program redraws its whole
+#         display every frame, so the row passed even while the embedded
+#         snapshot was a 48K SNA carrying no Layer 2, no tilemap, no sprites and
+#         no NextREGs. It proved the routes and nothing about fidelity.
+#         test02layer2.nex draws a Layer 2 image and then leaves it there, so
+#         the replay can only match if the embedded snapshot really restored the
+#         Next. Measured on the old embed: 70183 pixels of divergence. On the
+#         `.jns` embed: 0.
 if want rzx-machine-func; then
     begin_func rzx-machine-func
 
@@ -119,7 +127,7 @@ if want rzx-machine-func; then
         rc48=$(rm_run headless t48 100 --machine 48k --load "$rm_dir/bifrost.sna" --rzx-record "$r48")
         rc128=$(rm_run headless t128 150 --machine 128k --rzx-record "$r128")
         rcn=$(rm_run headless tnext 100 --machine next \
-                --load "$PROJECT_DIR/test/00regression/nex/test05print.nex" --rzx-record "$rnext")
+                --load "$PROJECT_DIR/test/00regression/nex/test02layer2.nex" --rzx-record "$rnext")
         if [[ "$rc48" != 0 || "$rc128" != 0 || "$rcn" != 0 ||
               ! -s "$r48" || ! -s "$r128" || ! -s "$rnext" || ! -s "$rm_dir/rreset.rzx" ]]; then
             fail_row " (could not record the ground truths: rc48=$rc48 rc128=$rc128 rcnext=$rcn)"

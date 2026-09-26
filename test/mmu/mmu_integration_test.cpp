@@ -1683,12 +1683,10 @@ static void test_snapsave_sna_machine_boundary() {
               fmt("[8FFE]=%02X [8FFF]=%02X (want A5 5A)",
                   emu.mmu().read(0x8FFE), emu.mmu().read(0x8FFF)));
 
-        const std::vector<uint8_t> view = SnaSaver::save_cpu_view_unchecked(emu);
-        check("SNAPSAVE-SNA-CPUVIEW-NEXT",
-              "save_cpu_view_unchecked() still dumps the CPU view on a Next — "
-              "the route Emulator::start_rzx_recording() embeds in an RZX",
-              view.size() == SNA_48K_SIZE,
-              fmt("size=%zu (want %zu)", view.size(), SNA_48K_SIZE));
+        // The unchecked CPU-view entry point that used to be asserted here is
+        // GONE with its only caller: a Next records a `.jns` now, so nothing
+        // wants a lossy 48K dump of one and there is no route to one. The RZX
+        // side of that is emulator_boot_test EB-52.
     }
 
     // ── 48K: the 48K form, and it round-trips ─────────────────────────

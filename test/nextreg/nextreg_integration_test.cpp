@@ -6464,12 +6464,33 @@ static void test_v16_nmp_02_expbus_and_mask(Emulator& emu) {
             ("jnext-nr-v16-load-" + std::to_string(getpid()) + ".sna")).string();
         bool wrote = false;
         {
-            // The fixture is a loadable .sna of THIS (Next) machine, taken
-            // only to drive load_sna() below — so it goes through the
-            // unchecked CPU-view entry point. SnaSaver::save() refuses a Next
-            // outright (GH #274), which is the right answer for a user asking
-            // for a `.sna` file and the wrong one for a loader fixture.
-            const std::vector<uint8_t> sna = SnaSaver::save_cpu_view_unchecked(emu);
+            // A SYNTHETIC 48K SNA, built here rather than taken from SnaSaver
+            // (GH #274). This row exercises the LOADER's NextREG re-init, so it
+            // needs a loadable file and nothing else — and SnaSaver::save()
+            // refuses a Next, correctly, because a `.sna` FILE of a Next lies
+            // about its machine. Building the fixture also decouples a loader
+            // test from the saver.
+            //
+            // The buffer is MARKED and the marks are checked after the load
+            // (see the `sna_fixture_applied` assertion folded into the check
+            // below), because a hand-built fixture that is subtly wrong would
+            // make this row pass vacuously — which is worse than the coupling
+            // it removes. Layout per SnaLoader: 27-byte header (byte 0 = I,
+            // 21..22 = AF, 23..24 = SP, 25 = IM, 26 = border) then bank 5,
+            // bank 2, bank 0. A 48K SNA carries PC on the stack at SP.
+            std::vector<uint8_t> sna(49179, 0);
+            sna[0]  = 0x7E;                       // I
+            sna[19] = 0x00;                       // IFF2 clear
+            sna[21] = 0x34; sna[22] = 0x12;       // AF = 0x1234
+            sna[23] = 0x00; sna[24] = 0x80;       // SP = 0x8000 (in bank 2)
+            sna[25] = 0x01;                       // IM 1
+            sna[26] = 0x05;                       // border 5
+            // PC on the stack at SP = 0x8000 -> bank 2's first two bytes, which
+            // start at 27 + 16384.
+            sna[27 + 16384 + 0] = 0x00;
+            sna[27 + 16384 + 1] = 0x90;           // PC = 0x9000
+            // A distinctive byte in bank 5 (0x4000 -> file offset 27).
+            sna[27 + 0x1234] = 0xC7;
             std::ofstream f(path, std::ios::binary | std::ios::trunc);
             f.write(reinterpret_cast<const char*>(sna.data()),
                     static_cast<std::streamsize>(sna.size()));
@@ -6480,6 +6501,15 @@ static void test_v16_nmp_02_expbus_and_mask(Emulator& emu) {
         nr_write(emu, 0x89, 0x8E);          // bus mask: port_ulap off; keep
         const bool loaded = wrote && emu.load_sna(path);
         std::remove(path.c_str());
+        // The fixture proves itself: a corrupt or mislaid buffer cannot produce
+        // these. PC came off the stack, SP advanced past it, and bank 5's
+        // distinctive byte is where the file put it.
+        const Z80Registers after_regs = emu.cpu().get_registers();
+        const bool sna_fixture_applied =
+            after_regs.PC == 0x9000 && after_regs.SP == 0x8002 &&
+            after_regs.AF == 0x1234 && after_regs.I == 0x7E &&
+            after_regs.IM == 1 && emu.ula().get_border() == 5 &&
+            emu.mmu().read(0x4000 + 0x1234) == 0xC7;
         const uint8_t nr80 = nr_read(emu, 0x80);
         const uint8_t nr86 = nr_read(emu, 0x86);
         const uint8_t nr89 = nr_read(emu, 0x89);
@@ -6495,9 +6525,12 @@ static void test_v16_nmp_02_expbus_and_mask(Emulator& emu) {
               "path follows the masked enables: 0x7FFD neither decoded nor "
               "contended, port_ulap_io_en = 0 [zxnext.vhd:2185-2186, :2392-2393, "
               ":2399, :2439, :2593-2594, :4496]",
-              loaded && nr80 == 0x88 && nr86 == 0xFD && nr89 == 0x8E &&
+              loaded && sna_fixture_applied &&
+                  nr80 == 0x88 && nr86 == 0xFD && nr89 == 0x8E &&
                   !decoded && !gate && !contend && !ulap,
-              "loaded=" + std::to_string(loaded) + " NR80=" + hex2(nr80) +
+              "loaded=" + std::to_string(loaded) +
+                  " fixture_applied=" + std::to_string(sna_fixture_applied) +
+                  " NR80=" + hex2(nr80) +
                   " NR86=" + hex2(nr86) + " NR89=" + hex2(nr89) +
                   " decoded=" + std::to_string(decoded) +
                   " port_7ffd_io_en=" + std::to_string(gate) +
