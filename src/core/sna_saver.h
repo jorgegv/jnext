@@ -6,50 +6,81 @@
 
 class Emulator;
 
-/// Save the current emulator state as an SNA snapshot byte vector.
-/// This is the reverse of SnaLoader::apply() — reads registers and RAM
-/// from the emulator and produces the SNA file format.
+/// Save the current emulator state as an SNA snapshot byte vector — the
+/// inverse of SnaLoader, and written to BE its exact inverse: SnaLoader is the
+/// oracle for both forms, and a save its own loader cannot read back
+/// identically is not a save (GH #274).
 ///
-/// Only the 48K SNA form is written — a 27-byte header plus the 48 KB the CPU
-/// can see (banks 5, 2, 0). The 128K SNA variant (a 7FFD byte plus the other
-/// five banks) is NOT implemented here.
+/// THE TWO FORMS, and which machine gets which:
 ///
-/// SCOPE — what that form can represent, and what save() therefore refuses
-/// (GH #274). A 48K SNA describes a 48 KB Spectrum: no paging register, and no
-/// hardware beyond the ULA. On a ZX Spectrum Next — jnext's DEFAULT
-/// `--machine` — it can carry none of what makes the machine a Next: the other
-/// 700+ KB of RAM, the NextREG file, Layer 2, the sprites, the tilemap, the
-/// Copper, the DivMMC. It used to be written anyway, with a zero exit status
-/// and a "saved 48K snapshot" log line, so a user who asked for a snapshot of
-/// a Next got a file that quietly was not one. save() now REFUSES that
-/// machine, in the same shape SzxSaver::save() already refuses what .szx
-/// cannot represent, and points at `.jns` — the only format that can represent
-/// a Next.
+///   * 48K (49179 bytes) — 27-byte header + the 48 KB the CPU can see
+///     (banks 5, 2, 0). PC is PUSHED on the guest stack, which is why the
+///     header's SP is SP-2 and why saving CLOBBERS two bytes of guest RAM:
+///     that is the format, not a choice. Written for `--machine 48k`, where
+///     the CPU view IS the whole machine and the form is exact.
 ///
-/// 48K, 128K and +3 are NOT refused. On a 48K the form is exact. On a 128K or
-/// +3 it is the 64 KB the CPU can see at that instant: the other five banks
-/// and the 7FFD/1FFD paging are not in the file. That is a KNOWN LIMITATION of
-/// writing only the 48K variant, not a claim that it is lossless — it is why
-/// Emulator::start_rzx_recording() embeds an `.szx` for those two machines.
-/// Closing it means implementing the 128K SNA variant, which is a separate
-/// piece of work; `.sna` remains what the GUI offers first there, because it is
-/// the format other emulators read.
+///   * 128K (131103 bytes, or 147487 — see SIZE below) — the same 27-byte
+///     header, then bank 5, bank 2 and the bank currently paged at 0xC000,
+///     then a 4-byte extended header (PC, port 0x7FFD, TR-DOS flag), then the
+///     remaining banks in ascending order. PC lives in the extended header, so
+///     this form does NOT push and does NOT modify the machine. Written for
+///     `--machine 128k`, and for a `--machine plus3` whose state a 128K
+///     machine can describe (see PLUS3).
+///
+/// SIZE — 131103 is the usual 128K size: five remaining banks, because
+/// {5, 2, paged} are three distinct banks. When the bank paged at 0xC000 IS
+/// bank 2 or bank 5, that set has only two members and SIX banks remain, so
+/// the file is 147487 bytes. SnaLoader computes the same skip set from the
+/// port 0x7FFD byte it just read, so both sizes round-trip; this is not a
+/// special case in either direction, it is the same rule.
+///
+/// PLUS3 — a +3 is saved as a 128K SNA when, and only when, a 128K machine can
+/// describe it. The format has no port 0x1FFD byte, so:
+///   * `0x1FFD` bit 0 (SPECIAL PAGING) replaces the whole 0x0000-0xFFFF map
+///     with four RAM banks and no ROM. The file's three blocks are DEFINED as
+///     banks 5, 2 and the paged bank, which is not that layout at all, so such
+///     a machine is REFUSED — it cannot be written, not merely written badly.
+///   * `0x1FFD` bit 2 (ROM HIGH) is the top bit of the +3's 4-ROM selection
+///     (`rebuild_rom_slots()`). The format carries only 0x7FFD bit 4, so a +3
+///     paging ROM 2 or ROM 3 — the DOS and 48K-BASIC ROMs, the common case for
+///     a program that calls into them — would come back on ROM 0 or 1. That is
+///     a wrong machine rather than a smaller one, so it is REFUSED too.
+///   * bit 1 (disk motor in normal paging) and bit 3 (printer strobe) are NOT
+///     part of the refusal: they are peripheral state, and NO SNA of ANY
+///     machine carries peripheral state. Losing them is the format's scope,
+///     not a misrepresentation of memory.
+/// `.szx` carries ch1ffd and can hold what is refused here, so the refusal
+/// message says so.
+///
+/// NEXT — REFUSED outright. Neither form can carry what makes the machine a
+/// Next: the other 700+ KB of RAM, the NextREG file, Layer 2, the sprites, the
+/// tilemap, the Copper, the DivMMC. A 48K SNA of a Next used to be written
+/// anyway, with exit status 0 and a "saved 48K snapshot" log line, so a user
+/// who asked for a snapshot of a Next got a file that quietly was not one
+/// (GH #274). `.jns` is the only format that can represent a Next, and the
+/// refusal says that too.
 class SnaSaver {
 public:
-    /// Save the current emulator state as a 48K SNA byte vector — the
-    /// user-facing route, used by `--delayed-snapshot` and File ▸ Save
-    /// Snapshot. Returns an EMPTY vector when the current machine cannot be
-    /// represented (see SCOPE) or on failure; the reason is logged, and copied
-    /// to `*error` when one is given, so a GUI can show it. Callers must
-    /// surface that as a real failure, never write a partial file.
+    /// Save the current emulator state as an SNA byte vector — the user-facing
+    /// route, used by `--delayed-snapshot` and File ▸ Save Snapshot. The form
+    /// follows the machine (see the class doc-comment). Returns an EMPTY vector
+    /// when the machine cannot be represented, or on failure; the reason is
+    /// logged, and copied to `*error` when one is given, so a GUI can show it.
+    /// Callers must surface that as a real failure, never write a partial file.
     static std::vector<uint8_t> save(Emulator& emu, std::string* error = nullptr);
 
-    /// The same 48K dump with NO machine check. For the callers whose contract
-    /// is the CPU VIEW rather than the machine — today
-    /// Emulator::start_rzx_recording(), which embeds this in an RZX whose
-    /// creator block names the real machine separately, so playback rebuilds
-    /// the Next and the snapshot only has to restore the 64 KB the CPU saw.
-    /// NOT a user-facing route: nothing on the command line or in the GUI
-    /// reaches it, so asking for a `.sna` FILE on a Next is still refused.
+    /// The 48K form with NO machine check — the CPU view, whatever machine is
+    /// running. It exists for ONE caller, Emulator::start_rzx_recording(), and
+    /// that embed is legitimate where a `.sna` FILE would not be: an RZX
+    /// records its machine type separately in its own creator block, so
+    /// playback rebuilds the Next and this snapshot only has to restore the
+    /// 64 KB the CPU could see. NOT a user-facing route — nothing on the
+    /// command line or in the GUI reaches it, so asking for a `.sna` of a Next
+    /// is still refused.
     static std::vector<uint8_t> save_cpu_view_unchecked(Emulator& emu);
+
+private:
+    /// The 128K form. Reached through save() only, for the machines whose
+    /// state it can describe.
+    static std::vector<uint8_t> save_128k(Emulator& emu);
 };
