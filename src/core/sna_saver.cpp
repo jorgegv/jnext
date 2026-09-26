@@ -65,6 +65,43 @@ static std::vector<uint8_t> extra_bank_set(uint8_t paged_bank) {
     return banks;
 }
 
+/// Is the CPU's 0x4000-0xFFFF view the classic map an SNA can describe?
+///
+/// BOTH forms describe that window by POSITION, not by naming a bank per block:
+/// block 1 is the RAM at 0x4000, block 2 the RAM at 0x8000, block 3 the RAM at
+/// 0xC000 — and `SnaLoader::apply()` puts them back at banks 5, 2 and
+/// (48K) bank 0 / (128K) `port_7ffd & 7`. The 128K form's extended header
+/// carries `0x7FFD` and nothing else, so that is the ONLY paging state a
+/// loader — ours or anyone's — can reconstruct from the file.
+///
+/// It follows that when the machine's actual mapping is not that map, the file
+/// cannot describe the machine even if every byte in it is right: the content
+/// would be correct and the MAPPING would still come back wrong, and any bank
+/// outside 0-7 has no block to live in at all. Extended paging is exactly that
+/// case — `port_7ffd_bank` composes bits 6:3 from `port_dffd_reg`
+/// (zxnext.vhd:3763-3766, mirrored by `Mmu::compose_bank_()`) on every
+/// non-Pentagon machine, and port 0xDFFD is writable whenever paging is
+/// unlocked. So an SNA is REFUSED there, for the same reason +3 special paging
+/// is: it is unwritable, not merely lossy.
+///
+/// `mmu.get_page(slot)` is the LOGICAL page, so bank N reads back as
+/// {2N, 2N+1} (`Mmu::apply_legacy_ram_slots_()`).
+static bool classic_window_intact(Mmu& mmu, uint8_t bank_at_c000,
+                                  std::string& found)
+{
+    const uint8_t want[6] = {10, 11, 4, 5,
+                             static_cast<uint8_t>(bank_at_c000 * 2),
+                             static_cast<uint8_t>(bank_at_c000 * 2 + 1)};
+    bool ok = true;
+    found = "slots 2-7 hold logical pages";
+    for (int slot = 2; slot <= 7; ++slot) {
+        const uint8_t got = mmu.get_page(static_cast<int>(slot));
+        found += " " + std::to_string(got);
+        if (got != want[slot - 2]) ok = false;
+    }
+    return ok;
+}
+
 std::vector<uint8_t> SnaSaver::save(Emulator& emu, std::string* error) {
     // GH #274 — the form follows the MACHINE, and a machine neither form can
     // describe is REFUSED rather than written lossily. It used to write a 48K
@@ -78,19 +115,46 @@ std::vector<uint8_t> SnaSaver::save(Emulator& emu, std::string* error) {
         return std::vector<uint8_t>{};
     };
 
-    switch (emu.config().type) {
-        case MachineType::ZX48K:
-            // The CPU view IS the machine: banks 5, 2, 0, no paging register.
-            return save_cpu_view_unchecked(emu);
+    // The window check is per machine and runs AFTER that machine's own, more
+    // specific refusals, so a +3 in special paging is told about special paging
+    // rather than about the window that is a consequence of it.
+    Mmu& mmu = emu.mmu();
+    auto window_refusal = [&](uint8_t bank_c000) -> std::string {
+        std::string found;
+        if (classic_window_intact(mmu, bank_c000, found)) return {};
+        return "SNA saver: the RAM this machine has mapped at 0x4000-0xFFFF is not the map "
+               "an '.sna' describes (bank 5, bank 2, then bank "
+               + std::to_string(bank_c000) + ") — " + found
+               + ". EXTENDED PAGING is the usual cause: port 0xDFFD composes bits 6:3 of the "
+                 "bank at 0xC000 (zxnext.vhd:3763-3766), and an SNA's extended header carries "
+                 "only 0x7FFD, so the snapshot would come back with a different bank mapped "
+                 "and any bank above 7 nowhere in the file at all. Use '.jns' — '.szx' has no "
+                 "field for 0xDFFD either.";
+    };
 
-        case MachineType::ZX128K:
+    switch (emu.config().type) {
+        case MachineType::ZX48K: {
+            // The CPU view IS the machine: banks 5, 2, 0, no paging register.
+            // The 48K form's third block always reloads into bank 0, so that is
+            // the only bank it can honestly have at 0xC000.
+            const std::string w = window_refusal(0);
+            if (!w.empty()) return refuse(w);
+            return save_cpu_view_unchecked(emu);
+        }
+
+        case MachineType::ZX128K: {
+            const std::string w = window_refusal(static_cast<uint8_t>(mmu.port_7ffd() & 0x07));
+            if (!w.empty()) return refuse(w);
             return save_128k(emu);
+        }
 
         case MachineType::ZX_PLUS3: {
             // Representable as a 128K machine unless port 0x1FFD says
             // otherwise — see the class doc-comment PLUS3 for why bit 0 and
-            // bit 2 are refusals and bits 1/3 are not.
-            const uint8_t p1ffd = emu.mmu().port_1ffd();
+            // bit 2 are refusals and bits 1/3 are not. Both are checked before
+            // the window, because special paging CHANGES the window and the
+            // specific reason is the useful one.
+            const uint8_t p1ffd = mmu.port_1ffd();
             if (p1ffd & 0x01) {
                 return refuse(
                     "SNA saver: this +3 is in SPECIAL PAGING (port 0x1FFD bit 0) — four RAM "
@@ -106,6 +170,8 @@ std::vector<uint8_t> SnaSaver::save(Emulator& emu, std::string* error) {
                     "back running a different ROM. Use '.szx', which carries 0x1FFD, or "
                     "'.jns'.");
             }
+            const std::string w = window_refusal(static_cast<uint8_t>(mmu.port_7ffd() & 0x07));
+            if (!w.empty()) return refuse(w);
             return save_128k(emu);
         }
 
@@ -133,6 +199,12 @@ std::vector<uint8_t> SnaSaver::save_128k(Emulator& emu) {
     Mmu&    mmu   = emu.mmu();
     auto    regs  = emu.cpu().get_registers();
     const uint8_t port_7ffd  = mmu.port_7ffd();
+    // `port_7ffd & 7` is the bank SnaLoader will reconstruct at 0xC000, NOT
+    // necessarily the bank the machine has there: extended paging composes
+    // bits 6:3 from port 0xDFFD (zxnext.vhd:3763-3766). save() refuses that
+    // case outright — see classic_window_intact() — so by the time we get here
+    // the two agree, and reading the bank by index is the same thing as
+    // reading the window.
     const uint8_t paged_bank = static_cast<uint8_t>(port_7ffd & 0x07);
     const std::vector<uint8_t> extra = extra_bank_set(paged_bank);
 

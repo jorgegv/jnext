@@ -45,12 +45,33 @@ class Emulator;
 ///     paging ROM 2 or ROM 3 — the DOS and 48K-BASIC ROMs, the common case for
 ///     a program that calls into them — would come back on ROM 0 or 1. That is
 ///     a wrong machine rather than a smaller one, so it is REFUSED too.
-///   * bit 1 (disk motor in normal paging) and bit 3 (printer strobe) are NOT
-///     part of the refusal: they are peripheral state, and NO SNA of ANY
-///     machine carries peripheral state. Losing them is the format's scope,
-///     not a misrepresentation of memory.
+///   * bit 3 is the +3 DISK MOTOR (`port_1ffd_mtr_n <= not cpu_do(3)`,
+///     zxnext.vhd:3757 — and there is no printer-strobe signal in the core at
+///     all), and bit 1 is one of the two special-paging configuration bits
+///     (`port_1ffd_reg(2 downto 1)`, zxnext.vhd:4623-4625, jnext
+///     `Mmu::map_plus3_bank()`), which only selects anything while bit 0 is
+///     set — and bit 0 already refuses. Neither is part of the refusal:
+///     neither changes what the form's three fixed blocks mean, and NO SNA of
+///     ANY machine carries peripheral state such as a motor line. Losing that
+///     is the format's scope, not a misrepresentation of memory.
 /// `.szx` carries ch1ffd and can hold what is refused here, so the refusal
 /// message says so.
+///
+/// THE WINDOW — REFUSED for any machine whose 0x4000-0xFFFF mapping is not the
+/// one the form describes. Both forms describe that window by POSITION, and
+/// SnaLoader::apply() puts the three blocks back at banks 5, 2 and (48K) bank 0
+/// / (128K) the bank `port_7ffd` names — the only paging state in the file.
+/// EXTENDED PAGING breaks that: `port_7ffd_bank` composes bits 6:3 of the bank
+/// at 0xC000 from `port_dffd_reg` on every non-Pentagon machine
+/// (zxnext.vhd:3763-3766, `Mmu::compose_bank_()`), and port 0xDFFD is writable
+/// whenever paging is unlocked — on `--machine 48k` as much as on a 128K, since
+/// neither the composition nor the port decode is gated on machine type. The
+/// file then cannot describe the machine even with every byte in it correct:
+/// the MAPPING comes back wrong, and a bank above 7 has no block to live in at
+/// all. The Next MMU registers (NR 0x50-0x57, ungated per zxnext.vhd:4686) can
+/// move 0x4000/0x8000 the same way. Both are refused, pointing at `.jns` — and
+/// NOT at `.szx`, whose ZXSTSPECREGS has ch7ffd and ch1ffd and no field for
+/// 0xDFFD either. See classic_window_intact() in the .cpp for the derivation.
 ///
 /// NEXT — REFUSED outright. Neither form can carry what makes the machine a
 /// Next: the other 700+ KB of RAM, the NextREG file, Layer 2, the sprites, the

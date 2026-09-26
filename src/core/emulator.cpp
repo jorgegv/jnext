@@ -7668,8 +7668,9 @@ bool Emulator::init_for_load_from_file()
     //
     // Only the two ROM-select bits are set, not the measured bytes: 7FFD's
     // low bits also choose the bank at 0xC000 (which apply() overwrites from
-    // the entry bank anyway) and 1FFD bit 1 is the +3 disk motor, which no
-    // part of this is about. ROM bank = (1FFD(2), 7FFD(4)) — mmu.h
+    // the entry bank anyway) and 1FFD bit 1 is a special-paging config bit
+    // (zxnext.vhd:4623-4625), inert while bit 0 is clear — the +3 disk motor
+    // is bit 3 (zxnext.vhd:3757). Neither is what any part of this is about. ROM bank = (1FFD(2), 7FFD(4)) — mmu.h
     // current_rom_bank(), VHDL zxnext.vhd:2994.
     mmu_.map_plus3_bank(static_cast<uint8_t>(mmu_.port_1ffd() | 0x04));
     mmu_.map_128k_bank(static_cast<uint8_t>(mmu_.port_7ffd() | 0x10));
