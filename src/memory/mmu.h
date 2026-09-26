@@ -922,7 +922,13 @@ public:
     // automap gate already ANDs it, so the result is the same either
     // way). `config_mode_` is folded in because the config-mode branch
     // at :3044-3050 sets override "110" — override(0)='0' — so the
-    // altrom override cannot be in play there.
+    // altrom override cannot be in play there. That term is therefore
+    // REDUNDANT at the production call site and can never change the
+    // outcome: DivMmc::check_automap already ANDs `sram_pre_override_0`,
+    // which config mode has driven to 0, into the same expression. It is
+    // kept so the accessor states the whole VHDL condition on its own
+    // rather than relying on a caller to complete it (ALT-15 pins it,
+    // and says the same thing).
     bool sram_altrom_en_on_read() const {
         return nr_8c_altrom_en() && !nr_8c_altrom_rw() && !config_mode_;
     }
