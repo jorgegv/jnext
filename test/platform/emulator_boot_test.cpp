@@ -1027,14 +1027,19 @@ int main()
                   "byte26=" + std::to_string(sna.size() > 26 ? sna[26] : -1));
         }
 
-        // EB-52: a recording started on a NEXT still embeds that 48K SNA
-        // (GH #274). SnaSaver::save() refuses a Next — a `.sna` FILE of a Next
-        // lies about its machine — so start_rzx_recording() goes through
-        // SnaSaver::save_cpu_view_unchecked() instead. The contract here is
-        // different: the RZX names its machine in its own creator block, so
-        // playback rebuilds the Next and the snapshot only has to restore the
-        // 64 KB the CPU saw. Routing this through the refusing entry point
-        // would embed NOTHING and a Next recording would replay a cold boot.
+        // EB-52: RZX RECORDING IS REFUSED ON A NEXT (GH #274, owner decision
+        // 2026-09-26). An RZX carries a classic-Spectrum snapshot AND a
+        // per-frame log of IN VALUES WITHOUT PORTS, so a Next recording is
+        // either lossy — the 48K SNA it used to embed holds no NextREGs, Layer
+        // 2, tilemap, sprites or Copper — or desynchronised: a `.jns` embed was
+        // built and measured, and the replayed guest made two port reads the
+        // recording never captured, shifting every recorded value and wedging
+        // the guest in a HALT with IFF1 clear. Refusing says so once instead of
+        // writing a file that looks fine and replays wrong.
+        //
+        // The row asserts the refusal AND that nothing was left behind: no
+        // recorder running, and no file. The machines that CAN record are
+        // covered by EB-39/EB-40 above (48K) and rzx-machine-func (48K + 128K).
         {
             EmulatorConfig next_cfg;
             next_cfg.type = MachineType::ZXN_ISSUE2;
@@ -1043,17 +1048,19 @@ int main()
             emu.init(next_cfg);
             const std::string next_rec =
                 (tmp / ("jnext-eb-next-rzx-" + stamp + ".rzx")).string();
-            const bool started = emu.start_rzx_recording(next_rec);
-            const auto& rec = emu.rzx_recorder().recording();
-            const std::size_t snap_size = rec.snapshot_data.size();
-            const std::string snap_ext = rec.snapshot_ext;
-            emu.stop_rzx_recording();
             std::remove(next_rec.c_str());
-            check("EB-52", "an RZX recorded on a Next embeds the 48K SNA of the CPU view "
-                  "(49179 bytes, ext 'sna') although a .sna FILE of a Next is refused",
-                  started && snap_size == 49179 && snap_ext == "sna",
-                  "started=" + std::to_string(started) + " size=" +
-                      std::to_string(snap_size) + " ext='" + snap_ext + "'");
+            const bool started = emu.start_rzx_recording(next_rec);
+            const bool recording = emu.rzx_recorder().is_recording();
+            std::ifstream probe(next_rec, std::ios::binary);
+            const bool file_written = probe.good();
+            probe.close();
+            std::remove(next_rec.c_str());
+            check("EB-52", "RZX recording is refused on a Next: start_rzx_recording() "
+                  "returns false, no recorder is left running and no file is written",
+                  !started && !recording && !file_written,
+                  "started=" + std::to_string(started) +
+                      " recording=" + std::to_string(recording) +
+                      " file=" + std::to_string(file_written));
         }
 
         std::remove(rec_path.c_str());
@@ -1196,13 +1203,25 @@ int main()
         };
         const MachineType all[] = {MachineType::ZX48K, MachineType::ZX128K,
                                    MachineType::ZX_PLUS3, MachineType::ZXN_ISSUE2};
+        // The machines an RZX can be RECORDED on — every one but the Next
+        // (GH #274). `all` stays as it is: it is also the set of machines a
+        // recording may be PLAYED from, and that is unchanged.
+        const MachineType recordable[] = {MachineType::ZX48K, MachineType::ZX128K,
+                                          MachineType::ZX_PLUS3};
 
         // EB-46: each machine's own recording boots that machine, whatever is
-        // configured — the Next's too, although its snapshot is a 48K SNA.
+        // configured.
+        //
+        // THE NEXT IS NOT IN THIS LOOP ANY MORE (GH #274): RZX recording is
+        // refused there, so no Next recording can be MADE to test with. The
+        // marker side of the contract still holds for a Next — a recording an
+        // older jnext wrote names it, and EB-47's foreign-snapshot cases and
+        // rzx::recorded_machine() are unchanged — and playing one is what
+        // load_rzx() warns about. EB-52 asserts the refusal.
         {
             bool ok = true;
             std::string why;
-            for (MachineType m : all) {
+            for (MachineType m : recordable) {
                 const std::string path = path_for(rzx::machine_marker_name(m));
                 EmulatorConfig cfg = base_config();
                 cfg.type = m;

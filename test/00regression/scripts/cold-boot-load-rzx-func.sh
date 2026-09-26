@@ -16,7 +16,10 @@ if want cold-boot-load-rzx-func; then
     begin_func cold-boot-load-rzx-func
     cb_rzx="$TMP_DIR/cold_boot_test.rzx"
     rm -f "$cb_rzx"
-    timeout --foreground --kill-after=5s 40s "$JNEXT" --headless --machine next \
+    # The FIXTURE records on a 48K — a Next cannot record (GH #274) — while the
+    # run that PLAYS it still cold-boots a Next, which is what this row is about:
+    # the shared cold-boot load dispatch routing a .rzx to playback.
+    timeout --foreground --kill-after=5s 40s "$JNEXT" --headless --machine 48k \
         "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" \
         --rzx-record "$cb_rzx" --delayed-automatic-exit-frames 120 >/dev/null 2>&1 || true
     cb_out=""

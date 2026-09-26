@@ -11,8 +11,9 @@ if want rzx-playback-func; then
     begin_func rzx-playback-func
     rzx_rt="$TMP_DIR/roundtrip.rzx"
     # Record 2 seconds
+    # --machine 48k for the same reason as rzx-record-func: a Next cannot record.
     timeout --foreground --kill-after=5s 8s "$JNEXT" --headless \
-        "${SD_CARD_ARGS[@]}" \
+        "${SD_CARD_ARGS[@]}" --machine 48k \
         --rzx-record "$rzx_rt" \
         --delayed-automatic-exit 2 &>/dev/null || true
     if [[ -f "$rzx_rt" ]]; then

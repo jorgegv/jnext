@@ -27,7 +27,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #          headless, Qt and SDL; each file replayed headless.
 #   szx    128K, --load x.szx of a program that paged bank 7 in and shows the
 #          shadow screen (headless).
-#   nex    Next, --load red.nex (headless).
+#   nex    REMOVED with GH #274 — it recorded on a Next, and RZX recording is
+#          refused there now (the format carries a 48K/128K/+3 snapshot and an
+#          input log of values without ports; a Next recording is either lossy
+#          or desynchronised). The `.nex` half of what it proved — that the
+#          recording's snapshot holds the LOADED program and not a bare boot —
+#          is still proved by the sna, szx and tap cases on the machines that
+#          can record. The refusal itself is asserted by rzx-machine-func and by
+#          the cli case below.
 #   tap    48K, --load bifrost.tap: the recording loads the tape in real time
 #          (the log says so) and replays it (headless).
 #   cli    the combinations that cannot work are refused up front, status 1:
@@ -113,7 +120,6 @@ if want rzx-loaded-program-func; then
                 lp_round "$fe" 48k "sna-$fe" 100 --load "$lp_dir/bifrost.sna"
             done
             lp_round headless 128k szx 60 --load "$lp_dir/page7.szx"
-            lp_round headless next nex 100 --load "$PROJECT_DIR/test/00regression/nex/red.nex"
             lp_round headless 48k tap 300 --load "$PROJECT_DIR/test/00regression/tap/bifrost.tap"
             grep -qF "TAP: switched to real-time loading" "$lp_dir/tap-rec.log" \
                 || lp_faults+=("tap: the recording did not switch the tape to real-time loading")
@@ -129,6 +135,20 @@ if want rzx-loaded-program-func; then
             [inject+play]="--inject $lp_dir/x.bin --rzx-play $lp_ok_rzx"
             [tapesave+record]="--tape-save $lp_dir/t.tap --rzx-record $lp_dir/o.rzx"
         )
+        # GH #274 — recording on a Next is refused too, and it is the refusal a
+        # user meets by accident, because the Next is the DEFAULT machine. It is
+        # driven separately from the table above because that table runs every
+        # case on 48k, which is exactly the machine this one must not use.
+        rc=$(lp_run headless next "$lp_dir/cli-next-record.log" \
+                --rzx-record "$lp_dir/o.rzx" --delayed-automatic-exit-frames 5)
+        [[ "$rc" != 0 ]] \
+            || lp_faults+=("next-record: recording on a Next exited 0; it must be refused")
+        [[ ! -f "$lp_dir/o.rzx" ]] \
+            || lp_faults+=("next-record: a file was written for a refused recording")
+        grep -qF "cannot record on a ZX Spectrum Next" "$lp_dir/cli-next-record.log" \
+            || lp_faults+=("next-record: no refusal naming the machine")
+        grep -qF -e "--machine 48k" "$lp_dir/cli-next-record.log" \
+            || lp_faults+=("next-record: the refusal does not say which machines CAN record")
         for k in "${!lp_cli[@]}"; do
             # shellcheck disable=SC2086  # the case's arguments, word-split on purpose
             rc=$(lp_run headless 48k "$lp_dir/cli-$k.log" ${lp_cli[$k]} \
@@ -141,7 +161,7 @@ if want rzx-loaded-program-func; then
         if [[ ${#lp_faults[@]} -gt 0 ]]; then
             fail_row " ($(IFS=';'; echo "${lp_faults[*]}"))"
         else
-            pass_row " (a loaded .sna (headless/Qt/SDL), a paged 128K .szx, a .nex and a fast-load .tap replay their recordings exactly; impossible RZX combinations are refused)"
+            pass_row " (a loaded .sna (headless/Qt/SDL), a paged 128K .szx and a fast-load .tap replay their recordings exactly; impossible RZX combinations are refused, recording on a Next among them)"
         fi
     fi
 fi

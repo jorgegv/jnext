@@ -10,8 +10,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 if want rzx-record-func; then
     begin_func rzx-record-func
     rzx_file="$TMP_DIR/test_recording.rzx"
+    # --machine 48k, not the default: RZX recording is refused on a Next
+    # (GH #274 — the format cannot carry one). This row is about the FILE being
+    # a valid RZX, so it records on a machine that can.
     rzx_output=$(timeout --foreground --kill-after=5s 10s "$JNEXT" --headless \
-        "${SD_CARD_ARGS[@]}" \
+        "${SD_CARD_ARGS[@]}" --machine 48k \
         --rzx-record "$rzx_file" \
         --delayed-automatic-exit 3 2>&1) || true
     if [[ -f "$rzx_file" ]]; then

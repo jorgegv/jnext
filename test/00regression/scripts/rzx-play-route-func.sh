@@ -19,8 +19,18 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # same file. rzx-frontends-func could not see it: it records a 48K machine,
 # where load_file changes nothing.
 #
-# THE MEASUREMENT. A Next session of test05print.nex (which prints through the
-# ROM) is recorded headless and screenshotted at frame 100: the truth. Then
+# GH #274 — THIS ROW MOVED TO THE 128K, and what that costs is worth stating.
+# It was written because a NEXT recording exposed the routing bug: one route
+# replayed it under the boot ROM. RZX recording is refused on a Next now (the
+# format carries a 48K/128K/+3 snapshot and an input log of values without
+# ports, so a Next recording is either lossy or desynchronised), so that exact
+# fixture cannot be built any more — and the code path it exercised is
+# unreachable for the same reason. What remains testable, and is what this row
+# now tests, is that every ROUTE into playback gives the same picture. The
+# machine-of-the-recording half is rzx-machine-func's, on 48K and 128K.
+#
+# THE MEASUREMENT. A 128K session of a program loaded from a snapshot is
+# recorded headless and screenshotted at frame 100: the truth. Then
 # each of these must give a picture identical to it at the same point of the
 # replay (png_diff 0):
 #   --rzx-play, --load x.rzx, bare x.rzx     in headless, the Qt GUI and SDL
@@ -35,11 +45,14 @@ if want rzx-play-route-func; then
     pr_dir="$TMP_DIR/rzx-play-route"
     rm -rf "$pr_dir"; mkdir -p "$pr_dir"
     pr_sdl="$PROJECT_DIR/build/sdl-release/jnext"
-    pr_nex="$PROJECT_DIR/test/00regression/nex/test05print.nex"
+    # The loaded program is a 128K .szx of a running session, built below: the
+    # row needs a picture that is NOT a bare boot, and a NEX cannot load on the
+    # 128K this row moved to.
+    pr_prog="$pr_dir/session.szx"
     pr_rzx="$pr_dir/session.rzx"
     pr_faults=()
 
-    # pr_run <frontend> <tag> <frames> <jnext args...>: one Next run that
+    # pr_run <frontend> <tag> <frames> <jnext args...>: one 128K run that
     # screenshots <dir>/<tag>.png after <frames> frames; prints the status.
     pr_run() {
         local fe=$1 tag=$2 n=$3 rc=0; shift 3
@@ -48,17 +61,17 @@ if want rzx-play-route-func; then
         case $fe in
             headless)
                 timeout --foreground --kill-after=5s 120s "$JNEXT" --headless \
-                    "${SD_CARD_ARGS[@]}" --machine next "$@" "${shot[@]}" \
+                    "${SD_CARD_ARGS[@]}" --machine 128k "$@" "${shot[@]}" \
                     >"$pr_dir/$tag.log" 2>&1 || rc=$? ;;
             qt)
                 env QT_QPA_PLATFORM=offscreen \
                 timeout --foreground --kill-after=5s 120s "$JNEXT" --silent \
-                    "${SD_CARD_ARGS[@]}" --machine next "$@" "${shot[@]}" \
+                    "${SD_CARD_ARGS[@]}" --machine 128k "$@" "${shot[@]}" \
                     >"$pr_dir/$tag.log" 2>&1 || rc=$? ;;
             sdl)
                 env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
                 timeout --foreground --kill-after=5s 120s "$pr_sdl" --silent \
-                    "${SD_CARD_ARGS[@]}" --machine next "$@" "${shot[@]}" \
+                    "${SD_CARD_ARGS[@]}" --machine 128k "$@" "${shot[@]}" \
                     >"$pr_dir/$tag.log" 2>&1 || rc=$? ;;
         esac
         echo "$rc"
@@ -76,14 +89,28 @@ if want rzx-play-route-func; then
     elif ! $HAS_COMPARE; then
         skip_row " (no ImageMagick — cannot compare the replayed pictures)"
     else
-        rc=$(pr_run headless truth 100 --load "$pr_nex" --rzx-record "$pr_rzx")
+        # Fixture: a 128K mid-run .szx. The injected program (DI; LD BC,7FFD;
+        # LD A,1F; OUT (C),A — bank 7 at 0xC000, ROM 1, shadow screen shown;
+        # fill the shadow screen with 0x47; EI; HALT; JR -3) gives a picture no
+        # plain boot produces, and a .szx carries the paging that makes it.
+        printf '\xf3\x01\xfd\x7f\x3e\x1f\xed\x79\x21\x00\xc0\x11\x01\xc0\x01\xff\x1a\x36\x47\xed\xb0\xfb\x76\x18\xfd' \
+            > "$pr_dir/prog.bin"
+        timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine 128k \
+            "${SD_CARD_ARGS[@]}" --inject "$pr_dir/prog.bin" --inject-delay 100 \
+            --delayed-snapshot "$pr_prog" --delayed-snapshot-frames 150 \
+            --delayed-automatic-exit-frames 151 >"$pr_dir/mk-szx.log" 2>&1 || true
+        if [[ ! -s "$pr_prog" ]]; then
+            fail_row " (could not build the 128K .szx fixture)"
+            return 2>/dev/null || true
+        fi
+        rc=$(pr_run headless truth 100 --load "$pr_prog" --rzx-record "$pr_rzx")
         rc_boot=$(pr_run headless boot 100)
         if [[ "$rc" != 0 || ! -s "$pr_rzx" ]]; then
             fail_row " (could not record the ground truth: rc=$rc)"
         else
             c=$(png_diff "$pr_dir/truth.png" "$pr_dir/boot.png")
             [[ "$rc_boot" == 0 && "$c" -gt 0 && "$c" -lt 999999 ]] \
-                || pr_faults+=("the truth equals a plain Next boot (png_diff=$c, rc=$rc_boot) — proves nothing")
+                || pr_faults+=("the truth equals a plain 128K boot (png_diff=$c, rc=$rc_boot) — proves nothing")
             for fe in headless qt sdl; do
                 pr_same "$fe-rzx-play" "$(pr_run "$fe" "$fe-rzx-play" 100 --rzx-play "$pr_rzx")"
                 pr_same "$fe-load"     "$(pr_run "$fe" "$fe-load" 100 --load "$pr_rzx")"
@@ -98,7 +125,7 @@ if want rzx-play-route-func; then
             if [[ ${#pr_faults[@]} -gt 0 ]]; then
                 fail_row " ($(IFS=';'; echo "${pr_faults[*]}"))"
             else
-                pass_row " (a Next recording replays pixel-exact via --rzx-play, --load and bare .rzx in headless/Qt/SDL, and via a cold-boot load)"
+                pass_row " (a 128K recording of a loaded program replays pixel-exact via --rzx-play, --load and bare .rzx in headless/Qt/SDL, and via a cold-boot load)"
             fi
         fi
     fi

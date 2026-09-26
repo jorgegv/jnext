@@ -1683,12 +1683,14 @@ static void test_snapsave_sna_machine_boundary() {
               fmt("[8FFE]=%02X [8FFF]=%02X (want A5 5A)",
                   emu.mmu().read(0x8FFE), emu.mmu().read(0x8FFF)));
 
-        const std::vector<uint8_t> view = SnaSaver::save_cpu_view_unchecked(emu);
-        check("SNAPSAVE-SNA-CPUVIEW-NEXT",
-              "save_cpu_view_unchecked() still dumps the CPU view on a Next — "
-              "the route Emulator::start_rzx_recording() embeds in an RZX",
-              view.size() == SNA_48K_SIZE,
-              fmt("size=%zu (want %zu)", view.size(), SNA_48K_SIZE));
+        // The unchecked CPU-view entry point that used to be asserted here is
+        // GONE with its only caller. It existed for the RZX recorder's Next
+        // embed, and RZX now REFUSES on a Next (GH #274, owner decision
+        // 2026-09-26 — the format carries a 48K/128K/+3 snapshot plus an input
+        // log of values without ports, so a Next recording is either lossy or
+        // desynchronised). Nothing wants a lossy dump of a machine the format
+        // cannot describe, and there is no route to one:
+        // emulator_boot_test EB-52 asserts the refusal.
     }
 
     // ── 48K: the 48K form, and it round-trips ─────────────────────────
@@ -2040,6 +2042,63 @@ static void test_snapsave_sna_machine_boundary() {
                   && error.find("0x4000-0xFFFF") != std::string::npos,
               fmt("slot4_page=%u (want 20) size=%zu error='%s'",
                   slot4, sna.size(), error.c_str()));
+    }
+
+    // The PENTAGON-MODE axis of the same predicate. With NR 0x8F = "10" the
+    // bank at 0xC000 composes bits 4:3 from `port_7ffd` bits 7:6 instead of
+    // from `port_dffd_reg` (zxnext.vhd:3764-3765, `Mmu::compose_bank_()`'s
+    // pentagon branch). The predicate catches it for the same reason it catches
+    // extended paging — it compares the WINDOW, not the mechanism — and this
+    // row is here so that is verified rather than reasoned about.
+    {
+        Emulator emu;
+        emu.init(reinit_cfg(MachineType::ZX128K));
+        emu.mmu().write_nr_8f(0x02);           // Pentagon mapping mode
+        emu.port().out(0x7FFD, 0x40);          // bits 7:6 = 01 -> bank 8, low bits 0
+        const uint8_t slot6 = emu.mmu().get_page(6);
+        std::string error;
+        const std::vector<uint8_t> sna = SnaSaver::save(emu, &error);
+        check("SNAPSAVE-SNA-128K-PENTAGON-REFUSED",
+              "Pentagon mapping mode composes the bank at 0xC000 from 0x7FFD bits "
+              "7:6, which the format's 3-bit field cannot name, and is refused by "
+              "the same window check — mechanism-independent by construction",
+              emu.mmu().pentagon_en() && slot6 == 16 && sna.empty()
+                  && error.find("0x4000-0xFFFF") != std::string::npos,
+              fmt("pentagon_en=%d slot6_page=%u (want 16) size=%zu error='%s'",
+                  emu.mmu().pentagon_en() ? 1 : 0, slot6, sna.size(), error.c_str()));
+    }
+
+    // And its other side: Pentagon mode with the extra bits CLEAR still saves,
+    // so the refusal is the state and not the mode.
+    {
+        Emulator src;
+        src.init(reinit_cfg(MachineType::ZX128K));
+        fill_all_banks(src);
+        src.mmu().write_nr_8f(0x02);
+        src.port().out(0x7FFD, 0x02);          // bank 2 at 0xC000, extra bits 0
+        src.cpu().set_registers(marked_regs(src, 0x9100, 0xBF00));
+        std::string error;
+        const std::vector<uint8_t> sna = SnaSaver::save(src, &error);
+        const std::vector<uint8_t> want = capture_banks(src);
+        std::string path;
+        bool loaded = false, ram_ok = false;
+        int  bad = -1;
+        // Bank 2 paged at 0xC000 is the six-remaining-bank form, so this also
+        // exercises that arithmetic under Pentagon composition.
+        if (sna.size() == SNA_128K_DUP && write_temp_file(sna, path)) {
+            Emulator dst;
+            dst.init(reinit_cfg(MachineType::ZX128K));
+            fill_pages(dst, 0, 16, 0x5C);
+            loaded = dst.load_sna(path);
+            std::remove(path.c_str());
+            ram_ok = banks_match(want, dst, ALL_EIGHT_BANKS, bad);
+        }
+        check("SNAPSAVE-SNA-128K-PENTAGON-CLEAR-SAVES",
+              "Pentagon mode with 0x7FFD bits 7:6 clear still saves and round-trips "
+              "all eight banks — the refusal is the window, not the mapping mode",
+              sna.size() == SNA_128K_DUP && error.empty() && loaded && ram_ok,
+              fmt("size=%zu (want %zu) err='%s' loaded=%d first_bad_bank=%d",
+                  sna.size(), SNA_128K_DUP, error.c_str(), loaded ? 1 : 0, bad));
     }
 
     // ── +3 states the format cannot describe: refused ─────────────────
