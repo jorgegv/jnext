@@ -1072,7 +1072,7 @@ docs-userguide:
 	@printf "$(BADGE_PASS) OK $(RESET) user guide rendered to doc/user-guide\n"
 	@printf "        it is committed: commit the regenerated files alongside your change\n"
 
-# Regenerate the user guide's 12 debugger screenshots from the running product
+# Regenerate the user guide's 14 Qt screenshots from the running product
 docs-screenshots: unit-test-build
 	@# WHAT THIS IS FOR. src/doc/user-guide/img/debugger-*.png are pictures of
 	@# the debugger, and docs-check cannot see inside a PNG — it proves the
@@ -1095,11 +1095,16 @@ docs-screenshots: unit-test-build
 	@# SKIP rather than fail when the renderer differs. Here there is no
 	@# renderer fingerprint to compare, so the check could only cry wolf.
 	@#
-	@# COVERS the 12 debugger images. It does NOT cover gui-main-window.png or
-	@# preferences-startup.png (one needs the jnext_gui frontend and an audio
-	@# device, the other would publish the developer's own jnext.conf), nor any
-	@# image that is emulator OUTPUT rather than a Qt widget — jnext renders
-	@# those itself with --delayed-screenshot.
+	@# COVERS every picture of a Qt widget in the guide: the 12 debugger images
+	@# and, since GH #275, gui-main-window.png and preferences-startup.png. The
+	@# two used to be excluded for reasons that did not hold — MainWindow needs
+	@# no audio device (QtApp owns that path), and the Preferences capture is
+	@# handed a default config under a redirected JNEXT_CONFIG_DIR, so it cannot
+	@# publish the developer's own jnext.conf. Both had gone stale exactly the
+	@# way the debugger ones did, which is what made a mixed set untenable.
+	@#
+	@# It does NOT cover an image that is emulator OUTPUT rather than a Qt
+	@# widget — jnext renders those itself with --delayed-screenshot.
 	$(CMAKE) --build build --target docshot -j$(JOBS)
 	@# The tool needs a NextZXOS image, and jnext opens one read-write: hand it
 	@# a reflink clone so a capture run never mutates the developer's master.
@@ -1144,7 +1149,7 @@ docs-screenshots: unit-test-build
 	 cp --reflink=auto "$$sd" "$$run_dir/sd.img"; \
 	 rc=0; ./build/docshot --sdcard "$$run_dir/sd.img" --out $(GUIDE_SRC)/img || rc=$$?; \
 	 if [ $$rc -ne 0 ]; then printf "$(BADGE_FAIL) FAIL $(RESET) docshot did not write every image\n"; exit $$rc; fi; \
-	 printf "$(BADGE_PASS) OK $(RESET) debugger screenshots regenerated in $(GUIDE_SRC)/img\n"; \
+	 printf "$(BADGE_PASS) OK $(RESET) guide screenshots regenerated in $(GUIDE_SRC)/img\n"; \
 	 printf "        LOOK AT THEM, then run 'make docs-userguide' and commit both copies\n"
 
 # Serve the rendered user guide over HTTP so it can be read in a browser

@@ -687,7 +687,8 @@ you notice that the two consumers want opposite things.
 machine can start, jnext needs the ROM images that on real hardware live as
 files on the card, and there is no guest yet to ask for them — so the emulator
 opens the `.img` *as a filesystem* and pulls them out by path:
-`/MACHINES/NEXT/48.rom`, `enNxtmmc.rom`, `enNextMf.rom`. It is read-only,
+`/MACHINES/NEXT/48.rom`, `128.rom`, `plus3.rom`, `enNxtmmc.rom`,
+`enNextMf.rom` and `enAltZX.rom`. It is read-only,
 handles MBR + FAT32-LBA only, and does short-name lookup only, which is all
 that job needs.
 

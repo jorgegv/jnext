@@ -1,20 +1,23 @@
-// docshot — regenerate the user guide's debugger screenshots from the running
+// docshot — regenerate the user guide's Qt screenshots from the running
 // product, headlessly.
 // ===========================================================================
 //
 // WHY THIS EXISTS
 //
-// src/doc/user-guide/img/debugger-*.png are pictures of the debugger. Until
-// this tool they were hand-captured, and nothing compared them against the UI
-// they claim to show: `make docs-check` proves the rendered HTML matches the
+// Every picture of a Qt widget in src/doc/user-guide/img — the debugger
+// panels, the main emulator window, the Preferences dialog. Until this tool
+// they were hand-captured, and nothing compared them against the UI they claim
+// to show: `make docs-check` proves the rendered HTML matches the
 // markdown, and it cannot see inside a PNG. So a screenshot could contradict
-// the prose directly beneath it with every gate green — which happened twice.
-// GH #225 added an Enabled column and a master switch to the Breakpoints panel
-// and left the picture above the description showing neither (caught in
-// review); GH #22 replaced the Video panel's one-line HC/VC header with four
-// labelled raster counters, a Region readout, a ULA-fetch readout and a frame
-// diagram, and left debugger-video.png showing the old header (not caught at
-// all — it was still stale two issues later).
+// the prose directly beneath it with every gate green — which has now happened
+// four times. GH #225 added an Enabled column and a master switch to the
+// Breakpoints panel and left the picture above the description showing neither
+// (caught in review); GH #22 replaced the Video panel's one-line HC/VC header
+// with four labelled raster counters, a Region readout, a ULA-fetch readout
+// and a frame diagram, and left debugger-video.png showing the old header (not
+// caught at all — it was still stale two issues later). The other two are the
+// main window and the Preferences dialog; see THE TWO NON-DEBUGGER QT WIDGETS
+// below.
 //
 // This tool is the answer to "re-capture it in the same change": one command,
 // no display, no mouse, deterministic content.
@@ -76,20 +79,37 @@
 // read-write and NextZXOS writes to it, so `make docs-screenshots` hands this
 // tool a reflink clone rather than the master — see the Makefile target.
 //
-// WHAT IT DOES NOT COVER — and why, stated rather than silently skipped:
+// THE TWO NON-DEBUGGER QT WIDGETS (GH #275)
 //
-//   img/gui-main-window.png    the main emulator window. Needs jnext_gui and
-//                              an SDL audio device (MainWindow owns the audio
-//                              path); capturing it headlessly means bringing up
-//                              a second frontend for one picture.
-//   img/preferences-startup.png  the Preferences dialog. Its content IS the
-//                              developer's own ~/.jnext/jnext.conf; a capture
-//                              would publish whatever they had set.
-//   every non-debugger image   boot-splash, machine-*, layers-*, nextzxos-*,
-//                              nxtel-online, first-boot, 07-screenshot-diff —
-//                              these are pictures of emulator OUTPUT, not of a
-//                              Qt widget, and jnext already renders them itself
-//                              via --delayed-screenshot.
+// The guide has two more pictures of a Qt widget: the main emulator window and
+// the Preferences dialog. Both were hand-captured, and both went stale exactly
+// the way the debugger ones did — gui-main-window.png predates the Soft Reset
+// toolbar button (GH #45, 2026-07-24; the image was committed 2026-07-20) and
+// shows three toolbar icons where the product builds four, and
+// preferences-startup.png sat through two tab additions showing four tabs under
+// prose that said six. So they are captured here too, which is what makes the
+// guide's Qt screenshots ONE regenerable set rather than a mixed one.
+//
+// The two reasons the header used to give for leaving them out were both
+// wrong, and are recorded here so they are not re-derived:
+//
+//   "MainWindow needs an SDL audio device"  — it does not. The audio path
+//     belongs to QtApp, not to MainWindow; test/gui/main_window_accel_test.cpp
+//     already builds the real MainWindow under the offscreen QPA platform with
+//     no audio device at all.
+//   "Preferences would publish the developer's own jnext.conf"  — it cannot,
+//     for the same reason the debugger geometry cannot leak: JNEXT_CONFIG_DIR
+//     is redirected to a throwaway directory below, and the dialog is handed a
+//     default-constructed AppConfigData anyway.
+//
+// WHAT IT STILL DOES NOT COVER — stated rather than silently skipped:
+//
+//   every non-debugger, non-widget image   boot-splash, machine-*, layers-*,
+//                              nextzxos-*, nxtel-online, first-boot,
+//                              07-screenshot-diff — these are pictures of
+//                              emulator OUTPUT, not of a Qt widget, and jnext
+//                              already renders them itself via
+//                              --delayed-screenshot.
 //
 // Run: ./build/docshot --out src/doc/user-guide/img [name ...]
 
@@ -107,6 +127,10 @@
 #include "debugger/stack_panel.h"
 #include "debugger/video_panel.h"
 #include "debugger/watch_panel.h"
+#include "gui/app_config.h"
+#include "gui/emulator_widget.h"
+#include "gui/main_window.h"
+#include "gui/preferences_dialog.h"
 #include "port/nextreg.h"
 #include "video/sprites.h"
 #include "video/timing.h"
@@ -481,9 +505,124 @@ bool wanted(const Options& o, const char* name) {
     return false;
 }
 
+// ── The two non-debugger Qt widgets (GH #275) ─────────────────────────
+
+/// Capture gui-main-window.png and preferences-startup.png.
+///
+/// CALLED BEFORE the debugger host is built, and the MainWindow is destroyed
+/// again on the way out. Both halves matter.
+///
+///   * Before, because the main window's picture is of a machine that has just
+///     finished booting, and the debugger flow deliberately moves the machine
+///     on: it stops mid-line, arms breakpoints, and later uploads a sprite /
+///     Copper / AY fixture. A capture taken after any of that would be a
+///     picture of the NextZXOS welcome screen with somebody's demo sprites
+///     composited over it.
+///   * Destroyed again, because MainWindow::set_emulator() builds its OWN
+///     DebuggerManager — that is where the toolbar's bug button comes from —
+///     and two managers on one Emulator is a state no product build has. The
+///     manager owns nothing of the emulator and installs no timer, so the
+///     teardown leaves the machine as the boot left it; the check that this is
+///     true is that the twelve debugger images come out byte-identical with
+///     this block present and with it removed.
+///
+/// DELIBERATELY NOT CALLED: MainWindow::apply_startup_config(). It is part of
+/// the real startup path, but it WRITES NR 0x07 from the config — so a default
+/// config would reset the booted machine's CPU speed to 3.5 MHz, and the status
+/// bar in this one picture would then disagree with the machine every other
+/// image here is taken from. The only thing it would otherwise set that shows
+/// in the picture, the window scale, is already MainWindow's own default (1x).
+void capture_gui_shots(Emulator& emu, const Options& opt) {
+    const auto path = [&](const char* name) {
+        return opt.out_dir + QStringLiteral("/") + QString::fromLatin1(name) +
+               QStringLiteral(".png");
+    };
+
+    if (wanted(opt, "gui-main-window")) {
+        MainWindow win;
+        // set_emulator() is what the frontend calls, and it is what creates the
+        // DebuggerManager (hence the Debug toolbar button) and syncs the
+        // machine name into the status bar.
+        win.set_emulator(&emu);
+        win.show();
+        settle();
+
+        // The frame, pushed the way QtApp::TickEffects::present() pushes it —
+        // the emulator's own framebuffer, not a re-render.
+        win.emulator_widget()->update_frame(emu.get_framebuffer(),
+                                            emu.get_framebuffer_width(),
+                                            emu.get_framebuffer_height());
+
+        // ONE TOOLBAR BUTTON RENDERS AS ITS WORD, not as a picture, and that
+        // is faithful rather than broken. Power Reset / Soft Reset / Load take
+        // their icons from QStyle::standardIcon(), which Fusion carries itself,
+        // so they draw here. Screenshot takes its icon from
+        // QIcon::fromTheme("camera-photo") (main_window.cpp), which resolves
+        // only against a DESKTOP icon theme — there is none under the
+        // offscreen platform, and there is none on Windows either. Qt's
+        // CE_ToolButtonLabel draws the action's TEXT when the icon is null, so
+        // the button reads "Screenshot", exactly as it does for a real user
+        // with no icon theme installed. Making it draw a camera would mean
+        // picking up whichever theme the capturing machine happens to have,
+        // i.e. the one thing forcing Fusion exists to prevent. The guide's
+        // prose names the button rather than its picture for the same reason.
+        //
+        // That null-icon-draws-text rule is also what RULED OUT the other
+        // explanation for the stale image this case replaces (GH #275 item 2):
+        // a Soft Reset button whose icon the old theme failed to draw would
+        // have shown the words "Soft Reset", not a gap.
+
+        // The status bar. Its numbers are the one fixture in this picture, and
+        // they are DERIVED rather than typed: a headless capture does no
+        // wall-clock pacing, so there is no measured frame rate to show, and
+        // the honest stand-in for "a host keeping up perfectly" is the
+        // machine's own refresh rate. Every other cell is read from the
+        // machine — the CPU-speed cell from NR 0x07 exactly as QtApp reads it,
+        // the tape and ESP cells by update_status() itself.
+        const double period_ms = emu.frame_period_ms();
+        const double fps = period_ms > 0.0 ? 1000.0 / period_ms : 50.0;
+        win.update_status(fps, fps,
+                          emu.nextreg().cached(0x07) & 0x03,
+                          /*emu_speed=*/1.0, period_ms, /*measured_fps=*/fps);
+        settle();
+
+        save_crop(&win, &win, path("gui-main-window"));
+    }
+
+    if (wanted(opt, "preferences-startup")) {
+        // A DEFAULT-CONSTRUCTED config, not the one on disk. Two reasons: the
+        // picture must be the same on every machine, and a capture must never
+        // publish the paths out of a developer's own jnext.conf. (JNEXT_CONFIG_DIR
+        // is redirected too, so even the dialog's own reads are isolated.)
+        const AppConfigData defaults;
+        PreferencesDialog dlg(defaults);
+        dlg.show();
+        settle();
+
+        // Select the Startup page by NAME. The dialog opens on it today, but
+        // the file this writes is called preferences-STARTUP, so the page it
+        // shows is asserted rather than assumed — a reordered tab set must
+        // fail loudly here, not quietly produce a picture of the Audio tab.
+        auto* tabs = dlg.findChild<QTabWidget*>();
+        int idx = -1;
+        if (tabs) {
+            for (int i = 0; i < tabs->count(); ++i)
+                if (tabs->tabText(i) == QStringLiteral("Startup")) { idx = i; break; }
+        }
+        if (idx < 0) {
+            note("  FAIL preferences-startup.png: no 'Startup' tab (the tab set changed)\n");
+            ++g_failed;
+        } else {
+            tabs->setCurrentIndex(idx);
+            settle();
+            save_crop(&dlg, &dlg, path("preferences-startup"));
+        }
+    }
+}
+
 void usage() {
     std::printf(
-        "docshot — regenerate the user guide's debugger screenshots\n"
+        "docshot — regenerate the user guide's Qt screenshots\n"
         "\n"
         "Usage: docshot [--out DIR] [--sdcard IMAGE] [NAME ...]\n"
         "\n"
@@ -495,7 +634,8 @@ void usage() {
         "Images: debugger-window debugger-cpu-mmu debugger-disassembly\n"
         "        debugger-video debugger-nextreg debugger-memory debugger-stack\n"
         "        debugger-watches debugger-breakpoints\n"
-        "        debugger-sprites debugger-copper debugger-audio\n");
+        "        debugger-sprites debugger-copper debugger-audio\n"
+        "        gui-main-window preferences-startup\n");
 }
 
 } // namespace
@@ -583,6 +723,15 @@ int main(int argc, char** argv)
         return 1;
     }
     for (int i = 0; i < kBootFrames; ++i) emu.run_frame();
+
+    // ── The two non-debugger Qt widgets (GH #275) ─────────────────────
+    //
+    // Strictly here: after the boot, before anything below touches the
+    // machine. See capture_gui_shots() for why both halves of that matter.
+    if (wanted(opt, "gui-main-window") || wanted(opt, "preferences-startup")) {
+        note("capturing (main window / Preferences):\n");
+        capture_gui_shots(emu, opt);
+    }
 
     // ── Debugger, through the production path ─────────────────────────
     QMainWindow host;

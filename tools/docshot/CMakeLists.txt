@@ -1,4 +1,5 @@
-# docshot — regenerates the user guide's debugger screenshots (see
+# docshot — regenerates every picture of a Qt widget in the user guide: the
+# debugger panels, the main emulator window and the Preferences dialog (see
 # tools/docshot/docshot.cpp and `make docs-screenshots`).
 #
 # EXCLUDE_FROM_ALL is the point of this file: capturing images needs a Qt/GUI
@@ -6,7 +7,11 @@
 # `make` or a test run should do. Nothing depends on this target; `make
 # docs-screenshots` builds it by name.
 add_executable(docshot EXCLUDE_FROM_ALL docshot.cpp)
+# jnext_gui: GH #275 added the main emulator window and the Preferences dialog
+# to the set, so this tool now needs the Qt FRONTEND as well as the debugger.
+# That is why the root CMakeLists gates this subdirectory on ENABLE_QT_UI too.
 target_link_libraries(docshot PRIVATE
+    jnext_gui
     jnext_debugger
     jnext_core jnext_cpu jnext_memory jnext_video
     jnext_audio jnext_port jnext_peripheral jnext_input
