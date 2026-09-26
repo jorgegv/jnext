@@ -45,9 +45,10 @@ have trusted.
 A snapshot is only ever taken at a **frame boundary**. If the debugger has
 stopped the machine part-way through a frame — which is exactly when you reach
 for this menu item — JNEXT finishes that frame first and saves from the
-boundary after it, and the status bar says so once. The save is never refused
-and never unavailable; the consequence is that the restored machine is up to
-one frame (20 ms) past where you stopped. If you need the precise instant, that
+boundary after it, and the status bar says so once. That pause never refuses
+the save and never greys the menu item out — the only refusal is the format one
+above; the consequence is that the restored machine is up to one frame (20 ms)
+past where you stopped. If you need the precise instant, that
 is what the rewind buffer is for.
 
 ## Loading
