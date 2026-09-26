@@ -870,6 +870,69 @@ public:
     bool    nr_8c_altrom_lock_rom1() const { return (nr_8c_reg_ & 0x20) != 0; }
     bool    nr_8c_altrom_lock_rom0() const { return (nr_8c_reg_ & 0x10) != 0; }
 
+    // VHDL `sram_alt_128_n` (zxnext.vhd:2986, 2991, 2995, 3001, 3005) —
+    // which of the two 16K alt-ROM images the altrom override selects:
+    // '0' picks the alt-128 ROM (SRAM pages 12/13), '1' the alt-48 ROM
+    // (pages 14/15), per the arbiter at :3116-3117
+    // (`sram_A21_A13 <= "0000011" & sram_pre_alt_128_n & …`).
+    //
+    // It ALSO appears in the DivMMC ROM3-conditional automap gate at
+    // :3138, which is why this is public: `sram_rom3` alone is not that
+    // gate's selector (see `sram_altrom_en_on_read()` below).
+    bool sram_alt_128_n() const {
+        const bool lk1 = nr_8c_altrom_lock_rom1();
+        const bool lk0 = nr_8c_altrom_lock_rom0();
+        switch (machine_type_) {
+            case MachineType::ZX48K:
+                // zxnext.vhd:2986
+                return !((!lk1) && lk0);
+            case MachineType::ZX_PLUS3:
+                // zxnext.vhd:2988-2995 — lock override, else
+                // port_1ffd_rom(0) = port_7ffd(4) ("behave like a 128k
+                // machine").
+                if (lk1 || lk0) return lk1;
+                return ((port_7ffd_ >> 4) & 1) != 0;
+            case MachineType::ZX128K:
+            case MachineType::ZXN_ISSUE2:
+            default:
+                // zxnext.vhd:2998-3005 (the non-48K, non-+3 branch —
+                // 128K/Pentagon/Next share the 1-bit port_1ffd_rom(0)
+                // selector).
+                if (lk1 || lk0) return lk1;
+                return ((port_7ffd_ >> 4) & 1) != 0;
+        }
+    }
+
+    // VHDL `sram_altrom_en` (zxnext.vhd:3078) evaluated for a READ cycle
+    // (cpu_rd_n='0'), which is what an M1 opcode fetch is:
+    //
+    //   sram_altrom_en <= '0' when (sram_pre_override(0)='0')
+    //                           or (sram_pre_alt_en='0')
+    //                           or (sram_pre_rdonly='1' and cpu_rd_n='1')
+    //                           or (sram_pre_rdonly='0' and cpu_rd_n='0')
+    //                     else '1';
+    //
+    // On the legacy-ROM decode branch (:3052-3057) `sram_pre_rdonly` is
+    // `not (nr_8c_altrom_en and nr_8c_altrom_rw)`, so with cpu_rd_n='0'
+    // the expression collapses to
+    //   override(0) AND altrom_en AND NOT altrom_rw
+    // — i.e. the altrom is read-visible exactly in the "alt ROM replaces
+    // ROM during reads" mode. This accessor returns the NR-0x8C part;
+    // the `sram_pre_override(0)` factor is the caller's (the DivMMC
+    // automap gate already ANDs it, so the result is the same either
+    // way). `config_mode_` is folded in because the config-mode branch
+    // at :3044-3050 sets override "110" — override(0)='0' — so the
+    // altrom override cannot be in play there. That term is therefore
+    // REDUNDANT at the production call site and can never change the
+    // outcome: DivMmc::check_automap already ANDs `sram_pre_override_0`,
+    // which config mode has driven to 0, into the same expression. It is
+    // kept so the accessor states the whole VHDL condition on its own
+    // rather than relying on a caller to complete it (ALT-15 pins it,
+    // and says the same thing).
+    bool sram_altrom_en_on_read() const {
+        return nr_8c_altrom_en() && !nr_8c_altrom_rw() && !config_mode_;
+    }
+
     // ---------------------------------------------------------------
     // p3_floating_bus_dat — last contended-CPU-r/w byte latch.
     // ---------------------------------------------------------------
@@ -1467,30 +1530,8 @@ private:
     }
 
     inline uint8_t altrom_sram_page_(uint16_t addr) const {
-        const bool lk1 = nr_8c_altrom_lock_rom1();
-        const bool lk0 = nr_8c_altrom_lock_rom0();
-        bool alt_128_n;
-        switch (machine_type_) {
-            case MachineType::ZX48K:
-                // zxnext.vhd:2986
-                alt_128_n = !((!lk1) && lk0);
-                break;
-            case MachineType::ZX_PLUS3:
-                // zxnext.vhd:2988-2995
-                if (lk1 || lk0) alt_128_n = lk1;
-                else            alt_128_n = ((port_7ffd_ >> 4) & 1) != 0;
-                break;
-            case MachineType::ZX128K:
-            case MachineType::ZXN_ISSUE2:
-            default:
-                // zxnext.vhd:2998-3005 (ZXN branch — 128K shares the
-                // same 1-bit port_1ffd_rom(0) selector via current_rom_bank).
-                if (lk1 || lk0) alt_128_n = lk1;
-                else            alt_128_n = ((port_7ffd_ >> 4) & 1) != 0;
-                break;
-        }
         const uint8_t a13 = static_cast<uint8_t>((addr >> 13) & 1);
-        return static_cast<uint8_t>(0x0C | (alt_128_n ? 0x02 : 0x00) | a13);
+        return static_cast<uint8_t>(0x0C | (sram_alt_128_n() ? 0x02 : 0x00) | a13);
     }
 
     void rebuild_ptr(int slot);

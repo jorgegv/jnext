@@ -254,7 +254,9 @@ void DivMmc::on_m1_retn_delay_apply_(bool retn_seen) {
 
 void DivMmc::check_automap(uint16_t pc, bool is_m1,
                            bool sram_pre_override_2,
-                           bool sram_pre_override_0) {
+                           bool sram_pre_override_0,
+                           bool sram_altrom_en_read,
+                           bool sram_alt_128_n) {
     if (!is_m1 || !enabled_) {
         // P0 boot probe: log when the enable gate rejects the call, so a
         // "$0000 fetch with automap disabled" is visible (env-gated,
@@ -349,15 +351,28 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1,
     // config_mode window (where VHDL would force pre_override(0)=0 →
     // ROM3-path blocked), causing the periodic boot loop tracked as G46(b).
     //
-    // Note: jnext currently models the altrom branch as `rom3_active_`
-    // alone (the boot path keeps NR 0x8C bit 7 clear, so altrom_en=0 and
-    // the second clause `(rom3_sel AND !altrom_en) = rom3_sel` holds —
-    // matching the VHDL at zxnext.vhd:3138 for that path). Full altrom
-    // modelling can be added when an altrom-locked test case demands it.
+    // GH #282 — the last factor of :3138 is a MUX, not `sram_pre_rom3`:
+    // while the altrom override owns the read, `sram_pre_rom3` is gated
+    // OUT and `sram_pre_alt_128_n` selects instead. jnext modelled only
+    // the `rom3_active_` half, which is right whenever altrom_en=0 but
+    // wrong the moment firmware pages the alt ROM in for reads.
+    //
+    // NextZXOS's TAP loader does exactly that for "48K mode": it writes
+    // NR 0x8C = 0xC0 (altrom_en + altrom_rw) to patch the alt-48 image,
+    // then NR 0x8C = 0xA0 (altrom_en, read-visible, lock_rom1) to run it.
+    // On machine_type_p3 that makes `sram_rom3` = lock_rom1 AND lock_rom0
+    // = 0 (:2990) while `sram_alt_128_n` = lock_rom1 = 1 (:2991), so VHDL
+    // enables the ROM3-conditional path and jnext disabled it — the
+    // 0x056A tape trap never fired, the alt-48 ROM's stock LD-BYTES ran
+    // for real, and it span in LD-SAMPLE (0x05ED-0x05F8) waiting for an
+    // EAR edge that no tape was ever going to supply.
+    const bool sram_pre_rom3_sel =
+        (sram_altrom_en_read && sram_alt_128_n) ||
+        (rom3_active_ && !sram_altrom_en_read);
     const bool main_path_eligible = sram_pre_override_2;
     const bool rom3_path_eligible =
         sram_pre_override_2 && sram_pre_override_0 &&
-        !layer2_map_read_ && rom3_active_;
+        !layer2_map_read_ && sram_pre_rom3_sel;
 
     // P0 boot probe (doc/issues/nextzxos-boot/ZXGO-COMPARISON-2026-07-09.md):
     // env-gated, capped; logs automap decision inputs at RST vectors to

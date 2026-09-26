@@ -22,7 +22,7 @@ mentions them, so a test can no longer be absent from this document.
 <!-- BEGIN GENERATED SUMMARY — written by test/refresh-traceability-matrix.pl; do not edit by hand -->
 | Section                                    |  Rows | pass | fail | skip | missing | unrecorded |
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
-| Memory/MMU                                 |   256 |  256 |    0 |    0 |       0 |          0 |
+| Memory/MMU                                 |   263 |  263 |    0 |    0 |       0 |          0 |
 | ULA Video                                  |   139 |  139 |    0 |    0 |       0 |          0 |
 | Layer2                                     |   220 |  220 |    0 |    0 |       0 |          0 |
 | Sprites                                    |   217 |  217 |    0 |    0 |       0 |          0 |
@@ -31,7 +31,7 @@ mentions them, so a test can no longer be absent from this document.
 | Compositor                                 |   284 |  284 |    0 |    0 |       0 |          0 |
 | Audio                                      |   221 |  221 |    0 |    0 |       0 |          0 |
 | DMA                                        |   160 |  160 |    0 |    0 |       0 |          0 |
-| DivMMC+SPI                                 |   156 |  156 |    0 |    0 |       0 |          0 |
+| DivMMC+SPI                                 |   162 |  162 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    57 |   57 |    0 |    0 |       0 |          0 |
 | CTC+Interrupts                             |   203 |  203 |    0 |    0 |       0 |          0 |
 | UART+I2C/RTC                               |   122 |  122 |    0 |    0 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    30 |   24 |    0 |    6 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5137 | 5126 |    0 |   11 |       0 |          0 |
+| **Total**                                  |  5150 | 5139 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **5137**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4829**. Rows the 117 suites declared in `test/unit-tests.conf` run live: **9172**.
+Rows the sections above carry: **5150**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4842**. Rows the 117 suites declared in `test/unit-tests.conf` run live: **9185**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -274,9 +274,9 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | ROM-10 | 48K hardwires sram_rom3 high for all port / altrom states — VHDL zxnext.vhd:2985 | zxnext.vhd:2985 | pass | test/mmu/mmu_test.cpp:1741 |
 | ROM-11 | ZXN with altrom-lock: sram_rom3 follows lock_rom1, not lock_rom0 — VHDL zxnext.vhd:3000 | zxnext.vhd:3000 | pass | test/mmu/mmu_test.cpp:1766 |
 | ROM-12 | +3 sram_rom3 = 1FFD(2) AND 7FFD(4); ZXN sram_rom3 = 7FFD(4) alone — VHDL zxnext.vhd:2994,3004 | zxnext.vhd:2994,3004 | pass | test/mmu/mmu_test.cpp:1814 |
-| BOOT-OVL-01 | 8 KB boot ROM overlays full 16 KB at 0x0000-0x3FFF; upper 8 KB mirrors lower per VHDL zxnext.vhd:3199-3204 (cpu_a(12:0)) and :1856 (cpu_a(15:14)="00" gate) | zxnext.vhd:3199-3204 | pass | test/mmu/mmu_test.cpp:3423 |
-| BOOT-OVL-02 | boot ROM does not leak past 0x3FFF — gate is cpu_a(15:14) per VHDL zxnext.vhd:1856 | zxnext.vhd:1856 | pass | test/mmu/mmu_test.cpp:3444 |
-| BOOT-OVL-03 | wrong-sized boot ROM blob is zero-padded to 8 KB and mirrored through 16 KB — VHDL zxnext.vhd:3199-3204 hardwires cpu_a(12:0) | zxnext.vhd:3199-3204 | pass | test/mmu/mmu_test.cpp:3471 |
+| BOOT-OVL-01 | 8 KB boot ROM overlays full 16 KB at 0x0000-0x3FFF; upper 8 KB mirrors lower per VHDL zxnext.vhd:3199-3204 (cpu_a(12:0)) and :1856 (cpu_a(15:14)="00" gate) | zxnext.vhd:3199-3204 | pass | test/mmu/mmu_test.cpp:3626 |
+| BOOT-OVL-02 | boot ROM does not leak past 0x3FFF — gate is cpu_a(15:14) per VHDL zxnext.vhd:1856 | zxnext.vhd:1856 | pass | test/mmu/mmu_test.cpp:3647 |
+| BOOT-OVL-03 | wrong-sized boot ROM blob is zero-padded to 8 KB and mirrored through 16 KB — VHDL zxnext.vhd:3199-3204 hardwires cpu_a(12:0) | zxnext.vhd:3199-3204 | pass | test/mmu/mmu_test.cpp:3674 |
 | ALT-01 | NR 0x8C bit 7 → altrom_en — VHDL zxnext.vhd:2262 | zxnext.vhd:2262 | pass | test/mmu/mmu_test.cpp:2515 |
 | ALT-02 | NR 0x8C bit 7 = 0 → altrom_en cleared — VHDL zxnext.vhd:2262 | zxnext.vhd:2262 | pass | test/mmu/mmu_test.cpp:2530 |
 | ALT-03 | NR 0x8C bit 6 → altrom_rw — VHDL zxnext.vhd:2263 | zxnext.vhd:2263 | pass | test/mmu/mmu_test.cpp:2541 |
@@ -288,12 +288,12 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | ALT-09 | NR 0x8C read-back returns stored byte — VHDL zxnext.vhd:6156 | zxnext.vhd:6156 | pass | test/mmu/mmu_test.cpp:2636 |
 | RSTD-8C-01 | reset RELOADS nr_8c_altrom_lock_rom1 (bit 5) from bit 1 — it does NOT clear: NR 0x8C=0x02 -> after RESET_SOFT lock_rom1=1, lock_rom0=0, byte=0x22 [zxnext.vhd:2254-2255 nibble copy, :2264 lock_rom1 <= nr_8c_altrom(5); nextreg.txt:861-864] | zxnext.vhd:2254-2255 | pass | test/nextreg/nextreg_integration_test.cpp:1016 |
 | RSTD-8C-02 | reset RELOADS nr_8c_altrom_lock_rom0 (bit 4) from bit 0 — it does NOT clear: NR 0x8C=0x01 -> after RESET_SOFT lock_rom0=1, lock_rom1=0, byte=0x11 [zxnext.vhd:2254-2255 nibble copy, :2265 lock_rom0 <= nr_8c_altrom(4); nextreg.txt:861-865] | zxnext.vhd:2254-2255 | pass | test/nextreg/nextreg_integration_test.cpp:1041 |
-| MMU-CFG-01 | config_mode=1 routes 0x0000-0x3FFF ROM-slot writes to SRAM via NR 0x04 — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:2669 |
-| MMU-CFG-02 | config_mode=1 reads from 0x0000-0x3FFF ROM-slot return SRAM bank contents — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:2689 |
-| MMU-CFG-03 | MMU-RAM mapping on ROM-slot range wins over config_mode routing — VHDL zxnext.vhd:3037 | zxnext.vhd:3037 | pass | test/mmu/mmu_test.cpp:2710 |
-| MMU-CFG-04 | config_mode=0 suppresses ROM-slot routing; writes drop — VHDL zxnext.vhd:3044-3050 bypassed | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:2730 |
-| MMU-CFG-06 | Mmu::reset() PRESERVES nr_04_romram_bank — no reset clause in VHDL zxnext.vhd:4930-5111 (the only sites are :1104 declaration, :3045 use, :5717/:5732 writes; a declaration default is FPGA power-on, not a reset clause); config_mode is Emulator-owned | zxnext.vhd:4930-5111 | pass | test/mmu/mmu_test.cpp:2785 |
-| CFG-12 | Mmu::reset(hard=false) ALSO preserves nr_04_romram_bank — zxnext.vhd's `reset` is reset_hard OR reset_soft (zxnext_top_issue2.vhd:840, zxnext.vhd:1730) and the signal is in no reset block at all (:4930-5111) | zxnext_top_issue2.vhd:840, zxnext.vhd:1730 | pass | test/mmu/mmu_test.cpp:2815 |
+| MMU-CFG-01 | config_mode=1 routes 0x0000-0x3FFF ROM-slot writes to SRAM via NR 0x04 — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:2872 |
+| MMU-CFG-02 | config_mode=1 reads from 0x0000-0x3FFF ROM-slot return SRAM bank contents — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:2892 |
+| MMU-CFG-03 | MMU-RAM mapping on ROM-slot range wins over config_mode routing — VHDL zxnext.vhd:3037 | zxnext.vhd:3037 | pass | test/mmu/mmu_test.cpp:2913 |
+| MMU-CFG-04 | config_mode=0 suppresses ROM-slot routing; writes drop — VHDL zxnext.vhd:3044-3050 bypassed | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:2933 |
+| MMU-CFG-06 | Mmu::reset() PRESERVES nr_04_romram_bank — no reset clause in VHDL zxnext.vhd:4930-5111 (the only sites are :1104 declaration, :3045 use, :5717/:5732 writes; a declaration default is FPGA power-on, not a reset clause); config_mode is Emulator-owned | zxnext.vhd:4930-5111 | pass | test/mmu/mmu_test.cpp:2988 |
+| CFG-12 | Mmu::reset(hard=false) ALSO preserves nr_04_romram_bank — zxnext.vhd's `reset` is reset_hard OR reset_soft (zxnext_top_issue2.vhd:840, zxnext.vhd:1730) and the signal is in no reset block at all (:4930-5111) | zxnext_top_issue2.vhd:840, zxnext.vhd:1730 | pass | test/mmu/mmu_test.cpp:3018 |
 | RSTD-04-01 | RESET_SOFT PRESERVES nr_04_romram_bank — the signal is absent from the reset block [zxnext.vhd:4930-5111]; its only sites are zxnext.vhd:1104 (declaration), zxnext.vhd:3045 (use) and the write handlers zxnext.vhd:5717 / zxnext.vhd:5732, gated solely on nr_04_we | zxnext.vhd:4930-5111, zxnext.vhd:1104, zxnext.vhd:3045, zxnext.vhd:5717, zxnext.vhd:5732 | pass | test/nextreg/nextreg_integration_test.cpp:1086 |
 | RSTD-04-02 | RESET_HARD clears nr_04_romram_bank to the zxnext.vhd:1104 power-on default via the host cold boot (FPGA reconfiguration, zxnext_top_issue2.vhd:1195); the NR 0x02 b1 write itself only raises the deferred request [Task 70] | zxnext.vhd:1104, zxnext_top_issue2.vhd:1195 | pass | test/nextreg/nextreg_integration_test.cpp:1114 |
 | RSTD-04-03 | NR 0x04 write reaches the Mmu mirror consumed by the SRAM address compose [zxnext.vhd:3045], bit 7 masked off per gen_romram_234 [zxnext.vhd:5709-5722]; both mirrors agree | zxnext.vhd:3045, zxnext.vhd:5709-5722 | pass | test/nextreg/nextreg_integration_test.cpp:1150 |
@@ -302,72 +302,72 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | CMG-01 | a Next start with NO boot ROM leaves the Mmu config_mode mirror at its power-on false, and the NextReg latch agrees because init() makes the IPL's own NR 0x03 commit [zxnext.vhd:1102, :5147-5151], so a write into the still-ROM low slot is DROPPED instead of being rerouted into SRAM [zxnext.vhd:3044-3050] | zxnext.vhd:1102, zxnext.vhd:3044-3050 | pass | test/nextreg/nextreg_integration_test.cpp:1255 |
 | CMG-02 | NO non-Next machine type runs the config-mode resync, even with a boot ROM enabled: the gate's machine-type clause holds it shut for every value in the enum's non-Next set [contention.h:5], so the Mmu mirror keeps its own value instead of following the NextReg latch [zxnext.vhd:1102,5122] | zxnext.vhd:1102,5122 | pass | test/nextreg/nextreg_integration_test.cpp:1330 |
 | CMG-03 | the init() config-mode resync observes the POST-reset boot-ROM state: Mmu::reset() arms boot_rom_en_ from the persisted boot ROM + config_mode [mmu.cpp:179], and the gate must run after that, so the mirror follows the NextReg latch down instead of keeping its stale pre-init value | — | pass | test/nextreg/nextreg_integration_test.cpp:1388 |
-| ADR-01 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2942 |
-| ADR-02 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2943 |
-| ADR-03 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2944 |
-| ADR-04 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2945 |
-| ADR-05 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2948 |
-| ADR-06 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2949 |
-| ADR-07 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2950 |
-| ADR-08 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2951 |
-| ADR-09 | page 0xE0 on RAM slot → floating bus (0xFF) — VHDL zxnext.vhd:3060-3061 | zxnext.vhd:3060-3061 | pass | test/mmu/mmu_test.cpp:2979 |
-| ADR-10 | page 0xFE on RAM slot → floating bus (0xFF) — VHDL zxnext.vhd:3060-3061 | zxnext.vhd:3060-3061 | pass | test/mmu/mmu_test.cpp:2989 |
-| BNK-01 | page 0x0A maps to the dedicated bank-5 VRAM buffer, touching no SRAM page — VHDL zxnext.vhd:2961+6558 | zxnext.vhd:2961 | pass | test/mmu/mmu_test.cpp:3027 |
-| BNK-02 | page 0x0B maps to the bank-5 VRAM upper half (offset 0x2000), touching no SRAM page — VHDL zxnext.vhd:2961+6558 | zxnext.vhd:2961 | pass | test/mmu/mmu_test.cpp:3046 |
-| BNK-03 | page 0x0E maps to the dedicated bank-7 BRAM buffer, touching no SRAM page — VHDL zxnext.vhd:2962+6670 | zxnext.vhd:2962 | pass | test/mmu/mmu_test.cpp:3070 |
-| BNK-04 | page 0x0F is NOT dual-port — gets +0x20 shift like any RAM page — VHDL zxnext.vhd:2961-2962 (bypass only for 0x0A/0x0B/0x0E) | zxnext.vhd:2961-2962 | pass | test/mmu/mmu_test.cpp:3090 |
-| BNK-05 | page 0x0A CPU round-trip — VHDL zxnext.vhd:2933-3133 | zxnext.vhd:2933-3133 | pass | test/mmu/mmu_test.cpp:3107 |
-| BNK-06 | page 0x0E CPU round-trip — VHDL zxnext.vhd:2933-3133 | zxnext.vhd:2933-3133 | pass | test/mmu/mmu_test.cpp:3120 |
-| L2M-01 | L2 write-over lands in L2 bank physical SRAM, not MMU slot — VHDL zxnext.vhd:2969,3077 | zxnext.vhd:2969,3077 | pass | test/mmu/mmu_test.cpp:3158 |
-| L2M-01b | L2 bank 8 aliases MMU page 0x10 (hardware collision) — VHDL zxnext.vhd:2964,2969 | zxnext.vhd:2964,2969 | pass | test/mmu/mmu_test.cpp:3177 |
-| L2M-02a | L2 read-over returns L2 bank byte, not MMU slot — VHDL zxnext.vhd:2969,3077,3100 | zxnext.vhd:2969,3077,3100 | pass | test/mmu/mmu_test.cpp:3196 |
-| L2M-02b | L2 read-over OFF → MMU slot wins — VHDL zxnext.vhd:3077 sram_pre_layer2_rd_en gate | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3215 |
-| L2M-03 | L2 auto-segment follows cpu_a(15:14) — VHDL zxnext.vhd:3100-3107 | zxnext.vhd:3100-3107 | pass | test/mmu/mmu_test.cpp:3239 |
-| L2M-04 | L2 write-over does not apply to 0xC000-0xFFFF — VHDL zxnext.vhd:3077 | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3257 |
+| ADR-01 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:3145 |
+| ADR-02 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:3146 |
+| ADR-03 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:3147 |
+| ADR-04 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:3148 |
+| ADR-05 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:3151 |
+| ADR-06 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:3152 |
+| ADR-07 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:3153 |
+| ADR-08 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:3154 |
+| ADR-09 | page 0xE0 on RAM slot → floating bus (0xFF) — VHDL zxnext.vhd:3060-3061 | zxnext.vhd:3060-3061 | pass | test/mmu/mmu_test.cpp:3182 |
+| ADR-10 | page 0xFE on RAM slot → floating bus (0xFF) — VHDL zxnext.vhd:3060-3061 | zxnext.vhd:3060-3061 | pass | test/mmu/mmu_test.cpp:3192 |
+| BNK-01 | page 0x0A maps to the dedicated bank-5 VRAM buffer, touching no SRAM page — VHDL zxnext.vhd:2961+6558 | zxnext.vhd:2961 | pass | test/mmu/mmu_test.cpp:3230 |
+| BNK-02 | page 0x0B maps to the bank-5 VRAM upper half (offset 0x2000), touching no SRAM page — VHDL zxnext.vhd:2961+6558 | zxnext.vhd:2961 | pass | test/mmu/mmu_test.cpp:3249 |
+| BNK-03 | page 0x0E maps to the dedicated bank-7 BRAM buffer, touching no SRAM page — VHDL zxnext.vhd:2962+6670 | zxnext.vhd:2962 | pass | test/mmu/mmu_test.cpp:3273 |
+| BNK-04 | page 0x0F is NOT dual-port — gets +0x20 shift like any RAM page — VHDL zxnext.vhd:2961-2962 (bypass only for 0x0A/0x0B/0x0E) | zxnext.vhd:2961-2962 | pass | test/mmu/mmu_test.cpp:3293 |
+| BNK-05 | page 0x0A CPU round-trip — VHDL zxnext.vhd:2933-3133 | zxnext.vhd:2933-3133 | pass | test/mmu/mmu_test.cpp:3310 |
+| BNK-06 | page 0x0E CPU round-trip — VHDL zxnext.vhd:2933-3133 | zxnext.vhd:2933-3133 | pass | test/mmu/mmu_test.cpp:3323 |
+| L2M-01 | L2 write-over lands in L2 bank physical SRAM, not MMU slot — VHDL zxnext.vhd:2969,3077 | zxnext.vhd:2969,3077 | pass | test/mmu/mmu_test.cpp:3361 |
+| L2M-01b | L2 bank 8 aliases MMU page 0x10 (hardware collision) — VHDL zxnext.vhd:2964,2969 | zxnext.vhd:2964,2969 | pass | test/mmu/mmu_test.cpp:3380 |
+| L2M-02a | L2 read-over returns L2 bank byte, not MMU slot — VHDL zxnext.vhd:2969,3077,3100 | zxnext.vhd:2969,3077,3100 | pass | test/mmu/mmu_test.cpp:3399 |
+| L2M-02b | L2 read-over OFF → MMU slot wins — VHDL zxnext.vhd:3077 sram_pre_layer2_rd_en gate | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3418 |
+| L2M-03 | L2 auto-segment follows cpu_a(15:14) — VHDL zxnext.vhd:3100-3107 | zxnext.vhd:3100-3107 | pass | test/mmu/mmu_test.cpp:3442 |
+| L2M-04 | L2 write-over does not apply to 0xC000-0xFFFF — VHDL zxnext.vhd:3077 | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3460 |
 | L2M-05 | NR 0x12 write sets Layer 2 active bank (7-bit) [zxnext.vhd:4945 nr_12_layer2_active_bank] | zxnext.vhd:4945 | pass | test/nextreg/nextreg_integration_test.cpp:3030 |
 | L2M-06 | NR 0x13 write sets Layer 2 shadow bank (7-bit) [zxnext.vhd:4946 nr_13_layer2_shadow_bank] | zxnext.vhd:4946 | pass | test/nextreg/nextreg_integration_test.cpp:3066 |
-| PRI-01 | DivMMC ROM overrides MMU at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084) | zxnext.vhd:3084 | pass | test/divmmc/divmmc_test.cpp:2414 |
-| PRI-02 | DivMMC RAM overrides MMU at 0x2000-0x3FFF when overlay active (VHDL zxnext.vhd:3087) | zxnext.vhd:3087 | pass | test/divmmc/divmmc_test.cpp:2448 |
-| PRI-03 | L2 write-over outranks MMU in 0-16K — VHDL zxnext.vhd:3077 | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3316 |
-| PRI-04 | DivMMC beats Layer 2 write-over at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084-3100 chain) | zxnext.vhd:3084-3100 | pass | test/divmmc/divmmc_test.cpp:2494 |
-| PRI-05 | MMU-only path at 0xC000 with no overrides — VHDL zxnext.vhd:2933-3133 | zxnext.vhd:2933-3133 | pass | test/mmu/mmu_test.cpp:3337 |
-| PRI-06 | altrom overrides normal ROM when altrom_en=1, altrom_rw=0 — VHDL zxnext.vhd:3078 arbiter priority | zxnext.vhd:3078 | pass | test/mmu/mmu_test.cpp:3362 |
-| PRI-07 | config_mode ROMRAM routing outranks normal ROM read path — VHDL zxnext.vhd:3044-3052 | zxnext.vhd:3044-3052 | pass | test/mmu/mmu_test.cpp:3386 |
+| PRI-01 | DivMMC ROM overrides MMU at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084) | zxnext.vhd:3084 | pass | test/divmmc/divmmc_test.cpp:2549 |
+| PRI-02 | DivMMC RAM overrides MMU at 0x2000-0x3FFF when overlay active (VHDL zxnext.vhd:3087) | zxnext.vhd:3087 | pass | test/divmmc/divmmc_test.cpp:2583 |
+| PRI-03 | L2 write-over outranks MMU in 0-16K — VHDL zxnext.vhd:3077 | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3519 |
+| PRI-04 | DivMMC beats Layer 2 write-over at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084-3100 chain) | zxnext.vhd:3084-3100 | pass | test/divmmc/divmmc_test.cpp:2629 |
+| PRI-05 | MMU-only path at 0xC000 with no overrides — VHDL zxnext.vhd:2933-3133 | zxnext.vhd:2933-3133 | pass | test/mmu/mmu_test.cpp:3540 |
+| PRI-06 | altrom overrides normal ROM when altrom_en=1, altrom_rw=0 — VHDL zxnext.vhd:3078 arbiter priority | zxnext.vhd:3078 | pass | test/mmu/mmu_test.cpp:3565 |
+| PRI-07 | config_mode ROMRAM routing outranks normal ROM read path — VHDL zxnext.vhd:3044-3052 | zxnext.vhd:3044-3052 | pass | test/mmu/mmu_test.cpp:3589 |
 | SD2-01 | NR 0x84 b2 SET: OUT to 0x7FF1/0xDFF9/0x1FF1 (low byte F1/F9) leaves 7FFD/DFFD/1FFD unchanged, byte goes to Soundrive [zxnext.vhd:2708, 2718-2720; conflict resolves DAC-wards] | zxnext.vhd:2708,2718-2720, zxnext.vhd:2775-2778 | pass | test/audio/audio_port_dispatch_test.cpp:845 |
 | SD2-02 | NR 0x84 b2 CLEAR: identical OUTs to 0x7FF1/0xDFF9/0x1FF1 DO reapply 7FFD/DFFD/1FFD paging, DAC untouched [zxnext.vhd:2708 conflict term 0; :2718-2720 fire] | zxnext.vhd:2708 | pass | test/audio/audio_port_dispatch_test.cpp:877 |
-| BOOT-NEX-01 | loader rejects NEX whose ram_required exceeds installed RAM — src/core/nex_loader.cpp:apply() honours header.ram_required | — | pass | test/mmu/mmu_test.cpp:3519 |
-| BOOT-NEX-02 | loader accepts NEX whose ram_required ≤ installed RAM; spec mapping 0=768/1=1792/2=2048 KB; unknown → 0 | — | pass | test/mmu/mmu_test.cpp:3540 |
-| BOOT-NEX-03 | loading_bar draws a per-bank-slot mark that advances along VRAM (bank 11 / MMU page 23) — nexload.asm:616-621 `progress` | — | pass | test/mmu/mmu_test.cpp:3587 |
-| BOOT-NEX-04 | loading_delay honoured: 109 post-early bank-slot waits of loading_delay frames each when a screen is present; zero frames when no screen is present | — | pass | test/mmu/mmu_test.cpp:3633 |
-| BOOT-NEX-05 | start_delay honoured unconditionally before code-entry, on top of any inter-bank loading_delay total | — | pass | test/mmu/mmu_test.cpp:3649 |
-| BOOT-NEX-06 | loading_bar_colour byte is written verbatim, not a fixed default — nexload.asm:617,619-620 `ld a,(LoadCol):ld e,a` | — | pass | test/mmu/mmu_test.cpp:3617 |
-| BOOT-NEX-07 | G16 fix: zero_bank5_screen_pages() clears pages 10+11 (16 KB) before screen-format ingest, eliminating attribute-area leak from stale pre-load RAM (BEAST-NEX-INVESTIGATION.md §Verdict) | — | pass | test/mmu/mmu_test.cpp:3729 |
+| BOOT-NEX-01 | loader rejects NEX whose ram_required exceeds installed RAM — src/core/nex_loader.cpp:apply() honours header.ram_required | — | pass | test/mmu/mmu_test.cpp:3722 |
+| BOOT-NEX-02 | loader accepts NEX whose ram_required ≤ installed RAM; spec mapping 0=768/1=1792/2=2048 KB; unknown → 0 | — | pass | test/mmu/mmu_test.cpp:3743 |
+| BOOT-NEX-03 | loading_bar draws a per-bank-slot mark that advances along VRAM (bank 11 / MMU page 23) — nexload.asm:616-621 `progress` | — | pass | test/mmu/mmu_test.cpp:3790 |
+| BOOT-NEX-04 | loading_delay honoured: 109 post-early bank-slot waits of loading_delay frames each when a screen is present; zero frames when no screen is present | — | pass | test/mmu/mmu_test.cpp:3836 |
+| BOOT-NEX-05 | start_delay honoured unconditionally before code-entry, on top of any inter-bank loading_delay total | — | pass | test/mmu/mmu_test.cpp:3852 |
+| BOOT-NEX-06 | loading_bar_colour byte is written verbatim, not a fixed default — nexload.asm:617,619-620 `ld a,(LoadCol):ld e,a` | — | pass | test/mmu/mmu_test.cpp:3820 |
+| BOOT-NEX-07 | G16 fix: zero_bank5_screen_pages() clears pages 10+11 (16 KB) before screen-format ingest, eliminating attribute-area leak from stale pre-load RAM (BEAST-NEX-INVESTIGATION.md §Verdict) | — | pass | test/mmu/mmu_test.cpp:3932 |
 | BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | — | pass | test/sdcard/sdcard_test.cpp:1121 |
 | BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | — | pass | test/sdcard/sdcard_test.cpp:2309 |
-| BOOT-TAPESAVE-01 | TapSaver::build_block header block: LE length prefix (payload+2), flag 0x00, payload verbatim, XOR checksum — hand-computed TAP image (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3790 |
-| BOOT-TAPESAVE-02 | TapSaver data block (non-trivial XOR checksum) + append_block file ordering: file bytes == header-block \|\| data-block, hand-computed images (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3859 |
-| BOOT-TAPESAVE-03 | TapSaver → TapLoader::parse_blocks round-trip: 2 blocks, correct boundaries/flags, payload identity, loader checksum verification, zero parse warnings (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3907 |
-| BOOT-Z80-01 | v1 (uncompressed) .z80 round-trip — Mmu reads at 0x4000-0xFFFF match the raw-RAM image; PC/AF/BC/etc. match header bytes (worldofspectrum.org/faq/reference/z80format.htm v1 layout) | — | pass | test/mmu/mmu_test.cpp:3974 |
-| BOOT-Z80-02 | v2 (RLE-compressed) .z80 round-trip — decompress_page() reproduces the fill-run + literal-tail pattern across all three 48K page-number -> bank mappings (page4/5/8 -> 0x8000/0xC000/0x4000) | — | pass | test/mmu/mmu_test.cpp:4047 |
-| BOOT-Z80-03 | v3 (extended-header, 128K) .z80 — Ram banks 0-7 populated per the page3..10 -> bank0..7 table; port_7ffd_ from header byte 0x23 | — | pass | test/mmu/mmu_test.cpp:4118 |
-| BOOT-Z80-04 | Unsupported / corrupt .z80 file rejected — truncated RLE run with no end marker; loader returns error and Mmu is left untouched | — | pass | test/mmu/mmu_test.cpp:4155 |
-| BOOT-Z80-05 | Structurally-valid .z80 with only foreign page numbers is rejected by apply_ram_to_mmu() (zero pages applied), not silently reported as a successful load with no RAM written | — | pass | test/mmu/mmu_test.cpp:4204 |
-| BOOT-Z80-06 | hardware mode 3 is 128K in a v2 .z80 (its page 5, bank 2, lands at 0x8000) and 48K in a v3 one | — | pass | test/mmu/mmu_test.cpp:4241 |
-| BOOT-SNAPSAVE-02 | SzxSaver::build() produces a spec-conformant .szx for +3 (machine_id=5): 8-byte header, ZXSTZ80REGS(37B)/ZXSTSPECREGS(8B)/ZXSTRAMPAGE chunks at their exact published offsets, all 8 physical RAM banks (0-7) with chPageNo == physical bank number and full content — spectaculator.com/docs/zx-state/{header,z80regs,specregs,rampage}.shtml + libspectrum szx.c:3337-3342 (128-memory-capability page set) (G35) | — | pass | test/mmu/mmu_test.cpp:4386 |
-| BOOT-SNAPSAVE-03 | NexSaver::build() produces a spec-conformant .nex V1.2: 512-byte header fields at their exact NexLoader-parsed offsets (magic/version/ram_required/num_banks/border/sp/pc/banks[]/preserve_regs/entry_bank), full bank payloads in NexLoader's kBankOrder — https://wiki.specnext.dev/NEX_file_format (G35) | — | pass | test/mmu/mmu_test.cpp:4609 |
-| BOOT-DECI-01 | TZX 0x15 Direct Recording: EAR(t) = sample[(t-t0)/77] MSB-first with used_bits=5 in the last byte; level 0 and stopped after the final sample (TZX spec v1.20 block 0x15) | — | pass | test/mmu/mmu_test.cpp:4724 |
-| BOOT-DECI-02 | TZX pause holds the block's final level ~1 ms (3500 T) before dropping low, preserving the terminating edge of pulse blocks and the un-inverted final sample of 0x15 blocks (empirical heuristic; measured 48K-ROM LD-BYTES terminating-edge requirement, Task 57) | — | pass | test/mmu/mmu_test.cpp:4817 |
-| BOOT-DECI-03 | WAV real-time EAR: 8-bit PCM 44.1 kHz frames mapped from the 3.5 MHz T-state clock, threshold at the 128 centre; 0 before start and past end (G37) | — | pass | test/mmu/mmu_test.cpp:4872 |
-| BOOT-DECI-04 | WAV EAR transitions at the linearly-interpolated 128 crossing (sub-sample precision), not quantised to the 79.4 T sample grid — frame 10.75 of a 96→160 crossing reads 1 (G37 fix discriminator) | — | pass | test/mmu/mmu_test.cpp:4928 |
-| BANK7-01 | MMU page 0x0E lands in the dedicated BRAM buffer, not in any SRAM page — VHDL zxnext.vhd:2962+6670 | zxnext.vhd:2962 | pass | test/mmu/mmu_test.cpp:6047 |
-| BANK7-02 | alt-ROM write to phys page 0x0E does not corrupt MMU-page-0x0E workspace (the $DA35 saved-SP NextZXOS boot killer) | — | pass | test/mmu/mmu_test.cpp:6071 |
-| BANK7-03 | MMU page 0x0A lands in the dedicated bank-5 VRAM, not in any SRAM page — VHDL zxnext.vhd:2961+6558 | zxnext.vhd:2961 | pass | test/mmu/mmu_test.cpp:6094 |
-| BANK7-04 | config-mode NR $04=$17 window writes SRAM page 0x2E without touching the bank-7 BRAM — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:6121 |
-| BANK7-05 | standalone-machine (rom_in_sram=false) bank-7 writes land in flat RAM pages 0x0E/0x0F, NOT the Next-only BRAM buffer | — | pass | test/mmu/mmu_test.cpp:6147 |
-| BANK5-01 | pages 0x0A/0x0B are the lower/upper 8K halves of the single 16K bank-5 VRAM — VHDL zxnext.vhd:6558 (addr_width 14) | zxnext.vhd:6558 | pass | test/mmu/mmu_test.cpp:6180 |
-| BANK5-02 | config-mode NR $04=$05 window writes SRAM page 0x0A without touching the bank-5 VRAM (the NextZXOS mid-boot-garbage killer) — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:6205 |
-| BANK5-03 | standalone-machine (rom_in_sram=false) bank-5 writes land in flat RAM pages 0x0A/0x0B, NOT the Next-only VRAM buffer | — | pass | test/mmu/mmu_test.cpp:6225 |
-| BANK5-04 | CPU L2 window with bank 5 writes SRAM page 0x2A (unconditional layer2_A21_A13 formula), not page 0x0A and not the VRAM — VHDL zxnext.vhd:2966-2971 + 3100-3107 | zxnext.vhd:2966-2971 | pass | test/mmu/mmu_test.cpp:6250 |
+| BOOT-TAPESAVE-01 | TapSaver::build_block header block: LE length prefix (payload+2), flag 0x00, payload verbatim, XOR checksum — hand-computed TAP image (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3993 |
+| BOOT-TAPESAVE-02 | TapSaver data block (non-trivial XOR checksum) + append_block file ordering: file bytes == header-block \|\| data-block, hand-computed images (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:4062 |
+| BOOT-TAPESAVE-03 | TapSaver → TapLoader::parse_blocks round-trip: 2 blocks, correct boundaries/flags, payload identity, loader checksum verification, zero parse warnings (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:4110 |
+| BOOT-Z80-01 | v1 (uncompressed) .z80 round-trip — Mmu reads at 0x4000-0xFFFF match the raw-RAM image; PC/AF/BC/etc. match header bytes (worldofspectrum.org/faq/reference/z80format.htm v1 layout) | — | pass | test/mmu/mmu_test.cpp:4177 |
+| BOOT-Z80-02 | v2 (RLE-compressed) .z80 round-trip — decompress_page() reproduces the fill-run + literal-tail pattern across all three 48K page-number -> bank mappings (page4/5/8 -> 0x8000/0xC000/0x4000) | — | pass | test/mmu/mmu_test.cpp:4250 |
+| BOOT-Z80-03 | v3 (extended-header, 128K) .z80 — Ram banks 0-7 populated per the page3..10 -> bank0..7 table; port_7ffd_ from header byte 0x23 | — | pass | test/mmu/mmu_test.cpp:4321 |
+| BOOT-Z80-04 | Unsupported / corrupt .z80 file rejected — truncated RLE run with no end marker; loader returns error and Mmu is left untouched | — | pass | test/mmu/mmu_test.cpp:4358 |
+| BOOT-Z80-05 | Structurally-valid .z80 with only foreign page numbers is rejected by apply_ram_to_mmu() (zero pages applied), not silently reported as a successful load with no RAM written | — | pass | test/mmu/mmu_test.cpp:4407 |
+| BOOT-Z80-06 | hardware mode 3 is 128K in a v2 .z80 (its page 5, bank 2, lands at 0x8000) and 48K in a v3 one | — | pass | test/mmu/mmu_test.cpp:4444 |
+| BOOT-SNAPSAVE-02 | SzxSaver::build() produces a spec-conformant .szx for +3 (machine_id=5): 8-byte header, ZXSTZ80REGS(37B)/ZXSTSPECREGS(8B)/ZXSTRAMPAGE chunks at their exact published offsets, all 8 physical RAM banks (0-7) with chPageNo == physical bank number and full content — spectaculator.com/docs/zx-state/{header,z80regs,specregs,rampage}.shtml + libspectrum szx.c:3337-3342 (128-memory-capability page set) (G35) | — | pass | test/mmu/mmu_test.cpp:4589 |
+| BOOT-SNAPSAVE-03 | NexSaver::build() produces a spec-conformant .nex V1.2: 512-byte header fields at their exact NexLoader-parsed offsets (magic/version/ram_required/num_banks/border/sp/pc/banks[]/preserve_regs/entry_bank), full bank payloads in NexLoader's kBankOrder — https://wiki.specnext.dev/NEX_file_format (G35) | — | pass | test/mmu/mmu_test.cpp:4812 |
+| BOOT-DECI-01 | TZX 0x15 Direct Recording: EAR(t) = sample[(t-t0)/77] MSB-first with used_bits=5 in the last byte; level 0 and stopped after the final sample (TZX spec v1.20 block 0x15) | — | pass | test/mmu/mmu_test.cpp:4927 |
+| BOOT-DECI-02 | TZX pause holds the block's final level ~1 ms (3500 T) before dropping low, preserving the terminating edge of pulse blocks and the un-inverted final sample of 0x15 blocks (empirical heuristic; measured 48K-ROM LD-BYTES terminating-edge requirement, Task 57) | — | pass | test/mmu/mmu_test.cpp:5020 |
+| BOOT-DECI-03 | WAV real-time EAR: 8-bit PCM 44.1 kHz frames mapped from the 3.5 MHz T-state clock, threshold at the 128 centre; 0 before start and past end (G37) | — | pass | test/mmu/mmu_test.cpp:5075 |
+| BOOT-DECI-04 | WAV EAR transitions at the linearly-interpolated 128 crossing (sub-sample precision), not quantised to the 79.4 T sample grid — frame 10.75 of a 96→160 crossing reads 1 (G37 fix discriminator) | — | pass | test/mmu/mmu_test.cpp:5131 |
+| BANK7-01 | MMU page 0x0E lands in the dedicated BRAM buffer, not in any SRAM page — VHDL zxnext.vhd:2962+6670 | zxnext.vhd:2962 | pass | test/mmu/mmu_test.cpp:6250 |
+| BANK7-02 | alt-ROM write to phys page 0x0E does not corrupt MMU-page-0x0E workspace (the $DA35 saved-SP NextZXOS boot killer) | — | pass | test/mmu/mmu_test.cpp:6274 |
+| BANK7-03 | MMU page 0x0A lands in the dedicated bank-5 VRAM, not in any SRAM page — VHDL zxnext.vhd:2961+6558 | zxnext.vhd:2961 | pass | test/mmu/mmu_test.cpp:6297 |
+| BANK7-04 | config-mode NR $04=$17 window writes SRAM page 0x2E without touching the bank-7 BRAM — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:6324 |
+| BANK7-05 | standalone-machine (rom_in_sram=false) bank-7 writes land in flat RAM pages 0x0E/0x0F, NOT the Next-only BRAM buffer | — | pass | test/mmu/mmu_test.cpp:6350 |
+| BANK5-01 | pages 0x0A/0x0B are the lower/upper 8K halves of the single 16K bank-5 VRAM — VHDL zxnext.vhd:6558 (addr_width 14) | zxnext.vhd:6558 | pass | test/mmu/mmu_test.cpp:6383 |
+| BANK5-02 | config-mode NR $04=$05 window writes SRAM page 0x0A without touching the bank-5 VRAM (the NextZXOS mid-boot-garbage killer) — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:6408 |
+| BANK5-03 | standalone-machine (rom_in_sram=false) bank-5 writes land in flat RAM pages 0x0A/0x0B, NOT the Next-only VRAM buffer | — | pass | test/mmu/mmu_test.cpp:6428 |
+| BANK5-04 | CPU L2 window with bank 5 writes SRAM page 0x2A (unconditional layer2_A21_A13 formula), not page 0x0A and not the VRAM — VHDL zxnext.vhd:2966-2971 + 3100-3107 | zxnext.vhd:2966-2971 | pass | test/mmu/mmu_test.cpp:6453 |
 | N8E-05a | NR 0x8E read-back {dffd(0),7FFD(2:0),1,1FFD(0),1FFD(2),bit0} — VHDL zxnext.vhd:6158-6159 | zxnext.vhd:6158-6159 | pass | test/mmu/mmu_test.cpp:1258 |
 | N8E-05b | NR 0x8E read-back bit 0 flips with 1FFD(0) selector — VHDL zxnext.vhd:6159 | zxnext.vhd:6159 | pass | test/mmu/mmu_test.cpp:1275 |
 | MTC-01 | machine_type change leaves slot 0 NR-mapped to RAM (VHDL zxnext.vhd:3813 — no port_memory_change_dly pulse) | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:1942 |
@@ -387,55 +387,62 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | SHA-01 | Mmu::set_port_7ffd_bit3 toggles shadow_screen_en() — VHDL zxnext.vhd:3658,4453 | zxnext.vhd:3658,4453 | pass | test/mmu/mmu_test.cpp:2409 |
 | SHA-02 | Bit-3 alias and full-byte port-7FFD write share port_7ffd_reg storage — VHDL zxnext.vhd:3653,3658 | zxnext.vhd:3653,3658 | pass | test/mmu/mmu_test.cpp:2435 |
 | SHA-03 | Bit-3 toggle isolated to shadow_screen_en; port_7ffd bits 7:4\|2:0 and current_rom_bank unchanged — VHDL zxnext.vhd:3763-3766,4453 | zxnext.vhd:3763-3766,4453 | pass | test/mmu/mmu_test.cpp:2477 |
-| MMU-CFG-05 | addr bit 13 selects upper/lower 8 KB of nr_04 bank — VHDL zxnext.vhd:3045 (nr_04<<1 \| cpu_a(13)) | zxnext.vhd:3045 | pass | test/mmu/mmu_test.cpp:2749 |
-| MMU-CFG-07 | out-of-range nr_04 bank → read 0xFF + write drop — Ram::page_ptr nullptr fallback | zxnext.vhd:3045 | pass | test/mmu/mmu_test.cpp:2838 |
-| CFG-08 | set_config_mode / set_nr_04_romram_bank toggle between drop and route — VHDL zxnext.vhd:3044-3045,3049,3056 | zxnext.vhd:3044-3045,3049,3056 | pass | test/mmu/mmu_test.cpp:2861 |
-| CFG-09 | rom_in_sram=true routes ROM-slot reads through ram_ pages 0..7 — VHDL zxnext.vhd:3052 | zxnext.vhd:3052 | pass | test/mmu/mmu_test.cpp:2884 |
-| CFG-10 | rom_in_sram + config_mode=0: writes to ROM slot still drop — VHDL zxnext.vhd:3056 sram_pre_rdonly | zxnext.vhd:3056 | pass | test/mmu/mmu_test.cpp:2903 |
-| CFG-11 | set_rom_in_sram(true)→(false) restores ROM-slot reads to rom_ buffer — VHDL zxnext.vhd:3052 | zxnext.vhd:3052 | pass | test/mmu/mmu_test.cpp:2923 |
-| BOOT-SNAPSAVE-02B | SzxSaver::build() IFF1/IFF2/halted encode independently (discriminative pair for BOOT-SNAPSAVE-02) — spectaculator.com/docs/zx-state/z80regs.shtml | — | pass | test/mmu/mmu_test.cpp:4421 |
-| BOOT-SNAPSAVE-02C | SzxSaver::build() emits exactly banks {0, 2, 5} for a 48K save (machine_id=1) — the SZX page-numbering convention (spectaculator.com/docs/zx-state/rampage.shtml + libspectrum szx.c:3330-3334), NOT the first 3 banks {0,1,2} | — | pass | test/mmu/mmu_test.cpp:4473 |
-| BOOT-SNAPSAVE-02D | SzxSaver::build()/ram_page_set() refuse (empty return, error message set) for any chMachineId outside {1,2,4,5} — 48K/128K/+2A/+3 are the only machines .szx can represent | — | pass | test/mmu/mmu_test.cpp:4516 |
-| BOOT-SNAPSAVE-03B | NexSaver::build() clamps to the format's 112-bank ceiling on >1792 KB installs and reports the clamp rather than overflowing banks[112] or writing an unrepresentable ram_required — nex_loader.h banks[112]/kBankOrder (G155) | — | pass | test/mmu/mmu_test.cpp:4645 |
-| BOOT-SNAPSAVE-03C | NexSaver::build() detects a non-contiguous slot 6/7 bank pair and flags contiguous_entry_bank=false rather than silently mis-saving (NexSaver class doc-comment) | — | pass | test/mmu/mmu_test.cpp:4670 |
-| MMU-PR-01 | slot_in_rom_area at reset (NR 0x50/51 = 0xFF): true for slots 0/1 (VHDL :2964 mmu_A21_A13(8)=1 when effective page >= 0xE0) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5001 |
-| MMU-PR-02 | slot_in_rom_area false when NR 0x50 = 0x0A (RAM bank 5) — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5015 |
-| MMU-PR-03 | slot_in_rom_area true at boundary NR 0x50 = 0xE0 (VHDL zxnext.vhd:2964 boundary) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5026 |
-| MMU-PR-04 | slot_in_rom_area false at NR 0x50 = 0xDF (just below VHDL zxnext.vhd:2964 boundary) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5038 |
-| MMU-PR-05 | pre_override(2)=0 for PC>=0x4000 (cpu_a(15:14)!=00) — VHDL zxnext.vhd:3029,3065 | zxnext.vhd:3029,3065 | pass | test/mmu/mmu_test.cpp:5048 |
-| PR-06 | pre_override(2)=0 when mf_active=1 (VHDL zxnext.vhd:3030,3036 — MF wins, override='000') | zxnext.vhd:3030,3036 | pass | test/mmu/mmu_test.cpp:5058 |
-| PR-07 | pre_override(2)=1 for PC<0x4000 with mf_active=0 — VHDL zxnext.vhd:3043,3050,3057 | zxnext.vhd:3043,3050,3057 | pass | test/mmu/mmu_test.cpp:5068 |
-| PR-08 | pre_override(0)=1 in normal ROM mode (VHDL zxnext.vhd:3057 → '111') | zxnext.vhd:3057 | pass | test/mmu/mmu_test.cpp:5082 |
-| PR-09 | pre_override(0)=0 when config_mode=1 (VHDL zxnext.vhd:3044,3050) | zxnext.vhd:3044,3050 | pass | test/mmu/mmu_test.cpp:5093 |
-| PR-10 | pre_override(0)=0 for slot 0 RAM-mapped (VHDL zxnext.vhd:3037,3043) | zxnext.vhd:3037,3043 | pass | test/mmu/mmu_test.cpp:5105 |
-| PR-11 | pre_override(0)=0 when mf_active=1 (VHDL zxnext.vhd:3030,3036 → '000') | zxnext.vhd:3030,3036 | pass | test/mmu/mmu_test.cpp:5115 |
-| PR-12 | pre_override(0)=0 for PC>=0x4000 — VHDL zxnext.vhd:3065 | zxnext.vhd:3065 | pass | test/mmu/mmu_test.cpp:5125 |
-| PR-13 | pre_override(0)=1 in slot 1 (PC=0x2000) with NR 0x51=0xFF — VHDL zxnext.vhd:3057 | zxnext.vhd:3057 | pass | test/mmu/mmu_test.cpp:5137 |
-| PR-14 | pre_override(0) tracks per-slot ROM/RAM mode (VHDL zxnext.vhd:2952 mem_active_page selects MMU0..MMU7 by cpu_a(15:13)) | zxnext.vhd:2952 | pass | test/mmu/mmu_test.cpp:5156 |
-| FIX-NR5xFF-01 | NR $51=$FF (engage_legacy_rom_paging_slot(1)) preserves slot 0 RAM mapping — VHDL zxnext.vhd:4686-4696 nr_mmu_we per-slot | zxnext.vhd:4686-4696 | pass | test/mmu/mmu_test.cpp:5201 |
-| FIX-NR5xFF-02 | NR $52=$FF → slot 2 inactive: read returns 0xFF, write dropped (VHDL zxnext.vhd:3061 sram_pre_active=0 when mmu_A21_A13(8)=1) | zxnext.vhd:3061 | pass | test/mmu/mmu_test.cpp:5226 |
-| FIX-NR5xFF-03 | NR $56=$FF → slot 6 inactive (NOT legacy RAM auto-paged) — VHDL zxnext.vhd:3061 sram_pre_active=0 | zxnext.vhd:3061 | pass | test/mmu/mmu_test.cpp:5246 |
-| FIX-PLUS3-01 | +3 special-mode 1→0 transition reverts slots 2-5 to bank 5 / bank 2 — VHDL zxnext.vhd:4655-4670 | zxnext.vhd:4655-4670 | pass | test/mmu/mmu_test.cpp:5283 |
-| FIX-PLUS3-02 | +3 special: port_7FFD write does NOT clobber special table — VHDL zxnext.vhd:4623 (arbiter rewrites 0..7) | zxnext.vhd:4623 | pass | test/mmu/mmu_test.cpp:5313 |
-| FIX-PLUS3-03 | port_1ffd_special_old persisted across save/load — exit after load fires slot 2-5 revert (VHDL :3716,3729; commit 45d8b30) | zxnext.vhd:3716/3729 | pass | test/mmu/mmu_test.cpp:5347 |
-| FIX-NR8C-CACHE-01 | NR 0x8C lock_rom1 flip refreshes slot-0 cached read pointer (pre→0x00, post→0x40) — VHDL zxnext.vhd:2981-3008,3052; commit 3dd4e73 | zxnext.vhd:2981-3008,3052 | pass | test/mmu/mmu_test.cpp:5398 |
-| FIX-NR8C-CACHE-02 | NR 0x8C write with no lock change preserves slot 0 RAM mapping AND cached read pointer — VHDL zxnext.vhd:3813 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5450 |
-| FIX-SLOT01-HIPAGE-01 | NR $50=0xE5 routes slot 0 to legacy ROM (sram_rom-derived) — VHDL zxnext.vhd:2964 mmu_A21_A13(8)=1 + :3052; commit 3dd4e73 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5497 |
-| FIX-UNLOCK-01 | unlock_paging() clears bit 5 of port_7ffd_ AND paging_locked_ — VHDL zxnext.vhd:3654-3656; commit 31d1786 | zxnext.vhd:3654-3656 | pass | test/mmu/mmu_test.cpp:5526 |
-| FIX-NR8C-PRESERVE-01 | NR 0x8C write preserves slot 0 explicit RAM mapping — VHDL zxnext.vhd:3813 no port_memory_change_dly; commit 31d1786 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5554 |
-| FIX-NR8C-PRESERVE-02 | NR 0x8C with sram_rom-changing lock preserves slot 1 RAM mapping — VHDL zxnext.vhd:3813; commit 31d1786 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5573 |
-| FIX-EFF7-FF-01 | NR $50=$FF under EFF7(3)=1: nr_mmu_[0]=0xFF verbatim, slot 0 → legacy ROM (not RAM) — VHDL :4686-4696 nr_mmu_we; commits 31d1786 + 560cb18 | zxnext.vhd:4686-4696 | pass | test/mmu/mmu_test.cpp:5606 |
-| FIX-NRMMU-SAVE-01 | nr_mmu_[0]=0xE5 verbatim round-trips through save/load — VHDL zxnext.vhd:4686-4696 + :6059-6081 NR readback; commit 560cb18 | zxnext.vhd:4686-4696,6059-6081 | pass | test/mmu/mmu_test.cpp:5646 |
-| FIX-NR12-PROP-01 | Mmu::set_l2_active_bank propagates to CPU L2 read path — VHDL zxnext.vhd:2968 + :2969 layer2_active_page; commit 560cb18 | zxnext.vhd:2968,2969 | pass | test/mmu/mmu_test.cpp:5680 |
-| FIX-RESET-CFG-01-A | reset with config_mode=0 leaves boot_rom_en cleared — VHDL zxnext.vhd:5109-5111; commit 165835d | zxnext.vhd:5109-5111 | pass | test/mmu/mmu_test.cpp:5711 |
-| FIX-RESET-CFG-01-B | reset with config_mode=1 re-arms boot_rom_en — VHDL zxnext.vhd:5109-5111; commit 165835d | zxnext.vhd:5109-5111 | pass | test/mmu/mmu_test.cpp:5729 |
-| FIX-MTC-SPECIAL-01 | set_machine_type during +3 special preserves special-mapping slots 0/1 — VHDL zxnext.vhd:4623-4632 (table independent of sram_rom); commit 165835d | zxnext.vhd:4623-4632 | pass | test/mmu/mmu_test.cpp:5762 |
-| FIX-CURRSRAMROM-128K-01 | 128K with lock_rom1=1: sram_rom = lock_rom1 = 1 (NOT 7ffd(4)=0) — VHDL zxnext.vhd:2997-3007 shared else branch; commit b6b42dd | zxnext.vhd:2997-3007 | pass | test/mmu/mmu_test.cpp:5792 |
-| FIX-L2-OVERLAY-LOWHALF-01 | L2 write-over with seg=01 still intercepts low half (0x0000) — VHDL zxnext.vhd:3043 sram_pre_override(1)=1; commit b6b42dd | zxnext.vhd:3043 | pass | test/mmu/mmu_test.cpp:5825 |
-| FIX-L2-OVERLAY-LOWHALF-02 | L2 write-over with seg=10 still intercepts low half (0x0000) — VHDL zxnext.vhd:3043; commit b6b42dd | zxnext.vhd:3043 | pass | test/mmu/mmu_test.cpp:5845 |
-| FIX-L2-ROM-AREA-01 | L2 read with bank=0x70 → sram_active=0 → 0xFF (NOT ROM-area wrap) — VHDL zxnext.vhd:2971 + :3101-3102; commit 9d252b6 | zxnext.vhd:2971,3101-3102 | pass | test/mmu/mmu_test.cpp:5875 |
-| FIX-L2-ROM-AREA-02 | L2 write with bank=0x70 → sram_active=0 → write dropped (NOT corrupting ROM area) — VHDL zxnext.vhd:2971 + :3101-3102; commit 9d252b6 | zxnext.vhd:2971,3101-3102 | pass | test/mmu/mmu_test.cpp:5904 |
-| V11-MEM-01-A | NR $50=0xE5 + save_state + load_state: rebuild_ptr serves legacy ROM (sram_rom*2+slot=0) via consistent slots_[] — VHDL zxnext.vhd:3037-3057 :3052; verify11-memory | zxnext.vhd:3037-3057 | pass | test/mmu/mmu_test.cpp:5996 |
+| ALT-10 | +3 with NR 0x8C=0xA0: sram_alt_128_n=1 (the alt-48 image) while sram_rom3=0 — the split that left the DivMMC tape trap gated off (VHDL zxnext.vhd:2990-2991, 3078) | zxnext.vhd:2990-2991,3078 | pass | test/mmu/mmu_test.cpp:2680 |
+| ALT-11 | +3 altrom lock: sram_alt_128_n = lock_rom1 alone, NOT lock_rom1 AND lock_rom0 — VHDL zxnext.vhd:2991 | zxnext.vhd:2991 | pass | test/mmu/mmu_test.cpp:2707 |
+| ALT-12 | no altrom locks + port_7ffd(4)=0: 48K hardwires sram_alt_128_n=1 while +3 falls back to port_7ffd(4)=0 — VHDL zxnext.vhd:2986 vs :2995 | zxnext.vhd:2986 | pass | test/mmu/mmu_test.cpp:2735 |
+| ALT-13 | +3 with no altrom lock: sram_alt_128_n follows port_7ffd bit 4 — VHDL zxnext.vhd:2995 | zxnext.vhd:2995 | pass | test/mmu/mmu_test.cpp:2755 |
+| ALT-14 | sram_altrom_en on a read cycle: 1 when altrom_en=1 and altrom_rw=0, 0 in write-over mode and 0 when disabled — VHDL zxnext.vhd:3056, 3078 | zxnext.vhd:3056,3078 | pass | test/mmu/mmu_test.cpp:2781 |
+| ALT-15 | config_mode clears sram_altrom_en (override(0)='0') — VHDL zxnext.vhd:3044-3050, 3078 first clause | zxnext.vhd:3044-3050,3078 | pass | test/mmu/mmu_test.cpp:2810 |
+| ALT-16 | NR 0x8C=0xA0 on +3 routes a 0x0000 read to alt-ROM SRAM page 14, not 12 — VHDL zxnext.vhd:2991, 3116-3117 | zxnext.vhd:2991,3116-3117 | pass | test/mmu/mmu_test.cpp:2837 |
+| MMU-CFG-05 | addr bit 13 selects upper/lower 8 KB of nr_04 bank — VHDL zxnext.vhd:3045 (nr_04<<1 \| cpu_a(13)) | zxnext.vhd:3045 | pass | test/mmu/mmu_test.cpp:2952 |
+| MMU-CFG-07 | out-of-range nr_04 bank → read 0xFF + write drop — Ram::page_ptr nullptr fallback | zxnext.vhd:3045 | pass | test/mmu/mmu_test.cpp:3041 |
+| CFG-08 | set_config_mode / set_nr_04_romram_bank toggle between drop and route — VHDL zxnext.vhd:3044-3045,3049,3056 | zxnext.vhd:3044-3045,3049,3056 | pass | test/mmu/mmu_test.cpp:3064 |
+| CFG-09 | rom_in_sram=true routes ROM-slot reads through ram_ pages 0..7 — VHDL zxnext.vhd:3052 | zxnext.vhd:3052 | pass | test/mmu/mmu_test.cpp:3087 |
+| CFG-10 | rom_in_sram + config_mode=0: writes to ROM slot still drop — VHDL zxnext.vhd:3056 sram_pre_rdonly | zxnext.vhd:3056 | pass | test/mmu/mmu_test.cpp:3106 |
+| CFG-11 | set_rom_in_sram(true)→(false) restores ROM-slot reads to rom_ buffer — VHDL zxnext.vhd:3052 | zxnext.vhd:3052 | pass | test/mmu/mmu_test.cpp:3126 |
+| BOOT-SNAPSAVE-02B | SzxSaver::build() IFF1/IFF2/halted encode independently (discriminative pair for BOOT-SNAPSAVE-02) — spectaculator.com/docs/zx-state/z80regs.shtml | — | pass | test/mmu/mmu_test.cpp:4624 |
+| BOOT-SNAPSAVE-02C | SzxSaver::build() emits exactly banks {0, 2, 5} for a 48K save (machine_id=1) — the SZX page-numbering convention (spectaculator.com/docs/zx-state/rampage.shtml + libspectrum szx.c:3330-3334), NOT the first 3 banks {0,1,2} | — | pass | test/mmu/mmu_test.cpp:4676 |
+| BOOT-SNAPSAVE-02D | SzxSaver::build()/ram_page_set() refuse (empty return, error message set) for any chMachineId outside {1,2,4,5} — 48K/128K/+2A/+3 are the only machines .szx can represent | — | pass | test/mmu/mmu_test.cpp:4719 |
+| BOOT-SNAPSAVE-03B | NexSaver::build() clamps to the format's 112-bank ceiling on >1792 KB installs and reports the clamp rather than overflowing banks[112] or writing an unrepresentable ram_required — nex_loader.h banks[112]/kBankOrder (G155) | — | pass | test/mmu/mmu_test.cpp:4848 |
+| BOOT-SNAPSAVE-03C | NexSaver::build() detects a non-contiguous slot 6/7 bank pair and flags contiguous_entry_bank=false rather than silently mis-saving (NexSaver class doc-comment) | — | pass | test/mmu/mmu_test.cpp:4873 |
+| MMU-PR-01 | slot_in_rom_area at reset (NR 0x50/51 = 0xFF): true for slots 0/1 (VHDL :2964 mmu_A21_A13(8)=1 when effective page >= 0xE0) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5204 |
+| MMU-PR-02 | slot_in_rom_area false when NR 0x50 = 0x0A (RAM bank 5) — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5218 |
+| MMU-PR-03 | slot_in_rom_area true at boundary NR 0x50 = 0xE0 (VHDL zxnext.vhd:2964 boundary) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5229 |
+| MMU-PR-04 | slot_in_rom_area false at NR 0x50 = 0xDF (just below VHDL zxnext.vhd:2964 boundary) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5241 |
+| MMU-PR-05 | pre_override(2)=0 for PC>=0x4000 (cpu_a(15:14)!=00) — VHDL zxnext.vhd:3029,3065 | zxnext.vhd:3029,3065 | pass | test/mmu/mmu_test.cpp:5251 |
+| PR-06 | pre_override(2)=0 when mf_active=1 (VHDL zxnext.vhd:3030,3036 — MF wins, override='000') | zxnext.vhd:3030,3036 | pass | test/mmu/mmu_test.cpp:5261 |
+| PR-07 | pre_override(2)=1 for PC<0x4000 with mf_active=0 — VHDL zxnext.vhd:3043,3050,3057 | zxnext.vhd:3043,3050,3057 | pass | test/mmu/mmu_test.cpp:5271 |
+| PR-08 | pre_override(0)=1 in normal ROM mode (VHDL zxnext.vhd:3057 → '111') | zxnext.vhd:3057 | pass | test/mmu/mmu_test.cpp:5285 |
+| PR-09 | pre_override(0)=0 when config_mode=1 (VHDL zxnext.vhd:3044,3050) | zxnext.vhd:3044,3050 | pass | test/mmu/mmu_test.cpp:5296 |
+| PR-10 | pre_override(0)=0 for slot 0 RAM-mapped (VHDL zxnext.vhd:3037,3043) | zxnext.vhd:3037,3043 | pass | test/mmu/mmu_test.cpp:5308 |
+| PR-11 | pre_override(0)=0 when mf_active=1 (VHDL zxnext.vhd:3030,3036 → '000') | zxnext.vhd:3030,3036 | pass | test/mmu/mmu_test.cpp:5318 |
+| PR-12 | pre_override(0)=0 for PC>=0x4000 — VHDL zxnext.vhd:3065 | zxnext.vhd:3065 | pass | test/mmu/mmu_test.cpp:5328 |
+| PR-13 | pre_override(0)=1 in slot 1 (PC=0x2000) with NR 0x51=0xFF — VHDL zxnext.vhd:3057 | zxnext.vhd:3057 | pass | test/mmu/mmu_test.cpp:5340 |
+| PR-14 | pre_override(0) tracks per-slot ROM/RAM mode (VHDL zxnext.vhd:2952 mem_active_page selects MMU0..MMU7 by cpu_a(15:13)) | zxnext.vhd:2952 | pass | test/mmu/mmu_test.cpp:5359 |
+| FIX-NR5xFF-01 | NR $51=$FF (engage_legacy_rom_paging_slot(1)) preserves slot 0 RAM mapping — VHDL zxnext.vhd:4686-4696 nr_mmu_we per-slot | zxnext.vhd:4686-4696 | pass | test/mmu/mmu_test.cpp:5404 |
+| FIX-NR5xFF-02 | NR $52=$FF → slot 2 inactive: read returns 0xFF, write dropped (VHDL zxnext.vhd:3061 sram_pre_active=0 when mmu_A21_A13(8)=1) | zxnext.vhd:3061 | pass | test/mmu/mmu_test.cpp:5429 |
+| FIX-NR5xFF-03 | NR $56=$FF → slot 6 inactive (NOT legacy RAM auto-paged) — VHDL zxnext.vhd:3061 sram_pre_active=0 | zxnext.vhd:3061 | pass | test/mmu/mmu_test.cpp:5449 |
+| FIX-PLUS3-01 | +3 special-mode 1→0 transition reverts slots 2-5 to bank 5 / bank 2 — VHDL zxnext.vhd:4655-4670 | zxnext.vhd:4655-4670 | pass | test/mmu/mmu_test.cpp:5486 |
+| FIX-PLUS3-02 | +3 special: port_7FFD write does NOT clobber special table — VHDL zxnext.vhd:4623 (arbiter rewrites 0..7) | zxnext.vhd:4623 | pass | test/mmu/mmu_test.cpp:5516 |
+| FIX-PLUS3-03 | port_1ffd_special_old persisted across save/load — exit after load fires slot 2-5 revert (VHDL :3716,3729; commit 45d8b30) | zxnext.vhd:3716/3729 | pass | test/mmu/mmu_test.cpp:5550 |
+| FIX-NR8C-CACHE-01 | NR 0x8C lock_rom1 flip refreshes slot-0 cached read pointer (pre→0x00, post→0x40) — VHDL zxnext.vhd:2981-3008,3052; commit 3dd4e73 | zxnext.vhd:2981-3008,3052 | pass | test/mmu/mmu_test.cpp:5601 |
+| FIX-NR8C-CACHE-02 | NR 0x8C write with no lock change preserves slot 0 RAM mapping AND cached read pointer — VHDL zxnext.vhd:3813 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5653 |
+| FIX-SLOT01-HIPAGE-01 | NR $50=0xE5 routes slot 0 to legacy ROM (sram_rom-derived) — VHDL zxnext.vhd:2964 mmu_A21_A13(8)=1 + :3052; commit 3dd4e73 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5700 |
+| FIX-UNLOCK-01 | unlock_paging() clears bit 5 of port_7ffd_ AND paging_locked_ — VHDL zxnext.vhd:3654-3656; commit 31d1786 | zxnext.vhd:3654-3656 | pass | test/mmu/mmu_test.cpp:5729 |
+| FIX-NR8C-PRESERVE-01 | NR 0x8C write preserves slot 0 explicit RAM mapping — VHDL zxnext.vhd:3813 no port_memory_change_dly; commit 31d1786 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5757 |
+| FIX-NR8C-PRESERVE-02 | NR 0x8C with sram_rom-changing lock preserves slot 1 RAM mapping — VHDL zxnext.vhd:3813; commit 31d1786 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5776 |
+| FIX-EFF7-FF-01 | NR $50=$FF under EFF7(3)=1: nr_mmu_[0]=0xFF verbatim, slot 0 → legacy ROM (not RAM) — VHDL :4686-4696 nr_mmu_we; commits 31d1786 + 560cb18 | zxnext.vhd:4686-4696 | pass | test/mmu/mmu_test.cpp:5809 |
+| FIX-NRMMU-SAVE-01 | nr_mmu_[0]=0xE5 verbatim round-trips through save/load — VHDL zxnext.vhd:4686-4696 + :6059-6081 NR readback; commit 560cb18 | zxnext.vhd:4686-4696,6059-6081 | pass | test/mmu/mmu_test.cpp:5849 |
+| FIX-NR12-PROP-01 | Mmu::set_l2_active_bank propagates to CPU L2 read path — VHDL zxnext.vhd:2968 + :2969 layer2_active_page; commit 560cb18 | zxnext.vhd:2968,2969 | pass | test/mmu/mmu_test.cpp:5883 |
+| FIX-RESET-CFG-01-A | reset with config_mode=0 leaves boot_rom_en cleared — VHDL zxnext.vhd:5109-5111; commit 165835d | zxnext.vhd:5109-5111 | pass | test/mmu/mmu_test.cpp:5914 |
+| FIX-RESET-CFG-01-B | reset with config_mode=1 re-arms boot_rom_en — VHDL zxnext.vhd:5109-5111; commit 165835d | zxnext.vhd:5109-5111 | pass | test/mmu/mmu_test.cpp:5932 |
+| FIX-MTC-SPECIAL-01 | set_machine_type during +3 special preserves special-mapping slots 0/1 — VHDL zxnext.vhd:4623-4632 (table independent of sram_rom); commit 165835d | zxnext.vhd:4623-4632 | pass | test/mmu/mmu_test.cpp:5965 |
+| FIX-CURRSRAMROM-128K-01 | 128K with lock_rom1=1: sram_rom = lock_rom1 = 1 (NOT 7ffd(4)=0) — VHDL zxnext.vhd:2997-3007 shared else branch; commit b6b42dd | zxnext.vhd:2997-3007 | pass | test/mmu/mmu_test.cpp:5995 |
+| FIX-L2-OVERLAY-LOWHALF-01 | L2 write-over with seg=01 still intercepts low half (0x0000) — VHDL zxnext.vhd:3043 sram_pre_override(1)=1; commit b6b42dd | zxnext.vhd:3043 | pass | test/mmu/mmu_test.cpp:6028 |
+| FIX-L2-OVERLAY-LOWHALF-02 | L2 write-over with seg=10 still intercepts low half (0x0000) — VHDL zxnext.vhd:3043; commit b6b42dd | zxnext.vhd:3043 | pass | test/mmu/mmu_test.cpp:6048 |
+| FIX-L2-ROM-AREA-01 | L2 read with bank=0x70 → sram_active=0 → 0xFF (NOT ROM-area wrap) — VHDL zxnext.vhd:2971 + :3101-3102; commit 9d252b6 | zxnext.vhd:2971,3101-3102 | pass | test/mmu/mmu_test.cpp:6078 |
+| FIX-L2-ROM-AREA-02 | L2 write with bank=0x70 → sram_active=0 → write dropped (NOT corrupting ROM area) — VHDL zxnext.vhd:2971 + :3101-3102; commit 9d252b6 | zxnext.vhd:2971,3101-3102 | pass | test/mmu/mmu_test.cpp:6107 |
+| V11-MEM-01-A | NR $50=0xE5 + save_state + load_state: rebuild_ptr serves legacy ROM (sram_rom*2+slot=0) via consistent slots_[] — VHDL zxnext.vhd:3037-3057 :3052; verify11-memory | zxnext.vhd:3037-3057 | pass | test/mmu/mmu_test.cpp:6199 |
 
 ## ULA Video — `test/ula/ula_test.cpp`
 
@@ -1975,79 +1982,79 @@ Notes and rationale: [DIVMMC-SPI-TEST-PLAN-DESIGN.md](DIVMMC-SPI-TEST-PLAN-DESIG
 | NR-06 | M1 at 0x3D00 with BB[7]=1 and no ROM3: automap must NOT activate (VHDL zxnext.vhd:2898-2899,3138) | zxnext.vhd:2898-2899,3138 | pass | test/divmmc/divmmc_test.cpp:879 |
 | NR-07 | M1 at 0x3DFF with BB[7]=1 and no ROM3: no automap (VHDL zxnext.vhd:2898-2899) | zxnext.vhd:2898-2899 | pass | test/divmmc/divmmc_test.cpp:891 |
 | NR-08 | M1 at 0x3D00 with BB[7]=0: no automap (VHDL zxnext.vhd:2898-2899) | zxnext.vhd:2898-2899 | pass | test/divmmc/divmmc_test.cpp:904 |
-| DA-01 | M1 at 0x1FF8 deactivates held automap (next-fetch visible) (VHDL divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:1049 |
-| DA-02 | M1 at 0x1FFF deactivates held automap (next-fetch visible) (VHDL divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:1062 |
-| DA-03 | M1 at 0x1FF7: no deactivation (below 0x1FF8) (VHDL zxnext.vhd: cpu_a[7:3]=11111) | zxnext.vhd | pass | test/divmmc/divmmc_test.cpp:1075 |
-| DA-04 | M1 at 0x2000: no deactivation (above range) (VHDL zxnext.vhd: port_1fxx_msb) | zxnext.vhd | pass | test/divmmc/divmmc_test.cpp:1087 |
-| DA-05 | BB[6]=0 disables 0x1FF8 deactivation (VHDL zxnext.vhd NR 0xBB[6]) | zxnext.vhd | pass | test/divmmc/divmmc_test.cpp:1101 |
-| DA-06 | on_retn() clears automap_active_ (VHDL divmmc.vhd:126,139) | divmmc.vhd:126,139 | pass | test/divmmc/divmmc_test.cpp:1118 |
-| DA-07 | reset() clears automap_active (VHDL divmmc.vhd:127) | divmmc.vhd:127 | pass | test/divmmc/divmmc_test.cpp:1131 |
-| DA-08 | set_enabled(false) clears automap_active_ latch (VHDL divmmc.vhd:126) | divmmc.vhd:126 | pass | test/divmmc/divmmc_test.cpp:1147 |
-| DMC-TM-01 | instant_on: active=1 and hold=1 after fetch 1 (held=0 yet); held=1 after fetch 2 (VHDL divmmc.vhd:141 latches held from hold on MREQ rising edge) | divmmc.vhd:141 | pass | test/divmmc/divmmc_test.cpp:1288 |
-| DMC-TM-02 | delayed_on: hold=1 this M1, active stays 0; next M1 active=1 (VHDL divmmc.vhd:129,141,148) | divmmc.vhd:129,141,148 | pass | test/divmmc/divmmc_test.cpp:1310 |
-| DMC-TM-03 | held persists across non-trigger M1 via hold propagation (VHDL divmmc.vhd:141-142,131) | divmmc.vhd:141-142,131 | pass | test/divmmc/divmmc_test.cpp:1331 |
-| DMC-TM-04 | non-M1 access at entry-point does NOT alter hold/held (VHDL divmmc.vhd:128 gates on M1+MREQ) | divmmc.vhd:128 | pass | test/divmmc/divmmc_test.cpp:1354 |
-| TM-05 | held persists across 5 non-trigger M1 fetches (VHDL divmmc.vhd:131 — held AND NOT off keeps hold at 1) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:1371 |
-| R3-01 | ROM3-only entry (NR 0xB9 bit=0) fires when rom3_active=1 (VHDL zxnext.vhd:2856,3138 + divmmc.vhd:130) | zxnext.vhd:2856,3138, divmmc.vhd:130 | pass | test/divmmc/divmmc_test.cpp:1404 |
-| R3-02 | ROM3-only entry does NOT fire when rom3_active=0 (VHDL zxnext.vhd:2856 gates on sram_pre_rom3) | zxnext.vhd:2856 | pass | test/divmmc/divmmc_test.cpp:1422 |
-| R3-03 | Layer 2 read-map suppresses ROM3-only automap path (VHDL zxnext.vhd:3138 — sram_divmmc_automap_rom3_en AND NOT sram_layer2_map_en) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:1456 |
-| R3-04 | DivMMC enabled + conmem: non-ROM3 automap path active (VHDL zxnext.vhd:3137) | zxnext.vhd:3137 | pass | test/divmmc/divmmc_test.cpp:1474 |
-| NM-01 | Arbiter IDLE->FETCH pulses nmi_divmmc_button; DivMmc::set_button_nmi(true) latches button_nmi_ (VHDL divmmc.vhd:108-111, zxnext.vhd:2170) | divmmc.vhd:108-111, zxnext.vhd:2170 | pass | test/divmmc/divmmc_test.cpp:1562 |
-| NM-02 | PC=0x0066 M1 with button_nmi=1 -> automap_nmi_instant_on fires (VHDL divmmc.vhd:120-121) | divmmc.vhd:120-121 | pass | test/divmmc/divmmc_test.cpp:1582 |
-| NM-03 | PC=0x0066 M1 with button_nmi=0 -> no NMI instant-on automap (VHDL divmmc.vhd:120) | divmmc.vhd:120 | pass | test/divmmc/divmmc_test.cpp:1602 |
-| NM-04 | reset() clears button_nmi_ (VHDL divmmc.vhd:108 i_reset) | divmmc.vhd:108 | pass | test/divmmc/divmmc_test.cpp:1618 |
-| NM-05 | enabled(true->false) (i_automap_reset) clears button_nmi_ (VHDL divmmc.vhd:108 / zxnext.vhd:4112) | divmmc.vhd:108, zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:1636 |
-| NM-06 | on_retn_seen() (i_retn_seen) clears button_nmi_ (VHDL divmmc.vhd:108) | divmmc.vhd:108 | pass | test/divmmc/divmmc_test.cpp:1654 |
-| NM-07 | automap_held rising 0->1 clears button_nmi_ (VHDL divmmc.vhd:112-113) | divmmc.vhd:112-113 | pass | test/divmmc/divmmc_test.cpp:1685 |
-| NM-08 | is_nmi_hold() steady-state = automap OR button_nmi across all 4 input combinations after held has caught up to hold (VHDL divmmc.vhd:148,150 o_disable_nmi). Discriminative first-M1 active-vs-held case is in NM-10. | divmmc.vhd:148,150 | pass | test/divmmc/divmmc_test.cpp:1774 |
-| NA-01 | enable=false (NR 0x0A[4]=0 equivalent): no mapping on automap trigger (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:2007 |
-| NA-02 | enable=true releases reset, automap functions (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:2071 |
-| NA-03 | port_io_enable and nr_0a_4_enable are independent levers; enabled_ = port_io_enable AND nr_0a_4_enable (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:2095 |
-| NA-04 | NR 0x0A bit 4 wired through to DivMmc::set_nr_0a_4_enable (VHDL zxnext.vhd:1126,5196) | zxnext.vhd:1126,5196 | pass | test/divmmc/divmmc_test.cpp:2138 |
-| NA-05 | NR 0x83 bit 0 wired through to DivMmc::set_port_io_enable (VHDL zxnext.vhd:2412) | zxnext.vhd:2412 | pass | test/divmmc/divmmc_test.cpp:2168 |
-| NA-06 | NR 0x06 power-on default = 0xA0 (b7=1, b5=1) (VHDL zxnext.vhd:1107-1108) | zxnext.vhd:1107-1108 | pass | test/divmmc/divmmc_test.cpp:2182 |
-| NA-07 | NR 0x06 bits 7/5 round-trip through NextReg storage (VHDL zxnext.vhd:5162,5164,5900) | zxnext.vhd:5162,5164,5900 | pass | test/divmmc/divmmc_test.cpp:2207 |
-| NA-08 | NR 0x0A bit 5 (sd_swap) write blocked when nr_03_config_mode=0 (VHDL zxnext.vhd:5191-5194) | zxnext.vhd:5191-5194 | pass | test/divmmc/divmmc_test.cpp:2250 |
+| DA-01 | M1 at 0x1FF8 deactivates held automap (next-fetch visible) (VHDL divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:1184 |
+| DA-02 | M1 at 0x1FFF deactivates held automap (next-fetch visible) (VHDL divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:1197 |
+| DA-03 | M1 at 0x1FF7: no deactivation (below 0x1FF8) (VHDL zxnext.vhd: cpu_a[7:3]=11111) | zxnext.vhd | pass | test/divmmc/divmmc_test.cpp:1210 |
+| DA-04 | M1 at 0x2000: no deactivation (above range) (VHDL zxnext.vhd: port_1fxx_msb) | zxnext.vhd | pass | test/divmmc/divmmc_test.cpp:1222 |
+| DA-05 | BB[6]=0 disables 0x1FF8 deactivation (VHDL zxnext.vhd NR 0xBB[6]) | zxnext.vhd | pass | test/divmmc/divmmc_test.cpp:1236 |
+| DA-06 | on_retn() clears automap_active_ (VHDL divmmc.vhd:126,139) | divmmc.vhd:126,139 | pass | test/divmmc/divmmc_test.cpp:1253 |
+| DA-07 | reset() clears automap_active (VHDL divmmc.vhd:127) | divmmc.vhd:127 | pass | test/divmmc/divmmc_test.cpp:1266 |
+| DA-08 | set_enabled(false) clears automap_active_ latch (VHDL divmmc.vhd:126) | divmmc.vhd:126 | pass | test/divmmc/divmmc_test.cpp:1282 |
+| DMC-TM-01 | instant_on: active=1 and hold=1 after fetch 1 (held=0 yet); held=1 after fetch 2 (VHDL divmmc.vhd:141 latches held from hold on MREQ rising edge) | divmmc.vhd:141 | pass | test/divmmc/divmmc_test.cpp:1423 |
+| DMC-TM-02 | delayed_on: hold=1 this M1, active stays 0; next M1 active=1 (VHDL divmmc.vhd:129,141,148) | divmmc.vhd:129,141,148 | pass | test/divmmc/divmmc_test.cpp:1445 |
+| DMC-TM-03 | held persists across non-trigger M1 via hold propagation (VHDL divmmc.vhd:141-142,131) | divmmc.vhd:141-142,131 | pass | test/divmmc/divmmc_test.cpp:1466 |
+| DMC-TM-04 | non-M1 access at entry-point does NOT alter hold/held (VHDL divmmc.vhd:128 gates on M1+MREQ) | divmmc.vhd:128 | pass | test/divmmc/divmmc_test.cpp:1489 |
+| TM-05 | held persists across 5 non-trigger M1 fetches (VHDL divmmc.vhd:131 — held AND NOT off keeps hold at 1) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:1506 |
+| R3-01 | ROM3-only entry (NR 0xB9 bit=0) fires when rom3_active=1 (VHDL zxnext.vhd:2856,3138 + divmmc.vhd:130) | zxnext.vhd:2856,3138, divmmc.vhd:130 | pass | test/divmmc/divmmc_test.cpp:1539 |
+| R3-02 | ROM3-only entry does NOT fire when rom3_active=0 (VHDL zxnext.vhd:2856 gates on sram_pre_rom3) | zxnext.vhd:2856 | pass | test/divmmc/divmmc_test.cpp:1557 |
+| R3-03 | Layer 2 read-map suppresses ROM3-only automap path (VHDL zxnext.vhd:3138 — sram_divmmc_automap_rom3_en AND NOT sram_layer2_map_en) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:1591 |
+| R3-04 | DivMMC enabled + conmem: non-ROM3 automap path active (VHDL zxnext.vhd:3137) | zxnext.vhd:3137 | pass | test/divmmc/divmmc_test.cpp:1609 |
+| NM-01 | Arbiter IDLE->FETCH pulses nmi_divmmc_button; DivMmc::set_button_nmi(true) latches button_nmi_ (VHDL divmmc.vhd:108-111, zxnext.vhd:2170) | divmmc.vhd:108-111, zxnext.vhd:2170 | pass | test/divmmc/divmmc_test.cpp:1697 |
+| NM-02 | PC=0x0066 M1 with button_nmi=1 -> automap_nmi_instant_on fires (VHDL divmmc.vhd:120-121) | divmmc.vhd:120-121 | pass | test/divmmc/divmmc_test.cpp:1717 |
+| NM-03 | PC=0x0066 M1 with button_nmi=0 -> no NMI instant-on automap (VHDL divmmc.vhd:120) | divmmc.vhd:120 | pass | test/divmmc/divmmc_test.cpp:1737 |
+| NM-04 | reset() clears button_nmi_ (VHDL divmmc.vhd:108 i_reset) | divmmc.vhd:108 | pass | test/divmmc/divmmc_test.cpp:1753 |
+| NM-05 | enabled(true->false) (i_automap_reset) clears button_nmi_ (VHDL divmmc.vhd:108 / zxnext.vhd:4112) | divmmc.vhd:108, zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:1771 |
+| NM-06 | on_retn_seen() (i_retn_seen) clears button_nmi_ (VHDL divmmc.vhd:108) | divmmc.vhd:108 | pass | test/divmmc/divmmc_test.cpp:1789 |
+| NM-07 | automap_held rising 0->1 clears button_nmi_ (VHDL divmmc.vhd:112-113) | divmmc.vhd:112-113 | pass | test/divmmc/divmmc_test.cpp:1820 |
+| NM-08 | is_nmi_hold() steady-state = automap OR button_nmi across all 4 input combinations after held has caught up to hold (VHDL divmmc.vhd:148,150 o_disable_nmi). Discriminative first-M1 active-vs-held case is in NM-10. | divmmc.vhd:148,150 | pass | test/divmmc/divmmc_test.cpp:1909 |
+| NA-01 | enable=false (NR 0x0A[4]=0 equivalent): no mapping on automap trigger (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:2142 |
+| NA-02 | enable=true releases reset, automap functions (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:2206 |
+| NA-03 | port_io_enable and nr_0a_4_enable are independent levers; enabled_ = port_io_enable AND nr_0a_4_enable (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:2230 |
+| NA-04 | NR 0x0A bit 4 wired through to DivMmc::set_nr_0a_4_enable (VHDL zxnext.vhd:1126,5196) | zxnext.vhd:1126,5196 | pass | test/divmmc/divmmc_test.cpp:2273 |
+| NA-05 | NR 0x83 bit 0 wired through to DivMmc::set_port_io_enable (VHDL zxnext.vhd:2412) | zxnext.vhd:2412 | pass | test/divmmc/divmmc_test.cpp:2303 |
+| NA-06 | NR 0x06 power-on default = 0xA0 (b7=1, b5=1) (VHDL zxnext.vhd:1107-1108) | zxnext.vhd:1107-1108 | pass | test/divmmc/divmmc_test.cpp:2317 |
+| NA-07 | NR 0x06 bits 7/5 round-trip through NextReg storage (VHDL zxnext.vhd:5162,5164,5900) | zxnext.vhd:5162,5164,5900 | pass | test/divmmc/divmmc_test.cpp:2342 |
+| NA-08 | NR 0x0A bit 5 (sd_swap) write blocked when nr_03_config_mode=0 (VHDL zxnext.vhd:5191-5194) | zxnext.vhd:5191-5194 | pass | test/divmmc/divmmc_test.cpp:2385 |
 | SM-01 | DivMMC ROM window 0x0000-0x1FFF is physical SRAM page 0x08 (byte 0x010000), per sram_A21_A13 = "000001000" [zxnext.vhd:3084-3085, divmmc.vhd:93] | zxnext.vhd:3084-3085, divmmc.vhd:93 | pass | test/divmmc/divmmc_integration_test.cpp:129 |
 | SM-02 | DivMMC RAM bank 0 is physical SRAM page 16 (byte 0x020000), per sram_A21_A13 = "000010000" [zxnext.vhd:3092-3093, divmmc.vhd:94-96] | zxnext.vhd:3092-3093, divmmc.vhd:94-96 | pass | test/divmmc/divmmc_integration_test.cpp:146 |
 | SM-03 | DivMMC RAM bank 3 is physical SRAM page 19 (byte 0x026000), per sram_A21_A13 = "000010011" [zxnext.vhd:3092-3093] | zxnext.vhd:3092-3093 | pass | test/divmmc/divmmc_integration_test.cpp:161 |
 | SM-04 | DivMMC RAM bank 15 is physical SRAM page 31 (byte 0x03E000), per sram_A21_A13 = "000011111" [zxnext.vhd:3092-3093] | zxnext.vhd:3092-3093 | pass | test/divmmc/divmmc_integration_test.cpp:180 |
 | SM-05 | DivMMC outranks the Layer 2 mapping in the SRAM arbiter: the same address reads the Layer 2 byte, then the DivMMC ROM byte while conmem is set, then the Layer 2 byte again [zxnext.vhd:3081-3104] | zxnext.vhd:3081-3104 | pass | test/divmmc/divmmc_integration_test.cpp:214 |
-| SS-01 | Reset sets port_e7 to 0xFF (all deselected) (VHDL zxnext.vhd:3302) | zxnext.vhd:3302 | pass | test/divmmc/divmmc_test.cpp:2520 |
-| SS-02 | sd_swap=0: write 0x01 selects SD1 (0xFD) (VHDL zxnext.vhd:3313-3314,3331) | zxnext.vhd:3313-3314,3331 | pass | test/divmmc/divmmc_test.cpp:2551 |
-| SS-03 | sd_swap=0: write 0x02 selects SD0 (0xFE) (VHDL zxnext.vhd:3311-3312,3332) | zxnext.vhd:3311-3312,3332 | pass | test/divmmc/divmmc_test.cpp:2565 |
-| SS-04 | sd_swap=1: write 0x01 maps to SD0 pattern 0xFE (VHDL zxnext.vhd:3313-3314,3332) | zxnext.vhd:3313-3314,3332 | pass | test/divmmc/divmmc_test.cpp:2578 |
-| SS-05 | sd_swap=1: write 0x02 maps to SD1 pattern 0xFD (VHDL zxnext.vhd:3311-3312,3331) | zxnext.vhd:3311-3312,3331 | pass | test/divmmc/divmmc_test.cpp:2591 |
-| SS-06 | Write 0xFB selects RPI0 (bit 2 clear) (VHDL zxnext.vhd:3315-3316) | zxnext.vhd:3315-3316 | pass | test/divmmc/divmmc_test.cpp:2605 |
-| SS-07 | Write 0xF7 selects RPI1 (bit 3 clear) (VHDL zxnext.vhd:3317-3318) | zxnext.vhd:3317-3318 | pass | test/divmmc/divmmc_test.cpp:2616 |
+| SS-01 | Reset sets port_e7 to 0xFF (all deselected) (VHDL zxnext.vhd:3302) | zxnext.vhd:3302 | pass | test/divmmc/divmmc_test.cpp:2655 |
+| SS-02 | sd_swap=0: write 0x01 selects SD1 (0xFD) (VHDL zxnext.vhd:3313-3314,3331) | zxnext.vhd:3313-3314,3331 | pass | test/divmmc/divmmc_test.cpp:2686 |
+| SS-03 | sd_swap=0: write 0x02 selects SD0 (0xFE) (VHDL zxnext.vhd:3311-3312,3332) | zxnext.vhd:3311-3312,3332 | pass | test/divmmc/divmmc_test.cpp:2700 |
+| SS-04 | sd_swap=1: write 0x01 maps to SD0 pattern 0xFE (VHDL zxnext.vhd:3313-3314,3332) | zxnext.vhd:3313-3314,3332 | pass | test/divmmc/divmmc_test.cpp:2713 |
+| SS-05 | sd_swap=1: write 0x02 maps to SD1 pattern 0xFD (VHDL zxnext.vhd:3311-3312,3331) | zxnext.vhd:3311-3312,3331 | pass | test/divmmc/divmmc_test.cpp:2726 |
+| SS-06 | Write 0xFB selects RPI0 (bit 2 clear) (VHDL zxnext.vhd:3315-3316) | zxnext.vhd:3315-3316 | pass | test/divmmc/divmmc_test.cpp:2740 |
+| SS-07 | Write 0xF7 selects RPI1 (bit 3 clear) (VHDL zxnext.vhd:3317-3318) | zxnext.vhd:3317-3318 | pass | test/divmmc/divmmc_test.cpp:2751 |
 | SS-08 | port 0xE7 <- 0x7F stands as 0x7F only while nr_03_config_mode OR nr_02_reset_type(2) is set, and is rewritten to 0xFF otherwise — both VHDL sources reach the SpiMaster gate from the Emulator, and the pattern deasserts the SD and RPI selects (zxnext.vhd:3319-3322; :1306, :1735, :5147-5149) | zxnext.vhd:3319-3320 | pass | test/divmmc/divmmc_integration_test.cpp:325 |
-| SS-09 | Write 0x7F outside config mode: all deselected (0xFF) (VHDL zxnext.vhd:3326) | zxnext.vhd:3326 | pass | test/divmmc/divmmc_test.cpp:2646 |
-| SS-10 | Write unrecognised value: all deselected (0xFF) (VHDL zxnext.vhd:3322) | zxnext.vhd:3322 | pass | test/divmmc/divmmc_test.cpp:2662 |
-| SS-11 | Ambiguous SS write (two bits clear) must collapse to 0xFF — single-device enforcement (VHDL zxnext.vhd:3328) | zxnext.vhd:3328 | pass | test/divmmc/divmmc_test.cpp:2676 |
-| SX-01 | Write 0xEB forwards byte to MOSI (VHDL spi_master.vhd:111-112) | spi_master.vhd:111-112 | pass | test/divmmc/divmmc_test.cpp:2995 |
-| SX-02 | Read 0xEB pushes 0xFF on MOSI and triggers one exchange (VHDL spi_master.vhd:109-110) | spi_master.vhd:109-110 | pass | test/divmmc/divmmc_test.cpp:3023 |
-| SX-03 | First read after select returns previous-cycle result (VHDL spi_master.vhd:162-166); with no prior transfer the value is the miso_dat signal-init 0x00 (spi_master.vhd:74) | spi_master.vhd:162-166, spi_master.vhd:74 | pass | test/divmmc/divmmc_test.cpp:3053 |
-| SX-04 | First read after reset (no device) returns miso_dat signal-init 0x00 (VHDL spi_master.vhd:74; i_reset hardwired '0' at zxnext.vhd:3285) | spi_master.vhd:74, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:3079 |
-| SX-05 | Read after write returns MISO of the write exchange (VHDL spi_master.vhd:164-165) | spi_master.vhd:164-165 | pass | test/divmmc/divmmc_test.cpp:3101 |
-| ST-09 | SPI o_spi_wait_n surfaced via spi_wait_n() accessor; byte-wrapper master is always idle when observed (VHDL serial/spi_master.vhd:56,177) | serial/spi_master.vhd:56,177 | pass | test/divmmc/divmmc_test.cpp:3247 |
-| ML-03 | miso_dat stable across reads with same response (VHDL spi_master.vhd:164-165) | spi_master.vhd:164-165 | pass | test/divmmc/divmmc_test.cpp:3289 |
-| ML-05 | First read after reset reflects miso_dat power-on initial value 0x00 (VHDL spi_master.vhd:74 signal-init `(others => '0')`; i_reset hardwired '0' at zxnext.vhd:3285 means the synchronous-reset clause spi_master.vhd:151-152 never fires) | spi_master.vhd:74, zxnext.vhd:3285, spi_master.vhd:151-152 | pass | test/divmmc/divmmc_test.cpp:3326 |
-| SPI-MX-02 | RPI selected: MISO comes from the slave on that chip-select and the SD card is not consulted (VHDL zxnext.vhd:3279 mux arm; :3315-3318 decode; :3329-3330 spi_ss_rpi1_n/rpi0_n) | zxnext.vhd:3279 | pass | test/divmmc/divmmc_test.cpp:3400 |
-| MX-03 | SD selected: MISO sourced from SD device (VHDL zxnext.vhd:3280) | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:3421 |
-| MX-04 | No device selected: MISO reads as 0xFF after pipeline prime (VHDL zxnext.vhd:3280 default-else `spi_miso <= '1'` propagates to miso_dat at next state_last_d) | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:3449 |
-| IN-01 | Boot automap: M1 at 0x0000 maps DivMMC ROM (VHDL divmmc.vhd:94, zxnext.vhd:2850) | divmmc.vhd:94, zxnext.vhd:2850 | pass | test/divmmc/divmmc_test.cpp:3491 |
-| IN-02 | SD init sequence: select, write, deselect (VHDL zxnext.vhd:3302, spi_master.vhd:109) | zxnext.vhd:3302, spi_master.vhd:109 | pass | test/divmmc/divmmc_test.cpp:3511 |
-| IN-03 | RETN after handler clears automap overlay (VHDL divmmc.vhd:126,139) | divmmc.vhd:126,139 | pass | test/divmmc/divmmc_test.cpp:3529 |
-| IN-04 | RST 0x08 fires only when rom3_active=1 with default NR 0xB9=0x01 (EP1 flagged ROM3-only) (VHDL zxnext.vhd:2856,3138) | zxnext.vhd:2856,3138 | pass | test/divmmc/divmmc_test.cpp:3553 |
-| IN-05 | Two back-to-back writes both reach device (VHDL spi_master.vhd:82) | spi_master.vhd:82 | pass | test/divmmc/divmmc_test.cpp:3571 |
-| IN-06 | conmem during automap: mapping remains active (VHDL divmmc.vhd:94) | divmmc.vhd:94 | pass | test/divmmc/divmmc_test.cpp:3585 |
-| IN-07 | DivMMC disabled: no automap mapping, SPI still exchanges (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:3609 |
-| CM1-01 | candidate superset contains every VHDL entry-point address (RSTs, 0x0066, tape traps, 0x1FF8-0x1FFF, $3Dxx) | divmmc.vhd:120, zxnext.vhd:2898-2902, zxnext.vhd:2907-2908, zxnext.vhd:2902-2905, divmmc.vhd:131, zxnext.vhd:2898-2899 | pass | test/divmmc/divmmc_test.cpp:3856 |
-| CM1-02 | non-entry addresses are rejected by the candidate filter | — | pass | test/divmmc/divmmc_test.cpp:3878 |
-| CM1-03 | quiescent + non-candidate pc: may_react=false and check_automap is a state no-op (skip equivalence) | divmmc.vhd:112-148 | pass | test/divmmc/divmmc_test.cpp:3898 |
-| CM1-04 | pending hold: may_react=true at non-candidate pc and the hold→held promotion fires there (divmmc.vhd:141,148) | divmmc.vhd:141,148 | pass | test/divmmc/divmmc_test.cpp:3919 |
-| CM1-05 | active overlay: gate passes any pc; 0x1FF8 off-trigger deactivates through the gated path (divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:3941 |
-| CM1-06 | button_nmi latched: gate conservatively passes any pc | — | pass | test/divmmc/divmmc_test.cpp:3956 |
+| SS-09 | Write 0x7F outside config mode: all deselected (0xFF) (VHDL zxnext.vhd:3326) | zxnext.vhd:3326 | pass | test/divmmc/divmmc_test.cpp:2781 |
+| SS-10 | Write unrecognised value: all deselected (0xFF) (VHDL zxnext.vhd:3322) | zxnext.vhd:3322 | pass | test/divmmc/divmmc_test.cpp:2797 |
+| SS-11 | Ambiguous SS write (two bits clear) must collapse to 0xFF — single-device enforcement (VHDL zxnext.vhd:3328) | zxnext.vhd:3328 | pass | test/divmmc/divmmc_test.cpp:2811 |
+| SX-01 | Write 0xEB forwards byte to MOSI (VHDL spi_master.vhd:111-112) | spi_master.vhd:111-112 | pass | test/divmmc/divmmc_test.cpp:3130 |
+| SX-02 | Read 0xEB pushes 0xFF on MOSI and triggers one exchange (VHDL spi_master.vhd:109-110) | spi_master.vhd:109-110 | pass | test/divmmc/divmmc_test.cpp:3158 |
+| SX-03 | First read after select returns previous-cycle result (VHDL spi_master.vhd:162-166); with no prior transfer the value is the miso_dat signal-init 0x00 (spi_master.vhd:74) | spi_master.vhd:162-166, spi_master.vhd:74 | pass | test/divmmc/divmmc_test.cpp:3188 |
+| SX-04 | First read after reset (no device) returns miso_dat signal-init 0x00 (VHDL spi_master.vhd:74; i_reset hardwired '0' at zxnext.vhd:3285) | spi_master.vhd:74, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:3214 |
+| SX-05 | Read after write returns MISO of the write exchange (VHDL spi_master.vhd:164-165) | spi_master.vhd:164-165 | pass | test/divmmc/divmmc_test.cpp:3236 |
+| ST-09 | SPI o_spi_wait_n surfaced via spi_wait_n() accessor; byte-wrapper master is always idle when observed (VHDL serial/spi_master.vhd:56,177) | serial/spi_master.vhd:56,177 | pass | test/divmmc/divmmc_test.cpp:3382 |
+| ML-03 | miso_dat stable across reads with same response (VHDL spi_master.vhd:164-165) | spi_master.vhd:164-165 | pass | test/divmmc/divmmc_test.cpp:3424 |
+| ML-05 | First read after reset reflects miso_dat power-on initial value 0x00 (VHDL spi_master.vhd:74 signal-init `(others => '0')`; i_reset hardwired '0' at zxnext.vhd:3285 means the synchronous-reset clause spi_master.vhd:151-152 never fires) | spi_master.vhd:74, zxnext.vhd:3285, spi_master.vhd:151-152 | pass | test/divmmc/divmmc_test.cpp:3461 |
+| SPI-MX-02 | RPI selected: MISO comes from the slave on that chip-select and the SD card is not consulted (VHDL zxnext.vhd:3279 mux arm; :3315-3318 decode; :3329-3330 spi_ss_rpi1_n/rpi0_n) | zxnext.vhd:3279 | pass | test/divmmc/divmmc_test.cpp:3535 |
+| MX-03 | SD selected: MISO sourced from SD device (VHDL zxnext.vhd:3280) | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:3556 |
+| MX-04 | No device selected: MISO reads as 0xFF after pipeline prime (VHDL zxnext.vhd:3280 default-else `spi_miso <= '1'` propagates to miso_dat at next state_last_d) | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:3584 |
+| IN-01 | Boot automap: M1 at 0x0000 maps DivMMC ROM (VHDL divmmc.vhd:94, zxnext.vhd:2850) | divmmc.vhd:94, zxnext.vhd:2850 | pass | test/divmmc/divmmc_test.cpp:3626 |
+| IN-02 | SD init sequence: select, write, deselect (VHDL zxnext.vhd:3302, spi_master.vhd:109) | zxnext.vhd:3302, spi_master.vhd:109 | pass | test/divmmc/divmmc_test.cpp:3646 |
+| IN-03 | RETN after handler clears automap overlay (VHDL divmmc.vhd:126,139) | divmmc.vhd:126,139 | pass | test/divmmc/divmmc_test.cpp:3664 |
+| IN-04 | RST 0x08 fires only when rom3_active=1 with default NR 0xB9=0x01 (EP1 flagged ROM3-only) (VHDL zxnext.vhd:2856,3138) | zxnext.vhd:2856,3138 | pass | test/divmmc/divmmc_test.cpp:3688 |
+| IN-05 | Two back-to-back writes both reach device (VHDL spi_master.vhd:82) | spi_master.vhd:82 | pass | test/divmmc/divmmc_test.cpp:3706 |
+| IN-06 | conmem during automap: mapping remains active (VHDL divmmc.vhd:94) | divmmc.vhd:94 | pass | test/divmmc/divmmc_test.cpp:3720 |
+| IN-07 | DivMMC disabled: no automap mapping, SPI still exchanges (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:3744 |
+| CM1-01 | candidate superset contains every VHDL entry-point address (RSTs, 0x0066, tape traps, 0x1FF8-0x1FFF, $3Dxx) | divmmc.vhd:120, zxnext.vhd:2898-2902, zxnext.vhd:2907-2908, zxnext.vhd:2902-2905, divmmc.vhd:131, zxnext.vhd:2898-2899 | pass | test/divmmc/divmmc_test.cpp:3991 |
+| CM1-02 | non-entry addresses are rejected by the candidate filter | — | pass | test/divmmc/divmmc_test.cpp:4013 |
+| CM1-03 | quiescent + non-candidate pc: may_react=false and check_automap is a state no-op (skip equivalence) | divmmc.vhd:112-148 | pass | test/divmmc/divmmc_test.cpp:4033 |
+| CM1-04 | pending hold: may_react=true at non-candidate pc and the hold→held promotion fires there (divmmc.vhd:141,148) | divmmc.vhd:141,148 | pass | test/divmmc/divmmc_test.cpp:4054 |
+| CM1-05 | active overlay: gate passes any pc; 0x1FF8 off-trigger deactivates through the gated path (divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:4076 |
+| CM1-06 | button_nmi latched: gate conservatively passes any pc | — | pass | test/divmmc/divmmc_test.cpp:4091 |
 | E3-V19-NIT-01 | Stored control_reg_ raw byte preserves VHDL invariant port_e3_reg(5:4) = '00' even when input bits 5:4 are set (F19-DIVMMC-NIT-01, VHDL zxnext.vhd:4177-4183) | zxnext.vhd:4177-4183 | pass | test/divmmc/divmmc_test.cpp:345 |
 | NR-09 | M1 at 0x3D00 with BB[7]=1 + rom3_active=1: rom3_instant_on fires automap (VHDL zxnext.vhd:2898-2899) | zxnext.vhd:2898-2899 | pass | test/divmmc/divmmc_test.cpp:917 |
 | NR-10 | M1 at 0x3D7F (mid wildcard) with BB[7]=1 + rom3_active=1: rom3_instant_on fires (VHDL zxnext.vhd:2898-2899) | zxnext.vhd:2898-2899 | pass | test/divmmc/divmmc_test.cpp:930 |
@@ -2056,37 +2063,43 @@ Notes and rationale: [DIVMMC-SPI-TEST-PLAN-DESIGN.md](DIVMMC-SPI-TEST-PLAN-DESIG
 | NR-12b | M1 after 0x0066 + BB[0]=1 + button_nmi=1: held promotes (VHDL divmmc.vhd:128-141) | divmmc.vhd:128-141 | pass | test/divmmc/divmmc_test.cpp:971 |
 | NR-13 | M1 at 0x0066 + BB[0]=1 + button_nmi=0: no trigger (VHDL divmmc.vhd:121) | divmmc.vhd:121 | pass | test/divmmc/divmmc_test.cpp:986 |
 | NR-14 | CONTRACT-PIN: M1 at $3D42 with BB[7]=1 + rom3_active=0: rom3_instant_on stays gated; automap not active (VHDL zxnext.vhd:2898-2899, divmmc.vhd:130). NOT a discriminative regression sentinel for 399c9ae — pre-fix the wildcard branch did not exist; this row guards against future regressions that remove the && rom3_path_eligible gate. | zxnext.vhd:2898-2899, divmmc.vhd:130 | pass | test/divmmc/divmmc_test.cpp:1019 |
-| S6-DIVMMC-RAM-STANDALONE | a standalone DivMmc's 128 KB window round-trips BY CONTENT, not merely by width: every byte of a whole-buffer pattern comes back, so the inline branch cannot be a zero-fill that still measures 131 089 | — | pass | test/divmmc/divmmc_test.cpp:1215 |
-| DA-09 | CONTRACT-PIN: DivMmc::save_state does NOT persist rom3_active_; load_state yields constructor default (false). Pre-condition for the external Emulator::load_state set_rom3_active(mmu_.sram_rom3()) re-sync (VHDL feeder shadow of sram_pre_rom3, zxnext.vhd:2981-3008,:3138). NOT a discriminative sentinel for 770f78d — reverting the Emulator-tier fix does not fail this test (integration-tier coverage required for the actual fix path). | zxnext.vhd:2981-3008,3138 | pass | test/divmmc/divmmc_test.cpp:1244 |
-| DM-NMI-BTN-OFF | PC=0x0066 M1 with NR BB[1]=1 but button_nmi=0: automap stays off (VHDL divmmc.vhd:120) | divmmc.vhd:120 | pass | test/divmmc/divmmc_test.cpp:1508 |
-| DM-NMI-BTN-ON | PC=0x0066 M1 with NR BB[1]=1 and button_nmi=1: instant-on automap activates (VHDL divmmc.vhd:120) | divmmc.vhd:120 | pass | test/divmmc/divmmc_test.cpp:1520 |
-| NM-09 | button_nmi set while automap_held=1 is cleared on the next check_automap call (continuous-while-held semantics) (VHDL divmmc.vhd:112-113) | divmmc.vhd:112-113 | pass | test/divmmc/divmmc_test.cpp:1730 |
-| NM-10 | First-M1 instant-on entry-point: is_nmi_hold() reflects the COMBINATIONAL automap (held(0) OR instant_match(1) = 1) immediately, not the registered held bit (still 0 until the next M1 promotes hold→held). VHDL divmmc.vhd:148+150 — `o_disable_nmi <= automap or button_nmi`, where `automap` is line 148 combinational. | divmmc.vhd:148 | pass | test/divmmc/divmmc_test.cpp:1820 |
-| DM-RETN-PROPER-01 | ED 45 RETN clears automap_held one M1 after the RETN fetch (VHDL divmmc.vhd:139 + im2_control.vhd:236, modelled via DivMmc::on_m1_retn_delay one-M1 delay register) | divmmc.vhd:139, im2_control.vhd:236 | pass | test/divmmc/divmmc_test.cpp:1891 |
-| DM-RETN-PROPER-02 | RETN-alias bytes (ED 4D/55/5D/65/6D/75/7D, standalone 0x45) do NOT clear automap_held — only canonical ED 45 matches Im2Controller::retn_seen_this_cycle() (VHDL im2_control.vhd:236) | im2_control.vhd:236 | pass | test/divmmc/divmmc_test.cpp:1979 |
-| NA-01b | set_enabled(true) alone (nr_0a_4_enable_=false) keeps automap reset (VHDL zxnext.vhd:1126,4112) | zxnext.vhd:1126,4112 | pass | test/divmmc/divmmc_test.cpp:2029 |
-| NA-01c | CONMEM with set_enabled(true) alone (nr_0a_4=0): is_active() true (VHDL divmmc.vhd:94 + zxnext.vhd:4147) | divmmc.vhd:94, zxnext.vhd:4147 | pass | test/divmmc/divmmc_test.cpp:2054 |
-| NA-09 | CONTRACT-PIN: NR 0x83 reset reloads cache to 0xFF without firing the registered write_handler; explicit Emulator::init sync from cached(0x83) bit 0 brings DivMmc::port_io_enable_ back into agreement (VHDL zxnext.vhd:5052-5057 reload; handler not on reset path). NOT a discriminative sentinel for c54192d — reverting the Emulator-tier fix does not fail this test (integration-tier coverage required for the actual fix path). | zxnext.vhd:5052 | pass | test/divmmc/divmmc_test.cpp:2320 |
-| PRI-01 | DivMMC ROM overrides MMU at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084) | zxnext.vhd:3084 | pass | test/divmmc/divmmc_test.cpp:2414 |
-| PRI-02 | DivMMC RAM overrides MMU at 0x2000-0x3FFF when overlay active (VHDL zxnext.vhd:3087) | zxnext.vhd:3087 | pass | test/divmmc/divmmc_test.cpp:2448 |
-| PRI-04 | DivMMC beats Layer 2 write-over at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084-3100 chain) | zxnext.vhd:3084-3100 | pass | test/divmmc/divmmc_test.cpp:2494 |
-| SS-12 | SpiMaster::reset() preserves device bindings — wires are not in the FPGA reset domain (VHDL zxnext.vhd:3308-3322 only resets port_e7_reg FF, not connectivity) | zxnext.vhd:3308-3322 | pass | test/divmmc/divmmc_test.cpp:2716 |
-| SS-13 | Write 0x7F: gate OPEN (flash_cs_enable=1) preserves 0x7F; gate CLOSED falls through to 0xFF (VHDL zxnext.vhd:3319 composite gate; jnext SpiMaster::set_flash_cs_enable feeds nr_03_config_mode \| nr_02_reset_type(2)) | zxnext.vhd:3319 | pass | test/divmmc/divmmc_test.cpp:2749 |
-| SS-14 | CONTRACT-PIN: SD card attached to BOTH CS0 (sd_swap=0) and CS1 (sd_swap=1): round-trip surfaces device byte in either orientation (VHDL zxnext.vhd:3280 single i_SPI_SD_MISO MUX; pass-9 emulator wires same backend on both CS). NOT a discriminative sentinel for ff84d3e — test attaches dev directly to both CS lines, bypassing Emulator::init. Reverting the Emulator-tier fix does not fail this test (integration-tier coverage required). | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:2810 |
-| SS-15 | SpiMaster::reset() pulses deselect() on every currently-selected device before clearing cs_=0xFF (VHDL zxnext.vhd:3308-3309 — port_e7_reg → all-ones on reset, physical CS rising edge resets connected SPI slaves' protocol state). Pre-fix dropped this notification; SD card protocol-state FFs survived reset until the next firmware-driven CS write. | zxnext.vhd:3308-3309 | pass | test/divmmc/divmmc_test.cpp:2861 |
-| SS-16 | SpiMaster::reset() preserves rx_data_ across system reset (VHDL spi_master.vhd:159-168 miso_dat register has no effective reset because zxnext.vhd:3285 hardwires i_reset='0'). Pre-fix forced rx_data_=0xFF on every reset, diverging from VHDL whenever firmware reads port 0xEB after a soft reset before issuing a new SPI write. | spi_master.vhd:159-168, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:2921 |
-| SS-17 | Fresh SpiMaster surfaces VHDL miso_dat power-on default 0x00 on first port-0xEB read (VHDL spi_master.vhd:74 signal-init `(others => '0')` — i_reset hardwired '0' at zxnext.vhd:3285 means the synchronous-reset clause never fires). Pre-fix the C++ member-init was 0xFF, diverging from the FPGA bitstream-load default whenever a caller read port 0xEB before any SPI transfer. | spi_master.vhd:74, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:2966 |
-| SX-11 | write_data with no slave forces rx_data_=0xFF (no stale-byte leak from previously-selected slave) (VHDL zxnext.vhd:3278-3280 default-else spi_miso<='1') | zxnext.vhd:3278-3280 | pass | test/divmmc/divmmc_test.cpp:3134 |
-| SX-12 | read_data with no slave forces rx_data_=0xFF on subsequent reads (post-deselect pipeline drains to 0xFF, no stale leak) (VHDL zxnext.vhd:3278-3280 default-else) | zxnext.vhd:3278-3280 | pass | test/divmmc/divmmc_test.cpp:3174 |
-| PO-01 | Main path blocked when sram_pre_override(2)=0 (VHDL zxnext.vhd:3137) | zxnext.vhd:3137 | pass | test/divmmc/divmmc_test.cpp:3644 |
-| PO-02 | ROM3 path blocked when sram_pre_override(0)=0 (VHDL zxnext.vhd:3138) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:3664 |
-| PO-03 | Main path fires when sram_pre_override(2)=1 (VHDL zxnext.vhd:3137) | zxnext.vhd:3137 | pass | test/divmmc/divmmc_test.cpp:3681 |
-| PO-04 | ROM3 path fires when full sram_divmmc_automap_rom3_en composite is high (VHDL zxnext.vhd:3138) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:3698 |
-| PO-05 | check_automap default args fire main path (back-compat) | — | pass | test/divmmc/divmmc_test.cpp:3715 |
-| PO-06 | Off trigger gated by pre_override(2) — held propagates when MF owns slot 0/1 (VHDL divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:3753 |
-| RB-01 | config-window write to SRAM page 16 is visible via DivMMC overlay (bank 0) — one SRAM, two views (zxnext.vhd:3044+3093) | zxnext.vhd:3044 | pass | test/divmmc/divmmc_test.cpp:3787 |
-| RB-02 | DivMMC overlay write (bank 2) lands in physical SRAM page 18 — VHDL zxnext.vhd:3092-3093 sram_A21_A13 <= "00001" & divmmc_bank | zxnext.vhd:3092-3093 | pass | test/divmmc/divmmc_test.cpp:3802 |
-| RB-03 | no backing → private buffer serves reads; SRAM page 16 untouched | — | pass | test/divmmc/divmmc_test.cpp:3815 |
+| ALTROM-01 | M1 at 0x056A with BB[5]=1, sram_pre_rom3=0 but sram_altrom_en=1 + sram_pre_alt_128_n=1: the tape trap fires on the alt-48 image alone (VHDL zxnext.vhd:3138 first clause, :2904) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:1063 |
+| ALTROM-02 | M1 at 0x056A with sram_altrom_en=1 + sram_pre_alt_128_n=0 (the alt-128 image): no automap (VHDL zxnext.vhd:3138) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:1083 |
+| ALTROM-03 | M1 at 0x056A with sram_pre_rom3=1 but sram_altrom_en=1 and sram_pre_alt_128_n=0: the sram_pre_rom3 clause is gated out by NOT sram_altrom_en — no automap (VHDL zxnext.vhd:3138 second clause) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:1103 |
+| ALTROM-04 | M1 at 0x056A with sram_altrom_en=0 (altrom in write-over mode): the gate falls back to sram_pre_rom3=1 and the trap fires (VHDL zxnext.vhd:3078 fourth clause, :3138) | zxnext.vhd:3078 | pass | test/divmmc/divmmc_test.cpp:1123 |
+| ALTROM-05 | M1 at $3D42 with BB[7]=1, sram_pre_rom3=0 and the alt-48 image read-mapped: rom3_instant_on fires (VHDL zxnext.vhd:2898-2899 + :3138) | zxnext.vhd:2898-2899,3138 | pass | test/divmmc/divmmc_test.cpp:1140 |
+| ALTROM-06 | M1 at 0x056A with the alt-48 image read-mapped but sram_pre_override(0)=0: the ROM3 path stays gated (VHDL zxnext.vhd:3138 leading factors) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:1158 |
+| S6-DIVMMC-RAM-STANDALONE | a standalone DivMmc's 128 KB window round-trips BY CONTENT, not merely by width: every byte of a whole-buffer pattern comes back, so the inline branch cannot be a zero-fill that still measures 131 089 | — | pass | test/divmmc/divmmc_test.cpp:1350 |
+| DA-09 | CONTRACT-PIN: DivMmc::save_state does NOT persist rom3_active_; load_state yields constructor default (false). Pre-condition for the external Emulator::load_state set_rom3_active(mmu_.sram_rom3()) re-sync (VHDL feeder shadow of sram_pre_rom3, zxnext.vhd:2981-3008,:3138). NOT a discriminative sentinel for 770f78d — reverting the Emulator-tier fix does not fail this test (integration-tier coverage required for the actual fix path). | zxnext.vhd:2981-3008,3138 | pass | test/divmmc/divmmc_test.cpp:1379 |
+| DM-NMI-BTN-OFF | PC=0x0066 M1 with NR BB[1]=1 but button_nmi=0: automap stays off (VHDL divmmc.vhd:120) | divmmc.vhd:120 | pass | test/divmmc/divmmc_test.cpp:1643 |
+| DM-NMI-BTN-ON | PC=0x0066 M1 with NR BB[1]=1 and button_nmi=1: instant-on automap activates (VHDL divmmc.vhd:120) | divmmc.vhd:120 | pass | test/divmmc/divmmc_test.cpp:1655 |
+| NM-09 | button_nmi set while automap_held=1 is cleared on the next check_automap call (continuous-while-held semantics) (VHDL divmmc.vhd:112-113) | divmmc.vhd:112-113 | pass | test/divmmc/divmmc_test.cpp:1865 |
+| NM-10 | First-M1 instant-on entry-point: is_nmi_hold() reflects the COMBINATIONAL automap (held(0) OR instant_match(1) = 1) immediately, not the registered held bit (still 0 until the next M1 promotes hold→held). VHDL divmmc.vhd:148+150 — `o_disable_nmi <= automap or button_nmi`, where `automap` is line 148 combinational. | divmmc.vhd:148 | pass | test/divmmc/divmmc_test.cpp:1955 |
+| DM-RETN-PROPER-01 | ED 45 RETN clears automap_held one M1 after the RETN fetch (VHDL divmmc.vhd:139 + im2_control.vhd:236, modelled via DivMmc::on_m1_retn_delay one-M1 delay register) | divmmc.vhd:139, im2_control.vhd:236 | pass | test/divmmc/divmmc_test.cpp:2026 |
+| DM-RETN-PROPER-02 | RETN-alias bytes (ED 4D/55/5D/65/6D/75/7D, standalone 0x45) do NOT clear automap_held — only canonical ED 45 matches Im2Controller::retn_seen_this_cycle() (VHDL im2_control.vhd:236) | im2_control.vhd:236 | pass | test/divmmc/divmmc_test.cpp:2114 |
+| NA-01b | set_enabled(true) alone (nr_0a_4_enable_=false) keeps automap reset (VHDL zxnext.vhd:1126,4112) | zxnext.vhd:1126,4112 | pass | test/divmmc/divmmc_test.cpp:2164 |
+| NA-01c | CONMEM with set_enabled(true) alone (nr_0a_4=0): is_active() true (VHDL divmmc.vhd:94 + zxnext.vhd:4147) | divmmc.vhd:94, zxnext.vhd:4147 | pass | test/divmmc/divmmc_test.cpp:2189 |
+| NA-09 | CONTRACT-PIN: NR 0x83 reset reloads cache to 0xFF without firing the registered write_handler; explicit Emulator::init sync from cached(0x83) bit 0 brings DivMmc::port_io_enable_ back into agreement (VHDL zxnext.vhd:5052-5057 reload; handler not on reset path). NOT a discriminative sentinel for c54192d — reverting the Emulator-tier fix does not fail this test (integration-tier coverage required for the actual fix path). | zxnext.vhd:5052 | pass | test/divmmc/divmmc_test.cpp:2455 |
+| PRI-01 | DivMMC ROM overrides MMU at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084) | zxnext.vhd:3084 | pass | test/divmmc/divmmc_test.cpp:2549 |
+| PRI-02 | DivMMC RAM overrides MMU at 0x2000-0x3FFF when overlay active (VHDL zxnext.vhd:3087) | zxnext.vhd:3087 | pass | test/divmmc/divmmc_test.cpp:2583 |
+| PRI-04 | DivMMC beats Layer 2 write-over at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084-3100 chain) | zxnext.vhd:3084-3100 | pass | test/divmmc/divmmc_test.cpp:2629 |
+| SS-12 | SpiMaster::reset() preserves device bindings — wires are not in the FPGA reset domain (VHDL zxnext.vhd:3308-3322 only resets port_e7_reg FF, not connectivity) | zxnext.vhd:3308-3322 | pass | test/divmmc/divmmc_test.cpp:2851 |
+| SS-13 | Write 0x7F: gate OPEN (flash_cs_enable=1) preserves 0x7F; gate CLOSED falls through to 0xFF (VHDL zxnext.vhd:3319 composite gate; jnext SpiMaster::set_flash_cs_enable feeds nr_03_config_mode \| nr_02_reset_type(2)) | zxnext.vhd:3319 | pass | test/divmmc/divmmc_test.cpp:2884 |
+| SS-14 | CONTRACT-PIN: SD card attached to BOTH CS0 (sd_swap=0) and CS1 (sd_swap=1): round-trip surfaces device byte in either orientation (VHDL zxnext.vhd:3280 single i_SPI_SD_MISO MUX; pass-9 emulator wires same backend on both CS). NOT a discriminative sentinel for ff84d3e — test attaches dev directly to both CS lines, bypassing Emulator::init. Reverting the Emulator-tier fix does not fail this test (integration-tier coverage required). | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:2945 |
+| SS-15 | SpiMaster::reset() pulses deselect() on every currently-selected device before clearing cs_=0xFF (VHDL zxnext.vhd:3308-3309 — port_e7_reg → all-ones on reset, physical CS rising edge resets connected SPI slaves' protocol state). Pre-fix dropped this notification; SD card protocol-state FFs survived reset until the next firmware-driven CS write. | zxnext.vhd:3308-3309 | pass | test/divmmc/divmmc_test.cpp:2996 |
+| SS-16 | SpiMaster::reset() preserves rx_data_ across system reset (VHDL spi_master.vhd:159-168 miso_dat register has no effective reset because zxnext.vhd:3285 hardwires i_reset='0'). Pre-fix forced rx_data_=0xFF on every reset, diverging from VHDL whenever firmware reads port 0xEB after a soft reset before issuing a new SPI write. | spi_master.vhd:159-168, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:3056 |
+| SS-17 | Fresh SpiMaster surfaces VHDL miso_dat power-on default 0x00 on first port-0xEB read (VHDL spi_master.vhd:74 signal-init `(others => '0')` — i_reset hardwired '0' at zxnext.vhd:3285 means the synchronous-reset clause never fires). Pre-fix the C++ member-init was 0xFF, diverging from the FPGA bitstream-load default whenever a caller read port 0xEB before any SPI transfer. | spi_master.vhd:74, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:3101 |
+| SX-11 | write_data with no slave forces rx_data_=0xFF (no stale-byte leak from previously-selected slave) (VHDL zxnext.vhd:3278-3280 default-else spi_miso<='1') | zxnext.vhd:3278-3280 | pass | test/divmmc/divmmc_test.cpp:3269 |
+| SX-12 | read_data with no slave forces rx_data_=0xFF on subsequent reads (post-deselect pipeline drains to 0xFF, no stale leak) (VHDL zxnext.vhd:3278-3280 default-else) | zxnext.vhd:3278-3280 | pass | test/divmmc/divmmc_test.cpp:3309 |
+| PO-01 | Main path blocked when sram_pre_override(2)=0 (VHDL zxnext.vhd:3137) | zxnext.vhd:3137 | pass | test/divmmc/divmmc_test.cpp:3779 |
+| PO-02 | ROM3 path blocked when sram_pre_override(0)=0 (VHDL zxnext.vhd:3138) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:3799 |
+| PO-03 | Main path fires when sram_pre_override(2)=1 (VHDL zxnext.vhd:3137) | zxnext.vhd:3137 | pass | test/divmmc/divmmc_test.cpp:3816 |
+| PO-04 | ROM3 path fires when full sram_divmmc_automap_rom3_en composite is high (VHDL zxnext.vhd:3138) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:3833 |
+| PO-05 | check_automap default args fire main path (back-compat) | — | pass | test/divmmc/divmmc_test.cpp:3850 |
+| PO-06 | Off trigger gated by pre_override(2) — held propagates when MF owns slot 0/1 (VHDL divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:3888 |
+| RB-01 | config-window write to SRAM page 16 is visible via DivMMC overlay (bank 0) — one SRAM, two views (zxnext.vhd:3044+3093) | zxnext.vhd:3044 | pass | test/divmmc/divmmc_test.cpp:3922 |
+| RB-02 | DivMMC overlay write (bank 2) lands in physical SRAM page 18 — VHDL zxnext.vhd:3092-3093 sram_A21_A13 <= "00001" & divmmc_bank | zxnext.vhd:3092-3093 | pass | test/divmmc/divmmc_test.cpp:3937 |
+| RB-03 | no backing → private buffer serves reads; SRAM page 16 untouched | — | pass | test/divmmc/divmmc_test.cpp:3950 |
 
 ## Multiface — `test/multiface/multiface_test.cpp`
 
