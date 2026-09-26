@@ -31,7 +31,7 @@ mentions them, so a test can no longer be absent from this document.
 | Compositor                                 |   284 |  284 |    0 |    0 |       0 |          0 |
 | Audio                                      |   221 |  221 |    0 |    0 |       0 |          0 |
 | DMA                                        |   160 |  160 |    0 |    0 |       0 |          0 |
-| DivMMC+SPI                                 |   156 |  156 |    0 |    0 |       0 |          0 |
+| DivMMC+SPI                                 |   162 |  162 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    57 |   57 |    0 |    0 |       0 |          0 |
 | CTC+Interrupts                             |   203 |  203 |    0 |    0 |       0 |          0 |
 | UART+I2C/RTC                               |   122 |  122 |    0 |    0 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    30 |   24 |    0 |    6 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5137 | 5126 |    0 |   11 |       0 |          0 |
+| **Total**                                  |  5143 | 5132 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **5137**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4829**. Rows the 117 suites declared in `test/unit-tests.conf` run live: **9172**.
+Rows the sections above carry: **5143**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4835**. Rows the 117 suites declared in `test/unit-tests.conf` run live: **9178**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -326,10 +326,10 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | L2M-04 | L2 write-over does not apply to 0xC000-0xFFFF — VHDL zxnext.vhd:3077 | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3257 |
 | L2M-05 | NR 0x12 write sets Layer 2 active bank (7-bit) [zxnext.vhd:4945 nr_12_layer2_active_bank] | zxnext.vhd:4945 | pass | test/nextreg/nextreg_integration_test.cpp:3030 |
 | L2M-06 | NR 0x13 write sets Layer 2 shadow bank (7-bit) [zxnext.vhd:4946 nr_13_layer2_shadow_bank] | zxnext.vhd:4946 | pass | test/nextreg/nextreg_integration_test.cpp:3066 |
-| PRI-01 | DivMMC ROM overrides MMU at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084) | zxnext.vhd:3084 | pass | test/divmmc/divmmc_test.cpp:2414 |
-| PRI-02 | DivMMC RAM overrides MMU at 0x2000-0x3FFF when overlay active (VHDL zxnext.vhd:3087) | zxnext.vhd:3087 | pass | test/divmmc/divmmc_test.cpp:2448 |
+| PRI-01 | DivMMC ROM overrides MMU at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084) | zxnext.vhd:3084 | pass | test/divmmc/divmmc_test.cpp:2549 |
+| PRI-02 | DivMMC RAM overrides MMU at 0x2000-0x3FFF when overlay active (VHDL zxnext.vhd:3087) | zxnext.vhd:3087 | pass | test/divmmc/divmmc_test.cpp:2583 |
 | PRI-03 | L2 write-over outranks MMU in 0-16K — VHDL zxnext.vhd:3077 | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3316 |
-| PRI-04 | DivMMC beats Layer 2 write-over at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084-3100 chain) | zxnext.vhd:3084-3100 | pass | test/divmmc/divmmc_test.cpp:2494 |
+| PRI-04 | DivMMC beats Layer 2 write-over at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084-3100 chain) | zxnext.vhd:3084-3100 | pass | test/divmmc/divmmc_test.cpp:2629 |
 | PRI-05 | MMU-only path at 0xC000 with no overrides — VHDL zxnext.vhd:2933-3133 | zxnext.vhd:2933-3133 | pass | test/mmu/mmu_test.cpp:3337 |
 | PRI-06 | altrom overrides normal ROM when altrom_en=1, altrom_rw=0 — VHDL zxnext.vhd:3078 arbiter priority | zxnext.vhd:3078 | pass | test/mmu/mmu_test.cpp:3362 |
 | PRI-07 | config_mode ROMRAM routing outranks normal ROM read path — VHDL zxnext.vhd:3044-3052 | zxnext.vhd:3044-3052 | pass | test/mmu/mmu_test.cpp:3386 |
@@ -1975,79 +1975,79 @@ Notes and rationale: [DIVMMC-SPI-TEST-PLAN-DESIGN.md](DIVMMC-SPI-TEST-PLAN-DESIG
 | NR-06 | M1 at 0x3D00 with BB[7]=1 and no ROM3: automap must NOT activate (VHDL zxnext.vhd:2898-2899,3138) | zxnext.vhd:2898-2899,3138 | pass | test/divmmc/divmmc_test.cpp:879 |
 | NR-07 | M1 at 0x3DFF with BB[7]=1 and no ROM3: no automap (VHDL zxnext.vhd:2898-2899) | zxnext.vhd:2898-2899 | pass | test/divmmc/divmmc_test.cpp:891 |
 | NR-08 | M1 at 0x3D00 with BB[7]=0: no automap (VHDL zxnext.vhd:2898-2899) | zxnext.vhd:2898-2899 | pass | test/divmmc/divmmc_test.cpp:904 |
-| DA-01 | M1 at 0x1FF8 deactivates held automap (next-fetch visible) (VHDL divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:1049 |
-| DA-02 | M1 at 0x1FFF deactivates held automap (next-fetch visible) (VHDL divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:1062 |
-| DA-03 | M1 at 0x1FF7: no deactivation (below 0x1FF8) (VHDL zxnext.vhd: cpu_a[7:3]=11111) | zxnext.vhd | pass | test/divmmc/divmmc_test.cpp:1075 |
-| DA-04 | M1 at 0x2000: no deactivation (above range) (VHDL zxnext.vhd: port_1fxx_msb) | zxnext.vhd | pass | test/divmmc/divmmc_test.cpp:1087 |
-| DA-05 | BB[6]=0 disables 0x1FF8 deactivation (VHDL zxnext.vhd NR 0xBB[6]) | zxnext.vhd | pass | test/divmmc/divmmc_test.cpp:1101 |
-| DA-06 | on_retn() clears automap_active_ (VHDL divmmc.vhd:126,139) | divmmc.vhd:126,139 | pass | test/divmmc/divmmc_test.cpp:1118 |
-| DA-07 | reset() clears automap_active (VHDL divmmc.vhd:127) | divmmc.vhd:127 | pass | test/divmmc/divmmc_test.cpp:1131 |
-| DA-08 | set_enabled(false) clears automap_active_ latch (VHDL divmmc.vhd:126) | divmmc.vhd:126 | pass | test/divmmc/divmmc_test.cpp:1147 |
-| DMC-TM-01 | instant_on: active=1 and hold=1 after fetch 1 (held=0 yet); held=1 after fetch 2 (VHDL divmmc.vhd:141 latches held from hold on MREQ rising edge) | divmmc.vhd:141 | pass | test/divmmc/divmmc_test.cpp:1288 |
-| DMC-TM-02 | delayed_on: hold=1 this M1, active stays 0; next M1 active=1 (VHDL divmmc.vhd:129,141,148) | divmmc.vhd:129,141,148 | pass | test/divmmc/divmmc_test.cpp:1310 |
-| DMC-TM-03 | held persists across non-trigger M1 via hold propagation (VHDL divmmc.vhd:141-142,131) | divmmc.vhd:141-142,131 | pass | test/divmmc/divmmc_test.cpp:1331 |
-| DMC-TM-04 | non-M1 access at entry-point does NOT alter hold/held (VHDL divmmc.vhd:128 gates on M1+MREQ) | divmmc.vhd:128 | pass | test/divmmc/divmmc_test.cpp:1354 |
-| TM-05 | held persists across 5 non-trigger M1 fetches (VHDL divmmc.vhd:131 — held AND NOT off keeps hold at 1) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:1371 |
-| R3-01 | ROM3-only entry (NR 0xB9 bit=0) fires when rom3_active=1 (VHDL zxnext.vhd:2856,3138 + divmmc.vhd:130) | zxnext.vhd:2856,3138, divmmc.vhd:130 | pass | test/divmmc/divmmc_test.cpp:1404 |
-| R3-02 | ROM3-only entry does NOT fire when rom3_active=0 (VHDL zxnext.vhd:2856 gates on sram_pre_rom3) | zxnext.vhd:2856 | pass | test/divmmc/divmmc_test.cpp:1422 |
-| R3-03 | Layer 2 read-map suppresses ROM3-only automap path (VHDL zxnext.vhd:3138 — sram_divmmc_automap_rom3_en AND NOT sram_layer2_map_en) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:1456 |
-| R3-04 | DivMMC enabled + conmem: non-ROM3 automap path active (VHDL zxnext.vhd:3137) | zxnext.vhd:3137 | pass | test/divmmc/divmmc_test.cpp:1474 |
-| NM-01 | Arbiter IDLE->FETCH pulses nmi_divmmc_button; DivMmc::set_button_nmi(true) latches button_nmi_ (VHDL divmmc.vhd:108-111, zxnext.vhd:2170) | divmmc.vhd:108-111, zxnext.vhd:2170 | pass | test/divmmc/divmmc_test.cpp:1562 |
-| NM-02 | PC=0x0066 M1 with button_nmi=1 -> automap_nmi_instant_on fires (VHDL divmmc.vhd:120-121) | divmmc.vhd:120-121 | pass | test/divmmc/divmmc_test.cpp:1582 |
-| NM-03 | PC=0x0066 M1 with button_nmi=0 -> no NMI instant-on automap (VHDL divmmc.vhd:120) | divmmc.vhd:120 | pass | test/divmmc/divmmc_test.cpp:1602 |
-| NM-04 | reset() clears button_nmi_ (VHDL divmmc.vhd:108 i_reset) | divmmc.vhd:108 | pass | test/divmmc/divmmc_test.cpp:1618 |
-| NM-05 | enabled(true->false) (i_automap_reset) clears button_nmi_ (VHDL divmmc.vhd:108 / zxnext.vhd:4112) | divmmc.vhd:108, zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:1636 |
-| NM-06 | on_retn_seen() (i_retn_seen) clears button_nmi_ (VHDL divmmc.vhd:108) | divmmc.vhd:108 | pass | test/divmmc/divmmc_test.cpp:1654 |
-| NM-07 | automap_held rising 0->1 clears button_nmi_ (VHDL divmmc.vhd:112-113) | divmmc.vhd:112-113 | pass | test/divmmc/divmmc_test.cpp:1685 |
-| NM-08 | is_nmi_hold() steady-state = automap OR button_nmi across all 4 input combinations after held has caught up to hold (VHDL divmmc.vhd:148,150 o_disable_nmi). Discriminative first-M1 active-vs-held case is in NM-10. | divmmc.vhd:148,150 | pass | test/divmmc/divmmc_test.cpp:1774 |
-| NA-01 | enable=false (NR 0x0A[4]=0 equivalent): no mapping on automap trigger (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:2007 |
-| NA-02 | enable=true releases reset, automap functions (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:2071 |
-| NA-03 | port_io_enable and nr_0a_4_enable are independent levers; enabled_ = port_io_enable AND nr_0a_4_enable (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:2095 |
-| NA-04 | NR 0x0A bit 4 wired through to DivMmc::set_nr_0a_4_enable (VHDL zxnext.vhd:1126,5196) | zxnext.vhd:1126,5196 | pass | test/divmmc/divmmc_test.cpp:2138 |
-| NA-05 | NR 0x83 bit 0 wired through to DivMmc::set_port_io_enable (VHDL zxnext.vhd:2412) | zxnext.vhd:2412 | pass | test/divmmc/divmmc_test.cpp:2168 |
-| NA-06 | NR 0x06 power-on default = 0xA0 (b7=1, b5=1) (VHDL zxnext.vhd:1107-1108) | zxnext.vhd:1107-1108 | pass | test/divmmc/divmmc_test.cpp:2182 |
-| NA-07 | NR 0x06 bits 7/5 round-trip through NextReg storage (VHDL zxnext.vhd:5162,5164,5900) | zxnext.vhd:5162,5164,5900 | pass | test/divmmc/divmmc_test.cpp:2207 |
-| NA-08 | NR 0x0A bit 5 (sd_swap) write blocked when nr_03_config_mode=0 (VHDL zxnext.vhd:5191-5194) | zxnext.vhd:5191-5194 | pass | test/divmmc/divmmc_test.cpp:2250 |
+| DA-01 | M1 at 0x1FF8 deactivates held automap (next-fetch visible) (VHDL divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:1184 |
+| DA-02 | M1 at 0x1FFF deactivates held automap (next-fetch visible) (VHDL divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:1197 |
+| DA-03 | M1 at 0x1FF7: no deactivation (below 0x1FF8) (VHDL zxnext.vhd: cpu_a[7:3]=11111) | zxnext.vhd | pass | test/divmmc/divmmc_test.cpp:1210 |
+| DA-04 | M1 at 0x2000: no deactivation (above range) (VHDL zxnext.vhd: port_1fxx_msb) | zxnext.vhd | pass | test/divmmc/divmmc_test.cpp:1222 |
+| DA-05 | BB[6]=0 disables 0x1FF8 deactivation (VHDL zxnext.vhd NR 0xBB[6]) | zxnext.vhd | pass | test/divmmc/divmmc_test.cpp:1236 |
+| DA-06 | on_retn() clears automap_active_ (VHDL divmmc.vhd:126,139) | divmmc.vhd:126,139 | pass | test/divmmc/divmmc_test.cpp:1253 |
+| DA-07 | reset() clears automap_active (VHDL divmmc.vhd:127) | divmmc.vhd:127 | pass | test/divmmc/divmmc_test.cpp:1266 |
+| DA-08 | set_enabled(false) clears automap_active_ latch (VHDL divmmc.vhd:126) | divmmc.vhd:126 | pass | test/divmmc/divmmc_test.cpp:1282 |
+| DMC-TM-01 | instant_on: active=1 and hold=1 after fetch 1 (held=0 yet); held=1 after fetch 2 (VHDL divmmc.vhd:141 latches held from hold on MREQ rising edge) | divmmc.vhd:141 | pass | test/divmmc/divmmc_test.cpp:1423 |
+| DMC-TM-02 | delayed_on: hold=1 this M1, active stays 0; next M1 active=1 (VHDL divmmc.vhd:129,141,148) | divmmc.vhd:129,141,148 | pass | test/divmmc/divmmc_test.cpp:1445 |
+| DMC-TM-03 | held persists across non-trigger M1 via hold propagation (VHDL divmmc.vhd:141-142,131) | divmmc.vhd:141-142,131 | pass | test/divmmc/divmmc_test.cpp:1466 |
+| DMC-TM-04 | non-M1 access at entry-point does NOT alter hold/held (VHDL divmmc.vhd:128 gates on M1+MREQ) | divmmc.vhd:128 | pass | test/divmmc/divmmc_test.cpp:1489 |
+| TM-05 | held persists across 5 non-trigger M1 fetches (VHDL divmmc.vhd:131 — held AND NOT off keeps hold at 1) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:1506 |
+| R3-01 | ROM3-only entry (NR 0xB9 bit=0) fires when rom3_active=1 (VHDL zxnext.vhd:2856,3138 + divmmc.vhd:130) | zxnext.vhd:2856,3138, divmmc.vhd:130 | pass | test/divmmc/divmmc_test.cpp:1539 |
+| R3-02 | ROM3-only entry does NOT fire when rom3_active=0 (VHDL zxnext.vhd:2856 gates on sram_pre_rom3) | zxnext.vhd:2856 | pass | test/divmmc/divmmc_test.cpp:1557 |
+| R3-03 | Layer 2 read-map suppresses ROM3-only automap path (VHDL zxnext.vhd:3138 — sram_divmmc_automap_rom3_en AND NOT sram_layer2_map_en) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:1591 |
+| R3-04 | DivMMC enabled + conmem: non-ROM3 automap path active (VHDL zxnext.vhd:3137) | zxnext.vhd:3137 | pass | test/divmmc/divmmc_test.cpp:1609 |
+| NM-01 | Arbiter IDLE->FETCH pulses nmi_divmmc_button; DivMmc::set_button_nmi(true) latches button_nmi_ (VHDL divmmc.vhd:108-111, zxnext.vhd:2170) | divmmc.vhd:108-111, zxnext.vhd:2170 | pass | test/divmmc/divmmc_test.cpp:1697 |
+| NM-02 | PC=0x0066 M1 with button_nmi=1 -> automap_nmi_instant_on fires (VHDL divmmc.vhd:120-121) | divmmc.vhd:120-121 | pass | test/divmmc/divmmc_test.cpp:1717 |
+| NM-03 | PC=0x0066 M1 with button_nmi=0 -> no NMI instant-on automap (VHDL divmmc.vhd:120) | divmmc.vhd:120 | pass | test/divmmc/divmmc_test.cpp:1737 |
+| NM-04 | reset() clears button_nmi_ (VHDL divmmc.vhd:108 i_reset) | divmmc.vhd:108 | pass | test/divmmc/divmmc_test.cpp:1753 |
+| NM-05 | enabled(true->false) (i_automap_reset) clears button_nmi_ (VHDL divmmc.vhd:108 / zxnext.vhd:4112) | divmmc.vhd:108, zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:1771 |
+| NM-06 | on_retn_seen() (i_retn_seen) clears button_nmi_ (VHDL divmmc.vhd:108) | divmmc.vhd:108 | pass | test/divmmc/divmmc_test.cpp:1789 |
+| NM-07 | automap_held rising 0->1 clears button_nmi_ (VHDL divmmc.vhd:112-113) | divmmc.vhd:112-113 | pass | test/divmmc/divmmc_test.cpp:1820 |
+| NM-08 | is_nmi_hold() steady-state = automap OR button_nmi across all 4 input combinations after held has caught up to hold (VHDL divmmc.vhd:148,150 o_disable_nmi). Discriminative first-M1 active-vs-held case is in NM-10. | divmmc.vhd:148,150 | pass | test/divmmc/divmmc_test.cpp:1909 |
+| NA-01 | enable=false (NR 0x0A[4]=0 equivalent): no mapping on automap trigger (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:2142 |
+| NA-02 | enable=true releases reset, automap functions (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:2206 |
+| NA-03 | port_io_enable and nr_0a_4_enable are independent levers; enabled_ = port_io_enable AND nr_0a_4_enable (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:2230 |
+| NA-04 | NR 0x0A bit 4 wired through to DivMmc::set_nr_0a_4_enable (VHDL zxnext.vhd:1126,5196) | zxnext.vhd:1126,5196 | pass | test/divmmc/divmmc_test.cpp:2273 |
+| NA-05 | NR 0x83 bit 0 wired through to DivMmc::set_port_io_enable (VHDL zxnext.vhd:2412) | zxnext.vhd:2412 | pass | test/divmmc/divmmc_test.cpp:2303 |
+| NA-06 | NR 0x06 power-on default = 0xA0 (b7=1, b5=1) (VHDL zxnext.vhd:1107-1108) | zxnext.vhd:1107-1108 | pass | test/divmmc/divmmc_test.cpp:2317 |
+| NA-07 | NR 0x06 bits 7/5 round-trip through NextReg storage (VHDL zxnext.vhd:5162,5164,5900) | zxnext.vhd:5162,5164,5900 | pass | test/divmmc/divmmc_test.cpp:2342 |
+| NA-08 | NR 0x0A bit 5 (sd_swap) write blocked when nr_03_config_mode=0 (VHDL zxnext.vhd:5191-5194) | zxnext.vhd:5191-5194 | pass | test/divmmc/divmmc_test.cpp:2385 |
 | SM-01 | DivMMC ROM window 0x0000-0x1FFF is physical SRAM page 0x08 (byte 0x010000), per sram_A21_A13 = "000001000" [zxnext.vhd:3084-3085, divmmc.vhd:93] | zxnext.vhd:3084-3085, divmmc.vhd:93 | pass | test/divmmc/divmmc_integration_test.cpp:129 |
 | SM-02 | DivMMC RAM bank 0 is physical SRAM page 16 (byte 0x020000), per sram_A21_A13 = "000010000" [zxnext.vhd:3092-3093, divmmc.vhd:94-96] | zxnext.vhd:3092-3093, divmmc.vhd:94-96 | pass | test/divmmc/divmmc_integration_test.cpp:146 |
 | SM-03 | DivMMC RAM bank 3 is physical SRAM page 19 (byte 0x026000), per sram_A21_A13 = "000010011" [zxnext.vhd:3092-3093] | zxnext.vhd:3092-3093 | pass | test/divmmc/divmmc_integration_test.cpp:161 |
 | SM-04 | DivMMC RAM bank 15 is physical SRAM page 31 (byte 0x03E000), per sram_A21_A13 = "000011111" [zxnext.vhd:3092-3093] | zxnext.vhd:3092-3093 | pass | test/divmmc/divmmc_integration_test.cpp:180 |
 | SM-05 | DivMMC outranks the Layer 2 mapping in the SRAM arbiter: the same address reads the Layer 2 byte, then the DivMMC ROM byte while conmem is set, then the Layer 2 byte again [zxnext.vhd:3081-3104] | zxnext.vhd:3081-3104 | pass | test/divmmc/divmmc_integration_test.cpp:214 |
-| SS-01 | Reset sets port_e7 to 0xFF (all deselected) (VHDL zxnext.vhd:3302) | zxnext.vhd:3302 | pass | test/divmmc/divmmc_test.cpp:2520 |
-| SS-02 | sd_swap=0: write 0x01 selects SD1 (0xFD) (VHDL zxnext.vhd:3313-3314,3331) | zxnext.vhd:3313-3314,3331 | pass | test/divmmc/divmmc_test.cpp:2551 |
-| SS-03 | sd_swap=0: write 0x02 selects SD0 (0xFE) (VHDL zxnext.vhd:3311-3312,3332) | zxnext.vhd:3311-3312,3332 | pass | test/divmmc/divmmc_test.cpp:2565 |
-| SS-04 | sd_swap=1: write 0x01 maps to SD0 pattern 0xFE (VHDL zxnext.vhd:3313-3314,3332) | zxnext.vhd:3313-3314,3332 | pass | test/divmmc/divmmc_test.cpp:2578 |
-| SS-05 | sd_swap=1: write 0x02 maps to SD1 pattern 0xFD (VHDL zxnext.vhd:3311-3312,3331) | zxnext.vhd:3311-3312,3331 | pass | test/divmmc/divmmc_test.cpp:2591 |
-| SS-06 | Write 0xFB selects RPI0 (bit 2 clear) (VHDL zxnext.vhd:3315-3316) | zxnext.vhd:3315-3316 | pass | test/divmmc/divmmc_test.cpp:2605 |
-| SS-07 | Write 0xF7 selects RPI1 (bit 3 clear) (VHDL zxnext.vhd:3317-3318) | zxnext.vhd:3317-3318 | pass | test/divmmc/divmmc_test.cpp:2616 |
+| SS-01 | Reset sets port_e7 to 0xFF (all deselected) (VHDL zxnext.vhd:3302) | zxnext.vhd:3302 | pass | test/divmmc/divmmc_test.cpp:2655 |
+| SS-02 | sd_swap=0: write 0x01 selects SD1 (0xFD) (VHDL zxnext.vhd:3313-3314,3331) | zxnext.vhd:3313-3314,3331 | pass | test/divmmc/divmmc_test.cpp:2686 |
+| SS-03 | sd_swap=0: write 0x02 selects SD0 (0xFE) (VHDL zxnext.vhd:3311-3312,3332) | zxnext.vhd:3311-3312,3332 | pass | test/divmmc/divmmc_test.cpp:2700 |
+| SS-04 | sd_swap=1: write 0x01 maps to SD0 pattern 0xFE (VHDL zxnext.vhd:3313-3314,3332) | zxnext.vhd:3313-3314,3332 | pass | test/divmmc/divmmc_test.cpp:2713 |
+| SS-05 | sd_swap=1: write 0x02 maps to SD1 pattern 0xFD (VHDL zxnext.vhd:3311-3312,3331) | zxnext.vhd:3311-3312,3331 | pass | test/divmmc/divmmc_test.cpp:2726 |
+| SS-06 | Write 0xFB selects RPI0 (bit 2 clear) (VHDL zxnext.vhd:3315-3316) | zxnext.vhd:3315-3316 | pass | test/divmmc/divmmc_test.cpp:2740 |
+| SS-07 | Write 0xF7 selects RPI1 (bit 3 clear) (VHDL zxnext.vhd:3317-3318) | zxnext.vhd:3317-3318 | pass | test/divmmc/divmmc_test.cpp:2751 |
 | SS-08 | port 0xE7 <- 0x7F stands as 0x7F only while nr_03_config_mode OR nr_02_reset_type(2) is set, and is rewritten to 0xFF otherwise — both VHDL sources reach the SpiMaster gate from the Emulator, and the pattern deasserts the SD and RPI selects (zxnext.vhd:3319-3322; :1306, :1735, :5147-5149) | zxnext.vhd:3319-3320 | pass | test/divmmc/divmmc_integration_test.cpp:325 |
-| SS-09 | Write 0x7F outside config mode: all deselected (0xFF) (VHDL zxnext.vhd:3326) | zxnext.vhd:3326 | pass | test/divmmc/divmmc_test.cpp:2646 |
-| SS-10 | Write unrecognised value: all deselected (0xFF) (VHDL zxnext.vhd:3322) | zxnext.vhd:3322 | pass | test/divmmc/divmmc_test.cpp:2662 |
-| SS-11 | Ambiguous SS write (two bits clear) must collapse to 0xFF — single-device enforcement (VHDL zxnext.vhd:3328) | zxnext.vhd:3328 | pass | test/divmmc/divmmc_test.cpp:2676 |
-| SX-01 | Write 0xEB forwards byte to MOSI (VHDL spi_master.vhd:111-112) | spi_master.vhd:111-112 | pass | test/divmmc/divmmc_test.cpp:2995 |
-| SX-02 | Read 0xEB pushes 0xFF on MOSI and triggers one exchange (VHDL spi_master.vhd:109-110) | spi_master.vhd:109-110 | pass | test/divmmc/divmmc_test.cpp:3023 |
-| SX-03 | First read after select returns previous-cycle result (VHDL spi_master.vhd:162-166); with no prior transfer the value is the miso_dat signal-init 0x00 (spi_master.vhd:74) | spi_master.vhd:162-166, spi_master.vhd:74 | pass | test/divmmc/divmmc_test.cpp:3053 |
-| SX-04 | First read after reset (no device) returns miso_dat signal-init 0x00 (VHDL spi_master.vhd:74; i_reset hardwired '0' at zxnext.vhd:3285) | spi_master.vhd:74, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:3079 |
-| SX-05 | Read after write returns MISO of the write exchange (VHDL spi_master.vhd:164-165) | spi_master.vhd:164-165 | pass | test/divmmc/divmmc_test.cpp:3101 |
-| ST-09 | SPI o_spi_wait_n surfaced via spi_wait_n() accessor; byte-wrapper master is always idle when observed (VHDL serial/spi_master.vhd:56,177) | serial/spi_master.vhd:56,177 | pass | test/divmmc/divmmc_test.cpp:3247 |
-| ML-03 | miso_dat stable across reads with same response (VHDL spi_master.vhd:164-165) | spi_master.vhd:164-165 | pass | test/divmmc/divmmc_test.cpp:3289 |
-| ML-05 | First read after reset reflects miso_dat power-on initial value 0x00 (VHDL spi_master.vhd:74 signal-init `(others => '0')`; i_reset hardwired '0' at zxnext.vhd:3285 means the synchronous-reset clause spi_master.vhd:151-152 never fires) | spi_master.vhd:74, zxnext.vhd:3285, spi_master.vhd:151-152 | pass | test/divmmc/divmmc_test.cpp:3326 |
-| SPI-MX-02 | RPI selected: MISO comes from the slave on that chip-select and the SD card is not consulted (VHDL zxnext.vhd:3279 mux arm; :3315-3318 decode; :3329-3330 spi_ss_rpi1_n/rpi0_n) | zxnext.vhd:3279 | pass | test/divmmc/divmmc_test.cpp:3400 |
-| MX-03 | SD selected: MISO sourced from SD device (VHDL zxnext.vhd:3280) | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:3421 |
-| MX-04 | No device selected: MISO reads as 0xFF after pipeline prime (VHDL zxnext.vhd:3280 default-else `spi_miso <= '1'` propagates to miso_dat at next state_last_d) | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:3449 |
-| IN-01 | Boot automap: M1 at 0x0000 maps DivMMC ROM (VHDL divmmc.vhd:94, zxnext.vhd:2850) | divmmc.vhd:94, zxnext.vhd:2850 | pass | test/divmmc/divmmc_test.cpp:3491 |
-| IN-02 | SD init sequence: select, write, deselect (VHDL zxnext.vhd:3302, spi_master.vhd:109) | zxnext.vhd:3302, spi_master.vhd:109 | pass | test/divmmc/divmmc_test.cpp:3511 |
-| IN-03 | RETN after handler clears automap overlay (VHDL divmmc.vhd:126,139) | divmmc.vhd:126,139 | pass | test/divmmc/divmmc_test.cpp:3529 |
-| IN-04 | RST 0x08 fires only when rom3_active=1 with default NR 0xB9=0x01 (EP1 flagged ROM3-only) (VHDL zxnext.vhd:2856,3138) | zxnext.vhd:2856,3138 | pass | test/divmmc/divmmc_test.cpp:3553 |
-| IN-05 | Two back-to-back writes both reach device (VHDL spi_master.vhd:82) | spi_master.vhd:82 | pass | test/divmmc/divmmc_test.cpp:3571 |
-| IN-06 | conmem during automap: mapping remains active (VHDL divmmc.vhd:94) | divmmc.vhd:94 | pass | test/divmmc/divmmc_test.cpp:3585 |
-| IN-07 | DivMMC disabled: no automap mapping, SPI still exchanges (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:3609 |
-| CM1-01 | candidate superset contains every VHDL entry-point address (RSTs, 0x0066, tape traps, 0x1FF8-0x1FFF, $3Dxx) | divmmc.vhd:120, zxnext.vhd:2898-2902, zxnext.vhd:2907-2908, zxnext.vhd:2902-2905, divmmc.vhd:131, zxnext.vhd:2898-2899 | pass | test/divmmc/divmmc_test.cpp:3856 |
-| CM1-02 | non-entry addresses are rejected by the candidate filter | — | pass | test/divmmc/divmmc_test.cpp:3878 |
-| CM1-03 | quiescent + non-candidate pc: may_react=false and check_automap is a state no-op (skip equivalence) | divmmc.vhd:112-148 | pass | test/divmmc/divmmc_test.cpp:3898 |
-| CM1-04 | pending hold: may_react=true at non-candidate pc and the hold→held promotion fires there (divmmc.vhd:141,148) | divmmc.vhd:141,148 | pass | test/divmmc/divmmc_test.cpp:3919 |
-| CM1-05 | active overlay: gate passes any pc; 0x1FF8 off-trigger deactivates through the gated path (divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:3941 |
-| CM1-06 | button_nmi latched: gate conservatively passes any pc | — | pass | test/divmmc/divmmc_test.cpp:3956 |
+| SS-09 | Write 0x7F outside config mode: all deselected (0xFF) (VHDL zxnext.vhd:3326) | zxnext.vhd:3326 | pass | test/divmmc/divmmc_test.cpp:2781 |
+| SS-10 | Write unrecognised value: all deselected (0xFF) (VHDL zxnext.vhd:3322) | zxnext.vhd:3322 | pass | test/divmmc/divmmc_test.cpp:2797 |
+| SS-11 | Ambiguous SS write (two bits clear) must collapse to 0xFF — single-device enforcement (VHDL zxnext.vhd:3328) | zxnext.vhd:3328 | pass | test/divmmc/divmmc_test.cpp:2811 |
+| SX-01 | Write 0xEB forwards byte to MOSI (VHDL spi_master.vhd:111-112) | spi_master.vhd:111-112 | pass | test/divmmc/divmmc_test.cpp:3130 |
+| SX-02 | Read 0xEB pushes 0xFF on MOSI and triggers one exchange (VHDL spi_master.vhd:109-110) | spi_master.vhd:109-110 | pass | test/divmmc/divmmc_test.cpp:3158 |
+| SX-03 | First read after select returns previous-cycle result (VHDL spi_master.vhd:162-166); with no prior transfer the value is the miso_dat signal-init 0x00 (spi_master.vhd:74) | spi_master.vhd:162-166, spi_master.vhd:74 | pass | test/divmmc/divmmc_test.cpp:3188 |
+| SX-04 | First read after reset (no device) returns miso_dat signal-init 0x00 (VHDL spi_master.vhd:74; i_reset hardwired '0' at zxnext.vhd:3285) | spi_master.vhd:74, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:3214 |
+| SX-05 | Read after write returns MISO of the write exchange (VHDL spi_master.vhd:164-165) | spi_master.vhd:164-165 | pass | test/divmmc/divmmc_test.cpp:3236 |
+| ST-09 | SPI o_spi_wait_n surfaced via spi_wait_n() accessor; byte-wrapper master is always idle when observed (VHDL serial/spi_master.vhd:56,177) | serial/spi_master.vhd:56,177 | pass | test/divmmc/divmmc_test.cpp:3382 |
+| ML-03 | miso_dat stable across reads with same response (VHDL spi_master.vhd:164-165) | spi_master.vhd:164-165 | pass | test/divmmc/divmmc_test.cpp:3424 |
+| ML-05 | First read after reset reflects miso_dat power-on initial value 0x00 (VHDL spi_master.vhd:74 signal-init `(others => '0')`; i_reset hardwired '0' at zxnext.vhd:3285 means the synchronous-reset clause spi_master.vhd:151-152 never fires) | spi_master.vhd:74, zxnext.vhd:3285, spi_master.vhd:151-152 | pass | test/divmmc/divmmc_test.cpp:3461 |
+| SPI-MX-02 | RPI selected: MISO comes from the slave on that chip-select and the SD card is not consulted (VHDL zxnext.vhd:3279 mux arm; :3315-3318 decode; :3329-3330 spi_ss_rpi1_n/rpi0_n) | zxnext.vhd:3279 | pass | test/divmmc/divmmc_test.cpp:3535 |
+| MX-03 | SD selected: MISO sourced from SD device (VHDL zxnext.vhd:3280) | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:3556 |
+| MX-04 | No device selected: MISO reads as 0xFF after pipeline prime (VHDL zxnext.vhd:3280 default-else `spi_miso <= '1'` propagates to miso_dat at next state_last_d) | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:3584 |
+| IN-01 | Boot automap: M1 at 0x0000 maps DivMMC ROM (VHDL divmmc.vhd:94, zxnext.vhd:2850) | divmmc.vhd:94, zxnext.vhd:2850 | pass | test/divmmc/divmmc_test.cpp:3626 |
+| IN-02 | SD init sequence: select, write, deselect (VHDL zxnext.vhd:3302, spi_master.vhd:109) | zxnext.vhd:3302, spi_master.vhd:109 | pass | test/divmmc/divmmc_test.cpp:3646 |
+| IN-03 | RETN after handler clears automap overlay (VHDL divmmc.vhd:126,139) | divmmc.vhd:126,139 | pass | test/divmmc/divmmc_test.cpp:3664 |
+| IN-04 | RST 0x08 fires only when rom3_active=1 with default NR 0xB9=0x01 (EP1 flagged ROM3-only) (VHDL zxnext.vhd:2856,3138) | zxnext.vhd:2856,3138 | pass | test/divmmc/divmmc_test.cpp:3688 |
+| IN-05 | Two back-to-back writes both reach device (VHDL spi_master.vhd:82) | spi_master.vhd:82 | pass | test/divmmc/divmmc_test.cpp:3706 |
+| IN-06 | conmem during automap: mapping remains active (VHDL divmmc.vhd:94) | divmmc.vhd:94 | pass | test/divmmc/divmmc_test.cpp:3720 |
+| IN-07 | DivMMC disabled: no automap mapping, SPI still exchanges (VHDL zxnext.vhd:4112) | zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:3744 |
+| CM1-01 | candidate superset contains every VHDL entry-point address (RSTs, 0x0066, tape traps, 0x1FF8-0x1FFF, $3Dxx) | divmmc.vhd:120, zxnext.vhd:2898-2902, zxnext.vhd:2907-2908, zxnext.vhd:2902-2905, divmmc.vhd:131, zxnext.vhd:2898-2899 | pass | test/divmmc/divmmc_test.cpp:3991 |
+| CM1-02 | non-entry addresses are rejected by the candidate filter | — | pass | test/divmmc/divmmc_test.cpp:4013 |
+| CM1-03 | quiescent + non-candidate pc: may_react=false and check_automap is a state no-op (skip equivalence) | divmmc.vhd:112-148 | pass | test/divmmc/divmmc_test.cpp:4033 |
+| CM1-04 | pending hold: may_react=true at non-candidate pc and the hold→held promotion fires there (divmmc.vhd:141,148) | divmmc.vhd:141,148 | pass | test/divmmc/divmmc_test.cpp:4054 |
+| CM1-05 | active overlay: gate passes any pc; 0x1FF8 off-trigger deactivates through the gated path (divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:4076 |
+| CM1-06 | button_nmi latched: gate conservatively passes any pc | — | pass | test/divmmc/divmmc_test.cpp:4091 |
 | E3-V19-NIT-01 | Stored control_reg_ raw byte preserves VHDL invariant port_e3_reg(5:4) = '00' even when input bits 5:4 are set (F19-DIVMMC-NIT-01, VHDL zxnext.vhd:4177-4183) | zxnext.vhd:4177-4183 | pass | test/divmmc/divmmc_test.cpp:345 |
 | NR-09 | M1 at 0x3D00 with BB[7]=1 + rom3_active=1: rom3_instant_on fires automap (VHDL zxnext.vhd:2898-2899) | zxnext.vhd:2898-2899 | pass | test/divmmc/divmmc_test.cpp:917 |
 | NR-10 | M1 at 0x3D7F (mid wildcard) with BB[7]=1 + rom3_active=1: rom3_instant_on fires (VHDL zxnext.vhd:2898-2899) | zxnext.vhd:2898-2899 | pass | test/divmmc/divmmc_test.cpp:930 |
@@ -2056,37 +2056,43 @@ Notes and rationale: [DIVMMC-SPI-TEST-PLAN-DESIGN.md](DIVMMC-SPI-TEST-PLAN-DESIG
 | NR-12b | M1 after 0x0066 + BB[0]=1 + button_nmi=1: held promotes (VHDL divmmc.vhd:128-141) | divmmc.vhd:128-141 | pass | test/divmmc/divmmc_test.cpp:971 |
 | NR-13 | M1 at 0x0066 + BB[0]=1 + button_nmi=0: no trigger (VHDL divmmc.vhd:121) | divmmc.vhd:121 | pass | test/divmmc/divmmc_test.cpp:986 |
 | NR-14 | CONTRACT-PIN: M1 at $3D42 with BB[7]=1 + rom3_active=0: rom3_instant_on stays gated; automap not active (VHDL zxnext.vhd:2898-2899, divmmc.vhd:130). NOT a discriminative regression sentinel for 399c9ae — pre-fix the wildcard branch did not exist; this row guards against future regressions that remove the && rom3_path_eligible gate. | zxnext.vhd:2898-2899, divmmc.vhd:130 | pass | test/divmmc/divmmc_test.cpp:1019 |
-| S6-DIVMMC-RAM-STANDALONE | a standalone DivMmc's 128 KB window round-trips BY CONTENT, not merely by width: every byte of a whole-buffer pattern comes back, so the inline branch cannot be a zero-fill that still measures 131 089 | — | pass | test/divmmc/divmmc_test.cpp:1215 |
-| DA-09 | CONTRACT-PIN: DivMmc::save_state does NOT persist rom3_active_; load_state yields constructor default (false). Pre-condition for the external Emulator::load_state set_rom3_active(mmu_.sram_rom3()) re-sync (VHDL feeder shadow of sram_pre_rom3, zxnext.vhd:2981-3008,:3138). NOT a discriminative sentinel for 770f78d — reverting the Emulator-tier fix does not fail this test (integration-tier coverage required for the actual fix path). | zxnext.vhd:2981-3008,3138 | pass | test/divmmc/divmmc_test.cpp:1244 |
-| DM-NMI-BTN-OFF | PC=0x0066 M1 with NR BB[1]=1 but button_nmi=0: automap stays off (VHDL divmmc.vhd:120) | divmmc.vhd:120 | pass | test/divmmc/divmmc_test.cpp:1508 |
-| DM-NMI-BTN-ON | PC=0x0066 M1 with NR BB[1]=1 and button_nmi=1: instant-on automap activates (VHDL divmmc.vhd:120) | divmmc.vhd:120 | pass | test/divmmc/divmmc_test.cpp:1520 |
-| NM-09 | button_nmi set while automap_held=1 is cleared on the next check_automap call (continuous-while-held semantics) (VHDL divmmc.vhd:112-113) | divmmc.vhd:112-113 | pass | test/divmmc/divmmc_test.cpp:1730 |
-| NM-10 | First-M1 instant-on entry-point: is_nmi_hold() reflects the COMBINATIONAL automap (held(0) OR instant_match(1) = 1) immediately, not the registered held bit (still 0 until the next M1 promotes hold→held). VHDL divmmc.vhd:148+150 — `o_disable_nmi <= automap or button_nmi`, where `automap` is line 148 combinational. | divmmc.vhd:148 | pass | test/divmmc/divmmc_test.cpp:1820 |
-| DM-RETN-PROPER-01 | ED 45 RETN clears automap_held one M1 after the RETN fetch (VHDL divmmc.vhd:139 + im2_control.vhd:236, modelled via DivMmc::on_m1_retn_delay one-M1 delay register) | divmmc.vhd:139, im2_control.vhd:236 | pass | test/divmmc/divmmc_test.cpp:1891 |
-| DM-RETN-PROPER-02 | RETN-alias bytes (ED 4D/55/5D/65/6D/75/7D, standalone 0x45) do NOT clear automap_held — only canonical ED 45 matches Im2Controller::retn_seen_this_cycle() (VHDL im2_control.vhd:236) | im2_control.vhd:236 | pass | test/divmmc/divmmc_test.cpp:1979 |
-| NA-01b | set_enabled(true) alone (nr_0a_4_enable_=false) keeps automap reset (VHDL zxnext.vhd:1126,4112) | zxnext.vhd:1126,4112 | pass | test/divmmc/divmmc_test.cpp:2029 |
-| NA-01c | CONMEM with set_enabled(true) alone (nr_0a_4=0): is_active() true (VHDL divmmc.vhd:94 + zxnext.vhd:4147) | divmmc.vhd:94, zxnext.vhd:4147 | pass | test/divmmc/divmmc_test.cpp:2054 |
-| NA-09 | CONTRACT-PIN: NR 0x83 reset reloads cache to 0xFF without firing the registered write_handler; explicit Emulator::init sync from cached(0x83) bit 0 brings DivMmc::port_io_enable_ back into agreement (VHDL zxnext.vhd:5052-5057 reload; handler not on reset path). NOT a discriminative sentinel for c54192d — reverting the Emulator-tier fix does not fail this test (integration-tier coverage required for the actual fix path). | zxnext.vhd:5052 | pass | test/divmmc/divmmc_test.cpp:2320 |
-| PRI-01 | DivMMC ROM overrides MMU at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084) | zxnext.vhd:3084 | pass | test/divmmc/divmmc_test.cpp:2414 |
-| PRI-02 | DivMMC RAM overrides MMU at 0x2000-0x3FFF when overlay active (VHDL zxnext.vhd:3087) | zxnext.vhd:3087 | pass | test/divmmc/divmmc_test.cpp:2448 |
-| PRI-04 | DivMMC beats Layer 2 write-over at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084-3100 chain) | zxnext.vhd:3084-3100 | pass | test/divmmc/divmmc_test.cpp:2494 |
-| SS-12 | SpiMaster::reset() preserves device bindings — wires are not in the FPGA reset domain (VHDL zxnext.vhd:3308-3322 only resets port_e7_reg FF, not connectivity) | zxnext.vhd:3308-3322 | pass | test/divmmc/divmmc_test.cpp:2716 |
-| SS-13 | Write 0x7F: gate OPEN (flash_cs_enable=1) preserves 0x7F; gate CLOSED falls through to 0xFF (VHDL zxnext.vhd:3319 composite gate; jnext SpiMaster::set_flash_cs_enable feeds nr_03_config_mode \| nr_02_reset_type(2)) | zxnext.vhd:3319 | pass | test/divmmc/divmmc_test.cpp:2749 |
-| SS-14 | CONTRACT-PIN: SD card attached to BOTH CS0 (sd_swap=0) and CS1 (sd_swap=1): round-trip surfaces device byte in either orientation (VHDL zxnext.vhd:3280 single i_SPI_SD_MISO MUX; pass-9 emulator wires same backend on both CS). NOT a discriminative sentinel for ff84d3e — test attaches dev directly to both CS lines, bypassing Emulator::init. Reverting the Emulator-tier fix does not fail this test (integration-tier coverage required). | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:2810 |
-| SS-15 | SpiMaster::reset() pulses deselect() on every currently-selected device before clearing cs_=0xFF (VHDL zxnext.vhd:3308-3309 — port_e7_reg → all-ones on reset, physical CS rising edge resets connected SPI slaves' protocol state). Pre-fix dropped this notification; SD card protocol-state FFs survived reset until the next firmware-driven CS write. | zxnext.vhd:3308-3309 | pass | test/divmmc/divmmc_test.cpp:2861 |
-| SS-16 | SpiMaster::reset() preserves rx_data_ across system reset (VHDL spi_master.vhd:159-168 miso_dat register has no effective reset because zxnext.vhd:3285 hardwires i_reset='0'). Pre-fix forced rx_data_=0xFF on every reset, diverging from VHDL whenever firmware reads port 0xEB after a soft reset before issuing a new SPI write. | spi_master.vhd:159-168, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:2921 |
-| SS-17 | Fresh SpiMaster surfaces VHDL miso_dat power-on default 0x00 on first port-0xEB read (VHDL spi_master.vhd:74 signal-init `(others => '0')` — i_reset hardwired '0' at zxnext.vhd:3285 means the synchronous-reset clause never fires). Pre-fix the C++ member-init was 0xFF, diverging from the FPGA bitstream-load default whenever a caller read port 0xEB before any SPI transfer. | spi_master.vhd:74, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:2966 |
-| SX-11 | write_data with no slave forces rx_data_=0xFF (no stale-byte leak from previously-selected slave) (VHDL zxnext.vhd:3278-3280 default-else spi_miso<='1') | zxnext.vhd:3278-3280 | pass | test/divmmc/divmmc_test.cpp:3134 |
-| SX-12 | read_data with no slave forces rx_data_=0xFF on subsequent reads (post-deselect pipeline drains to 0xFF, no stale leak) (VHDL zxnext.vhd:3278-3280 default-else) | zxnext.vhd:3278-3280 | pass | test/divmmc/divmmc_test.cpp:3174 |
-| PO-01 | Main path blocked when sram_pre_override(2)=0 (VHDL zxnext.vhd:3137) | zxnext.vhd:3137 | pass | test/divmmc/divmmc_test.cpp:3644 |
-| PO-02 | ROM3 path blocked when sram_pre_override(0)=0 (VHDL zxnext.vhd:3138) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:3664 |
-| PO-03 | Main path fires when sram_pre_override(2)=1 (VHDL zxnext.vhd:3137) | zxnext.vhd:3137 | pass | test/divmmc/divmmc_test.cpp:3681 |
-| PO-04 | ROM3 path fires when full sram_divmmc_automap_rom3_en composite is high (VHDL zxnext.vhd:3138) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:3698 |
-| PO-05 | check_automap default args fire main path (back-compat) | — | pass | test/divmmc/divmmc_test.cpp:3715 |
-| PO-06 | Off trigger gated by pre_override(2) — held propagates when MF owns slot 0/1 (VHDL divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:3753 |
-| RB-01 | config-window write to SRAM page 16 is visible via DivMMC overlay (bank 0) — one SRAM, two views (zxnext.vhd:3044+3093) | zxnext.vhd:3044 | pass | test/divmmc/divmmc_test.cpp:3787 |
-| RB-02 | DivMMC overlay write (bank 2) lands in physical SRAM page 18 — VHDL zxnext.vhd:3092-3093 sram_A21_A13 <= "00001" & divmmc_bank | zxnext.vhd:3092-3093 | pass | test/divmmc/divmmc_test.cpp:3802 |
-| RB-03 | no backing → private buffer serves reads; SRAM page 16 untouched | — | pass | test/divmmc/divmmc_test.cpp:3815 |
+| ALTROM-01 | M1 at 0x056A with BB[5]=1, sram_pre_rom3=0 but sram_altrom_en=1 + sram_pre_alt_128_n=1: the tape trap fires on the alt-48 image alone (VHDL zxnext.vhd:3138 first clause, :2904) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:1063 |
+| ALTROM-02 | M1 at 0x056A with sram_altrom_en=1 + sram_pre_alt_128_n=0 (the alt-128 image): no automap (VHDL zxnext.vhd:3138) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:1083 |
+| ALTROM-03 | M1 at 0x056A with sram_pre_rom3=1 but sram_altrom_en=1 and sram_pre_alt_128_n=0: the sram_pre_rom3 clause is gated out by NOT sram_altrom_en — no automap (VHDL zxnext.vhd:3138 second clause) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:1103 |
+| ALTROM-04 | M1 at 0x056A with sram_altrom_en=0 (altrom in write-over mode): the gate falls back to sram_pre_rom3=1 and the trap fires (VHDL zxnext.vhd:3078 fourth clause, :3138) | zxnext.vhd:3078 | pass | test/divmmc/divmmc_test.cpp:1123 |
+| ALTROM-05 | M1 at $3D42 with BB[7]=1, sram_pre_rom3=0 and the alt-48 image read-mapped: rom3_instant_on fires (VHDL zxnext.vhd:2898-2899 + :3138) | zxnext.vhd:2898-2899,3138 | pass | test/divmmc/divmmc_test.cpp:1140 |
+| ALTROM-06 | M1 at 0x056A with the alt-48 image read-mapped but sram_pre_override(0)=0: the ROM3 path stays gated (VHDL zxnext.vhd:3138 leading factors) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:1158 |
+| S6-DIVMMC-RAM-STANDALONE | a standalone DivMmc's 128 KB window round-trips BY CONTENT, not merely by width: every byte of a whole-buffer pattern comes back, so the inline branch cannot be a zero-fill that still measures 131 089 | — | pass | test/divmmc/divmmc_test.cpp:1350 |
+| DA-09 | CONTRACT-PIN: DivMmc::save_state does NOT persist rom3_active_; load_state yields constructor default (false). Pre-condition for the external Emulator::load_state set_rom3_active(mmu_.sram_rom3()) re-sync (VHDL feeder shadow of sram_pre_rom3, zxnext.vhd:2981-3008,:3138). NOT a discriminative sentinel for 770f78d — reverting the Emulator-tier fix does not fail this test (integration-tier coverage required for the actual fix path). | zxnext.vhd:2981-3008,3138 | pass | test/divmmc/divmmc_test.cpp:1379 |
+| DM-NMI-BTN-OFF | PC=0x0066 M1 with NR BB[1]=1 but button_nmi=0: automap stays off (VHDL divmmc.vhd:120) | divmmc.vhd:120 | pass | test/divmmc/divmmc_test.cpp:1643 |
+| DM-NMI-BTN-ON | PC=0x0066 M1 with NR BB[1]=1 and button_nmi=1: instant-on automap activates (VHDL divmmc.vhd:120) | divmmc.vhd:120 | pass | test/divmmc/divmmc_test.cpp:1655 |
+| NM-09 | button_nmi set while automap_held=1 is cleared on the next check_automap call (continuous-while-held semantics) (VHDL divmmc.vhd:112-113) | divmmc.vhd:112-113 | pass | test/divmmc/divmmc_test.cpp:1865 |
+| NM-10 | First-M1 instant-on entry-point: is_nmi_hold() reflects the COMBINATIONAL automap (held(0) OR instant_match(1) = 1) immediately, not the registered held bit (still 0 until the next M1 promotes hold→held). VHDL divmmc.vhd:148+150 — `o_disable_nmi <= automap or button_nmi`, where `automap` is line 148 combinational. | divmmc.vhd:148 | pass | test/divmmc/divmmc_test.cpp:1955 |
+| DM-RETN-PROPER-01 | ED 45 RETN clears automap_held one M1 after the RETN fetch (VHDL divmmc.vhd:139 + im2_control.vhd:236, modelled via DivMmc::on_m1_retn_delay one-M1 delay register) | divmmc.vhd:139, im2_control.vhd:236 | pass | test/divmmc/divmmc_test.cpp:2026 |
+| DM-RETN-PROPER-02 | RETN-alias bytes (ED 4D/55/5D/65/6D/75/7D, standalone 0x45) do NOT clear automap_held — only canonical ED 45 matches Im2Controller::retn_seen_this_cycle() (VHDL im2_control.vhd:236) | im2_control.vhd:236 | pass | test/divmmc/divmmc_test.cpp:2114 |
+| NA-01b | set_enabled(true) alone (nr_0a_4_enable_=false) keeps automap reset (VHDL zxnext.vhd:1126,4112) | zxnext.vhd:1126,4112 | pass | test/divmmc/divmmc_test.cpp:2164 |
+| NA-01c | CONMEM with set_enabled(true) alone (nr_0a_4=0): is_active() true (VHDL divmmc.vhd:94 + zxnext.vhd:4147) | divmmc.vhd:94, zxnext.vhd:4147 | pass | test/divmmc/divmmc_test.cpp:2189 |
+| NA-09 | CONTRACT-PIN: NR 0x83 reset reloads cache to 0xFF without firing the registered write_handler; explicit Emulator::init sync from cached(0x83) bit 0 brings DivMmc::port_io_enable_ back into agreement (VHDL zxnext.vhd:5052-5057 reload; handler not on reset path). NOT a discriminative sentinel for c54192d — reverting the Emulator-tier fix does not fail this test (integration-tier coverage required for the actual fix path). | zxnext.vhd:5052 | pass | test/divmmc/divmmc_test.cpp:2455 |
+| PRI-01 | DivMMC ROM overrides MMU at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084) | zxnext.vhd:3084 | pass | test/divmmc/divmmc_test.cpp:2549 |
+| PRI-02 | DivMMC RAM overrides MMU at 0x2000-0x3FFF when overlay active (VHDL zxnext.vhd:3087) | zxnext.vhd:3087 | pass | test/divmmc/divmmc_test.cpp:2583 |
+| PRI-04 | DivMMC beats Layer 2 write-over at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084-3100 chain) | zxnext.vhd:3084-3100 | pass | test/divmmc/divmmc_test.cpp:2629 |
+| SS-12 | SpiMaster::reset() preserves device bindings — wires are not in the FPGA reset domain (VHDL zxnext.vhd:3308-3322 only resets port_e7_reg FF, not connectivity) | zxnext.vhd:3308-3322 | pass | test/divmmc/divmmc_test.cpp:2851 |
+| SS-13 | Write 0x7F: gate OPEN (flash_cs_enable=1) preserves 0x7F; gate CLOSED falls through to 0xFF (VHDL zxnext.vhd:3319 composite gate; jnext SpiMaster::set_flash_cs_enable feeds nr_03_config_mode \| nr_02_reset_type(2)) | zxnext.vhd:3319 | pass | test/divmmc/divmmc_test.cpp:2884 |
+| SS-14 | CONTRACT-PIN: SD card attached to BOTH CS0 (sd_swap=0) and CS1 (sd_swap=1): round-trip surfaces device byte in either orientation (VHDL zxnext.vhd:3280 single i_SPI_SD_MISO MUX; pass-9 emulator wires same backend on both CS). NOT a discriminative sentinel for ff84d3e — test attaches dev directly to both CS lines, bypassing Emulator::init. Reverting the Emulator-tier fix does not fail this test (integration-tier coverage required). | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:2945 |
+| SS-15 | SpiMaster::reset() pulses deselect() on every currently-selected device before clearing cs_=0xFF (VHDL zxnext.vhd:3308-3309 — port_e7_reg → all-ones on reset, physical CS rising edge resets connected SPI slaves' protocol state). Pre-fix dropped this notification; SD card protocol-state FFs survived reset until the next firmware-driven CS write. | zxnext.vhd:3308-3309 | pass | test/divmmc/divmmc_test.cpp:2996 |
+| SS-16 | SpiMaster::reset() preserves rx_data_ across system reset (VHDL spi_master.vhd:159-168 miso_dat register has no effective reset because zxnext.vhd:3285 hardwires i_reset='0'). Pre-fix forced rx_data_=0xFF on every reset, diverging from VHDL whenever firmware reads port 0xEB after a soft reset before issuing a new SPI write. | spi_master.vhd:159-168, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:3056 |
+| SS-17 | Fresh SpiMaster surfaces VHDL miso_dat power-on default 0x00 on first port-0xEB read (VHDL spi_master.vhd:74 signal-init `(others => '0')` — i_reset hardwired '0' at zxnext.vhd:3285 means the synchronous-reset clause never fires). Pre-fix the C++ member-init was 0xFF, diverging from the FPGA bitstream-load default whenever a caller read port 0xEB before any SPI transfer. | spi_master.vhd:74, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:3101 |
+| SX-11 | write_data with no slave forces rx_data_=0xFF (no stale-byte leak from previously-selected slave) (VHDL zxnext.vhd:3278-3280 default-else spi_miso<='1') | zxnext.vhd:3278-3280 | pass | test/divmmc/divmmc_test.cpp:3269 |
+| SX-12 | read_data with no slave forces rx_data_=0xFF on subsequent reads (post-deselect pipeline drains to 0xFF, no stale leak) (VHDL zxnext.vhd:3278-3280 default-else) | zxnext.vhd:3278-3280 | pass | test/divmmc/divmmc_test.cpp:3309 |
+| PO-01 | Main path blocked when sram_pre_override(2)=0 (VHDL zxnext.vhd:3137) | zxnext.vhd:3137 | pass | test/divmmc/divmmc_test.cpp:3779 |
+| PO-02 | ROM3 path blocked when sram_pre_override(0)=0 (VHDL zxnext.vhd:3138) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:3799 |
+| PO-03 | Main path fires when sram_pre_override(2)=1 (VHDL zxnext.vhd:3137) | zxnext.vhd:3137 | pass | test/divmmc/divmmc_test.cpp:3816 |
+| PO-04 | ROM3 path fires when full sram_divmmc_automap_rom3_en composite is high (VHDL zxnext.vhd:3138) | zxnext.vhd:3138 | pass | test/divmmc/divmmc_test.cpp:3833 |
+| PO-05 | check_automap default args fire main path (back-compat) | — | pass | test/divmmc/divmmc_test.cpp:3850 |
+| PO-06 | Off trigger gated by pre_override(2) — held propagates when MF owns slot 0/1 (VHDL divmmc.vhd:131) | divmmc.vhd:131 | pass | test/divmmc/divmmc_test.cpp:3888 |
+| RB-01 | config-window write to SRAM page 16 is visible via DivMMC overlay (bank 0) — one SRAM, two views (zxnext.vhd:3044+3093) | zxnext.vhd:3044 | pass | test/divmmc/divmmc_test.cpp:3922 |
+| RB-02 | DivMMC overlay write (bank 2) lands in physical SRAM page 18 — VHDL zxnext.vhd:3092-3093 sram_A21_A13 <= "00001" & divmmc_bank | zxnext.vhd:3092-3093 | pass | test/divmmc/divmmc_test.cpp:3937 |
+| RB-03 | no backing → private buffer serves reads; SRAM page 16 untouched | — | pass | test/divmmc/divmmc_test.cpp:3950 |
 
 ## Multiface — `test/multiface/multiface_test.cpp`
 
