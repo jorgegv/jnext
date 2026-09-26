@@ -31,8 +31,8 @@
 >   reply to `?` is load-bearing (§5.4).
 > - v1.3 (2026-09-26, backend v4 FYI): REQ-zrcp-15 landed as the CAP-CTL-12
 >   Hard reconstruct contract (+ CAP-SES-07 driver) — `monitor reset hard`
->   is now served, `E01` only on `RefusedUnavailable`; guest hard reset adds
->   `pause_reason = Reset` to the §5.3 table; WP-4 wires the socket over the
+>   is now served, `E01` only on `RefusedUnavailable`; guest hard reset is
+>   NOT a stop (no `pause_reason` for it, §4.3/§5.3); WP-4 wires the socket over the
 >   shared transport package **T** (arch doc) rather than its own listener;
 >   CAP-SES-04 "remote connected ⇒ Pause" under `--headless`/SDL is an
 >   owner-pending proposal (backend §13.2) — the §7.2 row depends on it.

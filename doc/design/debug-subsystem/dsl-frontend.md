@@ -6,9 +6,10 @@ records what the language is, what it demands of the backend, where it stops,
 and the answer to "is #20 just a use case of #26?".
 
 Status: **v3**, 2026-09-26 — revised after review round 1
-(`scratchpad/reviews/dsl-qt.md`, REJECT: R-1..R-7, N-1..N-15) and round 2
-(`scratchpad/reviews/dsl-qt-r2.md`, REJECT on R2-1 only; N2-1..N2-6);
-dispositions in Appendix C. v1 was written against the code at `main`
+(`scratchpad/reviews/dsl-qt.md`, REJECT: R-1..R-7, N-1..N-15), round 2
+(`scratchpad/reviews/dsl-qt-r2.md`, REJECT on R2-1 only; N2-1..N2-6) and
+round 3 (`scratchpad/reviews/dsl-qt-r3.md`, **APPROVE**; N3-1, N3-2 folded);
+dispositions in Appendices C and D. v1 was written against the code at `main`
 v1.0.44 (`974b0ab19`), never against `doc/design/EMULATOR-DESIGN-PLAN.md`.
 REQ verdicts in §5 are updated as `design-backend` replies.
 
@@ -225,7 +226,10 @@ GH #16 and GH #181 both were. The DSL therefore never offers a bare `VC`.
   backend from the raw line).
 - `on frame N` fires at the frame boundary (`Emulator::end_of_frame`,
   `emulator.cpp:9419`) when the backend's frame counter equals N; `on frame`
-  fires every frame. Frame 0 is the first frame executed after the script is
+  fires every frame. `FRAME` is the backend's pre-increment frame tag
+  (`time().frame`, the number the rewind slot carries — review N3-1), so
+  `FRAME == N` holds throughout the N-th `run_frame()` since load, which is
+  what the `--delayed-keypress-frames N` equivalence in §2.6 needs. Frame 0 is the first frame executed after the script is
   loaded, which for a CLI-loaded script is power-on — the same origin
   `--delayed-keypress-frames` uses (§7.3).
 - `on cycle N` fires at the first instruction boundary at which `CYCLE >= N`,
@@ -868,7 +872,22 @@ frame-boundary event in a **GUI session**:
    (`nextreg[0x05]`). These are the preconditions under which the replay is
    deterministic, so a mismatch is a loud `assert` rather than a mysterious
    diff.
-4. **The deterministic observable** (review N-7): a `.scr` taken at frame M
+4. **Recording while paused mid-frame is inexact** (review N3-2). "GUI input
+   does not change mid-frame" holds for a running machine. When the debugger
+   holds the machine mid-frame (a breakpoint hit, `Emulator::frame_in_progress()`
+   true), a key pressed then is applied at once (`host_key_latch.h:431`) and is
+   visible to the remainder of that frame after resume — `begin_new_frame` is
+   not re-run on resume (`emulator.cpp:9284-9288` guard) — so the recorder
+   first samples it at `begin_new_frame(K+1)`, stamps K, and replay shows it
+   from K+1 rather than from mid-K. The recorder therefore **warns** in the
+   emitted script (`# WARNING: input change recorded while paused mid-frame at
+   FRAME K; replay is not exact here`) whenever a change is sampled with
+   `frame_in_progress()` set at the moment of the key event, and the replay of
+   such a script logs the same warning on load. Refusing to record was
+   rejected: pausing to look is a normal part of an interactive session and the
+   inexactness is local to that frame. This is §4's frame-granularity wall,
+   reached from the other side.
+5. **The deterministic observable** (review N-7): a `.scr` taken at frame M
    compares equal iff the guest reached the same state by M — for a program
    that polls input every few frames (test06keyb polls every 4 frames via
    `waitForScanline(255)` ×4, `main.c:64-67`) that means the poll that first
@@ -1171,3 +1190,9 @@ CONTESTED: none.
 | N2-4, N2-5, N2-6 | confirmations | no change |
 
 CONTESTED: none.
+
+Round 3 (`scratchpad/reviews/dsl-qt-r3.md`, APPROVE): N3-1 — `FRAME` defined
+in §2.4 as the backend's pre-increment tag (backend CAP-INS-07 updated on its
+side); N3-2 — verified (`host_key_latch.h:431`; `emulator.cpp:9284-9288`
+guard) and folded into §7.2 item 4: recording while paused mid-frame is
+inexact, the recorder warns.

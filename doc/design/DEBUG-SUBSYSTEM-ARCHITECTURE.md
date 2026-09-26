@@ -25,7 +25,9 @@
 > 16-entry cap and the in-flight entry; `load()` routed through the loop driver
 > (no backend→platform include); bookmark cost and reconstruct survival stated;
 > §12 Q4 widened to any stop in the SDL frontend; REQ-dsl-20 (injection before
-> `tick_auto_type`) recorded.
+> `tick_auto_type`) recorded. Round 3 (`arch-r3.md`, APPROVE) notes folded:
+> `Keyboard::queue_auto_type` itself becomes append for every producer; T
+> depends on B0, B.
 >
 > **Revision 2** (2026-09-26, after the arch review). R-1: one detach rule
 > (§4.8, §9, §12 Q4). R-2: the §6 armed rows relabelled — they measured a
@@ -423,7 +425,7 @@ on a breakpoint; a GUI Run afterwards reaches the remote as `Resumed{by}`
 | INS-04 | `nextreg_peek`, `nextreg_write` (synchronous, source Debugger, no event), `nextreg_selected` |
 | INS-05 | `port_in`, `port_out` — perturbing by nature, said so; the DSL declines it |
 | INS-06 | `raster() -> RasterState` (`src/debug/raster_state.h`, computed from the clock when paused) |
-| INS-07 | `time() -> {master_cycle, tstates_total = monotonic_tstates(), frame (F2-fixed), cycle_in_frame, vc_raw, hc_raw}` |
+| INS-07 | `time() -> {master_cycle, tstates_total = monotonic_tstates(), frame (F2-fixed), cycle_in_frame, vc_raw, hc_raw}` — `frame` is the CURRENT frame's pre-increment tag — the F2 fix is a post-increment at `begin_new_frame` [`emulator.cpp:8467`], so the raw counter reads K+1 during frame K and the backend reports `frame_num_ − 1`, the same number the rewind slot carries; frame 0 is the first `run_frame()` after load. Read raw, `on frame N` would fire one frame early against `--delayed-keypress-frames N`. |
 | INS-08 | `sprites()` (`SpriteInfo` ×128), raw `sprite_attr_raw(i)` (5 bytes), `pattern_ram()` (16 KB), `sprite_palette_rgb333(bank, i)`, `sprite_clip()`; debugger writes `set_sprite_attr_raw`, `write_pattern_ram` (engine setters, not port traffic) |
 | INS-09 | `copper() -> {pc, running, mode, program[1024]}` |
 | INS-10 | `ay_registers(chip)`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()` (live signals [`turbosound.h:42,51,61`]), `audio_mute_mask` get/set |
@@ -457,7 +459,7 @@ filter.
 | `Mem`, `access` ⊆ {Read, Write} | logical addr ∈ [lo,hi] **or** physical page ∈ set (MMU sites, §6); a range may carry an optional `page` qualifier AND-ed with it (DZRP's `bank+1` watchpoints, REQ-dzrp-11), tested only after the range matched | addr, phys_page, value, pc (= `pc_pre_exec`), `source` ∈ {Cpu, Dma} (tagged at the boundary drain from the slot's DMA flag [`emulator.cpp:9784`]) |
 | `Port`, `access` | `(port & mask) == value` (GH #222's low-byte rule = mask 0x00FF); read value latched after dispatch | port, value, pc |
 | `NextRegWrite` | reg ∈ set, `source` ∈ {Cpu, Copper, Dma, Any} (`NextReg::write` hook) | reg, value, `prev` (peeked at the hook), source, **and `pc`/`cycle`/`hc`/`vc` captured in the latch at the hook**. Delivered after commit at the next boundary the drain reaches: the current instruction's for Copper/DMA writes; **≤1 instruction late for a CPU write**, because CPU NR writes commit in `flush_pending_cpu_nr_writes()` [`emulator.cpp:10221`] after the boundary drain (§2.3) — a `Stop` lands one instruction after the writer, the payload's `pc` names the writer. Chosen over moving the drain behind the device cluster, which would change the GH #265 early-return contract at `:9398` for every data breakpoint |
-| `Frame` | every / frame == N | frame |
+| `Frame` | every / frame == N | frame (the pre-increment tag, = `time().frame`) |
 | `Scanline` | cvc == N — latched at `on_scanline` with the line's exact cycle, delivered at the next boundary (≤1 instruction late) | frame, vc, cycle (captured in the latch) |
 | `Cycle` | master_cycle ≥ N, one-shot by nature | cycle |
 | `Reset` | hard / soft | kind |
@@ -527,7 +529,7 @@ callers of the same primitives, scheduled by `Frame` events.
 
 | ID | Capability |
 |---|---|
-| IN-01 | `press_key(name\|{row,col}[,{row2,col2}], hold_frames)` — a pulse with **APPEND** semantics: `Keyboard::queue_auto_type` [`keyboard.h:79`] replaces the queue today [`keyboard.cpp:541`]; the backend appends (the 4-frame released gap between entries stays), so a pulse issued while one is held is queued, never stranding a key down, and two pulses due in one frame both happen (REQ-dsl-18; `--delayed-keypress-frames` inherits the fix); the append keeps the snapshot-width cap `MAX_AUTO_TYPE_KEYS = 16` [`keyboard.h:195`] with the same loud truncation, returning `RefusedUnavailable` + the count queued on overflow, and never resets `auto_frame_count_`/`auto_gap_` [`keyboard.h:200-201`] for the entry in flight. `key_name_to_matrix()` moves into the backend so every frontend and the DSL share the man page's vocabulary |
+| IN-01 | `press_key(name\|{row,col}[,{row2,col2}], hold_frames)` — a pulse with **APPEND** semantics: `Keyboard::queue_auto_type` [`keyboard.h:79`] replaces the queue today [`keyboard.cpp:541`]; the backend appends (the 4-frame released gap between entries stays), so a pulse issued while one is held is queued, never stranding a key down, and two pulses due in one frame both happen (REQ-dsl-18; `--delayed-keypress-frames` inherits the fix); the append keeps the snapshot-width cap `MAX_AUTO_TYPE_KEYS = 16` [`keyboard.h:195`] with the same loud truncation, returning `RefusedUnavailable` + the count queued on overflow, and never resets `auto_frame_count_`/`auto_gap_` [`keyboard.h:200-201`] for the entry in flight. **`Keyboard::queue_auto_type` itself becomes append, so every producer inherits it** — the backend's `press_key`, the phantom typist (`phantom_typist_.tick_frame()` [`emulator.cpp:9590`] → `keyboard_->queue_auto_type` [`phantom_typist.cpp:170`]) and the two `--load` tape auto-type sites [`emulator.cpp:8022`, `:8076`], all of which REPLACE today; the 16-entry cap applies to the union of what they queue. Append only in the backend path was rejected: a script pulse queued in the same `end_of_frame` would be clobbered when the typist fires one line earlier. `key_name_to_matrix()` moves into the backend so every frontend and the DSL share the man page's vocabulary |
 | IN-02 | `set_key(row, col, pressed)`, `set_extended_key(id, pressed)` — level, for replay of recorded state; `Keyboard::set_matrix_bit` [`keyboard.h:185`] is private today and gains a public injection entry (accessor addition); the DSL's bare `press`/`release` are this, only `press … for n` is IN-01 |
 | IN-03 | `set_joystick(side, bits12)` |
 | IN-04 | `press_nmi(Mf\|Drive)` — the GH #209 hotkey seam |
@@ -1040,7 +1042,7 @@ parallel agents; each gets its own independent reviewer.
 |---|---|---|---|
 | **B0** headers | `gh276-headers` (its own sub-issue; everything below depends on it) | the four public headers of §10.1, compiled, reviewed, no bodies | this design's review |
 | **B** backend | `gh276-backend` (§12 Q1: a new sub-issue, or stage 1 of #278) | B1 facade + control + inspection over the existing primitives (no hot-path change), `Mmu::peek()` (F1), the frame counter (F2), `SymbolTable` move, `key_name_to_matrix` move, the accessor additions (§4: sprites/palette raw forms, `set_matrix_bit`, the DMA slot flag, `input_state`); B2 `EventTable` + 32-entry latch ring + slot masks + `on_slot_remapped` + NR/port/IntAck/Nmi/Reset/Frame/Scanline hooks (bench-gated, incl. the §11 item 3 hot-latch measurement); B3 session: clients, listeners, `pump` + `Service` registration, stop policy, `live_raster`/`attached`, the loop driver (SES-07), the reconstruct contract (CTL-12/15) and the retirement of the platform-side `BreakpointSet`/`active()` restore in `emulator_cold_boot()`; B4 input (IN-01 APPEND) / capture / bookmarks / coverage / extended `TraceEntry`, and the CLI conveniences (`--delayed-*`) re-expressed as generated subscriptions in all three loop owners, retiring `QtApp`'s and `HeadlessApp`'s private countdowns; B5 `debugger_backend_test` | B0 |
-| **T** transport | `gh276-transport` (its own package; D/Z/G wait for it) | the one non-blocking listener/`Service` over the public `esp::make_socket_listener` / `EspListener` / `EspTransport` seam, the in-memory fake `Transport` for adapter suites, `--debug-listen-address`; no protocol content | B0, B3 |
+| **T** transport | `gh276-transport` (its own package; D/Z/G wait for it) | the one non-blocking listener/`Service` over the public `esp::make_socket_listener` / `EspListener` / `EspTransport` seam, the in-memory fake `Transport` for adapter suites, `--debug-listen-address`; no protocol content | B0, B |
 | **Q** #278 | `gh278-qt` | design-qt WP0 (close the identity gaps on the current tree) → WP1 the `src/qt/` header move + `make build-matrix` (**the single owner of that move**; lands with the rest of Q, on Q's one branch) → WP2 `DebuggerManager` verbs → WP3 rewind/trace/corruption → WP4a-d panels (parallel) → WP5 memory panel → WP6 symbols/magic → WP7 reach-around grep = 0 | B0, B |
 | **D** #12 | `gh12-dzrp` | design-dzrp WP-1 framing over T → WP-2 session/registers/memory → {WP-3 breakpoints/continue/notify, WP-4 tier 2, WP-5 loop owners + CLI} → WP-6 validation → WP-7 docs | B0, B, T |
 | **Z** #280 | `gh280-zrcp` | design-zrcp WP-1 session skeleton over T → {WP-2 formatters, WP-3 control/run, WP-4 breakpoints+conditions (needs S1), WP-5 history/coverage/load} → WP-6 fixtures+docs | B0, B, T; WP-4 on S1 |
