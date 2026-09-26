@@ -1027,6 +1027,141 @@ void group_nr() {
               !d.automap_active(),
               fmt("automap=%d", d.automap_active()));
     }
+
+    // ── GH #282 — the alt-ROM half of sram_divmmc_automap_rom3_en ─────
+    //
+    // zxnext.vhd:3138 does not end in `sram_pre_rom3`; it ends in a MUX:
+    //
+    //   ... AND ((sram_altrom_en AND sram_pre_alt_128_n) OR
+    //            (sram_pre_rom3 AND NOT sram_altrom_en))
+    //
+    // While the altrom override owns the read cycle, `sram_pre_rom3` is
+    // gated OUT and `sram_pre_alt_128_n` (zxnext.vhd:2986/2991/2995/
+    // 3001/3005 — which of the two 16K alt images is mapped) decides
+    // instead. jnext modelled only the second clause, which is right
+    // whenever altrom_en=0 and wrong the moment firmware pages the alt
+    // ROM in for reads — as NextZXOS's TAP Loader does for its "48K
+    // mode" (NR 0x8C = 0xA0: altrom_en + lock_rom1, read-visible). On
+    // machine_type_p3 that is sram_rom3 = lock_rom1 AND lock_rom0 = 0
+    // (:2990) but sram_alt_128_n = lock_rom1 = 1 (:2991), so the tape
+    // trap at 0x056A was disabled in jnext and enabled in the VHDL.
+    //
+    // 0x056A is `rom3_delayed_on` (zxnext.vhd:2904), so `automap` goes
+    // high on the NEXT M1 — hence the second check_automap() call in
+    // each row below.
+
+    // ALTROM-01: the reported case. BB[5]=1, ROM3 NOT selected, but the
+    // alt-48 image is read-mapped: the first MUX clause carries the gate
+    // and the tape trap must fire.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_1(0xCD | 0x20);   // BB[5]=1 (0x056A trap)
+        d.set_rom3_active(false);            // sram_pre_rom3 = 0
+        d.check_automap(0x056A, true, true, true, /*altrom_en_read=*/true,
+                        /*alt_128_n=*/true);
+        d.check_automap(0x8000, true, true, true, true, true);  // step
+        check("ALTROM-01",
+              "M1 at 0x056A with BB[5]=1, sram_pre_rom3=0 but "
+              "sram_altrom_en=1 + sram_pre_alt_128_n=1: the tape trap "
+              "fires on the alt-48 image alone "
+              "(VHDL zxnext.vhd:3138 first clause, :2904)",
+              d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+
+    // ALTROM-02: same, but the alt-128 image is mapped
+    // (sram_pre_alt_128_n=0). Neither clause holds — the first needs
+    // alt_128_n, the second is gated out by sram_altrom_en — so the trap
+    // must stay shut. This is the row that stops ALTROM-01 from being
+    // satisfied by "altrom_en alone enables everything".
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_1(0xCD | 0x20);
+        d.set_rom3_active(false);
+        d.check_automap(0x056A, true, true, true, true, /*alt_128_n=*/false);
+        d.check_automap(0x8000, true, true, true, true, false);
+        check("ALTROM-02",
+              "M1 at 0x056A with sram_altrom_en=1 + sram_pre_alt_128_n=0 "
+              "(the alt-128 image): no automap "
+              "(VHDL zxnext.vhd:3138)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+
+    // ALTROM-03: the OTHER direction of the MUX, and a deliberate
+    // behaviour change. sram_pre_rom3=1 would have opened the trap
+    // before GH #282; VHDL says `NOT sram_altrom_en` gates that clause
+    // out while the altrom owns the read, and alt_128_n=0 does not open
+    // the first clause. So: shut.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_1(0xCD | 0x20);
+        d.set_rom3_active(true);             // sram_pre_rom3 = 1
+        d.check_automap(0x056A, true, true, true, /*altrom_en_read=*/true,
+                        /*alt_128_n=*/false);
+        d.check_automap(0x8000, true, true, true, true, false);
+        check("ALTROM-03",
+              "M1 at 0x056A with sram_pre_rom3=1 but sram_altrom_en=1 and "
+              "sram_pre_alt_128_n=0: the sram_pre_rom3 clause is gated out "
+              "by NOT sram_altrom_en — no automap "
+              "(VHDL zxnext.vhd:3138 second clause)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+
+    // ALTROM-04: altrom present but in WRITE-OVER mode (NR 0x8C bit 6=1),
+    // so sram_altrom_en=0 on a read cycle (zxnext.vhd:3056, :3078 fourth
+    // clause) and the gate falls back to sram_pre_rom3 — the pre-GH-#282
+    // behaviour, which must be preserved exactly.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_1(0xCD | 0x20);
+        d.set_rom3_active(true);
+        d.check_automap(0x056A, true, true, true, /*altrom_en_read=*/false,
+                        /*alt_128_n=*/true);
+        d.check_automap(0x8000, true, true, true, false, true);
+        check("ALTROM-04",
+              "M1 at 0x056A with sram_altrom_en=0 (altrom in write-over "
+              "mode): the gate falls back to sram_pre_rom3=1 and the trap "
+              "fires (VHDL zxnext.vhd:3078 fourth clause, :3138)",
+              d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+
+    // ALTROM-05: the same MUX on the $3Dxx wildcard, which is
+    // rom3_INSTANT_on (zxnext.vhd:2898-2899) rather than delayed — the
+    // alt-ROM clause is a property of the shared enable, not of one
+    // entry point, so it must hold for both timings.
+    {
+        DivMmc d = make_divmmc();
+        d.set_rom3_active(false);
+        d.check_automap(0x3D42, true, true, true, /*altrom_en_read=*/true,
+                        /*alt_128_n=*/true);
+        check("ALTROM-05",
+              "M1 at $3D42 with BB[7]=1, sram_pre_rom3=0 and the alt-48 "
+              "image read-mapped: rom3_instant_on fires "
+              "(VHDL zxnext.vhd:2898-2899 + :3138)",
+              d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+
+    // ALTROM-06: the alt-ROM clause does NOT bypass the rest of the
+    // composite. sram_pre_override(0)=0 (e.g. the slot at $0000 is
+    // RAM-mapped, or config_mode owns it — zxnext.vhd:3037/3044-3050)
+    // still shuts the ROM3 path.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_1(0xCD | 0x20);
+        d.set_rom3_active(false);
+        d.check_automap(0x056A, true, /*ov2=*/true, /*ov0=*/false, true, true);
+        d.check_automap(0x8000, true, true, false, true, true);
+        check("ALTROM-06",
+              "M1 at 0x056A with the alt-48 image read-mapped but "
+              "sram_pre_override(0)=0: the ROM3 path stays gated "
+              "(VHDL zxnext.vhd:3138 leading factors)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════

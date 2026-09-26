@@ -848,18 +848,26 @@ The machine type can also be switched at runtime from the GUI
 .SH SD CARD AND ROMS
 jnext takes its ROMs from an SD\-card image, exactly like real ZX
 Spectrum Next hardware.
-There are two parts to it:
+Where each one comes from:
 .IP \(bu 2
 \f[B]The FPGA boot ROM\f[R] (\f[CR]nextboot.rom\f[R], 8 KB) is
 \f[I]silicon\-baked\f[R]: embedded in the jnext binary at link time.
 No flag, no lookup; it mirrors the on\-FPGA flash IPL of the real
 machine.
 .IP \(bu 2
-\f[B]Everything else\f[R] \- 48K / 128K / +3 BASIC, NextZXOS, DivMMC
-firmware, Multiface firmware \- is read from the SD\-card image at the
-canonical TBBlue paths under \f[CR]/MACHINES/NEXT/\f[R]
-(\f[CR]48.rom\f[R], \f[CR]128.rom\f[R], \f[CR]plus3.rom\f[R],
-\f[CR]enNxtmmc.rom\f[R], \f[CR]enNextMf.rom\f[R]).
+\f[B]The ROMs jnext loads itself\f[R] \- 48K / 128K / +3 BASIC, DivMMC
+firmware, Multiface firmware and the Alt ROM \- are read from the
+SD\-card image at the canonical TBBlue paths under
+\f[CR]/MACHINES/NEXT/\f[R] (\f[CR]48.rom\f[R], \f[CR]128.rom\f[R],
+\f[CR]plus3.rom\f[R], \f[CR]enNxtmmc.rom\f[R], \f[CR]enNextMf.rom\f[R],
+\f[CR]enAltZX.rom\f[R]).
+That is the whole list of files jnext reads from the card itself.
+.IP \(bu 2
+\f[B]NextZXOS is not one of them.\f[R] It is loaded by the firmware, not
+by jnext: the machine boots \f[CR]/TBBLUE.FW\f[R] from the card through
+the emulated SD interface and that firmware streams
+\f[CR]/MACHINES/NEXT/enNextZX.rom\f[R] into memory itself, exactly as on
+real hardware.
 .PP
 So even a \f[B]\-\-machine\f[R] \f[CR]48k\f[R] run needs an SD\-card
 image: that is where \f[CR]48.rom\f[R] lives.

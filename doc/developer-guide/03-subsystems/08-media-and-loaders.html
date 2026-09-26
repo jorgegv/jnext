@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.41</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.43</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.41</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.43</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2644,7 +2644,8 @@ you notice that the two consumers want opposite things.</p>
 machine can start, jnext needs the ROM images that on real hardware live as
 files on the card, and there is no guest yet to ask for them — so the emulator
 opens the <code>.img</code> <em>as a filesystem</em> and pulls them out by path:
-<code>/MACHINES/NEXT/48.rom</code>, <code>enNxtmmc.rom</code>, <code>enNextMf.rom</code>. It is read-only,
+<code>/MACHINES/NEXT/48.rom</code>, <code>128.rom</code>, <code>plus3.rom</code>, <code>enNxtmmc.rom</code>,
+<code>enNextMf.rom</code> and <code>enAltZX.rom</code>. It is read-only,
 handles MBR + FAT32-LBA only, and does short-name lookup only, which is all
 that job needs.</p>
 <p><strong><code>src/peripheral/sd_card.cpp</code> is emulated hardware.</strong> Once the machine is

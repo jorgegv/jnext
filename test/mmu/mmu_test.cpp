@@ -2638,6 +2638,209 @@ void test_cat12_altrom() {
               v == 0xA5,
               fmt("NR 0x8C read=0x%02X expected=0xA5", v));
     }
+
+    // ── ALT-10..16 (GH #282) — the two accessors the DivMMC automap
+    // gate consumes ────────────────────────────────────────────────────
+    //
+    // `sram_alt_128_n()` and `sram_altrom_en_on_read()` are the alt-ROM
+    // terms of `sram_divmmc_automap_rom3_en` (zxnext.vhd:3138). Until
+    // GH #282 the first was private arithmetic inside altrom_sram_page_()
+    // and the second did not exist; making them public and load-bearing
+    // is what earns them their own rows. The DivMmc-side rows
+    // (ALTROM-01..06) feed the gate hand-picked booleans, so they prove
+    // the gate is right GIVEN correct inputs and nothing there proves the
+    // inputs are — these rows are that half.
+
+    // ALT-10 — the operative NextZXOS TAP-Loader state, both halves at
+    // once: NR 0x8C = 0xA0 on machine_type_p3 (altrom_en=1, altrom_rw=0,
+    // lock_rom1=1, lock_rom0=0).
+    //
+    // The `sram_rom3()==false` half is the DISCRIMINATING one and is the
+    // whole of GH #282: VHDL :2990 gives `lock_rom1 AND lock_rom0` = 0 on
+    // the p3 branch, where the else branch at :3000 would give
+    // `lock_rom1` = 1. No other row covers the p3 LOCK branch — ROM-12
+    // covers the p3 PORT formula at :2994, ROM-11 the else branch.
+    //
+    // The `sram_alt_128_n()==true` half is NOT branch-discriminating:
+    // :2991 (p3) and :3001 (else) both return lock_rom1 here, so this
+    // assertion would hold under either grouping and must not be read as
+    // proof of the machine-type branch. ALT-12 is the row that does
+    // discriminate a branch of that formula.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX_PLUS3);
+        f.mmu.set_config_mode(false);
+        f.mmu.map_128k_bank(0x00);                     // port_7ffd(4)=0
+        f.mmu.map_plus3_bank(0x00);                    // port_1ffd(2)=0
+        f.mmu.set_nr_8c(0xA0);                         // en=1 rw=0 lk1=1 lk0=0
+        const bool alt48  = f.mmu.sram_alt_128_n();
+        const bool rom3   = f.mmu.sram_rom3();
+        const bool en_rd  = f.mmu.sram_altrom_en_on_read();
+        check("ALT-10",
+              "+3 with NR 0x8C=0xA0: sram_alt_128_n=1 (the alt-48 image) "
+              "while sram_rom3=0 — the split that left the DivMMC tape "
+              "trap gated off (VHDL zxnext.vhd:2990-2991, 3078)",
+              alt48 && !rom3 && en_rd,
+              fmt("alt_128_n=%d (exp 1) sram_rom3=%d (exp 0) "
+                  "altrom_en_on_read=%d (exp 1)",
+                  static_cast<int>(alt48), static_cast<int>(rom3),
+                  static_cast<int>(en_rd)));
+    }
+
+    // ALT-11 — on the +3 lock branch, sram_alt_128_n follows lock_rom1
+    // and ignores lock_rom0 (VHDL :2991 `sram_alt_128_n <=
+    // nr_8c_altrom_lock_rom1`). Discriminative pair against the
+    // neighbouring sram_rom3 formula at :2990, which ANDs the two.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX_PLUS3);
+        f.mmu.map_128k_bank(0x00);
+        f.mmu.map_plus3_bank(0x00);
+        f.mmu.set_nr_8c(0xA0);                         // lk1=1 lk0=0
+        const bool lk1_only = f.mmu.sram_alt_128_n();
+        f.mmu.set_nr_8c(0x90);                         // lk1=0 lk0=1
+        const bool lk0_only = f.mmu.sram_alt_128_n();
+        f.mmu.set_nr_8c(0xB0);                         // lk1=1 lk0=1
+        const bool both     = f.mmu.sram_alt_128_n();
+        check("ALT-11",
+              "+3 altrom lock: sram_alt_128_n = lock_rom1 alone, NOT "
+              "lock_rom1 AND lock_rom0 — VHDL zxnext.vhd:2991",
+              lk1_only && !lk0_only && both,
+              fmt("lk1=%d (exp 1) lk0=%d (exp 0) both=%d (exp 1)",
+                  static_cast<int>(lk1_only), static_cast<int>(lk0_only),
+                  static_cast<int>(both)));
+    }
+
+    // ALT-12 — the 48K branch really is a different formula, and this
+    // row DOES discriminate the machine-type branch. VHDL :2986 is
+    // `sram_alt_128_n <= NOT((NOT lock_rom1) AND lock_rom0)`, which with
+    // no locks at all is hardwired 1; :2995/:3005 fall back to
+    // port_1ffd_rom(0) = port_7ffd(4), which is 0 here. Same inputs, two
+    // machine types, opposite answers.
+    {
+        Fixture f48;
+        f48.fresh();
+        f48.mmu.set_machine_type(MachineType::ZX48K);
+        f48.mmu.map_128k_bank(0x00);                   // port_7ffd(4)=0
+        f48.mmu.set_nr_8c(0x80);                       // en=1, no locks
+        const bool a48 = f48.mmu.sram_alt_128_n();
+        Fixture fp3;
+        fp3.fresh();
+        fp3.mmu.set_machine_type(MachineType::ZX_PLUS3);
+        fp3.mmu.map_128k_bank(0x00);
+        fp3.mmu.set_nr_8c(0x80);
+        const bool ap3 = fp3.mmu.sram_alt_128_n();
+        check("ALT-12",
+              "no altrom locks + port_7ffd(4)=0: 48K hardwires "
+              "sram_alt_128_n=1 while +3 falls back to port_7ffd(4)=0 "
+              "— VHDL zxnext.vhd:2986 vs :2995",
+              a48 && !ap3,
+              fmt("48K alt_128_n=%d (exp 1) / +3 alt_128_n=%d (exp 0)",
+                  static_cast<int>(a48), static_cast<int>(ap3)));
+    }
+
+    // ALT-13 — with no lock bits the +3 branch tracks port_1ffd_rom(0),
+    // i.e. port_7ffd bit 4 ("behave like a 128k machine", VHDL :2995).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX_PLUS3);
+        f.mmu.set_nr_8c(0x80);                         // en=1, no locks
+        f.mmu.map_128k_bank(0x00);                     // port_7ffd(4)=0
+        const bool a0 = f.mmu.sram_alt_128_n();
+        f.mmu.map_128k_bank(0x10);                     // port_7ffd(4)=1
+        const bool a1 = f.mmu.sram_alt_128_n();
+        check("ALT-13",
+              "+3 with no altrom lock: sram_alt_128_n follows port_7ffd "
+              "bit 4 — VHDL zxnext.vhd:2995",
+              !a0 && a1,
+              fmt("7FFD(4)=0 → alt_128_n=%d (exp 0) / 7FFD(4)=1 → "
+                  "alt_128_n=%d (exp 1)",
+                  static_cast<int>(a0), static_cast<int>(a1)));
+    }
+
+    // ALT-14 — sram_altrom_en_on_read() in BOTH directions of NR 0x8C
+    // bit 6. VHDL :3056 makes sram_pre_rdonly = NOT(altrom_en AND
+    // altrom_rw); :3078's fourth clause then disqualifies a READ cycle
+    // whenever rdonly='0'. So the altrom owns reads in "replace" mode
+    // (rw=0) and does NOT in "write-over" mode (rw=1) — the latter is
+    // how firmware patches the alt image while still executing the live
+    // ROM, and is the case ALTROM-04 pins on the DivMmc side.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(false);
+        f.mmu.set_nr_8c(0x80);                         // en=1, rw=0
+        const bool replace = f.mmu.sram_altrom_en_on_read();
+        f.mmu.set_nr_8c(0xC0);                         // en=1, rw=1
+        const bool writeover = f.mmu.sram_altrom_en_on_read();
+        f.mmu.set_nr_8c(0x00);                         // en=0
+        const bool off = f.mmu.sram_altrom_en_on_read();
+        check("ALT-14",
+              "sram_altrom_en on a read cycle: 1 when altrom_en=1 and "
+              "altrom_rw=0, 0 in write-over mode and 0 when disabled "
+              "— VHDL zxnext.vhd:3056, 3078",
+              replace && !writeover && !off,
+              fmt("en+rw=0 → %d (exp 1) / en+rw=1 → %d (exp 0) / "
+                  "en=0 → %d (exp 0)",
+                  static_cast<int>(replace), static_cast<int>(writeover),
+                  static_cast<int>(off)));
+    }
+
+    // ALT-15 — config_mode also clears it. VHDL's config-mode decode
+    // branch at :3044-3050 sets sram_pre_override "110", and :3078's
+    // FIRST clause kills sram_altrom_en whenever override(0)='0'.
+    //
+    // Honest scope note: at the production call site this term can never
+    // change the outcome, because DivMmc::check_automap ANDs
+    // sram_pre_override_0 (which is already 0 in config mode) into the
+    // same expression. The row pins the accessor's own contract, not a
+    // reachable behavioural difference — do not read it as proof that
+    // config mode is what shuts the gate.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_nr_8c(0x80);                         // en=1, rw=0
+        f.mmu.set_config_mode(false);
+        const bool normal = f.mmu.sram_altrom_en_on_read();
+        f.mmu.set_config_mode(true);
+        const bool in_cfg = f.mmu.sram_altrom_en_on_read();
+        check("ALT-15",
+              "config_mode clears sram_altrom_en (override(0)='0') "
+              "— VHDL zxnext.vhd:3044-3050, 3078 first clause",
+              normal && !in_cfg,
+              fmt("config_mode=0 → %d (exp 1) / config_mode=1 → %d (exp 0)",
+                  static_cast<int>(normal), static_cast<int>(in_cfg)));
+    }
+
+    // ALT-16 — sram_alt_128_n is the SAME signal the arbiter puts in the
+    // SRAM address (`sram_A21_A13 <= "0000011" & sram_pre_alt_128_n &
+    // …`, VHDL :3116-3117), so the accessor extracted in GH #282 and the
+    // address path must not be able to disagree. ALT-08 is this row's
+    // twin for alt_128_n=0 (SRAM page 12); this is the alt-48 side, in
+    // the exact NR 0x8C=0xA0 state of ALT-10, reading SRAM page 14.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX_PLUS3);
+        f.mmu.set_config_mode(false);
+        f.mmu.map_128k_bank(0x00);
+        f.mmu.map_plus3_bank(0x00);
+        uint8_t* p12 = f.ram.page_ptr(12);
+        uint8_t* p14 = f.ram.page_ptr(14);
+        if (p12) p12[0x0000] = 0x12;                   // alt-128 sentinel
+        if (p14) p14[0x0000] = 0x14;                   // alt-48  sentinel
+        f.mmu.set_nr_8c(0xA0);                         // en=1 rw=0 lk1=1
+        const uint8_t v = f.mmu.read(0x0000);
+        check("ALT-16",
+              "NR 0x8C=0xA0 on +3 routes a 0x0000 read to alt-ROM SRAM "
+              "page 14, not 12 — VHDL zxnext.vhd:2991, 3116-3117",
+              v == 0x14,
+              fmt("altrom-read(0x0000)=0x%02X expected=0x14 "
+                  "(0x12 would mean alt_128_n came out 0)", v));
+    }
 }
 
 // ── Category 13: Config mode (NR 0x03/0x04) ───────────────────────────

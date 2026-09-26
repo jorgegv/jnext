@@ -334,9 +334,15 @@ endif()
 
 if(ENABLE_DEBUGGER)
     add_subdirectory(src/debugger)
-    # The user guide's debugger screenshots, regenerated from the running
-    # product (`make docs-screenshots`). EXCLUDE_FROM_ALL inside — an ordinary
-    # build never compiles it.
+endif()
+
+# The user guide's Qt screenshots, regenerated from the running product
+# (`make docs-screenshots`). EXCLUDE_FROM_ALL inside — an ordinary build never
+# compiles it. It needs BOTH frontends: the debugger panels and, since GH #275,
+# the main window and the Preferences dialog, so it links jnext_debugger AND
+# jnext_gui. `make docs-screenshots` builds through `unit-test-build`, which
+# refuses to run unless build/ has both flags ON.
+if(ENABLE_DEBUGGER AND ENABLE_QT_UI)
     add_subdirectory(tools/docshot)
 endif()
 
