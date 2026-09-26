@@ -1238,8 +1238,9 @@ int main()
                 }
                 std::remove(path.c_str());
             }
-            check("EB-46", "a jnext recording boots the machine it was made on (all four, "
-                           "from each configured machine)", ok, "wrong for:" + why);
+            check("EB-46", "a jnext recording boots the machine it was made on (each of "
+                           "the three a recording can be MADE on, from each of the four a "
+                           "boot can be configured as)", ok, "wrong for:" + why);
         }
 
         // EB-47: a foreign recording is judged by its embedded snapshot.
