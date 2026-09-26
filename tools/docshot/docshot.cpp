@@ -622,7 +622,7 @@ void capture_gui_shots(Emulator& emu, const Options& opt) {
 
 void usage() {
     std::printf(
-        "docshot — regenerate the user guide's debugger screenshots\n"
+        "docshot — regenerate the user guide's Qt screenshots\n"
         "\n"
         "Usage: docshot [--out DIR] [--sdcard IMAGE] [NAME ...]\n"
         "\n"
