@@ -597,9 +597,8 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     the boundary that follows it. That pause never refuses the capture;
     the saved machine is then up to one frame past the point the
     debugger stopped at. A format that cannot represent the current
-    machine *is* refused: `.sna` and `.szx` describe a 48K/128K/+3
-    Spectrum, so asking for either on a Next writes nothing, says why,
-    and exits non-zero (see [5.9
+    machine *is* refused — it writes nothing, says why, and exits
+    non-zero (see [5.9
     Snapshots](../05-running-programs/09-snapshots.md)).
 
 **--delayed-snapshot-frames** *N*

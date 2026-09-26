@@ -1573,6 +1573,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Which format to use">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-each-format-can-describe-and-when-jnext-refuses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What each format can describe, and when JNEXT refuses
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3010,8 +3027,8 @@
 </tr>
 <tr>
 <td><code>.szx</code></td>
-<td>ZX-State: richer than <code>.sna</code>, still classic-only (48K/128K/+2A/+3).</td>
-<td>Same, with more fidelity — it carries all eight RAM banks.</td>
+<td>ZX-State: richer than <code>.sna</code> — it names the machine and carries the +3's own paging register.</td>
+<td>Same, when <code>.sna</code> cannot describe the machine (see below).</td>
 </tr>
 <tr>
 <td><code>.nex</code></td>
@@ -3020,17 +3037,65 @@
 </tr>
 </tbody>
 </table>
-<p><code>.sna</code> and <code>.szx</code> describe a machine the Next is not: no Layer 2, no sprites,
-no tilemap, no Copper, no DivMMC, 128 KB of RAM where a Next has 768 KB or
-more. That is why <code>.jns</code> exists — and <strong>on a Next both of them are refused</strong>,
-each with an error naming the machines it can describe and pointing you at
-<code>.jns</code>, rather than writing a file that misrepresents the machine you have. Ask
-for either on a 48K, 128K or +3 and you get it.</p>
-<p>One thing to know about the <code>.sna</code> you do get: JNEXT only ever writes the <strong>48K
-form</strong> of SNA, so on a 128K or a +3 it holds the 64 KB the CPU can see at that
-instant — the other five banks and the paging are not in it. <code>.szx</code> carries all
-eight banks on those two machines, which is the extra fidelity the table above
-means.</p>
+<h3 id="what-each-format-can-describe-and-when-jnext-refuses">What each format can describe, and when JNEXT refuses<a class="headerlink" href="#what-each-format-can-describe-and-when-jnext-refuses" title="Permanent link">&para;</a></h3>
+<p>A snapshot that cannot describe the machine in front of it is <strong>refused</strong>, with
+an error saying why and which format to use instead. JNEXT never writes a file
+that quietly misrepresents your machine.</p>
+<table>
+<thead>
+<tr>
+<th>Machine</th>
+<th><code>.sna</code></th>
+<th><code>.szx</code></th>
+<th><code>.jns</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>48K</td>
+<td>48K form, exact</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>128K</td>
+<td>128K form: all eight banks, the paging register</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>+3, ordinary paging</td>
+<td>128K form</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>+3, special paging or ROM 2/3 paged</td>
+<td><strong>refused</strong> — use <code>.szx</code></td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>Next</td>
+<td><strong>refused</strong> — use <code>.jns</code></td>
+<td><strong>refused</strong> — use <code>.jns</code></td>
+<td>yes</td>
+</tr>
+</tbody>
+</table>
+<p><code>.sna</code> and <code>.szx</code> describe a machine the Next is not: no Layer 2, no sprites, no
+tilemap, no Copper, no DivMMC, 128 KB of RAM where a Next has 768 KB or more.
+That is why <code>.jns</code> exists.</p>
+<p>The +3 row is the subtle one. An SNA has no byte for the +3's second paging
+register, so two +3 states cannot be written at all: <strong>special paging</strong>, where
+four RAM banks replace the whole address space including the ROM, and <strong>ROM 2 or
+ROM 3 paged</strong>, which an SNA would bring back running a different ROM. <code>.szx</code> has
+a field for that register, so it can hold both. An ordinary +3 — which is most
+of the time — saves as a 128K SNA.</p>
+<p>One property of <code>.sna</code> worth knowing when you hand the file to another emulator:
+the format carries no machine identifier, only a TR-DOS flag. FUSE reads a 128K
+SNA as a <em>Pentagon</em> 128 — the right RAM and paging, a different timing model.
+<code>.szx</code> names the machine, so use that if the timing matters.</p>
 <h2 id="saving">Saving<a class="headerlink" href="#saving" title="Permanent link">&para;</a></h2>
 <p><strong>File ▸ Save Snapshot…</strong> (Alt+Shift+S), or headless:</p>
 <pre><code>jnext --headless --load game.nex \
@@ -3038,10 +3103,9 @@ means.</p>
 </code></pre>
 <p>On a Next the file dialog offers <code>.jns</code> first and adds <code>.jns</code> if you type a
 name with no extension; on a 48K, 128K or +3 it offers <code>.sna</code> first and adds
-that. Type any of the four extensions and you get that format — except <code>.sna</code>
-or <code>.szx</code> on a Next, which are refused as above: the dialog says why, and
-headless says why and exits non-zero rather than leaving you a file you would
-have trusted.</p>
+that. Type any of the four extensions and you get that format, unless the table
+above says it is refused: the dialog then says why, and headless says why and
+exits non-zero rather than leaving you a file you would have trusted.</p>
 <p>A snapshot is only ever taken at a <strong>frame boundary</strong>. If the debugger has
 stopped the machine part-way through a frame — which is exactly when you reach
 for this menu item — JNEXT finishes that frame first and saves from the

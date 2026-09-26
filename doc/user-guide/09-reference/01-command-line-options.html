@@ -3494,9 +3494,8 @@ frame in flight is completed first and the snapshot is written from
 the boundary that follows it. That pause never refuses the capture;
 the saved machine is then up to one frame past the point the
 debugger stopped at. A format that cannot represent the current
-machine <em>is</em> refused: <code>.sna</code> and <code>.szx</code> describe a 48K/128K/+3
-Spectrum, so asking for either on a Next writes nothing, says why,
-and exits non-zero (see <a href="../05-running-programs/09-snapshots.html">5.9
+machine <em>is</em> refused — it writes nothing, says why, and exits
+non-zero (see <a href="../05-running-programs/09-snapshots.html">5.9
 Snapshots</a>).</dd>
 <dt><strong>--delayed-snapshot-frames</strong> <em>N</em></dt>
 <dd>Delay in frames for <strong>--delayed-snapshot</strong> (default 0). Requires

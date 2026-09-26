@@ -20,7 +20,7 @@ the guest's own driver talks to. Both are called out below.
 | Format | In | Out | Where | Notes |
 |---|---|---|---|---|
 | `.nex` | yes | yes | `nex_loader.*`, `nex_saver.*` | Next-native. V1.0–V1.3 (V1.3 gated, see below) |
-| `.sna` | yes | yes | `sna_loader.*`, `sna_saver.*` | Reads 48K and 128K; writes 48K only; refuses Next |
+| `.sna` | yes | yes | `sna_loader.*`, `sna_saver.*` | Reads and writes both forms; the form follows the machine; refuses a Next, and a +3 the format cannot describe |
 | `.szx` | yes | yes | `szx_loader.*`, `szx_saver.*` | Writes only 48K/128K/+3; refuses Next |
 | `.z80` | yes | — | `z80_loader.*` | v1/v2/v3, 48K and 128K |
 | `.tap` | yes | yes | `tap_loader.*`, `tap_saver.*` | Save is a ROM `SA-BYTES` trap |
@@ -578,7 +578,9 @@ as its 48K part does. That is the *unchecked* entry point deliberately —
 GUI, refuses a Next outright (GH #274), because a `.sna` FILE of a Next is a
 file that lies about its machine. An RZX does not: it names the machine in its
 own creator block, so playback rebuilds the Next and the embedded snapshot only
-has to restore the 64 KB the CPU saw.
+has to restore the 64 KB the CPU saw. The 128K/+3 arm is unchanged by GH #274
+and stays SZX: an SNA now carries those machines' RAM fully, but not the +3's
+second paging register, and `SzxSaver` already covers both.
 A command-line recording starts once the `--load`/`--inject` is in the
 machine (`emulator_start_rzx_record_when_loaded()`), so that snapshot is the
 loaded program. The tape ROM traps stand down while RZX records or plays —

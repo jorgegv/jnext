@@ -672,10 +672,9 @@ breakpoint, say \(em the frame in flight is completed first and the
 snapshot is written from the boundary that follows it.
 That pause never refuses the capture; the saved machine is then up to
 one frame past the point the debugger stopped at.
-A format that cannot represent the current machine \f[I]is\f[R] refused:
-\f[CR].sna\f[R] and \f[CR].szx\f[R] describe a 48K/128K/+3 Spectrum, so
-asking for either on a Next writes nothing, says why, and exits
-non\-zero (see \f[B]JNEXT SNAPSHOTS\f[R]).
+A format that cannot represent the current machine \f[I]is\f[R] refused
+\(em it writes nothing, says why, and exits non\-zero (see \f[B]JNEXT
+SNAPSHOTS\f[R]).
 .TP
 \f[B]\-\-delayed\-snapshot\-frames\f[R] \f[I]N\f[R]
 Delay in frames for \f[B]\-\-delayed\-snapshot\f[R] (default 0).
@@ -1097,6 +1096,17 @@ A \f[CR].jns\f[R] file is jnext\(cqs own whole\-machine snapshot, and
 the only format that can represent a ZX Spectrum Next: \f[CR].sna\f[R]
 and \f[CR].szx\f[R] describe a 48K/128K/+3 machine, which a Next is not,
 so asking for either on a Next is refused rather than written lossily.
+.PP
+The other formats are written for the machines they can describe, and
+refused for the states they cannot.
+A \f[CR].sna\f[R] follows the machine: a 48K gets the 48K form (49179
+bytes), a 128K and an ordinary +3 get the 128K form (all eight RAM banks
+and the 0xC000 paging register).
+An SNA has no byte for the +3\(cqs second paging register, so a +3 in
+\f[I]special paging\f[R], or with ROM 2 or ROM 3 paged, is refused with
+\f[CR].szx\f[R] named as the format that can hold it.
+An SNA also carries no machine identifier, so FUSE reads a 128K one as a
+Pentagon 128 \(em the right RAM and paging, a different timing model.
 .PP
 Write one with \f[B]File > Save Snapshot\&...\f[R] (Alt+Shift+S), or
 headless with \f[B]\-\-delayed\-snapshot\f[R] naming a \f[CR].jns\f[R]

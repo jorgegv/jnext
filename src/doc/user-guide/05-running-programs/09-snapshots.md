@@ -10,21 +10,38 @@ JNEXT writes four, and the extension picks one:
 |---|---|---|
 | `.jns` | **JNEXT's own snapshot.** The only one that can represent a ZX Spectrum Next. | You are on a Next — which is JNEXT's default machine. |
 | `.sna` | The classic 48K/128K snapshot every Spectrum emulator reads. | You are on a 48K, 128K or +3 and want to hand the file to another emulator. |
-| `.szx` | ZX-State: richer than `.sna`, still classic-only (48K/128K/+2A/+3). | Same, with more fidelity — it carries all eight RAM banks. |
+| `.szx` | ZX-State: richer than `.sna` — it names the machine and carries the +3's own paging register. | Same, when `.sna` cannot describe the machine (see below). |
 | `.nex` | Not a snapshot — a *program* file the Next's own loader runs. | You are producing something to run on real hardware. |
 
-`.sna` and `.szx` describe a machine the Next is not: no Layer 2, no sprites,
-no tilemap, no Copper, no DivMMC, 128 KB of RAM where a Next has 768 KB or
-more. That is why `.jns` exists — and **on a Next both of them are refused**,
-each with an error naming the machines it can describe and pointing you at
-`.jns`, rather than writing a file that misrepresents the machine you have. Ask
-for either on a 48K, 128K or +3 and you get it.
+### What each format can describe, and when JNEXT refuses
 
-One thing to know about the `.sna` you do get: JNEXT only ever writes the **48K
-form** of SNA, so on a 128K or a +3 it holds the 64 KB the CPU can see at that
-instant — the other five banks and the paging are not in it. `.szx` carries all
-eight banks on those two machines, which is the extra fidelity the table above
-means.
+A snapshot that cannot describe the machine in front of it is **refused**, with
+an error saying why and which format to use instead. JNEXT never writes a file
+that quietly misrepresents your machine.
+
+| Machine | `.sna` | `.szx` | `.jns` |
+|---|---|---|---|
+| 48K | 48K form, exact | yes | yes |
+| 128K | 128K form: all eight banks, the paging register | yes | yes |
+| +3, ordinary paging | 128K form | yes | yes |
+| +3, special paging or ROM 2/3 paged | **refused** — use `.szx` | yes | yes |
+| Next | **refused** — use `.jns` | **refused** — use `.jns` | yes |
+
+`.sna` and `.szx` describe a machine the Next is not: no Layer 2, no sprites, no
+tilemap, no Copper, no DivMMC, 128 KB of RAM where a Next has 768 KB or more.
+That is why `.jns` exists.
+
+The +3 row is the subtle one. An SNA has no byte for the +3's second paging
+register, so two +3 states cannot be written at all: **special paging**, where
+four RAM banks replace the whole address space including the ROM, and **ROM 2 or
+ROM 3 paged**, which an SNA would bring back running a different ROM. `.szx` has
+a field for that register, so it can hold both. An ordinary +3 — which is most
+of the time — saves as a 128K SNA.
+
+One property of `.sna` worth knowing when you hand the file to another emulator:
+the format carries no machine identifier, only a TR-DOS flag. FUSE reads a 128K
+SNA as a *Pentagon* 128 — the right RAM and paging, a different timing model.
+`.szx` names the machine, so use that if the timing matters.
 
 ## Saving
 
@@ -37,10 +54,9 @@ jnext --headless --load game.nex \
 
 On a Next the file dialog offers `.jns` first and adds `.jns` if you type a
 name with no extension; on a 48K, 128K or +3 it offers `.sna` first and adds
-that. Type any of the four extensions and you get that format — except `.sna`
-or `.szx` on a Next, which are refused as above: the dialog says why, and
-headless says why and exits non-zero rather than leaving you a file you would
-have trusted.
+that. Type any of the four extensions and you get that format, unless the table
+above says it is refused: the dialog then says why, and headless says why and
+exits non-zero rather than leaving you a file you would have trusted.
 
 A snapshot is only ever taken at a **frame boundary**. If the debugger has
 stopped the machine part-way through a frame — which is exactly when you reach

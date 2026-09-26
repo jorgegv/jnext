@@ -1898,7 +1898,7 @@ the guest's own driver talks to. Both are called out below.</p>
 <td>yes</td>
 <td>yes</td>
 <td><code>sna_loader.*</code>, <code>sna_saver.*</code></td>
-<td>Reads 48K and 128K; writes 48K only; refuses Next</td>
+<td>Reads and writes both forms; the form follows the machine; refuses a Next, and a +3 the format cannot describe</td>
 </tr>
 <tr>
 <td><code>.szx</code></td>
@@ -2497,7 +2497,9 @@ as its 48K part does. That is the <em>unchecked</em> entry point deliberately â€
 GUI, refuses a Next outright (GH #274), because a <code>.sna</code> FILE of a Next is a
 file that lies about its machine. An RZX does not: it names the machine in its
 own creator block, so playback rebuilds the Next and the embedded snapshot only
-has to restore the 64 KB the CPU saw.
+has to restore the 64 KB the CPU saw. The 128K/+3 arm is unchanged by GH #274
+and stays SZX: an SNA now carries those machines' RAM fully, but not the +3's
+second paging register, and <code>SzxSaver</code> already covers both.
 A command-line recording starts once the <code>--load</code>/<code>--inject</code> is in the
 machine (<code>emulator_start_rzx_record_when_loaded()</code>), so that snapshot is the
 loaded program. The tape ROM traps stand down while RZX records or plays â€”
