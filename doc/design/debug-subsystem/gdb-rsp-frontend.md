@@ -1,0 +1,733 @@
+# GDB Remote Serial Protocol frontend — design (GH #281)
+
+> Status: **v1 — mapped against `backend.md` v1** (epic #276, gate #277).
+> Owner of this file: the RSP frontend design agent. Backend capability IDs
+> (`CAP-*`) are those of [`backend.md`](backend.md); every served packet names
+> the CAP it is served by, and nothing here reaches around the backend.
+>
+> **Revision log**
+> - v1 (2026-09-26): client measured (two versions), packet table, target.xml
+>   verified against the real `z88dk-gdb` binary, REQ ledger closed (15/15
+>   ACCEPTED), shared transport model proposed to DZRP/ZRCP.
+> - v1.1 (2026-09-26 night): re-mapped against `backend.md` **v3** — no CAP
+>   this adapter uses changed shape (21/24/0 stands). Adopted from v3: the
+>   `watch:` address comes from `Paused.matched[] : Hit{event_id, addr,
+>   access, value}` (§5.3); `clockl/clockh` from `Time.tstates_total`;
+>   `pump(PumpBudget)` runs *after* the tick's frame batch and drains while
+>   paused (§6.2); CAP-SES-04: under `--headless` a Stop **pauses and
+>   notifies** while a remote client is connected instead of exiting
+>   non-zero, so the §7.2 regression row's `break _main` + `cont` genuinely
+>   stops the machine for the client.
+
+Every claim carries a `file:line` citation or a captured transcript. Paths:
+`z88dk/…` = `/home/jorgegv/src/spectrum/z88dk` (checkout at v2.4, HEAD
+`4d530b6eb7` 2025-10-01; `src/ticks/debugger_gdb.c` last changed 2025-03-08);
+`up/…` = the **upstream master** copy of the same files fetched 2026-09-26 from
+`raw.githubusercontent.com/z88dk/z88dk/master/src/ticks/` (1716 lines vs 1381
+local — the client has moved since v2.4, and both versions are targeted);
+`src/…` = jnext `main @ 974b0ab19`. Transcripts are in §7 and were produced by
+running the **real** `z88dk/bin/z88dk-gdb` against a Python stub that serves
+exactly the packets and XML this design proposes.
+
+---
+
+## 0. Premise, re-verified
+
+1. **A distro gdb cannot debug Z80.** `gdb -batch -ex 'set architecture z80'`
+   on this host (GNU gdb Fedora 17.2-2.fc44) prints `Undefined item: "z80".`
+   [transcript, 2026-09-26].
+2. **The client is `z88dk-gdb`.** `--version` prints `GNU gdb (GDB) 11.0` then
+   `The line above is fake, we're pretending to be a gdb here.`
+   [`z88dk/src/ticks/debugger_gdb.c:1294-1297`; binary run]. Usage:
+   `z88dk-gdb -h <host> -p <port> -x <debug symbols> [-x …] [-v]`
+   [`:1343`]; upstream adds `-d <device>` (serial) [`up/debugger_gdb.c:1592`],
+   which does not concern a socket server.
+3. **The server supplies the target description.** The client refuses the
+   connection unless `qSupported` contains `qXfer:features:read+`
+   [`debugger_gdb.c:982-987`], then reads `target.xml` and derives the
+   register packing from it [`:1011-1069`]. That is why the missing distro
+   support is irrelevant: the Z80 register model lives in this adapter.
+4. **RSP's worldview stays here.** Flat 64 K address space, one thread, fixed
+   16-bit register packing, hex-text framing — all are adapter concerns. The
+   backend (`backend.md` §4) has `MemSpace{Cpu, Page, Rom}`, a struct of
+   registers and typed events; this adapter projects those onto RSP and
+   declines what RSP cannot carry (§2).
+5. **Honest subset.** Every packet not in the served set gets the empty reply
+   `$#00`, which RSP defines as "unsupported" [gdb manual, Overview: "the
+   empty response is used to indicate that a packet is not supported"]. Nothing
+   is silently accepted.
+6. **The wiki list.** The client itself points at
+   `https://github.com/z88dk/z88dk/wiki/Tool-z88dk-gdb` [`:1338-1339`]; the
+   raw wiki page (fetched 2026-09-26) currently names no servers, only "MAME,
+   FUSE, …" in a methodology table and "see project issues/docs for current
+   list". Getting jnext onto that page is an upstream documentation PR after
+   #281 ships — noted in §9 as a work package, not a design item.
+
+---
+
+## 1. The client, measured
+
+### 1.1 Everything `z88dk-gdb` ever sends
+
+Derived by grepping every `send_request`, `send_request_no_response`,
+`schedule_write_packet` and `schedule_write_raw` call in both versions. The
+set is identical in v2.4 and upstream except for `qRcmd` (upstream only).
+
+| Packet | Sent by | When | Cite (v2.4 / upstream) |
+|---|---|---|---|
+| `qSupported` (bare, **no** client feature list) | `connect_to_gdbserver` | first packet after TCP connect | `:982` / `up:1078` |
+| `qXfer:features:read:target.xml:0,3fff` | same | immediately after; one read, expects the whole document in one `l` reply | `:1011-1012` / `up:1107` |
+| `?` | same | last step of connect, **no response awaited** — comment says "this should break us" | `:1108-1109` / `up:1207` |
+| `g` | `fetch_registers` | on every prompt, after every stop (`registers_invalidated = 1` each main-loop pass) | `:227`, `:1358` |
+| `G<hex>` | `set_regs` | `set <reg> <val>`, `restore_pc`; **every register the client does not know is sent as 0000** (`rr[32] = {0}`, `default: continue`) | `:420`, `:483-487` |
+| `m<addr>,<len>` | `get_memory` | 32-byte chunks (`MEM_FETCH_SIZE`), `addr` rounded down by 4, clipped at 0x10000 | `:363-408` |
+| `M<addr>,<len>:<hex>` | `debugger_restore` | `restore`/`restore_pc`, chunk = `(PacketSize-16)/2` bytes | `:670-732` |
+| `Z0,<addr>,1` / `z0,<addr>,1` | `gdb_add/remove_breakpoint` | `break <addr>` / `delete`; also `finish` (Z0 at return address, `external=1`); **`z0` is sent for client-side-only breakpoints too** (`delete_all_breakpoints` on quit) | `:554-601`, `:1634`, `breakpoints.c:97-99` |
+| `s` | `debugger_step` / `debugger_next` | `stepi`, `step`, and `nexti` on a non-call | `:654`, `:666` |
+| `i<len>` (**decimal**, non-standard) | `debugger_next` | `nexti`/`next` when the opcode at PC is `CD`/`C4`/`CC`/`D4`/`DC`/`E4`/`EC`/`F4` **or the prefix `ED` or `CB`**; `len` = instruction length computed by the client's own disassembler | `:618-651` |
+| `c` | `debugger_resume` | `cont`, `finish`; no response awaited | `:548-552` |
+| raw byte `0x03` (not a packet) | `debugger_gdb_break` | Ctrl-C at the prompt while running; also sent as a *temporary* break when the client wants to add/remove a breakpoint while running (`BREAKPOINT_ERROR_RUNNING` → `bk.break_(1)`) | `:524-539`, `breakpoints.c:46-49`, `:73-77` |
+| `D` | `debugger_detach` | `quit`; a response **is** awaited | `:541-546` |
+| `qRcmd,<hex>` | `send_monitor_command` | `monitor <text>` — **upstream only** | `up:206-278`, `up/debugger.c:188` |
+
+**Never sent** (verified by absence in both files): `Z1`–`Z4`/`z1`–`z4` (the
+client's own `switch` refuses `BK_BREAKPOINT_HARDWARE`=1 and
+`BK_BREAKPOINT_REGISTER`=2 — and `BK_BREAKPOINT_WATCHPOINT` is *also* 2
+[`breakpoints.h:9-12`], so `break memory8/16` never reaches the wire and is
+evaluated client-side at each stop [`debugger.c:648-658`]), `p`/`P`, `X`, `H`,
+`qC`, `qAttached`, `vCont`/`vCont?`, `k`, `QStartNoAckMode`, `bc`/`bs`,
+`qOffsets`, `qSymbol`, `T<tid>`, `vCtrlC`. `out <port> <val>` is a client-side
+no-op over gdb [`:520`].
+
+### 1.2 What the client requires of replies
+
+- **Framing.** `$data#xx`, checksum = sum mod 256 of `data` [`:839-844`];
+  a bad checksum drops the packet silently [`:844-851`]. The client **never
+  sends `+`/`-` acks** (`write_packet` frames only [`debugger_gdb_packets.c:174-187`])
+  but **tolerates** receiving `+` (erased [`debugger_gdb.c:819-825`]). It
+  never retransmits. ⇒ the server sends `+` per RSP (harmless, keeps a
+  generic client working) and never waits for one.
+- **Response routing is positional.** After a `send_request`, the *next*
+  well-formed packet is taken as the response, whatever it is
+  [`:857-866`]. Consequence: the server must emit a stop reply **only** as the
+  reply to `c`/`s`/`i`/`?`/`0x03`, never spontaneously while the client may be
+  mid-request. §5.4 and §6.3 keep that invariant.
+- **Stop replies must start with `T`.** The only unsolicited packet dispatched
+  is `case 'T'` [`:873-881`]; `S05` would be ignored and the client would sit
+  forever after `?`. Upstream additionally parses the two characters after
+  `T` with `strtol(…, 10)` [`up` `process_packet`], so the signal must be two
+  decimal-looking digits: `T05` is read as 5 in both versions. The `n:r` pairs
+  are ignored by both.
+- **`qSupported` parsing.** `PacketSize=%d` via `sscanf` — **decimal**
+  [`:995-1006`]. GDB proper parses the same field as hex (`remote.c`,
+  `strtol(…, 16)` — from GDB source knowledge, not re-verified on this host).
+  `PacketSize=4000` reads as 4000 to z88dk-gdb and 16384 to gdb; both are
+  within the server's 16 KiB receive buffer (§6.1). The client also looks for
+  the substring `NonBreakable` and, if present, disables Ctrl-C
+  [`:989-992`] — we do not send it.
+- **Response size limit (v2.4): 1023 bytes.** `char recv_data[1024];
+  strcpy(recv_data, &inbuf[1])` [`:853-854`] and `request_response[1024]`
+  [`:56`]. A 1094-byte `target.xml` reply **segfaults the v2.4 client**
+  (reproduced, §7.1). Upstream raised both to `PACKET_BUF_SIZE` (16 KiB)
+  [`up:64`, `up` `process_packet`]. ⇒ `target.xml` must be ≤ 1022 bytes on the
+  wire, and `m` replies are naturally 64 hex chars.
+- **`target.xml` parsing** (sxmlc): root must be `target`; `target/architecture`
+  text must equal `z80` [`:1028-1038`]; registers are collected from
+  `target/feature[@name='*z80*']/reg` — the **feature name must contain
+  "z80"** [`:1044`]; only the `name` attribute is read [`:1049`]; every reg is
+  assumed **16-bit** (`register_mappings_count * 4` hex chars, `uint16_t
+  rr[32]`) [`:228-235`]; recognised names: `af bc de hl af' bc' de' hl' ix iy
+  sp pc clockl clockh` [`:95-115`]; unknown names occupy a slot and are
+  ignored on read [`:314-318`]; `pc` and `sp` missing → "Insufficient register
+  information" (warning only) [`:1098-1100`]; `clockl` present →
+  `has_clock_register`, used by the profiler as `(clockh<<16)|clockl`
+  [`:1152-1161`]. Maximum 32 registers (`register_mappings[32]`) [`:117`].
+- **Byte order.** `hex2mem` into a `uint16_t[]` on the host [`:235`], so each
+  register is two bytes **little-endian** in `g`/`G` (target byte order per
+  RSP, and the Z80 is little-endian; the `__BIG_ENDIAN__` branches swap for a
+  big-endian host).
+- **`qRcmd` (upstream).** Reply parsing is non-standard: `OK` = no output,
+  `OK<hex>` = output, `E<hex>` = error, anything else printed raw
+  [`up:231-269`]. **But** upstream also handles standard `O<hex>` console
+  packets by decoding and printing them [`up` `process_packet` `case 'O'`],
+  and `OK` alone is taken as the response. ⇒ the server replies to `qRcmd`
+  with zero or more `O<hex>` packets followed by `OK` — the **standard** form
+  (gdb manual, General Query Packets: "`O output` … may be repeated") — which
+  upstream prints correctly and a real gdb would too. Errors are `E01` (no
+  text — z88dk would try to hex-decode the text and, for odd lengths, print
+  garbage).
+- **`-x` symbol file** is a z80asm/zcc **`.map`** (`read_symbol_file`
+  [`z88dk/src/ticks/syms.c:90-`] parses `name = $addr ; …` lines; sections from
+  `__*_head/_size`). Produced by adding `-m` to the `zcc` line (verified:
+  `demo/magic_bp_demo` + `-m` → 5353-line `mbp.map` with `_main = $816A`,
+  §7.3). The client resolves `break _main` itself and sends `Z0,816a,1`; the
+  server never sees a symbol. (`debugger_read_symbol_file` [`debugger.c:300-330`]
+  additionally uploads a sibling `.bin` via `M` on connect, but only for a map
+  given as a *positional* argument in `--interpreter=mi2` mode [`:1304`,
+  `:1322-1326`]; the `-x` path does not.)
+
+### 1.3 Two client versions, one server
+
+| Difference | v2.4 (this host) | upstream master | Server policy |
+|---|---|---|---|
+| Max reply size | 1023 B | 16 KiB | ≤ 1022 B `target.xml`; chunk nothing else beyond 64 hex |
+| `monitor` | absent | `qRcmd` | serve `qRcmd` (§4.3) |
+| `T` signal parse | ignored | decimal 2 chars | always `T05` |
+| `O` packets | would be taken as a response | printed | emit `O` only inside a `qRcmd` exchange (§4.3) |
+| Serial `-d` | — | yes | out of scope (socket only) |
+
+---
+
+## 2. Packet table
+
+Classes: **S** served (mapped to a CAP), **D** declined by design (RSP can
+express it, jnext deliberately does not serve it — reply is still an honest
+empty/`E` reply), **U** unsupported (empty reply `$#00`). "Generic minimum" is
+what the gdb manual calls the minimum a stub must support (`?`, `g`, `G`,
+`m`, `M`) plus the handful a stock gdb sends at connect; served so that a
+self-built gdb with the z80 target (`--enable-targets=all`) is not rejected
+at the door — **not validated**, see §7.4.
+
+| # | Packet | Class | Reply | Backend CAP | Notes |
+|---|---|---|---|---|---|
+| 1 | `qSupported[:…]` | S | `PacketSize=4000;qXfer:features:read+;swbreak+;hwbreak+` | — | Decimal-digits-only size (§1.2). No `QStartNoAckMode`, no `vContSupported`, no `ConditionalBreakpoints` (conditions declined), no `multiprocess`. |
+| 2 | `qXfer:features:read:target.xml:<off>,<len>` | S | `l<xml>` (or `m…` if `<len>` < remaining) | — | The document of §3, ≤ 1022 B. Any other annex → `E00`. |
+| 3 | `?` | S | `T05thread:1;` after the machine is paused | CAP-CTL-01, CAP-CTL-13 | If running: `pause()` then reply once the `Paused` edge is observed (§5.4). If already paused: reply immediately. |
+| 4 | `g` | S | 14 × 4 hex, order of §3 | CAP-INS-01, CAP-INS-07 | Refused with `E01` if the machine is running (§6.3 policy pauses first, so in practice never). |
+| 5 | `G<56 hex>` | S | `OK` | CAP-INS-01 `set_register` × 12 | Applies the 12 pairs only; `clockl/clockh` ignored (the client sends them as 0 — transcript §7.2). Wrong length → `E01`. |
+| 6 | `p<n>` / `P<n>=<hex>` | S (generic) | 4 hex / `OK` | CAP-INS-01 | `n` in the §3 numbering; 12/13 (`clock*`) read-only → `P` replies `E01`. Out of range → `E01`. z88dk-gdb never sends these. |
+| 7 | `m<addr>,<len>` | S | `<len>` × 2 hex | CAP-INS-02 `peek(Cpu)` | Logical CPU view (§4.1). `addr+len > 0x10000` → clipped to 0x10000 (the client never asks past it, `:384-386`). `len` > 4096 → `E01`. |
+| 8 | `M<addr>,<len>:<hex>` | S | `OK` / `E01` | CAP-INS-02 `poke(Cpu)` | `E01` if any byte lands on a read-only page (backend returns `RefusedReadOnly`, REQ-gdb-6). |
+| 9 | `X<addr>,<len>:<bin>` | S (generic) | `OK` / `E01` | CAP-INS-02 `poke(Cpu)` | Binary with `}` escaping; same rules as `M`. |
+| 10 | `Z0,<addr>,<kind>` / `z0,…` | S | `OK` | CAP-EVT `Execute[addr,addr]`, `Stop`, owner = this client | `kind` ignored (Z80 has no breakpoint-instruction size). **`z0` of an unknown address replies `OK`** — the client sends `z0` for breakpoints it never registered (§7.2). Duplicate `Z0` at the same address is idempotent (`OK`, one subscription). |
+| 11 | `Z1,…` / `z1,…` | S | `OK` | same as `Z0` | jnext has no distinction; RSP allows serving Z0 as Z1. Stop reason field: `hwbreak:;` is *not* emitted (see #17). |
+| 12 | `Z2,<addr>,<len>` / `z2` | S | `OK` | CAP-EVT `MemWrite[addr, addr+len-1]` | Write watch; `len` ≥ 1. |
+| 13 | `Z3,<addr>,<len>` / `z3` | S | `OK` | CAP-EVT `MemRead[…]` | Read watch. |
+| 14 | `Z4,<addr>,<len>` / `z4` | S | `OK` | CAP-EVT `MemRead` + `MemWrite`, one RSP id → two subscriptions | Access watch. |
+| 15 | `c` (no addr) | S | stop reply, later | CAP-CTL-02 | `c <addr>` → `P` semantics first (`set_register(PC)`) then run. A resume refused by the corruption gate (CAP-CTL-11) replies `E01` immediately and stays paused. |
+| 16 | `s` (no addr) | S | `T05thread:1;` | CAP-CTL-03 | Synchronous in the backend; reply in the same `pump`. |
+| 17 | `i<decimal-len>` | S (non-standard) | stop reply, later | CAP-CTL-06 `run_to(pc+len)` | RSP's `i` means "cycle step"; z88dk-gdb means "run to PC+len" (§1.1). Served as z88dk defines it. `i` with no number, or `i<addr>,<n>` → `E01` (we do not cycle-step). |
+| 18 | `0x03` (raw byte) | S | `T02thread:1;` once paused | CAP-CTL-01 | Signal 2 = SIGINT, the RSP convention for an interrupt; both client versions treat any `T` as "stopped" (§1.2). |
+| 19 | `D` | S | `OK` | CAP-SES-01 `detach(cid)` | Removes this client's subscriptions; per CAP-SES-01, resumes the machine iff it was paused *by this client*. Socket closed after the reply is flushed. |
+| 20 | `k` | S (generic) | none (socket closed) | CAP-SES-01 | Same as `D` — jnext does **not** exit on `k`; "the exact effect is not specified" by RSP and killing the emulator from a debugger is not a feature anyone asked for. |
+| 21 | `qRcmd,<hex>` | S | `O<hex>`… then `OK` / `E01` | CAP-INS-03/04/05/02(Page)/07, CAP-SYM, CAP-CTL-12 | Monitor vocabulary in §4.3. Unknown command → **`OK` with an `O` line "unknown monitor command; try help"**, not empty (empty would mean "qRcmd unsupported" and upstream would print nothing). |
+| 22 | `H<op><tid>` | S (generic) | `OK` | — | Single thread; any tid accepted. |
+| 23 | `qC` | S (generic) | `QC1` | — | One thread, id 1. |
+| 24 | `qAttached` | S (generic) | `1` | — | "attached to an existing process" — so a gdb `quit` detaches instead of killing. |
+| 25 | `qfThreadInfo` / `qsThreadInfo` | S (generic) | `m1` / `l` | — | |
+| 26 | `vCont?` | U | empty | — | Deliberately: with `vCont` unsupported, gdb falls back to `c`/`s`, which is the served set. |
+| 27 | `vCont…`, `vCtrlC`, `vRun`, `vAttach`, `vKill`, `R` | U | empty | — | `R`/`vRun` would map onto CAP-CTL-12; declined because RSP restarts imply "run the program again from its entry", which jnext cannot express for a NEX/TAP session without re-loading — a `monitor reset` exists instead. |
+| 28 | `bc` / `bs` (reverse continue/step) | D | empty | CAP-ST-04 **declined** | z88dk-gdb never sends them (§1.1). A real gdb only sends them after `ReverseContinue+`/`ReverseStep+` in `qSupported`, which we do not advertise. The capability stays in the backend (owner principle); serving it later is `qSupported` + two packets over CAP-CTL-09, no backend change. |
+| 29 | `Z0,addr,kind;<cond_list>` | D | `E01` | conditions **declined** | Never offered: `ConditionalBreakpoints+` absent from `qSupported`, so gdb evaluates conditions itself; z88dk-gdb has no syntax for them. |
+| 30 | `QStartNoAckMode` | U | empty | — | Acks stay on (costless; the client ignores them). |
+| 31 | `qOffsets`, `qSymbol`, `qTStatus`, `qXfer:*` other annexes, `QNonStop`, `qHostInfo`, `qProcessInfo` (lldb) | U | empty | — | |
+| 32 | `T<tid>` (thread alive) | S (generic) | `OK` | — | |
+| 33 | anything else | U | empty | — | Logged at `debug` level on the `remote` log channel with the raw packet, so a user can see what their client wanted. |
+
+**Counts:** 23 served (18 of them exercised by z88dk-gdb or its generic
+minimum; 5 generic-only), 2 declined by design, 8 unsupported classes (one
+row each for the families). Zero packets served by reaching past
+`jnext::dbg::Debugger`.
+
+---
+
+## 3. Target description and register packing
+
+### 3.1 The document served (verbatim, 600 bytes)
+
+```xml
+<?xml version="1.0"?>
+<target version="1.0">
+<architecture>z80</architecture>
+<feature name="org.gnu.gdb.z80.cpu">
+<reg name="af" bitsize="16"/>
+<reg name="bc" bitsize="16"/>
+<reg name="de" bitsize="16"/>
+<reg name="hl" bitsize="16"/>
+<reg name="af'" bitsize="16"/>
+<reg name="bc'" bitsize="16"/>
+<reg name="de'" bitsize="16"/>
+<reg name="hl'" bitsize="16"/>
+<reg name="ix" bitsize="16"/>
+<reg name="iy" bitsize="16"/>
+<reg name="sp" bitsize="16" type="data_ptr"/>
+<reg name="pc" bitsize="16" type="code_ptr"/>
+<reg name="clockl" bitsize="16"/>
+<reg name="clockh" bitsize="16"/>
+</feature>
+</target>
+```
+
+Line by line, against what the client parses (§1.2):
+
+| Line | Why it is there | Why nothing more |
+|---|---|---|
+| `<?xml …?>` | sxmlc accepts it; harmless for gdb. | The `<!DOCTYPE target SYSTEM "gdb-target.dtd">` line is optional per the gdb manual ("can be omitted"), costs 42 bytes and was verified harmless (§7.1, `target_doctype.xml` connects), but the budget is 1022 bytes and every byte spent here is a byte a future register cannot have. Omitted. |
+| `<target version="1.0">` | Root must be `target` (`target/architecture` XPath, `:1028`). | |
+| `<architecture>z80</architecture>` | `strcmp(arch->text, "z80")` (`:1035`). | Exactly `z80`; not `z80n`, not `Z80`. |
+| `<feature name="org.gnu.gdb.z80.cpu">` | The XPath filter is `feature[@name='*z80*']` (`:1044`): the name must contain `z80`. The `org.gnu.gdb.<arch>.<unit>` spelling is the gdb convention for a standard feature. | One feature only: the client counts regs across *all* matching features in document order, and a second feature would have to contain `z80` in its name too or be invisible — and invisible registers would still occupy `g` slots for a real gdb, desynchronising the two clients' packings. |
+| `af bc de hl af' bc' de' hl' ix iy sp pc` | The 12 names in `register_mapping_names[]` (`:95-107`), in the order the client's own local emulator uses. The order is *ours* to choose (the client maps by name), but keeping the canonical order makes `p<n>` numbering readable. | `af'` uses a literal apostrophe: the client compares with `strcmp` against `"af'"`; an XML entity would not match. |
+| `bitsize="16"` on every reg | The client assumes 16 bits for every reg (`* 4` hex chars, `:228`); a `bitsize="8"` reg would desynchronise `g`. | |
+| `sp type="data_ptr"`, `pc type="code_ptr"` | For a real gdb (`$pc`/`$sp` typing); ignored by z88dk-gdb. | |
+| `clockl`, `clockh` | The client's profiler reads `(clockh<<16)|clockl` as a deterministic tick counter when present (`:1152-1161`); jnext has one — `Emulator::monotonic_tstates()` [`src/core/emulator.h:500`, `emulator.cpp:7984`]. Served as the low/high 16 bits of that 64-bit count (wraps every 2^32 T-states ≈ 20 min at 3.5 MHz; the client uses differences, `profiler.c`). | |
+
+**Deliberately absent: `i`, `r`, `iff1`, `iff2`, `im`, `memptr`, `halted`.**
+Two reasons, both measured: (a) the client's `G` writes **0000** into every
+register it does not recognise (`set_regs`, `:420`, `:483-487` — transcript
+§7.2 shows `…00000000` for the clock pair), so exposing `I`/`R`/`IFF` as regs
+means every `set hl 1234` at the z88dk prompt would also clear `I`, disable
+interrupts and zero `R`; (b) they are 8/1-bit values and the client packs
+every reg as 16 bits. They are reachable read/write through `monitor regs`
+(§4.3) instead. **Register numbering** (for `p`/`P`): 0 = `af` … 11 = `pc`,
+12 = `clockl`, 13 = `clockh` — the document order, per the gdb rule "regnum
+defaults to one greater than the previous register".
+
+### 3.2 `g` / `G` encoding
+
+- `g` reply: 14 registers × 2 bytes, each little-endian, hex — 56 characters.
+  Byte 0 is `F`, byte 1 is `A` (`AF` little-endian), matching what
+  `unwrap_reg` expects (`:242-244` with `:361-372`).
+- `G`: 56 hex chars; the adapter applies bytes 0–23 as the 12 pairs through
+  `set_register(RegId, value)` (CAP-INS-01) and ignores bytes 24–27. A `G`
+  shorter or longer than 56 chars → `E01` (a generic gdb with a different
+  `target.xml` cannot happen — it read ours).
+- Source values: `Z80Registers{AF, BC, DE, HL, AF2, BC2, DE2, HL2, IX, IY, SP,
+  PC, …}` [`src/cpu/z80_cpu.h:6-24`]; `clock` from CAP-INS-07
+  `monotonic_tstates` (REQ-gdb-10, ACCEPTED with the correction that the
+  accessor exists).
+
+---
+
+## 4. Memory model
+
+### 4.1 `m`/`M`/`X`: the flat 64 K CPU view
+
+`MemSpace::Cpu` (CAP-INS-02) is "what the Z80 sees now" — the live MMU
+mapping including DivMMC/Multiface overlays and the Layer 2 write-through
+window, resolved without the +3 floating-bus latch (finding F1 in
+`backend.md` §2.2). That is the only address space RSP can name, and it is the
+right one: the client's disassembler, stack walker and `x` command all read
+"memory at PC/SP as the program sees it". There is no address-space
+extension for RSP (the `qXfer:memory-map` annex describes *regions*, not
+banks, and z88dk-gdb does not read it), so **no attempt is made to encode a
+bank in the address**: `0x00000`–`0x0FFFF` is the CPU view, full stop.
+
+A write to a ROM-mapped or otherwise read-only page replies `E01`; the client
+prints "Warning: Cannot restore file at addr …" (`:696`) and stops the upload.
+Today `Mmu::write` silently drops ROM writes; the backend's `poke` checks
+before writing (REQ-gdb-6, ACCEPTED).
+
+### 4.2 What is unreachable through RSP proper, and said so
+
+Physical pages other than the eight mapped ones, ROM images not mapped,
+NextREGs, ports, MMU slot assignments, the raster position, sprites, copper,
+palette, AY, rewind, screenshots, input injection. None has an RSP packet.
+They are either reachable through `monitor` (the next section) or not at all
+(sprites/copper/palette/AY/rewind/screenshots/input — DZRP, ZRCP, the DSL and
+the GUI carry those; RSP is the developer's *code* debugger).
+
+### 4.3 `qRcmd` — the monitor vocabulary
+
+`monitor <cmd>` is the sanctioned RSP escape hatch for target-specific
+commands (gdb manual: "Remote Serial Protocol … sends `qRcmd` for `monitor`
+commands"). It keeps RSP's worldview pure — nothing here bends `m`/`g` — and
+it is the *only* place Next-specific state appears. Output is `O<hex>` lines
+then `OK`; errors `E01`. Numbers accept `0x…`, `$…` or decimal; the smallest
+useful set, each mapped to a CAP:
+
+| Command | Output | CAP |
+|---|---|---|
+| `help` | the list below | — |
+| `regs` | `I=xx R=xx IFF1=n IFF2=n IM=n HALT=n MEMPTR=xxxx` (+ `PC/SP/…` for completeness) | CAP-INS-01 |
+| `set <i\|r\|iff1\|iff2\|im> <val>` | `OK` | CAP-INS-01 `set_register` |
+| `mmu` | 8 lines `slot n: page pp (effective ee) [ROM]` + `7FFD/1FFD/DFFD` | CAP-INS-03 |
+| `mmu <slot> <page>` | `OK` | CAP-INS-03 `set_mmu_slot` |
+| `nextreg` / `nextreg <reg>` / `nextreg <reg> <val>` | 256-entry dump / one value / `OK` | CAP-INS-04 `nextreg_peek` (side-effect free) / `nextreg_write` |
+| `page <n> <off> [len]` | hex dump of physical 8 K page `n` (default 16 bytes) | CAP-INS-02 `peek(Page{n})` |
+| `in <port>` / `out <port> <val>` | value / `OK` | CAP-INS-05 — **perturbing** (a port read has side effects); documented as such in the help text. This gives z88dk-gdb's own `out` command (a no-op over gdb, `:520`) a working equivalent. |
+| `sym <name>` / `sym <addr>` | `name = $addr` / nearest symbol | CAP-SYM (jnext's own loaded map, GUI **Map** menu or `--map` if the backend adds a CLI row — the client has its own `-x` table, so this is for cross-checking) |
+| `time` | `frame=N cycle=M tstates=T vc=.. hc=..` | CAP-INS-07 |
+| `reset [soft\|hard]` | `OK` after the reset request | CAP-CTL-12 — hard reset is a cold boot (Task 70); the client's next `g` sees the boot ROM. |
+| `bp` | list all subscriptions with owner (this client / gui / dsl / …) | CAP-INS-17 |
+
+Not offered (and why): `save/load state` (bookmarks are DZRP's model, and a
+`monitor` bookmark is a second wire for the same thing), `screenshot` (the
+DSL/CLI own it), `step-back` (owner principle: offered by the backend, but a
+monitor verb is not "the client deciding to use it" — it would be jnext
+inventing a reverse-debug UI inside a client that has none; revisit if a user
+asks).
+
+---
+
+## 5. Breakpoints, stepping, stop replies, interrupts
+
+### 5.1 Who inserts what
+
+| Concern | Owner | Why |
+|---|---|---|
+| Instruction length for `nexti` | **client** (its disassembler, `disassemble2`, `:626`) — sent as `i<len>` | z88dk decided it; the server only runs to `pc+len`. |
+| Temp breakpoint to step *off* a breakpoint at PC on `c` | **backend** — `DebugState::step_off_pending_` armed on the paused→running edge, consumed exactly once before the first `should_break` [`src/debug/debug_state.h:549-552`, comment block above `consume_step_off()`; `emulator.cpp:9301-9343`] | Already exists (GH #221); the adapter inserts nothing. Real gdb *also* steps off itself (`s` then `c`), which composes: a `s` from a paused machine is CAP-CTL-03, unaffected. |
+| Temp breakpoint for `finish` | **client** (`Z0` at the return address + `c`, `:1630-1639`) | |
+| `step`/`next` at source-line granularity | **client** (loops `s`/`i` until the line changes, `breakpoints.c:222-247`) | Each iteration is one round trip — slow over 20 ms ticks (§6.2), acceptable. |
+| Client-side "breakpoints" (`memory8/16`, `register`) | **client** — evaluated at every stop, never on the wire | Nothing to serve; the `z0` they emit on quit must reply `OK` (row 10). |
+| Original opcode under a `Z0` | **nobody** — jnext breakpoints are PC-compare, not opcode patching (`BreakpointSet::should_break`), so memory reads through `m` never show a trap byte. | Strictly better than a patching server: the client's disassembly is always the real code. |
+
+### 5.2 Steps
+
+- `s` → CAP-CTL-03 `step_into()`: one instruction, `Emulator::debugger_step()`
+  semantics — frame bookkeeping included, and a HALT is run out (GH #207,
+  `emulator.h:751-761`). Synchronous: the reply `T05thread:1;` is sent in the
+  same `pump()`.
+- `i<len>` → CAP-CTL-06 `run_to((pc + len) & 0xFFFF)`: a one-shot `Execute`
+  outside the master switch, **owner = internal** (so it never appears in the
+  Qt breakpoint panel — design-qt's condition, same as the GUI's own Step Over
+  one-shot), all other breakpoints live (so a breakpoint inside the called
+  routine still stops first, which is what `nexti` means in gdb too).
+  Asynchronous: reply when `Paused{reason: RunTo(id)}` (or any other pause)
+  is observed.
+- `c` → CAP-CTL-02 `run()`. Asynchronous.
+- No `step_out` (CAP-CTL-05): RSP has no packet; z88dk's `finish` is
+  client-side. No `run_to_end_of_frame/scanline` (CAP-CTL-08): no packet;
+  `monitor` does not add one because the client cannot show a raster anyway.
+
+### 5.3 Stop replies
+
+Always the `T` form (the client dispatches only on `T`, §1.2). Signal 05
+(SIGTRAP) for every debugger-caused stop, 02 (SIGINT) for a `0x03`
+interrupt or a pause by another frontend — gdb prints "Program received signal
+SIGINT", z88dk ignores the number. The `n:r` pairs, built from
+CAP-CTL-13 `state().pause_reason` (REQ-gdb-9, ACCEPTED):
+
+| `pause_reason` | Reply |
+|---|---|
+| `Breakpoint(id)` where id is a Z0/Z1 of this client | `T05thread:1;swbreak:;` |
+| `Watch(id, kind, addr)` from a Z2 | `T05thread:1;watch:<addr hex>;` |
+| … Z3 / Z4 | `rwatch:` / `awatch:` |
+| `Step`, `RunTo(id)` (our one-shot) | `T05thread:1;` |
+| `User(cid == us)` (our `?`/`0x03`) | `T02thread:1;` |
+| `User(other)`, `Magic`, `Script`, `Breakpoint/Watch` owned by another client, `Corrupt` | `T02thread:1;` — "something else stopped it"; the client shows the PC and the user reads the GUI/log for why |
+
+`swbreak+`/`hwbreak+` are advertised in `qSupported` so a real gdb accepts
+the `swbreak:` field; z88dk-gdb ignores fields. Address in `watch:` is the
+faulting address from `Paused.matched[]` (`Hit{event_id, addr, access,
+value}`, backend.md v3 §4.3 / CAP-SES-02); when several of this client's
+subscriptions matched at one stop the adapter reports the first `Hit` whose
+`event_id` it owns (RSP carries one reason). The adapter uses `addr` only. PC in the reply is *not* included (the client always
+re-reads `g`).
+
+### 5.4 Interrupt and the "no spontaneous stop reply" invariant
+
+A stop reply may only be sent as the reply to `c`, `s`, `i`, `?` or `0x03`
+(§1.2: the client would otherwise consume it as the answer to an unrelated
+request). The adapter therefore keeps one bit, `stop_reply_owed`, set by those
+five inputs and cleared when the reply goes out. On each `pump()`:
+
+1. Drain the socket, decode complete packets, serve each synchronously.
+2. If the backend delivered `Paused{…}` since the last pump **and**
+   `stop_reply_owed`, emit the §5.3 reply, clear the bit.
+3. If `Paused` was delivered and the bit is **not** set — the GUI or the DSL
+   paused the machine while the client believed it was stopped already, or
+   before it ever resumed — send nothing. The client's model ("stopped") is
+   already right; its next `g` gets fresh registers.
+4. If the machine is *running* and the client thought it stopped (a GUI Run
+   happened behind it): the next inspection packet (`g`/`G`/`m`/`M`/`X`/`p`/
+   `P`/`Z`/`z`) **pauses first** (CAP-CTL-01), then is served, then — since no
+   reply is owed — nothing else. Logged at `info`: "gdb client re-paused the
+   machine (resumed by <cid>)". This keeps RSP's stopped/running model
+   consistent from the client's side without an ownership lock (agreed model,
+   §6.3).
+
+`0x03` while paused: reply `T02thread:1;` immediately (the client sends a
+*temporary* break to add a breakpoint while it believes the machine runs,
+`breakpoints.c:46-49`; if we are already paused the answer is simply "yes,
+stopped").
+
+---
+
+## 6. Transport, loop ownership, arbitration, CLI
+
+### 6.1 Transport
+
+- **TCP, IPv4/IPv6, listener bound to `127.0.0.1` by default**, one client at
+  a time (RSP is a single-session protocol; a second connection is accepted
+  and closed with nothing sent, logged at `warn`). Non-blocking throughout,
+  through the **public** seam of the existing portable socket layer:
+  `esp::EspListener` / `esp::EspTransport` obtained from
+  `esp::make_socket_listener(bind_address)`
+  [`src/esp01/include/esp01/esp_socket.h:258`, `:509`, `:561`] — *not* the
+  primitives in `esp_socket_platform.h`, which declares itself PRIVATE
+  ("nothing outside src/peripheral should ever include it", [`:10-12`]).
+  Same Windows-twinned code, same "bind exactly what you were given" policy;
+  if reuse from `src/remote/` proves awkward the lift is `esp::net` →
+  `src/net/`, one shared REQ (agreed with design-dzrp 2026-09-26). No new
+  socket code; no thread.
+- **Framing layer** (`src/remote/gdb/rsp_codec.{h,cpp}`, pure, testable):
+  `$…#xx` parse with checksum, `+` emission, `}`-escape decode for `X`,
+  `}`/`*` escape encode for `qXfer` payloads (only `#`, `$`, `}`, `*` need
+  it; the XML of §3 contains none), run-length encoding **not** used on
+  output (optional per RSP; the client does not decode it — a `*` in a reply
+  would be taken literally; and gdb treats `*` as RLE only in replies, so
+  emitting none is safe both ways). Receive buffer 16 KiB (`PacketSize=4000`
+  read as hex by gdb = 16384 + framing); a packet exceeding it is dropped
+  with `-` and logged.
+- **Loop ownership**: `Debugger::pump(max_wait_ms)` (CAP-SES-03) is called by
+  the loop owner once per tick, running **and** paused, in all three
+  frontends; the RSP server is a registered service, its `poll()` runs inside
+  `pump`. Headless replaces its paused busy-spin with `pump(50)` (backend.md
+  §5). Nothing in the adapter runs outside `pump`.
+
+### 6.2 Latency
+
+One round trip per tick: ≤ 20 ms at 100 % speed running, and while paused
+the Qt/SDL ticks keep firing at the same cadence. `s` is synchronous
+(CAP-CTL-03) and replies inside the same `pump()`, so z88dk's `stepi` costs
+one tick. `i<len>` and `c` stop *during* the tick's frames; with `pump()`
+called only before the frame batch, that stop would be reported one tick
+late (two ticks per `nexti`). **Agreed shared model (design-dzrp amendment,
+2026-09-26, mirrored as REQ-dzrp-8/9):** the loop owner also flushes
+notifications after the frame batch in the same tick, and `pump()` returns
+"a remote client is attached and the machine is paused" so the loop owner may
+shorten its paused tick (needs-prototype on the DZRP side; RSP works at the
+normal cadence and merely benefits). **design-zrcp's amendment (REQ-zrcp-01,
+agreed):** while paused, `pump()` *drains* — after answering a packet it waits
+~2 ms for the next complete one and answers it too, until quiet or a ~10 ms
+budget. RSP benefits identically: one z88dk `stepi` is `s` + `g` + two or
+three `m` reads (transcript §7.1), i.e. 4–5 sequential round trips, which is
+~100 ms at one packet per 20 ms tick and ~1 tick with draining. A `next` over
+a source line that spans k instructions is k such sequences — fine for a
+human at a prompt. Nothing in this adapter assumes the cadence.
+
+### 6.3 Arbitration with the Qt debugger and other frontends
+
+One `DebugState`, no ownership token, last verb wins (backend.md §4.1
+"N attached"). The RSP adapter's obligations under that model are exactly
+§5.4 rules 2–4. The Qt side needs nothing new: `check_breakpoint_hit()`
+already detects a pause it did not cause and opens the window
+[`src/debugger/debugger_manager.cpp:682-706`]; breakpoints set over RSP are
+subscriptions in the shared table and appear in the breakpoint panel with
+their owner (CAP-INS-17). On `D` or socket loss, CAP-SES-01 removes this
+client's subscriptions and releases a pause *it* holds.
+
+### 6.4 CLI rows (`src/core/cli_options.h`; `make cli-check` gates the man page)
+
+```cpp
+GdbPort,             // OptId
+DebugListenAddress,  // OptId (shared with --dzrp-port / --zrcp-port)
+…
+{ "--gdb-port", 1, Doc::Documented, OptId::GdbPort,
+  "PORT",
+  "Serve the GDB remote protocol (z88dk-gdb) on TCP PORT (0 = off, default)" },
+{ "--debug-listen-address", 1, Doc::Documented, OptId::DebugListenAddress,
+  "ADDR",
+  "Bind --gdb-port/--dzrp-port/--zrcp-port to ADDR (default 127.0.0.1)" },
+```
+
+The shared flag is spelled after the existing `--esp-listen-address`
+[`src/core/cli_options.h:414-416`] (design-dzrp's amendment, agreed).
+
+Both documented in `doc/man/jnext.1.md` OPTIONS in the same change (the
+cli-check diff is bidirectional). Also a `Settings → Preferences` row is
+**not** proposed: a listening debug port is a per-run choice, not a
+persistent preference (and `app_config` never applies to headless).
+`--debug-listen-address 0.0.0.0` is the user's explicit choice to expose an
+unauthenticated debugger on the LAN; the man page says so in one sentence.
+
+---
+
+## 7. Validation
+
+### 7.1 Done now, against the real client (design-time)
+
+Stub: `scratchpad/gdb/fake_server.py` (Python, ~100 lines) serving exactly
+§2's replies and §3's XML; client `z88dk/bin/z88dk-gdb` (v2.4 build on this
+host). All runs 2026-09-26 with `timeout --kill-after=2s 8s`.
+
+| Run | Input | Result |
+|---|---|---|
+| 1094-byte `target.xml` (DOCTYPE + `type`/`group` attrs) | connect | **client SIGSEGV** (exit 139) right after `qXfer` — the `recv_data[1024]` overflow of `:853`. Design consequence: ≤ 1022 B. |
+| 600-byte XML (§3.1) | `reg`, `x/8 0x8000`, `break 0x8010`, `stepi`, `nexti`, `cont`, `breakpoints`, `quit` | exit 0. Client log: `Registers:  af bc de hl af' bc' de' hl' ix iy sp pc clockl clockh`, `Remote has 'clock' register.`, `Execution stopped`, registers printed correctly incl. `clockh=0001, clockhl=2345`, breakpoint added, `s`/`c` stops shown. Wire: `qSupported`, `qXfer…:0,3fff`, `?`, `g`, `m7ffc,20`, `g`, `mfefd,20`, `m7ffc,20`, `Z0,8010,1`, `s`, `g`, `s`, `g`, `c`, `g`, `z0,8010,1`, `D`. |
+| 642-byte XML with DOCTYPE | same | exit 0, identical — the earlier crash was size, not the DOCTYPE. |
+| stub memory `CD 00 90` at PC, `ED B0` next | `nexti`, `nexti`, `set hl 0x1234`, `reg`, `break memory8 0x8000 = 5`, `break register a = 1`, `finish`, `out 0xfe 1`, `quit` | Wire: **`i3`** for the CALL, **`i2`** for LDIR (decimal lengths, confirmed); `G440034127856341211112222333344445555666600ff058000000000` — HL=1234 written, **clock pair sent as 0000 0000** (confirmed: server must ignore); `break memory8`/`register` and `out` sent **nothing**; on quit **`z0,8000,1` and `z0,a,1`** were sent for those client-side entries (confirmed: `z0` must be idempotent-OK); `finish` → "return address is unknown" (no symbols); `D`. |
+| `-x mbp.map` (built from `demo/magic_bp_demo` with `-m`) | `break _main`, `cont`, `bt`, `quit` | `Adding breakpoint at '_main' $816a (_main)` → wire `Z0,816a,1`, `c`; stub stops at 816a → `Hit breakpoint 1: @816a (_main)`, source line shown, `bt` prints `_main+0 at magic_bp_demo.c`; `z0,816a,1`, `D`. Symbol resolution is entirely client-side; the map is z88dk's own `-m` output. |
+
+Not exercised at design time: Ctrl-C (needs a TTY signal; the raw `0x03`
+path is read from `:537-538` and served by the stub), `restore` (`M`), the
+upstream `monitor` (no upstream binary on this host — the upstream source was
+read, §1.2).
+
+### 7.2 The #281 acceptance script (regression row `gdb-z88dk-func`)
+
+Shape follows `test/00regression/scripts/magic-port-func.sh` (sourced by the
+harness; **no `trap`**, every `timeout` with `--kill-after`). Fixture: a
+demo built with `-m` so the `.map` is checked in next to the `.nex` under
+`test/00regression/nex/` (license-clean: our own demo). Steps:
+
+```bash
+# 1. jnext headless, gdb server on a free port, demo loaded, generous exit bound
+"$JNEXT" --headless "${SD_CARD_ARGS[@]}" --gdb-port "$port" \
+    --load "$PROJECT_DIR/test/00regression/nex/magic_bp_demo.nex" \
+    --delayed-automatic-exit 20 >"$TMP_DIR/jnext.log" 2>&1 &
+# 2. the real client, scripted through stdin, verbose so the wire is in the log
+printf 'break _main\ncont\nreg\nx/16 _main\nstepi\nnexti\nmonitor mmu\nmonitor nextreg 0x07\nquit\ny\n' \
+  | timeout --foreground --kill-after=5s 15s "$Z88DK_GDB" -v -h 127.0.0.1 -p "$port" \
+      -x "$PROJECT_DIR/test/00regression/nex/magic_bp_demo.map" >"$TMP_DIR/gdb.log" 2>&1
+# 3. assertions on the client log (what the USER sees), not on jnext's log:
+grep -q "Registers:  af bc de hl af' bc' de' hl' ix iy sp pc clockl clockh" gdb.log
+grep -q "Hit breakpoint 1: @816a (_main)" gdb.log        # the address from the map
+grep -q "^pc=816a" gdb.log                                 # g after the stop
+grep -q "w: i[0-9]" gdb.log || grep -q "w: s" gdb.log       # nexti used the i packet on a CALL, s otherwise
+grep -q "slot 0: page" gdb.log                              # monitor output reached the client
+```
+
+Skipped (SKIP, declared) when `z88dk-gdb` is not on the host — the harness
+already has the `want`/`skip_row` idiom; the binary's path comes from
+`Z88DK_GDB` with a default of `$HOME/src/spectrum/z88dk/bin/z88dk-gdb`
+(`reference_z88dk_local_install`: z88dk is a local install here, never
+docker). Since `regression.sh` runs the full declared suite in CI, the row
+must SKIP cleanly there rather than fail — CI has no z88dk.
+
+### 7.3 Unit suite `gdb_rsp_test` (Qt-free, `test/remote/`)
+
+Over the backend's fake `Transport` (backend.md §7): push bytes, read bytes.
+Rows (IDs literal, one per line — the traceability rules):
+
+- **GDB-FRM-01..06** framing: checksum accept/reject, `+` emitted, `}` decode
+  in `X`, oversize packet → `-`, `0x03` outside a packet, garbage before `$`.
+- **GDB-SUP-01..03** `qSupported` reply contains exactly the four stanzas; the
+  size is decimal-digit-only; `qXfer` reply is `l` + the 600-byte document,
+  and **the reply is < 1023 bytes** (the row that guards the v2.4 crash).
+- **GDB-REG-01..08** `g` = 56 hex LE with AF first; `G` applies 12 pairs and
+  leaves `I/R/IFF/IM` untouched (the zero-clobber row); `p12`/`p13` are the
+  low/high of `monotonic_tstates`; `P12=` → `E01`; bad length → `E01`.
+- **GDB-MEM-01..06** `m` reads the CPU view through a remapped slot (set MMU
+  slot 6 to two different pages, read 0xC000 twice); `M` into RAM → `OK`,
+  readback matches; `M` onto a ROM slot → `E01` and memory unchanged; `X`
+  binary with escapes; clip at 0x10000.
+- **GDB-BP-01..10** `Z0` then `c` → `T05…swbreak:;` at the address (machine
+  actually stopped — the #203 shape); `z0` unknown → `OK`; duplicate `Z0` one
+  subscription; `Z2` range hit on the last byte and one past (both edges);
+  `Z3`, `Z4`; `watch:` carries the faulting address; `D` removes only this
+  client's subscriptions (one set by a fake second client survives).
+- **GDB-STP-01..05** `s` replies in the same pump with PC+len; `i3` on a CALL
+  stops at PC+3 after the callee ran (control row: the same program with `s`
+  stops inside the callee); `c` from a PC with a `Z0` on it steps off (no
+  immediate re-stop); `c` refused by the corruption gate → `E01`.
+- **GDB-STOP-01..04** the §5.4 invariant: a `Paused{by: other}` with no reply
+  owed sends nothing; `?` while running pauses and replies `T05`; `0x03`
+  while paused replies `T02` at once; inspection packet while running pauses
+  first.
+- **GDB-MON-01..06** `qRcmd` for `mmu`, `nextreg 7`, `regs`, `page`, unknown
+  command (→ `O…` + `OK`, never empty), `reset soft`.
+- **GDB-UNS-01..03** `vCont?`, `bc`, `QStartNoAckMode` → empty reply.
+
+Count target ~55 rows; the exact pin goes into `test/unit-tests.conf` when
+the suite exists. Every row derives from the client source or the RSP manual
+cited in §1–§5, not from the adapter code.
+
+### 7.4 The subset claimed, and what is *not* validated
+
+**Claimed:** "jnext serves the GDB remote protocol subset that `z88dk-gdb`
+(v2.4 and current master) uses — registers, memory, software breakpoints,
+step/next/continue, interrupt, detach, `monitor` — plus RSP watchpoints and
+the generic stub minimum. Target: ZX Spectrum Next CPU view; Next-specific
+state through `monitor`." **Validated against:** the real `z88dk-gdb` v2.4
+binary (design-time stub transcripts above; the #281 regression row once
+implemented). **Not validated:** (a) upstream-master `z88dk-gdb` — read, not
+run; its `qRcmd` handling is designed from source and must be re-run when a
+newer z88dk lands here; (b) a real gdb built with the z80 target — the
+generic rows exist so it is not rejected at connect, but gdb's `z80-tdep.c`
+may impose its own register naming/numbering on top of `target.xml`, which
+was not checked; if it does, a second `target.xml` variant selected by the
+presence of a feature list in `qSupported:` (z88dk sends none) is the fix, and
+it is adapter-local. Neither is a blocker for #281's user-facing claim.
+
+---
+
+## 8. REQ ledger (backend v1)
+
+All sent 2026-09-26, all answered by `design-backend` the same evening.
+
+| REQ | Capability | Status | CAP |
+|---|---|---|---|
+| REQ-gdb-1 | pause, synchronous from the host loop, idempotent | ACCEPTED | CAP-CTL-01 |
+| REQ-gdb-2 | resume; step-off owned by the backend | ACCEPTED | CAP-CTL-02 (GH #221 arm stays in `DebugState`) |
+| REQ-gdb-3 | step one instruction, HALT run-out, synchronous | ACCEPTED | CAP-CTL-03 |
+| REQ-gdb-4 | run until PC == given address (`i<len>`) | ACCEPTED | CAP-CTL-06 `run_to(pc+len)` |
+| REQ-gdb-5 | registers get; **per-register** set (partial `G`) | ACCEPTED | CAP-INS-01 `set_register(RegId, v)` |
+| REQ-gdb-6 | bulk peek/poke of the live CPU view; poke reports read-only | ACCEPTED | CAP-INS-02 `MemSpace::Cpu`, `poke` → count + `RefusedReadOnly` (backend checks before writing; v2 §4.2) |
+| REQ-gdb-7 | unconditional PC breakpoints | ACCEPTED | CAP-EVT `Execute[a,a]` Stop, `EventId` ↔ `Z0` |
+| REQ-gdb-8 | range watch read/write/access, faulting addr at stop | ACCEPTED | CAP-EVT `MemRead/MemWrite[lo,hi]`; payload addr; same primitive as the DSL's (design-dsl concurs) |
+| REQ-gdb-9 | stop reason with kind/addr, and "who paused" | ACCEPTED | CAP-CTL-13 `pause_reason` ∈ {User(cid), Breakpoint(id), Watch(id,kind,addr), Step, RunTo(id), Magic, Corrupt, Script(id)} |
+| REQ-gdb-10 | monotonic T-state counter | ACCEPTED, **with correction** | CAP-INS-07 — backend first proposed `master_cycle / divisor`; corrected to expose `Emulator::monotonic_tstates()` [`emulator.h:500`, `emulator.cpp:7984`], because the divisor changes at runtime under NR 0x07 and a derived quotient is not monotonic across a speed change. Backend to reflect in v2. |
+| REQ-gdb-11 | NextREG peek/write, MMU slots, physical page peek, symbols | ACCEPTED | CAP-INS-04, -03, -02 `Page{n}`, CAP-SYM |
+| REQ-gdb-12 | per-client breakpoint ownership; merged visibility | ACCEPTED | CAP-EVT-09 owner + CAP-SES-01 `detach`, CAP-INS-17 list |
+| REQ-gdb-13 | pump hook, running and paused, single thread | ACCEPTED | CAP-SES-03 `pump(max_wait_ms)`; adapters register as services. Folded in (no new REQ): design-dzrp's REQ-dzrp-8 (post-frame notification flush in the same tick) and REQ-dzrp-9 (`pump` reports "remote attached and paused" so the owner may shorten the paused tick) — RSP benefits, does not require them. |
+| REQ-gdb-14 | paused/resumed edges with origin, same thread | ACCEPTED | CAP-SES-02 listener, delivered inside `pump` |
+| REQ-gdb-15 | run-state query | ACCEPTED | CAP-CTL-13 `state().paused` |
+
+**Cross-frontend agreements recorded:** design-dsl — same range-watch
+primitive, payload `{addr, value, phys_page, pc_pre_exec, cycle, frame}`,
+predicate slot left empty by RSP. design-qt — Qt adapter attached for the
+process lifetime and receives every `Paused{by, reason}`; gdb-owned
+subscriptions shown read-only with their owner in the Breakpoints panel;
+transient one-shots are `owner=internal`. design-dzrp — shared transport,
+notification timing and CLI spelling as amended in §6; DZRP documents a
+GUI-originated resume rather than re-pausing, RSP re-pauses on the next
+inspection packet (§5.4) — both consistent with one pause state. design-zrcp
+— same model; adds `pump` draining while paused (§6.2) and the rule that a
+protocol's "disable all breakpoints" suspends only that client's
+subscriptions, never the backend master switch (REQ-zrcp-03). RSP has no such
+packet — `z`/`Z` are per-breakpoint — so the rule costs this adapter nothing,
+and its `D` already touches only its own subscriptions (CAP-SES-01).
+
+**MAPPED line sent:** 21 CAPs used, 24 declined (conditions; CAP-CTL-04/05/
+07/08/09/10/11-modal; CAP-ST-01..04; CAP-INS-06/08/09/10/12/13/14/15/16;
+CAP-IN-*; CAP-CAP-*; CAP-TIME-02/03; CAP-SES-04/05), 0 REQs open, **0
+reach-arounds**.
+
+---
+
+## 9. Implementation work packages for #281 (parallel-safe)
+
+All on one branch (`gh281-gdb-rsp`) per the multi-stage-issue rule, but the
+packages are independent files and can be written by parallel agents; each
+gets its own reviewer.
+
+| WP | Deliverable | Depends on |
+|---|---|---|
+| WP-1 `rsp_codec` | `src/remote/gdb/rsp_codec.{h,cpp}`: framing, checksum, escapes, hex helpers; rows GDB-FRM-*. Pure, no backend. | nothing |
+| WP-2 `target_desc` | the §3 document as a `constexpr` string + a unit row pinning its byte length ≤ 1022 and its register order against the `g` packer; `g`/`G`/`p`/`P` packing over CAP-INS-01/07. Rows GDB-SUP-*, GDB-REG-*. | backend CAP-INS-01/07 |
+| WP-3 `rsp_server` | packet dispatch (§2 table), stop-reply state machine (§5.4), breakpoint id map, `qRcmd` vocabulary (§4.3); over the fake `Transport`. Rows GDB-MEM/BP/STP/STOP/MON/UNS-*. | WP-1, WP-2, backend CAP-CTL/EVT/SES |
+| WP-4 wiring | `--gdb-port`/`--debug-listen-address` rows in `cli_options.h` + `main.cpp` switch + `jnext.1.md`; service registration in the three loop owners via `pump`; `esp::make_socket_listener` for the socket. `make cli-check`, `make docs-man`. | WP-3, backend CAP-SES-03 |
+| WP-5 acceptance | regression row `gdb-z88dk-func` (§7.2) + `.map` fixture + `functional_tests.conf` count; user-guide chapter section "Debugging with z88dk-gdb" (source under `src/doc/user-guide`, re-rendered). | WP-4 |
+| WP-6 upstream listing | after release: a z88dk wiki PR adding jnext to the compatible-servers list, with the `--gdb-port` one-liner. | shipped #281 |
+
+Reviewer mutations to derive from the diff (not from the row list): serve
+`S05` instead of `T05` (client hangs after `?` — the row must fail);
+`PacketSize=3fff` (client `sscanf` reads 3 → `M` chunking breaks); 1023-byte
+XML (crash row); `G` applying 14 registers (I/R clobber row); `z0` unknown →
+`E01` (quit path row); stop reply emitted on a foreign `Paused` (invariant
+row).
+
+---
+
+## 10. Open questions for the owner
+
+1. **Port default.** `--gdb-port` off by default (proposed) vs a conventional
+   default such as 3333 (OpenOCD's) or 1234 (QEMU's) when the flag is given
+   without a number. Proposed: off unless given; `--gdb-port 0` = off.
+2. **`monitor in/out`** are the only perturbing monitor commands. Keep (they
+   replace z88dk's dead `out`) or drop for purity? Proposed: keep, labelled.
+3. **`k`** — detach (proposed) vs exit jnext. A scripted CI session might
+   *want* `k` to end the run; `--delayed-automatic-exit` already bounds it.
+
+---
+
+## 11. Not verified / cannot be known without a prototype
+
+- Real gdb's z80 target against §3's XML (§7.4 b).
+- Whether the Qt/SDL paused-tick cadence makes z88dk's source-line `step`
+  (one round trip per instruction) feel acceptable; measurable only with the
+  implementation.
+- Upstream z88dk-gdb `monitor` end to end (source-designed; re-run on the next
+  z88dk update of this host).
