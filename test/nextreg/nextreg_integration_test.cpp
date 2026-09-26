@@ -6464,7 +6464,12 @@ static void test_v16_nmp_02_expbus_and_mask(Emulator& emu) {
             ("jnext-nr-v16-load-" + std::to_string(getpid()) + ".sna")).string();
         bool wrote = false;
         {
-            const std::vector<uint8_t> sna = SnaSaver::save(emu);
+            // The fixture is a loadable .sna of THIS (Next) machine, taken
+            // only to drive load_sna() below — so it goes through the
+            // unchecked CPU-view entry point. SnaSaver::save() refuses a Next
+            // outright (GH #274), which is the right answer for a user asking
+            // for a `.sna` file and the wrong one for a loader fixture.
+            const std::vector<uint8_t> sna = SnaSaver::save_cpu_view_unchecked(emu);
             std::ofstream f(path, std::ios::binary | std::ios::trunc);
             f.write(reinterpret_cast<const char*>(sna.data()),
                     static_cast<std::streamsize>(sna.size()));

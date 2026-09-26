@@ -45,7 +45,26 @@ static void read_from_ram(Mmu& mmu, uint16_t start_page, size_t start_offset,
     }
 }
 
-std::vector<uint8_t> SnaSaver::save(Emulator& emu) {
+std::vector<uint8_t> SnaSaver::save(Emulator& emu, std::string* error) {
+    // GH #274 — a 48K SNA cannot represent a Next (see the class doc-comment
+    // SCOPE), so it is REFUSED rather than written lossily: it used to succeed
+    // with exit status 0, which told the user nothing was missing when almost
+    // everything was. Same shape as SzxSaver::save(): no data, a reason the
+    // caller can show, and a pointer at the format that can do the job.
+    if (emu.config().type == MachineType::ZXN_ISSUE2) {
+        const std::string msg =
+            "SNA saver: the '.sna' format cannot represent a ZX Spectrum Next — it "
+            "describes a 48K/128K Spectrum, with none of the Next's extra RAM, "
+            "NextREGs or video hardware (--machine 48k|128k|plus3). "
+            "Use '.jns' for a Next-native snapshot instead.";
+        Log::emulator()->error("{}", msg);
+        if (error) *error = msg;
+        return {};
+    }
+    return save_cpu_view_unchecked(emu);
+}
+
+std::vector<uint8_t> SnaSaver::save_cpu_view_unchecked(Emulator& emu) {
     // 48K SNA: 27-byte header + 49152 bytes RAM
     static constexpr size_t SNA_48K_SIZE = 49179;
     static constexpr size_t HEADER_SIZE = 27;

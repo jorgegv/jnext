@@ -1921,7 +1921,17 @@ void MainWindow::on_save_snapshot() {
         // class doc-comment; NexSaver::save() already logs a warning.
         bytes = NexSaver::save(*emulator_).data;
     } else {
-        bytes = SnaSaver::save(*emulator_);
+        // GH #274 — .sna is the 48K form only, which cannot represent a Next:
+        // SnaSaver::save() refuses it and says why, exactly as the .szx arm
+        // above does. Without the reason the user saw only the generic
+        // empty-buffer warning below.
+        std::string sna_error;
+        bytes = SnaSaver::save(*emulator_, &sna_error);
+        if (bytes.empty() && !sna_error.empty()) {
+            QMessageBox::warning(this, tr("Save Snapshot"),
+                QString::fromStdString(sna_error));
+            return;
+        }
     }
     if (bytes.empty()) {
         QMessageBox::warning(this, tr("Save Snapshot"),

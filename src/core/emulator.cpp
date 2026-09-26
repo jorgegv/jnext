@@ -8202,6 +8202,13 @@ bool Emulator::start_rzx_recording(const std::string& path)
     // embedded instead; a 48K SNA of a paged 128K program replayed against the
     // wrong banks. SzxSaver refuses what .szx cannot represent (the Next), and
     // the 48K SNA remains the fallback there.
+    //
+    // GH #274 — the fallback goes through save_cpu_view_unchecked(), NOT the
+    // user-facing SnaSaver::save(), which now refuses a Next outright. The
+    // contract here is different and narrower: the RZX names its own machine
+    // (set_machine() below), so playback rebuilds the Next and the embedded
+    // snapshot only has to restore the 64 KB the CPU saw. Nothing a user can
+    // ask for reaches this, so a Next `.sna` FILE is still refused.
     std::vector<uint8_t> snap;
     std::string          snap_ext;
     if (config_.type == MachineType::ZX128K || config_.type == MachineType::ZX_PLUS3) {
@@ -8212,7 +8219,7 @@ bool Emulator::start_rzx_recording(const std::string& path)
         }
     }
     if (snap.empty()) {
-        snap     = SnaSaver::save(*this);
+        snap     = SnaSaver::save_cpu_view_unchecked(*this);
         snap_ext = "sna";
     }
     if (!snap.empty()) rzx_recorder_.set_snapshot(std::move(snap), snap_ext);
