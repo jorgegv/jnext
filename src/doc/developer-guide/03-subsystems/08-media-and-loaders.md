@@ -585,16 +585,25 @@ program that redraws. That fixture is now `test02layer2.nex` for exactly that
 reason.
 
 `Emulator::load_snapshot_from_memory()` gained the matching `jns` branch, and it
-is the one place that loads a `.jns` with the **SD identity override** on: a
-`.jns` file refuses a different card, but an RZX is a portable artifact and the
-card is not part of what a recording claims to carry. The override warns and
-names both cards; `--snapshot-mode strict` still governs the provenance checks.
+is the one place that loads a `.jns` with the **SD identity override** on — an
+owner decision of 2026-09-26, recorded as such at the call site because a
+deliberate Tier-1 override should not read as convenience. A `.jns` file refuses a
+different card, but an RZX is a portable artifact and the card is not part of what
+a recording claims to carry, and the 48K SNA this replaces carried no card
+identity at all. The override warns and names both cards; `--snapshot-mode strict`
+still governs the provenance checks.
 
-One boundary worth knowing when judging RZX fidelity: `PortDispatch::in()`
-serves EVERY CPU `IN` from the log during replay, with no port filter — but
-`dma_.read_io` is wired to `port_.read()`, the pre-override path, so a DMA port
-read is neither recorded nor replayed on any machine. That is a pre-existing RZX
-limitation, independent of which snapshot the file carries.
+How much that override actually carries was measured rather than assumed, and the
+answer is a useful boundary for judging RZX fidelity generally:
+
+| Path the card could reach a replay by | Reached? |
+|---|---|
+| Guest reads through the CPU | **No.** `PortDispatch::in()` serves every `IN` from the log with no port filter, so SD data through 0xE7/0xEB comes from the recording whatever card is mounted |
+| Guest reads through the DMA | **Yes.** `dma_.read_io` is wired to `port_.read()`, the pre-override path, so a DMA port read is neither recorded nor replayed — on any machine, for any snapshot type. A pre-existing RZX limitation |
+| The ROMs | **Yes**, they are extracted from the card at init — but that path is CHECKED: the `.jns` records ROM digests, which warn, and refuse under `--snapshot-mode strict` |
+
+So the override is belt-and-braces for CPU-driven SD access and load-bearing only
+for the DMA case.
 A command-line recording starts once the `--load`/`--inject` is in the
 machine (`emulator_start_rzx_record_when_loaded()`), so that snapshot is the
 loaded program. The tape ROM traps stand down while RZX records or plays —

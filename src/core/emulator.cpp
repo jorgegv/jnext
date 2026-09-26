@@ -8109,23 +8109,37 @@ bool Emulator::load_snapshot_from_memory(const std::vector<uint8_t>& data,
         // container and manifest checking before it touches a subsystem.
         //
         // THE SD IDENTITY IS DELIBERATELY OVERRIDDEN HERE, and nowhere else.
+        // OWNER DECISION, 2026-09-26 — sanctioned, not convenient, which is
+        // what the next reader of a deliberate Tier-1 override needs to know.
         // A `.jns` FILE refuses a load against a different card (§11.3), which
         // is right for a snapshot — but an RZX is a portable artifact, offered
         // in the documentation as a good bug report, and a recording records
         // INPUT: the card is not part of what it claims to carry, and the 48K
-        // SNA this replaces carried no card identity at all. Refusing to replay
-        // a recording on the machine that received it would defeat the format.
-        // The override still WARNS and names both cards, because a silent
-        // override of a Tier-1 check is not acceptable even when it is right.
+        // SNA this replaces carried no card identity at all, so this is strictly
+        // more faithful than what it replaces. Refusing to replay a recording on
+        // the machine that received it would defeat the format. The override
+        // still WARNS and names both cards, because a silent override of a
+        // Tier-1 check is not acceptable even when it is right.
         // `--snapshot-mode strict` still governs the PROVENANCE checks (state
         // model, ROM digests): only the card identity is exempt.
         //
-        // NOT a proof that the card cannot matter: `PortDispatch::in()` serves
-        // EVERY CPU `IN` from the recorded log with no port filter, so guest SD
-        // reads through 0xE7/0xEB come from the log — but `dma_.read_io` is
-        // wired to `port_.read()` (see init()), which is the pre-override path,
-        // so a DMA port read is neither recorded nor replayed on ANY machine.
-        // That is a pre-existing RZX limitation, not one this introduces.
+        // HOW MUCH THE OVERRIDE ACTUALLY CARRIES — measured, because an approved
+        // decision resting on an unverified assumption still rests on one. Three
+        // paths could let the card reach a replay:
+        //   1. Guest reads through the CPU: CANNOT. `PortDispatch::in()` serves
+        //      EVERY `IN` from the recorded log with no port filter at all
+        //      (port_dispatch.cpp:187-197), so SD data read through 0xE7/0xEB
+        //      comes from the log whatever card is mounted.
+        //   2. Guest reads through the DMA: CAN. `dma_.read_io` is wired to
+        //      `port_.read()` in init(), the PRE-override path, so a DMA port
+        //      read is neither recorded nor replayed — on any machine and for
+        //      any snapshot type. A pre-existing RZX limitation, not one this
+        //      introduces, and the one case where the override is load-bearing
+        //      rather than belt-and-braces.
+        //   3. The ROMs: the boot ROMs are extracted from the card at init, so a
+        //      different card can boot different ROMs. That path IS checked —
+        //      the `.jns` records ROM digests, which warn here and REFUSE under
+        //      `--snapshot-mode strict`.
         jnext::JnsLoadOptions opt;
         opt.strict       = config_.jns_strict;
         opt.force_sdcard = true;

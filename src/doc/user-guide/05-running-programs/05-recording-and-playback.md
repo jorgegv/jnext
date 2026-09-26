@@ -105,6 +105,16 @@ refusing to replay one somebody sent you would defeat the point of the format.
 model and the ROM digests); only the card identity is exempt, and only for a
 snapshot embedded in a recording.
 
+In practice the card barely matters to a replay at all, and it is worth knowing
+why. Everything the program reads from a port during playback comes from the
+recording, the SD card's data ports included — so what is on your card cannot
+change what the program sees. Two things are not read from the recording: a
+transfer the **DMA** performs from a port (a limitation of RZX playback in
+general, on every machine), and the **ROMs**, which JNEXT reads from the card
+when it boots — and that second one is checked, because a `.jns` records which
+ROMs it was made with and warns when they differ, or refuses under
+`--snapshot-mode strict`.
+
 A recording plays on the machine it was recorded on, whatever machine you have
 selected: JNEXT writes the machine into every recording it makes, and for one
 made elsewhere it reads the machine from the embedded snapshot. Playing it

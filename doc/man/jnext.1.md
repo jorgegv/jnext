@@ -491,7 +491,12 @@ debugger ones.
     does NOT refuse a different SD card — it warns, names the card the recording
     was made on, and plays: a recording records input, and the card is not part
     of what it claims to carry. **\--snapshot-mode** `strict` still governs the
-    state-model and ROM-digest checks; only the card identity is exempt. The file
+    state-model and ROM-digest checks; only the card identity is exempt.
+    The card can hardly affect a replay in any case, because every port read
+    during playback is served from the recording — the SD data ports included.
+    The exceptions are a transfer the DMA performs from a port, which RZX
+    playback does not reproduce on any machine, and the ROMs, which are read from
+    the card at boot and are covered by the `.jns` ROM digests. The file
     names the machine it was recorded on, which **\--rzx-play** then uses.
     A *FILE* that cannot be written is refused before the machine starts, and
     a recording that cannot be saved when it is written is logged; either way
