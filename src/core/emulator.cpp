@@ -8103,60 +8103,10 @@ bool Emulator::load_snapshot_from_memory(const std::vector<uint8_t>& data,
         init(config_);
         return loader.apply(*this);
     }
-    if (ext == "jns") {
-        // GH #274 — what a Next records. No init(config_) first: a `.jns`
-        // restores the whole machine, its TYPE included, and does its own
-        // container and manifest checking before it touches a subsystem.
-        //
-        // THE SD IDENTITY IS DELIBERATELY OVERRIDDEN HERE, and nowhere else.
-        // OWNER DECISION, 2026-09-26 — sanctioned, not convenient, which is
-        // what the next reader of a deliberate Tier-1 override needs to know.
-        // A `.jns` FILE refuses a load against a different card (§11.3), which
-        // is right for a snapshot — but an RZX is a portable artifact, offered
-        // in the documentation as a good bug report, and a recording records
-        // INPUT: the card is not part of what it claims to carry, and the 48K
-        // SNA this replaces carried no card identity at all, so this is strictly
-        // more faithful than what it replaces. Refusing to replay a recording on
-        // the machine that received it would defeat the format. The override
-        // still WARNS and names both cards, because a silent override of a
-        // Tier-1 check is not acceptable even when it is right.
-        // `--snapshot-mode strict` still governs the PROVENANCE checks (state
-        // model, ROM digests): only the card identity is exempt.
-        //
-        // HOW MUCH THE OVERRIDE ACTUALLY CARRIES — measured, because an approved
-        // decision resting on an unverified assumption still rests on one. Three
-        // paths could let the card reach a replay:
-        //   1. Guest reads through the CPU: CANNOT. `PortDispatch::in()` serves
-        //      EVERY `IN` from the recorded log with no port filter at all
-        //      (port_dispatch.cpp:187-197), so SD data read through 0xE7/0xEB
-        //      comes from the log whatever card is mounted.
-        //   2. Guest reads through the DMA: CAN. `dma_.read_io` is wired to
-        //      `port_.read()` in init(), the PRE-override path, so a DMA port
-        //      read is neither recorded nor replayed — on any machine and for
-        //      any snapshot type. A pre-existing RZX limitation, not one this
-        //      introduces, and the one case where the override is load-bearing
-        //      rather than belt-and-braces.
-        //   3. The ROMs: the boot ROMs are extracted from the card at init, so a
-        //      different card can boot different ROMs. That path IS checked —
-        //      the `.jns` records ROM digests, which warn here and REFUSE under
-        //      `--snapshot-mode strict`.
-        jnext::JnsLoadOptions opt;
-        opt.strict       = config_.jns_strict;
-        opt.force_sdcard = true;
-        jnext::JnsLoadReport report;
-        std::string          why;
-        if (!load_jns(data.data(), data.size(), opt, report, why)) {
-            Log::emulator()->error("JNS: {}: {}", name, why);
-            return false;
-        }
-        for (const std::string& w : report.warnings)
-            Log::emulator()->warn("JNS: {}: {}", name, w);
-        return true;
-    }
     // Refused rather than skipped: playing a recording's input against a
     // machine it was not recorded on reproduces nothing, so "skip the
     // snapshot and play anyway" is a silent failure, not a fallback.
-    Log::emulator()->error("{}: unsupported snapshot type '{}' (supported: sna, szx, z80, jns)",
+    Log::emulator()->error("{}: unsupported snapshot type '{}' (supported: sna, szx, z80)",
                            name, ext);
     return false;
 }
@@ -8247,40 +8197,22 @@ bool Emulator::start_rzx_recording(const std::string& path)
     if (!rzx_recorder_.start(path)) return false;
     rzx_suspend_tape_traps();
 
-    // Embed the machine the recording starts from, in the richest format that
-    // machine has.
+    // Embed the machine the recording starts from. A 48K SNA holds 48K of RAM
+    // and no paging, so on the 128K and +3 — where a program's 7FFD/1FFD
+    // paging and its other five banks are part of that machine — an SZX is
+    // embedded instead; a 48K SNA of a paged 128K program replayed against the
+    // wrong banks. SzxSaver refuses what .szx cannot represent (the Next), and
+    // the 48K SNA remains the fallback there.
     //
-    // GH #274 — A NEXT EMBEDS A `.jns`. It used to embed a 48K SNA, which holds
-    // registers, banks 5/2/0 and the border and NOTHING a Next adds: no
-    // NextREGs, no Layer 2, no tilemap, no sprites, no Copper, no DivMMC. A
-    // recording therefore replayed correctly only when the program happened to
-    // redraw its whole display from scratch during the replayed frames — and
-    // measurably failed when it did not: `test02layer2.nex` replayed 70183
-    // pixels away from its own recording. `.jns` is the only format that can
-    // represent a Next, so it is what a Next records.
-    //
-    // 128K and +3 keep the SZX: an SNA cannot carry their 0x1FFD paging and
-    // `SzxSaver` covers both. A 48K keeps the SNA, where the CPU view IS the
-    // machine, and it now goes through the checked `SnaSaver::save()` — on a
-    // 48K that is the same bytes, and a 48K whose window something moved is
-    // refused rather than mis-saved (see SnaSaver's class doc-comment).
+    // GH #274 — the fallback goes through save_cpu_view_unchecked(), NOT the
+    // user-facing SnaSaver::save(), which now refuses a Next outright. The
+    // contract here is different and narrower: the RZX names its own machine
+    // (set_machine() below), so playback rebuilds the Next and the embedded
+    // snapshot only has to restore the 64 KB the CPU saw. Nothing a user can
+    // ask for reaches this, so a Next `.sna` FILE is still refused.
     std::vector<uint8_t> snap;
     std::string          snap_ext;
-    if (config_.type == MachineType::ZXN_ISSUE2) {
-        jnext::JnsSaveOptions opt;
-        opt.uncompressed = config_.jns_uncompressed;
-        jnext::JnsLoadReport report;
-        std::string          why;
-        std::vector<uint8_t> jns;
-        if (save_jns(opt, jns, report, why)) {
-            snap     = std::move(jns);
-            snap_ext = "jns";
-        } else {
-            // Loud, and then no snapshot at all rather than a lossy one: the
-            // SnaSaver fallback below refuses a Next, which is the point.
-            Log::emulator()->error("RZX: cannot embed a '.jns' snapshot of this Next: {}", why);
-        }
-    } else if (config_.type == MachineType::ZX128K || config_.type == MachineType::ZX_PLUS3) {
+    if (config_.type == MachineType::ZX128K || config_.type == MachineType::ZX_PLUS3) {
         SzxSaver::SaveResult szx = SzxSaver::save(*this);
         if (szx.ok) {
             snap     = std::move(szx.data);
@@ -8288,13 +8220,12 @@ bool Emulator::start_rzx_recording(const std::string& path)
         }
     }
     if (snap.empty()) {
-        snap     = SnaSaver::save(*this);
+        snap     = SnaSaver::save_cpu_view_unchecked(*this);
         snap_ext = "sna";
     }
     if (!snap.empty()) rzx_recorder_.set_snapshot(std::move(snap), snap_ext);
-    // The snapshot does not have to say which machine it is for — an SNA cannot,
-    // and rzx.h's snapshot_machine() reads no `.jns` — so the file names it in
-    // its creator block: playback builds that machine.
+    // The snapshot cannot say which machine it is for (on the Next it is a 48K
+    // SNA), so the file names it: playback builds that machine.
     rzx_recorder_.set_machine(config_.type);
     rzx_recorder_.set_initial_tstates(*fuse_z80_tstates_ptr());
 

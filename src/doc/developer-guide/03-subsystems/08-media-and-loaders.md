@@ -569,41 +569,18 @@ and why it only works at all if the emulator executes the same instructions in
 the same order both times.
 
 `rzx.h` holds the format, `rzx_player.*` and `rzx_recorder.*` the two
-directions. The snapshot a recording embeds is the richest format the machine
-has (GH #274): a **`.jns` on a Next** (`Emulator::save_jns()` into a buffer — no
-temporary file, which is deliberate), an SZX on the 128K and +3 (`SzxSaver` —
-all eight banks and the paging ports), and an SNA on a 48K (`SnaSaver::save()`,
-where the CPU view IS the machine).
-
-The Next arm used to be a 48K SNA, and that was a real defect rather than a
-documented limitation: it carries registers, banks 5/2/0 and the border and
-nothing a Next adds, so a recording replayed correctly only when the program
-redrew its whole display during the replayed frames. `test02layer2.nex` — which
-draws a Layer 2 image and then leaves it — replayed 70183 pixels away from its
-own recording, and `rzx-machine-func` did not see it because its fixture was a
-program that redraws. That fixture is now `test02layer2.nex` for exactly that
-reason.
-
-`Emulator::load_snapshot_from_memory()` gained the matching `jns` branch, and it
-is the one place that loads a `.jns` with the **SD identity override** on — an
-owner decision of 2026-09-26, recorded as such at the call site because a
-deliberate Tier-1 override should not read as convenience. A `.jns` file refuses a
-different card, but an RZX is a portable artifact and the card is not part of what
-a recording claims to carry, and the 48K SNA this replaces carried no card
-identity at all. The override warns and names both cards; `--snapshot-mode strict`
-still governs the provenance checks.
-
-How much that override actually carries was measured rather than assumed, and the
-answer is a useful boundary for judging RZX fidelity generally:
-
-| Path the card could reach a replay by | Reached? |
-|---|---|
-| Guest reads through the CPU | **No.** `PortDispatch::in()` serves every `IN` from the log with no port filter, so SD data through 0xE7/0xEB comes from the recording whatever card is mounted |
-| Guest reads through the DMA | **Yes.** `dma_.read_io` is wired to `port_.read()`, the pre-override path, so a DMA port read is neither recorded nor replayed — on any machine, for any snapshot type. A pre-existing RZX limitation |
-| The ROMs | **Yes**, they are extracted from the card at init — but that path is CHECKED: the `.jns` records ROM digests, which warn, and refuse under `--snapshot-mode strict` |
-
-So the override is belt-and-braces for CPU-driven SD access and load-bearing only
-for the DMA case.
+directions. The snapshot a recording embeds is an SZX on the 128K and +3
+(`SzxSaver` — all eight banks and the paging ports) and a 48K SNA otherwise
+(`SnaSaver::save_cpu_view_unchecked()`, which exists for this): neither `.szx`
+nor `.sna` can hold the Next's own state, so a Next program replays only as far
+as its 48K part does. That is the *unchecked* entry point deliberately —
+`SnaSaver::save()`, the one a user reaches through `--delayed-snapshot` or the
+GUI, refuses a Next outright (GH #274), because a `.sna` FILE of a Next is a
+file that lies about its machine. An RZX does not: it names the machine in its
+own creator block, so playback rebuilds the Next and the embedded snapshot only
+has to restore the 64 KB the CPU saw. The 128K/+3 arm is unchanged by GH #274
+and stays SZX: an SNA now carries those machines' RAM fully, but not the +3's
+second paging register, and `SzxSaver` already covers both.
 A command-line recording starts once the `--load`/`--inject` is in the
 machine (`emulator_start_rzx_record_when_loaded()`), so that snapshot is the
 loaded program. The tape ROM traps stand down while RZX records or plays —

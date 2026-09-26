@@ -259,12 +259,7 @@ inline bool parse(const std::string& path, RzxRecording& rec) {
 
 /// The embedded-snapshot types jnext can load (Emulator::load_snapshot_from_memory).
 inline bool snapshot_type_supported(const std::string& ext) {
-    // "jns" is what a Next records (GH #274) — Emulator::load_snapshot_from_memory()
-    // reads it back through Emulator::load_jns(). snapshot_machine() below does
-    // NOT read one, deliberately: a `.jns` is a ZIP, and parsing its manifest
-    // here would drag the snapshot reader into this header. It does not need to,
-    // because every jnext recording names its machine in its creator block.
-    return ext == "sna" || ext == "szx" || ext == "z80" || ext == "jns";
+    return ext == "sna" || ext == "szx" || ext == "z80";
 }
 
 /// Whether `path` is an RZX recording jnext can play: it parses, and its
@@ -279,7 +274,7 @@ inline bool playable(const std::string& path, std::string& why) {
     }
     if (!rec.snapshot_data.empty() && !snapshot_type_supported(rec.snapshot_ext)) {
         why = "its embedded snapshot is of an unsupported type ('" + rec.snapshot_ext +
-              "'; supported: sna, szx, z80, jns)";
+              "'; supported: sna, szx, z80)";
         return false;
     }
     return true;

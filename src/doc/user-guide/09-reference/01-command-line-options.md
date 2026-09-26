@@ -512,30 +512,18 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     in the GUI, at **File \> Stop RZX Recording**). Works the same in
     the GUI, the SDL-only build and under **--headless**. While
     recording, a tape loads in real time: a fast load skips the ROM
-    loader, which a recording cannot replay. jnext embeds the richest
-    snapshot the machine has: a `.jns` on a Next, an SZX on the 128K and
-    +3, an SNA on a 48K. A Next recording therefore restores Layer 2,
-    the tilemap, the sprites, the NextREGs and the Copper as well as the
-    RAM; recordings made by jnext 1.0.1 and earlier embedded a 48K SNA
-    there and replay only as far as the classic 48K part carries them.
-    Playback of a `.jns`-carrying recording does NOT refuse a different
-    SD card — it warns, names the card the recording was made on, and
-    plays: a recording records input, and the card is not part of what
-    it claims to carry. **--snapshot-mode** `strict` still governs the
-    state-model and ROM-digest checks; only the card identity is exempt.
-    The card can hardly affect a replay in any case, because every port
-    read during playback is served from the recording — the SD data
-    ports included. The exceptions are a transfer the DMA performs from
-    a port, which RZX playback does not reproduce on any machine, and
-    the ROMs, which are read from the card at boot and are covered by
-    the `.jns` ROM digests. The file names the machine it was recorded
-    on, which **--rzx-play** then uses. A *FILE* that cannot be written
-    is refused before the machine starts, and a recording that cannot be
-    saved when it is written is logged; either way **jnext** exits
-    non-zero. A reset ends the recording: a hard reset (the Reset
-    button, F1, or the program’s own), loading another program from the
-    GUI, changing the machine type, or F4 writes the file there, and
-    nothing after it is recorded — a recording cannot replay a reset.
+    loader, which a recording cannot replay. The snapshot is an SZX on
+    the 128K and +3 and a 48K SNA otherwise, which cannot hold the
+    Next’s own video and memory state, so a program that uses Layer 2,
+    the tilemap, sprites or its palettes may not replay correctly. The
+    file names the machine it was recorded on, which **--rzx-play** then
+    uses. A *FILE* that cannot be written is refused before the machine
+    starts, and a recording that cannot be saved when it is written is
+    logged; either way **jnext** exits non-zero. A reset ends the
+    recording: a hard reset (the Reset button, F1, or the program’s
+    own), loading another program from the GUI, changing the machine
+    type, or F4 writes the file there, and nothing after it is recorded
+    — a recording cannot replay a reset.
 
 **--rewind-buffer-size** *N*
 :   Frame-snapshot ring buffer for backwards execution. Opt-in; default

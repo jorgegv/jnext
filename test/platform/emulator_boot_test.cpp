@@ -1027,14 +1027,14 @@ int main()
                   "byte26=" + std::to_string(sna.size() > 26 ? sna[26] : -1));
         }
 
-        // EB-52: a recording started on a NEXT embeds a `.jns` — the only format
-        // that can represent one (GH #274). It used to embed a 48K SNA, which
-        // carries registers, banks 5/2/0 and the border and nothing a Next adds,
-        // so a recording replayed correctly only if the program redrew its whole
-        // display during the replayed frames. The row asserts the type AND that
-        // `load_snapshot_from_memory()` reads it back, because the embed is only
-        // worth anything if the playback side accepts it: a 4-byte extension in
-        // an RZX block and a loader that refuses it would be silent.
+        // EB-52: a recording started on a NEXT still embeds that 48K SNA
+        // (GH #274). SnaSaver::save() refuses a Next — a `.sna` FILE of a Next
+        // lies about its machine — so start_rzx_recording() goes through
+        // SnaSaver::save_cpu_view_unchecked() instead. The contract here is
+        // different: the RZX names its machine in its own creator block, so
+        // playback rebuilds the Next and the snapshot only has to restore the
+        // 64 KB the CPU saw. Routing this through the refusing entry point
+        // would embed NOTHING and a Next recording would replay a cold boot.
         {
             EmulatorConfig next_cfg;
             next_cfg.type = MachineType::ZXN_ISSUE2;
@@ -1043,32 +1043,17 @@ int main()
             emu.init(next_cfg);
             const std::string next_rec =
                 (tmp / ("jnext-eb-next-rzx-" + stamp + ".rzx")).string();
-            // A mark in RAM the embedded snapshot must carry, so the row cannot
-            // pass on an empty or unrelated blob.
-            emu.mmu().write(MARK_AT, MARK);
             const bool started = emu.start_rzx_recording(next_rec);
             const auto& rec = emu.rzx_recorder().recording();
-            const std::vector<uint8_t> snap = rec.snapshot_data;
+            const std::size_t snap_size = rec.snapshot_data.size();
             const std::string snap_ext = rec.snapshot_ext;
             emu.stop_rzx_recording();
             std::remove(next_rec.c_str());
-            // Read it back the way playback does, into a machine configured as
-            // a 48K: a `.jns` restores the machine TYPE too, so this also shows
-            // the embed carries what an SNA never could.
-            Emulator back;
-            back.init(base_config());
-            const bool loaded =
-                !snap.empty() && back.load_snapshot_from_memory(snap, snap_ext, "EB-52");
-            check("EB-52", "an RZX recorded on a Next embeds a '.jns', and "
-                  "load_snapshot_from_memory() reads it back as a Next with its RAM",
-                  started && snap_ext == "jns" && !snap.empty() && loaded &&
-                      back.config().type == MachineType::ZXN_ISSUE2 &&
-                      back.mmu().read(MARK_AT) == MARK,
-                  "started=" + std::to_string(started) + " ext='" + snap_ext +
-                      "' size=" + std::to_string(snap.size()) +
-                      " loaded=" + std::to_string(loaded) +
-                      " type=" + std::to_string(static_cast<int>(back.config().type)) +
-                      " mark=" + std::to_string(back.mmu().read(MARK_AT)));
+            check("EB-52", "an RZX recorded on a Next embeds the 48K SNA of the CPU view "
+                  "(49179 bytes, ext 'sna') although a .sna FILE of a Next is refused",
+                  started && snap_size == 49179 && snap_ext == "sna",
+                  "started=" + std::to_string(started) + " size=" +
+                      std::to_string(snap_size) + " ext='" + snap_ext + "'");
         }
 
         std::remove(rec_path.c_str());
