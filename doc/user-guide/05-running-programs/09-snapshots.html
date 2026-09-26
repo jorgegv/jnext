@@ -3076,6 +3076,12 @@ that quietly misrepresents your machine.</p>
 <td>yes</td>
 </tr>
 <tr>
+<td>any machine using extended paging (port 0xDFFD)</td>
+<td><strong>refused</strong> — use <code>.jns</code></td>
+<td>—</td>
+<td>yes</td>
+</tr>
+<tr>
 <td>Next</td>
 <td><strong>refused</strong> — use <code>.jns</code></td>
 <td><strong>refused</strong> — use <code>.jns</code></td>
@@ -3092,6 +3098,13 @@ four RAM banks replace the whole address space including the ROM, and <strong>RO
 ROM 3 paged</strong>, which an SNA would bring back running a different ROM. <code>.szx</code> has
 a field for that register, so it can hold both. An ordinary +3 — which is most
 of the time — saves as a 128K SNA.</p>
+<p>The extended-paging row is the one that can surprise you. A <code>.sna</code> records which
+16 KB bank is at 0xC000 in a single byte that can only name banks 0-7. Port
+0xDFFD — which works on any machine JNEXT emulates, not just a Next — can put a
+bank <em>above</em> 7 there. The snapshot would then come back with a different bank
+mapped and that bank's contents missing altogether, so JNEXT refuses instead.
+<code>.szx</code> has no field for that register either; <code>.jns</code> is the format that carries
+it.</p>
 <p>One property of <code>.sna</code> worth knowing when you hand the file to another emulator:
 the format carries no machine identifier, only a TR-DOS flag. FUSE reads a 128K
 SNA as a <em>Pentagon</em> 128 — the right RAM and paging, a different timing model.
