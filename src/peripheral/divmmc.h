@@ -70,9 +70,17 @@ public:
     /// composite (zxnext.vhd:3138) for the ROM3-conditional path. Both
     /// default to true so unit tests that construct a bare DivMmc keep
     /// their pre-G46(b) behaviour without needing to thread the gates.
+    ///
+    /// GH #282 — `sram_altrom_en_read` / `sram_alt_128_n` are the two
+    /// alt-ROM terms of the same :3138 composite (see the gate comment in
+    /// check_automap). They default to `false`, which reproduces the
+    /// pre-GH-#282 `sram_pre_rom3`-only selector exactly, so unit tests
+    /// that construct a bare DivMmc are unaffected.
     void check_automap(uint16_t pc, bool is_m1,
                        bool sram_pre_override_2 = true,
-                       bool sram_pre_override_0 = true);
+                       bool sram_pre_override_0 = true,
+                       bool sram_altrom_en_read = false,
+                       bool sram_alt_128_n = false);
 
     /// Task 27 C-M1 — per-M1 fast-path gate for the production caller
     /// (Emulator's `on_m1_prefetch` lambda). Returns true when a

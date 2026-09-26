@@ -1000,9 +1000,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             const bool sram_pre_override_0 =
                 mmu_.sram_pre_override_romcs_priority(pc, mf_active,
                                                       config_mode);
+            // GH #282 — the last factor of zxnext.vhd:3138 is a MUX
+            // between `sram_pre_alt_128_n` (while the altrom override
+            // owns the read) and `sram_pre_rom3` (while it does not).
+            // Both are pure functions of live MMU state, so they are
+            // computed here per-M1 alongside the override bits rather
+            // than cached through a feeder — there is no seam to miss.
             divmmc_.check_automap(pc, true,
                                   sram_pre_override_2,
-                                  sram_pre_override_0);
+                                  sram_pre_override_0,
+                                  mmu_.sram_altrom_en_on_read(),
+                                  mmu_.sram_alt_128_n());
         }
         // m1 / mreq are both true during the M1 prefetch M-cycle.
         nmi_source_.observe_m1_fetch(pc, true, true);
