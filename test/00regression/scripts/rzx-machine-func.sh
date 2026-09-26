@@ -118,11 +118,9 @@ if want rzx-machine-func; then
         r48="$rm_dir/r48.rzx"; r128="$rm_dir/r128.rzx"; rnext="$rm_dir/rnext.rzx"
         rc48=$(rm_run headless t48 100 --machine 48k --load "$rm_dir/bifrost.sna" --rzx-record "$r48")
         rc128=$(rm_run headless t128 150 --machine 128k --rzx-record "$r128")
-        rcn=$(rm_run headless tnext 100 --machine next \
-                --load "$PROJECT_DIR/test/00regression/nex/test05print.nex" --rzx-record "$rnext")
-        if [[ "$rc48" != 0 || "$rc128" != 0 || "$rcn" != 0 ||
-              ! -s "$r48" || ! -s "$r128" || ! -s "$rnext" || ! -s "$rm_dir/rreset.rzx" ]]; then
-            fail_row " (could not record the ground truths: rc48=$rc48 rc128=$rc128 rcnext=$rcn)"
+        if [[ "$rc48" != 0 || "$rc128" != 0 ||
+              ! -s "$r48" || ! -s "$r128" || ! -s "$rm_dir/rreset.rzx" ]]; then
+            fail_row " (could not record the ground truths: rc48=$rc48 rc128=$rc128)"
         else
             for fe in headless qt sdl; do
                 rm_same t48 "48-$fe" "$(rm_run "$fe" "48-$fe" 100 --rzx-play "$r48")"
@@ -142,14 +140,21 @@ if want rzx-machine-func; then
             rm_reset_48k reset-cold "$(JNEXT_DELAYED_RESET_FRAMES=5 \
                 JNEXT_DELAYED_RESET_TYPE="loadnex:$rm_dir/rreset.rzx" rm_run headless reset-cold 200 --machine next)"
 
-            rm_same tnext next-play "$(rm_run headless next-play 100 --rzx-play "$rnext")"
-            rm_same tnext next-cold "$(JNEXT_DELAYED_RESET_FRAMES=5 \
-                JNEXT_DELAYED_RESET_TYPE="loadnex:$rnext" rm_run headless next-cold 105 --machine 48k)"
+            # The Next: refused, loudly, with the machines that CAN record named.
+            rcn=$(rm_run headless tnext 100 --machine next --rzx-record "$rnext")
+            [[ "$rcn" != 0 ]] \
+                || rm_faults+=("next: recording on a Next exited 0; it must be refused")
+            [[ ! -f "$rnext" ]] \
+                || rm_faults+=("next: a file was written for a refused recording")
+            grep -qF "cannot record on a ZX Spectrum Next" "$rm_dir/tnext.log" \
+                || rm_faults+=("next: no refusal naming the machine")
+            grep -qF -e "--machine 48k" "$rm_dir/tnext.log" \
+                || rm_faults+=("next: the refusal does not name the machines that can record")
 
             if [[ ${#rm_faults[@]} -gt 0 ]]; then
                 fail_row " ($(IFS=';'; echo "${rm_faults[*]}"))"
             else
-                pass_row " (48K, 128K and Next recordings replay on their own machine without --machine, in every route and frontend, and a later hard reset keeps it; --machine wins, with a warning)"
+                pass_row " (48K and 128K recordings replay on their own machine without --machine, in every route and frontend, and a later hard reset keeps it; --machine wins, with a warning; recording on a Next is refused, naming the machines that can)"
             fi
         fi
     fi

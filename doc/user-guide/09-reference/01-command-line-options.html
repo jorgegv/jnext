@@ -3413,7 +3413,8 @@ gets its own machine. The recording’s machine stays selected
 afterwards, in the GUI’s <strong>Machine &gt; Machine Type</strong> too, as if
 chosen there.</dd>
 <dt><strong>--rzx-record</strong> <em>FILE</em></dt>
-<dd>Record input to an RZX file from the start of the run — or, with
+<dd>
+<p>Record input to an RZX file from the start of the run — or, with
 <strong>--load</strong> or <strong>--inject</strong>, from the moment that program is in the
 machine, so the snapshot the file carries is the program, and
 playback replays it. The file is written when <strong>jnext</strong> exits (or,
@@ -3421,17 +3422,27 @@ in the GUI, at <strong>File &gt; Stop RZX Recording</strong>). Works the same in
 the GUI, the SDL-only build and under <strong>--headless</strong>. While
 recording, a tape loads in real time: a fast load skips the ROM
 loader, which a recording cannot replay. The snapshot is an SZX on
-the 128K and +3 and a 48K SNA otherwise, which cannot hold the
-Next’s own video and memory state, so a program that uses Layer 2,
-the tilemap, sprites or its palettes may not replay correctly. The
-file names the machine it was recorded on, which <strong>--rzx-play</strong> then
-uses. A <em>FILE</em> that cannot be written is refused before the machine
-starts, and a recording that cannot be saved when it is written is
-logged; either way <strong>jnext</strong> exits non-zero. A reset ends the
-recording: a hard reset (the Reset button, F1, or the program’s
+the 128K and +3 and a 48K SNA on the 48K. The file names the machine
+it was recorded on, which <strong>--rzx-play</strong> then uses.</p>
+<p><strong>Recording is not available on a ZX Spectrum Next, which is jnext’s
+default machine, so this needs an explicit --machine 48k, 128k or
+plus3.</strong> An RZX carries a snapshot of the machine it starts from
+plus a log of the values the program read from ports — and the log
+records the values without the ports they came from. So no snapshot
+an RZX can carry both describes a Next (none of SNA, SZX or Z80
+holds its extra RAM, NextREGs, Layer 2, tilemap, sprites or Copper)
+and keeps the value log aligned with what the restored machine goes
+on to read. jnext refuses rather than write a file that looks fine
+and replays wrong. <strong>--rzx-play</strong> still plays a Next recording made
+by an earlier jnext, with a warning that it may not replay
+faithfully. A <em>FILE</em> that cannot be written is refused before the
+machine starts, and a recording that cannot be saved when it is
+written is logged; either way <strong>jnext</strong> exits non-zero. A reset ends
+the recording: a hard reset (the Reset button, F1, or the program’s
 own), loading another program from the GUI, changing the machine
 type, or F4 writes the file there, and nothing after it is recorded
-— a recording cannot replay a reset.</dd>
+— a recording cannot replay a reset.</p>
+</dd>
 <dt><strong>--rewind-buffer-size</strong> <em>N</em></dt>
 <dd>Frame-snapshot ring buffer for backwards execution. Opt-in; default
 0 = off.</dd>
@@ -3491,9 +3502,12 @@ delay in frames. The format is chosen by the extension of <em>FILE</em>:
 ever taken at a frame boundary, so if the debugger has paused the
 machine part-way through a frame — a magic breakpoint, say — the
 frame in flight is completed first and the snapshot is written from
-the boundary that follows it. The capture is never refused, and the
-saved machine is then up to one frame past the point the debugger
-stopped at.</dd>
+the boundary that follows it. That pause never refuses the capture;
+the saved machine is then up to one frame past the point the
+debugger stopped at. A format that cannot represent the current
+machine <em>is</em> refused — it writes nothing, says why, and exits
+non-zero (see <a href="../05-running-programs/09-snapshots.html">5.9
+Snapshots</a>).</dd>
 <dt><strong>--delayed-snapshot-frames</strong> <em>N</em></dt>
 <dd>Delay in frames for <strong>--delayed-snapshot</strong> (default 0). Requires
 <strong>--delayed-snapshot</strong>.</dd>

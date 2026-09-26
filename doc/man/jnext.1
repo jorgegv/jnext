@@ -575,12 +575,24 @@ Works the same in the GUI, the SDL\-only build and under
 \f[B]\-\-headless\f[R].
 While recording, a tape loads in real time: a fast load skips the ROM
 loader, which a recording cannot replay.
-The snapshot is an SZX on the 128K and +3 and a 48K SNA otherwise, which
-cannot hold the Next\(cqs own video and memory state, so a program that
-uses Layer 2, the tilemap, sprites or its palettes may not replay
-correctly.
+The snapshot is an SZX on the 128K and +3 and a 48K SNA on the 48K.
 The file names the machine it was recorded on, which
 \f[B]\-\-rzx\-play\f[R] then uses.
+.RS
+.PP
+\f[B]Recording is not available on a ZX Spectrum Next, which is
+jnext\(cqs default machine, so this needs an explicit \-\-machine 48k,
+128k or plus3.\f[R] An RZX carries a snapshot of the machine it starts
+from plus a log of the values the program read from ports \(em and the
+log records the values without the ports they came from.
+So no snapshot an RZX can carry both describes a Next (none of SNA, SZX
+or Z80 holds its extra RAM, NextREGs, Layer 2, tilemap, sprites or
+Copper) and keeps the value log aligned with what the restored machine
+goes on to read.
+jnext refuses rather than write a file that looks fine and replays
+wrong.
+\f[B]\-\-rzx\-play\f[R] still plays a Next recording made by an earlier
+jnext, with a warning that it may not replay faithfully.
 A \f[I]FILE\f[R] that cannot be written is refused before the machine
 starts, and a recording that cannot be saved when it is written is
 logged; either way \f[B]jnext\f[R] exits non\-zero.
@@ -588,6 +600,7 @@ A reset ends the recording: a hard reset (the Reset button, F1, or the
 program\(cqs own), loading another program from the GUI, changing the
 machine type, or F4 writes the file there, and nothing after it is
 recorded \(em a recording cannot replay a reset.
+.RE
 .TP
 \f[B]\-\-rewind\-buffer\-size\f[R] \f[I]N\f[R]
 Frame\-snapshot ring buffer for backwards execution.
@@ -670,8 +683,11 @@ A snapshot is only ever taken at a frame boundary, so if the debugger
 has paused the machine part\-way through a frame \(em a magic
 breakpoint, say \(em the frame in flight is completed first and the
 snapshot is written from the boundary that follows it.
-The capture is never refused, and the saved machine is then up to one
-frame past the point the debugger stopped at.
+That pause never refuses the capture; the saved machine is then up to
+one frame past the point the debugger stopped at.
+A format that cannot represent the current machine \f[I]is\f[R] refused
+\(em it writes nothing, says why, and exits non\-zero (see \f[B]JNEXT
+SNAPSHOTS\f[R]).
 .TP
 \f[B]\-\-delayed\-snapshot\-frames\f[R] \f[I]N\f[R]
 Delay in frames for \f[B]\-\-delayed\-snapshot\f[R] (default 0).
@@ -1099,7 +1115,24 @@ NextZXOS\(cqs file commands stop working.
 .SH JNEXT SNAPSHOTS
 A \f[CR].jns\f[R] file is jnext\(cqs own whole\-machine snapshot, and
 the only format that can represent a ZX Spectrum Next: \f[CR].sna\f[R]
-and \f[CR].szx\f[R] describe a 48K/128K/+3 machine, which a Next is not.
+and \f[CR].szx\f[R] describe a 48K/128K/+3 machine, which a Next is not,
+so asking for either on a Next is refused rather than written lossily.
+.PP
+The other formats are written for the machines they can describe, and
+refused for the states they cannot.
+A \f[CR].sna\f[R] follows the machine: a 48K gets the 48K form (49179
+bytes), a 128K and an ordinary +3 get the 128K form (all eight RAM banks
+and the 0xC000 paging register).
+An SNA has no byte for the +3\(cqs second paging register, so a +3 in
+\f[I]special paging\f[R], or with ROM 2 or ROM 3 paged, is refused with
+\f[CR].szx\f[R] named as the format that can hold it.
+An SNA names the bank at 0xC000 in a field that reaches only banks 0\-7,
+so a machine using \f[B]extended paging\f[R] (port 0xDFFD, which works
+on every machine type, not only a Next) is refused too, pointing at
+\f[CR].jns\f[R] \(em \f[CR].szx\f[R] has no field for that register
+either.
+An SNA also carries no machine identifier, so FUSE reads a 128K one as a
+Pentagon 128 \(em the right RAM and paging, a different timing model.
 .PP
 Write one with \f[B]File > Save Snapshot\&...\f[R] (Alt+Shift+S), or
 headless with \f[B]\-\-delayed\-snapshot\f[R] naming a \f[CR].jns\f[R]

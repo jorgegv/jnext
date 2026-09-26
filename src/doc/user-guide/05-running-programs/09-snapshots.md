@@ -9,21 +9,48 @@ JNEXT writes four, and the extension picks one:
 | Extension | What it is | Use it when |
 |---|---|---|
 | `.jns` | **JNEXT's own snapshot.** The only one that can represent a ZX Spectrum Next. | You are on a Next — which is JNEXT's default machine. |
-| `.sna` | The classic 48K/128K snapshot every Spectrum emulator reads. | You want to hand the file to another emulator. |
-| `.szx` | ZX-State: richer than `.sna`, still classic-only (48K/128K/+2A/+3). | Same, with more fidelity. |
+| `.sna` | The classic 48K/128K snapshot every Spectrum emulator reads. | You are on a 48K, 128K or +3 and want to hand the file to another emulator. |
+| `.szx` | ZX-State: richer than `.sna` — it names the machine and carries the +3's own paging register. | Same, when `.sna` cannot describe the machine (see below). |
 | `.nex` | Not a snapshot — a *program* file the Next's own loader runs. | You are producing something to run on real hardware. |
 
-`.sna` and `.szx` describe a machine the Next is not: no Layer 2, no sprites,
-no tilemap, no Copper, no DivMMC, 128 KB of RAM where a Next has 768 KB or
-more. That is why `.jns` exists, and it is worth knowing what the other two do
-if you ask for one on a Next anyway:
+### What each format can describe, and when JNEXT refuses
 
-- **`.szx` is refused**, with an error naming the machines it can describe,
-  rather than writing something that misrepresents the one you have.
-- **`.sna` is written, and it is a 48K snapshot** — the 64 KB the CPU can see
-  at that instant and nothing else. JNEXT only ever writes the 48K form of
-  SNA. It will load back into another emulator, but everything that makes the
-  machine a Next is missing from it, so do not use it to keep a Next session.
+A snapshot that cannot describe the machine in front of it is **refused**, with
+an error saying why and which format to use instead. JNEXT never writes a file
+that quietly misrepresents your machine.
+
+| Machine | `.sna` | `.szx` | `.jns` |
+|---|---|---|---|
+| 48K | 48K form, exact | yes | yes |
+| 128K | 128K form: all eight banks, the paging register | yes | yes |
+| +3, ordinary paging | 128K form | yes | yes |
+| +3, special paging or ROM 2/3 paged | **refused** — use `.szx` | yes | yes |
+| any machine using extended paging (port 0xDFFD) | **refused** — use `.jns` | — | yes |
+| Next | **refused** — use `.jns` | **refused** — use `.jns` | yes |
+
+`.sna` and `.szx` describe a machine the Next is not: no Layer 2, no sprites, no
+tilemap, no Copper, no DivMMC, 128 KB of RAM where a Next has 768 KB or more.
+That is why `.jns` exists.
+
+The +3 row is the subtle one. An SNA has no byte for the +3's second paging
+register, so two +3 states cannot be written at all: **special paging**, where
+four RAM banks replace the whole address space including the ROM, and **ROM 2 or
+ROM 3 paged**, which an SNA would bring back running a different ROM. `.szx` has
+a field for that register, so it can hold both. An ordinary +3 — which is most
+of the time — saves as a 128K SNA.
+
+The extended-paging row is the one that can surprise you. A `.sna` records which
+16 KB bank is at 0xC000 in a single byte that can only name banks 0-7. Port
+0xDFFD — which works on any machine JNEXT emulates, not just a Next — can put a
+bank *above* 7 there. The snapshot would then come back with a different bank
+mapped and that bank's contents missing altogether, so JNEXT refuses instead.
+`.szx` has no field for that register either; `.jns` is the format that carries
+it.
+
+One property of `.sna` worth knowing when you hand the file to another emulator:
+the format carries no machine identifier, only a TR-DOS flag. FUSE reads a 128K
+SNA as a *Pentagon* 128 — the right RAM and paging, a different timing model.
+`.szx` names the machine, so use that if the timing matters.
 
 ## Saving
 
@@ -36,14 +63,17 @@ jnext --headless --load game.nex \
 
 On a Next the file dialog offers `.jns` first and adds `.jns` if you type a
 name with no extension; on a 48K, 128K or +3 it offers `.sna` first and adds
-that. Type any of the four extensions and you get that format.
+that. Type any of the four extensions and you get that format, unless the table
+above says it is refused: the dialog then says why, and headless says why and
+exits non-zero rather than leaving you a file you would have trusted.
 
 A snapshot is only ever taken at a **frame boundary**. If the debugger has
 stopped the machine part-way through a frame — which is exactly when you reach
 for this menu item — JNEXT finishes that frame first and saves from the
-boundary after it, and the status bar says so once. The save is never refused
-and never unavailable; the consequence is that the restored machine is up to
-one frame (20 ms) past where you stopped. If you need the precise instant, that
+boundary after it, and the status bar says so once. That pause never refuses
+the save and never greys the menu item out — the only refusal is the format one
+above; the consequence is that the restored machine is up to one frame (20 ms)
+past where you stopped. If you need the precise instant, that
 is what the rewind buffer is for.
 
 ## Loading

@@ -87,11 +87,32 @@ An RZX made elsewhere that carries more than one snapshot — some emulators add
 one mid-recording — plays up to the second snapshot, and JNEXT says so.
 
 Because it stores input rather than pixels, an RZX is tiny compared with a
-video — but it only replays correctly in an emulator that models the machine
-the same way. It also only replays what its snapshot holds: on the 128K and +3
-that is the whole machine, but on the Next it is the classic 48K part only, so
-a program that uses the Next's own graphics (Layer 2, the tilemap, sprites,
-palettes) may not replay correctly.
+video — but it only replays correctly in an emulator that models the machine the
+same way. It also only replays what its snapshot holds, which on the 128K and +3
+is the whole machine.
+
+## Recording is not available on a Next
+
+JNEXT records an RZX on a **48K, 128K or +3** only. The Next is JNEXT's default
+machine, so recording needs `--machine 48k`, `128k` or `plus3` — or, in the GUI,
+**Machine ▸ Machine Type**. Ask for a recording on a Next and JNEXT says so
+instead of starting one.
+
+The reason is in the format rather than in JNEXT. An RZX holds two things: a
+snapshot of the machine the recording starts from, and a log of every value the
+program read from a port. The snapshot has to be one of the classic formats — and
+none of them can describe a Next, with its extra RAM, its NextREGs, Layer 2, the
+tilemap, the sprites and the Copper. Worse, the log records the *values* and not
+the *ports* they came from, so the snapshot and the log have to agree exactly on
+what the program reads and in what order; a snapshot that puts the machine back
+even slightly differently shifts every value in the log, and nothing in the file
+can detect it. A Next recording is therefore either missing most of the machine
+or quietly out of step, and JNEXT will not write one.
+
+**Playing one still works.** Earlier JNEXT versions did write Next recordings, so
+those files exist; JNEXT plays them and warns that the replay may not be
+faithful. A program whose whole state lives in the classic 48K part replays
+perfectly well — which is exactly why the limitation went unnoticed for so long.
 
 A recording plays on the machine it was recorded on, whatever machine you have
 selected: JNEXT writes the machine into every recording it makes, and for one

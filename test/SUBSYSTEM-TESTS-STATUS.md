@@ -14,7 +14,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Copper                |       82 |       82 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      259 |      259 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Memory/MMU (int)      |       68 |       68 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Memory/MMU (int)      |       89 |       89 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      349 |      349 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub           |      159 |      159 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -61,7 +61,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Present cadence       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Render-skip policy    |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Screenshot output (PNG/.SCR) |       24 |       24 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Emulator Boot         |       67 |       67 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Emulator Boot         |       68 |       68 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply Policy) |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Attach |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Pointer Capture       |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -123,6 +123,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Key Bindings |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **9185** | **9185** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **9207** | **9207** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

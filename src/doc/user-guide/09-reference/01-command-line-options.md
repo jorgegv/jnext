@@ -505,6 +505,7 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     chosen there.
 
 **--rzx-record** *FILE*
+
 :   Record input to an RZX file from the start of the run — or, with
     **--load** or **--inject**, from the moment that program is in the
     machine, so the snapshot the file carries is the program, and
@@ -513,14 +514,24 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     the GUI, the SDL-only build and under **--headless**. While
     recording, a tape loads in real time: a fast load skips the ROM
     loader, which a recording cannot replay. The snapshot is an SZX on
-    the 128K and +3 and a 48K SNA otherwise, which cannot hold the
-    Next’s own video and memory state, so a program that uses Layer 2,
-    the tilemap, sprites or its palettes may not replay correctly. The
-    file names the machine it was recorded on, which **--rzx-play** then
-    uses. A *FILE* that cannot be written is refused before the machine
-    starts, and a recording that cannot be saved when it is written is
-    logged; either way **jnext** exits non-zero. A reset ends the
-    recording: a hard reset (the Reset button, F1, or the program’s
+    the 128K and +3 and a 48K SNA on the 48K. The file names the machine
+    it was recorded on, which **--rzx-play** then uses.
+
+    **Recording is not available on a ZX Spectrum Next, which is jnext’s
+    default machine, so this needs an explicit --machine 48k, 128k or
+    plus3.** An RZX carries a snapshot of the machine it starts from
+    plus a log of the values the program read from ports — and the log
+    records the values without the ports they came from. So no snapshot
+    an RZX can carry both describes a Next (none of SNA, SZX or Z80
+    holds its extra RAM, NextREGs, Layer 2, tilemap, sprites or Copper)
+    and keeps the value log aligned with what the restored machine goes
+    on to read. jnext refuses rather than write a file that looks fine
+    and replays wrong. **--rzx-play** still plays a Next recording made
+    by an earlier jnext, with a warning that it may not replay
+    faithfully. A *FILE* that cannot be written is refused before the
+    machine starts, and a recording that cannot be saved when it is
+    written is logged; either way **jnext** exits non-zero. A reset ends
+    the recording: a hard reset (the Reset button, F1, or the program’s
     own), loading another program from the GUI, changing the machine
     type, or F4 writes the file there, and nothing after it is recorded
     — a recording cannot replay a reset.
@@ -594,9 +605,12 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     ever taken at a frame boundary, so if the debugger has paused the
     machine part-way through a frame — a magic breakpoint, say — the
     frame in flight is completed first and the snapshot is written from
-    the boundary that follows it. The capture is never refused, and the
-    saved machine is then up to one frame past the point the debugger
-    stopped at.
+    the boundary that follows it. That pause never refuses the capture;
+    the saved machine is then up to one frame past the point the
+    debugger stopped at. A format that cannot represent the current
+    machine *is* refused — it writes nothing, says why, and exits
+    non-zero (see [5.9
+    Snapshots](../05-running-programs/09-snapshots.md)).
 
 **--delayed-snapshot-frames** *N*
 :   Delay in frames for **--delayed-snapshot** (default 0). Requires

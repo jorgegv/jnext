@@ -483,10 +483,19 @@ debugger ones.
     Recording**). Works the same in the GUI, the SDL-only build and under
     **\--headless**. While recording, a tape loads in real time: a fast load
     skips the ROM loader, which a recording cannot replay. The snapshot is an
-    SZX on the 128K and +3 and a 48K SNA otherwise, which cannot hold the Next's
-    own video and memory state, so a program that uses Layer 2, the tilemap,
-    sprites or its palettes may not replay correctly. The file names the
-    machine it was recorded on, which **\--rzx-play** then uses.
+    SZX on the 128K and +3 and a 48K SNA on the 48K. The file names the machine
+    it was recorded on, which **\--rzx-play** then uses.
+
+    **Recording is not available on a ZX Spectrum Next, which is jnext's default
+    machine, so this needs an explicit \--machine 48k, 128k or plus3.** An RZX
+    carries a snapshot of the machine it starts from plus a log of the values the
+    program read from ports — and the log records the values without the ports
+    they came from. So no snapshot an RZX can carry both describes a Next (none
+    of SNA, SZX or Z80 holds its extra RAM, NextREGs, Layer 2, tilemap, sprites
+    or Copper) and keeps the value log aligned with what the restored machine
+    goes on to read. jnext refuses rather than write a file that looks fine and
+    replays wrong. **\--rzx-play** still plays a Next recording made by an
+    earlier jnext, with a warning that it may not replay faithfully.
     A *FILE* that cannot be written is refused before the machine starts, and
     a recording that cannot be saved when it is written is logged; either way
     **jnext** exits non-zero. A reset ends the recording: a hard reset (the
@@ -561,9 +570,11 @@ debugger ones.
     boundary,
     so if the debugger has paused the machine part-way through a frame — a
     magic breakpoint, say — the frame in flight is completed first and the
-    snapshot is written from the boundary that follows it. The capture is
-    never refused, and the saved machine is then up to one frame past the
-    point the debugger stopped at.
+    snapshot is written from the boundary that follows it. That pause never
+    refuses the capture; the saved machine is then up to one frame past the
+    point the debugger stopped at. A format that cannot represent the current
+    machine *is* refused — it writes nothing, says why, and exits non-zero
+    (see **JNEXT SNAPSHOTS**).
 
 **\--delayed-snapshot-frames** *N*
 :   Delay in frames for **\--delayed-snapshot** (default 0). Requires
@@ -927,7 +938,20 @@ NextZXOS's file commands stop working.
 
 A `.jns` file is jnext's own whole-machine snapshot, and the only format that
 can represent a ZX Spectrum Next: `.sna` and `.szx` describe a 48K/128K/+3
-machine, which a Next is not.
+machine, which a Next is not, so asking for either on a Next is refused rather
+than written lossily.
+
+The other formats are written for the machines they can describe, and refused
+for the states they cannot. A `.sna` follows the machine: a 48K gets the 48K
+form (49179 bytes), a 128K and an ordinary +3 get the 128K form (all eight RAM
+banks and the 0xC000 paging register). An SNA has no byte for the +3's second
+paging register, so a +3 in *special paging*, or with ROM 2 or ROM 3 paged, is
+refused with `.szx` named as the format that can hold it. An SNA names the bank
+at 0xC000 in a field that reaches only banks 0-7, so a machine using **extended
+paging** (port 0xDFFD, which works on every machine type, not only a Next) is
+refused too, pointing at `.jns` — `.szx` has no field for that register either.
+An SNA also carries no machine identifier, so FUSE reads a 128K one as a
+Pentagon 128 — the right RAM and paging, a different timing model.
 
 Write one with **File > Save Snapshot...** (Alt+Shift+S), or headless with
 **\--delayed-snapshot** naming a `.jns` file. Read one back with **\--load**, a

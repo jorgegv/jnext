@@ -778,6 +778,12 @@ void HeadlessApp::run() {
             } else if (ext == ".nex") {
                 bytes = NexSaver::save(emulator_).data;
             } else {
+                // GH #274 — .sna is the 48K form only: SnaSaver::save() logs a
+                // clear error and returns no data on a machine it cannot
+                // represent (the Next, jnext's default), exactly as the .szx
+                // arm above does. The shared no-data path below then fails the
+                // run rather than writing a snapshot that is not of this
+                // machine.
                 bytes = SnaSaver::save(emulator_);
             }
             bool ok = !bytes.empty();

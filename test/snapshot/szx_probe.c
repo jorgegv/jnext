@@ -26,6 +26,14 @@
  *
  * Prints one `key=value` line per field, or a diagnostic on stderr and a
  * non-zero exit. Built only when libspectrum is present (see test/CMakeLists).
+ *
+ * THE `bankN=` LINES (GH #274) are per-bank checksums of the 16K RAM pages, so
+ * this probe's view of the RAM can be compared with sna_probe's view of a
+ * `.sna` written from the SAME machine state. That comparison is what
+ * adjudicates BANK ORDER in the new 128K SNA form across two independent
+ * formats, using libspectrum's own page indexing on both sides.
+ * `page_sum()` MUST stay byte-identical to sna_probe.c's copy, or the two
+ * probes' numbers stop being comparable — which is the only thing they are for.
  */
 
 #include <libspectrum.h>
@@ -33,6 +41,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* A cheap, order-sensitive checksum: the same bytes in a different place give a
+ * different value, which is what makes a swapped pair of banks visible.
+ * Byte-identical to sna_probe.c's copy — see the header comment. */
+static unsigned long page_sum(const libspectrum_byte *p, size_t n)
+{
+    unsigned long h = 5381;
+    for (size_t i = 0; i < n; i++) h = h * 33u + p[i];
+    return h;
+}
 
 int main(int argc, char **argv)
 {
@@ -87,10 +105,24 @@ int main(int argc, char **argv)
     printf("bc=%u\n",   (unsigned)libspectrum_snap_bc(snap));
     printf("de=%u\n",   (unsigned)libspectrum_snap_de(snap));
     printf("hl=%u\n",   (unsigned)libspectrum_snap_hl(snap));
+    /* ix/iy/r are printed in the same order sna_probe.c prints them, so the two
+     * probes' output can be compared line for line (GH #274). */
+    printf("ix=%u\n",   (unsigned)libspectrum_snap_ix(snap));
+    printf("iy=%u\n",   (unsigned)libspectrum_snap_iy(snap));
     printf("i=%u\n",    (unsigned)libspectrum_snap_i(snap));
+    printf("r=%u\n",    (unsigned)libspectrum_snap_r(snap));
     printf("im=%u\n",   (unsigned)libspectrum_snap_im(snap));
     printf("iff1=%u\n", (unsigned)libspectrum_snap_iff1(snap));
     printf("iff2=%u\n", (unsigned)libspectrum_snap_iff2(snap));
+    printf("border=%u\n", (unsigned)libspectrum_snap_out_ula(snap) & 0x07u);
+    printf("port7ffd=%u\n",
+           (unsigned)libspectrum_snap_out_128_memoryport(snap));
+
+    for (int page = 0; page < 8; page++) {
+        libspectrum_byte *p = libspectrum_snap_pages(snap, page);
+        if (p) printf("bank%d=%lu\n", page, page_sum(p, 0x4000));
+        else   printf("bank%d=absent\n", page);
+    }
 
     libspectrum_snap_free(snap);
     free(buf);

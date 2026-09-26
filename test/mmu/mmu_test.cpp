@@ -4460,8 +4460,10 @@ void test_boot_format_loaders() {
     // 49179-byte 48K SNA layout would require constructing a full
     // Emulator (jnext_core link), which this Mmu-tier suite intentionally
     // avoids. The byte-count contract is pinned by the SNA_48K_SIZE
-    // constant in sna_saver.cpp:50 and exercised by emulator.cpp:3882
-    // (existing RZX recording path). The GUI consumer's existence is
+    // constant in sna_saver.cpp:69 and exercised by the RZX recording path
+    // in emulator.cpp, plus the SNAPSAVE-SNA group in
+    // mmu_integration_test.cpp (GH #274, the machine boundary — which is
+    // where a full Emulator IS available). The GUI consumer's existence is
     // pinned by the MainWindow declaration + linker (the build itself
     // proves the symbol).
     //

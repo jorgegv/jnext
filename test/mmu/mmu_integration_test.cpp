@@ -1542,6 +1542,596 @@ static void test_loader_reinit() {
     // so a NEX round-tripped through it carries no RAM to leave dirty.
 }
 
+// SNAPSAVE-SNA — the .sna saver, per machine type (GH #274). SnaSaver used to
+// write the 48K form for EVERY machine and exit 0: on a Next that silently
+// dropped 700+ KB of RAM, the NextREGs and every Next video layer; on a 128K or
+// a +3 it dropped five banks and the paging register. The form now follows the
+// machine, and a machine neither form can describe is refused loudly.
+//
+// THE ORACLE IS SnaLoader, deliberately. The saver is written to be its exact
+// inverse, so the rows that matter here are ROUND TRIPS that compare what the
+// old code silently dropped — all eight banks, the paging register, PC/SP — and
+// not file sizes or header fields alone, which is what a test could check while
+// passing the very bug this closes. The two forms' offsets ARE checked from the
+// raw bytes as well, because a loader-only round trip cannot catch a wrong
+// offset both sides agree on.
+//
+// BOTH SIDES OF EVERY BOUNDARY: each machine that saves has a row proving it
+// round-trips, and each refusal has a row proving it refuses with a reason.
+//
+// No VHDL citation: this is a host-side FILE FORMAT boundary, not hardware. The
+// one hardware fact it leans on — port 0x1FFD bit 0 is +3 special paging and
+// bit 2 the ROM-high bit — is Mmu's own (map_plus3_bank(), rebuild_rom_slots()).
+namespace {
+
+/// Fill every 16K bank 0-7 with a per-bank recognisable pattern.
+void fill_all_banks(Emulator& emu) {
+    for (int bank = 0; bank < 8; ++bank)
+        for (int half = 0; half < 2; ++half) {
+            uint8_t* p = emu.ram().page_ptr(static_cast<uint16_t>(bank * 2 + half));
+            for (int i = 0; i < 8192; ++i)
+                p[i] = static_cast<uint8_t>(bank * 31 + half * 7 + i * 3);
+        }
+}
+
+/// All 128 KB of RAM, bank 0 first — bank N's 16K block starts at N * 16384.
+/// Taken from the SOURCE machine AFTER the save, so the 48K form's destructive
+/// PC push at SP-2 is part of what the round trip has to reproduce rather than
+/// something the comparison has to be told to ignore.
+std::vector<uint8_t> capture_banks(Emulator& emu) {
+    std::vector<uint8_t> out(8 * 16384);
+    for (int pg = 0; pg < 16; ++pg)
+        std::copy(emu.ram().page_ptr(static_cast<uint16_t>(pg)),
+                  emu.ram().page_ptr(static_cast<uint16_t>(pg)) + 8192,
+                  out.begin() + pg * 8192);
+    return out;
+}
+
+/// True when each of `banks` matches `want` byte for byte in `emu`.
+/// `first_bad` names the first bank that does not, or -1.
+bool banks_match(const std::vector<uint8_t>& want, Emulator& emu,
+                 const std::vector<int>& banks, int& first_bad) {
+    first_bad = -1;
+    for (int bank : banks)
+        for (int half = 0; half < 2; ++half) {
+            const uint8_t* p = emu.ram().page_ptr(static_cast<uint16_t>(bank * 2 + half));
+            const uint8_t* w = want.data() + bank * 16384 + half * 8192;
+            for (int i = 0; i < 8192; ++i)
+                if (p[i] != w[i]) { first_bad = bank; return false; }
+        }
+    return true;
+}
+
+const std::vector<int> ALL_EIGHT_BANKS{0, 1, 2, 3, 4, 5, 6, 7};
+
+/// Recognisable register state, with IFF1 == IFF2 because the SNA format has
+/// ONE interrupt-enable bit (header byte 19 bit 2) and SnaLoader restores both
+/// from it — a source machine with IFF1 != IFF2 could not round-trip for a
+/// reason that is the format's, not the saver's.
+Z80Registers marked_regs(Emulator& emu, uint16_t pc, uint16_t sp) {
+    Z80Registers r = emu.cpu().get_registers();
+    r.AF = 0x1234; r.BC = 0x5678; r.DE = 0x9ABC; r.HL = 0xDEF0;
+    r.AF2 = 0x0FED; r.BC2 = 0xCBA9; r.DE2 = 0x8765; r.HL2 = 0x4321;
+    r.IX = 0x1357; r.IY = 0x2468;
+    r.PC = pc; r.SP = sp;
+    r.I = 0x3F; r.R = 0x29; r.IM = 2;
+    r.IFF1 = 1; r.IFF2 = 1; r.halted = false;
+    return r;
+}
+
+/// Everything about a machine an SNA is meant to bring back.
+struct SnaState {
+    uint16_t AF, BC, DE, HL, AF2, BC2, DE2, HL2, IX, IY, PC, SP;
+    uint8_t  I, R, IM, IFF1, IFF2, border, port_7ffd;
+};
+
+SnaState sna_state(Emulator& emu) {
+    const Z80Registers r = emu.cpu().get_registers();
+    return SnaState{r.AF, r.BC, r.DE, r.HL, r.AF2, r.BC2, r.DE2, r.HL2,
+                    r.IX, r.IY, r.PC, r.SP,
+                    r.I, r.R, r.IM, r.IFF1, r.IFF2,
+                    static_cast<uint8_t>(emu.ula().get_border() & 0x07),
+                    emu.mmu().port_7ffd()};
+}
+
+bool same_cpu_and_border(const SnaState& a, const SnaState& b) {
+    return a.AF == b.AF && a.BC == b.BC && a.DE == b.DE && a.HL == b.HL
+        && a.AF2 == b.AF2 && a.BC2 == b.BC2 && a.DE2 == b.DE2 && a.HL2 == b.HL2
+        && a.IX == b.IX && a.IY == b.IY && a.PC == b.PC && a.SP == b.SP
+        && a.I == b.I && a.R == b.R && a.IM == b.IM
+        && a.IFF1 == b.IFF1 && a.IFF2 == b.IFF2 && a.border == b.border;
+}
+
+}  // namespace
+
+static void test_snapsave_sna_machine_boundary() {
+    set_group("SNAPSAVE-SNA");
+
+    constexpr size_t SNA_48K_SIZE  = 49179;    // 27 + 49152
+    constexpr size_t SNA_128K_SIZE = 131103;   // + 4 + 5 * 16384
+    constexpr size_t SNA_128K_DUP  = 147487;   // + 4 + 6 * 16384
+
+    // ── NEXT: refused ─────────────────────────────────────────────────
+    {
+        Emulator emu;
+        emu.init(reinit_cfg(MachineType::ZXN_ISSUE2));
+
+        // The 48K form carries PC on the STACK, so it writes two bytes at
+        // SP-2. A refusal must happen BEFORE that: a save that says no must not
+        // have modified the machine on its way out. SP is put where the mapping
+        // makes writable RAM and the two bytes below it seeded, so the push is
+        // observable if it happens.
+        emu.cpu().set_registers(marked_regs(emu, 0x8000, 0x9000));
+        emu.mmu().write(0x8FFE, 0xA5);
+        emu.mmu().write(0x8FFF, 0x5A);
+
+        std::string error;
+        const std::vector<uint8_t> sna = SnaSaver::save(emu, &error);
+
+        check("SNAPSAVE-SNA-REFUSED-NEXT",
+              "SnaSaver::save() refuses a Next outright: no data, plus an error "
+              "that names the machine and points at '.jns'",
+              sna.empty() && !error.empty()
+                  && error.find(".jns") != std::string::npos
+                  && error.find("Next") != std::string::npos,
+              fmt("size=%zu error='%s'", sna.size(), error.c_str()));
+
+        check("SNAPSAVE-SNA-REFUSED-NO-PUSH",
+              "the refused save left the machine untouched — it never reached "
+              "the 48K form's destructive PC push at SP-2",
+              emu.mmu().read(0x8FFE) == 0xA5 && emu.mmu().read(0x8FFF) == 0x5A,
+              fmt("[8FFE]=%02X [8FFF]=%02X (want A5 5A)",
+                  emu.mmu().read(0x8FFE), emu.mmu().read(0x8FFF)));
+
+        // The unchecked CPU-view entry point that used to be asserted here is
+        // GONE with its only caller. It existed for the RZX recorder's Next
+        // embed, and RZX now REFUSES on a Next (GH #274, owner decision
+        // 2026-09-26 — the format carries a 48K/128K/+3 snapshot plus an input
+        // log of values without ports, so a Next recording is either lossy or
+        // desynchronised). Nothing wants a lossy dump of a machine the format
+        // cannot describe, and there is no route to one:
+        // emulator_boot_test EB-52 asserts the refusal.
+    }
+
+    // ── 48K: the 48K form, and it round-trips ─────────────────────────
+    {
+        Emulator src;
+        src.init(reinit_cfg(MachineType::ZX48K));
+        fill_all_banks(src);
+        src.cpu().set_registers(marked_regs(src, 0x8123, 0xBF00));
+        src.port().out(0x00FE, 0x03);          // border 3
+        const SnaState before = sna_state(src);
+
+        std::string error;
+        const std::vector<uint8_t> sna = SnaSaver::save(src, &error);
+        const std::vector<uint8_t> want = capture_banks(src);   // push included
+        check("SNAPSAVE-SNA-48K-FORM",
+              "a 48K saves the 48K form: exactly 49179 bytes, no error, and the "
+              "header's SP is the pushed SP-2 with PC on the stack there",
+              sna.size() == SNA_48K_SIZE && error.empty()
+                  && static_cast<uint16_t>(sna[23] | (sna[24] << 8)) == 0xBEFE
+                  && sna[26] == 3,
+              fmt("size=%zu hdr_sp=%04X border=%u err='%s'", sna.size(),
+                  sna.size() > 24 ? (sna[23] | (sna[24] << 8)) : 0,
+                  sna.size() > 26 ? sna[26] : 0, error.c_str()));
+
+        std::string path;
+        if (sna.size() == SNA_48K_SIZE && write_temp_file(sna, path)) {
+            Emulator dst;
+            dst.init(reinit_cfg(MachineType::ZX48K));
+            for (int i = 0; i < 3; ++i) dst.run_frame();     // a dirty machine
+            fill_pages(dst, 0, 16, 0x5C);
+            const bool loaded = dst.load_sna(path);
+            std::remove(path.c_str());
+            const SnaState after = sna_state(dst);
+            // Banks 5, 2, 0 are the 48K machine's RAM and must come back byte-
+            // exact — INCLUDING the two bytes the format's PC push wrote at
+            // SP-2, which is why the expectation is the source's RAM after the
+            // save. The 48K form carries no other bank, so only these three are
+            // compared (LOADER-REINIT-SNA pins that bank 1 reads back zero).
+            int  bad    = -1;
+            const bool ram_ok = banks_match(want, dst, {0, 2, 5}, bad);
+            check("SNAPSAVE-SNA-48K-ROUNDTRIP",
+                  "a 48K .sna loads back into a dirty 48K with banks 5, 2 and 0 "
+                  "byte-exact and every register, PC, SP and the border restored",
+                  loaded && ram_ok && same_cpu_and_border(before, after),
+                  fmt("loaded=%d first_bad_bank=%d pc=%04X/%04X sp=%04X/%04X "
+                      "border=%u/%u im=%u/%u",
+                      loaded ? 1 : 0, bad, before.PC, after.PC, before.SP, after.SP,
+                      before.border, after.border, before.IM, after.IM));
+        } else {
+            check("SNAPSAVE-SNA-48K-ROUNDTRIP", "a 48K .sna loads back into a dirty 48K",
+                  false, "fixture could not be written");
+        }
+    }
+
+    // ── 128K: the 128K form, and it round-trips ALL EIGHT BANKS ───────
+    // This is the row the old saver could not have passed: it wrote 49179
+    // bytes for this machine, so five banks and the paging register were
+    // simply absent from the file.
+    {
+        Emulator src;
+        src.init(reinit_cfg(MachineType::ZX128K));
+        fill_all_banks(src);
+        // Bank 3 at 0xC000, ROM 1, the SHADOW screen selected: three separate
+        // 0x7FFD fields, so a saver that dropped or masked the byte cannot
+        // pass. Bit 5 (paging lock) is deliberately clear — it would stop the
+        // loader paging on restore.
+        src.port().out(0x7FFD, 0x1B);
+        src.cpu().set_registers(marked_regs(src, 0x7654, 0xC800));
+        src.port().out(0x00FE, 0x06);          // border 6
+        const SnaState before = sna_state(src);
+        const uint8_t  stack_lo = src.mmu().read(0xC7FE);
+        const uint8_t  stack_hi = src.mmu().read(0xC7FF);
+
+        std::string error;
+        const std::vector<uint8_t> sna = SnaSaver::save(src, &error);
+        const std::vector<uint8_t> want = capture_banks(src);
+        check("SNAPSAVE-SNA-128K-FORM",
+              "a 128K saves the 128K form: 131103 bytes, and the extended header "
+              "at offset 49179 carries PC and the real port 0x7FFD",
+              sna.size() == SNA_128K_SIZE && error.empty()
+                  && static_cast<uint16_t>(sna[49179] | (sna[49180] << 8)) == 0x7654
+                  && sna[49181] == 0x1B && sna[49182] == 0,
+              fmt("size=%zu ext_pc=%04X ext_7ffd=%02X trdos=%u err='%s'", sna.size(),
+                  sna.size() > 49180 ? (sna[49179] | (sna[49180] << 8)) : 0,
+                  sna.size() > 49181 ? sna[49181] : 0,
+                  sna.size() > 49182 ? sna[49182] : 0, error.c_str()));
+
+        // The 128K form puts PC in the extended header, so unlike the 48K form
+        // it must NOT push: the header's SP is the real SP and the guest's
+        // stack is untouched. A saver that shared the 48K path would fail both.
+        check("SNAPSAVE-SNA-128K-NO-STACK-CLOBBER",
+              "the 128K form writes the REAL SP and leaves the guest stack "
+              "alone — no PC is pushed at SP-2",
+              sna.size() == SNA_128K_SIZE
+                  && static_cast<uint16_t>(sna[23] | (sna[24] << 8)) == 0xC800
+                  && src.mmu().read(0xC7FE) == stack_lo
+                  && src.mmu().read(0xC7FF) == stack_hi,
+              fmt("hdr_sp=%04X (want C800) stack=%02X%02X (want %02X%02X)",
+                  sna.size() > 24 ? (sna[23] | (sna[24] << 8)) : 0,
+                  src.mmu().read(0xC7FE), src.mmu().read(0xC7FF), stack_lo, stack_hi));
+
+        std::string path;
+        if (sna.size() == SNA_128K_SIZE && write_temp_file(sna, path)) {
+            Emulator dst;
+            dst.init(reinit_cfg(MachineType::ZX128K));
+            for (int i = 0; i < 3; ++i) dst.run_frame();
+            fill_pages(dst, 0, 16, 0x5C);        // dirt in every bank
+            const bool loaded = dst.load_sna(path);
+            std::remove(path.c_str());
+            int  bad    = -1;
+            const bool ram_ok = banks_match(want, dst, ALL_EIGHT_BANKS, bad);
+            const SnaState after = sna_state(dst);
+            check("SNAPSAVE-SNA-128K-ROUNDTRIP",
+                  "a 128K .sna loads back with ALL EIGHT banks byte-exact, the "
+                  "0x7FFD paging register, and every register, PC, SP and border",
+                  loaded && ram_ok && after.port_7ffd == 0x1B
+                      && same_cpu_and_border(before, after),
+                  fmt("loaded=%d first_bad_bank=%d 7ffd=%02X/%02X pc=%04X/%04X "
+                      "sp=%04X/%04X border=%u/%u",
+                      loaded ? 1 : 0, bad, before.port_7ffd, after.port_7ffd,
+                      before.PC, after.PC, before.SP, after.SP,
+                      before.border, after.border));
+        } else {
+            check("SNAPSAVE-SNA-128K-ROUNDTRIP", "a 128K .sna loads back with all eight banks",
+                  false, "fixture could not be written");
+        }
+    }
+
+    // ── 128K with bank 5 paged at 0xC000: SIX remaining banks ─────────
+    // The file's three named blocks are banks 5, 2 and the paged bank. When
+    // the paged bank IS 2 or 5 that set has two members, so six banks remain
+    // and the file is 147487 bytes. SnaLoader computes the same skip set from
+    // the 0x7FFD byte, so this is the same rule, not a special case — but a
+    // saver that hard-coded "five banks" would write a file its own loader
+    // then reads short.
+    {
+        Emulator src;
+        src.init(reinit_cfg(MachineType::ZX128K));
+        fill_all_banks(src);
+        src.port().out(0x7FFD, 0x05);          // bank 5 at 0xC000
+        src.cpu().set_registers(marked_regs(src, 0x4242, 0xBFFE));
+        std::string error;
+        const std::vector<uint8_t> sna = SnaSaver::save(src, &error);
+        const std::vector<uint8_t> want = capture_banks(src);
+        check("SNAPSAVE-SNA-128K-PAGED-DUP-FORM",
+              "a 128K with bank 5 paged at 0xC000 writes the six-remaining-bank "
+              "form (147487 bytes), matching SnaLoader's own skip set",
+              sna.size() == SNA_128K_DUP && error.empty(),
+              fmt("size=%zu (want %zu) err='%s'", sna.size(), SNA_128K_DUP, error.c_str()));
+
+        std::string path;
+        if (sna.size() == SNA_128K_DUP && write_temp_file(sna, path)) {
+            Emulator dst;
+            dst.init(reinit_cfg(MachineType::ZX128K));
+            fill_pages(dst, 0, 16, 0x5C);
+            const bool loaded = dst.load_sna(path);
+            std::remove(path.c_str());
+            int bad = -1;
+            const bool ram_ok = banks_match(want, dst, ALL_EIGHT_BANKS, bad);
+            check("SNAPSAVE-SNA-128K-PAGED-DUP-ROUNDTRIP",
+                  "and it round-trips: all eight banks byte-exact with bank 5 "
+                  "paged, so the duplicated block is read back consistently",
+                  loaded && ram_ok && dst.mmu().port_7ffd() == 0x05,
+                  fmt("loaded=%d first_bad_bank=%d 7ffd=%02X",
+                      loaded ? 1 : 0, bad, dst.mmu().port_7ffd()));
+        } else {
+            check("SNAPSAVE-SNA-128K-PAGED-DUP-ROUNDTRIP",
+                  "a 147487-byte .sna round-trips", false, "fixture could not be written");
+        }
+    }
+
+    // ── +3 in NORMAL paging: saved as a 128K SNA, and round-trips ─────
+    {
+        Emulator src;
+        src.init(reinit_cfg(MachineType::ZX_PLUS3));
+        fill_all_banks(src);
+        // bit 1: a special-paging config bit, inert while bit 0 is clear
+        // (zxnext.vhd:4623-4625). NOT special paging, NOT ROM-high.
+        src.port().out(0x1FFD, 0x02);
+        src.port().out(0x7FFD, 0x04);          // bank 4 at 0xC000
+        src.cpu().set_registers(marked_regs(src, 0x9001, 0xFF00));
+        src.port().out(0x00FE, 0x01);
+        const SnaState before = sna_state(src);
+
+        std::string error;
+        const std::vector<uint8_t> sna = SnaSaver::save(src, &error);
+        const std::vector<uint8_t> want = capture_banks(src);
+        check("SNAPSAVE-SNA-PLUS3-NORMAL-FORM",
+              "a +3 in normal paging saves the 128K form (131103 bytes) — port "
+              "0x1FFD bit 3 is the +3 disk motor (zxnext.vhd:3757), which no SNA of "
+              "any machine carries",
+              sna.size() == SNA_128K_SIZE && error.empty(),
+              fmt("size=%zu err='%s'", sna.size(), error.c_str()));
+
+        std::string path;
+        if (sna.size() == SNA_128K_SIZE && write_temp_file(sna, path)) {
+            Emulator dst;
+            dst.init(reinit_cfg(MachineType::ZX_PLUS3));
+            fill_pages(dst, 0, 16, 0x5C);
+            const bool loaded = dst.load_sna(path);
+            std::remove(path.c_str());
+            int bad = -1;
+            const bool ram_ok = banks_match(want, dst, ALL_EIGHT_BANKS, bad);
+            const SnaState after = sna_state(dst);
+            check("SNAPSAVE-SNA-PLUS3-ROUNDTRIP",
+                  "and it round-trips on a +3: all eight banks, 0x7FFD, the "
+                  "registers, PC, SP and the border",
+                  loaded && ram_ok && after.port_7ffd == 0x04
+                      && same_cpu_and_border(before, after),
+                  fmt("loaded=%d first_bad_bank=%d 7ffd=%02X/%02X pc=%04X/%04X",
+                      loaded ? 1 : 0, bad, before.port_7ffd, after.port_7ffd,
+                      before.PC, after.PC));
+        } else {
+            check("SNAPSAVE-SNA-PLUS3-ROUNDTRIP", "a +3 .sna round-trips",
+                  false, "fixture could not be written");
+        }
+    }
+
+    // ── EXTENDED PAGING (port 0xDFFD): refused, on both forms ─────────
+    // The review case. `port_7ffd_bank` composes bits 6:3 of the bank at
+    // 0xC000 from `port_dffd_reg` on every non-Pentagon machine
+    // (zxnext.vhd:3763-3766, Mmu::compose_bank_()), and an SNA's extended
+    // header carries only 0x7FFD. So the file cannot describe the machine even
+    // with every byte right: the MAPPING comes back wrong, and a bank above 7
+    // has no block to live in. Before this check the saver wrote the bank
+    // `port_7ffd & 7` names — the WRONG bytes for 0xC000 — and exited 0.
+    //
+    // The marker pair is the reviewer's reproduction: 0xAA into the bank 0x7FFD
+    // names, 0xBB into the bank extended paging actually selects. A saver that
+    // does not refuse writes 0xAA where the machine has 0xBB.
+    {
+        Emulator emu;
+        emu.init(reinit_cfg(MachineType::ZX128K));
+        emu.port().out(0x7FFD, 0x00);          // 0x7FFD names bank 0
+        emu.mmu().write(0xC000, 0xAA);
+        emu.port().out(0xDFFD, 0x01);          // extended paging: bank 8 at 0xC000
+        emu.mmu().write(0xC000, 0xBB);
+        const uint8_t slot6 = emu.mmu().get_page(6);
+        const uint8_t visible = emu.mmu().read(0xC000);
+
+        std::string error;
+        const std::vector<uint8_t> sna = SnaSaver::save(emu, &error);
+        check("SNAPSAVE-SNA-128K-DFFD-REFUSED",
+              "a 128K with extended paging active is refused: 0x7FFD alone cannot "
+              "name the bank at 0xC000, so no file is written at all",
+              sna.empty() && error.find("EXTENDED PAGING") != std::string::npos
+                  && error.find(".jns") != std::string::npos,
+              fmt("size=%zu slot6_page=%u visible@C000=%02X error='%s'",
+                  sna.size(), slot6, visible, error.c_str()));
+
+        // The fixture has to actually move the window, or the row above proves
+        // nothing: page 16 is bank 8, the bank 0x7FFD cannot name.
+        check("SNAPSAVE-SNA-128K-DFFD-MOVED-WINDOW",
+              "and the fixture really did move the window out of 0x7FFD's reach: "
+              "slot 6 holds bank 8 and 0xC000 reads the byte written after the switch",
+              slot6 == 16 && visible == 0xBB,
+              fmt("slot6_page=%u (want 16) visible=%02X (want BB)", slot6, visible));
+
+        // The message must NOT send the user to '.szx': ZXSTSPECREGS has
+        // ch7ffd and ch1ffd and no field for 0xDFFD, so `.szx` cannot carry
+        // this state either (SzxSaver::SpecRegs). Only `.jns` can.
+        check("SNAPSAVE-SNA-128K-DFFD-NOT-SZX",
+              "the refusal does not recommend '.szx', which has no 0xDFFD field "
+              "and could not carry this state either",
+              error.find("'.szx' has no") != std::string::npos
+                  || error.find(".szx has no") != std::string::npos,
+              fmt("error='%s'", error.c_str()));
+    }
+
+    // The OTHER side of that axis: an EXPLICIT port 0xDFFD = 0 — written, not
+    // merely left at its reset value — still saves and still round-trips, so
+    // the refusal is the state and not the mere existence of the port.
+    {
+        Emulator src;
+        src.init(reinit_cfg(MachineType::ZX128K));
+        fill_all_banks(src);
+        src.port().out(0xDFFD, 0x00);
+        src.port().out(0x7FFD, 0x06);          // bank 6 at 0xC000
+        src.cpu().set_registers(marked_regs(src, 0x8080, 0xBFF0));
+        const SnaState before = sna_state(src);
+
+        std::string error;
+        const std::vector<uint8_t> sna = SnaSaver::save(src, &error);
+        const std::vector<uint8_t> want = capture_banks(src);
+        std::string path;
+        bool loaded = false, ram_ok = false;
+        int  bad = -1;
+        SnaState after{};
+        if (sna.size() == SNA_128K_SIZE && write_temp_file(sna, path)) {
+            Emulator dst;
+            dst.init(reinit_cfg(MachineType::ZX128K));
+            fill_pages(dst, 0, 16, 0x5C);
+            loaded = dst.load_sna(path);
+            std::remove(path.c_str());
+            ram_ok = banks_match(want, dst, ALL_EIGHT_BANKS, bad);
+            after = sna_state(dst);
+        }
+        check("SNAPSAVE-SNA-128K-DFFD-ZERO-SAVES",
+              "a 128K with port 0xDFFD explicitly 0 still saves the 128K form and "
+              "round-trips all eight banks, 0x7FFD and the registers",
+              sna.size() == SNA_128K_SIZE && error.empty() && loaded && ram_ok
+                  && after.port_7ffd == 0x06 && same_cpu_and_border(before, after),
+              fmt("size=%zu err='%s' loaded=%d first_bad_bank=%d 7ffd=%02X/%02X",
+                  sna.size(), error.c_str(), loaded ? 1 : 0, bad,
+                  before.port_7ffd, after.port_7ffd));
+    }
+
+    // The 48K form has the same exposure and the same answer: its third block
+    // ALWAYS reloads into bank 0, so bank 0 is the only thing it can honestly
+    // have at 0xC000 — whatever moved the window.
+    {
+        Emulator emu;
+        emu.init(reinit_cfg(MachineType::ZX48K));
+        emu.port().out(0xDFFD, 0x01);
+        const uint8_t slot6 = emu.mmu().get_page(6);
+        std::string error;
+        const std::vector<uint8_t> sna = SnaSaver::save(emu, &error);
+        // MEASURED, not assumed: port 0xDFFD is live on `--machine 48k` too —
+        // compose_bank_() does not branch on machine type, only on Pentagon
+        // mode — so slot 6 really does move to page 16 (bank 8) here, and the
+        // refusal is asserted unconditionally rather than "if it moved".
+        check("SNAPSAVE-SNA-48K-DFFD-REFUSED",
+              "a 48K is exposed the same way and refused the same way: port 0xDFFD "
+              "moves 0xC000 to bank 8, which the 48K form's third block — always "
+              "reloaded as bank 0 — cannot describe",
+              slot6 == 16 && sna.empty()
+                  && error.find("0x4000-0xFFFF") != std::string::npos,
+              fmt("slot6_page=%u (want 16) size=%zu error='%s'",
+                  slot6, sna.size(), error.c_str()));
+    }
+
+    // The OTHER half of the same predicate: the window at 0x4000/0x8000. Those
+    // two blocks are DEFINED as banks 5 and 2, and the Next MMU registers
+    // (NR 0x50-0x57) are not gated on machine type — the VHDL writes MMU<i> on
+    // `nr_mmu_we` whatever NR 0x03 says (zxnext.vhd:4686) — so a program on a
+    // 128K can move them. Then the file's second block is not bank 2 and the
+    // mapping cannot be reconstructed, exactly as with extended paging.
+    {
+        Emulator emu;
+        emu.init(reinit_cfg(MachineType::ZX128K));
+        emu.nextreg().write(0x54, 20);         // slot 4 (0x8000) -> physical page 20
+        const uint8_t slot4 = emu.mmu().get_page(4);
+        std::string error;
+        const std::vector<uint8_t> sna = SnaSaver::save(emu, &error);
+        check("SNAPSAVE-SNA-128K-SLOT-REMAP-REFUSED",
+              "a 128K whose 0x8000 window an NR 0x50-0x57 write moved off bank 2 is "
+              "refused: the form's second block can only reload as bank 2",
+              slot4 == 20 && sna.empty()
+                  && error.find("0x4000-0xFFFF") != std::string::npos,
+              fmt("slot4_page=%u (want 20) size=%zu error='%s'",
+                  slot4, sna.size(), error.c_str()));
+    }
+
+    // The PENTAGON-MODE axis of the same predicate. With NR 0x8F = "10" the
+    // bank at 0xC000 composes bits 4:3 from `port_7ffd` bits 7:6 instead of
+    // from `port_dffd_reg` (zxnext.vhd:3764-3765, `Mmu::compose_bank_()`'s
+    // pentagon branch). The predicate catches it for the same reason it catches
+    // extended paging — it compares the WINDOW, not the mechanism — and this
+    // row is here so that is verified rather than reasoned about.
+    {
+        Emulator emu;
+        emu.init(reinit_cfg(MachineType::ZX128K));
+        emu.mmu().write_nr_8f(0x02);           // Pentagon mapping mode
+        emu.port().out(0x7FFD, 0x40);          // bits 7:6 = 01 -> bank 8, low bits 0
+        const uint8_t slot6 = emu.mmu().get_page(6);
+        std::string error;
+        const std::vector<uint8_t> sna = SnaSaver::save(emu, &error);
+        check("SNAPSAVE-SNA-128K-PENTAGON-REFUSED",
+              "Pentagon mapping mode composes the bank at 0xC000 from 0x7FFD bits "
+              "7:6, which the format's 3-bit field cannot name, and is refused by "
+              "the same window check — mechanism-independent by construction",
+              emu.mmu().pentagon_en() && slot6 == 16 && sna.empty()
+                  && error.find("0x4000-0xFFFF") != std::string::npos,
+              fmt("pentagon_en=%d slot6_page=%u (want 16) size=%zu error='%s'",
+                  emu.mmu().pentagon_en() ? 1 : 0, slot6, sna.size(), error.c_str()));
+    }
+
+    // And its other side: Pentagon mode with the extra bits CLEAR still saves,
+    // so the refusal is the state and not the mode.
+    {
+        Emulator src;
+        src.init(reinit_cfg(MachineType::ZX128K));
+        fill_all_banks(src);
+        src.mmu().write_nr_8f(0x02);
+        src.port().out(0x7FFD, 0x02);          // bank 2 at 0xC000, extra bits 0
+        src.cpu().set_registers(marked_regs(src, 0x9100, 0xBF00));
+        std::string error;
+        const std::vector<uint8_t> sna = SnaSaver::save(src, &error);
+        const std::vector<uint8_t> want = capture_banks(src);
+        std::string path;
+        bool loaded = false, ram_ok = false;
+        int  bad = -1;
+        // Bank 2 paged at 0xC000 is the six-remaining-bank form, so this also
+        // exercises that arithmetic under Pentagon composition.
+        if (sna.size() == SNA_128K_DUP && write_temp_file(sna, path)) {
+            Emulator dst;
+            dst.init(reinit_cfg(MachineType::ZX128K));
+            fill_pages(dst, 0, 16, 0x5C);
+            loaded = dst.load_sna(path);
+            std::remove(path.c_str());
+            ram_ok = banks_match(want, dst, ALL_EIGHT_BANKS, bad);
+        }
+        check("SNAPSAVE-SNA-128K-PENTAGON-CLEAR-SAVES",
+              "Pentagon mode with 0x7FFD bits 7:6 clear still saves and round-trips "
+              "all eight banks — the refusal is the window, not the mapping mode",
+              sna.size() == SNA_128K_DUP && error.empty() && loaded && ram_ok,
+              fmt("size=%zu (want %zu) err='%s' loaded=%d first_bad_bank=%d",
+                  sna.size(), SNA_128K_DUP, error.c_str(), loaded ? 1 : 0, bad));
+    }
+
+    // ── +3 states the format cannot describe: refused ─────────────────
+    {
+        Emulator emu;
+        emu.init(reinit_cfg(MachineType::ZX_PLUS3));
+        emu.port().out(0x1FFD, 0x01);          // special paging: 4 RAM banks, no ROM
+        std::string error;
+        const std::vector<uint8_t> sna = SnaSaver::save(emu, &error);
+        check("SNAPSAVE-SNA-PLUS3-SPECIAL-REFUSED",
+              "a +3 in SPECIAL PAGING is refused: the format's three blocks are "
+              "banks 5, 2 and the paged bank, which is not that layout at all",
+              sna.empty() && error.find("SPECIAL PAGING") != std::string::npos
+                  && error.find(".szx") != std::string::npos,
+              fmt("size=%zu 1ffd=%02X error='%s'", sna.size(), emu.mmu().port_1ffd(),
+                  error.c_str()));
+    }
+    {
+        Emulator emu;
+        emu.init(reinit_cfg(MachineType::ZX_PLUS3));
+        emu.port().out(0x1FFD, 0x04);          // ROM-high: ROM 2 or 3 paged
+        std::string error;
+        const std::vector<uint8_t> sna = SnaSaver::save(emu, &error);
+        check("SNAPSAVE-SNA-PLUS3-ROMHIGH-REFUSED",
+              "a +3 with ROM 2 or 3 paged is refused: the format carries only "
+              "0x7FFD bit 4, so it would come back on a different ROM",
+              sna.empty() && error.find("ROM 2 or ROM 3") != std::string::npos
+                  && error.find(".szx") != std::string::npos,
+              fmt("size=%zu 1ffd=%02X error='%s'", sna.size(), emu.mmu().port_1ffd(),
+                  error.c_str()));
+    }
+}
+
 static void test_snapsave_nex_roundtrip() {
     set_group("SNAPSAVE-NEX-RT");
 
@@ -1840,6 +2430,9 @@ int main() {
 
     test_loader_reinit();
     std::printf("  Group: LOADER-REINIT (GH #239 loaders re-initialise first) — done\n");
+
+    test_snapsave_sna_machine_boundary();
+    std::printf("  Group: SNAPSAVE-SNA (GH #274 .sna machine boundary) — done\n");
 
     test_g33_tapesave_trap();
     std::printf("  Group: G33-TAPESAVE-TRAP (Task 57 SA-BYTES SAVE trap + gate) — done\n");

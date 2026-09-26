@@ -447,6 +447,16 @@ public:
     /// start_rzx_recording() and load_rzx() refuse on it.
     bool rzx_refused_by_tape_save(const char* verb) const;
 
+    /// True — with the refusal logged — when the current machine is a ZX
+    /// Spectrum Next: RZX RECORDING is not available there (GH #274, owner
+    /// decision 2026-09-26). An RZX carries a classic-Spectrum snapshot AND an
+    /// input log of VALUES WITHOUT PORTS, so a Next recording is either lossy
+    /// (no NextREGs, Layer 2, tilemap, sprites, Copper) or desynchronised — the
+    /// full derivation, with the measurements, is at the definition. Recording
+    /// refuses; PLAYBACK of a Next recording an older jnext wrote still works,
+    /// with a warning (see load_rzx()).
+    bool rzx_refused_by_machine() const;
+
     /// The rzx_output_failed() latch, carried across the power-on cold boot by
     /// emulator_cold_boot() like the host debugger's breakpoints.
     const std::vector<std::string>& rzx_failed_outputs() const { return rzx_failed_outputs_; }

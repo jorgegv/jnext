@@ -7676,8 +7676,9 @@ bool Emulator::init_for_load_from_file()
     //
     // Only the two ROM-select bits are set, not the measured bytes: 7FFD's
     // low bits also choose the bank at 0xC000 (which apply() overwrites from
-    // the entry bank anyway) and 1FFD bit 1 is the +3 disk motor, which no
-    // part of this is about. ROM bank = (1FFD(2), 7FFD(4)) — mmu.h
+    // the entry bank anyway) and 1FFD bit 1 is a special-paging config bit
+    // (zxnext.vhd:4623-4625), inert while bit 0 is clear — the +3 disk motor
+    // is bit 3 (zxnext.vhd:3757). Neither is what any part of this is about. ROM bank = (1FFD(2), 7FFD(4)) — mmu.h
     // current_rom_bank(), VHDL zxnext.vhd:2994.
     mmu_.map_plus3_bank(static_cast<uint8_t>(mmu_.port_1ffd() | 0x04));
     mmu_.map_128k_bank(static_cast<uint8_t>(mmu_.port_7ffd() | 0x10));
@@ -8170,6 +8171,23 @@ bool Emulator::load_rzx(const std::string& path)
         return false;
     }
 
+    // GH #274 — a Next recording is WARNED ABOUT, not refused. jnext can no
+    // longer make one (see rzx_refused_by_machine()), but older versions did and
+    // those files exist: refusing to open somebody's recording is harsher than
+    // telling them what it can and cannot reproduce, and there IS something to
+    // see — a program whose state lives in the 48K view replays correctly, which
+    // is why the defect went unnoticed. So say it plainly, once, and play.
+    MachineType rec_machine{};
+    if (rzx::recorded_machine(rec, rec_machine) && rec_machine == MachineType::ZXN_ISSUE2) {
+        Log::emulator()->warn(
+            "RZX: '{}' was recorded on a ZX Spectrum Next, which jnext no longer records "
+            "(its embedded '{}' snapshot cannot hold the Next's extra RAM, NextREGs, "
+            "Layer 2, tilemap, sprites or Copper). The replay may diverge from the "
+            "recording — a program that does not redraw its display every frame will. "
+            "Playing it anyway.",
+            path, rec.snapshot_ext.empty() ? "none" : rec.snapshot_ext);
+    }
+
     // GH #164 — see resume_from_park(). With an embedded snapshot the
     // load_sna/load_szx above already reset (which un-parks); without one,
     // playback drives whatever machine is currently loaded.
@@ -8200,6 +8218,7 @@ bool Emulator::start_rzx_recording(const std::string& path)
         return false;
     }
     if (rzx_refused_by_tape_save("record")) return false;
+    if (rzx_refused_by_machine()) return false;
 
     if (!rzx_recorder_.start(path)) return false;
     rzx_suspend_tape_traps();
@@ -8208,8 +8227,11 @@ bool Emulator::start_rzx_recording(const std::string& path)
     // and no paging, so on the 128K and +3 — where a program's 7FFD/1FFD
     // paging and its other five banks are part of that machine — an SZX is
     // embedded instead; a 48K SNA of a paged 128K program replayed against the
-    // wrong banks. SzxSaver refuses what .szx cannot represent (the Next), and
-    // the 48K SNA remains the fallback there.
+    // wrong banks. A 48K gets the SNA, where the CPU view IS the machine, and
+    // it goes through the CHECKED SnaSaver::save() (GH #274): on a 48K that is
+    // the same bytes, and a 48K whose 0xC000 window something moved is refused
+    // rather than mis-saved. The Next never reaches here — see
+    // rzx_refused_by_machine().
     std::vector<uint8_t> snap;
     std::string          snap_ext;
     if (config_.type == MachineType::ZX128K || config_.type == MachineType::ZX_PLUS3) {
@@ -8224,8 +8246,8 @@ bool Emulator::start_rzx_recording(const std::string& path)
         snap_ext = "sna";
     }
     if (!snap.empty()) rzx_recorder_.set_snapshot(std::move(snap), snap_ext);
-    // The snapshot cannot say which machine it is for (on the Next it is a 48K
-    // SNA), so the file names it: playback builds that machine.
+    // The snapshot cannot always say which machine it is for, so the file names
+    // it in its creator block: playback builds that machine.
     rzx_recorder_.set_machine(config_.type);
     rzx_recorder_.set_initial_tstates(*fuse_z80_tstates_ptr());
 
@@ -8276,6 +8298,59 @@ bool Emulator::rzx_refused_by_tape_save(const char* verb) const
     if (!tap_saver_.active()) return false;
     Log::emulator()->error("RZX: cannot {} while --tape-save is armed: its SAVE trap cannot "
                            "be replayed from a recording", verb);
+    return true;
+}
+
+bool Emulator::rzx_refused_by_machine() const
+{
+    if (config_.type != MachineType::ZXN_ISSUE2) return false;
+
+    // GH #274, owner decision 2026-09-26 — RZX RECORDING IS NOT AVAILABLE ON A
+    // ZX SPECTRUM NEXT, and the reason is a property of the format rather than
+    // a gap to be filled later.
+    //
+    // An RZX carries a snapshot of the machine the recording starts from, plus
+    // the guest's per-frame INPUT. Both halves fail on a Next:
+    //
+    //  * The SNAPSHOT. The formats an RZX can carry (SNA, SZX, Z80) all
+    //    describe a 48K/128K/+3 Spectrum. A 48K SNA of a Next holds registers,
+    //    banks 5/2/0 and the border and nothing a Next adds — no NextREGs, no
+    //    Layer 2, no tilemap, no sprites, no Copper, no DivMMC. jnext embedded
+    //    exactly that until this change, so a Next recording replayed correctly
+    //    only when the program happened to redraw its whole display during the
+    //    replayed frames, and measurably wrong when it did not.
+    //
+    //  * The INPUT, and this is the half that cannot be fixed by carrying a
+    //    better snapshot. An RZX stores IN VALUES and never the PORTS they came
+    //    from, so the snapshot and the log must agree on the guest's exact
+    //    sequence of port reads, and nothing in the format can detect it when
+    //    they do not. Embedding a `.jns` — the one format that CAN represent a
+    //    Next — was built and measured: the replayed guest made two reads the
+    //    recording never captured (0x00E3 DivMMC, 0x243B NextREG select), so
+    //    every recorded value was consumed two positions early, the frame's
+    //    list ran out, next_in_value() returned 0xFF, and the guest diverged
+    //    into a HALT with IFF1=0 — a halted Z80 with interrupts disabled, which
+    //    can never wake. palette_demo.nex froze from playback frame ~5 (adjacent
+    //    playback frames 0 px apart against a truth moving 7025/11319 px).
+    //
+    //    The .jns restore was NOT at fault, and the fact is worth keeping: at
+    //    the first run_frame the CPU state matched the recording exactly
+    //    (clock=283632003, pc=0x8000, iff1=0) and the same snapshot animates
+    //    correctly under a plain --load, yet from that identical PC the first
+    //    port read differed. A `.jns` is faithful enough to RUN and not
+    //    bit-exact enough to REPLAY. Nobody should assume otherwise.
+    //
+    // So a Next recording can be lossy or desynchronised, and there is no third
+    // option inside the format. Refusing says so once, at the start, instead of
+    // handing the user a file that looks fine and replays wrong.
+    Log::emulator()->error(
+        "RZX: cannot record on a ZX Spectrum Next. An RZX carries a snapshot of the "
+        "machine it starts from, and the formats it can carry (SNA, SZX, Z80) all "
+        "describe a 48K/128K/+3 Spectrum — none holds the Next's extra RAM, NextREGs, "
+        "Layer 2, tilemap, sprites or Copper. Record with '--machine 48k', '128k' or "
+        "'plus3'; the Next is jnext's DEFAULT machine, so this needs an explicit "
+        "--machine. Playback of a Next recording an older jnext wrote still works, with "
+        "a warning.");
     return true;
 }
 
