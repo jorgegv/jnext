@@ -51,7 +51,7 @@ mentions them, so a test can no longer be absent from this document.
 | ESP-01 socket transport                    |   240 |  236 |    0 |    4 |       0 |          0 |
 | ESP-01 AT engine                           |   489 |  489 |    0 |    0 |       0 |          0 |
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
-| Companion: mmu_integration_test            |    82 |   82 |    0 |    0 |       0 |          0 |
+| Companion: mmu_integration_test            |    88 |   88 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |    17 |   17 |    0 |    0 |       0 |          0 |
 | Companion: compositor_integration_test     |    50 |   50 |    0 |    0 |       0 |          0 |
 | Companion: copper_integration_test         |    14 |   14 |    0 |    0 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    30 |   24 |    0 |    6 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5151 | 5140 |    0 |   11 |       0 |          0 |
+| **Total**                                  |  5157 | 5146 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **5151**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4843**. Rows the 117 suites declared in `test/unit-tests.conf` run live: **9187**.
+Rows the sections above carry: **5157**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4849**. Rows the 117 suites declared in `test/unit-tests.conf` run live: **9193**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -4892,20 +4892,26 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | SNAPSAVE-SNA-128K-ROUNDTRIP | a 128K .sna loads back with ALL EIGHT banks byte-exact, the 0x7FFD paging register, and every register, PC, SP and border | — | pass | test/mmu/mmu_integration_test.cpp:1804 |
 | SNAPSAVE-SNA-128K-PAGED-DUP-FORM | a 128K with bank 5 paged at 0xC000 writes the six-remaining-bank form (147487 bytes), matching SnaLoader's own skip set | — | pass | test/mmu/mmu_integration_test.cpp:1836 |
 | SNAPSAVE-SNA-128K-PAGED-DUP-ROUNDTRIP | and it round-trips: all eight banks byte-exact with bank 5 paged, so the duplicated block is read back consistently | — | pass | test/mmu/mmu_integration_test.cpp:1851 |
-| SNAPSAVE-SNA-PLUS3-NORMAL-FORM | a +3 in normal paging saves the 128K form (131103 bytes) — port 0x1FFD bit 1 is the disk motor, which no SNA of any machine carries | — | pass | test/mmu/mmu_integration_test.cpp:1877 |
-| SNAPSAVE-SNA-PLUS3-ROUNDTRIP | and it round-trips on a +3: all eight banks, 0x7FFD, the registers, PC, SP and the border | — | pass | test/mmu/mmu_integration_test.cpp:1893 |
-| SNAPSAVE-SNA-PLUS3-SPECIAL-REFUSED | a +3 in SPECIAL PAGING is refused: the format's three blocks are banks 5, 2 and the paged bank, which is not that layout at all | — | pass | test/mmu/mmu_integration_test.cpp:1914 |
-| SNAPSAVE-SNA-PLUS3-ROMHIGH-REFUSED | a +3 with ROM 2 or 3 paged is refused: the format carries only 0x7FFD bit 4, so it would come back on a different ROM | — | pass | test/mmu/mmu_integration_test.cpp:1928 |
-| SNAPSAVE-NEX-RT-00 | NexSaver::save() returns a non-empty buffer | — | pass | test/mmu/mmu_integration_test.cpp:1964 |
-| SNAPSAVE-NEX-RT-01 | saved .nex bytes written to disk | — | pass | test/mmu/mmu_integration_test.cpp:1969 |
-| SNAPSAVE-NEX-RT-02 | Emulator::load_nex() accepts the saved file | — | pass | test/mmu/mmu_integration_test.cpp:1980 |
-| SNAPSAVE-NEX-RT-PCSP | PC/SP round-trip through save()->file->Emulator::load_nex() (the only two registers NEX's header carries) | — | pass | test/mmu/mmu_integration_test.cpp:1987 |
-| SNAPSAVE-NEX-RT-RAM | bank-20 (pages 40/41) content round-trips byte-for-byte through the .nex bank payload | — | pass | test/mmu/mmu_integration_test.cpp:2000 |
-| SNAPSAVE-NEX-RT-BORDER | border colour round-trips via the .nex header | — | pass | test/mmu/mmu_integration_test.cpp:2006 |
-| SNAPSAVE-NEX-RT-ENTRYBANK | entry_bank re-establishes the CPU-executable mapping at 0xC000-0xFFFF (MMU slots 6/7) in the freshly loaded Emulator | — | pass | test/mmu/mmu_integration_test.cpp:2011 |
-| MMU-G33-TRAP-01 | handle_sa_bytes_trap: A/IX/DE -> hand-computed TAP block on file; exit state PC=popped ret, SP+=2, IX+=DE, DE=0, carry set (mirrors the LD-BYTES trap return mechanics) | — | pass | test/mmu/mmu_integration_test.cpp:2103 |
-| MMU-G33-TRAP-02 | run_frame gate positive: SA-BYTES signature in slot-0 ROM + PC=0x04C2 + armed saver -> trap fires once, block on file, CPU parked at popped return address | — | pass | test/mmu/mmu_integration_test.cpp:2138 |
-| MMU-G33-TRAP-03 | run_frame gate negative: non-48K ROM bytes at 0x04C2 with the saver armed and PC=0x04C2 -> trap does NOT fire (zero blocks, empty file, CPU executes the real ROM code) — the ungated trap corrupted a plain NextZXOS boot (Task 57 review) | — | pass | test/mmu/mmu_integration_test.cpp:2169 |
+| SNAPSAVE-SNA-PLUS3-NORMAL-FORM | a +3 in normal paging saves the 128K form (131103 bytes) — port 0x1FFD bit 3 is the +3 disk motor (zxnext.vhd:3757), which no SNA of any machine carries | zxnext.vhd:3757 | pass | test/mmu/mmu_integration_test.cpp:1879 |
+| SNAPSAVE-SNA-PLUS3-ROUNDTRIP | and it round-trips on a +3: all eight banks, 0x7FFD, the registers, PC, SP and the border | — | pass | test/mmu/mmu_integration_test.cpp:1896 |
+| SNAPSAVE-SNA-128K-DFFD-REFUSED | a 128K with extended paging active is refused: 0x7FFD alone cannot name the bank at 0xC000, so no file is written at all | — | pass | test/mmu/mmu_integration_test.cpp:1934 |
+| SNAPSAVE-SNA-128K-DFFD-MOVED-WINDOW | and the fixture really did move the window out of 0x7FFD's reach: slot 6 holds bank 8 and 0xC000 reads the byte written after the switch | — | pass | test/mmu/mmu_integration_test.cpp:1944 |
+| SNAPSAVE-SNA-128K-DFFD-NOT-SZX | the refusal does not recommend '.szx', which has no 0xDFFD field and could not carry this state either | — | pass | test/mmu/mmu_integration_test.cpp:1953 |
+| SNAPSAVE-SNA-128K-DFFD-ZERO-SAVES | a 128K with port 0xDFFD explicitly 0 still saves the 128K form and round-trips all eight banks, 0x7FFD and the registers | — | pass | test/mmu/mmu_integration_test.cpp:1989 |
+| SNAPSAVE-SNA-48K-DFFD-REFUSED | a 48K is exposed the same way and refused the same way: port 0xDFFD moves 0xC000 to bank 8, which the 48K form's third block — always reloaded as bank 0 — cannot describe | — | pass | test/mmu/mmu_integration_test.cpp:2013 |
+| SNAPSAVE-SNA-128K-SLOT-REMAP-REFUSED | a 128K whose 0x8000 window an NR 0x50-0x57 write moved off bank 2 is refused: the form's second block can only reload as bank 2 | — | pass | test/mmu/mmu_integration_test.cpp:2036 |
+| SNAPSAVE-SNA-PLUS3-SPECIAL-REFUSED | a +3 in SPECIAL PAGING is refused: the format's three blocks are banks 5, 2 and the paged bank, which is not that layout at all | — | pass | test/mmu/mmu_integration_test.cpp:2052 |
+| SNAPSAVE-SNA-PLUS3-ROMHIGH-REFUSED | a +3 with ROM 2 or 3 paged is refused: the format carries only 0x7FFD bit 4, so it would come back on a different ROM | — | pass | test/mmu/mmu_integration_test.cpp:2066 |
+| SNAPSAVE-NEX-RT-00 | NexSaver::save() returns a non-empty buffer | — | pass | test/mmu/mmu_integration_test.cpp:2102 |
+| SNAPSAVE-NEX-RT-01 | saved .nex bytes written to disk | — | pass | test/mmu/mmu_integration_test.cpp:2107 |
+| SNAPSAVE-NEX-RT-02 | Emulator::load_nex() accepts the saved file | — | pass | test/mmu/mmu_integration_test.cpp:2118 |
+| SNAPSAVE-NEX-RT-PCSP | PC/SP round-trip through save()->file->Emulator::load_nex() (the only two registers NEX's header carries) | — | pass | test/mmu/mmu_integration_test.cpp:2125 |
+| SNAPSAVE-NEX-RT-RAM | bank-20 (pages 40/41) content round-trips byte-for-byte through the .nex bank payload | — | pass | test/mmu/mmu_integration_test.cpp:2138 |
+| SNAPSAVE-NEX-RT-BORDER | border colour round-trips via the .nex header | — | pass | test/mmu/mmu_integration_test.cpp:2144 |
+| SNAPSAVE-NEX-RT-ENTRYBANK | entry_bank re-establishes the CPU-executable mapping at 0xC000-0xFFFF (MMU slots 6/7) in the freshly loaded Emulator | — | pass | test/mmu/mmu_integration_test.cpp:2149 |
+| MMU-G33-TRAP-01 | handle_sa_bytes_trap: A/IX/DE -> hand-computed TAP block on file; exit state PC=popped ret, SP+=2, IX+=DE, DE=0, carry set (mirrors the LD-BYTES trap return mechanics) | — | pass | test/mmu/mmu_integration_test.cpp:2241 |
+| MMU-G33-TRAP-02 | run_frame gate positive: SA-BYTES signature in slot-0 ROM + PC=0x04C2 + armed saver -> trap fires once, block on file, CPU parked at popped return address | — | pass | test/mmu/mmu_integration_test.cpp:2276 |
+| MMU-G33-TRAP-03 | run_frame gate negative: non-48K ROM bytes at 0x04C2 with the saver armed and PC=0x04C2 -> trap does NOT fire (zero blocks, empty file, CPU executes the real ROM code) — the ungated trap corrupted a plain NextZXOS boot (Task 57 review) | — | pass | test/mmu/mmu_integration_test.cpp:2307 |
 
 ### Companion integration suite — `test/ula/ula_integration_test.cpp`
 
