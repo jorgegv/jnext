@@ -16,8 +16,26 @@
 >   `pump(PumpBudget)` runs *after* the tick's frame batch and drains while
 >   paused (§6.2); CAP-SES-04: under `--headless` a Stop **pauses and
 >   notifies** while a remote client is connected instead of exiting
->   non-zero, so the §7.2 regression row's `break _main` + `cont` genuinely
->   stops the machine for the client.
+>   non-zero (a proposal on top of the owner's #279 rule, backend §13.2), so
+>   the §7.2 regression row's `break _main` + `cont` genuinely stops the
+>   machine for the client.
+> - v1.2 (2026-09-26, after the protocols reviewer's REJECT,
+>   `scratchpad/reviews/protocols.md`): **R-2** `monitor reset hard` rewritten
+>   — CAP-CTL-12 Hard is today a *deferred* cold boot, so the verb is served
+>   only under the synchronous contract of REQ-zrcp-15 and answers `E01`
+>   until then (§4.3); **R-5** one port rule for the three servers (absent =
+>   off, `0` = OS-chosen ephemeral, logged) and one shared
+>   `--debug-listen-address` help text (§6.4, §10); **N-3** stale jnext line
+>   citations regenerated (§5.1); **N-8** wait-for-listen and the boot-hold
+>   explanation in the regression row (§7.2); **N-12** why the same-pump `T`
+>   reply to `?` is load-bearing (§5.4).
+> - v1.3 (2026-09-26, backend v4 FYI): REQ-zrcp-15 landed as the CAP-CTL-12
+>   Hard reconstruct contract (+ CAP-SES-07 driver) — `monitor reset hard`
+>   is now served, `E01` only on `RefusedUnavailable`; guest hard reset adds
+>   `pause_reason = Reset` to the §5.3 table; WP-4 wires the socket over the
+>   shared transport package **T** (arch doc) rather than its own listener;
+>   CAP-SES-04 "remote connected ⇒ Pause" under `--headless`/SDL is an
+>   owner-pending proposal (backend §13.2) — the §7.2 row depends on it.
 
 Every claim carries a `file:line` citation or a captured transcript. Paths:
 `z88dk/…` = `/home/jorgegv/src/spectrum/z88dk` (checkout at v2.4, HEAD
@@ -347,7 +365,7 @@ useful set, each mapped to a CAP:
 | `in <port>` / `out <port> <val>` | value / `OK` | CAP-INS-05 — **perturbing** (a port read has side effects); documented as such in the help text. This gives z88dk-gdb's own `out` command (a no-op over gdb, `:520`) a working equivalent. |
 | `sym <name>` / `sym <addr>` | `name = $addr` / nearest symbol | CAP-SYM (jnext's own loaded map, GUI **Map** menu or `--map` if the backend adds a CLI row — the client has its own `-x` table, so this is for cross-checking) |
 | `time` | `frame=N cycle=M tstates=T vc=.. hc=..` | CAP-INS-07 |
-| `reset [soft\|hard]` | `OK` after the reset request | CAP-CTL-12 — hard reset is a cold boot (Task 70); the client's next `g` sees the boot ROM. |
+| `reset [soft\|hard]` | `OK` / `E01` | CAP-CTL-12. **`soft`**: `Emulator::soft_reset()` runs inline [`src/core/emulator.h:198`], the machine stays paused, the next `g` shows the post-reset state. **`hard`** is different and was wrong in v1 (review R-2): today `request_hard_reset()` only *records* a flag [`emulator.h:199-208`] and the loop owner performs `emulator_cold_boot()` **after the tick's frames** [`sdl_app.cpp:409`, `qt_app.cpp:510`, `headless_app.cpp:691`], destroying and reconstructing the `Emulator`; the transient run state "is intentionally not restored — the machine starts fresh and running" [`src/platform/emulator_boot.h:122-124`]. An `OK` in the same pump would therefore be answered against the old machine, and one tick later the pause (and, absent a backend contract, this client's `Z0`s) would be gone. So the verb is served under the **CAP-CTL-12 Hard reconstruct contract** (REQ-zrcp-15, ACCEPTED in backend.md v4; driver registered by the loop owner via CAP-SES-07): `reset(Hard)` from inside `pump` runs the loop owner's cold-boot sequence *before it returns*, the backend re-binds to the reconstructed `Emulator` and re-applies every client's subscriptions and settings, **paused stays paused** (PC = 0x0000 of `nextboot.rom`), and `Reset{Hard}` reaches every listener before the call returns. What the client then observes: `monitor reset hard` → `O`-line "hard reset: machine at PC=0000 (nextboot.rom), still stopped" + `OK`; its next `g` shows PC=0000 and its breakpoints are still listed by `monitor bp`. No stop reply is emitted (the client did not resume, so none is owed — §5.4). With no driver registered (a bare test harness) the backend returns `RefusedUnavailable` and the adapter answers `E01` with an `O`-line "hard reset not available over this connection" — never a reset that lands late. A **guest-initiated** hard reset (NR 0x02) keeps the deferred path and reaches the adapter as the same `Reset{Hard}` (CAP-SES-07 `on_cold_boot_done()`): if a stop reply is owed (the client had resumed) the adapter sends `T02thread:1;` with `pause_reason = Reset` (§5.3); otherwise nothing. |
 | `bp` | list all subscriptions with owner (this client / gui / dsl / …) | CAP-INS-17 |
 
 Not offered (and why): `save/load state` (bookmarks are DZRP's model, and a
@@ -366,7 +384,7 @@ asks).
 | Concern | Owner | Why |
 |---|---|---|
 | Instruction length for `nexti` | **client** (its disassembler, `disassemble2`, `:626`) — sent as `i<len>` | z88dk decided it; the server only runs to `pc+len`. |
-| Temp breakpoint to step *off* a breakpoint at PC on `c` | **backend** — `DebugState::step_off_pending_` armed on the paused→running edge, consumed exactly once before the first `should_break` [`src/debug/debug_state.h:549-552`, comment block above `consume_step_off()`; `emulator.cpp:9301-9343`] | Already exists (GH #221); the adapter inserts nothing. Real gdb *also* steps off itself (`s` then `c`), which composes: a `s` from a paused machine is CAP-CTL-03, unaffected. |
+| Temp breakpoint to step *off* a breakpoint at PC on `c` | **backend** — `DebugState::step_off_pending_` armed on the paused→running edge [`src/debug/debug_state.h:301`, `unpause_()`], consumed exactly once before the first `should_break` [`consume_step_off()` `:206` and its comment block; `src/core/emulator.cpp:9319-9325`] | Already exists (GH #221); the adapter inserts nothing. Real gdb *also* steps off itself (`s` then `c`), which composes: a `s` from a paused machine is CAP-CTL-03, unaffected. |
 | Temp breakpoint for `finish` | **client** (`Z0` at the return address + `c`, `:1630-1639`) | |
 | `step`/`next` at source-line granularity | **client** (loops `s`/`i` until the line changes, `breakpoints.c:222-247`) | Each iteration is one round trip — slow over 20 ms ticks (§6.2), acceptable. |
 | Client-side "breakpoints" (`memory8/16`, `register`) | **client** — evaluated at every stop, never on the wire | Nothing to serve; the `z0` they emit on quit must reply `OK` (row 10). |
@@ -405,7 +423,7 @@ CAP-CTL-13 `state().pause_reason` (REQ-gdb-9, ACCEPTED):
 | … Z3 / Z4 | `rwatch:` / `awatch:` |
 | `Step`, `RunTo(id)` (our one-shot) | `T05thread:1;` |
 | `User(cid == us)` (our `?`/`0x03`) | `T02thread:1;` |
-| `User(other)`, `Magic`, `Script`, `Breakpoint/Watch` owned by another client, `Corrupt` | `T02thread:1;` — "something else stopped it"; the client shows the PC and the user reads the GUI/log for why |
+| `User(other)`, `Magic`, `Script`, `Breakpoint/Watch` owned by another client, `Corrupt`, `Reset` (a guest NR 0x02 hard reset while the client was running — CAP-CTL-12 rule 4) | `T02thread:1;` — "something else stopped it"; the client shows the PC and the user reads the GUI/log for why |
 
 `swbreak+`/`hwbreak+` are advertised in `qSupported` so a real gdb accepts
 the `swbreak:` field; z88dk-gdb ignores fields. Address in `watch:` is the
@@ -436,6 +454,19 @@ five inputs and cleared when the reply goes out. On each `pump()`:
    machine (resumed by <cid>)". This keeps RSP's stopped/running model
    consistent from the client's side without an ownership lock (agreed model,
    §6.3).
+
+**Why the same-pump reply to `?` is load-bearing (review N-12).** The client
+starts with `debugger_active = 0` [`z88dk/src/ticks/debugger.c:206`] and its
+main loop only enters the prompt — and only then sends `g` — once
+`debugger_active` becomes 1, which happens solely when a `T` packet arrives
+[`debugger_gdb.c:1357-1363`, `:790-803`]. So the `T` for `?` is the single
+event that starts the session, it must be emitted **exactly once**, and it
+must be the first thing the adapter sends after the XML: the client sends
+`g` immediately after it and takes the next packet as `g`'s reply. Rule 2
+above gives exactly that when the machine is already paused (reply in the
+same pump); when it is running, CAP-CTL-01 takes effect at the next
+instruction boundary and the reply waits for the `Paused` edge — during
+which rule 3 guarantees nothing else is sent.
 
 `0x03` while paused: reply `T02thread:1;` immediately (the client sends a
 *temporary* break to add a breakpoint while it believes the machine runs,
@@ -516,14 +547,27 @@ DebugListenAddress,  // OptId (shared with --dzrp-port / --zrcp-port)
 …
 { "--gdb-port", 1, Doc::Documented, OptId::GdbPort,
   "PORT",
-  "Serve the GDB remote protocol (z88dk-gdb) on TCP PORT (0 = off, default)" },
+  "Serve the GDB remote protocol (z88dk-gdb) on TCP PORT.\n"
+  "Off unless given; PORT 0 binds an OS-chosen port and logs it." },
 { "--debug-listen-address", 1, Doc::Documented, OptId::DebugListenAddress,
   "ADDR",
-  "Bind --gdb-port/--dzrp-port/--zrcp-port to ADDR (default 127.0.0.1)" },
+  "Bind address for the debugger protocol ports (--dzrp-port,\n"
+  "--zrcp-port, --gdb-port). Default 127.0.0.1. A non-loopback\n"
+  "address exposes the debugger to the network: none of these\n"
+  "protocols has any authentication." },
 ```
 
-The shared flag is spelled after the existing `--esp-listen-address`
-[`src/core/cli_options.h:414-416`] (design-dzrp's amendment, agreed).
+**One port rule for the three `--<proto>-port` rows** (review R-5; proposed
+by design-dzrp, adopted verbatim by design-zrcp and here): *absent = off;
+`0` = an OS-chosen ephemeral port, the bound port logged at startup as
+`gdb: listening on 127.0.0.1:NNNNN`; any other value = that port.*
+`EspListener::open(0)` already contracts exactly that ("`port` 0 asks the OS
+to choose, and `port()` then reports what it chose",
+[`src/esp01/include/esp01/esp_socket.h:518-527`]), and the regression rows
+need a collision-free port. v1's "`0` = off" is withdrawn: it duplicated
+"absent". The `--debug-listen-address` row above is the one shared text
+(whoever lands first adds it; the others reuse the `OptId`); spelled after
+the existing `--esp-listen-address` [`src/core/cli_options.h:414-416`].
 
 Both documented in `doc/man/jnext.1.md` OPTIONS in the same change (the
 cli-check diff is bidirectional). Also a `Settings → Preferences` row is
@@ -563,10 +607,22 @@ demo built with `-m` so the `.map` is checked in next to the `.nex` under
 `test/00regression/nex/` (license-clean: our own demo). Steps:
 
 ```bash
-# 1. jnext headless, gdb server on a free port, demo loaded, generous exit bound
-"$JNEXT" --headless "${SD_CARD_ARGS[@]}" --gdb-port "$port" \
+# 1. jnext headless, gdb server on an OS-chosen port (--gdb-port 0, §6.4),
+#    demo loaded, generous exit bound
+"$JNEXT" --headless "${SD_CARD_ARGS[@]}" --gdb-port 0 \
     --load "$PROJECT_DIR/test/00regression/nex/magic_bp_demo.nex" \
     --delayed-automatic-exit 20 >"$TMP_DIR/jnext.log" 2>&1 &
+jnext_pid=$!
+# 1b. wait for the listener (review N-8): the same 100 x 0.1 s poll as the
+#     ready-file handshake in esp-server-func.sh:92-104, but on jnext's own
+#     "gdb: listening on 127.0.0.1:NNNNN" log line, which also yields the port.
+for _ in $(seq 1 100); do
+    port=$(sed -n 's/.*gdb: listening on 127\.0\.0\.1:\([0-9]*\).*/\1/p' "$TMP_DIR/jnext.log" | head -1)
+    [[ -n "$port" ]] && break
+    kill -0 "$jnext_pid" 2>/dev/null || break
+    sleep 0.1
+done
+[[ -n "$port" ]] || { fail_row " (gdb server never listened)"; }
 # 2. the real client, scripted through stdin, verbose so the wire is in the log
 printf 'break _main\ncont\nreg\nx/16 _main\nstepi\nnexti\nmonitor mmu\nmonitor nextreg 0x07\nquit\ny\n' \
   | timeout --foreground --kill-after=5s 15s "$Z88DK_GDB" -v -h 127.0.0.1 -p "$port" \
@@ -578,6 +634,18 @@ grep -q "^pc=816a" gdb.log                                 # g after the stop
 grep -q "w: i[0-9]" gdb.log || grep -q "w: s" gdb.log       # nexti used the i packet on a CALL, s otherwise
 grep -q "slot 0: page" gdb.log                              # monitor output reached the client
 ```
+
+**How `break _main` + `cont` reaches `_main` although `?` paused the machine
+at connect (review N-8).** The NEX loader arms a boot hold of N frames; the
+countdown is decremented **only when `run_frame()` completes a frame**
+[`src/core/emulator.cpp:9469-9470`], and a paused `run_frame()` returns before
+executing anything [`:9304-9305`] — so the hold does not tick while the client
+is at its prompt. `?` pauses the machine somewhere in the held frames (or
+before them), `Z0,816a,1` is registered while paused, and `c` resumes: the
+remaining held frames run out, the NEX entry runs, `_main` is reached and the
+breakpoint fires. The row therefore does not depend on how quickly the client
+connects. (Same mechanism DZRP's WP-5 relies on: "no frame-countdown
+decrement while paused".)
 
 Skipped (SKIP, declared) when `z88dk-gdb` is not on the host — the harness
 already has the `want`/`skip_row` idiom; the binary's path comes from
@@ -698,7 +766,7 @@ gets its own reviewer.
 | WP-1 `rsp_codec` | `src/remote/gdb/rsp_codec.{h,cpp}`: framing, checksum, escapes, hex helpers; rows GDB-FRM-*. Pure, no backend. | nothing |
 | WP-2 `target_desc` | the §3 document as a `constexpr` string + a unit row pinning its byte length ≤ 1022 and its register order against the `g` packer; `g`/`G`/`p`/`P` packing over CAP-INS-01/07. Rows GDB-SUP-*, GDB-REG-*. | backend CAP-INS-01/07 |
 | WP-3 `rsp_server` | packet dispatch (§2 table), stop-reply state machine (§5.4), breakpoint id map, `qRcmd` vocabulary (§4.3); over the fake `Transport`. Rows GDB-MEM/BP/STP/STOP/MON/UNS-*. | WP-1, WP-2, backend CAP-CTL/EVT/SES |
-| WP-4 wiring | `--gdb-port`/`--debug-listen-address` rows in `cli_options.h` + `main.cpp` switch + `jnext.1.md`; service registration in the three loop owners via `pump`; `esp::make_socket_listener` for the socket. `make cli-check`, `make docs-man`. | WP-3, backend CAP-SES-03 |
+| WP-4 wiring | `--gdb-port`/`--debug-listen-address` rows in `cli_options.h` + `main.cpp` switch + `jnext.1.md`; service registration in the three loop owners via `pump`; the socket comes from the shared transport package **T** (arch doc; `esp::make_socket_listener` seam), not an RSP-private listener. `make cli-check`, `make docs-man`. | WP-3, package T, backend CAP-SES-03 |
 | WP-5 acceptance | regression row `gdb-z88dk-func` (§7.2) + `.map` fixture + `functional_tests.conf` count; user-guide chapter section "Debugging with z88dk-gdb" (source under `src/doc/user-guide`, re-rendered). | WP-4 |
 | WP-6 upstream listing | after release: a z88dk wiki PR adding jnext to the compatible-servers list, with the `--gdb-port` one-liner. | shipped #281 |
 
@@ -713,9 +781,11 @@ row).
 
 ## 10. Open questions for the owner
 
-1. **Port default.** `--gdb-port` off by default (proposed) vs a conventional
-   default such as 3333 (OpenOCD's) or 1234 (QEMU's) when the flag is given
-   without a number. Proposed: off unless given; `--gdb-port 0` = off.
+1. **Port default.** Resolved by the shared rule of §6.4 (absent = off, `0`
+   = ephemeral). Residual question only: is a *conventional* port worth
+   documenting for `--gdb-port` (3333 is OpenOCD's, 1234 QEMU's — neither is
+   a z88dk convention; the client always takes `-p`)? Proposed: no default,
+   the man page shows `--gdb-port 3333` as its example.
 2. **`monitor in/out`** are the only perturbing monitor commands. Keep (they
    replace z88dk's dead `out`) or drop for purity? Proposed: keep, labelled.
 3. **`k`** — detach (proposed) vs exit jnext. A scripted CI session might

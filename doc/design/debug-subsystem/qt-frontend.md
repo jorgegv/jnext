@@ -1,6 +1,6 @@
 # Qt GUI frontend — inventory, projection and refactor plan (GH #278)
 
-Status: **v3 (final for the design round) — inventory complete; projection mapped onto `backend.md` v1 plus design-backend's verdicts of 2026-09-26 (all 14 sub-REQs ACCEPTED/CONFIRMED, §8). Re-verified against `backend.md` **v3**: every one of the 38 CAP ids cited in §3.2 exists there, and all 14 REQ-qt verdicts are recorded in its §12. MAPPED against v3: 38 used, 17 declined, 0 open, 0 reach-arounds.**
+Status: **v4 — revised after the independent review of 2026-09-26 (`scratchpad/reviews/dsl-qt.md`, items R-6, R-7, N-9, N-10, N-11; dispositions in §11). Previously: v3 (final for the design round) — inventory complete; projection mapped onto `backend.md` v1 plus design-backend's verdicts of 2026-09-26 (all 14 sub-REQs ACCEPTED/CONFIRMED, §8). Re-verified against `backend.md` **v3**: every one of the 38 CAP ids cited in §3.2 exists there, and all 14 REQ-qt verdicts are recorded in its §12. MAPPED against v3: 38 used, 17 declined, 0 open, 0 reach-arounds.**
 Owner of this file: the `design-qt` agent. Sibling files: `backend.md`,
 `dsl.md`, `dzrp.md`, `zrcp.md`, `gdb.md` (read, never edited from here).
 
@@ -231,10 +231,16 @@ Rows past `vc` are left unrendered; only the VISIBLE tab's view is refreshed (:1
 | 91 | `QtApp::on_frame_tick` | `check_breakpoint_hit(); refresh_panels();` once per timer tick, AFTER the frame | `qt_app.cpp:666-668` |
 | 92 | `Emulator::rewind_to_frame` | re-renders the main framebuffer itself (`emulator.cpp:12869-12871`) — the "framebuffer sync on rewind" is core-side, not GUI-side | |
 | 93 | `QtApp` | `on_input_state_restored` re-seeds mouse/gamepad after a restore (Task 60c/79) — not a debugger path | `qt_app.cpp:181-183` |
+| 94 | `QtApp::TickEffects::paused()` | `emulator_.debug_state().paused()` — the `FrameSequencer` hook that skips `run_frame()` while the debugger holds the machine (`frame_sequencer.h:209`). Maps onto CAP-CTL-13 `state().paused`; no side channel. (Missed in v1-v3; review N-10.) | `qt_app.h:126` |
+| 95 | `emulator_cold_boot()` | saves `debug_state().breakpoints()` (the whole `BreakpointSet`, observers included) and `active()` across the destroy/reconstruct of a load, and restores both afterwards — so a `--load` / File ▸ Load keeps the user's breakpoints and the debugger's attachment. Under the backend this is CAP-CTL-15 `load(path)`'s contract: subscriptions (all owners), the master switch and the attached/live_raster state survive a load (REQ-qt-29). | `src/platform/emulator_boot.h:133-146` |
 
-**Inventory size: 93 numbered rows; 21 core object types; 3 write paths into
-the machine** (#16 NextREG write, #46 memory write, #18 mute mask — the last is
-explicitly not machine state, `emulator.h:680-691`).
+**Inventory size: 95 numbered rows; 21 core object types.** Three rows are
+*edits* of machine state from a panel (#16 NextREG write, #46 memory write,
+#18 mute mask — the last is explicitly not machine state, `emulator.h:680-691`);
+the control verbs #82/#83 (`step_back`, `rewind_to_frame`) additionally
+**rewrite the entire machine** by restoring a snapshot, and #76-#81 execute
+guest instructions — the "three" counts panel-originated edits, not every
+path that mutates the machine (review N-11).
 
 ---
 
@@ -388,16 +394,16 @@ projection of exactly what it does today):
 | CAP-INS-16 `input_state()` | recorder-only |
 | CAP-EVT conditions, ranges (`lo != hi`), `once`, `Log`/`Continue`, `NextRegWrite`, `Frame`, `Scanline`, `Cycle`, `Reset`, `Host`, physical-page filter | the GUI creates single-address `Execute` / `MemRead` / `MemWrite` / `PortRead` / `PortWrite` subscriptions with `Stop` and no condition — nothing else exists in its dialogs |
 | CAP-TIME-02/03 | no GUI control for them |
-| CAP-IN-01..04, CAP-CAP-01..03 | input injection / capture are CLI and script paths; the main window's own screenshot is not a debugger feature |
+| CAP-IN-01..04, CAP-CAP-01..03 | input injection / capture are CLI and script paths; the main window's own screenshot is not a debugger feature. **Consequence (review N-9):** `QtApp`'s private frame countdowns (`qt_app.h:184-203`: inject, load, screenshot, exit) are NOT touched by #278; the architecture's §8 claim that "the second copy of the countdowns goes away" has no owner in this document — it belongs to the backend's own work package for CAP-IN/CAP-CAP (the CLI conveniences re-expressed as generated `Frame` subscriptions), and arch §8 now assigns it to the backend's CAP-IN/CAP-CAP package (B4), not #278 |
 | CAP-ST-01/02 bookmarks | no GUI control; Save Snapshot is the JNS path (#27), unchanged |
 | CAP-SES-03 `pump`, CAP-SES-04 stop policy | **used by `QtApp`** (the loop owner), not by the panels: `pump(0)` per tick next to today's `check_breakpoint_hit()` call (`qt_app.cpp:666`), policy `Pause` |
 
 ### 3.4 Reach-arounds — count against v1
 
-Of the 93 inventory rows, **91 map onto a v1 CAP** (with the 14 sub-REQs of
+Of the 95 inventory rows, **93 map onto a v1/v3 CAP** (#94 → CAP-CTL-13; #95 → CAP-CTL-15 with REQ-qt-29) (with the 14 sub-REQs of
 §8, all answered, making the mapping exact) and **2 stay GUI-side by design**
 (Watches display list; layer-state derivation from four peeks).
-**Reach-arounds remaining = 0; REQs open = 0.** The implementation gate is
+**Reach-arounds remaining = 0; REQs open = 0** (REQ-qt-29 accepted). The implementation gate is
 `grep -l 'core/emulator.h' src/debugger/*.cpp` empty (WP7).
 
 ### 3.5 Watches and data breakpoints vs the DSL (design-dsl's point 1)
@@ -572,6 +578,69 @@ touches no `debug_state`, measured).
 
 ---
 
+### 5.3 Script host keys Alt+1..8 — how the Qt window delivers them (review R-6)
+
+Owned by the DSL PR (arch §10.1, S-WP5 "GUI (Script tab, Alt+1..8)", which
+depends on Q), not by #278; this section fixes HOW the Qt side delivers them.
+**Agreed with design-dsl 2026-09-26: `dsl-frontend.md` §6.4 mirrors this
+section verbatim in substance (routing, swallow, QActions, refusal, SDL twin,
+row names), and its §6.6 man-page text states the user-visible change.** Verified against the code:
+
+* **Today Alt+<digit> reaches the guest as the bare digit.** `Keyboard::set_key`
+  uses an Alt variant only when `s_alt_compound[sc]` / `s_alt_extkey[sc]` has
+  an entry (`keyboard.cpp:361-363`); digits have none, so `Alt+1` types `1`.
+  Claiming Alt+1..8 therefore **removes eight guest keystrokes** — a
+  user-visible change that is stated here and pinned (rows below), not
+  assumed away by "no host-chord collision" (which is true: the TASK-115
+  inventory and `main_window.cpp`'s `Qt::ALT` shortcuts are letters).
+* **Routing must not depend on the debugger being open.** The keymap
+  forwarding block is guarded by `if (debugger_mgr_ && debugger_mgr_->is_enabled())`
+  (`main_window.cpp:2200`); ChaseTheBug's use case is arming/disarming after
+  boot with no debugger window. So: a separate block in
+  `MainWindow::keyPressEvent`, evaluated BEFORE that guard and independent of
+  it, matches `Alt` + `Key_1..Key_8` with modifiers exact, calls the adapter's
+  `raise_host_event("scriptN")` (CAP-EVT `Host`), accepts the event and
+  returns — the key never reaches `handle_key()` and never reaches the matrix.
+  The key-UP is swallowed the same way (the Alt-compound release rule,
+  `main_window.cpp:2385-2420`, already shows the shape).
+* **In the debugger window** (when it has focus): eight `QAction`s with
+  `Qt::WindowShortcut` context on `DebuggerWindow`, not menu items (the
+  `run_to_cursor_action_` pattern, `debugger_window.cpp:533-537`), calling the
+  same adapter method. Same event either way.
+* **Keymap interaction:** Alt+digit is a legal GH #1 binding today
+  (`validate_combo` refuses Alt+LETTER only). Once script keys exist,
+  `validate_combo` **refuses Alt+1..8 by name** (same rule and same wording as
+  the Alt+letter refusal, `GH1-DEBUGGER-KEYMAP-DESIGN.md` §5) — deterministic,
+  no round-robin ambiguity, no accept-with-warning special case. A config file
+  that already carries one is reported as a `LoadIssue` and the action stays
+  at its default (§4 of that design).
+* **SDL twin:** the SDL frontend has no debugger UI but does run scripts, so
+  `host_key_latch` (`src/platform/host_key_latch.h`) gains the same eight
+  chords with the same swallow semantics, raising the same backend event.
+* **No-script case:** with no script attached the chords are still consumed
+  (the event has no subscriber and is dropped by the backend) — consuming
+  only-when-a-script-is-loaded would make "does Alt+1 type a 1" depend on
+  invisible state.
+
+Rows (in the DSL PR, on the suites that own each window; names agreed with
+design-dsl): `host_hotkey_test` H-SCRIPT-01..08 (Alt+N with the debugger
+CLOSED raises `Host{scriptN}` and the guest matrix row for the digit stays
+released, press AND release), H-SCRIPT-09 (Alt+9 / Alt+0 still reach the
+guest — the reservation is exactly 1..8); `debugger_keymap_test` DKSK-01
+(Alt+1 in the focused debugger window raises the event), DKSK-02
+(`validate_combo` refuses `Alt+1` with a reason; `app_config_test`'s DK group
+gets the file-level twin); `host_key_latch_test` HKL-SK-01 (SDL path).
+`debugger_accel_test` DACC-* must stay green (no mnemonic is added).
+
+Why REFUSE rather than accept-with-warning for a user binding on Alt+1..8: a
+`QAction` shortcut in `DebuggerWindow` outranks its `keyPressEvent`, so a
+debugger action bound to Alt+1 would either be AMBIGUOUS with the script
+`QAction` (Qt dispatches identical sequences round-robin — the GH #124 defect
+this window shipped five times) or, if the script key were delivered through
+`keyPressEvent` instead, silently lose in the debugger window while winning
+in the emulator window. Neither is a rule a user can predict; refusing by
+name is.
+
 ## 6. Behaviour-identity test plan
 
 ### 6.1 What is pinned today (keep green; these ARE the identity test)
@@ -654,7 +723,7 @@ construction). Then, in dependency order:
 
 | WP | Content | Depends on | Parallel? |
 |---|---|---|---|
-| WP1 | Header move: `src/qt/` + 6 include edits + CMake sanity across the build matrix + lint row | WP0 | yes (independent of the backend) |
+| WP1 | Header move: `src/qt/` + 6 include edits + CMake sanity across the build matrix + lint row — **Q WP1 is the single owner of this move** (backend B6 removed, arch §10) | WP0; backend B0 (the four public headers) lands first and alone — WP1 does not depend on it but follows it in order | yes (independent of the backend API) |
 | WP2 | `DebuggerManager` control verbs onto the backend: attach/detach, run/pause, step into/over/out, run-to, EOF/EOSL, epoch-based edge detection, `apply_pause_state`; delete the disassembly and cycle arithmetic from the manager | backend CAPs for REQ-qt-01..07, 15 | serial — the manager is one file and every panel WP touches its wiring |
 | WP3 | Rewind + trace + corruption: `on_step_back`, `on_rewind_to_frame`, window rewind toolbar/menu/dialog, trace menu, `update_actions` inputs | REQ-qt-08..11 | after WP2 |
 | WP4a | Register-family panels: CPU, MMU, Stack, Call Stack | REQ-qt-16..18, 24, 25 | yes, with 4b/4c/4d |
@@ -665,9 +734,17 @@ construction). Then, in dependency order:
 | WP6 | Symbol table ownership move + `on_load_map_*`; magic bp menu; `MainWindow` forwarding unchanged | REQ-qt-12, 14 | after WP2 |
 | WP7 | Remove `core/emulator.h` from every `src/debugger/*.cpp`; final reach-around grep = 0; developer-guide chapter 3.9 + `FEATURES.md` unchanged in substance, paths updated | all | serial, last |
 
-Each WP: own branch + worktree, the triplet + `unit-test-sdl`, independent
-review, merge, `make bump-patch` — the standing protocol. WP4a-d and WP5 can
-run as four agents; WP2/WP3/WP6/WP7 are serial on the manager.
+**Branch discipline (review R-7; owner rule 2026-09-24, arch §10.3):** #278
+is one multi-stage issue and lives on **one** branch, `gh278-qt` (arch
+§10.1). WP1..WP7 are commit series or short-lived sub-branches OF `gh278-qt`
+(parallel WPs each in their own worktree off `gh278-qt`, merged back into
+`gh278-qt` by the manager), each independently reviewed at WP granularity,
+and `gh278-qt` is merged to `main` **once**, after WP7, with the full gate
+(triplet + `unit-test-sdl` + `build-matrix`) and a single `make bump-patch`.
+The one exception is **WP0**: its rows pin the CURRENT tree and are not part
+of the refactor, so they land on their own branch to `main` before
+`gh278-qt` is cut — that is what makes them the identity witness. WP4a-d and
+WP5 can run as four agents; WP2/WP3/WP6/WP7 are serial on the manager.
 
 ---
 
@@ -719,6 +796,7 @@ Sent as `REQ-qt-<n>: <capability> — <why> — <site>`; answers recorded here.
 | 27 | ULA palette — `:1060-1062` | served: CAP-INS-15 |
 | **27b** | active ULA palette bank + one RGB333→ARGB function | **ACCEPTED** → `PaletteId::UlaActive`, `active_ula_palette_bank()`, `rrrgggbb_to_argb` re-exported from `inspect.h` |
 | 28 | render_layer — `:394-630` | served: CAP-INS-14; split per §3.7 **NEEDS-PROTOTYPE** (agreed: verbatim move, re-run DVP first — WP4d step 1) |
+| **29** | CAP-CTL-15 `load(path)` must preserve every client's subscriptions, the master switch and the attached/live_raster state across the destroy/reconstruct, exactly as `emulator_cold_boot()` does for `BreakpointSet` + `active()` today — `src/platform/emulator_boot.h:133-146` (review N-10) | **ACCEPTED** (verified by design-backend): CAP-CTL-15 `load()` and CAP-CTL-12 `reset(Hard)` share the reconstruct contract — subscriptions, enable flags, master/per-client switches, attached/live_raster and the symbol table are kept outside `Emulator` and the hooks re-installed after the placement-new; a backend row pins it |
 
 MAPPED against backend.md v1 + the backend's answers (2026-09-26, to land in
 v2): **35 CAP ids used (+3 new: CAP-CTL-14, CAP-INS-19, per-client
@@ -750,11 +828,9 @@ Settled as design, not owner questions (moved out of this list):
 * script/remote-created subscriptions ARE listed in the Breakpoints panel,
   marked by owner, read-only (REQ-qt-13d confirmed) — DSL/remote PRs, not #278;
 * design-dsl's "Script" tab and Alt+1..8 host keys are post-#278 (CAP-EVT
-  `Host` names them `script1..8`; the binding is a GH #1 keymap addition —
-  Alt+digit is a legal debugger binding, `validate_combo` refuses Alt+LETTER
-  only, so the accept-with-warning rule of `GH1-DEBUGGER-KEYMAP-DESIGN.md`
-  §4b applies; the emulator window's Alt compounds are E/G/C only,
-  `main_window.cpp:2181-2183`);
+  `Host` names them `script1..8`); their Qt delivery — routed independently
+  of `is_enabled()`, swallowed from the guest, refused as keymap bindings,
+  SDL twin, and the rows that pin each — is specified in §5.3 (review R-6);
 * `DebuggerManager::emulator()` (`debugger_manager.h:64`) has no caller —
   deleted in WP2.
 
@@ -787,3 +863,15 @@ Settled as design, not owner questions (moved out of this list):
   `owner=internal`.
 * **design-backend**: all 14 sub-REQs answered (§8); `render_layer` split
   agreed as NEEDS-PROTOTYPE (§3.7) and is WP4d's first step.
+
+---
+
+## 11. Review dispositions (independent review 2026-09-26, `scratchpad/reviews/dsl-qt.md`)
+
+| Item | Disposition | Where |
+|---|---|---|
+| R-7 per-WP merges to `main` | **Accepted.** Verified against the owner rule (2026-09-24, one branch per multi-stage issue) and arch §10.1/§10.3. WP1..WP7 are now commit series / sub-branches of `gh278-qt`, reviewed per WP, merged once; WP0 alone lands first. | §7 |
+| R-6 Alt+1..8 delivery | **Accepted.** Verified: the forwarding block is `is_enabled()`-gated (`main_window.cpp:2200`) and Alt+digit reaches the guest as the digit (`keyboard.cpp:361-363`). Delivery specified: independent block before the guard, swallow on press and release, `DebuggerWindow` `QAction`s, `validate_combo` refuses Alt+1..8, SDL `host_key_latch` twin, six named rows. Owned by the DSL PR (arch S-WP5); design-dsl informed. | §5.3, §9 |
+| N-10 missed rows | **Accepted.** Rows #94 (`qt_app.h:126` → CAP-CTL-13) and #95 (`emulator_boot.h:133-146` → CAP-CTL-15) added; REQ-qt-29 accepted by design-backend (load/hard-reset reconstruct contract). | §1.16, §8 |
+| N-11 "3 write paths" | **Accepted.** Qualified: three panel-originated edits; #82/#83 rewrite the whole machine, #76-#81 execute guest code. | §1.16 |
+| N-9 countdown copy ownership | **Accepted, closed.** #278 does not own it (it declines CAP-IN/CAP-CAP); arch §8 now assigns the retirement to the backend's B4. | §3.3 |

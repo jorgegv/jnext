@@ -1,6 +1,6 @@
 # ZRCP frontend — design (working file)
 
-> Status: **v2 — mapped onto `backend.md` v3; all 14 REQs answered** (GH #280, epic #276, gate #277).
+> Status: **v3 — review round 1 (protocols.md) findings R-2/R-3/R-5/R-6 and notes N-1/2/3/9/10/11 addressed; all 15 REQs answered (REQ-zrcp-15 ACCEPTED in backend.md v4)** (GH #280, epic #276, gate #277).
 > Owner of this file: the ZRCP frontend design agent. Backend capability IDs
 > (`CAP-…`) are those of `backend.md` v1; requirements sent to the backend are
 > `REQ-zrcp-<n>` (§7). Sibling files: `dzrp.md`, `gdb.md`, `qt.md`, `dsl.md`.
@@ -11,6 +11,12 @@
 > - v2 (2026-09-26, later): backend verdicts on REQ-zrcp-01..14 recorded (§7);
 >   pending cells resolved (`smartload` → CAP-CTL-15, bookmarks, coverage →
 >   CAP-INS-20, clip windows → CAP-INS-15); DSL spellings recorded (§3.2).
+> - v3 (2026-09-26, night): independent protocol review (`protocols.md`,
+>   verdict REJECT) — R-2 `hard-reset-cpu` was designed against a synchronous
+>   reset that does not exist (it is a deferred cold boot); decided (a):
+>   synchronous cold boot inside `pump` with the contract in §4.6, sent as
+>   REQ-zrcp-15. R-3 transport moved to the public `esp::` seam. R-5 one port
+>   rule (`0` = ephemeral). R-6 §6.3 prerequisites restated. N-1/2/3/9/10/11.
 
 Every claim carries one of three kinds of evidence:
 
@@ -69,8 +75,9 @@ Nothing here is designed against `doc/design/EMULATOR-DESIGN-PLAN.md`.
   functional row; DeZog 3.7.4 with `"remoteType": "zrcp"` as the real client,
   exercising launch → smartload → breakpoints → step → step-over → step-out →
   reverse-step → disconnect.
-- **REQs**: 14 sent, 14 answered — 11 ACCEPTED, 2 CONFIRMED-as-drafted, 1
-  ALTERNATIVE (clip windows from live layer state) (§7); 0 reach-arounds.
+- **REQs**: 15 sent, 15 answered — 12 ACCEPTED (incl. the review-driven
+  hard-reset contract REQ-zrcp-15), 2 CONFIRMED-as-drafted, 1 ALTERNATIVE
+  (clip windows from live layer state) (§7); 0 reach-arounds.
 
 ---
 
@@ -260,14 +267,14 @@ and the zone numbering is ZEsarUX-internal.
 | `enter-cpu-step` | S | pause; prompt becomes `command@cpu-step> `; idempotent | `CAP-CTL-01 pause()` |
 | `exit-cpu-step` | S | resume; prompt `command> `; if not in step mode: `Error. You are not in step to step mode` | `CAP-CTL-02 run()` (+ `CAP-CTL-11` gate → `Error. Machine state is corrupt after a failed rewind; acknowledge in the GUI or send hard-reset-cpu`) |
 | `cpu-step` | S | requires step mode (else ZEsarUX's `Error. You must first enter cpu-step mode`); if another client resumed the machine meanwhile, pause first (§4.4); one instruction; reply = register line + ` TSTATES: n` + `\n` + disasm at the new PC | `CAP-CTL-03 step_into()` (synchronous), `CAP-INS-01`, `CAP-INS-11`, `CAP-TIME-01` |
-| `cpu-step-over` | S | ZEsarUX semantics, not jnext's Step Over: RET/JP-family → `step_into`; otherwise `run_to(pc + instruction_length)` and wait for the stop; **bounded**: a stop for any other reason (breakpoint, other client) ends it with that reason. Divergence: ZEsarUX hangs forever on `JR $`; jnext honours a client interrupt (§1.2) | `CAP-INS-11 instruction_length/is_ret_like`, `CAP-CTL-06 run_to`, `CAP-CTL-03` |
+| `cpu-step-over` | S | ZEsarUX semantics, not jnext's Step Over: RET/JP-family → `step_into`; otherwise `run_to(pc + instruction_length)` and wait for the stop; **bounded**: a stop for any other reason (breakpoint, other client) ends it with that reason. Divergence: ZEsarUX hangs forever on `JR $`; jnext honours a client interrupt (§1.2). The RET/JP classification uses `is_ret_like()` from `src/debug/disasm.h:29` over `peek(Cpu)` — a published value service (backend §6 keeps `disasm.h` published as-is), not a `CAP-INS-11` member (v3 lists only `instruction_length` / `is_call_like`) | `CAP-INS-11 instruction_length`, `disasm.h is_ret_like` over `CAP-INS-02`, `CAP-CTL-06 run_to`, `CAP-CTL-03` |
 | `run` | S | requires step mode; emits `Running until a breakpoint, key press or data sent, menu opening or other event\n`, resumes, then answers on the next `Paused` (§4.3) | `CAP-CTL-02`, `CAP-SES-02 Paused` |
-| `run <n>` | S | as `run` with an instruction limit; `Returning after <n> opcodes\n` when the limit ends it. A loop of `step_into` (events raised inside a step are delivered at its boundary and land in `pause_reason` — REQ-zrcp-05 ACCEPTED) that also asks `probe_execute(pc)` after each step, because the GH #221 step-off skips an `Execute` match at the resumed-from PC and the loop must end with a `fired` line there; capped at 1 000 000 | `CAP-CTL-03`, `CAP-CTL-13`, `CAP-EVT probe_execute` |
+| `run <n>` | S | as `run` with an instruction limit; `Returning after <n> opcodes\n` when the limit ends it. A loop of `step_into` (events raised inside a step are delivered at its boundary and land in `pause_reason` — REQ-zrcp-05 ACCEPTED) that also asks `probe_execute(pc)` after each step, because the GH #221 step-off skips an `Execute` match at the resumed-from PC and the loop must end with a `fired` line there. **Budgeted**: the loop runs inside one `pump` only until the pump's `budget_ms` is spent, then parks (`in_run = RunLimit(remaining)`) and continues on the next pump — a `run 1000000` is a few hundred pumps, never one blocked tick; socket data interrupts it like a plain `run`; cap 1 000 000 | `CAP-CTL-03`, `CAP-CTL-13`, `CAP-EVT probe_execute`, `CAP-SES-03` budget |
 | `run verbose` | D | `Error. Unsupported in jnext: run verbose` — 10 MB/s of text [T3] over a per-tick pump serves nobody | — |
 | `run no-stop-on-data` | D | `Error. Unsupported in jnext: no-stop-on-data` — it makes the connection unrecoverable (§1.2) | — |
 | `run update-immediately` | D | same error; a jnext display setting, not a protocol one | — |
-| `hard-reset-cpu` | S | `CAP-CTL-12 Hard` — in jnext a hard reset is a **cold boot** (Task 70); step mode is kept, so the machine sits at PC=0000 of `nextboot.rom` afterwards, exactly like [T3] | `CAP-CTL-12` |
-| `reset-cpu` | S | `CAP-CTL-12 Soft` | `CAP-CTL-12` |
+| `hard-reset-cpu` | S | `CAP-CTL-12 Hard` — in jnext a hard reset is a **cold boot** (Task 70), and today it is **deferred**: `Emulator::request_hard_reset()` only sets a flag (`src/core/emulator.h:197-208`) that the loop owner polls after the tick's frames and turns into `emulator_cold_boot()` (`src/platform/sdl_app.cpp:406-411`, `src/gui/qt_app.cpp:506-513`, `src/platform/headless_app.cpp:689-692`), which placement-news a fresh `Emulator` and leaves it *running* — only the breakpoint set, the active flag and the mute mask survive; "the transient run/step state (paused, step mode, trace log) is intentionally not restored" (`src/platform/emulator_boot.h:112-124`, `:134-144`). A ZRCP session cannot be served by that: DeZog sends `hard-reset-cpu` **first** with its default `resetOnLaunch: true`, then `enter-cpu-step`, then `smartload` in the same drain (§1.7). **Decision (a)**: the verb completes *synchronously inside `pump`* under the contract of §4.6 — the machine is reconstructed before the reply, stays paused if it was paused, the session's subscriptions and attachment survive, and later commands in the same drain see the new machine — so the reply is `''` and the machine sits at PC=0000 of `nextboot.rom`, exactly like [T3]. REQ-zrcp-15 **ACCEPTED** (backend v4: `CAP-CTL-12` + `CAP-SES-07 set_cold_boot_driver` / `on_cold_boot_done`); the only error case is a build with no cold-boot driver registered (`RefusedUnavailable` → `Error. Unsupported in jnext: hard-reset-cpu`) | `CAP-CTL-12 Hard`, `CAP-SES-07` |
+| `reset-cpu` | S | `CAP-CTL-12 Soft` — `Emulator::soft_reset()` is synchronous (`src/core/emulator.h:189-195`), so no ordering issue | `CAP-CTL-12` |
 | `generate-nmi` | S | the physical NMI button = Multiface NMI | `CAP-IN-04 press_nmi(Mf)` |
 | `smartload "<file>"` | S | load a `.nex/.sna/.szx/.z80/.tap/.tzx` into the running machine as `--load` does (`emulator_apply_load`, `src/platform/emulator_boot.h`, moves under the backend); per ZEsarUX's own rule the adapter enters step mode if not in it and leaves it afterwards; when the session is in step mode the machine stays paused at the new PC (a NEX's boot-hold frames run on the next `run`) | `CAP-CTL-15 load(path)` (REQ-zrcp-12 ACCEPTED) |
 | `load-binary "<file>" addr len` | S | read the host file, `poke(Cpu, addr, bytes)`; `len 0` = whole file | `CAP-INS-02 poke` |
@@ -286,9 +293,9 @@ and the zone numbering is ZEsarUX-internal.
 | `read-memory [addr] [len]` | S | `peek(Cpu)`; bare form = 64 KB; `len` beyond 64 KB wraps around the address space (ZEsarUX serves it too, [T1]; DeZog never asks for more than 64 KB per chunk) | `CAP-INS-02` |
 | `write-memory addr b…` / `write-memory-raw addr HEX` | S | `poke(Cpu)`; ROM silently unchanged (as ZEsarUX); a write that lands in ROM is *reported* in `help` as ignored, not on the wire (DeZog reads back after `write-memory` and shows the mismatch itself) | `CAP-INS-02` |
 | `hexdump addr len`, `get-crc32 addr len` | S | formats of §1.4; CRC-32 (IEEE) over `peek(Cpu)` | `CAP-INS-02` |
-| `disassemble [addr] [n]` / `d` | S | `  %04X %s` per line, operands upper-case hex without `H` — **jnext's disassembler prints `$4000`-style operands** (`disasm_text.h:672` looks for `$XXXX`), so the adapter post-processes `$XXXX` → `XXXX`. Column 7 is where DeZog reads the mnemonic (§1.3) — pinned by a test | `CAP-INS-11` |
+| `disassemble [addr] [n]` / `d` | S | `  %04X %s` per line, operands upper-case hex without `H` — **jnext's disassembler prints `$4000`-style operands** (`src/debug/disasm.cpp:110-146`; `src/debug/disasm_text.h:44-46` documents the `$XXXX` rule), so the adapter post-processes `$XXXX` → `XXXX`. Column 7 is where DeZog reads the mnemonic (§1.3) — pinned by a test | `CAP-INS-11` |
 | `evaluate <expr>` / `e` | S | same compiler as conditions (§3), evaluated once against `CAP-INS` reads; decimal result; parse failure → `Error parsing` | `CAP-INS-01/02/03` |
-| `get-tstates` | S | `Time.tstates_in_frame` | `CAP-TIME-01` |
+| `get-tstates` | S | `Time.cycle_in_frame / MachineInfo.cpu_divisor` (v3 keeps the in-frame count in master cycles) | `CAP-INS-07`, `CAP-INS-19` |
 | `get-tstates-partial` / `reset-tstates-partial` | S | adapter keeps `base = tstates_total` at reset; prints `%09llu`; "OVERFLOW" never (64-bit) | `CAP-INS-07 tstates_total` (REQ-zrcp-07 CONFIRMED) |
 | `get-stack-backtrace [n]` | S | `%04XH ` × n from SP | `CAP-INS-02`, `CAP-INS-01` |
 | `extended-stack enabled yes\|no` / `get n [index]` / `clear` | S | `enabled yes` turns on call tracking; `get`: for each word at `index+2i` a `CallFrame` with `sp_at_call == that address` gives `call` / `rst` / `maskable_interrupt` / `non_maskable_interrupt`, otherwise `default` (jnext does not distinguish `push`; DeZog only keys on `call`, `rst`, `*interrupt*`) | `CAP-INS-12 call_stack()` + enable |
@@ -307,8 +314,11 @@ and the zone numbering is ZEsarUX-internal.
 
 DeZog's Next model has **two** ROMs (`0xFC/0xFD` = ROM0 halves, `0xFE/0xFF` =
 ROM1 halves, zxnextmemorymodels.ts:59-64) decoded from `0x8000 + k`. jnext has
-four (`Mmu::current_rom_bank()` 0..3, jnext:src/memory/mmu.h:1018). The adapter
-emits, for a slot with `SlotInfo.is_rom`:
+four (`Mmu::current_rom_bank()` 0..3, `src/memory/mmu.h:1018`) — and the
+adapter reads the bank **from `CAP-INS-03` alone**: a ROM slot is mapped by
+`map_rom_physical(0, sram_rom*2)` / `(1, sram_rom*2+1)` (`src/memory/mmu.cpp:546-547`,
+`:396-399`), so for a slot with `SlotInfo.is_rom` the bank is
+`rom_bank = SlotInfo.effective_page >> 1`. The adapter emits
 `0x8000 | ((rom_bank & 1) << 1) | (slot & 1)`, so ROM 3 (48K BASIC, the one a
 NEX runs under) reads as DeZog's "ROM1 (ZX Basic)" and ROM 0 (128 editor) as
 "ROM0" — the two DeZog names. ROMs 1/2 (+3DOS, +3 syntax) fold onto them. This
@@ -332,7 +342,7 @@ format does not suffer.)
 |---|---|---|---|
 | `enable-breakpoints` / `disable-breakpoints` | S | session master switch (`Error. Already enabled/disabled` as ZEsarUX) | `CAP-EVT set_client_enabled(cid, bool)` (REQ-zrcp-03 ACCEPTED): live = master && client_enabled(owner) && sub.enabled; the GUI's global master is untouched |
 | `set-breakpointaction N [action]` | S | empty / `menu` / `break` → Stop (the only action DeZog uses); `prints <s>` / `printregs` / `printe <e>` / `printc` → Log to the client as `log> …` lines (CAP-EVT `Log` verdict, adapter formats); everything else (`call`, `write`, `set-register`, `putv`, `quicksave`, `*-transaction-log`, `save-binary`, `disassemble`, `reset-tstatp`) → `Error. Unsupported breakpoint action in jnext: <a>` | `CAP-EVT` action/verdict |
-| `set-breakpoint N [cond]` / `sb` | S | `1 ≤ N ≤ 100` else `Error. Index out of range`; master off → `Error. You must enable breakpoints first`; empty → clears the slot; compiles the condition (§3): failure → `Error. Error setting breakpoint`, slot unchanged (Divergence: ZEsarUX leaves it `None`); success stores text + compiled form; if the slot is enabled the backend subscription is (re)created | `CAP-EVT subscribe/unsubscribe` |
+| `set-breakpoint N [cond]` / `sb` | S | master off → `Error. You must enable breakpoints first` (checked **first**, as ZEsarUX does: `set-breakpoint 0 …` with the master off answers that, not the range error, [T1]); then `1 ≤ N ≤ 100` else `Error. Index out of range` [T2]; empty → clears the slot; compiles the condition (§3): failure → `Error. Error setting breakpoint`, slot unchanged (Divergence: ZEsarUX leaves it `None`); success stores text + compiled form; if the slot is enabled the backend subscription is (re)created | `CAP-EVT subscribe/unsubscribe` |
 | `enable-breakpoint N` / `disable-breakpoint N` | S | flips the slot flag; subscription created/removed accordingly (never a backend `set_enabled` on a shared object — each slot owns its subscription) | `CAP-EVT` |
 | `set-breakpointpasscount` | U | `Unknown command` — exactly what 12.0 says [T1], and DeZog does not send it below 12.1 | — |
 | `set-membreakpoint addr type [items]` | S | updates the 64 KB type map (§4.2), rebuilds the range subscriptions: `MemRead[lo,hi]` for runs of type 1, `MemWrite` for 2, both kinds for 3, action Stop | `CAP-EVT MemRead/MemWrite` range filter |
@@ -388,8 +398,8 @@ table below is the spec either way.
 | `A' F' B' … L'` | alternate 8-bit | `((AF2 >> 8) & 0xFF)`, `(AF2 & 0xFF)`, … — the DSL has no 8-bit alternates | `CAP-INS-01` |
 | `FS FZ FP FV FH FN FC` | flag bits | `SF ZF PF PF HF NF CF` builtins (`FV` = `PF`) | `CAP-INS-01` |
 | `IFF1 IFF2` | interrupt FFs | `IFF1 IFF2` (also `IM`, `HALTED` exist) | `CAP-INS-01` |
-| `SEG0..SEG7` | MMU slot value **in the §2.3.1 encoding** (ROM → `8000h+k`) | the adapter wraps `page[n]` + `SlotInfo.is_rom` into the encoding — not a DSL builtin (the DSL's `mmu[n]` is the raw NR 0x50+n with the 0xFF sentinel, `page[n]` the effective page) | `CAP-INS-03` |
-| `ROM` / `RAM` | 128K: ROM index at 0000; bank at C000 | `rom_bank()` is **not** in the DSL v1; the adapter derives ROM from `page[0]`/`SlotInfo` and RAM from `page[6] >> 1` (128K-view accessor is `CAP-INS-03`'s `port_7ffd` view) | `CAP-INS-03` |
+| `SEG0..SEG7` | MMU slot value **in the §2.3.1 encoding** (ROM → `8000h+k`) | the adapter wraps `page[n]` + `SlotInfo.is_rom` into the encoding (`is_rom ? 0x8000 \| ((page[n] >> 1) & 1) << 1 \| (n & 1) : page[n]`) — not a DSL builtin (the DSL's `mmu[n]` is the raw NR 0x50+n with the 0xFF sentinel, `page[n]` the effective page) | `CAP-INS-03` |
+| `ROM` / `RAM` | 128K: ROM index at 0000; bank at C000 | `rom_bank()` is **not** in the DSL v1; the adapter derives ROM as `page[0] >> 1` (§2.3.1 rule) and RAM as `page[6] >> 1`; `paging_ports().7ffd` bit 4 / `1ffd` bit 2 is the equivalent route | `CAP-INS-03` |
 | `PEEK(x)` / `PEEKW(x)` | logical memory | `mem[x]` / `mem16[x]` | `CAP-INS-02` |
 | `OPCODE1..4` | bytes at PC, MSB-first | `mem[PC]`, `(mem[PC]<<8)|mem[PC+1]`, … | `CAP-INS-02` |
 | `= <> < > <= >=` | comparisons | `== != < > <= >=` | — |
@@ -518,6 +528,62 @@ this client*, resumes it (owner question 2 in `backend.md` §13; this adapter
 wants the proposed default: a crashed DeZog must not leave the machine hung).
 `step_mode` dies with the session.
 
+### 4.6 What a session observes across a hard reset (cold boot) — REQ-zrcp-15
+
+Today's hard reset is a deferred reconstruction (§2.2 `hard-reset-cpu`): the
+`Emulator` object is destroyed and placement-new'd at the same address
+(`src/platform/emulator_boot.h:112-124`), the frontend's `ColdBootHooks`
+sequence runs around it (`:156-242`), and only the breakpoint set, the active
+flag and the mute mask are carried across. For a remote session that would
+mean: reply `''` now, the actual boot one tick later, the pause gone, the
+client's subscriptions gone unless the backend re-applies them, and every
+command DeZog sent in between executed against a machine that is about to be
+destroyed.
+
+The contract the adapter designs against — REQ-zrcp-15, **ACCEPTED in full**
+by backend v4 (CAP-CTL-12 + new `CAP-SES-07 set_cold_boot_driver(fn)` /
+`on_cold_boot_done()`; the same contract covers `CAP-CTL-15 load` when a
+`.nex` routes through the cold boot):
+
+1. `CAP-CTL-12 Hard` called from a client (i.e. inside `pump`, which the loop
+   owner already calls in the same post-frames slot where it polls
+   `take_hard_reset_request()` today) **completes before it returns**: the
+   backend invokes the loop owner's registered cold-boot sequence (the
+   `ColdBootHooks` driver, `emulator_boot.h:239`) synchronously.
+2. The `Debugger` re-binds to the reconstructed `Emulator` (same address, but
+   a fresh `DebugState`/`TraceLog`/`CallStack`) and **re-applies every
+   attached client's subscriptions and settings** (call-stack tracking,
+   trace, coverage) — the client-owned model of `CAP-EVT-09` is what makes this
+   mechanical.
+3. **Paused stays paused.** If the machine was paused when the verb was
+   called, it is paused at PC=0000 of `nextboot.rom` afterwards — which is what
+   ZEsarUX does in cpu-step mode ([T3] `hard-reset-cpu` → `PC=0000`) and what
+   DeZog's launch sequence relies on. If it was running, it runs.
+4. `Reset{Hard}` is delivered to all listeners **before** the verb returns;
+   the requesting session gets its `''` reply after that, and a session that
+   was in `run` gets its stop reply with no `fired` line if the boot left the
+   machine paused (rule 3) — a reset is a stop.
+   Headless stop policy after the review round (backend v4 `CAP-SES-04`):
+   Qt = Pause; SDL and headless = ExitNonZero *unless a remote client is
+   connected*, set by the loop owner — which is what §5.7 asked for.
+5. A guest-initiated hard reset (NR 0x02 bit 1 from Z80 code) keeps today's
+   deferred path, but the backend delivers the same `Reset{Hard}` and applies
+   rules 2-3 when the loop owner performs it, so a session that was in `run`
+   is told.
+6. With no cold-boot sequence registered (a bare test harness), the verb
+   returns `Result::RefusedUnavailable` and the adapter answers
+   `Error. Unsupported in jnext: hard-reset-cpu` — never a silent `''`.
+
+Why (a) and not (b) "serve it as a soft reset": DeZog's default launch
+(`resetOnLaunch: true`) sends `hard-reset-cpu` once per F5 as a *clean slate*
+before `smartload`; a soft reset preserves RAM and would silently ship a
+different machine under the loaded program, while a faithful cold boot costs
+nothing observable in step mode (the machine is paused at PC=0 until
+`smartload`, and a NEX load re-initialises from the warm-start recording
+anyway). With the REQ accepted, (b) is gone; the only error the adapter can
+answer is the no-driver case, and it is an *error*, not a soft reset in
+disguise.
+
 ---
 
 ## 5. Transport and loop ownership — agreed with `design-gdb` / `design-dzrp`
@@ -535,10 +601,14 @@ z88dk `stepi` is 4-5 round trips, so it needs the drain too) and by
    paused**. Today the paused loops skip only `run_frame`
    (`src/platform/frame_sequencer.h:209`), so the tick keeps coming; the
    headless loop needs the `pump(wait)` form from `backend.md` §5.
-2. **Sockets** are non-blocking through the existing portable twins
-   `src/esp01/include/esp01/esp_socket_platform.h` (`open_listener`
-   `:150`, `accept_nonblocking` `:166`, recv/send) — Windows-twinned already,
-   no new dependency.
+2. **Sockets** go through the **public** `esp::` seam every protocol adapter
+   uses: `esp::make_socket_listener(bind_address)` → `EspListener`
+   (`open(port)`, `accept`, `port()`; `src/esp01/include/esp01/esp_socket.h:509-561`)
+   yielding an `EspTransport` per accepted connection (`:258`); the include
+   directory is `PUBLIC` (`src/esp01/CMakeLists.txt:31`) and the twins are
+   already Windows-portable. `esp_socket_platform.h` is private to the esp01
+   module (`:10-12`) and is **not** referenced — the v1 text that cited
+   `open_listener`/`accept_nonblocking` was wrong (review R-3).
 3. **Latency** ✚ — ZRCP needs one amendment: DeZog's queue is strictly
    one-command-in-flight (§1.2), and a single DeZog step is **~15 sequential
    round trips** (`cpu-step`, `get-registers`, `extended-stack get`,
@@ -562,19 +632,29 @@ z88dk `stepi` is 4-5 round trips, so it needs the drain too) and by
    multi-client behaviour was not probed and no client needs it.
 6. **CLI** — rows for `src/core/cli_options.h` (arity, `Doc::Documented`,
    metavar, help; the man-page entry goes in `doc/man/jnext.1.md` OPTIONS so
-   `make cli-check` stays green):
+   `make cli-check` stays green). **One port rule for the three
+   `--<proto>-port` rows** (review R-5; proposed to `design-dzrp`/`design-gdb`
+   2026-09-26 night): *absent = off*; **`0` = an OS-chosen ephemeral port,
+   logged at startup as `zrcp: listening on 127.0.0.1:NNNNN`** — which is
+   exactly `EspListener::open(0)`'s contract (`esp_socket.h:518-527`) and what a
+   CI row needs; no protocol port has a default value; no "0 = off". The
+   `--debug-listen-address` row below is `design-dzrp`'s text, adopted
+   verbatim by all three files (2026-09-26 night):
 
    ```
-   { "--zrcp-port", 1, Doc::Documented, OptId::ZrcpPort, "PORT",
+   { "--zrcp-port", 1, Doc::Documented, OptId::ZrcpPort,
+     "PORT",
      "Serve the ZEsarUX remote command protocol (ZRCP) on TCP PORT\n"
      "so ZRCP clients such as DeZog (\"remoteType\": \"zrcp\") can\n"
-     "drive the debugger. Off unless given; 10000 is the port those\n"
-     "clients assume. Binds --debug-listen-address (127.0.0.1)." },
-   { "--debug-listen-address", 1, Doc::Documented, OptId::DebugListenAddress, "ADDR",
-     "Address the remote-debugger listeners (--zrcp-port, --dzrp-port,\n"
-     "--gdb-port) bind: a numeric IP, default 127.0.0.1. Any other\n"
-     "address exposes the machine to that network; there is no\n"
-     "authentication in any of the three protocols." },
+     "drive the debugger. 10000 is the port those clients assume.\n"
+     "Off unless given; PORT 0 binds an OS-chosen port and logs it.\n"
+     "One client at a time." },
+   { "--debug-listen-address", 1, Doc::Documented, OptId::DebugListenAddress,
+     "ADDR",
+     "Bind address for the debugger protocol ports (--dzrp-port,\n"
+     "--zrcp-port, --gdb-port). Default 127.0.0.1. A non-loopback\n"
+     "address exposes the debugger to the network: none of these\n"
+     "protocols has any authentication." },
    ```
 
    `--debug-listen-address` is shared with DZRP/RSP (one row, whoever lands first; the spelling is `design-dzrp`'s amendment, adopted by `design-gdb` and here).
@@ -639,8 +719,17 @@ overlapping removal).
 
 ### 6.3 Real client — DeZog 3.7.4, `"remoteType": "zrcp"`
 
-Manual, recorded in this file's §6.4 when done (WP-5). launch.json:
-`zrcp: {port: <N>, resetOnLaunch: false}`, `load` set to the demo's `.nex`
+Manual, recorded in this file's §6.4 when done (WP-5). **Prerequisite** (review
+R-6): the DeZog default launch sends `hard-reset-cpu` before anything else, so
+the run with DeZog defaults (`resetOnLaunch: true`) is only meaningful once
+REQ-zrcp-15 (§4.6) is accepted and implemented; until then the scenario runs
+with `resetOnLaunch: false` and the first assertion below is skipped, and
+§2.5's "only one DeZog-sent command draws an error" holds only under that
+setting. (REQ-zrcp-15 is now ACCEPTED, so the prerequisite is implementation
+order — backend `CAP-SES-07` before WP-3 — not a design gap.) launch.json:
+`zrcp: {port: <N>, resetOnLaunch: true}` (the default — assertion 1 is that the
+cold boot completes inside the launch and `smartload` lands on the fresh
+machine), `load` set to the demo's `.nex`
 (`smartload` is served), coverage left at its default (served), `topOfStack`
 set from the demo's MAP. Scenario, on `demo/magic_bp_demo` (or any z88dk demo with a
 `.map`): F5 attaches (connect sequence of §1.7 completes without a warning
@@ -656,6 +745,32 @@ declined option of §2.5 (`set-debug-settings` bit 5) named.
 ### 6.4 Validation record
 
 _(empty until WP-5 runs)_
+
+### 6.5 Reviewer mutations — pre-diff hypotheses, not the list
+
+These are what the author expects a reviewer to try; the reviewer derives
+the real list from the diff (a table built from the author's rows cannot
+find a behaviour with no row). Each must be caught by a named row:
+
+| Mutation | Row that must go red |
+|---|---|
+| prompt emitted as `command> ` in step mode | `zrcp_adapter_test` prompt row; `zrcp-func` item 2 |
+| `run` reply prompt sent immediately (before the stop) | `zrcp-func` item 3 (DeZog asserts `Running until` is the whole first reply) |
+| interrupting line executed instead of discarded | `zrcp-func` item 4 (two prompts) |
+| `fired` line omitted / emitted for a data-sent stop | `zrcp-func` items 3, 4 |
+| register line with one space before `F=` / lower-case `IM`/`IFF` swapped | width rows (DeZog offsets) |
+| `MMU=` ROM value emitted as the raw `0xFF` sentinel | projection row (expects `8002`/`8003` for ROM 3) |
+| `$` left in `disassemble` operands / mnemonic not at column 7 | `zrcp-func` item 8; column-7 row |
+| slot range check before master check | order row ([T1] vs [T2] texts) |
+| `set-breakpoint` failure clears the slot | slot-unchanged row |
+| `PC=` fast path also taken for `PC=x OR y` | fast-path row (must be general) |
+| range diff drops an adjacent run / removal of a middle sub-range | range-map rows |
+| `cpu-history get 0` returns the OLDEST entry | history-order row (`zrcp-func` item 7) |
+| `(PC)=` bytes in host order | byte-order row |
+| `run n` runs to completion in one pump | budget row (pump returns with `RunLimit(remaining)`) |
+| `hard-reset-cpu` reply before the boot completes / pause lost across it | §6.3 assertion 1; adapter row over a fake cold-boot hook |
+| `enable-breakpoints` flips the global master | client-switch row (a second client's subscription still fires) |
+| detach leaves the machine paused by the dead client | detach row |
 
 ---
 
@@ -680,6 +795,7 @@ Sent to `design-backend` 2026-09-26 (format `REQ-zrcp-<n>: <capability> —
 | REQ-zrcp-12 | `load(path)` as `--load` does | DeZog launches via `smartload` | `smartload` | **ACCEPTED** → `CAP-CTL-15 load(path)` (`emulator_apply_load` moves under the backend; paused caller stays paused at the new PC) |
 | REQ-zrcp-13 | snapshot save/load semantics | DeZog `-state save/restore` | `snapshot-save/-load` | **DECIDED** → in-memory bookmarks keyed by name: `CAP-CAP-03 bookmark_save(name)` / `bookmark_restore(name)` (the same map DZRP's `CMD_READ/WRITE_STATE` uses); disk = JNS via `CAP-CAP-04` (save only), not this command |
 | REQ-zrcp-14 | `CAP-SES-04`: connected remote client ⇒ `Stop` pauses under `--headless` | a client blocked on `run` must get its reply | `run` | **ACCEPTED** as the design default (owner may overrule) |
+| REQ-zrcp-15 | `CAP-CTL-12 Hard` contract across the cold-boot reconstruction (§4.6): synchronous inside `pump` via the loop owner's registered cold-boot sequence; `Debugger` re-binds; attached clients, their subscriptions and settings re-applied; paused stays paused (PC=0000 of `nextboot.rom`); `Reset{Hard}` delivered before return; guest-initiated resets get the same notification/re-apply when the loop owner performs them; `RefusedUnavailable` with no sequence registered | review R-2: the verb is a deferred flag today (`emulator.h:197-208`) and the boot wipes pause/subscriptions (`emulator_boot.h:112-124`); DeZog sends it first with `resetOnLaunch: true` | `hard-reset-cpu` | **ACCEPTED in full** (backend v4, verified against the code: the after-tick flag poll `sdl_app.cpp:409` / `qt_app.cpp:510` / `headless_app.cpp:691`, `emulator_boot.h:122-124`, `:133-146`) → `CAP-CTL-12` + `CAP-SES-07 set_cold_boot_driver(fn)` / `on_cold_boot_done()`; points 1-6 recorded verbatim; guest NR 0x02 resets keep the deferred path and the driver calls `on_cold_boot_done()` so 2-4 apply. `design-gdb` aligned its `monitor reset hard` to this REQ without filing a duplicate: served only under REQ-zrcp-15 (client sees an `O` line + `OK`, next `g` shows PC=0000 with its `Z0`s intact, no unsolicited `T05` since the client never resumed); `E01` + explanatory `O` line until accepted — the same stance as §2.2 |
 
 Reach-arounds: **0**. Every served command in §2 names its CAP; the only
 `Emulator` knowledge in the adapter is the four-ROM → two-ROM projection
@@ -691,9 +807,9 @@ Reach-arounds: **0**. Every served command in §2 names its CAP; the only
 
 | WP | Scope | Depends on | Tests |
 |---|---|---|---|
-| WP-1 **Transport + session skeleton** | `src/remote/zrcp/` listener over `esp_socket_platform.h`; `ZrcpSession` line reader/writer, `set-cr`, welcome, prompt, `help`/`ls` table, `Unknown command`, U-class replies; `--zrcp-port` / `--debug-listen-address` rows + man page; `pump` integration in the three loop owners (or via `CAP-SES-03`) | backend `CAP-SES-01/02/03` | `zrcp_adapter_test`: framing rows (welcome, prompt, blank line, unknown, alias, extra args, `set-cr`) |
+| WP-1 **Transport + session skeleton** | `src/remote/zrcp/` listener over the public `esp::make_socket_listener` / `EspListener` / `EspTransport` seam (`esp_socket.h:258/509/561`); `ZrcpSession` line reader/writer, `set-cr`, welcome, prompt, `help`/`ls` table, `Unknown command`, U-class replies; `--zrcp-port` / `--debug-listen-address` rows + man page; `pump` integration in the three loop owners (or via `CAP-SES-03`) | backend `CAP-SES-01/02/03` | `zrcp_adapter_test`: framing rows (welcome, prompt, blank line, unknown, alias, extra args, `set-cr`) |
 | WP-2 **Inspection formatters** | `get-registers`/`set-register` (incl. `MMU=` projection), `read-/write-memory*`, `hexdump`, `get-crc32`, `disassemble` (operand `$` stripping, column 7), `get-memory-pages`, `get-stack-backtrace`, `get-tstates*`, `get-cpu-frequency`, `get-current-machine`, `tbblue-get-*` | `CAP-INS-01..04/08/11/15`, `CAP-TIME-01`, REQ-zrcp-07 | one row per formatter against [T] bytes; register-line width rows (DeZog offsets) |
-| WP-3 **Control + run state machine** | `enter-/exit-cpu-step`, `cpu-step`, `cpu-step-over` (ZEsarUX semantics), `run`, `run n`, interrupt-by-data, `Paused`/`Resumed` handling (§4.3-4.4), stop reply, `hard-reset-cpu`/`reset-cpu`, `generate-nmi` | `CAP-CTL-01..06/12/13`, `CAP-SES-02`, REQ-zrcp-05/06 | `zrcp_adapter_test` wiring rows: the machine actually stops (the #203 shape); `zrcp-func` items 1-4 |
+| WP-3 **Control + run state machine** | `enter-/exit-cpu-step`, `cpu-step`, `cpu-step-over` (ZEsarUX semantics), `run`, `run n` (pump-budgeted), interrupt-by-data, `Paused`/`Resumed`/`Reset` handling (§4.3-4.6), stop reply, `hard-reset-cpu` (per §4.6) / `reset-cpu`, `generate-nmi` | `CAP-CTL-01..06/12/13`, `CAP-SES-02`, REQ-zrcp-05/06/**15** | `zrcp_adapter_test` wiring rows: the machine actually stops (the #203 shape); `zrcp-func` items 1-4 |
 | WP-4 **Breakpoints and conditions** | slot table, master switch (per-client), actions (Stop/Log), `set-membreakpoint` map + range diff, condition translation → DSL compiler (or the fallback parser), `PC=` fast path, `evaluate`, `get-breakpoints*`, `get-membreakpoints` | `CAP-EVT`, REQ-zrcp-02/03/04; `design-dsl` compiler | translation rows (each §3.2 line, both directions of every operator), slot bounds 0/1/100/101, fast-path vs general, range diff; `zrcp-func` items 5-6 |
 | WP-5 **History, stack, coverage, load** | `cpu-history *` view + filters, `extended-stack *`, `cpu-code-coverage *`, `smartload`/`load-binary`/`save-binary`, `snapshot-*` as bookmarks; the DeZog validation run and §6.4 | `CAP-INS-12/13/20`, `CAP-CTL-15`, `CAP-CAP-03` | history-format rows (`(PC)=` byte order, `(SP)=`, filters), extended-stack typing rows; `zrcp-func` item 7; the DeZog session record |
 | WP-6 **Fixture + docs** | commit a trimmed, reviewed subset of the [T] transcripts as `test/fixtures/zrcp/` (the expected-bytes source for `zrcp-func` and the adapter test); user-guide page "Debugging with DeZog over ZRCP" (launch.json, the two settings of §2.5); developer-guide paragraph | WP-1..5 | `docs-check` |
@@ -705,13 +821,14 @@ exists; WP-4 is the only one gated on another design (`design-dsl`).
 
 ## 9. Open questions for the owner
 
-1. **`hard-reset-cpu` = cold boot.** DeZog's default `resetOnLaunch: true`
-   sends it on every F5. In jnext that is a full `nextboot.rom → TBBLUE.FW →
-   NextZXOS` boot (seconds of emulated time, and it happens while DeZog holds
-   the machine in step mode, so it does not progress until `smartload`/`run`).
-   Proposed: serve it faithfully (CAP-CTL-12 Hard) and document
-   `resetOnLaunch: false` as the recommended DeZog setting when `--load` is
-   used; the NEX loader re-initialises anyway.
+1. **`hard-reset-cpu` = cold boot — DECIDED in design, not an owner
+   question any more** (review R-2): served faithfully as a synchronous cold
+   boot under the §4.6 contract (REQ-zrcp-15), which makes DeZog's default
+   `resetOnLaunch: true` work. The one thing worth the owner's eye: the boot
+   happens inside a `pump`, i.e. inside one host tick, with the same cost as
+   F1 in the GUI today (reconstruct + `init()`, SD image re-open); the
+   emulated firmware boot itself does not run while the session holds the
+   machine paused.
 2. **Version string.** `get-version` answers `12.0-jnext-<ver>` so DeZog's
    gate passes. It is honest about *what* is served (the 12.0 command surface
    subset) but a reader of `about`/`get-version` could take it for ZEsarUX.
@@ -741,6 +858,6 @@ exists; WP-4 is the only one gated on another design (`design-dsl`).
 | `MMU=0000` for ROM slots on the Next | `8000h+k` (§2.3.1) | DeZog's decoder expects it; ZEsarUX's value is its own bug |
 | a bad condition leaves the slot `None` | slot unchanged | a typo must not silently delete a working breakpoint |
 | `run verbose`, `no-stop-on-data`, `update-immediately` | declined | §2.2 |
-| `hard-reset-cpu` is instantaneous | is a cold boot | Task 70 semantics; §9.1 |
+| `hard-reset-cpu` is instantaneous | is a cold boot, completed synchronously inside the reply (§4.6) | Task 70 semantics; REQ-zrcp-15 |
 | stray `\r` in the "not in cpu-step mode" error | plain `\n` | ZEsarUX artefact |
 | multiple simultaneous clients (unprobed) | one | nobody needs more; arbitration lives in the backend anyway |

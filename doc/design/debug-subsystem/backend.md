@@ -1,6 +1,6 @@
 # Debugger backend — design (working file)
 
-> Status: **v3 — CONVERGED.** All five frontends replied MAPPED against v3 with 0 reach-arounds (qt 38/17, dzrp 22/4+3, zrcp 67/7, gdb 21/24, dsl 28/21); 73 REQs answered; hot-path measured. Assembled into `doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md` (GH
+> Status: **v4 — CONVERGED, revised after independent review.** All five frontends replied MAPPED against v3 with 0 reach-arounds (qt 38/17, dzrp 26 commands/4+3, zrcp 67/7, gdb 21/24, dsl 28/21); 78 REQs answered; hot-path measured. Assembled into `doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md` (GH
 > #277, epic #276). Owner of this file: the backend design agent. Frontend
 > agents own one sibling file each (`qt-frontend.md`, `dzrp-frontend.md`,
 > `zrcp-frontend.md`, `gdb-frontend.md`, `dsl-frontend.md`) and send
@@ -25,6 +25,14 @@
 >   `Paused.matched` as `Hit{}`s, richer `TraceEntry`, CAP-INS-20 coverage,
 >   palette/sprite/pattern debugger writes, `clip_window(Layer)`, CAP-CTL-15
 >   `load(path)`, named in-memory bookmarks, headless stop policy decided.
+> - v4 (2026-09-26, after the arch reviewer's REJECT, `scratchpad/reviews/arch.md`):
+>   one detach rule (R-1); §8.3 relabelled — the armed rows were a single-address
+>   cold-hit scan, not a hot hit (R-2); CPU `NextRegWrite` delivery specified as
+>   ≤1 instruction late with the payload captured in the latch (R-3); every
+>   citation regenerated from the tree (R-4); two owner questions restored to
+>   §13 (R-5); §10-equivalent ownership fixed in the architecture doc (R-6);
+>   ring 32 by construction, DMA/`set_matrix_bit` accessors named, CAP-CAP-01
+>   and CAP-SES-04 corrected, REQ-dsl-18/19 answered.
 
 Every claim about the code below carries a `file:line` citation into the
 worktree at `main @ 974b0ab19`. Claims are marked **[verified]** (read in the
@@ -87,11 +95,12 @@ Quoted from the issue dumps (`gh276.md`, `gh277.md`, `gh279.md`, `gh12.md`):
 
 ### 2.1 The control surface today
 
-- `DebugState` [`src/debug/debug_state.h:259-576`] holds `paused_`, a
+- `DebugState` [`src/debug/debug_state.h:10-327`] holds `paused_`, a
   `StepMode` (`NONE, INTO, OVER, OUT, RUN_TO_CYCLE, STEP_BACK,
-  RUN_BACK_TO_CYCLE` [`:255`]), the `BreakpointSet`, the two hot-path gates
-  `armed_` / `wp_live_` [`:522-530`], the GH #221 step-off arm [`:549-552`],
-  and the data-breakpoint latch `data_bp_hit_` / `data_bp_addr_` [`:569-570`].
+  RUN_BACK_TO_CYCLE` [`:6`]), the `BreakpointSet`, the two hot-path gates
+  `armed_` / `wp_live_` [`:273-278`, members `:307`, `:317`], the GH #221
+  step-off arm [`:300-303`, member `:319`], and the data-breakpoint latch
+  `data_bp_hit_` / `data_bp_addr_` [`:252-255`, members `:320-321`].
   It is pure C++ and already the *execution-control* half of a backend.
 - The **verbs** that turn those into user-facing behaviour live in a
   `Q_OBJECT`: `DebuggerManager::on_run/on_pause/on_step_into/on_step_over/
@@ -99,9 +108,9 @@ Quoted from the issue dumps (`gh276.md`, `gh277.md`, `gh279.md`, `gh12.md`):
   [`src/debugger/debugger_manager.h:62-72`]. Their bodies contain the actual
   semantics a headless consumer needs and cannot reach today [verified]:
   - Step Over: `is_call_like()` → one-shot at `PC + instruction_length()`,
-    else Step Into [`debugger_manager.cpp:413-473`].
+    else Step Into [`debugger_manager.cpp:413-448`].
   - Step Into: `Emulator::debugger_step()` (frame-loop-aware, runs a HALT out,
-    GH #207) [`:377-411`, `emulator.cpp:10496-10597`].
+    GH #207) [`:377-411`, `emulator.cpp:10500-10591`].
   - Run to EOF: target = midpoint of the last *visible* raw line
     (`FB_HEIGHT-1 + vblank_top()`), or the same line next frame if already past
     it [`:475-518`]. Run to EOSL: next raw line start, or next frame start past
@@ -111,7 +120,7 @@ Quoted from the issue dumps (`gh276.md`, `gh277.md`, `gh279.md`, `gh12.md`):
     [`src/debug/resume_guard.h`]) [`:297-324`].
   - Step Back / Rewind to Frame call `Emulator::step_back(1)` /
     `rewind_to_frame(n)` directly and refuse under RZX
-    (`rzx_blocks_rewind`) [`:562-620`]. A *benign* failure (empty buffer,
+    (`rzx_blocks_rewind`) [`:562-622`]. A *benign* failure (empty buffer,
     trace off, frame out of range) is silent; only `last_state_error()`
     raises the corruption modal [`:275-295`].
 - The **hot loop** consults `DebugState` at three points [verified]:
@@ -123,7 +132,7 @@ Quoted from the issue dumps (`gh276.md`, `gh277.md`, `gh279.md`, `gh12.md`):
   `RUN_BACK_TO_CYCLE` are consumed *before* the loop, by rewinding
   [`:9251-9260`]. `DebugState::active()` gates the step machinery AND the
   render hint AND the per-instruction `VideoTiming::advance()`
-  [`:9251`, `:9916`, `:9552`, `:10023`] — one flag, three unrelated
+  [`:9251`, `:9916`, `:9552`, `:10024`] — one flag, three unrelated
   consumers (design-qt finding, REQ-qt-01c).
 - Magic breakpoint: `cpu_.on_magic_breakpoint` sets `active` and pauses
   [`emulator.cpp:7880-7885`]; `--persistent-breakpoints` sets `persistent_`
@@ -159,28 +168,39 @@ Quoted from the issue dumps (`gh276.md`, `gh277.md`, `gh279.md`, `gh12.md`):
   has_any_watchpoints()` before any per-address scan, at eight `Mmu` sites and
   in `PortDispatch::check_io_watchpoint_` [`mmu.h:258-260` and seven more,
   `port_dispatch.cpp:27-36`] [verified]. `watchpoints_live()` is
-  `armed_ && guest_access_` [`debug_state.h:524`], so a panel read can never
+  `armed_ && guest_access_` [`debug_state.h:275`], so a panel read can never
   raise the latch — that property is kept by construction in §4.3.
 
 ### 2.3 The event vocabulary today, and its limits
 
 `BreakpointSet` [`src/debug/breakpoints.h`]: PC breakpoints (`unordered_set`
-live cache), watchpoints as a `vector<Watchpoint{addr, type, enabled}>` with
-`READ/WRITE/READ_WRITE/IO_READ/IO_WRITE` [`:21-30`], **one** one-shot
-[`:205-209`], a master switch, observers. Per-address, unconditional, linear
-scan when armed [`breakpoints.cpp:106-116`]. **No range, no value predicate, no
+live cache [`:224`]), watchpoints as a `vector<Watchpoint{addr, type, enabled}>`
+[`:11-18`, live cache `:225`] with `READ/WRITE/READ_WRITE/IO_READ/IO_WRITE`
+[`:9`], **one** one-shot [`:194-197`, members `:226-227`], a master switch
+[`:191`], observers. Per-address, unconditional, linear scan when armed
+[`breakpoints.cpp:105-116`]. **No range, no value predicate, no
 NextREG-write event, no frame/scanline/cycle event, no physical-page filter**
 [verified — #279's description of the gap is accurate]. The latch carries only
-the address, not the value or the writer's PC [`debug_state.h:569-570`].
+the address, not the value or the writer's PC [`debug_state.h:320-321`].
 
-Where the NextREG write paths are: CPU via port `0x253B` or the `NEXTREG`
-opcode, both deferred through `enqueue_cpu_nr_write()` while an instruction is
-in flight and flushed in `tick_devices_after_instruction()`
-[`emulator.cpp:4746-4770`, `:10221`]; Copper via `Copper::execute(hc, vc,
-NextReg&)` → `NextReg::write` with `active_move_hc()` non-negative only for
-that call [`src/peripheral/copper.h:54`, `:120-131`]. A single hook in
-`NextReg::write` therefore sees **both** writers and can tell them apart
-[inferred from the two call shapes; §11 item 4].
+Where the NextREG write paths are, and **when they commit** (this decides
+§4.3's `NextRegWrite` delivery): the CPU's port-`0x253B` and `NEXTREG`-opcode
+writes are deferred through `enqueue_cpu_nr_write()` while
+`defer_cpu_nr_writes_` is set — set at `:9933` and cleared at `:10001`, both
+inside `step_one_instruction()` [`emulator.cpp:4746-4770`] — and committed by
+`flush_pending_cpu_nr_writes()` at `:10221`, **inside**
+`tick_devices_after_instruction()` (`:10193`), i.e. *after* the instruction
+boundary of §0; only the GH #272 row-boundary sub-flush (`:11481`) commits some
+of them earlier. `enqueue_cpu_nr_write(0xFF, …)` at `:6433` is a fourth
+enqueue site (the ULA border/palette shortcut). The Copper writes
+synchronously via `Copper::execute(hc, vc, NextReg&)` → `NextReg::write`, with
+`active_move_hc()` non-negative only for that call
+[`src/peripheral/copper.h:55`, `:131`]; a DMA transfer that targets port
+`0x253B` also writes synchronously (`defer_cpu_nr_writes_` is false in a DMA
+slot). `NextReg::write_selected` is `write(selected_, val)` [`nextreg.cpp:437`],
+so **one hook in `NextReg::write` sees every writer** [verified]; Copper is
+identifiable at the hook (`active_move_hc() >= 0`), Cpu vs Dma only from the
+slot's DMA flag (see §4.3).
 
 ### 2.4 Time and the frame loop
 
@@ -209,16 +229,23 @@ that call [`src/peripheral/copper.h:54`, `:120-131`]. A single hook in
 ### 2.5 Input injection and capture today
 
 - `--delayed-keypress[-frames]` resolves a key *name* to matrix positions in
-  `HeadlessApp::key_name_to_matrix()` [`src/platform/headless_app.cpp:209-258`]
+  `key_name_to_matrix()` [`src/platform/headless_app.cpp:216-258`]
   and injects via `Keyboard::queue_auto_type({row1,col1,row2,col2, 5 frames})`
-  at a frame countdown [`:557-569`]. `--delayed-nmi` goes through the same
-  hotkey seam the GUI uses (`on_hotkey_f9_mf_nmi/f10_divmmc_nmi`) [`:579-590`].
+  at a frame countdown [`:557-569`]. `queue_auto_type` **replaces** the queue
+  (`auto_queue_ = keys`, [`keyboard.cpp:541`]), so two presses scheduled for
+  the same frame keep only the second, and a press issued while one is held
+  strands the first key down (design-dsl's review finding; REQ-dsl-18).
+  `--delayed-nmi` goes through the same hotkey seam the GUI uses
+  (`on_hotkey_f9_mf_nmi/f10_divmmc_nmi`) [`:573-590`].
 - `--delayed-screenshot[-frames|-layers]` arms `Renderer::set_layer_mask()` for
   the one frame before capture [`:593-597`] and writes through
   `save_screenshot()` [`src/platform/screenshot.h:53`, `headless_app.cpp:705-725`];
-  a capture that came due while paused is an error and a non-zero exit
-  [`qt_app.cpp:623-632`, CLAUDE.md]. `--delayed-snapshot` saves a JNS at a
-  frame boundary [`headless_app.cpp:730-810`].
+  in the GUI a capture that comes due while the debugger is paused is
+  **deferred** with a one-time warning [`qt_app.cpp:622-636`] and fails the
+  run only if `--delayed-automatic-exit` arrives first
+  (`auto_exit_finds_no_deferred_work`, `:647`); headless writes what is in the
+  framebuffer [`headless_app.cpp:704-712`]. `--delayed-snapshot` saves a
+  snapshot at a frame boundary [`headless_app.cpp:728-810`].
 - Joystick state is settable as raw 12-bit vectors:
   `Joystick::set_joy_left/right(uint16_t)` [`src/input/joystick.h:113-117`].
   Keyboard rows are readable (`Keyboard::read_rows` [`keyboard.h:68`]) but the
@@ -233,7 +260,7 @@ that call [`src/peripheral/copper.h:54`, `:120-131`]. A single hook in
 `Emulator::save_state/load_state` over `StateWriter/StateReader`
 [`src/core/saveable.h`, `emulator.h:776-793`]; fixed-width stream; snapshots
 only at frame boundaries [`rewind_buffer.h:11-16`]; a mid-frame save advances
-to the boundary under `DebugState::SuspendScope` [`debug_state.h:370-412`,
+to the boundary under `DebugState::SuspendScope` [`debug_state.h:133-162`,
 `emulator.cpp:11902-11908`]; `frame_in_progress()` is queryable
 [`emulator.h:191`]. Failed restores latch `last_state_error()` and bump
 `state_error_generation()` [`emulator.h:895-901`]. `RewindBuffer`
@@ -342,7 +369,7 @@ instead of silently doing nothing — the GUI's `if (!enabled_) return;` guards
 | ID | Capability | Semantics (from the code) |
 |---|---|---|
 | CAP-CTL-01 | `pause()` | `DebugState::pause()`; takes effect at the next instruction boundary [`emulator.cpp:9304`]; idempotent. Called from `pump()` (outside `run_frame`) the machine is already at a boundary, so it is effectively synchronous. |
-| CAP-CTL-02 | `run()` | Resume; no-op if already running (GH #223 [`debugger_manager.cpp:326-336`]); the GH #221 step-off arm stays in the backend [`debug_state.h:549-552`] — adapters never insert their own temp breakpoints to step off; subject to CAP-CTL-11. |
+| CAP-CTL-02 | `run()` | Resume; no-op if already running (GH #223 [`debugger_manager.cpp:326-336`]); the GH #221 step-off arm stays in the backend [`debug_state.h:300-303`] — adapters never insert their own temp breakpoints to step off; subject to CAP-CTL-11. |
 | CAP-CTL-03 | `step_into()` | `Emulator::debugger_step()` — one instruction, frame-loop aware, runs a HALT out (GH #207). **Synchronous**: returns after the instruction executed, already paused. |
 | CAP-CTL-04 | `step_over()` | `is_call_like` → a *transient* `Execute` subscription at next PC and resume; else = CAP-CTL-03. Asynchronous (completes at a later boundary). The DZRP adapter never calls CAP-CTL-03..08: DeZog steps by `CMD_CONTINUE` with its own temp breakpoints, which the adapter serves as transient `Execute` subscriptions + `run()` (design-dzrp). |
 | CAP-CTL-05 | `step_out()` | `DebugState::step_out(SP)`; ends per `check_step_out` (GH #203). Asynchronous. |
@@ -352,10 +379,10 @@ instead of silently doing nothing — the GUI's `if (!enabled_) return;` guards
 | CAP-CTL-09 | `step_back(n)` | `Emulator::step_back(n)`; synchronous; `RefusedRzx` / `RefusedUnavailable` / `RefusedCorrupt` distinguished. |
 | CAP-CTL-10 | `rewind_to_frame(n)` | `Emulator::rewind_to_frame(n)`; same contract. |
 | CAP-CTL-11 | resume gate | `resume_blocked_by_corruption() -> optional<CorruptionIncident{subsystem, generation}>` and `acknowledge_corruption(generation)`. The *policy* is `ResumeGuard` (already pure, [`resume_guard.h`]); the modal stays in the Qt adapter. A client that does not acknowledge gets `RefusedCorrupt` (DZRP reports it as NTF_PAUSE reason 255; RSP as `E01`). |
-| CAP-CTL-12 | `reset(Hard\|Soft)` | `request_hard_reset()` / `soft_reset()` [`emulator.h:198-208`]. |
+| CAP-CTL-12 | `reset(Hard\|Soft)` | `Soft` = `Emulator::soft_reset()` [`emulator.h:198`], synchronous. **`Hard` is the cold-boot reconstruct contract (REQ-zrcp-15, blocking):** today `request_hard_reset()` only raises a flag [`emulator.h:207`] that each loop owner polls after its tick's frames [`sdl_app.cpp:409`, `qt_app.cpp:510`, `headless_app.cpp:691`] and turns into `emulator_frontend_cold_boot()` [`emulator_boot.h:225-245`], which destroys and placement-news the `Emulator` and deliberately restores nothing transient ("starts fresh and running", [`:122-124`]). The backend makes it **synchronous for a client**: (1) the loop owner registers its cold-boot driver (`ColdBootHooks`, [`emulator_boot.h:239`]) with the backend at start-up (CAP-SES-07); `reset(Hard)` from inside `pump()` — the same post-frames slot the flag poll lives in — runs it before returning, so later commands in the same drain (ZRCP `hard-reset-cpu` → `enter-cpu-step` → `smartload`) see the new machine; (2) the backend re-binds to the reconstructed `Emulator` (same address; fresh `DebugState`/`TraceLog`/`CallStack`) and re-applies every client's subscriptions, switches, `live_raster`/`attached`, call-stack tracking, trace and coverage enables, and the symbol table — the client-owned model makes this mechanical; (3) **paused stays paused**: the backend re-applies the pause after the reconstruct (the machine is then at PC 0x0000 of `nextboot.rom`, as ZEsarUX's `hard-reset-cpu` in cpu-step mode), a running machine keeps running; (4) `Reset{Hard}` reaches every listener before the verb returns, and a client blocked in a run gets a stop with reason `Reset`; (5) a **guest-initiated** hard reset (NR 0x02) keeps the deferred path, and the loop owner's driver calls the backend's `on_cold_boot_done()` so rules 2-4 apply identically; (6) with no driver registered (a bare test harness) → `RefusedUnavailable`. The same contract covers CAP-CTL-15 when a `.nex` load routes to the cold boot. |
 | CAP-CTL-13 | `state() -> RunState{paused, step_mode, pause_reason, cycle, frame, pc}` | Pull. `pause_reason` ∈ {`User{cid}`, `Breakpoint{event_id}`, `Watch{event_id, access, addr}`, `Step`, `RunTo{event_id}`, `Magic`, `Corrupt`, `Script{event_id, text}`}. |
 | CAP-CTL-14 | `magic_breakpoint()` / `set_magic_breakpoint(bool)` | `Emulator::set_magic_breakpoint` [`emulator.cpp:7873-7886`] (REQ-qt-12; the Debug-menu toggle, pinned by `debugger_menu_test` MBP-01/02). |
-| CAP-CTL-15 | `load(path) -> Result` | The frontend-agnostic format dispatch `emulator_apply_load()` [`src/platform/emulator_boot.h:25`, no toolkit includes] driven from the backend (ZRCP `smartload`, REQ-zrcp-12). When the caller is paused the machine stays paused after the load routine completes, at the new PC; a NEX's boot-hold frames run on the next resume. |
+| CAP-CTL-15 | `load(path) -> Result` | The frontend-agnostic format dispatch `emulator_apply_load()` [`src/platform/emulator_boot.h:25`, no toolkit includes] driven from the backend (ZRCP `smartload`, REQ-zrcp-12). When the caller is paused the machine stays paused after the load routine completes, at the new PC; a NEX's boot-hold frames run on the next resume. **Contract (REQ-qt-29):** a load that routes to `emulator_cold_boot()` destroys and reconstructs the `Emulator` in place [`emulator_boot.h:133-146` saves the `BreakpointSet` with its observers and `active()` across `~Emulator()` / placement-`new` / `init()`]; the backend owns every client's subscriptions, enable flags, the master and per-client switches, the attached/live_raster state and the symbol table **outside** `Emulator`, and re-installs its hooks and latch state after the reconstruct, so nothing any client set is lost — a backend row subscribes, loads, and asserts the subscription still fires. |
 
 **Semantics with 0, 1 or N frontends attached** (answering #277):
 
@@ -363,9 +390,12 @@ instead of silently doing nothing — the GUI's `if (!enabled_) return;` guards
   `--persistent-breakpoints` or a magic breakpoint fires; the hot loop pays the
   same load-and-branch it pays today (§8). A magic breakpoint with nobody
   attached pauses the machine exactly as today [`emulator.cpp:7880-7885`]; the
-  loop owner's stop policy decides what that means (GUI: open the window —
-  `check_breakpoint_hit()` [`debugger_manager.cpp:682-724`]; headless: log +
-  exit non-zero — CAP-SES-04).
+  loop owner's stop policy decides what that means (Qt: open the window —
+  `check_breakpoint_hit()` [`debugger_manager.cpp:682-720`]; headless and
+  SDL: per CAP-SES-04 — which for a magic breakpoint is a **change** from
+  today's behaviour, where a headless magic breakpoint pauses and the run
+  continues to `--delayed-automatic-exit` with exit 0 [`emulator.cpp:7880-7885`];
+  owner question §13.3).
 - **1 attached.** Identical to today.
 - **N attached.** One machine, one `DebugState`. **No ownership token and no
   arbitration queue**: any client may pause, resume or step; every transition
@@ -437,11 +467,11 @@ time kinds #26 needs; kinds added in v2 are marked †):
 | Kind | Cheap filter (evaluated where) | Payload (beyond the common fields) |
 |---|---|---|
 | `Execute` | PC ∈ [lo, hi], optional `page` qualifier: effective page at slot(PC) == page, tested only after the address matched (pre-instruction gate, `should_break` site) — REQ-dzrp-7 | pc |
-| `Mem` with `access` bitmask {Read, Write} (REQ-qt-13c, REQ-gdb-8) | logical addr ∈ [lo, hi] **or** physical page ∈ set (MMU sites; §8) | addr, phys_page, value (written / read), pc of the instruction, `source` ∈ {Cpu, Dma} (REQ-dsl-1 amendment; tagged at the boundary drain from the slot's DMA flag [`emulator.cpp:9784`], never at the MMU site) |
+| `Mem` with `access` bitmask {Read, Write} (REQ-qt-13c, REQ-gdb-8) | logical addr ∈ [lo, hi] **or** physical page ∈ set (MMU sites; §8); a logical range may also carry an optional `page` qualifier AND-ed with it ("this range in this bank", DZRP's `bank+1` watchpoints — REQ-dzrp-11), tested only after the range matched | addr, phys_page, value (written / read), pc of the instruction, `source` ∈ {Cpu, Dma} (REQ-dsl-1 amendment; tagged at the boundary drain from the slot's DMA flag [`emulator.cpp:9784`], never at the MMU site) |
 | `Port` with `access` {Read, Write} | `(port & mask) == value` (PortDispatch site; the GH #222 low-byte rule is sugar = mask 0x00FF); read value latched *after* dispatch (today `check_io_watchpoint_` runs before it [`port_dispatch.cpp:60`] — a trivial move) | port, value, pc |
-| `NextRegWrite` | reg ∈ set, `source` ∈ {Cpu, Copper, Dma, Any} (`NextReg::write` hook) | reg, value, `prev` (peeked at the hook, before commit — REQ-dsl-4), source, hc/vc of the write. Delivered **after** commit at the boundary; for "NR 0x51 vs MMU0" the script reads NR 0x50 (unaffected) and has both old and new 0x51 |
+| `NextRegWrite` | reg ∈ set, `source` ∈ {Cpu, Copper, Dma, Any} (`NextReg::write` hook) | reg, value, `prev` (peeked at the hook, before commit — REQ-dsl-4), source, **and `pc`, `cycle`, `hc`, `vc` captured in the latch at the hook**, not at delivery. Delivered after commit at the **next instruction boundary the drain reaches**: for a Copper or DMA write that is the current instruction's boundary; for a CPU write it is **≤1 instruction late**, because CPU NR writes commit in `flush_pending_cpu_nr_writes()` [`emulator.cpp:10221`], inside the post-instruction device cluster, *after* the boundary drain (§2.3). A `Stop` on a CPU NR write therefore lands one instruction after the writer, with the payload's `pc` naming the writer exactly (the Scanline rule, same reason). Chosen over moving the drain after the device cluster, which would change the GH #265 early-return contract at `:9398` for every data breakpoint. For "NR 0x51 vs MMU0" the script reads NR 0x50 (unaffected) and has both old and new 0x51 |
 | `Frame` | every frame, or frame == N (`begin_new_frame`/`end_of_frame`) | frame |
-| `Scanline` | cvc == N (or every) — latched at `on_scanline` [`emulator.cpp:11630`] with the line's exact cycle, delivered at the **next** instruction boundary (≤1 instruction late; instruction granularity is the model's unit) | frame, vc, cycle |
+| `Scanline` | cvc == N (or every) — latched at `on_scanline` [`emulator.cpp:11630`] with the line's exact cycle, delivered at the **next** instruction boundary (≤1 instruction late; instruction granularity is the model's unit) | frame, vc, cycle (captured in the latch) |
 | `Cycle` | master_cycle >= N, one-shot by nature (pre-instruction gate; same test as `RUN_TO_CYCLE`) | cycle |
 | `Reset` | hard / soft (the two reset paths) | kind |
 | `IntAck` † | accepted maskable interrupt (`cpu_.on_int_ack` seam [`emulator.cpp:1114`]) — REQ-dsl-7 | vector, im |
@@ -504,17 +534,27 @@ instruction are **latched**, not delivered: the hot-path site appends
 `{kind, addr, value, phys_page}` to a small fixed ring on `DebugState`
 (replacing the single `data_bp_addr_`) and sets the existing `data_bp_hit_`
 bit. At the instruction boundary the backend drains the ring, tags `source`
-from the slot's flags, evaluates conditions, calls handlers, and applies the
-strongest verdict. This is the existing shape (`data_bp_hit()` checked after
+from the slot's DMA flag — today the local `dma_stalled_cpu_this_step`
+[`emulator.cpp:9687`, set `:9784`], which becomes a member the drain can read
+(an accessor addition, like INS-08's) — evaluates conditions, calls handlers,
+and applies the strongest verdict. One caveat inherited from the code: a
+`Stop` verdict takes the GH #265 early return at `:9398`, which skips
+`tick_devices_after_instruction()`, so the stopping instruction's own deferred
+CPU NR writes stay queued until the resume — pre-existing data-breakpoint
+behaviour, kept, and stated so nobody reads "delivered after commit" over it. This is the existing shape (`data_bp_hit()` checked after
 `step_one_instruction()` [`emulator.cpp:9398`]) with a value and a page added;
 it is also what makes "observation does not perturb" a property of the
 *design*: no user code ever runs inside `Mmu::write`, inside the CPU, or
-inside a device tick. Ring capacity 16 — a Z80 instruction performs a handful
-of accesses (`PUSH` 2, `EX (SP),HL` 4, block instructions 1 per iteration since
-FUSE executes one iteration per `execute()`); a DMA burst slot can exceed it,
-in which case the ring records `overflowed = true` and the first 16, and the
-delivery says so (design-dsl logs it). **Needs-prototype**: whether 16
-suffices for a DMA-burst slot in practice (§11 item 2).
+inside a device tick. Ring capacity **32, sufficient by construction** (reviewer derivation,
+confirmed): a slot is DMA *or* CPU, never both [`emulator.cpp:9687-9790`,
+`dma_stalled_cpu_this_step`]; a DMA slot is capped at `execute_burst(16)`
+[`:9735`], so its worst case is 16 writes + 16 reads = 32 `Mem` latches (a
+Read|Write range covering both source and destination) or 16 `Port` latches
+(a memory→port burst); a CPU instruction is far below that (`PUSH` 2,
+`EX (SP),HL` 4, block instructions 1 per iteration since FUSE executes one
+`LDIR` iteration per `execute()`, `z80_ed.c` `PC -= 2`). Overflow is therefore
+unreachable; the ring still records `overflowed` defensively and the delivery
+reports it.
 
 **Span invariants and cross-register consistency** (#279) need no new event
 kind: two `Execute` (or `IntAck` + `Execute`) subscriptions whose handlers read
@@ -547,13 +587,13 @@ become callers of the same backend primitives, scheduled by a `Frame` event.
 
 | ID | Capability | Built on |
 |---|---|---|
-| CAP-IN-01 | `press_key(name\|{row,col}[,{row2,col2}], hold_frames)` | `Keyboard::queue_auto_type` [`keyboard.h:70-82`]; `key_name_to_matrix()` moves out of `headless_app.cpp` into the backend so every frontend and the DSL share the vocabulary the man page documents. |
-| CAP-IN-02 | `set_key(row, col, pressed)` / `set_extended_key(id, pressed)` — level, not pulse | `Keyboard::set_matrix_bit` [`keyboard.h:185`], `set_extended_key` [`:127`]. Replay applies recorded *state* per frame (#20). |
+| CAP-IN-01 | `press_key(name\|{row,col}[,{row2,col2}], hold_frames)` — a **pulse**, **APPEND** semantics (REQ-dsl-18) | `Keyboard::queue_auto_type` [`keyboard.h:79`] replaces the queue today [`keyboard.cpp:541`]; the backend appends instead (the 4-frame all-released gap `tick_auto_type` inserts between entries stays), so a second pulse while one is held is queued behind it and never strands a key down, and two pulses scheduled for one frame both happen. The `--delayed-keypress-frames` rows inherit the fix. `key_name_to_matrix()` moves out of `headless_app.cpp` into the backend so every frontend and the DSL share the vocabulary the man page documents. |
+| CAP-IN-02 | `set_key(row, col, pressed)` / `set_extended_key(id, pressed)` — level, not pulse | `Keyboard::set_matrix_bit` [`keyboard.h:185`] is **private** today and gains a public debugger-injection entry (accessor addition); `set_extended_key` [`:127`] is public. Replay applies recorded *state* per frame (#20); the DSL's bare `press`/`release` are this, only `press … for n` is IN-01. |
 | CAP-IN-03 | `set_joystick(side, bits12)` | `Joystick::set_joy_left/right` [`joystick.h:113-117`]. |
 | CAP-IN-04 | `press_nmi(Mf\|Drive)` | `on_hotkey_f9_mf_nmi / f10_divmmc_nmi` (GH #209 seam). |
-| CAP-CAP-01 | `screenshot(path, layer_mask, Format::Png\|Scr)` | `save_screenshot` + `Renderer::set_layer_mask` — deferred to the next rendered frame; when paused mid-frame with no frame rendered it returns `NoFrame`, today's non-zero-exit contract. |
+| CAP-CAP-01 | `screenshot(path, layer_mask, Format::Png\|Scr)` | `save_screenshot` + `Renderer::set_layer_mask`. **Deferred to the next rendered frame** (one rule for every frontend; the GUI's defer-with-warning contract [`qt_app.cpp:622-636`], which headless today does not follow — it writes whatever is in the framebuffer [`headless_app.cpp:704-712`]; the headless change is named here). `NoFrame` is returned only when the deferral is cut off by the exit bound — today's `auto_exit_finds_no_deferred_work` non-zero exit [`qt_app.cpp:647`]. |
 | CAP-CAP-02 | screen *memory* capture: `ula_screen_dump()` (`Ula::screen_dump` [`ula.h:608`]) + `peek(Page{n})` for L2 banks / tilemap / pattern RAM | REQ-dsl-13; the byte-diffable unit for #20. |
-| CAP-CAP-03 | `bookmark_save(name)` / `bookmark_restore(name)` — named, in-memory | §4.6; ZRCP `snapshot-save/-load` and DZRP `CMD_READ/WRITE_STATE` are the same map (REQ-zrcp-13); disk is JNS via CAP-CAP-04, save only. |
+| CAP-CAP-03 | `bookmark_save(name, Mode) -> Result` / `bookmark_restore(name) -> Result` / `bookmarks(cid)` — named, in-memory, **per client** | §4.6; a map over CAP-ST-01/02 for adapters whose protocol names bookmarks: ZRCP `snapshot-save/-load` (REQ-zrcp-13) and DZRP `CMD_READ/WRITE_STATE` (design-dzrp's post-review choice: the wire carries a token `JNXB<name>`, never the bytes, so a refused save cannot come back as a 0-byte restore). Each bookmark is a full `save_state` snapshot (the rewind slot size, `RewindBuffer::snapshot_bytes()`); **bound: 8 per client** (`RefusedUnavailable` beyond it, oldest never evicted silently), and **a client's bookmarks die with its `detach`**. Disk is JNS via CAP-CAP-04, save only. |
 | CAP-CAP-04 | `save_snapshot(path)` at the next frame boundary | The `--delayed-snapshot` path [`headless_app.cpp:730-810`] (REQ-dsl-11). |
 
 ### 4.6 State bookmarks and reverse execution — `CAP-ST`
@@ -577,12 +617,13 @@ dialog over CAP-SYM.
 
 | ID | Capability |
 |---|---|
-| CAP-SES-01 | `attach(ClientInfo{name, kind}) -> ClientId`; `detach(cid)` — removes that client's subscriptions; if it was the last client and the machine is paused *by it*, the machine is resumed (a dropped socket must not leave the machine hung — a pause by another client survives). |
+| CAP-SES-01 | `attach(ClientInfo{name, kind}) -> ClientId`; `detach(cid)` — removes that client's subscriptions and, **iff the machine is paused *by this client*** (`pause_reason` names it, or a `Stop` on one of its subscriptions), resumes it; a pause by another client survives. **The one rule**, as the five frontends state it (`dzrp-frontend.md` §2 row 2, `zrcp-frontend.md` §4.5, `gdb-rsp-frontend.md` §2 row 19); there is no "last client" condition — the Qt adapter is attached for the process lifetime, so a remote is never the last client, and the point of the rule is that a crashed DeZog must not leave the machine hung. |
 | CAP-SES-02 | `set_listener(cid, Listener&)` — `Paused{by, reason, cycle, pc, matched[]}`, `Resumed{by}`, `Reset{kind}`, `FrameEnded{frame}`, `SubscriptionsChanged{kinds}`, `ExitRequested{code}`, `Log{level, text}`. Synchronous callbacks on the emulation thread, inside `pump()` or `run_frame()`; they must return promptly and do no UI work (the Qt listener records and acts on its tick — REQ-qt-15b). |
-| CAP-SES-03 | `pump(PumpBudget{max_wait_ms, drain_ms, budget_ms}) -> ServiceHint{remote_attached, paused}` — while paused, after answering a command it waits up to `drain_ms` (~2) for the next complete command and answers it too, until quiet or `budget_ms` (~10) is spent (REQ-zrcp-01: a DeZog zrcp step is ~15 sequential round trips; at one per tick that is 300 ms); `pump(0)` while running. Called by the loop owner once per tick **after** the tick's frame batch (the `post_frames` slot where `check_breakpoint_hit()` sits today [`qt_app.cpp:666`]), so a stop in this tick's frames is notified in this tick's pump (REQ-dzrp-8: one tick per DeZog step round trip). Drives registered services (socket adapters). The loop owner *may* shorten its cadence while `paused && remote_attached` (REQ-dzrp-9, NEEDS-PROTOTYPE against real DeZog). §5. |
-| CAP-SES-04 | `set_stop_policy(StopPolicy::Pause \| ExitNonZero)` — set by the loop owner: GUI/SDL = `Pause`; `--headless` = `ExitNonZero` (log the event, exit non-zero; code = the script's explicit `exit` code, else the default — owner question §13.1) **unless a remote client is connected, in which case `Pause` + notify** (decided by design, three frontends concur — REQ-zrcp-14; the owner may overrule). The one place headless-vs-GUI is expressed, and it is expressed by the frontend. |
+| CAP-SES-03 | `pump(PumpBudget{max_wait_ms, drain_ms, budget_ms}) -> ServiceHint{remote_attached, paused}` — while paused, after answering a command it waits up to `drain_ms` (~2) for the next complete command and answers it too, until quiet or `budget_ms` (~10) is spent (REQ-zrcp-01: a DeZog zrcp step is ~15 sequential round trips; at one per tick that is 300 ms); `pump(0)` while running. The budgets are **host service parameters** — how long the loop owner lends its thread to socket I/O — never emulation semantics; nothing in the emulated timeline depends on them. Called by the loop owner once per tick **after** the tick's frame batch (the `post_frames` slot where `check_breakpoint_hit()` sits today [`qt_app.cpp:666`]), so a stop in this tick's frames is notified in this tick's pump (REQ-dzrp-8: one tick per DeZog step round trip). Drives registered services (socket adapters). The loop owner *may* shorten its cadence while `paused && remote_attached` (REQ-dzrp-9, NEEDS-PROTOTYPE against real DeZog). §5. |
+| CAP-SES-04 | `set_stop_policy(StopPolicy::Pause \| ExitNonZero)` — set by the loop owner: **Qt = `Pause`**; **SDL and `--headless` = `ExitNonZero`** (log the event, exit non-zero; code = the script's explicit `exit` code, else the default — owner question §13.1) **unless a remote client is connected, in which case `Pause` + notify** — a proposal on top of the owner's #279 rule ("stop becoming a logged event plus a non-zero exit under `--headless`"), listed for the owner in §13.2. SDL is `ExitNonZero` because that frontend has no pause: `grep -n pause src/platform/sdl_app.{h,cpp}` hits one audio comment (`:422`), the sequencer's only pause is the debugger's `DebugState` [`frame_sequencer.h:209`], and there is no resume path (REQ-dsl-19). The one place the frontend kind is expressed, and it is expressed by the frontend. |
 | CAP-SES-05 | `set_live_raster(cid, bool)` — per client, ORed (REQ-qt-01b); `attached()` — ≥1 client, the gate on the step machinery (REQ-qt-01c). |
 | CAP-SES-06 | `log(level, text)` — the backend's message sink; frontends attach a console (Qt), stderr (headless/SDL), or a notification (remote) — REQ-dsl-11. |
+| CAP-SES-07 | `set_cold_boot_driver(fn)` — the loop owner registers the `emulator_frontend_cold_boot()` sequence it already owns; `on_cold_boot_done()` — the loop owner's notification after a deferred (guest) cold boot. Both exist so CAP-CTL-12 `Hard` and a NEX `load()` can honour the reconstruct contract from any client (REQ-zrcp-15). The stop policy (CAP-SES-04) is likewise the **loop owner's** to set, never an adapter's. |
 
 ---
 
@@ -592,8 +633,12 @@ dialog over CAP-SYM.
 owner is the frontend: `QtApp`'s timer tick through `frame_sequencer`, the
 SDL loop [`sdl_app.cpp:378`], or `HeadlessApp::run()` [`headless_app.cpp:503-`].
 While paused the Qt/SDL loops keep ticking; the headless loop keeps calling
-`run_frame()`, which returns immediately when paused
-[`emulator.cpp:9304-9305`] — a busy spin.
+`run_frame()`, which returns immediately when paused — but only inside
+`if (debug_state_.armed())` [`emulator.cpp:9300-9305`]: a paused-but-not-armed
+machine runs. The backend therefore defines **`armed = attached ||
+persistent`**, so a `pause()` from any attached client is honoured; a headless
+run with no client attached is never paused by anything (every `Stop` exits,
+CAP-SES-04), so its poll loop never spins without a client to serve.
 
 **Minimum change for a socket frontend:** none to the threading model. A
 protocol server is an adapter with a non-blocking listening socket; the loop
@@ -612,12 +657,14 @@ listener and flushed in the same `pump`. Consequences:
 - **Headless with a server attached:** the loop calls `pump(wait)` with
   `wait = paused ? ≤50 ms : 0`, turning the busy spin into a `poll()` while
   paused. That is the whole headless change.
-- **No reentrancy:** a command handler that calls `step_into()` executes an
-  instruction *inside* `pump`, which is inside the tick, outside `run_frame`
-  — exactly where `DebuggerManager::on_step_into()` calls `debugger_step()`
-  today. Handlers are never invoked from inside a delivery (§4.3), so `pump`
-  is not called from inside `run_frame`; the backend asserts `!in_delivery_`
-  in `pump`. The DSL's "a script observes, it does not drive" rule
+- **No reentrancy:** a *command* handler (a protocol server acting on a
+  received packet) that calls `step_into()` executes an instruction *inside*
+  `pump`, which is inside the tick, outside `run_frame` — exactly where
+  `DebuggerManager::on_step_into()` calls `debugger_step()` today. Command
+  handlers are never invoked from inside an *event* delivery (§4.3 — event
+  handlers, i.e. scripts, DO run inside a delivery, with the machine stopped
+  at a boundary; they may not issue control verbs), so `pump` is not called
+  from inside `run_frame`; the backend asserts `!in_delivery_` in `pump`. The DSL's "a script observes, it does not drive" rule
   (design-dsl §1) is the same wall from the other side.
 - **Why not a thread:** every inspection read would then need the emulator
   locked at an instruction boundary anyway (a mid-instruction register read is
@@ -629,7 +676,7 @@ listener and flushed in the same `pump`. Consequences:
 
 ## 6. What `src/debug/` becomes — layout and build matrix
 
-**Published** (frontends include these, nothing else):
+**Published** (frontends include these, nothing else; C++17 — `CMakeLists.txt:11` — so the sketches' `span<T>` means a `{const T*, size_t}` pair or a `std::vector<T>` copy, never `std::span`):
 `src/debug/debugger.h` (facade, `jnext::dbg::Debugger`), `events.h` (kinds,
 filters, `Event`, `Subscription`), `inspect.h` (value types: `Z80Registers`
 re-export, `SlotInfo`, `RasterState`, `Time`, `MachineInfo`, `MemSpace`,
@@ -658,7 +705,7 @@ header in the pure layer.
 default `127.0.0.1` plus `--dzrp-port`/`--zrcp-port`/`--gdb-port` — design-gdb's
 proposal, adopted for all three; the listener/transport seam is the public
 `esp::make_socket_listener` / `EspListener` / `EspTransport` interface
-[`src/esp01/src/esp_socket.h:561/509/258` per design-gdb], not the platform
+[`src/esp01/include/esp01/esp_socket.h:561/509/258`], not the platform
 layer beneath it), `src/script/` (`jnext_script`, the DSL,
 `--script FILE`). Built in **every** configuration — they have no toolkit
 dependency, and a headless CI run is their main use. No gate option proposed
@@ -784,18 +831,31 @@ touch the watched address; its `boot-nextzxos` armed cells were **invalid**
 machine, and the benchmark loop counted frames that emulated nothing — 13×
 "faster"; the harness measuring a paused machine, not a speed-up). Run 2 (7
 pairs, load1 2.91 → 3.21) rebuilt the two armed binaries with a hook that
-**consumes the latch without pausing** (`JNEXT_PROTO_NOPAUSE`), so on
-`boot-nextzxos` the armed columns are the **hot-hit** case — the watch matches
-and latches on every one of the ~16 K ROM-copy writes per ROM image — and on
-the other two workloads they remain armed-cold. Deltas are medians of pairs
-against B; `sp` is that binary's own (max−min)/median.
+**consumes the latch without pausing** (`JNEXT_PROTO_NOPAUSE`).
 
-| Workload | run | B (T/s) | P1U vs B (no watch) | P0A vs B (today's scan, armed) | P1A vs B (mask design, armed) |
+**What the armed rows measure — corrected after review.** The armed watch is a
+*single-address* `WRITE` watch at `0x0000`, and `has_watchpoint` matches
+`wp.addr == addr` exactly [`breakpoints.cpp:105-116`], so on `boot-nextzxos`
+it latches **once per ROM-image copy** (the copy's first byte), not once per
+write. The armed columns therefore measure the **armed scan on every memory
+write at a 28 MHz write rate with a cold hit** — for P0A the linear scan on
+every write; for P1A the slot-0 mask bit forcing the precise scan for the
+`0x0000-0x1FFF` half of each copy, still without a latch. The frequently-
+latching path (ring append per write, `data_bp_hit_` set and drained per
+instruction) was exercised a handful of times per run; `NOPAUSE` only cleared
+the flag those few times. A true hot-latch measurement needs a *range* watch
+covering the copy (`Mem[0x0000,0x3FFF] Write` — the #279 case), which the
+throwaway prototype could not express because it reused today's per-address
+`BreakpointSet`; it is §11 item 3, measured on the implementation branch.
+Deltas are medians of pairs against B; `sp` is that binary's own
+(max−min)/median.
+
+| Workload | run | B (T/s) | P1U vs B (no watch) | P0A vs B (today's scan, armed, cold hit) | P1A vs B (mask design, armed, cold hit) |
 |---|---|---|---|---|---|
 | boot-48k (3.5 MHz, ROM-resident) | 1 | 69.3 M (sp 1.8 %) | **+1.1 %** (sp 3.4 %) | −0.4 % (sp 14.7 %) | −1.3 % (sp 9.1 %) |
 | boot-48k | 2 | 68.6 M (sp 27.1 %*) | −0.4 % (sp 5.9 %) | −2.3 % (sp 9.7 %) | −1.0 % (sp 1.8 %) |
 | boot-nextzxos (28 MHz) | 1 | 180.3 M (sp 2.7 %) | **+3.6 %** (sp 4.3 %) | *invalid* (paused) | *invalid* (paused) |
-| boot-nextzxos, **hot hit** | 2 | 184.8 M (sp 3.9 %) | **+0.8 %** (sp 3.1 %) | **−5.0 %** (sp 2.1 %) | **−1.4 %** (sp 1.6 %) |
+| boot-nextzxos, **armed, scan every write, cold hit (28 MHz)** | 2 | 184.8 M (sp 3.9 %) | **+0.8 %** (sp 3.1 %) | **−5.0 %** (sp 2.1 %) | **−1.4 %** (sp 1.6 %) |
 | beast (28 MHz, L2 + copper) | 1 | 68.8 M (sp 1.9 %) | **+0.0 %** (sp 2.5 %) | −2.4 % (sp 4.7 %) | −0.8 % (sp 1.8 %) |
 | beast | 2 | 68.0 M (sp 3.0 %) | **+0.8 %** (sp 2.8 %) | −1.9 % (sp 9.8 %) | −1.5 % (sp 5.7 %) |
 
@@ -812,26 +872,27 @@ spreads):
    slightly on the favourable side. The design predicted exactly this (the
    first gate is unchanged and the compiler emits nothing new before it); it
    is now measured, not inferred. This is the number #279 and #277 asked for.
-2. **Armed and hitting (the case a range watch on a code area produces
-   during a ROM copy): today's linear scan costs 5.0 %, the slot mask
-   1.4 %** on `boot-nextzxos`, the cleanest row in the table (spreads 2.1 %
-   and 1.6 %). Both armed columns also pay the pre-existing
-   `--persistent-breakpoints` per-instruction `should_break()` lookup on an
-   empty set, so 1.4 % is an upper bound on the mask design's cost with one
-   armed, frequently-hitting watch — and it is the cost only a user who armed
-   one pays.
+2. **Armed, scanning every write at 28 MHz, cold hit: today's linear scan
+   costs 5.0 %, the slot mask 1.4 %** on `boot-nextzxos`, the cleanest row
+   in the table (spreads 2.1 % and 1.6 %). Both armed columns also pay the
+   pre-existing `--persistent-breakpoints` per-instruction `should_break()`
+   lookup on an empty set. This is the cost of *having* a watch armed while
+   the guest writes memory at full speed and does not hit it — paid only by
+   the user who armed one. It says nothing about the latch-and-deliver cost
+   when a range watch *does* hit on every write (§11 item 3).
 3. **Armed-but-cold** (`beast`, `boot-48k`): both designs are within
    1-2.5 % of B with spreads of the same size; the mask is never worse than
    the scan and the run-2 `beast`/`boot-48k` P1A columns (sp 5.7 % / 1.8 %)
    are the tighter ones. No stronger claim is made for this case.
 
-What the prototype did NOT measure: the latch-ring drain and condition
-evaluation at the boundary (no delivery machinery was prototyped — with
-`NOPAUSE` the latch was simply cleared), the physical-page set path (masks
-were static), and the `on_slot_remapped` recompute. All three run off the hot
-path (per stop / per subscription change / per MMU remap), and §11 item 3
-records the hot-hit-with-delivery bound as the one remaining prototype
-measurement for the implementation branch.
+What the prototype did NOT measure: a range watch that hits on every write
+(the latch append per write, the per-instruction drain, condition evaluation
+and handler call — no delivery machinery was prototyped, and the per-address
+`BreakpointSet` cannot express a range), the physical-page set path (masks
+were static), and the `on_slot_remapped` recompute. The last two run off the
+hot path (per subscription change / per MMU remap); the first is §11 item 3,
+the one remaining hot-path measurement, to be taken on the implementation
+branch with `Mem[0x0000,0x3FFF] Write` armed over `boot-nextzxos`.
 
 ---
 
@@ -866,10 +927,17 @@ separate frontend, no third mechanism.
 
 1. The exact `MemSpace::Rom` enumeration for 48K/128K/+3 machines (ROM object
    vs `rom_in_sram_`); `Page` is settled as the NR page space (REQ-dzrp-5).
-2. Whether the 16-entry latch ring is enough for a DMA-burst slot (§4.3).
-3. The hot-hit cost **with delivery** (latch drain + predicate + handler) — the prototype measured the latch only (§8.3).
-4. Whether a single `NextReg::write` hook distinguishes Cpu/Copper/Dma writers
-   in all paths (§2.3) — the deferred-CPU-write flush is a third call site.
+2. ~~Latch ring size~~ — **resolved by derivation** (§4.3): a slot is DMA or
+   CPU, a DMA slot is capped at 16 transfers, so 32 entries suffice by
+   construction.
+3. **The hot-latch cost**: a range watch that hits on every write (append per
+   write + drain + predicate + handler) — not measured; the prototype's armed
+   rows were a cold-hit scan (§8.3). Measure with `Mem[0x0000,0x3FFF] Write`
+   over `boot-nextzxos` on branch B before B2 merges.
+4. ~~One `NextReg::write` hook for all writers~~ — **resolved from the code**
+   (§2.3): `write_selected` → `write`, Copper direct, DMA-via-port
+   synchronous; the CPU path commits after the boundary, hence the ≤1-
+   instruction delivery rule in §4.3.
 5. ~~DSL expressiveness for #279's call trace~~ — **resolved** by design-dsl's
    snapshot stack (`snap`/`unsnap`/`changed`/`depth`), no plugin-shaped need
    surfaced; `crc32(range)` and a hit histogram are the next likely asks.
@@ -886,8 +954,8 @@ separate frontend, no third mechanism.
 Status vocabulary: ACCEPTED (→ CAP id) · REJECTED (reason) · ALTERNATIVE (→
 CAP id) · NEEDS-PROTOTYPE · CONFIRMED (a confirmation, not a new capability).
 
-**Totals:** 73 REQs — 62 ACCEPTED (incl. 1 decided-by-design), 3 ALTERNATIVE,
-6 CONFIRMED, 2 NEEDS-PROTOTYPE, 0 REJECTED. MAPPED against v3 (used /
+**Totals:** 78 REQs — 67 ACCEPTED, 3 ALTERNATIVE, 6 CONFIRMED, 2
+NEEDS-PROTOTYPE, 0 REJECTED. MAPPED against v3 (used /
 declined / reach-arounds): qt 38/17/0, dzrp 22/(4 declined + 3
 unsupported-reported)/0, zrcp 67/(1 command + 6 options)/0, gdb 21/24/0, dsl
 28/21/0.
@@ -966,7 +1034,12 @@ unsupported-reported)/0, zrcp 67/(1 command + 6 options)/0, gdb 21/24/0, dsl
 | REQ-zrcp-11 | clip-window readback | ALTERNATIVE | CAP-INS-15 `clip_window(Layer)` from live state, not NR shadows |
 | REQ-zrcp-12 | `load(path)` | ACCEPTED | CAP-CTL-15 |
 | REQ-zrcp-13 | snapshot-save/-load | DECIDED | named in-memory bookmarks = CAP-CAP-03 / CAP-ST-01/02 |
-| REQ-zrcp-14 | headless Stop pauses when a remote is connected | ACCEPTED (decided by design) | CAP-SES-04 |
+| REQ-zrcp-14 | headless Stop pauses when a remote is connected | ACCEPTED as the design's proposal | CAP-SES-04; owner question §13.2 (it extends the owner's #279 headless rule) |
+| REQ-dsl-18 | `press_key` pulses must append, not replace | ACCEPTED, verified (`keyboard.cpp:541`) | CAP-IN-01 APPEND semantics |
+| REQ-dsl-19 | SDL frontend has no pause → SDL = ExitNonZero | ACCEPTED, verified (`sdl_app.cpp`: no pause path) | CAP-SES-04 |
+| REQ-qt-29 | `load(path)` preserves every client's subscriptions and attach state across a cold-boot reconstruct | ACCEPTED, verified (`emulator_boot.h:133-146`) | CAP-CTL-15 contract + a backend row |
+| REQ-dzrp-11 | `Mem` range AND physical-page qualifier | ACCEPTED | `Mem.page`, same shape as `Execute.page` |
+| REQ-zrcp-15 | `reset(Hard)` synchronous for a client; re-bind + re-apply; paused stays paused; `Reset{Hard}` before return; guest reset same rules; refused without a driver | ACCEPTED, verified (flag poll after the tick in all three loop owners; `emulator_boot.h:122-124`) | CAP-CTL-12 contract, CAP-SES-07 |
 
 ## 13. Open questions for the owner (only genuine ones)
 
@@ -975,14 +1048,28 @@ unsupported-reported)/0, zrcp 67/(1 command + 6 options)/0, gdb 21/24/0, dsl
    1, the same as a failed `--load`; design-dsl proposes a dedicated 3 so a
    row can tell a script verdict from a jnext failure by code alone. The
    DSL's explicit `exit <code>` exists either way.
-2. ~~Headless stop policy with a remote server also listening~~ — decided
-   by design (CAP-SES-04): `Pause` + notify while a remote client is
-   connected, `ExitNonZero` otherwise. Listed so the owner can overrule.
-3. **Client ownership on detach.** Proposed: a client's subscriptions die
-   with it and its own pause is released. Alternative: everything persists
-   until explicitly cleared (a crashed DeZog then leaves the machine paused
-   with its breakpoints armed).
-4. **Memory panel "slot view" semantics** (design-qt): "Slot 3 (page 0A)"
+2. **Headless stop policy while a remote client is connected.** The owner's
+   #279 rule is "stop becomes a logged event plus a non-zero exit under
+   `--headless`". CAP-SES-04 proposes an exception: while a DZRP/ZRCP/RSP
+   client is connected, `Stop` pauses and notifies it instead (a client
+   blocked on `run` must get its stop reply; three frontends' regression rows
+   depend on it). Default: the exception. Alternative: exit non-zero always,
+   and the servers' headless rows become GUI/SDL rows.
+3. **Magic breakpoint under `--headless` and SDL.** Today a headless magic
+   breakpoint pauses the machine and the run continues to
+   `--delayed-automatic-exit` with exit 0 [`emulator.cpp:7880-7885`;
+   `test/00regression/scripts/magic-bp-func.sh` relies on the exit bound and
+   `|| true`, greps the log]. Routing it through CAP-SES-04 makes it a logged
+   event plus a non-zero exit — a CLI contract change that needs a man-page
+   line under `--magic-breakpoint`; `magic-bp-func` keeps passing only because
+   it greps the log, and its `expect:` should be re-pinned. Default: adopt the
+   change (one rule for every stop). Alternative: magic keeps today's
+   pause-and-continue-to-exit behaviour in headless.
+4. **Client ownership on detach.** Default (the rule in CAP-SES-01): a
+   client's subscriptions die with it and a pause *it* caused is released.
+   Alternative: everything persists until explicitly cleared (a crashed DeZog
+   then leaves the machine paused with its breakpoints armed).
+5. **Memory panel "slot view" semantics** (design-qt): "Slot 3 (page 0A)"
    reads CPU addresses `0x6000-0x7FFF` through the live map, not the physical
    page. Pin as-is for #278; decide separately whether it becomes a
    `MemSpace::Page` read now that one exists.
