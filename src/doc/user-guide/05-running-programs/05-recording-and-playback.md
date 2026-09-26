@@ -88,10 +88,22 @@ one mid-recording — plays up to the second snapshot, and JNEXT says so.
 
 Because it stores input rather than pixels, an RZX is tiny compared with a
 video — but it only replays correctly in an emulator that models the machine
-the same way. It also only replays what its snapshot holds: on the 128K and +3
-that is the whole machine, but on the Next it is the classic 48K part only, so
-a program that uses the Next's own graphics (Layer 2, the tilemap, sprites,
-palettes) may not replay correctly.
+the same way. It also only replays what its snapshot holds, and JNEXT embeds the
+richest snapshot the machine has: a `.jns` on a Next, an `.szx` on the 128K and
++3, a `.sna` on a 48K. So a Next recording brings back Layer 2, the tilemap, the
+sprites, the NextREGs and the Copper along with the RAM. Recordings made by
+JNEXT 1.0.1 and earlier embedded a 48K snapshot on a Next, which held none of
+that: they replay only as far as the classic 48K part carries them, and a
+program that drew with the Next's own graphics and then left the picture alone
+replays wrong.
+
+A Next recording carries the `.jns` **SD-card identity** with it, and playback
+deliberately does **not** refuse a different card — it says which card the
+recording was made on and plays anyway. A recording is a record of input, and
+refusing to replay one somebody sent you would defeat the point of the format.
+`--snapshot-mode strict` still applies to the other provenance checks (the state
+model and the ROM digests); only the card identity is exempt, and only for a
+snapshot embedded in a recording.
 
 A recording plays on the machine it was recorded on, whatever machine you have
 selected: JNEXT writes the machine into every recording it makes, and for one
@@ -101,7 +113,8 @@ selected afterwards, as if you had picked it there. For a recording given on
 the command line, an explicit `--machine` wins over the recording; JNEXT warns
 when the two disagree, because the playback then goes out of step. A recording that does not say —
 one made by JNEXT 1.0.0 or earlier on a 48K SNA snapshot, or one of a machine
-JNEXT does not emulate — plays on the machine you have selected.
+JNEXT does not emulate — plays on the machine you have selected. (JNEXT writes
+the machine into the file itself, so its own recordings always say.)
 
 ---
 

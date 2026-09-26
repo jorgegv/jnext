@@ -85,7 +85,7 @@
 - TAP saving: BASIC `SAVE` through the 48K ROM SA-BYTES routine (trap at 0x04C2, gated on the 48K ROM identity) appends blocks to a `.tap` file (`--tape-save FILE`; FUSE-verified output; custom MIC-bit-banging savers not captured yet)
 - TZX: full block support via ZOT library, fast-load + real-time playback (incl. Direct Recording 0x15 / DeciLoad 12k8 turbo loaders)
 - WAV: RIFF/PCM EAR bit playback (8-bit/16-bit, mono/stereo) with sub-sample edge interpolation (DeciLoad-class turbo loaders work)
-- RZX: playback and recording in every frontend (IN replay, zlib compressed; 48K embeds an SNA, 128K/+3 an SZX)
+- RZX: playback and recording in every frontend (IN replay, zlib compressed). The embedded snapshot is the richest format the machine has: **`.jns` on a Next** (so Layer 2, the tilemap, sprites, the NextREGs and the Copper all replay — a 48K SNA held none of them), SZX on 128K/+3, SNA on 48K. A `.jns`-carrying recording warns rather than refuses on a different SD card, because a recording records input and is meant to be shared
 - RZX playback runs on the machine the recording was made on (jnext records it; other emulators' files are read from their snapshot); an explicit `--machine` wins
 
 ## GUI (Qt 6)
