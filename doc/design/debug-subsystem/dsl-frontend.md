@@ -5,9 +5,10 @@ the Qt, DZRP, ZRCP and GDB-RSP frontend documents. This file is the DSL's; it
 records what the language is, what it demands of the backend, where it stops,
 and the answer to "is #20 just a use case of #26?".
 
-Status: **v2**, 2026-09-26 — revised after the independent design review
-(`scratchpad/reviews/dsl-qt.md`, verdict REJECT: R-1..R-7 blocking, N-1..N-15
-notes; dispositions in Appendix C). v1 was written against the code at `main`
+Status: **v3**, 2026-09-26 — revised after review round 1
+(`scratchpad/reviews/dsl-qt.md`, REJECT: R-1..R-7, N-1..N-15) and round 2
+(`scratchpad/reviews/dsl-qt-r2.md`, REJECT on R2-1 only; N2-1..N2-6);
+dispositions in Appendix C. v1 was written against the code at `main`
 v1.0.44 (`974b0ab19`), never against `doc/design/EMULATOR-DESIGN-PLAN.md`.
 REQ verdicts in §5 are updated as `design-backend` replies.
 
@@ -281,13 +282,34 @@ instruction stream mid-frame. That is also why these actions are legal from any
 event: a `press` issued from an `on write` handler lands at the same instant a
 `press` from `on frame` does.
 
-**Which edge, exactly** (review R-1). Frame N's edge E_N is the `end_of_frame`
-call that closes frame N. `on frame N` fires *at* E_N, and an injection issued
-by any rule during frame N — including one fired at E_N itself — is applied at
-E_N, so the new input state is visible to every port read of frame N+1 and to
-none of frame N. The recorder (§7.2) samples `input_state()` at the same edge
-and stamps a change first seen at E_N as frame N, so a replayed `on frame N do
-press` reproduces the recorded state frame for frame with no off-by-one.
+**Which edge, exactly** (reviews R-1, R2-1). Frame N's edge E_N is the
+`end_of_frame` call that closes frame N (`emulator.cpp:9419`, inside
+`run_frame(N)`). `on frame N` fires *at* E_N, and an injection issued by any
+rule during frame N — including one fired at E_N itself — is applied at E_N,
+**before** `end_of_frame`'s own `keyboard_.tick_auto_type()` call
+(`emulator.cpp:9592`; REQ-dsl-20, a CAP-IN ordering contract), so:
+
+- a level `press` issued during frame N is visible to every port read of frame
+  N+1 and to none of frame N;
+- a pulse `press … for n` issued during frame N is pressed by that same
+  `tick_auto_type()` at E_N and is likewise visible from N+1 — the frame
+  `--delayed-keypress-frames N` lands on today (`headless_app.cpp:560-561`
+  queues before `run_frame(N)`), which is what makes the equivalence in the
+  table above true. The other order would shift every `--delayed-keypress-frames`
+  regression row by one frame.
+
+**How the recorder must stamp** (R2-1). GUI input does not change mid-frame:
+Qt/SDL key events reach `Keyboard::set_key` through `host_key_latch::Router`
+(`host_key_latch.h:431,445`; `qt_app.cpp:268-280`) between `run_frame()`
+calls — a press at once, a release held until a frame has run — so every
+change lands after E_N and before frame N+1's first instruction, and the key
+is down for all of frame N+1. The recorder samples `input_state()` at
+`begin_new_frame(K)` (`emulator.cpp:8450`) and stamps a change first seen
+there as frame **K−1**: replay then issues `on frame K−1 do press`, applied at
+E_{K−1}, visible from K — exactly as recorded. Stamping K (the naive "same
+edge" rule of v2) would be one frame late for every edge. This is exact
+because of the latch; an injector that changed the matrix mid-frame would be
+recorded to the following edge, which is §4's frame-granularity wall.
 
 ---
 
@@ -351,7 +373,13 @@ end
 `VALUE` is the value written to NR 0x51, `nextreg[0x50]` the current MMU0 — a
 different register, untouched by this write, so delivery after commit
 (backend.md §4.3) changes nothing here; `PREV` gives the old 0x51 if a script
-wants to log the transition. `SOURCE` distinguishes a Copper `MOVE` (`copper.cpp:209`) from the CPU
+wants to log the transition. The ≤1-instruction-late delivery of CPU writes
+(§2.2) preserves ChaseTheBug's semantics in both write orders: for
+`NEXTREG 0x50 ; NEXTREG 0x51` the 0x50 commit precedes the 0x51 event's
+delivery, so `nextreg[0x50]` is the new MMU0; for `NEXTREG 0x51 ; NEXTREG
+0x50` the 0x51 event is delivered at the boundary before the 0x50 commit, so
+the script sees the old MMU0 — exactly what the plugin, evaluated at the 0x51
+write (`.cs:181-193`), sees. `SOURCE` distinguishes a Copper `MOVE` (`copper.cpp:209`) from the CPU
 (`port_dispatch.h` `nextreg_opcode_write_cb` and the 0x253B route both end in
 `NextReg::write`, `nextreg.cpp:456`).
 
@@ -540,9 +568,10 @@ Sent to `design-backend` as REQ-dsl-1..16. Verdict column updated on reply.
 | 14 | per-frame input-state observation (matrix rows, joystick ports) from a GUI session | §7 recorder | `Keyboard::read_rows` `keyboard.h:68`, `Joystick::read_port_1f/37` `joystick.h:124-128` | ACCEPTED → CAP-INS-16 `input_state()`: matrix rows, extended keys, joystick 12-bit vectors and the composed 0x1F/0x37 bytes |
 | 15 | cost statement measured with `make bench` | owner requirement | `test/bench/bench.sh` | ACCEPTED → backend.md §8; numbers in its v2 |
 | 16 | a REAL backend frame counter | `FRAME`, `on frame N` | `Emulator::frame_num_` increments only at `emulator.cpp:8467`, inside `if (rewind_buffer_ && …)` — it is 0 for the whole run without `--rewind-buffer-size` | ACCEPTED, verified by the backend (its finding F2): increment unconditionally at the `emulator.cpp:8467` site, snapshot tag = pre-increment value, so rewind is byte-identical |
+| 17 | machine type readable (`MACHINE`) | §7.1 header assert | `EmulatorConfig::type` | ACCEPTED → CAP-INS-19 `machine()`: type + timing constants + video timing variant (absorbs CAP-TIME-01's `machine_timing()`) |
 | 18 | CAP-IN-01 pulse queue appends (or refuses) instead of replacing | `press … for n` twice; `--delayed-keypress-frames` twice | `Keyboard::queue_auto_type`, `keyboard.cpp:541` | ACCEPTED → append; 4-frame gap kept; `set_matrix_bit` made public for CAP-IN-02 |
 | 19 | CAP-SES-04: SDL = ExitNonZero | `stop` in the SDL frontend (§6.3) | `sdl_app.cpp` has no pause; `frame_sequencer.h:209` | ACCEPTED → "Qt = Pause; SDL and headless = ExitNonZero unless a remote client is connected" |
-| 17 | machine type readable (`MACHINE`) | §7.1 header assert | `EmulatorConfig::type` | ACCEPTED → CAP-INS-19 `machine()`: type + timing constants + video timing variant (absorbs CAP-TIME-01's `machine_timing()`) |
+| 20 | frame-edge injection queue applied BEFORE `keyboard_.tick_auto_type()` in `end_of_frame` | `--delayed-keypress-frames N ≡ on frame N do press … for 5` (§2.6) | `emulator.cpp:9592`; `headless_app.cpp:560-561` | ACCEPTED → CAP-IN ordering contract (backend.md §4.5, arch §4.5): every IN-01 append / IN-02 level set issued during frame N is applied in `end_of_frame` before `tick_auto_type()` |
 
 ### 5.2 Backend concept vs interpreter concept
 
@@ -754,12 +783,12 @@ the rows and the OPTIONS text in one place:
 |---|---|---|---|
 | `--script FILE` | 1 | Documented | Load a debugger script (.jds); repeatable, runs in the order given. In --headless a script `stop` or failed `assert` exits 3. |
 | `--script-key FRAME N` | 2 | Documented | Deliver script host key N (1-8) at emulated frame FRAME (headless only, repeatable). The headless form of Alt+N. |
+| `--map FILE` | 1 | Documented | Load a z88dk .map symbol table for `@symbol` in scripts and for the debugger (same as Map > Load MAP). |
 
 The man page's "Scripting" section states the user-visible keyboard change:
 **Alt+1..Alt+8 are host chords (script keys 1-8) in the Qt and SDL windows and
 no longer type the digits into the guest**; Alt+9, Alt+0 and every other key
 are unchanged.
-| `--map FILE` | 1 | Documented | Load a z88dk .map symbol table for `@symbol` in scripts and for the debugger (same as Map > Load MAP). |
 
 `--map` is new to the CLI (the table has no symbol flag today; the debugger
 loads MAPs only from its menu, `debugger_window.cpp:528`). It loads into the
@@ -823,9 +852,10 @@ frame-boundary event in a **GUI session**:
    `for`** — using the inverse of the `--delayed-keypress` name table
    (`headless_app.cpp:209-257`; a bit with no single-key name is emitted as
    its `row,col` pair, which `key_spec` also accepts); a joystick change
-   becomes `joystick n bits`. The stamp is the backend frame counter sampled
-   at the frame edge, the same edge at which replay applies it (§2.6), so the
-   replayed state is identical frame for frame.
+   becomes `joystick n bits`. The sample is taken at `begin_new_frame(K)` and
+   the stamp is **K−1** (§2.6, "How the recorder must stamp"): the change was
+   applied by the host-key latch between frames K−1 and K, replay applies
+   `on frame K−1` at E_{K−1}, and the guest sees it from K in both runs.
 2. **On a host key** (script host key 8 while recording, or a dedicated
    Debug-menu action): `Ula::screen_dump()` to `<base>-NNNN.scr` and a
    `compare_scr` line at the current frame. The index file #20 asks for *is*
@@ -843,9 +873,9 @@ frame-boundary event in a **GUI session**:
    that polls input every few frames (test06keyb polls every 4 frames via
    `waitForScanline(255)` ×4, `main.c:64-67`) that means the poll that first
    sees a key must land on the same frame in replay as in the recording, which
-   the shared-edge rule in §2.6 guarantees. The regression twin
-   `script-replay-edge-func` (§8) pins that rule with a demo that stores the
-   `FRAME` at which it first saw a key.
+   the K−1 stamping rule and the before-`tick_auto_type()` ordering in §2.6
+   together guarantee. The regression twin `script-replay-edge-func` (§8) pins
+   both with a demo that stores the `FRAME` at which it first saw a key.
 
 The recorder is not a language feature; it is a consumer of REQ-dsl-6/8/14 that
 writes text. That is the "one genuinely new piece" #276 predicted, and it is
@@ -921,8 +951,11 @@ All headless, no GUI; scripts are the fixtures.
    the value before the write, `SOURCE` correct; a `page` filter matching a
    write to a bank mapped at 0x8000 and, after an MMU remap, at 0xC000; `once`;
    enable/disable; `stop` landing PC on the offending instruction after a
-   mid-instruction write; a level `press` visible to the first port read of
-   frame N+1 and to no read of frame N; a `for` pulse released after n frames;
+   mid-instruction write; a level `press` issued in frame N visible to the
+   first port read of frame N+1 and to no read of frame N; a `for` pulse
+   issued at E_N pressed at E_N (before `tick_auto_type()`) and released after
+   n frames, landing on the same frame `--delayed-keypress-frames N` lands on
+   (row SCRIPT-EV-INJ-ORDER, mutation: apply the queue after `tick_auto_type()`);
    `FRAME` advancing without a rewind buffer.
    Each of the three suites is a `test/unit-tests.conf` line with its pinned
    count (and the SDL-only manifest's, since all three are Qt-free) in the
@@ -950,6 +983,8 @@ Mutations a reviewer must run (each must turn the named row red):
 | 3(b) mmu | deliver a Copper `MOVE` to NR 0x51 with `SOURCE == CPU` | `script_events_test` Copper row (the demo's copper list writes NR 0x51 once) |
 | 3(e) hostkey | route Alt+N to the guest instead of the backend | `script-hostkey-func` (headless `--script-key`) + a Qt unit row on the keymap |
 | replay | apply a level `press` one frame late (or immediately, mid-frame) | `script-replay-edge-func`: the demo stores the `FRAME` of its first key-down sighting at a fixed address; the script asserts `mem[addr] == 121` for a `press` at frame 120 — deterministic, unlike a `.scr` of a program whose "just pressed" line is transient (review N-7) |
+| recorder | stamp a change first seen at `begin_new_frame(K)` as K instead of K−1 | `script-replay-edge-func` second half: record a GUI-driven press (the row drives it through `host_key_latch::Router`, as `sdl-keypress-func` does) whose first sighting the demo latched at frame 121; the emitted script must say `on frame 120`, and replaying it must latch 121 again |
+| injection order | apply the injection queue after `tick_auto_type()` | `script_events_test` SCRIPT-EV-INJ-ORDER + every existing `--delayed-keypress-frames` screenshot row (shifted by one frame, the dapr-tilemap and game rows diff) |
 | replay | implement `press` (no `for`) as the auto-type pulse | `script-replay-keyb-func` (the recording holds `w` across `caps`; the pulse strands or drops one of them and the second `.scr` differs) |
 | 3(a) guard | implement `on write page N` as a full-range subscription with a `PAGE` predicate | `script_events_test` page row counting latched events on writes outside page N (must be 0) |
 | all | remove `once` auto-disable | `script_events_test` `once` row |
@@ -1074,6 +1109,8 @@ From `iPlugin.cs` (`eAccess`) and `iCSpect.cs`:
   so ZRCP conditions and `evaluate` translate into this grammar rather than a
   second parser: ACCEPTED, §5.4; spellings confirmed to it (AF2/BC2/DE2/HL2,
   `and/or/not`, `mem[]/mem16[]`, `mmu[]/page[]`, no `rom_bank()`).
+- 2026-09-26 (review round 2): REQ-dsl-20 (injection queue applied before
+  `tick_auto_type()`) ACCEPTED; recorder stamping rule corrected to K−1 (R2-1).
 - 2026-09-26 (review round 1): backend v4 — REQ-dsl-18 ACCEPTED (append),
   REQ-dsl-19 ACCEPTED (CAP-SES-04), arch §7.5 aligned to `TFRAME`. One CAP I
   use changed shape and is adopted: CPU-sourced NextREG writes commit inside
@@ -1120,5 +1157,17 @@ Every finding was verified against the source before the text changed.
 | N-12 exit code 3, N-13 `--map` | — | kept as recommended |
 | N-14 recorder header records joystick mode | `joystick.h:184` default 0x40 | FIXED (§7.2 item 3) |
 | N-9, N-10, N-11, N-15 | Qt/arch-side or confirmations | not this file's |
+
+CONTESTED: none.
+
+## Appendix D — Review round 2 dispositions (2026-09-26, `scratchpad/reviews/dsl-qt-r2.md`)
+
+| Finding | Verified | Disposition |
+|---|---|---|
+| R2-1 recorder stamp one frame late; injection vs `tick_auto_type()` order unspecified | `host_key_latch.h:431,445` and `qt_app.cpp:268-280` apply host keys between `run_frame()` calls; `end_of_frame` calls `tick_auto_type()` at `emulator.cpp:9592`; `headless_app.cpp:560-561` queues before `run_frame(N)` | FIXED as proposed: (a) recorder samples at `begin_new_frame(K)` and stamps K−1, stated exact because of the latch, §4 wall kept (§2.6, §7.2); (b) injections applied BEFORE `tick_auto_type()` — REQ-dsl-20 ACCEPTED by design-backend as a CAP-IN ordering contract (backend.md §4.5); (c) pinned by `script-replay-edge-func` (both halves) and `script_events_test` SCRIPT-EV-INJ-ORDER, plus the mutation rows |
+| N2-1 man-page paragraph inside the table | — | FIXED (moved below the table) |
+| N2-2 row 17 after 18/19 | — | FIXED |
+| N2-3 both NR write orders | `emulator.cpp:4749-4770`, `:10221` | FIXED: one sentence in §3(b) |
+| N2-4, N2-5, N2-6 | confirmations | no change |
 
 CONTESTED: none.

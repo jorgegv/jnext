@@ -17,6 +17,14 @@
 >   synchronous cold boot inside `pump` with the contract in §4.6, sent as
 >   REQ-zrcp-15. R-3 transport moved to the public `esp::` seam. R-5 one port
 >   rule (`0` = ephemeral). R-6 §6.3 prerequisites restated. N-1/2/3/9/10/11.
+> - v3.1 (2026-09-27): round-2 review APPROVE (`protocols-r2.md`; the contested
+>   transcript line was retracted by the reviewer). Notes folded: N-2 headless
+>   stop policy marked OWNER-PENDING with `zrcp-func` depending on it; N-3 WP-1
+>   consumes the shared transport package T; N-4 `smartload` takes the direct
+>   load path, not the GUI's cold-boot-then-schedule path; N-1 (guest hard
+>   reset during a `run`) tracked pending the backend's rule 3/4 resolution —
+>   resolved by backend v5: never a pause, no `Reset` reason, the adapter
+>   completes a blocked `run` from the `Reset{Hard}` event (§4.3/§4.6 aligned).
 
 Every claim carries one of three kinds of evidence:
 
@@ -276,7 +284,7 @@ and the zone numbering is ZEsarUX-internal.
 | `hard-reset-cpu` | S | `CAP-CTL-12 Hard` — in jnext a hard reset is a **cold boot** (Task 70), and today it is **deferred**: `Emulator::request_hard_reset()` only sets a flag (`src/core/emulator.h:197-208`) that the loop owner polls after the tick's frames and turns into `emulator_cold_boot()` (`src/platform/sdl_app.cpp:406-411`, `src/gui/qt_app.cpp:506-513`, `src/platform/headless_app.cpp:689-692`), which placement-news a fresh `Emulator` and leaves it *running* — only the breakpoint set, the active flag and the mute mask survive; "the transient run/step state (paused, step mode, trace log) is intentionally not restored" (`src/platform/emulator_boot.h:112-124`, `:134-144`). A ZRCP session cannot be served by that: DeZog sends `hard-reset-cpu` **first** with its default `resetOnLaunch: true`, then `enter-cpu-step`, then `smartload` in the same drain (§1.7). **Decision (a)**: the verb completes *synchronously inside `pump`* under the contract of §4.6 — the machine is reconstructed before the reply, stays paused if it was paused, the session's subscriptions and attachment survive, and later commands in the same drain see the new machine — so the reply is `''` and the machine sits at PC=0000 of `nextboot.rom`, exactly like [T3]. REQ-zrcp-15 **ACCEPTED** (backend v4: `CAP-CTL-12` + `CAP-SES-07 set_cold_boot_driver` / `on_cold_boot_done`); the only error case is a build with no cold-boot driver registered (`RefusedUnavailable` → `Error. Unsupported in jnext: hard-reset-cpu`) | `CAP-CTL-12 Hard`, `CAP-SES-07` |
 | `reset-cpu` | S | `CAP-CTL-12 Soft` — `Emulator::soft_reset()` is synchronous (`src/core/emulator.h:189-195`), so no ordering issue | `CAP-CTL-12` |
 | `generate-nmi` | S | the physical NMI button = Multiface NMI | `CAP-IN-04 press_nmi(Mf)` |
-| `smartload "<file>"` | S | load a `.nex/.sna/.szx/.z80/.tap/.tzx` into the running machine as `--load` does (`emulator_apply_load`, `src/platform/emulator_boot.h`, moves under the backend); per ZEsarUX's own rule the adapter enters step mode if not in it and leaves it afterwards; when the session is in step mode the machine stays paused at the new PC (a NEX's boot-hold frames run on the next `run`) | `CAP-CTL-15 load(path)` (REQ-zrcp-12 ACCEPTED) |
+| `smartload "<file>"` | S | load a `.nex/.sna/.szx/.z80/.tap/.tzx` into the running machine as `--load` does; per ZEsarUX's own rule the adapter enters step mode if not in it and leaves it afterwards. **Which `CAP-CTL-15` path**: the **direct** one — `emulator_apply_load()` → `Emulator::load_nex()` etc. (`src/platform/emulator_boot.h:25-42`, no cold boot) — so a paused caller stays paused **at the new PC** (a NEX's boot-hold frames run on the next `run`). The GUI's other route, cold boot then `ColdBootHooks::schedule_load` N frames later (`emulator_boot.h:243-245`), is *not* what `smartload` takes: on that path a paused caller would sit at PC 0x0000 of `nextboot.rom` with the load still pending, which is not ZEsarUX's `smartload` ("load into the current machine") | `CAP-CTL-15 load(path)`, direct path (REQ-zrcp-12 ACCEPTED) |
 | `load-binary "<file>" addr len` | S | read the host file, `poke(Cpu, addr, bytes)`; `len 0` = whole file | `CAP-INS-02 poke` |
 | `save-binary "<file>" addr len` | S | `peek(Cpu, …)` to a host file | `CAP-INS-02 peek` |
 | `snapshot-save <file>` / `snapshot-load <file>` | S | **in-memory bookmark keyed by the given string** (DeZog appends `.zsf` to its `-state` name; the string is only a key) — the session's bookmark, no file is written; `snapshot-load` of an unknown key → `Error. No snapshot saved under that name in this session`; `help` says so (Divergence: ZEsarUX writes a ZSF file). Disk persistence is JNS via the GUI / `CAP-CAP-04`, not this command | `CAP-CAP-03 bookmark_save(name)` / `bookmark_restore(name)` (REQ-zrcp-13 DECIDED) |
@@ -492,6 +500,7 @@ prompt ──run──▶ emit "Running until …\n"; CAP-CTL-02 run(); in_run=R
    │                                   │
    │            bytes arrive on socket ─┤──▶ CAP-CTL-01 pause(); discard line
    │            Paused{reason} arrives ─┘
+   │            Reset{Hard} arrives ───┘  (machine NOT paused; reply built from the event, §4.6 rule 4)
    ▼
  stop reply: [Breakpoint fired: …\n] + registers " TSTATES: n" + "\n  PC DISASM\n" + prompt
 ```
@@ -541,9 +550,10 @@ command DeZog sent in between executed against a machine that is about to be
 destroyed.
 
 The contract the adapter designs against — REQ-zrcp-15, **ACCEPTED in full**
-by backend v4 (CAP-CTL-12 + new `CAP-SES-07 set_cold_boot_driver(fn)` /
-`on_cold_boot_done()`; the same contract covers `CAP-CTL-15 load` when a
-`.nex` routes through the cold boot):
+by backend v4, rule 4 corrected in v5 (CAP-CTL-12 + `CAP-SES-07
+LoopDriver{cold_boot, load}` / `on_cold_boot_done()`; `CAP-CTL-15 load()` —
+`smartload` — goes through the same loop-owner driver, which changes nothing
+above):
 
 1. `CAP-CTL-12 Hard` called from a client (i.e. inside `pump`, which the loop
    owner already calls in the same post-frames slot where it polls
@@ -560,16 +570,28 @@ by backend v4 (CAP-CTL-12 + new `CAP-SES-07 set_cold_boot_driver(fn)` /
    ZEsarUX does in cpu-step mode ([T3] `hard-reset-cpu` → `PC=0000`) and what
    DeZog's launch sequence relies on. If it was running, it runs.
 4. `Reset{Hard}` is delivered to all listeners **before** the verb returns;
-   the requesting session gets its `''` reply after that, and a session that
-   was in `run` gets its stop reply with no `fired` line if the boot left the
-   machine paused (rule 3) — a reset is a stop.
-   Headless stop policy after the review round (backend v4 `CAP-SES-04`):
-   Qt = Pause; SDL and headless = ExitNonZero *unless a remote client is
-   connected*, set by the loop owner — which is what §5.7 asked for.
+   the requesting session gets its `''` reply after that. **A client's
+   `reset(Hard)` never pauses a running machine and there is no `Reset`
+   pause reason** (backend v5 / arch Rev 3, resolving round-2 N-1): paused
+   stays paused (PC 0x0000), running stays running. A session that was in
+   `run` when a reset happens (a *guest* NR 0x02 reset, or another client's
+   `reset(Hard)`) has its `run` reply **completed by the adapter from the
+   `Reset{Hard}` listener event** — adapter policy, not a pause, so no other
+   client sees a stop: the reply is the plain stop shape (no `fired` line)
+   with the register line and disassembly taken at delivery (the fresh
+   machine at PC=0000). The machine is then *running* while the client sits
+   at `command@cpu-step> `, which is exactly the §4.4 case "resumed by
+   someone else": the next `cpu-step` / `cpu-step-over` / `run n` pauses
+   first, and a `run` simply stays attached to the running machine. Stated
+   in `help hard-reset-cpu` as the one place a ZRCP register line can
+   describe a machine that has since moved on.
 5. A guest-initiated hard reset (NR 0x02 bit 1 from Z80 code) keeps today's
    deferred path, but the backend delivers the same `Reset{Hard}` and applies
    rules 2-3 when the loop owner performs it, so a session that was in `run`
-   is told.
+   is told (rule 4). Ordering within one tick: the loop owner's flag poll
+   **precedes** `pump()`, so a guest reset and a client `hard-reset-cpu` in
+   the same tick run in that order and the second reboots the fresh machine —
+   legal, and the client gets the machine it asked for.
 6. With no cold-boot sequence registered (a bare test harness), the verb
    returns `Result::RefusedUnavailable` and the adapter answers
    `Error. Unsupported in jnext: hard-reset-cpu` — never a silent `''`.
@@ -661,9 +683,10 @@ z88dk `stepi` is 4-5 round trips, so it needs the drain too) and by
    Precedent for the shape: `--esp-listen-address` (`cli_options.h:414`).
 7. **Headless stop policy** (`CAP-SES-04`): when a ZRCP client is attached,
    a `Stop` must **pause** (and be reported to the client), not exit — the
-   client is the thing waiting for it. **Decided** (REQ-zrcp-14, three
-   frontends agree; the owner may overrule): a *connected* remote client ⇒
-   Pause; none ⇒ exit non-zero.
+   client is the thing waiting for it. REQ-zrcp-14 was accepted *as the
+   design's proposal*; the rule itself — a *connected* remote client ⇒
+   Pause, none ⇒ exit non-zero — is **OWNER-PENDING** (backend §13.2,
+   architecture doc §12 Q3), and `zrcp-func` (§6.2) cannot pass without it.
 
 ---
 
@@ -807,7 +830,7 @@ Reach-arounds: **0**. Every served command in §2 names its CAP; the only
 
 | WP | Scope | Depends on | Tests |
 |---|---|---|---|
-| WP-1 **Transport + session skeleton** | `src/remote/zrcp/` listener over the public `esp::make_socket_listener` / `EspListener` / `EspTransport` seam (`esp_socket.h:258/509/561`); `ZrcpSession` line reader/writer, `set-cr`, welcome, prompt, `help`/`ls` table, `Unknown command`, U-class replies; `--zrcp-port` / `--debug-listen-address` rows + man page; `pump` integration in the three loop owners (or via `CAP-SES-03`) | backend `CAP-SES-01/02/03` | `zrcp_adapter_test`: framing rows (welcome, prompt, blank line, unknown, alias, extra args, `set-cr`) |
+| WP-1 **Session skeleton (consumes transport package T)** | **No listener and no fake of its own**: it consumes the shared transport package **T** of the architecture doc §10 (one listener over `esp::make_socket_listener` / `EspListener` / `EspTransport`, `esp_socket.h:258/509/561`, plus the in-memory fake `Transport` for unit suites — written once, used by DZRP, ZRCP and GDB). ZRCP's own part is only framing and session: `ZrcpSession` line reader/writer over a `Transport`, `set-cr`, welcome, prompt, `help`/`ls` table, `Unknown command`, U-class replies; the `--zrcp-port` row + man page (the `--debug-listen-address` row lands with T); service registration through `CAP-SES-03` | package T, backend `CAP-SES-01/02/03` | `zrcp_adapter_test`: framing rows (welcome, prompt, blank line, unknown, alias, extra args, `set-cr`) |
 | WP-2 **Inspection formatters** | `get-registers`/`set-register` (incl. `MMU=` projection), `read-/write-memory*`, `hexdump`, `get-crc32`, `disassemble` (operand `$` stripping, column 7), `get-memory-pages`, `get-stack-backtrace`, `get-tstates*`, `get-cpu-frequency`, `get-current-machine`, `tbblue-get-*` | `CAP-INS-01..04/08/11/15`, `CAP-TIME-01`, REQ-zrcp-07 | one row per formatter against [T] bytes; register-line width rows (DeZog offsets) |
 | WP-3 **Control + run state machine** | `enter-/exit-cpu-step`, `cpu-step`, `cpu-step-over` (ZEsarUX semantics), `run`, `run n` (pump-budgeted), interrupt-by-data, `Paused`/`Resumed`/`Reset` handling (§4.3-4.6), stop reply, `hard-reset-cpu` (per §4.6) / `reset-cpu`, `generate-nmi` | `CAP-CTL-01..06/12/13`, `CAP-SES-02`, REQ-zrcp-05/06/**15** | `zrcp_adapter_test` wiring rows: the machine actually stops (the #203 shape); `zrcp-func` items 1-4 |
 | WP-4 **Breakpoints and conditions** | slot table, master switch (per-client), actions (Stop/Log), `set-membreakpoint` map + range diff, condition translation → DSL compiler (or the fallback parser), `PC=` fast path, `evaluate`, `get-breakpoints*`, `get-membreakpoints` | `CAP-EVT`, REQ-zrcp-02/03/04; `design-dsl` compiler | translation rows (each §3.2 line, both directions of every operator), slot bounds 0/1/100/101, fast-path vs general, range diff; `zrcp-func` items 5-6 |
@@ -840,9 +863,12 @@ exists; WP-4 is the only one gated on another design (`design-dsl`).
    idle at the prompt (DeZog forwards them to its console): send them, or only
    while a `run` is in flight? Proposed: send whenever they happen — that is
    what ZEsarUX does and DeZog's parser handles them anywhere.
-4. **Headless stop policy** — decided by three frontends as "connected remote
-   client ⇒ pause" (REQ-zrcp-14); recorded here only because the backend says
-   the owner may overrule it.
+4. **Headless stop policy** — OWNER-PENDING (backend §13.2, architecture doc
+   §12 Q3): the three protocol frontends proposed "connected remote client ⇒
+   pause" (REQ-zrcp-14) and the backend adopted it as the default; a No from
+   the owner makes every `--headless` protocol regression row (`zrcp-func`
+   included) impossible as designed, so this is the one owner question that
+   gates a test row rather than a wording.
 
 (The `snapshot-save` question of v1 is closed: in-memory bookmarks, REQ-zrcp-13.)
 

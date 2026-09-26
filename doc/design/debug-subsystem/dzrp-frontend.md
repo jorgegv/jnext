@@ -26,6 +26,14 @@
 >   N-3 stale line citations regenerated; N-4 watchpoint banks reported, never
 >   auto-continued (REQ-dzrp-11 filed); N-5 stop policy is the loop owner's;
 >   N-6 served count corrected to 26; N-7 matrix cells reported to the backend.
+> - v1.3 (2026-09-26 night, round-2 review APPROVE, `protocols-r2.md` notes):
+>   headless "remote connected ⇒ Pause" marked OWNER-PENDING (all eight
+>   functional rows depend on it); WP-1 consumes the shared transport package
+>   T instead of writing a listener; DeZog's own `TimeWait` throttle recorded
+>   beside V-LAT; `esp_socket.h:518-527`; a `Reset{Hard}` row added to the
+>   `NTF_PAUSE` mapping — settled the same night: a hard reset never pauses a
+>   running machine, so the adapter sends nothing; bookmarks survive a
+>   reconstruct, cross-machine restores are refused before `load_state`.
 
 Every claim below carries a `file:line` citation. Sources and their versions:
 
@@ -301,6 +309,19 @@ while this client has a `CMD_CONTINUE` outstanding, and once after every
 | `Watch{id, access=Read, addr}` | 3 | `addr` | `""` |
 | `Watch{id, access=Write, addr}` | 4 | `addr` | `""` |
 | anything else: `User` (GUI pause), another client's breakpoint, `Magic`, `Script(id)`, `Corrupt`, `Step`/`RunTo` from the GUI | 255 | PC | human-readable, e.g. `"paused by GUI"`, `"magic breakpoint"`, the script's stop text |
+| `Reset{Hard}` (guest NR 0x02 bit 1, the GUI's F1, or another client's `reset(Hard)`) while this client has a `CONTINUE` outstanding | **nothing is sent** | — | — |
+
+The `Reset{Hard}` row is the decided CAP-CTL-12 contract (round 2): a hard
+reset **never pauses a running machine and there is no `Reset` pause
+reason** — `Reset{Hard}` is a listener event only. DZRP's notification is a
+*pause* notification, so the adapter sends nothing: DeZog keeps waiting on
+its outstanding `CONTINUE`, the machine reboots through `nextboot.rom`, the
+backend re-applies this client's subscriptions — the two transient temp
+breakpoints included — on the reconstructed machine (CAP-SES-07), and the
+next stop (a breakpoint, a temp address, or a `CMD_PAUSE`) produces the
+ordinary `NTF_PAUSE`. The adapter's own bookkeeping (`continue_outstanding`,
+id maps, tokens) is untouched by the event. DZRP has no reset command, so
+CTL-12 is never called from this adapter.
 
 Bank byte: `bank+1` of the page currently mapped at `address >> 13` (F7),
 with the ROM caveat of §5.3. String is always null-terminated, at least one
@@ -323,10 +344,16 @@ backend §4.1 "all are visible to all"). Transients are not listed
 
 - `CMD_INIT` → `attach(ClientInfo{"dzrp", peer})` → `pause()` (F4). If the
   machine was already paused by someone else it stays paused; the reply is the
-  same. The adapter sets **no** stop policy: CAP-SES-04 is the loop owner's,
-  and the loop owner switches `--headless` from `ExitNonZero` to `Pause` +
-  notify while any remote client is connected (decided by design in
-  `backend.md` v3, REQ-zrcp-14). Nothing about headless-vs-GUI lives here.
+  same. The adapter sets **no** stop policy: CAP-SES-04 is the loop owner's.
+  The rule that `--headless` switches from `ExitNonZero` to `Pause` + notify
+  while a remote client is connected is the backend's *proposal* on top of the
+  owner's #279 headless rule and is **OWNER-PENDING** (`backend.md` §13.2,
+  arch doc §12 Q3; default = the exception applies). **All eight DZRP
+  functional rows in §7.2 run `--headless` and rest on it**: if the owner
+  keeps "stop = log + exit non-zero" unconditionally, every row that expects
+  an `NTF_PAUSE` after a breakpoint instead sees jnext exit, and the rows must
+  be rewritten around `--persistent-breakpoints`-free flows or run in the SDL
+  build. Nothing about headless-vs-GUI lives in the adapter.
 - `CMD_CLOSE` or socket EOF/RST → `detach(cid)`: the backend drops the client's
   subscriptions and resumes if the pause was this client's (CAP-SES-01). The
   listening socket stays open for the next session (the CSpect plugin closes
@@ -424,7 +451,7 @@ Agreed with `design-gdb` (its REQ-gdb-13/14/15) and `backend.md` §5:
 adopted verbatim by design-zrcp and design-gdb 2026-09-26 night): absent =
 off; `0` = bind an OS-chosen ephemeral port and log it at startup as
 `dzrp: listening on 127.0.0.1:NNNNN` — the contract `EspListener::open(0)`
-already has (`esp_socket.h:517-523`); any other value = that port. There is
+already has (`esp_socket.h:518-527`); any other value = that port. There is
 no "0 = off" (it would duplicate "absent"). The `--debug-listen-address` row
 above is the single shared row, text identical in the three files; whichever
 protocol lands first adds it, the others reuse it.
@@ -528,7 +555,13 @@ The map is **per client, bounded at 8 bookmarks** (each a full
 `save_state` snapshot, `RewindBuffer::snapshot_bytes()`), and **a client's
 bookmarks die with its detach** (`backend.md` CAP-CAP-03, decided on REQ-dzrp
 adoption); a 9th `READ_STATE` gets `Result::RefusedUnavailable` → zero-length
-reply + log line, never a silent eviction.
+reply + log line, never a silent eviction. Bookmarks **survive a hard
+reconstruct** (they are backend state, not `Emulator` state), and a restore
+into a machine whose type or snapshot width differs (a `--machine` change
+across a cold boot) is refused `RefusedUnavailable` *before* `load_state` —
+the same NTF 255 "no state to restore" path, no latch. Each bookmark is a
+rewind-slot-sized snapshot: tens of MB per client at the bound of 8, which is
+why the bound exists.
 (Rejected alternative: raw `save_state_bytes` on the wire — same lifetime,
 more bytes, and no cheap way to recognise a bad payload; see R-1 below.)
 
@@ -591,7 +624,7 @@ protocol document, result recorded with the DeZog version:
 | V-LOAD | `launch.json` `load` of a `.sna` and of a `.nex` | rows 5, 10, 12, 21, 23 (F4 sequence) |
 | V-STATE | `-state save` after Pause, change a register, `-state restore` → machine back, registers refreshed. Then: breakpoint hit, `-state save` → DeZog shows **nothing** (an empty file is written — verify its size), `-state restore` → registers unchanged, jnext log shows `no state to restore`, and **Continue still works** (no corruption latch) | §6, R-1 |
 | V-GUI | With the Qt debugger open: DZRP pause opens/refreshes the window; GUI Run then DeZog Continue | §4.4 |
-| V-LAT | Step Out of a 1000-iteration `DJNZ` routine, wall-clock timed, in `build/gui-release` at 100 %, **with the drain enabled** (`drain_ms` 2, `budget_ms` 10); record per-step cost (expect ≈ 1 tick + ≤10 ms); repeat with the paused-cadence shortening prototyped (REQ-dzrp-9) | REQ-dzrp-9 decision; R-4 arithmetic |
+| V-LAT | Step Out of a 1000-iteration `DJNZ` routine, wall-clock timed, in `build/gui-release` at 100 %, **with the drain enabled** (`drain_ms` 2, `budget_ms` 10); record per-step cost (expect ≈ 1 tick + ≤10 ms); repeat with the paused-cadence shortening prototyped (REQ-dzrp-9). **Read the result against DeZog's own throttle:** every DZRP continue-resolve handler calls `timeWait.waitAtInterval()` on a `TimeWait(1000, 200, 100)` (remote:889, :1113; `misc/timewait.ts:8-57`) — after the first second of a step-out loop DeZog sleeps 100 ms every 200 ms, i.e. it caps itself at ~50 % duty. Measure the first second separately from the rest; a flat result past 1 s says nothing about the tick cadence. | REQ-dzrp-9 decision; R-4 arithmetic; r2 N-5 |
 | V-CLOSE | Stop the session: machine resumes; reconnect works without restarting jnext | row 2, §4.1 |
 
 ### 7.2 Against jnext's own client — `tools/cspect_dzrp/cspect_dzrp.py` as a harness
@@ -601,7 +634,7 @@ audit in `REVIEW.md`) and covers the commands DeZog cannot reach (F3). New
 regression rows (functional, `test/00regression/functional_tests.conf`,
 `expect:` bumped deliberately), each starting jnext headless with
 `--dzrp-port 0` (ephemeral, bound port logged — the one port rule of §4.3,
-`esp_socket.h:517-523`) and waiting for the listener's log line with the
+`esp_socket.h:518-527`) and waiting for the listener's log line with the
 ready-file idiom `test/00regression/scripts/esp-server-func.sh` already uses:
 
 | Row | Script drives | Proves |
@@ -744,7 +777,7 @@ Cross-frontend agreements (recorded so the backend gets one transport REQ):
 
 | WP | Scope | Depends on | Files | Review focus |
 |---|---|---|---|---|
-| WP-1 transport + framing | `src/remote/dzrp/dzrp_transport.{h,cpp}` (listener over `esp::make_socket_listener`, byte-pipe fake for tests), `dzrp_frame.{h,cpp}` (parser/encoder, both length conventions, caps, seq rules); `CMD_LOOPBACK`; `dzrp_adapter_test` framing rows | backend `pump` (CAP-SES-03) | new `src/remote/`, `test/remote/`, `test/unit-tests.conf`, `test/CMakeLists.txt` | framing mutation rows; never blocks; Windows twin builds (`make package-win`) |
+| WP-1 framing + session skeleton | **Consumes the shared transport package T** (arch doc §10: the listener over `esp::make_socket_listener` and the in-memory byte-pipe fake `Transport`, written once for DZRP/ZRCP/GDB) — writes **no** listener and no fake. Delivers `dzrp_frame.{h,cpp}` (parser/encoder over T's `Transport`, both length conventions, 16 MiB cap, seq rules, chunk timeout); `CMD_LOOPBACK`; `dzrp_adapter_test` framing rows on T's fake | package T, backend `pump` (CAP-SES-03) | new `src/remote/dzrp/`, `test/remote/`, `test/unit-tests.conf`, `test/CMakeLists.txt` | framing mutation rows; never blocks; Windows twin builds (`make package-win`) |
 | WP-2 adapter core + session | `DzrpServer`: attach/detach, `INIT`/`CLOSE`, `GET/SET_REGISTERS` (verify `Z80_REG` enum = spec table), `READ/WRITE_MEM`, `SET_SLOT`, `GET_TBBLUE_REG`, `SET_BORDER`, ports, `INTERRUPT_ON_OFF`, unknown-command path | backend CAP-INS-01..05, SES-01/02, REQ-6 | `src/remote/dzrp/dzrp_server.{h,cpp}` | side-effect-free reads (a +3-mode `READ_MEM` row that `p3_floating_bus_dat_` is unchanged); refusal paths |
 | WP-3 breakpoints, continue, notify | rows 6, 7, 40, 41, `NTF_PAUSE`, temp-first rule, bank byte, exactly-once | REQ-1/2/3/7/8 | same | F7/F8 rows; step-off (GH #221) through `run()`; post-frame flush timing row |
 | WP-4 tier 2 | watchpoints (42/43, reported with bank, no filtering), state (50/51 over the CAP-CAP-03 map with the `JNXB` token; payload validated before any backend call), `WRITE_BANK` (5), sprites (16-19) | REQ-1/4/5/10/11, backend range watches (#279 work) | same | edge rows both sides of a range; `READ_STATE` refusal; empty/garbage/unissued `WRITE_STATE` → no latch; bank-7 BRAM routing |
@@ -752,6 +785,7 @@ Cross-frontend agreements (recorded so the backend gets one transport REQ):
 | WP-6 validation | `cspect_dzrp.py` extensions + REVIEW.md H1 fix; the eight functional rows (§7.2) + `expect:` bump; the DeZog manual protocol (§7.1) executed and recorded in `doc/testing/DZRP-VALIDATION.md` with the DeZog version and V-LAT numbers | WP-1..5 | `tools/cspect_dzrp/`, `test/00regression/` | every functional row uses `timeout --foreground --kill-after=5s`; no `trap` in row scripts |
 | WP-7 docs | developer guide page for `src/remote/dzrp` (what is served, the two remote types, the ROM-bank limit, the loop model); `FEATURES.md` line; ChangeLog *Unreleased* line at merge time | WP-5 | `src/doc/developer-guide/`, `FEATURES.md` | `docs-devguide-check` |
 
-Order: WP-1 → WP-2 → {WP-3, WP-4, WP-5 in parallel} → WP-6 → WP-7. Each WP
+Order: package T (its own branch, shared) → WP-1 → WP-2 → {WP-3, WP-4, WP-5
+in parallel} → WP-6 → WP-7. Each WP
 gets an independent reviewer per CLAUDE.md; the full triplet plus
 `make unit-test-sdl` before every merge.

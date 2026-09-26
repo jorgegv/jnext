@@ -14,6 +14,19 @@
 > re-review before any implementation starts.** §12 lists the questions only
 > the owner can answer.
 >
+> **Revision 3** (2026-09-26, after arch review round 2,
+> `scratchpad/reviews/arch-r2.md`). R2-1: B0 is its own sub-issue/branch
+> (`gh276-headers`); Q's header move lands with Q; no branch merges stage by
+> stage. R2-2: a client's `reset(Hard)` never pauses a running machine and
+> there is no `Reset` pause reason — a blocked `run` completes from the
+> `Reset{Hard}` listener event. Notes: platform-side `BreakpointSet` restore
+> retired in B3, `ColdBootHooks` at `:179`, the flag poll precedes `pump`,
+> reconstruct rows assert `Mem` and `NextRegWrite` fire; APPEND honours the
+> 16-entry cap and the in-flight entry; `load()` routed through the loop driver
+> (no backend→platform include); bookmark cost and reconstruct survival stated;
+> §12 Q4 widened to any stop in the SDL frontend; REQ-dsl-20 (injection before
+> `tick_auto_type`) recorded.
+>
 > **Revision 2** (2026-09-26, after the arch review). R-1: one detach rule
 > (§4.8, §9, §12 Q4). R-2: the §6 armed rows relabelled — they measured a
 > single-address cold-hit scan, not a hot hit; the true hot-latch cost moves
@@ -36,7 +49,7 @@
 > written concurrently against it (`debug-subsystem/qt-frontend.md`,
 > `dzrp-frontend.md`, `zrcp-frontend.md`, `gdb-rsp-frontend.md`,
 > `dsl-frontend.md`). 73 requirements were sent by the frontends and
-> dispositioned — 78 after the review round (67 accepted, 3 alternative, 6
+> dispositioned — 79 after the review round (68 accepted, 3 alternative, 6
 > confirmed, 2 needs-prototype, 0 rejected); every frontend then mapped onto backend v3 with **zero
 > reach-arounds** — qt 38 capabilities used / 17 declined, DZRP 26 commands (22 tier 1 + 4 tier 2) / 4 declined + 3 unsupported-reported,
 > ZRCP 67 / 7, GDB 21 / 24, DSL 28 / 21. The per-agent files stay as
@@ -382,10 +395,10 @@ range), `RefusedReadOnly`, `InvalidPage`, `NotAtFrameBoundary`, `NoFrame`,
 | CTL-08 | `run_to_end_of_frame()` / `run_to_end_of_scanline()` | the two target computations move verbatim from `debugger_manager.cpp:475-560` |
 | CTL-09 / CTL-10 | `step_back(n)` / `rewind_to_frame(n)` | synchronous; `RefusedRzx` / `RefusedUnavailable` / `RefusedCorrupt` distinguished |
 | CTL-11 | `resume_blocked_by_corruption() -> optional<CorruptionIncident{subsystem, generation}>`, `acknowledge_corruption(gen)` | the `ResumeGuard` policy; the modal stays in Qt; an unacknowledged remote gets `RefusedCorrupt` |
-| CTL-12 | `reset(Hard\|Soft)` | `Soft` = `soft_reset()`, synchronous. **`Hard` = the cold-boot reconstruct contract** (REQ-zrcp-15): today it is only a flag [`emulator.h:207`] each loop owner polls after its tick and turns into `emulator_frontend_cold_boot()` [`emulator_boot.h:225-245`; `sdl_app.cpp:409`, `qt_app.cpp:510`, `headless_app.cpp:691`], which destroys and placement-news the `Emulator` and restores nothing transient [`:122-124`]. For a client the backend runs the loop owner's registered driver (SES-07) **synchronously inside `pump`** (the same post-frames slot), so later commands in the same drain see the new machine; re-binds and re-applies every client's subscriptions, switches, attach/`live_raster`, trace/call-stack/coverage enables and the symbol table; **re-applies the pause** if the caller was paused (PC 0x0000 of `nextboot.rom`, as ZEsarUX); delivers `Reset{Hard}` to every listener before returning (a client blocked in a run gets a stop with reason `Reset`); a guest NR 0x02 hard reset keeps the deferred path and the driver calls `on_cold_boot_done()` so the same rules apply; no driver → `RefusedUnavailable`. CTL-15 with a `.nex` follows the same contract |
+| CTL-12 | `reset(Hard\|Soft)` | `Soft` = `soft_reset()`, synchronous. **`Hard` = the cold-boot reconstruct contract** (REQ-zrcp-15): today it is only a flag [`emulator.h:207`] each loop owner polls after its tick and turns into `emulator_frontend_cold_boot()` [`emulator_boot.h:225-245`; `sdl_app.cpp:409`, `qt_app.cpp:510`, `headless_app.cpp:691`], which destroys and placement-news the `Emulator` and restores nothing transient [`:122-124`]. For a client the backend runs the loop owner's registered driver (SES-07) **synchronously inside `pump`** (the same post-frames slot), so later commands in the same drain see the new machine; re-binds and re-applies every client's subscriptions, switches, attach/`live_raster`, trace/call-stack/coverage enables and the symbol table; **re-applies the pause** if the caller was paused (PC 0x0000 of `nextboot.rom`, as ZEsarUX) and **never pauses a running machine** (there is no `Reset` in `pause_reason`); delivers `Reset{Hard}` to every listener before returning — an adapter whose client is blocked in a `run` completes that reply from the event, adapter policy, not a pause, so no other client sees a stop; a guest NR 0x02 hard reset keeps the deferred path and the driver calls `on_cold_boot_done()` so the same rules apply; no driver → `RefusedUnavailable`. Ordering: every loop owner polls `take_hard_reset_request()` before `pump()`, so a guest reset and a client `reset(Hard)` in one tick run in that order and the second reboots a freshly booted machine (legal, not skipped). Single owner: the platform-side `BreakpointSet`/`active()` save-and-restore in `emulator_cold_boot()` [`emulator_boot.h:133-146`] is retired in B3 once the backend re-applies subscriptions. The driver struct is `ColdBootHooks` [`emulator_boot.h:179`]. CTL-15 with a `.nex` follows the same contract |
 | CTL-13 | `state() -> RunState{paused, step_mode, pause_reason, cycle, frame, pc}` | `pause_reason` ∈ {`User{cid}`, `Breakpoint{id}`, `Watch{id, access, addr}`, `Step`, `RunTo{id}`, `Magic`, `Corrupt`, `Script{id, text}`} |
 | CTL-14 | `magic_breakpoint()` / `set_magic_breakpoint(bool)` | `Emulator::set_magic_breakpoint` [`emulator.cpp:7873`] |
-| CTL-15 | `load(path)` | the frontend-agnostic dispatch `emulator_apply_load()` [`src/platform/emulator_boot.h:25`]; a paused caller stays paused at the new PC. **Contract:** a load that routes to `emulator_cold_boot()` destroys and reconstructs the `Emulator` in place, today saving only the `BreakpointSet` and `active()` across it [`emulator_boot.h:133-146`]; the backend keeps every client's subscriptions, switches, attach/`live_raster` state and the symbol table outside `Emulator` and re-installs its hooks afterwards, so nothing any client set is lost (REQ-qt-29; a backend row subscribes, loads, asserts the subscription still fires) |
+| CTL-15 | `load(path)` | routed through the loop owner's registered driver (SES-07 `LoopDriver::load`), today `emulator_apply_load()` [`src/platform/emulator_boot.h:25`] — the backend never includes `src/platform/`, the layer above it; no driver → `RefusedUnavailable`; a paused caller stays paused at the new PC. **Contract:** a load that routes to `emulator_cold_boot()` destroys and reconstructs the `Emulator` in place, today saving only the `BreakpointSet` and `active()` across it [`emulator_boot.h:133-146`]; the backend keeps every client's subscriptions, switches, attach/`live_raster` state and the symbol table outside `Emulator` and re-installs its hooks afterwards, so nothing any client set is lost (REQ-qt-29; a backend row subscribes, loads, asserts the subscription still fires) |
 
 **Semantics with 0, 1 or N frontends.** 0: inert — `armed()` false unless
 `--persistent-breakpoints` or a magic breakpoint; the hot loop pays what it
@@ -514,14 +527,16 @@ callers of the same primitives, scheduled by `Frame` events.
 
 | ID | Capability |
 |---|---|
-| IN-01 | `press_key(name\|{row,col}[,{row2,col2}], hold_frames)` — a pulse with **APPEND** semantics: `Keyboard::queue_auto_type` [`keyboard.h:79`] replaces the queue today [`keyboard.cpp:541`]; the backend appends (the 4-frame released gap between entries stays), so a pulse issued while one is held is queued, never stranding a key down, and two pulses due in one frame both happen (REQ-dsl-18; `--delayed-keypress-frames` inherits the fix). `key_name_to_matrix()` moves into the backend so every frontend and the DSL share the man page's vocabulary |
+| IN-01 | `press_key(name\|{row,col}[,{row2,col2}], hold_frames)` — a pulse with **APPEND** semantics: `Keyboard::queue_auto_type` [`keyboard.h:79`] replaces the queue today [`keyboard.cpp:541`]; the backend appends (the 4-frame released gap between entries stays), so a pulse issued while one is held is queued, never stranding a key down, and two pulses due in one frame both happen (REQ-dsl-18; `--delayed-keypress-frames` inherits the fix); the append keeps the snapshot-width cap `MAX_AUTO_TYPE_KEYS = 16` [`keyboard.h:195`] with the same loud truncation, returning `RefusedUnavailable` + the count queued on overflow, and never resets `auto_frame_count_`/`auto_gap_` [`keyboard.h:200-201`] for the entry in flight. `key_name_to_matrix()` moves into the backend so every frontend and the DSL share the man page's vocabulary |
 | IN-02 | `set_key(row, col, pressed)`, `set_extended_key(id, pressed)` — level, for replay of recorded state; `Keyboard::set_matrix_bit` [`keyboard.h:185`] is private today and gains a public injection entry (accessor addition); the DSL's bare `press`/`release` are this, only `press … for n` is IN-01 |
 | IN-03 | `set_joystick(side, bits12)` |
 | IN-04 | `press_nmi(Mf\|Drive)` — the GH #209 hotkey seam |
 | CAP-01 | `screenshot(path, layer_mask, Png\|Scr)` — **deferred to the next rendered frame** for every frontend (the GUI's defer-with-warning contract [`qt_app.cpp:622-636`]; headless today writes the stale framebuffer [`headless_app.cpp:704-712`] — that headless change is named here); `NoFrame` only when the exit bound cuts the deferral off (today's `auto_exit_finds_no_deferred_work` non-zero exit, `qt_app.cpp:647`) |
 | CAP-02 | screen memory: `ula_screen_dump()` (`Ula::screen_dump` [`ula.h:608`]) + `peek(Page)` for L2 / tilemap / pattern RAM |
-| CAP-03 | `bookmark_save(name, Mode)` / `bookmark_restore(name)` / `bookmarks(cid)` — named, in memory, **per client**, a map over ST-01/02 for protocols that name bookmarks: ZRCP `snapshot-save/-load` and DZRP `CMD_READ/WRITE_STATE` (the wire carries a `JNXB<name>` token, never the bytes, so a refused save cannot return as a 0-byte restore — design-dzrp's post-review choice). Each is a full snapshot (the rewind slot size); bound 8 per client (`RefusedUnavailable` beyond); a client's bookmarks die with its `detach` |
+| CAP-03 | `bookmark_save(name, Mode)` / `bookmark_restore(name)` / `bookmarks(cid)` — named, in memory, **per client**, a map over ST-01/02 for protocols that name bookmarks: ZRCP `snapshot-save/-load` and DZRP `CMD_READ/WRITE_STATE` (the wire carries a `JNXB<name>` token, never the bytes, so a refused save cannot return as a 0-byte restore — design-dzrp's post-review choice). Each is a full snapshot at the rewind slot size — of the order of the machine's RAM (768 KB–2 MB) plus subsystem state, so tens of MB per client at the bound of 8 (`RefusedUnavailable` beyond), allocated on first use; a client's bookmarks die with its `detach`; they survive a CTL-12 `Hard` reconstruct (backend-owned bytes tagged with machine type and width) and a restore into a machine whose type or width differs is refused `RefusedUnavailable` before `load_state` runs, never left to the sentinel check |
 | CAP-04 | `save_snapshot(path)` at the next frame boundary — the `--delayed-snapshot` path |
+
+**Injection ordering (REQ-dsl-20, a CAP-IN contract):** every IN-01 pulse append and IN-02 level set issued during frame N (from a `Frame` handler, a remote command in that tick's `pump`, or a `--delayed-*` countdown) is queued and applied in `end_of_frame` **before** `keyboard_.tick_auto_type()` [`emulator.cpp:9592`], so a pulse issued at the edge of frame N is pressed at that edge and visible to the guest from frame N+1 — the same frame `--delayed-keypress-frames N` lands on today, which queues before `run_frame(N)` [`headless_app.cpp:559-561`]. The other order would shift every `--delayed-keypress-frames` regression row by one frame.
 
 ### 4.6 State bookmarks and reverse execution — `CAP-ST`
 
@@ -548,7 +563,7 @@ table for the panels, the DSL's `@name`, the servers' lookups and `--map`.
 | SES-04 | `set_stop_policy(Pause \| ExitNonZero)` — **Qt `Pause`; SDL and `--headless` `ExitNonZero`** (the SDL frontend has no pause path at all: `sdl_app.{h,cpp}` mention pause once, in an audio comment `:422`, and the sequencer's only pause is the debugger's `DebugState` [`frame_sequencer.h:209`] — REQ-dsl-19), **unless a remote client is connected, then `Pause` + notify** — a proposal on top of the owner's #279 headless rule, §12 Q2; routing magic breakpoints through it is a CLI change, §12 Q3 |
 | SES-05 | `set_live_raster(cid, bool)` (ORed), `attached()` |
 | SES-06 | `log(level, text)` — the backend's message sink |
-| SES-07 | `set_cold_boot_driver(fn)` / `on_cold_boot_done()` — the loop owner registers the cold-boot sequence it already owns and reports a deferred one, so CTL-12 `Hard` and a NEX `load()` honour the reconstruct contract from any client. The stop policy (SES-04) is the loop owner's to set too, never an adapter's |
+| SES-07 | `set_loop_driver(LoopDriver{cold_boot(cfg), load(path)})` / `on_cold_boot_done()` — the loop owner registers the cold-boot sequence and the load dispatch it already owns (both in `src/platform/`, which the backend sits below) and reports a deferred guest reset, so CTL-12 `Hard` and CTL-15 honour the reconstruct contract from any client. The stop policy (SES-04) is the loop owner's to set too, never an adapter's |
 
 ---
 
@@ -964,9 +979,12 @@ for is #26.
   both; detach A paused-by-A resumes; detach A paused-by-B stays paused, A's
   subscriptions gone); F1 (a `peek(Cpu)` sweep in +3 mode leaves
   `p3_floating_bus_dat_` unchanged) and F2 (`time().frame` advances without
-  rewind) rows; **reconstruct rows** (subscribe, `load()` a `.nex` /
-  `reset(Hard)` through a registered driver, assert the subscription still
-  fires and a paused caller is paused at PC 0 afterwards; `reset(Hard)` with no
+  rewind) rows; **reconstruct rows** (subscribe an `Execute`, a `Mem` and a
+  `NextRegWrite`, `load()` a `.nex` / `reset(Hard)` through a registered
+  driver, assert all three still fire — the MMU/port/NR hooks and the latch
+  ring die with the old object, and `Execute` is the only kind today's
+  `emulator_cold_boot` preserves — a paused caller is paused at PC 0 and a
+  running one is still running afterwards; `reset(Hard)` with no
   driver → `RefusedUnavailable`); **pump rows** with a fake `Service`
   registered into `pump()` and no socket: a queued command chain is drained
   in one `pump` while paused, `pump(0)` while running services exactly one,
@@ -1007,8 +1025,10 @@ for is #26.
 
 The interface every package codes against is **§4 of this document** (the
 CAP tables), turned into the four public headers `src/debug/debugger.h`,
-`events.h`, `inspect.h`, `result.h` by **B0, which lands first and alone**:
-the signatures (C++17, `{ptr, size}` pairs or `std::vector`, no `std::span`),
+`events.h`, `inspect.h`, `result.h` by **B0 — its own sub-issue and branch
+(`gh276-headers`), a dependency of B, T, Q, D, Z, G and S alike**, so that
+"first and alone" is a merge of its own branch and not a stage merged out of
+`gh276-backend` against §10.3's one-branch rule. B0 is: the signatures (C++17, `{ptr, size}` pairs or `std::vector`, no `std::span`),
 the `Result`, `Event`, `Subscription`, `MemSpace`, `RunState`, `Listener` and
 `Service` types, compiled and reviewed with no bodies behind them. Nothing in
 B1..B5 or any frontend starts before B0 is on `main`; a frontend that needs a
@@ -1018,13 +1038,14 @@ parallel agents; each gets its own independent reviewer.
 
 | WP | Branch (one per sub-issue) | Content | Depends on |
 |---|---|---|---|
-| **B** backend | `gh276-backend` (§12 Q1: a new sub-issue, or stage 1 of #278) | **B0 the four public headers** (above); B1 facade + control + inspection over the existing primitives (no hot-path change), `Mmu::peek()` (F1), the frame counter (F2), `SymbolTable` move, `key_name_to_matrix` move, the accessor additions (§4: sprites/palette raw forms, `set_matrix_bit`, the DMA slot flag, `input_state`); B2 `EventTable` + 32-entry latch ring + slot masks + `on_slot_remapped` + NR/port/IntAck/Nmi/Reset/Frame/Scanline hooks (bench-gated, incl. the §11 item 3 hot-latch measurement); B3 session: clients, listeners, `pump` + `Service` registration, stop policy, `live_raster`/`attached`, the cold-boot driver (SES-07) and the reconstruct contract (CTL-12/15); B4 input (IN-01 APPEND) / capture / bookmarks / coverage / extended `TraceEntry`, and the CLI conveniences (`--delayed-*`) re-expressed as generated subscriptions in all three loop owners, retiring `QtApp`'s and `HeadlessApp`'s private countdowns; B5 `debugger_backend_test` | this design's review |
+| **B0** headers | `gh276-headers` (its own sub-issue; everything below depends on it) | the four public headers of §10.1, compiled, reviewed, no bodies | this design's review |
+| **B** backend | `gh276-backend` (§12 Q1: a new sub-issue, or stage 1 of #278) | B1 facade + control + inspection over the existing primitives (no hot-path change), `Mmu::peek()` (F1), the frame counter (F2), `SymbolTable` move, `key_name_to_matrix` move, the accessor additions (§4: sprites/palette raw forms, `set_matrix_bit`, the DMA slot flag, `input_state`); B2 `EventTable` + 32-entry latch ring + slot masks + `on_slot_remapped` + NR/port/IntAck/Nmi/Reset/Frame/Scanline hooks (bench-gated, incl. the §11 item 3 hot-latch measurement); B3 session: clients, listeners, `pump` + `Service` registration, stop policy, `live_raster`/`attached`, the loop driver (SES-07), the reconstruct contract (CTL-12/15) and the retirement of the platform-side `BreakpointSet`/`active()` restore in `emulator_cold_boot()`; B4 input (IN-01 APPEND) / capture / bookmarks / coverage / extended `TraceEntry`, and the CLI conveniences (`--delayed-*`) re-expressed as generated subscriptions in all three loop owners, retiring `QtApp`'s and `HeadlessApp`'s private countdowns; B5 `debugger_backend_test` | B0 |
 | **T** transport | `gh276-transport` (its own package; D/Z/G wait for it) | the one non-blocking listener/`Service` over the public `esp::make_socket_listener` / `EspListener` / `EspTransport` seam, the in-memory fake `Transport` for adapter suites, `--debug-listen-address`; no protocol content | B0, B3 |
-| **Q** #278 | `gh278-qt` | design-qt WP0 (close the identity gaps on the current tree) → WP1 the `src/qt/` header move + `make build-matrix` (**the single owner of that move**; independent of B, may land first) → WP2 `DebuggerManager` verbs → WP3 rewind/trace/corruption → WP4a-d panels (parallel) → WP5 memory panel → WP6 symbols/magic → WP7 reach-around grep = 0 | B |
-| **D** #12 | `gh12-dzrp` | design-dzrp WP-1 framing over T → WP-2 session/registers/memory → {WP-3 breakpoints/continue/notify, WP-4 tier 2, WP-5 loop owners + CLI} → WP-6 validation → WP-7 docs | B, T |
-| **Z** #280 | `gh280-zrcp` | design-zrcp WP-1 session skeleton over T → {WP-2 formatters, WP-3 control/run, WP-4 breakpoints+conditions (needs S1), WP-5 history/coverage/load} → WP-6 fixtures+docs | B, T; WP-4 on S1 |
-| **G** #281 | `gh281-gdb-rsp` | design-gdb WP-1 codec → WP-2 target description + packing → WP-3 server → WP-4 wiring/CLI over T → WP-5 acceptance row + user guide → WP-6 wiki listing (post-release) | B, T |
-| **S** #26 (+#279) | `gh26-dsl` | design-dsl WP1 lexer/parser/`compile_expr` library → WP2 evaluator + snapshot stacks → WP3 engine over subscriptions, stop/exit policy → WP4 CLI + man page → WP5 GUI (Script tab, Alt+1..8) → WP6 recorder (= #20) → WP7 demos + `script-*-func` rows → WP8 docs | B; WP5 on Q |
+| **Q** #278 | `gh278-qt` | design-qt WP0 (close the identity gaps on the current tree) → WP1 the `src/qt/` header move + `make build-matrix` (**the single owner of that move**; lands with the rest of Q, on Q's one branch) → WP2 `DebuggerManager` verbs → WP3 rewind/trace/corruption → WP4a-d panels (parallel) → WP5 memory panel → WP6 symbols/magic → WP7 reach-around grep = 0 | B0, B |
+| **D** #12 | `gh12-dzrp` | design-dzrp WP-1 framing over T → WP-2 session/registers/memory → {WP-3 breakpoints/continue/notify, WP-4 tier 2, WP-5 loop owners + CLI} → WP-6 validation → WP-7 docs | B0, B, T |
+| **Z** #280 | `gh280-zrcp` | design-zrcp WP-1 session skeleton over T → {WP-2 formatters, WP-3 control/run, WP-4 breakpoints+conditions (needs S1), WP-5 history/coverage/load} → WP-6 fixtures+docs | B0, B, T; WP-4 on S1 |
+| **G** #281 | `gh281-gdb-rsp` | design-gdb WP-1 codec → WP-2 target description + packing → WP-3 server → WP-4 wiring/CLI over T → WP-5 acceptance row + user guide → WP-6 wiki listing (post-release) | B0, B, T |
+| **S** #26 (+#279) | `gh26-dsl` | design-dsl WP1 lexer/parser/`compile_expr` library → WP2 evaluator + snapshot stacks → WP3 engine over subscriptions, stop/exit policy → WP4 CLI + man page → WP5 GUI (Script tab, Alt+1..8) → WP6 recorder (= #20) → WP7 demos + `script-*-func` rows → WP8 docs | B0, B; WP5 on Q |
 | **R** #20 | folded into S (WP6) after re-scope | recorder, `compare_scr`, the two DAPR rows | S |
 
 The socket transport the three servers share is **T**, written once, owned
@@ -1034,20 +1055,21 @@ whichever server happens to land first.
 ### 10.2 Dependency graph and order
 
 ```
-   design (#277) ── review ──► B0 headers ──► B1..B5 backend ──┬──► Q  #278 Qt refactor (sufficiency proof; Q WP1 header move may precede B)
-                                                              ├──► T  transport ──┬──► D  #12  DZRP
-                                                              │                   ├──► Z  #280 ZRCP  (Z WP-4 also needs S WP1)
-                                                              │                   └──► G  #281 GDB
-                                                              └──► S  #26  DSL (+#279) ──► S WP6 = #20 recorder
-                                                                                             (S WP5 GUI needs Q)
+   design (#277) ── review ──► B0 headers (own branch) ──► B backend ──┬──► Q  #278 Qt refactor (sufficiency proof)
+                                                                      ├──► T  transport ──┬──► D  #12  DZRP
+                                                                      │                   ├──► Z  #280 ZRCP  (Z WP-4 also needs S WP1)
+                                                                      │                   └──► G  #281 GDB
+                                                                      └──► S  #26  DSL (+#279) ──► S WP6 = #20 recorder
+                                                                                                     (S WP5 GUI needs Q)
 ```
 
-Recommended order: **B0**, then **B1..B5**, then **Q** immediately (it is
-the proof and the cheapest point to find what B got wrong — any
-insufficiency is a finding on this document, not a side channel); **T** and
-**S** can start the moment B is on `main`, D/Z/G the moment T is; four agents
-at most (owner's concurrency limit). Q WP1 (the header move) is independent
-of B and may land first.
+Recommended order: **B0** (its own branch, merged whole), then **B**, then
+**Q** immediately (it is the proof and the cheapest point to find what B got
+wrong — any insufficiency is a finding on this document, not a side
+channel); **T** and **S** can start the moment B is on `main`, D/Z/G the
+moment T is; four agents at most (owner's concurrency limit). Every branch,
+Q's header move included, lands whole under §10.3 — nothing is merged stage
+by stage.
 
 ### 10.3 Per-branch merge gate (the standing protocol)
 
@@ -1099,9 +1121,10 @@ it):
 Decisions already taken are not repeated. Each question states the design's
 default so silence is not a blocker.
 
-1. **Where does the backend implementation live?** Recommended: a new
-   sub-issue of #276 on its own branch (`gh276-backend`), so #12/#280/#281/
-   #26 can start the moment it lands and #278 stays the proof. Alternative:
+1. **Where does the backend implementation live?** Recommended: two new
+   sub-issues of #276 on their own branches — `gh276-headers` (B0, the four
+   public headers, merged first and whole) and `gh276-backend` (B) — so
+   #12/#280/#281/#26 can start the moment B lands and #278 stays the proof. Alternative:
    stage 1 of #278's single branch, which serialises the four frontends
    behind the whole Qt refactor.
 2. **Headless exit code for a script `stop` with no explicit `exit`.** Never
@@ -1115,7 +1138,12 @@ default so silence is not a blocker.
    must get its stop reply; the servers' headless regression rows depend on
    it). Default: the exception. Alternative: exit non-zero always, and those
    rows move to a Qt build.
-4. **Magic breakpoint under `--headless` (and SDL).** Today a headless magic
+4. **Any stop in the SDL frontend, and magic breakpoints under
+   `--headless`.** The SDL frontend has no pause path, so a
+   `--persistent-breakpoints` PC hit there is a dead end today (the machine
+   pauses, stale frames present, nothing can resume); SES-04 turns every such
+   stop into a logged event + non-zero exit — the question covers that whole
+   class. For magic specifically: today a headless magic
    breakpoint pauses the machine and the run continues to
    `--delayed-automatic-exit` with exit 0 [`emulator.cpp:7880-7885`;
    `test/00regression/scripts/magic-bp-func.sh` relies on the exit bound,
@@ -1154,6 +1182,6 @@ default so silence is not a blocker.
 ---
 
 *Appendices (working notes, not normative on their own):*
-`debug-subsystem/backend.md` (the CAP contract as negotiated, with the 78-row
+`debug-subsystem/backend.md` (the CAP contract as negotiated, with the 79-row
 requirements ledger), `qt-frontend.md`, `dzrp-frontend.md`,
 `zrcp-frontend.md`, `gdb-rsp-frontend.md`, `dsl-frontend.md`.
