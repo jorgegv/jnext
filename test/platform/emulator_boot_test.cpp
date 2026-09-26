@@ -1027,6 +1027,35 @@ int main()
                   "byte26=" + std::to_string(sna.size() > 26 ? sna[26] : -1));
         }
 
+        // EB-52: a recording started on a NEXT still embeds that 48K SNA
+        // (GH #274). SnaSaver::save() refuses a Next — a `.sna` FILE of a Next
+        // lies about its machine — so start_rzx_recording() goes through
+        // SnaSaver::save_cpu_view_unchecked() instead. The contract here is
+        // different: the RZX names its machine in its own creator block, so
+        // playback rebuilds the Next and the snapshot only has to restore the
+        // 64 KB the CPU saw. Routing this through the refusing entry point
+        // would embed NOTHING and a Next recording would replay a cold boot.
+        {
+            EmulatorConfig next_cfg;
+            next_cfg.type = MachineType::ZXN_ISSUE2;
+            next_cfg.rewind_buffer_frames = 0;
+            Emulator emu;
+            emu.init(next_cfg);
+            const std::string next_rec =
+                (tmp / ("jnext-eb-next-rzx-" + stamp + ".rzx")).string();
+            const bool started = emu.start_rzx_recording(next_rec);
+            const auto& rec = emu.rzx_recorder().recording();
+            const std::size_t snap_size = rec.snapshot_data.size();
+            const std::string snap_ext = rec.snapshot_ext;
+            emu.stop_rzx_recording();
+            std::remove(next_rec.c_str());
+            check("EB-52", "an RZX recorded on a Next embeds the 48K SNA of the CPU view "
+                  "(49179 bytes, ext 'sna') although a .sna FILE of a Next is refused",
+                  started && snap_size == 49179 && snap_ext == "sna",
+                  "started=" + std::to_string(started) + " size=" +
+                      std::to_string(snap_size) + " ext='" + snap_ext + "'");
+        }
+
         std::remove(rec_path.c_str());
     }
 

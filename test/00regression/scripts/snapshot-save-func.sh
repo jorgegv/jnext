@@ -74,6 +74,32 @@ if want snapshot-save-func; then
                 --delayed-automatic-exit 3 2>&1)
     then refuse_rc=0; else refuse_rc=1; fi
 
+    # Negative control, GH #274: `.sna` is the 48K form only, so it cannot
+    # represent a Next either — the extra RAM, the NextREGs and every Next
+    # video layer are simply not in the format. It used to be written anyway:
+    # 49179 bytes, exit 0, "saved 48K snapshot" in the log, and a user who
+    # asked for a snapshot of a Next got a file that quietly was not one. Same
+    # loud-failure contract as .szx above.
+    refused_sna="$TMP_DIR/snap-refused.sna"
+    rm -f "$refused_sna"
+    if out_next_sna=$(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine next \
+                "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 \
+                --delayed-snapshot "$refused_sna" --delayed-snapshot-frames 5 \
+                --delayed-automatic-exit 3 2>&1)
+    then refuse_sna_rc=0; else refuse_sna_rc=1; fi
+
+    # Positive control for that SAME boundary: a refusal that is too wide is as
+    # wrong as one that is too narrow, so a machine `.sna` CAN represent must
+    # still save — a full 49179-byte file, exit 0.
+    ok_sna="$TMP_DIR/snap-ok.sna"
+    rm -f "$ok_sna"
+    if timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine 48k \
+            "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 \
+            --delayed-snapshot "$ok_sna" --delayed-snapshot-frames 5 \
+            --delayed-automatic-exit 3 >/dev/null 2>&1
+    then ok_sna_rc=0; else ok_sna_rc=1; fi
+    ok_sna_size=$([[ -f "$ok_sna" ]] && stat -c%s "$ok_sna" || echo -1)
+
     if [[ "$content_ok" -eq -1 ]]; then
         skip_row " (no ImageMagick — cannot content-verify the reload)"
     elif [[ "$save_rc" -eq 0 ]] && [[ -s "$szx" ]] \
@@ -82,10 +108,13 @@ if want snapshot-save-func; then
        && [[ "$pend_rc" -ne 0 ]] && [[ ! -f "$pending" ]] \
        && echo "$out" | grep -q "NO snapshot was written" \
        && [[ "$refuse_rc" -ne 0 ]] && [[ ! -f "$refused" ]] \
-       && echo "$out_next" | grep -qi "cannot represent this machine"; then
-        pass_row " (reload pixel-identical to pre-save screen; pending-never-written: error+exit!=0, no file; --machine next refused: error+exit!=0, no file)"
+       && echo "$out_next" | grep -qi "cannot represent this machine" \
+       && [[ "$refuse_sna_rc" -ne 0 ]] && [[ ! -f "$refused_sna" ]] \
+       && echo "$out_next_sna" | grep -qi "cannot represent a ZX Spectrum Next" \
+       && [[ "$ok_sna_rc" -eq 0 ]] && [[ "$ok_sna_size" -eq 49179 ]]; then
+        pass_row " (reload pixel-identical to pre-save screen; pending-never-written: error+exit!=0, no file; --machine next refused for BOTH .szx and .sna: error+exit!=0, no file; .sna on 48K still saves 49179 bytes)"
     else
-        fail_row " (save_rc=$save_rc szx_exists=$([[ -s "$szx" ]] && echo y || echo n) reload_rc=$reload_rc png_exists=$([[ -s "$reloaded_png" ]] && echo y || echo n) content_ok=$content_ok diff_pixels=$diff_pixels pend_rc=$pend_rc pending_exists=$([[ -f "$pending" ]] && echo y || echo n) refuse_rc=$refuse_rc refused_exists=$([[ -f "$refused" ]] && echo y || echo n))"
+        fail_row " (save_rc=$save_rc szx_exists=$([[ -s "$szx" ]] && echo y || echo n) reload_rc=$reload_rc png_exists=$([[ -s "$reloaded_png" ]] && echo y || echo n) content_ok=$content_ok diff_pixels=$diff_pixels pend_rc=$pend_rc pending_exists=$([[ -f "$pending" ]] && echo y || echo n) refuse_rc=$refuse_rc refused_exists=$([[ -f "$refused" ]] && echo y || echo n) refuse_sna_rc=$refuse_sna_rc refused_sna_exists=$([[ -f "$refused_sna" ]] && echo y || echo n) ok_sna_rc=$ok_sna_rc ok_sna_size=$ok_sna_size)"
     fi
 fi
 

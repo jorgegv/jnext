@@ -1542,6 +1542,103 @@ static void test_loader_reinit() {
     // so a NEX round-tripped through it carries no RAM to leave dirty.
 }
 
+// SNAPSAVE-SNA — the .sna saver's MACHINE BOUNDARY (GH #274). SnaSaver writes
+// only the 48K SNA form, which describes a 48K/128K Spectrum. On a Next it used
+// to write one anyway — logging "saved 48K snapshot" and exiting 0 — so a user
+// who asked for a snapshot of a Next got a file that quietly was not one: no
+// Layer 2, no sprites, no NextREGs, 48 of 768+ KB of RAM. save() now REFUSES
+// that machine and says why, exactly as SzxSaver::save() already does
+// (SNAPSAVE-SZX-RT-REFUSED above).
+//
+// BOTH SIDES of the boundary are pinned here, because a refusal that is too
+// wide is as wrong as one that is too narrow: 48K, 128K and +3 must still
+// save, and the unchecked CPU-view entry point — the one
+// Emulator::start_rzx_recording() embeds, whose RZX names the real machine
+// separately — must still dump on a Next.
+//
+// No VHDL citation: this is a host-side FILE FORMAT boundary, not hardware.
+static void test_snapsave_sna_machine_boundary() {
+    set_group("SNAPSAVE-SNA");
+
+    constexpr size_t SNA_48K_SIZE = 49179;   // 27-byte header + 48 KB RAM
+
+    // ── the machine that must be refused ──────────────────────────────
+    {
+        Emulator emu;
+        emu.init(reinit_cfg(MachineType::ZXN_ISSUE2));
+
+        // The 48K form carries PC on the STACK, so the saver writes two bytes
+        // at SP-2. A refusal must happen BEFORE that: a save that says no must
+        // not have modified the machine on its way out. SP is put somewhere
+        // the mapping makes writable RAM, and the two bytes below it seeded,
+        // so the push is observable if it happens.
+        Z80Registers r = emu.cpu().get_registers();
+        r.SP = 0x9000;
+        emu.cpu().set_registers(r);
+        emu.mmu().write(0x8FFE, 0xA5);
+        emu.mmu().write(0x8FFF, 0x5A);
+
+        std::string error;
+        const std::vector<uint8_t> sna = SnaSaver::save(emu, &error);
+
+        check("SNAPSAVE-SNA-REFUSED-NEXT",
+              "SnaSaver::save() refuses a Next outright: no data, plus an error "
+              "that names the machine and points at '.jns'",
+              sna.empty() && !error.empty()
+                  && error.find(".jns") != std::string::npos
+                  && error.find("Next") != std::string::npos,
+              fmt("size=%zu error='%s'", sna.size(), error.c_str()));
+
+        check("SNAPSAVE-SNA-REFUSED-NO-PUSH",
+              "the refused save left the machine untouched — it never reached "
+              "the 48K form's destructive PC push at SP-2",
+              emu.mmu().read(0x8FFE) == 0xA5 && emu.mmu().read(0x8FFF) == 0x5A,
+              fmt("[8FFE]=%02X [8FFF]=%02X (want A5 5A)",
+                  emu.mmu().read(0x8FFE), emu.mmu().read(0x8FFF)));
+
+        const std::vector<uint8_t> view = SnaSaver::save_cpu_view_unchecked(emu);
+        check("SNAPSAVE-SNA-CPUVIEW-NEXT",
+              "save_cpu_view_unchecked() still dumps the CPU view on a Next — "
+              "the route Emulator::start_rzx_recording() embeds in an RZX",
+              view.size() == SNA_48K_SIZE,
+              fmt("size=%zu (want %zu)", view.size(), SNA_48K_SIZE));
+    }
+
+    // ── the machines that must STILL save ─────────────────────────────
+    // One Emulator per case (init() re-inits in place, and a saved machine's
+    // stack is written to, so they do not share one).
+    auto saved = [](MachineType t, std::string& err) {
+        Emulator emu;
+        emu.init(reinit_cfg(t));
+        return SnaSaver::save(emu, &err);
+    };
+    {
+        std::string err;
+        const std::vector<uint8_t> sna = saved(MachineType::ZX48K, err);
+        check("SNAPSAVE-SNA-OK-48K",
+              "a 48K still saves: a full 49179-byte .sna and no error",
+              sna.size() == SNA_48K_SIZE && err.empty(),
+              fmt("size=%zu err='%s'", sna.size(), err.c_str()));
+    }
+    {
+        std::string err;
+        const std::vector<uint8_t> sna = saved(MachineType::ZX128K, err);
+        check("SNAPSAVE-SNA-OK-128K",
+              "a 128K still saves — the refusal is the Next, not everything "
+              "the 48K form models incompletely",
+              sna.size() == SNA_48K_SIZE && err.empty(),
+              fmt("size=%zu err='%s'", sna.size(), err.c_str()));
+    }
+    {
+        std::string err;
+        const std::vector<uint8_t> sna = saved(MachineType::ZX_PLUS3, err);
+        check("SNAPSAVE-SNA-OK-PLUS3",
+              "a +3 still saves",
+              sna.size() == SNA_48K_SIZE && err.empty(),
+              fmt("size=%zu err='%s'", sna.size(), err.c_str()));
+    }
+}
+
 static void test_snapsave_nex_roundtrip() {
     set_group("SNAPSAVE-NEX-RT");
 
@@ -1840,6 +1937,9 @@ int main() {
 
     test_loader_reinit();
     std::printf("  Group: LOADER-REINIT (GH #239 loaders re-initialise first) — done\n");
+
+    test_snapsave_sna_machine_boundary();
+    std::printf("  Group: SNAPSAVE-SNA (GH #274 .sna machine boundary) — done\n");
 
     test_g33_tapesave_trap();
     std::printf("  Group: G33-TAPESAVE-TRAP (Task 57 SA-BYTES SAVE trap + gate) — done\n");
