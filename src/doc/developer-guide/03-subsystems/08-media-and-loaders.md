@@ -20,7 +20,7 @@ the guest's own driver talks to. Both are called out below.
 | Format | In | Out | Where | Notes |
 |---|---|---|---|---|
 | `.nex` | yes | yes | `nex_loader.*`, `nex_saver.*` | Next-native. V1.0–V1.3 (V1.3 gated, see below) |
-| `.sna` | yes | yes | `sna_loader.*`, `sna_saver.*` | Reads 48K and 128K; writes 48K only |
+| `.sna` | yes | yes | `sna_loader.*`, `sna_saver.*` | Reads 48K and 128K; writes 48K only; refuses Next |
 | `.szx` | yes | yes | `szx_loader.*`, `szx_saver.*` | Writes only 48K/128K/+3; refuses Next |
 | `.z80` | yes | — | `z80_loader.*` | v1/v2/v3, 48K and 128K |
 | `.tap` | yes | yes | `tap_loader.*`, `tap_saver.*` | Save is a ROM `SA-BYTES` trap |
@@ -571,8 +571,14 @@ the same order both times.
 `rzx.h` holds the format, `rzx_player.*` and `rzx_recorder.*` the two
 directions. The snapshot a recording embeds is an SZX on the 128K and +3
 (`SzxSaver` — all eight banks and the paging ports) and a 48K SNA otherwise
-(`SnaSaver`, which exists for this): neither `.szx` nor `.sna` can hold the
-Next's own state, so a Next program replays only as far as its 48K part does.
+(`SnaSaver::save_cpu_view_unchecked()`, which exists for this): neither `.szx`
+nor `.sna` can hold the Next's own state, so a Next program replays only as far
+as its 48K part does. That is the *unchecked* entry point deliberately —
+`SnaSaver::save()`, the one a user reaches through `--delayed-snapshot` or the
+GUI, refuses a Next outright (GH #274), because a `.sna` FILE of a Next is a
+file that lies about its machine. An RZX does not: it names the machine in its
+own creator block, so playback rebuilds the Next and the embedded snapshot only
+has to restore the 64 KB the CPU saw.
 A command-line recording starts once the `--load`/`--inject` is in the
 machine (`emulator_start_rzx_record_when_loaded()`), so that snapshot is the
 loaded program. The tape ROM traps stand down while RZX records or plays —

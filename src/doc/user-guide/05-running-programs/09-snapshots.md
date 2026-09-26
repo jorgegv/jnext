@@ -9,21 +9,22 @@ JNEXT writes four, and the extension picks one:
 | Extension | What it is | Use it when |
 |---|---|---|
 | `.jns` | **JNEXT's own snapshot.** The only one that can represent a ZX Spectrum Next. | You are on a Next — which is JNEXT's default machine. |
-| `.sna` | The classic 48K/128K snapshot every Spectrum emulator reads. | You want to hand the file to another emulator. |
-| `.szx` | ZX-State: richer than `.sna`, still classic-only (48K/128K/+2A/+3). | Same, with more fidelity. |
+| `.sna` | The classic 48K/128K snapshot every Spectrum emulator reads. | You are on a 48K, 128K or +3 and want to hand the file to another emulator. |
+| `.szx` | ZX-State: richer than `.sna`, still classic-only (48K/128K/+2A/+3). | Same, with more fidelity — it carries all eight RAM banks. |
 | `.nex` | Not a snapshot — a *program* file the Next's own loader runs. | You are producing something to run on real hardware. |
 
 `.sna` and `.szx` describe a machine the Next is not: no Layer 2, no sprites,
 no tilemap, no Copper, no DivMMC, 128 KB of RAM where a Next has 768 KB or
-more. That is why `.jns` exists, and it is worth knowing what the other two do
-if you ask for one on a Next anyway:
+more. That is why `.jns` exists — and **on a Next both of them are refused**,
+each with an error naming the machines it can describe and pointing you at
+`.jns`, rather than writing a file that misrepresents the machine you have. Ask
+for either on a 48K, 128K or +3 and you get it.
 
-- **`.szx` is refused**, with an error naming the machines it can describe,
-  rather than writing something that misrepresents the one you have.
-- **`.sna` is written, and it is a 48K snapshot** — the 64 KB the CPU can see
-  at that instant and nothing else. JNEXT only ever writes the 48K form of
-  SNA. It will load back into another emulator, but everything that makes the
-  machine a Next is missing from it, so do not use it to keep a Next session.
+One thing to know about the `.sna` you do get: JNEXT only ever writes the **48K
+form** of SNA, so on a 128K or a +3 it holds the 64 KB the CPU can see at that
+instant — the other five banks and the paging are not in it. `.szx` carries all
+eight banks on those two machines, which is the extra fidelity the table above
+means.
 
 ## Saving
 
@@ -36,7 +37,10 @@ jnext --headless --load game.nex \
 
 On a Next the file dialog offers `.jns` first and adds `.jns` if you type a
 name with no extension; on a 48K, 128K or +3 it offers `.sna` first and adds
-that. Type any of the four extensions and you get that format.
+that. Type any of the four extensions and you get that format — except `.sna`
+or `.szx` on a Next, which are refused as above: the dialog says why, and
+headless says why and exits non-zero rather than leaving you a file you would
+have trusted.
 
 A snapshot is only ever taken at a **frame boundary**. If the debugger has
 stopped the machine part-way through a frame — which is exactly when you reach

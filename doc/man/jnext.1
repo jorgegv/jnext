@@ -670,8 +670,12 @@ A snapshot is only ever taken at a frame boundary, so if the debugger
 has paused the machine part\-way through a frame \(em a magic
 breakpoint, say \(em the frame in flight is completed first and the
 snapshot is written from the boundary that follows it.
-The capture is never refused, and the saved machine is then up to one
-frame past the point the debugger stopped at.
+That pause never refuses the capture; the saved machine is then up to
+one frame past the point the debugger stopped at.
+A format that cannot represent the current machine \f[I]is\f[R] refused:
+\f[CR].sna\f[R] and \f[CR].szx\f[R] describe a 48K/128K/+3 Spectrum, so
+asking for either on a Next writes nothing, says why, and exits
+non\-zero (see \f[B]JNEXT SNAPSHOTS\f[R]).
 .TP
 \f[B]\-\-delayed\-snapshot\-frames\f[R] \f[I]N\f[R]
 Delay in frames for \f[B]\-\-delayed\-snapshot\f[R] (default 0).
@@ -1091,7 +1095,8 @@ NextZXOS\(cqs file commands stop working.
 .SH JNEXT SNAPSHOTS
 A \f[CR].jns\f[R] file is jnext\(cqs own whole\-machine snapshot, and
 the only format that can represent a ZX Spectrum Next: \f[CR].sna\f[R]
-and \f[CR].szx\f[R] describe a 48K/128K/+3 machine, which a Next is not.
+and \f[CR].szx\f[R] describe a 48K/128K/+3 machine, which a Next is not,
+so asking for either on a Next is refused rather than written lossily.
 .PP
 Write one with \f[B]File > Save Snapshot\&...\f[R] (Alt+Shift+S), or
 headless with \f[B]\-\-delayed\-snapshot\f[R] naming a \f[CR].jns\f[R]

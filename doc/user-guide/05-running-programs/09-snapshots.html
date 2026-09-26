@@ -3006,12 +3006,12 @@
 <tr>
 <td><code>.sna</code></td>
 <td>The classic 48K/128K snapshot every Spectrum emulator reads.</td>
-<td>You want to hand the file to another emulator.</td>
+<td>You are on a 48K, 128K or +3 and want to hand the file to another emulator.</td>
 </tr>
 <tr>
 <td><code>.szx</code></td>
 <td>ZX-State: richer than <code>.sna</code>, still classic-only (48K/128K/+2A/+3).</td>
-<td>Same, with more fidelity.</td>
+<td>Same, with more fidelity — it carries all eight RAM banks.</td>
 </tr>
 <tr>
 <td><code>.nex</code></td>
@@ -3022,16 +3022,15 @@
 </table>
 <p><code>.sna</code> and <code>.szx</code> describe a machine the Next is not: no Layer 2, no sprites,
 no tilemap, no Copper, no DivMMC, 128 KB of RAM where a Next has 768 KB or
-more. That is why <code>.jns</code> exists, and it is worth knowing what the other two do
-if you ask for one on a Next anyway:</p>
-<ul>
-<li><strong><code>.szx</code> is refused</strong>, with an error naming the machines it can describe,
-  rather than writing something that misrepresents the one you have.</li>
-<li><strong><code>.sna</code> is written, and it is a 48K snapshot</strong> — the 64 KB the CPU can see
-  at that instant and nothing else. JNEXT only ever writes the 48K form of
-  SNA. It will load back into another emulator, but everything that makes the
-  machine a Next is missing from it, so do not use it to keep a Next session.</li>
-</ul>
+more. That is why <code>.jns</code> exists — and <strong>on a Next both of them are refused</strong>,
+each with an error naming the machines it can describe and pointing you at
+<code>.jns</code>, rather than writing a file that misrepresents the machine you have. Ask
+for either on a 48K, 128K or +3 and you get it.</p>
+<p>One thing to know about the <code>.sna</code> you do get: JNEXT only ever writes the <strong>48K
+form</strong> of SNA, so on a 128K or a +3 it holds the 64 KB the CPU can see at that
+instant — the other five banks and the paging are not in it. <code>.szx</code> carries all
+eight banks on those two machines, which is the extra fidelity the table above
+means.</p>
 <h2 id="saving">Saving<a class="headerlink" href="#saving" title="Permanent link">&para;</a></h2>
 <p><strong>File ▸ Save Snapshot…</strong> (Alt+Shift+S), or headless:</p>
 <pre><code>jnext --headless --load game.nex \
@@ -3039,7 +3038,10 @@ if you ask for one on a Next anyway:</p>
 </code></pre>
 <p>On a Next the file dialog offers <code>.jns</code> first and adds <code>.jns</code> if you type a
 name with no extension; on a 48K, 128K or +3 it offers <code>.sna</code> first and adds
-that. Type any of the four extensions and you get that format.</p>
+that. Type any of the four extensions and you get that format — except <code>.sna</code>
+or <code>.szx</code> on a Next, which are refused as above: the dialog says why, and
+headless says why and exits non-zero rather than leaving you a file you would
+have trusted.</p>
 <p>A snapshot is only ever taken at a <strong>frame boundary</strong>. If the debugger has
 stopped the machine part-way through a frame — which is exactly when you reach
 for this menu item — JNEXT finishes that frame first and saves from the

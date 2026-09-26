@@ -594,9 +594,13 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     ever taken at a frame boundary, so if the debugger has paused the
     machine part-way through a frame — a magic breakpoint, say — the
     frame in flight is completed first and the snapshot is written from
-    the boundary that follows it. The capture is never refused, and the
-    saved machine is then up to one frame past the point the debugger
-    stopped at.
+    the boundary that follows it. That pause never refuses the capture;
+    the saved machine is then up to one frame past the point the
+    debugger stopped at. A format that cannot represent the current
+    machine *is* refused: `.sna` and `.szx` describe a 48K/128K/+3
+    Spectrum, so asking for either on a Next writes nothing, says why,
+    and exits non-zero (see [5.9
+    Snapshots](../05-running-programs/09-snapshots.md)).
 
 **--delayed-snapshot-frames** *N*
 :   Delay in frames for **--delayed-snapshot** (default 0). Requires
