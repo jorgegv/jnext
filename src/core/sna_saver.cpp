@@ -86,6 +86,18 @@ static std::vector<uint8_t> extra_bank_set(uint8_t paged_bank) {
 ///
 /// `mmu.get_page(slot)` is the LOGICAL page, so bank N reads back as
 /// {2N, 2N+1} (`Mmu::apply_legacy_ram_slots_()`).
+///
+/// NOT part of this predicate, deliberately: the Layer 2 read/write-over
+/// DIVERSION (port 0x123B bits 0/2, NR 0x12/0x13). It re-points what the CPU
+/// sees at 0x0000-0x3FFF (or a 16K window of it) at Layer 2 RAM without
+/// touching the MMU slots this reads — and the saver does not care, because
+/// `read_bank()` goes through `read_from_page()`, which maps the physical page
+/// into slot 7 and reads it directly. That bypasses the diversion by
+/// construction, so what lands in the file is the raw bank whatever the
+/// diversion is doing, which is exactly what both SNA forms are defined to
+/// contain. A diversion is also not memory the file could describe: it is a
+/// mapping, and an SNA has no field for one. This note exists because the next
+/// reader would otherwise re-derive it from scratch.
 static bool classic_window_intact(Mmu& mmu, uint8_t bank_at_c000,
                                   std::string& found)
 {
@@ -139,7 +151,7 @@ std::vector<uint8_t> SnaSaver::save(Emulator& emu, std::string* error) {
             // the only bank it can honestly have at 0xC000.
             const std::string w = window_refusal(0);
             if (!w.empty()) return refuse(w);
-            return save_cpu_view_unchecked(emu);
+            return save_48k(emu);
         }
 
         case MachineType::ZX128K: {
@@ -254,7 +266,7 @@ std::vector<uint8_t> SnaSaver::save_128k(Emulator& emu) {
     return data;
 }
 
-std::vector<uint8_t> SnaSaver::save_cpu_view_unchecked(Emulator& emu) {
+std::vector<uint8_t> SnaSaver::save_48k(Emulator& emu) {
     // 48K SNA: 27-byte header + 49152 bytes RAM
     static constexpr size_t SNA_48K_SIZE = 49179;
     static constexpr size_t HEADER_SIZE = 27;

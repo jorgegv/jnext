@@ -1687,6 +1687,19 @@ QString MainWindow::rzx_record_refusal() const {
                   "playback, so wait for it to finish.");
     }
     if (emulator_->tap_saver().active()) return rzx_tape_save_refusal();
+    // GH #274 — the Next is JNEXT's default machine, so this is the refusal a
+    // user is most likely to meet. It has to read as "use another machine",
+    // never as "recording is broken", and it is shown BEFORE the file picker.
+    if (emulator_->config().type == MachineType::ZXN_ISSUE2) {
+        return tr("RZX recording is not available on a ZX Spectrum Next.\n\n"
+                  "An RZX carries a snapshot of the machine it starts from, and the "
+                  "formats it can carry describe a 48K, 128K or +3 Spectrum — none of "
+                  "them holds the Next's extra RAM, NextREGs, Layer 2, tilemap, sprites "
+                  "or Copper.\n\n"
+                  "Switch to Machine > Machine Type > 48K, 128K or +3 and record there. "
+                  "Playing a Next recording made by an older JNEXT still works, with a "
+                  "warning that it may not replay faithfully.");
+    }
     return QString();
 }
 

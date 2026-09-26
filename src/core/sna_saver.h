@@ -90,17 +90,16 @@ public:
     /// Callers must surface that as a real failure, never write a partial file.
     static std::vector<uint8_t> save(Emulator& emu, std::string* error = nullptr);
 
-    /// The 48K form with NO machine check — the CPU view, whatever machine is
-    /// running. It exists for ONE caller, Emulator::start_rzx_recording(), and
-    /// that embed is legitimate where a `.sna` FILE would not be: an RZX
-    /// records its machine type separately in its own creator block, so
-    /// playback rebuilds the Next and this snapshot only has to restore the
-    /// 64 KB the CPU could see. NOT a user-facing route — nothing on the
-    /// command line or in the GUI reaches it, so asking for a `.sna` of a Next
-    /// is still refused.
-    static std::vector<uint8_t> save_cpu_view_unchecked(Emulator& emu);
-
 private:
+    /// The 48K form. Reached through save() only.
+    ///
+    /// It briefly had a public, unchecked twin, for the RZX recorder's Next
+    /// embed. That embed is gone — RZX refuses on a Next (GH #274, see
+    /// Emulator::rzx_refused_by_machine()) — so nothing wants a lossy CPU-view
+    /// dump of a machine the format cannot describe, and there is no route to
+    /// one.
+    static std::vector<uint8_t> save_48k(Emulator& emu);
+
     /// The 128K form. Reached through save() only, for the machines whose
     /// state it can describe.
     static std::vector<uint8_t> save_128k(Emulator& emu);
