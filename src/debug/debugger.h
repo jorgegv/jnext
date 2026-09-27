@@ -473,8 +473,8 @@ public:
     AyChipMode ay_mode() const;
     StereoMode stereo_mode() const;
 
-    /// INS-10 — the host-side mute mask (`MUTE_*`). Never in a snapshot or an
-    /// RZX.
+    /// INS-10 — the host-side mute mask (`AudioMute::*`). Never in a snapshot or
+    /// an RZX.
     uint8_t audio_mute_mask() const;
 
     /// INS-10 / §4.2a — set it.

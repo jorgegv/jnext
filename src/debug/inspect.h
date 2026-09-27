@@ -36,6 +36,7 @@
 #include <string>
 #include <vector>
 
+#include "audio/audio_mute.h"    // AudioMute::* mute-mask bits  (INS-10)
 #include "cpu/z80_cpu.h"         // Z80Registers; also forward-declares MachineType
 #include "debug/call_stack.h"    // CallFrame, CallType  (INS-12)
 #include "debug/disasm.h"        // DisasmLine, DisasmReadFn  (INS-11)
@@ -355,7 +356,7 @@ constexpr size_t SPRITE_COUNT = 128;
 /// Bytes of sprite pattern RAM (INS-08 `pattern_ram()`: "16 KB").
 constexpr size_t PATTERN_RAM_BYTES = 16384;
 
-/// A clip window, as NR 0x18-0x1C programs it (INS-08 `sprite_clip()`, INS-15
+/// INS-08 / INS-15 — a clip window, as NR 0x18-0x1C programs it (`sprite_clip()`, INS-15
 /// `clip_window()`). Read from the LIVE layer state, never from the rotating
 /// NR 0x18-0x1C write shadows.
 struct ClipWindow {
@@ -393,19 +394,18 @@ constexpr size_t AY_CHIP_COUNT = 3;
 
 /// NR 0x06 bit 0 — which volume/envelope curve the three chips use
 /// (`TurboSound::ay_mode()`). Named rather than a bare bool because a frontend
-/// that gets the polarity backwards shows the wrong chip and nothing notices.
+/// that gets the polarity backwards mislabels every chip and nothing notices.
 enum class AyChipMode : uint8_t { Ym = 0, Ay = 1 };
 
 /// NR 0x08 bit 5 — channel-to-side assignment (`TurboSound::stereo_mode()`).
 enum class StereoMode : uint8_t { Abc = 0, Acb = 1 };
 
-/// `audio_mute_mask` bits (INS-10). Host-side only: never in a snapshot, never
-/// in an RZX (§4.2a).
-constexpr uint8_t MUTE_AY0    = 0x01;
-constexpr uint8_t MUTE_AY1    = 0x02;
-constexpr uint8_t MUTE_AY2    = 0x04;
-constexpr uint8_t MUTE_DAC    = 0x08;
-constexpr uint8_t MUTE_BEEPER = 0x10;
+// INS-10 — the `audio_mute_mask` bits are `AudioMute::{AY0, AY1, AY2, DAC,
+// BEEPER, AY_ALL, ALL, NONE}` (`audio/audio_mute.h`), REUSED rather than
+// redefined: that header already documents why the mask has no hardware
+// analogue, why it must stay invisible to the Z80, and why it is excluded from
+// save_state() and reset(). A second copy of the bit assignment here is exactly
+// the drift the reuse rule exists to prevent.
 
 // ---------------------------------------------------------------------------
 // INS-14 / INS-15 — layers, palettes

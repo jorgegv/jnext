@@ -183,6 +183,11 @@ static_assert(SPRITE_ATTR_BYTES == 5, "a sprite is 5 attribute bytes");
 static_assert(Keyboard::MAX_AUTO_TYPE_KEYS == 16,
               "IN-01's APPEND overflow contract is written against 16");
 
+// INS-10's mute mask is AudioMute's, not a second copy of the bit assignment.
+static_assert(AudioMute::AY_ALL == (AudioMute::AY0 | AudioMute::AY1 | AudioMute::AY2), "");
+static_assert(AudioMute::ALL == (AudioMute::AY_ALL | AudioMute::DAC | AudioMute::BEEPER), "");
+static_assert(AudioMute::NONE == 0, "");
+
 // INS-01 enumerates 12 pairs, 20 eight-bit halves and 5 singletons.
 static_assert(REG_ID_COUNT == 37, "INS-01: 12 pairs + 20 halves + I/R/IFF1/IFF2/IM");
 
