@@ -436,6 +436,8 @@ using Handler = std::function<Action(const Event&, Debugger&)>;
 /// CAP-EVT — what `subscribe()` takes (§4.3: "`{kind, filter, access, condition?, once,
 /// transient, action, enabled, owner}`", plus the `handler` §4.2a's contract
 /// requires and the sub-kinds the Copper/DMA rows need).
+/// (`owner` is not a field: it is the `ClientId by` of the `subscribe()` call
+/// that created this subscription, and is reported back by `SubscriptionInfo`.)
 struct Subscription {
     EventKind   kind   = EventKind::Execute;
     EventFilter filter;

@@ -614,6 +614,15 @@ public:
     /// `press` / `release`; only `press … for n` is IN-01.
     Result set_key(ClientId by, int row, int col, bool pressed);
 
+    // INJECTION ORDERING, a CAP-IN contract over both verbs above: every pulse
+    // append and every level set issued during frame N — from a `Frame` handler,
+    // from a remote command in that tick's `pump`, or from a `--delayed-*`
+    // countdown — is applied in `end_of_frame` BEFORE the auto-type state machine
+    // ticks. So a pulse issued at the edge of frame N is pressed at that edge and
+    // visible to the guest from frame N+1: the same frame
+    // `--delayed-keypress-frames N` lands on today. The other order shifts every
+    // existing `--delayed-keypress-frames` regression row by one frame.
+
     /// IN-02 — one of the 16 extended keys (`Keyboard::ExtKey`).
     Result set_extended_key(ClientId by, int id, bool pressed);
 
