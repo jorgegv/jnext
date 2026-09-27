@@ -50,15 +50,38 @@ scripting DSL can all be written against one agreed shape. The design is
 capability ids to each declaration is
 `doc/design/debug-subsystem/b0-cap-traceability.md`.
 
-Two properties are worth knowing before the implementation exists. `Emulator` is
-only *forward-declared* in those headers, and none of them reaches
-`core/emulator.h`, `src/platform/` or any Qt header — the point of the epic is
-that a frontend stops holding an `Emulator*`. And `src/debug/debug_types_check.cpp`
-is the file that makes them compile at all: a translation unit of nothing but
-`static_assert`s, which is also where the three backend-owned enums that mirror
-something else (`StepMode` against the internal `::StepMode`, `PaletteId`
-against `::PaletteId`, the screenshot layer mask against `Renderer::LAYER_*`) are
-pinned value by value.
+Two properties are worth knowing before the implementation exists, and both are
+**gated** rather than merely documented — the first review of these headers found
+them asserting things nothing checked.
+
+`Emulator` is only *forward-declared*, and none of the four reaches
+`core/emulator.h`, `src/platform/`, Qt, SDL, `memory/mmu.h`, `video/renderer.h`,
+`video/palette.h`, `video/timing.h`, `debug/debug_state.h` or
+`debug/breakpoints.h` — the point of the epic is that a frontend stops holding an
+`Emulator*`. **`test/lint-debug-headers.sh`** proves it: for each published header
+it preprocesses a one-line translation unit and matches that forbidden set
+against the `-M` dependency list, so a forbidden header pulled in three levels
+down is caught like a direct include. It is row 5 of the regression preflight, and
+`make harness-selftest`'s HS-57a/b prove it stays wired and that its verdict still
+turns that row red.
+
+**`src/debug/debug_types_check.cpp`** is what makes the headers compile at all —
+a translation unit of nothing but `static_assert`s, built in all four
+configurations. It pins the three backend-owned enums that mirror something else
+(`StepMode` against the internal `::StepMode`, `PaletteId` against `::PaletteId`,
+the screenshot layer mask against `Renderer::LAYER_*`) value by value; every
+`Result` enumerator's number, because the order is a contract adapters map by
+index; each of `Listener`'s seven methods individually, since
+`is_abstract` on the class passes even when one method gains a body; and
+`MachineInfo`'s two clock domains against `MachineTiming`, names and types and the
+eight-master-cycles-per-T-state relation.
+
+One idiom in those headers is worth recognising, because it is the only C++
+mechanism that does the job: `EventKind`, `Layer`, `RegId` and `ClipLayer` each
+end in a `Count` sentinel, and every count is derived from it. Deriving a count
+from the last real enumerator is blind to an *append* — the enumerator keeps its
+value, the count keeps its number, and a new kind ships with no mask bit and no
+switch arm.
 
 Everything the rest of this chapter describes — `DebugState` consulted per
 instruction, `BreakpointSet`, `DebuggerManager` driving the panels — is still
