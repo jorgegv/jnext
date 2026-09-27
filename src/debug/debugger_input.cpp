@@ -2,8 +2,9 @@
 // jnext::dbg::Debugger — §4.5 CAP-IN, the LEVEL half of input injection.
 //
 // Work package B1 of epic #276. IN-02 / IN-03 / IN-04 are level sets over
-// accessors that already exist (plus `Keyboard::set_matrix_bit`, made public as
-// one of B1's five accessor additions), and they are here rather than in
+// accessors that already exist, plus `Keyboard::set_matrix_bit`, which §4 names
+// and this branch made public (the full list of additions is in
+// `debugger_inspect.cpp`'s banner). They are here rather than in
 // `debugger_pending.cpp` because nothing about them needs machinery a later
 // package brings.
 //

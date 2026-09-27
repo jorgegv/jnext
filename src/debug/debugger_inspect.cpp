@@ -2,10 +2,27 @@
 // jnext::dbg::Debugger — §4.2 CAP-INS (read) and §4.2a (write).
 //
 // Work package B1 of epic #276. Every read below goes through an accessor that
-// already exists or through one of the five B1 accessor additions; nothing here
+// already existed or through one this branch ADDED, and nothing here
 // reimplements a decode the emulator owns (the sprite attribute decode, the
 // palette expansion, the raster derivation and the ULA's screen selection are
 // all read from their owners, not recomputed).
+//
+// THE ADDITIONS, by owner, so the list is checkable a line at a time. §4 names
+// five things ("sprites/palette raw forms, `set_matrix_bit`, the DMA slot flag,
+// `input_state`"); implementing them took twelve functions, because a raw "form"
+// is a getter and a setter and because three of the published return types are
+// {ptr, size} VIEWS that need a data pointer to hand out:
+//
+//   Mmu            nr_page_ptr (x2, const + mutable), rom_image_ptr, get_nr_page
+//                  — plus peek(), which is F1 and not one of these
+//   SpriteEngine   write_attr_byte_at, write_pattern_byte_at, pattern_ram_data
+//   PaletteManager entry_rgb333, set_entry_rgb333
+//   Keyboard       set_matrix_bit (made public), matrix_row
+//   Copper         program_data
+//   Emulator       slot_ran_dma
+//
+// `input_state()` is the fifth of §4's five and is NOT in that list: it is a
+// Debugger method below, composed from Keyboard and Joystick accessors.
 //
 // TWO CONTRACTS THIS FILE IS THE IMPLEMENTATION OF:
 //

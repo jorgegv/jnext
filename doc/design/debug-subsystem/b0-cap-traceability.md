@@ -102,7 +102,7 @@ Every write §4.2a enumerates, and the declaration that is it. All of them take
 | `Frame` | `EventKind::Frame`; `EventFilter::frame`, `FRAME_EVERY`; payload `Event::frame` |
 | `Scanline` | `EventKind::Scanline`; `EventFilter::scanline`; payload `Event::{frame, vc, cycle}` |
 | `Cycle` | `EventKind::Cycle`; `EventFilter::cycle`; payload `Event::cycle` |
-| `Reset` | `EventKind::Reset`; `EventFilter::reset_kind`; payload `Event::reset_kind` |
+| `Reset` | `EventKind::Reset`; `EventFilter::reset_kind` incl. `ResetKind::Any` for either kind (owner decision F8); payload `Event::reset_kind`, never `Any` |
 | `IntAck` | `EventKind::IntAck`; payload `Event::{int_vector, int_mode}` |
 | `Nmi` | `EventKind::Nmi`; payload `Event::nmi_source`, `enum class NmiButton` |
 | `Magic` | `EventKind::Magic`; payload `Event::pc` |
@@ -165,7 +165,7 @@ Every write §4.2a enumerates, and the declaration that is it. All of them take
 
 | CAP | Declaration |
 |---|---|
-| ST-01 | `bool at_frame_boundary() const`, `Expected<std::vector<uint8_t>> save_state_bytes(SaveStateMode)`; `enum class SaveStateMode{AdvanceToBoundary, RefuseMidFrame}`, `Result::NotAtFrameBoundary` |
+| ST-01 | `bool at_frame_boundary() const`, `Expected<std::vector<uint8_t>> save_state_bytes(ClientId by, SaveStateMode)` — the `by` attributes the `AdvanceToBoundary` advance (owner decision; B0 left it open); `enum class SaveStateMode{AdvanceToBoundary, RefuseMidFrame}`, `Result::NotAtFrameBoundary` |
 | ST-02 | `Result load_state_bytes(ClientId, const uint8_t* data, size_t n)`; failure latches corruption → CTL-11 |
 | ST-03 | `bool rewind_enabled() const`, `Result set_rewind_enabled(bool)`, `RewindRange rewind_range() const`, `std::optional<Result> rewind_blocked() const`, `Result resize_rewind_buffer(size_t frames)`; `struct RewindRange` |
 | ST-04 | `Result step_back(ClientId, uint32_t)`, `Result rewind_to_frame(ClientId, uint32_t)` (= CTL-09, CTL-10) |
