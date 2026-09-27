@@ -25,7 +25,30 @@
 > + `dsl-qt-r4.md`). R-1: the latch ring is **512**, derived with the Copper's
 > per-master-cycle cadence included and a MOVE as one entry fanned out to both
 > subscriptions; overflow is a specified, tested behaviour rather than
-> "unreachable". Notes: `set PC` clearing `halted` is an INS-01 obligation
+> "unreachable".
+>
+> **Revision 6** (2026-09-27, during B0 implementation — the first package to
+> code against §4, which is what found these). Eight in-place corrections, each
+> raised by B0's author and **independently confirmed by B0's reviewer** against
+> the tree: **F1** the `Subscription` tuple was missing `handler`, without which
+> no delivery can reach a subscriber (§4.3); **F2** `SlotInfo` does not exist —
+> `mmu.h:74-78` is the accessor pair that feeds it, not a struct to extend
+> (INS-03); **F3** `Layer` named two different sets, now `Layer` (8 render views)
+> and `ClipLayer` (4 NR 0x18-0x1C windows) (INS-14/15); **F4** `TraceEntry` and
+> `CallFrame` are published value types of otherwise-internal modules (§3.1);
+> **F5** `LoopDriver::cold_boot` cannot take a config (SES-07); **F7**
+> `PaletteId` must be a backend superset to carry `UlaActive` (INS-15); **B4**
+> `cycles_per_line/frame` → `tstates_per_line/frame`, two “cycle” domains in one
+> API (INS-19); and the `armed()` wording plus the rule that a `Magic` pause has
+> **no owning client**, so a detach must not resume it (§4.1, CTL-13 — owner,
+> 2026-09-27). **F6** corrected a stale “64 entries” in `dsl-frontend.md`.
+> Two items stay OPEN and are deliberately not decided here: **F8** — §4.3's
+> `Reset` filter takes one kind, so watching both needs two subscriptions, and a
+> DSL `on reset` with no qualifier is the natural spelling; whether the filter
+> gains an “any” value is an owner call. **F9** — `keyboard.h:77` documents a
+> “2-frame gap” where the code releases for 4 (`keyboard.cpp:561-564`), which
+> §4.5 IN-01 states correctly; a pre-existing stale comment, fixed by B4 when it
+> takes `queue_auto_type`. Notes: `set PC` clearing `halted` is an INS-01 obligation
 > (`z80_cpu.h:135`); the new `NextReg::write` hook must be gated like the MMU
 > sites; the gate and drain are off in `replay_mode_`; mutations refused under
 > RZX; the `PC = B` bypass stated; `Copper.Halt` is a new branch at the stall
@@ -414,7 +437,7 @@ Principles:
 |---|---|---|
 | `src/debug/debugger.h`, `events.h`, `inspect.h`, `result.h` | `jnext_debug` | **published** facade and value types (§4) |
 | `src/debug/symbol_table.h`, `disasm.h`, `disasm_text.h`, `raster_state.h` | `jnext_debug` | published as today |
-| `src/debug/debug_state.*`, `breakpoints.*` (→ `EventTable`), `trace.*`, `call_stack.*`, `rewind_buffer.*`, `resume_guard.h`, `debug_keymap.*` | `jnext_debug` | **internal** (frontends do not include them); `debug_keymap.*` stays here because `src/gui` reads it with `ENABLE_DEBUGGER=OFF` |
+| `src/debug/debug_state.*`, `breakpoints.*` (→ `EventTable`), `trace.*`, `call_stack.*`, `rewind_buffer.*`, `resume_guard.h`, `debug_keymap.*` | `jnext_debug` | **internal** (frontends do not include them) — **with one stated exception: the VALUE types `TraceEntry` and `CallFrame` are published**, because INS-13 returns the former and INS-12 the latter (finding F4, confirmed in review). The published headers reuse them rather than mirroring structs B4 will extend, which would guarantee drift; the modules' behaviour stays internal and the include graph stays clean. `debug_keymap.*` stays here because `src/gui` reads it with `ENABLE_DEBUGGER=OFF` |
 | `src/qt/debug_keymap_qt.h`, `src/qt/menu_bar_alt_nav_qt.h` | none (header-only) | the two Qt headers, moved; included by `src/gui` and `src/debugger` as now; `${CMAKE_SOURCE_DIR}/src` is already on every include path |
 | `src/debugger/` | `jnext_debugger` (Qt) | the panels; `DebuggerManager` becomes a thin Qt adapter (design-qt §5.2) |
 | `src/remote/dzrp/`, `src/remote/zrcp/`, `src/remote/gdb/` | `jnext_remote` | the three protocol servers over one non-blocking transport (the public `esp::make_socket_listener` / `EspListener` / `EspTransport` seam, `src/esp01/include/esp01/esp_socket.h:561/509/258`, Windows-twinned already) |
@@ -469,13 +492,21 @@ range), `RefusedReadOnly`, `InvalidPage`, `NotAtFrameBoundary`, `NoFrame`,
 | CTL-09 / CTL-10 | `step_back(n)` / `rewind_to_frame(n)` | synchronous; `RefusedRzx` / `RefusedUnavailable` / `RefusedCorrupt` distinguished |
 | CTL-11 | `resume_blocked_by_corruption() -> optional<CorruptionIncident{subsystem, generation}>`, `acknowledge_corruption(gen)` | the `ResumeGuard` policy; the modal stays in Qt; an unacknowledged remote gets `RefusedCorrupt` |
 | CTL-12 | `reset(Hard\|Soft)` | `Soft` = `soft_reset()`, synchronous. **`Hard` = the cold-boot reconstruct contract** (REQ-zrcp-15): today it is only a flag [`emulator.h:207`] each loop owner polls after its tick and turns into `emulator_frontend_cold_boot()` [`emulator_boot.h:225-245`; `sdl_app.cpp:409`, `qt_app.cpp:510`, `headless_app.cpp:691`], which destroys and placement-news the `Emulator` and restores nothing transient [`:122-124`]. For a client the backend runs the loop owner's registered driver (SES-07) **synchronously inside `pump`** (the same post-frames slot), so later commands in the same drain see the new machine; re-binds and re-applies every client's subscriptions, switches, attach/`live_raster`, trace/call-stack/coverage enables and the symbol table; **re-applies the pause** if the caller was paused (PC 0x0000 of `nextboot.rom`, as ZEsarUX) and **never pauses a running machine** (there is no `Reset` in `pause_reason`); delivers `Reset{Hard}` to every listener before returning — an adapter whose client is blocked in a `run` completes that reply from the event, adapter policy, not a pause, so no other client sees a stop; a guest NR 0x02 hard reset keeps the deferred path and the driver calls `on_cold_boot_done()` so the same rules apply; no driver → `RefusedUnavailable`. Ordering: every loop owner polls `take_hard_reset_request()` before `pump()`, so a guest reset and a client `reset(Hard)` in one tick run in that order and the second reboots a freshly booted machine (legal, not skipped). Single owner: the platform-side `BreakpointSet`/`active()` save-and-restore in `emulator_cold_boot()` [`emulator_boot.h:133-146`] is retired in B3 once the backend re-applies subscriptions. The driver struct is `ColdBootHooks` [`emulator_boot.h:179`]. CTL-15 with a `.nex` follows the same contract |
-| CTL-13 | `state() -> RunState{paused, step_mode, pause_reason, cycle, frame, pc}` | `pause_reason` ∈ {`User{cid}`, `Breakpoint{id}`, `Watch{id, access, addr}`, `Step`, `RunTo{id}`, `Magic`, `Corrupt`, `Script{id, text}`} |
+| CTL-13 | `state() -> RunState{paused, step_mode, pause_reason, cycle, frame, pc}` — **`Magic` has NO owning client** (owner decision, 2026-09-27): the guest stopped itself, so SES-01's "a detach resumes the machine iff it is paused by this client" must NOT resume a `Magic` pause, and neither may closing the Qt debugger window. Same for `Corrupt`. A remote client attaching, pausing nothing and detaching must leave an `ED FF` stop standing — pinned by a B5 row. The Qt window OPENING on a magic hit is unchanged and is not an attach: the Qt adapter is attached for the process lifetime, and the window is its reaction to `Paused{reason: Magic}` — today's `DebuggerManager::check_breakpoint_hit()` path [`debugger_manager.cpp:682-692`], the same GH #219 route §1.3 item 13 keeps for a remote pause. | `pause_reason` ∈ {`User{cid}`, `Breakpoint{id}`, `Watch{id, access, addr}`, `Step`, `RunTo{id}`, `Magic`, `Corrupt`, `Script{id, text}`} |
 | CTL-14 | `magic_breakpoint()` / `set_magic_breakpoint(bool)` | `Emulator::set_magic_breakpoint` [`emulator.cpp:7873`] |
 | CTL-15 | `load(path)` | routed through the loop owner's registered driver (SES-07 `LoopDriver::load`), today `emulator_apply_load()` [`src/platform/emulator_boot.h:25`] — the backend never includes `src/platform/`, the layer above it; no driver → `RefusedUnavailable`; a paused caller stays paused at the new PC. **Contract:** a load that routes to `emulator_cold_boot()` destroys and reconstructs the `Emulator` in place, today saving only the `BreakpointSet` and `active()` across it [`emulator_boot.h:133-146`]; the backend keeps every client's subscriptions, switches, attach/`live_raster` state and the symbol table outside `Emulator` and re-installs its hooks afterwards, so nothing any client set is lost (REQ-qt-29; a backend row subscribes, loads, asserts the subscription still fires) |
 
-**Semantics with 0, 1 or N frontends.** 0: inert — `armed()` false unless
-`--persistent-breakpoints` or a magic breakpoint; the hot loop pays what it
-pays today (§6). 1: identical to today. N: one machine, one `DebugState`,
+**Semantics with 0, 1 or N frontends.** 0: inert — `armed()` false until
+`--persistent-breakpoints` is given or a magic breakpoint FIRES; the hot loop
+pays what it pays today (§6). **The magic breakpoint is not a third term in
+the formula** (owner clarification, 2026-09-27): the code is
+`armed_ = active_ || persistent_` [`debug_state.h:274`] and the magic hook
+lives on `cpu_.on_magic_breakpoint`, installed by `set_magic_breakpoint()`
+INDEPENDENTLY of arming, which is why it can fire with nothing attached (the
+§1.3 item 12 headless/SDL rule depends on that). On a hit it does
+`set_active(true); pause();` [`emulator.cpp:7880-7885`], i.e. it SETS the
+first term. §5's `attached || persistent` is therefore the formula, and this
+sentence describes the transition into it, not an addition to it. 1: identical to today. N: one machine, one `DebugState`,
 **no ownership token, no arbitration queue** — any client may pause, resume
 or step, every transition is broadcast with the originating client id, "last
 verb wins". Subscriptions are owned by their creating client (a detach
@@ -492,7 +523,7 @@ on a breakpoint; a GUI Run afterwards reaches the remote as `Resumed{by}`
 |---|---|
 | INS-01 | `registers()`, `set_register(RegId, v)` per register (12 pairs, PC, SP, I, R, IFF1, IFF2, IM) — no "set all" |
 | INS-02 | `peek/poke(MemSpace, addr, n, buf)`: `Cpu` (live mapping, overlays included, **no floating-bus latch** — F1 → `Mmu::peek()`); `Page{p}` with **p = the NR 0x50-0x57 page number (0..223)**, backend does the VHDL routing (`to_sram_page` [`mmu.h:1387`], 0x0E → `bank7_bram` [`:1371`, `:1400`], 0xFE/0xFF → `InvalidPage`); `Rom{index}` — **settled from the code, uniformly** (§11 item 1 closed; REQ-qt-31, protocols-r4 R-1): `index` names a **16 KB ROM image** (0..3; addresses 0..0x3FFF within it), read-only. On a `rom_in_sram_` machine (Next mode, `set_rom_in_sram(true)` [`emulator.cpp:6829`]) it is SRAM pages `2·index` / `2·index+1` — `map_rom_physical(0, sram_rom*2)` / `(1, sram_rom*2+1)` [`mmu.cpp:546-547`] maps a ROM slot to `ram_.page_ptr(rom_page)` **without** `to_sram_page` [`:396-402`], an un-shifted `ram_` page index (0..7 on the Next, never add 0x20) that `Page{p}` (NR space, +0x20 shift [`mmu.h:1387-1390`]) cannot address — on 48K/128K/+3 it is the `Rom` object's image (`Rom::page_ptr` [`rom.h:23`]; 48K 1 image, 128K 2, +3 4). On the Next `Rom{0..3}` is complete: the NR 0x8C alt-ROM overrides are folded into `current_sram_rom()` [`mmu.cpp:540`], so the slot's ROM select already names the image in effect. `poke(Rom)` is `RefusedReadOnly`. DZRP 2.2.0's ROM id 0xFF and the Qt slot view both address it through `SlotInfo.space` (INS-03), never by composing it. `poke(Cpu)` = `Mmu::write` outside `GuestExecutionScope` (ROM ignored, scanline logs and attribute mux updated, no latch, no event), returns count + `RefusedReadOnly` |
-| INS-03 | `mmu_slots() -> SlotInfo{nr_page, effective_page, is_rom, space, space_offset}[8]` [`mmu.h:74-78`] where **`space` + `space_offset` name the backing store of the slot's 8 KB** — RAM slot: `Page{nr_page}`, offset 0; ROM slot: `Rom{effective_page >> 1}`, offset `(effective_page & 1) · 0x2000` (a ROM slot's `effective_page` is the **un-shifted `ram_` page index** — 0..7 on the Next, never add 0x20 — outside `Page{}`'s NR number space — REQ-qt-31 and protocols-r4 R-1: no client composes a `MemSpace` from `effective_page + is_rom`, which is exactly what round 4 caught on both the Qt and the DZRP side); `set_mmu_slot(s, p)`, `paging_ports()` |
+| INS-03 | `mmu_slots() -> SlotInfo{nr_page, effective_page, is_rom, space, space_offset}[8]` — **a NEW, backend-owned struct: no `SlotInfo` exists in the tree** (B0 finding F2, confirmed in review; `git grep SlotInfo` is empty at v1.0.45 and on `main`). The citation [`mmu.h:74-78`] is the accessor PAIR that feeds it — `Mmu::get_effective_page()` and `Mmu::is_slot_rom()` — not a struct to extend. Where **`space` + `space_offset` name the backing store of the slot's 8 KB** — RAM slot: `Page{nr_page}`, offset 0; ROM slot: `Rom{effective_page >> 1}`, offset `(effective_page & 1) · 0x2000` (a ROM slot's `effective_page` is the **un-shifted `ram_` page index** — 0..7 on the Next, never add 0x20 — outside `Page{}`'s NR number space — REQ-qt-31 and protocols-r4 R-1: no client composes a `MemSpace` from `effective_page + is_rom`, which is exactly what round 4 caught on both the Qt and the DZRP side); `set_mmu_slot(s, p)`, `paging_ports()` |
 | INS-04 | `nextreg_peek`, `nextreg_write` (synchronous, source Debugger, no event), `nextreg_selected` |
 | INS-05 | `port_in`, `port_out` — perturbing by nature, said so; the DSL declines it |
 | INS-06 | `raster() -> RasterState` (`src/debug/raster_state.h`, computed from the clock when paused) |
@@ -503,12 +534,12 @@ on a breakpoint; a GUI Run afterwards reaches the remote as `Resumed{by}`
 | INS-11 | `disassemble(addr, n, symbols?)`, `instruction_length`, `is_call_like` over `peek(Cpu)`; `disasm_text::*` |
 | INS-12 | `call_stack()`, `set_call_stack_enabled(bool)` |
 | INS-13 | `trace_enabled/set_trace_enabled/trace_clear/trace_resize/trace_entries/trace_export`; `TraceEntry` gains I, R, IM, IFF1/2, `(SP)`, 8 MMU pages (+15 B/entry, read inside `InspectionScope`) |
-| INS-14 | `framebuffer()`; `render_layer(Layer, vc, uint32_t* dst, stride)` — `render_to_image` + `replay_*` moved verbatim out of `video_panel.cpp:394-630` into a Qt-free function; width 640; rows 0..vc over a 0x00000000 fill (alpha 0 ≡ transparent); **needs-prototype** (§11) |
-| INS-15 | `palette(PaletteId)` incl. `UlaActive`, `set_palette(id, i, rgb333)`, `active_ula_palette_bank()`, `ula_screen_regs()`, `clip_window(Layer)` from live layer state (not the rotating NR 0x18-0x1C shadows), the one published `rrrgggbb_to_argb()` |
+| INS-14 | `framebuffer()`; `render_layer(Layer, vc, uint32_t* dst, stride)` — **`Layer` here is the eight RENDER VIEWS** (today `VideoLayerView::Layer`, `src/debugger/video_panel.h:20-29`: Composite / UlaPrimary / UlaShadow / Layer2Active / Layer2Shadow / Sprites / Tilemap / Background), a different set from INS-15's four clip windows, which B0 names `ClipLayer` (finding F3, confirmed in review — §4 spelled both `Layer`). — `render_to_image` + `replay_*` moved verbatim out of `video_panel.cpp:394-630` into a Qt-free function; width 640; rows 0..vc over a 0x00000000 fill (alpha 0 ≡ transparent); **needs-prototype** (§11) |
+| INS-15 | `palette(PaletteId)` incl. `UlaActive` — **a backend SUPERSET of `::PaletteId`** (`src/video/palette.h:17-26` is exactly the eight NR 0x43 bits-6:4 hardware banks and has no active-ULA value; that answer is the separate `PaletteManager::active_ula_palette()`, NR 0x43 **bit 1**, `zxnext.vhd:5393`) — finding F7, confirmed in review; `set_palette(id, i, rgb333)`, `active_ula_palette_bank()`, `ula_screen_regs()`, `clip_window(ClipLayer)` — **four NR 0x18-0x1C windows (Layer2 / Sprite / ULA / Tilemap), NOT INS-14's eight render views** (F3) — from live layer state (not the rotating NR 0x18-0x1C shadows), the one published `rrrgggbb_to_argb()` |
 | INS-16 | `input_state() -> {matrix[8], ext_keys, joy_left12, joy_right12, port_1f, port_37}` — for the #20 recorder |
 | INS-17 | `subscriptions(include_transient)` (the model incl. disabled, with owner), `events_fired_since(seq)` |
 | INS-18 | `set_border(colour)` → `Ula::set_border` [`ula.h:180`] (DZRP sends it on every load) |
-| INS-19 | `machine() -> {type, cpu_divisor, cycles_per_line/frame, lines, fps, hc_max, vc_max, max_hblank, max_vblank, display_origin, vblank_top}` |
+| INS-19 | `machine() -> {type, cpu_divisor, **tstates_per_line/frame**, lines, fps, hc_max, vc_max, max_hblank, max_vblank, display_origin, vblank_top}` — **renamed from `cycles_per_line/frame`** (B0 review B4): these are T-states at the 3.5 MHz reference, while `Time::master_cycle` and `run_to_cycle()` are 28 MHz master cycles — 4× apart at divisor 8 and both were called "cycles", so `run_to_cycle(time().master_cycle + machine().cycles_per_line)` silently ran a quarter-line. `MachineTiming` [`emulator_config.h:429-432`] already carries `tstates_per_line` AND `master_cycles_per_line` under names that cannot be confused; the published name matches `Time::tstates_total`. |
 | INS-20 | `coverage_enable/clear/coverage() -> bitset<65536>` of executed PCs; one bit-set per instruction inside the attached-gated branch, zero cost when off |
 
 
@@ -637,8 +668,16 @@ The Copper branch sits in `Copper::execute`, which is 8-12 % of the
 those two workloads with no subscriber before it merges — the expectation is
 noise, as for the MMU gate (§6).
 
-**Subscription** = `{kind, filter, access, condition?, once, transient,
-action, enabled, owner}`; `subscribe → EventId`, `unsubscribe`,
+**Subscription** = `{kind, filter, access, condition?, handler?, once,
+transient, action, enabled, owner}`; **`handler` is
+`std::function<Action(const Event&, Debugger&)>`** — the field Revision 5
+omitted (B0 finding F1, confirmed in review). It is what §4.2a means by "from
+an `Execute` handler" and "visible to later handlers of the same delivery",
+what this section means by "a handler's verdict may override the static
+action" (a `bool` condition cannot carry a verdict), and what §9 runs under
+one `InspectionScope`. It is per-subscription, not per-listener: §4.2a's "a
+second rule matched at the same boundary reads the mutated state" requires
+it. Without it no delivery can reach its subscriber at all; `subscribe → EventId`, `unsubscribe`,
 `set_enabled(id)`, the master switch (GH #225), a **per-client switch**
 `set_client_enabled(cid)` (live = master ∧ client ∧ own flag, rebuilt on
 change, never per instruction), `probe_execute(pc)` (a pure "would an
@@ -762,7 +801,7 @@ table for the panels, the DSL's `@name`, the servers' lookups and `--map`.
 | SES-04 | `set_stop_policy(Pause \| ExitNonZero)` — **Qt `Pause`; SDL and `--headless` `ExitNonZero`** (the SDL frontend has no pause path at all: `sdl_app.{h,cpp}` mention pause once, in an audio comment `:422`, and the sequencer's only pause is the debugger's `DebugState` [`frame_sequencer.h:209`] — REQ-dsl-19), **unless a remote client is connected, then `Pause` + notify** — a proposal on top of the owner's #279 headless rule, §12 Q2; routing magic breakpoints through it is a CLI change, §12 Q3 |
 | SES-05 | `set_live_raster(cid, bool)` (ORed), `attached()` |
 | SES-06 | `log(level, text)` — the backend's message sink |
-| SES-07 | `set_loop_driver(LoopDriver{cold_boot(cfg), load(path)})` / `on_cold_boot_done()` — the loop owner registers the cold-boot sequence and the load dispatch it already owns (both in `src/platform/`, which the backend sits below) and reports a deferred guest reset, so CTL-12 `Hard` and CTL-15 honour the reconstruct contract from any client. The stop policy (SES-04) is the loop owner's to set too, never an adapter's |
+| SES-07 | `set_loop_driver(LoopDriver{cold_boot(), load(path)})` — **`cold_boot` takes NO config** (finding F5, confirmed in review): `emulator_frontend_cold_boot(Emulator&, EmulatorConfig base_cfg, const std::string& load_file, const ColdBootHooks&)` [`emulator_boot.h:225-227`] needs three things the backend has none of, and returns `void`. So the driver is `std::function<bool()>`, the loop owner closes over its own config, and the `bool` it reports is a small addition the loop owner synthesises. / `on_cold_boot_done()` — the loop owner registers the cold-boot sequence and the load dispatch it already owns (both in `src/platform/`, which the backend sits below) and reports a deferred guest reset, so CTL-12 `Hard` and CTL-15 honour the reconstruct contract from any client. The stop policy (SES-04) is the loop owner's to set too, never an adapter's |
 
 ---
 
