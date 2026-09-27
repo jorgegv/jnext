@@ -29,7 +29,7 @@
 //
 // THEY ARE NOT ALL PINNED THE SAME WAY, and an earlier version of this banner
 // said `debug_types_check.cpp` "pins each of them against the thing it mirrors",
-// which is false for two of the five:
+// which is false for three of the five (`Layer`, `ClipLayer` and `SlotInfo`):
 //
 //   * `StepMode`  — pinned VALUE BY VALUE against `::StepMode`.
 //   * `PaletteId` — values 0..7 pinned value by value against `::PaletteId`;
