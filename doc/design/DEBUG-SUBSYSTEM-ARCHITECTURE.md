@@ -1355,6 +1355,30 @@ review** in its own worktree, binary verdict; `make bench` for any branch
 touching the hot path; the manager merges one branch at a time and runs `make
 bump-patch`; never push without authorisation.
 
+### 10.4 Closing a sub-issue before DOC lands — two notes, reporter mentioned
+
+Owner rule, 2026-09-27. Package **DOC (#288) lands last**, so every other
+sub-issue is closed while the epic's documentation does not yet exist. Each
+package carries only a partial Developer Guide update of its own, which is not a
+description of the finished subsystem.
+
+1. **On closing any sub-issue while #288 is open**, add a comment stating that the
+   documentation is still pending (#288), that the per-branch guide updates are
+   deliberately partial, and that **testing the delivered functionality is better
+   deferred until #288 closes** — before then a tester is working from scattered
+   notes rather than real documentation. Say a resolution note will follow.
+2. **When #288 closes**, add a resolution note to every one of those same issues:
+   the documentation is in place, the functionality can now be properly exercised,
+   with a pointer into the guide.
+
+**@-mention the original reporter in both notes** so they are notified. Two
+sub-issues were filed by someone other than the owner and are the ones that
+matter here: **#12 — @Duefectu** and **#279 — @vmorilla**. #288 itself gets no
+warning note, being the documentation issue. Done so far: #285, closed
+2026-09-27, warning note posted.
+
+---
+
 **A doc-only branch runs no code gate** (owner rule, 2026-09-27; now in
 CLAUDE.md): where the branch touches only documentation, the gate is what the
 documentation itself needs — `make docs-check`, plus
