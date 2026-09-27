@@ -18,9 +18,12 @@
 #include <cstdint>
 #include <string>
 
+#include <vector>
+
 #include "core/emulator.h"
 #include "debug/debug_state.h"
 #include "debug/debugger.h"
+#include "debug/event_table.h"
 #include "debug/resume_guard.h"
 #include "debug/symbol_table.h"
 
@@ -28,9 +31,15 @@ namespace jnext {
 namespace dbg {
 
 struct Debugger::Impl {
-    explicit Impl(Emulator& e) : emu(e) {}
+    Impl(Emulator& e, Debugger& owner) : emu(e), self(&owner) {}
 
     Emulator& emu;
+
+    /// The facade that owns this `Impl`. A `Condition` takes a
+    /// `const Debugger&` and a `Handler` a `Debugger&` (§4.2a makes mutation
+    /// from a handler a first-class capability), so the drain has to be able to
+    /// hand the subscriber the facade — and the drain lives here.
+    Debugger* self = nullptr;
 
     /// CAP-SYM — THE symbol table: the panels' `@name`, the servers' lookups
     /// and `--map` all read this one, per §4.7. `DebuggerManager` still owns a
@@ -78,6 +87,13 @@ struct Debugger::Impl {
         armed_by     = by;
         has_target   = false;
         armed_target = 0;
+        // GH #276 B2 — the event-stop latch describes the stop the machine is
+        // LEAVING, and every control verb calls this. Clearing it here rather
+        // than at each verb is the same argument `DebugState::unpause_()` makes
+        // for the step-off arm: one place, so a verb added later cannot forget.
+        event_stop_latched = false;
+        event_stop         = PauseReason{};
+        matched.clear();
     }
 
     void arm_target(PauseReason::Kind kind, ClientId by, uint16_t addr) {
@@ -102,6 +118,62 @@ struct Debugger::Impl {
     /// with it and both rewind verbs gate on it, so what the UI shows and what
     /// the verb does cannot disagree (which is the whole point of ST-03).
     Result rewind_refusal() const;
+
+    // ── B2 (§4.3 CAP-EVT) — the event machinery ─────────────────────────────
+
+    /// THE subscription table, the 512-entry latch ring and the INS-17 delivery
+    /// history. Held HERE and not on `DebugState` so the closures
+    /// (`Condition`, `Handler`) and the `std::vector<Subscription>` stay inside
+    /// `jnext_debug`; `DebugState` holds only a POINTER to it, which is what the
+    /// eight `Mmu` sites reach through.
+    EventTable events;
+
+    /// §4.3 `Paused{matched[]}` — every subscription that matched at the stop,
+    /// transient ones included. BUILT here and left for B3's listener push: the
+    /// `Paused` notification is a session concept and inventing a channel for it
+    /// in B2 would be a second one to retire.
+    std::vector<Hit> matched;
+
+    /// CTL-13 — the `pause_reason` a subscription's `Stop` produced. The FIRST
+    /// Stop of the boundary wins; `matched` above carries the rest.
+    PauseReason event_stop;
+    bool        event_stop_latched = false;
+
+    /// Re-entrancy guard for the drain: a `Handler` may `subscribe()`,
+    /// `unsubscribe()` (its own id included) or `raise_host_event()`, and the
+    /// drain is walking the table when it does.
+    bool draining    = false;
+    bool gates_dirty = false;
+
+    /// Publish the `EventTable`'s cached state into every hot-path gate: the
+    /// MMU slot masks, the port flag, the `Execute`/`Cycle` arms and the two
+    /// per-engine Copper/DMA flags. THE ONE FUNCTION EVERY TABLE CHANGE ENDS
+    /// WITH — a change that forgets it leaves a subscription that can never fire.
+    void gates_changed();
+
+    /// The boundary drain and the pre-instruction `Execute` gate — the two
+    /// things the hot loop calls, through the `std::function`s `DebugState`
+    /// holds. Both return true iff a `Stop` fired.
+    bool drain_boundary();
+    bool execute_gate(uint16_t pc);
+
+    /// Turn one latch-ring entry into the `Event` §4.3 specifies.
+    Event build_event(const LatchEntry& le) const;
+
+    /// Match one event against every live subscription, run the accepted ones'
+    /// conditions and handlers, and collect the verdicts. `stop` is OR-ed, never
+    /// assigned, because one boundary may carry several events.
+    void deliver_to_subscribers(Event& ev, bool& stop, ClientId raiser);
+
+    /// What a `Stop` does besides pausing: drop the transient subscriptions
+    /// (§4.3, "auto-removed at the next stop").
+    void apply_stop();
+
+    /// Latch CTL-13's reason for this stop.
+    void note_event_stop(const Event& ev);
+
+    /// The SES-06 line an `Action::Log` emits.
+    std::string log_line_for(const Event& ev) const;
 
     /// CTL-02/03/…/11 — may the machine execute? `RefusedCorrupt` while a
     /// failed rewind's incident is unacknowledged. The choke point every

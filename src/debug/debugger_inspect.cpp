@@ -285,10 +285,35 @@ Expected<size_t> Debugger::poke(ClientId by, MemSpace space, uint32_t addr,
         : 0;
 
     if (space.kind == MemSpace::Kind::Cpu) {
-        // §4.2a: `Mmu::write` OUTSIDE any GuestExecutionScope — through the live
-        // map, overlays honoured, ROM ignored, the per-scanline change logs and
-        // the attribute mux updated, no latch, no event. Exactly the Memory
-        // panel's path, because it is the same function the Memory panel calls.
+        // §4.2a: `Mmu::write` — through the live map, overlays honoured, ROM
+        // ignored, the per-scanline change logs and the attribute mux updated,
+        // no latch, no event. Exactly the Memory panel's path, because it is the
+        // same function the Memory panel calls.
+        //
+        // GH #276 B2 — UNDER `InspectionScope`, and that is the write half of
+        // what `Mmu::peek()` does for reads (B1's F1). "Outside any
+        // GuestExecutionScope" is true of a `pump()` command and FALSE of the
+        // case that matters: a script mutation runs AT A DELIVERY, inside
+        // `run_frame()`'s `GuestExecutionScope`, where `watchpoints_live()` is
+        // true — so without this a handler's `poke` would latch a watch on
+        // itself and the machine would stop on the debugger's own write.
+        //
+        // The drain already wraps every handler in one scope, so this is the
+        // SECOND of two guards, and deliberately: it makes the property hold for
+        // any caller on any path, which is the same argument
+        // `GuestExecutionScope` itself rests on ("safe by DEFAULT rather than by
+        // discipline"). It nests and restores, so the drain's outer scope is
+        // unaffected.
+        //
+        // IT IS THEREFORE REDUNDANT TODAY, and saying so is the point: mutating
+        // it away leaves every row green, because the only two callers that exist
+        // are a frontend (outside execution, `guest_access()` already false) and a
+        // handler (inside the drain's scope). It is kept for the caller that does
+        // not exist yet — the same bet `Mmu::peek()`'s scope makes for panels —
+        // and NOT because a test demands it. `EVT-DEL-05/06` pin the drain's
+        // scope, which is the one that is load-bearing, through `port_out()`,
+        // which carries none of its own.
+        DebugState::InspectionScope scope(emu.debug_state());
         for (; done < n; ++done)
             emu.mmu().write(static_cast<uint16_t>((addr + done) & 0xFFFF), buf[done]);
     } else {

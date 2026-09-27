@@ -27,12 +27,48 @@ namespace dbg {
 // Construction
 // ---------------------------------------------------------------------------
 
-Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu)) {}
+Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
+    // GH #276 B2 — publish the event machinery to the hot path. From here on the
+    // eight `Mmu` sites, the port sites, `NextReg::write`, `Copper::execute` and
+    // `Dma::execute_burst` can all reach the subscription table through the
+    // `DebugState*` they already hold, and the hot loop can reach the drain and
+    // the pre-instruction gate through these two `std::function`s.
+    //
+    // NOTHING IS ARMED YET: with no subscription the slot masks are zero, the
+    // per-engine flags are false and `events_pending()` is false, so
+    // constructing a `Debugger` does not by itself put a single test back on the
+    // hot path that was not there before.
+    impl_->ds().set_event_table(&impl_->events);
+    impl_->ds().set_event_hooks([this]() { return impl_->drain_boundary(); },
+                                [this](uint16_t pc) { return impl_->execute_gate(pc); });
+    impl_->gates_changed();
+}
 
 // Out of line, and it must be: `Impl` is incomplete in the published header, so
 // `unique_ptr`'s deleter can only be instantiated here. B0 declared it this way
 // already.
-Debugger::~Debugger() = default;
+//
+// GH #276 B2 — and it now has a BODY, for a reason that is not tidiness: the
+// `DebugState` outlives this object (it is an `Emulator` member), and it holds a
+// pointer to `Impl::events` plus two `std::function`s that capture `this`. Left
+// installed, the next guest memory write past a stale slot mask would be a
+// use-after-free on the hot path.
+Debugger::~Debugger() {
+    impl_->ds().set_event_table(nullptr);
+    impl_->ds().set_event_hooks(nullptr, nullptr);
+    impl_->ds().set_latch_stamper(nullptr);
+    // The masks are `BreakpointSet`'s, so they survive this object, and the event
+    // half has to be zeroed or a retired subscription keeps the gate open for
+    // ever. `refresh_event_gates()` DOES that — the table pointer was retired two
+    // lines up, so it takes its `!events_` branch and publishes (0, 0, false).
+    // An explicit `set_event_slot_masks(0, 0, false)` stood here and was removed:
+    // no mutation could distinguish it from nothing, which is what "redundant"
+    // means, and a second writer of the same two bytes is how the two come to
+    // disagree. The ORDER is therefore load-bearing.
+    impl_->ds().refresh_event_gates();
+    impl_->emu.copper().set_events_armed(false);
+    impl_->emu.dma().set_events_armed(false, false);
+}
 
 // ---------------------------------------------------------------------------
 // SES-06 — the message sink, and the §4.2a mutation log over it
@@ -193,6 +229,30 @@ RunState Debugger::state() const {
         return st;
     }
 
+    // ── THE PRECEDENCE, IN ORDER (GH #276 B2 extended it) ────────────────
+    //
+    //  0. `Corrupt`   — an unacknowledged failed rewind or state load.
+    //  1. the ARMED verb — `User`, `Step`, or `RunTo` at its target.
+    //  2. the EVENT-STOP latch — a subscription's `Stop`, which knows its own
+    //     id, addr and access.
+    //  3. `Magic`     — the magic-opcode latch.
+    //  4. `Watch`     — the legacy watchpoint latch.
+    //  5. `Breakpoint`— a legacy PC breakpoint at PC.
+    //  6. `User`, unowned — the machine is paused and nothing explains it.
+    //
+    // CORRUPT IS FIRST, ahead even of the armed verb, and that is deliberate:
+    // CTL-11 makes an unacknowledged corruption the thing that REFUSES every
+    // resume, so it is what the user has to be told. A failed `step_back` arms
+    // `Step` and would otherwise report a step that did not happen.
+    if (impl_->guard.needs_confirmation(!impl_->emu.last_state_error().empty(),
+                                        impl_->emu.state_error_generation())) {
+        st.pause_reason.kind = PauseReason::Kind::Corrupt;
+        // UNOWNED (Revision 6): the corruption is the machine's, not any
+        // client's verb, so no client's detach may resume it.
+        st.pause_reason.by = CLIENT_NONE;
+        return st;
+    }
+
     // The machine is stopped. If the last control verb was one whose completion
     // IS the stop, that verb is the reason: it armed it and nothing has resumed
     // since.
@@ -216,8 +276,40 @@ RunState Debugger::state() const {
             break;
     }
 
-    // Not the verb, so the machine stopped itself. A user breakpoint at PC
-    // explains it; nothing else B1 can see does.
+    // Not the verb, so the machine stopped itself.
+    //
+    // A SUBSCRIPTION's `Stop` is the most specific answer available: it carries
+    // the id, the address and the access, none of which any other source has.
+    // The latch was written by the drain or the pre-instruction gate at the
+    // moment of the stop, and cleared by the next control verb (`Impl::arm`).
+    if (impl_->event_stop_latched) {
+        st.pause_reason = impl_->event_stop;
+        return st;
+    }
+
+    // The magic opcode (CTL-14). Latched unconditionally by the hook, NOT
+    // behind a `Magic` subscription, because §4.2's closed set has a value for
+    // it whether or not anyone subscribed. UNOWNED.
+    if (ds.magic_stop()) {
+        st.pause_reason.kind = PauseReason::Kind::Magic;
+        st.pause_reason.by   = CLIENT_NONE;
+        st.pause_reason.addr = ds.magic_stop_pc();
+        return st;
+    }
+
+    // A legacy `BreakpointSet` watchpoint — the Qt panels' model until package
+    // Q. `data_bp_hit_` is already gone by the time anything can ask (the hot
+    // loop consumes it in the same breath as the pause), which is what
+    // `DebugState::note_watch_stop()` exists to survive.
+    if (ds.watch_stop()) {
+        st.pause_reason.kind   = PauseReason::Kind::Watch;
+        st.pause_reason.addr   = ds.watch_stop_addr();
+        st.pause_reason.access = ds.watch_stop_is_write() ? Access::Write
+                                                         : Access::Read;
+        return st;
+    }
+
+    // A user breakpoint at PC.
     if (ds.breakpoints().has_pc(st.pc)) {
         st.pause_reason.kind = PauseReason::Kind::Breakpoint;
         st.pause_reason.addr = st.pc;

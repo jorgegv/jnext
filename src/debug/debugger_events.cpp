@@ -1,0 +1,622 @@
+// ---------------------------------------------------------------------------
+// jnext::dbg::Debugger — §4.3 CAP-EVT and INS-17.
+//
+// Work package B2 of epic #276. The eleven verbs `debugger_pending.cpp` used to
+// refuse, plus the two things the hot loop calls into: the PRE-INSTRUCTION
+// `Execute` gate and the BOUNDARY DRAIN.
+//
+// ── THE PIPELINE, END TO END ────────────────────────────────────────────────
+//
+//   site  →  cheap filter  →  LATCH into the ring        (inside an instruction)
+//   ────────────────────────────────────────────────────────────────────────
+//   boundary  →  drain  →  build `Event`  →  per-subscription filter
+//             →  `Condition`  →  `Handler`  →  verdict  →  `Stop` / `Log`
+//                                                        (machine stopped)
+//
+// Nothing between the two halves runs user code, and nothing in the second half
+// runs inside an instruction. The whole of the second half — every condition and
+// every handler — executes under ONE `DebugState::InspectionScope`, which drops
+// `guest_access()`: that is what makes a handler's own reads and its own
+// mutations invisible to the event machinery (§4.2a), and it is not optional —
+// a `poke()` from a handler would otherwise latch a watch on itself, because a
+// delivery happens INSIDE `run_frame()`'s `GuestExecutionScope`.
+//
+// ── WHAT IS DELIBERATELY NOT HERE ───────────────────────────────────────────
+//
+// The `Paused` PUSH. §4.3's `Paused{matched[]}` is a listener notification, and
+// listeners are B3's. The drain BUILDS the `matched[]` list and the
+// `pause_reason` and leaves both in `Impl` for B3 to send; inventing a delivery
+// channel here would be a second one to retire.
+// ---------------------------------------------------------------------------
+
+#include <cstring>
+
+#include "debug/debugger_impl.h"
+#include "debug/event_table.h"
+
+namespace jnext {
+namespace dbg {
+
+// ---------------------------------------------------------------------------
+// Gate publication — the one function every table change ends with
+// ---------------------------------------------------------------------------
+
+void Debugger::Impl::gates_changed() {
+    // The MMU slot masks, the port flag, and the `Execute` / `Cycle` arms.
+    ds().refresh_event_gates();
+
+    // The two per-ENGINE flags §4.3 specifies, which are NOT derived from the
+    // table pointer at the site: `Copper::execute` runs once per master cycle
+    // and `Dma::execute_burst` once per byte, so three dependent loads per
+    // iteration is exactly what a plain bool member exists to avoid.
+    emu.copper().set_events_armed(events.has_kind(EventKind::Copper) ||
+                                  events.has_kind(EventKind::NextRegWrite));
+    emu.dma().set_events_armed(
+        events.has_dma_sub_kind(DmaEventKind::Start) ||
+            events.has_dma_sub_kind(DmaEventKind::End),
+        events.has_dma_sub_kind(DmaEventKind::Byte));
+}
+
+// ---------------------------------------------------------------------------
+// §4.3 — subscribe / unsubscribe / enable
+// ---------------------------------------------------------------------------
+
+Expected<EventId> Debugger::subscribe(ClientId by, const Subscription& sub) {
+    // A kind out of range would index `live_kinds_` past its width and match
+    // nothing for ever; refused rather than stored.
+    if (static_cast<size_t>(sub.kind) >= EVENT_KIND_COUNT)
+        return make_refused<EventId>(Result::RefusedUnavailable);
+
+    // `Mem` / `Port` with `Access::None` can never match: `has_read` and
+    // `has_write` are both false, so the subscription would be a silent no-op
+    // that nonetheless reports `live` in `subscriptions()`.
+    if ((sub.kind == EventKind::Mem || sub.kind == EventKind::Port) &&
+        sub.access == Access::None)
+        return make_refused<EventId>(Result::RefusedUnavailable);
+
+    // WHY `RefusedUnavailable` FOR BOTH, and it is a compromise: `result.h` is
+    // frozen by B0 and its eleven values have NO argument-validation member.
+    // `Unsupported` is the wrong one — §4 defines it as "the backend does not
+    // implement this", which a client uses to disable a whole capability, and a
+    // malformed subscription must not read as "this build has no events".
+    // `RefusedUnavailable` is the benign "what you asked for is not there",
+    // which is true of a subscription that cannot exist. Recorded as a finding
+    // against `result.h` rather than worked around silently.
+
+    const EventId id = impl_->events.add(by, sub);
+    impl_->gates_changed();
+    return make_ok<EventId>(id);
+}
+
+Result Debugger::unsubscribe(ClientId by, EventId id) {
+    const EventTable::Entry* e = impl_->events.find(id);
+    if (!e) return Result::RefusedUnavailable;
+    // §4.3 — only its owner may. A different client gets the same refusal an
+    // unknown id gets, deliberately: telling a client that an id it does not own
+    // EXISTS is a fact about another client's session.
+    if (e->owner != by) return Result::RefusedUnavailable;
+    impl_->events.erase(id);
+    impl_->gates_changed();
+    return Result::Ok;
+}
+
+Result Debugger::set_enabled(ClientId by, EventId id, bool enabled) {
+    const EventTable::Entry* e = impl_->events.find(id);
+    if (!e) return Result::RefusedUnavailable;
+    if (e->owner != by) return Result::RefusedUnavailable;
+    impl_->events.set_enabled(id, enabled);
+    impl_->gates_changed();
+    return Result::Ok;
+}
+
+// ---------------------------------------------------------------------------
+// §4.3 — the master and per-client switches
+// ---------------------------------------------------------------------------
+
+bool Debugger::master_enabled() const {
+    // ONE user-visible switch (GH #225). The legacy `BreakpointSet` half is
+    // what the Qt panels still drive directly until package Q, and the two are
+    // kept in lockstep by set_master_enabled() below, so either one is the
+    // answer. Reported from BreakpointSet because that is where a Qt-side
+    // toggle lands.
+    return impl_->ds().breakpoints().master_enabled();
+}
+
+Result Debugger::set_master_enabled(bool enabled) {
+    // BOTH halves, because there is one switch: the `EventTable`'s
+    // subscriptions and `BreakpointSet`'s PC breakpoints and watchpoints are two
+    // models of the same user-facing list during the Q transition, and a switch
+    // that suspended only one of them would suspend half the user's breakpoints.
+    impl_->ds().breakpoints().set_master_enabled(enabled);
+    impl_->events.set_master_enabled(enabled);
+    impl_->gates_changed();
+    return Result::Ok;
+}
+
+bool Debugger::client_enabled(ClientId cid) const {
+    return impl_->events.client_enabled(cid);
+}
+
+Result Debugger::set_client_enabled(ClientId cid, bool enabled) {
+    impl_->events.set_client_enabled(cid, enabled);
+    impl_->gates_changed();
+    return Result::Ok;
+}
+
+// ---------------------------------------------------------------------------
+// §4.3 — probe_execute
+// ---------------------------------------------------------------------------
+
+bool Debugger::probe_execute(uint16_t pc) const {
+    // A PURE query, and it must cover BOTH models: the GH #221 step-off arm
+    // asks "is there something at the address I am standing on", and during the
+    // Q transition that something may be a legacy PC breakpoint or an `Execute`
+    // subscription. Transient ones count — a Step Over's target IS a reason to
+    // skip the address on the next resume.
+    if (impl_->ds().breakpoints().has_pc(pc)) return true;
+    for (const auto& e : impl_->events.entries()) {
+        if (!e.live || e.kind != EventKind::Execute) continue;
+        if (pc < e.filter.lo || pc > e.filter.hi) continue;
+        if (e.filter.page != PAGE_ANY &&
+            e.filter.page != impl_->emu.mmu().get_effective_page(pc >> 13))
+            continue;
+        return true;
+    }
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// §4.3 `Host` — raise_host_event
+// ---------------------------------------------------------------------------
+
+Result Debugger::raise_host_event(ClientId by, const std::string& name) {
+    if (name.size() > MAX_HOST_EVENT_NAME) return Result::Unsupported;
+
+    if (!impl_->events.has_kind(EventKind::Host)) return Result::Ok;
+
+    // NOT latched into the ring, and the reason is the ring's shape rather than
+    // a shortcut: every ring entry is a fixed 48-byte POD with no room for a
+    // 24-byte name, and this verb is called BY A FRONTEND at an instruction
+    // boundary — the machine is already stopped, which is the whole precondition
+    // a drain exists to establish. So it is delivered directly.
+    Event ev;
+    ev.kind  = EventKind::Host;
+    ev.cycle = impl_->emu.clock().get();
+    ev.frame = frame_tag(impl_->emu);
+    ev.pc    = impl_->emu.cpu().get_registers().PC;
+    std::memcpy(ev.host_name, name.c_str(), name.size());
+
+    bool stop = false;
+    impl_->matched.clear();
+    impl_->deliver_to_subscribers(ev, stop, by);
+    if (stop) {
+        // A `Stop` verdict PAUSES, here as everywhere else. This verb is the one
+        // delivery point with no hot-loop caller to act on a return value, so
+        // the pause is taken here or not at all — and "the subscription said
+        // Stop and the machine kept running" is exactly the silent no-op §4
+        // forbids.
+        impl_->ds().pause();
+        impl_->apply_stop();
+    }
+    return Result::Ok;
+}
+
+// ---------------------------------------------------------------------------
+// INS-17 — the subscription model and the delivery history
+// ---------------------------------------------------------------------------
+
+std::vector<SubscriptionInfo> Debugger::subscriptions(bool include_transient) const {
+    std::vector<SubscriptionInfo> out;
+    for (const auto& e : impl_->events.entries()) {
+        if (e.removed) continue;
+        if (e.transient && !include_transient) continue;
+        SubscriptionInfo si;
+        si.id            = e.id;
+        si.kind          = e.kind;
+        si.filter        = e.filter;
+        si.access        = e.access;
+        si.has_condition = static_cast<bool>(e.condition);
+        si.has_handler   = static_cast<bool>(e.handler);
+        si.once          = e.once;
+        si.transient     = e.transient;
+        si.action        = e.action;
+        // `enabled` is the flag AS SET, never the live value: a lister draws the
+        // user's checkbox, which must survive a master-switch round trip
+        // untouched (the GH #225 rule). `live` is the computed one.
+        si.enabled = e.enabled;
+        si.live    = e.live;
+        si.owner   = e.owner;
+        out.push_back(std::move(si));
+    }
+    return out;
+}
+
+std::vector<Event> Debugger::events_fired_since(uint64_t seq) const {
+    return impl_->events.since(seq);
+}
+
+// ---------------------------------------------------------------------------
+// The drain — §4.3's delivery point
+// ---------------------------------------------------------------------------
+
+Event Debugger::Impl::build_event(const LatchEntry& le) const {
+    Event ev;
+    ev.kind  = le.kind;
+    ev.cycle = le.cycle;
+    ev.frame = le.frame;
+    ev.pc    = le.pc;
+    ev.vc    = le.vc;
+    ev.hc    = le.hc;
+
+    switch (le.kind) {
+        case EventKind::Mem:
+            ev.addr      = le.addr;
+            ev.phys_page = le.page_or_aux;
+            ev.value     = le.value;
+            ev.prev      = le.prev;
+            ev.access    = le.access;
+            // §4.3 — `source` is tagged AT THE DRAIN from the slot's DMA flag.
+            // A slot is DMA *or* CPU, never both (emulator.cpp's arbitration),
+            // which is what makes one flag per slot sufficient.
+            ev.source = emu.slot_ran_dma() ? EventSource::Dma : EventSource::Cpu;
+            break;
+
+        case EventKind::Port:
+            ev.port   = le.addr;
+            ev.value  = le.value;
+            ev.access = le.access;
+            ev.source = emu.slot_ran_dma() ? EventSource::Dma : EventSource::Cpu;
+            break;
+
+        case EventKind::NextRegWrite:
+            ev.reg    = le.reg;
+            ev.value  = le.value;
+            ev.prev   = le.prev;
+            ev.source = le.source;
+            break;
+
+        case EventKind::Scanline:
+            ev.cvc = le.cvc;
+            break;
+
+        case EventKind::Reset:
+            ev.reset_kind = static_cast<ResetKind>(le.misc);
+            break;
+
+        case EventKind::IntAck:
+            ev.int_vector = le.misc;
+            ev.int_mode   = le.misc2;
+            break;
+
+        case EventKind::Nmi:
+            ev.nmi_source = static_cast<NmiButton>(le.misc);
+            break;
+
+        case EventKind::Copper:
+            ev.copper_kind         = static_cast<CopperEventKind>(le.sub_kind);
+            ev.copper_pc           = le.addr;
+            ev.reg                 = le.reg;
+            ev.value               = le.value;
+            ev.wait_vpos           = le.page_or_aux;
+            ev.wait_hpos_threshold = le.aux2;
+            ev.hc_ula              = le.hc_ula;
+            ev.cvc                 = le.cvc;
+            ev.source              = EventSource::Copper;
+            break;
+
+        case EventKind::Dma:
+            ev.dma_kind      = static_cast<DmaEventKind>(le.sub_kind);
+            ev.dma_src       = le.addr;
+            ev.dma_dst       = le.page_or_aux;
+            ev.dma_length    = le.aux2;
+            ev.dma_bytes     = le.dma_bytes;
+            ev.dma_direction = le.misc2;
+            ev.dma_mode      = le.misc3;
+            ev.dma_is_io_src = le.flag_a;
+            ev.dma_is_io_dst = le.flag_b;
+            ev.value         = le.value;
+            ev.source        = EventSource::Dma;
+            break;
+
+        // No payload beyond the common header.
+        case EventKind::Execute:
+        case EventKind::Frame:
+        case EventKind::Cycle:
+        case EventKind::Magic:
+        case EventKind::Host:
+        case EventKind::Count:
+            break;
+    }
+    return ev;
+}
+
+// §4.2a — WHY THIS TAKES A `Debugger&` AND RUNS UNDER `InspectionScope`.
+//
+// `Condition` observes, `Handler` may mutate, and both may read the whole
+// inspection surface. Every one of those reads goes through the same `Mmu::read`
+// the CPU uses, and a delivery happens inside `run_frame()`'s
+// `GuestExecutionScope` where `watchpoints_live()` is TRUE — so without the
+// scope a handler that pokes an address it is watching would latch a watch on
+// itself, and one that merely READS a watched address would too.
+void Debugger::Impl::deliver_to_subscribers(Event& ev, bool& stop,
+                                            ClientId /*raiser*/) {
+    Debugger& dbg = *self;
+
+    // Re-entrancy: a handler may call `raise_host_event()`, which delivers
+    // synchronously. The flag is what `unsubscribe()`-from-a-handler relies on
+    // to defer compaction, and what keeps a nested delivery from clearing the
+    // ring the outer drain is walking.
+    const bool outer = !draining;
+    draining = true;
+
+    {
+        DebugState::InspectionScope scope(ds());
+
+        // INDEX-BASED, not iterator-based: a handler may `subscribe()` (a script
+        // arming a follow-up rule) and invalidate any iterator into `subs_`. A
+        // subscription ADDED during this delivery is deliberately not visited
+        // for this event — it did not exist when the site latched.
+        const size_t n = events.entries().size();
+        for (size_t i = 0; i < n; ++i) {
+            // Re-read through the container each time: the vector may have
+            // reallocated under a handler's `subscribe()`.
+            {
+                const EventTable::Entry& probe = events.entries()[i];
+                if (!probe.live || probe.once_fired) continue;
+                if (!events.filter_matches(probe, ev)) continue;
+            }
+
+            // Identity, then the predicate, then the body. `seq` is allocated
+            // only for an event that actually matched a filter, so a cursor
+            // never has holes for events nobody subscribed to.
+            ev.id    = events.entries()[i].id;
+            ev.owner = events.entries()[i].owner;
+            ev.seq   = events.next_seq();
+
+            const Condition cond = events.entries()[i].condition;
+            if (cond && !cond(ev, dbg)) continue;
+
+            Action verdict = events.entries()[i].action;
+            const Handler handler = events.entries()[i].handler;
+            if (handler) {
+                // §4.3 — "the returned `Action` is the handler's verdict and
+                // OVERRIDES the subscription's static `action`".
+                verdict = handler(ev, dbg);
+            }
+
+            events.record(ev);
+
+            // §4.3 — `once` disables after the first ACCEPTED firing (filter
+            // matched AND condition passed), not after the first match.
+            //
+            // Through `set_enabled()`, NOT by writing `enabled` directly: that
+            // setter is what re-derives `live` and the slot masks, and a
+            // hand-written flag left `subscriptions()` reporting a spent `once`
+            // subscription as still LIVE and left its mask bit set — caught by
+            // EVT-EXEC-31. The vector does not resize, so the loop index stays
+            // valid across the call.
+            if (const EventTable::Entry* live = events.find(ev.id)) {
+                if (live->once) {
+                    events.mark_once_fired(ev.id);
+                    gates_dirty = true;
+                }
+            }
+
+            switch (verdict) {
+                case Action::Stop: {
+                    stop = true;
+                    Hit hit;
+                    hit.event_id = ev.id;
+                    hit.addr     = ev.kind == EventKind::Port ? ev.port : ev.addr;
+                    hit.access   = ev.access;
+                    hit.value    = ev.value;
+                    matched.push_back(hit);
+                    note_event_stop(ev);
+                    break;
+                }
+                case Action::Log:
+                    self->log(CLIENT_NONE, LogLevel::Info, log_line_for(ev));
+                    break;
+                case Action::Continue:
+                    break;
+            }
+        }
+    }
+
+    if (outer) {
+        draining = false;
+        // A handler's `unsubscribe()` only tombstoned its row; removing it is
+        // safe now that no loop is walking the vector.
+        events.compact();
+        if (gates_dirty) {
+            gates_dirty = false;
+            gates_changed();
+        }
+    }
+}
+
+bool Debugger::Impl::drain_boundary() {
+    // §4.2a — handlers do not run in `replay_mode_`, and the backend consults
+    // the `EventTable` only when `!replay_mode_`: `rewind_to_cycle()`
+    // fast-forwards with the gate live, and an `Execute` subscription inside the
+    // replayed span would otherwise pause the replay short. The ring is still
+    // cleared, so the replay does not hand its latches to the next real boundary.
+    if (emu.replay_mode()) {
+        events.clear_ring();
+        return false;
+    }
+
+    matched.clear();
+    bool stop = false;
+
+    const uint16_t dropped    = events.dropped();
+    const bool     overflowed = events.overflowed();
+    const size_t   n          = events.size();
+
+    for (size_t i = 0; i < n; ++i) {
+        Event ev = build_event(events.at(i));
+        // §4.3's overflow contract: the first N are delivered in order and
+        // EVERY delivery of this boundary is marked, because a subscriber whose
+        // own event survived still has to know that the boundary was lossy.
+        ev.overflowed = overflowed;
+        ev.dropped    = dropped;
+        deliver_to_subscribers(ev, stop, CLIENT_NONE);
+
+        // §4.3 — a Copper MOVE is ONE latch entry fanned out at the drain to
+        // both `Copper{Move}` and `NextRegWrite{source=Copper}`. Never two
+        // entries in the ring, so never two chances to overflow, and the NR-side
+        // hook skips a Copper write for exactly this reason.
+        if (ev.kind == EventKind::Copper &&
+            ev.copper_kind == CopperEventKind::Move &&
+            events.has_kind(EventKind::NextRegWrite)) {
+            Event nr;
+            nr.kind       = EventKind::NextRegWrite;
+            nr.cycle      = ev.cycle;
+            nr.frame      = ev.frame;
+            nr.pc         = ev.pc;
+            nr.vc         = ev.vc;
+            nr.hc         = ev.hc;
+            nr.reg        = ev.reg;
+            nr.value      = ev.value;
+            nr.source     = EventSource::Copper;
+            nr.overflowed = overflowed;
+            nr.dropped    = dropped;
+            // `prev` is NOT carried: the Copper site latches before the write,
+            // but it does not peek the register (the NR-side hook is what does,
+            // and it is suppressed for a Copper write precisely so there is one
+            // entry). Reported as a limitation rather than filled with `value`.
+            deliver_to_subscribers(nr, stop, CLIENT_NONE);
+        }
+    }
+
+    // `Cycle` has no latch site: its filter is a comparison against the master
+    // clock, so it is evaluated HERE, once per boundary, while one is armed.
+    if (events.has_kind(EventKind::Cycle)) {
+        Event ev;
+        ev.kind  = EventKind::Cycle;
+        ev.cycle = emu.clock().get();
+        ev.frame = frame_tag(emu);
+        ev.pc    = emu.cpu().get_registers().PC;
+        deliver_to_subscribers(ev, stop, CLIENT_NONE);
+    }
+
+    events.clear_ring();
+
+    if (stop) apply_stop();
+    return stop;
+}
+
+bool Debugger::Impl::execute_gate(uint16_t pc) {
+    if (emu.replay_mode()) return false;
+    if (!events.has_kind(EventKind::Execute)) return false;
+
+    Event ev;
+    ev.kind      = EventKind::Execute;
+    ev.cycle     = emu.clock().get();
+    ev.frame     = frame_tag(emu);
+    ev.pc        = pc;
+    ev.phys_page = emu.mmu().get_effective_page(pc >> 13);
+
+    matched.clear();
+    bool stop = false;
+    deliver_to_subscribers(ev, stop, CLIENT_NONE);
+    if (stop) apply_stop();
+    return stop;
+}
+
+// §4.3 — "`transient` … auto-removed at the next stop". Done HERE, on the stop
+// the backend can see, which is the one a subscription caused. A stop the
+// backend did not cause (a legacy PC breakpoint, the data-breakpoint latch)
+// leaves a transient armed — which is exactly what today's single one-shot does,
+// so the Step Over / Run to Here behaviour is unchanged by the replacement.
+void Debugger::Impl::apply_stop() {
+    if (events.clear_transient()) gates_changed();
+}
+
+void Debugger::Impl::note_event_stop(const Event& ev) {
+    // CTL-13's `pause_reason` for a subscription stop. ONE reason per stop: the
+    // FIRST `Stop` of the boundary wins, because that is the one the machine
+    // stopped on; `matched[]` carries all of them for a client that wants the
+    // rest.
+    if (event_stop_latched) return;
+    event_stop_latched = true;
+    event_stop.id      = ev.id;
+    event_stop.by      = ev.owner;
+    event_stop.addr    = ev.kind == EventKind::Port ? ev.port : ev.addr;
+    event_stop.access  = ev.access;
+    switch (ev.kind) {
+        case EventKind::Execute:
+            event_stop.kind = PauseReason::Kind::Breakpoint;
+            break;
+        case EventKind::Mem:
+        case EventKind::Port:
+            event_stop.kind = PauseReason::Kind::Watch;
+            break;
+        case EventKind::Magic:
+            // UNOWNED (Revision 6): the magic opcode is the guest's, not any
+            // client's verb, so no client's detach may resume it.
+            event_stop.kind = PauseReason::Kind::Magic;
+            event_stop.by   = CLIENT_NONE;
+            break;
+        default:
+            // Everything else — a `Frame`, `Scanline`, `Cycle`, `NextRegWrite`,
+            // `Copper`, `Dma`, `Reset`, `IntAck`, `Nmi` or `Host` subscription
+            // that asked to stop. `Script` is the closed set's name for "a
+            // subscriber's explicit stop", and a subscriber is what every one of
+            // these is: no panel stops the machine on a scanline.
+            //
+            // `PauseReason::text` stays EMPTY, and that is a finding rather than
+            // an omission: a `Handler` returns an `Action` and nothing else, so
+            // the published interface has no channel for the message §4.2's
+            // `Script` row describes. Recorded in the B2 report.
+            event_stop.kind = PauseReason::Kind::Script;
+            break;
+    }
+}
+
+std::string Debugger::Impl::log_line_for(const Event& ev) const {
+    // SES-06's `Log` action. Terse and machine-greppable: the kind, the
+    // subscription, and the payload that identifies the instance.
+    char buf[160];
+    switch (ev.kind) {
+        case EventKind::Mem:
+            std::snprintf(buf, sizeof(buf),
+                          "EVENT mem %s 0x%04X = 0x%02X (prev 0x%02X) page %u "
+                          "pc 0x%04X id %u",
+                          has_write(ev.access) ? "write" : "read", ev.addr,
+                          ev.value, ev.prev, unsigned(ev.phys_page), ev.pc,
+                          unsigned(ev.id));
+            break;
+        case EventKind::Port:
+            std::snprintf(buf, sizeof(buf),
+                          "EVENT port %s 0x%04X = 0x%02X pc 0x%04X id %u",
+                          has_write(ev.access) ? "out" : "in", ev.port, ev.value,
+                          ev.pc, unsigned(ev.id));
+            break;
+        case EventKind::NextRegWrite:
+            std::snprintf(buf, sizeof(buf),
+                          "EVENT nextreg 0x%02X = 0x%02X (prev 0x%02X) id %u",
+                          ev.reg, ev.value, ev.prev, unsigned(ev.id));
+            break;
+        case EventKind::Execute:
+            std::snprintf(buf, sizeof(buf), "EVENT execute 0x%04X id %u", ev.pc,
+                          unsigned(ev.id));
+            break;
+        default:
+            std::snprintf(buf, sizeof(buf),
+                          "EVENT kind %u pc 0x%04X cycle %llu id %u",
+                          unsigned(ev.kind), ev.pc,
+                          static_cast<unsigned long long>(ev.cycle),
+                          unsigned(ev.id));
+            break;
+    }
+    if (ev.overflowed) {
+        const size_t len = std::strlen(buf);
+        std::snprintf(buf + len, sizeof(buf) - len, " [overflowed, dropped %u]",
+                      unsigned(ev.dropped));
+    }
+    return buf;
+}
+
+}  // namespace dbg
+}  // namespace jnext

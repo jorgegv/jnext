@@ -60,7 +60,13 @@ Result Debugger::pause(ClientId by) {
     // Idempotent (CTL-01): DebugState::pause() is, and re-pausing an already
     // paused machine re-attributes the stop to the caller, which is what "last
     // verb wins" means.
+    //
+    // GH #276 B2 — AN EXPLICIT PAUSE IS A STOP, so the transient subscriptions
+    // go (§4.3). That is what makes "pause, then Run, and the machine runs past
+    // the Run-to-Here target" behave as it does today, where `resume()`'s
+    // `clear_oneshot()` did it one transition later.
     impl_->ds().pause();
+    impl_->apply_stop();
     impl_->arm(PauseReason::Kind::User, by);
     return Result::Ok;
 }
@@ -71,11 +77,25 @@ Result Debugger::run(ClientId by) {
     // clears the one-shot breakpoint, so reaching it here would silently throw
     // away a pending Run to Here or step-over target. Ordered exactly as
     // DebuggerManager::on_run() orders it, and for the same reason.
+    //
+    // GH #276 B2 — and it must return before the TRANSIENT DROP below for the
+    // same reason, now that Step Over and Run to Here arm a transient
+    // subscription instead of that one-shot. CTL-02-04/05 pin the property:
+    // a redundant `run()` must not clear a pending target.
     if (!impl_->ds().paused()) return Result::Ok;
 
     const Result gate = impl_->execute_gate();
     if (gate != Result::Ok) return gate;
 
+    // NOTE — `run()` does NOT drop the transient subscriptions, and that is a
+    // DEPARTURE from `DebugState::resume()`'s `clear_oneshot()` rather than an
+    // oversight. §4.3 gives DeZog TWO temporary breakpoints per `CMD_CONTINUE`,
+    // which the adapter arms and then continues: a `run()` that cleared them
+    // would clear what the same operation had just asked for, and the protocol
+    // could not work at all. The rule §4.3 states is "auto-removed at the next
+    // STOP", and that is where they go — `Impl::apply_stop()` for a stop the
+    // backend caused, and `Debugger::pause()` for an explicit one, which is the
+    // transition `resume()`'s clear was really standing in for.
     impl_->ds().resume();
     // A stop after a free run is explained by the machine, not by this verb.
     impl_->arm(PauseReason::Kind::None, by);
@@ -118,10 +138,25 @@ Result Debugger::step_over(ClientId by) {
 
     const int len = ::instruction_length(pc, memory_reader());
     const uint16_t next_pc = static_cast<uint16_t>(pc + len);
-    // The transient `Execute` at the next PC is `DebugState::step_over`'s
-    // one-shot today; B2 replaces it with a real transient subscription and this
-    // call with a `subscribe()`.
-    impl_->ds().step_over(next_pc);
+    // GH #276 B2 — a REAL transient `Execute` subscription, replacing
+    // `DebugState::step_over`'s single one-shot. §4.3 makes transient
+    // subscriptions unlimited in number, exempt from the master switch and
+    // auto-removed at the next stop; the one-shot was one, exempt, and cleared
+    // by `resume()`. Unlimited is what DeZog's two temporary breakpoints per
+    // `CMD_CONTINUE` need, and what makes a Step Over inside a Run to Here
+    // possible at all.
+    //
+    // `step_over_subscribed()` is `step_over()` minus the one-shot: the step
+    // MODE is unchanged, so `state().step_mode` still reports `Over` and every
+    // CTL-04 row that asserts it still holds.
+    Subscription tgt;
+    tgt.kind      = EventKind::Execute;
+    tgt.filter.lo = next_pc;
+    tgt.filter.hi = next_pc;
+    tgt.transient = true;
+    tgt.action    = Action::Stop;
+    (void)subscribe(by, tgt);
+    impl_->ds().step_over_subscribed();
     // ASYNCHRONOUS — the stop arrives later, and it is a step completing rather
     // than a run reaching a target, so the reason is Step (CTL-13's "a step verb
     // completed"), not RunTo.
@@ -149,7 +184,17 @@ Result Debugger::run_to(ClientId by, uint16_t addr) {
     if (gate != Result::Ok) return gate;
 
     if (!impl_->ds().paused()) impl_->ds().pause();
-    impl_->ds().run_to(addr);
+    // GH #276 B2 — the same transient `Execute`, for the same reasons as
+    // step_over() above. CTL-06 is "Run to Here", and RSP's `i<len>` is
+    // `run_to(pc + len)`.
+    Subscription tgt;
+    tgt.kind      = EventKind::Execute;
+    tgt.filter.lo = addr;
+    tgt.filter.hi = addr;
+    tgt.transient = true;
+    tgt.action    = Action::Stop;
+    (void)subscribe(by, tgt);
+    impl_->ds().run_to_subscribed();
     impl_->arm_target(PauseReason::Kind::RunTo, by, addr);
     return Result::Ok;
 }

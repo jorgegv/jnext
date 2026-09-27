@@ -25,10 +25,9 @@
 //
 // ── WHAT IS HERE, BY OWNING PACKAGE ─────────────────────────────────────────
 //
-//   B2 — events (§4.3 CAP-EVT + INS-17): 11 definitions
-//        subscribe, unsubscribe, set_enabled, master_enabled,
-//        set_master_enabled, client_enabled, set_client_enabled,
-//        probe_execute, raise_host_event, subscriptions, events_fired_since
+//   B2 — events (§4.3 CAP-EVT + INS-17): DONE, 0 definitions left here.
+//        All eleven moved to `debugger_events.cpp` with the `EventTable`, the
+//        512-entry latch ring and the site hooks behind them.
 //
 //   B3 — session (§4.8 CAP-SES): 11 definitions
 //        attach, detach, set_listener, add_service, remove_service, pump,
@@ -51,72 +50,15 @@
 //        in §10.1's B rows. Reported as a finding rather than silently adopted
 //        or silently dropped.
 //
-// 35 definitions, and the three per-package subtotals above add to 34 plus the
-// one unassigned. The numbers are restated nowhere else: this banner is the
-// list, and the file is the check.
+// 24 definitions, and the three per-package subtotals above add to 23 plus the
+// one unassigned (B2's 11 are gone — this file held 35 before B2). The numbers
+// are restated nowhere else: this banner is the list, and the file is the check.
 // ---------------------------------------------------------------------------
 
 #include "debug/debugger_impl.h"
 
 namespace jnext {
 namespace dbg {
-
-// ===========================================================================
-// B2 — §4.3 CAP-EVT and INS-17
-//
-// All eleven need the `EventTable` (the successor of `BreakpointSet`), the
-// 512-entry latch ring and the site hooks. Until then, today's PC breakpoints
-// and watchpoints are reached through `DebugState::breakpoints()` by the code
-// that already does so; the backend deliberately does NOT offer a half of the
-// subscription model over `BreakpointSet`, because a `Subscription` whose
-// `kind`, `filter`, `condition`, `handler`, `once` and `transient` were all
-// silently ignored would be worse than a refusal.
-// ===========================================================================
-
-Expected<EventId> Debugger::subscribe(ClientId, const Subscription&) {
-    return make_refused<EventId>(Result::Unsupported);
-}
-
-Result Debugger::unsubscribe(ClientId, EventId) { return Result::Unsupported; }
-
-Result Debugger::set_enabled(ClientId, EventId, bool) { return Result::Unsupported; }
-
-/// The GH #225 master switch lives on `BreakpointSet` today and defaults ON.
-/// Reported as it stands there, because that IS the live value the hot loop
-/// obeys — a hard `true` here would be a guess at the same answer.
-bool Debugger::master_enabled() const {
-    return impl_->ds().breakpoints().master_enabled();
-}
-
-Result Debugger::set_master_enabled(bool) { return Result::Unsupported; }
-
-/// No per-client switch exists until B3 has clients. Every client is therefore
-/// enabled, which is what `true` says.
-bool Debugger::client_enabled(ClientId) const { return true; }
-
-Result Debugger::set_client_enabled(ClientId, bool) { return Result::Unsupported; }
-
-/// "Would an `Execute` subscription match here?" `BreakpointSet::has_pc()` is
-/// exactly that question for today's model, and the GH #221 step-off arm is
-/// already asking it inside `DebugState::should_break()`. Answered for real
-/// rather than refused: it is a PURE query with a correct answer available, and
-/// B2 only widens what counts as a match.
-bool Debugger::probe_execute(uint16_t pc) const {
-    return impl_->ds().breakpoints().has_pc(pc);
-}
-
-Result Debugger::raise_host_event(ClientId, const std::string&) {
-    return Result::Unsupported;
-}
-
-/// INS-17. An empty list, and it means "the subscription MODEL does not exist
-/// yet" — not "no subscriptions". A frontend that wants today's breakpoints
-/// reads `BreakpointSet` directly, as the Qt panels do.
-std::vector<SubscriptionInfo> Debugger::subscriptions(bool) const { return {}; }
-
-/// INS-17. Nothing is delivered until B2 delivers it, so there is nothing after
-/// any sequence number.
-std::vector<Event> Debugger::events_fired_since(uint64_t) const { return {}; }
 
 // ===========================================================================
 // B3 — §4.8 CAP-SES
