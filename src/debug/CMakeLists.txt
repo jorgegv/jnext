@@ -10,3 +10,15 @@ target_include_directories(jnext_debug PUBLIC ${CMAKE_SOURCE_DIR}/src)
 # in a default system include path so this was masked; on macOS/Homebrew the
 # include dir is non-default and the build failed with 'SDL3/SDL.h' not found.
 target_link_libraries(jnext_debug PUBLIC spdlog::spdlog ${JNEXT_SDL3_TARGET})
+
+# GH #276 — `-Werror=switch`, for the same reason issue #43 applies it to the
+# `jnext` target: this library switches over published enums that have no
+# trailing `Count` sentinel (`ResetKind`, `MemSpace::Kind`, `Result`,
+# `RegId`, `ClipLayer`, the internal `::StepMode`) with no `default` arm, and
+# that switch is then the ONLY thing in the tree that notices a new enumerator.
+# As a plain warning it would notice nothing: a warning in a 100-file build is
+# not a gate. Compiler-gated exactly as there, so a non-GNU/Clang toolchain
+# still builds.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(jnext_debug PRIVATE -Werror=switch)
+endif()

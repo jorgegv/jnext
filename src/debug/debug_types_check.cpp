@@ -202,11 +202,17 @@ static_assert(CLIP_LAYER_COUNT == 4, "four clip windows (NR 0x18-0x1C)");
 // tests for, an adapter maps a `Reset` payload to a wire byte, and a reorder
 // would change both silently.
 //
-// No `Count` sentinel is added with it: unlike `EventKind`, nothing indexes an
-// array or a mask by `ResetKind`, so an APPEND is caught by `-Wswitch` on the
-// switches over it (there is no `default` arm in any of them) rather than
-// needing a sentinel. That is a narrower guard than `EventKind::Count` and is
-// stated as such.
+// No `Count` sentinel is added with it, and the asserts below do NOT catch an
+// append — they pin the values 0/1/2 and say nothing about a value 3. What
+// catches it is `Debugger::reset()`, which switches over `ResetKind` with no
+// `default` arm in a library compiled with `-Werror=switch`
+// (`src/debug/CMakeLists.txt`, the mechanism issue #43 uses for `cli::OptId`):
+// an appended kind is a compile error there.
+//
+// That switch is the WHOLE guard, and it was written to be one. The first
+// version of this comment claimed `-Wswitch` "on the switches over it" —
+// there were none, in the whole tree, so an appended value tripped nothing.
+// A comment is not a gate; the switch and the compile flag are.
 static_assert(static_cast<uint8_t>(ResetKind::Soft) == 0, "F8: Soft stays 0");
 static_assert(static_cast<uint8_t>(ResetKind::Hard) == 1, "F8: Hard stays 1");
 static_assert(static_cast<uint8_t>(ResetKind::Any)  == 2,

@@ -168,14 +168,26 @@ Result Debugger::run_to_cycle(ClientId by, uint64_t master_cycle) {
 
 Result Debugger::run_to_frame(ClientId by, uint32_t frame) {
     // TIME-03, forward only. The frame's start cycle is derivable without the
-    // rewind buffer: frames are a fixed number of master cycles apart, and this
+    // rewind buffer: frames are a fixed number of master cycles apart, and one
     // frame's start is known (`current_frame_cycle()`).
+    //
+    // WHICH frame `current_frame_cycle()` names is the whole difficulty, and the
+    // first cut of this verb got it wrong: at a FRAME BOUNDARY `run_frame()` has
+    // already advanced `frame_cycle_` to the next frame's start
+    // (`frame_cycle_ = frame_end`, emulator.cpp) while `frame_num_` still counts
+    // the frame that finished — so the two disagree by exactly one frame, and a
+    // paused debugger is at a boundary almost always. Computing the target from
+    // the TAG's reckoning against the CYCLE's base overshot by one whole frame
+    // (row TIME-03-03 measures it).
     const uint32_t now = frame_tag(impl_->emu);
-    if (frame <= now) return Result::RefusedUnavailable;
+    if (frame <= now) return Result::RefusedUnavailable;   // forward only
 
+    // The frame `current_frame_cycle()` is the start of: the tag's frame while
+    // one is in progress, the one AFTER it at a boundary.
+    const uint32_t base = now + (impl_->emu.frame_in_progress() ? 0u : 1u);
     const MachineTiming& t = impl_->emu.timing();
     const uint64_t target = impl_->emu.current_frame_cycle()
-                          + static_cast<uint64_t>(frame - now) * t.master_cycles_per_frame;
+                          + static_cast<uint64_t>(frame - base) * t.master_cycles_per_frame;
     return run_to_cycle(by, target);
 }
 
@@ -320,11 +332,23 @@ Result Debugger::acknowledge_corruption(uint64_t generation) {
 // ---------------------------------------------------------------------------
 
 Result Debugger::reset(ClientId by, ResetKind kind) {
+    // A SWITCH WITH NO `default`, and that is the point rather than a style
+    // choice. `ResetKind` has no trailing `Count` sentinel and nothing else in
+    // the tree switches over it, so before this there was NOTHING that would
+    // notice a fourth enumerator being appended — the three `static_assert`s in
+    // `debug_types_check.cpp` pin the values 0/1/2 and say nothing about a
+    // value 3. `src/debug/CMakeLists.txt` compiles this library with
+    // `-Werror=switch` (the same mechanism issue #43 uses to couple
+    // `cli::OptId` to its parser), so an appended kind is a COMPILE ERROR here.
+    //
     // `ResetKind::Any` is a FILTER value (F8): it exists so one `on reset` rule
     // compiles to one subscription. "Reset the machine, either way" is not a
     // reset, so the verb refuses it rather than picking one.
-    if (kind == ResetKind::Any) return Result::Unsupported;
-    if (kind == ResetKind::Hard) return Result::RefusedUnavailable;   // no driver (B3)
+    switch (kind) {
+        case ResetKind::Any:  return Result::Unsupported;
+        case ResetKind::Hard: return Result::RefusedUnavailable;   // no driver (B3)
+        case ResetKind::Soft: break;
+    }
 
     const Result gate = impl_->execute_gate();
     if (gate != Result::Ok) return gate;
