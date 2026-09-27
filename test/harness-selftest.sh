@@ -697,9 +697,14 @@ DBH_FIX="$T/lint-debug-headers"
 rm -rf "$DBH_FIX"; mkdir -p "$DBH_FIX"
 cp -as "$PROJECT_DIR/src" "$DBH_FIX/clean"
 cp -as "$PROJECT_DIR/src" "$DBH_FIX/dirty"
-rm -f "$DBH_FIX/dirty/debug/inspect.h"
+# Write to a temp file and MOVE it into place, rather than `rm -f` then redirect.
+# The positional form works only because the `rm` runs first: a redirect into a
+# path that is still a symlink FOLLOWS it and would truncate the real
+# src/debug/inspect.h in the working tree. `mv` replaces the link itself, so the
+# safety is structural rather than a property of statement order.
 { printf '#include "core/emulator.h"\n'; cat "$PROJECT_DIR/src/debug/inspect.h"; } \
-    > "$DBH_FIX/dirty/debug/inspect.h"
+    > "$DBH_FIX/poisoned-inspect.h"
+mv -f "$DBH_FIX/poisoned-inspect.h" "$DBH_FIX/dirty/debug/inspect.h"
 run_preflight_debug_headers() {   # run_preflight_debug_headers <clean|dirty>
     JNEXT_LINT_DEBUG_HEADERS_SRC="$DBH_FIX/$1" timeout --kill-after=5s "${INVOKE_TIMEOUT}s" \
         bash "$PROJECT_DIR/test/00regression/scripts/00-preflight-lint.sh" 2>&1

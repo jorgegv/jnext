@@ -22,12 +22,21 @@
 # the four files cannot do.
 #
 # `-M`, NOT `-MM`, and the difference is load-bearing. `-MM` OMITS system
-# headers, so SDL and Qt — both found on a system include path — could never
-# appear in its output and their patterns below would be permanently dead. The
-# first cut of this lint used `-MM` and its own mutation run proved it: four of
-# five forbidden includes were caught, and `#include "input/keyboard.h"` (whose
-# whole hazard is that it reaches `<SDL3/SDL.h>`) passed clean. `-M` lists the
-# standard library too, which is noise the specific patterns below ignore.
+# headers, and SDL3 IS on a default include path here (it preprocesses with no
+# `-I` at all), so under `-MM` the SDL pattern below could never match and would
+# be permanently dead. The first cut of this lint used `-MM` and its own mutation
+# run proved it: four of five forbidden includes were caught, and
+# `#include "input/keyboard.h"` — whose whole hazard is that it reaches
+# `<SDL3/SDL.h>` — passed clean. `-M` lists the standard library too, which is
+# noise the specific patterns below ignore.
+#
+# Qt is NOT the same case, and the pattern below says so rather than implying it:
+# Qt6 lives in `/usr/include/qt6`, which is not a default include path here or in
+# the Fedora 44 CI container, so a Qt include never reaches the pattern — it fails
+# the "could not be preprocessed with -I<src> alone" arm above it instead. The
+# property is enforced either way; which ARM enforces it differs, and an earlier
+# version of this comment claimed SDL and Qt were "both" on a system path, which
+# is what made the ten patterns read as nine exercisable ones.
 #
 # TWO POSITIVE CONTROLS, because a lint that reports absence must first be shown
 # capable of reporting presence (a `-MM` that silently produced nothing would
@@ -79,6 +88,13 @@ HEADERS=(
 FORBIDDEN=(
     'core/emulator\.h'          # the emulator core — the whole point of the epic
     '(^|/)src/platform/'        # the layer ABOVE the backend (§4 CTL-15)
+    # BELT, NOT BRACES, and deliberately kept: Qt6 is not on a default include
+    # path here or in CI, so a Qt include fails the preprocess arm before it can
+    # reach this pattern. It stays for the platform or container where Qt IS on
+    # the default path — and because a pattern that costs one grep is cheaper
+    # than the argument about whether it will ever be needed. Do not read a pass
+    # of this pattern as evidence Qt was absent; the preprocess arm is what
+    # proves that here.
     '[Qq]t[0-9]?/|QtCore|QtGui|QtWidgets|QtOpenGL'   # any toolkit header
     'SDL[0-9]?/|(^|/)SDL\.h$'   # SDL, which input/keyboard.h would bring
     'memory/mmu\.h'             # heavy core header; INS-02/03 use accessors

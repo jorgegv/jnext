@@ -218,25 +218,26 @@ properties nothing checked:
 
 ## What is declared but is NOT a §4 CAP row
 
-Four kinds of thing, each present because some §4 row is unusable without it —
-listed here so a reviewer can check the count rather than hunt:
+**Five** kinds of thing, each present because some §4 row is unusable without it
+— listed here so a reviewer can check the count rather than hunt:
 
 1. **Shared scalars and sentinels**: `ClientId`, `EventId`, `CLIENT_NONE`,
-   `EVENT_NONE`, `PAGE_ANY`, `FRAME_EVERY`, `EVENT_KIND_COUNT`, `REG_ID_COUNT`,
-   `LAYER_COUNT`.
+   `EVENT_NONE`, `PAGE_ANY`, `FRAME_EVERY`. (The four enum COUNTS are item 4,
+   not here — listing them twice in a list whose stated purpose is to be
+   countable would defeat it.)
 2. **The `{ptr, size}` views** `ConstBytes` / `ConstU16s` / `ConstU32s` — the
    §4-preamble-mandated replacement for `std::span` in C++17, used by INS-08,
    INS-09 and INS-14.
 3. **`Result` plumbing**: `ok()`, `result_name()`, `Expected<T>`, `make_ok()`,
    `make_refused()` — the §4-preamble "every verb returns a `Result`" rule made
    usable.
-3a. **Four trailing `Count` sentinels** — `EventKind::Count`, `Layer::Count`,
+4. **Four trailing `Count` sentinels** — `EventKind::Count`, `Layer::Count`,
    `RegId::Count`, `ClipLayer::Count` — and the counts derived from them
    (`EVENT_KIND_COUNT`, `LAYER_COUNT`, `REG_ID_COUNT`, `CLIP_LAYER_COUNT`). Not
    members of any CAP set: each is the only C++ mechanism that makes APPENDING to
    its enum a build failure. Deriving a count from the last real enumerator
    (`Dma + 1`) is blind to an append, which the B0 review proved.
-4. **Two accessors a §4 promise needs**: `Debugger::memory_reader()` (INS-11's
+5. **Two accessors a §4 promise needs**: `Debugger::memory_reader()` (INS-11's
    "`disasm_text::*`" is unreachable from a frontend without a `DisasmReadFn`)
    and `Debugger::coverage_enabled()` (INS-20's `coverage()` is all-zero when
    off, and a caller must be able to tell that from "nothing ran").
