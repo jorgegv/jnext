@@ -21,8 +21,10 @@
 //     `video/timing.h`, `debug/debug_state.h` or `debug/breakpoints.h`. That is
 //     the epic, and it is GATED: `test/lint-debug-headers.sh` compiles a
 //     one-line translation unit per published header and asserts the forbidden
-//     set is absent from its `-MM` dependency list. It is row 5 of the
-//     regression preflight (`lint-debug-headers`).
+//     set is absent from its `-M` dependency list (`-M`, not `-MM`: `-MM` omits
+//     system headers, which would make the SDL arm dead — the lint's own header
+//     explains it at length). It is row 5 of the regression preflight
+//     (`lint-debug-headers`).
 //
 //     §9's `grep -l 'core/emulator.h' src/debugger/*.cpp` is a DIFFERENT gate,
 //     for a different package: it greps the Qt panels' sources, and says
@@ -272,37 +274,52 @@ struct LoopDriver {
 /// `Emulator` precisely so the reconstruct cannot lose them (CTL-12, CTL-15).
 // ---------------------------------------------------------------------------
 // DIRECT-VALUE QUERIES — the complete exception to "every verb returns a
-// `Result`" (`result.h`'s banner). These 32 read live machine state that always
+// `Result`" (`result.h`'s banner). These 51 read live machine state that always
 // exists, so they have no refusal case by construction and return their value
 // directly. THE LIST IS THE AUDIT: a query not on it must return `Result` or
-// `Expected<T>`, and moving one onto it is a claim that it cannot fail.
+// `Expected<T>`, and moving one onto it is a claim that it cannot fail. The
+// per-bucket counts are there so the total can be checked a line at a time —
+// the first cut of this banner said "32" and listed 50, which is exactly the
+// failure the list exists to prevent.
 //
-//   control/session : state, magic_breakpoint, armed, persistent_breakpoints,
-//                     master_enabled, client_enabled, probe_execute,
-//                     attached, live_raster, stop_policy, at_frame_boundary,
-//                     rewind_enabled, rewind_range
-//   registers/memory: registers, mmu_slots, paging_ports, nextreg_peek,
+//   control/session (13): state, magic_breakpoint, armed,
+//                     persistent_breakpoints, master_enabled, client_enabled,
+//                     probe_execute, attached, live_raster, stop_policy,
+//                     at_frame_boundary, rewind_enabled, rewind_range
+//   registers/memory (5): registers, mmu_slots, paging_ports, nextreg_peek,
 //                     nextreg_selected
-//   video/audio     : raster, machine, time, sprites, pattern_ram,
+//   video/audio (16): raster, machine, time, sprites, pattern_ram,
 //                     sprite_clip, copper, framebuffer, palette,
 //                     active_ula_palette_bank, ula_screen_regs, clip_window,
 //                     turbosound_enabled, ay_mode, stereo_mode,
 //                     audio_mute_mask
-//   disasm/trace    : instruction_length, is_call_like, memory_reader,
-//                     call_stack, call_stack_enabled, trace_enabled,
-//                     coverage_enabled, coverage
-//   model/symbols   : input_state, subscriptions, events_fired_since, symbols,
+//   disasm/trace (9): disassemble, instruction_length, is_call_like,
+//                     memory_reader, call_stack, call_stack_enabled,
+//                     trace_enabled, coverage_enabled, coverage
+//   model/symbols (8): input_state, subscriptions, events_fired_since, symbols,
 //                     lookup, lookup_name, ula_screen_dump, bookmarks
 //
-// Three of those need a word, because "cannot refuse" is doing work:
+// Four of those need a word, because "cannot refuse" is doing work:
 // `coverage()` returns an all-zero bit set while coverage is off (hence
 // `coverage_enabled()` beside it), `bookmarks(cid)` returns an empty list for a
-// client id that never saved one, and `lookup`/`lookup_name` return
-// `std::optional` — absence is their answer, not a refusal.
+// client id that never saved one, `disassemble()` returns an empty vector for a
+// range it cannot read, and `lookup`/`lookup_name` return `std::optional` —
+// absence is their answer, not a refusal.
 //
 // `std::optional` also carries CTL-11's `resume_blocked_by_corruption()` and
 // ST-03's `rewind_blocked()`: both ask "would this be refused?", so an empty
 // optional is the affirmative answer and a `Result` inside it is the reason.
+// They are queries, but about refusal rather than about state, so they are not
+// on the list above.
+//
+// ONE VERB IS IN NEITHER BUCKET, and saying so is the point of a partition:
+// SES-03's `pump()` returns a `ServiceHint` directly and is NOT a query at all.
+// It drains client commands, may run `LoopDriver::cold_boot` synchronously
+// (CTL-12 `Hard`) and fires listener callbacks — it is the loop owner's service
+// call, its `ServiceHint` is advisory rather than an answer, and the refusals of
+// whatever it drives are reported through those verbs' own `Result`s. So the
+// taxonomy is three buckets: refusing verbs (`Result` / `Expected<T>`),
+// direct-value queries (above), and `pump()`.
 // ---------------------------------------------------------------------------
 
 class Debugger {

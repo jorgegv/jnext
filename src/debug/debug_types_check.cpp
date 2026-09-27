@@ -260,6 +260,13 @@ static_assert(std::is_same<decltype(MemSpace::index), decltype(EventFilter::page
 static_assert(std::is_same<decltype(MemSpace::index),
                            EventFilter::PageSet::value_type>::value,
               "a page number must not narrow between MemSpace and a page set");
+// The ROM sentinels are compared against a MemSpace::index, so they share its
+// width — not the width of the 8-bit value they happen to hold.
+static_assert(std::is_same<decltype(PAGE_SENTINEL_ROM_LO), decltype(MemSpace::index)>::value
+              || std::is_same<const uint16_t, decltype(PAGE_SENTINEL_ROM_LO)>::value, "");
+static_assert(sizeof(PAGE_SENTINEL_ROM_LO) == sizeof(MemSpace{}.index),
+              "a page sentinel must be the width of the index it is compared against");
+
 // PAGE_ANY must stay outside the representable page range it guards.
 static_assert(PAGE_ANY != PAGE_SENTINEL_ROM_LO && PAGE_ANY != PAGE_SENTINEL_ROM_HI, "");
 

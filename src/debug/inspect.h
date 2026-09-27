@@ -19,13 +19,30 @@
 // includes `debug/debugger.h` must NOT end up with `core/emulator.h`, which is
 // the whole point of epic #276.
 //
-// WHAT IS BACKEND-OWNED AND WHY. Four types could not be reused and say so at
-// their definition: `SlotInfo` (INS-03 — no such struct exists in the tree;
-// `mmu.h:74-78` is the accessor PAIR that feeds it), `PaletteId` (INS-15 needs
-// the eight hardware banks PLUS `UlaActive`, which `::PaletteId` cannot
-// express), `Layer` (INS-14's eight views live in a `Q_OBJECT` header today)
-// and `StepMode` (CTL-13 must not publish the internal `debug_state.h`).
-// `debug_types_check.cpp` pins each of them against the thing it mirrors.
+// WHAT IS BACKEND-OWNED AND WHY — FIVE types, each saying so at its definition:
+// `SlotInfo` (INS-03 — no such struct exists in the tree; `mmu.h:74-78` is the
+// accessor PAIR that feeds it), `PaletteId` (INS-15 needs the eight hardware
+// banks PLUS `UlaActive`, which `::PaletteId` cannot express), `Layer` (INS-14's
+// eight views live in a `Q_OBJECT` header today), `ClipLayer` (INS-15's four
+// NR 0x18-0x1C windows, a different set from those eight views) and `StepMode`
+// (CTL-13 must not publish the internal `debug_state.h`).
+//
+// THEY ARE NOT ALL PINNED THE SAME WAY, and an earlier version of this banner
+// said `debug_types_check.cpp` "pins each of them against the thing it mirrors",
+// which is false for two of the five:
+//
+//   * `StepMode`  — pinned VALUE BY VALUE against `::StepMode`.
+//   * `PaletteId` — values 0..7 pinned value by value against `::PaletteId`;
+//                   `UlaActive` pinned at 8, past the hardware banks.
+//   * `Layer`     — only its COUNT is pinned. Its eight views have no non-Qt
+//                   counterpart to be diffed against, so the count via
+//                   `Layer::Count` is the whole available signal.
+//   * `ClipLayer` — likewise count-only (`CLIP_LAYER_COUNT == 4`); the four
+//                   hardware clip windows are not an enum anywhere else.
+//   * `SlotInfo`  — mirrors NOTHING. There is no `SlotInfo` in the tree to
+//                   diff against; what the check TU pins is its trivial
+//                   copyability, and its fields are checked by reading the
+//                   accessors named at each one.
 // ---------------------------------------------------------------------------
 
 #include <array>
@@ -141,8 +158,11 @@ constexpr bool operator!=(MemSpace a, MemSpace b) { return !(a == b); }
 
 /// INS-02 — the two page numbers NR 0x50-0x57 uses as the VHDL ROM sentinel. A
 /// `MemSpace::page()` naming either refuses with `Result::InvalidPage`.
-constexpr uint8_t PAGE_SENTINEL_ROM_LO = 0xFE;
-constexpr uint8_t PAGE_SENTINEL_ROM_HI = 0xFF;
+/// `uint16_t`, matching `MemSpace::index` rather than the 8-bit value they hold:
+/// these are compared against an index, and integer promotion would make a
+/// narrower type work while reading as a different kind of number.
+constexpr uint16_t PAGE_SENTINEL_ROM_LO = 0xFE;
+constexpr uint16_t PAGE_SENTINEL_ROM_HI = 0xFF;
 
 // ---------------------------------------------------------------------------
 // INS-03 — MMU slots
