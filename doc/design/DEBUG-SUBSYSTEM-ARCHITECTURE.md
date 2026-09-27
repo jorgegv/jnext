@@ -65,7 +65,7 @@
 > `dsl-frontend.md`). 73 requirements were sent by the frontends and
 > dispositioned — 84 after the review rounds and the owner review (72 accepted,
 > 3 alternative, 7 confirmed, 2 needs-prototype, 0 rejected); every frontend then mapped onto backend v3 with **zero
-> reach-arounds** — qt 39 capabilities used / 16 declined, DZRP 26 commands (22 tier 1 + 4 tier 2) / 4 declined + 3 unsupported-reported,
+> reach-arounds** — qt 39 capabilities used / 16 declined, DZRP 30 commands (26 tier 1 + 4 tier 2) / 5 declined + 3 unsupported-reported,
 > ZRCP 67 / 7, GDB 21 / 24, DSL 35 / 16. The per-agent files stay as
 > appendices and working notes; this document stands alone.
 >
@@ -872,19 +872,33 @@ per-frontend files under `debug-subsystem/`.
 
 ### 7.2 DZRP — #12 (`dzrp-frontend.md`)
 
-- **Findings that fix the design:** jnext answers DZRP **2.2.0** (upstream DeZog `main`; owner 2026-09-27 — design-dzrp's verification of the 2.1.0→2.2.0 command delta is pending and lands here when it arrives) and presents
+- **Findings that fix the design:** jnext answers DZRP **2.2.0** — verified
+  by design-dzrp against upstream DeZog `main` @ `0de07af6` (3.8.0-rc7,
+  `DZRP_VERSION [2,2,0]`; the check is still major-equal and remote.minor ≥
+  client.minor, so 2.2.0 also satisfies the marketplace 3.7.4) — and presents
   as DeZog's **`cspect` remote type** (the only released socket path; the
   `zxnext` socket remote is a fork-only opcode-patching dialect, so
-  `CMD_SET_BREAKPOINTS`/`RESTORE_MEM` are unsupported-reported). **No released
-  DeZog remote sends watchpoints or state over a wire** — those "tier 2"
-  commands are served but reached only by non-DeZog clients
-  (`tools/cspect_dzrp/cspect_dzrp.py`, ZX Basic Studio, `dezogif_ng`'s
-  harness); the man page must not claim DeZog coverage for them. DeZog
-  assumes the remote is stopped after `CMD_INIT`, so **`CMD_INIT` pauses**.
-- **Projection:** 26 commands served (22 tier 1 + 4 tier 2) over CTL-01/02,
-  INS-01..05/08/17/18, `Execute`/`Mem` subscriptions (`Mem.page` for bank
-  watchpoints), CAP-03 named bookmarks over ST-01/02 (`CMD_READ/WRITE_STATE`
-  carry a token, not the bytes), SES-01..03. No reset command exists in DZRP, and
+  `CMD_SET_BREAKPOINTS`/`RESTORE_MEM` are unsupported-reported). DeZog 3.8's
+  remotes are **subset-driven by the new `CMD_GET_SUPPORTED_COMMANDS`**, so
+  watchpoints (42/43) and bookmarks (50/51) become reachable from DeZog 3.8;
+  the earlier finding that only non-DeZog clients (`tools/cspect_dzrp/
+  cspect_dzrp.py`, ZX Basic Studio, `dezogif_ng`'s harness) reach the tier-2
+  commands is now **3.7.4-only**, and the man page says which client version
+  reaches what. DeZog assumes the remote is stopped after `CMD_INIT`, so
+  **`CMD_INIT` pauses**; per 2.2.0, `CMD_PAUSE` notifies only when it actually
+  stopped a running machine.
+- **Projection:** **30 commands served** (26 tier 1 + 4 tier 2; 28
+  CAP-mapped, `CMD_LOOPBACK` and `CMD_GET_SUPPORTED_COMMANDS` adapter-only;
+  `CMD_WRITE_BANK`/`CMD_SET_BORDER` kept as legacy for 2.0/2.1 clients but not
+  advertised in the bitfield) over CTL-01/02, INS-01..05/08/17/18,
+  `Execute`/`Mem` subscriptions (`Mem.page` for bank watchpoints), CAP-03
+  named bookmarks over ST-01/02 (`CMD_READ/WRITE_STATE` carry a token, not the
+  bytes), SES-01..03. New in 2.2.0: `CMD_READ_BANK_MEM`/`WRITE_BANK_MEM`
+  (25/26) → INS-02 `Page{bank}` peek/poke bounded to the 8 KB page, plus
+  `Rom{index}` (index = `SlotInfo(0).effective_page >> 1` from INS-03) for
+  3.8's ROM id 0xFF — so the `Rom` space is served for DZRP;
+  `CMD_ENABLE_BREAK_ON_INTERRUPT` (39) → an `IntAck` subscription with
+  `Stop`, owner = the client. No reset command exists in DZRP, and
   `CMD_INIT` answers `ZXNEXT=4` unconditionally rather than reading
   `machine()`. DeZog steps by
   `CMD_CONTINUE` with up to two temp breakpoints → transient `Execute`
@@ -893,9 +907,10 @@ per-frontend files under `debug-subsystem/`.
   gives the "temp beats user" reporting rule. `CMD_READ_STATE` uses
   `RefuseMidFrame` (DeZog does not re-read registers afterwards; an advance
   would make its next step compute temp breakpoints from a stale PC).
-- **Declined by design (4):** the condition string in `CMD_ADD_BREAKPOINT`;
+- **Declined by design (5):** the condition string in `CMD_ADD_BREAKPOINT`;
   reverse debugging (no verb); step verbs (no command); IO watchpoints (no
-  wire form). **Unsupported, reported (3):** 13, 14, `CMD_EXEC_ASM`.
+  wire form); the new `NTF_LOG`, which the spec marks debug-only.
+  **Unsupported, reported (3):** 13, 14, `CMD_EXEC_ASM`.
   Documented limits: no "resumed" notification; a refused `CONTINUE` is
   reported as `NTF_PAUSE` reason 255.
 - **Validation:** DeZog 3.7.4 as the real client (manual protocol recorded
@@ -1011,7 +1026,7 @@ applicable to that consumer.
 | CTL-14 magic switch | S | U | U | U | D |
 | CTL-15 load | D | U | S (`smartload`) | U | D |
 | INS-01 registers get / set | S / D | S / S | S / S | S / S | S / S (§4.2a) |
-| INS-02 peek Cpu / Page / Rom; poke | S / S (Q WP8) / D; S | S / S / U; S | S / S / U; S | S / S (monitor) / U; S | S / S / D; S (§4.2a) |
+| INS-02 peek Cpu / Page / Rom; poke | S / S (Q WP8) / D; S | S / S / S (2.2.0 `READ_BANK_MEM`, ROM id 0xFF); S | S / S / U; S | S / S (monitor) / U; S | S / S / D; S (§4.2a) |
 | INS-03 MMU slots get / set | S / D | S / S | S / S | S / S (`monitor mmu`) | S / D (`set nextreg[0x50+s]` instead) |
 | INS-04 NextREG peek / write | S / S | S / U | S / S | S (monitor) / S (monitor) | S / S |
 | INS-05 ports | D | S | S | S (monitor, labelled perturbing) | S (`out`) |
@@ -1035,7 +1050,7 @@ applicable to that consumer.
 | EVT Port | single-address only | U | U | U | S |
 | EVT NextRegWrite | D | U | U | U | S |
 | EVT Frame / Scanline / Cycle | D | U | U | U | S |
-| EVT Reset / IntAck / Nmi / Magic / Host | D | U | U | U | S / S / S / D / S |
+| EVT Reset / IntAck / Nmi / Magic / Host | D | U / S (2.2.0 `ENABLE_BREAK_ON_INTERRUPT`) / U / U / U | U | U | S / S / S / D / S |
 | EVT Copper {Move, Wait, Halt} | D | U | U | U | S |
 | EVT Dma {Start, Byte, End} | D | U | U | U | S |
 | EVT conditions | D | **D** (client-side) | S (translated) | D (not advertised) | S |

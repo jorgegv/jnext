@@ -1,6 +1,6 @@
 # Debugger backend — design (working file)
 
-> Status: **v6 — CONVERGED; owner review of 2026-09-27 folded.** All five frontends replied MAPPED against v3 with 0 reach-arounds (qt 39/16, dzrp 26 commands/4+3, zrcp 67/7, gdb 21/24, dsl 35/16); 84 REQs answered; hot-path measured. Assembled into `doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md` (GH
+> Status: **v6 — CONVERGED; owner review of 2026-09-27 folded.** All five frontends replied MAPPED against v3 with 0 reach-arounds (qt 39/16, dzrp 30 commands/5+3, zrcp 67/7, gdb 21/24, dsl 35/16); 84 REQs answered; hot-path measured. Assembled into `doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md` (GH
 > #277, epic #276). Owner of this file: the backend design agent. Frontend
 > agents own one sibling file each (`qt-frontend.md`, `dzrp-frontend.md`,
 > `zrcp-frontend.md`, `gdb-frontend.md`, `dsl-frontend.md`) and send
@@ -1043,7 +1043,7 @@ CAP id) · NEEDS-PROTOTYPE · CONFIRMED (a confirmation, not a new capability).
 
 **Totals:** 84 REQs — 72 ACCEPTED, 3 ALTERNATIVE, 7 CONFIRMED, 2
 NEEDS-PROTOTYPE, 0 REJECTED. MAPPED against v3 (used /
-declined / reach-arounds): qt 38/17/0, dzrp 26 commands (22 tier 1 + 4 tier 2)/(4 declined + 3
+declined / reach-arounds): qt 39/16/0, dzrp 30 commands (26 tier 1 + 4 tier 2; DZRP 2.2.0 verified against DeZog main @ 0de07af6 — 3.8's subset-driven remotes reach watchpoints and bookmarks, the tier-2 "non-DeZog only" caveat is 3.7.4-only)/(5 declined + 3
 unsupported-reported)/0, zrcp 67/(1 command + 6 options)/0, gdb 21/24/0, dsl
 28/21/0.
 
