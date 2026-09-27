@@ -42,6 +42,9 @@
 
 #include <spdlog/sinks/ringbuffer_sink.h>
 
+#include <cstring>
+#include <fstream>
+
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -132,6 +135,78 @@ static void run_until_paused(Emulator& emu, int max_frames = 4) {
 }
 
 static uint16_t pc_of(Emulator& emu) { return emu.cpu().get_registers().PC; }
+
+// ── INS-01's 37-register table, one row each ────────────────────────────────
+//
+// The B1 review found four surviving mutations in this one function, all of the
+// same shape: `RegId::F` writing AF's HIGH half, `RegId::A` writing the low
+// half, `RegId::IX` writing `r.IY`, and `RegId::DE` dropping its write
+// altogether — each shipping a fully green suite, because eight rows on ONE
+// register pair cannot see the other 33 arms. So every arm gets a row, and each
+// row asserts the WHOLE change set: what changed AND that nothing else did,
+// which is what catches a write that lands in the sibling half or the wrong
+// pair.
+//
+// The comparison is per 8-BIT FIELD, not per pair: `set_register(RegId::B)`
+// must report `B` alone, so writing the low half instead names itself.
+
+struct RegFields {
+    // Every field of Z80Registers, decomposed. `MEMPTR`, `Q` and `IncDecZ` are
+    // included deliberately — they are not `RegId`s, so a write that reached one
+    // would otherwise be invisible.
+    const char* name;
+    uint16_t    value;
+};
+
+static std::vector<RegFields> reg_fields(const Z80Registers& r) {
+    auto hi = [](uint16_t v) { return static_cast<uint16_t>(v >> 8); };
+    auto lo = [](uint16_t v) { return static_cast<uint16_t>(v & 0xFF); };
+    return {
+        {"A", hi(r.AF)},   {"F", lo(r.AF)},
+        {"B", hi(r.BC)},   {"C", lo(r.BC)},
+        {"D", hi(r.DE)},   {"E", lo(r.DE)},
+        {"H", hi(r.HL)},   {"L", lo(r.HL)},
+        {"A'", hi(r.AF2)}, {"F'", lo(r.AF2)},
+        {"B'", hi(r.BC2)}, {"C'", lo(r.BC2)},
+        {"D'", hi(r.DE2)}, {"E'", lo(r.DE2)},
+        {"H'", hi(r.HL2)}, {"L'", lo(r.HL2)},
+        {"IXH", hi(r.IX)}, {"IXL", lo(r.IX)},
+        {"IYH", hi(r.IY)}, {"IYL", lo(r.IY)},
+        {"SPH", hi(r.SP)}, {"SPL", lo(r.SP)},
+        {"PCH", hi(r.PC)}, {"PCL", lo(r.PC)},
+        {"I", r.I}, {"R", r.R},
+        {"IFF1", r.IFF1}, {"IFF2", r.IFF2}, {"IM", r.IM},
+        {"halted", static_cast<uint16_t>(r.halted ? 1 : 0)},
+        {"MEMPTR", r.MEMPTR}, {"Q", r.Q}, {"IncDecZ", r.IncDecZ},
+    };
+}
+
+/// Space-separated names of the 8-bit fields that differ, in declaration order.
+static std::string reg_delta(const Z80Registers& a, const Z80Registers& b) {
+    const auto fa = reg_fields(a);
+    const auto fb = reg_fields(b);
+    std::string out;
+    for (size_t i = 0; i < fa.size(); ++i) {
+        if (fa[i].value == fb[i].value) continue;
+        if (!out.empty()) out += " ";
+        out += fa[i].name;
+    }
+    return out;
+}
+
+/// Zero every register, then write `value` to `reg`, and return what changed.
+/// The baseline is READ BACK after zeroing rather than assumed, so whatever the
+/// CPU core does with the three non-RegId fields is part of the baseline and
+/// cannot be mistaken for the write's own effect.
+static std::string write_one_register(Emulator& emu, Debugger& dbg,
+                                     RegId reg, uint16_t value) {
+    Z80Registers zero{};
+    emu.cpu().set_registers(zero);
+    const Z80Registers before = emu.cpu().get_registers();
+    if (dbg.set_register(1, reg, value) != Result::Ok) return "REFUSED";
+    return reg_delta(before, emu.cpu().get_registers());
+}
+
 
 int main() {
     std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
@@ -348,6 +423,14 @@ int main() {
               rr.depth == 4 && rr.newest_frame >= rr.oldest_frame &&
               rr.newest_cycle >= rr.oldest_cycle && rr.snapshot_bytes > 0,
               "depth=" + std::to_string(rr.depth));
+        // capacity is the ring's SIZE, not how much of it is used: 8 frames were
+        // configured and 4 have run. Reporting depth for both (which B1 did,
+        // behind a comment claiming RewindBuffer did not expose the size) makes
+        // every "N of M frames" readout say "4 of 4".
+        check("ST-03-04", "capacity is the configured ring size, distinct from depth",
+              rr.capacity == 8 && rr.depth == 4,
+              "capacity=" + std::to_string(rr.capacity) +
+                  " depth=" + std::to_string(rr.depth));
 
         const uint32_t target = rr.oldest_frame + 1;
         check("CTL-10-02", "rewind_to_frame() to a frame in the ring succeeds",
@@ -609,6 +692,76 @@ int main() {
               dbg.set_register(1, RegId::Count, 0) == Result::Unsupported);
     }
 
+    // One row per RegId (36 writable + RegId::Count, which INS-01-08 covers).
+    // The ids are LITERAL STRINGS in the table below, so every row name is
+    // greppable in this source exactly as an unrolled call would be.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        struct Row { const char* id; RegId reg; uint16_t value; const char* expect; };
+        static const Row rows[] = {
+            // 16-bit pairs: 0x1234 differs from the zeroed baseline in BOTH
+            // halves, so a write that lands in one half only names itself.
+            { "REG-AF-01",   RegId::AF,   0x1234, "A F"       },
+            { "REG-BC-01",   RegId::BC,   0x1234, "B C"       },
+            { "REG-DE-01",   RegId::DE,   0x1234, "D E"       },
+            { "REG-HL-01",   RegId::HL,   0x1234, "H L"       },
+            { "REG-AF2-01",  RegId::AF2,  0x1234, "A' F'"     },
+            { "REG-BC2-01",  RegId::BC2,  0x1234, "B' C'"     },
+            { "REG-DE2-01",  RegId::DE2,  0x1234, "D' E'"     },
+            { "REG-HL2-01",  RegId::HL2,  0x1234, "H' L'"     },
+            { "REG-IX-01",   RegId::IX,   0x1234, "IXH IXL"   },
+            { "REG-IY-01",   RegId::IY,   0x1234, "IYH IYL"   },
+            { "REG-SP-01",   RegId::SP,   0x1234, "SPH SPL"   },
+            { "REG-PC-01",   RegId::PC,   0x1234, "PCH PCL"   },
+            // 8-bit halves: one field each, and the value is deliberately not
+            // symmetric (0x56) so a half-swap cannot alias.
+            { "REG-A-01",    RegId::A,    0x0056, "A"         },
+            { "REG-F-01",    RegId::F,    0x0056, "F"         },
+            { "REG-B-01",    RegId::B,    0x0056, "B"         },
+            { "REG-C-01",    RegId::C,    0x0056, "C"         },
+            { "REG-D-01",    RegId::D,    0x0056, "D"         },
+            { "REG-E-01",    RegId::E,    0x0056, "E"         },
+            { "REG-H-01",    RegId::H,    0x0056, "H"         },
+            { "REG-L-01",    RegId::L,    0x0056, "L"         },
+            { "REG-A2-01",   RegId::A2,   0x0056, "A'"        },
+            { "REG-F2-01",   RegId::F2,   0x0056, "F'"        },
+            { "REG-B2-01",   RegId::B2,   0x0056, "B'"        },
+            { "REG-C2-01",   RegId::C2,   0x0056, "C'"        },
+            { "REG-D2-01",   RegId::D2,   0x0056, "D'"        },
+            { "REG-E2-01",   RegId::E2,   0x0056, "E'"        },
+            { "REG-H2-01",   RegId::H2,   0x0056, "H'"        },
+            { "REG-L2-01",   RegId::L2,   0x0056, "L'"        },
+            { "REG-IXH-01",  RegId::IXH,  0x0056, "IXH"       },
+            { "REG-IXL-01",  RegId::IXL,  0x0056, "IXL"       },
+            { "REG-IYH-01",  RegId::IYH,  0x0056, "IYH"       },
+            { "REG-IYL-01",  RegId::IYL,  0x0056, "IYL"       },
+            // the rest
+            { "REG-I-01",    RegId::I,    0x0056, "I"         },
+            { "REG-R-01",    RegId::R,    0x0056, "R"         },
+            { "REG-IFF1-01", RegId::IFF1, 0x0001, "IFF1"      },
+            { "REG-IFF2-01", RegId::IFF2, 0x0001, "IFF2"      },
+            { "REG-IM-01",   RegId::IM,   0x0002, "IM"        },
+        };
+        for (const auto& row : rows) {
+            const std::string got = write_one_register(emu, dbg, row.reg, row.value);
+            check(row.id, "set_register writes exactly this register and nothing else",
+                  got == row.expect,
+                  "changed [" + got + "], want [" + std::string(row.expect) + "]");
+        }
+        // The table is COMPLETE, and this is what says so: `REG_ID_COUNT` is
+        // `static_cast<size_t>(RegId::Count)`, i.e. the 37 real registers with
+        // the sentinel NOT counted, so the table must hold exactly that many.
+        // A RegId appended to the enum moves the count and fails here, which is
+        // the only mechanism that keeps a 37-arm switch from growing a 38th arm
+        // with no row. (This row earned its place immediately: it caught an
+        // off-by-one in its own first formulation.)
+        check("REG-COUNT-01", "the table covers every RegId, one row each",
+              sizeof(rows) / sizeof(rows[0]) == jnext::dbg::REG_ID_COUNT,
+              std::to_string(sizeof(rows) / sizeof(rows[0])) + " rows vs " +
+                  std::to_string(jnext::dbg::REG_ID_COUNT) + " RegIds");
+    }
+
     // =======================================================================
     // INS-02 — the three memory spaces
     // =======================================================================
@@ -637,6 +790,30 @@ int main() {
               dbg.poke(1, MemSpace::page(0xFF), 0, 1, src).status == Result::RefusedReadOnly);
         check("INS-02-09", "a Page read that runs off the end of the page is SHORT",
               dbg.peek(MemSpace::page(0x10), 0x1FFE, 8, back).value == 2);
+
+        // The 0xE0..0xFD BAND, which is a different mechanism from the two
+        // sentinels and had no row at all: `mmu_A21_A13(8)='1'` ->
+        // `sram_pre_active='0'` (zxnext.vhd:3061), the SRAM does not respond, so
+        // there is no backing store to hand out. 0xE0 is the first such page and
+        // is NOT a sentinel, so it separates `nr_page_ptr()`'s guard from the
+        // sentinel test that used to sit in front of it three times over.
+        check("INS-02-13", "the first page of the inactive band (0xE0) is an invalid page",
+              dbg.peek(MemSpace::page(0xE0), 0, 1, back).status == Result::InvalidPage);
+        check("INS-02-14", "and so is the last one below the sentinels (0xFD)",
+              dbg.peek(MemSpace::page(0xFD), 0, 1, back).status == Result::InvalidPage);
+        check("INS-02-15", "0xDF, one BELOW the band, is a real page and reads",
+              dbg.peek(MemSpace::page(0xDF), 0, 1, back).status == Result::Ok);
+        // An index outside the 8-bit page-number space at all. Without its own
+        // guard the narrowing cast turns 0x100 into page 0 and a nonsense
+        // request quietly reads real memory.
+        check("INS-02-16", "an index past the 8-bit page space is an invalid page",
+              dbg.peek(MemSpace::page(0x100), 0, 1, back).status == Result::InvalidPage);
+        check("INS-02-17", "and poking one is refused the same way",
+              dbg.poke(1, MemSpace::page(0x100), 0, 1, src).status == Result::InvalidPage);
+        check("INS-02-18", "poking the inactive band is InvalidPage, NOT ReadOnly",
+              dbg.poke(1, MemSpace::page(0xE0), 0, 1, src).status == Result::InvalidPage);
+        check("INS-02-19", "while poking a SENTINEL is ReadOnly, not InvalidPage",
+              dbg.poke(1, MemSpace::page(0xFE), 0, 1, src).status == Result::RefusedReadOnly);
     }
     {
         // The drift guard for Mmu::nr_page_ptr(): a byte written through a slot
@@ -1089,6 +1266,369 @@ int main() {
               ring->last_formatted().size() == after_write);
 
         Log::emulator()->sinks().pop_back();
+    }
+
+
+    // =======================================================================
+    // GAPS FOUND BY DERIVING MUTATIONS FROM THE DIFF
+    //
+    // The B1 review's verdict was that a 27-mutation table built from the ROW
+    // LIST reached none of the five behaviours that had no row at all. Every row
+    // below exists because a function this branch shipped had no assertion on
+    // it: the wrong ROM image, the wrong palette bank, a copper view that is not
+    // the live RAM, the two legacy paging ports, five of the six ULA screen
+    // registers, two of the four clip windows, the symbol-substituting
+    // disassembly, and eight verbs with no row whatsoever.
+    // =======================================================================
+    {
+        // ROM IMAGES — `Mmu::rom_image_ptr()` picks one of four 16 KB images and
+        // nothing asserted it picks the RIGHT one. On a NEXT machine an image is
+        // SRAM pages `2*index` / `2*index+1` addressed WITHOUT the to_sram_page
+        // shift (§4 INS-02), so `Ram::page_ptr()` reaches them directly and a
+        // distinct byte per image makes the index observable. Choosing the Next
+        // over the +3 also pins that un-shifted addressing, which is the
+        // subtlety `Page{}` cannot express.
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        for (int img = 0; img < 4; ++img)
+            emu.ram().page_ptr(static_cast<uint16_t>(img * 2))[0] =
+                static_cast<uint8_t>(0xB0 + img);
+        uint8_t r[4] = {};
+        bool all_read = true, all_right = true;
+        for (int img = 0; img < 4; ++img) {
+            all_read = all_read &&
+                dbg.peek(MemSpace::rom(static_cast<uint16_t>(img)), 0, 1, &r[img]).status
+                    == Result::Ok;
+            all_right = all_right && r[img] == static_cast<uint8_t>(0xB0 + img);
+        }
+        check("INS-02-20", "all four ROM images are readable", all_read);
+        check("INS-02-21", "and the index selects the image — four distinct bytes",
+              all_right,
+              hex(r[0]) + " " + hex(r[1]) + " " + hex(r[2]) + " " + hex(r[3]));
+        // A ROM slot's SlotInfo must name the image the slot is actually serving,
+        // which is the composition round 4 of the design review caught two
+        // frontends getting wrong.
+        const auto slots = dbg.mmu_slots();
+        uint8_t via_slot[4] = {}, via_cpu[4] = {};
+        dbg.peek(slots[0].space, slots[0].space_offset, 4, via_slot);
+        dbg.peek(MemSpace::cpu(), 0x0000, 4, via_cpu);
+        check("INS-03-07", "a ROM slot's space+offset read the same bytes as the CPU view",
+              std::memcmp(via_slot, via_cpu, 4) == 0);
+    }
+    {
+        // THE LEGACY PAGING PORTS — only 0x7FFD had a row, so a mutation
+        // swapping 1FFD and DFFD survived.
+        Emulator emu; build(emu, MachineType::ZX_PLUS3);
+        Debugger dbg(emu);
+        dbg.port_out(1, 0x7FFD, 0x05);
+        dbg.port_out(1, 0x1FFD, 0x04);
+        const auto pp = dbg.paging_ports();
+        check("INS-03-08", "paging_ports() reports 0x7FFD and 0x1FFD as last written, not swapped",
+              pp.port_7ffd == 0x05 && pp.port_1ffd == 0x04,
+              hex(pp.port_7ffd) + "/" + hex(pp.port_1ffd));
+    }
+    {
+        // THE RASTER AND TIME COUNTERS — INS-06-01 only bounded them, so a
+        // mutation swapping hc and vc passed (311 <= 447 is true).
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        emu.run_frame();
+        emu.snapshot_raster();
+        const auto ras = dbg.raster();
+        check("INS-06-02", "raster() reports the machine's own paused hc/vc, not swapped",
+              ras.raw_hc == emu.paused_hc() && ras.raw_vc == emu.paused_vc(),
+              std::to_string(ras.raw_hc) + "/" + std::to_string(ras.raw_vc));
+        const auto t = dbg.time();
+        check("INS-07-03", "time()'s raw counters are the same pair, in the same order",
+              t.hc_raw == emu.paused_hc() && t.vc_raw == emu.paused_vc());
+
+        // MachineInfo's five untested fields.
+        const auto mi = dbg.machine();
+        const RasterPos origin = emu.video_timing().display_origin();
+        check("INS-19-04", "machine() carries the display origin and vblank_top of the live timing",
+              mi.display_origin_hc == origin.hc && mi.display_origin_vc == origin.vc &&
+              mi.vblank_top == emu.video_timing().vblank_top());
+        check("INS-19-05", "and the two blanking limits, not each other",
+              mi.max_hblank == emu.video_timing().max_hblank() &&
+              mi.max_vblank == emu.video_timing().max_vblank() &&
+              mi.max_hblank != mi.max_vblank);
+        check("INS-19-06", "cpu_divisor is the live clock's, and NR 0x07 moves it",
+              mi.cpu_divisor == emu.clock().cpu_divisor());
+    }
+    {
+        // THE COPPER VIEW — INS-09-01 proved only size and non-null, so a
+        // mutation handing out a static buffer survived. Write a real
+        // instruction through the NR 0x60/0x61 pair and read it back through the
+        // view.
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        emu.copper().write_reg_0x61(0x00);          // NR 0x61: write address = 0
+        emu.copper().write_reg_0x60(0x12);          // NR 0x60: MSB (even address)
+        emu.copper().write_reg_0x60(0x34);          // NR 0x60: LSB commits 0x1234
+        const auto cs = dbg.copper();
+        check("INS-09-03", "copper()'s program is the LIVE instruction RAM",
+              cs.program.data[0] == emu.copper().instruction(0) &&
+              cs.program.data[0] == 0x1234,
+              hex(cs.program.data[0]));
+    }
+    {
+        // THE PALETTE BANKS — every palette row read a ULA or Layer2 bank, so
+        // `entry_rgb333`'s sprite and tilemap arms had no row and a mutation
+        // returning the ULA store for them survived.
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        using jnext::dbg::PaletteId;
+        struct { PaletteId id; uint16_t v; } banks[] = {
+            {PaletteId::UlaFirst, 0x001}, {PaletteId::Layer2First, 0x002},
+            {PaletteId::SpriteFirst, 0x004}, {PaletteId::TilemapFirst, 0x008},
+            {PaletteId::UlaSecond, 0x010}, {PaletteId::Layer2Second, 0x020},
+            {PaletteId::SpriteSecond, 0x040}, {PaletteId::TilemapSecond, 0x080},
+        };
+        for (const auto& b : banks) dbg.set_palette(1, b.id, 33, b.v);
+        bool all_distinct = true;
+        for (const auto& b : banks)
+            all_distinct = all_distinct && dbg.palette(b.id)[33] == b.v;
+        check("INS-15-11", "all EIGHT hardware palette banks are separate stores",
+              all_distinct);
+        check("INS-15-12", "sprite_palette_rgb333() reads the sprite bank it is asked for",
+              dbg.sprite_palette_rgb333(0, 33).value == 0x004 &&
+              dbg.sprite_palette_rgb333(1, 33).value == 0x040);
+    }
+    {
+        // THE ULA SCREEN REGISTERS — one of six had a row.
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        emu.ula().set_ula_scroll_x_coarse(0x21);
+        emu.ula().set_ula_scroll_y(0x43);
+        dbg.port_out(1, 0x00FF, 0x02);                 // Timex screen-mode latch
+        emu.ula().set_ula_enabled(false);
+        const auto us = dbg.ula_screen_regs();
+        check("INS-15-13", "ula_screen_regs() carries NR 0x26/0x27 the right way round",
+              us.scroll_x == 0x21 && us.scroll_y == 0x43,
+              hex(us.scroll_x) + "/" + hex(us.scroll_y));
+        check("INS-15-14", "and the port 0xFF Timex latch",
+              us.port_ff == emu.ula().get_screen_mode_reg() && us.port_ff == 0x02);
+        check("INS-15-15", "and the ULA enable, which is NR 0x68 b7 INVERTED",
+              !us.enabled);
+        emu.ula().set_ula_enabled(true);
+        check("INS-15-16", "which flips back",
+              dbg.ula_screen_regs().enabled);
+        // Through the PORT, not Mmu::set_port_7ffd_bit3(): the Ula holds its own
+        // shadow-screen flag and the port handler is what syncs it, so poking the
+        // Mmu alone proves nothing about what the ULA displays.
+        dbg.port_out(1, 0x7FFD, 0x08);
+        check("INS-15-17", "the active ULA bank follows port 0x7FFD bit 3 (5 -> 7)",
+              dbg.ula_screen_regs().active_bank == 7 &&
+              emu.ula().get_shadow_screen_en());
+        emu.palette().write_control(0x02);
+        check("INS-15-18", "second_palette agrees with active_ula_palette_bank()",
+              dbg.ula_screen_regs().second_palette &&
+              dbg.active_ula_palette_bank() == 1);
+    }
+    {
+        // THE FOUR CLIP WINDOWS — Layer2 and Sprites had rows; ULA and Tilemap
+        // did not, so a mutation returning the Layer 2 window for all four
+        // survived. Four distinct values, so no two arms can alias.
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        using jnext::dbg::ClipLayer;
+        emu.layer2().set_clip_x1(0x11);
+        emu.sprites().set_clip_x1(0x22);
+        emu.ula().set_clip_x1(0x33);
+        emu.tilemap().set_clip_x1(0x44);
+        check("INS-15-19", "each clip window comes from its OWN layer",
+              dbg.clip_window(ClipLayer::Layer2).x1  == 0x11 &&
+              dbg.clip_window(ClipLayer::Sprites).x1 == 0x22 &&
+              dbg.clip_window(ClipLayer::Ula).x1     == 0x33 &&
+              dbg.clip_window(ClipLayer::Tilemap).x1 == 0x44,
+              hex(dbg.clip_window(ClipLayer::Ula).x1));
+    }
+    {
+        // THE AUDIO MODE SIGNALS — INS-10-04 compared turbosound_enabled()
+        // against its own accessor and nothing read ay_mode / stereo_mode at
+        // all, so a reversed polarity on either was invisible.
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        emu.turbosound().set_ay_mode(false);
+        check("INS-10-05", "ay_mode() reports YM for the YM curve",
+              dbg.ay_mode() == jnext::dbg::AyChipMode::Ym);
+        emu.turbosound().set_ay_mode(true);
+        check("INS-10-06", "and AY for the AY curve — the polarity is not reversed",
+              dbg.ay_mode() == jnext::dbg::AyChipMode::Ay);
+        emu.turbosound().set_stereo_mode(false);
+        check("INS-10-07", "stereo_mode() reports ABC for NR 0x08 b5 clear",
+              dbg.stereo_mode() == jnext::dbg::StereoMode::Abc);
+        emu.turbosound().set_stereo_mode(true);
+        check("INS-10-08", "and ACB when it is set",
+              dbg.stereo_mode() == jnext::dbg::StereoMode::Acb);
+        emu.turbosound().set_enabled(false);
+        check("INS-10-09", "turbosound_enabled() follows the live enable",
+              !dbg.turbosound_enabled());
+
+        // ay_registers(chip) — INS-10-01 proved the SIZE. Nothing proved the
+        // chip index selects a chip, so reading chip 0 for every index survived.
+        // Ports 0xFFFD/0xBFFD: 0xFF|chip selects the AY, then reg + value.
+        emu.turbosound().set_enabled(true);
+        auto write_ay = [&](uint8_t chip, uint8_t reg, uint8_t val) {
+            emu.turbosound().reg_addr(static_cast<uint8_t>(0xFC | (~chip & 0x03)));
+            emu.turbosound().reg_addr(reg);
+            emu.turbosound().reg_write(val);
+        };
+        write_ay(0, 0x02, 0x11);
+        write_ay(1, 0x02, 0x22);
+        write_ay(2, 0x02, 0x33);
+        const auto a0 = dbg.ay_registers(0), a1 = dbg.ay_registers(1), a2 = dbg.ay_registers(2);
+        check("INS-10-10", "ay_registers(chip) reads THAT chip's file",
+              a0.value[2] == 0x11 && a1.value[2] == 0x22 && a2.value[2] == 0x33,
+              hex(a0.value[2]) + "/" + hex(a1.value[2]) + "/" + hex(a2.value[2]));
+    }
+    {
+        // INS-16's two composed port values had no row.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        dbg.set_joystick(1, jnext::dbg::JoystickSide::Left, 0x0001);
+        dbg.set_joystick(1, jnext::dbg::JoystickSide::Right, 0x0002);
+        const auto in = dbg.input_state();
+        check("INS-16-02", "input_state() carries the two composed port reads",
+              in.port_1f == emu.joystick().read_port_1f() &&
+              in.port_37 == emu.joystick().read_port_37() &&
+              in.port_1f != in.port_37,
+              hex(in.port_1f) + "/" + hex(in.port_37));
+        check("INS-16-03", "and the two connectors are not each other",
+              in.joy_left12 == 0x0001 && in.joy_right12 == 0x0002);
+    }
+    {
+        // INS-11's SYMBOL path had no row: `disassemble(.., &symbols())` was
+        // never called with a non-empty table, so the substitution could not
+        // have worked and nothing would have said so.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const std::string map_path = "/tmp/jnext_b1_syms.map";
+        {
+            std::ofstream f(map_path);
+            f << "MY_TARGET = $9000 ; const\n";
+        }
+        const auto loaded = dbg.load_map(map_path, jnext::dbg::MapFormat::Simple);
+        check("SYM-04", "load_map() loads a simple MAP file and counts its symbols",
+              loaded.status == Result::Ok && loaded.value == 1,
+              std::to_string(loaded.value));
+        check("SYM-05", "lookup() and lookup_name() answer for it, both ways",
+              dbg.lookup(0x9000).has_value() && *dbg.lookup(0x9000) == "MY_TARGET" &&
+              dbg.lookup_name("MY_TARGET").has_value() &&
+              *dbg.lookup_name("MY_TARGET") == 0x9000);
+        check("SYM-06", "and symbols() is the same one table",
+              dbg.symbols().size() == 1);
+        // 0x8002 is `CALL 0x9000` — the immediate must be substituted.
+        const auto with = dbg.disassemble(PROG + 2, 1, &dbg.symbols());
+        const auto without = dbg.disassemble(PROG + 2, 1, nullptr);
+        check("SYM-07", "disassemble() substitutes the symbol for the 16-bit immediate",
+              std::string(with[0].mnemonic).find("MY_TARGET") != std::string::npos,
+              with[0].mnemonic);
+        check("SYM-08", "and leaves it alone when no table is passed",
+              std::string(without[0].mnemonic).find("MY_TARGET") == std::string::npos &&
+              std::string(without[0].mnemonic).find("9000") != std::string::npos,
+              without[0].mnemonic);
+        check("SYM-09", "clear_symbols() empties it",
+              dbg.clear_symbols() == Result::Ok && dbg.symbols().empty() &&
+              !dbg.lookup(0x9000).has_value());
+        std::remove(map_path.c_str());
+    }
+    {
+        // EIGHT VERBS WITH NO ROW AT ALL.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+
+        // SES-04 — the stop policy round-trip.
+        check("SES-04-01", "stop_policy() starts at Pause (the Qt default)",
+              dbg.stop_policy() == jnext::dbg::StopPolicy::Pause);
+        check("SES-04-02", "and set_stop_policy() round-trips ExitNonZero",
+              dbg.set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero) == Result::Ok &&
+              dbg.stop_policy() == jnext::dbg::StopPolicy::ExitNonZero);
+
+        // ST-03 — the rewind enable and the resize, which is what makes
+        // capacity move.
+        check("ST-03-05", "rewind_enabled() is false without --rewind-buffer-size",
+              !dbg.rewind_enabled());
+        check("ST-03-06", "set_rewind_enabled(true) round-trips",
+              dbg.set_rewind_enabled(true) == Result::Ok && dbg.rewind_enabled());
+        check("ST-03-07", "resize_rewind_buffer(0) is refused",
+              dbg.resize_rewind_buffer(0) == Result::RefusedUnavailable);
+        check("ST-03-08", "resize_rewind_buffer(n) sets the capacity to n",
+              dbg.resize_rewind_buffer(16) == Result::Ok &&
+              dbg.rewind_range().capacity == 16,
+              std::to_string(dbg.rewind_range().capacity));
+
+        // INS-13 — the trace export.
+        const std::string trace_path = "/tmp/jnext_b1_trace.txt";
+        dbg.set_trace_enabled(true);
+        emu.execute_single_instruction();
+        check("INS-13-06", "trace_export() writes the log to a file",
+              dbg.trace_export(trace_path) == Result::Ok);
+        {
+            std::ifstream f(trace_path);
+            std::string first;
+            std::getline(f, first);
+            check("INS-13-07", "and the file is not empty", !first.empty(), first);
+        }
+        std::remove(trace_path.c_str());
+        check("INS-13-08", "an unwritable path is refused, not silently dropped",
+              dbg.trace_export("/nonexistent-dir/x/y.txt") == Result::RefusedUnavailable);
+    }
+    {
+        // TIME-03 `run_to_frame` — a declared verb with no row at all.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        emu.run_frame();
+        attach_and_pause(emu);
+        const uint32_t here = dbg.time().frame;
+        check("TIME-03-01", "run_to_frame() to a PAST frame is refused (forward only)",
+              dbg.run_to_frame(1, here) == Result::RefusedUnavailable &&
+              dbg.run_to_frame(1, 0) == Result::RefusedUnavailable);
+        check("TIME-03-02", "run_to_frame(here + 2) is accepted",
+              dbg.run_to_frame(1, here + 2) == Result::Ok);
+        run_until_paused(emu, 5);
+        check("TIME-03-03", "and the machine stops in that frame, not the next one",
+              dbg.state().paused && dbg.time().frame == here + 2,
+              "frame=" + std::to_string(dbg.time().frame) +
+                  " want=" + std::to_string(here + 2));
+    }
+    {
+        // ST-01's OTHER mode: AdvanceToBoundary, which is the reason the verb
+        // gained a `by`. Mid-frame, so the advance actually runs.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        emu.debug_state().set_active(true);
+        emu.debug_state().pause();
+        emu.debug_state().run_to_cycle(emu.clock().get() + 5000);
+        emu.run_frame();                             // stops mid-frame
+        check("ST-01-03", "the machine is mid-frame after a run-to-cycle stop",
+              !dbg.at_frame_boundary());
+        check("ST-01-04", "RefuseMidFrame refuses there",
+              dbg.save_state_bytes(1, jnext::dbg::SaveStateMode::RefuseMidFrame)
+                  .status == Result::NotAtFrameBoundary);
+        const auto adv = dbg.save_state_bytes(1, jnext::dbg::SaveStateMode::AdvanceToBoundary);
+        check("ST-01-05", "AdvanceToBoundary runs the frame out and saves there",
+              adv.status == Result::Ok && adv.value.size() > 1024 &&
+              dbg.at_frame_boundary());
+        check("ST-01-06", "and the advance left the debugger's own state alone (SuspendScope)",
+              emu.debug_state().paused());
+    }
+    {
+        // Keyboard::set_matrix_bit became PUBLIC, so its own bounds guard is now
+        // API surface. The Debugger refuses first (IN-02-03), so this calls the
+        // keyboard directly — the only way to reach the guard at all.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        emu.keyboard().set_matrix_bit(9, 0, true);    // out of range: row > 7
+        emu.keyboard().set_matrix_bit(0, 7, true);    // out of range: col > 4
+        bool all_released = true;
+        for (int r = 0; r < 8; ++r)
+            all_released = all_released && dbg.input_state().matrix[r] == 0xFF;
+        check("IN-02-06", "an out-of-range set_matrix_bit changes no row of the matrix",
+              all_released);
+        check("IN-02-07", "and matrix_row() answers 0xFF for a row that does not exist",
+              emu.keyboard().matrix_row(9) == 0xFF &&
+              emu.keyboard().matrix_row(-1) == 0xFF);
     }
 
     // =======================================================================
