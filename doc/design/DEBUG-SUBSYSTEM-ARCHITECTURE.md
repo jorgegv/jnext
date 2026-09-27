@@ -14,6 +14,19 @@
 > re-review before any implementation starts.** §12 lists the questions only
 > the owner can answer.
 >
+> **Revision 5** (2026-09-27, after review round 4, `scratchpad/reviews/arch-r4.md`
+> + `dsl-qt-r4.md`). R-1: the latch ring is **512**, derived with the Copper's
+> per-master-cycle cadence included and a MOVE as one entry fanned out to both
+> subscriptions; overflow is a specified, tested behaviour rather than
+> "unreachable". Notes: `set PC` clearing `halted` is an INS-01 obligation
+> (`z80_cpu.h:135`); the new `NextReg::write` hook must be gated like the MMU
+> sites; the gate and drain are off in `replay_mode_`; mutations refused under
+> RZX; the `PC = B` bypass stated; `Copper.Halt` is a new branch at the stall
+> path (`is_halt` is uncalled); `Dma.Start` is one transition (`START_DMA`
+> while `TRANSFERRING`); `Mem{Write}` carries `prev`, `Port` carries `source`;
+> `SlotInfo.space` and the `MemSpace::Rom` enumeration settled from the code
+> (§11 item 1 closed; Qt 40/15); tallies and numbering aligned.
+>
 > **Revision 4** (2026-09-27, owner review 2026-09-27). The thirteen §12
 > questions answered and recorded as settled decisions (§1.3 items 9-23);
 > mutation from scripts allowed — §4.2a states the write contract (where and
@@ -63,9 +76,9 @@
 > written concurrently against it (`debug-subsystem/qt-frontend.md`,
 > `dzrp-frontend.md`, `zrcp-frontend.md`, `gdb-rsp-frontend.md`,
 > `dsl-frontend.md`). 73 requirements were sent by the frontends and
-> dispositioned — 84 after the review rounds and the owner review (72 accepted,
+> dispositioned — 89 after the review rounds and the owner review (77 accepted,
 > 3 alternative, 7 confirmed, 2 needs-prototype, 0 rejected); every frontend then mapped onto backend v3 with **zero
-> reach-arounds** — qt 39 capabilities used / 16 declined, DZRP 30 commands (26 tier 1 + 4 tier 2) / 5 declined + 3 unsupported-reported,
+> reach-arounds** — qt 40 capabilities used / 15 declined, DZRP 30 commands (26 tier 1 + 4 tier 2) / 5 declined + 3 unsupported-reported,
 > ZRCP 67 / 7, GDB 21 / 24, DSL 35 / 16. The per-agent files stay as
 > appendices and working notes; this document stands alone.
 >
@@ -465,8 +478,8 @@ on a breakpoint; a GUI Run afterwards reaches the remote as `Resumed{by}`
 | ID | Capability |
 |---|---|
 | INS-01 | `registers()`, `set_register(RegId, v)` per register (12 pairs, PC, SP, I, R, IFF1, IFF2, IM) — no "set all" |
-| INS-02 | `peek/poke(MemSpace, addr, n, buf)`: `Cpu` (live mapping, overlays included, **no floating-bus latch** — F1 → `Mmu::peek()`); `Page{p}` with **p = the NR 0x50-0x57 page number (0..223)**, backend does the VHDL routing (`to_sram_page` [`mmu.h:1387`], 0x0E → `bank7_bram` [`:1371`, `:1400`], 0xFE/0xFF → `InvalidPage`); `Rom{i}` for ROM images not in SRAM. `poke(Cpu)` = `Mmu::write` outside `GuestExecutionScope` (ROM ignored, scanline logs and attribute mux updated, no latch, no event), returns count + `RefusedReadOnly` |
-| INS-03 | `mmu_slots() -> SlotInfo{nr_page, effective_page, is_rom}[8]` [`mmu.h:74-78`], `set_mmu_slot(s, p)`, `paging_ports()` |
+| INS-02 | `peek/poke(MemSpace, addr, n, buf)`: `Cpu` (live mapping, overlays included, **no floating-bus latch** — F1 → `Mmu::peek()`); `Page{p}` with **p = the NR 0x50-0x57 page number (0..223)**, backend does the VHDL routing (`to_sram_page` [`mmu.h:1387`], 0x0E → `bank7_bram` [`:1371`, `:1400`], 0xFE/0xFF → `InvalidPage`); `Rom{index}` — **settled from the code, uniformly** (§11 item 1 closed; REQ-qt-31, protocols-r4 R-1): `index` names a **16 KB ROM image** (0..3; addresses 0..0x3FFF within it), read-only. On a `rom_in_sram_` machine (Next mode, `set_rom_in_sram(true)` [`emulator.cpp:6829`]) it is SRAM pages `2·index` / `2·index+1` — `map_rom_physical(0, sram_rom*2)` / `(1, sram_rom*2+1)` [`mmu.cpp:546-547`] maps a ROM slot to `ram_.page_ptr(rom_page)` **without** `to_sram_page` [`:396-402`], an SRAM-physical index that `Page{p}` (NR space, +0x20 shift [`mmu.h:1387-1390`]) cannot address — on 48K/128K/+3 it is the `Rom` object's image (`Rom::page_ptr` [`rom.h:23`]; 48K 1 image, 128K 2, +3 4). `poke(Rom)` is `RefusedReadOnly`. DZRP 2.2.0's ROM id 0xFF and the Qt slot view both address it through `SlotInfo.space` (INS-03), never by composing it. `poke(Cpu)` = `Mmu::write` outside `GuestExecutionScope` (ROM ignored, scanline logs and attribute mux updated, no latch, no event), returns count + `RefusedReadOnly` |
+| INS-03 | `mmu_slots() -> SlotInfo{nr_page, effective_page, is_rom, space}[8]` [`mmu.h:74-78`] where **`space` + `space_offset` name the backing store of the slot's 8 KB** — RAM slot: `Page{nr_page}`, offset 0; ROM slot: `Rom{effective_page >> 1}`, offset `(effective_page & 1) · 0x2000` (the slot's `effective_page` is the SRAM-physical index, outside `Page{}`'s NR number space — REQ-qt-31 and protocols-r4 R-1: no client composes a `MemSpace` from `effective_page + is_rom`, which is exactly what round 4 caught on both the Qt and the DZRP side); `set_mmu_slot(s, p)`, `paging_ports()` |
 | INS-04 | `nextreg_peek`, `nextreg_write` (synchronous, source Debugger, no event), `nextreg_selected` |
 | INS-05 | `port_in`, `port_out` — perturbing by nature, said so; the DSL declines it |
 | INS-06 | `raster() -> RasterState` (`src/debug/raster_state.h`, computed from the clock when paused) |
@@ -493,7 +506,7 @@ free of side effects. Writes are a separate, first-class capability, and the
 DSL may use them (the "scripts never poke" rule of Revision 3 is withdrawn;
 REQ-dsl-21..24). What exists already, as writes: INS-01 `set_register(RegId,
 v)` — the 12 pairs, every 8-bit half including `F`, PC, SP, I, R, IFF1, IFF2,
-IM; **setting PC clears `halted`** [`z80_cpu.h:14`, `:182`]; INS-02
+IM; **setting PC clears `halted`** — an obligation on INS-01's implementation, not a property of the code: the only setter today is `set_registers(const Z80Registers&)` [`z80_cpu.h:135`], which assigns the whole struct, and nothing clears the `halted` field [`:14`] on a PC write; INS-02
 `poke(Cpu | Page, …)`; INS-03 `set_mmu_slot`; INS-04 `nextreg_write`
 (handlers run, synchronous, source `Debugger`); INS-05 `port_out`; INS-08
 `set_sprite_attr_raw` / `write_pattern_ram`; INS-10 `set_audio_mute_mask`
@@ -501,7 +514,7 @@ IM; **setting PC clears `halted`** [`z80_cpu.h:14`, `:182`]; INS-02
 `set_border`. That is everything the Qt panels write today (NextREG through
 the register's own write handler [`nextreg_panel.cpp:174`], memory through
 `Mmu::write` [`memory_panel.cpp:148/153`], the mute mask
-[`audio_panel.cpp:105/165`]) plus the register, port and physical-page writes
+[`audio_panel.cpp:165`]) plus the register, port and physical-page writes
 the protocols already needed; no new CAP id. **One contract for all of them:**
 
 - **Where a write lands.** `poke(Cpu)` is `Mmu::write` outside any
@@ -523,7 +536,10 @@ the protocols already needed; no new CAP id. **One contract for all of them:**
   boundary) the raising instruction has **already completed** and the write
   lands before the next one: a `poke` is what the next instruction reads, an
   `nextreg_write` runs its handler now. Nothing a handler writes can reach
-  the raising instruction or the device cluster that already ran for it.
+  the raising instruction or the device cluster that already ran for it. One
+  consequence to know: an `Execute` handler at A that sets `PC = B` bypasses
+  a breakpoint at B for that one instruction — the pre-instruction gate has
+  already run for A.
 - **Deterministic:** keyed to the same boundary every run; no wall clock.
 - **Logged by the backend**, not by the writer: every mutation from every
   client — DSL, Qt panel, DZRP `WRITE_MEM`, RSP `M` — emits one SES-06 `info`
@@ -531,15 +547,31 @@ the protocols already needed; no new CAP id. **One contract for all of them:**
   so a script's log sees what a GUI or a remote changed, and a CI transcript
   shows what a script changed.
 - **Not an event:** a debugger write fires no watch, no `NextRegWrite`, no
-  `Port` event, and is not attributed to the CPU (no `source`, no re-entry) —
-  the existing `GuestExecutionScope` gating already guarantees it for panel
-  writes.
+  `Port` event, and is not attributed to the CPU (no `source`, no re-entry).
+  The existing `GuestExecutionScope` gating guarantees it for the MMU and
+  port sites (`watchpoints_live() = armed_ && guest_access_`,
+  [`debug_state.h:275`]) — **but not for the new `NextReg::write` hook**,
+  which does not exist yet and has no such gate: B2 must gate it on
+  `guest_access()` (or a `DebuggerWriteScope`) or a panel's
+  `nextreg().write()` [`nextreg_panel.cpp:174`] and a script's
+  `nextreg_write` would fire `NextRegWrite` on themselves. `NextReg::write`
+  emits the same trace line for every caller, so the `MUTATE` log is the only
+  record that distinguishes a debugger write.
+- **RZX:** a mutation while `rzx_recorder().is_recording()` is state the
+  recording cannot carry, and one during `rzx_player().is_playing()` diverges
+  the playback — both are refused with `RefusedRzx`, the same class as the
+  rewind wall.
 - **Visible to later handlers of the same delivery** (a second rule matched
   at the same boundary reads the mutated state).
 - **Rewind:** a mutation is machine state, so the next frame-boundary snapshot
   carries it; interpreter state (script variables, `once` flags) is not, and
   handlers do not run in `replay_mode_` — which is what keeps replay
-  faithful — so a rewind target *inside* the frame the mutation happened in
+  faithful. That rule covers the **pre-instruction gate and the drain as
+  well**: `rewind_to_cycle` fast-forwards with `replay_mode_ = true`,
+  `set_active(true)` and `run_to_cycle` [`emulator.cpp:12720`], so the gate
+  runs during replay, and an `Execute` subscription inside the replayed span
+  would otherwise pause the replay short — the backend consults the
+  `EventTable` only when `!replay_mode_`. So a rewind target *inside* the frame the mutation happened in
   would replay that frame without the mutation and diverge. The backend
   records the cycle of every mutation and refuses `step_back` /
   `rewind_to_cycle` into a mutated span with `RefusedUnavailable`; a
@@ -562,8 +594,8 @@ filter.
 | Kind | Cheap filter (where) | Payload beyond the common `{cycle, frame, vc, hc, pc, id, owner}` |
 |---|---|---|
 | `Execute` | PC ∈ [lo,hi], optional `page` qualifier (effective page at slot(PC)), tested after the address matched (pre-instruction gate) | — |
-| `Mem`, `access` ⊆ {Read, Write} | logical addr ∈ [lo,hi] **or** physical page ∈ set (MMU sites, §6); a range may carry an optional `page` qualifier AND-ed with it (DZRP's `bank+1` watchpoints, REQ-dzrp-11), tested only after the range matched | addr, phys_page, value, pc (= `pc_pre_exec`), `source` ∈ {Cpu, Dma} (tagged at the boundary drain from the slot's DMA flag [`emulator.cpp:9784`]) |
-| `Port`, `access` | `(port & mask) == value` (GH #222's low-byte rule = mask 0x00FF); read value latched after dispatch | port, value, pc |
+| `Mem`, `access` ⊆ {Read, Write} | logical addr ∈ [lo,hi] **or** physical page ∈ set (MMU sites, §6); a range may carry an optional `page` qualifier AND-ed with it (DZRP's `bank+1` watchpoints, REQ-dzrp-11), tested only after the range matched | addr, phys_page, value, `prev` (the byte before a write, one peek at the latch site — REQ-dsl-25, so a script can undo a caught write), pc (= `pc_pre_exec`), `source` ∈ {Cpu, Dma} (tagged at the boundary drain from the slot's DMA flag [`emulator.cpp:9784`]) |
+| `Port`, `access` | `(port & mask) == value` (GH #222's low-byte rule = mask 0x00FF); read value latched after dispatch | port, value, pc, `source` ∈ {Cpu, Dma} (tagged at the drain like `Mem` — a DMA byte to a port destination is a `Port{Write}`, REQ-dsl-27) |
 | `NextRegWrite` | reg ∈ set, `source` ∈ {Cpu, Copper, Dma, Any} (`NextReg::write` hook) | reg, value, `prev` (peeked at the hook), source, **and `pc`/`cycle`/`hc`/`vc` captured in the latch at the hook**. Delivered after commit at the next boundary the drain reaches: the current instruction's for Copper/DMA writes; **≤1 instruction late for a CPU write**, because CPU NR writes commit in `flush_pending_cpu_nr_writes()` [`emulator.cpp:10221`] after the boundary drain (§2.3) — a `Stop` lands one instruction after the writer, the payload's `pc` names the writer. Chosen over moving the drain behind the device cluster, which would change the GH #265 early-return contract at `:9398` for every data breakpoint |
 | `Frame` | every / frame == N | frame (the pre-increment tag, = `time().frame`) |
 | `Scanline` | cvc == N — latched at `on_scanline` with the line's exact cycle, delivered at the next boundary (≤1 instruction late) | frame, vc, cycle (captured in the latch) |
@@ -572,8 +604,8 @@ filter.
 | `IntAck` / `Nmi` | the accept seams [`emulator.cpp:1114`, `:10386`] | vector, im / source |
 | `Magic` | the magic opcode | pc |
 | `Host` | `raise_host_event(name)`, `script1`..`script8`; key bindings are a GH #1 keymap addition | name |
-| `Copper` — sub-kinds `Move`, `Wait`, `Halt` | `Move`: a MOVE executed (the `nextreg.write` at [`copper.cpp:209`], where `active_move_hc` is set); `Wait`: a WAIT satisfied ([`:184-197`], PC advances at `:186`); `Halt`: the first stall on the HALT form (`is_halt`, [`:86-87`]). Filter: copper-PC range and/or NR set. Latched at the site inside the post-instruction device cluster, delivered at the next boundary (≤1 instruction late, as `NextRegWrite`/`Scanline`). A MOVE also raises `NextRegWrite{source=Copper}` — both fire; `Copper.Move` is the copper-side view | reg + value (`Move`); copper pc; `vpos`, `hpos_threshold` (`Wait`); `hc_ula`, `cvc` as the Copper compares them |
-| `Dma` — sub-kinds `Start`, `Byte`, `End` | `Start`: `state_ → TRANSFERRING` (R6 enable [`dma.cpp:572`], `cmd_load` [`:677`]); `Byte`: each transferred byte inside `execute_burst` [`:699`; the I/O write `:783-786`, the memory write `:788`]; `End`: block completion at the `on_interrupt` site [`:807-813`] (an auto-restart [`:815-819`] is `End` then `Start`). Filter: src/dst range for `Byte`. A DMA byte into a watched **range** still fires `Mem{source=Dma}` (the range guard); `Dma.Byte` is the transfer-side view and needs no range. `Byte` is armed only while a `Byte` subscription exists (a flag in the engine) and delivered at the boundary of the slot the burst ran in | `Start`/`End`: src, dst, length, direction, mode, bytes; `Byte`: src_addr, dst_addr, value, is_io_src, is_io_dst; cycle |
+| `Copper` — sub-kinds `Move`, `Wait`, `Halt` | `Move`: a MOVE executed (the `nextreg.write` at [`copper.cpp:209`], where `active_move_hc` is set); `Wait`: a WAIT satisfied ([`:184-197`], PC advances at `:186`); `Halt`: the first stall on the HALT form — `is_halt()` [`copper.cpp:87`] exists but has **no caller today**; the hook is a **new branch on the bare stall path** (`// Otherwise stall`, [`:195`]) that calls it and latches on the edge (first stall only, not every cycle). Filter: copper-PC range and/or NR set. Latched at the site inside the post-instruction device cluster, delivered at the next boundary (≤1 instruction late, as `NextRegWrite`/`Scanline`). A MOVE also raises `NextRegWrite{source=Copper}` — both fire from **one** latch entry fanned out at the drain; `Copper.Move` is the copper-side view | reg + value (`Move`); copper pc; `vpos`, `hpos_threshold` (`Wait`); `hc_ula`, `cvc` as the Copper compares them |
+| `Dma` — sub-kinds `Start`, `Byte`, `End` | `Start`: **one definition, one site** — `phase_` enters `START_DMA` while `state_ == TRANSFERRING`, which is the R6 `0x87` enable [`dma.cpp:573-575`], the R3 `dma_en` path [`:423-424`] and the auto-restart [`:817`] alike (`cmd_load` [`:677`] is an address reload, not a transition); `Byte`: each transferred byte inside `execute_burst` [`:699`; the I/O write `:783-786`, the memory write `:788`]; `End`: block completion at the `on_interrupt` site [`:807-813`] (an auto-restart [`:815-819`] is `End` then `Start`). Filter: src/dst range for `Byte`. A DMA byte into a watched **range** still fires `Mem{source=Dma}` (the range guard); `Dma.Byte` is the transfer-side view and needs no range. `Byte` is armed only while a `Byte` subscription exists (a flag in the engine) and delivered at the boundary of the slot the burst ran in | `Start`/`End`: src, dst, length, direction, mode, bytes; `Byte`: src_addr, dst_addr, value, is_io_src, is_io_dst; cycle |
 
 **No-subscriber cost of the Copper/DMA kinds.** Each is one predicated branch
 on a per-engine flag (`Copper::events_armed_`, `Dma::events_armed_`,
@@ -608,24 +640,46 @@ value}>`** — every subscription that matched, transient ones included (the
 DZRP adapter's "temp beats user" rule is adapter policy over that list).
 Under `--headless` the loop owner maps `Stop` per CAP-SES-04.
 
-**Delivery point and non-perturbation.** Memory, port and NR events raised
-*during* an instruction are **latched** at the site (`{kind, addr, value,
-phys_page, pc, cycle}` into a **64-entry** ring on `DebugState`, replacing
-the single `data_bp_addr_`) and **delivered at the instruction boundary** —
-the existing `data_bp_hit()` shape [`emulator.cpp:9398`] with value and page
-added; `source` is tagged at the drain from the slot's DMA flag (today the
-local `dma_stalled_cpu_this_step` [`emulator.cpp:9687`, `:9784`], which
-becomes a member — an accessor addition). No user code runs inside
-`Mmu::write`, the CPU or a device tick; the machine is stopped when a handler
-runs; every inspection read is side-effect free. **64 suffices by
-construction**: a slot is DMA *or* CPU [`:9687-9790`], a DMA slot is capped at
-`execute_burst(16)` [`:9735`], so the worst case is 16 `Dma.Byte` + 16 writes
-+ 16 reads under a Read|Write range + a `Start`/`End` pair = 50; a CPU
-instruction is far below (one `LDIR` iteration per `execute()`). One inherited caveat, stated so "after
-commit" is not read over it: a `Stop` takes the `:9398` early return, which
-skips `tick_devices_after_instruction()`, so the stopping instruction's own
-deferred CPU NR writes stay queued until the resume — today's data-breakpoint
-behaviour, kept. Span
+**Delivery point and non-perturbation.** Memory, port, NR, Copper and DMA
+events raised *during* an instruction are **latched** at the site (`{kind,
+addr, value, prev, phys_page, pc, cycle}` into a **512-entry** ring on
+`DebugState`, replacing the single `data_bp_addr_`) and **delivered at the
+instruction boundary** — the existing `data_bp_hit()` shape
+[`emulator.cpp:9398`] with value and page added; `source` is tagged at the
+drain from the slot's DMA flag (today the local `dma_stalled_cpu_this_step`
+[`emulator.cpp:9687`, `:9784`], which becomes a member — an accessor
+addition). No user code runs inside `Mmu::write`, the CPU or a device tick;
+the machine is stopped when a handler runs; every inspection read is
+side-effect free.
+
+**Ring bound, derived (round-4 correction: the Copper was missing from the
+arithmetic).** The Copper executes **once per master cycle** for the whole
+instruction window — `tick_copper_for_master_cycles` loops
+`copper_.execute()` over `master_cycles` [`emulator.cpp:11574-11575`] — a MOVE
+takes two cycles (`move_pending_`, [`copper.cpp:161-166`]) and a satisfied
+WAIT one, so one boundary can carry `tstates × divisor` Copper latches in the
+worst case (a chain of already-satisfied WAITs). A MOVE is **one** latch
+entry, fanned out at the drain to both `Copper.Move` and
+`NextRegWrite{source=Copper}` subscriptions — never two entries. The longest
+ordinary slot is a ~23-T instruction stretched by contention to ≈45 T at
+divisor 8 ≈ 360 master cycles (the tape-trap skip, `skip_trap_cycles_`
+[`:7973`], only advances the FUSE counter and ticks no device); add the DMA
+worst case (16 `Dma.Byte` + 16 writes + 16 reads under a Read|Write range +
+`Start`/`End` = 50 — a slot is DMA *or* CPU [`:9687-9790`], `execute_burst(16)`
+[`:9735`], at most one `End`/`Start` pair per slot since the burst loop exits
+at an auto-restart) and the CPU's own handful (one `LDIR` iteration per
+`execute()`), and 512 covers every slot the emulator can produce today with
+~25 % headroom (~16 bytes an entry, 8 KB, no hot-path cost). **Overflow is
+nevertheless a specified, tested behaviour, not "unreachable":** the ring keeps
+the first N entries in order and a dropped count; the drain delivers the first
+N and marks the boundary's deliveries `overflowed{dropped}` (design-dsl logs
+it); a backend row shrinks the ring through a test hook (the
+`RewindBuffer::shrink_expected_snapshot_bytes_for_test` idiom) and drives a
+MOVE burst through it on purpose, asserting order, count and the flag. One
+inherited caveat, stated so "after commit" is not read over it: a `Stop` takes
+the `:9398` early return, which skips `tick_devices_after_instruction()`, so
+the stopping instruction's own deferred CPU NR writes stay queued until the
+resume — today's data-breakpoint behaviour, kept. Span
 invariants and cross-register checks (#279) need no new kind: entry/exit
 `Execute` (or `IntAck`) handlers over INS-01/03 — the DSL's `snap`/`unsnap`/
 `changed()` stack.
@@ -863,7 +917,7 @@ per-frontend files under `debug-subsystem/`.
   view becomes a true physical-page read/write (Q WP8, after the identity
   rows are green, with its own pinned rows; `peek/poke(Page)` bypass every
   overlay, a ROM-class page is `RefusedReadOnly` and renders unchanged) —
-  **39 used / 16 declined** (design-qt, 2026-09-27). `pump(0)` and
+  **40 used / 15 declined** (design-qt, 2026-09-27; `Rom` joined after round 4's R-3). `pump(0)` and
   the `Pause` stop policy are used by `QtApp` as the loop owner.
 - **The `render_layer` split** (INS-14): backend function, Qt keeps `QImage`,
   checkerboard, DPR, the raster line and the titles; the uniform alpha-0
@@ -898,7 +952,12 @@ per-frontend files under `debug-subsystem/`.
   `Rom{index}` (index = `SlotInfo(0).effective_page >> 1` from INS-03) for
   3.8's ROM id 0xFF — so the `Rom` space is served for DZRP;
   `CMD_ENABLE_BREAK_ON_INTERRUPT` (39) → an `IntAck` subscription with
-  `Stop`, owner = the client. No reset command exists in DZRP, and
+  `Stop`, owner = the client (served; DeZog 3.8.0-rc7 never calls its sender,
+  so only a foreign client reaches it today). `CMD_READ_BANK_MEM` bank 0xFF
+  (DeZog 3.8's single 16 KB ROM bank) reads offsets 0x0000-0x1FFF through
+  `SlotInfo(0).space`+`space_offset` and 0x2000-0x3FFF through
+  `SlotInfo(1)`'s while those slots are ROM, else derives the ROM select from
+  `paging_ports()` (7FFD b4 | 1FFD b2) → `Rom{sel}` at offset 0 / 0x2000. No reset command exists in DZRP, and
   `CMD_INIT` answers `ZXNEXT=4` unconditionally rather than reading
   `machine()`. DeZog steps by
   `CMD_CONTINUE` with up to two temp breakpoints → transient `Execute`
@@ -1026,7 +1085,7 @@ applicable to that consumer.
 | CTL-14 magic switch | S | U | U | U | D |
 | CTL-15 load | D | U | S (`smartload`) | U | D |
 | INS-01 registers get / set | S / D | S / S | S / S | S / S | S / S (§4.2a) |
-| INS-02 peek Cpu / Page / Rom; poke | S / S (Q WP8) / D; S | S / S / S (2.2.0 `READ_BANK_MEM`, ROM id 0xFF); S | S / S / U; S | S / S (monitor) / U; S | S / S / D; S (§4.2a) |
+| INS-02 peek Cpu / Page / Rom; poke | S / S (Q WP8, RAM slots) / S (Q WP8, ROM slots); S | S / S / S (2.2.0 `READ_BANK_MEM`, ROM id 0xFF via `SlotInfo.space`); S | S / S / U; S | S / S (monitor) / U; S | S / S / D; S (§4.2a) |
 | INS-03 MMU slots get / set | S / D | S / S | S / S | S / S (`monitor mmu`) | S / D (`set nextreg[0x50+s]` instead) |
 | INS-04 NextREG peek / write | S / S | S / U | S / S | S (monitor) / S (monitor) | S / S |
 | INS-05 ports | D | S | S | S (monitor, labelled perturbing) | S (`out`) |
@@ -1050,7 +1109,7 @@ applicable to that consumer.
 | EVT Port | single-address only | U | U | U | S |
 | EVT NextRegWrite | D | U | U | U | S |
 | EVT Frame / Scanline / Cycle | D | U | U | U | S |
-| EVT Reset / IntAck / Nmi / Magic / Host | D | U / S (2.2.0 `ENABLE_BREAK_ON_INTERRUPT`) / U / U / U | U | U | S / S / S / D / S |
+| EVT Reset / IntAck / Nmi / Magic / Host | D | U / S (2.2.0 `ENABLE_BREAK_ON_INTERRUPT` — served, but DeZog 3.8.0-rc7 never calls its sender, so reachable only from a foreign client today) / U / U / U | U | U | S / S / S / D / S |
 | EVT Copper {Move, Wait, Halt} | D | U | U | U | S |
 | EVT Dma {Start, Byte, End} | D | U | U | U | S |
 | EVT conditions | D | **D** (client-side) | S (translated) | D (not advertised) | S |
@@ -1181,7 +1240,7 @@ parallel agents; each gets its own independent reviewer.
 | WP | Branch (one per sub-issue) | Content | Depends on |
 |---|---|---|---|
 | **B0** headers | `gh276-headers` (its own sub-issue; everything below depends on it) | the four public headers of §10.1, compiled, reviewed, no bodies | this design's review |
-| **B** backend | `gh276-backend` (§12 Q1: a new sub-issue, or stage 1 of #278) | B1 facade + control + inspection over the existing primitives (no hot-path change), `Mmu::peek()` (F1), the frame counter (F2), `SymbolTable` move, `key_name_to_matrix` move, the accessor additions (§4: sprites/palette raw forms, `set_matrix_bit`, the DMA slot flag, `input_state`); B2 `EventTable` + 64-entry latch ring + slot masks + `on_slot_remapped` + NR/port/IntAck/Nmi/Reset/Frame/Scanline hooks (bench-gated, incl. the §11 item 3 hot-latch measurement); B3 session: clients, listeners, `pump` + `Service` registration, stop policy, `live_raster`/`attached`, the loop driver (SES-07), the reconstruct contract (CTL-12/15) and the retirement of the platform-side `BreakpointSet`/`active()` restore in `emulator_cold_boot()`; B4 input (IN-01 APPEND) / capture / bookmarks / coverage / extended `TraceEntry`, and the CLI conveniences (`--delayed-*`) re-expressed as generated subscriptions in all three loop owners, retiring `QtApp`'s and `HeadlessApp`'s private countdowns; B5 `debugger_backend_test` | B0 |
+| **B** backend | `gh276-backend` (§12 Q1: a new sub-issue, or stage 1 of #278) | B1 facade + control + inspection over the existing primitives (no hot-path change), `Mmu::peek()` (F1), the frame counter (F2), `SymbolTable` move, `key_name_to_matrix` move, the accessor additions (§4: sprites/palette raw forms, `set_matrix_bit`, the DMA slot flag, `input_state`); B2 `EventTable` + 512-entry latch ring (overflow row included) + slot masks + `on_slot_remapped` + NR/port/IntAck/Nmi/Reset/Frame/Scanline hooks (bench-gated, incl. the §11 item 3 hot-latch measurement); B3 session: clients, listeners, `pump` + `Service` registration, stop policy, `live_raster`/`attached`, the loop driver (SES-07), the reconstruct contract (CTL-12/15) and the retirement of the platform-side `BreakpointSet`/`active()` restore in `emulator_cold_boot()`; B4 input (IN-01 APPEND) / capture / bookmarks / coverage / extended `TraceEntry`, and the CLI conveniences (`--delayed-*`) re-expressed as generated subscriptions in all three loop owners, retiring `QtApp`'s and `HeadlessApp`'s private countdowns; B5 `debugger_backend_test` | B0 |
 | **T** transport | `gh276-transport` (its own package; D/Z/G wait for it) | the one non-blocking listener/`Service` over the public `esp::make_socket_listener` / `EspListener` / `EspTransport` seam, the in-memory fake `Transport` for adapter suites, `--debug-listen-address`; no protocol content | B0, B |
 | **Q** #278 | `gh278-qt` | design-qt WP0 (close the identity gaps on the current tree) → WP1 the `src/qt/` header move + `make build-matrix` (**the single owner of that move**; lands with the rest of Q, on Q's one branch) → WP2 `DebuggerManager` verbs → WP3 rewind/trace/corruption → WP4a-d panels (parallel) → WP5 memory panel → WP6 symbols/magic → WP7 reach-around grep = 0 → **WP8 Memory panel physical-page view** (`MemSpace::Page` reads and writes, owner decision §1.3 item 15; last, after the identity rows are green; its own pinned rows) | B0, B |
 | **D** #12 | `gh12-dzrp` | design-dzrp WP-1 framing over T → WP-2 session/registers/memory → {WP-3 breakpoints/continue/notify, WP-4 tier 2, WP-5 loop owners + CLI} → WP-6 validation → WP-7 docs | B0, B, T |
@@ -1240,10 +1299,14 @@ at connect (§7.4); the z88dk wiki listing (post-release PR).
 **Cannot be known without a prototype** (each names the branch that measures
 it):
 
-1. The exact `MemSpace::Rom` enumeration on 48K/128K/+3 (ROM object vs
-   `rom_in_sram_`) — B1.
-2. ~~Latch ring size~~ — resolved by derivation (§4.3): a slot is DMA or
-   CPU, a DMA slot is capped at 16 transfers, 64 entries (incl. `Dma.Byte`) suffice.
+1. ~~The exact `MemSpace::Rom` enumeration~~ — **settled from the code**
+   (INS-02): `Rom{index}` = one 16 KB ROM image; SRAM pages `2·index` /
+   `2·index+1` on a `rom_in_sram_` machine (`mmu.cpp:396-402`, `:546-547`),
+   the `Rom` object's image otherwise; `SlotInfo.space` + `space_offset`
+   carry it so no client composes it.
+2. ~~Latch ring size~~ — resolved by derivation (§4.3, corrected in round
+   4 to include the Copper's per-master-cycle cadence): 512 entries, and
+   overflow is a specified, tested path either way.
 3. **The hot-latch cost**: a range watch that hits on every write (append +
    drain + predicate + handler). Not measured — §6's armed rows were a cold-
    hit scan. Measure on B2 with `Mem[0x0000,0x3FFF] Write` over
@@ -1330,6 +1393,6 @@ with its answer.
 ---
 
 *Appendices (working notes, not normative on their own):*
-`debug-subsystem/backend.md` (the CAP contract as negotiated, with the 84-row
+`debug-subsystem/backend.md` (the CAP contract as negotiated, with the 89-row
 requirements ledger), `qt-frontend.md`, `dzrp-frontend.md`,
 `zrcp-frontend.md`, `gdb-rsp-frontend.md`, `dsl-frontend.md`.

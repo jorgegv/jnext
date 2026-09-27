@@ -5,7 +5,9 @@ the Qt, DZRP, ZRCP and GDB-RSP frontend documents. This file is the DSL's; it
 records what the language is, what it demands of the backend, where it stops,
 and the answer to "is #20 just a use case of #26?".
 
-Status: **v4**, 2026-09-27 — revised after the OWNER review (comments `;`
+Status: **v5**, 2026-09-27 — revised after review round 4
+(`scratchpad/reviews/dsl-qt-r4.md`, REJECT: R-1, R-2 mine; N-1..N-9 folded;
+Appendix E). v4 was revised after the OWNER review (comments `;`
 and `//`; MUTATION ALLOWED — the no-poke reading of "must not perturb" is
 reversed; `on copper` / `on dma` events; demo + script-suite WP; exhaustive
 user-guide chapter WP; owner answers recorded in §10). v3 was revised after review round 1
@@ -100,7 +102,10 @@ event       ::= "execute"  addr_spec
               | "copper" ( "move" [ reg_spec ] | "wait" | "halt" ) [ "at" expr [ ".." expr ] ]
                                                    #   copper-side view; `at` = copper PC range (0..1023)
               | "dma" ( "start" | "byte" [ addr_spec ] | "end" )
-                                                   #   `byte` filter = destination address range
+                                                   #   `byte` filter = destination address range;
+                                                   #   `end` here is a sub-kind, not the block terminator —
+                                                   #   the parser special-cases the token after `dma`
+                                                   #   (script_parse_test row PARSE-DMA-END)
 
 addr_spec   ::= expr [ ".." expr ] [ "page" expr ]   # inclusive 16-bit logical range, optionally
               | "page" expr [ ".." expr ]          #   qualified by / replaced with a PHYSICAL 8K page
@@ -183,13 +188,18 @@ and wrap; division by zero is a script error (§6.5).
   assert on the payload `PC`, never on the paused machine's PC. No rule body ever runs inside `Mmu::write`, `NextReg::write` or
   `PortDispatch`; that is what makes non-perturbation a property of the design.
 - Firing order: events of one instruction in access order (the backend's
-  latch ring — 64 entries since v6, sized so a full 16-byte DMA burst with a
-  Read|Write range armed never overflows); within one event, rule order in the file, then across
+  latch ring — **512** entries since backend v7, derived from the Copper's
+  per-master-cycle cadence: a 21-T `LDIR` iteration at 3.5 MHz is 168 Copper
+  cycles, ~45 contended T × divisor 8 ≈ 360 Copper latches + 50 DMA + CPU;
+  a Copper MOVE is ONE entry, fanned out at the drain to both `copper move`
+  and `nextreg` with `SOURCE == COPPER`); within one event, rule order in the file, then across
   files in `--script` order. A `stop` does not prevent later rules on the same
   event from running (they may want to log); it takes effect after all of them.
-  If the ring overflowed (a DMA burst slot can), the run logs
-  `SCRIPT: event ring overflowed at CYCLE …` once per occurrence — a script
-  cannot see the dropped events, and silence would be a lie.
+  Overflow is a SPECIFIED, tested behaviour (backend v7): the first N entries
+  are kept in order and the boundary's deliveries carry `overflowed{dropped}`;
+  the run logs `SCRIPT: event ring overflowed at CYCLE …, <dropped> events
+  dropped` once per occurrence — a script cannot see the dropped events, and
+  silence would be a lie.
 - Actions run to completion synchronously; there is no yielding.
 
 ### 2.3 Values and state access (read-only)
@@ -228,10 +238,11 @@ Event payload, valid only inside the matching rule body:
 | `PAGE` | read/write/execute | physical 8K page behind `ADDR` at the time of the access — `Mmu::get_effective_page(ADDR >> 13)`. On `execute` it is derived at delivery as `page[PC >> 13]` (the backend's Execute payload carries `pc` only). **Overlay caveat**: `Mmu::write` latches the watch before the Multiface / DivMMC / Layer 2 overlays (`mmu.h:418-450`), so a write that an overlay then captures is seen (good for 3(a)) but `PAGE` is the MMU slot's page, not the overlay's target |
 | `PORT` | io_read/io_write | full 16-bit port |
 | `REG` | nextreg | register number |
-| `SOURCE` | read/write/nextreg | one of the constants `CPU` (0), `DMA` (1), `COPPER` (2), declared in the grammar |
+| `SOURCE` | read/write/nextreg, io_read/io_write | one of the constants `CPU` (0), `DMA` (1), `COPPER` (2), declared in the grammar. A DMA byte whose destination is a port raises `io_write` with `SOURCE == DMA` (REQ-dsl-27 ACCEPTED) |
 | `PC` | all | **pre-execution PC of the instruction that caused the event** (REQ-dsl-12), not the CPU's live PC |
 | `KEY` | hostkey | 1..8 |
-| `CPC`, `HC_ULA`, `CVC` | copper move/wait/halt | Copper program counter (0..1023) and the raster position of the Copper step; `REG`/`VALUE` on `move`; `WAIT_V`, `WAIT_H` (the WAIT's vpos and hpos threshold) on `wait` |
+| `CPC`, `HC_ULA`, `CVC` | copper move/wait/halt | Copper program counter (0..1023) and the raster position of the Copper step; `REG`/`VALUE` on `move`; `WAIT_V`, `WAIT_H` (the WAIT's vpos and hpos threshold) on `wait`. **Inside a `copper` rule `HC_ULA`/`CVC` are the payload values (the step's position) and shadow the live state names** — delivery is ≤1 instruction late, so the two can differ; use `RAW_HC`/`RAW_VC` for the live beam if needed |
+| `PREV` | write | the byte before the write (`Mem{Write}.prev`, REQ-dsl-25 ACCEPTED) |
 | `SRC`, `DST`, `LEN`, `DMA_MODE`, `IO_SRC`, `IO_DST` | dma start/byte/end | transfer parameters; on `byte`: `SRC`/`DST` are the addresses of that byte, `VALUE` the byte, `IO_SRC`/`IO_DST` whether each side is a port; on `end`: `LEN` = bytes moved |
 | `REASON` | stop | why the machine paused (string) |
 
@@ -365,7 +376,7 @@ longer "no writes" but three properties every write has:
 | Delivery point of the rule | A `set`/`out` in its body is seen by |
 |---|---|
 | `execute`, `cycle`, `hostkey` (pre-instruction) | the instruction at `PC` itself — so `set PC = @skip` redirects before anything runs, `set A = 0xFF` is the value the instruction reads |
-| `write`/`read`/`io_*`/`nextreg`/`copper`/`dma`/`interrupt`/`nmi` (post-instruction boundary) | the **next** instruction; the instruction that raised the event has completed with its own effects (a `set mem[ADDR] = PREV_BYTE` after a caught write "undoes" it before anyone reads it, but the write did happen and the event was raised) |
+| `write`/`read`/`io_*`/`nextreg`/`copper`/`dma`/`interrupt`/`nmi` (post-instruction boundary) | the **next** instruction; the instruction that raised the event has completed with its own memory/port effects (a `set mem[ADDR] = PREV` after a caught write "undoes" it before anyone reads it, but the write did happen and the event was raised). **Exception**: the raising instruction's *deferred CPU NextREG write* has NOT committed yet — `flush_pending_cpu_nr_writes()` runs in `tick_devices_after_instruction` (`emulator.cpp:10221`), after the drain — so `on io_write 0x253B do set nextreg[r] = … end` (or a `Mem`/`Port` rule from the same instruction) is silently overwritten by the guest write it tried to override. To override a NextREG write, use `on nextreg`, which is delivered after the flush. |
 | `frame`, `scanline` (frame edge / line boundary) | the next instruction; a frame-edge `set` lands before the injection queue and before `tick_auto_type()` |
 
 Mutations through the debugger route **raise no events and carry no
@@ -396,13 +407,17 @@ on execute @bad_out do
 end
 
 # fault injection: corrupt the byte a DMA just wrote, to exercise the checker
-on dma byte 0x8000..0x9FFF when VALUE == 0x55 once do
+on dma byte 0x8000..0x9FFF once when VALUE == 0x55 do   ; `once` before `when`, as the grammar says
     set mem[DST] = 0xAA
 end
 
-# provoke the MMU-inconsistency guard of 3(b) on purpose (a red twin without a rebuild)
-on frame 100 once do
-    set nextreg[0x51] = 0x22               ; MMU0 is 0xFF: the guard must fire
+# provoke the MMU-inconsistency guard of 3(b) on purpose (a red twin without a rebuild).
+# RULE: an injected fault must be UPSTREAM of the guest write the guard watches,
+# never the watched write itself — a script `set nextreg[0x51]` raises no event
+# (§2.7), so it can never trip `on nextreg 0x51`. Corrupt MMU0 instead, just
+# before the demo's own `NEXTREG 0x51` executes; the GUEST write then trips it.
+on execute @page_in_level once do          ; the demo's NEXTREG 0x50 / NEXTREG 0x51 pair follows
+    set nextreg[0x50] = 0xFF               ; MMU0 := ROM; the demo's NEXTREG 0x51 = 0x23 is now inconsistent
 end
 
 # silence the AY while a DAC test runs
@@ -414,7 +429,15 @@ twin no longer needs a second build of the demo — a script can inject the
 fault into the good build. §8's fixture rows use both forms, because a
 script-injected fault proves the script, not the demo.
 
-**Interaction with rewind** (§4 wall; backend v6 §4.2a): a mutation is inside
+**Three more backend rules a mutating script meets** (backend v7 §4.2a): a
+mutation is refused with `RefusedRzx` while an RZX is recording or playing
+(the recording would no longer reproduce); the event gate and drain are off
+in `replay_mode_`, so no rule fires during a rewind replay; and an `execute`
+handler at A that sets `PC = B` bypasses a breakpoint at B for that one
+instruction (the step-off arm of GH #221 applies to the redirected PC) — a
+script that wants to stop at B after redirecting there says `stop` itself.
+
+**Interaction with rewind** (§4 wall; backend v7 §4.2a): a mutation is inside
 the machine state the next frame snapshot captures, but interpreter state
 (`once` flags, `var`s, snapshot stacks) is not, and the backend does **not**
 re-fire subscriptions during replay. So the backend records each mutation's
@@ -662,7 +685,7 @@ it or whether it is the kind of case that should reopen the plugin decision.
 | **Frame-granular input only.** `press`/`joystick` land at frame boundaries. A test needing a key change at a scanline cannot say so. | Same seam as `--delayed-keypress-frames` and the GUI keyboard (`Keyboard::queue_auto_type`); mid-frame injection would be a new Keyboard capability. | None planned; RZX is IN-granular but replays results, not input (§7.4). |
 | **No sub-instruction time.** `on cycle N` resolves to an instruction boundary. | Per-instruction core (`step_one_instruction`, `emulator.h:2255`). | None; this is the accuracy model. |
 | **One snapshot stack per name, no cross-name ordering.** ChaseTheBug's single function stack catches an exit of `f` while `g` is on top (non-LIFO interleaving, `.cs:230-234`); per-name stacks cannot see it. | Snapshot stacks are keyed by name so entries pair with their own exits without user bookkeeping. | A shared stack with a name field (`snap calls "f"` / `unsnap calls "f"` asserting the top's name) is a small v2 addition if a real script needs it. |
-| **Copper and DMA events are instruction-boundary delivered**, like every latched event: `on copper wait` fires ≤1 instruction after the WAIT was satisfied, `on dma byte` after the burst slot that moved the byte; the 64-entry ring is sized so a full burst with a range armed does not overflow; overflow remains a logged defensive flag. | Per-instruction accuracy model. | The payload carries the exact `CYCLE`/`HC_ULA`/`CVC` of the step, so what is lost is the pause position, not the measurement. |
+| **Copper and DMA events are instruction-boundary delivered**, like every latched event: `on copper wait` fires ≤1 instruction after the WAIT was satisfied, `on dma byte` after the burst slot that moved the byte; the 512-entry ring is sized for the Copper's worst case and a full DMA burst with a range armed; overflow is specified (first N kept, dropped count logged). | Per-instruction accuracy model. | The payload carries the exact `CYCLE`/`HC_ULA`/`CVC` of the step, so what is lost is the pause position, not the measurement. |
 | **No strings beyond interpolation, no arrays, no maps.** A "call trace with names" is expressible only through the fixed snapshot stack. Counting hits per address needs one `var` per address. | Smallest-language rule. | A `count[addr]` histogram builtin is the likely first request; not in v1. |
 | **No file I/O beyond the fixed actions.** No CSV of every hit. | `log` to stderr is greppable; the regression suite already works that way (`magic-port-func.sh`). | None. |
 | **No cross-run state.** | Deterministic single run. | None. |
@@ -705,6 +728,9 @@ Sent to `design-backend` as REQ-dsl-1..16. Verdict column updated on reply.
 | 21 | MUTATION: `set_register` covers F/IFF1/IFF2/IM/PC (clears HALTED); pre- vs post-instruction visibility contract; debugger write paths raise no events and carry no SOURCE; backend logs every mutation; rewind stance | §2.7 `set`/`out` | CAP-INS-01/02/04/05/10 exist; Qt panels' write routes | ACCEPTED in full (backend §4.2a): RegId covers every half incl. F/IFF1/IFF2/IM/PC, `set PC` clears halted; Execute delivery = seen by the instruction at PC, every other kind = the next instruction; no events, not CPU-attributed; `poke(Cpu)` = `Mmu::write` outside GuestExecutionScope (the Memory panel's path, overlays honoured), `poke(Page)` hits the physical page, ROM-class page `RefusedReadOnly`; backend logs `MUTATE <what> <old> -> <new> by <client>` for every client; rewind: no re-firing during replay, and `step_back`/`rewind_to_cycle` INTO a mutated span is refused (`RefusedUnavailable`; frame-boundary targets legal) |
 | 22 | COPPER events: Move {reg, value, copper_pc, hc_ula, cvc}, Wait {copper_pc, vpos, hpos threshold, hc_ula, cvc}, Halt; filter by copper PC range / reg set; armed only when subscribed | `on copper move/wait/halt` | `copper.cpp:180-195` (WAIT satisfied), `:207-209` (MOVE), `:86-87` (`is_halt`) | ACCEPTED → CAP-EVT `Copper{Move,Wait,Halt}`, copper-PC range and/or NR-set filter, latched at the site, ≤1 instruction late; `Copper.Move` and `NextRegWrite{copper}` both fire |
 | 23 | DMA events: Start {src, dst, len, mode, dir}, Byte {src, dst, value, io flags} with dst/src range filter, End {bytes}; armed only when subscribed; overflow policy for long bursts | `on dma start/byte/end` | `dma.cpp:677` (`cmd_load`), `:699` (`execute_burst`), `:785`/`:789` (io/mem write), `:812` (`on_interrupt`) | ACCEPTED → CAP-EVT `Dma{Start,Byte,End}` (Start `:572/:677`, Byte inside `execute_burst` `:783-788`, End `:807-813`; auto-restart = End then Start), Byte range filter, armed only while subscribed; the latch ring grows to 64 entries so a full 16-byte burst with a Read\|Write range armed (50 entries) never overflows — overflow stays a defensive flag |
+| 25 | `prev` byte on `Mem{Write}` | `set mem[ADDR] = PREV` (§2.7) | latch site | ACCEPTED (backend v7): `Mem{Write}.prev`, one peek on the hit path only |
+| 26 | `Copper.Halt` needs a runtime call of `is_halt` + an edge latch (no caller today, `copper.cpp:87`); `Dma.Start` = the single `state_ = TRANSFERRING` transition (`dma.cpp:423`, `:574`), not also `cmd_load :677` | `on copper halt`, `on dma start` firing once | as cited | ACCEPTED (v7): `Copper.Halt` = new branch on the bare stall path (`copper.cpp:195`) calling `is_halt()` with an edge latch; `Dma.Start` = the one transition "`phase_` enters START_DMA while `state_ == TRANSFERRING`" (covers `:573-575`, `:423-424`, auto-restart `:817`); `cmd_load` cited as a reload only |
+| 27 | `source` on `Port{Read,Write}` so a DMA byte to a port destination is attributable | `on io_write … when SOURCE == DMA` | boundary-drain DMA flag | ACCEPTED (v7): `Port{Read,Write}.source ∈ {Cpu, Dma}` |
 | 24 | `set_audio_mute_mask` logged as a mutation | `set AUDIO_MUTE` | CAP-INS-10 | ACCEPTED (logged mutation; host-side, never snapshotted) |
 | 20 | frame-edge injection queue applied BEFORE `keyboard_.tick_auto_type()` in `end_of_frame` | `--delayed-keypress-frames N ≡ on frame N do press … for 5` (§2.6) | `emulator.cpp:9592`; `headless_app.cpp:560-561` | ACCEPTED → CAP-IN ordering contract (backend.md §4.5, arch §4.5): every IN-01 append / IN-02 level set issued during frame N is applied in `end_of_frame` before `tick_auto_type()` |
 
@@ -720,7 +746,7 @@ Sent to `design-backend` as REQ-dsl-1..16. Verdict column updated on reply.
 | Deferred actions (screenshot, snapshot, press, joystick) | interpreter queues, backend applies at `end_of_frame` | the backend owns the frame boundary |
 | Exit code, `stop` policy (pause vs exit) | frontend policy (headless app vs GUI) on top of one backend "pause with reason" | §6.3 |
 
-### 5.3 Mapping against backend.md v6 — MAPPED: 35 used, 16 declined, 0 REQs open, 0 reach-arounds
+### 5.3 Mapping against backend.md v7 — MAPPED: 35 used, 16 declined, 0 REQs open, 0 reach-arounds
 
 | Backend capability | DSL use |
 |---|---|
@@ -764,6 +790,10 @@ may call without a script context:
 
 - `compile_expr(text, EventKind|None) -> std::function<bool(const Event&, const Debugger&)>` — the CAP-EVT predicate. With `None`, payload names (`ADDR VALUE PREV PAGE PORT REG SOURCE KEY REASON`) are compile-time errors, so a predicate compiled for a bare breakpoint can never read a missing payload at run time.
 - `eval_expr(text) -> int32` — one-shot evaluation over the inspection surface (ZRCP `evaluate`).
+
+The per-kind payload check covers every payload name of §2.3, including the
+Copper/DMA ones (`CPC WAIT_V WAIT_H SRC DST LEN DMA_MODE IO_SRC IO_DST`); a
+name used outside a rule of its kind is a compile-time error.
 
 The ZRCP adapter token-translates ZEsarUX's dialect (`A'`→`(AF2>>8)&0xFF`,
 `&&`→`and`, `PEEKW(x)`→`mem16[x]`, `SEGn`→`mmu[n]`) into this grammar instead
@@ -1093,6 +1123,11 @@ All headless, no GUI; scripts are the fixtures.
    §6.5 load-time error, and one row per event kind proving the rule became
    exactly one subscription with the right kind, filter, `once` and a non-null
    predicate iff `when` was written.
+   Named rows: PARSE-COMMENTS (`;`, `//`, `#`; `a / b // c` is a comment after
+   a division), PARSE-ONCE-WHEN-ORDER (`when … once` is rejected),
+   PARSE-DMA-END (`on dma end do … end`), PARSE-PAYLOAD-KIND (`CPC` outside a
+   copper rule is a compile error), PARSE-LVALUE (`set A = 1`, `set mem[x] = 1`,
+   `set 3 = 1` rejected).
 2. **`script_eval_test`**: evaluator against a fake inspection surface —
    every expression form in §2.3, `${:x2}` formatting, snapshot stack
    semantics (push/pop/depth, `changed()` per group, empty-stack error), 32-bit
@@ -1126,7 +1161,9 @@ All headless, no GUI; scripts are the fixtures.
    the `dsl_demo` NEX — with a **red twin**: the same script against a
    deliberately buggy build of the demo (a stray write, an ISR that clobbers
    HL) OR, where §2.7 allows it, the good build with the fault injected by a
-   script mutation, must exit 3 with the expected reason in the log. A row
+   script mutation **upstream of the guest write the guard watches** (a
+   script write raises no event, so it can never be the watched write
+   itself), must exit 3 with the expected reason in the log. A row
    that only has the green half is fixture-blind; a red twin injected by the
    script proves the script, one built into the demo proves the detector
    against real code — the suite has at least one of each.
@@ -1152,7 +1189,7 @@ Mutations a reviewer must run (each must turn the named row red):
 | mutation | apply a script `set mem[x]` inside `GuestExecutionScope` (so it fires `on write x`) | `script_events_test` SCRIPT-EV-MUT-NOEVENT (a rule that pokes an address it also watches must fire once, not loop) |
 | mutation | apply a `set PC` at an execute delivery AFTER the instruction instead of before | `script_events_test` SCRIPT-EV-MUT-PRE (the demo's trap instruction must NOT execute) |
 | mutation | drop the backend `MUTATE` log line | `script-mutation-func` (greps the line) |
-| mutation red twin | a script-injected fault (`set nextreg[0x51] = 0x22`) against the GOOD demo build | `script-mmu-func` second half: exit 3 with the guard's reason — proves the guard without a second build, and proves the mutation reached the register the guard reads |
+| mutation red twin | a script-injected fault UPSTREAM of the watched guest write (`set nextreg[0x50] = 0xFF` at `@page_in_level`, before the demo's own `NEXTREG 0x51`) against the GOOD demo build | `script-mmu-func` second half: exit 3 with the guard's reason — the GUEST's `NEXTREG 0x51` trips `mmu_guard`; a script `set nextreg[0x51]` could not (no event, §2.7). Mutation of the mutation: inject at the watched register instead → the row must stay GREEN, proving the no-event rule |
 | copper | deliver `on copper move` without `CPC` (or with the CPU's raster position instead of the step's `HC_ULA`) | `script-copper-func` (asserts `CPC` and the GH #181 `CVC == 96` line) |
 | dma | fire `on dma byte` only for bytes inside a Mem range subscription | `script-dma-func` (no range subscribed; the byte count must equal `LEN`) |
 | all | remove the `InspectionScope` around script reads | `script_events_test`: a `read` watchpoint on an address the script peeks must NOT fire |
@@ -1181,7 +1218,7 @@ on its own branch first (`gh26-dsl` rebases onto it).
 | WP4 | CLI rows (`--script`, `--script-key`, `--map`) in `cli_options.h`, man page `jnext.1.md` OPTIONS + a "Scripting" section, `make docs-man`, headless and SDL exit-code wiring | WP3 |
 | WP5 | GUI: Debug menu items, Script tab, Alt+1..8 routing per §6.4 (incl. the `host_hotkey_test` / `debugger_keymap_test` rows) — design-qt owns; the SDL `host_key_latch` twin + row is this branch's | WP3 |
 | WP6 | Recorder (`src/script/recorder.*`), Debug menu "Record Script…", capture hotkey, header emission (§7.2); converts the two parked DAPR rows | WP3, WP5 |
-| WP7 | **The DSL demo and script suite** (owner requirement). `demo/dsl_demo/` — ONE NEX built with z88dk like the other demos, exercising in one program: writes to a data area and (in its buggy build) a stray write into code, NextREG writes incl. MMU0/MMU1 paging, an IM2 interrupt handler with a (buggy-build) register clobber, a Copper list with a `WAIT`/`MOVE` palette split, a DMA sprite-pattern upload, and a keyboard poll that latches the `FRAME` of the first key seen; `--map` output shipped next to it. `test/scripts/dsl/` — one script per feature: `range_watch.jds`, `value_predicate.jds`, `nextreg.jds`, `span_invariants.jds`, `copper.jds`, `dma.jds`, `mutation.jds`, `record_replay.jds` (+ the recorder's emitted twin), each with a header comment stating the exact command line, the expected exit code and the expected log line — runnable by hand and doubling as the ten `script-*-func` rows (§8), `functional_tests.conf` `# expect:` count | WP4 |
+| WP7 | **The DSL demo and script suite** (owner requirement). `demo/dsl_demo/` — ONE NEX built with z88dk like the other demos, exercising in one program: writes to a data area and (in its buggy build) a stray write into code, NextREG writes incl. MMU0/MMU1 paging, an IM2 interrupt handler with a (buggy-build) register clobber, a Copper list with a `WAIT`/`MOVE` palette split, a DMA sprite-pattern upload, and a keyboard poll that latches the `FRAME` of the first key seen; `--map` output shipped next to it. `test/scripts/dsl/` — one script per feature: `range_watch.jds`, `value_predicate.jds`, `nextreg.jds`, `span_invariants.jds`, `copper.jds`, `dma.jds`, `mutation.jds`, `record_replay.jds` (+ the recorder's emitted twin), each with a header comment stating the exact command line, the expected exit code and the expected log line — runnable by hand. Harness contract (N-9): each row is a thin `test/00regression/scripts/script-<feature>-func.sh` wrapper (the driver refuses a declared row with no script) that runs `$JNEXT --headless --script test/scripts/dsl/<feature>.jds …` and asserts the exit code + log line; `dsl_demo.nex`, its buggy twin `dsl_demo_buggy.nex` and `dsl_demo.map` are committed under `test/00regression/nex/` like every other fixture. Scripts and rows are 1:1 — ten of each: `range_watch`, `value_predicate`, `nextreg`, `span_invariants`, `copper`, `dma`, `mutation`, `hostkey` (driven with `--script-key`), `replay_keyb` (the recorder's emitted script, committed) and `replay_edge`; `functional_tests.conf` `# expect:` count +10 | WP4 |
 | WP8a | **User-guide chapter for the Debug DSL** under `src/doc/user-guide` (owner: "the most powerful feature of jnext"), EXHAUSTIVE: the language reference (every event kind with its payload, every condition form, every action, every builtin and state accessor from §2.3, every mutation verb with its visibility rule, comments, literals, precedence), the `dsl_demo` scripts walked through one by one with their output, record/replay end to end (record in the GUI, replay headless, what "inexact" means), headless/CI usage (`--script`, `--script-key`, `--map`, exit codes 0/1/3, the watchdog flag), and the GUI (Script tab, Alt+1..8). Re-rendered with `make docs-userguide` and committed in the same change — `docs-check` (a prerequisite of `make unit-test` and `make regression`) fails otherwise. The chapter is written against the RUNNING product, per the project rule that found the man-page defects. | WP4-WP7 |
 | WP8b | Developer guide chapter (`src/doc/developer-guide`, `make docs-devguide` + `docs-devguide-check`); man page "Scripting" section; FEATURES.md | WP4-WP7 |
 
@@ -1274,6 +1311,11 @@ From `iPlugin.cs` (`eAccess`) and `iCSpect.cs`:
   so ZRCP conditions and `evaluate` translate into this grammar rather than a
   second parser: ACCEPTED, §5.4; spellings confirmed to it (AF2/BC2/DE2/HL2,
   `and/or/not`, `mem[]/mem16[]`, `mmu[]/page[]`, no `rom_bank()`).
+- 2026-09-27 (review round 4): REQ-dsl-25/26/27 ACCEPTED (backend v7);
+  adopted the 512-entry ring with specified overflow (dropped count logged),
+  MOVE as one latch entry fanned out at the drain, and the three §4.2a rules
+  (RefusedRzx, no firing in replay, PC redirect bypasses a breakpoint at B for
+  one instruction). v7 confirmed: 35 / 16 / 0 / 0.
 - 2026-09-27 (owner review): mutation allowed (§2.7), comments `;`/`//`,
   `on copper`/`on dma`, WP7 demo + script suite, WP8a user-guide chapter,
   owner answers in §10. REQ-dsl-21..24 ACCEPTED by design-backend (its v6,
@@ -1348,3 +1390,20 @@ in §2.4 as the backend's pre-increment tag (backend CAP-INS-07 updated on its
 side); N3-2 — verified (`host_key_latch.h:431`; `emulator.cpp:9284-9288`
 guard) and folded into §7.2 item 4: recording while paused mid-frame is
 inexact, the recorder warns.
+
+## Appendix E — Review round 4 dispositions (2026-09-27, `scratchpad/reviews/dsl-qt-r4.md`)
+
+| Finding | Verified | Disposition |
+|---|---|---|
+| R-1 script-injected red twin cannot trip an event guard | §2.7 / REQ-21(c): debugger-route writes raise no events | FIXED: rule stated ("inject UPSTREAM of the guest write the guard watches, never the watched write"); example 5 and the §8 row now corrupt MMU0 (`set nextreg[0x50] = 0xFF` at `@page_in_level`) so the demo's own `NEXTREG 0x51` trips `mmu_guard`; the row also pins that injecting at the watched register stays green |
+| R-2 example 4 violates `once`-before-`when` | §2.1 | FIXED: reordered; grammar unchanged (one order); `script_parse_test` row PARSE-ONCE-WHEN-ORDER rejects the other order |
+| N-1 deferred CPU NR write commits after the drain | `emulator.cpp:10221` | FIXED: exception stated in the §2.7 visibility table; `on nextreg` is the override point |
+| N-2 `PREV_BYTE` does not exist | — | FIXED: REQ-dsl-25 (`prev` on `Mem{Write}`) ACCEPTED (backend v7) |
+| N-4 new payload names in `compile_expr`; `HC_ULA`/`CVC` shadowing on copper events | — | FIXED (§2.3, §5.4) |
+| N-5 `on dma end` vs the `end` terminator | — | FIXED: parser special case + row PARSE-DMA-END (§2.1) |
+| N-6 `is_halt` has no runtime caller; two `Start` sites | `copper.cpp:87` only definition; `dma.cpp:423`, `:574` | FIXED: REQ-dsl-26 ACCEPTED (v7: Halt branch on the stall path with an edge latch; Start = the single START_DMA-while-TRANSFERRING transition) |
+| N-7 DMA byte to a port has no `source` | — | FIXED: REQ-dsl-27 ACCEPTED (v7: `Port{Read,Write}.source`) |
+| N-9 rows are `.sh` wrappers, fixtures under `nex/`, 1:1 script list | `functional_tests.conf` contract; `scripts/magic-bp-func.sh` | FIXED (WP7: ten wrappers, ten scripts incl. `hostkey` and the two replay ones, fixtures + `.map` under `test/00regression/nex/`) |
+| N-3, N-8, N-10, N-11 | confirmations / Qt-side | no change here |
+
+CONTESTED: none.

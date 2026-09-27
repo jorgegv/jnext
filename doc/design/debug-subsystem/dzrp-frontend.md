@@ -44,6 +44,19 @@
 >   subset-driven remotes (watchpoints and bookmarks become DeZog-reachable).
 >   Owner answers Q3/Q5/Q6/Q8 recorded (§10). Served 30 / declined 5 +
 >   unsupported 3 / 0 reach-arounds.
+> - v1.5 (2026-09-27, round-4 review `protocols-r4.md`, verdict REJECT):
+>   R-1 — bank 0xFF reads now use the backend's settled `Rom{index}` (a 16 KB
+>   ROM image 0..3; SRAM pages 2i/2i+1 on the Next) through `SlotInfo.space` +
+>   `space_offset` (REQ-qt-31); the "no new capability" claim withdrawn and
+>   REQ-dzrp-12 filed and ACCEPTED.
+>   R-2 — `CMD_ENABLE_BREAK_ON_INTERRUPT` is advertised and served but
+>   reachable today only from a foreign client (rc7 never calls its sender);
+>   V-BRKINT marked not executable against rc7. N-1..N-7 folded: ROM index
+>   only while slot 0 is ROM (else paging-derived or refused), V-BANKMEM says
+>   `remoteType: dzrp` and adds an out-of-page offset, counts "nine", §7.1
+>   heading covers both builds, §10 lists Q2 and Q4 as the open items, row 24
+>   spells the 7 advertised bytes and why clearing 5/12 is safe, DeZog's
+>   swapped state-gating quirk noted.
 
 Every claim below carries a `file:line` citation. Sources and their versions:
 
@@ -277,10 +290,10 @@ CAP ids are `backend.md` v1.
 | 21 | `CMD_WRITE_PORT` | load (0x7FFD), console | T1 | CAP-INS-05 | A real OUT. Same note. |
 | 22 | `CMD_EXEC_ASM` | console | UNS (deferred) | — | "Executed in the debugger context … does not change anything in the debugged program" (spec:702) needs a scratch execution context jnext does not have. Reply seq only + warn log; DeZog's console prints `error: undefined` — visible, not silent. Reconsider only if a client other than the console asks. |
 | 23 | `CMD_INTERRUPT_ON_OFF` | load | T1 | CAP-INS-01 | IFF1 = IFF2 = flag (spec:697-708; sent on every .sna/.z80 load, remote:1649,1705; up `:1700,1759`). |
-| 24 | `CMD_GET_SUPPORTED_COMMANDS` | dzrp, cspect, zxnext (3.8, right after `INIT`) | T1 | — (adapter-only) | 2.2.0, MUST (spec:710-731). Reply: 7 bytes LE, bit *n* = command *n* served. **Set:** 1 2 3 4 6 7 8 9 10 11 15 16 17 18 19 20 21 23 24 25 26 39 40 41 42 43 50 51 (28 bits). **Clear:** 5 and 12 (removed in 2.2.0, still served for older clients), 13 14 22 (unsupported). DeZog turns every clear bit into a client-side thrower (up `:147-160`), so an unsupported feature fails with a named error instead of a timeout — this is the 2.2 form of "reported, never silent". The pairs 40/41, 42/43, 50/51 are advertised together (up `:209-216` refuses an inconsistent field). |
-| 25 | `CMD_READ_BANK_MEM` | dzrp, cspect (3.8: bank-qualified memory views, `-md … bank=`) | T1 | CAP-INS-02 `Page{bank}` peek; `Rom{}` for 0xFF | Cmd: bank, offset u16, size u16 (spec:735-754; DeZog splits 64K into 2×32K, up `:853-875`). bank 0..223 → `peek(Page{bank}, offset, size)`; **offset + size must stay inside 8 KB** — bytes past the page are not served (reply the bytes that fit; a wholly out-of-range request gets an empty reply + warn). bank 0xFF (3.8's ROM id, both slots) → the 16 KB ROM image currently mapped at 0x0000-0x3FFF via CAP-INS-02 `Rom{index}` with `index = SlotInfo(0).effective_page >> 1` (CAP-INS-03), offset 0..0x3FFF (§5.2 — assumption V-BANKMEM verifies). |
+| 24 | `CMD_GET_SUPPORTED_COMMANDS` | dzrp, cspect, zxnext (3.8, right after `INIT`) | T1 | — (adapter-only) | 2.2.0, MUST (spec:710-731). Reply: 7 bytes LE, bit *n* = command *n* served. **Set:** 1 2 3 4 6 7 8 9 10 11 15 16 17 18 19 20 21 23 24 25 26 39 40 41 42 43 50 51 (28 bits) — **on the wire: `DE 8F BF 07 80 0F 0C`** (the unit row's expected bytes). **Clear:** 5 and 12 (removed in 2.2.0, still served for older clients), 13 14 22 (unsupported). Clearing 5/12 is safe because 3.8's `DZRP` enum no longer contains them (up `dzrpremote.ts:41,48` commented out), so `disableUnsupportedCommands` (up `:147-160`, which throws "Methode … does not exist" for an enum entry without a sender) never iterates them (N-6). DeZog turns every other clear bit into a client-side thrower, so an unsupported feature fails with a named error instead of a timeout — this is the 2.2 form of "reported, never silent". The pairs 40/41, 42/43, 50/51 are advertised together (up `:209-216` refuses an inconsistent field). DeZog's own gating of `-state` is swapped (up `:197-206`: `stateSave` disabled when 51 is clear, `stateRestore` when 50 is) — harmless here since both are set (N-7). |
+| 25 | `CMD_READ_BANK_MEM` | dzrp, cspect (3.8: bank-qualified memory views, `-md … bank=`) | T1 | CAP-INS-02 `Page{bank}` peek; CAP-INS-03 `SlotInfo.space` → CAP-INS-02 `Rom{index}` for 0xFF | Cmd: bank, offset u16, size u16 (spec:735-754; DeZog splits 64K into 2×32K, up `:853-875`). bank 0..223 → `peek(Page{bank}, offset, size)`; **offset + size must stay inside 8 KB** — bytes past the page are not served (reply the bytes that fit; a wholly out-of-range request gets an empty reply + warn). bank 0xFF (3.8's ROM id, one 16 KB bank spanning both slots — `zxnextmemorymodels.ts:64-104`, `bankSize: 0x4000`, slot 1 `bankOffset: 0x2000`) → offset 0x0000-0x1FFF is read through `SlotInfo(0).space`, 0x2000-0x3FFF through `SlotInfo(1).space` (settled by REQ-dzrp-12 / REQ-qt-31: `Rom{index}` names a **16 KB ROM image** 0..3, addresses 0..0x3FFF, read-only — on a ROM-in-SRAM machine SRAM pages 2·index / 2·index+1; a ROM slot's `SlotInfo.space` is `Rom{effective_page >> 1}` with `space_offset = (effective_page & 1)·0x2000` selecting its 8 KB half, so the adapter reads `peek(space, space_offset + (offset & 0x1FFF), n)` and composes nothing itself), **only while that slot `is_rom`**; when RAM is paged at 0x0000 (NR 0x50 ≠ 0xFF, or port 0xEFF7 bit 3, `mmu.cpp:536-538`) the ROM select `sel` is derived from CAP-INS-03 `paging_ports()` (7FFD b4 \| 1FFD b2) and the read is `peek(Rom{sel}, offset, n)`; if even that is unavailable the reply is empty + warn (N-1). |
 | 26 | `CMD_WRITE_BANK_MEM` | load (3.8), dzrp console | T1 | CAP-INS-02 `Page{bank}` poke | Cmd: bank, offset u16, data (spec:756-775). Same range rule; ROM bank → nothing written, warn log (the command has no error field, unlike the removed `WRITE_BANK`). Loaders send offset 0 with 8192 bytes (up `dzrpremote.ts:1660-1661`). |
-| 39 | `CMD_ENABLE_BREAK_ON_INTERRUPT` | dzrp, cspect (3.8, when the user enables "break on interrupt"; `supportsBreakOnInterrupt` follows bit 39, up `:194`) | T1 | CAP-EVT `IntAck` subscription, `Stop`, owner=client | 2.2.0 (spec:776-789). 1 → subscribe `IntAck{Stop}` (the accepted-maskable-interrupt seam, `backend.md` §4.3, `emulator.cpp:1114`); 0 → unsubscribe. NMI is not an "interrupt" here (spec wording; zsim's `BREAK_INTERRUPT` is the maskable one). Stop → `NTF_PAUSE` reason 255, address PC, string `"Break on interrupt."` (§3.3). |
+| 39 | `CMD_ENABLE_BREAK_ON_INTERRUPT` | **none in 3.8.0-rc7** — the sender `sendDzrpCmdEnableBreakOnInterrupt` (up `dzrptransportremote.ts:1132-1135`) has no caller; the UI (`exceptionbreakpoints.ts:86-88, 299-301`) calls `Remote.enableBreakOnInterrupt`, which no DZRP class overrides and which returns `false` ("Only supported by zsim", `remotebase.ts:1115-1117`), so enabling the option prints "Break on interrupt: disabled." and puts nothing on the wire. Reachable today only from a foreign client (`cspect_dzrp.py`) | T1 | CAP-EVT `IntAck` subscription, `Stop`, owner=client | 2.2.0 (spec:776-789). Served and **advertised** (bit 39): the spec defines it, a later DeZog will wire it, and advertising costs only that 3.8 shows the "Break on Interrupt" exception option (`funcSupported`, up `:194`) — which then does nothing, DeZog's defect, not ours. 1 → subscribe `IntAck{Stop}` (the accepted-maskable-interrupt seam, `backend.md` §4.3, `emulator.cpp:1114`); 0 → unsubscribe. NMI is not an "interrupt" here. Stop → `NTF_PAUSE` reason 255, address PC, string `"Break on interrupt."` (§3.3). No DeZog-coverage claim in the man page (R-2). |
 | 40 | `CMD_ADD_BREAKPOINT` | cspect, dzrp | T1 | CAP-EVT Execute[a,a] Stop, owner=client, **no predicate** | §3.1. Cmd: addr u16, bank+1, condition\0 (spec:738-743). The condition string is **ignored** (decision 2). Reply u16 id; 0 = refused (spec:750; DeZog marks the bp unverified, remote:1378-1379). |
 | 41 | `CMD_REMOVE_BREAKPOINT` | cspect | T1 | CAP-EVT unsubscribe | By id. Unknown id → seq-only reply + warn. |
 | 42 | `CMD_ADD_WATCHPOINT` | none released (F3) | T2 | CAP-EVT MemRead/MemWrite [lo, lo+size-1] Stop | Cmd: addr, bank+1, size u16, access bit0 read / bit1 write (spec:771-777). Ranges are what the backend's #279 work adds (backend §4.3/§8); the old per-address `add_watchpoint` would have needed `size` entries scanned per access. Bank: §5.4. Reply err: 0 ok, 1 refused (size 0, both access bits clear, or wraps past 0xFFFF — "wrap around is ignored" by DeZog too, remote:669). |
@@ -310,7 +323,9 @@ not one per byte — so a DeZog `load` leaves a readable trace in jnext's log
 23, 40, 41 (5/12/23 only with a `launch.json` `load`); rows 42/43/50/51 only
 from a non-DeZog client (F3). DeZog 3.8 — everything advertised in row 24,
 including 42/43/50/51 (F3) and the new 24/25/26/39; never 5/12 (removed). §7
-validates each group against the client that actually sends it.
+validates each group against the client that actually sends it. The man page
+claims DeZog coverage only for what a released DeZog sends: never for row 39
+(R-2), and "DeZog 3.8 or later" for 42/43/50/51.
 
 ---
 
@@ -581,13 +596,22 @@ does jnext.
 DZRP 8K bank N = MMU page N as NR 0x50-0x57 spell it — for `WRITE_BANK`,
 `READ/WRITE_BANK_MEM` (offset within the 8 KB page; the spec's `offset u16`
 allows more, jnext serves only what lies inside the page) and long addresses.
-Bank **0xFF** in `READ_BANK_MEM` (3.8's ROM id for both slots, F1) is served
-as the 16 KB ROM image currently mapped at 0x0000-0x3FFF (CAP-INS-02
-`Rom{index}`, index from `SlotInfo(0).effective_page >> 1`, CAP-INS-03), with
-offset 0..0x3FFF — an ASSUMPTION about which ROM a bank-qualified DeZog memory
-view means, pinned by V-BANKMEM (§7.1) against the real 3.8 client and
-revisited if it reads the other half. `WRITE_BANK_MEM` to 0xFE/0xFF writes
-nothing (warn log). jnext's *physical*
+Bank **0xFF** in `READ_BANK_MEM` is DeZog 3.8's one 16 KB ROM bank (F1):
+offset 0x0000-0x1FFF is the ROM half in slot 0, 0x2000-0x3FFF the half in
+slot 1 (`zxnextmemorymodels.ts:64-104`). Each half is read through the
+`MemSpace` the backend reports for that slot — CAP-INS-03 `SlotInfo.space` +
+`space_offset`: for a ROM slot `Rom{effective_page >> 1}` and
+`(effective_page & 1)·0x2000`, where `Rom{index}` is a **16 KB ROM image**
+(0..3, addresses 0..0x3FFF, read-only) that on a ROM-in-SRAM machine is SRAM
+pages 2·index / 2·index+1 — outside `Page{}`'s NR number space
+(`mmu.cpp:396-402, 546-547`; `emulator.cpp:6829` `set_rom_in_sram(true)`) —
+so the adapter composes no index of its own (R-1; REQ-dzrp-12 ACCEPTED, the
+same rule REQ-qt-31 settled). The half is served only while that slot
+`is_rom`; with RAM paged there the ROM select comes from `paging_ports()`
+(7FFD bit 4, 1FFD bit 2 → `Rom{sel}` at the DZRP offset), else empty + warn
+(N-1). Which ROM a bank-qualified DeZog view *means* is pinned by V-BANKMEM
+(§7.1). `WRITE_BANK_MEM` to 0xFE/0xFF writes nothing (warn log;
+`poke(Rom)` is `RefusedReadOnly`). jnext's *physical*
 store index differs (`to_sram_page` adds 0x20 in Next mode, `mmu.h:1387-1390`;
 MMU page 0x0E is a dedicated BRAM, `mmu.h:1392-1401`). The adapter never
 computes that: `MemSpace::Page{N}` is indexed by MMU page and the backend
@@ -691,7 +715,7 @@ After a successful restore the machine is at a frame boundary, paused.
 
 Three layers, each naming what it proves.
 
-### 7.1 Against the real client — DeZog 3.7.4 in VS Code (`~/.vscode/extensions/maziac.dezog-3.7.4`)
+### 7.1 Against the real client — DeZog 3.7.4 (marketplace) and 3.8 (upstream `main`) in VS Code
 
 Two client builds: the marketplace **3.7.4** (`~/.vscode/extensions/maziac.dezog-3.7.4`)
 with `"remoteType": "cspect", "cspect": {"port": 11000}`, and **3.8** built
@@ -707,8 +731,8 @@ protocol document, result recorded with the DeZog version:
 |---|---|---|
 | V-INIT | Connect (3.7.4 `cspect`; 3.8 `dzrp` and `cspect`); VS Code shows *stopped/entry*; Registers pane populated; MMU slots shown; 3.8: the DeZog log shows no "Unsupported command" line for anything jnext advertises | rows 1, 3, 24; F1, F4 |
 | V-SUPP | 3.8: `-dbg cmd_exec_asm 0` and a `.p` load → named "not supported by the remote" errors, no timeout; 3.7.4: `-state save` refused client-side as before | row 24; bits 13/14/22 clear |
-| V-BANKMEM | 3.8: memory view with `bank=<n>` on a bank not currently mapped shows that bank; `bank=255` shows the mapped ROM — record which 8 KB half it reads at offset 0 (the §5.2 assumption) | rows 25/26 |
-| V-BRKINT | 3.8: enable break-on-interrupt, Continue → stops at the ISR entry with "Break on interrupt."; disable → runs through | row 39 |
+| V-BANKMEM | 3.8 with **`remoteType: "dzrp"`** (with `cspect`, `CSpectRemote.sendDzrpCmdReadBankMem` turns a bank-0xFF read into a plain `READ_MEM` whenever the ROM is paged in, up `cspectremote.ts:23-35`, so it never exercises row 25's ROM path — N-2): memory view `-md <addr> bank=<n>` on a bank not currently mapped shows that bank; `bank=255` at 0x0000 and at 0x2000 shows the two ROM halves; then `-md 0x3000 bank=<n>` for an 8 KB bank — DeZog passes the typed address as the offset unbounded (`memorycommands.ts:218`), so this hits the "serve what fits, else empty + warn" rule; record what the view displays (N-3). Repeat `bank=255` with RAM paged at 0x0000 (port 0xEFF7 bit 3) to exercise the paging-derived path | rows 25/26; N-1..N-3 |
+| V-BRKINT | **Not executable against 3.8.0-rc7** (R-2: no code path sends 39; enabling the option prints "Break on interrupt: disabled."). Record that outcome as the row's result and rely on `dzrp-brkint-func` (§7.2) for the coverage; re-run when a DeZog release wires the sender | row 39 |
 | V-WP | 3.8: WPMEM watchpoint on a variable, Continue → stops with the write address; 3.7.4: not reachable (F3) | rows 42/43 |
 | V-BP | Set an editor breakpoint from the `.map`, Continue, hits; Continue again, hits again (GH #221 path); remove, does not hit | rows 40, 41, 6; §3.1 |
 | V-BANK | Breakpoint in a banked page, hit only when that bank is mapped | §3.1 long addresses, REQ-dzrp-7 |
@@ -799,6 +823,7 @@ Status is updated in place when the backend answers.
 | 9 | (needs-prototype) `pump` reports "remote attached and paused" so the loop owner can tick faster while paused | with the drain a step is ≈1 tick + ≤10 ms; the cadence change would remove the tick; decide on V-LAT measured in the drained configuration | 6 | **NEEDS-PROTOTYPE** (API accepted) — `pump()` returns `ServiceHint{remote_attached, paused}`; the loop owner MAY shorten its cadence while paused with a remote attached (headless poll ≤2 ms; Qt/SDL re-arm the tick timer at ~2 ms). Decided on V-LAT (§7.1) against real DeZog step-out loops, drain on |
 | 10 | `at_frame_boundary()` query + `save_state_bytes(RefuseMidFrame)` | F9: DeZog does not refresh registers after READ_STATE (remote:1749-1756) | 50 | **ACCEPTED** — `at_frame_boundary()` (= `!frame_in_progress()`, `emulator.h:191`); `save_state_bytes(Mode::AdvanceToBoundary \| Mode::RefuseMidFrame)` → `Result::NotAtFrameBoundary`; DZRP uses `RefuseMidFrame` and answers zero-length. v1.2: the bytes stay in the backend's CAP-CAP-03 map; the wire carries a token (§6) |
 | 11 | `Mem` filter with an optional physical-page qualifier AND-ed with the logical range (as Execute's `page`), so a bank-qualified watch fires only for the named bank | DZRP `CMD_ADD_WATCHPOINT` carries `bank+1` (spec:771-777); v3's `Mem` filter was range OR page-set (`backend.md` §4.3) | 42 | **ACCEPTED** (filed after review N-4) — `Mem{lo, hi, page?}`, same shape and cost placement as `Execute.page`; no auto-continue needed |
+| 12 | `Rom{index}` defined on a `rom_in_sram_` machine (Next), read-only, plus a `SlotInfo` field that tells a client which space (and offset) reads a ROM slot, so no client derives the index itself (the same gap REQ-qt-31 closes) | round-4 review R-1: v6 text defined `Rom` "for machines whose ROM is not in SRAM", while on `--machine next` the ROM IS in SRAM (`emulator.cpp:6829`) and `Page{}` cannot reach SRAM pages 0-7 (`mmu.h:1387-1390`) — 3.8's `READ_BANK_MEM 0xFF` had no space to land in | 25 | **ACCEPTED** (verified `emulator.cpp:6829`, `mmu.cpp:396-402, 546-547`) — `Rom{index}` = a 16 KB ROM image 0..3 (addresses 0..0x3FFF) uniformly: SRAM pages 2·index/2·index+1 on a ROM-in-SRAM machine, the `Rom` object's image on 48K/128K/+3; `SlotInfo` gains `space` + `space_offset` (RAM → `Page{nr_page}`, 0; ROM → `Rom{effective_page >> 1}`, `(effective_page & 1)·0x2000`); matrix DZRP `Rom = S` |
 
 Not REQs, recorded: `run()` refusal → NTF 255 (§3.2); `pause()` from `pump` is
 at a frame boundary by construction (§4.2); GUI resume cannot be told to DeZog
@@ -809,9 +834,10 @@ adapter-side (§5.4).
 `LOOPBACK` and `GET_SUPPORTED_COMMANDS` are adapter-only; rows 5/12 legacy),
 5 declined (condition string; reverse — no wire verb; step verbs CTL-03..08;
 IO watchpoints; `NTF_LOG`), 3 unsupported-reported (13, 14, 22), 0 REQs open
-(10 accepted, 1 needs-prototype; 2.2.0 needed no new capability — rows 25/26
-ride CAP-INS-02 `Page`/`Rom`, row 39 rides the `IntAck` kind), 0
-reach-arounds.**
+(11 accepted incl. **REQ-dzrp-12**, filed after round 4 to pin `Rom{index}`
+on a ROM-in-SRAM machine; 1 needs-prototype — rows 25/26 ride CAP-INS-02
+`Page`/`Rom` via CAP-INS-03 `SlotInfo.space`/`space_offset`, row 39 rides the
+`IntAck` kind), 0 reach-arounds.**
 Capability-matrix corrections sent to design-backend (review N-7): the DZRP
 cells for CAP-CTL-12 (reset — no DZRP command) and CAP-INS-19 (`machine()` —
 §5.1 always answers ZXNEXT and never reads it) are **not used**; the DZRP cell
@@ -856,14 +882,12 @@ is now DECIDED and the nine functional rows stand; a remote pause **does**
 open the Qt debugger window — Q1 below answered *yes*, no Qt change;
 subscriptions and a pause die with the client — §4.1's detach rule stands;
 ports are explicit, off unless given — Q3 below answered as designed. DZRP
-version = 2.2.0 (F1). The only genuinely open one is Q2.
+version = 2.2.0 (F1). **Open for the owner: Q2 and Q4** below; Q1 and Q3 are
+kept only as the record of what was asked and are marked answered.
 
-1. **Q1 — Should a remote (DZRP) pause open the local Qt debugger window?**
-   Today's GH #219 path opens it for any pause with the window closed
-   (`debugger_manager.cpp:682-693`). Convenient for a developer using both;
-   surprising for a headless-minded GUI session. Default in this design: yes
-   (no change to the Qt path); the alternative is a one-line `by`-check in the
-   Qt adapter.
+1. **Q1 — ANSWERED (owner, 2026-09-27: yes).** A remote (DZRP) pause opens
+   the local Qt debugger window through the unchanged GH #219 path
+   (`debugger_manager.cpp:682-693`). No Qt change.
 2. **Q2 — `CMD_READ_STATE` mid-frame: refuse (this design) or advance (the GUI
    snapshot rule)?** Refusal is spec-sanctioned and safe for DeZog (F9) — but
    **invisible to a DeZog user** (R-1): DeZog shows nothing, writes an empty
@@ -875,12 +899,13 @@ version = 2.2.0 (F1). The only genuinely open one is Q2.
    console-visible line in jnext; DeZog itself has no channel for it. The
    design keeps refusal (nothing silently wrong, only silently missing); the
    owner may prefer the advance for usability.
-3. **Q3 — Port number policy.** No default (explicit `--dzrp-port`), 11000
-   documented as DeZog's `cspect` default. An alternative is defaulting to
-   11000 when `--dzrp-port` is given without a value, which the option table
-   cannot express (fixed arity). Keep explicit?
-4. **Q4 — `cspect_dzrp.py` fixes** (REVIEW.md H1/H2/H3) as part of #12's
-   harness work, or separately first?
+3. **Q3 — ANSWERED (owner, 2026-09-27: ports explicit, off unless given).**
+   No default for `--dzrp-port`; DeZog's own defaults (11000 `cspect`, 14000
+   `dzrp`) are documented, not assumed.
+4. **Q4 — OPEN: `cspect_dzrp.py` fixes** (REVIEW.md H1/H2/H3 — the stale
+   `PAUSE`-notification race and the two lock gaps) as part of #12's harness
+   work (WP-6), or as a separate tools change landed first? WP-6 assumes
+   "inside #12"; a separate landing shortens #12's review but adds a bump.
 
 ---
 
@@ -893,7 +918,7 @@ version = 2.2.0 (F1). The only genuinely open one is Q2.
 | WP-3 breakpoints, continue, notify | rows 6, 7 (NTF only when it stopped something), 39 (`IntAck`), 40, 41, `NTF_PAUSE`, temp-first rule, bank byte, exactly-once | REQ-1/2/3/7/8 | same | F7/F8 rows; step-off (GH #221) through `run()`; post-frame flush timing row |
 | WP-4 tier 2 | watchpoints (42/43, reported with bank, no filtering), state (50/51 over the CAP-CAP-03 map with the `JNXB` token; payload validated before any backend call), `WRITE_BANK` (5), sprites (16-19) | REQ-1/4/5/10/11, backend range watches (#279 work) | same | edge rows both sides of a range; `READ_STATE` refusal; empty/garbage/unissued `WRITE_STATE` → no latch; bank-7 BRAM routing |
 | WP-5 loop owners + CLI | `pump` calls in `frame_sequencer`, SDL loop, headless loop (paused branch: no `run_frame`, no frame-countdown decrement, `pump(wait)`); `--dzrp-port`, `--debug-listen-address` rows + `main.cpp` cases + `EmulatorConfig`; man page OPTIONS + a DZRP section in `doc/man/jnext.1.md` (`make docs-man`), user guide chapter 6 subsection (`make docs-userguide`) | WP-1/2 | `src/platform/*`, `src/gui/qt_app.cpp`, `src/core/cli_options.h`, `src/main.cpp`, `doc/man/jnext.1.md` | `make cli-check`, `docs-check`; headless paused loop does not spin (CPU time row) |
-| WP-6 validation | `cspect_dzrp.py` extensions + REVIEW.md H1 fix; the eight functional rows (§7.2) + `expect:` bump; the DeZog manual protocol (§7.1) executed and recorded in `doc/testing/DZRP-VALIDATION.md` with the DeZog version and V-LAT numbers | WP-1..5 | `tools/cspect_dzrp/`, `test/00regression/` | every functional row uses `timeout --foreground --kill-after=5s`; no `trap` in row scripts |
+| WP-6 validation | `cspect_dzrp.py` extensions + REVIEW.md H1 fix; the nine functional rows (§7.2) + `expect:` bump; the DeZog manual protocol (§7.1) executed and recorded in `doc/testing/DZRP-VALIDATION.md` with the DeZog version and V-LAT numbers | WP-1..5 | `tools/cspect_dzrp/`, `test/00regression/` | every functional row uses `timeout --foreground --kill-after=5s`; no `trap` in row scripts |
 | WP-7 docs | developer guide page for `src/remote/dzrp` (what is served, the two remote types, the ROM-bank limit, the loop model); `FEATURES.md` line; ChangeLog *Unreleased* line at merge time | WP-5 | `src/doc/developer-guide/`, `FEATURES.md` | `docs-devguide-check` |
 
 Order: package T (its own branch, shared) → WP-1 → WP-2 → {WP-3, WP-4, WP-5
