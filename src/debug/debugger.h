@@ -16,14 +16,24 @@
 // ── FIVE RULES THIS FILE IS THE STATEMENT OF ────────────────────────────────
 //
 //  1. NO `Emulator*` BELOW A FRONTEND. `Emulator` is forward-declared; nothing
-//     in the four published headers includes `core/emulator.h`, `src/platform/`
-//     or any Qt header. That is the epic. The grep gate is §9's
-//     `grep -l 'core/emulator.h' src/debugger/*.cpp` → empty.
+//     in the four published headers reaches `core/emulator.h`, `src/platform/`,
+//     Qt, SDL, `memory/mmu.h`, `video/renderer.h`, `video/palette.h`,
+//     `video/timing.h`, `debug/debug_state.h` or `debug/breakpoints.h`. That is
+//     the epic, and it is GATED: `test/lint-debug-headers.sh` compiles a
+//     one-line translation unit per published header and asserts the forbidden
+//     set is absent from its `-MM` dependency list. It is row 5 of the
+//     regression preflight (`lint-debug-headers`).
+//
+//     §9's `grep -l 'core/emulator.h' src/debugger/*.cpp` is a DIFFERENT gate,
+//     for a different package: it greps the Qt panels' sources, and says
+//     nothing about these headers. Citing it here was the mistake the B0 review
+//     caught — adding `#include "core/emulator.h"` to `inspect.h` compiled
+//     clean and nothing in the tree noticed.
 //
 //  2. EVERY VERB THAT CAN REFUSE SAYS SO. `Result`, or `Expected<T>` when it
 //     also yields data. `result.h`'s banner states the rule and the one class
-//     of exception (a pure query that cannot refuse), and this file marks that
-//     class with a banner of its own.
+//     of exception — a pure query that cannot refuse — and the
+//     "DIRECT-VALUE QUERIES" banner below enumerates that class in full.
 //
 //  3. EVERY TRANSITION AND EVERY MUTATION IS ATTRIBUTED. §4.1 requires each
 //     transition to be broadcast with the originating client id, and §4.2a
@@ -63,8 +73,13 @@ namespace dbg {
 // Session value types — §4.8 CAP-SES
 // ---------------------------------------------------------------------------
 
-/// Which frontend a client is (SES-01's `ClientInfo::kind`). The six consumers
-/// §1.1 names, plus `Test` for `debugger_backend_test`'s fake clients.
+/// Which frontend a client is (SES-01's `ClientInfo::kind`).
+///
+/// FIVE consumer enumerators, not six: §1.1 names six consumers, but the sixth
+/// — the record/replay recorder — is `#20` folded into the DSL as its WP6
+/// (§10.1's `R` row), so it attaches as `Script` rather than as a kind of its
+/// own. Plus `Test`, for `debugger_backend_test`'s fake clients: six
+/// enumerators total.
 enum class ClientKind : uint8_t {
     /// The Qt GUI adapter — attached for the process lifetime, which is why
     /// SES-01 needs no "last client" condition.
@@ -155,7 +170,12 @@ struct PausedInfo {
 ///
 /// Pure virtual throughout, deliberately: B0 has no bodies, and a silently
 /// ignored notification is the failure mode a default empty override invites.
-/// Adding a notification later is meant to break every implementer.
+/// Adding a notification later is meant to break every implementer, and
+/// `debug_types_check.cpp` gates that per METHOD rather than per class: it
+/// declares seven stubs, each overriding six of the seven and omitting a
+/// different one, and asserts each is still abstract. `is_abstract<Listener>`
+/// alone would not have — giving any single method a default empty body keeps
+/// the class abstract and that assert passing.
 class Listener {
 public:
     virtual ~Listener() = default;
@@ -250,6 +270,41 @@ struct LoopDriver {
 /// it — every client's subscriptions, switches, attach / `live_raster` state,
 /// trace / call-stack / coverage enables and the symbol table are kept OUTSIDE
 /// `Emulator` precisely so the reconstruct cannot lose them (CTL-12, CTL-15).
+// ---------------------------------------------------------------------------
+// DIRECT-VALUE QUERIES — the complete exception to "every verb returns a
+// `Result`" (`result.h`'s banner). These 32 read live machine state that always
+// exists, so they have no refusal case by construction and return their value
+// directly. THE LIST IS THE AUDIT: a query not on it must return `Result` or
+// `Expected<T>`, and moving one onto it is a claim that it cannot fail.
+//
+//   control/session : state, magic_breakpoint, armed, persistent_breakpoints,
+//                     master_enabled, client_enabled, probe_execute,
+//                     attached, live_raster, stop_policy, at_frame_boundary,
+//                     rewind_enabled, rewind_range
+//   registers/memory: registers, mmu_slots, paging_ports, nextreg_peek,
+//                     nextreg_selected
+//   video/audio     : raster, machine, time, sprites, pattern_ram,
+//                     sprite_clip, copper, framebuffer, palette,
+//                     active_ula_palette_bank, ula_screen_regs, clip_window,
+//                     turbosound_enabled, ay_mode, stereo_mode,
+//                     audio_mute_mask
+//   disasm/trace    : instruction_length, is_call_like, memory_reader,
+//                     call_stack, call_stack_enabled, trace_enabled,
+//                     coverage_enabled, coverage
+//   model/symbols   : input_state, subscriptions, events_fired_since, symbols,
+//                     lookup, lookup_name, ula_screen_dump, bookmarks
+//
+// Three of those need a word, because "cannot refuse" is doing work:
+// `coverage()` returns an all-zero bit set while coverage is off (hence
+// `coverage_enabled()` beside it), `bookmarks(cid)` returns an empty list for a
+// client id that never saved one, and `lookup`/`lookup_name` return
+// `std::optional` — absence is their answer, not a refusal.
+//
+// `std::optional` also carries CTL-11's `resume_blocked_by_corruption()` and
+// ST-03's `rewind_blocked()`: both ask "would this be refused?", so an empty
+// optional is the affirmative answer and a `Result` inside it is the reason.
+// ---------------------------------------------------------------------------
+
 class Debugger {
 public:
     explicit Debugger(Emulator& emu);
@@ -351,9 +406,18 @@ public:
     /// PC.
     Result load(ClientId by, const std::string& path);
 
-    /// §4.1 — is the step machinery live? `attached || persistent`. The hot
-    /// loop's gate: with no client attached and no persistent breakpoints the
-    /// backend is inert and costs what today's `DebugState::armed()` costs.
+    /// §4.1 — is the step machinery live? The hot loop's gate: when it is
+    /// false the backend is inert and costs what today's `DebugState::armed()`
+    /// costs.
+    ///
+    /// **`attached || persistent_breakpoints`** — §5's formula, and the whole
+    /// formula. The magic breakpoint is NOT a third term, though §4.1 once read
+    /// that way: it does not need one, because the magic hook lives on
+    /// `Z80Cpu::on_magic_breakpoint` rather than behind the armed gate, so it
+    /// fires on an unarmed machine and SETS `active_` when it does. So
+    /// `--magic-breakpoint` alone leaves `armed()` false until the opcode
+    /// executes, which is the behaviour wanted and the reason the gate can stay
+    /// two-termed (settled, Revision 6).
     bool armed() const;
 
     /// §4.1 — the `--persistent-breakpoints` half of `armed()` (GH #219): keep
@@ -640,7 +704,14 @@ public:
     // `--delayed-keypress-frames N` lands on today. The other order shifts every
     // existing `--delayed-keypress-frames` regression row by one frame.
 
-    /// IN-02 — one of the 16 extended keys (`Keyboard::ExtKey`).
+    /// IN-02 — one of the 16 extended keys. `id` is the `Keyboard::ExtKey`
+    /// numbering (0..15, aligned 1:1 with the NR 0xB0 / 0xB1 readback bits).
+    ///
+    /// A bare `int` DELIBERATELY, not `Keyboard::ExtKey`: taking the enum would
+    /// put `input/keyboard.h` in this header's include graph, and that header
+    /// reaches `<SDL3/SDL.h>` — which would hand every frontend, and every
+    /// remote server, an SDL dependency to satisfy the type of one parameter.
+    /// Out-of-range ids are refused, not ignored.
     Result set_extended_key(ClientId by, int id, bool pressed);
 
     /// IN-03 — a connector's 12-bit button state.
@@ -741,6 +812,11 @@ public:
     /// `Stop` on one of its subscriptions) — resumes it. A pause by another
     /// client SURVIVES. There is no "last client" condition; the rule exists so
     /// a crashed DeZog cannot leave the machine hung.
+    ///
+    /// AN UNOWNED PAUSE IS NEVER RESUMED BY A DETACH: `PauseReason::Magic` and
+    /// `PauseReason::Corrupt` carry `by == CLIENT_NONE` because neither is any
+    /// client's verb, so no client's departure may clear them (owner decision,
+    /// Revision 6 — see `PauseReason`).
     Result detach(ClientId cid);
 
     /// SES-02 — install (or, with nullptr, clear) a client's push listener.

@@ -58,11 +58,11 @@
 | INS-12 | `const std::vector<CallFrame>& call_stack() const`, `bool call_stack_enabled() const`, `Result set_call_stack_enabled(bool)` (`CallFrame` reused from `debug/call_stack.h`) | debugger.h |
 | INS-13 | `bool trace_enabled() const`, `Result set_trace_enabled(bool)`, `Result trace_clear()`, `Result trace_resize(size_t)`, `Expected<std::vector<TraceEntry>> trace_entries() const`, `Result trace_export(const std::string&) const` (`TraceEntry` reused from `debug/trace.h`; B4 extends the struct) | debugger.h |
 | INS-14 | `ConstU32s framebuffer() const`, `Result render_layer(Layer, int vc, uint32_t* dst, size_t stride_pixels) const`; `enum class Layer` (8 views), `LAYER_COUNT`, `RENDER_WIDTH` | debugger.h, inspect.h |
-| INS-15 | `std::vector<uint16_t> palette(PaletteId) const`, `Result set_palette(ClientId by, PaletteId, uint8_t index, uint16_t rgb333)`, `uint8_t active_ula_palette_bank() const`, `UlaScreenRegs ula_screen_regs() const`, `ClipWindow clip_window(ClipLayer) const`, `uint32_t rrrgggbb_to_argb(uint8_t)`; `enum class PaletteId` (8 banks + `UlaActive`), `enum class ClipLayer`, `struct UlaScreenRegs` | debugger.h, inspect.h |
+| INS-15 | `std::vector<uint16_t> palette(PaletteId) const`, `Result set_palette(ClientId by, PaletteId, uint8_t index, uint16_t rgb333)`, `uint8_t active_ula_palette_bank() const`, `UlaScreenRegs ula_screen_regs() const`, `ClipWindow clip_window(ClipLayer) const`, `uint32_t rrrgggbb_to_argb(uint8_t)`; `enum class PaletteId` (8 banks + `UlaActive`), `enum class ClipLayer` + `CLIP_LAYER_COUNT`, `struct UlaScreenRegs` | debugger.h, inspect.h |
 | INS-16 | `InputState input_state() const`; `struct InputState{matrix[8], ext_keys, joy_left12, joy_right12, port_1f, port_37}` | debugger.h, inspect.h |
-| INS-17 | `std::vector<SubscriptionInfo> subscriptions(bool include_transient) const`, `std::vector<Event> events_fired_since(uint64_t seq) const`; `struct SubscriptionInfo`, `Event::seq` | debugger.h, events.h |
+| INS-17 | `std::vector<SubscriptionInfo> subscriptions(bool include_transient) const`, `std::vector<Event> events_fired_since(uint64_t seq) const`; `struct SubscriptionInfo`, `Event::seq`, `Event::overflowed`/`dropped` | debugger.h, events.h |
 | INS-18 | `Result set_border(ClientId by, uint8_t colour)` | debugger.h |
-| INS-19 | `MachineInfo machine() const`; `struct MachineInfo{type, cpu_divisor, cycles_per_line, cycles_per_frame, lines, fps, hc_max, vc_max, max_hblank, max_vblank, display_origin_hc, display_origin_vc, vblank_top}` | debugger.h, inspect.h |
+| INS-19 | `MachineInfo machine() const`; `struct MachineInfo{type, cpu_divisor, tstates_per_line, tstates_per_frame, master_cycles_per_line, master_cycles_per_frame, lines, fps, hc_max, vc_max, max_hblank, max_vblank, display_origin_hc, display_origin_vc, vblank_top}` — both clock domains, under `MachineTiming`'s own field names | debugger.h, inspect.h |
 | INS-20 | `Result coverage_enable(bool)`, `bool coverage_enabled() const`, `Result coverage_clear()`, `const CoverageBits& coverage() const`; `using CoverageBits = std::bitset<65536>` | debugger.h, inspect.h |
 
 ## §4.2a — mutation (the write half of CAP-INS; "no new CAP id")
@@ -206,6 +206,16 @@ by something other than a new declaration, and say so in their row:
   INS-07/INS-19/CTL-07; the rows point at them rather than duplicating a
   signature.
 
+## How the contract is gated
+
+Two gates, both added after B0's first review found the headers asserting
+properties nothing checked:
+
+| Gate | Where | What it proves |
+|---|---|---|
+| `src/debug/debug_types_check.cpp` | compiled in all four configurations by `src/debug/`'s `CONFIGURE_DEPENDS` glob | the headers compile; every mirrored enum still matches what it mirrors; every `Result` value is where the order says; the four enum counts catch an APPEND; each of `Listener`'s seven methods is individually pure; `MachineInfo`'s two clock domains keep `MachineTiming`'s names, types and 8x relation |
+| `test/lint-debug-headers.sh` | row 5 of the regression preflight; `make harness-selftest` HS-57a/b prove it stays wired and that its verdict reddens the row | no published header reaches `core/emulator.h`, `src/platform/`, Qt, SDL, `memory/mmu.h`, `video/renderer.h`, `video/palette.h`, `video/timing.h`, `debug/debug_state.h` or `debug/breakpoints.h` — transitively, via `-M` |
+
 ## What is declared but is NOT a §4 CAP row
 
 Four kinds of thing, each present because some §4 row is unusable without it —
@@ -220,6 +230,12 @@ listed here so a reviewer can check the count rather than hunt:
 3. **`Result` plumbing**: `ok()`, `result_name()`, `Expected<T>`, `make_ok()`,
    `make_refused()` — the §4-preamble "every verb returns a `Result`" rule made
    usable.
+3a. **Four trailing `Count` sentinels** — `EventKind::Count`, `Layer::Count`,
+   `RegId::Count`, `ClipLayer::Count` — and the counts derived from them
+   (`EVENT_KIND_COUNT`, `LAYER_COUNT`, `REG_ID_COUNT`, `CLIP_LAYER_COUNT`). Not
+   members of any CAP set: each is the only C++ mechanism that makes APPENDING to
+   its enum a build failure. Deriving a count from the last real enumerator
+   (`Dma + 1`) is blind to an append, which the B0 review proved.
 4. **Two accessors a §4 promise needs**: `Debugger::memory_reader()` (INS-11's
    "`disasm_text::*`" is unreachable from a frontend without a `DisasmReadFn`)
    and `Debugger::coverage_enabled()` (INS-20's `coverage()` is all-zero when

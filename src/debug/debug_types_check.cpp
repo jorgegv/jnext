@@ -37,6 +37,7 @@
 #include "video/renderer.h"      // Renderer::LAYER_*
 #include "video/sprites.h"       // SpriteEngine::NUM_SPRITES / PATTERN_RAM_SZ
 #include "input/keyboard.h"      // Keyboard::MAX_AUTO_TYPE_KEYS
+#include "core/emulator_config.h" // MachineTiming — the two clock domains
 
 namespace jnext {
 namespace dbg {
@@ -52,6 +53,21 @@ static_assert(static_cast<int>(Result::Ok) == 0, "Result::Ok must be 0");
 static_assert(ok(Result::Ok), "ok() must accept Ok");
 static_assert(!ok(Result::Unsupported), "ok() must reject every refusal");
 
+// EVERY value pinned, not just the two ends. `result.h` says the set is closed
+// "in that order" and an adapter may map a `Result` onto a wire error code by
+// index, so nine free values in the middle is nine ways for a green build to
+// change what a remote reports. Pinning `Ok == 0` and `Unsupported == 10` alone
+// let `RefusedRunning` and `RefusedPaused` swap silently.
+static_assert(static_cast<int>(Result::Ok)                 ==  0, "");
+static_assert(static_cast<int>(Result::RefusedRunning)     ==  1, "Result::RefusedRunning moved off 1 — the set is ordered and adapters map it by index");
+static_assert(static_cast<int>(Result::RefusedPaused)      ==  2, "Result::RefusedPaused moved off 2 — the set is ordered and adapters map it by index");
+static_assert(static_cast<int>(Result::RefusedCorrupt)     ==  3, "Result::RefusedCorrupt moved off 3 — the set is ordered and adapters map it by index");
+static_assert(static_cast<int>(Result::RefusedRzx)         ==  4, "Result::RefusedRzx moved off 4 — the set is ordered and adapters map it by index");
+static_assert(static_cast<int>(Result::RefusedUnavailable) ==  5, "Result::RefusedUnavailable moved off 5 — the set is ordered and adapters map it by index");
+static_assert(static_cast<int>(Result::RefusedReadOnly)    ==  6, "Result::RefusedReadOnly moved off 6 — the set is ordered and adapters map it by index");
+static_assert(static_cast<int>(Result::InvalidPage)        ==  7, "Result::InvalidPage moved off 7 — the set is ordered and adapters map it by index");
+static_assert(static_cast<int>(Result::NotAtFrameBoundary) ==  8, "Result::NotAtFrameBoundary moved off 8 — the set is ordered and adapters map it by index");
+static_assert(static_cast<int>(Result::NoFrame)            ==  9, "Result::NoFrame moved off 9 — the set is ordered and adapters map it by index");
 // The §4 preamble's set is exactly eleven values. A twelfth is a change to the
 // design document, and this row is where it gets noticed.
 static_assert(static_cast<int>(Result::Unsupported) == 10,
@@ -83,14 +99,21 @@ static_assert(sizeof(Event) <= 128, "Event grew past its copy budget");
 // `Hit` goes into `PausedInfo::matched` for every subscription that matched.
 static_assert(std::is_trivially_copyable<Hit>::value, "");
 
-// 14 kinds. `EventKindMask` is `uint32_t`, so the mask must have room for every
-// one of them — the assert that fails when a fifteenth kind arrives and someone
-// narrows the mask.
+// 14 kinds, and this now catches an APPEND. `EVENT_KIND_COUNT` is derived from
+// the trailing `EventKind::Count` sentinel; deriving it from the last real
+// enumerator (`Dma + 1`) was blind to exactly the change it claimed to catch —
+// a fifteenth kind added after `Dma` left the count at 14 and every assert here
+// kept passing. `EventKindMask` is `uint32_t`, so the mask must also have room
+// for every kind.
 static_assert(EVENT_KIND_COUNT == 14, "§4.3's table is 14 event kinds");
 static_assert(EVENT_KIND_COUNT <= sizeof(EventKindMask) * 8,
               "EventKindMask cannot hold one bit per EventKind");
 static_assert(kind_bit(EventKind::Execute) == 0x1u, "");
 static_assert(kind_bit(EventKind::Dma) == (1u << 13), "");
+// The sentinel is last, so it is not itself a usable kind and no mask bit is
+// reserved for it.
+static_assert(static_cast<size_t>(EventKind::Dma) + 1 == EVENT_KIND_COUNT,
+              "EventKind::Count must sit immediately after the last real kind");
 
 // `Access` doubles as a payload value and a subscription mask, so the bit
 // arithmetic has to be right in both directions.
@@ -157,14 +180,19 @@ static_assert((LAYER_MASK_ULA | LAYER_MASK_LAYER2 | LAYER_MASK_SPRITES |
               "the four layer bits must cover LAYER_MASK_ALL");
 
 // `Layer` (INS-14) has no non-Qt counterpart to mirror — its eight views exist
-// today only inside `VideoLayerView`, a `Q_OBJECT`. The count is pinned instead,
-// so a view added to one side and not the other is caught by the Qt package's
-// own rows rather than silently.
+// today only inside `VideoLayerView`, a `Q_OBJECT`. The count is the whole
+// signal, so it is derived from `Layer::Count` and catches an append.
 static_assert(LAYER_COUNT == 8, "§4 INS-14 / the video panel have eight views");
+static_assert(static_cast<size_t>(Layer::Background) + 1 == LAYER_COUNT,
+              "Layer::Count must sit immediately after the last real view");
 
 // The four clip windows of NR 0x18-0x1C are a DIFFERENT set from the eight
-// render views, which is why `ClipLayer` exists at all.
-static_assert(static_cast<int>(ClipLayer::Tilemap) == 3, "four clip windows");
+// render views, which is why `ClipLayer` exists at all. Also from a trailing
+// sentinel: `static_cast<int>(ClipLayer::Tilemap) == 3` passed for an appended
+// fifth window.
+static_assert(CLIP_LAYER_COUNT == 4, "four clip windows (NR 0x18-0x1C)");
+static_assert(static_cast<size_t>(ClipLayer::Tilemap) + 1 == CLIP_LAYER_COUNT,
+              "ClipLayer::Count must sit immediately after Tilemap");
 
 // ---------------------------------------------------------------------------
 // inspect.h — widths and counts taken from the code
@@ -173,8 +201,12 @@ static_assert(static_cast<int>(ClipLayer::Tilemap) == 3, "four clip windows");
 static_assert(SPRITE_COUNT == static_cast<size_t>(SpriteEngine::NUM_SPRITES), "");
 static_assert(PATTERN_RAM_BYTES == static_cast<size_t>(SpriteEngine::PATTERN_RAM_SZ),
               "INS-08's '16 KB' must be the engine's actual pattern RAM");
-static_assert(RENDER_WIDTH == static_cast<size_t>(SpriteEngine::DISPLAY_WIDTH),
-              "INS-14's 'width 640' must be the engine's full pixel width");
+// The oracle that matters: the framebuffer these pixels are written into.
+static_assert(RENDER_WIDTH == static_cast<size_t>(Renderer::FB_WIDTH),
+              "INS-14's 'width 640' must be the renderer's framebuffer width");
+// Secondary, and only a cross-check: the sprite engine's own full pixel width
+// is the same number for an unrelated reason.
+static_assert(RENDER_WIDTH == static_cast<size_t>(SpriteEngine::DISPLAY_WIDTH), "");
 static_assert(SPRITE_ATTR_BYTES == 5, "a sprite is 5 attribute bytes");
 
 // IN-01's overflow contract is stated against this cap, so the two must be the
@@ -188,8 +220,11 @@ static_assert(AudioMute::AY_ALL == (AudioMute::AY0 | AudioMute::AY1 | AudioMute:
 static_assert(AudioMute::ALL == (AudioMute::AY_ALL | AudioMute::DAC | AudioMute::BEEPER), "");
 static_assert(AudioMute::NONE == 0, "");
 
-// INS-01 enumerates 12 pairs, 20 eight-bit halves and 5 singletons.
+// INS-01 enumerates 12 pairs, 20 eight-bit halves and 5 singletons. From
+// `RegId::Count`, so an appended register fires it.
 static_assert(REG_ID_COUNT == 37, "INS-01: 12 pairs + 20 halves + I/R/IFF1/IFF2/IM");
+static_assert(static_cast<size_t>(RegId::IM) + 1 == REG_ID_COUNT,
+              "RegId::Count must sit immediately after IM");
 
 // The two page numbers the VHDL uses as a ROM sentinel, which `MemSpace::page()`
 // refuses.
@@ -216,6 +251,17 @@ static_assert(MemSpace::page(5) != MemSpace::page(6), "");
 static_assert(MemSpace::rom(1) != MemSpace::page(1), "");
 // `Cpu` ignores the index, so two default-constructed CPU spaces are equal.
 static_assert(MemSpace::cpu() == MemSpace{}, "");
+// One width for every page number that crosses between these types, so no hop
+// narrows: MemSpace::index, Event::phys_page and EventFilter::page agree.
+static_assert(std::is_same<decltype(MemSpace::index), decltype(Event::phys_page)>::value,
+              "a page number must not narrow between MemSpace and an Event");
+static_assert(std::is_same<decltype(MemSpace::index), decltype(EventFilter::page)>::value,
+              "a page number must not narrow between MemSpace and a filter");
+static_assert(std::is_same<decltype(MemSpace::index),
+                           EventFilter::PageSet::value_type>::value,
+              "a page number must not narrow between MemSpace and a page set");
+// PAGE_ANY must stay outside the representable page range it guards.
+static_assert(PAGE_ANY != PAGE_SENTINEL_ROM_LO && PAGE_ANY != PAGE_SENTINEL_ROM_HI, "");
 
 // ---------------------------------------------------------------------------
 // The value types that cross a protocol or sit in a snapshot
@@ -248,7 +294,10 @@ static_assert(std::is_trivially_copyable<TraceEntry>::value, "");
 // `PauseReason::Script` carries the script's message as a `std::string`, which
 // is what lets a regression row tell a script verdict from a harness fault.
 static_assert(!std::is_trivially_copyable<PauseReason>::value,
-              "PauseReason carries the Script reason's text");
+              "EXPECTED NOT TO BE TRIVIAL (this is not a failure of triviality): "
+              "PauseReason carries the Script reason's text as a std::string, "
+              "which is what lets a regression row tell a script verdict from a "
+              "harness fault. If this fires, the string was removed.");
 
 // ---------------------------------------------------------------------------
 // debugger.h — the interfaces have no bodies to inherit by accident
@@ -258,6 +307,97 @@ static_assert(std::is_abstract<Listener>::value,
               "Listener must be pure virtual: a silently ignored notification "
               "is the failure mode a default override invites");
 static_assert(std::is_abstract<Service>::value, "");
+
+// PER-METHOD, not per-class. `is_abstract<Listener>` above is necessary and far
+// from sufficient: give any ONE of the seven methods a default empty body and
+// the class is still abstract because the other six are still pure, so that
+// assert keeps passing while the header's claim — "adding a notification later
+// is meant to break every implementer" — quietly stops holding for that one.
+//
+// So: seven stubs, each overriding SIX of the seven and omitting a different
+// one, each asserted STILL ABSTRACT. Together they say every method is pure.
+// Nothing is ever instantiated; these are type queries only.
+#define DBG_ON_PAUSED void on_paused(const PausedInfo&) override {}
+#define DBG_ON_RESUMED void on_resumed(ClientId) override {}
+#define DBG_ON_RESET void on_reset(ResetKind) override {}
+#define DBG_ON_FRAME void on_frame_ended(uint32_t) override {}
+#define DBG_ON_SUBS void on_subscriptions_changed(EventKindMask) override {}
+#define DBG_ON_EXIT void on_exit_requested(int) override {}
+#define DBG_ON_LOG void on_log(LogLevel, const std::string&) override {}
+
+struct OmitPaused  : Listener {                DBG_ON_RESUMED DBG_ON_RESET DBG_ON_FRAME DBG_ON_SUBS DBG_ON_EXIT DBG_ON_LOG };
+struct OmitResumed : Listener { DBG_ON_PAUSED                 DBG_ON_RESET DBG_ON_FRAME DBG_ON_SUBS DBG_ON_EXIT DBG_ON_LOG };
+struct OmitReset   : Listener { DBG_ON_PAUSED DBG_ON_RESUMED               DBG_ON_FRAME DBG_ON_SUBS DBG_ON_EXIT DBG_ON_LOG };
+struct OmitFrame   : Listener { DBG_ON_PAUSED DBG_ON_RESUMED DBG_ON_RESET               DBG_ON_SUBS DBG_ON_EXIT DBG_ON_LOG };
+struct OmitSubs    : Listener { DBG_ON_PAUSED DBG_ON_RESUMED DBG_ON_RESET DBG_ON_FRAME              DBG_ON_EXIT DBG_ON_LOG };
+struct OmitExit    : Listener { DBG_ON_PAUSED DBG_ON_RESUMED DBG_ON_RESET DBG_ON_FRAME DBG_ON_SUBS              DBG_ON_LOG };
+struct OmitLog     : Listener { DBG_ON_PAUSED DBG_ON_RESUMED DBG_ON_RESET DBG_ON_FRAME DBG_ON_SUBS DBG_ON_EXIT             };
+
+static_assert(std::is_abstract<OmitPaused>::value,  "Listener::on_paused is not pure");
+static_assert(std::is_abstract<OmitResumed>::value, "Listener::on_resumed is not pure");
+static_assert(std::is_abstract<OmitReset>::value,   "Listener::on_reset is not pure");
+static_assert(std::is_abstract<OmitFrame>::value,   "Listener::on_frame_ended is not pure");
+static_assert(std::is_abstract<OmitSubs>::value,    "Listener::on_subscriptions_changed is not pure");
+static_assert(std::is_abstract<OmitExit>::value,    "Listener::on_exit_requested is not pure");
+static_assert(std::is_abstract<OmitLog>::value,     "Listener::on_log is not pure");
+
+// The other direction, so the seven above cannot pass for a trivial reason (a
+// typo'd signature would make a stub override nothing and stay abstract for the
+// WRONG reason): all seven together are concrete.
+struct AllSeven : Listener {
+    DBG_ON_PAUSED DBG_ON_RESUMED DBG_ON_RESET DBG_ON_FRAME DBG_ON_SUBS DBG_ON_EXIT DBG_ON_LOG
+};
+static_assert(!std::is_abstract<AllSeven>::value,
+              "a stub overriding all seven must be concrete — if this fires, one "
+              "of the seven signatures above does not match the interface and the "
+              "OmitX asserts are passing for the wrong reason");
+static_assert(std::is_base_of<Listener, AllSeven>::value, "");
+
+#undef DBG_ON_PAUSED
+#undef DBG_ON_RESUMED
+#undef DBG_ON_RESET
+#undef DBG_ON_FRAME
+#undef DBG_ON_SUBS
+#undef DBG_ON_EXIT
+#undef DBG_ON_LOG
+
+// ---------------------------------------------------------------------------
+// inspect.h — MachineInfo's two clock domains (B4)
+// ---------------------------------------------------------------------------
+
+// The backend fills MachineInfo from MachineTiming (`core/emulator_config.h`),
+// so the field NAMES and TYPES are pinned against it: a rename on either side
+// is a build failure, and the names are the whole defence against confusing
+// 3.5 MHz T-states with 28 MHz master cycles (4x apart, both once called
+// "cycles" in this struct).
+static_assert(std::is_same<decltype(MachineInfo::tstates_per_line),
+                           decltype(MachineTiming::tstates_per_line)>::value, "");
+static_assert(std::is_same<decltype(MachineInfo::tstates_per_frame),
+                           decltype(MachineTiming::tstates_per_frame)>::value, "");
+static_assert(std::is_same<decltype(MachineInfo::master_cycles_per_line),
+                           decltype(MachineTiming::master_cycles_per_line)>::value, "");
+static_assert(std::is_same<decltype(MachineInfo::master_cycles_per_frame),
+                           decltype(MachineTiming::master_cycles_per_frame)>::value, "");
+// `lines` is §4 INS-19's spelling of `MachineTiming::lines_per_frame`; the names
+// differ deliberately, so only the type is pinned.
+static_assert(std::is_same<decltype(MachineInfo::lines),
+                           decltype(MachineTiming::lines_per_frame)>::value, "");
+
+// And the RELATION between the two domains, which is what a reader gets wrong:
+// one T-state at 3.5 MHz is eight 28 MHz master cycles. Checked on a real
+// machine's constants rather than asserted in prose.
+namespace {
+constexpr MachineTiming t48 = machine_timing(MachineType::ZX48K);
+constexpr MachineTiming tnx = machine_timing(MachineType::ZXN_ISSUE2);
+}  // namespace
+static_assert(t48.master_cycles_per_line == static_cast<uint64_t>(t48.tstates_per_line) * 8,
+              "a T-state is 8 master cycles");
+static_assert(tnx.master_cycles_per_line == static_cast<uint64_t>(tnx.tstates_per_line) * 8, "");
+static_assert(t48.master_cycles_per_frame == static_cast<uint64_t>(t48.tstates_per_frame) * 8, "");
+static_assert(tnx.master_cycles_per_frame == static_cast<uint64_t>(tnx.tstates_per_frame) * 8, "");
+// Same domain as Time's two fields, which is the point of the naming.
+static_assert(std::is_same<decltype(MachineInfo::master_cycles_per_line),
+                           decltype(Time::master_cycle)>::value, "");
 static_assert(std::has_virtual_destructor<Listener>::value, "");
 static_assert(std::has_virtual_destructor<Service>::value, "");
 
