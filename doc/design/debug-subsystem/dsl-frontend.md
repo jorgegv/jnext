@@ -5,7 +5,9 @@ the Qt, DZRP, ZRCP and GDB-RSP frontend documents. This file is the DSL's; it
 records what the language is, what it demands of the backend, where it stops,
 and the answer to "is #20 just a use case of #26?".
 
-Status: **v5**, 2026-09-27 — revised after review round 4
+Status: **v6**, 2026-09-27 — revised after review round 5
+(`scratchpad/reviews/dsl-qt-r5.md`, REJECT on R5-1; N5-1 folded; Appendix F).
+v5 was revised after review round 4
 (`scratchpad/reviews/dsl-qt-r4.md`, REJECT: R-1, R-2 mine; N-1..N-9 folded;
 Appendix E). v4 was revised after the OWNER review (comments `;`
 and `//`; MUTATION ALLOWED — the no-poke reading of "must not perturb" is
@@ -383,8 +385,21 @@ Mutations through the debugger route **raise no events and carry no
 `SOURCE`** (REQ-dsl-21(c)): a script `set mem[x]` does not fire `on write x`,
 a `set nextreg[0x51]` does not fire `on nextreg 0x51`, an `out` does not fire
 `on io_write` — no re-entrancy, by construction. A `poke` into 0x0000-0x3FFF
-goes where the Memory panel's write goes today (the Mmu write path outside
-`GuestExecutionScope`; overlay routing per REQ-dsl-21(c)'s answer).
+goes where the Memory panel's write goes today (overlay routing per
+REQ-dsl-21(c)'s answer).
+
+**Why a script write raises no event — the mechanism, stated once** (review
+N5-1): a rule body executes *at a delivery*, i.e. inside `run_frame()`'s
+`GuestExecutionScope`, where `wp_live_ = armed_ && guest_access_` is TRUE
+(`debug_state.h:275`) — so site gating alone would let a script `set mem[x]`
+latch a watch. The engine therefore runs the **whole rule body — reads and
+mutations alike — under one `DebugState::InspectionScope`**
+(`debug_state.h:104-115`), which drops `guest_access_` and with it
+`wp_live_`; the same `guest_access()` gate is what backend B2 adds to the
+`NextReg::write` hook. That scope is what §2.3's side-effect-free reads
+already rested on; it now carries the mutations too, and the
+SCRIPT-EV-MUT-NOEVENT row (§8) pins that an implementation which drops it
+turns red.
 
 **Worked examples** (these are the CSpect `Poke`/`SetRegs`/`OutPort` idioms):
 
@@ -414,10 +429,19 @@ end
 # provoke the MMU-inconsistency guard of 3(b) on purpose (a red twin without a rebuild).
 # RULE: an injected fault must be UPSTREAM of the guest write the guard watches,
 # never the watched write itself — a script `set nextreg[0x51]` raises no event
-# (§2.7), so it can never trip `on nextreg 0x51`. Corrupt MMU0 instead, just
-# before the demo's own `NEXTREG 0x51` executes; the GUEST write then trips it.
-on execute @page_in_level once do          ; the demo's NEXTREG 0x50 / NEXTREG 0x51 pair follows
-    set nextreg[0x50] = 0xFF               ; MMU0 := ROM; the demo's NEXTREG 0x51 = 0x23 is now inconsistent
+# (§2.7), so it can never trip `on nextreg 0x51`. Corrupt MMU0 instead — but
+# AFTER the guest's own MMU0 write has committed and BEFORE its MMU1 write:
+#   @page_in_level:        NEXTREG 0x50, 0x22   ; deferred; commits in this
+#                                               ; instruction's device cluster
+#   @page_in_level_mmu1:   NEXTREG 0x51, 0x23   ; the watched write
+# Hooking @page_in_level would be overwritten: that Execute fires BEFORE its
+# instruction, the script sets MMU0 = 0xFF, then the guest's NEXTREG 0x50, 0x22
+# commits (emulator.cpp:10221) and the guard sees 0x22 + 1 == 0x23 — green.
+# Hooking @page_in_level_mmu1 (a MAP label the WP7 demo exports) fires after
+# the previous instruction's cluster committed 0x22, sets MMU0 = 0xFF, and the
+# guest's NEXTREG 0x51, 0x23 then trips the guard: 0xFF + 1 != 0x23 and not both 0xFF.
+on execute @page_in_level_mmu1 once do
+    set nextreg[0x50] = 0xFF               ; MMU0 := ROM one instruction before the guest writes MMU1
 end
 
 # silence the AY while a DAC test runs
@@ -1189,7 +1213,7 @@ Mutations a reviewer must run (each must turn the named row red):
 | mutation | apply a script `set mem[x]` inside `GuestExecutionScope` (so it fires `on write x`) | `script_events_test` SCRIPT-EV-MUT-NOEVENT (a rule that pokes an address it also watches must fire once, not loop) |
 | mutation | apply a `set PC` at an execute delivery AFTER the instruction instead of before | `script_events_test` SCRIPT-EV-MUT-PRE (the demo's trap instruction must NOT execute) |
 | mutation | drop the backend `MUTATE` log line | `script-mutation-func` (greps the line) |
-| mutation red twin | a script-injected fault UPSTREAM of the watched guest write (`set nextreg[0x50] = 0xFF` at `@page_in_level`, before the demo's own `NEXTREG 0x51`) against the GOOD demo build | `script-mmu-func` second half: exit 3 with the guard's reason — the GUEST's `NEXTREG 0x51` trips `mmu_guard`; a script `set nextreg[0x51]` could not (no event, §2.7). Mutation of the mutation: inject at the watched register instead → the row must stay GREEN, proving the no-event rule |
+| mutation red twin | a script-injected fault UPSTREAM of the watched guest write: `set nextreg[0x50] = 0xFF` at `on execute @page_in_level_mmu1` — the `NEXTREG 0x51` instruction itself, so the guest's preceding `NEXTREG 0x50` has already committed — against the GOOD demo build | `script-mmu-func` second half: exit 3 with the guard's reason — the GUEST's `NEXTREG 0x51, 0x23` trips `mmu_guard` (0xFF + 1 != 0x23). Two mutations of the mutation, both must stay GREEN: (1) inject at the watched register `set nextreg[0x51]` instead (no event, §2.7); (2) hook `@page_in_level` one instruction earlier (the guest's deferred `NEXTREG 0x50, 0x22` overwrites the injection, `emulator.cpp:10221`) |
 | copper | deliver `on copper move` without `CPC` (or with the CPU's raster position instead of the step's `HC_ULA`) | `script-copper-func` (asserts `CPC` and the GH #181 `CVC == 96` line) |
 | dma | fire `on dma byte` only for bytes inside a Mem range subscription | `script-dma-func` (no range subscribed; the byte count must equal `LEN`) |
 | all | remove the `InspectionScope` around script reads | `script_events_test`: a `read` watchpoint on an address the script peeks must NOT fire |
@@ -1395,7 +1419,7 @@ inexact, the recorder warns.
 
 | Finding | Verified | Disposition |
 |---|---|---|
-| R-1 script-injected red twin cannot trip an event guard | §2.7 / REQ-21(c): debugger-route writes raise no events | FIXED: rule stated ("inject UPSTREAM of the guest write the guard watches, never the watched write"); example 5 and the §8 row now corrupt MMU0 (`set nextreg[0x50] = 0xFF` at `@page_in_level`) so the demo's own `NEXTREG 0x51` trips `mmu_guard`; the row also pins that injecting at the watched register stays green |
+| R-1 script-injected red twin cannot trip an event guard | §2.7 / REQ-21(c): debugger-route writes raise no events | FIXED: rule stated ("inject UPSTREAM of the guest write the guard watches, never the watched write"); example 5 and the §8 row corrupt MMU0 so the demo's own `NEXTREG 0x51` trips `mmu_guard`; the row also pins that injecting at the watched register stays green. (Round 5 R5-1 moved the hook from `@page_in_level` to `@page_in_level_mmu1` — see Appendix F.) |
 | R-2 example 4 violates `once`-before-`when` | §2.1 | FIXED: reordered; grammar unchanged (one order); `script_parse_test` row PARSE-ONCE-WHEN-ORDER rejects the other order |
 | N-1 deferred CPU NR write commits after the drain | `emulator.cpp:10221` | FIXED: exception stated in the §2.7 visibility table; `on nextreg` is the override point |
 | N-2 `PREV_BYTE` does not exist | — | FIXED: REQ-dsl-25 (`prev` on `Mem{Write}`) ACCEPTED (backend v7) |
@@ -1405,5 +1429,14 @@ inexact, the recorder warns.
 | N-7 DMA byte to a port has no `source` | — | FIXED: REQ-dsl-27 ACCEPTED (v7: `Port{Read,Write}.source`) |
 | N-9 rows are `.sh` wrappers, fixtures under `nex/`, 1:1 script list | `functional_tests.conf` contract; `scripts/magic-bp-func.sh` | FIXED (WP7: ten wrappers, ten scripts incl. `hostkey` and the two replay ones, fixtures + `.map` under `test/00regression/nex/`) |
 | N-3, N-8, N-10, N-11 | confirmations / Qt-side | no change here |
+
+CONTESTED: none.
+
+## Appendix F — Review round 5 dispositions (2026-09-27, `scratchpad/reviews/dsl-qt-r5.md`)
+
+| Finding | Verified | Disposition |
+|---|---|---|
+| R5-1 injection at `@page_in_level` is overwritten by the guest's own deferred `NEXTREG 0x50` before the watched `NEXTREG 0x51` | `emulator.cpp:10221` (flush after the drain); Execute delivery is pre-instruction (§2.2) | FIXED: hook moved to `@page_in_level_mmu1`, the `NEXTREG 0x51` instruction itself (a MAP label the WP7 demo exports), where the previous instruction's cluster has committed 0x22; example 5 re-walked instruction by instruction in its comment; §8 row adds the second must-stay-green mutation (hooking one instruction early) |
+| N5-1 "existing `GuestExecutionScope` gating covers the sites" is wrong at a delivery | `debug_state.h:275` | FIXED: §2.7 states the whole rule body runs under one `InspectionScope` (`debug_state.h:104-115`), the same `guest_access()` gate B2 adds to the `NextReg::write` hook; design-backend aligned §4.2a in both docs (confirmed 2026-09-27) |
 
 CONTESTED: none.
