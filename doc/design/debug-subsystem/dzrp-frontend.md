@@ -57,6 +57,10 @@
 >   heading covers both builds, §10 lists Q2 and Q4 as the open items, row 24
 >   spells the 7 advertised bytes and why clearing 5/12 is safe, DeZog's
 >   swapped state-gating quirk noted.
+> - v1.6 (2026-09-27): owner decisions on the last two open items — Q2 =
+>   REFUSE a mid-frame `CMD_READ_STATE` (the design as written), Q4 = the
+>   `cspect_dzrp.py` H1-H3 fixes land inside #12's WP-6. §10 retitled "Owner
+>   decisions — nothing open"; the "owner may prefer advance" wording removed.
 
 Every claim below carries a `file:line` citation. Sources and their versions:
 
@@ -690,8 +694,10 @@ and turn its next step into a runaway (F9).
 **What DeZog then does with a refusal (review R-1, verified):** nothing
 visible. `stateSave` gzips the empty reply and writes it (remote:1749-1756);
 a later `-state restore` ungzips it and sends a **0-byte `CMD_WRITE_STATE`**
-(remote:1764-1770). Owner question Q2 records that this invisibility is a
-real argument against refusing.
+(remote:1764-1770). The owner weighed that invisibility against the runaway
+step an advance would cause and **decided for refusal** (2026-09-27, §10
+Q2); the adapter-side payload validation below is what makes the resulting
+empty `-state restore` harmless.
 
 **`WRITE_STATE` — validate before touching the machine.** The adapter checks
 the payload itself: empty, shorter than the header, wrong magic, or a name it
@@ -874,7 +880,7 @@ Cross-frontend agreements (recorded so the backend gets one transport REQ):
 
 ---
 
-## 10. Open questions for the owner
+## 10. Owner decisions — nothing open
 
 **Answered by the owner (2026-09-27):** headless stop policy = the exception
 (a remote attached ⇒ headless Stop pauses + notifies) — §4.1's OWNER-PENDING
@@ -882,30 +888,29 @@ is now DECIDED and the nine functional rows stand; a remote pause **does**
 open the Qt debugger window — Q1 below answered *yes*, no Qt change;
 subscriptions and a pause die with the client — §4.1's detach rule stands;
 ports are explicit, off unless given — Q3 below answered as designed. DZRP
-version = 2.2.0 (F1). **Open for the owner: Q2 and Q4** below; Q1 and Q3 are
-kept only as the record of what was asked and are marked answered.
+version = 2.2.0 (F1). **Q2 and Q4 answered 2026-09-27 (below). Nothing is
+open.** Q1-Q4 are kept as the record of what was asked and how it was
+decided.
 
 1. **Q1 — ANSWERED (owner, 2026-09-27: yes).** A remote (DZRP) pause opens
    the local Qt debugger window through the unchanged GH #219 path
    (`debugger_manager.cpp:682-693`). No Qt change.
-2. **Q2 — `CMD_READ_STATE` mid-frame: refuse (this design) or advance (the GUI
-   snapshot rule)?** Refusal is spec-sanctioned and safe for DeZog (F9) — but
-   **invisible to a DeZog user** (R-1): DeZog shows nothing, writes an empty
-   state file, and the later restore is refused (harmlessly, §6). Advancing
-   follows the owner's "always advance, never refuse" and would make every
-   `-state save` succeed, at the cost of DeZog's register cache being up to one
-   frame behind the machine with no way to tell it — the next step then runs
-   from a PC the machine has left. A third option is to advance AND log a
-   console-visible line in jnext; DeZog itself has no channel for it. The
-   design keeps refusal (nothing silently wrong, only silently missing); the
-   owner may prefer the advance for usability.
+2. **Q2 — ANSWERED (owner, 2026-09-27: REFUSE).** A mid-frame
+   `CMD_READ_STATE` gets the zero-length reply (spec:819) — the design as
+   written in §6. The alternative, advancing to the frame boundary as the GUI
+   snapshot rule does, was rejected for DZRP because DeZog does not re-read
+   registers after `READ_STATE` (F9) and its next step would run from a PC
+   the machine had left. The refusal is invisible in DeZog (R-1: it writes an
+   empty state file); the adapter-side validation of `CMD_WRITE_STATE` (§6)
+   makes the later empty `-state restore` harmless — no backend call, no
+   corruption latch, session continues. `NTF_LOG` stays off (§2).
 3. **Q3 — ANSWERED (owner, 2026-09-27: ports explicit, off unless given).**
    No default for `--dzrp-port`; DeZog's own defaults (11000 `cspect`, 14000
    `dzrp`) are documented, not assumed.
-4. **Q4 — OPEN: `cspect_dzrp.py` fixes** (REVIEW.md H1/H2/H3 — the stale
-   `PAUSE`-notification race and the two lock gaps) as part of #12's harness
-   work (WP-6), or as a separate tools change landed first? WP-6 assumes
-   "inside #12"; a separate landing shortens #12's review but adds a bump.
+4. **Q4 — ANSWERED (owner, 2026-09-27: inside #12).** The `cspect_dzrp.py`
+   fixes (REVIEW.md H1/H2/H3 — the stale `PAUSE`-notification race and the
+   two lock gaps) land **inside #12's validation package (WP-6)**, not as a
+   separate tools change; WP-6 already reads that way.
 
 ---
 

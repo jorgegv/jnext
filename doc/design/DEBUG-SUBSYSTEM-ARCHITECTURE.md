@@ -11,8 +11,10 @@
 > [#20](https://github.com/jorgegv/jnext/issues/20) (record/replay, re-scoped
 > in §8). **Revision 2 answers the first independent review (REJECT, six
 > blocking findings, `scratchpad/reviews/arch.md`, 2026-09-26) and awaits
-> re-review before any implementation starts.** §12 lists the questions only
-> the owner can answer.
+> re-review before any implementation starts.** After five review rounds and
+> the owner's decisions of 2026-09-27 (§1.3 items 9-25) **no question remains
+> open anywhere in the design** — §12 is empty, the per-frontend files carry
+> no open owner question, and every REQ in the ledger is dispositioned.
 >
 > **Revision 5** (2026-09-27, after review round 4; round-5 notes folded: ring
 > sizing reworded — the ~23 T slot is an estimate, a contended `LDIR` reaches
@@ -189,6 +191,12 @@ recorded here and struck from §12:
     Guide** (architecture, backend, every frontend, the contracts between
     them; Graphviz diagrams; `docs-devguide-check`-gated) — §10 package DOC
     and the per-branch gate item.
+24. **DZRP mid-frame `CMD_READ_STATE` is REFUSED** — a zero-length reply
+    (ST-01 `RefuseMidFrame`), never an advance; the adapter's payload
+    validation on `CMD_WRITE_STATE` keeps the empty restore DeZog sends back
+    harmless (§7.2).
+25. **The `tools/cspect_dzrp/cspect_dzrp.py` H1–H3 fixes are part of #12's
+    validation package** (D WP-6), not a separate change (§7.2).
 
 ---
 
@@ -979,9 +987,13 @@ per-frontend files under `debug-subsystem/`.
   `CMD_CONTINUE` with up to two temp breakpoints → transient `Execute`
   subscriptions + `run()`; **the adapter never calls the backend's step
   verbs.** Long-address breakpoints → the `Execute.page` qualifier. `matched[]`
-  gives the "temp beats user" reporting rule. `CMD_READ_STATE` uses
-  `RefuseMidFrame` (DeZog does not re-read registers afterwards; an advance
-  would make its next step compute temp breakpoints from a stale PC).
+  gives the "temp beats user" reporting rule. **Mid-frame `CMD_READ_STATE` is
+  refused** (owner decision, §1.3 item 24): ST-01 `RefuseMidFrame` → a
+  zero-length reply, the spec's own "not possible" idiom, never an advance
+  (DeZog does not re-read registers afterwards; an advance would make its
+  next step compute temp breakpoints from a stale PC); the adapter validates
+  the `CMD_WRITE_STATE` payload token before any backend call, so the empty
+  file DeZog writes after a refused save and sends back is harmless.
 - **Declined by design (5):** the condition string in `CMD_ADD_BREAKPOINT`;
   reverse debugging (no verb); step verbs (no command); IO watchpoints (no
   wire form); the new `NTF_LOG`, which the spec marks debug-only.
@@ -991,7 +1003,9 @@ per-frontend files under `debug-subsystem/`.
 - **Validation:** DeZog 3.7.4 as the real client (manual protocol recorded
   in `doc/testing/DZRP-VALIDATION.md` with V-LAT latency numbers);
   `cspect_dzrp.py` as an independent client-side implementation driving
-  eight functional rows; a fake-transport unit suite.
+  eight functional rows — its `REVIEW.md` H1–H3 fixes are **part of this
+  validation package (D WP-6)**, not a separate change (owner decision, §1.3
+  item 25); a fake-transport unit suite.
 
 ### 7.3 ZRCP — #280 (`zrcp-frontend.md`)
 
@@ -1344,7 +1358,7 @@ it):
 ## 12. Open questions for the owner
 
 **None.** The thirteen questions of Revision 3 were answered by the owner on
-2026-09-27 and are recorded as settled decisions in §1.3 items 9-23; the
+2026-09-27 and are recorded as settled decisions in §1.3 items 9-25; the
 text below is kept for the record of what was asked, each item now prefixed
 with its answer.
 
