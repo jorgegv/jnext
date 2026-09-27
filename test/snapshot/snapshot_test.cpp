@@ -4578,6 +4578,73 @@ int main(int argc, char** argv) {
         }
     }
 
+    // ── GH #289: a DECLARATION's own refusal must reach the caller ───────
+    //
+    // Every refusal above comes from a `JsonReadDesc` primitive, which routes
+    // through the private `refuse(name, why)` and lands in `refusal_`. A
+    // DECLARATION can refuse too, by calling `StateDesc::fail()` — the range a
+    // value must be in is often a property of the subsystem that no primitive
+    // here could check, so `Keyboard`'s auto-type coordinates, `Uart`'s channel
+    // selector and `Clock`'s CPU divisor all do (GH #289), and
+    // `SdCard::describe_state` already did.
+    //
+    // That path was BROKEN and silent: `fail()` latches the base class's
+    // `failed()`/`failure()` and never touches `refusal_`, so `refusal()`
+    // answered the empty string and `LoadVisitor` reported
+    // "state/<name>.json: " with nothing after the colon. `failed()` was true,
+    // so a row that only checked refused-or-not could not see it, and the one
+    // pre-existing caller (`sdcard.resp_buf longer than the declared
+    // capacity`) is UNREACHABLE by construction — capacity 32 against a
+    // longest response of 23 bytes, every builder either `clear()`ing first or
+    // assigning — so nothing exercised it either.
+    //
+    // These two rows pin the repaired mechanism for every caller rather than
+    // for one of them, which is what an unreachable declaration needs: the
+    // detail a declaration passes to `fail()` is what the caller is told, and
+    // a declaration that does not fail still reports success with an empty
+    // refusal. `StateDesc::fail()`'s contract is that the detail NAMES the
+    // offending thing, and without the first row that contract has no gate.
+    {
+        struct FailingDecl {
+            uint8_t bank = 0;
+            void describe_state(StateDesc& d) {
+                d.u8("bank", bank, 0);
+                d.fail("failingdecl.bank is not a thing this build accepts");
+            }
+        };
+        struct QuietDecl {
+            uint8_t bank = 0;
+            void describe_state(StateDesc& d) { d.u8("bank", bank, 0); }
+        };
+
+        FailingDecl f;
+        std::string refusal;
+        const bool ok =
+            jnext::save::restore_via_desc(f, "{\n  \"bank\": 7\n}\n", false,
+                                          refusal);
+        check("GH289-50",
+              "a refusal raised by the DECLARATION reaches the caller with its "
+              "own detail — without this the .jns refusal read "
+              "\"state/<name>.json: \" and named nothing, while failed() was "
+              "true so a refused-or-not row could not tell",
+              !ok && refusal == "failingdecl.bank is not a thing this build "
+                                "accepts",
+              det("ok=%d refusal='%s'", (int)ok, refusal.c_str()));
+
+        QuietDecl q;
+        std::string quiet_refusal = "not-cleared";
+        const bool qok =
+            jnext::save::restore_via_desc(q, "{\n  \"bank\": 7\n}\n", false,
+                                          quiet_refusal);
+        check("GH289-51",
+              "…and a declaration that does NOT fail still succeeds with no "
+              "refusal and the value restored — the fallback reports a real "
+              "failure, it does not manufacture one",
+              qok && quiet_refusal == "not-cleared" && q.bank == 7,
+              det("ok=%d refusal='%s' bank=%u", (int)qok,
+                  quiet_refusal.c_str(), q.bank));
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // JNSS — the generated schema's shape (§5.3, §6.2, §9.3, §16.3)
     // ─────────────────────────────────────────────────────────────────────
