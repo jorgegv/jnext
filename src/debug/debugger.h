@@ -57,6 +57,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -779,15 +780,23 @@ public:
     /// `AdvanceToBoundary` runs the #27 S6 `SuspendScope` advance,
     /// `RefuseMidFrame` returns `NotAtFrameBoundary`.
     ///
-    /// NO `ClientId by`, and that is an OPEN QUESTION rather than a settled
-    /// reading — reported, not decided here. A save is a read, so rule 3 of this
-    /// file's banner does not ask for attribution; but `AdvanceToBoundary`
-    /// ADVANCES the machine to reach the boundary, which is a state change no
-    /// SES-06 line would name an originator for. `bookmark_save` (CAP-03) takes
-    /// a `by` because its bookmarks are per client, so the two read differently
-    /// side by side. B settles it; if the answer is that the advance must be
-    /// attributed, this gains a `by` and B0 was wrong.
-    Expected<std::vector<uint8_t>> save_state_bytes(SaveStateMode mode);
+    /// TAKES A `ClientId by` — SETTLED (owner decision; B0 left it open and the
+    /// answer is that the advance must be attributed).
+    ///
+    /// A save is a read, so rule 3 of this file's banner would not ask for
+    /// attribution on its own. `AdvanceToBoundary` is what does: it ADVANCES the
+    /// machine, so emulated time moves, observably to every other attached
+    /// client, and every other state change in this API carries a `by` and emits
+    /// the SES-06 `MUTATE … by <client>` line. Without it a CI transcript can
+    /// show time jumping with nothing recording who caused it.
+    ///
+    /// `bookmark_save`'s `by` is NOT the parallel argument — it needs one
+    /// anyway, because bookmarks are per client and die with a detach. The point
+    /// here is attribution of the ADVANCE, which is why the `by` is meaningful
+    /// only in `AdvanceToBoundary` mode: `RefuseMidFrame` advances nothing and
+    /// has nothing to attribute. The SES-06 line for the advance is B4's, with
+    /// the rest of the CAP-ST work.
+    Expected<std::vector<uint8_t>> save_state_bytes(ClientId by, SaveStateMode mode);
 
     /// ST-02 — restore from bytes, IN-PROCESS ONLY and unversioned (the disk
     /// format is JNS, #27). A failure LATCHES corruption, which CTL-11 then
@@ -896,6 +905,31 @@ public:
     /// boot has completed, so the reconstruct contract's re-application runs for
     /// it too.
     Result on_cold_boot_done();
+
+private:
+    // ── The ONE thing B1 added to this frozen header ────────────────────────
+    //
+    // B0 declared the constructor, an out-of-line destructor and deleted
+    // copy/move, and no storage at all — the shape a pImpl is prepared for. B1
+    // adds it, in two lines, and that is the whole of the state: the
+    // `Emulator&`, the symbol table, the stop policy, and everything B2..B5
+    // bring (the event table, the latch ring, the client list, the bookmarks,
+    // the coverage bit set) live in `Impl`, defined in the INTERNAL header
+    // `src/debug/debugger_impl.h`.
+    //
+    // Why pImpl and not members here: this header is FROZEN and five frontends
+    // compile against it (§10.1). Every later sub-package would otherwise have
+    // to edit it to add its own state, and each such edit is a chance to change
+    // something a frontend depends on. With the state behind `Impl`, B2..B5
+    // touch nothing a frontend can see. It also keeps rule 1 of this file's
+    // banner structural rather than careful: `Impl` is where `core/emulator.h`
+    // is included, and it is not reachable from here.
+    //
+    // NOT a hot-path cost: no path through `run_frame()` calls a `Debugger`
+    // method. B2's hooks read the internals directly, not through this
+    // indirection.
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 }  // namespace dbg

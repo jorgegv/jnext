@@ -166,12 +166,18 @@ enum class DmaEventKind : uint8_t {
 };
 
 /// What kind of reset (`Reset` payload, and CTL-12's argument).
+///
+/// `Any` is a FILTER VALUE ONLY, like `EventSource::Any`: it may appear in
+/// `EventFilter::reset_kind` and never in a delivered `Event::reset_kind`, and
+/// `reset()` refuses it — "reset the machine, either way" is not a reset.
 enum class ResetKind : uint8_t {
     /// `Emulator::soft_reset()`.
     Soft = 0,
     /// The cold-boot reconstruct contract (CTL-12) — destroy and rebuild the
     /// machine in place through the registered loop driver.
     Hard,
+    /// Filter only — match a reset of either kind (owner decision, F8).
+    Any,
 };
 
 /// Which NMI button (IN-04, and the `Nmi` payload's source).
@@ -432,9 +438,22 @@ struct EventFilter {
     /// `Cycle`: fire at the first boundary with `master_cycle >= cycle`.
     uint64_t cycle = 0;
 
-    /// `Reset`: which kind to match. Both kinds need two subscriptions; there
-    /// is no "any reset" value, because every caller so far wants one or the
-    /// other (`Reset{Hard}` completes a blocked `run`, CTL-12).
+    /// `Reset`: which kind to match — `Soft`, `Hard`, or `Any` for either
+    /// (owner decision, F8; this comment previously said there was no "any"
+    /// value and it was wrong).
+    ///
+    /// WHY THIS KIND HAS AN "ANY" AND THE COPPER/DMA SUB-KINDS BELOW DO NOT.
+    /// The DSL's natural `on reset do … end`, with no qualifier, has to compile
+    /// to EXACTLY ONE subscription: two would put two rows in the user-visible
+    /// `subscriptions()` list for one script rule, and the halves could then be
+    /// enabled independently of each other. A reset fires once per reset, so
+    /// matching either kind costs nothing on the hot path. The Copper and DMA
+    /// sub-kinds stay one-per-subscription for a STATED COST reason — `Byte`
+    /// arming is a per-engine cost (§4.3) — so this sets no precedent against
+    /// them.
+    ///
+    /// B2's `EventTable` owns the matching (an `Any` filter matches both kinds);
+    /// B0 declares the value, B1 carries the declaration.
     ResetKind reset_kind = ResetKind::Soft;
 
     /// `Copper`: which sub-kind. `Dma`: which sub-kind. One subscription is one
