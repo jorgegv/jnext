@@ -34,6 +34,36 @@ One caveat about "pure": `jnext_debug` does link SDL3, because
 and thence `SDL.h`. The rule the split enforces is *no GUI toolkit*, not *no
 dependencies*.
 
+### The four published headers, and what they are not yet
+
+`src/debug/` also holds four headers that are a *contract* rather than code:
+`debugger.h`, `events.h`, `inspect.h` and `result.h`. They declare
+`jnext::dbg::Debugger` — one frontend-agnostic facade over control, inspection,
+mutation, events, time, input injection, capture, bookmarks, symbols and
+sessions — together with its value types (`Result`, `Expected<T>`, `Event`,
+`Subscription`, `MemSpace`, `RunState`, `Listener`, `Service`). They contain
+**no bodies at all**: they are the frozen interface of epic
+[#276](https://github.com/jorgegv/jnext/issues/276), landed first and alone so
+that the Qt refactor, three protocol servers (DZRP, ZRCP, GDB RSP) and the
+scripting DSL can all be written against one agreed shape. The design is
+`doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md`; the map from each of its
+capability ids to each declaration is
+`doc/design/debug-subsystem/b0-cap-traceability.md`.
+
+Two properties are worth knowing before the implementation exists. `Emulator` is
+only *forward-declared* in those headers, and none of them reaches
+`core/emulator.h`, `src/platform/` or any Qt header — the point of the epic is
+that a frontend stops holding an `Emulator*`. And `src/debug/debug_types_check.cpp`
+is the file that makes them compile at all: a translation unit of nothing but
+`static_assert`s, which is also where the three backend-owned enums that mirror
+something else (`StepMode` against the internal `::StepMode`, `PaletteId`
+against `::PaletteId`, the screenshot layer mask against `Renderer::LAYER_*`) are
+pinned value by value.
+
+Everything the rest of this chapter describes — `DebugState` consulted per
+instruction, `BreakpointSet`, `DebuggerManager` driving the panels — is still
+how the debugger works today. The facade above it is not wired up yet.
+
 ## What `ENABLE_DEBUGGER=OFF` removes
 
 `ENABLE_DEBUGGER` (default `ON`) gates **only the Qt UI**. With it off,

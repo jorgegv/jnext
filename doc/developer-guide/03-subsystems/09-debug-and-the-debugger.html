@@ -1107,6 +1107,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Two directories, and the split is the design">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-four-published-headers-and-what-they-are-not-yet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The four published headers, and what they are not yet
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1923,6 +1940,32 @@ plain CLI flags rather than GUI-only features.</p>
 <code>rewind_buffer.cpp</code> includes <code>core/emulator.h</code>, which reaches <code>input/keyboard.h</code>
 and thence <code>SDL.h</code>. The rule the split enforces is <em>no GUI toolkit</em>, not <em>no
 dependencies</em>.</p>
+<h3 id="the-four-published-headers-and-what-they-are-not-yet">The four published headers, and what they are not yet<a class="headerlink" href="#the-four-published-headers-and-what-they-are-not-yet" title="Permanent link">&para;</a></h3>
+<p><code>src/debug/</code> also holds four headers that are a <em>contract</em> rather than code:
+<code>debugger.h</code>, <code>events.h</code>, <code>inspect.h</code> and <code>result.h</code>. They declare
+<code>jnext::dbg::Debugger</code> — one frontend-agnostic facade over control, inspection,
+mutation, events, time, input injection, capture, bookmarks, symbols and
+sessions — together with its value types (<code>Result</code>, <code>Expected&lt;T&gt;</code>, <code>Event</code>,
+<code>Subscription</code>, <code>MemSpace</code>, <code>RunState</code>, <code>Listener</code>, <code>Service</code>). They contain
+<strong>no bodies at all</strong>: they are the frozen interface of epic
+<a href="https://github.com/jorgegv/jnext/issues/276">#276</a>, landed first and alone so
+that the Qt refactor, three protocol servers (DZRP, ZRCP, GDB RSP) and the
+scripting DSL can all be written against one agreed shape. The design is
+<code>doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md</code>; the map from each of its
+capability ids to each declaration is
+<code>doc/design/debug-subsystem/b0-cap-traceability.md</code>.</p>
+<p>Two properties are worth knowing before the implementation exists. <code>Emulator</code> is
+only <em>forward-declared</em> in those headers, and none of them reaches
+<code>core/emulator.h</code>, <code>src/platform/</code> or any Qt header — the point of the epic is
+that a frontend stops holding an <code>Emulator*</code>. And <code>src/debug/debug_types_check.cpp</code>
+is the file that makes them compile at all: a translation unit of nothing but
+<code>static_assert</code>s, which is also where the three backend-owned enums that mirror
+something else (<code>StepMode</code> against the internal <code>::StepMode</code>, <code>PaletteId</code>
+against <code>::PaletteId</code>, the screenshot layer mask against <code>Renderer::LAYER_*</code>) are
+pinned value by value.</p>
+<p>Everything the rest of this chapter describes — <code>DebugState</code> consulted per
+instruction, <code>BreakpointSet</code>, <code>DebuggerManager</code> driving the panels — is still
+how the debugger works today. The facade above it is not wired up yet.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
 <p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
 <code>jnext_debugger</code> is neither compiled nor linked and every use site in
