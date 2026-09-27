@@ -32,7 +32,7 @@
 | CTL-09 | `Result step_back(ClientId by, uint32_t n)` | debugger.h |
 | CTL-10 | `Result rewind_to_frame(ClientId by, uint32_t frame)` | debugger.h |
 | CTL-11 | `std::optional<CorruptionIncident> resume_blocked_by_corruption() const`, `Result acknowledge_corruption(uint64_t generation)`; `struct CorruptionIncident{subsystem, generation}` | debugger.h, inspect.h |
-| CTL-12 | `Result reset(ClientId by, ResetKind kind)`; `enum class ResetKind{Soft, Hard}`; the driver is SES-07's `LoopDriver::cold_boot` | debugger.h, events.h |
+| CTL-12 | `Result reset(ClientId by, ResetKind kind)`; `enum class ResetKind{Soft, Hard, Any}` (`Any` is filter-only; `reset(Any)` is refused); the driver is SES-07's `LoopDriver::cold_boot` | debugger.h, events.h |
 | CTL-13 | `RunState state() const`; `struct RunState{paused, step_mode, pause_reason, cycle, frame, pc}`, `enum class StepMode`, `struct PauseReason` with `Kind{None, User, Breakpoint, Watch, Step, RunTo, Magic, Corrupt, Script}` | debugger.h, inspect.h |
 | CTL-14 | `bool magic_breakpoint() const`, `Result set_magic_breakpoint(bool)` | debugger.h |
 | CTL-15 | `Result load(ClientId by, const std::string& path)`; the dispatch is SES-07's `LoopDriver::load` | debugger.h |
