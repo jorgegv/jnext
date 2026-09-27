@@ -209,24 +209,49 @@ and redirect. Everything else is delivered at an instruction boundary:
 |---|---|---|
 | `Mmu` read/write site | the raising instruction's own boundary | nothing |
 | `PortDispatch` (reads AFTER dispatch, so the value is the one the guest got) | same | nothing |
+| `Dma::execute_burst` (Start / Byte / End) | the boundary of the slot the burst ran in | nothing |
 | `NextReg::write`, CPU writer | the NEXT boundary | ≤1 instruction |
-| `NextReg::write`, Copper / DMA writer | the NEXT boundary | ≤1 instruction |
+| `NextReg::write`, Copper writer | the NEXT boundary | ≤1 instruction |
 | `Copper::execute` (Move / Wait / Halt) | the NEXT boundary | ≤1 instruction |
-| `Dma::execute_burst` (Start / Byte / End) | the boundary of the slot the burst ran in | ≤1 instruction |
 | `on_scanline` | the NEXT boundary | ≤1 instruction |
 | `end_of_frame` | that frame edge | nothing |
 
 The `≤1 instruction` entries are all the same fact: the boundary drain runs
-BEFORE `tick_devices_after_instruction()`, and that is where the Copper, the
-deferred CPU NextREG queue and the DMA all run. Moving the drain behind the
-device cluster would change the GH #265 early-return contract for every data
-breakpoint, so the delay is accepted and stated instead.
+BEFORE `tick_devices_after_instruction()`, and that is where the Copper and the
+deferred CPU NextREG queue run. Moving the drain behind the device cluster would
+change the GH #265 early-return contract for every data breakpoint, so the delay
+is accepted and stated instead.
+
+**DMA is not one of them**, and the first version of this table said it was. A
+burst runs from `dma_.execute_burst()` inside `step_one_instruction()`, before
+that slot's drain — `tick_devices_after_instruction()` contains no `dma_.` call
+at all — so a `Dma` event, and the `Mem`/`Port` events of its own bytes, are
+delivered at that slot's own boundary like the CPU's accesses. A DMA NextREG
+write is the one DMA-adjacent case that IS late, because it goes through the same
+deferred CPU queue as any other NR write.
+
+**`cycle` is slot-granular for a site-latched kind.** The master clock ticks once
+per instruction slot, so every event one instruction raises shares that slot's
+start cycle — two `Mem{Write}`s from a single `LD (nn),HL` are indistinguishable
+by `cycle`. `Scanline` is the exception and is exact: the site hands the latch the
+line's own boundary cycle, and the stamper derives `vc`/`hc` from whichever cycle
+it is given. Its `cvc` comes from the line NUMBER rather than from a cycle,
+because `cvc` steps at raw `hc == hc_ula_zero_raw_hc()` and not at raw `hc` 0
+(GH #257) — sampling it at the boundary would report the previous `hc_ula` line
+and put a one-line error in the user-visible filter.
 
 **The whole of a delivery runs under one `DebugState::InspectionScope`**, and
 that is not optional. A delivery happens inside `run_frame()`'s
 `GuestExecutionScope`, where `watchpoints_live()` is true — so a handler that
 pokes an address it is watching would latch a watch on itself. `poke(Cpu)` takes
 a second scope of its own, so the property holds for any caller on any path.
+
+**`Mmu::write` latches before the overlay arbitration.** The watch check is at the
+TOP of the function, before the Multiface / DivMMC / Layer 2 / alt-ROM /
+config-mode cascade and before the `read_only_` drop, so a guest write into ROM
+that lands nowhere still raises `Mem{Write}` — with `prev == value`, and nothing
+in the payload saying the write was dropped. That is what a pre-B2 WRITE
+watchpoint did, and it is what a user watching "who writes here" wants.
 
 **A debugger write is not an event.** `NextReg::write` is the ONE hook for every
 NextREG writer, and it is gated on `DebugState::guest_access()`: a panel's
@@ -246,11 +271,26 @@ driven over it on purpose (`EVT-OVF-*`).
 
 **The no-subscriber cost.** `Copper::execute` runs once per master cycle and is
 8-12 % of the `copper-demo` / `beast` profiles, and `Dma::execute_burst` runs
-once per byte, so neither reads the table at its site: each carries a plain bool
-(`Copper::events_armed_`, `Dma::events_armed_`, `Dma::byte_events_armed_`) that
-the backend sets from `subscribe()`. DMA `Byte` is armed SEPARATELY from
-`Start`/`End`, because it is the one DMA site whose cost scales with the
-transfer.
+once per byte, so neither reads the table at its site: each carries plain bools
+that the backend sets from `subscribe()` — and there is **one per sub-kind**, not
+one per engine. A `Copper{Halt}`-only subscriber must not accumulate a `Move`
+entry per master cycle, and ring space is observable, so
+`EventTable::has_copper_sub_kind()` / `has_dma_sub_kind()` are what
+`gates_changed()` reads. (The first version armed the whole Copper engine from
+`has_kind(Copper) || has_kind(NextRegWrite)` and left `has_copper_sub_kind()`
+with no caller at all.)
+
+The one thing EVERY user pays is a single 16-bit store per instruction,
+`debug_slot_pc_ = pc_pre_exec` — the pre-execution PC a latch cannot recover once
+`cpu_.execute()` has moved on. So "the no-subscriber cost is none" is properly
+"one store, measured as noise": `test/bench/ab-hotlatch.sh` bounds it below the
+run-to-run spread.
+
+**The measurement lives in the tree.** `test/bench/bench.sh` measures one binary
+at a time and cannot arm a watch, so `test/bench/ab-hotlatch.sh` (`make
+bench-hotlatch`) runs the interleaved A/B §6.2 prescribes over the
+`JNEXT_BENCH_WATCH` fixture in `headless_app.cpp`, and prints each variant's own
+hit count so a run states whether the watch actually fired.
 
 **`pause_reason` (CTL-13) needs evidence that survives the stop.** Nothing in
 the tree used to record WHY the machine stopped: `DebugState::pause()` clears
