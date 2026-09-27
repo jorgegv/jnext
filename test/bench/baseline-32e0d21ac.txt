@@ -1,0 +1,51 @@
+# jnext benchmark baseline
+# date:   2026-09-27 19:10:13
+# host:   kessel
+# commit: 32e0d21ac03482588c17288a3a50b88c432a33e5
+# binary: /home/jorgegv/tmp/worktrees/gh276-backend/build/gui-release/jnext (CMAKE_BUILD_TYPE=Release)
+# core:   0 @ 4900000 kHz (fastest class, lowest-numbered)
+# load1:  0.76 (1-min loadavg at run start; > 1.5 biases medians without inflating spread)
+# runs:   median of 5 per workload; spread = (max-min)/median of fps
+
+## boot-48k  (machine=48k frames=600)
+  run1: BENCH workload=boot-48k frames=600 wall=0.637 fps=941.3 tstates_per_sec=65786124 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run2: BENCH workload=boot-48k frames=600 wall=0.617 fps=972.6 tstates_per_sec=67974884 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run3: BENCH workload=boot-48k frames=600 wall=0.594 fps=1010.0 tstates_per_sec=70585260 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run4: BENCH workload=boot-48k frames=600 wall=0.598 fps=1002.6 tstates_per_sec=70068529 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run5: BENCH workload=boot-48k frames=600 wall=0.599 fps=1002.4 tstates_per_sec=70058111 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  MEDIAN boot-48k: fps=1002.4 tstates_per_sec=70058111 min_fps=941.3 max_fps=1010.0 spread=6.85% VOID (spread 6.85% > 5.0% — rerun on an idle box)
+
+## boot-nextzxos  (machine=next frames=400)
+  run1: BENCH workload=boot-nextzxos frames=400 wall=1.223 fps=327.0 tstates_per_sec=185480741 tstates_per_frame=567264 cpu=28MHz core=0@4900000kHz build=Release
+  run2: BENCH workload=boot-nextzxos frames=400 wall=1.208 fps=331.0 tstates_per_sec=187758996 tstates_per_frame=567264 cpu=28MHz core=0@4900000kHz build=Release
+  run3: BENCH workload=boot-nextzxos frames=400 wall=1.209 fps=330.9 tstates_per_sec=187707938 tstates_per_frame=567264 cpu=28MHz core=0@4900000kHz build=Release
+  run4: BENCH workload=boot-nextzxos frames=400 wall=1.202 fps=332.8 tstates_per_sec=188782049 tstates_per_frame=567264 cpu=28MHz core=0@4900000kHz build=Release
+  run5: BENCH workload=boot-nextzxos frames=400 wall=1.215 fps=329.2 tstates_per_sec=186766457 tstates_per_frame=567264 cpu=28MHz core=0@4900000kHz build=Release
+  MEDIAN boot-nextzxos: fps=330.9 tstates_per_sec=187707938 min_fps=327.0 max_fps=332.8 spread=1.75% OK
+
+## copper-demo  (machine=next frames=400 load=test/00regression/nex/copper_demo.nex)
+  run1: BENCH workload=copper-demo frames=400 wall=3.016 fps=132.6 tstates_per_sec=75232336 tstates_per_frame=567264 cpu=28MHz core=0@4900000kHz build=Release
+  run2: BENCH workload=copper-demo frames=400 wall=2.961 fps=135.1 tstates_per_sec=76640284 tstates_per_frame=567264 cpu=28MHz core=0@4900000kHz build=Release
+  run3: BENCH workload=copper-demo frames=400 wall=2.997 fps=133.5 tstates_per_sec=75706853 tstates_per_frame=567264 cpu=28MHz core=0@4900000kHz build=Release
+  run4: BENCH workload=copper-demo frames=400 wall=2.983 fps=134.1 tstates_per_sec=76070424 tstates_per_frame=567264 cpu=28MHz core=0@4900000kHz build=Release
+  run5: BENCH workload=copper-demo frames=400 wall=2.971 fps=134.6 tstates_per_sec=76366940 tstates_per_frame=567264 cpu=28MHz core=0@4900000kHz build=Release
+  MEDIAN copper-demo: fps=134.1 tstates_per_sec=76070424 min_fps=132.6 max_fps=135.1 spread=1.86% OK
+
+## beast  (machine=next frames=400 load=test/00regression/nex/beast.nex)
+  run1: BENCH workload=beast frames=400 wall=2.761 fps=144.9 tstates_per_sec=69754650 tstates_per_frame=481536 cpu=28MHz core=0@4900000kHz build=Release
+  run2: BENCH workload=beast frames=400 wall=2.767 fps=144.5 tstates_per_sec=69603129 tstates_per_frame=481536 cpu=28MHz core=0@4900000kHz build=Release
+  run3: BENCH workload=beast frames=400 wall=2.785 fps=143.6 tstates_per_sec=69171863 tstates_per_frame=481536 cpu=28MHz core=0@4900000kHz build=Release
+  run4: BENCH workload=beast frames=400 wall=2.793 fps=143.2 tstates_per_sec=68952444 tstates_per_frame=481536 cpu=28MHz core=0@4900000kHz build=Release
+  run5: BENCH workload=beast frames=400 wall=2.790 fps=143.4 tstates_per_sec=69034902 tstates_per_frame=481536 cpu=28MHz core=0@4900000kHz build=Release
+  MEDIAN beast: fps=143.6 tstates_per_sec=69171863 min_fps=143.2 max_fps=144.9 spread=1.18% OK
+
+## bifrost  (machine=48k frames=600 load=test/00regression/tap/bifrost.tap)
+  run1: BENCH workload=bifrost frames=600 wall=0.602 fps=996.4 tstates_per_sec=69636039 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run2: BENCH workload=bifrost frames=600 wall=0.612 fps=980.2 tstates_per_sec=68504706 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run3: BENCH workload=bifrost frames=600 wall=0.597 fps=1005.7 tstates_per_sec=70288113 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run4: BENCH workload=bifrost frames=600 wall=0.595 fps=1007.7 tstates_per_sec=70427880 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  run5: BENCH workload=bifrost frames=600 wall=0.594 fps=1010.6 tstates_per_sec=70630279 tstates_per_frame=69888 cpu=3.5MHz core=0@4900000kHz build=Release
+  MEDIAN bifrost: fps=1005.7 tstates_per_sec=70288113 min_fps=980.2 max_fps=1010.6 spread=3.02% OK
+
+# result file: /home/jorgegv/tmp/worktrees/gh276-backend/test/bench/baseline-32e0d21ac.txt
+# NOTE: at least one workload was VOID (spread > 5.0%) — exit 1
