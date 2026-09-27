@@ -160,12 +160,23 @@ class Listener {
 public:
     virtual ~Listener() = default;
 
+    /// §4.8 `Paused{by, reason, cycle, pc, matched[]}`.
     virtual void on_paused(const PausedInfo& info)                = 0;
+    /// §4.8 `Resumed{by}`.
     virtual void on_resumed(ClientId by)                          = 0;
+    /// §4.8 `Reset{kind}`. A `Reset{Hard}` is how an adapter whose client is
+    /// blocked in a `run` completes that reply — adapter policy, not a pause.
     virtual void on_reset(ResetKind kind)                         = 0;
+    /// §4.8 `FrameEnded{frame}`.
     virtual void on_frame_ended(uint32_t frame)                   = 0;
+    /// §4.8 `SubscriptionsChanged{kinds}` — the successor of
+    /// `BreakpointSet`'s observer contract.
     virtual void on_subscriptions_changed(EventKindMask kinds)    = 0;
+    /// §4.8 `ExitRequested{code}` — what a `Stop` becomes under
+    /// `StopPolicy::ExitNonZero`.
     virtual void on_exit_requested(int code)                      = 0;
+    /// §4.8 `Log{level, text}` — SES-06's sink, including the §4.2a `MUTATE`
+    /// lines the backend emits for every client's writes.
     virtual void on_log(LogLevel level, const std::string& text)  = 0;
 };
 
