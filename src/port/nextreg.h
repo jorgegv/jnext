@@ -6,6 +6,8 @@
 // ZX Spectrum Next NextREG register file.
 // Accessed via ports 0x243B (select) and 0x253B (data).
 namespace jnext { namespace save { class StateDesc; } }
+namespace jnext { namespace dbg { enum class EventSource : uint8_t; } }
+class DebugState;
 
 class NextReg {
 public:
@@ -127,6 +129,36 @@ public:
     // NR 0xC2/0xC3 via the 0x243B/0x253B port path.
     void set_nmi_return_address(uint16_t pc);
 
+    // ── GH #276 B2 §4.3 — the ONE NextRegWrite hook, for every writer ────
+    //
+    // write() is the single point every NR write passes through — the CPU's
+    // deferred queue, a Copper MOVE, a DMA transfer with 0x253B as its I/O
+    // destination, and the debugger itself — which is why §4.3 puts the hook
+    // there instead of at four call sites.
+    //
+    // It is gated on `DebugState::guest_access()`, so a debugger write fires no
+    // event ON ITSELF (§4.2a: a panel's `nextreg().write()` and a script's
+    // `nextreg_write` both run outside the guest's execution, the latter under
+    // the delivery's `InspectionScope`). That gate is the whole of the
+    // "a debugger write is not an event" rule for this kind.
+    void set_debug_state(DebugState* ds) { debug_state_ = ds; }
+
+    /// Who is writing right now — §4.3's `source`. Default `Cpu`.
+    ///
+    /// SET BY THE NON-CPU WRITERS, which are the two that can be identified at
+    /// all: `Copper::execute` brackets its MOVE (it already brackets it for
+    /// `active_move_hc`), and `Emulator`'s `dma_.write_io` lambda brackets a DMA
+    /// I/O write. Both SAVE AND RESTORE the previous value rather than resetting
+    /// to `Cpu`, because a MOVE to NR 0x02 re-enters the register file through
+    /// `soft_reset()` and a hard reset to `Cpu` would mis-tag the nested writes.
+    ///
+    /// A `Copper` write is DELIBERATELY NOT LATCHED HERE: §4.3 requires a MOVE
+    /// to raise `Copper{Move}` and `NextRegWrite{source=Copper}` from ONE latch
+    /// entry, fanned out at the drain, and that entry is the Copper site's.
+    /// Latching here as well would put two entries in the ring for one write.
+    void set_write_source(jnext::dbg::EventSource s) { write_source_ = s; }
+    jnext::dbg::EventSource write_source() const { return write_source_; }
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
@@ -147,4 +179,12 @@ private:
     // that lets peek() refuse to call one it has no twin for. See peek().
     std::array<std::function<uint8_t()>, 256> peek_handlers_{};
     std::array<bool, 256> destructive_read_{};
+
+    // APPENDED (GH #276 B2), never interleaved — and NOT part of the saved
+    // state: both are host-side debugger wiring, not emulated machine state.
+    DebugState* debug_state_ = nullptr;
+    jnext::dbg::EventSource write_source_;   // initialised in the constructor
+
+    /// The out-of-line latch. Reached only when the gate above passed.
+    void latch_nr_write_(uint8_t reg, uint8_t val);
 };

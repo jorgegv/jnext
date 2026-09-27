@@ -748,6 +748,26 @@ public:
     /// currently holding the bus (that is `Dma::dma_holds_bus()`).
     bool slot_ran_dma() const { return slot_ran_dma_; }
 
+    // ── GH #276 B2 §4.3 — the event seams the backend cannot reach ───────
+
+    /// Latch a CAP-EVT `Reset` event. `soft_reset()` calls it with false;
+    /// CTL-12's cold-boot reconstruct (B3) calls it with true, which is why it
+    /// is public rather than private — the reconstruct lives above `Emulator`
+    /// in `src/platform/`, and the `Debugger` cannot see the moment the machine
+    /// is rebuilt from inside it.
+    void debug_latch_reset(bool hard);
+
+    /// The PC of the instruction the current slot is executing — §4.3's
+    /// `pc_pre_exec`, which is what `Event::pc` means for every latched kind.
+    ///
+    /// A member rather than the local `step_one_instruction()` already has,
+    /// because a latch fires from INSIDE `cpu_.execute()` (an `Mmu::write` is a
+    /// memory cycle of the instruction) and by then `cpu_.pc()` has moved on.
+    /// One 16-bit store per instruction, unconditional — gating it on
+    /// `armed()` would make the store conditional and the branch is not
+    /// cheaper than the store.
+    uint16_t debug_slot_pc() const { return debug_slot_pc_; }
+
     /// Execute a single CPU instruction slot with all subsystem ticking, and
     /// nothing around it. Returns T-states consumed.
     ///
@@ -2096,6 +2116,29 @@ private:
     // one or the other, never both, and `Event::source` is tagged from it at
     // the boundary drain. Read through slot_ran_dma().
     bool     slot_ran_dma_         = false;
+
+    // GH #276 B2 — see debug_slot_pc().
+    uint16_t debug_slot_pc_ = 0;
+
+    /// GH #276 B2 — a `Stop` verdict from a drain on a path that does not pause
+    /// immediately. run_frame() acts on its drain's return value directly;
+    /// step_frame_slot() cannot, because debugger_step() may run several slots
+    /// out of a HALT and has one place where it re-pauses. Latched, exactly like
+    /// `data_bp_hit_`, and consumed in the same breath.
+    bool event_stop_pending_ = false;
+
+    /// GH #276 B2 — install the latch stamper on `debug_state_`: the
+    /// {cycle, frame, pc, vc, hc} common header of §4.3, which only this class
+    /// knows. Called once from init().
+    void install_debug_latch_stamper_();
+
+    /// GH #276 B2 §4.3 — latch `Scanline` / `Frame` / `IntAck` / `Nmi` /
+    /// `Magic`. Out of line, each behind its own `has_kind()` gate.
+    void debug_latch_scanline_(int raw_line);
+    void debug_latch_frame_();
+    void debug_latch_int_ack_(uint8_t vector);
+    void debug_latch_nmi_();
+    void debug_latch_magic_(uint16_t pc);
     uint32_t slot_tstates_         = 0;
     uint64_t slot_start_           = 0;
     uint32_t slot_d_               = 8;

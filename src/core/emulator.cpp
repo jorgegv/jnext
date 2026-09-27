@@ -1,4 +1,5 @@
 #include "core/emulator.h"
+#include "debug/event_table.h"
 #include "save/state_desc.h"
 #include "save/state_desc_bin.h"
 
@@ -1112,7 +1113,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // all devices at S_0, so ack_vector() returns 0xFF — byte-identical to
     // the legacy cpu_.request_interrupt(0xFF) + int_vector_=0xFF path.
     cpu_.on_int_ack = [this]() -> uint8_t {
-        return im2_.ack_vector();
+        const uint8_t vector = im2_.ack_vector();
+        // GH #276 B2 §4.3 `IntAck` — "an interrupt was accepted by the CPU".
+        // THIS is the accept seam: the CPU only enters an interrupt-acknowledge
+        // M1 cycle once it has decided to take the interrupt, so a request that
+        // is never accepted (DI, or an EI shadow) never reaches here.
+        debug_latch_int_ack_(vector);
+        return vector;
     };
 
     // GH #219 — --persistent-breakpoints. Latched here, once, from the config:
@@ -6603,6 +6610,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     mmu_.set_debug_state(&debug_state_);
     // GH #222 — the same DebugState drives I/O watchpoints on the port bus.
     port_.set_debug_state(&debug_state_);
+    // GH #276 B2 §4.3 — the same DebugState carries the CAP-EVT latch ring, so
+    // every event site reaches it through the pointer it already holds. The
+    // ring itself does not exist until a `Debugger` installs an `EventTable`,
+    // so all five of these are inert in a build with no debugger attached.
+    nextreg_.set_debug_state(&debug_state_);
+    copper_.set_debug_state(&debug_state_);
+    dma_.set_debug_state(&debug_state_);
+    install_debug_latch_stamper_();
     i2c_.attach_device(0x68, &rtc_);
     // Task 28 — pin the RTC to the --rtc fixed date/time (frozen clock,
     // deterministic boot screenshots). Survives the NextZXOS mid-boot
@@ -7881,6 +7896,15 @@ void Emulator::set_magic_breakpoint(bool enabled)
         Log::emulator()->info("Magic breakpoint hit at PC={:#06x}", pc);
         debug_state_.set_active(true);
         debug_state_.pause();
+        // CTL-13's evidence, latched UNCONDITIONALLY — not behind a
+        // subscription gate, because `state()` must report
+        // `PauseReason::Magic` whether or not anyone subscribed to the kind.
+        debug_state_.note_magic_stop(pc);
+        // GH #276 B2 §4.3 `Magic` — and, separately, CTL-13's `pause_reason`:
+        // the latch is the ONLY record that this stop was the magic opcode,
+        // because pause() above has already destroyed the step mode and
+        // nothing else distinguishes it from a user pause.
+        debug_latch_magic_(pc);
         return true;
     };
 }
@@ -9338,10 +9362,28 @@ void Emulator::run_frame()
             // already spent, and so is this same address on the next pass
             // round a loop. A redundant resume on an already-running machine
             // raises no arm at all, so it cannot swallow a later hit.
-            if (!debug_state_.consume_step_off() && debug_state_.should_break(pc)) {
+            const bool step_off = debug_state_.consume_step_off();
+            if (!step_off && debug_state_.should_break(pc)) {
                 debug_state_.pause();
                 // Early return: leave frame_cycle_ as-is so resume continues
                 // from this point.  The display shows the previous frame.
+                return;
+            }
+            // GH #276 B2 §4.3 `Execute` — THE ONLY KIND DELIVERED BEFORE THE
+            // INSTRUCTION RUNS, which is what lets a handler redirect PC
+            // (§4.2a). Inside this armed() block, so an unarmed machine pays
+            // nothing, and behind a cached bool, so an armed machine with no
+            // `Execute` subscription pays one load and one branch.
+            //
+            // AFTER the legacy breakpoint test and it CONSUMES THE SAME
+            // GH #221 step-off arm — which is why `consume_step_off()` moved
+            // into a local above: calling it twice would spend the arm on the
+            // legacy test and leave this gate to re-match the address the user
+            // is standing on, re-pausing with no progress made. That is #221
+            // exactly, reintroduced for subscriptions.
+            if (!step_off && debug_state_.execute_events_armed() &&
+                debug_state_.run_execute_gate(pc)) {
+                debug_state_.pause();
                 return;
             }
             if (debug_state_.step_mode() == StepMode::INTO) {
@@ -9409,9 +9451,27 @@ void Emulator::run_frame()
         // debugger single-step paths cannot drift.
         const uint64_t master_cycles = step_one_instruction();
 
+        // GH #276 B2 §4.3 — THE BOUNDARY DRAIN. Everything latched at a site
+        // during this instruction is delivered here, with the machine stopped:
+        // conditions are evaluated, handlers run, and a `Stop` verdict pauses.
+        //
+        // BEFORE the legacy data-breakpoint test below, and unconditionally
+        // when there is anything to drain — not only when a stop is coming.
+        // A `Log` or `Continue` subscription must still be delivered, and the
+        // ring must be emptied either way or the next boundary would deliver
+        // this instruction's events again.
+        //
+        // What it does NOT cover is anything the DEVICE CLUSTER latches
+        // (tick_devices_after_instruction, below): a Copper MOVE, a deferred CPU
+        // NR write, a DMA byte. Those are delivered at the NEXT boundary, which
+        // is §4.3's "≤1 instruction late" for exactly those kinds.
+        bool event_stop = false;
+        if (debug_state_.armed() && debug_state_.events_pending())
+            event_stop = debug_state_.drain_events();
+
         // Check if a data breakpoint was hit during this instruction.
         // GH #219: armed(), matching the MMU sites that raise the flag.
-        if (debug_state_.armed() && debug_state_.data_bp_hit()) {
+        if (debug_state_.armed() && (event_stop || debug_state_.data_bp_hit())) {
             debug_state_.pause();
             debug_state_.set_data_bp_hit(false);
             // GH #265 — the IM2 tick moved into the device cluster this exit
@@ -9613,6 +9673,23 @@ void Emulator::end_of_frame(uint64_t frame_end)
     // ~2.5 scanlines). It used to be called here, once per video frame; see the
     // GH #268 comment at the call site for why that was 122x too slow and what
     // it broke. run_frame() still drives it — on_scanline() is its own event.
+
+    // GH #276 B2 §4.3 `Frame`, and the FRAME-EDGE DRAIN.
+    //
+    // Two things happen here, in this order. The `Frame` event is latched with
+    // the tag `time().frame` reports — this function has not yet handed the
+    // frame over, so `frame_num_ - 1` is still the frame that just ended.
+    //
+    // Then the ring is drained, because this is an instruction boundary that
+    // run_frame()'s inner loop never reaches: the loop exits on the clock, so
+    // anything the LAST instruction's device cluster latched (a Copper MOVE, a
+    // deferred CPU NR write, a DMA byte) would otherwise wait for the first
+    // boundary of the NEXT frame. A `Stop` here pauses between frames, which
+    // is a legitimate stopping point — the next run_frame() returns early.
+    debug_latch_frame_();
+    if (debug_state_.armed() && debug_state_.events_pending()) {
+        if (debug_state_.drain_events()) debug_state_.pause();
+    }
 }
 
 int Emulator::current_scanline() const
@@ -9960,6 +10037,9 @@ uint64_t Emulator::step_one_instruction()
         // copy from a member array) — the cost is in the noise next
         // to the surrounding scheduler/IM2/Copper work.
         const uint16_t pc_pre_exec = cpu_.pc();
+        // GH #276 B2 — publish it for the event latch stamper: a latch fires
+        // from inside cpu_.execute() and cpu_.pc() has moved on by then.
+        debug_slot_pc_ = pc_pre_exec;
         multiface_retn_pending_ = false;
         int tstates = cpu_.execute();
         cpu_executed = true;
@@ -10407,6 +10487,12 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
         const bool nmi_n = nmi_source_.nmi_generate_n();
         if (!nmi_n && prev_nmi_generate_n_) {
             cpu_.request_nmi();
+            // GH #276 B2 §4.3 `Nmi` — the seam §4.3 names. It is the FALLING
+            // EDGE of the arbitrated /NMI, i.e. the moment the request becomes
+            // the one the CPU will take at the next instruction boundary, which
+            // is also the last moment NmiSource still knows WHICH producer
+            // latched it.
+            debug_latch_nmi_();
         }
         prev_nmi_generate_n_ = nmi_n;
     }
@@ -10467,6 +10553,16 @@ uint64_t Emulator::step_frame_slot()
     const uint64_t frame_end = frame_cycle_ + timing_.master_cycles_per_frame;
 
     const uint64_t master_cycles = step_one_instruction();
+
+    // GH #276 B2 — the same boundary drain run_frame() does. Without it a
+    // watchpoint or a `Frame` handler would be silently dead on the debugger's
+    // Step path, which is the one path a user exercises deliberately. The
+    // `Stop` verdict is folded into debugger_step()'s existing latch consume,
+    // so the caller re-pauses once for either cause.
+    if (debug_state_.armed() && debug_state_.events_pending()) {
+        if (debug_state_.drain_events()) event_stop_pending_ = true;
+    }
+
     tick_devices_after_instruction(master_cycles);
 
     if (clock_.get() >= frame_end) {
@@ -10516,6 +10612,17 @@ int Emulator::execute_single_instruction()
     // with. That is exactly the defect DebugState::GuestExecutionScope exists
     // to remove, reintroduced from the other end.
     const uint64_t master_cycles = step_one_instruction();
+
+    // GH #276 B2 — drain here too, for the same reason the comment above gives
+    // for NOT consuming `data_bp_hit_`: this primitive has no production caller,
+    // and every test that drives it reads the outcome itself. Draining is what
+    // makes an event DELIVERED (handlers run, `events_fired_since` records it);
+    // the `Stop` verdict is left standing in `event_stop_pending_` for whoever
+    // looks next, exactly as the data-breakpoint latch is.
+    if (debug_state_.armed() && debug_state_.events_pending()) {
+        if (debug_state_.drain_events()) event_stop_pending_ = true;
+    }
+
     tick_devices_after_instruction(master_cycles);
     return static_cast<int>(master_cycles / clock_.cpu_divisor());
 }
@@ -10577,7 +10684,8 @@ int Emulator::debugger_step()
         // A watchpoint that fires inside the halt (a DMA write, or a READ
         // watchpoint on the halted PC itself, which the core re-fetches every
         // slot) ends the step where it fired instead of being spent silently.
-        while (cpu_.is_halted() && spent < budget && !debug_state_.data_bp_hit()) {
+        while (cpu_.is_halted() && spent < budget && !debug_state_.data_bp_hit() &&
+               !event_stop_pending_) {
             const uint64_t m = step_frame_slot();
             spent += m;
             master_cycles += m;
@@ -10605,9 +10713,10 @@ int Emulator::debugger_step()
     // Consuming it unconditionally (not only when the loop broke on it) is
     // deliberate: both leaks are the same latch, and a step that is not a
     // halt-run can set it just as easily.
-    if (debug_state_.data_bp_hit()) {
+    if (debug_state_.data_bp_hit() || event_stop_pending_) {
         debug_state_.pause();
         debug_state_.set_data_bp_hit(false);
+        event_stop_pending_ = false;
     }
 
     return static_cast<int>(master_cycles / clock_.cpu_divisor());
@@ -10705,6 +10814,12 @@ void Emulator::refresh_joystick_sources()
 
 void Emulator::soft_reset()
 {
+    // GH #276 B2 §4.3 `Reset{Soft}` — latched FIRST, before init() rebuilds the
+    // peripherals: the latch reads the master clock and the frame counter, and
+    // init() resets both, so a latch afterwards would stamp cycle 0 of frame 0
+    // for an event that happened at the end of a run.
+    debug_latch_reset(/*hard=*/false);
+
     // Soft reset (tbblue RESET_SOFT / NR 0x02 bit 0).
     // Preserves: RAM (including Next ROM-in-SRAM window pages 0..7), Rom
     // buffer, boot_rom_en (see mechanism note below), NR 0x82-0x84 per NR
@@ -11652,6 +11767,10 @@ int Emulator::cvc_at(uint64_t master_cycle) const
 
 void Emulator::on_scanline(int line)
 {
+    // GH #276 B2 §4.3 `Scanline` — latched here with the line's exact cycle and
+    // delivered at the next instruction boundary, so it is ≤1 instruction late.
+    debug_latch_scanline_(line);
+
     // Snapshot the fallback colour / ULA-enable / border / tilemap scroll
     // for the previous scanline. By the time on_scanline(N) fires, the
     // copper has finished executing for vc=N-1, so the snapshotted
@@ -12971,4 +13090,124 @@ bool Emulator::update_im2_dma_delay(bool im2_dma_int, bool nmi_activated, bool d
     im2_dma_delay_latched_ = next;
     dma_.set_dma_delay(next);
     return next;
+}
+
+// ===========================================================================
+// GH #276 B2 §4.3 — the event seams only `Emulator` can reach
+//
+// Each is gated on its own `has_kind()`, so an unsubscribed kind costs the
+// pointer chase and one integer test at a per-frame or per-scanline rate — not
+// per instruction, and not per memory access. The four sites inside the CPU's
+// own path (`Mem`, `Port`, `NextRegWrite`, `Copper`/`Dma`) are gated far more
+// cheaply, at their own sites; these are the rare ones.
+// ===========================================================================
+
+void Emulator::install_debug_latch_stamper_()
+{
+    // §4.3's common header, filled in ONE place. It runs only from inside
+    // DebugState::latch_event(), i.e. only when a filter has already matched at
+    // a site — never per instruction and never per access.
+    debug_state_.set_latch_stamper([this](jnext::dbg::LatchEntry& e) {
+        e.cycle = clock_.get();
+        // F2's tag: frame_num_ is post-incremented at begin_new_frame(), so
+        // during frame K it reads K+1. Read the RAW counter and subtract, which
+        // is what frame_tag() does — never a derived value that clamps.
+        e.frame = frame_num_ > 0 ? frame_num_ - 1u : 0u;
+        // The instruction the site belongs to. `cpu_.pc()` has already moved on
+        // for a latch raised from inside cpu_.execute().
+        e.pc = debug_slot_pc_;
+        // The RAW frame counters, the same arithmetic snapshot_raster() uses.
+        // Deliberately not paused_vc_/paused_hc_: those advance only while a
+        // debugger is attached and the per-instruction raster walk is running.
+        const uint64_t elapsed = clock_.get() - frame_cycle_;
+        e.vc = static_cast<int16_t>(elapsed / timing_.master_cycles_per_line);
+        e.hc = static_cast<int16_t>(
+            (elapsed % timing_.master_cycles_per_line) / 4);
+    });
+}
+
+void Emulator::debug_latch_reset(bool hard)
+{
+    jnext::dbg::EventTable* t = debug_state_.event_table();
+    if (!t || !t->has_kind(jnext::dbg::EventKind::Reset)) return;
+    jnext::dbg::LatchEntry e;
+    e.kind = jnext::dbg::EventKind::Reset;
+    e.misc = static_cast<uint8_t>(hard ? jnext::dbg::ResetKind::Hard
+                                       : jnext::dbg::ResetKind::Soft);
+    debug_state_.latch_event(e);
+}
+
+void Emulator::debug_latch_scanline_(int raw_line)
+{
+    jnext::dbg::EventTable* t = debug_state_.event_table();
+    if (!t || !t->has_kind(jnext::dbg::EventKind::Scanline)) return;
+    jnext::dbg::LatchEntry e;
+    e.kind = jnext::dbg::EventKind::Scanline;
+    // The filter compares `cvc` — the counter NR 0x1E/0x1F reads
+    // (zxula_timing.vhd:455-472), whose origin is the first PAPER line and NOT
+    // the frame top. Reporting the raw frame line here would make
+    // `on scanline 0` fire 64 lines off on 128K/Next timing, which is the
+    // GH #16 / Task 76 bug in the NR 0x1F read handler all over again.
+    e.cvc = static_cast<int16_t>(cvc_at(clock_.get()));
+    // `raw_line` is NOT written into `e.vc`: the stamper owns that field, and
+    // it derives the raw line from the same clock this function was called at
+    // (the snapshot_raster() arithmetic). One writer per field — see
+    // DebugState::latch_event().
+    (void)raw_line;
+    debug_state_.latch_event(e);
+}
+
+void Emulator::debug_latch_frame_()
+{
+    jnext::dbg::EventTable* t = debug_state_.event_table();
+    if (!t || !t->has_kind(jnext::dbg::EventKind::Frame)) return;
+    jnext::dbg::LatchEntry e;
+    e.kind = jnext::dbg::EventKind::Frame;
+    debug_state_.latch_event(e);
+}
+
+void Emulator::debug_latch_int_ack_(uint8_t vector)
+{
+    jnext::dbg::EventTable* t = debug_state_.event_table();
+    if (!t || !t->has_kind(jnext::dbg::EventKind::IntAck)) return;
+    jnext::dbg::LatchEntry e;
+    e.kind  = jnext::dbg::EventKind::IntAck;
+    e.misc  = vector;
+    e.misc2 = static_cast<uint8_t>(cpu_.get_registers().IM);
+    debug_state_.latch_event(e);
+}
+
+void Emulator::debug_latch_nmi_()
+{
+    jnext::dbg::EventTable* t = debug_state_.event_table();
+    if (!t || !t->has_kind(jnext::dbg::EventKind::Nmi)) return;
+    jnext::dbg::LatchEntry e;
+    e.kind = jnext::dbg::EventKind::Nmi;
+    // IN-04's published `NmiButton` has exactly two values — the F9 Multiface
+    // and F10 DivMMC/drive hotkey seams — while NmiSource arbitrates a THIRD
+    // producer, the expansion bus (`Src::ExpBus`, VHDL zxnext.vhd:2164-2170).
+    // It is reported as `Mf` because the enum has no value for it; recorded
+    // here as a FINDING against `events.h` rather than silently, and the
+    // DivMmc arm is the one that is exact.
+    e.misc = static_cast<uint8_t>(
+        nmi_source_.latched() == NmiSource::Src::DivMmc
+            ? jnext::dbg::NmiButton::Drive
+            : jnext::dbg::NmiButton::Mf);
+    debug_state_.latch_event(e);
+}
+
+void Emulator::debug_latch_magic_(uint16_t pc)
+{
+    jnext::dbg::EventTable* t = debug_state_.event_table();
+    if (!t || !t->has_kind(jnext::dbg::EventKind::Magic)) return;
+    jnext::dbg::LatchEntry e;
+    e.kind = jnext::dbg::EventKind::Magic;
+    // `pc` is NOT written into `e.pc`: the stamper owns that field. The two are
+    // the same value — Z80Cpu passes the instruction's own PC to
+    // on_magic_breakpoint (z80_cpu.cpp, the `ED FF` / `DD 01` arms read the
+    // opcode AT `pc`), which is exactly what `debug_slot_pc_` holds. Asserting
+    // the equality is debug_latch_magic_'s row in the suite, not a duplicate
+    // write here.
+    (void)pc;
+    debug_state_.latch_event(e);
 }

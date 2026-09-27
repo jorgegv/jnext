@@ -38,6 +38,8 @@ namespace jnext { namespace save { class StateDesc; } }
 ///   WR5: bits[7:6]=10, bits[2:0]=010 — ready/wait, auto-restart
 ///   WR6: bit7=1, bits[1:0]=11        — commands (RESET, ENABLE, etc.)
 
+class DebugState;
+
 class Dma {
 public:
     /// Address adjustment mode for source/destination.
@@ -130,6 +132,20 @@ public:
     uint16_t    src_addr() const { return src_; }
     uint16_t    dst_addr() const { return dst_; }
     uint16_t    counter() const { return counter_; }
+
+    // ── GH #276 B2 §4.3 — the three DMA event sites ─────────────────────
+    //
+    // TWO arming flags, not one, because §4.3 makes `Byte` arming a PER-ENGINE
+    // COST that must be separable: `Start` / `End` fire once per transfer and
+    // are negligible, while `Byte` costs one predicated branch per transferred
+    // byte. A subscription to one must not make the other's site pay.
+    void set_debug_state(DebugState* ds) { debug_state_ = ds; }
+    void set_events_armed(bool start_end, bool per_byte) {
+        events_armed_      = start_end;
+        byte_events_armed_ = per_byte;
+    }
+    bool events_armed() const { return events_armed_; }
+    bool byte_events_armed() const { return byte_events_armed_; }
     uint16_t    block_length() const { return block_len_; }
     bool        dir_a_to_b() const { return dir_a_to_b_; }
     AddrMode    src_addr_mode() const;
@@ -352,4 +368,24 @@ private:
     bool     bus_busreq_n_   = true;    // input:  no downstream bus request
     bool     dma_delay_      = false;   // input:  IM2 DMA not delaying
     bool     daisy_busy_     = false;   // input:  daisy-chain not busy
+
+    // APPENDED (GH #276 B2) — host-side debugger wiring, not machine state.
+    DebugState* debug_state_       = nullptr;
+    bool        events_armed_      = false;
+    bool        byte_events_armed_ = false;
+
+    /// §4.3 `Dma{Start}` — ONE definition: `phase_` enters `START_DMA` while
+    /// `state_ == TRANSFERRING`, which is the R6 `0x87` enable, the R3 `dma_en`
+    /// path and the auto-restart alike (`cmd_load` is an address reload, not a
+    /// transition).
+    ///
+    /// The two OTHER assignments of `phase_ = START_DMA` in the .cpp are
+    /// deliberately NOT starts: one is a mid-transfer bus release when
+    /// `bus_busreq_n_` is asserted, the other is byte mode's per-byte loop back
+    /// through START_DMA (VHDL dma.vhd:451-460). Both happen inside a block that
+    /// has already started, so latching them would report a Start per byte.
+    void latch_start_();
+    void latch_end_();
+    void latch_byte_(uint16_t src, uint16_t dst, uint8_t val,
+                     bool is_io_src, bool is_io_dst);
 };

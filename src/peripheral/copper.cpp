@@ -1,6 +1,8 @@
 #include "peripheral/copper.h"
 #include "port/nextreg.h"
 #include "core/log.h"
+#include "debug/debug_state.h"
+#include "debug/event_table.h"
 #include "core/saveable.h"
 #include "save/state_desc.h"
 #include "save/state_desc_bin.h"
@@ -105,6 +107,7 @@ void Copper::reset() {
     mode_ = 0;
     last_mode_ = 0;
     move_pending_ = false;
+    halt_stalling_ = false;
     write_addr_ = 0;
     write_data_stored_ = 0;
     // VHDL zxnext.vhd:5024 — nr_64_copper_offset resets to 0.
@@ -119,6 +122,7 @@ void Copper::on_vsync() {
     if (mode_ == 3) {
         pc_ = 0;
         move_pending_ = false;
+        halt_stalling_ = false;
         Log::copper()->trace("on_vsync: mode=11, PC reset to 0");
     }
 }
@@ -135,6 +139,7 @@ void Copper::execute(int hc, int vc, NextReg& nextreg) {
         }
 
         move_pending_ = false;
+        halt_stalling_ = false;
         return;  // VHDL: no execution on the cycle where mode changes
     }
 
@@ -149,12 +154,14 @@ void Copper::execute(int hc, int vc, NextReg& nextreg) {
     if (mode_ == 3 && cvc_restart == 0 && hc == 0) {
         pc_ = 0;
         move_pending_ = false;
+        halt_stalling_ = false;   // a restarted program may reach a HALT again
         return;
     }
 
     // Mode 00: copper stopped
     if (mode_ == 0) {
         move_pending_ = false;
+        halt_stalling_ = false;
         return;
     }
 
@@ -169,6 +176,13 @@ void Copper::execute(int hc, int vc, NextReg& nextreg) {
 
     uint16_t instr = instructions_[pc_ & 0x3FF];
 
+    // GH #276 B2 — the Copper's own line counter, hoisted out of the WAIT arm
+    // so the MOVE arm's latch can report the same pair the Copper compares
+    // against (`Event::hc_ula` / `Event::cvc`). The WAIT arm's own
+    // `cvc_effective` below is this same expression and is kept where it is so
+    // the VHDL derivation stays next to the comparison it explains.
+    const int cvc_this_cycle = (vc + static_cast<int>(offset_)) % (c_max_vc_ + 1);
+
     if (is_wait(instr)) {
         // WAIT: compare cvc_effective == vpos AND hc >= (hpos << 3) + 12.
         //
@@ -182,6 +196,10 @@ void Copper::execute(int hc, int vc, NextReg& nextreg) {
         int cvc_effective = (vc + static_cast<int>(offset_)) % (c_max_vc_ + 1);
 
         if (cvc_effective == vpos && hc >= hthresh) {
+            // GH #276 B2 §4.3 `Copper{Wait}` — "a WAIT was satisfied (the
+            // Copper PC advanced past it)". Latched BEFORE the advance so
+            // `Event::copper_pc` names the WAIT, not the instruction after it.
+            if (events_armed_) latch_wait_(vpos, hthresh, hc, cvc_effective);
             // Condition met — advance past this WAIT
             pc_ = (pc_ + 1) & 0x3FF;
             // Guarded, like every per-instruction and per-upload-word trace in
@@ -191,8 +209,23 @@ void Copper::execute(int hc, int vc, NextReg& nextreg) {
             if (Log::copper()->should_log(spdlog::level::trace))
                 Log::copper()->trace("WAIT satisfied at cvc={} (vc={} off={}) hc={}, PC now {}",
                                      cvc_effective, vc, offset_, hc, pc_);
+            halt_stalling_ = false;
+        } else {
+            // Otherwise stall (stay at this instruction).
+            //
+            // GH #276 B2 §4.3 `Copper{Halt}` — "the first stall on the HALT
+            // form". is_halt() exists in this file and had NO CALLER before
+            // B2; this is that caller. ON THE EDGE ONLY: a HALT stalls for
+            // every remaining master cycle of the frame, and one latch per
+            // cycle would fill the 512-entry ring by itself. `halt_stalling_`
+            // is the edge, and it is cleared on the satisfied arm above, on a
+            // PC reset and on reset(), so a second HALT reached later in the
+            // same program latches again.
+            if (events_armed_ && !halt_stalling_ && is_halt(instr)) {
+                halt_stalling_ = true;
+                latch_halt_(hc, cvc_effective);
+            }
         }
-        // Otherwise stall (do nothing, stay at this instruction)
 
     } else {
         // MOVE: write nextreg value
@@ -206,7 +239,23 @@ void Copper::execute(int hc, int vc, NextReg& nextreg) {
             // WHERE along the line the write landed, not just which line.
             // See Copper::active_move_hc().
             move_hc_ = hc;
+            // GH #276 B2 §4.3 — a MOVE is ONE latch entry, fanned out at the
+            // drain to both `Copper{Move}` and `NextRegWrite{source=Copper}`.
+            // The NR-side hook in NextReg::write() therefore skips a Copper
+            // write, which is what `set_write_source` is for; the bracket
+            // saves and restores rather than resetting to `Cpu`, because a
+            // MOVE to NR 0x02 re-enters the register file through soft_reset().
+            //
+            // Latched BEFORE the write so `prev` is the byte that was there —
+            // the same rule the CPU-side hook follows.
+            if (events_armed_) latch_move_(reg, val, hc, cvc_this_cycle);
+            // UNCONDITIONAL, not gated on events_armed_: the NR-side hook's
+            // suppression reads this, and a MOVE that forgot to set it would
+            // put a SECOND entry in the ring for the same write.
+            const jnext::dbg::EventSource prev_src = nextreg.write_source();
+            nextreg.set_write_source(jnext::dbg::EventSource::Copper);
             nextreg.write(reg, val);
+            nextreg.set_write_source(prev_src);
             move_hc_ = -1;
             move_pending_ = true;
             if (Log::copper()->should_log(spdlog::level::trace))
@@ -380,4 +429,54 @@ void Copper::load_state(StateReader& r)
                              "this build\'s declaration at \'{}\'",
                              d.failure() ? d.failure() : "?");
     }
+}
+
+// ---------------------------------------------------------------------------
+// GH #276 B2 §4.3 — the three Copper latches, out of line
+//
+// Reached only when `events_armed_` is set, so with no Copper subscription the
+// whole of this file's event cost is one predicated branch per site.
+//
+// `hc_ula` / `cvc` are execute()'s two arguments verbatim: the 7 MHz pixel
+// counter and the Copper's own line counter (zxnext.vhd:3949-3950), which are
+// what `copper.vhd:94` compares. The raw frame counters go in `Event::hc` /
+// `Event::vc`, filled by the latch stamper — conflating the two pairs was
+// GH #181 and the payload keeps them separate for that reason.
+// ---------------------------------------------------------------------------
+
+void Copper::latch_move_(uint8_t reg, uint8_t val, int hc_ula, int cvc) {
+    jnext::dbg::LatchEntry e;
+    e.kind        = jnext::dbg::EventKind::Copper;
+    e.sub_kind    = static_cast<uint8_t>(jnext::dbg::CopperEventKind::Move);
+    e.source      = jnext::dbg::EventSource::Copper;
+    e.addr        = pc_;
+    e.reg         = reg;
+    e.value       = val;
+    e.hc_ula      = static_cast<int16_t>(hc_ula);
+    e.cvc         = static_cast<int16_t>(cvc);
+    debug_state_->latch_event(e);
+}
+
+void Copper::latch_wait_(int vpos, int hthresh, int hc_ula, int cvc) {
+    jnext::dbg::LatchEntry e;
+    e.kind        = jnext::dbg::EventKind::Copper;
+    e.sub_kind    = static_cast<uint8_t>(jnext::dbg::CopperEventKind::Wait);
+    e.source      = jnext::dbg::EventSource::Copper;
+    e.addr        = pc_;
+    e.page_or_aux = static_cast<uint16_t>(vpos);
+    e.aux2        = static_cast<uint16_t>(hthresh);
+    e.hc_ula      = static_cast<int16_t>(hc_ula);
+    e.cvc         = static_cast<int16_t>(cvc);
+    debug_state_->latch_event(e);
+}
+
+void Copper::latch_halt_(int hc_ula, int cvc) {
+    jnext::dbg::LatchEntry e;
+    e.kind     = jnext::dbg::EventKind::Copper;
+    e.sub_kind = static_cast<uint8_t>(jnext::dbg::CopperEventKind::Halt);
+    e.source   = jnext::dbg::EventSource::Copper;
+    e.addr     = pc_;
+    e.hc_ula   = static_cast<int16_t>(hc_ula);
+    e.cvc      = static_cast<int16_t>(cvc);
+    debug_state_->latch_event(e);
 }
