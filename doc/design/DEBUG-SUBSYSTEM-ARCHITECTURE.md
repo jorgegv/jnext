@@ -1417,7 +1417,14 @@ it):
    (§2.3); the CPU path commits after the boundary, hence §4.3's ≤1-
    instruction delivery rule.
 5. The `render_layer` move: the 106 DVP rows against the moved function
-   before the widget changes — Q WP4d.
+   before the widget changes — Q WP4d. **The MOVE itself is Q WP4d's too**
+   (owner decision 2026-09-27, closing a gap B1 found): §10.1 assigned the
+   validation but named no owner for the move, and B1 could not do it —
+   INS-14 is not "over an existing primitive", since the eight views exist
+   only inside a `Q_OBJECT` header and the move rewrites `video_panel.cpp`,
+   which Q owns and is about to rewrite anyway. Whoever validates the move
+   makes it. **B declares INS-14 and refuses `Unsupported` until Q lands**,
+   rather than drawing an approximation.
 6. Paused-state service cadence for DeZog step-out loops (a ~2 ms re-armed
    tick while paused-with-remote, or not) — D WP-6's V-LAT measurement.
 7. Upstream-master `z88dk-gdb` `monitor` handling (designed from source, run
