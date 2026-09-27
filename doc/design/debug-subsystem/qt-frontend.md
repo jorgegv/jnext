@@ -1,6 +1,6 @@
 # Qt GUI frontend — inventory, projection and refactor plan (GH #278)
 
-Status: **v4 — revised after the independent review of 2026-09-26 (`scratchpad/reviews/dsl-qt.md`, items R-6, R-7, N-9, N-10, N-11; dispositions in §11). Previously: v3 (final for the design round) — inventory complete; projection mapped onto `backend.md` v1 plus design-backend's verdicts of 2026-09-26 (all 14 sub-REQs ACCEPTED/CONFIRMED, §8). Re-verified against `backend.md` **v3**: every one of the 38 CAP ids cited in §3.2 exists there, and all 14 REQ-qt verdicts are recorded in its §12. MAPPED against v3: 38 used, 17 declined, 0 open, 0 reach-arounds.**
+Status: **v5 — owner review 2026-09-27 (Q5, Q7, Q13 decided; WP8 added; CAP-INS-02 `MemSpace::Page` now used). Previously: v4 — revised after the independent review of 2026-09-26 (`scratchpad/reviews/dsl-qt.md`, items R-6, R-7, N-9, N-10, N-11; dispositions in §11). Previously: v3 (final for the design round) — inventory complete; projection mapped onto `backend.md` v1 plus design-backend's verdicts of 2026-09-26 (all 14 sub-REQs ACCEPTED/CONFIRMED, §8). Re-verified against `backend.md` **v3**: every CAP id cited in §3.2 exists there, and all REQ-qt verdicts are recorded in its §12. MAPPED after the owner review: **39 used** (CAP-INS-02 `MemSpace::Page` added by Q7), **16 declined**, 0 open, 0 reach-arounds.**
 Owner of this file: the `design-qt` agent. Sibling files: `backend.md`,
 `dsl.md`, `dzrp.md`, `zrcp.md`, `gdb.md` (read, never edited from here).
 
@@ -242,6 +242,34 @@ the control verbs #82/#83 (`step_back`, `rewind_to_frame`) additionally
 guest instructions — the "three" counts panel-originated edits, not every
 path that mutates the machine (review N-11).
 
+**Subtleties of the three panel write paths, stated for the backend's write
+CAPs to inherit** (owner 2026-09-27: DSL scripts may now mutate the machine
+through the same CAPs — `poke`, `set_register`, `port_out`, `nextreg_write`):
+* **#16 NextREG write goes through `NextReg::write(reg, val)`, the Z80's
+  write path** (`nextreg_panel.cpp:174`): the register's write handler runs
+  synchronously, so the side effects a guest `NEXTREG` has (MMU remap on
+  0x50-0x57, palette index/value latching on 0x40/0x41/0x44, the clip-window
+  4-write rotation on 0x18-0x1C, Layer 2 enable on 0x69, a reset on 0x02, …)
+  all happen. It is NOT `cached()`-store-only and NOT a deferred/attributed
+  CPU write: it is not logged as a guest NextREG access and it raises no
+  `NextRegWrite` event (backend CAP-INS-04 says `source = Debugger`). A write
+  CAP that skipped the handler would leave the panel's edit invisible to the
+  machine, which is the defect the panel would then show (Task 40's class).
+* **#46 memory write is `Mmu::write` outside `GuestExecutionScope`**
+  (`memory_panel.cpp:143-154`): writes to a ROM-mapped slot are ignored (not
+  refused — the panel shows the unchanged byte on the next paint), the
+  per-scanline attribute-mux and change logs are updated as for a guest
+  write (so a paint-time edit of `0x5800-0x5AFF` while paused shows on the
+  next rendered frame), overlays (DivMMC/Multiface/L2 write-over) take the
+  write exactly as the CPU's would, and no watchpoint latches and no
+  `MemWrite` event is raised (REQ-qt-17b confirmed). After WP8 the slot view
+  writes through `MemSpace::Page` instead, which bypasses overlays by
+  definition.
+* **#18 mute mask is NOT machine state** (`emulator.h:680-691`): it gates the
+  output stages only, is not reset, not serialised, not visible to the Z80
+  (AY registers still read back). A write CAP for it must keep that contract —
+  it must never appear in a snapshot or an RZX.
+
 ---
 
 ## 2. Control verbs — exact current semantics
@@ -356,8 +384,8 @@ accessor):
 | 10, 31, 39, 86 | symbol table | CAP-SYM | — |
 | 73 (edge), 91 | pause/resume transitions | CAP-SES-02 (`Paused{by, reason, cycle, pc}`, `Resumed{by}`), CAP-CTL-13 | **REQ-qt-15b**: the adapter's listener only RECORDS the transition; UI work runs at the next tick (§4). No epoch counter needed if the listener is reliable; keep `state().paused` as the pull fallback |
 | 1, 7, 34, 38, 47 | registers | CAP-INS-01 (`registers()`; `set_register` declined) | — |
-| 8, 21, 33, 45 | memory read, non-perturbing (incl. F1: no +3 floating-bus latch) | CAP-INS-02 `peek(MemSpace::Cpu, …)` | — |
-| 46 | memory write through the CPU map | CAP-INS-02 `poke(MemSpace::Cpu, …)` | **REQ-qt-17b (confirm)**: `poke(Cpu)` = `Mmu::write` semantics (ROM ignored, per-scanline logs and attribute mux updated, no watchpoint) — the memory panel's identity depends on it |
+| 8, 21, 33, 45 | memory read, non-perturbing (incl. F1: no +3 floating-bus latch) | CAP-INS-02 `peek(MemSpace::Cpu, …)`; **the Memory panel's slot view: `peek(MemSpace::Page{effective page of the slot}, …)` (owner Q7, WP8)** | — |
+| 46 | memory write: CPU view through the CPU map; slot view through the physical page (owner Q7, WP8) | CAP-INS-02 `poke(MemSpace::Cpu, …)` / `poke(MemSpace::Page, …)` | **REQ-qt-17b (confirm)**: `poke(Cpu)` = `Mmu::write` semantics (ROM ignored, per-scanline logs and attribute mux updated, no watchpoint) — the memory panel's identity depends on it |
 | 4-6, 44, 2 | MMU view | CAP-INS-03 (`SlotInfo{page,is_rom,effective}`, `port_7ffd`) | `rom_in_sram` no longer needed by the GUI once CAP-INS-14 owns the render |
 | 15, 51 | NextREG peek | CAP-INS-04 | — |
 | 16 | NextREG write (handlers run, synchronous) | CAP-INS-04 `nextreg_write` | — |
@@ -385,7 +413,7 @@ projection of exactly what it does today):
 | CAP-CTL-07 `run_to_cycle` | internal to CAP-CTL-08; the GUI has no "run to cycle" control |
 | CAP-CTL-12 `reset` | the Machine menu resets through `MainWindow`, not the debugger; unchanged by #278 |
 | CAP-INS-01 `set_register` | no register editing in the GUI |
-| CAP-INS-02 `MemSpace::Page` / `Rom` | the Memory panel's slot view reads the CPU map today (§9.1) — pinned as-is for identity |
+| CAP-INS-02 `MemSpace::Rom` | no GUI control reads a ROM image by index; the slot view's ROM slots read `MemSpace::Page` like any other (owner Q7 — `Page` itself is now USED, by WP8) |
 | CAP-INS-03 `set_mmu_slot` | no MMU editing in the GUI |
 | CAP-INS-05 `port_in/out` | no port I/O in the GUI |
 | CAP-INS-08 pattern RAM / sprite palette / clip | the Sprites panel shows attributes only |
@@ -678,7 +706,7 @@ Measured by `grep -rl` over `test/` (2026-09-26):
 | **Watches panel**: add/edit/remove, byte/word/long formatting, the three disasm context-menu add routes | only INSPW uses `add_watch` as a means | `QWP-01..06` |
 | **NextREG panel edit writes through the Z80 path** (handlers run) and refresh uses `peek` (not `read`: NR 0x2C/0x2E must not latch) | DVP-PEEK covers `video_panel_layer_state`, not the panel | `QNR-01..03` |
 | **Sprite, Copper, MMU, Stack, Call Stack, CPU panels**: no suite instantiates them | `grep SpritePanel\|CopperPanel\|MmuPanel\|StackPanel\|CallStackPanel\|CpuPanel test/` → nothing | `QPN-*`: one row per displayed field family per panel (sprite decode ×10 cols; copper WAIT/MOVE/NOP/HALT decode + PC highlight + window clamp; MMU page/ROM/B<n>, 7FFD bank/ROM/lock; stack 24 words + wrap guard; call stack order + symbol; CPU flags + HALTED + "Bank 7 HiRes") |
-| **Memory panel**: CPU view vs slot view read/write, SP/VRAM/attr highlight | only INSPW (reads) | `QMP-01..05` incl. the slot-view "physical" read that is really a CPU-map read (`memory_panel.cpp:130-139`) — pin the CURRENT behaviour, and note it as a candidate defect |
+| **Memory panel**: CPU view vs slot view read/write, SP/VRAM/attr highlight | only INSPW (reads) | `QMP-01..05` incl. the slot-view "physical" read that is really a CPU-map read (`memory_panel.cpp:130-139`) — pin the CURRENT behaviour for WP0..WP7. **WP8 (owner Q7) then REPLACES the slot-view rows with `QMP-06..09`**: QMP-06 DivMMC or Multiface overlay mapped over slot 0 → CPU view shows the overlay bytes, slot view shows the MMU page's bytes (the discriminating row); QMP-07 an unmapped page (one in no slot) is readable through the selector; QMP-08 a slot-view write lands in the physical page and is invisible to the CPU view while the overlay is active; QMP-09 a Layer 2 write-over (port 0x123B) in slot 0/1 does not leak into the slot view. QMP-06/08 are also the mutation witnesses: revert `read_byte` to the CPU-map read and both go red |
 | **Trace GUI**: toggle button ↔ menu check ↔ indicator colour; Clear; Export writes the file; Step Back greys when trace is off | `trace_log()` used as a means only | `QTR-01..04` |
 | **MAP load dialogs**: count message, failure message, symbols reach the three panels | `load_z88dk_map` only in disasm_copy as a means | `QMAP-01..03` (drive `SymbolTable` directly + `set_symbol_table`; the QFileDialog is not testable, the slot body is) |
 | **`set_enabled` seeds**: on enable, the four panels get the CURRENT pause state and one immediate refresh | PBPUI-02 checks visibility only | `QEN-01..02` |
@@ -730,9 +758,10 @@ construction). Then, in dependency order:
 | WP4b | Register-file panels: NextREG, Sprites, Copper, Audio | REQ-qt-19..23 | yes |
 | WP4c | Breakpoints panel + Disasm gutter/context menu + window Breakpoints menu + Watches panel | REQ-qt-13, 14, 17 | yes |
 | WP4d | Video panel: `render_layer` + raster/layer-state/palette accessors; `VideoLayerView` shrinks to a wrapper | REQ-qt-25..28 (the backend's biggest item — NEEDS-PROTOTYPE candidate: move `render_to_image` + `replay_*` verbatim into a Qt-free function first and re-run DVP) | yes |
-| WP5 | Memory panel (paint-time reads through `read_memory`, bulk read) | REQ-qt-17 | yes with WP4 |
+| WP5 | Memory panel (paint-time reads through `peek(Cpu)`, bulk read) — slot view still through the CPU map here, for identity; the physical-page switch is WP8 | REQ-qt-17 | yes with WP4 |
 | WP6 | Symbol table ownership move + `on_load_map_*`; magic bp menu; `MainWindow` forwarding unchanged | REQ-qt-12, 14 | after WP2 |
 | WP7 | Remove `core/emulator.h` from every `src/debugger/*.cpp`; final reach-around grep = 0; developer-guide chapter 3.9 + `FEATURES.md` unchanged in substance, paths updated | all | serial, last |
+| **WP8** | **Owner Q7 (2026-09-27): the Memory panel's "Slot N (page P)" view becomes a true physical-page read/write through CAP-INS-02 `MemSpace::Page{P}`** (`read_byte`/`write_byte`, `memory_panel.cpp:123-154`; the selector label from CAP-INS-03 stays). The ONE deliberate behaviour change in #278, so it lands LAST, on top of the proven identity; its own rows in §6.2 (`QMP-06..09`); the user guide page that describes the panel's page selector, `src/doc/user-guide/06-debugger/panels/04-memory.md` (regenerate the committed render with `make docs-userguide`; `doc/man/jnext.1.md` names the hex editor but not the selector — update it only if the new wording says "physical page"); `FEATURES.md` Debugger bullet updated | WP7 green | serial, after WP7 |
 
 **Branch discipline (review R-7; owner rule 2026-09-24, arch §10.3):** #278
 is one multi-stage issue and lives on **one** branch, `gh278-qt` (arch
@@ -796,11 +825,13 @@ Sent as `REQ-qt-<n>: <capability> — <why> — <site>`; answers recorded here.
 | 27 | ULA palette — `:1060-1062` | served: CAP-INS-15 |
 | **27b** | active ULA palette bank + one RGB333→ARGB function | **ACCEPTED** → `PaletteId::UlaActive`, `active_ula_palette_bank()`, `rrrgggbb_to_argb` re-exported from `inspect.h` |
 | 28 | render_layer — `:394-630` | served: CAP-INS-14; split per §3.7 **NEEDS-PROTOTYPE** (agreed: verbatim move, re-run DVP first — WP4d step 1) |
+| **30** | WP8 contract on CAP-INS-02: `peek(Page{p})` returns the physical page's bytes regardless of any DivMMC/Multiface/L2 overlay over the slot; `poke(Page{p})` writes the physical page, invisible to an overlay; a ROM-class page is `RefusedReadOnly` (panel renders "unchanged") — `memory_panel.cpp:123-154`, owner Q7 | **CONFIRMED** (backend CAP-INS-02 / §4.2a; matrix: Qt 39 used / 16 declined, INS-02 Page = S via Q WP8). The backend also logs every mutation as one SES-06 line `MUTATE <what> <old> -> <new> by <client>` — no panel change needed |
 | **29** | CAP-CTL-15 `load(path)` must preserve every client's subscriptions, the master switch and the attached/live_raster state across the destroy/reconstruct, exactly as `emulator_cold_boot()` does for `BreakpointSet` + `active()` today — `src/platform/emulator_boot.h:133-146` (review N-10) | **ACCEPTED** (verified by design-backend): CAP-CTL-15 `load()` and CAP-CTL-12 `reset(Hard)` share the reconstruct contract — subscriptions, enable flags, master/per-client switches, attached/live_raster and the symbol table are kept outside `Emulator` and the hooks re-installed after the placement-new; a backend row pins it |
 
-MAPPED against backend.md v1 + the backend's answers (2026-09-26, to land in
-v2): **35 CAP ids used (+3 new: CAP-CTL-14, CAP-INS-19, per-client
-CAP-SES-05), 17 declined (§3.3), 0 REQs open, 0 reach-arounds.** All 14
+MAPPED against backend.md v3 + the owner review of 2026-09-27: **39 CAP ids
+used (35 of v1, +3 additions CAP-CTL-14 / CAP-INS-19 / per-client CAP-SES-05,
++ CAP-INS-02 `MemSpace::Page` per Q7), 16 declined (§3.3), 0 REQs open, 0
+reach-arounds.** All 14
 sub-REQs ACCEPTED/CONFIRMED; REQ-qt-28 is NEEDS-PROTOTYPE by agreement
 (§3.7). To be re-confirmed as "MAPPED" against v2 when broadcast (additions
 only expected).
@@ -809,22 +840,27 @@ only expected).
 
 ## 9. Open questions for the owner
 
-1. **Memory panel "slot view" reads through the CPU map** (`memory_panel.cpp:130-139`):
-   selecting "Slot 3 (page 0A)" shows CPU addresses `0x6000-0x7FFF`, which IS
-   that page — but only because the slot is currently mapped there; it is not
-   a physical-page viewer. Pin as-is for #278 (identity), and decide separately
-   whether it should become a physical-page read (the DSL/DZRP will want
-   physical reads anyway — `CMD_READ_MEM` is logical, `CMD_WRITE_BANK` is
-   physical).
-2. **Should a REMOTE client's pause open the local debugger window?** Today
-   any pause the GUI did not cause opens it (GH #219 branch,
-   `debugger_manager.cpp:691-693`), and under the backend a DZRP/ZRCP/GDB
-   pause arrives by the same path. design-dzrp filed this; if the answer is
-   "no", the adapter skips auto-enable when `Paused{by}` is a remote client.
-   Default proposed: yes, open it (a human at the GUI sees what stopped the
-   machine).
+None open.
 
-Settled as design, not owner questions (moved out of this list):
+Settled by the owner (review 2026-09-27):
+* **Q7 — Memory panel "slot view" becomes a TRUE physical-page read.**
+  Today `memory_panel.cpp:130-139` reads `(slot<<13)|(addr&0x1FFF)` through
+  the CPU map, so "Slot 3 (page 0A)" is that page only because the slot is
+  mapped there, and a DivMMC/Multiface/Layer-2 overlay active in the slot
+  leaks into the "page" view. Decided: the view reads (and `write_byte`
+  writes) through CAP-INS-02 `MemSpace::Page{p}` with `p` = the slot's
+  effective page, so the label means what it says, overlays no longer leak
+  in, and an unmapped page is readable. Delivered as **WP8**, the LAST work
+  package of #278, after WP0..WP7 are green — it is the one deliberate
+  behaviour change in the issue, so it lands on top of the proven identity,
+  with its own pinned rows (§6.2, §7).
+* **Q5 — a remote client's pause opens the Qt debugger window: yes.** Today's
+  GH #219 path (`debugger_manager.cpp:691-693`) is unchanged; the adapter
+  never inspects `Paused{by}` to suppress it.
+* **Q13 — Alt+1..8 are the DSL host keys in both windows: yes.** Delivery as
+  §5.3.
+
+Settled as design, not owner questions:
 * script/remote-created subscriptions ARE listed in the Breakpoints panel,
   marked by owner, read-only (REQ-qt-13d confirmed) — DSL/remote PRs, not #278;
 * design-dsl's "Script" tab and Alt+1..8 host keys are post-#278 (CAP-EVT
@@ -874,4 +910,5 @@ Settled as design, not owner questions (moved out of this list):
 | R-6 Alt+1..8 delivery | **Accepted.** Verified: the forwarding block is `is_enabled()`-gated (`main_window.cpp:2200`) and Alt+digit reaches the guest as the digit (`keyboard.cpp:361-363`). Delivery specified: independent block before the guard, swallow on press and release, `DebuggerWindow` `QAction`s, `validate_combo` refuses Alt+1..8, SDL `host_key_latch` twin, six named rows. Owned by the DSL PR (arch S-WP5); design-dsl informed. | §5.3, §9 |
 | N-10 missed rows | **Accepted.** Rows #94 (`qt_app.h:126` → CAP-CTL-13) and #95 (`emulator_boot.h:133-146` → CAP-CTL-15) added; REQ-qt-29 accepted by design-backend (load/hard-reset reconstruct contract). | §1.16, §8 |
 | N-11 "3 write paths" | **Accepted.** Qualified: three panel-originated edits; #82/#83 rewrite the whole machine, #76-#81 execute guest code. | §1.16 |
+| Owner review 2026-09-27 (Q5/Q7/Q13) | **Recorded.** Q7 → WP8 + `QMP-06..09` + CAP-INS-02 `MemSpace::Page` used (39/16); Q5 → §9; Q13 → §5.3 unchanged; write-path subtleties stated in §1.16 for the backend's write CAPs. | §1.16, §3, §6.2, §7, §9 |
 | N-9 countdown copy ownership | **Accepted, closed.** #278 does not own it (it declines CAP-IN/CAP-CAP); arch §8 now assigns the retirement to the backend's B4. | §3.3 |

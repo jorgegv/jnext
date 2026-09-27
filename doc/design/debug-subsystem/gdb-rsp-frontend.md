@@ -16,7 +16,7 @@
 >   `pump(PumpBudget)` runs *after* the tick's frame batch and drains while
 >   paused (§6.2); CAP-SES-04: under `--headless` a Stop **pauses and
 >   notifies** while a remote client is connected instead of exiting
->   non-zero (a proposal on top of the owner's #279 rule, backend §13.2), so
+>   non-zero (owner-ADOPTED 2026-09-27, see v1.4; was backend §13.2), so
 >   the §7.2 regression row's `break _main` + `cont` genuinely stops the
 >   machine for the client.
 > - v1.2 (2026-09-26, after the protocols reviewer's REJECT,
@@ -34,11 +34,17 @@
 >   is now served, `E01` only on `RefusedUnavailable`; guest hard reset is
 >   NOT a stop (no `pause_reason` for it, §4.3/§5.3); WP-4 wires the socket over the
 >   shared transport package **T** (arch doc) rather than its own listener;
->   CAP-SES-04 "remote connected ⇒ Pause" under `--headless`/SDL is an
->   owner-pending proposal (backend §13.2) — the §7.2 row depends on it.
+>   CAP-SES-04 "remote connected ⇒ Pause" under `--headless`/SDL was then an
+>   owner-pending proposal (backend §13.2); adopted 2026-09-27 (v1.4).
 >   Round-2 N-1 closed: a guest hard reset never pauses and has no
 >   `pause_reason`; a mid-run client gets nothing until a real stop (§4.3);
 >   `qRcmd` joins the pause-first packet set (§5.4 rule 4).
+> - v1.4 (owner review 2026-09-27): every §10 question settled — explicit
+>   ports (off unless `--gdb-port` given, no default), `monitor in/out` kept
+>   and labelled perturbing, `k` = detach, headless/SDL Stop pauses +
+>   notifies while a remote client is connected (adopted; the §7.2 row's
+>   dependency is closed), a remote pause opens the Qt window. Noted without
+>   design change: DSL scripts may mutate the machine; DZRP → 2.2.0.
 
 Every claim carries a `file:line` citation or a captured transcript. Paths:
 `z88dk/…` = `/home/jorgegv/src/spectrum/z88dk` (checkout at v2.4, HEAD
@@ -782,17 +788,30 @@ row).
 
 ---
 
-## 10. Open questions for the owner
+## 10. Owner decisions (review 2026-09-27) — all questions settled
 
-1. **Port default.** Resolved by the shared rule of §6.4 (absent = off, `0`
-   = ephemeral). Residual question only: is a *conventional* port worth
-   documenting for `--gdb-port` (3333 is OpenOCD's, 1234 QEMU's — neither is
-   a z88dk convention; the client always takes `-p`)? Proposed: no default,
-   the man page shows `--gdb-port 3333` as its example.
-2. **`monitor in/out`** are the only perturbing monitor commands. Keep (they
-   replace z88dk's dead `out`) or drop for purity? Proposed: keep, labelled.
-3. **`k`** — detach (proposed) vs exit jnext. A scripted CI session might
-   *want* `k` to end the run; `--delayed-automatic-exit` already bounds it.
+None open. Recorded as decided:
+
+1. **Port (Q8):** ports are explicit — the server is off unless `--gdb-port`
+   is given; no default port. The man page keeps `--gdb-port 3333` as its
+   *example* only. §6.4's shared rule (absent = off, `0` = ephemeral, logged)
+   stands.
+2. **`monitor in/out` (Q11):** kept, labelled as perturbing in the `help`
+   text and in §4.3.
+3. **`k`:** detach, never exit jnext (§2 row 20 stands).
+4. **Headless stop policy (Q3):** the exception is ADOPTED — under
+   `--headless` (and SDL) a `Stop` **pauses and notifies** while a remote
+   client is connected, instead of logging and exiting non-zero
+   (CAP-SES-04). The §7.2 regression row's dependency is therefore settled:
+   `break _main` + `cont` stops the machine for the client under
+   `--headless`.
+5. **Remote pause opens the Qt window (Q5):** a pause caused by a remote
+   client (`?`, `0x03`, a gdb-owned breakpoint) opens the local debugger
+   window, as `check_breakpoint_hit()` does today (§6.3 stands unchanged).
+
+Noted, no design change for this adapter: the owner has allowed machine
+*mutation* from DSL scripts, and DZRP moves to protocol version 2.2.0 —
+neither touches an RSP packet or a CAP this file uses.
 
 ---
 

@@ -1,6 +1,6 @@
 # ZRCP frontend — design (working file)
 
-> Status: **v3 — review round 1 (protocols.md) findings R-2/R-3/R-5/R-6 and notes N-1/2/3/9/10/11 addressed; all 15 REQs answered (REQ-zrcp-15 ACCEPTED in backend.md v4)** (GH #280, epic #276, gate #277).
+> Status: **v3.2 — owner review 2026-09-27: every open question settled; all 15 REQs answered** (GH #280, epic #276, gate #277).
 > Owner of this file: the ZRCP frontend design agent. Backend capability IDs
 > (`CAP-…`) are those of `backend.md` v1; requirements sent to the backend are
 > `REQ-zrcp-<n>` (§7). Sibling files: `dzrp.md`, `gdb.md`, `qt.md`, `dsl.md`.
@@ -19,12 +19,18 @@
 >   rule (`0` = ephemeral). R-6 §6.3 prerequisites restated. N-1/2/3/9/10/11.
 > - v3.1 (2026-09-27): round-2 review APPROVE (`protocols-r2.md`; the contested
 >   transcript line was retracted by the reviewer). Notes folded: N-2 headless
->   stop policy marked OWNER-PENDING with `zrcp-func` depending on it; N-3 WP-1
+>   stop policy marked owner-pending (settled 2026-09-27, v3.2); N-3 WP-1
 >   consumes the shared transport package T; N-4 `smartload` takes the direct
 >   load path, not the GUI's cold-boot-then-schedule path; N-1 (guest hard
 >   reset during a `run`) tracked pending the backend's rule 3/4 resolution —
 >   resolved by backend v5: never a pause, no `Reset` reason, the adapter
 >   completes a blocked `run` from the `Reset{Hard}` event (§4.3/§4.6 aligned).
+> - v3.2 (2026-09-27, owner review): Q9 `hard-reset-cpu` is a faithful cold
+>   boot (document `resetOnLaunch: false` with `--load`); Q10 `get-version` =
+>   `12.0-jnext-<ver>`; Q3 headless Stop pauses + notifies while a remote client
+>   is connected — `zrcp-func`'s dependency settled; Q8 ports explicit, off
+>   unless `--zrcp-port` given. §9 moved to settled. Noted: DSL scripts may
+>   mutate the machine; DZRP moves to 2.2.0 — neither touches this adapter.
 
 Every claim carries one of three kinds of evidence:
 
@@ -659,7 +665,9 @@ z88dk `stepi` is 4-5 round trips, so it needs the drain too) and by
    2026-09-26 night): *absent = off*; **`0` = an OS-chosen ephemeral port,
    logged at startup as `zrcp: listening on 127.0.0.1:NNNNN`** — which is
    exactly `EspListener::open(0)`'s contract (`esp_socket.h:518-527`) and what a
-   CI row needs; no protocol port has a default value; no "0 = off". The
+   CI row needs; no protocol port has a default value; no "0 = off" —
+   **confirmed by the owner (2026-09-27, Q8): ports are explicit, the
+   listener is off unless `--zrcp-port` is given.** The
    `--debug-listen-address` row below is `design-dzrp`'s text, adopted
    verbatim by all three files (2026-09-26 night):
 
@@ -683,10 +691,10 @@ z88dk `stepi` is 4-5 round trips, so it needs the drain too) and by
    Precedent for the shape: `--esp-listen-address` (`cli_options.h:414`).
 7. **Headless stop policy** (`CAP-SES-04`): when a ZRCP client is attached,
    a `Stop` must **pause** (and be reported to the client), not exit — the
-   client is the thing waiting for it. REQ-zrcp-14 was accepted *as the
-   design's proposal*; the rule itself — a *connected* remote client ⇒
-   Pause, none ⇒ exit non-zero — is **OWNER-PENDING** (backend §13.2,
-   architecture doc §12 Q3), and `zrcp-func` (§6.2) cannot pass without it.
+   client is the thing waiting for it. **Settled by the owner (2026-09-27,
+   Q3): a *connected* remote client ⇒ headless `Stop` pauses and notifies;
+   none ⇒ exit non-zero.** `zrcp-func` (§6.2) rests on that rule, and the rule
+   is now decided, not proposed.
 
 ---
 
@@ -817,7 +825,7 @@ Sent to `design-backend` 2026-09-26 (format `REQ-zrcp-<n>: <capability> —
 | REQ-zrcp-11 | clip-window readback for ULA / L2 / tilemap | `tbblue-get-clipwindow` | that | **ALTERNATIVE** → `CAP-INS-15 clip_window(Layer)` from live layer state (NR shadows are rotating registers and unusable) |
 | REQ-zrcp-12 | `load(path)` as `--load` does | DeZog launches via `smartload` | `smartload` | **ACCEPTED** → `CAP-CTL-15 load(path)` (`emulator_apply_load` moves under the backend; paused caller stays paused at the new PC) |
 | REQ-zrcp-13 | snapshot save/load semantics | DeZog `-state save/restore` | `snapshot-save/-load` | **DECIDED** → in-memory bookmarks keyed by name: `CAP-CAP-03 bookmark_save(name)` / `bookmark_restore(name)` (the same map DZRP's `CMD_READ/WRITE_STATE` uses); disk = JNS via `CAP-CAP-04` (save only), not this command |
-| REQ-zrcp-14 | `CAP-SES-04`: connected remote client ⇒ `Stop` pauses under `--headless` | a client blocked on `run` must get its reply | `run` | **ACCEPTED** as the design default (owner may overrule) |
+| REQ-zrcp-14 | `CAP-SES-04`: connected remote client ⇒ `Stop` pauses under `--headless` | a client blocked on `run` must get its reply | `run` | **ACCEPTED**; the rule itself settled by the owner 2026-09-27 (Q3) |
 | REQ-zrcp-15 | `CAP-CTL-12 Hard` contract across the cold-boot reconstruction (§4.6): synchronous inside `pump` via the loop owner's registered cold-boot sequence; `Debugger` re-binds; attached clients, their subscriptions and settings re-applied; paused stays paused (PC=0000 of `nextboot.rom`); `Reset{Hard}` delivered before return; guest-initiated resets get the same notification/re-apply when the loop owner performs them; `RefusedUnavailable` with no sequence registered | review R-2: the verb is a deferred flag today (`emulator.h:197-208`) and the boot wipes pause/subscriptions (`emulator_boot.h:112-124`); DeZog sends it first with `resetOnLaunch: true` | `hard-reset-cpu` | **ACCEPTED in full** (backend v4, verified against the code: the after-tick flag poll `sdl_app.cpp:409` / `qt_app.cpp:510` / `headless_app.cpp:691`, `emulator_boot.h:122-124`, `:133-146`) → `CAP-CTL-12` + `CAP-SES-07 set_loop_driver(LoopDriver{cold_boot, load})` / `on_cold_boot_done()`; points 1-6 recorded verbatim; guest NR 0x02 resets keep the deferred path and the driver calls `on_cold_boot_done()` so 2-4 apply. `design-gdb` aligned its `monitor reset hard` to this REQ without filing a duplicate: served only under REQ-zrcp-15 (client sees an `O` line + `OK`, next `g` shows PC=0000 with its `Z0`s intact, no unsolicited `T05` since the client never resumed); `E01` + explanatory `O` line until accepted — the same stance as §2.2 |
 
 Reach-arounds: **0**. Every served command in §2 names its CAP; the only
@@ -842,35 +850,34 @@ exists; WP-4 is the only one gated on another design (`design-dsl`).
 
 ---
 
-## 9. Open questions for the owner
+## 9. Owner decisions (review of 2026-09-27) — nothing open
 
-1. **`hard-reset-cpu` = cold boot — DECIDED in design, not an owner
-   question any more** (review R-2): served faithfully as a synchronous cold
-   boot under the §4.6 contract (REQ-zrcp-15), which makes DeZog's default
-   `resetOnLaunch: true` work. The one thing worth the owner's eye: the boot
-   happens inside a `pump`, i.e. inside one host tick, with the same cost as
-   F1 in the GUI today (reconstruct + `init()`, SD image re-open); the
-   emulated firmware boot itself does not run while the session holds the
-   machine paused.
-2. **Version string.** `get-version` answers `12.0-jnext-<ver>` so DeZog's
-   gate passes. It is honest about *what* is served (the 12.0 command surface
-   subset) but a reader of `about`/`get-version` could take it for ZEsarUX.
-   Alternative: `jnext <ver> (ZRCP 12.0 subset)` — but `semver.coerce` would
-   then read the *jnext* version (1.0.x < 10.3) and DeZog would refuse to
-   connect. The proposed string is the only shape that is both truthful and
-   accepted.
+1. **`hard-reset-cpu` is a faithful cold boot (Q9: yes).** Served as the
+   synchronous reconstruction of §4.6 (REQ-zrcp-15). DeZog's default
+   `resetOnLaunch: true` therefore works; the user guide / man page still
+   **documents `resetOnLaunch: false` as the setting to use when jnext was
+   started with `--load`** (the program is already loaded and a cold boot
+   before `smartload` only costs the boot), per the owner.
+2. **Version string (Q10: yes).** `get-version` answers `12.0-jnext-<ver>`:
+   `semver.coerce` reads `12.0.0` (≥ 10.3, < 12.1), the suffix says what it
+   is, and it is the only shape that is both truthful and accepted by DeZog.
 3. **Unsolicited `log>` lines** for `Log`-action events while the client is
-   idle at the prompt (DeZog forwards them to its console): send them, or only
-   while a `run` is in flight? Proposed: send whenever they happen — that is
-   what ZEsarUX does and DeZog's parser handles them anywhere.
-4. **Headless stop policy** — OWNER-PENDING (backend §13.2, architecture doc
-   §12 Q3): the three protocol frontends proposed "connected remote client ⇒
-   pause" (REQ-zrcp-14) and the backend adopted it as the default; a No from
-   the owner makes every `--headless` protocol regression row (`zrcp-func`
-   included) impossible as designed, so this is the one owner question that
-   gates a test row rather than a wording.
+   idle at the prompt: not raised as a separate question in the owner review;
+   the design's default stands as decided — send them whenever they happen,
+   which is what ZEsarUX does and what DeZog's parser handles anywhere
+   (dezog:zesaruxsocket.ts:502-524).
+4. **Headless stop policy (Q3: exception adopted).** While a remote client
+   is connected, a headless `Stop` **pauses and notifies** instead of exiting
+   non-zero (`CAP-SES-04`, set by the loop owner). `zrcp-func` (§6.2) and
+   every other `--headless` protocol regression row rest on it, and it is now
+   settled.
+5. **Ports (Q8).** Explicit: off unless `--zrcp-port` is given; `0` =
+   OS-chosen, logged (§5.6).
 
-(The `snapshot-save` question of v1 is closed: in-memory bookmarks, REQ-zrcp-13.)
+Noted from the same review, no design change here: the owner allows machine
+**mutation** from DSL scripts (the ZRCP condition translation of §3 only
+*reads*, so `compile_expr` is unaffected), and DZRP moves to protocol
+version 2.2.0 (DZRP-only).
 
 ---
 

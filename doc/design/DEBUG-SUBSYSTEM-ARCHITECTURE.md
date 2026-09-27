@@ -14,6 +14,18 @@
 > re-review before any implementation starts.** §12 lists the questions only
 > the owner can answer.
 >
+> **Revision 4** (2026-09-27, owner review 2026-09-27). The thirteen §12
+> questions answered and recorded as settled decisions (§1.3 items 9-23);
+> mutation from scripts allowed — §4.2a states the write contract (where and
+> when a write lands, deterministic, backend-logged, never an event,
+> rewind-refused into a mutated span; REQ-dsl-21..24); `Copper{Move,Wait,
+> Halt}` and `Dma{Start,Byte,End}` event kinds with hook citations,
+> no-subscriber cost and a bench row; the latch ring is 64; the Developer
+> Guide made structural — a per-branch gate item and a final DOC package with
+> diagrams; the Memory panel's physical-page view is Q WP8 (`Page` peek/poke
+> bypass overlays); DZRP answers 2.2.0; matrix and ledger refreshed;
+> citations re-checked.
+>
 > **Revision 3** (2026-09-26, after arch review round 2,
 > `scratchpad/reviews/arch-r2.md`). R2-1: B0 is its own sub-issue/branch
 > (`gh276-headers`); Q's header move lands with Q; no branch merges stage by
@@ -51,10 +63,10 @@
 > written concurrently against it (`debug-subsystem/qt-frontend.md`,
 > `dzrp-frontend.md`, `zrcp-frontend.md`, `gdb-rsp-frontend.md`,
 > `dsl-frontend.md`). 73 requirements were sent by the frontends and
-> dispositioned — 79 after the review round (68 accepted, 3 alternative, 6
-> confirmed, 2 needs-prototype, 0 rejected); every frontend then mapped onto backend v3 with **zero
-> reach-arounds** — qt 38 capabilities used / 17 declined, DZRP 26 commands (22 tier 1 + 4 tier 2) / 4 declined + 3 unsupported-reported,
-> ZRCP 67 / 7, GDB 21 / 24, DSL 28 / 21. The per-agent files stay as
+> dispositioned — 84 after the review rounds and the owner review (72 accepted,
+> 3 alternative, 7 confirmed, 2 needs-prototype, 0 rejected); every frontend then mapped onto backend v3 with **zero
+> reach-arounds** — qt 39 capabilities used / 16 declined, DZRP 26 commands (22 tier 1 + 4 tier 2) / 4 declined + 3 unsupported-reported,
+> ZRCP 67 / 7, GDB 21 / 24, DSL 35 / 16. The per-agent files stay as
 > appendices and working notes; this document stands alone.
 >
 > Every claim about the code cites `file:line` in `main @ 974b0ab19`
@@ -126,6 +138,39 @@ From the issue records of 2026-09-26:
    T-states."*
 8. *"No functional regression in the GUI."* *"The backend needs its own
    tests, runnable headless, independent of any frontend."*
+
+**Owner review of 2026-09-27** — the §12 questions of Revision 3 are answered;
+recorded here and struck from §12:
+
+9. **Branches.** Two new sub-issues of #276 on their own branches:
+   `gh276-headers` (B0) and `gh276-backend` (B).
+10. **Headless exit code** for a script `stop` with no explicit `exit`: **3**
+    (never 2, a harness fault; 1 stays "jnext could not run").
+11. **Headless stop while a remote client is connected: pause + notify** (the
+    SES-04 exception stands).
+12. **One rule for every stop:** SDL-frontend stops and headless magic
+    breakpoints become a logged event + non-zero exit; man-page line under
+    `--magic-breakpoint`; `magic-bp-func` re-pinned.
+13. **A remote pause opens the Qt debugger window** (today's GH #219 path,
+    unchanged).
+14. **Detach:** subscriptions and a pause caused by the client die with it
+    (the SES-01 rule).
+15. **Memory panel slot view becomes a true physical-page view** —
+    `MemSpace::Page` reads *and* writes — as the LAST work package of #278
+    (Q WP8), after the identity rows are green, with its own pinned rows.
+16. **Server ports:** explicit, off unless `--*-port N` is given.
+17. **ZRCP `hard-reset-cpu` is the cold boot** (Task 70 semantics).
+18. **ZRCP `get-version` answers `12.0-jnext-<ver>`.**
+19. **GDB `monitor in/out` kept, labelled perturbing; `k` = detach.**
+20. **`--map` feeds the one symbol table. Mutation from scripts is ALLOWED**
+    — the DSL's "no poke" rule is withdrawn; §4.2a defines the mutation
+    contract.
+21. **Alt+1..Alt+8 is the DSL host-key namespace** in both windows.
+22. **DZRP answers protocol version 2.2.0** (upstream DeZog main); §7.2.
+23. **The finished subsystem is documented exhaustively in the Developer
+    Guide** (architecture, backend, every frontend, the contracts between
+    them; Graphviz diagrams; `docs-devguide-check`-gated) — §10 package DOC
+    and the per-branch gate item.
 
 ---
 
@@ -415,7 +460,7 @@ on a breakpoint; a GUI Run afterwards reaches the remote as `Resumed{by}`
 `active()`: `attached` (≥1 client) gates the step machinery; `live_raster`
 (per client, ORed) gates only the render hint and the raster walk.
 
-### 4.2 Inspection — `CAP-INS` (side-effect free by contract)
+### 4.2 Inspection — `CAP-INS` (observation is side-effect free by contract; writes are §4.2a)
 
 | ID | Capability |
 |---|---|
@@ -439,6 +484,67 @@ on a breakpoint; a GUI Run afterwards reaches the remote as `Resumed{by}`
 | INS-18 | `set_border(colour)` → `Ula::set_border` [`ula.h:180`] (DZRP sends it on every load) |
 | INS-19 | `machine() -> {type, cpu_divisor, cycles_per_line/frame, lines, fps, hc_max, vc_max, max_hblank, max_vblank, display_origin, vblank_top}` |
 | INS-20 | `coverage_enable/clear/coverage() -> bitset<65536>` of executed PCs; one bit-set per instruction inside the attached-gated branch, zero cost when off |
+
+
+### 4.2a Mutation — the write half of `CAP-INS` (owner decision 2026-09-27)
+
+"Side-effect free" in §4.2 is a property of **observation**: every read is
+free of side effects. Writes are a separate, first-class capability, and the
+DSL may use them (the "scripts never poke" rule of Revision 3 is withdrawn;
+REQ-dsl-21..24). What exists already, as writes: INS-01 `set_register(RegId,
+v)` — the 12 pairs, every 8-bit half including `F`, PC, SP, I, R, IFF1, IFF2,
+IM; **setting PC clears `halted`** [`z80_cpu.h:14`, `:182`]; INS-02
+`poke(Cpu | Page, …)`; INS-03 `set_mmu_slot`; INS-04 `nextreg_write`
+(handlers run, synchronous, source `Debugger`); INS-05 `port_out`; INS-08
+`set_sprite_attr_raw` / `write_pattern_ram`; INS-10 `set_audio_mute_mask`
+(host-side, never in a snapshot or an RZX); INS-15 `set_palette`; INS-18
+`set_border`. That is everything the Qt panels write today (NextREG through
+the register's own write handler [`nextreg_panel.cpp:174`], memory through
+`Mmu::write` [`memory_panel.cpp:148/153`], the mute mask
+[`audio_panel.cpp:105/165`]) plus the register, port and physical-page writes
+the protocols already needed; no new CAP id. **One contract for all of them:**
+
+- **Where a write lands.** `poke(Cpu)` is `Mmu::write` outside any
+  `GuestExecutionScope`, exactly the Memory panel's path: through the live
+  map, **overlays honoured** (a poke into `0x0000-0x3FFF` with DivMMC mapped
+  goes where the panel's does — DivMMC RAM, or nowhere for its ROM), ROM
+  ignored, per-scanline change logs and the attribute mux updated, no latch.
+  `peek/poke(Page{p})` address the **physical page regardless of any
+  DivMMC / Multiface / Layer 2 overlay** mapped over a slot — that is the
+  point of the slot view (design-qt QMP-06 pins the difference); a ROM-class
+  page under `Page{}` is `RefusedReadOnly`. `nextreg_write` runs the
+  register's write handler synchronously, side effects included; `port_out`
+  dispatches the port like a guest `OUT`.
+- **When it lands — always at a delivery point, never inside a hot-path
+  hook.** From a frontend command (`pump`, a Qt panel, a remote packet) the
+  machine is paused at an instruction boundary. From an **`Execute`** handler
+  (pre-instruction) the write is seen by the instruction at PC — `set PC = x`
+  redirects before anything runs. From every other kind (post-instruction
+  boundary) the raising instruction has **already completed** and the write
+  lands before the next one: a `poke` is what the next instruction reads, an
+  `nextreg_write` runs its handler now. Nothing a handler writes can reach
+  the raising instruction or the device cluster that already ran for it.
+- **Deterministic:** keyed to the same boundary every run; no wall clock.
+- **Logged by the backend**, not by the writer: every mutation from every
+  client — DSL, Qt panel, DZRP `WRITE_MEM`, RSP `M` — emits one SES-06 `info`
+  line `MUTATE <what> <old> -> <new> by <client>` (old = the peeked value),
+  so a script's log sees what a GUI or a remote changed, and a CI transcript
+  shows what a script changed.
+- **Not an event:** a debugger write fires no watch, no `NextRegWrite`, no
+  `Port` event, and is not attributed to the CPU (no `source`, no re-entry) —
+  the existing `GuestExecutionScope` gating already guarantees it for panel
+  writes.
+- **Visible to later handlers of the same delivery** (a second rule matched
+  at the same boundary reads the mutated state).
+- **Rewind:** a mutation is machine state, so the next frame-boundary snapshot
+  carries it; interpreter state (script variables, `once` flags) is not, and
+  handlers do not run in `replay_mode_` — which is what keeps replay
+  faithful — so a rewind target *inside* the frame the mutation happened in
+  would replay that frame without the mutation and diverge. The backend
+  records the cycle of every mutation and refuses `step_back` /
+  `rewind_to_cycle` into a mutated span with `RefusedUnavailable`; a
+  frame-boundary target is always fine. Script mutation + intra-frame rewind
+  replay is a stated wall, not a promise (design-dsl §4).
 
 ### 4.3 Events, breakpoints, conditions — `CAP-EVT`
 
@@ -466,6 +572,19 @@ filter.
 | `IntAck` / `Nmi` | the accept seams [`emulator.cpp:1114`, `:10386`] | vector, im / source |
 | `Magic` | the magic opcode | pc |
 | `Host` | `raise_host_event(name)`, `script1`..`script8`; key bindings are a GH #1 keymap addition | name |
+| `Copper` — sub-kinds `Move`, `Wait`, `Halt` | `Move`: a MOVE executed (the `nextreg.write` at [`copper.cpp:209`], where `active_move_hc` is set); `Wait`: a WAIT satisfied ([`:184-197`], PC advances at `:186`); `Halt`: the first stall on the HALT form (`is_halt`, [`:86-87`]). Filter: copper-PC range and/or NR set. Latched at the site inside the post-instruction device cluster, delivered at the next boundary (≤1 instruction late, as `NextRegWrite`/`Scanline`). A MOVE also raises `NextRegWrite{source=Copper}` — both fire; `Copper.Move` is the copper-side view | reg + value (`Move`); copper pc; `vpos`, `hpos_threshold` (`Wait`); `hc_ula`, `cvc` as the Copper compares them |
+| `Dma` — sub-kinds `Start`, `Byte`, `End` | `Start`: `state_ → TRANSFERRING` (R6 enable [`dma.cpp:572`], `cmd_load` [`:677`]); `Byte`: each transferred byte inside `execute_burst` [`:699`; the I/O write `:783-786`, the memory write `:788`]; `End`: block completion at the `on_interrupt` site [`:807-813`] (an auto-restart [`:815-819`] is `End` then `Start`). Filter: src/dst range for `Byte`. A DMA byte into a watched **range** still fires `Mem{source=Dma}` (the range guard); `Dma.Byte` is the transfer-side view and needs no range. `Byte` is armed only while a `Byte` subscription exists (a flag in the engine) and delivered at the boundary of the slot the burst ran in | `Start`/`End`: src, dst, length, direction, mode, bytes; `Byte`: src_addr, dst_addr, value, is_io_src, is_io_dst; cycle |
+
+**No-subscriber cost of the Copper/DMA kinds.** Each is one predicated branch
+on a per-engine flag (`Copper::events_armed_`, `Dma::events_armed_`,
+`Dma::byte_events_armed_`) set only by `subscribe`/`unsubscribe`, placed next
+to the `should_log()` trace branch each site already carries
+[`copper.cpp:192`, `:212`]. DMA `Start`/`End` fire once per transfer,
+negligible; `Byte` costs one branch per transferred byte, only while armed.
+The Copper branch sits in `Copper::execute`, which is 8-12 % of the
+`copper-demo`/`beast` profiles (Task 27), so B2 adds a `make bench` row on
+those two workloads with no subscriber before it merges — the expectation is
+noise, as for the MMU gate (§6).
 
 **Subscription** = `{kind, filter, access, condition?, once, transient,
 action, enabled, owner}`; `subscribe → EventId`, `unsubscribe`,
@@ -491,18 +610,18 @@ Under `--headless` the loop owner maps `Stop` per CAP-SES-04.
 
 **Delivery point and non-perturbation.** Memory, port and NR events raised
 *during* an instruction are **latched** at the site (`{kind, addr, value,
-phys_page, pc, cycle}` into a **32-entry** ring on `DebugState`, replacing
+phys_page, pc, cycle}` into a **64-entry** ring on `DebugState`, replacing
 the single `data_bp_addr_`) and **delivered at the instruction boundary** —
 the existing `data_bp_hit()` shape [`emulator.cpp:9398`] with value and page
 added; `source` is tagged at the drain from the slot's DMA flag (today the
 local `dma_stalled_cpu_this_step` [`emulator.cpp:9687`, `:9784`], which
 becomes a member — an accessor addition). No user code runs inside
 `Mmu::write`, the CPU or a device tick; the machine is stopped when a handler
-runs; every inspection read is side-effect free. **32 suffices by
+runs; every inspection read is side-effect free. **64 suffices by
 construction**: a slot is DMA *or* CPU [`:9687-9790`], a DMA slot is capped at
-`execute_burst(16)` [`:9735`], so the worst case is 16 writes + 16 reads under
-a Read|Write range, or 16 port latches; a CPU instruction is far below (one
-`LDIR` iteration per `execute()`). One inherited caveat, stated so "after
+`execute_burst(16)` [`:9735`], so the worst case is 16 `Dma.Byte` + 16 writes
++ 16 reads under a Read|Write range + a `Start`/`End` pair = 50; a CPU
+instruction is far below (one `LDIR` iteration per `execute()`). One inherited caveat, stated so "after
 commit" is not read over it: a `Stop` takes the `:9398` early return, which
 skips `tick_devices_after_instruction()`, so the stopping instruction's own
 deferred CPU NR writes stay queued until the resume — today's data-breakpoint
@@ -738,9 +857,13 @@ per-frontend files under `debug-subsystem/`.
   `SubscriptionsChanged{kinds}`).
 - **Declined (17):** everything #278 adds no feature for — conditions,
   ranges, `once`, `Log`/`Continue`, the deterministic-time kinds, `Host`,
-  `set_register`, `set_mmu_slot`, `port_in/out`, `Page`/`Rom` spaces (the
-  Memory panel's slot view reads the CPU map today — pinned for identity,
-  §12), input injection, capture, bookmarks, coverage, `load`. `pump(0)` and
+  `set_register`, `set_mmu_slot`, `port_in/out`, the `Rom` space, input
+  injection, capture, bookmarks, coverage, `load`. The `Page` space is
+  **used** since the owner decision of 2026-09-27: the Memory panel's slot
+  view becomes a true physical-page read/write (Q WP8, after the identity
+  rows are green, with its own pinned rows; `peek/poke(Page)` bypass every
+  overlay, a ROM-class page is `RefusedReadOnly` and renders unchanged) —
+  **39 used / 16 declined** (design-qt, 2026-09-27). `pump(0)` and
   the `Pause` stop policy are used by `QtApp` as the loop owner.
 - **The `render_layer` split** (INS-14): backend function, Qt keeps `QImage`,
   checkerboard, DPR, the raster line and the titles; the uniform alpha-0
@@ -749,7 +872,7 @@ per-frontend files under `debug-subsystem/`.
 
 ### 7.2 DZRP — #12 (`dzrp-frontend.md`)
 
-- **Findings that fix the design:** jnext answers DZRP **2.1.0** and presents
+- **Findings that fix the design:** jnext answers DZRP **2.2.0** (upstream DeZog `main`; owner 2026-09-27 — design-dzrp's verification of the 2.1.0→2.2.0 command delta is pending and lands here when it arrives) and presents
   as DeZog's **`cspect` remote type** (the only released socket path; the
   `zxnext` socket remote is a fork-only opcode-patching dialect, so
   `CMD_SET_BREAKPOINTS`/`RESTORE_MEM` are unsupported-reported). **No released
@@ -887,16 +1010,16 @@ applicable to that consumer.
 | CTL-13 state / pause_reason | S | S | S | S | S (`REASON`) |
 | CTL-14 magic switch | S | U | U | U | D |
 | CTL-15 load | D | U | S (`smartload`) | U | D |
-| INS-01 registers get / set | S / D | S / S | S / S | S / S | S / D |
-| INS-02 peek Cpu / Page / Rom; poke | S / D / D; S | S / S / U; S | S / S / U; S | S / S (monitor) / U; S | S / S / D; D |
-| INS-03 MMU slots get / set | S / D | S / S | S / S | S / S (`monitor mmu`) | S / D |
-| INS-04 NextREG peek / write | S / S | S / U | S / S | S (monitor) / S (monitor) | S / D |
-| INS-05 ports | D | S | S | S (monitor, labelled perturbing) | D |
+| INS-01 registers get / set | S / D | S / S | S / S | S / S | S / S (§4.2a) |
+| INS-02 peek Cpu / Page / Rom; poke | S / S (Q WP8) / D; S | S / S / U; S | S / S / U; S | S / S (monitor) / U; S | S / S / D; S (§4.2a) |
+| INS-03 MMU slots get / set | S / D | S / S | S / S | S / S (`monitor mmu`) | S / D (`set nextreg[0x50+s]` instead) |
+| INS-04 NextREG peek / write | S / S | S / U | S / S | S (monitor) / S (monitor) | S / S |
+| INS-05 ports | D | S | S | S (monitor, labelled perturbing) | S (`out`) |
 | INS-06 raster | S | U | U | U | S |
 | INS-07 time | S | U | S | S (`clockl/clockh`) | S |
 | INS-08 sprites (+ raw, writes) | S (attrs only) | S | S | U | D |
 | INS-09 copper | S | U | U | U | D |
-| INS-10 AY / TurboSound / mute | S | U | U | U | D |
+| INS-10 AY / TurboSound / mute | S | U | U | U | S (`set AUDIO_MUTE`) |
 | INS-11 disassembly | S | U | S | U | D |
 | INS-12 call stack | S | U | S (`extended-stack`) | U | D |
 | INS-13 trace | S (export) | U | S (`cpu-history`) | U | D |
@@ -913,6 +1036,8 @@ applicable to that consumer.
 | EVT NextRegWrite | D | U | U | U | S |
 | EVT Frame / Scanline / Cycle | D | U | U | U | S |
 | EVT Reset / IntAck / Nmi / Magic / Host | D | U | U | U | S / S / S / D / S |
+| EVT Copper {Move, Wait, Halt} | D | U | U | U | S |
+| EVT Dma {Start, Byte, End} | D | U | U | U | S |
 | EVT conditions | D | **D** (client-side) | S (translated) | D (not advertised) | S |
 | EVT once / transient / per-client switch / probe_execute | D / S (internal) / D / D | D / S / D / D | S / D / S / S | D / D / D / D | S / D / D / D |
 | TIME-02 act at an instant | D | U | U | U | S |
@@ -1041,14 +1166,15 @@ parallel agents; each gets its own independent reviewer.
 | WP | Branch (one per sub-issue) | Content | Depends on |
 |---|---|---|---|
 | **B0** headers | `gh276-headers` (its own sub-issue; everything below depends on it) | the four public headers of §10.1, compiled, reviewed, no bodies | this design's review |
-| **B** backend | `gh276-backend` (§12 Q1: a new sub-issue, or stage 1 of #278) | B1 facade + control + inspection over the existing primitives (no hot-path change), `Mmu::peek()` (F1), the frame counter (F2), `SymbolTable` move, `key_name_to_matrix` move, the accessor additions (§4: sprites/palette raw forms, `set_matrix_bit`, the DMA slot flag, `input_state`); B2 `EventTable` + 32-entry latch ring + slot masks + `on_slot_remapped` + NR/port/IntAck/Nmi/Reset/Frame/Scanline hooks (bench-gated, incl. the §11 item 3 hot-latch measurement); B3 session: clients, listeners, `pump` + `Service` registration, stop policy, `live_raster`/`attached`, the loop driver (SES-07), the reconstruct contract (CTL-12/15) and the retirement of the platform-side `BreakpointSet`/`active()` restore in `emulator_cold_boot()`; B4 input (IN-01 APPEND) / capture / bookmarks / coverage / extended `TraceEntry`, and the CLI conveniences (`--delayed-*`) re-expressed as generated subscriptions in all three loop owners, retiring `QtApp`'s and `HeadlessApp`'s private countdowns; B5 `debugger_backend_test` | B0 |
+| **B** backend | `gh276-backend` (§12 Q1: a new sub-issue, or stage 1 of #278) | B1 facade + control + inspection over the existing primitives (no hot-path change), `Mmu::peek()` (F1), the frame counter (F2), `SymbolTable` move, `key_name_to_matrix` move, the accessor additions (§4: sprites/palette raw forms, `set_matrix_bit`, the DMA slot flag, `input_state`); B2 `EventTable` + 64-entry latch ring + slot masks + `on_slot_remapped` + NR/port/IntAck/Nmi/Reset/Frame/Scanline hooks (bench-gated, incl. the §11 item 3 hot-latch measurement); B3 session: clients, listeners, `pump` + `Service` registration, stop policy, `live_raster`/`attached`, the loop driver (SES-07), the reconstruct contract (CTL-12/15) and the retirement of the platform-side `BreakpointSet`/`active()` restore in `emulator_cold_boot()`; B4 input (IN-01 APPEND) / capture / bookmarks / coverage / extended `TraceEntry`, and the CLI conveniences (`--delayed-*`) re-expressed as generated subscriptions in all three loop owners, retiring `QtApp`'s and `HeadlessApp`'s private countdowns; B5 `debugger_backend_test` | B0 |
 | **T** transport | `gh276-transport` (its own package; D/Z/G wait for it) | the one non-blocking listener/`Service` over the public `esp::make_socket_listener` / `EspListener` / `EspTransport` seam, the in-memory fake `Transport` for adapter suites, `--debug-listen-address`; no protocol content | B0, B |
-| **Q** #278 | `gh278-qt` | design-qt WP0 (close the identity gaps on the current tree) → WP1 the `src/qt/` header move + `make build-matrix` (**the single owner of that move**; lands with the rest of Q, on Q's one branch) → WP2 `DebuggerManager` verbs → WP3 rewind/trace/corruption → WP4a-d panels (parallel) → WP5 memory panel → WP6 symbols/magic → WP7 reach-around grep = 0 | B0, B |
+| **Q** #278 | `gh278-qt` | design-qt WP0 (close the identity gaps on the current tree) → WP1 the `src/qt/` header move + `make build-matrix` (**the single owner of that move**; lands with the rest of Q, on Q's one branch) → WP2 `DebuggerManager` verbs → WP3 rewind/trace/corruption → WP4a-d panels (parallel) → WP5 memory panel → WP6 symbols/magic → WP7 reach-around grep = 0 → **WP8 Memory panel physical-page view** (`MemSpace::Page` reads and writes, owner decision §1.3 item 15; last, after the identity rows are green; its own pinned rows) | B0, B |
 | **D** #12 | `gh12-dzrp` | design-dzrp WP-1 framing over T → WP-2 session/registers/memory → {WP-3 breakpoints/continue/notify, WP-4 tier 2, WP-5 loop owners + CLI} → WP-6 validation → WP-7 docs | B0, B, T |
 | **Z** #280 | `gh280-zrcp` | design-zrcp WP-1 session skeleton over T → {WP-2 formatters, WP-3 control/run, WP-4 breakpoints+conditions (needs S1), WP-5 history/coverage/load} → WP-6 fixtures+docs | B0, B, T; WP-4 on S1 |
 | **G** #281 | `gh281-gdb-rsp` | design-gdb WP-1 codec → WP-2 target description + packing → WP-3 server → WP-4 wiring/CLI over T → WP-5 acceptance row + user guide → WP-6 wiki listing (post-release) | B0, B, T |
-| **S** #26 (+#279) | `gh26-dsl` | design-dsl WP1 lexer/parser/`compile_expr` library → WP2 evaluator + snapshot stacks → WP3 engine over subscriptions, stop/exit policy → WP4 CLI + man page → WP5 GUI (Script tab, Alt+1..8) → WP6 recorder (= #20) → WP7 demos + `script-*-func` rows → WP8 docs | B0, B; WP5 on Q |
+| **S** #26 (+#279) | `gh26-dsl` | design-dsl WP1 lexer/parser/`compile_expr` library → WP2 evaluator + snapshot stacks → WP3 engine over subscriptions, stop/exit policy → WP4 CLI + man page → WP5 GUI (Script tab, Alt+1..8) → WP6 recorder (= #20) → WP7 demos + `script-*-func` rows → WP8 developer-guide pages → **WP9 an exhaustive User Guide chapter for the DSL** (`src/doc/user-guide`, `docs-userguide-check`) → **WP10 a demo program + script suite** under `demo/` exercising every event kind and action (design-dsl owns WP9/WP10) | B0, B; WP5 on Q |
 | **R** #20 | folded into S (WP6) after re-scope | recorder, `compare_scr`, the two DAPR rows | S |
+| **DOC** developer guide | `gh276-devguide` (own branch, last) | rewrites the Developer Guide's debugger chapters (`src/doc/developer-guide/03-subsystems/09-…` and a new chapter for the frontends) to describe the **finished** subsystem end to end — architecture, backend API, every frontend, the contracts between them (§4.3 delivery, §4.2a mutation, §4.8 session, the reconstruct contract) — with Graphviz `.dot` diagrams rendered by `make docs-devguide-diagrams`: the layer diagram, the event delivery pipeline (site latch → boundary drain → predicate → handler → verdict), the pump / loop-owner model, the reconstruct contract, and the capability matrix; not the epic's process | D, Z, G, S landed |
 
 The socket transport the three servers share is **T**, written once, owned
 by one agent, and a dependency of D, Z and G alike — never carried by
@@ -1078,7 +1204,10 @@ by stage.
 Dedicated branch + worktree under `~/tmp/worktrees/<name>`; a multi-stage
 issue lives on **one** branch until done; `make clean && make gui-release`,
 `make unit-test`, `make unit-test-sdl`, FUSE 1356/1356, `JNEXT_TEST_JOBS=4
-make regression`, `make build-matrix` where a build gate moved; **independent
+make regression`, `make build-matrix` where a build gate moved; **the
+Developer Guide chapters the branch touches are updated in the same branch**
+(`src/doc/developer-guide`, re-rendered, `docs-devguide-check` green — a
+stale paragraph there is the same defect class as a stale man page); **independent
 review** in its own worktree, binary verdict; `make bench` for any branch
 touching the hot path; the manager merges one branch at a time and runs `make
 bump-patch`; never push without authorisation.
@@ -1099,7 +1228,7 @@ it):
 1. The exact `MemSpace::Rom` enumeration on 48K/128K/+3 (ROM object vs
    `rom_in_sram_`) — B1.
 2. ~~Latch ring size~~ — resolved by derivation (§4.3): a slot is DMA or
-   CPU, a DMA slot is capped at 16 transfers, 32 entries suffice.
+   CPU, a DMA slot is capped at 16 transfers, 64 entries (incl. `Dma.Byte`) suffice.
 3. **The hot-latch cost**: a range watch that hits on every write (append +
    drain + predicate + handler). Not measured — §6's armed rows were a cold-
    hit scan. Measure on B2 with `Mem[0x0000,0x3FFF] Write` over
@@ -1120,27 +1249,29 @@ it):
 
 ## 12. Open questions for the owner
 
-Decisions already taken are not repeated. Each question states the design's
-default so silence is not a blocker.
+**None.** The thirteen questions of Revision 3 were answered by the owner on
+2026-09-27 and are recorded as settled decisions in §1.3 items 9-23; the
+text below is kept for the record of what was asked, each item now prefixed
+with its answer.
 
-1. **Where does the backend implementation live?** Recommended: two new
+1. *ANSWERED: two branches, `gh276-headers` + `gh276-backend`.* **Where does the backend implementation live?** Recommended: two new
    sub-issues of #276 on their own branches — `gh276-headers` (B0, the four
    public headers, merged first and whole) and `gh276-backend` (B) — so
    #12/#280/#281/#26 can start the moment B lands and #278 stays the proof. Alternative:
    stage 1 of #278's single branch, which serialises the four frontends
    behind the whole Qt refactor.
-2. **Headless exit code for a script `stop` with no explicit `exit`.** Never
+2. *ANSWERED: 3.* **Headless exit code for a script `stop` with no explicit `exit`.** Never
    2 (a harness fault in both harnesses). Default 1 (same as a failed
    `--load`); design-dsl recommends a dedicated 3 so a row can tell "the
    script caught something" from "jnext could not run" by code alone.
-3. **Headless stop policy while a remote client is connected.** The owner's
+3. *ANSWERED: the exception — pause + notify.* **Headless stop policy while a remote client is connected.** The owner's
    #279 rule is "stop becomes a logged event plus a non-zero exit under
    `--headless`". SES-04 proposes an exception: while a DZRP/ZRCP/RSP client
    is connected, `Stop` pauses and notifies it (a client blocked on `run`
    must get its stop reply; the servers' headless regression rows depend on
    it). Default: the exception. Alternative: exit non-zero always, and those
    rows move to a Qt build.
-4. **Any stop in the SDL frontend, and magic breakpoints under
+4. *ANSWERED: adopt one rule for every stop.* **Any stop in the SDL frontend, and magic breakpoints under
    `--headless`.** The SDL frontend has no pause path, so a
    `--persistent-breakpoints` PC hit there is a dead end today (the machine
    pauses, stale frames present, nothing can resume); SES-04 turns every such
@@ -1155,35 +1286,35 @@ default so silence is not a blocker.
    it greps the log and its expectation should be re-pinned. Default: adopt
    the change (one rule for every stop). Alternative: magic keeps today's
    pause-then-exit-0 behaviour in headless.
-5. **Should a remote (DZRP/ZRCP/RSP) pause open the local Qt debugger
+5. *ANSWERED: yes.* **Should a remote (DZRP/ZRCP/RSP) pause open the local Qt debugger
    window?** Today's GH #219 path opens it on any pause with the window shut;
    default: yes, unchanged; alternative: a one-line `by`-check in the Qt
    adapter.
-6. **Client ownership on detach.** Default (the SES-01 rule): a client's
+6. *ANSWERED: the default.* **Client ownership on detach.** Default (the SES-01 rule): a client's
    subscriptions die with it and a pause *it* caused is released.
    Alternative: everything persists until explicitly cleared.
-7. **Memory panel "slot view".** "Slot 3 (page 0A)" reads CPU addresses
+7. *ANSWERED: becomes a physical-page read/write view, Q WP8.* **Memory panel "slot view".** "Slot 3 (page 0A)" reads CPU addresses
    through the live map, not the physical page. Pinned as-is for #278;
    should it become a `MemSpace::Page` read afterwards?
-8. **Port defaults.** All three servers off unless `--*-port N` is given
+8. *ANSWERED: explicit, off unless given.* **Port defaults.** All three servers off unless `--*-port N` is given
    (DeZog assumes 11000 for `cspect`, 10000 for `zrcp`; z88dk has no
    convention). Keep explicit?
-9. **ZRCP `hard-reset-cpu` = cold boot** (Task 70 semantics, seconds of
+9. *ANSWERED: yes, cold boot.* **ZRCP `hard-reset-cpu` = cold boot** (Task 70 semantics, seconds of
    emulated time under DeZog's default `resetOnLaunch: true`). Default:
    faithful, and document `resetOnLaunch: false` when `--load` is used.
-10. **ZRCP `get-version` string** `12.0-jnext-<ver>` — the only shape DeZog's
+10. *ANSWERED: yes.* **ZRCP `get-version` string** `12.0-jnext-<ver>` — the only shape DeZog's
    semver gate accepts that is also truthful about the served subset.
-11. **GDB `monitor in/out`** (the only perturbing monitor commands): keep,
+11. *ANSWERED: keep, labelled; `k` = detach.* **GDB `monitor in/out`** (the only perturbing monitor commands): keep,
    labelled (default), or drop. **GDB `k`:** detach (default) or exit jnext.
-12. **DSL `--map`** also loads the debugger's symbol table (one table, not
+12. *ANSWERED: yes; and mutation from scripts is ALLOWED (§4.2a).* **DSL `--map`** also loads the debugger's symbol table (one table, not
     two) — default yes. **DSL mutation ban** — confirm no `poke`/`set_reg`,
     or allow a loudly-logged one a CI row can forbid with a flag.
-13. **Alt+1..Alt+8 as the DSL host-key namespace** in both windows — design-qt
+13. *ANSWERED: yes.* **Alt+1..Alt+8 as the DSL host-key namespace** in both windows — design-qt
     finds no collision; confirm.
 
 ---
 
 *Appendices (working notes, not normative on their own):*
-`debug-subsystem/backend.md` (the CAP contract as negotiated, with the 79-row
+`debug-subsystem/backend.md` (the CAP contract as negotiated, with the 84-row
 requirements ledger), `qt-frontend.md`, `dzrp-frontend.md`,
 `zrcp-frontend.md`, `gdb-rsp-frontend.md`, `dsl-frontend.md`.
