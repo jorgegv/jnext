@@ -2,6 +2,12 @@
 
 #include "debug/breakpoints.h"
 #include <cstdint>
+#include <functional>
+
+namespace jnext { namespace dbg {
+class EventTable;
+struct LatchEntry;
+} }
 
 enum class StepMode { NONE, INTO, OVER, OUT, RUN_TO_CYCLE, STEP_BACK, RUN_BACK_TO_CYCLE };
 
@@ -162,9 +168,44 @@ public:
         bool        step_off_;
     };
 
+    // ── CTL-13 — evidence that survives the stop (GH #276 B2) ───────────
+    //
+    // pause() clears the step mode, and the hot loop consumes data_bp_hit_ in
+    // the SAME BREATH as the pause (`pause(); set_data_bp_hit(false);`), so by
+    // the time `Debugger::state()` can look, WHY the machine stopped is already
+    // gone. These two latches are that evidence, and they are the whole reason
+    // `PauseReason::Watch` and `PauseReason::Magic` can be reported at all.
+    //
+    // Both are cleared by unpause_(), i.e. on every paused -> running edge,
+    // which is the one place every resume-family transition goes through.
+    void note_watch_stop(uint16_t addr, bool is_write) {
+        watch_stop_ = true;
+        watch_stop_addr_ = addr;
+        watch_stop_is_write_ = is_write;
+    }
+    bool     watch_stop() const { return watch_stop_; }
+    uint16_t watch_stop_addr() const { return watch_stop_addr_; }
+    bool     watch_stop_is_write() const { return watch_stop_is_write_; }
+
+    void note_magic_stop(uint16_t pc) { magic_stop_ = true; magic_stop_pc_ = pc; }
+    bool     magic_stop() const { return magic_stop_; }
+    uint16_t magic_stop_pc() const { return magic_stop_pc_; }
+
     // Step modes.
     void step_into();
     void step_over(uint16_t next_pc);
+
+    /// GH #276 B2 — the TRANSIENT-SUBSCRIPTION forms of step_over / run_to.
+    ///
+    /// step_over()/run_to() above additionally set `BreakpointSet`'s single
+    /// one-shot. These do not: the backend arms a transient `Execute`
+    /// subscription instead, which §4.3 makes unlimited in number, exempt from
+    /// the master switch and auto-removed at the next stop — the single one-shot
+    /// is none of those, and DeZog needs two temporary breakpoints per
+    /// `CMD_CONTINUE`. The one-shot forms stay because the Qt frontend still
+    /// drives this class directly until package Q retires that path.
+    void step_over_subscribed();
+    void run_to_subscribed();
     void step_out(uint16_t current_sp);
     void run_to(uint16_t addr);
     void run_to_cycle(uint64_t target_cycle);
@@ -245,6 +286,89 @@ public:
     BreakpointSet& breakpoints() { return breakpoints_; }
     const BreakpointSet& breakpoints() const { return breakpoints_; }
 
+    // ── GH #276 B2 — CAP-EVT: the event table, the gates, the latch ──────
+    //
+    // DebugState is the ONE object `Mmu`, `PortDispatch`, `NextReg`, `Copper`,
+    // `Dma` and `Emulator` already hold a pointer to, which is why the event
+    // machinery is reached through it rather than through `Debugger` — nothing
+    // below a frontend may see an `Emulator*` OR a `Debugger*` (§4 rule 1).
+    //
+    // Every member here is NULL / false / inert until a `Debugger` is
+    // constructed, so a build with no debugger attached executes exactly what
+    // it executed before this existed.
+
+    /// Install (or, with nullptr, retire) the subscription table. The
+    /// `Debugger` does this in its constructor and clears it in its destructor:
+    /// a dangling table pointer reachable from the MMU would be a use-after-free
+    /// on the hot path.
+    void set_event_table(jnext::dbg::EventTable* t) { events_ = t; }
+    jnext::dbg::EventTable* event_table() const { return events_; }
+
+    /// Install the two hooks the hot loop calls. `drain` is the boundary drain
+    /// (returns true iff a `Stop` action fired); `gate` is the pre-instruction
+    /// `Execute` gate (same convention). Both live in `Debugger`, because a
+    /// `Handler` takes a `Debugger&`.
+    void set_event_hooks(std::function<bool()> drain,
+                         std::function<bool(uint16_t)> gate) {
+        event_drain_ = std::move(drain);
+        execute_gate_ = std::move(gate);
+    }
+
+    /// THE MEMORY-WATCH GATE the eight `Mmu` sites read, in place of
+    /// has_any_watchpoints(). One byte load, a shift and a test (§6.1); it
+    /// covers legacy watchpoints AND `Mem` subscriptions, pre-ORed by
+    /// `BreakpointSet` (see there for why the bytes live in that class).
+    bool rd_watch_armed(uint16_t addr) const {
+        return breakpoints_.rd_watch_slot_armed(addr);
+    }
+    bool wr_watch_armed(uint16_t addr) const {
+        return breakpoints_.wr_watch_slot_armed(addr);
+    }
+    /// The port twin. Ports have no slots, so it is one bool.
+    bool port_watch_armed() const { return breakpoints_.port_watch_armed(); }
+
+    /// Is there anything for the boundary drain to do? A single cached bool:
+    /// the ring holds something, or a `Cycle` subscription is armed (the one
+    /// kind whose condition is a boundary comparison rather than a latch).
+    bool events_pending() const { return event_boundary_work_; }
+
+    /// Is a live `Execute` subscription armed? The gate on the pre-instruction
+    /// hook, so the ordinary breakpoint path pays one bool test for it.
+    bool execute_events_armed() const { return execute_armed_; }
+
+    /// Run the pre-instruction `Execute` gate for `pc`. True iff it stopped.
+    bool run_execute_gate(uint16_t pc) {
+        return execute_gate_ ? execute_gate_(pc) : false;
+    }
+
+    /// Run the boundary drain. True iff a `Stop` action fired.
+    bool drain_events() {
+        ring_nonempty_ = false;
+        recompute_boundary_work_();
+        return event_drain_ ? event_drain_() : false;
+    }
+
+    /// Latch a site entry. Out of line: it stamps the common
+    /// {cycle, frame, pc, vc, hc} through `stamp_common_` and appends to the
+    /// ring, and neither belongs in a header the MMU includes.
+    void latch_event(jnext::dbg::LatchEntry& e);
+
+    /// Install the site-context stamper — the one thing only the `Emulator`
+    /// knows ({cycle, frame, pc, vc, hc}). Called ONLY from inside
+    /// `latch_event`, i.e. only when a filter has already matched.
+    void set_latch_stamper(std::function<void(jnext::dbg::LatchEntry&)> fn) {
+        stamp_common_ = std::move(fn);
+    }
+
+    /// §6.1 — the MMU remapped a slot: re-evaluate any physical-page filter and
+    /// re-publish the masks if they moved.
+    void on_slot_remapped(int slot, uint16_t page);
+
+    /// Re-read the `EventTable`'s cached state into the hot-path gates: the
+    /// slot masks, the port flag, the `Execute` arm and the `Cycle` arm. Called
+    /// by the `Debugger` on every subscription change — never from the hot path.
+    void refresh_event_gates();
+
     StepMode step_mode() const { return step_mode_; }
 
     /// Set by MMU when a data breakpoint (read/write) is hit.
@@ -300,6 +424,12 @@ private:
     void unpause_() {
         if (paused_) step_off_pending_ = true;
         paused_ = false;
+        // GH #276 B2 — the stop evidence describes the stop the machine is
+        // LEAVING. Cleared here rather than in resume(), because resume() is
+        // only one of seven transitions out of paused and this is the one place
+        // all seven pass through — the same argument the GH #221 arm rests on.
+        watch_stop_ = false;
+        magic_stop_ = false;
     }
 
     bool active_ = false;
@@ -319,6 +449,26 @@ private:
     bool step_off_pending_ = false;
     bool data_bp_hit_ = false;
     uint16_t data_bp_addr_ = 0;
+    // GH #276 B2 — see note_watch_stop() / note_magic_stop().
+    bool     watch_stop_ = false;
+    bool     watch_stop_is_write_ = false;
+    bool     magic_stop_ = false;
+    uint16_t watch_stop_addr_ = 0;
+    uint16_t magic_stop_pc_   = 0;
+
+    // ── GH #276 B2 — appended, never interleaved ────────────────────────
+    void recompute_boundary_work_() {
+        event_boundary_work_ = ring_nonempty_ || cycle_armed_;
+    }
+
+    jnext::dbg::EventTable* events_ = nullptr;
+    std::function<bool()> event_drain_;
+    std::function<bool(uint16_t)> execute_gate_;
+    std::function<void(jnext::dbg::LatchEntry&)> stamp_common_;
+    bool event_boundary_work_ = false;
+    bool ring_nonempty_       = false;
+    bool cycle_armed_         = false;
+    bool execute_armed_       = false;
     StepMode step_mode_ = StepMode::NONE;
     uint16_t step_out_sp_ = 0;
     uint64_t target_cycle_ = 0;

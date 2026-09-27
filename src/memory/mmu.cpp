@@ -5,6 +5,7 @@
 #include "core/saveable.h"
 #include "save/state_desc.h"
 #include "save/state_desc_bin.h"
+#include "debug/event_table.h"
 #include <cstring>
 
 namespace {
@@ -228,6 +229,16 @@ void Mmu::reset(bool hard) {
 }
 
 void Mmu::rebuild_ptr(int slot) {
+    rebuild_ptr_body_(slot);
+    // GH #276 §6.1 — the ONE point at which a slot's page changes, which is
+    // what makes a per-slot mask maintainable at all: any armed `Mem` filter
+    // that names a PHYSICAL page has to be re-evaluated here, because the page
+    // it names may have just arrived in, or left, this slot.
+    if (debug_state_)
+        debug_state_->on_slot_remapped(slot, get_effective_page(slot));
+}
+
+void Mmu::rebuild_ptr_body_(int slot) {
     uint8_t page = slots_[slot];
     // GH #92 — default: reads wait at 28 MHz (external SRAM asserts
     // sram_req, zxnext.vhd:3154+3175). The branches below clear the flag
@@ -1158,4 +1169,83 @@ uint8_t Mmu::mf_ram_byte_(uint16_t addr) const {
 
 void Mmu::mf_ram_write_(uint16_t addr, uint8_t val) {
     multiface_->ram_data()[addr - 0x2000] = val;
+}
+
+// ---------------------------------------------------------------------------
+// GH #276 B2 — the out-of-line half of the eight watch sites
+//
+// Reached only when the inline gate passed: a `DebugState` is attached,
+// `watchpoints_live()` is true (so the access is the GUEST's, not a panel's),
+// and the per-slot mask bit for this 8 KB slot is set. Two consumers, in this
+// order, because the first is the pre-existing behaviour and must not change:
+//
+//   1. the legacy `BreakpointSet` watchpoint, raising `data_bp_hit_` exactly as
+//      the inline sites did before B2;
+//   2. the CAP-EVT `Mem` subscription, precisely matched and latched into the
+//      512-entry ring for the boundary drain (§4.3).
+//
+// `phys_page` is `get_effective_page(addr >> 13)` — the LOGICAL MMU page the
+// slot serves, resolved through legacy paging, which is the number
+// `MemSpace::page()`, `SlotInfo::nr_page` and DZRP's `bank+1` watchpoints all
+// mean, and the number the slot mask itself is built from. STATED LIMITATION:
+// for an access served by a DivMMC, Multiface or Layer 2 OVERLAY the byte does
+// not come from that page at all — those stores are outside the page-number
+// space entirely — so `phys_page` names what the MMU maps, not what answered.
+// Reporting the overlay's private offset would be a page number that no filter,
+// and no `peek(Page{})`, can address.
+// ---------------------------------------------------------------------------
+
+void Mmu::watch_read_(uint16_t addr, uint8_t val) {
+    if (debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
+        debug_state_->set_data_bp_hit(true);
+        debug_state_->set_data_bp_addr(addr);
+        // CTL-13's evidence: the hot loop consumes data_bp_hit_ in the same
+        // breath as the pause, so without this `state()` cannot say WHY.
+        debug_state_->note_watch_stop(addr, /*is_write=*/false);
+    }
+    jnext::dbg::EventTable* t = debug_state_->event_table();
+    if (!t) return;
+    const uint16_t page = get_effective_page(addr >> 13);
+    if (!t->mem_would_match(addr, page, jnext::dbg::Access::Read)) return;
+    jnext::dbg::LatchEntry e;
+    e.kind        = jnext::dbg::EventKind::Mem;
+    e.access      = jnext::dbg::Access::Read;
+    e.addr        = addr;
+    e.page_or_aux = page;
+    e.value       = val;
+    // A read leaves the byte alone, so `prev` is the byte — NOT zero, which a
+    // reader would have to know to ignore.
+    e.prev = val;
+    debug_state_->latch_event(e);
+}
+
+void Mmu::watch_write_(uint16_t addr, uint8_t val) {
+    if (debug_state_->breakpoints().has_watchpoint(addr, WatchType::WRITE)) {
+        debug_state_->set_data_bp_hit(true);
+        debug_state_->set_data_bp_addr(addr);
+        debug_state_->note_watch_stop(addr, /*is_write=*/true);
+    }
+    jnext::dbg::EventTable* t = debug_state_->event_table();
+    if (!t) return;
+    // The precise match here is a COST gate rather than a correctness one — the
+    // boundary drain re-matches every entry against every subscription, so a
+    // spurious latch would be rejected there and never delivered. What it buys
+    // is RING SPACE: without it every write in an armed 8 KB slot consumes an
+    // entry, and the 512-entry bound is reached by writes that could never
+    // match. That IS observable, and EVT-MEM-70/71 observe it with the ring
+    // shrunk to one entry.
+    const uint16_t page = get_effective_page(addr >> 13);
+    if (!t->mem_would_match(addr, page, jnext::dbg::Access::Write)) return;
+    jnext::dbg::LatchEntry e;
+    e.kind        = jnext::dbg::EventKind::Mem;
+    e.access      = jnext::dbg::Access::Write;
+    e.addr        = addr;
+    e.page_or_aux = page;
+    e.value       = val;
+    // §4.3's `prev`: ONE peek at the latch site, so a handler can undo a caught
+    // write. `peek()` and not `read()` — `read()` would capture the byte into
+    // the +3 floating-bus latch and could raise a READ watchpoint on the very
+    // address a WRITE watch just matched.
+    e.prev = peek(addr);
+    debug_state_->latch_event(e);
 }

@@ -1,5 +1,7 @@
 #include "debug/debug_state.h"
 
+#include "debug/event_table.h"
+
 void DebugState::pause() {
     paused_ = true;
     step_mode_ = StepMode::NONE;
@@ -128,4 +130,65 @@ bool DebugState::check_step_out(uint16_t sp_before, uint16_t sp_after,
         (opcode & 0xC7) == 0xC0 ||
         (opcode == 0xED && (opcode2 & 0xC7) == 0x45);
     return is_return;
+}
+
+// ---------------------------------------------------------------------------
+// GH #276 B2 — CAP-EVT: the latch, the slot masks and the gate cache
+// ---------------------------------------------------------------------------
+
+// ONE WRITER PER FIELD. The SITE fills the kind-specific payload (`addr`,
+// `value`, `prev`, `reg`, `hc_ula`, `cvc`, the DMA and Copper fields); the
+// STAMPER fills the common header `{cycle, frame, pc, vc, hc}` and nothing
+// else. No site writes a header field, even where it has the value to hand —
+// two writers for one field is how a payload ends up depending on the order the
+// two happen to run in.
+void DebugState::latch_event(jnext::dbg::LatchEntry& e) {
+    if (!events_) return;
+    if (stamp_common_) stamp_common_(e);
+    events_->latch(e);
+    ring_nonempty_       = true;
+    event_boundary_work_ = true;
+}
+
+void DebugState::on_slot_remapped(int slot, uint16_t page) {
+    if (!events_) return;
+    // set_slot_page() returns true only when a mask byte actually moved, which
+    // for the overwhelmingly common case (no page-qualified filter armed) is
+    // never — so the MMU's dispatch rebuild pays one call and one compare.
+    if (events_->set_slot_page(slot, page))
+        breakpoints_.set_event_slot_masks(events_->rd_slot_mask(),
+                                          events_->wr_slot_mask(),
+                                          events_->has_kind(jnext::dbg::EventKind::Port));
+}
+
+void DebugState::refresh_event_gates() {
+    if (!events_) {
+        breakpoints_.set_event_slot_masks(0, 0, false);
+        cycle_armed_   = false;
+        execute_armed_ = false;
+        recompute_boundary_work_();
+        return;
+    }
+    breakpoints_.set_event_slot_masks(events_->rd_slot_mask(),
+                                      events_->wr_slot_mask(),
+                                      events_->has_kind(jnext::dbg::EventKind::Port));
+    // `Cycle` is the one kind with no latch site: its filter is a comparison
+    // against the master clock, so the drain has to run at every boundary while
+    // one is armed. Folding it into the same cached bool keeps the hot loop's
+    // test at one bool either way.
+    cycle_armed_   = events_->has_kind(jnext::dbg::EventKind::Cycle);
+    execute_armed_ = events_->has_kind(jnext::dbg::EventKind::Execute);
+    recompute_boundary_work_();
+}
+
+// GH #276 B2 — the transient-subscription forms. Identical to step_over() /
+// run_to() above MINUS the BreakpointSet one-shot; see the header.
+void DebugState::step_over_subscribed() {
+    unpause_();
+    step_mode_ = StepMode::OVER;
+}
+
+void DebugState::run_to_subscribed() {
+    unpause_();
+    step_mode_ = StepMode::NONE;
 }

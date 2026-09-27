@@ -227,7 +227,15 @@ public:
     //
     // The eight watchpoint sites below all open with the SAME gate, in the
     // same order: null pointer, then DebugState::watchpoints_live(), then
-    // has_any_watchpoints(), and only then the per-address scan.
+    // — GH #276 §6.1 — rd/wr_watch_armed(addr), the per-8 KB-slot mask byte
+    // that replaced has_any_watchpoints(); the per-address scan and the
+    // CAP-EVT latch are behind it, out of line in watch_read_/watch_write_.
+    //
+    // The mask is STRICTLY NARROWER than the bool it replaced: it covers the
+    // legacy watchpoints AND the `Mem` subscriptions, and an armed watch in
+    // slot 3 no longer makes every access in the other seven slots call the
+    // scan. Same answer, fewer calls; measured as noise with nothing armed
+    // (§6.3 row P1U).
     //
     // watchpoints_live() rather than armed() because read() is not only the
     // CPU's read: the Watches, Memory, Stack and Disassembly panels
@@ -256,10 +264,8 @@ public:
             uint8_t val = (addr < 0x2000) ? mf_rom_byte_(addr)
                                           : mf_ram_byte_(addr);
             if (debug_state_ && debug_state_->watchpoints_live() &&
-                debug_state_->breakpoints().has_any_watchpoints() &&
-                debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
-                debug_state_->set_data_bp_hit(true);
-                debug_state_->set_data_bp_addr(addr);
+                debug_state_->rd_watch_armed(addr)) {
+                watch_read_(addr, val);
             }
             return val;
         }
@@ -271,10 +277,8 @@ public:
             if (divmmc_read(addr, val)) {
                 // Check data breakpoints (only when breakpoints are armed and watchpoints exist)
                 if (debug_state_ && debug_state_->watchpoints_live() &&
-                    debug_state_->breakpoints().has_any_watchpoints() &&
-                    debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
-                    debug_state_->set_data_bp_hit(true);
-                    debug_state_->set_data_bp_addr(addr);
+                    debug_state_->rd_watch_armed(addr)) {
+                    watch_read_(addr, val);
                 }
                 return val;
             }
@@ -331,10 +335,8 @@ public:
                 // cycle, the latched byte is the prior CPU-bus value — not
                 // currently modelled at this granularity).
                 if (debug_state_ && debug_state_->watchpoints_live() &&
-                    debug_state_->breakpoints().has_any_watchpoints() &&
-                    debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
-                    debug_state_->set_data_bp_hit(true);
-                    debug_state_->set_data_bp_addr(addr);
+                    debug_state_->rd_watch_armed(addr)) {
+                    watch_read_(addr, 0xFF);
                 }
                 return 0xFF;
             }
@@ -343,10 +345,8 @@ public:
             const uint8_t* p = ram_.page_ptr(phys_page);
             uint8_t val = p ? p[addr & 0x1FFF] : 0xFF;
             if (debug_state_ && debug_state_->watchpoints_live() &&
-                debug_state_->breakpoints().has_any_watchpoints() &&
-                debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
-                debug_state_->set_data_bp_hit(true);
-                debug_state_->set_data_bp_addr(addr);
+                debug_state_->rd_watch_armed(addr)) {
+                watch_read_(addr, val);
             }
             return val;
         }
@@ -364,10 +364,8 @@ public:
             const uint8_t* p = ram_.page_ptr(altrom_sram_page_(addr));
             uint8_t val = p ? p[addr & 0x1FFF] : 0xFF;
             if (debug_state_ && debug_state_->watchpoints_live() &&
-                debug_state_->breakpoints().has_any_watchpoints() &&
-                debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
-                debug_state_->set_data_bp_hit(true);
-                debug_state_->set_data_bp_addr(addr);
+                debug_state_->rd_watch_armed(addr)) {
+                watch_read_(addr, val);
             }
             return val;
         }
@@ -379,10 +377,8 @@ public:
             const uint8_t* p = ram_.page_ptr((static_cast<uint16_t>(nr_04_romram_bank_) << 1) | slot);
             uint8_t val = p ? p[addr & 0x1FFF] : 0xFF;
             if (debug_state_ && debug_state_->watchpoints_live() &&
-                debug_state_->breakpoints().has_any_watchpoints() &&
-                debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
-                debug_state_->set_data_bp_hit(true);
-                debug_state_->set_data_bp_addr(addr);
+                debug_state_->rd_watch_armed(addr)) {
+                watch_read_(addr, val);
             }
             return val;
         }
@@ -407,10 +403,8 @@ public:
         }
         // Check data breakpoints (only when breakpoints are armed and watchpoints exist)
         if (debug_state_ && debug_state_->watchpoints_live() &&
-            debug_state_->breakpoints().has_any_watchpoints() &&
-            debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
-            debug_state_->set_data_bp_hit(true);
-            debug_state_->set_data_bp_addr(addr);
+            debug_state_->rd_watch_armed(addr)) {
+            watch_read_(addr, val);
         }
         return val;
     }
@@ -452,10 +446,8 @@ public:
     inline void write(uint16_t addr, uint8_t val) override {
         // Check data breakpoints (only when breakpoints are armed and watchpoints exist)
         if (debug_state_ && debug_state_->watchpoints_live() &&
-            debug_state_->breakpoints().has_any_watchpoints() &&
-            debug_state_->breakpoints().has_watchpoint(addr, WatchType::WRITE)) {
-            debug_state_->set_data_bp_hit(true);
-            debug_state_->set_data_bp_addr(addr);
+            debug_state_->wr_watch_armed(addr)) {
+            watch_write_(addr, val);
         }
         // MF memory overlay (priority above DivMMC per VHDL zxnext.vhd:2937).
         // VHDL :3028-3035: writes to cpu_a(15:14)='00' under mf_mem_en=1
@@ -1628,7 +1620,32 @@ private:
         return static_cast<uint8_t>(0x0C | (sram_alt_128_n() ? 0x02 : 0x00) | a13);
     }
 
+    /// Recompute `read_ptr_[slot]` / `write_ptr_[slot]`, then tell the
+    /// debugger the slot's page may have moved (§6.1 `on_slot_remapped`).
+    ///
+    /// The notification is in this wrapper rather than in the body because the
+    /// body has six `return`s and a seventh would be added by the next person
+    /// to touch it — "every exit must remember" is exactly the shape that ships
+    /// a missed one.
     void rebuild_ptr(int slot);
+    void rebuild_ptr_body_(int slot);
+
+    // ── GH #276 B2 — the out-of-line half of the eight watch sites ───────
+    //
+    // The INLINE half is the gate: `debug_state_ && watchpoints_live() &&
+    // rd/wr_watch_armed(addr)` — a null test, a cached bool and one byte
+    // load / shift / test (§6.1). Everything behind it is here, out of line,
+    // because it runs only when an armed range could match this 8 KB slot:
+    // the legacy `has_watchpoint()` scan that raises `data_bp_hit_`, and the
+    // CAP-EVT precise match + ring latch.
+    //
+    // `val` is the byte the access carries — for a read, what the site is about
+    // to return; for a write, what is about to be stored. The write form peeks
+    // the PREVIOUS byte for `Event::prev` (§4.3, "one peek at the latch site,
+    // so a script can undo a caught write"), which is why both are non-const
+    // and why they are member functions rather than free helpers.
+    void watch_read_(uint16_t addr, uint8_t val);
+    void watch_write_(uint16_t addr, uint8_t val);
     // Map a ROM page into a slot without updating nr_mmu_ (callers
     // set nr_mmu_ themselves: reset() seeds 0xFF, legacy paging writes
     // the physical page for test/debugger observability).

@@ -33,13 +33,56 @@ void BreakpointSet::rebuild_live_() {
 
     // The master switch, in its entirety. It changes nothing in the model, so
     // flipping it back rebuilds exactly the set that was there.
-    if (!master_enabled_) return;
+    //
+    // GH #276 §6 — the mask recompute is on BOTH paths, deliberately: master
+    // OFF must ZERO the legacy half, and an early return that skipped it would
+    // leave the hot path calling the out-of-line scan for a suspended
+    // watchpoint forever.
+    if (!master_enabled_) { recompute_watch_masks_(); return; }
 
     for (const auto& entry : pc_all_)
         if (entry.second) pc_live_.insert(entry.first);
 
     for (const auto& wp : wp_all_)
         if (wp.enabled) wp_live_.push_back(wp);
+
+    recompute_watch_masks_();
+}
+
+// GH #276 §6 — the legacy half of the slot masks, plus the OR with whatever the
+// EventTable last published.
+//
+// Derived from wp_live_, so a disabled watchpoint and a suspended set both
+// contribute nothing — the property has_any_watchpoints() already had, now per
+// slot. An I/O watchpoint contributes to the PORT flag only: has_watchpoint()
+// never matches an IO_READ / IO_WRITE entry against a memory access, so a slot
+// bit for one would be a gate that can never pay off.
+void BreakpointSet::recompute_watch_masks_() {
+    wp_mask_rd_ = 0;
+    wp_mask_wr_ = 0;
+    wp_port_    = false;
+    for (const auto& wp : wp_live_) {
+        const uint8_t bit = static_cast<uint8_t>(1u << (wp.addr >> 13));
+        switch (wp.type) {
+            case WatchType::READ:       wp_mask_rd_ |= bit; break;
+            case WatchType::WRITE:      wp_mask_wr_ |= bit; break;
+            case WatchType::READ_WRITE: wp_mask_rd_ |= bit;
+                                        wp_mask_wr_ |= bit; break;
+            case WatchType::IO_READ:
+            case WatchType::IO_WRITE:   wp_port_ = true;    break;
+        }
+    }
+    watch_mask_rd_ = static_cast<uint8_t>(wp_mask_rd_ | ev_mask_rd_);
+    watch_mask_wr_ = static_cast<uint8_t>(wp_mask_wr_ | ev_mask_wr_);
+    watch_port_    = wp_port_ || ev_port_;
+}
+
+void BreakpointSet::set_event_slot_masks(uint8_t rd, uint8_t wr,
+                                         bool port_armed) {
+    ev_mask_rd_ = rd;
+    ev_mask_wr_ = wr;
+    ev_port_    = port_armed;
+    recompute_watch_masks_();
 }
 
 void BreakpointSet::add_pc(uint16_t addr) {

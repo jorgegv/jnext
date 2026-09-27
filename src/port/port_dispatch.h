@@ -106,8 +106,24 @@ private:
     /// eight Mmu watchpoint sites use — null pointer, then
     /// DebugState::watchpoints_live() (GH #219: breakpoints LIVE, not
     /// "debugger window open" — and the access is the emulated machine's, not
-    /// a panel's), then has_any_watchpoints(), and only then the scan.
+    /// a panel's), then port_watch_armed() (GH #276 §6, which replaced
+    /// has_any_watchpoints() — see the .cpp), and only then the scan.
     void check_io_watchpoint_(uint16_t port, WatchType type) const;
+
+    /// GH #276 B2 §4.3 — latch a `Port` event for the boundary drain.
+    ///
+    /// SEPARATE from check_io_watchpoint_() above, and called at a different
+    /// point for a read, because §4.3 requires a read to carry the value
+    /// RETURNED: "read value latched after dispatch". The legacy I/O watchpoint
+    /// keeps firing BEFORE dispatch, which is where it has always fired and
+    /// where its only observable — `data_bp_hit_`, consumed at the instruction
+    /// boundary — cannot tell the difference.
+    void latch_port_(uint16_t port, uint8_t val, bool is_write) const;
+
+    /// The dispatch half of read(), split out so the latch above has exactly
+    /// one place to sit. read() had three returns; a gate copied into each is
+    /// three chances to miss one.
+    uint8_t read_dispatch_(uint16_t port) const;
 
     std::vector<PortHandler> handlers_;
     std::function<uint8_t(uint16_t)> default_read_;

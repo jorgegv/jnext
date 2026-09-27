@@ -1,6 +1,7 @@
 #include "port_dispatch.h"
 #include "core/log.h"
 #include "debug/debug_state.h"
+#include "debug/event_table.h"
 
 PortDispatch::PortDispatch() {
     // All port handlers are registered by Emulator::init() which calls
@@ -29,11 +30,42 @@ void PortDispatch::check_io_watchpoint_(uint16_t port, WatchType type) const {
     // emulated machine's rather than the debugger's own, so a panel or a tool
     // probing a port cannot raise the latch. Same gate the eight Mmu sites
     // take, for the same reason.
+    // GH #276 §6 — port_watch_armed() replaces has_any_watchpoints() here for
+    // the same reason the MMU's slot mask replaced it: it is true only when a
+    // PORT watch is armed (a legacy I/O watchpoint or a CAP-EVT `Port`
+    // subscription), so a memory-only watchpoint no longer opens this gate and
+    // then fails the scan on every port access.
+    //
+    // PURE COST, and stated as such: widening it back to has_any_watchpoints()
+    // gives the same answer on every input, because the `has_io_watchpoint()`
+    // scan below rejects exactly what the narrower flag skips. A mutation that
+    // widens it therefore survives the suite, and that is correct rather than a
+    // coverage hole — no row can see the difference between two gates that
+    // agree.
     if (!debug_state_ || !debug_state_->watchpoints_live()) return;
-    if (!debug_state_->breakpoints().has_any_watchpoints()) return;
+    if (!debug_state_->port_watch_armed()) return;
     if (!debug_state_->breakpoints().has_io_watchpoint(port, type)) return;
     debug_state_->set_data_bp_hit(true);
     debug_state_->set_data_bp_addr(port);
+    // CTL-13's evidence — see DebugState::note_watch_stop().
+    debug_state_->note_watch_stop(port, type == WatchType::IO_WRITE);
+}
+
+// GH #276 B2 §4.3 — the CAP-EVT `Port` latch. The payload always carries what
+// the guest actually put on the bus (the full 16-bit port); masking is the
+// filter's job.
+void PortDispatch::latch_port_(uint16_t port, uint8_t val, bool is_write) const {
+    jnext::dbg::EventTable* t = debug_state_->event_table();
+    if (!t) return;
+    const jnext::dbg::Access a =
+        is_write ? jnext::dbg::Access::Write : jnext::dbg::Access::Read;
+    if (!t->port_would_match(port, a)) return;
+    jnext::dbg::LatchEntry e;
+    e.kind   = jnext::dbg::EventKind::Port;
+    e.access = a;
+    e.addr   = port;
+    e.value  = val;
+    debug_state_->latch_event(e);
 }
 
 // Count set bits in a 16-bit mask (handler specificity).
@@ -58,7 +90,15 @@ static int mask_specificity(uint16_t mask) {
 
 uint8_t PortDispatch::read(uint16_t port) const {
     check_io_watchpoint_(port, WatchType::IO_READ);
+    const uint8_t val = read_dispatch_(port);
+    // §4.3 — AFTER dispatch, so `Event::value` is the byte the guest got.
+    if (debug_state_ && debug_state_->watchpoints_live() &&
+        debug_state_->port_watch_armed())
+        latch_port_(port, val, /*is_write=*/false);
+    return val;
+}
 
+uint8_t PortDispatch::read_dispatch_(uint16_t port) const {
     // IO observers run unconditionally before dispatch (Wave 1 B2 — MF
     // port-strobe). Observers are side-effect-only; their return values
     // never affect the dispatched read value.
@@ -108,6 +148,11 @@ uint8_t PortDispatch::read(uint16_t port) const {
 
 void PortDispatch::write(uint16_t port, uint8_t val) {
     check_io_watchpoint_(port, WatchType::IO_WRITE);
+    // A write's value is known before dispatch, so unlike a read there is
+    // nothing to wait for.
+    if (debug_state_ && debug_state_->watchpoints_live() &&
+        debug_state_->port_watch_armed())
+        latch_port_(port, val, /*is_write=*/true);
 
     // Guarded for the same reason as read() above; write() peaks at 154k/s.
     if (Log::port()->should_log(spdlog::level::trace))
@@ -193,7 +238,11 @@ uint8_t PortDispatch::in(uint16_t port) {
     // still expects a watched port to stop the machine.
     if (rzx_in_override) {
         check_io_watchpoint_(port, WatchType::IO_READ);
-        return rzx_in_override(port);
+        const uint8_t val = rzx_in_override(port);
+        if (debug_state_ && debug_state_->watchpoints_live() &&
+            debug_state_->port_watch_armed())
+            latch_port_(port, val, /*is_write=*/false);
+        return val;
     }
 
     uint8_t val = read(port);
