@@ -761,6 +761,15 @@ public:
     /// ST-01 — serialise the machine. FRAME-BOUNDARY ONLY:
     /// `AdvanceToBoundary` runs the #27 S6 `SuspendScope` advance,
     /// `RefuseMidFrame` returns `NotAtFrameBoundary`.
+    ///
+    /// NO `ClientId by`, and that is an OPEN QUESTION rather than a settled
+    /// reading — reported, not decided here. A save is a read, so rule 3 of this
+    /// file's banner does not ask for attribution; but `AdvanceToBoundary`
+    /// ADVANCES the machine to reach the boundary, which is a state change no
+    /// SES-06 line would name an originator for. `bookmark_save` (CAP-03) takes
+    /// a `by` because its bookmarks are per client, so the two read differently
+    /// side by side. B settles it; if the answer is that the advance must be
+    /// attributed, this gains a `by` and B0 was wrong.
     Expected<std::vector<uint8_t>> save_state_bytes(SaveStateMode mode);
 
     /// ST-02 — restore from bytes, IN-PROCESS ONLY and unversioned (the disk
