@@ -12,13 +12,24 @@ target_include_directories(jnext_debug PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(jnext_debug PUBLIC spdlog::spdlog ${JNEXT_SDL3_TARGET})
 
 # GH #276 — `-Werror=switch`, for the same reason issue #43 applies it to the
-# `jnext` target: this library switches over published enums that have no
-# trailing `Count` sentinel (`ResetKind`, `MemSpace::Kind`, `Result`,
-# `RegId`, `ClipLayer`, the internal `::StepMode`) with no `default` arm, and
-# that switch is then the ONLY thing in the tree that notices a new enumerator.
-# As a plain warning it would notice nothing: a warning in a 100-file build is
-# not a gate. Compiler-gated exactly as there, so a non-GNU/Clang toolchain
-# still builds.
+# `jnext` target: this library switches over published enums with no `default`
+# arm, and for the ones that have NO trailing `Count` sentinel that switch is
+# the ONLY thing in the tree that notices a new enumerator.
+#
+#   no sentinel, so the switch IS the guard:
+#       `ResetKind`, `MemSpace::Kind`, `Result`, `LogLevel`, and the internal
+#       `::StepMode`
+#   sentinel AND switched over here, so doubly covered:
+#       `RegId` (`RegId::Count`), `ClipLayer` (`ClipLayer::Count`)
+#
+# (An earlier version of this comment listed `RegId` and `ClipLayer` as having
+# no sentinel — they do — and omitted `LogLevel`, which has none.)
+#
+# As a plain WARNING this would notice nothing, and not merely because a warning
+# scrolls past: this project passes no `-Wall` at all, so `-Wswitch` is not
+# otherwise enabled. Compiler-gated exactly as in the `jnext` case, so a
+# non-GNU/Clang toolchain still builds. PRIVATE: consumers of this library do
+# not inherit it.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(jnext_debug PRIVATE -Werror=switch)
 endif()

@@ -1308,7 +1308,17 @@ int main() {
         // A ROM slot's SlotInfo must name the image the slot is actually serving,
         // which is the composition round 4 of the design review caught two
         // frontends getting wrong.
+        //
+        // PRECONDITION, stated because the row depends on it and it is not
+        // self-evident: slot 0 of a freshly-initialised Next IS ROM-mapped, and
+        // the bytes written above land in ROM image 0 (SRAM pages 0/1), which is
+        // the image slot 0 serves — so the CPU view at 0x0000 and the slot's own
+        // `space` + `space_offset` must read the SAME byte. The row asserts
+        // `is_rom` first, so if that precondition ever stops holding the row says
+        // so instead of comparing two irrelevant reads.
         const auto slots = dbg.mmu_slots();
+        check("INS-03-09", "the precondition: slot 0 of a fresh Next is ROM-mapped",
+              slots[0].is_rom && slots[0].space.kind == MemSpace::Kind::Rom);
         uint8_t via_slot[4] = {}, via_cpu[4] = {};
         dbg.peek(slots[0].space, slots[0].space_offset, 4, via_slot);
         dbg.peek(MemSpace::cpu(), 0x0000, 4, via_cpu);
@@ -1591,6 +1601,44 @@ int main() {
               dbg.state().paused && dbg.time().frame == here + 2,
               "frame=" + std::to_string(dbg.time().frame) +
                   " want=" + std::to_string(here + 2));
+    }
+    {
+        // THE NEVER-RUN STATE — the third of the three, and the one the second
+        // cut of this verb still got wrong. `frame_tag()` clamps, so `tag == 0`
+        // means both "frame 0 finished" and "nothing has run yet"; a base of
+        // `tag + 1` is right for the first and one too many for the second, and
+        // `run_to_frame(3)` landed in frame 2. Nothing has run here at all.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        attach_and_pause(emu);
+        check("TIME-03-04", "run_to_frame() is accepted on a machine that has run nothing",
+              emu.frame_num() == 0 && dbg.run_to_frame(1, 3) == Result::Ok);
+        run_until_paused(emu, 6);
+        check("TIME-03-05", "and it lands in frame 3, not one short of it",
+              dbg.state().paused && dbg.time().frame == 3,
+              "frame=" + std::to_string(dbg.time().frame));
+    }
+    {
+        // THE MID-FRAME ARM of the same conditional. Both rows above arm at a
+        // FRAME BOUNDARY, so a mutation that breaks only the in-progress arm
+        // survived them — round 1's BLOCKER-1 pattern (one arm of a condition
+        // tested) recurring in code round 2 added. Stopping mid-frame first is
+        // what reaches it.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        emu.debug_state().set_active(true);
+        emu.debug_state().pause();
+        emu.debug_state().run_to_cycle(emu.clock().get() + 5000);
+        emu.run_frame();                       // stops part-way through frame 0
+        check("TIME-03-06", "the precondition: the machine is mid-frame, not at a boundary",
+              !dbg.at_frame_boundary() && dbg.time().frame == 0,
+              "frame=" + std::to_string(dbg.time().frame));
+        check("TIME-03-07", "run_to_frame() from mid-frame is accepted",
+              dbg.run_to_frame(1, 2) == Result::Ok);
+        run_until_paused(emu, 6);
+        check("TIME-03-08", "and lands in frame 2 — the in-progress arm is not off by one",
+              dbg.state().paused && dbg.time().frame == 2,
+              "frame=" + std::to_string(dbg.time().frame));
     }
     {
         // ST-01's OTHER mode: AdvanceToBoundary, which is the reason the verb

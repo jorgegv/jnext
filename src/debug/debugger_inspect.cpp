@@ -222,7 +222,7 @@ Expected<size_t> Debugger::peek(MemSpace space, uint32_t addr, size_t n,
             //
             //   1. an index outside the 8-bit page-number space at all. Without
             //      this, the narrowing cast below turns 0x100 into page 0 and a
-            //      nonsense request reads real memory (row INS-02-13).
+            //      nonsense request reads real memory (rows INS-02-16/17).
             //   2. `nr_page_ptr()` == nullptr, which is EVERY page >= 0xE0:
             //      `mmu_A21_A13(8)='1'` -> `sram_pre_active='0'`
             //      (zxnext.vhd:3061), the SRAM does not respond, so there is no
@@ -230,8 +230,9 @@ Expected<size_t> Debugger::peek(MemSpace space, uint32_t addr, size_t n,
             //      are inside that band and are refused BY IT — there is no
             //      separate sentinel test on this path, because one that cannot
             //      produce a different answer is not a guard, it is a comment
-            //      (rows INS-02-06/07 for the sentinels, INS-02-14 for 0xE0,
-            //      which is the band and NOT a sentinel).
+            //      (rows INS-02-06/07 for the sentinels, INS-02-13 for 0xE0 and
+            //      INS-02-14 for 0xFD, which are the band and NOT sentinels,
+            //      and INS-02-15 for 0xDF, the top page that is still valid).
             //
             // The poke path below DOES test the sentinels separately, and there
             // it is load-bearing: a sentinel is `RefusedReadOnly`, a different

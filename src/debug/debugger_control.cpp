@@ -171,20 +171,37 @@ Result Debugger::run_to_frame(ClientId by, uint32_t frame) {
     // rewind buffer: frames are a fixed number of master cycles apart, and one
     // frame's start is known (`current_frame_cycle()`).
     //
-    // WHICH frame `current_frame_cycle()` names is the whole difficulty, and the
-    // first cut of this verb got it wrong: at a FRAME BOUNDARY `run_frame()` has
+    // WHICH frame `current_frame_cycle()` names is the whole difficulty, and two
+    // cuts of this verb got it wrong. At a FRAME BOUNDARY `run_frame()` has
     // already advanced `frame_cycle_` to the next frame's start
     // (`frame_cycle_ = frame_end`, emulator.cpp) while `frame_num_` still counts
-    // the frame that finished — so the two disagree by exactly one frame, and a
-    // paused debugger is at a boundary almost always. Computing the target from
-    // the TAG's reckoning against the CYCLE's base overshot by one whole frame
-    // (row TIME-03-03 measures it).
+    // the frame that finished, so the two disagree by exactly one frame — and a
+    // paused debugger is at a boundary almost always.
+    //
+    // THE BASE IS DERIVED FROM THE RAW COUNTER, NOT FROM THE TAG, and that is
+    // the whole of the second fix. `frame_tag()` clamps (`raw > 0 ? raw - 1 : 0`),
+    // so `tag == 0` means BOTH "frame 0 has finished" and "nothing has run yet";
+    // a base of `tag + 1` at a boundary is right for the first and wrong for the
+    // second, and `run_to_frame(3)` on a never-run machine landed in frame 2
+    // (rows TIME-03-04/05). The raw counter has no such ambiguity: it is K+1
+    // during frame K and 0 before anything runs, so
+    //
+    //     mid-frame K:   raw = K+1, frame_cycle_ = start of K   -> base = raw-1
+    //     at a boundary: raw = K+1, frame_cycle_ = start of K+1 -> base = raw
+    //     never run:     raw = 0,   frame_cycle_ = start of 0   -> base = raw
+    //
+    // is exact in all three. `raw - 1` cannot underflow: a frame in progress
+    // means at least one `begin_new_frame()` has run.
     const uint32_t now = frame_tag(impl_->emu);
     if (frame <= now) return Result::RefusedUnavailable;   // forward only
 
-    // The frame `current_frame_cycle()` is the start of: the tag's frame while
-    // one is in progress, the one AFTER it at a boundary.
-    const uint32_t base = now + (impl_->emu.frame_in_progress() ? 0u : 1u);
+    // ONE residual, stated rather than hidden: on a never-run machine the
+    // refusal above reads the clamped tag, so `run_to_frame(0)` is refused even
+    // though frame 0 has not begun. That is the safe side of the clamp's
+    // ambiguity — a refusal is an answer a caller can act on, where a stop that
+    // ran nothing would look like the frame had begun.
+    const uint32_t raw  = impl_->emu.frame_num();
+    const uint32_t base = impl_->emu.frame_in_progress() ? raw - 1u : raw;
     const MachineTiming& t = impl_->emu.timing();
     const uint64_t target = impl_->emu.current_frame_cycle()
                           + static_cast<uint64_t>(frame - base) * t.master_cycles_per_frame;
