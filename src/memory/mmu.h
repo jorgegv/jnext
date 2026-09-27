@@ -415,6 +415,40 @@ public:
         return val;
     }
 
+    /// F1 (GH #276 §4.2 INS-02) — a NON-PERTURBING read of the live CPU map.
+    ///
+    /// `read()` above is the GUEST's read and has two side effects: it captures
+    /// the byte into the +3 floating-bus latch on every contended access (VHDL
+    /// zxnext.vhd:4498-4509) and it raises the data-breakpoint latch on a READ
+    /// watchpoint. A debugger `peek` must do neither — §4.2 makes observation
+    /// side-effect free BY CONTRACT, not by the caller's discipline: a script
+    /// handler runs INSIDE `GuestExecutionScope`, where `watchpoints_live()` is
+    /// true, so "the panel is outside execution anyway" is not the whole story.
+    ///
+    /// It wraps `read()` rather than duplicating it — one body, so the overlay
+    /// arbitration (boot ROM, Multiface, DivMMC, Layer 2, alt-ROM, config mode)
+    /// can never drift between the two. `InspectionScope` is the project's own
+    /// idiom for "this block is the DEBUGGER looking" and drops
+    /// `watchpoints_live()` for the duration, RAII so no path out can leave it
+    /// set; the floating-bus byte is saved and put back, which is what makes an
+    /// F1 sweep in +3 mode invisible (`debugger_backend_test` INS-F1-01).
+    ///
+    /// NOT `const`: it restores state that `read()` may have written, and
+    /// `read()` is not const. A const overload would have to be a second copy
+    /// of the arbitration, which is precisely what this avoids.
+    inline uint8_t peek(uint16_t addr) {
+        const uint8_t saved_fb = p3_floating_bus_dat_;
+        uint8_t val;
+        if (debug_state_) {
+            DebugState::InspectionScope scope(*debug_state_);
+            val = read(addr);
+        } else {
+            val = read(addr);
+        }
+        p3_floating_bus_dat_ = saved_fb;
+        return val;
+    }
+
     inline void write(uint16_t addr, uint8_t val) override {
         // Check data breakpoints (only when breakpoints are armed and watchpoints exist)
         if (debug_state_ && debug_state_->watchpoints_live() &&
