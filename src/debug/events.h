@@ -82,11 +82,12 @@ enum class EventKind : uint8_t {
     Port,
     /// A NextREG write, delivered after commit (see `EventFilter::source`).
     NextRegWrite,
-    /// A frame boundary.
+    /// TIME-02 — a frame boundary.
     Frame,
-    /// A scanline, compared on `cvc` (the counter NR 0x1E/0x1F reads).
+    /// TIME-02 — a scanline, compared on `cvc` (the counter NR 0x1E/0x1F
+    /// reads).
     Scanline,
-    /// A master-cycle target; one-shot by nature.
+    /// TIME-02 — a master-cycle target; one-shot by nature.
     Cycle,
     /// A hard or soft reset happened.
     Reset,

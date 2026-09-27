@@ -265,7 +265,7 @@ public:
     // =======================================================================
 
     /// CTL-01 — pause at the next instruction boundary. Idempotent. Called from
-    /// `pump()` the machine is already at a boundary.
+    /// `pump()`, the machine is already at a boundary.
     Result pause(ClientId by);
 
     /// CTL-02 — resume. A no-op that still returns `Ok` if already running
@@ -332,6 +332,12 @@ public:
     /// machine (there is no `Reset` pause reason), and deliver `Reset{Hard}` to
     /// every listener before returning. No driver → `RefusedUnavailable`.
     Result reset(ClientId by, ResetKind kind);
+
+    /// CTL-13 — what the machine is doing right now: paused, step mode, why it
+    /// stopped, and where. THE most-polled query in the API — a panel refreshes
+    /// on it after a `Paused` push, a protocol server turns it into a stop
+    /// reply, and a script reads `REASON` from it.
+    RunState state() const;
 
     /// CTL-14 — is the magic breakpoint armed?
     bool magic_breakpoint() const;
