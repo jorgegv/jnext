@@ -295,11 +295,8 @@ RewindRange Debugger::rewind_range() const {
     const RewindBuffer* rb = impl_->emu.rewind_buffer();
     if (!rb) return rr;
     rr.depth          = rb->depth();
+    rr.capacity       = rb->capacity();
     rr.snapshot_bytes = rb->snapshot_bytes();
-    // `capacity` is not exposed by RewindBuffer; the depth IS the capacity once
-    // the ring has wrapped, and before that the only honest answer available
-    // here is the depth. Reported as such rather than as a second guess.
-    rr.capacity       = rb->depth();
     if (rb->empty()) return rr;
     rr.oldest_cycle = rb->oldest_frame_cycle();
     rr.newest_cycle = rb->newest_frame_cycle();
