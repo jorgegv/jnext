@@ -473,14 +473,19 @@ struct UlaScreenRegs {
     uint8_t active_bank = 5;
     /// The port 0xFF Timex screen-mode latch.
     uint8_t port_ff = 0;
-    /// NR 0x26 / NR 0x27 — ULA hardware scroll.
+    /// NR 0x26 / NR 0x27 — ULA hardware scroll (`nr_26_ula_scrollx`,
+    /// `nr_27_ula_scrolly`).
     uint8_t scroll_x = 0;
     uint8_t scroll_y = 0;
-    /// Port 0xFE bits 2:0.
+    /// Port 0xFE bits 2:0 (`Ula::get_border()`).
     uint8_t border = 0;
-    /// NR 0x43 bit 0 for the ULA — which of the two ULA banks is active.
+    /// Which of the two ULA palette banks is active —
+    /// `nr_43_active_ula_palette`, **NR 0x43 bit 1** (`zxnext.vhd:5393,6825`;
+    /// `PaletteManager::active_ula_palette()`). NOT bit 0, which is
+    /// `nr_43_ulanext_en`.
     bool second_palette = false;
-    /// NR 0x68 bit 7 inverted — is the ULA contributing to the picture.
+    /// Is the ULA contributing to the picture — `Ula::ula_enabled()`, i.e.
+    /// NR 0x68 bit 7 (the DISABLE bit) inverted.
     bool enabled = true;
 };
 
