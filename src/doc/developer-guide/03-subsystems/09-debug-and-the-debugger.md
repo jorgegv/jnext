@@ -34,18 +34,17 @@ One caveat about "pure": `jnext_debug` does link SDL3, because
 and thence `SDL.h`. The rule the split enforces is *no GUI toolkit*, not *no
 dependencies*.
 
-### The four published headers, and what they are not yet
+### The four published headers
 
 `src/debug/` also holds four headers that are a *contract* rather than code:
 `debugger.h`, `events.h`, `inspect.h` and `result.h`. They declare
 `jnext::dbg::Debugger` — one frontend-agnostic facade over control, inspection,
 mutation, events, time, input injection, capture, bookmarks, symbols and
 sessions — together with its value types (`Result`, `Expected<T>`, `Event`,
-`Subscription`, `MemSpace`, `RunState`, `Listener`, `Service`). They contain
-**no bodies at all**: they are the frozen interface of epic
-[#276](https://github.com/jorgegv/jnext/issues/276), landed first and alone so
-that the Qt refactor, three protocol servers (DZRP, ZRCP, GDB RSP) and the
-scripting DSL can all be written against one agreed shape. The design is
+`Subscription`, `MemSpace`, `RunState`, `Listener`, `Service`). They are the frozen
+interface of epic [#276](https://github.com/jorgegv/jnext/issues/276), landed
+first and alone so that the Qt refactor, three protocol servers (DZRP, ZRCP, GDB
+RSP) and the scripting DSL can all be written against one agreed shape. The design is
 `doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md`; the map from each of its
 capability ids to each declaration is
 `doc/design/debug-subsystem/b0-cap-traceability.md`.
@@ -83,9 +82,61 @@ from the last real enumerator is blind to an *append* — the enumerator keeps i
 value, the count keeps its number, and a new kind ships with no mask bit and no
 switch arm.
 
-Everything the rest of this chapter describes — `DebugState` consulted per
-instruction, `BreakpointSet`, `DebuggerManager` driving the panels — is still
-how the debugger works today. The facade above it is not wired up yet.
+### What is behind the facade today
+
+The bodies arrive in five sub-packages on one branch, and the first of them is
+in: **control and inspection over the existing primitives**, with no change to
+the hot path. `src/debug/debugger.cpp` holds construction, the mutation log,
+symbols and the state/rewind verbs; `debugger_control.cpp` the CAP-CTL verbs;
+`debugger_inspect.cpp` the CAP-INS read and write surface; `debugger_input.cpp`
+the level half of input injection. All of the state lives in a `struct Impl`
+behind one `unique_ptr` (`debugger_impl.h`, internal), so the later sub-packages
+add their own state — the event table, the client list, the bookmarks — without
+editing a header five frontends compile against.
+
+The control verbs are the bodies of `DebuggerManager`'s slots with the Qt taken
+out: the same `DebugState` calls in the same order, the same GH #207 / #221 /
+#223 behaviour, the same two target computations for "run to end of frame" and
+"run to end of scanline". What the Qt version did *around* them — four panel
+`set_paused()` calls, `emit paused()`, `update_actions()` — is a frontend
+reacting to a transition, and becomes a pushed notification later.
+
+Two things had to be fixed in the emulator for the inspection surface to be
+honest, and both are worth knowing:
+
+**`Mmu::peek()`** is a non-perturbing read of the live CPU map. `Mmu::read()` is
+the *guest's* read: it captures the byte into the +3 floating-bus latch on every
+contended access and it raises the data-breakpoint latch on a READ watchpoint.
+A debugger read must do neither — and not merely because the panels happen to
+run outside `GuestExecutionScope`, since a script handler runs *inside* it. So
+`peek()` wraps `read()` under `DebugState::InspectionScope` and puts the
+floating-bus byte back. It wraps rather than copies, so the overlay arbitration
+(boot ROM, Multiface, DivMMC, Layer 2, alt-ROM, config mode) cannot drift
+between the two.
+
+**The frame counter** now advances on every frame boundary. It used to be
+incremented as an argument of `take_snapshot()`, so without
+`--rewind-buffer-size` it stayed at 0 for the whole run and every consumer asking
+"which frame is this?" got the same answer forever. The counter is
+*post*-incremented, so during frame K it reads K+1: the backend reports
+`frame_num() - 1`, which is the tag the rewind slot for that frame carries and
+the frame `--delayed-keypress-frames N` lands on.
+
+A verb whose machinery belongs to a later sub-package is defined in ONE file,
+`debugger_pending.cpp`, and returns `Result::Unsupported` — never a silent
+no-op. Keeping them together means "what is not implemented yet" is something you
+can count rather than a claim in a comment; the file's banner lists them by
+owning sub-package.
+
+`debugger_backend_test` is the backend's suite, headless and Qt-free: a wiring
+row per control verb (arm it through the facade, run, assert the machine stopped
+where the verb promises — PC, cycle, pause reason), a *control* row per verb that
+the same program runs straight past, and the non-perturbation and frame-counter
+rows above.
+
+Everything else the rest of this chapter describes — `DebugState` consulted per
+instruction, `BreakpointSet`, `DebuggerManager` driving the panels — is still how
+the debugger works today; the frontends have not been moved onto the facade yet.
 
 ## What `ENABLE_DEBUGGER=OFF` removes
 

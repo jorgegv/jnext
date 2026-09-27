@@ -1093,6 +1093,15 @@ my %NO_MATRIX_SECTION = (
     'window_attach_test'        => 'host window-attach geometry (GH #39 contract, no VHDL oracle)',
     'quit_cleanup_test'         => 'host shutdown ordering (GUI lifecycle)',
     'resume_guard_test'         => 'debugger resume-confirmation policy (jnext-internal)',
+    # GH #276 B1 — the jnext::dbg::Debugger FACADE: the control verbs, the
+    # inspection/mutation surface and the two fixes F1/F2. Tombstoned for the
+    # same reason as every other debugger suite: the T80N core has no debugger,
+    # so there is no VHDL line that says what `step_over` or `peek(Page)` must
+    # do. The HARDWARE each verb reads or writes is traced in its own section —
+    # `## Memory/MMU` for the page routing, `## Sprites`, `## Audio`,
+    # `## Copper`, `## Input` — and this suite asserts the FACADE over them, not
+    # the hardware again.
+    'debugger_backend_test'     => 'debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger',
     'step_out_test'             => 'debugger Step Out execution control (jnext-internal); the T80N core has no debugger',
     'persistent_bp_test'        => 'debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger',
     'io_watchpoint_test'        => 'debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger',

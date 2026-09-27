@@ -918,6 +918,18 @@ target_link_libraries(step_out_test PRIVATE
 target_include_directories(step_out_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME step_out_tests COMMAND step_out_test)
 
+# GH #276 B1 — the jnext::dbg::Debugger backend: the control verbs, the
+# inspection/mutation surface, F1 (Mmu::peek) and F2 (the frame counter). Drives
+# a real machine through run_frame() exactly as the frontends do, so it links the
+# emulator like step_out_test. B5 grows this suite; B1 pins what B1 built.
+add_executable(debugger_backend_test debug/debugger_backend_test.cpp)
+target_link_libraries(debugger_backend_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(debugger_backend_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME debugger_backend_tests COMMAND debugger_backend_test)
+
 # GH #219 — --persistent-breakpoints: the armed()/active() split in DebugState
 # and its wiring into the hot loop and the MMU watchpoint sites. Drives a real
 # machine with the debugger INACTIVE, so it links the emulator like step_out_test.

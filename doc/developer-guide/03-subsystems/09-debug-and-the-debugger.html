@@ -1111,38 +1111,21 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#the-four-published-headers-and-what-they-are-not-yet" class="md-nav__link">
+  <a href="#the-four-published-headers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The four published headers, and what they are not yet
+        The four published headers
       
     </span>
   </a>
   
 </li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-enable_debuggeroff-removes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What ENABLE_DEBUGGER=OFF removes
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="What ENABLE_DEBUGGER=OFF removes">
-      <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#a-debugger-read-is-not-a-guest-access" class="md-nav__link">
+  <a href="#what-is-behind-the-facade-today" class="md-nav__link">
     <span class="md-ellipsis">
       
-        A debugger read is not a guest access
+        What is behind the facade today
       
     </span>
   </a>
@@ -1151,100 +1134,6 @@
         
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#execution-control" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Execution control
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Execution control">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#enabling-and-disabling-breakpoints" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Enabling and disabling breakpoints
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-key-bindings-are-data-gh-1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The key bindings are data (GH #1)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#panels" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Panels
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#symbols" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Symbols
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#copying-out-of-a-custom-painted-panel" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Copying out of a custom-painted panel
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#rewind" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Rewind
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#magic-breakpoint-and-magic-port" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Magic breakpoint and magic port
-      
-    </span>
-  </a>
   
 </li>
       
@@ -1940,17 +1829,16 @@ plain CLI flags rather than GUI-only features.</p>
 <code>rewind_buffer.cpp</code> includes <code>core/emulator.h</code>, which reaches <code>input/keyboard.h</code>
 and thence <code>SDL.h</code>. The rule the split enforces is <em>no GUI toolkit</em>, not <em>no
 dependencies</em>.</p>
-<h3 id="the-four-published-headers-and-what-they-are-not-yet">The four published headers, and what they are not yet<a class="headerlink" href="#the-four-published-headers-and-what-they-are-not-yet" title="Permanent link">&para;</a></h3>
+<h3 id="the-four-published-headers">The four published headers<a class="headerlink" href="#the-four-published-headers" title="Permanent link">&para;</a></h3>
 <p><code>src/debug/</code> also holds four headers that are a <em>contract</em> rather than code:
 <code>debugger.h</code>, <code>events.h</code>, <code>inspect.h</code> and <code>result.h</code>. They declare
 <code>jnext::dbg::Debugger</code> — one frontend-agnostic facade over control, inspection,
 mutation, events, time, input injection, capture, bookmarks, symbols and
 sessions — together with its value types (<code>Result</code>, <code>Expected&lt;T&gt;</code>, <code>Event</code>,
-<code>Subscription</code>, <code>MemSpace</code>, <code>RunState</code>, <code>Listener</code>, <code>Service</code>). They contain
-<strong>no bodies at all</strong>: they are the frozen interface of epic
-<a href="https://github.com/jorgegv/jnext/issues/276">#276</a>, landed first and alone so
-that the Qt refactor, three protocol servers (DZRP, ZRCP, GDB RSP) and the
-scripting DSL can all be written against one agreed shape. The design is
+<code>Subscription</code>, <code>MemSpace</code>, <code>RunState</code>, <code>Listener</code>, <code>Service</code>). They are the frozen
+interface of epic <a href="https://github.com/jorgegv/jnext/issues/276">#276</a>, landed
+first and alone so that the Qt refactor, three protocol servers (DZRP, ZRCP, GDB
+RSP) and the scripting DSL can all be written against one agreed shape. The design is
 <code>doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md</code>; the map from each of its
 capability ids to each declaration is
 <code>doc/design/debug-subsystem/b0-cap-traceability.md</code>.</p>
@@ -1983,9 +1871,53 @@ end in a <code>Count</code> sentinel, and every count is derived from it. Derivi
 from the last real enumerator is blind to an <em>append</em> — the enumerator keeps its
 value, the count keeps its number, and a new kind ships with no mask bit and no
 switch arm.</p>
-<p>Everything the rest of this chapter describes — <code>DebugState</code> consulted per
-instruction, <code>BreakpointSet</code>, <code>DebuggerManager</code> driving the panels — is still
-how the debugger works today. The facade above it is not wired up yet.</p>
+<h3 id="what-is-behind-the-facade-today">What is behind the facade today<a class="headerlink" href="#what-is-behind-the-facade-today" title="Permanent link">&para;</a></h3>
+<p>The bodies arrive in five sub-packages on one branch, and the first of them is
+in: <strong>control and inspection over the existing primitives</strong>, with no change to
+the hot path. <code>src/debug/debugger.cpp</code> holds construction, the mutation log,
+symbols and the state/rewind verbs; <code>debugger_control.cpp</code> the CAP-CTL verbs;
+<code>debugger_inspect.cpp</code> the CAP-INS read and write surface; <code>debugger_input.cpp</code>
+the level half of input injection. All of the state lives in a <code>struct Impl</code>
+behind one <code>unique_ptr</code> (<code>debugger_impl.h</code>, internal), so the later sub-packages
+add their own state — the event table, the client list, the bookmarks — without
+editing a header five frontends compile against.</p>
+<p>The control verbs are the bodies of <code>DebuggerManager</code>'s slots with the Qt taken
+out: the same <code>DebugState</code> calls in the same order, the same GH #207 / #221 /</p>
+<h1 id="223-behaviour-the-same-two-target-computations-for-run-to-end-of-frame-and">223 behaviour, the same two target computations for "run to end of frame" and<a class="headerlink" href="#223-behaviour-the-same-two-target-computations-for-run-to-end-of-frame-and" title="Permanent link">&para;</a></h1>
+<p>"run to end of scanline". What the Qt version did <em>around</em> them — four panel
+<code>set_paused()</code> calls, <code>emit paused()</code>, <code>update_actions()</code> — is a frontend
+reacting to a transition, and becomes a pushed notification later.</p>
+<p>Two things had to be fixed in the emulator for the inspection surface to be
+honest, and both are worth knowing:</p>
+<p><strong><code>Mmu::peek()</code></strong> is a non-perturbing read of the live CPU map. <code>Mmu::read()</code> is
+the <em>guest's</em> read: it captures the byte into the +3 floating-bus latch on every
+contended access and it raises the data-breakpoint latch on a READ watchpoint.
+A debugger read must do neither — and not merely because the panels happen to
+run outside <code>GuestExecutionScope</code>, since a script handler runs <em>inside</em> it. So
+<code>peek()</code> wraps <code>read()</code> under <code>DebugState::InspectionScope</code> and puts the
+floating-bus byte back. It wraps rather than copies, so the overlay arbitration
+(boot ROM, Multiface, DivMMC, Layer 2, alt-ROM, config mode) cannot drift
+between the two.</p>
+<p><strong>The frame counter</strong> now advances on every frame boundary. It used to be
+incremented as an argument of <code>take_snapshot()</code>, so without
+<code>--rewind-buffer-size</code> it stayed at 0 for the whole run and every consumer asking
+"which frame is this?" got the same answer forever. The counter is
+<em>post</em>-incremented, so during frame K it reads K+1: the backend reports
+<code>frame_num() - 1</code>, which is the tag the rewind slot for that frame carries and
+the frame <code>--delayed-keypress-frames N</code> lands on.</p>
+<p>A verb whose machinery belongs to a later sub-package is defined in ONE file,
+<code>debugger_pending.cpp</code>, and returns <code>Result::Unsupported</code> — never a silent
+no-op. Keeping them together means "what is not implemented yet" is something you
+can count rather than a claim in a comment; the file's banner lists them by
+owning sub-package.</p>
+<p><code>debugger_backend_test</code> is the backend's suite, headless and Qt-free: a wiring
+row per control verb (arm it through the facade, run, assert the machine stopped
+where the verb promises — PC, cycle, pause reason), a <em>control</em> row per verb that
+the same program runs straight past, and the non-perturbation and frame-counter
+rows above.</p>
+<p>Everything else the rest of this chapter describes — <code>DebugState</code> consulted per
+instruction, <code>BreakpointSet</code>, <code>DebuggerManager</code> driving the panels — is still how
+the debugger works today; the frontends have not been moved onto the facade yet.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
 <p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
 <code>jnext_debugger</code> is neither compiled nor linked and every use site in
