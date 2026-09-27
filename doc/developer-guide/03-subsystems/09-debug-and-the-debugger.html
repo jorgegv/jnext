@@ -1107,6 +1107,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Two directories, and the split is the design">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-four-published-headers-and-what-they-are-not-yet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The four published headers, and what they are not yet
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1923,6 +1940,52 @@ plain CLI flags rather than GUI-only features.</p>
 <code>rewind_buffer.cpp</code> includes <code>core/emulator.h</code>, which reaches <code>input/keyboard.h</code>
 and thence <code>SDL.h</code>. The rule the split enforces is <em>no GUI toolkit</em>, not <em>no
 dependencies</em>.</p>
+<h3 id="the-four-published-headers-and-what-they-are-not-yet">The four published headers, and what they are not yet<a class="headerlink" href="#the-four-published-headers-and-what-they-are-not-yet" title="Permanent link">&para;</a></h3>
+<p><code>src/debug/</code> also holds four headers that are a <em>contract</em> rather than code:
+<code>debugger.h</code>, <code>events.h</code>, <code>inspect.h</code> and <code>result.h</code>. They declare
+<code>jnext::dbg::Debugger</code> — one frontend-agnostic facade over control, inspection,
+mutation, events, time, input injection, capture, bookmarks, symbols and
+sessions — together with its value types (<code>Result</code>, <code>Expected&lt;T&gt;</code>, <code>Event</code>,
+<code>Subscription</code>, <code>MemSpace</code>, <code>RunState</code>, <code>Listener</code>, <code>Service</code>). They contain
+<strong>no bodies at all</strong>: they are the frozen interface of epic
+<a href="https://github.com/jorgegv/jnext/issues/276">#276</a>, landed first and alone so
+that the Qt refactor, three protocol servers (DZRP, ZRCP, GDB RSP) and the
+scripting DSL can all be written against one agreed shape. The design is
+<code>doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md</code>; the map from each of its
+capability ids to each declaration is
+<code>doc/design/debug-subsystem/b0-cap-traceability.md</code>.</p>
+<p>Two properties are worth knowing before the implementation exists, and both are
+<strong>gated</strong> rather than merely documented — the first review of these headers found
+them asserting things nothing checked.</p>
+<p><code>Emulator</code> is only <em>forward-declared</em>, and none of the four reaches
+<code>core/emulator.h</code>, <code>src/platform/</code>, Qt, SDL, <code>memory/mmu.h</code>, <code>video/renderer.h</code>,
+<code>video/palette.h</code>, <code>video/timing.h</code>, <code>debug/debug_state.h</code> or
+<code>debug/breakpoints.h</code> — the point of the epic is that a frontend stops holding an
+<code>Emulator*</code>. <strong><code>test/lint-debug-headers.sh</code></strong> proves it: for each published header
+it preprocesses a one-line translation unit and matches that forbidden set
+against the <code>-M</code> dependency list, so a forbidden header pulled in three levels
+down is caught like a direct include. It is row 5 of the regression preflight, and
+<code>make harness-selftest</code>'s HS-57a/b prove it stays wired and that its verdict still
+turns that row red.</p>
+<p><strong><code>src/debug/debug_types_check.cpp</code></strong> is what makes the headers compile at all —
+a translation unit of nothing but <code>static_assert</code>s, built in all four
+configurations. It pins the three backend-owned enums that mirror something else
+(<code>StepMode</code> against the internal <code>::StepMode</code>, <code>PaletteId</code> against <code>::PaletteId</code>,
+the screenshot layer mask against <code>Renderer::LAYER_*</code>) value by value; every
+<code>Result</code> enumerator's number, because the order is a contract adapters map by
+index; each of <code>Listener</code>'s seven methods individually, since
+<code>is_abstract</code> on the class passes even when one method gains a body; and
+<code>MachineInfo</code>'s two clock domains against <code>MachineTiming</code>, names and types and the
+eight-master-cycles-per-T-state relation.</p>
+<p>One idiom in those headers is worth recognising, because it is the only C++
+mechanism that does the job: <code>EventKind</code>, <code>Layer</code>, <code>RegId</code> and <code>ClipLayer</code> each
+end in a <code>Count</code> sentinel, and every count is derived from it. Deriving a count
+from the last real enumerator is blind to an <em>append</em> — the enumerator keeps its
+value, the count keeps its number, and a new kind ships with no mask bit and no
+switch arm.</p>
+<p>Everything the rest of this chapter describes — <code>DebugState</code> consulted per
+instruction, <code>BreakpointSet</code>, <code>DebuggerManager</code> driving the panels — is still
+how the debugger works today. The facade above it is not wired up yet.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
 <p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
 <code>jnext_debugger</code> is neither compiled nor linked and every use site in

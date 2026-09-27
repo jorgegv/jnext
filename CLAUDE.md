@@ -365,7 +365,7 @@ run stayed green, which is the same silent shrinking the manifest exists to forb
 **`test/00regression/regression_tests.conf`** (screenshots) + **`functional_tests.conf`**
 (functional). At the end of a full run, `regression.sh` asserts every declared functional
 test reported exactly one row, no undeclared row appeared, and the total equals
-`3 lint + 1 sdcard-provision + screenshots + functional`. Screenshots additionally get an
+`5 lint + 1 sdcard-provision + screenshots + functional`. Screenshots additionally get an
 *independent* witness: every checked-in `img/<name>-reference.png` must have a conf entry, so
 truncating the conf cannot silently shrink the suite. Any mismatch is a **harness fault** (exit 2).
 

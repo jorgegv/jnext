@@ -1931,7 +1931,7 @@ profiler — surround the emulation rather than being part of it.</p>
 </tr>
 <tr>
 <td><code>debug/</code></td>
-<td>The debugger <em>backend</em>, pure C++ with no GUI dependency: disassembler, breakpoint set, <code>DebugState</code>, trace log, call stack, symbol table, and the rewind ring buffer.</td>
+<td>The debugger <em>backend</em>, pure C++ with no GUI dependency: disassembler, breakpoint set, <code>DebugState</code>, trace log, call stack, symbol table, and the rewind ring buffer. Plus the four <em>published</em> headers <code>debugger.h</code>, <code>events.h</code>, <code>inspect.h</code>, <code>result.h</code> — the <code>jnext::dbg::Debugger</code> facade contract of epic #276, declarations only for now (see 3.9).</td>
 </tr>
 <tr>
 <td><code>esp01/</code></td>

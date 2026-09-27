@@ -477,8 +477,42 @@ Load-bearing rationale that used to live as long comments inside
   invalid bash, so a looser match would only claim reach the shell has not.
   Every other word in the set was checked and takes none. `harness-selftest`
   HS-49a/HS-49b prove the call is still reached from `00-preflight-lint.sh` and that
-  its verdict still turns the row red; the `2 lint + 1 sdcard-provision + …`
+  its verdict still turns the row red; the `5 lint + 1 sdcard-provision + …`
   row-count witness is the second, independent check that the row exists at all.
+- **Why the published debug headers get an include-graph row** (GH #276 B0,
+  `test/lint-debug-headers.sh`, row 5 of the preflight). Epic #276's defining
+  property is that a debugger frontend stops holding an `Emulator*`:
+  `src/debug/{debugger,events,inspect,result}.h` are the whole API, and nothing
+  behind them may reach the emulator core, `src/platform/`, a GUI toolkit, SDL,
+  or the debug internals design §3.1 keeps unpublished. Five downstream packages
+  (Qt, DZRP, ZRCP, GDB, the DSL) code against that property, and **nothing in the
+  tree checked it**: the headers' own banner cited design §9's
+  `grep -l 'core/emulator.h' src/debugger/*.cpp`, which greps the *Qt panels'*
+  sources and says nothing about these headers. Adding
+  `#include "core/emulator.h"` to `inspect.h` compiled clean and no test, lint or
+  CI step noticed — the same shape as every other guard here that exists and is
+  never invoked.
+
+  The row preprocesses a one-line TU per published header and matches the
+  forbidden set against its dependency list. It uses **`-M`, not `-MM`**, and
+  that is load-bearing: `-MM` omits system headers, so the SDL and Qt patterns
+  would be permanently dead. The first cut used `-MM` and its own mutation run
+  proved it — four of five forbidden includes caught, and `input/keyboard.h`
+  (whose entire hazard is that it reaches `<SDL3/SDL.h>`) passed clean. Two
+  positive controls guard against the reverse failure, a run that reports absence
+  while checking nothing: every listed header must exist, and each one's
+  dependency list must contain itself and `src/debug/result.h`. **Ten** forbidden
+  includes — one per `FORBIDDEN` pattern — were injected one at a time and all
+  ten redden the row, but not all through the same arm, and the distinction is
+  worth keeping: nine matched their pattern in the `-M` list, while a Qt include
+  fails the *"could not be preprocessed with `-I<src>` alone"* arm before it ever
+  reaches the Qt pattern, because Qt6 lives in `/usr/include/qt6` — not a default
+  include path here or in the Fedora 44 CI container. The property is enforced
+  ten times over; the Qt pattern is belt to that arm's braces, and the lint says
+  so at the pattern. An earlier version of this paragraph said "nine", which is
+  what reading "SDL and Qt are both on a system include path" off the lint's own
+  (then-wrong) header comment does to a count.
+
 - **Why membership/count checks are pure-bash hashes.**
   `printf ... | grep -q` over a list is unsound under `set -o pipefail`: grep
   exits on match, printf can die of SIGPIPE (141), and pipefail promotes 141 —
