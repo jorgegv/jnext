@@ -1,0 +1,328 @@
+// ---------------------------------------------------------------------------
+// jnext::dbg::Debugger — construction, the mutation log, symbols (CAP-SYM),
+// `state()` (CTL-13) and the state/rewind verbs (CAP-ST).
+//
+// Work package B1 of epic #276 (doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md
+// §10.1: "B1 facade + control + inspection over the existing primitives, no
+// hot-path change"). The control verbs are in `debugger_control.cpp`, the
+// inspection surface in `debugger_inspect.cpp`, and everything a LATER
+// sub-package owns is in `debugger_pending.cpp` — one file, so what is not yet
+// implemented is countable rather than scattered.
+// ---------------------------------------------------------------------------
+
+#include "debug/debugger_impl.h"
+
+#include <cinttypes>
+#include <cstdio>
+#include <utility>
+
+#include "core/log.h"
+#include "core/saveable.h"
+#include "debug/rewind_buffer.h"
+
+namespace jnext {
+namespace dbg {
+
+// ---------------------------------------------------------------------------
+// Construction
+// ---------------------------------------------------------------------------
+
+Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu)) {}
+
+// Out of line, and it must be: `Impl` is incomplete in the published header, so
+// `unique_ptr`'s deleter can only be instantiated here. B0 declared it this way
+// already.
+Debugger::~Debugger() = default;
+
+// ---------------------------------------------------------------------------
+// SES-06 — the message sink, and the §4.2a mutation log over it
+// ---------------------------------------------------------------------------
+//
+// B1 routes SES-06 to the `emulator` spdlog channel. It is NOT its own channel
+// yet on purpose: a new `--log-level` name is a documented user surface, gated
+// in both directions by `log_test` LOG-09..11 against the man page's LOGGING
+// list, and it belongs with B3's listener fan-out (where `on_log()` gives the
+// line somewhere else to go) rather than bundled into the write verbs.
+// ---------------------------------------------------------------------------
+
+Result Debugger::log(ClientId by, LogLevel level, const std::string& text) {
+    auto& l = *Log::emulator();
+    // `by` is carried in the line rather than as spdlog metadata: a client id is
+    // not a logger name, and every consumer of these lines (a CI transcript, a
+    // script's own log) wants the two together.
+    const std::string line =
+        by == CLIENT_NONE ? text : (text + " [client " + std::to_string(by) + "]");
+    switch (level) {
+        case LogLevel::Trace: l.trace("{}", line);    break;
+        case LogLevel::Debug: l.debug("{}", line);    break;
+        case LogLevel::Info:  l.info("{}", line);     break;
+        case LogLevel::Warn:  l.warn("{}", line);     break;
+        case LogLevel::Error: l.error("{}", line);    break;
+    }
+    return Result::Ok;
+}
+
+// §4.2a — "every mutation from every client emits one SES-06 info line
+// `MUTATE <what> <old> -> <new> by <client>`", and the BACKEND emits it, not the
+// writer. Both helpers below are that one line; every write verb calls one of
+// them, so there is no path by which a mutation is unlogged.
+void Debugger::Impl::log_mutate(ClientId by, const std::string& what,
+                                long long old_value, long long new_value) {
+    char buf[96];
+    std::snprintf(buf, sizeof(buf), "MUTATE %s 0x%llX -> 0x%llX by %u",
+                  what.c_str(), static_cast<unsigned long long>(old_value),
+                  static_cast<unsigned long long>(new_value),
+                  static_cast<unsigned>(by));
+    Log::emulator()->info("{}", buf);
+}
+
+// A BLOCK write has no single "old -> new" to report, and inventing one (the
+// first byte's) would read as a claim about the whole range. §4.2a's format is
+// for a single value; a range says what it actually did instead.
+void Debugger::Impl::log_mutate_range(ClientId by, const std::string& what,
+                                      const std::string& detail) {
+    Log::emulator()->info("MUTATE {} {} by {}", what, detail,
+                          static_cast<unsigned>(by));
+}
+
+// ---------------------------------------------------------------------------
+// SES-04 — stop policy
+//
+// Plain backend state, with no session behind it: the loop owner sets it once
+// and every `Stop` action consults it. B3 adds the `peer_connected()` override
+// (§4.8 SES-04: `ExitNonZero` becomes `Pause` while a remote is attached),
+// which needs the service list it introduces.
+// ---------------------------------------------------------------------------
+
+StopPolicy Debugger::stop_policy() const { return impl_->stop_policy; }
+
+Result Debugger::set_stop_policy(StopPolicy policy) {
+    impl_->stop_policy = policy;
+    return Result::Ok;
+}
+
+// ---------------------------------------------------------------------------
+// §4.7 — CAP-SYM, symbols
+//
+// THE one table. `SymbolTable` itself already lived in `src/debug/`; what moves
+// here is OWNERSHIP of the instance, out of `DebuggerManager` (a `Q_OBJECT`).
+// The Qt member cannot be deleted until the Qt frontend holds a `Debugger` —
+// B3's loop-owner wiring and Q's WP2/WP6 — so for now a Qt-loaded MAP and a
+// backend-loaded MAP are two tables. That is stated in the B1 report as the one
+// item of this package that cannot complete alone.
+// ---------------------------------------------------------------------------
+
+Expected<int> Debugger::load_map(const std::string& path, MapFormat format) {
+    const int n = (format == MapFormat::Z88dk) ? impl_->symbols.load_z88dk_map(path)
+                                               : impl_->symbols.load_simple_map(path);
+    // Both loaders return -1 on a file that cannot be read or parsed. That is
+    // not a refusal of the verb by the machine's state, and it is not "there is
+    // no such thing" either — the caller asked for a file that is not there.
+    if (n < 0) return make_refused<int>(Result::RefusedUnavailable);
+    return make_ok<int>(n);
+}
+
+Result Debugger::clear_symbols() {
+    impl_->symbols.clear();
+    return Result::Ok;
+}
+
+std::optional<std::string> Debugger::lookup(uint16_t addr) const {
+    return impl_->symbols.lookup(addr);
+}
+
+std::optional<uint16_t> Debugger::lookup_name(const std::string& name) const {
+    return impl_->symbols.lookup_name(name);
+}
+
+const SymbolTable& Debugger::symbols() const { return impl_->symbols; }
+
+// ---------------------------------------------------------------------------
+// CTL-13 — `state()`
+//
+// WHICH PAUSE REASONS B1 CAN PRODUCE, and which it cannot. This is a real
+// partial, not an oversight, and the reason is that the tree destroys the
+// evidence as it stops:
+//
+//   None, User, Step, RunTo, Breakpoint   — produced here.
+//
+//   Watch    NOT produced. The hot loop consumes the data-breakpoint latch in
+//            the same breath as the pause (`pause(); set_data_bp_hit(false);`,
+//            emulator.cpp), so by the time any backend call can look, the
+//            address and the direction are gone. B2's `Mem` latch records them.
+//   Magic    NOT produced. The magic hook pauses from inside the CPU callback
+//            (emulator.cpp) and leaves no mark a later read can find. B2's
+//            `Magic` event.
+//   Corrupt  NOT produced. CTL-11 latches the INCIDENT, but nothing pauses for
+//            it: the gate refuses the resume instead. B3 wires the pause.
+//   Script   NOT produced. There is no script engine (package S).
+//
+// A stop this cannot explain reports `User{CLIENT_NONE}` — "the machine was
+// stopped and it was not a verb of mine", which is true. Deliberately NOT a
+// fabricated `Breakpoint` (there may be no breakpoint), and deliberately not
+// `None` (which would contradict `paused`). `CLIENT_NONE` also makes it safe
+// under SES-01's detach rule: no client's departure resumes a stop nobody owns,
+// which is exactly the property §4.1 demands for `Magic` and `Corrupt`.
+// ---------------------------------------------------------------------------
+
+RunState Debugger::state() const {
+    const DebugState& ds = impl_->ds();
+    const Z80Registers regs = impl_->emu.cpu().get_registers();
+
+    RunState st;
+    st.paused = ds.paused();
+    st.cycle  = impl_->emu.clock().get();
+    st.frame  = frame_tag(impl_->emu);
+    st.pc     = regs.PC;
+
+    // The published mirror of the internal enum. `debug_types_check.cpp` pins
+    // the two value by value, which is what makes this switch a relabelling
+    // rather than a mapping that could be wrong.
+    switch (ds.step_mode()) {
+        case ::StepMode::NONE:              st.step_mode = StepMode::None;           break;
+        case ::StepMode::INTO:              st.step_mode = StepMode::Into;           break;
+        case ::StepMode::OVER:              st.step_mode = StepMode::Over;           break;
+        case ::StepMode::OUT:               st.step_mode = StepMode::Out;            break;
+        case ::StepMode::RUN_TO_CYCLE:      st.step_mode = StepMode::RunToCycle;     break;
+        case ::StepMode::STEP_BACK:         st.step_mode = StepMode::StepBack;       break;
+        case ::StepMode::RUN_BACK_TO_CYCLE: st.step_mode = StepMode::RunBackToCycle; break;
+    }
+
+    if (!st.paused) {
+        st.pause_reason.kind = PauseReason::Kind::None;
+        return st;
+    }
+
+    // The machine is stopped. If the last control verb was one whose completion
+    // IS the stop, that verb is the reason: it armed it and nothing has resumed
+    // since.
+    switch (impl_->armed_reason) {
+        case PauseReason::Kind::User:
+        case PauseReason::Kind::Step:
+            st.pause_reason.kind = impl_->armed_reason;
+            st.pause_reason.by   = impl_->armed_by;
+            return st;
+        case PauseReason::Kind::RunTo:
+            // A run-to stops at its target OR earlier, on a breakpoint the run
+            // crossed. Which one it was is readable: the target address.
+            if (!impl_->has_target || impl_->armed_target == st.pc) {
+                st.pause_reason.kind = PauseReason::Kind::RunTo;
+                st.pause_reason.by   = impl_->armed_by;
+                st.pause_reason.addr = impl_->armed_target;
+                return st;
+            }
+            break;
+        default:
+            break;
+    }
+
+    // Not the verb, so the machine stopped itself. A user breakpoint at PC
+    // explains it; nothing else B1 can see does.
+    if (ds.breakpoints().has_pc(st.pc)) {
+        st.pause_reason.kind = PauseReason::Kind::Breakpoint;
+        st.pause_reason.addr = st.pc;
+        return st;
+    }
+
+    st.pause_reason.kind = PauseReason::Kind::User;
+    st.pause_reason.by   = CLIENT_NONE;
+    return st;
+}
+
+// ---------------------------------------------------------------------------
+// §4.6 — CAP-ST, state and rewind
+// ---------------------------------------------------------------------------
+
+bool Debugger::at_frame_boundary() const {
+    return !impl_->emu.frame_in_progress();
+}
+
+// ST-01. The frame boundary is not negotiable — only who waits for it is.
+Expected<std::vector<uint8_t>> Debugger::save_state_bytes(ClientId by,
+                                                          SaveStateMode mode) {
+    if (impl_->emu.frame_in_progress()) {
+        if (mode == SaveStateMode::RefuseMidFrame)
+            return make_refused<std::vector<uint8_t>>(Result::NotAtFrameBoundary);
+        // GH #27 S6's advance: run the half-executed frame out with the
+        // debugger suspended, so a pending Run to Here or step survives it.
+        DebugState::SuspendScope suspend(impl_->ds());
+        impl_->emu.advance_to_frame_boundary();
+        // The SES-06 line for this advance is B4's, with the rest of CAP-ST —
+        // the `by` is carried for it and is meaningful only on this path
+        // (`RefuseMidFrame` advances nothing). B1 records who asked, and does
+        // not pretend to log it.
+        (void)by;
+    }
+
+    // Measure, then write: the same two-pass shape RewindBuffer uses, so a
+    // snapshot is exactly as long as the machine says it is.
+    StateWriter measure;
+    impl_->emu.save_state(measure);
+    std::vector<uint8_t> bytes(measure.position());
+
+    StateWriter w(bytes.data(), bytes.size());
+    impl_->emu.save_state(w);
+    if (w.overflow() || w.position() != bytes.size())
+        return make_refused<std::vector<uint8_t>>(Result::RefusedUnavailable);
+
+    return make_ok(std::move(bytes));
+}
+
+// ST-02. A failure LATCHES corruption, which CTL-11 then gates resumption on —
+// the Emulator does that latching itself (`last_state_error()` +
+// `state_error_generation()`), which is why this verb only has to report it.
+Result Debugger::load_state_bytes(ClientId by, const uint8_t* data, size_t n) {
+    if (!data || n == 0) return Result::RefusedUnavailable;
+    if (impl_->emu.rzx_recorder().is_recording() ||
+        impl_->emu.rzx_player().is_playing())
+        return Result::RefusedRzx;
+
+    StateReader r(data, n);
+    const bool ok_load = impl_->emu.load_state(r);
+    impl_->log_mutate_range(by, "state", ok_load ? "loaded" : "load FAILED (machine corrupt)");
+    return ok_load ? Result::Ok : Result::RefusedCorrupt;
+}
+
+bool Debugger::rewind_enabled() const { return impl_->emu.rewind_enabled(); }
+
+Result Debugger::set_rewind_enabled(bool enabled) {
+    impl_->emu.set_rewind_enabled(enabled);
+    return Result::Ok;
+}
+
+RewindRange Debugger::rewind_range() const {
+    RewindRange rr;
+    const RewindBuffer* rb = impl_->emu.rewind_buffer();
+    if (!rb) return rr;
+    rr.depth          = rb->depth();
+    rr.snapshot_bytes = rb->snapshot_bytes();
+    // `capacity` is not exposed by RewindBuffer; the depth IS the capacity once
+    // the ring has wrapped, and before that the only honest answer available
+    // here is the depth. Reported as such rather than as a second guess.
+    rr.capacity       = rb->depth();
+    if (rb->empty()) return rr;
+    rr.oldest_cycle = rb->oldest_frame_cycle();
+    rr.newest_cycle = rb->newest_frame_cycle();
+    rr.oldest_frame = rb->oldest_frame_num();
+    rr.newest_frame = rb->newest_frame_num();
+    return rr;
+}
+
+// ST-03 — the same `Result` the verb would return, for PRE-CLICK greying, or
+// empty if it would succeed. One predicate, used by both this and the two rewind
+// verbs (see `Impl::rewind_refusal()` in debugger_control.cpp), so a greyed control
+// and a refused verb can never disagree.
+std::optional<Result> Debugger::rewind_blocked() const {
+    const Result r = impl_->rewind_refusal();
+    if (r == Result::Ok) return std::nullopt;
+    return r;
+}
+
+Result Debugger::resize_rewind_buffer(size_t frames) {
+    if (frames == 0) return Result::RefusedUnavailable;
+    impl_->emu.resize_rewind_buffer(static_cast<int>(frames));
+    return Result::Ok;
+}
+
+}  // namespace dbg
+}  // namespace jnext

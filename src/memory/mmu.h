@@ -1446,6 +1446,66 @@ public:
     uint8_t*       bank5_vram()       { return bank5_vram_.data(); }
     const uint8_t* bank5_vram() const { return bank5_vram_.data(); }
 
+    // ───────── GH #276 §4.2 INS-02 — the debugger's physical-page seam ──────
+    //
+    // The 8 KB backing store of NR 0x50-0x57 page `page`, REGARDLESS of what is
+    // mapped where: a `MemSpace::Page` peek addresses the page itself, past any
+    // DivMMC / Multiface / Layer 2 overlay sitting over a slot. That is the
+    // point of the Memory panel's slot view, and it is why this cannot be done
+    // by walking the CPU map.
+    //
+    // It applies the same three-way routing `rebuild_ptr()` applies — the two
+    // dedicated BRAMs first (Next mode: page 0x0E is `bank7_ram`,
+    // zxnext.vhd:6670; pages 0x0A/0x0B are the two halves of `bank5_ram`,
+    // :6558-6578), then `to_sram_page()` into external SRAM. It does NOT share
+    // code with `rebuild_ptr()`, and that is a deliberate limit rather than an
+    // oversight: that function also computes `sram_read_wait28_` per slot and
+    // carries two slot-specific legacy-ROM branches for pages >= 0xE0, none of
+    // which a page peek has or wants. The agreement between the two is pinned
+    // BEHAVIOURALLY instead, by `debugger_backend_test` rows that map a slot to
+    // an ordinary page, to a bank-5 page and to a bank-7 page and assert
+    // `peek(Page{p})` and `peek(Cpu)` return the same byte — a comment could not
+    // have caught a drift, and those rows do.
+    //
+    // Pages >= 0xE0 have no backing store to hand out (`mmu_A21_A13(8)='1'` ->
+    // `sram_pre_active='0'`, zxnext.vhd:3061: the SRAM does not respond), so they
+    // return nullptr and the caller refuses with `InvalidPage`.
+    uint8_t* nr_page_ptr(uint8_t page) {
+        if (page >= 0xE0) return nullptr;
+        if (rom_in_sram_ && page == 0x0E) return bank7_bram_.data();
+        if (rom_in_sram_ && (page == 0x0A || page == 0x0B))
+            return bank5_vram_.data() + ((page & 1) ? 0x2000 : 0);
+        return ram_.page_ptr(to_sram_page(page));
+    }
+    const uint8_t* nr_page_ptr(uint8_t page) const {
+        return const_cast<Mmu*>(this)->nr_page_ptr(page);
+    }
+
+    /// GH #276 INS-02 — the 16 KB ROM IMAGE `index` (0..3), read-only.
+    ///
+    /// On a `rom_in_sram_` machine (Next mode) a ROM image is SRAM pages
+    /// `2*index` / `2*index+1`, addressed WITHOUT the `to_sram_page` shift —
+    /// exactly as `map_rom_physical()` does it (`ram_.page_ptr(rom_page)`), and
+    /// exactly why `MemSpace::Page` cannot reach it: those are un-shifted `ram_`
+    /// page indices outside the NR page number space. Otherwise it is the `Rom`
+    /// object's image. The two 8 KB halves are adjacent in both backing stores,
+    /// so the returned pointer spans the whole 16 KB.
+    const uint8_t* rom_image_ptr(uint8_t index) const {
+        if (index > 3) return nullptr;
+        const uint16_t page = static_cast<uint16_t>(index * 2);
+        return rom_in_sram_ ? ram_.page_ptr(page) : rom_.page_ptr(page);
+    }
+
+    /// GH #276 INS-03 — the NR 0x50-0x57 value of `slot` AS WRITTEN, including
+    /// the 0xFF ROM sentinel. `get_effective_page()` above resolves that
+    /// sentinel through legacy paging; `SlotInfo` reports both, because the
+    /// sentinel is what the register reads back and the resolved page is what
+    /// the slot is actually serving.
+    uint8_t get_nr_page(int slot) const {
+        if (slot < 0 || slot > 7) return 0xFF;
+        return nr_mmu_[slot];
+    }
+
 private:
     // Dedicated bank-7 lower-half BRAM (see bank7_bram() accessor).
     std::array<uint8_t, 0x2000> bank7_bram_{};
