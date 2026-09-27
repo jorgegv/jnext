@@ -76,16 +76,27 @@ enum class EventKind : uint8_t {
     /// kind delivered BEFORE the instruction runs, which is what lets a
     /// handler redirect PC (§4.2a).
     Execute = 0,
-    /// A guest memory access at one of the eight `Mmu` sites.
+    /// A guest memory access at one of the eight `Mmu` sites. Latched at the
+    /// site, delivered at the RAISING instruction's own boundary — not late.
     Mem,
-    /// A guest port access, matched by `(port & mask) == value`.
+    /// A guest port access, matched by `(port & mask) == value`. Latched after
+    /// dispatch (so a read carries the value returned), delivered at the
+    /// raising instruction's own boundary — not late.
     Port,
-    /// A NextREG write, delivered after commit (see `EventFilter::source`).
+    /// A NextREG write, delivered AFTER COMMIT, at the next boundary the drain
+    /// reaches: the current instruction's for a Copper or DMA write, but
+    /// **≤1 instruction late for a CPU write**, because CPU NR writes commit in
+    /// `flush_pending_cpu_nr_writes()` AFTER the boundary drain. So a `Stop`
+    /// lands one instruction after the writer, and the payload's `pc` names the
+    /// writer. Chosen over moving the drain behind the device cluster, which
+    /// would change the GH #265 early-return contract for every data
+    /// breakpoint.
     NextRegWrite,
     /// TIME-02 — a frame boundary.
     Frame,
     /// TIME-02 — a scanline, compared on `cvc` (the counter NR 0x1E/0x1F
-    /// reads).
+    /// reads). Latched at the line with its exact cycle and delivered at the
+    /// next boundary, so **≤1 instruction late**.
     Scanline,
     /// TIME-02 — a master-cycle target; one-shot by nature.
     Cycle,
@@ -99,9 +110,14 @@ enum class EventKind : uint8_t {
     Magic,
     /// `raise_host_event(name)` — a host key, `script1`..`script8`.
     Host,
-    /// Copper `Move` / `Wait` / `Halt`; see `CopperEventKind`.
+    /// Copper `Move` / `Wait` / `Halt`; see `CopperEventKind`. Latched at the
+    /// site inside the post-instruction device cluster and delivered at the
+    /// next boundary, so **≤1 instruction late**, as `NextRegWrite` and
+    /// `Scanline` are.
     Copper,
-    /// DMA `Start` / `Byte` / `End`; see `DmaEventKind`.
+    /// DMA `Start` / `Byte` / `End`; see `DmaEventKind`. Latched at the site
+    /// and delivered at the boundary of the slot the burst ran in, so
+    /// **≤1 instruction late**. A slot is DMA *or* CPU, never both.
     Dma,
 };
 
