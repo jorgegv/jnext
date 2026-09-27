@@ -93,6 +93,15 @@ The single authoritative protocol for landing any implemented change on `main`:
 2. **Full test triplet green on the branch, plus the SDL-only unit run** before review: `make clean && make gui-release`, then `make unit-test`, **`make unit-test-sdl`**, the FUSE Z80 suite (`./build/test/fuse_z80_test build/test/fuse` → 1356/1356), and `JNEXT_TEST_JOBS=4 make regression`. No FAIL anywhere (SKIPs only where already declared).
    - `make unit-test-sdl` applies to **every** branch, not only GUI-touching ones (owner decision, 2026-09-25). Its 91 suites are the core emulator plus the platform decision-logic both frontends share, minus Qt and the debugger — and they INCLUDE `host_key_latch_test`, which drives the real `SdlInput::poll()` (GH #268) precisely because an SDL-only build is the only place that coverage survives. So an SDL-frontend change needs this run just as much as a core one does; do not read “the non-Qt set” as “no frontends”. Cost on a branch that actually changed code: ~17 s with a warm ccache (a no-op re-run of just the suites is ~9 s). See the two-configuration rule under **Testing**.
    - Use **`make regression`**, never bare `bash test/00regression/regression.sh`: the suite's `sdl-keypress-func` row needs `build/sdl-release`, which only the make target builds, so the bare script aborts as a harness fault. Two separate agents lost a run to this on 2026-09-25.
+   - **A DOCUMENTATION-ONLY change runs NO code gate** (owner rule, 2026-09-27). If the branch or
+     the set of changes to merge touches only documentation, run only the gates the documentation
+     itself needs — normally `make docs-check` (man page + user guide + developer guide staleness),
+     plus `make docs-devguide-diagrams` when a `.dot` source changed — and skip the triplet, the
+     SDL run, FUSE and the regression suite entirely. Nothing they cover can have changed. A
+     change that is doc-only *except* for one code or test edit is NOT doc-only. Files that gate
+     nothing (`CLAUDE.md`, `doc/design/**`, `ChangeLog`, `README.md`) need no gate at all; the
+     generated-and-committed trees (`doc/man/`, `doc/user-guide/`, `doc/developer-guide/`) are
+     exactly what `docs-check` exists for, so edit the source, re-render, commit both.
 3. **Independent code review** by an agent/person that did NOT write the change — never self-review. The reviewer works in its own worktree, never the author's. Verdict is binary APPROVE / REJECT; on REJECT, fix and re-review.
 4. **Merge on green APPROVE**, one branch at a time. The manager (not the authoring agent) does the merge. If a merge conflicts, the agent who merged last fixes it on their own branch.
 5. **Immediately after each merge to `main`, bump the patch version: `make bump-patch`** (bumps `version.yaml`, commits, and creates the git tag). Every feature/fix that lands on `main` gets its own patch bump — per merge, not batched. This is separate from the deliberate minor/major release flow in "Version bumping" below.

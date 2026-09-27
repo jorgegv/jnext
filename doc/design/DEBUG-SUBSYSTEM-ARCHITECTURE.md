@@ -1316,6 +1316,15 @@ review** in its own worktree, binary verdict; `make bench` for any branch
 touching the hot path; the manager merges one branch at a time and runs `make
 bump-patch`; never push without authorisation.
 
+**A doc-only branch runs no code gate** (owner rule, 2026-09-27; now in
+CLAUDE.md): where the branch touches only documentation, the gate is what the
+documentation itself needs — `make docs-check`, plus
+`make docs-devguide-diagrams` when a `.dot` changed — and the triplet, the SDL
+run, FUSE and the regression suite are skipped. That is the whole gate for
+package **DOC**, and for any doc-only follow-up here. Every other package in
+this epic ships code and runs the full gate above, its own devguide item
+included.
+
 ---
 
 ## 11. Out of scope, and what needs a prototype
