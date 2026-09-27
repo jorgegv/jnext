@@ -374,8 +374,10 @@ struct ClipWindow {
 struct CopperState {
     /// Instruction index 0..1023.
     uint16_t pc = 0;
-    bool     running = false;
-    /// NR 0x62 bits 7:6 — the start/stop/reset-at-vblank mode.
+    /// `Copper::is_running()`, i.e. `mode != 0`.
+    bool running = false;
+    /// `Copper::mode()` — NR 0x62 bits 7:6, the stop / start / reset-at-vblank
+    /// mode.
     uint8_t mode = 0;
     /// The 1024-entry instruction RAM, as 16-bit words. A VIEW into the live
     /// Copper's RAM (see `ConstU16s`), not a 2 KB copy.
@@ -479,7 +481,10 @@ struct UlaScreenRegs {
     uint8_t scroll_y = 0;
     /// Port 0xFE bits 2:0 (`Ula::get_border()`).
     uint8_t border = 0;
-    /// Which of the two ULA palette banks is active —
+    /// Which of the two ULA palette banks is active. Deliberately the same
+    /// answer as `active_ula_palette_bank()`: §4 INS-15 lists both, one as a
+    /// scalar and one inside this struct, and a panel reads whichever it
+    /// already has. Source —
     /// `nr_43_active_ula_palette`, **NR 0x43 bit 1** (`zxnext.vhd:5393,6825`;
     /// `PaletteManager::active_ula_palette()`). NOT bit 0, which is
     /// `nr_43_ulanext_en`.
