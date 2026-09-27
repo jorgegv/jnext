@@ -8463,8 +8463,24 @@ void Emulator::begin_new_frame()
     // before any DMA/CPU work happens in the frame's first instruction too.
     // Snapshot at frame boundary — scheduler queue is empty here, which is
     // required for correct serialisation (no pending events to save).
+    // F2 (GH #276 §4.2 INS-07) — the logical frame counter advances on EVERY
+    // frame boundary, not only on the ones a rewind snapshot is taken at.
+    //
+    // It used to be incremented as the third argument of take_snapshot() and
+    // therefore only inside this guard, so without --rewind-buffer-size
+    // frame_num_ stayed 0 for the whole run and every consumer that asks "which
+    // frame is this?" got the same answer forever. The snapshot still receives
+    // exactly the value it received before — the PRE-increment number, the tag
+    // of the frame that is beginning — so the ring's tags are unchanged.
+    //
+    // It also advances during replay (replay_mode_), which the old placement
+    // skipped: a rewind that fast-forwards across a frame boundary left the
+    // counter naming the frame it started in, so the next real snapshot reused
+    // a tag. The counter now names the frame the machine is actually in,
+    // whichever way it got there.
+    const uint32_t this_frame = frame_num_++;
     if (rewind_buffer_ && rewind_enabled_ && !replay_mode_) {
-        rewind_buffer_->take_snapshot(*this, frame_cycle_, frame_num_++);
+        rewind_buffer_->take_snapshot(*this, frame_cycle_, this_frame);
     }
 
     // GH #246 — the ESP's scheduled WiFi outage, anchored HERE and not in
@@ -9784,6 +9800,13 @@ uint64_t Emulator::step_one_instruction()
             dma_stalled_cpu_this_step = true;
         }
     }
+
+    // GH #276 §4.3 — publish "this slot was the DMA's, not the CPU's" as a
+    // member, alongside slot_ran_instruction_ above. A slot is DMA *or* CPU,
+    // never both, and the boundary drain has to tag a memory or port event's
+    // `source` with whichever it was; the local below is not visible to it.
+    // One store per slot, unconditional, so there is no branch to mispredict.
+    slot_ran_dma_ = dma_stalled_cpu_this_step;
 
     if (dma_stalled_cpu_this_step) {
         // master_cycles already computed above.
