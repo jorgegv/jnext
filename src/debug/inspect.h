@@ -113,17 +113,26 @@ struct MemSpace {
         Rom,
     };
 
-    Kind    kind  = Kind::Cpu;
-    uint8_t index = 0;
+    Kind kind = Kind::Cpu;
+
+    /// ONE WIDTH FOR EVERY PAGE NUMBER IN THIS API: `uint16_t`, the same as
+    /// `Event::phys_page` and `EventFilter::page` / `EventFilter::pages`. A page
+    /// number crosses between them constantly (a `Mem` delivery's `phys_page`
+    /// handed straight to `MemSpace::page()` to peek what was written), and a
+    /// narrower type here would put a silent narrowing conversion on every one
+    /// of those hops. Valid NR 0x50-0x57 numbers are 0..223 and the ROM
+    /// sentinels are 0xFE / 0xFF, so the value range needs only 8 bits; the
+    /// width is for the seam, not the range.
+    uint16_t index = 0;
 
     static constexpr MemSpace cpu();
-    static constexpr MemSpace page(uint8_t p);
-    static constexpr MemSpace rom(uint8_t i);
+    static constexpr MemSpace page(uint16_t p);
+    static constexpr MemSpace rom(uint16_t i);
 };
 
 constexpr MemSpace MemSpace::cpu() { return MemSpace{Kind::Cpu, 0}; }
-constexpr MemSpace MemSpace::page(uint8_t p) { return MemSpace{Kind::Page, p}; }
-constexpr MemSpace MemSpace::rom(uint8_t i) { return MemSpace{Kind::Rom, i}; }
+constexpr MemSpace MemSpace::page(uint16_t p) { return MemSpace{Kind::Page, p}; }
+constexpr MemSpace MemSpace::rom(uint16_t i) { return MemSpace{Kind::Rom, i}; }
 
 constexpr bool operator==(MemSpace a, MemSpace b) {
     return a.kind == b.kind && (a.kind == MemSpace::Kind::Cpu || a.index == b.index);
@@ -200,10 +209,17 @@ enum class RegId : uint8_t {
     IXH, IXL, IYH, IYL,
     // the rest
     I, R, IFF1, IFF2, IM,
+
+    /// NOT A REGISTER — the count, and it must stay last. See
+    /// `EventKind::Count` for why a trailing sentinel rather than an assert on
+    /// the last real enumerator.
+    Count,
 };
 
 /// INS-01 — number of `RegId` enumerators — 12 pairs + 20 halves + 5 = 37.
-constexpr size_t REG_ID_COUNT = static_cast<size_t>(RegId::IM) + 1;
+/// Derived from the trailing sentinel, so an APPENDED register fires the
+/// dependent `static_assert`.
+constexpr size_t REG_ID_COUNT = static_cast<size_t>(RegId::Count);
 
 // ---------------------------------------------------------------------------
 // CTL-13 — run state
@@ -241,9 +257,10 @@ struct PauseReason {
         /// was reached. `id` names the transient subscription where there was
         /// one.
         RunTo,
-        /// The magic breakpoint opcode (CTL-14).
+        /// The magic breakpoint opcode (CTL-14). **UNOWNED**: see below.
         Magic,
         /// A failed rewind or state load left the machine corrupt (CTL-11).
+        /// **UNOWNED**: see below.
         Corrupt,
         /// A script's explicit stop. `id` names its subscription, `text` its
         /// message — which is how a regression row tells a script verdict from
@@ -251,6 +268,13 @@ struct PauseReason {
         Script,
     };
 
+    /// TWO REASONS HAVE NO OWNING CLIENT (`by == CLIENT_NONE`): `Magic` and
+    /// `Corrupt`. Neither is anyone's verb — the magic opcode is the guest's and
+    /// the corruption is the machine's — so SES-01's "detach resumes a machine
+    /// paused BY THIS CLIENT" must not resume either of them, however many
+    /// clients come and go. A client id of `CLIENT_NONE` is what says so, and
+    /// implementing that rule is B's and B5's (owner decision, Revision 6);
+    /// stating it is B0's.
     Kind        kind   = Kind::None;
     ClientId    by     = CLIENT_NONE;
     EventId     id     = EVENT_NONE;
@@ -315,10 +339,26 @@ struct MachineInfo {
     MachineType type = MachineType::ZXN_ISSUE2;
     /// 28 MHz / this = the CPU clock. 8, 4, 2 or 1 (NR 0x07).
     int cpu_divisor = 8;
-    /// T-states per scanline and per frame at the 3.5 MHz reference.
-    uint32_t cycles_per_line  = 0;
-    uint32_t cycles_per_frame = 0;
-    /// Lines per frame, i.e. `vc_max + 1`.
+    // TWO CLOCK DOMAINS, NEVER BOTH CALLED "CYCLES". The first cut of this
+    // struct had `cycles_per_line` / `cycles_per_frame` documented as T-states
+    // while `Time::master_cycle` and `run_to_cycle()` are 28 MHz master cycles
+    // — 4x apart under one word, which is the readiest way to be off by four.
+    // Both domains are carried, under `MachineTiming`'s own field names
+    // (`src/core/emulator_config.h`), which is where the backend reads them
+    // from; `debug_types_check.cpp` pins the names and the types against that
+    // struct, so a rename on either side is a build failure.
+
+    /// CPU T-states at the 3.5 MHz reference. Same domain as
+    /// `Time::tstates_total`.
+    int tstates_per_line  = 0;
+    int tstates_per_frame = 0;
+
+    /// 28 MHz master cycles. Same domain as `Time::master_cycle`,
+    /// `Time::cycle_in_frame`, `run_to_cycle()` and `EventFilter::cycle`.
+    uint64_t master_cycles_per_line  = 0;
+    uint64_t master_cycles_per_frame = 0;
+
+    /// Lines per frame, i.e. `vc_max + 1` — `MachineTiming::lines_per_frame`.
     int lines = 0;
     /// Frames per second, derived — not a nominal 50.
     double fps = 0.0;
@@ -394,9 +434,17 @@ constexpr size_t AY_REGISTER_COUNT = 16;
 /// INS-10 — chips in the TurboSound stack.
 constexpr size_t AY_CHIP_COUNT = 3;
 
-/// NR 0x06 bit 0 — which volume/envelope curve the three chips use
-/// (`TurboSound::ay_mode()`). Named rather than a bare bool because a frontend
-/// that gets the polarity backwards mislabels every chip and nothing notices.
+/// Which volume/envelope curve the three chips use — `TurboSound::ay_mode()`.
+/// Named rather than a bare bool because a frontend that gets the polarity
+/// backwards mislabels every chip and nothing notices.
+///
+/// NOT THE WHOLE REGISTER, and a panel author must not read it as such: the
+/// hardware field is NR 0x06 **bits 1:0**, four values, and one of them holds
+/// all three AY chips in reset — which jnext models
+/// (`src/audio/turbosound.h`). INS-10 asks only for `ay_mode()`, whose backing
+/// accessor is a bool, so this enum inherits that two-value view faithfully and
+/// cannot report the reset state. A frontend that needs it reads NR 0x06
+/// through `nextreg_peek()`.
 enum class AyChipMode : uint8_t { Ym = 0, Ay = 1 };
 
 /// NR 0x08 bit 5 — channel-to-side assignment (`TurboSound::stereo_mode()`).
@@ -434,21 +482,39 @@ enum class Layer : uint8_t {
     Tilemap,
     /// The NR 0x4A fallback colour, per scanline. Belongs to no layer.
     Background,
+
+    /// NOT A VIEW — the count, and it must stay last. See `EventKind::Count`.
+    Count,
 };
 
-constexpr size_t LAYER_COUNT = static_cast<size_t>(Layer::Background) + 1;
+/// Derived from the trailing sentinel, so an APPENDED view fires the dependent
+/// `static_assert` — which is the only signal there is, because the eight views
+/// have no non-Qt counterpart to be diffed against.
+constexpr size_t LAYER_COUNT = static_cast<size_t>(Layer::Count);
 
 /// Width in pixels of every `render_layer()` destination and of `framebuffer()`
 /// (INS-14: "width 640"). Rows 0..vc are drawn over a 0x00000000 fill, where
 /// alpha 0 means transparent.
+///
+/// Its oracle is `Renderer::FB_WIDTH` — the framebuffer these pixels actually
+/// go into — not `SpriteEngine::DISPLAY_WIDTH`, which is the same number for an
+/// unrelated reason (the sprite engine's own full pixel width) and would go on
+/// agreeing if the framebuffer changed. Both are asserted in
+/// `debug_types_check.cpp`, the renderer's as the one that matters.
 constexpr size_t RENDER_WIDTH = 640;
 
 /// INS-15 — which of the four clip windows `clip_window()` returns.
 ///
 /// NOT `Layer` above: these are the four hardware clip registers of
-/// NR 0x18-0x1C, which is a different set from the eight render views. §4 spells
-/// both `Layer`; they cannot be one type.
-enum class ClipLayer : uint8_t { Layer2 = 0, Sprites, Ula, Tilemap };
+/// NR 0x18-0x1C, a different set from the eight render views. §4 spelled BOTH
+/// `Layer` when these headers were written, which is not expressible as one
+/// type; Revision 6 adopted the split, so INS-14 is `Layer` and INS-15 is
+/// `ClipLayer`.
+/// `Count` is not a window; it must stay last. See `EventKind::Count`.
+enum class ClipLayer : uint8_t { Layer2 = 0, Sprites, Ula, Tilemap, Count };
+
+/// The four hardware clip windows of NR 0x18-0x1C, from the trailing sentinel.
+constexpr size_t CLIP_LAYER_COUNT = static_cast<size_t>(ClipLayer::Count);
 
 /// INS-15 — which palette bank to read or write.
 ///
@@ -554,8 +620,14 @@ struct MatrixKey {
 /// CLI owning it. Accepts a single alnum character, the punctuation with a
 /// well-known SYMBOL SHIFT compound, the named keys
 /// (enter/return/space/up/down/left/right) and the explicit `sym+<c>` /
-/// `caps+<c>` forms, case-insensitively. Returns false for a name it does not
-/// know, leaving `out` unspecified.
+/// `caps+<c>` forms, case-insensitively.
+///
+/// Returns false for a name it does not know, and on that path `out` is
+/// DEFAULT-CONSTRUCTED (all four fields -1), never left as it was. Four callers
+/// share this function — the DSL, both GUI frontends and `--delayed-keypress` —
+/// and "unspecified on false" is a footgun in a function that many hands call:
+/// one caller that forgets to check the bool would inject whatever key the
+/// previous call left behind.
 bool key_name_to_matrix(const std::string& name, MatrixKey& out);
 
 /// IN-03 — which joystick connector.

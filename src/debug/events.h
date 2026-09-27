@@ -9,8 +9,12 @@
 //
 // THREE PROPERTIES OF THIS FILE ARE THE CONTRACT, not implementation detail:
 //
-//  1. FILTERS ARE CHEAP, CONDITIONS ARE NOT. `EventFilter` holds only what the
-//     hot path can test with an integer compare or a bitmap lookup. A
+//  1. FILTERS ARE CHEAP, CONDITIONS ARE NOT. `EventFilter` is a
+//     SUBSCRIPTION-TIME value, built once by `subscribe()`; its `pages` and
+//     `regs` sets are `std::vector` for exactly that reason, and the backend
+//     compiles them into whatever the hot path actually reads (the §6 slot
+//     masks). What the hot path then tests is an integer compare or a bitmap
+//     lookup — no allocation, no iteration of these vectors. A
 //     `Condition` is a predicate the SUBSCRIBER compiled (the DSL from its
 //     `when` clause, ZRCP by token-translating ZEsarUX's dialect into the same
 //     compiler); it runs ONLY at an instruction boundary, for an event that
@@ -119,11 +123,23 @@ enum class EventKind : uint8_t {
     /// and delivered at the boundary of the slot the burst ran in, so
     /// **≤1 instruction late**. A slot is DMA *or* CPU, never both.
     Dma,
+
+    /// NOT A KIND — the count, and it must stay last.
+    ///
+    /// A TRAILING SENTINEL IS THE ONLY MECHANISM THAT CATCHES AN APPEND. The
+    /// first version of this header derived the count as
+    /// `static_cast<size_t>(Dma) + 1`, which is blind by construction: adding a
+    /// fifteenth kind after `Dma` leaves the count at 14 and every `static_assert`
+    /// over it keeps passing, so a new kind could ship with no mask bit and no
+    /// switch arm — exactly what the prose claimed was impossible. Naming the
+    /// last real enumerator in an assert (`static_assert(Dma == 13)`) does not
+    /// help either: the appended kind is 14 and `Dma` is still 13.
+    Count,
 };
 
-/// Number of `EventKind` enumerators. A `static_assert`-able denominator, so a
-/// new kind that forgets a mask bit or a switch arm is a build failure.
-constexpr size_t EVENT_KIND_COUNT = static_cast<size_t>(EventKind::Dma) + 1;
+/// Number of `EventKind` enumerators. Derived from the trailing sentinel, so
+/// APPENDING a kind changes it and every dependent `static_assert` fires.
+constexpr size_t EVENT_KIND_COUNT = static_cast<size_t>(EventKind::Count);
 
 /// CAP-EVT — sub-kind of `EventKind::Copper` (§4.3).
 enum class CopperEventKind : uint8_t {
@@ -362,9 +378,25 @@ constexpr uint32_t FRAME_EVERY = 0xFFFFFFFFu;
 /// ignored. Nothing here allocates on the hot path and nothing here is
 /// evaluated by an interpreter.
 struct EventFilter {
+    /// The page set's element type — the same width as `MemSpace::index` and
+    /// `Event::phys_page`, named so `debug_types_check.cpp` can pin that.
+    using PageSet = std::vector<uint16_t>;
+    /// The NextREG set's element type: a register number is 8 bits.
+    using RegSet = std::vector<uint8_t>;
+
     /// `Execute`: PC range, inclusive both ends. `Mem`: logical address range,
-    /// inclusive. `Copper`: Copper-PC range. `Dma{Byte}`: source/destination
-    /// range. A single address is `lo == hi`.
+    /// inclusive. `Copper`: Copper-PC range. A single address is `lo == hi`.
+    ///
+    /// `Dma{Byte}`: **EITHER endpoint** — the byte matches when `dma_src` OR
+    /// `dma_dst` falls in `[lo,hi]`. §4.3 says "src/dst range for `Byte`"
+    /// without saying which, and one pair cannot express two independent
+    /// ranges; "either" is the reading that makes `on dma byte 0x4000..0x5AFF`
+    /// catch a transfer into the screen whichever direction it runs, which is
+    /// what the DSL's use of it is for. A client that wants the endpoints
+    /// SEPARATELY (src only, dst only, or a different range each) subscribes
+    /// twice and filters on `Event::dma_src` / `dma_dst` in its condition —
+    /// noted here because the DSL may want exactly that, and the interface does
+    /// not offer it.
     uint16_t lo = 0;
     uint16_t hi = 0xFFFF;
 
@@ -376,7 +408,7 @@ struct EventFilter {
     /// `Mem`: match on the physical page INSTEAD of a logical range, for any
     /// page in this set. Empty = use the range above. A `Mem` filter is one or
     /// the other; a range that also carries `page` is the AND form.
-    std::vector<uint16_t> pages;
+    PageSet pages;
 
     /// `Port`: `(port & port_mask) == port_value`. GH #222's low-byte rule is
     /// `port_mask = 0x00FF`; a full 16-bit decode is `port_mask = 0xFFFF`.
@@ -385,7 +417,7 @@ struct EventFilter {
 
     /// `NextRegWrite`, and `Copper` as its NR-set filter: the register numbers
     /// to match. Empty = every register.
-    std::vector<uint8_t> regs;
+    RegSet regs;
 
     /// `Mem`, `Port`, `NextRegWrite`: restrict to one originator. `Any` = no
     /// restriction.
@@ -451,8 +483,13 @@ using Condition = std::function<bool(const Event&, const Debugger&)>;
 using Handler = std::function<Action(const Event&, Debugger&)>;
 
 /// CAP-EVT — what `subscribe()` takes (§4.3: "`{kind, filter, access, condition?, once,
-/// transient, action, enabled, owner}`", plus the `handler` §4.2a's contract
-/// requires and the sub-kinds the Copper/DMA rows need).
+/// transient, action, enabled, owner, handler?}`" as Revision 6 words it, plus
+/// the sub-kinds the Copper/DMA rows need).
+///
+/// `handler?` was NOT in §4.3's tuple when these headers were written — it was
+/// added to the design after B0's review confirmed the omission, because §4.2a
+/// and §9 both require a handler and "a handler's verdict may override the
+/// static action" cannot be expressed by a `bool` condition.
 /// (`owner` is not a field: it is the `ClientId by` of the `subscribe()` call
 /// that created this subscription, and is reported back by `SubscriptionInfo`.)
 struct Subscription {
