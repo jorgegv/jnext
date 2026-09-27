@@ -427,7 +427,8 @@ void Dma::write(uint8_t val, bool z80_compat) {
             status_at_least_one_ = false;
             in_waiting_cycles_ = false;
             dma_log()->debug("DMA enabled via R3 -> TRANSFERRING");
-            if (events_armed_) latch_start_();   // §4.3 `Dma{Start}`, site 1/3
+            if (start_events_armed_ && debug_state_->armed())
+                latch_start_();                  // §4.3 `Dma{Start}`, site 1/3
         }
 
         if (val & 0x08)
@@ -578,7 +579,8 @@ void Dma::process_r6_command(uint8_t val) {
         phase_ = Phase::START_DMA;
         status_at_least_one_ = false;
         in_waiting_cycles_ = false;
-        if (events_armed_) latch_start_();       // §4.3 `Dma{Start}`, site 2/3
+        if (start_events_armed_ && debug_state_->armed())
+            latch_start_();                      // §4.3 `Dma{Start}`, site 2/3
         break;
 
     case 0x83:  // Disable DMA
@@ -796,7 +798,7 @@ int Dma::execute_burst(int max_bytes) {
         // addresses this byte USED, i.e. before the increments below move them.
         // Armed separately from Start/End (see set_events_armed): this is the
         // one DMA site whose cost scales with the transfer.
-        if (byte_events_armed_)
+        if (byte_events_armed_ && debug_state_->armed())
             latch_byte_(src_, dst_, data, src_is_io, dst_is_io);
 
         // Increment counter (counts up, compared against block_len_)
@@ -823,7 +825,7 @@ int Dma::execute_burst(int max_bytes) {
             // Latched BEFORE cmd_load() below, which resets `counter_` and the
             // addresses: an auto-restart is `End` THEN `Start`, and the End's
             // payload has to describe the block that just finished.
-            if (events_armed_) latch_end_();
+            if (end_events_armed_ && debug_state_->armed()) latch_end_();
 
             if (on_interrupt) {
                 on_interrupt();
@@ -833,7 +835,8 @@ int Dma::execute_burst(int max_bytes) {
                 // Reload addresses and counter for next pass
                 cmd_load();
                 phase_ = Phase::START_DMA;
-                if (events_armed_) latch_start_();  // §4.3 `Dma{Start}`, 3/3
+                if (start_events_armed_ && debug_state_->armed())
+                    latch_start_();             // §4.3 `Dma{Start}`, 3/3
                 dma_log()->debug("DMA auto-restart");
             } else {
                 state_ = State::IDLE;

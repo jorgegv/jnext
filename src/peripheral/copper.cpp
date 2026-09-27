@@ -199,7 +199,8 @@ void Copper::execute(int hc, int vc, NextReg& nextreg) {
             // GH #276 B2 §4.3 `Copper{Wait}` — "a WAIT was satisfied (the
             // Copper PC advanced past it)". Latched BEFORE the advance so
             // `Event::copper_pc` names the WAIT, not the instruction after it.
-            if (events_armed_) latch_wait_(vpos, hthresh, hc, cvc_effective);
+            if (wait_events_armed_ && debug_state_->armed())
+                latch_wait_(vpos, hthresh, hc, cvc_effective);
             // Condition met — advance past this WAIT
             pc_ = (pc_ + 1) & 0x3FF;
             // Guarded, like every per-instruction and per-upload-word trace in
@@ -221,7 +222,8 @@ void Copper::execute(int hc, int vc, NextReg& nextreg) {
             // is the edge, and it is cleared on the satisfied arm above, on a
             // PC reset and on reset(), so a second HALT reached later in the
             // same program latches again.
-            if (events_armed_ && !halt_stalling_ && is_halt(instr)) {
+            if (halt_events_armed_ && !halt_stalling_ && is_halt(instr) &&
+                debug_state_->armed()) {
                 halt_stalling_ = true;
                 latch_halt_(hc, cvc_effective);
             }
@@ -248,7 +250,8 @@ void Copper::execute(int hc, int vc, NextReg& nextreg) {
             //
             // Latched BEFORE the write so `prev` is the byte that was there —
             // the same rule the CPU-side hook follows.
-            if (events_armed_) latch_move_(reg, val, hc, cvc_this_cycle);
+            if (move_events_armed_ && debug_state_->armed())
+                latch_move_(reg, val, hc, cvc_this_cycle);
             // UNCONDITIONAL, not gated on events_armed_: the NR-side hook's
             // suppression reads this, and a MOVE that forgot to set it would
             // put a SECOND entry in the ring for the same write.

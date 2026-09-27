@@ -191,6 +191,33 @@ public:
     bool     magic_stop() const { return magic_stop_; }
     uint16_t magic_stop_pc() const { return magic_stop_pc_; }
 
+    /// Drop both latches. `unpause_()` does this on every resume; a
+    /// `load_state` while PAUSED never unpauses and must do it explicitly, or
+    /// CTL-13 explains the restored machine's stop with the replaced machine's
+    /// evidence (`Emulator::debug_after_state_restore_()`).
+    void clear_stop_evidence() { watch_stop_ = false; magic_stop_ = false; }
+
+    /// GH #276 B2 — how many times the machine has left `paused`. Bumped by
+    /// `unpause_()`, i.e. by EVERY transition out of paused, including a raw
+    /// `DebugState::resume()` from the Qt frontend that never reaches a backend
+    /// verb.
+    ///
+    /// `Debugger::Impl` stamps it on the event-stop latch and `state()` ignores a
+    /// latch whose generation has moved. `Impl::arm()` alone was not enough — it
+    /// is called by the backend's control verbs and the Qt panels still drive this
+    /// class directly until package Q, so a Qt-driven Run left the latch standing
+    /// and it explained the NEXT, unrelated stop. Same argument that put
+    /// `watch_stop_` / `magic_stop_` in `unpause_()`, reached without giving this
+    /// class a pointer back into the backend.
+    uint64_t resume_generation() const { return resume_gen_; }
+
+    /// Drop the "the ring holds something" flag after the ring itself was
+    /// emptied from outside a drain (the same restore path).
+    void clear_ring_flag() {
+        ring_nonempty_ = false;
+        recompute_boundary_work_();
+    }
+
     // Step modes.
     void step_into();
     void step_over(uint16_t next_pc);
@@ -327,6 +354,11 @@ public:
     /// The port twin. Ports have no slots, so it is one bool.
     bool port_watch_armed() const { return breakpoints_.port_watch_armed(); }
 
+    /// The two mask bytes themselves, so a row can assert "nothing at all is
+    /// armed" rather than probing eight addresses.
+    uint8_t rd_watch_mask() const { return breakpoints_.watch_slot_mask_rd(); }
+    uint8_t wr_watch_mask() const { return breakpoints_.watch_slot_mask_wr(); }
+
     /// Is there anything for the boundary drain to do? A single cached bool:
     /// the ring holds something, or a `Cycle` subscription is armed (the one
     /// kind whose condition is a boundary comparison rather than a latch).
@@ -335,6 +367,10 @@ public:
     /// Is a live `Execute` subscription armed? The gate on the pre-instruction
     /// hook, so the ordinary breakpoint path pays one bool test for it.
     bool execute_events_armed() const { return execute_armed_; }
+
+    /// The same, for `NextReg::write`'s hook. Without it every guest NextREG
+    /// write ran a linear scan of all subscriptions.
+    bool nextreg_events_armed() const { return nextreg_armed_; }
 
     /// Run the pre-instruction `Execute` gate for `pc`. True iff it stopped.
     bool run_execute_gate(uint16_t pc) {
@@ -353,10 +389,28 @@ public:
     /// ring, and neither belongs in a header the MMU includes.
     void latch_event(jnext::dbg::LatchEntry& e);
 
+    /// The same, for a site whose event happened at a cycle the LIVE CLOCK no
+    /// longer holds.
+    ///
+    /// `on_scanline` is the case: it is called from the post-instruction device
+    /// cluster, so `clock_.get()` is already past the line boundary by the whole
+    /// instruction that crossed it (measured +32 / +64 master cycles at 3.5 MHz).
+    /// `events.h` promises "latched at the line with its exact cycle", and B2
+    /// stamped the live clock and threw the boundary away one line from where the
+    /// caller handed it in. The stamper derives `vc`/`hc` from whichever cycle it
+    /// is given, so the whole header stays self-consistent.
+    void latch_event_at(jnext::dbg::LatchEntry& e, uint64_t cycle);
+
     /// Install the site-context stamper — the one thing only the `Emulator`
     /// knows ({cycle, frame, pc, vc, hc}). Called ONLY from inside
     /// `latch_event`, i.e. only when a filter has already matched.
-    void set_latch_stamper(std::function<void(jnext::dbg::LatchEntry&)> fn) {
+    ///
+    /// `at` is the cycle to stamp from, or null for "the live clock". A POINTER
+    /// rather than a sentinel value: cycle 0 is a real cycle (before the first
+    /// tick), and a sentinel that is also a legal value is how an off-by-one
+    /// hides.
+    void set_latch_stamper(std::function<void(jnext::dbg::LatchEntry&,
+                                             const uint64_t* at)> fn) {
         stamp_common_ = std::move(fn);
     }
 
@@ -428,8 +482,8 @@ private:
         // LEAVING. Cleared here rather than in resume(), because resume() is
         // only one of seven transitions out of paused and this is the one place
         // all seven pass through — the same argument the GH #221 arm rests on.
-        watch_stop_ = false;
-        magic_stop_ = false;
+        clear_stop_evidence();
+        ++resume_gen_;
     }
 
     bool active_ = false;
@@ -450,6 +504,7 @@ private:
     bool data_bp_hit_ = false;
     uint16_t data_bp_addr_ = 0;
     // GH #276 B2 — see note_watch_stop() / note_magic_stop().
+    uint64_t resume_gen_ = 0;
     bool     watch_stop_ = false;
     bool     watch_stop_is_write_ = false;
     bool     magic_stop_ = false;
@@ -461,14 +516,18 @@ private:
         event_boundary_work_ = ring_nonempty_ || cycle_armed_;
     }
 
+    /// The one body behind `latch_event` and `latch_event_at`.
+    void latch_event_at_(jnext::dbg::LatchEntry& e, const uint64_t* at);
+
     jnext::dbg::EventTable* events_ = nullptr;
     std::function<bool()> event_drain_;
     std::function<bool(uint16_t)> execute_gate_;
-    std::function<void(jnext::dbg::LatchEntry&)> stamp_common_;
+    std::function<void(jnext::dbg::LatchEntry&, const uint64_t*)> stamp_common_;
     bool event_boundary_work_ = false;
     bool ring_nonempty_       = false;
     bool cycle_armed_         = false;
     bool execute_armed_       = false;
+    bool nextreg_armed_       = false;
     StepMode step_mode_ = StepMode::NONE;
     uint16_t step_out_sp_ = 0;
     uint64_t target_cycle_ = 0;

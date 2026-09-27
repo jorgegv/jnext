@@ -144,6 +144,35 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
 
     emu.debug_state().breakpoints() = std::move(saved_bps);
     emu.debug_state().set_active(saved_active);
+
+    // ── GH #276: WHAT B3's CTL-12 RECONSTRUCT MUST ADD HERE ─────────────────
+    //
+    // Nothing below is needed TODAY, because nothing in the tree holds a
+    // `jnext::dbg::Debugger` across this call yet — B3 is what makes one survive
+    // it (CTL-12 keeps every client's subscriptions, switches, attach state and
+    // the symbol table across a cold boot ON PURPOSE). Written down here, at the
+    // site, because B2 left it recorded nowhere and each item is silent:
+    //
+    //  1. **Re-install the three publications.** `~Emulator()` + placement-new
+    //     gives a BRAND-NEW `DebugState` at the same address, with
+    //     `events_ == nullptr`, no drain/gate hooks and no latch stamper. A
+    //     surviving `Debugger` is then silently DISCONNECTED: every subscription
+    //     still exists and lists as live, and not one can ever fire.
+    //     B3 must re-run the `Debugger` constructor's three calls —
+    //     `set_event_table`, `set_event_hooks`, and (the Emulator's own)
+    //     `install_debug_latch_stamper_` via `init()` — plus `gates_changed()`
+    //     and the eight-page seed.
+    //  2. **`BreakpointSet` carries the EVENT mask half across.** `saved_bps`
+    //     above copies `ev_mask_rd_` / `ev_mask_wr_` / `ev_port_` with it, so the
+    //     restored gate is stale-OPEN against a `DebugState` whose `events_` is
+    //     null. Cost only — `Mmu::watch_read_` / `watch_write_` early-return on a
+    //     null table — but it is an out-of-line call per access until something
+    //     re-publishes. `gates_changed()` in (1) clears it.
+    //  3. **`debug_latch_reset(true)`, if B3 issues it, must come AFTER (1).**
+    //     Issued before `~Emulator()` it stamps through the OLD emulator's latch
+    //     stamper into the OLD table and is then thrown away with it; issued
+    //     after `init()` but before (1) it is dropped on the null table.
+    // ────────────────────────────────────────────────────────────────────────
     emu.set_audio_mute_mask(saved_mute);
     emu.restore_esxdos_stub_state(std::move(saved_esxdos_state));
     emu.restore_rzx_failed_outputs(std::move(saved_rzx_failed));

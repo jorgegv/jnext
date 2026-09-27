@@ -41,6 +41,17 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
     impl_->ds().set_event_table(&impl_->events);
     impl_->ds().set_event_hooks([this]() { return impl_->drain_boundary(); },
                                 [this](uint16_t pc) { return impl_->execute_gate(pc); });
+
+    // §6.1 — SEED THE EIGHT LIVE PAGES. `DebugState::on_slot_remapped()`
+    // early-returns while the table is null, so every `rebuild_ptr()` during
+    // `Emulator::init()` was discarded before this object existed. B2 shipped
+    // without this and `EventTable::slot_page_` stayed all zeros, which makes a
+    // page-qualified `Mem` filter wrong in BOTH directions: a filter naming page
+    // 0x00 arms all eight slots, and one naming the page actually mapped arms
+    // none. DZRP's `bank+1` watchpoints (REQ-dzrp-11) are built on this.
+    for (int s = 0; s < 8; ++s)
+        impl_->ds().on_slot_remapped(s, impl_->emu.mmu().get_effective_page(s));
+
     impl_->gates_changed();
 }
 
@@ -66,8 +77,8 @@ Debugger::~Debugger() {
     // means, and a second writer of the same two bytes is how the two come to
     // disagree. The ORDER is therefore load-bearing.
     impl_->ds().refresh_event_gates();
-    impl_->emu.copper().set_events_armed(false);
-    impl_->emu.dma().set_events_armed(false, false);
+    impl_->emu.copper().set_events_armed(false, false, false);
+    impl_->emu.dma().set_events_armed(false, false, false);
 }
 
 // ---------------------------------------------------------------------------
@@ -282,7 +293,12 @@ RunState Debugger::state() const {
     // the id, the address and the access, none of which any other source has.
     // The latch was written by the drain or the pre-instruction gate at the
     // moment of the stop, and cleared by the next control verb (`Impl::arm`).
-    if (impl_->event_stop_latched) {
+    // The generation test is what makes this latch describe THIS stop.
+    // `Impl::arm()` clears it, but the Qt panels still drive `DebugState`
+    // directly until package Q, so a Qt-driven Run never reaches a backend verb
+    // and the latch would explain the next, unrelated stop.
+    if (impl_->event_stop_latched &&
+        impl_->event_stop_gen == ds.resume_generation()) {
         st.pause_reason = impl_->event_stop;
         return st;
     }

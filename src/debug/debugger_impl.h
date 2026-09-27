@@ -93,7 +93,7 @@ struct Debugger::Impl {
         // for the step-off arm: one place, so a verb added later cannot forget.
         event_stop_latched = false;
         event_stop         = PauseReason{};
-        matched.clear();
+        events.clear_hits();
     }
 
     void arm_target(PauseReason::Kind kind, ClientId by, uint16_t addr) {
@@ -128,16 +128,19 @@ struct Debugger::Impl {
     /// eight `Mmu` sites reach through.
     EventTable events;
 
-    /// §4.3 `Paused{matched[]}` — every subscription that matched at the stop,
-    /// transient ones included. BUILT here and left for B3's listener push: the
-    /// `Paused` notification is a session concept and inventing a channel for it
-    /// in B2 would be a second one to retire.
-    std::vector<Hit> matched;
+    // §4.3 `Paused{matched[]}` lives on `events` (`EventTable::hits()`), NOT
+    // here: it is delivery state, and a member of this PRIVATE nested struct is
+    // observable by nothing, which is how B2's "a nested raise_host_event()
+    // clears the outer boundary's list" defect reached review with 744 green
+    // rows. B3 reads `events.hits()` for its `Paused` push.
 
     /// CTL-13 — the `pause_reason` a subscription's `Stop` produced. The FIRST
-    /// Stop of the boundary wins; `matched` above carries the rest.
+    /// Stop of the boundary wins; `events.hits()` carries the rest.
     PauseReason event_stop;
     bool        event_stop_latched = false;
+    /// `DebugState::resume_generation()` at the moment the latch was written.
+    /// `state()` ignores a latch whose generation has moved — see there.
+    uint64_t    event_stop_gen = 0;
 
     /// Re-entrancy guard for the drain: a `Handler` may `subscribe()`,
     /// `unsubscribe()` (its own id included) or `raise_host_event()`, and the

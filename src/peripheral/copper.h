@@ -50,8 +50,29 @@ public:
     // ->has_kind(Copper)` per master cycle would be three dependent loads in
     // the hottest loop in the emulator.
     void set_debug_state(DebugState* ds) { debug_state_ = ds; }
-    void set_events_armed(bool a) { events_armed_ = a; }
-    bool events_armed() const { return events_armed_; }
+
+    /// ONE FLAG PER SUB-KIND, not one for the engine. B2 shipped a single
+    /// `events_armed_` set from `has_kind(Copper) || has_kind(NextRegWrite)`, so
+    /// a `Halt`-only subscriber accumulated ~16 `Move` entries per instruction
+    /// slot — ring space, which is observable (see `Mmu::watch_write_`'s own
+    /// argument for the same thing). `EventTable::has_copper_sub_kind()` existed
+    /// for exactly this and had ZERO callers, which is the same
+    /// declared-but-uncalled shape `is_halt()` had before B2 gave it one.
+    ///
+    /// `move` carries the `NextRegWrite` term too: a MOVE is ONE ring entry
+    /// fanned out at the drain to both kinds, so an NR subscriber alone must
+    /// still arm the MOVE site.
+    void set_events_armed(bool move, bool wait, bool halt) {
+        move_events_armed_ = move;
+        wait_events_armed_ = wait;
+        halt_events_armed_ = halt;
+    }
+    bool move_events_armed() const { return move_events_armed_; }
+    bool wait_events_armed() const { return wait_events_armed_; }
+    bool halt_events_armed() const { return halt_events_armed_; }
+    bool events_armed() const {
+        return move_events_armed_ || wait_events_armed_ || halt_events_armed_;
+    }
 
     void reset();
 
@@ -201,7 +222,9 @@ private:
     // APPENDED (GH #276 B2) — host-side debugger wiring, not machine state, so
     // neither appears in save_state/load_state.
     DebugState* debug_state_ = nullptr;
-    bool        events_armed_ = false;
+    bool        move_events_armed_ = false;
+    bool        wait_events_armed_ = false;
+    bool        halt_events_armed_ = false;
     /// §4.3 `Copper{Halt}` fires on the EDGE: a HALT stalls for every remaining
     /// master cycle, so one latch per cycle would fill the ring by itself. NOT
     /// machine state — it is the event site's own edge memory — but it IS

@@ -8,10 +8,12 @@
 #include "core/nex_saver.h"
 #include "input/keyboard.h"
 #include "debug/inspect.h"
+#include "debug/debugger.h"
 #include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <fstream>
+#include <memory>
 #include <new>
 #include <sched.h>
 
@@ -293,6 +295,63 @@ void HeadlessApp::run() {
     int bench_frames_done = 0;
     if (benchmark_frames_ > 0)
         bench_start = bench_clock::now();
+
+    // ── GH #276 §11 item 3 — THE HOT-LATCH BENCH FIXTURE ──────────────────
+    //
+    // §10.1 gates B2 on "the §11 item 3 hot-latch measurement" and §11 sets the
+    // deadline at "before B2 merges". The measurement needs a RANGE `Mem` WATCH
+    // THAT HITS, and `test/bench/bench.sh` cannot express one — so the first
+    // round of B2 measured it with an uncommitted hook and the number survived
+    // only as prose, which is exactly how an independent re-derivation came back
+    // with a ~35 % different magnitude. This is that hook, in the tree.
+    //
+    // Env-gated in the established `JNEXT_G46B_*` style (zero cost unset), and
+    // deliberately NOT a CLI flag: it is a measurement fixture, not a feature, so
+    // it carries no `cli_options.h` row and no man-page obligation.
+    //
+    //   JNEXT_BENCH_WATCH=lo-hi   arm `Mem[lo,hi] Write` with a Continue handler
+    //   JNEXT_BENCH_WATCH=p       arm nothing; --persistent-breakpoints only
+    //
+    // The `p` form exists because §6.3's armed rows conflated the latch cost with
+    // the pre-existing `--persistent-breakpoints` per-instruction `should_break()`
+    // lookup; A − P is what isolates the latch. The handler returns `Continue`, so
+    // nothing pauses — §6.2 records a run where the watch paused the machine and
+    // the benchmark "measured" 13x by emulating nothing.
+    //
+    // It prints `BENCHWATCH hits=N` to stderr at the end, so a run states its own
+    // hit rate instead of leaving the reader to assume the watch fired.
+    std::unique_ptr<jnext::dbg::Debugger> bench_watch_dbg;
+    unsigned long long* bench_watch_hits = nullptr;
+    if (const char* bw = std::getenv("JNEXT_BENCH_WATCH")) {
+        static unsigned long long hits = 0;
+        bench_watch_hits = &hits;
+        emulator_.debug_state().set_persistent_breakpoints(true);
+        if (bw[0] != 'p') {
+            unsigned lo = 0, hi = 0;
+            if (std::sscanf(bw, "%x-%x", &lo, &hi) == 2) {
+                bench_watch_dbg =
+                    std::make_unique<jnext::dbg::Debugger>(emulator_);
+                jnext::dbg::Subscription bs;
+                bs.kind      = jnext::dbg::EventKind::Mem;
+                bs.access    = jnext::dbg::Access::Write;
+                bs.filter.lo = static_cast<uint16_t>(lo);
+                bs.filter.hi = static_cast<uint16_t>(hi);
+                bs.action    = jnext::dbg::Action::Continue;
+                bs.handler   = [](const jnext::dbg::Event&,
+                                  jnext::dbg::Debugger&) {
+                    ++hits;
+                    return jnext::dbg::Action::Continue;
+                };
+                bench_watch_dbg->subscribe(1, bs);
+                Log::platform()->info(
+                    "JNEXT_BENCH_WATCH: armed Mem[{:#06x},{:#06x}] Write", lo, hi);
+            } else {
+                Log::platform()->warn(
+                    "JNEXT_BENCH_WATCH: expected 'lo-hi' in hex, or 'p'; got '{}'",
+                    bw);
+            }
+        }
+    }
 
     // G46(b) #102 investigation probe (env-gated, zero cost when unset).
     // JNEXT_G46B_PCTRACE=<path>: dump a one-line-per-frame CPU snapshot
@@ -599,6 +658,10 @@ void HeadlessApp::run() {
             const double wall =
                 std::chrono::duration<double>(bench_clock::now() - bench_start).count();
             print_benchmark_result(wall);
+            // The fixture states its own hit rate, so a reader never has to assume
+            // the watch fired (§6.2's run 1 assumed it and was wrong).
+            if (bench_watch_hits)
+                std::fprintf(stderr, "BENCHWATCH hits=%llu\n", *bench_watch_hits);
             running_ = false;
         }
 

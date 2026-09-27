@@ -71,6 +71,7 @@
 #include <spdlog/sinks/ringbuffer_sink.h>
 
 #include <cstring>
+#include <memory>
 #include <fstream>
 
 #include <cstdint>
@@ -2933,6 +2934,11 @@ int main() {
         //   8005  18 FE         JR $
         build_armed(emu, { 0xED, 0x91, 0x15, 0x07, 0x00, 0x18, 0xFE });
         Debugger dbg(emu);
+        // A NON-ZERO prior value, and that IS the row: on a fresh Emulator NR 0x15
+        // reads 0, so `prev == before` was `0 == 0` and an `e.prev = 0` mutation
+        // survived all 744 rows. `prev` is the field a handler needs in order to
+        // undo a caught write, so nothing else constrains it for this kind.
+        emu.nextreg().write(0x15, 0x5A);
         const uint8_t before = emu.nextreg().peek(0x15);
         Rec rec;
         std::vector<uint16_t> pc_at_delivery;
@@ -2952,8 +2958,9 @@ int main() {
         if (rec.evs.size() == 1) {
             check("EVT-NR-02", "with the register and the value",
                   rec.evs[0].reg == 0x15 && rec.evs[0].value == 0x07);
-            check("EVT-NR-03", "and `prev`, peeked at the hook",
-                  rec.evs[0].prev == before,
+            check("EVT-NR-03", "and `prev`, peeked at the hook — asserted against a "
+                                "NON-ZERO prior value, so a hard-coded zero cannot pass",
+                  rec.evs[0].prev == before && before == 0x5A,
                   "prev=" + hex(rec.evs[0].prev) + " before=" + hex(before));
             check("EVT-NR-04", "source Cpu",
                   rec.evs[0].source == EventSource::Cpu);
@@ -4698,6 +4705,76 @@ int main() {
                   " pc=" + hex(pc_of(emu)));
     }
 
+    {
+        // THE QT PATH. `Impl::arm()` clears the event-stop latch, and every backend
+        // control verb calls it — but the Qt panels still drive `DebugState`
+        // DIRECTLY until package Q, so a Qt-driven Run never reaches a backend verb
+        // and the latch would explain the NEXT, unrelated stop. The resume
+        // GENERATION is what closes that, and nothing exercised it.
+        Emulator emu;
+        build_armed(emu, { 0x3E, 0x5A, 0x32, 0x00, 0x90, 0x00, 0x00, 0x18, 0xFE });
+        Debugger dbg(emu);
+        Subscription s;
+        s.kind = EventKind::Mem; s.access = Access::Write;
+        s.filter.lo = 0x9000; s.filter.hi = 0x9000;
+        s.action = Action::Stop;
+        const auto sub = dbg.subscribe(4, s);
+        emu.debug_state().breakpoints().add_pc(0x8006);
+        emu.run_frame();
+        check("REASON-80", "the subscription stops first and names itself",
+              dbg.state().paused && dbg.state().pause_reason.id == sub.value);
+
+        // A RAW resume, exactly as DebuggerManager::on_run() does it today —
+        // NOT dbg.run(), so `Impl::arm()` never runs.
+        emu.debug_state().resume();
+        run_until_paused(emu);
+        check("REASON-81", "the legacy breakpoint stops next",
+              dbg.state().paused && pc_of(emu) == 0x8006,
+              "pc=" + hex(pc_of(emu)));
+        check("REASON-82", "and THAT stop is Breakpoint — the event-stop latch is "
+                           "discarded by the resume GENERATION, not only by a backend "
+                           "verb",
+              dbg.state().pause_reason.kind == PauseReason::Kind::Breakpoint &&
+              dbg.state().pause_reason.id == jnext::dbg::EVENT_NONE,
+              "kind=" + std::to_string(
+                  static_cast<int>(dbg.state().pause_reason.kind)));
+    }
+    {
+        // B-9: the halt-run loop's `!event_stop_pending_` term. A Stop that arrives
+        // WHILE debugger_step() is running a HALT out must end the step there; the
+        // budget is two frames, so without the term the step spends it all.
+        Emulator emu;
+        build_armed(emu, { 0x76, 0x18, 0xFD });        // HALT, then JR $
+        {
+            Z80Registers r = emu.cpu().get_registers();
+            r.IFF1 = 0; r.IFF2 = 0;                    // nothing wakes the HALT
+            emu.cpu().set_registers(r);
+        }
+        Debugger dbg(emu);
+        attach_and_pause(emu);
+        Subscription s;
+        s.kind = EventKind::Scanline; s.filter.scanline = 4;
+        s.action = Action::Stop;
+        dbg.subscribe(1, s);
+        // TWO steps: the first EXECUTES the HALT, so `is_halted()` is true when
+        // the second one starts and the halt-run loop actually engages. Stepping
+        // once reaches the loop's guard with `halted_before == false` and skips
+        // it entirely — which is why the first cut of this row measured 4
+        // T-states and could not have seen anything.
+        emu.debugger_step();
+        dbg.pause(1);
+        const int tstates = emu.debugger_step();
+        const int budget  = static_cast<int>(
+            2u * dbg.machine().tstates_per_frame);
+        check("EVT-STEP-20", "a Stop during the halt-run ENDS the step early rather "
+                             "than spending the whole two-frame budget",
+              tstates > 0 && tstates < budget / 2,
+              "tstates=" + std::to_string(tstates) + " budget=" +
+                  std::to_string(budget));
+        check("EVT-STEP-21", "and the machine is paused where it ended",
+              dbg.state().paused);
+    }
+
     // ── EVT-GATE — the no-subscriber cost claim, as a row ─────────────────
     //
     // §6's constraint is that an unsubscribed machine pays what it paid before.
@@ -4797,6 +4874,1127 @@ int main() {
         check("EVT-SLOT-04", "and it follows the page to another slot",
               emu.debug_state().wr_watch_armed(0x4000) &&
               !emu.debug_state().wr_watch_armed(0xC000));
+    }
+
+
+    // =======================================================================
+    // GH #276 B2 REVISION — the rows the review proved were missing.
+    //
+    // Nine blocking items, and not one of them moved a single row of the 744:
+    // the page-qualified filter was never maintained, the latch sites and the
+    // drain gates disagreed about `armed()`, a DMA NextREG write was tagged
+    // `Cpu`, `Scanline` carried the wrong cycle, the Copper latched sub-kinds
+    // nobody asked for, a nested `raise_host_event` wiped the boundary's hit
+    // list, `Cycle` never retired, and one fixture asserted `0 == 0`. Each row
+    // below FAILS without its fix — verified one at a time, not assumed.
+    // =======================================================================
+
+    // ── EVT-SLOT-10..16 — §6.1: EVERY mapping entry point must notify ─────
+    //
+    // B2 put the notification in `Mmu::rebuild_ptr()` alone and seeded nothing,
+    // so `EventTable::slot_page_` was all zeros for the life of the session and
+    // `map_rom_physical()` — reached from a plain guest `OUT (0x7FFD)` ROM
+    // select — bypassed the one notifier entirely. The failure was silent in
+    // BOTH directions, which is why the enumeration is the row and not a single
+    // happy-path check: a filter naming page 0x00 armed all eight slots, and one
+    // naming the page actually mapped armed none.
+    {
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD }, MachineType::ZX128K);
+        // The page ALREADY mapped at slot 3 before the Debugger exists — the
+        // case B2 could not see, because `on_slot_remapped` early-returns while
+        // the table is null and every `rebuild_ptr()` in `init()` was discarded.
+        const uint16_t live_page = emu.mmu().get_effective_page(3);
+        Debugger dbg(emu);
+        Subscription s;
+        s.kind = EventKind::Mem; s.access = Access::Write;
+        s.filter.pages = { live_page };
+        dbg.subscribe(1, s);
+        check("EVT-SLOT-10", "a page ALREADY mapped when the table is installed arms "
+                             "its slot — the eight live pages are seeded, not zeros",
+              emu.debug_state().wr_watch_armed(0x6000),
+              "page=" + std::to_string(live_page));
+        check("EVT-SLOT-11", "and page 0x00 does NOT arm every slot, which is what a "
+                             "zero-initialised cache did",
+              live_page == 0 || !emu.debug_state().wr_watch_armed(0x0000) ||
+                  emu.mmu().get_effective_page(0) == 0);
+    }
+    {
+        // One row per PUBLIC mapping entry point. `map_rom_physical()` is private
+        // and reached from four of them; `set_page()` goes through `rebuild_ptr`.
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD }, MachineType::ZX128K);
+        Debugger dbg(emu);
+        Subscription s;
+        s.kind = EventKind::Mem; s.access = Access::Write;
+        s.filter.pages = { 0x2A };
+        dbg.subscribe(1, s);
+
+        // THE INVARIANT, asserted as a sweep rather than as a guess at which page
+        // a given API lands on: for EVERY slot, the armed bit must agree with the
+        // page the MMU says that slot serves. A missed notification breaks it on
+        // whichever slot the call touched, whatever the API's own page arithmetic
+        // turns out to be — which is the only form of this row that cannot be
+        // written to pass by accident.
+        auto mask_agrees = [&emu](uint16_t watched) {
+            for (int sl = 0; sl < 8; ++sl) {
+                const bool want = emu.mmu().get_effective_page(sl) == watched;
+                const bool got  =
+                    emu.debug_state().wr_watch_armed(static_cast<uint16_t>(sl << 13));
+                if (want != got) return false;
+            }
+            return true;
+        };
+        check("EVT-SLOT-12", "the invariant holds before any mapping call",
+              mask_agrees(0x2A));
+
+        emu.mmu().set_page(4, 0x2A);
+        check("EVT-SLOT-13", "set_page() keeps it (via rebuild_ptr)",
+              mask_agrees(0x2A) && emu.debug_state().wr_watch_armed(0x8000));
+        emu.mmu().set_page(4, 0x10);
+
+        // map_rom() -> map_rom_physical(): the path that bypassed the notifier.
+        emu.mmu().map_rom(2, 0x2A);
+        check("EVT-SLOT-14", "map_rom() keeps it — it routes through "
+                             "map_rom_physical(), which B2 left silent",
+              mask_agrees(0x2A));
+        emu.mmu().set_page(2, 0x10);
+
+        // map_128k_bank() is the legacy 0x7FFD path's own entry point, and it
+        // re-maps slots 0, 1, 6 and 7 in one call.
+        emu.mmu().map_128k_bank(0x2A);
+        check("EVT-SLOT-15", "map_128k_bank() keeps it across every slot it moves",
+              mask_agrees(0x2A));
+        emu.mmu().map_plus3_bank(0x04);
+        check("EVT-SLOT-16", "and so does map_plus3_bank()", mask_agrees(0x2A));
+
+        // The non-vacuous half: at least one of those calls must actually have put
+        // the watched page somewhere, or the sweep above is comparing false to
+        // false eight times.
+        emu.mmu().set_page(6, 0x2A);
+        check("EVT-SLOT-17", "and the sweep is not vacuous — the watched page really "
+                             "does arm exactly its slot",
+              mask_agrees(0x2A) && emu.debug_state().wr_watch_armed(0xC000) &&
+              !emu.debug_state().wr_watch_armed(0x8000));
+
+        // THE PATH THAT NEEDS `map_rom_physical()`'S OWN NOTIFY. The other four
+        // callers write `nr_mmu_` afterwards, so the notifying setter covers them;
+        // `set_nr_8c()` -> `engage_legacy_rom_paging_slot(slot, false)` deliberately
+        // does NOT touch `nr_mmu_` (VHDL leaves MMU<i> alone on an NR 0x8C write,
+        // zxnext.vhd:3813), so it re-points the slot with NOTHING else to notify.
+        // Put slots 0/1 back into legacy ROM mode so the NR 0x8C path has
+        // something to re-point, and watch the ROM page it will select.
+        emu.mmu().map_128k_bank(0x00);
+        emu.mmu().set_nr_8c(0x00);
+        const uint16_t rom_page_lock1 = 2;   // lock_rom1 -> sram_rom 2 -> page 4/5
+        Subscription rs;
+        rs.kind = EventKind::Mem; rs.access = Access::Read;
+        rs.filter.pages = { rom_page_lock1 };
+        dbg.subscribe(1, rs);
+        auto rd_agrees = [&emu](uint16_t watched) {
+            for (int sl = 0; sl < 8; ++sl) {
+                const bool want = emu.mmu().get_effective_page(sl) == watched;
+                const bool got  =
+                    emu.debug_state().rd_watch_armed(static_cast<uint16_t>(sl << 13));
+                if (want != got) return false;
+            }
+            return true;
+        };
+        check("EVT-SLOT-18", "the read invariant holds before the NR 0x8C write",
+              rd_agrees(rom_page_lock1));
+        // NR 0x8C bit 4 is altrom_lock_rom0, bit 5 altrom_lock_rom1
+        // (zxnext.vhd:2997-3007): either one overrides `sram_rom`, so slots 0/1 are
+        // re-pointed to a DIFFERENT physical ROM page — through
+        // `engage_legacy_rom_paging_slot(slot, set_nr_sentinel=false)`, which is the
+        // ONE re-mapping path that deliberately leaves `nr_mmu_` alone (VHDL leaves
+        // MMU<i> untouched on an NR 0x8C write, :3813). So it is the one path with
+        // nothing but `map_rom_physical()`'s own notify behind it.
+        emu.mmu().set_nr_8c(0x20);
+        check("EVT-SLOT-19", "and it still holds after it — `map_rom_physical()`'s own "
+                             "notify is what carries this path",
+              rd_agrees(rom_page_lock1),
+              "slot0=" + std::to_string(emu.mmu().get_effective_page(0)) +
+                  " mask=" + std::to_string(emu.debug_state().rd_watch_mask()));
+    }
+    {
+        // The GUEST-REACHABLE version of the same thing: a plain OUT (0x7FFD)
+        // ROM select reaches apply_legacy_rom_slots_ -> map_rom_physical, and B2
+        // left a page-qualified filter on the ROM page reading a stale page.
+        Emulator emu;
+        //   8000  3E 10        LD A,0x10      (ROM select bit 4 set)
+        //   8002  01 FD 7F     LD BC,0x7FFD
+        //   8005  ED 79        OUT (C),A
+        //   8007  18 FE        JR $
+        build_armed(emu, { 0x3E, 0x10, 0x01, 0xFD, 0x7F, 0xED, 0x79, 0x18, 0xFE },
+                    MachineType::ZX128K);
+        Debugger dbg(emu);
+        const uint16_t rom_page_after = 2;   // sram_rom 1 -> pages 2/3 in slots 0/1
+        Subscription s;
+        s.kind = EventKind::Mem; s.access = Access::Read;
+        s.filter.pages = { rom_page_after };
+        dbg.subscribe(1, s);
+        emu.run_frame();
+        check("EVT-SLOT-20", "a guest OUT (0x7FFD) ROM select notifies, so a filter "
+                             "on the newly selected ROM page arms its slot",
+              emu.debug_state().rd_watch_armed(0x0000) ==
+                  (emu.mmu().get_effective_page(0) == rom_page_after),
+              "slot0 page=" + std::to_string(emu.mmu().get_effective_page(0)));
+    }
+
+    // ── EVT-GATE-20..26 — §4.1: the backend is INERT while unarmed ─────────
+    //
+    // B2's latch sites gated on `has_kind()` (or an engine flag) while all four
+    // drains gated on `armed() && events_pending()`. A subscription on a machine
+    // with no client attached therefore FILLED the 512-entry ring and dumped up
+    // to 513 stale events at the first armed boundary, every one carrying a
+    // cycle from before the machine was being watched and `overflowed` set.
+    // EVT-GATE-10/11 asserted the §4.1 property for `Mem` only — the two kinds
+    // whose sites do take `watchpoints_live()`.
+    {
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        emu.debug_state().set_active(false);          // UNARMED
+        Debugger dbg(emu);
+        Rec rec;
+        Subscription s;
+        s.kind = EventKind::Scanline; s.filter.scanline = 100;
+        s.action = Action::Continue; s.handler = recorder(rec);
+        dbg.subscribe(1, s);
+        check("EVT-GATE-20", "armed() is false", !dbg.armed());
+        emu.run_frame();
+        emu.run_frame();
+        emu.run_frame();
+        jnext::dbg::EventTable* t = emu.debug_state().event_table();
+        check("EVT-GATE-21", "a LATCHING kind latches nothing on an unarmed machine — "
+                             "the ring stays empty",
+              t->size() == 0 && t->dropped() == 0,
+              "size=" + std::to_string(t->size()) +
+                  " dropped=" + std::to_string(t->dropped()));
+        check("EVT-GATE-22", "so there is no boundary work pending",
+              !emu.debug_state().events_pending());
+        check("EVT-GATE-23", "and nothing was delivered",
+              rec.evs.empty() && dbg.events_fired_since(0).empty());
+
+        // Now arm it. The point of the row: what arrives is THIS frame's events,
+        // not a 512-entry dump of the three frames nobody was watching.
+        emu.debug_state().set_active(true);
+        emu.run_frame();
+        check("EVT-GATE-24", "arming it delivers exactly the armed frame's events",
+              rec.evs.size() == 1, "n=" + std::to_string(rec.evs.size()));
+        check("EVT-GATE-25", "not flagged as lossy, because nothing was ever dropped",
+              rec.evs.size() == 1 && !rec.evs[0].overflowed &&
+              rec.evs[0].dropped == 0);
+        check("EVT-GATE-26", "and the delivered event's cycle is from the ARMED frame",
+              rec.evs.size() == 1 && rec.evs[0].frame == 3,
+              rec.evs.empty() ? "" : "frame=" + std::to_string(rec.evs[0].frame));
+    }
+    {
+        // The same for the Copper and DMA engines, whose own flags carry the
+        // term at the site as well as in the funnel (cost, not correctness).
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        emu.debug_state().set_active(false);
+        Debugger dbg(emu);
+        Rec rec;
+        Subscription s;
+        s.kind = EventKind::Copper;
+        s.filter.copper_kind = jnext::dbg::CopperEventKind::Move;
+        s.action = Action::Continue; s.handler = recorder(rec);
+        dbg.subscribe(1, s);
+        copper_program(emu, { move_word(0x30, 0x7F), HALT_WORD });
+        copper_start(emu);
+        emu.execute_single_instruction();
+        emu.execute_single_instruction();
+        check("EVT-GATE-30", "an unarmed machine latches no Copper event either",
+              rec.evs.empty() &&
+              emu.debug_state().event_table()->size() == 0);
+        check("EVT-GATE-31", "and the MOVE still happened — the gate suppresses the "
+                             "REPORTING, never the emulation",
+              emu.nextreg().peek(0x30) == 0x7F);
+    }
+
+    // ── EVT-NR-20..23 — a DMA NextREG write is `source = Dma` ──────────────
+    //
+    // `nextreg.h`'s `set_write_source()` doc-comment asserted that
+    // `Emulator`'s `dma_.write_io` lambda brackets the write. It did not — a
+    // justification comment whose premise was false, which is the exact class of
+    // defect comment discipline exists to prevent. Five frontends read this field:
+    // a `{source=Dma}` filter could never match and a `{source=Cpu}` one fired
+    // falsely on every DMA NextREG write.
+    {
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        // One byte, 0x42, from RAM into I/O port 0x253B with NR 0x16 selected.
+        emu.nextreg().select(0x16);
+        emu.mmu().write(0xA000, 0x42);
+        Rec rec;
+        Subscription s;
+        s.kind = EventKind::NextRegWrite; s.filter.regs = { 0x16 };
+        s.action = Action::Continue; s.handler = recorder(rec);
+        dbg.subscribe(1, s);
+
+        Dma& d = emu.dma();
+        auto w = [&](uint8_t v) { d.write(v, false); };
+        // R0 dir A->B, port A start 0xA000, len 1; R1 port A = memory;
+        // R2 port B = I/O; R4 mode + port B start 0x253B; R6 LOAD; R6 ENABLE.
+        w(0x7D); w(0x00); w(0xA0); w(0x01); w(0x00);
+        w(0x14);                         // R1 port A = memory, inc
+        w(0x28);                         // R2 port B = I/O, fixed
+        w(0xAD); w(0x3B); w(0x25);       // R4 mode + port B = 0x253B
+        w(0xCF); w(0x87);                // R6 LOAD, R6 ENABLE
+        emu.execute_single_instruction();
+
+        check("EVT-NR-20", "a DMA transfer with NR 0x253B as its I/O destination "
+                           "raises exactly one NextRegWrite",
+              rec.evs.size() == 1, "n=" + std::to_string(rec.evs.size()));
+        check("EVT-NR-21", "with the register and the byte the DMA moved",
+              rec.evs.size() == 1 && rec.evs[0].reg == 0x16 &&
+              rec.evs[0].value == 0x42);
+        check("EVT-NR-22", "tagged source=Dma, not Cpu",
+              rec.evs.size() == 1 && rec.evs[0].source == EventSource::Dma,
+              rec.evs.empty() ? ""
+                              : "source=" + std::to_string(
+                                    static_cast<int>(rec.evs[0].source)));
+        check("EVT-NR-23", "and the register really took it",
+              emu.nextreg().peek(0x16) == 0x42);
+    }
+    {
+        // The filter's negative arm, which is the half a frontend depends on: a
+        // {source=Cpu} subscription must NOT see the DMA's write.
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        emu.nextreg().select(0x16);
+        emu.mmu().write(0xA000, 0x42);
+        Rec rec;
+        Subscription s;
+        s.kind = EventKind::NextRegWrite; s.filter.regs = { 0x16 };
+        s.filter.source = EventSource::Cpu;
+        s.action = Action::Continue; s.handler = recorder(rec);
+        dbg.subscribe(1, s);
+        Dma& d = emu.dma();
+        auto w = [&](uint8_t v) { d.write(v, false); };
+        w(0x7D); w(0x00); w(0xA0); w(0x01); w(0x00);
+        w(0x14);                         // R1 port A = memory, inc
+        w(0x28);                         // R2 port B = I/O, fixed
+        w(0xAD); w(0x3B); w(0x25);       // R4 mode + port B = 0x253B
+        w(0xCF); w(0x87);                // R6 LOAD, R6 ENABLE
+        emu.execute_single_instruction();
+        check("EVT-NR-24", "a {source=Cpu} subscription does NOT see the DMA's write",
+              rec.evs.empty(), "n=" + std::to_string(rec.evs.size()));
+    }
+
+    // ── EVT-TIME-15..19 — `Scanline` carries the LINE's cycle ──────────────
+    //
+    // `events.h` promises "latched at the line with its exact cycle". B2 stamped
+    // `clock_.get()` from inside the post-instruction device cluster — already
+    // past the boundary by the whole instruction that crossed it — and discarded
+    // `raw_line`, the exact value the caller handed in, one line away. The old
+    // EVT-TIME-11 asserted the payload's `cvc` against the field the filter
+    // matched on, which is a tautology an off-by-one survives.
+    {
+        Emulator emu;
+        // `JR $` ALONE, and the instruction mix is the row. A 12 T-state
+        // instruction is 96 master cycles and a 48K line is 1792, so 1792/96 is
+        // not an integer and the instruction that crosses a line boundary
+        // OVERSHOOTS it — which is the condition under which the live clock is
+        // not the boundary. The earlier fixture was `NOP; JR -3`: 16 T-states =
+        // 128 master cycles, 1792/128 = 14 EXACTLY, so `clock_.get()` landed on
+        // the boundary every line and a mutation that stamped the live clock
+        // survived the whole suite. Coverage uniformly on one side of the
+        // condition, in one line of machine code.
+        build_armed(emu, { 0x18, 0xFE });
+        Debugger dbg(emu);
+        Rec rec;
+        Subscription s;
+        s.kind = EventKind::Scanline; s.filter.scanline = 100;
+        s.action = Action::Continue; s.handler = recorder(rec);
+        dbg.subscribe(1, s);
+        const uint64_t frame_start = emu.clock().get();
+        emu.run_frame();
+        check("EVT-TIME-15", "a Scanline event was delivered",
+              rec.evs.size() == 1, "n=" + std::to_string(rec.evs.size()));
+        if (rec.evs.size() == 1) {
+            const uint64_t mcpl = dbg.machine().master_cycles_per_line;
+            // cvc = (raw_vc - min_vactive + cu_offset) mod lines_per_frame, derived
+            // here from VideoTiming rather than read back from the payload — an
+            // INDEPENDENT oracle, which is what the replaced row lacked.
+            const int lpf  = emu.video_timing().vc_max() + 1;
+            const int minv = emu.video_timing().display_origin().vc;
+            const int cuo  = emu.video_timing().cu_offset();
+            const int raw  = rec.evs[0].vc;
+            int want_cvc = (raw - minv + cuo) % lpf;
+            if (want_cvc < 0) want_cvc += lpf;
+            check("EVT-TIME-16", "and its cvc matches an INDEPENDENT derivation from "
+                                 "the raw line it reports",
+                  want_cvc == rec.evs[0].cvc,
+                  "raw=" + std::to_string(raw) + " want=" + std::to_string(want_cvc) +
+                      " got=" + std::to_string(rec.evs[0].cvc));
+            check("EVT-TIME-17", "`hc` is 0 — the event names the START of the line, "
+                                 "not wherever the crossing instruction ended",
+                  rec.evs[0].hc == 0, "hc=" + std::to_string(rec.evs[0].hc));
+            check("EVT-TIME-18", "and `cycle` is the line's own boundary cycle",
+                  rec.evs[0].cycle ==
+                      frame_start + static_cast<uint64_t>(rec.evs[0].vc) * mcpl,
+                  "cycle=" + std::to_string(rec.evs[0].cycle) + " want=" +
+                      std::to_string(frame_start +
+                                     static_cast<uint64_t>(rec.evs[0].vc) * mcpl));
+            check("EVT-TIME-19", "which is BEHIND the clock at delivery — the proof "
+                                 "that it is not just `clock_.get()` again",
+                  rec.evs[0].cycle < emu.clock().get());
+        }
+    }
+    {
+        // THE OVERSHOOT INSTANCE, and it took a measurement to find one. For most
+        // lines of most fixtures the instruction that crosses a line boundary ends
+        // exactly ON it and `clock_.get()` at the `on_scanline` callback IS the
+        // boundary — which is why a mutation that stamped the live clock survived
+        // the group above and every other row. RAW LINE 0 is different: the frame's
+        // first instruction has already run when its event fires, so the live clock
+        // is 32 master cycles past the boundary and the live `hc` is 8.
+        //
+        // cvc for raw line 0 is (0 - min_vactive + cu_offset) mod lines_per_frame,
+        // computed here rather than written as a constant so the row follows the
+        // machine.
+        Emulator emu;
+        build_armed(emu, { 0x18, 0xFE });
+        Debugger dbg(emu);
+        const int lpf  = emu.video_timing().vc_max() + 1;
+        const int minv = emu.video_timing().display_origin().vc;
+        const int cuo  = emu.video_timing().cu_offset();
+        int cvc_line0 = (0 - minv + cuo) % lpf;
+        if (cvc_line0 < 0) cvc_line0 += lpf;
+
+        Rec rec;
+        Subscription s;
+        s.kind = EventKind::Scanline;
+        s.filter.scanline = static_cast<int16_t>(cvc_line0);
+        s.action = Action::Continue; s.handler = recorder(rec);
+        dbg.subscribe(1, s);
+        const uint64_t frame_start = emu.clock().get();
+        emu.run_frame();
+        check("EVT-TIME-20", "the raw-line-0 event is delivered",
+              rec.evs.size() == 1, "n=" + std::to_string(rec.evs.size()));
+        if (rec.evs.size() == 1) {
+            check("EVT-TIME-21", "and it names raw line 0",
+                  rec.evs[0].vc == 0, "vc=" + std::to_string(rec.evs[0].vc));
+            check("EVT-TIME-22", "with `hc` 0 and `cycle` AT the frame's start — the "
+                                 "live clock is 32 master cycles past it here, so "
+                                 "this is the row the aligned group above cannot be",
+                  rec.evs[0].hc == 0 && rec.evs[0].cycle == frame_start,
+                  "hc=" + std::to_string(rec.evs[0].hc) + " cycle=" +
+                      std::to_string(rec.evs[0].cycle) + " frame_start=" +
+                      std::to_string(frame_start));
+        }
+    }
+
+    // ── EVT-COP-60..66 — one arming flag per Copper sub-kind ───────────────
+    //
+    // B2 armed the whole engine from `has_kind(Copper) || has_kind(NextRegWrite)`,
+    // so a `Halt`-only subscriber accumulated ~16 `Move` entries per instruction
+    // slot, and `EventTable::has_copper_sub_kind()` — written for exactly this —
+    // had zero callers. Ring space is observable, which B2 argues itself in
+    // `Mmu::watch_write_`.
+    {
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        Subscription h;
+        h.kind = EventKind::Copper;
+        h.filter.copper_kind = jnext::dbg::CopperEventKind::Halt;
+        h.action = Action::Continue;
+        dbg.subscribe(1, h);
+        check("EVT-COP-60", "a Halt-only subscription arms the Halt site and NOT the "
+                            "Move or Wait sites",
+              emu.copper().halt_events_armed() &&
+              !emu.copper().move_events_armed() &&
+              !emu.copper().wait_events_armed());
+
+        // Sixteen MOVEs then a HALT. With one flag for the engine, the ring held
+        // the MOVEs; with one per sub-kind it holds the HALT alone.
+        std::vector<uint16_t> prog;
+        for (int i = 0; i < 16; ++i)
+            prog.push_back(move_word(0x30, static_cast<uint8_t>(0x10 + i)));
+        prog.push_back(HALT_WORD);
+        copper_program(emu, prog);
+        copper_start(emu);
+        emu.execute_single_instruction();
+        jnext::dbg::EventTable* t = emu.debug_state().event_table();
+        check("EVT-COP-61", "so a MOVE burst consumes NO ring space for it",
+              t->size() <= 1, "size=" + std::to_string(t->size()));
+        check("EVT-COP-62", "and nothing was dropped",
+              t->dropped() == 0, "dropped=" + std::to_string(t->dropped()));
+    }
+    {
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        Subscription w;
+        w.kind = EventKind::Copper;
+        w.filter.copper_kind = jnext::dbg::CopperEventKind::Wait;
+        dbg.subscribe(1, w);
+        check("EVT-COP-63", "a Wait-only subscription arms the Wait site alone",
+              emu.copper().wait_events_armed() &&
+              !emu.copper().move_events_armed() &&
+              !emu.copper().halt_events_armed());
+    }
+    {
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        Subscription n;
+        n.kind = EventKind::NextRegWrite;
+        dbg.subscribe(1, n);
+        check("EVT-COP-64", "a NextRegWrite subscription alone still arms the MOVE "
+                            "site — one MOVE latch fans out to both kinds",
+              emu.copper().move_events_armed() &&
+              !emu.copper().wait_events_armed() &&
+              !emu.copper().halt_events_armed());
+    }
+    {
+        // The DMA twin: Start/End and Byte were already separable, but End was
+        // folded in with Start. Three flags now.
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        Subscription e;
+        e.kind = EventKind::Dma;
+        e.filter.dma_kind = jnext::dbg::DmaEventKind::End;
+        dbg.subscribe(1, e);
+        check("EVT-COP-65", "an End-only DMA subscription arms End and NOT Start",
+              emu.dma().end_events_armed() && !emu.dma().start_events_armed() &&
+              !emu.dma().byte_events_armed());
+        check("EVT-COP-66", "and the composite events_armed() still reports true",
+              emu.dma().events_armed());
+    }
+
+    // ── EVT-DEL-60..64 — a nested delivery must not wipe the boundary's hits ─
+    //
+    // §4.3 makes `matched[]` part of the `Paused` contract and B3 is its first
+    // consumer. `raise_host_event()` cleared it unconditionally, and a `Handler`
+    // may call that verb from inside the drain's loop — which
+    // `deliver_to_subscribers` documents as supported. The list also MOVED, from
+    // `Debugger::Impl` (a private nested struct nothing could observe, which is
+    // why no row could see this) to `EventTable::hits()`.
+    {
+        Emulator emu;
+        build_armed(emu, { 0x3E, 0x5A, 0x32, 0x00, 0x90, 0x18, 0xFE });
+        Debugger dbg(emu);
+        // Two Mem subscriptions on the same write, both Stop, so the boundary has
+        // two hits to lose; the FIRST one's handler raises a host event.
+        Subscription host;
+        host.kind = EventKind::Host; host.action = Action::Continue;
+        dbg.subscribe(1, host);
+
+        Subscription a;
+        a.kind = EventKind::Mem; a.access = Access::Write;
+        a.filter.lo = 0x9000; a.filter.hi = 0x9000;
+        a.action = Action::Stop;
+        a.handler = nullptr;                      // static Stop, records hit #1
+        const auto first = dbg.subscribe(1, a);
+        // The NESTED raise is on the SECOND subscription, deliberately: a handler
+        // runs BEFORE its own hit is recorded, so nesting from the FIRST one clears
+        // a list that is still empty and the bug is invisible. Nesting from the
+        // second clears a list that already holds hit #1 — which is the only
+        // ordering in which an unconditional clear can be seen at all.
+        Subscription b = a;
+        b.handler = [](const DbgEvent&, Debugger& d) {
+            d.raise_host_event(1, "nested");
+            return Action::Stop;
+        };
+        const auto second = dbg.subscribe(2, b);
+
+        emu.run_frame();
+        jnext::dbg::EventTable* t = emu.debug_state().event_table();
+        check("EVT-DEL-60", "the machine stopped", dbg.state().paused);
+        check("EVT-DEL-61", "and the boundary's hit list survived the NESTED "
+                            "raise_host_event — both subscriptions are in it",
+              t->hits().size() == 2,
+              "hits=" + std::to_string(t->hits().size()));
+        check("EVT-DEL-62", "naming both, in the order they matched",
+              t->hits().size() == 2 && t->hits()[0].event_id == first.value &&
+              t->hits()[1].event_id == second.value);
+        check("EVT-DEL-63", "with the address and direction that matched",
+              t->hits().size() == 2 && t->hits()[0].addr == 0x9000 &&
+              t->hits()[0].access == Access::Write &&
+              t->hits()[0].value == 0x5A);
+        check("EVT-DEL-64", "and the FIRST Stop is still the pause reason",
+              dbg.state().pause_reason.id == first.value);
+    }
+    {
+        // A TOP-LEVEL raise_host_event still clears: it starts its own batch.
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        Subscription s;
+        s.kind = EventKind::Host; s.action = Action::Stop;
+        dbg.subscribe(1, s);
+        dbg.raise_host_event(1, "one");
+        jnext::dbg::EventTable* t = emu.debug_state().event_table();
+        check("EVT-DEL-65", "a top-level raise leaves exactly its own hit",
+              t->hits().size() == 1, "hits=" + std::to_string(t->hits().size()));
+        dbg.run(1);
+        dbg.raise_host_event(1, "two");
+        check("EVT-DEL-66", "and a second one replaces it rather than appending",
+              t->hits().size() == 1, "hits=" + std::to_string(t->hits().size()));
+    }
+
+    // ── EVT-TIME-23..27 — `Cycle` is one-shot, and enforced ────────────────
+    //
+    // `events.h` says "one-shot BY NATURE" and nothing enforced it: the filter is
+    // `master_cycle >= N`, so once the target passes it matches at EVERY boundary
+    // for the rest of the session, `cycle_armed_` keeps `events_pending()`
+    // permanently true, and `action = Stop` makes the machine unadvanceable.
+    {
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        Rec rec;
+        Subscription s;
+        s.kind = EventKind::Cycle; s.filter.cycle = emu.clock().get() + 2000;
+        s.action = Action::Continue; s.handler = recorder(rec);
+        const auto sub = dbg.subscribe(1, s);
+        check("EVT-TIME-23", "subscribe() FORCES `once` on a Cycle subscription, and "
+                             "the model a client lists says so",
+              !dbg.subscriptions(true).empty() &&
+              dbg.subscriptions(true).front().once);
+        emu.run_frame();
+        check("EVT-TIME-24", "it fires exactly once over a whole frame, not at every "
+                             "boundary past its target",
+              rec.evs.size() == 1, "n=" + std::to_string(rec.evs.size()));
+        check("EVT-TIME-25", "and it is spent, so the per-boundary drain retires",
+              !dbg.subscriptions(true).front().live &&
+              !emu.debug_state().events_pending());
+        emu.run_frame();
+        check("EVT-TIME-26", "a second frame adds nothing",
+              rec.evs.size() == 1, "n=" + std::to_string(rec.evs.size()));
+        (void)sub;
+    }
+    {
+        // The one that made the machine unadvanceable: Stop.
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        Subscription s;
+        s.kind = EventKind::Cycle; s.filter.cycle = emu.clock().get() + 2000;
+        s.action = Action::Stop;
+        dbg.subscribe(1, s);
+        emu.run_frame();
+        check("EVT-TIME-27", "a Cycle Stop pauses once",
+              dbg.state().paused);
+        const uint64_t at_stop = emu.clock().get();
+        dbg.run(1);
+        emu.run_frame();
+        check("EVT-TIME-28", "and the machine ADVANCES after the resume — it does not "
+                             "re-pause on the same passed target for ever",
+              !dbg.state().paused && emu.clock().get() > at_stop,
+              "clock=" + std::to_string(emu.clock().get()) + " was=" +
+                  std::to_string(at_stop));
+    }
+
+    // ── EVT-SUB-20..23 — the refusal set's two remaining members ───────────
+    {
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        Subscription dbgsrc;
+        dbgsrc.kind = EventKind::Mem; dbgsrc.access = Access::Write;
+        dbgsrc.filter.source = EventSource::Debugger;
+        check("EVT-SUB-20", "a filter naming EventSource::Debugger is refused — that "
+                            "source never appears in a delivered Event (§4.2a)",
+              dbg.subscribe(1, dbgsrc).status == Result::RefusedUnavailable);
+
+        Subscription defport;
+        defport.kind = EventKind::Port;      // DEFAULT filter: mask 0xFFFF, value 0
+        check("EVT-SUB-21", "a Port subscription left with the default filter is "
+                            "refused — it would match only port 0x0000, where every "
+                            "other kind's default matches everything",
+              dbg.subscribe(1, defport).status == Result::RefusedUnavailable);
+
+        Subscription okport = defport;
+        okport.filter.port_mask = 0x00FF; okport.filter.port_value = 0xFE;
+        check("EVT-SUB-22", "and setting the mask makes it acceptable",
+              dbg.subscribe(1, okport).status == Result::Ok);
+        Subscription zeroport = defport;
+        zeroport.filter.port_mask = 0xFFFF; zeroport.filter.port_value = 0x0001;
+        check("EVT-SUB-23", "an EXPLICIT full-decode filter on a real port is fine — "
+                            "the refusal is about the default, not about the value",
+              dbg.subscribe(1, zeroport).status == Result::Ok);
+    }
+
+    // ── EVT-SUB-30..32 — erase_client()'s defining condition ───────────────
+    {
+        EventTable t;
+        Subscription s; s.kind = EventKind::Execute;
+        const EventId a1 = t.add(7, s);
+        const EventId a2 = t.add(7, s);
+        const EventId b1 = t.add(8, s);
+        check("EVT-SUB-30", "erase_client() drops every row of THAT client and counts "
+                            "them",
+              t.erase_client(7) == 2 && t.find(a1) == nullptr &&
+              t.find(a2) == nullptr);
+        check("EVT-SUB-31", "and leaves another client's alone",
+              t.find(b1) != nullptr && t.find(b1)->live);
+        check("EVT-SUB-32", "a second call for the same client drops nothing",
+              t.erase_client(7) == 0);
+    }
+
+    // ── EVT-STEP-10..14 — B-9: the two `event_stop_pending_` conditionals ──
+    //
+    // `debugger_step()`'s halt-run loop condition and its consume both survived
+    // mutation, and the manifest listed "the whole debugger_step() drain" as a
+    // closure. A Stop from a kind whose site is in the device cluster (Copper) or
+    // at a line boundary (Scanline) is what reaches them — an `Execute` stop never
+    // does, because the pre-instruction gate pauses before the step body runs.
+    {
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x00, 0x00, 0x18, 0xFB });
+        Debugger dbg(emu);
+        attach_and_pause(emu);
+        Subscription s;
+        s.kind = EventKind::Scanline; s.filter.scanline = 100;
+        s.action = Action::Stop;
+        dbg.subscribe(1, s);
+        // Step until the scanline is crossed. The stop arrives through
+        // event_stop_pending_, which debugger_step() must consume.
+        int steps = 0;
+        while (steps < 40000 && dbg.events_fired_since(0).empty()) {
+            dbg.step_into(1);
+            ++steps;
+        }
+        check("EVT-STEP-10", "a Scanline Stop is delivered on the STEP path",
+              !dbg.events_fired_since(0).empty(),
+              "steps=" + std::to_string(steps));
+        check("EVT-STEP-11", "and the machine is paused after it",
+              dbg.state().paused);
+        // The consume is what this row is for: if `event_stop_pending_` were left
+        // set, the NEXT step at a HALT would exit its run-out loop immediately.
+        // Put the CPU on a HALT and step: it must run the halt out (GH #207).
+        {
+            Z80Registers r = emu.cpu().get_registers();
+            emu.mmu().write(0xB000, 0x76);          // HALT
+            r.PC = 0xB000; r.IFF1 = 1; r.IM = 1;
+            emu.cpu().set_registers(r);
+        }
+        const int t_states = dbg.step_into(1) == Result::Ok
+                                 ? emu.debugger_step()
+                                 : 0;
+        check("EVT-STEP-12", "a later Step at a HALT still runs the halt out — the "
+                             "pending-Stop latch was consumed, not left standing",
+              t_states > 100, "tstates=" + std::to_string(t_states));
+    }
+
+    // ── EVT-REPLAY-10..12 — B-9: the execute_gate replay guard ─────────────
+    //
+    // `drain_boundary`'s replay guard has a row; `execute_gate`'s twin did not.
+    // §4.2a: `rewind_to_cycle()` fast-forwards with the gate LIVE, so an
+    // `Execute` subscription inside the replayed span would pause the replay short.
+    {
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x00, 0x00, 0x18, 0xFB });
+        Debugger dbg(emu);
+        Subscription s;
+        s.kind = EventKind::Execute;
+        s.filter.lo = 0x8002; s.filter.hi = 0x8002;
+        s.action = Action::Stop;
+        dbg.subscribe(1, s);
+        emu.set_replay_mode(true);
+        emu.run_frame();
+        check("EVT-REPLAY-10", "an Execute subscription does NOT stop a replay",
+              !dbg.state().paused && dbg.events_fired_since(0).empty(),
+              "pc=" + hex(pc_of(emu)));
+        check("EVT-REPLAY-11", "and the replay really ran the address",
+              pc_of(emu) == 0x8000 || pc_of(emu) == 0x8003 ||
+              pc_of(emu) == 0x8002 || pc_of(emu) == 0x8001);
+        emu.set_replay_mode(false);
+        {
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = PROG; emu.cpu().set_registers(r);
+        }
+        emu.run_frame();
+        check("EVT-REPLAY-12", "with replay off the same subscription DOES stop it — "
+                               "the control the guard's row needs",
+              dbg.state().paused && pc_of(emu) == 0x8002,
+              "pc=" + hex(pc_of(emu)));
+    }
+
+    // ── EVT-TRANS-40..43 — B-9: a NON-Execute Stop drops the transients ────
+    //
+    // `drain_boundary`'s `if (stop) apply_stop();` survived mutation; only the
+    // `execute_gate` twin was caught, so transient auto-removal was proven for an
+    // `Execute`-caused stop alone.
+    {
+        Emulator emu;
+        build_armed(emu, { 0x3E, 0x5A, 0x32, 0x00, 0x90, 0x00, 0x00, 0x18, 0xFE });
+        Debugger dbg(emu);
+        attach_and_pause(emu);
+        Subscription tr;
+        tr.kind = EventKind::Execute; tr.transient = true;
+        tr.filter.lo = 0x8007; tr.filter.hi = 0x8007;
+        tr.action = Action::Stop;
+        dbg.subscribe(1, tr);
+        Subscription mem;
+        mem.kind = EventKind::Mem; mem.access = Access::Write;
+        mem.filter.lo = 0x9000; mem.filter.hi = 0x9000;
+        mem.action = Action::Stop;
+        dbg.subscribe(1, mem);
+        check("EVT-TRANS-40", "both are armed", dbg.subscriptions(true).size() == 2);
+        dbg.run(1);
+        run_until_paused(emu);
+        check("EVT-TRANS-41", "the MEM subscription stops first, at the writer's "
+                              "boundary",
+              dbg.state().paused && pc_of(emu) == 0x8005,
+              "pc=" + hex(pc_of(emu)));
+        check("EVT-TRANS-42", "and that stop dropped the TRANSIENT — auto-removal is "
+                              "not an Execute-only rule",
+              dbg.subscriptions(true).size() == 1 &&
+              !dbg.subscriptions(true).front().transient);
+        dbg.run(1);
+        run_until_paused(emu);
+        check("EVT-TRANS-43", "so the machine runs past the retired target",
+              !dbg.state().paused && pc_of(emu) == 0x8007,
+              "pc=" + hex(pc_of(emu)));
+    }
+    {
+        // B-9: `clear_transient()`'s `if (n) refresh();`. Without the refresh a
+        // tombstoned transient keeps `live == true` and fires AGAIN, which
+        // `subscriptions()` (which reads `removed`) cannot see.
+        Emulator emu;
+        build_armed(emu, { 0x06, 0x03, 0x10, 0xFE, 0x18, 0xFA });
+        Debugger dbg(emu);
+        attach_and_pause(emu);
+        Rec rec;
+        Subscription tr;
+        tr.kind = EventKind::Execute; tr.transient = true;
+        tr.filter.lo = 0x8002; tr.filter.hi = 0x8002;
+        tr.action = Action::Stop; tr.handler = nullptr;
+        dbg.subscribe(1, tr);
+        dbg.run(1);
+        run_until_paused(emu);
+        check("EVT-TRANS-50", "the transient fired and the machine stopped there",
+              dbg.state().paused && pc_of(emu) == 0x8002);
+        check("EVT-TRANS-51", "and it is gone from the model",
+              dbg.subscriptions(true).empty());
+        dbg.run(1);
+        run_until_paused(emu, 2);
+        check("EVT-TRANS-52", "re-reaching the SAME address does not stop again — the "
+                              "retired transient is not merely tombstoned, it is no "
+                              "longer LIVE",
+              !dbg.state().paused, "pc=" + hex(pc_of(emu)));
+        (void)rec;
+    }
+
+    // ── EVT-DEL-70..73 — B-9: contract 4, a removal during a drain ─────────
+    //
+    // `const bool outer = !draining` survived mutation because no fixture had the
+    // shape: two subscriptions matching ONE event where the first removes a row.
+    // Compaction is deferred to the outer frame for exactly this.
+    {
+        Emulator emu;
+        build_armed(emu, { 0x3E, 0x5A, 0x32, 0x00, 0x90, 0x18, 0xFE });
+        Debugger dbg(emu);
+        int first_calls = 0, second_calls = 0;
+        Subscription a;
+        a.kind = EventKind::Mem; a.access = Access::Write;
+        a.filter.lo = 0x9000; a.filter.hi = 0x9000;
+        a.action = Action::Continue;
+        const auto second_id_holder = std::make_shared<EventId>(0);
+        a.handler = [&first_calls, second_id_holder](const DbgEvent&, Debugger& d) {
+            ++first_calls;
+            // Remove the OTHER subscription from inside the drain, while the loop
+            // is still walking the table.
+            d.unsubscribe(1, *second_id_holder);
+            return Action::Continue;
+        };
+        const auto first = dbg.subscribe(1, a);
+        Subscription b = a;
+        b.handler = [&second_calls](const DbgEvent&, Debugger&) {
+            ++second_calls;
+            return Action::Continue;
+        };
+        *second_id_holder = dbg.subscribe(1, b).value;
+
+        emu.run_frame();
+        check("EVT-DEL-70", "the first handler ran",
+              first_calls == 1, "n=" + std::to_string(first_calls));
+        check("EVT-DEL-71", "and removing the second MID-DRAIN suppressed it for this "
+                            "delivery without invalidating the walk",
+              second_calls == 0, "n=" + std::to_string(second_calls));
+        check("EVT-DEL-72", "the removal really took",
+              dbg.subscriptions(true).size() == 1 &&
+              dbg.subscriptions(true).front().id == first.value);
+        check("EVT-DEL-73", "and the machine ran on",
+              !dbg.state().paused && pc_of(emu) == 0x8005,
+              "pc=" + hex(pc_of(emu)));
+    }
+
+    {
+        // B-9 / contract 4: `const bool outer = !draining` survived mutation,
+        // because no fixture had a NESTED delivery that also REMOVES a row. With
+        // `outer` forced true the nested frame runs `compact()` — erasing a
+        // tombstone out of `subs_` — while the OUTER loop is still indexing it.
+        Emulator emu;
+        build_armed(emu, { 0x3E, 0x5A, 0x32, 0x00, 0x90, 0x18, 0xFE });
+        Debugger dbg(emu);
+        int mem_calls = 0, host_calls = 0, third_calls = 0;
+        const auto victim = std::make_shared<EventId>(0);
+
+        // A Host subscription whose handler UNSUBSCRIBES a third subscription.
+        Subscription hs;
+        hs.kind = EventKind::Host; hs.action = Action::Continue;
+        hs.handler = [&host_calls, victim](const DbgEvent&, Debugger& d) {
+            ++host_calls;
+            d.unsubscribe(1, *victim);
+            return Action::Continue;
+        };
+        dbg.subscribe(1, hs);
+
+        // The FIRST Mem subscription raises the host event, i.e. nests a delivery
+        // that removes a row, while this boundary's own loop is still walking.
+        Subscription m1;
+        m1.kind = EventKind::Mem; m1.access = Access::Write;
+        m1.filter.lo = 0x9000; m1.filter.hi = 0x9000;
+        m1.action = Action::Continue;
+        m1.handler = [&mem_calls](const DbgEvent&, Debugger& d) {
+            ++mem_calls;
+            d.raise_host_event(1, "nested");
+            return Action::Continue;
+        };
+        dbg.subscribe(1, m1);
+
+        // ...and a THIRD, later in the table, which the outer loop must still
+        // reach after the nested frame has been and gone.
+        Subscription m2 = m1;
+        m2.handler = [&third_calls](const DbgEvent&, Debugger&) {
+            ++third_calls;
+            return Action::Continue;
+        };
+        *victim = dbg.subscribe(1, m2).value;
+
+        emu.run_frame();
+        check("EVT-DEL-80", "the outer handler ran and nested a delivery",
+              mem_calls == 1 && host_calls == 1,
+              "mem=" + std::to_string(mem_calls) + " host=" +
+                  std::to_string(host_calls));
+        check("EVT-DEL-81", "the nested frame did NOT compact the table under the "
+                            "outer loop — the removed row is still reachable as a "
+                            "tombstone for this boundary",
+              third_calls == 0, "third=" + std::to_string(third_calls));
+        check("EVT-DEL-82", "and the removal took effect once the outer frame ended",
+              dbg.subscriptions(true).size() == 2);
+        check("EVT-DEL-83", "with the machine none the worse for it",
+              !dbg.state().paused && pc_of(emu) == 0x8005,
+              "pc=" + hex(pc_of(emu)));
+        // THE MECHANISM, checkable. Erasing a row under the drain's own index is
+        // UNDEFINED, not reliably observable, so EVT-DEL-81 above cannot be the row
+        // for contract 4 — a row that depends on UB being visible is not a row.
+        // Exactly one compaction must have run for this boundary: the outer frame's.
+        check("EVT-DEL-84", "and the nested frame performed NO compaction — contract "
+                            "4 defers it to the outer delivery frame",
+              emu.debug_state().event_table()->compactions() == 1,
+              "compactions=" +
+                  std::to_string(emu.debug_state().event_table()->compactions()));
+    }
+
+    // ── EVT-ST-01..12 — SAVE / LOAD / REWIND against the new event state ────
+    //
+    // THE LARGEST UNTESTED SURFACE IN THE PACKAGE, and the decision is written at
+    // `Emulator::debug_after_state_restore_()`. In short: the subscription model
+    // is HOST-SIDE SESSION state and is deliberately NOT serialised — §4.2a's own
+    // precedent, "a mutation is machine state, so the next frame-boundary snapshot
+    // carries it; interpreter state (script variables, `once` flags) is not", and
+    // `once` flags ARE `EventTable` state; a `Condition` and a `Handler` are
+    // closures over a subscriber's interpreter and cannot be serialised at all.
+    // What IS reconciled is every piece that DESCRIBES the machine that has gone:
+    // the latch ring, the pending Stop, the CTL-13 stop evidence, and
+    // `slot_page_` — the one piece that is a cache of machine state.
+    //
+    // Rows BOTH WAYS: what survives a load, and what must not.
+    {
+        Emulator emu;
+        build_armed(emu, { 0x3E, 0x5A, 0x32, 0x00, 0x90, 0x18, 0xFE });
+        Debugger dbg(emu);
+        attach_and_pause(emu);
+
+        Subscription s;
+        s.kind = EventKind::Mem; s.access = Access::Write;
+        s.filter.lo = 0x9000; s.filter.hi = 0x9000;
+        s.action = Action::Stop;
+        const auto sub = dbg.subscribe(4, s);
+        dbg.set_master_enabled(false);
+        dbg.set_client_enabled(4, false);
+
+        auto saved = dbg.save_state_bytes(4, jnext::dbg::SaveStateMode::AdvanceToBoundary);
+        check("EVT-ST-01", "a snapshot is taken",
+              saved.status == Result::Ok && !saved.value.empty());
+
+        // Change the session AFTER the save: a load must not undo any of it.
+        dbg.set_master_enabled(true);
+        dbg.set_client_enabled(4, true);
+        const auto extra = dbg.subscribe(5, s);
+
+        check("EVT-ST-02", "two subscriptions and both switches on before the load",
+              dbg.subscriptions(true).size() == 2 && dbg.master_enabled() &&
+              dbg.client_enabled(4));
+
+        const Result lr = dbg.load_state_bytes(4, saved.value.data(),
+                                               saved.value.size());
+        check("EVT-ST-03", "the load succeeds", lr == Result::Ok);
+        check("EVT-ST-04", "the SUBSCRIPTIONS survive it — a load must not resurrect "
+                           "one the user deleted nor delete one they added",
+              dbg.subscriptions(true).size() == 2 &&
+              dbg.subscriptions(true)[0].id == sub.value &&
+              dbg.subscriptions(true)[1].id == extra.value);
+        check("EVT-ST-05", "and so do the master and per-client switches",
+              dbg.master_enabled() && dbg.client_enabled(4));
+        // The delivery cursor: a client's `since(seq)` must stay valid across a
+        // load, i.e. `seq` must keep counting rather than restart.
+        dbg.set_master_enabled(true);
+        dbg.run(4);
+        emu.run_frame();
+        const auto after = dbg.events_fired_since(0);
+        check("EVT-ST-06", "the delivery-sequence cursor keeps counting across the "
+                           "load rather than restarting",
+              !after.empty() && after.back().seq > 0,
+              "n=" + std::to_string(after.size()));
+    }
+    {
+        // The other half: the ring, the pending Stop and the stop evidence are all
+        // reconciled, because each describes a machine the load has replaced.
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        attach_and_pause(emu);
+        auto saved = dbg.save_state_bytes(1, jnext::dbg::SaveStateMode::AdvanceToBoundary);
+        check("EVT-ST-10", "a snapshot for the reconciliation rows",
+              saved.status == Result::Ok);
+
+        // Latch something without draining it: a Scanline subscription plus a
+        // frame, with the machine paused before the drain that would empty it.
+        Subscription s;
+        s.kind = EventKind::Scanline; s.filter.scanline = 100;
+        s.action = Action::Continue;
+        dbg.subscribe(1, s);
+        // A legacy watchpoint stop, so `watch_stop_` is set and survives into a
+        // paused state that no resume will clear.
+        emu.debug_state().breakpoints().add_watchpoint(0x8000, WatchType::READ);
+        dbg.run(1);
+        emu.run_frame();
+        check("EVT-ST-11", "the machine stopped on the legacy watchpoint, so CTL-13 "
+                           "has evidence to lose",
+              dbg.state().paused &&
+              dbg.state().pause_reason.kind == PauseReason::Kind::Watch);
+
+        jnext::dbg::EventTable* t = emu.debug_state().event_table();
+        // Force a ring entry that the load must discard.
+        jnext::dbg::LatchEntry le;
+        le.kind = EventKind::Scanline;
+        emu.debug_state().latch_event(le);
+        check("EVT-ST-12", "and the ring holds an undrained entry",
+              t->size() > 0, "size=" + std::to_string(t->size()));
+
+        dbg.load_state_bytes(1, saved.value.data(), saved.value.size());
+        check("EVT-ST-13", "the load DISCARDS the ring — its entries carry a pc, a "
+                           "cycle and a frame from a machine that no longer exists",
+              t->size() == 0 && t->dropped() == 0 &&
+              !emu.debug_state().events_pending(),
+              "size=" + std::to_string(t->size()));
+        check("EVT-ST-14", "and it clears the CTL-13 stop evidence, which `unpause_()` "
+                           "cannot because a load while PAUSED never unpauses",
+              !emu.debug_state().watch_stop() && !emu.debug_state().magic_stop() &&
+              dbg.state().pause_reason.kind != PauseReason::Kind::Watch);
+    }
+    {
+        // `slot_page_` is the one piece that IS a cache of machine state: the load
+        // rewrites the MMU page map through a `StateDesc` walk, which fires no
+        // mapping notification at all, so it has to be re-derived.
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD }, MachineType::ZX128K);
+        Debugger dbg(emu);
+        attach_and_pause(emu);
+        emu.mmu().set_page(4, 0x2A);
+        auto saved = dbg.save_state_bytes(1, jnext::dbg::SaveStateMode::AdvanceToBoundary);
+        check("EVT-ST-20", "snapshot taken with page 0x2A at slot 4",
+              saved.status == Result::Ok &&
+              emu.mmu().get_effective_page(4) == 0x2A);
+
+        // Map it away, then subscribe to it, then load the snapshot back.
+        emu.mmu().set_page(4, 0x10);
+        Subscription s;
+        s.kind = EventKind::Mem; s.access = Access::Write;
+        s.filter.pages = { 0x2A };
+        dbg.subscribe(1, s);
+        check("EVT-ST-21", "with the page mapped away, nothing is armed",
+              emu.debug_state().wr_watch_mask() == 0);
+
+        dbg.load_state_bytes(1, saved.value.data(), saved.value.size());
+        check("EVT-ST-22", "the load restores page 0x2A to slot 4",
+              emu.mmu().get_effective_page(4) == 0x2A);
+        check("EVT-ST-23", "and the page-qualified filter's slot mask follows it — "
+                           "the cache is not trusted across a restore",
+              emu.debug_state().wr_watch_armed(0x8000),
+              "mask=" + std::to_string(emu.debug_state().wr_watch_mask()));
+        // THE PROPERTY, not the code: the mask must agree with the MMU for every
+        // slot after a load, by whichever mechanism gets it there. (Two do:
+        // `Mmu::load_state`'s own closing `rebuild_ptr` loop, and
+        // `debug_after_state_restore_()`'s re-derive. The row outlives either.)
+        bool agrees = true;
+        for (int sl = 0; sl < 8; ++sl) {
+            const bool want = emu.mmu().get_effective_page(sl) == 0x2A;
+            const bool got  =
+                emu.debug_state().wr_watch_armed(static_cast<uint16_t>(sl << 13));
+            agrees = agrees && (want == got);
+        }
+        check("EVT-ST-24", "and the invariant holds for EVERY slot after the load",
+              agrees, "mask=" + std::to_string(emu.debug_state().wr_watch_mask()));
+    }
+    {
+        // A REWIND routes through the same load, so the same reconciliation covers
+        // it. The row is that the ring does not survive a step_back.
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        cfg.rewind_buffer_frames = 8;
+        emu.init(cfg);
+        for (size_t i = 0; i < 3; ++i)
+            emu.mmu().write(static_cast<uint16_t>(PROG + i),
+                            static_cast<uint8_t>(i == 0 ? 0x00 : (i == 1 ? 0x18 : 0xFD)));
+        {
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 0; r.IFF2 = 0;
+            emu.cpu().set_registers(r);
+        }
+        emu.debug_state().set_active(true);
+        Debugger dbg(emu);
+        emu.run_frame();
+        emu.run_frame();
+        attach_and_pause(emu);
+
+        Subscription s;
+        s.kind = EventKind::Scanline; s.filter.scanline = 100;
+        s.action = Action::Continue;
+        const auto sub = dbg.subscribe(1, s);
+        jnext::dbg::LatchEntry le;
+        le.kind = EventKind::Scanline;
+        emu.debug_state().latch_event(le);
+        const bool had_entry = emu.debug_state().event_table()->size() > 0;
+
+        const jnext::dbg::RewindRange range = dbg.rewind_range();
+        const Result rr = dbg.rewind_to_frame(1, range.oldest_frame);
+        check("EVT-ST-30", "a rewind to the oldest buffered frame is accepted",
+              rr == Result::Ok,
+              "oldest=" + std::to_string(range.oldest_frame) + " newest=" +
+                  std::to_string(range.newest_frame) + " rc=" +
+                  std::to_string(static_cast<int>(rr)));
+        check("EVT-ST-31", "and it discarded the undrained ring, like any load — a "
+                           "rewind routes through load_state, so one reconciliation "
+                           "covers both",
+              had_entry && emu.debug_state().event_table()->size() == 0 &&
+              !emu.debug_state().events_pending());
+        check("EVT-ST-32", "while the subscription itself survived it",
+              dbg.subscriptions(true).size() == 1 &&
+              dbg.subscriptions(true).front().id == sub.value);
     }
 
     std::printf("\n======================================================\n");

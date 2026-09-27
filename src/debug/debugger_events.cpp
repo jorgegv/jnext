@@ -49,12 +49,21 @@ void Debugger::Impl::gates_changed() {
     // table pointer at the site: `Copper::execute` runs once per master cycle
     // and `Dma::execute_burst` once per byte, so three dependent loads per
     // iteration is exactly what a plain bool member exists to avoid.
-    emu.copper().set_events_armed(events.has_kind(EventKind::Copper) ||
-                                  events.has_kind(EventKind::NextRegWrite));
+    //
+    // ONE TERM PER SUB-KIND. B2 armed the whole Copper engine from
+    // `has_kind(Copper) || has_kind(NextRegWrite)`, so a `Halt`-only subscriber
+    // paid ~16 `Move` ring entries per slot and `has_copper_sub_kind()` — written
+    // for exactly this — had zero callers. The `Move` term keeps the
+    // `NextRegWrite` half because one MOVE latch fans out to both kinds.
+    emu.copper().set_events_armed(
+        /*move=*/events.has_copper_sub_kind(CopperEventKind::Move) ||
+                 events.has_kind(EventKind::NextRegWrite),
+        /*wait=*/events.has_copper_sub_kind(CopperEventKind::Wait),
+        /*halt=*/events.has_copper_sub_kind(CopperEventKind::Halt));
     emu.dma().set_events_armed(
-        events.has_dma_sub_kind(DmaEventKind::Start) ||
-            events.has_dma_sub_kind(DmaEventKind::End),
-        events.has_dma_sub_kind(DmaEventKind::Byte));
+        /*start=*/events.has_dma_sub_kind(DmaEventKind::Start),
+        /*per_byte=*/events.has_dma_sub_kind(DmaEventKind::Byte),
+        /*end=*/events.has_dma_sub_kind(DmaEventKind::End));
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +83,24 @@ Expected<EventId> Debugger::subscribe(ClientId by, const Subscription& sub) {
         sub.access == Access::None)
         return make_refused<EventId>(Result::RefusedUnavailable);
 
-    // WHY `RefusedUnavailable` FOR BOTH, and it is a compromise: `result.h` is
+    // `EventSource::Debugger` is documented in `events.h` as a source that NEVER
+    // appears in a delivered `Event` — a debugger write fires no event at all
+    // (§4.2a) — so a filter naming it can never match while reporting `live`.
+    if (sub.filter.source == EventSource::Debugger)
+        return make_refused<EventId>(Result::RefusedUnavailable);
+
+    // A `Port` subscription left with the DEFAULT filter matches only port
+    // 0x0000. Every other kind's default matches everything (`lo=0`,
+    // `hi=0xFFFF`, `FRAME_EVERY`, an empty reg set), so `port_mask = 0xFFFF` with
+    // `port_value = 0` is the one default that is a trap rather than a
+    // wildcard — and no row in the suite exercised it, because all six Port rows
+    // set the mask. Refused rather than silently matching one unused port; the
+    // frozen default stays as it is.
+    if (sub.kind == EventKind::Port &&
+        sub.filter.port_mask == 0xFFFF && sub.filter.port_value == 0x0000)
+        return make_refused<EventId>(Result::RefusedUnavailable);
+
+    // WHY `RefusedUnavailable` FOR ALL OF THESE, and it is a compromise: `result.h` is
     // frozen by B0 and its eleven values have NO argument-validation member.
     // `Unsupported` is the wrong one — §4 defines it as "the backend does not
     // implement this", which a client uses to disable a whole capability, and a
@@ -83,7 +109,17 @@ Expected<EventId> Debugger::subscribe(ClientId by, const Subscription& sub) {
     // which is true of a subscription that cannot exist. Recorded as a finding
     // against `result.h` rather than worked around silently.
 
-    const EventId id = impl_->events.add(by, sub);
+    // §4.3 — `Cycle` is "one-shot BY NATURE", and nothing enforced it: the filter
+    // is `master_cycle >= N`, so once the target passes it matches at EVERY
+    // boundary for the rest of the session, `cycle_armed_` keeps
+    // `events_pending()` permanently true (a drain call per instruction), and
+    // `action = Stop` makes the machine unadvanceable — it re-pauses on every
+    // resume. Forced here rather than "retired at delivery" so the model a client
+    // lists is the model that runs: `subscriptions()` reports `once`.
+    Subscription fixed = sub;
+    if (fixed.kind == EventKind::Cycle) fixed.once = true;
+
+    const EventId id = impl_->events.add(by, fixed);
     impl_->gates_changed();
     return make_ok<EventId>(id);
 }
@@ -187,7 +223,14 @@ Result Debugger::raise_host_event(ClientId by, const std::string& name) {
     std::memcpy(ev.host_name, name.c_str(), name.size());
 
     bool stop = false;
-    impl_->matched.clear();
+    // NOT unconditional: `drain_boundary` accumulates `Hit`s ACROSS a boundary's
+    // events, and a `Handler` may call this verb from inside that loop — which
+    // `deliver_to_subscribers` documents as supported. B2 cleared it anyway, so a
+    // nested raise threw away the outer boundary's `matched[]`, which §4.3 makes
+    // part of the `Paused` contract and B3 is the first consumer of. The
+    // `draining` flag already guards the ring and `compact()`; it guards this too
+    // now.
+    if (!impl_->draining) impl_->events.clear_hits();
     impl_->deliver_to_subscribers(ev, stop, by);
     if (stop) {
         // A `Stop` verdict PAUSES, here as everywhere else. This verb is the one
@@ -410,7 +453,7 @@ void Debugger::Impl::deliver_to_subscribers(Event& ev, bool& stop,
                     hit.addr     = ev.kind == EventKind::Port ? ev.port : ev.addr;
                     hit.access   = ev.access;
                     hit.value    = ev.value;
-                    matched.push_back(hit);
+                    events.record_hit(hit);
                     note_event_stop(ev);
                     break;
                 }
@@ -446,7 +489,7 @@ bool Debugger::Impl::drain_boundary() {
         return false;
     }
 
-    matched.clear();
+    events.clear_hits();
     bool stop = false;
 
     const uint16_t dropped    = events.dropped();
@@ -517,7 +560,7 @@ bool Debugger::Impl::execute_gate(uint16_t pc) {
     ev.pc        = pc;
     ev.phys_page = emu.mmu().get_effective_page(pc >> 13);
 
-    matched.clear();
+    events.clear_hits();
     bool stop = false;
     deliver_to_subscribers(ev, stop, CLIENT_NONE);
     if (stop) apply_stop();
@@ -540,6 +583,7 @@ void Debugger::Impl::note_event_stop(const Event& ev) {
     // rest.
     if (event_stop_latched) return;
     event_stop_latched = true;
+    event_stop_gen     = ds().resume_generation();
     event_stop.id      = ev.id;
     event_stop.by      = ev.owner;
     event_stop.addr    = ev.kind == EventKind::Port ? ev.port : ev.addr;

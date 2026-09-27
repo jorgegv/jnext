@@ -1630,6 +1630,41 @@ private:
     void rebuild_ptr(int slot);
     void rebuild_ptr_body_(int slot);
 
+    /// GH #276 §6.1 — tell the debugger that `slot`'s page may have moved.
+    ///
+    /// **EVERY function that writes `slots_[slot]` or re-points `read_ptr_[slot]`
+    /// must end with this call.** A page-qualified `Mem` filter's slot-mask bit
+    /// is computed from the page this reports, so a path that forgets makes that
+    /// filter WRONG IN BOTH DIRECTIONS — silently: the stale page matches slots
+    /// it is not in, and the live page matches none.
+    ///
+    /// The list is exactly two — `rebuild_ptr()` and `map_rom_physical()` — and
+    /// it is CHECKED rather than trusted: `EVT-SLOT-10..16` has one row per
+    /// public mapping entry point (`set_page`, `map_rom`, `map_128k_bank`,
+    /// `map_plus3_bank`, and a guest `OUT (0x7FFD)` ROM select), because
+    /// `map_rom_physical()` shipped without it and no row could see that. A new
+    /// mapping function needs a new row.
+    void notify_slot_remapped_(int slot);
+
+    /// The ONE writer of `nr_mmu_[slot]`, and it notifies.
+    ///
+    /// `get_effective_page()` reads TWO arrays — `nr_mmu_` and `slots_` — and
+    /// returns the first unless it holds the 0xFF ROM sentinel. So a page is only
+    /// SETTLED once both are written, and `map_rom()`,
+    /// `apply_legacy_rom_slots_()` and `engage_legacy_rom_paging_slot()` all write
+    /// `nr_mmu_` AFTER their `map_rom_physical()` call — which means a notify from
+    /// `map_rom_physical()` alone fires with the page that is about to change.
+    /// Routing both arrays' writes through a notifying setter makes the rule
+    /// greppable instead of remembered: `git grep 'nr_mmu_\[' src/memory/mmu.cpp`
+    /// should show reads and this setter, nothing else. Caught by the EVT-SLOT-12..17
+    /// invariant sweep, which compares the mask against `get_effective_page()` for
+    /// all eight slots after every mapping call.
+    void set_nr_mmu_(int slot, uint8_t page) {
+        if (slot < 0 || slot > 7) return;
+        nr_mmu_[slot] = page;
+        notify_slot_remapped_(slot);
+    }
+
     // ── GH #276 B2 — the out-of-line half of the eight watch sites ───────
     //
     // The INLINE half is the gate: `debug_state_ && watchpoints_live() &&

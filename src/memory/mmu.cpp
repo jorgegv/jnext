@@ -212,7 +212,7 @@ void Mmu::reset(bool hard) {
     if (boot_rom_ && config_mode_) boot_rom_en_ = true;
     for (int i = 0; i < 8; ++i) {
         slots_[i] = RESET_PAGES[i];
-        nr_mmu_[i] = RESET_PAGES[i];
+        set_nr_mmu_(static_cast<int>(i), RESET_PAGES[i]);
         read_only_[i] = false;
         rebuild_ptr(i);
     }
@@ -230,10 +230,26 @@ void Mmu::reset(bool hard) {
 
 void Mmu::rebuild_ptr(int slot) {
     rebuild_ptr_body_(slot);
-    // GH #276 §6.1 — the ONE point at which a slot's page changes, which is
-    // what makes a per-slot mask maintainable at all: any armed `Mem` filter
-    // that names a PHYSICAL page has to be re-evaluated here, because the page
-    // it names may have just arrived in, or left, this slot.
+    // REDUNDANT FOR EVERY LIVE PAGING PATH, and stated as such: `get_effective_page()`
+    // reads only `nr_mmu_` and `slots_`, and both have exactly one writer that
+    // notifies (`set_nr_mmu_()` and `map_rom_physical()`), so a page CHANGE is
+    // already reported before this runs. It survives mutation for that reason.
+    // Kept because `Mmu::load_state()` writes both arrays through a `StateDesc`
+    // walk — bypassing both setters — and then closes with
+    // `for (i) rebuild_ptr(i)`, which makes this the restore path's natural
+    // notifier; `Emulator::debug_after_state_restore_()` covers the same path a
+    // second time, and `EVT-ST-24` pins the PROPERTY rather than either mechanism.
+    notify_slot_remapped_(slot);
+}
+
+// GH #276 §6.1 — see the header. NOT `rebuild_ptr`-only: `map_rom_physical()`
+// writes `slots_`, `read_only_` and both pointers itself and never calls
+// `rebuild_ptr()`, and it is reached from a plain guest `OUT (0x7FFD)` ROM
+// select (apply_legacy_rom_slots_ -> apply_legacy_paging_ -> the port handler),
+// from `map_rom()`, from `engage_legacy_rom_paging_slot()` and from `reset()`.
+// B2 shipped with the notification in `rebuild_ptr` alone, so every one of those
+// paths left a page-qualified `Mem` filter reading a stale page.
+void Mmu::notify_slot_remapped_(int slot) {
     if (debug_state_)
         debug_state_->on_slot_remapped(slot, get_effective_page(slot));
 }
@@ -399,7 +415,7 @@ void Mmu::set_page(int slot, uint8_t page) {
     if (slot < 0 || slot > 7) return;
     Log::memory()->debug("MMU slot {} → RAM page {:#04x}", slot, page);
     slots_[slot] = page;
-    nr_mmu_[slot] = page;
+    set_nr_mmu_(slot, page);
     read_only_[slot] = false;
     rebuild_ptr(slot);
 }
@@ -418,6 +434,7 @@ void Mmu::map_rom_physical(int slot, uint8_t rom_page) {
     // Leaves nr_mmu_[slot] unchanged; callers update it as needed.
     // reset() seeds 0xFF (VHDL ROM sentinel); legacy paging callers
     // (map_128k_bank / map_plus3_bank) overwrite with physical page.
+    notify_slot_remapped_(slot);
 }
 
 void Mmu::set_rom_in_sram(bool en) {
@@ -431,7 +448,7 @@ void Mmu::map_rom(int slot, uint8_t rom_page) {
     map_rom_physical(slot, rom_page);
     // NR 0x50–0x57 register-visible value: an explicit ROM map from an NR
     // write shows the 0xFF sentinel (VHDL zxnext.vhd:4611-4612).
-    if (slot >= 0 && slot < 8) nr_mmu_[slot] = 0xFF;
+    set_nr_mmu_(slot, 0xFF);
 }
 
 void Mmu::set_l2_port(uint8_t val, uint8_t active_bank) {
@@ -560,8 +577,8 @@ void Mmu::apply_legacy_rom_slots_() {
         // slots 0/1 are in legacy ROM paging mode; the physical ROM page is
         // derived dynamically from port_7ffd / port_1ffd / NR 0x8C / NR 0x8E.
         // Use get_effective_page(slot) to observe the derived page.
-        nr_mmu_[0] = 0xFF;
-        nr_mmu_[1] = 0xFF;
+        set_nr_mmu_(0, 0xFF);
+        set_nr_mmu_(1, 0xFF);
     }
 }
 
@@ -682,7 +699,7 @@ void Mmu::engage_legacy_rom_paging_slot(int slot, bool set_nr_sentinel) {
     // a verbatim 0xE0..0xFE value (or the 0x00/0x01 EFF7(3)=1-derived
     // value) is preserved for the NR-port read-back at :6075-6082.
     if (set_nr_sentinel) {
-        nr_mmu_[slot] = 0xFF;
+        set_nr_mmu_(slot, 0xFF);
     }
 }
 
@@ -1219,6 +1236,14 @@ void Mmu::watch_read_(uint16_t addr, uint8_t val) {
     debug_state_->latch_event(e);
 }
 
+// ONE MORE PAYLOAD FACT, because it surprises a reader of the `Mem{Write}` row:
+// the watch check sits at the TOP of `write()`, BEFORE the Multiface / DivMMC /
+// Layer 2 / alt-ROM / config-mode arbitration and before the `read_only_[slot]`
+// drop. So a guest write into ROM that lands NOWHERE still raises `Mem{Write}`,
+// with `prev == value` (the byte did not change) and nothing in the payload
+// saying the write was dropped. That is exactly what a pre-B2 WRITE watchpoint
+// did, and it is the behaviour a user watching "who writes here" wants; it is
+// recorded rather than fixed.
 void Mmu::watch_write_(uint16_t addr, uint8_t val) {
     if (debug_state_->breakpoints().has_watchpoint(addr, WatchType::WRITE)) {
         debug_state_->set_data_bp_hit(true);

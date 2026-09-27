@@ -140,12 +140,18 @@ public:
     // are negligible, while `Byte` costs one predicated branch per transferred
     // byte. A subscription to one must not make the other's site pay.
     void set_debug_state(DebugState* ds) { debug_state_ = ds; }
-    void set_events_armed(bool start_end, bool per_byte) {
-        events_armed_      = start_end;
-        byte_events_armed_ = per_byte;
+    /// ONE FLAG PER SUB-KIND, for the same reason as `Copper::set_events_armed`:
+    /// a `Byte`-only subscriber must not accumulate `Start`/`End` entries, and
+    /// vice versa.
+    void set_events_armed(bool start, bool per_byte, bool end) {
+        start_events_armed_ = start;
+        byte_events_armed_  = per_byte;
+        end_events_armed_   = end;
     }
-    bool events_armed() const { return events_armed_; }
+    bool start_events_armed() const { return start_events_armed_; }
+    bool end_events_armed() const { return end_events_armed_; }
     bool byte_events_armed() const { return byte_events_armed_; }
+    bool events_armed() const { return start_events_armed_ || end_events_armed_; }
     uint16_t    block_length() const { return block_len_; }
     bool        dir_a_to_b() const { return dir_a_to_b_; }
     AddrMode    src_addr_mode() const;
@@ -370,9 +376,10 @@ private:
     bool     daisy_busy_     = false;   // input:  daisy-chain not busy
 
     // APPENDED (GH #276 B2) — host-side debugger wiring, not machine state.
-    DebugState* debug_state_       = nullptr;
-    bool        events_armed_      = false;
-    bool        byte_events_armed_ = false;
+    DebugState* debug_state_        = nullptr;
+    bool        start_events_armed_ = false;
+    bool        end_events_armed_   = false;
+    bool        byte_events_armed_  = false;
 
     /// §4.3 `Dma{Start}` — ONE definition: `phase_` enters `START_DMA` while
     /// `state_ == TRANSFERRING`, which is the R6 `0x87` enable, the R3 `dma_en`

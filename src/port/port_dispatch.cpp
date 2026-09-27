@@ -36,12 +36,13 @@ void PortDispatch::check_io_watchpoint_(uint16_t port, WatchType type) const {
     // subscription), so a memory-only watchpoint no longer opens this gate and
     // then fails the scan on every port access.
     //
-    // PURE COST, and stated as such: widening it back to has_any_watchpoints()
-    // gives the same answer on every input, because the `has_io_watchpoint()`
-    // scan below rejects exactly what the narrower flag skips. A mutation that
-    // widens it therefore survives the suite, and that is correct rather than a
-    // coverage hole — no row can see the difference between two gates that
-    // agree.
+    // PURE COST **IN THIS FUNCTION**, and the scope matters: widening THIS gate
+    // back to has_any_watchpoints() gives the same answer on every input, because
+    // the `has_io_watchpoint()` scan below rejects exactly what the narrower flag
+    // skips — so that one mutation survives the suite, correctly. Widening the
+    // CAP-EVT `Port` latch gates in read()/write()/in() the same way does NOT:
+    // they have no second scan behind them, and EVT-PORT-02/03/11 fail. The claim
+    // is about this function, not about the flag.
     if (!debug_state_ || !debug_state_->watchpoints_live()) return;
     if (!debug_state_->port_watch_armed()) return;
     if (!debug_state_->breakpoints().has_io_watchpoint(port, type)) return;

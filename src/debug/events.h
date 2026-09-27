@@ -119,9 +119,13 @@ enum class EventKind : uint8_t {
     /// next boundary, so **≤1 instruction late**, as `NextRegWrite` and
     /// `Scanline` are.
     Copper,
-    /// DMA `Start` / `Byte` / `End`; see `DmaEventKind`. Latched at the site
-    /// and delivered at the boundary of the slot the burst ran in, so
-    /// **≤1 instruction late**. A slot is DMA *or* CPU, never both.
+    /// DMA `Start` / `Byte` / `End`; see `DmaEventKind`. Latched at the site and
+    /// delivered at the boundary of the slot the burst ran in — which is **not
+    /// late at all**: a burst runs from `dma_.execute_burst()` inside
+    /// `step_one_instruction()`, before that slot's boundary drain, so it is in
+    /// the same position as `Mem` and `Port` rather than with the device cluster's
+    /// `NextRegWrite` and `Copper`. (B2 grouped it with those two; measured
+    /// wrong.) A slot is DMA *or* CPU, never both.
     Dma,
 
     /// NOT A KIND — the count, and it must stay last.
@@ -259,9 +263,16 @@ struct Event {
     /// DMA sub-kind; meaningful iff `kind == Dma`.
     DmaEventKind dma_kind = DmaEventKind::Start;
 
-    /// Master cycle. For a latched kind this is the cycle captured AT THE SITE,
-    /// not the cycle of the boundary that delivered it.
+    /// Master cycle. For a latched kind this is the cycle captured AT THE SITE
+    /// and NOT the cycle of the boundary that delivered it — but read "at the
+    /// site" as SLOT-GRANULAR: the master clock is ticked once per instruction
+    /// slot, so every event a single instruction raises shares that slot's start
+    /// cycle (two `Mem{Write}`s from one `LD (nn),HL` are indistinguishable by
+    /// `cycle`). `Scanline` is the exception and is exact, because the site hands
+    /// the latch the line's own boundary cycle. Sub-slot resolution would mean
+    /// reading the CPU's in-instruction T-state counter at every site.
     uint64_t cycle = 0;
+
     /// Monotonic delivery sequence number, the cursor `events_fired_since()`
     /// takes (INS-17). Unique and increasing across every kind and client.
     uint64_t seq = 0;

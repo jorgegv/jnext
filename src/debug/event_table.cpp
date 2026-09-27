@@ -180,8 +180,9 @@ void EventTable::recompute_masks_() {
             // loop below is empty anyway (`first > last`), so the guard changes
             // nothing — but an inverted range INSIDE one slot (0x1FFF..0x1000)
             // has `first == last` and the loop would arm that slot. Row
-            // EVT-TBL-72 is that case; a mutation that removed the guard survived
-            // the whole suite until it existed.
+            // EVT-TBL-72 is that case, and with it in place removing this guard
+            // FAILS — so this is not a survivor, and B2's report listing it as one
+            // was stale by the time it was written.
             if (e.filter.lo > e.filter.hi) continue;
             const int first = e.filter.lo >> 13;
             const int last  = e.filter.hi >> 13;
@@ -228,6 +229,7 @@ bool EventTable::set_slot_page(int slot, uint16_t page) {
 }
 
 void EventTable::compact() {
+    ++compactions_;
     subs_.erase(std::remove_if(subs_.begin(), subs_.end(),
                                [](const Entry& e) { return e.removed; }),
                 subs_.end());

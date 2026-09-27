@@ -463,8 +463,12 @@ void NextReg::write(uint8_t reg, uint8_t val) {
     // is excluded here. Latched BEFORE the handler runs so `prev` is the byte
     // that was there; DELIVERED after commit, at the next boundary the drain
     // reaches, which for a CPU write is one instruction later (§4.3).
+    // The `has_kind()` pre-gate is not decoration: without it every guest NR
+    // write ran `nr_would_match()`, a linear scan of EVERY subscription, out of
+    // line. Now an unsubscribed kind costs one integer test.
     if (debug_state_ && debug_state_->guest_access() &&
-        write_source_ != jnext::dbg::EventSource::Copper)
+        write_source_ != jnext::dbg::EventSource::Copper &&
+        debug_state_->nextreg_events_armed())
         latch_nr_write_(reg, val);
     // PASS-8 read-only register guard. VHDL zxnext.vhd:5887, 5917, 5920
     // — NR 0x01 (g_version), NR 0x0E (g_sub_version), NR 0x0F

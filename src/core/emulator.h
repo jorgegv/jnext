@@ -763,9 +763,12 @@ public:
     /// A member rather than the local `step_one_instruction()` already has,
     /// because a latch fires from INSIDE `cpu_.execute()` (an `Mmu::write` is a
     /// memory cycle of the instruction) and by then `cpu_.pc()` has moved on.
-    /// One 16-bit store per instruction, unconditional — gating it on
-    /// `armed()` would make the store conditional and the branch is not
-    /// cheaper than the store.
+    /// One 16-bit store per instruction, unconditional — gating it on `armed()`
+    /// would make the store conditional and the branch is not cheaper than the
+    /// store. IT IS THEREFORE THE ONE THING EVERY USER PAYS for B2, so "the
+    /// no-subscriber cost is none" is properly "one store per instruction,
+    /// measured as noise" (§6.3's method cannot resolve a single store; the
+    /// interleaved A/B in `test/bench/` bounds it at under the spread).
     uint16_t debug_slot_pc() const { return debug_slot_pc_; }
 
     /// Execute a single CPU instruction slot with all subsystem ticking, and
@@ -2131,6 +2134,39 @@ private:
     /// {cycle, frame, pc, vc, hc} common header of §4.3, which only this class
     /// knows. Called once from init().
     void install_debug_latch_stamper_();
+
+    /// GH #276 B2 — reconcile the debugger's event state with a machine that has
+    /// just been REPLACED (a `load_state`, and therefore also every rewind /
+    /// step-back / bookmark restore, which all route through it).
+    ///
+    /// THE DECISION, AND ITS REASONING (recorded here because nothing in B2
+    /// recorded it): the subscription model is HOST-SIDE SESSION state and is
+    /// deliberately NOT serialised — §4.2a's precedent is explicit, "a mutation
+    /// is machine state, so the next frame-boundary snapshot carries it;
+    /// interpreter state (script variables, `once` flags) is not", and `once`
+    /// flags are `EventTable` state. A `Condition` and a `Handler` are closures
+    /// over a subscriber's own interpreter and cannot be serialised at all. So a
+    /// load must neither resurrect a subscription the user deleted nor delete one
+    /// they added, exactly as it leaves the symbol table, the stop policy and the
+    /// trace enable alone.
+    ///
+    /// What DOES have to be reconciled is the state that DESCRIBES the machine
+    /// that has just gone:
+    ///   * the latch ring — its entries carry a `pc`, `cycle` and `frame` from a
+    ///     machine that no longer exists, so the next drain would attribute them
+    ///     to the restored one. DISCARDED.
+    ///   * `event_stop_pending_` — a pending Stop for an instruction that no
+    ///     longer happened. CLEARED.
+    ///   * `watch_stop_` / `magic_stop_` — CTL-13 evidence for a stop the load has
+    ///     replaced. `unpause_()` clears them on a resume, but a load while paused
+    ///     never unpauses. CLEARED.
+    ///   * `EventTable::slot_page_` — the only piece that is a CACHE OF MACHINE
+    ///     STATE (the MMU page map). RE-DERIVED from the restored `Mmu`, which is
+    ///     the same defect as the missing initial seed wearing a second costume.
+    ///   * the derived slot masks — re-published by the re-derive above.
+    /// `debug_slot_pc_` is deliberately left: the next instruction overwrites it,
+    /// and nothing between here and there can latch (a non-guest write cannot).
+    void debug_after_state_restore_();
 
     /// GH #276 B2 §4.3 — latch `Scanline` / `Frame` / `IntAck` / `Nmi` /
     /// `Magic`. Out of line, each behind its own `has_kind()` gate.

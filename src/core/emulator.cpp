@@ -6497,7 +6497,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     dma_.read_memory  = [this](uint16_t addr) -> uint8_t { return mmu_.read(addr); };
     dma_.write_memory = [this](uint16_t addr, uint8_t val) { mmu_.write(addr, val); };
     dma_.read_io      = [this](uint16_t port) -> uint8_t { return port_.read(port); };
-    dma_.write_io     = [this](uint16_t port, uint8_t val) { port_.write(port, val); };
+    // GH #276 B2 §4.3 — BRACKET THE DMA'S SOURCE TAG. An I/O destination of
+    // port 0x253B reaches `PortDispatch::write` and then the NextREG file, so
+    // without this the write is tagged `EventSource::Cpu` and a
+    // `NextRegWrite{source=Dma}` filter can never match while a `{source=Cpu}`
+    // one fires falsely. `nextreg.h`'s `set_write_source()` doc-comment asserted
+    // this bracket existed and B2 never added it — a justification comment whose
+    // premise was false, which is exactly the class of defect that comment
+    // discipline is supposed to prevent. Save/restore, not a reset to `Cpu`, for
+    // the same nesting reason `Copper::execute` gives.
+    dma_.write_io     = [this](uint16_t port, uint8_t val) {
+        const jnext::dbg::EventSource prev_src = nextreg_.write_source();
+        nextreg_.set_write_source(jnext::dbg::EventSource::Dma);
+        port_.write(port, val);
+        nextreg_.set_write_source(prev_src);
+    };
     // GH #106 — 28 MHz SRAM read wait during DMA cycles. Same gate +
     // qualifier as the CPU path (GH #92, z80_cpu.cpp
     // sram_wait28_read_tick): VHDL zxnext.vhd:3175 requires
@@ -6610,6 +6624,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     mmu_.set_debug_state(&debug_state_);
     // GH #222 — the same DebugState drives I/O watchpoints on the port bus.
     port_.set_debug_state(&debug_state_);
+    // GH #276 B2 — a pending event Stop names an instruction of the machine that
+    // init() is replacing. Cleared here, so it covers `soft_reset()` (which calls
+    // init()) and a fresh `init()` alike.
+    event_stop_pending_ = false;
     // GH #276 B2 §4.3 — the same DebugState carries the CAP-EVT latch ring, so
     // every event site reaches it through the pointer it already holds. The
     // ring itself does not exist until a `Debugger` installs an `EventTable`,
@@ -9462,9 +9480,16 @@ void Emulator::run_frame()
         // this instruction's events again.
         //
         // What it does NOT cover is anything the DEVICE CLUSTER latches
-        // (tick_devices_after_instruction, below): a Copper MOVE, a deferred CPU
-        // NR write, a DMA byte. Those are delivered at the NEXT boundary, which
-        // is §4.3's "≤1 instruction late" for exactly those kinds.
+        // (tick_devices_after_instruction, below): a Copper MOVE or a deferred CPU
+        // NR write. Those are delivered at the NEXT boundary, which is §4.3's
+        // "≤1 instruction late" for those two kinds.
+        //
+        // DMA IS NOT ONE OF THEM, and B2 said it was in four places. A burst runs
+        // from `dma_.execute_burst(16)` inside `step_one_instruction()` (above),
+        // not from the device cluster — `tick_devices_after_instruction` contains
+        // no `dma_.` call at all — so a `Dma` event and the `Mem`/`Port` events of
+        // its own bytes are delivered at THIS boundary, 0 instructions late, like
+        // the CPU's own accesses.
         bool event_stop = false;
         if (debug_state_.armed() && debug_state_.events_pending())
             event_stop = debug_state_.drain_events();
@@ -12781,6 +12806,11 @@ bool Emulator::load_state(StateReader& r)
     // because the edge test compares frame N with frame N-1 and a restore is a
     // jump. Idempotent when nothing moved.
     sync_esp_association(/*force=*/true);
+
+    // GH #276 B2 — the machine the debugger's event state described has just been
+    // replaced. See `debug_after_state_restore_()` for what is reconciled, what is
+    // deliberately kept, and why.
+    debug_after_state_restore_();
     return true;
 }
 
@@ -13107,8 +13137,12 @@ void Emulator::install_debug_latch_stamper_()
     // §4.3's common header, filled in ONE place. It runs only from inside
     // DebugState::latch_event(), i.e. only when a filter has already matched at
     // a site — never per instruction and never per access.
-    debug_state_.set_latch_stamper([this](jnext::dbg::LatchEntry& e) {
-        e.cycle = clock_.get();
+    debug_state_.set_latch_stamper([this](jnext::dbg::LatchEntry& e,
+                                          const uint64_t* at) {
+        // `at` is the cycle the SITE says its event happened at; null means "the
+        // live clock". Everything below derives from that ONE value, so the
+        // header cannot be internally inconsistent whichever a site chooses.
+        e.cycle = at ? *at : clock_.get();
         // F2's tag: frame_num_ is post-incremented at begin_new_frame(), so
         // during frame K it reads K+1. Read the RAW counter and subtract, which
         // is what frame_tag() does — never a derived value that clamps.
@@ -13116,10 +13150,12 @@ void Emulator::install_debug_latch_stamper_()
         // The instruction the site belongs to. `cpu_.pc()` has already moved on
         // for a latch raised from inside cpu_.execute().
         e.pc = debug_slot_pc_;
-        // The RAW frame counters, the same arithmetic snapshot_raster() uses.
+        // The RAW frame counters, the same arithmetic snapshot_raster() uses —
+        // from `e.cycle`, NOT from the live clock, or a site that supplied its own
+        // cycle would get a header half from one instant and half from another.
         // Deliberately not paused_vc_/paused_hc_: those advance only while a
         // debugger is attached and the per-instruction raster walk is running.
-        const uint64_t elapsed = clock_.get() - frame_cycle_;
+        const uint64_t elapsed = e.cycle - frame_cycle_;
         e.vc = static_cast<int16_t>(elapsed / timing_.master_cycles_per_line);
         e.hc = static_cast<int16_t>(
             (elapsed % timing_.master_cycles_per_line) / 4);
@@ -13137,6 +13173,36 @@ void Emulator::debug_latch_reset(bool hard)
     debug_state_.latch_event(e);
 }
 
+void Emulator::debug_after_state_restore_()
+{
+    // The stop evidence and the pending Stop go regardless of whether a table is
+    // installed: they are `DebugState` / `Emulator` members, and a stale one
+    // outlives any `Debugger`.
+    debug_state_.clear_stop_evidence();
+    event_stop_pending_ = false;
+
+    jnext::dbg::EventTable* t = debug_state_.event_table();
+    if (!t) return;
+    t->clear_ring();
+    debug_state_.clear_ring_flag();
+    // `slot_page_` is a cache of the MMU's page map, and the restore rewrote that
+    // map. Re-derive all eight.
+    //
+    // REDUNDANT TODAY, and the first version of this comment said the opposite —
+    // it claimed `Mmu::load_state` is "a walk of a `StateDesc` declaration, not a
+    // sequence of mapping calls, so no notification fires for it at all", and that
+    // is FALSE: it ends with `for (int i = 0; i < 8; ++i) rebuild_ptr(i);`
+    // (mmu.cpp), which notifies for every slot. Removing this loop therefore
+    // survives the suite. It is kept because a reconciliation should not depend on
+    // another subsystem's closing statement — an `Mmu::load_state` that stopped
+    // re-pointing would break the page-qualified filter silently — and because
+    // `EVT-ST-24` pins the PROPERTY (the invariant holds after a load, by whichever
+    // mechanism) rather than this code.
+    for (int s = 0; s < 8; ++s)
+        debug_state_.on_slot_remapped(s, mmu_.get_effective_page(s));
+    debug_state_.refresh_event_gates();
+}
+
 void Emulator::debug_latch_scanline_(int raw_line)
 {
     jnext::dbg::EventTable* t = debug_state_.event_table();
@@ -13148,13 +13214,34 @@ void Emulator::debug_latch_scanline_(int raw_line)
     // the frame top. Reporting the raw frame line here would make
     // `on scanline 0` fire 64 lines off on 128K/Next timing, which is the
     // GH #16 / Task 76 bug in the NR 0x1F read handler all over again.
-    e.cvc = static_cast<int16_t>(cvc_at(clock_.get()));
-    // `raw_line` is NOT written into `e.vc`: the stamper owns that field, and
-    // it derives the raw line from the same clock this function was called at
-    // (the snapshot_raster() arithmetic). One writer per field — see
-    // DebugState::latch_event().
-    (void)raw_line;
-    debug_state_.latch_event(e);
+    // THE LINE'S OWN BOUNDARY CYCLE, not the live clock. This callback runs from
+    // the post-instruction device cluster, so `clock_.get()` is already past the
+    // boundary by the whole instruction that crossed it, and `events.h` promises
+    // "latched at the line with its exact cycle". `raw_line` is what the caller
+    // knows and B2 discarded it one line from here.
+    const uint64_t line_cycle =
+        frame_cycle_ + static_cast<uint64_t>(raw_line) *
+                           timing_.master_cycles_per_line;
+
+    // `cvc` IS NOT `cvc_at(line_cycle)`, and the difference is a user-visible
+    // off-by-one rather than a nicety. `cvc` steps at raw hc ==
+    // `hc_ula_zero_raw_hc()`, not at raw hc 0 (GH #257), so sampling it AT the
+    // raw-line boundary returns the PREVIOUS hc_ula line and a client asking for
+    // `scanline N` would be called on the line whose own counter reads N+1.
+    // The value a guest polling NR 0x1E/0x1F sees DURING raw line `raw_line` is
+    // the VHDL relation itself (zxula_timing.vhd:455-472), so it is computed from
+    // the line number directly and no instant is conflated: `cycle`/`vc`/`hc`
+    // name the line's START, `cvc` names the counter the guest reads across it.
+    const int lpf  = video_timing_.vc_max() + 1;
+    const int minv = video_timing_.display_origin().vc;
+    const int cuo  = video_timing_.cu_offset();
+    int cvc = (raw_line - minv + cuo) % lpf;
+    if (cvc < 0) cvc += lpf;
+    e.cvc = static_cast<int16_t>(cvc);
+    // `e.vc` / `e.hc` are still the stamper's — one writer per field — and it
+    // derives them from the cycle passed here, so they come out as (raw_line, 0):
+    // the start of the line, which is what this event names.
+    debug_state_.latch_event_at(e, line_cycle);
 }
 
 void Emulator::debug_latch_frame_()
@@ -13181,18 +13268,25 @@ void Emulator::debug_latch_nmi_()
 {
     jnext::dbg::EventTable* t = debug_state_.event_table();
     if (!t || !t->has_kind(jnext::dbg::EventKind::Nmi)) return;
+    // IN-04's published `NmiButton` has exactly two values — the F9 Multiface and
+    // F10 DivMMC/drive hotkey seams — while `NmiSource` arbitrates a THIRD
+    // producer, the expansion bus (`Src::ExpBus`, VHDL zxnext.vhd:2089-2094,
+    // :2164-2170). B2 first reported it as `Mf`, and that is WORSE than reporting
+    // nothing: `filter_matches` has no cheap filter for `Nmi` at all, so a client
+    // that cares which button fired must discriminate on `nmi_source` in its
+    // `Condition` — and `Mf` there is a FALSE POSITIVE, not a lossy
+    // approximation. So an expansion-bus NMI raises NO event, which is the honest
+    // answer available without adding an enumerator to a frozen B0 header (owner
+    // decision). Latent either way today: `set_expbus_nmi_n` has no production
+    // caller.
+    const NmiSource::Src src = nmi_source_.latched();
+    if (src != NmiSource::Src::Mf && src != NmiSource::Src::DivMmc) return;
+
     jnext::dbg::LatchEntry e;
     e.kind = jnext::dbg::EventKind::Nmi;
-    // IN-04's published `NmiButton` has exactly two values — the F9 Multiface
-    // and F10 DivMMC/drive hotkey seams — while NmiSource arbitrates a THIRD
-    // producer, the expansion bus (`Src::ExpBus`, VHDL zxnext.vhd:2164-2170).
-    // It is reported as `Mf` because the enum has no value for it; recorded
-    // here as a FINDING against `events.h` rather than silently, and the
-    // DivMmc arm is the one that is exact.
-    e.misc = static_cast<uint8_t>(
-        nmi_source_.latched() == NmiSource::Src::DivMmc
-            ? jnext::dbg::NmiButton::Drive
-            : jnext::dbg::NmiButton::Mf);
+    e.misc = static_cast<uint8_t>(src == NmiSource::Src::DivMmc
+                                      ? jnext::dbg::NmiButton::Drive
+                                      : jnext::dbg::NmiButton::Mf);
     debug_state_.latch_event(e);
 }
 

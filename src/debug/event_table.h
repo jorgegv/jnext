@@ -277,6 +277,22 @@ public:
     uint64_t next_seq() { return ++seq_; }
     uint64_t last_seq() const { return seq_; }
 
+    // ── §4.3 `Paused{matched[]}` ─────────────────────────────────────────
+    //
+    // Every subscription that matched at a stop, transient ones included. HELD
+    // HERE rather than in `Debugger::Impl` for two reasons: it is delivery state
+    // like the ring and the history beside it, and `Impl` is a private nested
+    // type, so nothing could observe it — which is why B2's bug of clearing it
+    // from a nested `raise_host_event()` had no row that could see it. Reachable
+    // from a test through `DebugState::event_table()`.
+    //
+    // The BOUNDARY owns the clear: whoever starts a delivery batch
+    // (`drain_boundary`, `execute_gate`, a TOP-LEVEL `raise_host_event`) clears
+    // it; a nested delivery must not.
+    const std::vector<Hit>& hits() const { return hits_; }
+    void clear_hits() { hits_.clear(); }
+    void record_hit(const Hit& h) { hits_.push_back(h); }
+
     /// Record a delivered event for `events_fired_since()`. Bounded — the
     /// history is a poll buffer, not a trace log.
     void record(const Event& ev);
@@ -301,6 +317,14 @@ public:
 
     /// Remove tombstoned rows. NEVER call while a drain is iterating.
     void compact();
+
+    /// How many times `compact()` has run. Contract 4 says compaction is
+    /// deferred to the OUTER delivery frame, and that is otherwise pinned only by
+    /// UB: erasing a row under the drain's index is undefined, not reliably
+    /// observable, and a row that depends on UB being visible is not a row. This
+    /// counter makes the MECHANISM checkable instead — a nested delivery that
+    /// removes a subscription must leave it at exactly one.
+    size_t compactions() const { return compactions_; }
 
 private:
     void recompute_masks_();
@@ -333,6 +357,8 @@ private:
     uint64_t seq_ = 0;
     std::vector<Event> history_;
     size_t history_first_ = 0;
+    std::vector<Hit> hits_;
+    size_t compactions_ = 0;
 };
 
 }  // namespace dbg

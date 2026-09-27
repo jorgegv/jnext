@@ -15,7 +15,9 @@ find_package(PNG REQUIRED)
 # (ENABLE_QT_UI=OFF + ENABLE_DEBUGGER=OFF, the lean/ARM64 combo) broke the link
 # with undefined references to exactly those two symbols. jnext_core does not
 # depend on jnext_platform, so this introduces no cycle.
-target_link_libraries(jnext_platform PUBLIC ${JNEXT_SDL3_TARGET} spdlog::spdlog PNG::PNG jnext_input jnext_core)
+# jnext_debug: headless_app.cpp holds the GH #276 §11-item-3 hot-latch bench
+# fixture (JNEXT_BENCH_WATCH), which constructs a jnext::dbg::Debugger.
+target_link_libraries(jnext_platform PUBLIC ${JNEXT_SDL3_TARGET} spdlog::spdlog PNG::PNG jnext_input jnext_core jnext_debug)
 target_include_directories(jnext_platform PUBLIC ${CMAKE_SOURCE_DIR}/src)
 # Bake the build type into the --benchmark BENCH line (Task 27 T1), so a
 # benchmark result always states which optimisation level produced it.

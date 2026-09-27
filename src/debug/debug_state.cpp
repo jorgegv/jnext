@@ -143,8 +143,33 @@ bool DebugState::check_step_out(uint16_t sp_before, uint16_t sp_after,
 // two writers for one field is how a payload ends up depending on the order the
 // two happen to run in.
 void DebugState::latch_event(jnext::dbg::LatchEntry& e) {
+    latch_event_at_(e, nullptr);
+}
+
+void DebugState::latch_event_at(jnext::dbg::LatchEntry& e, uint64_t cycle) {
+    latch_event_at_(e, &cycle);
+}
+
+void DebugState::latch_event_at_(jnext::dbg::LatchEntry& e, const uint64_t* at) {
     if (!events_) return;
-    if (stamp_common_) stamp_common_(e);
+    // §4.1 — THE BACKEND IS INERT WHILE UNARMED, and that has to hold at the
+    // LATCH and not only at the drain. B2 shipped with the six `Emulator`
+    // helpers, the NR hook and the Copper/DMA sites gating on `has_kind()` or
+    // their own engine flag alone while all four drains gated on
+    // `armed() && events_pending()`. A subscription on a machine with no client
+    // attached therefore FILLED the 512-entry ring and then dumped up to 513
+    // stale events — each with a stale cycle and `overflowed` set — at the first
+    // armed boundary, which degrades §4.3's overflow contract from "per
+    // boundary" to "since the last drain".
+    //
+    // Here rather than at the ~12 sites, because this is the ONE funnel all of
+    // them pass through and a site added later cannot forget it. The hot two
+    // (`Copper::execute`, once per master cycle; `Dma::execute_burst`, once per
+    // byte) ALSO carry the term at their own gate, so an unarmed machine with a
+    // Copper subscription does not build a `LatchEntry` per cycle to have it
+    // dropped here — that is cost, not correctness, and it is stated as such.
+    if (!armed_) return;
+    if (stamp_common_) stamp_common_(e, at);
     events_->latch(e);
     ring_nonempty_       = true;
     event_boundary_work_ = true;
@@ -166,6 +191,7 @@ void DebugState::refresh_event_gates() {
         breakpoints_.set_event_slot_masks(0, 0, false);
         cycle_armed_   = false;
         execute_armed_ = false;
+        nextreg_armed_ = false;
         recompute_boundary_work_();
         return;
     }
@@ -178,6 +204,7 @@ void DebugState::refresh_event_gates() {
     // test at one bool either way.
     cycle_armed_   = events_->has_kind(jnext::dbg::EventKind::Cycle);
     execute_armed_ = events_->has_kind(jnext::dbg::EventKind::Execute);
+    nextreg_armed_ = events_->has_kind(jnext::dbg::EventKind::NextRegWrite);
     recompute_boundary_work_();
 }
 
