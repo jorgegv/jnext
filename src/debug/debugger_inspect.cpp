@@ -216,19 +216,27 @@ Expected<size_t> Debugger::peek(MemSpace space, uint32_t addr, size_t n,
             return make_ok<size_t>(n);
         }
         case MemSpace::Kind::Page: {
-            if (space.index == PAGE_SENTINEL_ROM_LO || space.index == PAGE_SENTINEL_ROM_HI)
-                return make_refused<size_t>(Result::InvalidPage);
+            // TWO guards, and each one has a row that bites (review of B1 found
+            // three copies of one condition here, of which two were unreachable
+            // and none was distinguishable by a test):
+            //
+            //   1. an index outside the 8-bit page-number space at all. Without
+            //      this, the narrowing cast below turns 0x100 into page 0 and a
+            //      nonsense request reads real memory (row INS-02-13).
+            //   2. `nr_page_ptr()` == nullptr, which is EVERY page >= 0xE0:
+            //      `mmu_A21_A13(8)='1'` -> `sram_pre_active='0'`
+            //      (zxnext.vhd:3061), the SRAM does not respond, so there is no
+            //      backing store to hand out. The two ROM sentinels 0xFE / 0xFF
+            //      are inside that band and are refused BY IT — there is no
+            //      separate sentinel test on this path, because one that cannot
+            //      produce a different answer is not a guard, it is a comment
+            //      (rows INS-02-06/07 for the sentinels, INS-02-14 for 0xE0,
+            //      which is the band and NOT a sentinel).
+            //
+            // The poke path below DOES test the sentinels separately, and there
+            // it is load-bearing: a sentinel is `RefusedReadOnly`, a different
+            // answer from `InvalidPage`, and it must be given before any write.
             if (space.index > 0xFF) return make_refused<size_t>(Result::InvalidPage);
-            // The two ROM sentinels are named explicitly, and REDUNDANTLY so on
-            // this path: `Mmu::nr_page_ptr()` returns nullptr for every page
-            // >= 0xE0, which is what actually refuses them (a mutation removing
-            // this line fails no row, and that is recorded rather than hidden).
-            // It stays because the sentinels are the DOCUMENTED refusal of
-            // INS-02 and a reader should find them where the space is decoded —
-            // and because the poke path below cannot share it: there, a sentinel
-            // is `RefusedReadOnly`, a different answer from `InvalidPage`.
-            if (space.index == PAGE_SENTINEL_ROM_LO || space.index == PAGE_SENTINEL_ROM_HI)
-                return make_refused<size_t>(Result::InvalidPage);
             const uint8_t* p = emu.mmu().nr_page_ptr(static_cast<uint8_t>(space.index));
             if (!p) return make_refused<size_t>(Result::InvalidPage);
             // A page is 8 KB. A read that runs past its end is SHORT, not an
@@ -283,6 +291,9 @@ Expected<size_t> Debugger::poke(ClientId by, MemSpace space, uint32_t addr,
         for (; done < n; ++done)
             emu.mmu().write(static_cast<uint16_t>((addr + done) & 0xFFFF), buf[done]);
     } else {
+        // Same two guards as the peek path, in the same order and for the same
+        // reasons; the sentinel check that precedes them is the one that is
+        // NOT shared, because here a sentinel answers `RefusedReadOnly`.
         if (space.index > 0xFF) return make_refused<size_t>(Result::InvalidPage);
         uint8_t* p = emu.mmu().nr_page_ptr(static_cast<uint8_t>(space.index));
         if (!p) return make_refused<size_t>(Result::InvalidPage);
