@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=59
+EXPECTED_TOTAL=61
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -631,12 +631,13 @@ run_preflight_lint() {   # run_preflight_lint <clean|dirty>
 
 # A clean fixture must reach the lint (its own "[lint-traps] scanned:" line is printed
 # by lint-traps.sh, so seeing it proves the script actually ran) and pass, giving the
-# preflight its documented 4 rows (assertions, traps, timeouts, hardcoded paths — GH
-# #204 added the third and the unescalated-timeout lint the fourth; this count is
-# deliberately pinned, so adding a fifth fails here first).
+# preflight its documented 5 rows (assertions, traps, timeouts, hardcoded paths,
+# debug-headers — GH #204 added the third, the unescalated-timeout lint the fourth and
+# GH #276 B0's published-header include-graph lint the fifth; this count is deliberately
+# pinned, so adding a sixth fails here first).
 out=$(run_preflight_lint clean); rc=$?
 check "HS-49a" "the trap lint is reached from the regression preflight, as row 2 (GH #153)" 0 $rc \
-    "$out" "[lint-traps] scanned:" "no row script installs its own trap" "Pass: 4"
+    "$out" "[lint-traps] scanned:" "no row script installs its own trap" "Pass: 5"
 
 # The other arm: an offending fixture must turn that row red and fail the preflight.
 # Without it HS-49a would also pass on a call whose exit status was discarded.
@@ -668,13 +669,52 @@ run_preflight_timeouts() {   # run_preflight_timeouts <clean|dirty>
 
 out=$(run_preflight_timeouts clean); rc=$?
 check "HS-56a" "the unescalated-timeout lint is reached from the regression preflight, as row 3" 0 $rc \
-    "$out" "[lint-timeouts] scanned:" "every 'timeout' escalates to SIGKILL" "Pass: 4"
+    "$out" "[lint-timeouts] scanned:" "every 'timeout' escalates to SIGKILL" "Pass: 5"
 
 # The other arm: a bare `timeout` must turn that row red and fail the whole preflight.
 # Without it HS-56a would also pass on a call whose exit status was discarded.
 out=$(run_preflight_timeouts dirty); rc=$?
 check "HS-56b" "a bare 'timeout' FAILS the preflight, not just the lint" 1 $rc \
     "$out" "runs 'timeout' with no escalation" "Fail: 1"
+
+# ------------- the published-header include-graph lint must stay wired to the preflight
+# Fifth instance of the HS-45/HS-46/HS-49/HS-56 shape, and it exists for the reason the
+# lint itself does. Epic #276's defining property — a debugger frontend never holds an
+# `Emulator*` — had NO gate at all: the four published headers cited design §9's
+# `grep -l 'core/emulator.h' src/debugger/*.cpp`, which greps the Qt panels and says
+# nothing about them, and `#include "core/emulator.h"` in inspect.h compiled clean.
+# test/lint-debug-headers.sh closes that, and these two rows are the only thing proving
+# it is still REACHED and that its verdict still turns the preflight row red: deleting
+# the four-line `if bash .../lint-debug-headers.sh` block from
+# scripts/00-preflight-lint.sh restores the un-gated state, and the row-count witness in
+# regression.sh only says a row went missing, not which.
+#
+# The fixture is a SYMLINK FARM of the real src/ (`cp -as`) with one header overlaid, so
+# the dirty arm poisons `debug/inspect.h` alone while every other header — including the
+# `debug/result.h` the lint's own positive control looks for — stays the real file.
+# JNEXT_LINT_DEBUG_HEADERS_SRC aims the lint at it and regression.sh never sets it.
+DBH_FIX="$T/lint-debug-headers"
+rm -rf "$DBH_FIX"; mkdir -p "$DBH_FIX"
+cp -as "$PROJECT_DIR/src" "$DBH_FIX/clean"
+cp -as "$PROJECT_DIR/src" "$DBH_FIX/dirty"
+rm -f "$DBH_FIX/dirty/debug/inspect.h"
+{ printf '#include "core/emulator.h"\n'; cat "$PROJECT_DIR/src/debug/inspect.h"; } \
+    > "$DBH_FIX/dirty/debug/inspect.h"
+run_preflight_debug_headers() {   # run_preflight_debug_headers <clean|dirty>
+    JNEXT_LINT_DEBUG_HEADERS_SRC="$DBH_FIX/$1" timeout --kill-after=5s "${INVOKE_TIMEOUT}s" \
+        bash "$PROJECT_DIR/test/00regression/scripts/00-preflight-lint.sh" 2>&1
+}
+
+out=$(run_preflight_debug_headers clean); rc=$?
+check "HS-57a" "the published-header include-graph lint is reached from the regression preflight, as row 5 (GH #276)" 0 $rc \
+    "$out" "published header(s) checked" "no published debug header reaches a forbidden dependency" "Pass: 5"
+
+# The other arm: a forbidden include must turn that row red and fail the whole preflight.
+# Without it HS-57a would also pass on a call whose exit status was discarded — which is
+# exactly how the two guards below shipped dead.
+out=$(run_preflight_debug_headers dirty); rc=$?
+check "HS-57b" "a forbidden include in a published header FAILS the preflight, not just the lint (GH #276)" 1 $rc \
+    "$out" "reaches a FORBIDDEN dependency" "core/emulator.h" "Fail: 1"
 
 # =====================================================================================
 # The regression harness's preflight (test/00regression/regression.sh --preflight-only).

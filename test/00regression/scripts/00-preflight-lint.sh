@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Group rows: the four static preflight lints, always rows 1-4 of the suite.
+# Group rows: the five static preflight lints, always rows 1-5 of the suite.
 # Sourced by regression.sh (the driver); also directly executable.
 # shellcheck source=test/00regression/test-functions.inc
 set -euo pipefail
@@ -66,6 +66,25 @@ if bash "$PROJECT_DIR/test/lint-hardcoded-paths.sh"; then
     printf "  "; pass_row ": no owner-absolute paths in tracked code/config"
 else
     printf "  "; fail_row ": a tracked file names one machine's home directory (see above)"
+fi
+echo ""
+
+# --- published-debug-header include-graph lint (GH #276 B0) ---
+# Epic #276's defining property is that a debugger frontend stops holding an
+# `Emulator*`: src/debug/{debugger,events,inspect,result}.h are the whole API and
+# nothing behind them may reach the emulator core, src/platform/, a toolkit, SDL
+# or the debug internals design §3.1 keeps unpublished. Nothing checked it. The
+# B0 review found the headers citing design §9's
+# `grep -l 'core/emulator.h' src/debugger/*.cpp` as their gate — that greps the
+# QT PANELS and says nothing about these headers; adding
+# `#include "core/emulator.h"` to inspect.h compiled clean and no step noticed.
+# Five downstream packages code against the property, so it gets a row.
+echo -e "${BOLD}[lint-debug-headers] Checking the published debug headers' include graph...${RESET}"
+CURRENT_ROW=lint-debug-headers
+if bash "$PROJECT_DIR/test/lint-debug-headers.sh"; then
+    printf "  "; pass_row ": no published debug header reaches a forbidden dependency"
+else
+    printf "  "; fail_row ": a published debug header reaches a forbidden dependency (see above)"
 fi
 echo ""
 
