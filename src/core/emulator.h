@@ -741,6 +741,13 @@ public:
     /// Current master cycle within the current frame.
     uint64_t current_frame_cycle() const { return frame_cycle_; }
 
+    /// GH #276 §4.3 — was the instruction slot that just ran the DMA's rather
+    /// than the CPU's? A slot is one or the other, never both. The debugger
+    /// backend tags a memory or port event's `source` from this at the
+    /// instruction-boundary drain; it says nothing about whether the DMA is
+    /// currently holding the bus (that is `Dma::dma_holds_bus()`).
+    bool slot_ran_dma() const { return slot_ran_dma_; }
+
     /// Execute a single CPU instruction slot with all subsystem ticking, and
     /// nothing around it. Returns T-states consumed.
     ///
@@ -2085,6 +2092,10 @@ private:
     // requests, so a request raised during an instruction is resolved at
     // its end, not one instruction later.
     bool     slot_ran_instruction_ = false;
+    // GH #276 §4.3 — was this slot the DMA's rather than the CPU's? A slot is
+    // one or the other, never both, and `Event::source` is tagged from it at
+    // the boundary drain. Read through slot_ran_dma().
+    bool     slot_ran_dma_         = false;
     uint32_t slot_tstates_         = 0;
     uint64_t slot_start_           = 0;
     uint32_t slot_d_               = 8;

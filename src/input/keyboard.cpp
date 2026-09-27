@@ -524,6 +524,16 @@ uint8_t Keyboard::read_rows(uint8_t addr_high) const {
 // ---------------------------------------------------------------------------
 
 void Keyboard::set_matrix_bit(int row, int col, bool pressed) {
+    // GH #276 IN-02 made this public, so the indices are no longer guaranteed
+    // by the two in-tree callers that used to be the only ones. matrix_ is
+    // 8 x 5 bits: an out-of-range row wrote past the array and an out-of-range
+    // column shifted past the byte. Refused here rather than clamped — a
+    // clamped injection presses the WRONG key, which reads as an emulation bug.
+    // Not on any hot path: this runs once per host key event.
+    if (row < 0 || row > 7 || col < 0 || col > 4) {
+        Log::input()->warn("Key matrix [{},{}] out of range — ignored", row, col);
+        return;
+    }
     Log::input()->trace("Key matrix [{},{}] {}", row, col, pressed ? "pressed" : "released");
     if (pressed) {
         // Clear bit: key pressed (active-low)

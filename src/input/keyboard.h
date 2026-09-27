@@ -178,11 +178,39 @@ public:
     /// stream and a `.jns` cannot disagree about which fields exist.
     void describe_state(jnext::save::StateDesc& d);
 
+public:
+    // -----------------------------------------------------------------------
+    // GH #276 §4.5 IN-02 / §4.2 INS-16 — the debugger's injection and read
+    // seam on the membrane matrix.
+    //
+    // set_matrix_bit() was private and reachable only through set_key() (an
+    // `SDL_Scancode`) or queue_auto_type() (a timed pulse). IN-02 is a LEVEL
+    // set at a matrix position — what replay of a recorded session needs — and
+    // it has neither a scancode nor a duration, so it needs this entry point
+    // directly. Same function the host path uses: there is one writer of
+    // matrix_, and the debugger is not a second copy of the active-low rule.
+    //
+    // Out-of-range row/col are the implementation's business (see the .cpp);
+    // the caller above validates and refuses, because a silently ignored
+    // injection is indistinguishable from a key that did nothing.
+    // -----------------------------------------------------------------------
+    void set_matrix_bit(int row, int col, bool pressed);
+
+    /// One membrane row as the matrix holds it: 5 bits, ACTIVE-LOW (bit N
+    /// clear = column N pressed). Rows are 0..7; out of range reads 0xFF, the
+    /// all-released value.
+    ///
+    /// NOT read_rows(): that composes the port 0xFE answer for a row SELECT
+    /// mask and folds in the extended keys and the membrane joystick. INS-16
+    /// wants the raw membrane state, which is the thing a recorder samples and
+    /// a replay puts back.
+    uint8_t matrix_row(int row) const {
+        return (row >= 0 && row < 8) ? matrix_[row] : 0xFF;
+    }
+
 private:
     /// matrix_[row]: 5-bit state; bit N = 0 means column N key is pressed.
     uint8_t matrix_[8];
-
-    void set_matrix_bit(int row, int col, bool pressed);
 
 public:
     /// Hard cap on a queued auto-type sequence. Issue #42: the queue is

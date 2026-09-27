@@ -113,6 +113,11 @@ public:
     bool     is_running() const { return mode_ != 0; }
     uint16_t instruction(uint16_t addr) const { return instructions_[addr & 0x3FF]; }
 
+    /// The whole 1K x 16-bit instruction RAM, for a debugger view (GH #276
+    /// INS-09 `copper()`, which hands out a {ptr, size} pair rather than
+    /// copying 2 KB per panel refresh). Valid while the Copper lives.
+    const uint16_t* program_data() const { return instructions_.data(); }
+
     /// `hcount_i` of the MOVE currently being issued, or -1 when no
     /// Copper MOVE is in flight (GH #270).
     ///
