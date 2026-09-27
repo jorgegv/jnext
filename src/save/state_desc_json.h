@@ -116,7 +116,21 @@ public:
                   uint32_t ordinal) override;
 
     /// The refusal, naming the offending key. Empty on success.
-    const std::string& refusal() const { return refusal_; }
+    ///
+    /// A DECLARATION can refuse too, by calling `StateDesc::fail()` — the
+    /// keyboard's auto-type coordinates do (GH #289), because the range they
+    /// must be in is a property of the subsystem and not of the JSON, so no
+    /// primitive here could check it. Such a refusal latches the base class's
+    /// `failed()`/`failure()` and never reaches `refusal_`, so this falls back
+    /// to it: without the fallback a declaration-level refusal arrived as an
+    /// EMPTY string after `LoadVisitor`'s "state/<name>.json: " prefix, which
+    /// names nothing — and `StateDesc::fail()`'s contract is that the detail
+    /// names the offending thing (§16.1, `JNSM`). `refusal_` still wins when
+    /// both are set: the realisation's own message is the more specific one.
+    const std::string& refusal() const {
+        if (refusal_.empty() && failed() && failure()) refusal_ = failure();
+        return refusal_;
+    }
 
     /// Keys in the document that no declaration claimed — §12.1's
     /// unknown-key rule: ignored, and LOGGED, so a newer file read by an
@@ -157,7 +171,10 @@ protected:
 private:
     struct Impl;
     std::unique_ptr<Impl>  p_;
-    std::string            refusal_;
+    /// `mutable` for the one lazy fill in `refusal()` above, which is a
+    /// read-only accessor on a latched state and must stay callable on a const
+    /// reader.
+    mutable std::string    refusal_;
     std::vector<BlobDest>  blobs_;
 
     /// Latches `refusal_` and the sticky `failed()` flag. Every refusal names

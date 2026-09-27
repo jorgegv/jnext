@@ -524,6 +524,28 @@ uint8_t Keyboard::read_rows(uint8_t addr_high) const {
 // ---------------------------------------------------------------------------
 
 void Keyboard::set_matrix_bit(int row, int col, bool pressed) {
+    // DEFENCE IN DEPTH, not the primary check (GH #289). `matrix_` is 8 rows
+    // of 5 bits (`membrane.vhd:38-39`: `i_rows(7 downto 0)`,
+    // `o_cols(4 downto 0)`), and this function had no bound of its own: an
+    // out-of-range row wrote PAST the array — `matrix_` is the first member,
+    // so `matrix_[8]` lands in `auto_queue_`'s vector internals — and
+    // `1 << col` for col >= 32 is separately undefined.
+    //
+    // The one input a FILE controls is checked at load instead, in
+    // `describe_state` below, where a bad coordinate REFUSES the snapshot
+    // rather than being quietly dropped. This guard is what stops a future
+    // caller from reaching the same write; `queue_auto_type()` does not
+    // validate its argument either, so it is reachable today.
+    //
+    // Refused rather than clamped: a clamped index presses the WRONG key,
+    // which reads as an emulation bug. Not on any hot path — once per host key
+    // event, and from `tick_auto_type()` at most a handful of times per frame
+    // (a press and a release, doubled for a shifted pair): `run_frame` ticks
+    // the auto-type FSM once per frame, not per instruction.
+    if (row < 0 || row > 7 || col < 0 || col > 4) {
+        Log::input()->warn("Key matrix [{},{}] out of range — ignored", row, col);
+        return;
+    }
     Log::input()->trace("Key matrix [{},{}] {}", row, col, pressed ? "pressed" : "released");
     if (pressed) {
         // Clear bit: key pressed (active-low)
@@ -737,18 +759,96 @@ void Keyboard::describe_state(jnext::save::StateDesc& d)
     // bound is only as good as the clamp. A `for (i < live)` form was written
     // here first, and a mutation proved that deleting its clamp read past the
     // end of `slots`.
-    auto_queue_.clear();
-    for (size_t i = 0; i < MAX_AUTO_TYPE_KEYS; ++i) {
+    //
+    // The count is not the only thing a file controls: so are the COORDINATES
+    // (GH #289). They reach `set_matrix_bit(row, col, ..)` from
+    // `tick_auto_type()`, which indexes `matrix_[8]` and shifts by `col`, so a
+    // forged row wrote past the array and a forged col >= 32 was undefined.
+    // Checked here for the same reason the count is: the bound comes from the
+    // CODE — eight membrane rows and five columns, `membrane.vhd:38-39`
+    // (`i_rows(7 downto 0)`, `o_cols(4 downto 0)`), and `matrix_` declared
+    // `uint8_t[8]` — so no file can widen it.
+    //
+    // REFUSED, not clamped and not dropped, which is the count check's
+    // philosophy applied to the values beside it: a clamp presses some other
+    // key and a drop skips one, and either way the guest ends up in a state
+    // the snapshot did not describe, with nothing said. `d.fail()` makes a
+    // `.jns` load return false naming the field (`emulator_jns.cpp`'s
+    // `LoadVisitor`), and the rewind path logs it in `load_state` below.
+    //
+    // `row2`/`col2` are checked as a PAIR because that is how they are used:
+    // `tick_auto_type()` presses the second key only when `row2 >= 0`, and the
+    // one form every producer writes for "no second key" is `-1`/`-1`
+    // (`emulator.cpp`'s LOAD"" sequences, `phantom_typist.cpp`, and the
+    // header's own "-1 if none"). So the pair is legal as `-1`/`-1` or as a
+    // real 8x5 position, and nothing in between.
+    //
+    // `frames` is deliberately NOT range-checked. It cannot size or place a
+    // write — it only counts ticks — and there is no bound for it in the code
+    // to check against, so any limit would be invented, which is exactly the
+    // "only as good as the clamp" bound the paragraph above declines. A value
+    // below 1 releases on the first tick; the zero-filled padding slots this
+    // format legitimately carries have `frames == 0`, so refusing that would
+    // reject a stream our own writer produces.
+    //
+    // The validation runs BEFORE `auto_queue_` is touched and over exactly the
+    // slots the rebuild would use. On a refusal the queue keeps its pre-load
+    // value — `Ctc::load_state`'s convention, "the field keeps its pre-load
+    // value rather than taking a wrong FSM state" — which also keeps the WRITE
+    // direction provably pure: a corrupt live queue is reported without the
+    // rebuild mutating the machine being saved (`state_desc.h` write-back
+    // shape (c), row S5-KB-SAVE-PURE). A `.jns` save then REFUSES, because
+    // `SaveVisitor` checks `d.failed()`; the binary rewind save does not check
+    // it, so there the report lands on the next load instead — which is where
+    // `load_state` below names it. Unreachable for every
+    // sequence this class is asked to type, all of them in-range literals, but
+    // a future one must be a LOUD failure and not a silently altered machine.
+    const char* bad      = nullptr;
+    std::size_t bad_slot = 0;
+    for (std::size_t i = 0; i < MAX_AUTO_TYPE_KEYS && !bad; ++i) {
         if (i >= n) break;
-        AutoKey k;
-        k.row1   = slots[i][0];
-        k.col1   = slots[i][1];
-        k.row2   = slots[i][2];
-        k.col2   = slots[i][3];
-        k.frames = slots[i][4];
-        auto_queue_.push_back(k);
+        const int32_t r1 = slots[i][0], c1 = slots[i][1];
+        const int32_t r2 = slots[i][2], c2 = slots[i][3];
+        if (r1 < 0 || r1 > 7) {
+            bad = "keyboard auto-type row1 is outside the 8 membrane rows";
+        } else if (c1 < 0 || c1 > 4) {
+            bad = "keyboard auto-type col1 is outside the 5 membrane columns";
+        } else if (!(r2 == -1 && c2 == -1) &&
+                   (r2 < 0 || r2 > 7 || c2 < 0 || c2 > 4)) {
+            bad = "keyboard auto-type row2/col2 is neither the -1/-1 "
+                  "'no second key' pair nor a position in the 8x5 membrane";
+        }
+        bad_slot = i;
+    }
+    if (bad) {
+        // The literal handed to `fail()` names the FIELD KIND and the range,
+        // because `fail()` STORES the pointer (see `kAutoKeys` above) and a
+        // detail composed at run time would dangle. Which of the sixteen slots
+        // it was goes to the log, where a formatted string is safe.
+        Log::input()->error("Keyboard: auto-type slot {} ('{}') holds "
+                            "[{},{}]+[{},{}] — {}",
+                            bad_slot, kAutoKeys[bad_slot][0],
+                            slots[bad_slot][0], slots[bad_slot][1],
+                            slots[bad_slot][2], slots[bad_slot][3], bad);
+        d.fail(bad);
+    } else {
+        auto_queue_.clear();
+        for (size_t i = 0; i < MAX_AUTO_TYPE_KEYS; ++i) {
+            if (i >= n) break;
+            AutoKey k;
+            k.row1   = slots[i][0];
+            k.col1   = slots[i][1];
+            k.row2   = slots[i][2];
+            k.col2   = slots[i][3];
+            k.frames = slots[i][4];
+            auto_queue_.push_back(k);
+        }
     }
 
+    // NOT an early return on a refusal: the remaining fields are still
+    // DECLARED, or the positional stream would desync from this point and the
+    // JSON walk would stop claiming keys it owns. `fail()` is sticky, so the
+    // refusal survives the rest of the walk.
     d.i32("auto_frame_count", auto_frame_count_);
     d.boolean("auto_gap", auto_gap_);
     // NR 0x68 bit 4 mirror. Machine state — a register bit the guest sets —
@@ -764,5 +864,18 @@ void Keyboard::save_state(StateWriter& w) const
 
 void Keyboard::load_state(StateReader& r)
 {
-    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
+    jnext::save::BinReadDesc d(r);
+    describe_state(d);
+    if (d.failed()) {
+        // GH #289. The only way this fires is an auto-type coordinate the
+        // membrane has no position for. The queue keeps its pre-load value
+        // rather than taking a key that would index past `matrix_`, the stream
+        // stays in sync (all sixteen slots were consumed either way), and the
+        // fault is named — `Ctc::load_state`'s convention, for the same
+        // reason. A `.jns` refuses outright; there is nothing here to refuse
+        // TO, because `Saveable::load_state` returns void and the rewind path
+        // has no half-measure between replaying a frame and not.
+        Log::input()->error("Keyboard::load_state: {}",
+                            d.failure() ? d.failure() : "?");
+    }
 }
