@@ -72,6 +72,39 @@ returns nothing].
 
 ---
 
+## Work packages — the tracker for this package
+
+Mirrors this package's row in [DEBUG-SUBSYSTEM-ARCHITECTURE.md](../DEBUG-SUBSYSTEM-ARCHITECTURE.md)
+§10.1, which stays authoritative: if the two ever disagree, §10.1 wins and this
+table is stale. It exists because §10.1 states each package's sequence as one
+long table cell, which is unreadable as a plan and impossible to track against.
+
+Status values: `todo` · `in progress` · `in review` · **`done`** (independently
+reviewed and APPROVED). The whole package lands on **one branch** and merges
+whole, so `done` here means the sub-item is approved, not merged.
+
+| WP | Branch `gh276-backend` (issue #286) | Status |
+|---|---|---|
+| **B1** | facade + control + inspection over the existing primitives, **no hot-path change**: `Mmu::peek()` (F1), the frame counter (F2), the `SymbolTable` instance move, `key_name_to_matrix` move, and the §4 accessor additions (raw sprite/palette forms, public `set_matrix_bit`, the DMA slot flag, `input_state`) | **done** — 3 review rounds, APPROVED 2026-09-27 |
+| **B2** | `EventTable` + the **512-entry latch ring** (its overflow a tested path, not a comment) + slot masks + `on_slot_remapped` + the NR / port / IntAck / Nmi / Reset / Frame / Scanline hooks, and the Copper / DMA kinds with their per-engine armed flags. **Bench-gated, including §11 item 3's hot-latch measurement**, which has never been taken | in progress |
+| **B3** | session: clients, listeners, `pump` + `Service` registration, stop policy, `live_raster` / `attached`, the loop driver (SES-07), the reconstruct contract (CTL-12/15), and retiring the platform-side `BreakpointSet` / `active()` restore in `emulator_cold_boot()`. Owns SES-06's own log channel | todo |
+| **B4** | input (IN-01 APPEND) / capture / bookmarks / coverage / extended `TraceEntry`, and the `--delayed-*` CLI conveniences re-expressed as generated subscriptions in all three loop owners, retiring `QtApp`'s and `HeadlessApp`'s private countdowns. Owns ST-01's SES-06 line for the advance | todo |
+| **B5** | `debugger_backend_test` as the package's sign-off — the §9 row families end to end (delivery, transient, multi-client, reconstruct, pump, APPEND) | todo |
+
+Depends on: **B0** (#285, landed v1.0.46). Blocks: T, Q, D, Z, G, S.
+
+**Carried forward from B1's review, for every later sub-item:** derive the
+mutation list from the **diff**, never from your own row list; pin **both arms**
+of every conditional; never read a *derived* quantity where an unambiguous one
+is a line away (`frame_tag()` clamps, `frame_num()` does not); and verify the
+premise of a justification comment the way you would verify code — three of
+B1's defects hid behind a confident sentence.
+
+Every sub-item is reviewed by an agent or person that did NOT write it, and the
+branch does not merge until the full §10.3 gate is green on the tip.
+
+---
+
 ## 0. Conventions
 
 - **CAP-xxx-nn** — a backend capability. Prefixes: `CTL` control, `INS`

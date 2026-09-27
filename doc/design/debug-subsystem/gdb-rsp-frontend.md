@@ -58,6 +58,38 @@ exactly the packets and XML this design proposes.
 
 ---
 
+## Work packages — the tracker for this package
+
+Mirrors this package's row in [DEBUG-SUBSYSTEM-ARCHITECTURE.md](../DEBUG-SUBSYSTEM-ARCHITECTURE.md)
+§10.1, which stays authoritative: if the two ever disagree, §10.1 wins and this
+table is stale. It exists because §10.1 states each package's sequence as one
+long table cell, which is unreadable as a plan and impossible to track against.
+
+Status values: `todo` · `in progress` · `in review` · **`done`** (independently
+reviewed and APPROVED). The whole package lands on **one branch** and merges
+whole, so `done` here means the sub-item is approved, not merged.
+
+| WP | Branch `gh281-gdb-rsp` (issue #281) | Status |
+|---|---|---|
+| **WP-1** | codec | todo |
+| **WP-2** | target description + register packing. **The XML must stay under the 1023-byte ceiling** — a larger one segfaults `z88dk-gdb` v2.4 | todo |
+| **WP-3** | server | todo |
+| **WP-4** | wiring / CLI over the shared transport (T) | todo |
+| **WP-5** | acceptance row + user guide. §11 item 7: upstream-master `z88dk-gdb` `monitor` handling was designed from source and run only against v2.4 — close that here | todo |
+| **WP-6** | the z88dk wiki listing — **post-release**, out of scope for the epic itself | todo |
+
+Depends on: B0 (landed), B, T.
+
+Settled: `monitor in/out` is **kept and labelled perturbing**, and `k` means
+**detach** (owner, §1.3 item 19). The client is `z88dk-gdb`, not real gdb —
+Fedora's gdb has no `z80` architecture at all, which is why the Z80 knowledge
+living on our side is not a limitation.
+
+Every sub-item is reviewed by an agent or person that did NOT write it, and the
+branch does not merge until the full §10.3 gate is green on the tip.
+
+---
+
 ## 0. Premise, re-verified
 
 1. **A distro gdb cannot debug Z80.** `gdb -batch -ex 'set architecture z80'`

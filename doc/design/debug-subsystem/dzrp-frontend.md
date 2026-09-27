@@ -82,6 +82,46 @@ Abbreviations: **spec:N** = `DeZogProtocol.md` line N; **remote:N** =
 
 ---
 
+## Work packages — the tracker for this package
+
+Mirrors this package's row in [DEBUG-SUBSYSTEM-ARCHITECTURE.md](../DEBUG-SUBSYSTEM-ARCHITECTURE.md)
+§10.1, which stays authoritative: if the two ever disagree, §10.1 wins and this
+table is stale. It exists because §10.1 states each package's sequence as one
+long table cell, which is unreadable as a plan and impossible to track against.
+
+Status values: `todo` · `in progress` · `in review` · **`done`** (independently
+reviewed and APPROVED). The whole package lands on **one branch** and merges
+whole, so `done` here means the sub-item is approved, not merged.
+
+| WP | Branch `gh12-dzrp` (issue #12) | Status |
+|---|---|---|
+| **WP-1** | framing over the shared transport (T) | todo |
+| **WP-2** | session / registers / memory | todo |
+| **WP-3** | breakpoints / continue / notify | todo |
+| **WP-4** | tier 2 (the commands only an emulator can serve) | todo |
+| **WP-5** | loop owners + CLI | todo |
+| **WP-6** | validation — **including the `tools/cspect_dzrp/cspect_dzrp.py` H1-H3 fixes** (owner decision §1.3 item 25: part of this package, not a separate change), and the V-LAT paused-cadence measurement (§11 item 6) | todo |
+| **WP-7** | docs | todo |
+
+WP-3, WP-4 and WP-5 may run in parallel after WP-2. Depends on: B0 (landed), B, T.
+
+**Reuse, not rewrite** (owner, 2026-09-27): `dezogif_ng` — the owner's own DZRP
+client for real hardware, a local sibling checkout — carries a full conformance
+suite. **Copy the needed bits in; do NOT add it as a submodule.** `test/dzrp/dzrp.py`
+(framing, every command id including tier 2, `TcpTransport`), `conformance.py`,
+and the per-scenario clients that map onto contracts this design states
+independently: `queued-commands.py` ↔ SES-03's drain-while-paused,
+`split-command.py` ↔ frame reassembly, `orphan-notify.py` /
+`abandoned-send-client.py` ↔ SES-01's "a crashed DeZog must not leave the machine
+hung". It negotiates **2.1.0** (`dzrp.py:360`) while jnext answers **2.2.0**, so
+the version becomes a parameter. GPLv3 both sides, so it is licence-clean. Detail
+on #12.
+
+Every sub-item is reviewed by an agent or person that did NOT write it, and the
+branch does not merge until the full §10.3 gate is green on the tip.
+
+---
+
 ## 0. Settled decisions this design starts from (not re-litigated)
 
 From `gh12.md` / `gh276.md` / `gh277.md`, quoted where it matters:

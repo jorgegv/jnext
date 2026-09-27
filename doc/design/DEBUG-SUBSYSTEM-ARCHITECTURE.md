@@ -1328,6 +1328,17 @@ The socket transport the three servers share is **T**, written once, owned
 by one agent, and a dependency of D, Z and G alike — never carried by
 whichever server happens to land first.
 
+**Each package's row is also a tracker in its own appendix** (added 2026-09-27
+so work can be followed): `debug-subsystem/backend.md` for B, and
+`qt-frontend.md` / `dzrp-frontend.md` / `zrcp-frontend.md` /
+`gdb-rsp-frontend.md` / `dsl-frontend.md` for Q / D / Z / G / S. Each opens with
+a one-row-per-WP table carrying a **status** (`todo` · `in progress` ·
+`in review` · `done`, where `done` means independently reviewed and APPROVED, not
+merged — the package lands whole on one branch). **This table stays
+authoritative**: a tracker that disagrees with it is stale, not a second source.
+The trackers exist because a row here states a whole sequence as one table cell,
+which is unreadable as a plan and impossible to track against.
+
 ### 10.2 Dependency graph and order
 
 ```

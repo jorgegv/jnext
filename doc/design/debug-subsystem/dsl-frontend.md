@@ -22,6 +22,43 @@ REQ verdicts in §5 are updated as `design-backend` replies.
 
 ---
 
+## Work packages — the tracker for this package
+
+Mirrors this package's row in [DEBUG-SUBSYSTEM-ARCHITECTURE.md](../DEBUG-SUBSYSTEM-ARCHITECTURE.md)
+§10.1, which stays authoritative: if the two ever disagree, §10.1 wins and this
+table is stale. It exists because §10.1 states each package's sequence as one
+long table cell, which is unreadable as a plan and impossible to track against.
+
+Status values: `todo` · `in progress` · `in review` · **`done`** (independently
+reviewed and APPROVED). The whole package lands on **one branch** and merges
+whole, so `done` here means the sub-item is approved, not merged.
+
+| WP | Branch `gh26-dsl` (issue #26, carrying #279) | Status |
+|---|---|---|
+| **WP1** | lexer / parser / `compile_expr` **exported as a library** (Z WP-4 consumes it) | todo |
+| **WP2** | evaluator + the snapshot stacks (`snap` / `unsnap` / `changed()`, which is how #279's span invariants are served with no new event kind) | todo |
+| **WP3** | engine over subscriptions, stop / exit policy. Headless script `stop` with no explicit `exit` is code **3** (never 2, a harness fault) | todo |
+| **WP4** | CLI + man page (`--script`, `--script-key`) | todo |
+| **WP5** | GUI — Script tab, **Alt+1..Alt+8** as the DSL host-key namespace in both windows. **Needs Q** | todo |
+| **WP6** | the recorder — **this is #20**, after its re-scope: recorder + `compare_scr` + INS-16 + the two parked DAPR rows | todo |
+| **WP7** | demos + the `script-*-func` rows | todo |
+| **WP8** | developer-guide pages | todo |
+| **WP9** | **an exhaustive User Guide chapter for the DSL** (`src/doc/user-guide`, `docs-userguide-check`-gated) — the owner's words: the most powerful feature of jnext | todo |
+| **WP10** | **a demo program + script suite** under `demo/dsl_demo/` exercising every event kind and action, with ten `script-*-func` rows | todo |
+
+Depends on: B0 (landed), B; WP5 on Q. design-dsl owns WP9 and WP10.
+
+**Mutation is ALLOWED** (owner decision 2026-09-27): Revision 3's "scripts never
+poke" rule is withdrawn, and §4.2a defines the contract — `set <target> = expr`
+and `out`. The DSL is **the** event primitive rather than one of two, and the
+yardstick for the backend's completeness, since it is the only consumer expected
+to reach essentially everything.
+
+Every sub-item is reviewed by an agent or person that did NOT write it, and the
+branch does not merge until the full §10.3 gate is green on the tip.
+
+---
+
 ## 0. Settled decisions (recorded, not re-argued)
 
 From #279 and #277 (owner, 2026-09-26):
