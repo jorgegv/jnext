@@ -1872,8 +1872,8 @@ from the last real enumerator is blind to an <em>append</em> — the enumerator 
 value, the count keeps its number, and a new kind ships with no mask bit and no
 switch arm.</p>
 <h3 id="what-is-behind-the-facade-today">What is behind the facade today<a class="headerlink" href="#what-is-behind-the-facade-today" title="Permanent link">&para;</a></h3>
-<p>The bodies arrive in five sub-packages on one branch, and the first of them is
-in: <strong>control and inspection over the existing primitives</strong>, with no change to
+<p>The bodies arrive in five sub-packages on one branch, and two of them are in.</p>
+<p><strong>B1 — control and inspection over the existing primitives</strong>, with no change to
 the hot path. <code>src/debug/debugger.cpp</code> holds construction, the mutation log,
 symbols and the state/rewind verbs; <code>debugger_control.cpp</code> the CAP-CTL verbs;
 <code>debugger_inspect.cpp</code> the CAP-INS read and write surface; <code>debugger_input.cpp</code>
@@ -1881,6 +1881,8 @@ the level half of input injection. All of the state lives in a <code>struct Impl
 behind one <code>unique_ptr</code> (<code>debugger_impl.h</code>, internal), so the later sub-packages
 add their own state — the event table, the client list, the bookmarks — without
 editing a header five frontends compile against.</p>
+<p><strong>B2 — the event pipeline</strong>, which is the first part of the epic that touches
+the hot path at all. It is described in its own section below.</p>
 <p>The control verbs are the bodies of <code>DebuggerManager</code>'s slots with the Qt taken
 out: the same <code>DebugState</code> calls in the same order, the same GH #207 / #221 /</p>
 <h1 id="223-behaviour-the-same-two-target-computations-for-run-to-end-of-frame-and">223 behaviour, the same two target computations for "run to end of frame" and<a class="headerlink" href="#223-behaviour-the-same-two-target-computations-for-run-to-end-of-frame-and" title="Permanent link">&para;</a></h1>
@@ -1918,6 +1920,158 @@ rows above.</p>
 <p>Everything else the rest of this chapter describes — <code>DebugState</code> consulted per
 instruction, <code>BreakpointSet</code>, <code>DebuggerManager</code> driving the panels — is still how
 the debugger works today; the frontends have not been moved onto the facade yet.</p>
+<h3 id="the-event-pipeline-b2">The event pipeline (B2)<a class="headerlink" href="#the-event-pipeline-b2" title="Permanent link">&para;</a></h3>
+<p>Today's event vocabulary is "a PC breakpoint, a watchpoint, one one-shot, and
+nothing is conditional". B2 replaces it with the fourteen kinds of §4.3 of the
+architecture document, and the shape of the replacement is one sentence:</p>
+<blockquote>
+<p>A site inside an instruction <strong>latches</strong>; a boundary with the machine stopped
+<strong>delivers</strong>.</p>
+</blockquote>
+<pre><code>site  -&gt;  cheap filter  -&gt;  LATCH into the ring          (inside an instruction)
+----------------------------------------------------------------------------
+boundary  -&gt;  drain  -&gt;  build Event  -&gt;  per-subscription filter
+          -&gt;  Condition  -&gt;  Handler  -&gt;  verdict  -&gt;  Stop / Log / Continue
+                                                        (machine stopped)
+</code></pre>
+<p>No user code runs inside <code>Mmu::write</code>, the CPU or a device tick. That is what
+makes "an inspection read is side-effect free" a property of the code rather
+than of the caller's discipline.</p>
+<p><strong>The subscription table.</strong> <code>EventTable</code> (<code>src/debug/event_table.h</code>, internal)
+holds the subscriptions, the 512-entry latch ring and the INS-17 delivery
+history. It lives in <code>Debugger::Impl</code>, and <code>DebugState</code> holds a POINTER to it —
+which is how the eight <code>Mmu</code> watchpoint sites, <code>PortDispatch</code>, <code>NextReg::write</code>,
+<code>Copper::execute</code> and <code>Dma::execute_burst</code> all reach it without any of them
+seeing an <code>Emulator*</code> or a <code>Debugger*</code>.</p>
+<p>Each entry caches one bool, <code>live</code> = <code>enabled &amp;&amp; (transient || master) &amp;&amp;
+client_enabled(owner)</code>, recomputed whenever anything changes and never
+per instruction. <code>transient</code> is exempt from the master switch, which is what
+keeps Step Over working on a machine whose breakpoints the user has all
+suspended.</p>
+<p><strong>The hot path is one byte.</strong> The eight <code>Mmu</code> sites used to open with
+<code>debug_state_ &amp;&amp; watchpoints_live() &amp;&amp; has_any_watchpoints()</code> and then scan a
+<code>vector&lt;Watchpoint&gt;</code> linearly on every access. They now open with
+<code>debug_state_ &amp;&amp; watchpoints_live() &amp;&amp; rd_watch_armed(addr)</code>, where the third
+term is a per-8-KB-slot mask byte: one load, a shift and a test. Everything
+behind it — the legacy <code>has_watchpoint()</code> scan, the precise range match and the
+ring append — is out of line in <code>Mmu::watch_read_</code> / <code>watch_write_</code>.</p>
+<p>The mask bytes live on <code>BreakpointSet</code>, not on <code>DebugState</code> where §6.1 of the
+design puts them, and the reason is lifetime rather than taste. They have TWO
+contributors — that class's own live watchpoints and the <code>EventTable</code>'s <code>Mem</code>
+subscriptions — so the two have to be pre-ORed somewhere; and putting them on
+<code>DebugState</code> means <code>DebugState</code> has to learn about every mutation of the
+breakpoint set, i.e. register a <code>BreakpointSet</code> observer. <code>BreakpointSet</code> is
+copied out and moved back by <code>emulator_cold_boot()</code>, and it carries its
+observers with it, so such an observer would come back pointing at the destroyed
+<code>Emulator</code>'s <code>DebugState</code>. Where they are, the legacy half is recomputed by
+<code>rebuild_live_()</code> — which every mutator already calls — so there is no
+notification to forget.</p>
+<p>The mask is strictly NARROWER than the bool it replaced: an I/O watchpoint
+contributes to a separate <code>port_watch_armed()</code> flag and to no memory slot at
+all, where before it opened the memory gate on every access and then failed the
+scan.</p>
+<p><strong>Delivery, and where each kind lands in time.</strong> <code>Execute</code> is the only kind
+delivered BEFORE the instruction runs — that is what lets a handler write PC
+and redirect. Everything else is delivered at an instruction boundary:</p>
+<table>
+<thead>
+<tr>
+<th>Latched at</th>
+<th>Delivered</th>
+<th>Late by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Mmu</code> read/write site</td>
+<td>the raising instruction's own boundary</td>
+<td>nothing</td>
+</tr>
+<tr>
+<td><code>PortDispatch</code> (reads AFTER dispatch, so the value is the one the guest got)</td>
+<td>same</td>
+<td>nothing</td>
+</tr>
+<tr>
+<td><code>NextReg::write</code>, CPU writer</td>
+<td>the NEXT boundary</td>
+<td>≤1 instruction</td>
+</tr>
+<tr>
+<td><code>NextReg::write</code>, Copper / DMA writer</td>
+<td>the NEXT boundary</td>
+<td>≤1 instruction</td>
+</tr>
+<tr>
+<td><code>Copper::execute</code> (Move / Wait / Halt)</td>
+<td>the NEXT boundary</td>
+<td>≤1 instruction</td>
+</tr>
+<tr>
+<td><code>Dma::execute_burst</code> (Start / Byte / End)</td>
+<td>the boundary of the slot the burst ran in</td>
+<td>≤1 instruction</td>
+</tr>
+<tr>
+<td><code>on_scanline</code></td>
+<td>the NEXT boundary</td>
+<td>≤1 instruction</td>
+</tr>
+<tr>
+<td><code>end_of_frame</code></td>
+<td>that frame edge</td>
+<td>nothing</td>
+</tr>
+</tbody>
+</table>
+<p>The <code>≤1 instruction</code> entries are all the same fact: the boundary drain runs
+BEFORE <code>tick_devices_after_instruction()</code>, and that is where the Copper, the
+deferred CPU NextREG queue and the DMA all run. Moving the drain behind the
+device cluster would change the GH #265 early-return contract for every data
+breakpoint, so the delay is accepted and stated instead.</p>
+<p><strong>The whole of a delivery runs under one <code>DebugState::InspectionScope</code></strong>, and
+that is not optional. A delivery happens inside <code>run_frame()</code>'s
+<code>GuestExecutionScope</code>, where <code>watchpoints_live()</code> is true — so a handler that
+pokes an address it is watching would latch a watch on itself. <code>poke(Cpu)</code> takes
+a second scope of its own, so the property holds for any caller on any path.</p>
+<p><strong>A debugger write is not an event.</strong> <code>NextReg::write</code> is the ONE hook for every
+NextREG writer, and it is gated on <code>DebugState::guest_access()</code>: a panel's
+<code>nextreg().write()</code> and a script's <code>nextreg_write</code> both run with that false, so
+neither fires a <code>NextRegWrite</code> on itself. A Copper MOVE is additionally excluded
+from that hook, because the Copper's own site already latches it and §4.3
+requires ONE ring entry fanned out at the drain to both <code>Copper{Move}</code> and
+<code>NextRegWrite{source=Copper}</code> — never two.</p>
+<p><strong>The ring is bounded, and says so.</strong> 512 entries, derived in §4.3 from the
+Copper's per-master-cycle cadence. On overflow it keeps the FIRST N entries in
+order, counts the rest, and marks every delivery of that boundary
+<code>overflowed{dropped}</code> — a subscriber whose own event survived still has to know
+the boundary was lossy. It is a tested path, not a defensive comment:
+<code>EventTable::shrink_ring_for_test()</code> shrinks the ring and a Copper MOVE burst is
+driven over it on purpose (<code>EVT-OVF-*</code>).</p>
+<p><strong>The no-subscriber cost.</strong> <code>Copper::execute</code> runs once per master cycle and is
+8-12 % of the <code>copper-demo</code> / <code>beast</code> profiles, and <code>Dma::execute_burst</code> runs
+once per byte, so neither reads the table at its site: each carries a plain bool
+(<code>Copper::events_armed_</code>, <code>Dma::events_armed_</code>, <code>Dma::byte_events_armed_</code>) that
+the backend sets from <code>subscribe()</code>. DMA <code>Byte</code> is armed SEPARATELY from
+<code>Start</code>/<code>End</code>, because it is the one DMA site whose cost scales with the
+transfer.</p>
+<p><strong><code>pause_reason</code> (CTL-13) needs evidence that survives the stop.</strong> Nothing in
+the tree used to record WHY the machine stopped: <code>DebugState::pause()</code> clears
+the step mode, and the hot loop consumes the data-breakpoint latch in the same
+breath as the pause. So there are now three records — the backend's armed-verb
+reason, <code>DebugState::note_watch_stop()</code> / <code>note_magic_stop()</code> for the two stops
+the machine causes, and the drain's own latch for a subscription stop — and
+<code>Debugger::state()</code> reads them in a documented order: <code>Corrupt</code> first (CTL-11
+makes it the thing that refuses every resume), then the armed verb, then the
+subscription, then Magic, then a legacy watch, then a legacy PC breakpoint.</p>
+<p><strong>Step Over and Run to Here</strong> no longer use <code>BreakpointSet</code>'s single one-shot:
+they arm a transient <code>Execute</code> subscription, which §4.3 makes unlimited in
+number (DeZog needs two temporary breakpoints per <code>CMD_CONTINUE</code>), exempt from
+the master switch, and auto-removed at the next stop. <code>run()</code> deliberately does
+NOT drop them — a continue that cleared what the same operation had just armed
+could not work — so the drop happens at a stop the backend causes, or on an
+explicit <code>Debugger::pause()</code>, which is the transition <code>resume()</code>'s
+<code>clear_oneshot()</code> was really standing in for.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
 <p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
 <code>jnext_debugger</code> is neither compiled nor linked and every use site in
@@ -1957,7 +2111,9 @@ false unless the emulator has declared that it is executing — the RAII
 <code>DebugState::GuestExecutionScope</code>, taken by exactly three functions:
 <code>Emulator::run_frame()</code>, <code>step_frame_slot()</code> and
 <code>execute_single_instruction()</code>. The watchpoint checks are therefore triple-
-gated on pointer non-null, <code>watchpoints_live()</code> and <code>has_any_watchpoints()</code>.</p>
+gated on pointer non-null, <code>watchpoints_live()</code> and — since B2 — the per-slot
+mask byte <code>rd_watch_armed()</code> / <code>wr_watch_armed()</code>, which replaced
+<code>has_any_watchpoints()</code> there (see "The event pipeline (B2)" above).</p>
 <p>The point of putting the gate there rather than around panel refresh is that
 it does not depend on the caller. A panel added tomorrow cannot fire a
 watchpoint whatever it calls, because it cannot make <code>guest_access_</code> true; and
@@ -2001,8 +2157,8 @@ consults it once per instruction, before the fetch:</p>
 </tr>
 <tr>
 <td><code>OVER</code></td>
-<td><code>step_over(next_pc)</code></td>
-<td>one-shot breakpoint at <code>next_pc</code></td>
+<td><code>step_over(next_pc)</code>, or the backend's <code>step_over_subscribed()</code></td>
+<td>one-shot breakpoint at <code>next_pc</code>; through the backend, a transient <code>Execute</code> subscription there</td>
 </tr>
 <tr>
 <td><code>OUT</code></td>
@@ -2038,9 +2194,11 @@ on the hot path ever rebuilds or filters.</p>
 <p>That split is what makes a disabled breakpoint cost <em>nothing</em> rather than
 merely little. The hot path's structures are unchanged and their contents are a
 subset of the model, so a disabled breakpoint is not hashed, not compared and
-not iterated. Disable the only watchpoint and <code>has_any_watchpoints()</code> goes
-false again, so the eight <code>Mmu</code> watchpoint sites and <code>PortDispatch</code> short-circuit
-exactly as on a machine that never had one.</p>
+not iterated. Disable the only watchpoint and its bit leaves the per-slot mask
+<code>rebuild_live_()</code> maintains, so the eight <code>Mmu</code> watchpoint sites and
+<code>PortDispatch</code> short-circuit exactly as on a machine that never had one.
+(<code>has_any_watchpoints()</code> is still there and still true of the model; since B2 it
+is no longer what the sites read.)</p>
 <p>The <strong>master switch</strong> (<code>set_master_enabled()</code>) is the whole of
 <code>rebuild_live_()</code>'s first line: with it off, the cache is left empty and the
 model is not read at all. It therefore cannot consume a per-breakpoint flag,
