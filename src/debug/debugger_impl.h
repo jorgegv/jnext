@@ -338,14 +338,40 @@ struct Debugger::Impl {
     std::optional<bool> want_trace;
     std::optional<bool> want_persistent;
 
+    /// CTL-12 rule 3's input: the pause IN FORCE before a machine is replaced,
+    /// and whose it is. Not a bare bool, because the owner is half of what rule
+    /// 3 has to preserve: SES-01's detach releases a pause only if it is THIS
+    /// client's, so a re-applied pause that forgot its owner could never be
+    /// released by anyone — a crashed DeZog that hard-reset a paused machine
+    /// would leave it hung (rows CTL-12-41..47).
+    struct PreBoot {
+        bool     paused = false;
+        ClientId owner  = CLIENT_NONE;   ///< CLIENT_NONE: unowned (Magic, a legacy breakpoint, …)
+    };
+
+    /// THE ONE CAPTURE, shared by all three routes that replace the machine:
+    /// `reset(Hard)` and `load()` call it before their driver runs, and the
+    /// guest path's `on_cold_boot_begin()` calls it before the loop owner
+    /// destroys the machine. Reads `state()`, so the owner is whatever
+    /// CTL-13's precedence says it is at that instant.
+    PreBoot capture_pre_boot() const;
+
+    /// `on_cold_boot_begin()`'s capture, waiting for `on_cold_boot_done()`.
+    /// Consumed by `done`; OVERWRITTEN by a second `begin` (last wins); CLEARED
+    /// by `reset(Hard)` and `load()`, which land a machine of their own (a
+    /// capture that described the machine before THEM is stale); and a detach
+    /// of its owner releases the pause it recorded, exactly as SES-01 releases
+    /// the live one.
+    std::optional<PreBoot> pending_boot;
+
     /// CTL-12 — re-bind to the machine at `emu`'s address and re-apply
     /// everything the backend owns. Idempotent, and deliberately called whether
     /// or not the machine was actually replaced (see `Debugger::load`).
     ///
-    /// `was_paused` is the caller's pause state from BEFORE the boot: CTL-12
-    /// rule 3 is "paused stays paused, running stays running", and a fresh
-    /// `Emulator` is always running.
-    void reapply_after_machine_rebuild(bool was_paused);
+    /// `pre` is the pause in force from BEFORE the boot (`capture_pre_boot()`):
+    /// CTL-12 rule 3 is "paused stays paused, running stays running", and a
+    /// fresh `Emulator` is always running.
+    void reapply_after_machine_rebuild(const PreBoot& pre);
 
     /// CTL-12 `Hard`. On `Impl` rather than as a `Debugger` method because
     /// `Debugger::reset()` owns the `ResetKind` switch (whose missing `default`

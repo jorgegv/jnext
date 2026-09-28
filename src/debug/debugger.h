@@ -902,12 +902,32 @@ public:
     Result set_loop_driver(const LoopDriver& driver);
 
     /// SES-07 — the loop owner reports that a DEFERRED (guest NR 0x02) cold
+    /// boot is ABOUT TO destroy the machine. Call it immediately before the
+    /// destroy, and `on_cold_boot_done()` after the rebuild: the backend captures
+    /// here the pause in force and whose it is — exactly what `reset(Hard)`
+    /// captures before its driver — so CTL-12 rule 3 ("paused stays paused")
+    /// holds on the guest path too. Needs no driver; never refuses. A second call
+    /// before `done` replaces the first; a `reset(Hard)` or `load()` in between
+    /// discards it.
+    ///
+    /// ADDED BY B3 (owner decision 2026-09-28) — the one change to this frozen
+    /// header after B0: without it the guest path could not honour rule 3,
+    /// because by `on_cold_boot_done()` the paused machine is already gone.
+    Result on_cold_boot_begin();
+
+    /// SES-07 — the loop owner reports that a DEFERRED (guest NR 0x02) cold
     /// boot has completed, so the reconstruct contract's re-application runs for
-    /// it too.
+    /// it too. After `on_cold_boot_begin()` it re-applies that capture; without
+    /// one it re-applies the REBUILT machine's own pause state, unowned.
     Result on_cold_boot_done();
 
 private:
     // ── The ONE thing B1 added to this frozen header ────────────────────────
+    //
+    // (B3 added one public declaration to this header: `on_cold_boot_begin()`
+    // above, by owner decision on 2026-09-28 — recorded at its declaration, in
+    // `doc/design/debug-subsystem/b0-cap-traceability.md` (SES-07) and in
+    // `backend.md` CAP-SES-07.)
     //
     // B0 declared the constructor, an out-of-line destructor and deleted
     // copy/move, and no storage at all — the shape a pImpl is prepared for. B1

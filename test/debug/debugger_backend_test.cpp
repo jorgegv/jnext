@@ -8016,6 +8016,11 @@ int main() {
         // THROUGH `None` to the legacy PC-breakpoint check and matches `User`
         // immediately.
         //
+        // With an UNOWNED pre-boot pause, which is the case `None` is for: since
+        // GH #276 B3 milestone 2 an OWNED pause is re-armed `User{owner}` on
+        // purpose (CTL-12-41), so this row stops the machine on a legacy PC
+        // breakpoint during a free run — nobody's verb — and then resets.
+        //
         // The discriminator is a legacy PC breakpoint at the address the boot
         // lands on. It survives the boot via `emulator_boot.h`'s restore (see
         // CTL-12-16), so it is there to be found.
@@ -8030,18 +8035,55 @@ int main() {
         };
         dbg.set_loop_driver(d);
 
-        dbg.pause(a);
-        dbg.step_into(a);                       // arm a stale Step
+        emu.debug_state().breakpoints().add_pc(AFTER_CALL);
+        run_until_paused(emu, 3);
+        const RunState pre = dbg.state();
         const uint16_t landing = 0x0000;        // a cold boot starts at 0x0000
         emu.debug_state().breakpoints().add_pc(landing);
         dbg.reset(a, ResetKind::Hard);
-        check("CTL-12-27", "the reconstruct arms Kind::None, so a landing on a "
-                           "legacy PC breakpoint reports Breakpoint — Kind::User "
+        check("CTL-12-27", "an UNOWNED pause is re-applied as Kind::None, so a landing "
+                           "on a legacy PC breakpoint reports Breakpoint — Kind::User "
                            "would have swallowed it",
+              pre.paused && pre.pause_reason.by == jnext::dbg::CLIENT_NONE &&
               dbg.state().paused && emu.cpu().get_registers().PC == landing &&
               dbg.state().pause_reason.kind == PauseReason::Kind::Breakpoint,
               "pc=" + hex(emu.cpu().get_registers().PC) + " kind=" +
-                  std::to_string(static_cast<int>(dbg.state().pause_reason.kind)));
+                  std::to_string(static_cast<int>(dbg.state().pause_reason.kind)) +
+                  " pre_by=" + std::to_string(pre.pause_reason.by));
+    }
+    {
+        // ...and the OTHER ARM: a pause a client OWNED keeps its owner across the
+        // reconstruct, as `User{owner}` — the machine is held for that client —
+        // even with a breakpoint at the landing address. Without the owner the
+        // pause would read as the unowned fallback, which SES-01 never lets a
+        // detach release: a remote that hard-reset a paused machine and then
+        // crashed would leave it hung. So the second row is the owner's detach.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        jnext::dbg::LoopDriver d;
+        d.cold_boot = [&]() {
+            emulator_frontend_cold_boot(emu, emu.config(), std::string(),
+                                        ColdBootHooks{});
+            return true;
+        };
+        dbg.set_loop_driver(d);
+        dbg.pause(a);
+        dbg.step_into(a);                       // a stale Step, owned by A
+        emu.debug_state().breakpoints().add_pc(0x0000);
+        dbg.reset(b, ResetKind::Hard);          // B resets A's paused machine
+        const RunState st = dbg.state();
+        check("CTL-12-41", "an OWNED pause keeps its owner across the reconstruct — "
+                           "User{A}, whoever asked for the reset",
+              st.paused && st.pause_reason.kind == PauseReason::Kind::User &&
+              st.pause_reason.by == a,
+              "kind=" + std::to_string(static_cast<int>(st.pause_reason.kind)) +
+                  " by=" + std::to_string(st.pause_reason.by));
+        const bool other_left = dbg.detach(b) == Result::Ok && dbg.state().paused;
+        check("CTL-12-42", "so ANOTHER client's detach leaves it, and the owner's "
+                           "detach releases it — SES-01 across a reboot",
+              other_left && dbg.detach(a) == Result::Ok && !dbg.state().paused);
     }
     {
         // M71's gap: the EIGHT-PAGE SEED. `EventTable::slot_page_` lives on

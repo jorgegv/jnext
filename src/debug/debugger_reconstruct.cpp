@@ -72,7 +72,17 @@ namespace dbg {
 // The one re-application
 // ---------------------------------------------------------------------------
 
-void Debugger::Impl::reapply_after_machine_rebuild(bool was_paused) {
+Debugger::Impl::PreBoot Debugger::Impl::capture_pre_boot() const {
+    const RunState st = self->state();
+    PreBoot pre;
+    pre.paused = st.paused;
+    // The owner only of a pause. `pause_reason.by` of a running machine is
+    // CLIENT_NONE anyway; saying so here keeps the struct's meaning local.
+    pre.owner  = st.paused ? st.pause_reason.by : CLIENT_NONE;
+    return pre;
+}
+
+void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     // (1) THE THREE PUBLICATIONS. The same calls the constructor makes, in the
     //     same order, and the order matters for the same reason it does there:
     //     the table pointer before the gates, because `refresh_event_gates()`
@@ -128,7 +138,9 @@ void Debugger::Impl::reapply_after_machine_rebuild(bool was_paused) {
     //     `Kind::None` and not `Kind::User`: `state()`'s precedence switch falls
     //     THROUGH `None` to the legacy PC-breakpoint check, and matches `User`
     //     immediately. A reconstruct that landed on an address carrying a
-    //     breakpoint would report `User` and silently swallow it.
+    //     breakpoint would report `User` and silently swallow it — which is
+    //     exactly right for an UNOWNED pause (below), and why (4) re-arms `User`
+    //     only for an owned one.
     arm(PauseReason::Kind::None, CLIENT_NONE);
 
     // (4) RULE 3 — "paused stays paused, running stays running". A fresh
@@ -137,7 +149,24 @@ void Debugger::Impl::reapply_after_machine_rebuild(bool was_paused) {
     //     was running, which is the other half of rule 3 ("a client's
     //     `reset(Hard)` never pauses a running machine — there is no `Reset` in
     //     `pause_reason`").
-    if (was_paused) ds().pause();
+    //
+    //     AND THE PAUSE KEEPS ITS OWNER. A pause some client owned (its
+    //     `pause()`, its step, its subscription's `Stop`) comes back as
+    //     `User{that client}`: the machine is being HELD for it across the boot,
+    //     and SES-01's detach — which releases only a pause that is the detaching
+    //     client's — must still be able to release it. Re-applied as the bare
+    //     `None` above it would read as the unowned `User{CLIENT_NONE}` fallback,
+    //     which no detach ever releases: a remote that hard-reset a paused
+    //     machine and then crashed would leave it hung. The ORIGINAL kind is not
+    //     kept, and cannot be: `Step` or `Breakpoint{id}` described a PC in a
+    //     machine that no longer exists. An UNOWNED pause (Magic, a legacy PC
+    //     breakpoint, a pause the loop owner made) stays unowned — `None`, whose
+    //     fall-through reports a breakpoint at the landing address if one is
+    //     there.
+    if (pre.paused) {
+        ds().pause();
+        if (pre.owner != CLIENT_NONE) arm(PauseReason::Kind::User, pre.owner);
+    }
 
     // (5) RULE 2 — re-apply what every client asked for. Subscriptions, the
     //     switches and the symbol table live on `Impl` and never went anywhere.
@@ -180,37 +209,57 @@ Result Debugger::set_loop_driver(const LoopDriver& d) {
 }
 
 // RULE 5 — the GUEST-initiated path. NR 0x02 raises a flag, every loop owner
-// polls it BEFORE `pump()` and turns it into its own cold boot without the
-// backend being involved at all; this is how it tells the backend afterwards, so
-// rules 2-4 apply identically.
+// polls it and turns it into its own cold boot without the backend being
+// involved in the boot itself; these two verbs are how it tells the backend, so
+// rules 2-4 apply identically: `on_cold_boot_begin()` immediately BEFORE the
+// machine is destroyed, `on_cold_boot_done()` after it is rebuilt.
 //
-// IT DOES NOT REQUIRE A REGISTERED DRIVER, and that is deliberate. Rule 6's
+// NEITHER REQUIRES A REGISTERED DRIVER, and that is deliberate. Rule 6's
 // `RefusedUnavailable` is about `reset(Hard)`, which needs the driver to PERFORM
-// the boot; this verb is a NOTIFICATION that a boot has already happened, and the
-// re-application it triggers needs nothing from `LoopDriver` at all. Requiring one
-// would force a loop owner that only ever sees guest resets to register a closure
-// it never calls — `HeadlessApp`'s `JNEXT_BENCH_WATCH` fixture is exactly that
-// case, and it is the one real caller in the tree today. (An earlier draft of this
-// function did refuse without a driver, on the reasoning that such a call "is a
-// wiring error"; the fixture disproves it.)
+// the boot; these are NOTIFICATIONS about a boot the loop owner performs, and
+// nothing they do needs `LoopDriver`. Requiring one would force a loop owner that
+// only ever sees guest resets to register a closure it never calls —
+// `HeadlessApp`'s `JNEXT_BENCH_WATCH` fixture is exactly that case, and it is the
+// one real caller in the tree today. (An earlier draft did refuse without a
+// driver, on the reasoning that such a call "is a wiring error"; the fixture
+// disproves it.) Nor does either refuse on a corrupt machine: the guest has
+// already decided to reboot it, and the notification changes nothing about that.
+
+// RULE 3 ON THIS PATH — owner decision 2026-09-28, the ONE change to the frozen
+// header B3 makes. `on_cold_boot_done()` runs after the machine is gone, so it
+// cannot read the pause that was in force, and a pause that landed in the same
+// tick as the guest's NR 0x02 write (a breakpoint later in the frame that raised
+// the reset) used to come back RUNNING. The loop owner now calls this first, and
+// the backend captures exactly what `reset(Hard)` captures before its driver —
+// `capture_pre_boot()`, the pause and its OWNER — so the three routes share one
+// capture and one re-application (rows CTL-12-41..47).
+Result Debugger::on_cold_boot_begin() {
+    // Last wins: a second `begin` with no `done` between them is a loop owner
+    // that announced a boot, did not perform it, and is announcing another —
+    // the machine the SECOND one captures is the one about to be destroyed.
+    impl_->pending_boot = impl_->capture_pre_boot();
+    return Result::Ok;
+}
+
 Result Debugger::on_cold_boot_done() {
-    // The loop owner has ALREADY rebuilt the machine, so the pause state to
-    // re-apply is the one the machine is in now — which for a guest reset is
-    // "running". Read rather than assumed: a loop owner that paused the machine
-    // before calling this (a debugger window open across a guest reset) must not
-    // have it resumed by the notification.
+    // WITH a `begin`: re-apply what it captured from the machine that was
+    // destroyed, and consume it so it cannot leak into a later, unrelated boot.
     //
-    // A DOCUMENTED LIMITATION OF RULE 3 ON THIS PATH (manager decision, B3
-    // milestone 2): the machine that was paused is gone before this runs, so
-    // "paused stays paused" cannot be honoured for it. A pause that lands in
-    // the SAME TICK as the guest's NR 0x02 write — a breakpoint later in the
-    // frame that raised the reset — comes back RUNNING. The frozen signature
-    // takes no argument that could carry it, and "paused at the last pump"
-    // would be a guess across a whole tick. The client-owned state is NOT so
-    // limited: subscriptions, switches and the `want_*` enables are the
-    // backend's own record and are re-applied in full.
-    const bool was_paused = impl_->ds().paused();
-    impl_->reapply_after_machine_rebuild(was_paused);
+    // WITHOUT one — a loop owner not yet updated to call `begin`, which is the
+    // behaviour B3 shipped before the header change and is kept rather than
+    // guessed at: the only pause state left is the REBUILT machine's, so that
+    // is what is re-applied — running for a guest reset, paused if the loop
+    // owner paused the new machine before calling this — and it is re-applied
+    // UNOWNED, because a pause the loop owner made is no client's.
+    Impl::PreBoot pre;
+    if (impl_->pending_boot) {
+        pre = *impl_->pending_boot;
+    } else {
+        pre.paused = impl_->ds().paused();
+        pre.owner  = CLIENT_NONE;
+    }
+    impl_->pending_boot.reset();
+    impl_->reapply_after_machine_rebuild(pre);
 
     // RULE 5 defers to rules 2-4, and rule 4 is the `Reset{Hard}` event and
     // push. The LATCH (the §4.3 `Reset` event a subscription can see) must come
@@ -247,8 +296,12 @@ Result Debugger::Impl::reset_hard(ClientId by) {
     const Result gate = execute_gate();
     if (gate != Result::Ok) return gate;
 
-    // RULE 3's input, read BEFORE the boot. Nothing survives it.
-    const bool was_paused = ds().paused();
+    // RULE 3's input, read BEFORE the boot — the pause and its owner. Nothing
+    // survives the boot. A pending `on_cold_boot_begin()` capture describes the
+    // machine this verb is about to replace, not the one it will land, so it is
+    // stale from here on and dropped.
+    const PreBoot pre = capture_pre_boot();
+    pending_boot.reset();
 
     // RULE 1 — run the loop owner's sequence SYNCHRONOUSLY. Called from inside
     // `pump()` in practice (the post-frames slot the flag poll lives in), so
@@ -267,7 +320,7 @@ Result Debugger::Impl::reset_hard(ClientId by) {
     // leaving the publications un-restored would silently disconnect every
     // subscription. Re-applying and then reporting the failure is the only order
     // in which the refusal is honest.
-    reapply_after_machine_rebuild(was_paused);
+    reapply_after_machine_rebuild(pre);
 
     // The §4.3 `Reset{Hard}` EVENT, after the re-application (see
     // `on_cold_boot_done`). It is latched, not delivered here: §4.3 delivers
@@ -298,9 +351,12 @@ Result Debugger::load(ClientId by, const std::string& path) {
     const Result gate = impl_->execute_gate();
     if (gate != Result::Ok) return gate;
 
-    // "A paused caller stays paused, at the new PC" (CTL-15). Same input as
-    // CTL-12's rule 3, read before the load for the same reason.
-    const bool was_paused = impl_->ds().paused();
+    // "A paused caller stays paused, at the new PC" (CTL-15). The same capture
+    // as CTL-12's rule 3, read before the load for the same reason, and a
+    // pending `on_cold_boot_begin()` capture is stale after it for the same
+    // reason `reset(Hard)` drops one.
+    const Impl::PreBoot pre = impl_->capture_pre_boot();
+    impl_->pending_boot.reset();
 
     const bool loaded = impl_->driver.load(path);
 
@@ -325,7 +381,7 @@ Result Debugger::load(ClientId by, const std::string& path) {
     // `Emulator::debug_after_machine_transition_()` does for a `load_state()`.
     // Knowing whether the machine was reconstructed matters only for the RESET,
     // below; the re-application never needed the answer.
-    impl_->reapply_after_machine_rebuild(was_paused);
+    impl_->reapply_after_machine_rebuild(pre);
 
     // CTL-12 ends "the same contract covers CTL-15 when a `.nex` load routes to
     // the cold boot", and rule 4 is part of that contract: after a reconstruct

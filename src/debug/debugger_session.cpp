@@ -157,6 +157,16 @@ Result Debugger::detach(ClientId cid) {
     const RunState st         = impl_->self->state();
     const bool     mine       = st.paused && st.pause_reason.by == cid;
 
+    // THE SAME RULE FOR A PAUSE THAT IS WAITING OUT A GUEST COLD BOOT: an
+    // `on_cold_boot_begin()` capture that recorded THIS client's pause would
+    // otherwise re-apply it at `on_cold_boot_done()` for a client that is gone,
+    // with an owner no detach can ever match again. So it is released here,
+    // exactly as the live one is below (row CTL-12-46).
+    if (impl_->pending_boot && impl_->pending_boot->owner == cid) {
+        impl_->pending_boot->paused = false;
+        impl_->pending_boot->owner  = CLIENT_NONE;
+    }
+
     // THE TOMBSTONE IS THE ONE GUARD. The listener pointer is deliberately
     // left as it was: the fan-out skips a detached row on `detached` alone, and
     // a second guard (nulling the pointer here too) made either one removable
