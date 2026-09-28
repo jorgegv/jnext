@@ -404,6 +404,11 @@ struct Debugger::Impl {
     };
     std::vector<Capture> captures;
 
+    /// Captures that FAILED to write since the owning client's last
+    /// `flush_captures()`, per client — what that call's `RefusedUnavailable`
+    /// reports. A plain vector: a handful of clients at most.
+    std::vector<std::pair<ClientId, size_t>> capture_failures;
+
     /// Publish the queue's head into the machine: the renderer's layer mask
     /// (LAYER_ALL when the queue is empty) and the force-render bit. Called only
     /// when the queue's HEAD changes — never per pump — so a mask a frontend set

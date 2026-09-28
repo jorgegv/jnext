@@ -174,12 +174,10 @@ std::vector<std::string> Debugger::bookmarks(ClientId cid) const {
 // loop owner's post-frames slot: the frame it just ran is complete, and nothing
 // in this pump has touched the machine yet. So `Ok` means "queued", and the
 // write's outcome is an SES-06 line — `SCREENSHOT … written` at info, `… NOT
-// written` at error. §4.5's `NoFrame` ("the exit bound cut the deferral off")
-// has no carrier in the published API: nothing can ask the backend whether a
-// capture is still pending, and nothing returns a write's outcome to the loop
-// owner that has to turn it into an exit code. That is a gap in the frozen
-// header, reported rather than papered over (B4 report, O1); `~Debugger()`
-// logs every capture it drops as never taken.
+// written` at error — and `flush_captures()` (added for exactly this, owner
+// decision O1) is where a client learns the outcome: §4.5's `NoFrame` ("the exit
+// bound cut the deferral off") for one still pending, `RefusedUnavailable` for
+// one that failed. `~Debugger()` logs every capture it drops as never taken.
 //
 // PNG vs SCR, THE SAME PATH: both wait for a rendered frame. A `.SCR` is the
 // ULA's screen MEMORY, not the picture, and could be taken at once — but "the
@@ -253,6 +251,13 @@ void Debugger::Impl::service_captures() {
         const ClientId by = c.by;
         captures.erase(captures.begin());
         took = true;
+        if (!ok) {
+            // Recorded for the owner's next `flush_captures()`.
+            bool found = false;
+            for (auto& f : capture_failures)
+                if (f.first == by) { ++f.second; found = true; }
+            if (!found) capture_failures.emplace_back(by, 1);
+        }
         self->log(by, ok ? LogLevel::Info : LogLevel::Error,
                   what + (ok ? " written" : " NOT written — see the error above"));
     }
@@ -270,6 +275,47 @@ void Debugger::Impl::service_captures() {
                       "\" deferred: the machine is paused, so no frame is being rendered; "
                       "it is taken at the first frame rendered after it resumes");
     }
+}
+
+// CAP-01 — the exit bound (owner decision 2026-09-28, B4 O1). The loop owner's
+// `--delayed-automatic-exit` — or any client about to report a verdict — asks
+// here how ITS captures ended: `NoFrame` for one still pending (dropped now, so
+// it cannot be taken after the verdict was given), `RefusedUnavailable` for one
+// that failed to write since the last call, `Ok` otherwise. The failure record is
+// consumed by the call whatever it returns; a dropped capture is logged at error,
+// one line each.
+//
+// ALLOWED FROM INSIDE A DELIVERY (the §5 question, decided): it executes,
+// rewinds, restores and replaces nothing — the only machine-side effect is
+// re-arming the capture queue's head (the renderer's layer mask and the force-
+// render bit), which `screenshot()`, equally allowed from a handler, does too.
+// Row CAP-01-16.
+Result Debugger::flush_captures(ClientId by) {
+    bool       dropped    = false;
+    const bool head_is_by = !impl_->captures.empty() && impl_->captures.front().by == by;
+    for (auto it = impl_->captures.begin(); it != impl_->captures.end();) {
+        if (it->by != by) { ++it; continue; }
+        impl_->self->log(by, LogLevel::Error,
+                         "SCREENSHOT \"" + it->path +
+                             "\" never taken: flushed before a frame was rendered for it");
+        it      = impl_->captures.erase(it);
+        dropped = true;
+    }
+    // Only a change of HEAD touches the machine: a drop behind another client's
+    // head leaves that head's mask armed as it was.
+    if (dropped && head_is_by) impl_->arm_capture_head();
+
+    size_t failed = 0;
+    auto&  fs     = impl_->capture_failures;
+    for (auto it = fs.begin(); it != fs.end(); ++it) {
+        if (it->first != by) continue;
+        failed = it->second;
+        fs.erase(it);
+        break;
+    }
+    if (dropped) return Result::NoFrame;
+    if (failed > 0) return Result::RefusedUnavailable;
+    return Result::Ok;
 }
 
 // ---------------------------------------------------------------------------

@@ -156,7 +156,7 @@ Every write §4.2a enumerates, and the declaration that is it. All of them take
 
 | CAP | Declaration |
 |---|---|
-| CAP-01 | `Result screenshot(ClientId, const std::string& path, uint8_t layer_mask, ScreenshotFormat)`; `enum class ScreenshotFormat{Png, Scr}`, `LAYER_MASK_*`, `Result::NoFrame` |
+| CAP-01 | `Result screenshot(ClientId, const std::string& path, uint8_t layer_mask, ScreenshotFormat)`, `Result flush_captures(ClientId)` (**added in B4**, owner decision 2026-09-28 — the exit bound that carries `NoFrame`); `enum class ScreenshotFormat{Png, Scr}`, `LAYER_MASK_*`, `Result::NoFrame` |
 | CAP-02 | `std::vector<uint8_t> ula_screen_dump() const`; the rest is `peek(MemSpace::page(p))` (INS-02) |
 | CAP-03 | `Result bookmark_save(ClientId, const std::string& name, SaveStateMode)`, `Result bookmark_restore(ClientId, const std::string& name)`, `std::vector<std::string> bookmarks(ClientId) const` |
 | CAP-04 | `Result save_snapshot(ClientId, const std::string& path)` |

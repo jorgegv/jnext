@@ -745,6 +745,22 @@ public:
     Result screenshot(ClientId by, const std::string& path, uint8_t layer_mask,
                       ScreenshotFormat format);
 
+    /// CAP-01 — THE EXIT BOUND for `by`'s deferred captures: what `screenshot()`
+    /// cannot answer, because it returns before the capture is taken. `NoFrame`
+    /// if any capture `by` queued is still pending — those are DROPPED (logged,
+    /// never taken later); otherwise `RefusedUnavailable` if any of `by`'s
+    /// captures since the previous call failed to write; otherwise `Ok`. Per
+    /// client: another client's captures, pending or failed, are untouched.
+    /// Safe from inside an event delivery — it executes, rewinds and replaces
+    /// nothing.
+    ///
+    /// ADDED BY B4 (owner decision 2026-09-28, B4 report O1) — the second change
+    /// to this frozen header after B0: `NoFrame` ("the exit bound cut the
+    /// deferral off") had no carrier, so a loop owner could not turn a capture
+    /// that failed, or never came, into the non-zero exit its `--delayed-*`
+    /// flags promise.
+    Result flush_captures(ClientId by);
+
     /// CAP-02 — the ULA layer's screen memory as a `.SCR` image
     /// (`Ula::screen_dump()`). Layer 2, tilemap and pattern RAM come out of
     /// `peek(MemSpace::page(...))` instead.
@@ -927,7 +943,9 @@ private:
     // (B3 added one public declaration to this header: `on_cold_boot_begin()`
     // above, by owner decision on 2026-09-28 — recorded at its declaration, in
     // `doc/design/debug-subsystem/b0-cap-traceability.md` (SES-07) and in
-    // `backend.md` CAP-SES-07.)
+    // `backend.md` CAP-SES-07. B4 added one more, `flush_captures()`, by owner
+    // decision on the same day — recorded at its declaration, in
+    // `b0-cap-traceability.md` (CAP-01) and in `backend.md` CAP-CAP-01.)
     //
     // B0 declared the constructor, an out-of-line destructor and deleted
     // copy/move, and no storage at all — the shape a pImpl is prepared for. B1

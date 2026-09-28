@@ -305,7 +305,7 @@ the nesting expressible without loops or data structures.
 | `assert expr "msg"` | if false: `log "ASSERT FAILED: msg"`, then behaves as `stop "msg"`. |
 | `exit n` | headless: exit with code n after the current instruction. GUI: log + pause (a GUI never exits from a script). |
 | `dump_regs`, `dump_mmu`, `dump_mem a len` | to the log; `dump_mem` ≤ 4096 bytes, 16 per line. |
-| `screenshot "f"` | queued for the **next frame boundary** through `save_screenshot` (`screenshot.h:60`): `.scr` = ULA memory (`Ula::screen_dump`), else PNG. Same path `--delayed-screenshot` uses. |
+| `screenshot "f"` | queued for the **next frame boundary** through `save_screenshot` (`screenshot.h:60`): `.scr` = ULA memory (`Ula::screen_dump`), else PNG. Same path `--delayed-screenshot` uses. Its outcome is the backend's `flush_captures(cid)` (added in B4): the engine calls it before `exit`, and `NoFrame` (a capture still pending) or `RefusedUnavailable` (one that failed to write) makes the run's exit non-zero. |
 | `compare_scr "f" "msg"` | at the next frame boundary, `Ula::screen_dump()` byte-compared to file; first differing offset logged; mismatch behaves as `assert` failure. |
 | `save_snapshot "f"` | queued for the next frame boundary through the existing savers (the GH #27 `--delayed-snapshot` route). |
 | `press "KEY"` | **level**: KEY goes down at the next frame edge and stays down until `release` (backend CAP-IN-02 `set_key`, `Keyboard::set_matrix_bit`, `keyboard.h:185`). Vocabulary of `--delayed-keypress`. This is what the recorder emits (§7.2). |

@@ -23,7 +23,8 @@
 > handler (F9 fixed with it); IN-02 levels queued for the frame edge; CAP-01
 > queued and written by `pump()`, the screenshot writers moved to `src/core/`;
 > CAP-04 synchronous. Listed with their reasons in `debug-subsystem/backend.md`'s
-> revision log; `NoFrame`'s missing carrier is an owner question in the B4 report.
+> revision log. `NoFrame`'s missing carrier: owner decision 2026-09-28 — B4 adds
+> `Result flush_captures(ClientId)` to `debugger.h` (CAP-01, below).
 >
 > **Revision 5** (2026-09-27, after review round 4; round-5 notes folded: ring
 > sizing reworded — the ~23 T slot is an estimate, a contended `LDIR` reaches
@@ -779,7 +780,7 @@ callers of the same primitives, scheduled by `Frame` events.
 | IN-02 | `set_key(row, col, pressed)`, `set_extended_key(id, pressed)` — level, for replay of recorded state; `Keyboard::set_matrix_bit` [`keyboard.h:185`] is private today and gains a public injection entry (accessor addition); the DSL's bare `press`/`release` are this, only `press … for n` is IN-01 |
 | IN-03 | `set_joystick(side, bits12)` |
 | IN-04 | `press_nmi(Mf\|Drive)` — the GH #209 hotkey seam |
-| CAP-01 | `screenshot(path, layer_mask, Png\|Scr)` — **deferred to the next rendered frame** for every frontend (the GUI's defer-with-warning contract [`qt_app.cpp:622-636`]; headless today writes the stale framebuffer [`headless_app.cpp:704-712`] — that headless change is named here); `NoFrame` only when the exit bound cuts the deferral off (today's `auto_exit_finds_no_deferred_work` non-zero exit, `qt_app.cpp:647`) |
+| CAP-01 | `screenshot(path, layer_mask, Png\|Scr)`, and `flush_captures(by)` — the exit bound (owner decision 2026-09-28, B4): `NoFrame` if any of `by`'s captures is still pending, which it drops; `RefusedUnavailable` if one failed to write since the last call; else `Ok` — **deferred to the next rendered frame** for every frontend (the GUI's defer-with-warning contract [`qt_app.cpp:622-636`]; headless today writes the stale framebuffer [`headless_app.cpp:704-712`] — that headless change is named here); `NoFrame` only when the exit bound cuts the deferral off (today's `auto_exit_finds_no_deferred_work` non-zero exit, `qt_app.cpp:647`) |
 | CAP-02 | screen memory: `ula_screen_dump()` (`Ula::screen_dump` [`ula.h:608`]) + `peek(Page)` for L2 / tilemap / pattern RAM |
 | CAP-03 | `bookmark_save(name, Mode)` / `bookmark_restore(name)` / `bookmarks(cid)` — named, in memory, **per client**, a map over ST-01/02 for protocols that name bookmarks: ZRCP `snapshot-save/-load` and DZRP `CMD_READ/WRITE_STATE` (the wire carries a `JNXB<name>` token, never the bytes, so a refused save cannot return as a 0-byte restore — design-dzrp's post-review choice). Each is a full snapshot at the rewind slot size — of the order of the machine's RAM (768 KB–2 MB) plus subsystem state, so tens of MB per client at the bound of 8 (`RefusedUnavailable` beyond), allocated on first use; a client's bookmarks die with its `detach`; they survive a CTL-12 `Hard` reconstruct (backend-owned bytes tagged with machine type and width) and a restore into a machine whose type or width differs is refused `RefusedUnavailable` before `load_state` runs, never left to the sentinel check |
 | CAP-04 | `save_snapshot(path)` at the next frame boundary — the `--delayed-snapshot` path |

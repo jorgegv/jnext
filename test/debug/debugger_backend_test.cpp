@@ -2042,6 +2042,125 @@ static void b4_screenshot_rows() {
     }
     rm();
     {
+        // flush_captures() — THE EXIT BOUND (owner decision O1). Every arm.
+        using jnext::dbg::PumpBudget;
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        RecListener l;
+        dbg.set_listener(a, &l);
+        // (a) pending → NoFrame, DROPPED: never written afterwards, logged at
+        // error, and the head it was takes its mask and force-render bit down.
+        dbg.screenshot(a, png, LAYER_MASK_ULA, ScreenshotFormat::Png);
+        const Result pending = dbg.flush_captures(a);
+        const bool down = emu.renderer().layer_mask() == jnext::dbg::LAYER_MASK_ALL &&
+                          !emu.debug_state().capture_render();
+        emu.run_frame();
+        dbg.pump(PumpBudget{});
+        bool logged = false;
+        for (const auto& e : l.logs)
+            if (e.first == jnext::dbg::LogLevel::Error &&
+                e.second.find("never taken: flushed") != std::string::npos)
+                logged = true;
+        check("CAP-01-12", "flush_captures() with a capture still pending answers NoFrame, "
+                           "DROPS it (no file after a later frame), logs it at error, and "
+                           "takes its mask and force-render bit down",
+              pending == Result::NoFrame && down && read_file(png).empty() && logged);
+        // (b) taken and written → Ok, and Ok again.
+        dbg.screenshot(a, png, LAYER_MASK_ALL, ScreenshotFormat::Png);
+        emu.run_frame();
+        dbg.pump(PumpBudget{});
+        const Result written = dbg.flush_captures(a);
+        const Result again   = dbg.flush_captures(a);
+        check("CAP-01-13", "a capture that was written flushes Ok, and so does a second "
+                           "flush with nothing queued",
+              is_png_640x512(read_file(png)) && written == Result::Ok && again == Result::Ok);
+        // (c) failed → RefusedUnavailable, and the record is CONSUMED.
+        dbg.screenshot(a, "/nonexistent-dir/x/y.png", LAYER_MASK_ALL, ScreenshotFormat::Png);
+        emu.run_frame();
+        dbg.pump(PumpBudget{});
+        const Result failed = dbg.flush_captures(a);
+        const Result after  = dbg.flush_captures(a);
+        // (d) a failure AND a pending one → NoFrame first, and both are spent.
+        dbg.screenshot(a, "/nonexistent-dir/x/z.png", LAYER_MASK_ALL, ScreenshotFormat::Png);
+        emu.run_frame();
+        dbg.pump(PumpBudget{});
+        dbg.screenshot(a, png2, LAYER_MASK_ALL, ScreenshotFormat::Png);
+        const Result both = dbg.flush_captures(a);
+        const Result spent = dbg.flush_captures(a);
+        check("CAP-01-14", "a capture that failed to write flushes RefusedUnavailable, once "
+                           "(the next flush is Ok); a failure and a pending capture together "
+                           "answer NoFrame, and both are spent",
+              failed == Result::RefusedUnavailable && after == Result::Ok &&
+                  both == Result::NoFrame && spent == Result::Ok,
+              std::string("failed=") + jnext::dbg::result_name(failed) + " both=" +
+                  jnext::dbg::result_name(both) + " spent=" + jnext::dbg::result_name(spent));
+    }
+    rm();
+    {
+        // PER CLIENT: A's head with B's capture behind it. Flushing B drops only
+        // B's (A's mask stays armed — the head did not change); flushing A drops
+        // A's and B's... no: B's was already gone, so re-queue B behind A, flush
+        // A, and B becomes the head, its mask armed, and is taken at the next
+        // frame. A failure of A's is not reported to B.
+        using jnext::dbg::PumpBudget;
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.screenshot(a, png, LAYER_MASK_ULA, ScreenshotFormat::Png);
+        dbg.screenshot(b, png2, LAYER_MASK_SPRITES, ScreenshotFormat::Png);
+        const Result fb = dbg.flush_captures(b);
+        const bool a_head_kept = emu.renderer().layer_mask() == LAYER_MASK_ULA;
+        dbg.screenshot(b, png2, LAYER_MASK_SPRITES, ScreenshotFormat::Png);
+        const Result fa = dbg.flush_captures(a);
+        const bool b_is_head = emu.renderer().layer_mask() == LAYER_MASK_SPRITES &&
+                               emu.debug_state().capture_render();
+        emu.run_frame();
+        dbg.pump(PumpBudget{});
+        const bool b_taken = is_png_640x512(read_file(png2)) && read_file(png).empty();
+        dbg.screenshot(a, "/nonexistent-dir/x/y.png", LAYER_MASK_ALL, ScreenshotFormat::Png);
+        emu.run_frame();
+        dbg.pump(PumpBudget{});
+        const Result b_sees = dbg.flush_captures(b);
+        const Result a_sees = dbg.flush_captures(a);
+        check("CAP-01-15", "flush_captures() is per client: B's flush drops only B's capture "
+                           "(A's head and mask untouched); A's flush hands the head to B, "
+                           "whose mask is armed and whose capture is taken; A's failure is "
+                           "reported to A and not to B",
+              fb == Result::NoFrame && a_head_kept && fa == Result::NoFrame && b_is_head &&
+                  b_taken && b_sees == Result::Ok && a_sees == Result::RefusedUnavailable,
+              std::string("fb=") + jnext::dbg::result_name(fb) + " fa=" +
+                  jnext::dbg::result_name(fa) + " b_sees=" + jnext::dbg::result_name(b_sees) +
+                  " a_sees=" + jnext::dbg::result_name(a_sees));
+    }
+    rm();
+    {
+        // §5, DECIDED: allowed from inside a delivery — it executes nothing. A
+        // handler's flush answers exactly as one from outside would, and drops.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        Result inside = Result::Ok;
+        bool once = false;
+        Subscription s;
+        s.kind = EventKind::Execute; s.filter.lo = PROG + 1; s.filter.hi = PROG + 1;
+        s.action = Action::Continue;
+        s.handler = [&](const DbgEvent&, Debugger& d) {
+            if (!once) { once = true; inside = d.flush_captures(a); }
+            return Action::Continue;
+        };
+        dbg.subscribe(a, s);
+        dbg.screenshot(a, png, LAYER_MASK_ALL, ScreenshotFormat::Png);
+        emu.run_frame();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("CAP-01-16", "flush_captures() is allowed from inside a delivery: a handler's "
+                           "flush of a pending capture answers NoFrame and drops it",
+              once && inside == Result::NoFrame && read_file(png).empty(),
+              std::string("inside=") + jnext::dbg::result_name(inside));
+    }
+    rm();
+    {
         // THE PAIR, CAP-01's half: the machine outlives the backend, and must not
         // be left rendering with a dead capture's layers.
         Emulator emu; build(emu);
