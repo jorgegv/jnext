@@ -26,7 +26,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **T1** | `remote::Server` — the listener/`dbg::Service` over the esp seam — with `Connection` (the adapter's byte pipe) and `Protocol` (what an adapter implements); target `jnext_remote`, built in every configuration | in review |
 | **T2** | the in-memory fake: `FakeListener` / `FakeTransport` / `FakePeer`, implementing the esp interfaces so an adapter suite runs the production `Server` | in review |
 | **T3** | `--debug-listen-address ADDR` — table row, `main.cpp` dispatch, `EmulatorConfig::debug_listen_address`, man page, and the `debug-listen-address-func` regression row | in review |
-| **T4** | `remote_transport_test` (64 rows, `gate: none`, both configurations), this appendix, the Developer Guide notes | in review |
+| **T4** | `remote_transport_test` (65 rows, `gate: none`, both configurations), this appendix, the Developer Guide notes | in review |
 
 Depends on: B0, B (both landed). Blocks: D (#12), Z (#280), G (#281).
 
@@ -137,11 +137,17 @@ port)` and `debugger.add_service(server)`. Its unit suite does the same with
    peer, a reset, the output bound, the adapter's own `close()`, or `stop()`.
    SES-01's detach has one home in every adapter.
 
-7. **Writes are never dropped, and never unbounded.** `Connection::write` queues
-   and pushes what the kernel takes; the rest goes out on later passes. A peer
+7. **Writes are never dropped, and never unbounded.** `Connection::write` only
+   queues; the Server sends the queue once after each adapter callback
+   (`on_connect` / `on_service` in a pass, `on_notify` in the flush), so a reply
+   written in pieces leaves as one send, and what the kernel does not take goes
+   out on later passes. (An earlier cut sent inside `write`; mutation testing
+   showed the sends after the callbacks were then redundant — M29/M30 — and it
+   cost a syscall per piece.) A peer
    `max_output` bytes behind (32 MiB — twice DZRP's 16 MiB frame cap) is
    disconnected with a warn line rather than buffered into a host OOM or
-   truncated into a corrupt stream. Reading stops at `max_input` unconsumed
+   truncated into a corrupt stream; a single reply larger than `max_output`
+   counts as that far behind. Reading stops at `max_input` unconsumed
    bytes, which backpressures the peer through the kernel instead of losing
    anything.
 
@@ -237,11 +243,11 @@ port)` and `debugger.add_service(server)`. Its unit suite does the same with
 ## 4. Tests
 
 `remote_transport_test`, Qt-free, `gate: none` — it runs in `make unit-test`
-and `make unit-test-sdl`. 64 rows:
+and `make unit-test-sdl`. 65 rows:
 
 | class | rows | what |
 |---|---|---|
-| XPT-FAKE | 13 | the fake itself: both directions, partial reads (`set_recv_chunk`) and writes (`set_window`), peer close after its data, server close, reset, nothing blocks, refused/failed listener |
+| XPT-FAKE | 14 | the fake itself: both directions, partial reads (`set_recv_chunk`) and writes (`set_window`), peer close after its data, a send after the peer hung up, server close, reset, nothing blocks, refused/failed listener |
 | XPT-SRV | 29 | the Server over the fake: accept only inside a pass, the greeting, one command per call, partial writes held and delivered in order, partial reads assembled, hang-up / reset / `stop()` / adapter close each end the session once, the tail before EOF executed, linger and its bound, one client + busy reply (and the first client untouched), the output bound, input backpressure without loss, listener fault, open failure, destructor silence, `service_once(0)` never sleeps, a wait waits, returns at once on a buffered command, returns early when the client goes |
 | XPT-NET | 13 | the real socket on 127.0.0.1 port 0: the bound port reported and logged, accept inside a pass, both directions, a 16 MiB reply through the kernel's partial writes, never blocks with no client or a silent one, a wait waits and returns early on data (a client thread), busy reply to a second client, disconnect and re-accept, port in use, a word / a name / a non-local address refused cleanly |
 | XPT-PUMP | 9 | the real listener through `add_service` / `pump()`: `remote_attached`, one command while running, a queued chain drained while paused, `pump(wait)` waits and returns early on data, `PumpBudget{}` never blocks, a drop releases the dropped client's pause (SES-01), `remove_service` stops it |

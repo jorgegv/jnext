@@ -692,8 +692,9 @@ shipped binary instantiates it.
 **at most one** complete command, and writes — repeated until a command ran or
 `wait_ms` passed, with `wait_ms` 0 being exactly one pass. The adapter sees its
 one client as a `Connection`: `read`, `write` (never blocks and never drops:
-what the kernel does not take now is sent on a later pass), `close` (what is
-queued is still delivered, for a bounded time). `on_disconnect()` is called
+it queues, the Server sends once the adapter's callback returns, and what the
+kernel does not take then goes out on later passes), `close` (what is queued
+is still delivered, for a bounded time). `on_disconnect()` is called
 exactly once per `on_connect()`, whoever ended the session, and every byte a
 client sent before hanging up is offered to the adapter first. One client per
 listener: a second one is sent the adapter's `busy_reply` and closed. Two
