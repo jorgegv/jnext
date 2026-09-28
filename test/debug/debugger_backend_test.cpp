@@ -3342,9 +3342,12 @@ int main() {
         emu.run_frame();
         check("EVT-TIME-10", "a Scanline subscription fires once per frame for its line",
               rec.evs.size() == 2, "n=" + std::to_string(rec.evs.size()));
-        check("EVT-TIME-11", "and the payload's cvc IS the line it matched",
-              rec.evs.size() == 2 && rec.evs[0].cvc == 100 && rec.evs[1].cvc == 100,
-              rec.evs.empty() ? "" : std::to_string(rec.evs[0].cvc));
+        // (EVT-TIME-11 was `payload.cvc == 100` where the FILTER matched
+        // `scanline = 100` — the payload field compared against the field the
+        // filter selected on, so any consistent off-by-one passes it. It is gone;
+        // EVT-TIME-16 compares two independently derived payload fields against
+        // the VHDL relation instead. The revision report claimed this deletion
+        // before it had been made, which is why the claim is now the code.)
         check("EVT-TIME-12", "with the raw frame counters alongside, not instead",
               !rec.evs.empty() && rec.evs[0].vc != rec.evs[0].cvc,
               rec.evs.empty() ? "" : "vc=" + std::to_string(rec.evs[0].vc));
@@ -4914,10 +4917,35 @@ int main() {
                              "its slot — the eight live pages are seeded, not zeros",
               emu.debug_state().wr_watch_armed(0x6000),
               "page=" + std::to_string(live_page));
-        check("EVT-SLOT-11", "and page 0x00 does NOT arm every slot, which is what a "
-                             "zero-initialised cache did",
-              live_page == 0 || !emu.debug_state().wr_watch_armed(0x0000) ||
-                  emu.mmu().get_effective_page(0) == 0);
+    }
+    {
+        // THE OTHER DIRECTION of B-1a, and the first version of this row could not
+        // see it: its escape-hatch disjunct `get_effective_page(0) == 0` is
+        // unconditionally TRUE in a ZX128K boot configuration, so the row passed
+        // whatever the mask said. A page-0x00 filter must arm the slots that hold
+        // page 0 AND NO OTHERS — with a zero-initialised cache it armed all eight.
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD }, MachineType::ZX128K);
+        Debugger dbg(emu);
+        Subscription s;
+        s.kind = EventKind::Mem; s.access = Access::Write;
+        s.filter.pages = { 0x00 };
+        dbg.subscribe(1, s);
+
+        uint8_t want = 0;
+        for (int sl = 0; sl < 8; ++sl)
+            if (emu.mmu().get_effective_page(sl) == 0)
+                want = static_cast<uint8_t>(want | (1u << sl));
+        check("EVT-SLOT-11", "a filter on page 0x00 arms exactly the slots that hold "
+                             "page 0 — not all eight, which is what a zero-initialised "
+                             "cache gave it",
+              emu.debug_state().wr_watch_mask() == want,
+              "mask=" + std::to_string(emu.debug_state().wr_watch_mask()) +
+                  " want=" + std::to_string(want));
+        check("EVT-SLOT-11B", "and the row is not vacuous: at least one slot does NOT "
+                              "hold page 0, so `all eight` and `the right ones` are "
+                              "different answers",
+              want != 0xFF, "want=" + std::to_string(want));
     }
     {
         // One row per PUBLIC mapping entry point. `map_rom_physical()` is private
@@ -5191,8 +5219,9 @@ int main() {
     // `clock_.get()` from inside the post-instruction device cluster — already
     // past the boundary by the whole instruction that crossed it — and discarded
     // `raw_line`, the exact value the caller handed in, one line away. The old
-    // EVT-TIME-11 asserted the payload's `cvc` against the field the filter
-    // matched on, which is a tautology an off-by-one survives.
+    // The row that used to sit at EVT-TIME-11 asserted the payload's `cvc`
+    // against the field the filter matched on, which is a tautology an
+    // off-by-one survives; it is deleted, not merely superseded.
     {
         Emulator emu;
         // `JR $` ALONE, and the instruction mix is the row. A 12 T-state
@@ -5995,6 +6024,323 @@ int main() {
         check("EVT-ST-32", "while the subscription itself survived it",
               dbg.subscriptions(true).size() == 1 &&
               dbg.subscriptions(true).front().id == sub.value);
+    }
+
+
+    // =======================================================================
+    // B2 RE-REVIEW (round 2) — the reconciliation sweep, and the row class
+    // that kept missing it.
+    //
+    // `Debugger::load_state_bytes()` calls no control verb, so it never reached
+    // `Impl::arm()` — the only thing that clears the backend's own CTL-13 stop
+    // evidence — and `state()` reported a `Watch` naming a write the RESTORED
+    // machine had not made. `EVT-ST-1x` used `load_state_bytes` but only with the
+    // LEGACY watchpoint mechanism, and `EVT-ST-3x` used `rewind_to_frame`, which
+    // DOES arm. Every row sat on the working side of the asymmetry.
+    //
+    // That was the FOURTH appearance of one hazard on this branch — sibling
+    // operations where all but one do the thing (latch sites vs drain gates;
+    // `set_page()` vs `map_rom_physical()`; `has_dma_sub_kind` wired vs
+    // `has_copper_sub_kind` dead). So the fix is a notification from the ONE
+    // place a machine is replaced, and the row is the PROPERTY ACROSS THE SET
+    // rather than one row per verb: a future verb that lands a new machine is
+    // covered by the mechanism, and a future verb that bypasses it fails the
+    // sweep the moment someone adds it to the list.
+    // =======================================================================
+    {
+        // Every verb that lands a new machine, driven through the same shape:
+        // arrange a SUBSCRIPTION stop (not the legacy watchpoint — that is the
+        // half that already worked), apply the verb, and assert the backend's
+        // evidence no longer describes the machine that has gone.
+        struct Landing {
+            const char* id;
+            const char* what;
+            int         kind;   // 0 load_state_bytes, 1 step_back,
+                                // 2 rewind_to_frame, 3 reset(Soft)
+        };
+        static const Landing kLandings[] = {
+            { "EVT-LAND-01", "load_state_bytes()", 0 },
+            { "EVT-LAND-02", "step_back()",        1 },
+            { "EVT-LAND-03", "rewind_to_frame()",  2 },
+            { "EVT-LAND-04", "reset(Soft)",        3 },
+        };
+
+        for (const Landing& L : kLandings) {
+            Emulator emu;
+            EmulatorConfig cfg;
+            cfg.type = MachineType::ZX48K;
+            cfg.rewind_buffer_frames = 8;
+            emu.init(cfg);
+            const uint8_t prog[] = { 0x3E, 0x5A, 0x32, 0x00, 0x90, 0x18, 0xFE };
+            for (size_t i = 0; i < sizeof(prog); ++i)
+                emu.mmu().write(static_cast<uint16_t>(PROG + i), prog[i]);
+            {
+                Z80Registers r = emu.cpu().get_registers();
+                r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 0; r.IFF2 = 0;
+                emu.cpu().set_registers(r);
+            }
+            emu.debug_state().set_active(true);
+            Debugger dbg(emu);
+
+            // A snapshot of the machine BEFORE the write, for the two verbs that
+            // need one. Taken before the subscription so the restore target is a
+            // machine on which the watched write has not happened.
+            auto saved = dbg.save_state_bytes(
+                1, jnext::dbg::SaveStateMode::AdvanceToBoundary);
+            if (L.kind == 1 || L.kind == 2) {
+                emu.run_frame();      // fill a rewind slot or two
+                emu.run_frame();
+                {
+                    Z80Registers r = emu.cpu().get_registers();
+                    r.PC = PROG; emu.cpu().set_registers(r);
+                }
+                emu.mmu().write(0x9000, 0x00);
+            }
+
+            Subscription s;
+            s.kind = EventKind::Mem; s.access = Access::Write;
+            s.filter.lo = 0x9000; s.filter.hi = 0x9000;
+            s.action = Action::Stop;
+            const auto sub = dbg.subscribe(9, s);
+            emu.run_frame();
+
+            const bool stopped =
+                dbg.state().paused &&
+                dbg.state().pause_reason.kind == PauseReason::Kind::Watch &&
+                dbg.state().pause_reason.id == sub.value;
+            const bool had_hit =
+                emu.debug_state().event_table()->hits().size() == 1;
+
+            switch (L.kind) {
+                case 0: dbg.load_state_bytes(1, saved.value.data(),
+                                             saved.value.size());        break;
+                case 1: dbg.step_back(1, 1);                             break;
+                case 2: dbg.rewind_to_frame(1, dbg.rewind_range().oldest_frame);
+                        break;
+                case 3: dbg.reset(1, ResetKind::Soft);                   break;
+            }
+
+            const auto st = dbg.state();
+            const bool cleared =
+                st.pause_reason.id != sub.value &&
+                st.pause_reason.kind != PauseReason::Kind::Watch &&
+                emu.debug_state().event_table()->hits().empty();
+
+            check(L.id, (std::string(L.what) +
+                         " reconciles the backend's CTL-13 evidence: the stop it "
+                         "leaves behind does not name a subscription that fired on "
+                         "the machine it replaced").c_str(),
+                  stopped && had_hit && cleared,
+                  std::string("stopped=") + (stopped ? "1" : "0") +
+                      " had_hit=" + (had_hit ? "1" : "0") +
+                      " kind=" + std::to_string(static_cast<int>(st.pause_reason.kind)) +
+                      " id=" + std::to_string(st.pause_reason.id) +
+                      " hits=" + std::to_string(
+                          emu.debug_state().event_table()->hits().size()));
+        }
+    }
+    {
+        // The NEGATIVE half of the sweep, so it cannot pass by clearing
+        // everything unconditionally: the SUBSCRIPTIONS and the switches must
+        // survive every one of those verbs, and a verb that IS a stop must still
+        // report its own reason afterwards.
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        cfg.rewind_buffer_frames = 8;
+        emu.init(cfg);
+        {
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 0; r.IFF2 = 0;
+            emu.cpu().set_registers(r);
+        }
+        emu.mmu().write(PROG, 0x00);
+        emu.mmu().write(PROG + 1, 0x18);
+        emu.mmu().write(PROG + 2, 0xFD);
+        emu.debug_state().set_active(true);
+        Debugger dbg(emu);
+        Subscription s;
+        s.kind = EventKind::Mem; s.access = Access::Write;
+        s.filter.lo = 0x9000; s.filter.hi = 0x9000;
+        const auto sub = dbg.subscribe(4, s);
+        dbg.set_client_enabled(4, false);
+        emu.run_frame();
+        emu.run_frame();
+        dbg.pause(1);
+
+        const Result rr = dbg.rewind_to_frame(1, dbg.rewind_range().oldest_frame);
+        check("EVT-LAND-10", "a rewind is accepted", rr == Result::Ok,
+              "rc=" + std::to_string(static_cast<int>(rr)));
+        check("EVT-LAND-11", "the subscription and the per-client switch survive it — "
+                             "the sweep reconciles EVIDENCE, not the session",
+              dbg.subscriptions(true).size() == 1 &&
+              dbg.subscriptions(true).front().id == sub.value &&
+              !dbg.client_enabled(4));
+        check("EVT-LAND-12", "and a verb that IS a stop still reports its own reason "
+                             "after the restore — the reconciliation runs first, the "
+                             "verb's arm() second",
+              dbg.state().pause_reason.kind == PauseReason::Kind::Step &&
+              dbg.state().pause_reason.by == 1,
+              "kind=" + std::to_string(
+                  static_cast<int>(dbg.state().pause_reason.kind)));
+
+        // ...AND THE SIBLING, because `step_back` is the other verb of the pair
+        // and EVT-LAND-12 covers only `rewind_to_frame`. Measured, not assumed:
+        // removing `rewind_to_frame`'s `arm(Step)` fails EVT-LAND-12, and
+        // removing `step_back`'s survived ALL 866 rows — the reconciliation now
+        // clears the latch for both, so EVT-LAND-02 passes either way and the
+        // `arm` was pinned on one side of the pair only. Same hazard as the one
+        // that put this whole group here, found in the group's own mutation run.
+        const Result sb = dbg.step_back(1, 1);
+        check("EVT-LAND-13", "`step_back` arms its own reason too — the sibling of "
+                             "EVT-LAND-12, and the one that was unpinned",
+              sb == Result::Ok &&
+              dbg.state().pause_reason.kind == PauseReason::Kind::Step &&
+              dbg.state().pause_reason.by == 1,
+              "rc=" + std::to_string(static_cast<int>(sb)) + " kind=" +
+                  std::to_string(static_cast<int>(dbg.state().pause_reason.kind)) +
+                  " by=" + std::to_string(dbg.state().pause_reason.by));
+    }
+    {
+        // The RESET's own event must SURVIVE the reconciliation its reset
+        // triggers — the one asymmetry in the sweep, and the reason
+        // `debug_after_machine_transition_()` takes a `discard_ring` argument:
+        // `soft_reset()` latches `Reset{Soft}` BEFORE init() runs, so discarding
+        // the ring there would throw away the event that reports the transition.
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        Rec rec;
+        Subscription s;
+        s.kind = EventKind::Reset; s.filter.reset_kind = ResetKind::Any;
+        s.action = Action::Continue; s.handler = recorder(rec);
+        dbg.subscribe(1, s);
+        emu.run_frame();
+        emu.soft_reset();
+        emu.debug_state().set_active(true);
+        emu.execute_single_instruction();
+        check("EVT-LAND-20", "a soft reset's own Reset event survives the "
+                             "reconciliation that same reset triggers",
+              rec.evs.size() == 1 && rec.evs[0].reset_kind == ResetKind::Soft,
+              "n=" + std::to_string(rec.evs.size()));
+    }
+
+    // ── EVT-SUB-33..36 — erase_client() recomputes the GATES, not just the list ─
+    //
+    // `EVT-SUB-30..32` only ever exercised `find()` and the return count, so a
+    // mutation dropping `erase_client()`'s `refresh()` survived all 850 rows —
+    // `find()` reads `removed` directly, which the erase sets. This is the client
+    // lifecycle B3 builds `detach()` on, so it needs a row that observes something
+    // `refresh()` recomputes.
+    {
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        Subscription m;
+        m.kind = EventKind::Mem; m.access = Access::Write;
+        m.filter.lo = 0x9000; m.filter.hi = 0x9000;     // slot 4
+        dbg.subscribe(7, m);
+        Subscription c;
+        c.kind = EventKind::Copper;
+        c.filter.copper_kind = jnext::dbg::CopperEventKind::Move;
+        dbg.subscribe(7, c);
+        check("EVT-SUB-33", "the client's subscriptions armed the slot mask and the "
+                            "Copper engine",
+              emu.debug_state().wr_watch_armed(0x9000) &&
+              emu.copper().move_events_armed());
+
+        jnext::dbg::EventTable* t = emu.debug_state().event_table();
+        check("EVT-SUB-34", "erase_client() removes both", t->erase_client(7) == 2);
+        check("EVT-SUB-35", "and it RECOMPUTES the live cache — the kind mask goes "
+                            "with the rows, which `find()` cannot see",
+              !t->has_kind(EventKind::Mem) &&
+              !t->has_copper_sub_kind(jnext::dbg::CopperEventKind::Move) &&
+              t->wr_slot_mask() == 0,
+              "wr_mask=" + std::to_string(t->wr_slot_mask()));
+        // The published gates follow once the backend re-publishes, which is what
+        // B3's `detach()` will do; the table's own state is what `refresh()` owns
+        // and what this row pins.
+        check("EVT-SUB-36", "a second erase_client() for the same client changes "
+                            "nothing", t->erase_client(7) == 0 &&
+              t->wr_slot_mask() == 0);
+    }
+
+    {
+        // ── EVT-LAND-30..33 — THE TORN RESTORE, the one the sweep found ──────
+        //
+        // `Emulator::load_state()` has ~30 sentinel early-returns and the FIRST
+        // statement of the restore is `clock_.load_state(r)`, so every one of
+        // them fires on a machine that has ALREADY been partly overwritten. The
+        // reconciliation was the last statement before `return true` — the
+        // successful path only. A torn restore therefore kept the event-stop
+        // latch and `hits_` from the machine it half-replaced.
+        //
+        // Masked, but REACHABLE: `state()` puts `Corrupt` ahead of the event-stop
+        // latch, so nothing shows while the incident is unacknowledged —
+        // `acknowledge_corruption()` drops the mask and the stale `Watch`
+        // surfaces. That is the blocking defect of this revision, one
+        // acknowledgement further away. Fixed with a scope guard, so it does not
+        // depend on 30 hand-placed calls.
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        emu.init(cfg);
+        const uint8_t prog[] = { 0x3E, 0x5A, 0x32, 0x00, 0x90, 0x18, 0xFE };
+        for (size_t i = 0; i < sizeof(prog); ++i)
+            emu.mmu().write(static_cast<uint16_t>(PROG + i), prog[i]);
+        {
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 0; r.IFF2 = 0;
+            emu.cpu().set_registers(r);
+        }
+        emu.debug_state().set_active(true);
+        Debugger dbg(emu);
+
+        // The CTL-11-03 recipe: right length, wrong content past the half-way
+        // mark, so a subsystem sentinel fails part-way through instead of the
+        // buffer being rejected up front.
+        const auto good = dbg.save_state_bytes(
+            1, jnext::dbg::SaveStateMode::AdvanceToBoundary);
+        std::vector<uint8_t> bad = good.value;
+        for (size_t i = bad.size() / 2; i < bad.size(); ++i) bad[i] ^= 0xFF;
+
+        Subscription s;
+        s.kind = EventKind::Mem; s.access = Access::Write;
+        s.filter.lo = 0x9000; s.filter.hi = 0x9000;
+        s.action = Action::Stop;
+        const auto sub = dbg.subscribe(9, s);
+        {
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = PROG; emu.cpu().set_registers(r);
+        }
+        emu.run_frame();
+        check("EVT-LAND-30", "the subscription stopped the machine and the backend "
+                             "holds its evidence",
+              dbg.state().paused &&
+              dbg.state().pause_reason.kind == PauseReason::Kind::Watch &&
+              dbg.state().pause_reason.id == sub.value &&
+              emu.debug_state().event_table()->hits().size() == 1);
+
+        check("EVT-LAND-31", "a TORN state load is refused as corrupt",
+              dbg.load_state_bytes(1, bad.data(), bad.size()) ==
+                  Result::RefusedCorrupt);
+        check("EVT-LAND-32", "and it reconciled anyway — the machine it half-replaced "
+                             "is gone, so its `matched[]` goes with it",
+              emu.debug_state().event_table()->hits().empty(),
+              "hits=" + std::to_string(
+                  emu.debug_state().event_table()->hits().size()));
+        const auto inc = dbg.resume_blocked_by_corruption();
+        const bool ackd = inc.has_value() &&
+                          dbg.acknowledge_corruption(inc->generation) == Result::Ok;
+        check("EVT-LAND-33", "so ACKNOWLEDGING the corruption — which drops the "
+                             "`Corrupt` precedence that was masking it — does not "
+                             "expose a Watch on the machine that is gone",
+              ackd &&
+              dbg.state().pause_reason.kind != PauseReason::Kind::Watch &&
+              dbg.state().pause_reason.id != sub.value,
+              std::string("ackd=") + (ackd ? "1" : "0") + " kind=" +
+                  std::to_string(static_cast<int>(dbg.state().pause_reason.kind)) +
+                  " id=" + std::to_string(dbg.state().pause_reason.id));
     }
 
     std::printf("\n======================================================\n");

@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 # GH #276 §11 item 3 — the HOT-LATCH measurement, as a committed harness.
 #
+# PROVENANCE, because a commit message on this branch gets it wrong: this file,
+# `make bench-hotlatch`, the `JNEXT_BENCH_WATCH` fixture and the `jnext_debug`
+# link were all added in commit 0f20b4868 ("close the nine blocking items of the
+# B2 review"). The NEXT commit, e2f66ec96, is titled "land the §11-item-3
+# hot-latch harness" and touched no bench file at all — it is the doc-correction
+# commit. The messages are not rewritten because two review rounds cite these
+# SHAs; the correction lives here instead, where a reader of the harness finds
+# it. `test/bench/hotlatch-e2f66ec96.txt`'s name and its `sha=` line are
+# CORRECT and mean something else: the tree the measurement was taken on.
+#
 # `bench.sh` measures ONE binary at a time and cannot arm a watch, so it cannot
 # express the question §11 item 3 asks: what does a range `Mem` watch that HITS
 # cost? This script answers it the way Task 27's `c1-ab-e596fa6a.txt` did and

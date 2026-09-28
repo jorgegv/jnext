@@ -2136,8 +2136,13 @@ private:
     void install_debug_latch_stamper_();
 
     /// GH #276 B2 — reconcile the debugger's event state with a machine that has
-    /// just been REPLACED (a `load_state`, and therefore also every rewind /
-    /// step-back / bookmark restore, which all route through it).
+    /// just been REPLACED or RESET.
+    ///
+    /// THE ONE PLACE, called from `load_state()` (which every restore routes
+    /// through — `load_state_bytes`, `step_back`, `rewind_to_frame`,
+    /// `run_back_to_cycle`, a warm start, B4's bookmarks) and from `init()`
+    /// (which is `soft_reset()` and B3's reconstruct). Putting it in each VERB
+    /// was how `load_state_bytes()` came to be the one that forgot.
     ///
     /// THE DECISION, AND ITS REASONING (recorded here because nothing in B2
     /// recorded it): the subscription model is HOST-SIDE SESSION state and is
@@ -2166,7 +2171,10 @@ private:
     ///   * the derived slot masks — re-published by the re-derive above.
     /// `debug_slot_pc_` is deliberately left: the next instruction overwrites it,
     /// and nothing between here and there can latch (a non-guest write cannot).
-    void debug_after_state_restore_();
+    /// `discard_ring` is false for a RESET: its own `Reset` event is already in
+    /// the ring (latched before `init()` runs, so it carries the pre-reset cycle)
+    /// and must survive the transition it reports.
+    void debug_after_machine_transition_(bool discard_ring);
 
     /// GH #276 B2 §4.3 — latch `Scanline` / `Frame` / `IntAck` / `Nmi` /
     /// `Magic`. Out of line, each behind its own `has_kind()` gate.

@@ -341,6 +341,34 @@ public:
         execute_gate_ = std::move(gate);
     }
 
+    /// GH #276 — "the machine this backend was describing has been REPLACED".
+    ///
+    /// THE REASON THIS EXISTS RATHER THAN A CALL IN EACH VERB. CTL-13's stop
+    /// evidence lives in THREE places: `DebugState`'s own `watch_stop_` /
+    /// `magic_stop_`, `EventTable::hits_`, and `Debugger::Impl`'s
+    /// `event_stop_latched` / `event_stop` / `armed_reason`. `Emulator` can reach
+    /// the first two and CANNOT reach the third — nothing below a frontend may
+    /// see a `Debugger*` (§4 rule 1) — so the reconciliation stopped one object
+    /// graph short, and `Debugger::load_state_bytes()` (which, unlike
+    /// `step_back()` and `rewind_to_frame()`, calls no control verb and therefore
+    /// never reaches `Impl::arm()`) left `state()` reporting a `Watch` on a write
+    /// that had not happened on the restored machine.
+    ///
+    /// Fixing the one verb would have been the FOURTH instance of this branch's
+    /// recurring hazard — sibling operations where all but one do the thing. So
+    /// the notification is issued by the ONE place a machine is replaced
+    /// (`Emulator::debug_after_machine_transition_()`), and every present and
+    /// future verb that lands a new machine inherits it: `load_state_bytes`,
+    /// `step_back`, `rewind_to_frame`, `run_back_to_cycle`, a warm start, B4's
+    /// bookmark restore and B3's cold-boot reconstruct all route through
+    /// `Emulator::load_state()` or `init()`.
+    void set_machine_replaced_hook(std::function<void()> fn) {
+        machine_replaced_ = std::move(fn);
+    }
+    void notify_machine_replaced() {
+        if (machine_replaced_) machine_replaced_();
+    }
+
     /// THE MEMORY-WATCH GATE the eight `Mmu` sites read, in place of
     /// has_any_watchpoints(). One byte load, a shift and a test (§6.1); it
     /// covers legacy watchpoints AND `Mem` subscriptions, pre-ORed by
@@ -523,6 +551,7 @@ private:
     std::function<bool()> event_drain_;
     std::function<bool(uint16_t)> execute_gate_;
     std::function<void(jnext::dbg::LatchEntry&, const uint64_t*)> stamp_common_;
+    std::function<void()> machine_replaced_;
     bool event_boundary_work_ = false;
     bool ring_nonempty_       = false;
     bool cycle_armed_         = false;

@@ -6624,10 +6624,6 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     mmu_.set_debug_state(&debug_state_);
     // GH #222 — the same DebugState drives I/O watchpoints on the port bus.
     port_.set_debug_state(&debug_state_);
-    // GH #276 B2 — a pending event Stop names an instruction of the machine that
-    // init() is replacing. Cleared here, so it covers `soft_reset()` (which calls
-    // init()) and a fresh `init()` alike.
-    event_stop_pending_ = false;
     // GH #276 B2 §4.3 — the same DebugState carries the CAP-EVT latch ring, so
     // every event site reaches it through the pointer it already holds. The
     // ring itself does not exist until a `Debugger` installs an `EventTable`,
@@ -7269,6 +7265,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     if (cfg.profile && !preserve_memory && !profiler_.active()) {
         profiler_.init();
     }
+
+    // GH #276 B2 — a RESET is a machine transition too. `soft_reset()` routes
+    // through here, so the debugger's stop evidence (both `DebugState`'s and, via
+    // the hook, `Debugger::Impl`'s) is reconciled for it exactly as for a restore.
+    //
+    // `discard_ring = false`, and that is the one difference: `soft_reset()`
+    // latches its own `Reset{Soft}` event BEFORE calling init() — so that the
+    // event carries the pre-reset cycle rather than cycle 0 of the rebuilt
+    // machine — and discarding the ring here would throw away the very event that
+    // reports this transition. A RESTORE has no such event and its ring entries
+    // all describe a machine that is gone, so `load_state()` passes true.
+    //
+    // Inert on the first call of a process: no `Debugger` exists yet, so the hook
+    // is null and the table pointer is null.
+    debug_after_machine_transition_(/*discard_ring=*/false);
 
     return true;
 }
@@ -12338,6 +12349,34 @@ void Emulator::save_state(StateWriter& w) const
 
 bool Emulator::load_state(StateReader& r)
 {
+    // GH #276 B2 — THE RECONCILIATION RUNS ON EVERY EXIT, not just the
+    // successful one, and this is the exit that needs it most.
+    //
+    // The first statement of the restore proper is `clock_.load_state(r)`, and
+    // the first sentinel is checked AFTER it — so by the time any of the ~30
+    // `return false` paths below fires, the machine has already been partly
+    // overwritten. A torn restore is therefore a machine transition exactly like
+    // a successful one, and leaving the backend's stop evidence behind on it
+    // names a subscription that fired on the half that is gone.
+    //
+    // That was REACHABLE, not theoretical: `Debugger::state()` puts `Corrupt`
+    // ahead of the event-stop latch, so the stale `Watch` is masked — until
+    // `acknowledge_corruption()`, after which the precedence falls through to it
+    // and reports it. One acknowledgement away from the defect that got this
+    // package rejected. Found by enumerating the landing verbs rather than by a
+    // failing row, which is why the enumeration is in the revision report.
+    //
+    // A guard rather than a 31st call site: the early returns are spread through
+    // 470 lines and a hand-placed call on each is the "two lists" failure. There
+    // is no "was the machine touched?" condition to test, because there is no
+    // early return before the first subsystem load.
+    struct ReconcileOnExit {
+        Emulator* e;
+        ~ReconcileOnExit() {
+            e->debug_after_machine_transition_(/*discard_ring=*/true);
+        }
+    } reconcile_on_exit{this};
+
     // Task 60b — mirror of save_state's per-subsystem sentinels. Each
     // check consumes one u32 and verifies it equals
     // kStateSentinelMagic ^ ordinal for the SAME ordinal sequence as
@@ -12807,10 +12846,9 @@ bool Emulator::load_state(StateReader& r)
     // jump. Idempotent when nothing moved.
     sync_esp_association(/*force=*/true);
 
-    // GH #276 B2 — the machine the debugger's event state described has just been
-    // replaced. See `debug_after_state_restore_()` for what is reconciled, what is
-    // deliberately kept, and why.
-    debug_after_state_restore_();
+    // The reconciliation is `reconcile_on_exit`'s, at the top of this function —
+    // NOT a call here. It used to be one, and a successful load was the only
+    // path that got it.
     return true;
 }
 
@@ -13173,18 +13211,27 @@ void Emulator::debug_latch_reset(bool hard)
     debug_state_.latch_event(e);
 }
 
-void Emulator::debug_after_state_restore_()
+void Emulator::debug_after_machine_transition_(bool discard_ring)
 {
     // The stop evidence and the pending Stop go regardless of whether a table is
     // installed: they are `DebugState` / `Emulator` members, and a stale one
     // outlives any `Debugger`.
     debug_state_.clear_stop_evidence();
     event_stop_pending_ = false;
+    // ...and the BACKEND's own evidence, which lives one object graph over in
+    // `Debugger::Impl` and which this class cannot reach directly (§4 rule 1).
+    // Reaching it through a hook rather than from each verb is the whole point:
+    // `Debugger::load_state_bytes()` calls no control verb, so it never reached
+    // `Impl::arm()` and `state()` reported a `Watch` on a write the restored
+    // machine had not made.
+    debug_state_.notify_machine_replaced();
 
     jnext::dbg::EventTable* t = debug_state_.event_table();
     if (!t) return;
-    t->clear_ring();
-    debug_state_.clear_ring_flag();
+    if (discard_ring) {
+        t->clear_ring();
+        debug_state_.clear_ring_flag();
+    }
     // `slot_page_` is a cache of the MMU's page map, and the restore rewrote that
     // map. Re-derive all eight.
     //

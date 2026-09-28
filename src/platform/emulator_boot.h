@@ -153,15 +153,26 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     // the symbol table across a cold boot ON PURPOSE). Written down here, at the
     // site, because B2 left it recorded nowhere and each item is silent:
     //
-    //  1. **Re-install the three publications.** `~Emulator()` + placement-new
+    //  1. **Re-install the FOUR publications.** `~Emulator()` + placement-new
     //     gives a BRAND-NEW `DebugState` at the same address, with
-    //     `events_ == nullptr`, no drain/gate hooks and no latch stamper. A
-    //     surviving `Debugger` is then silently DISCONNECTED: every subscription
-    //     still exists and lists as live, and not one can ever fire.
-    //     B3 must re-run the `Debugger` constructor's three calls —
-    //     `set_event_table`, `set_event_hooks`, and (the Emulator's own)
-    //     `install_debug_latch_stamper_` via `init()` — plus `gates_changed()`
-    //     and the eight-page seed.
+    //     `events_ == nullptr`, no drain/gate hooks, no machine-replaced hook and
+    //     no latch stamper. A surviving `Debugger` is then silently DISCONNECTED:
+    //     every subscription still exists and lists as live, and not one can ever
+    //     fire. B3 must re-run the `Debugger` constructor's calls —
+    //     `set_event_table`, `set_event_hooks`, `set_machine_replaced_hook`, and
+    //     (the Emulator's own) `install_debug_latch_stamper_` via `init()` — plus
+    //     `gates_changed()` and the eight-page seed.
+    //
+    //     `set_machine_replaced_hook` is the one that is easy to miss and the one
+    //     whose absence is worst here, so it is named rather than left inside
+    //     "the constructor's calls": this reset IS a machine transition, `init()`
+    //     below calls `debug_after_machine_transition_()` for it, and with a null
+    //     hook that call cannot reach `Debugger::Impl`. A `Debugger` that survived
+    //     a cold boot would keep reporting the `PauseReason` of a machine that has
+    //     been destructed. Re-install it BEFORE anything can stop the rebuilt
+    //     machine, and note that re-installing it after `init()` means this boot's
+    //     own transition is not reconciled through it — so B3 should also arm
+    //     `Kind::None` explicitly once, exactly as the hook would have.
     //  2. **`BreakpointSet` carries the EVENT mask half across.** `saved_bps`
     //     above copies `ev_mask_rd_` / `ev_mask_wr_` / `ev_port_` with it, so the
     //     restored gate is stale-OPEN against a `DebugState` whose `events_` is

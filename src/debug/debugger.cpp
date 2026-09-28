@@ -41,6 +41,15 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
     impl_->ds().set_event_table(&impl_->events);
     impl_->ds().set_event_hooks([this]() { return impl_->drain_boundary(); },
                                 [this](uint16_t pc) { return impl_->execute_gate(pc); });
+    // The machine-replaced notification. `Impl::arm(None, CLIENT_NONE)` is the
+    // whole reconciliation of the backend's own stop evidence: it drops
+    // `event_stop_latched` / `event_stop`, resets the armed verb (a stale
+    // `Step` from an earlier `step_back` would otherwise explain the restored
+    // machine's pause) and clears `EventTable::hits_`, the `matched[]` list §4.3
+    // makes part of the `Paused` contract. A verb that IS a stop re-arms after
+    // the restore, so its own reason still wins.
+    impl_->ds().set_machine_replaced_hook(
+        [this]() { impl_->arm(PauseReason::Kind::None, CLIENT_NONE); });
 
     // §6.1 — SEED THE EIGHT LIVE PAGES. `DebugState::on_slot_remapped()`
     // early-returns while the table is null, so every `rebuild_ptr()` during
@@ -67,6 +76,7 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
 Debugger::~Debugger() {
     impl_->ds().set_event_table(nullptr);
     impl_->ds().set_event_hooks(nullptr, nullptr);
+    impl_->ds().set_machine_replaced_hook(nullptr);
     impl_->ds().set_latch_stamper(nullptr);
     // The masks are `BreakpointSet`'s, so they survive this object, and the event
     // half has to be zeroed or a retired subscription keeps the gate open for
