@@ -2136,6 +2136,45 @@ static void b4_screenshot_rows() {
     }
     rm();
     {
+        // A QUEUED CAPTURE IS NOT DROPPED BY ITS REQUESTER'S DETACH (a decision,
+        // B4 report §2 — the contract review found it unpinned). A capture is a
+        // request about the MACHINE's next rendered frame, not about the client's
+        // session: A queues, A detaches before any frame renders, the frame
+        // renders, the pump writes it. And A's scope in flush_captures() is keyed
+        // by the id, so it still answers for A after the detach: Ok for the
+        // capture that was written, RefusedUnavailable for one that failed.
+        // The mirror of CAP-03-09 (bookmarks DO die with a detach) and CAP-01-09
+        // (captures survive a rebuild).
+        using jnext::dbg::PumpBudget;
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.screenshot(a, png, LAYER_MASK_ULA, ScreenshotFormat::Png);
+        dbg.detach(a);
+        const bool still_armed = emu.renderer().layer_mask() == LAYER_MASK_ULA &&
+                                 emu.debug_state().capture_render();
+        emu.run_frame();
+        dbg.pump(PumpBudget{});
+        const bool written = is_png_640x512(read_file(png));
+        const Result ok_after = dbg.flush_captures(a);
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.screenshot(b, "/nonexistent-dir/x/y.png", LAYER_MASK_ALL, ScreenshotFormat::Png);
+        dbg.detach(b);
+        emu.run_frame();
+        dbg.pump(PumpBudget{});
+        const Result failed_after = dbg.flush_captures(b);
+        check("CAP-01-17", "a capture survives its requester's detach — mask still armed, "
+                           "taken at the next rendered frame — and flush_captures() still "
+                           "answers for the detached id: Ok when written, RefusedUnavailable "
+                           "when the write failed",
+              still_armed && written && ok_after == Result::Ok &&
+                  failed_after == Result::RefusedUnavailable,
+              std::string("armed=") + (still_armed ? "1" : "0") + " written=" +
+                  (written ? "1" : "0") + " ok_after=" + jnext::dbg::result_name(ok_after) +
+                  " failed_after=" + jnext::dbg::result_name(failed_after));
+    }
+    rm();
+    {
         // §5, DECIDED: allowed from inside a delivery — it executes nothing. A
         // handler's flush answers exactly as one from outside would, and drops.
         Emulator emu; build(emu);
