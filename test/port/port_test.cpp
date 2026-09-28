@@ -44,6 +44,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include "../row_id.h"
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -65,6 +66,7 @@ static std::vector<TestResult> g_results;
 static void set_group(const char* name) { g_group = name; }
 
 static void check(const char* id, const char* desc, bool cond, const char* detail = "") {
+    report_row_id(id);
     g_total++;
     TestResult r{g_group, id, desc, cond, detail};
     g_results.push_back(r);
@@ -84,6 +86,7 @@ static void check(const char* id, const char* desc, bool cond, const char* detai
 // end-of-run and picked up by the traceability matrix extractor.
 static std::vector<std::pair<const char*, const char*>> g_skips;
 static void skip(const char* id, const char* reason) {
+    report_row_id(id);
     g_skips.emplace_back(id, reason);
 }
 

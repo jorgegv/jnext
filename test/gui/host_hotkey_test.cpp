@@ -84,12 +84,14 @@
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_window.h"
 #endif
+#include "../row_id.h"
 
 namespace {
 
 int g_total = 0, g_pass = 0, g_fail = 0;
 
 void check(const char* id, const char* desc, bool cond, const std::string& detail) {
+    report_row_id(id);
     ++g_total;
     if (cond) { ++g_pass; std::printf("  PASS %s: %s\n", id, desc); }
     else      { ++g_fail; std::printf("  FAIL %s: %s [%s]\n", id, desc, detail.c_str()); }

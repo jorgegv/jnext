@@ -33,6 +33,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "../row_id.h"
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -48,6 +49,7 @@ void set_group(const char* n) { g_group = n; }
 
 void check(const char* id, const char* desc, bool cond,
            const std::string& detail = "") {
+    report_row_id(id);
     ++g_total;
     g_results.push_back({g_group, id, desc, detail, cond});
     if (cond) { ++g_pass; }

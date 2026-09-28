@@ -37,6 +37,7 @@
 #include <iterator>
 #include <string>
 #include <vector>
+#include "../row_id.h"
 
 namespace {
 
@@ -50,6 +51,7 @@ std::string join(const std::vector<std::string>& v) {
 
 void check(const char* id, const char* desc, bool cond, const std::string& detail = {})
 {
+    report_row_id(id);
     if (cond) {
         ++g_pass;
     } else {

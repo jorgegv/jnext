@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include "../row_id.h"
 
 namespace {
 
@@ -21,6 +22,7 @@ int failed = 0;
 
 void check(const char* id, bool condition, const std::string& detail = {})
 {
+    report_row_id(id);
     if (condition) {
         ++passed;
     } else {

@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include "../row_id.h"
 
 // Simple 64K RAM for test isolation
 class TestMemory : public MemoryInterface {
@@ -285,6 +286,7 @@ int main(int argc, char* argv[]) {
 
     for (auto& input : inputs) {
         total++;
+        report_row_id(input.name);
         auto it = exp_map.find(input.name);
         if (it == exp_map.end()) {
             skipped++;

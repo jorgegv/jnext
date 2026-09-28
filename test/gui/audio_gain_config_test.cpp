@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include "../row_id.h"
 
 namespace {
 
@@ -14,6 +15,7 @@ int failed = 0;
 
 void check(const char* id, bool condition)
 {
+    report_row_id(id);
     if (condition) {
         ++passed;
     } else {

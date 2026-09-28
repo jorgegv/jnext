@@ -17,6 +17,7 @@
 #include <vector>
 
 #include <unistd.h>   // getpid() — per-process fixture paths
+#include "../row_id.h"
 
 void run_esxdos_hostfs_rows(int& passed, int& failed);
 
@@ -26,6 +27,7 @@ int passed = 0;
 int failed = 0;
 
 void check(const char* id, bool condition) {
+    report_row_id(id);
     if (condition) {
         ++passed;
     } else {
@@ -38,6 +40,7 @@ void check(const char* id, bool condition) {
 // predate that idiom and are left as they are.
 void check(const char* id, const char* desc, bool condition,
            const std::string& detail = "") {
+    report_row_id(id);
     if (condition) {
         ++passed;
     } else {

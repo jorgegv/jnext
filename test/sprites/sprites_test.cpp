@@ -40,6 +40,7 @@
 #include <vector>
 #include <array>
 #include <unordered_map>
+#include "../row_id.h"
 
 // ---------------------------------------------------------------------------
 // Test infrastructure (same pattern as test/dma/dma_test.cpp)
@@ -65,6 +66,7 @@ static void set_group(const char* name) { g_group = name; }
 
 static void check(const char* id, const char* desc, bool cond,
                   const char* detail = "") {
+    report_row_id(id);
     g_total++;
     TestResult r{g_group, id, desc, cond, false, detail};
     g_results.push_back(r);

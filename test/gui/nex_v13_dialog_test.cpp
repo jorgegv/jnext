@@ -46,6 +46,7 @@
 #include <vector>
 
 #include <unistd.h>   // getpid() — per-process fixture paths (same reason as
+#include "../row_id.h"
                       // nex_loader_test: concurrent worktree runs share /tmp)
 
 // ── Test infrastructure (mirrors quit_gate_test) ──────────────────────
@@ -58,6 +59,7 @@ int g_total = 0;
 
 void check(const char* id, const char* desc, bool cond,
            const std::string& detail = {}) {
+    report_row_id(id);
     ++g_total;
     if (cond) {
         ++g_pass;

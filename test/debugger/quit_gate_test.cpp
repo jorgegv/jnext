@@ -55,6 +55,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include "../row_id.h"
 
 // ── Test infrastructure (mirrors the other subsystem suites) ──────────
 
@@ -79,6 +80,7 @@ void set_group(const char* name) { g_group = name; }
 
 void check(const char* id, const char* desc, bool cond,
            const std::string& detail = {}) {
+    report_row_id(id);
     ++g_total;
     g_results.push_back(Result{g_group, id, desc, cond, detail});
     if (cond) {

@@ -49,6 +49,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include "../row_id.h"
 
 // ── Test infrastructure ───────────────────────────────────────────────────
 
@@ -78,6 +79,7 @@ static std::vector<SkipNote> g_skipped;
 static void set_group(const char* name) { g_group = name; }
 
 static void check(const char* id, const char* desc, bool cond, const char* detail = "") {
+    report_row_id(id);
     g_total++;
     TestResult r{g_group, id, desc, cond, detail};
     g_results.push_back(r);
@@ -101,6 +103,7 @@ static char g_buf[512];
 // contribute to g_total, g_pass, or g_fail — they preserve a meaningful
 // pass-rate signal on the live portion of the plan.
 static void skip(const char* id, const char* desc, const char* subsystem) {
+    report_row_id(id);
     g_skipped.push_back({g_group, id, desc, subsystem});
 }
 

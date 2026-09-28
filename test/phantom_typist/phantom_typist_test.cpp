@@ -41,6 +41,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "../row_id.h"
 
 // ── Test infrastructure ───────────────────────────────────────────────────
 
@@ -59,6 +60,7 @@ static std::vector<TestResult> g_results;
 
 static void check(const char* id, const char* desc, bool cond,
                   const std::string& detail = "") {
+    report_row_id(id);
     g_total++;
     TestResult r{id, desc, cond, detail};
     g_results.push_back(r);

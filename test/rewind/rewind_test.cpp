@@ -61,6 +61,7 @@
 #include <vector>
 #include <cassert>
 #include <unistd.h>   // mkstemp/write/close/unlink — TZX fixture for the G36 tape-clock row
+#include "../row_id.h"
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -71,6 +72,7 @@ static int fail_count = 0;
 struct SkipNote { const char* id; const char* reason; };
 static std::vector<SkipNote> g_skipped;
 static void skip(const char* id, const char* reason) {
+    report_row_id(id);
     g_skipped.push_back({id, reason});
     fprintf(stdout, "SKIP %-16s %s\n", id, reason);
 }
@@ -83,6 +85,7 @@ static void skip(const char* id, const char* reason) {
 // `missing` while they ran and passed. Spelling the ID out as a literal is
 // the whole fix; the condition and the message are unchanged.
 static void check(const char* id, bool cond, const char* desc) {
+    report_row_id(id);
     if (!cond) {
         fprintf(stderr, "FAIL %s: %s\n", id, desc);
         ++fail_count;
@@ -92,7 +95,11 @@ static void check(const char* id, bool cond, const char* desc) {
     }
 }
 
+// An anonymous row reports its message as its name (test/row_id.h): the
+// harness counts every row's report against `Total:`, and these messages are
+// what tells two CHECK rows apart in this suite's output.
 #define CHECK(cond, msg) do { \
+    report_row_id(msg); \
     if (!(cond)) { \
         fprintf(stderr, "FAIL [%s:%d] %s\n", __FILE__, __LINE__, msg); \
         ++fail_count; \
@@ -104,6 +111,7 @@ static void check(const char* id, bool cond, const char* desc) {
 
 #define REQUIRE(cond, msg) do { \
     if (!(cond)) { \
+        report_row_id(msg); \
         fprintf(stderr, "ABORT [%s:%d] %s\n", __FILE__, __LINE__, msg); \
         ++fail_count; \
         return 1; \

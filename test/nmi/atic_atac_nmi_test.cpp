@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "../row_id.h"
 
 namespace {
 
@@ -35,6 +36,7 @@ std::string fmt(const char* format, ...)
 void check(const char* id, const char* description, bool passed,
            const std::string& detail = {})
 {
+    report_row_id(id);
     if (passed) {
         ++g_pass;
         return;
