@@ -5404,12 +5404,19 @@ static void test_testcov_nmi_mf_port(Emulator& emu) {
     //   regs_[] cache, leaking into subsequent reads.
     {
         hard_reset(emu);
-        for (uint8_t reg = 0x75; reg <= 0x79; ++reg) {
-            nr_write(emu, reg, 0xFF);
-            const uint8_t got = nr_read(emu, reg);
+        // One row per register, each under its own literal ID.
+        struct WriteZeroRow { uint8_t reg; const char* id; };
+        const WriteZeroRow rows[] = {
+            { 0x75, "TC-NR75-79-WRITEZERO"   }, { 0x76, "TC-NR75-79-WRITEZERO-b" },
+            { 0x77, "TC-NR75-79-WRITEZERO-c" }, { 0x78, "TC-NR75-79-WRITEZERO-d" },
+            { 0x79, "TC-NR75-79-WRITEZERO-e" },
+        };
+        for (const auto& r : rows) {
+            nr_write(emu, r.reg, 0xFF);
+            const uint8_t got = nr_read(emu, r.reg);
             char d[64]; std::snprintf(d, sizeof(d),
-                "NR %02X read=0x%02X want=0x00", reg, got);
-            check("TC-NR75-79-WRITEZERO",
+                "NR %02X read=0x%02X want=0x00", r.reg, got);
+            check(r.id,
                   "NR 0x75-0x79 write-only mirror reads 0 "
                   "[zxnext.vhd:5878-6289 others=>'0']",
                   got == 0, d);

@@ -165,11 +165,11 @@ int main() {
     check("FATFS-PATCH", "blank source image created", blank_ok, err);
     bool prep = blank_ok &&
                 fat32_format_and_populate(src, part_lba, total_sectors, tree, err);
-    check("FATFS-PATCH", "source tree written via FatFs", prep, err);
+    check("FATFS-PATCH-b", "source tree written via FatFs", prep, err);
 
     // ---- Run the real provisioner patch entry point on the source ----
     bool patched = prep && sdcard::patch_image_fat32(src, err);
-    check("FATFS-PATCH", "patch_image_fat32 succeeded", patched, err);
+    check("FATFS-PATCH-c", "patch_image_fat32 succeeded", patched, err);
 
     if (patched) {
         // -- FATFS-PATCH-01: mounts as valid FAT32, >= 65525 clusters --
@@ -193,9 +193,9 @@ int main() {
             }
             fatfs_glue::detach(0);
         }
-        check("FATFS-PATCH-01", "FatFs mounts patched image",
+        check("FATFS-PATCH-01b", "FatFs mounts patched image",
               mounted, err);
-        check("FATFS-PATCH-01", "FatFs reports >= 65525 clusters",
+        check("FATFS-PATCH-01c", "FatFs reports >= 65525 clusters",
               mounted && total_clusters >= 65525u,
               "total_clusters=" + std::to_string(total_clusters));
 
@@ -205,16 +205,16 @@ int main() {
         check("FATFS-PATCH-02", "read_tree of patched image succeeded", rd);
 
         const Fat32Node* tb = find_child(back.root, "TBBLUE.FW");
-        check("FATFS-PATCH-02", "TBBLUE.FW content intact",
+        check("FATFS-PATCH-02b", "TBBLUE.FW content intact",
               tb && !tb->is_dir &&
               std::string(tb->data.begin(), tb->data.end()) == "uppercase-8.3");
         const Fat32Node* em = find_child(back.root, "empty.txt");
-        check("FATFS-PATCH-02", "empty.txt present and empty",
+        check("FATFS-PATCH-02c", "empty.txt present and empty",
               em && em->data.empty());
         const Fat32Node* md = find_child(back.root, "MACHINES");
         const Fat32Node* nx = md ? find_child(md->children, "NEXT") : nullptr;
         const Fat32Node* rn = nx ? find_child(nx->children, "enNxtmmc.rom") : nullptr;
-        check("FATFS-PATCH-02", "nested MACHINES/NEXT/enNxtmmc.rom intact",
+        check("FATFS-PATCH-02d", "nested MACHINES/NEXT/enNxtmmc.rom intact",
               rn && rn->data.size() == 8192);
 
         // -- FATFS-PATCH-05: long-name file preserved exactly --
@@ -237,7 +237,7 @@ int main() {
         check("FATFS-PATCH-04", "enNxtmmc.rom resolvable by natural SFN",
               mmc_ok && mmc.size() == 8192 && mmc[0] == 0xF3,
               "ok=" + std::to_string(mmc_ok) + " size=" + std::to_string(mmc.size()));
-        check("FATFS-PATCH-04", "enNextMf.rom resolvable by natural SFN",
+        check("FATFS-PATCH-04b", "enNextMf.rom resolvable by natural SFN",
               mf_ok && mf.size() == 8192 && mf[0] == 0x5a,
               "ok=" + std::to_string(mf_ok) + " size=" + std::to_string(mf.size()));
     }
@@ -267,7 +267,7 @@ int main() {
         const Fat32Node* s = find_child(t.root, "sys");
         const Fat32Node* cfg = s ? find_child(s->children, "config") : nullptr;
         const Fat32Node* nf = cfg ? find_child(cfg->children, "new.cfg") : nullptr;
-        check("FAT32-UPSERT-01", "missing directories created for new file",
+        check("FAT32-UPSERT-01b", "missing directories created for new file",
               s && s->is_dir && cfg && cfg->is_dir && nf && nf->data.size() == 1);
     }
 

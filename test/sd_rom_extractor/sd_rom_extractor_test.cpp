@@ -150,11 +150,11 @@ int main() {
         size_t n = 0;
         const bool ok = extract_sd_rom(img, "/MACHINES/NEXT/enNxtmmc.rom", ennxt, &n);
         check("SD-EXT-01", "extract enNxtmmc.rom returns true", ok);
-        check("SD-EXT-01", "enNxtmmc.rom size is 8192", ennxt.size() == 8192,
+        check("SD-EXT-01b", "enNxtmmc.rom size is 8192", ennxt.size() == 8192,
               "size=" + std::to_string(ennxt.size()));
-        check("SD-EXT-01", "bytes_read_out matches buffer size", n == ennxt.size(),
+        check("SD-EXT-01c", "bytes_read_out matches buffer size", n == ennxt.size(),
               "out=" + std::to_string(n));
-        check("SD-EXT-01", "enNxtmmc.rom first 4 bytes match canonical magic",
+        check("SD-EXT-01d", "enNxtmmc.rom first 4 bytes match canonical magic",
               first4_eq(ennxt, kEnNxtmmcMagic),
               "got=" + hex_prefix(ennxt, 4));
     }
@@ -167,7 +167,7 @@ int main() {
         std::vector<uint8_t> v;
         const bool ok = extract_sd_rom(img, "/machines/next/enNxtmmc.rom", v);
         check("SD-EXT-02", "lowercase path components return true", ok);
-        check("SD-EXT-02", "lowercase path yields identical bytes",
+        check("SD-EXT-02b", "lowercase path yields identical bytes",
               ok && v == ennxt,
               "size=" + std::to_string(v.size()));
     }
@@ -179,12 +179,12 @@ int main() {
     {
         const bool ok = extract_sd_rom(img, "/MACHINES/NEXT/48.rom", v48);
         check("SD-EXT-03", "extract 48.rom returns true", ok);
-        check("SD-EXT-03", "48.rom size is 16384", v48.size() == 16384,
+        check("SD-EXT-03b", "48.rom size is 16384", v48.size() == 16384,
               "size=" + std::to_string(v48.size()));
-        check("SD-EXT-03", "48.rom first 4 bytes match canonical magic",
+        check("SD-EXT-03c", "48.rom first 4 bytes match canonical magic",
               first4_eq(v48, k48RomMagic),
               "got=" + hex_prefix(v48, 4));
-        check("SD-EXT-03", "48.rom bytes differ from enNxtmmc.rom",
+        check("SD-EXT-03d", "48.rom bytes differ from enNxtmmc.rom",
               !ennxt.empty() && !v48.empty() && v48 != ennxt);
     }
 
@@ -196,12 +196,12 @@ int main() {
         std::vector<uint8_t> v;
         const bool ok = extract_sd_rom(img, "/MACHINES/NEXT/enNextMf.rom", v);
         check("SD-EXT-04", "extract enNextMf.rom returns true", ok);
-        check("SD-EXT-04", "enNextMf.rom size is 8192", v.size() == 8192,
+        check("SD-EXT-04b", "enNextMf.rom size is 8192", v.size() == 8192,
               "size=" + std::to_string(v.size()));
-        check("SD-EXT-04", "enNextMf.rom first 4 bytes match canonical magic",
+        check("SD-EXT-04c", "enNextMf.rom first 4 bytes match canonical magic",
               first4_eq(v, kEnNextMfMagic),
               "got=" + hex_prefix(v, 4));
-        check("SD-EXT-04", "enNextMf.rom content differs from enNxtmmc.rom",
+        check("SD-EXT-04d", "enNextMf.rom content differs from enNxtmmc.rom",
               !v.empty() && !ennxt.empty() && v != ennxt);
     }
 
@@ -213,11 +213,11 @@ int main() {
         size_t n = 0;
         const bool ok = extract_sd_rom(img, "/TBBLUE.FW", v, &n);
         check("SD-EXT-05", "extract /TBBLUE.FW returns true", ok);
-        check("SD-EXT-05", "TBBLUE.FW size is 304640", v.size() == 304640,
+        check("SD-EXT-05b", "TBBLUE.FW size is 304640", v.size() == 304640,
               "size=" + std::to_string(v.size()));
-        check("SD-EXT-05", "TBBLUE.FW bytes_read_out matches", n == v.size(),
+        check("SD-EXT-05c", "TBBLUE.FW bytes_read_out matches", n == v.size(),
               "out=" + std::to_string(n));
-        check("SD-EXT-05", "TBBLUE.FW first 4 bytes match canonical magic",
+        check("SD-EXT-05d", "TBBLUE.FW first 4 bytes match canonical magic",
               first4_eq(v, kTbblueFwMagic),
               "got=" + hex_prefix(v, 4));
     }
@@ -231,7 +231,7 @@ int main() {
         v.assign(123, 0xAA);
         const bool ok = extract_sd_rom(img, "/MACHINES/NEXT/nonexistent.rom", v);
         check("SD-EXT-06", "missing file returns false", !ok);
-        check("SD-EXT-06", "missing file leaves out empty", v.empty(),
+        check("SD-EXT-06b", "missing file leaves out empty", v.empty(),
               "size=" + std::to_string(v.size()));
     }
 
@@ -244,6 +244,7 @@ int main() {
         int fd = mkstemp(tmpl);
         if (fd < 0) {
             skip("SD-EXT-07", "mkstemp failed; cannot construct bogus image");
+            skip("SD-EXT-07b", "mkstemp failed; cannot construct bogus image");
         } else {
             const uint8_t junk[16] = {
                 0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
@@ -254,7 +255,7 @@ int main() {
             std::vector<uint8_t> v;
             const bool ok = extract_sd_rom(tmpl, "/anything.rom", v);
             check("SD-EXT-07", "non-FAT image returns false", !ok);
-            check("SD-EXT-07", "non-FAT image leaves out empty", v.empty());
+            check("SD-EXT-07b", "non-FAT image leaves out empty", v.empty());
             std::remove(tmpl);
         }
     }
@@ -266,7 +267,7 @@ int main() {
         std::vector<uint8_t> v;
         const bool ok = extract_sd_rom(img, "MACHINES/NEXT/enNxtmmc.rom", v);
         check("SD-EXT-08", "no-leading-slash path returns true", ok);
-        check("SD-EXT-08", "no-leading-slash bytes match SD-EXT-01",
+        check("SD-EXT-08b", "no-leading-slash bytes match SD-EXT-01",
               ok && v == ennxt);
     }
 
@@ -298,6 +299,8 @@ int main() {
         int fd = mkstemp(tmpl);
         if (fd < 0) {
             skip("SD-EXT-09",
+                 "mkstemp failed; cannot construct cyclic FAT image");
+            skip("SD-EXT-09b",
                  "mkstemp failed; cannot construct cyclic FAT image");
         } else {
             close(fd);
@@ -396,7 +399,7 @@ int main() {
                   "false instead of looping forever — V16-DIVMMC-02 "
                   "find_in_directory bound",
                   !ok);
-            check("SD-EXT-09",
+            check("SD-EXT-09b",
                   "cyclic-chain failure leaves out empty",
                   out.empty(),
                   "size=" + std::to_string(out.size()));

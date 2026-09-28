@@ -269,16 +269,17 @@ int main()
     // one per row: an assertion that ORed them together could not tell a .tzx
     // delay applied to a .nex from the correct table.
     {
-        struct { const char* file; int want; } cases[] = {
-            { "a.nex", 0 }, { "a.tap", 0 }, { "a.sna", 0 }, { "a.szx", 0 },
-            { "a.z80", 0 }, { "a.rzx", 0 }, { "a.tzx", 100 }, { "a.wav", 100 },
+        struct { const char* file; int want; const char* id; } cases[] = {
+            { "a.nex", 0, "EB-07"  }, { "a.tap", 0, "EB-07b" }, { "a.sna", 0, "EB-07c" },
+            { "a.szx", 0, "EB-07d" }, { "a.z80", 0, "EB-07e" }, { "a.rzx", 0, "EB-07f" },
+            { "a.tzx", 100, "EB-07g" }, { "a.wav", 100, "EB-07h" },
         };
         for (const auto& c : cases) {
             Emulator emu;
             emu.init(base_config());
             FakeFrontend fe;
             emulator_frontend_cold_boot(emu, base_config(), c.file, fe.hooks());
-            check("EB-07", "scheduled delay matches the CLI per-format delay",
+            check(c.id, "scheduled delay matches the CLI per-format delay",
                   fe.scheduled_delay == c.want,
                   std::string(c.file) + ": got " + std::to_string(fe.scheduled_delay) +
                       ", want " + std::to_string(c.want));
