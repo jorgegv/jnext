@@ -1936,6 +1936,27 @@ static void b4_screenshot_rows() {
     }
     rm();
     {
+        // SOMETHING ELSE RE-SETS THE RENDERER'S MASK while a capture waits (a
+        // frontend's own layer knob): the frame rendered with the wrong layers is
+        // not taken, the capture's mask is armed again, and the next frame is.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        dbg.screenshot(1, png, LAYER_MASK_ULA, ScreenshotFormat::Png);
+        emu.renderer().set_layer_mask(LAYER_MASK_SPRITES);     // not the backend's doing
+        emu.run_frame();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        const bool skipped = read_file(png).empty() &&
+                             emu.renderer().layer_mask() == LAYER_MASK_ULA;
+        emu.run_frame();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("CAP-01-11", "a frame rendered with another mask (someone else re-set it) "
+                           "is not captured; the capture's mask is re-armed and the next "
+                           "frame is",
+              skipped && is_png_640x512(read_file(png)) &&
+                  emu.renderer().layer_mask() == jnext::dbg::LAYER_MASK_ALL);
+    }
+    rm();
+    {
         // THE PAIR, CAP-01's half: the machine outlives the backend, and must not
         // be left rendering with a dead capture's layers.
         Emulator emu; build(emu);

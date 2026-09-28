@@ -217,15 +217,19 @@ void Debugger::Impl::service_captures() {
     const uint64_t now        = emu.rendered_frames();
     const uint8_t  frame_mask = emu.renderer().layer_mask();
     bool           took       = false;
+    bool           rearm      = false;
 
     while (!captures.empty()) {
         Capture& c = captures.front();
         if (now <= c.after) break;           // no frame rendered since it was armed
         if (c.layer_mask != frame_mask) {
-            // Behind a head with another mask: the frame was not rendered with
-            // THIS capture's layers. It becomes the head below and waits for a
-            // frame rendered after its own mask is armed.
+            // The frame was not rendered with THIS capture's layers: it sat behind
+            // a head with another mask, or something else re-set the renderer's
+            // mask since it was armed. Re-armed below, it waits for a frame
+            // rendered after its own mask is in place — never taken with the
+            // wrong layers, never left waiting for a mask nobody will arm again.
             c.after = now;
+            rearm   = true;
             break;
         }
         bool ok;
@@ -250,10 +254,8 @@ void Debugger::Impl::service_captures() {
                   what + (ok ? " written" : " NOT written — see the error above"));
     }
 
-    if (took) {
-        arm_capture_head();
-        return;
-    }
+    if (took || rearm) arm_capture_head();
+    if (took) return;
     // Still waiting. The GUI's defer-with-warning contract (`qt_app.cpp`): say so
     // ONCE per capture when the reason is a paused machine, which renders
     // nothing until it is resumed.
