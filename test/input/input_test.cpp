@@ -6017,6 +6017,33 @@ static void test_gh289_autotype_ranges() {
                      jns_int(after, "auto_queue_count")));
     }
 
+    // The validation loop's OWN `i >= n` bound, which nothing pinned until the
+    // independent reviewer mutated it away and both suites stayed green. It is
+    // inert rather than dangerous — the sibling rebuild loop re-applies the same
+    // bound before any slot is consumed — but "inert" is a property worth
+    // holding still, and the behaviour it decides is real: the validation
+    // examines exactly the LIVE slots, so PADDING beyond the count is not
+    // judged at all. Our own writer zero-fills it; a foreign writer may not,
+    // and padding that is never consumed is not a reason to refuse a file.
+    {
+        const std::string junk = jns_with_int(doc, "auto05_row1", 0x40000000L);
+        Keyboard back;
+        back.reset();
+        std::string refusal;
+        const bool ok =
+            jnext::save::restore_via_desc(back, junk, false, refusal);
+        const std::string after = jns_doc(back);
+        check("GH289-26",
+              "garbage in a PADDING slot past the count is ACCEPTED — the range "
+              "check is bounded by the live count as well as by the capacity, "
+              "so a slot nothing will ever consume cannot refuse the file",
+              junk != doc && ok && jns_int(after, "auto_queue_count") == 2 &&
+                  jns_int(after, "auto00_row1") == 6,
+              DETAIL("patched=%d ok=%d refusal='%s' n=%ld",
+                     (int)(junk != doc), (int)ok, refusal.c_str(),
+                     jns_int(after, "auto_queue_count")));
+    }
+
     // The three messages must be DISTINGUISHABLE. One message covering two
     // different fields is the "invalid snapshot" collapse with a longer
     // string: a user told which field is wrong can fix the file, a user told

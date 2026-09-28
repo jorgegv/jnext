@@ -5652,6 +5652,14 @@ static int test_s8_jns_roundtrip()
             obj.describe_state(jw);
             return jw.str();
         };
+        // LONG_MIN when the key is absent, never 0 — 0 is a legal value for
+        // every field these rows read.
+        auto get_int = [](const std::string& src, const char* key) -> long {
+            const std::string needle = std::string("\"") + key + "\":";
+            const std::size_t at = src.find(needle);
+            if (at == std::string::npos) return LONG_MIN;
+            return std::strtol(src.c_str() + at + needle.size(), nullptr, 10);
+        };
 
         // ── Clock ────────────────────────────────────────────────────────
         //
@@ -5869,6 +5877,121 @@ static int test_s8_jns_roundtrip()
                   "desync), and is NAMED in the log");
         }
 
+        // ── I2cRtc ───────────────────────────────────────────────────────
+        //
+        // The FOURTH instance, and the one the author's first sweep missed
+        // because it scoped to `d.i32` (a declaration TYPE) while this field is
+        // a `d.u8` — found by the independent reviewer. `reg_ptr_` indexes
+        // `regs_`, a `std::array<uint8_t, 64>` that is the LAST member of
+        // `I2cRtc`, and BOTH use sites are unmasked: the read `regs_[reg_ptr_]`
+        // and the write `regs_[reg_ptr_] = data`.
+        //
+        // GH289-60, GH289-61, GH289-62, GH289-63 — the bound is the array's own
+        // extent, 64 entries, which is the DS1307's 6-bit register pointer; the
+        // code's three runtime masks (`& 0x3F` on the pointer set and on both
+        // auto-increments) say the same, and the RTC is an off-chip I2C device
+        // so the oracle is the DS1307 register map rather than the FPGA VHDL.
+        //
+        // There is no row for a NEGATIVE pointer because the type forbids one:
+        // the field is a `u8`, and `JsonReadDesc::do_u8` refuses anything that
+        // is not an integer in 0..255 before the declaration ever sees it.
+        {
+            // The ACCEPTING arm, at BOTH boundaries. `transfer(n, false)` on a
+            // fresh transaction is how the pointer legitimately gets set.
+            bool ends_ok = true;
+            for (int want : {0, 63}) {
+                I2cRtc src;
+                src.start();
+                src.transfer(static_cast<uint8_t>(want), false);
+                const std::string doc = doc_of(src);
+                if (get_int(doc, "reg_ptr") != want) ends_ok = false;
+                I2cRtc back;
+                back.start();
+                back.transfer(31, false);          // a different pointer
+                std::string refusal;
+                if (!jnext::save::restore_via_desc(back, doc, false, refusal))
+                    ends_ok = false;
+                if (get_int(doc_of(back), "reg_ptr") != want) ends_ok = false;
+            }
+            check("GH289-60", ends_ok,
+                  "register pointers 0 and 63 — both ends of the DS1307 map — "
+                  "still restore over a different live pointer; the arm a "
+                  "reject-everything check fails, and the one an off-by-one "
+                  "`>= 63` bound would fail too");
+
+            struct Case { const char* id; long value; const char* desc; };
+            static const Case cases[] = {
+                {"GH289-61", 64,
+                 "a register pointer of 64 is REFUSED — one past the 64-entry "
+                 "regs_ array, whose extent IS the bound"},
+                {"GH289-62", 200,
+                 "a register pointer of 200 is REFUSED — the reviewer's "
+                 "proof-of-concept value, which wrote 136 bytes past regs_ on "
+                 "the next RTC write and read past it on the next RTC read"},
+                {"GH289-63", 255,
+                 "the widest value a u8 can carry is REFUSED — the type's own "
+                 "range is 0..255 and the array's is 0..63, which is the whole "
+                 "defect in one sentence"},
+            };
+            for (const Case& c : cases) {
+                I2cRtc src;
+                src.start();
+                src.transfer(7, false);
+                const std::string bad = set_int(doc_of(src), "reg_ptr", c.value);
+                I2cRtc back;
+                back.start();
+                back.transfer(31, false);          // pre-load pointer 31
+                std::string refusal;
+                const bool ok =
+                    jnext::save::restore_via_desc(back, bad, false, refusal);
+                const long kept = get_int(doc_of(back), "reg_ptr");
+                if (ok || refusal.find("reg_ptr") == std::string::npos ||
+                    kept != 31) {
+                    fprintf(stderr, "  %s: ok=%d refusal='%s' reg_ptr=%ld\n",
+                            c.id, (int)ok, refusal.c_str(), kept);
+                }
+                check(c.id,
+                      !bad.empty() && !ok &&
+                          refusal.find("reg_ptr") != std::string::npos &&
+                          kept == 31,
+                      c.desc);
+            }
+
+            // The REWIND stream: 69 bytes, the pointer at offset 0.
+            uint8_t buf[256];
+            I2cRtc  src;
+            src.start();
+            src.transfer(7, false);
+            StateWriter w(buf, sizeof buf);
+            src.save_state(w);
+            check("GH289-64", w.position() == 69 && buf[0] == 7,
+                  "byte 0 of I2cRtc's 69-byte block is the register pointer — "
+                  "the field the next row forges, proved by an honest save of a "
+                  "known pointer");
+
+            buf[0] = 200;
+            std::ostringstream cap;
+            auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(cap);
+            sink->set_pattern("%l %v");
+            Log::i2c()->sinks().push_back(sink);
+            I2cRtc back;
+            back.start();
+            back.transfer(31, false);
+            StateReader r(buf, w.position());
+            back.load_state(r);
+            Log::i2c()->sinks().pop_back();
+            const std::string logged = cap.str();
+            const long kept = get_int(doc_of(back), "reg_ptr");
+            check("GH289-65",
+                  kept == 31 && r.position() == 69 &&
+                      logged.find("I2cRtc::load_state: i2c_rtc.reg_ptr") !=
+                          std::string::npos,
+                  "a forged pointer in the REWIND stream leaves it at its "
+                  "pre-load value, still consumes the declared 69 bytes so the "
+                  "64 register bytes behind it do not desync, and is NAMED in "
+                  "the log");
+        }
+
         // ── Both, END TO END through Emulator::load_jns ──────────────────
         //
         // The rows above walk each subsystem's declaration directly, which is
@@ -5878,9 +6001,9 @@ static int test_s8_jns_roundtrip()
         // One row, two archives, because the FIRST refusal wins: a single
         // archive corrupted twice could only ever show one of them.
         //
-        // GH289-46 — the two bounds it exercises are zxnext.vhd:1299-1300,5817
-        // (the two-bit CPU-speed register) and uart.vhd:123,280,301 (the
-        // one-bit channel selector).
+        // GH289-46 — the bounds it exercises are zxnext.vhd:1299-1300,5817
+        // (the two-bit CPU-speed register), uart.vhd:123,280,301 (the one-bit
+        // channel selector) and the DS1307's 64-entry register map.
         {
             auto repack_txt = [](const std::vector<uint8_t>& in,
                                  const std::string& member,
@@ -5916,13 +6039,14 @@ static int test_s8_jns_roundtrip()
                 const char* key;
                 long        value;
             };
-            const Case two[2] = {
+            const Case three[3] = {
                 {"state/clock.json", "cpu_divisor", 0},
                 {"state/uart.json",  "select",      2},
+                {"state/rtc.json",   "reg_ptr",     200},
             };
             bool all_refused = true, all_named = true, built_both = true;
             std::string msgs;
-            for (const Case& c : two) {
+            for (const Case& c : three) {
                 std::string text;
                 if (!wrote) { built_both = false; break; }
                 {
@@ -5963,10 +6087,11 @@ static int test_s8_jns_roundtrip()
             }
             check("GH289-46", built_both && all_refused && all_named,
                   "Emulator::load_jns REFUSES a .jns whose state/clock.json "
-                  "carries a CPU divisor of 0 or whose state/uart.json carries "
-                  "a selector of 2, and each refusal names its own member AND "
-                  "field — proving both subsystems are really visited, which "
-                  "the direct-declaration rows above cannot show");
+                  "carries a CPU divisor of 0, whose state/uart.json carries a "
+                  "selector of 2, or whose state/rtc.json carries a register "
+                  "pointer of 200 — each refusal naming its own member AND "
+                  "field, which proves all three subsystems are really visited; "
+                  "the direct-declaration rows above cannot show that");
         }
     }
 
