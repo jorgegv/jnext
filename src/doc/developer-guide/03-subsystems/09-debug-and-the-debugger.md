@@ -608,13 +608,39 @@ levels, like the pulses it replaces; a reconstruct drops both with the old
 `Keyboard`. `set_joystick` and `press_nmi` stay immediate — the contract names
 IN-01 and IN-02 only.
 
+**Hosted by every loop owner.** `HeadlessApp`, `SdlApp` and `QtApp` each build
+one `Debugger` in `init()` and keep it for the process: they register the
+`LoopDriver` (a client's `reset(Hard)` runs the loop owner's own boot; `load()`
+its load dispatch), bracket every cold boot THEY decide on — a guest NR 0x02
+hard reset, a NEX load request, F1, a menu load — with `on_cold_boot_begin()` /
+`on_cold_boot_done()`, and call `pump()` once per tick after the frames (and,
+in SDL and headless, after the cold-boot polls; Qt pumps in `post_frames`). With
+no client attached this arms nothing, so a run with it is bit-identical to a run
+without it (rows HOST-01..05, the last three through the real `HeadlessApp`).
+`QtApp::debugger()` is the instance package Q's `DebuggerManager` is to use.
+
+**The CLI `--delayed-*` flags keep their own countdowns.** Each loop owner counts
+LOOP TICKS for every `--delayed-*` flag, as before — a tick count survives a
+cold boot and keeps counting while the machine is paused, which is what keeps
+`--delayed-automatic-exit` a hard bound; a `Frame` tag does neither. Only the
+ACTIONS go through the backend: `press_key`, `press_nmi` (which now calls the
+F9/F10 hotkey functions themselves, gates included), `save_snapshot`, and
+`screenshot()` — queued when the count reaches zero, written by the tick's pump,
+its outcome read back with `flush_captures()`. The CLI-facing messages and exit
+codes are the loop owners' and did not change.
+
 **Screenshots are deferred to the next rendered frame.** `screenshot()` only
 queues. `pump()` — the loop owner's post-frames slot — writes every capture
 whose frame has been rendered since it was armed (`Emulator::rendered_frames()`
 moved), before any command of that pump can touch the machine. While a capture
 waits, its layer mask is armed on the renderer and a force-render bit makes sure
 the next frame IS rendered, whatever the frontend's render-skip hint says. A
-paused machine renders nothing, so the capture is held, with one warning. The
+paused machine renders nothing, so the capture is held, with one warning.
+`flush_captures(by)` — the one declaration B4 added to the frozen header, by
+owner decision — is the exit bound: `NoFrame` if any of `by`'s captures is still
+pending (they are dropped), `RefusedUnavailable` if one failed to write since
+the last call, else `Ok`. A capture survives its requester's detach and every
+machine rebuild. The
 PNG and `.SCR` writers moved from `src/platform/` to `src/core/screenshot.*` so
 the backend, which sits below the platform layer, can call them.
 

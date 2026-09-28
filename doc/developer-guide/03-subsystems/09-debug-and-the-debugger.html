@@ -2379,13 +2379,37 @@ not treat it as a frame boundary: a save from a <code>Frame</code> handler answe
 levels, like the pulses it replaces; a reconstruct drops both with the old
 <code>Keyboard</code>. <code>set_joystick</code> and <code>press_nmi</code> stay immediate — the contract names
 IN-01 and IN-02 only.</p>
+<p><strong>Hosted by every loop owner.</strong> <code>HeadlessApp</code>, <code>SdlApp</code> and <code>QtApp</code> each build
+one <code>Debugger</code> in <code>init()</code> and keep it for the process: they register the
+<code>LoopDriver</code> (a client's <code>reset(Hard)</code> runs the loop owner's own boot; <code>load()</code>
+its load dispatch), bracket every cold boot THEY decide on — a guest NR 0x02
+hard reset, a NEX load request, F1, a menu load — with <code>on_cold_boot_begin()</code> /
+<code>on_cold_boot_done()</code>, and call <code>pump()</code> once per tick after the frames (and,
+in SDL and headless, after the cold-boot polls; Qt pumps in <code>post_frames</code>). With
+no client attached this arms nothing, so a run with it is bit-identical to a run
+without it (rows HOST-01..05, the last three through the real <code>HeadlessApp</code>).
+<code>QtApp::debugger()</code> is the instance package Q's <code>DebuggerManager</code> is to use.</p>
+<p><strong>The CLI <code>--delayed-*</code> flags keep their own countdowns.</strong> Each loop owner counts
+LOOP TICKS for every <code>--delayed-*</code> flag, as before — a tick count survives a
+cold boot and keeps counting while the machine is paused, which is what keeps
+<code>--delayed-automatic-exit</code> a hard bound; a <code>Frame</code> tag does neither. Only the
+ACTIONS go through the backend: <code>press_key</code>, <code>press_nmi</code> (which now calls the
+F9/F10 hotkey functions themselves, gates included), <code>save_snapshot</code>, and
+<code>screenshot()</code> — queued when the count reaches zero, written by the tick's pump,
+its outcome read back with <code>flush_captures()</code>. The CLI-facing messages and exit
+codes are the loop owners' and did not change.</p>
 <p><strong>Screenshots are deferred to the next rendered frame.</strong> <code>screenshot()</code> only
 queues. <code>pump()</code> — the loop owner's post-frames slot — writes every capture
 whose frame has been rendered since it was armed (<code>Emulator::rendered_frames()</code>
 moved), before any command of that pump can touch the machine. While a capture
 waits, its layer mask is armed on the renderer and a force-render bit makes sure
 the next frame IS rendered, whatever the frontend's render-skip hint says. A
-paused machine renders nothing, so the capture is held, with one warning. The
+paused machine renders nothing, so the capture is held, with one warning.
+<code>flush_captures(by)</code> — the one declaration B4 added to the frozen header, by
+owner decision — is the exit bound: <code>NoFrame</code> if any of <code>by</code>'s captures is still
+pending (they are dropped), <code>RefusedUnavailable</code> if one failed to write since
+the last call, else <code>Ok</code>. A capture survives its requester's detach and every
+machine rebuild. The
 PNG and <code>.SCR</code> writers moved from <code>src/platform/</code> to <code>src/core/screenshot.*</code> so
 the backend, which sits below the platform layer, can call them.</p>
 <p><strong>Saves share one rule.</strong> <code>save_state_bytes</code>, <code>bookmark_save</code> and

@@ -28,7 +28,12 @@
 >   `src/platform/`); `NoFrame` had no carrier in the frozen API — owner decision
   2026-09-28 (O1): `Result flush_captures(ClientId by)` added to `debugger.h`, the
   exit bound that reports a pending (dropped) or failed capture.
->   **CAP-CAP-03** re-saving a held name replaces it, also at the bound; the
+>   **CLI `--delayed-*`** (owner decision O2): the loop owners keep their
+  loop-tick countdowns; only the actions route through `press_key`, `press_nmi`,
+  `screenshot` + `flush_captures`, `save_snapshot`. `press_nmi` now calls the
+  F9/F10 hotkey functions themselves (B1 strobed `NmiSource` directly and so
+  skipped F10's DivMMC-port gate). The loop owners host one `Debugger` each.
+  **CAP-CAP-03** re-saving a held name replaces it, also at the bound; the
 >   bound is checked before any advance. **CAP-CAP-04** is synchronous (the
 >   `--delayed-snapshot` "always advance" rule) and dispatches through
 >   `save_snapshot_file()` in `src/core/`. The ST-01 advance's SES-06 line is
@@ -1067,7 +1072,10 @@ today), emitting the script (`.jds`) and the ULA `.scr` dumps it references;
 non-ULA layers go through the composited PNG and the suite's png-diff. RZX
 stays untouched (it replays IN results; a keyboard-path test needs input
 state). `--delayed-keypress-frames` and `--delayed-screenshot*` remain as CLI
-conveniences implemented as generated subscriptions on the same primitives.
+conveniences whose actions are the same backend verbs; their countdowns stay in
+the loop owners, counting loop ticks (owner decision 2026-09-28, B4 O2 — a tick
+count survives a cold boot and advances while paused; a `Frame` tag does
+neither).
 **#20 re-scopes to: recorder + `compare_scr` action + CAP-INS-16** — no
 separate frontend, no third mechanism.
 

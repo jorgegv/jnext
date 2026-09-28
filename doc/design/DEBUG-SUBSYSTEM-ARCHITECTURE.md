@@ -1232,10 +1232,14 @@ DSL designs, and consistent with the owner's read:
   untouched — it replays IN results, and a keyboard-path test needs input
   state.
 - **No third mechanism:** `--delayed-keypress-frames`, `--delayed-nmi`,
-  `--delayed-screenshot*`, `--delayed-snapshot` remain as flags implemented on
-  the same primitives (generated one-line subscriptions); retiring `QtApp`'s
-  second copy of the countdowns [`qt_app.h:184-203`] is owned by the backend's
-  CAP-IN/CAP-CAP package (B4, §10), not by #278, which declines CAP-IN/CAP-CAP.
+  `--delayed-screenshot*`, `--delayed-snapshot` remain as flags whose ACTIONS
+  are the backend's verbs (B4, §10). They are NOT generated subscriptions, and
+  the loop owners keep their countdowns (owner decision 2026-09-28, B4 O2): the
+  flags count loop TICKS, which survive a cold boot and keep counting while
+  paused — so `--delayed-automatic-exit` stays a hard bound — while a `Frame`
+  tag restarts at 0 on a reconstruct and does not advance while paused. A
+  script's `on frame N` is the frame-tag form; the two agree only on a run that
+  neither pauses nor cold-boots.
 
 **Re-scope #20 to:** the recorder (`src/script/recorder.*`, Debug menu
 "Record Script…", capture hotkey), the `compare_scr` action, INS-16, and the
@@ -1320,7 +1324,7 @@ parallel agents; each gets its own independent reviewer.
 | WP | Branch (one per sub-issue) | Content | Depends on |
 |---|---|---|---|
 | **B0** headers | `gh276-headers` (its own sub-issue; everything below depends on it) | the four public headers of §10.1, compiled, reviewed, no bodies | this design's review |
-| **B** backend | `gh276-backend` (§12 Q1: a new sub-issue, or stage 1 of #278) | B1 facade + control + inspection over the existing primitives (no hot-path change), `Mmu::peek()` (F1), the frame counter (F2), `SymbolTable` move, `key_name_to_matrix` move, the accessor additions (§4: sprites/palette raw forms, `set_matrix_bit`, the DMA slot flag, `input_state`); B2 `EventTable` + 512-entry latch ring (overflow row included) + slot masks + `on_slot_remapped` + NR/port/IntAck/Nmi/Reset/Frame/Scanline hooks (bench-gated, incl. the §11 item 3 hot-latch measurement); B3 session: clients, listeners, `pump` + `Service` registration, stop policy, `live_raster`/`attached`, the loop driver (SES-07), the reconstruct contract (CTL-12/15) and the retirement of the platform-side `BreakpointSet`/`active()` restore in `emulator_cold_boot()`; B4 input (IN-01 APPEND) / capture / bookmarks / coverage / extended `TraceEntry`, and the CLI conveniences (`--delayed-*`) re-expressed as generated subscriptions in all three loop owners, retiring `QtApp`'s and `HeadlessApp`'s private countdowns; B5 `debugger_backend_test` | B0 |
+| **B** backend | `gh276-backend` (§12 Q1: a new sub-issue, or stage 1 of #278) | B1 facade + control + inspection over the existing primitives (no hot-path change), `Mmu::peek()` (F1), the frame counter (F2), `SymbolTable` move, `key_name_to_matrix` move, the accessor additions (§4: sprites/palette raw forms, `set_matrix_bit`, the DMA slot flag, `input_state`); B2 `EventTable` + 512-entry latch ring (overflow row included) + slot masks + `on_slot_remapped` + NR/port/IntAck/Nmi/Reset/Frame/Scanline hooks (bench-gated, incl. the §11 item 3 hot-latch measurement); B3 session: clients, listeners, `pump` + `Service` registration, stop policy, `live_raster`/`attached`, the loop driver (SES-07), the reconstruct contract (CTL-12/15) and the retirement of the platform-side `BreakpointSet`/`active()` restore in `emulator_cold_boot()`; B4 input (IN-01 APPEND) / capture / bookmarks / coverage / extended `TraceEntry`, a process-lifetime `Debugger` hosted by all three loop owners (driver, begin/done around their cold boots, a pump per tick), and the CLI conveniences (`--delayed-*`) routed through the backend verbs — **their loop-tick countdowns stay in the loop owners** (owner decision 2026-09-28: tick counts survive a cold boot and advance while paused, `Frame` tags do neither, so generated subscriptions could not keep the flags' meaning); B5 `debugger_backend_test` | B0 |
 | **T** transport | `gh276-transport` (its own package; D/Z/G wait for it) | the one non-blocking listener/`Service` over the public `esp::make_socket_listener` / `EspListener` / `EspTransport` seam, the in-memory fake `Transport` for adapter suites, `--debug-listen-address`; no protocol content | B0, B |
 | **Q** #278 | `gh278-qt` | design-qt WP0 (close the identity gaps on the current tree) → WP1 the `src/qt/` header move + `make build-matrix` (**the single owner of that move**; lands with the rest of Q, on Q's one branch) → WP2 `DebuggerManager` verbs → WP3 rewind/trace/corruption → WP4a-d panels (parallel) → WP5 memory panel → WP6 symbols/magic → WP7 reach-around grep = 0 → **WP8 Memory panel physical-page view** (`MemSpace::Page` reads and writes, owner decision §1.3 item 15; last, after the identity rows are green; its own pinned rows) | B0, B |
 | **D** #12 | `gh12-dzrp` | design-dzrp WP-1 framing over T → WP-2 session/registers/memory → {WP-3 breakpoints/continue/notify, WP-4 tier 2, WP-5 loop owners + CLI} → WP-6 validation → WP-7 docs | B0, B, T |
