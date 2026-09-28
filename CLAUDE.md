@@ -274,6 +274,10 @@ resolved to its source (GH #243). The baseline file
 `test/traceability-dup-ids.conf` is EMPTY: GH #243 renamed one side of all 29
 pre-existing collisions. A new collision is fixed by renaming, never by adding
 a baseline line, and an entry that no longer collides is itself a refusal.
+Within ONE suite the rule is enforced at run time: every row reports its ID
+(`test/row_id.h`), and `run-unit-tests.sh` fails a suite that reports an ID twice
+or a number of IDs other than its row count — so a loop asserting N rows gives
+each its own literal ID in its case table.
 
 The rendered user guide under `doc/user-guide` is also generated (from
 `src/doc/user-guide`, via `make docs-userguide`) and committed, and it IS

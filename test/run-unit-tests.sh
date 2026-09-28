@@ -19,6 +19,8 @@
 #   FAIL (exit 1):
 #     * ran, but printed no parseable summary line    -> used to score PASS with 0 rows
 #     * ran, but reported a row count != the declared one -> Task 37's shape
+#     * reported a row ID more than once, or a number of row IDs != its row
+#       count (test/row_id.h)                         -> one matrix row, N counted
 #     * exited non-zero, crashed, or hit the timeout  -> reported, never swallowed
 #
 # It is itself under test: test/harness-selftest.sh injects each of those faults
@@ -399,7 +401,7 @@ for name in "${RUNNABLE[@]}"; do
         # below would then abort the whole run, dropping every suite after it. That
         # bug shipped once; test/harness-selftest.sh now proves it cannot come back.
         rc=0
-        timeout --kill-after=5s "${SUITE_TIMEOUT}s" \
+        JNEXT_TEST_ROW_IDS="$TMPDIR_RUN/$name.ids" timeout --kill-after=5s "${SUITE_TIMEOUT}s" \
             "$BUILD/test/$name" ${ARGS["$name"]} >"$TMPDIR_RUN/$name.out" 2>&1 || rc=$?
         echo "$rc" >"$TMPDIR_RUN/$name.rc"
     ) &
@@ -451,6 +453,27 @@ for name in "${RUNNABLE[@]}"; do
         else
             fail_row "$name" "$line\n      ${BOLD}reported $t_total rows, but $CONF pins $exp — update the manifest to $t_total${RESET}"
         fi
+        continue
+    fi
+
+    # Every row reports its ID (test/row_id.h), one line each. The COUNT is checked
+    # first: a row helper that does not report still counts its row, so without this
+    # an unwired suite would pass the duplicate check below by reporting nothing.
+    ids="$TMPDIR_RUN/$name.ids"
+    n_ids=0
+    if [[ -f "$ids" ]]; then n_ids=$(wc -l <"$ids"); cp "$ids" "$LOG_DIR/$name.ids"; fi
+    if [[ "$n_ids" -ne "$t_total" ]]; then
+        fail_row "$name" "$line\n      ${BOLD}reported $n_ids row ID(s) for $t_total rows — every row must report its ID exactly once (test/row_id.h)${RESET}"
+        continue
+    fi
+    # An ID is a global name: two rows under one ID are ONE row in the traceability
+    # matrix and two in the count — GH #190's manufactured coverage, inside one suite.
+    # Only the run can tell: the same literal legitimately appears twice in a source
+    # (a table and its check(), a failure message, both arms of an `if`). A loop that
+    # asserts N rows gives each its own literal ID in its case table.
+    dup_ids=$(sort "$ids" | uniq -dc | sed -E 's/^ *([0-9]+) (.*)$/        \2  (x\1)/')
+    if [[ -n "$dup_ids" ]]; then
+        fail_row "$name" "$line\n      ${BOLD}reported the same row ID more than once — rename all but one:${RESET}\n$dup_ids"
         continue
     fi
 

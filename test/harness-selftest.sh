@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=61
+EXPECTED_TOTAL=65
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -60,15 +60,20 @@ cache() {
     { echo "ENABLE_QT_UI:BOOL=$1"; echo "ENABLE_DEBUGGER:BOOL=$2"; } > "$T/build/CMakeCache.txt"
 }
 
-# stub <name> <rows> <exit_code> [body]  — a fake suite binary
+# stub <name> <rows> <exit_code> [body]  — a fake suite binary. Like every real
+# suite (test/row_id.h), it reports one distinct row ID per row it counts; a body
+# that prints its own `Total:` line calls `ids N` (or writes its own IDs) itself.
 stub() {
     local name=$1 rows=$2 rc=$3 body=${4:-}
     mkdir -p "$T/build/test"
     ensure_cache
     { echo '#!/usr/bin/env bash'
+      echo 'ids() { local i; [[ -n "${JNEXT_TEST_ROW_IDS:-}" ]] || return 0
+             for ((i = 1; i <= $1; i++)); do echo "ROW-$i"; done >>"$JNEXT_TEST_ROW_IDS"; }'
       [[ -n "$body" ]] && echo "$body"
-      [[ "$rows" -ge 0 ]] && printf 'echo "Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d"\n' \
-                                    "$rows" "$rows" 0 0
+      [[ "$rows" -ge 0 ]] && echo "ids $rows" && \
+          printf 'echo "Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d"\n' \
+                 "$rows" "$rows" 0 0
       echo "exit $rc"
     } > "$T/build/test/$name"
     chmod +x "$T/build/test/$name"
@@ -139,7 +144,7 @@ check "HS-01" "clean run: both suites reported, grand total, exit 0" 0 $rc "$out
 # reported, every later suite must still be reported, and the grand total must
 # still print. Before the fix: the runner subshell died under `set -e` without
 # writing its .rc, the aggregator's `cat` failed, and the run aborted here.
-stub failing_test -1 1 'echo "Total:   10  Passed:    9  Failed:    1  Skipped:    0"'
+stub failing_test -1 1 'ids 10; echo "Total:   10  Passed:    9  Failed:    1  Skipped:    0"'
 register failing_test other_test
 manifest "failing_test 10" "other_test 5"
 out=$(run_harness); rc=$?
@@ -214,6 +219,51 @@ manifest "silent_test 10" "other_test 5"
 out=$(run_harness); rc=$?
 check "HS-11" "a suite that runs, exits 0 and asserts NOTHING" 1 $rc "$out" \
     "silent_test" "FAIL" "asserted nothing"
+
+# ------------------------------------------------ row IDs (test/row_id.h)
+# An ID is a global name: a suite that reports one ID for two rows puts ONE row in
+# the traceability matrix and two in its count — GH #190's manufactured coverage,
+# inside one suite, which traceability-dup-ids.pl (suite vs suite) cannot see. The
+# source cannot answer it either (the same literal legitimately appears in a table
+# and at its check()), so the harness reads what the run REPORTED. The duplicate
+# carries a space on purpose: an anonymous row (rewind_test's CHECK) reports its
+# message, and the whole line is the ID.
+row_ids_body() {   # row_ids_body <rows> <id>... — count <rows> rows, report exactly these IDs
+    local rows=$1 b='' id; shift
+    for id in "$@"; do b+="echo '$id' >>\"\$JNEXT_TEST_ROW_IDS\"; "; done
+    printf '%secho "Total: %4d  Passed: %4d  Failed:    0  Skipped:    0"' "$b" "$rows" "$rows"
+}
+stub dup_test -1 0 "$(row_ids_body 5 DUP-01 'a CHECK message' OTHER-01 DUP-01 'a CHECK message')"
+stub other_test 5 0
+register dup_test other_test
+manifest "dup_test 5" "other_test 5"
+out=$(run_harness); rc=$?
+check "HS-58" "a suite reporting one row ID for two rows FAILS, naming every such ID" 1 $rc "$out" \
+    "dup_test" "FAIL" "the same row ID more than once" "DUP-01  (x2)" "a CHECK message  (x2)" \
+    "Suites: 1 pass, 1 fail"
+
+# The control, from the same fixture with the IDs made distinct: without it HS-58
+# would also pass on a harness that refused every suite reporting IDs at all.
+stub dup_test -1 0 "$(row_ids_body 5 DUP-01 'a CHECK message' OTHER-01 DUP-01b 'a CHECK message b')"
+out=$(run_harness); rc=$?
+check "HS-59" "the control: the same suite with distinct row IDs passes" 0 $rc "$out" \
+    "Total: 10  Passed: 10  Failed: 0  Skipped: 0" "Suites: 2 pass, 0 fail"
+
+# The count, both directions. FEWER is the unwired row helper: it still counts its
+# row but reports nothing, and a duplicate check alone would call that clean.
+stub unwired_test -1 0 "$(row_ids_body 4 ROW-1 ROW-2 ROW-3)"
+register unwired_test other_test
+manifest "unwired_test 4" "other_test 5"
+out=$(run_harness); rc=$?
+check "HS-60" "a suite reporting FEWER row IDs than rows FAILS (an unwired row helper)" 1 $rc "$out" \
+    "unwired_test" "FAIL" "reported 3 row ID(s) for 4 rows" "Suites: 1 pass, 1 fail"
+
+# MORE: a report from something that is not a row, which would let a real row's
+# ID be missing while the file still looked full.
+stub unwired_test -1 0 "$(row_ids_body 4 ROW-1 ROW-2 ROW-3 ROW-4 EXTRA-01)"
+out=$(run_harness); rc=$?
+check "HS-61" "a suite reporting MORE row IDs than rows FAILS" 1 $rc "$out" \
+    "unwired_test" "FAIL" "reported 5 row ID(s) for 4 rows" "Suites: 1 pass, 1 fail"
 
 # --------------------------------------------------- build-gated suites (GH #273)
 # '# gate: qt|dbg|qt+dbg' + '?name' says WHICH configurations own a suite, and the
