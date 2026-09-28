@@ -400,46 +400,65 @@ RunState Debugger::state() const {
 // §4.6 — CAP-ST, state and rewind
 // ---------------------------------------------------------------------------
 
-bool Debugger::at_frame_boundary() const {
-    return !impl_->emu.frame_in_progress();
+bool Debugger::at_frame_boundary() const { return impl_->at_boundary(); }
+
+bool Debugger::Impl::at_boundary() const { return !emu.frame_in_progress(); }
+
+// ST-01's frame-boundary rule, the ONE copy of it. Three verbs save the machine
+// — `save_state_bytes`, `bookmark_save` (CAP-03) and `save_snapshot` (CAP-04) —
+// and each must refuse, advance, attribute and log IDENTICALLY, which is
+// exactly the "sibling verbs, one skips the shared step" shape this branch keeps
+// being rejected for. So none of them spells the rule; all three call this.
+Result Debugger::Impl::reach_frame_boundary(ClientId by, SaveStateMode mode,
+                                            const char* verb) {
+    if (at_boundary()) return Result::Ok;
+    if (mode == SaveStateMode::RefuseMidFrame) return Result::NotAtFrameBoundary;
+    // THE ADVANCE EXECUTES THE MACHINE — the half-run frame is run out — and
+    // from inside a delivery that frame is the one executing the handler (§5;
+    // fix round 1b). Only this arm: a save that does not advance (a frame
+    // boundary, or `RefuseMidFrame`) replaces and executes nothing, and stays
+    // available to a handler.
+    if (const Result nested = refuse_inside_delivery(verb); nested != Result::Ok)
+        return nested;
+    // GH #27 S6's advance: run the half-executed frame out with the debugger
+    // suspended, so a pending Run to Here or step survives it.
+    const uint64_t before = emu.clock().get();
+    {
+        DebugState::SuspendScope suspend(ds());
+        emu.advance_to_frame_boundary();
+    }
+    // GH #276 B4 — THE ADVANCE IS A MUTATION OF EMULATED TIME, observable to
+    // every other attached client, so it gets §4.2a's `MUTATE … by <client>` line
+    // (owner decision 2026-09-27: this is why ST-01 takes a `by` at all). Only
+    // here — a save that did not advance changed nothing and logs nothing.
+    log_mutate(by, std::string("clock (") + verb + " advanced to the frame boundary)",
+               static_cast<long long>(before),
+               static_cast<long long>(emu.clock().get()));
+    return Result::Ok;
+}
+
+// The serialisation half, shared by `save_state_bytes` and `bookmark_save`.
+// Measure, then write: the same two-pass shape RewindBuffer uses, so a snapshot
+// is exactly as long as the machine says it is. Empty on a size disagreement.
+std::vector<uint8_t> Debugger::Impl::serialise_machine() {
+    StateWriter measure;
+    emu.save_state(measure);
+    std::vector<uint8_t> bytes(measure.position());
+
+    StateWriter w(bytes.data(), bytes.size());
+    emu.save_state(w);
+    if (w.overflow() || w.position() != bytes.size()) return {};
+    return bytes;
 }
 
 // ST-01. The frame boundary is not negotiable — only who waits for it is.
 Expected<std::vector<uint8_t>> Debugger::save_state_bytes(ClientId by,
                                                           SaveStateMode mode) {
-    if (impl_->emu.frame_in_progress()) {
-        if (mode == SaveStateMode::RefuseMidFrame)
-            return make_refused<std::vector<uint8_t>>(Result::NotAtFrameBoundary);
-        // THE ADVANCE EXECUTES THE MACHINE — the half-run frame is run out — and
-        // from inside a delivery that frame is the one executing the handler
-        // (§5; fix round 1b). Only this arm: a save that does not advance (a
-        // frame boundary, or `RefuseMidFrame`) replaces and executes nothing, and
-        // stays available to a handler.
-        if (const Result nested = impl_->refuse_inside_delivery("save_state_bytes");
-            nested != Result::Ok)
-            return make_refused<std::vector<uint8_t>>(nested);
-        // GH #27 S6's advance: run the half-executed frame out with the
-        // debugger suspended, so a pending Run to Here or step survives it.
-        DebugState::SuspendScope suspend(impl_->ds());
-        impl_->emu.advance_to_frame_boundary();
-        // The SES-06 line for this advance is B4's, with the rest of CAP-ST —
-        // the `by` is carried for it and is meaningful only on this path
-        // (`RefuseMidFrame` advances nothing). B1 records who asked, and does
-        // not pretend to log it.
-        (void)by;
-    }
+    const Result at = impl_->reach_frame_boundary(by, mode, "save_state_bytes");
+    if (at != Result::Ok) return make_refused<std::vector<uint8_t>>(at);
 
-    // Measure, then write: the same two-pass shape RewindBuffer uses, so a
-    // snapshot is exactly as long as the machine says it is.
-    StateWriter measure;
-    impl_->emu.save_state(measure);
-    std::vector<uint8_t> bytes(measure.position());
-
-    StateWriter w(bytes.data(), bytes.size());
-    impl_->emu.save_state(w);
-    if (w.overflow() || w.position() != bytes.size())
-        return make_refused<std::vector<uint8_t>>(Result::RefusedUnavailable);
-
+    std::vector<uint8_t> bytes = impl_->serialise_machine();
+    if (bytes.empty()) return make_refused<std::vector<uint8_t>>(Result::RefusedUnavailable);
     return make_ok(std::move(bytes));
 }
 

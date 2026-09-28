@@ -36,11 +36,12 @@
 //        refused from `debugger_control.cpp`) moved to
 //        `debugger_reconstruct.cpp` with the CTL-12 re-application.
 //
-//   B4 — input pulses, capture, bookmarks: 8 definitions
-//        press_key (name), press_key (matrix), screenshot, ula_screen_dump,
+//   B4 — input pulses, capture, bookmarks: 7 definitions
+//        press_key (name), press_key (matrix), screenshot,
 //        bookmark_save, bookmark_restore, bookmarks, save_snapshot
-//        (coverage — coverage_enable, coverage_enabled, coverage_clear,
-//        coverage — DONE, moved to `debugger_inspect.cpp` beside the trace)
+//        (DONE and moved: coverage_enable, coverage_enabled, coverage_clear,
+//        coverage — `debugger_inspect.cpp` beside the trace; ula_screen_dump —
+//        `debugger_inspect.cpp` beside the ULA screen registers)
 //
 //        B4 INHERITS §5's rule with them (B3 fix round 1b): a verb that would
 //        EXECUTE, REWIND, RESTORE, RESET or REPLACE the machine refuses from
@@ -62,9 +63,9 @@
 //        in §10.1's B rows. Reported as a finding rather than silently adopted
 //        or silently dropped.
 //
-// 9 definitions, and the per-package subtotals above add to 8 plus the one
-// unassigned (B2's 11, B3's 11 and B4's four coverage verbs are gone — this file
-// held 35 before B2, 24 before B3 and 13 before B4). The numbers are restated nowhere else: this banner is the list, and
+// 8 definitions, and the per-package subtotals above add to 7 plus the one
+// unassigned (B2's 11, B3's 11 and five of B4's are gone — this file held 35
+// before B2, 24 before B3 and 13 before B4). The numbers are restated nowhere else: this banner is the list, and
 // the file is the check:
 //
 //     grep -c '^[A-Za-z].* Debugger::' src/debug/debugger_pending.cpp
@@ -95,11 +96,6 @@ Result Debugger::screenshot(ClientId, const std::string&, uint8_t,
                             ScreenshotFormat) {
     return Result::Unsupported;
 }
-
-/// CAP-02. One line over `Ula::screen_dump()` when B4 arrives; empty until then,
-/// which a caller distinguishes from a real dump by its size (a `.SCR` is 6912
-/// bytes and never 0).
-std::vector<uint8_t> Debugger::ula_screen_dump() const { return {}; }
 
 Result Debugger::bookmark_save(ClientId, const std::string&, SaveStateMode) {
     return Result::Unsupported;

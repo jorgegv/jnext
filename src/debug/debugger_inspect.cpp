@@ -845,6 +845,15 @@ UlaScreenRegs Debugger::ula_screen_regs() const {
     return r;
 }
 
+// CAP-02 (GH #276 B4) — the ULA layer's screen memory as a `.SCR` body: 6912
+// bytes, or 12288 in a Timex hi-colour / hi-res mode. `Ula::screen_dump()` is
+// const and reads the bank and window the LIVE register state selects, so this
+// is an observation with no side effect, at any instant — mid-frame, paused, or
+// between frames. It is the byte-diffable unit the #20 recorder compares.
+std::vector<uint8_t> Debugger::ula_screen_dump() const {
+    return impl_->emu.ula().screen_dump();
+}
+
 ClipWindow Debugger::clip_window(ClipLayer layer) const {
     ClipWindow w;
     switch (layer) {

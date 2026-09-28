@@ -402,6 +402,22 @@ struct Debugger::Impl {
     /// verb.
     Result refuse_inside_delivery(const char* verb) const;
 
+    /// ST-01 — is the machine at a frame boundary a save may be taken at? The
+    /// ONE predicate `at_frame_boundary()` and every save verb read.
+    bool at_boundary() const;
+
+    /// ST-01's frame-boundary rule for the three verbs that save the machine
+    /// (`save_state_bytes`, `bookmark_save`, `save_snapshot`): `Ok` at a
+    /// boundary; `NotAtFrameBoundary` mid-frame under `RefuseMidFrame`;
+    /// `Unsupported` from inside a delivery when an advance would be needed
+    /// (§5); otherwise ADVANCE — attributed to `by` in a SES-06 `MUTATE` line —
+    /// and `Ok`. `verb` names the caller in the refusal and the log line.
+    Result reach_frame_boundary(ClientId by, SaveStateMode mode, const char* verb);
+
+    /// ST-01's serialisation, shared by `save_state_bytes` and `bookmark_save`.
+    /// Empty if the measured and written sizes disagree.
+    std::vector<uint8_t> serialise_machine();
+
     /// CTL-02's body without the delivery refusal — see `Debugger::run()`. Its
     /// one other caller is `detach()`'s release of the departing client's pause.
     Result run_verb(ClientId by);

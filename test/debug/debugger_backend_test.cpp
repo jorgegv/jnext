@@ -806,6 +806,110 @@ static void b4_trace_rows() {
     }
 }
 
+// ── CAP-02 — screen memory; ST-01 — the advance's SES-06 line ───────────────
+
+/// The MUTATE lines a listener received, in order.
+static std::vector<std::string> mutate_lines(const RecListener& l) {
+    std::vector<std::string> out;
+    for (const auto& e : l.logs)
+        if (e.second.rfind("MUTATE ", 0) == 0) out.push_back(e.second);
+    return out;
+}
+
+/// Stop the `build()` program mid-frame AT the CALL, through an `Execute`
+/// subscription owned by `a`: `frame_in_progress()` is true afterwards and
+/// 0x8000/0x8001 have executed.
+static void stop_mid_frame_at_call(Emulator& emu, Debugger& dbg, ClientId a) {
+    Subscription s;
+    s.kind      = EventKind::Execute;
+    s.filter.lo = PROG + 2; s.filter.hi = PROG + 2;
+    s.action    = Action::Stop;
+    dbg.subscribe(a, s);
+    emu.run_frame();
+}
+
+static void b4_capture_state_rows() {
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        emu.mmu().write(0x4000, 0x81);    // first pixel byte
+        emu.mmu().write(0x57FF, 0x42);    // last pixel byte
+        emu.mmu().write(0x5800, 0x38);    // first attribute
+        const std::vector<uint8_t> d = dbg.ula_screen_dump();
+        check("CAP-02-01", "ula_screen_dump() is the ULA's .SCR body: 6912 bytes, "
+                           "pixels then attributes, as Ula::screen_dump() gives them",
+              d.size() == 6912 && d == emu.ula().screen_dump() && d[0] == 0x81 &&
+                  d[6143] == 0x42 && d[6144] == 0x38,
+              "size=" + std::to_string(d.size()));
+    }
+    {
+        // An observation: the +3 floating-bus latch (the one thing a stray
+        // `Mmu::read()` of screen RAM would move) is untouched.
+        Emulator emu; build(emu, MachineType::ZX_PLUS3);
+        Debugger dbg(emu);
+        emu.mmu().write(0x4000, 0xA5);
+        emu.mmu().set_p3_floating_bus_dat(0x3C);
+        const std::vector<uint8_t> d = dbg.ula_screen_dump();
+        check("CAP-02-02", "and it perturbs nothing: the +3 floating-bus latch is "
+                           "unchanged by a dump of contended screen RAM",
+              d.size() == 6912 && d[0] == 0xA5 && emu.mmu().p3_floating_bus_dat() == 0x3C,
+              "latch=" + hex(emu.mmu().p3_floating_bus_dat()));
+    }
+    {
+        // ST-01 — THE ADVANCE IS ATTRIBUTED. Mid-frame, AdvanceToBoundary runs
+        // the frame out and emits one MUTATE line naming the client and the
+        // clock it moved from and to.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        RecListener l;
+        dbg.set_listener(a, &l);
+        stop_mid_frame_at_call(emu, dbg, a);
+        const bool mid = emu.frame_in_progress();
+        const uint64_t before = emu.clock().get();
+        const size_t n0 = mutate_lines(l).size();
+        const auto saved = dbg.save_state_bytes(a, jnext::dbg::SaveStateMode::AdvanceToBoundary);
+        const uint64_t after = emu.clock().get();
+        const auto lines = mutate_lines(l);
+        char want[160];
+        std::snprintf(want, sizeof(want),
+                      "MUTATE clock (save_state_bytes advanced to the frame boundary) "
+                      "0x%llX -> 0x%llX by %u",
+                      static_cast<unsigned long long>(before),
+                      static_cast<unsigned long long>(after), static_cast<unsigned>(a));
+        check("ST-01-07", "a mid-frame AdvanceToBoundary save emits ONE SES-06 MUTATE "
+                          "line: the clock it moved, from and to, attributed to the client",
+              mid && saved.status == Result::Ok && after > before &&
+                  lines.size() == n0 + 1 && lines.back() == want,
+              lines.empty() ? std::string("no MUTATE line") : lines.back());
+
+        // At a boundary nothing advances, so nothing is logged.
+        const size_t n1 = lines.size();
+        const auto again = dbg.save_state_bytes(a, jnext::dbg::SaveStateMode::AdvanceToBoundary);
+        check("ST-01-08", "and a save AT a frame boundary advances nothing and logs "
+                          "nothing",
+              again.status == Result::Ok && emu.clock().get() == after &&
+                  mutate_lines(l).size() == n1);
+    }
+    {
+        // The refusing mode, mid-frame: nothing advances, nothing is logged.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        RecListener l;
+        dbg.set_listener(a, &l);
+        stop_mid_frame_at_call(emu, dbg, a);
+        const uint64_t before = emu.clock().get();
+        const size_t n0 = mutate_lines(l).size();
+        const auto r = dbg.save_state_bytes(a, jnext::dbg::SaveStateMode::RefuseMidFrame);
+        check("ST-01-09", "RefuseMidFrame mid-frame answers NotAtFrameBoundary, moves "
+                          "no clock and logs no MUTATE line",
+              r.status == Result::NotAtFrameBoundary && r.value.empty() &&
+                  emu.clock().get() == before && mutate_lines(l).size() == n0 &&
+                  emu.frame_in_progress());
+    }
+}
+
 int main() {
     std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
 
@@ -10101,6 +10205,7 @@ int main() {
     // GH #276 B4
     b4_coverage_rows();
     b4_trace_rows();
+    b4_capture_state_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
