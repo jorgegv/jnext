@@ -2252,6 +2252,15 @@ after a guest NR 0x02 reset:</p>
 <li>the pause, iff the caller was paused — "paused stays paused, running stays
    running", and there is no <code>Reset</code> pause reason, so a client's <code>reset(Hard)</code>
    never pauses a running machine;</li>
+<li>the enable flags a client set through a verb — call-stack tracking, the
+   trace and <code>persistent_breakpoints</code>, which live on the <code>Emulator</code> and are reset
+   by the reconstruct. The backend keeps its own record of each request
+   (<code>Impl::want_*</code>, empty until a client sets it) and re-applies only what was
+   asked for, so a machine nobody configured comes back with its defaults and a
+   config-set <code>--persistent-breakpoints</code> is not clobbered. It never reads the
+   dead machine, which is why the guest path can do it too. The Qt panels still
+   switch call-stack tracking and the trace directly on the <code>Emulator</code> until
+   package Q, so those are not captured;</li>
 <li>the per-client state, which is only the arm bit and the <code>live_raster</code> OR: the
    subscriptions, switches and symbol table live on <code>Impl</code> and never went
    anywhere.</li>
@@ -2263,26 +2272,33 @@ verb returns.</p>
 <code>LoopDriver</code> closure registered by <code>set_loop_driver()</code> — the sequence lives in
 <code>src/platform/</code>, above the backend, so a closure is the only way the backend can
 reach it. With no closure registered the verb refuses with
-<code>RefusedUnavailable</code>. <code>load()</code> re-applies <strong>unconditionally</strong>, because the
-backend cannot know whether the loop owner's load closure replaced the machine:
-<code>emulator_apply_load()</code> loads in place, the Qt menu route cold-boots first, and
-<code>load_rzx</code> replaces the machine — re-<code>init()</code>s it in place, it never
-reconstructs — only when the recording carries an embedded snapshot.
-Re-applying always is idempotent and removes the question.</p>
-<p><strong>What B3 does not do.</strong> §4.1 CTL-12 says B3 retires the platform-side
-<code>BreakpointSet</code> / <code>active()</code> save-and-restore in <code>emulator_cold_boot()</code> as "a
-second owner of the same state". Measured against the tree it is not the same
-state: <code>saved_bps</code> is the <em>Qt panels'</em> breakpoint model (and its copy is the only
-reason <code>BreakpointPanel</code> and <code>DisasmPanel</code> stay subscribed across the call —
-each registers an observer once in its constructor and never re-registers), and
-<code>saved_active</code> is what keeps an open debugger window armed. None of the three is
-backend-owned until package Q moves the Qt frontend onto a <code>Debugger</code>, so
-retiring the restore now would lose a user's breakpoints on every hard reset,
-permanently unsubscribe two panels and leave an open window unarmed. The two
-owners do not collide in the meantime: the re-application writes its own bit and
-re-publishes the event masks — the one part of the copy that <em>was</em> the backend's,
-which is why <code>emulator_cold_boot()</code> zeroes it on the copy before restoring. The
-reasoning is recorded at the site.</p>
+<code>RefusedUnavailable</code>. <code>load()</code> re-applies <strong>unconditionally</strong> — idempotent on a
+load that replaced nothing — because the loop owner's closure may load in place
+(<code>emulator_apply_load()</code>), cold-boot first (the Qt menu route), or re-<code>init()</code>
+in place (<code>load_rzx</code> with an embedded snapshot). What it does need to know is
+whether the machine was <em>reconstructed</em>, because a reconstructing load is a cold
+boot and owes every other client the <code>Reset{Hard}</code> push and event, exactly as
+<code>reset(Hard)</code> does; a load that did not reconstruct pushes nothing. The backend
+tells the two apart from its own publication: <code>DebugState::events_</code> points at
+<code>Impl::events</code> from the constructor on, and only a brand-new <code>DebugState</code> — a
+reconstruct — can make it point anywhere else.</p>
+<p>The guest path cannot honour rule 3 in full: <code>on_cold_boot_done()</code> runs after the
+machine is gone, so a pause that landed in the same tick as the guest's NR 0x02
+write comes back <em>running</em>. Everything the backend itself owns — subscriptions,
+switches, the enable flags above — is re-applied in full. A documented limit.</p>
+<p><strong>The single-owner rule, split.</strong> §4.1 CTL-12 says the platform-side
+<code>BreakpointSet</code> / <code>active()</code> save-and-restore in <code>emulator_cold_boot()</code> becomes
+"a second owner of the same state" once the backend re-applies subscriptions.
+Measured, only one part of what it carries is backend state — the event-mask
+half of the hot-path gate — and B3 retired that half: <code>emulator_cold_boot()</code>
+zeroes it on its copy, and the backend's <code>gates_changed()</code> is its single owner.
+The rest — the <em>Qt panels'</em> breakpoint model, the observers that travel on its
+copy (the only reason <code>BreakpointPanel</code> and <code>DisasmPanel</code> stay subscribed; each
+registers once in its constructor), and <code>saved_active</code>, which keeps an open
+debugger window armed — has no other owner before package Q, so retiring it now
+would lose a user's breakpoints on every hard reset, unsubscribe two panels and
+leave an open window unarmed. Package Q retires it when the panels become
+clients. The reasoning is recorded at the site.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
 <p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
 <code>jnext_debugger</code> is neither compiled nor linked and every use site in

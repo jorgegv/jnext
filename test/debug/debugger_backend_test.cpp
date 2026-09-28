@@ -8406,6 +8406,149 @@ int main() {
               dbg.load(1, "game.nex") == Result::RefusedCorrupt && loads == 0,
               "loads=" + std::to_string(loads));
     }
+    {
+        // CTL-15 × CTL-12 RULE 4: a load that RECONSTRUCTED the machine is a cold
+        // boot, and every other client's cache is invalid after it — so it pushes
+        // `Reset{Hard}` before returning and latches the §4.3 `Reset{Hard}` event,
+        // exactly as `reset(Hard)` does. A load that did NOT reconstruct pushes
+        // and latches nothing: the machine was not reset. BOTH ARMS, and the
+        // backend tells them apart from its own publication (`events_` pointing
+        // at `Impl::events` survives an in-place load and not a reconstruct).
+        for (int rebuilds = 0; rebuilds < 2; ++rebuilds) {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            RecListener l;
+            const ClientId a = dbg.attach(client("A")).value;
+            dbg.set_listener(a, &l);
+            int events = 0;
+            Subscription rs;
+            rs.kind              = EventKind::Reset;
+            rs.filter.reset_kind = ResetKind::Any;
+            rs.action            = Action::Continue;
+            rs.handler = [&](const DbgEvent& ev, Debugger&) {
+                if (ev.reset_kind == ResetKind::Hard) ++events;
+                return Action::Continue;
+            };
+            dbg.subscribe(a, rs);
+            jnext::dbg::LoopDriver d;
+            d.load = [&](const std::string&) {
+                if (rebuilds)
+                    emulator_frontend_cold_boot(emu, emu.config(), std::string(),
+                                                ColdBootHooks{});
+                return true;
+            };
+            dbg.set_loop_driver(d);
+            const Result r = dbg.load(a, "game.nex");
+            const size_t pushed = l.resets.size();
+            load_writer(emu, 0x12);
+            emu.run_frame();
+            check(rebuilds ? "CTL-15-13" : "CTL-15-14",
+                  rebuilds ? "a load that RECONSTRUCTED the machine pushes Reset{Hard} "
+                             "before returning and latches the Reset{Hard} event"
+                           : "and a load that did NOT pushes and latches nothing — "
+                             "the machine was not reset",
+                  r == Result::Ok &&
+                      (rebuilds ? (pushed == 1 && l.resets[0] == ResetKind::Hard &&
+                                   events == 1)
+                                : (pushed == 0 && events == 0)),
+                  "pushed=" + std::to_string(pushed) + " events=" +
+                      std::to_string(events));
+        }
+    }
+    {
+        // CTL-12 RULE 2 / CTL-15 — the ENABLE FLAGS a client set through a verb
+        // (call-stack tracking, the trace, `persistent_breakpoints`) live on the
+        // `Emulator`, which the reconstruct resets; the backend keeps its own
+        // record of the request and re-applies it on EVERY route that lands a new
+        // machine. One helper drives the three routes identically so their
+        // results can be compared.
+        struct Out {
+            bool cs, tr, pb;
+            bool operator==(const Out& o) const { return cs == o.cs && tr == o.tr && pb == o.pb; }
+        };
+        auto show = [](const Out& o) {
+            return std::string("cs=") + (o.cs ? "1" : "0") + " tr=" + (o.tr ? "1" : "0") +
+                   " pb=" + (o.pb ? "1" : "0");
+        };
+        // path 0 = reset(Hard), 1 = load() through a reconstructing driver,
+        // 2 = the guest path (the loop owner boots, then on_cold_boot_done()).
+        auto run_path = [&](int path, bool set_intent, bool intent_pb, bool cfg_pb,
+                            bool direct_cs) {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            auto boot = [&]() {
+                EmulatorConfig c = emu.config();
+                c.persistent_breakpoints = cfg_pb;          // the CONFIG's value
+                emulator_frontend_cold_boot(emu, c, std::string(), ColdBootHooks{});
+            };
+            jnext::dbg::LoopDriver d;
+            d.cold_boot = [&]() { boot(); return true; };
+            d.load      = [&](const std::string&) { boot(); return true; };
+            dbg.set_loop_driver(d);
+            if (set_intent) {
+                dbg.set_call_stack_enabled(true);
+                dbg.set_trace_enabled(true);
+                dbg.set_persistent_breakpoints(intent_pb);
+            }
+            // A write that is NOT client intent: the Qt panels' route, straight
+            // onto the Emulator (pre-Q).
+            if (direct_cs) emu.call_stack().set_enabled(true);
+            if (path == 0)      dbg.reset(a, ResetKind::Hard);
+            else if (path == 1) dbg.load(a, "game.nex");
+            else              { boot(); dbg.on_cold_boot_done(); }
+            Out o{emu.call_stack().enabled(), emu.trace_log().enabled(),
+                  emu.debug_state().persistent_breakpoints()};
+            dbg.detach(a);
+            return o;
+        };
+
+        const Out all_on{true, true, true};
+        const Out via_reset = run_path(0, true, true, false, false);
+        const Out via_load  = run_path(1, true, true, false, false);
+        const Out via_guest = run_path(2, true, true, false, false);
+        check("CTL-12-37", "reset(Hard) re-applies the call-stack, trace and "
+                           "persistent-breakpoint enables a client set",
+              via_reset == all_on, show(via_reset));
+        check("CTL-15-12", "and so does a load() whose driver reconstructs",
+              via_load == all_on, show(via_load));
+        check("CTL-12-38", "and so does the GUEST path — the backend re-applies its "
+                           "own record of the request, it never reads the dead machine",
+              via_guest == all_on, show(via_guest));
+
+        // THE INVARIANT ACROSS THE THREE ROUTES: same intent in, same state out —
+        // including an intent that CONTRADICTS the config (persistent OFF asked
+        // for, the config's ON re-latched by `init()`), which is the one value a
+        // re-application that did nothing could not produce by accident.
+        const Out mixed{true, true, false};
+        bool same = true;
+        std::string where;
+        for (int p = 0; p < 3; ++p) {
+            const Out o = run_path(p, true, false, true, false);
+            if (!(o == mixed)) { same = false; where += " [path" + std::to_string(p) + " " + show(o) + "]"; }
+        }
+        check("CTL-12-39", "the same client intent gives the same machine state on "
+                           "all three routes — an explicit OFF included, against a "
+                           "config that says ON",
+              same, where);
+
+        // ONLY WHAT A CLIENT SET. No client touched any of the three: the config's
+        // `persistent_breakpoints` survives (a re-application of a default would
+        // clobber it), and a call-stack enable written straight onto the Emulator
+        // — the Qt panels' route until package Q — is NOT resurrected, because it
+        // was never client intent. The machine comes back with its own defaults.
+        const Out defaults{false, false, true};
+        bool untouched = true;
+        std::string where2;
+        for (int p = 0; p < 3; ++p) {
+            const Out o = run_path(p, false, false, true, true);
+            if (!(o == defaults)) { untouched = false; where2 += " [path" + std::to_string(p) + " " + show(o) + "]"; }
+        }
+        check("CTL-12-40", "with no client intent a reconstruct restores nothing: the "
+                           "config's persistent flag stands and a direct (non-verb) "
+                           "call-stack enable is not resurrected",
+              untouched, where2);
+    }
 
     // ── R2 — the ctor/dtor publication pairing, as ONE invariant ───────────
     {

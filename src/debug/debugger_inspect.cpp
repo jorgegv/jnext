@@ -685,6 +685,9 @@ bool Debugger::call_stack_enabled() const {
 
 Result Debugger::set_call_stack_enabled(bool enabled) {
     impl_->emu.call_stack().set_enabled(enabled);
+    // GH #276 B3 — client intent, re-applied across a reconstruct
+    // (`Impl::want_call_stack`).
+    impl_->want_call_stack = enabled;
     return Result::Ok;
 }
 
@@ -692,6 +695,9 @@ bool Debugger::trace_enabled() const { return impl_->emu.trace_log().enabled(); 
 
 Result Debugger::set_trace_enabled(bool enabled) {
     impl_->emu.trace_log().set_enabled(enabled);
+    // GH #276 B3 — client intent, re-applied across a reconstruct
+    // (`Impl::want_trace`).
+    impl_->want_trace = enabled;
     return Result::Ok;
 }
 

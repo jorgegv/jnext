@@ -469,6 +469,11 @@ bool Debugger::armed() const { return impl_->ds().armed(); }
 
 Result Debugger::set_persistent_breakpoints(bool enabled) {
     impl_->ds().set_persistent_breakpoints(enabled);
+    // GH #276 B3 — client intent, re-applied across a reconstruct
+    // (`Impl::want_persistent`). Without it `init()` re-latches the CONFIG's
+    // value and a client's `set_persistent_breakpoints(true)` silently ends at
+    // the next hard reset.
+    impl_->want_persistent = enabled;
     return Result::Ok;
 }
 

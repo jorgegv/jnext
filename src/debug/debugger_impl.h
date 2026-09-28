@@ -16,6 +16,7 @@
 // ---------------------------------------------------------------------------
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 #include <vector>
@@ -311,6 +312,31 @@ struct Debugger::Impl {
     // ── SES-07, the loop driver, and the CTL-12 reconstruct ─────────────────
 
     LoopDriver driver;
+
+    /// CTL-12 rule 2 / CTL-15 — the ENABLE FLAGS a client set through a backend
+    /// verb, kept OUTSIDE the `Emulator` so a reconstruct cannot lose them:
+    /// call-stack tracking (INS-12), the trace (INS-13) and
+    /// `--persistent-breakpoints` (§4.1). Each is the machine's own state
+    /// (`Emulator::call_stack()`, `trace_log()`, `DebugState::persistent_`),
+    /// which `~Emulator()` + placement-new resets to its default; the backend
+    /// re-applies its copy on every route that can land a new machine.
+    ///
+    /// EMPTY UNTIL A CLIENT SETS IT, and only a set value is re-applied: a
+    /// machine nobody configured through the backend comes back with the
+    /// `Emulator`'s own defaults (and `persistent_` with what the CONFIG says,
+    /// which `init()` latches). The backend re-applies its record of what a
+    /// client ASKED FOR; it never reads the dead machine — which is why the guest
+    /// path (`on_cold_boot_done()`, after the machine is already gone) can do it
+    /// too.
+    ///
+    /// NOT CAPTURED: the Qt panels still switch call-stack tracking and the trace
+    /// directly on the `Emulator` until package Q makes them clients, so those
+    /// writes are not client intent and a cold boot resets them exactly as it
+    /// always has (`emulator_cold_boot()` restores nothing transient). Coverage
+    /// (INS-20) is B4's.
+    std::optional<bool> want_call_stack;
+    std::optional<bool> want_trace;
+    std::optional<bool> want_persistent;
 
     /// CTL-12 — re-bind to the machine at `emu`'s address and re-apply
     /// everything the backend owns. Idempotent, and deliberately called whether

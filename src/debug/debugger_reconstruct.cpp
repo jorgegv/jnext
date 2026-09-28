@@ -47,22 +47,20 @@
 // disagrees; B2's review reproduced a real segfault from the dtor's half alone
 // and found no row that saw it.
 //
-// ── WHAT THIS DELIBERATELY DOES NOT DO ─────────────────────────────────────
+// ── THE SINGLE-OWNER RULE, SPLIT (manager decision, B3 milestone 2) ────────
 //
-// It does not retire the platform-side `BreakpointSet` / `active()` save and
-// restore at `emulator_boot.h:133-146`. §4.1 CTL-12 says B3 retires it as "a
-// second owner of the same state"; measured against the tree, it is not the same
-// state, and the reasoning is recorded at that site and in the B3 report. In
-// short: the legacy `BreakpointSet` holds the QT PANELS' breakpoint model (and
-// their observers, which travel on its copy), and `active_` is set by the Qt
-// debugger window and by the magic-breakpoint hook. None of those three is
-// backend-owned until package Q moves the Qt frontend onto a `Debugger`, so
-// retiring the restore now loses a user's breakpoints on every hard reset,
-// permanently unsubscribes two panels, and leaves an open debugger window
-// unarmed — three functional regressions in the Qt GUI, which settled owner
-// decision 8 forbids. What B3 DOES fix is the genuine double-write: the stale
-// `ev_mask_*` bytes that ride along on the restored copy, which
-// `gates_changed()` below overwrites from the live subscription table.
+// §4.1 CTL-12 says the platform-side `BreakpointSet` / `active()` save and
+// restore in `emulator_cold_boot()` is "a second owner of the same state" once
+// the backend re-applies subscriptions. Measured, only ONE part of what it
+// carries is backend state: the event-mask half (`ev_mask_*`) of the hot-path
+// gate. B3 retired THAT half — `emulator_cold_boot()` zeroes it on its copy and
+// `gates_changed()` below is its single owner. The rest is the Qt panels'
+// breakpoint model, the observers that travel on its copy, and `active_` (the
+// Qt window's and the magic hook's bit); before package Q the restore is their
+// ONLY owner, so retiring it now would lose a user's breakpoints on every hard
+// reset, unsubscribe two panels and leave an open window unarmed. That half is
+// retired by package Q when the panels become clients (§10.1 Q WP2/WP6) —
+// recorded in `backend.md` CAP-CTL-12 and in `qt-frontend.md`.
 // ---------------------------------------------------------------------------
 
 #include "debug/debugger_impl.h"
@@ -141,11 +139,18 @@ void Debugger::Impl::reapply_after_machine_rebuild(bool was_paused) {
     //     `pause_reason`").
     if (was_paused) ds().pause();
 
-    // (5) RULE 2 — re-apply what every client asked for. The client-owned model
-    //     makes this mechanical: subscriptions, switches and the symbol table
-    //     live on `Impl` and never went anywhere, and the only per-client state
-    //     the MACHINE holds is the arm bit and the live-raster OR, which
-    //     `clients_changed()` re-derives from the list.
+    // (5) RULE 2 — re-apply what every client asked for. Subscriptions, the
+    //     switches and the symbol table live on `Impl` and never went anywhere.
+    //     What the MACHINE held and the reconstruct reset is two kinds of
+    //     thing: the ENABLE FLAGS a client set through a verb (call-stack
+    //     tracking, the trace, `persistent_breakpoints` — rule 2 names the first
+    //     two, CTL-15 "enable flags"), re-applied from the backend's own record
+    //     of the request, and only where a client made one (`Impl::want_*`); and
+    //     the per-client arm bit and live-raster OR, which `clients_changed()`
+    //     re-derives from the list.
+    if (want_call_stack) emu.call_stack().set_enabled(*want_call_stack);
+    if (want_trace)      emu.trace_log().set_enabled(*want_trace);
+    if (want_persistent) ds().set_persistent_breakpoints(*want_persistent);
     //
     //     ORDER RELATIVE TO THE PAUSE IS NOT LOAD-BEARING, and an earlier draft
     //     of this comment claimed it was ("a window in which the machine is
@@ -194,6 +199,16 @@ Result Debugger::on_cold_boot_done() {
     // "running". Read rather than assumed: a loop owner that paused the machine
     // before calling this (a debugger window open across a guest reset) must not
     // have it resumed by the notification.
+    //
+    // A DOCUMENTED LIMITATION OF RULE 3 ON THIS PATH (manager decision, B3
+    // milestone 2): the machine that was paused is gone before this runs, so
+    // "paused stays paused" cannot be honoured for it. A pause that lands in
+    // the SAME TICK as the guest's NR 0x02 write — a breakpoint later in the
+    // frame that raised the reset — comes back RUNNING. The frozen signature
+    // takes no argument that could carry it, and "paused at the last pump"
+    // would be a guess across a whole tick. The client-owned state is NOT so
+    // limited: subscriptions, switches and the `want_*` enables are the
+    // backend's own record and are re-applied in full.
     const bool was_paused = impl_->ds().paused();
     impl_->reapply_after_machine_rebuild(was_paused);
 
@@ -289,32 +304,46 @@ Result Debugger::load(ClientId by, const std::string& path) {
 
     const bool loaded = impl_->driver.load(path);
 
-    // RE-APPLIED UNCONDITIONALLY, and that is the point rather than laziness.
-    // CTL-15 says "a load that reconstructs the machine honours the same contract
-    // as CTL-12 `Hard`" — and the backend CANNOT KNOW whether it did: the closure
-    // is the loop owner's, `emulator_apply_load()` loads in place, the Qt menu
-    // route cold-boots first, and `load_rzx` replaces the machine (re-`init()`s
-    // it in place; it never reconstructs) only when the recording carries an
-    // embedded snapshot. Asking the question would mean guessing at
-    // it. Re-applying always is idempotent — the same three publications, the same
-    // eight pages, the same gates — and removes the question entirely.
+    // DID THE DRIVER RECONSTRUCT THE MACHINE? The backend can tell, from its OWN
+    // publication rather than from a guess about the closure: the constructor
+    // pointed `DebugState::events_` at `Impl::events`, and nothing but
+    // `~Debugger()` or a brand-new `DebugState` — i.e. `~Emulator()` +
+    // placement-new — can make it point anywhere else. An in-place load
+    // (`emulator_apply_load()`, `load_rzx`'s re-`init()`) leaves the same
+    // `DebugState`, and `init()` does not touch the pointer. Read BEFORE the
+    // re-application, which restores it.
     //
-    // It is not free of consequence: it arms `Kind::None` and clears the stop
-    // evidence, which is what EVERY machine landing does already
-    // (`Emulator::debug_after_machine_transition_()`), so a load that did not
-    // replace the machine gets the same reconciliation a `load_state()` gets.
+    // (It would misread only with a SECOND `Debugger` alive on the same machine,
+    // whose constructor had repointed it. One `Debugger` per `Emulator` is the
+    // design — §4 "the one type a debugger frontend holds".)
+    const bool reconstructed = impl_->ds().event_table() != &impl_->events;
+
+    // RE-APPLIED UNCONDITIONALLY, reconstruct or not. It is idempotent on an
+    // in-place load — the same three publications, the same eight pages, the
+    // same gates — and it is also the reconciliation every machine landing gets
+    // anyway: it arms `Kind::None` and clears the stop evidence, which is what
+    // `Emulator::debug_after_machine_transition_()` does for a `load_state()`.
+    // Knowing whether the machine was reconstructed matters only for the RESET,
+    // below; the re-application never needed the answer.
     impl_->reapply_after_machine_rebuild(was_paused);
 
+    // CTL-12 ends "the same contract covers CTL-15 when a `.nex` load routes to
+    // the cold boot", and rule 4 is part of that contract: after a reconstruct
+    // every other client's cache of the machine is invalid and nothing else tells
+    // it so. So a load that RECONSTRUCTED latches the §4.3 `Reset{Hard}` event
+    // (after the re-application, for the reason `reset_hard()` gives) and pushes
+    // `Reset{Hard}` to every listener before returning — exactly what
+    // `reset(Hard)` does. A load that did NOT reconstruct pushes nothing: the
+    // machine was not reset, and saying it was would be false to every other
+    // client (rows CTL-15-13/14).
+    if (reconstructed) impl_->emu.debug_latch_reset(/*hard=*/true);
+
     impl_->log_mutate_range(by, "machine",
-                            loaded ? ("loaded \"" + path + "\"")
+                            loaded ? ("loaded \"" + path + "\"" +
+                                      (reconstructed ? " (cold boot)" : ""))
                                    : ("load FAILED \"" + path + "\""));
 
-    // NO `Reset` PUSH. `ResetKind` has two values and neither means "a program
-    // was loaded"; a client that asked for a load knows what it asked for, and
-    // manufacturing a `Reset{Hard}` would tell every OTHER client the machine had
-    // been reset, which it may not have been. Flagged in the B3 report as the one
-    // place CTL-15's "the same contract as CTL-12 `Hard`" is ambiguous and this
-    // is the reading taken.
+    if (reconstructed) impl_->notify_reset(ResetKind::Hard);
     return loaded ? Result::Ok : Result::RefusedUnavailable;
 }
 

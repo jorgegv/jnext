@@ -477,8 +477,15 @@ void HeadlessApp::run() {
         // Guarded on the fixture because THIS loop owner holds a `Debugger` only
         // while `JNEXT_BENCH_WATCH` is set — wiring `HeadlessApp` to a
         // process-lifetime `Debugger`, a `LoopDriver` and a per-tick `pump()` is
-        // the loop-owner work of the frontend packages, not B3's. When that
-        // arrives this guard goes with it and the call becomes unconditional.
+        // package B4's (§10.1: B4 is the first package that puts a `Debugger` in
+        // the SDL and headless loop owners), not B3's. When that arrives this
+        // guard goes with it and the call becomes unconditional.
+        //
+        // NOTHING PINS THIS CALL. No suite reaches `HeadlessApp`, so deleting it
+        // passes every row; the backend half it triggers is pinned
+        // (CTL-12-20..22, -36, -38), the call site is not. Accepted for a
+        // bench-only fixture (manager decision, B3 milestone 2); B4's real
+        // loop-owner wiring is where a row belongs.
         if (bench_watch_dbg) bench_watch_dbg->on_cold_boot_done();
     };
 

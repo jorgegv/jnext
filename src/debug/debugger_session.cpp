@@ -321,12 +321,15 @@ void Debugger::Impl::sync_notifications() {
     // would run about four billion times. A rewind re-baselines silently —
     // going back to frame N is not "frame N ended".
     //
-    // ONE push per pump, carrying the most recent completed frame, even when the
-    // tick ran several frames (a 400% fast-forward runs four). §4.8 makes this
-    // the SESSION notification for the tick; per-frame precision is
-    // `EventKind::Frame`'s, which is latched at the site and delivered once per
-    // frame. Manufacturing N calls from one pump would tell a listener it had
-    // seen N ticks.
+    // THE CADENCE: ONE push per pump, carrying the most recent completed frame,
+    // even when the tick ran several frames (a 400% fast-forward runs four).
+    // Neither §4.8 nor the frozen header states a cadence — `FrameEnded{frame}`
+    // is all either says — so this is the backend's choice, confirmed by the
+    // manager (B3 milestone 2), and the reason is the division of labour: the
+    // listener push is the per-TICK session notification a frontend refreshes
+    // on, while per-FRAME precision already exists as `EventKind::Frame`, latched
+    // at the site and delivered once per frame to a subscription. N pushes from
+    // one pump would also tell a listener it had seen N ticks. Rows SES-02-12/13.
     if (frame != last_frame) {
         const bool forward = frame > last_frame;
         last_frame         = frame;
