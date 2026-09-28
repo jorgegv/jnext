@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=66
+EXPECTED_TOTAL=67
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -787,6 +787,18 @@ check "HS-57a" "the published-header include-graph lint is reached from the regr
 out=$(run_preflight_debug_headers dirty); rc=$?
 check "HS-57b" "a forbidden include in a published header FAILS the preflight, not just the lint (GH #276)" 1 $rc \
     "$out" "reaches a FORBIDDEN dependency" "core/emulator.h" "Fail: 1"
+
+# Where the run LIVES must not decide the verdict. The lint's patterns once saw
+# absolute paths, so its own `mktemp -d` translation unit, or a source root under a
+# directory ending in `qt`, matched the Qt pattern: HS-49a failed once on
+# `/tmp/tmp.ZPHf7lfGqt/tu.cpp`. Both are forced here — TMPDIR and the (clean)
+# source root sit under a `…qt` directory — and the clean tree must still pass.
+mkdir -p "$DBH_FIX/xqt"
+cp -as "$PROJECT_DIR/src" "$DBH_FIX/xqt/src"
+out=$(TMPDIR="$DBH_FIX/xqt" JNEXT_LINT_DEBUG_HEADERS_SRC="$DBH_FIX/xqt/src" \
+          timeout --kill-after=5s "${INVOKE_TIMEOUT}s" bash "$PROJECT_DIR/test/lint-debug-headers.sh" 2>&1); rc=$?
+check "HS-57c" "the include-graph lint's verdict does not depend on its temp or source path (a '…qt/' component)" 0 $rc \
+    "$out" "none reaches a forbidden dependency"
 
 # =====================================================================================
 # The regression harness's preflight (test/00regression/regression.sh --preflight-only).
