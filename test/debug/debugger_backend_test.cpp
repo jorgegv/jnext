@@ -90,6 +90,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include <unistd.h>
 #include "../row_id.h"
 
 using jnext::dbg::Debugger;
@@ -3297,6 +3298,254 @@ static void b5_wire_verb_rows() {
               !ever_paused && pc_of(m.emu) == PARK && m.emu.clock().get() > past,
               b5_state(*m.dbg));
     }
+}
+
+
+// ── RC — the RECONSTRUCT rows §9 names: "subscribe an `Execute`, a `Mem` and a
+//    `NextRegWrite`, `load()` a `.nex` / `reset(Hard)` through a registered
+//    driver, assert all three still fire ... a paused caller is paused at PC 0
+//    and a running one is still running afterwards".
+//
+// What B3/B4 left: only `Mem` was shown to fire after a rebuild (CTL-12-13,
+// CTL-12-22, CTL-15-08), no row asserted WHERE a paused caller is left, and the
+// `.nex` of CTL-15-07 was a name handed to a driver that only cold-booted —
+// no `.nex` was ever loaded. Every loop owner registers `load` as
+// `emulator_apply_load()`, which for a `.nex` is `Emulator::load_nex()`: an
+// IN-PLACE `init()` of the whole machine, the route a user's `load` actually
+// takes, and one no row exercised at all.
+//
+// One program carries all three kinds, so one run measures all three:
+//   8000  3E 11        LD A,0x11
+//   8002  32 10 50     LD (0x5010),A        -> Mem{Write} 0x5010
+//   8005  ED 91 15 07  NEXTREG 0x15,0x07    -> NextRegWrite{0x15}
+//   8009  00           NOP                  (the NR delivery's boundary)
+//   800A  18 FE        JR $
+// with the `Execute` subscription on 0x8000.
+static const std::vector<uint8_t> kB5ThreeKinds = {
+    0x3E, 0x11, 0x32, 0x10, 0x50, 0xED, 0x91, 0x15, 0x07, 0x00, 0x18, 0xFE };
+
+struct B5Counts {
+    int exec = 0, mem = 0, nr = 0;
+};
+
+static void b5_subscribe_three(Debugger& dbg, ClientId a, B5Counts*& into) {
+    auto counter = [&into](int B5Counts::*field) {
+        return [&into, field](const DbgEvent&, Debugger&) {
+            ++(into->*field);
+            return Action::Continue;
+        };
+    };
+    Subscription x;
+    x.kind = EventKind::Execute; x.filter.lo = PROG; x.filter.hi = PROG;
+    x.action = Action::Continue; x.handler = counter(&B5Counts::exec);
+    dbg.subscribe(a, x);
+    Subscription m;
+    m.kind = EventKind::Mem; m.access = Access::Write;
+    m.filter.lo = WATCHED; m.filter.hi = WATCHED;
+    m.action = Action::Continue; m.handler = counter(&B5Counts::mem);
+    dbg.subscribe(a, m);
+    Subscription n;
+    n.kind = EventKind::NextRegWrite; n.filter.regs = { 0x15 };
+    n.action = Action::Continue; n.handler = counter(&B5Counts::nr);
+    dbg.subscribe(a, n);
+}
+
+static std::string b5_counts(const B5Counts& c) {
+    return "exec=" + std::to_string(c.exec) + " mem=" + std::to_string(c.mem) +
+           " nr=" + std::to_string(c.nr);
+}
+
+/// A minimal V1.2 `.nex`: one 16 KB bank (bank 2, 0x8000) holding `code`,
+/// entry PC 0x8000, SP 0xFF00, no screen, no loading delay — the layout
+/// nex_loader_test's bank fixture uses.
+static bool b5_write_nex(const std::string& path, const std::vector<uint8_t>& code) {
+    constexpr size_t BANK = 16384;
+    std::vector<uint8_t> file(512 + BANK, 0x00);
+    std::memcpy(file.data() + 0, "Next", 4);
+    std::memcpy(file.data() + 4, "V1.2", 4);
+    file[9]  = 1;                        // num_banks
+    file[11] = 7;                        // border
+    file[12] = 0x00; file[13] = 0xFF;    // SP 0xFF00
+    file[14] = 0x00; file[15] = 0x80;    // PC 0x8000
+    file[18 + 2] = 1;                    // bank 2 present
+    for (size_t i = 0; i < code.size(); ++i) file[512 + i] = code[i];
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f.write(reinterpret_cast<const char*>(file.data()),
+            static_cast<std::streamsize>(file.size()));
+    return static_cast<bool>(f);
+}
+
+static void b5_recon_rows() {
+    using K = PauseReason::Kind;
+    auto boot = [](Emulator& emu) {
+        emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+    };
+
+    // ── The two boot routes: reset(Hard) through a registered driver, and the
+    //    guest path the loop owner brackets with begin/done. Mem after both is
+    //    CTL-12-13 / CTL-12-22; Execute and NextRegWrite were never asserted.
+    for (int route = 0; route < 2; ++route) {
+        const bool guest = route == 1;
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        B5Counts before, after;
+        B5Counts* into = &before;
+        b5_subscribe_three(dbg, a, into);
+        jnext::dbg::LoopDriver d;
+        d.cold_boot = [&]() { boot(emu); return true; };
+        dbg.set_loop_driver(d);
+
+        load_prog(emu, kB5ThreeKinds);
+        emu.run_frame();
+        const bool all_before = before.exec > 0 && before.mem > 0 && before.nr > 0;
+
+        into = &after;
+        if (guest) { dbg.on_cold_boot_begin(); boot(emu); dbg.on_cold_boot_done(); }
+        else       dbg.reset(a, ResetKind::Hard);
+        load_prog(emu, kB5ThreeKinds);                  // the boot wiped RAM
+        emu.run_frame();
+        const std::string detail = "before[" + b5_counts(before) + "] after[" +
+                                   b5_counts(after) + "]";
+        check(guest ? "RC-GUEST-01" : "RC-HARD-01",
+              guest ? "guest begin/done: the Execute subscription that fired before "
+                      "the boot fires on the rebuilt machine"
+                    : "reset(Hard): the Execute subscription that fired before the "
+                      "boot fires on the rebuilt machine",
+              all_before && after.exec > 0, detail);
+        check(guest ? "RC-GUEST-02" : "RC-HARD-02",
+              guest ? "guest begin/done: the NextRegWrite subscription that fired "
+                      "before the boot fires on the rebuilt machine"
+                    : "reset(Hard): the NextRegWrite subscription that fired before "
+                      "the boot fires on the rebuilt machine",
+              all_before && after.nr > 0, detail);
+    }
+    for (int route = 0; route < 2; ++route) {
+        const bool guest = route == 1;
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        jnext::dbg::LoopDriver d;
+        d.cold_boot = [&]() { boot(emu); return true; };
+        dbg.set_loop_driver(d);
+        emu.execute_single_instruction();               // PC off 0 before the boot
+        dbg.pause(a);
+        const uint16_t pc_before = pc_of(emu);
+        if (guest) { dbg.on_cold_boot_begin(); boot(emu); dbg.on_cold_boot_done(); }
+        else       dbg.reset(a, ResetKind::Hard);
+        const RunState st = dbg.state();
+        check(guest ? "RC-GUEST-03" : "RC-HARD-03",
+              guest ? "guest begin/done: a caller paused before the boot is paused "
+                      "at PC 0x0000 of the rebuilt machine, still User{A}"
+                    : "reset(Hard): a caller paused before it is paused at PC 0x0000 "
+                      "of the rebuilt machine, still User{A}",
+              pc_before != 0 && st.paused && st.pc == 0x0000 && pc_of(emu) == 0x0000 &&
+                  st.pause_reason.kind == K::User && st.pause_reason.by == a,
+              "pc_before=" + hex(pc_before) + " " + b5_state(dbg));
+    }
+
+    // ── The .nex routes. IN PLACE is the driver every loop owner registers
+    //    (`emulator_apply_load`); RECONSTRUCTING is a cold boot then the same
+    //    load — the Qt menu's route, CTL-15's "a load that routes to
+    //    emulator_cold_boot()".
+    const std::string nex = "/tmp/jnext_b5_three_kinds_" + std::to_string(::getpid()) + ".nex";
+    const bool nex_ok = b5_write_nex(nex, kB5ThreeKinds);
+    for (int route = 0; route < 2; ++route) {
+        const bool rebuild = route == 1;
+        auto make = [&](Emulator& emu, Debugger& dbg) {
+            jnext::dbg::LoopDriver d;
+            d.load = [&emu, rebuild, &boot](const std::string& path) {
+                if (rebuild) boot(emu);
+                return emulator_apply_load(emu, path, false);
+            };
+            dbg.set_loop_driver(d);
+        };
+        const char* ids[3][2] = {
+            {"RC-NEX-01", "RC-NEXBOOT-01"},
+            {"RC-NEX-02", "RC-NEXBOOT-02"},
+            {"RC-NEX-03", "RC-NEXBOOT-03"},
+        };
+        {
+            // All three kinds, measured before and after — the program the .nex
+            // carries is the one the pre-load machine already runs.
+            Emulator emu;
+            EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2;
+            emu.init(cfg);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            B5Counts before, after;
+            B5Counts* into = &before;
+            b5_subscribe_three(dbg, a, into);
+            make(emu, dbg);
+            load_prog(emu, kB5ThreeKinds);
+            emu.run_frame();
+            const bool all_before = before.exec > 0 && before.mem > 0 && before.nr > 0;
+            into = &after;
+            const Result r = dbg.load(a, nex);
+            for (int i = 0; i < 3; ++i) emu.run_frame();
+            check(ids[0][route],
+                  rebuild ? "a RECONSTRUCTING load() of a real .nex: the Execute, Mem "
+                            "and NextRegWrite subscriptions that fired before it all "
+                            "fire on the .nex's own code afterwards"
+                          : "an IN-PLACE load() of a real .nex (every loop owner's "
+                            "driver): the Execute, Mem and NextRegWrite subscriptions "
+                            "that fired before it all fire on the .nex's own code "
+                            "afterwards",
+                  nex_ok && r == Result::Ok && all_before && after.exec > 0 &&
+                      after.mem > 0 && after.nr > 0,
+                  "rc=" + std::to_string(static_cast<int>(r)) + " before[" +
+                      b5_counts(before) + "] after[" + b5_counts(after) + "]");
+        }
+        {
+            Emulator emu;
+            EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2;
+            emu.init(cfg);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            make(emu, dbg);
+            load_prog(emu, { 0x00, 0x00, 0x18, 0xFE });
+            emu.execute_single_instruction();           // PC 0x8001: not the entry
+            dbg.pause(a);
+            const Result r = dbg.load(a, nex);
+            const RunState st = dbg.state();
+            const B5Pos live = b5_pos(emu);
+            emu.run_frame();
+            check(ids[1][route],
+                  rebuild ? "a RECONSTRUCTING load() of a .nex by a paused caller: "
+                            "still paused, at the .nex's entry PC 0x8000, User{A}, "
+                            "and it holds"
+                          : "an IN-PLACE load() of a .nex by a paused caller: still "
+                            "paused, at the .nex's entry PC 0x8000, User{A}, and it "
+                            "holds",
+                  nex_ok && r == Result::Ok && st.paused && st.pc == 0x8000 &&
+                      st.pause_reason.kind == K::User && st.pause_reason.by == a &&
+                      pc_of(emu) == 0x8000 && emu.clock().get() == live.cycle,
+                  "rc=" + std::to_string(static_cast<int>(r)) + " " + b5_state(dbg));
+        }
+        {
+            Emulator emu;
+            EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2;
+            emu.init(cfg);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            make(emu, dbg);
+            load_prog(emu, { 0x00, 0x00, 0x18, 0xFE });
+            const Result r = dbg.load(a, nex);
+            const bool paused_after = dbg.state().paused;
+            const uint64_t c = emu.clock().get();
+            emu.run_frame();
+            check(ids[2][route],
+                  rebuild ? "a RECONSTRUCTING load() of a .nex by a running caller: "
+                            "not paused, and the next frame executes"
+                          : "an IN-PLACE load() of a .nex by a running caller: not "
+                            "paused, and the next frame executes",
+                  nex_ok && r == Result::Ok && !paused_after && !dbg.state().paused &&
+                      emu.clock().get() > c,
+                  "rc=" + std::to_string(static_cast<int>(r)) + " " + b5_state(dbg));
+        }
+    }
+    std::remove(nex.c_str());
 }
 
 int main() {
@@ -12661,6 +12910,7 @@ int main() {
     // GH #276 B5
     b5_wire_kind_rows();
     b5_wire_verb_rows();
+    b5_recon_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
