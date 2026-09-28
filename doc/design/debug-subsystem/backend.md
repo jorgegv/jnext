@@ -20,7 +20,9 @@
 >   `end_of_frame()` (B2 had it after, so an `on frame N` pulse landed a frame
 >   late); IN-02 level sets are queued on `Keyboard` and applied first in that
 >   tick; the drain-to-tick window is not a frame boundary for the save verbs.
->   IN-03/IN-04 stay immediate (the contract names IN-01/IN-02 only).
+>   IN-03/IN-04 stay immediate (the contract names IN-01/IN-02 only; decided
+  2026-09-28, B4 O3 — the DSL's "joystick at the next frame boundary" is the DSL
+  engine's to honour by queueing its own action, not a backend contract).
 >   **CAP-CAP-01** is queued by the verb and written by `pump()`; the PNG/`.SCR`
 >   writers moved to `src/core/` (the backend may not reach up into
 >   `src/platform/`); `NoFrame` has no carrier in the frozen API (owner question).

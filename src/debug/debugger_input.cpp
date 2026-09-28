@@ -28,9 +28,10 @@
 // makes that edge too (`Emulator::end_of_frame()`).
 //
 // NOT IN-03 / IN-04. The contract names IN-01 and IN-02; `set_joystick` and
-// `press_nmi` stay immediate as B1 built them (the DSL design's "joystick at the
-// next frame boundary" is its own sentence, not the backend's contract — in the
-// B4 report as a question for the owner).
+// `press_nmi` stay immediate as B1 built them. DECIDED (manager, 2026-09-28,
+// B4 O3): the DSL design's "joystick at the next frame boundary" is the DSL
+// engine's to honour — it queues its own joystick action for the frame edge —
+// and not the backend's contract.
 // ---------------------------------------------------------------------------
 
 #include "debug/debugger_impl.h"
@@ -124,6 +125,12 @@ Expected<size_t> Debugger::press_key(ClientId by, const std::string& name, int h
 }
 
 // IN-03 — a connector's 12-bit button state, as `Joystick` holds it.
+//
+// IMMEDIATE, unlike IN-01/IN-02 (GH #276 B4, decision O3): the backend's
+// REQ-dsl-20 ordering contract names pulses and level KEY sets only. A
+// connector state set here is what the guest reads from its next port read —
+// including later in the same frame. A client that wants frame-edge semantics
+// (the DSL's `joystick n bits`) queues the call for the edge itself.
 Result Debugger::set_joystick(ClientId by, JoystickSide side, uint16_t bits12) {
     Joystick& joy = impl_->emu.joystick();
     if (side == JoystickSide::Left) joy.set_joy_left(bits12);

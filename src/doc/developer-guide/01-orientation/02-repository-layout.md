@@ -51,7 +51,7 @@ profiler — surround the emulation rather than being part of it.
 | `platform/` | The SDL frontend (`sdl_app`, `sdl_display`, `sdl_audio`, `sdl_input`), the headless frontend (`headless_app`), the cold-boot helper, and the small header-only policies for frame pacing and render skipping. |
 | `gui/` | The Qt 6 frontend: `QtApp`, `MainWindow`, `EmulatorWidget`, the preferences dialog and the saved-configuration store. |
 | `debugger/` | The Qt 6 debugger window and its panels — CPU, disassembly, memory, MMU, stack, call stack, watches, breakpoints, video, sprites, copper, NextREG, audio. Compiled only when `ENABLE_DEBUGGER=ON`. |
-| `debug/` | The debugger *backend*, pure C++ with no GUI dependency: disassembler, breakpoint set, `DebugState`, trace log, call stack, symbol table, and the rewind ring buffer. Plus the four *published* headers `debugger.h`, `events.h`, `inspect.h`, `result.h` — the `jnext::dbg::Debugger` facade contract of epic #276, declarations only for now (see 3.9). |
+| `debug/` | The debugger *backend*, pure C++ with no GUI dependency: disassembler, breakpoint set, `DebugState`, trace log, call stack, symbol table, and the rewind ring buffer. Plus the four *published* headers `debugger.h`, `events.h`, `inspect.h`, `result.h` and the `jnext::dbg::Debugger` facade behind them (`debugger*.cpp`) — the backend of epic #276 that the three loop owners host and every debugger frontend talks to (see 3.9). |
 | `esp01/` | The emulated ESP-01 WiFi module — AT-command engine, socket layer, worker thread — built as its own library with its own tests. |
 | `profiler/` | The per-physical-address T-state profiler behind `--profile`. |
 | `doc/` | Markdown sources for the user guide and this developer guide, plus the Graphviz diagram sources. |
