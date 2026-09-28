@@ -355,8 +355,10 @@ each client's listener, its `live_raster` request and its bookmarks (B4) —
 *outside* `Emulator`, which is what lets all of it survive a machine
 reconstruct.
 
-`detach(cid)` removes that client's subscriptions and, **iff the machine is
-paused by this client**, resumes it. A pause by another client survives, and an
+`detach(cid)` removes that client's subscriptions — and every other record
+keyed by its id (its per-client event switch, its unflushed capture failures:
+ids are never reused, so anything left behind would be kept for ever) — and,
+**iff the machine is paused by this client**, resumes it. A pause by another client survives, and an
 *unowned* pause is never released by any detach however many clients come and
 go: `PauseReason::Magic` and `PauseReason::Corrupt` carry `by == CLIENT_NONE`
 because neither is anyone's verb. There is no "last client" rule — the Qt
@@ -642,7 +644,8 @@ paused machine renders nothing, so the capture is held, with one warning.
 owner decision — is the exit bound: `NoFrame` if any of `by`'s captures is still
 pending (they are dropped), `RefusedUnavailable` if one failed to write since
 the last call, else `Ok`. A capture survives its requester's detach and every
-machine rebuild. The
+machine rebuild; once its requester has detached, its outcome is still logged
+but no longer recorded for a client that is gone. The
 PNG and `.SCR` writers moved from `src/platform/` to `src/core/screenshot.*` so
 the backend, which sits below the platform layer, can call them.
 

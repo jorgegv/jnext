@@ -2145,8 +2145,10 @@ transition to be broadcast with the client that caused it. The client list holds
 each client's listener, its <code>live_raster</code> request and its bookmarks (B4) —
 <em>outside</em> <code>Emulator</code>, which is what lets all of it survive a machine
 reconstruct.</p>
-<p><code>detach(cid)</code> removes that client's subscriptions and, <strong>iff the machine is
-paused by this client</strong>, resumes it. A pause by another client survives, and an
+<p><code>detach(cid)</code> removes that client's subscriptions — and every other record
+keyed by its id (its per-client event switch, its unflushed capture failures:
+ids are never reused, so anything left behind would be kept for ever) — and,
+<strong>iff the machine is paused by this client</strong>, resumes it. A pause by another client survives, and an
 <em>unowned</em> pause is never released by any detach however many clients come and
 go: <code>PauseReason::Magic</code> and <code>PauseReason::Corrupt</code> carry <code>by == CLIENT_NONE</code>
 because neither is anyone's verb. There is no "last client" rule — the Qt
@@ -2411,7 +2413,8 @@ paused machine renders nothing, so the capture is held, with one warning.
 owner decision — is the exit bound: <code>NoFrame</code> if any of <code>by</code>'s captures is still
 pending (they are dropped), <code>RefusedUnavailable</code> if one failed to write since
 the last call, else <code>Ok</code>. A capture survives its requester's detach and every
-machine rebuild. The
+machine rebuild; once its requester has detached, its outcome is still logged
+but no longer recorded for a client that is gone. The
 PNG and <code>.SCR</code> writers moved from <code>src/platform/</code> to <code>src/core/screenshot.*</code> so
 the backend, which sits below the platform layer, can call them.</p>
 <p><strong>Saves share one rule.</strong> <code>save_state_bytes</code>, <code>bookmark_save</code> and
