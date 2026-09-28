@@ -506,10 +506,11 @@ static void test_cpu_panel() {
               bad.empty(), bad);
     }
 
-    // Flags: F = 0xD5 sets S Z H PV C and clears N (and sets neither of the
-    // undocumented bits 5/3); F = 0x2A is the complement on the six shown
-    // flags AND sets bits 5 and 3, so a flag decoded from the wrong bit shows
-    // wrong in one of the two.
+    // Flags: F is set ONE BIT AT A TIME, all eight bits, so exactly one flag is
+    // lit in each pass (none for the undocumented bits 5 and 3). A flag decoded
+    // from any wrong bit is then lit in the wrong pass and grey in its own.
+    // (Review round 1: the first fixture used 0xD5 and its complement, in which
+    // S, Z, H, PV and C always agree — a swap among those five passed.)
     {
         auto flag_label = [&](int n) { return box_value(&panel, "Flags: ", n); };
         auto active = [](QLabel* l) {
@@ -519,17 +520,17 @@ static void test_cpu_panel() {
         auto grey = [](QLabel* l) { return l && l->styleSheet().contains("#888888"); };
         const char* names[] = {"S", "Z", "H", "PV", "N", "C"};
 
+        //                 S  Z  H  PV N  C
+        const int bit_of[6] = {7, 6, 4, 2, 1, 0};
         std::string bad;
-        for (int pass = 0; pass < 2; ++pass) {
-            const uint8_t f = pass == 0 ? 0xD5 : 0x2A;
-            //                           S  Z  H  PV N  C
-            const bool want_d5[6] = {true, true, true, true, false, true};
+        for (int bit = 0; bit < 8; ++bit) {
+            const uint8_t f = static_cast<uint8_t>(1u << bit);
             r.AF = static_cast<uint16_t>(0x1200 | f);
             emu.cpu().set_registers(r);
             panel.refresh();
             for (int i = 0; i < 6; ++i) {
                 QLabel* l = flag_label(i + 1);
-                const bool want = pass == 0 ? want_d5[i] : !want_d5[i];
+                const bool want = bit_of[i] == bit;
                 if (!l || l->text() != QLatin1String(names[i]) ||
                     (want ? !active(l) : !grey(l)))
                     bad += fmt("F=%02X %s:%s ", f, names[i],
@@ -1310,27 +1311,56 @@ static void test_watch_panel() {
         edit.typed = {"9002", "renamed"};
         edit.combo_index = 1;
         click_and_answer(button_named(&wp, "Edit"), edit);
+        // ...and the LAST row too: Edit shares Remove's row guard, and the
+        // upper edge of that guard is only reached there (review round 1).
+        if (QTableWidget* t = watch_table(&wp)) t->setCurrentCell(2, 0);
+        DialogAnswer edit_last;
+        edit_last.typed = {"9001", "l2"};
+        edit_last.combo_index = 0;
+        click_and_answer(button_named(&wp, "Edit"), edit_last);
         check("QWP-03",
               "Edit opens pre-filled with the selected watch and rewrites its "
-              "address, label and size in place",
+              "address, label and size in place — the first row and the last",
               edit.seen && edit.prefilled.size() >= 2 && edit.prefilled[0] == "9000" &&
                   edit.prefilled[1] == "counter" && edit.combo_before == 0 &&
                   wp.watch_count() == 3 && wcell(&wp, 0, 0) == "$9002" &&
                   wcell(&wp, 0, 1) == "renamed" && wcell(&wp, 0, 2) == "Word" &&
-                  wcell(&wp, 0, 3) == "$D4C3",
-              fmt("seen=%d prefilled=%s combo=%d row=%s|%s|%s|%s", edit.seen,
-                  s(edit.prefilled.join(",")).c_str(), edit.combo_before,
+                  wcell(&wp, 0, 3) == "$D4C3" && edit_last.seen &&
+                  edit_last.prefilled.size() >= 2 && edit_last.prefilled[1] == "l" &&
+                  wcell(&wp, 2, 0) == "$9001" && wcell(&wp, 2, 1) == "l2" &&
+                  wcell(&wp, 2, 2) == "Byte" && wcell(&wp, 2, 3) == "$B2",
+              fmt("seen=%d prefilled=%s combo=%d row=%s|%s|%s|%s; last: seen=%d row=%s|%s|%s|%s",
+                  edit.seen, s(edit.prefilled.join(",")).c_str(), edit.combo_before,
                   s(wcell(&wp, 0, 0)).c_str(), s(wcell(&wp, 0, 1)).c_str(),
-                  s(wcell(&wp, 0, 2)).c_str(), s(wcell(&wp, 0, 3)).c_str()));
+                  s(wcell(&wp, 0, 2)).c_str(), s(wcell(&wp, 0, 3)).c_str(), edit_last.seen,
+                  s(wcell(&wp, 2, 0)).c_str(), s(wcell(&wp, 2, 1)).c_str(),
+                  s(wcell(&wp, 2, 2)).c_str(), s(wcell(&wp, 2, 3)).c_str()));
 
-        if (QTableWidget* t = watch_table(&wp)) t->setCurrentCell(1, 0);
-        if (QPushButton* rm = button_named(&wp, "Remove")) rm->click();
+        // Remove at every edge of the row guard (review round 1: only row 1 was
+        // ever removed, so `row < 0` -> `row <= 0` survived): a middle row, the
+        // FIRST row, the LAST row.
+        wp.add_watch(0x9003, "a", 0);
+        wp.add_watch(0x9004, "b", 0);          // renamed | w | l2 | a | b
+        auto labels = [&]() {
+            QStringList out;
+            for (int i = 0; i < wp.watch_count(); ++i) out << wcell(&wp, i, 1);
+            return out.join(QLatin1Char('|'));
+        };
+        auto remove_row = [&](int row) {
+            if (QTableWidget* t = watch_table(&wp)) t->setCurrentCell(row, 0);
+            if (QPushButton* rm = button_named(&wp, "Remove")) rm->click();
+            return labels();
+        };
+        const QString after_mid   = remove_row(2);   // l2
+        const QString after_first = remove_row(0);   // renamed
+        const QString after_last  = remove_row(2);   // b
         check("QWP-04",
-              "Remove deletes the selected watch and keeps the others in order",
-              wp.watch_count() == 2 && wcell(&wp, 0, 1) == "renamed" &&
-                  wcell(&wp, 1, 1) == "l",
-              fmt("n=%d labels=%s|%s", wp.watch_count(), s(wcell(&wp, 0, 1)).c_str(),
-                  s(wcell(&wp, 1, 1)).c_str()));
+              "Remove deletes the selected watch — a middle, the first and the last "
+              "row — and keeps the others in order",
+              after_mid == "renamed|w|a|b" && after_first == "w|a|b" &&
+                  after_last == "w|a",
+              fmt("after middle '%s', first '%s', last '%s'", s(after_mid).c_str(),
+                  s(after_first).c_str(), s(after_last).c_str()));
     }
 
     // QWP-05..07 — the three disassembly routes, through the REAL window: the
