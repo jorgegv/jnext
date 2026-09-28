@@ -9249,6 +9249,292 @@ int main() {
         }
     }
 
+    // ── FIX ROUND 1b — §5 ACROSS THE WHOLE VERB SET ─────────────────────────
+    //
+    // "A handler may not drive the machine." A handler runs inside an event
+    // delivery — `run_frame()` (or the pre-instruction gate inside it) on the
+    // stack below it, the drain walking the ring and building `matched[]`. Every
+    // public verb that would EXECUTE, CHANGE THE RUN STATE OF, REWIND, RESTORE,
+    // RESET or REPLACE the machine refuses there, through the ONE helper and with
+    // the ONE code (`Unsupported`). The verb-by-verb classification is the table
+    // in the B3 report; this is the set it names as hazardous.
+    //
+    // Each REENT row runs its verb twice on fresh machines: from a handler (an
+    // `Execute` subscription at AFTER_CALL, mid-frame) — REFUSED — and from
+    // outside any delivery — the verb's normal answer. REENT-30 is the invariant
+    // across the whole set: refused, and NOTHING about the machine changed.
+    {
+        struct Probe {
+            uint64_t clock = 0, gen = 0;
+            uint32_t frame = 0;
+            uint16_t pc = 0;
+            bool     paused = false;
+            size_t   subs = 0, hits = 0, ring = 0;
+            bool operator==(const Probe& o) const {
+                return clock == o.clock && gen == o.gen && frame == o.frame && pc == o.pc &&
+                       paused == o.paused && subs == o.subs && hits == o.hits && ring == o.ring;
+            }
+        };
+        auto probe = [](Emulator& emu, Debugger& dbg) {
+            Probe p;
+            p.clock  = emu.clock().get();
+            p.gen    = emu.debug_state().resume_generation();
+            p.frame  = emu.frame_num();
+            p.pc     = emu.cpu().get_registers().PC;
+            p.paused = emu.debug_state().paused();
+            p.subs   = dbg.subscriptions(true).size();
+            p.hits   = emu.debug_state().event_table()->hits().size();
+            p.ring   = emu.debug_state().event_table()->size();
+            return p;
+        };
+        struct Ctx {
+            std::vector<uint8_t> bytes;
+            int boots = 0, loads = 0;
+        };
+        using Prep = std::function<void(Emulator&, Debugger&, ClientId, Ctx&)>;
+        using Call = std::function<Result(Emulator&, Debugger&, ClientId, Ctx&)>;
+        struct Verb { const char* id; const char* name; Prep prep; Call call; };
+
+        const Prep none = [](Emulator&, Debugger&, ClientId, Ctx&) {};
+        const Prep with_rewind = [](Emulator& emu, Debugger&, ClientId, Ctx&) {
+            emu.set_rewind_enabled(true);
+            emu.resize_rewind_buffer(8);
+            for (int i = 0; i < 3; ++i) emu.run_frame();
+        };
+        const Prep with_driver = [](Emulator&, Debugger& dbg, ClientId, Ctx& c) {
+            jnext::dbg::LoopDriver d;
+            d.cold_boot = [&c]() { ++c.boots; return true; };
+            d.load      = [&c](const std::string&) { ++c.loads; return true; };
+            dbg.set_loop_driver(d);
+        };
+        const Prep with_bytes = [](Emulator&, Debugger& dbg, ClientId a, Ctx& c) {
+            c.bytes = dbg.save_state_bytes(a, jnext::dbg::SaveStateMode::AdvanceToBoundary).value;
+        };
+        const Prep select_nr02 = [](Emulator& emu, Debugger&, ClientId, Ctx&) {
+            emu.port().write(0x243B, 0x02);
+        };
+
+        const std::vector<Verb> verbs = {
+            {"REENT-01", "pause", none,
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.pause(a); }},
+            {"REENT-02", "run", none,
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.run(a); }},
+            {"REENT-03", "step_into", none,
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.step_into(a); }},
+            {"REENT-04", "step_over", none,
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.step_over(a); }},
+            {"REENT-05", "step_out", none,
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.step_out(a); }},
+            {"REENT-06", "run_to", none,
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.run_to(a, PARK); }},
+            {"REENT-07", "run_to_cycle", none,
+             [](Emulator& e, Debugger& d, ClientId a, Ctx&) {
+                 return d.run_to_cycle(a, e.clock().get() + 1000); }},
+            {"REENT-08", "run_to_frame", none,
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) {
+                 return d.run_to_frame(a, d.time().frame + 2); }},
+            {"REENT-09", "run_to_end_of_frame", none,
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.run_to_end_of_frame(a); }},
+            {"REENT-10", "run_to_end_of_scanline", none,
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.run_to_end_of_scanline(a); }},
+            {"REENT-11", "step_back", with_rewind,
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.step_back(a, 1); }},
+            {"REENT-12", "rewind_to_frame", with_rewind,
+             [](Emulator& e, Debugger& d, ClientId a, Ctx&) {
+                 return d.rewind_to_frame(a, e.rewind_buffer()->oldest_frame_num()); }},
+            {"REENT-13", "reset(Hard)", with_driver,
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.reset(a, ResetKind::Hard); }},
+            {"REENT-14", "reset(Soft)", none,
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.reset(a, ResetKind::Soft); }},
+            {"REENT-15", "load", with_driver,
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.load(a, "game.nex"); }},
+            {"REENT-16", "load_state_bytes", with_bytes,
+             [](Emulator&, Debugger& d, ClientId a, Ctx& c) {
+                 return d.load_state_bytes(a, c.bytes.data(), c.bytes.size()); }},
+            {"REENT-17", "save_state_bytes(AdvanceToBoundary) mid-frame", none,
+             [](Emulator& e, Debugger& d, ClientId a, Ctx&) {
+                 // Outside a delivery the machine is paused at a boundary, so
+                 // make the frame be IN PROGRESS there too: one instruction.
+                 if (!e.frame_in_progress()) e.execute_single_instruction();
+                 return d.save_state_bytes(a, jnext::dbg::SaveStateMode::AdvanceToBoundary).status; }},
+            {"REENT-18", "on_cold_boot_done", none,
+             [](Emulator&, Debugger& d, ClientId, Ctx&) { return d.on_cold_boot_done(); }},
+            {"REENT-19", "nextreg_write(NR 0x02 soft reset)", none,
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.nextreg_write(a, 0x02, 0x01); }},
+            {"REENT-20", "port_out(0x253B, NR 0x02 soft reset)", select_nr02,
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.port_out(a, 0x253B, 0x01); }},
+        };
+
+        // From a handler: the first time the AFTER_CALL gate delivers, call the
+        // verb and probe the machine around the call.
+        auto from_handler = [&](const Verb& v, bool& called, Probe& before, Probe& after) {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            Ctx ctx;
+            v.prep(emu, dbg, a, ctx);
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 0; r.IFF2 = 0;
+            emu.cpu().set_registers(r);
+            Result res = Result::Ok;
+            called = false;
+            Subscription s;
+            s.kind      = EventKind::Execute;
+            s.filter.lo = AFTER_CALL; s.filter.hi = AFTER_CALL;
+            s.action    = Action::Continue;
+            s.handler   = [&](const DbgEvent&, Debugger& d) {
+                if (!called) {
+                    called = true;
+                    before = probe(emu, d);
+                    res    = v.call(emu, d, a, ctx);
+                    after  = probe(emu, d);
+                }
+                return Action::Continue;
+            };
+            dbg.subscribe(a, s);
+            for (int i = 0; i < 3 && !called; ++i) emu.run_frame();
+            return std::make_pair(res, ctx.boots + ctx.loads);
+        };
+        // From outside any delivery, on a paused machine: the verb's own answer.
+        auto from_outside = [&](const Verb& v) {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            Ctx ctx;
+            v.prep(emu, dbg, a, ctx);
+            dbg.pause(a);
+            return v.call(emu, dbg, a, ctx);
+        };
+
+        bool inv_ok = true;
+        std::string inv_where;
+        for (const Verb& v : verbs) {
+            bool called = false;
+            Probe before, after;
+            const auto in  = from_handler(v, called, before, after);
+            const Result out = from_outside(v);
+            check(v.id, v.name,
+                  called && in.first == Result::Unsupported && out == Result::Ok,
+                  std::string("inside=") + jnext::dbg::result_name(in.first) +
+                      " outside=" + jnext::dbg::result_name(out) +
+                      " called=" + (called ? "1" : "0"));
+            const bool unchanged = called && before == after && in.second == 0;
+            if (!(in.first == Result::Unsupported && unchanged)) {
+                inv_ok = false;
+                inv_where += std::string(" [") + v.name + " " +
+                             jnext::dbg::result_name(in.first) +
+                             (unchanged ? "" : " CHANGED") + "]";
+            }
+        }
+        check("REENT-30", "THE INVARIANT: every hazardous verb, from inside a delivery, "
+                          "refuses with Unsupported and leaves the machine exactly as it "
+                          "was — clock, PC, run state, frame, subscriptions, ring, "
+                          "matched[] — and runs no driver",
+              inv_ok, inv_where);
+
+        // The CONDITIONAL verbs' other arm. NR 0x02's soft-reset bit is the one
+        // NextREG write that replaces the machine; every other write is a §4.2a
+        // mutation a handler is entitled to — including NR 0x02 with the HARD
+        // bit, which the machine only RECORDS for the loop owner.
+        {
+            Probe b, af;
+            bool called = false;
+            const Verb other_nr{"-", "nextreg_write(other)", none,
+                [](Emulator&, Debugger& d, ClientId a, Ctx&) {
+                    const Result r1 = d.nextreg_write(a, 0x15, 0x01);
+                    const Result r2 = d.nextreg_write(a, 0x02, 0x02);   // hard: deferred
+                    return (r1 == Result::Ok && r2 == Result::Ok) ? Result::Ok
+                                                                   : Result::Unsupported; }};
+            const auto in = from_handler(other_nr, called, b, af);
+            check("REENT-21", "a handler may still make every OTHER NextREG write — "
+                              "including NR 0x02's deferred hard-reset bit",
+                  called && in.first == Result::Ok);
+        }
+        {
+            Probe b, af;
+            bool called = false;
+            const Verb other_port{"-", "port_out(other)", select_nr02,
+                [](Emulator&, Debugger& d, ClientId a, Ctx&) {
+                    const Result r1 = d.port_out(a, 0x253B, 0x02);      // NR 0x02, hard bit
+                    const Result r2 = d.port_out(a, 0x243B, 0x15);      // select another
+                    const Result r3 = d.port_out(a, 0x253B, 0x01);      // NR 0x15 = 1
+                    return (r1 == Result::Ok && r2 == Result::Ok && r3 == Result::Ok)
+                               ? Result::Ok : Result::Unsupported; }};
+            const auto in = from_handler(other_port, called, b, af);
+            check("REENT-22", "and every OTHER port write — the soft-reset value only "
+                              "counts with NR 0x02 selected",
+                  called && in.first == Result::Ok);
+        }
+        // WHY THE RUN-STATE VERBS ARE ON THE LIST, measured rather than assumed:
+        // a handler's `pause()` at a boundary where another subscription has
+        // already said Stop would re-arm the stop evidence (`arm()` clears the
+        // latch and `hits()`), and the stop would be reported as the handler's
+        // `User` pause with an empty `matched[]`. Refused, the Stop's own reason
+        // and `matched[]` survive.
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            Subscription stopper;
+            stopper.kind      = EventKind::Execute;
+            stopper.filter.lo = AFTER_CALL; stopper.filter.hi = AFTER_CALL;
+            stopper.action    = Action::Stop;
+            const auto sid = dbg.subscribe(a, stopper);
+            Subscription pauser = stopper;
+            pauser.action  = Action::Continue;
+            pauser.handler = [&](const DbgEvent&, Debugger& d) {
+                (void)d.pause(a);
+                return Action::Continue;
+            };
+            dbg.subscribe(a, pauser);
+            run_until_paused(emu, 3);
+            const RunState st = dbg.state();
+            const auto& hits  = emu.debug_state().event_table()->hits();
+            bool has_stopper = false;
+            for (const auto& h : hits) has_stopper = has_stopper || h.event_id == sid.value;
+            check("REENT-23", "a handler's pause() at a Stop boundary cannot rewrite the "
+                              "stop: it is still reported as the Stop subscription's, "
+                              "and matched[] still names it",
+                  st.paused && st.pause_reason.kind == PauseReason::Kind::Breakpoint &&
+                      st.pause_reason.id == sid.value && has_stopper,
+                  "kind=" + std::to_string(static_cast<int>(st.pause_reason.kind)) +
+                      " hits=" + std::to_string(hits.size()));
+        }
+        // THE OTHER SIDE OF `run()`'s refusal: `detach()` is a SESSION verb, not
+        // a control verb, and a delivery may reach it (a handler detaching its own
+        // client; a listener detaching from inside a push a handler's `log()`
+        // caused). Its release of the departing client's OWN pause must still
+        // happen there — SES-01's "a crashed DeZog must not leave the machine
+        // hung" does not depend on where the detach came from — so it releases
+        // through `run()`'s body, not through the refused public verb. A delivery
+        // with the machine paused is a frontend's `raise_host_event()`.
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            const ClientId b = dbg.attach(client("B")).value;
+            Result from_detach = Result::Unsupported;
+            Subscription h;
+            h.kind   = EventKind::Host;
+            h.action = Action::Continue;
+            std::strcpy(h.filter.host_name, "bye");
+            h.handler = [&](const DbgEvent&, Debugger& d) {
+                from_detach = d.detach(a);
+                return Action::Continue;
+            };
+            dbg.subscribe(b, h);
+            dbg.pause(a);                                // A's pause
+            dbg.raise_host_event(b, "bye");
+            check("REENT-24", "a detach from inside a delivery still releases the "
+                              "departing client's own pause — the session verb is not "
+                              "refused, and its release does not go through run()'s "
+                              "refusal",
+                  from_detach == Result::Ok && !dbg.state().paused,
+                  std::string("detach=") + jnext::dbg::result_name(from_detach) +
+                      " paused=" + (dbg.state().paused ? "1" : "0"));
+        }
+    }
+
     // ── R2 — the ctor/dtor publication pairing, as ONE invariant ───────────
     {
         // B2's review reproduced a REAL SEGFAULT by removing one line of

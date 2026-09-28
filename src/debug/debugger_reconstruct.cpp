@@ -93,7 +93,8 @@ Result Debugger::Impl::refuse_inside_delivery(const char* verb) const {
     // verb from a handler. Logged at `error` because it is a frontend bug, and
     // an assert would compile away in the build where it ships.
     Log::debugger()->error("{}() called from inside an event delivery — refused "
-                           "(§5: a handler may not replace the machine it runs in)",
+                           "(§5: a handler may not drive, rewind or replace the "
+                           "machine it runs in)",
                            verb);
     return Result::Unsupported;
 }
@@ -303,6 +304,13 @@ Result Debugger::on_cold_boot_begin() {
 }
 
 Result Debugger::on_cold_boot_done() {
+    // The re-application clears the latch ring, re-arms the stop evidence and
+    // may re-pause the machine — none of which may happen under a drain that is
+    // walking the ring (§5; fix round 1b). `on_cold_boot_begin()` has no such
+    // guard: it only captures and flushes pushes, and replaces nothing.
+    if (const Result nested = impl_->refuse_inside_delivery("on_cold_boot_done");
+        nested != Result::Ok)
+        return nested;
     // WITH a `begin`: re-apply what it captured from the machine that was
     // destroyed, and consume it so it cannot leak into a later, unrelated boot.
     //

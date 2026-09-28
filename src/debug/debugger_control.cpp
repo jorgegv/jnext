@@ -57,6 +57,8 @@ Result Debugger::Impl::rewind_refusal() const {
 // ---------------------------------------------------------------------------
 
 Result Debugger::pause(ClientId by) {
+    if (const Result nested = impl_->refuse_inside_delivery("pause"); nested != Result::Ok)
+        return nested;
     // Idempotent (CTL-01): DebugState::pause() is, and re-pausing an already
     // paused machine re-attributes the stop to the caller, which is what "last
     // verb wins" means.
@@ -76,6 +78,17 @@ Result Debugger::pause(ClientId by) {
 }
 
 Result Debugger::run(ClientId by) {
+    if (const Result nested = impl_->refuse_inside_delivery("run"); nested != Result::Ok)
+        return nested;
+    return impl_->run_verb(by);
+}
+
+// The body of CTL-02, callable without the delivery refusal by exactly one
+// caller: `detach()`, whose release of the departing client's own pause is a
+// SESSION operation (a listener may detach from inside a delivery — a handler's
+// `log()` reaches every listener), and SES-01's "a crashed DeZog must not leave
+// the machine hung" must not depend on where the detach came from.
+Result Debugger::Impl::run_verb(ClientId by) {
     // GH #223 — Run on an already-running machine is a no-op that still returns
     // Ok, and it must return BEFORE the corruption gate: DebugState::resume()
     // clears the one-shot breakpoint, so reaching it here would silently throw
@@ -86,9 +99,9 @@ Result Debugger::run(ClientId by) {
     // same reason, now that Step Over and Run to Here arm a transient
     // subscription instead of that one-shot. CTL-02-04/05 pin the property:
     // a redundant `run()` must not clear a pending target.
-    if (!impl_->ds().paused()) return Result::Ok;
+    if (!ds().paused()) return Result::Ok;
 
-    const Result gate = impl_->execute_gate();
+    const Result gate = execute_gate();
     if (gate != Result::Ok) return gate;
 
     // NOTE — `run()` does NOT drop the transient subscriptions, and that is a
@@ -100,9 +113,9 @@ Result Debugger::run(ClientId by) {
     // STOP", and that is where they go — `Impl::apply_stop()` for a stop the
     // backend caused, and `Debugger::pause()` for an explicit one, which is the
     // transition `resume()`'s clear was really standing in for.
-    impl_->ds().resume();
+    ds().resume();
     // A stop after a free run is explained by the machine, not by this verb.
-    impl_->arm(PauseReason::Kind::None, by);
+    arm(PauseReason::Kind::None, by);
     return Result::Ok;
 }
 
@@ -111,6 +124,8 @@ Result Debugger::run(ClientId by) {
 // ---------------------------------------------------------------------------
 
 Result Debugger::step_into(ClientId by) {
+    if (const Result nested = impl_->refuse_inside_delivery("step_into"); nested != Result::Ok)
+        return nested;
     const Result gate = impl_->execute_gate();
     if (gate != Result::Ok) return gate;
 
@@ -128,6 +143,8 @@ Result Debugger::step_into(ClientId by) {
 }
 
 Result Debugger::step_over(ClientId by) {
+    if (const Result nested = impl_->refuse_inside_delivery("step_over"); nested != Result::Ok)
+        return nested;
     const Result gate = impl_->execute_gate();
     if (gate != Result::Ok) return gate;
 
@@ -169,6 +186,8 @@ Result Debugger::step_over(ClientId by) {
 }
 
 Result Debugger::step_out(ClientId by) {
+    if (const Result nested = impl_->refuse_inside_delivery("step_out"); nested != Result::Ok)
+        return nested;
     const Result gate = impl_->execute_gate();
     if (gate != Result::Ok) return gate;
 
@@ -184,6 +203,8 @@ Result Debugger::step_out(ClientId by) {
 // ---------------------------------------------------------------------------
 
 Result Debugger::run_to(ClientId by, uint16_t addr) {
+    if (const Result nested = impl_->refuse_inside_delivery("run_to"); nested != Result::Ok)
+        return nested;
     const Result gate = impl_->execute_gate();
     if (gate != Result::Ok) return gate;
 
@@ -204,6 +225,8 @@ Result Debugger::run_to(ClientId by, uint16_t addr) {
 }
 
 Result Debugger::run_to_cycle(ClientId by, uint64_t master_cycle) {
+    if (const Result nested = impl_->refuse_inside_delivery("run_to_cycle"); nested != Result::Ok)
+        return nested;
     const Result gate = impl_->execute_gate();
     if (gate != Result::Ok) return gate;
 
@@ -216,6 +239,8 @@ Result Debugger::run_to_cycle(ClientId by, uint64_t master_cycle) {
 }
 
 Result Debugger::run_to_frame(ClientId by, uint32_t frame) {
+    if (const Result nested = impl_->refuse_inside_delivery("run_to_frame"); nested != Result::Ok)
+        return nested;
     // TIME-03, forward only. The frame's start cycle is derivable without the
     // rewind buffer: frames are a fixed number of master cycles apart, and one
     // frame's start is known (`current_frame_cycle()`).
@@ -258,6 +283,8 @@ Result Debugger::run_to_frame(ClientId by, uint32_t frame) {
 }
 
 Result Debugger::run_to_end_of_frame(ClientId by) {
+    if (const Result nested = impl_->refuse_inside_delivery("run_to_end_of_frame"); nested != Result::Ok)
+        return nested;
     // Moved verbatim from DebuggerManager::on_run_to_eof(), comment included:
     //
     // Target the midpoint of the last visible scanline, so that when the CPU
@@ -288,6 +315,8 @@ Result Debugger::run_to_end_of_frame(ClientId by) {
 }
 
 Result Debugger::run_to_end_of_scanline(ClientId by) {
+    if (const Result nested = impl_->refuse_inside_delivery("run_to_end_of_scanline"); nested != Result::Ok)
+        return nested;
     // Moved verbatim from DebuggerManager::on_run_to_eosl(), comment included:
     //
     // Calculate the cycle at the end of the current scanline, then round up to
@@ -327,6 +356,8 @@ Result Debugger::run_to_end_of_scanline(ClientId by) {
 // ---------------------------------------------------------------------------
 
 Result Debugger::step_back(ClientId by, uint32_t n) {
+    if (const Result nested = impl_->refuse_inside_delivery("step_back"); nested != Result::Ok)
+        return nested;
     const Result refusal = impl_->rewind_refusal();
     if (refusal != Result::Ok) return refusal;
 
@@ -341,6 +372,8 @@ Result Debugger::step_back(ClientId by, uint32_t n) {
 }
 
 Result Debugger::rewind_to_frame(ClientId by, uint32_t frame) {
+    if (const Result nested = impl_->refuse_inside_delivery("rewind_to_frame"); nested != Result::Ok)
+        return nested;
     const Result refusal = impl_->rewind_refusal();
     if (refusal != Result::Ok) return refusal;
 

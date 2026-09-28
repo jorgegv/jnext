@@ -399,6 +399,18 @@ Result Debugger::nextreg_write(ClientId by, uint8_t reg, uint8_t value) {
         impl_->emu.rzx_player().is_playing())
         return Result::RefusedRzx;
 
+    // A MUTATION, and §4.2a lets a handler make one — EXCEPT the one NextREG
+    // write that resets the machine: NR 0x02 with bit 0 set and bit 1 clear runs
+    // `Emulator::soft_reset()` synchronously (bit 1 is a HARD reset, which is
+    // deferred to the loop owner and so harmless here). From inside a delivery
+    // that re-`init()`s the machine under the frame running the handler (§5; fix
+    // round 1b). Every other register, and this one's other bits, stay writable.
+    if (reg == 0x02 && (value & 0x03) == 0x01) {
+        if (const Result nested = impl_->refuse_inside_delivery("nextreg_write");
+            nested != Result::Ok)
+            return nested;
+    }
+
     const uint8_t old_value = impl_->emu.nextreg().peek(reg);
     // The register's own write handler runs, synchronously, side effects
     // included — INS-04. Source is the Debugger, so it fires no NextRegWrite
@@ -435,6 +447,14 @@ Result Debugger::port_out(ClientId by, uint16_t port, uint8_t value) {
     if (impl_->emu.rzx_recorder().is_recording() ||
         impl_->emu.rzx_player().is_playing())
         return Result::RefusedRzx;
+    // The same soft-reset exception as `nextreg_write()`, reached through the
+    // NextREG data port (a full 16-bit match on 0x253B) with NR 0x02 selected.
+    if (port == 0x253B && impl_->emu.nextreg().selected() == 0x02 &&
+        (value & 0x03) == 0x01) {
+        if (const Result nested = impl_->refuse_inside_delivery("port_out");
+            nested != Result::Ok)
+            return nested;
+    }
     impl_->emu.port().write(port, value);
     char what[24];
     std::snprintf(what, sizeof(what), "port out 0x%04X", port);

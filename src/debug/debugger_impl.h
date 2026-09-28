@@ -365,16 +365,29 @@ struct Debugger::Impl {
     /// SES-02-20/21).
     PreBoot prepare_rebuild();
 
-    /// §5 — a verb that would REPLACE THE MACHINE, called from inside an event
-    /// delivery: `Unsupported` (logged), else `Ok`. A handler runs with the
-    /// machine stopped at a boundary but with `Emulator::run_frame()` — or the
-    /// pre-instruction gate inside it — still on the stack below it, and the
-    /// drain walking the latch ring. `reset(Hard)` destroys and placement-news
-    /// that `Emulator`; `reset(Soft)` and an in-place `load()` re-`init()` it;
-    /// every one of them clears the ring. None of that can happen under the
-    /// frame that is executing the handler (row CTL-12-52). The same refusal
-    /// `pump()` makes for the same reason, spelled per verb.
+    /// §5 — "a handler may not drive the machine": a verb that would EXECUTE,
+    /// CHANGE THE RUN STATE OF, REWIND, RESTORE, RESET or REPLACE the machine,
+    /// called from inside an event delivery → `Unsupported` (logged), else `Ok`.
+    /// ONE helper and ONE code for the whole set (fix round 1b; the set, verb by
+    /// verb with the reason, is the table in the B3 report and the NEST-* rows).
+    ///
+    /// A handler runs with the machine stopped at a boundary but with
+    /// `Emulator::run_frame()` — or the pre-instruction gate inside it — still
+    /// on the stack below it, and the drain walking the latch ring and
+    /// accumulating the boundary's `matched[]`. The step verbs and a
+    /// `save_state_bytes()` advance would run instructions inside that frame;
+    /// the rewind, restore, reset and load verbs replace the state under it and
+    /// clear the ring; and the run-state verbs (`pause`, `run`, the `run_to`
+    /// family, `step_out`) re-arm the stop evidence — `arm()` clears the latch
+    /// and `hits()` the drain is building — which is how a handler would
+    /// silently swallow the stop it is part of. A handler stops the machine by
+    /// returning `Action::Stop`. The same refusal `pump()` makes, spelled per
+    /// verb.
     Result refuse_inside_delivery(const char* verb) const;
+
+    /// CTL-02's body without the delivery refusal — see `Debugger::run()`. Its
+    /// one other caller is `detach()`'s release of the departing client's pause.
+    Result run_verb(ClientId by);
 
     /// `on_cold_boot_begin()`'s capture, waiting for `on_cold_boot_done()`.
     /// Consumed by `done`; OVERWRITTEN by a second `begin` (last wins); CLEARED

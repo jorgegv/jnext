@@ -398,6 +398,14 @@ Expected<std::vector<uint8_t>> Debugger::save_state_bytes(ClientId by,
     if (impl_->emu.frame_in_progress()) {
         if (mode == SaveStateMode::RefuseMidFrame)
             return make_refused<std::vector<uint8_t>>(Result::NotAtFrameBoundary);
+        // THE ADVANCE EXECUTES THE MACHINE — the half-run frame is run out — and
+        // from inside a delivery that frame is the one executing the handler
+        // (§5; fix round 1b). Only this arm: a save that does not advance (a
+        // frame boundary, or `RefuseMidFrame`) replaces and executes nothing, and
+        // stays available to a handler.
+        if (const Result nested = impl_->refuse_inside_delivery("save_state_bytes");
+            nested != Result::Ok)
+            return make_refused<std::vector<uint8_t>>(nested);
         // GH #27 S6's advance: run the half-executed frame out with the
         // debugger suspended, so a pending Run to Here or step survives it.
         DebugState::SuspendScope suspend(impl_->ds());
@@ -427,6 +435,9 @@ Expected<std::vector<uint8_t>> Debugger::save_state_bytes(ClientId by,
 // the Emulator does that latching itself (`last_state_error()` +
 // `state_error_generation()`), which is why this verb only has to report it.
 Result Debugger::load_state_bytes(ClientId by, const uint8_t* data, size_t n) {
+    if (const Result nested = impl_->refuse_inside_delivery("load_state_bytes");
+        nested != Result::Ok)
+        return nested;
     if (!data || n == 0) return Result::RefusedUnavailable;
     if (impl_->emu.rzx_recorder().is_recording() ||
         impl_->emu.rzx_player().is_playing())

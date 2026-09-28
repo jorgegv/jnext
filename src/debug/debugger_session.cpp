@@ -192,7 +192,7 @@ Result Debugger::detach(ClientId cid) {
         // Attributed to the DEPARTING client: it is its pause that is being
         // released, and `CLIENT_NONE` would read as the backend resuming a
         // machine on its own initiative.
-        impl_->self->run(cid);
+        impl_->run_verb(cid);
     }
     return Result::Ok;
 }
