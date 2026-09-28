@@ -126,7 +126,9 @@ rewritten but still under-recording, `2` is a refusal with nothing written, and
   rather than inferred from a naming convention, because 80 suite names match
   their source basename and 7 do not, and the two ESP-01 suites live under
   `src/esp01/test/` entirely. A convention that is right 92% of the time is the
-  worst kind.
+  worst kind. The reader is `test/SuiteSources.pm`, shared with
+  `traceability-dup-ids.pl` and, through its `--sources`, the unit harness, so
+  the three agree on every source of a suite, not only its first.
 - **It leaves hand-written citations alone**, reporting disagreements instead
   of overwriting them, and leaves rows marked `<!-- protected -->` untouched.
 

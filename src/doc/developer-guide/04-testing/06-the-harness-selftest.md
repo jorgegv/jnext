@@ -82,7 +82,7 @@ an entry with no CMake counterpart would make the unit harness refuse to run.
 ## The traceability self-tests
 
 ```console
-$ make traceability-selftest          # citation extractor + dup-ID gate, 215 pinned rows
+$ make traceability-selftest          # citation extractor + dup-ID gate, 217 pinned rows
 $ make traceability-accounting-check  # the suite-accounting gate, ~0.01 s
 ```
 
@@ -93,7 +93,7 @@ sources and binaries, and then run the real refresh script against it twice, so
 that idempotence and the refusal paths are both exercised. `SELF-208`..`SELF-215`
 run `test/traceability-dup-ids.pl` and the generator's `--planned-ids` the same
 way, planting colliding IDs in `?`-prefixed suites, in one-row plan docs and in
-the baseline (GH #243). It pins `$EXPECTED_ROWS = 215` in the
+the baseline (GH #243). It pins `$EXPECTED_ROWS = 217` in the
 same shape as the harness self-test, and for the same reason it cannot live in
 the unit manifest — it is a perl script with no CMake target.
 
