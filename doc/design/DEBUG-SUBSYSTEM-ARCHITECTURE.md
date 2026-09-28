@@ -1347,7 +1347,8 @@ by one agent, and a dependency of D, Z and G alike — never carried by
 whichever server happens to land first.
 
 **Each package's row is also a tracker in its own appendix** (added 2026-09-27
-so work can be followed): `debug-subsystem/backend.md` for B, and
+so work can be followed): `debug-subsystem/backend.md` for B,
+`debug-subsystem/transport.md` for T, and
 `qt-frontend.md` / `dzrp-frontend.md` / `zrcp-frontend.md` /
 `gdb-rsp-frontend.md` / `dsl-frontend.md` for Q / D / Z / G / S. Each opens with
 a one-row-per-WP table carrying a **status** (`todo` · `in progress` ·

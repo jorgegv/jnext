@@ -679,6 +679,48 @@ one pointer test per instruction. Each trace entry now carries I, R, IM, IFF1,
 IFF2, the word at SP (read with `peek()`, so the trace moves no watch and no +3
 floating-bus latch) and the eight MMU pages.
 
+### The shared socket transport (package T)
+
+The three protocol servers the epic plans — DZRP, ZRCP and GDB RSP — share one
+transport, in **`src/remote/`** (target `jnext_remote`). It has no toolkit
+dependency and is built in every configuration. It carries no protocol: it
+never parses a byte. As of package T no server exists yet, so nothing in the
+shipped binary instantiates it.
+
+`remote::Server` is a `jnext::dbg::Service`, so `pump()` drives it: each
+`service_once(wait_ms)` accepts, reads, asks the adapter's `Protocol` to execute
+**at most one** complete command, and writes — repeated until a command ran or
+`wait_ms` passed, with `wait_ms` 0 being exactly one pass. The adapter sees its
+one client as a `Connection`: `read`, `write` (never blocks and never drops:
+what the kernel does not take now is sent on a later pass), `close` (what is
+queued is still delivered, for a bounded time). `on_disconnect()` is called
+exactly once per `on_connect()`, whoever ended the session, and every byte a
+client sent before hanging up is offered to the adapter first. One client per
+listener: a second one is sent the adapter's `busy_reply` and closed. Two
+bounds keep a stuck client from costing the host memory: reading stops at
+`max_input` unconsumed bytes (backpressure through the kernel), and a client
+`max_output` bytes behind on its replies is disconnected.
+
+Sockets come only from esp01's public seam (`esp::make_socket_listener`,
+`EspListener`, `EspTransport`), which is already non-blocking and
+Windows-twinned; `src/remote/` makes no socket call of its own. That seam has
+no readiness wait, so the one wait — the headless `pump(wait)` — is a bounded
+1 ms sleep between non-blocking passes. The log lines go to the `debugger`
+channel, among them `<name>: listening on <addr>:<port>` with the port actually
+bound, which is what a `--<proto>-port 0` regression row reads.
+
+The in-memory fake the adapter suites use — `FakeListener` / `FakeTransport` /
+`FakePeer` in `src/remote/fake_transport.*` — implements the same esp
+interfaces, so an adapter's unit suite runs the production `Server` with only
+the kernel replaced; a peer's window and receive chunk model partial writes
+and reads. `remote_transport_test` pins the transport over the fake, over the
+real socket on `127.0.0.1` port 0, and through `pump()`.
+
+`--debug-listen-address ADDR` (numeric only, default `127.0.0.1`) is validated
+in `main.cpp` and held in `EmulatorConfig::debug_listen_address` for the servers
+to bind. The design, and the reason behind each rule above, is
+`doc/design/debug-subsystem/transport.md`.
+
 ## What `ENABLE_DEBUGGER=OFF` removes
 
 `ENABLE_DEBUGGER` (default `ON`) gates **only the Qt UI**. With it off,

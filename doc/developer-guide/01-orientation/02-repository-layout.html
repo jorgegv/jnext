@@ -1934,6 +1934,10 @@ profiler — surround the emulation rather than being part of it.</p>
 <td>The debugger <em>backend</em>, pure C++ with no GUI dependency: disassembler, breakpoint set, <code>DebugState</code>, trace log, call stack, symbol table, and the rewind ring buffer. Plus the four <em>published</em> headers <code>debugger.h</code>, <code>events.h</code>, <code>inspect.h</code>, <code>result.h</code> and the <code>jnext::dbg::Debugger</code> facade behind them (<code>debugger*.cpp</code>) — the backend of epic #276 that the three loop owners host and every debugger frontend talks to (see 3.9).</td>
 </tr>
 <tr>
+<td><code>remote/</code></td>
+<td>The socket transport the debugger protocol servers share (<code>jnext_remote</code>): one non-blocking listener driven by the backend's <code>pump()</code>, over esp01's socket seam, plus the in-memory fake their unit suites use. No protocol server has landed in it yet (see 3.9).</td>
+</tr>
+<tr>
 <td><code>esp01/</code></td>
 <td>The emulated ESP-01 WiFi module — AT-command engine, socket layer, worker thread — built as its own library with its own tests.</td>
 </tr>

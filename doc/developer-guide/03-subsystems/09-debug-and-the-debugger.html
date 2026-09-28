@@ -2444,6 +2444,42 @@ the opcode at PC (an NMI or INT acknowledge does not run it). Switched off it is
 one pointer test per instruction. Each trace entry now carries I, R, IM, IFF1,
 IFF2, the word at SP (read with <code>peek()</code>, so the trace moves no watch and no +3
 floating-bus latch) and the eight MMU pages.</p>
+<h3 id="the-shared-socket-transport-package-t">The shared socket transport (package T)<a class="headerlink" href="#the-shared-socket-transport-package-t" title="Permanent link">&para;</a></h3>
+<p>The three protocol servers the epic plans — DZRP, ZRCP and GDB RSP — share one
+transport, in <strong><code>src/remote/</code></strong> (target <code>jnext_remote</code>). It has no toolkit
+dependency and is built in every configuration. It carries no protocol: it
+never parses a byte. As of package T no server exists yet, so nothing in the
+shipped binary instantiates it.</p>
+<p><code>remote::Server</code> is a <code>jnext::dbg::Service</code>, so <code>pump()</code> drives it: each
+<code>service_once(wait_ms)</code> accepts, reads, asks the adapter's <code>Protocol</code> to execute
+<strong>at most one</strong> complete command, and writes — repeated until a command ran or
+<code>wait_ms</code> passed, with <code>wait_ms</code> 0 being exactly one pass. The adapter sees its
+one client as a <code>Connection</code>: <code>read</code>, <code>write</code> (never blocks and never drops:
+what the kernel does not take now is sent on a later pass), <code>close</code> (what is
+queued is still delivered, for a bounded time). <code>on_disconnect()</code> is called
+exactly once per <code>on_connect()</code>, whoever ended the session, and every byte a
+client sent before hanging up is offered to the adapter first. One client per
+listener: a second one is sent the adapter's <code>busy_reply</code> and closed. Two
+bounds keep a stuck client from costing the host memory: reading stops at
+<code>max_input</code> unconsumed bytes (backpressure through the kernel), and a client
+<code>max_output</code> bytes behind on its replies is disconnected.</p>
+<p>Sockets come only from esp01's public seam (<code>esp::make_socket_listener</code>,
+<code>EspListener</code>, <code>EspTransport</code>), which is already non-blocking and
+Windows-twinned; <code>src/remote/</code> makes no socket call of its own. That seam has
+no readiness wait, so the one wait — the headless <code>pump(wait)</code> — is a bounded
+1 ms sleep between non-blocking passes. The log lines go to the <code>debugger</code>
+channel, among them <code>&lt;name&gt;: listening on &lt;addr&gt;:&lt;port&gt;</code> with the port actually
+bound, which is what a <code>--&lt;proto&gt;-port 0</code> regression row reads.</p>
+<p>The in-memory fake the adapter suites use — <code>FakeListener</code> / <code>FakeTransport</code> /
+<code>FakePeer</code> in <code>src/remote/fake_transport.*</code> — implements the same esp
+interfaces, so an adapter's unit suite runs the production <code>Server</code> with only
+the kernel replaced; a peer's window and receive chunk model partial writes
+and reads. <code>remote_transport_test</code> pins the transport over the fake, over the
+real socket on <code>127.0.0.1</code> port 0, and through <code>pump()</code>.</p>
+<p><code>--debug-listen-address ADDR</code> (numeric only, default <code>127.0.0.1</code>) is validated
+in <code>main.cpp</code> and held in <code>EmulatorConfig::debug_listen_address</code> for the servers
+to bind. The design, and the reason behind each rule above, is
+<code>doc/design/debug-subsystem/transport.md</code>.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
 <p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
 <code>jnext_debugger</code> is neither compiled nor linked and every use site in
