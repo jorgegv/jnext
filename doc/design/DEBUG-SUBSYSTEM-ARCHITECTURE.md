@@ -455,7 +455,9 @@ Principles:
 | `src/script/` | `jnext_script` | lexer/parser/evaluator/engine of the DSL, the expression compiler exported as a library, the recorder |
 
 CLI (all gated by `make cli-check`): `--debug-listen-address ADDR` (default
-`127.0.0.1`, after `--esp-listen-address`), `--dzrp-port N`, `--zrcp-port N`,
+`127.0.0.1`, spelled after `--esp-listen-address` but listed in the man page's
+Debugging section — manager decision 2026-09-28, `transport.md` decision 14),
+`--dzrp-port N`, `--zrcp-port N`,
 `--gdb-port N` (absent = off), `--script FILE`, `--script-key <frame> <n>`,
 `--map FILE` (one symbol table for the GUI, the DSL and the servers).
 
