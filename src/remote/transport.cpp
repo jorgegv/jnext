@@ -78,8 +78,9 @@ void Connection::write(const std::uint8_t* data, std::size_t len) {
         out_off_ = 0;
         return;
     }
+    // QUEUED, NOT SENT: the Server pushes once after each adapter callback, so
+    // a reply written in pieces leaves as one send rather than one per piece.
     out_.insert(out_.end(), data, data + len);
-    push();
 }
 
 void Connection::write(const std::string& text) {
@@ -282,8 +283,8 @@ void Server::admit(std::unique_ptr<esp::EspTransport> t) {
     }
     Log::debugger()->info("{}: client connected from {}", cfg_.name, c->peer());
     active_ = std::move(c);
+    // Its greeting goes out with the rest of this pass (`pass()` pushes).
     protocol_.on_connect(*active_);
-    active_->push();
 }
 
 bool Server::settle(ServiceStep last_step) {

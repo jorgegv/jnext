@@ -21,7 +21,8 @@
 //               buffers both directions and calls the adapter's `Protocol`.
 //   Connection  the adapter's view of its one client: `read` / `write` /
 //               `close`. Writes never block and are never dropped: they are
-//               queued and go out as the peer accepts them.
+//               queued, sent when the adapter's callback returns, and the rest
+//               goes out as the peer accepts it.
 //   Protocol    what an adapter implements. `on_service` executes AT MOST ONE
 //               complete command, which is `Service::service_once`'s contract.
 //
@@ -98,9 +99,11 @@ public:
     /// Take up to `cap` received bytes. Never blocks; 0 = nothing buffered.
     std::size_t read(std::uint8_t* buf, std::size_t cap);
 
-    /// Queue bytes for the peer. Never blocks and never drops: what the kernel
-    /// does not take now is sent on a later pass. A peer that falls
-    /// `ServerConfig::max_output` bytes behind is disconnected instead.
+    /// Queue bytes for the peer. Never blocks and never drops. The Server sends
+    /// the queue when the current callback returns, and what the kernel does
+    /// not take then goes out on later passes. A peer that falls
+    /// `ServerConfig::max_output` bytes behind (a single reply larger than that
+    /// counts) is disconnected instead.
     void write(const std::uint8_t* data, std::size_t len);
     void write(const std::string& text);
 

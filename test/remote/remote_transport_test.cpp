@@ -9,7 +9,7 @@
 // the transport, the same role `FakeService` plays in debugger_backend_test.
 //
 //   XPT-FAKE-*  the fake itself: bytes both ways, partial reads and writes,
-//               peer close, reset, nothing blocks. The adapter suites lean on
+//               peer close (and a send after it), reset, nothing blocks. The adapter suites lean on
 //               it, so it is proved before anything is built on it.
 //   XPT-SRV-*   the Server over the fake — every rule of the mechanism, with
 //               no kernel in the way: accept only inside a pass, one command per
@@ -144,7 +144,10 @@ public:
     std::vector<std::string> done;         // commands executed, in order
     std::vector<std::string> trail;        // "C", "S:<cmd>", "D" in call order
     std::size_t max_available  = 0;        // largest available() on_service saw
-    std::size_t last_pending   = 0;        // pending_output() right after a write
+    // pending_output() as on_notify saw it — AFTER the pass's send, so it is
+    // what the kernel did not take. Last value, and the largest.
+    std::size_t notify_pending     = 0;
+    std::size_t max_notify_pending = 0;
 
     Debugger* dbg = nullptr;               // pump rows only
     ClientId  cid = jnext::dbg::CLIENT_NONE;
@@ -176,6 +179,8 @@ public:
 
     void on_notify(Connection& c) override {
         ++notifies;
+        notify_pending     = c.pending_output();
+        max_notify_pending = std::max(max_notify_pending, notify_pending);
         if (!notify_text.empty()) c.write(notify_text);
     }
 
@@ -198,7 +203,6 @@ private:
             std::string       s(n, '\0');
             for (std::size_t i = 0; i < n; ++i) s[i] = static_cast<char>(pat(i));
             c.write(s);
-            last_pending = c.pending_output();
         } else if (cmd == "bye") {
             c.write("bye\n");
             c.close();
@@ -417,6 +421,16 @@ static void fake_rows() {
                          "connections still waiting to be accepted",
           !lsn.listening() && lsn.last_error() == "boom" && queued->closed_by_server() &&
               lsn.accept() == nullptr);
+
+    FakeListener lsn2;
+    lsn2.open(0);
+    auto peer4 = lsn2.connect();
+    auto t4    = lsn2.accept();
+    peer4->close();
+    const std::size_t late = t4->send(reinterpret_cast<const std::uint8_t*>(six.data()), 6);
+    check("XPT-FAKE-14", "a server send to a client that has hung up takes nothing and "
+                         "reports Closed — the reset a real peer's kernel answers with",
+          late == 0 && t4->state() == esp::TransportState::Closed && peer4->pending() == 0);
 }
 
 // ── XPT-SRV — the Server over the fake ─────────────────────────────────────
@@ -468,8 +482,9 @@ static void server_rows() {
         p->set_window(7);
         p->send("big 1000\n");
         r.srv->service_once(0);
+        r.srv->flush_notifications();
         const std::size_t first_chunk = p->pending();
-        const std::size_t held        = r.proto.last_pending;
+        const std::size_t held        = r.proto.notify_pending;
         std::string       got;
         for (int i = 0; i < 400 && got.size() < 1000; ++i) {
             got += p->take();
@@ -796,12 +811,14 @@ static void net_rows() {
     a.rx.clear();
 
     constexpr std::size_t kBig = std::size_t{16} << 20;
+    proto.max_notify_pending = 0;
     a.send_all("big " + std::to_string(kBig) + "\n");
     const bool whole = pump_until(srv, a, [&] { return a.rx.size() >= kBig; }, 20000);
     check("XPT-NET-04", "a 16 MiB reply is more than the kernel takes at once — the rest "
                         "is held — and it arrives whole and in order",
-          whole && proto.last_pending > 0 && is_pattern(a.rx, kBig),
-          "rx=" + std::to_string(a.rx.size()) + " held=" + std::to_string(proto.last_pending));
+          whole && proto.max_notify_pending > 0 && is_pattern(a.rx, kBig),
+          "rx=" + std::to_string(a.rx.size()) +
+              " held=" + std::to_string(proto.max_notify_pending));
     a.rx.clear();
 
     {
