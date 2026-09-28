@@ -152,10 +152,18 @@ Result Debugger::set_joystick(ClientId by, JoystickSide side, uint16_t bits12) {
 // (Multiface) and bit 4 (DivMMC) gate each source in the hardware, and the
 // gates live in `NmiSource`. `Ok` means the button was pressed, not that an NMI
 // happened — the same as a real case button.
+//
+// THROUGH THE HOTKEY SEAM ITSELF (GH #276 B4), not a copy of it. B1 strobed
+// `NmiSource` directly, which is what `on_hotkey_f9_mf_nmi()` does — but NOT what
+// `on_hotkey_f10_divmmc_nmi()` does: the drive edge is suppressed at its source
+// while the DivMMC port is disabled (`hotkey_drive <= … and port_divmmc_io_en`,
+// zxnext.vhd:6349; NR 0x83 bit 0), so with the port off this verb pressed a
+// button F10 cannot. Found when `--delayed-nmi` was routed through this verb (the
+// owner's O2), which would have changed that flag's behaviour. One path now: the
+// verb IS the F9/F10 hotkey, gates and all (rows IN-04-02/03).
 Result Debugger::press_nmi(ClientId by, NmiButton button) {
-    NmiSource& nmi = impl_->emu.nmi_source();
-    if (button == NmiButton::Mf) nmi.strobe_mf_button();
-    else                         nmi.strobe_divmmc_button();
+    if (button == NmiButton::Mf) impl_->emu.on_hotkey_f9_mf_nmi();
+    else                         impl_->emu.on_hotkey_f10_divmmc_nmi();
     impl_->log_mutate_range(by, "nmi button",
                             button == NmiButton::Mf ? "MF pressed" : "DRIVE pressed");
     return Result::Ok;

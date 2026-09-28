@@ -3375,6 +3375,31 @@ int main() {
         check("IN-04-01", "press_nmi() is accepted for both buttons",
               dbg.press_nmi(1, jnext::dbg::NmiButton::Mf) == Result::Ok &&
               dbg.press_nmi(1, jnext::dbg::NmiButton::Drive) == Result::Ok);
+        // THE SIBLING PAIR, press_nmi vs the F9/F10 hotkey seam: the same
+        // button line on BOTH sides of the one gate the seam applies — the DivMMC
+        // port enable (NR 0x83 bit 0; zxnext.vhd:6349). With the port off the
+        // drive button must not be pressed, exactly as F10 cannot press it.
+        auto drive_line = [](bool port_on, bool via_verb) {
+            Emulator e; build(e);
+            Debugger d(e);
+            e.divmmc().set_port_io_enable(port_on);
+            if (via_verb) d.press_nmi(1, jnext::dbg::NmiButton::Drive);
+            else          e.on_hotkey_f10_divmmc_nmi();
+            return e.nmi_source().divmmc_button();
+        };
+        check("IN-04-02", "press_nmi(Drive) is the F10 hotkey: pressed with the DivMMC "
+                          "port enabled, NOT pressed with it disabled — both matching F10",
+              drive_line(true, true) && drive_line(true, false) &&
+                  !drive_line(false, true) && !drive_line(false, false));
+        auto mf_line = [](bool via_verb) {
+            Emulator e; build(e);
+            Debugger d(e);
+            if (via_verb) d.press_nmi(1, jnext::dbg::NmiButton::Mf);
+            else          e.on_hotkey_f9_mf_nmi();
+            return e.nmi_source().mf_button();
+        };
+        check("IN-04-03", "press_nmi(Mf) is the F9 hotkey: it raises the Multiface button line",
+              mf_line(true) && mf_line(false));
     }
 
     // =======================================================================
