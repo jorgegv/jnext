@@ -5463,12 +5463,12 @@ int main() {
         dbg.subscribe(1, s);
         const uint64_t frame_start = emu.clock().get();
         emu.run_frame();
-        check("EVT-TIME-20", "the raw-line-0 event is delivered",
+        check("EVT-TIME-29", "the raw-line-0 event is delivered",
               rec.evs.size() == 1, "n=" + std::to_string(rec.evs.size()));
         if (rec.evs.size() == 1) {
-            check("EVT-TIME-21", "and it names raw line 0",
+            check("EVT-TIME-30", "and it names raw line 0",
                   rec.evs[0].vc == 0, "vc=" + std::to_string(rec.evs[0].vc));
-            check("EVT-TIME-22", "with `hc` 0 and `cycle` AT the frame's start — the "
+            check("EVT-TIME-31", "with `hc` 0 and `cycle` AT the frame's start — the "
                                  "live clock is 32 master cycles past it here, so "
                                  "this is the row the aligned group above cannot be",
                   rec.evs[0].hc == 0 && rec.evs[0].cycle == frame_start,
@@ -9131,6 +9131,122 @@ int main() {
                            "config's persistent flag stands and a direct (non-verb) "
                            "call-stack enable is not resurrected",
               untouched, where2);
+
+        // BOTH VALUES OF EVERY FLAG in the no-intent arm (coverage review C3).
+        // CTL-12-40's config said persistent ON, which is also what a re-apply
+        // that defaulted to ON would produce, so that defaulting bug survived it;
+        // and a rebuilt machine's call-stack / trace are OFF, which is what a
+        // re-apply defaulting to OFF would produce. Two more arms close both:
+        //   * a rebuild with the config saying persistent OFF — nothing may come
+        //     back ON;
+        //   * an IN-PLACE landing on a machine whose three flags were switched ON
+        //     directly (the Qt route, not client intent) — nothing may come back
+        //     OFF, because the backend only re-applies what a client asked for.
+        const Out all_off{false, false, false};
+        bool off_ok = true;
+        std::string where3;
+        for (int p = 0; p < 3; ++p) {
+            const Out o = run_path(p, false, false, /*cfg_pb=*/false, /*direct_cs=*/false);
+            if (!(o == all_off)) { off_ok = false; where3 += " [path" + std::to_string(p) + " " + show(o) + "]"; }
+        }
+        check("CTL-12-54", "with no client intent and the config saying persistent OFF, "
+                           "a reconstruct brings back all three flags OFF on every route",
+              off_ok, where3);
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            jnext::dbg::LoopDriver d;
+            d.load = [](const std::string&) { return true; };      // in place
+            dbg.set_loop_driver(d);
+            emu.call_stack().set_enabled(true);                     // not client intent
+            emu.trace_log().set_enabled(true);
+            emu.debug_state().set_persistent_breakpoints(true);
+            dbg.load(a, "game.nex");
+            const Out o{emu.call_stack().enabled(), emu.trace_log().enabled(),
+                        emu.debug_state().persistent_breakpoints()};
+            check("CTL-12-55", "and with no client intent an IN-PLACE landing leaves all "
+                               "three flags as the machine had them — ON stays ON",
+                  o == all_on, show(o));
+            dbg.detach(a);
+        }
+    }
+    {
+        // FAILED BOOTS THAT REALLY RECONSTRUCTED (coverage review C1/C2). The
+        // re-application runs WHETHER OR NOT the driver reports success, because a
+        // failed cold boot still ran `~Emulator()` and the placement-new — and the
+        // fakes of CTL-12-08 / CTL-15-06 never reconstruct, so they could not
+        // tell a re-application that ran from one that was skipped. These drivers
+        // DO rebuild the machine, and THEN report failure.
+        for (int via_load = 0; via_load < 2; ++via_load) {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            RecListener l;
+            const ClientId a = dbg.attach(client("A")).value;
+            dbg.set_listener(a, &l);
+            int hits = 0, reset_events = 0;
+            Subscription s;
+            s.kind      = EventKind::Mem;
+            s.access    = Access::Write;
+            s.filter.lo = WATCHED; s.filter.hi = WATCHED;
+            s.action    = Action::Continue;
+            s.handler   = [&](const DbgEvent&, Debugger&) { ++hits; return Action::Continue; };
+            dbg.subscribe(a, s);
+            Subscription rs;
+            rs.kind              = EventKind::Reset;
+            rs.filter.reset_kind = ResetKind::Hard;
+            rs.action            = Action::Continue;
+            rs.handler = [&](const DbgEvent&, Debugger&) { ++reset_events; return Action::Continue; };
+            dbg.subscribe(a, rs);
+            dbg.set_call_stack_enabled(true);
+            jnext::dbg::LoopDriver d;
+            d.cold_boot = [&]() {
+                emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+                return false;                            // rebuilt, and reports failure
+            };
+            d.load = [&](const std::string&) {
+                emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+                return false;
+            };
+            dbg.set_loop_driver(d);
+            dbg.pause(a);
+            const Result r = via_load ? dbg.load(a, "game.nex")
+                                      : dbg.reset(a, ResetKind::Hard);
+            const RunState st = dbg.state();
+            const bool reapplied =
+                r == Result::RefusedUnavailable && st.paused &&
+                st.pause_reason.kind == PauseReason::Kind::User && st.pause_reason.by == a &&
+                emu.call_stack().enabled() &&
+                emu.debug_state().breakpoints().wr_watch_slot_armed(WATCHED);
+            const bool pushed = l.resets.size() == 1 && l.resets[0] == ResetKind::Hard;
+            dbg.run(a);
+            load_writer(emu, 0x5C);
+            emu.run_frame();
+            check(via_load ? "CTL-15-16" : "CTL-12-56",
+                  via_load ? "a load whose driver RECONSTRUCTS and then reports failure is "
+                             "refused but still re-applies — owned pause, enables, gate, "
+                             "and the subscription fires"
+                           : "a reset(Hard) whose driver RECONSTRUCTS and then reports "
+                             "failure is refused but still re-applies — owned pause, "
+                             "enables, gate, and the subscription fires",
+                  reapplied && hits > 0,
+                  std::string("r=") + jnext::dbg::result_name(r) +
+                      " paused=" + (st.paused ? "1" : "0") +
+                      " by=" + std::to_string(st.pause_reason.by) +
+                      " hits=" + std::to_string(hits));
+            // And the machine WAS rebuilt, so every other client's cache of it is
+            // invalid either way: `Reset{Hard}` is pushed and latched even though
+            // the load / boot failed — the same reading rule 4 takes for a failed
+            // `reset(Hard)` (CTL-12-09), now pinned on a boot that really rebuilt.
+            check(via_load ? "CTL-15-17" : "CTL-12-57",
+                  via_load ? "and the failed-but-reconstructing load still pushes and "
+                             "latches Reset{Hard} — the machine WAS rebuilt"
+                           : "and the failed-but-reconstructing reset still pushes and "
+                             "latches Reset{Hard}",
+                  pushed && reset_events == 1,
+                  "pushed=" + std::to_string(l.resets.size()) +
+                      " events=" + std::to_string(reset_events));
+        }
     }
 
     // ── R2 — the ctor/dtor publication pairing, as ONE invariant ───────────

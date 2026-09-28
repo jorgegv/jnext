@@ -798,7 +798,11 @@ construction). Then, in dependency order:
    clears: after one remote step-back the machine stays armed, and the raster
    walk and render hint stay on, for the rest of the session. Pre-existing — B3
    did not touch it (confirmed by B3's contract review) — and retired together
-   with `active()` when the Qt window becomes a client.
+   with `active()` when the Qt window becomes a client. Since B3 that bit is also
+   a term of `DebugState::attached()` (the step-machinery gate) and
+   `raster_live()` (the raster walk and render hint), so the stuck bit holds
+   those on too — the same things `active()` gated directly before B3, now
+   reached through the two bits that replaced it in the hot path.
 
 **Branch discipline (review R-7; owner rule 2026-09-24, arch §10.3):** #278
 is one multi-stage issue and lives on **one** branch, `gh278-qt` (arch
