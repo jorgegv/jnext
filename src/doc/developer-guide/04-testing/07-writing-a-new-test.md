@@ -65,7 +65,9 @@ Total:   82  Passed:   82  Failed:    0  Skipped:    0
 Four rules govern the ID:
 
 - **It must be a string literal.** An ID assembled at run time is invisible to
-  every reader of the source and vanishes from the traceability matrix.
+  every reader of the source and vanishes from the traceability matrix. The unit
+  harness fails a suite that reports an ID not found verbatim as a literal in its
+  sources; a loop over cases takes each case's ID from its case table.
 - **It must be globally unique.** `traceability-dup-ids.pl` refuses when two
   suites assert the same ID, or when it names a planned row in another
   subsystem's plan doc; the unit harness refuses a suite that reports the same

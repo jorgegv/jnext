@@ -1915,6 +1915,11 @@ precisely that with <code>log_gate_test</code> and got a clean green run for it.
   one row in the traceability matrix and two in the count. The count half is
   what keeps the check honest — a row helper that does not report still counts
   its row, so an unwired suite cannot pass by reporting nothing;</li>
+<li>reports a row ID that is <strong>not a string literal of its own sources</strong> — one
+  built at run time. The sources come from the same CMake reader
+  <code>traceability-dup-ids.pl</code> uses (<code>--sources</code>), and a suite with none known is a
+  refusal. <code>fuse_z80_test</code> and <code>z80n_test</code> are declared exemptions, named in the
+  output, because their IDs are the case names of a checked-in fixture file;</li>
 <li><strong>crashes</strong>, exits non-zero, or contains any row that failed;</li>
 <li><strong>times out</strong>, which by default means 300 s for a single suite.</li>
 </ul>

@@ -263,7 +263,10 @@ the same row, which is signal about the spec rather than bookkeeping.
 **A row ID must be a LITERAL.** Building one at run time
 (`check((std::string(c.id) + "-35").c_str(), ...)`) emits a row no source
 reader can see: the matrix then carried two IDs that are not rows and none of
-the six that are. Spell every ID out.
+the six that are. Spell every ID out. `run-unit-tests.sh` enforces it: every ID a
+suite reports must appear verbatim as a string literal in its sources, with
+`fuse_z80_test` and `z80n_test` the declared exceptions (their IDs are the case
+names of a checked-in fixture file).
 
 **An ID is a GLOBAL name.** `make unit-test` runs `traceability-dup-ids.pl`,
 which refuses when two suites (the `?`-gated GUI ones included) assert the same

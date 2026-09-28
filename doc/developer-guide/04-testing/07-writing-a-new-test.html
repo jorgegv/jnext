@@ -1890,7 +1890,9 @@ counters</strong>. Every suite ends with the line the unit harness parses:</p>
 <p>Four rules govern the ID:</p>
 <ul>
 <li><strong>It must be a string literal.</strong> An ID assembled at run time is invisible to
-  every reader of the source and vanishes from the traceability matrix.</li>
+  every reader of the source and vanishes from the traceability matrix. The unit
+  harness fails a suite that reports an ID not found verbatim as a literal in its
+  sources; a loop over cases takes each case's ID from its case table.</li>
 <li><strong>It must be globally unique.</strong> <code>traceability-dup-ids.pl</code> refuses when two
   suites assert the same ID, or when it names a planned row in another
   subsystem's plan doc; the unit harness refuses a suite that reports the same
