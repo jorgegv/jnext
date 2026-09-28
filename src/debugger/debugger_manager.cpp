@@ -628,7 +628,12 @@ void DebuggerManager::on_load_map_z88dk() {
     if (path.isEmpty())
         return;
 
-    if (symbol_table_.load_z88dk_map(path.toStdString())) {
+    // load_z88dk_map() returns the symbol count, or -1 when the file cannot be
+    // read — an int, not a bool (GH #278 WP0): tested as a bool, a failed read
+    // (-1) reported "MAP Loaded" over the old table, and a readable map with no
+    // `; addr` symbols (0) reported "Load Failed" after clearing it. Same test
+    // as the Simple loader below and as the backend's load_map().
+    if (symbol_table_.load_z88dk_map(path.toStdString()) >= 0) {
         QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
                 .arg(symbol_table_.size())

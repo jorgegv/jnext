@@ -5179,6 +5179,22 @@ int main() {
               !dbg.lookup(0x8000).has_value() && dbg.symbols().empty());
         check("SYM-03", "clear_symbols() is always Ok",
               dbg.clear_symbols() == Result::Ok);
+
+        // GH #278 WP0 — the case the Qt Map menu got wrong (it tested the
+        // loader's int as a bool): a readable Z88DK map with no `; addr` line
+        // is a successful load of ZERO symbols, not a failure.
+        const std::string consts = "/tmp/jnext_gh278_consts.map";
+        {
+            std::ofstream f(consts);
+            f << "__SIZE = $0010 ; const, public\n";
+        }
+        const auto zero = dbg.load_map(consts, jnext::dbg::MapFormat::Z88dk);
+        check("SYM-10", "a readable Z88DK map with no `; addr` symbols loads zero "
+                        "(Ok, 0), not a refusal",
+              zero.status == Result::Ok && zero.value == 0 && dbg.symbols().empty(),
+              std::string(jnext::dbg::result_name(zero.status)) + " " +
+                  std::to_string(zero.value));
+        std::remove(consts.c_str());
     }
 
     // =======================================================================

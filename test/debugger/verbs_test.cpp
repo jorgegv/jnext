@@ -1663,19 +1663,19 @@ static void test_trace_ui() {
 // and the loaded symbols reach the Disassembly, Call Stack and Breakpoints
 // panels through the manager's table.
 //
-// NOT pinned: the Z88DK loader's FAILURE and zero-symbol cases.
-// on_load_map_z88dk() tests load_z88dk_map()'s int result as a bool, so an
-// unreadable file (-1) reports "MAP Loaded" and a valid map with no `; addr`
-// symbols (0) reports "Load Failed" after clearing the table. Reported in the
-// WP0 hand-back as a defect; the Simple loader (count >= 0) is correct and its
-// failure message is pinned below.
+// QMAP-04 pins the Z88DK loader's failure and zero-symbol cases (GH #278 WP0
+// fix): on_load_map_z88dk() used to test load_z88dk_map()'s int result as a
+// bool, so an unreadable file (-1) reported "MAP Loaded" over the old table and
+// a valid map with no `; addr` symbols (0) reported "Load Failed" after
+// clearing it.
 // ===========================================================================
 static void test_map_load() {
     set_group("QMAP");
 
     Fixture fx;
     if (!fx.ok) {
-        for (const char* id : {"QMAP-01", "QMAP-02", "QMAP-03"}) check(id, "fixture", false);
+        for (const char* id : {"QMAP-01", "QMAP-02", "QMAP-03", "QMAP-04"})
+            check(id, "fixture", false);
         return;
     }
     fx.load(PROG, {0xCD, 0x00, 0x90, 0x18, 0xFE});        // CALL $9000 / JR $
@@ -1704,6 +1704,40 @@ static void test_map_load() {
                                    .arg(QString::fromStdString(path)) &&
                   fx.mgr->symbol_table().size() == 3,
               fmt("modals=%s table=%zu", m.describe().c_str(), fx.mgr->symbol_table().size()));
+    }
+
+    {
+        // Z88DK, a file that cannot be read: "Load Failed", the table untouched.
+        const std::string gone_path = write_file("gone_z88dk.map", "_x = $1234 ; addr\n");
+        Modals bad;
+        bad.file_path = QString::fromStdString(gone_path);
+        bad.after_file_accept = [gone_path]() { QFile::remove(QString::fromStdString(gone_path)); };
+        if (QAction* a = item_named(load_menu, "Z88DK Format...")) a->trigger();
+        bad.timer.stop();
+        const size_t after_bad = fx.mgr->symbol_table().size();
+
+        // Z88DK, a readable map with nothing but a `; const`: a load of zero.
+        const std::string none_path = write_file("consts.map", "__SIZE = $0010 ; const, public\n");
+        Modals none;
+        none.file_path = QString::fromStdString(none_path);
+        if (QAction* a = item_named(load_menu, "Z88DK Format...")) a->trigger();
+        none.timer.stop();
+
+        const Modals::Seen* badb = bad.first("box");
+        const Modals::Seen* noneb = none.first("box");
+        check("QMAP-04",
+              "Z88DK Format...: an unreadable file gives \"Load Failed\" and keeps the "
+              "table; a map with no `; addr` symbols loads zero (\"MAP Loaded\", "
+              "\"Loaded 0 symbols\")",
+              badb && badb->title == "Load Failed" &&
+                  badb->text == QStringLiteral("Could not load MAP file:\n%1")
+                                    .arg(QString::fromStdString(gone_path)) &&
+                  after_bad == 3 && noneb && noneb->title == "MAP Loaded" &&
+                  noneb->text == QStringLiteral("Loaded 0 symbols from:\n%1")
+                                     .arg(QString::fromStdString(none_path)) &&
+                  fx.mgr->symbol_table().size() == 0,
+              fmt("bad: %s table after=%zu; none: %s table after=%zu", bad.describe().c_str(),
+                  after_bad, none.describe().c_str(), fx.mgr->symbol_table().size()));
     }
 
     {
