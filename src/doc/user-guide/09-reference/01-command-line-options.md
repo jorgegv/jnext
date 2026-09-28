@@ -566,7 +566,12 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
 :   Save a screenshot after a delay. The format is taken from *FILE*’s
     extension: `.scr` writes the raw ULA screen memory, anything else
     writes a PNG of the composited picture. See **SCREENSHOT FORMATS**
-    below.
+    below. The capture is taken from the next frame the machine renders,
+    so if it comes due while the machine is paused - by the debugger, or
+    by a **--magic-breakpoint** - it waits until the machine runs again;
+    it is never written from the frame that was on screen before the
+    pause. One still waiting when the exit comes is an error (see
+    **--delayed-automatic-exit**).
 
 **--delayed-screenshot-time** *N*
 :   Delay in seconds (default 10). Requires **--delayed-screenshot**.

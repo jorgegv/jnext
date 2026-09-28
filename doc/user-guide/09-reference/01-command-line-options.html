@@ -3469,7 +3469,12 @@ the <code>BENCH</code> line is space-delimited. Requires <strong>--benchmark</st
 <dd>Save a screenshot after a delay. The format is taken from <em>FILE</em>’s
 extension: <code>.scr</code> writes the raw ULA screen memory, anything else
 writes a PNG of the composited picture. See <strong>SCREENSHOT FORMATS</strong>
-below.</dd>
+below. The capture is taken from the next frame the machine renders,
+so if it comes due while the machine is paused - by the debugger, or
+by a <strong>--magic-breakpoint</strong> - it waits until the machine runs again;
+it is never written from the frame that was on screen before the
+pause. One still waiting when the exit comes is an error (see
+<strong>--delayed-automatic-exit</strong>).</dd>
 <dt><strong>--delayed-screenshot-time</strong> <em>N</em></dt>
 <dd>Delay in seconds (default 10). Requires <strong>--delayed-screenshot</strong>.</dd>
 <dt><strong>--delayed-screenshot-frames</strong> <em>N</em></dt>

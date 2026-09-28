@@ -615,7 +615,13 @@ line is space-delimited. Requires **--benchmark**.
 **--delayed-screenshot** *FILE*  
 Save a screenshot after a delay. The format is taken from *FILE*’s
 extension: `.scr` writes the raw ULA screen memory, anything else writes
-a PNG of the composited picture. See **SCREENSHOT FORMATS** below.
+a PNG of the composited picture. See **SCREENSHOT FORMATS** below. The
+capture is taken from the next frame the machine renders, so if it comes
+due while the machine is paused - by the debugger, or by a
+**--magic-breakpoint** - it waits until the machine runs again; it is
+never written from the frame that was on screen before the pause. One
+still waiting when the exit comes is an error (see
+**--delayed-automatic-exit**).
 
 **--delayed-screenshot-time** *N*  
 Delay in seconds (default 10). Requires **--delayed-screenshot**.
@@ -1091,10 +1097,13 @@ Notes worth knowing:
   so the NextZXOS date and time on screen never change between runs.
 
 - A screenshot that was asked for and never taken is an error. If
-  **--delayed-automatic-exit** fires before the capture comes due, jnext
-  logs an error and exits non-zero instead of silently writing nothing.
-  The same holds for a **--load**, **--inject** or keypress still to
-  come.
+  **--delayed-automatic-exit** fires before the capture comes due, or
+  after it came due while the machine was paused (a
+  **--magic-breakpoint**, say: nothing resumes a paused headless
+  machine, so no frame is rendered for it), jnext logs an error and
+  exits non-zero instead of silently writing nothing or writing the
+  picture from before the pause. The same holds for a **--load**,
+  **--inject** or keypress still to come.
 
 - **--delayed-screenshot-layers** isolates a layer. An excluded layer is
   composed as if its hardware enable bit were clear, so the remaining

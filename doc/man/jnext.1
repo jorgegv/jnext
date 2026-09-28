@@ -635,6 +635,13 @@ The format is taken from \f[I]FILE\f[R]\(cqs extension: \f[CR].scr\f[R]
 writes the raw ULA screen memory, anything else writes a PNG of the
 composited picture.
 See \f[B]SCREENSHOT FORMATS\f[R] below.
+The capture is taken from the next frame the machine renders, so if it
+comes due while the machine is paused \- by the debugger, or by a
+\f[B]\-\-magic\-breakpoint\f[R] \- it waits until the machine runs
+again; it is never written from the frame that was on screen before the
+pause.
+One still waiting when the exit comes is an error (see
+\f[B]\-\-delayed\-automatic\-exit\f[R]).
 .TP
 \f[B]\-\-delayed\-screenshot\-time\f[R] \f[I]N\f[R]
 Delay in seconds (default 10).
@@ -1186,8 +1193,11 @@ runs.
 .IP \(bu 2
 A screenshot that was asked for and never taken is an error.
 If \f[B]\-\-delayed\-automatic\-exit\f[R] fires before the capture comes
-due, jnext logs an error and exits non\-zero instead of silently writing
-nothing.
+due, or after it came due while the machine was paused (a
+\f[B]\-\-magic\-breakpoint\f[R], say: nothing resumes a paused headless
+machine, so no frame is rendered for it), jnext logs an error and exits
+non\-zero instead of silently writing nothing or writing the picture
+from before the pause.
 The same holds for a \f[B]\-\-load\f[R], \f[B]\-\-inject\f[R] or
 keypress still to come.
 .IP \(bu 2

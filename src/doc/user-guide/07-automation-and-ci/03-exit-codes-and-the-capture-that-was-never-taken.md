@@ -4,9 +4,10 @@
 out, because it is the one that silently ruins a CI pipeline everywhere else:
 
 > **A screenshot that was requested and never taken is an error.** If the
-> automatic exit fires before the capture comes due, JNEXT logs an error and
-> exits non-zero. It never writes nothing and reports success, and it never
-> writes a stale frame in place of the one you asked for.
+> automatic exit fires before the capture comes due, or before a frame has been
+> rendered for it, JNEXT logs an error and exits non-zero. It never writes
+> nothing and reports success, and it never writes a stale frame in place of
+> the one you asked for.
 
 You can see it directly:
 
@@ -21,6 +22,26 @@ $ jnext --headless --load myprog.nex \
 $ echo $?
 1
 ```
+
+A capture is always taken from a frame rendered after it comes due, so a
+paused machine defers it. Under `--headless` nothing resumes a paused machine:
+a program that stops itself with `--magic-breakpoint` before its capture point
+renders no further frames, and the exit bound finds the capture still waiting:
+
+```console
+$ jnext --headless --magic-breakpoint --load stops-itself.nex \
+      --delayed-screenshot paused.png --delayed-screenshot-frames 200 \
+      --delayed-automatic-exit-frames 250
+...
+[platform] [error] --delayed-screenshot: NO screenshot was written to
+  'paused.png' (layers: all); the emulator exited with the capture still
+  pending. Exiting non-zero.
+$ echo $?
+1
+```
+
+No `paused.png` is written, not even the picture that was on screen when the
+machine stopped: that would be a frame from before the one you asked for.
 
 Without that guarantee, a script whose program hangs early gets no PNG, a zero
 exit status, and — if the comparison step is written defensively — a green
