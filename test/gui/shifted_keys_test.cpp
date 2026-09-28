@@ -73,6 +73,7 @@ std::string fmt(const std::vector<KeyEv>& v) {
 // its unshifted sibling maps to.
 // ---------------------------------------------------------------------------
 struct ShiftedKey {
+    const char*  id;          // literal row ID (I123-01..19)
     Qt::Key      shifted;     // Qt logical key with Shift held
     SDL_Scancode expect;      // scancode the UNSHIFTED sibling maps to
     const char*  glyph;       // US-layout shifted glyph
@@ -81,25 +82,25 @@ struct ShiftedKey {
 };
 
 const ShiftedKey SHIFTED[] = {
-    { Qt::Key_Exclam,      SDL_SCANCODE_1,          "!", "1",  "SDL_SCANCODE_1"          },
-    { Qt::Key_At,          SDL_SCANCODE_2,          "@", "2",  "SDL_SCANCODE_2"          },
-    { Qt::Key_NumberSign,  SDL_SCANCODE_3,          "#", "3",  "SDL_SCANCODE_3"          },
-    { Qt::Key_Dollar,      SDL_SCANCODE_4,          "$", "4",  "SDL_SCANCODE_4"          },
-    { Qt::Key_Percent,     SDL_SCANCODE_5,          "%", "5",  "SDL_SCANCODE_5"          },
-    { Qt::Key_AsciiCircum, SDL_SCANCODE_6,          "^", "6",  "SDL_SCANCODE_6"          },
-    { Qt::Key_Ampersand,   SDL_SCANCODE_7,          "&", "7",  "SDL_SCANCODE_7"          },
-    { Qt::Key_Asterisk,    SDL_SCANCODE_8,          "*", "8",  "SDL_SCANCODE_8"          },
-    { Qt::Key_ParenLeft,   SDL_SCANCODE_9,          "(", "9",  "SDL_SCANCODE_9"          },
-    { Qt::Key_ParenRight,  SDL_SCANCODE_0,          ")", "0",  "SDL_SCANCODE_0"          },
-    { Qt::Key_Underscore,  SDL_SCANCODE_MINUS,      "_", "-",  "SDL_SCANCODE_MINUS"      },
-    { Qt::Key_Plus,        SDL_SCANCODE_EQUALS,     "+", "=",  "SDL_SCANCODE_EQUALS"     },
-    { Qt::Key_Bar,         SDL_SCANCODE_BACKSLASH,  "|", "\\", "SDL_SCANCODE_BACKSLASH"  },
-    { Qt::Key_Colon,       SDL_SCANCODE_SEMICOLON,  ":", ";",  "SDL_SCANCODE_SEMICOLON"  },
-    { Qt::Key_QuoteDbl,    SDL_SCANCODE_APOSTROPHE, "\"", "'", "SDL_SCANCODE_APOSTROPHE" },
-    { Qt::Key_AsciiTilde,  SDL_SCANCODE_GRAVE,      "~", "`",  "SDL_SCANCODE_GRAVE"      },
-    { Qt::Key_Less,        SDL_SCANCODE_COMMA,      "<", ",",  "SDL_SCANCODE_COMMA"      },
-    { Qt::Key_Greater,     SDL_SCANCODE_PERIOD,     ">", ".",  "SDL_SCANCODE_PERIOD"     },
-    { Qt::Key_Question,    SDL_SCANCODE_SLASH,      "?", "/",  "SDL_SCANCODE_SLASH"      },
+    { "I123-01", Qt::Key_Exclam,      SDL_SCANCODE_1,          "!", "1",  "SDL_SCANCODE_1"          },
+    { "I123-02", Qt::Key_At,          SDL_SCANCODE_2,          "@", "2",  "SDL_SCANCODE_2"          },
+    { "I123-03", Qt::Key_NumberSign,  SDL_SCANCODE_3,          "#", "3",  "SDL_SCANCODE_3"          },
+    { "I123-04", Qt::Key_Dollar,      SDL_SCANCODE_4,          "$", "4",  "SDL_SCANCODE_4"          },
+    { "I123-05", Qt::Key_Percent,     SDL_SCANCODE_5,          "%", "5",  "SDL_SCANCODE_5"          },
+    { "I123-06", Qt::Key_AsciiCircum, SDL_SCANCODE_6,          "^", "6",  "SDL_SCANCODE_6"          },
+    { "I123-07", Qt::Key_Ampersand,   SDL_SCANCODE_7,          "&", "7",  "SDL_SCANCODE_7"          },
+    { "I123-08", Qt::Key_Asterisk,    SDL_SCANCODE_8,          "*", "8",  "SDL_SCANCODE_8"          },
+    { "I123-09", Qt::Key_ParenLeft,   SDL_SCANCODE_9,          "(", "9",  "SDL_SCANCODE_9"          },
+    { "I123-10", Qt::Key_ParenRight,  SDL_SCANCODE_0,          ")", "0",  "SDL_SCANCODE_0"          },
+    { "I123-11", Qt::Key_Underscore,  SDL_SCANCODE_MINUS,      "_", "-",  "SDL_SCANCODE_MINUS"      },
+    { "I123-12", Qt::Key_Plus,        SDL_SCANCODE_EQUALS,     "+", "=",  "SDL_SCANCODE_EQUALS"     },
+    { "I123-13", Qt::Key_Bar,         SDL_SCANCODE_BACKSLASH,  "|", "\\", "SDL_SCANCODE_BACKSLASH"  },
+    { "I123-14", Qt::Key_Colon,       SDL_SCANCODE_SEMICOLON,  ":", ";",  "SDL_SCANCODE_SEMICOLON"  },
+    { "I123-15", Qt::Key_QuoteDbl,    SDL_SCANCODE_APOSTROPHE, "\"", "'", "SDL_SCANCODE_APOSTROPHE" },
+    { "I123-16", Qt::Key_AsciiTilde,  SDL_SCANCODE_GRAVE,      "~", "`",  "SDL_SCANCODE_GRAVE"      },
+    { "I123-17", Qt::Key_Less,        SDL_SCANCODE_COMMA,      "<", ",",  "SDL_SCANCODE_COMMA"      },
+    { "I123-18", Qt::Key_Greater,     SDL_SCANCODE_PERIOD,     ">", ".",  "SDL_SCANCODE_PERIOD"     },
+    { "I123-19", Qt::Key_Question,    SDL_SCANCODE_SLASH,      "?", "/",  "SDL_SCANCODE_SLASH"      },
 };
 constexpr int N_SHIFTED = int(sizeof(SHIFTED) / sizeof(SHIFTED[0]));
 
@@ -133,13 +134,12 @@ void test_translation(MainWindow& w) {
                      && seen[0].sc == k.expect &&  seen[0].pressed
                      && seen[1].sc == k.expect && !seen[1].pressed;
 
-        char id[16], desc[192];
-        std::snprintf(id, sizeof(id), "I123-%02d", 1 + i);
+        char desc[192];
         std::snprintf(desc, sizeof(desc),
                       "Shift+%s ('%s') delivers %s on press and release, "
                       "like unshifted '%s'",
                       k.unshifted, k.glyph, k.sc_name, k.unshifted);
-        check(id, desc, ok, fmt(seen));
+        check(k.id, desc, ok, fmt(seen));
     }
 }
 
