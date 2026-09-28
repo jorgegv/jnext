@@ -1334,8 +1334,8 @@ static void test_rewind_ui() {
         Fixture fx(MachineType::ZX48K, 10);
         const char* d10 = "with the trace off, Step Back greys and Jump Here stays "
                           "enabled; trace back on re-enables Step Back";
-        const char* d11 = "an RZX playback greys both Step Back and Jump Here, and "
-                          "running greys both";
+        const char* d11 = "an RZX playback greys both Step Back and Jump Here on the "
+                          "next tick, with no verb in between, and running greys both";
         if (!fx.ok || !fx.emu.rewind_buffer()) {
             check("QRW-10", d10, false, "fixture");
             check("QRW-11", d11, false, "fixture");
@@ -1355,13 +1355,14 @@ static void test_rewind_ui() {
             check("QRW-10", d10, base && off && on_again,
                   fmt("baseline=%d trace-off=%d trace-on=%d", base, off, on_again));
 
-            // update_actions() runs on the manager's verbs, not on a refresh,
-            // so the greying is observed after one (Break, a no-op pause).
+            // An RZX started while paused, with NO debugger verb in between:
+            // the next tick greys both (GH #278 WP0 fix — the greying used to
+            // wait for the next verb), and the tick after the stop restores them.
             fx.emu.rzx_player().start(RzxRecording{});
-            fx.mgr->on_pause();
+            fx.tick();
             const bool rzx_grey = !action_enabled(step_back) && jump && !jump->isEnabled();
             fx.emu.rzx_player().stop();
-            fx.mgr->on_pause();
+            fx.tick();
             const bool restored = action_enabled(step_back) && jump->isEnabled();
             fx.mgr->on_run();
             const bool run_grey = !action_enabled(step_back) && !jump->isEnabled();
@@ -1377,7 +1378,8 @@ static void test_rewind_ui() {
         const char* d12 = "Enable Rewind with no buffer creates one (500 frames), "
                           "turns the trace on and snapshots start";
         const char* d16 = "Rewind Buffer Size... resizes to the value entered (the "
-                          "next create uses it) and 0 frees the buffer";
+                          "next create uses it); 0 frees the buffer and the next tick "
+                          "greys Step Back and Jump Here";
         if (!fx.ok) {
             check("QRW-12", d12, false, "fixture");
             check("QRW-16", d16, false, "fixture");
@@ -1408,8 +1410,12 @@ static void test_rewind_ui() {
             m.spin_value = 0;
             if (QAction* sz = debug_sub_item(dbg, "Rewind", "Rewind Buffer Size..."))
                 sz->trigger();
+            fx.tick();
+            QPushButton* jump = button_ending(dbg, "Jump Here");
             const bool freed = fx.emu.rewind_buffer() == nullptr && enable &&
-                               !enable->isChecked();
+                               !enable->isChecked() &&
+                               !action_enabled(debug_item(dbg, "Step Back")) &&
+                               jump && !jump->isEnabled();
             if (enable) {
                 if (enable->isChecked()) enable->trigger();   // uncheck first
                 enable->trigger();                             // create again
