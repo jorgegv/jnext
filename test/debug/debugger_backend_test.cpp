@@ -8769,6 +8769,28 @@ int main() {
                                "RUNNING pushes Resumed",
                   !dbg.state().paused && l.resumed.size() == r0 + 1, l.trail());
         }
+        // An IN-PLACE landing re-bases too — onto the SAME machine's counters,
+        // which continue. The frames already reported stay reported: a load that
+        // replaced nothing and ran no frame pushes no FrameEnded (and no
+        // Paused), in the raw counter the detector compares, not the tag.
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            RecListener l;
+            const ClientId a = setup(emu, dbg, l);
+            jnext::dbg::LoopDriver d;
+            d.load = [](const std::string&) { return true; };      // in place
+            dbg.set_loop_driver(d);
+            for (int i = 0; i < 4; ++i) emu.run_frame();
+            dbg.pause(a);
+            dbg.pump(jnext::dbg::PumpBudget{});
+            const size_t f0 = l.frames.size(), p0 = l.paused.size();
+            dbg.load(a, "game.nex");
+            dbg.pump(jnext::dbg::PumpBudget{});
+            check("SES-02-24", "an in-place load that ran no frame pushes no FrameEnded "
+                               "and no Paused",
+                  f0 >= 1 && l.frames.size() == f0 && l.paused.size() == p0, l.trail());
+        }
         check("SES-02-21", "FrameEnded across a rebuild: the old machine's frames are "
                            "flushed before it goes, and the new machine's are reported "
                            "whether the old one ran more frames or fewer",
