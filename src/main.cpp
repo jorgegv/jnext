@@ -245,6 +245,9 @@ int main(int argc, char* argv[]) {
     std::string tape_save_file;
     bool        magic_breakpoint = false;
     bool        persistent_breakpoints = false;
+    // GH #287 — the debugger protocol servers' bind address. Empty means "the
+    // user did not say", which leaves EmulatorConfig's loopback default.
+    std::string debug_listen_address;
     bool        esxdos_stub = false;
     std::string esxdos_stub_root;
     bool        esxdos_stub_writable = false;
@@ -513,6 +516,24 @@ int main(int argc, char* argv[]) {
             case cli::OptId::PersistentBreakpoints:
                 persistent_breakpoints = true;
                 break;
+            case cli::OptId::DebugListenAddress: {
+                // Validated HERE, as --esp-listen-address is and for the same
+                // reason: a typo in the one control that decides who may reach
+                // an unauthenticated debugger must be a usage error at once,
+                // not a bind failure reported by a server much later.
+                esp::IpAddress parsed;
+                if (!esp::parse_ip(v[0], parsed)) {
+                    fprintf(stderr,
+                            "--debug-listen-address: ADDR must be a numeric IP address "
+                            "(e.g. 127.0.0.1 or 0.0.0.0), not \"%s\".\n"
+                            "  A name is rejected on purpose: a bind address resolved "
+                            "through DNS could change under you.\n",
+                            v[0]);
+                    return 1;
+                }
+                debug_listen_address = v[0];
+                break;
+            }
             case cli::OptId::EsxdosStub:
                 esxdos_stub = true;
                 break;
@@ -1262,6 +1283,10 @@ int main(int argc, char* argv[]) {
         cfg.allow_experimental_nex_v13 = experimental_nex_v13;
         cfg.magic_breakpoint = magic_breakpoint;
         cfg.persistent_breakpoints = persistent_breakpoints;
+        // GH #287. CLI-only, like --esp-listen-address: a listening address that
+        // could arrive from a config file is one the user cannot audit by
+        // reading the command they ran.
+        if (!debug_listen_address.empty()) cfg.debug_listen_address = debug_listen_address;
         cfg.esxdos_stub = esxdos_stub;
         cfg.esxdos_stub_root = esxdos_stub_root;
         cfg.esxdos_stub_writable = esxdos_stub_writable;
