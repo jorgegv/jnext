@@ -448,7 +448,7 @@ public:
     struct SpriteInfo {
         int      x;
         int      y;
-        uint8_t  pattern;
+        uint8_t  pattern;         // fetched pattern: N5:N0 (8-bit), N5:N0:N6 (4-bit)
         uint8_t  palette_offset;
         bool     visible;
         bool     x_mirror;

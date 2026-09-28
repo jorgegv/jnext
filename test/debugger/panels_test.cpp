@@ -909,11 +909,10 @@ static void test_callstack_panel() {
 // QPN-SPR — the Sprites panel (sprite_panel.cpp:209-229). Attributes are
 // uploaded through the guest's own ports (0x303B select, 0x57 data).
 //
-// The extended 8-BIT sprite's Pat value is NOT pinned: get_sprite_info()
-// reports pattern_7bit() = N5:N0<<1 for it, so the column shows twice the
-// pattern number the sprite uses (reported in the WP0 hand-back). The
-// non-extended and 4-bit cases, where the value is the pattern the hardware
-// fetches, are pinned.
+// Pat is the pattern the hardware FETCHES (sprites.vhd:801-804, :816,
+// :962-963): N5:N0 for an 8-bit sprite, 4-byte or extended, and N5:N0:N6 for a
+// 4-bit one. GH #278 WP0 fixed the extended 8-bit case, which get_sprite_info()
+// reported as N5:N0<<1 — twice the pattern the sprite uses.
 // ===========================================================================
 static void put_sprite(Emulator& emu, uint8_t idx, std::initializer_list<uint8_t> attrs) {
     emu.port().write(0x303B, idx);
@@ -962,13 +961,14 @@ static void test_sprite_panel() {
               s(cell(&panel, 6, 2)).c_str()));
 
     check("QPN-SPR-02",
-          "Pat is %02X — the 6-bit number for a 4-byte sprite, the 7-bit "
-          "N6-extended one for a 4-bit sprite — and Pal the offset in decimal",
+          "Pat is %02X — N5:N0 for an 8-bit sprite, 4-byte or extended, the "
+          "N6-extended 7-bit number for a 4-bit sprite — and Pal the offset in decimal",
           cell(&panel, 6, 3) == "2C" && cell(&panel, 5, 3) == "2B" &&
+              cell(&panel, 8, 3) == "02" &&
               cell(&panel, 5, 4) == "10" && cell(&panel, 6, 4) == "3",
-          fmt("pat6=%s pat5=%s pal5=%s pal6=%s", s(cell(&panel, 6, 3)).c_str(),
-              s(cell(&panel, 5, 3)).c_str(), s(cell(&panel, 5, 4)).c_str(),
-              s(cell(&panel, 6, 4)).c_str()));
+          fmt("pat6=%s pat5=%s pat8=%s pal5=%s pal6=%s", s(cell(&panel, 6, 3)).c_str(),
+              s(cell(&panel, 5, 3)).c_str(), s(cell(&panel, 8, 3)).c_str(),
+              s(cell(&panel, 5, 4)).c_str(), s(cell(&panel, 6, 4)).c_str()));
 
     check("QPN-SPR-03",
           "Vis is Y for a visible sprite and - for an invisible one",

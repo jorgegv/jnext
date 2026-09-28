@@ -4896,6 +4896,13 @@ int main() {
         check("INS-08-03", "the engine's decode sees the write (not a parallel copy)",
               dbg.sprites().size() == 128 && dbg.sprites()[40].x == 0x20 &&
               dbg.sprites()[40].visible);
+        // GH #278 WP0 — an EXTENDED 8-bit sprite (attr3 bit 6 set, attr4 bit 7
+        // clear) fetches pattern N5:N0 (sprites.vhd:816, :962); the decode
+        // reported N5:N0<<1, the 4-bit numbering, for every extended sprite.
+        check("INS-08-14", "sprites() reports an extended 8-bit sprite's pattern "
+                           "as N5:N0, the pattern it fetches",
+              dbg.sprites()[40].pattern == 0x05 && !dbg.sprites()[40].is_4bit,
+              "pattern=" + std::to_string(dbg.sprites()[40].pattern));
         check("INS-08-04", "a wrong byte count is refused",
               dbg.set_sprite_attr_raw(1, 40, attr, 4) == Result::RefusedUnavailable);
         check("INS-08-05", "an out-of-range sprite index is refused",
