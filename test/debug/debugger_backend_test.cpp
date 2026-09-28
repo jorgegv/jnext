@@ -4024,6 +4024,30 @@ static void b5_detach_rows() {
               both_off && dbg.client_enabled(a) && !dbg.client_enabled(b),
               std::string("gone=") + (dbg.client_enabled(a) ? "1" : "0") +
                   " attached=" + (dbg.client_enabled(b) ? "1" : "0"));
+
+        // ...and neither record can be RE-CREATED for the gone id afterwards:
+        // a subscription owned by it would stay armed with an owner no detach
+        // sweeps again, and its switch would sit in the list for ever. Both
+        // verbs still take an id that was never issued.
+        Subscription s;
+        s.kind = EventKind::Mem; s.access = Access::Write;
+        s.filter.lo = WATCHED; s.filter.hi = WATCHED;
+        const auto gone_sub  = dbg.subscribe(a, s);
+        const bool armed_by_gone = emu.debug_state().wr_watch_armed(WATCHED);
+        const auto never_sub = dbg.subscribe(b + 40, s);
+        check("DETACH-05", "subscribe() by a detached client is RefusedUnavailable and "
+                           "arms nothing; an id never issued still subscribes",
+              gone_sub.status == Result::RefusedUnavailable && !armed_by_gone &&
+                  never_sub.status == Result::Ok,
+              std::string("gone=") + jnext::dbg::result_name(gone_sub.status) +
+                  " armed=" + (armed_by_gone ? "1" : "0") +
+                  " never=" + jnext::dbg::result_name(never_sub.status));
+        const Result sw = dbg.set_client_enabled(a, false);
+        check("DETACH-06", "set_client_enabled() for a detached client is "
+                           "RefusedUnavailable and stores nothing (it still reads "
+                           "enabled)",
+              sw == Result::RefusedUnavailable && dbg.client_enabled(a),
+              std::string("rc=") + jnext::dbg::result_name(sw));
     }
 }
 

@@ -71,6 +71,13 @@ void Debugger::Impl::gates_changed() {
 // ---------------------------------------------------------------------------
 
 Expected<EventId> Debugger::subscribe(ClientId by, const Subscription& sub) {
+    // GH #276 B5 — a client that has DETACHED cannot own a subscription: its
+    // `erase_client()` already ran, so one made now would stay armed for ever
+    // with an owner no detach will ever sweep again — the "per-client state left
+    // behind" class, re-created after the fact. An id never issued (a test, a
+    // loop owner's CLIENT_NONE) is not "gone" and is accepted as before.
+    if (impl_->client_gone(by)) return make_refused<EventId>(Result::RefusedUnavailable);
+
     // A kind out of range would index `live_kinds_` past its width and match
     // nothing for ever; refused rather than stored.
     if (static_cast<size_t>(sub.kind) >= EVENT_KIND_COUNT)
@@ -174,6 +181,9 @@ bool Debugger::client_enabled(ClientId cid) const {
 }
 
 Result Debugger::set_client_enabled(ClientId cid, bool enabled) {
+    // GH #276 B5 — the switch is per-client state and dies with the detach
+    // (`Debugger::detach`); setting it for a gone client would re-create it.
+    if (impl_->client_gone(cid)) return Result::RefusedUnavailable;
     impl_->events.set_client_enabled(cid, enabled);
     impl_->gates_changed();
     return Result::Ok;
