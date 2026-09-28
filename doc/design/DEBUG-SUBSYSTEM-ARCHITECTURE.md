@@ -16,6 +16,15 @@
 > open anywhere in the design** — §12 is empty, the per-frontend files carry
 > no open owner question, and every REQ in the ledger is dispositioned.
 >
+> **B4 implementation notes** (2026-09-28): what implementing CAP-IN / CAP-CAP /
+> INS-20 / the richer `TraceEntry` settled — coverage recorded in the shared
+> instruction body (a Step never passes the attached-gated block); the `Frame`
+> drain moved before `tick_auto_type()` so REQ-dsl-20 holds for an `on frame N`
+> handler (F9 fixed with it); IN-02 levels queued for the frame edge; CAP-01
+> queued and written by `pump()`, the screenshot writers moved to `src/core/`;
+> CAP-04 synchronous. Listed with their reasons in `debug-subsystem/backend.md`'s
+> revision log; `NoFrame`'s missing carrier is an owner question in the B4 report.
+>
 > **Revision 5** (2026-09-27, after review round 4; round-5 notes folded: ring
 > sizing reworded — the ~23 T slot is an estimate, a contended `LDIR` reaches
 > ~80 T, a satisfied-WAIT chain is the overflow path; `SlotInfo.space_offset`

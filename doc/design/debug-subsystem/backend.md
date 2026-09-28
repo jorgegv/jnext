@@ -9,6 +9,26 @@
 > `doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md`.
 >
 > **Revision log**
+> - B4 implementation notes (2026-09-28, sequencing and precision only — no CAP
+>   added or removed; each is argued at its site in the code and in the B4
+>   report): **INS-20** is recorded in `step_one_instruction()`, the one body
+>   `run_frame()`, the debugger's Step and `execute_single_instruction()` share,
+>   not in `run_frame()`'s attached-gated block (a Step never passes through it,
+>   so every stepped instruction would be missing), and only for a slot that
+>   fetched its opcode; off is one pointer test; switching it off clears it.
+>   **REQ-dsl-20** needed the `Frame` drain moved BEFORE `tick_auto_type()` in
+>   `end_of_frame()` (B2 had it after, so an `on frame N` pulse landed a frame
+>   late); IN-02 level sets are queued on `Keyboard` and applied first in that
+>   tick; the drain-to-tick window is not a frame boundary for the save verbs.
+>   IN-03/IN-04 stay immediate (the contract names IN-01/IN-02 only).
+>   **CAP-CAP-01** is queued by the verb and written by `pump()`; the PNG/`.SCR`
+>   writers moved to `src/core/` (the backend may not reach up into
+>   `src/platform/`); `NoFrame` has no carrier in the frozen API (owner question).
+>   **CAP-CAP-03** re-saving a held name replaces it, also at the bound; the
+>   bound is checked before any advance. **CAP-CAP-04** is synchronous (the
+>   `--delayed-snapshot` "always advance" rule) and dispatches through
+>   `save_snapshot_file()` in `src/core/`. The ST-01 advance's SES-06 line is
+>   `MUTATE clock (<verb> advanced to the frame boundary) <from> -> <to> by <c>`.
 > - v1 (2026-09-26 evening): first API draft with capability IDs.
 > - v2 (2026-09-26 night): 59 REQs from dsl/gdb/dzrp/qt answered (§12) —
 >   additions only, no CAP removed or reshaped: memory access bitmask,
@@ -488,7 +508,7 @@ resolves the mapping without the floating-bus latch (finding F1, §2.2).
 | CAP-INS-17 | `subscriptions(include_transient=false) -> span<Subscription>` (the model incl. disabled, with owner); `events_fired_since(seq)` | For the Breakpoints panel and remote list commands; the Paused payload's `matched[]` is the per-stop subset (§4.3). |
 | CAP-INS-18 | `set_border(colour)` | `Ula::set_border` [`ula.h:180`] — a debugger write, not `port_out(0xFE)` (which also drives EAR/MIC); DZRP `CMD_SET_BORDER` on every load (REQ-dzrp-6). |
 | CAP-INS-20 | `coverage_enable(bool)`, `coverage_clear()`, `coverage() -> bitset<65536>` of PCs executed since clear | One bit-set per instruction inside the `attached`-gated branch; zero cost when off (REQ-zrcp-09 — DeZog enables it by default for zrcp; the DSL may ask "was this ever executed"). |
-| CAP-INS-19 | `machine() -> MachineInfo{type, cpu_divisor, cycles_per_line, cycles_per_frame, lines, fps, hc_max, vc_max, max_hblank, max_vblank, display_origin{hc,vc}, vblank_top}` | `EmulatorConfig::type` + `timing_` + `VideoTiming` geometry the frame diagram draws [`video_panel.cpp:997-1005`] (REQ-qt-25b, REQ-dsl-17). |
+| CAP-INS-19 | `machine() -> MachineInfo{type, cpu_divisor, tstates_per_line/frame, master_cycles_per_line/frame, lines, fps, hc_max, vc_max, max_hblank, max_vblank, display_origin{hc,vc}, vblank_top}` — both clock domains, under `MachineTiming`'s own names (the architecture doc's INS-19 rename, B0 review B4; this row still said `cycles_per_*` until B4) | `EmulatorConfig::type` + `timing_` + `VideoTiming` geometry the frame diagram draws [`video_panel.cpp:997-1005`] (REQ-qt-25b, REQ-dsl-17). |
 
 
 ### 4.2a Mutation — the write half of `CAP-INS` (owner decision 2026-09-27)

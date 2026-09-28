@@ -130,11 +130,12 @@ incremented as an argument of `take_snapshot()`, so without
 `frame_num() - 1`, which is the tag the rewind slot for that frame carries and
 the frame `--delayed-keypress-frames N` lands on.
 
-A verb whose machinery belongs to a later sub-package is defined in ONE file,
+A verb whose machinery belongs to a later package is defined in ONE file,
 `debugger_pending.cpp`, and returns `Result::Unsupported` — never a silent
 no-op. Keeping them together means "what is not implemented yet" is something you
 can count rather than a claim in a comment; the file's banner lists them by
-owning sub-package.
+owning package. Since B4 it holds one: `render_layer` (INS-14), whose move out
+of the Qt video panel is package Q's.
 
 `debugger_backend_test` is the backend's suite, headless and Qt-free: a wiring
 row per control verb (arm it through the facade, run, assert the machine stopped
@@ -218,7 +219,7 @@ and redirect. Everything else is delivered at an instruction boundary:
 | `NextReg::write`, Copper writer | the NEXT boundary | ≤1 instruction |
 | `Copper::execute` (Move / Wait / Halt) | the NEXT boundary | ≤1 instruction |
 | `on_scanline` | the NEXT boundary | ≤1 instruction |
-| `end_of_frame` | that frame edge | nothing |
+| `end_of_frame` | that frame edge, before its auto-type tick (B4) | nothing |
 
 The `≤1 instruction` entries are all the same fact: the boundary drain runs
 BEFORE `tick_devices_after_instruction()`, and that is where the Copper and the
@@ -348,7 +349,7 @@ and B3 is the seam between them.
 **Clients.** `attach(ClientInfo)` returns a `ClientId`; every verb that mutates
 or transitions takes one as its first argument, because §4.1 requires each
 transition to be broadcast with the client that caused it. The client list holds
-each client's listener, its `live_raster` request and (later) its bookmarks —
+each client's listener, its `live_raster` request and its bookmarks (B4) —
 *outside* `Emulator`, which is what lets all of it survive a machine
 reconstruct.
 
@@ -504,7 +505,14 @@ after a guest NR 0x02 reset:
    the one exception is a `done` with no `begin`, whose machine is gone before
    the backend hears of it. `last_paused` is not re-based: it is what listeners
    were last told, so paused-to-paused pushes nothing and paused-to-running
-   pushes `Resumed`.
+   pushes `Resumed`;
+11. (B4) the INS-20 coverage sink — the only thing of coverage's the machine
+   held, a pointer into the backend's bit set; the set recorded before the boot
+   is kept, because "since clear" is not "since boot";
+12. (B4) the queued screenshots' hold on the machine: the head's layer mask on
+   the new `Renderer` and the force-render bit on the new `DebugState`, with every
+   capture's wait re-based on the rebuilt machine's rendered-frame counter, which
+   restarted at 0. Bookmarks need nothing: they live on the client rows.
 
 **No verb that drives the machine runs from inside a delivery.** A handler runs
 with `run_frame()` — or the pre-instruction gate inside it — still on the stack,
@@ -513,10 +521,13 @@ every verb that would EXECUTE the machine (the step verbs, a `save_state_bytes()
 that has to advance to a frame boundary), CHANGE ITS RUN STATE (`pause`, `run`,
 `step_out`, the `run_to` family — each re-arms the stop evidence, which would
 rewrite the very stop the handler is part of), REWIND or RESTORE it (`step_back`,
-`rewind_to_frame`, `load_state_bytes`), or RESET or REPLACE it (`reset` of either
-kind, `load`, `on_cold_boot_done`, and the one NextREG write that resets —
-NR 0x02 with the soft bit, through `nextreg_write` or `port_out`) refuses there
-with `Unsupported`, through one helper. A handler stops the machine by returning
+`rewind_to_frame`, `load_state_bytes`, `bookmark_restore`), or RESET or REPLACE
+it (`reset` of either kind, `load`, `on_cold_boot_done`, and the one NextREG
+write that resets — NR 0x02 with the soft bit, through `nextreg_write` or
+`port_out`) refuses there with `Unsupported`, through one helper. The three
+verbs that save the machine — `save_state_bytes`, `bookmark_save`,
+`save_snapshot` — refuse only when they would have to *advance* to a frame
+boundary, through the one frame-boundary helper they share. A handler stops the machine by returning
 `Action::Stop`. Mutations stay allowed (§4.2a), `raise_host_event` is designed to
 nest, and `detach` is a session verb — its release of the departing client's own
 pause goes through `run()`'s body rather than the refused public verb.
@@ -566,6 +577,66 @@ debugger window armed — has no other owner before package Q, so retiring it no
 would lose a user's breakpoints on every hard reset, unsubscribe two panels and
 leave an open window unarmed. Package Q retires it when the panels become
 clients. The reasoning is recorded at the site.
+
+### Input, capture, bookmarks and coverage (B4)
+
+**Pulses append.** `press_key(name | matrix position, hold_frames)` (IN-01)
+queues a pulse on `Keyboard`'s auto-type queue, and `queue_auto_type()` itself
+now APPENDS for every producer — the phantom typist, the two tape `LOAD ""`
+sites, `--delayed-keypress` and the backend. Replacing, it let a second
+producer in the same frame clobber the first and stranded a held key down. An
+append behind an entry in flight leaves that entry's counters alone (a held key
+does not restart its hold); onto an *idle* queue the counters reset exactly as
+the replacing version did, so a producer that finds nothing queued sees no
+change. The 16-entry cap covers the union of what every producer queued, and a
+pulse that does not fit is refused with the count that was queued (0).
+
+**The injection edge (REQ-dsl-20).** Every pulse and every level set issued
+during frame N — from a handler, from a remote command in a pump, from a CLI
+countdown — lands at the END of frame N and is visible from frame N+1. For the
+levels (`set_key`, `set_extended_key`) that means a queue: they no longer touch
+the matrix at once, they are queued on `Keyboard` and applied first thing in
+the edge's `tick_auto_type()`, so a handler mid-frame cannot change what the
+rest of its own frame reads. And `end_of_frame()` now delivers the `Frame`
+event BEFORE that tick (B2 had it after), so an `on frame N` handler's pulse is
+pressed by frame N's own tick — the frame `--delayed-keypress-frames N` gives.
+The price is that the window between that drain and the end of the tick is not
+the state `run_frame()` hands back (the tick has not run), so the backend does
+not treat it as a frame boundary: a save from a `Frame` handler answers
+`NotAtFrameBoundary`, or is refused if it would advance. A restore drops queued
+levels, like the pulses it replaces; a reconstruct drops both with the old
+`Keyboard`. `set_joystick` and `press_nmi` stay immediate — the contract names
+IN-01 and IN-02 only.
+
+**Screenshots are deferred to the next rendered frame.** `screenshot()` only
+queues. `pump()` — the loop owner's post-frames slot — writes every capture
+whose frame has been rendered since it was armed (`Emulator::rendered_frames()`
+moved), before any command of that pump can touch the machine. While a capture
+waits, its layer mask is armed on the renderer and a force-render bit makes sure
+the next frame IS rendered, whatever the frontend's render-skip hint says. A
+paused machine renders nothing, so the capture is held, with one warning. The
+PNG and `.SCR` writers moved from `src/platform/` to `src/core/screenshot.*` so
+the backend, which sits below the platform layer, can call them.
+
+**Saves share one rule.** `save_state_bytes`, `bookmark_save` and
+`save_snapshot` reach the frame boundary through one helper: at a boundary they
+save; mid-frame, `RefuseMidFrame` refuses and `AdvanceToBoundary` runs the frame
+out under `SuspendScope` and says so in a `MUTATE clock … by <client>` line.
+`save_snapshot` always advances (the `--delayed-snapshot` rule) and writes the
+file by extension through `save_snapshot_file()` in `src/core/`. Bookmarks are
+per client, at most 8 (a 9th new name is refused; re-saving a name replaces it),
+freed at detach, and survive a hard reconstruct; a restore into a machine of
+another type or snapshot width is refused before `load_state` runs, so nothing
+is latched.
+
+**Coverage and the trace.** INS-20 coverage is recorded in
+`step_one_instruction()`, the one body `run_frame()`, the debugger's Step and
+`execute_single_instruction()` share — not in `run_frame()`'s armed block,
+which a Step never passes through — and only for a slot that actually fetched
+the opcode at PC (an NMI or INT acknowledge does not run it). Switched off it is
+one pointer test per instruction. Each trace entry now carries I, R, IM, IFF1,
+IFF2, the word at SP (read with `peek()`, so the trace moves no watch and no +3
+floating-bus latch) and the eight MMU pages.
 
 ## What `ENABLE_DEBUGGER=OFF` removes
 
