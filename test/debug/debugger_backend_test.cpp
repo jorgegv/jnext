@@ -1186,6 +1186,47 @@ static void b4_bookmark_rows() {
                   !emu.frame_in_progress(),
               std::string("r=") + jnext::dbg::result_name(r));
     }
+    {
+        // THE OTHER HAZARD THE SECOND LOOKUP NAMES: a listener reached by the
+        // advance's MUTATE line saves a bookmark FOR THE SAME CLIENT, taking it
+        // to the bound while the outer save is in flight. The bound is checked
+        // again after the advance, so the outer save — a NEW name — is refused
+        // and the client never holds more than 8 (M1 coverage review; the
+        // mutant without the recheck left it holding 9).
+        struct SaveOnMutate : RecListener {
+            Debugger* dbg = nullptr;
+            ClientId  who = jnext::dbg::CLIENT_NONE;
+            Result    nested = Result::Unsupported;
+            void on_log(jnext::dbg::LogLevel lvl, const std::string& t) override {
+                RecListener::on_log(lvl, t);
+                if (dbg && t.rfind("MUTATE clock", 0) == 0) {
+                    Debugger* d = dbg;
+                    dbg    = nullptr;
+                    nested = d->bookmark_save(who, "b7", SaveStateMode::RefuseMidFrame);
+                }
+            }
+        };
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        for (int i = 0; i < 7; ++i)
+            dbg.bookmark_save(a, "b" + std::to_string(i), SaveStateMode::RefuseMidFrame);
+        SaveOnMutate l;
+        dbg.set_listener(a, &l);
+        stop_mid_frame_at_call(emu, dbg, a);
+        l.dbg = &dbg; l.who = a;
+        const Result outer = dbg.bookmark_save(a, "mid", SaveStateMode::AdvanceToBoundary);
+        const std::vector<std::string> names = dbg.bookmarks(a);
+        bool has_mid = false;
+        for (const std::string& n : names) has_mid = has_mid || n == "mid";
+        check("CAP-03-15", "a listener that saves the SAME client's 8th bookmark during the "
+                           "outer save's advance takes it to the bound: the outer save (a "
+                           "new name) is refused and the client holds exactly 8",
+              l.dbg == nullptr && l.nested == Result::Ok && outer == Result::RefusedUnavailable &&
+                  names.size() == 8 && !has_mid,
+              std::string("nested=") + jnext::dbg::result_name(l.nested) + " outer=" +
+                  jnext::dbg::result_name(outer) + " n=" + std::to_string(names.size()));
+    }
 }
 
 // ── IN-01 — pulses, APPEND; REQ-dsl-20 — the injection ordering ─────────────
