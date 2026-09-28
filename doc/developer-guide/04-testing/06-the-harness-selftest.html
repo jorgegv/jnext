@@ -1841,12 +1841,16 @@ all.</p>
 and the refusal is then asserted — both the expected exit status and the exact
 diagnostic text. The principle is the same one that runs through the chapter: a
 guard that cannot be shown to fire is not a guard.</p>
-<p>The stubs are three lines of bash that print a <code>Total:</code> line and exit with a
-chosen code. A <code>register</code> helper writes a matching <code>CTestTestfile.cmake</code>, and a
+<p>The stubs are a few lines of bash that report one row ID per row, print a
+<code>Total:</code> line and exit with a chosen code. A <code>register</code> helper writes a matching <code>CTestTestfile.cmake</code>, and a
 <code>manifest</code> helper writes a manifest with a matching — or deliberately wrong —
 <code># expect:</code> pin. From those few primitives the self-test drives, among others,
 a clean two-suite run; a suite that fails while a later suite must still be
 reported; a suite that prints no summary; a suite that hangs into its timeout;
+a suite that reports one row ID twice, or fewer or more row IDs than rows; a
+real <code>fork()</code>ing binary whose child reports a row before its parent does; a
+row ID built at run time, a data-ID exemption and a stale one, and a suite with
+no known sources;
 an entry with no row count; a pin of 0; one binary registered under two
 <code>add_test()</code> names; a wrong suite-count pin; a manifest with no pin at all; a
 nested build tree that must <strong>not</strong> be enumerated; an unparseable <code>add_test()</code>
@@ -1869,7 +1873,7 @@ host-load bookkeeping (GH #245): the real suite library, sourced against a fake
 FAIL on an idle one, must name every failed row at the end, must never change
 the count — and the driver must still call it.</p>
 <h2 id="it-pins-its-own-count">It pins its own count<a class="headerlink" href="#it-pins-its-own-count" title="Permanent link">&para;</a></h2>
-<p><code>EXPECTED_TOTAL = 59</code> sits in the script, right next to the rows it counts, and
+<p><code>EXPECTED_TOTAL = 71</code> sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is
@@ -1880,7 +1884,7 @@ deliberately.</p>
 cross-checked against CMake's <code>add_test()</code> registrations in both directions, so
 an entry with no CMake counterpart would make the unit harness refuse to run.</p>
 <h2 id="the-traceability-self-tests">The traceability self-tests<a class="headerlink" href="#the-traceability-self-tests" title="Permanent link">&para;</a></h2>
-<pre><code class="language-console">$ make traceability-selftest          # citation extractor + dup-ID gate, 215 pinned rows
+<pre><code class="language-console">$ make traceability-selftest          # citation extractor + dup-ID gate, 217 pinned rows
 $ make traceability-accounting-check  # the suite-accounting gate, ~0.01 s
 </code></pre>
 <p><code>test/traceability-citations-selftest.pl</code> pins the tool that decides which VHDL
@@ -1890,7 +1894,7 @@ sources and binaries, and then run the real refresh script against it twice, so
 that idempotence and the refusal paths are both exercised. <code>SELF-208</code>..<code>SELF-215</code>
 run <code>test/traceability-dup-ids.pl</code> and the generator's <code>--planned-ids</code> the same
 way, planting colliding IDs in <code>?</code>-prefixed suites, in one-row plan docs and in
-the baseline (GH #243). It pins <code>$EXPECTED_ROWS = 215</code> in the
+the baseline (GH #243). It pins <code>$EXPECTED_ROWS = 217</code> in the
 same shape as the harness self-test, and for the same reason it cannot live in
 the unit manifest — it is a perl script with no CMake target.</p>
 <p>Both are prerequisites of <code>make unit-test</code>, and that matters more than the

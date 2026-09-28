@@ -1397,6 +1397,11 @@ add_executable(sdfile_tool sdfile/sdfile_tool.cpp)
 target_link_libraries(sdfile_tool PRIVATE jnext_core)
 target_include_directories(sdfile_tool PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+# row_id_fork_probe — test-support BINARY, deliberately NOT an add_test(): a
+# stand-in suite the harness self-test (HS-62) runs through the unit harness to
+# prove test/row_id.h keeps every row a fork()ing suite reports.
+add_executable(row_id_fork_probe row_id_fork_probe.cpp)
+
 # Pin the C locale for every registered test, so `ctest` matches what
 # test/run-unit-tests.sh and regression.sh do. A test's verdict must depend on the
 # code, not on the user's LANG: Qt's QApplication calls setlocale(LC_ALL, "") on

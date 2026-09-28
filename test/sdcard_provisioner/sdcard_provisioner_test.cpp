@@ -68,6 +68,7 @@
 
 #include <sys/stat.h>
 #include <unistd.h>
+#include "../row_id.h"
 
 namespace {
 
@@ -75,6 +76,7 @@ int g_pass = 0, g_fail = 0, g_total = 0, g_skip = 0;
 
 void check(const char* id, const char* desc, bool cond,
            const std::string& detail = {}) {
+    report_row_id(id);
     ++g_total;
     if (cond) { ++g_pass; }
     else {
@@ -237,9 +239,9 @@ int main() {
         const std::string raw   = sdcard::default_sdcard_raw_image_path();
         check("PROV-PATH-01", "default dir == $HOME/.jnext/sdcard",
               dir == g_tmpdir + "/.jnext/sdcard", dir);
-        check("PROV-PATH-01", "default (used) image == dir/cspect-next-1gb-fixed.img",
+        check("PROV-PATH-01b", "default (used) image == dir/cspect-next-1gb-fixed.img",
               fixed == dir + "/cspect-next-1gb-fixed.img", fixed);
-        check("PROV-PATH-01", "raw download image == dir/cspect-next-1gb.img",
+        check("PROV-PATH-01c", "raw download image == dir/cspect-next-1gb.img",
               raw == dir + "/cspect-next-1gb.img", raw);
     }
 
@@ -257,23 +259,23 @@ int main() {
         const std::string raw   = sdcard::default_sdcard_raw_image_path();
         check("PROV-PATH-02", "$JNEXT_CONFIG_DIR/sdcard replaces $HOME/.jnext/sdcard",
               dir == over + "/sdcard", dir);
-        check("PROV-PATH-02", "override dir is NOT under $HOME/.jnext",
+        check("PROV-PATH-02b", "override dir is NOT under $HOME/.jnext",
               dir.find(g_tmpdir + "/.jnext") == std::string::npos, dir);
-        check("PROV-PATH-02", "fixed image follows the override",
+        check("PROV-PATH-02c", "fixed image follows the override",
               fixed == over + "/sdcard/cspect-next-1gb-fixed.img", fixed);
-        check("PROV-PATH-02", "raw image follows the override",
+        check("PROV-PATH-02d", "raw image follows the override",
               raw == over + "/sdcard/cspect-next-1gb.img", raw);
 
         // An EMPTY value means "not set" — same rule as AppConfig's
         // QString::isEmpty() test, so an exported-but-blank variable can never
         // redirect the image into "/sdcard".
         setenv("JNEXT_CONFIG_DIR", "", 1);
-        check("PROV-PATH-02", "empty $JNEXT_CONFIG_DIR falls back to $HOME/.jnext",
+        check("PROV-PATH-02e", "empty $JNEXT_CONFIG_DIR falls back to $HOME/.jnext",
               sdcard::default_sdcard_dir() == g_tmpdir + "/.jnext/sdcard",
               sdcard::default_sdcard_dir());
 
         unsetenv("JNEXT_CONFIG_DIR");
-        check("PROV-PATH-02", "unset $JNEXT_CONFIG_DIR falls back to $HOME/.jnext",
+        check("PROV-PATH-02f", "unset $JNEXT_CONFIG_DIR falls back to $HOME/.jnext",
               sdcard::default_sdcard_dir() == g_tmpdir + "/.jnext/sdcard",
               sdcard::default_sdcard_dir());
     }
@@ -302,7 +304,7 @@ int main() {
         check("PROV-PATH-03", "provision resolves to the $JNEXT_CONFIG_DIR image",
               r.status == sdcard::ProvisionStatus::Ok &&
               r.path == over + "/sdcard/cspect-next-1gb-fixed.img", r.path);
-        check("PROV-PATH-03", "provision does NOT fall back to the $HOME image",
+        check("PROV-PATH-03b", "provision does NOT fall back to the $HOME image",
               r.path.find(g_tmpdir + "/.jnext/sdcard") == std::string::npos, r.path);
         unsetenv("JNEXT_CONFIG_DIR");
         std::remove((g_tmpdir + "/.jnext/sdcard/cspect-next-1gb-fixed.img").c_str());
@@ -314,14 +316,14 @@ int main() {
               sdcard::sha256_hex({}) ==
               "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
         std::vector<uint8_t> abc = {'a','b','c'};
-        check("SHA256-01", "sha256_hex(\"abc\")",
+        check("SHA256-01b", "sha256_hex(\"abc\")",
               sdcard::sha256_hex(abc) ==
               "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
         write_file(tp("abc.bin"), abc);
-        check("SHA256-01", "sha256_file(\"abc\")",
+        check("SHA256-01c", "sha256_file(\"abc\")",
               sdcard::sha256_file(tp("abc.bin")) ==
               "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
-        check("SHA256-01", "sha256_file(missing) => empty",
+        check("SHA256-01d", "sha256_file(missing) => empty",
               sdcard::sha256_file(tp("no_such_file.bin")).empty());
     }
 
@@ -344,7 +346,7 @@ int main() {
         auto r = sdcard::provision_sd_card(o);
         check("PROV-PREC-01", "explicit path returned as-is",
               r.status == sdcard::ProvisionStatus::Ok && r.path == "/some/explicit/path.img");
-        check("PROV-PREC-01", "download seam not invoked", !download_called);
+        check("PROV-PREC-01b", "download seam not invoked", !download_called);
     }
 
     // -- PROV-PREC-02: default-location file present --
@@ -360,7 +362,7 @@ int main() {
         check("PROV-PREC-02", "default-location image used",
               r.status == sdcard::ProvisionStatus::Ok &&
               r.path == sdcard::default_sdcard_image_path());
-        check("PROV-PREC-02", "download seam not invoked when local image exists",
+        check("PROV-PREC-02b", "download seam not invoked when local image exists",
               !download_called);
     }
 
@@ -378,7 +380,7 @@ int main() {
         check("PROV-PREC-03", "explicit path returned verbatim despite force",
               r.status == sdcard::ProvisionStatus::Ok &&
               r.path == "/some/explicit/path.img", r.path);
-        check("PROV-PREC-03", "download seam never invoked when --sdcard given",
+        check("PROV-PREC-03b", "download seam never invoked when --sdcard given",
               !download_called);
     }
 
@@ -394,7 +396,7 @@ int main() {
         auto r = sdcard::provision_sd_card(o);
         check("PROV-CONF-01", "declined confirm => Declined",
               r.status == sdcard::ProvisionStatus::Declined);
-        check("PROV-CONF-01", "no download after decline", !download_called);
+        check("PROV-CONF-01b", "no download after decline", !download_called);
     }
 
     // -- PROV-CONF-02: accepted confirm, download fails --
@@ -406,8 +408,8 @@ int main() {
         o.confirm = [&](const std::string&) { confirm_called = true; return true; };
         auto r = sdcard::provision_sd_card(o);
         check("PROV-CONF-02", "confirm seam invoked", confirm_called);
-        check("PROV-CONF-02", "download seam invoked after confirm", download_called);
-        check("PROV-CONF-02", "download failure => Failed",
+        check("PROV-CONF-02b", "download seam invoked after confirm", download_called);
+        check("PROV-CONF-02c", "download failure => Failed",
               r.status == sdcard::ProvisionStatus::Failed);
     }
 
@@ -431,7 +433,7 @@ int main() {
         auto r = sdcard::provision_sd_card(o);
         check("PROV-PROG-01", "progress seam forwarded + invoked",
               progress_calls == 3, "calls=" + std::to_string(progress_calls));
-        check("PROV-PROG-01", "download failure still => Failed",
+        check("PROV-PROG-01b", "download failure still => Failed",
               r.status == sdcard::ProvisionStatus::Failed);
     }
 
@@ -452,7 +454,7 @@ int main() {
         };
         auto r = sdcard::provision_sd_card(o);
         check("PROV-PROG-02", "cancel observed at download seam", saw_cancel);
-        check("PROV-PROG-02", "cancelled download => Failed",
+        check("PROV-PROG-02b", "cancelled download => Failed",
               r.status == sdcard::ProvisionStatus::Failed);
     }
 
@@ -520,18 +522,18 @@ int main() {
         };
         auto r = src_ok ? sdcard::provision_sd_card(o) : sdcard::ProvisionResult{};
 
-        check("PROV-FIXED-01", "provision Ok, path is the fixed image",
+        check("PROV-FIXED-01b", "provision Ok, path is the fixed image",
               src_ok && r.status == sdcard::ProvisionStatus::Ok &&
               r.path == fixed, r.path);
         check("PROV-BUSY-01", "busy seam wraps the copy+patch step", busy_called);
-        check("PROV-BUSY-01", "busy phase label is 'Fixing downloaded image'",
+        check("PROV-BUSY-01b", "busy phase label is 'Fixing downloaded image'",
               busy_phase == "Fixing downloaded image", busy_phase);
         check("PROV-SHA-MATCH-01", "no download when raw SHA256 matches",
               !download_called);
-        check("PROV-FIXED-01", "fixed image produced", file_exists(fixed));
-        check("PROV-FIXED-01", "raw image kept", file_exists(raw));
+        check("PROV-FIXED-01c", "fixed image produced", file_exists(fixed));
+        check("PROV-FIXED-01d", "raw image kept", file_exists(raw));
         // Pristine: raw bytes unchanged (would fail if code patched raw).
-        check("PROV-FIXED-01", "raw is byte-identical (pristine)",
+        check("PROV-FIXED-01e", "raw is byte-identical (pristine)",
               !h_before.empty() && sdcard::sha256_file(raw) == h_before);
 
         std::remove(raw.c_str());
@@ -558,9 +560,9 @@ int main() {
             return false;
         };
         auto r = src_ok ? sdcard::provision_sd_card(o) : sdcard::ProvisionResult{};
-        check("PROV-BUSY-02", "busy returning false => Failed",
+        check("PROV-BUSY-02b", "busy returning false => Failed",
               r.status == sdcard::ProvisionStatus::Failed);
-        check("PROV-BUSY-02", "no fixed image left when busy fails",
+        check("PROV-BUSY-02c", "no fixed image left when busy fails",
               !file_exists(fixed) && work_ran);
 
         std::remove(raw.c_str());
@@ -589,9 +591,9 @@ int main() {
         auto r = sdcard::provision_sd_card(o);
         check("PROV-COPY-FAIL-01", "copy failure => Failed",
               r.status == sdcard::ProvisionStatus::Failed);
-        check("PROV-COPY-FAIL-01", "fixed removed after copy failure",
+        check("PROV-COPY-FAIL-01b", "fixed removed after copy failure",
               !file_exists(fixed));
-        check("PROV-COPY-FAIL-01", "no download (raw trusted)", !download_called);
+        check("PROV-COPY-FAIL-01c", "no download (raw trusted)", !download_called);
 
         std::remove(raw.c_str());
         std::remove(raw_sha.c_str());
@@ -614,9 +616,9 @@ int main() {
         auto r = sdcard::provision_sd_card(o);
         check("PROV-PATCH-FAIL-01", "patch failure => Failed",
               r.status == sdcard::ProvisionStatus::Failed);
-        check("PROV-PATCH-FAIL-01", "fixed removed after patch failure",
+        check("PROV-PATCH-FAIL-01b", "fixed removed after patch failure",
               !file_exists(fixed));
-        check("PROV-PATCH-FAIL-01", "no download (raw trusted)", !download_called);
+        check("PROV-PATCH-FAIL-01c", "no download (raw trusted)", !download_called);
 
         std::remove(raw.c_str());
         std::remove(raw_sha.c_str());
@@ -638,7 +640,7 @@ int main() {
         auto r = sdcard::provision_sd_card(o);
         check("PROV-SHA-MISMATCH-01", "download invoked on SHA256 mismatch",
               download_called);
-        check("PROV-SHA-MISMATCH-01", "mismatch + failed download => Failed",
+        check("PROV-SHA-MISMATCH-01b", "mismatch + failed download => Failed",
               r.status == sdcard::ProvisionStatus::Failed);
 
         std::remove(raw.c_str());
@@ -669,7 +671,7 @@ int main() {
         (void)r; // status is Failed (payload isn't FAT32) — not asserted here
         check("PROV-SHA-WRITE-01", "sidecar written after successful download",
               file_exists(raw_sha));
-        check("PROV-SHA-WRITE-01", "sidecar matches raw's actual hash",
+        check("PROV-SHA-WRITE-01b", "sidecar matches raw's actual hash",
               !sdcard::sha256_file(raw).empty() &&
               read_first_token(raw_sha) == sdcard::sha256_file(raw));
 
@@ -710,7 +712,7 @@ int main() {
               r1.error.find("Flatpak sandbox") != std::string::npos &&
               r1.error.find("--share=network") != std::string::npos,
               r1.error);
-        check("PROV-SANDBOX-01", "the underlying error text is preserved",
+        check("PROV-SANDBOX-01b", "the underlying error text is preserved",
               r1.error.find("Could not resolve hostname") != std::string::npos,
               r1.error);
 

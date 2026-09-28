@@ -29,6 +29,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "../row_id.h"
 
 using namespace esp;
 
@@ -55,6 +56,7 @@ static std::string printable(const std::string& s) {
 }
 
 static void check(const char* id, const std::string& desc, bool cond) {
+    report_row_id(id);
     ++g_total;
     if (cond) {
         ++g_pass;
@@ -66,6 +68,7 @@ static void check(const char* id, const std::string& desc, bool cond) {
 
 static void check_eq(const char* id, const std::string& desc, const std::string& got,
                      const std::string& want) {
+    report_row_id(id);
     ++g_total;
     if (got == want) {
         ++g_pass;

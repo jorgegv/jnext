@@ -1940,7 +1940,9 @@ rewritten but still under-recording, <code>2</code> is a refusal with nothing wr
   rather than inferred from a naming convention, because 80 suite names match
   their source basename and 7 do not, and the two ESP-01 suites live under
   <code>src/esp01/test/</code> entirely. A convention that is right 92% of the time is the
-  worst kind.</li>
+  worst kind. The reader is <code>test/SuiteSources.pm</code>, shared with
+  <code>traceability-dup-ids.pl</code> and, through its <code>--sources</code>, the unit harness, so
+  the three agree on every source of a suite, not only its first.</li>
 <li><strong>It leaves hand-written citations alone</strong>, reporting disagreements instead
   of overwriting them, and leaves rows marked <code>&lt;!-- protected --&gt;</code> untouched.</li>
 </ul>

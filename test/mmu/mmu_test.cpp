@@ -48,6 +48,7 @@ extern "C" {
 #include <vector>
 
 #include <unistd.h>   // mkstemp (POSIX) — temp files for loader round-trip tests
+#include "../row_id.h"
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -77,6 +78,7 @@ std::vector<SkipNote> g_skipped;
 void set_group(const char* name) { g_group = name; }
 
 void check(const char* id, const char* desc, bool cond, const std::string& detail = {}) {
+    report_row_id(id);
     ++g_total;
     Result r{g_group, id, desc, cond, detail};
     g_results.push_back(r);
@@ -91,6 +93,7 @@ void check(const char* id, const char* desc, bool cond, const std::string& detai
 }
 
 void skip(const char* id, const char* reason) {
+    report_row_id(id);
     g_skipped.push_back({id, reason});
 }
 
@@ -1845,6 +1848,7 @@ void test_cat11b_effective_rom_page_post_port_write() {
     set_group("Cat11b effective ROM page post-port-write (G46(b) regression)");
 
     struct Row {
+        const char* id;
         MachineType machine;
         const char* machine_name;
         uint8_t     port_7ffd;
@@ -1858,33 +1862,31 @@ void test_cat11b_effective_rom_page_post_port_write() {
     //   +3:   2-bit (1ffd(2):7ffd(4)) → page 0/1, 2/3, 4/5, or 6/7
     const Row rows[] = {
         // ── 48K: always sram_rom = 0 ───────────────────────────────
-        { MachineType::ZX48K,      "48K",    0x00, 0x00, 0 },
-        { MachineType::ZX48K,      "48K",    0x10, 0x00, 0 },
-        { MachineType::ZX48K,      "48K",    0x00, 0x04, 0 },
-        { MachineType::ZX48K,      "48K",    0x10, 0x04, 0 },
+        { "EFP-01", MachineType::ZX48K,      "48K",    0x00, 0x00, 0 },
+        { "EFP-02", MachineType::ZX48K,      "48K",    0x10, 0x00, 0 },
+        { "EFP-03", MachineType::ZX48K,      "48K",    0x00, 0x04, 0 },
+        { "EFP-04", MachineType::ZX48K,      "48K",    0x10, 0x04, 0 },
         // ── 128K: 1-bit, only port_7ffd(4) ─────────────────────────
-        { MachineType::ZX128K,     "128K",   0x00, 0x00, 0 },
-        { MachineType::ZX128K,     "128K",   0x10, 0x00, 2 },
-        { MachineType::ZX128K,     "128K",   0x00, 0x04, 0 },
-        { MachineType::ZX128K,     "128K",   0x10, 0x04, 2 },
+        { "EFP-05", MachineType::ZX128K,     "128K",   0x00, 0x00, 0 },
+        { "EFP-06", MachineType::ZX128K,     "128K",   0x10, 0x00, 2 },
+        { "EFP-07", MachineType::ZX128K,     "128K",   0x00, 0x04, 0 },
+        { "EFP-08", MachineType::ZX128K,     "128K",   0x10, 0x04, 2 },
         // ── +3: 2-bit (1ffd(2):7ffd(4)) ────────────────────────────
-        { MachineType::ZX_PLUS3,   "+3",     0x00, 0x00, 0 },
-        { MachineType::ZX_PLUS3,   "+3",     0x10, 0x00, 2 },
-        { MachineType::ZX_PLUS3,   "+3",     0x00, 0x04, 4 },
-        { MachineType::ZX_PLUS3,   "+3",     0x10, 0x04, 6 },
+        { "EFP-09", MachineType::ZX_PLUS3,   "+3",     0x00, 0x00, 0 },
+        { "EFP-10", MachineType::ZX_PLUS3,   "+3",     0x10, 0x00, 2 },
+        { "EFP-11", MachineType::ZX_PLUS3,   "+3",     0x00, 0x04, 4 },
+        { "EFP-12", MachineType::ZX_PLUS3,   "+3",     0x10, 0x04, 6 },
         // ── ZXN_ISSUE2 (Next): 1-bit, only port_7ffd(4) ────────────
         // The pivotal case for G46(b): default machine_type, $7FFD←$10
         // and $1FFD←$04 must produce page 2 (bank 1), NOT page 6
         // (bank 3 = soft-reset trampoline).
-        { MachineType::ZXN_ISSUE2, "Next",   0x00, 0x00, 0 },
-        { MachineType::ZXN_ISSUE2, "Next",   0x10, 0x00, 2 },
-        { MachineType::ZXN_ISSUE2, "Next",   0x00, 0x04, 0 },
-        { MachineType::ZXN_ISSUE2, "Next",   0x10, 0x04, 2 },
+        { "EFP-13", MachineType::ZXN_ISSUE2, "Next",   0x00, 0x00, 0 },
+        { "EFP-14", MachineType::ZXN_ISSUE2, "Next",   0x10, 0x00, 2 },
+        { "EFP-15", MachineType::ZXN_ISSUE2, "Next",   0x00, 0x04, 0 },
+        { "EFP-16", MachineType::ZXN_ISSUE2, "Next",   0x10, 0x04, 2 },
     };
 
-    int idx = 0;
     for (const auto& r : rows) {
-        ++idx;
         Fixture f;
         f.fresh();
         f.mmu.set_machine_type(r.machine);
@@ -1894,14 +1896,13 @@ void test_cat11b_effective_rom_page_post_port_write() {
         const uint8_t page1 = f.mmu.get_effective_page(1);
         const bool ok = (page0 == r.expected_page0) &&
                         (page1 == static_cast<uint8_t>(r.expected_page0 + 1));
-        const std::string id = fmt("EFP-%02d", idx);
-        check(id.c_str(),
-              fmt("%s machine 7FFD=$%02X 1FFD=$%02X → slot0=page %u, slot1=page %u "
-                  "(VHDL zxnext.vhd:2981-3008)",
-                  r.machine_name, r.port_7ffd, r.port_1ffd,
-                  r.expected_page0, r.expected_page0 + 1).c_str(),
+        check(r.id,
+              "port 7FFD/1FFD select this machine's legacy ROM pages in slots 0/1 "
+              "(VHDL zxnext.vhd:2981-3008)",
               ok,
-              fmt("got slot0=%u slot1=%u (expected %u/%u)",
+              fmt("%s machine 7FFD=$%02X 1FFD=$%02X: got slot0=%u slot1=%u "
+                  "(expected %u/%u)",
+                  r.machine_name, r.port_7ffd, r.port_1ffd,
                   page0, page1, r.expected_page0, r.expected_page0 + 1));
     }
 }

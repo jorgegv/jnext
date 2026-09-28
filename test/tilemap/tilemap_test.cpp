@@ -52,6 +52,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include "../row_id.h"
 
 // ── Test infrastructure ─────────────────────────────────────────────────
 
@@ -83,6 +84,7 @@ void set_group(const char* name) { g_group = name; }
 // supplies the plan row ID and a "VHDL file:line — rationale" note.
 template <typename A, typename B>
 void check(const char* id, A actual, B expected, const char* note) {
+    report_row_id(id);
     ++g_total;
     bool passed = (actual == expected);
     Result r{g_group, id, passed, note};
@@ -99,6 +101,7 @@ void check(const char* id, A actual, B expected, const char* note) {
 // or where passing a literal `true` as the 3rd argument to check() would
 // trip the tautology lint — see test/lint-assertions.sh pattern 1).
 void check_pred(const char* id, bool cond, const char* note) {
+    report_row_id(id);
     ++g_total;
     Result r{g_group, id, cond, note};
     g_results.push_back(r);
@@ -111,6 +114,7 @@ void check_pred(const char* id, bool cond, const char* note) {
 }
 
 void skip(const char* id, const char* reason) {
+    report_row_id(id);
     g_skipped.push_back({id, reason});
 }
 

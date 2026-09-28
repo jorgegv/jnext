@@ -38,11 +38,19 @@
 # EMPTY now; the mechanism stays, and so does the refusal of any entry that no
 # longer collides. A collision is fixed by renaming one side — its plan doc and
 # its test source together — not by adding a line.
+#
+# `--sources` prints, for every declared suite, "<suite>\t<source>[\t<source>...]"
+# — every .cpp its add_executable() compiles — and exits (2 if one cannot be
+# resolved). test/run-unit-tests.sh asks this rather than keeping a second
+# CMake reader: its row-ID literal check needs the same suite -> source map.
 use strict;
 use warnings;
 use FindBin qw($RealBin);
+use lib $RealBin;
+use SuiteSources qw(cmake_suite_sources);
 
 my $ROOT = "$RealBin/..";
+my $SOURCES_ONLY = (@ARGV && $ARGV[0] eq '--sources');
 
 my %ALLOW;
 {
@@ -75,44 +83,32 @@ while (my $l = <$mf>) {
 }
 close $mf;
 
-# suite -> source, read from CMake exactly as the matrix generator does.
-my %src;
-for my $cm (glob("$ROOT/test/CMakeLists.txt"), glob("$ROOT/src/*/CMakeLists.txt"),
-            glob("$ROOT/test/*/CMakeLists.txt")) {
-    open(my $fh, '<', $cm) or next;
-    my $dir = $cm; $dir =~ s{/CMakeLists\.txt$}{};
-    my $text = do { local $/; <$fh> };
-    close $fh;
-    while ($text =~ /add_executable\s*\(\s*(\w+)\s+([^\)]+)\)/gs) {
-        my ($suite, $files) = ($1, $2);
-        for my $f (split /\s+/, $files) {
-            next unless $f =~ /\.cpp$/;
-            my $p = "$dir/$f";
-            $src{$suite} //= $p if -f $p;
-        }
-    }
-}
+# suite -> sources: test/SuiteSources.pm, the one reader the matrix generator
+# uses too. EVERY test source of a suite, not only the first: esxdos_stub_test's
+# HFS rows live in its second source, which this gate used to never read.
+my %src = %{ cmake_suite_sources($ROOT) };
 
 my (%where, @dups);
 for my $suite (@suites) {
-    my $path = $src{$suite};
-    if (!defined $path) {
+    my @paths = map { "$ROOT/$_" } @{ $src{$suite} || [] };
+    if (!@paths) {
         push @unresolved, "$suite: no add_executable($suite <file>.cpp ...) in "
-                        . "test/CMakeLists.txt, src/*/CMakeLists.txt or "
-                        . "test/*/CMakeLists.txt";
+                        . "any CMakeLists.txt";
         next;
     }
-    my $fh;
-    if (!open($fh, '<', $path)) {
-        push @unresolved, "$suite: cannot read its source $path: $!";
-        next;
+    for my $path (@paths) {
+        my $fh;
+        if (!open($fh, '<', $path)) {
+            push @unresolved, "$suite: cannot read its source $path: $!";
+            next;
+        }
+        while (my $line = <$fh>) {
+            next if $line =~ m{^\s*//};
+            $line =~ s/\bset_group\s*\(\s*"[^"]*"/set_group(/g;
+            while ($line =~ /$ID_RE/g) { $where{$1}{$suite} = 1; }
+        }
+        close $fh;
     }
-    while (my $line = <$fh>) {
-        next if $line =~ m{^\s*//};
-        $line =~ s/\bset_group\s*\(\s*"[^"]*"/set_group(/g;
-        while ($line =~ /$ID_RE/g) { $where{$1}{$suite} = 1; }
-    }
-    close $fh;
 }
 
 for my $id (sort keys %where) {
@@ -131,6 +127,11 @@ for my $id (sort keys %ALLOW) {
     my $live = join(', ', sort keys %{ $where{$id} || {} });
     push @stale, "$id: $ALLOW{$id}   (live: " . ($live eq '' ? 'none' : $live) . ")"
         unless $live eq $ALLOW{$id};
+}
+
+if ($SOURCES_ONLY && !@unresolved) {
+    print join("\t", $_, map { "$ROOT/$_" } @{ $src{$_} }), "\n" for @suites;
+    exit 0;
 }
 
 if (@unresolved) {

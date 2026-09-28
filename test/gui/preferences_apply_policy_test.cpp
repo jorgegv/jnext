@@ -23,8 +23,10 @@
 #include "gui/preferences_apply_policy.h"
 
 #include <cstdio>
+#include <iterator>
 #include <string>
 #include <vector>
+#include "../row_id.h"
 
 namespace {
 
@@ -32,6 +34,7 @@ int g_pass = 0, g_fail = 0;
 
 void check(const char* id, const char* desc, bool cond, const std::string& detail = {})
 {
+    report_row_id(id);
     if (cond) {
         ++g_pass;
     } else {
@@ -63,10 +66,22 @@ const char* outcome_name(PreferencesApplyOutcome o)
     return "?";
 }
 
-const std::vector<MachineType> kAllTypes = {
+constexpr MachineType kAllTypes[] = {
     MachineType::ZXN_ISSUE2, MachineType::ZX48K,
     MachineType::ZX128K,     MachineType::ZX_PLUS3,
 };
+
+// One literal row ID per case, in kAllTypes order (PAP-02: ordered pairs, `to`
+// varying fastest). A row ID must be a literal and name ONE row, so the loops
+// below index these rather than reporting a shared ID once per iteration.
+constexpr const char* kPap01Ids[] = {"PAP-01", "PAP-01b", "PAP-01c", "PAP-01d"};
+constexpr const char* kPap02Ids[] = {
+    "PAP-02",  "PAP-02b", "PAP-02c", "PAP-02d", "PAP-02e", "PAP-02f",
+    "PAP-02g", "PAP-02h", "PAP-02i", "PAP-02j", "PAP-02k", "PAP-02l",
+};
+static_assert(std::size(kPap01Ids) == std::size(kAllTypes), "one PAP-01 ID per type");
+static_assert(std::size(kPap02Ids) == std::size(kAllTypes) * (std::size(kAllTypes) - 1),
+              "one PAP-02 ID per ordered pair of distinct types");
 
 }  // namespace
 
@@ -78,8 +93,9 @@ int main()
     // THE defect. A user changes a joypad source and presses Apply; the machine
     // type field still holds the machine that is already running. Nothing about
     // that requires a power cycle, for ANY machine type.
+    size_t k = 0;
     for (MachineType t : kAllTypes) {
-        check("PAP-01", "same machine type requires no restart",
+        check(kPap01Ids[k++], "same machine type requires no restart",
               !preferences_restart_required(t, t),
               std::string("running=requested=") + type_name(t));
     }
@@ -89,10 +105,11 @@ int main()
     // a Next are different machines and cannot be swapped under a running
     // program. Enumerated rather than sampled so no single pair can regress
     // unnoticed.
+    k = 0;
     for (MachineType from : kAllTypes) {
         for (MachineType to : kAllTypes) {
             if (from == to) continue;
-            check("PAP-02", "differing machine type requires a restart",
+            check(kPap02Ids[k++], "differing machine type requires a restart",
                   preferences_restart_required(from, to),
                   std::string(type_name(from)) + " -> " + type_name(to));
         }

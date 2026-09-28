@@ -61,6 +61,7 @@
 #include <vector>
 #include <cassert>
 #include <unistd.h>   // mkstemp/write/close/unlink — TZX fixture for the G36 tape-clock row
+#include "../row_id.h"
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -71,44 +72,39 @@ static int fail_count = 0;
 struct SkipNote { const char* id; const char* reason; };
 static std::vector<SkipNote> g_skipped;
 static void skip(const char* id, const char* reason) {
+    report_row_id(id);
     g_skipped.push_back({id, reason});
     fprintf(stdout, "SKIP %-16s %s\n", id, reason);
 }
 
-// ID-carrying form of CHECK. GH #201: `test/traceability-exceptions.conf`
-// lists this suite's planned rows because it has no VHDL counterpart and so
-// no plan doc — but every one of them named an assertion that this file
-// ALREADY made, anonymously, through the CHECK macro. An ID built nowhere is
-// an ID no source reader can see, so the matrix published all of them as
-// `missing` while they ran and passed. Spelling the ID out as a literal is
-// the whole fix; the condition and the message are unchanged.
-static void check(const char* id, bool cond, const char* desc) {
+// One row: a literal ID, the condition, a literal description, and an
+// optional detail carrying measured values (printed, never part of the ID).
+// GH #201 gave this suite its first literal IDs; the anonymous CHECK/REQUIRE
+// macros it replaced reported no ID at all, so their rows were invisible to
+// the traceability matrix and, once rows report IDs (test/row_id.h), would
+// have reported their message — for a snprintf'd message, a different "ID"
+// on every run.
+static void check(const char* id, bool cond, const char* desc,
+                  const std::string& detail = {}) {
+    report_row_id(id);
+    const char* sep = detail.empty() ? "" : " ";
     if (!cond) {
-        fprintf(stderr, "FAIL %s: %s\n", id, desc);
+        fprintf(stderr, "FAIL %s: %s%s%s\n", id, desc, sep, detail.c_str());
         ++fail_count;
     } else {
-        fprintf(stdout, "PASS %s: %s\n", id, desc);
+        fprintf(stdout, "PASS %s: %s%s%s\n", id, desc, sep, detail.c_str());
         ++pass_count;
     }
 }
 
-#define CHECK(cond, msg) do { \
-    if (!(cond)) { \
-        fprintf(stderr, "FAIL [%s:%d] %s\n", __FILE__, __LINE__, msg); \
-        ++fail_count; \
-    } else { \
-        fprintf(stdout, "PASS %s\n", msg); \
-        ++pass_count; \
-    } \
-} while(0)
-
-#define REQUIRE(cond, msg) do { \
-    if (!(cond)) { \
-        fprintf(stderr, "ABORT [%s:%d] %s\n", __FILE__, __LINE__, msg); \
-        ++fail_count; \
-        return 1; \
-    } \
-} while(0)
+// A precondition: a row like any other — reported and counted whether it
+// passes or fails, because the traceability matrix lists its ID as a row and a
+// row reading `pass` must be one Total counted. On failure the caller returns,
+// abandoning the group. Call it as `if (!require(...)) return 1;`.
+static bool require(const char* id, bool cond, const char* desc) {
+    check(id, cond, desc);
+    return cond;
+}
 
 // Build a minimal emulator with:
 //   - 48K machine (smallest RAM, fast init)
@@ -164,7 +160,7 @@ static int test_rewind_ring_wrap()
     build_emulator(emu, 4);  // Only 4 frame slots
 
     auto* rb = emu.rewind_buffer();
-    REQUIRE(rb != nullptr, "rewind buffer exists with 4 frames");
+    if (!require("RING-PRE-01", rb != nullptr, "rewind buffer exists with 4 frames")) return 1;
     check("RING-01", rb->empty(), "rewind buffer starts empty");
 
     // Run 6 frames — should wrap after 4.
@@ -194,7 +190,7 @@ static int test_step_back_pc()
     emu.run_frame();
 
     size_t trace_size = emu.trace_log().size();
-    REQUIRE(trace_size >= 20, "at least 20 trace entries after 2 frames");
+    if (!require("SB-PRE-01", trace_size >= 20, "at least 20 trace entries after 2 frames")) return 1;
 
     // step_back(N) lands at trace[size-N].pc  (undo N instructions).
     uint16_t expected_5  = emu.trace_log().at(trace_size - 5).pc;
@@ -217,7 +213,7 @@ static int test_step_back_pc()
     emu2.run_frame();
 
     size_t ts2 = emu2.trace_log().size();
-    REQUIRE(ts2 >= 20, "at least 20 trace entries for emu2");
+    if (!require("SB-PRE-02", ts2 >= 20, "at least 20 trace entries for emu2")) return 1;
 
     uint16_t expected2_10 = emu2.trace_log().at(ts2 - 10).pc;
     ok = emu2.step_back(10);
@@ -250,7 +246,7 @@ static int test_rewind_to_frame()
 
     // Get rewind buffer info.
     auto* rb = emu.rewind_buffer();
-    REQUIRE(rb != nullptr, "rewind buffer exists");
+    if (!require("RTF-PRE-01", rb != nullptr, "rewind buffer exists")) return 1;
     check("RTF-01", rb->depth() == 5, "five frame snapshots are held after five frames");
 
     uint32_t target_frame = rb->oldest_frame_num() + 1;
@@ -401,7 +397,7 @@ static int test_v16_cpu_01_load_state_repushes_port_ulap_io_en()
     // NR 0x85 power-on default is 0x8F (low 4 bits set; bit 7 = reset_type).
     // After build_emulator's init(), the contention shadow is true (b0=1).
     bool init_shadow = emu.contention().port_ulap_io_en();
-    CHECK(init_shadow, "post-init shadow == true (NR 0x85 default 0x8F → b0=1)");
+    check("RW-V16-01", init_shadow, "post-init shadow == true (NR 0x85 default 0x8F → b0=1)");
 
     // Save state. The snapshot captures NR 0x85 = 0x8F.
     StateWriter measure;
@@ -410,7 +406,7 @@ static int test_v16_cpu_01_load_state_repushes_port_ulap_io_en()
     std::vector<uint8_t> buf(snap_size, 0);
     StateWriter w(buf.data(), snap_size);
     emu.save_state(w);
-    REQUIRE(w.position() == snap_size, "save_state writes exactly snap_size bytes");
+    if (!require("RW-V16-PRE-01", w.position() == snap_size, "save_state writes exactly snap_size bytes")) return 1;
 
     // Plant the gap: directly set the shadow to FALSE on the live model.
     // This simulates the state divergence the V16 fix protects against
@@ -418,8 +414,8 @@ static int test_v16_cpu_01_load_state_repushes_port_ulap_io_en()
     // the NR-derived value back, OR a partial state-restore sequence
     // where another component modified the shadow before this load).
     emu.contention().set_port_ulap_io_en(false);
-    CHECK(!emu.contention().port_ulap_io_en(),
-          "shadow planted false (pre-load divergence simulation)");
+    check("RW-V16-02", !emu.contention().port_ulap_io_en(),
+                       "shadow planted false (pre-load divergence simulation)");
 
     // Load state. The fix re-pushes NR 0x85 bit 0 → shadow.
     StateReader r(buf.data(), snap_size);
@@ -430,8 +426,8 @@ static int test_v16_cpu_01_load_state_repushes_port_ulap_io_en()
     bool post_load_shadow = emu.contention().port_ulap_io_en();
     printf("  Post-load shadow: %s (expect true)\n",
            post_load_shadow ? "true" : "false");
-    CHECK(post_load_shadow,
-          "V16-CPU-01: load_state re-pushes port_ulap_io_en from NR 0x85 b0");
+    check("RW-V16-03", post_load_shadow,
+                       "V16-CPU-01: load_state re-pushes port_ulap_io_en from NR 0x85 b0");
 
     // Cross-check: also assert the contention model actually fires for
     // ULA+ ports post-load. This guards against future refactors that
@@ -446,9 +442,9 @@ static int test_v16_cpu_01_load_state_repushes_port_ulap_io_en()
         // 48K is contended at IORQ to BF3B per VHDL when port_ulap_io_en=1.
         // Pre-fix (no re-push): shadow=false → contention_tick stretch=0.
         // Post-fix: shadow=true → contention_tick stretch>0.
-        CHECK(stretch > 0,
-              "post-load contention_tick at $BF3B with default param "
-              "fires non-zero stretch (V15-CPU-NIT-03 OR-fold sees true shadow)");
+        check("RW-V16-04", stretch > 0,
+                           "post-load contention_tick at $BF3B with default param "
+                           "fires non-zero stretch (V15-CPU-NIT-03 OR-fold sees true shadow)");
     }
 
     return 0;
@@ -493,15 +489,15 @@ static int test_monotonic_tape_clock_roundtrip()
     };
     char tzx_path[] = "/tmp/jnext_rewind_tzxXXXXXX";
     int fd = mkstemp(tzx_path);
-    REQUIRE(fd >= 0, "mkstemp for TZX fixture");
-    REQUIRE(write(fd, tzx_min, sizeof(tzx_min)) == (ssize_t)sizeof(tzx_min),
-            "write TZX fixture");
+    if (!require("RW-TAPE-PRE-01", fd >= 0, "mkstemp for TZX fixture")) return 1;
+    if (!require("RW-TAPE-PRE-02", write(fd, tzx_min, sizeof(tzx_min)) == (ssize_t)sizeof(tzx_min),
+                                   "write TZX fixture")) return 1;
     close(fd);
 
     bool loaded = emu.load_tzx(tzx_path, /*fast_load=*/false);
     unlink(tzx_path);
-    REQUIRE(loaded, "load_tzx (realtime) succeeds");
-    CHECK(emu.tzx_tape().is_playing(), "TZX realtime playback is live before snapshot");
+    if (!require("RW-TAPE-PRE-03", loaded, "load_tzx (realtime) succeeds")) return 1;
+    check("RW-TAPE-01", emu.tzx_tape().is_playing(), "TZX realtime playback is live before snapshot");
 
     // Run a few frames so the base has folded frames in it, then snapshot.
     for (int i = 0; i < 3; ++i) emu.run_frame();
@@ -524,13 +520,12 @@ static int test_monotonic_tape_clock_roundtrip()
     const uint64_t mono_after_restore = emu.monotonic_tstates();
     char msg[160];
     snprintf(msg, sizeof(msg),
-             "monotonic tape clock exactly restored (saved=%llu restored=%llu, "
-             "pre-restore=%llu)",
+             "(saved=%llu restored=%llu, pre-restore=%llu)",
              (unsigned long long)mono_at_save,
              (unsigned long long)mono_after_restore,
              (unsigned long long)mono_before_restore);
-    CHECK(mono_after_restore == mono_at_save && mono_after_restore < mono_before_restore,
-          msg);
+    check("RW-TAPE-02", mono_after_restore == mono_at_save && mono_after_restore < mono_before_restore,
+                        "monotonic tape clock exactly restored", msg);
 
     // Post-restore advancement must be consistent: 2 frames advance the
     // clock by 2 nominal frame lengths ± the difference in end-of-frame
@@ -544,9 +539,10 @@ static int test_monotonic_tape_clock_roundtrip()
     const uint64_t delta = emu.monotonic_tstates() - mono_after_restore;
     const uint64_t two_frames = 2ull * 69888ull;  // 48K: 224 T × 312 lines
     snprintf(msg, sizeof(msg),
-             "post-restore clock advances by ~2 frames +-100 T (delta=%llu)",
+             "(delta=%llu)",
              (unsigned long long)delta);
-    CHECK(delta >= two_frames - 100 && delta <= two_frames + 100, msg);
+    check("RW-TAPE-03", delta >= two_frames - 100 && delta <= two_frames + 100,
+                        "post-restore clock advances by ~2 frames +-100 T", msg);
 
     return 0;
 }
@@ -574,20 +570,20 @@ static int test_live_enable_resize()
 
     emu.run_frame();
     emu.run_frame();
-    CHECK(emu.rewind_buffer() == nullptr, "A1B-01 no buffer with frames=0");
-    CHECK(!emu.rewind_enabled(), "A1B-02 rewind disabled with frames=0");
+    check("A1B-01", emu.rewind_buffer() == nullptr, "no buffer with frames=0");
+    check("A1B-02", !emu.rewind_enabled(), "rewind disabled with frames=0");
 
     // Live enable — exactly what the debugger toggle now does.
     emu.resize_rewind_buffer(4);
-    REQUIRE(emu.rewind_buffer() != nullptr, "buffer allocated live");
-    CHECK(emu.rewind_buffer()->empty(), "A1B-03 buffer empty until next frame");
-    CHECK(emu.rewind_enabled(), "A1B-04 snapshotting enabled by resize");
-    CHECK(emu.trace_log().enabled(),
-          "A1B-05 trace enabled by resize (step_back dependency)");
+    if (!require("A1B-PRE-01", emu.rewind_buffer() != nullptr, "buffer allocated live")) return 1;
+    check("A1B-03", emu.rewind_buffer()->empty(), "buffer empty until next frame");
+    check("A1B-04", emu.rewind_enabled(), "snapshotting enabled by resize");
+    check("A1B-05", emu.trace_log().enabled(),
+                    "trace enabled by resize (step_back dependency)");
 
     emu.run_frame();
-    CHECK(emu.rewind_buffer()->depth() == 1,
-          "A1B-06 snapshot taken at next frame start");
+    check("A1B-06", emu.rewind_buffer()->depth() == 1,
+                    "snapshot taken at next frame start");
     emu.run_frame();
 
     // Keep-but-pause: snapshotting stops, history retained.
@@ -595,24 +591,24 @@ static int test_live_enable_resize()
     size_t depth_at_pause = emu.rewind_buffer()->depth();
     emu.run_frame();
     emu.run_frame();
-    CHECK(emu.rewind_buffer()->depth() == depth_at_pause,
-          "A1B-07 pause: no new snapshots while disabled");
-    CHECK(!emu.rewind_buffer()->empty(),
-          "A1B-08 pause: recorded history retained");
+    check("A1B-07", emu.rewind_buffer()->depth() == depth_at_pause,
+                    "pause: no new snapshots while disabled");
+    check("A1B-08", !emu.rewind_buffer()->empty(),
+                    "pause: recorded history retained");
 
     // Resume.
     emu.set_rewind_enabled(true);
     emu.run_frame();
-    CHECK(emu.rewind_buffer()->depth() == depth_at_pause + 1,
-          "A1B-09 resume: snapshotting continues");
+    check("A1B-09", emu.rewind_buffer()->depth() == depth_at_pause + 1,
+                    "resume: snapshotting continues");
 
     // step_back after a live enable must succeed.
-    CHECK(emu.step_back(1), "A1B-10 step_back works after live enable");
+    check("A1B-10", emu.step_back(1), "step_back works after live enable");
 
     // Free: resize to 0 drops the buffer and disables rewind.
     emu.resize_rewind_buffer(0);
-    CHECK(emu.rewind_buffer() == nullptr, "A1B-11 resize(0) frees the buffer");
-    CHECK(!emu.rewind_enabled(), "A1B-12 resize(0) disables rewind");
+    check("A1B-11", emu.rewind_buffer() == nullptr, "resize(0) frees the buffer");
+    check("A1B-12", !emu.rewind_enabled(), "resize(0) disables rewind");
 
     return 0;
 }
@@ -634,21 +630,21 @@ static int test_state_bounds()
         std::memset(buf, 0xAA, sizeof(buf));
         StateWriter w(buf, 4);            // capacity 4; bytes 4..15 are guards
         w.write_u32(0x11223344);          // fills the buffer exactly
-        CHECK(!w.overflow(), "SW-BND-00 in-bounds write does not trip overflow");
+        check("SW-BND-00", !w.overflow(), "in-bounds write does not trip overflow");
         w.write_u64(0xDEADBEEFCAFEF00DULL);  // would cross capacity
-        CHECK(w.overflow(), "SW-BND-01 write past capacity latches overflow flag");
+        check("SW-BND-01", w.overflow(), "write past capacity latches overflow flag");
         bool guards_intact = true;
         for (int i = 4; i < 16; ++i) guards_intact = guards_intact && (buf[i] == 0xAA);
-        CHECK(guards_intact, "SW-BND-02 overflowing write leaves adjacent bytes untouched");
-        CHECK(w.position() == 12, "SW-BND-03 position keeps counting intended stream offset");
+        check("SW-BND-02", guards_intact, "overflowing write leaves adjacent bytes untouched");
+        check("SW-BND-03", w.position() == 12, "position keeps counting intended stream offset");
     }
 
     // Measure mode (buf=nullptr) can never overflow regardless of capacity 0.
     {
         StateWriter m;
         m.write_u64(1); m.write_u64(2);
-        CHECK(!m.overflow() && m.position() == 16,
-              "SW-BND-04 measure mode never overflows");
+        check("SW-BND-04", !m.overflow() && m.position() == 16,
+                           "measure mode never overflows");
     }
 
     // StateReader: read past the end is caught and zero-filled.
@@ -656,10 +652,10 @@ static int test_state_bounds()
         const uint8_t buf[4] = {1, 2, 3, 4};
         StateReader r(buf, 4);
         (void)r.read_u32();               // consumes the whole buffer
-        CHECK(!r.out_of_bounds(), "SR-BND-00 in-bounds read does not trip flag");
+        check("SR-BND-00", !r.out_of_bounds(), "in-bounds read does not trip flag");
         uint64_t v = r.read_u64();        // past the end
-        CHECK(r.out_of_bounds(), "SR-BND-01 read past end latches out_of_bounds flag");
-        CHECK(v == 0, "SR-BND-02 out-of-bounds read returns zero, not adjacent memory");
+        check("SR-BND-01", r.out_of_bounds(), "read past end latches out_of_bounds flag");
+        check("SR-BND-02", v == 0, "out-of-bounds read returns zero, not adjacent memory");
     }
 
     return 0;
@@ -688,16 +684,16 @@ static int test_state_sentinels()
     std::vector<uint8_t> buf(snap, 0);
     StateWriter w(buf.data(), snap);
     emu.save_state(w);
-    CHECK(!w.overflow() && w.position() == snap,
-          "SENT-00 exact-size save fills the buffer without overflow");
+    check("SENT-00", !w.overflow() && w.position() == snap,
+                     "exact-size save fills the buffer without overflow");
 
     // Pristine buffer restores cleanly (round-trip still works).
     {
         StateReader r(buf.data(), snap);
         const bool ok = emu.load_state(r);
-        CHECK(ok, "SENT-OK-01 pristine snapshot: load_state returns true");
-        CHECK(emu.last_state_error().empty(),
-              "SENT-OK-02 pristine snapshot: last_state_error is empty");
+        check("SENT-OK-01", ok, "pristine snapshot: load_state returns true");
+        check("SENT-OK-02", emu.last_state_error().empty(),
+                            "pristine snapshot: last_state_error is empty");
     }
 
     // Corrupt the 'mmu' sentinel (ordinal 2 in the save_state sequence) and
@@ -711,19 +707,19 @@ static int test_state_sentinels()
             std::memcpy(&v, buf.data() + i, 4);
             if (v == mmu_sentinel) { off = i; ++hits; }
         }
-        CHECK(hits == 1, "SENT-CORRUPT-00 mmu sentinel value occurs exactly once in the snapshot");
+        check("SENT-CORRUPT-00", hits == 1, "mmu sentinel value occurs exactly once in the snapshot");
 
         std::vector<uint8_t> bad(buf);
         bad[off] ^= 0xFF;
         StateReader r(bad.data(), snap);
         const bool ok = emu.load_state(r);
-        CHECK(!ok, "SENT-CORRUPT-01 corrupted mmu sentinel: load_state returns false");
-        CHECK(emu.last_state_error() == "mmu",
-              "SENT-CORRUPT-02 corrupted mmu sentinel: error names subsystem 'mmu'");
+        check("SENT-CORRUPT-01", !ok, "corrupted mmu sentinel: load_state returns false");
+        check("SENT-CORRUPT-02", emu.last_state_error() == "mmu",
+                                 "corrupted mmu sentinel: error names subsystem 'mmu'");
 
         // Restore a pristine snapshot so the emulator is consistent again.
         StateReader r2(buf.data(), snap);
-        CHECK(emu.load_state(r2), "SENT-CORRUPT-03 pristine reload after failed load succeeds");
+        check("SENT-CORRUPT-03", emu.load_state(r2), "pristine reload after failed load succeeds");
     }
 
     // A truncated buffer (simulates a desynced/short snapshot) fails loudly
@@ -731,9 +727,9 @@ static int test_state_sentinels()
     {
         StateReader r(buf.data(), snap / 2);
         const bool ok = emu.load_state(r);
-        CHECK(!ok, "SENT-TRUNC-01 truncated snapshot: load_state returns false");
-        CHECK(!emu.last_state_error().empty(),
-              "SENT-TRUNC-02 truncated snapshot: failing subsystem is named");
+        check("SENT-TRUNC-01", !ok, "truncated snapshot: load_state returns false");
+        check("SENT-TRUNC-02", !emu.last_state_error().empty(),
+                               "truncated snapshot: failing subsystem is named");
 
         StateReader r2(buf.data(), snap);
         emu.load_state(r2);
@@ -748,8 +744,8 @@ static int test_state_sentinels()
         StateReader r(buf.data(), snap / 2);
         const bool failed = !emu.load_state(r) && !emu.last_state_error().empty();
         emu.soft_reset();
-        CHECK(failed && emu.last_state_error().empty(),
-              "SENT-RESET-01 a soft reset clears the failed-restore corruption flag");
+        check("SENT-RESET-01", failed && emu.last_state_error().empty(),
+                               "a soft reset clears the failed-restore corruption flag");
     }
 
     return 0;
@@ -807,15 +803,15 @@ static int test_rb_frame_guard()
         RewindBuffer rb(2, snap);
         rb.take_snapshot(emu, 100, 1);
         rb.take_snapshot(emu, 200, 2);
-        CHECK(rb.depth() == 2, "RB-FRAME-04a ring filled with 2 good snapshots");
+        check("RB-FRAME-04a", rb.depth() == 2, "ring filled with 2 good snapshots");
         rb.shrink_expected_snapshot_bytes_for_test(snap - 16);
         rb.take_snapshot(emu, 300, 3);   // overflows the shrunk claim, ring full
-        CHECK(rb.depth() == 1,
-              "RB-FRAME-04 failed write over full ring evicts exactly the destroyed oldest");
-        CHECK(rb.oldest_frame_cycle() == 200 && rb.oldest_frame_num() == 2,
-              "RB-FRAME-05 survivor is the second-oldest snapshot");
-        CHECK(rb.newest_frame_cycle() == 200,
-              "RB-FRAME-06 failed snapshot is not published as newest");
+        check("RB-FRAME-04", rb.depth() == 1,
+                             "failed write over full ring evicts exactly the destroyed oldest");
+        check("RB-FRAME-05", rb.oldest_frame_cycle() == 200 && rb.oldest_frame_num() == 2,
+                             "survivor is the second-oldest snapshot");
+        check("RB-FRAME-06", rb.newest_frame_cycle() == 200,
+                             "failed snapshot is not published as newest");
     }
 
     return 0;
@@ -849,26 +845,26 @@ static int test_snapshot_size_invariance()
     StateWriter base;
     emu.save_state(base);
     const size_t snap = base.position();
-    REQUIRE(emu.renderer().ula().port_ff_change_log_size() == 0,
-            "precondition: port-0xFF log starts empty");
+    if (!require("RB-SIZE-PRE-01", emu.renderer().ula().port_ff_change_log_size() == 0,
+                                   "precondition: port-0xFF log starts empty")) return 1;
 
     // ---- port-0xFF change log ------------------------------------------
     // Drive the real setter, the same path a guest OUT (0xFF),A takes.
     emu.renderer().ula().set_screen_mode(0x02);
     emu.renderer().ula().set_screen_mode(0x06);
     const size_t logged = emu.renderer().ula().port_ff_change_log_size();
-    REQUIRE(logged >= 2, "precondition: port-0xFF writes were logged");
+    if (!require("RB-SIZE-PRE-02", logged >= 2, "precondition: port-0xFF writes were logged")) return 1;
 
     StateWriter after_ff;
     emu.save_state(after_ff);
-    CHECK(after_ff.position() == snap,
-          "RB-SIZE-01 snapshot size unchanged by port-0xFF writes");
+    check("RB-SIZE-01", after_ff.position() == snap,
+                        "snapshot size unchanged by port-0xFF writes");
 
     {
         RewindBuffer rb(3, snap);
         rb.take_snapshot(emu, 100, 1);
-        CHECK(rb.depth() == 1,
-              "RB-SIZE-02 snapshot taken on a port-0xFF frame is published, not dropped");
+        check("RB-SIZE-02", rb.depth() == 1,
+                            "snapshot taken on a port-0xFF frame is published, not dropped");
     }
 
     // The fix must not buy constant width by throwing the log away: the
@@ -877,13 +873,13 @@ static int test_snapshot_size_invariance()
         RewindBuffer rb(3, snap);
         rb.take_snapshot(emu, 100, 1);
         emu.renderer().ula().set_screen_mode(0x00);   // disturb live state
-        // Deliberately CHECK, not REQUIRE: if the snapshot was dropped this
+        // Deliberately check(), not require(): if the snapshot was dropped this
         // row must FAIL and the suite must still report its pinned row
         // count, rather than aborting and tripping the manifest guard with
         // a second, misleading fault.
-        CHECK(rb.restore_nearest(100, emu) == 100 &&
-              emu.renderer().ula().port_ff_change_log_size() == logged,
-              "RB-SIZE-03 port-0xFF log content survives the snapshot round-trip");
+        check("RB-SIZE-03", rb.restore_nearest(100, emu) == 100 &&
+                            emu.renderer().ula().port_ff_change_log_size() == logged,
+                            "port-0xFF log content survives the snapshot round-trip");
     }
 
     // ---- auto-type queue ------------------------------------------------
@@ -903,13 +899,13 @@ static int test_snapshot_size_invariance()
 
         StateWriter after_kb;
         emu2.save_state(after_kb);
-        CHECK(after_kb.position() == snap2,
-              "RB-SIZE-04 snapshot size unchanged by a queued auto-type sequence");
+        check("RB-SIZE-04", after_kb.position() == snap2,
+                            "snapshot size unchanged by a queued auto-type sequence");
 
         RewindBuffer rb(3, snap2);
         rb.take_snapshot(emu2, 100, 1);
-        CHECK(rb.depth() == 1,
-              "RB-SIZE-05 snapshot taken mid-auto-type is published, not dropped");
+        check("RB-SIZE-05", rb.depth() == 1,
+                            "snapshot taken mid-auto-type is published, not dropped");
 
         // The cap is what makes the constant width honest — an oversized
         // sequence is truncated at the queue, never silently widening the
@@ -919,8 +915,8 @@ static int test_snapshot_size_invariance()
         emu2.keyboard().queue_auto_type(too_many);
         StateWriter after_cap;
         emu2.save_state(after_cap);
-        CHECK(after_cap.position() == snap2,
-              "RB-SIZE-06 over-cap auto-type sequence still yields a constant-size snapshot");
+        check("RB-SIZE-06", after_cap.position() == snap2,
+                            "over-cap auto-type sequence still yields a constant-size snapshot");
     }
 
     // ---- content round-trip, not just width -----------------------------
@@ -947,19 +943,19 @@ static int test_snapshot_size_invariance()
         rb.take_snapshot(emu3, 100, 1);
 
         emu3.keyboard().queue_auto_type({});   // wipe the live queue
-        // CHECK, not REQUIRE — see the note at the fallback-colour row above:
+        // check(), not require() — see the note at the fallback-colour row above:
         // aborting here would skip RB-SIZE-09/10/11 and report a row count the
         // manifest guard then flags as a SECOND, misleading fault.
-        CHECK(rb.restore_nearest(100, emu3) == 100,
-              "RB-SIZE-06b slot restores for the auto-type content row");
+        check("RB-SIZE-06b", rb.restore_nearest(100, emu3) == 100,
+                             "slot restores for the auto-type content row");
 
         emu3.keyboard().tick_auto_type();      // play the restored key
         const uint8_t row1 = emu3.keyboard().read_rows(0xFD);  // A9  low -> row 1
         const uint8_t row3 = emu3.keyboard().read_rows(0xF7);  // A11 low -> row 3
-        CHECK((row1 & 0x08) == 0,
-              "RB-SIZE-07 restored auto-type queue plays the correct key (row 1 col 3 = F)");
-        CHECK((row3 & 0x02) != 0,
-              "RB-SIZE-08 restored auto-type queue does not press the row/col transpose (3,1)");
+        check("RB-SIZE-07", (row1 & 0x08) == 0,
+                            "restored auto-type queue plays the correct key (row 1 col 3 = F)");
+        check("RB-SIZE-08", (row3 & 0x02) != 0,
+                            "restored auto-type queue does not press the row/col transpose (3,1)");
     }
 
     // Same for the UART FIFOs — the third variable-length field. Inject a
@@ -980,13 +976,13 @@ static int test_snapshot_size_invariance()
 
         StateWriter after_uart;
         emu4.save_state(after_uart);
-        CHECK(after_uart.position() == snap4,
-              "RB-SIZE-09 snapshot size unchanged by bytes in flight in the UART RX FIFO");
+        check("RB-SIZE-09", after_uart.position() == snap4,
+                            "snapshot size unchanged by bytes in flight in the UART RX FIFO");
 
         RewindBuffer rb(3, snap4);
         rb.take_snapshot(emu4, 100, 1);
-        CHECK(rb.depth() == 1,
-              "RB-SIZE-10 snapshot taken with a non-empty UART FIFO is published, not dropped");
+        check("RB-SIZE-10", rb.depth() == 1,
+                            "snapshot taken with a non-empty UART FIFO is published, not dropped");
 
         // Re-review finding: RB-SIZE-09/10 above pin WIDTH only — scrambling
         // the restored byte ORDER left the whole 5292-row suite green, and no
@@ -995,13 +991,13 @@ static int test_snapshot_size_invariance()
         // polluting the live FIFO, so order and content are both pinned.
         emu4.uart().read(0);                   // drain one live byte
         emu4.uart().inject_rx(0, 0xAA);        // pollute what remains
-        CHECK(rb.restore_nearest(100, emu4) == 100,
-              "RB-SIZE-10b slot restores for the UART content row");
+        check("RB-SIZE-10b", rb.restore_nearest(100, emu4) == 100,
+                             "slot restores for the UART content row");
         const uint8_t u1 = emu4.uart().read(0);
         const uint8_t u2 = emu4.uart().read(0);
         const uint8_t u3 = emu4.uart().read(0);
-        CHECK(u1 == 0x41 && u2 == 0x42 && u3 == 0x43,
-              "RB-SIZE-11 UART RX FIFO content and order survive the round-trip");
+        check("RB-SIZE-11", u1 == 0x41 && u2 == 0x42 && u3 == 0x43,
+                            "UART RX FIFO content and order survive the round-trip");
     }
 
     return 0;
@@ -1026,7 +1022,7 @@ static int test_rewind_chain_corrupted_slot()
     emu.run_frame();
 
     RewindBuffer* rb = emu.rewind_buffer();
-    REQUIRE(rb != nullptr && rb->depth() >= 2, "rewind buffer holds >= 2 real snapshots");
+    if (!require("SENT-CHAIN-PRE-01", rb != nullptr && rb->depth() >= 2, "rewind buffer holds >= 2 real snapshots")) return 1;
 
     // Corrupt the 'mmu' sentinel (ordinal 2) in EVERY stored slot, so
     // whichever snapshot the rewind selects fails verification.
@@ -1040,23 +1036,23 @@ static int test_rewind_chain_corrupted_slot()
             if (v == mmu_sentinel) { d[off] ^= 0xFF; ++corrupted; break; }
         }
     }
-    CHECK(corrupted == rb->depth(),
-          "SENT-CHAIN-00 mmu sentinel corrupted in every stored slot");
+    check("SENT-CHAIN-00", corrupted == rb->depth(),
+                           "mmu sentinel corrupted in every stored slot");
 
     // step_back must fail through the whole chain, not pause-as-successful.
     const bool sb = emu.step_back(1);
-    CHECK(!sb, "SENT-CHAIN-01 step_back returns false on corrupted slot");
-    CHECK(emu.last_state_error() == "mmu",
-          "SENT-CHAIN-02 chain failure names subsystem 'mmu'");
+    check("SENT-CHAIN-01", !sb, "step_back returns false on corrupted slot");
+    check("SENT-CHAIN-02", emu.last_state_error() == "mmu",
+                           "chain failure names subsystem 'mmu'");
 
     // rewind_to_frame must fail the same way.
     const bool rf = emu.rewind_to_frame(rb->oldest_frame_num());
-    CHECK(!rf, "SENT-CHAIN-03 rewind_to_frame returns false on corrupted slot");
+    check("SENT-CHAIN-03", !rf, "rewind_to_frame returns false on corrupted slot");
 
     // rewind_to_cycle is the shared workhorse — verify its own contract.
     const uint64_t rc = emu.rewind_to_cycle(rb->newest_frame_cycle());
-    CHECK(rc == UINT64_MAX,
-          "SENT-CHAIN-04 rewind_to_cycle returns UINT64_MAX on corrupted slot");
+    check("SENT-CHAIN-04", rc == UINT64_MAX,
+                           "rewind_to_cycle returns UINT64_MAX on corrupted slot");
 
     return 0;
 }
@@ -1298,8 +1294,8 @@ static int test_rewind_restores_render_state()
     Emulator emu;
     rw_build_s0(emu, 10);
     const RwState s0 = rw_capture(emu);
-    REQUIRE(s0.l2_sx == 0x10 && s0.tm_scroll_x == 0x05 && s0.lores.scroll_x == 0x07,
-            "RWR fixture: S0 is live when the frame-1 snapshot is taken");
+    if (!require("RWR-PRE-01", s0.l2_sx == 0x10 && s0.tm_scroll_x == 0x05 && s0.lores.scroll_x == 0x07,
+                               "RWR fixture: S0 is live when the frame-1 snapshot is taken")) return 1;
     emu.run_frame();                 // frame 1 — the target snapshot
     rw_write_s1(emu);
     emu.run_frame();                 // frame 2
@@ -1308,62 +1304,63 @@ static int test_rewind_restores_render_state()
     // The history being rewound over must really be stale, or every row
     // below passes vacuously: the Copper ran (S2 live) and the per-line
     // arrays hold the S1/S2 split.
-    REQUIRE(emu.layer2().scroll_x() == 0x70 &&
-            emu.renderer().blend_mode_for_line(0) == 0x03 &&
-            emu.renderer().blend_mode_for_line(Renderer::FB_HEIGHT - 1) == 0x02 &&
-            emu.tilemap().scroll_x_for_line(0) == 0x22,
-            "RWR fixture: frame 3 left S1/S2 render history behind");
+    if (!require("RWR-PRE-02", emu.layer2().scroll_x() == 0x70 &&
+                               emu.renderer().blend_mode_for_line(0) == 0x03 &&
+                               emu.renderer().blend_mode_for_line(Renderer::FB_HEIGHT - 1) == 0x02 &&
+                               emu.tilemap().scroll_x_for_line(0) == 0x22,
+                               "RWR fixture: frame 3 left S1/S2 render history behind")) return 1;
 
-    REQUIRE(emu.rewind_to_frame(1), "RWR fixture: rewind_to_frame(1) succeeds");
+    if (!require("RWR-PRE-03", emu.rewind_to_frame(1), "RWR fixture: rewind_to_frame(1) succeeds")) return 1;
     const RwState a = rw_capture(emu);
 
     char msg[256];
     std::snprintf(msg, sizeof(msg),
-                  "RWR-01 palette entry restored (L2[5] %08X, snapshot %08X)",
+                  "(L2[5] %08X, snapshot %08X)",
                   a.l2_pal5, s0.l2_pal5);
-    CHECK(a.l2_pal5 == s0.l2_pal5, msg);
+    check("RWR-01", a.l2_pal5 == s0.l2_pal5,
+                    "palette entry restored", msg);
 
     std::snprintf(msg, sizeof(msg),
-                  "RWR-02 Layer 2 scroll/clip/bank/enable/NR 0x70 restored "
-                  "(sx %03X sy %02X clip %02X/%02X/%02X/%02X bank %02X en %d "
-                  "res %u poff %u)",
+                  "(sx %03X sy %02X clip %02X/%02X/%02X/%02X bank %02X en %d res %u poff %u)",
                   a.l2_sx, a.l2_sy, a.l2_cx1, a.l2_cx2, a.l2_cy1, a.l2_cy2,
                   a.l2_bank, a.l2_en, a.l2_res, a.l2_poff);
-    CHECK(a.l2_sx == s0.l2_sx && a.l2_sy == s0.l2_sy &&
-          a.l2_cx1 == s0.l2_cx1 && a.l2_cx2 == s0.l2_cx2 &&
-          a.l2_cy1 == s0.l2_cy1 && a.l2_cy2 == s0.l2_cy2 &&
-          a.l2_bank == s0.l2_bank && a.l2_en == s0.l2_en &&
-          a.l2_res == s0.l2_res && a.l2_poff == s0.l2_poff, msg);
+    check("RWR-02", a.l2_sx == s0.l2_sx && a.l2_sy == s0.l2_sy &&
+                    a.l2_cx1 == s0.l2_cx1 && a.l2_cx2 == s0.l2_cx2 &&
+                    a.l2_cy1 == s0.l2_cy1 && a.l2_cy2 == s0.l2_cy2 &&
+                    a.l2_bank == s0.l2_bank && a.l2_en == s0.l2_en &&
+                    a.l2_res == s0.l2_res && a.l2_poff == s0.l2_poff,
+                    "Layer 2 scroll/clip/bank/enable/NR 0x70 restored", msg);
 
     std::snprintf(msg, sizeof(msg),
-                  "RWR-03 sprite attributes and pattern RAM restored "
                   "(spr0 X %02X, pattern[0] %02X)", a.spr0[0], a.pat[0]);
-    CHECK(std::memcmp(a.spr0, s0.spr0, sizeof(a.spr0)) == 0 &&
-          std::memcmp(a.pat, s0.pat, sizeof(a.pat)) == 0, msg);
+    check("RWR-03", std::memcmp(a.spr0, s0.spr0, sizeof(a.spr0)) == 0 &&
+                    std::memcmp(a.pat, s0.pat, sizeof(a.pat)) == 0,
+                    "sprite attributes and pattern RAM restored", msg);
 
     std::snprintf(msg, sizeof(msg),
-                  "RWR-04 tilemap NR 0x6B restored (%02X, enabled %d)",
+                  "(%02X, enabled %d)",
                   a.tm_ctl, a.tm_en);
-    CHECK(a.tm_ctl == s0.tm_ctl && a.tm_en == s0.tm_en, msg);
+    check("RWR-04", a.tm_ctl == s0.tm_ctl && a.tm_en == s0.tm_en,
+                    "tilemap NR 0x6B restored", msg);
 
     std::snprintf(msg, sizeof(msg),
-                  "RWR-05 ULA scroll NR 0x26/0x27/0x68 b2 restored "
                   "(%02X/%02X/%d)", a.ula_sx, a.ula_sy, a.ula_fine);
-    CHECK(a.ula_sx == s0.ula_sx && a.ula_sy == s0.ula_sy &&
-          a.ula_fine == s0.ula_fine, msg);
+    check("RWR-05", a.ula_sx == s0.ula_sx && a.ula_sy == s0.ula_sy &&
+                    a.ula_fine == s0.ula_fine,
+                    "ULA scroll NR 0x26/0x27/0x68 b2 restored", msg);
 
     std::snprintf(msg, sizeof(msg),
-                  "RWR-06 Ula NR 0x43 b1-3 / NR 0x6B b4 selector mirrors "
-                  "restored (%d%d%d%d)",
+                  "(%d%d%d%d)",
                   a.sel_ula, a.sel_l2, a.sel_spr, a.sel_tm);
-    CHECK(a.sel_ula == s0.sel_ula && a.sel_l2 == s0.sel_l2 &&
-          a.sel_spr == s0.sel_spr && a.sel_tm == s0.sel_tm, msg);
+    check("RWR-06", a.sel_ula == s0.sel_ula && a.sel_l2 == s0.sel_l2 &&
+                    a.sel_spr == s0.sel_spr && a.sel_tm == s0.sel_tm,
+                    "Ula NR 0x43 b1-3 / NR 0x6B b4 selector mirrors restored", msg);
 
     std::snprintf(msg, sizeof(msg),
-                  "RWR-07 attribute mux shows the restored VRAM "
                   "(mux %02X, VRAM %02X, snapshot %02X)",
                   a.mux0, a.vram_attr0, s0.vram_attr0);
-    CHECK(a.mux0 == s0.vram_attr0 && a.vram_attr0 == s0.vram_attr0, msg);
+    check("RWR-07", a.mux0 == s0.vram_attr0 && a.vram_attr0 == s0.vram_attr0,
+                    "attribute mux shows the restored VRAM", msg);
 
     // The per-line snapshots the rewind's render read, row by row.
     const Renderer& r = emu.renderer();
@@ -1385,17 +1382,17 @@ static int test_rewind_restores_render_state()
             ++bad_lr;
     }
     std::snprintf(msg, sizeof(msg),
-                  "RWR-08 stencil/blend/NR 0x14/ULA-clip rows read the "
-                  "restored registers (%d stale rows)", bad_r);
-    CHECK(bad_r == 0, msg);
+                  "(%d stale rows)", bad_r);
+    check("RWR-08", bad_r == 0,
+                    "stencil/blend/NR 0x14/ULA-clip rows read the restored registers", msg);
     std::snprintf(msg, sizeof(msg),
-                  "RWR-09 tilemap scroll rows read the restored registers "
                   "(%d stale rows)", bad_tm);
-    CHECK(bad_tm == 0, msg);
+    check("RWR-09", bad_tm == 0,
+                    "tilemap scroll rows read the restored registers", msg);
     std::snprintf(msg, sizeof(msg),
-                  "RWR-10 LoRes rows read the restored registers "
                   "(%d stale rows)", bad_lr);
-    CHECK(bad_lr == 0, msg);
+    check("RWR-10", bad_lr == 0,
+                    "LoRes rows read the restored registers", msg);
 
     // The frame the rewind rendered must be the frame a machine that never
     // ran past the snapshot renders at that instant.
@@ -1408,8 +1405,8 @@ static int test_rewind_restores_render_state()
     // to it. Top-left pixel, in the border (no Layer 2, no sprite): scroll
     // (5, 6) puts it on map cell (0, 0) = tile 0, row 6, pixel 5 = index
     // 1 + (5 + 6) % 14 = 12, tilemap palette 1.
-    REQUIRE(twin.get_framebuffer()[0] == twin.palette().tilemap_colour(true, 12),
-            "RWR fixture: the snapshot-instant frame shows the S0 tilemap");
+    if (!require("RWR-PRE-04", twin.get_framebuffer()[0] == twin.palette().tilemap_colour(true, 12),
+                               "RWR fixture: the snapshot-instant frame shows the S0 tilemap")) return 1;
     const size_t px = static_cast<size_t>(emu.get_framebuffer_width()) *
                       static_cast<size_t>(emu.get_framebuffer_height());
     size_t diff = 0;
@@ -1417,9 +1414,9 @@ static int test_rewind_restores_render_state()
         if (emu.get_framebuffer()[i] != twin.get_framebuffer()[i])
             ++diff;
     std::snprintf(msg, sizeof(msg),
-                  "RWR-11 frame rendered by rewind_to_frame equals a fresh "
-                  "render of the snapshot instant (%zu pixels differ)", diff);
-    CHECK(diff == 0, msg);
+                  "(%zu pixels differ)", diff);
+    check("RWR-11", diff == 0,
+                    "frame rendered by rewind_to_frame equals a fresh render of the snapshot instant", msg);
 
     return 0;
 }
@@ -1451,12 +1448,11 @@ static int test_rewind_callers_render_state()
         emu.run_frame();
         emu.run_frame();
         const uint64_t cyc = emu.rewind_buffer()->frame_cycle_for(1);
-        REQUIRE(emu.rewind_to_cycle(cyc) != UINT64_MAX,
-                "RWR fixture: rewind_to_cycle to the frame-1 snapshot");
+        if (!require("RWR-PRE-05", emu.rewind_to_cycle(cyc) != UINT64_MAX,
+                                   "RWR fixture: rewind_to_cycle to the frame-1 snapshot")) return 1;
         const Ula& u = emu.ula();
         char msg[160];
         std::snprintf(msg, sizeof(msg),
-                      "RWR-12 rewind_to_cycle restores the Ula selector mirrors "
                       "(%d%d%d%d, PaletteManager %d%d%d%d)",
                       u.get_active_ula_palette(), u.get_active_layer2_palette(),
                       u.get_active_sprite_palette(), u.get_active_tilemap_palette(),
@@ -1464,9 +1460,9 @@ static int test_rewind_callers_render_state()
                       emu.palette().active_layer2_palette(),
                       emu.palette().active_sprite_palette(),
                       emu.palette().active_tilemap_palette());
-        CHECK(!u.get_active_ula_palette() && !u.get_active_layer2_palette() &&
-              !u.get_active_sprite_palette() && !u.get_active_tilemap_palette(),
-              msg);
+        check("RWR-12", !u.get_active_ula_palette() && !u.get_active_layer2_palette() &&
+                        !u.get_active_sprite_palette() && !u.get_active_tilemap_palette(),
+                        "rewind_to_cycle restores the Ula selector mirrors", msg);
     }
     {
         Emulator emu;
@@ -1484,16 +1480,16 @@ static int test_rewind_callers_render_state()
         emu.run_frame();             // breaks mid-frame after the OUT
         const uint8_t written = emu.sprites().read_pattern_byte(0);
         emu.debug_state().breakpoints().clear_all_pc();
-        REQUIRE(written == 0x77 && emu.step_back(1),
-                "RWR fixture: OUT to port 0x5B ran, step_back(1) succeeds");
+        if (!require("RWR-PRE-06", written == 0x77 && emu.step_back(1),
+                                   "RWR fixture: OUT to port 0x5B ran, step_back(1) succeeds")) return 1;
         char msg[160];
         std::snprintf(msg, sizeof(msg),
-                      "RWR-13 step_back over a port 0x5B write restores the "
-                      "pattern byte (PC %04X, pattern[0] %02X, want 11)",
+                      "(PC %04X, pattern[0] %02X, want 11)",
                       emu.cpu().get_registers().PC,
                       emu.sprites().read_pattern_byte(0));
-        CHECK(emu.cpu().get_registers().PC == 0x810B &&
-              emu.sprites().read_pattern_byte(0) == 0x11, msg);
+        check("RWR-13", emu.cpu().get_registers().PC == 0x810B &&
+                        emu.sprites().read_pattern_byte(0) == 0x11,
+                        "step_back over a port 0x5B write restores the pattern byte", msg);
     }
     return 0;
 }
@@ -1555,10 +1551,9 @@ static int test_rewind_across_soft_reset()
             sized.rewind_buffer() ? sized.rewind_buffer()->depth() : 0;
         char msg[200];
         std::snprintf(msg, sizeof(msg),
-                      "RWR-14 a guest soft reset keeps the rewind history and "
-                      "its live size (depth %zu want 3, frame 1 kept %d; "
-                      "resized depth %zu want 2)", depth, kept, sized_depth);
-        CHECK(kept && sized_depth == 2, msg);
+                      "(depth %zu want 3, frame 1 kept %d; resized depth %zu want 2)", depth, kept, sized_depth);
+        check("RWR-14", kept && sized_depth == 2,
+                        "a guest soft reset keeps the rewind history and its live size", msg);
     }
     {
         // A replay that re-executes the reset stays a replay: rewind into
@@ -1570,18 +1565,17 @@ static int test_rewind_across_soft_reset()
         int16_t drain[1024];
         while (emu.mixer().read_samples(drain, 512) > 0) {}
         const uint64_t f1 = emu.rewind_buffer()->frame_cycle_for(1);
-        REQUIRE(f1 != UINT64_MAX, "RWR fixture: frame 1 is in the history");
+        if (!require("RWR-PRE-07", f1 != UINT64_MAX, "RWR fixture: frame 1 is in the history")) return 1;
         const uint64_t target = f1 + 250u * emu.timing().master_cycles_per_line;
-        REQUIRE(emu.rewind_to_cycle(target) != UINT64_MAX,
-                "RWR fixture: rewind_to_cycle into frame 1");
+        if (!require("RWR-PRE-08", emu.rewind_to_cycle(target) != UINT64_MAX,
+                                   "RWR fixture: rewind_to_cycle into frame 1")) return 1;
         const bool reset_replayed =
             emu.cpu().get_registers().PC == 0x0001 && emu.cpu().is_halted();
         char msg[200];
         std::snprintf(msg, sizeof(msg),
-                      "RWR-15 a guest soft reset replayed by rewind_to_cycle does "
-                      "not end the replay (%d samples mixed, want 0; reset "
-                      "replayed %d)", emu.mixer().available(), reset_replayed);
-        CHECK(reset_replayed && emu.mixer().available() == 0, msg);
+                      "(%d samples mixed, want 0; reset replayed %d)", emu.mixer().available(), reset_replayed);
+        check("RWR-15", reset_replayed && emu.mixer().available() == 0,
+                        "a guest soft reset replayed by rewind_to_cycle does not end the replay", msg);
     }
     {
         // A snapshot is taken at the top of begin_new_frame(), before the
@@ -1601,20 +1595,19 @@ static int test_rewind_across_soft_reset()
         rw_nr(emu, 0x03, 0xB0);           // tim_sel +3, pending
         emu.run_frame();                  // frame 1 — snapshot before commit
         emu.run_frame();                  // frame 2
-        REQUIRE(emu.cpu().machine_timing_48_or_p3() &&
-                emu.rewind_to_frame(1),
-                "RWR fixture: +3 committed, rewind_to_frame(1) succeeds");
+        if (!require("RWR-PRE-09", emu.cpu().machine_timing_48_or_p3() &&
+                                   emu.rewind_to_frame(1),
+                                   "RWR fixture: +3 committed, rewind_to_frame(1) succeeds")) return 1;
         const bool cpu_rw = emu.cpu().machine_timing_48_or_p3();
         const bool im2_rw = emu.im2().machine_timing_48_or_p3();
         emu.run_frame();                  // frame 1 again: its edge commits
         const bool cpu_edge = emu.cpu().machine_timing_48_or_p3();
         char msg[200];
         std::snprintf(msg, sizeof(msg),
-                      "RWR-16 a restore puts the /INT width gate back on the "
-                      "EFFECTIVE timing, in both copies (cpu %d im2 %d, want "
-                      "0 0; after the edge cpu %d, want 1)",
+                      "(cpu %d im2 %d, want 0 0; after the edge cpu %d, want 1)",
                       cpu_rw, im2_rw, cpu_edge);
-        CHECK(!cpu_rw && !im2_rw && cpu_edge, msg);
+        check("RWR-16", !cpu_rw && !im2_rw && cpu_edge,
+                        "a restore puts the /INT width gate back on the EFFECTIVE timing, in both copies", msg);
     }
     return 0;
 }

@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=61
+EXPECTED_TOTAL=71
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -60,26 +60,42 @@ cache() {
     { echo "ENABLE_QT_UI:BOOL=$1"; echo "ENABLE_DEBUGGER:BOOL=$2"; } > "$T/build/CMakeCache.txt"
 }
 
-# stub <name> <rows> <exit_code> [body]  — a fake suite binary
+# lit_ids <n> — n `report "ROW-i"` lines, each ID spelled out as a literal in the
+# stub's text, the way a real suite spells its IDs in its source (the harness
+# checks that every reported ID is a literal of the suite's sources, and a stub's
+# source is the stub itself — see register).
+lit_ids() { local i; for ((i = 1; i <= $1; i++)); do printf 'report "ROW-%d"\n' "$i"; done; }
+
+# stub <name> <rows> <exit_code> [body]  — a fake suite binary. Like every real
+# suite (test/row_id.h), it reports one distinct row ID per row it counts; a body
+# that prints its own `Total:` line reports its own IDs (`report "ID"`, lit_ids).
 stub() {
     local name=$1 rows=$2 rc=$3 body=${4:-}
     mkdir -p "$T/build/test"
     ensure_cache
     { echo '#!/usr/bin/env bash'
+      echo 'report() { [[ -z "${JNEXT_TEST_ROW_IDS:-}" ]] || echo "$1" >>"$JNEXT_TEST_ROW_IDS"; }'
       [[ -n "$body" ]] && echo "$body"
-      [[ "$rows" -ge 0 ]] && printf 'echo "Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d"\n' \
-                                    "$rows" "$rows" 0 0
+      if [[ "$rows" -ge 0 ]]; then
+          lit_ids "$rows"
+          printf 'echo "Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d"\n' \
+                 "$rows" "$rows" 0 0
+      fi
       echo "exit $rc"
     } > "$T/build/test/$name"
     chmod +x "$T/build/test/$name"
 }
 
-# register <name...> — write a CTestTestfile.cmake naming exactly these binaries
+# register <name...> — write a CTestTestfile.cmake naming exactly these binaries,
+# and the suite -> sources map the harness checks row IDs against
+# (JNEXT_UNIT_TEST_SOURCES): each stub is its own source.
 register() {
     ensure_cache
     : > "$T/build/test/CTestTestfile.cmake"
+    : > "$T/sources.tsv"
     for n in "$@"; do
         echo "add_test(${n}s \"$T/build/test/$n\")" >> "$T/build/test/CTestTestfile.cmake"
+        printf '%s\t%s\n' "$n" "$T/build/test/$n" >> "$T/sources.tsv"
     done
 }
 
@@ -98,7 +114,8 @@ manifest_pinned() {
 }
 
 run_harness() {
-    JNEXT_UNIT_TEST_CONF="$T/manifest.conf" JNEXT_SUITE_TIMEOUT="${TIMEOUT_OVERRIDE:-300}" \
+    JNEXT_UNIT_TEST_CONF="$T/manifest.conf" JNEXT_UNIT_TEST_SOURCES="$T/sources.tsv" \
+    JNEXT_SUITE_TIMEOUT="${TIMEOUT_OVERRIDE:-300}" \
         timeout --kill-after=5s "${INVOKE_TIMEOUT_OVERRIDE:-$INVOKE_TIMEOUT}s" \
         bash "$HARNESS" "$T/build" 2>&1
 }
@@ -139,7 +156,7 @@ check "HS-01" "clean run: both suites reported, grand total, exit 0" 0 $rc "$out
 # reported, every later suite must still be reported, and the grand total must
 # still print. Before the fix: the runner subshell died under `set -e` without
 # writing its .rc, the aggregator's `cat` failed, and the run aborted here.
-stub failing_test -1 1 'echo "Total:   10  Passed:    9  Failed:    1  Skipped:    0"'
+stub failing_test -1 1 "$(lit_ids 10)"$'\n''echo "Total:   10  Passed:    9  Failed:    1  Skipped:    0"'
 register failing_test other_test
 manifest "failing_test 10" "other_test 5"
 out=$(run_harness); rc=$?
@@ -214,6 +231,108 @@ manifest "silent_test 10" "other_test 5"
 out=$(run_harness); rc=$?
 check "HS-11" "a suite that runs, exits 0 and asserts NOTHING" 1 $rc "$out" \
     "silent_test" "FAIL" "asserted nothing"
+
+# ------------------------------------------------ row IDs (test/row_id.h)
+# An ID is a global name: a suite that reports one ID for two rows puts ONE row in
+# the traceability matrix and two in its count — GH #190's manufactured coverage,
+# inside one suite, which traceability-dup-ids.pl (suite vs suite) cannot see. The
+# source cannot answer it either (the same literal legitimately appears in a table
+# and at its check()), so the harness reads what the run REPORTED. The duplicate
+# carries a space on purpose: an anonymous row (rewind_test's CHECK) reports its
+# message, and the whole line is the ID.
+row_ids_body() {   # row_ids_body <rows> <id>... — count <rows> rows, report exactly these IDs
+    local rows=$1 b='' id; shift
+    for id in "$@"; do b+="report \"$id\"; "; done
+    printf '%secho "Total: %4d  Passed: %4d  Failed:    0  Skipped:    0"' "$b" "$rows" "$rows"
+}
+stub dup_test -1 0 "$(row_ids_body 5 DUP-01 'a CHECK message' OTHER-01 DUP-01 'a CHECK message')"
+stub other_test 5 0
+register dup_test other_test
+manifest "dup_test 5" "other_test 5"
+out=$(run_harness); rc=$?
+check "HS-58" "a suite reporting one row ID for two rows FAILS, naming every such ID" 1 $rc "$out" \
+    "dup_test" "FAIL" "the same row ID more than once" "DUP-01  (x2)" "a CHECK message  (x2)" \
+    "Suites: 1 pass, 1 fail"
+
+# The control, from the same fixture with the IDs made distinct: without it HS-58
+# would also pass on a harness that refused every suite reporting IDs at all.
+stub dup_test -1 0 "$(row_ids_body 5 DUP-01 'a CHECK message' OTHER-01 DUP-01b 'a CHECK message b')"
+out=$(run_harness); rc=$?
+check "HS-59" "the control: the same suite with distinct row IDs passes" 0 $rc "$out" \
+    "Total: 10  Passed: 10  Failed: 0  Skipped: 0" "Suites: 2 pass, 0 fail"
+
+# The count, both directions. FEWER is the unwired row helper: it still counts its
+# row but reports nothing, and a duplicate check alone would call that clean.
+stub unwired_test -1 0 "$(row_ids_body 4 ROW-1 ROW-2 ROW-3)"
+register unwired_test other_test
+manifest "unwired_test 4" "other_test 5"
+out=$(run_harness); rc=$?
+check "HS-60" "a suite reporting FEWER row IDs than rows FAILS (an unwired row helper)" 1 $rc "$out" \
+    "unwired_test" "FAIL" "reported 3 row ID(s) for 4 rows" "Suites: 1 pass, 1 fail"
+
+# MORE: a report from something that is not a row, which would let a real row's
+# ID be missing while the file still looked full.
+stub unwired_test -1 0 "$(row_ids_body 4 ROW-1 ROW-2 ROW-3 ROW-4 EXTRA-01)"
+out=$(run_harness); rc=$?
+check "HS-61" "a suite reporting MORE row IDs than rows FAILS" 1 $rc "$out" \
+    "unwired_test" "FAIL" "reported 5 row ID(s) for 4 rows" "Suites: 1 pass, 1 fail"
+
+# A suite that fork()s before its first report, run through the REAL test/row_id.h
+# (build/test/row_id_fork_probe — a stub cannot stand in for it, the property is
+# the header's). Parent and child each open the ID file themselves; a truncating
+# open ("w") would drop the child's row and this clean suite would FAIL on the
+# count. A missing probe is a FAIL here, never a skip: `make harness-selftest`
+# builds the test tree first.
+if [[ -x "$PROJECT_DIR/build/test/row_id_fork_probe" ]]; then
+    cp "$PROJECT_DIR/build/test/row_id_fork_probe" "$T/build/test/fork_test"
+    register fork_test other_test
+    printf 'fork_test\t%s\n' "$PROJECT_DIR/test/row_id_fork_probe.cpp" >> "$T/sources.tsv"
+    manifest "fork_test 3" "other_test 5"
+    out=$(run_harness); rc=$?
+else
+    out="build/test/row_id_fork_probe is not built"; rc=99
+fi
+check "HS-62" "a fork()ing suite's child and parent rows are all counted (row_id.h appends)" 0 $rc "$out" \
+    "Total: 8  Passed: 8  Failed: 0  Skipped: 0" "Suites: 2 pass, 0 fail"
+
+# Every reported row ID must be a LITERAL of the suite's sources (CLAUDE.md "A row
+# ID must be a LITERAL"): an ID built at run time is a row no source reader can
+# see. The stub's source holds the literal "RUN-0$n"; the ID it reports is RUN-02.
+stub rt_test -1 0 'report "LIT-01"; n=2; report "RUN-0$n"
+echo "Total:    2  Passed:    2  Failed:    0  Skipped:    0"'
+stub other_test 5 0
+register rt_test other_test
+manifest "rt_test 2" "other_test 5"
+out=$(run_harness); rc=$?
+check "HS-63" "a suite reporting a row ID that is not a literal in its sources FAILS, naming it" 1 $rc "$out" \
+    "rt_test" "FAIL" "not a literal in its sources" "RUN-02" "Suites: 1 pass, 1 fail"
+
+# The declared exemption: a suite whose IDs are DATA (fuse_z80_test, z80n_test —
+# case names from a checked-in fixture) passes the literal check, and is NAMED.
+stub fuse_z80_test -1 0 'n=1; report "CASE-0$n"; report "CASE-0$((n + 1))"
+echo "Total:    2  Passed:    2  Failed:    0  Skipped:    0"'
+register fuse_z80_test other_test
+manifest "fuse_z80_test 2" "other_test 5"
+out=$(run_harness); rc=$?
+check "HS-64" "an exempt data-ID suite passes the literal check, and the exemption is named" 0 $rc "$out" \
+    "exempt from the row-ID literal check" "fuse_z80_test (case names from test/fuse/tests.in)" \
+    "Suites: 2 pass, 0 fail"
+
+# ...and an exemption that is no longer needed is refused, not carried forever.
+stub fuse_z80_test -1 0 'report "CASE-01"; report "CASE-02"
+echo "Total:    2  Passed:    2  Failed:    0  Skipped:    0"'
+out=$(run_harness); rc=$?
+check "HS-65" "an exempt suite whose IDs are all literals FAILS: drop the exemption" 1 $rc "$out" \
+    "fuse_z80_test" "FAIL" "drop the exemption"
+
+# A runnable suite with no sources to check its IDs against is a refusal, never a
+# silently skipped check.
+register good_test other_test
+printf 'good_test\t%s\n' "$T/build/test/good_test" > "$T/sources.tsv"
+manifest "good_test 10" "other_test 5"
+out=$(run_harness); rc=$?
+check "HS-66" "a runnable suite with no known sources is a refusal (the literal check cannot be skipped)" 2 $rc "$out" \
+    "REFUSES TO RUN" "No sources known for" "other_test"
 
 # --------------------------------------------------- build-gated suites (GH #273)
 # '# gate: qt|dbg|qt+dbg' + '?name' says WHICH configurations own a suite, and the
@@ -720,6 +839,18 @@ check "HS-57a" "the published-header include-graph lint is reached from the regr
 out=$(run_preflight_debug_headers dirty); rc=$?
 check "HS-57b" "a forbidden include in a published header FAILS the preflight, not just the lint (GH #276)" 1 $rc \
     "$out" "reaches a FORBIDDEN dependency" "core/emulator.h" "Fail: 1"
+
+# Where the run LIVES must not decide the verdict. The lint's patterns once saw
+# absolute paths, so its own `mktemp -d` translation unit, or a source root under a
+# directory ending in `qt`, matched the Qt pattern: HS-49a failed once on
+# `/tmp/tmp.ZPHf7lfGqt/tu.cpp`. Both are forced here — TMPDIR and the (clean)
+# source root sit under a `…qt` directory — and the clean tree must still pass.
+mkdir -p "$DBH_FIX/xqt"
+cp -as "$PROJECT_DIR/src" "$DBH_FIX/xqt/src"
+out=$(TMPDIR="$DBH_FIX/xqt" JNEXT_LINT_DEBUG_HEADERS_SRC="$DBH_FIX/xqt/src" \
+          timeout --kill-after=5s "${INVOKE_TIMEOUT}s" bash "$PROJECT_DIR/test/lint-debug-headers.sh" 2>&1); rc=$?
+check "HS-57c" "the include-graph lint's verdict does not depend on its temp or source path (a '…qt/' component)" 0 $rc \
+    "$out" "none reaches a forbidden dependency"
 
 # =====================================================================================
 # The regression harness's preflight (test/00regression/regression.sh --preflight-only).

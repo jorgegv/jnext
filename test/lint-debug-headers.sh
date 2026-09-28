@@ -143,8 +143,23 @@ for header in "${HEADERS[@]}"; do
     # until `make harness-selftest`'s HS-57 rows caught it. The repository
     # already forbids this construct for membership (HS-30, "no suite source
     # reintroduces 'printf ... | grep -q'"); it is just as wrong here.
+    #
+    # The patterns must see only the part of a path that NAMES a header, never
+    # where this run happens to live. So the translation unit is dropped (it is
+    # not a dependency, and it sits in a random `mktemp -d` directory), and the
+    # include root is cut off every project header, keeping its leading `/`
+    # (`$SRC_DIR/debug/result.h` -> `/debug/result.h`). Without that, the Qt
+    # pattern matched any run whose temp or checkout path had a component ending
+    # in `qt` — HS-49a failed once on `/tmp/tmp.ZPHf7lfGqt/tu.cpp`, and the
+    # HS-57 fixture root lives under the self-test's own `mktemp -d`.
+    # `TMPDIR=<dir>/xqt` reproduced both every time.
     deps_file="$WORK/deps.txt"
-    tr ' \\' '\n\n' <<<"$deps" | sed '/^$/d;/:$/d;/\.o$/d' | sort -u > "$deps_file"
+    tr ' \\' '\n\n' <<<"$deps" | sed '/^$/d;/:$/d;/\.o$/d' \
+        | awk -v tu="$tu" -v root="$SRC_DIR/" '
+              $0 == tu { next }
+              index($0, root) == 1 { $0 = substr($0, length(root)) }
+              { print }' \
+        | sort -u > "$deps_file"
 
     # Positive controls first: a lint that reports absence has to be shown able
     # to report presence. Matched RELATIVE to the include root, never against a

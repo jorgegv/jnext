@@ -94,6 +94,7 @@
 #include <vector>
 
 #include <unistd.h>   // getpid() — per-process fixture paths, see fixture_path()
+#include "../row_id.h"
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -108,6 +109,7 @@ std::string g_group;
 void set_group(const char* name) { g_group = name; }
 
 void check(const char* id, const char* desc, bool cond, const std::string& detail = {}) {
+    report_row_id(id);
     ++g_total;
     if (cond) {
         ++g_pass;

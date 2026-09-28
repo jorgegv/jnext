@@ -53,6 +53,7 @@
 #include <unistd.h>   // write, close, mkstemp
 #include <sys/stat.h> // chmod (V15-DIVMMC-01: SD-28 RO image test)
 #include <vector>
+#include "../row_id.h"
 
 // ─── Test infrastructure ─────────────────────────────────────────────
 namespace {
@@ -67,6 +68,7 @@ std::vector<SkipNote> g_skipped;
 
 void check(const char* id, const char* desc, bool cond,
            const std::string& detail = {}) {
+    report_row_id(id);
     ++g_total;
     if (cond) {
         ++g_pass;
@@ -79,6 +81,7 @@ void check(const char* id, const char* desc, bool cond,
 }
 
 void skip(const char* id, const char* reason) {
+    report_row_id(id);
     ++g_skip;
     g_skipped.push_back({id, reason});
 }

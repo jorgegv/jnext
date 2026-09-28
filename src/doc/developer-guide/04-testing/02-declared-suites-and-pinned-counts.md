@@ -89,6 +89,17 @@ Once the suites have run, one fails when it:
   deliberate update;
 - prints **no parseable `Total:` line**, which is a failure even when the
   binary exits 0, because a suite that prints no summary asserted nothing;
+- reports **one row ID for two rows**, or a number of row IDs other than its
+  row count. Every row reports its ID through `test/row_id.h` into a per-suite
+  file the harness names, and an ID is a global name: two rows under one ID are
+  one row in the traceability matrix and two in the count. The count half is
+  what keeps the check honest — a row helper that does not report still counts
+  its row, so an unwired suite cannot pass by reporting nothing;
+- reports a row ID that is **not a string literal of its own sources** — one
+  built at run time. The sources come from the same CMake reader
+  `traceability-dup-ids.pl` uses (`--sources`), and a suite with none known is a
+  refusal. `fuse_z80_test` and `z80n_test` are declared exemptions, named in the
+  output, because their IDs are the case names of a checked-in fixture file;
 - **crashes**, exits non-zero, or contains any row that failed;
 - **times out**, which by default means 300 s for a single suite.
 

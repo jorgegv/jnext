@@ -32,12 +32,16 @@ and the refusal is then asserted — both the expected exit status and the exact
 diagnostic text. The principle is the same one that runs through the chapter: a
 guard that cannot be shown to fire is not a guard.
 
-The stubs are three lines of bash that print a `Total:` line and exit with a
-chosen code. A `register` helper writes a matching `CTestTestfile.cmake`, and a
+The stubs are a few lines of bash that report one row ID per row, print a
+`Total:` line and exit with a chosen code. A `register` helper writes a matching `CTestTestfile.cmake`, and a
 `manifest` helper writes a manifest with a matching — or deliberately wrong —
 `# expect:` pin. From those few primitives the self-test drives, among others,
 a clean two-suite run; a suite that fails while a later suite must still be
 reported; a suite that prints no summary; a suite that hangs into its timeout;
+a suite that reports one row ID twice, or fewer or more row IDs than rows; a
+real `fork()`ing binary whose child reports a row before its parent does; a
+row ID built at run time, a data-ID exemption and a stale one, and a suite with
+no known sources;
 an entry with no row count; a pin of 0; one binary registered under two
 `add_test()` names; a wrong suite-count pin; a manifest with no pin at all; a
 nested build tree that must **not** be enumerated; an unparseable `add_test()`
@@ -63,7 +67,7 @@ the count — and the driver must still call it.
 
 ## It pins its own count
 
-`EXPECTED_TOTAL = 59` sits in the script, right next to the rows it counts, and
+`EXPECTED_TOTAL = 71` sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is
@@ -78,7 +82,7 @@ an entry with no CMake counterpart would make the unit harness refuse to run.
 ## The traceability self-tests
 
 ```console
-$ make traceability-selftest          # citation extractor + dup-ID gate, 215 pinned rows
+$ make traceability-selftest          # citation extractor + dup-ID gate, 217 pinned rows
 $ make traceability-accounting-check  # the suite-accounting gate, ~0.01 s
 ```
 
@@ -89,7 +93,7 @@ sources and binaries, and then run the real refresh script against it twice, so
 that idempotence and the refusal paths are both exercised. `SELF-208`..`SELF-215`
 run `test/traceability-dup-ids.pl` and the generator's `--planned-ids` the same
 way, planting colliding IDs in `?`-prefixed suites, in one-row plan docs and in
-the baseline (GH #243). It pins `$EXPECTED_ROWS = 215` in the
+the baseline (GH #243). It pins `$EXPECTED_ROWS = 217` in the
 same shape as the harness self-test, and for the same reason it cannot live in
 the unit manifest — it is a perl script with no CMake target.
 

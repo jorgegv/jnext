@@ -1964,9 +1964,11 @@ them asserting things nothing checked.</p>
 <code>Emulator*</code>. <strong><code>test/lint-debug-headers.sh</code></strong> proves it: for each published header
 it preprocesses a one-line translation unit and matches that forbidden set
 against the <code>-M</code> dependency list, so a forbidden header pulled in three levels
-down is caught like a direct include. It is row 5 of the regression preflight, and
-<code>make harness-selftest</code>'s HS-57a/b prove it stays wired and that its verdict still
-turns that row red.</p>
+down is caught like a direct include. The patterns see each header's path
+relative to the include root, never the directory the run happens to live in. It
+is row 5 of the regression preflight, and <code>make harness-selftest</code>'s HS-57a/b
+prove it stays wired and that its verdict still turns that row red; HS-57c that
+the verdict does not depend on the temp or source path.</p>
 <p><strong><code>src/debug/debug_types_check.cpp</code></strong> is what makes the headers compile at all —
 a translation unit of nothing but <code>static_assert</code>s, built in all four
 configurations. It pins the three backend-owned enums that mirror something else

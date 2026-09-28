@@ -65,6 +65,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <vector>
+#include "../row_id.h"
 
 namespace {
 
@@ -73,6 +74,7 @@ int g_pass  = 0;
 int g_fail  = 0;
 
 void check(const char* id, const char* desc, bool cond, const char* detail = "") {
+    report_row_id(id);
     ++g_total;
     if (cond) {
         ++g_pass;

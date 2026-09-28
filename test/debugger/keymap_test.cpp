@@ -75,6 +75,7 @@
 #include "peripheral/nmi_source.h"
 #include "gui/preferences_dialog.h"
 #include "gui/shortcut_capture_button.h"
+#include "../row_id.h"
 
 using namespace jnext::dbgkeys;
 
@@ -83,6 +84,7 @@ namespace {
 int g_total = 0, g_pass = 0, g_fail = 0;
 
 void check(const char* id, const char* desc, bool cond, const std::string& detail = {}) {
+    report_row_id(id);
     ++g_total;
     if (cond) {
         ++g_pass;

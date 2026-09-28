@@ -37,12 +37,14 @@
 #include "peripheral/esp_host_policy.h"
 #include "peripheral/uart.h"
 #include "platform/emulator_boot.h"
+#include "../row_id.h"
 
 namespace {
 
 int g_total = 0, g_pass = 0, g_fail = 0;
 
 void check(const char* id, const char* desc, bool ok, const std::string& detail = {}) {
+    report_row_id(id);
     ++g_total;
     if (ok) {
         ++g_pass;

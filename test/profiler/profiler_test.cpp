@@ -24,6 +24,7 @@
 #include <sstream>
 #include <string>
 #include <unistd.h>
+#include "../row_id.h"
 
 // ── Tiny test harness (matches divmmc_test.cpp style) ─────────────────
 
@@ -34,6 +35,7 @@ static int g_skipped = 0;
 
 static void check(const char* id, const char* desc, bool cond,
                   const std::string& detail = {}) {
+    report_row_id(id);
     ++g_total;
     if (cond) {
         ++g_pass;

@@ -66,6 +66,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include "../row_id.h"
 
 // ── Test infrastructure (mirrors the other debugger suites) ───────────
 
@@ -84,6 +85,7 @@ std::vector<Result> g_results;
 
 void check(const char* id, const char* desc, bool cond,
            const std::string& detail = {}) {
+    report_row_id(id);
     ++g_total;
     g_results.push_back(Result{id, cond});
     if (cond) {
