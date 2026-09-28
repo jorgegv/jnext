@@ -411,7 +411,7 @@ ServiceHint Debugger::pump(const PumpBudget& budget) {
         // `budget_ms`. `budget_ms == 0` therefore means ONE command, not
         // "unbounded" — the zero form is the Qt/SDL "never block" budget and
         // must not become an unbounded drain by omission.
-        while (step == ServiceStep::Serviced)
+        while (step == ServiceStep::Serviced && elapsed_ms() < budget.budget_ms)
             step = s->service_once(budget.drain_ms);
     }
 

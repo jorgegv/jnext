@@ -391,8 +391,19 @@ struct FakeService : jnext::dbg::Service {
     /// Report `Serviced` this many times and then `Idle`: the other way out of
     /// the drain loop.
     int              serviced_budget     = 0;
+    /// An unbounded drain must FAIL a row, not take the host down: without
+    /// `budget_ms` bounding it, `pump()` grew `calls` until the kernel
+    /// OOM-killed the suite at ~96 GiB (2026-09-28, twice). Past this many
+    /// calls — far beyond what any bounded drain reaches — the fake goes quiet
+    /// and `runaway` records that it had to.
+    static constexpr size_t kRunawayCalls = 20'000'000;
+    bool             runaway             = false;
 
     jnext::dbg::ServiceStep service_once(int wait_ms) override {
+        if (calls.size() >= kRunawayCalls) {
+            runaway = true;
+            return jnext::dbg::ServiceStep::Idle;
+        }
         calls.push_back(wait_ms);
         if (always_serviced) return jnext::dbg::ServiceStep::Serviced;
         if (serviced_budget > 0) {
@@ -411,6 +422,7 @@ struct FakeService : jnext::dbg::Service {
         calls.clear();
         flushes             = 0;
         flushed_after_calls = 0;
+        runaway             = false;
     }
     std::string trail() const {
         std::string out = "waits=[";
@@ -7011,6 +7023,9 @@ int main() {
         check("SES-03-09", "while PAUSED the chain is DRAINED — more than one command "
                            "in one pump",
               svc.calls.size() > 1, "calls=" + std::to_string(svc.calls.size()));
+        check("SES-03-09a", "and the drain ENDS once budget_ms is spent — a peer that "
+                            "never stops talking cannot keep the loop owner's thread",
+              !svc.runaway, "calls=" + std::to_string(svc.calls.size()));
         check("SES-03-10", "the first call gets max_wait_ms and the rest drain_ms",
               svc.calls.size() > 1 && svc.calls[0] == 7 && svc.calls[1] == 1,
               svc.trail());
