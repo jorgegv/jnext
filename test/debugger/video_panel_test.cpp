@@ -2019,6 +2019,53 @@ static void test_composite_is_default_tab() {
               tabs->currentIndex()));
 }
 
+// ── QVT-01 (GH #278 WP0): a tab switch renders the newly visible tab only ─
+//
+// VideoPanel refreshes only the visible layer view (video_panel.cpp:1066-1075),
+// and a tab switch refreshes at once (:952-960) rather than waiting for the next
+// manager tick. Pinned while PAUSED, where every refresh renders. Deliberately
+// NOT pinned while running: invalidate() sets last_vc_ = -2, which the running
+// early-return (`vc < 0 && last_vc_ < 0`, :388) treats as "already a
+// placeholder", so a tab rendered during an earlier pause keeps its stale
+// picture when switched to while running (reported in the WP0 hand-back).
+static void test_tab_switch_renders_visible_only(Emulator& emu) {
+    set_group("QVT");
+
+    emu.debug_state().set_active(true);
+    emu.run_frame();
+    emu.debug_state().run_to_cycle(emu.current_frame_cycle() +
+                                   200 * emu.timing().master_cycles_per_line);
+    emu.run_frame();
+    emu.snapshot_raster();
+
+    VideoPanel panel(&emu);
+    auto* tabs = panel.findChild<QTabWidget*>();
+    const QImage placeholder =
+        VideoLayerView(VideoLayerView::Layer::SPRITES, "x", nullptr).image();
+    auto view_image = [&](int i) -> QImage {
+        QWidget* page = tabs ? tabs->widget(i) : nullptr;
+        auto* v = page ? page->findChild<VideoLayerView*>() : nullptr;
+        return v ? v->image() : QImage();
+    };
+
+    panel.refresh();                         // renders tab 0 (All layers) only
+    const bool composite_drawn = view_image(0) != placeholder;
+    if (tabs) tabs->setCurrentIndex(3);      // Sprites — no refresh() call here
+    const bool sprites_drawn = view_image(3) != placeholder;
+    bool others_untouched = true;
+    for (int i : {1, 2, 4, 5})
+        others_untouched = others_untouched && view_image(i) == placeholder;
+    check("QVT-01",
+          "switching the layer tab (paused) renders the newly visible view at "
+          "once, and only it: the hidden views keep their placeholder",
+          emu.debug_state().paused() && tabs && composite_drawn && sprites_drawn &&
+              others_untouched,
+          fmt("paused=%d composite=%d sprites=%d others-placeholder=%d",
+              emu.debug_state().paused(), composite_drawn, sprites_drawn,
+              others_untouched));
+    emu.debug_state().resume();
+}
+
 // ── DVP-RASTER: the raster position / ULA fetch indicator (GH #22) ────
 //
 // RasterState itself is pinned, per machine and against the VHDL, by
@@ -2709,6 +2756,12 @@ int main(int argc, char** argv) {
     std::printf("  Group: DVP-BG-COPPER  — done\n");
     test_composite_is_default_tab();
     std::printf("  Group: DVP-COMP-TAB   — done\n");
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_tab_switch_renders_visible_only(emu);
+        std::printf("  Group: QVT            — done\n");
+    }
     {
         Emulator emu;
         if (!build_next_emulator(emu)) return 1;

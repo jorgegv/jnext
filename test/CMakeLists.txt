@@ -1347,6 +1347,39 @@ if(ENABLE_DEBUGGER)
     target_include_directories(debugger_disasm_copy_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME debugger_disasm_copy_tests COMMAND debugger_disasm_copy_test)
 
+    # GH #278 WP0 — behaviour identity of the Qt debugger's PANELS, pinned on
+    # the current tree before the backend refactor: CPU, MMU, Stack, Call
+    # Stack, Sprites, Copper, NextREG, Watches and Memory, each through its
+    # displayed text. Needs Qt but no display — same offscreen QPA idiom as the
+    # panel suites above.
+    add_executable(debugger_panels_test debugger/panels_test.cpp)
+    set_target_properties(debugger_panels_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_panels_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(debugger_panels_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_panels_tests COMMAND debugger_panels_test)
+
+    # GH #278 WP0 — behaviour identity of the Qt debugger's VERBS and window
+    # controls: Step Over/Into through the GUI verbs, the pause-edge panel
+    # sequence, the refresh throttle, the enable seeds, the rewind / trace /
+    # MAP controls and their modals, against a real rewind buffer. A second
+    # suite rather than more panels_test rows because it is a different
+    # subject — the manager and window (WP2/WP3/WP6), not the panels (WP4/5) —
+    # and because it runs real frames and allocates rewind buffers. Needs Qt
+    # but no display — same offscreen QPA idiom as the panel suites above.
+    add_executable(debugger_verbs_test debugger/verbs_test.cpp)
+    set_target_properties(debugger_verbs_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_verbs_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(debugger_verbs_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_verbs_tests COMMAND debugger_verbs_test)
+
     # Debugger menu-reachability test (GH #215 — the Breakpoints menu offered
     # every breakpoint type EXCEPT Execute, and the main window's Debug menu
     # did not offer the debugger at all). Drives the real menu actions of both
