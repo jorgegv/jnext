@@ -1458,10 +1458,9 @@ static void test_memory_panel() {
                       rom0, emu.mmu().read(0x0000), s(joined(row.bytes)).c_str()));
     }
 
-    // QMP-03 — the page selector names the page in each slot, refreshed.
-    // Pinned case-INSENSITIVELY: the label is built "Slot %1 (page %2)" and
-    // then whole-string toUpper()ed, so the product shows "SLOT 6 (PAGE 06)"
-    // where the user guide says "Slot 6" — reported, not pinned either way.
+    // QMP-03 — the page selector names the page in each slot, refreshed, in
+    // the user guide's words ("Slot 6") with the page in upper-case hex. GH #278
+    // WP0 fixed the casing: the whole label used to be upper-cased.
     {
         Emulator emu;
         build(emu, MachineType::ZX128K);
@@ -1479,11 +1478,11 @@ static void test_memory_panel() {
                                                   emu.mmu().get_effective_page(0));
         const bool ok = combo && combo->count() == 9 && combo->itemText(0) == "CPU View" &&
                         emu.mmu().get_effective_page(0) != 0xFF &&
-                        s0.compare(want_s0, Qt::CaseInsensitive) == 0 &&
-                        s6_before.compare("Slot 6 (page 00)", Qt::CaseInsensitive) == 0 &&
-                        s6.compare("Slot 6 (page 06)", Qt::CaseInsensitive) == 0 &&
-                        s7.compare("Slot 7 (page 07)", Qt::CaseInsensitive) == 0 &&
-                        s2.compare("Slot 2 (page 0A)", Qt::CaseInsensitive) == 0;
+                        s0 == want_s0 &&
+                        s6_before == "Slot 6 (page 00)" &&
+                        s6 == "Slot 6 (page 06)" &&
+                        s7 == "Slot 7 (page 07)" &&
+                        s2 == "Slot 2 (page 0A)";
         check("QMP-03",
               "the selector offers CPU View + Slot 0..7, each naming the page in "
               "effect (the ROM slot's too), and follows a bank switch on refresh",
