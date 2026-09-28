@@ -993,6 +993,21 @@ target_link_libraries(raster_state_test PRIVATE jnext_debug jnext_video spdlog::
 target_include_directories(raster_state_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME raster_state_tests COMMAND raster_state_test)
 
+# GH #287 (epic #276, package T) — the debugger protocol servers' shared socket
+# transport: remote::Server over the in-memory fake AND over the real socket
+# layer on 127.0.0.1 port 0, and driven by Debugger::pump(). Qt-free, so it is
+# declared `gate: none` and runs in both configurations. The pump rows need a
+# real Debugger over a 48K Emulator, so it links the emulator like
+# debugger_backend_test (minus jnext_platform: no loop owner is driven).
+add_executable(remote_transport_test remote/remote_transport_test.cpp)
+target_link_libraries(remote_transport_test PRIVATE
+    jnext_remote
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(remote_transport_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME remote_transport_tests COMMAND remote_transport_test)
+
 # Task 66 — AppConfig (GUI preferences: QSettings-backed load/save,
 # CLI-vs-saved-preference precedence). Needs jnext_gui (QSettings/QString
 # usage in src/gui/app_config.*), so it is gated on ENABLE_QT_UI like the
