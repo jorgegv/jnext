@@ -87,8 +87,6 @@ VBIN[P]="$NEW_BIN";   VENV[P]="JNEXT_BENCH_WATCH=p"
 VBIN[A1]="$NEW_BIN";  VENV[A1]="JNEXT_BENCH_WATCH=0000-3fff"
 VBIN[A2]="$NEW_BIN";  VENV[A2]="JNEXT_BENCH_WATCH=0000-ffff"
 
-LAST_HITS=""
-
 run_one() {   # $1 variant  $2 machine  $3 frames  $4 load-or-empty
     local v=$1 machine=$2 frames=$3 load=$4
     local args=(--headless --machine "$machine" --sdcard "$CLONE"
@@ -104,8 +102,13 @@ run_one() {   # $1 variant  $2 machine  $3 frames  $4 load-or-empty
         out=$(timeout --kill-after=5s 300s \
               taskset -c "$CORE" "${VBIN[$v]}" "${args[@]}" 2>&1) || true
     fi
-    LAST_HITS=$(sed -n 's/^BENCHWATCH hits=\([0-9]*\).*/\1/p' <<< "$out" | tail -1)
-    sed -n 's/.* tstates_per_sec=\([0-9.]*\).*/\1/p' <<< "$out" | tail -1
+    # BOTH values on one line: `run_one` is called in a command substitution, so
+    # a variable it sets is set in a SUBSHELL and never reaches the caller. The
+    # first version assigned LAST_HITS and every row printed `hits=-`.
+    local tsps hits
+    tsps=$(sed -n 's/.* tstates_per_sec=\([0-9.]*\).*/\1/p' <<< "$out" | tail -1)
+    hits=$(sed -n 's/^BENCHWATCH hits=\([0-9]*\).*/\1/p' <<< "$out" | tail -1)
+    printf '%s %s\n' "${tsps:-}" "${hits:--}"
 }
 
 median() { printf '%s\n' "$@" | sort -g | sed -n "$(( ($# + 1) / 2 ))p"; }
@@ -119,10 +122,12 @@ workload() {   # $1 name  $2 machine  $3 frames  $4 load  $5.. variants
     local p
     for (( p=1; p<=PAIRS; p++ )); do
         for v in "${vs[@]}"; do
-            local val; val=$(run_one "$v" "$machine" "$frames" "$load")
+            local line val h
+            line=$(run_one "$v" "$machine" "$frames" "$load")
+            read -r val h <<< "$line"
             [[ -n "$val" ]] || die "$name pair$p $v produced no BENCH line"
             acc[$v]+="$val "
-            [[ -n "$LAST_HITS" ]] && hits[$v]="$LAST_HITS"
+            [[ "$h" != "-" ]] && hits[$v]="$h"
         done
     done
     emit "## $name (machine=$machine frames=$frames${load:+ load=$(basename "$load")})"
