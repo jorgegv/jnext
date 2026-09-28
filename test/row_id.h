@@ -14,17 +14,25 @@
 // call this still counts its row, so the suite reports fewer IDs than rows and
 // is refused — an unwired helper cannot pass by reporting nothing.
 //
+// The ID is a literal, like the ID argument of every row helper: there is no
+// std::string overload, because a row ID assembled at run time is one no source
+// reader can see.
+//
 // Unset (a direct run of the binary): a no-op.
 #pragma once
 
 #include <cstdio>
 #include <cstdlib>
-#include <string>
 
 inline void report_row_id(const char* id) {
+    // APPEND, never "w": the harness creates the file empty before the suite
+    // starts, and a process that opens it must not truncate it. A suite that
+    // fork()s before its first report opens it twice — once per process —
+    // and a truncating open would drop the other process's rows
+    // (test/row_id_fork_probe.cpp, harness self-test HS-62).
     static std::FILE* const out = [] {
         const char* path = std::getenv("JNEXT_TEST_ROW_IDS");
-        return (path && *path) ? std::fopen(path, "w") : nullptr;
+        return (path && *path) ? std::fopen(path, "a") : nullptr;
     }();
     if (!out) return;
     std::fprintf(out, "%s\n", id ? id : "(null)");
@@ -32,5 +40,3 @@ inline void report_row_id(const char* id) {
     // that exits through exit() would otherwise write the parent's rows twice.
     std::fflush(out);
 }
-
-inline void report_row_id(const std::string& id) { report_row_id(id.c_str()); }

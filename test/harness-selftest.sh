@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=65
+EXPECTED_TOTAL=66
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -264,6 +264,23 @@ stub unwired_test -1 0 "$(row_ids_body 4 ROW-1 ROW-2 ROW-3 ROW-4 EXTRA-01)"
 out=$(run_harness); rc=$?
 check "HS-61" "a suite reporting MORE row IDs than rows FAILS" 1 $rc "$out" \
     "unwired_test" "FAIL" "reported 5 row ID(s) for 4 rows" "Suites: 1 pass, 1 fail"
+
+# A suite that fork()s before its first report, run through the REAL test/row_id.h
+# (build/test/row_id_fork_probe — a stub cannot stand in for it, the property is
+# the header's). Parent and child each open the ID file themselves; a truncating
+# open ("w") would drop the child's row and this clean suite would FAIL on the
+# count. A missing probe is a FAIL here, never a skip: `make harness-selftest`
+# builds the test tree first.
+if [[ -x "$PROJECT_DIR/build/test/row_id_fork_probe" ]]; then
+    cp "$PROJECT_DIR/build/test/row_id_fork_probe" "$T/build/test/fork_test"
+    register fork_test other_test
+    manifest "fork_test 3" "other_test 5"
+    out=$(run_harness); rc=$?
+else
+    out="build/test/row_id_fork_probe is not built"; rc=99
+fi
+check "HS-62" "a fork()ing suite's child and parent rows are all counted (row_id.h appends)" 0 $rc "$out" \
+    "Total: 8  Passed: 8  Failed: 0  Skipped: 0" "Suites: 2 pass, 0 fail"
 
 # --------------------------------------------------- build-gated suites (GH #273)
 # '# gate: qt|dbg|qt+dbg' + '?name' says WHICH configurations own a suite, and the

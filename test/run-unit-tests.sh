@@ -401,6 +401,11 @@ for name in "${RUNNABLE[@]}"; do
         # below would then abort the whole run, dropping every suite after it. That
         # bug shipped once; test/harness-selftest.sh now proves it cannot come back.
         rc=0
+        # Created empty HERE; every process that reports only APPENDS to it
+        # (test/row_id.h opens it "a"), so a suite that fork()s cannot have one
+        # process truncate another's rows (self-test HS-62). $TMPDIR_RUN is fresh,
+        # so the file holds exactly this run's IDs either way.
+        : >"$TMPDIR_RUN/$name.ids"
         JNEXT_TEST_ROW_IDS="$TMPDIR_RUN/$name.ids" timeout --kill-after=5s "${SUITE_TIMEOUT}s" \
             "$BUILD/test/$name" ${ARGS["$name"]} >"$TMPDIR_RUN/$name.out" 2>&1 || rc=$?
         echo "$rc" >"$TMPDIR_RUN/$name.rc"

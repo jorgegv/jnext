@@ -38,7 +38,8 @@ The stubs are a few lines of bash that report one row ID per row, print a
 `# expect:` pin. From those few primitives the self-test drives, among others,
 a clean two-suite run; a suite that fails while a later suite must still be
 reported; a suite that prints no summary; a suite that hangs into its timeout;
-a suite that reports one row ID twice, or fewer or more row IDs than rows;
+a suite that reports one row ID twice, or fewer or more row IDs than rows; a
+real `fork()`ing binary whose child reports a row before its parent does;
 an entry with no row count; a pin of 0; one binary registered under two
 `add_test()` names; a wrong suite-count pin; a manifest with no pin at all; a
 nested build tree that must **not** be enumerated; an unparseable `add_test()`
@@ -64,7 +65,7 @@ the count — and the driver must still call it.
 
 ## It pins its own count
 
-`EXPECTED_TOTAL = 65` sits in the script, right next to the rows it counts, and
+`EXPECTED_TOTAL = 66` sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is

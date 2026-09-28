@@ -286,7 +286,7 @@ int main(int argc, char* argv[]) {
 
     for (auto& input : inputs) {
         total++;
-        report_row_id(input.name);
+        report_row_id(input.name.c_str());   // the case name from the data file
         auto it = exp_map.find(input.name);
         if (it == exp_map.end()) {
             skipped++;
