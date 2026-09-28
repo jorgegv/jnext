@@ -23,10 +23,10 @@ whole, so `done` here means the sub-item is approved, not merged.
 
 | WP | Branch `gh276-transport` (issue #287) | Status |
 |---|---|---|
-| **T1** | `remote::Server` — the listener/`dbg::Service` over the esp seam — with `Connection` (the adapter's byte pipe) and `Protocol` (what an adapter implements); target `jnext_remote`, built in every configuration | in review |
-| **T2** | the in-memory fake: `FakeListener` / `FakeTransport` / `FakePeer`, implementing the esp interfaces so an adapter suite runs the production `Server` | in review |
-| **T3** | `--debug-listen-address ADDR` — table row, `main.cpp` dispatch, `EmulatorConfig::debug_listen_address`, man page, and the `debug-listen-address-func` regression row | in review |
-| **T4** | `remote_transport_test` (65 rows, `gate: none`, both configurations), this appendix, the Developer Guide notes | in review |
+| **T1** | `remote::Server` — the listener/`dbg::Service` over the esp seam — with `Connection` (the adapter's byte pipe) and `Protocol` (what an adapter implements); target `jnext_remote`, built in every configuration | **done** |
+| **T2** | the in-memory fake: `FakeListener` / `FakeTransport` / `FakePeer`, implementing the esp interfaces so an adapter suite runs the production `Server` | **done** |
+| **T3** | `--debug-listen-address ADDR` — table row, `main.cpp` dispatch, `EmulatorConfig::debug_listen_address`, man page, and the `debug-listen-address-func` regression row | **done** |
+| **T4** | `remote_transport_test` (65 rows, `gate: none`, both configurations), this appendix, the Developer Guide notes | **done** |
 
 Depends on: B0, B (both landed). Blocks: D (#12), Z (#280), G (#281).
 
