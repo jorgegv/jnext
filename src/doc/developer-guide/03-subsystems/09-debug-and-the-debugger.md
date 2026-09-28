@@ -475,7 +475,8 @@ reach it. With no closure registered the verb refuses with
 `RefusedUnavailable`. `load()` re-applies **unconditionally**, because the
 backend cannot know whether the loop owner's load closure replaced the machine:
 `emulator_apply_load()` loads in place, the Qt menu route cold-boots first, and
-`load_rzx` reconstructs only when the recording carries an embedded snapshot.
+`load_rzx` replaces the machine — re-`init()`s it in place, it never
+reconstructs — only when the recording carries an embedded snapshot.
 Re-applying always is idempotent and removes the question.
 
 **What B3 does not do.** §4.1 CTL-12 says B3 retires the platform-side
