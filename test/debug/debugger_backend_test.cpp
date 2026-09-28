@@ -476,6 +476,239 @@ static void copper_start(Emulator& emu) { copper_set_mode(emu, 1); }
 static void copper_stop(Emulator& emu)  { copper_set_mode(emu, 0); }
 
 
+// ===========================================================================
+// GH #276 B4 — the input / capture / bookmark / coverage instalment.
+//
+// One function per B4 item, called from `main()` after the B3 rows. Same
+// harness, same program (`build()`), same rule as the rest of this file: a row
+// asserts what the MACHINE did, and every conditional gets a row on each side.
+// ===========================================================================
+
+/// The PCs the `build()` program executes on a free run from PROG, in order:
+/// NOP, NOP, CALL SUB → NOP, NOP, RET → NOP, JR $ (which parks). The CALL's
+/// two operand bytes (0x8003/0x8004) and everything after the JR are NOT
+/// executed — they are the negative half of every exact-set row below.
+static const std::vector<uint16_t> kFreeRunPcs = {
+    0x8000, 0x8001, 0x8002, 0x9000, 0x9001, 0x9002, 0x8005, 0x8006 };
+
+/// "`bits` is exactly this set" — the count AND every member, so a row fails on
+/// a missing PC and on an extra one alike.
+static bool coverage_is(const jnext::dbg::CoverageBits& bits,
+                        const std::vector<uint16_t>& pcs) {
+    if (bits.count() != pcs.size()) return false;
+    for (uint16_t pc : pcs)
+        if (!bits.test(pc)) return false;
+    return true;
+}
+
+static std::string coverage_list(const jnext::dbg::CoverageBits& bits) {
+    std::string out = std::to_string(bits.count()) + " set:";
+    int shown = 0;
+    for (size_t i = 0; i < bits.size() && shown < 16; ++i)
+        if (bits.test(i)) { out += " " + hex(static_cast<unsigned>(i)); ++shown; }
+    return out;
+}
+
+// ── INS-20 — PC coverage ────────────────────────────────────────────────────
+static void b4_coverage_rows() {
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        check("INS-20-01", "a fresh backend has coverage OFF, reads all-zero, and "
+                           "publishes no sink to the hot path",
+              !dbg.coverage_enabled() && dbg.coverage().none() &&
+                  emu.debug_state().coverage_sink() == nullptr);
+
+        // NO CLIENT IS ATTACHED here, deliberately: coverage is not gated on
+        // attach (see `step_one_instruction()`), so a row that attached first
+        // could not tell the difference.
+        dbg.coverage_enable(true);
+        emu.run_frame();
+        check("INS-20-02", "switched on, a free run records EXACTLY the PCs it "
+                           "executed — the CALL's operand bytes and the bytes "
+                           "after JR $ stay clear — with no client attached",
+              dbg.coverage_enabled() && coverage_is(dbg.coverage(), kFreeRunPcs) &&
+                  emu.debug_state().coverage_sink() == &dbg.coverage(),
+              coverage_list(dbg.coverage()));
+
+        dbg.coverage_enable(true);
+        check("INS-20-03", "switching it on again is idempotent — it does not clear",
+              coverage_is(dbg.coverage(), kFreeRunPcs), coverage_list(dbg.coverage()));
+
+        dbg.coverage_clear();
+        const bool cleared = dbg.coverage().none() && dbg.coverage_enabled();
+        emu.run_frame();   // parked at JR $: only 0x8006 executes now
+        check("INS-20-04", "coverage_clear() empties the set and recording goes on: "
+                           "the next frame re-marks only the PC still executing",
+              cleared && coverage_is(dbg.coverage(), {PARK}),
+              coverage_list(dbg.coverage()));
+
+        dbg.coverage_enable(false);
+        const bool off_clear = dbg.coverage().none() && !dbg.coverage_enabled() &&
+                               emu.debug_state().coverage_sink() == nullptr;
+        emu.run_frame();
+        check("INS-20-05", "switched off, the set reads all-zero at once (off IS a "
+                           "clear) and nothing is recorded afterwards",
+              off_clear && dbg.coverage().none(), coverage_list(dbg.coverage()));
+    }
+    {
+        // The CONTROL: the same free run, coverage never switched on.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        emu.run_frame();
+        check("INS-20-06", "never switched on, a free run records nothing",
+              dbg.coverage().none() && pc_of(emu) == PARK, coverage_list(dbg.coverage()));
+    }
+    {
+        // THE THREE EXECUTION ROOTS. `run_frame()` is INS-20-02; these are the
+        // other two bodies over `step_one_instruction()`.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.coverage_enable(true);
+        dbg.pause(a);
+        dbg.step_into(a);   // debugger_step() → step_frame_slot()
+        check("INS-20-07", "a debugger Step (step_frame_slot) records the one PC it "
+                           "executed, and only that one",
+              coverage_is(dbg.coverage(), {PROG}) && pc_of(emu) == PROG + 1,
+              coverage_list(dbg.coverage()));
+        dbg.coverage_clear();
+        emu.execute_single_instruction();
+        check("INS-20-08", "execute_single_instruction() records the PC it executed",
+              coverage_is(dbg.coverage(), {static_cast<uint16_t>(PROG + 1)}),
+              coverage_list(dbg.coverage()));
+    }
+    {
+        // A SLOT THAT FETCHES NO OPCODE records nothing. The NMI acknowledge
+        // executes no instruction at PC — execute() returns with PC at 0x0066 —
+        // and the instruction at PROG has not run. Then the handler's first
+        // instruction DOES run, and is recorded: both arms of the gate.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        dbg.coverage_enable(true);
+        emu.cpu().request_nmi();
+        emu.execute_single_instruction();
+        const bool ack_clear = dbg.coverage().none() && pc_of(emu) == 0x0066;
+        const std::string ack_list = coverage_list(dbg.coverage());
+        emu.execute_single_instruction();
+        check("INS-20-09", "an NMI-acknowledge slot records NOTHING (the opcode at PC "
+                           "was never fetched); the handler's first instruction is "
+                           "recorded",
+              ack_clear && coverage_is(dbg.coverage(), {0x0066}),
+              "after ack: " + ack_list + " / after step: " + coverage_list(dbg.coverage()));
+    }
+    {
+        // CTL-12 RULE 2 — "coverage enables" — ON EVERY ROUTE THAT LANDS A NEW
+        // MACHINE. The rebuilt `DebugState` has no sink; the backend re-publishes
+        // it. The set recorded before the boot is KEPT ("since clear" is not
+        // "since boot") and the rebuilt machine's PCs are added to it.
+        struct Out {
+            bool enabled, sink, kept_old, records_new, off_sink_null;
+            bool operator==(const Out& o) const {
+                return enabled == o.enabled && sink == o.sink && kept_old == o.kept_old &&
+                       records_new == o.records_new && off_sink_null == o.off_sink_null;
+            }
+        };
+        auto show = [](const Out& o) {
+            return std::string("en=") + (o.enabled ? "1" : "0") + " sink=" +
+                   (o.sink ? "1" : "0") + " kept=" + (o.kept_old ? "1" : "0") +
+                   " new=" + (o.records_new ? "1" : "0") + " offnull=" +
+                   (o.off_sink_null ? "1" : "0");
+        };
+        // path 0 = reset(Hard), 1 = load() through a reconstructing driver,
+        // 2 = the guest path (begin, the loop owner's boot, done).
+        auto run_path = [&](int path, bool on) {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            auto boot = [&]() {
+                emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+            };
+            jnext::dbg::LoopDriver d;
+            d.cold_boot = [&]() { boot(); return true; };
+            d.load      = [&](const std::string&) { boot(); return true; };
+            dbg.set_loop_driver(d);
+            if (on) dbg.coverage_enable(true);
+            emu.run_frame();                        // records kFreeRunPcs when on
+            if (path == 0)      dbg.reset(a, ResetKind::Hard);
+            else if (path == 1) dbg.load(a, "game.nex");
+            else              { dbg.on_cold_boot_begin(); boot(); dbg.on_cold_boot_done(); }
+            // A NEW program in the rebuilt machine, at an address the old one
+            // never executed: JR $ at 0xA000.
+            emu.mmu().write(0xA000, 0x18);
+            emu.mmu().write(0xA001, 0xFE);
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = 0xA000; r.SP = TEST_SP; r.IFF1 = 0; r.IFF2 = 0;
+            emu.cpu().set_registers(r);
+            emu.run_frame();
+            Out o;
+            o.enabled       = dbg.coverage_enabled();
+            o.sink          = emu.debug_state().coverage_sink() == &dbg.coverage();
+            o.kept_old      = dbg.coverage().test(SUB);
+            o.records_new   = dbg.coverage().test(0xA000);
+            o.off_sink_null = emu.debug_state().coverage_sink() == nullptr;
+            dbg.detach(a);
+            return o;
+        };
+        const Out want_on {true,  true,  true,  true,  false};
+        const Out want_off{false, false, false, false, true};
+        const Out on0 = run_path(0, true), on1 = run_path(1, true), on2 = run_path(2, true);
+        check("INS-20-10", "coverage ON survives every machine-replacing route — "
+                           "reset(Hard), a reconstructing load(), the guest path: the "
+                           "sink is re-published, the pre-boot set is kept, and the "
+                           "rebuilt machine's PCs are recorded",
+              on0 == want_on && on1 == want_on && on2 == want_on,
+              "reset[" + show(on0) + "] load[" + show(on1) + "] guest[" + show(on2) + "]");
+        const Out off0 = run_path(0, false), off1 = run_path(1, false), off2 = run_path(2, false);
+        check("INS-20-11", "and coverage OFF stays off on all three: no sink, nothing "
+                           "recorded",
+              off0 == want_off && off1 == want_off && off2 == want_off,
+              "reset[" + show(off0) + "] load[" + show(off1) + "] guest[" + show(off2) + "]");
+    }
+    {
+        // THE SNAPSHOT ADVANCE EXECUTES INSTRUCTIONS, under `SuspendScope`, which
+        // clears the attach bits. The set must still record them: stop mid-frame
+        // at the CALL, clear, and let `save_state_bytes(AdvanceToBoundary)` run
+        // the frame out.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        Subscription s;
+        s.kind      = EventKind::Execute;
+        s.filter.lo = PROG + 2; s.filter.hi = PROG + 2;
+        s.action    = Action::Stop;
+        dbg.subscribe(a, s);
+        dbg.coverage_enable(true);
+        emu.run_frame();                                   // stops AT the CALL
+        const bool mid = emu.frame_in_progress() && pc_of(emu) == PROG + 2;
+        dbg.coverage_clear();
+        const auto saved = dbg.save_state_bytes(a, jnext::dbg::SaveStateMode::AdvanceToBoundary);
+        check("INS-20-12", "a snapshot's frame-boundary advance (SuspendScope) records "
+                           "the PCs it executed — a coverage set must not have holes",
+              mid && saved.status == Result::Ok && !emu.frame_in_progress() &&
+                  coverage_is(dbg.coverage(), {static_cast<uint16_t>(PROG + 2), 0x9000,
+                                               0x9001, 0x9002, AFTER_CALL, PARK}),
+              coverage_list(dbg.coverage()));
+    }
+    {
+        // THE PAIR, coverage's half: the sink points INTO `Impl`, so the
+        // destructor must retire it or the machine's next instruction writes into
+        // freed memory. The machine outlives the `Debugger` and keeps running.
+        Emulator emu; build(emu);
+        bool published = false;
+        {
+            Debugger dbg(emu);
+            dbg.coverage_enable(true);
+            published = emu.debug_state().coverage_sink() == &dbg.coverage();
+        }
+        const bool retired = emu.debug_state().coverage_sink() == nullptr;
+        emu.run_frame();
+        check("LIFE-07", "~Debugger() retires the coverage sink it published, and the "
+                         "machine runs on without it",
+              published && retired && pc_of(emu) == PARK);
+    }
+}
+
 int main() {
     std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
 
@@ -1482,8 +1715,8 @@ int main() {
         // SES-01-* and SES-03-* below, against the real behaviour.
         check("PEND-B4-01", "press_key() (B4) refuses as unsupported",
               dbg.press_key(1, std::string("enter"), 2).status == Result::Unsupported);
-        check("PEND-B4-02", "coverage is off and reads all-zero",
-              !dbg.coverage_enabled() && dbg.coverage().none());
+        // PEND-B4-02 (coverage off and all-zero) retired by B4: coverage is
+        // implemented, and INS-20-01 asserts the same fresh-backend answer.
         check("PEND-B4-03", "screenshot() (B4) refuses as unsupported",
               dbg.screenshot(1, "/tmp/x.png", jnext::dbg::LAYER_MASK_ALL,
                              jnext::dbg::ScreenshotFormat::Png) == Result::Unsupported);
@@ -9767,6 +10000,9 @@ int main() {
               dbg.state().pause_reason.by == jnext::dbg::CLIENT_NONE,
               "kind=" + std::to_string(static_cast<int>(dbg.state().pause_reason.kind)));
     }
+
+    // GH #276 B4
+    b4_coverage_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

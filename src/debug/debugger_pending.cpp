@@ -36,10 +36,11 @@
 //        refused from `debugger_control.cpp`) moved to
 //        `debugger_reconstruct.cpp` with the CTL-12 re-application.
 //
-//   B4 — input pulses, capture, bookmarks, coverage: 12 definitions
+//   B4 — input pulses, capture, bookmarks: 8 definitions
 //        press_key (name), press_key (matrix), screenshot, ula_screen_dump,
-//        bookmark_save, bookmark_restore, bookmarks, save_snapshot,
-//        coverage_enable, coverage_enabled, coverage_clear, coverage
+//        bookmark_save, bookmark_restore, bookmarks, save_snapshot
+//        (coverage — coverage_enable, coverage_enabled, coverage_clear,
+//        coverage — DONE, moved to `debugger_inspect.cpp` beside the trace)
 //
 //        B4 INHERITS §5's rule with them (B3 fix round 1b): a verb that would
 //        EXECUTE, REWIND, RESTORE, RESET or REPLACE the machine refuses from
@@ -61,9 +62,9 @@
 //        in §10.1's B rows. Reported as a finding rather than silently adopted
 //        or silently dropped.
 //
-// 13 definitions, and the per-package subtotals above add to 12 plus the one
-// unassigned (B2's 11 and B3's 11 are gone — this file held 35 before B2 and 24
-// before B3). The numbers are restated nowhere else: this banner is the list, and
+// 9 definitions, and the per-package subtotals above add to 8 plus the one
+// unassigned (B2's 11, B3's 11 and B4's four coverage verbs are gone — this file
+// held 35 before B2, 24 before B3 and 13 before B4). The numbers are restated nowhere else: this banner is the list, and
 // the file is the check:
 //
 //     grep -c '^[A-Za-z].* Debugger::' src/debug/debugger_pending.cpp
@@ -79,8 +80,7 @@ namespace dbg {
 //
 // IN-01's APPEND semantics need the auto-type queue rework; CAP-01 needs the
 // deferred-to-next-rendered-frame capture path; CAP-03 needs per-client
-// snapshot storage; INS-20 needs a per-instruction bit set inside the
-// attached-gated branch, which is a hot-path change B1 is specified not to make.
+// snapshot storage.
 // ===========================================================================
 
 Expected<size_t> Debugger::press_key(ClientId, const std::string&, int) {
@@ -115,22 +115,6 @@ std::vector<std::string> Debugger::bookmarks(ClientId) const { return {}; }
 
 Result Debugger::save_snapshot(ClientId, const std::string&) {
     return Result::Unsupported;
-}
-
-Result Debugger::coverage_enable(bool) { return Result::Unsupported; }
-
-/// INS-20. False, and `coverage()` below is all-zero — which is exactly the pair
-/// §4.2 describes for coverage switched off, and why the two accessors exist
-/// together: a caller can tell "nothing ran" from "not recording".
-bool Debugger::coverage_enabled() const { return false; }
-
-Result Debugger::coverage_clear() { return Result::Unsupported; }
-
-/// INS-20. A single zero bit set, static because the signature hands out a
-/// reference to 8 KB. Never written, so it cannot be mistaken for a recording.
-const CoverageBits& Debugger::coverage() const {
-    static const CoverageBits none;
-    return none;
 }
 
 // ===========================================================================

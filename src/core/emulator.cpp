@@ -10089,6 +10089,28 @@ uint64_t Emulator::step_one_instruction()
         int tstates = cpu_.execute();
         cpu_executed = true;
 
+        // GH #276 B4 — INS-20 PC coverage: "the PCs executed since clear".
+        //
+        // HERE, in the one body all three execution roots share — run_frame(),
+        // step_frame_slot() (the debugger's Step) and
+        // execute_single_instruction() — and NOT in run_frame()'s armed() block,
+        // which is where §4.2's "inside the attached-gated branch" would put it:
+        // that block runs only in run_frame(), so every instruction a Step
+        // executes would be missing from the set. It is also independent of
+        // SuspendScope, which clears the attach bits: a snapshot's frame-boundary
+        // advance EXECUTES instructions, and a coverage set with holes in it
+        // would say they never ran.
+        //
+        // ASKED OF THE CPU, not inferred from PC: execute() completes a slot
+        // without fetching the opcode at PC when it accepts an NMI or an INT or
+        // runs the esxdos shim (see the Step Out decision below), and the
+        // instruction at `pc_pre_exec` did not run in that slot.
+        //
+        // Off, this is one pointer load and one branch (DebugState).
+        if (std::bitset<65536>* cov = debug_state_.coverage_sink()) {
+            if (cpu_.fetched_opcode_last_execute()) (*cov)[pc_pre_exec] = true;
+        }
+
         // GH #203 — Step Out decision. It sits HERE, between execute() and the
         // RETN overlay clear below, and the order of the two halves matters as
         // much as the position:

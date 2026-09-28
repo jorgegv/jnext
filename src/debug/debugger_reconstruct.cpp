@@ -40,6 +40,12 @@
 // the three touches it (B2's destructor did retire it, and every later
 // `Debugger` on the machine then got unstamped events; row LIFE-06).
 //
+// GH #276 B4 adds a FOURTH PUBLICATION OF THE BACKEND'S OWN, the INS-20 coverage
+// sink (a pointer into `Impl::coverage`): the constructor publishes it through
+// `Impl::publish_coverage()`, the destructor retires it, and step (5) below
+// re-publishes it. Rows LIFE-07 (the retirement) and INS-20-10 (the three
+// routes).
+//
 // THE INVARIANT ACROSS THE THREE is what the suite pins, not each one
 // separately: after a cold boot with a `Debugger` alive, a subscription that
 // could fire before can fire again — and after `~Debugger()`, nothing the
@@ -209,6 +215,13 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     if (want_call_stack) emu.call_stack().set_enabled(*want_call_stack);
     if (want_trace)      emu.trace_log().set_enabled(*want_trace);
     if (want_persistent) ds().set_persistent_breakpoints(*want_persistent);
+    //     GH #276 B4 — INS-20, the fourth enable rule 2 names. Not a `want_*`:
+    //     the bits and the switch never left `Impl`, only the POINTER the hot
+    //     path writes through did (the new `DebugState` starts with none), so
+    //     re-publishing it is the whole re-application — the set recorded
+    //     before the boot is kept, because "since clear" is not "since boot"
+    //     (rows INS-20-10/11).
+    publish_coverage();
     //
     //     ORDER RELATIVE TO THE PAUSE IS NOT LOAD-BEARING, and an earlier draft
     //     of this comment claimed it was ("a window in which the machine is

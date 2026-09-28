@@ -1,6 +1,7 @@
 #pragma once
 
 #include "debug/breakpoints.h"
+#include <bitset>
 #include <cstdint>
 #include <functional>
 
@@ -517,6 +518,25 @@ public:
     /// by the `Debugger` on every subscription change — never from the hot path.
     void refresh_event_gates();
 
+    // ── GH #276 B4 — INS-20, PC coverage ─────────────────────────────────
+    //
+    // The executed-PC bit set the hot path writes into, or null while coverage
+    // is off. The set itself is the BACKEND's (`Debugger::Impl::coverage`, the
+    // `CoverageBits` a client reads by reference); this is only where the hot
+    // path finds it — the same arrangement as `events_` above, and for the same
+    // reason: nothing below a frontend may see a `Debugger*`.
+    //
+    // A POINTER RATHER THAN A FLAG PLUS A POINTER: the one per-instruction test
+    // is "is there a sink", so switched off it costs one load and one branch
+    // and nothing else (§4.2 INS-20, "zero cost when off").
+    //
+    // PUBLISHED LIKE THE THREE EVENT HOOKS, and retired and re-published with
+    // them: `~Debugger()` nulls it (the set dies with `Impl`), and a cold boot's
+    // brand-new `DebugState` starts null, so the backend re-publishes it in the
+    // one re-application.
+    std::bitset<65536>* coverage_sink() const { return coverage_; }
+    void set_coverage_sink(std::bitset<65536>* s) { coverage_ = s; }
+
     StepMode step_mode() const { return step_mode_; }
 
     /// Set by MMU when a data breakpoint (read/write) is hit.
@@ -637,6 +657,8 @@ private:
     bool cycle_armed_         = false;
     bool execute_armed_       = false;
     bool nextreg_armed_       = false;
+    // GH #276 B4 — INS-20; see coverage_sink().
+    std::bitset<65536>* coverage_ = nullptr;
     StepMode step_mode_ = StepMode::NONE;
     uint16_t step_out_sp_ = 0;
     uint64_t target_cycle_ = 0;

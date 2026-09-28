@@ -748,6 +748,43 @@ Result Debugger::trace_export(const std::string& path) const {
 }
 
 // ---------------------------------------------------------------------------
+// INS-20 — PC coverage (GH #276 B4)
+//
+// The set of PCs executed since the last clear. Written by
+// `Emulator::step_one_instruction()` through `DebugState::coverage_sink()` — see
+// there for why it is that body and not the armed() block §4.2 names, and why it
+// asks the CPU whether the opcode was fetched.
+//
+// SWITCHING IT OFF CLEARS IT. The header promises `coverage()` is all-zero
+// while off, and there are two ways to keep that promise: clear on disable, or
+// keep the bits and hand out a zero set while off. The second leaves a set that
+// no reader can see until coverage is switched back on, at which point bits
+// from a PREVIOUS session reappear under a "since clear" that never happened.
+// So off is a clear, `on` over `on` is not (idempotent, rows INS-20-02/03), and
+// `coverage()` is always the one real set.
+//
+// NO CLIENT ID: the header declares none (the switch is not a mutation of the
+// machine — nothing the guest can see changes), and it is not gated on anyone
+// being attached, for the reason `step_one_instruction()` gives.
+// ---------------------------------------------------------------------------
+
+Result Debugger::coverage_enable(bool enabled) {
+    impl_->coverage_on = enabled;
+    if (!enabled) impl_->coverage.reset();
+    impl_->publish_coverage();
+    return Result::Ok;
+}
+
+bool Debugger::coverage_enabled() const { return impl_->coverage_on; }
+
+Result Debugger::coverage_clear() {
+    impl_->coverage.reset();
+    return Result::Ok;
+}
+
+const CoverageBits& Debugger::coverage() const { return impl_->coverage; }
+
+// ---------------------------------------------------------------------------
 // INS-14 — framebuffer
 // ---------------------------------------------------------------------------
 

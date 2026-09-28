@@ -62,6 +62,11 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
         impl_->ds().on_slot_remapped(s, impl_->emu.mmu().get_effective_page(s));
 
     impl_->gates_changed();
+
+    // GH #276 B4 — INS-20's sink. Off here, so this publishes NULL — which is
+    // not a no-op: it is the constructor's half of the pair `~Debugger()` and
+    // the re-application complete, stated where the other publications are.
+    impl_->publish_coverage();
 }
 
 // Out of line, and it must be: `Impl` is incomplete in the published header, so
@@ -75,8 +80,9 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
 // guest memory write past a stale slot mask would be a use-after-free on the hot
 // path.
 //
-// EXACTLY THE THREE THE CONSTRUCTOR PUBLISHED, and not the latch stamper (GH
-// #276 B3). The stamper is the EMULATOR's: `Emulator::init()` installs it and it
+// EXACTLY WHAT THE CONSTRUCTOR PUBLISHED — the three event publications and
+// (GH #276 B4) the INS-20 coverage sink, which points into `Impl` too — and not
+// the latch stamper (GH #276 B3). The stamper is the EMULATOR's: `Emulator::init()` installs it and it
 // captures the `Emulator`, which outlives this object, so it can never reach a
 // freed `Impl`. Retiring it here was B2's, and it broke the pair in the other
 // direction: every later `Debugger` on the same machine got events whose common
@@ -97,6 +103,12 @@ Debugger::~Debugger() {
     impl_->ds().refresh_event_gates();
     impl_->emu.copper().set_events_armed(false, false, false);
     impl_->emu.dma().set_events_armed(false, false, false);
+    // GH #276 B4 — the coverage sink points INTO `Impl` (`Impl::coverage`), and
+    // `step_one_instruction()` writes through it on every executed instruction:
+    // left installed, the machine's next instruction writes into freed memory
+    // (row LIFE-07). Retired unconditionally — a sink that is already null
+    // stays null.
+    impl_->ds().set_coverage_sink(nullptr);
 }
 
 // ---------------------------------------------------------------------------

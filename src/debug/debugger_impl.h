@@ -338,6 +338,23 @@ struct Debugger::Impl {
     std::optional<bool> want_trace;
     std::optional<bool> want_persistent;
 
+    // ── B4 (§4.2 INS-20) — PC coverage ──────────────────────────────────────
+    //
+    // THE SET AND ITS SWITCH ARE BOTH BACKEND STATE, not the machine's: the bits
+    // live here and the `Emulator` only holds a pointer to them
+    // (`DebugState::coverage_sink()`), so a reconstruct loses the pointer and
+    // neither the switch nor the bits. `publish_coverage()` is the ONE writer of
+    // that pointer — the constructor, the re-application and every verb end
+    // with it, and `~Debugger()` retires it, so the four places it is set can
+    // never disagree about what "on" means.
+    //
+    // Unlike `want_*` above this is a plain `bool`, not an `optional`: coverage
+    // exists nowhere but here, so there is no machine default to leave alone —
+    // "nobody asked" and "asked for off" are the same state.
+    CoverageBits coverage;
+    bool         coverage_on = false;
+    void publish_coverage() { ds().set_coverage_sink(coverage_on ? &coverage : nullptr); }
+
     /// CTL-12 rule 3's input: the pause IN FORCE before a machine is replaced,
     /// and whose it is. Not a bare bool, because the owner is half of what rule
     /// 3 has to preserve: SES-01's detach releases a pause only if it is THIS
