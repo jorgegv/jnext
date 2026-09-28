@@ -7597,7 +7597,7 @@ int main() {
         load_writer(emu, 0x22);
         emu.run_frame();
         check("CTL-12-13", "and the SAME subscription still fires afterwards — the "
-                           "four publications, the page seed and the gates were "
+                           "three publications, the page seed and the gates were "
                            "re-applied",
               hits_after > 0, "hits=" + std::to_string(hits_after));
 
@@ -7959,9 +7959,10 @@ int main() {
         // B2's review reproduced a REAL SEGFAULT by removing one line of
         // `~Debugger()` and calling `load_state()` afterwards, and found that
         // none of the 867 rows saw it. The pairing is what makes the fix
-        // memory-safe, and it is a PAIR: the constructor publishes four things
+        // memory-safe, and it is a PAIR: the constructor publishes three things
         // into a `DebugState` that OUTLIVES the `Debugger` (it is an `Emulator`
-        // member), and the destructor has to retire all four.
+        // member), and the destructor has to retire all three — and ONLY those
+        // three, which is LIFE-06's half.
         //
         // The invariant is asserted ACROSS the pair — "a machine that outlives
         // its `Debugger` can be driven without touching the freed `Impl`" — not
@@ -7979,7 +7980,7 @@ int main() {
             s.action    = Action::Continue;
             s.handler   = [](const DbgEvent&, Debugger&) { return Action::Continue; };
             dbg.subscribe(a, s);
-            check("LIFE-01", "while the Debugger lives, all four publications are in "
+            check("LIFE-01", "while the Debugger lives, its publications are in "
                              "place and the gate is open",
                   emu.debug_state().event_table() != nullptr &&
                   (emu.debug_state().event_table()->wr_slot_mask() &
@@ -8027,18 +8028,39 @@ int main() {
             Debugger dbg2(emu);
             const ClientId a = dbg2.attach(client("A2")).value;
             int hits = 0;
+            uint16_t first_pc    = 0;
+            uint64_t first_cycle = 0;
             Subscription s;
             s.kind      = EventKind::Mem;
             s.access    = Access::Write;
             s.filter.lo = WATCHED; s.filter.hi = WATCHED;
             s.action    = Action::Continue;
-            s.handler   = [&](const DbgEvent&, Debugger&) { ++hits; return Action::Continue; };
+            s.handler   = [&](const DbgEvent& ev, Debugger&) {
+                if (hits++ == 0) {
+                    first_pc    = ev.pc;
+                    first_cycle = ev.cycle;
+                }
+                return Action::Continue;
+            };
             dbg2.subscribe(a, s);
+            const uint64_t cyc_before2 = emu.clock().get();
             load_writer(emu, 0x66);
             emu.run_frame();
             check("LIFE-05", "a SECOND Debugger on the same Emulator republishes and "
                              "its subscriptions fire",
                   hits > 0, "hits=" + std::to_string(hits));
+            // THE FOURTH HOOK. The constructor publishes THREE things; the latch
+            // stamper is the EMULATOR's (installed by `Emulator::init()`, and it
+            // captures the `Emulator`, not `Impl`). A destructor that also retired
+            // it left every later `Debugger` on this machine with events whose
+            // common header — cycle, frame, pc, vc, hc — was never stamped, while
+            // LIFE-05's hit count stayed green.
+            check("LIFE-06", "and its events carry a STAMPED header — the first "
+                             "Debugger's destructor did not retire the Emulator's "
+                             "latch stamper",
+                  hits > 0 && first_pc == 0x8002 && first_cycle >= cyc_before2,
+                  "pc=" + hex(first_pc) + " cycle=" + std::to_string(first_cycle) +
+                      " before=" + std::to_string(cyc_before2));
         }
     }
 

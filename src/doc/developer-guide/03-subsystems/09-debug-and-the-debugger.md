@@ -436,9 +436,10 @@ So the backend re-applies, from one function, whatever route landed the new
 machine — `reset(Hard)`, `load()`, or the loop owner's `on_cold_boot_done()`
 after a guest NR 0x02 reset:
 
-1. the four publications the constructor makes (`set_event_table`,
-   `set_event_hooks`, `set_machine_replaced_hook`, and the Emulator's own latch
-   stamper via `init()`);
+1. the three publications the constructor makes (`set_event_table`,
+   `set_event_hooks`, `set_machine_replaced_hook`) — the fourth hook on
+   `DebugState`, the latch stamper, is the Emulator's own and `init()`
+   re-installs it, which is also why the destructor leaves it alone;
 2. the eight-page seed — `on_slot_remapped()` early-returns while the table is
    null, so every `rebuild_ptr()` during the new `init()` was discarded, which
    makes a page-qualified `Mem` filter wrong in *both* directions;

@@ -70,18 +70,26 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
 //
 // GH #276 B2 — and it now has a BODY, for a reason that is not tidiness: the
 // `DebugState` outlives this object (it is an `Emulator` member), and it holds a
-// pointer to `Impl::events` plus two `std::function`s that capture `this`. Left
-// installed, the next guest memory write past a stale slot mask would be a
-// use-after-free on the hot path.
+// pointer to `Impl::events` plus three `std::function`s that capture `this`
+// (the two event hooks and the machine-replaced hook). Left installed, the next
+// guest memory write past a stale slot mask would be a use-after-free on the hot
+// path.
+//
+// EXACTLY THE THREE THE CONSTRUCTOR PUBLISHED, and not the latch stamper (GH
+// #276 B3). The stamper is the EMULATOR's: `Emulator::init()` installs it and it
+// captures the `Emulator`, which outlives this object, so it can never reach a
+// freed `Impl`. Retiring it here was B2's, and it broke the pair in the other
+// direction: every later `Debugger` on the same machine got events whose common
+// header (cycle, frame, pc, vc, hc) was never stamped, until the next `init()`.
+// Row LIFE-06.
 Debugger::~Debugger() {
     impl_->ds().set_event_table(nullptr);
     impl_->ds().set_event_hooks(nullptr, nullptr);
     impl_->ds().set_machine_replaced_hook(nullptr);
-    impl_->ds().set_latch_stamper(nullptr);
     // The masks are `BreakpointSet`'s, so they survive this object, and the event
     // half has to be zeroed or a retired subscription keeps the gate open for
-    // ever. `refresh_event_gates()` DOES that — the table pointer was retired two
-    // lines up, so it takes its `!events_` branch and publishes (0, 0, false).
+    // ever. `refresh_event_gates()` DOES that — the table pointer was retired
+    // above, so it takes its `!events_` branch and publishes (0, 0, false).
     // An explicit `set_event_slot_masks(0, 0, false)` stood here and was removed:
     // no mutation could distinguish it from nothing, which is what "redundant"
     // means, and a second writer of the same two bytes is how the two come to

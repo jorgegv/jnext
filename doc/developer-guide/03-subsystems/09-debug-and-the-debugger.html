@@ -2216,9 +2216,10 @@ Nothing in the frontend can detect it.</p>
 machine — <code>reset(Hard)</code>, <code>load()</code>, or the loop owner's <code>on_cold_boot_done()</code>
 after a guest NR 0x02 reset:</p>
 <ol>
-<li>the four publications the constructor makes (<code>set_event_table</code>,
-   <code>set_event_hooks</code>, <code>set_machine_replaced_hook</code>, and the Emulator's own latch
-   stamper via <code>init()</code>);</li>
+<li>the three publications the constructor makes (<code>set_event_table</code>,
+   <code>set_event_hooks</code>, <code>set_machine_replaced_hook</code>) — the fourth hook on
+   <code>DebugState</code>, the latch stamper, is the Emulator's own and <code>init()</code>
+   re-installs it, which is also why the destructor leaves it alone;</li>
 <li>the eight-page seed — <code>on_slot_remapped()</code> early-returns while the table is
    null, so every <code>rebuild_ptr()</code> during the new <code>init()</code> was discarded, which
    makes a page-qualified <code>Mem</code> filter wrong in <em>both</em> directions;</li>

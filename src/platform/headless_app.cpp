@@ -471,7 +471,7 @@ void HeadlessApp::run() {
         }
         // GH #276 B3 — CTL-12 rule 5, the GUEST-initiated path: the loop owner
         // has done the boot itself, and tells the backend so, so the reconstruct
-        // contract's re-application (the four publications, the eight-page seed,
+        // contract's re-application (the three publications, the eight-page seed,
         // the gates, the ring discard) runs for it too.
         //
         // Guarded on the fixture because THIS loop owner holds a `Debugger` only

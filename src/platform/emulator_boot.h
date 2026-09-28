@@ -168,15 +168,15 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     // lambda, which is rule 5 of CTL-12 and makes it the first real consumer of
     // the contract rather than its first casualty.
     //
-    //  1. **Re-install the FOUR publications.** `~Emulator()` + placement-new
+    //  1. **Re-install the THREE publications.** `~Emulator()` + placement-new
     //     gives a BRAND-NEW `DebugState` at the same address, with
-    //     `events_ == nullptr`, no drain/gate hooks, no machine-replaced hook and
-    //     no latch stamper. A surviving `Debugger` is then silently DISCONNECTED:
-    //     every subscription still exists and lists as live, and not one can ever
+    //     `events_ == nullptr`, no drain/gate hooks and no machine-replaced hook.
+    //     A surviving `Debugger` is then silently DISCONNECTED: every
+    //     subscription still exists and lists as live, and not one can ever
     //     fire. The re-application re-runs the `Debugger` constructor's calls —
-    //     `set_event_table`, `set_event_hooks`, `set_machine_replaced_hook`, and
-    //     (the Emulator's own) `install_debug_latch_stamper_` via `init()` — plus
-    //     `gates_changed()` and the eight-page seed.
+    //     `set_event_table`, `set_event_hooks`, `set_machine_replaced_hook` —
+    //     plus `gates_changed()` and the eight-page seed. (The fourth hook, the
+    //     latch stamper, is the Emulator's own: `init()` below re-installs it.)
     //
     //     `set_machine_replaced_hook` is the one that is easy to miss and the one
     //     whose absence is worst here, so it is named rather than left inside

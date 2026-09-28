@@ -33,7 +33,7 @@
 //                                   the `Stop` path uses.
 //   the ctor's publications / the    `reapply_after_machine_rebuild()` re-runs
 //   dtor's retirements              exactly what the ctor published and the dtor
-//                                   retires exactly the same four — the
+//                                   retires exactly the same three — the
 //                                   reconstruct file states that one.
 //
 // ── WALL CLOCK, ONCE, DELIBERATELY ─────────────────────────────────────────

@@ -31,11 +31,14 @@
 //
 // ── THE PAIR: THE CONSTRUCTOR, THE DESTRUCTOR, AND THIS ─────────────────────
 //
-// `Debugger::Debugger()` publishes FOUR things into `DebugState`
-// (`set_event_table`, `set_event_hooks`, `set_machine_replaced_hook`, and — via
-// `Emulator::init()` — the latch stamper), seeds the eight live pages and calls
-// `gates_changed()`. `Debugger::~Debugger()` retires exactly those four.
-// `reapply_after_machine_rebuild()` re-publishes exactly those four.
+// `Debugger::Debugger()` publishes THREE things into `DebugState`
+// (`set_event_table`, `set_event_hooks`, `set_machine_replaced_hook`), seeds the
+// eight live pages and calls `gates_changed()`. `Debugger::~Debugger()` retires
+// exactly those three. `reapply_after_machine_rebuild()` re-publishes exactly
+// those three. The FOURTH hook on `DebugState`, the latch stamper, belongs to
+// the `Emulator` — `init()` installs it, capturing the `Emulator` — so none of
+// the three touches it (B2's destructor did retire it, and every later
+// `Debugger` on the machine then got unstamped events; row LIFE-06).
 //
 // THE INVARIANT ACROSS THE THREE is what the suite pins, not each one
 // separately: after a cold boot with a `Debugger` alive, a subscription that
@@ -72,16 +75,15 @@ namespace dbg {
 // ---------------------------------------------------------------------------
 
 void Debugger::Impl::reapply_after_machine_rebuild(bool was_paused) {
-    // (1) THE FOUR PUBLICATIONS. The same calls the constructor makes, in the
+    // (1) THE THREE PUBLICATIONS. The same calls the constructor makes, in the
     //     same order, and the order matters for the same reason it does there:
     //     the table pointer before the gates, because `refresh_event_gates()`
     //     takes its `!events_` branch without it.
     //
-    //     The latch stamper is NOT re-installed here: `Emulator::init()` does it
-    //     (`install_debug_latch_stamper_()`), and `init()` has already run by the
-    //     time the driver returns. Re-installing it would be a second writer of
-    //     one `std::function` — see the destructor, which retires all four
-    //     because it is the ONE place that must.
+    //     The latch stamper is NOT re-installed here, because it is not the
+    //     backend's: `Emulator::init()` installs it
+    //     (`install_debug_latch_stamper_()`) on the new `DebugState`, and
+    //     `init()` has already run by the time the driver returns.
     ds().set_event_table(&events);
     ds().set_event_hooks([this]() { return drain_boundary(); },
                          [this](uint16_t pc) { return execute_gate(pc); });
@@ -293,7 +295,7 @@ Result Debugger::load(ClientId by, const std::string& path) {
     // is the loop owner's, `emulator_apply_load()` loads in place, the Qt menu
     // route cold-boots first, and `load_rzx` reconstructs only when the recording
     // carries an embedded snapshot. Asking the question would mean guessing at
-    // it. Re-applying always is idempotent — the same four publications, the same
+    // it. Re-applying always is idempotent — the same three publications, the same
     // eight pages, the same gates — and removes the question entirely.
     //
     // It is not free of consequence: it arms `Kind::None` and clears the stop
