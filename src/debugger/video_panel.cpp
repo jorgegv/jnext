@@ -381,11 +381,16 @@ void VideoLayerView::setLayer(Layer layer)
 
 void VideoLayerView::refresh(int vc)
 {
-    // Only skip re-render for the dim running placeholder (vc < 0).
-    // When paused (vc >= 0), always re-render: registers (scroll, palette,
-    // tile data) may have changed even if the scanline position is the same
-    // (e.g. EOF → EOF stepping stays at vc=255 across frames).
-    if (vc < 0 && last_vc_ < 0) return;
+    // Only skip re-render for the dim running placeholder (vc < 0), and only
+    // when the placeholder is what is ALREADY shown (last_vc_ == -1). When
+    // paused (vc >= 0), always re-render: registers (scroll, palette, tile
+    // data) may have changed even if the scanline position is the same (e.g.
+    // EOF → EOF stepping stays at vc=255 across frames).
+    //
+    // GH #278 WP0 — `last_vc_ < 0` also matched invalidate()'s and setLayer()'s
+    // -2 ("force re-render"), so a tab switched to while running kept the
+    // picture it was last rendered with during a pause.
+    if (vc < 0 && last_vc_ == -1) return;
     last_vc_ = vc;
     render_to_image(vc);
     update();

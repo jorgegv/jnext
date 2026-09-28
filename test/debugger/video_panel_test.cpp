@@ -2023,11 +2023,11 @@ static void test_composite_is_default_tab() {
 //
 // VideoPanel refreshes only the visible layer view (video_panel.cpp:1066-1075),
 // and a tab switch refreshes at once (:952-960) rather than waiting for the next
-// manager tick. Pinned while PAUSED, where every refresh renders. Deliberately
-// NOT pinned while running: invalidate() sets last_vc_ = -2, which the running
-// early-return (`vc < 0 && last_vc_ < 0`, :388) treats as "already a
-// placeholder", so a tab rendered during an earlier pause keeps its stale
-// picture when switched to while running (reported in the WP0 hand-back).
+// manager tick. QVT-01 pins it while PAUSED, where every refresh renders.
+// QVT-02 pins it while RUNNING (GH #278 WP0 fix): the newly visible view shows
+// the running placeholder, not the picture it was rendered with during an
+// earlier pause — the early return took invalidate()'s -2 for "placeholder
+// already shown".
 static void test_tab_switch_renders_visible_only(Emulator& emu) {
     set_group("QVT");
 
@@ -2072,7 +2072,21 @@ static void test_tab_switch_renders_visible_only(Emulator& emu) {
           fmt("paused=%d composite=%d sprites=%d others-placeholder=%d",
               emu.debug_state().paused(), composite_drawn, sprites_drawn,
               others_untouched));
+
+    // QVT-02 — the Sprites view now holds a paused picture. Resume, refresh
+    // (the visible Sprites view goes to the placeholder), go back to All
+    // layers (rendered during the pause, not since), switch while running.
     emu.debug_state().resume();
+    panel.refresh();
+    const bool sprites_dimmed = is_placeholder(view_image(3));
+    if (tabs) tabs->setCurrentIndex(0);
+    const bool composite_dimmed = is_placeholder(view_image(0));
+    check("QVT-02",
+          "switching the layer tab while RUNNING shows the placeholder in the "
+          "newly visible view, never a picture left from an earlier pause",
+          !emu.debug_state().paused() && sprites_dimmed && composite_dimmed,
+          fmt("running=%d sprites placeholder=%d all-layers placeholder=%d",
+              !emu.debug_state().paused(), sprites_dimmed, composite_dimmed));
 }
 
 // ── DVP-RASTER: the raster position / ULA fetch indicator (GH #22) ────
