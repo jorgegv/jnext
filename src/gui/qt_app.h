@@ -8,6 +8,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
+#include "platform/host_probe.h"
 #include "input/gamepad_host.h"
 #include "platform/frame_sequencer.h"
 #include "platform/host_key_latch.h"
@@ -178,6 +179,10 @@ private:
     // GH #276 B4 — declared AFTER emulator_ so it is destroyed FIRST: its
     // destructor retires what it published into the emulator's DebugState.
     std::unique_ptr<jnext::dbg::Debugger> debugger_;
+    // GH #276 B5 — the JNEXT_HOST_PROBE regression fixture (platform/host_probe.h):
+    // null unless the variable is set. Declared AFTER debugger_ so it is
+    // destroyed FIRST — it detaches its client and removes its service.
+    std::unique_ptr<HostProbe> host_probe_;
 
     // QApplication holds a reference to argc (and may write through it), so the
     // storage must outlive it — init()'s own parameters do not.

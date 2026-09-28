@@ -280,6 +280,7 @@ bool QtApp::init(int argc, char* argv[]) {
         };
         debugger_->set_loop_driver(driver);
     }
+    host_probe_ = HostProbe::from_env(emulator_, *debugger_);   // GH #276 B5
 
     // Create the main window.
     main_window_ = new MainWindow();

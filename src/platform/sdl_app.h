@@ -9,6 +9,7 @@
 #include "host_key_latch.h"
 #include "core/emulator.h"
 #include "debug/debugger.h"
+#include "platform/host_probe.h"
 #include "video/renderer.h"
 #include "input/gamepad_host.h"
 #include "input/mouse_dispatcher.h"
@@ -98,6 +99,10 @@ private:
     // GH #276 B4 — declared AFTER emulator_ so it is destroyed FIRST: its
     // destructor retires what it published into the emulator's DebugState.
     std::unique_ptr<jnext::dbg::Debugger> debugger_;
+    // GH #276 B5 — the JNEXT_HOST_PROBE regression fixture (platform/host_probe.h):
+    // null unless the variable is set. Declared AFTER debugger_ so it is
+    // destroyed FIRST — it detaches its client and removes its service.
+    std::unique_ptr<HostProbe> host_probe_;
     /// The cold boot itself — what `LoopDriver::cold_boot` runs for a client's
     /// `reset(Hard)`, which brackets it with its own capture. cold_boot() is
     /// this plus the begin/done pair.

@@ -82,6 +82,7 @@
 #include <spdlog/sinks/ringbuffer_sink.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <tuple>
 #include <memory>
@@ -4024,6 +4025,59 @@ static void b5_detach_rows() {
               std::string("gone=") + (dbg.client_enabled(a) ? "1" : "0") +
                   " attached=" + (dbg.client_enabled(b) ? "1" : "0"));
     }
+}
+
+// ── HOST-07 — the JNEXT_HOST_PROBE fixture (platform/host_probe.h), through the
+//    real HeadlessApp. The regression rows sdl-host-probe-func and
+//    qt-host-probe-func run the SAME probe in SdlApp and QtApp and read the same
+//    lines; this row is the probe's own proof on the loop owner whose call sites
+//    HOST-03..05 already pin, so a HOSTPROBE line that reads right means what the
+//    regression rows take it to mean.
+static void b5_host_probe_rows() {
+    auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(512);
+    Log::platform()->sinks().push_back(ring);
+    ::setenv("JNEXT_HOST_PROBE", "1", 1);
+    bool ok = false, armed_off = true;
+    {
+        {
+            // Unset: nothing is attached — the probe is zero-cost off.
+            ::unsetenv("JNEXT_HOST_PROBE");
+            HeadlessApp off;
+            EmulatorConfig cfg; cfg.type = MachineType::ZX48K;
+            off.set_config(cfg);
+            off.init(0, nullptr);
+            armed_off = off.debugger().attached();
+            off.shutdown();
+            ::setenv("JNEXT_HOST_PROBE", "1", 1);
+        }
+        EmulatorConfig cfg; cfg.type = MachineType::ZX48K;
+        HeadlessApp app;
+        app.set_config(cfg);
+        ok = app.init(0, nullptr);
+        app.set_delayed_exit(80);
+        app.run();
+        app.shutdown();
+    }                                                   // ~HeadlessApp: the end line
+    ::unsetenv("JNEXT_HOST_PROBE");
+    bool guest = false, reset_ok = false, end_two = false;
+    std::string seen;
+    for (const auto& l : ring->last_formatted()) {
+        if (l.find("HOSTPROBE") == std::string::npos) continue;
+        seen += "|" + l.substr(l.find("HOSTPROBE"));
+        if (l.find("HOSTPROBE guest-boot: reset=1 paused=1 owner=probe") != std::string::npos)
+            guest = true;
+        if (l.find("HOSTPROBE reset(Hard) -> ok") != std::string::npos) reset_ok = true;
+        if (l.find("HOSTPROBE end:") != std::string::npos &&
+            l.find("resets=2") != std::string::npos)
+            end_two = true;
+    }
+    Log::platform()->sinks().pop_back();
+    check("HOST-07", "JNEXT_HOST_PROBE through the real HeadlessApp: pumped (it ran at "
+                     "all), the guest cold boot bracketed (Reset{Hard} pushed, the "
+                     "probe's pause back and still its own), the driver registered "
+                     "(reset(Hard) Ok), two hard resets in all — and with the variable "
+                     "unset nothing is attached",
+          ok && !armed_off && guest && reset_ok && end_two, seen);
 }
 
 int main() {
@@ -13394,6 +13448,7 @@ int main() {
     b5_range_rows();
     b5_payload_rows();
     b5_detach_rows();
+    b5_host_probe_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

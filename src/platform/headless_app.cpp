@@ -59,6 +59,7 @@ bool HeadlessApp::init(int argc, char* argv[]) {
         return emulator_apply_load(emulator_, path, tape_realtime_);
     };
     debugger_->set_loop_driver(driver);
+    host_probe_ = HostProbe::from_env(emulator_, *debugger_);   // GH #276 B5
 
     running_ = true;
     Log::platform()->info("Headless mode initialized");
