@@ -210,12 +210,33 @@ struct Debugger::Impl {
     /// a listener callback that the fan-out loop is walking, and an erase there
     /// invalidates the iterator. `compact_clients()` at the outer boundary does
     /// the removal, exactly as `EventTable::compact()` does.
+    /// CAP-03 (B4) — one named, in-memory snapshot. Tagged with what a
+    /// restore must match: the machine TYPE and the snapshot WIDTH at save
+    /// time (§4.5: a mismatch is refused BEFORE `load_state` runs, never left
+    /// to the sentinel check, which would latch corruption).
+    struct Bookmark {
+        std::string          name;
+        std::vector<uint8_t> bytes;    ///< `serialise_machine()` output; its size IS the width
+        MachineType          type = MachineType::ZX48K;
+    };
+
+    /// §4.5 CAP-03 — "bound: 8 per client (RefusedUnavailable beyond it,
+    /// oldest never evicted silently)".
+    static constexpr size_t kMaxBookmarks = 8;
+
     struct Client {
         ClientId   id = CLIENT_NONE;
         ClientInfo info;
         Listener*  listener    = nullptr;
         bool       live_raster = false;
         bool       detached    = false;   ///< tombstone
+        /// CAP-03 — this client's bookmarks, in save order (a re-save of a name
+        /// keeps its place). HERE, on the client row, because §4.5 makes them
+        /// per client and they die with its detach; and on `Impl`, not the
+        /// `Emulator`, which is what makes them survive a CTL-12 `Hard`
+        /// reconstruct with nothing to re-apply. `detach()` frees them at once
+        /// rather than when the tombstone is compacted.
+        std::vector<Bookmark> bookmarks;
     };
 
     std::vector<Client> clients;

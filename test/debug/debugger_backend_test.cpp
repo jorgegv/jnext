@@ -910,6 +910,237 @@ static void b4_capture_state_rows() {
     }
 }
 
+// ── CAP-03 — named bookmarks ────────────────────────────────────────────────
+
+/// What a restore is checked against: the machine as the bookmark caught it.
+struct MachineMark {
+    uint64_t clock = 0;
+    uint16_t pc = 0;
+    uint8_t  byte = 0;       // RAM at 0x6000
+    bool operator==(const MachineMark& o) const {
+        return clock == o.clock && pc == o.pc && byte == o.byte;
+    }
+};
+static MachineMark mark_of(Emulator& emu) {
+    return MachineMark{emu.clock().get(), pc_of(emu), emu.mmu().read(0x6000)};
+}
+static std::string show_mark(const MachineMark& m) {
+    return "clock=" + std::to_string(m.clock) + " pc=" + hex(m.pc) + " [6000]=" + hex(m.byte);
+}
+
+static void b4_bookmark_rows() {
+    using jnext::dbg::SaveStateMode;
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        emu.mmu().write(0x6000, 0x11);
+        const MachineMark at_save = mark_of(emu);
+        const Result saved = dbg.bookmark_save(a, "one", SaveStateMode::RefuseMidFrame);
+        check("CAP-03-01", "bookmark_save() stores a named bookmark for its client, "
+                           "and ONLY for that client",
+              saved == Result::Ok && dbg.bookmarks(a) == std::vector<std::string>{"one"} &&
+                  dbg.bookmarks(b).empty());
+
+        emu.run_frame();                         // the machine moves on...
+        emu.mmu().write(0x6000, 0x22);
+        const MachineMark moved = mark_of(emu);
+        const Result restored = dbg.bookmark_restore(a, "one");
+        check("CAP-03-02", "bookmark_restore() puts the machine back where the "
+                           "bookmark caught it: clock, PC and RAM",
+              !(moved == at_save) && restored == Result::Ok && mark_of(emu) == at_save,
+              "now " + show_mark(mark_of(emu)) + " want " + show_mark(at_save));
+
+        const uint64_t gen = emu.state_error_generation();
+        const MachineMark before = mark_of(emu);
+        check("CAP-03-03", "an unknown name is RefusedUnavailable, and the machine "
+                           "is untouched and nothing is latched",
+              dbg.bookmark_restore(a, "two") == Result::RefusedUnavailable &&
+                  mark_of(emu) == before && emu.state_error_generation() == gen &&
+                  emu.last_state_error().empty());
+
+        // PER CLIENT, BOTH WAYS: B cannot reach A's "one", and B's own "one" is
+        // a different bookmark.
+        const Result b_cannot = dbg.bookmark_restore(b, "one");
+        emu.run_frame();
+        emu.mmu().write(0x6000, 0x33);
+        const MachineMark b_state = mark_of(emu);
+        dbg.bookmark_save(b, "one", SaveStateMode::RefuseMidFrame);
+        dbg.bookmark_restore(a, "one");
+        const bool a_gets_a = mark_of(emu) == at_save;
+        dbg.bookmark_restore(b, "one");
+        check("CAP-03-04", "names are per client: B cannot restore A's bookmark, and "
+                           "B's own of the same name is a different one",
+              b_cannot == Result::RefusedUnavailable && a_gets_a && mark_of(emu) == b_state,
+              "now " + show_mark(mark_of(emu)) + " want B's " + show_mark(b_state));
+
+        // A re-save of a name REPLACES it, in place.
+        emu.mmu().write(0x6000, 0x44);
+        const MachineMark second = mark_of(emu);
+        dbg.bookmark_save(a, "one", SaveStateMode::RefuseMidFrame);
+        emu.mmu().write(0x6000, 0x55);
+        dbg.bookmark_restore(a, "one");
+        check("CAP-03-05", "saving a name again replaces it — one entry, the newer "
+                           "state",
+              dbg.bookmarks(a) == std::vector<std::string>{"one"} && mark_of(emu) == second,
+              show_mark(mark_of(emu)));
+    }
+    {
+        // THE BOUND: 8 per client, the 9th NEW name refused, nothing evicted, and
+        // a replacement still allowed at the bound.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        bool eight_ok = true;
+        for (int i = 0; i < 8; ++i)
+            eight_ok = eight_ok && dbg.bookmark_save(a, "b" + std::to_string(i),
+                                                     SaveStateMode::RefuseMidFrame) == Result::Ok;
+        const Result ninth = dbg.bookmark_save(a, "b8", SaveStateMode::RefuseMidFrame);
+        const std::vector<std::string> names = dbg.bookmarks(a);
+        const Result replace = dbg.bookmark_save(a, "b0", SaveStateMode::RefuseMidFrame);
+        check("CAP-03-06", "the bound is 8: the 9th NEW name is RefusedUnavailable, "
+                           "the oldest is NOT evicted, and re-saving a held name is "
+                           "still allowed at the bound",
+              eight_ok && ninth == Result::RefusedUnavailable && names.size() == 8 &&
+                  names.front() == "b0" && names.back() == "b7" &&
+                  dbg.bookmark_restore(a, "b0") == Result::Ok && replace == Result::Ok &&
+                  dbg.bookmarks(a).size() == 8,
+              "ninth=" + std::string(jnext::dbg::result_name(ninth)) + " n=" +
+                  std::to_string(names.size()));
+
+        // ...and the refusal happens BEFORE the advance: a mid-frame machine at
+        // the bound is not run out for a save that is refused anyway.
+        RecListener l;
+        dbg.set_listener(a, &l);
+        stop_mid_frame_at_call(emu, dbg, a);
+        const uint64_t clk = emu.clock().get();
+        const size_t n0 = mutate_lines(l).size();
+        const Result refused = dbg.bookmark_save(a, "b9", SaveStateMode::AdvanceToBoundary);
+        check("CAP-03-07", "a save refused for the bound does NOT advance a mid-frame "
+                           "machine first (no clock move, no MUTATE line)",
+              refused == Result::RefusedUnavailable && emu.clock().get() == clk &&
+                  emu.frame_in_progress() && mutate_lines(l).size() == n0);
+    }
+    {
+        // ST-01's rule, through bookmark_save: the same one save_state_bytes uses.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        RecListener l;
+        dbg.set_listener(a, &l);
+        stop_mid_frame_at_call(emu, dbg, a);
+        const Result refused = dbg.bookmark_save(a, "mid", SaveStateMode::RefuseMidFrame);
+        const bool nothing = dbg.bookmarks(a).empty() && emu.frame_in_progress();
+        const Result advanced = dbg.bookmark_save(a, "mid", SaveStateMode::AdvanceToBoundary);
+        const auto lines = mutate_lines(l);
+        check("CAP-03-08", "mid-frame: RefuseMidFrame answers NotAtFrameBoundary and "
+                           "stores nothing; AdvanceToBoundary runs the frame out, logs "
+                           "the MUTATE clock line under bookmark_save, and stores it",
+              refused == Result::NotAtFrameBoundary && nothing && advanced == Result::Ok &&
+                  !emu.frame_in_progress() &&
+                  dbg.bookmarks(a) == std::vector<std::string>{"mid"} && !lines.empty() &&
+                  lines.back().find("MUTATE clock (bookmark_save advanced to the frame "
+                                    "boundary)") == 0,
+              lines.empty() ? std::string("no MUTATE line") : lines.back());
+    }
+    {
+        // A client's bookmarks die with its detach; an id with no client has none.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.bookmark_save(a, "x", SaveStateMode::RefuseMidFrame);
+        const bool had = dbg.bookmarks(a).size() == 1;
+        dbg.detach(a);
+        const ClientId a2 = dbg.attach(client("A again")).value;
+        check("CAP-03-09", "a client's bookmarks die with its detach — gone for its id, "
+                           "unrestorable, and not inherited by a new client",
+              had && dbg.bookmarks(a).empty() && dbg.bookmarks(a2).empty() &&
+                  dbg.bookmark_restore(a, "x") == Result::RefusedUnavailable &&
+                  dbg.bookmark_restore(a2, "x") == Result::RefusedUnavailable);
+        check("CAP-03-10", "an id with no live client — CLIENT_NONE, or one never "
+                           "issued — can neither save nor restore, and lists nothing",
+              dbg.bookmark_save(jnext::dbg::CLIENT_NONE, "y", SaveStateMode::RefuseMidFrame) ==
+                      Result::RefusedUnavailable &&
+                  dbg.bookmark_save(99, "y", SaveStateMode::RefuseMidFrame) ==
+                      Result::RefusedUnavailable &&
+                  dbg.bookmark_restore(99, "y") == Result::RefusedUnavailable &&
+                  dbg.bookmarks(99).empty());
+    }
+    {
+        // SURVIVE A CTL-12 `Hard` RECONSTRUCT, on every route that lands one, and
+        // restore into the rebuilt machine (same type, same width).
+        auto run_path = [&](int path) {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            auto boot = [&]() {
+                emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+            };
+            jnext::dbg::LoopDriver d;
+            d.cold_boot = [&]() { boot(); return true; };
+            d.load      = [&](const std::string&) { boot(); return true; };
+            dbg.set_loop_driver(d);
+            emu.mmu().write(0x6000, 0x5A);
+            const MachineMark at_save = mark_of(emu);
+            dbg.bookmark_save(a, "pre", SaveStateMode::RefuseMidFrame);
+            if (path == 0)      dbg.reset(a, ResetKind::Hard);
+            else if (path == 1) dbg.load(a, "game.nex");
+            else              { dbg.on_cold_boot_begin(); boot(); dbg.on_cold_boot_done(); }
+            const bool listed = dbg.bookmarks(a) == std::vector<std::string>{"pre"};
+            const bool wiped  = emu.mmu().read(0x6000) != 0x5A;
+            const Result r    = dbg.bookmark_restore(a, "pre");
+            return listed && wiped && r == Result::Ok && mark_of(emu) == at_save;
+        };
+        const bool v0 = run_path(0), v1 = run_path(1), v2 = run_path(2);
+        check("CAP-03-11", "a bookmark survives every machine-replacing route — "
+                           "reset(Hard), a reconstructing load(), the guest path — and "
+                           "restores into the rebuilt machine",
+              v0 && v1 && v2,
+              std::string("reset=") + (v0 ? "1" : "0") + " load=" + (v1 ? "1" : "0") +
+                  " guest=" + (v2 ? "1" : "0"));
+    }
+    {
+        // TYPE and WIDTH, refused BEFORE load_state: nothing latched, the machine
+        // untouched. Type: the cold boot lands a +3. Width: the same type, but a
+        // joystick serial cable attached, which widens the stream
+        // (`Emulator::save_state`, "joy_uart").
+        const std::string cable = "/tmp/jnext_b4_joy_uart.bin";
+        { std::ofstream f(cable, std::ios::binary); f << "ABCD"; }
+        auto run = [&](bool change_type) {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            dbg.bookmark_save(a, "pre", SaveStateMode::RefuseMidFrame);
+            jnext::dbg::LoopDriver d;
+            d.cold_boot = [&]() {
+                EmulatorConfig c = emu.config();
+                if (change_type) c.type = MachineType::ZX_PLUS3;
+                else             c.joy_uart_rx_file = cable;
+                emulator_frontend_cold_boot(emu, c, std::string(), ColdBootHooks{});
+                return true;
+            };
+            dbg.set_loop_driver(d);
+            dbg.reset(a, ResetKind::Hard);
+            emu.mmu().write(0x6000, 0x77);
+            const MachineMark before = mark_of(emu);
+            const uint64_t gen = emu.state_error_generation();
+            const Result r = dbg.bookmark_restore(a, "pre");
+            return r == Result::RefusedUnavailable && mark_of(emu) == before &&
+                   emu.state_error_generation() == gen && emu.last_state_error().empty() &&
+                   !dbg.resume_blocked_by_corruption();
+        };
+        check("CAP-03-12", "a bookmark restored into a machine of ANOTHER TYPE is "
+                           "RefusedUnavailable before load_state: nothing latched, "
+                           "the machine untouched",
+              run(true));
+        check("CAP-03-13", "and into the same type with a DIFFERENT SNAPSHOT WIDTH (a "
+                           "cable attached) likewise",
+              run(false));
+        std::remove(cable.c_str());
+    }
+}
+
 int main() {
     std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
 
@@ -9753,6 +9984,11 @@ int main() {
         const Prep select_nr02 = [](Emulator& emu, Debugger&, ClientId, Ctx&) {
             emu.port().write(0x243B, 0x02);
         };
+        // GH #276 B4 — a bookmark to restore, saved at the fresh machine's
+        // frame boundary.
+        const Prep with_bookmark = [](Emulator&, Debugger& dbg, ClientId a, Ctx&) {
+            dbg.bookmark_save(a, "b", jnext::dbg::SaveStateMode::RefuseMidFrame);
+        };
 
         const std::vector<Verb> verbs = {
             {"REENT-01", "pause", none,
@@ -9829,6 +10065,20 @@ int main() {
                  e.port().write(0x243B, 0x02);
                  const Result r2 = d.port_out(a, 0x253B, 0x01);
                  return r1 == r2 ? r1 : Result::NoFrame; }},
+            // GH #276 B4 — CAP-03. A restore REPLACES the machine. Inside: a name
+            // that does not exist, so the one code must come FIRST — past the
+            // guard, the lookup would answer RefusedUnavailable, and a known name
+            // would reach load_state_bytes()' own guard and hide this one.
+            {"REENT-31", "bookmark_restore", with_bookmark,
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.bookmark_restore(a, "b"); },
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) {
+                 return d.bookmark_restore(a, "no-such-bookmark"); }},
+            // A save that has to ADVANCE executes the frame the handler runs in
+            // (the save_state_bytes() pattern, REENT-17): refused on that arm only.
+            {"REENT-32", "bookmark_save(AdvanceToBoundary) mid-frame", none,
+             [](Emulator& e, Debugger& d, ClientId a, Ctx&) {
+                 if (!e.frame_in_progress()) e.execute_single_instruction();
+                 return d.bookmark_save(a, "m", jnext::dbg::SaveStateMode::AdvanceToBoundary); }},
         };
 
         // From a handler: the first time the AFTER_CALL gate delivers, call the
@@ -10206,6 +10456,7 @@ int main() {
     b4_coverage_rows();
     b4_trace_rows();
     b4_capture_state_rows();
+    b4_bookmark_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

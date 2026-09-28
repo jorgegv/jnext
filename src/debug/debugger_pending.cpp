@@ -36,12 +36,12 @@
 //        refused from `debugger_control.cpp`) moved to
 //        `debugger_reconstruct.cpp` with the CTL-12 re-application.
 //
-//   B4 — input pulses, capture, bookmarks: 7 definitions
-//        press_key (name), press_key (matrix), screenshot,
-//        bookmark_save, bookmark_restore, bookmarks, save_snapshot
+//   B4 — input pulses, capture: 4 definitions
+//        press_key (name), press_key (matrix), screenshot, save_snapshot
 //        (DONE and moved: coverage_enable, coverage_enabled, coverage_clear,
 //        coverage — `debugger_inspect.cpp` beside the trace; ula_screen_dump —
-//        `debugger_inspect.cpp` beside the ULA screen registers)
+//        `debugger_inspect.cpp` beside the ULA screen registers;
+//        bookmark_save, bookmark_restore, bookmarks — `debugger_capture.cpp`)
 //
 //        B4 INHERITS §5's rule with them (B3 fix round 1b): a verb that would
 //        EXECUTE, REWIND, RESTORE, RESET or REPLACE the machine refuses from
@@ -63,8 +63,8 @@
 //        in §10.1's B rows. Reported as a finding rather than silently adopted
 //        or silently dropped.
 //
-// 8 definitions, and the per-package subtotals above add to 7 plus the one
-// unassigned (B2's 11, B3's 11 and five of B4's are gone — this file held 35
+// 5 definitions, and the per-package subtotals above add to 4 plus the one
+// unassigned (B2's 11, B3's 11 and eight of B4's are gone — this file held 35
 // before B2, 24 before B3 and 13 before B4). The numbers are restated nowhere else: this banner is the list, and
 // the file is the check:
 //
@@ -96,18 +96,6 @@ Result Debugger::screenshot(ClientId, const std::string&, uint8_t,
                             ScreenshotFormat) {
     return Result::Unsupported;
 }
-
-Result Debugger::bookmark_save(ClientId, const std::string&, SaveStateMode) {
-    return Result::Unsupported;
-}
-
-Result Debugger::bookmark_restore(ClientId, const std::string&) {
-    return Result::Unsupported;
-}
-
-/// CAP-03. An empty list is what a client that has saved nothing gets, which is
-/// every client here.
-std::vector<std::string> Debugger::bookmarks(ClientId) const { return {}; }
 
 Result Debugger::save_snapshot(ClientId, const std::string&) {
     return Result::Unsupported;
