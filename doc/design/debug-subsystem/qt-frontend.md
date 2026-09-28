@@ -826,10 +826,11 @@ pin the FIXED behaviour):
    QVT-02.
 6. **The Memory page selector's casing** (`22bb5e3ec`): "Slot N (page XX)" with
    the hex upper case, as the user guide says. QMP-03 compares exactly.
-7. **The actions were recomputed only by a verb** (`60c979520`): the manager
-   refreshes them with the panels, so an RZX started from the main window, or the
-   buffer freed by Rewind Buffer Size... = 0, greys Step Back / Jump Here on the
-   next tick. Rows: QRW-11, QRW-16.
+7. **The actions were recomputed only by a verb** (`60c979520`, trimmed in
+   `b67d81ceb`): while paused the manager refreshes them with the panels on every
+   tick, so an RZX started from the main window, or the buffer freed by Rewind
+   Buffer Size... = 0, greys Step Back / Jump Here on the next tick (running,
+   every such action is already off). Rows: QRW-11, QRW-16.
 
 **Finding against the backend (for WP3):** the Qt rewind UI now needs
 `at_restored_frame_start()` — the one fact that tells the boundary BEFORE a
