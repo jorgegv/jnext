@@ -311,6 +311,30 @@ could not work — so the drop happens at a stop the backend causes, or on an
 explicit `Debugger::pause()`, which is the transition `resume()`'s
 `clear_oneshot()` was really standing in for.
 
+**That evidence must not outlive the machine it describes.** Every restore and
+every reset replaces the machine wholesale, so a `pause_reason` left over from
+before it names an instruction that, on the machine now in memory, never ran.
+There is exactly one place that reconciliation happens:
+`Emulator::debug_after_machine_transition_()`, called from `load_state()` (which
+every restore routes through — `load_state_bytes`, `step_back`,
+`rewind_to_frame`, `run_back_to_cycle`, a `.jns` load's closing round trip) and
+from the end of `init()` (which is `soft_reset()`). It clears `DebugState`'s stop
+records, the pending Stop, the latch ring, and — through
+`DebugState::set_machine_replaced_hook()`, because nothing below a frontend may
+hold a `Debugger*` — the backend's own armed verb and `EventTable::hits_`. It
+then re-derives the eight slot pages, since the restore rewrote the page map the
+§6 masks are computed from.
+
+Two details are load-bearing. The ring is **kept** for a reset and discarded for
+a restore: `soft_reset()` latches its own `Reset` event before calling `init()`,
+so that the event carries the pre-reset cycle, and discarding the ring there
+would throw away the event that reports the transition. And the reconciliation
+runs from a scope guard at the **top** of `load_state()`, not as its last
+statement: `load_state()` has some thirty sentinel early-returns and the first
+thing it does is load the clock, so a torn restore is a machine transition too —
+`state()`'s Corrupt-first precedence merely hides the stale reason until
+`acknowledge_corruption()` drops the mask.
+
 ## What `ENABLE_DEBUGGER=OFF` removes
 
 `ENABLE_DEBUGGER` (default `ON`) gates **only the Qt UI**. With it off,

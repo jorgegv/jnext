@@ -2107,6 +2107,28 @@ NOT drop them — a continue that cleared what the same operation had just armed
 could not work — so the drop happens at a stop the backend causes, or on an
 explicit <code>Debugger::pause()</code>, which is the transition <code>resume()</code>'s
 <code>clear_oneshot()</code> was really standing in for.</p>
+<p><strong>That evidence must not outlive the machine it describes.</strong> Every restore and
+every reset replaces the machine wholesale, so a <code>pause_reason</code> left over from
+before it names an instruction that, on the machine now in memory, never ran.
+There is exactly one place that reconciliation happens:
+<code>Emulator::debug_after_machine_transition_()</code>, called from <code>load_state()</code> (which
+every restore routes through — <code>load_state_bytes</code>, <code>step_back</code>,
+<code>rewind_to_frame</code>, <code>run_back_to_cycle</code>, a <code>.jns</code> load's closing round trip) and
+from the end of <code>init()</code> (which is <code>soft_reset()</code>). It clears <code>DebugState</code>'s stop
+records, the pending Stop, the latch ring, and — through
+<code>DebugState::set_machine_replaced_hook()</code>, because nothing below a frontend may
+hold a <code>Debugger*</code> — the backend's own armed verb and <code>EventTable::hits_</code>. It
+then re-derives the eight slot pages, since the restore rewrote the page map the
+§6 masks are computed from.</p>
+<p>Two details are load-bearing. The ring is <strong>kept</strong> for a reset and discarded for
+a restore: <code>soft_reset()</code> latches its own <code>Reset</code> event before calling <code>init()</code>,
+so that the event carries the pre-reset cycle, and discarding the ring there
+would throw away the event that reports the transition. And the reconciliation
+runs from a scope guard at the <strong>top</strong> of <code>load_state()</code>, not as its last
+statement: <code>load_state()</code> has some thirty sentinel early-returns and the first
+thing it does is load the clock, so a torn restore is a machine transition too —
+<code>state()</code>'s Corrupt-first precedence merely hides the stale reason until
+<code>acknowledge_corruption()</code> drops the mask.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
 <p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
 <code>jnext_debugger</code> is neither compiled nor linked and every use site in
