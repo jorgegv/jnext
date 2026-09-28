@@ -402,7 +402,13 @@ RunState Debugger::state() const {
 
 bool Debugger::at_frame_boundary() const { return impl_->at_boundary(); }
 
-bool Debugger::Impl::at_boundary() const { return !emu.frame_in_progress(); }
+// NOT `!frame_in_progress()` alone (GH #276 B4): inside the frame edge's
+// closing window a `Frame` handler sees no frame in progress, but the edge's
+// auto-type tick and queued level changes have not run yet, and a snapshot
+// taken there would restore without them (`Emulator::frame_edge_open()`).
+bool Debugger::Impl::at_boundary() const {
+    return !emu.frame_in_progress() && !emu.frame_edge_open();
+}
 
 // ST-01's frame-boundary rule, the ONE copy of it. Three verbs save the machine
 // — `save_state_bytes`, `bookmark_save` (CAP-03) and `save_snapshot` (CAP-04) —

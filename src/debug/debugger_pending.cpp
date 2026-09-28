@@ -36,9 +36,10 @@
 //        refused from `debugger_control.cpp`) moved to
 //        `debugger_reconstruct.cpp` with the CTL-12 re-application.
 //
-//   B4 — input pulses, capture: 4 definitions
-//        press_key (name), press_key (matrix), screenshot, save_snapshot
-//        (DONE and moved: coverage_enable, coverage_enabled, coverage_clear,
+//   B4 — capture: 2 definitions
+//        screenshot, save_snapshot
+//        (DONE and moved: press_key (name), press_key (matrix) —
+//        `debugger_input.cpp` beside IN-02; coverage_enable, coverage_enabled, coverage_clear,
 //        coverage — `debugger_inspect.cpp` beside the trace; ula_screen_dump —
 //        `debugger_inspect.cpp` beside the ULA screen registers;
 //        bookmark_save, bookmark_restore, bookmarks — `debugger_capture.cpp`)
@@ -63,8 +64,8 @@
 //        in §10.1's B rows. Reported as a finding rather than silently adopted
 //        or silently dropped.
 //
-// 5 definitions, and the per-package subtotals above add to 4 plus the one
-// unassigned (B2's 11, B3's 11 and eight of B4's are gone — this file held 35
+// 3 definitions, and the per-package subtotals above add to 2 plus the one
+// unassigned (B2's 11, B3's 11 and ten of B4's are gone — this file held 35
 // before B2, 24 before B3 and 13 before B4). The numbers are restated nowhere else: this banner is the list, and
 // the file is the check:
 //
@@ -83,14 +84,6 @@ namespace dbg {
 // deferred-to-next-rendered-frame capture path; CAP-03 needs per-client
 // snapshot storage.
 // ===========================================================================
-
-Expected<size_t> Debugger::press_key(ClientId, const std::string&, int) {
-    return make_refused<size_t>(Result::Unsupported);
-}
-
-Expected<size_t> Debugger::press_key(ClientId, const MatrixKey&, int) {
-    return make_refused<size_t>(Result::Unsupported);
-}
 
 Result Debugger::screenshot(ClientId, const std::string&, uint8_t,
                             ScreenshotFormat) {

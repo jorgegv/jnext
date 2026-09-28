@@ -9707,9 +9707,6 @@ void Emulator::end_of_frame(uint64_t frame_end)
     // single frame".
     phantom_typist_.tick_frame();
 
-    // Advance auto-type state machine (one step per frame).
-    keyboard_.tick_auto_type();
-
     // G133 closure — the two-scan shift hysteresis (membrane.vhd:178-191) is
     // advanced by Keyboard::tick_scan(), which is driven from on_scanline() at
     // the REAL membrane scan rate (one complete scan every 4608 master cycles,
@@ -9729,10 +9726,32 @@ void Emulator::end_of_frame(uint64_t frame_end)
     // deferred CPU NR write, a DMA byte) would otherwise wait for the first
     // boundary of the NEXT frame. A `Stop` here pauses between frames, which
     // is a legitimate stopping point — the next run_frame() returns early.
+    //
+    // GH #276 B4 — AND IT RUNS BEFORE THE AUTO-TYPE TICK BELOW (B2 had it after),
+    // which is §4.5's REQ-dsl-20 ordering contract: an input injection issued
+    // during frame N — "including one fired at E_N itself", i.e. by a `Frame`
+    // handler here — is applied in this edge BEFORE `tick_auto_type()`, so a
+    // pulse is pressed by THIS tick and is visible from frame N+1: the frame
+    // `--delayed-keypress-frames N` lands on (it queues before run_frame(N)).
+    // After the typist, so a script pulse lands BEHIND a typist burst queued in
+    // the same edge instead of being clobbered by it (the queue appends now).
+    //
+    // `frame_edge_open_` brackets the part of the edge that is still to run —
+    // the drain and the tick. A `Frame` handler here sees `frame_in_progress()`
+    // false, but the machine is NOT yet the state run_frame() hands back: the
+    // tick has not run. A snapshot taken inside that window and restored later
+    // would skip it, so the backend does not treat this window as a frame
+    // boundary (`Debugger::Impl::at_boundary()`, rows IN-ORD-05/06).
+    frame_edge_open_ = true;
     debug_latch_frame_();
     if (debug_state_.armed() && debug_state_.events_pending()) {
         if (debug_state_.drain_events()) debug_state_.pause();
     }
+
+    // Advance auto-type state machine (one step per frame). First thing it
+    // does is apply the level changes queued for this edge (GH #276 B4).
+    keyboard_.tick_auto_type();
+    frame_edge_open_ = false;
 }
 
 int Emulator::current_scanline() const

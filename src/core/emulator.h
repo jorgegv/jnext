@@ -190,6 +190,14 @@ public:
     /// point a snapshot may be taken from (design §10.2 P7).
     bool frame_in_progress() const { return frame_in_progress_; }
 
+    /// GH #276 B4 — true inside `end_of_frame()`'s closing window: from the
+    /// `Frame` event's drain to the end of the auto-type tick that follows it.
+    /// `frame_in_progress()` is already false there, but the frame's last work
+    /// has not run, so the debugger backend does not treat it as a frame
+    /// boundary a snapshot may be taken at. Only a `Frame` handler (or anything
+    /// it calls) can observe it true.
+    bool frame_edge_open() const { return frame_edge_open_; }
+
     /// Perform a soft reset (tbblue RESET_SOFT / NR 0x02 bit 0).
     /// Resets flip-flops (CPU, MMU, peripherals, NextReg) but preserves
     /// RAM contents (including the Next ROM-in-SRAM window), ROM buffer,
@@ -1731,6 +1739,9 @@ private:
     /// returning from inside run_frame()'s loop, so the next call must RESUME that frame,
     /// not restart it.
     bool frame_in_progress_ = false;
+
+    /// GH #276 B4 — see frame_edge_open().
+    bool frame_edge_open_ = false;
 
     /// Boot ROM (8K FPGA bootloader, embedded into the jnext binary at
     /// link time — see core/embedded_nextboot_rom.h).

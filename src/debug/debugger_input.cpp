@@ -8,13 +8,29 @@
 // `debugger_pending.cpp` because nothing about them needs machinery a later
 // package brings.
 //
-// IN-01 `press_key` — the timed PULSE, with the APPEND semantics §4.5 spells
-// out — is NOT here: §10.1 assigns it to B4, which owns the auto-type queue
-// rework it needs (the 4-frame released gap, the never-strand-a-pulse rule, the
-// MAX_AUTO_TYPE_KEYS overflow that reports both a refusal and a count). Queuing
-// it through today's `queue_auto_type()` would RESET the in-flight entry's frame
-// counters, which is exactly the behaviour B4 exists to fix — so B1 does not
-// pretend to offer it.
+// GH #276 B4 — IN-01 `press_key`, the timed PULSE, is here too now, over the
+// reworked `Keyboard::queue_auto_type()` (it APPENDS: the 4-frame released gap
+// between entries, a held key never stranded, the MAX_AUTO_TYPE_KEYS overflow
+// reported as a refusal AND a count).
+//
+// ── THE INJECTION ORDERING (§4.5, REQ-dsl-20) — B4 ──────────────────────────
+//
+// "Every IN-01 pulse append and every IN-02 level set issued during frame N is
+// applied in end_of_frame BEFORE the auto-type state machine ticks", so the
+// guest sees it from frame N+1 — the frame `--delayed-keypress-frames N` lands
+// on — and a level set from a MID-frame handler is invisible to the rest of
+// frame N. B1 applied `set_key` / `set_extended_key` at once, which let a
+// handler change what the rest of its own frame read. They now QUEUE the level
+// (`Keyboard::queue_matrix_level` / `queue_extended_level`) and the edge's
+// `tick_auto_type()` applies it first. A pulse needs no queue of its own: it is
+// appended to the auto-type queue, which only that same tick consumes. The edge
+// runs the `Frame` delivery before the tick, so a `Frame` handler's injection
+// makes that edge too (`Emulator::end_of_frame()`).
+//
+// NOT IN-03 / IN-04. The contract names IN-01 and IN-02; `set_joystick` and
+// `press_nmi` stay immediate as B1 built them (the DSL design's "joystick at the
+// next frame boundary" is its own sentence, not the backend's contract — in the
+// B4 report as a question for the owner).
 // ---------------------------------------------------------------------------
 
 #include "debug/debugger_impl.h"
@@ -35,10 +51,12 @@ Result Debugger::set_key(ClientId by, int row, int col, bool pressed) {
     // that can report it.
     if (row < 0 || row > 7 || col < 0 || col > 4) return Result::RefusedUnavailable;
 
-    impl_->emu.keyboard().set_matrix_bit(row, col, pressed);
+    // GH #276 B4 — queued for the next frame edge (REQ-dsl-20, above).
+    impl_->emu.keyboard().queue_matrix_level(row, col, pressed);
     impl_->log_mutate_range(by, "key matrix",
                             "[" + std::to_string(row) + "," + std::to_string(col) +
-                                (pressed ? "] pressed" : "] released"));
+                                (pressed ? "] pressed" : "] released") +
+                                " at the next frame edge");
     return Result::Ok;
 }
 
@@ -50,10 +68,53 @@ Result Debugger::set_extended_key(ClientId by, int id, bool pressed) {
     // handler and wrong for a verb whose caller wants an answer.
     if (id < 0 || id > 15) return Result::RefusedUnavailable;
 
-    impl_->emu.keyboard().set_extended_key(id, pressed);
+    // GH #276 B4 — queued for the next frame edge (REQ-dsl-20, above).
+    impl_->emu.keyboard().queue_extended_level(id, pressed);
     impl_->log_mutate_range(by, "extended key " + std::to_string(id),
-                            pressed ? "pressed" : "released");
+                            std::string(pressed ? "pressed" : "released") +
+                                " at the next frame edge");
     return Result::Ok;
+}
+
+// IN-01 — a PULSE by matrix position: down for `hold_frames` frames, then up,
+// with the 4-frame released gap after it. APPENDED behind whatever is queued.
+Expected<size_t> Debugger::press_key(ClientId by, const MatrixKey& key, int hold_frames) {
+    // Refused, not clamped, like IN-02: a clamped position presses the wrong
+    // key. The second key is all-or-nothing — both of row2/col2 set, or both
+    // absent (-1) — since `Keyboard::AutoKey` presses it iff row2 >= 0 and a
+    // half-set pair would press a column nobody named.
+    auto on_matrix = [](int r, int c) { return r >= 0 && r <= 7 && c >= 0 && c <= 4; };
+    const bool second_absent = key.row2 == -1 && key.col2 == -1;
+    if (!on_matrix(key.row1, key.col1) ||
+        !(second_absent || on_matrix(key.row2, key.col2)))
+        return make_refused<size_t>(Result::RefusedUnavailable);
+    // A pulse of no frames is not a pulse: `tick_auto_type()` would press and
+    // release in the same tick, and the guest would never see it.
+    if (hold_frames < 1) return make_refused<size_t>(Result::RefusedUnavailable);
+
+    const Keyboard::AutoKey ak{key.row1, key.col1, second_absent ? -1 : key.row2,
+                               second_absent ? -1 : key.col2, hold_frames};
+    const size_t queued = impl_->emu.keyboard().queue_auto_type({ak});
+
+    std::string what = "[" + std::to_string(key.row1) + "," + std::to_string(key.col1) + "]";
+    if (!second_absent)
+        what += "+[" + std::to_string(key.row2) + "," + std::to_string(key.col2) + "]";
+    // §4.5: on overflow, `RefusedUnavailable` AND the count queued — which for
+    // one pulse is 0. The keyboard has already logged the truncation loudly;
+    // the MUTATE line is for a mutation that HAPPENED, so a refused pulse has
+    // none (the same rule every refused write in this API follows).
+    if (queued == 0) return Expected<size_t>{Result::RefusedUnavailable, 0};
+    impl_->log_mutate_range(by, "key pulse " + what,
+                            "for " + std::to_string(hold_frames) + " frames, queued");
+    return make_ok<size_t>(queued);
+}
+
+// IN-01 — the same, by NAME: the man page's `--delayed-keypress` vocabulary,
+// through the ONE table (`key_name_to_matrix`), then the matrix form above.
+Expected<size_t> Debugger::press_key(ClientId by, const std::string& name, int hold_frames) {
+    MatrixKey key;
+    if (!key_name_to_matrix(name, key)) return make_refused<size_t>(Result::RefusedUnavailable);
+    return press_key(by, key, hold_frames);
 }
 
 // IN-03 — a connector's 12-bit button state, as `Joystick` holds it.

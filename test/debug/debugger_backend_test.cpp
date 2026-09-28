@@ -1141,6 +1141,355 @@ static void b4_bookmark_rows() {
     }
 }
 
+// ── IN-01 — pulses, APPEND; REQ-dsl-20 — the injection ordering ─────────────
+
+/// Is matrix position (row, col) down in the matrix the guest reads?
+static bool key_down(Debugger& dbg, int row, int col) {
+    return (dbg.input_state().matrix[row] & (1u << col)) == 0;
+}
+
+static jnext::dbg::MatrixKey mk(const char* name) {
+    jnext::dbg::MatrixKey k;
+    key_name_to_matrix(name, k);
+    return k;
+}
+
+/// The frame (counting run_frame() calls from 1) at whose END `key` first reads
+/// down and the one at whose end it first reads up again, over `n` frames.
+struct PulseSpan { int down = -1, up = -1; };
+static PulseSpan watch_pulse(Emulator& emu, Debugger& dbg, const jnext::dbg::MatrixKey& key,
+                             int n) {
+    PulseSpan s;
+    for (int f = 1; f <= n; ++f) {
+        emu.run_frame();
+        const bool d = key_down(dbg, key.row1, key.col1);
+        if (d && s.down < 0) s.down = f;
+        if (!d && s.down >= 0 && s.up < 0) s.up = f;
+    }
+    return s;
+}
+
+static void b4_input_rows() {
+    using jnext::dbg::MatrixKey;
+    using jnext::dbg::SaveStateMode;
+    const MatrixKey A = mk("a");
+    const MatrixKey S = mk("s");
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        RecListener l;
+        dbg.set_listener(a, &l);
+        const auto r = dbg.press_key(a, std::string("a"), 2);
+        const bool queued_only = !key_down(dbg, A.row1, A.col1);   // nothing yet
+        emu.run_frame();
+        const bool down = key_down(dbg, A.row1, A.col1);
+        emu.run_frame();
+        const bool up = !key_down(dbg, A.row1, A.col1);
+        check("IN-01-01", "press_key(name) is a PULSE: queued (value 1), down from the "
+                          "next frame edge, up again after its hold",
+              r.status == Result::Ok && r.value == 1 && queued_only && down && up);
+        const auto lines = mutate_lines(l);
+        check("IN-01-02", "and it is logged as a MUTATE line naming the position and "
+                          "the hold, attributed to the client",
+              !lines.empty() &&
+                  lines.back() == "MUTATE key pulse [" + std::to_string(A.row1) + "," +
+                                      std::to_string(A.col1) +
+                                      "] for 2 frames, queued by " + std::to_string(a),
+              lines.empty() ? std::string("none") : lines.back());
+    }
+    {
+        // By MATRIX position, compound: both bits go down together.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const MatrixKey edit = mk("caps+1");
+        const auto r = dbg.press_key(1, edit, 3);
+        emu.run_frame();
+        check("IN-01-03", "press_key(matrix) with a second key presses BOTH positions",
+              r.status == Result::Ok && edit.compound() &&
+                  key_down(dbg, edit.row1, edit.col1) && key_down(dbg, edit.row2, edit.col2));
+    }
+    {
+        // Every refusal, and that a refusal queues NOTHING.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const size_t before = emu.keyboard().auto_typing();
+        MatrixKey off_row{8, 0, -1, -1}, off_col{0, 5, -1, -1}, half{1, 0, 0, -1},
+                  bad_second{1, 0, 9, 0};
+        const auto e1 = dbg.press_key(1, std::string("no-such-key"), 5);
+        const auto e2 = dbg.press_key(1, off_row, 5);
+        const auto e3 = dbg.press_key(1, off_col, 5);
+        const auto e4 = dbg.press_key(1, half, 5);
+        const auto e5 = dbg.press_key(1, bad_second, 5);
+        const auto e6 = dbg.press_key(1, A, 0);
+        auto refused = [](const jnext::dbg::Expected<size_t>& e) {
+            return e.status == Result::RefusedUnavailable && e.value == 0;
+        };
+        check("IN-01-04", "an unknown name, a position off the matrix, a half-set "
+                          "second key, a bad second key and a hold of 0 frames are all "
+                          "RefusedUnavailable with nothing queued",
+              refused(e1) && refused(e2) && refused(e3) && refused(e4) && refused(e5) &&
+                  refused(e6) && !before && !emu.keyboard().auto_typing());
+    }
+    {
+        // THE CAP: the union of everything queued is MAX_AUTO_TYPE_KEYS (16). With
+        // 15 queued a pulse fits (value 1); with 16 it does not (refused, 0 —
+        // "RefusedUnavailable AND the count queued").
+        auto fill = [](Emulator& emu, size_t n) {
+            std::vector<Keyboard::AutoKey> keys(n, Keyboard::AutoKey{1, 0, -1, -1, 5});
+            return emu.keyboard().queue_auto_type(keys);
+        };
+        Emulator e15; build(e15);
+        Debugger d15(e15);
+        const size_t q15 = fill(e15, 15);
+        const auto fits = d15.press_key(1, S, 5);
+        Emulator e16; build(e16);
+        Debugger d16(e16);
+        const size_t q16 = fill(e16, 16);
+        const auto full = d16.press_key(1, S, 5);
+        check("IN-01-05", "the 16-entry cap covers every producer: at 15 queued a pulse "
+                          "fits (Ok, 1); at 16 it is RefusedUnavailable with 0 queued",
+              q15 == 15 && fits.status == Result::Ok && fits.value == 1 && q16 == 16 &&
+                  full.status == Result::RefusedUnavailable && full.value == 0);
+        // And the keyboard truncates what does not fit, reporting the count.
+        const size_t more = e16.keyboard().queue_auto_type({Keyboard::AutoKey{1, 1, -1, -1, 5}});
+        const size_t part = e15.keyboard().queue_auto_type(
+            {Keyboard::AutoKey{1, 1, -1, -1, 5}, Keyboard::AutoKey{1, 2, -1, -1, 5}});
+        check("IN-01-06", "queue_auto_type() returns how many it queued: 0 onto a full "
+                          "queue, and 0 of 2 onto a queue with no room left",
+              more == 0 && part == 0);
+    }
+    {
+        // APPEND — the two §9 rows. (a) Two pulses due in ONE frame both happen,
+        // one after the other with the 4-frame released gap between. (b) A pulse
+        // issued while another is held does not strand it: the held key is
+        // released on schedule — the same frame as with no second pulse at all
+        // (its counters were not reset) — and the second follows.
+        Emulator e; build(e);
+        Debugger d(e);
+        d.press_key(1, A, 3);
+        d.press_key(1, S, 3);
+        const PulseSpan pa = watch_pulse(e, d, A, 20);
+        Emulator e2; build(e2);
+        Debugger d2(e2);
+        d2.press_key(1, A, 3);
+        d2.press_key(1, S, 3);
+        const PulseSpan ps = watch_pulse(e2, d2, S, 20);
+        // A: pressed at edge 1, released at edge 3 (hold 3). The gap is FOUR
+        // ticks (edges 4-7; the one that ends it presses nothing) and S is
+        // pressed at edge 8 — `tick_auto_type()` as it has always behaved.
+        check("IN-01-07", "two pulses queued in one frame BOTH happen, in order, the "
+                          "second after the first's release and the 4-frame gap",
+              pa.down == 1 && pa.up == 3 && ps.down == 8 && ps.up == 10,
+              "a " + std::to_string(pa.down) + ".." + std::to_string(pa.up) + " s " +
+                  std::to_string(ps.down) + ".." + std::to_string(ps.up));
+
+        Emulator solo; build(solo);
+        Debugger ds(solo);
+        ds.press_key(1, A, 5);
+        const PulseSpan alone = watch_pulse(solo, ds, A, 12);
+        Emulator held; build(held);
+        Debugger dh(held);
+        dh.press_key(1, A, 5);
+        held.run_frame(); held.run_frame();          // A is down, mid-hold
+        const bool mid_hold = key_down(dh, A.row1, A.col1);
+        dh.press_key(1, S, 2);                       // issued WHILE A is held
+        const PulseSpan rest = watch_pulse(held, dh, A, 10);
+        check("IN-01-08", "a pulse issued while another is HELD does not strand it or "
+                          "restart it: the held key comes up on the frame it would have "
+                          "with no second pulse",
+              mid_hold && alone.up == 5 && rest.up == alone.up - 2,
+              "alone.up=" + std::to_string(alone.up) + " rest.up(+2)=" +
+                  std::to_string(rest.up + 2));
+    }
+    {
+        // An IDLE queue: the counters are reset exactly as the replacing
+        // version did — a key queued right after another's release is pressed at
+        // the next edge, not after a stale gap.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        dbg.press_key(1, A, 2);
+        emu.run_frame(); emu.run_frame();            // A down, then up: queue empty, gap set
+        const bool idle = !emu.keyboard().auto_typing();
+        dbg.press_key(1, S, 2);
+        emu.run_frame();
+        check("IN-01-09", "onto an EMPTY queue the counters reset (the pre-B4 "
+                          "behaviour): a pulse right after another's release is down "
+                          "at the very next edge",
+              idle && key_down(dbg, S.row1, S.col1));
+    }
+
+    // ── REQ-dsl-20 ──────────────────────────────────────────────────────────
+    {
+        // A LEVEL set MID-frame N is invisible to the rest of frame N and visible
+        // from N+1. The handler at PROG+1 sets it; a handler at PARK, later IN THE
+        // SAME FRAME, looks.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        bool set = false, looked = false, seen_in_frame = true;
+        Subscription s1;
+        s1.kind = EventKind::Execute; s1.filter.lo = PROG + 1; s1.filter.hi = PROG + 1;
+        s1.action = Action::Continue;
+        s1.handler = [&](const DbgEvent&, Debugger& d) {
+            if (!set) { set = d.set_key(a, A.row1, A.col1, true) == Result::Ok; }
+            return Action::Continue;
+        };
+        Subscription s2 = s1;
+        s2.filter.lo = PARK; s2.filter.hi = PARK;
+        s2.handler = [&](const DbgEvent&, Debugger& d) {
+            if (!looked) { looked = true; seen_in_frame = key_down(d, A.row1, A.col1); }
+            return Action::Continue;
+        };
+        dbg.subscribe(a, s1);
+        dbg.subscribe(a, s2);
+        emu.run_frame();
+        check("IN-ORD-01", "a level set MID-frame is invisible to the rest of that "
+                           "frame and applied at its edge",
+              set && looked && !seen_in_frame && key_down(dbg, A.row1, A.col1));
+    }
+    {
+        // A `Frame` handler at E_N: its PULSE is pressed by E_N's own tick — the
+        // same frame `--delayed-keypress-frames N` gives, which queues before
+        // run_frame(N) (modelled here by queuing before the Nth run_frame).
+        auto via_handler = [&](bool level) {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            Subscription s;
+            s.kind = EventKind::Frame; s.filter.frame = 2; s.action = Action::Continue;
+            s.handler = [&](const DbgEvent&, Debugger& d) {
+                if (level) d.set_key(a, A.row1, A.col1, true);
+                else       d.press_key(a, A, 5);
+                return Action::Continue;
+            };
+            dbg.subscribe(a, s);
+            int first = -1;
+            for (int f = 0; f < 6; ++f) {
+                emu.run_frame();                           // frame f
+                if (first < 0 && key_down(dbg, A.row1, A.col1)) first = f;
+            }
+            return first;
+        };
+        auto via_cli = [&]() {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            int first = -1;
+            for (int f = 0; f < 6; ++f) {
+                if (f == 2) emu.keyboard().queue_auto_type({Keyboard::AutoKey{
+                                A.row1, A.col1, -1, -1, 5}});
+                emu.run_frame();
+                if (first < 0 && key_down(dbg, A.row1, A.col1)) first = f;
+            }
+            return first;
+        };
+        const int pulse = via_handler(false), level = via_handler(true), cli = via_cli();
+        check("IN-ORD-02", "a pulse from an `on frame N` handler is pressed at E_N — "
+                           "down once frame N has run, exactly like "
+                           "--delayed-keypress-frames N",
+              pulse == 2 && cli == 2,
+              "handler=" + std::to_string(pulse) + " cli=" + std::to_string(cli));
+        check("IN-ORD-03", "and a LEVEL set from the same handler lands at the same edge",
+              level == 2, "level=" + std::to_string(level));
+    }
+    {
+        // A pulse from a remote command BETWEEN frames (a pump, after run_frame(N))
+        // is applied at the NEXT edge — the same as the CLI countdown for N+1.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        emu.run_frame(); emu.run_frame();                  // frames 0, 1
+        dbg.press_key(1, A, 5);                            // between frames 1 and 2
+        const bool not_yet = !key_down(dbg, A.row1, A.col1);
+        emu.run_frame();                                   // frame 2
+        check("IN-ORD-04", "a pulse issued between frames is pressed at the end of "
+                           "the next frame, not before it runs",
+              not_yet && key_down(dbg, A.row1, A.col1));
+    }
+    {
+        // THE FRAME EDGE IS NOT A SAVE POINT until it has finished: inside a
+        // `Frame` handler the edge's tick has not run, so a snapshot there would
+        // restore without it. Refused both ways — and the other arm: once
+        // run_frame() has returned, the same machine saves.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        bool in_boundary = true;
+        Result in_refuse = Result::Ok, in_advance = Result::Ok, in_bm = Result::Ok;
+        bool once = false;
+        Subscription s;
+        s.kind = EventKind::Frame; s.filter.frame = 0; s.action = Action::Continue;
+        s.handler = [&](const DbgEvent&, Debugger& d) {
+            if (once) return Action::Continue;
+            once        = true;
+            in_boundary = d.at_frame_boundary();
+            in_refuse   = d.save_state_bytes(a, SaveStateMode::RefuseMidFrame).status;
+            in_advance  = d.save_state_bytes(a, SaveStateMode::AdvanceToBoundary).status;
+            in_bm       = d.bookmark_save(a, "edge", SaveStateMode::RefuseMidFrame);
+            return Action::Continue;
+        };
+        dbg.subscribe(a, s);
+        emu.run_frame();
+        check("IN-ORD-05", "inside a `Frame` handler the machine is NOT at a frame "
+                           "boundary: RefuseMidFrame saves answer NotAtFrameBoundary "
+                           "and an advancing save is refused (Unsupported, §5)",
+              once && !in_boundary && in_refuse == Result::NotAtFrameBoundary &&
+                  in_advance == Result::Unsupported &&
+                  in_bm == Result::NotAtFrameBoundary && dbg.bookmarks(a).empty(),
+              std::string("refuse=") + jnext::dbg::result_name(in_refuse) +
+                  " advance=" + jnext::dbg::result_name(in_advance));
+        check("IN-ORD-06", "and once run_frame() has returned the edge is closed: the "
+                           "same machine is at a boundary and saves",
+              dbg.at_frame_boundary() && !emu.frame_edge_open() &&
+                  dbg.save_state_bytes(a, SaveStateMode::RefuseMidFrame).status == Result::Ok);
+    }
+    {
+        // A queued level set is not machine state: a RESTORE drops it (it would
+        // have been applied beside the auto-type queue the restore replaced), and
+        // so does every route that replaces the machine (a new Keyboard).
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        const auto bytes = dbg.save_state_bytes(a, SaveStateMode::RefuseMidFrame).value;
+        dbg.set_key(a, A.row1, A.col1, true);
+        const size_t pending = emu.keyboard().pending_levels();
+        dbg.load_state_bytes(a, bytes.data(), bytes.size());
+        const size_t after = emu.keyboard().pending_levels();
+        emu.run_frame();
+        check("IN-ORD-07", "a restore drops a queued level set: nothing pending, and "
+                           "the next edge presses nothing",
+              pending == 1 && after == 0 && !key_down(dbg, A.row1, A.col1));
+
+        auto via = [&](int path) {
+            Emulator e; build(e);
+            Debugger d(e);
+            const ClientId c = d.attach(client("C")).value;
+            auto boot = [&]() {
+                emulator_frontend_cold_boot(e, e.config(), std::string(), ColdBootHooks{});
+            };
+            jnext::dbg::LoopDriver drv;
+            drv.cold_boot = [&]() { boot(); return true; };
+            drv.load      = [&](const std::string&) { boot(); return true; };
+            d.set_loop_driver(drv);
+            d.set_key(c, A.row1, A.col1, true);
+            d.press_key(c, S, 5);
+            if (path == 0)      d.reset(c, ResetKind::Hard);
+            else if (path == 1) d.load(c, "game.nex");
+            else              { d.on_cold_boot_begin(); boot(); d.on_cold_boot_done(); }
+            load_prog(e, { 0x18, 0xFE });
+            e.run_frame();
+            return e.keyboard().pending_levels() == 0 && !e.keyboard().auto_typing() &&
+                   !key_down(d, A.row1, A.col1) && !key_down(d, S.row1, S.col1);
+        };
+        const bool r0 = via(0), r1 = via(1), r2 = via(2);
+        check("IN-ORD-08", "a queued level set AND a queued pulse die with the machine "
+                           "on every route that replaces it — reset(Hard), a "
+                           "reconstructing load(), the guest path",
+              r0 && r1 && r2,
+              std::string("reset=") + (r0 ? "1" : "0") + " load=" + (r1 ? "1" : "0") +
+                  " guest=" + (r2 ? "1" : "0"));
+    }
+}
+
 int main() {
     std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
 
@@ -2067,19 +2416,27 @@ int main() {
         check("INS-16-01", "an untouched matrix reads all-released (active-LOW)",
               dbg.input_state().matrix[0] == 0xFF &&
               dbg.input_state().matrix[7] == 0xFF);
-        check("IN-02-01", "set_key() presses one matrix position",
-              dbg.set_key(1, 7, 0, true) == Result::Ok &&
-              dbg.input_state().matrix[7] == 0xFE,
+        // GH #276 B4 — IN-02 is applied at the NEXT FRAME EDGE (§4.5 REQ-dsl-20),
+        // so these rows run one frame between the set and the read. What they
+        // pin is unchanged — the position, the level, the active-low encoding;
+        // the edge itself is IN-ORD-01..08.
+        const Result pressed = dbg.set_key(1, 7, 0, true);
+        emu.run_frame();
+        check("IN-02-01", "set_key() presses one matrix position (at the next frame edge)",
+              pressed == Result::Ok && dbg.input_state().matrix[7] == 0xFE,
               hex(dbg.input_state().matrix[7]));
+        const Result released = dbg.set_key(1, 7, 0, false);
+        emu.run_frame();
         check("IN-02-02", "and releases it",
-              dbg.set_key(1, 7, 0, false) == Result::Ok &&
-              dbg.input_state().matrix[7] == 0xFF);
+              released == Result::Ok && dbg.input_state().matrix[7] == 0xFF);
         check("IN-02-03", "an out-of-range position is refused, not clamped",
               dbg.set_key(1, 8, 0, true) == Result::RefusedUnavailable &&
               dbg.set_key(1, 0, 5, true) == Result::RefusedUnavailable);
-        check("IN-02-04", "set_extended_key() sets the NR 0xB0 readback bit (active-HIGH)",
-              dbg.set_extended_key(1, 3, true) == Result::Ok &&
-              (dbg.input_state().ext_keys & 0x0008) != 0);
+        const Result ext = dbg.set_extended_key(1, 3, true);
+        emu.run_frame();
+        check("IN-02-04", "set_extended_key() sets the NR 0xB0 readback bit (active-HIGH), "
+                          "at the next frame edge",
+              ext == Result::Ok && (dbg.input_state().ext_keys & 0x0008) != 0);
         check("IN-02-05", "an out-of-range extended id is refused",
               dbg.set_extended_key(1, 16, true) == Result::RefusedUnavailable);
         check("IN-03-01", "set_joystick() sets a connector's 12 bits",
@@ -2145,8 +2502,7 @@ int main() {
         // `attach()` and an inert `pump()`. B3 implemented both, so they are
         // gone rather than inverted: what they were pinning is now pinned by
         // SES-01-* and SES-03-* below, against the real behaviour.
-        check("PEND-B4-01", "press_key() (B4) refuses as unsupported",
-              dbg.press_key(1, std::string("enter"), 2).status == Result::Unsupported);
+        // PEND-B4-01 (press_key refuses) retired by B4: IN-01-01..09 pin it.
         // PEND-B4-02 (coverage off and all-zero) retired by B4: coverage is
         // implemented, and INS-20-01 asserts the same fresh-backend answer.
         check("PEND-B4-03", "screenshot() (B4) refuses as unsupported",
@@ -10457,6 +10813,7 @@ int main() {
     b4_trace_rows();
     b4_capture_state_rows();
     b4_bookmark_rows();
+    b4_input_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
