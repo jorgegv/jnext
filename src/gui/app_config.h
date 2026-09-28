@@ -9,7 +9,7 @@
 #include "core/emulator_config.h"
 #include "debug/debug_keymap.h"
 #include "platform/audio_pacing.h"
-#include "platform/screenshot.h"
+#include "core/screenshot.h"
 
 /// Persisted GUI preferences (Task 66 — Configurability).
 ///

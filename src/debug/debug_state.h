@@ -537,6 +537,16 @@ public:
     std::bitset<65536>* coverage_sink() const { return coverage_; }
     void set_coverage_sink(std::bitset<65536>* s) { coverage_ = s; }
 
+    // ── GH #276 B4 — CAP-01, a screenshot is waiting for a rendered frame ─
+    //
+    // Set by the backend while a deferred capture is queued; ORed into
+    // `Emulator::end_of_frame()`'s render decision, so the next frame IS
+    // rendered even where a frontend's hint would have skipped it (Qt at speed
+    // above 1x). The capture is "deferred to the next rendered frame"; this is
+    // what guarantees there is one. Read once per frame, never per instruction.
+    bool capture_render() const { return capture_render_; }
+    void set_capture_render(bool on) { capture_render_ = on; }
+
     StepMode step_mode() const { return step_mode_; }
 
     /// Set by MMU when a data breakpoint (read/write) is hit.
@@ -659,6 +669,8 @@ private:
     bool nextreg_armed_       = false;
     // GH #276 B4 — INS-20; see coverage_sink().
     std::bitset<65536>* coverage_ = nullptr;
+    // GH #276 B4 — CAP-01; see capture_render().
+    bool capture_render_ = false;
     StepMode step_mode_ = StepMode::NONE;
     uint16_t step_out_sp_ = 0;
     uint64_t target_cycle_ = 0;

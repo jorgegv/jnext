@@ -5,7 +5,7 @@
 #include "sdl_display.h"
 #include "sdl_input.h"
 #include "sdl_audio.h"
-#include "screenshot.h"
+#include "core/screenshot.h"
 #include "host_key_latch.h"
 #include "core/emulator.h"
 #include "video/renderer.h"

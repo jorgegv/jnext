@@ -376,6 +376,44 @@ struct Debugger::Impl {
     bool         coverage_on = false;
     void publish_coverage() { ds().set_coverage_sink(coverage_on ? &coverage : nullptr); }
 
+    // ── B4 (§4.5 CAP-01) — deferred screenshots ─────────────────────────────
+    //
+    // "Deferred to the next RENDERED frame, for every frontend, never the stale
+    // framebuffer." A capture is queued here and taken by `pump()` — the loop
+    // owner's post-frames slot, where the frame it just ran is complete and no
+    // command of this pump has touched the machine yet — once the machine has
+    // RENDERED a frame after the capture's layer mask was armed
+    // (`Emulator::rendered_frames()` moved past `after`).
+    //
+    // FIFO. The HEAD's `layer_mask` is the one armed on the renderer, and
+    // `DebugState::capture_render()` forces the render while anything is queued
+    // (`arm_capture_head()`, the ONE writer of both). A capture behind the head
+    // with the SAME mask is taken from the same frame; one with a different mask
+    // waits for a frame rendered with its own.
+    //
+    // BACKEND STATE, so it survives a reconstruct; the re-application re-arms
+    // the head on the new renderer and re-bases every `after` on the new
+    // machine's counter (which restarted at 0).
+    struct Capture {
+        ClientId         by = CLIENT_NONE;
+        std::string      path;
+        uint8_t          layer_mask = LAYER_MASK_ALL;
+        ScreenshotFormat format     = ScreenshotFormat::Png;
+        uint64_t         after      = 0;       ///< taken once rendered_frames() > after
+        bool             warned     = false;   ///< the one "deferred while paused" line
+    };
+    std::vector<Capture> captures;
+
+    /// Publish the queue's head into the machine: the renderer's layer mask
+    /// (LAYER_ALL when the queue is empty) and the force-render bit. Called only
+    /// when the queue's HEAD changes — never per pump — so a mask a frontend set
+    /// for its own reasons is not clobbered on every tick.
+    void arm_capture_head();
+
+    /// `pump()`'s capture step: write every capture whose frame has been
+    /// rendered, warn once about a capture held up by a paused machine.
+    void service_captures();
+
     /// CTL-12 rule 3's input: the pause IN FORCE before a machine is replaced,
     /// and whose it is. Not a bare bool, because the owner is half of what rule
     /// 3 has to preserve: SES-01's detach releases a pause only if it is THIS

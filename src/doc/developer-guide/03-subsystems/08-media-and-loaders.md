@@ -653,7 +653,7 @@ to it: `rzx::parse()` stops there and counts the rest in
 
 | What | Flag / UI | Code |
 |---|---|---|
-| PNG or `.SCR` screenshot | `--delayed-screenshot`, File ▸ Save Screenshot, File ▸ Quick Screenshot | `src/platform/screenshot.*` |
+| PNG or `.SCR` screenshot | `--delayed-screenshot`, File ▸ Save Screenshot, File ▸ Quick Screenshot | `src/core/screenshot.*` |
 | WAV of the mixer | `--wav-record` | `src/audio/audio_recorder.*` |
 | DAC activity CSV | `--dac-trace` | `src/audio/dac_trace_recorder.*` |
 | MP4 with audio | `--record`, File ▸ Record MPEG4 Video | `src/core/video_recorder.*` |

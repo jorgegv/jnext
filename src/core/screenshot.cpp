@@ -1,4 +1,4 @@
-#include "screenshot.h"
+#include "core/screenshot.h"
 #include "core/log.h"
 #include "video/ula.h"
 #include <png.h>

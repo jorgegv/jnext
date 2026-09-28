@@ -1621,6 +1621,266 @@ static void b4_snapshot_rows() {
     std::remove(szx.c_str()); std::remove(sna.c_str()); std::remove(jns.c_str());
 }
 
+// ── CAP-01 — deferred screenshots ───────────────────────────────────────────
+
+static bool is_png_640x512(const std::vector<uint8_t>& f) {
+    static const uint8_t sig[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    if (f.size() < 24 || std::memcmp(f.data(), sig, 8) != 0) return false;
+    auto be32 = [&](size_t o) {
+        return (uint32_t(f[o]) << 24) | (uint32_t(f[o + 1]) << 16) |
+               (uint32_t(f[o + 2]) << 8) | uint32_t(f[o + 3]);
+    };
+    return be32(16) == 640 && be32(20) == 512;   // IHDR width, height
+}
+
+static void b4_screenshot_rows() {
+    using jnext::dbg::ScreenshotFormat;
+    using jnext::dbg::LAYER_MASK_ALL;
+    using jnext::dbg::LAYER_MASK_ULA;
+    using jnext::dbg::LAYER_MASK_SPRITES;
+    const std::string png  = "/tmp/jnext_b4_shot.png";
+    const std::string png2 = "/tmp/jnext_b4_shot2.png";
+    const std::string scr  = "/tmp/jnext_b4_shot.scr";
+    auto rm = [&]() { std::remove(png.c_str()); std::remove(png2.c_str()); std::remove(scr.c_str()); };
+    rm();
+    {
+        // DEFERRED: queued, not written; written by the first pump after a frame
+        // has been RENDERED — and not before, even across pumps.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        const Result r = dbg.screenshot(a, png, LAYER_MASK_ALL, ScreenshotFormat::Png);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        const bool not_yet = read_file(png).empty();
+        emu.run_frame();
+        const bool not_by_the_frame = read_file(png).empty();   // the WRITE is the pump's
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("CAP-01-01", "screenshot() QUEUES (Ok); the PNG is written by the first "
+                           "pump after a frame was rendered — not by a pump before one, "
+                           "and not by the frame itself",
+              r == Result::Ok && not_yet && not_by_the_frame &&
+                  is_png_640x512(read_file(png)) && !emu.debug_state().capture_render());
+    }
+    rm();
+    {
+        // NEVER THE STALE FRAMEBUFFER: paused, nothing renders, so nothing is
+        // written however often the loop owner pumps — and it says so ONCE.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        RecListener l;
+        dbg.set_listener(a, &l);
+        dbg.pause(a);
+        dbg.screenshot(a, png, LAYER_MASK_ALL, ScreenshotFormat::Png);
+        size_t warns = 0;
+        for (int i = 0; i < 3; ++i) dbg.pump(jnext::dbg::PumpBudget{});
+        for (const auto& e : l.logs)
+            if (e.first == jnext::dbg::LogLevel::Warn &&
+                e.second.find("deferred: the machine is paused") != std::string::npos)
+                ++warns;
+        const bool held = read_file(png).empty();
+        dbg.run(a);
+        emu.run_frame();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("CAP-01-02", "while the machine is paused no frame renders, so the "
+                           "capture is HELD (one warning, however many pumps) and taken "
+                           "at the first frame after it resumes",
+              held && warns == 1 && is_png_640x512(read_file(png)),
+              "warns=" + std::to_string(warns));
+    }
+    rm();
+    {
+        // SCR: the same deferral; the file is the ULA's .SCR body at the frame.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        emu.mmu().write(0x4000, 0x81);
+        dbg.screenshot(1, scr, LAYER_MASK_ALL, ScreenshotFormat::Scr);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        const bool not_yet = read_file(scr).empty();
+        emu.run_frame();
+        const std::vector<uint8_t> dump = dbg.ula_screen_dump();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        const std::vector<uint8_t> f = read_file(scr);
+        check("CAP-01-03", "a .SCR capture is deferred the same way and writes the "
+                           "ULA's screen memory (6912 bytes) as the frame left it",
+              not_yet && f.size() == 6912 && f == dump && f[0] == 0x81);
+    }
+    rm();
+    {
+        // THE LAYER MASK is armed for the frame the capture takes and taken down
+        // after it; and the render is FORCED where the frontend's hint said skip.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        emu.set_render_enabled(false);                 // Qt's "nobody will look" hint
+        const uint64_t r0 = emu.rendered_frames();
+        emu.run_frame();
+        const bool skipped = emu.rendered_frames() == r0;   // the control
+        dbg.screenshot(1, png, LAYER_MASK_ULA, ScreenshotFormat::Png);
+        const bool armed = emu.renderer().layer_mask() == LAYER_MASK_ULA &&
+                           emu.debug_state().capture_render();
+        const uint64_t r1 = emu.rendered_frames();
+        emu.run_frame();
+        const bool forced = emu.rendered_frames() == r1 + 1;
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("CAP-01-04", "the capture's layer mask is armed while it waits and taken "
+                           "down after, and its frame is RENDERED even under a "
+                           "render-skip hint (without a capture the same frame is not)",
+              skipped && armed && forced && is_png_640x512(read_file(png)) &&
+                  emu.renderer().layer_mask() == jnext::dbg::LAYER_MASK_ALL &&
+                  !emu.debug_state().capture_render());
+    }
+    rm();
+    {
+        // The refusals, and that a refusal queues nothing.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const Result masked_scr = dbg.screenshot(1, scr, LAYER_MASK_ULA, ScreenshotFormat::Scr);
+        const Result none       = dbg.screenshot(1, png, 0, ScreenshotFormat::Png);
+        const Result bad_bit    = dbg.screenshot(1, png, 0x10, ScreenshotFormat::Png);
+        const Result no_path    = dbg.screenshot(1, "", LAYER_MASK_ALL, ScreenshotFormat::Png);
+        check("CAP-01-05", "a masked .SCR, no layer, an undefined layer bit are "
+                           "Unsupported; no path is RefusedUnavailable; none queues "
+                           "anything",
+              masked_scr == Result::Unsupported && none == Result::Unsupported &&
+                  bad_bit == Result::Unsupported && no_path == Result::RefusedUnavailable &&
+                  !emu.debug_state().capture_render() &&
+                  emu.renderer().layer_mask() == jnext::dbg::LAYER_MASK_ALL);
+    }
+    rm();
+    {
+        // TWO CAPTURES: the same mask → both from ONE frame (one pump); different
+        // masks → the second waits for a frame rendered with ITS mask.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        dbg.screenshot(1, png, LAYER_MASK_ALL, ScreenshotFormat::Png);
+        dbg.screenshot(1, scr, LAYER_MASK_ALL, ScreenshotFormat::Scr);
+        emu.run_frame();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        const bool both = is_png_640x512(read_file(png)) && read_file(scr).size() == 6912;
+        rm();
+        dbg.screenshot(1, png, LAYER_MASK_ULA, ScreenshotFormat::Png);
+        dbg.screenshot(1, png2, LAYER_MASK_SPRITES, ScreenshotFormat::Png);
+        emu.run_frame();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        const bool first_only = is_png_640x512(read_file(png)) && read_file(png2).empty() &&
+                                emu.renderer().layer_mask() == LAYER_MASK_SPRITES;
+        dbg.pump(jnext::dbg::PumpBudget{});
+        const bool still_waits = read_file(png2).empty();   // no frame with ITS mask yet
+        emu.run_frame();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("CAP-01-06", "two captures with the same mask are taken from the same "
+                           "frame; with different masks the second waits for a frame "
+                           "rendered with its own",
+              both && first_only && still_waits && is_png_640x512(read_file(png2)) &&
+                  emu.renderer().layer_mask() == jnext::dbg::LAYER_MASK_ALL);
+    }
+    rm();
+    {
+        // A failed write is reported at error and NOT retried: the frame it was
+        // for is gone, and the mask comes down.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        RecListener l;
+        dbg.set_listener(a, &l);
+        dbg.screenshot(a, "/nonexistent-dir/x/y.png", LAYER_MASK_ULA, ScreenshotFormat::Png);
+        emu.run_frame();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        bool error_line = false;
+        for (const auto& e : l.logs)
+            if (e.first == jnext::dbg::LogLevel::Error &&
+                e.second.find("NOT written") != std::string::npos)
+                error_line = true;
+        check("CAP-01-07", "a capture whose write fails is logged at error, dropped "
+                           "(not retried) and its mask taken down",
+              error_line && !emu.debug_state().capture_render() &&
+                  emu.renderer().layer_mask() == jnext::dbg::LAYER_MASK_ALL);
+    }
+    rm();
+    {
+        // FROM A HANDLER mid-frame: allowed (it only queues), and the frame that
+        // ends after it — this one — is the one captured.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        Result from_handler = Result::Unsupported;
+        bool once = false;
+        Subscription s;
+        s.kind = EventKind::Execute; s.filter.lo = PROG + 1; s.filter.hi = PROG + 1;
+        s.action = Action::Continue;
+        s.handler = [&](const DbgEvent&, Debugger& d) {
+            if (!once) { once = true; from_handler = d.screenshot(a, png, LAYER_MASK_ALL,
+                                                                   ScreenshotFormat::Png); }
+            return Action::Continue;
+        };
+        dbg.subscribe(a, s);
+        emu.run_frame();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("CAP-01-08", "a handler may ask for a screenshot mid-frame; the frame "
+                           "that ends after it is the one captured",
+              once && from_handler == Result::Ok && is_png_640x512(read_file(png)));
+    }
+    rm();
+    {
+        // A capture queued on a paused machine SURVIVES every machine-replacing
+        // route: the rebuilt machine gets the mask and the force-render bit
+        // re-armed, and the capture is the rebuilt machine's first rendered frame.
+        auto via = [&](int path) {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            auto boot = [&]() {
+                emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+            };
+            jnext::dbg::LoopDriver d;
+            d.cold_boot = [&]() { boot(); return true; };
+            d.load      = [&](const std::string&) { boot(); return true; };
+            dbg.set_loop_driver(d);
+            for (int i = 0; i < 3; ++i) emu.run_frame();   // the old machine's counter moves
+            dbg.pause(a);
+            dbg.screenshot(a, png, LAYER_MASK_ULA, ScreenshotFormat::Png);
+            if (path == 0)      dbg.reset(a, ResetKind::Hard);
+            else if (path == 1) dbg.load(a, "game.nex");
+            else              { dbg.on_cold_boot_begin(); boot(); dbg.on_cold_boot_done(); }
+            const bool rearmed = emu.renderer().layer_mask() == LAYER_MASK_ULA &&
+                                 emu.debug_state().capture_render();
+            load_prog(emu, { 0x18, 0xFE });
+            dbg.run(a);
+            emu.run_frame();
+            dbg.pump(jnext::dbg::PumpBudget{});
+            const bool ok = rearmed && is_png_640x512(read_file(png)) &&
+                            emu.renderer().layer_mask() == jnext::dbg::LAYER_MASK_ALL;
+            std::remove(png.c_str());
+            return ok;
+        };
+        const bool v0 = via(0), v1 = via(1), v2 = via(2);
+        check("CAP-01-09", "a queued capture survives reset(Hard), a reconstructing "
+                           "load() and the guest path — mask and force-render re-armed "
+                           "on the rebuilt machine, taken at its first rendered frame",
+              v0 && v1 && v2,
+              std::string("reset=") + (v0 ? "1" : "0") + " load=" + (v1 ? "1" : "0") +
+                  " guest=" + (v2 ? "1" : "0"));
+    }
+    rm();
+    {
+        // THE PAIR, CAP-01's half: the machine outlives the backend, and must not
+        // be left rendering with a dead capture's layers.
+        Emulator emu; build(emu);
+        bool armed = false;
+        {
+            Debugger dbg(emu);
+            dbg.screenshot(1, png, LAYER_MASK_ULA, ScreenshotFormat::Png);
+            armed = emu.renderer().layer_mask() == LAYER_MASK_ULA &&
+                    emu.debug_state().capture_render();
+        }
+        check("LIFE-08", "~Debugger() takes down a pending capture's layer mask and "
+                         "force-render bit (and writes nothing)",
+              armed && emu.renderer().layer_mask() == jnext::dbg::LAYER_MASK_ALL &&
+                  !emu.debug_state().capture_render() && read_file(png).empty());
+    }
+    rm();
+}
+
 int main() {
     std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
 
@@ -2636,9 +2896,7 @@ int main() {
         // PEND-B4-01 (press_key refuses) retired by B4: IN-01-01..09 pin it.
         // PEND-B4-02 (coverage off and all-zero) retired by B4: coverage is
         // implemented, and INS-20-01 asserts the same fresh-backend answer.
-        check("PEND-B4-03", "screenshot() (B4) refuses as unsupported",
-              dbg.screenshot(1, "/tmp/x.png", jnext::dbg::LAYER_MASK_ALL,
-                             jnext::dbg::ScreenshotFormat::Png) == Result::Unsupported);
+        // PEND-B4-03 (screenshot refuses) retired by B4: CAP-01-01..09 pin it.
         check("PEND-14-01", "render_layer() (unassigned, see the B1 report) refuses",
               dbg.render_layer(jnext::dbg::Layer::Composite, 0, nullptr, 640) ==
                   Result::Unsupported);
@@ -10954,6 +11212,7 @@ int main() {
     b4_bookmark_rows();
     b4_input_rows();
     b4_snapshot_rows();
+    b4_screenshot_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

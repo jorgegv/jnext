@@ -17,7 +17,7 @@
 // other options, before the frontend type is known.
 #include "platform/audio_pacing.h"
 #include "platform/emulator_boot.h"   // emulator_boot_machine (RZX playback)
-#include "platform/screenshot.h"   // screenshot_format_for_path (GH #18)
+#include "core/screenshot.h"   // screenshot_format_for_path (GH #18)
 #include "video/renderer.h"
 #include "version.h"
 #include <cctype>

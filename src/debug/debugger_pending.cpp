@@ -36,39 +36,30 @@
 //        refused from `debugger_control.cpp`) moved to
 //        `debugger_reconstruct.cpp` with the CTL-12 re-application.
 //
-//   B4 — capture: 1 definition
-//        screenshot
-//        (DONE and moved: press_key (name), press_key (matrix) —
-//        `debugger_input.cpp` beside IN-02; coverage_enable, coverage_enabled,
-//        coverage_clear, coverage — `debugger_inspect.cpp` beside the trace;
-//        ula_screen_dump — `debugger_inspect.cpp` beside the ULA screen
-//        registers; bookmark_save, bookmark_restore, bookmarks, save_snapshot —
-//        `debugger_capture.cpp`)
+//   B4 — input pulses, capture, bookmarks, coverage (§4.5 CAP-IN / CAP-CAP,
+//        §4.2 INS-20): DONE, 0 definitions left here. All twelve moved:
+//        press_key (name), press_key (matrix) → `debugger_input.cpp`, beside
+//        IN-02; coverage_enable, coverage_enabled, coverage_clear, coverage and
+//        ula_screen_dump → `debugger_inspect.cpp`; screenshot, bookmark_save,
+//        bookmark_restore, bookmarks, save_snapshot → `debugger_capture.cpp`.
+//        §5's rule came with them (B3 fix round 1b): `bookmark_restore` refuses
+//        from inside a delivery first thing; `bookmark_save` and `save_snapshot`
+//        refuse only on their ADVANCE arm, through the one frame-boundary helper
+//        `Impl::reach_frame_boundary()` — rows REENT-31..33 and REENT-30's loop.
 //
-//        B4 INHERITS §5's rule with them (B3 fix round 1b): a verb that would
-//        EXECUTE, REWIND, RESTORE, RESET or REPLACE the machine refuses from
-//        inside an event delivery through `Impl::refuse_inside_delivery()`,
-//        with `Unsupported`, before anything else. Of these, `bookmark_restore`
-//        restores the machine; `bookmark_save` and `save_snapshot` advance it
-//        when a frame is in progress (the `save_state_bytes()` pattern: guard the
-//        ADVANCE arm only, so a handler at a frame boundary can still save).
-//        Add each one's REENT row and its entry in the REENT-30 loop.
-//
-//   UNASSIGNED — 1 definition
+//   PACKAGE Q (WP4d) — 1 definition
 //        render_layer (INS-14). Not B2's, B3's or B4's by §10.1, and not "over
 //        an existing primitive" either: the eight views exist only inside
 //        `VideoLayerView` in a `Q_OBJECT` header, and INS-14 requires
 //        `render_to_image` + the `replay_*` calls to be MOVED out of
-//        `video_panel.cpp` into a Qt-free function. §11 item 5 assigns the
-//        validation of that move to Q WP4d ("the 106 DVP rows against the moved
-//        function before the widget changes"), but the move itself has no owner
-//        in §10.1's B rows. Reported as a finding rather than silently adopted
-//        or silently dropped.
+//        `video_panel.cpp` into a Qt-free function. B1 reported that the move
+//        had no owner in §10.1's B rows; the owner has since decided it is
+//        package Q's (WP4d, which already owns validating it against the 106
+//        DVP rows). It stays refused here until Q moves it.
 //
-// 2 definitions, and the per-package subtotals above add to 1 plus the one
-// unassigned (B2's 11, B3's 11 and eleven of B4's are gone — this file held 35
-// before B2, 24 before B3 and 13 before B4). The numbers are restated nowhere else: this banner is the list, and
-// the file is the check:
+// 1 definition: B2's 11, B3's 11 and B4's 12 are gone — this file held 35
+// before B2, 24 before B3 and 13 before B4. The numbers are restated nowhere
+// else: this banner is the list, and the file is the check:
 //
 //     grep -c '^[A-Za-z].* Debugger::' src/debug/debugger_pending.cpp
 // ---------------------------------------------------------------------------
@@ -79,23 +70,9 @@ namespace jnext {
 namespace dbg {
 
 // ===========================================================================
-// B4 — input pulses, capture, bookmarks, coverage
+// PACKAGE Q (WP4d) — INS-14 `render_layer`
 //
-// IN-01's APPEND semantics need the auto-type queue rework; CAP-01 needs the
-// deferred-to-next-rendered-frame capture path; CAP-03 needs per-client
-// snapshot storage.
-// ===========================================================================
-
-Result Debugger::screenshot(ClientId, const std::string&, uint8_t,
-                            ScreenshotFormat) {
-    return Result::Unsupported;
-}
-
-// ===========================================================================
-// UNASSIGNED — INS-14 `render_layer`
-//
-// See the banner: the move out of `src/debugger/video_panel.cpp` has no owner in
-// §10.1's B rows, and this is a finding rather than a decision to take here.
+// See the banner: the move out of `src/debugger/video_panel.cpp` is Q's.
 // Refused rather than approximated: drawing "something" into the caller's buffer
 // (the composite for every view, say) would make a panel look right and be
 // wrong, which is worse than a control that greys itself out.

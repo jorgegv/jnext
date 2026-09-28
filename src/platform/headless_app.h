@@ -2,7 +2,7 @@
 #include <string>
 #include <vector>
 #include <cstdint>
-#include "screenshot.h"
+#include "core/screenshot.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "video/renderer.h"

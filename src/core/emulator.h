@@ -198,6 +198,13 @@ public:
     /// it calls) can observe it true.
     bool frame_edge_open() const { return frame_edge_open_; }
 
+    /// GH #276 B4 — how many frames `end_of_frame()` has RENDERED into the
+    /// framebuffer since this `Emulator` was constructed (a frame whose render
+    /// was skipped, or replayed under rewind, does not count). Host-side: not
+    /// in a snapshot, so a restore does not move it; a reconstruct restarts it.
+    /// The debugger backend's CAP-01 capture waits for it to move.
+    uint64_t rendered_frames() const { return rendered_frames_; }
+
     /// Perform a soft reset (tbblue RESET_SOFT / NR 0x02 bit 0).
     /// Resets flip-flops (CPU, MMU, peripherals, NextReg) but preserves
     /// RAM contents (including the Next ROM-in-SRAM window), ROM buffer,
@@ -1742,6 +1749,9 @@ private:
 
     /// GH #276 B4 — see frame_edge_open().
     bool frame_edge_open_ = false;
+
+    /// GH #276 B4 — see rendered_frames().
+    uint64_t rendered_frames_ = 0;
 
     /// Boot ROM (8K FPGA bootloader, embedded into the jnext binary at
     /// link time — see core/embedded_nextboot_rom.h).

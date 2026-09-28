@@ -68,11 +68,16 @@ target_include_directories(jnext_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOU
 # jnext_save carries the GH #27 `StateDesc` descriptor layer; clock.cpp's
 # save_state/load_state are a walk of its declaration (stage S3), so the
 # BinWriteDesc/BinReadDesc bodies in jnext_save must resolve here.
+# GH #276 B4 — libpng, for the screenshot writers (`screenshot.cpp`). They
+# moved here from src/platform so the debugger backend's CAP-01 `screenshot()`
+# can call them: the backend sits BELOW the platform layer and may not reach up
+# into it (the same rule that routes CTL-15's load through a registered driver).
+find_package(PNG REQUIRED)
 target_link_libraries(jnext_core PUBLIC
     jnext_input jnext_peripheral jnext_debug jnext_profiler
     jnext_cpu jnext_memory jnext_video jnext_audio jnext_port
     jnext_save
-    spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    spdlog::spdlog zot_tzx ZLIB::ZLIB PNG::PNG)
 # SD-card provisioner network/hash backend (GH #108 Phase B): OS-native
 # WinHTTP + BCrypt on Windows (system import libs, present in every MinGW
 # sysroot — OS components, not dependencies), libcurl + OpenSSL elsewhere.

@@ -222,6 +222,17 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     //     before the boot is kept, because "since clear" is not "since boot"
     //     (rows INS-20-10/11).
     publish_coverage();
+    //     GH #276 B4 — CAP-01. The queued screenshots are backend state and
+    //     survive; what the machine held for them did not — the head's layer
+    //     mask (the new `Renderer` starts at LAYER_ALL) and the force-render bit
+    //     (a new `DebugState`). And each capture's `after` is a reading of
+    //     `rendered_frames()`, which restarted at 0 on a rebuilt machine: re-based
+    //     here, a capture waits for the first frame the NEW machine renders
+    //     rather than for the old machine's count (rows CAP-01-09). Re-based on an
+    //     in-place landing too, where the framebuffer still shows the machine
+    //     before the load.
+    for (Capture& c : captures) c.after = emu.rendered_frames();
+    if (!captures.empty()) arm_capture_head();
     //
     //     ORDER RELATIVE TO THE PAUSE IS NOT LOAD-BEARING, and an earlier draft
     //     of this comment claimed it was ("a window in which the machine is

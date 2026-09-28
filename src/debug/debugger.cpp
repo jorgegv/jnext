@@ -109,6 +109,18 @@ Debugger::~Debugger() {
     // (row LIFE-07). Retired unconditionally — a sink that is already null
     // stays null.
     impl_->ds().set_coverage_sink(nullptr);
+    // GH #276 B4 — CAP-01. A capture still queued can never be taken now: say
+    // so, one line each (§4.5's `NoFrame`, which has no other carrier — see
+    // `debugger_capture.cpp`), then take down what the queue had armed on the
+    // MACHINE, which outlives this object: the head's layer mask and the
+    // force-render bit. Left armed, every later frame would render with a
+    // capture's layers and nobody left to capture it (row LIFE-08).
+    for (const Impl::Capture& c : impl_->captures)
+        Log::debugger()->error("SCREENSHOT \"{}\" never taken: the debugger backend "
+                               "went away before a frame was rendered for it",
+                               c.path);
+    impl_->captures.clear();
+    impl_->arm_capture_head();
 }
 
 // ---------------------------------------------------------------------------

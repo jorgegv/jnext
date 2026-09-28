@@ -14,7 +14,7 @@
 #include "platform/emulator_boot.h"   // GH #228 — emulator_load_routes_to_nex
 #include "core/rzx.h"                 // rzx::playable, before a cold boot plays a file
 #include "core/log.h"
-#include "platform/screenshot.h"
+#include "core/screenshot.h"
 #include "peripheral/esp_host_policy.h"
 #include "input/mouse_dispatcher.h"
 #include "platform/pointer_capture.h"

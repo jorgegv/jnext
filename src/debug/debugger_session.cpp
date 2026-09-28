@@ -407,6 +407,12 @@ ServiceHint Debugger::pump(const PumpBudget& budget) {
         return hint;
     }
 
+    // GH #276 B4 — CAP-01's deferred screenshots, FIRST: this is the loop
+    // owner's post-frames slot, so the frame it just ran is complete and
+    // rendered, and no command below has touched the machine yet — a `poke`
+    // later in this drain must not change the `.SCR` of a frame that has ended.
+    impl_->service_captures();
+
     // THE DRAIN. §4.8 SES-03 and §9: "a queued command chain is drained in one
     // `pump` while paused, `pump(0)` while running services exactly one".
     //

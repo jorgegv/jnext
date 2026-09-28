@@ -10,7 +10,7 @@
 #include "input/gamepad_host.h"
 #include "platform/frame_sequencer.h"
 #include "platform/host_key_latch.h"
-#include "platform/screenshot.h"
+#include "core/screenshot.h"
 #include "video/renderer.h"
 
 class QApplication;

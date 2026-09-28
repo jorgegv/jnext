@@ -9667,12 +9667,18 @@ void Emulator::end_of_frame(uint64_t frame_end)
     // GH #276 B3 — raster_live(), not active(): §4.1's `live_raster` gates "the
     // render-every-frame hint" as well as the raster walk, so a backend client
     // that asked for it gets a live framebuffer (row SES-05-15).
+    //
+    // GH #276 B4 — and a queued CAP-01 screenshot, which is "deferred to the
+    // next RENDERED frame": `capture_render()` makes sure there is one, and the
+    // counter below is how the backend knows it has happened.
     const bool render_this_frame =
-        render_enabled_ || video_recorder_.is_recording() || debug_state_.raster_live();
+        render_enabled_ || video_recorder_.is_recording() || debug_state_.raster_live() ||
+        debug_state_.capture_render();
     if (!replay_mode_) {
         if (render_this_frame) {
             renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
                                    layer2_, &sprites_, &tilemap_);
+            ++rendered_frames_;
         } else {
             // C6 review BLOCKER fix: sprite collision + line-budget overtime
             // (port 0x303B) must be computed every emulated frame regardless

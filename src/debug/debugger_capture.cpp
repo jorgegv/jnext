@@ -24,7 +24,9 @@
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "core/screenshot.h"
 #include "core/snapshot_file.h"
+#include "video/renderer.h"
 
 namespace jnext {
 namespace dbg {
@@ -159,6 +161,110 @@ std::vector<std::string> Debugger::bookmarks(ClientId cid) const {
     out.reserve(c->bookmarks.size());
     for (const Impl::Bookmark& b : c->bookmarks) out.push_back(b.name);
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// CAP-01 — `screenshot(path, layer_mask, Png|Scr)`, DEFERRED TO THE NEXT
+// RENDERED FRAME (§4.5), for every frontend.
+//
+// The verb QUEUES; `pump()` WRITES (`Impl::service_captures()`), which is the
+// loop owner's post-frames slot: the frame it just ran is complete, and nothing
+// in this pump has touched the machine yet. So `Ok` means "queued", and the
+// write's outcome is an SES-06 line — `SCREENSHOT … written` at info, `… NOT
+// written` at error. §4.5's `NoFrame` ("the exit bound cut the deferral off")
+// has no carrier in the published API: nothing can ask the backend whether a
+// capture is still pending, and nothing returns a write's outcome to the loop
+// owner that has to turn it into an exit code. That is a gap in the frozen
+// header, reported rather than papered over (B4 report, O1); `~Debugger()`
+// logs every capture it drops as never taken.
+//
+// PNG vs SCR, THE SAME PATH: both wait for a rendered frame. A `.SCR` is the
+// ULA's screen MEMORY, not the picture, and could be taken at once — but "the
+// next rendered frame" is the one rule, and a .SCR and a PNG requested together
+// then capture the same instant.
+// ---------------------------------------------------------------------------
+
+Result Debugger::screenshot(ClientId by, const std::string& path, uint8_t layer_mask,
+                            ScreenshotFormat format) {
+    // "No such thing" — a layer that does not exist, no layer at all (the CLI
+    // parser cannot produce 0 either), or a masked `.SCR`, which the header
+    // excludes (a `.SCR` is screen memory; there is no layer to leave out).
+    if (layer_mask == 0 || (layer_mask & ~LAYER_MASK_ALL) != 0) return Result::Unsupported;
+    if (format == ScreenshotFormat::Scr && layer_mask != LAYER_MASK_ALL)
+        return Result::Unsupported;
+    if (path.empty()) return Result::RefusedUnavailable;
+
+    Impl::Capture c;
+    c.by         = by;
+    c.path       = path;
+    c.layer_mask = layer_mask;
+    c.format     = format;
+    c.after      = impl_->emu.rendered_frames();
+    const bool first = impl_->captures.empty();
+    impl_->captures.push_back(c);
+    if (first) impl_->arm_capture_head();
+    return Result::Ok;
+}
+
+void Debugger::Impl::arm_capture_head() {
+    emu.renderer().set_layer_mask(captures.empty() ? Renderer::LAYER_ALL
+                                                   : captures.front().layer_mask);
+    ds().set_capture_render(!captures.empty());
+}
+
+void Debugger::Impl::service_captures() {
+    if (captures.empty()) return;
+    const uint64_t now        = emu.rendered_frames();
+    const uint8_t  frame_mask = emu.renderer().layer_mask();
+    bool           took       = false;
+
+    while (!captures.empty()) {
+        Capture& c = captures.front();
+        if (now <= c.after) break;           // no frame rendered since it was armed
+        if (c.layer_mask != frame_mask) {
+            // Behind a head with another mask: the frame was not rendered with
+            // THIS capture's layers. It becomes the head below and waits for a
+            // frame rendered after its own mask is armed.
+            c.after = now;
+            break;
+        }
+        bool ok;
+        if (c.format == ScreenshotFormat::Scr) {
+            ok = save_screenshot_scr(c.path, emu.ula().screen_dump());
+        } else {
+            ok = save_screenshot_png(c.path, emu.get_framebuffer(), emu.get_framebuffer_width(),
+                                     emu.get_framebuffer_height());
+        }
+        // `save_screenshot_*` has already logged WHY a write failed; this is the
+        // line a listener (and a CI transcript) can key on. A failed write is not
+        // retried: the frame it was for is gone.
+        const std::string what = "SCREENSHOT \"" + c.path + "\" (" +
+                                 (c.format == ScreenshotFormat::Scr
+                                      ? std::string(".SCR")
+                                      : "layers: " + Renderer::layer_mask_to_string(c.layer_mask)) +
+                                 ")";
+        const ClientId by = c.by;
+        captures.erase(captures.begin());
+        took = true;
+        self->log(by, ok ? LogLevel::Info : LogLevel::Error,
+                  what + (ok ? " written" : " NOT written — see the error above"));
+    }
+
+    if (took) {
+        arm_capture_head();
+        return;
+    }
+    // Still waiting. The GUI's defer-with-warning contract (`qt_app.cpp`): say so
+    // ONCE per capture when the reason is a paused machine, which renders
+    // nothing until it is resumed.
+    Capture& head = captures.front();
+    if (ds().paused() && !head.warned) {
+        head.warned = true;
+        self->log(head.by, LogLevel::Warn,
+                  "SCREENSHOT \"" + head.path +
+                      "\" deferred: the machine is paused, so no frame is being rendered; "
+                      "it is taken at the first frame rendered after it resumes");
+    }
 }
 
 // ---------------------------------------------------------------------------
