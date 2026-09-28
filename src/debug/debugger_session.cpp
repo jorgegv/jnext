@@ -85,13 +85,6 @@ const Debugger::Impl::Client* Debugger::Impl::find_client(ClientId cid) const {
     return nullptr;
 }
 
-size_t Debugger::Impl::live_client_count() const {
-    size_t n = 0;
-    for (const auto& c : clients)
-        if (!c.detached) ++n;
-    return n;
-}
-
 // THE ONE WRITER of the two derived values, and that is the whole point: the
 // arm bit and the ORed live-raster flag are both FUNCTIONS OF THE LIST, so they
 // are recomputed from it rather than adjusted alongside it. An `attach` that
@@ -105,10 +98,11 @@ void Debugger::Impl::clients_changed() {
         ++live;
         any_raster = any_raster || c.live_raster;
     }
-    // SES-05 — "per client, ORed". Held on `Impl` rather than recomputed at
-    // every read only because `live_raster()` is a direct-value query a renderer
-    // may poll; the value is still a pure function of the list.
-    live_raster_or = any_raster;
+    // SES-05 — "per client, ORed", published into `DebugState`, where the
+    // raster walk and the render hint read it (`raster_live()`), and where
+    // `Debugger::live_raster()` reads it back: one copy, not a cache on `Impl`
+    // beside the machine's.
+    ds().set_live_raster(any_raster);
     // SES-05 / §5 — the `attached` half of `armed()`. Its OWN bit on
     // `DebugState`, never `set_active()`: see `DebugState::clients_attached()`
     // for why writing `active_` here would disarm the Qt debugger window.
@@ -468,7 +462,9 @@ Result Debugger::set_live_raster(ClientId cid, bool enabled) {
     return Result::Ok;
 }
 
-bool Debugger::live_raster() const { return impl_->live_raster_or; }
+// The CLIENTS' OR — not `raster_live()`, which also has the Qt window's
+// `active()` as a term: this verb answers what the clients asked for.
+bool Debugger::live_raster() const { return impl_->ds().live_raster(); }
 
 // §5's `attached`, and it is the OR OF TWO CONTRIBUTORS for the duration of the
 // transition, not the client count alone.
@@ -483,13 +479,15 @@ bool Debugger::live_raster() const { return impl_->live_raster_or; }
 // then disagree with `DebugState::armed()`, the gate the hot loop actually
 // obeys.
 //
-// So the two are ORed here, exactly as `DebugState::refresh_gates_()` ORs the
-// bits behind them, and the identity `armed() == attached() || persistent()`
-// holds whichever contributor is set. When Q makes the Qt frontend a client,
-// `active_` loses its writers and this term goes with them.
-bool Debugger::attached() const {
-    return impl_->live_client_count() > 0 || impl_->ds().active();
-}
+// So the two are ORed — by `DebugState::refresh_gates_()`, into the SAME
+// precomputed `attached_` bit the step machinery reads (GH #276 B3), and read
+// back here rather than re-derived: one formula, so the verb a client asks and
+// the gate the hot loop obeys cannot disagree, and the identity
+// `armed() == attached() || persistent()` holds whichever contributor is set.
+// `clients_changed()` keeps the client half equal to the list (row SES-01-02).
+// When Q makes the Qt frontend a client, `active_` loses its writers and that
+// term goes with them.
+bool Debugger::attached() const { return impl_->ds().attached(); }
 
 }  // namespace dbg
 }  // namespace jnext

@@ -9317,7 +9317,10 @@ void Emulator::run_frame()
     // Handle rewind step modes set by the GUI or scripting layer.
     // These are processed before the normal snapshot so we don't take a
     // snapshot of the "current" state before rewinding away from it.
-    if (debug_state_.active() && !replay_mode_) {
+    // GH #276 B3 — attached(), not active(): the step machinery belongs to
+    // whoever is driving the machine, which includes a backend client with the
+    // Qt window closed (§4.1; row SES-05-17).
+    if (debug_state_.attached() && !replay_mode_) {
         if (debug_state_.step_mode() == StepMode::STEP_BACK) {
             step_back(debug_state_.step_back_count());
             return;
@@ -9660,8 +9663,12 @@ void Emulator::end_of_frame(uint64_t frame_end)
     // GUI "Save Screenshot" (Alt+S) at speed > 1x captures the last RENDERED
     // frame — consistent with what the window shows, at most ~20 ms stale.
     // Acknowledged benign consumer (C6 review MINOR).
+    //
+    // GH #276 B3 — raster_live(), not active(): §4.1's `live_raster` gates "the
+    // render-every-frame hint" as well as the raster walk, so a backend client
+    // that asked for it gets a live framebuffer (row SES-05-15).
     const bool render_this_frame =
-        render_enabled_ || video_recorder_.is_recording() || debug_state_.active();
+        render_enabled_ || video_recorder_.is_recording() || debug_state_.raster_live();
     if (!replay_mode_) {
         if (render_this_frame) {
             renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
@@ -10048,8 +10055,10 @@ uint64_t Emulator::step_one_instruction()
         // GH #203 — Step Out. Nothing is READ here, deliberately: only SP is
         // sampled. The opcode bytes are read after execute() and only once the
         // SP test has already passed — see the decision site below for why.
+        // GH #276 B3 — attached(), not active(): see the STEP_BACK gate in
+        // run_frame(). One precomputed bool, as before (row SES-05-13).
         const bool step_out_armed =
-            debug_state_.active() && debug_state_.step_mode() == StepMode::OUT;
+            debug_state_.attached() && debug_state_.step_mode() == StepMode::OUT;
         const uint16_t step_out_sp_before =
             step_out_armed ? cpu_.registers().SP : 0;
 
@@ -10159,7 +10168,11 @@ uint64_t Emulator::step_one_instruction()
         // debugger could observe it, so the free-running production
         // hot loop (headless/GUI, debug_state_ inactive) skips the
         // per-instruction raster walk entirely.
-        if (debug_state_.active())
+        //
+        // GH #276 B3 — raster_live(), not active(): §4.1's `live_raster`, ORed
+        // across backend clients, joins the Qt window's active() as a reason to
+        // walk. One precomputed bool, as before (row SES-05-14).
+        if (debug_state_.raster_live())
             video_timing_.advance(tstates);
 
         // Call stack tracking post-execution.

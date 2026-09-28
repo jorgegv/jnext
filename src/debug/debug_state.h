@@ -19,7 +19,7 @@ public:
     ///
     /// This is the gate on everything that only makes sense while a human is
     /// watching, and it is deliberately NOT the gate on "are breakpoints
-    /// live" — see armed() below. Its readers, all in the hot path:
+    /// live" — see armed() below. What it switches on, all in the hot path:
     ///   * the STEP machinery (StepMode OUT / STEP_BACK / RUN_BACK_TO_CYCLE)
     ///   * Emulator::run_frame's "render every frame" hint, so the panels see
     ///     a live framebuffer
@@ -27,6 +27,11 @@ public:
     ///     whose only observer is a human reading the raster readout
     /// Forcing this true with the window closed would switch all of that on
     /// for nobody's benefit, which is why GH #219 did not do it.
+    ///
+    /// GH #276 B3 — the hot path no longer reads this bit directly: the step
+    /// machinery reads attached() and the other two read raster_live(), each of
+    /// which has active_ as one term. So this bit still switches all three on,
+    /// and a backend client can switch on the ones it asked for (see there).
     bool active() const { return active_; }
     void set_active(bool a) { active_ = a; refresh_gates_(); }
 
@@ -54,6 +59,31 @@ public:
     /// job is to disarm the machine whatever armed it.
     bool clients_attached() const { return clients_attached_; }
     void set_clients_attached(bool a) { clients_attached_ = a; refresh_gates_(); }
+
+    /// GH #276 B3 (§4.1, SES-05) — THE TWO FLAGS THAT REPLACE active() AS A
+    /// HOT-PATH GATE. §4.1: "`attached` (≥1 client) gates the step machinery;
+    /// `live_raster` (per client, ORed) gates only the render hint and the raster
+    /// walk." Both are precomputed by refresh_gates_(), exactly like armed_, so
+    /// each reader pays one bool load — the same as the active() it replaces.
+    ///
+    /// attached() = active_ || clients_attached_. The STEP machinery (Step Out's
+    /// per-instruction test, the STEP_BACK / RUN_BACK_TO_CYCLE step modes) reads
+    /// it. Before this existed they read active(), so a machine driven only by a
+    /// backend client — a DZRP session with the Qt window closed — never finished
+    /// a Step Out (row SES-05-13).
+    ///
+    /// raster_live() = active_ || live_raster_. The render-every-frame hint and
+    /// the per-instruction VideoTiming::advance() walk read it. active_ stays a
+    /// term of both until package Q makes the Qt window a client: today it is
+    /// what the window sets, and it must keep meaning what it meant.
+    bool attached() const { return attached_; }
+    bool raster_live() const { return raster_live_; }
+
+    /// SES-05 — the OR of every backend client's live-raster request, published
+    /// by `Debugger::Impl::clients_changed()` (its one writer). NOT an armed_
+    /// contributor: it gates only the raster walk and the render hint.
+    bool live_raster() const { return live_raster_; }
+    void set_live_raster(bool l) { live_raster_ = l; refresh_gates_(); }
 
     /// Are breakpoints and watchpoints LIVE? The hot-path gate.
     ///
@@ -159,7 +189,7 @@ public:
     public:
         explicit SuspendScope(DebugState& ds)
             : ds_(ds), paused_(ds.paused_), active_(ds.active_),
-              clients_(ds.clients_attached_),
+              clients_(ds.clients_attached_), live_raster_(ds.live_raster_),
               persistent_(ds.persistent_), step_(ds.step_mode_),
               step_off_(ds.step_off_pending_) {
             ds_.paused_     = false;
@@ -172,6 +202,10 @@ public:
             // `Debugger`. A new contributor to refresh_gates_() belongs here in
             // the same commit.
             ds_.clients_attached_ = false;
+            // And the raster-walk contributor: clearing active_ above has always
+            // switched the walk off for the scope, and a client's live_raster
+            // must not switch it back on under it.
+            ds_.live_raster_ = false;
             ds_.persistent_ = false;
             ds_.step_mode_  = StepMode::NONE;
             ds_.refresh_gates_();          // disarms breakpoints
@@ -180,6 +214,7 @@ public:
             ds_.paused_     = paused_;
             ds_.active_     = active_;
             ds_.clients_attached_ = clients_;
+            ds_.live_raster_ = live_raster_;
             ds_.persistent_ = persistent_;
             ds_.step_mode_  = step_;
             ds_.refresh_gates_();
@@ -193,6 +228,7 @@ public:
         bool        paused_;
         bool        active_;
         bool        clients_;
+        bool        live_raster_;
         bool        persistent_;
         StepMode    step_;
         bool        step_off_;
@@ -496,19 +532,22 @@ private:
     /// early return, an exception or a forgotten reset.
     void set_guest_access_(bool g) { guest_access_ = g; refresh_gates_(); }
 
-    /// Recompute BOTH cached hot-path gates from the four inputs that feed
-    /// them (active_, clients_attached_, persistent_, guest_access_). Named for
-    /// the gates rather
-    /// than for armed_ alone, which is what it used to maintain: it now also
-    /// owns wp_live_, and a name that mentions only half of what a function
-    /// maintains is how the next person misses the other half.
+    /// Recompute EVERY cached hot-path gate — armed_, wp_live_ and (GH #276 B3)
+    /// attached_ and raster_live_ — from the five inputs that feed them
+    /// (active_, clients_attached_, live_raster_, persistent_, guest_access_).
+    /// Named for the gates rather than for armed_ alone, which is what it used
+    /// to maintain: a name that mentions only part of what a function maintains
+    /// is how the next person misses the rest.
     ///
-    /// Called only from the three setters — i.e. only when a human opened the
-    /// debugger, passed --persistent-breakpoints, or the machine entered or
-    /// left execution (twice per frame, or twice per debugger Step). Never
-    /// from the hot path.
+    /// Called only from the setters above and SuspendScope — i.e. only when a
+    /// human opened the debugger, a backend client attached, detached or
+    /// changed its live-raster request, --persistent-breakpoints was passed, or
+    /// the machine entered or left execution (twice per frame, or twice per
+    /// debugger Step). Never from the hot path.
     void refresh_gates_() {
         armed_ = active_ || clients_attached_ || persistent_;
+        attached_    = active_ || clients_attached_;
+        raster_live_ = active_ || live_raster_;
         wp_live_ = armed_ && guest_access_;
         // Disarming breakpoints drops any pending step-off with them. The gate
         // that consumes it does not run while !armed(), so PC moves on freely
@@ -562,6 +601,12 @@ private:
     // construction rather than by remembering to say so.
     bool guest_access_ = false;
     bool wp_live_ = false;
+    // GH #276 B3 — the two gates that replace active() in the hot path, and the
+    // one input only they read. Precomputed by refresh_gates_(). After wp_live_
+    // rather than between it and armed_, which the comment above keeps adjacent.
+    bool attached_    = false;
+    bool raster_live_ = false;
+    bool live_raster_ = false;
     bool paused_ = false;
     bool step_off_pending_ = false;
     bool data_bp_hit_ = false;

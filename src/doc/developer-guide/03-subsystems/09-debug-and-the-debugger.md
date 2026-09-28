@@ -374,6 +374,19 @@ persistent_`), so the identity `armed() == attached() || persistent()` holds
 whichever contributor is set, and `SuspendScope` clears all three — its promise
 is "disarms breakpoints", and that is only true if it clears every contributor.
 
+**The two flags that replace `active()` in the hot path.** §4.1 splits what
+`active()` used to switch on: `attached` gates the *step machinery* (Step Out's
+per-instruction test, the `STEP_BACK` / `RUN_BACK_TO_CYCLE` step modes), and
+`live_raster` — per client, ORed — gates only the *render-every-frame hint* and
+the per-instruction `VideoTiming::advance()` walk. `refresh_gates_()`
+precomputes both into `DebugState` bits (`attached_ = active_ ||
+clients_attached_`, `raster_live_ = active_ || live_raster_`), so each hot-path
+reader still pays one bool load, and `active_` stays a term of both until the Qt
+window becomes a client. Before the split a machine driven only by a remote
+client never finished a Step Out. `Debugger::attached()` and `live_raster()` read
+those same bits back rather than re-deriving them, so the answer a client gets
+and the gate the hot loop obeys cannot disagree.
+
 **Listeners.** Seven pushes, all pure virtual (a silently ignored notification is
 what a default empty override invites): `Paused`, `Resumed`, `Reset`,
 `FrameEnded`, `SubscriptionsChanged`, `ExitRequested`, `Log`. They are

@@ -7543,6 +7543,117 @@ int main() {
               identity, idetail);
     }
     {
+        // §4.1: "`attached` (≥1 client) gates the step machinery" — Step Out,
+        // Step Back and Run-Back-to-Cycle, which today's tree gates on
+        // `DebugState::active()`. A remote client is NOT `active()` (that is the
+        // Qt window's bit), so a machine driven ONLY by a client must still finish
+        // a Step Out: armed by attaching, never by `set_active()`.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("Remote", jnext::dbg::ClientKind::Dzrp)).value;
+        emu.execute_single_instruction();
+        emu.execute_single_instruction();
+        emu.execute_single_instruction();
+        const bool in_sub = pc_of(emu) == SUB;
+        dbg.pause(a);
+        const Result r = dbg.step_out(a);
+        run_until_paused(emu);
+        check("SES-05-13", "a CLIENT alone drives Step Out to completion — attached, "
+                           "not DebugState::active(), gates the step machinery",
+              in_sub && r == Result::Ok && !emu.debug_state().active() &&
+              dbg.state().paused && pc_of(emu) == AFTER_CALL,
+              "PC=" + hex(pc_of(emu)) + std::string(" paused=") +
+                  (dbg.state().paused ? "1" : "0"));
+        dbg.detach(a);
+    }
+    {
+        // The OTHER step-machinery gate: the STEP_BACK step mode, consumed at the
+        // top of `run_frame()`. Same rule as SES-05-13 — `attached`, so a
+        // machine a client drives with the Qt window closed steps back too.
+        Emulator emu; build(emu);
+        emu.set_rewind_enabled(true);
+        emu.resize_rewind_buffer(8);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("Remote", jnext::dbg::ClientKind::Dzrp)).value;
+        emu.run_frame();
+        emu.run_frame();
+        const uint64_t before = emu.clock().get();
+        // Read BEFORE the frame: the rewind itself sets `active()` on its way
+        // out (`Emulator::rewind_to_cycle()`, pre-existing), so afterwards it
+        // cannot show which gate let the step mode through.
+        const bool active_before = emu.debug_state().active();
+        emu.debug_state().step_back(1);
+        emu.run_frame();
+        const uint64_t after = emu.clock().get();
+        check("SES-05-17", "a CLIENT alone lets the STEP_BACK step mode run — the "
+                           "clock goes backwards, not forwards",
+              !active_before && after < before,
+              "before=" + std::to_string(before) + " after=" + std::to_string(after));
+        dbg.detach(a);
+    }
+    {
+        // §4.1 / SES-05: `live_raster` (per client, ORed) gates the
+        // per-instruction `VideoTiming::advance()` walk — observed on the counter
+        // it moves. BOTH directions and the OR, with `active()` false throughout
+        // so the Qt term cannot be what switches it on.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        auto walked = [&]() {
+            const RasterPos p0 = emu.video_timing().pos();
+            emu.execute_single_instruction();
+            const RasterPos p1 = emu.video_timing().pos();
+            return p0.hc != p1.hc || p0.vc != p1.vc;
+        };
+        const bool off0 = !walked();
+        dbg.set_live_raster(a, true);
+        const bool on_a = walked();
+        dbg.set_live_raster(b, true);
+        dbg.set_live_raster(a, false);
+        const bool on_b = walked();                     // the OR: b alone
+        dbg.set_live_raster(b, false);
+        const bool off1 = !walked();
+        check("SES-05-14", "the raster walk runs iff SOME client asked for "
+                           "live_raster — off, on for A, on for B alone, off again",
+              !emu.debug_state().active() && off0 && on_a && on_b && off1,
+              std::string("off0=") + (off0 ? "1" : "0") + " a=" + (on_a ? "1" : "0") +
+                  " b=" + (on_b ? "1" : "0") + " off1=" + (off1 ? "1" : "0"));
+        // The Qt window's term still switches it on by itself (pre-Q behaviour).
+        emu.debug_state().set_active(true);
+        const bool on_active = walked();
+        emu.debug_state().set_active(false);
+        check("SES-05-18", "and DebugState::active() alone still walks — the Qt "
+                           "window is not a client until package Q",
+              on_active && !dbg.live_raster());
+        dbg.detach(a);
+        dbg.detach(b);
+    }
+    {
+        // §4.1 / SES-05: `live_raster` gates "the render-every-frame hint" too.
+        // With the frontend's hint OFF (`set_render_enabled(false)` — a Qt tick
+        // that will not present), a frame is rendered only if something else
+        // asks for it. A border change is the observable: the top-left pixel is
+        // border.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        emu.run_frame();                                 // render once, hint on
+        const uint32_t px0 = emu.get_framebuffer()[0];
+        emu.set_render_enabled(false);
+        dbg.set_border(a, static_cast<uint8_t>((emu.ula().get_border() + 1) & 7));
+        emu.run_frame();
+        const uint32_t px_off = emu.get_framebuffer()[0];
+        dbg.set_live_raster(a, true);
+        emu.run_frame();
+        const uint32_t px_on = emu.get_framebuffer()[0];
+        check("SES-05-15", "a frame the frontend would skip is rendered iff a client "
+                           "asked for live_raster — stale without it, fresh with it",
+              !emu.debug_state().active() && px_off == px0 && px_on != px0,
+              "px0=" + hex(px0) + " off=" + hex(px_off) + " on=" + hex(px_on));
+        dbg.detach(a);
+    }
+    {
         // `DebugState::SuspendScope` promises "disarms breakpoints". With a
         // THIRD armed_ contributor that promise is only true if the scope clears
         // that one too — and a scope that left it standing would silently let a
@@ -7551,10 +7662,13 @@ int main() {
         Emulator emu; build(emu);
         Debugger dbg(emu);
         const ClientId a = dbg.attach(client("A")).value;
-        bool armed_inside = true;
+        dbg.set_live_raster(a, true);
+        bool armed_inside = true, attached_inside = true, raster_inside = true;
         {
             DebugState::SuspendScope suspend(emu.debug_state());
-            armed_inside = emu.debug_state().armed();
+            armed_inside    = emu.debug_state().armed();
+            attached_inside = emu.debug_state().attached();
+            raster_inside   = emu.debug_state().raster_live();
         }
         check("SES-05-11", "SuspendScope disarms the machine whichever contributor "
                            "armed it — a client counts",
@@ -7562,6 +7676,16 @@ int main() {
               std::string("inside=") + (armed_inside ? "1" : "0"));
         check("SES-05-12", "and it RESTORES the client term on the way out",
               emu.debug_state().clients_attached() && dbg.attached());
+        // The two gates that replaced active() in the hot path: the scope has
+        // always switched off the step machinery and the raster walk by clearing
+        // active_, and a client's bits must not switch them back on under it.
+        check("SES-05-16", "and it switches off the step gate and the raster walk "
+                           "too, and restores both — a client's live_raster counts",
+              !attached_inside && !raster_inside &&
+              emu.debug_state().attached() && emu.debug_state().raster_live() &&
+              dbg.live_raster(),
+              std::string("attached_in=") + (attached_inside ? "1" : "0") +
+                  " raster_in=" + (raster_inside ? "1" : "0"));
         dbg.detach(a);
     }
 

@@ -220,21 +220,11 @@ struct Debugger::Impl {
     std::vector<Client> clients;
     ClientId            next_client_id = 1;
 
-    /// SES-05 — the OR of every live client's `live_raster`. A CACHE of a pure
-    /// function of the list, recomputed by `clients_changed()` and by nothing
-    /// else, because `live_raster()` is a direct-value query a renderer may poll
-    /// per frame.
-    bool live_raster_or = false;
-
     /// Live client lookup. Null for an unknown or detached id — which is what
     /// makes `RefusedUnavailable` (benign, "no such client") the answer rather
     /// than a crash.
     Client*       find_client(ClientId cid);
     const Client* find_client(ClientId cid) const;
-
-    /// How many clients are live. `attached()`'s first term and the value
-    /// `DebugState::set_clients_attached()` is driven from.
-    size_t live_client_count() const;
 
     /// Re-derive `DebugState::clients_attached()` and the ORed `live_raster`
     /// from the client list. THE ONE function every attach / detach / listener /

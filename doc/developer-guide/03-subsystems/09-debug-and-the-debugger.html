@@ -2162,6 +2162,18 @@ the Qt window owns, and nothing in <code>DebugState</code> can tell the two owne
 persistent_</code>), so the identity <code>armed() == attached() || persistent()</code> holds
 whichever contributor is set, and <code>SuspendScope</code> clears all three — its promise
 is "disarms breakpoints", and that is only true if it clears every contributor.</p>
+<p><strong>The two flags that replace <code>active()</code> in the hot path.</strong> §4.1 splits what
+<code>active()</code> used to switch on: <code>attached</code> gates the <em>step machinery</em> (Step Out's
+per-instruction test, the <code>STEP_BACK</code> / <code>RUN_BACK_TO_CYCLE</code> step modes), and
+<code>live_raster</code> — per client, ORed — gates only the <em>render-every-frame hint</em> and
+the per-instruction <code>VideoTiming::advance()</code> walk. <code>refresh_gates_()</code>
+precomputes both into <code>DebugState</code> bits (<code>attached_ = active_ ||
+clients_attached_</code>, <code>raster_live_ = active_ || live_raster_</code>), so each hot-path
+reader still pays one bool load, and <code>active_</code> stays a term of both until the Qt
+window becomes a client. Before the split a machine driven only by a remote
+client never finished a Step Out. <code>Debugger::attached()</code> and <code>live_raster()</code> read
+those same bits back rather than re-deriving them, so the answer a client gets
+and the gate the hot loop obeys cannot disagree.</p>
 <p><strong>Listeners.</strong> Seven pushes, all pure virtual (a silently ignored notification is
 what a default empty override invites): <code>Paused</code>, <code>Resumed</code>, <code>Reset</code>,
 <code>FrameEnded</code>, <code>SubscriptionsChanged</code>, <code>ExitRequested</code>, <code>Log</code>. They are
