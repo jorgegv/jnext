@@ -623,6 +623,16 @@ no client attached this arms nothing, so a run with it is bit-identical to a run
 without it (rows HOST-01..05, the last three through the real `HeadlessApp`).
 `QtApp::debugger()` is the instance package Q's `DebuggerManager` is to use.
 
+Because none of those calls changes an unattached run, nothing a normal run does
+can show one missing. The `JNEXT_HOST_PROBE` fixture (`src/platform/host_probe.h`,
+env-gated, zero-cost unset, deliberately not a CLI flag) makes them observable:
+a client that runs inside `pump()` as a `Service`, pauses the machine, raises the
+guest hard-reset request, reports whether the loop owner's cold boot came back
+with `Reset{Hard}` pushed and the pause still its own, resumes, and then asks for
+`reset(Hard)` through the registered driver — one `HOSTPROBE` log line each. The
+regression rows `sdl-host-probe-func` and `qt-host-probe-func` read those lines
+for `SdlApp` and `QtApp`; row HOST-07 runs the same probe through `HeadlessApp`.
+
 **The CLI `--delayed-*` flags keep their own countdowns.** Each loop owner counts
 LOOP TICKS for every `--delayed-*` flag, as before — a tick count survives a
 cold boot and keeps counting while the machine is paused, which is what keeps

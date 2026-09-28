@@ -2393,6 +2393,15 @@ in SDL and headless, after the cold-boot polls; Qt pumps in <code>post_frames</c
 no client attached this arms nothing, so a run with it is bit-identical to a run
 without it (rows HOST-01..05, the last three through the real <code>HeadlessApp</code>).
 <code>QtApp::debugger()</code> is the instance package Q's <code>DebuggerManager</code> is to use.</p>
+<p>Because none of those calls changes an unattached run, nothing a normal run does
+can show one missing. The <code>JNEXT_HOST_PROBE</code> fixture (<code>src/platform/host_probe.h</code>,
+env-gated, zero-cost unset, deliberately not a CLI flag) makes them observable:
+a client that runs inside <code>pump()</code> as a <code>Service</code>, pauses the machine, raises the
+guest hard-reset request, reports whether the loop owner's cold boot came back
+with <code>Reset{Hard}</code> pushed and the pause still its own, resumes, and then asks for
+<code>reset(Hard)</code> through the registered driver — one <code>HOSTPROBE</code> log line each. The
+regression rows <code>sdl-host-probe-func</code> and <code>qt-host-probe-func</code> read those lines
+for <code>SdlApp</code> and <code>QtApp</code>; row HOST-07 runs the same probe through <code>HeadlessApp</code>.</p>
 <p><strong>The CLI <code>--delayed-*</code> flags keep their own countdowns.</strong> Each loop owner counts
 LOOP TICKS for every <code>--delayed-*</code> flag, as before — a tick count survives a
 cold boot and keeps counting while the machine is paused, which is what keeps
