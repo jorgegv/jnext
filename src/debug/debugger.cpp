@@ -353,6 +353,7 @@ RunState Debugger::state() const {
                 st.pause_reason.kind = PauseReason::Kind::RunTo;
                 st.pause_reason.by   = impl_->armed_by;
                 st.pause_reason.addr = impl_->armed_target;
+                st.pause_reason.id   = impl_->armed_target_id;
                 return st;
             }
             break;

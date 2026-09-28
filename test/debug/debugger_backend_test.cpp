@@ -81,6 +81,7 @@
 
 #include <spdlog/sinks/ringbuffer_sink.h>
 
+#include <algorithm>
 #include <cstring>
 #include <tuple>
 #include <memory>
@@ -3163,15 +3164,25 @@ static void b5_wire_verb_rows() {
               b5_state(*m.dbg));
     }
     {
+        // inspect.h's RunTo: "`id` names the transient subscription where there
+        // was one" — and run_to() arms exactly one.
         B5VerbMachine m;
         m.dbg->pause(m.a);
         m.dbg->run_to(m.a, AFTER_CALL);
+        jnext::dbg::EventId target = jnext::dbg::EVENT_NONE;
+        for (const auto& si : m.dbg->subscriptions(true))
+            if (si.transient) target = si.id;
         run_until_paused(m.emu);
         check("WV-RUNTO-01", "run_to(0x8005): stopped AT it (cycle c0+344), reason "
-                             "RunTo{by the caller, addr 0x8005}, and the stop holds",
-              m.dbg->state().pause_reason.addr == AFTER_CALL &&
+                             "RunTo{by the caller, addr 0x8005, id = the transient it "
+                             "armed}, and the stop holds",
+              target != jnext::dbg::EVENT_NONE &&
+                  m.dbg->state().pause_reason.addr == AFTER_CALL &&
+                  m.dbg->state().pause_reason.id == target &&
                   b5_stopped_at(m.emu, *m.dbg, AFTER_CALL, m.c0 + 344, K::RunTo, m.a),
-              b5_state(*m.dbg));
+              "target=" + std::to_string(target) + " id=" +
+                  std::to_string(m.dbg->state().pause_reason.id) + " " +
+                  b5_state(*m.dbg));
     }
     {
         // ON the grid: a `>` for `>=` would stop one JR $ later.
@@ -3546,6 +3557,356 @@ static void b5_recon_rows() {
         }
     }
     std::remove(nex.c_str());
+}
+
+
+// ── MATCH — §9 / backend.md §7: "`matched[]` rows: a user breakpoint and a
+//    transient at the same address both listed". SES-02-16 lists ONE user
+//    subscription; EVT-DEL-61/62 two user ones; no row put a transient beside a
+//    user subscription on one address, which is exactly DeZog's "temp beats
+//    user" case the list exists for (§4.3: "every subscription that matched,
+//    transient ones included").
+static void b5_match_rows() {
+    Emulator emu; build(emu);
+    Debugger dbg(emu);
+    RecListener l;
+    const ClientId a = dbg.attach(client("A")).value;
+    dbg.set_listener(a, &l);
+    Subscription u;
+    u.kind = EventKind::Execute; u.filter.lo = AFTER_CALL; u.filter.hi = AFTER_CALL;
+    u.action = Action::Stop;
+    const auto user = dbg.subscribe(a, u);
+    dbg.pause(a);
+    dbg.pump(jnext::dbg::PumpBudget{});                  // prime: paused
+    dbg.run_to(a, AFTER_CALL);                           // the transient, same address
+    jnext::dbg::EventId transient = jnext::dbg::EVENT_NONE;
+    for (const auto& si : dbg.subscriptions(true))
+        if (si.transient) transient = si.id;
+    run_until_paused(emu);
+    dbg.pump(jnext::dbg::PumpBudget{});
+    bool has_user = false, has_transient = false, addrs_ok = true;
+    size_t n = 0;
+    if (l.paused.size() == 1) {
+        n = l.paused[0].matched.size();
+        for (const auto& h : l.paused[0].matched) {
+            has_user      = has_user || h.event_id == user.value;
+            has_transient = has_transient || h.event_id == transient;
+            addrs_ok      = addrs_ok && h.addr == AFTER_CALL;
+        }
+    }
+    check("MATCH-01", "a user Execute breakpoint and a run_to transient on the same "
+                      "address: the Paused push's matched[] lists BOTH, by id",
+          l.paused.size() == 1 && n == 2 && has_user && has_transient &&
+              transient != jnext::dbg::EVENT_NONE,
+          l.trail() + " matched=" + std::to_string(n));
+    check("MATCH-02", "and each Hit carries the address that matched — for an Execute "
+                      "hit the PC (events.h: \"The address (Mem, Execute) or port "
+                      "(Port) that matched\")",
+          l.paused.size() == 1 && n == 2 && addrs_ok,
+          l.paused.empty() || l.paused[0].matched.empty()
+              ? std::string("none")
+              : "addr[0]=" + hex(l.paused[0].matched[0].addr));
+
+    // The same fact on the OTHER consumer: a subscription stop's pause_reason
+    // takes its address from the same place a Hit does, and a legacy PC
+    // breakpoint's reason already reports the PC (CTL-13-02). The two
+    // Breakpoint sources must not disagree about where the machine stopped.
+    Emulator e2; build(e2);
+    Debugger d2(e2);
+    const ClientId b = d2.attach(client("B")).value;
+    const auto sb = d2.subscribe(b, u);
+    run_until_paused(e2);
+    const RunState st = d2.state();
+    check("MATCH-03", "an Execute subscription's Stop reads as Breakpoint{id} AT the "
+                      "PC it matched — the address a legacy PC breakpoint's reason "
+                      "carries (CTL-13-02)",
+          st.paused && st.pause_reason.kind == PauseReason::Kind::Breakpoint &&
+              st.pause_reason.id == sb.value && st.pause_reason.addr == AFTER_CALL,
+          b5_state(d2));
+}
+
+// ── MAGIC-DETACH — CTL-13's owner decision, "pinned by a B5 row": "A remote
+//    client attaching, pausing nothing and detaching must leave an `ED FF` stop
+//    standing." SES-01-14/15 hand-set the magic latch (note_magic_stop +
+//    pause) with the client attached BEFORE it; this is the real opcode, run by
+//    the machine, and a client that arrives only after the stop.
+static void b5_magic_detach_rows() {
+    Emulator emu;
+    b5_build(emu, { 0xED, 0xFF, 0x18, 0xFE });
+    Debugger dbg(emu);
+    dbg.set_magic_breakpoint(true);
+    emu.run_frame();                                     // ED FF stops the machine
+    const RunState before = dbg.state();
+    const ClientId r =
+        dbg.attach(client("Remote", jnext::dbg::ClientKind::Dzrp)).value;
+    const Result d = dbg.detach(r);
+    const RunState after = dbg.state();
+    const B5Pos live = b5_pos(emu);
+    emu.run_frame();
+    check("MAGIC-DETACH-01", "a remote client that attaches AFTER a real ED FF stop, "
+                             "pauses nothing and detaches leaves the stop standing: "
+                             "still paused, still Magic and unowned, at the same pc, "
+                             "and the next frame executes nothing",
+          before.paused && before.pause_reason.kind == PauseReason::Kind::Magic &&
+              d == Result::Ok && after.paused &&
+              after.pause_reason.kind == PauseReason::Kind::Magic &&
+              after.pause_reason.by == jnext::dbg::CLIENT_NONE &&
+              after.pc == before.pc && pc_of(emu) == live.pc &&
+              emu.clock().get() == live.cycle,
+          "before: " + std::to_string(static_cast<int>(before.pause_reason.kind)) +
+              " after: " + b5_state(dbg));
+}
+
+// ── RANGE — §9: "range rows sit on both edges and one past each" — through a
+//    RUNNING machine, for every kind whose filter is a range. The EventTable
+//    rows do it for Mem at table level (EVT-TBL-100/101), Execute only inside
+//    and one past `hi` (EVT-TBL-FM-01/02), Copper inside and outside
+//    (FM-100/101); a real transfer does it for the DMA's DESTINATION side
+//    (EVT-DMA-30/31). Nothing drove a machine across Execute's, Mem's or the
+//    Copper's edges, or the DMA's SOURCE side.
+//
+// Each fixture passes lo-1, lo, lo+1, hi, hi+1 exactly once, in order, and the
+// recorder must see exactly the three in-range ones — so the "edges" row and
+// the "one past" row are both read from one run, the pair that makes neither
+// vacuous.
+static void b5_range_rows() {
+    auto edges = [](const std::vector<uint16_t>& got, const std::vector<uint16_t>& want) {
+        return got == want;
+    };
+    auto list = [](const std::vector<uint16_t>& v) {
+        std::string s;
+        for (uint16_t x : v) s += (s.empty() ? "" : ",") + hex(x);
+        return "[" + s + "]";
+    };
+    {
+        // 8000..8006 NOP x7, 8007 JR $; range [0x8002, 0x8004].
+        Emulator emu; b5_build(emu, { 0, 0, 0, 0, 0, 0, 0, 0x18, 0xFE });
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("B5")).value;
+        std::vector<uint16_t> got;
+        Subscription s;
+        s.kind = EventKind::Execute; s.filter.lo = 0x8002; s.filter.hi = 0x8004;
+        s.action = Action::Continue;
+        s.handler = [&got](const DbgEvent& ev, Debugger&) { got.push_back(ev.pc); return Action::Continue; };
+        dbg.subscribe(a, s);
+        emu.run_frame();
+        const bool in  = std::count(got.begin(), got.end(), 0x8002) == 1 &&
+                         std::count(got.begin(), got.end(), 0x8004) == 1;
+        const bool out = std::count(got.begin(), got.end(), 0x8001) == 0 &&
+                         std::count(got.begin(), got.end(), 0x8005) == 0;
+        check("RANGE-EXEC-01", "Execute [0x8002,0x8004] on a running machine: BOTH edges "
+                               "fire, once each", in, list(got));
+        check("RANGE-EXEC-02", "and one past each edge (0x8001, 0x8005) does not — the "
+                               "whole delivery is exactly lo..hi",
+              out && edges(got, {0x8002, 0x8003, 0x8004}), list(got));
+    }
+    {
+        // LD A,0x5A then LD (0x9000..0x9004),A; range [0x9001, 0x9003].
+        std::vector<uint8_t> p = { 0x3E, 0x5A };
+        for (uint8_t lo = 0; lo < 5; ++lo) { p.push_back(0x32); p.push_back(lo); p.push_back(0x90); }
+        p.push_back(0x18); p.push_back(0xFE);
+        Emulator emu; b5_build(emu, p);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("B5")).value;
+        std::vector<uint16_t> got;
+        Subscription s;
+        s.kind = EventKind::Mem; s.access = Access::Write;
+        s.filter.lo = 0x9001; s.filter.hi = 0x9003;
+        s.action = Action::Continue;
+        s.handler = [&got](const DbgEvent& ev, Debugger&) { got.push_back(ev.addr); return Action::Continue; };
+        dbg.subscribe(a, s);
+        emu.run_frame();
+        const bool in  = std::count(got.begin(), got.end(), 0x9001) == 1 &&
+                         std::count(got.begin(), got.end(), 0x9003) == 1;
+        const bool out = std::count(got.begin(), got.end(), 0x9000) == 0 &&
+                         std::count(got.begin(), got.end(), 0x9004) == 0;
+        check("RANGE-MEM-01", "Mem{Write} [0x9001,0x9003] on a running machine: BOTH "
+                              "edges are delivered, once each", in, list(got));
+        check("RANGE-MEM-02", "and one past each edge (0x9000, 0x9004) is not — the "
+                              "whole delivery is exactly lo..hi",
+              out && edges(got, {0x9001, 0x9002, 0x9003}), list(got));
+    }
+    {
+        // Copper MOVEs at Copper PCs 0..4, then HALT; range [1, 3].
+        Emulator emu; b5_build(emu, { 0x18, 0xFE });
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("B5")).value;
+        std::vector<uint16_t> got;
+        Subscription s;
+        s.kind = EventKind::Copper;
+        s.filter.copper_kind = jnext::dbg::CopperEventKind::Move;
+        s.filter.lo = 1; s.filter.hi = 3;
+        s.action = Action::Continue;
+        s.handler = [&got](const DbgEvent& ev, Debugger&) { got.push_back(ev.copper_pc); return Action::Continue; };
+        dbg.subscribe(a, s);
+        copper_program(emu, { move_word(0x30, 0x10), move_word(0x30, 0x11),
+                              move_word(0x30, 0x12), move_word(0x30, 0x13),
+                              move_word(0x30, 0x14), HALT_WORD });
+        copper_start(emu);
+        emu.run_frame();
+        const bool in  = std::count(got.begin(), got.end(), 1) == 1 &&
+                         std::count(got.begin(), got.end(), 3) == 1;
+        const bool out = std::count(got.begin(), got.end(), 0) == 0 &&
+                         std::count(got.begin(), got.end(), 4) == 0;
+        check("RANGE-COP-01", "Copper{Move} Copper-PC range [1,3] on a running Copper: "
+                              "BOTH edges are delivered, once each",
+              in && emu.nextreg().peek(0x30) == 0x14, list(got));
+        check("RANGE-COP-02", "and one past each edge (Copper PC 0, 4) is not — the "
+                              "whole delivery is exactly lo..hi",
+              out && edges(got, {1, 2, 3}), list(got));
+    }
+    {
+        // The DMA's SOURCE side: 0xA000..0xA007 -> 0x9000..; range [0xA002, 0xA004]
+        // (the destinations are all outside it).
+        Emulator emu; b5_build(emu, { 0x18, 0xFE });
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("B5")).value;
+        std::vector<uint16_t> got;
+        Subscription s;
+        s.kind = EventKind::Dma; s.filter.dma_kind = jnext::dbg::DmaEventKind::Byte;
+        s.filter.lo = 0xA002; s.filter.hi = 0xA004;
+        s.action = Action::Continue;
+        s.handler = [&got](const DbgEvent& ev, Debugger&) { got.push_back(ev.dma_src); return Action::Continue; };
+        dbg.subscribe(a, s);
+        b5_prime_dma(emu, dbg, a);
+        emu.run_frame();
+        const bool in  = std::count(got.begin(), got.end(), 0xA002) == 1 &&
+                         std::count(got.begin(), got.end(), 0xA004) == 1;
+        const bool out = std::count(got.begin(), got.end(), 0xA001) == 0 &&
+                         std::count(got.begin(), got.end(), 0xA005) == 0;
+        check("RANGE-DMA-01", "Dma{Byte} range on the SOURCE side [0xA002,0xA004]: BOTH "
+                              "edges are delivered, once each",
+              in && emu.mmu().peek(0x9007) == 0xA7, list(got));
+        check("RANGE-DMA-02", "and one past each edge (0xA001, 0xA005) is not — the whole "
+                              "delivery is exactly lo..hi",
+              out && edges(got, {0xA002, 0xA003, 0xA004}), list(got));
+    }
+}
+
+// ── PL — delivery PAYLOAD fields §4.3 names that no row asserted.
+static void b5_payload_rows() {
+    {
+        // §4.3 Port: "`source` ∈ {Cpu, Dma} ... a DMA byte to a port destination
+        // is a `Port{Write}`, REQ-dsl-27". Every Port row is a CPU OUT. The
+        // EVT-NR-20 fixture: one byte, 0x42, RAM -> I/O port 0x253B.
+        Emulator emu; b5_build(emu, { 0x18, 0xFE });
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("B5")).value;
+        emu.nextreg().select(0x16);
+        emu.mmu().write(0xA000, 0x42);
+        Rec port, byte;
+        Subscription p;
+        p.kind = EventKind::Port; p.access = Access::Write;
+        p.filter.port_mask = 0xFFFF; p.filter.port_value = 0x253B;
+        p.action = Action::Continue; p.handler = recorder(port);
+        dbg.subscribe(a, p);
+        Subscription b;
+        b.kind = EventKind::Dma; b.filter.dma_kind = jnext::dbg::DmaEventKind::Byte;
+        b.action = Action::Continue; b.handler = recorder(byte);
+        dbg.subscribe(a, b);
+        Dma& d = emu.dma();
+        auto w = [&](uint8_t v) { d.write(v, false); };
+        w(0x7D); w(0x00); w(0xA0); w(0x01); w(0x00);
+        w(0x14);                         // R1 port A = memory, inc
+        w(0x28);                         // R2 port B = I/O, fixed
+        w(0xAD); w(0x3B); w(0x25);       // R4 mode + port B = 0x253B
+        w(0xCF); w(0x87);                // R6 LOAD, R6 ENABLE
+        emu.run_frame();
+        check("PL-PORT-01", "a DMA byte to an I/O port is delivered as Port{Write} with "
+                            "source=Dma, the full port and the byte (REQ-dsl-27)",
+              port.evs.size() == 1 && port.evs[0].source == EventSource::Dma &&
+                  port.evs[0].port == 0x253B && port.evs[0].value == 0x42 &&
+                  port.evs[0].access == Access::Write,
+              port.evs.empty() ? "n=0"
+                               : "n=" + std::to_string(port.evs.size()) + " source=" +
+                                     std::to_string(static_cast<int>(port.evs[0].source)) +
+                                     " port=" + hex(port.evs[0].port));
+        check("PL-DMA-01", "and its Dma{Byte} flags the I/O DESTINATION (and not the "
+                           "memory source), naming the port and the byte",
+              byte.evs.size() == 1 && byte.evs[0].dma_is_io_dst &&
+                  !byte.evs[0].dma_is_io_src && byte.evs[0].dma_dst == 0x253B &&
+                  byte.evs[0].value == 0x42,
+              "n=" + std::to_string(byte.evs.size()));
+    }
+    // §4.3 Dma: "`Start`/`End`: src, dst, length, direction, mode, bytes" —
+    // direction and mode were never read. R0 bit 2 is the A->B flag and R4 bits
+    // 6:5 the transfer mode (00 byte, 01 continuous, 10 burst — dma.vhd's
+    // R4_mode_s), so two fixtures that differ in both tell a real read from a
+    // constant.
+    auto start_end = [](uint8_t r0, uint8_t r4, uint8_t& dir, uint8_t& mode,
+                        uint8_t& end_dir, uint8_t& end_mode, size_t& n_start) {
+        Emulator emu; b5_build(emu, { 0x18, 0xFE });
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("B5")).value;
+        for (int i = 0; i < 4; ++i) {
+            emu.mmu().write(static_cast<uint16_t>(0xA000 + i), 0x11);
+            emu.mmu().write(static_cast<uint16_t>(0x9000 + i), 0x22);
+        }
+        Rec st, en;
+        Subscription s; s.kind = EventKind::Dma;
+        s.filter.dma_kind = jnext::dbg::DmaEventKind::Start;
+        s.action = Action::Continue; s.handler = recorder(st);
+        dbg.subscribe(a, s);
+        Subscription e = s; e.filter.dma_kind = jnext::dbg::DmaEventKind::End;
+        e.handler = recorder(en);
+        dbg.subscribe(a, e);
+        Dma& d = emu.dma();
+        auto w = [&](uint8_t v) { d.write(v, false); };
+        // R0 (direction in bit 2) + port A 0xA000 + length 4; R1/R2 memory, inc;
+        // R4 (mode in bits 6:5) + port B 0x9000; R6 LOAD; R6 ENABLE.
+        w(r0); w(0x00); w(0xA0); w(0x04); w(0x00);
+        w(0x14); w(0x10);
+        w(r4); w(0x00); w(0x90);
+        w(0xCF); w(0x87);
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        n_start  = st.evs.size();
+        dir      = st.evs.empty() ? 0xEE : st.evs[0].dma_direction;
+        mode     = st.evs.empty() ? 0xEE : st.evs[0].dma_mode;
+        end_dir  = en.evs.empty() ? 0xEE : en.evs[0].dma_direction;
+        end_mode = en.evs.empty() ? 0xEE : en.evs[0].dma_mode;
+    };
+    {
+        uint8_t dir, mode, ed, em; size_t n;
+        start_end(0x7D, 0xAD, dir, mode, ed, em, n);      // A->B, continuous
+        check("PL-DMA-02", "an A->B continuous block: Start and End carry direction 1 "
+                           "(R0 bit 2) and mode 1 (R4 bits 6:5 = continuous)",
+              n >= 1 && dir == 1 && mode == 1 && ed == 1 && em == 1,
+              "n=" + std::to_string(n) + " start " + std::to_string(dir) + "/" +
+                  std::to_string(mode) + " end " + std::to_string(ed) + "/" +
+                  std::to_string(em));
+    }
+    {
+        uint8_t dir, mode, ed, em; size_t n;
+        start_end(0x79, 0xCD, dir, mode, ed, em, n);      // B->A, burst
+        check("PL-DMA-03", "a B->A burst block: Start carries direction 0 (R0 bit 2 "
+                           "clear) and mode 2 (R4 bits 6:5 = burst)",
+              n >= 1 && dir == 0 && mode == 2,
+              "n=" + std::to_string(n) + " start " + std::to_string(dir) + "/" +
+                  std::to_string(mode));
+    }
+    {
+        // §4.3 Cycle: payload `cycle`. WK-CYCLE pins where the machine STOPS;
+        // this pins what the EVENT says: the boundary's own clock, which on the
+        // grid is the target itself, and the PC it stood at.
+        Emulator emu; b5_build(emu, { 0x18, 0xFE });
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("B5")).value;
+        const uint64_t target = emu.clock().get() + 40 * B5_JR_CYCLES;
+        Rec rec;
+        Subscription s;
+        s.kind = EventKind::Cycle; s.filter.cycle = target;
+        s.action = Action::Continue; s.handler = recorder(rec);
+        dbg.subscribe(a, s);
+        emu.run_frame();
+        check("PL-CYCLE-01", "a Cycle event carries the cycle of the boundary that "
+                             "delivered it — the target itself when the target is a "
+                             "boundary — and the PC standing there",
+              rec.evs.size() == 1 && rec.evs[0].cycle == target && rec.evs[0].pc == PROG,
+              rec.evs.empty() ? "n=0"
+                              : "cycle=" + std::to_string(rec.evs[0].cycle) +
+                                    " target=" + std::to_string(target) +
+                                    " pc=" + hex(rec.evs[0].pc));
+    }
 }
 
 int main() {
@@ -12911,6 +13272,10 @@ int main() {
     b5_wire_kind_rows();
     b5_wire_verb_rows();
     b5_recon_rows();
+    b5_match_rows();
+    b5_magic_detach_rows();
+    b5_range_rows();
+    b5_payload_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

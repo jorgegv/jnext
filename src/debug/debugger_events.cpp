@@ -376,6 +376,20 @@ Event Debugger::Impl::build_event(const LatchEntry& le) const {
     return ev;
 }
 
+// The address a `Hit` and a subscription stop's `pause_reason.addr` report —
+// events.h's `Hit`: "The address (`Mem`, `Execute`) or port (`Port`) that
+// matched". ONE function for both, because they are the same fact: B2 read
+// `ev.addr` for both, which an `Execute` event never fills (its address is the
+// PC), so every `Execute` hit — a user breakpoint AND the transients DeZog's
+// "temp beats user" rule compares — reported 0x0000 (GH #276 B5, MATCH-02/03).
+static uint16_t matched_addr(const Event& ev) {
+    switch (ev.kind) {
+        case EventKind::Port:    return ev.port;
+        case EventKind::Execute: return ev.pc;
+        default:                 return ev.addr;
+    }
+}
+
 // §4.2a — WHY THIS TAKES A `Debugger&` AND RUNS UNDER `InspectionScope`.
 //
 // `Condition` observes, `Handler` may mutate, and both may read the whole
@@ -453,7 +467,7 @@ void Debugger::Impl::deliver_to_subscribers(Event& ev, bool& stop,
                     stop = true;
                     Hit hit;
                     hit.event_id = ev.id;
-                    hit.addr     = ev.kind == EventKind::Port ? ev.port : ev.addr;
+                    hit.addr     = matched_addr(ev);
                     hit.access   = ev.access;
                     hit.value    = ev.value;
                     events.record_hit(hit);
@@ -619,7 +633,7 @@ void Debugger::Impl::note_event_stop(const Event& ev) {
     event_stop_gen     = ds().resume_generation();
     event_stop.id      = ev.id;
     event_stop.by      = ev.owner;
-    event_stop.addr    = ev.kind == EventKind::Port ? ev.port : ev.addr;
+    event_stop.addr    = matched_addr(ev);
     event_stop.access  = ev.access;
     switch (ev.kind) {
         case EventKind::Execute:

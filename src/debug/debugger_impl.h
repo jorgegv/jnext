@@ -74,6 +74,10 @@ struct Debugger::Impl {
     ClientId          armed_by     = CLIENT_NONE;
     uint16_t          armed_target = 0;
     bool              has_target   = false;
+    /// The transient subscription that IS the target, where there is one —
+    /// `inspect.h`'s `RunTo`: "`id` names the transient subscription where there
+    /// was one" (GH #276 B5: `state()` never filled it).
+    EventId           armed_target_id = EVENT_NONE;
 
     // ── Convenience ─────────────────────────────────────────────────────────
 
@@ -88,6 +92,7 @@ struct Debugger::Impl {
         armed_by     = by;
         has_target   = false;
         armed_target = 0;
+        armed_target_id = EVENT_NONE;
         // GH #276 B2 — the event-stop latch describes the stop the machine is
         // LEAVING, and every control verb calls this. Clearing it here rather
         // than at each verb is the same argument `DebugState::unpause_()` makes
@@ -97,10 +102,12 @@ struct Debugger::Impl {
         events.clear_hits();
     }
 
-    void arm_target(PauseReason::Kind kind, ClientId by, uint16_t addr) {
+    void arm_target(PauseReason::Kind kind, ClientId by, uint16_t addr,
+                    EventId target_id) {
         arm(kind, by);
-        armed_target = addr;
-        has_target   = true;
+        armed_target    = addr;
+        has_target      = true;
+        armed_target_id = target_id;
     }
 
     /// §4.2a — the one mutation log line, emitted by the BACKEND for every

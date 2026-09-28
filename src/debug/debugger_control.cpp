@@ -218,9 +218,10 @@ Result Debugger::run_to(ClientId by, uint16_t addr) {
     tgt.filter.hi = addr;
     tgt.transient = true;
     tgt.action    = Action::Stop;
-    (void)subscribe(by, tgt);
+    const Expected<EventId> t = subscribe(by, tgt);
     impl_->ds().run_to_subscribed();
-    impl_->arm_target(PauseReason::Kind::RunTo, by, addr);
+    impl_->arm_target(PauseReason::Kind::RunTo, by, addr,
+                      t.status == Result::Ok ? t.value : EVENT_NONE);
     return Result::Ok;
 }
 
