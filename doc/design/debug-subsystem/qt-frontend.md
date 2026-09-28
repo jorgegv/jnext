@@ -23,7 +23,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 
 | WP | Branch `gh278-qt` (issue #278) | Status |
 |---|---|---|
-| **WP0** | close the identity gaps on the **current** tree, so the suites are green on both trees by construction — as built: §6.2a | in review |
+| **WP0** | close the identity gaps on the **current** tree, so the suites are green on both trees by construction — as built: §6.2a | **done** — reviewed + APPROVED (rows, then the fix round); landed on `main` alone |
 | **WP1** | the `src/qt/` header move + `make build-matrix`. **Q is the single owner of this move**, and it lands with the rest of Q on Q's one branch | todo |
 | **WP2** | `DebuggerManager` verbs onto the backend facade | todo |
 | **WP3** | rewind / trace / corruption | todo |
