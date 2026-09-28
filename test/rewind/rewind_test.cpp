@@ -97,11 +97,12 @@ static void check(const char* id, bool cond, const char* desc,
     }
 }
 
-// A precondition. It is a row only when it FAILS — one failed row, and the
-// caller returns, abandoning the group — so a passing precondition adds
-// nothing to Total. Call it as `if (!require(...)) return 1;`.
+// A precondition: a row like any other — reported and counted whether it
+// passes or fails, because the traceability matrix lists its ID as a row and a
+// row reading `pass` must be one Total counted. On failure the caller returns,
+// abandoning the group. Call it as `if (!require(...)) return 1;`.
 static bool require(const char* id, bool cond, const char* desc) {
-    if (!cond) check(id, false, desc);
+    check(id, cond, desc);
     return cond;
 }
 
