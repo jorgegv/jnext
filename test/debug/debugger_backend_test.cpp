@@ -3046,6 +3046,259 @@ static void b5_wire_kind_rows() {
     for (const B5KindCase& k : cases) b5_run_kind_case(k);
 }
 
+
+// ── WV — one WIRING row per run-control verb: the machine stopped where the
+//    verb promises, asserted on all three of §9's fields — PC, CYCLE and
+//    `pause_reason` (kind AND owner) — plus the control run.
+//
+// The CTL-* rows B1 wrote assert the PC and, for most verbs, the reason; not
+// one asserts the cycle, and step_out / run_to_cycle / the end-of-* pair assert
+// no reason. On `build()`'s program the cycle is plain arithmetic, so every
+// verb's stop is pinned to the master cycle:
+//
+//   T:  0 NOP | 4 NOP | 8 CALL 9000 | 25 NOP | 29 NOP | 33 RET | 43 NOP (0x8005)
+//       | 47 JR $ (0x8006) | 59 | 71 | ...        — x8 master cycles on the 48K
+//
+// so the boundaries are c0 + {0,32,64,200,232,264,344,376} and then every
+// 96 cycles of the JR $ loop. A stop at the right PC on the WRONG iteration of
+// that loop — the failure a PC-only row cannot see — moves the cycle.
+
+static uint64_t b5_prog_boundary(uint64_t c0, uint64_t t) {
+    static const uint64_t head[] = { 0, 32, 64, 200, 232, 264, 344, 376 };
+    for (uint64_t b : head)
+        if (c0 + b >= t) return c0 + b;
+    return b5_jr_boundary(c0 + 376, t);
+}
+
+/// `build()`'s program, and a client attached through the facade (which is
+/// what arms the machine).
+struct B5VerbMachine {
+    Emulator emu;
+    std::unique_ptr<Debugger> dbg;
+    ClientId a = jnext::dbg::CLIENT_NONE;
+    uint64_t c0 = 0;
+    explicit B5VerbMachine(bool rewind = false) {
+        build(emu);
+        if (rewind) {
+            emu.set_rewind_enabled(true);
+            emu.resize_rewind_buffer(8);
+        }
+        dbg = std::make_unique<Debugger>(emu);
+        a   = dbg->attach(client("B5")).value;
+        c0  = emu.clock().get();
+    }
+};
+
+static std::string b5_state(Debugger& dbg) {
+    const RunState st = dbg.state();
+    return std::string("paused=") + (st.paused ? "1" : "0") + " " +
+           b5_show(B5Pos{st.pc, st.cycle}) +
+           " reason=" + std::to_string(static_cast<int>(st.pause_reason.kind)) +
+           " by=" + std::to_string(st.pause_reason.by) +
+           " addr=" + hex(st.pause_reason.addr);
+}
+
+/// §9's three fields, plus the two things that make them mean "stopped":
+/// `state()` agrees with the live machine, and a further frame executes nothing.
+static bool b5_stopped_at(Emulator& emu, Debugger& dbg, uint16_t pc, uint64_t cycle,
+                          PauseReason::Kind kind, ClientId by) {
+    const RunState st = dbg.state();
+    const B5Pos live = b5_pos(emu);
+    emu.run_frame();
+    const B5Pos held = b5_pos(emu);
+    return st.paused && st.pc == pc && st.cycle == cycle &&
+           st.pause_reason.kind == kind && st.pause_reason.by == by &&
+           live.pc == pc && live.cycle == cycle && held.pc == pc && held.cycle == cycle;
+}
+
+static void b5_wire_verb_rows() {
+    using K = PauseReason::Kind;
+    {
+        B5VerbMachine m;
+        m.emu.execute_single_instruction();
+        m.emu.execute_single_instruction();
+        m.emu.execute_single_instruction();              // CALL taken: at SUB
+        const std::string before = b5_show(b5_pos(m.emu));
+        m.dbg->pause(m.a);
+        check("WV-PAUSE-01", "pause(): stopped where it stood (pc 0x9000, cycle c0+200), "
+                             "reason User{by the caller}, and a frame executes nothing",
+              b5_stopped_at(m.emu, *m.dbg, SUB, m.c0 + 200, K::User, m.a),
+              "before[" + before + "] " + b5_state(*m.dbg));
+    }
+    {
+        B5VerbMachine m;
+        m.dbg->pause(m.a);
+        m.dbg->step_into(m.a);
+        check("WV-STEPINTO-01", "step_into(): one instruction (pc 0x8001, cycle c0+32), "
+                                "reason Step{by the caller}, and the stop holds",
+              b5_stopped_at(m.emu, *m.dbg, PROG + 1, m.c0 + 32, K::Step, m.a),
+              b5_state(*m.dbg));
+    }
+    {
+        B5VerbMachine m;
+        m.dbg->pause(m.a);
+        m.dbg->step_into(m.a);
+        m.dbg->step_into(m.a);                           // on the CALL
+        m.dbg->step_over(m.a);
+        run_until_paused(m.emu);
+        check("WV-STEPOVER-01", "step_over() at the CALL: the whole call ran (pc 0x8005, "
+                                "cycle c0+344), reason Step{by the caller}, and the stop "
+                                "holds",
+              b5_stopped_at(m.emu, *m.dbg, AFTER_CALL, m.c0 + 344, K::Step, m.a),
+              b5_state(*m.dbg));
+    }
+    {
+        B5VerbMachine m;
+        m.emu.execute_single_instruction();
+        m.emu.execute_single_instruction();
+        m.emu.execute_single_instruction();              // inside SUB
+        m.dbg->pause(m.a);
+        m.dbg->step_out(m.a);
+        run_until_paused(m.emu);
+        check("WV-STEPOUT-01", "step_out() inside SUB: back at the caller's next "
+                               "instruction (pc 0x8005, cycle c0+344), reason Step{by "
+                               "the caller}, and the stop holds",
+              b5_stopped_at(m.emu, *m.dbg, AFTER_CALL, m.c0 + 344, K::Step, m.a),
+              b5_state(*m.dbg));
+    }
+    {
+        B5VerbMachine m;
+        m.dbg->pause(m.a);
+        m.dbg->run_to(m.a, AFTER_CALL);
+        run_until_paused(m.emu);
+        check("WV-RUNTO-01", "run_to(0x8005): stopped AT it (cycle c0+344), reason "
+                             "RunTo{by the caller, addr 0x8005}, and the stop holds",
+              m.dbg->state().pause_reason.addr == AFTER_CALL &&
+                  b5_stopped_at(m.emu, *m.dbg, AFTER_CALL, m.c0 + 344, K::RunTo, m.a),
+              b5_state(*m.dbg));
+    }
+    {
+        // ON the grid: a `>` for `>=` would stop one JR $ later.
+        B5VerbMachine m;
+        const uint64_t target = m.c0 + 376 + 16 * B5_JR_CYCLES;
+        m.dbg->pause(m.a);
+        m.dbg->run_to_cycle(m.a, target);
+        run_until_paused(m.emu);
+        check("WV-RUNTOCYCLE-01", "run_to_cycle(t) with t on an instruction boundary: "
+                                  "stopped EXACTLY at t (pc 0x8006), reason RunTo{by the "
+                                  "caller}, and the stop holds",
+              b5_stopped_at(m.emu, *m.dbg, PARK, target, K::RunTo, m.a),
+              "target=" + std::to_string(target) + " " + b5_state(*m.dbg));
+    }
+    {
+        // The target is the verb's definition (§4.1 CTL-08, the moved Qt code):
+        // the end of the current line rounded up to the next line boundary.
+        B5VerbMachine m;
+        const uint64_t line   = m.emu.timing().master_cycles_per_line;
+        const uint64_t target = m.emu.current_frame_cycle() + line;
+        m.dbg->pause(m.a);
+        m.dbg->run_to_end_of_scanline(m.a);
+        run_until_paused(m.emu);
+        const uint64_t want = b5_prog_boundary(m.c0, target);
+        check("WV-EOSL-01", "run_to_end_of_scanline() from the frame's first line: "
+                            "stopped at the first boundary at or past the next line's "
+                            "start, reason RunTo{by the caller}, and the stop holds",
+              b5_stopped_at(m.emu, *m.dbg, PARK, want, K::RunTo, m.a),
+              "want=" + std::to_string(want) + " " + b5_state(*m.dbg));
+    }
+    {
+        // The midpoint of the last VISIBLE row: framebuffer row 255 is raw line
+        // 255 + vblank_top() (G164v2).
+        B5VerbMachine m;
+        const uint64_t line   = m.emu.timing().master_cycles_per_line;
+        const uint64_t target = m.emu.current_frame_cycle() +
+            static_cast<uint64_t>(255 + m.emu.video_timing().vblank_top()) * line + line / 2;
+        m.dbg->pause(m.a);
+        m.dbg->run_to_end_of_frame(m.a);
+        run_until_paused(m.emu, 3);
+        const uint64_t want = b5_prog_boundary(m.c0, target);
+        check("WV-EOF-01", "run_to_end_of_frame(): stopped at the first boundary at or "
+                           "past the midpoint of the last visible row, reason RunTo{by "
+                           "the caller}, and the stop holds",
+              b5_stopped_at(m.emu, *m.dbg, PARK, want, K::RunTo, m.a),
+              "want=" + std::to_string(want) + " " + b5_state(*m.dbg));
+    }
+    {
+        B5VerbMachine m;
+        const uint64_t target = m.emu.current_frame_cycle() +
+                                2 * m.emu.timing().master_cycles_per_frame;
+        m.dbg->pause(m.a);
+        m.dbg->run_to_frame(m.a, 2);
+        run_until_paused(m.emu, 4);
+        const uint64_t want = b5_prog_boundary(m.c0, target);
+        check("WV-RUNTOFRAME-01", "run_to_frame(2) on a never-run machine: stopped at "
+                                  "the first boundary of frame 2 (tag 2), reason RunTo{by "
+                                  "the caller}, and the stop holds",
+              m.dbg->time().frame == 2 &&
+                  b5_stopped_at(m.emu, *m.dbg, PARK, want, K::RunTo, m.a),
+              "want=" + std::to_string(want) + " frame=" +
+                  std::to_string(m.dbg->time().frame) + " " + b5_state(*m.dbg));
+    }
+    {
+        B5VerbMachine m(/*rewind=*/true);
+        m.dbg->pause(m.a);
+        m.dbg->step_into(m.a);
+        m.dbg->step_into(m.a);                           // pc 0x8002, cycle c0+64
+        const Result r = m.dbg->step_back(m.a, 1);
+        check("WV-STEPBACK-01", "step_back(1): one instruction back (pc 0x8001, cycle "
+                                "c0+32), reason Step{by the caller}, and the stop holds",
+              r == Result::Ok &&
+                  b5_stopped_at(m.emu, *m.dbg, PROG + 1, m.c0 + 32, K::Step, m.a),
+              "rc=" + std::to_string(static_cast<int>(r)) + " " + b5_state(*m.dbg));
+    }
+    {
+        // A frame's snapshot is taken as it BEGINS, which is the first boundary
+        // at or past its start cycle — frame 0 ran out on that boundary.
+        B5VerbMachine m(/*rewind=*/true);
+        m.emu.run_frame(); m.emu.run_frame(); m.emu.run_frame();
+        m.dbg->pause(m.a);
+        const Result r = m.dbg->rewind_to_frame(m.a, 1);
+        const uint64_t want =
+            b5_prog_boundary(m.c0, m.c0 + m.emu.timing().master_cycles_per_frame);
+        check("WV-REWIND-01", "rewind_to_frame(1): back at frame 1's first boundary (tag "
+                              "1), reason Step{by the caller}, and the stop holds",
+              r == Result::Ok && m.dbg->time().frame == 1 &&
+                  b5_stopped_at(m.emu, *m.dbg, PARK, want, K::Step, m.a),
+              "rc=" + std::to_string(static_cast<int>(r)) + " want=" +
+                  std::to_string(want) + " frame=" +
+                  std::to_string(m.dbg->time().frame) + " " + b5_state(*m.dbg));
+    }
+    {
+        // ED FF executes as an 8-T NOP and then pauses: the stop is AFTER it.
+        Emulator emu;
+        b5_build(emu, { 0xED, 0xFF, 0x18, 0xFE });
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("B5")).value;
+        dbg.set_magic_breakpoint(true);
+        const uint64_t c0 = emu.clock().get();
+        emu.run_frame();
+        check("WV-MAGIC-01", "set_magic_breakpoint(true): ED FF stops the machine after "
+                             "it (pc 0x8002, cycle c0+64), reason Magic{addr 0x8000}, "
+                             "UNOWNED although a client is attached, and the stop holds",
+              dbg.state().pause_reason.addr == 0x8000 &&
+                  b5_stopped_at(emu, dbg, 0x8002, c0 + 64, K::Magic,
+                                jnext::dbg::CLIENT_NONE),
+              "client=" + std::to_string(a) + " " + b5_state(dbg));
+    }
+    {
+        // THE CONTROL: the same program on the same ARMED machine (a client
+        // attached — CTL-00-01 runs unarmed), no verb. It passes every stop point
+        // above and never pauses.
+        B5VerbMachine m;
+        bool ever_paused = false;
+        for (int i = 0; i < 3; ++i) {
+            m.emu.run_frame();
+            ever_paused = ever_paused || m.dbg->state().paused;
+        }
+        const uint64_t past = b5_prog_boundary(
+            m.c0, m.c0 + 2 * m.emu.timing().master_cycles_per_frame);
+        check("WV-CTRL-01", "control: an armed machine with no verb runs three frames "
+                            "straight past every stop point above and never pauses",
+              !ever_paused && pc_of(m.emu) == PARK && m.emu.clock().get() > past,
+              b5_state(*m.dbg));
+    }
+}
+
 int main() {
     std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
 
@@ -12407,6 +12660,7 @@ int main() {
 
     // GH #276 B5
     b5_wire_kind_rows();
+    b5_wire_verb_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
