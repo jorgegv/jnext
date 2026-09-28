@@ -67,6 +67,11 @@
 #include "peripheral/dma.h"
 #include "video/palette.h"
 #include "video/sprites.h"
+// GH #276 B3 — CTL-12's reconstruct rows drive the REAL
+// `emulator_frontend_cold_boot()`, not a stand-in: the whole point of the
+// contract is what `~Emulator()` + placement-new does to a surviving
+// `Debugger`, and a fake that only re-ran `init()` would not do it.
+#include "platform/emulator_boot.h"
 
 #include <spdlog/sinks/ringbuffer_sink.h>
 
@@ -98,6 +103,10 @@ using jnext::dbg::EventTable;
 using jnext::dbg::NmiButton;
 using jnext::dbg::ResetKind;
 using jnext::dbg::Subscription;
+
+// GH #276 B3 (§4.8 CAP-SES)
+using jnext::dbg::ClientId;
+using jnext::dbg::RunState;
 
 // ── Tiny test harness (matches test/debug/step_out_test.cpp style) ──────────
 
@@ -285,6 +294,133 @@ static void build_armed(Emulator& emu, const std::vector<uint8_t>& bytes,
     emu.cpu().set_registers(r);
     emu.debug_state().set_active(true);
 }
+
+// ── GH #276 B3 helpers (§4.8 CAP-SES) ──────────────────────────────────────
+
+/// Write `bytes` at PROG and point PC/SP at it, WITHOUT init() and WITHOUT
+/// set_active(). Two reasons it is not `build_armed`:
+///
+///   * B3's rows arm the machine by ATTACHING A CLIENT, which is the thing under
+///     test — `set_active(true)` would arm it by the other contributor and make
+///     every `attached()` / `armed()` row pass whatever `attach()` did.
+///   * after a cold boot the RAM is wiped, so the program has to be reloaded
+///     into the RECONSTRUCTED machine without re-running init().
+static void load_prog(Emulator& emu, const std::vector<uint8_t>& bytes) {
+    for (size_t i = 0; i < bytes.size(); ++i)
+        emu.mmu().write(static_cast<uint16_t>(PROG + i), bytes[i]);
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC   = PROG;
+    r.SP   = TEST_SP;
+    r.IFF1 = 0;
+    r.IFF2 = 0;
+    emu.cpu().set_registers(r);
+}
+
+/// The one program the reconstruct rows run: a GUEST write to 0x5010, which is
+/// what a `Mem{Write}` subscription there can actually see. A backend `poke()`
+/// could not — §4.2a makes a debugger write fire no event on itself, and
+/// `DebugState::watchpoints_live()` is false outside `GuestExecutionScope`.
+///
+///   8000  3E nn        LD A,nn
+///   8002  32 10 50     LD (0x5010),A
+///   8005  18 FE        JR $
+static constexpr uint16_t WATCHED = 0x5010;
+static void load_writer(Emulator& emu, uint8_t val) {
+    load_prog(emu, { 0x3E, val, 0x32, 0x10, 0x50, 0x18, 0xFE });
+}
+
+static jnext::dbg::ClientInfo client(
+    const char* name,
+    jnext::dbg::ClientKind kind = jnext::dbg::ClientKind::Test) {
+    jnext::dbg::ClientInfo ci;
+    ci.name = name;
+    ci.kind = kind;
+    return ci;
+}
+
+/// A `Listener` that records every push, in order. The seven overrides are all
+/// pure virtual in the published header on purpose (a silently ignored
+/// notification is the failure a default empty override invites), so this
+/// implements all seven and records all seven — a row that asserts one of them
+/// would otherwise not notice the others going missing.
+struct RecListener : jnext::dbg::Listener {
+    std::vector<jnext::dbg::PausedInfo>  paused;
+    std::vector<ClientId>                resumed;
+    std::vector<ResetKind>               resets;
+    std::vector<uint32_t>                frames;
+    std::vector<jnext::dbg::EventKindMask> subs;
+    std::vector<int>                     exits;
+    std::vector<std::pair<jnext::dbg::LogLevel, std::string>> logs;
+
+    void on_paused(const jnext::dbg::PausedInfo& i) override { paused.push_back(i); }
+    void on_resumed(ClientId by) override                    { resumed.push_back(by); }
+    void on_reset(ResetKind k) override                      { resets.push_back(k); }
+    void on_frame_ended(uint32_t f) override                 { frames.push_back(f); }
+    void on_subscriptions_changed(jnext::dbg::EventKindMask k) override {
+        subs.push_back(k);
+    }
+    void on_exit_requested(int code) override                { exits.push_back(code); }
+    void on_log(jnext::dbg::LogLevel lvl, const std::string& t) override {
+        logs.emplace_back(lvl, t);
+    }
+
+    /// Every counter at once, for a failure message: a row that fails on
+    /// `paused.size()` almost always wants to know what else arrived.
+    std::string trail() const {
+        return "paused=" + std::to_string(paused.size()) +
+               " resumed=" + std::to_string(resumed.size()) +
+               " resets=" + std::to_string(resets.size()) +
+               " frames=" + std::to_string(frames.size()) +
+               " subs=" + std::to_string(subs.size()) +
+               " exits=" + std::to_string(exits.size()) +
+               " logs=" + std::to_string(logs.size());
+    }
+};
+
+/// A `Service` that records the `wait_ms` of every `service_once()` call, so the
+/// drain policy can be asserted on WHAT IT ASKED FOR rather than only on how
+/// many times — the budget arms differ in which value reaches the service.
+struct FakeService : jnext::dbg::Service {
+    std::vector<int> calls;
+    int              flushes             = 0;
+    size_t           flushed_after_calls = 0;
+    bool             connected           = false;
+    /// Report `Serviced` for ever: a peer that never stops talking, which is what
+    /// makes the paused drain observable at all.
+    bool             always_serviced     = false;
+    /// Report `Serviced` this many times and then `Idle`: the other way out of
+    /// the drain loop.
+    int              serviced_budget     = 0;
+
+    jnext::dbg::ServiceStep service_once(int wait_ms) override {
+        calls.push_back(wait_ms);
+        if (always_serviced) return jnext::dbg::ServiceStep::Serviced;
+        if (serviced_budget > 0) {
+            --serviced_budget;
+            return jnext::dbg::ServiceStep::Serviced;
+        }
+        return jnext::dbg::ServiceStep::Idle;
+    }
+    void flush_notifications() override {
+        ++flushes;
+        flushed_after_calls = calls.size();
+    }
+    bool peer_connected() const override { return connected; }
+
+    void reset() {
+        calls.clear();
+        flushes             = 0;
+        flushed_after_calls = 0;
+    }
+    std::string trail() const {
+        std::string out = "waits=[";
+        for (size_t i = 0; i < calls.size(); ++i) {
+            if (i) out += ",";
+            out += std::to_string(calls[i]);
+        }
+        return out + "]";
+    }
+};
 
 // The Copper is programmed the way the machine programs it: through NR
 // 0x61/0x62/0x63, which Emulator::init() wires to the engine. Same word
@@ -1321,10 +1457,10 @@ int main() {
         // been delivered.
         check("PEND-B2-01", "a fresh backend has no subscriptions and no delivery history",
               dbg.subscriptions(true).empty() && dbg.events_fired_since(0).empty());
-        check("PEND-B3-01", "attach() (B3) refuses as unsupported",
-              dbg.attach(jnext::dbg::ClientInfo{}).status == Result::Unsupported);
-        check("PEND-B3-02", "pump() is inert and reports no remote attached",
-              !dbg.pump(jnext::dbg::PumpBudget{}).remote_attached);
+        // The two PEND-B3 rows that used to sit here asserted the REFUSAL of
+        // `attach()` and an inert `pump()`. B3 implemented both, so they are
+        // gone rather than inverted: what they were pinning is now pinned by
+        // SES-01-* and SES-03-* below, against the real behaviour.
         check("PEND-B4-01", "press_key() (B4) refuses as unsupported",
               dbg.press_key(1, std::string("enter"), 2).status == Result::Unsupported);
         check("PEND-B4-02", "coverage is off and reads all-zero",
@@ -1370,8 +1506,13 @@ int main() {
         // for every client's write. Captured off the live logger, because a
         // claim that something is logged is only worth what reading the log
         // proves.
+        // GH #276 B3 — the `debugger` channel, not `emulator`: SES-06 got its own
+        // `--log-level` name in B3 (`Log::debugger()`, gated against the man
+        // page's LOGGING list by log_test LOG-10/11), and the mutation log goes
+        // through it. A row still reading `emulator` would pass only while the
+        // two were the same channel.
         auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(16);
-        Log::emulator()->sinks().push_back(ring);
+        Log::debugger()->sinks().push_back(ring);
 
         Emulator emu; build(emu);
         Debugger dbg(emu);
@@ -1394,7 +1535,7 @@ int main() {
         check("MUTLOG-05", "a READ emits no MUTATE line",
               ring->last_formatted().size() == after_write);
 
-        Log::emulator()->sinks().pop_back();
+        Log::debugger()->sinks().pop_back();
     }
 
 
@@ -6341,6 +6482,1597 @@ int main() {
               std::string("ackd=") + (ackd ? "1" : "0") + " kind=" +
                   std::to_string(static_cast<int>(dbg.state().pause_reason.kind)) +
                   " id=" + std::to_string(dbg.state().pause_reason.id));
+    }
+
+    // =======================================================================
+    // GH #276 B3 — §4.8 CAP-SES, the session
+    //
+    // WHAT THESE ROWS ARE FOR. B2's review found that three of its nine
+    // blocking items were two sides of ONE mechanism disagreeing — each side
+    // defensible alone, and each side's own row green while the pair was broken.
+    // B3 is made almost entirely of pairs (attach/detach, the drain and its
+    // budget, the stored and effective stop policy, the ctor's publications and
+    // the dtor's retirements, per-client `live_raster` and the OR of all
+    // clients), so wherever a pair exists the row below asserts the INVARIANT
+    // ACROSS IT rather than each half.
+    //
+    // Where a row's subject is a conditional, BOTH ARMS get a row: a `Stop`
+    // under each stop policy, a frame tag moving forward and backward, a drain
+    // with a budget and with none, `attached()` from a client and from
+    // `DebugState::active()`.
+    // =======================================================================
+
+    // ── SES-01 — the client table ──────────────────────────────────────────
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+
+        const auto a = dbg.attach(client("A", jnext::dbg::ClientKind::Test));
+        const auto b = dbg.attach(client("B", jnext::dbg::ClientKind::Dzrp));
+        check("SES-01-01", "attach() hands out distinct, non-CLIENT_NONE ids",
+              a.status == Result::Ok && b.status == Result::Ok &&
+              a.value != jnext::dbg::CLIENT_NONE && a.value != b.value,
+              "a=" + std::to_string(a.value) + " b=" + std::to_string(b.value));
+
+        // THE INVARIANT ACROSS attach/detach, driven as a SEQUENCE rather than
+        // as one attach and one detach: the three derived answers must agree
+        // with the live client count at every step. `attach` incrementing a
+        // counter and `detach` decrementing one is the pair that drifts, and a
+        // row per side cannot see it.
+        bool seq_ok = true;
+        std::string seq_detail;
+        auto agree = [&](int live_expected, const char* where) {
+            const bool any     = live_expected > 0;
+            const bool ok_here = dbg.attached() == any &&
+                                 emu.debug_state().clients_attached() == any &&
+                                 dbg.armed() == (any || dbg.persistent_breakpoints());
+            if (!ok_here) {
+                seq_ok = false;
+                seq_detail += std::string(" [") + where + " attached=" +
+                              (dbg.attached() ? "1" : "0") + " bit=" +
+                              (emu.debug_state().clients_attached() ? "1" : "0") +
+                              " armed=" + (dbg.armed() ? "1" : "0") + "]";
+            }
+        };
+        agree(2, "two attached");
+        dbg.detach(a.value);
+        agree(1, "one detached");
+        const auto c = dbg.attach(client("C", jnext::dbg::ClientKind::Zrcp));
+        agree(2, "re-attached");
+        dbg.detach(b.value);
+        dbg.detach(c.value);
+        agree(0, "all detached");
+        check("SES-01-02", "attached(), DebugState::clients_attached() and armed() "
+                           "agree with the live client count at every step",
+              seq_ok, seq_detail);
+
+        check("SES-01-03", "ids are never REUSED after a detach",
+              c.value != a.value && c.value != b.value);
+        check("SES-01-04", "detach() of an unknown id is benign, not Unsupported",
+              dbg.detach(9999) == Result::RefusedUnavailable);
+        check("SES-01-05", "a SECOND detach of the same id is refused too",
+              dbg.detach(a.value) == Result::RefusedUnavailable);
+        check("SES-01-06", "detach(CLIENT_NONE) is refused — the backend is not a client",
+              dbg.detach(jnext::dbg::CLIENT_NONE) == Result::RefusedUnavailable);
+        check("SES-01-07", "set_listener() on an unknown id is refused",
+              dbg.set_listener(9999, nullptr) == Result::RefusedUnavailable);
+        check("SES-01-08", "set_live_raster() on an unknown id is refused",
+              dbg.set_live_raster(9999, true) == Result::RefusedUnavailable);
+    }
+    {
+        // detach takes THIS client's subscriptions and only this client's — and
+        // closes the hot-path gate with them. `erase_client()` alone only
+        // tombstones the rows; without the `gates_changed()` beside it the
+        // retired subscription's slot-mask bit stays set for ever.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+
+        Subscription ma;
+        ma.kind = EventKind::Mem; ma.access = Access::Write;
+        ma.filter.lo = 0x4000; ma.filter.hi = 0x40FF;
+        Subscription mb = ma;
+        mb.filter.lo = 0xC000; mb.filter.hi = 0xC0FF;
+        const auto sa = dbg.subscribe(a, ma);
+        const auto sb = dbg.subscribe(b, mb);
+        // THE BYTE THE HOT PATH READS, not `EventTable`'s own copy of it.
+        // `erase_client()` calls `refresh()`, which updates the table's internal
+        // mask on its own; only `gates_changed()` PUBLISHES it into
+        // `BreakpointSet`, which is what the eight `Mmu` sites consult. Reading
+        // the table's side let a detach that never published survive a mutation.
+        const uint8_t mask_both =
+            emu.debug_state().breakpoints().watch_slot_mask_wr();
+
+        dbg.detach(a);
+        check("SES-01-09", "detach removes that client's subscriptions",
+              !dbg.subscriptions(true).empty() &&
+              dbg.subscriptions(true).size() == 1 &&
+              dbg.subscriptions(true)[0].id == sb.value,
+              "n=" + std::to_string(dbg.subscriptions(true).size()));
+        const uint8_t mask_one =
+            emu.debug_state().breakpoints().watch_slot_mask_wr();
+        check("SES-01-10", "and CLOSES its hot-path gate — the PUBLISHED slot mask "
+                           "drops",
+              mask_both != mask_one &&
+              (mask_one & (1u << (0x4000 >> 13))) == 0 &&
+              (mask_one & (1u << (0xC000 >> 13))) != 0,
+              "both=" + hex(mask_both) + " one=" + hex(mask_one));
+        check("SES-01-11", "and leaves the OTHER client's subscription live",
+              dbg.subscriptions(true)[0].live && sa.value != sb.value);
+    }
+    {
+        // SES-01's one rule, and its THREE arms. A pause this client owns is
+        // released; a pause ANOTHER client owns survives; an UNOWNED pause
+        // (`CLIENT_NONE`) survives every detach there will ever be.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.pause(a);
+        check("SES-01-12", "detach of the client that paused resumes the machine",
+              dbg.state().paused && dbg.detach(a) == Result::Ok &&
+              !dbg.state().paused);
+
+        const ClientId a2 = dbg.attach(client("A2")).value;
+        dbg.pause(b);
+        check("SES-01-13", "detach of ANOTHER client leaves that pause standing",
+              dbg.state().paused && dbg.detach(a2) == Result::Ok &&
+              dbg.state().paused);
+        dbg.detach(b);
+    }
+    {
+        // SES-01's rule names TWO ways a pause can be a client's: "its `pause()`,
+        // OR A STOP ON ONE OF ITS SUBSCRIPTIONS". The second is the one that
+        // makes the ORDER inside `detach()` load-bearing — the reason comes from
+        // the event-stop latch, whose `by` is the owning subscription's client,
+        // and `erase_client()` tombstones that subscription. Read the reason
+        // after erasing and the pause stops being anybody's.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        Subscription s;
+        s.kind      = EventKind::Execute;
+        s.filter.lo = AFTER_CALL; s.filter.hi = AFTER_CALL;
+        s.action    = Action::Stop;
+        dbg.subscribe(a, s);
+        run_until_paused(emu, 3);
+        const RunState st = dbg.state();
+        check("SES-01-16", "a SUBSCRIPTION's Stop is that client's pause too",
+              st.paused && st.pause_reason.kind == PauseReason::Kind::Breakpoint &&
+              st.pause_reason.by == a,
+              "kind=" + std::to_string(static_cast<int>(st.pause_reason.kind)) +
+                  " by=" + std::to_string(st.pause_reason.by));
+        check("SES-01-17", "so its detach releases it — which needs the reason read "
+                           "BEFORE its subscription is erased",
+              dbg.detach(a) == Result::Ok && !dbg.state().paused);
+    }
+    {
+        // RE-ENTRANCY. A listener may `detach()` from inside its own callback —
+        // a protocol server whose socket died does exactly that — and the
+        // fan-out is walking the client vector when it happens. That is why a
+        // detach is a TOMBSTONE and the erase is deferred to the end of the
+        // outer fan-out.
+        //
+        // Three things at once, because they are one mechanism: the departing
+        // client must not be served again in the SAME fan-out, the clients AFTER
+        // it must still be served, and the list must be consistent afterwards.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+
+        struct SelfDetacher : jnext::dbg::Listener {
+            Debugger* dbg = nullptr;
+            ClientId  me  = jnext::dbg::CLIENT_NONE;
+            int       pauses = 0;
+            void on_paused(const jnext::dbg::PausedInfo&) override {
+                ++pauses;
+                dbg->detach(me);
+            }
+            void on_resumed(ClientId) override {}
+            void on_reset(ResetKind) override {}
+            void on_frame_ended(uint32_t) override {}
+            void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
+            void on_exit_requested(int) override {}
+            void on_log(jnext::dbg::LogLevel, const std::string&) override {}
+        };
+
+        SelfDetacher first;
+        RecListener  after;
+        const ClientId a = dbg.attach(client("Detacher")).value;
+        const ClientId b = dbg.attach(client("After")).value;
+        first.dbg = &dbg;
+        first.me  = a;
+        dbg.set_listener(a, &first);
+        dbg.set_listener(b, &after);
+        dbg.pump(jnext::dbg::PumpBudget{});            // prime
+        dbg.pause(b);
+        dbg.pump(jnext::dbg::PumpBudget{});            // the push that detaches
+
+        check("SES-01-18", "a listener may detach itself from inside its callback, "
+                           "and the client AFTER it in the fan-out is still served",
+              first.pauses == 1 && after.paused.size() == 1,
+              "first=" + std::to_string(first.pauses) + " " + after.trail());
+        check("SES-01-19", "the self-detach took effect — that client is gone",
+              dbg.set_listener(a, nullptr) == Result::RefusedUnavailable &&
+              dbg.attached());
+
+        // A SECOND push must not reach the departed listener: the tombstone was
+        // compacted at the end of the outer fan-out, and even before that the
+        // loop skips a detached row.
+        dbg.run(b);
+        dbg.pause(b);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-01-20", "and a LATER push does not reach it either",
+              first.pauses == 1 && after.paused.size() == 2,
+              "first=" + std::to_string(first.pauses) + " " + after.trail());
+        dbg.detach(b);
+    }
+    {
+        // The UNOWNED arm, on the real magic-breakpoint latch rather than a
+        // hand-set reason: `PauseReason::Magic` carries `by == CLIENT_NONE`
+        // BECAUSE nobody's verb caused it, and that is what must make it
+        // immune. Driven through the machine so the row cannot pass on a
+        // fabricated reason.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.set_magic_breakpoint(true);
+        emu.debug_state().note_magic_stop(0x1234);
+        emu.debug_state().pause();
+        const RunState st = dbg.state();
+        check("SES-01-14", "an unowned Magic stop reads as CLIENT_NONE",
+              st.paused && st.pause_reason.kind == PauseReason::Kind::Magic &&
+              st.pause_reason.by == jnext::dbg::CLIENT_NONE);
+        check("SES-01-15", "and NO client's detach resumes it",
+              dbg.detach(a) == Result::Ok && dbg.state().paused);
+    }
+
+    // ── SES-02 — the listener fan-out ──────────────────────────────────────
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        RecListener la, lb;
+        // ORDER IS THE ROW: the listener-less client sits BETWEEN the two that
+        // have one, so a push reaching `b` proves the fan-out loop CONTINUED past
+        // a null listener rather than stopping or crashing on it. With `c` last,
+        // a loop that broke on null would still have served both.
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId c = dbg.attach(client("C")).value;   // no listener at all
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.set_listener(a, &la);
+        dbg.set_listener(b, &lb);
+
+        // The FIRST pump primes the edge detector and pushes nothing: a
+        // `Debugger` built over an already-paused machine has not "just
+        // paused", and a first tick claiming so would make every frontend
+        // report a stop that never happened.
+        dbg.pause(a);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-02-01", "the FIRST pump primes the baseline and pushes nothing",
+              la.paused.empty() && la.resumed.empty(), la.trail());
+
+        dbg.run(a);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-02-02", "a resume is pushed once, attributed to its client",
+              la.resumed.size() == 1 && la.resumed[0] == a && la.paused.empty(),
+              la.trail());
+
+        dbg.pause(b);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-02-03", "a pause is pushed once, attributed to its client",
+              la.paused.size() == 1 && la.paused[0].by == b &&
+              la.paused[0].reason.kind == PauseReason::Kind::User,
+              la.trail());
+        check("SES-02-04", "EVERY client with a listener gets it — one loop, not "
+                           "the caller's",
+              lb.paused.size() == 1 && lb.paused[0].by == b &&
+              lb.resumed.size() == 1);
+
+        // A second pump with nothing changed must push nothing: the machine is
+        // still paused, and "still paused" is not a stop.
+        const size_t before = la.paused.size();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-02-05", "a pump with no transition pushes nothing",
+              la.paused.size() == before, la.trail());
+
+        // A client with no listener is SKIPPED, and must not stop the loop: `c`
+        // was attached before `a` and `b` got their pushes above, which is what
+        // proves it.
+        check("SES-02-06", "a client with no listener is SKIPPED and the loop "
+                           "continues past it — the client after it still gets the "
+                           "push",
+              c != jnext::dbg::CLIENT_NONE && a < c && c < b &&
+              la.paused.size() == 1 && lb.paused.size() == 1,
+              "a=" + std::to_string(a) + " c=" + std::to_string(c) +
+                  " b=" + std::to_string(b) + " " + lb.trail());
+
+        // `set_listener(cid, nullptr)` is how a client stops receiving pushes
+        // WITHOUT detaching — which is why the signature takes a pointer.
+        dbg.set_listener(b, nullptr);
+        dbg.run(b);
+        dbg.pause(b);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-02-07", "set_listener(nullptr) stops the pushes and leaves the "
+                           "client attached",
+              lb.paused.size() == 1 && la.paused.size() == 2 && dbg.attached());
+    }
+    {
+        // Stop, resume and stop again BETWEEN two pumps. `paused` is true at
+        // both ends, so only `resume_generation()` shows the machine moved —
+        // which is why the edge detector reads it and not just the flag.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        RecListener l;
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.set_listener(a, &l);
+        dbg.pump(jnext::dbg::PumpBudget{});          // prime, running
+        dbg.pause(a);
+        dbg.pump(jnext::dbg::PumpBudget{});          // push #1
+        dbg.run(a);
+        dbg.pause(a);
+        dbg.pump(jnext::dbg::PumpBudget{});          // push #2, still "paused"
+        check("SES-02-08", "a stop-resume-stop between pumps is TWO pauses, not one",
+              l.paused.size() == 2, l.trail());
+    }
+    {
+        // SubscriptionsChanged, and the negative control beside it: the
+        // revision counter is bumped by `EventTable::refresh()` — every
+        // subscription mutator — and NOT by `set_slot_page()`, so an MMU paging
+        // write does not notify. Without the second half the first would pass
+        // on a counter bumped by everything.
+        Emulator emu; build(emu, MachineType::ZX128K);   // set_page needs paging
+        Debugger dbg(emu);
+        RecListener l;
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.set_listener(a, &l);
+        dbg.pump(jnext::dbg::PumpBudget{});          // prime
+
+        Subscription s;
+        s.kind = EventKind::Mem; s.access = Access::Write;
+        s.filter.lo = 0x4000; s.filter.hi = 0x40FF;
+        const auto id = dbg.subscribe(a, s);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-02-09", "subscribe() pushes SubscriptionsChanged with the kind mask",
+              l.subs.size() == 1 &&
+              (l.subs[0] & jnext::dbg::kind_bit(EventKind::Mem)) != 0,
+              "n=" + std::to_string(l.subs.size()));
+
+        // A paging write recomputes the slot masks (`EventTable::set_slot_page`)
+        // and must NOT notify — a subscription did not change, and notifying
+        // every listener on an MMU write would push thousands of times a frame.
+        emu.mmu().set_page(6, 0x02);
+        emu.mmu().set_page(6, 0x10);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-02-10", "an MMU paging write does NOT push SubscriptionsChanged",
+              l.subs.size() == 1, "n=" + std::to_string(l.subs.size()));
+
+        dbg.unsubscribe(a, id.value);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-02-11", "unsubscribe() pushes it too, with the kind gone",
+              l.subs.size() == 2 &&
+              (l.subs[1] & jnext::dbg::kind_bit(EventKind::Mem)) == 0);
+    }
+    {
+        // FrameEnded, and BOTH ARMS of its one conditional. Forward motion
+        // notifies; a BACKWARD move (which `step_back` / `rewind_to_frame`
+        // make) re-baselines silently — a loop from the old tag to a smaller
+        // new one would run about four billion times, and "frame N ended" is
+        // not what going back to frame N means.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        RecListener l;
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.set_listener(a, &l);
+        dbg.pump(jnext::dbg::PumpBudget{});          // prime at frame 0
+        emu.run_frame();
+        emu.run_frame();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-02-12", "a pump after a frame batch pushes ONE FrameEnded, "
+                           "carrying the most recent completed frame",
+              l.frames.size() == 1 && l.frames[0] == dbg.time().frame,
+              "n=" + std::to_string(l.frames.size()) +
+                  " last=" + (l.frames.empty() ? std::string("-")
+                                               : std::to_string(l.frames.back())));
+        const size_t before = l.frames.size();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-02-13", "and a pump with no new frame pushes none",
+              l.frames.size() == before);
+    }
+    {
+        // THE OTHER ARM of that one conditional: the frame tag moving BACKWARD.
+        // `rewind_to_frame()` does it, and "frame N ended" is not what going back
+        // to frame N means — nor could the forward form survive it, since a loop
+        // from the old tag down to a smaller new one would run about four billion
+        // times. The re-baseline is silent, and the row after proves it is a
+        // re-baseline rather than a permanent mute.
+        Emulator emu; build(emu);
+        emu.set_rewind_enabled(true);
+        emu.resize_rewind_buffer(8);
+        Debugger dbg(emu);
+        RecListener l;
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.set_listener(a, &l);
+        for (int i = 0; i < 4; ++i) emu.run_frame();
+        dbg.pump(jnext::dbg::PumpBudget{});            // prime + one FrameEnded
+        const size_t after_forward = l.frames.size();
+        const uint32_t high        = dbg.time().frame;
+
+        const Result rr = dbg.rewind_to_frame(a, high > 2 ? high - 2 : 0);
+        const uint32_t low = dbg.time().frame;
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-02-14", "a rewind moves the frame tag BACKWARD and pushes no "
+                           "FrameEnded",
+              rr == Result::Ok && low < high &&
+              l.frames.size() == after_forward,
+              "rr=" + std::string(jnext::dbg::result_name(rr)) +
+                  " high=" + std::to_string(high) + " low=" + std::to_string(low) +
+                  " frames=" + std::to_string(l.frames.size()));
+
+        // ...and it re-baselined rather than muted: the next forward frame is
+        // pushed again.
+        emu.debug_state().resume();
+        emu.run_frame();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-02-15", "and the next FORWARD frame is pushed again — it "
+                           "re-baselined, it did not mute",
+              l.frames.size() == after_forward + 1,
+              "frames=" + std::to_string(l.frames.size()));
+    }
+    {
+        // §4.3 makes `matched[]` part of the `Paused` contract: EVERY
+        // subscription that stopped at this boundary, transient ones included.
+        // It comes from `EventTable::hits()`, which is delivery state and lives
+        // on the table rather than on `Impl` — B2's "a nested raise_host_event()
+        // clears the outer boundary's list" defect reached review with 744 green
+        // rows because nothing consumed it. B3 is the first consumer.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        RecListener l;
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.set_listener(a, &l);
+        Subscription s;
+        s.kind      = EventKind::Execute;
+        s.filter.lo = AFTER_CALL; s.filter.hi = AFTER_CALL;
+        s.action    = Action::Stop;
+        const auto id = dbg.subscribe(a, s);
+        dbg.pump(jnext::dbg::PumpBudget{});            // prime, running
+        run_until_paused(emu, 3);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-02-16", "Paused carries matched[] — the subscription that stopped "
+                           "the machine, by id",
+              l.paused.size() == 1 && l.paused[0].matched.size() == 1 &&
+              l.paused[0].matched[0].event_id == id.value,
+              l.trail() + " matched=" +
+                  (l.paused.empty() ? std::string("-")
+                                    : std::to_string(l.paused[0].matched.size())));
+    }
+
+    // ── SES-03 — services and pump() ───────────────────────────────────────
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        FakeService s1, s2;
+
+        check("SES-03-01", "pump() with no services reports the truth: nothing "
+                           "remote, and whether the machine is paused",
+              !dbg.pump(jnext::dbg::PumpBudget{}).remote_attached &&
+              !dbg.pump(jnext::dbg::PumpBudget{}).paused);
+
+        check("SES-03-02", "add_service() is idempotent — a second registration "
+                           "does not drain the same adapter twice",
+              dbg.add_service(s1) == Result::Ok &&
+              dbg.add_service(s1) == Result::Ok);
+        s1.reset();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-03-03", "so one pump services it exactly once",
+              s1.calls.size() == 1 && s1.flushes == 1,
+              "calls=" + std::to_string(s1.calls.size()));
+
+        check("SES-03-04", "remove_service() of an unregistered adapter is Ok",
+              dbg.remove_service(s2) == Result::Ok);
+        check("SES-03-05", "remove_service() unregisters, and a later pump skips it",
+              dbg.remove_service(s1) == Result::Ok);
+        s1.reset();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-03-06", "an unregistered adapter is neither serviced nor flushed",
+              s1.calls.empty() && s1.flushes == 0);
+    }
+    {
+        // THE DRAIN AND ITS BUDGET — one pair, four arms, and the arms differ in
+        // KIND rather than in degree. While RUNNING each service is asked for at
+        // most one command whatever the budget says (the loop owner needs its
+        // thread back for the next frame); while PAUSED the drain keeps
+        // answering while the peer keeps talking, bounded by `budget_ms`; and
+        // `budget_ms == 0` therefore means ONE, not "unbounded".
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        FakeService svc;
+        svc.always_serviced = true;               // a peer that never stops talking
+        dbg.add_service(svc);
+        const ClientId a = dbg.attach(client("A")).value;
+
+        jnext::dbg::PumpBudget generous;
+        generous.max_wait_ms = 7;
+        generous.drain_ms    = 1;
+        generous.budget_ms   = 50;
+
+        svc.reset();
+        dbg.pump(generous);
+        check("SES-03-07", "while RUNNING, exactly one command per service per pump "
+                           "however generous the budget",
+              svc.calls.size() == 1, "calls=" + std::to_string(svc.calls.size()));
+        check("SES-03-08", "and the FIRST call gets max_wait_ms",
+              !svc.calls.empty() && svc.calls[0] == 7,
+              svc.trail());
+
+        dbg.pause(a);
+        svc.reset();
+        dbg.pump(generous);
+        check("SES-03-09", "while PAUSED the chain is DRAINED — more than one command "
+                           "in one pump",
+              svc.calls.size() > 1, "calls=" + std::to_string(svc.calls.size()));
+        check("SES-03-10", "the first call gets max_wait_ms and the rest drain_ms",
+              svc.calls.size() > 1 && svc.calls[0] == 7 && svc.calls[1] == 1,
+              svc.trail());
+
+        svc.reset();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-03-11", "budget_ms == 0 means ONE command, not an unbounded drain",
+              svc.calls.size() == 1, "calls=" + std::to_string(svc.calls.size()));
+
+        // The drain stops on `Idle` even with the whole budget unspent, which is
+        // the other way out of the loop.
+        svc.reset();
+        svc.always_serviced = false;
+        svc.serviced_budget = 3;                  // 3 commands, then Idle
+        dbg.pump(generous);
+        check("SES-03-12", "and the drain stops on Idle with budget to spare",
+              svc.calls.size() == 4, "calls=" + std::to_string(svc.calls.size()));
+
+        check("SES-03-13", "flush_notifications() runs once per pump, after the drain",
+              svc.flushes == 1 && svc.flushed_after_calls == svc.calls.size(),
+              "flushes=" + std::to_string(svc.flushes));
+
+        svc.connected = true;
+        check("SES-03-14", "ServiceHint::remote_attached follows peer_connected()",
+              dbg.pump(jnext::dbg::PumpBudget{}).remote_attached);
+        svc.connected = false;
+        check("SES-03-15", "and drops again when the peer goes",
+              !dbg.pump(jnext::dbg::PumpBudget{}).remote_attached);
+        dbg.remove_service(svc);
+    }
+    {
+        // §5 — "`pump` is never called from inside `run_frame`, and the backend
+        // asserts `!in_delivery_`". A handler that calls it must be refused, and
+        // refused in a RELEASE build too, which is why it is not a bare
+        // `assert`: re-entering the drain would deliver the boundary's events
+        // twice.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        FakeService svc;
+        dbg.add_service(svc);
+        const ClientId a = dbg.attach(client("A")).value;
+        attach_and_pause(emu);
+
+        int handler_calls = 0;
+        bool refused_inside = false;
+        Subscription s;
+        s.kind    = EventKind::Execute;
+        s.filter.lo = AFTER_CALL; s.filter.hi = AFTER_CALL;
+        s.action  = Action::Continue;
+        s.handler = [&](const DbgEvent&, Debugger& d) {
+            ++handler_calls;
+            svc.reset();
+            const auto hint = d.pump(jnext::dbg::PumpBudget{});
+            // Refused: nothing serviced, nothing flushed.
+            refused_inside = svc.calls.empty() && svc.flushes == 0;
+            (void)hint;
+            return Action::Continue;
+        };
+        dbg.subscribe(a, s);
+        emu.debug_state().resume();
+        run_until_paused(emu, 2);
+        check("SES-03-16", "a handler that calls pump() is refused — nothing is "
+                           "serviced and nothing flushed",
+              handler_calls > 0 && refused_inside,
+              "handler_calls=" + std::to_string(handler_calls));
+        dbg.remove_service(svc);
+    }
+    {
+        // ORDER INSIDE pump(): the notification sync runs BEFORE the services are
+        // flushed, so a `Paused` the listener queues in THIS pump goes out on the
+        // same flush. §4.8 SES-03 is explicit — "a stop in this tick's frames is
+        // notified in this tick's pump" — and swapping the two makes every stop
+        // reply one tick late, which is invisible to a row that only counts.
+        //
+        // The row observes it from INSIDE the push: a listener that reads the
+        // service's flush counter when `on_paused` arrives must see 0, because the
+        // flush has not happened yet.
+        struct OrderProbe : jnext::dbg::Listener {
+            FakeService* svc         = nullptr;
+            int          flushes_at_push = -1;
+            void on_paused(const jnext::dbg::PausedInfo&) override {
+                flushes_at_push = svc->flushes;
+            }
+            void on_resumed(ClientId) override {}
+            void on_reset(ResetKind) override {}
+            void on_frame_ended(uint32_t) override {}
+            void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
+            void on_exit_requested(int) override {}
+            void on_log(jnext::dbg::LogLevel, const std::string&) override {}
+        };
+
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        FakeService svc;
+        OrderProbe  probe;
+        probe.svc = &svc;
+        dbg.add_service(svc);
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.set_listener(a, &probe);
+        dbg.pump(jnext::dbg::PumpBudget{});            // prime, running
+        svc.reset();
+        dbg.pause(a);
+        dbg.pump(jnext::dbg::PumpBudget{});
+
+        check("SES-03-17", "the Paused push happens BEFORE the services are flushed, "
+                           "so a stop goes out on this pump's flush",
+              probe.flushes_at_push == 0 && svc.flushes == 1,
+              "at_push=" + std::to_string(probe.flushes_at_push) +
+                  " flushes=" + std::to_string(svc.flushes));
+        dbg.remove_service(svc);
+    }
+
+    // ── SES-04 — the stop policy, stored vs effective ──────────────────────
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        FakeService svc;
+        dbg.add_service(svc);
+        dbg.set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero);
+        svc.connected = true;
+        check("SES-04-03", "stop_policy() keeps returning what the loop owner SET, "
+                           "even while a remote is connected",
+              dbg.stop_policy() == jnext::dbg::StopPolicy::ExitNonZero);
+        dbg.remove_service(svc);
+    }
+    {
+        // The EFFECTIVE policy, on a real `Action::Stop` through a running
+        // machine — all four arms of the one conditional:
+        //   Pause                       -> no exit request
+        //   ExitNonZero, no peer        -> exit request, code 3
+        //   ExitNonZero, peer connected -> no exit request (SES-04's override)
+        //   an explicit pause()          -> no exit request, whatever the policy
+        struct Arm {
+            const char*             id;
+            const char*             desc;
+            jnext::dbg::StopPolicy  policy;
+            bool                    peer;
+            bool                    expect_exit;
+        };
+        const Arm arms[] = {
+            {"SES-04-04", "StopPolicy::Pause requests no exit",
+             jnext::dbg::StopPolicy::Pause, false, false},
+            {"SES-04-05", "StopPolicy::ExitNonZero with no peer requests an exit",
+             jnext::dbg::StopPolicy::ExitNonZero, false, true},
+            {"SES-04-06", "and with a peer connected it PAUSES instead (SES-04's "
+                          "override — a client blocked on run must get its reply)",
+             jnext::dbg::StopPolicy::ExitNonZero, true, false},
+            {"SES-04-07", "StopPolicy::Pause with a peer requests no exit either",
+             jnext::dbg::StopPolicy::Pause, true, false},
+        };
+        for (const Arm& arm : arms) {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            RecListener l;
+            FakeService svc;
+            svc.connected = arm.peer;
+            dbg.add_service(svc);
+            const ClientId a = dbg.attach(client("A")).value;
+            dbg.set_listener(a, &l);
+            dbg.set_stop_policy(arm.policy);
+            attach_and_pause(emu);
+
+            Subscription s;
+            s.kind      = EventKind::Execute;
+            s.filter.lo = AFTER_CALL; s.filter.hi = AFTER_CALL;
+            s.action    = Action::Stop;
+            dbg.subscribe(a, s);
+            emu.debug_state().resume();
+            run_until_paused(emu, 3);
+
+            const bool stopped = emu.debug_state().paused();
+            const bool asked   = !l.exits.empty();
+            check(arm.id, arm.desc,
+                  stopped && asked == arm.expect_exit,
+                  std::string("stopped=") + (stopped ? "1" : "0") +
+                      " exits=" + std::to_string(l.exits.size()));
+            if (arm.expect_exit)
+                check("SES-04-08", "the exit code is 3 — never 2 (a harness fault) "
+                                   "and never 1 (\"jnext could not run\")",
+                      !l.exits.empty() && l.exits[0] == 3,
+                      l.exits.empty() ? "none" : std::to_string(l.exits[0]));
+            dbg.remove_service(svc);
+        }
+    }
+    {
+        // THE OTHER ARM of `apply_stop(from_event)`, and it is the one a single
+        // unparameterised function would have got wrong: an explicit
+        // `Debugger::pause()` is a stop that drops the transients, but it is NOT
+        // an `Action::Stop`, so `ExitNonZero` must not fire for it. A client
+        // asking a headless machine to hold still is asking for a pause, not for
+        // the process to exit under it.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        RecListener l;
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.set_listener(a, &l);
+        dbg.set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero);
+
+        Subscription t;
+        t.kind      = EventKind::Execute;
+        t.transient = true;
+        t.filter.lo = PARK; t.filter.hi = PARK;
+        t.action    = Action::Stop;
+        dbg.subscribe(a, t);
+        const bool had_transient = dbg.subscriptions(true).size() == 1 &&
+                                   dbg.subscriptions(true)[0].transient &&
+                                   dbg.subscriptions(true)[0].live;
+        dbg.pause(a);
+        check("SES-04-09", "an explicit pause() requests NO exit under ExitNonZero",
+              dbg.state().paused && l.exits.empty(),
+              "exits=" + std::to_string(l.exits.size()));
+        // The half of `apply_stop()` BOTH arms share, asserted on the one
+        // observable that distinguishes "dropped" from "never there": the
+        // subscription existed and was live before the pause.
+        check("SES-04-10", "and it still drops the transient subscriptions, which is "
+                           "the half of apply_stop() both arms share",
+              had_transient && dbg.subscriptions(true).empty(),
+              std::string("had=") + (had_transient ? "1" : "0") + " n=" +
+                  std::to_string(dbg.subscriptions(true).size()));
+    }
+    {
+        // THERE ARE TWO PATHS TO `apply_stop(from_event=true)` and the rows above
+        // only reach one. An `Execute` subscription stops from the
+        // PRE-INSTRUCTION gate (`Impl::execute_gate`); a `Mem` or `Port`
+        // subscription stops from the BOUNDARY DRAIN (`Impl::drain_boundary`).
+        // Each passes its own literal, and a mutation that flipped the drain's
+        // survived every SES-04 row because all of them were Execute.
+        //
+        //   8000  3E 5A        LD A,0x5A
+        //   8002  32 10 50     LD (0x5010),A     <- the watched write
+        //   8005  18 FE        JR $
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        RecListener l;
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.set_listener(a, &l);
+        dbg.set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero);
+        load_writer(emu, 0x5A);
+
+        Subscription s;
+        s.kind      = EventKind::Mem;
+        s.access    = Access::Write;
+        s.filter.lo = WATCHED; s.filter.hi = WATCHED;
+        s.action    = Action::Stop;
+        dbg.subscribe(a, s);
+        run_until_paused(emu, 3);
+        check("SES-04-11", "a Stop delivered by the BOUNDARY DRAIN requests the exit "
+                           "too, not only one from the pre-instruction gate",
+              emu.debug_state().paused() && l.exits.size() == 1 &&
+              l.exits[0] == 3,
+              std::string("paused=") + (emu.debug_state().paused() ? "1" : "0") +
+                  " exits=" + std::to_string(l.exits.size()));
+    }
+
+    // ── SES-05 — live raster, and attached()'s two contributors ────────────
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        check("SES-05-01", "live_raster() starts false with clients attached and "
+                           "none asking",
+              !dbg.live_raster());
+        dbg.set_live_raster(a, true);
+        check("SES-05-02", "one client asking turns it on",
+              dbg.live_raster());
+        dbg.set_live_raster(b, false);
+        check("SES-05-03", "another client declining does NOT turn it off — it is an "
+                           "OR, not a last-writer-wins",
+              dbg.live_raster());
+        dbg.set_live_raster(b, true);
+        dbg.set_live_raster(a, false);
+        check("SES-05-04", "and it stays on while the other still asks",
+              dbg.live_raster());
+        dbg.detach(b);
+        check("SES-05-05", "detaching the last client that asked drops the OR",
+              !dbg.live_raster());
+        dbg.detach(a);
+    }
+    {
+        // `attached()` is the OR OF TWO CONTRIBUTORS for the duration of the
+        // transition — the client list and `DebugState::active()`, which is what
+        // the Qt debugger window and the magic-breakpoint hook set. Both arms
+        // get a row, and so does the identity `armed() == attached() ||
+        // persistent()` over all four combinations, because that identity is the
+        // only thing that keeps the backend's gate and the hot loop's gate from
+        // disagreeing.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        check("SES-05-06", "attached() is false with no client and no active flag",
+              !dbg.attached() && !dbg.armed());
+
+        const ClientId a = dbg.attach(client("A")).value;
+        check("SES-05-07", "a CLIENT alone makes it attached and armed",
+              dbg.attached() && dbg.armed() && !emu.debug_state().active());
+        dbg.detach(a);
+
+        emu.debug_state().set_active(true);
+        check("SES-05-08", "and DebugState::active() alone does too — the Qt window "
+                           "is not a client until package Q",
+              dbg.attached() && dbg.armed());
+
+        // THE DIVERGENCE THIS DESIGN EXISTS TO PREVENT: a client attaching and
+        // detaching must not clear the flag the Qt window owns. Writing
+        // `set_active()` from `attach`/`detach` would do exactly that, and
+        // nothing in `DebugState` can tell the two owners apart.
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.detach(b);
+        check("SES-05-09", "a client's attach+detach leaves DebugState::active() "
+                           "ALONE — two owners, two bits",
+              emu.debug_state().active() && dbg.attached() && dbg.armed());
+        emu.debug_state().set_active(false);
+
+        bool identity = true;
+        std::string idetail;
+        for (int i = 0; i < 4; ++i) {
+            const bool want_client = (i & 1) != 0;
+            const bool want_persist = (i & 2) != 0;
+            ClientId cid = jnext::dbg::CLIENT_NONE;
+            if (want_client) cid = dbg.attach(client("X")).value;
+            dbg.set_persistent_breakpoints(want_persist);
+            const bool want = dbg.attached() || dbg.persistent_breakpoints();
+            if (dbg.armed() != want) {
+                identity = false;
+                idetail += " [i=" + std::to_string(i) + "]";
+            }
+            if (want_client) dbg.detach(cid);
+            dbg.set_persistent_breakpoints(false);
+        }
+        check("SES-05-10", "armed() == attached() || persistent_breakpoints() over "
+                           "all four combinations",
+              identity, idetail);
+    }
+    {
+        // `DebugState::SuspendScope` promises "disarms breakpoints". With a
+        // THIRD armed_ contributor that promise is only true if the scope clears
+        // that one too — and a scope that left it standing would silently let a
+        // watchpoint fire during a mid-frame snapshot advance, which is the one
+        // thing the scope exists to prevent.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        bool armed_inside = true;
+        {
+            DebugState::SuspendScope suspend(emu.debug_state());
+            armed_inside = emu.debug_state().armed();
+        }
+        check("SES-05-11", "SuspendScope disarms the machine whichever contributor "
+                           "armed it — a client counts",
+              !armed_inside && emu.debug_state().armed(),
+              std::string("inside=") + (armed_inside ? "1" : "0"));
+        check("SES-05-12", "and it RESTORES the client term on the way out",
+              emu.debug_state().clients_attached() && dbg.attached());
+        dbg.detach(a);
+    }
+
+    // ── SES-06 — the message sink, and its own log channel ─────────────────
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        RecListener l;
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.set_listener(a, &l);
+
+        check("SES-06-01", "`debugger` is a real --log-level name",
+              Log::set_level("debugger", spdlog::level::info));
+        bool in_list = false;
+        for (const char* n : Log::SUBSYSTEMS)
+            in_list = in_list || std::string(n) == "debugger";
+        check("SES-06-02", "and it is in Log::SUBSYSTEMS, which log_test LOG-10/11 "
+                           "diff against the man page in both directions",
+              in_list);
+
+        // TWO DESTINATIONS, ONE FUNCTION. The channel is captured off the live
+        // logger, because "it is logged" is worth what reading the log proves.
+        auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(8);
+        Log::debugger()->sinks().push_back(ring);
+        const size_t log_before = l.logs.size();
+        dbg.log(7, jnext::dbg::LogLevel::Warn, "hello");
+        const auto lines = ring->last_formatted();
+        Log::debugger()->sinks().pop_back();
+
+        check("SES-06-03", "log() reaches the spdlog channel",
+              !lines.empty() && lines.back().find("hello") != std::string::npos &&
+              lines.back().find("[client 7]") != std::string::npos,
+              lines.empty() ? "none" : lines.back());
+        check("SES-06-04", "and EVERY listener, with the SAME string the channel got",
+              l.logs.size() == log_before + 1 &&
+              l.logs.back().second == "hello [client 7]" &&
+              l.logs.back().first == jnext::dbg::LogLevel::Warn,
+              l.logs.empty() ? "none" : l.logs.back().second);
+
+        // §4.2a's MUTATE line goes through the same function, which is what puts
+        // it in front of a frontend's console as well as in the log. B1 wrote it
+        // straight to spdlog, so a listener saw the attaches and none of the
+        // writes.
+        const size_t before = l.logs.size();
+        dbg.set_register(a, RegId::DE, 0x4321);
+        check("SES-06-05", "a MUTATE line reaches the listeners too",
+              l.logs.size() == before + 1 &&
+              l.logs.back().second.find("MUTATE reg DE") != std::string::npos &&
+              l.logs.back().second.find("-> 0x4321") != std::string::npos,
+              l.logs.empty() ? "none" : l.logs.back().second);
+        check("SES-06-06", "and it is emitted as the BACKEND's, so it does not "
+                           "collect a second \"[client N]\" suffix",
+              !l.logs.empty() &&
+              l.logs.back().second.find("[client") == std::string::npos,
+              l.logs.empty() ? "none" : l.logs.back().second);
+
+        // THE OTHER MUTATION-LOG HELPER. §4.2a's "MUTATE <what> <old> -> <new>"
+        // format is for a SINGLE value; a block write or a machine-level change
+        // has no such pair, so `log_mutate_range()` completes the line
+        // differently. It is a separate function, so it is a separate row — a
+        // row on `log_mutate` alone survived a mutation that took this one off
+        // the listener path.
+        const size_t r_before = l.logs.size();
+        dbg.reset(a, ResetKind::Soft);
+        check("SES-06-07", "a RANGE mutation line reaches the listeners too",
+              l.logs.size() > r_before &&
+              l.logs.back().second.find("MUTATE machine soft reset") !=
+                  std::string::npos,
+              l.logs.empty() ? "none" : l.logs.back().second);
+    }
+
+    // ── SES-07 / CTL-12 / CTL-15 — the loop driver and the reconstruct ─────
+    {
+        // The refusals first, and both of them are per VERB rather than per
+        // registration: a loop owner may register one closure and not the other.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        check("SES-07-01", "set_loop_driver() accepts an EMPTY driver — that is how a "
+                           "loop owner clears the registration",
+              dbg.set_loop_driver(jnext::dbg::LoopDriver{}) == Result::Ok);
+        check("SES-07-02", "with no cold_boot closure, reset(Hard) is refused",
+              dbg.reset(1, ResetKind::Hard) == Result::RefusedUnavailable);
+        check("SES-07-03", "with no load closure, load() is refused",
+              dbg.load(1, "x.nex") == Result::RefusedUnavailable);
+
+        jnext::dbg::LoopDriver half;
+        half.load = [](const std::string&) { return true; };
+        dbg.set_loop_driver(half);
+        check("SES-07-04", "the two closures are INDEPENDENT — a load driver does not "
+                           "make reset(Hard) available",
+              dbg.reset(1, ResetKind::Hard) == Result::RefusedUnavailable &&
+              dbg.load(1, "x.nex") == Result::Ok);
+    }
+    {
+        // CTL-12's rules over a FAKE driver, so each rule can be asserted
+        // without a 1-second cold boot. The REAL cold boot is the block after
+        // this one, and it is the one that proves the re-application works.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        RecListener l;
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.set_listener(a, &l);
+
+        int boots = 0;
+        jnext::dbg::LoopDriver d;
+        d.cold_boot = [&]() { ++boots; return true; };
+        dbg.set_loop_driver(d);
+
+        check("CTL-12-04", "reset(Hard) runs the registered driver exactly once",
+              dbg.reset(a, ResetKind::Hard) == Result::Ok && boots == 1,
+              "boots=" + std::to_string(boots));
+        check("CTL-12-05", "and Reset{Hard} reached every listener BEFORE it returned "
+                           "(rule 4)",
+              l.resets.size() == 1 && l.resets[0] == ResetKind::Hard);
+        check("CTL-12-06", "a RUNNING machine is not paused by it (rule 3), and no "
+                           "PauseReason::Reset exists",
+              !dbg.state().paused);
+
+        dbg.pause(a);
+        check("CTL-12-07", "a PAUSED caller stays paused across it (rule 3)",
+              dbg.reset(a, ResetKind::Hard) == Result::Ok && boots == 2 &&
+              dbg.state().paused);
+
+        // A boot that FAILS still re-applies and still notifies: the machine was
+        // destroyed and rebuilt either way (that is the first thing
+        // `emulator_cold_boot()` does), and a client blocked on `run` is blocked
+        // whether the boot worked or not.
+        boots = 0;
+        l.resets.clear();
+        jnext::dbg::LoopDriver bad;
+        bad.cold_boot = [&]() { ++boots; return false; };
+        dbg.set_loop_driver(bad);
+        check("CTL-12-08", "a driver that FAILS is reported as unavailable",
+              dbg.reset(a, ResetKind::Hard) == Result::RefusedUnavailable &&
+              boots == 1);
+        check("CTL-12-09", "and Reset{Hard} is pushed anyway — a notification never "
+                           "sent is a client hung on run()",
+              l.resets.size() == 1);
+    }
+    {
+        // Rule 6's corruption gate, and the half that matters: the driver must
+        // not run. A cold boot leaves the machine RUNNING, which is a resume by
+        // any other name, and CTL-11's rule is that an unacknowledged incident
+        // refuses every resume.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        int boots = 0;
+        jnext::dbg::LoopDriver d;
+        d.cold_boot = [&]() { ++boots; return true; };
+        dbg.set_loop_driver(d);
+
+        std::vector<uint8_t> torn(64, 0xAB);
+        dbg.load_state_bytes(1, torn.data(), torn.size());
+        check("CTL-12-10", "reset(Hard) on an unacknowledged corrupt machine is "
+                           "refused, and does NOT run the driver",
+              dbg.reset(1, ResetKind::Hard) == Result::RefusedCorrupt && boots == 0,
+              "boots=" + std::to_string(boots));
+    }
+    {
+        // ── THE INVARIANT ACROSS THE CONSTRUCTOR, THE DESTRUCTOR AND THE
+        //    RE-APPLICATION, over a REAL `emulator_frontend_cold_boot()`.
+        //
+        // This is the row the package exists for: a subscription that could fire
+        // before the boot must fire after it. `~Emulator()` + placement-new
+        // leaves a brand-new `DebugState` with `events_ == nullptr`, and a
+        // `Debugger` that survived is then SILENTLY disconnected — every
+        // subscription still lists as live and not one can ever fire. There is no
+        // error for a frontend to notice.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        RecListener l;
+        dbg.set_listener(a, &l);
+
+        int hits_before = 0, hits_after = 0;
+        Subscription s;
+        s.kind       = EventKind::Mem;
+        s.access     = Access::Write;
+        s.filter.lo  = WATCHED; s.filter.hi = WATCHED;
+        s.action     = Action::Continue;
+        int* counter = &hits_before;
+        s.handler    = [&counter](const DbgEvent&, Debugger&) {
+            ++*counter;
+            return Action::Continue;
+        };
+        dbg.subscribe(a, s);
+
+        // Fire it once BEFORE the boot, through the machine, so "it could fire"
+        // is MEASURED rather than assumed. A `poke()` could not do it: §4.2a
+        // makes a debugger write fire no event on itself.
+        load_writer(emu, 0x11);
+        emu.run_frame();
+        check("CTL-12-11", "a Mem subscription fires before the cold boot",
+              hits_before > 0, "hits=" + std::to_string(hits_before));
+
+        // A stale latch in the ring, and a legacy PC breakpoint + `active()`, so
+        // the platform-side restore's behaviour can be asserted too.
+        emu.debug_state().breakpoints().add_pc(0xBEEF);
+        emu.debug_state().set_active(true);
+        const uint8_t stale_mask = emu.debug_state().breakpoints().watch_slot_mask_wr();
+
+        int boots = 0;
+        jnext::dbg::LoopDriver d;
+        d.cold_boot = [&]() {
+            ++boots;
+            emulator_frontend_cold_boot(emu, emu.config(), std::string(),
+                                        ColdBootHooks{});
+            return true;
+        };
+        dbg.set_loop_driver(d);
+        counter = &hits_after;
+        check("CTL-12-12", "the real cold boot runs and reports success",
+              dbg.reset(a, ResetKind::Hard) == Result::Ok && boots == 1);
+
+        // The SAME program has to be back in RAM — the reconstruct wiped it.
+        load_writer(emu, 0x22);
+        emu.run_frame();
+        check("CTL-12-13", "and the SAME subscription still fires afterwards — the "
+                           "four publications, the page seed and the gates were "
+                           "re-applied",
+              hits_after > 0, "hits=" + std::to_string(hits_after));
+
+        // THE PUBLISHED BYTE, for the reason SES-01-10 gives: only
+        // `gates_changed()` writes `BreakpointSet`'s event half, and that is what
+        // the eight `Mmu` sites read. `EventTable`'s own mask is maintained by
+        // `refresh()` and would read correct even if nothing had published.
+        check("CTL-12-14", "the event table is republished and the PUBLISHED slot "
+                           "mask matches the LIVE subscription — it equals the "
+                           "pre-boot byte because the same subscription is armed, "
+                           "and both halves are non-zero",
+              emu.debug_state().event_table() != nullptr &&
+              emu.debug_state().breakpoints().watch_slot_mask_wr() == stale_mask &&
+              stale_mask != 0 &&
+              emu.debug_state().breakpoints().wr_watch_slot_armed(WATCHED),
+              "mask=" + hex(emu.debug_state().breakpoints().watch_slot_mask_wr()) +
+                  " stale=" + hex(stale_mask));
+
+        check("CTL-12-15", "the client's arm bit is re-applied, so the machine is "
+                           "armed again",
+              emu.debug_state().clients_attached() && dbg.attached() && dbg.armed());
+
+        // The PLATFORM-SIDE restore is deliberately NOT retired in B3, and this
+        // is the row that says so: the legacy breakpoints and `active()` survive
+        // because `emulator_boot.h` still saves and restores them, and the
+        // backend's re-application does not clobber either. See that file's
+        // "WHY THE TWO RESTORES ABOVE ARE *NOT* RETIRED" for the three Qt
+        // regressions retiring them would be.
+        check("CTL-12-16", "the Qt panels' legacy breakpoint model survived the boot "
+                           "(emulator_boot.h's restore, NOT retired in B3)",
+              emu.debug_state().breakpoints().has_pc(0xBEEF));
+        check("CTL-12-17", "and DebugState::active() survived it, unclobbered by the "
+                           "backend's own re-application",
+              emu.debug_state().active());
+    }
+    {
+        // RULE 3 OVER THE *REAL* BOOT, both arms. A fake driver cannot test this:
+        // it leaves the machine's `paused` flag exactly as it found it, so
+        // "paused stays paused" passes without the backend doing anything. Only a
+        // reconstruct, which always comes back RUNNING, can tell a re-applied
+        // pause from an untouched one.
+        for (int paused_before = 0; paused_before < 2; ++paused_before) {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            jnext::dbg::LoopDriver d;
+            d.cold_boot = [&]() {
+                emulator_frontend_cold_boot(emu, emu.config(), std::string(),
+                                            ColdBootHooks{});
+                return true;
+            };
+            dbg.set_loop_driver(d);
+            if (paused_before) dbg.pause(a);
+            const Result r = dbg.reset(a, ResetKind::Hard);
+            const bool   want = paused_before != 0;
+            check(paused_before ? "CTL-12-23" : "CTL-12-24",
+                  paused_before
+                      ? "a PAUSED caller is still paused after a REAL reconstruct — "
+                        "which comes back running, so the pause was re-applied"
+                      : "and a RUNNING caller is still running — the reconstruct "
+                        "never pauses a machine that was not",
+                  r == Result::Ok && dbg.state().paused == want,
+                  std::string("paused=") + (dbg.state().paused ? "1" : "0"));
+        }
+    }
+    {
+        // M70's gap: the MACHINE-REPLACED HOOK has to be re-installed, and its
+        // absence is silent until the NEXT machine transition. So the row drives
+        // one: a cold boot, then a `load_state_bytes()` restore. Without the
+        // re-installed hook `init()`'s reconciliation cannot reach `Impl`, and the
+        // backend keeps reporting the armed verb of a machine that is gone.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        jnext::dbg::LoopDriver d;
+        d.cold_boot = [&]() {
+            emulator_frontend_cold_boot(emu, emu.config(), std::string(),
+                                        ColdBootHooks{});
+            return true;
+        };
+        dbg.set_loop_driver(d);
+        dbg.reset(a, ResetKind::Hard);
+
+        // A snapshot of the rebuilt machine, paused, then a STEP to arm a stale
+        // `Kind::Step`, then the restore. A reconciled backend reports the
+        // unowned `User{CLIENT_NONE}` fallback; an unreconciled one still reports
+        // the Step that did not happen.
+        dbg.pause(a);
+        auto bytes = dbg.save_state_bytes(
+            a, jnext::dbg::SaveStateMode::AdvanceToBoundary);
+        dbg.step_into(a);
+        check("CTL-12-25", "a step after the reconstruct reads as Step",
+              dbg.state().pause_reason.kind == PauseReason::Kind::Step);
+        StateReader r(bytes.value.data(), bytes.value.size());
+        const bool ok_load = emu.load_state(r);
+        check("CTL-12-26", "and a state load AFTER the reconstruct still reconciles "
+                           "through the re-installed machine-replaced hook — the "
+                           "stale Step is gone",
+              ok_load &&
+              dbg.state().pause_reason.kind != PauseReason::Kind::Step,
+              std::string("ok=") + (ok_load ? "1" : "0") + " kind=" +
+                  std::to_string(static_cast<int>(dbg.state().pause_reason.kind)));
+    }
+    {
+        // M74's gap: the reconstruct's own `arm(Kind::None)`. `init()` fired
+        // `debug_after_machine_transition_()` while the hook was still null, so
+        // the re-application arms it explicitly — and it must arm `None`, not
+        // `User`, for the same reason the hook does: `state()`'s precedence falls
+        // THROUGH `None` to the legacy PC-breakpoint check and matches `User`
+        // immediately.
+        //
+        // The discriminator is a legacy PC breakpoint at the address the boot
+        // lands on. It survives the boot via `emulator_boot.h`'s restore (see
+        // CTL-12-16), so it is there to be found.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        jnext::dbg::LoopDriver d;
+        d.cold_boot = [&]() {
+            emulator_frontend_cold_boot(emu, emu.config(), std::string(),
+                                        ColdBootHooks{});
+            return true;
+        };
+        dbg.set_loop_driver(d);
+
+        dbg.pause(a);
+        dbg.step_into(a);                       // arm a stale Step
+        const uint16_t landing = 0x0000;        // a cold boot starts at 0x0000
+        emu.debug_state().breakpoints().add_pc(landing);
+        dbg.reset(a, ResetKind::Hard);
+        check("CTL-12-27", "the reconstruct arms Kind::None, so a landing on a "
+                           "legacy PC breakpoint reports Breakpoint — Kind::User "
+                           "would have swallowed it",
+              dbg.state().paused && emu.cpu().get_registers().PC == landing &&
+              dbg.state().pause_reason.kind == PauseReason::Kind::Breakpoint,
+              "pc=" + hex(emu.cpu().get_registers().PC) + " kind=" +
+                  std::to_string(static_cast<int>(dbg.state().pause_reason.kind)));
+    }
+    {
+        // M71's gap: the EIGHT-PAGE SEED. `EventTable::slot_page_` lives on
+        // `Impl`, so it SURVIVES the boot carrying the pre-boot page map, while
+        // `DebugState::on_slot_remapped()` early-returns during the new `init()`
+        // because the table pointer is null at that moment. A page-qualified
+        // filter is then wrong in BOTH directions, and the boot has to change a
+        // mapping for the error to be visible — so this one moves a slot first.
+        Emulator emu; build(emu, MachineType::ZX128K);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+
+        emu.mmu().set_page(2, 0x30);            // page 0x30 into slot 2 (0x4000)
+        Subscription s;
+        s.kind         = EventKind::Mem;
+        s.access       = Access::Write;
+        s.filter.pages = { 0x30 };
+        dbg.subscribe(a, s);
+        check("CTL-12-28", "a page-qualified filter arms the slot its page is in",
+              emu.debug_state().breakpoints().wr_watch_slot_armed(0x4000));
+
+        jnext::dbg::LoopDriver d;
+        d.cold_boot = [&]() {
+            emulator_frontend_cold_boot(emu, emu.config(), std::string(),
+                                        ColdBootHooks{});
+            return true;
+        };
+        dbg.set_loop_driver(d);
+        dbg.reset(a, ResetKind::Hard);
+
+        const uint16_t page_after = emu.mmu().get_effective_page(2);
+        check("CTL-12-29", "the boot maps a DIFFERENT page there, so the stale cache "
+                           "would be observably wrong",
+              page_after != 0x30, "page=" + hex(page_after));
+        check("CTL-12-30", "and the eight-page seed DISARMED the slot — the filter "
+                           "follows the real page map, not the destroyed machine's",
+              !emu.debug_state().breakpoints().wr_watch_slot_armed(0x4000),
+              "mask=" +
+                  hex(emu.debug_state().breakpoints().watch_slot_mask_wr()));
+
+        // The other direction: map the watched page back in and the slot re-arms,
+        // which is what proves CTL-12-30 is about the cache rather than about the
+        // subscription having died in the boot.
+        emu.mmu().set_page(4, 0x30);
+        check("CTL-12-31", "mapping the watched page in again re-arms its new slot",
+              emu.debug_state().breakpoints().wr_watch_slot_armed(0x8000));
+    }
+    {
+        // M82's gap: CTL-15's re-application. A load whose driver DOES replace the
+        // machine must leave every subscription able to fire — the in-place case
+        // (CTL-15-04/05) cannot see it, because an in-place load disconnects
+        // nothing.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        int hits = 0;
+        Subscription s;
+        s.kind      = EventKind::Mem;
+        s.access    = Access::Write;
+        s.filter.lo = WATCHED; s.filter.hi = WATCHED;
+        s.action    = Action::Continue;
+        s.handler   = [&](const DbgEvent&, Debugger&) { ++hits; return Action::Continue; };
+        dbg.subscribe(a, s);
+
+        jnext::dbg::LoopDriver d;
+        d.load = [&](const std::string&) {
+            // The Qt menu-load route: cold boot, then apply the file. Modelled
+            // here by the boot alone — it is the reconstruct that breaks things.
+            emulator_frontend_cold_boot(emu, emu.config(), std::string(),
+                                        ColdBootHooks{});
+            return true;
+        };
+        dbg.set_loop_driver(d);
+        check("CTL-15-07", "a load whose driver RECONSTRUCTS the machine reports Ok",
+              dbg.load(a, "game.nex") == Result::Ok);
+        load_writer(emu, 0x77);
+        emu.run_frame();
+        check("CTL-15-08", "and the subscription still fires afterwards — CTL-15 "
+                           "honours the CTL-12 contract because it re-applies "
+                           "unconditionally",
+              hits > 0, "hits=" + std::to_string(hits));
+    }
+    {
+        // The RING. `EventTable` lives on `Debugger::Impl`, so it SURVIVES the
+        // reconstruct while everything latched into it describes a machine that
+        // is gone. `Emulator::load_state()` discards it for exactly this reason;
+        // a cold boot cannot, because the machine-replaced hook was null when
+        // `init()` fired it.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+
+        int delivered = 0;
+        ResetKind delivered_kind = ResetKind::Soft;
+        Subscription s;
+        s.kind = EventKind::Reset;
+        // `ResetKind::Any`, deliberately: the stale entry in the ring is a SOFT
+        // reset and the one this boot latches is a HARD one, so a filter that
+        // matched only the Hard kind could not tell "the stale entry was
+        // discarded" from "the stale entry did not match". With `Any` both would
+        // be delivered, and `delivered == 1` is therefore a statement about the
+        // ring rather than about the filter.
+        s.filter.reset_kind = ResetKind::Any;
+        s.action  = Action::Continue;
+        s.handler = [&](const DbgEvent& ev, Debugger&) {
+            ++delivered;
+            delivered_kind = ev.reset_kind;
+            return Action::Continue;
+        };
+        dbg.subscribe(a, s);
+
+        // Latch a Soft reset event and do NOT let it drain.
+        emu.debug_latch_reset(/*hard=*/false);
+        const size_t ring_before = emu.debug_state().event_table()->size();
+
+        jnext::dbg::LoopDriver d;
+        d.cold_boot = [&]() {
+            emulator_frontend_cold_boot(emu, emu.config(), std::string(),
+                                        ColdBootHooks{});
+            return true;
+        };
+        dbg.set_loop_driver(d);
+        dbg.reset(a, ResetKind::Hard);
+
+        check("CTL-12-18", "the ring held the pre-boot latch, and the reconstruct "
+                           "discarded it along with the machine it described",
+              ring_before == 1 &&
+              emu.debug_state().event_table()->size() == 1,
+              "before=" + std::to_string(ring_before) + " after=" +
+                  std::to_string(emu.debug_state().event_table()->size()));
+
+        load_writer(emu, 0x00);
+        emu.run_frame();
+        check("CTL-12-19", "and the ONE entry delivered is the Reset{Hard} this boot "
+                           "latched, not the stale Soft one",
+              delivered == 1 && delivered_kind == ResetKind::Hard,
+              "delivered=" + std::to_string(delivered) + " kind=" +
+                  std::to_string(static_cast<int>(delivered_kind)));
+    }
+    {
+        // RULE 5 — the GUEST-initiated path. It needs NO registered driver: the
+        // boot has already happened and the re-application asks nothing of
+        // `LoopDriver`. `HeadlessApp`'s `JNEXT_BENCH_WATCH` fixture is the one
+        // real caller in the tree, and it registers no driver at all.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        RecListener l;
+        dbg.set_listener(a, &l);
+
+        int hits = 0;
+        Subscription s;
+        s.kind      = EventKind::Mem;
+        s.access    = Access::Write;
+        s.filter.lo = WATCHED; s.filter.hi = WATCHED;
+        s.action    = Action::Continue;
+        s.handler   = [&](const DbgEvent&, Debugger&) { ++hits; return Action::Continue; };
+        dbg.subscribe(a, s);
+
+        // The loop owner does the boot ITSELF, exactly as the three flag polls do.
+        emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+        check("CTL-12-20", "on_cold_boot_done() needs no registered driver — the boot "
+                           "has already happened",
+              dbg.on_cold_boot_done() == Result::Ok);
+        check("CTL-12-21", "and it pushes Reset{Hard} like the synchronous verb",
+              l.resets.size() == 1 && l.resets[0] == ResetKind::Hard);
+
+        load_writer(emu, 0x33);
+        emu.run_frame();
+        check("CTL-12-22", "and the subscription fires again afterwards",
+              hits > 0, "hits=" + std::to_string(hits));
+    }
+    {
+        // CTL-15. The re-application is UNCONDITIONAL because the backend cannot
+        // know whether the loop owner's load closure replaced the machine —
+        // `emulator_apply_load()` loads in place, the Qt menu route cold-boots
+        // first, and `load_rzx` reconstructs only when the recording carries an
+        // embedded snapshot. Both arms therefore have to work: a load that
+        // replaced nothing, and one that replaced everything.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+
+        int hits = 0;
+        Subscription s;
+        s.kind      = EventKind::Mem;
+        s.access    = Access::Write;
+        s.filter.lo = WATCHED; s.filter.hi = WATCHED;
+        s.action    = Action::Continue;
+        s.handler   = [&](const DbgEvent&, Debugger&) { ++hits; return Action::Continue; };
+        dbg.subscribe(a, s);
+
+        std::string seen;
+        jnext::dbg::LoopDriver d;
+        d.load = [&](const std::string& p) { seen = p; return true; };
+        dbg.set_loop_driver(d);
+
+        dbg.pause(a);
+        check("CTL-15-02", "load() calls the driver with the path and reports its flag",
+              dbg.load(a, "game.nex") == Result::Ok && seen == "game.nex");
+        check("CTL-15-03", "a PAUSED caller stays paused across it",
+              dbg.state().paused);
+        check("CTL-15-04", "and the re-application ran for an IN-PLACE load too — "
+                           "the subscription is still live and its gate still open",
+              (emu.debug_state().event_table()->wr_slot_mask() &
+               (1u << (0x5000 >> 13))) != 0);
+        emu.debug_state().resume();
+        load_writer(emu, 0x44);
+        emu.run_frame();
+        check("CTL-15-05", "so it still fires",
+              hits > 0, "hits=" + std::to_string(hits));
+
+        jnext::dbg::LoopDriver bad;
+        bad.load = [](const std::string&) { return false; };
+        dbg.set_loop_driver(bad);
+        check("CTL-15-06", "a load the driver could not apply is reported as unavailable",
+              dbg.load(a, "nope.nex") == Result::RefusedUnavailable);
+    }
+
+    // ── R2 — the ctor/dtor publication pairing, as ONE invariant ───────────
+    {
+        // B2's review reproduced a REAL SEGFAULT by removing one line of
+        // `~Debugger()` and calling `load_state()` afterwards, and found that
+        // none of the 867 rows saw it. The pairing is what makes the fix
+        // memory-safe, and it is a PAIR: the constructor publishes four things
+        // into a `DebugState` that OUTLIVES the `Debugger` (it is an `Emulator`
+        // member), and the destructor has to retire all four.
+        //
+        // The invariant is asserted ACROSS the pair — "a machine that outlives
+        // its `Debugger` can be driven without touching the freed `Impl`" — not
+        // as one row per retirement, because a row per side is exactly what
+        // passed while this was untested.
+        Emulator emu; build(emu);
+        std::vector<uint8_t> snap;
+        {
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            Subscription s;
+            s.kind      = EventKind::Mem;
+            s.access    = Access::Write;
+            s.filter.lo = WATCHED; s.filter.hi = WATCHED;
+            s.action    = Action::Continue;
+            s.handler   = [](const DbgEvent&, Debugger&) { return Action::Continue; };
+            dbg.subscribe(a, s);
+            check("LIFE-01", "while the Debugger lives, all four publications are in "
+                             "place and the gate is open",
+                  emu.debug_state().event_table() != nullptr &&
+                  (emu.debug_state().event_table()->wr_slot_mask() &
+                   (1u << (0x5000 >> 13))) != 0);
+            auto bytes = dbg.save_state_bytes(a, jnext::dbg::SaveStateMode::AdvanceToBoundary);
+            snap = bytes.value;
+        }
+        // The `Debugger` is gone. `DebugState` is not.
+        check("LIFE-02", "~Debugger() retired the table pointer and ZEROED the event "
+                         "half of the hot-path gate",
+              emu.debug_state().event_table() == nullptr &&
+              (emu.debug_state().breakpoints().watch_slot_mask_wr() &
+               (1u << (0x5000 >> 13))) == 0,
+              hex(emu.debug_state().breakpoints().watch_slot_mask_wr()));
+
+        // THE SCENARIO THE REVIEWER SEGFAULTED: a machine transition after the
+        // `Debugger` is gone. `load_state()` calls
+        // `debug_after_machine_transition_()`, which calls
+        // `notify_machine_replaced()` — a `std::function` capturing the freed
+        // `Impl` if the destructor did not retire it.
+        const bool loaded = !snap.empty() &&
+                            [&]() {
+                                StateReader r(snap.data(), snap.size());
+                                return emu.load_state(r);
+                            }();
+        check("LIFE-03", "and a state load afterwards does not reach the freed Impl",
+              loaded, emu.last_state_error());
+
+        // Guest execution afterwards, too: the drain and execute-gate hooks are
+        // the other two `std::function`s, and both are consulted per frame.
+        load_writer(emu, 0x55);
+        const uint64_t cyc_before = emu.clock().get();
+        emu.run_frame();
+        const uint8_t wrote = emu.mmu().peek(WATCHED);
+        check("LIFE-04", "and the machine EXECUTES on, with the drain and "
+                         "execute-gate hooks retired as well",
+              emu.clock().get() > cyc_before && wrote == 0x55,
+              "cycles=" + std::to_string(emu.clock().get() - cyc_before) +
+                  " wrote=" + hex(wrote));
+
+        // THE OTHER DIRECTION of the same pairing: a SECOND `Debugger` on the
+        // same `Emulator` must re-publish and work, which is what proves the
+        // retirement left a clean slate rather than a broken one.
+        {
+            Debugger dbg2(emu);
+            const ClientId a = dbg2.attach(client("A2")).value;
+            int hits = 0;
+            Subscription s;
+            s.kind      = EventKind::Mem;
+            s.access    = Access::Write;
+            s.filter.lo = WATCHED; s.filter.hi = WATCHED;
+            s.action    = Action::Continue;
+            s.handler   = [&](const DbgEvent&, Debugger&) { ++hits; return Action::Continue; };
+            dbg2.subscribe(a, s);
+            load_writer(emu, 0x66);
+            emu.run_frame();
+            check("LIFE-05", "a SECOND Debugger on the same Emulator republishes and "
+                             "its subscriptions fire",
+                  hits > 0, "hits=" + std::to_string(hits));
+        }
+    }
+
+    // ── R3 — why the machine-replaced hook arms Kind::None and not Kind::User ─
+    {
+        // The choice is LOAD-BEARING and was uncovered by all 867 rows: `None`
+        // falls THROUGH `state()`'s precedence switch to the legacy
+        // PC-breakpoint check, `User` matches the switch immediately and returns
+        // before reaching it. A previous review round proposed `User` as
+        // sufficient; the author chose better, and nothing stopped the next
+        // person from "simplifying" it back.
+        //
+        // BOTH ARMS, because the first alone would pass on a `state()` that
+        // reported `Breakpoint` for everything: with a breakpoint at the landing
+        // address the reason is `Breakpoint`; without one it is the unowned
+        // `User{CLIENT_NONE}` fallback, which is what proves the row is about
+        // the precedence rather than about the restore.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        attach_and_pause(emu);
+
+        auto bytes = dbg.save_state_bytes(a, jnext::dbg::SaveStateMode::AdvanceToBoundary);
+        const uint16_t landing = emu.cpu().get_registers().PC;
+
+        // Arm a STEP so the hook has something stale to clear, then restore.
+        dbg.step_into(a);
+        emu.debug_state().breakpoints().add_pc(landing);
+        StateReader r1(bytes.value.data(), bytes.value.size());
+        emu.load_state(r1);
+        check("LAND-01", "a restore landing on a legacy PC breakpoint reports "
+                         "Breakpoint — Kind::None falls THROUGH the precedence "
+                         "switch, Kind::User would have swallowed it",
+              dbg.state().paused &&
+              dbg.state().pause_reason.kind == PauseReason::Kind::Breakpoint &&
+              dbg.state().pause_reason.addr == landing,
+              "kind=" + std::to_string(static_cast<int>(dbg.state().pause_reason.kind)) +
+                  " pc=" + hex(emu.cpu().get_registers().PC));
+
+        emu.debug_state().breakpoints().remove_pc(landing);
+        dbg.step_into(a);
+        StateReader r2(bytes.value.data(), bytes.value.size());
+        emu.load_state(r2);
+        check("LAND-02", "and with NO breakpoint there it reads as the unowned "
+                         "User{CLIENT_NONE} fallback, not as the stale Step",
+              dbg.state().paused &&
+              dbg.state().pause_reason.kind == PauseReason::Kind::User &&
+              dbg.state().pause_reason.by == jnext::dbg::CLIENT_NONE,
+              "kind=" + std::to_string(static_cast<int>(dbg.state().pause_reason.kind)));
     }
 
     std::printf("\n======================================================\n");

@@ -212,6 +212,26 @@ public:
         return (live_kinds_ & kind_bit(k)) != 0;
     }
 
+    /// The whole live-kind mask, for SES-02's `SubscriptionsChanged{kinds}`
+    /// payload. `has_kind()` is the hot path's question; this is the
+    /// notification's.
+    EventKindMask live_kinds() const { return live_kinds_; }
+
+    /// GH #276 B3 — how many times the SUBSCRIPTION MODEL has changed.
+    ///
+    /// Bumped by `refresh()`, which every mutator already ends with (`add`,
+    /// `erase`, `erase_client`, `clear_transient`, the three switches,
+    /// `mark_once_fired`), and by nothing else. So SES-02's
+    /// `SubscriptionsChanged` push can be decided by comparing ONE integer, and
+    /// a mutator added later cannot forget to notify — it cannot forget
+    /// `refresh()`, because without it its own change would not take effect.
+    ///
+    /// Deliberately NOT bumped by `set_slot_page()`, which recomputes the masks
+    /// without touching the model: an MMU paging write is not a subscription
+    /// change, and notifying every listener on one would push thousands of times
+    /// a frame.
+    uint64_t revision() const { return revision_; }
+
     /// `Dma{Byte}` arming is a PER-ENGINE cost (§4.3), so it is asked
     /// separately from `Dma{Start,End}`.
     bool has_dma_sub_kind(DmaEventKind k) const {
@@ -359,6 +379,9 @@ private:
     size_t history_first_ = 0;
     std::vector<Hit> hits_;
     size_t compactions_ = 0;
+
+    /// GH #276 B3 — see `revision()`. Bumped in `refresh()`.
+    uint64_t revision_ = 0;
 };
 
 }  // namespace dbg

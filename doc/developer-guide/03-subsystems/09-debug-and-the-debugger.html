@@ -1872,7 +1872,7 @@ from the last real enumerator is blind to an <em>append</em> — the enumerator 
 value, the count keeps its number, and a new kind ships with no mask bit and no
 switch arm.</p>
 <h3 id="what-is-behind-the-facade-today">What is behind the facade today<a class="headerlink" href="#what-is-behind-the-facade-today" title="Permanent link">&para;</a></h3>
-<p>The bodies arrive in five sub-packages on one branch, and two of them are in.</p>
+<p>The bodies arrive in five sub-packages on one branch, and three of them are in.</p>
 <p><strong>B1 — control and inspection over the existing primitives</strong>, with no change to
 the hot path. <code>src/debug/debugger.cpp</code> holds construction, the mutation log,
 symbols and the state/rewind verbs; <code>debugger_control.cpp</code> the CAP-CTL verbs;
@@ -1883,6 +1883,9 @@ add their own state — the event table, the client list, the bookmarks — with
 editing a header five frontends compile against.</p>
 <p><strong>B2 — the event pipeline</strong>, which is the first part of the epic that touches
 the hot path at all. It is described in its own section below.</p>
+<p><strong>B3 — the session</strong>: clients, listeners, the service list that <code>pump()</code> drives,
+the stop policy, <code>live_raster</code> / <code>attached</code>, and the cold-boot reconstruct
+contract. Also described in its own section below.</p>
 <p>The control verbs are the bodies of <code>DebuggerManager</code>'s slots with the Qt taken
 out: the same <code>DebugState</code> calls in the same order, the same GH #207 / #221 /</p>
 <h1 id="223-behaviour-the-same-two-target-computations-for-run-to-end-of-frame-and">223 behaviour, the same two target computations for "run to end of frame" and<a class="headerlink" href="#223-behaviour-the-same-two-target-computations-for-run-to-end-of-frame-and" title="Permanent link">&para;</a></h1>
@@ -2129,6 +2132,137 @@ statement: <code>load_state()</code> has some thirty sentinel early-returns and 
 thing it does is load the clock, so a torn restore is a machine transition too —
 <code>state()</code>'s Corrupt-first precedence merely hides the stale reason until
 <code>acknowledge_corruption()</code> drops the mask.</p>
+<h3 id="the-session-b3">The session (B3)<a class="headerlink" href="#the-session-b3" title="Permanent link">&para;</a></h3>
+<p>The backend does not own a thread and does not own the frame loop. A <strong>loop
+owner</strong> — <code>QtApp</code>'s timer tick, the SDL loop, <code>HeadlessApp::run()</code> — owns both,
+and B3 is the seam between them.</p>
+<p><strong>Clients.</strong> <code>attach(ClientInfo)</code> returns a <code>ClientId</code>; every verb that mutates
+or transitions takes one as its first argument, because §4.1 requires each
+transition to be broadcast with the client that caused it. The client list holds
+each client's listener, its <code>live_raster</code> request and (later) its bookmarks —
+<em>outside</em> <code>Emulator</code>, which is what lets all of it survive a machine
+reconstruct.</p>
+<p><code>detach(cid)</code> removes that client's subscriptions and, <strong>iff the machine is
+paused by this client</strong>, resumes it. A pause by another client survives, and an
+<em>unowned</em> pause is never released by any detach however many clients come and
+go: <code>PauseReason::Magic</code> and <code>PauseReason::Corrupt</code> carry <code>by == CLIENT_NONE</code>
+because neither is anyone's verb. There is no "last client" rule — the Qt
+adapter is attached for the process lifetime, so a remote is never the last one,
+and the point of the rule is that a crashed DeZog must not leave the machine
+hung.</p>
+<p><strong><code>attached()</code> is the OR of two contributors, for now.</strong> <code>DebugState::active()</code>
+is what "a frontend is driving this machine" means on today's tree: the Qt
+debugger window sets it when it opens, and the magic-breakpoint hook sets it when
+the opcode executes. Neither is a backend client yet. So <code>attached()</code> is
+<code>live_clients &gt; 0 || DebugState::active()</code>, and the client term is its <strong>own
+bit</strong> on <code>DebugState</code> (<code>clients_attached_</code>) rather than a second writer of
+<code>active_</code> — because a <code>detach()</code> of the last client would otherwise clear a flag
+the Qt window owns, and nothing in <code>DebugState</code> can tell the two owners apart.
+<code>refresh_gates_()</code> ORs the three (<code>active_ || clients_attached_ ||
+persistent_</code>), so the identity <code>armed() == attached() || persistent()</code> holds
+whichever contributor is set, and <code>SuspendScope</code> clears all three — its promise
+is "disarms breakpoints", and that is only true if it clears every contributor.</p>
+<p><strong>Listeners.</strong> Seven pushes, all pure virtual (a silently ignored notification is
+what a default empty override invites): <code>Paused</code>, <code>Resumed</code>, <code>Reset</code>,
+<code>FrameEnded</code>, <code>SubscriptionsChanged</code>, <code>ExitRequested</code>, <code>Log</code>. They are
+synchronous, on the emulation thread, and must do no UI work — the Qt listener
+records and acts on its own tick.</p>
+<p><code>Paused</code> / <code>Resumed</code> / <code>FrameEnded</code> / <code>SubscriptionsChanged</code> are <strong>not pushed at
+each transition site</strong>. There are seven ways out of paused and a dozen into it,
+and a push at each is the two-lists failure. Instead one function compares
+<code>paused()</code>, <code>DebugState::resume_generation()</code>, the frame tag and
+<code>EventTable::revision()</code> against what was last pushed, and it is called from
+<code>pump()</code> — the slot §4.8 specifies, so "a stop in this tick's frames is notified
+in this tick's pump". The resume generation is what makes a
+stop-resume-stop between two pumps two pushes rather than none: <code>paused</code> is true
+at both ends. <code>Reset</code> is the exception and is pushed synchronously by the verb,
+because CTL-12 requires it to reach every listener <em>before</em> the verb returns —
+that is how an adapter whose client is blocked in a <code>run</code> completes the reply.</p>
+<p><strong><code>pump(PumpBudget)</code></strong> is the loop owner's once-per-tick service call, made after
+the tick's frame batch. It drains the registered <code>Service</code>s, flushes their
+notifications and syncs the pushes. The drain has two arms and they differ in
+kind, not degree: while <strong>running</strong>, each service is asked for at most one
+command whatever the budget says, because the loop owner needs its thread back
+for the next frame; while <strong>paused</strong> it keeps answering while the peer keeps
+talking, bounded by <code>budget_ms</code> — a DeZog ZRCP step is ~15 sequential round
+trips, which at one per tick would be 300 ms. <code>budget_ms == 0</code> therefore means
+<em>one</em> command, not "unbounded". The budgets are the one place in the backend that
+reads a wall clock, and legitimately: §4.8 calls them host service parameters,
+and nothing in the emulated timeline depends on any of them.</p>
+<p><code>pump()</code> refuses to run from inside an event delivery, and refuses rather than
+asserting — an <code>assert</code> compiles away in the build where a frontend bug would
+ship, and re-entering the drain would deliver a boundary's events twice.</p>
+<p><strong>The stop policy</strong> (<code>StopPolicy::Pause</code> | <code>ExitNonZero</code>) is the loop owner's to
+set, never an adapter's: Qt is <code>Pause</code>, SDL and <code>--headless</code> are <code>ExitNonZero</code>,
+because the SDL frontend has no pause path at all and a headless run is a CI
+verdict. <code>stop_policy()</code> returns <strong>what was set</strong> — a setting that reads back as
+something else is a trap for whoever wrote it — and the §4.8 override
+(<code>ExitNonZero</code> becomes <code>Pause</code> while a remote client is <em>connected</em>, so a client
+blocked on <code>run</code> gets its stop reply) lives at the one place the policy is
+consumed. The exit code with no script to name one is <strong>3</strong>: never 2, which both
+harnesses use for a harness fault, and 1 stays "jnext could not run".</p>
+<p>An explicit <code>pause()</code> is a stop that drops the transient subscriptions but is
+<strong>not</strong> an <code>Action::Stop</code>, so it never requests an exit. One function serves both
+with a parameter, so the two arms stay next to each other.</p>
+<h3 id="the-cold-boot-reconstruct-contract-ctl-12">The cold-boot reconstruct contract (CTL-12)<a class="headerlink" href="#the-cold-boot-reconstruct-contract-ctl-12" title="Permanent link">&para;</a></h3>
+<p>A hard reset is modelled as a power-on cold boot the <em>frontend</em> performs:
+<code>emulator_frontend_cold_boot()</code> destroys the <code>Emulator</code> and placement-news a new
+one at the same address, then re-runs <code>init()</code>. <code>&amp;emu</code> stays valid, which is what
+lets a <code>Debugger</code> live across it — but every sub-object is new, and in particular
+the <code>DebugState</code> is. A surviving <code>Debugger</code> is then <strong>silently disconnected</strong>:
+every subscription still exists and lists as live, and not one can ever fire.
+Nothing in the frontend can detect it.</p>
+<p>So the backend re-applies, from one function, whatever route landed the new
+machine — <code>reset(Hard)</code>, <code>load()</code>, or the loop owner's <code>on_cold_boot_done()</code>
+after a guest NR 0x02 reset:</p>
+<ol>
+<li>the four publications the constructor makes (<code>set_event_table</code>,
+   <code>set_event_hooks</code>, <code>set_machine_replaced_hook</code>, and the Emulator's own latch
+   stamper via <code>init()</code>);</li>
+<li>the eight-page seed — <code>on_slot_remapped()</code> early-returns while the table is
+   null, so every <code>rebuild_ptr()</code> during the new <code>init()</code> was discarded, which
+   makes a page-qualified <code>Mem</code> filter wrong in <em>both</em> directions;</li>
+<li><code>gates_changed()</code>, which is also what corrects the stale event-mask bytes the
+   platform's <code>BreakpointSet</code> copy carried across;</li>
+<li>the latch ring — it lives on <code>Debugger::Impl</code>, so it <em>survives</em> the
+   reconstruct while everything in it describes a machine that is gone;</li>
+<li><code>arm(Kind::None)</code>, because <code>init()</code> fired
+   <code>debug_after_machine_transition_()</code> while the hook was still null. <code>None</code> and
+   not <code>User</code>: <code>state()</code>'s precedence falls <em>through</em> <code>None</code> to the legacy
+   PC-breakpoint check and matches <code>User</code> immediately, so <code>User</code> would silently
+   swallow a breakpoint at the landing address;</li>
+<li>the pause, iff the caller was paused — "paused stays paused, running stays
+   running", and there is no <code>Reset</code> pause reason, so a client's <code>reset(Hard)</code>
+   never pauses a running machine;</li>
+<li>the per-client state, which is only the arm bit and the <code>live_raster</code> OR: the
+   subscriptions, switches and symbol table live on <code>Impl</code> and never went
+   anywhere.</li>
+</ol>
+<p>Then the <code>Reset{Hard}</code> event is latched (after the ring discard, or it would go
+with the stale entries) and <code>Reset{Hard}</code> is pushed to every listener before the
+verb returns.</p>
+<p><code>reset(Hard)</code> runs the loop owner's sequence <strong>synchronously</strong>, through the
+<code>LoopDriver</code> closure registered by <code>set_loop_driver()</code> — the sequence lives in
+<code>src/platform/</code>, above the backend, so a closure is the only way the backend can
+reach it. With no closure registered the verb refuses with
+<code>RefusedUnavailable</code>. <code>load()</code> re-applies <strong>unconditionally</strong>, because the
+backend cannot know whether the loop owner's load closure replaced the machine:
+<code>emulator_apply_load()</code> loads in place, the Qt menu route cold-boots first, and
+<code>load_rzx</code> reconstructs only when the recording carries an embedded snapshot.
+Re-applying always is idempotent and removes the question.</p>
+<p><strong>What B3 does not do.</strong> §4.1 CTL-12 says B3 retires the platform-side
+<code>BreakpointSet</code> / <code>active()</code> save-and-restore in <code>emulator_cold_boot()</code> as "a
+second owner of the same state". Measured against the tree it is not the same
+state: <code>saved_bps</code> is the <em>Qt panels'</em> breakpoint model (and its copy is the only
+reason <code>BreakpointPanel</code> and <code>DisasmPanel</code> stay subscribed across the call —
+each registers an observer once in its constructor and never re-registers), and
+<code>saved_active</code> is what keeps an open debugger window armed. None of the three is
+backend-owned until package Q moves the Qt frontend onto a <code>Debugger</code>, so
+retiring the restore now would lose a user's breakpoints on every hard reset,
+permanently unsubscribe two panels and leave an open window unarmed. The two
+owners do not collide in the meantime: the re-application writes its own bit and
+re-publishes the event masks, which is the only part the restore had no honest
+claim on. The reasoning is recorded at the site.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
 <p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
 <code>jnext_debugger</code> is neither compiled nor linked and every use site in

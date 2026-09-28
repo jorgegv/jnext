@@ -239,7 +239,10 @@ Result Debugger::raise_host_event(ClientId by, const std::string& name) {
         // Stop and the machine kept running" is exactly the silent no-op §4
         // forbids.
         impl_->ds().pause();
-        impl_->apply_stop();
+        // `from_event=true`: a `Host` subscription's `Stop` is an `Action::Stop`
+        // verdict like any other, so SES-04's policy applies to it. The verb that
+        // RAISED the event is not the stop — the subscription is.
+        impl_->apply_stop(/*from_event=*/true);
     }
     return Result::Ok;
 }
@@ -545,7 +548,7 @@ bool Debugger::Impl::drain_boundary() {
 
     events.clear_ring();
 
-    if (stop) apply_stop();
+    if (stop) apply_stop(/*from_event=*/true);
     return stop;
 }
 
@@ -563,7 +566,7 @@ bool Debugger::Impl::execute_gate(uint16_t pc) {
     events.clear_hits();
     bool stop = false;
     deliver_to_subscribers(ev, stop, CLIENT_NONE);
-    if (stop) apply_stop();
+    if (stop) apply_stop(/*from_event=*/true);
     return stop;
 }
 
@@ -572,8 +575,38 @@ bool Debugger::Impl::execute_gate(uint16_t pc) {
 // backend did not cause (a legacy PC breakpoint, the data-breakpoint latch)
 // leaves a transient armed — which is exactly what today's single one-shot does,
 // so the Step Over / Run to Here behaviour is unchanged by the replacement.
-void Debugger::Impl::apply_stop() {
+void Debugger::Impl::apply_stop(bool from_event) {
     if (events.clear_transient()) gates_changed();
+    if (!from_event) return;
+
+    // ── SES-04, the ONE place the stop policy is consumed ────────────────────
+    //
+    // `effective_stop_policy()`, never `stop_policy`: the stored value is what
+    // the loop owner set and the effective one is what a `Stop` does right now
+    // (`ExitNonZero` becomes `Pause` while a remote client is connected, so a
+    // DeZog session blocked on `run` gets its stop reply instead of the process
+    // exiting under it — §4.8 SES-04, owner decision §1.3 item 11).
+    //
+    // THE MACHINE IS PAUSED EITHER WAY: the hot loop pauses on a `Stop` verdict
+    // SHORTLY AFTER THIS RETURNS — `drain_events()` sets `event_stop_pending_`
+    // and `emulator.cpp`'s `if (data_bp_hit() || event_stop_pending_)` pauses at
+    // the end of the slice; the pre-instruction gate's caller pauses on the next
+    // line. So the machine is NOT yet paused at this point, and an earlier draft
+    // of this comment said it was. `ExitNonZero` does not suppress that pause
+    // either way — it asks the
+    // LOOP OWNER to log the event and exit non-zero, which is the whole of
+    // owner decision §1.3 item 12 ("one rule for every stop"). A frontend that
+    // registers no listener therefore behaves exactly as it does today, which is
+    // why the CLI contract change that decision names (the man-page line under
+    // `--magic-breakpoint`, and `magic-bp-func`'s re-pin) lands with the
+    // loop-owner wiring rather than here: B3 provides the mechanism and changes
+    // no frontend's behaviour.
+    if (effective_stop_policy() != StopPolicy::ExitNonZero) return;
+
+    self->log(CLIENT_NONE, LogLevel::Warn,
+              "STOP under StopPolicy::ExitNonZero — requesting exit " +
+                  std::to_string(kStopExitCode));
+    notify_exit_requested(kStopExitCode);
 }
 
 void Debugger::Impl::note_event_stop(const Event& ev) {

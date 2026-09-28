@@ -36,6 +36,25 @@ public:
     bool persistent_breakpoints() const { return persistent_; }
     void set_persistent_breakpoints(bool p) { persistent_ = p; refresh_gates_(); }
 
+    /// GH #276 B3 (SES-01/SES-05) — is at least one `jnext::dbg::Debugger`
+    /// CLIENT attached? A THIRD, INDEPENDENT contributor to armed(), and it has
+    /// to be its own bit rather than a second writer of active_.
+    ///
+    /// active_ has owners already: the Qt debugger window
+    /// (`DebuggerManager::set_enabled()`) and the magic-breakpoint hook, which
+    /// sets it when the opcode executes. If `Debugger::attach()` wrote active_
+    /// instead, `detach()` of the last client would have to clear it — and
+    /// would then clear a flag the Qt window or the magic hook owns, silently
+    /// disarming a debugger session nobody detached from. The two cannot be
+    /// distinguished from one bit: this class does not know who set it.
+    ///
+    /// So each contributor keeps its own bit and refresh_gates_() ORs them,
+    /// exactly as it already does for active_ and persistent_. Every new
+    /// contributor must be added to refresh_gates_() AND to SuspendScope, whose
+    /// job is to disarm the machine whatever armed it.
+    bool clients_attached() const { return clients_attached_; }
+    void set_clients_attached(bool a) { clients_attached_ = a; refresh_gates_(); }
+
     /// Are breakpoints and watchpoints LIVE? The hot-path gate.
     ///
     /// A single cached bool, so the default configuration executes exactly the
@@ -140,10 +159,19 @@ public:
     public:
         explicit SuspendScope(DebugState& ds)
             : ds_(ds), paused_(ds.paused_), active_(ds.active_),
+              clients_(ds.clients_attached_),
               persistent_(ds.persistent_), step_(ds.step_mode_),
               step_off_(ds.step_off_pending_) {
             ds_.paused_     = false;
             ds_.active_     = false;
+            // GH #276 B3 — EVERY armed_ contributor, not just the two that
+            // existed when this scope was written. The comment above promises
+            // "disarms breakpoints"; leaving clients_attached_ standing would
+            // make that promise false for any machine a backend client is
+            // attached to, which is every machine once a frontend holds a
+            // `Debugger`. A new contributor to refresh_gates_() belongs here in
+            // the same commit.
+            ds_.clients_attached_ = false;
             ds_.persistent_ = false;
             ds_.step_mode_  = StepMode::NONE;
             ds_.refresh_gates_();          // disarms breakpoints
@@ -151,6 +179,7 @@ public:
         ~SuspendScope() {
             ds_.paused_     = paused_;
             ds_.active_     = active_;
+            ds_.clients_attached_ = clients_;
             ds_.persistent_ = persistent_;
             ds_.step_mode_  = step_;
             ds_.refresh_gates_();
@@ -163,6 +192,7 @@ public:
         DebugState& ds_;
         bool        paused_;
         bool        active_;
+        bool        clients_;
         bool        persistent_;
         StepMode    step_;
         bool        step_off_;
@@ -466,8 +496,9 @@ private:
     /// early return, an exception or a forgotten reset.
     void set_guest_access_(bool g) { guest_access_ = g; refresh_gates_(); }
 
-    /// Recompute BOTH cached hot-path gates from the three inputs that feed
-    /// them (active_, persistent_, guest_access_). Named for the gates rather
+    /// Recompute BOTH cached hot-path gates from the four inputs that feed
+    /// them (active_, clients_attached_, persistent_, guest_access_). Named for
+    /// the gates rather
     /// than for armed_ alone, which is what it used to maintain: it now also
     /// owns wp_live_, and a name that mentions only half of what a function
     /// maintains is how the next person misses the other half.
@@ -477,7 +508,7 @@ private:
     /// left execution (twice per frame, or twice per debugger Step). Never
     /// from the hot path.
     void refresh_gates_() {
-        armed_ = active_ || persistent_;
+        armed_ = active_ || clients_attached_ || persistent_;
         wp_live_ = armed_ && guest_access_;
         // Disarming breakpoints drops any pending step-off with them. The gate
         // that consumes it does not run while !armed(), so PC moves on freely
@@ -515,6 +546,10 @@ private:
     }
 
     bool active_ = false;
+    // GH #276 B3 — the third armed_ contributor. APPENDED next to its siblings
+    // rather than at the end of the class: all three are read only by
+    // refresh_gates_(), never by the hot path (which reads armed_).
+    bool clients_attached_ = false;
     bool persistent_ = false;
     bool armed_ = false;
     // Kept adjacent to armed_ deliberately: the eight Mmu watchpoint sites

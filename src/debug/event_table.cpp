@@ -129,6 +129,10 @@ bool EventTable::set_enabled(EventId id, bool e) {
 // ---------------------------------------------------------------------------
 
 void EventTable::refresh() {
+    // GH #276 B3 — the ONE bump of the subscription revision. Here rather than
+    // in each mutator because every mutator already calls this, and one that
+    // did not would not work at all.
+    ++revision_;
     live_kinds_        = 0;
     live_dma_kinds_    = 0;
     live_copper_kinds_ = 0;

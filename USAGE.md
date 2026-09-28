@@ -1354,8 +1354,16 @@ aliases.
 
 Subsystems are `cpu`, `memory`, `ula`, `video`, `audio`, `port`,
 `nextreg`, `dma`, `copper`, `uart`, `input`, `platform`, `emulator`,
-`sdcard`, `divmmc`, `spi`, `ctc`, `i2c`, `multiface`, `esp01` and
-`esxdos`.
+`sdcard`, `divmmc`, `spi`, `ctc`, `i2c`, `multiface`, `esp01`, `esxdos`
+and `debugger`.
+
+`debugger` is the debugger backend. At the default `info` level it
+reports every change a debugger client makes to the machine - one
+`MUTATE` line per register, memory, NextREG, port, palette or sprite
+write, naming the old value, the new one and the client - plus each
+client attaching and detaching. Set it to `warn` to silence that running
+commentary without silencing anything else, or to `debug` for the
+per-event detail behind it.
 
 `esp01` is the emulated ESP-01 WiFi module (**--esp**). At the default
 `info` level it reports only the connections opened, refused, failed and

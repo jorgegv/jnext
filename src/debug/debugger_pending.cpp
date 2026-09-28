@@ -29,10 +29,12 @@
 //        All eleven moved to `debugger_events.cpp` with the `EventTable`, the
 //        512-entry latch ring and the site hooks behind them.
 //
-//   B3 — session (§4.8 CAP-SES): 11 definitions
-//        attach, detach, set_listener, add_service, remove_service, pump,
-//        set_live_raster, live_raster, attached, set_loop_driver,
-//        on_cold_boot_done
+//   B3 — session (§4.8 CAP-SES): DONE, 0 definitions left here.
+//        All eleven moved to `debugger_session.cpp` with the client table, the
+//        listener fan-out, the service list and `pump()`'s drain policy;
+//        `reset(Hard)` and `load()` (which were never in this file — they
+//        refused from `debugger_control.cpp`) moved to
+//        `debugger_reconstruct.cpp` with the CTL-12 re-application.
 //
 //   B4 — input pulses, capture, bookmarks, coverage: 12 definitions
 //        press_key (name), press_key (matrix), screenshot, ula_screen_dump,
@@ -50,65 +52,18 @@
 //        in §10.1's B rows. Reported as a finding rather than silently adopted
 //        or silently dropped.
 //
-// 24 definitions, and the three per-package subtotals above add to 23 plus the
-// one unassigned (B2's 11 are gone — this file held 35 before B2). The numbers
-// are restated nowhere else: this banner is the list, and the file is the check.
+// 13 definitions, and the per-package subtotals above add to 12 plus the one
+// unassigned (B2's 11 and B3's 11 are gone — this file held 35 before B2 and 24
+// before B3). The numbers are restated nowhere else: this banner is the list, and
+// the file is the check:
+//
+//     grep -c '^[A-Za-z].* Debugger::' src/debug/debugger_pending.cpp
 // ---------------------------------------------------------------------------
 
 #include "debug/debugger_impl.h"
 
 namespace jnext {
 namespace dbg {
-
-// ===========================================================================
-// B3 — §4.8 CAP-SES
-//
-// The client table, the listeners, the service list and `pump()`'s drain
-// policy, plus the loop driver that CTL-12 `Hard` and CTL-15 route through
-// (both of which already refuse with `RefusedUnavailable` in
-// `debugger_control.cpp`, which is their §4.1 behaviour with no driver
-// registered — so those two are NOT in this file).
-// ===========================================================================
-
-Expected<ClientId> Debugger::attach(const ClientInfo&) {
-    return make_refused<ClientId>(Result::Unsupported);
-}
-
-Result Debugger::detach(ClientId) { return Result::Unsupported; }
-
-Result Debugger::set_listener(ClientId, Listener*) { return Result::Unsupported; }
-
-Result Debugger::add_service(Service&) { return Result::Unsupported; }
-
-Result Debugger::remove_service(Service&) { return Result::Unsupported; }
-
-/// SES-03. Not a query and not a refusing verb — the third bucket of the
-/// taxonomy (see debugger.h). With no services to drain and no listeners to
-/// notify there is nothing for it to do, so it reports the truth about the
-/// session: nothing attached, and whether the machine is paused.
-ServiceHint Debugger::pump(const PumpBudget&) {
-    ServiceHint hint;
-    hint.remote_attached = false;
-    hint.paused          = impl_->ds().paused();
-    return hint;
-}
-
-Result Debugger::set_live_raster(ClientId, bool) { return Result::Unsupported; }
-
-/// SES-05, the ORed-across-clients render hint. There are no clients to OR, and
-/// `DebugState::active()` is NOT the same thing (it gates the step machinery
-/// too), so this reports `false` rather than conflating the two.
-bool Debugger::live_raster() const { return false; }
-
-/// SES-05 — "is any client attached?", the gate on the step machinery.
-/// `DebugState::active()` is what that means on today's tree: it is set by the
-/// Qt frontend when the debugger window opens and by the magic-breakpoint hook,
-/// and it is the first term of `armed()`. B3 makes it the client count.
-bool Debugger::attached() const { return impl_->ds().active(); }
-
-Result Debugger::set_loop_driver(const LoopDriver&) { return Result::Unsupported; }
-
-Result Debugger::on_cold_boot_done() { return Result::Unsupported; }
 
 // ===========================================================================
 // B4 — input pulses, capture, bookmarks, coverage

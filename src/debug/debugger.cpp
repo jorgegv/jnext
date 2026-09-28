@@ -95,15 +95,20 @@ Debugger::~Debugger() {
 // SES-06 — the message sink, and the §4.2a mutation log over it
 // ---------------------------------------------------------------------------
 //
-// B1 routes SES-06 to the `emulator` spdlog channel. It is NOT its own channel
-// yet on purpose: a new `--log-level` name is a documented user surface, gated
-// in both directions by `log_test` LOG-09..11 against the man page's LOGGING
-// list, and it belongs with B3's listener fan-out (where `on_log()` gives the
-// line somewhere else to go) rather than bundled into the write verbs.
+// B1 parked this on the `emulator` spdlog channel and said why: a new
+// `--log-level` name is a documented user surface, gated in both directions by
+// `log_test` LOG-09..11 against the man page's LOGGING list, and it belonged
+// with B3's listener fan-out rather than bundled into the write verbs.
+//
+// B3 IS THAT COMMIT, and it pays the cost in full: `debugger` is an accessor on
+// `Log`, a name in `Log::SUBSYSTEMS`, a sentence in the man page's LOGGING
+// section (re-rendered into `doc/man/jnext.1` and `USAGE.md`), and therefore a
+// valid `--log-level debugger=<level>` token that LOG-10 and LOG-11 gate in both
+// directions.
 // ---------------------------------------------------------------------------
 
 Result Debugger::log(ClientId by, LogLevel level, const std::string& text) {
-    auto& l = *Log::emulator();
+    auto& l = *Log::debugger();
     // `by` is carried in the line rather than as spdlog metadata: a client id is
     // not a logger name, and every consumer of these lines (a CI transcript, a
     // script's own log) wants the two together.
@@ -116,6 +121,17 @@ Result Debugger::log(ClientId by, LogLevel level, const std::string& text) {
         case LogLevel::Warn:  l.warn("{}", line);     break;
         case LogLevel::Error: l.error("{}", line);    break;
     }
+    // GH #276 B3 — SES-02's `Log{level, text}`. The SAME string the channel got,
+    // `by` suffix and all: a listener that reproduces the line in a console must
+    // not show something different from the log file beside it.
+    //
+    // TWO DESTINATIONS, ONE FUNCTION, and the channel's LEVEL gates the sink
+    // only, never the push. A frontend's own console (SES-06: "frontends attach a
+    // console (Qt), stderr (headless/SDL), or a notification (remote)") must not
+    // go silent because a user turned `--log-level debugger` down, and an adapter
+    // that relays a `MUTATE` line to its peer cannot be at the mercy of a logging
+    // flag.
+    impl_->notify_log(level, line);
     return Result::Ok;
 }
 
@@ -130,7 +146,13 @@ void Debugger::Impl::log_mutate(ClientId by, const std::string& what,
                   what.c_str(), static_cast<unsigned long long>(old_value),
                   static_cast<unsigned long long>(new_value),
                   static_cast<unsigned>(by));
-    Log::emulator()->info("{}", buf);
+    // GH #276 B3 — through `Debugger::log()`, not straight to spdlog, so every
+    // `MUTATE` line reaches every listener as well as the channel. The line
+    // already carries `by`, so it is emitted as the BACKEND's (`CLIENT_NONE`)
+    // and does not collect a second "[client N]" suffix. Writing to the channel
+    // directly here was the state B1 left, and it meant a Qt console or a remote
+    // notification saw the attaches and none of the writes.
+    self->log(CLIENT_NONE, LogLevel::Info, buf);
 }
 
 // A BLOCK write has no single "old -> new" to report, and inventing one (the
@@ -138,17 +160,24 @@ void Debugger::Impl::log_mutate(ClientId by, const std::string& what,
 // for a single value; a range says what it actually did instead.
 void Debugger::Impl::log_mutate_range(ClientId by, const std::string& what,
                                       const std::string& detail) {
-    Log::emulator()->info("MUTATE {} {} by {}", what, detail,
-                          static_cast<unsigned>(by));
+    self->log(CLIENT_NONE, LogLevel::Info,
+              "MUTATE " + what + " " + detail + " by " + std::to_string(by));
 }
 
 // ---------------------------------------------------------------------------
 // SES-04 — stop policy
 //
-// Plain backend state, with no session behind it: the loop owner sets it once
-// and every `Stop` action consults it. B3 adds the `peer_connected()` override
-// (§4.8 SES-04: `ExitNonZero` becomes `Pause` while a remote is attached),
-// which needs the service list it introduces.
+// THE STORED VALUE, and deliberately not the effective one. `set_stop_policy()`
+// is a SETTING the loop owner writes once at start-up, and a setting that reads
+// back as something other than what was written is a trap for whoever wrote it:
+// `set_stop_policy(ExitNonZero)` followed by `stop_policy() == Pause` — because a
+// DeZog socket happens to be connected — reads as the call having failed.
+//
+// The §4.8 SES-04 override (`ExitNonZero` becomes `Pause` while a remote client
+// is connected) therefore lives in `Impl::effective_stop_policy()`, at the one
+// place the policy is CONSUMED: `Impl::apply_stop()`, from a subscription's
+// `Stop`. One reader, one writer, and the pair cannot disagree because neither
+// caches the other's answer.
 // ---------------------------------------------------------------------------
 
 StopPolicy Debugger::stop_policy() const { return impl_->stop_policy; }

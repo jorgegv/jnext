@@ -320,6 +320,16 @@ void HeadlessApp::run() {
     //
     // It prints `BENCHWATCH hits=N` to stderr at the end, so a run states its own
     // hit rate instead of leaving the reader to assume the watch fired.
+    //
+    // GH #276 B3 — IT HOLDS A `Debugger` ACROSS `cold_boot()`, and that makes it
+    // the first real consumer of CTL-12's reconstruct contract rather than its
+    // first casualty. `emulator_cold_boot()` destroys the `Emulator` and
+    // placement-news a new one, so the `DebugState` this object published its
+    // event table and hooks into is gone; without the `on_cold_boot_done()` call
+    // in `cold_boot` below, the subscription would still list as live and could
+    // never fire again, and `BENCHWATCH hits=0` would read as "the range was
+    // never written" instead of "the watch was disconnected". Reachable through a
+    // guest NR 0x02 hard reset and through `JNEXT_DELAYED_RESET_TYPE=loadnex:`.
     std::unique_ptr<jnext::dbg::Debugger> bench_watch_dbg;
     unsigned long long* bench_watch_hits = nullptr;
     if (const char* bw = std::getenv("JNEXT_BENCH_WATCH")) {
@@ -446,7 +456,7 @@ void HeadlessApp::run() {
     // re-run the proven startup init() path (shared with the Qt/SDL frontends,
     // platform/emulator_boot.h). Empty load_file => clean NextZXOS boot;
     // non-empty => boot as if launched with --load <file>.
-    auto cold_boot = [this](const std::string& load_file) {
+    auto cold_boot = [this, &bench_watch_dbg](const std::string& load_file) {
         Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
                               load_file.empty() ? "(none)" : load_file.c_str());
         EmulatorConfig cfg = config_;
@@ -459,6 +469,17 @@ void HeadlessApp::run() {
             load_file_      = load_file;
             load_countdown_ = emulator_load_delay_frames(load_file);
         }
+        // GH #276 B3 — CTL-12 rule 5, the GUEST-initiated path: the loop owner
+        // has done the boot itself, and tells the backend so, so the reconstruct
+        // contract's re-application (the four publications, the eight-page seed,
+        // the gates, the ring discard) runs for it too.
+        //
+        // Guarded on the fixture because THIS loop owner holds a `Debugger` only
+        // while `JNEXT_BENCH_WATCH` is set — wiring `HeadlessApp` to a
+        // process-lifetime `Debugger`, a `LoopDriver` and a per-tick `pump()` is
+        // the loop-owner work of the frontend packages, not B3's. When that
+        // arrives this guard goes with it and the call becomes unconditional.
+        if (bench_watch_dbg) bench_watch_dbg->on_cold_boot_done();
     };
 
     while (running_) {

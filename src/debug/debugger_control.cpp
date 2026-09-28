@@ -66,7 +66,11 @@ Result Debugger::pause(ClientId by) {
     // the Run-to-Here target" behave as it does today, where `resume()`'s
     // `clear_oneshot()` did it one transition later.
     impl_->ds().pause();
-    impl_->apply_stop();
+    // `from_event=false` (GH #276 B3): an explicit `pause()` drops the transients
+    // but is NOT an `Action::Stop`, so SES-04's `ExitNonZero` must not fire for
+    // it. A client asking the machine to hold still under `--headless` is asking
+    // for a pause, not for the process to exit.
+    impl_->apply_stop(/*from_event=*/false);
     impl_->arm(PauseReason::Kind::User, by);
     return Result::Ok;
 }
@@ -390,7 +394,12 @@ Result Debugger::acknowledge_corruption(uint64_t generation) {
 // the loop owner's registered driver (SES-07) — the cold-boot reconstruct
 // contract destroys and placement-news the `Emulator`, which only the layer
 // ABOVE the backend can do — so without one they refuse with
-// `RefusedUnavailable`, exactly as §4.1 specifies. B3 registers the driver.
+// `RefusedUnavailable`, exactly as §4.1 specifies.
+//
+// GH #276 B3 — `Hard` and `load()` now live in `debugger_reconstruct.cpp`, with
+// the re-application every route that lands a new machine shares. Only the
+// `ResetKind` switch stays here, because its missing `default` is the gate that
+// makes a fourth enumerator a compile error (see below).
 // ---------------------------------------------------------------------------
 
 Result Debugger::reset(ClientId by, ResetKind kind) {
@@ -408,7 +417,12 @@ Result Debugger::reset(ClientId by, ResetKind kind) {
     // reset, so the verb refuses it rather than picking one.
     switch (kind) {
         case ResetKind::Any:  return Result::Unsupported;
-        case ResetKind::Hard: return Result::RefusedUnavailable;   // no driver (B3)
+        // GH #276 B3 — the cold-boot reconstruct contract, in
+        // `debugger_reconstruct.cpp`. It still answers `RefusedUnavailable` with
+        // no `LoopDriver::cold_boot` registered, which is §4.1 CTL-12 rule 6 and
+        // the behaviour B1 hard-coded; now it is the absence of the driver that
+        // produces it rather than the absence of the implementation.
+        case ResetKind::Hard: return impl_->reset_hard(by);
         case ResetKind::Soft: break;
     }
 
@@ -421,11 +435,6 @@ Result Debugger::reset(ClientId by, ResetKind kind) {
     // one; whatever the caller's state was, it survives. So the armed reason
     // stays as it was — this verb is not a stop.
     return Result::Ok;
-}
-
-Result Debugger::load(ClientId, const std::string&) {
-    // CTL-15 routes through `LoopDriver::load` (SES-07), which B3 registers.
-    return Result::RefusedUnavailable;
 }
 
 // ---------------------------------------------------------------------------
@@ -448,11 +457,12 @@ Result Debugger::set_magic_breakpoint(bool enabled) {
 // §4.1 — the armed gate
 //
 // `armed()` is §5's formula `attached || persistent_breakpoints`, and
-// `DebugState::armed()` IS that formula over today's two flags
-// (`active_ || persistent_`). It is read rather than recomputed here precisely
-// so there is one gate: the hot loop consults `DebugState::armed()` on every
-// instruction, and a second copy of the formula in the backend could disagree
-// with the one the machine actually obeys.
+// `DebugState::armed()` IS that formula over the three flags that feed it
+// (`active_ || clients_attached_ || persistent_`, GH #276 B3 — `attached()` is
+// the OR of the first two, see there). It is read rather than recomputed here
+// precisely so there is one gate: the hot loop consults `DebugState::armed()` on
+// every instruction, and a second copy of the formula in the backend could
+// disagree with the one the machine actually obeys.
 // ---------------------------------------------------------------------------
 
 bool Debugger::armed() const { return impl_->ds().armed(); }

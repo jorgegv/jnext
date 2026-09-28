@@ -1530,7 +1530,17 @@ Subsystems are \f[CR]cpu\f[R], \f[CR]memory\f[R], \f[CR]ula\f[R],
 \f[CR]dma\f[R], \f[CR]copper\f[R], \f[CR]uart\f[R], \f[CR]input\f[R],
 \f[CR]platform\f[R], \f[CR]emulator\f[R], \f[CR]sdcard\f[R],
 \f[CR]divmmc\f[R], \f[CR]spi\f[R], \f[CR]ctc\f[R], \f[CR]i2c\f[R],
-\f[CR]multiface\f[R], \f[CR]esp01\f[R] and \f[CR]esxdos\f[R].
+\f[CR]multiface\f[R], \f[CR]esp01\f[R], \f[CR]esxdos\f[R] and
+\f[CR]debugger\f[R].
+.PP
+\f[CR]debugger\f[R] is the debugger backend.
+At the default \f[CR]info\f[R] level it reports every change a debugger
+client makes to the machine \- one \f[CR]MUTATE\f[R] line per register,
+memory, NextREG, port, palette or sprite write, naming the old value,
+the new one and the client \- plus each client attaching and detaching.
+Set it to \f[CR]warn\f[R] to silence that running commentary without
+silencing anything else, or to \f[CR]debug\f[R] for the per\-event
+detail behind it.
 .PP
 \f[CR]esp01\f[R] is the emulated ESP\-01 WiFi module
 (\f[B]\-\-esp\f[R]).

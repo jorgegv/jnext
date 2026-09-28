@@ -169,8 +169,20 @@ struct Debugger::Impl {
     void deliver_to_subscribers(Event& ev, bool& stop, ClientId raiser);
 
     /// What a `Stop` does besides pausing: drop the transient subscriptions
-    /// (§4.3, "auto-removed at the next stop").
-    void apply_stop();
+    /// (§4.3, "auto-removed at the next stop"), and — for a stop an `Action::Stop`
+    /// caused — apply SES-04's stop policy.
+    ///
+    /// `from_event` IS THE WHOLE DIFFERENCE, and it is a parameter rather than a
+    /// second function because both arms must stay visibly next to each other.
+    /// SES-04 is about "what a `Stop` ACTION does in this frontend": a
+    /// subscription's `Stop` under `StopPolicy::ExitNonZero` is a logged event
+    /// plus a non-zero exit request, whereas an explicit `Debugger::pause()` —
+    /// which also passes through here, and is also a stop — is a client asking
+    /// for the machine to hold still and must NEVER request an exit. A single
+    /// unparameterised `apply_stop()` would give one of the two the other's
+    /// behaviour, which is exactly the shape of B2's three sibling-divergence
+    /// findings.
+    void apply_stop(bool from_event);
 
     /// Latch CTL-13's reason for this stop.
     void note_event_stop(const Event& ev);
@@ -185,6 +197,145 @@ struct Debugger::Impl {
     /// difference being that here it refuses instead of asking, and the asking
     /// stays in Qt (§4.1 CTL-11).
     Result execute_gate() const;
+
+    // ── B3 (§4.8 CAP-SES) — the session ─────────────────────────────────────
+
+    /// One attached client. SES-01's `ClientInfo` plus everything the backend
+    /// keeps PER CLIENT so a CTL-12 cold boot cannot lose it: the listener, the
+    /// SES-05 live-raster request, and (B4) its bookmarks.
+    ///
+    /// A `std::vector` with STABLE IDS AND TOMBSTONES, the same shape
+    /// `EventTable` uses and for the same reason: `detach()` may be called from
+    /// a listener callback that the fan-out loop is walking, and an erase there
+    /// invalidates the iterator. `compact_clients()` at the outer boundary does
+    /// the removal, exactly as `EventTable::compact()` does.
+    struct Client {
+        ClientId   id = CLIENT_NONE;
+        ClientInfo info;
+        Listener*  listener    = nullptr;
+        bool       live_raster = false;
+        bool       detached    = false;   ///< tombstone
+    };
+
+    std::vector<Client> clients;
+    ClientId            next_client_id = 1;
+
+    /// SES-05 — the OR of every live client's `live_raster`. A CACHE of a pure
+    /// function of the list, recomputed by `clients_changed()` and by nothing
+    /// else, because `live_raster()` is a direct-value query a renderer may poll
+    /// per frame.
+    bool live_raster_or = false;
+
+    /// Live client lookup. Null for an unknown or detached id — which is what
+    /// makes `RefusedUnavailable` (benign, "no such client") the answer rather
+    /// than a crash.
+    Client*       find_client(ClientId cid);
+    const Client* find_client(ClientId cid) const;
+
+    /// How many clients are live. `attached()`'s first term and the value
+    /// `DebugState::set_clients_attached()` is driven from.
+    size_t live_client_count() const;
+
+    /// Re-derive `DebugState::clients_attached()` and the ORed `live_raster`
+    /// from the client list. THE ONE function every attach / detach / listener /
+    /// live-raster change ends with, for the same reason `gates_changed()` is
+    /// one function: a change that forgets it leaves the machine armed for a
+    /// client that has gone, or unarmed for one that has arrived.
+    void clients_changed();
+
+    /// Drop the tombstones. Called only where no fan-out loop is walking the
+    /// vector.
+    void compact_clients();
+
+    /// Re-entrancy guard for the listener fan-out: a `Listener` may `detach()`
+    /// (a crashed remote's server does exactly that), and the fan-out is walking
+    /// the vector when it does.
+    bool notifying = false;
+
+    // ── SES-02, the fan-out ─────────────────────────────────────────────────
+    //
+    // ONE function per notification, each walking the live clients. They are the
+    // only writers of a `Listener*`, so "does every client get it" is a property
+    // of one loop rather than of every call site.
+
+    void notify_paused(const PausedInfo& info);
+    void notify_resumed(ClientId by);
+    void notify_reset(ResetKind kind);
+    void notify_frame_ended(uint32_t frame);
+    void notify_subscriptions_changed(EventKindMask kinds);
+    void notify_exit_requested(int code);
+    void notify_log(LogLevel level, const std::string& text);
+
+    /// SES-02/SES-03 — the ONE place a `Paused` / `Resumed` / `FrameEnded` /
+    /// `SubscriptionsChanged` push is decided, from the machine's own state.
+    ///
+    /// EDGE DETECTION IN ONE OWNER, not a push at each transition site. There
+    /// are seven ways out of paused and a dozen into it (`DebugState::pause()`
+    /// from the hot loop, from a control verb, from the magic hook, from a
+    /// subscription's `Stop`), and a push at each is the "two lists" failure
+    /// that B2's nine blocking items were three instances of. Instead this
+    /// compares `paused()` + `resume_generation()` + the frame tag + the
+    /// subscription revision against what was last pushed, and is called from
+    /// `pump()` — the slot §4.8 SES-03 specifies ("a stop in this tick's frames
+    /// is notified in this tick's pump").
+    ///
+    /// `Reset` is NOT here: CTL-12 rule 4 requires it to reach every listener
+    /// BEFORE the verb returns, so it is pushed synchronously by the verb.
+    void sync_notifications();
+
+    bool     last_paused      = false;
+    uint64_t last_resume_gen  = 0;
+    uint32_t last_frame       = 0;
+    uint64_t last_subs_rev    = 0;
+    bool     notif_primed     = false;
+
+    /// Build the `PausedInfo` for the machine's current stop: `state()`'s
+    /// reason, plus §4.3's `matched[]` from `EventTable::hits()`.
+    PausedInfo paused_info() const;
+
+    // ── SES-03, the services ────────────────────────────────────────────────
+
+    std::vector<Service*> services;
+
+    /// Does any registered service have a connected peer? `ServiceHint`'s
+    /// `remote_attached`, and the SES-04 override's condition.
+    bool any_peer_connected() const;
+
+    /// SES-04 — what a `Stop` ACTION does right now, override included.
+    ///
+    /// SEPARATE FROM `stop_policy()`, which returns what the loop owner SET.
+    /// `ExitNonZero` becomes `Pause` while a remote is connected (§4.8 SES-04,
+    /// owner decision §1.3 item 11: "a client blocked on `run` must get its stop
+    /// reply"), and a setting that reads back as something other than what was
+    /// written is a trap for the loop owner that wrote it. So the stored value
+    /// round-trips and the override lives here, in the one place the policy is
+    /// CONSUMED.
+    StopPolicy effective_stop_policy() const;
+
+    /// The exit code an `ExitNonZero` stop requests with no script to name one:
+    /// **3** (owner decision, architecture §1.3 item 10 — never 2, which both
+    /// harnesses use for a harness fault; 1 stays "jnext could not run"). A
+    /// script's explicit `exit <code>` is package S's to supply.
+    static constexpr int kStopExitCode = 3;
+
+    // ── SES-07, the loop driver, and the CTL-12 reconstruct ─────────────────
+
+    LoopDriver driver;
+
+    /// CTL-12 — re-bind to the machine at `emu`'s address and re-apply
+    /// everything the backend owns. Idempotent, and deliberately called whether
+    /// or not the machine was actually replaced (see `Debugger::load`).
+    ///
+    /// `was_paused` is the caller's pause state from BEFORE the boot: CTL-12
+    /// rule 3 is "paused stays paused, running stays running", and a fresh
+    /// `Emulator` is always running.
+    void reapply_after_machine_rebuild(bool was_paused);
+
+    /// CTL-12 `Hard`. On `Impl` rather than as a `Debugger` method because
+    /// `Debugger::reset()` owns the `ResetKind` switch (whose missing `default`
+    /// is what makes a fourth enumerator a compile error) and dispatches the one
+    /// arm that needs the reconstruct here.
+    Result reset_hard(ClientId by);
 };
 
 /// F2 (INS-07 / CTL-13) — the CURRENT frame's tag.
