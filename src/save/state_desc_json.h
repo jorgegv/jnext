@@ -127,6 +127,12 @@ public:
     /// names nothing — and `StateDesc::fail()`'s contract is that the detail
     /// names the offending thing (§16.1, `JNSM`). `refusal_` still wins when
     /// both are set: the realisation's own message is the more specific one.
+    /// `&& failure()` is NOT redundant, and it was read as redundant once:
+    /// `fail()` stores whatever pointer it is handed, `nullptr` included, so
+    /// `failed()` can be true while `failure()` is null — and
+    /// `std::string::operator=(const char*)` on a null pointer is undefined.
+    /// No caller passes null today, which is why removing the conjunct breaks
+    /// no row; it is a guard on `fail()`'s contract, not a belt on a braces.
     const std::string& refusal() const {
         if (refusal_.empty() && failed() && failure()) refusal_ = failure();
         return refusal_;
