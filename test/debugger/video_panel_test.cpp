@@ -2040,21 +2040,30 @@ static void test_tab_switch_renders_visible_only(Emulator& emu) {
 
     VideoPanel panel(&emu);
     auto* tabs = panel.findChild<QTabWidget*>();
-    const QImage placeholder =
-        VideoLayerView(VideoLayerView::Layer::SPRITES, "x", nullptr).image();
+    // The "not rendered" picture is a solid fill of one colour, at whatever
+    // width the view last had — compare by colour, never by QImage equality.
+    const QRgb unrendered =
+        VideoLayerView(VideoLayerView::Layer::SPRITES, "x", nullptr).image().pixel(0, 0);
     auto view_image = [&](int i) -> QImage {
         QWidget* page = tabs ? tabs->widget(i) : nullptr;
         auto* v = page ? page->findChild<VideoLayerView*>() : nullptr;
         return v ? v->image() : QImage();
     };
+    auto is_placeholder = [&](const QImage& img) {
+        if (img.isNull()) return false;
+        for (int y = 0; y < img.height(); ++y)
+            for (int x = 0; x < img.width(); ++x)
+                if (img.pixel(x, y) != unrendered) return false;
+        return true;
+    };
 
     panel.refresh();                         // renders tab 0 (All layers) only
-    const bool composite_drawn = view_image(0) != placeholder;
+    const bool composite_drawn = !is_placeholder(view_image(0));
     if (tabs) tabs->setCurrentIndex(3);      // Sprites — no refresh() call here
-    const bool sprites_drawn = view_image(3) != placeholder;
+    const bool sprites_drawn = !is_placeholder(view_image(3));
     bool others_untouched = true;
     for (int i : {1, 2, 4, 5})
-        others_untouched = others_untouched && view_image(i) == placeholder;
+        others_untouched = others_untouched && is_placeholder(view_image(i));
     check("QVT-01",
           "switching the layer tab (paused) renders the newly visible view at "
           "once, and only it: the hidden views keep their placeholder",

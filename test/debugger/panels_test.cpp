@@ -1406,16 +1406,22 @@ static void test_memory_panel() {
         const QString s6 = combo ? combo->itemText(7) : QString();
         const QString s7 = combo ? combo->itemText(8) : QString();
         const QString s2 = combo ? combo->itemText(3) : QString();
+        const QString s0 = combo ? combo->itemText(1) : QString();
+        const QString want_s0 = QString::asprintf("Slot 0 (page %02X)",
+                                                  emu.mmu().get_effective_page(0));
         const bool ok = combo && combo->count() == 9 && combo->itemText(0) == "CPU View" &&
+                        emu.mmu().get_effective_page(0) != 0xFF &&
+                        s0.compare(want_s0, Qt::CaseInsensitive) == 0 &&
                         s6_before.compare("Slot 6 (page 00)", Qt::CaseInsensitive) == 0 &&
                         s6.compare("Slot 6 (page 06)", Qt::CaseInsensitive) == 0 &&
                         s7.compare("Slot 7 (page 07)", Qt::CaseInsensitive) == 0 &&
                         s2.compare("Slot 2 (page 0A)", Qt::CaseInsensitive) == 0;
         check("QMP-03",
               "the selector offers CPU View + Slot 0..7, each naming the page in "
-              "effect, and follows a bank switch on refresh",
-              ok, fmt("before '%s' after '%s' '%s' '%s'", s(s6_before).c_str(),
-                      s(s6).c_str(), s(s7).c_str(), s(s2).c_str()));
+              "effect (the ROM slot's too), and follows a bank switch on refresh",
+              ok, fmt("before '%s' after '%s' '%s' '%s' slot0 '%s' (want '%s')",
+                      s(s6_before).c_str(), s(s6).c_str(), s(s7).c_str(), s(s2).c_str(),
+                      s(s0).c_str(), s(want_s0).c_str()));
     }
 
     // QMP-04 — slot view reads through the CPU map, overlay included.
@@ -1470,13 +1476,15 @@ static void test_memory_panel() {
               fmt("A010=%02X 0010=%02X", emu.mmu().read(0xA010), emu.mmu().read(0x0010)));
     }
 
-    // QMP-05 — row colours: SP row orange (wins over VRAM), pixel VRAM cyan,
-    // attributes yellow, the rest white; a Slot view colours nothing.
+    // QMP-05 — row colours: SP row orange (it wins over VRAM and attributes),
+    // pixel VRAM $4000-$57FF cyan, attributes $5800-$5AFF yellow, the rest
+    // white — at both ends of each range; and a Slot view colours nothing,
+    // not even the row whose OFFSET equals SP.
     {
         Emulator emu;
         build(emu, MachineType::ZX48K);
         Z80Registers r = emu.cpu().get_registers();
-        r.SP = 0x57F8;
+        r.SP = 0x5A08;
         emu.cpu().set_registers(r);
         MemoryPanel mem(&emu);
         mem.resize(700, 600);
@@ -1489,24 +1497,33 @@ static void test_memory_panel() {
             mem.render(&img);
             return img.pixel(0, static_cast<int>(row.baseline_y));
         };
-        go_to(&mem, "57F0");
-        const QRgb sp_row  = row_colour("$57F0");
-        const QRgb vram    = row_colour("$57E0");
-        const QRgb attr    = row_colour("$5800");
-        go_to(&mem, "8000");
-        const QRgb plain   = row_colour("$8000");
+        const QRgb orange = qRgb(0xFF, 0xE0, 0xC0), cyan = qRgb(0xE0, 0xFF, 0xFF),
+                   yellow = qRgb(0xFF, 0xFF, 0xE0), white = qRgb(0xFF, 0xFF, 0xFF);
+        struct Want { const char* go; const char* row; QRgb colour; };
+        const Want cpu_rows[] = {
+            {"4000", "$3FF0", white},  {"4000", "$4000", cyan},
+            {"5800", "$57F0", cyan},   {"5800", "$5800", yellow},
+            {"5A80", "$5A00", orange}, {"5A80", "$5AF0", yellow},
+            {"5A80", "$5B00", white},  {"8000", "$8000", white},
+        };
+        std::string bad;
+        for (const Want& w : cpu_rows) {
+            go_to(&mem, w.go);
+            const QRgb got = row_colour(w.row);
+            if (got != w.colour) bad += fmt("%s=%08X(want %08X) ", w.row, got, w.colour);
+        }
+        // Slot view: SP numerically inside the offset range of the slot.
+        r.SP = 0x1808;
+        emu.cpu().set_registers(r);
         select_view(&mem, 3);                           // Slot 2 = $4000-$5FFF
-        go_to(&mem, "17F0");
-        const QRgb slot_sp = row_colour("$17F0");       // CPU $57F0, the SP row
-
-        const bool ok = sp_row == qRgb(0xFF, 0xE0, 0xC0) && vram == qRgb(0xE0, 0xFF, 0xFF) &&
-                        attr == qRgb(0xFF, 0xFF, 0xE0) && plain == qRgb(0xFF, 0xFF, 0xFF) &&
-                        slot_sp == qRgb(0xFF, 0xFF, 0xFF);
+        go_to(&mem, "1800");
+        const QRgb slot_sp = row_colour("$1800");       // offset $1800 = CPU $5800
+        if (slot_sp != white) bad += fmt("slot $1800=%08X(want white) ", slot_sp);
         check("QMP-05",
               "CPU View colours the SP row orange, pixel VRAM cyan and attributes "
-              "yellow; other rows and every Slot-view row are white",
-              ok, fmt("sp=%08X vram=%08X attr=%08X plain=%08X slot=%08X", sp_row, vram,
-                      attr, plain, slot_sp));
+              "yellow (both ends of each range); other rows and every Slot-view "
+              "row are white",
+              bad.empty(), bad);
     }
 }
 

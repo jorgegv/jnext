@@ -449,19 +449,19 @@ static void step_over_row(const char* id, const char* desc,
     fx.enable();
 
     fx.mgr->on_step_over();
-    const bool resumed = !fx.paused();
+    const bool resumed = !fx.paused() && actions_running_shape(fx.dbg());
     const uint16_t pc_now = fx.pc();
     fx.tick_until_paused();
     const Z80Registers r = fx.emu.cpu().get_registers();
     const uint8_t a = static_cast<uint8_t>(r.AF >> 8);
     const uint8_t b = static_cast<uint8_t>(r.BC >> 8);
     check(id, desc,
-          resumed && fx.paused() && r.PC == want_pc && a == want_a && b == want_b &&
-              r.SP == TEST_SP,
-          fmt("resumed=%d (PC then %04X) paused=%d PC=%04X A=%02X B=%02X SP=%04X "
-              "(want PC=%04X A=%02X B=%02X SP=%04X)",
-              resumed, pc_now, fx.paused(), r.PC, a, b, r.SP, want_pc, want_a, want_b,
-              TEST_SP));
+          resumed && fx.paused() && actions_paused_shape(fx.dbg()) && r.PC == want_pc &&
+              a == want_a && b == want_b && r.SP == TEST_SP,
+          fmt("resumed (running actions)=%d (PC then %04X) paused=%d paused actions=%d "
+              "PC=%04X A=%02X B=%02X SP=%04X (want PC=%04X A=%02X B=%02X SP=%04X)",
+              resumed, pc_now, fx.paused(), actions_paused_shape(fx.dbg()), r.PC, a, b,
+              r.SP, want_pc, want_a, want_b, TEST_SP));
 }
 
 static void test_step_over() {
@@ -498,12 +498,12 @@ static void test_step_over() {
             fx.regs(PROG, [](Z80Registers& r) { r.AF = 0x0000; });
             fx.enable();
             fx.mgr->on_step_over();
-            const bool resumed = !fx.paused();
+            const bool resumed = !fx.paused() && actions_running_shape(fx.dbg());
             fx.tick_until_paused();
             const Z80Registers r = fx.emu.cpu().get_registers();
             check("QSO-04", desc,
-                  ram_at_0 && resumed && fx.paused() && r.PC == 0x8001 &&
-                      (r.AF >> 8) == 1 && r.SP == TEST_SP,
+                  ram_at_0 && resumed && fx.paused() && actions_paused_shape(fx.dbg()) &&
+                      r.PC == 0x8001 && (r.AF >> 8) == 1 && r.SP == TEST_SP,
                   fmt("RAM at $0028=%d resumed=%d paused=%d PC=%04X A=%02X SP=%04X",
                       ram_at_0, resumed, fx.paused(), r.PC, r.AF >> 8, r.SP));
         }
@@ -524,12 +524,12 @@ static void test_step_over() {
             fx.regs(0x8001, [](Z80Registers& r) { r.AF = 0x0000; r.BC = 0x0300; });
             fx.enable();
             fx.mgr->on_step_over();
-            const bool resumed = !fx.paused();
+            const bool resumed = !fx.paused() && actions_running_shape(fx.dbg());
             fx.tick_until_paused();
             const Z80Registers r = fx.emu.cpu().get_registers();
             check("QSO-05", desc,
-                  resumed && fx.paused() && r.PC == 0x8003 && (r.BC >> 8) == 0 &&
-                      (r.AF >> 8) == 2,
+                  resumed && fx.paused() && actions_paused_shape(fx.dbg()) &&
+                      r.PC == 0x8003 && (r.BC >> 8) == 0 && (r.AF >> 8) == 2,
                   fmt("resumed=%d PC=%04X B=%02X A=%02X", resumed, r.PC, r.BC >> 8,
                       r.AF >> 8));
         }
@@ -548,8 +548,12 @@ static void test_step_over() {
             fx.regs(PROG);
             fx.enable();
             fx.mgr->on_step_over();
-            check("QSO-06", desc, fx.paused() && fx.pc() == 0x9000,
-                  fmt("paused=%d PC=%04X", fx.paused(), fx.pc()));
+            check("QSO-06", desc,
+                  fx.paused() && fx.pc() == 0x9000 && actions_paused_shape(fx.dbg()) &&
+                      cpu_value(fx.dbg(), "PC: ") == "9000",
+                  fmt("paused=%d PC=%04X paused actions=%d shown PC=%s", fx.paused(), fx.pc(),
+                      actions_paused_shape(fx.dbg()),
+                      s(cpu_value(fx.dbg(), "PC: ")).c_str()));
         }
     }
 }
@@ -712,16 +716,29 @@ static void test_pause_edge() {
         fx.enable();
         DebuggerWindow* dbg = fx.dbg();
 
-        // Park the disassembly far from the program while paused.
+        // Park the disassembly far from the program while paused, on a page
+        // of one-byte NOPs, and note the address span it lists.
+        for (uint16_t a = 0xC000; a < 0xC100; ++a) fx.emu.mmu().write(a, 0x00);
         if (auto* sb = dbg->disasm_panel()->findChild<QScrollBar*>()) sb->setValue(0xC000);
         QApplication::processEvents();
+        uint16_t span_lo0 = 0, span_hi0 = 0, span_lo1 = 1, span_hi1 = 1;
+        dbg->disasm_panel()->select_all_visible();
+        dbg->disasm_panel()->selection_range(span_lo0, span_hi0);
+        dbg->disasm_panel()->clear_selection();
         const QString pc0 = cpu_value(dbg, "PC: ");
         const QString hl0 = cpu_value(dbg, "HL: ");
         const QString stk0 = table_cell(dbg->stack_panel(), 0, 0);
 
         fx.mgr->on_run();
         const bool running_actions = actions_running_shape(dbg);
+        // Rewrite the parked page as three-byte instructions: a Disassembly
+        // that re-read memory now would list three times the span.
+        for (uint16_t a = 0xC000; a < 0xC0FF; a += 3)
+            fx.load(a, {0x21, 0x00, 0x00});
         for (int i = 0; i < 13; ++i) fx.tick();          // > one throttled refresh
+        dbg->disasm_panel()->select_all_visible();
+        dbg->disasm_panel()->selection_range(span_lo1, span_hi1);
+        dbg->disasm_panel()->clear_selection();
         const uint16_t live_hl = fx.emu.cpu().get_registers().HL;
         const bool frozen =
             fx.emu.cpu().get_registers().HL != 0 &&
@@ -729,19 +746,22 @@ static void test_pause_edge() {
             cpu_value(dbg, "PC: ") == pc0 && cpu_value(dbg, "HL: ") == hl0 &&
             table_cell(dbg->stack_panel(), 0, 0) == stk0 &&
             table_rows(dbg->callstack_panel()) == 0 &&
+            span_lo0 == 0xC000 && span_lo1 == span_lo0 && span_hi1 == span_hi0 &&
             !disasm_shows(dbg->disasm_panel(), PROG);
         check("QPE-01",
               "Run: the actions flip to the running shape and CPU / Stack / Call "
               "Stack / Disassembly stop following the machine through refreshes",
               pc0 == "8000" && hl0 == "0000" && stk0 == "FF00" && running_actions && frozen,
               fmt("seed PC=%s HL=%s stk0=%s; running actions=%d; after 13 ticks "
-                  "live HL=%04X shown PC=%s HL=%s stk0=%s cs rows=%d disasm@8000=%d",
+                  "live HL=%04X shown PC=%s HL=%s stk0=%s cs rows=%d disasm@8000=%d "
+                  "disasm span %04X..%04X -> %04X..%04X",
                   s(pc0).c_str(), s(hl0).c_str(), s(stk0).c_str(), running_actions,
                   live_hl, s(cpu_value(dbg, "PC: ")).c_str(),
                   s(cpu_value(dbg, "HL: ")).c_str(),
                   s(table_cell(dbg->stack_panel(), 0, 0)).c_str(),
                   table_rows(dbg->callstack_panel()),
-                  disasm_shows(dbg->disasm_panel(), PROG)));
+                  disasm_shows(dbg->disasm_panel(), PROG), span_lo0, span_hi0, span_lo1,
+                  span_hi1));
 
         fx.emu.debug_state().breakpoints().add_pc(0x9001);
         fx.tick_until_paused();
@@ -847,6 +867,56 @@ static void test_pause_edge() {
                       s(table_cell(dbg->stack_panel(), 0, 0)).c_str(),
                       disasm_shows(dbg->disasm_panel(), r.PC), actions_paused_shape(dbg)));
         }
+    }
+
+    // QPE-06 — every OTHER verb that resumes the machine leaves the paused-only
+    // panels in running mode too, exactly as Run does: Step Over on a call,
+    // Step Out, Run to Here (the disassembly's request), Run to End of Frame
+    // and Run to End of Scan Line. Observed without running a frame: after
+    // the verb the registers and the top stack word are changed by hand, and
+    // a throttled refresh (12 manager ticks) must leave the CPU and Stack
+    // panels showing the values from before the verb.
+    {
+        struct Verb {
+            const char* name;
+            std::function<void(Fixture&)> go;
+        };
+        const Verb verbs[] = {
+            {"Step Over (CALL)", [](Fixture& f) { f.mgr->on_step_over(); }},
+            {"Step Out",         [](Fixture& f) { f.mgr->on_step_out(); }},
+            {"Run to Here",      [](Fixture& f) { f.dbg()->disasm_panel()->run_to_selected(); }},
+            {"Run to EOF",       [](Fixture& f) { f.mgr->on_run_to_eof(); }},
+            {"Run to EOSL",      [](Fixture& f) { f.mgr->on_run_to_eosl(); }},
+        };
+        std::string bad;
+        for (const Verb& v : verbs) {
+            Fixture f;
+            if (!f.ok) { bad += fmt("%s: fixture ", v.name); continue; }
+            f.load(PROG, {0xCD, 0x00, 0x90, 0x18, 0xFE});        // CALL $9000 / JR $
+            f.load(0x9000, {0x18, 0xFE});
+            f.load(TEST_SP, {0x11, 0x22});
+            f.regs(PROG, [](Z80Registers& r) { r.HL = 0x1111; });
+            f.enable();
+            DebuggerWindow* dbg = f.dbg();
+            v.go(f);
+            const bool resumed = !f.paused() && actions_running_shape(dbg);
+            Z80Registers r = f.emu.cpu().get_registers();
+            r.HL = 0x2222;
+            f.emu.cpu().set_registers(r);
+            f.emu.mmu().write(TEST_SP, 0x99);
+            for (int i = 0; i < 12; ++i) f.mgr->refresh_panels();
+            const QString hl = cpu_value(dbg, "HL: ");
+            const QString w0 = table_cell(dbg->stack_panel(), 0, 1);
+            const QString want_w0 = QString::asprintf("%04X (%5d)", 0x2211, 0x2211);
+            if (!resumed || hl != "1111" || w0 != want_w0)
+                bad += fmt("%s: resumed=%d HL shown %s stack0 %s; ", v.name, resumed,
+                           s(hl).c_str(), s(w0).c_str());
+        }
+        check("QPE-06",
+              "Step Over on a call, Step Out, Run to Here, Run to EOF and Run to "
+              "EOSL all put the panels in running mode, like Run: frozen through "
+              "a throttled refresh, actions flipped",
+              bad.empty(), bad);
     }
 }
 
@@ -1016,6 +1086,10 @@ static void test_rewind_ui() {
 
             fx.mgr->on_run();
             fx.tick();                                     // one snapshot
+            // A running refresh happens only every 12th tick: ask the window,
+            // so the toolbar is DECIDED at depth 1 rather than left at its
+            // construction state.
+            dbg->refresh_panels();
             const size_t d1 = rb->depth();
             const bool hidden_at_one = tb && tb->isHidden();
             for (int i = 0; i < 2; ++i) fx.tick();
