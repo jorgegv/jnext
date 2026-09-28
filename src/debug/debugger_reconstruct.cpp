@@ -76,9 +76,11 @@ Debugger::Impl::PreBoot Debugger::Impl::capture_pre_boot() const {
     const RunState st = self->state();
     PreBoot pre;
     pre.paused = st.paused;
-    // The owner only of a pause. `pause_reason.by` of a running machine is
-    // CLIENT_NONE anyway; saying so here keeps the struct's meaning local.
-    pre.owner  = st.paused ? st.pause_reason.by : CLIENT_NONE;
+    // No `st.paused ?` guard: `state()` of a RUNNING machine reports
+    // `PauseReason{}`, whose `by` is CLIENT_NONE, so a guard would be a second
+    // statement of the same fact that no mutation could tell from nothing — and
+    // the re-application reads `owner` only when `paused` anyway.
+    pre.owner  = st.pause_reason.by;
     return pre;
 }
 

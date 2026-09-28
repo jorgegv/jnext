@@ -7620,13 +7620,17 @@ int main() {
               !emu.debug_state().active() && off0 && on_a && on_b && off1,
               std::string("off0=") + (off0 ? "1" : "0") + " a=" + (on_a ? "1" : "0") +
                   " b=" + (on_b ? "1" : "0") + " off1=" + (off1 ? "1" : "0"));
-        // The Qt window's term still switches it on by itself (pre-Q behaviour).
+        // The Qt window's term still switches it on by itself (pre-Q behaviour),
+        // and `Debugger::live_raster()` still answers what the CLIENTS asked for,
+        // not the gate — read while `active()` is TRUE, or it cannot tell.
         emu.debug_state().set_active(true);
-        const bool on_active = walked();
+        const bool on_active       = walked();
+        const bool verb_while_on   = dbg.live_raster();
         emu.debug_state().set_active(false);
         check("SES-05-18", "and DebugState::active() alone still walks — the Qt "
-                           "window is not a client until package Q",
-              on_active && !dbg.live_raster());
+                           "window is not a client until package Q — while "
+                           "live_raster() stays the clients' OR (false)",
+              on_active && !verb_while_on);
         dbg.detach(a);
         dbg.detach(b);
     }
@@ -8409,6 +8413,23 @@ int main() {
                   came_back_running && st.paused &&
                   st.pause_reason.by == jnext::dbg::CLIENT_NONE,
                   reason(st));
+        }
+        {   // `done` CONSUMES the capture: a later guest boot that comes with no
+            // `begin` of its own must not re-apply the pause the first one
+            // recorded.
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            dbg.pause(a);
+            dbg.on_cold_boot_begin();
+            boot(emu);
+            dbg.on_cold_boot_done();            // paused, A's — as CTL-12-43
+            dbg.run(a);
+            boot(emu);                          // a second guest boot, no begin
+            dbg.on_cold_boot_done();
+            check("CTL-12-50", "done consumes the capture — a later done with no begin "
+                               "of its own does not resurrect the old pause",
+                  !dbg.state().paused, reason(dbg.state()));
         }
         {   // begin twice: the last one wins.
             Emulator emu; build(emu);
