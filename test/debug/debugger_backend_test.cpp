@@ -10465,11 +10465,13 @@ int main() {
         dbg.detach(b);
     }
     {
-        // The UNOWNED arm, on the real magic-breakpoint latch rather than a
-        // hand-set reason: `PauseReason::Magic` carries `by == CLIENT_NONE`
+        // The UNOWNED arm, on the magic-stop LATCH (`note_magic_stop()` +
+        // `pause()`, what the opcode hook calls) rather than a hand-set
+        // `PauseReason`: `PauseReason::Magic` carries `by == CLIENT_NONE`
         // BECAUSE nobody's verb caused it, and that is what must make it
-        // immune. Driven through the machine so the row cannot pass on a
-        // fabricated reason.
+        // immune. NOT driven through the machine, whatever this comment used to
+        // say — MAGIC-DETACH-01 (GH #276 B5) is the real ED FF, executed, with
+        // the client arriving only after the stop.
         Emulator emu; build(emu);
         Debugger dbg(emu);
         const ClientId a = dbg.attach(client("A")).value;
