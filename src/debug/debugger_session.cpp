@@ -174,17 +174,18 @@ Result Debugger::detach(ClientId cid) {
     // client's listener in the middle of a fan-out, which is the one moment a
     // tombstoned row is still walked.
     c->detached = true;
-    // CAP-03 (GH #276 B4) — "a client's bookmarks die with its detach" (§4.5),
-    // and they are tens of MB at the bound, so they are FREED here rather than
-    // when the tombstone is compacted — which, mid-fan-out, is later. Swapped
-    // with an empty vector, because `clear()` keeps the capacity.
-    std::vector<Impl::Bookmark>().swap(c->bookmarks);
     impl_->events.erase_client(cid);
     // `erase_client()` tombstoned rows and called `refresh()`; the hot-path
     // gates still carry the retired subscriptions' bits until this publishes.
     impl_->gates_changed();
 
     impl_->clients_changed();
+    // CAP-03 (GH #276 B4) — "a client's bookmarks die with its detach" (§4.5):
+    // they live on the client row, so they go when this compaction erases it —
+    // at once, or at the end of the fan-out that is walking the rows. A freeing
+    // step of their own here was tried and removed: `bookmarks()` and
+    // `bookmark_restore()` refuse a detached id either way, so it changed nothing
+    // any row can see (mutation K37).
     if (!impl_->notifying) impl_->compact_clients();
 
     impl_->self->log(CLIENT_NONE, LogLevel::Info,

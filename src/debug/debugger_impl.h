@@ -234,8 +234,8 @@ struct Debugger::Impl {
         /// keeps its place). HERE, on the client row, because §4.5 makes them
         /// per client and they die with its detach; and on `Impl`, not the
         /// `Emulator`, which is what makes them survive a CTL-12 `Hard`
-        /// reconstruct with nothing to re-apply. `detach()` frees them at once
-        /// rather than when the tombstone is compacted.
+        /// reconstruct with nothing to re-apply. They are freed with the row
+        /// when `compact_clients()` erases it.
         std::vector<Bookmark> bookmarks;
     };
 

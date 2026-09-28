@@ -1062,14 +1062,22 @@ static void b4_bookmark_rows() {
               had && dbg.bookmarks(a).empty() && dbg.bookmarks(a2).empty() &&
                   dbg.bookmark_restore(a, "x") == Result::RefusedUnavailable &&
                   dbg.bookmark_restore(a2, "x") == Result::RefusedUnavailable);
+        // And MID-FRAME, where a save would advance: an unknown id is refused
+        // BEFORE the advance, so the machine is not run out for a bookmark that
+        // has nowhere to go.
+        stop_mid_frame_at_call(emu, dbg, a2);
+        const uint64_t clk = emu.clock().get();
+        const Result mid = dbg.bookmark_save(99, "y", SaveStateMode::AdvanceToBoundary);
         check("CAP-03-10", "an id with no live client — CLIENT_NONE, or one never "
-                           "issued — can neither save nor restore, and lists nothing",
+                           "issued — can neither save nor restore, and lists nothing; "
+                           "mid-frame its save is refused before it could advance",
               dbg.bookmark_save(jnext::dbg::CLIENT_NONE, "y", SaveStateMode::RefuseMidFrame) ==
                       Result::RefusedUnavailable &&
                   dbg.bookmark_save(99, "y", SaveStateMode::RefuseMidFrame) ==
                       Result::RefusedUnavailable &&
                   dbg.bookmark_restore(99, "y") == Result::RefusedUnavailable &&
-                  dbg.bookmarks(99).empty());
+                  dbg.bookmarks(99).empty() && mid == Result::RefusedUnavailable &&
+                  emu.clock().get() == clk && emu.frame_in_progress());
     }
     {
         // SURVIVE A CTL-12 `Hard` RECONSTRUCT, on every route that lands one, and
@@ -1234,6 +1242,25 @@ static void b4_input_rows() {
                                       std::to_string(A.col1) +
                                       "] for 2 frames, queued by " + std::to_string(a),
               lines.empty() ? std::string("none") : lines.back());
+    }
+    {
+        // THE SIBLING PAIR: press_key(name) and press_key(matrix) are one verb
+        // over one table — the same key by either form gives the same pulse, to
+        // the frame, and the same answer.
+        Emulator e1; build(e1);
+        Debugger d1(e1);
+        const auto r1 = d1.press_key(1, std::string("A"), 3);   // upper case: the table ignores case
+        const PulseSpan by_name = watch_pulse(e1, d1, A, 8);
+        Emulator e2; build(e2);
+        Debugger d2(e2);
+        const auto r2 = d2.press_key(1, A, 3);
+        const PulseSpan by_pos = watch_pulse(e2, d2, A, 8);
+        check("IN-01-10", "press_key by NAME and by MATRIX POSITION are the same pulse: "
+                          "same answer, down and up on the same frames",
+              r1.status == r2.status && r1.value == r2.value && r1.status == Result::Ok &&
+                  by_name.down == by_pos.down && by_name.up == by_pos.up && by_pos.down == 1,
+              "name " + std::to_string(by_name.down) + ".." + std::to_string(by_name.up) +
+                  " pos " + std::to_string(by_pos.down) + ".." + std::to_string(by_pos.up));
     }
     {
         // By MATRIX position, compound: both bits go down together.
@@ -1614,7 +1641,15 @@ static void b4_snapshot_rows() {
         dbg.set_listener(a, &l);
         const Result bad_dir = dbg.save_snapshot(a, "/nonexistent-dir/x/y.szx");
         const bool logged = !l.logs.empty() && l.logs.back().first == jnext::dbg::LogLevel::Error;
+        // No path is refused BEFORE any saver runs — which is observable, because
+        // the .sna saver a nameless path would fall through to pushes PC onto the
+        // LIVE stack (F-SNA in the B4 report): the two bytes below SP must not move.
+        const uint16_t sp = emu.cpu().get_registers().SP;
+        emu.mmu().write(static_cast<uint16_t>(sp - 2), 0xA5);
+        emu.mmu().write(static_cast<uint16_t>(sp - 1), 0x5A);
         const Result empty   = dbg.save_snapshot(a, "");
+        const bool stack_kept = emu.mmu().read(static_cast<uint16_t>(sp - 2)) == 0xA5 &&
+                                emu.mmu().read(static_cast<uint16_t>(sp - 1)) == 0x5A;
         Emulator next; build(next, MachineType::ZXN_ISSUE2);
         Debugger dn(next);
         const ClientId b = dn.attach(client("B")).value;
@@ -1625,7 +1660,7 @@ static void b4_snapshot_rows() {
                            "unwritable path, no path, and a .sna / .szx of a machine "
                            "those formats cannot hold (nothing is written)",
               bad_dir == Result::RefusedUnavailable && logged &&
-                  empty == Result::RefusedUnavailable &&
+                  empty == Result::RefusedUnavailable && stack_kept &&
                   next_sna == Result::RefusedUnavailable &&
                   next_szx == Result::RefusedUnavailable && read_file(sna).empty() &&
                   read_file(szx).empty());
