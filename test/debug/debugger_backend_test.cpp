@@ -4562,6 +4562,64 @@ int main() {
               dbg.time().frame == emu.rewind_buffer()->newest_frame_num(),
               "tag=" + std::to_string(dbg.time().frame));
     }
+    {
+        // GH #278 — a step_back that stays inside the frame leaves the tag on
+        // that frame, and pushes no FrameEnded: nothing ended. The ring
+        // snapshot it restores already counted its frame, and the replay used
+        // to count it again, so the tag moved one FORWARD and the session
+        // announced a frame end that never happened.
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        cfg.rewind_buffer_frames = 8;
+        emu.init(cfg);
+        const uint8_t loop[] = { 0x23, 0x18, 0xFD };    // INC HL / JR $-1
+        for (size_t i = 0; i < sizeof(loop); ++i)
+            emu.mmu().write(static_cast<uint16_t>(PROG + i), loop[i]);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 0; r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+        Debugger dbg(emu);
+        RecListener l;
+        const ClientId a = dbg.attach(client("F2")).value;
+        dbg.set_listener(a, &l);
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        dbg.pause(a);
+        dbg.step_into(a);                         // now inside frame 3
+        dbg.step_into(a);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        const uint32_t tag   = dbg.time().frame;
+        const size_t   ended = l.frames.size();
+        const Result   sb    = dbg.step_back(a, 1);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("F2-06", "a step_back inside a frame keeps time().frame on that "
+                       "frame and pushes no FrameEnded",
+              sb == Result::Ok && dbg.time().frame == tag && l.frames.size() == ended,
+              "rc=" + std::string(jnext::dbg::result_name(sb)) + " tag " +
+                  std::to_string(tag) + " -> " + std::to_string(dbg.time().frame) +
+                  " pushes " + std::to_string(ended) + " -> " +
+                  std::to_string(l.frames.size()));
+
+        // GH #278 — run_to_frame() from a rewound frame start. The machine
+        // sits at the start of frame `back`, which the ring has counted; the
+        // verb took that boundary for the one AFTER a counted frame, so
+        // run_to_frame(back + 1) stopped at once, at the start of `back`.
+        const uint32_t back = dbg.rewind_range().oldest_frame + 1;
+        const Result rw = dbg.rewind_to_frame(a, back);
+        const uint64_t start = emu.current_frame_cycle();
+        const Result rt = dbg.run_to_frame(a, back + 1);
+        run_until_paused(emu, 4);
+        const uint64_t want = start + emu.timing().master_cycles_per_frame;
+        check("F2-07", "run_to_frame(K+1) from a rewound start of K stops in "
+                       "frame K+1 (tag K+1), one frame on — not at the start of K",
+              rw == Result::Ok && rt == Result::Ok && emu.debug_state().paused() &&
+                  dbg.time().frame == back + 1 && emu.current_frame_cycle() == want,
+              "rw=" + std::string(jnext::dbg::result_name(rw)) +
+                  " rt=" + std::string(jnext::dbg::result_name(rt)) + " tag=" +
+                  std::to_string(dbg.time().frame) + " frame_cycle=" +
+                  std::to_string(emu.current_frame_cycle()) + " want=" +
+                  std::to_string(want));
+    }
 
     // =======================================================================
     // INS-01 — registers
@@ -10676,6 +10734,16 @@ int main() {
                            "re-baselined, it did not mute",
               l.frames.size() == after_forward + 1,
               "frames=" + std::to_string(l.frames.size()));
+        // GH #278 — and it carries the frame that ran: the one the rewind
+        // restored. The ring had already counted it, so the counter does not
+        // move when it ends; the detector used to watch the counter and the
+        // restore counted the frame twice, which pushed the tag one past it.
+        check("SES-02-25", "the frame run again after a rewind is pushed with "
+                           "ITS tag, the frame the rewind restored",
+              l.frames.size() == after_forward + 1 && l.frames.back() == low,
+              "pushed=" + (l.frames.empty() ? std::string("-")
+                                            : std::to_string(l.frames.back())) +
+                  " low=" + std::to_string(low));
     }
     {
         // §4.3 makes `matched[]` part of the `Paused` contract: EVERY

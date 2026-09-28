@@ -130,7 +130,12 @@ incremented as an argument of `take_snapshot()`, so without
 "which frame is this?" got the same answer forever. The counter is
 *post*-incremented, so during frame K it reads K+1: the backend reports
 `frame_num() - 1`, which is the tag the rewind slot for that frame carries and
-the frame `--delayed-keypress-frames N` lands on.
+the frame `--delayed-keypress-frames N` lands on. A rewind lands on a frame
+start the ring has already counted (`Emulator::at_restored_frame_start()`), so
+`run_to_frame()` takes its base from that flag too, and the session's
+`FrameEnded` detector watches the frame's *start cycle* rather than the
+counter: the first frame run again after a rewind ends without the counter
+moving (GH #278).
 
 A verb whose machinery belongs to a later package is defined in ONE file,
 `debugger_pending.cpp`, and returns `Result::Unsupported` — never a silent

@@ -307,7 +307,12 @@ struct Debugger::Impl {
 
     bool     last_paused      = false;
     uint64_t last_resume_gen  = 0;
-    uint32_t last_frame       = 0;   ///< the RAW `Emulator::frame_num()`, never the clamped tag
+    /// `Emulator::current_frame_cycle()` at the last pump — the start of the frame
+    /// the machine is in or about to begin. It moves forward exactly when a frame
+    /// ends and backward on a rewind. (GH #278: the frame COUNTER cannot be the
+    /// signal — the first frame run again after a rewind is already counted, so
+    /// the counter does not move when it ends.)
+    uint64_t last_frame_cycle = 0;
     uint64_t last_subs_rev    = 0;
     bool     notif_primed     = false;
 

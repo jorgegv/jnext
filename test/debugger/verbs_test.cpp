@@ -1058,20 +1058,15 @@ static void test_rewind_ui() {
 
     // ── Toolbar, slider, labels, status ──────────────────────────────
     //
-    // TWO FRAME NUMBERINGS meet in this UI, and the rows below pin only what
-    // is independent of the mismatch between them (reported in the WP0
-    // hand-back as a defect). A snapshot is TAGGED with the pre-increment
-    // frame number (emulator.cpp:8534, `this_frame = frame_num_++`) and
-    // stores frame_num_ AFTER the increment, so while the frame tagged N runs
-    // Emulator::frame_num() reads N+1. The slider range and rewind_to_frame()
-    // speak tags; the frame label, the "Rewound" status and Frame Back's
-    // target (frame_num()-1) speak frame_num(). So the label reads
-    // "Frame N+1 / N" at the live end, a jump to tag t reads back t+1, and
-    // Frame Back — which lands on the start of the frame the machine is in —
-    // lands there again on every further press. The current-frame NUMBER in
-    // the label and status is therefore not asserted, and Frame Back only on
-    // its first press; the machine each control restores IS asserted, by the
-    // HL a counter loop held at the start of each tagged frame.
+    // ONE FRAME NUMBERING (GH #278 WP0 fix): the snapshot tags the slider and
+    // rewind_to_frame() speak, where snapshot t is the machine at the START of
+    // frame t. The label, the "Rewound" status and Frame Back name the frame the
+    // machine is in — the one running, the one just run at an ordinary frame
+    // boundary, or the one a rewind restored — in that same numbering. (They
+    // used to read Emulator::frame_num(), which counts frames BEGUN and runs one
+    // ahead; and a restored frame used to be counted twice when it ran again.)
+    // The machine each control restores is asserted by the HL a counter loop
+    // held at the start of each tagged frame.
     {
         Fixture fx(MachineType::ZX48K, 10);
         if (!fx.ok || !fx.emu.rewind_buffer()) {
@@ -1111,11 +1106,11 @@ static void test_rewind_ui() {
                                   slider->minimum() == static_cast<int>(rb->oldest_frame_num()) &&
                                   slider->maximum() == static_cast<int>(rb->newest_frame_num());
             const QString label = fl ? fl->text() : QString();
-            const bool label_ok = label.startsWith(QStringLiteral("Frame ")) &&
-                                  label.endsWith(QStringLiteral(" / %1").arg(rb->newest_frame_num()));
+            const bool label_ok = label == QStringLiteral("Frame %1 / %1")
+                                               .arg(rb->newest_frame_num());
             check("QRW-02",
-                  "the slider spans the snapshot tags [oldest, newest] and the "
-                  "label reads \"Frame <n> / <newest>\"",
+                  "the slider spans the snapshot tags [oldest, newest] and at the "
+                  "live end the label reads \"Frame <newest> / <newest>\"",
                   range_ok && label_ok,
                   fmt("slider %d..%d buffer %u..%u label '%s'",
                       slider ? slider->minimum() : -1, slider ? slider->maximum() : -1,
@@ -1163,6 +1158,10 @@ static void test_rewind_ui() {
         fx.tick();
     };
 
+    // Frame Back from the live end (paused at the boundary after the newest
+    // frame K), pressed three times: K, K-1, K-2 — one frame further back each
+    // press, the label and status naming the frame restored. It used to
+    // restore K on every press.
     auto frame_back_row = [&](const char* id, const char* desc, bool via_menu) {
         Fixture fx(MachineType::ZX48K, 10);
         if (!fx.ok || !fx.emu.rewind_buffer()) { check(id, desc, false, "fixture"); return; }
@@ -1171,24 +1170,37 @@ static void test_rewind_ui() {
         DebuggerWindow* dbg = fx.dbg();
         std::map<uint32_t, uint16_t> hl_at;
         run_recording(fx, 6, hl_at);
-        const uint32_t target = fx.emu.frame_num() - 1;   // what Frame Back asks for
+        RewindBuffer* rb = fx.emu.rewind_buffer();
+        const uint32_t newest = rb->newest_frame_num();
         const uint16_t hl_end = fx.emu.cpu().get_registers().HL;
-        if (via_menu) {
-            if (QAction* a = debug_item(dbg, "|< Frame Back")) a->trigger();
-        } else if (QPushButton* b = button_ending(dbg, "Frame Back")) {
-            b->click();
+        QLabel* fl = rewind_frame_label(dbg);
+        std::string bad;
+        for (int press = 0; press < 3; ++press) {
+            const uint32_t want = newest - static_cast<uint32_t>(press);
+            if (via_menu) {
+                if (QAction* a = debug_item(dbg, "|< Frame Back")) a->trigger();
+            } else if (QPushButton* b = button_ending(dbg, "Frame Back")) {
+                b->click();
+            }
+            const Z80Registers r = fx.emu.cpu().get_registers();
+            const QString label = fl ? fl->text() : QString();
+            const QString status = status_of(dbg);
+            const bool ok =
+                hl_at.count(want) && r.HL == hl_at[want] && r.HL != hl_end && fx.paused() &&
+                cpu_value(dbg, "HL: ") == QString::asprintf("%04X", r.HL) &&
+                label == QStringLiteral("Frame %1 / %2").arg(want).arg(newest) &&
+                status == QStringLiteral("⏮ Rewound: frame %1 of %2  (F5 / Continue to resume)")
+                              .arg(want).arg(newest);
+            if (!ok)
+                bad += fmt("press %d: HL %04X (want %04X) label '%s' status '%s'; ", press + 1,
+                           r.HL, hl_at.count(want) ? hl_at[want] : 0, s(label).c_str(),
+                           s(status).c_str());
         }
-        const Z80Registers r = fx.emu.cpu().get_registers();
-        check(id, desc,
-              hl_at.count(target) && r.HL == hl_at[target] && r.HL != hl_end &&
-                  fx.paused() && cpu_value(dbg, "HL: ") == QString::asprintf("%04X", r.HL),
-              fmt("target tag %u: HL %04X (want %04X, was %04X) paused=%d shown HL=%s",
-                  target, r.HL, hl_at.count(target) ? hl_at[target] : 0, hl_end,
-                  fx.paused(), s(cpu_value(dbg, "HL: ")).c_str()));
+        check(id, desc, bad.empty(), bad);
     };
     frame_back_row("QRW-07",
-                   "Frame Back (button) restores the start of the frame just run "
-                   "(tag frame_num-1), paused, with the CPU panel refreshed",
+                   "Frame Back (button) from the live end restores frame K, K-1, K-2 on "
+                   "three presses, paused, CPU panel, label and status on the frame",
                    /*via_menu=*/false);
     frame_back_row("QRW-07b",
                    "Debug > Frame Back does the same as the button",
@@ -1198,8 +1210,9 @@ static void test_rewind_ui() {
         Fixture fx(MachineType::ZX48K, 10);
         const char* d09 = "releasing the slider restores the snapshot it names, and "
                           "Jump Here does the same";
-        const char* d06 = "once rewound the status bar reads \"Rewound: frame <n> of "
-                          "<newest>  (<Run key> / Continue to resume)\"";
+        const char* d06 = "after a jump to frame t the status reads \"Rewound: frame t of "
+                          "<newest>  (<Run key> / Continue to resume)\" and the label "
+                          "\"Frame t / <newest>\"";
         if (!fx.ok || !fx.emu.rewind_buffer()) {
             check("QRW-09", d09, false, "fixture");
             check("QRW-06", d06, false, "fixture");
@@ -1229,11 +1242,14 @@ static void test_rewind_ui() {
                       "(want %04X)", t1, hl1, hl_at[t1], t2, hl2, hl_at[t2]));
 
             const QString st = status_of(dbg);
+            QLabel* fl = rewind_frame_label(dbg);
+            const QString label = fl ? fl->text() : QString();
             check("QRW-06", d06,
-                  st.startsWith(QStringLiteral("⏮ Rewound: frame ")) &&
-                      st.endsWith(QStringLiteral(" of %1  (F5 / Continue to resume)")
-                                      .arg(rb->newest_frame_num())),
-                  fmt("status '%s' (newest %u)", s(st).c_str(), rb->newest_frame_num()));
+                  st == QStringLiteral("⏮ Rewound: frame %1 of %2  (F5 / Continue to resume)")
+                            .arg(t2).arg(rb->newest_frame_num()) &&
+                      label == QStringLiteral("Frame %1 / %2").arg(t2).arg(rb->newest_frame_num()),
+                  fmt("status '%s' label '%s' (jumped to %u, newest %u)", s(st).c_str(),
+                      s(label).c_str(), t2, rb->newest_frame_num()));
         }
     }
 
@@ -1269,6 +1285,47 @@ static void test_rewind_ui() {
                       shown1 == QString::asprintf("%04X", back1),
                   fmt("here %04X -> %04X (want %04X) -> %04X (want %04X) shown %s", here,
                       back1, prev(here), back2, prev(back1), s(shown1).c_str()));
+        }
+    }
+
+    // QRW-19 — run forward again from a rewind: the frame restored runs under
+    // its own number, and the history the rewind left is gone from the ring.
+    // The slider then ends at that frame, the label reads it at both ends, and
+    // the status is back at the live end. Before the fix the restored frame was
+    // counted a second time as it ran (snapshotted as t+1) and the abandoned
+    // snapshots stayed, one tag held twice.
+    {
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "after Jump Here to frame t and one frame of Run, the slider "
+                           "ends at t, the label reads \"Frame t / t\" and the status "
+                           "is the live end's";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QRW-19", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            DebuggerWindow* dbg = fx.dbg();
+            run_frames_then_break(fx, 8);
+            RewindBuffer* rb = fx.emu.rewind_buffer();
+            auto* slider = dbg->findChild<QSlider*>();
+            const uint32_t target = rb->oldest_frame_num() + 2;
+            if (slider) slider->setValue(static_cast<int>(target));
+            if (QPushButton* jh = button_ending(dbg, "Jump Here")) jh->click();
+            fx.mgr->on_run();
+            fx.tick();                                   // frame `target` runs again
+            fx.mgr->on_pause();
+            fx.tick();
+            QLabel* fl = rewind_frame_label(dbg);
+            const QString label = fl ? fl->text() : QString();
+            const QString st = status_of(dbg);
+            check("QRW-19", desc,
+                  slider && slider->maximum() == static_cast<int>(target) &&
+                      rb->newest_frame_num() == target &&
+                      rb->depth() == target - rb->oldest_frame_num() + 1 &&
+                      label == QStringLiteral("Frame %1 / %1").arg(target) &&
+                      st.startsWith(QStringLiteral("⏮ Rewind: ")),
+                  fmt("target %u: slider max %d newest %u depth %zu label '%s' status '%s'",
+                      target, slider ? slider->maximum() : -1, rb->newest_frame_num(),
+                      rb->depth(), s(label).c_str(), s(st).c_str()));
         }
     }
 

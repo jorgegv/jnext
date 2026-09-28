@@ -2905,7 +2905,7 @@ to hundreds of megabytes.</p>
 <tr>
 <td>Frame Back</td>
 <td><strong>Shift+F6</strong></td>
-<td>Jump to the start of the previous frame</td>
+<td>Jump to the start of the frame — or, if you are already at one, of the frame before</td>
 </tr>
 <tr>
 <td>Slider</td>
@@ -2916,7 +2916,9 @@ to hundreds of megabytes.</p>
 </table>
 <p>A rewind lands you at the <em>start</em> of the target frame, paused, with the
 emulator window redrawn to match. The status bar reports the buffer's size in
-frames and megabytes, and when you are rewound it shows which frame you are on.
+frames and megabytes, and when you are rewound it shows which frame you are on,
+numbered as the slider numbers it. Running forward again from a rewound frame
+discards the frames after it: the slider then ends at the frame you are on.
 Press <strong>F5</strong> to carry on from there.</p>
 <p>Step Back is greyed out when the trace log is off, when the buffer is empty,
 and while an RZX recording plays or is being made: a recording replays one
