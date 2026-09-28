@@ -7875,6 +7875,85 @@ int main() {
                   std::to_string(static_cast<int>(delivered_kind)));
     }
     {
+        // THE SINGLE-OWNER RULE, for the one part of the platform restore that
+        // was the BACKEND's state: the event-mask half of `BreakpointSet`'s
+        // hot-path gate. `emulator_cold_boot()` copies the whole set across; it
+        // now drops that half from the copy, so the rebuilt machine's event gate
+        // is CLOSED until the backend's `gates_changed()` re-opens it — and the
+        // Qt panels' half (a legacy watchpoint's slot bit) is still carried.
+        //
+        // Driven WITHOUT the backend's re-application first — a bare cold boot
+        // with the `Debugger` alive but not told — because that is the only
+        // state in which "the platform carried it" and "the backend re-published
+        // it" differ. Until B3 retired the carry, a re-application that skipped
+        // `gates_changed()` passed every row: the carried bytes were right by
+        // coincidence (mutant M72).
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        Subscription s;
+        s.kind      = EventKind::Mem;
+        s.access    = Access::Write;
+        s.filter.lo = WATCHED; s.filter.hi = WATCHED;       // slot 2
+        s.action    = Action::Continue;
+        dbg.subscribe(a, s);
+        emu.debug_state().breakpoints().add_watchpoint(0xC000, WatchType::WRITE);  // slot 6
+        const uint8_t ev_bit  = static_cast<uint8_t>(1u << (WATCHED >> 13));
+        const uint8_t wp_bit  = static_cast<uint8_t>(1u << (0xC000 >> 13));
+        const uint8_t before  = emu.debug_state().breakpoints().watch_slot_mask_wr();
+
+        emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+        const uint8_t bare = emu.debug_state().breakpoints().watch_slot_mask_wr();
+        check("CTL-12-32", "a cold boot the backend has NOT re-applied yet leaves the "
+                           "event half of the gate CLOSED and the Qt half (a legacy "
+                           "watchpoint) carried — the platform no longer owns the "
+                           "backend's bytes",
+              before == (ev_bit | wp_bit) && bare == wp_bit,
+              "before=" + hex(before) + " bare=" + hex(bare));
+
+        dbg.on_cold_boot_done();
+        const uint8_t after = emu.debug_state().breakpoints().watch_slot_mask_wr();
+        check("CTL-12-33", "and the backend's re-application is what re-opens it, "
+                           "from the live subscription table",
+              after == (ev_bit | wp_bit), "after=" + hex(after));
+    }
+    {
+        // THE OBSERVERS, both directions. `BreakpointSet`'s copy carries its
+        // observers, and that is the only reason the Qt Breakpoints and
+        // Disassembly panels stay subscribed across a cold boot (each registers
+        // ONCE, in its constructor) — which is why B3 does NOT retire the
+        // platform-side restore until package Q moves those panels onto a
+        // `Debugger`. So: an observer registered before a backend `reset(Hard)`
+        // is notified by a change AFTER it (the restore carried it, and the
+        // backend's re-application did not disturb it), and its `ObserverId`
+        // still names it, so the panel destructor's `remove_observer()` really
+        // does unsubscribe it rather than silently matching nothing.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        int notified = 0;
+        const auto obs = emu.debug_state().breakpoints().add_observer(
+            [&notified](BreakpointChange) { ++notified; });
+        jnext::dbg::LoopDriver d;
+        d.cold_boot = [&]() {
+            emulator_frontend_cold_boot(emu, emu.config(), std::string(),
+                                        ColdBootHooks{});
+            return true;
+        };
+        dbg.set_loop_driver(d);
+        dbg.reset(a, ResetKind::Hard);
+
+        emu.debug_state().breakpoints().add_pc(0x1234);
+        check("CTL-12-34", "a BreakpointSet observer registered before the cold boot "
+                           "is notified by a change after it",
+              notified == 1, "notified=" + std::to_string(notified));
+        emu.debug_state().breakpoints().remove_observer(obs);
+        emu.debug_state().breakpoints().add_pc(0x2345);
+        check("CTL-12-35", "and its pre-boot ObserverId still names it — removing it "
+                           "after the boot really unsubscribes it",
+              notified == 1, "notified=" + std::to_string(notified));
+    }
+    {
         // RULE 5 — the GUEST-initiated path. It needs NO registered driver: the
         // boot has already happened and the re-application asks nothing of
         // `LoopDriver`. `HeadlessApp`'s `JNEXT_BENCH_WATCH` fixture is the one

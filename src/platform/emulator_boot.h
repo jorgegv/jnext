@@ -131,6 +131,15 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     auto saved_rzx_failed      = emu.rzx_failed_outputs();
 
     BreakpointSet saved_bps    = emu.debug_state().breakpoints();
+    // GH #276 B3 — the copy carries the Qt panels' model AND the event-mask half
+    // (`ev_mask_rd_` / `ev_mask_wr_` / `ev_port_`) that a `jnext::dbg::Debugger`
+    // publishes into it. The first is the platform's to carry (see "WHY THE TWO
+    // RESTORES ... ARE NOT RETIRED" below); the second is the BACKEND'S, and
+    // carrying it made this function a second owner of it. So the half is
+    // dropped from the copy: the rebuilt machine starts with the event gate
+    // CLOSED, and only the backend's re-application re-opens it, from the live
+    // subscription table. Item 2 below; rows CTL-12-14 and CTL-12-32/33.
+    saved_bps.set_event_slot_masks(0, 0, false);
     const bool    saved_active = emu.debug_state().active();
     const uint8_t saved_mute   = emu.audio_mute_mask();
     auto saved_esxdos_state    = emu.esxdos_stub_state();
@@ -187,13 +196,16 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     //     been destructed. Re-installing it after `init()` means this boot's own
     //     transition is not reconciled through it, so the re-application ALSO arms
     //     `Kind::None` explicitly once, exactly as the hook would have.
-    //  2. **`BreakpointSet` carries the EVENT mask half across.** `saved_bps`
-    //     above copies `ev_mask_rd_` / `ev_mask_wr_` / `ev_port_` with it, so the
-    //     restored gate is stale-OPEN against a `DebugState` whose `events_` is
-    //     null. Cost only — `Mmu::watch_read_` / `watch_write_` early-return on a
-    //     null table — but it is an out-of-line call per access until something
-    //     re-publishes. `gates_changed()` in (1) clears it, and IS the single
-    //     owner of those three bytes.
+    //  2. **The EVENT mask half is NOT carried across.** `saved_bps` copies
+    //     `ev_mask_rd_` / `ev_mask_wr_` / `ev_port_` with the rest of the set,
+    //     and until B3 the copy was restored with them — stale-OPEN against a
+    //     `DebugState` whose `events_` is null (cost only: `Mmu::watch_read_` /
+    //     `watch_write_` early-return on a null table), and, worse, a second
+    //     owner of three bytes the backend publishes: a re-application that
+    //     forgot `gates_changed()` passed every row, because the restored
+    //     bytes happened to be right. The copy's event half is now zeroed before
+    //     the restore, so `gates_changed()` in (1) is the SINGLE owner of those
+    //     bytes, and forgetting it closes the gate observably.
     //  3. **The LATCH RING survives and its contents do not.** `EventTable` lives
     //     on `Debugger::Impl`, not on `Emulator`, so every entry latched by the
     //     destroyed machine is still in the ring and would be delivered at the
@@ -233,7 +245,8 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     // frontend onto a `Debugger` (§10.1 Q WP2/WP6), and it does not double-restore
     // them in the meantime: the re-application writes `clients_attached_`, which is
     // its OWN bit (see `DebugState::clients_attached()`), and re-publishes the
-    // event masks, which item 2 above shows the restore has no honest claim on.
+    // event masks — the one part of `saved_bps` that WAS the backend's, and which
+    // item 2 above therefore drops from the copy.
     // Recorded here rather than only in the B3 report, because this is the site a
     // Q author will read.
     // ────────────────────────────────────────────────────────────────────────

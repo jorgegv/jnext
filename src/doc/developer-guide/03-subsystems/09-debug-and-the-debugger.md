@@ -443,8 +443,10 @@ after a guest NR 0x02 reset:
 2. the eight-page seed — `on_slot_remapped()` early-returns while the table is
    null, so every `rebuild_ptr()` during the new `init()` was discarded, which
    makes a page-qualified `Mem` filter wrong in *both* directions;
-3. `gates_changed()`, which is also what corrects the stale event-mask bytes the
-   platform's `BreakpointSet` copy carried across;
+3. `gates_changed()`, the only writer of the event-mask half of the hot-path
+   gate across the boot — the platform's `BreakpointSet` copy drops that half
+   before it is restored, so the rebuilt machine's event gate stays closed until
+   the backend re-opens it from the live subscription table;
 4. the latch ring — it lives on `Debugger::Impl`, so it *survives* the
    reconstruct while everything in it describes a machine that is gone;
 5. `arm(Kind::None)`, because `init()` fired
@@ -484,8 +486,9 @@ backend-owned until package Q moves the Qt frontend onto a `Debugger`, so
 retiring the restore now would lose a user's breakpoints on every hard reset,
 permanently unsubscribe two panels and leave an open window unarmed. The two
 owners do not collide in the meantime: the re-application writes its own bit and
-re-publishes the event masks, which is the only part the restore had no honest
-claim on. The reasoning is recorded at the site.
+re-publishes the event masks — the one part of the copy that *was* the backend's,
+which is why `emulator_cold_boot()` zeroes it on the copy before restoring. The
+reasoning is recorded at the site.
 
 ## What `ENABLE_DEBUGGER=OFF` removes
 

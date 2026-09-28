@@ -98,14 +98,14 @@ void Debugger::Impl::reapply_after_machine_rebuild(bool was_paused) {
     for (int s = 0; s < 8; ++s)
         ds().on_slot_remapped(s, emu.mmu().get_effective_page(s));
 
-    // (1c) PUBLISH THE GATES. This is also what corrects the `ev_mask_rd_` /
-    //      `ev_mask_wr_` / `ev_port_` bytes that `emulator_boot.h` carried across
-    //      on its `BreakpointSet` copy: they were last published against the
-    //      DESTROYED machine's subscription set, and until something re-publishes
-    //      they are stale-OPEN (cost only — `Mmu::watch_read_` early-returns on a
-    //      null table — but an out-of-line call per access). This is the "second
-    //      owner" the design names, and this line is what makes the backend the
-    //      only one that matters.
+    // (1c) PUBLISH THE GATES — the ONLY writer of the `ev_mask_rd_` /
+    //      `ev_mask_wr_` / `ev_port_` bytes across a cold boot. `emulator_boot.h`
+    //      used to carry them over on its `BreakpointSet` copy, as last published
+    //      against the DESTROYED machine; it now zeroes them on the copy (its
+    //      item 2), so the rebuilt machine's event gate is closed until this line
+    //      re-opens it from the live table. That was the "second owner" of
+    //      backend state the design names, and it is why skipping this call
+    //      passed every row until it was retired.
     gates_changed();
 
     // (2) THE RING. Every latch entry in it describes a machine that no longer

@@ -2223,8 +2223,10 @@ after a guest NR 0x02 reset:</p>
 <li>the eight-page seed — <code>on_slot_remapped()</code> early-returns while the table is
    null, so every <code>rebuild_ptr()</code> during the new <code>init()</code> was discarded, which
    makes a page-qualified <code>Mem</code> filter wrong in <em>both</em> directions;</li>
-<li><code>gates_changed()</code>, which is also what corrects the stale event-mask bytes the
-   platform's <code>BreakpointSet</code> copy carried across;</li>
+<li><code>gates_changed()</code>, the only writer of the event-mask half of the hot-path
+   gate across the boot — the platform's <code>BreakpointSet</code> copy drops that half
+   before it is restored, so the rebuilt machine's event gate stays closed until
+   the backend re-opens it from the live subscription table;</li>
 <li>the latch ring — it lives on <code>Debugger::Impl</code>, so it <em>survives</em> the
    reconstruct while everything in it describes a machine that is gone;</li>
 <li><code>arm(Kind::None)</code>, because <code>init()</code> fired
@@ -2262,8 +2264,9 @@ backend-owned until package Q moves the Qt frontend onto a <code>Debugger</code>
 retiring the restore now would lose a user's breakpoints on every hard reset,
 permanently unsubscribe two panels and leave an open window unarmed. The two
 owners do not collide in the meantime: the re-application writes its own bit and
-re-publishes the event masks, which is the only part the restore had no honest
-claim on. The reasoning is recorded at the site.</p>
+re-publishes the event masks — the one part of the copy that <em>was</em> the backend's,
+which is why <code>emulator_cold_boot()</code> zeroes it on the copy before restoring. The
+reasoning is recorded at the site.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
 <p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
 <code>jnext_debugger</code> is neither compiled nor linked and every use site in
