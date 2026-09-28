@@ -709,6 +709,103 @@ static void b4_coverage_rows() {
     }
 }
 
+// ── INS-13 — the richer TraceEntry (REQ-zrcp-08) ────────────────────────────
+static void b4_trace_rows() {
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        // Distinctive values in every field the entry gained, so a field
+        // written from its neighbour (I from R, IFF1 from IFF2, …) is visible.
+        Z80Registers r = emu.cpu().get_registers();
+        r.I = 0x3F; r.R = 0x55; r.IM = 1; r.IFF1 = 0; r.IFF2 = 1;
+        emu.cpu().set_registers(r);
+        std::array<uint8_t, 8> pages{};
+        for (int s = 0; s < 8; ++s) pages[s] = emu.mmu().get_effective_page(s);
+        dbg.set_trace_enabled(true);
+        emu.run_frame();
+        const auto got = dbg.trace_entries();
+        const std::vector<TraceEntry>& es = got.value;
+        const TraceEntry* first = es.empty() ? nullptr : &es[0];
+        const TraceEntry* second = es.size() > 1 ? &es[1] : nullptr;
+        const TraceEntry* in_sub = nullptr;
+        for (const TraceEntry& e : es) if (e.pc == SUB) { in_sub = &e; break; }
+
+        check("INS-13-09", "an entry carries I, R, IM, IFF1 and IFF2 as they were "
+                           "BEFORE the instruction (R advances by one per NOP fetch)",
+              first && second && first->pc == PROG && first->i == 0x3F &&
+                  first->r == 0x55 && second->r == 0x56 && first->im == 1 &&
+                  first->iff1 == 0 && first->iff2 == 1,
+              first ? ("i=" + hex(first->i) + " r=" + hex(first->r) + " im=" +
+                       std::to_string(first->im) + " iff1=" + std::to_string(first->iff1) +
+                       " iff2=" + std::to_string(first->iff2))
+                    : std::string("no entries"));
+        check("INS-13-10", "(SP) is the word at SP: inside SUB it is the return "
+                           "address the CALL pushed",
+              in_sub && in_sub->sp == TEST_SP - 2 && in_sub->sp_word == AFTER_CALL,
+              in_sub ? ("sp=" + hex(in_sub->sp) + " (sp)=" + hex(in_sub->sp_word))
+                     : std::string("no entry at SUB"));
+        bool mmu_ok = first != nullptr;
+        bool distinct = false;
+        for (int s = 0; first && s < 8; ++s) {
+            if (first->mmu[s] != pages[s]) mmu_ok = false;
+            if (pages[s] != pages[0]) distinct = true;
+        }
+        check("INS-13-11", "and the eight MMU effective pages, slot by slot "
+                           "(the pages are not all equal, so a one-slot-for-all "
+                           "write is visible)",
+              mmu_ok && distinct);
+    }
+    {
+        // The (SP) read must not PERTURB. +3 mode: SP in contended bank 5, PC in
+        // uncontended bank 2, so the CPU's own opcode fetch never touches the
+        // floating-bus latch and a `read()` of (SP) would leave it moved.
+        Emulator emu; build(emu, MachineType::ZX_PLUS3);
+        Debugger dbg(emu);
+        emu.mmu().write(0x4000, 0xA5);
+        emu.mmu().write(0x4001, 0xA5);
+        Z80Registers r = emu.cpu().get_registers();
+        r.SP = 0x4000;
+        emu.cpu().set_registers(r);
+        dbg.set_trace_enabled(true);
+        emu.mmu().set_p3_floating_bus_dat(0x3C);
+        emu.execute_single_instruction();          // the NOP at PROG, traced
+        const auto got = dbg.trace_entries();
+        check("INS-13-12", "the trace's (SP) read leaves the +3 floating-bus latch "
+                           "alone (peek, not read) — and still reads the word",
+              emu.mmu().p3_floating_bus_dat() == 0x3C && got.value.size() == 1 &&
+                  got.value[0].sp_word == 0xA5A5,
+              "latch=" + hex(emu.mmu().p3_floating_bus_dat()));
+    }
+    {
+        // Nor a watchpoint: a READ subscription on the word at SP. The program
+        // never reads 0xFF00 (the CALL pushes below it), so only the trace could
+        // fire it — and must not. The control arm: a READ watch on the pushed
+        // return address DOES stop, at the RET, with the trace on — the watch
+        // machinery is live and it is the trace's read that is invisible.
+        auto run = [](uint16_t watched) {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            Subscription s;
+            s.kind      = EventKind::Mem;
+            s.access    = Access::Read;
+            s.filter.lo = watched; s.filter.hi = watched;
+            s.action    = Action::Stop;
+            dbg.subscribe(a, s);
+            dbg.set_trace_enabled(true);
+            emu.run_frame();
+            return std::make_pair(emu.debug_state().paused(), pc_of(emu));
+        };
+        const auto quiet = run(TEST_SP);
+        const auto live  = run(static_cast<uint16_t>(TEST_SP - 2));
+        check("INS-13-13", "the trace's (SP) read fires no READ watch (the machine "
+                           "runs to PARK), while the RET's own read of the stack does",
+              !quiet.first && quiet.second == PARK && live.first,
+              "quiet: paused=" + std::to_string(quiet.first) + " pc=" + hex(quiet.second) +
+                  " live: paused=" + std::to_string(live.first));
+    }
+}
+
 int main() {
     std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
 
@@ -10003,6 +10100,7 @@ int main() {
 
     // GH #276 B4
     b4_coverage_rows();
+    b4_trace_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

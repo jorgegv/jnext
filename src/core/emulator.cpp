@@ -10002,6 +10002,18 @@ uint64_t Emulator::step_one_instruction()
             te.de2 = regs.DE2; te.hl2 = regs.HL2;
             te.ix = regs.IX; te.iy = regs.IY;
             te.sp = regs.SP;
+            // GH #276 B4 — the richer entry (INS-13, REQ-zrcp-08). The (SP)
+            // word through `peek()`, not `read()`: SP may sit in contended
+            // memory while PC does not, and a `read()` there would move the +3
+            // floating-bus latch (F1) where the CPU's own next fetch never
+            // moves it back — the trace would change what the guest reads.
+            te.sp_word = static_cast<uint16_t>(
+                mmu_.peek(regs.SP) |
+                (mmu_.peek(static_cast<uint16_t>(regs.SP + 1)) << 8));
+            te.i = regs.I;       te.r = regs.R;
+            te.im = regs.IM;     te.iff1 = regs.IFF1;   te.iff2 = regs.IFF2;
+            for (int s = 0; s < 8; ++s)
+                te.mmu[s] = mmu_.get_effective_page(s);
             for (int i = 0; i < 4; ++i)
                 te.opcode_bytes[i] = mmu_.read(regs.PC + i);
             // Captureless lambda decays to a raw function pointer — no
