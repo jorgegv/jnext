@@ -21,11 +21,14 @@
 
 #include "debug/debugger_impl.h"
 
+#include <cstdio>
+
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include "core/saveable.h"
 #include "core/screenshot.h"
 #include "core/snapshot_file.h"
+#include "memory/mmu.h"
 #include "video/renderer.h"
 
 namespace jnext {
@@ -287,14 +290,17 @@ void Debugger::Impl::service_captures() {
 // The format is the path's extension, through the ONE table
 // (`save_snapshot_file()`, `src/core/`).
 //
-// KNOWN, NOT FIXED HERE: a `.sna` of a 48K machine is not side-effect free.
-// `SnaSaver::save_48k()` pushes PC onto the LIVE stack (two bytes below SP,
-// "destructive to stack", `sna_saver.cpp`), exactly as it does for
-// `--delayed-snapshot`, the GUI's Save Snapshot and the RZX recorder's
-// embedded snapshot — which RELIES on it: the live machine then holds the
-// same bytes the embedded snapshot restores, so a recording and its replay do
-// not diverge. Making the saver write only its copy is therefore not a local
-// fix; reported in the B4 report for the owner.
+// A 48K `.sna` IS A MUTATION, AND IS LOGGED AS ONE (F-SNA). The format keeps
+// PC on the stack, and `SnaSaver::save_48k()` pushes it onto the LIVE machine's
+// stack — the two bytes below SP — as it has always done for
+// `--delayed-snapshot`, the GUI's Save Snapshot and the RZX recorder, which
+// relies on it (see the saver). Kept; but a remote client's save changing the
+// machine every other client is looking at must say so, like every other write
+// in this API (§4.2a): the two bytes are read before and after the save, and a
+// change is one `MUTATE mem` line attributed to `by`. By OBSERVATION rather than
+// by knowing which saver pushes — a second statement of the saver's rule here
+// could drift from the saver; a comparison cannot. A push of the value already
+// there changes nothing a client could see and logs nothing (row CAP-04-07).
 // ---------------------------------------------------------------------------
 
 Result Debugger::save_snapshot(ClientId by, const std::string& path) {
@@ -302,9 +308,27 @@ Result Debugger::save_snapshot(ClientId by, const std::string& path) {
         impl_->reach_frame_boundary(by, SaveStateMode::AdvanceToBoundary, "save_snapshot");
     if (at != Result::Ok) return at;
 
+    Mmu& mmu = impl_->emu.mmu();
+    const uint16_t below = static_cast<uint16_t>(impl_->emu.cpu().get_registers().SP - 2);
+    auto word_below_sp = [&]() {
+        return static_cast<uint16_t>(mmu.peek(below) |
+                                     (mmu.peek(static_cast<uint16_t>(below + 1)) << 8));
+    };
+    const uint16_t stack_before = word_below_sp();
+
     std::string error;
     size_t      bytes = 0;
-    if (!save_snapshot_file(impl_->emu, path, error, bytes)) {
+    const bool  wrote = save_snapshot_file(impl_->emu, path, error, bytes);
+
+    const uint16_t stack_after = word_below_sp();
+    if (stack_after != stack_before) {
+        char what[64];
+        std::snprintf(what, sizeof(what), "mem cpu:0x%04X..0x%04X (the .sna saver's PC push)",
+                      below, static_cast<uint16_t>(below + 1));
+        impl_->log_mutate(by, what, stack_before, stack_after);
+    }
+
+    if (!wrote) {
         impl_->self->log(by, LogLevel::Error,
                          "SNAPSHOT \"" + path + "\" not written: " + error);
         return Result::RefusedUnavailable;

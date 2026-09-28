@@ -280,6 +280,17 @@ std::vector<uint8_t> SnaSaver::save_48k(Emulator& emu) {
 
     // For 48K SNA, PC is pushed onto the stack (destructive to stack).
     // We modify SP to push the return address.
+    //
+    // ON THE LIVE MACHINE, AND DELIBERATELY (GH #276 B4, F-SNA). The format has
+    // no PC field: a loader pops it off the stack, so the RAM image in the file
+    // must hold PC at SP-2. The push is made into the running machine's RAM, not
+    // only into the copy below, and the RZX recorder depends on that: it embeds
+    // this snapshot and keeps recording from the live machine, and a replay
+    // starts from the snapshot — whose memory holds PC at SP-2. Were the live
+    // machine left without those two bytes, any later read of them by the guest
+    // would differ between the recording and its replay. The debugger backend's
+    // `save_snapshot()` attributes the change (a `MUTATE mem` line) rather than
+    // avoiding it.
     uint16_t sp = regs.SP;
 
     // Push PC onto stack

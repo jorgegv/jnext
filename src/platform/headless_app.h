@@ -2,9 +2,11 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <memory>
 #include "core/screenshot.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "debug/debugger.h"
 #include "video/renderer.h"
 
 /// Headless application shell — no display, no audio, no input.
@@ -16,6 +18,12 @@ public:
     void shutdown();
 
     Emulator& emulator() { return emulator_; }
+
+    /// GH #276 B4 — the process-lifetime debugger backend this loop owner hosts
+    /// (§6.1 of the B4 plan): constructed by a successful init(), it lives across
+    /// every cold boot and is pumped once per tick. Valid only after init()
+    /// returned true.
+    jnext::dbg::Debugger& debugger() { return *debugger_; }
 
     void set_config(const EmulatorConfig& cfg) { config_ = cfg; config_set_ = true; }
 
@@ -126,6 +134,19 @@ public:
 
 private:
     Emulator emulator_;
+
+    // GH #276 B4 — declared AFTER emulator_ so it is destroyed FIRST: its
+    // destructor retires what it published into the emulator's DebugState.
+    std::unique_ptr<jnext::dbg::Debugger> debugger_;
+
+    /// The cold boot itself (reconstruct + init, platform/emulator_boot.h) and
+    /// the loop's pending-work reset — what `LoopDriver::cold_boot` runs for a
+    /// client's `reset(Hard)`, which brackets the boot with its own capture.
+    void boot_machine(const std::string& load_file);
+    /// A cold boot THIS loop owner decides on (a guest NR 0x02 hard reset, a
+    /// NEX load request, the `loadnex:` test hook): `boot_machine()` between
+    /// `on_cold_boot_begin()` and `on_cold_boot_done()` (CTL-12 rule 5).
+    void guest_cold_boot(const std::string& load_file);
 
     // Pending --inject state
     std::string inject_file_;

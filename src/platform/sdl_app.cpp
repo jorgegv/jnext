@@ -174,6 +174,24 @@ bool SdlApp::init(int argc, char* argv[]) {
         key_router_.on_host_key(sc, pressed);
     });
 
+    // GH #276 B4 — THE HOSTED DEBUGGER BACKEND (the B4 plan's §6.1), exactly as
+    // in HeadlessApp::init(): built on the initialised machine, kept across every
+    // cold boot, no client attached — so nothing is armed and the run is the run
+    // without it. SES-04's `ExitNonZero`: the SDL frontend has no pause path at
+    // all. (No `ExitRequested` listener yet — a listener needs an attached
+    // client, which would arm every instruction; B4 report, M2 part 1, O5.)
+    debugger_ = std::make_unique<jnext::dbg::Debugger>(emulator_);
+    debugger_->set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero);
+    jnext::dbg::LoopDriver driver;
+    driver.cold_boot = [this]() {
+        boot_machine(std::string());
+        return true;   // emulator_frontend_cold_boot() returns void (SES-07)
+    };
+    driver.load = [this](const std::string& path) {
+        return emulator_apply_load(emulator_, path, tape_realtime_);
+    };
+    debugger_->set_loop_driver(driver);
+
     running_ = true;
     return true;
 }
@@ -194,7 +212,16 @@ void SdlApp::set_pending_load(const std::string& file, int delay_frames) {
     Log::platform()->info("--load: will load '{}' after {} frame(s)", file, delay_frames);
 }
 
+// GH #276 B4 — CTL-12 rule 5: a boot the loop owner decides on (F1, a guest
+// NR 0x02 hard reset, a NEX load request) is bracketed by the hosted backend's
+// begin/done, so its reconstruct contract runs as for a client's `reset(Hard)`.
 void SdlApp::cold_boot(const std::string& load_file) {
+    debugger_->on_cold_boot_begin();
+    boot_machine(load_file);
+    debugger_->on_cold_boot_done();
+}
+
+void SdlApp::boot_machine(const std::string& load_file) {
     Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
                           load_file.empty() ? "(none)" : load_file.c_str());
 
@@ -410,6 +437,11 @@ void SdlApp::run() {
             cold_boot(std::string());
             continue;
         }
+
+        // GH #276 B4 — SES-03: the backend's service call, once per tick after
+        // the frame batch and after the two cold-boot polls above (CTL-12's
+        // ordering — see HeadlessApp::run(), which places it the same way).
+        debugger_->pump(jnext::dbg::PumpBudget{});
 
         // Task 19 fastload follow-up — when the phantom typist is
         // armed or a fast-load tape is in flight, skip pushing audio

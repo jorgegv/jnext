@@ -258,6 +258,28 @@ bool QtApp::init(int argc, char* argv[]) {
         return false;
     }
 
+    // GH #276 B4 — THE HOSTED DEBUGGER BACKEND, the MINIMUM Qt wiring (the B4
+    // plan's §6.3): built on the initialised machine and kept across every cold
+    // boot, with the loop driver registered, every boot this loop owner decides
+    // on bracketed by begin/done (cold_boot() below) and a pump per tick
+    // (post_frames()). No client attached, so nothing is armed and the GUI runs
+    // as it did; the Qt window keeps driving `DebugState` directly until package
+    // Q makes its panels clients of THIS instance (`debugger()`). SES-04: Qt
+    // PAUSES on a `Stop` — the default, set here so the choice is visible.
+    debugger_ = std::make_unique<jnext::dbg::Debugger>(emulator_);
+    debugger_->set_stop_policy(jnext::dbg::StopPolicy::Pause);
+    {
+        jnext::dbg::LoopDriver driver;
+        driver.cold_boot = [this]() {
+            boot_machine(std::string(), false);
+            return true;   // emulator_frontend_cold_boot() returns void (SES-07)
+        };
+        driver.load = [this](const std::string& path) {
+            return emulator_apply_load(emulator_, path, tape_realtime_);
+        };
+        debugger_->set_loop_driver(driver);
+    }
+
     // Create the main window.
     main_window_ = new MainWindow();
 
@@ -418,7 +440,17 @@ void QtApp::shutdown() {
     qapp_ = nullptr;
 }
 
+// GH #276 B4 — CTL-12 rule 5: every boot THIS loop owner decides on — the
+// Reset button / F1 / a guest NR 0x02 hard reset, a NEX load request, a menu
+// load, a machine-type change — is bracketed by the hosted backend's
+// begin/done, so its reconstruct contract runs as for a client's `reset(Hard)`.
 void QtApp::cold_boot(const std::string& load_file, bool allow_experimental_nex_v13) {
+    debugger_->on_cold_boot_begin();
+    boot_machine(load_file, allow_experimental_nex_v13);
+    debugger_->on_cold_boot_done();
+}
+
+void QtApp::boot_machine(const std::string& load_file, bool allow_experimental_nex_v13) {
     Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
                           load_file.empty() ? "(none)" : load_file.c_str());
 
@@ -661,6 +693,16 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
     } else if (a.exit_countdown_ > 0) {
         --a.exit_countdown_;
     }
+
+    // GH #276 B4 — SES-03: the hosted backend's service call, once per tick
+    // after the frame batch, in the slot §4.8 names ("where check_breakpoint_hit()
+    // sits today"). NOT AFTER THE COLD-BOOT POLL, unlike SDL and headless: Qt
+    // polls the hard-reset and NEX-load flags in pre_frames(), so a guest reset
+    // raised in THIS tick's frames is performed next tick — after this pump. A
+    // client `reset(Hard)` in this pump would therefore subsume it rather than
+    // follow it (F7). Unreachable until a client exists; moving the poll is
+    // package Q's (qt-frontend.md §7, "Inherited from backend package B3").
+    a.debugger_->pump(jnext::dbg::PumpBudget{});
 
 #ifdef ENABLE_DEBUGGER
     if (auto* mgr = a.main_window_->debugger_manager()) {

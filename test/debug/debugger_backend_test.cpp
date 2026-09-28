@@ -76,6 +76,8 @@
 // produces for the same machine.
 #include "core/sna_saver.h"
 #include "core/szx_saver.h"
+// GH #276 B4 M2 — the HOST rows drive the real loop owner.
+#include "platform/headless_app.h"
 
 #include <spdlog/sinks/ringbuffer_sink.h>
 
@@ -1701,6 +1703,54 @@ static void b4_snapshot_rows() {
               std::string("edge=") + jnext::dbg::result_name(at_edge) +
                   " host=" + jnext::dbg::result_name(at_host));
     }
+    {
+        // F-SNA — a 48K `.sna` PUSHES PC onto the live stack, and the backend
+        // ATTRIBUTES it: one MUTATE mem line, old -> new, by the client. The other
+        // arms: a save that writes nothing there (.szx; a 128K .sna, which carries
+        // PC in its header) logs no mem line, and neither does a second .sna whose
+        // push finds the value already in place.
+        auto mem_lines = [](const RecListener& l) {
+            std::vector<std::string> out;
+            for (const std::string& m : mutate_lines(l))
+                if (m.rfind("MUTATE mem ", 0) == 0) out.push_back(m);
+            return out;
+        };
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        RecListener l;
+        dbg.set_listener(a, &l);
+        emu.mmu().write(TEST_SP - 2, 0xA5);
+        emu.mmu().write(TEST_SP - 1, 0x5A);
+        const Result r_szx = dbg.save_snapshot(a, szx);
+        const size_t after_szx = mem_lines(l).size();
+        const Result r_sna = dbg.save_snapshot(a, sna);
+        const auto lines = mem_lines(l);
+        char want[128];
+        std::snprintf(want, sizeof(want),
+                      "MUTATE mem cpu:0x%04X..0x%04X (the .sna saver's PC push) 0x5AA5 -> "
+                      "0x%X by %u",
+                      TEST_SP - 2, TEST_SP - 1, PROG, static_cast<unsigned>(a));
+        const bool pushed = emu.mmu().read(TEST_SP - 2) == (PROG & 0xFF) &&
+                            emu.mmu().read(TEST_SP - 1) == (PROG >> 8);
+        const Result r_again = dbg.save_snapshot(a, sna);
+        const size_t after_again = mem_lines(l).size();
+
+        Emulator e128; build(e128, MachineType::ZX128K);
+        Debugger d128(e128);
+        const ClientId b = d128.attach(client("B")).value;
+        RecListener l128;
+        d128.set_listener(b, &l128);
+        e128.mmu().write(TEST_SP - 2, 0xA5);
+        const Result r_128 = d128.save_snapshot(b, sna);
+        check("CAP-04-07", "a 48K .sna save's push of PC onto the live stack is logged as ONE "
+                           "MUTATE mem line by the client; a .szx, a 128K .sna and a push of "
+                           "the value already there log none",
+              r_szx == Result::Ok && after_szx == 0 && r_sna == Result::Ok && pushed &&
+                  lines.size() == 1 && lines[0] == want && r_again == Result::Ok &&
+                  after_again == 1 && r_128 == Result::Ok && mem_lines(l128).empty(),
+              lines.empty() ? std::string("no mem line") : lines[0]);
+    }
     std::remove(szx.c_str()); std::remove(sna.c_str()); std::remove(jns.c_str());
     std::remove(szx_upper.c_str());
 }
@@ -2008,6 +2058,208 @@ static void b4_screenshot_rows() {
                   !emu.debug_state().capture_render() && read_file(png).empty());
     }
     rm();
+}
+
+// ── M2 part 1 — the HOSTED backend (the B4 plan's §6.1 / §6.4) ─────────────
+
+/// Every hot-path gate the hosted backend could switch on, in one read. A loop
+/// owner's `Debugger` with NO client must leave all of them off — that is the
+/// whole of "holding a Debugger costs the hot path nothing" (§6.4).
+struct Gates {
+    bool armed, attached, raster_live, capture_render, events_pending, exec_armed,
+         nr_armed, port_armed, copper, dma, coverage;
+    uint8_t rd, wr;
+    bool all_off() const {
+        return !armed && !attached && !raster_live && !capture_render && !events_pending &&
+               !exec_armed && !nr_armed && !port_armed && !copper && !dma && !coverage &&
+               rd == 0 && wr == 0;
+    }
+    std::string show() const {
+        auto b = [](bool v) { return v ? "1" : "0"; };
+        return std::string("armed=") + b(armed) + " att=" + b(attached) + " raster=" +
+               b(raster_live) + " cap=" + b(capture_render) + " pend=" + b(events_pending) +
+               " exec=" + b(exec_armed) + " nr=" + b(nr_armed) + " port=" + b(port_armed) +
+               " cop=" + b(copper) + " dma=" + b(dma) + " cov=" + b(coverage) +
+               " rd=" + std::to_string(rd) + " wr=" + std::to_string(wr);
+    }
+};
+static Gates gates_of(Emulator& emu) {
+    const DebugState& ds = emu.debug_state();
+    return Gates{ds.armed(), ds.attached(), ds.raster_live(), ds.capture_render(),
+                 ds.events_pending(), ds.execute_events_armed(), ds.nextreg_events_armed(),
+                 ds.port_watch_armed(), emu.copper().events_armed(), emu.dma().events_armed(),
+                 ds.coverage_sink() != nullptr, ds.rd_watch_mask(), ds.wr_watch_mask()};
+}
+
+/// A program that touches what a stray gate would: ports (the border), memory
+/// (a guest write the MMU sites see) and the clock.
+///   8000  3E 00      LD A,0
+///   8002  D3 FE      OUT (0xFE),A
+///   8004  32 00 60   LD (0x6000),A
+///   8007  3C         INC A
+///   8008  18 F8      JR 0x8002
+static void load_busy(Emulator& emu) {
+    load_prog(emu, { 0x3E, 0x00, 0xD3, 0xFE, 0x32, 0x00, 0x60, 0x3C, 0x18, 0xF8 });
+}
+
+/// The machine as a fingerprint: clock, frame, every register field, the border
+/// and a hash of the 48K address space.
+static std::string fingerprint(Emulator& emu) {
+    const Z80Registers r = emu.cpu().get_registers();
+    uint64_t h = 1469598103934665603ull;
+    for (uint32_t a = 0x4000; a < 0x10000; ++a) {
+        h ^= emu.mmu().read(static_cast<uint16_t>(a));
+        h *= 1099511628211ull;
+    }
+    return std::to_string(emu.clock().get()) + "/" + std::to_string(emu.frame_num()) + "/" +
+           reg_delta(Z80Registers{}, r) + "/" + hex(r.PC) + "/" + hex(r.AF) + "/" +
+           std::to_string(emu.ula().get_border()) + "/" + std::to_string(h);
+}
+
+static void b4_hosting_rows() {
+    {
+        // THE INVARIANT (§6.4), on the backend alone: constructed, driver and
+        // stop policy registered, pumped every frame, through a guest cold boot
+        // and its begin/done — and with no client, NOTHING is on.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        jnext::dbg::LoopDriver d;
+        d.cold_boot = [&]() {
+            emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+            return true;
+        };
+        d.load = [](const std::string&) { return true; };
+        dbg.set_loop_driver(d);
+        dbg.set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero);
+        load_busy(emu);
+        const Gates g0 = gates_of(emu);
+        for (int i = 0; i < 3; ++i) { emu.run_frame(); dbg.pump(jnext::dbg::PumpBudget{}); }
+        const Gates g1 = gates_of(emu);
+        dbg.on_cold_boot_begin();
+        emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+        dbg.on_cold_boot_done();
+        load_busy(emu);
+        for (int i = 0; i < 3; ++i) { emu.run_frame(); dbg.pump(jnext::dbg::PumpBudget{}); }
+        const Gates g2 = gates_of(emu);
+        check("HOST-01", "a hosted backend with NO client arms nothing — armed, attached, "
+                         "raster_live, capture_render, every event gate and the coverage "
+                         "sink stay off, before and after frames, pumps and a guest cold "
+                         "boot",
+              g0.all_off() && g1.all_off() && g2.all_off(),
+              "start[" + g0.show() + "] frames[" + g1.show() + "] boot[" + g2.show() + "]");
+    }
+    {
+        // ZERO BEHAVIOUR CHANGE: the same program, the same frames, the same guest
+        // cold boot — with a hosted backend pumped every frame and without one.
+        // Identical to the last bit: clock, frame, registers, border, RAM.
+        auto run = [](bool hosted) {
+            Emulator emu; build(emu);
+            std::unique_ptr<Debugger> dbg;
+            if (hosted) {
+                dbg = std::make_unique<Debugger>(emu);
+                dbg->set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero);
+            }
+            load_busy(emu);
+            for (int i = 0; i < 4; ++i) {
+                emu.run_frame();
+                if (dbg) dbg->pump(jnext::dbg::PumpBudget{});
+            }
+            const std::string before_boot = fingerprint(emu);
+            if (dbg) dbg->on_cold_boot_begin();
+            emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+            if (dbg) dbg->on_cold_boot_done();
+            load_busy(emu);
+            for (int i = 0; i < 4; ++i) {
+                emu.run_frame();
+                if (dbg) dbg->pump(jnext::dbg::PumpBudget{});
+            }
+            return before_boot + " | " + fingerprint(emu);
+        };
+        const std::string bare = run(false), hosted = run(true);
+        check("HOST-02", "a machine run with a hosted, pumped backend is bit-identical to "
+                         "the same run without one — clock, frame, registers, border, "
+                         "RAM — across a guest cold boot",
+              bare == hosted, "bare=" + bare + " hosted=" + hosted);
+    }
+
+    // ── THROUGH `HeadlessApp` — the call sites themselves ─────────────────
+    //
+    // B3 left the loop owner's begin/done calls unpinned ("no suite reaches
+    // HeadlessApp"). These rows drive the real `HeadlessApp` (48K, no ROM, no
+    // SD image), with `--delayed-automatic-exit` as the loop bound, and observe
+    // each call site through the backend it hosts.
+    auto headless = [](HeadlessApp& app, int exit_frames) {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        app.set_config(cfg);
+        const bool ok = app.init(0, nullptr);
+        app.set_delayed_exit(exit_frames);
+        return ok;
+    };
+    {
+        HeadlessApp app;
+        const bool ok = headless(app, 3);
+        const Gates before = gates_of(app.emulator());
+        app.run();
+        const Gates after = gates_of(app.emulator());
+        const uint32_t frames = app.emulator().frame_num();
+        // The driver is registered by init(): a client's reset(Hard) boots the
+        // machine (the frame counter restarts) and is not RefusedUnavailable.
+        const Result r = app.debugger().reset(jnext::dbg::CLIENT_NONE, ResetKind::Hard);
+        const uint32_t after_reset = app.emulator().frame_num();
+        app.shutdown();
+        check("HOST-03", "HeadlessApp hosts a backend from init(): with no client every "
+                         "gate stays off across run(), and its loop driver is registered "
+                         "(a reset(Hard) boots the machine)",
+              ok && before.all_off() && after.all_off() && frames > 0 && r == Result::Ok &&
+                  after_reset == 0,
+              "gates[" + after.show() + "] frames=" + std::to_string(frames) +
+                  " reset=" + jnext::dbg::result_name(r) + " frame_after=" +
+                  std::to_string(after_reset));
+    }
+    {
+        // pump() IS CALLED, after the frame batch: a capture queued before run()
+        // is written by the loop's own pump once a frame has been rendered.
+        const std::string png = "/tmp/jnext_b4_host.png";
+        std::remove(png.c_str());
+        HeadlessApp app;
+        const bool ok = headless(app, 3);
+        const Result q = app.debugger().screenshot(jnext::dbg::CLIENT_NONE, png,
+                                                   jnext::dbg::LAYER_MASK_ALL,
+                                                   jnext::dbg::ScreenshotFormat::Png);
+        app.run();
+        app.shutdown();
+        check("HOST-04", "HeadlessApp pumps its backend every tick after the frames: a "
+                         "capture queued before run() is written by run()",
+              ok && q == Result::Ok && is_png_640x512(read_file(png)));
+        std::remove(png.c_str());
+    }
+    {
+        // on_cold_boot_begin() AND on_cold_boot_done() bracket the guest boot.
+        // A client's pause is in force when the guest's hard reset is polled:
+        // begin captures it with its owner, done re-applies it — so after run()
+        // the rebuilt machine is paused BY THAT CLIENT and the backend's
+        // publications are on the new DebugState. Without begin the pause is
+        // lost (a fresh machine runs); without done the table is not published.
+        HeadlessApp app;
+        const bool ok = headless(app, 3);
+        Debugger& dbg = app.debugger();
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.pause(a);
+        app.emulator().request_hard_reset();
+        app.run();
+        const RunState st = dbg.state();
+        const bool published = app.emulator().debug_state().event_table() != nullptr;
+        app.shutdown();
+        check("HOST-05", "HeadlessApp brackets a guest cold boot with begin/done: a "
+                         "client's pause survives it, still owned by that client, and "
+                         "the backend is re-published on the rebuilt machine",
+              ok && st.paused && st.pause_reason.kind == PauseReason::Kind::User &&
+                  st.pause_reason.by == a && published,
+              std::string("paused=") + (st.paused ? "1" : "0") + " by=" +
+                  std::to_string(st.pause_reason.by) + " published=" +
+                  (published ? "1" : "0"));
+    }
 }
 
 int main() {
@@ -11342,6 +11594,7 @@ int main() {
     b4_input_rows();
     b4_snapshot_rows();
     b4_screenshot_rows();
+    b4_hosting_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

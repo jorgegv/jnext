@@ -924,7 +924,10 @@ add_test(NAME step_out_tests COMMAND step_out_test)
 # a real machine through run_frame() exactly as the frontends do, so it links the
 # emulator like step_out_test. B5 grows this suite; B1 pins what B1 built.
 add_executable(debugger_backend_test debug/debugger_backend_test.cpp)
+# jnext_platform (GH #276 B4 M2): the HOST-* rows drive the real HeadlessApp, the
+# loop owner that hosts the backend. No SDL window is opened (headless).
 target_link_libraries(debugger_backend_test PRIVATE
+    jnext_platform
     jnext_core jnext_cpu jnext_memory jnext_video
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)

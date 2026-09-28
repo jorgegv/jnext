@@ -7,6 +7,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "debug/debugger.h"
 #include "input/gamepad_host.h"
 #include "platform/frame_sequencer.h"
 #include "platform/host_key_latch.h"
@@ -104,7 +105,21 @@ public:
     void cold_boot(const std::string& load_file = std::string(),
                    bool allow_experimental_nex_v13 = false);
 
+    /// GH #276 B4 — the process-lifetime debugger backend this loop owner
+    /// hosts: built by a successful init(), kept across every cold boot,
+    /// pumped once per tick in post_frames(). THE ONE `Debugger` for this
+    /// `Emulator` — package Q's `DebuggerManager` is meant to take this
+    /// instance rather than construct its own (the backend's reconstruct
+    /// detector in `load()` misreads with two). Valid only after init()
+    /// returned true.
+    jnext::dbg::Debugger& debugger() { return *debugger_; }
+
 private:
+    /// The cold boot itself — what `LoopDriver::cold_boot` runs for a client's
+    /// `reset(Hard)`, which brackets it with its own capture. cold_boot() is
+    /// this plus the hosted backend's begin/done pair (GH #276 B4).
+    void boot_machine(const std::string& load_file, bool allow_experimental_nex_v13);
+
     void on_frame_tick();
     void on_status_tick();
 
@@ -159,6 +174,10 @@ private:
     void log_frame_pacing(int64_t period_us);
 
     Emulator emulator_;
+
+    // GH #276 B4 — declared AFTER emulator_ so it is destroyed FIRST: its
+    // destructor retires what it published into the emulator's DebugState.
+    std::unique_ptr<jnext::dbg::Debugger> debugger_;
 
     // QApplication holds a reference to argc (and may write through it), so the
     // storage must outlive it — init()'s own parameters do not.

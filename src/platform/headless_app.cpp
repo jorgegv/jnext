@@ -32,9 +32,73 @@ bool HeadlessApp::init(int argc, char* argv[]) {
         return false;
     }
 
+    // GH #276 B4 — THE HOSTED DEBUGGER BACKEND (§10.1's B4 row; the plan's
+    // §6.1). One per process, built on the initialised machine and kept across
+    // every cold boot (placement-new keeps &emulator_). With no client attached
+    // it arms nothing: `armed()`, `attached()`, `raster_live()` and the capture
+    // render bit stay false and the coverage sink null (rows HOST-01..03), so a
+    // run with it is the run without it.
+    //
+    //   * SES-07's driver: a client's `reset(Hard)` runs `boot_machine()` — the
+    //     backend brackets that boot with its own capture — and `load(path)`
+    //     runs the same format dispatch `--load` uses.
+    //   * SES-04: `ExitNonZero` — a headless run is a CI verdict. What turns a
+    //     `Stop` into an exit is an `ExitRequested` LISTENER, and a listener
+    //     belongs to an attached client, and an attached client ARMS the machine
+    //     (every instruction pays the armed block). So there is none yet: nothing
+    //     can stop here until a client subscribes, and that client is where the
+    //     listener belongs. B4 report, milestone 2 part 1, O5.
+    debugger_ = std::make_unique<jnext::dbg::Debugger>(emulator_);
+    debugger_->set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero);
+    jnext::dbg::LoopDriver driver;
+    driver.cold_boot = [this]() {
+        boot_machine(std::string());
+        // `emulator_frontend_cold_boot()` returns void; SES-07 foresees the
+        // loop owner synthesising the success flag.
+        return true;
+    };
+    driver.load = [this](const std::string& path) {
+        return emulator_apply_load(emulator_, path, tape_realtime_);
+    };
+    debugger_->set_loop_driver(driver);
+
     running_ = true;
     Log::platform()->info("Headless mode initialized");
     return true;
+}
+
+// Task 70 — power-on cold boot: reconstruct the emulator in place and re-run the
+// proven startup init() path (shared with the Qt/SDL frontends,
+// platform/emulator_boot.h). Empty load_file => clean NextZXOS boot; non-empty
+// => boot as if launched with --load <file>.
+void HeadlessApp::boot_machine(const std::string& load_file) {
+    Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
+                          load_file.empty() ? "(none)" : load_file.c_str());
+    EmulatorConfig cfg = config_;
+    cfg.load_file = load_file;
+    emulator_cold_boot(emulator_, cfg);
+    config_.type = emulator_.config().type;   // a recording's machine stays
+    inject_countdown_ = -1;
+    load_countdown_   = -1;
+    if (!load_file.empty()) {
+        load_file_      = load_file;
+        load_countdown_ = emulator_load_delay_frames(load_file);
+    }
+}
+
+// GH #276 B3/B4 — CTL-12 rule 5, the path on which the LOOP OWNER decides to
+// reboot. `on_cold_boot_begin()` while the machine still exists, so the backend
+// captures the pause in force and whose it is; `on_cold_boot_done()` after, so
+// the reconstruct contract's re-application (the publications, the page seed,
+// the gates, the ring discard, the enables and the captured pause, the
+// coverage sink, the queued captures) runs for it as for a client's
+// `reset(Hard)`. B3 made these two calls for the `JNEXT_BENCH_WATCH` fixture
+// only and said nothing pinned them; they are unconditional now that the
+// backend is hosted, and rows HOST-04/05 pin both (through `HeadlessApp`).
+void HeadlessApp::guest_cold_boot(const std::string& load_file) {
+    debugger_->on_cold_boot_begin();
+    boot_machine(load_file);
+    debugger_->on_cold_boot_done();
 }
 
 void HeadlessApp::set_pending_inject(const std::string& file, uint16_t org,
@@ -321,16 +385,14 @@ void HeadlessApp::run() {
     // It prints `BENCHWATCH hits=N` to stderr at the end, so a run states its own
     // hit rate instead of leaving the reader to assume the watch fired.
     //
-    // GH #276 B3 — IT HOLDS A `Debugger` ACROSS `cold_boot()`, and that makes it
-    // the first real consumer of CTL-12's reconstruct contract rather than its
-    // first casualty. `emulator_cold_boot()` destroys the `Emulator` and
-    // placement-news a new one, so the `DebugState` this object published its
-    // event table and hooks into is gone; without the `on_cold_boot_done()` call
-    // in `cold_boot` below, the subscription would still list as live and could
+    // GH #276 B3 — the watch lives on a `Debugger` across every cold boot, which
+    // made this fixture the first real consumer of CTL-12's reconstruct
+    // contract. GH #276 B4 — and that `Debugger` is now the loop owner's hosted
+    // one (`debugger_`, built by init()), whose `on_cold_boot_begin/done()`
+    // bracket every guest boot below; the fixture no longer owns one of its own.
+    // Without the re-application the subscription would still list as live and
     // never fire again, and `BENCHWATCH hits=0` would read as "the range was
-    // never written" instead of "the watch was disconnected". Reachable through a
-    // guest NR 0x02 hard reset and through `JNEXT_DELAYED_RESET_TYPE=loadnex:`.
-    std::unique_ptr<jnext::dbg::Debugger> bench_watch_dbg;
+    // never written" instead of "the watch was disconnected".
     unsigned long long* bench_watch_hits = nullptr;
     if (const char* bw = std::getenv("JNEXT_BENCH_WATCH")) {
         static unsigned long long hits = 0;
@@ -339,8 +401,6 @@ void HeadlessApp::run() {
         if (bw[0] != 'p') {
             unsigned lo = 0, hi = 0;
             if (std::sscanf(bw, "%x-%x", &lo, &hi) == 2) {
-                bench_watch_dbg =
-                    std::make_unique<jnext::dbg::Debugger>(emulator_);
                 jnext::dbg::Subscription bs;
                 bs.kind      = jnext::dbg::EventKind::Mem;
                 bs.access    = jnext::dbg::Access::Write;
@@ -352,7 +412,7 @@ void HeadlessApp::run() {
                     ++hits;
                     return jnext::dbg::Action::Continue;
                 };
-                bench_watch_dbg->subscribe(1, bs);
+                debugger_->subscribe(1, bs);
                 Log::platform()->info(
                     "JNEXT_BENCH_WATCH: armed Mem[{:#06x},{:#06x}] Write", lo, hi);
             } else {
@@ -452,48 +512,6 @@ void HeadlessApp::run() {
         }
     }
 
-    // Task 70 — power-on cold boot: reconstruct the emulator in place and
-    // re-run the proven startup init() path (shared with the Qt/SDL frontends,
-    // platform/emulator_boot.h). Empty load_file => clean NextZXOS boot;
-    // non-empty => boot as if launched with --load <file>.
-    auto cold_boot = [this, &bench_watch_dbg](const std::string& load_file) {
-        Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
-                              load_file.empty() ? "(none)" : load_file.c_str());
-        EmulatorConfig cfg = config_;
-        cfg.load_file = load_file;
-        // GH #276 B3 — CTL-12 rule 5's FIRST half: tell the backend the machine
-        // is about to be destroyed, so it can capture the pause in force (and
-        // whose it is) while the machine still exists. Paired with
-        // `on_cold_boot_done()` below; see that call for the guard.
-        if (bench_watch_dbg) bench_watch_dbg->on_cold_boot_begin();
-        emulator_cold_boot(emulator_, cfg);
-        config_.type = emulator_.config().type;   // a recording's machine stays
-        inject_countdown_ = -1;
-        load_countdown_   = -1;
-        if (!load_file.empty()) {
-            load_file_      = load_file;
-            load_countdown_ = emulator_load_delay_frames(load_file);
-        }
-        // GH #276 B3 — CTL-12 rule 5, the GUEST-initiated path, second half: the
-        // loop owner has done the boot itself, and tells the backend so, so the
-        // reconstruct contract's re-application (the three publications, the
-        // eight-page seed, the gates, the ring discard, the enables clients set,
-        // and the pause `on_cold_boot_begin()` captured) runs for it too.
-        //
-        // Guarded on the fixture because THIS loop owner holds a `Debugger` only
-        // while `JNEXT_BENCH_WATCH` is set — wiring `HeadlessApp` to a
-        // process-lifetime `Debugger`, a `LoopDriver` and a per-tick `pump()` is
-        // package B4's (§10.1: B4 is the first package that puts a `Debugger` in
-        // the SDL and headless loop owners), not B3's. When that arrives this
-        // guard goes with it and the call becomes unconditional.
-        //
-        // NOTHING PINS THESE TWO CALLS. No suite reaches `HeadlessApp`, so
-        // deleting either passes every row; the backend half they trigger is
-        // pinned (CTL-12-20..22, -36, -38, -43..49), the call sites are not. Accepted for a
-        // bench-only fixture (manager decision, B3 milestone 2); B4's real
-        // loop-owner wiring is where a row belongs.
-        if (bench_watch_dbg) bench_watch_dbg->on_cold_boot_done();
-    };
 
     while (running_) {
         // Headless reset facility (env-gated, zero cost when unset): --headless
@@ -512,7 +530,7 @@ void HeadlessApp::run() {
             std::string t = ty ? ty : "hard";
             if (t == "soft") emulator_.soft_reset();
             else if (t == "f4") emulator_.on_hotkey_f4_soft_reset();
-            else if (t.rfind("loadnex:", 0) == 0) cold_boot(t.substr(8));
+            else if (t.rfind("loadnex:", 0) == 0) guest_cold_boot(t.substr(8));
             else emulator_.request_hard_reset();  // flag -> polled after run_frame
             t70_countdown = -1;
         } else if (t70_countdown > 0) { --t70_countdown; }
@@ -675,17 +693,29 @@ void HeadlessApp::run() {
         ++g46b_frame_no;
 
         if (std::string load_file = emulator_.take_nex_load_request(); !load_file.empty()) {
-            cold_boot(load_file);
+            guest_cold_boot(load_file);
             continue;
         }
 
         // Task 70 — a program's NR 0x02 hard reset (set during run_frame) is a
-        // power-on cold boot done here between frames. cold_boot() reconstructs
-        // the emulator, so continue to the next iteration with the fresh machine.
+        // power-on cold boot done here between frames. guest_cold_boot()
+        // reconstructs the emulator, so continue to the next iteration with the
+        // fresh machine.
         if (emulator_.take_hard_reset_request()) {
-            cold_boot(std::string());
+            guest_cold_boot(std::string());
             continue;
         }
+
+        // GH #276 B4 — SES-03: the backend's service call, once per tick AFTER
+        // the frame batch AND after the two cold-boot polls above (CTL-12's
+        // ordering: a guest reset raised in this tick's frames is performed
+        // before any client command in this pump, so a client's `reset(Hard)`
+        // here reboots the freshly booted machine rather than subsuming it). A
+        // tick that booted `continue`s, so its pump is the next tick's — still
+        // after the boot. `PumpBudget{}` never blocks; the paused-with-a-remote
+        // budget is the socket transport's to choose (package T). With no client
+        // and no service it writes nothing and moves nothing (row HOST-02).
+        debugger_->pump(jnext::dbg::PumpBudget{});
 
         // --benchmark: stop after exactly N frames and report.
         if (benchmark_frames_ > 0 && ++bench_frames_done >= benchmark_frames_) {
