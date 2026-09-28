@@ -2519,6 +2519,533 @@ static void b4_hosting_rows() {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// GH #276 B5 — the package's sign-off: the §9 row families end to end
+// (DEBUG-SUBSYSTEM-ARCHITECTURE.md §9, debug-subsystem/backend.md §7). Every
+// group below fills a GAP in the audit table of the B5 report: a required row
+// class × a verb or event kind that no earlier row satisfied.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// The machine's position at one instant: where a verb or a `Stop` must leave it.
+struct B5Pos {
+    uint16_t pc    = 0;
+    uint64_t cycle = 0;
+};
+
+static B5Pos b5_pos(Emulator& emu) {
+    return B5Pos{pc_of(emu), emu.clock().get()};
+}
+
+static std::string b5_show(const B5Pos& p) {
+    return "pc=" + hex(p.pc) + " cycle=" + std::to_string(p.cycle);
+}
+
+// ── WIRE-K — one WIRING row per event kind (§9: "arm through the facade, run,
+//    assert the machine stopped where promised (PC, cycle, pause_reason) — plus
+//    a control row that runs straight past without the verb"), and the delivery
+//    class's "a false predicate does not stop", for every kind.
+//
+// Before B5 only Execute, Mem, Cycle, Host and Scanline (on the Step path) had
+// a `Stop` row at all, and none of them asserted the CYCLE the machine stopped
+// on — which is the only field that tells a stop on a `JR $` loop (the Frame,
+// Scanline, Cycle, Copper and DMA fixtures) from the same PC one or a thousand
+// iterations later. Port, NextRegWrite, Frame, Reset, IntAck, Nmi and all six
+// Copper/DMA sub-kinds could not stop the machine without any row noticing.
+//
+// Each case runs THREE machines over one fixture:
+//   CTRL   a `Continue` subscription with a handler — the event IS delivered,
+//          and the machine is NOT stopped by it and runs on past the point the
+//          delivery happened at. The handler records that point (clock and PC),
+//          which is what the STOP row compares against.
+//   STOP   the same subscription with `Action::Stop` and no handler — the
+//          machine is paused, `pause_reason` names the kind's reason, the
+//          subscription and its owner, `state()`'s pc and cycle equal the live
+//          machine's AND the CTRL machine's delivery point (a stop is AT the
+//          delivery boundary, never after it), the absolute pc/cycle derived from
+//          the fixture's own T-states where the fixture makes that arithmetic
+//          plain, and a further run_frame() executes nothing (the stop holds).
+//   FALSE  `Stop` with a condition that answers false — the condition RAN (so
+//          the row is not vacuous), nothing was delivered, and the machine was
+//          not stopped: it passed the CTRL machine's delivery point.
+
+/// 12 T-states: the loop every timing fixture parks in. 96 master cycles at the
+/// 48K's divisor of 8, so every instruction boundary of a `JR $` run that starts
+/// at c0 is c0 + 96k.
+static constexpr uint64_t B5_JR_CYCLES = 12u * 8u;
+
+/// The first `JR $` boundary at or after `t`, for a run that starts at `c0`.
+static uint64_t b5_jr_boundary(uint64_t c0, uint64_t t) {
+    if (t <= c0) return c0;
+    return c0 + ((t - c0 + B5_JR_CYCLES - 1) / B5_JR_CYCLES) * B5_JR_CYCLES;
+}
+
+/// One row of a table: a LITERAL id and a LITERAL description, so the harness's
+/// literal gate and the matrix's description reader both see them in source.
+struct B5Row {
+    const char* id;
+    const char* desc;
+};
+
+struct B5KindCase {
+    B5Row stop;      // STOP
+    B5Row fals;      // FALSE
+    B5Row ctrl;      // CTRL
+    std::vector<uint8_t> prog;
+    std::function<void(Subscription&, Emulator&)> filter;  // kind + cheap filter
+    std::function<void(Emulator&, Debugger&, ClientId)> prime;  // extra machine setup
+    std::function<void(Emulator&, Debugger&, ClientId)> drive;  // the run under test
+    PauseReason::Kind reason;
+    bool owned;                                           // reason.by == owner
+    /// The absolute stop position, from the fixture's own arithmetic, given the
+    /// clock before `drive` (`c0`). `want_pc < 0` / `want_cycle == 0`: not
+    /// derivable in closed form for this fixture — the CTRL twin is the oracle.
+    std::function<void(Emulator&, uint64_t c0, int32_t& want_pc, uint64_t& want_cycle)> expect;
+};
+
+/// A 48K machine with `bytes` at PROG, PC/SP set and interrupts off — and NOT
+/// armed: every B5 machine is armed the way §9 says, THROUGH THE FACADE, by the
+/// client it attaches. `build_armed()`'s `set_active(true)` is the Qt window's
+/// contributor, which no remote client has.
+static void b5_build(Emulator& emu, const std::vector<uint8_t>& bytes,
+                     MachineType type = MachineType::ZX48K) {
+    EmulatorConfig cfg;
+    cfg.type = type;
+    emu.init(cfg);
+    load_prog(emu, bytes);
+}
+
+static void b5_run_kind_case(const B5KindCase& k) {
+
+    // ── CTRL ────────────────────────────────────────────────────────────────
+    B5Pos    delivered{};
+    int      n_ctrl = 0;
+    B5Pos    ctrl_end{};
+    bool     ctrl_paused = true;
+    {
+        Emulator emu;
+        b5_build(emu, k.prog);
+        Debugger dbg(emu);
+        const ClientId OWNER = dbg.attach(client("B5")).value;
+        Subscription s;
+        k.filter(s, emu);
+        s.action  = Action::Continue;
+        s.handler = [&](const DbgEvent&, Debugger&) {
+            if (n_ctrl++ == 0) delivered = b5_pos(emu);
+            return Action::Continue;
+        };
+        dbg.subscribe(OWNER, s);
+        if (k.prime) k.prime(emu, dbg, OWNER);
+        k.drive(emu, dbg, OWNER);
+        ctrl_paused = dbg.state().paused;
+        ctrl_end    = b5_pos(emu);
+    }
+    check(k.ctrl.id, k.ctrl.desc,
+          n_ctrl >= 1 && !ctrl_paused && ctrl_end.cycle > delivered.cycle,
+          "n=" + std::to_string(n_ctrl) + " paused=" + (ctrl_paused ? "1" : "0") +
+              " delivered[" + b5_show(delivered) + "] end[" + b5_show(ctrl_end) + "]");
+
+    // ── STOP ────────────────────────────────────────────────────────────────
+    {
+        Emulator emu;
+        b5_build(emu, k.prog);
+        Debugger dbg(emu);
+        const ClientId OWNER = dbg.attach(client("B5")).value;
+        Subscription s;
+        k.filter(s, emu);
+        s.action = Action::Stop;
+        const auto sub = dbg.subscribe(OWNER, s);
+        if (k.prime) k.prime(emu, dbg, OWNER);
+        const uint64_t c0 = emu.clock().get();
+        int32_t  want_pc    = -1;
+        uint64_t want_cycle = 0;
+        if (k.expect) k.expect(emu, c0, want_pc, want_cycle);
+        k.drive(emu, dbg, OWNER);
+        const RunState st   = dbg.state();
+        const B5Pos    live = b5_pos(emu);
+        emu.run_frame();                                  // the stop must HOLD
+        const B5Pos    held = b5_pos(emu);
+        const bool reason_ok =
+            st.pause_reason.kind == k.reason && st.pause_reason.id == sub.value &&
+            st.pause_reason.by == (k.owned ? OWNER : jnext::dbg::CLIENT_NONE);
+        const bool at_delivery = st.pc == delivered.pc && st.cycle == delivered.cycle;
+        const bool is_live     = st.pc == live.pc && st.cycle == live.cycle;
+        const bool abs_ok      = (want_pc < 0 || st.pc == static_cast<uint16_t>(want_pc)) &&
+                                 (want_cycle == 0 || st.cycle == want_cycle);
+        check(k.stop.id, k.stop.desc,
+              sub.status == Result::Ok && st.paused && reason_ok && at_delivery &&
+                  is_live && abs_ok && held.cycle == live.cycle && held.pc == live.pc,
+              std::string("paused=") + (st.paused ? "1" : "0") +
+                  " reason=" + std::to_string(static_cast<int>(st.pause_reason.kind)) +
+                  " id=" + std::to_string(st.pause_reason.id) + "/" +
+                  std::to_string(sub.value) +
+                  " by=" + std::to_string(st.pause_reason.by) +
+                  " state[" + b5_show(B5Pos{st.pc, st.cycle}) + "] live[" +
+                  b5_show(live) + "] delivered[" + b5_show(delivered) + "] want[pc=" +
+                  (want_pc < 0 ? std::string("-") : hex(static_cast<unsigned>(want_pc))) +
+                  " cycle=" + (want_cycle ? std::to_string(want_cycle) : std::string("-")) +
+                  "] held[" + b5_show(held) + "] c0=" + std::to_string(c0));
+    }
+
+    // ── FALSE ───────────────────────────────────────────────────────────────
+    {
+        Emulator emu;
+        b5_build(emu, k.prog);
+        Debugger dbg(emu);
+        const ClientId OWNER = dbg.attach(client("B5")).value;
+        int evaluated = 0;
+        Subscription s;
+        k.filter(s, emu);
+        s.action    = Action::Stop;
+        s.condition = [&evaluated](const DbgEvent&, const Debugger&) {
+            ++evaluated;
+            return false;
+        };
+        dbg.subscribe(OWNER, s);
+        if (k.prime) k.prime(emu, dbg, OWNER);
+        k.drive(emu, dbg, OWNER);
+        const bool paused = dbg.state().paused;
+        const B5Pos end   = b5_pos(emu);
+        check(k.fals.id, k.fals.desc,
+              evaluated >= 1 && !paused && dbg.events_fired_since(0).empty() &&
+                  end.cycle > delivered.cycle,
+              "evaluated=" + std::to_string(evaluated) + " paused=" +
+                  (paused ? "1" : "0") + " fired=" +
+                  std::to_string(dbg.events_fired_since(0).size()) + " end[" +
+                  b5_show(end) + "] delivered[" + b5_show(delivered) + "]");
+    }
+}
+
+/// The DMA fixture every Dma case shares: an 8-byte memory-to-memory block
+/// 0xA000 -> 0x9000, programmed and ENABLED (R6 0x87), so the first slot of the
+/// next run is the DMA's. The register sequence is EVT-DMA's.
+static void b5_prime_dma(Emulator& emu, Debugger&, ClientId) {
+    for (int i = 0; i < 8; ++i)
+        emu.mmu().write(static_cast<uint16_t>(0xA000 + i), static_cast<uint8_t>(0xA0 + i));
+    Dma& d = emu.dma();
+    auto w = [&](uint8_t v) { d.write(v, false); };
+    w(0x7D); w(0x00); w(0xA0); w(0x08); w(0x00);
+    w(0x14); w(0x10); w(0xAD); w(0x00); w(0x90);
+    w(0xCF); w(0x87);
+}
+
+static void b5_wire_kind_rows() {
+    using K = PauseReason::Kind;
+    auto run1 = [](Emulator& emu, Debugger&, ClientId) { emu.run_frame(); };
+    const std::vector<uint8_t> JR = { 0x18, 0xFE };                 // 8000 JR $
+
+    const B5KindCase cases[] = {
+        // ── Execute: before the instruction at 0x8002 — NOP NOP = 8 T.
+        {{"WK-EXEC-01", "Execute Stop: paused BEFORE 0x8002 (pc 0x8002, cycle c0+64), "
+                        "reason Breakpoint naming the subscription and its owner, and "
+                        "the stop holds"},
+         {"WK-EXEC-02", "Execute Stop with a condition answering false: the condition "
+                        "ran, nothing was delivered, the machine ran past"},
+         {"WK-EXEC-03", "Execute control: delivered with Continue, not stopped, ran on"},
+         {0x00, 0x00, 0x00, 0x18, 0xFE},
+         [](Subscription& s, Emulator&) {
+             s.kind = EventKind::Execute; s.filter.lo = 0x8002; s.filter.hi = 0x8002;
+         },
+         nullptr, run1, K::Breakpoint, true,
+         [](Emulator&, uint64_t c0, int32_t& pc, uint64_t& cy) { pc = 0x8002; cy = c0 + 8 * 8; }},
+
+        // ── Mem: at the boundary of the writer — LD A,n (7) + LD (nn),A (13).
+        {{"WK-MEM-01", "Mem{Write} Stop: paused at the writer's boundary (pc 0x8005, "
+                       "cycle c0+160), reason Watch naming the subscription and its "
+                       "owner, and the stop holds"},
+         {"WK-MEM-02", "Mem Stop with a condition answering false: the condition ran, "
+                       "nothing was delivered, the machine ran past"},
+         {"WK-MEM-03", "Mem control: delivered with Continue, not stopped, ran on"},
+         {0x3E, 0x5A, 0x32, 0x00, 0x90, 0x00, 0x18, 0xFE},
+         [](Subscription& s, Emulator&) {
+             s.kind = EventKind::Mem; s.access = Access::Write;
+             s.filter.lo = 0x9000; s.filter.hi = 0x9000;
+         },
+         nullptr, run1, K::Watch, true,
+         [](Emulator&, uint64_t c0, int32_t& pc, uint64_t& cy) { pc = 0x8005; cy = c0 + 20 * 8; }},
+
+        // ── Port: at the boundary of the OUT — LD A,n (7) + OUT (n),A (11).
+        {{"WK-PORT-01", "Port{Write} Stop: paused at the OUT's boundary (pc 0x8004, "
+                        "cycle c0+144), reason Watch naming the subscription and its "
+                        "owner, and the stop holds"},
+         {"WK-PORT-02", "Port Stop with a condition answering false: the condition ran, "
+                        "nothing was delivered, the machine ran past"},
+         {"WK-PORT-03", "Port control: delivered with Continue, not stopped, ran on"},
+         {0x3E, 0x07, 0xD3, 0xFE, 0x00, 0x18, 0xFE},
+         [](Subscription& s, Emulator&) {
+             s.kind = EventKind::Port; s.access = Access::Write;
+             s.filter.port_mask = 0x00FF; s.filter.port_value = 0xFE;
+         },
+         nullptr, run1, K::Watch, true,
+         [](Emulator&, uint64_t c0, int32_t& pc, uint64_t& cy) { pc = 0x8004; cy = c0 + 18 * 8; }},
+
+        // ── NextRegWrite: a CPU write commits after the drain, so §4.3's Stop
+        //    lands ONE instruction after the writer — NEXTREG n,n (20) + NOP (4).
+        {{"WK-NR-01", "NextRegWrite Stop: paused ONE instruction after the CPU writer "
+                      "(pc 0x8005, cycle c0+192, §4.3), reason Script naming the "
+                      "subscription and its owner, and the stop holds"},
+         {"WK-NR-02", "NextRegWrite Stop with a condition answering false: the condition "
+                      "ran, nothing was delivered, the machine ran past"},
+         {"WK-NR-03", "NextRegWrite control: delivered with Continue, not stopped, ran on"},
+         {0xED, 0x91, 0x15, 0x07, 0x00, 0x00, 0x18, 0xFE},
+         [](Subscription& s, Emulator&) {
+             s.kind = EventKind::NextRegWrite; s.filter.regs = { 0x15 };
+         },
+         nullptr, run1, K::Script, true,
+         [](Emulator&, uint64_t c0, int32_t& pc, uint64_t& cy) { pc = 0x8005; cy = c0 + 24 * 8; }},
+
+        // ── Frame: at the frame edge — the end of frame 0, on the JR $ grid.
+        //    Two frames driven, so the control has a frame to run on past it.
+        {{"WK-FRAME-01", "Frame Stop: paused AT the edge of frame 0 (the first JR $ "
+                         "boundary at or after c0 + one frame), reason Script naming "
+                         "the subscription, and the next frame executes nothing"},
+         {"WK-FRAME-02", "Frame Stop with a condition answering false: the condition "
+                         "ran, nothing was delivered, the machine ran past"},
+         {"WK-FRAME-03", "Frame control: delivered with Continue, not stopped, ran on"},
+         JR,
+         [](Subscription& s, Emulator&) { s.kind = EventKind::Frame; s.filter.frame = 0; },
+         nullptr,
+         [](Emulator& emu, Debugger&, ClientId) { emu.run_frame(); emu.run_frame(); },
+         K::Script, true,
+         [](Emulator& emu, uint64_t c0, int32_t& pc, uint64_t& cy) {
+             pc = PROG;
+             cy = b5_jr_boundary(c0, c0 + emu.timing().master_cycles_per_frame);
+         }},
+
+        // ── Scanline: latched at the line in the device cluster of the
+        //    instruction that crosses it, delivered at the NEXT boundary (§4.3,
+        //    ≤1 instruction late). The raw line is the VHDL relation
+        //    cvc = (raw - min_vactive + cu_offset) mod lines (zxula_timing.vhd:455-472)
+        //    solved for raw — the relation EVT-TIME-16 pins independently.
+        {{"WK-SCAN-01", "Scanline Stop: paused one JR $ boundary after the one that "
+                        "crossed cvc 100's raw line (§4.3 <=1 late), reason Script, "
+                        "and the stop holds"},
+         {"WK-SCAN-02", "Scanline Stop with a condition answering false: the condition "
+                        "ran, nothing was delivered, the machine ran past"},
+         {"WK-SCAN-03", "Scanline control: delivered with Continue, not stopped, ran on"},
+         JR,
+         [](Subscription& s, Emulator&) { s.kind = EventKind::Scanline; s.filter.scanline = 100; },
+         nullptr, run1, K::Script, true,
+         [](Emulator& emu, uint64_t c0, int32_t& pc, uint64_t& cy) {
+             const int lpf  = emu.video_timing().vc_max() + 1;
+             const int minv = emu.video_timing().display_origin().vc;
+             const int cuo  = emu.video_timing().cu_offset();
+             int raw = (100 + minv - cuo) % lpf;
+             if (raw < 0) raw += lpf;
+             const uint64_t line_cycle =
+                 c0 + static_cast<uint64_t>(raw) * emu.timing().master_cycles_per_line;
+             pc = PROG;
+             cy = b5_jr_boundary(c0, line_cycle) + B5_JR_CYCLES;
+         }},
+
+        // ── Cycle: evaluated at every boundary, `>=` — a target ON the JR $
+        //    grid stops exactly there (a `>` would stop one boundary later).
+        {{"WK-CYCLE-01", "Cycle Stop: a target on an instruction boundary stops EXACTLY "
+                         "there (>=, not >), reason Script, and the stop holds"},
+         {"WK-CYCLE-02", "Cycle Stop with a condition answering false: the condition "
+                         "ran, nothing was delivered, the machine ran past"},
+         {"WK-CYCLE-03", "Cycle control: delivered with Continue, not stopped, ran on"},
+         JR,
+         [](Subscription& s, Emulator& emu) {
+             s.kind = EventKind::Cycle;
+             s.filter.cycle = emu.clock().get() + 52 * B5_JR_CYCLES;
+         },
+         nullptr, run1, K::Script, true,
+         [](Emulator&, uint64_t c0, int32_t& pc, uint64_t& cy) {
+             pc = PROG; cy = c0 + 52 * B5_JR_CYCLES;
+         }},
+
+        // ── Reset{Soft}, through the verb: latched before init() rebuilds the
+        //    peripherals, delivered at the first boundary of the reset machine —
+        //    after its FIRST instruction. What that instruction is depends on the
+        //    ROM this host has (a 0xFF-filled one runs RST 38h), so the position
+        //    is measured on a REFERENCE machine: the same build, soft-reset, one
+        //    raw execute_single_instruction() — the event machinery plays no part.
+        {{"WK-RESET-01", "Reset{Soft} Stop: paused at the first boundary after the "
+                         "reset (where one raw instruction of a reset reference machine "
+                         "lands), reason Script naming the subscription, and the stop "
+                         "holds"},
+         {"WK-RESET-02", "Reset Stop with a condition answering false: the condition "
+                         "ran, nothing was delivered, the machine ran past"},
+         {"WK-RESET-03", "Reset control: delivered with Continue, not stopped, ran on"},
+         {0x00, 0x18, 0xFD},
+         [](Subscription& s, Emulator&) {
+             s.kind = EventKind::Reset; s.filter.reset_kind = ResetKind::Soft;
+         },
+         nullptr,
+         [](Emulator& emu, Debugger& d, ClientId by) {
+             d.reset(by, ResetKind::Soft);
+             emu.run_frame();
+         },
+         K::Script, true,
+         [](Emulator&, uint64_t, int32_t& pc, uint64_t& cy) {
+             Emulator ref;
+             b5_build(ref, {0x00, 0x18, 0xFD});
+             ref.soft_reset();
+             ref.execute_single_instruction();
+             pc = pc_of(ref);
+             cy = ref.clock().get();
+         }},
+
+        // ── IntAck: the frame interrupt, IM 1, taken out of a HALT; delivered at
+        //    the acknowledge slot's boundary — PC already at the IM 1 vector.
+        {{"WK-INT-01", "IntAck Stop: paused at the acknowledge slot's boundary, PC on "
+                       "the IM 1 vector 0x0038, reason Script, and the stop holds"},
+         {"WK-INT-02", "IntAck Stop with a condition answering false: the condition "
+                       "ran, nothing was delivered, the machine ran past"},
+         {"WK-INT-03", "IntAck control: delivered with Continue, not stopped, ran on"},
+         {0x76, 0x18, 0xFD},
+         [](Subscription& s, Emulator&) { s.kind = EventKind::IntAck; },
+         [](Emulator& emu, Debugger&, ClientId) {
+             Z80Registers r = emu.cpu().get_registers();
+             r.IFF1 = 1; r.IFF2 = 1; r.IM = 1;
+             emu.cpu().set_registers(r);
+         },
+         run1, K::Script, true,
+         [](Emulator&, uint64_t, int32_t& pc, uint64_t&) { pc = 0x0038; }},
+
+        // ── Nmi: the Multiface button through the IN-04 verb; delivered at the
+        //    accept slot's boundary — PC already on the NMI vector.
+        {{"WK-NMI-01", "Nmi Stop: paused at the accept slot's boundary, PC on the NMI "
+                       "vector 0x0066, reason Script, and the stop holds"},
+         {"WK-NMI-02", "Nmi Stop with a condition answering false: the condition ran, "
+                       "nothing was delivered, the machine ran past"},
+         {"WK-NMI-03", "Nmi control: delivered with Continue, not stopped, ran on"},
+         {0x00, 0x18, 0xFD},
+         [](Subscription& s, Emulator&) { s.kind = EventKind::Nmi; },
+         [](Emulator& emu, Debugger& d, ClientId by) {
+             emu.nmi_source().set_mf_enable(true);        // NR 0x06 bit 3
+             d.press_nmi(by, NmiButton::Mf);
+         },
+         run1, K::Script, true,
+         [](Emulator&, uint64_t, int32_t& pc, uint64_t&) { pc = 0x0066; }},
+
+        // ── Host: synchronous — the stop is where the machine stood when the
+        //    frontend raised it, and the frame after it executes nothing.
+        {{"WK-HOST-01", "Host Stop: paused exactly where the machine stood when the "
+                        "name was raised (pc 0x8000, cycle c0), reason Script, and the "
+                        "next frame executes nothing"},
+         {"WK-HOST-02", "Host Stop with a condition answering false: the condition ran, "
+                        "nothing was delivered, the machine ran past"},
+         {"WK-HOST-03", "Host control: delivered with Continue, not stopped, ran on"},
+         {0x00, 0x18, 0xFD},
+         [](Subscription& s, Emulator&) {
+             s.kind = EventKind::Host; std::strcpy(s.filter.host_name, "script2");
+         },
+         nullptr,
+         [](Emulator& emu, Debugger& d, ClientId by) {
+             d.raise_host_event(by, "script2");
+             emu.run_frame();
+         },
+         K::Script, true,
+         [](Emulator&, uint64_t c0, int32_t& pc, uint64_t& cy) { pc = PROG; cy = c0; }},
+
+        // ── Copper{Move}: latched in the device cluster AFTER the first JR $,
+        //    delivered at the second one's boundary (§4.3, <=1 late).
+        {{"WK-COPMOVE-01", "Copper{Move} Stop: paused at the second JR $ boundary "
+                           "(cycle c0+192, §4.3 <=1 late), reason Script, and the stop "
+                           "holds"},
+         {"WK-COPMOVE-02", "Copper{Move} Stop with a condition answering false: the "
+                           "condition ran, nothing was delivered, the machine ran past"},
+         {"WK-COPMOVE-03", "Copper{Move} control: delivered with Continue, not stopped, "
+                           "ran on"},
+         JR,
+         [](Subscription& s, Emulator&) {
+             s.kind = EventKind::Copper;
+             s.filter.copper_kind = jnext::dbg::CopperEventKind::Move;
+         },
+         [](Emulator& emu, Debugger&, ClientId) {
+             copper_program(emu, { move_word(0x30, 0x7F), HALT_WORD });
+             copper_start(emu);
+         },
+         run1, K::Script, true,
+         [](Emulator&, uint64_t c0, int32_t& pc, uint64_t& cy) {
+             pc = PROG; cy = c0 + 2 * B5_JR_CYCLES;
+         }},
+
+        // ── Copper{Wait}: satisfied on line 40, delivered one boundary later.
+        {{"WK-COPWAIT-01", "Copper{Wait} Stop: paused at the delivery boundary of the "
+                           "satisfied WAIT, reason Script, and the stop holds"},
+         {"WK-COPWAIT-02", "Copper{Wait} Stop with a condition answering false: the "
+                           "condition ran, nothing was delivered, the machine ran past"},
+         {"WK-COPWAIT-03", "Copper{Wait} control: delivered with Continue, not stopped, "
+                           "ran on"},
+         JR,
+         [](Subscription& s, Emulator&) {
+             s.kind = EventKind::Copper;
+             s.filter.copper_kind = jnext::dbg::CopperEventKind::Wait;
+         },
+         [](Emulator& emu, Debugger&, ClientId) {
+             copper_program(emu, { wait_word(4, 40), move_word(0x30, 0x21), HALT_WORD });
+             copper_start(emu);
+         },
+         run1, K::Script, true,
+         [](Emulator&, uint64_t, int32_t& pc, uint64_t&) { pc = PROG; }},
+
+        // ── Copper{Halt}: the edge, latched after the first JR $.
+        {{"WK-COPHALT-01", "Copper{Halt} Stop: paused at the second JR $ boundary "
+                           "(cycle c0+192), reason Script, and the stop holds"},
+         {"WK-COPHALT-02", "Copper{Halt} Stop with a condition answering false: the "
+                           "condition ran, nothing was delivered, the machine ran past"},
+         {"WK-COPHALT-03", "Copper{Halt} control: delivered with Continue, not stopped, "
+                           "ran on"},
+         JR,
+         [](Subscription& s, Emulator&) {
+             s.kind = EventKind::Copper;
+             s.filter.copper_kind = jnext::dbg::CopperEventKind::Halt;
+         },
+         [](Emulator& emu, Debugger&, ClientId) {
+             copper_program(emu, { HALT_WORD });
+             copper_start(emu);
+         },
+         run1, K::Script, true,
+         [](Emulator&, uint64_t c0, int32_t& pc, uint64_t& cy) {
+             pc = PROG; cy = c0 + 2 * B5_JR_CYCLES;
+         }},
+
+        // ── Dma: the burst runs in the run's first slot, which is the DMA's and
+        //    executes no CPU instruction — delivered at THAT boundary (§4.3,
+        //    0 late), so PC has not moved.
+        {{"WK-DMASTART-01", "Dma{Start} Stop: paused at the DMA slot's boundary, PC "
+                            "unmoved (the slot ran no instruction), reason Script, and "
+                            "the stop holds"},
+         {"WK-DMASTART-02", "Dma{Start} Stop with a condition answering false: the "
+                            "condition ran, nothing was delivered, the machine ran past"},
+         {"WK-DMASTART-03", "Dma{Start} control: delivered with Continue, not stopped, "
+                            "ran on"},
+         JR,
+         [](Subscription& s, Emulator&) {
+             s.kind = EventKind::Dma; s.filter.dma_kind = jnext::dbg::DmaEventKind::Start;
+         },
+         b5_prime_dma, run1, K::Script, true,
+         [](Emulator&, uint64_t, int32_t& pc, uint64_t&) { pc = PROG; }},
+        {{"WK-DMABYTE-01", "Dma{Byte} Stop: paused at the DMA slot's boundary, PC "
+                           "unmoved, reason Script, and the stop holds"},
+         {"WK-DMABYTE-02", "Dma{Byte} Stop with a condition answering false: the "
+                           "condition ran, nothing was delivered, the machine ran past"},
+         {"WK-DMABYTE-03", "Dma{Byte} control: delivered with Continue, not stopped, "
+                           "ran on"},
+         JR,
+         [](Subscription& s, Emulator&) {
+             s.kind = EventKind::Dma; s.filter.dma_kind = jnext::dbg::DmaEventKind::Byte;
+         },
+         b5_prime_dma, run1, K::Script, true,
+         [](Emulator&, uint64_t, int32_t& pc, uint64_t&) { pc = PROG; }},
+        {{"WK-DMAEND-01", "Dma{End} Stop: paused at the DMA slot's boundary, PC "
+                          "unmoved, reason Script, and the stop holds"},
+         {"WK-DMAEND-02", "Dma{End} Stop with a condition answering false: the "
+                          "condition ran, nothing was delivered, the machine ran past"},
+         {"WK-DMAEND-03", "Dma{End} control: delivered with Continue, not stopped, "
+                          "ran on"},
+         JR,
+         [](Subscription& s, Emulator&) {
+             s.kind = EventKind::Dma; s.filter.dma_kind = jnext::dbg::DmaEventKind::End;
+         },
+         b5_prime_dma, run1, K::Script, true,
+         [](Emulator&, uint64_t, int32_t& pc, uint64_t&) { pc = PROG; }},
+    };
+    for (const B5KindCase& k : cases) b5_run_kind_case(k);
+}
+
 int main() {
     std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
 
@@ -11877,6 +12404,9 @@ int main() {
     b4_snapshot_rows();
     b4_screenshot_rows();
     b4_hosting_rows();
+
+    // GH #276 B5
+    b5_wire_kind_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
