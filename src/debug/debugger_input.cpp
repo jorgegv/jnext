@@ -111,9 +111,15 @@ Expected<size_t> Debugger::press_key(ClientId by, const MatrixKey& key, int hold
 
 // IN-01 — the same, by NAME: the man page's `--delayed-keypress` vocabulary,
 // through the ONE table (`key_name_to_matrix`), then the matrix form above.
+//
+// The name lookup's `bool` is not tested here, deliberately: on an unknown name
+// `key_name_to_matrix()` leaves `key` DEFAULT-CONSTRUCTED (all four fields -1 —
+// the published contract in inspect.h), and the matrix form refuses a first key
+// off the matrix. A second test of the same fact would be a guard no row could
+// tell from nothing (row IN-01-04 pins the refusal).
 Expected<size_t> Debugger::press_key(ClientId by, const std::string& name, int hold_frames) {
     MatrixKey key;
-    if (!key_name_to_matrix(name, key)) return make_refused<size_t>(Result::RefusedUnavailable);
+    (void)key_name_to_matrix(name, key);
     return press_key(by, key, hold_frames);
 }
 

@@ -1111,15 +1111,18 @@ static void b4_bookmark_rows() {
         // (`Emulator::save_state`, "joy_uart").
         const std::string cable = "/tmp/jnext_b4_joy_uart.bin";
         { std::ofstream f(cable, std::ios::binary); f << "ABCD"; }
-        auto run = [&](bool change_type) {
-            Emulator emu; build(emu);
+        // `from` is the machine the bookmark is taken on; the boot lands `to`
+        // (or, with no type change, the same type with the cable attached).
+        auto run = [&](bool change_type, MachineType from = MachineType::ZX48K,
+                       MachineType to = MachineType::ZX_PLUS3) {
+            Emulator emu; build(emu, from);
             Debugger dbg(emu);
             const ClientId a = dbg.attach(client("A")).value;
             dbg.bookmark_save(a, "pre", SaveStateMode::RefuseMidFrame);
             jnext::dbg::LoopDriver d;
             d.cold_boot = [&]() {
                 EmulatorConfig c = emu.config();
-                if (change_type) c.type = MachineType::ZX_PLUS3;
+                if (change_type) c.type = to;
                 else             c.joy_uart_rx_file = cable;
                 emulator_frontend_cold_boot(emu, c, std::string(), ColdBootHooks{});
                 return true;
@@ -1136,12 +1139,42 @@ static void b4_bookmark_rows() {
         };
         check("CAP-03-12", "a bookmark restored into a machine of ANOTHER TYPE is "
                            "RefusedUnavailable before load_state: nothing latched, "
-                           "the machine untouched",
-              run(true));
+                           "the machine untouched — 48K into a +3, and +3 into a 48K",
+              run(true) && run(true, MachineType::ZX_PLUS3, MachineType::ZX48K));
         check("CAP-03-13", "and into the same type with a DIFFERENT SNAPSHOT WIDTH (a "
                            "cable attached) likewise",
               run(false));
         std::remove(cable.c_str());
+    }
+    {
+        // A LISTENER MAY REACH THE CLIENT MID-SAVE: the advance's MUTATE line is
+        // pushed to every listener, and one that detaches the saving client there
+        // (a crashed remote's server does exactly that from a callback) leaves it
+        // with nowhere to keep the bookmark. The client row is looked up again
+        // after the advance, so the save is REFUSED rather than written into a
+        // tombstone the fan-out has already compacted away.
+        struct DetachOnMutate : RecListener {
+            Debugger* dbg = nullptr;
+            ClientId  who = jnext::dbg::CLIENT_NONE;
+            void on_log(jnext::dbg::LogLevel lvl, const std::string& t) override {
+                RecListener::on_log(lvl, t);
+                if (dbg && t.rfind("MUTATE clock", 0) == 0) { dbg->detach(who); dbg = nullptr; }
+            }
+        };
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        DetachOnMutate l;
+        dbg.set_listener(b, &l);
+        stop_mid_frame_at_call(emu, dbg, a);
+        l.dbg = &dbg; l.who = a;
+        const Result r = dbg.bookmark_save(a, "mid", SaveStateMode::AdvanceToBoundary);
+        check("CAP-03-14", "a client detached by a listener DURING its save's advance "
+                           "gets RefusedUnavailable, and no bookmark is kept for it",
+              l.dbg == nullptr && r == Result::RefusedUnavailable && dbg.bookmarks(a).empty() &&
+                  !emu.frame_in_progress(),
+              std::string("r=") + jnext::dbg::result_name(r));
     }
 }
 
@@ -1331,26 +1364,34 @@ static void b4_input_rows() {
         Emulator emu; build(emu);
         Debugger dbg(emu);
         const ClientId a = dbg.attach(client("A")).value;
-        bool set = false, looked = false, seen_in_frame = true;
+        bool set = false, looked = false, seen_in_frame = true, ext_in_frame = true;
         Subscription s1;
         s1.kind = EventKind::Execute; s1.filter.lo = PROG + 1; s1.filter.hi = PROG + 1;
         s1.action = Action::Continue;
         s1.handler = [&](const DbgEvent&, Debugger& d) {
-            if (!set) { set = d.set_key(a, A.row1, A.col1, true) == Result::Ok; }
+            if (!set) {
+                set = d.set_key(a, A.row1, A.col1, true) == Result::Ok &&
+                      d.set_extended_key(a, 3, true) == Result::Ok;
+            }
             return Action::Continue;
         };
         Subscription s2 = s1;
         s2.filter.lo = PARK; s2.filter.hi = PARK;
         s2.handler = [&](const DbgEvent&, Debugger& d) {
-            if (!looked) { looked = true; seen_in_frame = key_down(d, A.row1, A.col1); }
+            if (!looked) {
+                looked        = true;
+                seen_in_frame = key_down(d, A.row1, A.col1);
+                ext_in_frame  = (d.input_state().ext_keys & 0x0008) != 0;
+            }
             return Action::Continue;
         };
         dbg.subscribe(a, s1);
         dbg.subscribe(a, s2);
         emu.run_frame();
-        check("IN-ORD-01", "a level set MID-frame is invisible to the rest of that "
-                           "frame and applied at its edge",
-              set && looked && !seen_in_frame && key_down(dbg, A.row1, A.col1));
+        check("IN-ORD-01", "a level set MID-frame — a matrix key and an extended key — "
+                           "is invisible to the rest of that frame and applied at its edge",
+              set && looked && !seen_in_frame && !ext_in_frame &&
+                  key_down(dbg, A.row1, A.col1) && (dbg.input_state().ext_keys & 0x0008) != 0);
     }
     {
         // A `Frame` handler at E_N: its PULSE is pressed by E_N's own tick — the
@@ -1504,9 +1545,11 @@ static std::vector<uint8_t> read_file(const std::string& path) {
 
 static void b4_snapshot_rows() {
     const std::string szx = "/tmp/jnext_b4_snap.szx";
-    const std::string sna = "/tmp/jnext_b4_snap.SNA";   // upper case: the match ignores case
+    const std::string szx_upper = "/tmp/jnext_b4_snap2.SZX";   // the match ignores case
+    const std::string sna = "/tmp/jnext_b4_snap.sna";
     const std::string jns = "/tmp/jnext_b4_snap.jns";
     std::remove(szx.c_str()); std::remove(sna.c_str()); std::remove(jns.c_str());
+    std::remove(szx_upper.c_str());
     {
         // At a frame boundary: written at once, by extension, byte for byte what
         // the format's saver produces for this machine.
@@ -1517,21 +1560,26 @@ static void b4_snapshot_rows() {
         // machine: the comparison is "the verb wrote what the saver produces".
         const std::vector<uint8_t> want_szx = SzxSaver::save(emu).data;
         const Result r1 = dbg.save_snapshot(a, szx);
+        const Result r1u = dbg.save_snapshot(a, szx_upper);
         const std::vector<uint8_t> want_sna = SnaSaver::save(emu);
         const Result r2 = dbg.save_snapshot(a, sna);
         const Result r3 = dbg.save_snapshot(a, jns);
-        const std::vector<uint8_t> f_szx = read_file(szx), f_sna = read_file(sna),
-                                   f_jns = read_file(jns);
+        const std::vector<uint8_t> f_szx = read_file(szx), f_szxu = read_file(szx_upper),
+                                   f_sna = read_file(sna), f_jns = read_file(jns);
         check("CAP-04-01", "save_snapshot() at a frame boundary writes the file at once, "
-                           "the format chosen by the extension: .szx is SzxSaver's bytes",
-              r1 == Result::Ok && !f_szx.empty() && f_szx == want_szx,
-              std::to_string(f_szx.size()) + " vs " + std::to_string(want_szx.size()) +
-                  " bytes");
-        check("CAP-04-02", "and .SNA (any case) is SnaSaver's 48K form",
+                           "the format chosen by the extension: .szx is SzxSaver's bytes, "
+                           "and so is .SZX (the match ignores case)",
+              r1 == Result::Ok && !f_szx.empty() && f_szx == want_szx && r1u == Result::Ok &&
+                  f_szxu == want_szx,
+              std::to_string(f_szx.size()) + " / " + std::to_string(f_szxu.size()) + " vs " +
+                  std::to_string(want_szx.size()) + " bytes");
+        check("CAP-04-02", "and any other extension is SnaSaver's 48K .sna form",
               r2 == Result::Ok && f_sna.size() == 49179 && f_sna == want_sna,
               std::to_string(f_sna.size()) + " bytes");
-        check("CAP-04-03", "and .jns is the JNS container (Emulator::save_jns_file)",
-              r3 == Result::Ok && f_jns.size() > 64 && dbg.state().paused == false,
+        check("CAP-04-03", "and .jns is the JNS container — a zip (PK\\3\\4), written "
+                           "by Emulator::save_jns_file",
+              r3 == Result::Ok && f_jns.size() > 64 && f_jns[0] == 'P' && f_jns[1] == 'K' &&
+                  f_jns[2] == 3 && f_jns[3] == 4,
               std::to_string(f_jns.size()) + " bytes, " + emu.last_jns_error());
     }
     {
@@ -1619,6 +1667,7 @@ static void b4_snapshot_rows() {
                   " host=" + jnext::dbg::result_name(at_host));
     }
     std::remove(szx.c_str()); std::remove(sna.c_str()); std::remove(jns.c_str());
+    std::remove(szx_upper.c_str());
 }
 
 // ── CAP-01 — deferred screenshots ───────────────────────────────────────────
@@ -1860,6 +1909,30 @@ static void b4_screenshot_rows() {
               v0 && v1 && v2,
               std::string("reset=") + (v0 ? "1" : "0") + " load=" + (v1 ? "1" : "0") +
                   " guest=" + (v2 ? "1" : "0"));
+    }
+    rm();
+    {
+        // The capture is the FRAME's, not the pump's: taken before any command of
+        // the same pump runs. A service whose command pokes screen memory must not
+        // change the `.SCR` of a frame that has already ended.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        emu.mmu().write(0x4000, 0x11);
+        FakeService svc;
+        svc.on_call = [&]() { dbg.poke(a, MemSpace::cpu(), 0x4000, 1,
+                                       std::vector<uint8_t>{0x22}.data()); };
+        dbg.add_service(svc);
+        dbg.screenshot(a, scr, LAYER_MASK_ALL, ScreenshotFormat::Scr);
+        emu.run_frame();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        const std::vector<uint8_t> f = read_file(scr);
+        check("CAP-01-10", "the capture is taken BEFORE the pump's commands run: a poke "
+                           "in the same pump does not reach the .SCR of the frame",
+              !svc.calls.empty() && f.size() == 6912 && f[0] == 0x11 &&
+                  emu.mmu().read(0x4000) == 0x22,
+              f.empty() ? std::string("no file") : "scr[0]=" + hex(f[0]));
+        dbg.remove_service(svc);
     }
     rm();
     {
