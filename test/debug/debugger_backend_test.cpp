@@ -9374,10 +9374,27 @@ int main() {
                  return d.save_state_bytes(a, jnext::dbg::SaveStateMode::AdvanceToBoundary).status; }},
             {"REENT-18", "on_cold_boot_done", none,
              [](Emulator&, Debugger& d, ClientId, Ctx&) { return d.on_cold_boot_done(); }},
-            {"REENT-19", "nextreg_write(NR 0x02 soft reset)", none,
-             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.nextreg_write(a, 0x02, 0x01); }},
-            {"REENT-20", "port_out(0x253B, NR 0x02 soft reset)", select_nr02,
-             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.port_out(a, 0x253B, 0x01); }},
+            // TWO values of the soft-reset class — bit 0 set, bit 1 clear — so a
+            // guard narrowed to `value == 0x01` is visible: 0x01, and 0x11 (bit 4,
+            // the iotrap-ack bit NR 0x02 also carries, set). Both must get the
+            // same answer; a disagreement returns `NoFrame`, which is neither
+            // arm's expected result, so the row fails either way. The other side
+            // of the boundary (bit 1 set → the deferred hard reset, not refused)
+            // is REENT-21 / REENT-22.
+            {"REENT-19", "nextreg_write(NR 0x02 soft reset: 0x01 and 0x11)", none,
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) {
+                 const Result r1 = d.nextreg_write(a, 0x02, 0x11);
+                 const Result r2 = d.nextreg_write(a, 0x02, 0x01);
+                 return r1 == r2 ? r1 : Result::NoFrame; }},
+            {"REENT-20", "port_out(0x253B, NR 0x02 soft reset: 0x01 and 0x11)", select_nr02,
+             [](Emulator& e, Debugger& d, ClientId a, Ctx&) {
+                 const Result r1 = d.port_out(a, 0x253B, 0x11);
+                 // Outside a delivery the first write DID soft-reset the machine,
+                 // which may reset the select latch: re-select so the second
+                 // value targets NR 0x02 on both arms.
+                 e.port().write(0x243B, 0x02);
+                 const Result r2 = d.port_out(a, 0x253B, 0x01);
+                 return r1 == r2 ? r1 : Result::NoFrame; }},
         };
 
         // From a handler: the first time the AFTER_CALL gate delivers, call the
