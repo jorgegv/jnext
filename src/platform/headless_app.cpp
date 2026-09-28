@@ -1,11 +1,9 @@
 #include "headless_app.h"
 #include "platform/emulator_boot.h"
 #include "platform/auto_exit.h"
+#include "platform/cli_capture.h"
 #include "platform/rzx_startup.h"
 #include "core/log.h"
-#include "core/sna_saver.h"
-#include "core/szx_saver.h"
-#include "core/nex_saver.h"
 #include "input/keyboard.h"
 #include "debug/inspect.h"
 #include "debug/debugger.h"
@@ -80,6 +78,11 @@ void HeadlessApp::boot_machine(const std::string& load_file) {
     config_.type = emulator_.config().type;   // a recording's machine stays
     inject_countdown_ = -1;
     load_countdown_   = -1;
+    // GH #276 B4 — a --delayed-screenshot handed to the backend survives the
+    // boot (the backend re-arms it on the rebuilt machine); the loop's reading of
+    // the rendered-frame counter must be re-based with it, since the rebuilt
+    // Emulator counts from 0 again.
+    screenshot_queued_at_ = emulator_.rendered_frames();
     if (!load_file.empty()) {
         load_file_      = load_file;
         load_countdown_ = emulator_load_delay_frames(load_file);
@@ -570,10 +573,12 @@ void HeadlessApp::run() {
         // time (unknown names are rejected there, never dropped here).
         for (auto it = delayed_keys_.begin(); it != delayed_keys_.end(); ) {
             if (it->countdown <= 0) {
-                std::vector<Keyboard::AutoKey> keys = {
-                    {it->row1, it->col1, it->row2, it->col2, 5}  // press for 5 frames
-                };
-                emulator_.keyboard().queue_auto_type(keys);
+                // GH #276 B4 (O2) — the ACTION through the backend's IN-01 verb:
+                // a 5-frame pulse on the (appending) auto-type queue, the same
+                // call every debugger client makes. The countdown stays here.
+                debugger_->press_key(jnext::dbg::CLIENT_NONE,
+                                     jnext::dbg::MatrixKey{it->row1, it->col1, it->row2, it->col2},
+                                     5);   // press for 5 frames
                 Log::platform()->info("Delayed keypress '{}' injected", it->name);
                 it = delayed_keys_.erase(it);
             } else {
@@ -584,16 +589,18 @@ void HeadlessApp::run() {
 
         // Delayed NMI button presses (GH #209). Dispatched through the
         // same hotkey seam the GUI/SDL front-ends use for F9/F10, so
-        // every enable gate and the arbitration chain are exercised.
+        // every enable gate and the arbitration chain are exercised —
+        // GH #276 B4 (O2): by way of the backend's IN-04 verb, which IS that
+        // seam (Debugger::press_nmi calls the two hotkey functions).
         // One press = one strobe (VHDL hotkey_m1 / hotkey_drive are
         // one-cycle edge pulses, zxnext.vhd:6348-6349), hence erase
         // after firing rather than holding a level down.
         for (auto it = delayed_nmis_.begin(); it != delayed_nmis_.end(); ) {
             if (it->countdown <= 0) {
-                if (it->button == NmiButtonName::Mf)
-                    emulator_.on_hotkey_f9_mf_nmi();
-                else
-                    emulator_.on_hotkey_f10_divmmc_nmi();
+                debugger_->press_nmi(jnext::dbg::CLIENT_NONE,
+                                     it->button == NmiButtonName::Mf
+                                         ? jnext::dbg::NmiButton::Mf
+                                         : jnext::dbg::NmiButton::Drive);
                 Log::platform()->info("Delayed NMI button '{}' pressed", it->name);
                 it = delayed_nmis_.erase(it);
             } else {
@@ -602,11 +609,22 @@ void HeadlessApp::run() {
             }
         }
 
-        // --delayed-screenshot-layers: arm the compositor layer mask for the
-        // one frame that is about to be captured, and take it down again
-        // immediately after. Default LAYER_ALL => both calls are no-ops.
-        if (screenshot_countdown_ == 0)
-            emulator_.renderer().set_layer_mask(screenshot_layers_);
+        // --delayed-screenshot: when the countdown comes due, hand the capture
+        // to the backend (GH #276 B4, O2; platform/cli_capture.h). It arms the
+        // --delayed-screenshot-layers mask on the renderer NOW, for the frame
+        // about to run, forces that frame to render, and the pump below writes
+        // it and takes the mask down — exactly the frame, the mask and the file
+        // this loop used to handle itself. Queued once: a tick that cold-boots
+        // `continue`s past the rest of the loop and comes back here with the
+        // capture still queued (the backend re-arms it on the rebuilt machine).
+        if (screenshot_countdown_ == 0 && !screenshot_queued_) {
+            screenshot_queued_at_ = emulator_.rendered_frames();
+            if (queue_cli_screenshot(*debugger_, screenshot_file_, screenshot_layers_) ==
+                jnext::dbg::Result::Ok)
+                screenshot_queued_ = true;
+            else
+                screenshot_refused_ = true;   // reported below, as a failed write
+        }
 
         if (g46b_itrace_file) {
             const bool in_window = g46b_frame_no >= g46b_itrace_start &&
@@ -729,26 +747,38 @@ void HeadlessApp::run() {
             running_ = false;
         }
 
-        // Delayed screenshot.
+        // Delayed screenshot: the OUTCOME. The pump above has written the
+        // capture if a frame was rendered since it was queued; flush_captures()
+        // (the backend's exit bound for its CLIENT_NONE captures) says how it
+        // ended. The write can fail (missing directory, no permission, disk
+        // full). Same contract as the never-taken routes below: a screenshot
+        // that was requested and did not appear is an error and a non-zero
+        // exit, never a silent status-0 no-op. save_screenshot_*() has already
+        // logged WHY; the format is the filename's extension (GH #18).
+        //
+        // No frame rendered (a paused machine — `--magic-breakpoint`): the
+        // capture stays queued and the countdown stays at 0, as the GUI
+        // frontends have always deferred it — "deferred to the next rendered
+        // frame, never the stale framebuffer" (§4.5 CAP-01). Headless used to
+        // write the stale framebuffer here; that is the one change of behaviour
+        // O2 brings to this flag, and it is the design's (B4 report).
         if (screenshot_countdown_ == 0) {
-            // The write can fail (missing directory, no permission, disk full).
-            // Same contract as the never-taken routes below: a screenshot that
-            // was requested and did not appear is an error and a non-zero exit,
-            // never a silent status-0 no-op. save_screenshot() has already
-            // logged WHY. It picks PNG or .SCR from the filename's extension
-            // (GH #18) — one dispatch shared with the two GUI frontends.
-            if (!save_screenshot(screenshot_file_, emulator_.get_framebuffer(),
-                                 emulator_.get_framebuffer_width(),
-                                 emulator_.get_framebuffer_height(),
-                                 emulator_.ula())) {
-                Log::platform()->error(
-                    "--delayed-screenshot: FAILED to write '{}' (layers: {}); "
-                    "see the error above. Exiting non-zero.",
-                    screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_));
-                exit_code_ = 1;
+            const bool rendered = emulator_.rendered_frames() != screenshot_queued_at_;
+            if (screenshot_refused_ || rendered) {
+                const bool ok = !screenshot_refused_ &&
+                                debugger_->flush_captures(jnext::dbg::CLIENT_NONE) ==
+                                    jnext::dbg::Result::Ok;
+                if (!ok) {
+                    Log::platform()->error(
+                        "--delayed-screenshot: FAILED to write '{}' (layers: {}); "
+                        "see the error above. Exiting non-zero.",
+                        screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_));
+                    exit_code_ = 1;
+                }
+                screenshot_countdown_ = -1;
+                screenshot_queued_    = false;
+                screenshot_refused_   = false;
             }
-            emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
-            screenshot_countdown_ = -1;
         } else if (screenshot_countdown_ > 0) {
             --screenshot_countdown_;
         }
@@ -766,27 +796,32 @@ void HeadlessApp::run() {
             // in flight. Completing it through the ordinary path also keeps
             // the per-scanline change logs intact — re-running frame start
             // mid-frame is the Task 40 defect.
-            if (emulator_.advance_to_frame_boundary()) {
+            //
+            // GH #276 B4 (O2) — the ACTION is the backend's CAP-04
+            // `save_snapshot()`: the same advance (ST-01's one frame-boundary
+            // rule, now attributed in a MUTATE line) and the same savers,
+            // chosen by extension through the one table (`save_snapshot_file`,
+            // src/core). This loop keeps the countdown and its own messages.
+            if (!debugger_->at_frame_boundary()) {
                 Log::platform()->info(
                     "--delayed-snapshot: the machine was paused mid-frame; "
                     "advanced to the next frame boundary to save from "
                     "(the restored machine is up to one frame on)");
             }
+            const bool saved = debugger_->save_snapshot(jnext::dbg::CLIENT_NONE,
+                                                        snapshot_file_) ==
+                               jnext::dbg::Result::Ok;
             std::string ext;
             auto dot = snapshot_file_.rfind('.');
             if (dot != std::string::npos) {
                 ext = snapshot_file_.substr(dot);
                 for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
             }
-            // GH #27 S8 — `.jns` writes itself, because it is the only format
-            // here that needs the manifest, the SD identity and the blob
-            // declarations assembled rather than one flat buffer. It is
-            // handled before the buffer-producing savers for that reason, and
-            // it reports its own failure with a REASON, which none of the
-            // three below can.
+            // GH #27 S8 — `.jns` writes itself and reports its own failure with
+            // a REASON, which the other formats cannot (and its success line is
+            // save_jns_file()'s own).
             if (ext == ".jns") {
-                const bool ok = emulator_.save_jns_file(snapshot_file_);
-                if (!ok) {
+                if (!saved) {
                     Log::emulator()->error(
                         "--delayed-snapshot: could not write '{}': {}",
                         snapshot_file_, emulator_.last_jns_error());
@@ -795,44 +830,19 @@ void HeadlessApp::run() {
                 snapshot_file_.clear();
                 return;
             }
-            std::vector<uint8_t> bytes;
-            if (ext == ".szx") {
-                // .szx is a classic-Spectrum interchange format: it can
-                // only represent 48K/128K/+2A/+3 — see SzxSaver class
-                // doc-comment SCOPE. save() already logs a clear error and
-                // returns no data when the current machine (e.g. jnext's
-                // default, Next) can't be represented.
-                bytes = SzxSaver::save(emulator_).data;
-            } else if (ext == ".nex") {
-                bytes = NexSaver::save(emulator_).data;
-            } else {
-                // GH #274 — .sna is the 48K form only: SnaSaver::save() logs a
-                // clear error and returns no data on a machine it cannot
-                // represent (the Next, jnext's default), exactly as the .szx
-                // arm above does. The shared no-data path below then fails the
-                // run rather than writing a snapshot that is not of this
-                // machine.
-                bytes = SnaSaver::save(emulator_);
-            }
-            bool ok = !bytes.empty();
-            if (ok) {
-                std::ofstream f(snapshot_file_, std::ios::binary);
-                if (f) {
-                    f.write(reinterpret_cast<const char*>(bytes.data()),
-                            static_cast<std::streamsize>(bytes.size()));
-                    ok = static_cast<bool>(f);
-                } else {
-                    ok = false;
-                }
-            }
-            if (!ok) {
+            if (!saved) {
+                // GH #274 — a .sna or .szx of a machine the format cannot
+                // represent is refused with its reason logged by the saver; an
+                // I/O failure likewise. Either way the run fails.
                 Log::platform()->error(
                     "--delayed-snapshot: FAILED to write '{}'. Exiting non-zero.",
                     snapshot_file_);
                 exit_code_ = 1;
             } else {
+                std::ifstream f(snapshot_file_, std::ios::binary | std::ios::ate);
                 Log::platform()->info("--delayed-snapshot: saved '{}' ({} bytes)",
-                                      snapshot_file_, bytes.size());
+                                      snapshot_file_,
+                                      f ? static_cast<long long>(f.tellg()) : 0LL);
             }
             snapshot_countdown_ = -1;
         } else if (snapshot_countdown_ > 0) {
@@ -881,13 +891,24 @@ void HeadlessApp::shutdown() {
     // --delayed-automatic-exit that fires before --delayed-screenshot-time /
     // -frames comes due. That misconfiguration used to exit 0 with no PNG and
     // no message — a silent no-op in the one mode built for scripting.
-    if (screenshot_countdown_ >= 0 && !screenshot_file_.empty()) {
+    if (screenshot_countdown_ > 0 && !screenshot_file_.empty()) {
         Log::platform()->error(
             "--delayed-screenshot: NO screenshot was written to '{}' (layers: {}); "
             "--delayed-automatic-exit fired {} frame(s) before the capture was due. "
             "Exiting non-zero.",
             screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_),
             screenshot_countdown_);
+        exit_code_ = 1;
+    } else if (screenshot_countdown_ == 0 && !screenshot_file_.empty()) {
+        // GH #276 B4 — due, handed to the backend, and never taken: the machine
+        // rendered no frame for it (paused) before the exit. The exit bound
+        // drops it (flush_captures() → NoFrame), so it cannot land after the
+        // verdict. The wording is SdlApp's, which has always had this case.
+        if (debugger_) debugger_->flush_captures(jnext::dbg::CLIENT_NONE);
+        Log::platform()->error(
+            "--delayed-screenshot: NO screenshot was written to '{}' (layers: {}); "
+            "the emulator exited with the capture still pending. Exiting non-zero.",
+            screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_));
         exit_code_ = 1;
     }
 

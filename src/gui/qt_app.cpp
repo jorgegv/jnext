@@ -3,6 +3,7 @@
 #include "platform/host_key_wiring.h"
 #include "gui/emulator_widget.h"
 #include "platform/emulator_boot.h"
+#include "platform/cli_capture.h"
 #include "platform/auto_exit.h"
 #include "platform/rzx_startup.h"
 #include "platform/render_policy.h"
@@ -409,6 +410,10 @@ void QtApp::shutdown() {
     // Per src/core/log.h, error = "the user asked for something and did not get
     // it". That is precisely this, so: error + non-zero exit.
     if (screenshot_countdown_ >= 0 && !screenshot_file_.empty()) {
+        // GH #276 B4 — a capture already handed to the backend is dropped at
+        // this exit bound (flush_captures() → NoFrame), so it cannot land after
+        // the verdict.
+        if (screenshot_queued_ && debugger_) debugger_->flush_captures(jnext::dbg::CLIENT_NONE);
         Log::platform()->error(
             "--delayed-screenshot: NO screenshot was written to '{}' (layers: {}). "
             "The capture came due while the debugger was paused, so no frame was "
@@ -585,8 +590,19 @@ bool QtApp::TickEffects::pre_frames() {
     // re-advances per-frame renderer state (the ULA flash counter), which would
     // make `--delayed-screenshot-layers all` differ from the plain
     // --delayed-screenshot default. One frame of flicker is the cheaper bug.
-    if (a.screenshot_countdown_ == 0)
-        a.emulator_.renderer().set_layer_mask(a.screenshot_layers_);
+    //
+    // GH #276 B4 (O2) — handed to the backend when the countdown comes due
+    // (platform/cli_capture.h): it arms the mask now, forces the tick's frames
+    // to render, and post_frames()' pump writes the last of them and takes the
+    // mask down — the frame, mask and file this tick used to handle itself.
+    // Queued once, however many (paused) ticks it then waits.
+    if (a.screenshot_countdown_ == 0 && !a.screenshot_queued_) {
+        if (queue_cli_screenshot(*a.debugger_, a.screenshot_file_, a.screenshot_layers_) ==
+            jnext::dbg::Result::Ok)
+            a.screenshot_queued_ = true;
+        else
+            a.screenshot_refused_ = true;   // reported in post_frames, as a failed write
+    }
 
     return true;
 }
@@ -619,6 +635,18 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
     // Router::on_tick_end and is pinned by rows RT-04a/b/c.
     a.key_router_.on_tick_end(frames_rendered);
 
+    // GH #276 B4 — SES-03: the hosted backend's service call, once per tick
+    // after the frame batch — BEFORE the --delayed-screenshot outcome below,
+    // which reads what this pump wrote. §4.8 places it "where
+    // check_breakpoint_hit() sits today", i.e. in this post-frames slot. NOT
+    // AFTER THE COLD-BOOT POLL, unlike SDL and headless: Qt polls the
+    // hard-reset and NEX-load flags in pre_frames(), so a guest reset raised in
+    // THIS tick's frames is performed next tick — after this pump. A client
+    // `reset(Hard)` in this pump would therefore subsume it rather than follow
+    // it (F7). Unreachable until a client exists; moving the poll is package
+    // Q's (qt-frontend.md §7, "Inherited from backend package B3").
+    a.debugger_->pump(jnext::dbg::PumpBudget{});
+
     // Delayed screenshot: take after countdown expires. The screenshot
     // helper vertically doubles the in-memory 640×256 framebuffer so the
     // emitted PNG is 640×512 (square pixels, G104 Phase 7).
@@ -630,26 +658,28 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
     // GUI use the imprecision is on the order of the burst length
     // (sub-second) and not user-visible.
     if (a.screenshot_countdown_ == 0) {
-        if (frames_rendered > 0) {
-            // The framebuffer holds a frame composited with the mask armed
-            // above — capture it. If the write fails (missing directory, no
-            // permission, disk full) the file the user asked for does not
-            // exist, which is the same failure as never taking it at all:
-            // error + non-zero exit, per QtApp::shutdown()'s contract.
-            // save_screenshot() has already logged WHY, and picks PNG or .SCR
-            // from the extension (GH #18).
-            if (!save_screenshot(a.screenshot_file_, a.emulator_.get_framebuffer(),
-                                 a.emulator_.get_framebuffer_width(),
-                                 a.emulator_.get_framebuffer_height(),
-                                 a.emulator_.ula())) {
+        if (a.screenshot_refused_ || frames_rendered > 0) {
+            // The pump above wrote the frame composited with the mask armed in
+            // pre_frames(); flush_captures() — the backend's exit bound for its
+            // CLIENT_NONE captures — says how it ended (GH #276 B4, O2). If the
+            // write failed (missing directory, no permission, disk full) the
+            // file the user asked for does not exist, which is the same failure
+            // as never taking it at all: error + non-zero exit, per
+            // QtApp::shutdown()'s contract. save_screenshot_*() has already
+            // logged WHY; the format is the extension (GH #18).
+            const bool ok = !a.screenshot_refused_ &&
+                            a.debugger_->flush_captures(jnext::dbg::CLIENT_NONE) ==
+                                jnext::dbg::Result::Ok;
+            if (!ok) {
                 Log::platform()->error(
                     "--delayed-screenshot: FAILED to write '{}' (layers: {}); "
                     "see the error above. Exiting non-zero.",
                     a.screenshot_file_, Renderer::layer_mask_to_string(a.screenshot_layers_));
                 a.exit_code_ = 1;
             }
-            a.emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
             a.screenshot_countdown_ = -1;  // done
+            a.screenshot_queued_    = false;
+            a.screenshot_refused_   = false;
             a.screenshot_deferred_warned_ = false;
         } else {
             // The debugger is paused: run_frame() never ran, so the framebuffer
@@ -665,7 +695,9 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
                     Renderer::layer_mask_to_string(a.screenshot_layers_));
                 a.screenshot_deferred_warned_ = true;
             }
-            a.emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
+            // GH #276 B4 — the capture stays queued in the backend, which keeps
+            // its mask armed until a frame renders (it used to be taken down
+            // here and re-armed by the next pre_frames()).
         }
     } else if (a.screenshot_countdown_ > 0) {
         --a.screenshot_countdown_;
@@ -693,16 +725,6 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
     } else if (a.exit_countdown_ > 0) {
         --a.exit_countdown_;
     }
-
-    // GH #276 B4 — SES-03: the hosted backend's service call, once per tick
-    // after the frame batch, in the slot §4.8 names ("where check_breakpoint_hit()
-    // sits today"). NOT AFTER THE COLD-BOOT POLL, unlike SDL and headless: Qt
-    // polls the hard-reset and NEX-load flags in pre_frames(), so a guest reset
-    // raised in THIS tick's frames is performed next tick — after this pump. A
-    // client `reset(Hard)` in this pump would therefore subsume it rather than
-    // follow it (F7). Unreachable until a client exists; moving the poll is
-    // package Q's (qt-frontend.md §7, "Inherited from backend package B3").
-    a.debugger_->pump(jnext::dbg::PumpBudget{});
 
 #ifdef ENABLE_DEBUGGER
     if (auto* mgr = a.main_window_->debugger_manager()) {

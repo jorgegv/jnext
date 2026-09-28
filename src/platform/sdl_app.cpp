@@ -1,6 +1,7 @@
 #include "sdl_app.h"
 #include "platform/host_key_wiring.h"   // GH #268
 #include "platform/emulator_boot.h"
+#include "platform/cli_capture.h"
 #include "platform/auto_exit.h"
 #include "platform/rzx_startup.h"
 #include "platform/frame_sequencer.h"   // RENDER_INTERVAL_MS, shared with QtApp
@@ -345,13 +346,21 @@ void SdlApp::run() {
         // deficit empties the audio queue and SDL pads the stream with zeros:
         // clicks, a few times a second, forever (issue #7 / Task 23). See
         // audio_pacing.h.
-        // --delayed-screenshot-layers: arm the compositor layer mask for the
-        // frame(s) rendered in this tick (the last one is what the screenshot
-        // below saves), disarmed right after. Default LAYER_ALL = no-op. As in
-        // QtApp, the mask lives on the Renderer the window also shows, so the
-        // captured frame is displayed masked for that single tick.
-        if (screenshot_countdown_ == 0)
-            emulator_.renderer().set_layer_mask(screenshot_layers_);
+        // --delayed-screenshot: when the countdown comes due, hand the capture
+        // to the backend (GH #276 B4, O2; platform/cli_capture.h). It arms the
+        // --delayed-screenshot-layers mask now for the frame(s) rendered in this
+        // tick, forces them to render, and this tick's pump writes the last of
+        // them and takes the mask down — the frame, the mask and the file this
+        // loop used to handle itself. As in QtApp, the mask lives on the
+        // Renderer the window also shows, so the captured frame is displayed
+        // masked for that tick. Queued once, however many ticks it waits.
+        if (screenshot_countdown_ == 0 && !screenshot_queued_) {
+            if (queue_cli_screenshot(debugger(), screenshot_file_, screenshot_layers_) ==
+                jnext::dbg::Result::Ok)
+                screenshot_queued_ = true;
+            else
+                screenshot_refused_ = true;   // reported below, as a failed write
+        }
 
         // Frames actually rendered this tick. frames_for_tick() returns 0 when
         // the audio queue is ahead of the card (audio_pacing.h:56), so this
@@ -469,15 +478,20 @@ void SdlApp::run() {
             display_.present();
         }
 
-        // Delayed screenshot: take after countdown expires.
+        // Delayed screenshot: the OUTCOME. This tick's pump (above) has written
+        // the capture if a frame was rendered in it; flush_captures() — the
+        // backend's exit bound for its CLIENT_NONE captures — says how it
+        // ended (GH #276 B4, O2).
         if (screenshot_countdown_ == 0) {
-            if (frames_rendered > 0) {
+            if (screenshot_refused_ || frames_rendered > 0) {
                 // A failed write means no file — same failure as never taking
                 // the capture, so same contract as SdlApp::shutdown(): error +
-                // non-zero exit. save_screenshot() has already logged WHY, and
-                // picks PNG or .SCR from the extension (GH #18).
-                if (!save_screenshot(screenshot_file_, fb, fb_w, fb_h,
-                                     emulator_.ula())) {
+                // non-zero exit. save_screenshot_*() has already logged WHY; the
+                // format is the extension (GH #18).
+                const bool ok = !screenshot_refused_ &&
+                                debugger().flush_captures(jnext::dbg::CLIENT_NONE) ==
+                                    jnext::dbg::Result::Ok;
+                if (!ok) {
                     Log::platform()->error(
                         "--delayed-screenshot: FAILED to write '{}' (layers: {}); "
                         "see the error above. Exiting non-zero.",
@@ -485,15 +499,14 @@ void SdlApp::run() {
                         Renderer::layer_mask_to_string(screenshot_layers_));
                     exit_code_ = 1;
                 }
-                emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
                 screenshot_countdown_ = -1;  // done
-            } else {
-                // No frame went through the compositor this tick (audio queue
-                // ahead of the card). Hold the countdown at 0 and capture on
-                // the next tick that actually renders, rather than writing a
-                // stale frame with the wrong layers in it.
-                emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
+                screenshot_queued_    = false;
+                screenshot_refused_   = false;
             }
+            // else: no frame went through the compositor this tick (audio queue
+            // ahead of the card). The countdown holds at 0 and the capture stays
+            // queued — the backend keeps its mask armed and takes it at the next
+            // tick that renders, never a stale frame with the wrong layers.
         } else if (screenshot_countdown_ > 0) {
             --screenshot_countdown_;
         }
@@ -550,6 +563,10 @@ void SdlApp::shutdown() {
     // capture was still deferred (no frame rendered on its tick) when
     // --delayed-automatic-exit fired.
     if (screenshot_countdown_ >= 0 && !screenshot_file_.empty()) {
+        // GH #276 B4 — a capture already handed to the backend is dropped at
+        // this exit bound (flush_captures() → NoFrame), so it cannot land after
+        // the verdict.
+        if (screenshot_queued_ && debugger_) debugger_->flush_captures(jnext::dbg::CLIENT_NONE);
         Log::platform()->error(
             "--delayed-screenshot: NO screenshot was written to '{}' (layers: {}); "
             "the emulator exited with the capture still pending. Exiting non-zero.",

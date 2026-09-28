@@ -162,6 +162,12 @@ private:
     std::string screenshot_file_;
     int         screenshot_countdown_ = -1;
     uint8_t     screenshot_layers_ = Renderer::LAYER_ALL;
+    // GH #276 B4 (O2) — the capture has been handed to the backend (at the
+    // count's zero); `rendered_frames()` then, to tell a tick that rendered it
+    // from one that did not; and a queue the backend refused.
+    bool        screenshot_queued_    = false;
+    uint64_t    screenshot_queued_at_ = 0;
+    bool        screenshot_refused_   = false;
 
     // Pending --delayed-automatic-exit state
     int         exit_countdown_ = -1;

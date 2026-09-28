@@ -151,6 +151,10 @@ private:
     // Pending --delayed-screenshot state
     std::string screenshot_file_;
     int         screenshot_countdown_ = -1;  // in frames; -1 = no pending
+    // GH #276 B4 (O2) — the capture has been handed to the backend; and a
+    // queue the backend refused (reported as a failed write).
+    bool        screenshot_queued_  = false;
+    bool        screenshot_refused_ = false;
     uint8_t     screenshot_layers_ = Renderer::LAYER_ALL;
 
     // Non-zero when a requested screenshot was never taken (see shutdown()).

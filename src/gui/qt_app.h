@@ -213,6 +213,10 @@ private:
     // Set once we have warned that the capture is being held back because no
     // frame is rendering (debugger paused). Keeps the warning off every tick.
     bool        screenshot_deferred_warned_ = false;
+    // GH #276 B4 (O2) — the capture has been handed to the backend; and a
+    // queue the backend refused (reported as a failed write).
+    bool        screenshot_queued_  = false;
+    bool        screenshot_refused_ = false;
 
     // Process exit status. Non-zero when a requested screenshot was never
     // taken (see shutdown()); main.cpp returns it.
