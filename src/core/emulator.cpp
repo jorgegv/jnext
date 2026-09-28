@@ -10241,10 +10241,24 @@ uint64_t Emulator::step_one_instruction()
         if (debug_state_.raster_live())
             video_timing_.advance(tstates);
 
-        // Call stack tracking post-execution.
+        // Call stack tracking post-execution. GH #278 — an accepted INT or NMI
+        // is a frame too (CallStack::on_interrupt() had no caller), and it is
+        // ASKED of the CPU: such a slot fetches no opcode, so the pre-slot
+        // capture names an instruction that did not run, and a CALL or RST
+        // waiting at PC would otherwise be recorded as taken.
         if (call_stack_.enabled()) {
             const Z80Registers& post = cpu_.registers();
-            call_stack_.on_instruction_post(post.SP, post.PC);
+            switch (cpu_.last_slot_kind()) {
+                case Z80Cpu::SlotKind::Int:
+                    call_stack_.on_interrupt(pc_pre_exec, post.PC, post.SP, CallType::INT);
+                    break;
+                case Z80Cpu::SlotKind::Nmi:
+                    call_stack_.on_interrupt(pc_pre_exec, post.PC, post.SP, CallType::NMI);
+                    break;
+                default:
+                    call_stack_.on_instruction_post(post.SP, post.PC);
+                    break;
+            }
         }
 
         // GH #203 — the Step Out decision was made just after cpu_.execute()

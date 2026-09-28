@@ -769,9 +769,11 @@ static void test_stack_panel() {
 // symbol when the table has one. Frames come from the REAL tracker, fed by
 // executing a CALL and an RST with tracking on, exactly as the debugger does.
 //
-// INT / NMI are not pinned: CallStack::on_interrupt() has no caller and
-// nothing ever pushes an NMI frame, so the panel's "INT"/"NMI" strings are
-// unreachable today (reported in the WP0 hand-back as a defect).
+// QPN-CS-03..05 (GH #278 WP0 fix): an accepted INT or NMI is a frame of its
+// own, and an interrupt routine's RET pops that frame only. Before the fix
+// CallStack::on_interrupt() had no caller — an INT slot was read as the
+// instruction waiting at PC (a CALL there was recorded as taken) — and a RET
+// popped every frame at or below the new SP, the interrupted CALL included.
 // ===========================================================================
 static void test_callstack_panel() {
     set_group("QPN-CS");
@@ -834,6 +836,72 @@ static void test_callstack_panel() {
                       s(cell(&panel, 1, 3)).c_str(), s(cell(&panel, 2, 3)).c_str(),
                       s(cell(&panel, 1, 2)).c_str()));
         panel.set_symbol_table(nullptr);
+    }
+
+    // Interrupts, on a +3 in all-RAM special paging (port 0x1FFD = 0x01) so the
+    // IM 1 routine at $0038 is this row's own code:
+    //   8000  CD 00 90   CALL $9000
+    //   9000  CD 00 A0   CALL $A000     <- the INT is taken HERE, instead
+    //   A000  C9         RET
+    //   0038  00 FB C9   NOP / EI / RET
+    {
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZX_PLUS3);
+        emu.port().write(0x1FFD, 0x01);
+        poke(emu, 0x8000, {0xCD, 0x00, 0x90});
+        poke(emu, 0x9000, {0xCD, 0x00, 0xA0});
+        poke(emu, 0xA000, {0xC9});
+        poke(emu, 0x0038, {0x00, 0xFB, 0xC9});
+        const bool ram_at_0 = emu.mmu().read(0x0039) == 0xFB;
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = 1; r.IFF2 = 1; r.IM = 1;
+        emu.cpu().set_registers(r);
+        emu.call_stack().set_enabled(true);
+        CallStackPanel panel(&emu);
+        panel.set_paused(true);
+
+        emu.execute_single_instruction();              // CALL $9000
+        emu.cpu().request_interrupt(0xFF);
+        emu.execute_single_instruction();              // INT taken at $9000
+        const bool at_isr = emu.cpu().get_registers().PC == 0x0038;
+        panel.refresh();
+        check("QPN-CS-03",
+              "an accepted INT is a frame of type INT, caller the interrupted PC, "
+              "target the IM 1 vector — not the CALL waiting at that PC",
+              built && ram_at_0 && at_isr && row_count(&panel) == 2 &&
+                  cell(&panel, 0, 0) == "1" && cell(&panel, 0, 1) == "INT" &&
+                  cell(&panel, 0, 2) == "9000" && cell(&panel, 0, 3) == "0038" &&
+                  cell(&panel, 1, 1) == "CALL" && cell(&panel, 1, 3) == "9000",
+              fmt("ram=%d at_isr=%d rows=%d top=%s|%s|%s|%s next=%s|%s", ram_at_0, at_isr,
+                  row_count(&panel), s(cell(&panel, 0, 0)).c_str(),
+                  s(cell(&panel, 0, 1)).c_str(), s(cell(&panel, 0, 2)).c_str(),
+                  s(cell(&panel, 0, 3)).c_str(), s(cell(&panel, 1, 1)).c_str(),
+                  s(cell(&panel, 1, 3)).c_str()));
+
+        for (int i = 0; i < 3; ++i) emu.execute_single_instruction();   // NOP EI RET
+        const bool back = emu.cpu().get_registers().PC == 0x9000;
+        panel.refresh();
+        check("QPN-CS-04",
+              "the interrupt routine's RET pops its own frame and leaves the "
+              "CALL it interrupted",
+              back && row_count(&panel) == 1 && cell(&panel, 0, 1) == "CALL" &&
+                  cell(&panel, 0, 2) == "8000" && cell(&panel, 0, 3) == "9000",
+              fmt("back=%d rows=%d top=%s|%s|%s", back, row_count(&panel),
+                  s(cell(&panel, 0, 1)).c_str(), s(cell(&panel, 0, 2)).c_str(),
+                  s(cell(&panel, 0, 3)).c_str()));
+
+        emu.cpu().request_nmi();
+        emu.execute_single_instruction();              // NMI taken at $9000
+        const bool at_nmi = emu.cpu().get_registers().PC == 0x0066;
+        panel.refresh();
+        check("QPN-CS-05",
+              "an accepted NMI is a frame of type NMI, target $0066",
+              at_nmi && row_count(&panel) == 2 && cell(&panel, 0, 1) == "NMI" &&
+                  cell(&panel, 0, 2) == "9000" && cell(&panel, 0, 3) == "0066" &&
+                  cell(&panel, 1, 1) == "CALL",
+              fmt("at_nmi=%d rows=%d top=%s|%s|%s", at_nmi, row_count(&panel),
+                  s(cell(&panel, 0, 1)).c_str(), s(cell(&panel, 0, 2)).c_str(),
+                  s(cell(&panel, 0, 3)).c_str()));
     }
 }
 

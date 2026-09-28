@@ -7,9 +7,14 @@ void CallStack::push_frame(uint16_t caller, uint16_t target, uint16_t sp, CallTy
 }
 
 void CallStack::pop_frames_to_sp(uint16_t sp) {
-    // RET pops 2 bytes, so SP increases. Pop all frames whose sp_at_call
-    // is at or below the new SP (they've been returned from).
-    while (!frames_.empty() && frames_.back().sp_at_call <= sp) {
+    // RET pops 2 bytes, so SP increases. A frame's return address sits at
+    // sp_at_call..sp_at_call+1, so the frames returned from are the ones whose
+    // sp_at_call is strictly BELOW the new SP. A frame AT the new SP still has
+    // its return address on the stack. GH #278: `<=` popped it — which is
+    // exactly the frame an interrupt routine's RET returns into when the
+    // interrupted routine had pushed nothing since its CALL, so every ISR
+    // emptied the call stack of the routine it interrupted.
+    while (!frames_.empty() && frames_.back().sp_at_call < sp) {
         frames_.pop_back();
     }
 }
@@ -73,7 +78,9 @@ void CallStack::on_instruction_post(uint16_t new_sp, uint16_t new_pc) {
     }
 }
 
-void CallStack::on_interrupt(uint16_t caller_pc, uint16_t target_pc, uint16_t new_sp) {
+void CallStack::on_interrupt(uint16_t caller_pc, uint16_t target_pc, uint16_t new_sp,
+                             CallType type) {
     if (!enabled_) return;
-    push_frame(caller_pc, target_pc, new_sp, CallType::INT);
+    have_pre_ = false;   // the captured opcode did not run in this slot
+    push_frame(caller_pc, target_pc, new_sp, type);
 }

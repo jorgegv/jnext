@@ -983,7 +983,7 @@ introspects:
 | Disassembly | `src/debug/disasm.*` over `Mmu::read`, with symbol substitution, a breakpoint gutter, and a selection you can copy as assembly |
 | Memory | raw bytes, either through the CPU's address space or a chosen MMU slot |
 | Stack | words at and above `SP` |
-| Call Stack | `src/debug/call_stack.*`, a shadow stack built from SP deltas |
+| Call Stack | `src/debug/call_stack.*`, a shadow stack built from SP deltas, plus a frame for each accepted INT or NMI (`Z80Cpu::last_slot_kind()` says which kind of slot ran); a return pops only the frames below the new SP |
 | Watches | byte / word / long at user addresses |
 | Breakpoints | the contents of `BreakpointSet` |
 | Video | the raster position in all four counter domains plus the ULA fetch phase (`src/debug/raster_state.*`), and each layer rendered separately — composite, ULA primary and shadow, Layer 2 active and shadow, sprites, tilemap, and the NR 0x4A fallback colour |

@@ -2770,7 +2770,7 @@ introspects:</p>
 </tr>
 <tr>
 <td>Call Stack</td>
-<td><code>src/debug/call_stack.*</code>, a shadow stack built from SP deltas</td>
+<td><code>src/debug/call_stack.*</code>, a shadow stack built from SP deltas, plus a frame for each accepted INT or NMI (<code>Z80Cpu::last_slot_kind()</code> says which kind of slot ran); a return pops only the frames below the new SP</td>
 </tr>
 <tr>
 <td>Watches</td>

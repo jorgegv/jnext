@@ -5019,6 +5019,43 @@ int main() {
         check("INS-13-05", "trace_resize(0) is refused",
               dbg.trace_resize(0) == Result::RefusedUnavailable);
     }
+    {
+        // GH #278 WP0 — call_stack() is Emulator::call_stack(), so the Qt panel's
+        // defect was the backend's: an INT was no frame, and the ISR's RET
+        // emptied the stack of the routine it interrupted. +3 all-RAM paging
+        // puts this row's own IM 1 routine at $0038.
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX_PLUS3;
+        emu.init(cfg);
+        emu.port().write(0x1FFD, 0x01);
+        const uint8_t main_prog[] = { 0xCD, 0x00, 0x90 };          // CALL $9000
+        const uint8_t sub[]       = { 0x00, 0x18, 0xFD };          // NOP / JR $9000
+        const uint8_t isr[]       = { 0xFB, 0xC9 };                // EI / RET
+        for (size_t i = 0; i < sizeof(main_prog); ++i) emu.mmu().write(static_cast<uint16_t>(PROG + i), main_prog[i]);
+        for (size_t i = 0; i < sizeof(sub); ++i) emu.mmu().write(static_cast<uint16_t>(SUB + i), sub[i]);
+        for (size_t i = 0; i < sizeof(isr); ++i) emu.mmu().write(static_cast<uint16_t>(0x0038 + i), isr[i]);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 1; r.IFF2 = 1; r.IM = 1;
+        emu.cpu().set_registers(r);
+        Debugger dbg(emu);
+        dbg.set_call_stack_enabled(true);
+        emu.execute_single_instruction();                          // CALL
+        emu.cpu().request_interrupt(0xFF);
+        emu.execute_single_instruction();                          // INT
+        const auto& cs = dbg.call_stack();
+        check("INS-12-03", "an accepted INT is a call_stack() frame of type INT",
+              cs.size() == 2 && cs.back().type == CallType::INT &&
+                  cs.back().target_pc == 0x0038 && cs.front().type == CallType::CALL,
+              "frames=" + std::to_string(cs.size()));
+        emu.execute_single_instruction();                          // EI
+        emu.execute_single_instruction();                          // RET
+        check("INS-12-04", "and the routine's RET pops only its own frame",
+              dbg.call_stack().size() == 1 &&
+                  dbg.call_stack().back().type == CallType::CALL &&
+                  emu.cpu().get_registers().PC == SUB,
+              "frames=" + std::to_string(dbg.call_stack().size()));
+    }
 
     // =======================================================================
     // INS-14 / INS-15 — framebuffer, palettes, ULA state, clip windows

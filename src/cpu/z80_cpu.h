@@ -283,7 +283,17 @@ public:
     /// had been "fixed" by an SP-shape test.
     ///
     /// Transient per-call state; deliberately not serialised.
-    bool fetched_opcode_last_execute() const { return fetched_opcode_; }
+    bool fetched_opcode_last_execute() const { return slot_kind_ == SlotKind::Opcode; }
+
+    /// GH #278 — WHICH kind of slot the last execute() was: an instruction
+    /// (the opcode at PC was fetched), an accepted INT, an accepted NMI, or
+    /// neither (the esxdos shim; a slot that ran nothing). The call-stack
+    /// tracker needs the INT/NMI answer to record an interrupt frame, and it
+    /// cannot infer it from SP for the same reason fetched_opcode_last_execute()
+    /// exists. Same storage as that answer: one byte per execute(), set where
+    /// the bool used to be.
+    enum class SlotKind : uint8_t { Other, Opcode, Int, Nmi };
+    SlotKind last_slot_kind() const { return slot_kind_; }
 
     /// GH #265 — T-states the CPU has spent inside the execute() call now in
     /// progress, on the FUSE counter the bus cycles advance (so any
@@ -382,9 +392,9 @@ private:
     // During the handler SP remains two below its entry value, exactly as
     // t80n's suppressed NMIACK writes dictate.
     bool             stackless_retn_active_ = false;
-    // Set by execute() only once the opcode fetch at PC has actually happened.
-    // See fetched_opcode_last_execute().
-    bool             fetched_opcode_ = false;
+    // Set by execute(): Opcode only once the opcode fetch at PC has actually
+    // happened, Int / Nmi on an accepted interrupt. See last_slot_kind().
+    SlotKind         slot_kind_ = SlotKind::Other;
     // GH #265 — true for the duration of execute(), with the FUSE tstates
     // value it started at. See tstates_into_instruction().
     bool             executing_ = false;
