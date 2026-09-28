@@ -41,10 +41,14 @@
 // `Debugger` on the machine then got unstamped events; row LIFE-06).
 //
 // GH #276 B4 adds a FOURTH PUBLICATION OF THE BACKEND'S OWN, the INS-20 coverage
-// sink (a pointer into `Impl::coverage`): the constructor publishes it through
-// `Impl::publish_coverage()`, the destructor retires it, and step (5) below
-// re-publishes it. Rows LIFE-07 (the retirement) and INS-20-10 (the three
-// routes).
+// sink (a pointer into `Impl::coverage`): `coverage_enable()` publishes it
+// through `Impl::publish_coverage()` (the constructor has nothing to publish —
+// coverage starts off and the sink it meets is already null), the destructor
+// retires it, and step (5) below re-publishes it. Rows LIFE-07 (the retirement)
+// and INS-20-10/11 (the three routes). CAP-01's queued screenshots arm two more
+// things on the machine — the head's layer mask and the force-render bit — with
+// the same three places: `screenshot()` / `pump()`, the destructor, and step (5)
+// (rows CAP-01-09, LIFE-08).
 //
 // THE INVARIANT ACROSS THE THREE is what the suite pins, not each one
 // separately: after a cold boot with a `Debugger` alive, a subscription that

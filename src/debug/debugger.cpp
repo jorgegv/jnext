@@ -63,10 +63,12 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
 
     impl_->gates_changed();
 
-    // GH #276 B4 — INS-20's sink. Off here, so this publishes NULL — which is
-    // not a no-op: it is the constructor's half of the pair `~Debugger()` and
-    // the re-application complete, stated where the other publications are.
-    impl_->publish_coverage();
+    // GH #276 B4 — INS-20's coverage sink is NOT published here, and that is not
+    // an omission from the pair: coverage starts off, and every `DebugState` a
+    // new `Debugger` can meet already has a null sink — a fresh one, or one whose
+    // previous `Debugger` retired it in its destructor. Publishing null here
+    // would be a statement no row could tell from nothing. The sink is published
+    // by `coverage_enable()` and re-published by the re-application.
 }
 
 // Out of line, and it must be: `Impl` is incomplete in the published header, so

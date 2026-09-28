@@ -365,8 +365,8 @@ struct Debugger::Impl {
     // live here and the `Emulator` only holds a pointer to them
     // (`DebugState::coverage_sink()`), so a reconstruct loses the pointer and
     // neither the switch nor the bits. `publish_coverage()` is the ONE writer of
-    // that pointer — the constructor, the re-application and every verb end
-    // with it, and `~Debugger()` retires it, so the four places it is set can
+    // that pointer from the switch — `coverage_enable()` and the re-application
+    // end with it, and `~Debugger()` retires it — so the places it is set can
     // never disagree about what "on" means.
     //
     // Unlike `want_*` above this is a plain `bool`, not an `optional`: coverage
