@@ -9293,7 +9293,13 @@ int main() {
         };
         using Prep = std::function<void(Emulator&, Debugger&, ClientId, Ctx&)>;
         using Call = std::function<Result(Emulator&, Debugger&, ClientId, Ctx&)>;
-        struct Verb { const char* id; const char* name; Prep prep; Call call; };
+        // `inside` (optional) is what the handler calls instead of `call`, for the
+        // one verb whose own guard is only observable with arguments it would
+        // otherwise refuse itself; `at` is where the delivery happens.
+        struct Verb {
+            const char* id; const char* name; Prep prep; Call call;
+            Call inside = nullptr; uint16_t at = AFTER_CALL;
+        };
 
         const Prep none = [](Emulator&, Debugger&, ClientId, Ctx&) {};
         const Prep with_rewind = [](Emulator& emu, Debugger&, ClientId, Ctx&) {
@@ -9321,8 +9327,11 @@ int main() {
              [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.run(a); }},
             {"REENT-03", "step_into", none,
              [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.step_into(a); }},
+            // AT THE CALL (PROG+2): a step over anything else is a step_into,
+            // whose own guard would refuse it and hide this one.
             {"REENT-04", "step_over", none,
-             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.step_over(a); }},
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.step_over(a); },
+             nullptr, static_cast<uint16_t>(PROG + 2)},
             {"REENT-05", "step_out", none,
              [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.step_out(a); }},
             {"REENT-06", "run_to", none,
@@ -9330,9 +9339,15 @@ int main() {
             {"REENT-07", "run_to_cycle", none,
              [](Emulator& e, Debugger& d, ClientId a, Ctx&) {
                  return d.run_to_cycle(a, e.clock().get() + 1000); }},
+            // Inside: a frame already PAST, which `run_to_frame()` refuses by
+            // itself (`RefusedUnavailable`) — a future frame delegates to
+            // `run_to_cycle()`, whose guard would answer for this one. The one
+            // code must come first, whatever the arguments.
             {"REENT-08", "run_to_frame", none,
              [](Emulator&, Debugger& d, ClientId a, Ctx&) {
-                 return d.run_to_frame(a, d.time().frame + 2); }},
+                 return d.run_to_frame(a, d.time().frame + 2); },
+             [](Emulator&, Debugger& d, ClientId a, Ctx&) {
+                 return d.run_to_frame(a, 0); }},
             {"REENT-09", "run_to_end_of_frame", none,
              [](Emulator&, Debugger& d, ClientId a, Ctx&) { return d.run_to_end_of_frame(a); }},
             {"REENT-10", "run_to_end_of_scanline", none,
@@ -9380,13 +9395,13 @@ int main() {
             called = false;
             Subscription s;
             s.kind      = EventKind::Execute;
-            s.filter.lo = AFTER_CALL; s.filter.hi = AFTER_CALL;
+            s.filter.lo = v.at; s.filter.hi = v.at;
             s.action    = Action::Continue;
             s.handler   = [&](const DbgEvent&, Debugger& d) {
                 if (!called) {
                     called = true;
                     before = probe(emu, d);
-                    res    = v.call(emu, d, a, ctx);
+                    res    = (v.inside ? v.inside : v.call)(emu, d, a, ctx);
                     after  = probe(emu, d);
                 }
                 return Action::Continue;
@@ -9443,11 +9458,13 @@ int main() {
                 [](Emulator&, Debugger& d, ClientId a, Ctx&) {
                     const Result r1 = d.nextreg_write(a, 0x15, 0x01);
                     const Result r2 = d.nextreg_write(a, 0x02, 0x02);   // hard: deferred
-                    return (r1 == Result::Ok && r2 == Result::Ok) ? Result::Ok
-                                                                   : Result::Unsupported; }};
+                    const Result r3 = d.nextreg_write(a, 0x02, 0x03);   // hard wins
+                    return (r1 == Result::Ok && r2 == Result::Ok && r3 == Result::Ok)
+                               ? Result::Ok : Result::Unsupported; }};
             const auto in = from_handler(other_nr, called, b, af);
             check("REENT-21", "a handler may still make every OTHER NextREG write — "
-                              "including NR 0x02's deferred hard-reset bit",
+                              "including NR 0x02's deferred hard-reset bit, alone or "
+                              "with the soft bit it takes precedence over",
                   called && in.first == Result::Ok);
         }
         {
@@ -9456,10 +9473,11 @@ int main() {
             const Verb other_port{"-", "port_out(other)", select_nr02,
                 [](Emulator&, Debugger& d, ClientId a, Ctx&) {
                     const Result r1 = d.port_out(a, 0x253B, 0x02);      // NR 0x02, hard bit
+                    const Result r0 = d.port_out(a, 0x253B, 0x03);      // hard wins over soft
                     const Result r2 = d.port_out(a, 0x243B, 0x15);      // select another
                     const Result r3 = d.port_out(a, 0x253B, 0x01);      // NR 0x15 = 1
-                    return (r1 == Result::Ok && r2 == Result::Ok && r3 == Result::Ok)
-                               ? Result::Ok : Result::Unsupported; }};
+                    return (r0 == Result::Ok && r1 == Result::Ok && r2 == Result::Ok &&
+                            r3 == Result::Ok) ? Result::Ok : Result::Unsupported; }};
             const auto in = from_handler(other_port, called, b, af);
             check("REENT-22", "and every OTHER port write — the soft-reset value only "
                               "counts with NR 0x02 selected",
@@ -9499,6 +9517,46 @@ int main() {
                       st.pause_reason.id == sid.value && has_stopper,
                   "kind=" + std::to_string(static_cast<int>(st.pause_reason.kind)) +
                       " hits=" + std::to_string(hits.size()));
+        }
+        // THE SAVE THAT DOES NOT ADVANCE stays the verb's own answer: only the
+        // advance EXECUTES, so only the advance is refused. Mid-frame with
+        // `RefuseMidFrame` a handler gets `NotAtFrameBoundary`, as anyone would;
+        // at a frame boundary (a frontend's `raise_host_event()` on a paused
+        // machine) a handler's save succeeds.
+        {
+            Probe b, af;
+            bool called = false;
+            const Verb refusing{"-", "save_state_bytes(RefuseMidFrame)", none,
+                [](Emulator&, Debugger& d, ClientId a, Ctx&) {
+                    return d.save_state_bytes(a, jnext::dbg::SaveStateMode::RefuseMidFrame).status; }};
+            const auto in = from_handler(refusing, called, b, af);
+
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            size_t saved = 0;
+            Result at_boundary = Result::Unsupported;
+            Subscription h;
+            h.kind   = EventKind::Host;
+            h.action = Action::Continue;
+            std::strcpy(h.filter.host_name, "snap");
+            h.handler = [&](const DbgEvent&, Debugger& d) {
+                const auto r = d.save_state_bytes(a, jnext::dbg::SaveStateMode::AdvanceToBoundary);
+                at_boundary = r.status;
+                saved       = r.value.size();
+                return Action::Continue;
+            };
+            dbg.subscribe(a, h);
+            dbg.pause(a);
+            const bool boundary = !emu.frame_in_progress();
+            dbg.raise_host_event(a, "snap");
+            check("REENT-26", "a save that does not advance is not refused from a "
+                              "handler: mid-frame RefuseMidFrame answers "
+                              "NotAtFrameBoundary, and at a frame boundary it saves",
+                  called && in.first == Result::NotAtFrameBoundary && boundary &&
+                      at_boundary == Result::Ok && saved > 0,
+                  std::string("mid=") + jnext::dbg::result_name(in.first) +
+                      " boundary=" + jnext::dbg::result_name(at_boundary));
         }
         // THE OTHER SIDE OF `run()`'s refusal: `detach()` is a SESSION verb, not
         // a control verb, and a delivery may reach it (a handler detaching its own
