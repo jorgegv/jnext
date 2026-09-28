@@ -90,6 +90,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include "../row_id.h"
 
 using jnext::dbg::Debugger;
 using jnext::dbg::MemSpace;
@@ -124,6 +125,7 @@ static int g_skip  = 0;
 
 static void check(const char* id, const char* desc, bool cond,
                   const std::string& detail = {}) {
+    report_row_id(id);
     ++g_total;
     if (cond) {
         ++g_pass;
