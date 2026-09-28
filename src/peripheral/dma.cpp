@@ -1,4 +1,6 @@
 #include "peripheral/dma.h"
+#include "debug/debug_state.h"
+#include "debug/event_table.h"
 #include "core/log.h"
 #include "core/saveable.h"
 #include "save/state_desc.h"
@@ -425,6 +427,8 @@ void Dma::write(uint8_t val, bool z80_compat) {
             status_at_least_one_ = false;
             in_waiting_cycles_ = false;
             dma_log()->debug("DMA enabled via R3 -> TRANSFERRING");
+            if (start_events_armed_ && debug_state_->armed())
+                latch_start_();                  // §4.3 `Dma{Start}`, site 1/3
         }
 
         if (val & 0x08)
@@ -575,6 +579,8 @@ void Dma::process_r6_command(uint8_t val) {
         phase_ = Phase::START_DMA;
         status_at_least_one_ = false;
         in_waiting_cycles_ = false;
+        if (start_events_armed_ && debug_state_->armed())
+            latch_start_();                      // §4.3 `Dma{Start}`, site 2/3
         break;
 
     case 0x83:  // Disable DMA
@@ -788,6 +794,13 @@ int Dma::execute_burst(int max_bytes) {
             if (write_memory) write_memory(dst_, data);
         }
 
+        // §4.3 `Dma{Byte}` — one per transferred byte, latched with the
+        // addresses this byte USED, i.e. before the increments below move them.
+        // Armed separately from Start/End (see set_events_armed): this is the
+        // one DMA site whose cost scales with the transfer.
+        if (byte_events_armed_ && debug_state_->armed())
+            latch_byte_(src_, dst_, data, src_is_io, dst_is_io);
+
         // Increment counter (counts up, compared against block_len_)
         counter_++;
         transferred++;
@@ -808,6 +821,12 @@ int Dma::execute_burst(int max_bytes) {
             status_end_of_block_ = true;
             dma_log()->debug("DMA transfer complete: {} bytes", transferred);
 
+            // §4.3 `Dma{End}` — block completion, at the on_interrupt site.
+            // Latched BEFORE cmd_load() below, which resets `counter_` and the
+            // addresses: an auto-restart is `End` THEN `Start`, and the End's
+            // payload has to describe the block that just finished.
+            if (end_events_armed_ && debug_state_->armed()) latch_end_();
+
             if (on_interrupt) {
                 on_interrupt();
             }
@@ -816,6 +835,8 @@ int Dma::execute_burst(int max_bytes) {
                 // Reload addresses and counter for next pass
                 cmd_load();
                 phase_ = Phase::START_DMA;
+                if (start_events_armed_ && debug_state_->armed())
+                    latch_start_();             // §4.3 `Dma{Start}`, 3/3
                 dma_log()->debug("DMA auto-restart");
             } else {
                 state_ = State::IDLE;
@@ -1001,4 +1022,59 @@ void Dma::load_state(StateReader& r)
     // stream is not a state the hardware can be in.
     turbo_       = static_cast<uint8_t>(turbo_ & 0x03);
     dma_timer_s_ = static_cast<uint16_t>(dma_timer_s_ & 0x3FFF);
+}
+
+// ---------------------------------------------------------------------------
+// GH #276 B2 §4.3 — the three DMA latches, out of line
+//
+// `direction` and `mode` are the DMA registers as they stand: R0's A->B flag and
+// R4's mode field, which is what §4.3's "direction, mode" name. `src`/`dst` on a
+// Start are the block's current addresses (cmd_load has already run for an
+// auto-restart, which is why the End latch above precedes it).
+// ---------------------------------------------------------------------------
+
+void Dma::latch_start_() {
+    jnext::dbg::LatchEntry e;
+    e.kind        = jnext::dbg::EventKind::Dma;
+    e.sub_kind    = static_cast<uint8_t>(jnext::dbg::DmaEventKind::Start);
+    e.source      = jnext::dbg::EventSource::Dma;
+    e.addr        = src_;
+    e.page_or_aux = dst_;
+    e.aux2        = block_len_;
+    e.misc2       = dir_a_to_b_ ? 1 : 0;
+    e.misc3       = mode_;
+    debug_state_->latch_event(e);
+}
+
+void Dma::latch_end_() {
+    jnext::dbg::LatchEntry e;
+    e.kind        = jnext::dbg::EventKind::Dma;
+    e.sub_kind    = static_cast<uint8_t>(jnext::dbg::DmaEventKind::End);
+    e.source      = jnext::dbg::EventSource::Dma;
+    e.addr        = src_;
+    e.page_or_aux = dst_;
+    e.aux2        = block_len_;
+    // The BLOCK's total, not this execute_burst() call's: a block spans as many
+    // bursts as the prescaler and the bus give it, and `transferred` is the
+    // local count of the last one. `counter_` has ALREADY been incremented for
+    // the byte that completed the block by the time this runs, so it is the
+    // count itself and needs no adjustment.
+    e.dma_bytes   = counter_;
+    e.misc2       = dir_a_to_b_ ? 1 : 0;
+    e.misc3       = mode_;
+    debug_state_->latch_event(e);
+}
+
+void Dma::latch_byte_(uint16_t src, uint16_t dst, uint8_t val,
+                      bool is_io_src, bool is_io_dst) {
+    jnext::dbg::LatchEntry e;
+    e.kind        = jnext::dbg::EventKind::Dma;
+    e.sub_kind    = static_cast<uint8_t>(jnext::dbg::DmaEventKind::Byte);
+    e.source      = jnext::dbg::EventSource::Dma;
+    e.addr        = src;
+    e.page_or_aux = dst;
+    e.value       = val;
+    e.flag_a      = is_io_src;
+    e.flag_b      = is_io_dst;
+    debug_state_->latch_event(e);
 }

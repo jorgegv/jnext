@@ -40,7 +40,7 @@ profiler — surround the emulation rather than being part of it.
 
 | Directory | Responsibility |
 |---|---|
-| `core/` | `Emulator` — the top-level machine that owns every subsystem — plus `Clock`, `Scheduler`, `EmulatorConfig`, the CLI option table (`cli_options.h`), the logging wrapper (`log.h`), the state-serialisation primitives (`saveable.h`), all the file loaders and savers (NEX, SNA, SZX, Z80, TAP, TZX, WAV, RZX, JNS), the host-side FAT32 reader that extracts ROMs from the SD image, the SD-card provisioner, and the video recorder. |
+| `core/` | `Emulator` — the top-level machine that owns every subsystem — plus `Clock`, `Scheduler`, `EmulatorConfig`, the CLI option table (`cli_options.h`), the logging wrapper (`log.h`), the state-serialisation primitives (`saveable.h`), all the file loaders and savers (NEX, SNA, SZX, Z80, TAP, TZX, WAV, RZX, JNS) and the extension dispatch that picks one (`snapshot_file`), the screenshot writers (PNG and `.SCR`), the host-side FAT32 reader that extracts ROMs from the SD image, the SD-card provisioner, and the video recorder. |
 | `cpu/` | `Z80Cpu`, the wrapper around the vendored FUSE core; the Z80N extension opcodes (`z80n_ext` — 31 of them, not the 26 the roadmap still says); and the IM2 interrupt controller with its client mixin. |
 | `memory/` | `Mmu` (8 × 8 K slots, the `MemoryInterface` implementation), `Ram`, `Rom`, the `ContentionModel`, and `AttributeMux` — the per-scanline replay of mid-frame attribute writes. |
 | `video/` | The layers and the compositor: `Ula`, `Lores`, `Layer2`, `Tilemap`, `SpriteEngine`, `PaletteManager`, `VideoTiming` (raster counters), and `Renderer`, which composites them. |
@@ -48,10 +48,10 @@ profiler — surround the emulation rather than being part of it.
 | `port/` | `PortDispatch` (mask/value I/O decode) and `NextReg`, the NextREG register file. |
 | `peripheral/` | Copper, CTC, DMA, DivMMC, Multiface, the NMI source pipeline, SPI, the SD card device, I²C with its DS1307 RTC, the UART, and the adapters that bind the emulated ESP-01 to UART 0. |
 | `input/` | The ZX keyboard matrix, joysticks, Kempston mouse, MD6 connector, membrane stick, NR 0x0B I/O mode, the F-key state machine, the phantom typist that types `LOAD ""` for you, and the host-side joystick/mouse dispatchers. |
-| `platform/` | The SDL frontend (`sdl_app`, `sdl_display`, `sdl_audio`, `sdl_input`), the headless frontend (`headless_app`), screenshot output (PNG and `.SCR`), the cold-boot helper, and the small header-only policies for frame pacing and render skipping. |
+| `platform/` | The SDL frontend (`sdl_app`, `sdl_display`, `sdl_audio`, `sdl_input`), the headless frontend (`headless_app`), the cold-boot helper, and the small header-only policies for frame pacing and render skipping. |
 | `gui/` | The Qt 6 frontend: `QtApp`, `MainWindow`, `EmulatorWidget`, the preferences dialog and the saved-configuration store. |
 | `debugger/` | The Qt 6 debugger window and its panels — CPU, disassembly, memory, MMU, stack, call stack, watches, breakpoints, video, sprites, copper, NextREG, audio. Compiled only when `ENABLE_DEBUGGER=ON`. |
-| `debug/` | The debugger *backend*, pure C++ with no GUI dependency: disassembler, breakpoint set, `DebugState`, trace log, call stack, symbol table, and the rewind ring buffer. Plus the four *published* headers `debugger.h`, `events.h`, `inspect.h`, `result.h` — the `jnext::dbg::Debugger` facade contract of epic #276, declarations only for now (see 3.9). |
+| `debug/` | The debugger *backend*, pure C++ with no GUI dependency: disassembler, breakpoint set, `DebugState`, trace log, call stack, symbol table, and the rewind ring buffer. Plus the four *published* headers `debugger.h`, `events.h`, `inspect.h`, `result.h` and the `jnext::dbg::Debugger` facade behind them (`debugger*.cpp`) — the backend of epic #276 that the three loop owners host and every debugger frontend talks to (see 3.9). |
 | `esp01/` | The emulated ESP-01 WiFi module — AT-command engine, socket layer, worker thread — built as its own library with its own tests. |
 | `profiler/` | The per-physical-address T-state profiler behind `--profile`. |
 | `doc/` | Markdown sources for the user guide and this developer guide, plus the Graphviz diagram sources. |

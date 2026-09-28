@@ -32,7 +32,7 @@
 | CTL-09 | `Result step_back(ClientId by, uint32_t n)` | debugger.h |
 | CTL-10 | `Result rewind_to_frame(ClientId by, uint32_t frame)` | debugger.h |
 | CTL-11 | `std::optional<CorruptionIncident> resume_blocked_by_corruption() const`, `Result acknowledge_corruption(uint64_t generation)`; `struct CorruptionIncident{subsystem, generation}` | debugger.h, inspect.h |
-| CTL-12 | `Result reset(ClientId by, ResetKind kind)`; `enum class ResetKind{Soft, Hard}`; the driver is SES-07's `LoopDriver::cold_boot` | debugger.h, events.h |
+| CTL-12 | `Result reset(ClientId by, ResetKind kind)`; `enum class ResetKind{Soft, Hard, Any}` (`Any` is filter-only; `reset(Any)` is refused); the driver is SES-07's `LoopDriver::cold_boot` | debugger.h, events.h |
 | CTL-13 | `RunState state() const`; `struct RunState{paused, step_mode, pause_reason, cycle, frame, pc}`, `enum class StepMode`, `struct PauseReason` with `Kind{None, User, Breakpoint, Watch, Step, RunTo, Magic, Corrupt, Script}` | debugger.h, inspect.h |
 | CTL-14 | `bool magic_breakpoint() const`, `Result set_magic_breakpoint(bool)` | debugger.h |
 | CTL-15 | `Result load(ClientId by, const std::string& path)`; the dispatch is SES-07's `LoopDriver::load` | debugger.h |
@@ -102,7 +102,7 @@ Every write §4.2a enumerates, and the declaration that is it. All of them take
 | `Frame` | `EventKind::Frame`; `EventFilter::frame`, `FRAME_EVERY`; payload `Event::frame` |
 | `Scanline` | `EventKind::Scanline`; `EventFilter::scanline`; payload `Event::{frame, vc, cycle}` |
 | `Cycle` | `EventKind::Cycle`; `EventFilter::cycle`; payload `Event::cycle` |
-| `Reset` | `EventKind::Reset`; `EventFilter::reset_kind`; payload `Event::reset_kind` |
+| `Reset` | `EventKind::Reset`; `EventFilter::reset_kind` incl. `ResetKind::Any` for either kind (owner decision F8); payload `Event::reset_kind`, never `Any` |
 | `IntAck` | `EventKind::IntAck`; payload `Event::{int_vector, int_mode}` |
 | `Nmi` | `EventKind::Nmi`; payload `Event::nmi_source`, `enum class NmiButton` |
 | `Magic` | `EventKind::Magic`; payload `Event::pc` |
@@ -156,7 +156,7 @@ Every write §4.2a enumerates, and the declaration that is it. All of them take
 
 | CAP | Declaration |
 |---|---|
-| CAP-01 | `Result screenshot(ClientId, const std::string& path, uint8_t layer_mask, ScreenshotFormat)`; `enum class ScreenshotFormat{Png, Scr}`, `LAYER_MASK_*`, `Result::NoFrame` |
+| CAP-01 | `Result screenshot(ClientId, const std::string& path, uint8_t layer_mask, ScreenshotFormat)`, `Result flush_captures(ClientId)` (**added in B4**, owner decision 2026-09-28 — the exit bound that carries `NoFrame`); `enum class ScreenshotFormat{Png, Scr}`, `LAYER_MASK_*`, `Result::NoFrame` |
 | CAP-02 | `std::vector<uint8_t> ula_screen_dump() const`; the rest is `peek(MemSpace::page(p))` (INS-02) |
 | CAP-03 | `Result bookmark_save(ClientId, const std::string& name, SaveStateMode)`, `Result bookmark_restore(ClientId, const std::string& name)`, `std::vector<std::string> bookmarks(ClientId) const` |
 | CAP-04 | `Result save_snapshot(ClientId, const std::string& path)` |
@@ -165,7 +165,7 @@ Every write §4.2a enumerates, and the declaration that is it. All of them take
 
 | CAP | Declaration |
 |---|---|
-| ST-01 | `bool at_frame_boundary() const`, `Expected<std::vector<uint8_t>> save_state_bytes(SaveStateMode)`; `enum class SaveStateMode{AdvanceToBoundary, RefuseMidFrame}`, `Result::NotAtFrameBoundary` |
+| ST-01 | `bool at_frame_boundary() const`, `Expected<std::vector<uint8_t>> save_state_bytes(ClientId by, SaveStateMode)` — the `by` attributes the `AdvanceToBoundary` advance (owner decision; B0 left it open); `enum class SaveStateMode{AdvanceToBoundary, RefuseMidFrame}`, `Result::NotAtFrameBoundary` |
 | ST-02 | `Result load_state_bytes(ClientId, const uint8_t* data, size_t n)`; failure latches corruption → CTL-11 |
 | ST-03 | `bool rewind_enabled() const`, `Result set_rewind_enabled(bool)`, `RewindRange rewind_range() const`, `std::optional<Result> rewind_blocked() const`, `Result resize_rewind_buffer(size_t frames)`; `struct RewindRange` |
 | ST-04 | `Result step_back(ClientId, uint32_t)`, `Result rewind_to_frame(ClientId, uint32_t)` (= CTL-09, CTL-10) |
@@ -190,7 +190,7 @@ Every write §4.2a enumerates, and the declaration that is it. All of them take
 | SES-04 | `StopPolicy stop_policy() const`, `Result set_stop_policy(StopPolicy)`; `enum class StopPolicy{Pause, ExitNonZero}`; `Listener::on_exit_requested(int code)` is the `ExitNonZero` half |
 | SES-05 | `Result set_live_raster(ClientId, bool)`, `bool live_raster() const`, `bool attached() const` |
 | SES-06 | `Result log(ClientId, LogLevel, const std::string&)`; `enum class LogLevel`, `Listener::on_log` |
-| SES-07 | `Result set_loop_driver(const LoopDriver&)`, `Result on_cold_boot_done()`; `struct LoopDriver{cold_boot, load}` |
+| SES-07 | `Result set_loop_driver(const LoopDriver&)`, `Result on_cold_boot_begin()` (**added in B3**, owner decision 2026-09-28 — the one post-B0 declaration), `Result on_cold_boot_done()`; `struct LoopDriver{cold_boot, load}` |
 
 ---
 

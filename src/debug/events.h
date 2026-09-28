@@ -119,9 +119,13 @@ enum class EventKind : uint8_t {
     /// next boundary, so **≤1 instruction late**, as `NextRegWrite` and
     /// `Scanline` are.
     Copper,
-    /// DMA `Start` / `Byte` / `End`; see `DmaEventKind`. Latched at the site
-    /// and delivered at the boundary of the slot the burst ran in, so
-    /// **≤1 instruction late**. A slot is DMA *or* CPU, never both.
+    /// DMA `Start` / `Byte` / `End`; see `DmaEventKind`. Latched at the site and
+    /// delivered at the boundary of the slot the burst ran in — which is **not
+    /// late at all**: a burst runs from `dma_.execute_burst()` inside
+    /// `step_one_instruction()`, before that slot's boundary drain, so it is in
+    /// the same position as `Mem` and `Port` rather than with the device cluster's
+    /// `NextRegWrite` and `Copper`. (B2 grouped it with those two; measured
+    /// wrong.) A slot is DMA *or* CPU, never both.
     Dma,
 
     /// NOT A KIND — the count, and it must stay last.
@@ -166,12 +170,18 @@ enum class DmaEventKind : uint8_t {
 };
 
 /// What kind of reset (`Reset` payload, and CTL-12's argument).
+///
+/// `Any` is a FILTER VALUE ONLY, like `EventSource::Any`: it may appear in
+/// `EventFilter::reset_kind` and never in a delivered `Event::reset_kind`, and
+/// `reset()` refuses it — "reset the machine, either way" is not a reset.
 enum class ResetKind : uint8_t {
     /// `Emulator::soft_reset()`.
     Soft = 0,
     /// The cold-boot reconstruct contract (CTL-12) — destroy and rebuild the
     /// machine in place through the registered loop driver.
     Hard,
+    /// Filter only — match a reset of either kind (owner decision, F8).
+    Any,
 };
 
 /// Which NMI button (IN-04, and the `Nmi` payload's source).
@@ -253,9 +263,16 @@ struct Event {
     /// DMA sub-kind; meaningful iff `kind == Dma`.
     DmaEventKind dma_kind = DmaEventKind::Start;
 
-    /// Master cycle. For a latched kind this is the cycle captured AT THE SITE,
-    /// not the cycle of the boundary that delivered it.
+    /// Master cycle. For a latched kind this is the cycle captured AT THE SITE
+    /// and NOT the cycle of the boundary that delivered it — but read "at the
+    /// site" as SLOT-GRANULAR: the master clock is ticked once per instruction
+    /// slot, so every event a single instruction raises shares that slot's start
+    /// cycle (two `Mem{Write}`s from one `LD (nn),HL` are indistinguishable by
+    /// `cycle`). `Scanline` is the exception and is exact, because the site hands
+    /// the latch the line's own boundary cycle. Sub-slot resolution would mean
+    /// reading the CPU's in-instruction T-state counter at every site.
     uint64_t cycle = 0;
+
     /// Monotonic delivery sequence number, the cursor `events_fired_since()`
     /// takes (INS-17). Unique and increasing across every kind and client.
     uint64_t seq = 0;
@@ -432,9 +449,22 @@ struct EventFilter {
     /// `Cycle`: fire at the first boundary with `master_cycle >= cycle`.
     uint64_t cycle = 0;
 
-    /// `Reset`: which kind to match. Both kinds need two subscriptions; there
-    /// is no "any reset" value, because every caller so far wants one or the
-    /// other (`Reset{Hard}` completes a blocked `run`, CTL-12).
+    /// `Reset`: which kind to match — `Soft`, `Hard`, or `Any` for either
+    /// (owner decision, F8; this comment previously said there was no "any"
+    /// value and it was wrong).
+    ///
+    /// WHY THIS KIND HAS AN "ANY" AND THE COPPER/DMA SUB-KINDS BELOW DO NOT.
+    /// The DSL's natural `on reset do … end`, with no qualifier, has to compile
+    /// to EXACTLY ONE subscription: two would put two rows in the user-visible
+    /// `subscriptions()` list for one script rule, and the halves could then be
+    /// enabled independently of each other. A reset fires once per reset, so
+    /// matching either kind costs nothing on the hot path. The Copper and DMA
+    /// sub-kinds stay one-per-subscription for a STATED COST reason — `Byte`
+    /// arming is a per-engine cost (§4.3) — so this sets no precedent against
+    /// them.
+    ///
+    /// B2's `EventTable` owns the matching (an `Any` filter matches both kinds);
+    /// B0 declares the value, B1 carries the declaration.
     ResetKind reset_kind = ResetKind::Soft;
 
     /// `Copper`: which sub-kind. `Dma`: which sub-kind. One subscription is one

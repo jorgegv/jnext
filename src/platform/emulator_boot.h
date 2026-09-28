@@ -131,6 +131,15 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     auto saved_rzx_failed      = emu.rzx_failed_outputs();
 
     BreakpointSet saved_bps    = emu.debug_state().breakpoints();
+    // GH #276 B3 — the copy carries the Qt panels' model AND the event-mask half
+    // (`ev_mask_rd_` / `ev_mask_wr_` / `ev_port_`) that a `jnext::dbg::Debugger`
+    // publishes into it. The first is the platform's to carry (see "WHY THE TWO
+    // RESTORES ... ARE NOT RETIRED" below); the second is the BACKEND'S, and
+    // carrying it made this function a second owner of it. So the half is
+    // dropped from the copy: the rebuilt machine starts with the event gate
+    // CLOSED, and only the backend's re-application re-opens it, from the live
+    // subscription table. Item 2 below; rows CTL-12-14 and CTL-12-32/33.
+    saved_bps.set_event_slot_masks(0, 0, false);
     const bool    saved_active = emu.debug_state().active();
     const uint8_t saved_mute   = emu.audio_mute_mask();
     auto saved_esxdos_state    = emu.esxdos_stub_state();
@@ -144,6 +153,103 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
 
     emu.debug_state().breakpoints() = std::move(saved_bps);
     emu.debug_state().set_active(saved_active);
+
+    // ── GH #276 B3: THE BACKEND'S SHARE OF THIS RECONSTRUCT ─────────────────
+    //
+    // A `jnext::dbg::Debugger` may be ALIVE across this call, and B3's
+    // `Impl::reapply_after_machine_rebuild()` (`src/debug/debugger_reconstruct.cpp`)
+    // is what makes that survivable. It runs from the three routes that can land a
+    // new machine — `Debugger::reset(Hard)`, `Debugger::load()` and
+    // `Debugger::on_cold_boot_done()` — never from here, because this header sits
+    // BELOW nothing: `src/debug/` must not be reachable from a platform header
+    // that the pure core includes (rule 1 of `debug/debugger.h`'s banner). So the
+    // items below are a CONTRACT WITH A CALLER, and it is the caller's job to
+    // honour it after this function returns.
+    //
+    // AN EARLIER VERSION OF THIS COMMENT SAID "nothing in the tree holds a
+    // `jnext::dbg::Debugger` across this call yet". THAT WAS FALSE when it was
+    // written: `src/platform/headless_app.cpp`'s `JNEXT_BENCH_WATCH` fixture
+    // (`bench_watch_dbg`) holds one for the whole of `HeadlessApp::run()`, cold
+    // boots included, and is reachable via a guest NR 0x02 hard reset or
+    // `JNEXT_DELAYED_RESET_TYPE=loadnex:` while the fixture is armed. It was
+    // dormant only because the two bench workloads never reset mid-run. That
+    // fixture now calls `on_cold_boot_done()` from its loop owner's `cold_boot`
+    // lambda, which is rule 5 of CTL-12 and makes it the first real consumer of
+    // the contract rather than its first casualty.
+    //
+    //  1. **Re-install the THREE publications.** `~Emulator()` + placement-new
+    //     gives a BRAND-NEW `DebugState` at the same address, with
+    //     `events_ == nullptr`, no drain/gate hooks and no machine-replaced hook.
+    //     A surviving `Debugger` is then silently DISCONNECTED: every
+    //     subscription still exists and lists as live, and not one can ever
+    //     fire. The re-application re-runs the `Debugger` constructor's calls —
+    //     `set_event_table`, `set_event_hooks`, `set_machine_replaced_hook` —
+    //     plus `gates_changed()` and the eight-page seed. (The fourth hook, the
+    //     latch stamper, is the Emulator's own: `init()` below re-installs it.)
+    //
+    //     `set_machine_replaced_hook` is the one that is easy to miss and the one
+    //     whose absence is worst here, so it is named rather than left inside
+    //     "the constructor's calls": this reset IS a machine transition, `init()`
+    //     below calls `debug_after_machine_transition_()` for it, and with a null
+    //     hook that call cannot reach `Debugger::Impl`. A `Debugger` that survived
+    //     a cold boot would keep reporting the `PauseReason` of a machine that has
+    //     been destructed. Re-installing it after `init()` means this boot's own
+    //     transition is not reconciled through it, so the re-application ALSO arms
+    //     `Kind::None` explicitly once, exactly as the hook would have.
+    //  2. **The EVENT mask half is NOT carried across.** `saved_bps` copies
+    //     `ev_mask_rd_` / `ev_mask_wr_` / `ev_port_` with the rest of the set,
+    //     and until B3 the copy was restored with them — stale-OPEN against a
+    //     `DebugState` whose `events_` is null (cost only: `Mmu::watch_read_` /
+    //     `watch_write_` early-return on a null table), and, worse, a second
+    //     owner of three bytes the backend publishes: a re-application that
+    //     forgot `gates_changed()` passed every row, because the restored
+    //     bytes happened to be right. The copy's event half is now zeroed before
+    //     the restore, so `gates_changed()` in (1) is the SINGLE owner of those
+    //     bytes, and forgetting it closes the gate observably.
+    //  3. **The LATCH RING survives and its contents do not.** `EventTable` lives
+    //     on `Debugger::Impl`, not on `Emulator`, so every entry latched by the
+    //     destroyed machine is still in the ring and would be delivered at the
+    //     rebuilt machine's first boundary as though it were current.
+    //     `Emulator::load_state()` passes `discard_ring=true` for exactly this;
+    //     a cold boot cannot, because the hook was null when `init()` fired it.
+    //     The re-application clears the ring.
+    //  4. **`debug_latch_reset(true)` must come AFTER (1) and (3).** Issued
+    //     before `~Emulator()` it stamps through the OLD emulator's latch stamper
+    //     into the OLD table and is thrown away with it; issued after `init()`
+    //     but before (1) it is dropped on the null table; issued before (3) it is
+    //     discarded with the stale entries.
+    //
+    // ── WHY THE TWO RESTORES ABOVE ARE *NOT* RETIRED ────────────────────────
+    //
+    // §4.1 CTL-12 says B3 retires the `BreakpointSet` / `active()` save-and-restore
+    // as "a second owner of the same state". Measured against this tree it is not
+    // the same state, and retiring it in B3 would be three functional regressions
+    // in the Qt GUI, which settled owner decision 8 forbids:
+    //
+    //   * `saved_bps` is the QT PANELS' breakpoint model, not the backend's. The
+    //     backend's events are `EventTable` subscriptions, which live on
+    //     `Debugger::Impl` and never needed restoring. Dropping the restore loses
+    //     every PC breakpoint and watchpoint a user set, on every hard reset.
+    //   * `BreakpointSet`'s COPY CARRIES ITS OBSERVERS, which is the only reason
+    //     `BreakpointPanel` and `DisasmPanel` stay subscribed across this call:
+    //     each registers once in its constructor and never re-registers. Without
+    //     the restore their `ObserverId`s name nothing, `remove_observer()` in
+    //     their destructors silently matches no row, and both tables stop
+    //     refreshing for the rest of the session.
+    //   * `saved_active` is what keeps an OPEN debugger window armed:
+    //     `DebuggerManager::set_enabled(true)` sets `active_` once and never
+    //     re-pushes it. Without the restore a hard reset leaves the window open
+    //     on an unarmed machine.
+    //
+    // The backend cannot take over any of the three until package Q moves the Qt
+    // frontend onto a `Debugger` (§10.1 Q WP2/WP6), and it does not double-restore
+    // them in the meantime: the re-application writes `clients_attached_`, which is
+    // its OWN bit (see `DebugState::clients_attached()`), and re-publishes the
+    // event masks — the one part of `saved_bps` that WAS the backend's, and which
+    // item 2 above therefore drops from the copy.
+    // Recorded here rather than only in the B3 report, because this is the site a
+    // Q author will read.
+    // ────────────────────────────────────────────────────────────────────────
     emu.set_audio_mute_mask(saved_mute);
     emu.restore_esxdos_stub_state(std::move(saved_esxdos_state));
     emu.restore_rzx_failed_outputs(std::move(saved_rzx_failed));

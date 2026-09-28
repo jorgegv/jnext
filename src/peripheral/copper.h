@@ -31,9 +31,48 @@ namespace jnext { namespace save { class StateDesc; } }
 ///   01 = start, reset PC to 0
 ///   10 = start from current PC (no reset)
 ///   11 = start, reset PC to 0 at each frame (vc=0, hc=0)
+class DebugState;
+
 class Copper {
 public:
     Copper();
+
+    // ── GH #276 B2 §4.3 — the three Copper event sites ──────────────────
+    //
+    // NO-SUBSCRIBER COST: one predicated branch on `events_armed_`, a plain
+    // bool member, next to the `should_log()` branch each site already carries.
+    // `Copper::execute` is 8-12 % of the copper-demo / beast profiles (Task 27),
+    // which is why §4.3 requires a `make bench` row on those two workloads with
+    // no subscriber before this lands.
+    //
+    // The flag is set by the backend from `subscribe()`/`unsubscribe()` and is
+    // NOT derived from the table pointer: reading `debug_state_->event_table()
+    // ->has_kind(Copper)` per master cycle would be three dependent loads in
+    // the hottest loop in the emulator.
+    void set_debug_state(DebugState* ds) { debug_state_ = ds; }
+
+    /// ONE FLAG PER SUB-KIND, not one for the engine. B2 shipped a single
+    /// `events_armed_` set from `has_kind(Copper) || has_kind(NextRegWrite)`, so
+    /// a `Halt`-only subscriber accumulated ~16 `Move` entries per instruction
+    /// slot — ring space, which is observable (see `Mmu::watch_write_`'s own
+    /// argument for the same thing). `EventTable::has_copper_sub_kind()` existed
+    /// for exactly this and had ZERO callers, which is the same
+    /// declared-but-uncalled shape `is_halt()` had before B2 gave it one.
+    ///
+    /// `move` carries the `NextRegWrite` term too: a MOVE is ONE ring entry
+    /// fanned out at the drain to both kinds, so an NR subscriber alone must
+    /// still arm the MOVE site.
+    void set_events_armed(bool move, bool wait, bool halt) {
+        move_events_armed_ = move;
+        wait_events_armed_ = wait;
+        halt_events_armed_ = halt;
+    }
+    bool move_events_armed() const { return move_events_armed_; }
+    bool wait_events_armed() const { return wait_events_armed_; }
+    bool halt_events_armed() const { return halt_events_armed_; }
+    bool events_armed() const {
+        return move_events_armed_ || wait_events_armed_ || halt_events_armed_;
+    }
 
     void reset();
 
@@ -113,6 +152,11 @@ public:
     bool     is_running() const { return mode_ != 0; }
     uint16_t instruction(uint16_t addr) const { return instructions_[addr & 0x3FF]; }
 
+    /// The whole 1K x 16-bit instruction RAM, for a debugger view (GH #276
+    /// INS-09 `copper()`, which hands out a {ptr, size} pair rather than
+    /// copying 2 KB per panel refresh). Valid while the Copper lives.
+    const uint16_t* program_data() const { return instructions_.data(); }
+
     /// `hcount_i` of the MOVE currently being issued, or -1 when no
     /// Copper MOVE is in flight (GH #270).
     ///
@@ -174,4 +218,23 @@ private:
     //   so reset() leaves it untouched.
     uint8_t offset_ = 0;
     int     c_max_vc_ = 311;
+
+    // APPENDED (GH #276 B2) — host-side debugger wiring, not machine state, so
+    // neither appears in save_state/load_state.
+    DebugState* debug_state_ = nullptr;
+    bool        move_events_armed_ = false;
+    bool        wait_events_armed_ = false;
+    bool        halt_events_armed_ = false;
+    /// §4.3 `Copper{Halt}` fires on the EDGE: a HALT stalls for every remaining
+    /// master cycle, so one latch per cycle would fill the ring by itself. NOT
+    /// machine state — it is the event site's own edge memory — but it IS
+    /// cleared everywhere the PC is reset, so a restarted program latches again.
+    bool        halt_stalling_ = false;
+
+    /// Out-of-line: latch one of the three sub-kinds. `hc_ula` and `cvc` are
+    /// execute()'s own two arguments — the counters the Copper compares
+    /// against, NOT the raw frame counters (GH #181).
+    void latch_move_(uint8_t reg, uint8_t val, int hc_ula, int cvc);
+    void latch_wait_(int vpos, int hthresh, int hc_ula, int cvc);
+    void latch_halt_(int hc_ula, int cvc);
 };

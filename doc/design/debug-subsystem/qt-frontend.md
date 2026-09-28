@@ -461,7 +461,7 @@ projection of exactly what it does today):
 | CAP-INS-16 `input_state()` | recorder-only |
 | CAP-EVT conditions, ranges (`lo != hi`), `once`, `Log`/`Continue`, `NextRegWrite`, `Frame`, `Scanline`, `Cycle`, `Reset`, `Host`, physical-page filter | the GUI creates single-address `Execute` / `MemRead` / `MemWrite` / `PortRead` / `PortWrite` subscriptions with `Stop` and no condition — nothing else exists in its dialogs |
 | CAP-TIME-02/03 | no GUI control for them |
-| CAP-IN-01..04, CAP-CAP-01..03 | input injection / capture are CLI and script paths; the main window's own screenshot is not a debugger feature. **Consequence (review N-9):** `QtApp`'s private frame countdowns (`qt_app.h:184-203`: inject, load, screenshot, exit) are NOT touched by #278; the architecture's §8 claim that "the second copy of the countdowns goes away" has no owner in this document — it belongs to the backend's own work package for CAP-IN/CAP-CAP (the CLI conveniences re-expressed as generated `Frame` subscriptions), and arch §8 now assigns it to the backend's CAP-IN/CAP-CAP package (B4), not #278 |
+| CAP-IN-01..04, CAP-CAP-01..03 | input injection / capture are CLI and script paths; the main window's own screenshot is not a debugger feature. **Consequence (review N-9):** `QtApp`'s private frame countdowns (`qt_app.h:184-203`: inject, load, screenshot, exit) are NOT touched by #278; the architecture's §8 claim that "the second copy of the countdowns goes away" has no owner in this document — it belongs to the backend's own work package for CAP-IN/CAP-CAP, and arch §8 now assigns it to the backend's CAP-IN/CAP-CAP package (B4), not #278. **Settled in B4 (owner decision 2026-09-28, O2): the countdowns STAY** — they count loop ticks, which survive a cold boot and advance while paused, and `Frame` subscriptions could not; only the screenshot ACTION moved to the backend (`screenshot()` queued at the count's zero, written by the `post_frames` pump, its outcome from `flush_captures()`). `QtApp` hosts the one `Debugger` (`QtApp::debugger()`), which Q's `DebuggerManager` is to take rather than construct its own |
 | CAP-ST-01/02 bookmarks | no GUI control; Save Snapshot is the JNS path (#27), unchanged |
 | CAP-SES-03 `pump`, CAP-SES-04 stop policy | **used by `QtApp`** (the loop owner), not by the panels: `pump(0)` per tick next to today's `check_breakpoint_hit()` call (`qt_app.cpp:666`), policy `Pause` |
 
@@ -801,6 +801,40 @@ construction). Then, in dependency order:
 | WP6 | Symbol table ownership move + `on_load_map_*`; magic bp menu; `MainWindow` forwarding unchanged | REQ-qt-12, 14 | after WP2 |
 | WP7 | Remove `core/emulator.h` from every `src/debugger/*.cpp`; final reach-around grep = 0; developer-guide chapter 3.9 + `FEATURES.md` unchanged in substance, paths updated | all | serial, last |
 | **WP8** | **Owner Q7 (2026-09-27): the Memory panel's "Slot N (page P)" view becomes a true physical read/write through CAP-INS-02**, branching on CAP-INS-03 `SlotInfo.is_rom` (or `SlotInfo.space`, REQ-qt-31): RAM slot → `Page{nr_page}`, ROM slot → `Rom{…}` (`read_byte`/`write_byte`, `memory_panel.cpp:123-154`; the selector label from CAP-INS-03 stays). **The `MemSpace::Rom` enumeration (backend §11 item 1) is now closed from the code and `SlotInfo.space` is published (REQ-qt-31 accepted), so WP8 has no prototype dependency left; it still lands last, after WP7.** The ONE deliberate behaviour change in #278, so it lands LAST, on top of the proven identity; its own rows in §6.2 (`QMP-06a/06b, 07..09`); the user guide page that describes the panel's page selector, `src/doc/user-guide/06-debugger/panels/04-memory.md` (regenerate the committed render with `make docs-userguide`; `doc/man/jnext.1.md` names the hex editor but not the selector — update it only if the new wording says "physical page"); `FEATURES.md` Debugger bullet updated | WP7 green | serial, after WP7 |
+
+**Inherited from backend package B3 (2026-09-28 — two obligations Q owns):**
+
+1. **Retire the Qt half of `emulator_cold_boot()`'s save-and-restore** (inventory
+   row 95). It carries the panels' PC breakpoints and watchpoints, the
+   `BreakpointSet` observers that keep `BreakpointPanel` / `DisasmPanel`
+   subscribed across a cold boot (each registers once, in its constructor), and
+   `active()`. Before Q those have no other owner, so B3 retired only the half
+   that was backend state (the event-mask bytes) and left this one standing.
+   When WP2/WP6 make the panels backend clients, their breakpoints become
+   subscriptions the backend re-applies (CAP-CTL-12 rule 2), and the restore
+   becomes a second owner: delete it in the same WP, with the backend's rows
+   CTL-12-16/17 and CTL-12-34/35 (which pin today's carried state) re-pinned
+   against the client model.
+2. **Poll `take_hard_reset_request()` in `post_frames`, before `pump()`.** Qt
+   polls it in `pre_frames` today (`qt_app.cpp:510`) while the pump slot is
+   `post_frames` (`:667`), so a guest NR 0x02 raised in tick N's frames is seen
+   in tick N+1 — after tick N's pump. A client `reset(Hard)` in that pump
+   destroys the machine and the pending flag with it: the guest reset is
+   silently subsumed instead of "run first, then the client's", which is what
+   CAP-CTL-12's ordering paragraph promises. SDL and headless already poll after
+   their frames and are ordered correctly.
+3. **`active()` is also set by the rewind paths.** `Emulator::rewind_to_cycle()`
+   and `rewind_to_frame()` call `debug_state_.set_active(true)` (on success and
+   on their failure paths), so a backend client's `step_back()` /
+   `rewind_to_frame()` sets the Qt WINDOW's bit, which no client detach ever
+   clears: after one remote step-back the machine stays armed, and the raster
+   walk and render hint stay on, for the rest of the session. Pre-existing — B3
+   did not touch it (confirmed by B3's contract review) — and retired together
+   with `active()` when the Qt window becomes a client. Since B3 that bit is also
+   a term of `DebugState::attached()` (the step-machinery gate) and
+   `raster_live()` (the raster walk and render hint), so the stuck bit holds
+   those on too — the same things `active()` gated directly before B3, now
+   reached through the two bits that replaced it in the hot path.
 
 **Branch discipline (review R-7; owner rule 2026-09-24, arch §10.3):** #278
 is one multi-stage issue and lives on **one** branch, `gh278-qt` (arch

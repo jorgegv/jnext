@@ -117,6 +117,21 @@ public:
     /// jnext does NOT implement — those are the interesting ones when working
     /// out why a program that expects NextZXOS fails under `--load`.
     static std::shared_ptr<spdlog::logger>& esxdos()     { static auto l = make("esxdos");     return l; }
+    /// The debugger BACKEND (`jnext::dbg::Debugger`, GH #276) — CAP-SES-06's
+    /// message sink and the §4.2a `MUTATE` line every client write emits.
+    ///
+    /// Its own channel rather than `emulator`, because these lines are about
+    /// what a DEBUGGER CLIENT did — a remote protocol server, a script, a
+    /// panel — and a user chasing a guest-side problem must be able to silence
+    /// them (`--log-level debugger=off`) without silencing the emulator, or
+    /// raise them without raising everything. `info` is right for a `MUTATE`
+    /// line by the level policy above: a client write is a host-initiated
+    /// action, one line per action.
+    ///
+    /// SES-06 also FANS EVERY LINE OUT to each attached client's `Listener`,
+    /// so a frontend's own console shows them whatever this channel's level is:
+    /// the level gates the spdlog sink, never the push.
+    static std::shared_ptr<spdlog::logger>& debugger()   { static auto l = make("debugger");   return l; }
 
     /// Set the log level for a specific subsystem by name.
     /// Returns false if the logger name is unknown.
@@ -208,7 +223,7 @@ public:
         "cpu",   "memory",  "ula",   "video",    "audio",     "port",  "nextreg",
         "dma",   "copper",  "uart",  "input",    "platform",  "emulator",
         "sdcard","divmmc",  "spi",   "ctc",      "i2c",       "multiface",
-        "esp01", "esxdos",
+        "esp01", "esxdos",  "debugger",
     };
 
     static void init() {

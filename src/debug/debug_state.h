@@ -1,7 +1,14 @@
 #pragma once
 
 #include "debug/breakpoints.h"
+#include <bitset>
 #include <cstdint>
+#include <functional>
+
+namespace jnext { namespace dbg {
+class EventTable;
+struct LatchEntry;
+} }
 
 enum class StepMode { NONE, INTO, OVER, OUT, RUN_TO_CYCLE, STEP_BACK, RUN_BACK_TO_CYCLE };
 
@@ -13,7 +20,7 @@ public:
     ///
     /// This is the gate on everything that only makes sense while a human is
     /// watching, and it is deliberately NOT the gate on "are breakpoints
-    /// live" — see armed() below. Its readers, all in the hot path:
+    /// live" — see armed() below. What it switches on, all in the hot path:
     ///   * the STEP machinery (StepMode OUT / STEP_BACK / RUN_BACK_TO_CYCLE)
     ///   * Emulator::run_frame's "render every frame" hint, so the panels see
     ///     a live framebuffer
@@ -21,6 +28,11 @@ public:
     ///     whose only observer is a human reading the raster readout
     /// Forcing this true with the window closed would switch all of that on
     /// for nobody's benefit, which is why GH #219 did not do it.
+    ///
+    /// GH #276 B3 — the hot path no longer reads this bit directly: the step
+    /// machinery reads attached() and the other two read raster_live(), each of
+    /// which has active_ as one term. So this bit still switches all three on,
+    /// and a backend client can switch on the ones it asked for (see there).
     bool active() const { return active_; }
     void set_active(bool a) { active_ = a; refresh_gates_(); }
 
@@ -29,6 +41,50 @@ public:
     /// EmulatorConfig at init(); the UI never touches it.
     bool persistent_breakpoints() const { return persistent_; }
     void set_persistent_breakpoints(bool p) { persistent_ = p; refresh_gates_(); }
+
+    /// GH #276 B3 (SES-01/SES-05) — is at least one `jnext::dbg::Debugger`
+    /// CLIENT attached? A THIRD, INDEPENDENT contributor to armed(), and it has
+    /// to be its own bit rather than a second writer of active_.
+    ///
+    /// active_ has owners already: the Qt debugger window
+    /// (`DebuggerManager::set_enabled()`) and the magic-breakpoint hook, which
+    /// sets it when the opcode executes. If `Debugger::attach()` wrote active_
+    /// instead, `detach()` of the last client would have to clear it — and
+    /// would then clear a flag the Qt window or the magic hook owns, silently
+    /// disarming a debugger session nobody detached from. The two cannot be
+    /// distinguished from one bit: this class does not know who set it.
+    ///
+    /// So each contributor keeps its own bit and refresh_gates_() ORs them,
+    /// exactly as it already does for active_ and persistent_. Every new
+    /// contributor must be added to refresh_gates_() AND to SuspendScope, whose
+    /// job is to disarm the machine whatever armed it.
+    bool clients_attached() const { return clients_attached_; }
+    void set_clients_attached(bool a) { clients_attached_ = a; refresh_gates_(); }
+
+    /// GH #276 B3 (§4.1, SES-05) — THE TWO FLAGS THAT REPLACE active() AS A
+    /// HOT-PATH GATE. §4.1: "`attached` (≥1 client) gates the step machinery;
+    /// `live_raster` (per client, ORed) gates only the render hint and the raster
+    /// walk." Both are precomputed by refresh_gates_(), exactly like armed_, so
+    /// each reader pays one bool load — the same as the active() it replaces.
+    ///
+    /// attached() = active_ || clients_attached_. The STEP machinery (Step Out's
+    /// per-instruction test, the STEP_BACK / RUN_BACK_TO_CYCLE step modes) reads
+    /// it. Before this existed they read active(), so a machine driven only by a
+    /// backend client — a DZRP session with the Qt window closed — never finished
+    /// a Step Out (row SES-05-13).
+    ///
+    /// raster_live() = active_ || live_raster_. The render-every-frame hint and
+    /// the per-instruction VideoTiming::advance() walk read it. active_ stays a
+    /// term of both until package Q makes the Qt window a client: today it is
+    /// what the window sets, and it must keep meaning what it meant.
+    bool attached() const { return attached_; }
+    bool raster_live() const { return raster_live_; }
+
+    /// SES-05 — the OR of every backend client's live-raster request, published
+    /// by `Debugger::Impl::clients_changed()` (its one writer). NOT an armed_
+    /// contributor: it gates only the raster walk and the render hint.
+    bool live_raster() const { return live_raster_; }
+    void set_live_raster(bool l) { live_raster_ = l; refresh_gates_(); }
 
     /// Are breakpoints and watchpoints LIVE? The hot-path gate.
     ///
@@ -134,10 +190,23 @@ public:
     public:
         explicit SuspendScope(DebugState& ds)
             : ds_(ds), paused_(ds.paused_), active_(ds.active_),
+              clients_(ds.clients_attached_), live_raster_(ds.live_raster_),
               persistent_(ds.persistent_), step_(ds.step_mode_),
               step_off_(ds.step_off_pending_) {
             ds_.paused_     = false;
             ds_.active_     = false;
+            // GH #276 B3 — EVERY armed_ contributor, not just the two that
+            // existed when this scope was written. The comment above promises
+            // "disarms breakpoints"; leaving clients_attached_ standing would
+            // make that promise false for any machine a backend client is
+            // attached to, which is every machine once a frontend holds a
+            // `Debugger`. A new contributor to refresh_gates_() belongs here in
+            // the same commit.
+            ds_.clients_attached_ = false;
+            // And the raster-walk contributor: clearing active_ above has always
+            // switched the walk off for the scope, and a client's live_raster
+            // must not switch it back on under it.
+            ds_.live_raster_ = false;
             ds_.persistent_ = false;
             ds_.step_mode_  = StepMode::NONE;
             ds_.refresh_gates_();          // disarms breakpoints
@@ -145,6 +214,8 @@ public:
         ~SuspendScope() {
             ds_.paused_     = paused_;
             ds_.active_     = active_;
+            ds_.clients_attached_ = clients_;
+            ds_.live_raster_ = live_raster_;
             ds_.persistent_ = persistent_;
             ds_.step_mode_  = step_;
             ds_.refresh_gates_();
@@ -157,14 +228,78 @@ public:
         DebugState& ds_;
         bool        paused_;
         bool        active_;
+        bool        clients_;
+        bool        live_raster_;
         bool        persistent_;
         StepMode    step_;
         bool        step_off_;
     };
 
+    // ── CTL-13 — evidence that survives the stop (GH #276 B2) ───────────
+    //
+    // pause() clears the step mode, and the hot loop consumes data_bp_hit_ in
+    // the SAME BREATH as the pause (`pause(); set_data_bp_hit(false);`), so by
+    // the time `Debugger::state()` can look, WHY the machine stopped is already
+    // gone. These two latches are that evidence, and they are the whole reason
+    // `PauseReason::Watch` and `PauseReason::Magic` can be reported at all.
+    //
+    // Both are cleared by unpause_(), i.e. on every paused -> running edge,
+    // which is the one place every resume-family transition goes through.
+    void note_watch_stop(uint16_t addr, bool is_write) {
+        watch_stop_ = true;
+        watch_stop_addr_ = addr;
+        watch_stop_is_write_ = is_write;
+    }
+    bool     watch_stop() const { return watch_stop_; }
+    uint16_t watch_stop_addr() const { return watch_stop_addr_; }
+    bool     watch_stop_is_write() const { return watch_stop_is_write_; }
+
+    void note_magic_stop(uint16_t pc) { magic_stop_ = true; magic_stop_pc_ = pc; }
+    bool     magic_stop() const { return magic_stop_; }
+    uint16_t magic_stop_pc() const { return magic_stop_pc_; }
+
+    /// Drop both latches. `unpause_()` does this on every resume; a
+    /// `load_state` while PAUSED never unpauses and must do it explicitly, or
+    /// CTL-13 explains the restored machine's stop with the replaced machine's
+    /// evidence (`Emulator::debug_after_state_restore_()`).
+    void clear_stop_evidence() { watch_stop_ = false; magic_stop_ = false; }
+
+    /// GH #276 B2 — how many times the machine has left `paused`. Bumped by
+    /// `unpause_()`, i.e. by EVERY transition out of paused, including a raw
+    /// `DebugState::resume()` from the Qt frontend that never reaches a backend
+    /// verb.
+    ///
+    /// `Debugger::Impl` stamps it on the event-stop latch and `state()` ignores a
+    /// latch whose generation has moved. `Impl::arm()` alone was not enough — it
+    /// is called by the backend's control verbs and the Qt panels still drive this
+    /// class directly until package Q, so a Qt-driven Run left the latch standing
+    /// and it explained the NEXT, unrelated stop. Same argument that put
+    /// `watch_stop_` / `magic_stop_` in `unpause_()`, reached without giving this
+    /// class a pointer back into the backend.
+    uint64_t resume_generation() const { return resume_gen_; }
+
+    /// Drop the "the ring holds something" flag after the ring itself was
+    /// emptied from outside a drain (the same restore path).
+    void clear_ring_flag() {
+        ring_nonempty_ = false;
+        recompute_boundary_work_();
+    }
+
     // Step modes.
     void step_into();
     void step_over(uint16_t next_pc);
+
+    /// GH #276 B2 — the TRANSIENT-SUBSCRIPTION forms of step_over / run_to.
+    ///
+    /// step_over()/run_to() above additionally set `BreakpointSet`'s single
+    /// one-shot. These do not: the backend arms a transient `Execute`
+    /// subscription instead, which §4.3 makes unlimited in number, exempt from
+    /// the master switch and auto-removed at the next stop — the single one-shot
+    /// is none of those, and DeZog needs two temporary breakpoints per
+    /// `CMD_CONTINUE`. The one-shot forms stay because the Qt frontend still
+    /// drives this class directly until package Q retires that path.
+    void step_over_subscribed();
+    void run_to_subscribed();
     void step_out(uint16_t current_sp);
     void run_to(uint16_t addr);
     void run_to_cycle(uint64_t target_cycle);
@@ -245,6 +380,173 @@ public:
     BreakpointSet& breakpoints() { return breakpoints_; }
     const BreakpointSet& breakpoints() const { return breakpoints_; }
 
+    // ── GH #276 B2 — CAP-EVT: the event table, the gates, the latch ──────
+    //
+    // DebugState is the ONE object `Mmu`, `PortDispatch`, `NextReg`, `Copper`,
+    // `Dma` and `Emulator` already hold a pointer to, which is why the event
+    // machinery is reached through it rather than through `Debugger` — nothing
+    // below a frontend may see an `Emulator*` OR a `Debugger*` (§4 rule 1).
+    //
+    // Every member here is NULL / false / inert until a `Debugger` is
+    // constructed, so a build with no debugger attached executes exactly what
+    // it executed before this existed.
+
+    /// Install (or, with nullptr, retire) the subscription table. The
+    /// `Debugger` does this in its constructor and clears it in its destructor:
+    /// a dangling table pointer reachable from the MMU would be a use-after-free
+    /// on the hot path.
+    void set_event_table(jnext::dbg::EventTable* t) { events_ = t; }
+    jnext::dbg::EventTable* event_table() const { return events_; }
+
+    /// Install the two hooks the hot loop calls. `drain` is the boundary drain
+    /// (returns true iff a `Stop` action fired); `gate` is the pre-instruction
+    /// `Execute` gate (same convention). Both live in `Debugger`, because a
+    /// `Handler` takes a `Debugger&`.
+    void set_event_hooks(std::function<bool()> drain,
+                         std::function<bool(uint16_t)> gate) {
+        event_drain_ = std::move(drain);
+        execute_gate_ = std::move(gate);
+    }
+
+    /// GH #276 — "the machine this backend was describing has been REPLACED".
+    ///
+    /// THE REASON THIS EXISTS RATHER THAN A CALL IN EACH VERB. CTL-13's stop
+    /// evidence lives in THREE places: `DebugState`'s own `watch_stop_` /
+    /// `magic_stop_`, `EventTable::hits_`, and `Debugger::Impl`'s
+    /// `event_stop_latched` / `event_stop` / `armed_reason`. `Emulator` can reach
+    /// the first two and CANNOT reach the third — nothing below a frontend may
+    /// see a `Debugger*` (§4 rule 1) — so the reconciliation stopped one object
+    /// graph short, and `Debugger::load_state_bytes()` (which, unlike
+    /// `step_back()` and `rewind_to_frame()`, calls no control verb and therefore
+    /// never reaches `Impl::arm()`) left `state()` reporting a `Watch` on a write
+    /// that had not happened on the restored machine.
+    ///
+    /// Fixing the one verb would have been the FOURTH instance of this branch's
+    /// recurring hazard — sibling operations where all but one do the thing. So
+    /// the notification is issued by the ONE place a machine is replaced
+    /// (`Emulator::debug_after_machine_transition_()`), and every present and
+    /// future verb that lands a new machine inherits it: `load_state_bytes`,
+    /// `step_back`, `rewind_to_frame`, `run_back_to_cycle`, a warm start, B4's
+    /// bookmark restore and B3's cold-boot reconstruct all route through
+    /// `Emulator::load_state()` or `init()`.
+    void set_machine_replaced_hook(std::function<void()> fn) {
+        machine_replaced_ = std::move(fn);
+    }
+    void notify_machine_replaced() {
+        if (machine_replaced_) machine_replaced_();
+    }
+
+    /// THE MEMORY-WATCH GATE the eight `Mmu` sites read, in place of
+    /// has_any_watchpoints(). One byte load, a shift and a test (§6.1); it
+    /// covers legacy watchpoints AND `Mem` subscriptions, pre-ORed by
+    /// `BreakpointSet` (see there for why the bytes live in that class).
+    bool rd_watch_armed(uint16_t addr) const {
+        return breakpoints_.rd_watch_slot_armed(addr);
+    }
+    bool wr_watch_armed(uint16_t addr) const {
+        return breakpoints_.wr_watch_slot_armed(addr);
+    }
+    /// The port twin. Ports have no slots, so it is one bool.
+    bool port_watch_armed() const { return breakpoints_.port_watch_armed(); }
+
+    /// The two mask bytes themselves, so a row can assert "nothing at all is
+    /// armed" rather than probing eight addresses.
+    uint8_t rd_watch_mask() const { return breakpoints_.watch_slot_mask_rd(); }
+    uint8_t wr_watch_mask() const { return breakpoints_.watch_slot_mask_wr(); }
+
+    /// Is there anything for the boundary drain to do? A single cached bool:
+    /// the ring holds something, or a `Cycle` subscription is armed (the one
+    /// kind whose condition is a boundary comparison rather than a latch).
+    bool events_pending() const { return event_boundary_work_; }
+
+    /// Is a live `Execute` subscription armed? The gate on the pre-instruction
+    /// hook, so the ordinary breakpoint path pays one bool test for it.
+    bool execute_events_armed() const { return execute_armed_; }
+
+    /// The same, for `NextReg::write`'s hook. Without it every guest NextREG
+    /// write ran a linear scan of all subscriptions.
+    bool nextreg_events_armed() const { return nextreg_armed_; }
+
+    /// Run the pre-instruction `Execute` gate for `pc`. True iff it stopped.
+    bool run_execute_gate(uint16_t pc) {
+        return execute_gate_ ? execute_gate_(pc) : false;
+    }
+
+    /// Run the boundary drain. True iff a `Stop` action fired.
+    bool drain_events() {
+        ring_nonempty_ = false;
+        recompute_boundary_work_();
+        return event_drain_ ? event_drain_() : false;
+    }
+
+    /// Latch a site entry. Out of line: it stamps the common
+    /// {cycle, frame, pc, vc, hc} through `stamp_common_` and appends to the
+    /// ring, and neither belongs in a header the MMU includes.
+    void latch_event(jnext::dbg::LatchEntry& e);
+
+    /// The same, for a site whose event happened at a cycle the LIVE CLOCK no
+    /// longer holds.
+    ///
+    /// `on_scanline` is the case: it is called from the post-instruction device
+    /// cluster, so `clock_.get()` is already past the line boundary by the whole
+    /// instruction that crossed it (measured +32 / +64 master cycles at 3.5 MHz).
+    /// `events.h` promises "latched at the line with its exact cycle", and B2
+    /// stamped the live clock and threw the boundary away one line from where the
+    /// caller handed it in. The stamper derives `vc`/`hc` from whichever cycle it
+    /// is given, so the whole header stays self-consistent.
+    void latch_event_at(jnext::dbg::LatchEntry& e, uint64_t cycle);
+
+    /// Install the site-context stamper — the one thing only the `Emulator`
+    /// knows ({cycle, frame, pc, vc, hc}). Called ONLY from inside
+    /// `latch_event`, i.e. only when a filter has already matched.
+    ///
+    /// `at` is the cycle to stamp from, or null for "the live clock". A POINTER
+    /// rather than a sentinel value: cycle 0 is a real cycle (before the first
+    /// tick), and a sentinel that is also a legal value is how an off-by-one
+    /// hides.
+    void set_latch_stamper(std::function<void(jnext::dbg::LatchEntry&,
+                                             const uint64_t* at)> fn) {
+        stamp_common_ = std::move(fn);
+    }
+
+    /// §6.1 — the MMU remapped a slot: re-evaluate any physical-page filter and
+    /// re-publish the masks if they moved.
+    void on_slot_remapped(int slot, uint16_t page);
+
+    /// Re-read the `EventTable`'s cached state into the hot-path gates: the
+    /// slot masks, the port flag, the `Execute` arm and the `Cycle` arm. Called
+    /// by the `Debugger` on every subscription change — never from the hot path.
+    void refresh_event_gates();
+
+    // ── GH #276 B4 — INS-20, PC coverage ─────────────────────────────────
+    //
+    // The executed-PC bit set the hot path writes into, or null while coverage
+    // is off. The set itself is the BACKEND's (`Debugger::Impl::coverage`, the
+    // `CoverageBits` a client reads by reference); this is only where the hot
+    // path finds it — the same arrangement as `events_` above, and for the same
+    // reason: nothing below a frontend may see a `Debugger*`.
+    //
+    // A POINTER RATHER THAN A FLAG PLUS A POINTER: the one per-instruction test
+    // is "is there a sink", so switched off it costs one load and one branch
+    // and nothing else (§4.2 INS-20, "zero cost when off").
+    //
+    // PUBLISHED LIKE THE THREE EVENT HOOKS, and retired and re-published with
+    // them: `~Debugger()` nulls it (the set dies with `Impl`), and a cold boot's
+    // brand-new `DebugState` starts null, so the backend re-publishes it in the
+    // one re-application.
+    std::bitset<65536>* coverage_sink() const { return coverage_; }
+    void set_coverage_sink(std::bitset<65536>* s) { coverage_ = s; }
+
+    // ── GH #276 B4 — CAP-01, a screenshot is waiting for a rendered frame ─
+    //
+    // Set by the backend while a deferred capture is queued; ORed into
+    // `Emulator::end_of_frame()`'s render decision, so the next frame IS
+    // rendered even where a frontend's hint would have skipped it (Qt at speed
+    // above 1x). The capture is "deferred to the next rendered frame"; this is
+    // what guarantees there is one. Read once per frame, never per instruction.
+    bool capture_render() const { return capture_render_; }
+    void set_capture_render(bool on) { capture_render_ = on; }
+
     StepMode step_mode() const { return step_mode_; }
 
     /// Set by MMU when a data breakpoint (read/write) is hit.
@@ -260,18 +562,22 @@ private:
     /// early return, an exception or a forgotten reset.
     void set_guest_access_(bool g) { guest_access_ = g; refresh_gates_(); }
 
-    /// Recompute BOTH cached hot-path gates from the three inputs that feed
-    /// them (active_, persistent_, guest_access_). Named for the gates rather
-    /// than for armed_ alone, which is what it used to maintain: it now also
-    /// owns wp_live_, and a name that mentions only half of what a function
-    /// maintains is how the next person misses the other half.
+    /// Recompute EVERY cached hot-path gate — armed_, wp_live_ and (GH #276 B3)
+    /// attached_ and raster_live_ — from the five inputs that feed them
+    /// (active_, clients_attached_, live_raster_, persistent_, guest_access_).
+    /// Named for the gates rather than for armed_ alone, which is what it used
+    /// to maintain: a name that mentions only part of what a function maintains
+    /// is how the next person misses the rest.
     ///
-    /// Called only from the three setters — i.e. only when a human opened the
-    /// debugger, passed --persistent-breakpoints, or the machine entered or
-    /// left execution (twice per frame, or twice per debugger Step). Never
-    /// from the hot path.
+    /// Called only from the setters above and SuspendScope — i.e. only when a
+    /// human opened the debugger, a backend client attached, detached or
+    /// changed its live-raster request, --persistent-breakpoints was passed, or
+    /// the machine entered or left execution (twice per frame, or twice per
+    /// debugger Step). Never from the hot path.
     void refresh_gates_() {
-        armed_ = active_ || persistent_;
+        armed_ = active_ || clients_attached_ || persistent_;
+        attached_    = active_ || clients_attached_;
+        raster_live_ = active_ || live_raster_;
         wp_live_ = armed_ && guest_access_;
         // Disarming breakpoints drops any pending step-off with them. The gate
         // that consumes it does not run while !armed(), so PC moves on freely
@@ -300,9 +606,19 @@ private:
     void unpause_() {
         if (paused_) step_off_pending_ = true;
         paused_ = false;
+        // GH #276 B2 — the stop evidence describes the stop the machine is
+        // LEAVING. Cleared here rather than in resume(), because resume() is
+        // only one of seven transitions out of paused and this is the one place
+        // all seven pass through — the same argument the GH #221 arm rests on.
+        clear_stop_evidence();
+        ++resume_gen_;
     }
 
     bool active_ = false;
+    // GH #276 B3 — the third armed_ contributor. APPENDED next to its siblings
+    // rather than at the end of the class: all three are read only by
+    // refresh_gates_(), never by the hot path (which reads armed_).
+    bool clients_attached_ = false;
     bool persistent_ = false;
     bool armed_ = false;
     // Kept adjacent to armed_ deliberately: the eight Mmu watchpoint sites
@@ -315,10 +631,46 @@ private:
     // construction rather than by remembering to say so.
     bool guest_access_ = false;
     bool wp_live_ = false;
+    // GH #276 B3 — the two gates that replace active() in the hot path, and the
+    // one input only they read. Precomputed by refresh_gates_(). After wp_live_
+    // rather than between it and armed_, which the comment above keeps adjacent.
+    bool attached_    = false;
+    bool raster_live_ = false;
+    bool live_raster_ = false;
     bool paused_ = false;
     bool step_off_pending_ = false;
     bool data_bp_hit_ = false;
     uint16_t data_bp_addr_ = 0;
+    // GH #276 B2 — see note_watch_stop() / note_magic_stop().
+    uint64_t resume_gen_ = 0;
+    bool     watch_stop_ = false;
+    bool     watch_stop_is_write_ = false;
+    bool     magic_stop_ = false;
+    uint16_t watch_stop_addr_ = 0;
+    uint16_t magic_stop_pc_   = 0;
+
+    // ── GH #276 B2 — appended, never interleaved ────────────────────────
+    void recompute_boundary_work_() {
+        event_boundary_work_ = ring_nonempty_ || cycle_armed_;
+    }
+
+    /// The one body behind `latch_event` and `latch_event_at`.
+    void latch_event_at_(jnext::dbg::LatchEntry& e, const uint64_t* at);
+
+    jnext::dbg::EventTable* events_ = nullptr;
+    std::function<bool()> event_drain_;
+    std::function<bool(uint16_t)> execute_gate_;
+    std::function<void(jnext::dbg::LatchEntry&, const uint64_t*)> stamp_common_;
+    std::function<void()> machine_replaced_;
+    bool event_boundary_work_ = false;
+    bool ring_nonempty_       = false;
+    bool cycle_armed_         = false;
+    bool execute_armed_       = false;
+    bool nextreg_armed_       = false;
+    // GH #276 B4 — INS-20; see coverage_sink().
+    std::bitset<65536>* coverage_ = nullptr;
+    // GH #276 B4 — CAP-01; see capture_render().
+    bool capture_render_ = false;
     StepMode step_mode_ = StepMode::NONE;
     uint16_t step_out_sp_ = 0;
     uint64_t target_cycle_ = 0;

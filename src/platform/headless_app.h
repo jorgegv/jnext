@@ -2,9 +2,12 @@
 #include <string>
 #include <vector>
 #include <cstdint>
-#include "screenshot.h"
+#include <memory>
+#include "core/screenshot.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "debug/debugger.h"
+#include "platform/host_probe.h"
 #include "video/renderer.h"
 
 /// Headless application shell — no display, no audio, no input.
@@ -16,6 +19,12 @@ public:
     void shutdown();
 
     Emulator& emulator() { return emulator_; }
+
+    /// GH #276 B4 — the process-lifetime debugger backend this loop owner hosts
+    /// (§6.1 of the B4 plan): constructed by a successful init(), it lives across
+    /// every cold boot and is pumped once per tick. Valid only after init()
+    /// returned true.
+    jnext::dbg::Debugger& debugger() { return *debugger_; }
 
     void set_config(const EmulatorConfig& cfg) { config_ = cfg; config_set_ = true; }
 
@@ -127,6 +136,23 @@ public:
 private:
     Emulator emulator_;
 
+    // GH #276 B4 — declared AFTER emulator_ so it is destroyed FIRST: its
+    // destructor retires what it published into the emulator's DebugState.
+    std::unique_ptr<jnext::dbg::Debugger> debugger_;
+    // GH #276 B5 — the JNEXT_HOST_PROBE regression fixture (platform/host_probe.h):
+    // null unless the variable is set. Declared AFTER debugger_ so it is
+    // destroyed FIRST — it detaches its client and removes its service.
+    std::unique_ptr<HostProbe> host_probe_;
+
+    /// The cold boot itself (reconstruct + init, platform/emulator_boot.h) and
+    /// the loop's pending-work reset — what `LoopDriver::cold_boot` runs for a
+    /// client's `reset(Hard)`, which brackets the boot with its own capture.
+    void boot_machine(const std::string& load_file);
+    /// A cold boot THIS loop owner decides on (a guest NR 0x02 hard reset, a
+    /// NEX load request, the `loadnex:` test hook): `boot_machine()` between
+    /// `on_cold_boot_begin()` and `on_cold_boot_done()` (CTL-12 rule 5).
+    void guest_cold_boot(const std::string& load_file);
+
     // Pending --inject state
     std::string inject_file_;
     uint16_t    inject_org_ = 0;
@@ -141,6 +167,12 @@ private:
     std::string screenshot_file_;
     int         screenshot_countdown_ = -1;
     uint8_t     screenshot_layers_ = Renderer::LAYER_ALL;
+    // GH #276 B4 (O2) — the capture has been handed to the backend (at the
+    // count's zero); `rendered_frames()` then, to tell a tick that rendered it
+    // from one that did not; and a queue the backend refused.
+    bool        screenshot_queued_    = false;
+    uint64_t    screenshot_queued_at_ = 0;
+    bool        screenshot_refused_   = false;
 
     // Pending --delayed-automatic-exit state
     int         exit_countdown_ = -1;

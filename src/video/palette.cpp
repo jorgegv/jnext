@@ -532,6 +532,40 @@ void PaletteManager::write_entry(uint16_t rgb333, uint8_t priority)
     advance_index();
 }
 
+// ---------------------------------------------------------------------------
+// GH #276 §4.2 / §4.2a INS-15 — the debugger's raw per-bank read and write.
+//
+// The read is the `apply_change` switch above read backwards; the write IS
+// `write_entry` minus the two things that belong to the guest's NR 0x40/0x41
+// cursor — it does not use `index_`/`target_palette_` and it does not
+// `advance_index()`.
+// ---------------------------------------------------------------------------
+
+uint16_t PaletteManager::entry_rgb333(PaletteId target, uint8_t index) const
+{
+    const int bank = (static_cast<int>(target) >= 4) ? 1 : 0;
+    switch (target) {
+        case PaletteId::ULA_FIRST:
+        case PaletteId::ULA_SECOND:      return ula_rgb333_[bank][index];
+        case PaletteId::LAYER2_FIRST:
+        case PaletteId::LAYER2_SECOND:   return layer2_rgb333_[bank][index];
+        case PaletteId::SPRITE_FIRST:
+        case PaletteId::SPRITE_SECOND:   return sprite_rgb333_[bank][index];
+        case PaletteId::TILEMAP_FIRST:
+        case PaletteId::TILEMAP_SECOND:  return tilemap_rgb333_[bank][index];
+    }
+    return 0;
+}
+
+void PaletteManager::set_entry_rgb333(PaletteId target, uint8_t index,
+                                      uint16_t rgb333, uint8_t priority)
+{
+    const PaletteChange c{current_line_, target, index,
+                          static_cast<uint16_t>(rgb333 & 0x01FF), priority};
+    log_change(c);
+    apply_change(c);
+}
+
 void PaletteManager::apply_change(const PaletteChange& c)
 {
     const int bank = (static_cast<int>(c.target) >= 4) ? 1 : 0;

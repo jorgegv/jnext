@@ -1,0 +1,26 @@
+# GH #276 §11 item 3 — hot-latch interleaved A/B
+# sha=e2f66ec96 core=9 pairs=7 load1_start=0.89
+# baseline=/home/jorgegv/tmp/worktrees/gh276-b2-bench-base/build/gui-release/jnext
+# new=/home/jorgegv/tmp/worktrees/gh276-backend/build/gui-release/jnext
+
+## boot-nextzxos (machine=next frames=400)
+  B   median=   186250569 T/s  spread=  2.3%  hits=-          (baseline)
+  U   median=   181680831 T/s  spread=  3.5%  hits=-          -2.5% vs B
+  P   median=   178184065 T/s  spread=  3.1%  hits=0          -4.3% vs B
+  A1  median=   176568272 T/s  spread=  3.6%  hits=121686     -5.2% vs B
+  A2  median=   159150215 T/s  spread=  1.4%  hits=2557115    -14.6% vs B
+
+## copper-demo (machine=next frames=400 load=copper_demo.nex)
+  B   median=    74655556 T/s  spread=  1.2%  hits=-          (baseline)
+  U   median=    74918796 T/s  spread=  1.4%  hits=-          +0.4% vs B
+
+## beast (machine=next frames=400 load=beast.nex)
+  B   median=    68015514 T/s  spread=  1.1%  hits=-          (baseline)
+  U   median=    67658916 T/s  spread=  1.5%  hits=-          -0.5% vs B
+
+## boot-48k (machine=48k frames=600)
+  B   median=    67521426 T/s  spread=  2.6%  hits=-          (baseline)
+  U   median=    66484849 T/s  spread=  2.3%  hits=-          -1.5% vs B
+
+# load1_end=1.90
+# result file: /home/jorgegv/tmp/worktrees/gh276-backend/test/bench/hotlatch-e2f66ec96.txt

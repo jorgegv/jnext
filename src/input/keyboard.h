@@ -75,11 +75,44 @@ public:
     };
 
     /// Queue a sequence of auto-typed keys. Each entry is pressed for
-    /// `frames` video frames, with a 2-frame gap between keys.
-    void queue_auto_type(const std::vector<AutoKey>& keys);
+    /// `frames` video frames, with a 4-frame all-released gap between keys
+    /// (`tick_auto_type()`; the "2-frame" this used to say was never the code).
+    ///
+    /// GH #276 B4 (§4.5 IN-01, REQ-dsl-18) — it APPENDS. It used to REPLACE
+    /// the queue, so a second producer in the same frame clobbered the first
+    /// and a key issued while one was held stranded the held key down. Every
+    /// producer inherits the append: the phantom typist, the two tape
+    /// `LOAD ""` sites, `--delayed-keypress`, and the debugger's `press_key`.
+    ///   * Appended behind an entry in flight, the entry's frame counter and
+    ///     gap are NOT touched — a held key does not restart its hold.
+    ///   * Onto an IDLE (empty) queue the counters are reset, exactly as the
+    ///     replacing version did, so a producer that finds nothing queued sees
+    ///     no change in behaviour.
+    ///   * The union of everything queued stays within MAX_AUTO_TYPE_KEYS; what
+    ///     does not fit is dropped with the same loud error.
+    /// Returns how many of `keys` were queued.
+    size_t queue_auto_type(const std::vector<AutoKey>& keys);
 
-    /// Called once per frame to advance the auto-type state machine.
+    /// Called once per frame to advance the auto-type state machine. Applies
+    /// the queued LEVEL changes (queue_matrix_level / queue_extended_level)
+    /// first — see there.
     void tick_auto_type();
+
+    /// GH #276 B4 (§4.5 REQ-dsl-20, IN-02) — a LEVEL change for the NEXT FRAME
+    /// EDGE rather than now: applied by the next `tick_auto_type()`, before the
+    /// auto-type step, in the order queued. The debugger's `set_key` /
+    /// `set_extended_key` land here, so a level set issued anywhere in frame N
+    /// — a mid-frame handler, a remote command between frames — is invisible to
+    /// frame N and visible from N+1, the frame a pulse issued at the same time
+    /// is pressed for. The host's own key path (`set_key(SDL_Scancode)`) is
+    /// untouched and still immediate.
+    ///
+    /// NOT machine state: nothing here is in the snapshot, and a restore
+    /// (`load_state`) drops what is queued, as it replaces the auto-type queue
+    /// it would have been applied beside. A cold boot builds a new Keyboard.
+    void queue_matrix_level(int row, int col, bool pressed);
+    void queue_extended_level(int id, bool pressed);
+    size_t pending_levels() const { return pending_levels_.size(); }
 
     /// True if auto-type is currently active.
     bool auto_typing() const { return !auto_queue_.empty(); }
@@ -178,11 +211,39 @@ public:
     /// stream and a `.jns` cannot disagree about which fields exist.
     void describe_state(jnext::save::StateDesc& d);
 
+public:
+    // -----------------------------------------------------------------------
+    // GH #276 §4.5 IN-02 / §4.2 INS-16 — the debugger's injection and read
+    // seam on the membrane matrix.
+    //
+    // set_matrix_bit() was private and reachable only through set_key() (an
+    // `SDL_Scancode`) or queue_auto_type() (a timed pulse). IN-02 is a LEVEL
+    // set at a matrix position — what replay of a recorded session needs — and
+    // it has neither a scancode nor a duration, so it needs this entry point
+    // directly. Same function the host path uses: there is one writer of
+    // matrix_, and the debugger is not a second copy of the active-low rule.
+    //
+    // Out-of-range row/col are the implementation's business (see the .cpp);
+    // the caller above validates and refuses, because a silently ignored
+    // injection is indistinguishable from a key that did nothing.
+    // -----------------------------------------------------------------------
+    void set_matrix_bit(int row, int col, bool pressed);
+
+    /// One membrane row as the matrix holds it: 5 bits, ACTIVE-LOW (bit N
+    /// clear = column N pressed). Rows are 0..7; out of range reads 0xFF, the
+    /// all-released value.
+    ///
+    /// NOT read_rows(): that composes the port 0xFE answer for a row SELECT
+    /// mask and folds in the extended keys and the membrane joystick. INS-16
+    /// wants the raw membrane state, which is the thing a recorder samples and
+    /// a replay puts back.
+    uint8_t matrix_row(int row) const {
+        return (row >= 0 && row < 8) ? matrix_[row] : 0xFF;
+    }
+
 private:
     /// matrix_[row]: 5-bit state; bit N = 0 means column N key is pressed.
     uint8_t matrix_[8];
-
-    void set_matrix_bit(int row, int col, bool pressed);
 
 public:
     /// Hard cap on a queued auto-type sequence. Issue #42: the queue is
@@ -199,6 +260,14 @@ private:
     std::vector<AutoKey> auto_queue_;
     int auto_frame_count_ = 0;
     bool auto_gap_ = false;  // true = in gap between keys
+
+    // GH #276 B4 — the level changes waiting for the next frame edge.
+    struct PendingLevel {
+        bool extended;   // false: matrix (a = row, b = col); true: extended key id a
+        int  a, b;
+        bool pressed;
+    };
+    std::vector<PendingLevel> pending_levels_;
 
     /// Extended-key 16-bit ACTIVE-HIGH register. Default 0x0000 = all
     /// keys released. Bit `id` set ⇔ ExtKey(id) pressed. Bit layout

@@ -2876,9 +2876,10 @@
 out, because it is the one that silently ruins a CI pipeline everywhere else:</p>
 <blockquote>
 <p><strong>A screenshot that was requested and never taken is an error.</strong> If the
-automatic exit fires before the capture comes due, JNEXT logs an error and
-exits non-zero. It never writes nothing and reports success, and it never
-writes a stale frame in place of the one you asked for.</p>
+automatic exit fires before the capture comes due, or before a frame has been
+rendered for it, JNEXT logs an error and exits non-zero. It never writes
+nothing and reports success, and it never writes a stale frame in place of
+the one you asked for.</p>
 </blockquote>
 <p>You can see it directly:</p>
 <pre><code class="language-console">$ jnext --headless --load myprog.nex \
@@ -2891,6 +2892,22 @@ writes a stale frame in place of the one you asked for.</p>
 $ echo $?
 1
 </code></pre>
+<p>A capture is always taken from a frame rendered after it comes due, so a
+paused machine defers it. Under <code>--headless</code> nothing resumes a paused machine:
+a program that stops itself with <code>--magic-breakpoint</code> before its capture point
+renders no further frames, and the exit bound finds the capture still waiting:</p>
+<pre><code class="language-console">$ jnext --headless --magic-breakpoint --load stops-itself.nex \
+      --delayed-screenshot paused.png --delayed-screenshot-frames 200 \
+      --delayed-automatic-exit-frames 250
+...
+[platform] [error] --delayed-screenshot: NO screenshot was written to
+  'paused.png' (layers: all); the emulator exited with the capture still
+  pending. Exiting non-zero.
+$ echo $?
+1
+</code></pre>
+<p>No <code>paused.png</code> is written, not even the picture that was on screen when the
+machine stopped: that would be a frame from before the one you asked for.</p>
 <p>Without that guarantee, a script whose program hangs early gets no PNG, a zero
 exit status, and — if the comparison step is written defensively — a green
 build. The contract means a broken run fails loudly at the emulator, before

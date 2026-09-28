@@ -227,7 +227,15 @@ public:
     //
     // The eight watchpoint sites below all open with the SAME gate, in the
     // same order: null pointer, then DebugState::watchpoints_live(), then
-    // has_any_watchpoints(), and only then the per-address scan.
+    // — GH #276 §6.1 — rd/wr_watch_armed(addr), the per-8 KB-slot mask byte
+    // that replaced has_any_watchpoints(); the per-address scan and the
+    // CAP-EVT latch are behind it, out of line in watch_read_/watch_write_.
+    //
+    // The mask is STRICTLY NARROWER than the bool it replaced: it covers the
+    // legacy watchpoints AND the `Mem` subscriptions, and an armed watch in
+    // slot 3 no longer makes every access in the other seven slots call the
+    // scan. Same answer, fewer calls; measured as noise with nothing armed
+    // (§6.3 row P1U).
     //
     // watchpoints_live() rather than armed() because read() is not only the
     // CPU's read: the Watches, Memory, Stack and Disassembly panels
@@ -256,10 +264,8 @@ public:
             uint8_t val = (addr < 0x2000) ? mf_rom_byte_(addr)
                                           : mf_ram_byte_(addr);
             if (debug_state_ && debug_state_->watchpoints_live() &&
-                debug_state_->breakpoints().has_any_watchpoints() &&
-                debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
-                debug_state_->set_data_bp_hit(true);
-                debug_state_->set_data_bp_addr(addr);
+                debug_state_->rd_watch_armed(addr)) {
+                watch_read_(addr, val);
             }
             return val;
         }
@@ -271,10 +277,8 @@ public:
             if (divmmc_read(addr, val)) {
                 // Check data breakpoints (only when breakpoints are armed and watchpoints exist)
                 if (debug_state_ && debug_state_->watchpoints_live() &&
-                    debug_state_->breakpoints().has_any_watchpoints() &&
-                    debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
-                    debug_state_->set_data_bp_hit(true);
-                    debug_state_->set_data_bp_addr(addr);
+                    debug_state_->rd_watch_armed(addr)) {
+                    watch_read_(addr, val);
                 }
                 return val;
             }
@@ -331,10 +335,8 @@ public:
                 // cycle, the latched byte is the prior CPU-bus value — not
                 // currently modelled at this granularity).
                 if (debug_state_ && debug_state_->watchpoints_live() &&
-                    debug_state_->breakpoints().has_any_watchpoints() &&
-                    debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
-                    debug_state_->set_data_bp_hit(true);
-                    debug_state_->set_data_bp_addr(addr);
+                    debug_state_->rd_watch_armed(addr)) {
+                    watch_read_(addr, 0xFF);
                 }
                 return 0xFF;
             }
@@ -343,10 +345,8 @@ public:
             const uint8_t* p = ram_.page_ptr(phys_page);
             uint8_t val = p ? p[addr & 0x1FFF] : 0xFF;
             if (debug_state_ && debug_state_->watchpoints_live() &&
-                debug_state_->breakpoints().has_any_watchpoints() &&
-                debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
-                debug_state_->set_data_bp_hit(true);
-                debug_state_->set_data_bp_addr(addr);
+                debug_state_->rd_watch_armed(addr)) {
+                watch_read_(addr, val);
             }
             return val;
         }
@@ -364,10 +364,8 @@ public:
             const uint8_t* p = ram_.page_ptr(altrom_sram_page_(addr));
             uint8_t val = p ? p[addr & 0x1FFF] : 0xFF;
             if (debug_state_ && debug_state_->watchpoints_live() &&
-                debug_state_->breakpoints().has_any_watchpoints() &&
-                debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
-                debug_state_->set_data_bp_hit(true);
-                debug_state_->set_data_bp_addr(addr);
+                debug_state_->rd_watch_armed(addr)) {
+                watch_read_(addr, val);
             }
             return val;
         }
@@ -379,10 +377,8 @@ public:
             const uint8_t* p = ram_.page_ptr((static_cast<uint16_t>(nr_04_romram_bank_) << 1) | slot);
             uint8_t val = p ? p[addr & 0x1FFF] : 0xFF;
             if (debug_state_ && debug_state_->watchpoints_live() &&
-                debug_state_->breakpoints().has_any_watchpoints() &&
-                debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
-                debug_state_->set_data_bp_hit(true);
-                debug_state_->set_data_bp_addr(addr);
+                debug_state_->rd_watch_armed(addr)) {
+                watch_read_(addr, val);
             }
             return val;
         }
@@ -407,21 +403,51 @@ public:
         }
         // Check data breakpoints (only when breakpoints are armed and watchpoints exist)
         if (debug_state_ && debug_state_->watchpoints_live() &&
-            debug_state_->breakpoints().has_any_watchpoints() &&
-            debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
-            debug_state_->set_data_bp_hit(true);
-            debug_state_->set_data_bp_addr(addr);
+            debug_state_->rd_watch_armed(addr)) {
+            watch_read_(addr, val);
         }
+        return val;
+    }
+
+    /// F1 (GH #276 §4.2 INS-02) — a NON-PERTURBING read of the live CPU map.
+    ///
+    /// `read()` above is the GUEST's read and has two side effects: it captures
+    /// the byte into the +3 floating-bus latch on every contended access (VHDL
+    /// zxnext.vhd:4498-4509) and it raises the data-breakpoint latch on a READ
+    /// watchpoint. A debugger `peek` must do neither — §4.2 makes observation
+    /// side-effect free BY CONTRACT, not by the caller's discipline: a script
+    /// handler runs INSIDE `GuestExecutionScope`, where `watchpoints_live()` is
+    /// true, so "the panel is outside execution anyway" is not the whole story.
+    ///
+    /// It wraps `read()` rather than duplicating it — one body, so the overlay
+    /// arbitration (boot ROM, Multiface, DivMMC, Layer 2, alt-ROM, config mode)
+    /// can never drift between the two. `InspectionScope` is the project's own
+    /// idiom for "this block is the DEBUGGER looking" and drops
+    /// `watchpoints_live()` for the duration, RAII so no path out can leave it
+    /// set; the floating-bus byte is saved and put back, which is what makes an
+    /// F1 sweep in +3 mode invisible (`debugger_backend_test` INS-F1-01).
+    ///
+    /// NOT `const`: it restores state that `read()` may have written, and
+    /// `read()` is not const. A const overload would have to be a second copy
+    /// of the arbitration, which is precisely what this avoids.
+    inline uint8_t peek(uint16_t addr) {
+        const uint8_t saved_fb = p3_floating_bus_dat_;
+        uint8_t val;
+        if (debug_state_) {
+            DebugState::InspectionScope scope(*debug_state_);
+            val = read(addr);
+        } else {
+            val = read(addr);
+        }
+        p3_floating_bus_dat_ = saved_fb;
         return val;
     }
 
     inline void write(uint16_t addr, uint8_t val) override {
         // Check data breakpoints (only when breakpoints are armed and watchpoints exist)
         if (debug_state_ && debug_state_->watchpoints_live() &&
-            debug_state_->breakpoints().has_any_watchpoints() &&
-            debug_state_->breakpoints().has_watchpoint(addr, WatchType::WRITE)) {
-            debug_state_->set_data_bp_hit(true);
-            debug_state_->set_data_bp_addr(addr);
+            debug_state_->wr_watch_armed(addr)) {
+            watch_write_(addr, val);
         }
         // MF memory overlay (priority above DivMMC per VHDL zxnext.vhd:2937).
         // VHDL :3028-3035: writes to cpu_a(15:14)='00' under mf_mem_en=1
@@ -1412,6 +1438,66 @@ public:
     uint8_t*       bank5_vram()       { return bank5_vram_.data(); }
     const uint8_t* bank5_vram() const { return bank5_vram_.data(); }
 
+    // ───────── GH #276 §4.2 INS-02 — the debugger's physical-page seam ──────
+    //
+    // The 8 KB backing store of NR 0x50-0x57 page `page`, REGARDLESS of what is
+    // mapped where: a `MemSpace::Page` peek addresses the page itself, past any
+    // DivMMC / Multiface / Layer 2 overlay sitting over a slot. That is the
+    // point of the Memory panel's slot view, and it is why this cannot be done
+    // by walking the CPU map.
+    //
+    // It applies the same three-way routing `rebuild_ptr()` applies — the two
+    // dedicated BRAMs first (Next mode: page 0x0E is `bank7_ram`,
+    // zxnext.vhd:6670; pages 0x0A/0x0B are the two halves of `bank5_ram`,
+    // :6558-6578), then `to_sram_page()` into external SRAM. It does NOT share
+    // code with `rebuild_ptr()`, and that is a deliberate limit rather than an
+    // oversight: that function also computes `sram_read_wait28_` per slot and
+    // carries two slot-specific legacy-ROM branches for pages >= 0xE0, none of
+    // which a page peek has or wants. The agreement between the two is pinned
+    // BEHAVIOURALLY instead, by `debugger_backend_test` rows that map a slot to
+    // an ordinary page, to a bank-5 page and to a bank-7 page and assert
+    // `peek(Page{p})` and `peek(Cpu)` return the same byte — a comment could not
+    // have caught a drift, and those rows do.
+    //
+    // Pages >= 0xE0 have no backing store to hand out (`mmu_A21_A13(8)='1'` ->
+    // `sram_pre_active='0'`, zxnext.vhd:3061: the SRAM does not respond), so they
+    // return nullptr and the caller refuses with `InvalidPage`.
+    uint8_t* nr_page_ptr(uint8_t page) {
+        if (page >= 0xE0) return nullptr;
+        if (rom_in_sram_ && page == 0x0E) return bank7_bram_.data();
+        if (rom_in_sram_ && (page == 0x0A || page == 0x0B))
+            return bank5_vram_.data() + ((page & 1) ? 0x2000 : 0);
+        return ram_.page_ptr(to_sram_page(page));
+    }
+    const uint8_t* nr_page_ptr(uint8_t page) const {
+        return const_cast<Mmu*>(this)->nr_page_ptr(page);
+    }
+
+    /// GH #276 INS-02 — the 16 KB ROM IMAGE `index` (0..3), read-only.
+    ///
+    /// On a `rom_in_sram_` machine (Next mode) a ROM image is SRAM pages
+    /// `2*index` / `2*index+1`, addressed WITHOUT the `to_sram_page` shift —
+    /// exactly as `map_rom_physical()` does it (`ram_.page_ptr(rom_page)`), and
+    /// exactly why `MemSpace::Page` cannot reach it: those are un-shifted `ram_`
+    /// page indices outside the NR page number space. Otherwise it is the `Rom`
+    /// object's image. The two 8 KB halves are adjacent in both backing stores,
+    /// so the returned pointer spans the whole 16 KB.
+    const uint8_t* rom_image_ptr(uint8_t index) const {
+        if (index > 3) return nullptr;
+        const uint16_t page = static_cast<uint16_t>(index * 2);
+        return rom_in_sram_ ? ram_.page_ptr(page) : rom_.page_ptr(page);
+    }
+
+    /// GH #276 INS-03 — the NR 0x50-0x57 value of `slot` AS WRITTEN, including
+    /// the 0xFF ROM sentinel. `get_effective_page()` above resolves that
+    /// sentinel through legacy paging; `SlotInfo` reports both, because the
+    /// sentinel is what the register reads back and the resolved page is what
+    /// the slot is actually serving.
+    uint8_t get_nr_page(int slot) const {
+        if (slot < 0 || slot > 7) return 0xFF;
+        return nr_mmu_[slot];
+    }
+
 private:
     // Dedicated bank-7 lower-half BRAM (see bank7_bram() accessor).
     std::array<uint8_t, 0x2000> bank7_bram_{};
@@ -1534,7 +1620,67 @@ private:
         return static_cast<uint8_t>(0x0C | (sram_alt_128_n() ? 0x02 : 0x00) | a13);
     }
 
+    /// Recompute `read_ptr_[slot]` / `write_ptr_[slot]`, then tell the
+    /// debugger the slot's page may have moved (§6.1 `on_slot_remapped`).
+    ///
+    /// The notification is in this wrapper rather than in the body because the
+    /// body has six `return`s and a seventh would be added by the next person
+    /// to touch it — "every exit must remember" is exactly the shape that ships
+    /// a missed one.
     void rebuild_ptr(int slot);
+    void rebuild_ptr_body_(int slot);
+
+    /// GH #276 §6.1 — tell the debugger that `slot`'s page may have moved.
+    ///
+    /// **EVERY function that writes `slots_[slot]` or re-points `read_ptr_[slot]`
+    /// must end with this call.** A page-qualified `Mem` filter's slot-mask bit
+    /// is computed from the page this reports, so a path that forgets makes that
+    /// filter WRONG IN BOTH DIRECTIONS — silently: the stale page matches slots
+    /// it is not in, and the live page matches none.
+    ///
+    /// The list is exactly two — `rebuild_ptr()` and `map_rom_physical()` — and
+    /// it is CHECKED rather than trusted: `EVT-SLOT-10..16` has one row per
+    /// public mapping entry point (`set_page`, `map_rom`, `map_128k_bank`,
+    /// `map_plus3_bank`, and a guest `OUT (0x7FFD)` ROM select), because
+    /// `map_rom_physical()` shipped without it and no row could see that. A new
+    /// mapping function needs a new row.
+    void notify_slot_remapped_(int slot);
+
+    /// The ONE writer of `nr_mmu_[slot]`, and it notifies.
+    ///
+    /// `get_effective_page()` reads TWO arrays — `nr_mmu_` and `slots_` — and
+    /// returns the first unless it holds the 0xFF ROM sentinel. So a page is only
+    /// SETTLED once both are written, and `map_rom()`,
+    /// `apply_legacy_rom_slots_()` and `engage_legacy_rom_paging_slot()` all write
+    /// `nr_mmu_` AFTER their `map_rom_physical()` call — which means a notify from
+    /// `map_rom_physical()` alone fires with the page that is about to change.
+    /// Routing both arrays' writes through a notifying setter makes the rule
+    /// greppable instead of remembered: `git grep 'nr_mmu_\[' src/memory/mmu.cpp`
+    /// should show reads and this setter, nothing else. Caught by the EVT-SLOT-12..17
+    /// invariant sweep, which compares the mask against `get_effective_page()` for
+    /// all eight slots after every mapping call.
+    void set_nr_mmu_(int slot, uint8_t page) {
+        if (slot < 0 || slot > 7) return;
+        nr_mmu_[slot] = page;
+        notify_slot_remapped_(slot);
+    }
+
+    // ── GH #276 B2 — the out-of-line half of the eight watch sites ───────
+    //
+    // The INLINE half is the gate: `debug_state_ && watchpoints_live() &&
+    // rd/wr_watch_armed(addr)` — a null test, a cached bool and one byte
+    // load / shift / test (§6.1). Everything behind it is here, out of line,
+    // because it runs only when an armed range could match this 8 KB slot:
+    // the legacy `has_watchpoint()` scan that raises `data_bp_hit_`, and the
+    // CAP-EVT precise match + ring latch.
+    //
+    // `val` is the byte the access carries — for a read, what the site is about
+    // to return; for a write, what is about to be stored. The write form peeks
+    // the PREVIOUS byte for `Event::prev` (§4.3, "one peek at the latch site,
+    // so a script can undo a caught write"), which is why both are non-const
+    // and why they are member functions rather than free helpers.
+    void watch_read_(uint16_t addr, uint8_t val);
+    void watch_write_(uint16_t addr, uint8_t val);
     // Map a ROM page into a slot without updating nr_mmu_ (callers
     // set nr_mmu_ themselves: reset() seeds 0xFF, legacy paging writes
     // the physical page for test/debugger observability).

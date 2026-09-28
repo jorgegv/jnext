@@ -5,6 +5,7 @@
 #include "core/saveable.h"
 #include "save/state_desc.h"
 #include "save/state_desc_bin.h"
+#include "debug/event_table.h"
 #include <cstring>
 
 namespace {
@@ -211,7 +212,7 @@ void Mmu::reset(bool hard) {
     if (boot_rom_ && config_mode_) boot_rom_en_ = true;
     for (int i = 0; i < 8; ++i) {
         slots_[i] = RESET_PAGES[i];
-        nr_mmu_[i] = RESET_PAGES[i];
+        set_nr_mmu_(static_cast<int>(i), RESET_PAGES[i]);
         read_only_[i] = false;
         rebuild_ptr(i);
     }
@@ -228,6 +229,32 @@ void Mmu::reset(bool hard) {
 }
 
 void Mmu::rebuild_ptr(int slot) {
+    rebuild_ptr_body_(slot);
+    // REDUNDANT FOR EVERY LIVE PAGING PATH, and stated as such: `get_effective_page()`
+    // reads only `nr_mmu_` and `slots_`, and both have exactly one writer that
+    // notifies (`set_nr_mmu_()` and `map_rom_physical()`), so a page CHANGE is
+    // already reported before this runs. It survives mutation for that reason.
+    // Kept because `Mmu::load_state()` writes both arrays through a `StateDesc`
+    // walk — bypassing both setters — and then closes with
+    // `for (i) rebuild_ptr(i)`, which makes this the restore path's natural
+    // notifier; `Emulator::debug_after_state_restore_()` covers the same path a
+    // second time, and `EVT-ST-24` pins the PROPERTY rather than either mechanism.
+    notify_slot_remapped_(slot);
+}
+
+// GH #276 §6.1 — see the header. NOT `rebuild_ptr`-only: `map_rom_physical()`
+// writes `slots_`, `read_only_` and both pointers itself and never calls
+// `rebuild_ptr()`, and it is reached from a plain guest `OUT (0x7FFD)` ROM
+// select (apply_legacy_rom_slots_ -> apply_legacy_paging_ -> the port handler),
+// from `map_rom()`, from `engage_legacy_rom_paging_slot()` and from `reset()`.
+// B2 shipped with the notification in `rebuild_ptr` alone, so every one of those
+// paths left a page-qualified `Mem` filter reading a stale page.
+void Mmu::notify_slot_remapped_(int slot) {
+    if (debug_state_)
+        debug_state_->on_slot_remapped(slot, get_effective_page(slot));
+}
+
+void Mmu::rebuild_ptr_body_(int slot) {
     uint8_t page = slots_[slot];
     // GH #92 — default: reads wait at 28 MHz (external SRAM asserts
     // sram_req, zxnext.vhd:3154+3175). The branches below clear the flag
@@ -388,7 +415,7 @@ void Mmu::set_page(int slot, uint8_t page) {
     if (slot < 0 || slot > 7) return;
     Log::memory()->debug("MMU slot {} → RAM page {:#04x}", slot, page);
     slots_[slot] = page;
-    nr_mmu_[slot] = page;
+    set_nr_mmu_(slot, page);
     read_only_[slot] = false;
     rebuild_ptr(slot);
 }
@@ -407,6 +434,7 @@ void Mmu::map_rom_physical(int slot, uint8_t rom_page) {
     // Leaves nr_mmu_[slot] unchanged; callers update it as needed.
     // reset() seeds 0xFF (VHDL ROM sentinel); legacy paging callers
     // (map_128k_bank / map_plus3_bank) overwrite with physical page.
+    notify_slot_remapped_(slot);
 }
 
 void Mmu::set_rom_in_sram(bool en) {
@@ -420,7 +448,7 @@ void Mmu::map_rom(int slot, uint8_t rom_page) {
     map_rom_physical(slot, rom_page);
     // NR 0x50–0x57 register-visible value: an explicit ROM map from an NR
     // write shows the 0xFF sentinel (VHDL zxnext.vhd:4611-4612).
-    if (slot >= 0 && slot < 8) nr_mmu_[slot] = 0xFF;
+    set_nr_mmu_(slot, 0xFF);
 }
 
 void Mmu::set_l2_port(uint8_t val, uint8_t active_bank) {
@@ -549,8 +577,8 @@ void Mmu::apply_legacy_rom_slots_() {
         // slots 0/1 are in legacy ROM paging mode; the physical ROM page is
         // derived dynamically from port_7ffd / port_1ffd / NR 0x8C / NR 0x8E.
         // Use get_effective_page(slot) to observe the derived page.
-        nr_mmu_[0] = 0xFF;
-        nr_mmu_[1] = 0xFF;
+        set_nr_mmu_(0, 0xFF);
+        set_nr_mmu_(1, 0xFF);
     }
 }
 
@@ -671,7 +699,7 @@ void Mmu::engage_legacy_rom_paging_slot(int slot, bool set_nr_sentinel) {
     // a verbatim 0xE0..0xFE value (or the 0x00/0x01 EFF7(3)=1-derived
     // value) is preserved for the NR-port read-back at :6075-6082.
     if (set_nr_sentinel) {
-        nr_mmu_[slot] = 0xFF;
+        set_nr_mmu_(slot, 0xFF);
     }
 }
 
@@ -1158,4 +1186,91 @@ uint8_t Mmu::mf_ram_byte_(uint16_t addr) const {
 
 void Mmu::mf_ram_write_(uint16_t addr, uint8_t val) {
     multiface_->ram_data()[addr - 0x2000] = val;
+}
+
+// ---------------------------------------------------------------------------
+// GH #276 B2 — the out-of-line half of the eight watch sites
+//
+// Reached only when the inline gate passed: a `DebugState` is attached,
+// `watchpoints_live()` is true (so the access is the GUEST's, not a panel's),
+// and the per-slot mask bit for this 8 KB slot is set. Two consumers, in this
+// order, because the first is the pre-existing behaviour and must not change:
+//
+//   1. the legacy `BreakpointSet` watchpoint, raising `data_bp_hit_` exactly as
+//      the inline sites did before B2;
+//   2. the CAP-EVT `Mem` subscription, precisely matched and latched into the
+//      512-entry ring for the boundary drain (§4.3).
+//
+// `phys_page` is `get_effective_page(addr >> 13)` — the LOGICAL MMU page the
+// slot serves, resolved through legacy paging, which is the number
+// `MemSpace::page()`, `SlotInfo::nr_page` and DZRP's `bank+1` watchpoints all
+// mean, and the number the slot mask itself is built from. STATED LIMITATION:
+// for an access served by a DivMMC, Multiface or Layer 2 OVERLAY the byte does
+// not come from that page at all — those stores are outside the page-number
+// space entirely — so `phys_page` names what the MMU maps, not what answered.
+// Reporting the overlay's private offset would be a page number that no filter,
+// and no `peek(Page{})`, can address.
+// ---------------------------------------------------------------------------
+
+void Mmu::watch_read_(uint16_t addr, uint8_t val) {
+    if (debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
+        debug_state_->set_data_bp_hit(true);
+        debug_state_->set_data_bp_addr(addr);
+        // CTL-13's evidence: the hot loop consumes data_bp_hit_ in the same
+        // breath as the pause, so without this `state()` cannot say WHY.
+        debug_state_->note_watch_stop(addr, /*is_write=*/false);
+    }
+    jnext::dbg::EventTable* t = debug_state_->event_table();
+    if (!t) return;
+    const uint16_t page = get_effective_page(addr >> 13);
+    if (!t->mem_would_match(addr, page, jnext::dbg::Access::Read)) return;
+    jnext::dbg::LatchEntry e;
+    e.kind        = jnext::dbg::EventKind::Mem;
+    e.access      = jnext::dbg::Access::Read;
+    e.addr        = addr;
+    e.page_or_aux = page;
+    e.value       = val;
+    // A read leaves the byte alone, so `prev` is the byte — NOT zero, which a
+    // reader would have to know to ignore.
+    e.prev = val;
+    debug_state_->latch_event(e);
+}
+
+// ONE MORE PAYLOAD FACT, because it surprises a reader of the `Mem{Write}` row:
+// the watch check sits at the TOP of `write()`, BEFORE the Multiface / DivMMC /
+// Layer 2 / alt-ROM / config-mode arbitration and before the `read_only_[slot]`
+// drop. So a guest write into ROM that lands NOWHERE still raises `Mem{Write}`,
+// with `prev == value` (the byte did not change) and nothing in the payload
+// saying the write was dropped. That is exactly what a pre-B2 WRITE watchpoint
+// did, and it is the behaviour a user watching "who writes here" wants; it is
+// recorded rather than fixed.
+void Mmu::watch_write_(uint16_t addr, uint8_t val) {
+    if (debug_state_->breakpoints().has_watchpoint(addr, WatchType::WRITE)) {
+        debug_state_->set_data_bp_hit(true);
+        debug_state_->set_data_bp_addr(addr);
+        debug_state_->note_watch_stop(addr, /*is_write=*/true);
+    }
+    jnext::dbg::EventTable* t = debug_state_->event_table();
+    if (!t) return;
+    // The precise match here is a COST gate rather than a correctness one — the
+    // boundary drain re-matches every entry against every subscription, so a
+    // spurious latch would be rejected there and never delivered. What it buys
+    // is RING SPACE: without it every write in an armed 8 KB slot consumes an
+    // entry, and the 512-entry bound is reached by writes that could never
+    // match. That IS observable, and EVT-MEM-70/71 observe it with the ring
+    // shrunk to one entry.
+    const uint16_t page = get_effective_page(addr >> 13);
+    if (!t->mem_would_match(addr, page, jnext::dbg::Access::Write)) return;
+    jnext::dbg::LatchEntry e;
+    e.kind        = jnext::dbg::EventKind::Mem;
+    e.access      = jnext::dbg::Access::Write;
+    e.addr        = addr;
+    e.page_or_aux = page;
+    e.value       = val;
+    // §4.3's `prev`: ONE peek at the latch site, so a handler can undo a caught
+    // write. `peek()` and not `read()` — `read()` would capture the byte into
+    // the +3 floating-bus latch and could raise a READ watchpoint on the very
+    // address a WRITE watch just matched.
+    e.prev = peek(addr);
+    debug_state_->latch_event(e);
 }

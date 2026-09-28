@@ -412,6 +412,34 @@ public:
     /// checks that a rewind restores it).
     uint8_t read_pattern_byte(uint16_t addr) const { return read_pattern(addr); }
 
+    /// The whole 16 KB pattern RAM, for a debugger view (GH #276 INS-08
+    /// `pattern_ram()`, which hands out a {ptr, size} pair rather than copying
+    /// 16 KB per refresh). Valid while the engine lives.
+    const uint8_t* pattern_ram_data() const { return pattern_ram_; }
+
+    // -----------------------------------------------------------------
+    // GH #276 §4.2a INS-08 — the debugger's WRITE seam.
+    //
+    // Both writes below address the target DIRECTLY and leave every upload
+    // cursor alone. That is the whole reason they exist: every existing write
+    // path is a port/NR stream that writes wherever its cursor points and then
+    // MOVES it (port 0x57 / 0x5B auto-increment, NR 0x75-0x79 per-byte
+    // increment), so a debugger panel writing sprite 40's byte 2 through them
+    // would first have to repoint the guest's cursor and would leave it moved.
+    //
+    // They DO log the per-scanline change, exactly as the guest paths do: the
+    // renderer replays attribute and pattern writes per line (G12), so a write
+    // that skipped the log would be visible this frame and vanish on the next
+    // re-render of the same frame.
+    // -----------------------------------------------------------------
+
+    /// Write one raw attribute byte of a NAMED sprite. `sprite_idx` 0..127,
+    /// `byte_idx` 0..4; out of range is ignored (the debugger validates first).
+    void write_attr_byte_at(uint8_t sprite_idx, uint8_t byte_idx, uint8_t val);
+
+    /// Write one pattern-RAM byte at a NAMED address (14-bit, wraps).
+    void write_pattern_byte_at(uint16_t addr, uint8_t val);
+
     /// Current pattern-RAM auto-increment offset (14-bit). Observability
     /// seam for the port 0x5B write-gate tests (V18-NMP-NIT-01c).
     uint16_t pattern_offset() const { return pattern_offset_; }

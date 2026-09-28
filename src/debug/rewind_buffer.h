@@ -47,6 +47,16 @@ public:
     size_t depth() const { return count_; }
     bool   empty() const { return count_ == 0; }
 
+    /// Slots there ARE — the `max_frames` the ring was constructed with, which
+    /// is `slots_.size()` because the vector is sized once at construction and
+    /// never resized (a resize builds a new RewindBuffer).
+    ///
+    /// Distinct from depth(): until the ring has wrapped, depth() is how many
+    /// frames have run and this is how many it can hold. GH #276 ST-03
+    /// publishes both so a client can render "12 of 200 frames"; reporting
+    /// depth() for both made every such readout say "12 of 12".
+    size_t capacity() const { return slots_.size(); }
+
     /// Frame cycle of the oldest stored snapshot.
     uint64_t oldest_frame_cycle() const;
 

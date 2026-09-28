@@ -533,15 +533,19 @@ void Keyboard::set_matrix_bit(int row, int col, bool pressed) {
     //
     // The one input a FILE controls is checked at load instead, in
     // `describe_state` below, where a bad coordinate REFUSES the snapshot
-    // rather than being quietly dropped. This guard is what stops a future
-    // caller from reaching the same write; `queue_auto_type()` does not
-    // validate its argument either, so it is reachable today.
+    // rather than being quietly dropped. The debugger's injection verbs
+    // (GH #276 IN-01 / IN-02, `debugger_input.cpp`) validate and REFUSE before
+    // they queue anything, because they are the layer that can report it. This
+    // guard is what stops every other caller from reaching the same write:
+    // GH #276 IN-02 made this function public, and `queue_auto_type()` does
+    // not validate its argument either, so it is reachable today.
     //
     // Refused rather than clamped: a clamped index presses the WRONG key,
     // which reads as an emulation bug. Not on any hot path — once per host key
-    // event, and from `tick_auto_type()` at most a handful of times per frame
-    // (a press and a release, doubled for a shifted pair): `run_frame` ticks
-    // the auto-type FSM once per frame, not per instruction.
+    // event, and from `tick_auto_type()` once per frame edge for each level
+    // change the debugger queued (GH #276 B4) plus at most a handful for the
+    // auto-type step (a press and a release, doubled for a shifted pair):
+    // `run_frame` ticks the auto-type FSM once per frame, not per instruction.
     if (row < 0 || row > 7 || col < 0 || col > 4) {
         Log::input()->warn("Key matrix [{},{}] out of range — ignored", row, col);
         return;
@@ -560,23 +564,59 @@ void Keyboard::set_matrix_bit(int row, int col, bool pressed) {
 // Auto-type
 // ---------------------------------------------------------------------------
 
-void Keyboard::queue_auto_type(const std::vector<AutoKey>& keys) {
-    auto_queue_ = keys;
+size_t Keyboard::queue_auto_type(const std::vector<AutoKey>& keys) {
+    // GH #276 B4 — APPEND (see the declaration). Whether the queue was idle is
+    // read BEFORE the append: it decides whether the counters belong to an
+    // entry in flight (left alone) or to nothing (reset, as the replacing
+    // version always did).
+    const bool   idle = auto_queue_.empty();
+    const size_t room = MAX_AUTO_TYPE_KEYS - auto_queue_.size();
+    const size_t n    = keys.size() < room ? keys.size() : room;
     // Issue #42 — the queue travels in the rewind snapshot at constant
     // width, so it must stay within MAX_AUTO_TYPE_KEYS. Truncating loudly
     // beats letting the sequence through and having every snapshot from
-    // here on be silently dropped for being oversized.
-    if (auto_queue_.size() > MAX_AUTO_TYPE_KEYS) {
+    // here on be silently dropped for being oversized. The cap is on the
+    // UNION of what every producer queued, since it is one queue.
+    if (keys.size() > room) {
         Log::input()->error("Auto-type: {} keystrokes exceeds the {} cap — "
-                            "sequence truncated", keys.size(), MAX_AUTO_TYPE_KEYS);
-        auto_queue_.resize(MAX_AUTO_TYPE_KEYS);
+                            "sequence truncated ({} queued behind {} already queued)",
+                            keys.size(), MAX_AUTO_TYPE_KEYS, n, auto_queue_.size());
     }
-    auto_frame_count_ = 0;
-    auto_gap_ = false;
-    Log::input()->info("Auto-type: queued {} keystrokes", auto_queue_.size());
+    auto_queue_.insert(auto_queue_.end(), keys.begin(),
+                       keys.begin() + static_cast<std::ptrdiff_t>(n));
+    if (idle) {
+        auto_frame_count_ = 0;
+        auto_gap_ = false;
+        Log::input()->info("Auto-type: queued {} keystrokes", auto_queue_.size());
+    } else {
+        Log::input()->info("Auto-type: queued {} keystrokes behind the {} in flight",
+                           n, auto_queue_.size() - n);
+    }
+    return n;
+}
+
+void Keyboard::queue_matrix_level(int row, int col, bool pressed) {
+    pending_levels_.push_back(PendingLevel{false, row, col, pressed});
+}
+
+void Keyboard::queue_extended_level(int id, bool pressed) {
+    pending_levels_.push_back(PendingLevel{true, id, 0, pressed});
 }
 
 void Keyboard::tick_auto_type() {
+    // GH #276 B4 — REQ-dsl-20: the level changes queued for this frame edge
+    // land FIRST, in the order they were queued, and before the auto-type step
+    // below — the same edge a pulse queued at the same time is pressed at.
+    // Ahead of the empty-queue return, which would otherwise hold them until
+    // some auto-typing happened.
+    if (!pending_levels_.empty()) {
+        for (const PendingLevel& p : pending_levels_) {
+            if (p.extended) set_extended_key(p.a, p.pressed);
+            else            set_matrix_bit(p.a, p.b, p.pressed);
+        }
+        pending_levels_.clear();
+    }
+
     if (auto_queue_.empty()) return;
 
     if (auto_gap_) {
@@ -878,4 +918,12 @@ void Keyboard::load_state(StateReader& r)
         Log::input()->error("Keyboard::load_state: {}",
                             d.failure() ? d.failure() : "?");
     }
+    // GH #276 B4 — the queued level changes are not in the snapshot, and the
+    // restore has just REPLACED the machine state they would have been
+    // applied to: they described the next edge of a timeline that is no
+    // longer the machine's. Dropped, like a pulse queued before the restore.
+    // Unconditionally: a GH #289 refusal above keeps only the auto-type QUEUE
+    // at its pre-load value — every other field was still loaded, so the
+    // timeline is replaced either way.
+    pending_levels_.clear();
 }

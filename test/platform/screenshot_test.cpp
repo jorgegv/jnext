@@ -25,7 +25,7 @@
 // stimulus it used in its detail string. Unit tests run on Linux (the dev host
 // and CI's fedora:44 container), where it is always present.
 // ===========================================================================
-#include "platform/screenshot.h"
+#include "core/screenshot.h"
 #include "video/ula.h"
 #include "memory/ram.h"
 

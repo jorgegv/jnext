@@ -57,6 +57,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -744,6 +745,22 @@ public:
     Result screenshot(ClientId by, const std::string& path, uint8_t layer_mask,
                       ScreenshotFormat format);
 
+    /// CAP-01 — THE EXIT BOUND for `by`'s deferred captures: what `screenshot()`
+    /// cannot answer, because it returns before the capture is taken. `NoFrame`
+    /// if any capture `by` queued is still pending — those are DROPPED (logged,
+    /// never taken later); otherwise `RefusedUnavailable` if any of `by`'s
+    /// captures since the previous call failed to write; otherwise `Ok`. Per
+    /// client: another client's captures, pending or failed, are untouched.
+    /// Safe from inside an event delivery — it executes, rewinds and replaces
+    /// nothing.
+    ///
+    /// ADDED BY B4 (owner decision 2026-09-28, B4 report O1) — the second change
+    /// to this frozen header after B0: `NoFrame` ("the exit bound cut the
+    /// deferral off") had no carrier, so a loop owner could not turn a capture
+    /// that failed, or never came, into the non-zero exit its `--delayed-*`
+    /// flags promise.
+    Result flush_captures(ClientId by);
+
     /// CAP-02 — the ULA layer's screen memory as a `.SCR` image
     /// (`Ula::screen_dump()`). Layer 2, tilemap and pattern RAM come out of
     /// `peek(MemSpace::page(...))` instead.
@@ -779,15 +796,23 @@ public:
     /// `AdvanceToBoundary` runs the #27 S6 `SuspendScope` advance,
     /// `RefuseMidFrame` returns `NotAtFrameBoundary`.
     ///
-    /// NO `ClientId by`, and that is an OPEN QUESTION rather than a settled
-    /// reading — reported, not decided here. A save is a read, so rule 3 of this
-    /// file's banner does not ask for attribution; but `AdvanceToBoundary`
-    /// ADVANCES the machine to reach the boundary, which is a state change no
-    /// SES-06 line would name an originator for. `bookmark_save` (CAP-03) takes
-    /// a `by` because its bookmarks are per client, so the two read differently
-    /// side by side. B settles it; if the answer is that the advance must be
-    /// attributed, this gains a `by` and B0 was wrong.
-    Expected<std::vector<uint8_t>> save_state_bytes(SaveStateMode mode);
+    /// TAKES A `ClientId by` — SETTLED (owner decision; B0 left it open and the
+    /// answer is that the advance must be attributed).
+    ///
+    /// A save is a read, so rule 3 of this file's banner would not ask for
+    /// attribution on its own. `AdvanceToBoundary` is what does: it ADVANCES the
+    /// machine, so emulated time moves, observably to every other attached
+    /// client, and every other state change in this API carries a `by` and emits
+    /// the SES-06 `MUTATE … by <client>` line. Without it a CI transcript can
+    /// show time jumping with nothing recording who caused it.
+    ///
+    /// `bookmark_save`'s `by` is NOT the parallel argument — it needs one
+    /// anyway, because bookmarks are per client and die with a detach. The point
+    /// here is attribution of the ADVANCE, which is why the `by` is meaningful
+    /// only in `AdvanceToBoundary` mode: `RefuseMidFrame` advances nothing and
+    /// has nothing to attribute. The SES-06 line for the advance is B4's, with
+    /// the rest of the CAP-ST work.
+    Expected<std::vector<uint8_t>> save_state_bytes(ClientId by, SaveStateMode mode);
 
     /// ST-02 — restore from bytes, IN-PROCESS ONLY and unversioned (the disk
     /// format is JNS, #27). A failure LATCHES corruption, which CTL-11 then
@@ -893,9 +918,56 @@ public:
     Result set_loop_driver(const LoopDriver& driver);
 
     /// SES-07 — the loop owner reports that a DEFERRED (guest NR 0x02) cold
+    /// boot is ABOUT TO destroy the machine. Call it immediately before the
+    /// destroy, and `on_cold_boot_done()` after the rebuild: the backend captures
+    /// here the pause in force and whose it is — exactly what `reset(Hard)`
+    /// captures before its driver — so CTL-12 rule 3 ("paused stays paused")
+    /// holds on the guest path too. Needs no driver; never refuses. A second call
+    /// before `done` replaces the first; a `reset(Hard)` or `load()` in between
+    /// discards it.
+    ///
+    /// ADDED BY B3 (owner decision 2026-09-28) — the one change to this frozen
+    /// header after B0: without it the guest path could not honour rule 3,
+    /// because by `on_cold_boot_done()` the paused machine is already gone.
+    Result on_cold_boot_begin();
+
+    /// SES-07 — the loop owner reports that a DEFERRED (guest NR 0x02) cold
     /// boot has completed, so the reconstruct contract's re-application runs for
-    /// it too.
+    /// it too. After `on_cold_boot_begin()` it re-applies that capture; without
+    /// one it re-applies the REBUILT machine's own pause state, unowned.
     Result on_cold_boot_done();
+
+private:
+    // ── The ONE thing B1 added to this frozen header ────────────────────────
+    //
+    // (B3 added one public declaration to this header: `on_cold_boot_begin()`
+    // above, by owner decision on 2026-09-28 — recorded at its declaration, in
+    // `doc/design/debug-subsystem/b0-cap-traceability.md` (SES-07) and in
+    // `backend.md` CAP-SES-07. B4 added one more, `flush_captures()`, by owner
+    // decision on the same day — recorded at its declaration, in
+    // `b0-cap-traceability.md` (CAP-01) and in `backend.md` CAP-CAP-01.)
+    //
+    // B0 declared the constructor, an out-of-line destructor and deleted
+    // copy/move, and no storage at all — the shape a pImpl is prepared for. B1
+    // adds it, in two lines, and that is the whole of the state: the
+    // `Emulator&`, the symbol table, the stop policy, and everything B2..B5
+    // bring (the event table, the latch ring, the client list, the bookmarks,
+    // the coverage bit set) live in `Impl`, defined in the INTERNAL header
+    // `src/debug/debugger_impl.h`.
+    //
+    // Why pImpl and not members here: this header is FROZEN and five frontends
+    // compile against it (§10.1). Every later sub-package would otherwise have
+    // to edit it to add its own state, and each such edit is a chance to change
+    // something a frontend depends on. With the state behind `Impl`, B2..B5
+    // touch nothing a frontend can see. It also keeps rule 1 of this file's
+    // banner structural rather than careful: `Impl` is where `core/emulator.h`
+    // is included, and it is not reachable from here.
+    //
+    // NOT a hot-path cost: no path through `run_frame()` calls a `Debugger`
+    // method. B2's hooks read the internals directly, not through this
+    // indirection.
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 }  // namespace dbg

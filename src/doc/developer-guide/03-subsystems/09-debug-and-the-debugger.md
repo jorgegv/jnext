@@ -34,18 +34,17 @@ One caveat about "pure": `jnext_debug` does link SDL3, because
 and thence `SDL.h`. The rule the split enforces is *no GUI toolkit*, not *no
 dependencies*.
 
-### The four published headers, and what they are not yet
+### The four published headers
 
 `src/debug/` also holds four headers that are a *contract* rather than code:
 `debugger.h`, `events.h`, `inspect.h` and `result.h`. They declare
 `jnext::dbg::Debugger` — one frontend-agnostic facade over control, inspection,
 mutation, events, time, input injection, capture, bookmarks, symbols and
 sessions — together with its value types (`Result`, `Expected<T>`, `Event`,
-`Subscription`, `MemSpace`, `RunState`, `Listener`, `Service`). They contain
-**no bodies at all**: they are the frozen interface of epic
-[#276](https://github.com/jorgegv/jnext/issues/276), landed first and alone so
-that the Qt refactor, three protocol servers (DZRP, ZRCP, GDB RSP) and the
-scripting DSL can all be written against one agreed shape. The design is
+`Subscription`, `MemSpace`, `RunState`, `Listener`, `Service`). They are the frozen
+interface of epic [#276](https://github.com/jorgegv/jnext/issues/276), landed
+first and alone so that the Qt refactor, three protocol servers (DZRP, ZRCP, GDB
+RSP) and the scripting DSL can all be written against one agreed shape. The design is
 `doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md`; the map from each of its
 capability ids to each declaration is
 `doc/design/debug-subsystem/b0-cap-traceability.md`.
@@ -85,9 +84,600 @@ from the last real enumerator is blind to an *append* — the enumerator keeps i
 value, the count keeps its number, and a new kind ships with no mask bit and no
 switch arm.
 
-Everything the rest of this chapter describes — `DebugState` consulted per
-instruction, `BreakpointSet`, `DebuggerManager` driving the panels — is still
-how the debugger works today. The facade above it is not wired up yet.
+### What is behind the facade today
+
+The bodies arrive in five sub-packages on one branch, and three of them are in.
+
+**B1 — control and inspection over the existing primitives**, with no change to
+the hot path. `src/debug/debugger.cpp` holds construction, the mutation log,
+symbols and the state/rewind verbs; `debugger_control.cpp` the CAP-CTL verbs;
+`debugger_inspect.cpp` the CAP-INS read and write surface; `debugger_input.cpp`
+the level half of input injection. All of the state lives in a `struct Impl`
+behind one `unique_ptr` (`debugger_impl.h`, internal), so the later sub-packages
+add their own state — the event table, the client list, the bookmarks — without
+editing a header five frontends compile against.
+
+**B2 — the event pipeline**, which is the first part of the epic that touches
+the hot path at all. It is described in its own section below.
+
+**B3 — the session**: clients, listeners, the service list that `pump()` drives,
+the stop policy, `live_raster` / `attached`, and the cold-boot reconstruct
+contract. Also described in its own section below.
+
+The control verbs are the bodies of `DebuggerManager`'s slots with the Qt taken
+out: the same `DebugState` calls in the same order, the same GH #207 / #221 /
+#223 behaviour, the same two target computations for "run to end of frame" and
+"run to end of scanline". What the Qt version did *around* them — four panel
+`set_paused()` calls, `emit paused()`, `update_actions()` — is a frontend
+reacting to a transition, and becomes a pushed notification later.
+
+Two things had to be fixed in the emulator for the inspection surface to be
+honest, and both are worth knowing:
+
+**`Mmu::peek()`** is a non-perturbing read of the live CPU map. `Mmu::read()` is
+the *guest's* read: it captures the byte into the +3 floating-bus latch on every
+contended access and it raises the data-breakpoint latch on a READ watchpoint.
+A debugger read must do neither — and not merely because the panels happen to
+run outside `GuestExecutionScope`, since a script handler runs *inside* it. So
+`peek()` wraps `read()` under `DebugState::InspectionScope` and puts the
+floating-bus byte back. It wraps rather than copies, so the overlay arbitration
+(boot ROM, Multiface, DivMMC, Layer 2, alt-ROM, config mode) cannot drift
+between the two.
+
+**The frame counter** now advances on every frame boundary. It used to be
+incremented as an argument of `take_snapshot()`, so without
+`--rewind-buffer-size` it stayed at 0 for the whole run and every consumer asking
+"which frame is this?" got the same answer forever. The counter is
+*post*-incremented, so during frame K it reads K+1: the backend reports
+`frame_num() - 1`, which is the tag the rewind slot for that frame carries and
+the frame `--delayed-keypress-frames N` lands on.
+
+A verb whose machinery belongs to a later package is defined in ONE file,
+`debugger_pending.cpp`, and returns `Result::Unsupported` — never a silent
+no-op. Keeping them together means "what is not implemented yet" is something you
+can count rather than a claim in a comment; the file's banner lists them by
+owning package. Since B4 it holds one: `render_layer` (INS-14), whose move out
+of the Qt video panel is package Q's.
+
+`debugger_backend_test` is the backend's suite, headless and Qt-free: a wiring
+row per control verb (arm it through the facade, run, assert the machine stopped
+where the verb promises — PC, cycle, pause reason), a *control* row per verb that
+the same program runs straight past, and the non-perturbation and frame-counter
+rows above.
+
+Everything else the rest of this chapter describes — `DebugState` consulted per
+instruction, `BreakpointSet`, `DebuggerManager` driving the panels — is still how
+the debugger works today; the frontends have not been moved onto the facade yet.
+
+### The event pipeline (B2)
+
+Today's event vocabulary is "a PC breakpoint, a watchpoint, one one-shot, and
+nothing is conditional". B2 replaces it with the fourteen kinds of §4.3 of the
+architecture document, and the shape of the replacement is one sentence:
+
+> A site inside an instruction **latches**; a boundary with the machine stopped
+> **delivers**.
+
+```
+site  ->  cheap filter  ->  LATCH into the ring          (inside an instruction)
+----------------------------------------------------------------------------
+boundary  ->  drain  ->  build Event  ->  per-subscription filter
+          ->  Condition  ->  Handler  ->  verdict  ->  Stop / Log / Continue
+                                                        (machine stopped)
+```
+
+No user code runs inside `Mmu::write`, the CPU or a device tick. That is what
+makes "an inspection read is side-effect free" a property of the code rather
+than of the caller's discipline.
+
+**The subscription table.** `EventTable` (`src/debug/event_table.h`, internal)
+holds the subscriptions, the 512-entry latch ring and the INS-17 delivery
+history. It lives in `Debugger::Impl`, and `DebugState` holds a POINTER to it —
+which is how the eight `Mmu` watchpoint sites, `PortDispatch`, `NextReg::write`,
+`Copper::execute` and `Dma::execute_burst` all reach it without any of them
+seeing an `Emulator*` or a `Debugger*`.
+
+Each entry caches one bool, `live` = `enabled && (transient || master) &&
+client_enabled(owner)`, recomputed whenever anything changes and never
+per instruction. `transient` is exempt from the master switch, which is what
+keeps Step Over working on a machine whose breakpoints the user has all
+suspended.
+
+**The hot path is one byte.** The eight `Mmu` sites used to open with
+`debug_state_ && watchpoints_live() && has_any_watchpoints()` and then scan a
+`vector<Watchpoint>` linearly on every access. They now open with
+`debug_state_ && watchpoints_live() && rd_watch_armed(addr)`, where the third
+term is a per-8-KB-slot mask byte: one load, a shift and a test. Everything
+behind it — the legacy `has_watchpoint()` scan, the precise range match and the
+ring append — is out of line in `Mmu::watch_read_` / `watch_write_`.
+
+The mask bytes live on `BreakpointSet`, not on `DebugState` where §6.1 of the
+design puts them, and the reason is lifetime rather than taste. They have TWO
+contributors — that class's own live watchpoints and the `EventTable`'s `Mem`
+subscriptions — so the two have to be pre-ORed somewhere; and putting them on
+`DebugState` means `DebugState` has to learn about every mutation of the
+breakpoint set, i.e. register a `BreakpointSet` observer. `BreakpointSet` is
+copied out and moved back by `emulator_cold_boot()`, and it carries its
+observers with it, so such an observer would come back pointing at the destroyed
+`Emulator`'s `DebugState`. Where they are, the legacy half is recomputed by
+`rebuild_live_()` — which every mutator already calls — so there is no
+notification to forget.
+
+The mask is strictly NARROWER than the bool it replaced: an I/O watchpoint
+contributes to a separate `port_watch_armed()` flag and to no memory slot at
+all, where before it opened the memory gate on every access and then failed the
+scan.
+
+**Delivery, and where each kind lands in time.** `Execute` is the only kind
+delivered BEFORE the instruction runs — that is what lets a handler write PC
+and redirect. Everything else is delivered at an instruction boundary:
+
+| Latched at | Delivered | Late by |
+|---|---|---|
+| `Mmu` read/write site | the raising instruction's own boundary | nothing |
+| `PortDispatch` (reads AFTER dispatch, so the value is the one the guest got) | same | nothing |
+| `Dma::execute_burst` (Start / Byte / End) | the boundary of the slot the burst ran in | nothing |
+| `NextReg::write`, CPU writer | the NEXT boundary | ≤1 instruction |
+| `NextReg::write`, Copper writer | the NEXT boundary | ≤1 instruction |
+| `Copper::execute` (Move / Wait / Halt) | the NEXT boundary | ≤1 instruction |
+| `on_scanline` | the NEXT boundary | ≤1 instruction |
+| `end_of_frame` | that frame edge, before its auto-type tick (B4) | nothing |
+
+The `≤1 instruction` entries are all the same fact: the boundary drain runs
+BEFORE `tick_devices_after_instruction()`, and that is where the Copper and the
+deferred CPU NextREG queue run. Moving the drain behind the device cluster would
+change the GH #265 early-return contract for every data breakpoint, so the delay
+is accepted and stated instead.
+
+**DMA is not one of them**, and the first version of this table said it was. A
+burst runs from `dma_.execute_burst()` inside `step_one_instruction()`, before
+that slot's drain — `tick_devices_after_instruction()` contains no `dma_.` call
+at all — so a `Dma` event, and the `Mem`/`Port` events of its own bytes, are
+delivered at that slot's own boundary like the CPU's accesses. A DMA NextREG
+write is the one DMA-adjacent case that IS late, because it goes through the same
+deferred CPU queue as any other NR write.
+
+**`cycle` is slot-granular for a site-latched kind.** The master clock ticks once
+per instruction slot, so every event one instruction raises shares that slot's
+start cycle — two `Mem{Write}`s from a single `LD (nn),HL` are indistinguishable
+by `cycle`. `Scanline` is the exception and is exact: the site hands the latch the
+line's own boundary cycle, and the stamper derives `vc`/`hc` from whichever cycle
+it is given. Its `cvc` comes from the line NUMBER rather than from a cycle,
+because `cvc` steps at raw `hc == hc_ula_zero_raw_hc()` and not at raw `hc` 0
+(GH #257) — sampling it at the boundary would report the previous `hc_ula` line
+and put a one-line error in the user-visible filter.
+
+**The whole of a delivery runs under one `DebugState::InspectionScope`**, and
+that is not optional. A delivery happens inside `run_frame()`'s
+`GuestExecutionScope`, where `watchpoints_live()` is true — so a handler that
+pokes an address it is watching would latch a watch on itself. `poke(Cpu)` takes
+a second scope of its own, so the property holds for any caller on any path.
+
+**`Mmu::write` latches before the overlay arbitration.** The watch check is at the
+TOP of the function, before the Multiface / DivMMC / Layer 2 / alt-ROM /
+config-mode cascade and before the `read_only_` drop, so a guest write into ROM
+that lands nowhere still raises `Mem{Write}` — with `prev == value`, and nothing
+in the payload saying the write was dropped. That is what a pre-B2 WRITE
+watchpoint did, and it is what a user watching "who writes here" wants.
+
+**A debugger write is not an event.** `NextReg::write` is the ONE hook for every
+NextREG writer, and it is gated on `DebugState::guest_access()`: a panel's
+`nextreg().write()` and a script's `nextreg_write` both run with that false, so
+neither fires a `NextRegWrite` on itself. A Copper MOVE is additionally excluded
+from that hook, because the Copper's own site already latches it and §4.3
+requires ONE ring entry fanned out at the drain to both `Copper{Move}` and
+`NextRegWrite{source=Copper}` — never two.
+
+**The ring is bounded, and says so.** 512 entries, derived in §4.3 from the
+Copper's per-master-cycle cadence. On overflow it keeps the FIRST N entries in
+order, counts the rest, and marks every delivery of that boundary
+`overflowed{dropped}` — a subscriber whose own event survived still has to know
+the boundary was lossy. It is a tested path, not a defensive comment:
+`EventTable::shrink_ring_for_test()` shrinks the ring and a Copper MOVE burst is
+driven over it on purpose (`EVT-OVF-*`).
+
+**The no-subscriber cost.** `Copper::execute` runs once per master cycle and is
+8-12 % of the `copper-demo` / `beast` profiles, and `Dma::execute_burst` runs
+once per byte, so neither reads the table at its site: each carries plain bools
+that the backend sets from `subscribe()` — and there is **one per sub-kind**, not
+one per engine. A `Copper{Halt}`-only subscriber must not accumulate a `Move`
+entry per master cycle, and ring space is observable, so
+`EventTable::has_copper_sub_kind()` / `has_dma_sub_kind()` are what
+`gates_changed()` reads. (The first version armed the whole Copper engine from
+`has_kind(Copper) || has_kind(NextRegWrite)` and left `has_copper_sub_kind()`
+with no caller at all.)
+
+The one thing EVERY user pays is a single 16-bit store per instruction,
+`debug_slot_pc_ = pc_pre_exec` — the pre-execution PC a latch cannot recover once
+`cpu_.execute()` has moved on. So "the no-subscriber cost is none" is properly
+"one store, measured as noise": `test/bench/ab-hotlatch.sh` bounds it below the
+run-to-run spread.
+
+**The measurement lives in the tree.** `test/bench/bench.sh` measures one binary
+at a time and cannot arm a watch, so `test/bench/ab-hotlatch.sh` (`make
+bench-hotlatch`) runs the interleaved A/B §6.2 prescribes over the
+`JNEXT_BENCH_WATCH` fixture in `headless_app.cpp`, and prints each variant's own
+hit count so a run states whether the watch actually fired.
+
+**`pause_reason` (CTL-13) needs evidence that survives the stop.** Nothing in
+the tree used to record WHY the machine stopped: `DebugState::pause()` clears
+the step mode, and the hot loop consumes the data-breakpoint latch in the same
+breath as the pause. So there are now three records — the backend's armed-verb
+reason, `DebugState::note_watch_stop()` / `note_magic_stop()` for the two stops
+the machine causes, and the drain's own latch for a subscription stop — and
+`Debugger::state()` reads them in a documented order: `Corrupt` first (CTL-11
+makes it the thing that refuses every resume), then the armed verb, then the
+subscription, then Magic, then a legacy watch, then a legacy PC breakpoint.
+
+**Step Over and Run to Here** no longer use `BreakpointSet`'s single one-shot:
+they arm a transient `Execute` subscription, which §4.3 makes unlimited in
+number (DeZog needs two temporary breakpoints per `CMD_CONTINUE`), exempt from
+the master switch, and auto-removed at the next stop. `run()` deliberately does
+NOT drop them — a continue that cleared what the same operation had just armed
+could not work — so the drop happens at a stop the backend causes, or on an
+explicit `Debugger::pause()`, which is the transition `resume()`'s
+`clear_oneshot()` was really standing in for.
+
+**That evidence must not outlive the machine it describes.** Every restore and
+every reset replaces the machine wholesale, so a `pause_reason` left over from
+before it names an instruction that, on the machine now in memory, never ran.
+There is exactly one place that reconciliation happens:
+`Emulator::debug_after_machine_transition_()`, called from `load_state()` (which
+every restore routes through — `load_state_bytes`, `step_back`,
+`rewind_to_frame`, `run_back_to_cycle`, a `.jns` load's closing round trip) and
+from the end of `init()` (which is `soft_reset()`). It clears `DebugState`'s stop
+records, the pending Stop, the latch ring, and — through
+`DebugState::set_machine_replaced_hook()`, because nothing below a frontend may
+hold a `Debugger*` — the backend's own armed verb and `EventTable::hits_`. It
+then re-derives the eight slot pages, since the restore rewrote the page map the
+§6 masks are computed from.
+
+Two details are load-bearing. The ring is **kept** for a reset and discarded for
+a restore: `soft_reset()` latches its own `Reset` event before calling `init()`,
+so that the event carries the pre-reset cycle, and discarding the ring there
+would throw away the event that reports the transition. And the reconciliation
+runs from a scope guard at the **top** of `load_state()`, not as its last
+statement: `load_state()` has some thirty sentinel early-returns and the first
+thing it does is load the clock, so a torn restore is a machine transition too —
+`state()`'s Corrupt-first precedence merely hides the stale reason until
+`acknowledge_corruption()` drops the mask.
+
+### The session (B3)
+
+The backend does not own a thread and does not own the frame loop. A **loop
+owner** — `QtApp`'s timer tick, the SDL loop, `HeadlessApp::run()` — owns both,
+and B3 is the seam between them.
+
+**Clients.** `attach(ClientInfo)` returns a `ClientId`; every verb that mutates
+or transitions takes one as its first argument, because §4.1 requires each
+transition to be broadcast with the client that caused it. The client list holds
+each client's listener, its `live_raster` request and its bookmarks (B4) —
+*outside* `Emulator`, which is what lets all of it survive a machine
+reconstruct.
+
+`detach(cid)` removes that client's subscriptions — and every other record
+keyed by its id (its per-client event switch, its unflushed capture failures:
+ids are never reused, so anything left behind would be kept for ever) — and,
+**iff the machine is paused by this client**, resumes it. A pause by another client survives, and an
+*unowned* pause is never released by any detach however many clients come and
+go: `PauseReason::Magic` and `PauseReason::Corrupt` carry `by == CLIENT_NONE`
+because neither is anyone's verb. There is no "last client" rule — the Qt
+adapter is attached for the process lifetime, so a remote is never the last one,
+and the point of the rule is that a crashed DeZog must not leave the machine
+hung.
+
+**`attached()` is the OR of two contributors, for now.** `DebugState::active()`
+is what "a frontend is driving this machine" means on today's tree: the Qt
+debugger window sets it when it opens, and the magic-breakpoint hook sets it when
+the opcode executes. Neither is a backend client yet. So `attached()` is
+`live_clients > 0 || DebugState::active()`, and the client term is its **own
+bit** on `DebugState` (`clients_attached_`) rather than a second writer of
+`active_` — because a `detach()` of the last client would otherwise clear a flag
+the Qt window owns, and nothing in `DebugState` can tell the two owners apart.
+`refresh_gates_()` ORs the three (`active_ || clients_attached_ ||
+persistent_`), so the identity `armed() == attached() || persistent()` holds
+whichever contributor is set, and `SuspendScope` clears all three — its promise
+is "disarms breakpoints", and that is only true if it clears every contributor.
+
+**The two flags that replace `active()` in the hot path.** §4.1 splits what
+`active()` used to switch on: `attached` gates the *step machinery* (Step Out's
+per-instruction test, the `STEP_BACK` / `RUN_BACK_TO_CYCLE` step modes), and
+`live_raster` — per client, ORed — gates only the *render-every-frame hint* and
+the per-instruction `VideoTiming::advance()` walk. `refresh_gates_()`
+precomputes both into `DebugState` bits (`attached_ = active_ ||
+clients_attached_`, `raster_live_ = active_ || live_raster_`), so each hot-path
+reader still pays one bool load, and `active_` stays a term of both until the Qt
+window becomes a client. Before the split a machine driven only by a remote
+client never finished a Step Out. `Debugger::attached()` and `live_raster()` read
+those same bits back rather than re-deriving them, so the answer a client gets
+and the gate the hot loop obeys cannot disagree.
+
+**Listeners.** Seven pushes, all pure virtual (a silently ignored notification is
+what a default empty override invites): `Paused`, `Resumed`, `Reset`,
+`FrameEnded`, `SubscriptionsChanged`, `ExitRequested`, `Log`. They are
+synchronous, on the emulation thread, and must do no UI work — the Qt listener
+records and acts on its own tick.
+
+`Paused` / `Resumed` / `FrameEnded` / `SubscriptionsChanged` are **not pushed at
+each transition site**. There are seven ways out of paused and a dozen into it,
+and a push at each is the two-lists failure. Instead one function compares
+`paused()`, `DebugState::resume_generation()`, the raw frame counter
+(`Emulator::frame_num()` — not the clamped frame tag, which reads 0 both before
+anything has run and after frame 0 ends) and `EventTable::revision()` against
+what was last pushed, and it is called from
+`pump()` — the slot §4.8 specifies, so "a stop in this tick's frames is notified
+in this tick's pump". The resume generation is what makes a
+stop-resume-stop between two pumps two pushes rather than none: `paused` is true
+at both ends. `Reset` is the exception and is pushed synchronously by the verb,
+because CTL-12 requires it to reach every listener *before* the verb returns —
+that is how an adapter whose client is blocked in a `run` completes the reply.
+
+**`pump(PumpBudget)`** is the loop owner's once-per-tick service call, made after
+the tick's frame batch. It drains the registered `Service`s, flushes their
+notifications and syncs the pushes. The drain has two arms and they differ in
+kind, not degree: while **running**, each service is asked for at most one
+command whatever the budget says, because the loop owner needs its thread back
+for the next frame; while **paused** it keeps answering while the peer keeps
+talking, bounded by `budget_ms` — a DeZog ZRCP step is ~15 sequential round
+trips, which at one per tick would be 300 ms. "Paused" is the machine's state
+*after each command*, not at entry: a `run` in the chain hands the loop owner
+its frames back at once, and a `pause` arriving while running lets the reads
+behind it be answered in the same pump. `budget_ms == 0` therefore means
+*one* command, not "unbounded". The budgets are the one place in the backend that
+reads a wall clock, and legitimately: §4.8 calls them host service parameters,
+and nothing in the emulated timeline depends on any of them.
+
+`pump()` refuses to run from inside an event delivery, and refuses rather than
+asserting — an `assert` compiles away in the build where a frontend bug would
+ship, and re-entering the drain would deliver a boundary's events twice.
+
+**The stop policy** (`StopPolicy::Pause` | `ExitNonZero`) is the loop owner's to
+set, never an adapter's: Qt is `Pause`, SDL and `--headless` are `ExitNonZero`,
+because the SDL frontend has no pause path at all and a headless run is a CI
+verdict. `stop_policy()` returns **what was set** — a setting that reads back as
+something else is a trap for whoever wrote it — and the §4.8 override
+(`ExitNonZero` becomes `Pause` while a remote client is *connected*, so a client
+blocked on `run` gets its stop reply) lives at the one place the policy is
+consumed. The exit code with no script to name one is **3**: never 2, which both
+harnesses use for a harness fault, and 1 stays "jnext could not run".
+
+An explicit `pause()` is a stop that drops the transient subscriptions but is
+**not** an `Action::Stop`, so it never requests an exit. One function serves both
+with a parameter, so the two arms stay next to each other.
+
+### The cold-boot reconstruct contract (CTL-12)
+
+A hard reset is modelled as a power-on cold boot the *frontend* performs:
+`emulator_frontend_cold_boot()` destroys the `Emulator` and placement-news a new
+one at the same address, then re-runs `init()`. `&emu` stays valid, which is what
+lets a `Debugger` live across it — but every sub-object is new, and in particular
+the `DebugState` is. A surviving `Debugger` is then **silently disconnected**:
+every subscription still exists and lists as live, and not one can ever fire.
+Nothing in the frontend can detect it.
+
+So the backend re-applies, from one function, whatever route landed the new
+machine — `reset(Hard)`, `load()`, or the loop owner's `on_cold_boot_done()`
+after a guest NR 0x02 reset:
+
+1. the three publications the constructor makes (`set_event_table`,
+   `set_event_hooks`, `set_machine_replaced_hook`) — the fourth hook on
+   `DebugState`, the latch stamper, is the Emulator's own and `init()`
+   re-installs it, which is also why the destructor leaves it alone;
+2. the eight-page seed — `on_slot_remapped()` early-returns while the table is
+   null, so every `rebuild_ptr()` during the new `init()` was discarded, which
+   makes a page-qualified `Mem` filter wrong in *both* directions;
+3. `gates_changed()`, the only writer of the event-mask half of the hot-path
+   gate across the boot — the platform's `BreakpointSet` copy drops that half
+   before it is restored, so the rebuilt machine's event gate stays closed until
+   the backend re-opens it from the live subscription table;
+4. the latch ring — it lives on `Debugger::Impl`, so it *survives* the
+   reconstruct while everything in it describes a machine that is gone;
+5. `arm(Kind::None)`, because `init()` fired
+   `debug_after_machine_transition_()` while the hook was still null. `None` and
+   not `User`: `state()`'s precedence falls *through* `None` to the legacy
+   PC-breakpoint check and matches `User` immediately, so `User` would silently
+   swallow a breakpoint at the landing address;
+6. the pause, iff the machine was paused — "paused stays paused, running stays
+   running", and there is no `Reset` pause reason, so a client's `reset(Hard)`
+   never pauses a running machine. The pause keeps its *owner*: all three routes
+   share one capture taken before the machine goes (the pause in force and whose
+   it is), and a pause a client owned comes back as `User{that client}` — held
+   for it — so SES-01's detach can still release it. Re-applied bare, it would
+   read as the unowned fallback, which no detach releases: a remote that
+   hard-reset a paused machine and then crashed would leave it hung. An unowned
+   pause stays unowned (the `None` fall-through of item 5);
+7. the enable flags a client set through a verb — call-stack tracking, the
+   trace and `persistent_breakpoints`, which live on the `Emulator` and are reset
+   by the reconstruct. The backend keeps its own record of each request
+   (`Impl::want_*`, empty until a client sets it) and re-applies only what was
+   asked for, so a machine nobody configured comes back with its defaults and a
+   config-set `--persistent-breakpoints` is not clobbered. It never reads the
+   dead machine, which is why the guest path can do it too. The Qt panels still
+   switch call-stack tracking and the trace directly on the `Emulator` until
+   package Q, so those are not captured;
+8. the per-client state, which is only the arm bit and the `live_raster` OR: the
+   subscriptions, switches and symbol table live on `Impl` and never went
+   anywhere;
+9. on a machine that was actually rebuilt, a fresh CTL-11 corruption guard: its
+   acknowledgement is keyed to the `Emulator`'s `state_error_generation()`,
+   which the rebuilt machine restarts at 0, so a kept acknowledgement would
+   pre-acknowledge the new machine's own first corruption;
+10. the notification edge detector, re-based on the rebuilt machine: its resume
+   generation and frame counter restart at 0 while the detector's baseline lives
+   on `Impl`. Every route first *flushes* the old machine's pending edges (a
+   stop, a resume, the frames since the last pump), so re-basing loses nothing;
+   the one exception is a `done` with no `begin`, whose machine is gone before
+   the backend hears of it. `last_paused` is not re-based: it is what listeners
+   were last told, so paused-to-paused pushes nothing and paused-to-running
+   pushes `Resumed`;
+11. (B4) the INS-20 coverage sink — the only thing of coverage's the machine
+   held, a pointer into the backend's bit set; the set recorded before the boot
+   is kept, because "since clear" is not "since boot";
+12. (B4) the queued screenshots' hold on the machine: the head's layer mask on
+   the new `Renderer` and the force-render bit on the new `DebugState`, with every
+   capture's wait re-based on the rebuilt machine's rendered-frame counter, which
+   restarted at 0. Bookmarks need nothing: they live on the client rows.
+
+**No verb that drives the machine runs from inside a delivery.** A handler runs
+with `run_frame()` — or the pre-instruction gate inside it — still on the stack,
+and the drain walking the latch ring and building the boundary's `matched[]`. So
+every verb that would EXECUTE the machine (the step verbs, a `save_state_bytes()`
+that has to advance to a frame boundary), CHANGE ITS RUN STATE (`pause`, `run`,
+`step_out`, the `run_to` family — each re-arms the stop evidence, which would
+rewrite the very stop the handler is part of), REWIND or RESTORE it (`step_back`,
+`rewind_to_frame`, `load_state_bytes`, `bookmark_restore`), or RESET or REPLACE
+it (`reset` of either kind, `load`, `on_cold_boot_done`, and the one NextREG
+write that resets — NR 0x02 with the soft bit, through `nextreg_write` or
+`port_out`) refuses there with `Unsupported`, through one helper. The three
+verbs that save the machine — `save_state_bytes`, `bookmark_save`,
+`save_snapshot` — refuse only when they would have to *advance* to a frame
+boundary, through the one frame-boundary helper they share. A handler stops the machine by returning
+`Action::Stop`. Mutations stay allowed (§4.2a), `raise_host_event` is designed to
+nest, and `detach` is a session verb — its release of the departing client's own
+pause goes through `run()`'s body rather than the refused public verb.
+
+Then the `Reset{Hard}` event is latched (after the ring discard, or it would go
+with the stale entries) and `Reset{Hard}` is pushed to every listener before the
+verb returns.
+
+`reset(Hard)` runs the loop owner's sequence **synchronously**, through the
+`LoopDriver` closure registered by `set_loop_driver()` — the sequence lives in
+`src/platform/`, above the backend, so a closure is the only way the backend can
+reach it. With no closure registered the verb refuses with
+`RefusedUnavailable`. `load()` re-applies **unconditionally** — idempotent on a
+load that replaced nothing — because the loop owner's closure may load in place
+(`emulator_apply_load()`), cold-boot first (the Qt menu route), or re-`init()`
+in place (`load_rzx` with an embedded snapshot). What it does need to know is
+whether the machine was *reconstructed*, because a reconstructing load is a cold
+boot and owes every other client the `Reset{Hard}` push and event, exactly as
+`reset(Hard)` does; a load that did not reconstruct pushes nothing. The backend
+tells the two apart from its own publication: `DebugState::events_` points at
+`Impl::events` from the constructor on, and only a brand-new `DebugState` — a
+reconstruct — can make it point anywhere else.
+
+**The guest path is a pair of notifications.** A guest NR 0x02 hard reset is
+performed by the loop owner, not by the backend, and by the time
+`on_cold_boot_done()` runs the paused machine is gone — so the loop owner calls
+`on_cold_boot_begin()` immediately *before* it destroys the machine, and the
+backend takes the same capture there that `reset(Hard)` takes before its driver.
+`on_cold_boot_begin()` is the one declaration added to the frozen header after
+B0 (owner decision). The pairing is pinned state by state: `begin` then `done`
+keeps the pause and its owner; `done` without a `begin` re-applies the rebuilt
+machine's own state, unowned; a second `begin` replaces the first; a
+`reset(Hard)` or `load()` in between discards a pending capture; a detach of the
+capture's owner releases the pause it recorded; and neither call needs a driver
+or refuses on a corrupt machine.
+
+**The single-owner rule, split.** §4.1 CTL-12 says the platform-side
+`BreakpointSet` / `active()` save-and-restore in `emulator_cold_boot()` becomes
+"a second owner of the same state" once the backend re-applies subscriptions.
+Measured, only one part of what it carries is backend state — the event-mask
+half of the hot-path gate — and B3 retired that half: `emulator_cold_boot()`
+zeroes it on its copy, and the backend's `gates_changed()` is its single owner.
+The rest — the *Qt panels'* breakpoint model, the observers that travel on its
+copy (the only reason `BreakpointPanel` and `DisasmPanel` stay subscribed; each
+registers once in its constructor), and `saved_active`, which keeps an open
+debugger window armed — has no other owner before package Q, so retiring it now
+would lose a user's breakpoints on every hard reset, unsubscribe two panels and
+leave an open window unarmed. Package Q retires it when the panels become
+clients. The reasoning is recorded at the site.
+
+### Input, capture, bookmarks and coverage (B4)
+
+**Pulses append.** `press_key(name | matrix position, hold_frames)` (IN-01)
+queues a pulse on `Keyboard`'s auto-type queue, and `queue_auto_type()` itself
+now APPENDS for every producer — the phantom typist, the two tape `LOAD ""`
+sites, `--delayed-keypress` and the backend. Replacing, it let a second
+producer in the same frame clobber the first and stranded a held key down. An
+append behind an entry in flight leaves that entry's counters alone (a held key
+does not restart its hold); onto an *idle* queue the counters reset exactly as
+the replacing version did, so a producer that finds nothing queued sees no
+change. The 16-entry cap covers the union of what every producer queued, and a
+pulse that does not fit is refused with the count that was queued (0).
+
+**The injection edge (REQ-dsl-20).** Every pulse and every level set issued
+during frame N — from a handler, from a remote command in a pump, from a CLI
+countdown — lands at the END of frame N and is visible from frame N+1. For the
+levels (`set_key`, `set_extended_key`) that means a queue: they no longer touch
+the matrix at once, they are queued on `Keyboard` and applied first thing in
+the edge's `tick_auto_type()`, so a handler mid-frame cannot change what the
+rest of its own frame reads. And `end_of_frame()` now delivers the `Frame`
+event BEFORE that tick (B2 had it after), so an `on frame N` handler's pulse is
+pressed by frame N's own tick — the frame `--delayed-keypress-frames N` gives.
+The price is that the window between that drain and the end of the tick is not
+the state `run_frame()` hands back (the tick has not run), so the backend does
+not treat it as a frame boundary: a save from a `Frame` handler answers
+`NotAtFrameBoundary`, or is refused if it would advance. A restore drops queued
+levels, like the pulses it replaces; a reconstruct drops both with the old
+`Keyboard`. `set_joystick` and `press_nmi` stay immediate — the contract names
+IN-01 and IN-02 only.
+
+**Hosted by every loop owner.** `HeadlessApp`, `SdlApp` and `QtApp` each build
+one `Debugger` in `init()` and keep it for the process: they register the
+`LoopDriver` (a client's `reset(Hard)` runs the loop owner's own boot; `load()`
+its load dispatch), bracket every cold boot THEY decide on — a guest NR 0x02
+hard reset, a NEX load request, F1, a menu load — with `on_cold_boot_begin()` /
+`on_cold_boot_done()`, and call `pump()` once per tick after the frames (and,
+in SDL and headless, after the cold-boot polls; Qt pumps in `post_frames`). With
+no client attached this arms nothing, so a run with it is bit-identical to a run
+without it (rows HOST-01..05, the last three through the real `HeadlessApp`).
+`QtApp::debugger()` is the instance package Q's `DebuggerManager` is to use.
+
+Because none of those calls changes an unattached run, nothing a normal run does
+can show one missing. The `JNEXT_HOST_PROBE` fixture (`src/platform/host_probe.h`,
+env-gated, zero-cost unset, deliberately not a CLI flag) makes them observable:
+a client that runs inside `pump()` as a `Service`, pauses the machine, raises the
+guest hard-reset request, reports whether the loop owner's cold boot came back
+with `Reset{Hard}` pushed and the pause still its own, resumes, and then asks for
+`reset(Hard)` through the registered driver — one `HOSTPROBE` log line each. The
+regression rows `sdl-host-probe-func` and `qt-host-probe-func` read those lines
+for `SdlApp` and `QtApp`; row HOST-07 runs the same probe through `HeadlessApp`.
+
+**The CLI `--delayed-*` flags keep their own countdowns.** Each loop owner counts
+LOOP TICKS for every `--delayed-*` flag, as before — a tick count survives a
+cold boot and keeps counting while the machine is paused, which is what keeps
+`--delayed-automatic-exit` a hard bound; a `Frame` tag does neither. Only the
+ACTIONS go through the backend: `press_key`, `press_nmi` (which now calls the
+F9/F10 hotkey functions themselves, gates included), `save_snapshot`, and
+`screenshot()` — queued when the count reaches zero, written by the tick's pump,
+its outcome read back with `flush_captures()`. The CLI-facing messages and exit
+codes are the loop owners' and did not change.
+
+**Screenshots are deferred to the next rendered frame.** `screenshot()` only
+queues. `pump()` — the loop owner's post-frames slot — writes every capture
+whose frame has been rendered since it was armed (`Emulator::rendered_frames()`
+moved), before any command of that pump can touch the machine. While a capture
+waits, its layer mask is armed on the renderer and a force-render bit makes sure
+the next frame IS rendered, whatever the frontend's render-skip hint says. A
+paused machine renders nothing, so the capture is held, with one warning.
+`flush_captures(by)` — the one declaration B4 added to the frozen header, by
+owner decision — is the exit bound: `NoFrame` if any of `by`'s captures is still
+pending (they are dropped), `RefusedUnavailable` if one failed to write since
+the last call, else `Ok`. A capture survives its requester's detach and every
+machine rebuild; once its requester has detached, its outcome is still logged
+but no longer recorded for a client that is gone. The
+PNG and `.SCR` writers moved from `src/platform/` to `src/core/screenshot.*` so
+the backend, which sits below the platform layer, can call them.
+
+**Saves share one rule.** `save_state_bytes`, `bookmark_save` and
+`save_snapshot` reach the frame boundary through one helper: at a boundary they
+save; mid-frame, `RefuseMidFrame` refuses and `AdvanceToBoundary` runs the frame
+out under `SuspendScope` and says so in a `MUTATE clock … by <client>` line.
+`save_snapshot` always advances (the `--delayed-snapshot` rule) and writes the
+file by extension through `save_snapshot_file()` in `src/core/`. Bookmarks are
+per client, at most 8 (a 9th new name is refused; re-saving a name replaces it),
+freed at detach, and survive a hard reconstruct; a restore into a machine of
+another type or snapshot width is refused before `load_state` runs, so nothing
+is latched.
+
+**Coverage and the trace.** INS-20 coverage is recorded in
+`step_one_instruction()`, the one body `run_frame()`, the debugger's Step and
+`execute_single_instruction()` share — not in `run_frame()`'s armed block,
+which a Step never passes through — and only for a slot that actually fetched
+the opcode at PC (an NMI or INT acknowledge does not run it). Switched off it is
+one pointer test per instruction. Each trace entry now carries I, R, IM, IFF1,
+IFF2, the word at SP (read with `peek()`, so the trace moves no watch and no +3
+floating-bus latch) and the eight MMU pages.
 
 ## What `ENABLE_DEBUGGER=OFF` removes
 
@@ -136,7 +726,9 @@ false unless the emulator has declared that it is executing — the RAII
 `DebugState::GuestExecutionScope`, taken by exactly three functions:
 `Emulator::run_frame()`, `step_frame_slot()` and
 `execute_single_instruction()`. The watchpoint checks are therefore triple-
-gated on pointer non-null, `watchpoints_live()` and `has_any_watchpoints()`.
+gated on pointer non-null, `watchpoints_live()` and — since B2 — the per-slot
+mask byte `rd_watch_armed()` / `wr_watch_armed()`, which replaced
+`has_any_watchpoints()` there (see "The event pipeline (B2)" above).
 
 The point of putting the gate there rather than around panel refresh is that
 it does not depend on the caller. A panel added tomorrow cannot fire a
@@ -165,7 +757,7 @@ consults it once per instruction, before the fetch:
 | `NONE` + `paused_` | `pause()` | `run_frame()` returns immediately |
 | PC breakpoint | `BreakpointSet::add_pc` | `should_break(pc)` matches |
 | `INTO` | `step_into()` | loop pauses on the next iteration |
-| `OVER` | `step_over(next_pc)` | one-shot breakpoint at `next_pc` |
+| `OVER` | `step_over(next_pc)`, or the backend's `step_over_subscribed()` | one-shot breakpoint at `next_pc`; through the backend, a transient `Execute` subscription there |
 | `OUT` | `step_out(sp)` | `check_step_out()` matches, after the instruction |
 | `RUN_TO_CYCLE` | `run_to_cycle()` | master clock reaches the target |
 | `STEP_BACK` / `RUN_BACK_TO_CYCLE` | `step_back()`, `run_back_to_cycle()` | handled before the loop starts, by rewinding |
@@ -185,9 +777,11 @@ on the hot path ever rebuilds or filters.
 That split is what makes a disabled breakpoint cost *nothing* rather than
 merely little. The hot path's structures are unchanged and their contents are a
 subset of the model, so a disabled breakpoint is not hashed, not compared and
-not iterated. Disable the only watchpoint and `has_any_watchpoints()` goes
-false again, so the eight `Mmu` watchpoint sites and `PortDispatch` short-circuit
-exactly as on a machine that never had one.
+not iterated. Disable the only watchpoint and its bit leaves the per-slot mask
+`rebuild_live_()` maintains, so the eight `Mmu` watchpoint sites and
+`PortDispatch` short-circuit exactly as on a machine that never had one.
+(`has_any_watchpoints()` is still there and still true of the model; since B2 it
+is no longer what the sites read.)
 
 The **master switch** (`set_master_enabled()`) is the whole of
 `rebuild_live_()`'s first line: with it off, the cache is left empty and the

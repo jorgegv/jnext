@@ -363,6 +363,36 @@ void SpriteEngine::write_attribute(uint8_t val)
 // tagged with current_line_ so apply_changes_for_line can reapply it at
 // the same line during rendering.
 
+// ---------------------------------------------------------------------------
+// GH #276 §4.2a INS-08 — the debugger's direct attribute / pattern writes.
+//
+// Same two statements every guest write path performs (commit the byte, log the
+// per-scanline change) and nothing else: no cursor is read and none is moved.
+// See the declarations in sprites.h for why that separation is required.
+// ---------------------------------------------------------------------------
+
+void SpriteEngine::write_attr_byte_at(uint8_t sprite_idx, uint8_t byte_idx, uint8_t val)
+{
+    if (sprite_idx >= NUM_SPRITES || byte_idx > 4) return;
+
+    SpriteAttr& spr = sprites_[sprite_idx];
+    switch (byte_idx) {
+    case 0: spr.byte0 = val; break;
+    case 1: spr.byte1 = val; break;
+    case 2: spr.byte2 = val; break;
+    case 3: spr.byte3 = val; break;
+    case 4: spr.byte4 = val; break;
+    }
+    log_attr_change(sprite_idx, byte_idx, val);
+}
+
+void SpriteEngine::write_pattern_byte_at(uint16_t addr, uint8_t val)
+{
+    const uint16_t offset = addr & (PATTERN_RAM_SZ - 1);
+    pattern_ram_[offset] = val;
+    log_pattern_change(offset, val);
+}
+
 void SpriteEngine::write_pattern(uint8_t val)
 {
     const uint16_t offset = pattern_offset_ & (PATTERN_RAM_SZ - 1);

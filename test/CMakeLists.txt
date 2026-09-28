@@ -674,7 +674,8 @@ add_test(NAME present_cadence_tests COMMAND present_cadence_test)
 # Screenshot output formats, auto-naming and write failures (GH #18, #19).
 # Host-side file behaviour only: which extension means which format, what an
 # auto-generated name looks like, and that a write that did not happen is
-# reported. Needs jnext_platform (the writers) and jnext_video (a real Ula for
+# reported. Needs jnext_core (the writers — src/core/screenshot.cpp since
+# GH #276 B4, reached through jnext_platform) and jnext_video (a real Ula for
 # the .SCR dispatch row); no Qt, no SDL frontend.
 add_executable(screenshot_test platform/screenshot_test.cpp)
 target_link_libraries(screenshot_test PRIVATE
@@ -917,6 +918,21 @@ target_link_libraries(step_out_test PRIVATE
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(step_out_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME step_out_tests COMMAND step_out_test)
+
+# GH #276 B1 — the jnext::dbg::Debugger backend: the control verbs, the
+# inspection/mutation surface, F1 (Mmu::peek) and F2 (the frame counter). Drives
+# a real machine through run_frame() exactly as the frontends do, so it links the
+# emulator like step_out_test. B5 grows this suite; B1 pins what B1 built.
+add_executable(debugger_backend_test debug/debugger_backend_test.cpp)
+# jnext_platform (GH #276 B4 M2): the HOST-* rows drive the real HeadlessApp, the
+# loop owner that hosts the backend. No SDL window is opened (headless).
+target_link_libraries(debugger_backend_test PRIVATE
+    jnext_platform
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(debugger_backend_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME debugger_backend_tests COMMAND debugger_backend_test)
 
 # GH #219 — --persistent-breakpoints: the armed()/active() split in DebugState
 # and its wiring into the hot loop and the MMU watchpoint sites. Drives a real

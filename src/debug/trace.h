@@ -13,6 +13,19 @@ struct TraceEntry {
     uint16_t ix, iy, sp;
     uint8_t  opcode_bytes[4]; // raw bytes
     int      opcode_len;      // 1-4
+
+    // GH #276 B4 — §4.2 INS-13 / REQ-zrcp-08: what DeZog's ZRCP reverse-step
+    // parser reads from a `cpu-history` entry and asserts on when absent
+    // (`(SP)=`, `MMU=`), plus the rest of the register file the entry did not
+    // carry. +15 bytes of payload (the struct grows 40 -> 56 with alignment).
+    // APPENDED, so every existing field keeps its offset. All pre-execution
+    // state, like the rest of the entry.
+    uint16_t sp_word;         // the word at SP — read with Mmu::peek(), so the
+                              // trace perturbs neither a watchpoint nor the +3
+                              // floating-bus latch
+    uint8_t  i, r;
+    uint8_t  im, iff1, iff2;
+    uint8_t  mmu[8];          // Mmu::get_effective_page(slot) for slots 0..7
 };
 
 /// Determine the byte length of a Z80/Z80N instruction starting at `addr`.

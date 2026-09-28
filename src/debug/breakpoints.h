@@ -179,7 +179,55 @@ public:
     /// rather than merely cheap: disable the only one and this goes false
     /// again, so the eight Mmu sites and PortDispatch short-circuit exactly as
     /// they do when no watchpoint was ever set.
+    ///
+    /// NO LONGER THE MEMORY SITES' GATE (GH #276 B2) — they read
+    /// rd_watch_slot_armed() / wr_watch_slot_armed() below, which is strictly
+    /// narrower. It remains the MODEL-agnostic "anything at all?" query, and it
+    /// is what bp_enable_test and io_watchpoint_test assert on.
     bool has_any_watchpoints() const { return !wp_live_.empty(); }
+
+    // ── GH #276 §6 — the memory-watch SLOT MASK the hot path reads ──────
+    //
+    // WHY THE MASK BYTES LIVE HERE and not on DebugState, where §6.1 puts
+    // them. They have TWO contributors — this class's own live watchpoints and
+    // the CAP-EVT `EventTable`'s `Mem` subscriptions — and the hot path must
+    // read exactly ONE byte, so the two have to be pre-ORed somewhere. Putting
+    // them on DebugState means DebugState has to learn about every mutation of
+    // this set, i.e. register a BreakpointSet observer; and an observer
+    // registered from DebugState's constructor is carried by THIS CLASS'S COPY
+    // (see the class comment) straight through
+    // `emulator_boot.h`'s save / reconstruct / move-back, where it would come
+    // back pointing at the DESTROYED Emulator's DebugState. Here, the legacy
+    // half is recomputed by rebuild_live_() — which every mutator and the
+    // master switch already call — so no notification exists to forget, and
+    // the copy carries a mask that matches the watchpoints it travels with.
+    //
+    // CONSERVATIVE BY CONSTRUCTION: a set bit means "a precise scan of this
+    // 8 KB slot is worth doing", never "this access matched". An I/O
+    // watchpoint contributes NO slot bit — has_watchpoint(addr, READ) never
+    // matches an IO_READ entry (see the .cpp), so a port-only watchpoint used
+    // to open the memory gate and then fail the scan every time.
+
+    /// Could a READ / WRITE of `addr` match any armed memory watch (legacy
+    /// watchpoint or `Mem` subscription)? One byte load, a shift and a test.
+    bool rd_watch_slot_armed(uint16_t addr) const {
+        return ((watch_mask_rd_ >> (addr >> 13)) & 1u) != 0;
+    }
+    bool wr_watch_slot_armed(uint16_t addr) const {
+        return ((watch_mask_wr_ >> (addr >> 13)) & 1u) != 0;
+    }
+
+    /// The combined mask bytes, for tests and for the bench prototype.
+    uint8_t watch_slot_mask_rd() const { return watch_mask_rd_; }
+    uint8_t watch_slot_mask_wr() const { return watch_mask_wr_; }
+
+    /// Is any port watch armed — a legacy I/O watchpoint or a CAP-EVT `Port`
+    /// subscription? PortDispatch's pre-gate; ports have no slots.
+    bool port_watch_armed() const { return watch_port_; }
+
+    /// GH #276 §6 — publish the `EventTable`'s contribution. Called only when
+    /// a subscription changes or the MMU remaps a slot, never per access.
+    void set_event_slot_masks(uint8_t rd, uint8_t wr, bool port_armed);
 
     /// GH #225 — THE MASTER SWITCH. Suspends every breakpoint and watchpoint
     /// without deleting any and without touching any per-breakpoint flag;
@@ -211,6 +259,11 @@ private:
     /// the master switch — never from the hot path.
     void rebuild_live_();
 
+    /// GH #276 §6 — recompute the legacy half of the slot masks from wp_live_
+    /// and re-OR the published event half into the two bytes the hot path
+    /// reads. Called by rebuild_live_() and by set_event_slot_masks().
+    void recompute_watch_masks_();
+
     struct Observer {
         ObserverId id;
         std::function<void(BreakpointChange)> fn;
@@ -225,6 +278,19 @@ private:
     std::vector<Watchpoint>      wp_live_;
     bool oneshot_active_ = false;
     uint16_t oneshot_addr_ = 0;
+
+    // GH #276 §6 — the two bytes the hot path reads, plus the two halves they
+    // are the OR of. APPENDED after the pre-existing live cache, so the
+    // members above keep the offsets they had.
+    uint8_t watch_mask_rd_ = 0;    ///< legacy | event
+    uint8_t watch_mask_wr_ = 0;
+    bool    watch_port_    = false;
+    uint8_t wp_mask_rd_    = 0;    ///< this class's own live watchpoints
+    uint8_t wp_mask_wr_    = 0;
+    bool    wp_port_       = false;
+    uint8_t ev_mask_rd_    = 0;    ///< the EventTable's, as last published
+    uint8_t ev_mask_wr_    = 0;
+    bool    ev_port_       = false;
 
     // ── THE MODEL — what the panels list (GH #225) ────────────────────
     std::unordered_map<uint16_t, bool> pc_all_;   // addr -> individually enabled

@@ -5,9 +5,11 @@
 #include "sdl_display.h"
 #include "sdl_input.h"
 #include "sdl_audio.h"
-#include "screenshot.h"
+#include "core/screenshot.h"
 #include "host_key_latch.h"
 #include "core/emulator.h"
+#include "debug/debugger.h"
+#include "platform/host_probe.h"
 #include "video/renderer.h"
 #include "input/gamepad_host.h"
 #include "input/mouse_dispatcher.h"
@@ -32,8 +34,15 @@ public:
 
     /// Task 70 — power-on cold boot: reconstruct the emulator in place and
     /// re-run the proven startup init() path (F1 / a program's NR 0x02 hard
-    /// reset). `load_file` empty = clean boot.
+    /// reset). `load_file` empty = clean boot. GH #276 B4 — a boot THIS loop
+    /// owner decides on, so it is bracketed by the hosted backend's
+    /// `on_cold_boot_begin()` / `on_cold_boot_done()` (CTL-12 rule 5).
     void cold_boot(const std::string& load_file = std::string());
+
+    /// GH #276 B4 — the process-lifetime debugger backend this loop owner hosts
+    /// (built by a successful init(), kept across every cold boot, pumped once
+    /// per tick). Valid only after init() returned true.
+    jnext::dbg::Debugger& debugger() { return *debugger_; }
 
     /// Schedule a binary injection after `delay_frames` frames.
     void set_pending_inject(const std::string& file, uint16_t org,
@@ -87,6 +96,17 @@ private:
     audio_pacing::WhenSlowPrefer when_slow_prefer_ =
         audio_pacing::WhenSlowPrefer::Audio;
     Emulator   emulator_;
+    // GH #276 B4 — declared AFTER emulator_ so it is destroyed FIRST: its
+    // destructor retires what it published into the emulator's DebugState.
+    std::unique_ptr<jnext::dbg::Debugger> debugger_;
+    // GH #276 B5 — the JNEXT_HOST_PROBE regression fixture (platform/host_probe.h):
+    // null unless the variable is set. Declared AFTER debugger_ so it is
+    // destroyed FIRST — it detaches its client and removes its service.
+    std::unique_ptr<HostProbe> host_probe_;
+    /// The cold boot itself — what `LoopDriver::cold_boot` runs for a client's
+    /// `reset(Hard)`, which brackets it with its own capture. cold_boot() is
+    /// this plus the begin/done pair.
+    void boot_machine(const std::string& load_file);
     bool       running_ = false;
 
     // Kempston mouse host adapter — wires SDL_MOUSE* events into the
@@ -136,6 +156,10 @@ private:
     // Pending --delayed-screenshot state
     std::string screenshot_file_;
     int         screenshot_countdown_ = -1;  // in frames; -1 = no pending
+    // GH #276 B4 (O2) — the capture has been handed to the backend; and a
+    // queue the backend refused (reported as a failed write).
+    bool        screenshot_queued_  = false;
+    bool        screenshot_refused_ = false;
     uint8_t     screenshot_layers_ = Renderer::LAYER_ALL;
 
     // Non-zero when a requested screenshot was never taken (see shutdown()).

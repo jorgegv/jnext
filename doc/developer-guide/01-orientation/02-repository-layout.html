@@ -1887,7 +1887,7 @@ profiler — surround the emulation rather than being part of it.</p>
 <tbody>
 <tr>
 <td><code>core/</code></td>
-<td><code>Emulator</code> — the top-level machine that owns every subsystem — plus <code>Clock</code>, <code>Scheduler</code>, <code>EmulatorConfig</code>, the CLI option table (<code>cli_options.h</code>), the logging wrapper (<code>log.h</code>), the state-serialisation primitives (<code>saveable.h</code>), all the file loaders and savers (NEX, SNA, SZX, Z80, TAP, TZX, WAV, RZX, JNS), the host-side FAT32 reader that extracts ROMs from the SD image, the SD-card provisioner, and the video recorder.</td>
+<td><code>Emulator</code> — the top-level machine that owns every subsystem — plus <code>Clock</code>, <code>Scheduler</code>, <code>EmulatorConfig</code>, the CLI option table (<code>cli_options.h</code>), the logging wrapper (<code>log.h</code>), the state-serialisation primitives (<code>saveable.h</code>), all the file loaders and savers (NEX, SNA, SZX, Z80, TAP, TZX, WAV, RZX, JNS) and the extension dispatch that picks one (<code>snapshot_file</code>), the screenshot writers (PNG and <code>.SCR</code>), the host-side FAT32 reader that extracts ROMs from the SD image, the SD-card provisioner, and the video recorder.</td>
 </tr>
 <tr>
 <td><code>cpu/</code></td>
@@ -1919,7 +1919,7 @@ profiler — surround the emulation rather than being part of it.</p>
 </tr>
 <tr>
 <td><code>platform/</code></td>
-<td>The SDL frontend (<code>sdl_app</code>, <code>sdl_display</code>, <code>sdl_audio</code>, <code>sdl_input</code>), the headless frontend (<code>headless_app</code>), screenshot output (PNG and <code>.SCR</code>), the cold-boot helper, and the small header-only policies for frame pacing and render skipping.</td>
+<td>The SDL frontend (<code>sdl_app</code>, <code>sdl_display</code>, <code>sdl_audio</code>, <code>sdl_input</code>), the headless frontend (<code>headless_app</code>), the cold-boot helper, and the small header-only policies for frame pacing and render skipping.</td>
 </tr>
 <tr>
 <td><code>gui/</code></td>
@@ -1931,7 +1931,7 @@ profiler — surround the emulation rather than being part of it.</p>
 </tr>
 <tr>
 <td><code>debug/</code></td>
-<td>The debugger <em>backend</em>, pure C++ with no GUI dependency: disassembler, breakpoint set, <code>DebugState</code>, trace log, call stack, symbol table, and the rewind ring buffer. Plus the four <em>published</em> headers <code>debugger.h</code>, <code>events.h</code>, <code>inspect.h</code>, <code>result.h</code> — the <code>jnext::dbg::Debugger</code> facade contract of epic #276, declarations only for now (see 3.9).</td>
+<td>The debugger <em>backend</em>, pure C++ with no GUI dependency: disassembler, breakpoint set, <code>DebugState</code>, trace log, call stack, symbol table, and the rewind ring buffer. Plus the four <em>published</em> headers <code>debugger.h</code>, <code>events.h</code>, <code>inspect.h</code>, <code>result.h</code> and the <code>jnext::dbg::Debugger</code> facade behind them (<code>debugger*.cpp</code>) — the backend of epic #276 that the three loop owners host and every debugger frontend talks to (see 3.9).</td>
 </tr>
 <tr>
 <td><code>esp01/</code></td>

@@ -145,7 +145,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build \
-       kloc-count regression unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench \
+       kloc-count regression unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-diagrams read-devguide \
@@ -777,6 +777,10 @@ cmake-guard-selftest:
 # Benchmark the 5 canonical workloads on the fastest core (needs 'make gui-release' first)
 bench:
 	@bash test/bench/bench.sh
+
+# Run the GH #276 hot-latch interleaved A/B (needs a baseline binary)
+bench-hotlatch:
+	@bash test/bench/ab-hotlatch.sh $(BASELINE_JNEXT)
 
 # Configure + build the canonical build/ directory (prerequisite for unit-test)
 unit-test-build:

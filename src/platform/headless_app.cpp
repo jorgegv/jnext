@@ -1,16 +1,17 @@
 #include "headless_app.h"
 #include "platform/emulator_boot.h"
 #include "platform/auto_exit.h"
+#include "platform/cli_capture.h"
 #include "platform/rzx_startup.h"
 #include "core/log.h"
-#include "core/sna_saver.h"
-#include "core/szx_saver.h"
-#include "core/nex_saver.h"
 #include "input/keyboard.h"
+#include "debug/inspect.h"
+#include "debug/debugger.h"
 #include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <fstream>
+#include <memory>
 #include <new>
 #include <sched.h>
 
@@ -29,9 +30,79 @@ bool HeadlessApp::init(int argc, char* argv[]) {
         return false;
     }
 
+    // GH #276 B4 — THE HOSTED DEBUGGER BACKEND (§10.1's B4 row; the plan's
+    // §6.1). One per process, built on the initialised machine and kept across
+    // every cold boot (placement-new keeps &emulator_). With no client attached
+    // it arms nothing: `armed()`, `attached()`, `raster_live()` and the capture
+    // render bit stay false and the coverage sink null (rows HOST-01..03), so a
+    // run with it is the run without it.
+    //
+    //   * SES-07's driver: a client's `reset(Hard)` runs `boot_machine()` — the
+    //     backend brackets that boot with its own capture — and `load(path)`
+    //     runs the same format dispatch `--load` uses.
+    //   * SES-04: `ExitNonZero` — a headless run is a CI verdict. What turns a
+    //     `Stop` into an exit is an `ExitRequested` LISTENER, and a listener
+    //     belongs to an attached client, and an attached client ARMS the machine
+    //     (every instruction pays the armed block). So there is none yet: nothing
+    //     can stop here until a client subscribes, and that client is where the
+    //     listener belongs. B4 report, milestone 2 part 1, O5.
+    debugger_ = std::make_unique<jnext::dbg::Debugger>(emulator_);
+    debugger_->set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero);
+    jnext::dbg::LoopDriver driver;
+    driver.cold_boot = [this]() {
+        boot_machine(std::string());
+        // `emulator_frontend_cold_boot()` returns void; SES-07 foresees the
+        // loop owner synthesising the success flag.
+        return true;
+    };
+    driver.load = [this](const std::string& path) {
+        return emulator_apply_load(emulator_, path, tape_realtime_);
+    };
+    debugger_->set_loop_driver(driver);
+    host_probe_ = HostProbe::from_env(emulator_, *debugger_);   // GH #276 B5
+
     running_ = true;
     Log::platform()->info("Headless mode initialized");
     return true;
+}
+
+// Task 70 — power-on cold boot: reconstruct the emulator in place and re-run the
+// proven startup init() path (shared with the Qt/SDL frontends,
+// platform/emulator_boot.h). Empty load_file => clean NextZXOS boot; non-empty
+// => boot as if launched with --load <file>.
+void HeadlessApp::boot_machine(const std::string& load_file) {
+    Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
+                          load_file.empty() ? "(none)" : load_file.c_str());
+    EmulatorConfig cfg = config_;
+    cfg.load_file = load_file;
+    emulator_cold_boot(emulator_, cfg);
+    config_.type = emulator_.config().type;   // a recording's machine stays
+    inject_countdown_ = -1;
+    load_countdown_   = -1;
+    // GH #276 B4 — a --delayed-screenshot handed to the backend survives the
+    // boot (the backend re-arms it on the rebuilt machine); the loop's reading of
+    // the rendered-frame counter must be re-based with it, since the rebuilt
+    // Emulator counts from 0 again.
+    screenshot_queued_at_ = emulator_.rendered_frames();
+    if (!load_file.empty()) {
+        load_file_      = load_file;
+        load_countdown_ = emulator_load_delay_frames(load_file);
+    }
+}
+
+// GH #276 B3/B4 — CTL-12 rule 5, the path on which the LOOP OWNER decides to
+// reboot. `on_cold_boot_begin()` while the machine still exists, so the backend
+// captures the pause in force and whose it is; `on_cold_boot_done()` after, so
+// the reconstruct contract's re-application (the publications, the page seed,
+// the gates, the ring discard, the enables and the captured pause, the
+// coverage sink, the queued captures) runs for it as for a client's
+// `reset(Hard)`. B3 made these two calls for the `JNEXT_BENCH_WATCH` fixture
+// only and said nothing pinned them; they are unconditional now that the
+// backend is hosted, and rows HOST-04/05 pin both (through `HeadlessApp`).
+void HeadlessApp::guest_cold_boot(const std::string& load_file) {
+    debugger_->on_cold_boot_begin();
+    boot_machine(load_file);
+    debugger_->on_cold_boot_done();
 }
 
 void HeadlessApp::set_pending_inject(const std::string& file, uint16_t org,
@@ -144,116 +215,16 @@ void HeadlessApp::set_delayed_exit(int delay_frames) {
                            delay_frames);
 }
 
-// Map a character to ZX Spectrum keyboard matrix position (row, col).
-// Returns false if the key is not recognised.
-static bool char_to_matrix(char key, int& row, int& col) {
-    // Row 0: SHIFT Z X C V
-    // Row 1: A S D F G
-    // Row 2: Q W E R T
-    // Row 3: 1 2 3 4 5
-    // Row 4: 0 9 8 7 6
-    // Row 5: P O I U Y
-    // Row 6: ENTER L K J H
-    // Row 7: SPACE SYM M N B
-    switch (key) {
-        // digits
-        case '1': row=3; col=0; return true;
-        case '2': row=3; col=1; return true;
-        case '3': row=3; col=2; return true;
-        case '4': row=3; col=3; return true;
-        case '5': row=3; col=4; return true;
-        case '6': row=4; col=4; return true;
-        case '7': row=4; col=3; return true;
-        case '8': row=4; col=2; return true;
-        case '9': row=4; col=1; return true;
-        case '0': row=4; col=0; return true;
-        // row 1 letters
-        case 'a': row=1; col=0; return true;
-        case 's': row=1; col=1; return true;
-        case 'd': row=1; col=2; return true;
-        case 'f': row=1; col=3; return true;
-        case 'g': row=1; col=4; return true;
-        // row 2 letters
-        case 'q': row=2; col=0; return true;
-        case 'w': row=2; col=1; return true;
-        case 'e': row=2; col=2; return true;
-        case 'r': row=2; col=3; return true;
-        case 't': row=2; col=4; return true;
-        // row 5 letters
-        case 'p': row=5; col=0; return true;
-        case 'o': row=5; col=1; return true;
-        case 'i': row=5; col=2; return true;
-        case 'u': row=5; col=3; return true;
-        case 'y': row=5; col=4; return true;
-        // row 6 letters
-        case 'l': row=6; col=1; return true;
-        case 'k': row=6; col=2; return true;
-        case 'j': row=6; col=3; return true;
-        case 'h': row=6; col=4; return true;
-        // row 0 letters
-        case 'z': row=0; col=1; return true;
-        case 'x': row=0; col=2; return true;
-        case 'c': row=0; col=3; return true;
-        case 'v': row=0; col=4; return true;
-        // row 7 letters
-        case 'm': row=7; col=2; return true;
-        case 'n': row=7; col=3; return true;
-        case 'b': row=7; col=4; return true;
-        // specials
-        case ' ': row=7; col=0; return true;  // SPACE
-        case '\n': row=6; col=0; return true;  // ENTER
-        default: return false;
-    }
-}
-
-// Parse a --delayed-keypress key name into matrix positions (Task 57).
-// Accepts (case-insensitive): a single alnum char, punctuation with a
-// well-known SYMBOL SHIFT compound ('.' ',' ';' ':'), the named keys
-// enter/return/space/up/down/left/right (cursors = CAPS SHIFT + 7/6/5/8,
-// mirroring the s_compound PC-arrow table in src/input/keyboard.cpp), or
-// an explicit compound "sym+<char>" / "caps+<char>".
-// Matrix constants: CAPS SHIFT = (0,0), SYMBOL SHIFT = (7,1).
+// GH #276 §4.5 — the key-name vocabulary moved to the backend
+// (`jnext::dbg::key_name_to_matrix`, src/debug/inspect.cpp). It was a pair of
+// file-statics here, which made this file the owner of a table the DSL and both
+// GUI frontends also need; the CLI is now one of four callers of one table.
 static bool key_name_to_matrix(const std::string& name,
                                int& row1, int& col1, int& row2, int& col2) {
-    row2 = col2 = -1;
-    std::string k;
-    k.reserve(name.size());
-    for (char c : name)
-        k.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
-    if (k.empty()) return false;
-
-    // Named keys.
-    if (k == "enter" || k == "return") return char_to_matrix('\n', row1, col1);
-    if (k == "space")                  return char_to_matrix(' ', row1, col1);
-    if (k == "left")  { row2=0; col2=0; row1=3; col1=4; return true; }  // CAPS + 5
-    if (k == "down")  { row2=0; col2=0; row1=4; col1=4; return true; }  // CAPS + 6
-    if (k == "up")    { row2=0; col2=0; row1=4; col1=3; return true; }  // CAPS + 7
-    if (k == "right") { row2=0; col2=0; row1=4; col1=2; return true; }  // CAPS + 8
-
-    // Explicit compounds: "sym+x" / "caps+x".
-    auto plus = k.find('+');
-    if (plus != std::string::npos && plus + 2 == k.size()) {
-        const std::string mod = k.substr(0, plus);
-        const char c = k[plus + 1];
-        if (!char_to_matrix(c, row1, col1)) return false;
-        if (mod == "sym"  || mod == "ss") { row2=7; col2=1; return true; }
-        if (mod == "caps" || mod == "cs") { row2=0; col2=0; return true; }
-        return false;
-    }
-
-    // Single characters. Punctuation maps to its SYMBOL SHIFT compound
-    // (keyword table in the 48K ROM / NextZXOS editor):
-    //   '.' = SYM+M   ',' = SYM+N   ';' = SYM+O   ':' = SYM+Z
-    if (k.size() == 1) {
-        switch (k[0]) {
-            case '.': row1=7; col1=2; row2=7; col2=1; return true;  // SYM + M
-            case ',': row1=7; col1=3; row2=7; col2=1; return true;  // SYM + N
-            case ';': row1=5; col1=1; row2=7; col2=1; return true;  // SYM + O
-            case ':': row1=0; col1=1; row2=7; col2=1; return true;  // SYM + Z
-            default:  return char_to_matrix(k[0], row1, col1);
-        }
-    }
-    return false;
+    jnext::dbg::MatrixKey k;
+    if (!jnext::dbg::key_name_to_matrix(name, k)) return false;
+    row1 = k.row1; col1 = k.col1; row2 = k.row2; col2 = k.col2;
+    return true;
 }
 
 bool HeadlessApp::set_delayed_keypress(const std::string& key, int delay_frames) {
@@ -393,6 +364,69 @@ void HeadlessApp::run() {
     if (benchmark_frames_ > 0)
         bench_start = bench_clock::now();
 
+    // ── GH #276 §11 item 3 — THE HOT-LATCH BENCH FIXTURE ──────────────────
+    //
+    // §10.1 gates B2 on "the §11 item 3 hot-latch measurement" and §11 sets the
+    // deadline at "before B2 merges". The measurement needs a RANGE `Mem` WATCH
+    // THAT HITS, and `test/bench/bench.sh` cannot express one — so the first
+    // round of B2 measured it with an uncommitted hook and the number survived
+    // only as prose, which is exactly how an independent re-derivation came back
+    // with a ~35 % different magnitude. This is that hook, in the tree.
+    //
+    // Env-gated in the established `JNEXT_G46B_*` style (zero cost unset), and
+    // deliberately NOT a CLI flag: it is a measurement fixture, not a feature, so
+    // it carries no `cli_options.h` row and no man-page obligation.
+    //
+    //   JNEXT_BENCH_WATCH=lo-hi   arm `Mem[lo,hi] Write` with a Continue handler
+    //   JNEXT_BENCH_WATCH=p       arm nothing; --persistent-breakpoints only
+    //
+    // The `p` form exists because §6.3's armed rows conflated the latch cost with
+    // the pre-existing `--persistent-breakpoints` per-instruction `should_break()`
+    // lookup; A − P is what isolates the latch. The handler returns `Continue`, so
+    // nothing pauses — §6.2 records a run where the watch paused the machine and
+    // the benchmark "measured" 13x by emulating nothing.
+    //
+    // It prints `BENCHWATCH hits=N` to stderr at the end, so a run states its own
+    // hit rate instead of leaving the reader to assume the watch fired.
+    //
+    // GH #276 B3 — the watch lives on a `Debugger` across every cold boot, which
+    // made this fixture the first real consumer of CTL-12's reconstruct
+    // contract. GH #276 B4 — and that `Debugger` is now the loop owner's hosted
+    // one (`debugger_`, built by init()), whose `on_cold_boot_begin/done()`
+    // bracket every guest boot below; the fixture no longer owns one of its own.
+    // Without the re-application the subscription would still list as live and
+    // never fire again, and `BENCHWATCH hits=0` would read as "the range was
+    // never written" instead of "the watch was disconnected".
+    unsigned long long* bench_watch_hits = nullptr;
+    if (const char* bw = std::getenv("JNEXT_BENCH_WATCH")) {
+        static unsigned long long hits = 0;
+        bench_watch_hits = &hits;
+        emulator_.debug_state().set_persistent_breakpoints(true);
+        if (bw[0] != 'p') {
+            unsigned lo = 0, hi = 0;
+            if (std::sscanf(bw, "%x-%x", &lo, &hi) == 2) {
+                jnext::dbg::Subscription bs;
+                bs.kind      = jnext::dbg::EventKind::Mem;
+                bs.access    = jnext::dbg::Access::Write;
+                bs.filter.lo = static_cast<uint16_t>(lo);
+                bs.filter.hi = static_cast<uint16_t>(hi);
+                bs.action    = jnext::dbg::Action::Continue;
+                bs.handler   = [](const jnext::dbg::Event&,
+                                  jnext::dbg::Debugger&) {
+                    ++hits;
+                    return jnext::dbg::Action::Continue;
+                };
+                debugger_->subscribe(1, bs);
+                Log::platform()->info(
+                    "JNEXT_BENCH_WATCH: armed Mem[{:#06x},{:#06x}] Write", lo, hi);
+            } else {
+                Log::platform()->warn(
+                    "JNEXT_BENCH_WATCH: expected 'lo-hi' in hex, or 'p'; got '{}'",
+                    bw);
+            }
+        }
+    }
+
     // G46(b) #102 investigation probe (env-gated, zero cost when unset).
     // JNEXT_G46B_PCTRACE=<path>: dump a one-line-per-frame CPU snapshot
     // (PC, opcode bytes at PC, key registers, halted/IM/IFF1) for a frame
@@ -482,24 +516,6 @@ void HeadlessApp::run() {
         }
     }
 
-    // Task 70 — power-on cold boot: reconstruct the emulator in place and
-    // re-run the proven startup init() path (shared with the Qt/SDL frontends,
-    // platform/emulator_boot.h). Empty load_file => clean NextZXOS boot;
-    // non-empty => boot as if launched with --load <file>.
-    auto cold_boot = [this](const std::string& load_file) {
-        Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
-                              load_file.empty() ? "(none)" : load_file.c_str());
-        EmulatorConfig cfg = config_;
-        cfg.load_file = load_file;
-        emulator_cold_boot(emulator_, cfg);
-        config_.type = emulator_.config().type;   // a recording's machine stays
-        inject_countdown_ = -1;
-        load_countdown_   = -1;
-        if (!load_file.empty()) {
-            load_file_      = load_file;
-            load_countdown_ = emulator_load_delay_frames(load_file);
-        }
-    };
 
     while (running_) {
         // Headless reset facility (env-gated, zero cost when unset): --headless
@@ -518,7 +534,7 @@ void HeadlessApp::run() {
             std::string t = ty ? ty : "hard";
             if (t == "soft") emulator_.soft_reset();
             else if (t == "f4") emulator_.on_hotkey_f4_soft_reset();
-            else if (t.rfind("loadnex:", 0) == 0) cold_boot(t.substr(8));
+            else if (t.rfind("loadnex:", 0) == 0) guest_cold_boot(t.substr(8));
             else emulator_.request_hard_reset();  // flag -> polled after run_frame
             t70_countdown = -1;
         } else if (t70_countdown > 0) { --t70_countdown; }
@@ -558,10 +574,12 @@ void HeadlessApp::run() {
         // time (unknown names are rejected there, never dropped here).
         for (auto it = delayed_keys_.begin(); it != delayed_keys_.end(); ) {
             if (it->countdown <= 0) {
-                std::vector<Keyboard::AutoKey> keys = {
-                    {it->row1, it->col1, it->row2, it->col2, 5}  // press for 5 frames
-                };
-                emulator_.keyboard().queue_auto_type(keys);
+                // GH #276 B4 (O2) — the ACTION through the backend's IN-01 verb:
+                // a 5-frame pulse on the (appending) auto-type queue, the same
+                // call every debugger client makes. The countdown stays here.
+                debugger_->press_key(jnext::dbg::CLIENT_NONE,
+                                     jnext::dbg::MatrixKey{it->row1, it->col1, it->row2, it->col2},
+                                     5);   // press for 5 frames
                 Log::platform()->info("Delayed keypress '{}' injected", it->name);
                 it = delayed_keys_.erase(it);
             } else {
@@ -572,16 +590,18 @@ void HeadlessApp::run() {
 
         // Delayed NMI button presses (GH #209). Dispatched through the
         // same hotkey seam the GUI/SDL front-ends use for F9/F10, so
-        // every enable gate and the arbitration chain are exercised.
+        // every enable gate and the arbitration chain are exercised —
+        // GH #276 B4 (O2): by way of the backend's IN-04 verb, which IS that
+        // seam (Debugger::press_nmi calls the two hotkey functions).
         // One press = one strobe (VHDL hotkey_m1 / hotkey_drive are
         // one-cycle edge pulses, zxnext.vhd:6348-6349), hence erase
         // after firing rather than holding a level down.
         for (auto it = delayed_nmis_.begin(); it != delayed_nmis_.end(); ) {
             if (it->countdown <= 0) {
-                if (it->button == NmiButtonName::Mf)
-                    emulator_.on_hotkey_f9_mf_nmi();
-                else
-                    emulator_.on_hotkey_f10_divmmc_nmi();
+                debugger_->press_nmi(jnext::dbg::CLIENT_NONE,
+                                     it->button == NmiButtonName::Mf
+                                         ? jnext::dbg::NmiButton::Mf
+                                         : jnext::dbg::NmiButton::Drive);
                 Log::platform()->info("Delayed NMI button '{}' pressed", it->name);
                 it = delayed_nmis_.erase(it);
             } else {
@@ -590,11 +610,22 @@ void HeadlessApp::run() {
             }
         }
 
-        // --delayed-screenshot-layers: arm the compositor layer mask for the
-        // one frame that is about to be captured, and take it down again
-        // immediately after. Default LAYER_ALL => both calls are no-ops.
-        if (screenshot_countdown_ == 0)
-            emulator_.renderer().set_layer_mask(screenshot_layers_);
+        // --delayed-screenshot: when the countdown comes due, hand the capture
+        // to the backend (GH #276 B4, O2; platform/cli_capture.h). It arms the
+        // --delayed-screenshot-layers mask on the renderer NOW, for the frame
+        // about to run, forces that frame to render, and the pump below writes
+        // it and takes the mask down — exactly the frame, the mask and the file
+        // this loop used to handle itself. Queued once: a tick that cold-boots
+        // `continue`s past the rest of the loop and comes back here with the
+        // capture still queued (the backend re-arms it on the rebuilt machine).
+        if (screenshot_countdown_ == 0 && !screenshot_queued_) {
+            screenshot_queued_at_ = emulator_.rendered_frames();
+            if (queue_cli_screenshot(*debugger_, screenshot_file_, screenshot_layers_) ==
+                jnext::dbg::Result::Ok)
+                screenshot_queued_ = true;
+            else
+                screenshot_refused_ = true;   // reported below, as a failed write
+        }
 
         if (g46b_itrace_file) {
             const bool in_window = g46b_frame_no >= g46b_itrace_start &&
@@ -681,46 +712,74 @@ void HeadlessApp::run() {
         ++g46b_frame_no;
 
         if (std::string load_file = emulator_.take_nex_load_request(); !load_file.empty()) {
-            cold_boot(load_file);
+            guest_cold_boot(load_file);
             continue;
         }
 
         // Task 70 — a program's NR 0x02 hard reset (set during run_frame) is a
-        // power-on cold boot done here between frames. cold_boot() reconstructs
-        // the emulator, so continue to the next iteration with the fresh machine.
+        // power-on cold boot done here between frames. guest_cold_boot()
+        // reconstructs the emulator, so continue to the next iteration with the
+        // fresh machine.
         if (emulator_.take_hard_reset_request()) {
-            cold_boot(std::string());
+            guest_cold_boot(std::string());
             continue;
         }
+
+        // GH #276 B4 — SES-03: the backend's service call, once per tick AFTER
+        // the frame batch AND after the two cold-boot polls above (CTL-12's
+        // ordering: a guest reset raised in this tick's frames is performed
+        // before any client command in this pump, so a client's `reset(Hard)`
+        // here reboots the freshly booted machine rather than subsuming it). A
+        // tick that booted `continue`s, so its pump is the next tick's — still
+        // after the boot. `PumpBudget{}` never blocks; the paused-with-a-remote
+        // budget is the socket transport's to choose (package T). With no client
+        // and no service it writes nothing and moves nothing (row HOST-02).
+        debugger_->pump(jnext::dbg::PumpBudget{});
 
         // --benchmark: stop after exactly N frames and report.
         if (benchmark_frames_ > 0 && ++bench_frames_done >= benchmark_frames_) {
             const double wall =
                 std::chrono::duration<double>(bench_clock::now() - bench_start).count();
             print_benchmark_result(wall);
+            // The fixture states its own hit rate, so a reader never has to assume
+            // the watch fired (§6.2's run 1 assumed it and was wrong).
+            if (bench_watch_hits)
+                std::fprintf(stderr, "BENCHWATCH hits=%llu\n", *bench_watch_hits);
             running_ = false;
         }
 
-        // Delayed screenshot.
+        // Delayed screenshot: the OUTCOME. The pump above has written the
+        // capture if a frame was rendered since it was queued; flush_captures()
+        // (the backend's exit bound for its CLIENT_NONE captures) says how it
+        // ended. The write can fail (missing directory, no permission, disk
+        // full). Same contract as the never-taken routes below: a screenshot
+        // that was requested and did not appear is an error and a non-zero
+        // exit, never a silent status-0 no-op. save_screenshot_*() has already
+        // logged WHY; the format is the filename's extension (GH #18).
+        //
+        // No frame rendered (a paused machine — `--magic-breakpoint`): the
+        // capture stays queued and the countdown stays at 0, as the GUI
+        // frontends have always deferred it — "deferred to the next rendered
+        // frame, never the stale framebuffer" (§4.5 CAP-01). Headless used to
+        // write the stale framebuffer here; that is the one change of behaviour
+        // O2 brings to this flag, and it is the design's (B4 report).
         if (screenshot_countdown_ == 0) {
-            // The write can fail (missing directory, no permission, disk full).
-            // Same contract as the never-taken routes below: a screenshot that
-            // was requested and did not appear is an error and a non-zero exit,
-            // never a silent status-0 no-op. save_screenshot() has already
-            // logged WHY. It picks PNG or .SCR from the filename's extension
-            // (GH #18) — one dispatch shared with the two GUI frontends.
-            if (!save_screenshot(screenshot_file_, emulator_.get_framebuffer(),
-                                 emulator_.get_framebuffer_width(),
-                                 emulator_.get_framebuffer_height(),
-                                 emulator_.ula())) {
-                Log::platform()->error(
-                    "--delayed-screenshot: FAILED to write '{}' (layers: {}); "
-                    "see the error above. Exiting non-zero.",
-                    screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_));
-                exit_code_ = 1;
+            const bool rendered = emulator_.rendered_frames() != screenshot_queued_at_;
+            if (screenshot_refused_ || rendered) {
+                const bool ok = !screenshot_refused_ &&
+                                debugger_->flush_captures(jnext::dbg::CLIENT_NONE) ==
+                                    jnext::dbg::Result::Ok;
+                if (!ok) {
+                    Log::platform()->error(
+                        "--delayed-screenshot: FAILED to write '{}' (layers: {}); "
+                        "see the error above. Exiting non-zero.",
+                        screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_));
+                    exit_code_ = 1;
+                }
+                screenshot_countdown_ = -1;
+                screenshot_queued_    = false;
+                screenshot_refused_   = false;
             }
-            emulator_.renderer().set_layer_mask(Renderer::LAYER_ALL);
-            screenshot_countdown_ = -1;
         } else if (screenshot_countdown_ > 0) {
             --screenshot_countdown_;
         }
@@ -738,27 +797,32 @@ void HeadlessApp::run() {
             // in flight. Completing it through the ordinary path also keeps
             // the per-scanline change logs intact — re-running frame start
             // mid-frame is the Task 40 defect.
-            if (emulator_.advance_to_frame_boundary()) {
+            //
+            // GH #276 B4 (O2) — the ACTION is the backend's CAP-04
+            // `save_snapshot()`: the same advance (ST-01's one frame-boundary
+            // rule, now attributed in a MUTATE line) and the same savers,
+            // chosen by extension through the one table (`save_snapshot_file`,
+            // src/core). This loop keeps the countdown and its own messages.
+            if (!debugger_->at_frame_boundary()) {
                 Log::platform()->info(
                     "--delayed-snapshot: the machine was paused mid-frame; "
                     "advanced to the next frame boundary to save from "
                     "(the restored machine is up to one frame on)");
             }
+            const bool saved = debugger_->save_snapshot(jnext::dbg::CLIENT_NONE,
+                                                        snapshot_file_) ==
+                               jnext::dbg::Result::Ok;
             std::string ext;
             auto dot = snapshot_file_.rfind('.');
             if (dot != std::string::npos) {
                 ext = snapshot_file_.substr(dot);
                 for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
             }
-            // GH #27 S8 — `.jns` writes itself, because it is the only format
-            // here that needs the manifest, the SD identity and the blob
-            // declarations assembled rather than one flat buffer. It is
-            // handled before the buffer-producing savers for that reason, and
-            // it reports its own failure with a REASON, which none of the
-            // three below can.
+            // GH #27 S8 — `.jns` writes itself and reports its own failure with
+            // a REASON, which the other formats cannot (and its success line is
+            // save_jns_file()'s own).
             if (ext == ".jns") {
-                const bool ok = emulator_.save_jns_file(snapshot_file_);
-                if (!ok) {
+                if (!saved) {
                     Log::emulator()->error(
                         "--delayed-snapshot: could not write '{}': {}",
                         snapshot_file_, emulator_.last_jns_error());
@@ -767,44 +831,19 @@ void HeadlessApp::run() {
                 snapshot_file_.clear();
                 return;
             }
-            std::vector<uint8_t> bytes;
-            if (ext == ".szx") {
-                // .szx is a classic-Spectrum interchange format: it can
-                // only represent 48K/128K/+2A/+3 — see SzxSaver class
-                // doc-comment SCOPE. save() already logs a clear error and
-                // returns no data when the current machine (e.g. jnext's
-                // default, Next) can't be represented.
-                bytes = SzxSaver::save(emulator_).data;
-            } else if (ext == ".nex") {
-                bytes = NexSaver::save(emulator_).data;
-            } else {
-                // GH #274 — .sna is the 48K form only: SnaSaver::save() logs a
-                // clear error and returns no data on a machine it cannot
-                // represent (the Next, jnext's default), exactly as the .szx
-                // arm above does. The shared no-data path below then fails the
-                // run rather than writing a snapshot that is not of this
-                // machine.
-                bytes = SnaSaver::save(emulator_);
-            }
-            bool ok = !bytes.empty();
-            if (ok) {
-                std::ofstream f(snapshot_file_, std::ios::binary);
-                if (f) {
-                    f.write(reinterpret_cast<const char*>(bytes.data()),
-                            static_cast<std::streamsize>(bytes.size()));
-                    ok = static_cast<bool>(f);
-                } else {
-                    ok = false;
-                }
-            }
-            if (!ok) {
+            if (!saved) {
+                // GH #274 — a .sna or .szx of a machine the format cannot
+                // represent is refused with its reason logged by the saver; an
+                // I/O failure likewise. Either way the run fails.
                 Log::platform()->error(
                     "--delayed-snapshot: FAILED to write '{}'. Exiting non-zero.",
                     snapshot_file_);
                 exit_code_ = 1;
             } else {
+                std::ifstream f(snapshot_file_, std::ios::binary | std::ios::ate);
                 Log::platform()->info("--delayed-snapshot: saved '{}' ({} bytes)",
-                                      snapshot_file_, bytes.size());
+                                      snapshot_file_,
+                                      f ? static_cast<long long>(f.tellg()) : 0LL);
             }
             snapshot_countdown_ = -1;
         } else if (snapshot_countdown_ > 0) {
@@ -848,18 +887,29 @@ void HeadlessApp::run() {
 
 void HeadlessApp::shutdown() {
     // Same contract as the two GUI frontends: a screenshot that was asked for
-    // and never taken is a failure. Headless always renders (there is no
-    // debugger pause here), so the only way to land in this branch is a
+    // and never taken is a failure. The countdown ticks whether or not the
+    // machine is paused, so the only way to land in this first branch is a
     // --delayed-automatic-exit that fires before --delayed-screenshot-time /
     // -frames comes due. That misconfiguration used to exit 0 with no PNG and
     // no message — a silent no-op in the one mode built for scripting.
-    if (screenshot_countdown_ >= 0 && !screenshot_file_.empty()) {
+    if (screenshot_countdown_ > 0 && !screenshot_file_.empty()) {
         Log::platform()->error(
             "--delayed-screenshot: NO screenshot was written to '{}' (layers: {}); "
             "--delayed-automatic-exit fired {} frame(s) before the capture was due. "
             "Exiting non-zero.",
             screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_),
             screenshot_countdown_);
+        exit_code_ = 1;
+    } else if (screenshot_countdown_ == 0 && !screenshot_file_.empty()) {
+        // GH #276 B4 — due, handed to the backend, and never taken: the machine
+        // rendered no frame for it (paused) before the exit. The exit bound
+        // drops it (flush_captures() → NoFrame), so it cannot land after the
+        // verdict. The wording is SdlApp's, which has always had this case.
+        if (debugger_) debugger_->flush_captures(jnext::dbg::CLIENT_NONE);
+        Log::platform()->error(
+            "--delayed-screenshot: NO screenshot was written to '{}' (layers: {}); "
+            "the emulator exited with the capture still pending. Exiting non-zero.",
+            screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_));
         exit_code_ = 1;
     }
 

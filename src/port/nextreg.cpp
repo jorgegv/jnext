@@ -1,10 +1,12 @@
 #include "nextreg.h"
 #include "core/log.h"
+#include "debug/debug_state.h"
+#include "debug/event_table.h"
 #include "core/saveable.h"
 #include "save/state_desc.h"
 #include "save/state_desc_bin.h"
 
-NextReg::NextReg() {
+NextReg::NextReg() : write_source_(jnext::dbg::EventSource::Cpu) {
     // PASS-5/PASS-8: install FPGA-power-on defaults BEFORE the first
     // reset(). The reset() function gates 0x82-0x85 / 0x86-0x89 on the
     // reset_type bits stored in 0x85 / 0x89, and PRESERVES across reset
@@ -456,6 +458,18 @@ uint8_t NextReg::read(uint8_t reg) {
 void NextReg::write(uint8_t reg, uint8_t val) {
     if (Log::nextreg()->should_log(spdlog::level::trace))
         Log::nextreg()->trace("NextREG write reg={:#04x} val={:#04x}", reg, val);
+    // GH #276 B2 §4.3 — the ONE NextRegWrite hook. See set_debug_state() and
+    // set_write_source() in the header for the two gates and why a Copper MOVE
+    // is excluded here. Latched BEFORE the handler runs so `prev` is the byte
+    // that was there; DELIVERED after commit, at the next boundary the drain
+    // reaches, which for a CPU write is one instruction later (§4.3).
+    // The `has_kind()` pre-gate is not decoration: without it every guest NR
+    // write ran `nr_would_match()`, a linear scan of EVERY subscription, out of
+    // line. Now an unsubscribed kind costs one integer test.
+    if (debug_state_ && debug_state_->guest_access() &&
+        write_source_ != jnext::dbg::EventSource::Copper &&
+        debug_state_->nextreg_events_armed())
+        latch_nr_write_(reg, val);
     // PASS-8 read-only register guard. VHDL zxnext.vhd:5887, 5917, 5920
     // — NR 0x01 (g_version), NR 0x0E (g_sub_version), NR 0x0F
     // (g_board_issue) are RO board-generic constants; their read mux
@@ -540,6 +554,23 @@ void NextReg::write(uint8_t reg, uint8_t val) {
 // at NMIACK_MSB the same happens for PCH → nr_c3_retn_address_msb. Both regs
 // are read-only via the 0x243B/0x253B path (no software write handler), so we
 // write directly into regs_[] rather than going through NextReg::write().
+// GH #276 B2 — the out-of-line half of the NextRegWrite hook.
+void NextReg::latch_nr_write_(uint8_t reg, uint8_t val) {
+    jnext::dbg::EventTable* t = debug_state_->event_table();
+    if (!t) return;
+    if (!t->nr_would_match(reg, write_source_)) return;
+    jnext::dbg::LatchEntry e;
+    e.kind   = jnext::dbg::EventKind::NextRegWrite;
+    e.source = write_source_;
+    e.reg    = reg;
+    e.value  = val;
+    // peek(), not regs_[reg]: a register with a read handler composes its
+    // canonical byte there, and peek() is the side-effect-free twin that
+    // refuses a destructive handler it has no twin for.
+    e.prev = peek(reg);
+    debug_state_->latch_event(e);
+}
+
 void NextReg::set_nmi_return_address(uint16_t pc) {
     regs_[0xC2] = static_cast<uint8_t>(pc & 0xFF);
     regs_[0xC3] = static_cast<uint8_t>((pc >> 8) & 0xFF);

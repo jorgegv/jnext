@@ -260,6 +260,31 @@ public:
         return ula_rgb333_[bank_second ? 1 : 0][ula_pixel];
     }
 
+    // -----------------------------------------------------------------
+    // GH #276 §4.2 INS-15 — the debugger's RAW palette seam.
+    //
+    // Both take the (bank, palette) pair as one `PaletteId`, which is how
+    // NR 0x43 bits 6:4 name it and how the debugger's own superset enum maps
+    // onto this one. Neither touches `index_` or `target_palette_`: the NR
+    // 0x40/0x41/0x44 stream is the GUEST's cursor, and a panel that read or
+    // wrote 256 entries through it would leave the guest's next write landing
+    // somewhere else.
+    // -----------------------------------------------------------------
+
+    /// One entry's stored 9-bit RRRGGGBBB value, for any of the eight banks.
+    uint16_t entry_rgb333(PaletteId target, uint8_t index) const;
+
+    /// Write one entry's 9-bit RRRGGGBBB value in any of the eight banks.
+    ///
+    /// Goes through the same apply + per-scanline log the NR 0x41/0x44 stream
+    /// uses, because the renderer REPLAYS palette writes per line: a write that
+    /// skipped the log would show this frame and disappear on the next
+    /// re-render of it. `priority` is the 2-bit NR 0x44 palette priority; a
+    /// debugger write that does not mean to set one passes 0, exactly as an
+    /// NR 0x41 8-bit write does (zxnext.vhd:4920).
+    void set_entry_rgb333(PaletteId target, uint8_t index, uint16_t rgb333,
+                          uint8_t priority = 0);
+
     /// Look up Layer 2 colour as ARGB8888 by (bank, 8-bit pixel value).
     ///
     /// GH #163 — the bank MUST come from the caller when the caller is a

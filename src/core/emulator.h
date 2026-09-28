@@ -190,6 +190,21 @@ public:
     /// point a snapshot may be taken from (design §10.2 P7).
     bool frame_in_progress() const { return frame_in_progress_; }
 
+    /// GH #276 B4 — true inside `end_of_frame()`'s closing window: from the
+    /// `Frame` event's drain to the end of the auto-type tick that follows it.
+    /// `frame_in_progress()` is already false there, but the frame's last work
+    /// has not run, so the debugger backend does not treat it as a frame
+    /// boundary a snapshot may be taken at. Only a `Frame` handler (or anything
+    /// it calls) can observe it true.
+    bool frame_edge_open() const { return frame_edge_open_; }
+
+    /// GH #276 B4 — how many frames `end_of_frame()` has RENDERED into the
+    /// framebuffer since this `Emulator` was constructed (a frame whose render
+    /// was skipped, or replayed under rewind, does not count). Host-side: not
+    /// in a snapshot, so a restore does not move it; a reconstruct restarts it.
+    /// The debugger backend's CAP-01 capture waits for it to move.
+    uint64_t rendered_frames() const { return rendered_frames_; }
+
     /// Perform a soft reset (tbblue RESET_SOFT / NR 0x02 bit 0).
     /// Resets flip-flops (CPU, MMU, peripherals, NextReg) but preserves
     /// RAM contents (including the Next ROM-in-SRAM window), ROM buffer,
@@ -740,6 +755,36 @@ public:
 
     /// Current master cycle within the current frame.
     uint64_t current_frame_cycle() const { return frame_cycle_; }
+
+    /// GH #276 §4.3 — was the instruction slot that just ran the DMA's rather
+    /// than the CPU's? A slot is one or the other, never both. The debugger
+    /// backend tags a memory or port event's `source` from this at the
+    /// instruction-boundary drain; it says nothing about whether the DMA is
+    /// currently holding the bus (that is `Dma::dma_holds_bus()`).
+    bool slot_ran_dma() const { return slot_ran_dma_; }
+
+    // ── GH #276 B2 §4.3 — the event seams the backend cannot reach ───────
+
+    /// Latch a CAP-EVT `Reset` event. `soft_reset()` calls it with false;
+    /// CTL-12's cold-boot reconstruct (B3) calls it with true, which is why it
+    /// is public rather than private — the reconstruct lives above `Emulator`
+    /// in `src/platform/`, and the `Debugger` cannot see the moment the machine
+    /// is rebuilt from inside it.
+    void debug_latch_reset(bool hard);
+
+    /// The PC of the instruction the current slot is executing — §4.3's
+    /// `pc_pre_exec`, which is what `Event::pc` means for every latched kind.
+    ///
+    /// A member rather than the local `step_one_instruction()` already has,
+    /// because a latch fires from INSIDE `cpu_.execute()` (an `Mmu::write` is a
+    /// memory cycle of the instruction) and by then `cpu_.pc()` has moved on.
+    /// One 16-bit store per instruction, unconditional — gating it on `armed()`
+    /// would make the store conditional and the branch is not cheaper than the
+    /// store. IT IS THEREFORE THE ONE THING EVERY USER PAYS for B2, so "the
+    /// no-subscriber cost is none" is properly "one store per instruction,
+    /// measured as noise" (§6.3's method cannot resolve a single store; the
+    /// interleaved A/B in `test/bench/` bounds it at under the spread).
+    uint16_t debug_slot_pc() const { return debug_slot_pc_; }
 
     /// Execute a single CPU instruction slot with all subsystem ticking, and
     /// nothing around it. Returns T-states consumed.
@@ -1702,6 +1747,12 @@ private:
     /// not restart it.
     bool frame_in_progress_ = false;
 
+    /// GH #276 B4 — see frame_edge_open().
+    bool frame_edge_open_ = false;
+
+    /// GH #276 B4 — see rendered_frames().
+    uint64_t rendered_frames_ = 0;
+
     /// Boot ROM (8K FPGA bootloader, embedded into the jnext binary at
     /// link time — see core/embedded_nextboot_rom.h).
     std::vector<uint8_t> boot_rom_;
@@ -2085,6 +2136,74 @@ private:
     // requests, so a request raised during an instruction is resolved at
     // its end, not one instruction later.
     bool     slot_ran_instruction_ = false;
+    // GH #276 §4.3 — was this slot the DMA's rather than the CPU's? A slot is
+    // one or the other, never both, and `Event::source` is tagged from it at
+    // the boundary drain. Read through slot_ran_dma().
+    bool     slot_ran_dma_         = false;
+
+    // GH #276 B2 — see debug_slot_pc().
+    uint16_t debug_slot_pc_ = 0;
+
+    /// GH #276 B2 — a `Stop` verdict from a drain on a path that does not pause
+    /// immediately. run_frame() acts on its drain's return value directly;
+    /// step_frame_slot() cannot, because debugger_step() may run several slots
+    /// out of a HALT and has one place where it re-pauses. Latched, exactly like
+    /// `data_bp_hit_`, and consumed in the same breath.
+    bool event_stop_pending_ = false;
+
+    /// GH #276 B2 — install the latch stamper on `debug_state_`: the
+    /// {cycle, frame, pc, vc, hc} common header of §4.3, which only this class
+    /// knows. Called once from init().
+    void install_debug_latch_stamper_();
+
+    /// GH #276 B2 — reconcile the debugger's event state with a machine that has
+    /// just been REPLACED or RESET.
+    ///
+    /// THE ONE PLACE, called from `load_state()` (which every restore routes
+    /// through — `load_state_bytes`, `step_back`, `rewind_to_frame`,
+    /// `run_back_to_cycle`, a warm start, B4's bookmarks) and from `init()`
+    /// (which is `soft_reset()` and B3's reconstruct). Putting it in each VERB
+    /// was how `load_state_bytes()` came to be the one that forgot.
+    ///
+    /// THE DECISION, AND ITS REASONING (recorded here because nothing in B2
+    /// recorded it): the subscription model is HOST-SIDE SESSION state and is
+    /// deliberately NOT serialised — §4.2a's precedent is explicit, "a mutation
+    /// is machine state, so the next frame-boundary snapshot carries it;
+    /// interpreter state (script variables, `once` flags) is not", and `once`
+    /// flags are `EventTable` state. A `Condition` and a `Handler` are closures
+    /// over a subscriber's own interpreter and cannot be serialised at all. So a
+    /// load must neither resurrect a subscription the user deleted nor delete one
+    /// they added, exactly as it leaves the symbol table, the stop policy and the
+    /// trace enable alone.
+    ///
+    /// What DOES have to be reconciled is the state that DESCRIBES the machine
+    /// that has just gone:
+    ///   * the latch ring — its entries carry a `pc`, `cycle` and `frame` from a
+    ///     machine that no longer exists, so the next drain would attribute them
+    ///     to the restored one. DISCARDED.
+    ///   * `event_stop_pending_` — a pending Stop for an instruction that no
+    ///     longer happened. CLEARED.
+    ///   * `watch_stop_` / `magic_stop_` — CTL-13 evidence for a stop the load has
+    ///     replaced. `unpause_()` clears them on a resume, but a load while paused
+    ///     never unpauses. CLEARED.
+    ///   * `EventTable::slot_page_` — the only piece that is a CACHE OF MACHINE
+    ///     STATE (the MMU page map). RE-DERIVED from the restored `Mmu`, which is
+    ///     the same defect as the missing initial seed wearing a second costume.
+    ///   * the derived slot masks — re-published by the re-derive above.
+    /// `debug_slot_pc_` is deliberately left: the next instruction overwrites it,
+    /// and nothing between here and there can latch (a non-guest write cannot).
+    /// `discard_ring` is false for a RESET: its own `Reset` event is already in
+    /// the ring (latched before `init()` runs, so it carries the pre-reset cycle)
+    /// and must survive the transition it reports.
+    void debug_after_machine_transition_(bool discard_ring);
+
+    /// GH #276 B2 §4.3 — latch `Scanline` / `Frame` / `IntAck` / `Nmi` /
+    /// `Magic`. Out of line, each behind its own `has_kind()` gate.
+    void debug_latch_scanline_(int raw_line);
+    void debug_latch_frame_();
+    void debug_latch_int_ack_(uint8_t vector);
+    void debug_latch_nmi_();
+    void debug_latch_magic_(uint16_t pc);
     uint32_t slot_tstates_         = 0;
     uint64_t slot_start_           = 0;
     uint32_t slot_d_               = 8;
