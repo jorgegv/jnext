@@ -50,6 +50,7 @@
 
 #include "debug/debugger_impl.h"
 
+#include <algorithm>
 #include <chrono>
 
 #include "core/log.h"
@@ -83,6 +84,15 @@ const Debugger::Impl::Client* Debugger::Impl::find_client(ClientId cid) const {
     for (const auto& c : clients)
         if (c.id == cid && !c.detached) return &c;
     return nullptr;
+}
+
+bool Debugger::Impl::client_gone(ClientId cid) const {
+    // ISSUED AND GONE — not merely "not attached". A loop owner files its own
+    // captures under `CLIENT_NONE`, which is never issued, and a caller may use
+    // an id it never attached (every `flush_captures()` row that does): both
+    // keep their records. Only an id `attach()` handed out and `detach()` took
+    // back can never be asked about again by its owner.
+    return cid != CLIENT_NONE && cid < next_client_id && !find_client(cid);
 }
 
 // THE ONE WRITER of the two derived values, and that is the whole point: the
@@ -175,6 +185,32 @@ Result Debugger::detach(ClientId cid) {
     // tombstoned row is still walked.
     c->detached = true;
     impl_->events.erase_client(cid);
+    // PER-CLIENT STATE DIES WITH THE CLIENT (GH #276 B5, carried from B4's
+    // reviews). Client ids are never reused, so anything keyed by one that a
+    // detach leaves behind is kept for a client that can never come back — a
+    // record that grows with every session. Swept BY HAZARD, not by type: the
+    // two containers outside the client row that are keyed by a `ClientId` and
+    // were never pruned —
+    //   * the per-client event switch (`set_client_enabled(cid, false)` stores
+    //     the id in `EventTable::disabled_clients_`; an absent id is enabled,
+    //     so dropping it is the whole prune);
+    //   * the capture-failure record `flush_captures()` reports and consumes.
+    // A capture the client queued still SURVIVES its detach (CAP-01-17 — it is a
+    // request about the machine's next frame, not the session): it is taken or
+    // fails later and is logged either way, but its outcome is no longer
+    // recorded for a client that is gone (`Impl::client_gone`). The client row's
+    // own fields (listener, live_raster, bookmarks) go with the compaction below;
+    // `erase_client()` above takes its subscriptions; `pending_boot`'s owner is
+    // released above. Rows DETACH-01..03.
+    impl_->events.set_client_enabled(cid, true);
+    {
+        auto& fs = impl_->capture_failures;
+        fs.erase(std::remove_if(fs.begin(), fs.end(),
+                                [cid](const std::pair<ClientId, size_t>& f) {
+                                    return f.first == cid;
+                                }),
+                 fs.end());
+    }
     // `erase_client()` tombstoned rows and called `refresh()`; the hot-path
     // gates still carry the retired subscriptions' bits until this publishes.
     impl_->gates_changed();

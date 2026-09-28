@@ -254,6 +254,9 @@ struct Debugger::Impl {
     /// than a crash.
     Client*       find_client(ClientId cid);
     const Client* find_client(ClientId cid) const;
+    /// An id `attach()` issued and `detach()` has since taken back — a client
+    /// whose per-client records must not be (re)created (GH #276 B5).
+    bool          client_gone(ClientId cid) const;
 
     /// Re-derive `DebugState::clients_attached()` and the ORed `live_raster`
     /// from the client list. THE ONE function every attach / detach / listener /
@@ -413,7 +416,10 @@ struct Debugger::Impl {
 
     /// Captures that FAILED to write since the owning client's last
     /// `flush_captures()`, per client — what that call's `RefusedUnavailable`
-    /// reports. A plain vector: a handful of clients at most.
+    /// reports. A plain vector: a handful of clients at most — which holds only
+    /// because a client's entry dies with its detach and none is created for a
+    /// client that is gone (GH #276 B5; ids are never reused, so otherwise it
+    /// grew with every session that ever failed a capture).
     std::vector<std::pair<ClientId, size_t>> capture_failures;
 
     /// Publish the queue's head into the machine: the renderer's layer mask

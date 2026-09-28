@@ -251,8 +251,13 @@ void Debugger::Impl::service_captures() {
         const ClientId by = c.by;
         captures.erase(captures.begin());
         took = true;
-        if (!ok) {
-            // Recorded for the owner's next `flush_captures()`.
+        if (!ok && !client_gone(by)) {
+            // Recorded for the owner's next `flush_captures()` — unless the owner
+            // has detached: a capture outlives its requester (CAP-01-17), but a
+            // record kept for a client that can never flush again is the
+            // per-client state a detach must not leave behind (GH #276 B5). The
+            // failure is still logged at error below, which is what every other
+            // listener and a CI transcript see.
             bool found = false;
             for (auto& f : capture_failures)
                 if (f.first == by) { ++f.second; found = true; }

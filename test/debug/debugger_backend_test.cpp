@@ -2186,9 +2186,16 @@ static void b4_screenshot_rows() {
         // session: A queues, A detaches before any frame renders, the frame
         // renders, the pump writes it. And A's scope in flush_captures() is keyed
         // by the id, so it still answers for A after the detach: Ok for the
-        // capture that was written, RefusedUnavailable for one that failed.
-        // The mirror of CAP-03-09 (bookmarks DO die with a detach) and CAP-01-09
-        // (captures survive a rebuild).
+        // capture that was written. The mirror of CAP-03-09 (bookmarks DO die
+        // with a detach) and CAP-01-09 (captures survive a rebuild).
+        //
+        // GH #276 B5 AMENDED THE FAILURE HALF. This row used to expect
+        // RefusedUnavailable for a capture that failed AFTER its requester
+        // detached — i.e. a failure record kept for a client that can never ask
+        // for it again, which B4's review found growing with every session
+        // (client ids are never reused). The CAPTURE still survives the detach
+        // and is still attempted and logged at error; the per-client RECORD of
+        // its outcome dies with the client, like its bookmarks. DETACH-01/02.
         using jnext::dbg::PumpBudget;
         Emulator emu; build(emu);
         Debugger dbg(emu);
@@ -2209,10 +2216,11 @@ static void b4_screenshot_rows() {
         const Result failed_after = dbg.flush_captures(b);
         check("CAP-01-17", "a capture survives its requester's detach — mask still armed, "
                            "taken at the next rendered frame — and flush_captures() still "
-                           "answers for the detached id: Ok when written, RefusedUnavailable "
-                           "when the write failed",
+                           "answers for the detached id: Ok when written, and Ok when the "
+                           "write failed too, because no record is kept for a client "
+                           "that is gone (GH #276 B5)",
               still_armed && written && ok_after == Result::Ok &&
-                  failed_after == Result::RefusedUnavailable,
+                  failed_after == Result::Ok,
               std::string("armed=") + (still_armed ? "1" : "0") + " written=" +
                   (written ? "1" : "0") + " ok_after=" + jnext::dbg::result_name(ok_after) +
                   " failed_after=" + jnext::dbg::result_name(failed_after));
@@ -3910,6 +3918,111 @@ static void b5_payload_rows() {
                               : "cycle=" + std::to_string(rec.evs[0].cycle) +
                                     " target=" + std::to_string(target) +
                                     " pc=" + hex(rec.evs[0].pc));
+    }
+}
+
+
+// ── DETACH — per-client state dies with the client (GH #276 B5, carried from
+//    B4's reviews: "detach leaves per-client state behind"). Client ids are
+//    never reused, so a record kept for a detached id is kept for ever. Swept by
+//    HAZARD — every container keyed by a `ClientId` outside the client row: the
+//    capture-failure record `flush_captures()` reports, and the per-client event
+//    switch `set_client_enabled()` stores. Each row carries its own control: the
+//    same record for a client that stays attached is still there.
+static void b5_detach_rows() {
+    using jnext::dbg::ScreenshotFormat;
+    using jnext::dbg::LAYER_MASK_ALL;
+    const std::string bad = "/nonexistent-dir/b5/x.png";
+    {
+        // A failure recorded WHILE attached, never flushed, then the detach.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.screenshot(a, bad, LAYER_MASK_ALL, ScreenshotFormat::Png);
+        dbg.screenshot(b, bad, LAYER_MASK_ALL, ScreenshotFormat::Png);
+        emu.run_frame();
+        dbg.pump(jnext::dbg::PumpBudget{});           // both writes fail: two records
+        dbg.detach(a);
+        const Result fa = dbg.flush_captures(a);
+        const Result fb = dbg.flush_captures(b);
+        check("DETACH-01", "a capture-failure record made while its client was attached "
+                           "dies with the client's detach (flush for the gone id: Ok), "
+                           "while the same record of a client still attached is there "
+                           "(RefusedUnavailable)",
+              fa == Result::Ok && fb == Result::RefusedUnavailable,
+              std::string("gone=") + jnext::dbg::result_name(fa) +
+                  " attached=" + jnext::dbg::result_name(fb));
+    }
+    {
+        // A capture queued, its client detached, and the write failing AFTER:
+        // the capture was still attempted (the error line reaches the client that
+        // is still listening), but no record is created for the gone one.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        RecListener lb;
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.set_listener(b, &lb);
+        dbg.screenshot(a, bad, LAYER_MASK_ALL, ScreenshotFormat::Png);
+        dbg.screenshot(b, bad, LAYER_MASK_ALL, ScreenshotFormat::Png);
+        dbg.detach(a);
+        emu.run_frame();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        size_t errors = 0;
+        for (const auto& lg : lb.logs)
+            if (lg.first == jnext::dbg::LogLevel::Error &&
+                lg.second.find("NOT written") != std::string::npos)
+                ++errors;
+        const Result fa = dbg.flush_captures(a);
+        const Result fb = dbg.flush_captures(b);
+        check("DETACH-02", "a capture whose client detached before it failed is still "
+                           "attempted and logged at error (both failures reach the "
+                           "listener still attached), but leaves no record for the gone "
+                           "client — while the attached client's identical failure does",
+              errors == 2 && fa == Result::Ok && fb == Result::RefusedUnavailable,
+              "errors=" + std::to_string(errors) + " gone=" + jnext::dbg::result_name(fa) +
+                  " attached=" + jnext::dbg::result_name(fb));
+    }
+    {
+        // The prune's OTHER side: "gone" means ISSUED and detached. The loop
+        // owners file their --delayed-screenshot under CLIENT_NONE, which is
+        // never issued, and flush it for the exit bound (a failed write must
+        // still exit non-zero); a caller may also use an id it never attached.
+        // Both keep their records — a predicate of just "not attached" would
+        // silently turn every failed --delayed-screenshot into a success.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId never = a + 40;                 // not issued
+        dbg.screenshot(jnext::dbg::CLIENT_NONE, bad, LAYER_MASK_ALL, ScreenshotFormat::Png);
+        dbg.screenshot(never, bad, LAYER_MASK_ALL, ScreenshotFormat::Png);
+        emu.run_frame();
+        dbg.pump(jnext::dbg::PumpBudget{});
+        const Result fn = dbg.flush_captures(jnext::dbg::CLIENT_NONE);
+        const Result fv = dbg.flush_captures(never);
+        check("DETACH-04", "a failure filed under CLIENT_NONE (the loop owners' own "
+                           "--delayed-screenshot) and under an id never issued is still "
+                           "recorded — only an issued-and-detached id is gone",
+              fn == Result::RefusedUnavailable && fv == Result::RefusedUnavailable,
+              std::string("none=") + jnext::dbg::result_name(fn) +
+                  " never=" + jnext::dbg::result_name(fv));
+    }
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.set_client_enabled(a, false);
+        dbg.set_client_enabled(b, false);
+        const bool both_off = !dbg.client_enabled(a) && !dbg.client_enabled(b);
+        dbg.detach(a);
+        check("DETACH-03", "a client's per-client event switch dies with its detach (the "
+                           "gone id reads enabled again — nothing is stored for it), "
+                           "while another client's disabled switch survives",
+              both_off && dbg.client_enabled(a) && !dbg.client_enabled(b),
+              std::string("gone=") + (dbg.client_enabled(a) ? "1" : "0") +
+                  " attached=" + (dbg.client_enabled(b) ? "1" : "0"));
     }
 }
 
@@ -13280,6 +13393,7 @@ int main() {
     b5_magic_detach_rows();
     b5_range_rows();
     b5_payload_rows();
+    b5_detach_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
