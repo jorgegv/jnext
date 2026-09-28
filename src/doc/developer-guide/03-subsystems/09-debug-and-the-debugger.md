@@ -396,8 +396,10 @@ records and acts on its own tick.
 `Paused` / `Resumed` / `FrameEnded` / `SubscriptionsChanged` are **not pushed at
 each transition site**. There are seven ways out of paused and a dozen into it,
 and a push at each is the two-lists failure. Instead one function compares
-`paused()`, `DebugState::resume_generation()`, the frame tag and
-`EventTable::revision()` against what was last pushed, and it is called from
+`paused()`, `DebugState::resume_generation()`, the raw frame counter
+(`Emulator::frame_num()` — not the clamped frame tag, which reads 0 both before
+anything has run and after frame 0 ends) and `EventTable::revision()` against
+what was last pushed, and it is called from
 `pump()` — the slot §4.8 specifies, so "a stop in this tick's frames is notified
 in this tick's pump". The resume generation is what makes a
 stop-resume-stop between two pumps two pushes rather than none: `paused` is true
@@ -490,7 +492,24 @@ after a guest NR 0x02 reset:
    package Q, so those are not captured;
 8. the per-client state, which is only the arm bit and the `live_raster` OR: the
    subscriptions, switches and symbol table live on `Impl` and never went
-   anywhere.
+   anywhere;
+9. on a machine that was actually rebuilt, a fresh CTL-11 corruption guard: its
+   acknowledgement is keyed to the `Emulator`'s `state_error_generation()`,
+   which the rebuilt machine restarts at 0, so a kept acknowledgement would
+   pre-acknowledge the new machine's own first corruption;
+10. the notification edge detector, re-based on the rebuilt machine: its resume
+   generation and frame counter restart at 0 while the detector's baseline lives
+   on `Impl`. Every route first *flushes* the old machine's pending edges (a
+   stop, a resume, the frames since the last pump), so re-basing loses nothing;
+   the one exception is a `done` with no `begin`, whose machine is gone before
+   the backend hears of it. `last_paused` is not re-based: it is what listeners
+   were last told, so paused-to-paused pushes nothing and paused-to-running
+   pushes `Resumed`.
+
+`reset()` (either kind) and `load()` refuse with `Unsupported` from inside an
+event delivery: a handler runs with `run_frame()` — or the pre-instruction gate
+inside it — still on the stack, and those verbs would destroy or re-`init()` the
+machine under it and clear the ring the drain is walking.
 
 Then the `Reset{Hard}` event is latched (after the ring discard, or it would go
 with the stale entries) and `Reset{Hard}` is pushed to every listener before the

@@ -791,6 +791,14 @@ construction). Then, in dependency order:
    silently subsumed instead of "run first, then the client's", which is what
    CAP-CTL-12's ordering paragraph promises. SDL and headless already poll after
    their frames and are ordered correctly.
+3. **`active()` is also set by the rewind paths.** `Emulator::rewind_to_cycle()`
+   and `rewind_to_frame()` call `debug_state_.set_active(true)` (on success and
+   on their failure paths), so a backend client's `step_back()` /
+   `rewind_to_frame()` sets the Qt WINDOW's bit, which no client detach ever
+   clears: after one remote step-back the machine stays armed, and the raster
+   walk and render hint stay on, for the rest of the session. Pre-existing — B3
+   did not touch it (confirmed by B3's contract review) — and retired together
+   with `active()` when the Qt window becomes a client.
 
 **Branch discipline (review R-7; owner rule 2026-09-24, arch §10.3):** #278
 is one multi-stage issue and lives on **one** branch, `gh278-qt` (arch

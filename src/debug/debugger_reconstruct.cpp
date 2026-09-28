@@ -65,6 +65,8 @@
 
 #include "debug/debugger_impl.h"
 
+#include "core/log.h"
+
 namespace jnext {
 namespace dbg {
 
@@ -84,7 +86,31 @@ Debugger::Impl::PreBoot Debugger::Impl::capture_pre_boot() const {
     return pre;
 }
 
+Result Debugger::Impl::refuse_inside_delivery(const char* verb) const {
+    if (!draining) return Result::Ok;
+    // `Unsupported`, not `RefusedUnavailable`: nothing is missing and nothing
+    // will change if the caller waits — §5 says there is no such thing as this
+    // verb from a handler. Logged at `error` because it is a frontend bug, and
+    // an assert would compile away in the build where it ships.
+    Log::debugger()->error("{}() called from inside an event delivery — refused "
+                           "(§5: a handler may not replace the machine it runs in)",
+                           verb);
+    return Result::Unsupported;
+}
+
+Debugger::Impl::PreBoot Debugger::Impl::prepare_rebuild() {
+    sync_notifications();
+    return capture_pre_boot();
+}
+
 void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
+    // (0) WAS THE MACHINE ACTUALLY REBUILT? Read before (1) republishes the
+    //     table pointer: only a brand-new `DebugState` — `~Emulator()` +
+    //     placement-new — can have lost it (the same detector `load()` uses).
+    //     What depends on the answer is (6)'s corruption guard; everything else
+    //     here is idempotent on a machine that was not replaced.
+    const bool rebuilt = ds().event_table() != &events;
+
     // (1) THE THREE PUBLICATIONS. The same calls the constructor makes, in the
     //     same order, and the order matters for the same reason it does there:
     //     the table pointer before the gates, because `refresh_event_gates()`
@@ -191,6 +217,39 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     //     demonstrated is the defect class this branch has been rejected for six
     //     times.
     clients_changed();
+
+    // (6) THE CTL-11 GUARD keys an acknowledgement to the machine's
+    //     `state_error_generation()`, a counter the rebuilt `Emulator` restarts
+    //     at 0. Kept across a rebuild, an acknowledgement of generation G on the
+    //     old machine would silently pre-acknowledge the rebuilt machine's own
+    //     G-th corruption, and a resume the guard exists to stop would go through
+    //     (row CTL-12-51). A rebuilt machine starts clean, so the guard does too.
+    //     NOT on an in-place load: that machine's counter continues, and so does
+    //     what was acknowledged against it.
+    if (rebuilt) guard = ResumeGuard{};
+
+    // (7) RE-BASE THE EDGE DETECTOR on the machine as it now is (fix round 1).
+    //     `sync_notifications()` compares `resume_generation()` and the frame
+    //     tag against what it last pushed; both are the MACHINE's and restart at
+    //     0 on a rebuilt one, while the baseline is `Impl`'s and survives. Left
+    //     alone, the next pump's answer depended on the session's history: a
+    //     paused machine that stayed paused across the rebuild pushed a phantom
+    //     `Paused` iff the session had ever resumed (SES-02-18); a resume-stop
+    //     cycle after the rebuild went unreported when the new generation landed
+    //     on the old baseline (SES-02-19); and new frames read as a backward move
+    //     whenever the old machine had run more of them (SES-02-21). The old
+    //     machine's own pending edges were flushed by `prepare_rebuild()` before
+    //     it went, so re-basing loses nothing — except on the one route that
+    //     cannot flush, a `done` with no `begin`, whose old machine is already
+    //     gone by the time the backend hears of it.
+    //
+    //     `last_paused` is deliberately NOT re-based: it is the pause state the
+    //     listeners were last told, and comparing the rebuilt machine against it
+    //     is exactly right — paused-to-paused pushes nothing (`Reset{Hard}` is
+    //     that transition's notification, rule 4), paused-to-running (a `done`
+    //     without `begin`) pushes `Resumed`.
+    last_resume_gen = ds().resume_generation();
+    last_frame      = emu.frame_num();   // raw, as `sync_notifications()` reads it
 }
 
 // ---------------------------------------------------------------------------
@@ -239,7 +298,7 @@ Result Debugger::on_cold_boot_begin() {
     // Last wins: a second `begin` with no `done` between them is a loop owner
     // that announced a boot, did not perform it, and is announcing another —
     // the machine the SECOND one captures is the one about to be destroyed.
-    impl_->pending_boot = impl_->capture_pre_boot();
+    impl_->pending_boot = impl_->prepare_rebuild();
     return Result::Ok;
 }
 
@@ -302,7 +361,7 @@ Result Debugger::Impl::reset_hard(ClientId by) {
     // survives the boot. A pending `on_cold_boot_begin()` capture describes the
     // machine this verb is about to replace, not the one it will land, so it is
     // stale from here on and dropped.
-    const PreBoot pre = capture_pre_boot();
+    const PreBoot pre = prepare_rebuild();
     pending_boot.reset();
 
     // RULE 1 — run the loop owner's sequence SYNCHRONOUSLY. Called from inside
@@ -348,6 +407,9 @@ Result Debugger::Impl::reset_hard(ClientId by) {
 // ---------------------------------------------------------------------------
 
 Result Debugger::load(ClientId by, const std::string& path) {
+    const Result nested = impl_->refuse_inside_delivery("load");
+    if (nested != Result::Ok) return nested;
+
     if (!impl_->driver.load) return Result::RefusedUnavailable;
 
     const Result gate = impl_->execute_gate();
@@ -357,7 +419,7 @@ Result Debugger::load(ClientId by, const std::string& path) {
     // as CTL-12's rule 3, read before the load for the same reason, and a
     // pending `on_cold_boot_begin()` capture is stale after it for the same
     // reason `reset(Hard)` drops one.
-    const Impl::PreBoot pre = impl_->capture_pre_boot();
+    const Impl::PreBoot pre = impl_->prepare_rebuild();
     impl_->pending_boot.reset();
 
     const bool loaded = impl_->driver.load(path);

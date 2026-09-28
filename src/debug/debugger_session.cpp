@@ -287,7 +287,12 @@ PausedInfo Debugger::Impl::paused_info() const {
 void Debugger::Impl::sync_notifications() {
     const bool     paused = ds().paused();
     const uint64_t gen    = ds().resume_generation();
-    const uint32_t frame  = frame_tag(emu);
+    // The RAW frame counter, not `frame_tag()`: the tag clamps (`raw > 0 ?
+    // raw - 1 : 0`) and reads 0 both before anything has run and after frame 0
+    // has ended, so comparing tags never saw the first frame end — on a fresh
+    // session or on a rebuilt machine (fix round 1, SES-02-22). The raw counter
+    // is unambiguous; the PAYLOAD is still the tag, the frame that ended.
+    const uint32_t frame  = emu.frame_num();
     const uint64_t rev    = events.revision();
 
     if (!notif_primed) {
@@ -343,7 +348,7 @@ void Debugger::Impl::sync_notifications() {
     if (frame != last_frame) {
         const bool forward = frame > last_frame;
         last_frame         = frame;
-        if (forward) notify_frame_ended(frame);
+        if (forward) notify_frame_ended(frame_tag(emu));
     }
 }
 

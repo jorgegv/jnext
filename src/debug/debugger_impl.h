@@ -276,7 +276,7 @@ struct Debugger::Impl {
 
     bool     last_paused      = false;
     uint64_t last_resume_gen  = 0;
-    uint32_t last_frame       = 0;
+    uint32_t last_frame       = 0;   ///< the RAW `Emulator::frame_num()`, never the clamped tag
     uint64_t last_subs_rev    = 0;
     bool     notif_primed     = false;
 
@@ -355,6 +355,26 @@ struct Debugger::Impl {
     /// destroys the machine. Reads `state()`, so the owner is whatever
     /// CTL-13's precedence says it is at that instant.
     PreBoot capture_pre_boot() const;
+
+    /// What every route does immediately before the machine it describes goes
+    /// away: report that machine's pending edges (`sync_notifications()` —
+    /// Paused / Resumed / FrameEnded / SubscriptionsChanged not yet pushed), then
+    /// `capture_pre_boot()`. The flush is what lets the re-application re-base
+    /// the edge detector on the rebuilt machine without losing a stop, a resume
+    /// or a frame the OLD machine produced since the last pump (fix round 1,
+    /// SES-02-20/21).
+    PreBoot prepare_rebuild();
+
+    /// §5 — a verb that would REPLACE THE MACHINE, called from inside an event
+    /// delivery: `Unsupported` (logged), else `Ok`. A handler runs with the
+    /// machine stopped at a boundary but with `Emulator::run_frame()` — or the
+    /// pre-instruction gate inside it — still on the stack below it, and the
+    /// drain walking the latch ring. `reset(Hard)` destroys and placement-news
+    /// that `Emulator`; `reset(Soft)` and an in-place `load()` re-`init()` it;
+    /// every one of them clears the ring. None of that can happen under the
+    /// frame that is executing the handler (row CTL-12-52). The same refusal
+    /// `pump()` makes for the same reason, spelled per verb.
+    Result refuse_inside_delivery(const char* verb) const;
 
     /// `on_cold_boot_begin()`'s capture, waiting for `on_cold_boot_done()`.
     /// Consumed by `done`; OVERWRITTEN by a second `begin` (last wins); CLEARED

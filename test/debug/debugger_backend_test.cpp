@@ -8561,6 +8561,321 @@ int main() {
         }
     }
     {
+        // ── FIX ROUND 1 — THE EDGE DETECTOR ACROSS A REBUILD ──────────────────
+        //
+        // `sync_notifications()` compares the machine's `resume_generation()` and
+        // frame tag against what it last pushed. Both live on the MACHINE and
+        // restart at 0 on a rebuilt one; the baseline lives on `Impl` and
+        // survives. Every row below drives the SAME event twice, once with a
+        // session that has history and once without, or across all three
+        // routes, and asserts the SAME pushes — the notifications must not
+        // depend on how many times the session resumed before the reboot.
+        auto boot = [](Emulator& emu) {
+            emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+        };
+        // One rebuild by route: 0 = reset(Hard), 1 = reconstructing load(),
+        // 2 = the guest begin/boot/done pair.
+        auto rebuild = [&](Emulator& emu, Debugger& dbg, ClientId a, int route) {
+            if (route == 0)      dbg.reset(a, ResetKind::Hard);
+            else if (route == 1) dbg.load(a, "game.nex");
+            else { dbg.on_cold_boot_begin(); boot(emu); dbg.on_cold_boot_done(); }
+        };
+        auto setup = [&](Emulator& emu, Debugger& dbg, RecListener& l) {
+            const ClientId a = dbg.attach(client("A")).value;
+            dbg.set_listener(a, &l);
+            jnext::dbg::LoopDriver d;
+            d.cold_boot = [&emu, boot]() { boot(emu); return true; };
+            d.load      = [&emu, boot](const std::string&) { boot(emu); return true; };
+            dbg.set_loop_driver(d);
+            dbg.pump(jnext::dbg::PumpBudget{});          // prime, running
+            return a;
+        };
+        // History: `n` completed pause/resume cycles, each seen by a pump.
+        auto history = [&](Debugger& dbg, ClientId a, int n) {
+            for (int i = 0; i < n; ++i) {
+                dbg.pause(a); dbg.pump(jnext::dbg::PumpBudget{});
+                dbg.run(a);   dbg.pump(jnext::dbg::PumpBudget{});
+            }
+        };
+
+        // (a) A machine PAUSED before the rebuild and still paused after it has
+        //     not stopped again: `Reset{Hard}` is its notification (rule 4), and
+        //     no Paused / Resumed may follow — with or without history.
+        bool a_ok = true;
+        std::string a_where;
+        for (int route = 0; route < 3; ++route) {
+            for (int n = 0; n < 2; ++n) {
+                Emulator emu; build(emu);
+                Debugger dbg(emu);
+                RecListener l;
+                const ClientId a = setup(emu, dbg, l);
+                history(dbg, a, n);
+                dbg.pause(a);
+                dbg.pump(jnext::dbg::PumpBudget{});
+                const size_t p0 = l.paused.size(), r0 = l.resumed.size();
+                rebuild(emu, dbg, a, route);
+                dbg.pump(jnext::dbg::PumpBudget{});
+                const bool ok = dbg.state().paused && l.paused.size() == p0 &&
+                                l.resumed.size() == r0 && l.resets.size() == 1;
+                if (!ok) {
+                    a_ok = false;
+                    a_where += " [route" + std::to_string(route) + " n=" + std::to_string(n) +
+                               " dp=" + std::to_string(l.paused.size() - p0) +
+                               " dr=" + std::to_string(l.resumed.size() - r0) + "]";
+                }
+            }
+        }
+        check("SES-02-18", "a machine paused across a rebuild pushes Reset{Hard} and NO "
+                           "Paused/Resumed, whatever the session's history, on all "
+                           "three routes",
+              a_ok, a_where);
+
+        // (b) After the rebuild, ONE resume-stop cycle before the next pump is a
+        //     stop-resume-stop and must push Paused — even when the rebuilt
+        //     machine's generation lands exactly on the old baseline (history 1).
+        bool b_ok = true;
+        std::string b_where;
+        for (int route = 0; route < 3; ++route) {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            RecListener l;
+            const ClientId a = setup(emu, dbg, l);
+            history(dbg, a, 1);
+            dbg.pause(a);
+            dbg.pump(jnext::dbg::PumpBudget{});
+            const size_t p0 = l.paused.size();
+            rebuild(emu, dbg, a, route);                 // paused, re-applied
+            dbg.run(a);
+            dbg.pause(a);
+            dbg.pump(jnext::dbg::PumpBudget{});
+            if (l.paused.size() != p0 + 1) {
+                b_ok = false;
+                b_where += " [route" + std::to_string(route) + " dp=" +
+                           std::to_string(l.paused.size() - p0) + "]";
+            }
+        }
+        check("SES-02-19", "a resume-stop cycle AFTER a rebuild is reported, even when "
+                           "the rebuilt machine's generation collides with the old "
+                           "baseline",
+              b_ok, b_where);
+
+        // (c) A resume-stop cycle BEFORE the rebuild, in the same drain, belongs
+        //     to the machine that is about to go: it is reported (flushed before
+        //     the rebuild), with or without history.
+        bool c_ok = true;
+        std::string c_where;
+        for (int route = 0; route < 3; ++route) {
+            for (int n = 0; n < 2; ++n) {
+                Emulator emu; build(emu);
+                Debugger dbg(emu);
+                RecListener l;
+                const ClientId a = setup(emu, dbg, l);
+                history(dbg, a, n);
+                dbg.pause(a);
+                dbg.pump(jnext::dbg::PumpBudget{});
+                const size_t p0 = l.paused.size();
+                dbg.run(a);
+                dbg.pause(a);                            // unreported stop-resume-stop
+                rebuild(emu, dbg, a, route);
+                dbg.pump(jnext::dbg::PumpBudget{});
+                if (l.paused.size() != p0 + 1) {
+                    c_ok = false;
+                    c_where += " [route" + std::to_string(route) + " n=" + std::to_string(n) +
+                               " dp=" + std::to_string(l.paused.size() - p0) + "]";
+                }
+            }
+        }
+        check("SES-02-20", "a stop-resume-stop that happened BEFORE the rebuild is "
+                           "reported once, whatever the history — the old machine's "
+                           "edges are flushed before it goes",
+              c_ok, c_where);
+
+        // (d) FrameEnded: the frame tag restarts on the rebuilt machine. Frames
+        //     the rebuilt machine runs are reported as on a machine never rebuilt
+        //     — whether the old machine had run MORE frames (a naive "backward
+        //     move" would mute them) or fewer — and the old machine's unreported
+        //     frames are flushed before it goes.
+        bool d_ok = true;
+        std::string d_where;
+        for (int old_frames = 1; old_frames <= 6; old_frames += 5) {
+            for (int pumped = 0; pumped < 2; ++pumped) {
+                Emulator emu; build(emu);
+                Debugger dbg(emu);
+                RecListener l;
+                const ClientId a = setup(emu, dbg, l);
+                for (int i = 0; i < old_frames; ++i) emu.run_frame();
+                const uint32_t old_tag = dbg.time().frame;
+                // `pumped`: the old machine's frames were already reported. Not
+                // pumped: they are pending when the rebuild comes.
+                if (pumped) dbg.pump(jnext::dbg::PumpBudget{});
+                const size_t fb = l.frames.size();
+                rebuild(emu, dbg, a, 0);
+                const bool flushed =
+                    pumped ? l.frames.size() == fb
+                           : (l.frames.size() == fb + 1 && l.frames.back() == old_tag);
+                // The rebuilt machine runs its frames BEFORE the next pump — the
+                // guest path's order in SDL and headless (boot, then the next
+                // tick's frames, then the pump) — so a baseline left at the old
+                // tag reads them as a backward move whenever the old machine had
+                // run more.
+                const size_t f0 = l.frames.size();
+                emu.run_frame();
+                emu.run_frame();
+                emu.run_frame();
+                dbg.pump(jnext::dbg::PumpBudget{});
+                const bool reported = l.frames.size() == f0 + 1 &&
+                                      l.frames.back() == dbg.time().frame;
+                if (!(flushed && reported)) {
+                    d_ok = false;
+                    d_where += " [old=" + std::to_string(old_frames) + " pumped=" +
+                               std::to_string(pumped) + " tag=" + std::to_string(old_tag) +
+                               " new=" + std::to_string(dbg.time().frame) + " flushed=" +
+                               (flushed ? "1" : "0") + " reported=" + (reported ? "1" : "0") + "]";
+                }
+            }
+        }
+        // The FIRST frame. `frame_tag()` clamps (`raw > 0 ? raw - 1 : 0`), so it
+        // reads 0 both before anything has run and after frame 0 has ended — an
+        // edge detector comparing TAGS cannot see frame 0 end, on a fresh session
+        // or on a rebuilt machine. The raw counter can.
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            RecListener l;
+            (void)setup(emu, dbg, l);
+            emu.run_frame();
+            dbg.pump(jnext::dbg::PumpBudget{});
+            check("SES-02-22", "the FIRST frame's end is pushed — FrameEnded{0} after one "
+                               "frame from a primed baseline",
+                  l.frames.size() == 1 && l.frames[0] == 0,
+                  "n=" + std::to_string(l.frames.size()));
+        }
+        // `last_paused` is NOT re-based, on purpose: it is what the listeners
+        // were last told. A `done` with no `begin` brings a PAUSED machine back
+        // RUNNING (CTL-12-44), and the listeners must hear `Resumed` — which a
+        // baseline re-based to the rebuilt machine's state would swallow.
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            RecListener l;
+            const ClientId a = setup(emu, dbg, l);
+            dbg.pause(a);
+            dbg.pump(jnext::dbg::PumpBudget{});
+            const size_t r0 = l.resumed.size();
+            boot(emu);                                   // no begin
+            dbg.on_cold_boot_done();
+            dbg.pump(jnext::dbg::PumpBudget{});
+            check("SES-02-23", "a paused machine that a begin-less guest boot brings back "
+                               "RUNNING pushes Resumed",
+                  !dbg.state().paused && l.resumed.size() == r0 + 1, l.trail());
+        }
+        check("SES-02-21", "FrameEnded across a rebuild: the old machine's frames are "
+                           "flushed before it goes, and the new machine's are reported "
+                           "whether the old one ran more frames or fewer",
+              d_ok, d_where);
+
+        // (e) The CTL-11 guard keys an acknowledgement to the machine's
+        //     `state_error_generation()`, which restarts on a rebuilt machine. A
+        //     FRESH corruption of the rebuilt machine must block a resume even
+        //     when its generation equals the one acknowledged before the reboot.
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            RecListener l;
+            const ClientId a = setup(emu, dbg, l);
+            std::vector<uint8_t> torn(64, 0xAB);
+            dbg.load_state_bytes(a, torn.data(), torn.size());
+            const auto inc1 = dbg.resume_blocked_by_corruption();
+            const bool acked = inc1.has_value() &&
+                               dbg.acknowledge_corruption(inc1->generation) == Result::Ok;
+            rebuild(emu, dbg, a, 0);
+            dbg.pause(a);
+            dbg.load_state_bytes(a, torn.data(), torn.size());   // a NEW incident
+            const auto inc2 = dbg.resume_blocked_by_corruption();
+            check("CTL-12-51", "a fresh corruption of a REBUILT machine blocks a resume, "
+                               "even with the generation acknowledged before the reboot",
+                  acked && inc2.has_value() && dbg.run(a) == Result::RefusedCorrupt,
+                  std::string("inc1=") + (inc1 ? std::to_string(inc1->generation) : "-") +
+                      " inc2=" + (inc2 ? std::to_string(inc2->generation) : "-"));
+        }
+        // (e2) ...and the other arm: an IN-PLACE load keeps the machine and its
+        //      corruption counter, so it keeps what was acknowledged against it.
+        //      A guard reset there would re-block an incident the client already
+        //      acknowledged.
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            RecListener l;
+            const ClientId a = setup(emu, dbg, l);
+            jnext::dbg::LoopDriver d;
+            d.load = [](const std::string&) { return true; };      // in place
+            dbg.set_loop_driver(d);
+            std::vector<uint8_t> torn(64, 0xAB);
+            dbg.load_state_bytes(a, torn.data(), torn.size());
+            const auto inc = dbg.resume_blocked_by_corruption();
+            const bool acked = inc.has_value() &&
+                               dbg.acknowledge_corruption(inc->generation) == Result::Ok;
+            dbg.pause(a);
+            const Result lr = dbg.load(a, "game.nex");
+            check("CTL-15-15", "an IN-PLACE load keeps the acknowledgement: the same, "
+                               "still-corrupt machine stays resumable",
+                  acked && lr == Result::Ok &&
+                  !dbg.resume_blocked_by_corruption().has_value() &&
+                  dbg.run(a) == Result::Ok,
+                  "load=" + std::string(jnext::dbg::result_name(lr)));
+        }
+        // (f) A REBUILD FROM INSIDE A DELIVERY. §5: a handler runs inside the
+        //     delivery, at a boundary, and "may not issue control verbs" — and
+        //     `reset(Hard)` / `load()` are the two that would DESTROY the
+        //     `Emulator` whose `run_frame()` is on the stack below the handler,
+        //     and clear the latch ring the drain is walking. Both must refuse and
+        //     leave the machine alone; the drain then finishes normally.
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            RecListener l;
+            const ClientId a = setup(emu, dbg, l);
+            int boots = 0;
+            jnext::dbg::LoopDriver d;
+            d.cold_boot = [&]() { ++boots; boot(emu); return true; };
+            d.load      = [&](const std::string&) { ++boots; boot(emu); return true; };
+            dbg.set_loop_driver(d);
+            Result from_reset = Result::Ok, from_load = Result::Ok, from_soft = Result::Ok;
+            int calls = 0;
+            Subscription s;
+            s.kind      = EventKind::Execute;
+            s.filter.lo = AFTER_CALL; s.filter.hi = AFTER_CALL;
+            s.action    = Action::Continue;
+            s.handler   = [&](const DbgEvent&, Debugger& dd) {
+                if (calls++ == 0) {
+                    from_reset = dd.reset(a, ResetKind::Hard);
+                    from_load  = dd.load(a, "game.nex");
+                    from_soft  = dd.reset(a, ResetKind::Soft);
+                }
+                return Action::Continue;
+            };
+            dbg.subscribe(a, s);
+            emu.run_frame();
+            check("CTL-12-52", "reset(Hard) and load() from inside a delivery are refused "
+                               "and destroy nothing — the Emulator running the handler "
+                               "stays the one it was",
+                  calls > 0 && from_reset != Result::Ok && from_load != Result::Ok &&
+                  boots == 0 && l.resets.empty(),
+                  "reset=" + std::string(jnext::dbg::result_name(from_reset)) +
+                      " load=" + jnext::dbg::result_name(from_load) +
+                      " boots=" + std::to_string(boots));
+            // The SIBLING the same rule covers: a soft reset re-`init()`s the
+            // machine under the same frame. Refused likewise, and the machine
+            // kept executing: the program reached its `JR $` loop.
+            check("CTL-12-53", "and so is reset(Soft) — the sibling that re-inits the "
+                               "same machine — and the frame ran on",
+                  from_soft == Result::Unsupported && from_reset == Result::Unsupported &&
+                  from_load == Result::Unsupported && pc_of(emu) >= AFTER_CALL,
+                  "soft=" + std::string(jnext::dbg::result_name(from_soft)) +
+                      " pc=" + hex(pc_of(emu)));
+        }
+    }
+    {
         // CTL-15. The re-application is UNCONDITIONAL because the backend cannot
         // know whether the loop owner's load closure replaced the machine —
         // `emulator_apply_load()` loads in place, the Qt menu route cold-boots

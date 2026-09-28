@@ -415,6 +415,14 @@ Result Debugger::reset(ClientId by, ResetKind kind) {
     // `ResetKind::Any` is a FILTER value (F8): it exists so one `on reset` rule
     // compiles to one subscription. "Reset the machine, either way" is not a
     // reset, so the verb refuses it rather than picking one.
+    //
+    // GH #276 B3 fix round 1 — BOTH kinds refuse from inside a delivery, before
+    // the switch: a hard reset destroys the `Emulator` whose `run_frame()` is
+    // executing the handler, and a soft one re-`init()`s it (§5; row
+    // CTL-12-52/53).
+    const Result nested = impl_->refuse_inside_delivery("reset");
+    if (nested != Result::Ok) return nested;
+
     switch (kind) {
         case ResetKind::Any:  return Result::Unsupported;
         // GH #276 B3 — the cold-boot reconstruct contract, in

@@ -2182,8 +2182,10 @@ records and acts on its own tick.</p>
 <p><code>Paused</code> / <code>Resumed</code> / <code>FrameEnded</code> / <code>SubscriptionsChanged</code> are <strong>not pushed at
 each transition site</strong>. There are seven ways out of paused and a dozen into it,
 and a push at each is the two-lists failure. Instead one function compares
-<code>paused()</code>, <code>DebugState::resume_generation()</code>, the frame tag and
-<code>EventTable::revision()</code> against what was last pushed, and it is called from
+<code>paused()</code>, <code>DebugState::resume_generation()</code>, the raw frame counter
+(<code>Emulator::frame_num()</code> — not the clamped frame tag, which reads 0 both before
+anything has run and after frame 0 ends) and <code>EventTable::revision()</code> against
+what was last pushed, and it is called from
 <code>pump()</code> — the slot §4.8 specifies, so "a stop in this tick's frames is notified
 in this tick's pump". The resume generation is what makes a
 stop-resume-stop between two pumps two pushes rather than none: <code>paused</code> is true
@@ -2269,8 +2271,24 @@ after a guest NR 0x02 reset:</p>
    package Q, so those are not captured;</li>
 <li>the per-client state, which is only the arm bit and the <code>live_raster</code> OR: the
    subscriptions, switches and symbol table live on <code>Impl</code> and never went
-   anywhere.</li>
+   anywhere;</li>
+<li>on a machine that was actually rebuilt, a fresh CTL-11 corruption guard: its
+   acknowledgement is keyed to the <code>Emulator</code>'s <code>state_error_generation()</code>,
+   which the rebuilt machine restarts at 0, so a kept acknowledgement would
+   pre-acknowledge the new machine's own first corruption;</li>
+<li>the notification edge detector, re-based on the rebuilt machine: its resume
+   generation and frame counter restart at 0 while the detector's baseline lives
+   on <code>Impl</code>. Every route first <em>flushes</em> the old machine's pending edges (a
+   stop, a resume, the frames since the last pump), so re-basing loses nothing;
+   the one exception is a <code>done</code> with no <code>begin</code>, whose machine is gone before
+   the backend hears of it. <code>last_paused</code> is not re-based: it is what listeners
+   were last told, so paused-to-paused pushes nothing and paused-to-running
+   pushes <code>Resumed</code>.</li>
 </ol>
+<p><code>reset()</code> (either kind) and <code>load()</code> refuse with <code>Unsupported</code> from inside an
+event delivery: a handler runs with <code>run_frame()</code> — or the pre-instruction gate
+inside it — still on the stack, and those verbs would destroy or re-<code>init()</code> the
+machine under it and clear the ring the drain is walking.</p>
 <p>Then the <code>Reset{Hard}</code> event is latched (after the ring discard, or it would go
 with the stale entries) and <code>Reset{Hard}</code> is pushed to every listener before the
 verb returns.</p>
