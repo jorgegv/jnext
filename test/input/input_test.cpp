@@ -35,7 +35,16 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_json.h"
+#include "core/log.h"
+
+#include <spdlog/sinks/ostream_sink.h>
+#include <sstream>
+#include <memory>
+#include <climits>
 #include <cstdio>
+#include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -5624,6 +5633,10 @@ static void test_nr_b2() {
     }
 }
 
+// Defined at the foot of the file, after main(), because it is the only group
+// that needs the JSON save-descriptor helpers and they belong beside it.
+static void test_gh289_autotype_ranges();
+
 int main() {
     printf("Input Subsystem Compliance Tests (VHDL-derived plan)\n");
     printf("=====================================================\n\n");
@@ -5649,6 +5662,7 @@ int main() {
     test_t77_joy();         printf("  Group: T77J   done\n");
     test_t77_kbd();         printf("  Group: T77K   done\n");
     test_gh115_keymap();    printf("  Group: GH115  done\n");
+    test_gh289_autotype_ranges(); printf("  Group: GH289  done\n");
 
     printf("\n=====================================================\n");
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
@@ -5696,4 +5710,546 @@ int main() {
     }
 
     return g_fail > 0 ? 1 : 0;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// GH #289 — a crafted .jns must not place an auto-type key outside the
+// membrane (GH289-*)
+//
+// VHDL: input/membrane/membrane.vhd:38-39 — `i_rows : std_logic_vector(7
+// downto 0)` is the eight membrane rows and `o_cols : std_logic_vector(4
+// downto 0)` the five columns; `:42` spells the row range out as "0-7". That
+// geometry is what bounds `Keyboard::matrix_` (`uint8_t[8]`, five live bits
+// per row), and therefore what the restored coordinates must be inside.
+//
+// The defect: `describe_state` restored `row1/col1/row2/col2` from the stream
+// unchecked, and `tick_auto_type()` handed them straight to
+// `set_matrix_bit()`, which did `matrix_[row] &= ~(1 << col)` with no bound.
+// `matrix_` is the FIRST member of Keyboard, so a forged row wrote into
+// `auto_queue_`'s vector internals, and `1 << col` for col >= 32 is undefined
+// besides. The count on the same path was already guarded; the values were not.
+//
+// The fix REFUSES rather than clamping or dropping, which is what the count
+// check next to it does. So these rows come in both arms deliberately: a
+// validation that accepts everything and one that rejects everything both pass
+// a suite whose fixtures sit on one side.
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Replace the integer value of one key in a produced document. Textual on
+/// purpose — a row injects values the typed API would refuse to construct,
+/// the same reason `snapshot_test`'s `json_with` is textual.
+static std::string jns_with_int(const std::string& src, const char* key,
+                                long value) {
+    const std::string needle = std::string("\"") + key + "\":";
+    const std::size_t at = src.find(needle);
+    if (at == std::string::npos) return src;   // GH289-01 asserts presence
+    std::size_t vstart = at + needle.size();
+    while (vstart < src.size() && (src[vstart] == ' ' || src[vstart] == '\t'))
+        ++vstart;
+    std::size_t vend = vstart;
+    while (vend < src.size() && src[vend] != ',' && src[vend] != '\n' &&
+           src[vend] != '}')
+        ++vend;
+    return src.substr(0, vstart) + std::to_string(value) + src.substr(vend);
+}
+
+/// The integer value of one key in a produced document, or LONG_MIN when the
+/// key is absent — never 0, which is a legal coordinate.
+static long jns_int(const std::string& src, const char* key) {
+    const std::string needle = std::string("\"") + key + "\":";
+    const std::size_t at = src.find(needle);
+    if (at == std::string::npos) return LONG_MIN;
+    return std::strtol(src.c_str() + at + needle.size(), nullptr, 10);
+}
+
+/// The `"matrix"` hex string — the eight membrane bytes RAW, before
+/// `read_rows()` masks them to five bits. A write at column 5 is invisible
+/// through `read_rows()` and visible here.
+static std::string jns_matrix_hex(const std::string& src) {
+    const std::string needle = "\"matrix\":";
+    const std::size_t at = src.find(needle);
+    if (at == std::string::npos) return "";
+    const std::size_t q1 = src.find('"', at + needle.size());
+    if (q1 == std::string::npos) return "";
+    const std::size_t q2 = src.find('"', q1 + 1);
+    if (q2 == std::string::npos) return "";
+    return src.substr(q1 + 1, q2 - q1 - 1);
+}
+
+static std::string jns_doc(Keyboard& kb) {
+    jnext::save::JsonWriteDesc jw;
+    kb.describe_state(jw);
+    return jw.str();
+}
+
+static Keyboard jns_kb(const std::vector<Keyboard::AutoKey>& seq) {
+    Keyboard kb;
+    kb.reset();
+    kb.queue_auto_type(seq);
+    return kb;
+}
+
+static void test_gh289_autotype_ranges() {
+    set_group("GH289");
+
+    // The sequence every in-tree caller actually queues (`emulator.cpp`'s
+    // LOAD"" and `phantom_typist.cpp`): a lone key, then a shifted pair.
+    const std::vector<Keyboard::AutoKey> good = {
+        {6, 3, -1, -1, 5},     // J
+        {5, 0,  7,  1, 5},     // SYMBOL SHIFT + P
+    };
+    Keyboard          src = jns_kb(good);
+    const std::string doc = jns_doc(src);
+
+    // The forge target has to EXIST, or every refusal row below would pass for
+    // the wrong reason: `jns_with_int` returns the document unchanged when it
+    // cannot find the key, and an unchanged honest document loads fine.
+    check("GH289-01",
+          "the crafted documents below patch keys that are really there — "
+          "auto00_row1/col1 and auto01_row2/col2 all present in an honest save",
+          jns_int(doc, "auto00_row1") == 6 && jns_int(doc, "auto00_col1") == 3 &&
+              jns_int(doc, "auto01_row2") == 7 &&
+              jns_int(doc, "auto01_col2") == 1 &&
+              jns_int(doc, "auto_queue_count") == 2,
+          DETAIL("r1=%ld c1=%ld r2=%ld c2=%ld n=%ld",
+                 jns_int(doc, "auto00_row1"), jns_int(doc, "auto00_col1"),
+                 jns_int(doc, "auto01_row2"), jns_int(doc, "auto01_col2"),
+                 jns_int(doc, "auto_queue_count")));
+
+    // The ACCEPTING arm. An honest document restores every field, so the
+    // refusals below are the check firing and not the check firing on
+    // everything. Re-emitting and comparing documents covers all five fields
+    // of both slots at once, which `auto_typing()` alone would not.
+    {
+        Keyboard back;
+        back.reset();
+        std::string refusal;
+        const bool ok =
+            jnext::save::restore_via_desc(back, doc, false, refusal);
+        check("GH289-02",
+              "an honest document still restores, byte-for-byte in the "
+              "re-emitted JSON — the range check does not reject the "
+              "sequences jnext itself queues",
+              ok && refusal.empty() && jns_doc(back) == doc,
+              DETAIL("ok=%d refusal='%s'", (int)ok, refusal.c_str()));
+    }
+
+    // ── The REFUSING arm, one field at a time ────────────────────────────
+    //
+    // Each case forges ONE coordinate, and asserts three things: the load
+    // fails, the message NAMES the field kind (a refusal that said only
+    // "invalid snapshot" would pass a `failed()`-only row and tell a user
+    // nothing), and the queue keeps its PRE-LOAD value rather than a prefix of
+    // a rejected file — `Ctc::load_state`'s convention.
+    //
+    // GH289-03, GH289-04, GH289-05, GH289-06, GH289-07, GH289-08, GH289-09,
+    // GH289-20, GH289-21, GH289-22 — the range every one of them asserts is
+    // membrane.vhd:38-39.
+    const Keyboard::AutoKey pre = {1, 3, -1, -1, 2};   // row 1 col 3 = F
+    struct Case {
+        const char* id;
+        const char* desc;
+        const char* key;
+        long        value;
+        const char* names;
+    };
+    static const Case cases[] = {
+        {"GH289-03",
+         "row1 = 8, one past the last membrane row, is REFUSED",
+         "auto00_row1", 8, "row1"},
+        {"GH289-04",
+         "row1 = -1 is REFUSED — the -1 sentinel belongs to the SECOND key, "
+         "and the first key has no 'absent' form",
+         "auto00_row1", -1, "row1"},
+        {"GH289-05",
+         "col1 = 5, one past the last membrane column, is REFUSED",
+         "auto00_col1", 5, "col1"},
+        {"GH289-06",
+         "row2 = 8 beside a live col2 is REFUSED — the second key is checked "
+         "whenever it is not the -1/-1 pair",
+         "auto01_row2", 8, "row2/col2"},
+        {"GH289-07",
+         "col2 = 5 beside a live row2 is REFUSED",
+         "auto01_col2", 5, "row2/col2"},
+        {"GH289-08",
+         "the 0x40000000 row from the issue report is REFUSED — the value "
+         "that wrote 1 GB past the array",
+         "auto00_row1", 0x40000000L, "row1"},
+        {"GH289-09",
+         "col1 = 32 is REFUSED — `1 << col` past the width of the shift is "
+         "undefined behaviour independently of the array bound",
+         "auto00_col1", 32, "col1"},
+        {"GH289-20",
+         "col1 = -1 is REFUSED — the sentinel belongs to the second key, and "
+         "a negative shift count is undefined",
+         "auto00_col1", -1, "col1"},
+        // The two HALF-sentinels. `tick_auto_type()` presses the second key on
+        // `row2 >= 0` alone, so a -1 in one of the pair and a live value in the
+        // other is a form no producer writes and one the press path would half
+        // act on: with row2 live and col2 = -1 it would shift by -1, and with
+        // row2 = -1 it would silently drop a key the file says is held.
+        {"GH289-21",
+         "row2 = -1 beside a LIVE col2 is REFUSED — half a sentinel is not a "
+         "sentinel",
+         "auto01_row2", -1, "row2/col2"},
+        {"GH289-22",
+         "col2 = -1 beside a LIVE row2 is REFUSED — the other half of the "
+         "same rule",
+         "auto01_col2", -1, "row2/col2"},
+    };
+    for (const Case& c : cases) {
+        const std::string bad = jns_with_int(doc, c.key, c.value);
+        Keyboard back = jns_kb({pre});
+        std::string refusal;
+        const bool ok =
+            jnext::save::restore_via_desc(back, bad, false, refusal);
+        const std::string after = jns_doc(back);
+        check(c.id, c.desc,
+              bad != doc && !ok &&
+                  refusal.find(c.names) != std::string::npos &&
+                  jns_int(after, "auto_queue_count") == 1 &&
+                  jns_int(after, "auto00_row1") == 1 &&
+                  jns_int(after, "auto00_col1") == 3,
+              DETAIL("patched=%d ok=%d refusal='%s' n=%ld r1=%ld c1=%ld",
+                     (int)(bad != doc), (int)ok, refusal.c_str(),
+                     jns_int(after, "auto_queue_count"),
+                     jns_int(after, "auto00_row1"),
+                     jns_int(after, "auto00_col1")));
+    }
+
+    // ── The NEGATIVE TWINS: what must stay legal ─────────────────────────
+
+    // The -1/-1 pair is the one form every producer writes for "no second
+    // key", and `tick_auto_type()` tests `row2 >= 0`. A check that refused it
+    // would break every LOAD"" jnext types, and would pass a suite that only
+    // fed it out-of-range values.
+    {
+        std::string pair = jns_with_int(doc, "auto01_row2", -1);
+        pair = jns_with_int(pair, "auto01_col2", -1);
+        Keyboard back;
+        back.reset();
+        std::string refusal;
+        const bool ok =
+            jnext::save::restore_via_desc(back, pair, false, refusal);
+        const std::string after = jns_doc(back);
+        check("GH289-10",
+              "the -1/-1 'no second key' pair is ACCEPTED in both slots — the "
+              "sentinel is legal, so the refusal is not over-broad",
+              ok && jns_int(after, "auto01_row2") == -1 &&
+                  jns_int(after, "auto01_col2") == -1,
+              DETAIL("ok=%d refusal='%s' r2=%ld c2=%ld", (int)ok,
+                     refusal.c_str(), jns_int(after, "auto01_row2"),
+                     jns_int(after, "auto01_col2")));
+    }
+
+    // Both ends of both ranges, in both key positions. An off-by-one guard
+    // (`row >= 7`, `col >= 4`) passes every row above and fails this one.
+    // GH289-11's inclusive bounds are membrane.vhd:38-39.
+    {
+        const std::vector<Keyboard::AutoKey> edges = {
+            {0, 0, 7, 4, 5},   // first row/col with last row/col as the pair
+            {7, 4, 0, 0, 5},   // and the other way round
+        };
+        Keyboard          esrc = jns_kb(edges);
+        const std::string edoc = jns_doc(esrc);
+        Keyboard back;
+        back.reset();
+        std::string refusal;
+        const bool ok =
+            jnext::save::restore_via_desc(back, edoc, false, refusal);
+        check("GH289-11",
+              "row 0, row 7, col 0 and col 4 are ACCEPTED in both the primary "
+              "and the secondary position — the bounds are inclusive, so a "
+              "`> 6` / `> 3` guard fails here and nowhere else",
+              ok && jns_doc(back) == edoc,
+              DETAIL("ok=%d refusal='%s'", (int)ok, refusal.c_str()));
+    }
+
+    // `frames` is deliberately NOT range-checked: it cannot size or place a
+    // write, and the code holds no bound to check it against. The padding
+    // slots this format legitimately carries have `frames == 0`, so a
+    // `frames >= 1` rule would refuse a stream jnext's own writer produces
+    // once a forged count promotes padding to live (rewind row S5-KB-COUNT
+    // pins exactly that). This row pins the decision so an over-broad check
+    // cannot appear later without a failure.
+    {
+        const std::string zero = jns_with_int(doc, "auto00_frames", 0);
+        const std::string huge = jns_with_int(doc, "auto00_frames", 2147483647L);
+        Keyboard b0, b1;
+        b0.reset();
+        b1.reset();
+        std::string r0, r1;
+        const bool ok0 = jnext::save::restore_via_desc(b0, zero, false, r0);
+        const bool ok1 = jnext::save::restore_via_desc(b1, huge, false, r1);
+        check("GH289-12",
+              "`frames` is deliberately unchecked — 0 and INT32_MAX both load, "
+              "because frames counts ticks and can neither size nor place a "
+              "write, and no bound for it exists in the code to check against",
+              ok0 && ok1 && jns_int(jns_doc(b0), "auto00_frames") == 0 &&
+                  jns_int(jns_doc(b1), "auto00_frames") == 2147483647L,
+              DETAIL("ok0=%d ok1=%d f0=%ld f1=%ld", (int)ok0, (int)ok1,
+                     jns_int(jns_doc(b0), "auto00_frames"),
+                     jns_int(jns_doc(b1), "auto00_frames")));
+    }
+
+    // The validation loop must be bounded by the DECLARED capacity, exactly
+    // like the rebuild loop it precedes: a forged count that promoted the
+    // sixteen zero-filled padding slots to live entries must find them VALID
+    // (row 0, col 0, and a 0/0 second key are all real membrane positions), so
+    // the load still succeeds with sixteen keys. The JSON twin of rewind row
+    // S5-KB-COUNT, and the row that would notice a check made over-broad
+    // enough to reject padding.
+    {
+        const std::string forged =
+            jns_with_int(doc, "auto_queue_count", 0x40000000L);
+        Keyboard back;
+        back.reset();
+        std::string refusal;
+        const bool ok =
+            jnext::save::restore_via_desc(back, forged, false, refusal);
+        const std::string after = jns_doc(back);
+        check("GH289-18",
+              "a forged count of 2^30 still loads: the range check walks the "
+              "sixteen slots the DOCUMENT carries, not the count it claims, "
+              "and the promoted padding is a valid 0/0 position",
+              ok && jns_int(after, "auto_queue_count") == 16,
+              DETAIL("ok=%d refusal='%s' n=%ld", (int)ok, refusal.c_str(),
+                     jns_int(after, "auto_queue_count")));
+    }
+
+    // The validation loop's OWN `i >= n` bound, which nothing pinned until the
+    // independent reviewer mutated it away and both suites stayed green. It is
+    // inert rather than dangerous — the sibling rebuild loop re-applies the same
+    // bound before any slot is consumed — but "inert" is a property worth
+    // holding still, and the behaviour it decides is real: the validation
+    // examines exactly the LIVE slots, so PADDING beyond the count is not
+    // judged at all. Our own writer zero-fills it; a foreign writer may not,
+    // and padding that is never consumed is not a reason to refuse a file.
+    {
+        const std::string junk = jns_with_int(doc, "auto05_row1", 0x40000000L);
+        Keyboard back;
+        back.reset();
+        std::string refusal;
+        const bool ok =
+            jnext::save::restore_via_desc(back, junk, false, refusal);
+        const std::string after = jns_doc(back);
+        check("GH289-26",
+              "garbage in a PADDING slot past the count is ACCEPTED — the range "
+              "check is bounded by the live count as well as by the capacity, "
+              "so a slot nothing will ever consume cannot refuse the file",
+              junk != doc && ok && jns_int(after, "auto_queue_count") == 2 &&
+                  jns_int(after, "auto00_row1") == 6,
+              DETAIL("patched=%d ok=%d refusal='%s' n=%ld",
+                     (int)(junk != doc), (int)ok, refusal.c_str(),
+                     jns_int(after, "auto_queue_count")));
+    }
+
+    // The three messages must be DISTINGUISHABLE. One message covering two
+    // different fields is the "invalid snapshot" collapse with a longer
+    // string: a user told which field is wrong can fix the file, a user told
+    // "a value is wrong" cannot. Mirrors snapshot_test's JNSA-40.
+    {
+        const char* keys[3] = {"auto00_row1", "auto00_col1", "auto01_row2"};
+        std::string msg[3];
+        for (int i = 0; i < 3; ++i) {
+            Keyboard back;
+            back.reset();
+            jnext::save::restore_via_desc(
+                back, jns_with_int(doc, keys[i], 9), false, msg[i]);
+        }
+        check("GH289-13",
+              "row1, col1 and the row2/col2 pair each refuse with their OWN "
+              "message — no one message covers two different fields",
+              !msg[0].empty() && msg[0] != msg[1] && msg[1] != msg[2] &&
+                  msg[0] != msg[2],
+              DETAIL("'%s' / '%s' / '%s'", msg[0].c_str(), msg[1].c_str(),
+                     msg[2].c_str()));
+    }
+
+    // ── The REWIND path: same declaration, positional bytes ──────────────
+    //
+    // A rewind slot is not refusable — `load_state` returns void and there is
+    // no half-measure between replaying a frame and not — so the binary side
+    // must keep the queue at its pre-load value, name the fault, and above all
+    // NOT DESYNC: the sixteen slots are consumed whatever the values were.
+    {
+        uint8_t      buf[1024];
+        Keyboard     ksrc = jns_kb(good);
+        const size_t n    = rt_save(ksrc, buf, sizeof buf);
+
+        // Offset 16 is slot 0's `row1`: 8 matrix bytes + 2 ex_matrix + 2
+        // shift_hist + 4 count. Proved by an honest save of a known first key
+        // (row 6), the same way rewind row S5-KB-COUNT-OFFSET proves the
+        // count's offset before forging it.
+        int32_t at16 = 0;
+        std::memcpy(&at16, buf + 16, sizeof(at16));
+        check("GH289-14",
+              "bytes 16-19 of Keyboard's 342-byte block are auto-type slot 0's "
+              "row1 — the field the next row forges, proved by an honest save "
+              "of a known key",
+              n == 342 && at16 == 6, DETAIL("n=%zu at16=%d", n, at16));
+
+        const int32_t forged = 0x40000000;
+        std::memcpy(buf + 16, &forged, sizeof(forged));
+        Keyboard     back = jns_kb({pre});
+        StateReader  r(buf, n);
+        back.load_state(r);
+        const std::string after = jns_doc(back);
+        check("GH289-15",
+              "a forged coordinate in the REWIND stream leaves the queue at "
+              "its pre-load value and still consumes the declared 342 bytes — "
+              "the refusal must not desync a positional stream",
+              r.position() == 342 &&
+                  jns_int(after, "auto_queue_count") == 1 &&
+                  jns_int(after, "auto00_row1") == 1,
+              DETAIL("pos=%zu n=%ld r1=%ld", r.position(),
+                     jns_int(after, "auto_queue_count"),
+                     jns_int(after, "auto00_row1")));
+
+        // A rewind slot has no return value to refuse with, so the LOG is the
+        // only place the drop is visible — and a silent drop is the failure
+        // mode this whole fix exists to avoid. Captured rather than asserted by
+        // inspection: `load_state`'s `d.failed()` arm is otherwise code no row
+        // reaches.
+        std::ostringstream        cap;
+        auto                      sink =
+            std::make_shared<spdlog::sinks::ostream_sink_mt>(cap);
+        sink->set_pattern("%l %v");
+        Log::input()->sinks().push_back(sink);
+        Keyboard    quiet = jns_kb({pre});
+        StateReader r2(buf, n);
+        quiet.load_state(r2);
+        Log::input()->sinks().pop_back();
+        const std::string logged = cap.str();
+        check("GH289-19",
+              "the rewind path NAMES the field it refused in the log, from "
+              "load_state itself — load_state returns void, so a rewind cannot "
+              "refuse, and an unlogged drop would leave a keyboard nobody "
+              "saved with no trace",
+              logged.find("Keyboard::load_state: keyboard auto-type row1") !=
+                  std::string::npos,
+              DETAIL("log='%s'", logged.c_str()));
+    }
+
+    // ── The `set_matrix_bit` guard itself ────────────────────────────────
+    //
+    // Defence in depth for the write, reached through `queue_auto_type()`,
+    // which does not validate its argument either — the only path to the guard
+    // while the function is private. GH #276 B1 makes it public for the
+    // debugger's injection seam, which is why the guard is wanted at all.
+    {
+        // GH289-16's five columns are membrane.vhd:38-39.
+        //
+        // The COLUMN arm, fully observable: column 5 is in-bounds for the
+        // array and out of bounds for the five-bit row, so without the guard
+        // `matrix_[0]` becomes 0xDF — invisible through `read_rows()` (masked
+        // with 0x1F) and visible in the raw `"matrix"` bytes.
+        //
+        // `frames` is 3 and the tick count 1 deliberately: at `frames == 1`
+        // `tick_auto_type()` presses AND releases within the one tick, so the
+        // matrix is back to 0xFF either way and the row cannot see the write.
+        // That version of this row passed with the guard mutated away, which is
+        // what the positive control below now makes impossible.
+        Keyboard kctl;
+        kctl.reset();
+        kctl.queue_auto_type({{0, 4, -1, -1, 3}});
+        kctl.tick_auto_type();
+        const std::string mctl = jns_matrix_hex(jns_doc(kctl));
+
+        Keyboard kc;
+        kc.reset();
+        kc.queue_auto_type({{0, 5, -1, -1, 3}});
+        kc.tick_auto_type();
+        const std::string m = jns_matrix_hex(jns_doc(kc));
+        // And the other end of the same range: `1 << -1` is undefined too, so
+        // both sides of the column bound are pinned rather than only the one
+        // the issue happened to name.
+        Keyboard kcn;
+        kcn.reset();
+        kcn.queue_auto_type({{0, -1, -1, -1, 3}});
+        kcn.tick_auto_type();
+        const std::string mn = jns_matrix_hex(jns_doc(kcn));
+        check("GH289-16",
+              "an auto-type column outside 0..4 — 5 above and -1 below — is "
+              "IGNORED by set_matrix_bit, leaving the raw membrane bytes "
+              "untouched, while the last LEGAL column still presses (0xEF) so "
+              "the row cannot pass by failing to observe a write",
+              mctl == "efffffffffffffff" && m == "ffffffffffffffff" &&
+                  mn == "ffffffffffffffff",
+              DETAIL("ctl='%s' hi='%s' lo='%s'", mctl.c_str(), m.c_str(),
+                     mn.c_str()));
+
+        // GH289-17's eight rows are membrane.vhd:38-39.
+        //
+        // The ROW arm. Row 8 is past `matrix_[8]`, and `matrix_` is
+        // Keyboard's first member, so without the guard the write lands in
+        // `auto_queue_`'s vector internals — this row asserts the object is
+        // still coherent afterwards (queue drains, a real key still registers)
+        // rather than inspecting the clobbered bytes, which would be reading
+        // the result of undefined behaviour. Its positive control is row 7,
+        // the last legal row, held for the same one tick.
+        Keyboard krctl;
+        krctl.reset();
+        krctl.queue_auto_type({{7, 0, -1, -1, 3}});
+        krctl.tick_auto_type();
+        const std::string mrctl = jns_matrix_hex(jns_doc(krctl));
+
+        Keyboard kr;
+        kr.reset();
+        kr.queue_auto_type({{8, 0, -1, -1, 3}, {-1, 0, -1, -1, 3}});
+        for (int i = 0; i < 24; ++i) kr.tick_auto_type();
+        const std::string mr = jns_matrix_hex(jns_doc(kr));
+        kr.set_key(sc_for(2, 4), true);           // T — a real key, after
+        check("GH289-17",
+              "an auto-type row outside 0..7 — 8 above and -1 below — is "
+              "IGNORED: the membrane is untouched, the queue drains, and the "
+              "object is still functional afterwards, while row 7 (the last "
+              "legal one) still presses",
+              mrctl == "fffffffffffffffe" && mr == "ffffffffffffffff" &&
+                  !kr.auto_typing() && kr.read_rows(row_addr(2)) == 0x0F,
+              DETAIL("ctl='%s' matrix='%s' typing=%d r2=%02X", mrctl.c_str(),
+                     mr.c_str(), (int)kr.auto_typing(),
+                     kr.read_rows(row_addr(2))));
+
+        // The two LOW bounds cannot be seen through the matrix at all, and
+        // that is a property of the mutant rather than of the guard: with
+        // `col < 0` removed, `1 << -1` has the shift count masked to 31 on this
+        // ABI and `~(1 << 31)` truncated to a `uint8_t` is 0xFF, a no-op in
+        // the very byte GH289-16 reads; with `row < 0` removed, `matrix_[-1]`
+        // writes a byte BEFORE the object, which is undefined and invisible
+        // here. A sanitizer build would see both; `libasan`/`libubsan` are not
+        // installed on this host.
+        //
+        // The guard's WARNING is a defined observation of the same thing, and
+        // it names the coordinate, so this row pins all four bounds — both
+        // ends of both ranges — through a channel no undefined behaviour can
+        // swallow. Deleting any one of the four comparisons loses its line.
+        std::ostringstream gcap;
+        auto               gsink =
+            std::make_shared<spdlog::sinks::ostream_sink_mt>(gcap);
+        gsink->set_pattern("%v");
+        Log::input()->sinks().push_back(gsink);
+        const Keyboard::AutoKey outside[4] = {
+            {8, 0, -1, -1, 3}, {-1, 0, -1, -1, 3},
+            {0, 5, -1, -1, 3}, {0, -1, -1, -1, 3},
+        };
+        for (const Keyboard::AutoKey& k : outside) {
+            Keyboard kg;
+            kg.reset();
+            kg.queue_auto_type({k});
+            kg.tick_auto_type();
+        }
+        Log::input()->sinks().pop_back();
+        const std::string g = gcap.str();
+        check("GH289-18B",
+              "set_matrix_bit LOGS each out-of-range coordinate it ignores — "
+              "row 8, row -1, col 5 and col -1 — which is the only defined "
+              "observation of the two LOW bounds, whose mutants write "
+              "somewhere undefined instead of somewhere visible",
+              g.find("[8,0] out of range") != std::string::npos &&
+                  g.find("[-1,0] out of range") != std::string::npos &&
+                  g.find("[0,5] out of range") != std::string::npos &&
+                  g.find("[0,-1] out of range") != std::string::npos,
+              DETAIL("log='%s'", g.c_str()));
+    }
 }

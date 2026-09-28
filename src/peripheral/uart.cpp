@@ -1049,7 +1049,42 @@ void UartChannel::describe_state(jnext::save::StateDesc& d, const char* const* k
 // one declaration per field rather than expanding to ninety.
 void Uart::describe_state(jnext::save::StateDesc& d)
 {
-    d.i32("select", select_);
+    // GH #289. `select_` INDEXES `channels_` — a `std::array<UartChannel, 2>`
+    // — at four call sites in `write_port`/`read_port` (the prescaler-LSB,
+    // frame, TX and RX-read arms above), and it was restored from the stream
+    // UNCHECKED. A crafted `.jns` therefore indexed past the array on the
+    // guest's very next access to port 0x143B/0x153B/0x163B: the same
+    // "in range for its type, out of range for what it indexes" class as the
+    // auto-type coordinates, and the same severity.
+    //
+    // THE BOUND COMES FROM THE CODE AND THE VHDL, not from this line.
+    // `channels_` is declared with TWO elements, and the hardware selector is
+    // ONE BIT: `uart.vhd:123` declares `uart_select_r : std_logic`, `:280`
+    // loads it from `i_cpu_d(6)` alone, and `:301` branches on it two ways.
+    // jnext's own live write path agrees — the `0x153B` arm above computes
+    // `new_select = (val & 0x40) ? 1 : 0`, so no byte the guest can write
+    // reaches a third value, and no file should either.
+    //
+    // REFUSED, not clamped: a clamp would quietly point the stream's
+    // "channel 5" at channel 1 and hand the guest the wrong FIFO, which is a
+    // machine the snapshot did not describe.
+    //
+    // Marshalled through a LOCAL so the member is not overwritten before it
+    // can be judged. On a refusal it keeps its pre-load value —
+    // `Ctc::load_state`'s convention, "the field keeps its pre-load value
+    // rather than taking a wrong FSM state" — and on the WRITE path the
+    // store-back is the value just taken, `state_desc.h`'s write-back shape
+    // (a), a no-op by construction. The stream is unchanged either way: it is
+    // the same `i32` in the same position.
+    int32_t select = select_;
+    d.i32("select", select);
+    if (select != 0 && select != 1) {
+        uart_log()->error("Uart: snapshot selects channel {} — the hardware "
+                          "has two", select);
+        d.fail("uart.select is neither of the two UART channels (0 or 1)");
+    } else {
+        select_ = select;
+    }
     for (int i = 0; i < 2; ++i) channels_[i].describe_state(d, kChanKeys[i]);
 }
 
@@ -1063,14 +1098,17 @@ void Uart::load_state(StateReader& r)
     jnext::save::BinReadDesc d(r);
     describe_state(d);
     if (d.failed()) {
-        // The only way this fires is an `enum8` ordinal the declaration does
-        // not name — a stream and a build that disagree about a TX or RX
-        // engine FSM. The field keeps its pre-load value rather than taking a
-        // wrong FSM state (§16.1: "a wrong FSM state is not a safe default"),
-        // the stream stays in sync (the byte was consumed either way), and
-        // the fault is named.
-        uart_log()->error("Uart::load_state: the stream does not match this "
-                          "build's declaration at '{}'",
+        // TWO causes now, and the message no longer claims one of them:
+        // an `enum8` ordinal the declaration does not name — a stream and a
+        // build that disagree about a TX or RX engine FSM — or (GH #289) a
+        // channel selector that is neither of the two channels. Either way
+        // the field keeps its pre-load value rather than taking a wrong FSM
+        // state or an index past `channels_` (§16.1: "a wrong FSM state is
+        // not a safe default"), the stream stays in sync (the bytes were
+        // consumed either way), and the fault is named. A `.jns` REFUSES on
+        // the same latch; a rewind slot has no return value to refuse with,
+        // so this log is where it is visible.
+        uart_log()->error("Uart::load_state: {}",
                           d.failure() ? d.failure() : "?");
     }
 }

@@ -46,6 +46,14 @@
 #include "peripheral/copper.h"
 #include "save/state_desc.h"
 #include "save/state_desc_bin.h"
+#include "save/state_desc_json.h"
+#include "core/clock.h"
+#include "core/log.h"
+#include "peripheral/uart.h"
+
+#include <spdlog/sinks/ostream_sink.h>
+#include <sstream>
+#include <memory>
 
 #include <cstring>
 #include <cstdio>
@@ -5489,6 +5497,602 @@ static int test_s8_jns_roundtrip()
               refused && refusal.find("ram") != std::string::npos,
               "…and the refusal NAMES the member, so a user can tell a corrupt "
               "file from an unsupported one");
+    }
+
+    // ── GH #289: AN AUTO-TYPE COORDINATE OUTSIDE THE MEMBRANE ───────────
+    //
+    // The same "in range for its type, out of range for what it INDEXES"
+    // family as JNS-RT-11, and precisely the case the `mmu.json` note above
+    // says does not exist there: `state/keyboard.json`'s `auto00_row1` is an
+    // `i32` that indexes `Keyboard::matrix_` (`uint8_t[8]`, five live bits per
+    // row — `membrane.vhd:38-39`). Every value the type accepts used to be
+    // restored unchecked and handed to `set_matrix_bit()` by
+    // `tick_auto_type()`, so a row of 0x40000000 wrote a gigabyte past the
+    // array and `1 << col` for col >= 32 was undefined besides. The COUNT on
+    // the same path was already guarded; the values were not.
+    //
+    // This is the END-TO-END half of the fix. The declaration's own rows live
+    // in `input_test` (GH289-01..23) and prove it refuses and what it still
+    // accepts; this one proves the refusal reaches `Emulator::load_jns`, which
+    // is where a user meets it, and that the coordinate never entered the
+    // machine on the way.
+    //
+    // GH289-24, GH289-25 — the 8x5 bound they exercise is membrane.vhd:38-39.
+    {
+        auto repack_txt = [](const std::vector<uint8_t>& in,
+                             const std::string& member, const std::string& body,
+                             std::vector<uint8_t>& out) {
+            jnext::zip::Reader r;
+            std::string why;
+            if (!r.open(in.data(), in.size(), why)) return false;
+            jnext::zip::Writer w{jnext::jns::kArchiveComment};
+            for (const auto& e : r.entries()) {
+                std::vector<uint8_t> bytes;
+                if (e.name == member) bytes.assign(body.begin(), body.end());
+                else if (!r.read(e.name, bytes, why)) return false;
+                if (!w.add(e.name, bytes.data(), bytes.size(),
+                           jnext::zip::Method::Deflate, why)) {
+                    return false;
+                }
+            }
+            return w.finish(out, why);
+        };
+        // Textual, so the row can inject a value the typed API would refuse to
+        // construct — `snapshot_test`'s `json_with` for the same reason.
+        auto set_int = [](const std::string& src, const char* key, long v) {
+            const std::string needle = std::string("\"") + key + "\":";
+            const std::size_t at = src.find(needle);
+            if (at == std::string::npos) return std::string();
+            std::size_t vs = at + needle.size();
+            while (vs < src.size() && (src[vs] == ' ' || src[vs] == '\t')) ++vs;
+            std::size_t ve = vs;
+            while (ve < src.size() && src[ve] != ',' && src[ve] != '\n' &&
+                   src[ve] != '}') ++ve;
+            return src.substr(0, vs) + std::to_string(v) + src.substr(ve);
+        };
+
+        auto a_up = std::make_unique<Emulator>();
+        Emulator& a = *a_up;
+        build_busy(a);
+        jnext::JnsSaveOptions opt;
+        jnext::JnsLoadReport  rep;
+        std::string why;
+        std::vector<uint8_t> good;
+        const bool wrote = a.save_jns(opt, good, rep, why);
+
+        std::string kb_text;
+        const bool got = wrote && [&]{
+            jnext::zip::Reader r;
+            std::string w2;
+            return r.open(good.data(), good.size(), w2) &&
+                   r.read_text("state/keyboard.json", kb_text, w2);
+        }();
+
+        // BOTH fields, and the count is not optional: this machine has typed
+        // nothing, so slot 0 is padding and the count gates whether it is live
+        // at all. Forging only the coordinate would leave a file that loads
+        // perfectly well, and the row would assert nothing.
+        std::vector<uint8_t> forged;
+        bool built = false;
+        if (got) {
+            std::string bad = set_int(kb_text, "auto_queue_count", 1);
+            if (!bad.empty()) bad = set_int(bad, "auto00_row1", 0x40000000L);
+            built = !bad.empty() &&
+                    repack_txt(good, "state/keyboard.json", bad, forged);
+        }
+
+        bool refused = false, quiet = false;
+        std::string refusal;
+        if (built) {
+            auto b_up = std::make_unique<Emulator>();
+            Emulator& b = *b_up;
+            build_emulator(b, 2);
+            jnext::JnsLoadOptions lopt;
+            jnext::JnsLoadReport  lrep;
+            refused = !b.load_jns(forged.data(), forged.size(), lopt, lrep,
+                                  refusal);
+            // The one thing that is still DEFINED about the machine after a
+            // refusal at this tier — `load_jns` says outright it is not
+            // trustworthy — is that the coordinate never became a queued key,
+            // so nothing can reach `set_matrix_bit` with it later.
+            quiet = !b.keyboard().auto_typing();
+        }
+        if (!refused) {
+            fprintf(stderr, "  GH289-24: built=%d refusal='%s'\n",
+                    built ? 1 : 0, refusal.c_str());
+        }
+        check("GH289-24", built && refused && quiet,
+              "a .jns whose auto-type row1 is 0x40000000 is REFUSED by "
+              "Emulator::load_jns, and the coordinate never becomes a queued "
+              "key — the count beside it was already guarded, the values were "
+              "not, and this is the value that wrote past Keyboard::matrix_");
+        check("GH289-25",
+              refused &&
+                  refusal.find("state/keyboard.json") != std::string::npos &&
+                  refusal.find("row1") != std::string::npos,
+              "…and the refusal NAMES the member AND the field, so a user can "
+              "tell a corrupt snapshot from an unsupported one — a message that "
+              "said only \"invalid snapshot\" would pass a refused-or-not row "
+              "and tell nobody anything");
+    }
+
+    // ── GH #289: THE OTHER TWO FIELDS OF THE SAME CLASS ─────────────────
+    //
+    // The auto-type coordinates were not the only value a file controlled that
+    // the code then used as an index or a divisor. A sweep of every `d.i32` in
+    // the tree found two more, both reachable from a crafted `.jns`, both the
+    // same severity, and both fixed here rather than filed: closing an issue
+    // must not leave two of three identical holes open.
+    //
+    //   `Uart::select_`      INDEXES `std::array<UartChannel, 2> channels_`
+    //   `Clock::cpu_divisor_` is DIVIDED BY in `Emulator::rebase_fuse_tstates_`
+    //
+    // These rows live here and not in `uart_test` because this suite is where
+    // both subsystems' state coverage already lives — `S3-DECL-CLOCK`,
+    // `S3-WIDTH-CLOCK` and the `S5` UART/I2C rows are all here, and
+    // `uart_test` has never held a serialisation row (it does not even link
+    // the save layer). `sdcard_test` owns its own because it already did.
+    {
+        // Textual patch/read of one integer key. A row injects values the typed
+        // API would refuse to construct — `snapshot_test`'s `json_with`, for
+        // the same reason.
+        auto set_int = [](const std::string& src, const char* key, long v) {
+            const std::string needle = std::string("\"") + key + "\":";
+            const std::size_t at = src.find(needle);
+            if (at == std::string::npos) return std::string();
+            std::size_t vs = at + needle.size();
+            while (vs < src.size() && (src[vs] == ' ' || src[vs] == '\t')) ++vs;
+            std::size_t ve = vs;
+            while (ve < src.size() && src[ve] != ',' && src[ve] != '\n' &&
+                   src[ve] != '}') ++ve;
+            return src.substr(0, vs) + std::to_string(v) + src.substr(ve);
+        };
+        auto doc_of = [](auto& obj) {
+            jnext::save::JsonWriteDesc jw;
+            obj.describe_state(jw);
+            return jw.str();
+        };
+        // LONG_MIN when the key is absent, never 0 — 0 is a legal value for
+        // every field these rows read.
+        auto get_int = [](const std::string& src, const char* key) -> long {
+            const std::string needle = std::string("\"") + key + "\":";
+            const std::size_t at = src.find(needle);
+            if (at == std::string::npos) return LONG_MIN;
+            return std::strtol(src.c_str() + at + needle.size(), nullptr, 10);
+        };
+
+        // ── Clock ────────────────────────────────────────────────────────
+        //
+        // GH289-30, GH289-31, GH289-32, GH289-33, GH289-34, GH289-35 — the
+        // legal set is the IMAGE of `cpu_speed_divisor()` over `CpuSpeed`:
+        // 8, 4, 2, 1, four values because the hardware's speed register is two
+        // bits wide, `zxnext.vhd:1299-1300,5817`.
+        {
+            // The ACCEPTING arm first, and all four of them: a check that
+            // rejected everything would pass every refusal row below.
+            const CpuSpeed speeds[4] = { CpuSpeed::MHZ_3_5, CpuSpeed::MHZ_7,
+                                         CpuSpeed::MHZ_14,  CpuSpeed::MHZ_28 };
+            bool all_ok = true;
+            int  seen[4] = {};
+            for (int i = 0; i < 4; ++i) {
+                Clock src;
+                src.set_cpu_speed(speeds[i]);
+                const std::string doc = doc_of(src);
+                Clock back;
+                back.set_cpu_speed(CpuSpeed::MHZ_3_5);
+                std::string refusal;
+                if (!jnext::save::restore_via_desc(back, doc, false, refusal))
+                    all_ok = false;
+                seen[i] = back.cpu_divisor();
+                if (back.cpu_divisor() != cpu_speed_divisor(speeds[i]))
+                    all_ok = false;
+            }
+            check("GH289-30", all_ok && seen[0] == 8 && seen[1] == 4 &&
+                                  seen[2] == 2 && seen[3] == 1,
+                  "all four CPU-speed divisors (8, 4, 2, 1) still restore — the "
+                  "legal set is the image of cpu_speed_divisor() over CpuSpeed, "
+                  "not a literal, so this is the arm a reject-everything check "
+                  "fails");
+
+            // The REFUSING arm. 0 is the division by zero; 3 is in range for
+            // the type and is no speed's divisor; -8 is the one that does not
+            // crash — cast to uint64_t it is 2^64-8, so every division answers
+            // 0 and the machine quietly stops keeping time.
+            struct Case { const char* id; long value; const char* desc; };
+            static const Case cases[] = {
+                {"GH289-31", 0,
+                 "a snapshot CPU divisor of 0 is REFUSED — it is the right-hand "
+                 "side of Emulator::rebase_fuse_tstates_'s division, so it was "
+                 "SIGFPE on the next frame boundary"},
+                {"GH289-32", 3,
+                 "a CPU divisor of 3 is REFUSED — in range for an i32, and the "
+                 "divisor of no CPU speed the hardware has"},
+                {"GH289-33", -8,
+                 "a NEGATIVE CPU divisor is REFUSED — cast to uint64_t it is "
+                 "2^64-8, which does not crash: every division answers 0 and "
+                 "the T-state counter silently stops advancing"},
+            };
+            for (const Case& c : cases) {
+                Clock src;
+                src.set_cpu_speed(CpuSpeed::MHZ_14);       // divisor 2
+                const std::string bad = set_int(doc_of(src), "cpu_divisor",
+                                                c.value);
+                Clock back;
+                back.set_cpu_speed(CpuSpeed::MHZ_7);       // divisor 4, pre-load
+                std::string refusal;
+                const bool ok =
+                    jnext::save::restore_via_desc(back, bad, false, refusal);
+                if (ok || refusal.find("cpu_divisor") == std::string::npos ||
+                    back.cpu_divisor() != 4) {
+                    fprintf(stderr, "  %s: ok=%d refusal='%s' divisor=%d\n",
+                            c.id, (int)ok, refusal.c_str(), back.cpu_divisor());
+                }
+                check(c.id,
+                      !bad.empty() && !ok &&
+                          refusal.find("cpu_divisor") != std::string::npos &&
+                          back.cpu_divisor() == 4,
+                      c.desc);
+            }
+
+            // The REWIND stream: 12 bytes, divisor at offset 8. A rewind slot
+            // cannot be refused — `load_state` returns void — so the divisor
+            // must keep its pre-load value, the stream must not desync, and the
+            // fault must be named in the log, which is the only place it shows.
+            uint8_t buf[64];
+            Clock   src;
+            src.set_cpu_speed(CpuSpeed::MHZ_14);           // divisor 2
+            StateWriter w(buf, sizeof buf);
+            src.save_state(w);
+            int32_t at8 = 0;
+            std::memcpy(&at8, buf + 8, sizeof(at8));
+            check("GH289-34", w.position() == 12 && at8 == 2,
+                  "bytes 8-11 of Clock's 12-byte block are cpu_divisor — the "
+                  "field the next row forges, proved by an honest save of a "
+                  "known speed");
+
+            const int32_t forged = 0;
+            std::memcpy(buf + 8, &forged, sizeof(forged));
+
+            std::ostringstream cap;
+            auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(cap);
+            sink->set_pattern("%l %v");
+            Log::emulator()->sinks().push_back(sink);
+            Clock back;
+            back.set_cpu_speed(CpuSpeed::MHZ_7);           // divisor 4
+            StateReader r(buf, w.position());
+            back.load_state(r);
+            Log::emulator()->sinks().pop_back();
+            const std::string logged = cap.str();
+            check("GH289-35",
+                  back.cpu_divisor() == 4 && r.position() == 12 &&
+                      logged.find("Clock::load_state: clock.cpu_divisor") !=
+                          std::string::npos,
+                  "a forged divisor in the REWIND stream leaves the divisor at "
+                  "its pre-load value, still consumes the declared 12 bytes, "
+                  "and is NAMED in the log — a rewind has no return value to "
+                  "refuse with, so an unlogged drop would be invisible");
+        }
+
+        // ── Uart ─────────────────────────────────────────────────────────
+        //
+        // GH289-40, GH289-41, GH289-42, GH289-43, GH289-44, GH289-45 — legal
+        // values are 0 and 1: `channels_` has two elements, and the hardware
+        // selector is one bit, `uart.vhd:123,280,301`.
+        {
+            // The ACCEPTING arm, BOTH values. The live write path is how the
+            // selector legitimately becomes 1: port 0x153B bit 6.
+            bool both = true;
+            for (int want = 0; want <= 1; ++want) {
+                Uart src;
+                src.reset();
+                // port 0x153B, bit 6 — the one bit the hardware selector has.
+                src.write(1, static_cast<uint8_t>(want ? 0x40 : 0x00));
+                if (src.selected_channel() != want) both = false;
+                const std::string doc = doc_of(src);
+                Uart back;
+                back.reset();
+                back.write(1, static_cast<uint8_t>(want ? 0x00 : 0x40));
+                std::string refusal;
+                if (!jnext::save::restore_via_desc(back, doc, false, refusal))
+                    both = false;
+                if (back.selected_channel() != want) both = false;
+            }
+            check("GH289-40", both,
+                  "both UART channels (0 and 1) still restore, over the "
+                  "opposite live value — the arm a reject-everything check "
+                  "fails, and the one that proves the selector really travels");
+
+            struct Case { const char* id; long value; const char* desc; };
+            static const Case cases[] = {
+                {"GH289-41", 2,
+                 "a snapshot UART selector of 2 is REFUSED — it indexes "
+                 "channels_, which has two elements, so the guest's next port "
+                 "0x143B/0x153B/0x163B access read past the array"},
+                {"GH289-42", -1,
+                 "a NEGATIVE UART selector is REFUSED — the other side of the "
+                 "same one-bit range, and nothing the guest can write reaches "
+                 "it (the 0x153B arm masks to bit 6)"},
+                {"GH289-43", 0x40000000,
+                 "the 0x40000000 shape from the issue report is REFUSED here "
+                 "too — the same class of value in the same kind of field"},
+            };
+            for (const Case& c : cases) {
+                Uart src;
+                src.reset();
+                const std::string bad = set_int(doc_of(src), "select", c.value);
+                Uart back;
+                back.reset();
+                back.write(1, 0x40);                       // pre-load: channel 1
+                std::string refusal;
+                const bool ok =
+                    jnext::save::restore_via_desc(back, bad, false, refusal);
+                if (ok || refusal.find("select") == std::string::npos ||
+                    back.selected_channel() != 1) {
+                    fprintf(stderr, "  %s: ok=%d refusal='%s' select=%d\n",
+                            c.id, (int)ok, refusal.c_str(),
+                            back.selected_channel());
+                }
+                check(c.id,
+                      !bad.empty() && !ok &&
+                          refusal.find("select") != std::string::npos &&
+                          back.selected_channel() == 1,
+                      c.desc);
+            }
+
+            // The REWIND stream: the selector is the FIRST field, offset 0.
+            uint8_t buf[8192];
+            Uart    src;
+            src.reset();
+            src.write(1, 0x40);                            // channel 1
+            StateWriter w(buf, sizeof buf);
+            src.save_state(w);
+            int32_t at0 = 0;
+            std::memcpy(&at0, buf, sizeof(at0));
+            check("GH289-44", at0 == 1 && w.position() > 4,
+                  "bytes 0-3 of Uart's block are the channel selector — the "
+                  "field the next row forges, proved by an honest save with "
+                  "channel 1 selected");
+
+            const std::size_t width = w.position();
+            const int32_t forged = 2;
+            std::memcpy(buf, &forged, sizeof(forged));
+
+            std::ostringstream cap;
+            auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(cap);
+            sink->set_pattern("%l %v");
+            Log::uart()->sinks().push_back(sink);
+            Uart back;
+            back.reset();
+            StateReader r(buf, width);
+            back.load_state(r);
+            Log::uart()->sinks().pop_back();
+            const std::string logged = cap.str();
+            check("GH289-45",
+                  back.selected_channel() == 0 && r.position() == width &&
+                      logged.find("Uart::load_state: uart.select") !=
+                          std::string::npos,
+                  "a forged selector in the REWIND stream leaves the selector "
+                  "at its pre-load value, still consumes the whole declared "
+                  "block (so the ninety per-channel fields behind it do not "
+                  "desync), and is NAMED in the log");
+        }
+
+        // ── I2cRtc ───────────────────────────────────────────────────────
+        //
+        // The FOURTH instance, and the one the author's first sweep missed
+        // because it scoped to `d.i32` (a declaration TYPE) while this field is
+        // a `d.u8` — found by the independent reviewer. `reg_ptr_` indexes
+        // `regs_`, a `std::array<uint8_t, 64>` that is the LAST member of
+        // `I2cRtc`, and BOTH use sites are unmasked: the read `regs_[reg_ptr_]`
+        // and the write `regs_[reg_ptr_] = data`.
+        //
+        // GH289-60, GH289-61, GH289-62, GH289-63 — the bound is the array's own
+        // extent, 64 entries, which is the DS1307's 6-bit register pointer; the
+        // code's three runtime masks (`& 0x3F` on the pointer set and on both
+        // auto-increments) say the same, and the RTC is an off-chip I2C device
+        // so the oracle is the DS1307 register map rather than the FPGA VHDL.
+        //
+        // There is no row for a NEGATIVE pointer because the type forbids one:
+        // the field is a `u8`, and `JsonReadDesc::do_u8` refuses anything that
+        // is not an integer in 0..255 before the declaration ever sees it.
+        {
+            // The ACCEPTING arm, at BOTH boundaries. `transfer(n, false)` on a
+            // fresh transaction is how the pointer legitimately gets set.
+            bool ends_ok = true;
+            for (int want : {0, 63}) {
+                I2cRtc src;
+                src.start();
+                src.transfer(static_cast<uint8_t>(want), false);
+                const std::string doc = doc_of(src);
+                if (get_int(doc, "reg_ptr") != want) ends_ok = false;
+                I2cRtc back;
+                back.start();
+                back.transfer(31, false);          // a different pointer
+                std::string refusal;
+                if (!jnext::save::restore_via_desc(back, doc, false, refusal))
+                    ends_ok = false;
+                if (get_int(doc_of(back), "reg_ptr") != want) ends_ok = false;
+            }
+            check("GH289-60", ends_ok,
+                  "register pointers 0 and 63 — both ends of the DS1307 map — "
+                  "still restore over a different live pointer; the arm a "
+                  "reject-everything check fails, and the one an off-by-one "
+                  "`>= 63` bound would fail too");
+
+            struct Case { const char* id; long value; const char* desc; };
+            static const Case cases[] = {
+                {"GH289-61", 64,
+                 "a register pointer of 64 is REFUSED — one past the 64-entry "
+                 "regs_ array, whose extent IS the bound"},
+                {"GH289-62", 200,
+                 "a register pointer of 200 is REFUSED — the reviewer's "
+                 "proof-of-concept value, which wrote 136 bytes past regs_ on "
+                 "the next RTC write and read past it on the next RTC read"},
+                {"GH289-63", 255,
+                 "the widest value a u8 can carry is REFUSED — the type's own "
+                 "range is 0..255 and the array's is 0..63, which is the whole "
+                 "defect in one sentence"},
+            };
+            for (const Case& c : cases) {
+                I2cRtc src;
+                src.start();
+                src.transfer(7, false);
+                const std::string bad = set_int(doc_of(src), "reg_ptr", c.value);
+                I2cRtc back;
+                back.start();
+                back.transfer(31, false);          // pre-load pointer 31
+                std::string refusal;
+                const bool ok =
+                    jnext::save::restore_via_desc(back, bad, false, refusal);
+                const long kept = get_int(doc_of(back), "reg_ptr");
+                if (ok || refusal.find("reg_ptr") == std::string::npos ||
+                    kept != 31) {
+                    fprintf(stderr, "  %s: ok=%d refusal='%s' reg_ptr=%ld\n",
+                            c.id, (int)ok, refusal.c_str(), kept);
+                }
+                check(c.id,
+                      !bad.empty() && !ok &&
+                          refusal.find("reg_ptr") != std::string::npos &&
+                          kept == 31,
+                      c.desc);
+            }
+
+            // The REWIND stream: 69 bytes, the pointer at offset 0.
+            uint8_t buf[256];
+            I2cRtc  src;
+            src.start();
+            src.transfer(7, false);
+            StateWriter w(buf, sizeof buf);
+            src.save_state(w);
+            check("GH289-64", w.position() == 69 && buf[0] == 7,
+                  "byte 0 of I2cRtc's 69-byte block is the register pointer — "
+                  "the field the next row forges, proved by an honest save of a "
+                  "known pointer");
+
+            buf[0] = 200;
+            std::ostringstream cap;
+            auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(cap);
+            sink->set_pattern("%l %v");
+            Log::i2c()->sinks().push_back(sink);
+            I2cRtc back;
+            back.start();
+            back.transfer(31, false);
+            StateReader r(buf, w.position());
+            back.load_state(r);
+            Log::i2c()->sinks().pop_back();
+            const std::string logged = cap.str();
+            const long kept = get_int(doc_of(back), "reg_ptr");
+            check("GH289-65",
+                  kept == 31 && r.position() == 69 &&
+                      logged.find("I2cRtc::load_state: i2c_rtc.reg_ptr") !=
+                          std::string::npos,
+                  "a forged pointer in the REWIND stream leaves it at its "
+                  "pre-load value, still consumes the declared 69 bytes so the "
+                  "64 register bytes behind it do not desync, and is NAMED in "
+                  "the log");
+        }
+
+        // ── Both, END TO END through Emulator::load_jns ──────────────────
+        //
+        // The rows above walk each subsystem's declaration directly, which is
+        // what `LoadVisitor` does — but not THAT it does it for these two.
+        // A subsystem missing from `visit_jns_subsystems` would never have its
+        // crafted document read at all, and every row above would still pass.
+        // One row, two archives, because the FIRST refusal wins: a single
+        // archive corrupted twice could only ever show one of them.
+        //
+        // GH289-46 — the bounds it exercises are zxnext.vhd:1299-1300,5817
+        // (the two-bit CPU-speed register), uart.vhd:123,280,301 (the one-bit
+        // channel selector) and the DS1307's 64-entry register map.
+        {
+            auto repack_txt = [](const std::vector<uint8_t>& in,
+                                 const std::string& member,
+                                 const std::string& body,
+                                 std::vector<uint8_t>& out) {
+                jnext::zip::Reader r;
+                std::string why;
+                if (!r.open(in.data(), in.size(), why)) return false;
+                jnext::zip::Writer w{jnext::jns::kArchiveComment};
+                for (const auto& e : r.entries()) {
+                    std::vector<uint8_t> bytes;
+                    if (e.name == member) bytes.assign(body.begin(), body.end());
+                    else if (!r.read(e.name, bytes, why)) return false;
+                    if (!w.add(e.name, bytes.data(), bytes.size(),
+                               jnext::zip::Method::Deflate, why)) {
+                        return false;
+                    }
+                }
+                return w.finish(out, why);
+            };
+
+            auto a_up = std::make_unique<Emulator>();
+            Emulator& a = *a_up;
+            build_busy(a);
+            jnext::JnsSaveOptions opt;
+            jnext::JnsLoadReport  rep;
+            std::string why;
+            std::vector<uint8_t> good;
+            const bool wrote = a.save_jns(opt, good, rep, why);
+
+            struct Case {
+                const char* member;
+                const char* key;
+                long        value;
+            };
+            const Case three[3] = {
+                {"state/clock.json", "cpu_divisor", 0},
+                {"state/uart.json",  "select",      2},
+                {"state/rtc.json",   "reg_ptr",     200},
+            };
+            bool all_refused = true, all_named = true, built_both = true;
+            std::string msgs;
+            for (const Case& c : three) {
+                std::string text;
+                if (!wrote) { built_both = false; break; }
+                {
+                    jnext::zip::Reader r;
+                    std::string w2;
+                    if (!r.open(good.data(), good.size(), w2) ||
+                        !r.read_text(c.member, text, w2)) {
+                        built_both = false;
+                        break;
+                    }
+                }
+                const std::string bad = set_int(text, c.key, c.value);
+                std::vector<uint8_t> forged;
+                if (bad.empty() || !repack_txt(good, c.member, bad, forged)) {
+                    built_both = false;
+                    break;
+                }
+                auto b_up = std::make_unique<Emulator>();
+                Emulator& b = *b_up;
+                build_emulator(b, 2);
+                jnext::JnsLoadOptions lopt;
+                jnext::JnsLoadReport  lrep;
+                std::string refusal;
+                if (b.load_jns(forged.data(), forged.size(), lopt, lrep,
+                               refusal)) {
+                    all_refused = false;
+                }
+                if (refusal.find(c.member) == std::string::npos ||
+                    refusal.find(c.key) == std::string::npos) {
+                    all_named = false;
+                }
+                msgs += refusal + " | ";
+            }
+            if (!(built_both && all_refused && all_named)) {
+                fprintf(stderr, "  GH289-46: built=%d refused=%d named=%d %s\n",
+                        (int)built_both, (int)all_refused, (int)all_named,
+                        msgs.c_str());
+            }
+            check("GH289-46", built_both && all_refused && all_named,
+                  "Emulator::load_jns REFUSES a .jns whose state/clock.json "
+                  "carries a CPU divisor of 0, whose state/uart.json carries a "
+                  "selector of 2, or whose state/rtc.json carries a register "
+                  "pointer of 200 — each refusal naming its own member AND "
+                  "field, which proves all three subsystems are really visited; "
+                  "the direct-declaration rows above cannot show that");
+        }
     }
 
     // ── THE esxDOS HANDLE TABLE, ROUND-TRIPPED FOR REAL ─────────────────
