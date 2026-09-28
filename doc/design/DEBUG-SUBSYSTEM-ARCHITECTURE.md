@@ -503,7 +503,7 @@ range), `RefusedReadOnly`, `InvalidPage`, `NotAtFrameBoundary`, `NoFrame`,
 | CTL-09 / CTL-10 | `step_back(n)` / `rewind_to_frame(n)` | synchronous; `RefusedRzx` / `RefusedUnavailable` / `RefusedCorrupt` distinguished |
 | CTL-11 | `resume_blocked_by_corruption() -> optional<CorruptionIncident{subsystem, generation}>`, `acknowledge_corruption(gen)` | the `ResumeGuard` policy; the modal stays in Qt; an unacknowledged remote gets `RefusedCorrupt` |
 | CTL-12 | `reset(Hard\|Soft)` | `Soft` = `soft_reset()`, synchronous. **`Hard` = the cold-boot reconstruct contract** (REQ-zrcp-15): today it is only a flag [`emulator.h:207`] each loop owner polls after its tick and turns into `emulator_frontend_cold_boot()` [`emulator_boot.h:225-245`; `sdl_app.cpp:409`, `qt_app.cpp:510`, `headless_app.cpp:691`], which destroys and placement-news the `Emulator` and restores nothing transient [`:122-124`]. For a client the backend runs the loop owner's registered driver (SES-07) **synchronously inside `pump`** (the same post-frames slot), so later commands in the same drain see the new machine; re-binds and re-applies every client's subscriptions, switches, attach/`live_raster`, trace/call-stack/coverage enables and the symbol table; **re-applies the pause** if the caller was paused (PC 0x0000 of `nextboot.rom`, as ZEsarUX) and **never pauses a running machine** (there is no `Reset` in `pause_reason`); delivers `Reset{Hard}` to every listener before returning — an adapter whose client is blocked in a `run` completes that reply from the event, adapter policy, not a pause, so no other client sees a stop; a guest NR 0x02 hard reset keeps the deferred path and the loop owner calls `on_cold_boot_begin()` before the destroy and `on_cold_boot_done()` after, so the same rules apply (rule 3's pause and its owner are captured by `begin`; header change by owner decision 2026-09-28); no driver → `RefusedUnavailable`. Ordering: every loop owner polls `take_hard_reset_request()` before `pump()`, so a guest reset and a client `reset(Hard)` in one tick run in that order and the second reboots a freshly booted machine (legal, not skipped). Single owner: the platform-side `BreakpointSet`/`active()` save-and-restore in `emulator_cold_boot()` [`emulator_boot.h:133-146`] stops owning backend state once the backend re-applies subscriptions — **split (B3 milestone 2, sequencing only): B3 retires its event-mask half (the only backend state it carries), package Q retires the Qt panels' half (breakpoints, their observers, `active()`) when the panels become clients** (`backend.md` CAP-CTL-12, `qt-frontend.md` §7). The driver struct is `ColdBootHooks` [`emulator_boot.h:179`]. CTL-15 with a `.nex` follows the same contract, including the `Reset{Hard}` push when the load reconstructed the machine |
-| CTL-13 | `state() -> RunState{paused, step_mode, pause_reason, cycle, frame, pc}` — **`Magic` has NO owning client** (owner decision, 2026-09-27): the guest stopped itself, so SES-01's "a detach resumes the machine iff it is paused by this client" must NOT resume a `Magic` pause, and neither may closing the Qt debugger window. Same for `Corrupt`. A remote client attaching, pausing nothing and detaching must leave an `ED FF` stop standing — pinned by a B5 row. The Qt window OPENING on a magic hit is unchanged and is not an attach: the Qt adapter is attached for the process lifetime, and the window is its reaction to `Paused{reason: Magic}` — today's `DebuggerManager::check_breakpoint_hit()` path [`debugger_manager.cpp:682-692`], the same GH #219 route §1.3 item 13 keeps for a remote pause. | `pause_reason` ∈ {`User{cid}`, `Breakpoint{id}`, `Watch{id, access, addr}`, `Step`, `RunTo{id}`, `Magic`, `Corrupt`, `Script{id, text}`} |
+| CTL-13 | `state() -> RunState{paused, step_mode, pause_reason, cycle, frame, pc}` — **`Magic` has NO owning client** (owner decision, 2026-09-27): the guest stopped itself, so SES-01's "a detach resumes the machine iff it is paused by this client" must NOT resume a `Magic` pause, and neither may closing the Qt debugger window. Same for `Corrupt`. A remote client attaching, pausing nothing and detaching must leave an `ED FF` stop standing — pinned by a B5 row. The Qt window OPENING on a magic hit is unchanged and is not an attach: the Qt adapter is attached for the process lifetime, and the window is its reaction to `Paused{reason: Magic}` — today's `DebuggerManager::check_breakpoint_hit()` path [`debugger_manager.cpp:682-692`], the same GH #219 route §1.3 item 13 keeps for a remote pause. **OPEN — `Script{text}` has no producer** (B2 review, 2026-09-28): `Handler` returns a payload-free `Action`, so nothing can fill `PauseReason::text`, and this row plus §4.2's Script row promise a field no code can set. Owner decision pending; the recommendation is to widen the handler's return to `{Action, std::string}` with an implicit converting constructor from `Action`, which keeps every existing `return Action::Stop;` compiling and so extends the frozen header without breaking it — the alternative, a `set_stop_message()` verb, is an order-dependent two-step that can leave a dangling message. Until it is decided the field stays empty and **no client may rely on it**. | `pause_reason` ∈ {`User{cid}`, `Breakpoint{id}`, `Watch{id, access, addr}`, `Step`, `RunTo{id}`, `Magic`, `Corrupt`, `Script{id, text}`} |
 | CTL-14 | `magic_breakpoint()` / `set_magic_breakpoint(bool)` | `Emulator::set_magic_breakpoint` [`emulator.cpp:7873`] |
 | CTL-15 | `load(path)` | routed through the loop owner's registered driver (SES-07 `LoopDriver::load`), today `emulator_apply_load()` [`src/platform/emulator_boot.h:25`] — the backend never includes `src/platform/`, the layer above it; no driver → `RefusedUnavailable`; a paused caller stays paused at the new PC. **Contract:** a load that routes to `emulator_cold_boot()` destroys and reconstructs the `Emulator` in place, today saving only the `BreakpointSet` and `active()` across it [`emulator_boot.h:133-146`]; the backend keeps every client's subscriptions, switches, attach/`live_raster` state and the symbol table outside `Emulator` and re-installs its hooks afterwards, so nothing any client set is lost (REQ-qt-29; a backend row subscribes, loads, asserts the subscription still fires) |
 
@@ -600,7 +600,12 @@ the protocols already needed; no new CAP id. **One contract for all of them:**
   client — DSL, Qt panel, DZRP `WRITE_MEM`, RSP `M` — emits one SES-06 `info`
   line `MUTATE <what> <old> -> <new> by <client>` (old = the peeked value),
   so a script's log sees what a GUI or a remote changed, and a CI transcript
-  shows what a script changed.
+  shows what a script changed. **A BLOCK write uses a range form instead**
+  (owner decision 2026-09-27, raised by B1): a multi-byte `poke` cannot express
+  `<old> -> <new>`, and quoting the first byte's transition would imply it
+  describes the block, so the line is
+  `MUTATE mem cpu:0x8100 4 bytes by <client>`. The single-value form stays for
+  every one-value write (a register, a NextREG, a port, a palette entry).
 - **Not an event:** a debugger write fires no watch, no `NextRegWrite`, no
   `Port` event, and is not attributed to the CPU (no `source`, no re-entry).
   The property rests on **`guest_access_` being false while the write
@@ -661,12 +666,12 @@ filter.
 | `Frame` | every / frame == N | frame (the pre-increment tag, = `time().frame`) |
 | `Scanline` | cvc == N — latched at `on_scanline` with the line's exact cycle, delivered at the next boundary (≤1 instruction late) | frame, vc, cycle (captured in the latch) |
 | `Cycle` | master_cycle ≥ N, one-shot by nature | cycle |
-| `Reset` | hard / soft | kind |
+| `Reset` | hard / soft / **any** | kind — **`ResetKind::Any` matches either** (owner decision 2026-09-27, closing F8): the DSL's `on reset` with no qualifier must compile to exactly ONE subscription, or one script rule becomes two rows in the user-visible `subscriptions()` list whose halves can be enabled independently. No precedent against `Copper`/`Dma` staying one-sub-kind-per-subscription — those are separable for a stated COST reason (`Byte` arming is per-engine); a reset fires once per reset, so `Any` is free on the hot path |
 | `IntAck` / `Nmi` | the accept seams [`emulator.cpp:1114`, `:10386`] | vector, im / source |
 | `Magic` | the magic opcode | pc |
 | `Host` | `raise_host_event(name)`, `script1`..`script8`; key bindings are a GH #1 keymap addition | name |
 | `Copper` — sub-kinds `Move`, `Wait`, `Halt` | `Move`: a MOVE executed (the `nextreg.write` at [`copper.cpp:209`], where `active_move_hc` is set); `Wait`: a WAIT satisfied ([`:184-197`], PC advances at `:186`); `Halt`: the first stall on the HALT form — `is_halt()` [`copper.cpp:87`] exists but has **no caller today**; the hook is a **new branch on the bare stall path** (`// Otherwise stall`, [`:195`]) that calls it and latches on the edge (first stall only, not every cycle). Filter: copper-PC range and/or NR set. Latched at the site inside the post-instruction device cluster, delivered at the next boundary (≤1 instruction late, as `NextRegWrite`/`Scanline`). A MOVE also raises `NextRegWrite{source=Copper}` — both fire from **one** latch entry fanned out at the drain; `Copper.Move` is the copper-side view | reg + value (`Move`); copper pc; `vpos`, `hpos_threshold` (`Wait`); `hc_ula`, `cvc` as the Copper compares them |
-| `Dma` — sub-kinds `Start`, `Byte`, `End` | `Start`: **one definition, one site** — `phase_` enters `START_DMA` while `state_ == TRANSFERRING`, which is the R6 `0x87` enable [`dma.cpp:573-575`], the R3 `dma_en` path [`:423-424`] and the auto-restart [`:817`] alike (`cmd_load` [`:677`] is an address reload, not a transition); `Byte`: each transferred byte inside `execute_burst` [`:699`; the I/O write `:783-786`, the memory write `:788`]; `End`: block completion at the `on_interrupt` site [`:807-813`] (an auto-restart [`:815-819`] is `End` then `Start`). Filter: src/dst range for `Byte`. A DMA byte into a watched **range** still fires `Mem{source=Dma}` (the range guard); `Dma.Byte` is the transfer-side view and needs no range. `Byte` is armed only while a `Byte` subscription exists (a flag in the engine) and delivered at the boundary of the slot the burst ran in | `Start`/`End`: src, dst, length, direction, mode, bytes; `Byte`: src_addr, dst_addr, value, is_io_src, is_io_dst; cycle |
+| `Dma` — sub-kinds `Start`, `Byte`, `End` | `Start`: **one definition** — `phase_` enters `START_DMA` while `state_ == TRANSFERRING`, which is the R6 `0x87` enable [`dma.cpp:573-575`], the R3 `dma_en` path [`:423-424`] and the auto-restart [`:817`] alike (`cmd_load` [`:677`] is an address reload, not a transition). **That predicate alone is not one site, and the design said so wrongly** (corrected 2026-09-28 from B2's review): the same `phase_ = START_DMA` with `state_` still `TRANSFERRING` also occurs on two **mid-transfer re-arbitrations** that begin no transfer and must NOT fire `Start` — `dma_delay_` asserting mid-transfer and dropping back to `START_DMA` to release the bus [VHDL `dma.vhd:420-432`], and the burst-mode prescaler wait expiring and returning through `START_DMA` to re-arbitrate [VHDL `dma.vhd:451-460`]. B2 excludes both and discloses the exclusion at its `dma.h` site; the behaviour is right, this sentence was not; `Byte`: each transferred byte inside `execute_burst` [`:699`; the I/O write `:783-786`, the memory write `:788`]; `End`: block completion at the `on_interrupt` site [`:807-813`] (an auto-restart [`:815-819`] is `End` then `Start`). Filter: src/dst range for `Byte`. A DMA byte into a watched **range** still fires `Mem{source=Dma}` (the range guard); `Dma.Byte` is the transfer-side view and needs no range. `Byte` is armed only while a `Byte` subscription exists (a flag in the engine) and delivered at the boundary of the slot the burst ran in | `Start`/`End`: src, dst, length, direction, mode, bytes; `Byte`: src_addr, dst_addr, value, is_io_src, is_io_dst; cycle |
 
 **No-subscriber cost of the Copper/DMA kinds.** Each is one predicated branch
 on a per-engine flag (`Copper::events_armed_`, `Dma::events_armed_`,
@@ -741,8 +746,11 @@ device. The DMA worst case is 50 (16 `Dma.Byte` + 16 writes + 16 reads under
 a Read|Write range + `Start`/`End` — a slot is DMA *or* CPU [`:9687-9790`],
 `execute_burst(16)` [`:9735`], at most one `End`/`Start` pair per slot since
 the burst loop exits at an auto-restart) and the CPU's own accesses a handful
-(one `LDIR` iteration per `execute()`). 512 entries (~16 bytes each, 8 KB, no
-hot-path cost) covers every MOVE burst; it does not cover every conceivable
+(one `LDIR` iteration per `execute()`). 512 entries (**48 bytes each, 24 KB** as
+built — the earlier "~16 bytes, 8 KB" predated the per-kind payload
+enumeration and was measured wrong by 3×; the allocation is one-off, but the
+latch path therefore moves 3× the store traffic the estimate assumed) covers
+every MOVE burst; it does not cover every conceivable
 Copper program, which is why **overflow is a specified, tested behaviour,
 not "unreachable":** the ring keeps
 the first N entries in order and a dropped count; the drain delivers the first
@@ -791,7 +799,7 @@ callers of the same primitives, scheduled by `Frame` events.
 
 | ID | Capability |
 |---|---|
-| ST-01 | `at_frame_boundary()`; `save_state_bytes(Mode::AdvanceToBoundary \| RefuseMidFrame)` — **OPEN for B: does this need a `ClientId by`?** ST-01 specifies none, so B0 declares none rather than invent one. But `AdvanceToBoundary` **advances the machine**, and CAP-03's `bookmark_save(by, name, Mode)` takes the same `Mode` and can therefore perform the **same** advance while carrying a `by` — so the two are inconsistent about attributing an *identical* side effect, which argues for ST-01 gaining a `by` rather than CAP-03 losing one. Additive, blocks no package (every caller already holds its `ClientId`). Settle it in B, and if the advance must appear in the SES-06 log with an originator, B0 was wrong here. — frame-boundary only; `AdvanceToBoundary` runs the #27 S6 `SuspendScope` advance; `RefuseMidFrame` → `NotAtFrameBoundary` for a client that cannot refresh its register cache (DeZog) |
+| ST-01 | `at_frame_boundary()`; **`save_state_bytes(ClientId by, Mode::AdvanceToBoundary \| RefuseMidFrame)`** — **SETTLED: it takes a `by`** (owner decision 2026-09-27). The deciding point is that `AdvanceToBoundary` **advances the machine** — emulated time moves, observably to every other attached client — and every other state change in this API carries a `by` and emits the SES-06 `MUTATE … by <client>` line; without one a CI transcript can show time jumping with nothing recording who caused it. The `by` is meaningful only in `AdvanceToBoundary` mode, since `RefuseMidFrame` does not advance. Note what is NOT the argument: `bookmark_save`'s `by` is about per-client OWNERSHIP (its bookmarks die with its detach), not attribution — the two verbs were inconsistent about attributing an identical side effect, and that is what is fixed. B2 owns the `Any` filter test, B4 the advance's SES-06 line. — frame-boundary only; `AdvanceToBoundary` runs the #27 S6 `SuspendScope` advance; `RefuseMidFrame` → `NotAtFrameBoundary` for a client that cannot refresh its register cache (DeZog) |
 | ST-02 | `load_state_bytes(bytes)` — in-process only, no versioning; failure latches corruption → CTL-11. DZRP `CMD_READ/WRITE_STATE`, ZRCP `snapshot-save/-load` and CAP-03 are the same map; disk is JNS |
 | ST-03 | `rewind_enabled` get/set, `rewind_range() -> {oldest, newest, depth, capacity, snapshot_bytes}`, `rewind_blocked() -> optional<reason>` (pre-click greying), `resize_rewind_buffer(n)` |
 | ST-04 | `step_back(n)`, `rewind_to_frame(n)` — offered to all; served by Qt; declined by the DSL (v1), unreachable for DZRP and RSP (no verb — `z88dk-gdb` sends no `bc`/`bs`, verified against `debugger_gdb.c`), unreachable for ZRCP (`cpu-history` is a trace *view*, INS-13) |
@@ -811,7 +819,7 @@ table for the panels, the DSL's `@name`, the servers' lookups and `--map`.
 | SES-03 | `pump(PumpBudget{max_wait_ms, drain_ms, budget_ms}) -> ServiceHint{remote_attached, paused}` — called by the loop owner once per tick **after** the frame batch (where `check_breakpoint_hit()` sits today [`qt_app.cpp:666`]); while paused it drains queued commands (a DeZog zrcp step is ~15 sequential round trips); `pump(0)` while running. The budgets are host service parameters — how long the loop owner lends its thread to socket I/O — never emulation semantics |
 | SES-04 | `set_stop_policy(Pause \| ExitNonZero)` — **Qt `Pause`; SDL and `--headless` `ExitNonZero`** (the SDL frontend has no pause path at all: `sdl_app.{h,cpp}` mention pause once, in an audio comment `:422`, and the sequencer's only pause is the debugger's `DebugState` [`frame_sequencer.h:209`] — REQ-dsl-19), **unless a remote client is connected, then `Pause` + notify** — a proposal on top of the owner's #279 headless rule, §12 Q2; routing magic breakpoints through it is a CLI change, §12 Q3 |
 | SES-05 | `set_live_raster(cid, bool)` (ORed), `attached()` |
-| SES-06 | `log(level, text)` — the backend's message sink |
+| SES-06 | `log(level, text)` — the backend's message sink. **It may take its OWN spdlog channel** (owner decision 2026-09-27; B1 parked it on the `emulator` channel and flagged the question). Creating new spdlog identifiers is approved wherever the subsystem warrants one. Note what that costs, so it is done properly rather than quietly: a channel name is a **user-visible surface** — it becomes a valid `--log-level` token, so the man page's list must gain it and `log_test`'s LOG-09..11 rows gate the name both ways against that list. B3 owns it, with the listener fan-out. |
 | SES-07 | `set_loop_driver(LoopDriver{cold_boot(), load(path)})` — **`cold_boot` takes NO config** (finding F5, confirmed in review): `emulator_frontend_cold_boot(Emulator&, EmulatorConfig base_cfg, const std::string& load_file, const ColdBootHooks&)` [`emulator_boot.h:225-227`] needs three things the backend has none of, and returns `void`. So the driver is `std::function<bool()>`, the loop owner closes over its own config, and the `bool` it reports is a small addition the loop owner synthesises. / `on_cold_boot_begin()` + `on_cold_boot_done()` — the loop owner registers the cold-boot sequence and the load dispatch it already owns (both in `src/platform/`, which the backend sits below) and reports a deferred guest reset before and after it (`begin` added by owner decision 2026-09-28, so rule 3's pause survives the guest path), so CTL-12 `Hard` and CTL-15 honour the reconstruct contract from any client. The stop policy (SES-04) is the loop owner's to set too, never an adapter's |
 
 ---
@@ -1338,6 +1346,17 @@ The socket transport the three servers share is **T**, written once, owned
 by one agent, and a dependency of D, Z and G alike — never carried by
 whichever server happens to land first.
 
+**Each package's row is also a tracker in its own appendix** (added 2026-09-27
+so work can be followed): `debug-subsystem/backend.md` for B, and
+`qt-frontend.md` / `dzrp-frontend.md` / `zrcp-frontend.md` /
+`gdb-rsp-frontend.md` / `dsl-frontend.md` for Q / D / Z / G / S. Each opens with
+a one-row-per-WP table carrying a **status** (`todo` · `in progress` ·
+`in review` · `done`, where `done` means independently reviewed and APPROVED, not
+merged — the package lands whole on one branch). **This table stays
+authoritative**: a tracker that disagrees with it is stale, not a second source.
+The trackers exist because a row here states a whole sequence as one table cell,
+which is unreadable as a plan and impossible to track against.
+
 ### 10.2 Dependency graph and order
 
 ```
@@ -1369,6 +1388,30 @@ stale paragraph there is the same defect class as a stale man page); **independe
 review** in its own worktree, binary verdict; `make bench` for any branch
 touching the hot path; the manager merges one branch at a time and runs `make
 bump-patch`; never push without authorisation.
+
+### 10.4 Closing a sub-issue before DOC lands — two notes, reporter mentioned
+
+Owner rule, 2026-09-27. Package **DOC (#288) lands last**, so every other
+sub-issue is closed while the epic's documentation does not yet exist. Each
+package carries only a partial Developer Guide update of its own, which is not a
+description of the finished subsystem.
+
+1. **On closing any sub-issue while #288 is open**, add a comment stating that the
+   documentation is still pending (#288), that the per-branch guide updates are
+   deliberately partial, and that **testing the delivered functionality is better
+   deferred until #288 closes** — before then a tester is working from scattered
+   notes rather than real documentation. Say a resolution note will follow.
+2. **When #288 closes**, add a resolution note to every one of those same issues:
+   the documentation is in place, the functionality can now be properly exercised,
+   with a pointer into the guide.
+
+**@-mention the original reporter in both notes** so they are notified. Two
+sub-issues were filed by someone other than the owner and are the ones that
+matter here: **#12 — @Duefectu** and **#279 — @vmorilla**. #288 itself gets no
+warning note, being the documentation issue. Done so far: #285, closed
+2026-09-27, warning note posted.
+
+---
 
 **A doc-only branch runs no code gate** (owner rule, 2026-09-27; now in
 CLAUDE.md): where the branch touches only documentation, the gate is what the
@@ -1408,7 +1451,14 @@ it):
    (§2.3); the CPU path commits after the boundary, hence §4.3's ≤1-
    instruction delivery rule.
 5. The `render_layer` move: the 106 DVP rows against the moved function
-   before the widget changes — Q WP4d.
+   before the widget changes — Q WP4d. **The MOVE itself is Q WP4d's too**
+   (owner decision 2026-09-27, closing a gap B1 found): §10.1 assigned the
+   validation but named no owner for the move, and B1 could not do it —
+   INS-14 is not "over an existing primitive", since the eight views exist
+   only inside a `Q_OBJECT` header and the move rewrites `video_panel.cpp`,
+   which Q owns and is about to rewrite anyway. Whoever validates the move
+   makes it. **B declares INS-14 and refuses `Unsupported` until Q lands**,
+   rather than drawing an approximation.
 6. Paused-state service cadence for DeZog step-out loops (a ~2 ms re-armed
    tick while paused-with-remote, or not) — D WP-6's V-LAT measurement.
 7. Upstream-master `z88dk-gdb` `monitor` handling (designed from source, run

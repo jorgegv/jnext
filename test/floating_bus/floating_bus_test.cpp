@@ -41,6 +41,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include "../row_id.h"
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -71,6 +72,7 @@ void set_group(const char* name) { g_group = name; }
 
 void check(const char* id, const char* desc, bool cond,
            const std::string& detail = {}) {
+    report_row_id(id);
     ++g_total;
     Result r{g_group, id, desc, cond, detail};
     g_results.push_back(r);
@@ -86,6 +88,7 @@ void check(const char* id, const char* desc, bool cond,
 
 [[maybe_unused]]
 void skip(const char* id, const char* reason) {
+    report_row_id(id);
     g_skipped.push_back({id, reason});
 }
 

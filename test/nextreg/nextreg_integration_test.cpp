@@ -41,6 +41,7 @@
 #include <initializer_list>
 
 #include <unistd.h>   // getpid() — per-process fixture path
+#include "../row_id.h"
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -70,6 +71,7 @@ std::vector<SkipNote> g_skipped;
 void set_group(const char* name) { g_group = name; }
 
 void check(const char* id, const char* desc, bool cond, const std::string& detail = {}) {
+    report_row_id(id);
     ++g_total;
     Result r{g_group, id, desc, cond, detail};
     g_results.push_back(r);
@@ -84,6 +86,7 @@ void check(const char* id, const char* desc, bool cond, const std::string& detai
 }
 
 void skip(const char* id, const char* reason) {
+    report_row_id(id);
     g_skipped.push_back({id, reason});
 }
 
@@ -4212,20 +4215,22 @@ static void test_nr_22_23_lineint_read(Emulator& emu) {
     // accident (the WRITE handler also keeps the low byte intact); we
     // assert post-fix that the value flows through VideoTiming.
     {
-        for (uint8_t v : {0x00, 0x55, 0xAA, 0xFF}) {
-            nr_write(emu, 0x23, v);
+        struct L23RoundTrip { uint8_t v; const char* id; };
+        const L23RoundTrip rows[] = {
+            { 0x00, "L23-01.00" }, { 0x55, "L23-01.55" },
+            { 0xAA, "L23-01.AA" }, { 0xFF, "L23-01.FF" },
+        };
+        for (const auto& r : rows) {
+            nr_write(emu, 0x23, r.v);
             const uint8_t got = nr_read(emu, 0x23);
-            char id[16];
-            char desc[160];
             char detail[96];
-            std::snprintf(id, sizeof(id), "L23-01.%02X", v);
-            std::snprintf(desc, sizeof(desc),
-                          "NR 0x23 round-trip 0x%02X → reads back from "
-                          "VideoTiming::line_interrupt_target() & 0xFF "
-                          "[zxnext.vhd:5995]", v);
             std::snprintf(detail, sizeof(detail),
-                          "got=0x%02X expected=0x%02X", got, v);
-            check(id, desc, got == v, detail);
+                          "got=0x%02X expected=0x%02X", got, r.v);
+            check(r.id,
+                  "NR 0x23 round-trip reads back from "
+                  "VideoTiming::line_interrupt_target() & 0xFF "
+                  "[zxnext.vhd:5995]",
+                  got == r.v, detail);
         }
     }
 
@@ -5401,12 +5406,19 @@ static void test_testcov_nmi_mf_port(Emulator& emu) {
     //   regs_[] cache, leaking into subsequent reads.
     {
         hard_reset(emu);
-        for (uint8_t reg = 0x75; reg <= 0x79; ++reg) {
-            nr_write(emu, reg, 0xFF);
-            const uint8_t got = nr_read(emu, reg);
+        // One row per register, each under its own literal ID.
+        struct WriteZeroRow { uint8_t reg; const char* id; };
+        const WriteZeroRow rows[] = {
+            { 0x75, "TC-NR75-79-WRITEZERO"   }, { 0x76, "TC-NR75-79-WRITEZERO-b" },
+            { 0x77, "TC-NR75-79-WRITEZERO-c" }, { 0x78, "TC-NR75-79-WRITEZERO-d" },
+            { 0x79, "TC-NR75-79-WRITEZERO-e" },
+        };
+        for (const auto& r : rows) {
+            nr_write(emu, r.reg, 0xFF);
+            const uint8_t got = nr_read(emu, r.reg);
             char d[64]; std::snprintf(d, sizeof(d),
-                "NR %02X read=0x%02X want=0x00", reg, got);
-            check("TC-NR75-79-WRITEZERO",
+                "NR %02X read=0x%02X want=0x00", r.reg, got);
+            check(r.id,
                   "NR 0x75-0x79 write-only mirror reads 0 "
                   "[zxnext.vhd:5878-6289 others=>'0']",
                   got == 0, d);

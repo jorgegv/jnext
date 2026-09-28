@@ -73,6 +73,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <functional>
@@ -91,7 +92,23 @@ static int g_pass  = 0;
 static int g_fail  = 0;
 static int g_skip  = 0;
 
+// Row-ID report for jnext's unit-test harness. This is test/row_id.h's
+// report_row_id(), restated because this self-contained module cannot include
+// jnext's test tree: one line per counted row to the file JNEXT_TEST_ROW_IDS
+// names, a no-op when it is unset. test/run-unit-tests.sh cross-checks the ID
+// count against `Total:`, so a drift between the two copies fails loudly.
+static void report_row_id(const char* id) {
+    static std::FILE* const out = [] {
+        const char* path = std::getenv("JNEXT_TEST_ROW_IDS");
+        return (path && *path) ? std::fopen(path, "a") : nullptr;   // never truncate
+    }();
+    if (!out) return;
+    std::fprintf(out, "%s\n", id);
+    std::fflush(out);   // nothing buffered across the SIG rows' fork()
+}
+
 static void check(const char* id, const std::string& desc, bool cond) {
+    report_row_id(id);
     ++g_total;
     if (cond) {
         ++g_pass;
@@ -102,6 +119,7 @@ static void check(const char* id, const std::string& desc, bool cond) {
 }
 
 static void skip(const char* id, const char* why) {
+    report_row_id(id);
     ++g_total;
     ++g_skip;
     std::printf("  SKIP %s: %s\n", id, why);
@@ -989,6 +1007,7 @@ int main() {
                 if (srv >= 0) ::close(srv);
             });
             if (joined(named).find("cannot resolve") != std::string::npos) {
+                report_row_id("SOCK-TRACE-04");
                 ++g_total; ++g_skip;
                 std::printf("  SKIP SOCK-TRACE-04: this host cannot resolve 'localhost'\n");
             } else {
@@ -999,6 +1018,7 @@ int main() {
             }
         } else {
             for (const char* id : {"SOCK-TRACE-01", "SOCK-TRACE-02", "SOCK-TRACE-03"}) {
+                report_row_id(id);
                 ++g_total; ++g_skip;
                 std::printf("  SKIP %s: could not bind a loopback listener\n", id);
             }
@@ -1038,6 +1058,7 @@ int main() {
     {
         Listener l;
         if (!l.start()) {
+            report_row_id("SEC-01");
             ++g_total; ++g_skip;
             std::printf("  SKIP SEC-01: could not bind a loopback listener\n");
         } else {
@@ -1091,6 +1112,7 @@ int main() {
             l.stop();
         }
         if (dead_port == 0) {
+            report_row_id("SEC-06");
             ++g_total; ++g_skip;
             std::printf("  SKIP SEC-06: could not obtain a closed loopback port\n");
         } else {
@@ -1174,6 +1196,7 @@ int main() {
             for (const char* id : {"NET-01", "NET-02", "NET-03", "NET-04", "NET-05",
                                    "NET-06", "NET-07", "NET-08", "NET-09", "NET-10",
                                    "NET-11", "NET-12"}) {
+                report_row_id(id);
                 ++g_total; ++g_skip;
                 std::printf("  SKIP %s: could not bind a loopback listener\n", id);
             }
@@ -1282,6 +1305,7 @@ int main() {
         } else {
             for (const char* id : {"UDPT-01", "UDPT-02", "UDPT-03", "UDPT-04", "UDPT-05",
                                    "UDPT-06", "UDPT-07", "UDPT-08", "UDPT-09", "UDPT-13"}) {
+                report_row_id(id);
                 ++g_total; ++g_skip;
                 std::printf("  SKIP %s: could not bind a loopback UDP peer\n", id);
             }
@@ -1323,6 +1347,7 @@ int main() {
                       peer.peer_source_port() != 0);
         } else {
             for (const char* id : {"UDPT-10", "UDPT-11"}) {
+                report_row_id(id);
                 ++g_total; ++g_skip;
                 std::printf("  SKIP %s: could not bind a loopback UDP peer\n", id);
             }
@@ -1363,6 +1388,7 @@ int main() {
                       t->last_error().find("connect") != std::string::npos);
         } else {
             for (const char* id : {"NET-ERR-01", "NET-ERR-02"}) {
+                report_row_id(id);
                 ++g_total; ++g_skip;
                 std::printf("  SKIP %s: could not obtain a closed loopback port\n", id);
             }
@@ -1452,6 +1478,7 @@ int main() {
                   aborted && has_level(unserved, LogLevel::Error));
         } else {
             for (const char* id : {"ESP-RST-01", "ESP-RST-02"}) {
+                report_row_id(id);
                 ++g_total; ++g_skip;
                 std::printf("  SKIP %s: could not bind a loopback listener\n", id);
             }

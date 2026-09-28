@@ -19,6 +19,8 @@
 #   FAIL (exit 1):
 #     * ran, but printed no parseable summary line    -> used to score PASS with 0 rows
 #     * ran, but reported a row count != the declared one -> Task 37's shape
+#     * reported a row ID more than once, or a number of row IDs != its row
+#       count (test/row_id.h)                         -> one matrix row, N counted
 #     * exited non-zero, crashed, or hit the timeout  -> reported, never swallowed
 #
 # It is itself under test: test/harness-selftest.sh injects each of those faults
@@ -361,6 +363,53 @@ if (( ${#GATED_OUT[@]} )); then
     printf "           %s\n" "${GATED_OUT[*]}"
 fi
 
+# --- Where each suite's row IDs must be spelled: its sources ---
+#
+# CLAUDE.md: "A row ID must be a LITERAL". An ID assembled at run time — a
+# snprintf over a loop index, a description, a measured value — is a row no
+# source reader can see, so every ID a suite REPORTS must appear verbatim as a
+# string literal in the sources compiled into it. The map comes from the one
+# CMake reader the ID gates already share (traceability-dup-ids.pl --sources);
+# JNEXT_UNIT_TEST_SOURCES overrides it (the self-test uses this, alongside
+# JNEXT_UNIT_TEST_CONF). A suite with no sources to check against is a refusal.
+#
+# The exemptions are suites whose rows are DATA: one row per case of a
+# checked-in fixture file, named by it. Named in the output, never silent, and
+# refused once every ID such a suite reports is a literal after all.
+declare -A ROW_ID_DATA_SUITES=(
+    [fuse_z80_test]="case names from test/fuse/tests.in"
+    [z80n_test]="case names from test/z80n/tests.in"
+)
+declare -A SOURCES
+if [[ -n "${JNEXT_UNIT_TEST_SOURCES:-}" ]]; then
+    src_map=$(cat "$JNEXT_UNIT_TEST_SOURCES") \
+        || die "Cannot read JNEXT_UNIT_TEST_SOURCES=$JNEXT_UNIT_TEST_SOURCES"
+else
+    src_map=$(perl test/traceability-dup-ids.pl --sources 2>&1) \
+        || die "Cannot map suites to their sources (traceability-dup-ids.pl --sources):" "$src_map"
+fi
+# One line per suite: name, then its sources, all TAB-separated (a path may hold
+# spaces). Stored newline-separated, one path per line.
+while IFS=$'\t' read -r -a f; do
+    if (( ${#f[@]} > 1 )); then SOURCES["${f[0]}"]=$(printf '%s\n' "${f[@]:1}"); fi
+done <<<"$src_map"
+unmapped=(); EXEMPT_RUN=()
+for name in "${RUNNABLE[@]}"; do
+    if [[ -n "${ROW_ID_DATA_SUITES[$name]:-}" ]]; then EXEMPT_RUN+=("$name"); continue; fi
+    [[ -n "${SOURCES[$name]:-}" ]] || unmapped+=("$name")
+done
+(( ${#unmapped[@]} == 0 )) \
+    || die "No sources known for: ${BOLD}${unmapped[*]}${RESET}" \
+           "Every row ID a suite reports must be a literal in its sources, so the harness" \
+           "must know them. Declare the suite's add_executable() in a CMakeLists.txt."
+if (( ${#EXEMPT_RUN[@]} )); then
+    printf "${BADGE_SKIP} NOTICE ${RESET} %b\n" \
+           "${BOLD}${#EXEMPT_RUN[@]}${RESET} suite(s) exempt from the row-ID literal check — their IDs are data:"
+    for name in "${EXEMPT_RUN[@]}"; do
+        printf "           %s (%s)\n" "$name" "${ROW_ID_DATA_SUITES[$name]}"
+    done
+fi
+
 # --- Run every runnable suite in parallel ---
 TMPDIR_RUN=$(mktemp -d)
 # ONE trap for the whole script. `trap ... EXIT` REPLACES any previous EXIT
@@ -399,7 +448,12 @@ for name in "${RUNNABLE[@]}"; do
         # below would then abort the whole run, dropping every suite after it. That
         # bug shipped once; test/harness-selftest.sh now proves it cannot come back.
         rc=0
-        timeout --kill-after=5s "${SUITE_TIMEOUT}s" \
+        # Created empty HERE; every process that reports only APPENDS to it
+        # (test/row_id.h opens it "a"), so a suite that fork()s cannot have one
+        # process truncate another's rows (self-test HS-62). $TMPDIR_RUN is fresh,
+        # so the file holds exactly this run's IDs either way.
+        : >"$TMPDIR_RUN/$name.ids"
+        JNEXT_TEST_ROW_IDS="$TMPDIR_RUN/$name.ids" timeout --kill-after=5s "${SUITE_TIMEOUT}s" \
             "$BUILD/test/$name" ${ARGS["$name"]} >"$TMPDIR_RUN/$name.out" 2>&1 || rc=$?
         echo "$rc" >"$TMPDIR_RUN/$name.rc"
     ) &
@@ -451,6 +505,46 @@ for name in "${RUNNABLE[@]}"; do
         else
             fail_row "$name" "$line\n      ${BOLD}reported $t_total rows, but $CONF pins $exp — update the manifest to $t_total${RESET}"
         fi
+        continue
+    fi
+
+    # Every row reports its ID (test/row_id.h), one line each. The COUNT is checked
+    # first: a row helper that does not report still counts its row, so without this
+    # an unwired suite would pass the duplicate check below by reporting nothing.
+    ids="$TMPDIR_RUN/$name.ids"
+    n_ids=0
+    if [[ -f "$ids" ]]; then n_ids=$(wc -l <"$ids"); cp "$ids" "$LOG_DIR/$name.ids"; fi
+    if [[ "$n_ids" -ne "$t_total" ]]; then
+        fail_row "$name" "$line\n      ${BOLD}reported $n_ids row ID(s) for $t_total rows — every row must report its ID exactly once (test/row_id.h)${RESET}"
+        continue
+    fi
+    # An ID is a global name: two rows under one ID are ONE row in the traceability
+    # matrix and two in the count — GH #190's manufactured coverage, inside one suite.
+    # Only the run can tell: the same literal legitimately appears twice in a source
+    # (a table and its check(), a failure message, both arms of an `if`). A loop that
+    # asserts N rows gives each its own literal ID in its case table.
+    dup_ids=$(sort "$ids" | uniq -dc | sed -E 's/^ *([0-9]+) (.*)$/        \2  (x\1)/')
+    if [[ -n "$dup_ids" ]]; then
+        fail_row "$name" "$line\n      ${BOLD}reported the same row ID more than once — rename all but one:${RESET}\n$dup_ids"
+        continue
+    fi
+    # Every reported ID must be a string literal of the suite's own sources (see
+    # the map above). `//` lines are skipped: a quoted ID in prose is not one.
+    if [[ -n "${SOURCES[$name]:-}" ]]; then
+        mapfile -t srcs <<<"${SOURCES[$name]}"
+        perl -ne 'next if m{^\s*//}; print "$1\n" while /"((?:[^"\\]|\\.)*)"/g' \
+            "${srcs[@]}" | sort -u >"$TMPDIR_RUN/$name.literals"
+        not_lit=$(sort -u "$ids" | comm -23 - "$TMPDIR_RUN/$name.literals")
+    else
+        not_lit=unmapped
+    fi
+    if [[ -n "${ROW_ID_DATA_SUITES[$name]:-}" ]]; then
+        if [[ -z "$not_lit" ]]; then
+            fail_row "$name" "$line\n      ${BOLD}exempt from the row-ID literal check, but every ID it reports IS a literal — drop the exemption${RESET}"
+            continue
+        fi
+    elif [[ -n "$not_lit" ]]; then
+        fail_row "$name" "$line\n      ${BOLD}reported $(wc -l <<<"$not_lit") row ID(s) that are not a literal in its sources (built at run time?) — spell each one out:${RESET}\n$(head -5 <<<"$not_lit" | sed 's/^/        /')"
         continue
     fi
 

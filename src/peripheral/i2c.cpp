@@ -507,7 +507,62 @@ void I2cController::load_state(StateReader& r)
 // there is no count in the stream that a restore could be made to obey.
 void I2cRtc::describe_state(jnext::save::StateDesc& d)
 {
-    d.u8("reg_ptr", reg_ptr_);
+    // GH #289, the FOURTH instance of the class — found by the independent
+    // reviewer after the author's sweep missed it, because that sweep was
+    // scoped to `d.i32` (a declaration TYPE) instead of to the hazard, and
+    // this field is a `d.u8`.
+    //
+    // `reg_ptr_` INDEXES `regs_`, a `std::array<uint8_t, 64>` which is the LAST
+    // member of `I2cRtc`, and it was restored straight from the stream, so a
+    // file could supply 0..255. BOTH use sites are unmasked: the read
+    // `regs_[reg_ptr_]` in `transfer()`'s `is_read` arm, and the write
+    // `regs_[reg_ptr_] = data` in its register-write `default:` case. The read
+    // needs nothing but a guest RTC read after the load; the write needs
+    // `addr_set_` true, which also travels in the snapshot.
+    //
+    // THE BOUND IS THE ARRAY'S OWN EXTENT — `regs_.size()`, a compile-time
+    // `std::array` extent, not a literal 64 — so it cannot drift from the
+    // thing it bounds. Every RUNTIME writer already agrees: `reg_ptr_ =
+    // data & 0x3F` when the pointer is set, and `(reg_ptr_ + 1) & 0x3F` on
+    // both auto-increments, which is the DS1307's 6-bit pointer wrapping
+    // 0x3F -> 0x00. The member's own comment says "0x00-0x3F" too. So this is
+    // the keyboard's shape exactly: an invariant every path held except the
+    // one a file controls, with a comment asserting the range that path did
+    // not enforce.
+    //
+    // WHAT IT DOES in a shipped build, measured rather than assumed: nothing
+    // visible. GCC's `std::array::operator[]` assertion is active at `-O0` and
+    // NOT at `-O2`, and jnext builds `-O2`/RelWithDebInfo, so the write is
+    // silent corruption of whatever follows `I2cRtc` inside `I2cController`
+    // inside `Emulator` — worse than the abort an unoptimised reproduction
+    // shows, not better.
+    //
+    // REFUSED, not clamped or masked, like the other three; marshalled through
+    // a local so the member is not overwritten before it can be judged, so on
+    // a refusal it keeps its pre-load value and the write path's store-back is
+    // the value just taken (`state_desc.h` write-back shape (a)).
+    //
+    // NO MASK ADDED AT THE TWO USE SITES, deliberately, and this is where the
+    // parallel with `set_matrix_bit`'s guard STOPS. That guard is wanted
+    // because `queue_auto_type()` does not validate and GH #276 B1 makes the
+    // function public, so a caller can still arrive with a bad index — it is
+    // reachable, and row GH289-18B reaches it. `reg_ptr_` has no public setter
+    // at all and none coming: after this check its four writers are the
+    // initialiser (0), the two `& 0x3F` auto-increments, the `& 0x3F` pointer
+    // set, and this validated load, so a use-site mask would be unreachable
+    // and untestable — defensive code no row can exercise. If something ever
+    // does expose a direct setter, the mask becomes both wanted and testable
+    // then, and that is the point to add it.
+    uint8_t reg_ptr = reg_ptr_;
+    d.u8("reg_ptr", reg_ptr);
+    if (reg_ptr >= regs_.size()) {
+        i2c_log()->error("I2cRtc: snapshot register pointer {:#04x} is outside "
+                         "the {}-byte DS1307 register map", reg_ptr,
+                         regs_.size());
+        d.fail("i2c_rtc.reg_ptr is outside the DS1307 register map (0x00-0x3F)");
+    } else {
+        reg_ptr_ = reg_ptr;
+    }
     d.boolean("addr_set", addr_set_);
     // Phase-1 widened regs_ 8->64 per DS1307 NVRAM; Wave E added CH / 12h /
     // use_real_time flags. Order: regs_ first, then the flag triple.
@@ -524,5 +579,16 @@ void I2cRtc::save_state(StateWriter& w) const
 
 void I2cRtc::load_state(StateReader& r)
 {
-    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
+    jnext::save::BinReadDesc d(r);
+    describe_state(d);
+    if (d.failed()) {
+        // GH #289. The only way this fires is a register pointer outside the
+        // DS1307 map. The pointer keeps its pre-load value rather than becoming
+        // an index past `regs_`, the stream stays in sync (the byte was
+        // consumed either way), and the fault is named. A `.jns` REFUSES on the
+        // same latch; a rewind slot has no return value to refuse with, so this
+        // log is where it is visible — the same shape as `Ctc::load_state`.
+        i2c_log()->error("I2cRtc::load_state: {}",
+                         d.failure() ? d.failure() : "?");
+    }
 }

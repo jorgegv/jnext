@@ -152,6 +152,8 @@ use warnings;
 use File::Spec;
 use Cwd qw(abs_path);
 use FindBin qw($RealBin);
+use lib $RealBin;
+use SuiteSources qw(cmake_suite_sources);
 
 # ── Exit status vocabulary ────────────────────────────────────────────
 #
@@ -439,54 +441,24 @@ my %TOMBSTONE = (
 # lie. `test/run-unit-tests.sh` already treats CMake as the authority
 # for what a suite's binary is; this is the same rule for its source.
 #
-# One line, one `add_executable(<name> <first-source> ...)`, resolved relative
-# to the CMakeLists.txt that declares it — which is what makes the two
-# module-resident ESP-01 suites (declared in `src/esp01/CMakeLists.txt`, source
-# under `src/esp01/test/`) need no special case at all. SELF-70 pins that.
-#
-# Only the FIRST source is taken: a suite compiles its own test file plus, at
-# most, a handful of emulator translation units it needs (`mmu_test` links
-# `src/core/wav_loader.cpp`), and the row IDs live in the first. A `${VAR}`
-# first argument is skipped — it is a source LIST (`jnext_tests ${GTEST_SOURCES}`),
-# and guessing which file inside it holds the rows is exactly the kind of
-# inference this script refuses elsewhere. Such a suite simply resolves to
-# nothing, and the accounting gate below turns that into a refusal rather than
-# a silent omission.
+# The mapping itself is test/SuiteSources.pm — the ONE reader of it, shared
+# with traceability-dup-ids.pl (and through it the unit harness). This file
+# used to keep its own, which took only the FIRST source of each suite while
+# the duplicate gates took every one, so a traced suite's second source could
+# hold rows the gates checked and this matrix never listed. A suite now maps to
+# ALL its test sources, in declaration order; the first is the one that names
+# the suite's plan doc and tombstone. A path is resolved relative to the
+# CMakeLists.txt that declares it, which is what makes the two module-resident
+# ESP-01 suites need no special case at all (SELF-70), and a `${VAR}` first
+# argument (a source LIST) is refused rather than guessed at: such a suite
+# resolves to nothing, and the accounting gate below turns that into a refusal
+# rather than a silent omission.
 my %CMAKE_SRC;
 my $CMAKE_SCANNED = 0;
 sub cmake_sources {
     return \%CMAKE_SRC if $CMAKE_SCANNED;
     $CMAKE_SCANNED = 1;
-    my @lists;
-    if (open(my $fh, '-|', 'find', $ROOT, '-name', 'CMakeLists.txt',
-                          '-not', '-path', '*/third_party/*',
-                          '-not', '-path', '*/build*/*',
-                          '-not', '-path', '*/.git/*')) {
-        while (my $p = <$fh>) { chomp $p; push @lists, $p; }
-        close $fh;
-    }
-    for my $list (sort @lists) {
-        (my $dir = $list) =~ s{/CMakeLists\.txt$}{};
-        open(my $lf, '<', $list) or next;
-        while (my $line = <$lf>) {
-            next if $line =~ /^\s*#/;
-            next unless $line =~ /\badd_executable\s*\(\s*([A-Za-z0-9_]+)\s+([^\s()]+)/;
-            my ($name, $src) = ($1, $2);
-            next if $src =~ /^\$\{/;
-            my $rel = "$dir/$src";
-            $rel =~ s{^\Q$ROOT\E/}{};
-            # A name declared twice with two different sources is CMake's
-            # problem, but silently keeping one of them would make this file
-            # disagree with the build. Say so.
-            if (exists $CMAKE_SRC{$name} && $CMAKE_SRC{$name} ne $rel) {
-                warn "WARN: add_executable($name) declared twice with "
-                   . "different sources: $CMAKE_SRC{$name} vs $rel\n";
-                next;
-            }
-            $CMAKE_SRC{$name} = $rel;
-        }
-        close $lf;
-    }
+    %CMAKE_SRC = %{ cmake_suite_sources($ROOT) };
     return \%CMAKE_SRC;
 }
 
@@ -2874,21 +2846,22 @@ sub resolve_subsys {
         my ($header, $suites) = @$entry;
         my (@bins, @srcs);
         for my $suite (as_list($suites)) {
-            my $src = $src_of->{$suite};
-            if (!defined $src) {
+            my @own = @{ $src_of->{$suite} || [] };
+            if (!@own) {
                 push @complaints, "$suite: traced by \@SUBSYS but no "
                                 . "add_executable($suite ...) found in any "
                                 . "CMakeLists.txt";
                 next;
             }
-            if (!-f "$ROOT/$src") {
-                push @complaints, "$suite: CMake builds it from '$src', which "
+            my @gone = grep { !-f "$ROOT/$_" } @own;
+            if (@gone) {
+                push @complaints, "$suite: CMake builds it from '@gone', which "
                                 . "does not exist under $ROOT";
                 next;
             }
-            $SUITE_OF_SRC{$src} = $suite;
+            $SUITE_OF_SRC{$_} = $suite for @own;
             push @bins, "build/test/$suite";
-            push @srcs, $src;
+            push @srcs, @own;
         }
         push @resolved, [$header, \@bins, \@srcs];
     }
@@ -3999,7 +3972,10 @@ sub section_fallbacks {
 sub planned_row_owners {
     my ($subsys) = @_;
     my ($comp_srcs) = section_fallbacks($subsys);
-    my %suite_of = reverse %{ cmake_sources() };
+    my %suite_of;
+    while (my ($suite, $srcs) = each %{ cmake_sources() }) {
+        $suite_of{$_} = $suite for @$srcs;
+    }
     my @out;
     for my $entry (@$subsys) {
         my ($header, undef, $srcs) = @$entry;

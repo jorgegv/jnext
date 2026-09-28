@@ -39,6 +39,7 @@
 #include <cstdlib>
 #include <string>
 #include <vector>
+#include "../row_id.h"
 
 namespace {
 
@@ -46,6 +47,7 @@ int g_pass = 0, g_fail = 0;
 
 void check(const char* id, const char* desc, bool cond, const std::string& detail = {})
 {
+    report_row_id(id);
     if (cond) {
         ++g_pass;
     } else {

@@ -51,7 +51,10 @@ void skip (const char* id, const char* reason);
 ```
 
 `check()` bumps the totals and, on failure, prints `  FAIL <id>: <desc>`, which
-is the one output format every tool in the project relies on. `skip()` records
+is the one output format every tool in the project relies on. Both functions
+start with `report_row_id(id)` (from `test/row_id.h`), and so must any helper of
+yours that counts a row: the unit harness fails a suite whose reported IDs do
+not number exactly its `Total:`. `skip()` records
 the row and prints it in the trailing summary **without touching the pass/fail
 counters**. Every suite ends with the line the unit harness parses:
 
@@ -62,10 +65,14 @@ Total:   82  Passed:   82  Failed:    0  Skipped:    0
 Four rules govern the ID:
 
 - **It must be a string literal.** An ID assembled at run time is invisible to
-  every reader of the source and vanishes from the traceability matrix.
+  every reader of the source and vanishes from the traceability matrix. The unit
+  harness fails a suite that reports an ID not found verbatim as a literal in its
+  sources; a loop over cases takes each case's ID from its case table.
 - **It must be globally unique.** `traceability-dup-ids.pl` refuses when two
   suites assert the same ID, or when it names a planned row in another
-  subsystem's plan doc.
+  subsystem's plan doc; the unit harness refuses a suite that reports the same
+  ID twice in one run. A loop that asserts one row per case gives each case its
+  own literal ID in the case table.
 - The description is what the matrix publishes to everyone else, so write one
   worth reading.
 - **Cite the VHDL in the same call**, with file and line range. A citation

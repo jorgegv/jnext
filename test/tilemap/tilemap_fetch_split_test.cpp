@@ -33,6 +33,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include "../row_id.h"
 
 namespace {
 
@@ -47,6 +48,7 @@ int g_pass = 0;
 int g_fail = 0;
 
 void check(const char* id, bool condition, const char* detail) {
+    report_row_id(id);
     ++g_total;
     if (condition) {
         ++g_pass;

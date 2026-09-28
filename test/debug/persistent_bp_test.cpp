@@ -35,6 +35,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <vector>
+#include "../row_id.h"
 
 // ── Tiny test harness (matches test/debug/step_out_test.cpp style) ─────
 
@@ -43,6 +44,7 @@ static int g_pass  = 0;
 static int g_fail  = 0;
 
 static void check(const char* id, const char* desc, bool cond) {
+    report_row_id(id);
     ++g_total;
     if (cond) {
         ++g_pass;

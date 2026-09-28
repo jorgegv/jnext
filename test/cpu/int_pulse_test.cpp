@@ -47,6 +47,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include "../row_id.h"
 
 namespace {
 
@@ -116,6 +117,7 @@ struct Result {
 };
 
 static void check(Result& res, const char* name, bool ok, const char* detail = "") {
+    report_row_id(name);
     res.total++;
     if (ok) {
         res.passed++;

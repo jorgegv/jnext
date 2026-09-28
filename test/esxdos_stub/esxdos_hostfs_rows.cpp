@@ -34,6 +34,8 @@
 
 #include <unistd.h>   // getpid() — per-process fixture paths
 
+#include "../row_id.h"
+
 namespace fs = std::filesystem;
 
 namespace {
@@ -43,6 +45,7 @@ int* g_failed = nullptr;
 
 void hcheck(const char* id, const char* desc, bool condition,
             const std::string& detail = "") {
+    report_row_id(id);
     if (condition) {
         ++*g_passed;
     } else {

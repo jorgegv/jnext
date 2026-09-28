@@ -70,6 +70,21 @@ static int g_pass  = 0;
 static int g_fail  = 0;
 static int g_skip  = 0;
 
+// Row-ID report for jnext's unit-test harness. This is test/row_id.h's
+// report_row_id(), restated because this self-contained module cannot include
+// jnext's test tree: one line per counted row to the file JNEXT_TEST_ROW_IDS
+// names, a no-op when it is unset. test/run-unit-tests.sh cross-checks the ID
+// count against `Total:`, so a drift between the two copies fails loudly.
+static void report_row_id(const char* id) {
+    static std::FILE* const out = [] {
+        const char* path = std::getenv("JNEXT_TEST_ROW_IDS");
+        return (path && *path) ? std::fopen(path, "a") : nullptr;   // never truncate
+    }();
+    if (!out) return;
+    std::fprintf(out, "%s\n", id);
+    std::fflush(out);   // nothing buffered across a fork()
+}
+
 static std::string printable(const std::string& s) {
     std::string out;
     for (unsigned char c : s) {
@@ -93,6 +108,7 @@ static std::string printable(const std::string& s) {
 static std::string g_log;
 
 static void check(const char* id, const std::string& desc, bool cond) {
+    report_row_id(id);
     ++g_total;
     if (cond) {
         ++g_pass;
@@ -104,6 +120,7 @@ static void check(const char* id, const std::string& desc, bool cond) {
 
 static void check_eq(const char* id, const std::string& desc, const std::string& got,
                      const std::string& want) {
+    report_row_id(id);
     ++g_total;
     if (got == want) {
         ++g_pass;

@@ -34,6 +34,7 @@
 #include <cstring>
 #include <tuple>
 #include <vector>
+#include "../row_id.h"
 
 // FUSE-internal interrupt-related state (Pass-3/4 fixes touched these).
 // Declared in third_party/fuse-z80/fuse_z80_shim.h via the global `z80`
@@ -93,6 +94,7 @@ struct Result {
 // detail argument is a runtime string.
 void check(Result& res, const char* name, const char* desc, bool ok,
            const char* detail = "") {
+    report_row_id(name);
     res.total++;
     if (ok) {
         res.passed++;

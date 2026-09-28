@@ -118,6 +118,7 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "gui/main_window.h"
+#include "../row_id.h"
 
 namespace fs = std::filesystem;
 
@@ -131,6 +132,7 @@ struct CloseRecord { const QObject* receiver; bool accepted; };
 std::vector<CloseRecord> g_close_events;
 
 void check(const char* id, const char* desc, bool cond, const std::string& detail) {
+    report_row_id(id);
     ++g_total;
     if (cond) { ++g_pass; std::printf("  PASS %s: %s\n", id, desc); }
     else      { ++g_fail; std::printf("  FAIL %s: %s [%s]\n", id, desc, detail.c_str()); }

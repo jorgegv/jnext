@@ -102,6 +102,39 @@ returns nothing].
 
 ---
 
+## Work packages — the tracker for this package
+
+Mirrors this package's row in [DEBUG-SUBSYSTEM-ARCHITECTURE.md](../DEBUG-SUBSYSTEM-ARCHITECTURE.md)
+§10.1, which stays authoritative: if the two ever disagree, §10.1 wins and this
+table is stale. It exists because §10.1 states each package's sequence as one
+long table cell, which is unreadable as a plan and impossible to track against.
+
+Status values: `todo` · `in progress` · `in review` · **`done`** (independently
+reviewed and APPROVED). The whole package lands on **one branch** and merges
+whole, so `done` here means the sub-item is approved, not merged.
+
+| WP | Branch `gh276-backend` (issue #286) | Status |
+|---|---|---|
+| **B1** | facade + control + inspection over the existing primitives, **no hot-path change**: `Mmu::peek()` (F1), the frame counter (F2), the `SymbolTable` instance move, `key_name_to_matrix` move, and the §4 accessor additions (raw sprite/palette forms, public `set_matrix_bit`, the DMA slot flag, `input_state`) | **done** — 3 review rounds, APPROVED 2026-09-27 |
+| **B2** | `EventTable` + the **512-entry latch ring** (its overflow a tested path, not a comment) + slot masks + `on_slot_remapped` + the NR / port / IntAck / Nmi / Reset / Frame / Scanline hooks, and the Copper / DMA kinds with their per-engine armed flags. **Bench-gated, including §11 item 3's hot-latch measurement**, which has never been taken | in progress |
+| **B3** | session: clients, listeners, `pump` + `Service` registration, stop policy, `live_raster` / `attached`, the loop driver (SES-07), the reconstruct contract (CTL-12/15), and retiring the platform-side `BreakpointSet` / `active()` restore in `emulator_cold_boot()`. Owns SES-06's own log channel | todo |
+| **B4** | input (IN-01 APPEND) / capture / bookmarks / coverage / extended `TraceEntry`, and the `--delayed-*` CLI conveniences re-expressed as generated subscriptions in all three loop owners, retiring `QtApp`'s and `HeadlessApp`'s private countdowns. Owns ST-01's SES-06 line for the advance | todo |
+| **B5** | `debugger_backend_test` as the package's sign-off — the §9 row families end to end (delivery, transient, multi-client, reconstruct, pump, APPEND) | todo |
+
+Depends on: **B0** (#285, landed v1.0.46). Blocks: T, Q, D, Z, G, S.
+
+**Carried forward from B1's review, for every later sub-item:** derive the
+mutation list from the **diff**, never from your own row list; pin **both arms**
+of every conditional; never read a *derived* quantity where an unambiguous one
+is a line away (`frame_tag()` clamps, `frame_num()` does not); and verify the
+premise of a justification comment the way you would verify code — three of
+B1's defects hid behind a confident sentence.
+
+Every sub-item is reviewed by an agent or person that did NOT write it, and the
+branch does not merge until the full §10.3 gate is green on the tip.
+
+---
+
 ## 0. Conventions
 
 - **CAP-xxx-nn** — a backend capability. Prefixes: `CTL` control, `INS`
@@ -612,7 +645,7 @@ time kinds #26 needs; kinds added in v2 are marked †):
 | `Magic` | the magic-breakpoint opcode (`on_magic_breakpoint`) | pc |
 | `Host` | a frontend calls `raise_host_event(name)`; fixed vocabulary `script1`..`script8` (REQ-dsl-8); key bindings are a GH #1 keymap addition after #278 | name |
 | `Copper` † — sub-kinds `Move`, `Wait`, `Halt` (REQ-dsl-22) | `Move`: a MOVE executed (the `nextreg.write` at [`copper.cpp:209`], where `active_move_hc` is set); `Wait`: a WAIT satisfied ([`:184-197`], `pc_` advance `:186`); `Halt`: the first stall on the HALT form — `is_halt()` [`copper.cpp:87`] is defined and **uncalled today**; the hook is a new branch on the bare stall path (`// Otherwise stall`, [`:195`]) calling it, with an edge latch (first stall only; REQ-dsl-26). Filter: copper-PC range and/or NR set. Latched at the site — the Copper runs inside `tick_devices_after_instruction()` — delivered at the next instruction boundary (≤1 instruction late, the `NextRegWrite`/`Scanline` rule). A MOVE also raises `NextRegWrite{source=Copper}`; both fire from **one** latch entry fanned out at the drain, `Copper.Move` is the copper-side view | reg, value (`Move`); copper pc; `vpos`, `hpos_threshold` (`Wait`); `hc_ula`, `cvc` as the Copper compares them |
-| `Dma` † — sub-kinds `Start`, `Byte`, `End` (REQ-dsl-23) | `Start`: **one definition** — `phase_` enters `START_DMA` while `state_ == TRANSFERRING`: the R6 `0x87` enable [`dma.cpp:573-575`], the R3 `dma_en` path [`:423-424`] and the auto-restart [`:817`] all fall out of it; `cmd_load` [`:677`] is an address reload, not a transition (REQ-dsl-26); `Byte`: each transferred byte inside `execute_burst` [`:699`; I/O write `:783-786`, memory write `:788`]; `End`: block completion at the `on_interrupt` site [`:807-813`] (auto-restart [`:815-819`] = `End` then `Start`). Filter: src/dst range for `Byte`. A DMA byte into a watched **range** still fires `Mem{source=Dma}`; `Dma.Byte` is the transfer-side view, no range needed. `Byte` is armed only while a `Byte` subscription exists; delivered at the boundary of the slot the burst ran in (the 512-entry ring covers a full 16-byte burst with a Read|Write range armed, §4.3) | `Start`/`End`: src, dst, length, direction, mode, bytes; `Byte`: src_addr, dst_addr, value, is_io_src, is_io_dst; cycle |
+| `Dma` † — sub-kinds `Start`, `Byte`, `End` (REQ-dsl-23) | `Start`: **one definition** — `phase_` enters `START_DMA` while `state_ == TRANSFERRING`: the R6 `0x87` enable [`dma.cpp:573-575`], the R3 `dma_en` path [`:423-424`] and the auto-restart [`:817`] all fall out of it; `cmd_load` [`:677`] is an address reload, not a transition (REQ-dsl-26). **But one definition is not one site** (corrected 2026-09-28 from B2's review): two **mid-transfer re-arbitrations** satisfy the same predicate and begin no transfer, so they must not fire `Start` — `dma_delay_` asserting mid-transfer and dropping back to `START_DMA` to release the bus [VHDL `dma.vhd:420-432`], and the burst-mode prescaler wait expiring and returning through `START_DMA` [VHDL `dma.vhd:451-460`]. B2 excludes both, correctly, and discloses it at the `dma.h` site; `Byte`: each transferred byte inside `execute_burst` [`:699`; I/O write `:783-786`, memory write `:788`]; `End`: block completion at the `on_interrupt` site [`:807-813`] (auto-restart [`:815-819`] = `End` then `Start`). Filter: src/dst range for `Byte`. A DMA byte into a watched **range** still fires `Mem{source=Dma}`; `Dma.Byte` is the transfer-side view, no range needed. `Byte` is armed only while a `Byte` subscription exists; delivered at the boundary of the slot the burst ran in (the 512-entry ring covers a full 16-byte burst with a Read|Write range armed, §4.3) | `Start`/`End`: src, dst, length, direction, mode, bytes; `Byte`: src_addr, dst_addr, value, is_io_src, is_io_dst; cycle |
 
 **No-subscriber cost of the Copper/DMA kinds:** one predicated branch on a
 per-engine flag (`Copper::events_armed_`, `Dma::events_armed_`,
@@ -710,8 +743,10 @@ long contended slot is the overflow path** (one latch per master cycle); the
 DMA worst case is 50 (a slot is DMA *or* CPU [`:9687-9790`]; `execute_burst(16)`
 [`:9735`]; 16 `Dma.Byte` + 16 writes + 16 reads under a Read|Write range + one
 `Start`/`End` pair — the burst loop exits at an auto-restart); the CPU's own
-accesses are a handful; `skip_trap_cycles_` [`:7973`] ticks no device. ~16
-bytes per entry, 8 KB, no hot-path cost; 512 covers every MOVE burst, not
+accesses are a handful; `skip_trap_cycles_` [`:7973`] ticks no device. **48
+bytes per entry, 24 KB** as built (the earlier "~16 bytes, 8 KB" predated the
+per-kind payload enumeration — wrong by 3×; one-off allocation, but 3× the
+store traffic on the latch path); 512 covers every MOVE burst, not
 every conceivable Copper program, which is why **overflow is a specified,
 tested behaviour**, not "unreachable": the first N entries are kept in order with a
 dropped count, the drain delivers them and marks the boundary's deliveries

@@ -28,6 +28,8 @@ use warnings;
 use File::Temp qw(tempdir);
 use Cwd qw(abs_path);
 use FindBin qw($RealBin);
+use lib $RealBin;
+use SuiteSources ();
 
 my $ROOT   = abs_path("$RealBin/..");
 my $SCRIPT = "$ROOT/test/refresh-traceability-matrix.pl";
@@ -1245,32 +1247,74 @@ endif()
 add_executable(jnext_tests ${GTEST_SOURCES})
 add_executable(tilemap_test tilemap/tilemap_test.cpp)
 add_executable(layer2_test layer2/layer2_test.cpp)
+add_executable(multisrc_test
+    multisrc/multisrc_test.cpp
+    multisrc/multisrc_rows.cpp)
 CML
 write_fixture('src/esp01/CMakeLists.txt', <<'CML');
     add_executable(esp_at_test test/esp_at_test.cpp)
 CML
 my $csrc = cmake_sources();
 
-check('SELF-75', 'the first source of add_executable() is the suite source, extra translation units ignored',
-      ($csrc->{'mmu_test'} // '') eq 'test/mmu/mmu_test.cpp',
-      "got " . ($csrc->{'mmu_test'} // '(unresolved)'));
+# A suite maps to the LIST of its test sources (test/SuiteSources.pm, shared
+# with traceability-dup-ids.pl); these rows compare that list whole.
+my $srcs_of = sub { my $l = $csrc->{ $_[0] }; defined $l ? "@$l" : '(unresolved)' };
+
+check('SELF-75', 'a `${VAR}` extra translation unit is not a suite source: only the test file is listed',
+      $srcs_of->('mmu_test') eq 'test/mmu/mmu_test.cpp',
+      "got " . $srcs_of->('mmu_test'));
 
 check('SELF-78', 'a suite whose NAME differs from its source basename resolves from CMake, not from the name',
-      ($csrc->{'cpu_int_pulse_test'} // '') eq 'test/cpu/int_pulse_test.cpp',
-      "got " . ($csrc->{'cpu_int_pulse_test'} // '(unresolved)'));
+      $srcs_of->('cpu_int_pulse_test') eq 'test/cpu/int_pulse_test.cpp',
+      "got " . $srcs_of->('cpu_int_pulse_test'));
 
 check('SELF-70', 'a MODULE-RESIDENT suite resolves relative to the CMakeLists.txt that declares it, outside test/',
-      ($csrc->{'esp_at_test'} // '') eq 'src/esp01/test/esp_at_test.cpp',
-      "got " . ($csrc->{'esp_at_test'} // '(unresolved)'));
+      $srcs_of->('esp_at_test') eq 'src/esp01/test/esp_at_test.cpp',
+      "got " . $srcs_of->('esp_at_test'));
 
 check('SELF-76', 'an add_executable() inside an if() block still resolves — the gate is a build option, not a scoping rule',
-      ($csrc->{'debugger_video_panel_test'} // '') eq 'test/debugger/video_panel_test.cpp',
-      "got " . ($csrc->{'debugger_video_panel_test'} // '(unresolved)'));
+      $srcs_of->('debugger_video_panel_test') eq 'test/debugger/video_panel_test.cpp',
+      "got " . $srcs_of->('debugger_video_panel_test'));
 
 check('SELF-77', 'a ${VAR} source LIST is refused rather than guessed at, and a commented-out declaration is ignored',
       !exists $csrc->{'jnext_tests'} && !exists $csrc->{'commented_test'},
-      "jnext_tests=" . ($csrc->{'jnext_tests'} // '(absent)')
-      . " commented_test=" . ($csrc->{'commented_test'} // '(absent)'));
+      "jnext_tests=" . $srcs_of->('jnext_tests')
+      . " commented_test=" . $srcs_of->('commented_test'));
+
+# EVERY test source of a suite, in declaration order — not only the first. The
+# matrix used to take the first while traceability-dup-ids.pl took them all, so
+# a traced suite's second source could hold rows the gates checked and the
+# matrix never listed. One reader now (test/SuiteSources.pm); SELF-217 is the
+# consequence at the matrix end.
+check('SELF-216', 'a suite declared with TWO sources across lines maps to both, in order',
+      $srcs_of->('multisrc_test') eq 'test/multisrc/multisrc_test.cpp test/multisrc/multisrc_rows.cpp',
+      "got " . $srcs_of->('multisrc_test'));
+
+write_fixture('test/multisrc/multisrc_test.cpp', <<'CPP');
+void a() {
+    check("MS-01", "row in the suite's first source — VHDL fixture_a.vhd:1", cond, detail);
+}
+CPP
+write_fixture('test/multisrc/multisrc_rows.cpp', <<'CPP');
+void b() {
+    check("MS-02", "row in the suite's SECOND source — VHDL fixture_b.vhd:2", cond, detail);
+}
+CPP
+write_fixture('build/test/multisrc_test', "#!/bin/sh\nexit 0\n");
+chmod 0755, "$FIXTURE_ROOT/build/test/multisrc_test" or die "chmod multisrc_test: $!";
+{
+    my ($res, $bad) = resolve_subsys([['## MultiSrc — `test/multisrc/multisrc_test.cpp`',
+                                       'multisrc_test']]);
+    my (undef, $bins, $srcs) = @{ $res->[0] // [] };
+    my %rows = map { $_->[0] => $_ }
+               @{ emit_section_rows($bins // [], $srcs // [], { plan => 0 }) };
+    check('SELF-217', "a TRACED suite's second-source row reaches its matrix section, located in that file",
+          scalar(!@$bad && ($rows{'MS-02'}[3] // '') eq 'pass'
+                 && ($rows{'MS-02'}[4] // '') =~ m{^test/multisrc/multisrc_rows\.cpp:\d+$}
+                 && ($rows{'MS-01'}[3] // '') eq 'pass'),
+          "complaints=[@$bad] MS-01=" . join('|', @{ $rows{'MS-01'} // ['(absent)'] })
+          . " MS-02=" . join('|', @{ $rows{'MS-02'} // ['(absent)'] }));
+}
 
 # ── The generated Summary block ───────────────────────────────────────
 
@@ -2810,20 +2854,10 @@ check('SELF-161', 'the control: that later shared assertion still answers for it
         close $fh;
     }
 
-    # Suite -> source, parsed here rather than through cmake_sources(): that
-    # sub is memoised and already answered for a different fixture above.
-    my %src_of;
-    for my $rel ('test/CMakeLists.txt', 'src/esp01/CMakeLists.txt') {
-        (my $dir = $rel) =~ s{/CMakeLists\.txt$}{};
-        open(my $fh, '<', "$REAL_ROOT/$rel") or next;
-        while (my $l = <$fh>) {
-            next if $l =~ /^\s*#/;
-            next unless $l =~ /\badd_executable\s*\(\s*([A-Za-z0-9_]+)\s+([^\s()]+)/;
-            next if $2 =~ /^\$\{/;
-            $src_of{$1} = "$dir/$2";
-        }
-        close $fh;
-    }
+    # Suite -> sources of the REAL tree, from the shared reader rather than
+    # cmake_sources(): that sub is memoised and already answered for a
+    # different fixture above.
+    my %src_of = %{ SuiteSources::cmake_suite_sources($REAL_ROOT) };
 
     my $build_e2e = sub {
         my ($drop_section) = @_;
@@ -2833,11 +2867,11 @@ check('SELF-161', 'the control: that later shared assertion still answers for it
         }
         for my $f ('test/unit-tests.conf', 'test/CMakeLists.txt',
                    'src/esp01/CMakeLists.txt',
-                   'test/refresh-traceability-matrix.pl') {
+                   'test/refresh-traceability-matrix.pl', 'test/SuiteSources.pm') {
             system('cp', "$REAL_ROOT/$f", "$E2E/$f") == 0
                 or die "e2e: cp $f: $?";
         }
-        for my $s (values %src_of) {
+        for my $s (map { @$_ } values %src_of) {
             (my $d = "$E2E/$s") =~ s{/[^/]+$}{};
             system('mkdir', '-p', $d) == 0 or die "e2e: mkdir $d: $?";
             open(my $h, '>', "$E2E/$s") or die "e2e: write $s: $!";
@@ -3361,17 +3395,7 @@ check('SELF-195', 'a suite may be a fallback elsewhere AND own its section: it p
             or die "dupids: open unit-tests.conf: $!";
         while (my $l = <$fh>) { $declared++ unless $l =~ /^\s*#/ || $l !~ /\S/; }
         close $fh;
-        for my $rel ('test/CMakeLists.txt', 'src/esp01/CMakeLists.txt') {
-            (my $dir = $rel) =~ s{/CMakeLists\.txt$}{};
-            open(my $cf, '<', "$REAL_ROOT/$rel") or die "dupids: open $rel: $!";
-            while (my $l = <$cf>) {
-                next if $l =~ /^\s*#/;
-                next unless $l =~ /\badd_executable\s*\(\s*([A-Za-z0-9_]+)\s+([^\s()]+)/;
-                next if $2 =~ /^\$\{/;
-                $src_of{$1} = "$dir/$2";
-            }
-            close $cf;
-        }
+        %src_of = %{ SuiteSources::cmake_suite_sources($REAL_ROOT) };
     }
     my $put = sub {
         my ($rel, $body) = @_;
@@ -3389,7 +3413,7 @@ check('SELF-195', 'a suite may be a fallback elsewhere AND own its section: it p
         system('rm', '-rf', $DUP) == 0 or die "dupids: rm -rf: $?";
         for my $f ('test/unit-tests.conf', 'test/CMakeLists.txt',
                    'src/esp01/CMakeLists.txt', 'test/traceability-dup-ids.pl',
-                   'test/refresh-traceability-matrix.pl') {
+                   'test/refresh-traceability-matrix.pl', 'test/SuiteSources.pm') {
             open(my $in, '<', "$REAL_ROOT/$f") or die "dupids: open $f: $!";
             my $body = do { local $/; <$in> };
             close $in;
@@ -3402,11 +3426,11 @@ check('SELF-195', 'a suite may be a fallback elsewhere AND own its section: it p
                 if $o{orphan} && $f eq 'test/CMakeLists.txt';
             $put->($f, $body);
         }
-        $put->($_, '') for values %src_of;
+        $put->($_, '') for map { @$_ } values %src_of;
         $put->('test/orphan/orphan_test.cpp', '') if $o{orphan};
         $put->('test/traceability-dup-ids.conf', $o{baseline} // "# fixture\n");
         for my $suite (keys %{ $o{src} || {} }) {
-            $put->($src_of{$suite}, $assert->(@{ $o{src}{$suite} }));
+            $put->($src_of{$suite}[0], $assert->(@{ $o{src}{$suite} }));
         }
         for my $stem (keys %{ $o{plan} || {} }) {
             $put->("doc/testing/$stem-TEST-PLAN-DESIGN.md",
@@ -3507,7 +3531,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 215;
+my $EXPECTED_ROWS = 217;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"

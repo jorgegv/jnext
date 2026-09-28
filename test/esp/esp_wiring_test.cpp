@@ -46,6 +46,7 @@
 #include <thread>
 #include <utility>
 #include <vector>
+#include "../row_id.h"
 
 using namespace esp;
 
@@ -57,6 +58,7 @@ static int g_fail  = 0;
 static int g_skip  = 0;
 
 static void check(const char* id, const char* desc, bool ok) {
+    report_row_id(id);
     ++g_total;
     if (ok) {
         ++g_pass;

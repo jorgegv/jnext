@@ -84,12 +84,14 @@
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_window.h"
 #endif
+#include "../row_id.h"
 
 namespace {
 
 int g_total = 0, g_pass = 0, g_fail = 0;
 
 void check(const char* id, const char* desc, bool cond, const std::string& detail) {
+    report_row_id(id);
     ++g_total;
     if (cond) { ++g_pass; std::printf("  PASS %s: %s\n", id, desc); }
     else      { ++g_fail; std::printf("  FAIL %s: %s [%s]\n", id, desc, detail.c_str()); }
@@ -109,24 +111,37 @@ struct Hotkey {
     const char*  portable;      // expected QKeySequence, PortableText form
     const char*  ss_meaning;    // what Symbol Shift + letter types on a Next
     bool         debugger_only; // the action exists only under ENABLE_DEBUGGER
+    // Literal row IDs, one per group that loops over this table: Ctrl+<letter>
+    // reaches the guest (H115-01..06), its release clears (07..12), the action
+    // carries its Alt chord (14..19), and the Alt chord fires it (20..25).
+    const char*  id_reach;
+    const char*  id_release;
+    const char*  id_binding;
+    const char*  id_activate;
 };
 
 const Hotkey HOTKEYS[] = {
-    { Qt::Key_Q, SDL_SCANCODE_Q, 2, 0, "&Quit",              "Alt+Q", "<=", false },
+    { Qt::Key_Q, SDL_SCANCODE_Q, 2, 0, "&Quit",              "Alt+Q", "<=", false,
+      "H115-01", "H115-07", "H115-14", "H115-20" },
     // GH #217 moved this label's mnemonic from N to L ("Load &NEX File..." ->
     // "&Load NEX File..."): N was claimed by "Save S&napshot..." as well. The
     // ACTION is located by its exact text, so the string tracks the product;
     // the binding under test here — Alt+O — is untouched.
-    { Qt::Key_O, SDL_SCANCODE_O, 5, 1, "&Load NEX File...",  "Alt+O", ";",  false },
-    { Qt::Key_S, SDL_SCANCODE_S, 1, 1, "Save &Screenshot...","Alt+S", "|",  false },
-    { Qt::Key_R, SDL_SCANCODE_R, 2, 3, "&Power Reset",       "Alt+R", "<",  false },
-    { Qt::Key_T, SDL_SCANCODE_T, 2, 4, "&Open Tape File...", "Alt+T", ">",  false },
+    { Qt::Key_O, SDL_SCANCODE_O, 5, 1, "&Load NEX File...",  "Alt+O", ";",  false,
+      "H115-02", "H115-08", "H115-15", "H115-21" },
+    { Qt::Key_S, SDL_SCANCODE_S, 1, 1, "Save &Screenshot...","Alt+S", "|",  false,
+      "H115-03", "H115-09", "H115-16", "H115-22" },
+    { Qt::Key_R, SDL_SCANCODE_R, 2, 3, "&Power Reset",       "Alt+R", "<",  false,
+      "H115-04", "H115-10", "H115-17", "H115-23" },
+    { Qt::Key_T, SDL_SCANCODE_T, 2, 4, "&Open Tape File...", "Alt+T", ">",  false,
+      "H115-05", "H115-11", "H115-18", "H115-24" },
     // GH #273 — View > Debugger is inside main_window.cpp's `#ifdef
     // ENABLE_DEBUGGER`, and ENABLE_QT_UI (which gates this suite) does NOT
     // imply ENABLE_DEBUGGER: the project builds and verifies a Qt-only
     // configuration too. Its rows below therefore assert the mirror-image
     // property in that build instead of the one this one names.
-    { Qt::Key_D, SDL_SCANCODE_D, 1, 2, "&Debugger",          "Alt+D", "STEP", true },
+    { Qt::Key_D, SDL_SCANCODE_D, 1, 2, "&Debugger",          "Alt+D", "STEP", true,
+      "H115-06", "H115-12", "H115-19", "H115-25" },
 };
 constexpr int N_HOTKEYS = int(sizeof(HOTKEYS) / sizeof(HOTKEYS[0]));
 
@@ -255,9 +270,7 @@ void test_guest_reachability(MainWindow& w) {
                       "Ctrl+%c reaches the guest as SYM SHIFT + %c (types '%s')",
                       'A' + int(h.qt_key - Qt::Key_A), 'A' + int(h.qt_key - Qt::Key_A),
                       h.ss_meaning);
-        char id[16];
-        std::snprintf(id, sizeof(id), "H115-%02d", 1 + i);
-        check(id, desc,
+        check(h.id_reach, desc,
               key_down(kb, SYM_ROW, SYM_COL) && key_down(kb, h.row, h.col),
               matrix_detail(kb, h.row, h.col));
 
@@ -267,8 +280,7 @@ void test_guest_reachability(MainWindow& w) {
         std::snprintf(desc, sizeof(desc),
                       "releasing Ctrl+%c clears both matrix bits (no stuck key)",
                       'A' + int(h.qt_key - Qt::Key_A));
-        std::snprintf(id, sizeof(id), "H115-%02d", 7 + i);
-        check(id, desc,
+        check(h.id_release, desc,
               !key_down(kb, SYM_ROW, SYM_COL) && !key_down(kb, h.row, h.col),
               matrix_detail(kb, h.row, h.col));
 
@@ -312,8 +324,8 @@ void test_bindings(MainWindow& w) {
     for (int i = 0; i < N_HOTKEYS; ++i) {
         const Hotkey& h = HOTKEYS[i];
         QAction* a = find_action(w, h.action_text);
-        char id[16], desc[192];
-        std::snprintf(id, sizeof(id), "H115-%02d", 14 + i);
+        const char* id = h.id_binding;
+        char desc[192];
 
         if (h.debugger_only && !kDebuggerBuilt) {
             const QString chord = QString::fromUtf8(h.portable);
@@ -386,8 +398,8 @@ void test_alt_activation(MainWindow& w) {
         send(w, h.qt_key,    Qt::AltModifier, false);
         send(w, Qt::Key_Alt, Qt::NoModifier,  false);
 
-        char id[16], desc[192];
-        std::snprintf(id, sizeof(id), "H115-%02d", 20 + i);
+        const char* id = h.id_activate;
+        char desc[192];
         const std::string detail =
             std::string("fired=") + (fired ? "1" : "0") +
             " letter_pressed_in_guest=" + (letter_pressed_in_guest ? "1" : "0");

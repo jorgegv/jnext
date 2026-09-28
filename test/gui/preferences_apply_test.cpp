@@ -73,6 +73,7 @@
 #include "gui/app_config.h"
 #include "gui/main_window.h"
 #include "gui/preferences_dialog.h"
+#include "../row_id.h"
 
 namespace {
 
@@ -80,6 +81,7 @@ int g_total = 0, g_pass = 0, g_fail = 0;
 
 void check(const char* id, const char* desc, bool cond, const std::string& detail = {})
 {
+    report_row_id(id);
     ++g_total;
     if (cond) {
         ++g_pass;
@@ -257,17 +259,17 @@ void test_reboot_then_apply_live()
 /// tautology used to "cover": an Apply always applies what it can.
 void test_live_settings_in_every_outcome()
 {
-    struct Case { const char* what; MachineType want; bool answer; };
+    struct Case { const char* what; MachineType want; bool answer; const char* id; };
     const Case cases[] = {
-        { "ApplyLiveOnly",       MachineType::ZX48K,  true  },
-        { "DeferMachineType",    MachineType::ZX128K, false },
-        { "RebootThenApplyLive", MachineType::ZX128K, true  },
+        { "ApplyLiveOnly",       MachineType::ZX48K,  true,  "PA-06"  },
+        { "DeferMachineType",    MachineType::ZX128K, false, "PA-06b" },
+        { "RebootThenApplyLive", MachineType::ZX128K, true,  "PA-06c" },
     };
     for (const auto& c : cases) {
         Fixture f(MachineType::ZX48K);
         f.answer = c.answer;
         f.win.apply_preferences(live_prefs(c.want));
-        check("PA-06", "live settings are applied in this outcome",
+        check(c.id, "live settings are applied in this outcome",
               live_applied(f),
               std::string(c.what) + ": " + live_detail(f));
     }
@@ -278,17 +280,17 @@ void test_live_settings_in_every_outcome()
 /// on no change at all) cannot hide.
 void test_only_accepted_restart_reboots()
 {
-    struct Case { const char* what; MachineType want; bool answer; size_t reboots; };
+    struct Case { const char* what; MachineType want; bool answer; size_t reboots; const char* id; };
     const Case cases[] = {
-        { "ApplyLiveOnly",       MachineType::ZX48K,  true,  0 },
-        { "DeferMachineType",    MachineType::ZX128K, false, 0 },
-        { "RebootThenApplyLive", MachineType::ZX128K, true,  1 },
+        { "ApplyLiveOnly",       MachineType::ZX48K,  true,  0, "PA-07"  },
+        { "DeferMachineType",    MachineType::ZX128K, false, 0, "PA-07b" },
+        { "RebootThenApplyLive", MachineType::ZX128K, true,  1, "PA-07c" },
     };
     for (const auto& c : cases) {
         Fixture f(MachineType::ZX48K);
         f.answer = c.answer;
         f.win.apply_preferences(live_prefs(c.want));
-        check("PA-07", "this outcome reboots exactly as often as it should",
+        check(c.id, "this outcome reboots exactly as often as it should",
               f.reboots.size() == c.reboots,
               std::string(c.what) + ": got " + std::to_string(f.reboots.size())
                   + ", want " + std::to_string(c.reboots));

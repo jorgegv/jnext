@@ -10,6 +10,38 @@ Everything below is measured against the code at `gh276-design` =
 
 ---
 
+## Work packages — the tracker for this package
+
+Mirrors this package's row in [DEBUG-SUBSYSTEM-ARCHITECTURE.md](../DEBUG-SUBSYSTEM-ARCHITECTURE.md)
+§10.1, which stays authoritative: if the two ever disagree, §10.1 wins and this
+table is stale. It exists because §10.1 states each package's sequence as one
+long table cell, which is unreadable as a plan and impossible to track against.
+
+Status values: `todo` · `in progress` · `in review` · **`done`** (independently
+reviewed and APPROVED). The whole package lands on **one branch** and merges
+whole, so `done` here means the sub-item is approved, not merged.
+
+| WP | Branch `gh278-qt` (issue #278) | Status |
+|---|---|---|
+| **WP0** | close the identity gaps on the **current** tree, so the suites are green on both trees by construction | todo |
+| **WP1** | the `src/qt/` header move + `make build-matrix`. **Q is the single owner of this move**, and it lands with the rest of Q on Q's one branch | todo |
+| **WP2** | `DebuggerManager` verbs onto the backend facade | todo |
+| **WP3** | rewind / trace / corruption | todo |
+| **WP4a-d** | the panels (parallel-able). **WP4d also owns the `render_layer` MOVE itself**, not only its 106 DVP validation rows — owner decision 2026-09-27, closing a gap §10.1 left unassigned | todo |
+| **WP5** | memory panel | todo |
+| **WP6** | symbols / magic | todo |
+| **WP7** | reach-around grep = 0 (`grep -l 'core/emulator.h' src/debugger/*.cpp` empty) | todo |
+| **WP8** | **Memory panel physical-page view** — `MemSpace::Page` reads *and* writes (owner decision §1.3 item 15). **Last**, after the identity rows are green, with its own pinned rows | todo |
+
+Depends on: B0 (landed), B. Q is the epic's **sufficiency proof** — any
+insufficiency it finds is a finding against the architecture document, not a
+side channel.
+
+Every sub-item is reviewed by an agent or person that did NOT write it, and the
+branch does not merge until the full §10.3 gate is green on the tip.
+
+---
+
 ## 0. Corrections to the brief
 
 The brief is a hypothesis; three of its numbers are wrong or ambiguous.

@@ -42,6 +42,7 @@
 #include <vector>
 
 #include <unistd.h>   // getpid() — per-process fixture paths, see Fixture
+#include "../row_id.h"
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -52,6 +53,7 @@ int g_fail  = 0;
 int g_total = 0;
 
 void check(const char* id, const char* desc, bool cond, const std::string& detail = {}) {
+    report_row_id(id);
     ++g_total;
     if (cond) {
         ++g_pass;

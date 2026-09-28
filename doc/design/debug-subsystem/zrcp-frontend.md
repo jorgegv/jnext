@@ -53,6 +53,36 @@ Nothing here is designed against `doc/design/EMULATOR-DESIGN-PLAN.md`.
 
 ---
 
+## Work packages — the tracker for this package
+
+Mirrors this package's row in [DEBUG-SUBSYSTEM-ARCHITECTURE.md](../DEBUG-SUBSYSTEM-ARCHITECTURE.md)
+§10.1, which stays authoritative: if the two ever disagree, §10.1 wins and this
+table is stale. It exists because §10.1 states each package's sequence as one
+long table cell, which is unreadable as a plan and impossible to track against.
+
+Status values: `todo` · `in progress` · `in review` · **`done`** (independently
+reviewed and APPROVED). The whole package lands on **one branch** and merges
+whole, so `done` here means the sub-item is approved, not merged.
+
+| WP | Branch `gh280-zrcp` (issue #280) | Status |
+|---|---|---|
+| **WP-1** | session skeleton over the shared transport (T) | todo |
+| **WP-2** | formatters | todo |
+| **WP-3** | control / run | todo |
+| **WP-4** | breakpoints + conditions — **needs S's WP1**, the DSL's `compile_expr` exported as a library. §11 item 8: whether that library covers ZRCP's honoured condition subset without a fallback parser is measured here | todo |
+| **WP-5** | history / coverage / load | todo |
+| **WP-6** | fixtures + docs | todo |
+
+WP-2..WP-5 may run in parallel after WP-1. Depends on: B0 (landed), B, T; WP-4 also on S WP1.
+
+Settled: `hard-reset-cpu` is the **cold boot** (Task 70 semantics) and
+`get-version` answers `12.0-jnext-<ver>` (owner, §1.3 items 17-18).
+
+Every sub-item is reviewed by an agent or person that did NOT write it, and the
+branch does not merge until the full §10.3 gate is green on the tip.
+
+---
+
 ## 0. Summary
 
 - **What ZRCP is on the wire** (§1): a telnet-style line protocol. Server sends

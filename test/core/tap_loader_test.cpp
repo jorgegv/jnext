@@ -36,6 +36,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../row_id.h"
 
 namespace {
 
@@ -45,6 +46,7 @@ int total = 0;
 
 void check(const char* id, const char* desc, bool condition,
            const std::string& detail = {}) {
+    report_row_id(id);
     ++total;
     if (condition) {
         ++passed;
