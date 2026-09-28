@@ -470,9 +470,15 @@ after a guest NR 0x02 reset:
    not `User`: `state()`'s precedence falls *through* `None` to the legacy
    PC-breakpoint check and matches `User` immediately, so `User` would silently
    swallow a breakpoint at the landing address;
-6. the pause, iff the caller was paused — "paused stays paused, running stays
+6. the pause, iff the machine was paused — "paused stays paused, running stays
    running", and there is no `Reset` pause reason, so a client's `reset(Hard)`
-   never pauses a running machine;
+   never pauses a running machine. The pause keeps its *owner*: all three routes
+   share one capture taken before the machine goes (the pause in force and whose
+   it is), and a pause a client owned comes back as `User{that client}` — held
+   for it — so SES-01's detach can still release it. Re-applied bare, it would
+   read as the unowned fallback, which no detach releases: a remote that
+   hard-reset a paused machine and then crashed would leave it hung. An unowned
+   pause stays unowned (the `None` fall-through of item 5);
 7. the enable flags a client set through a verb — call-stack tracking, the
    trace and `persistent_breakpoints`, which live on the `Emulator` and are reset
    by the reconstruct. The backend keeps its own record of each request
@@ -505,10 +511,18 @@ tells the two apart from its own publication: `DebugState::events_` points at
 `Impl::events` from the constructor on, and only a brand-new `DebugState` — a
 reconstruct — can make it point anywhere else.
 
-The guest path cannot honour rule 3 in full: `on_cold_boot_done()` runs after the
-machine is gone, so a pause that landed in the same tick as the guest's NR 0x02
-write comes back *running*. Everything the backend itself owns — subscriptions,
-switches, the enable flags above — is re-applied in full. A documented limit.
+**The guest path is a pair of notifications.** A guest NR 0x02 hard reset is
+performed by the loop owner, not by the backend, and by the time
+`on_cold_boot_done()` runs the paused machine is gone — so the loop owner calls
+`on_cold_boot_begin()` immediately *before* it destroys the machine, and the
+backend takes the same capture there that `reset(Hard)` takes before its driver.
+`on_cold_boot_begin()` is the one declaration added to the frozen header after
+B0 (owner decision). The pairing is pinned state by state: `begin` then `done`
+keeps the pause and its owner; `done` without a `begin` re-applies the rebuilt
+machine's own state, unowned; a second `begin` replaces the first; a
+`reset(Hard)` or `load()` in between discards a pending capture; a detach of the
+capture's owner releases the pause it recorded; and neither call needs a driver
+or refuses on a corrupt machine.
 
 **The single-owner rule, split.** §4.1 CTL-12 says the platform-side
 `BreakpointSet` / `active()` save-and-restore in `emulator_cold_boot()` becomes

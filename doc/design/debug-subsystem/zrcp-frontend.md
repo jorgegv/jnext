@@ -557,7 +557,7 @@ destroyed.
 
 The contract the adapter designs against — REQ-zrcp-15, **ACCEPTED in full**
 by backend v4, rule 4 corrected in v5 (CAP-CTL-12 + `CAP-SES-07
-LoopDriver{cold_boot, load}` / `on_cold_boot_done()`; `CAP-CTL-15 load()` —
+LoopDriver{cold_boot, load}` / `on_cold_boot_begin()` + `on_cold_boot_done()`; `CAP-CTL-15 load()` —
 `smartload` — goes through the same loop-owner driver, which changes nothing
 above):
 
@@ -593,8 +593,11 @@ above):
    describe a machine that has since moved on.
 5. A guest-initiated hard reset (NR 0x02 bit 1 from Z80 code) keeps today's
    deferred path, but the backend delivers the same `Reset{Hard}` and applies
-   rules 2-3 when the loop owner performs it, so a session that was in `run`
-   is told (rule 4). Ordering within one tick: the loop owner's flag poll
+   rules 2-3 when the loop owner performs it (the loop owner calls
+   `on_cold_boot_begin()` before the destroy — so a paused session stays
+   paused, pause owner intact — and `on_cold_boot_done()` after; `begin` added
+   in B3 by owner decision 2026-09-28), so a session that was in `run` is told
+   (rule 4). Ordering within one tick: the loop owner's flag poll
    **precedes** `pump()`, so a guest reset and a client `hard-reset-cpu` in
    the same tick run in that order and the second reboots the fresh machine —
    legal, and the client gets the machine it asked for.
@@ -826,7 +829,7 @@ Sent to `design-backend` 2026-09-26 (format `REQ-zrcp-<n>: <capability> —
 | REQ-zrcp-12 | `load(path)` as `--load` does | DeZog launches via `smartload` | `smartload` | **ACCEPTED** → `CAP-CTL-15 load(path)` (`emulator_apply_load` moves under the backend; paused caller stays paused at the new PC) |
 | REQ-zrcp-13 | snapshot save/load semantics | DeZog `-state save/restore` | `snapshot-save/-load` | **DECIDED** → in-memory bookmarks keyed by name: `CAP-CAP-03 bookmark_save(name)` / `bookmark_restore(name)` (the same map DZRP's `CMD_READ/WRITE_STATE` uses); disk = JNS via `CAP-CAP-04` (save only), not this command |
 | REQ-zrcp-14 | `CAP-SES-04`: connected remote client ⇒ `Stop` pauses under `--headless` | a client blocked on `run` must get its reply | `run` | **ACCEPTED**; the rule itself settled by the owner 2026-09-27 (Q3) |
-| REQ-zrcp-15 | `CAP-CTL-12 Hard` contract across the cold-boot reconstruction (§4.6): synchronous inside `pump` via the loop owner's registered cold-boot sequence; `Debugger` re-binds; attached clients, their subscriptions and settings re-applied; paused stays paused (PC=0000 of `nextboot.rom`); `Reset{Hard}` delivered before return; guest-initiated resets get the same notification/re-apply when the loop owner performs them; `RefusedUnavailable` with no sequence registered | review R-2: the verb is a deferred flag today (`emulator.h:197-208`) and the boot wipes pause/subscriptions (`emulator_boot.h:112-124`); DeZog sends it first with `resetOnLaunch: true` | `hard-reset-cpu` | **ACCEPTED in full** (backend v4, verified against the code: the after-tick flag poll `sdl_app.cpp:409` / `qt_app.cpp:510` / `headless_app.cpp:691`, `emulator_boot.h:122-124`, `:133-146`) → `CAP-CTL-12` + `CAP-SES-07 set_loop_driver(LoopDriver{cold_boot, load})` / `on_cold_boot_done()`; points 1-6 recorded verbatim; guest NR 0x02 resets keep the deferred path and the driver calls `on_cold_boot_done()` so 2-4 apply. `design-gdb` aligned its `monitor reset hard` to this REQ without filing a duplicate: served only under REQ-zrcp-15 (client sees an `O` line + `OK`, next `g` shows PC=0000 with its `Z0`s intact, no unsolicited `T05` since the client never resumed); `E01` + explanatory `O` line until accepted — the same stance as §2.2 |
+| REQ-zrcp-15 | `CAP-CTL-12 Hard` contract across the cold-boot reconstruction (§4.6): synchronous inside `pump` via the loop owner's registered cold-boot sequence; `Debugger` re-binds; attached clients, their subscriptions and settings re-applied; paused stays paused (PC=0000 of `nextboot.rom`); `Reset{Hard}` delivered before return; guest-initiated resets get the same notification/re-apply when the loop owner performs them; `RefusedUnavailable` with no sequence registered | review R-2: the verb is a deferred flag today (`emulator.h:197-208`) and the boot wipes pause/subscriptions (`emulator_boot.h:112-124`); DeZog sends it first with `resetOnLaunch: true` | `hard-reset-cpu` | **ACCEPTED in full** (backend v4, verified against the code: the after-tick flag poll `sdl_app.cpp:409` / `qt_app.cpp:510` / `headless_app.cpp:691`, `emulator_boot.h:122-124`, `:133-146`) → `CAP-CTL-12` + `CAP-SES-07 set_loop_driver(LoopDriver{cold_boot, load})` / `on_cold_boot_done()`; points 1-6 recorded verbatim; guest NR 0x02 resets keep the deferred path and the loop owner calls `on_cold_boot_begin()` before the destroy and `on_cold_boot_done()` after, so 2-4 apply (`begin` added in B3, owner decision 2026-09-28). `design-gdb` aligned its `monitor reset hard` to this REQ without filing a duplicate: served only under REQ-zrcp-15 (client sees an `O` line + `OK`, next `g` shows PC=0000 with its `Z0`s intact, no unsolicited `T05` since the client never resumed); `E01` + explanatory `O` line until accepted — the same stance as §2.2 |
 
 Reach-arounds: **0**. Every served command in §2 names its CAP; the only
 `Emulator` knowledge in the adapter is the four-ROM → two-ROM projection

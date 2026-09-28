@@ -190,7 +190,7 @@ Every write §4.2a enumerates, and the declaration that is it. All of them take
 | SES-04 | `StopPolicy stop_policy() const`, `Result set_stop_policy(StopPolicy)`; `enum class StopPolicy{Pause, ExitNonZero}`; `Listener::on_exit_requested(int code)` is the `ExitNonZero` half |
 | SES-05 | `Result set_live_raster(ClientId, bool)`, `bool live_raster() const`, `bool attached() const` |
 | SES-06 | `Result log(ClientId, LogLevel, const std::string&)`; `enum class LogLevel`, `Listener::on_log` |
-| SES-07 | `Result set_loop_driver(const LoopDriver&)`, `Result on_cold_boot_done()`; `struct LoopDriver{cold_boot, load}` |
+| SES-07 | `Result set_loop_driver(const LoopDriver&)`, `Result on_cold_boot_begin()` (**added in B3**, owner decision 2026-09-28 — the one post-B0 declaration), `Result on_cold_boot_done()`; `struct LoopDriver{cold_boot, load}` |
 
 ---
 

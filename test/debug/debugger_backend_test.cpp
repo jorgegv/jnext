@@ -76,6 +76,7 @@
 #include <spdlog/sinks/ringbuffer_sink.h>
 
 #include <cstring>
+#include <tuple>
 #include <memory>
 #include <fstream>
 
@@ -8355,6 +8356,188 @@ int main() {
               resets == 1 && reset_kind == ResetKind::Hard,
               "resets=" + std::to_string(resets) + " kind=" +
                   std::to_string(static_cast<int>(reset_kind)));
+    }
+    {
+        // RULE 3 ON THE GUEST PATH — `on_cold_boot_begin()` (owner decision
+        // 2026-09-28, the one header change B3 makes). The loop owner calls it
+        // immediately before the machine is destroyed and `on_cold_boot_done()`
+        // after; the backend captures the pause in force and its owner in
+        // between. Every pairing state gets a row: begin→done, done with no
+        // begin, begin twice, a begin made stale by a verb, by a detach, and a
+        // begin with no driver on a corrupt machine.
+        auto boot = [](Emulator& emu) {
+            emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+        };
+        auto reason = [](const RunState& st) {
+            return std::string("paused=") + (st.paused ? "1" : "0") + " kind=" +
+                   std::to_string(static_cast<int>(st.pause_reason.kind)) +
+                   " by=" + std::to_string(st.pause_reason.by);
+        };
+
+        {   // begin → done: the pause survives, owner intact.
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            dbg.pause(a);
+            const Result rb = dbg.on_cold_boot_begin();
+            boot(emu);
+            dbg.on_cold_boot_done();
+            const RunState st = dbg.state();
+            check("CTL-12-43", "begin -> guest boot -> done: a pause in force survives, "
+                               "still A's",
+                  rb == Result::Ok && st.paused &&
+                  st.pause_reason.kind == PauseReason::Kind::User && st.pause_reason.by == a,
+                  reason(st));
+        }
+        {   // done with NO begin: the rebuilt machine's own state, unowned —
+            // both arms (running; paused by the loop owner after the rebuild).
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            dbg.pause(a);
+            boot(emu);
+            dbg.on_cold_boot_done();
+            const bool came_back_running = !dbg.state().paused;
+            dbg.pause(a);
+            boot(emu);
+            emu.debug_state().pause();          // the loop owner pauses the NEW machine
+            dbg.on_cold_boot_done();
+            const RunState st = dbg.state();
+            check("CTL-12-44", "done with NO begin re-applies the REBUILT machine's "
+                               "state, unowned: running comes back running, a pause "
+                               "the loop owner made stays paused and is nobody's",
+                  came_back_running && st.paused &&
+                  st.pause_reason.by == jnext::dbg::CLIENT_NONE,
+                  reason(st));
+        }
+        {   // begin twice: the last one wins.
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            dbg.pause(a);
+            dbg.on_cold_boot_begin();           // paused, A's
+            dbg.run(a);
+            dbg.on_cold_boot_begin();           // running — this one is current
+            boot(emu);
+            dbg.on_cold_boot_done();
+            check("CTL-12-45", "a second begin replaces the first — the machine it "
+                               "captures is the one about to be destroyed",
+                  !dbg.state().paused, reason(dbg.state()));
+        }
+        {   // A begin made stale by reset(Hard) / load(): each lands its own
+            // machine, so a later done with no begin of its own must not
+            // re-apply the pause the old capture recorded.
+            for (int via_load = 0; via_load < 2; ++via_load) {
+                Emulator emu; build(emu);
+                Debugger dbg(emu);
+                const ClientId a = dbg.attach(client("A")).value;
+                jnext::dbg::LoopDriver d;
+                d.cold_boot = [&]() { boot(emu); return true; };
+                d.load      = [&](const std::string&) { return true; };
+                dbg.set_loop_driver(d);
+                dbg.pause(a);
+                dbg.on_cold_boot_begin();       // paused, A's — never followed by done
+                dbg.run(a);
+                if (via_load) dbg.load(a, "game.nex");
+                else          dbg.reset(a, ResetKind::Hard);
+                const bool running_after_verb = !dbg.state().paused;
+                boot(emu);                      // a later guest boot, no begin
+                dbg.on_cold_boot_done();
+                check(via_load ? "CTL-12-46b" : "CTL-12-46",
+                      via_load ? "and a load() discards it the same way"
+                               : "a reset(Hard) discards a pending begin — a later "
+                                 "done does not resurrect the pause it recorded",
+                      running_after_verb && !dbg.state().paused, reason(dbg.state()));
+            }
+        }
+        {   // A detach of the pending capture's OWNER releases the pause it
+            // recorded; a detach of ANOTHER client does not.
+            for (int owner_leaves = 0; owner_leaves < 2; ++owner_leaves) {
+                Emulator emu; build(emu);
+                Debugger dbg(emu);
+                const ClientId a = dbg.attach(client("A")).value;
+                const ClientId b = dbg.attach(client("B")).value;
+                dbg.pause(a);
+                dbg.on_cold_boot_begin();       // paused, A's
+                dbg.detach(owner_leaves ? a : b);
+                boot(emu);
+                dbg.on_cold_boot_done();
+                const RunState st = dbg.state();
+                check(owner_leaves ? "CTL-12-47" : "CTL-12-47b",
+                      owner_leaves
+                          ? "a detach of the capture's OWNER between begin and done "
+                            "releases the pause it recorded — SES-01 for a pause "
+                            "waiting out a boot"
+                          : "and a detach of ANOTHER client leaves it: still paused, "
+                            "still A's",
+                      owner_leaves ? !st.paused
+                                   : (st.paused && st.pause_reason.by == a),
+                      reason(st));
+            }
+        }
+        {   // begin with NO driver, on a CORRUPT paused machine: a notification,
+            // it never refuses. The unowned pause comes back unowned, and the
+            // corruption does not — it belonged to the machine that was destroyed.
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            std::vector<uint8_t> torn(64, 0xAB);
+            dbg.load_state_bytes(a, torn.data(), torn.size());
+            emu.debug_state().pause();
+            const bool corrupt_before = dbg.state().pause_reason.kind == PauseReason::Kind::Corrupt;
+            const Result rb = dbg.on_cold_boot_begin();
+            boot(emu);
+            const Result rd = dbg.on_cold_boot_done();
+            const RunState st = dbg.state();
+            check("CTL-12-48", "begin needs no driver and never refuses, not even on a "
+                               "corrupt machine; its unowned pause comes back unowned "
+                               "and the corruption does not come back at all",
+                  corrupt_before && rb == Result::Ok && rd == Result::Ok && st.paused &&
+                  st.pause_reason.by == jnext::dbg::CLIENT_NONE &&
+                  st.pause_reason.kind != PauseReason::Kind::Corrupt &&
+                  !dbg.resume_blocked_by_corruption().has_value(),
+                  reason(st));
+        }
+        {   // THE INVARIANT ACROSS THE THREE ROUTES: same pre-boot pause state in,
+            // same post-boot pause state out — for a running machine and for one
+            // paused by A.
+            auto via = [&](int path, bool paused_by_a) {
+                Emulator emu; build(emu);
+                Debugger dbg(emu);
+                const ClientId a = dbg.attach(client("A")).value;
+                jnext::dbg::LoopDriver d;
+                d.cold_boot = [&]() { boot(emu); return true; };
+                d.load      = [&](const std::string&) { boot(emu); return true; };
+                dbg.set_loop_driver(d);
+                if (paused_by_a) dbg.pause(a);
+                if (path == 0)      dbg.reset(a, ResetKind::Hard);
+                else if (path == 1) dbg.load(a, "game.nex");
+                else { dbg.on_cold_boot_begin(); boot(emu); dbg.on_cold_boot_done(); }
+                const RunState st = dbg.state();
+                return std::make_tuple(st.paused, static_cast<int>(st.pause_reason.kind),
+                                       st.pause_reason.by == a);
+            };
+            bool same = true;
+            std::string where;
+            for (int pb = 0; pb < 2; ++pb) {
+                const auto want = pb ? std::make_tuple(true, static_cast<int>(PauseReason::Kind::User), true)
+                                     : std::make_tuple(false, static_cast<int>(PauseReason::Kind::None), false);
+                for (int p = 0; p < 3; ++p) {
+                    const auto got = via(p, pb != 0);
+                    if (got != want) {
+                        same = false;
+                        where += " [paused=" + std::to_string(pb) + " path" + std::to_string(p) +
+                                 " -> " + std::to_string(std::get<0>(got)) + "/" +
+                                 std::to_string(std::get<1>(got)) + "/" +
+                                 std::to_string(std::get<2>(got)) + "]";
+                    }
+                }
+            }
+            check("CTL-12-49", "the same pre-boot pause state gives the same post-boot "
+                               "state on all three routes — reset(Hard), a "
+                               "reconstructing load() and the guest begin/done pair",
+                  same, where);
+        }
     }
     {
         // CTL-15. The re-application is UNCONDITIONAL because the backend cannot

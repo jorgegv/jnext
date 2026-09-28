@@ -461,6 +461,11 @@ void HeadlessApp::run() {
                               load_file.empty() ? "(none)" : load_file.c_str());
         EmulatorConfig cfg = config_;
         cfg.load_file = load_file;
+        // GH #276 B3 — CTL-12 rule 5's FIRST half: tell the backend the machine
+        // is about to be destroyed, so it can capture the pause in force (and
+        // whose it is) while the machine still exists. Paired with
+        // `on_cold_boot_done()` below; see that call for the guard.
+        if (bench_watch_dbg) bench_watch_dbg->on_cold_boot_begin();
         emulator_cold_boot(emulator_, cfg);
         config_.type = emulator_.config().type;   // a recording's machine stays
         inject_countdown_ = -1;
@@ -469,10 +474,11 @@ void HeadlessApp::run() {
             load_file_      = load_file;
             load_countdown_ = emulator_load_delay_frames(load_file);
         }
-        // GH #276 B3 — CTL-12 rule 5, the GUEST-initiated path: the loop owner
-        // has done the boot itself, and tells the backend so, so the reconstruct
-        // contract's re-application (the three publications, the eight-page seed,
-        // the gates, the ring discard) runs for it too.
+        // GH #276 B3 — CTL-12 rule 5, the GUEST-initiated path, second half: the
+        // loop owner has done the boot itself, and tells the backend so, so the
+        // reconstruct contract's re-application (the three publications, the
+        // eight-page seed, the gates, the ring discard, the enables clients set,
+        // and the pause `on_cold_boot_begin()` captured) runs for it too.
         //
         // Guarded on the fixture because THIS loop owner holds a `Debugger` only
         // while `JNEXT_BENCH_WATCH` is set — wiring `HeadlessApp` to a
@@ -481,9 +487,9 @@ void HeadlessApp::run() {
         // the SDL and headless loop owners), not B3's. When that arrives this
         // guard goes with it and the call becomes unconditional.
         //
-        // NOTHING PINS THIS CALL. No suite reaches `HeadlessApp`, so deleting it
-        // passes every row; the backend half it triggers is pinned
-        // (CTL-12-20..22, -36, -38), the call site is not. Accepted for a
+        // NOTHING PINS THESE TWO CALLS. No suite reaches `HeadlessApp`, so
+        // deleting either passes every row; the backend half they trigger is
+        // pinned (CTL-12-20..22, -36, -38, -43..49), the call sites are not. Accepted for a
         // bench-only fixture (manager decision, B3 milestone 2); B4's real
         // loop-owner wiring is where a row belongs.
         if (bench_watch_dbg) bench_watch_dbg->on_cold_boot_done();
