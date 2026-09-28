@@ -770,6 +770,28 @@ construction). Then, in dependency order:
 | WP7 | Remove `core/emulator.h` from every `src/debugger/*.cpp`; final reach-around grep = 0; developer-guide chapter 3.9 + `FEATURES.md` unchanged in substance, paths updated | all | serial, last |
 | **WP8** | **Owner Q7 (2026-09-27): the Memory panel's "Slot N (page P)" view becomes a true physical read/write through CAP-INS-02**, branching on CAP-INS-03 `SlotInfo.is_rom` (or `SlotInfo.space`, REQ-qt-31): RAM slot → `Page{nr_page}`, ROM slot → `Rom{…}` (`read_byte`/`write_byte`, `memory_panel.cpp:123-154`; the selector label from CAP-INS-03 stays). **The `MemSpace::Rom` enumeration (backend §11 item 1) is now closed from the code and `SlotInfo.space` is published (REQ-qt-31 accepted), so WP8 has no prototype dependency left; it still lands last, after WP7.** The ONE deliberate behaviour change in #278, so it lands LAST, on top of the proven identity; its own rows in §6.2 (`QMP-06a/06b, 07..09`); the user guide page that describes the panel's page selector, `src/doc/user-guide/06-debugger/panels/04-memory.md` (regenerate the committed render with `make docs-userguide`; `doc/man/jnext.1.md` names the hex editor but not the selector — update it only if the new wording says "physical page"); `FEATURES.md` Debugger bullet updated | WP7 green | serial, after WP7 |
 
+**Inherited from backend package B3 (2026-09-28 — two obligations Q owns):**
+
+1. **Retire the Qt half of `emulator_cold_boot()`'s save-and-restore** (inventory
+   row 95). It carries the panels' PC breakpoints and watchpoints, the
+   `BreakpointSet` observers that keep `BreakpointPanel` / `DisasmPanel`
+   subscribed across a cold boot (each registers once, in its constructor), and
+   `active()`. Before Q those have no other owner, so B3 retired only the half
+   that was backend state (the event-mask bytes) and left this one standing.
+   When WP2/WP6 make the panels backend clients, their breakpoints become
+   subscriptions the backend re-applies (CAP-CTL-12 rule 2), and the restore
+   becomes a second owner: delete it in the same WP, with the backend's rows
+   CTL-12-16/17 and CTL-12-34/35 (which pin today's carried state) re-pinned
+   against the client model.
+2. **Poll `take_hard_reset_request()` in `post_frames`, before `pump()`.** Qt
+   polls it in `pre_frames` today (`qt_app.cpp:510`) while the pump slot is
+   `post_frames` (`:667`), so a guest NR 0x02 raised in tick N's frames is seen
+   in tick N+1 — after tick N's pump. A client `reset(Hard)` in that pump
+   destroys the machine and the pending flag with it: the guest reset is
+   silently subsumed instead of "run first, then the client's", which is what
+   CAP-CTL-12's ordering paragraph promises. SDL and headless already poll after
+   their frames and are ordered correctly.
+
 **Branch discipline (review R-7; owner rule 2026-09-24, arch §10.3):** #278
 is one multi-stage issue and lives on **one** branch, `gh278-qt` (arch
 §10.1). WP1..WP7 are commit series or short-lived sub-branches OF `gh278-qt`
