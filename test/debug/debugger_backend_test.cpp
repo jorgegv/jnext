@@ -3878,11 +3878,15 @@ static void b5_payload_rows() {
     {
         uint8_t dir, mode, ed, em; size_t n;
         start_end(0x79, 0xCD, dir, mode, ed, em, n);      // B->A, burst
-        check("PL-DMA-03", "a B->A burst block: Start carries direction 0 (R0 bit 2 "
-                           "clear) and mode 2 (R4 bits 6:5 = burst)",
-              n >= 1 && dir == 0 && mode == 2,
+        // End too, and HERE rather than only in PL-DMA-02: there direction and
+        // mode are both 1, so an End that swapped the two fields read the same
+        // (mutation PL-END-SWAP survived until this fixture asserted it).
+        check("PL-DMA-03", "a B->A burst block: Start AND End carry direction 0 (R0 "
+                           "bit 2 clear) and mode 2 (R4 bits 6:5 = burst)",
+              n >= 1 && dir == 0 && mode == 2 && ed == 0 && em == 2,
               "n=" + std::to_string(n) + " start " + std::to_string(dir) + "/" +
-                  std::to_string(mode));
+                  std::to_string(mode) + " end " + std::to_string(ed) + "/" +
+                  std::to_string(em));
     }
     {
         // §4.3 Cycle: payload `cycle`. WK-CYCLE pins where the machine STOPS;
