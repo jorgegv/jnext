@@ -289,6 +289,22 @@ static int test_rewind_to_frame()
                     rb->frame_cycle_for(target_frame) == restored_cycle,
           "running forward from a rewind drops the abandoned snapshots (no tag held twice)");
 
+    // ...and only a RING restore sits on a counted frame start. A plain
+    // load_state() of a boundary snapshot (what a .jns load or a warm start
+    // does) is an ordinary boundary, even straight after a rewind: its next
+    // frame is counted.
+    std::vector<uint8_t> boundary(rb->snapshot_bytes(), 0);
+    StateWriter bw(boundary.data(), boundary.size());
+    emu.save_state(bw);
+    const uint32_t begun_at_save = emu.frame_num();
+    emu.rewind_to_frame(rb->oldest_frame_num());
+    StateReader br(boundary.data(), boundary.size());
+    const bool loaded = emu.load_state(br);
+    emu.debug_state().resume();
+    emu.run_frame();
+    check("RTF-07", loaded && emu.frame_num() == begun_at_save + 1,
+          "a load_state() after a rewind is an ordinary boundary: the next frame is counted");
+
     return 0;
 }
 

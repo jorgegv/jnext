@@ -671,11 +671,13 @@ void DebuggerManager::refresh_panels() {
     if (!enabled_ || !debugger_window_)
         return;
 
-    // GH #278 WP0 — the actions are refreshed with the panels. Their enabled
-    // state has inputs no verb touches: an RZX recording or playback started
-    // from the main window, the rewind buffer freed by Rewind Buffer Size... = 0.
-    // Recomputed only by the verbs, Step Back and Jump Here stayed enabled over
-    // them until the next verb, and the click was then refused.
+    // GH #278 WP0 — while paused the actions are refreshed with the panels.
+    // Their enabled state has inputs no verb touches: an RZX recording or
+    // playback started from the main window, the rewind buffer freed by Rewind
+    // Buffer Size... = 0. Recomputed only by the verbs, Step Back and Jump Here
+    // stayed enabled over them until the next verb, and the click was then
+    // refused. (While running every such action is off whatever those inputs
+    // are, and the verb that resumed has already said so.)
     if (emulator_->debug_state().paused()) {
         emulator_->snapshot_raster();
         debugger_window_->refresh_panels();
@@ -686,7 +688,6 @@ void DebuggerManager::refresh_panels() {
         if (refresh_counter_ >= REFRESH_INTERVAL) {
             refresh_counter_ = 0;
             debugger_window_->refresh_panels();
-            update_actions();
         }
     }
 }
