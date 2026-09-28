@@ -886,8 +886,8 @@ void HeadlessApp::run() {
 
 void HeadlessApp::shutdown() {
     // Same contract as the two GUI frontends: a screenshot that was asked for
-    // and never taken is a failure. Headless always renders (there is no
-    // debugger pause here), so the only way to land in this branch is a
+    // and never taken is a failure. The countdown ticks whether or not the
+    // machine is paused, so the only way to land in this first branch is a
     // --delayed-automatic-exit that fires before --delayed-screenshot-time /
     // -frames comes due. That misconfiguration used to exit 0 with no PNG and
     // no message — a silent no-op in the one mode built for scripting.

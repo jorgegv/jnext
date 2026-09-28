@@ -2458,6 +2458,63 @@ static void b4_hosting_rows() {
                   std::to_string(st.pause_reason.by) + " published=" +
                   (published ? "1" : "0"));
     }
+    {
+        // --delayed-screenshot DUE WHILE PAUSED (M2 part 2). `--magic-breakpoint`
+        // stops the machine on its first instruction (`ED FF`), the capture
+        // comes due a tick later, and the exit bound fires with no frame ever
+        // rendered for it. The design's contract (§4.5 CAP-01): deferred to the
+        // next rendered frame, never the stale framebuffer — so NO file, the
+        // "NO screenshot was written" error, exit 1. Headless used to write the
+        // stale framebuffer here and exit 0. The control is the same run with
+        // the magic breakpoint off (`ED FF` is then a NOP): file written, exit 0.
+        //   8000  ED FF   magic breakpoint
+        //   8002  18 FE   JR $
+        struct Out { bool ok, paused_magic, file, png, no_shot_error; int exit; };
+        auto run = [](bool magic, const std::string& png) {
+            std::remove(png.c_str());
+            auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(64);
+            Log::platform()->sinks().push_back(ring);
+            EmulatorConfig cfg;
+            cfg.type = MachineType::ZX48K;
+            cfg.magic_breakpoint = magic;
+            HeadlessApp app;
+            app.set_config(cfg);
+            Out o{};
+            o.ok = app.init(0, nullptr);
+            load_prog(app.emulator(), { 0xED, 0xFF, 0x18, 0xFE });
+            app.set_delayed_screenshot(png, 1, jnext::dbg::LAYER_MASK_ALL);
+            app.set_delayed_exit(4);
+            app.run();
+            const RunState st = app.debugger().state();
+            o.paused_magic = st.paused && st.pause_reason.kind == PauseReason::Kind::Magic;
+            app.shutdown();
+            o.exit = app.exit_code();
+            const std::vector<uint8_t> f = read_file(png);
+            o.file = !f.empty();
+            o.png  = is_png_640x512(f);
+            for (const auto& l : ring->last_formatted())
+                if (l.find("--delayed-screenshot: NO screenshot was written to '" + png) !=
+                    std::string::npos)
+                    o.no_shot_error = true;
+            Log::platform()->sinks().pop_back();
+            std::remove(png.c_str());
+            return o;
+        };
+        const Out p = run(true,  "/tmp/jnext_b4_host_paused.png");
+        const Out c = run(false, "/tmp/jnext_b4_host_running.png");
+        auto show = [](const Out& o) {
+            return std::string("magic_pause=") + (o.paused_magic ? "1" : "0") + " file=" +
+                   (o.file ? "1" : "0") + " err=" + (o.no_shot_error ? "1" : "0") +
+                   " exit=" + std::to_string(o.exit);
+        };
+        check("HOST-06", "HeadlessApp: a --delayed-screenshot that comes due while "
+                         "--magic-breakpoint holds the machine paused writes NO file, "
+                         "logs 'NO screenshot was written' and exits 1 at the exit "
+                         "bound; the same run unpaused writes the PNG and exits 0",
+              p.ok && p.paused_magic && !p.file && p.no_shot_error && p.exit == 1 &&
+                  c.ok && !c.paused_magic && c.png && !c.no_shot_error && c.exit == 0,
+              "paused[" + show(p) + "] control[" + show(c) + "]");
+    }
 }
 
 int main() {
