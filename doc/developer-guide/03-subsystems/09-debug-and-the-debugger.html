@@ -2185,7 +2185,10 @@ kind, not degree: while <strong>running</strong>, each service is asked for at m
 command whatever the budget says, because the loop owner needs its thread back
 for the next frame; while <strong>paused</strong> it keeps answering while the peer keeps
 talking, bounded by <code>budget_ms</code> — a DeZog ZRCP step is ~15 sequential round
-trips, which at one per tick would be 300 ms. <code>budget_ms == 0</code> therefore means
+trips, which at one per tick would be 300 ms. "Paused" is the machine's state
+<em>after each command</em>, not at entry: a <code>run</code> in the chain hands the loop owner
+its frames back at once, and a <code>pause</code> arriving while running lets the reads
+behind it be answered in the same pump. <code>budget_ms == 0</code> therefore means
 <em>one</em> command, not "unbounded". The budgets are the one place in the backend that
 reads a wall clock, and legitimately: §4.8 calls them host service parameters,
 and nothing in the emulated timeline depends on any of them.</p>

@@ -145,10 +145,14 @@ Result Debugger::detach(ClientId cid) {
     // capability. `Unsupported` would say that.
     if (!c) return Result::RefusedUnavailable;
 
-    // Is the machine paused BY THIS CLIENT? Read BEFORE anything is removed:
-    // `state()` derives the reason partly from the event-stop latch, whose
-    // `by` is the owning subscription's client, and `erase_client()` below
-    // tombstones that subscription.
+    // Is the machine paused BY THIS CLIENT? Asked of the state the client is
+    // leaving, before anything of it is removed. THE ORDER IS NOT LOAD-BEARING
+    // TODAY, and an earlier draft of this comment said it was: a subscription's
+    // stop is reported from the event-stop latch, which is a COPY of the
+    // `PauseReason` (owner included) held on `Impl`, and `erase_client()` below
+    // does not touch it — reading after the erase gives the same answer
+    // (mutation M28, equivalent). Row SES-01-17 pins the behaviour, not the
+    // order.
     //
     // AN UNOWNED PAUSE IS NEVER RESUMED (§4.8 SES-01, owner decision Revision
     // 6): `Magic` and `Corrupt` carry `by == CLIENT_NONE`, and so does the
@@ -159,8 +163,13 @@ Result Debugger::detach(ClientId cid) {
     const RunState st         = impl_->self->state();
     const bool     mine       = st.paused && st.pause_reason.by == cid;
 
+    // THE TOMBSTONE IS THE ONE GUARD. The listener pointer is deliberately
+    // left as it was: the fan-out skips a detached row on `detached` alone, and
+    // a second guard (nulling the pointer here too) made either one removable
+    // without any row noticing. Row SES-01-23 is a client detached by ANOTHER
+    // client's listener in the middle of a fan-out, which is the one moment a
+    // tombstoned row is still walked.
     c->detached = true;
-    c->listener = nullptr;
     impl_->events.erase_client(cid);
     // `erase_client()` tombstoned rows and called `refresh()`; the hot-path
     // gates still carry the retired subscriptions' bits until this publishes.
@@ -381,8 +390,6 @@ ServiceHint Debugger::pump(const PumpBudget& budget) {
         return hint;
     }
 
-    const bool paused_at_entry = impl_->ds().paused();
-
     // THE DRAIN. §4.8 SES-03 and §9: "a queued command chain is drained in one
     // `pump` while paused, `pump(0)` while running services exactly one".
     //
@@ -393,6 +400,15 @@ ServiceHint Debugger::pump(const PumpBudget& budget) {
     // advancing and the thread is better spent answering the chain (REQ-zrcp-01:
     // a DeZog zrcp step is ~15 sequential round trips, which at one per tick is
     // 300 ms).
+    //
+    // "WHILE PAUSED" IS THE LIVE STATE, asked after every command — not the
+    // state at entry, which is what B3's first cut read. A command can change
+    // it: a `run` (or a `step_over`, which resumes) gives the loop owner its
+    // frames back at once instead of holding the thread for the rest of the
+    // budget, and a `pause` arriving while running lets the chain behind it
+    // (ZRCP's `enter-cpu-step` followed by its reads) be answered in the same
+    // pump instead of one tick per command. §4.8's wording is "while paused,
+    // after answering a command"; both arms are pinned, SES-03-20/21.
     const auto start = std::chrono::steady_clock::now();
     auto elapsed_ms  = [start]() {
         return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -405,13 +421,13 @@ ServiceHint Debugger::pump(const PumpBudget& budget) {
         // paused with a remote attached passes ~50 here, which is what turns its
         // busy spin into a `poll()`.
         ServiceStep step = s->service_once(budget.max_wait_ms);
-        if (!paused_at_entry) continue;   // running: exactly one, per §9
 
-        // Paused: keep answering while the peer keeps talking, bounded by
-        // `budget_ms`. `budget_ms == 0` therefore means ONE command, not
-        // "unbounded" — the zero form is the Qt/SDL "never block" budget and
+        // Keep answering while the peer keeps talking AND the machine is paused,
+        // bounded by `budget_ms`. `budget_ms == 0` therefore means ONE command,
+        // not "unbounded" — the zero form is the Qt/SDL "never block" budget and
         // must not become an unbounded drain by omission.
-        while (step == ServiceStep::Serviced && elapsed_ms() < budget.budget_ms)
+        while (step == ServiceStep::Serviced && impl_->ds().paused() &&
+               elapsed_ms() < budget.budget_ms)
             step = s->service_once(budget.drain_ms);
     }
 

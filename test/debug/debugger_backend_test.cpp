@@ -398,6 +398,11 @@ struct FakeService : jnext::dbg::Service {
     /// and `runaway` records that it had to.
     static constexpr size_t kRunawayCalls = 20'000'000;
     bool             runaway             = false;
+    /// The COMMAND a call executes, when a row needs one: a real server runs
+    /// each complete command synchronously against the `Debugger` from inside
+    /// `service_once()`, so a `pause` or a `run` here changes the machine in the
+    /// middle of the drain, exactly as a peer's would.
+    std::function<void()> on_call;
 
     jnext::dbg::ServiceStep service_once(int wait_ms) override {
         if (calls.size() >= kRunawayCalls) {
@@ -405,6 +410,7 @@ struct FakeService : jnext::dbg::Service {
             return jnext::dbg::ServiceStep::Idle;
         }
         calls.push_back(wait_ms);
+        if (on_call) on_call();
         if (always_serviced) return jnext::dbg::ServiceStep::Serviced;
         if (serviced_budget > 0) {
             --serviced_budget;
@@ -6635,11 +6641,13 @@ int main() {
     }
     {
         // SES-01's rule names TWO ways a pause can be a client's: "its `pause()`,
-        // OR A STOP ON ONE OF ITS SUBSCRIPTIONS". The second is the one that
-        // makes the ORDER inside `detach()` load-bearing — the reason comes from
-        // the event-stop latch, whose `by` is the owning subscription's client,
-        // and `erase_client()` tombstones that subscription. Read the reason
-        // after erasing and the pause stops being anybody's.
+        // OR A STOP ON ONE OF ITS SUBSCRIPTIONS". The second is the one where the
+        // detach ALSO erases the thing that stopped the machine. The reason is
+        // reported from the event-stop latch, a copy held on `Impl` that the
+        // erase does not touch — so the order inside `detach()` is NOT what this
+        // pins (an earlier text claimed it was; mutation M28 showed otherwise).
+        // What it pins is the behaviour: the stop is the owner's, and the
+        // owner's departure releases it.
         Emulator emu; build(emu);
         Debugger dbg(emu);
         const ClientId a = dbg.attach(client("A")).value;
@@ -6655,8 +6663,8 @@ int main() {
               st.pause_reason.by == a,
               "kind=" + std::to_string(static_cast<int>(st.pause_reason.kind)) +
                   " by=" + std::to_string(st.pause_reason.by));
-        check("SES-01-17", "so its detach releases it — which needs the reason read "
-                           "BEFORE its subscription is erased",
+        check("SES-01-17", "so its detach releases it, although the same detach "
+                           "erases the subscription that stopped it",
               dbg.detach(a) == Result::Ok && !dbg.state().paused);
     }
     {
@@ -6676,9 +6684,15 @@ int main() {
             Debugger* dbg = nullptr;
             ClientId  me  = jnext::dbg::CLIENT_NONE;
             int       pauses = 0;
+            Result    first_detach  = Result::Unsupported;
+            Result    second_detach = Result::Unsupported;
             void on_paused(const jnext::dbg::PausedInfo&) override {
                 ++pauses;
-                dbg->detach(me);
+                first_detach  = dbg->detach(me);
+                // A server that detaches twice on a dropped socket, from INSIDE
+                // the callback: the row is still in the vector (a tombstone, not
+                // yet compacted), and the second detach must not find it.
+                second_detach = dbg->detach(me);
             }
             void on_resumed(ClientId) override {}
             void on_reset(ResetKind) override {}
@@ -6707,6 +6721,13 @@ int main() {
         check("SES-01-19", "the self-detach took effect — that client is gone",
               dbg.set_listener(a, nullptr) == Result::RefusedUnavailable &&
               dbg.attached());
+        check("SES-01-21", "and a SECOND detach from inside the same callback is "
+                           "refused — a tombstone the fan-out has not compacted yet "
+                           "is not a client",
+              first.first_detach == Result::Ok &&
+              first.second_detach == Result::RefusedUnavailable,
+              std::string("first=") + jnext::dbg::result_name(first.first_detach) +
+                  " second=" + jnext::dbg::result_name(first.second_detach));
 
         // A SECOND push must not reach the departed listener: the tombstone was
         // compacted at the end of the outer fan-out, and even before that the
@@ -6717,6 +6738,71 @@ int main() {
         check("SES-01-20", "and a LATER push does not reach it either",
               first.pauses == 1 && after.paused.size() == 2,
               "first=" + std::to_string(first.pauses) + " " + after.trail());
+        dbg.detach(b);
+    }
+    {
+        // A client detached by ANOTHER client's listener, in the middle of the
+        // fan-out that is walking it. The victim sits AFTER the detacher in the
+        // vector, so the loop reaches its row in this very fan-out — as a
+        // tombstone, not yet compacted. The tombstone is the one guard that keeps
+        // it from being served (`detach()` no longer also nulls the listener, a
+        // second guard for the same fact that made either removable unnoticed).
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        struct Kicker : jnext::dbg::Listener {
+            Debugger* dbg    = nullptr;
+            ClientId  victim = jnext::dbg::CLIENT_NONE;
+            void on_paused(const jnext::dbg::PausedInfo&) override { dbg->detach(victim); }
+            void on_resumed(ClientId) override {}
+            void on_reset(ResetKind) override {}
+            void on_frame_ended(uint32_t) override {}
+            void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
+            void on_exit_requested(int) override {}
+            void on_log(jnext::dbg::LogLevel, const std::string&) override {}
+        };
+        Kicker      kicker;
+        RecListener victim_l, last_l;
+        const ClientId k = dbg.attach(client("Kicker")).value;
+        const ClientId v = dbg.attach(client("Victim")).value;
+        const ClientId z = dbg.attach(client("Last")).value;
+        kicker.dbg    = &dbg;
+        kicker.victim = v;
+        dbg.set_listener(k, &kicker);
+        dbg.set_listener(v, &victim_l);
+        dbg.set_listener(z, &last_l);
+        dbg.pump(jnext::dbg::PumpBudget{});            // prime
+        dbg.pause(z);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-01-23", "a client detached by ANOTHER listener mid-fan-out is not "
+                           "served by that fan-out, and the client after it still is",
+              k < v && v < z && victim_l.paused.empty() && last_l.paused.size() == 1,
+              "victim: " + victim_l.trail() + " last: " + last_l.trail());
+        dbg.detach(k);
+        dbg.detach(z);
+    }
+    {
+        // WHO RESUMED IT. A detach that releases the departing client's own pause
+        // resumes the machine through `run()`, attributed to the DEPARTING
+        // client: it is that client's pause being released, and `CLIENT_NONE`
+        // would tell every other client the backend resumed the machine on its
+        // own initiative. The departing client has no listener any more, so it is
+        // the OTHER client that sees the `Resumed{by}`.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        RecListener lb;
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.set_listener(b, &lb);
+        dbg.pump(jnext::dbg::PumpBudget{});            // prime, running
+        dbg.pause(a);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        dbg.detach(a);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("SES-01-22", "a detach that releases its own pause is pushed as "
+                           "Resumed{by: the departing client}",
+              lb.paused.size() == 1 && lb.resumed.size() == 1 && lb.resumed[0] == a,
+              lb.trail() + (lb.resumed.empty() ? std::string()
+                                              : " by=" + std::to_string(lb.resumed[0])));
         dbg.detach(b);
     }
     {
@@ -6957,6 +7043,18 @@ int main() {
               l.trail() + " matched=" +
                   (l.paused.empty() ? std::string("-")
                                     : std::to_string(l.paused[0].matched.size())));
+        // The rest of the push's header. Nothing has run since the push, so it
+        // must equal `state()` field for field — and the stop is at AFTER_CALL
+        // after real execution, so neither field can pass as an unset zero.
+        const RunState st = dbg.state();
+        check("SES-02-17", "and it carries WHERE and WHEN the machine stopped — pc "
+                           "and cycle equal state()'s, and are real values",
+              l.paused.size() == 1 && l.paused[0].pc == st.pc &&
+              st.pc == AFTER_CALL && l.paused[0].cycle == st.cycle && st.cycle != 0,
+              l.paused.empty() ? std::string("none")
+                               : "pc=" + hex(l.paused[0].pc) + " cycle=" +
+                                     std::to_string(l.paused[0].cycle) + " state.cycle=" +
+                                     std::to_string(st.cycle));
     }
 
     // ── SES-03 — services and pump() ───────────────────────────────────────
@@ -7054,7 +7152,59 @@ int main() {
         svc.connected = false;
         check("SES-03-15", "and drops again when the peer goes",
               !dbg.pump(jnext::dbg::PumpBudget{}).remote_attached);
+        {
+            // BOTH ARMS of `ServiceHint::paused`: SES-03-01 has the running one on
+            // a pump with no services; this is a pump that drained, paused and
+            // then running again.
+            svc.reset();
+            const bool while_paused = dbg.pump(jnext::dbg::PumpBudget{}).paused;
+            dbg.run(a);
+            svc.reset();
+            const bool while_running = dbg.pump(jnext::dbg::PumpBudget{}).paused;
+            dbg.pause(a);
+            check("SES-03-18", "ServiceHint::paused reports the machine: true while "
+                               "paused, false once it runs",
+                  while_paused && !while_running);
+        }
         dbg.remove_service(svc);
+    }
+    {
+        // "WHILE PAUSED" IS THE LIVE STATE, both arms. A command inside the drain
+        // can change it, and the drain must follow: a `pause` arriving while the
+        // machine RUNS lets the chain behind it be answered in the same pump (ZRCP
+        // `enter-cpu-step` and then its reads), and a `run` arriving while it is
+        // PAUSED gives the loop owner its frames back at once instead of holding
+        // the thread for the rest of the budget. B3's first cut read the state at
+        // ENTRY, which got both of these the other way round.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        FakeService svc;
+        svc.always_serviced = true;                    // the peer keeps talking
+        dbg.add_service(svc);
+        const ClientId a = dbg.attach(client("A")).value;
+        jnext::dbg::PumpBudget generous;
+        generous.max_wait_ms = 7;
+        generous.drain_ms    = 1;
+        generous.budget_ms   = 50;
+
+        svc.reset();
+        svc.on_call = [&]() { if (svc.calls.size() == 1) dbg.pause(a); };
+        dbg.pump(generous);
+        check("SES-03-20", "running at entry, a command that PAUSES the machine is "
+                           "followed by the rest of the chain in the same pump",
+              dbg.state().paused && svc.calls.size() > 1 && !svc.runaway,
+              "calls=" + std::to_string(svc.calls.size()));
+
+        svc.reset();
+        svc.on_call = [&]() { if (svc.calls.size() == 1) dbg.run(a); };
+        dbg.pump(generous);
+        check("SES-03-21", "paused at entry, a command that RESUMES it ends the drain "
+                           "there, although the peer is still talking",
+              !dbg.state().paused && svc.calls.size() == 1,
+              "calls=" + std::to_string(svc.calls.size()));
+        svc.on_call = nullptr;
+        dbg.remove_service(svc);
+        dbg.detach(a);
     }
     {
         // §5 — "`pump` is never called from inside `run_frame`, and the backend
@@ -7071,6 +7221,10 @@ int main() {
 
         int handler_calls = 0;
         bool refused_inside = false;
+        jnext::dbg::ServiceHint inside_hint;
+        // A connected peer, so the refusal's `remote_attached` has a TRUE answer
+        // to get right — with no peer, "false" would pass on a hard-coded false.
+        svc.connected = true;
         Subscription s;
         s.kind    = EventKind::Execute;
         s.filter.lo = AFTER_CALL; s.filter.hi = AFTER_CALL;
@@ -7078,10 +7232,9 @@ int main() {
         s.handler = [&](const DbgEvent&, Debugger& d) {
             ++handler_calls;
             svc.reset();
-            const auto hint = d.pump(jnext::dbg::PumpBudget{});
+            inside_hint = d.pump(jnext::dbg::PumpBudget{});
             // Refused: nothing serviced, nothing flushed.
             refused_inside = svc.calls.empty() && svc.flushes == 0;
-            (void)hint;
             return Action::Continue;
         };
         dbg.subscribe(a, s);
@@ -7091,6 +7244,10 @@ int main() {
                            "serviced and nothing flushed",
               handler_calls > 0 && refused_inside,
               "handler_calls=" + std::to_string(handler_calls));
+        check("SES-03-19", "and the refusal still reports the truth about the session: "
+                           "the peer IS connected, and the machine is running inside "
+                           "a Continue delivery",
+              handler_calls > 0 && inside_hint.remote_attached && !inside_hint.paused);
         dbg.remove_service(svc);
     }
     {
@@ -7278,6 +7435,32 @@ int main() {
               l.exits[0] == 3,
               std::string("paused=") + (emu.debug_state().paused() ? "1" : "0") +
                   " exits=" + std::to_string(l.exits.size()));
+    }
+
+    {
+        // THE THIRD PATH TO `apply_stop(from_event=true)`: `raise_host_event()`,
+        // which delivers directly (a `Host` event never enters the ring) and so
+        // pauses and applies the stop itself. A `Host` subscription's `Stop` is an
+        // `Action::Stop` like any other, and under `ExitNonZero` it must request
+        // the exit — the verb that RAISED the event is not the stop, the
+        // subscription is. The two rows above reach the gate and the drain only.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        RecListener l;
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.set_listener(a, &l);
+        dbg.set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero);
+        Subscription s;
+        s.kind   = EventKind::Host;
+        s.action = Action::Stop;
+        std::strcpy(s.filter.host_name, "marker");
+        dbg.subscribe(a, s);
+        const Result rr = dbg.raise_host_event(a, "marker");
+        check("SES-04-12", "a Host subscription's Stop requests the exit too — the "
+                           "third delivery path, raise_host_event()",
+              rr == Result::Ok && dbg.state().paused && l.exits.size() == 1 &&
+              l.exits[0] == 3,
+              "exits=" + std::to_string(l.exits.size()));
     }
 
     // ── SES-05 — live raster, and attached()'s two contributors ────────────
@@ -7973,6 +8156,22 @@ int main() {
         s.handler   = [&](const DbgEvent&, Debugger&) { ++hits; return Action::Continue; };
         dbg.subscribe(a, s);
 
+        // And the §4.3 `Reset` EVENT, which rule 5 owes the guest path exactly as
+        // rule 4 owes the verb: a script waiting on `Reset{Hard}` must see a
+        // guest-initiated hard reset, not only a client's.
+        int       resets     = 0;
+        ResetKind reset_kind = ResetKind::Soft;
+        Subscription rs;
+        rs.kind               = EventKind::Reset;
+        rs.filter.reset_kind  = ResetKind::Any;
+        rs.action             = Action::Continue;
+        rs.handler = [&](const DbgEvent& ev, Debugger&) {
+            ++resets;
+            reset_kind = ev.reset_kind;
+            return Action::Continue;
+        };
+        dbg.subscribe(a, rs);
+
         // The loop owner does the boot ITSELF, exactly as the three flag polls do.
         emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
         check("CTL-12-20", "on_cold_boot_done() needs no registered driver — the boot "
@@ -7985,6 +8184,11 @@ int main() {
         emu.run_frame();
         check("CTL-12-22", "and the subscription fires again afterwards",
               hits > 0, "hits=" + std::to_string(hits));
+        check("CTL-12-36", "and a Reset subscription is delivered ONE Reset{Hard} for "
+                           "the guest-initiated boot",
+              resets == 1 && reset_kind == ResetKind::Hard,
+              "resets=" + std::to_string(resets) + " kind=" +
+                  std::to_string(static_cast<int>(reset_kind)));
     }
     {
         // CTL-15. The re-application is UNCONDITIONAL because the backend cannot
@@ -8031,6 +8235,52 @@ int main() {
         dbg.set_loop_driver(bad);
         check("CTL-15-06", "a load the driver could not apply is reported as unavailable",
               dbg.load(a, "nope.nex") == Result::RefusedUnavailable);
+    }
+    {
+        // "A PAUSED CALLER STAYS PAUSED, at the new PC" (CTL-15), over a driver
+        // that RECONSTRUCTS the machine — the only kind that can tell a re-applied
+        // pause from an untouched one, since a reconstruct always comes back
+        // running. CTL-15-03 is the in-place arm, where the pause was never at
+        // risk. Both directions, as for CTL-12-23/24.
+        for (int paused_before = 0; paused_before < 2; ++paused_before) {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            jnext::dbg::LoopDriver d;
+            d.load = [&](const std::string&) {
+                emulator_frontend_cold_boot(emu, emu.config(), std::string(),
+                                            ColdBootHooks{});
+                return true;
+            };
+            dbg.set_loop_driver(d);
+            if (paused_before) dbg.pause(a);
+            const Result r = dbg.load(a, "game.nex");
+            check(paused_before ? "CTL-15-09" : "CTL-15-10",
+                  paused_before
+                      ? "a PAUSED caller is still paused after a load that "
+                        "reconstructed the machine"
+                      : "and a RUNNING caller is still running — a load never "
+                        "pauses",
+                  r == Result::Ok && dbg.state().paused == (paused_before != 0),
+                  std::string("paused=") + (dbg.state().paused ? "1" : "0"));
+        }
+    }
+    {
+        // CTL-11's gate on `load()`: a load leaves the machine running or paused
+        // exactly like a reset does, and an unacknowledged corruption refuses
+        // every verb that makes the machine execute. The driver must not run.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        int loads = 0;
+        jnext::dbg::LoopDriver d;
+        d.load = [&](const std::string&) { ++loads; return true; };
+        dbg.set_loop_driver(d);
+        std::vector<uint8_t> torn(64, 0xAB);
+        dbg.load_state_bytes(1, torn.data(), torn.size());
+        check("CTL-15-11", "load() on an unacknowledged corrupt machine is refused, "
+                           "and does NOT run the driver",
+              dbg.load(1, "game.nex") == Result::RefusedCorrupt && loads == 0,
+              "loads=" + std::to_string(loads));
     }
 
     // ── R2 — the ctor/dtor publication pairing, as ONE invariant ───────────
