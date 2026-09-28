@@ -72,6 +72,10 @@
 // contract is what `~Emulator()` + placement-new does to a surviving
 // `Debugger`, and a fake that only re-ran `init()` would not do it.
 #include "platform/emulator_boot.h"
+// GH #276 B4 — CAP-04's rows compare the file with what the format's saver
+// produces for the same machine.
+#include "core/sna_saver.h"
+#include "core/szx_saver.h"
 
 #include <spdlog/sinks/ringbuffer_sink.h>
 
@@ -1488,6 +1492,133 @@ static void b4_input_rows() {
               std::string("reset=") + (r0 ? "1" : "0") + " load=" + (r1 ? "1" : "0") +
                   " guest=" + (r2 ? "1" : "0"));
     }
+}
+
+// ── CAP-04 — save_snapshot ──────────────────────────────────────────────────
+
+static std::vector<uint8_t> read_file(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)),
+                                std::istreambuf_iterator<char>());
+}
+
+static void b4_snapshot_rows() {
+    const std::string szx = "/tmp/jnext_b4_snap.szx";
+    const std::string sna = "/tmp/jnext_b4_snap.SNA";   // upper case: the match ignores case
+    const std::string jns = "/tmp/jnext_b4_snap.jns";
+    std::remove(szx.c_str()); std::remove(sna.c_str()); std::remove(jns.c_str());
+    {
+        // At a frame boundary: written at once, by extension, byte for byte what
+        // the format's saver produces for this machine.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        // Each expectation is taken IMMEDIATELY before its save, from the same
+        // machine: the comparison is "the verb wrote what the saver produces".
+        const std::vector<uint8_t> want_szx = SzxSaver::save(emu).data;
+        const Result r1 = dbg.save_snapshot(a, szx);
+        const std::vector<uint8_t> want_sna = SnaSaver::save(emu);
+        const Result r2 = dbg.save_snapshot(a, sna);
+        const Result r3 = dbg.save_snapshot(a, jns);
+        const std::vector<uint8_t> f_szx = read_file(szx), f_sna = read_file(sna),
+                                   f_jns = read_file(jns);
+        check("CAP-04-01", "save_snapshot() at a frame boundary writes the file at once, "
+                           "the format chosen by the extension: .szx is SzxSaver's bytes",
+              r1 == Result::Ok && !f_szx.empty() && f_szx == want_szx,
+              std::to_string(f_szx.size()) + " vs " + std::to_string(want_szx.size()) +
+                  " bytes");
+        check("CAP-04-02", "and .SNA (any case) is SnaSaver's 48K form",
+              r2 == Result::Ok && f_sna.size() == 49179 && f_sna == want_sna,
+              std::to_string(f_sna.size()) + " bytes");
+        check("CAP-04-03", "and .jns is the JNS container (Emulator::save_jns_file)",
+              r3 == Result::Ok && f_jns.size() > 64 && dbg.state().paused == false,
+              std::to_string(f_jns.size()) + " bytes, " + emu.last_jns_error());
+    }
+    {
+        // Mid-frame: the `--delayed-snapshot` rule — ALWAYS ADVANCE — through the
+        // one frame-boundary helper, so the advance is attributed and logged.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        RecListener l;
+        dbg.set_listener(a, &l);
+        stop_mid_frame_at_call(emu, dbg, a);
+        const bool mid = emu.frame_in_progress();
+        std::remove(szx.c_str());
+        const Result r = dbg.save_snapshot(a, szx);
+        const auto lines = mutate_lines(l);
+        check("CAP-04-04", "mid-frame it ADVANCES to the boundary (never refuses), logs "
+                           "the MUTATE clock line under save_snapshot, then writes",
+              mid && r == Result::Ok && !emu.frame_in_progress() && !read_file(szx).empty() &&
+                  !lines.empty() &&
+                  lines.back().find("MUTATE clock (save_snapshot advanced to the frame "
+                                    "boundary)") == 0,
+              lines.empty() ? std::string("no MUTATE line") : lines.back());
+    }
+    {
+        // Failures are REFUSALS with the reason logged at error, and write nothing:
+        // an unwritable path; a machine the format cannot represent (.sna and
+        // .szx of a Next); no path at all.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        RecListener l;
+        dbg.set_listener(a, &l);
+        const Result bad_dir = dbg.save_snapshot(a, "/nonexistent-dir/x/y.szx");
+        const bool logged = !l.logs.empty() && l.logs.back().first == jnext::dbg::LogLevel::Error;
+        const Result empty   = dbg.save_snapshot(a, "");
+        Emulator next; build(next, MachineType::ZXN_ISSUE2);
+        Debugger dn(next);
+        const ClientId b = dn.attach(client("B")).value;
+        std::remove(sna.c_str()); std::remove(szx.c_str());
+        const Result next_sna = dn.save_snapshot(b, sna);
+        const Result next_szx = dn.save_snapshot(b, szx);
+        check("CAP-04-05", "a failed write is RefusedUnavailable, logged at error: an "
+                           "unwritable path, no path, and a .sna / .szx of a machine "
+                           "those formats cannot hold (nothing is written)",
+              bad_dir == Result::RefusedUnavailable && logged &&
+                  empty == Result::RefusedUnavailable &&
+                  next_sna == Result::RefusedUnavailable &&
+                  next_szx == Result::RefusedUnavailable && read_file(sna).empty() &&
+                  read_file(szx).empty());
+    }
+    {
+        // Inside a delivery: at a TRUE boundary (a host event on a machine paused
+        // between frames) it saves; inside the frame edge it would have to
+        // advance, and is refused (§5) — nothing written.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        Result at_host = Result::Unsupported, at_edge = Result::Ok;
+        bool once = false;
+        Subscription h;
+        h.kind = EventKind::Host; h.action = Action::Continue;
+        std::strcpy(h.filter.host_name, "snap");
+        h.handler = [&](const DbgEvent&, Debugger& d) {
+            at_host = d.save_snapshot(a, szx);
+            return Action::Continue;
+        };
+        dbg.subscribe(a, h);
+        Subscription f;
+        f.kind = EventKind::Frame; f.filter.frame = 0; f.action = Action::Continue;
+        f.handler = [&](const DbgEvent&, Debugger& d) {
+            if (!once) { once = true; at_edge = d.save_snapshot(a, sna); }
+            return Action::Continue;
+        };
+        dbg.subscribe(a, f);
+        std::remove(szx.c_str()); std::remove(sna.c_str());
+        emu.run_frame();                  // the Frame handler, inside the edge
+        dbg.pause(a);
+        dbg.raise_host_event(a, "snap");  // a handler at a true boundary
+        check("CAP-04-06", "from a handler: saved at a true frame boundary, refused "
+                           "(Unsupported, nothing written) inside the frame edge, where "
+                           "it would have to advance",
+              once && at_edge == Result::Unsupported && read_file(sna).empty() &&
+                  at_host == Result::Ok && !read_file(szx).empty(),
+              std::string("edge=") + jnext::dbg::result_name(at_edge) +
+                  " host=" + jnext::dbg::result_name(at_host));
+    }
+    std::remove(szx.c_str()); std::remove(sna.c_str()); std::remove(jns.c_str());
 }
 
 int main() {
@@ -10435,6 +10566,14 @@ int main() {
              [](Emulator& e, Debugger& d, ClientId a, Ctx&) {
                  if (!e.frame_in_progress()) e.execute_single_instruction();
                  return d.bookmark_save(a, "m", jnext::dbg::SaveStateMode::AdvanceToBoundary); }},
+            // CAP-04 always advances when mid-frame (the --delayed-snapshot rule),
+            // so from a mid-frame handler it is refused like the other two saves.
+            {"REENT-33", "save_snapshot mid-frame", none,
+             [](Emulator& e, Debugger& d, ClientId a, Ctx&) {
+                 if (!e.frame_in_progress()) e.execute_single_instruction();
+                 const Result r = d.save_snapshot(a, "/tmp/jnext_b4_reent.sna");
+                 std::remove("/tmp/jnext_b4_reent.sna");
+                 return r; }},
         };
 
         // From a handler: the first time the AFTER_CALL gate delivers, call the
@@ -10814,6 +10953,7 @@ int main() {
     b4_capture_state_rows();
     b4_bookmark_rows();
     b4_input_rows();
+    b4_snapshot_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

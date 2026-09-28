@@ -1,5 +1,6 @@
 // ---------------------------------------------------------------------------
-// jnext::dbg::Debugger — §4.5 CAP-CAP: named state bookmarks (CAP-03).
+// jnext::dbg::Debugger — §4.5 CAP-CAP: named state bookmarks (CAP-03) and the
+// snapshot file (CAP-04).
 //
 // Work package B4 of epic #276. The other CAP-CAP verbs are elsewhere by what
 // they are: `ula_screen_dump` (CAP-02) is an inspection read in
@@ -23,6 +24,7 @@
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "core/snapshot_file.h"
 
 namespace jnext {
 namespace dbg {
@@ -157,6 +159,51 @@ std::vector<std::string> Debugger::bookmarks(ClientId cid) const {
     out.reserve(c->bookmarks.size());
     for (const Impl::Bookmark& b : c->bookmarks) out.push_back(b.name);
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// CAP-04 — `save_snapshot(path)`, "at the next frame boundary — the
+// `--delayed-snapshot` path".
+//
+// SYNCHRONOUS, AND IT ADVANCES. That path's rule is GH #27 S6's "ALWAYS
+// ADVANCE, NEVER REFUSE" (`HeadlessApp`, `MainWindow::on_save_snapshot()`): the
+// snapshot is taken at the frame boundary, running the frame in flight out to
+// it if the machine is mid-frame. So this is `reach_frame_boundary()` in
+// `AdvanceToBoundary` mode — the same rule, attribution and `MUTATE clock` line
+// as the other two save verbs, and the same §5 refusal of the ADVANCE from
+// inside a delivery (row REENT-33). At a boundary nothing advances and a
+// handler may save. Being synchronous, the verb's `Result` IS the outcome of the
+// write, which is what lets `--delayed-snapshot`'s non-zero exit on a failed
+// write be carried over unchanged when the frontend half re-expresses the flag.
+//
+// The format is the path's extension, through the ONE table
+// (`save_snapshot_file()`, `src/core/`).
+//
+// KNOWN, NOT FIXED HERE: a `.sna` of a 48K machine is not side-effect free.
+// `SnaSaver::save_48k()` pushes PC onto the LIVE stack (two bytes below SP,
+// "destructive to stack", `sna_saver.cpp`), exactly as it does for
+// `--delayed-snapshot`, the GUI's Save Snapshot and the RZX recorder's
+// embedded snapshot — which RELIES on it: the live machine then holds the
+// same bytes the embedded snapshot restores, so a recording and its replay do
+// not diverge. Making the saver write only its copy is therefore not a local
+// fix; reported in the B4 report for the owner.
+// ---------------------------------------------------------------------------
+
+Result Debugger::save_snapshot(ClientId by, const std::string& path) {
+    const Result at =
+        impl_->reach_frame_boundary(by, SaveStateMode::AdvanceToBoundary, "save_snapshot");
+    if (at != Result::Ok) return at;
+
+    std::string error;
+    size_t      bytes = 0;
+    if (!save_snapshot_file(impl_->emu, path, error, bytes)) {
+        impl_->self->log(by, LogLevel::Error,
+                         "SNAPSHOT \"" + path + "\" not written: " + error);
+        return Result::RefusedUnavailable;
+    }
+    impl_->self->log(by, LogLevel::Info,
+                     "SNAPSHOT \"" + path + "\" saved (" + std::to_string(bytes) + " bytes)");
+    return Result::Ok;
 }
 
 }  // namespace dbg
