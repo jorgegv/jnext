@@ -2285,10 +2285,20 @@ after a guest NR 0x02 reset:</p>
    were last told, so paused-to-paused pushes nothing and paused-to-running
    pushes <code>Resumed</code>.</li>
 </ol>
-<p><code>reset()</code> (either kind) and <code>load()</code> refuse with <code>Unsupported</code> from inside an
-event delivery: a handler runs with <code>run_frame()</code> — or the pre-instruction gate
-inside it — still on the stack, and those verbs would destroy or re-<code>init()</code> the
-machine under it and clear the ring the drain is walking.</p>
+<p><strong>No verb that drives the machine runs from inside a delivery.</strong> A handler runs
+with <code>run_frame()</code> — or the pre-instruction gate inside it — still on the stack,
+and the drain walking the latch ring and building the boundary's <code>matched[]</code>. So
+every verb that would EXECUTE the machine (the step verbs, a <code>save_state_bytes()</code>
+that has to advance to a frame boundary), CHANGE ITS RUN STATE (<code>pause</code>, <code>run</code>,
+<code>step_out</code>, the <code>run_to</code> family — each re-arms the stop evidence, which would
+rewrite the very stop the handler is part of), REWIND or RESTORE it (<code>step_back</code>,
+<code>rewind_to_frame</code>, <code>load_state_bytes</code>), or RESET or REPLACE it (<code>reset</code> of either
+kind, <code>load</code>, <code>on_cold_boot_done</code>, and the one NextREG write that resets —
+NR 0x02 with the soft bit, through <code>nextreg_write</code> or <code>port_out</code>) refuses there
+with <code>Unsupported</code>, through one helper. A handler stops the machine by returning
+<code>Action::Stop</code>. Mutations stay allowed (§4.2a), <code>raise_host_event</code> is designed to
+nest, and <code>detach</code> is a session verb — its release of the departing client's own
+pause goes through <code>run()</code>'s body rather than the refused public verb.</p>
 <p>Then the <code>Reset{Hard}</code> event is latched (after the ring discard, or it would go
 with the stale entries) and <code>Reset{Hard}</code> is pushed to every listener before the
 verb returns.</p>

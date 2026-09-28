@@ -506,10 +506,20 @@ after a guest NR 0x02 reset:
    were last told, so paused-to-paused pushes nothing and paused-to-running
    pushes `Resumed`.
 
-`reset()` (either kind) and `load()` refuse with `Unsupported` from inside an
-event delivery: a handler runs with `run_frame()` — or the pre-instruction gate
-inside it — still on the stack, and those verbs would destroy or re-`init()` the
-machine under it and clear the ring the drain is walking.
+**No verb that drives the machine runs from inside a delivery.** A handler runs
+with `run_frame()` — or the pre-instruction gate inside it — still on the stack,
+and the drain walking the latch ring and building the boundary's `matched[]`. So
+every verb that would EXECUTE the machine (the step verbs, a `save_state_bytes()`
+that has to advance to a frame boundary), CHANGE ITS RUN STATE (`pause`, `run`,
+`step_out`, the `run_to` family — each re-arms the stop evidence, which would
+rewrite the very stop the handler is part of), REWIND or RESTORE it (`step_back`,
+`rewind_to_frame`, `load_state_bytes`), or RESET or REPLACE it (`reset` of either
+kind, `load`, `on_cold_boot_done`, and the one NextREG write that resets —
+NR 0x02 with the soft bit, through `nextreg_write` or `port_out`) refuses there
+with `Unsupported`, through one helper. A handler stops the machine by returning
+`Action::Stop`. Mutations stay allowed (§4.2a), `raise_host_event` is designed to
+nest, and `detach` is a session verb — its release of the departing client's own
+pause goes through `run()`'s body rather than the refused public verb.
 
 Then the `Reset{Hard}` event is latched (after the ring discard, or it would go
 with the stale entries) and `Reset{Hard}` is pushed to every listener before the

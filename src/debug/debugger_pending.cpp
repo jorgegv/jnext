@@ -41,6 +41,15 @@
 //        bookmark_save, bookmark_restore, bookmarks, save_snapshot,
 //        coverage_enable, coverage_enabled, coverage_clear, coverage
 //
+//        B4 INHERITS §5's rule with them (B3 fix round 1b): a verb that would
+//        EXECUTE, REWIND, RESTORE, RESET or REPLACE the machine refuses from
+//        inside an event delivery through `Impl::refuse_inside_delivery()`,
+//        with `Unsupported`, before anything else. Of these, `bookmark_restore`
+//        restores the machine; `bookmark_save` and `save_snapshot` advance it
+//        when a frame is in progress (the `save_state_bytes()` pattern: guard the
+//        ADVANCE arm only, so a handler at a frame boundary can still save).
+//        Add each one's REENT row and its entry in the REENT-30 loop.
+//
 //   UNASSIGNED — 1 definition
 //        render_layer (INS-14). Not B2's, B3's or B4's by §10.1, and not "over
 //        an existing primitive" either: the eight views exist only inside
