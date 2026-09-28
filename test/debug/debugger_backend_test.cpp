@@ -2140,10 +2140,9 @@ static void b4_screenshot_rows() {
     rm();
     {
         // PER CLIENT: A's head with B's capture behind it. Flushing B drops only
-        // B's (A's mask stays armed — the head did not change); flushing A drops
-        // A's and B's... no: B's was already gone, so re-queue B behind A, flush
-        // A, and B becomes the head, its mask armed, and is taken at the next
-        // frame. A failure of A's is not reported to B.
+        // B's (A's mask stays armed — A is still the head). Then B queues again
+        // behind A; flushing A drops only A's, B becomes the head, its mask armed,
+        // and is taken at the next frame. A failure of A's is not reported to B.
         using jnext::dbg::PumpBudget;
         Emulator emu; build(emu);
         Debugger dbg(emu);

@@ -291,8 +291,7 @@ void Debugger::Impl::service_captures() {
 // render bit), which `screenshot()`, equally allowed from a handler, does too.
 // Row CAP-01-16.
 Result Debugger::flush_captures(ClientId by) {
-    bool       dropped    = false;
-    const bool head_is_by = !impl_->captures.empty() && impl_->captures.front().by == by;
+    bool dropped = false;
     for (auto it = impl_->captures.begin(); it != impl_->captures.end();) {
         if (it->by != by) { ++it; continue; }
         impl_->self->log(by, LogLevel::Error,
@@ -301,9 +300,12 @@ Result Debugger::flush_captures(ClientId by) {
         it      = impl_->captures.erase(it);
         dropped = true;
     }
-    // Only a change of HEAD touches the machine: a drop behind another client's
-    // head leaves that head's mask armed as it was.
-    if (dropped && head_is_by) impl_->arm_capture_head();
+    // A drop re-publishes the queue's head: the next capture's mask, or LAYER_ALL
+    // and no forced render once the queue is empty. Unconditional on a drop —
+    // when the head did not change it re-arms the same mask it already had, and
+    // a guard for that case was a test no row could see (mutation F07); a mask
+    // someone else set meanwhile is re-armed at the next pump anyway (CAP-01-11).
+    if (dropped) impl_->arm_capture_head();
 
     size_t failed = 0;
     auto&  fs     = impl_->capture_failures;
