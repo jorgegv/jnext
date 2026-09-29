@@ -66,19 +66,39 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # rather than ours: per src/core/sdcard_provisioner.h, when the patched image is
 # absent but the raw is present, jnext re-patches from the raw ONLY if the raw's
 # SHA256 matches its .sha256 sidecar, and forces a full re-download otherwise.
+#
+# THE RECIPE (GH #284). The witness is written when the image is derived, so a
+# hash gate alone can never notice that jnext now derives a DIFFERENT image:
+# a master made by the old recipe still matches its own witness, and every row
+# that needs the new content would fail on every existing dev box and CI cache.
+# jnext therefore records the recipe that made the image in "<image>.recipe"
+# (sdcard::kFixedImageRecipe), and the gate re-derives when that number is not
+# the one this tree builds (sd_expected_recipe) — including when the sidecar is
+# missing, as it is on every image made before recipes existed. After a
+# re-derive the sidecar must carry the expected number, or the binary is not
+# the one this tree describes and the row FAILS rather than bless its output.
+#
+# This is the TEST master only. jnext never rebuilds a user's image for being
+# old: that image holds their own saved files (PROV-RECIPE-03).
 echo -e "${BOLD}[sdcard-provision] Ensuring a pristine NextZXOS SD image...${RESET}"
 SD_DIR="$SD_MASTER_DIR"
 FALLBACK_SD_IMAGE="$SD_MASTER_IMAGE"
 SD_WITNESS="$SD_MASTER_WITNESS"
+SD_RECIPE="$SD_MASTER_RECIPE"
+sd_want_recipe=$(sd_expected_recipe) || sd_want_recipe=""
 mkdir -p "$SD_DIR"
 
 sd_hash() { sha256sum "$1" 2>/dev/null | awk '{print $1}'; }
+# The recipe number jnext recorded for the master, "" when it recorded none.
+# Always succeeds: it is used in assignments, where a failing substitution
+# would trip `set -e` on exactly the images this exists to catch.
+sd_recipe() { { head -n1 "$SD_RECIPE" 2>/dev/null || true; } | tr -d '[:space:]'; }
 
 sd_rederive() {
     # The witness rm is belt-and-braces: sd_rederive rewrites it on every
     # success anyway. It matters only on the FAILURE path, where it stops a
     # witness describing an image that no longer exists from surviving.
-    rm -f "$FALLBACK_SD_IMAGE" "$SD_WITNESS"
+    rm -f "$FALLBACK_SD_IMAGE" "$SD_WITNESS" "$SD_RECIPE"
     # JNEXT_CONFIG_DIR is pinned to the MASTER's directory for this one
     # invocation. It points at the per-run clone dir everywhere else, and the
     # provisioner honours it (src/core/sdcard_provisioner.cpp) — without the
@@ -87,6 +107,10 @@ sd_rederive() {
     JNEXT_CONFIG_DIR="$HOME/.jnext" \
         "$JNEXT" --headless --sdcard-download-confirm --delayed-automatic-exit 2 >/dev/null 2>&1 || true
     [[ -f "$FALLBACK_SD_IMAGE" ]] || return 1
+    # No witness for an image of the wrong recipe: the next run re-derives it
+    # instead of adopting it.
+    sd_got_recipe=$(sd_recipe)
+    [[ "$sd_got_recipe" == "$sd_want_recipe" ]] || return 2
     printf '%s  %s\n' "$(sd_hash "$FALLBACK_SD_IMAGE")" "$(basename "$FALLBACK_SD_IMAGE")" > "$SD_WITNESS"
 }
 
@@ -94,14 +118,27 @@ sd_rederive() {
 # suite. flock(1) is in util-linux, present on every Linux CI image and dev box;
 # if it is somehow absent, fall through unlocked rather than refuse to test.
 sd_state=""
+sd_old_recipe=""
+# sd_derive_as <state> — re-derive, and name the outcome: <state> on success,
+# "wrongrecipe" when jnext derived an image of another recipe, else "failed".
+sd_derive_as() {
+    local rc=0
+    sd_rederive || rc=$?
+    case $rc in 0) sd_state=$1 ;; 2) sd_state=wrongrecipe ;; *) sd_state=failed ;; esac
+}
 {
     flock 9 2>/dev/null || true
-    if [[ ! -f "$FALLBACK_SD_IMAGE" || ! -f "$SD_WITNESS" ]]; then
-        sd_rederive && sd_state="provisioned" || sd_state="failed"
+    if [[ -z "$sd_want_recipe" ]]; then
+        sd_state="norecipe"
+    elif [[ ! -f "$FALLBACK_SD_IMAGE" || ! -f "$SD_WITNESS" ]]; then
+        sd_derive_as provisioned
+    elif [[ "$(sd_recipe)" != "$sd_want_recipe" ]]; then
+        sd_old_recipe=$(sd_recipe)
+        sd_derive_as recipe
     elif [[ "$(sd_hash "$FALLBACK_SD_IMAGE")" == "$(awk '{print $1}' "$SD_WITNESS")" ]]; then
         sd_state="pristine"
     else
-        sd_rederive && sd_state="repaired" || sd_state="failed"
+        sd_derive_as repaired
     fi
 } 9>"$SD_DIR/.provision.lock"
 
@@ -121,6 +158,9 @@ case "$sd_state" in
     pristine)    sd_verdict=pass; sd_text=": unchanged since it was derived" ;;
     provisioned) sd_verdict=pass; sd_text=": derived $FALLBACK_SD_IMAGE" ;;
     repaired)    sd_verdict=pass; sd_text=": WAS MODIFIED — re-derived from the verified distribution image" ;;
+    recipe)      sd_verdict=pass; sd_text=": made by image recipe ${sd_old_recipe:-(none recorded)} — re-derived with recipe $sd_want_recipe" ;;
+    wrongrecipe) sd_verdict=fail; sd_text=": jnext derived an image of recipe '${sd_got_recipe:-}', expected '$sd_want_recipe' — $JNEXT is not built from this tree" ;;
+    norecipe)    sd_verdict=fail; sd_text=": cannot read kFixedImageRecipe from src/core/sdcard_provisioner.cpp" ;;
     *)           sd_verdict=fail; sd_text=": provisioning failed — $FALLBACK_SD_IMAGE was not produced" ;;
 esac
 

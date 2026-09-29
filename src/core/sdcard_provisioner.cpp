@@ -22,6 +22,10 @@ const char* const kDistroUrl =
     "https://www.specnext.com/distro/24.11/sn-emulator-24.11.zip";
 const char* const kImageFileName = "cspect-next-1gb.img";
 const char* const kFixedImageFileName = "cspect-next-1gb-fixed.img";
+const int kFixedImageRecipe = 2;
+const char* const kFixedImageRecipeSuffix = ".recipe";
+const char* const kZx81Rom16kSha256 =
+    "c294e4b60a0eba85c02a3d8b37f77de6c4516d873682dcf333813bd392d82aac";
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -380,9 +384,43 @@ bool unzip_entry(const std::string& zip_path, const std::string& entry_basename,
 }
 
 // ---------------------------------------------------------------------------
+// GH #284: the 16 KB zx81.rom
+// ---------------------------------------------------------------------------
+// The 24.11 distribution's MACHINES/NEXT/menu.def declares the ZX81 entry as
+// mode 1 (128K), which the firmware loads as TWO 16 KB pages (tbblue
+// src/firmware/app/src/boot.c, load_roms: `default: i = 2`). But the image
+// ships zx81.rom as a single 16 KB page (Farrow's v3.13, tbblue 751d0b31), so
+// loadFile's second f_read hits end of file, returns fewer bytes than asked,
+// and the boot menu's ZX81 entry stops on "error reading!" — on a real Next
+// with this card too. Upstream fixed the file after 24.11, in tbblue e2df8e15
+// ("Double emuROM, so it loads in personality and in cartmode"): the new file
+// is the same 16 KB twice. No distribution ships it yet, so this applies the
+// same change, built from the image's own bytes (no ROM content in jnext).
+//
+// Guarded by the FULL SHA-256 of that exact file: a user's own zx81.rom, a
+// future distribution's 32 KB file, or any other size is left alone.
+bool double_known_zx81_rom(Fat32Tree& tree, const std::string& known_sha256) {
+    auto find = [](std::vector<Fat32Node>& level, const char* name,
+                   bool is_dir) -> Fat32Node* {
+        for (auto& n : level)
+            if (n.is_dir == is_dir && ieq(n.name, name)) return &n;
+        return nullptr;
+    };
+    Fat32Node* machines = find(tree.root, "MACHINES", true);
+    Fat32Node* next = machines ? find(machines->children, "NEXT", true) : nullptr;
+    Fat32Node* rom = next ? find(next->children, "zx81.rom", false) : nullptr;
+    if (!rom || rom->data.size() != 16384 || sha256_hex(rom->data) != known_sha256)
+        return false;
+    const std::vector<uint8_t> page = rom->data; // insert() may not read *this
+    rom->data.insert(rom->data.end(), page.begin(), page.end());
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // FAT32 patch orchestration
 // ---------------------------------------------------------------------------
-bool patch_image_fat32(const std::string& image_path, std::string& err) {
+bool patch_image_fat32(const std::string& image_path, std::string& err,
+                       const std::string& zx81_known_sha256) {
     uint32_t part_lba = 0;
     if (!fat32_find_partition(image_path, part_lba)) {
         err = "no FAT32 partition found in " + image_path;
@@ -411,6 +449,14 @@ bool patch_image_fat32(const std::string& image_path, std::string& err) {
 
     // Inject the default config.ini.
     fat32_tree_upsert(tree, "MACHINES/NEXT/config.ini", default_config_ini());
+
+    // GH #284: make the known 16 KB zx81.rom the 32 KB file the firmware boot
+    // menu needs (see double_known_zx81_rom above).
+    if (double_known_zx81_rom(tree, zx81_known_sha256)) {
+        Log::emulator()->info(
+            "sdcard: doubled the 16 KB /MACHINES/NEXT/zx81.rom to 32 KB so the "
+            "firmware boot menu can load the ZX81 entry (GH #284)");
+    }
 
     // Reformat the partition in place to a spec-valid FAT32 with 8 KB clusters
     // (via vendored ChaN FatFs f_mkfs + f_write) and re-emit the whole tree.
@@ -557,9 +603,21 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     // on a worker thread; the CLI prints a one-line message; tests (no busy)
     // run the work inline unchanged.
     CopyFn copy = opts.copy ? opts.copy : CopyFn(default_copy_file);
+    // The recipe sidecar says which kFixedImageRecipe produced the fixed
+    // image. Removed first, so a failed derive never leaves one describing an
+    // image that no longer exists; written last, only after the patch worked.
+    // Best effort, like the raw's .sha256 above: a missing sidecar only means
+    // "recipe unknown", never an unusable image.
+    const std::string recipe_path = fixed + kFixedImageRecipeSuffix;
     auto do_fix = [&]() -> bool {
+        std::remove(recipe_path.c_str());
         if (!copy(raw, fixed, err)) { err = "cannot produce fixed image: " + err; return false; }
         if (!patch_image_fat32(fixed, err)) { err = "patch failed: " + err;       return false; }
+        std::ofstream rf(recipe_path, std::ios::trunc);
+        rf << kFixedImageRecipe << "\n";
+        rf.close();
+        if (!rf)
+            Log::emulator()->warn("sdcard: cannot write recipe sidecar {}", recipe_path);
         return true;
     };
     const bool fixed_ok = opts.busy ? opts.busy("Fixing downloaded image", do_fix)

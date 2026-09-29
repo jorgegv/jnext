@@ -254,11 +254,15 @@ jobs:
           # kDistroUrl in src/core/sdcard_provisioner.cpp is versioned
           # (.../distro/24.11/...) — bump this key if that constant changes,
           # so a stale cached image is never reused silently.
+          # -recipe2 is kFixedImageRecipe in the same file (GH #284). The
+          # regression suite's gate re-derives a master of an older recipe on
+          # its own, but a cache entry is never re-saved under a key that hit,
+          # so without a bump every run would re-derive the same stale entry.
           # -fedora44 namespaces the container era: entries saved on a plain
           # ubuntu runner carry /home/runner paths and are useless (and
           # misleading) here. Bump with the container image, not just with
           # kDistroUrl.
-          key: sdcard-image-distro-24.11-fedora44
+          key: sdcard-image-distro-24.11-recipe2-fedora44
 
       # Mirrors the merge-to-main protocol in CLAUDE.md: `make clean` then
       # `make gui-release` first, so regression.sh (which prefers
