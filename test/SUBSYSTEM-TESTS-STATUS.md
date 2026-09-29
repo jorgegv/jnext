@@ -93,7 +93,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Resume Guard          |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | src/debug Qt-free lint (GH #278) |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Step Out     |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Backend (GH #276) |     1276 |     1276 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Backend (GH #276) |     1295 |     1295 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger I/O Watchpoints |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger BP Enable/Disable |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -127,7 +127,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Menus        |       46 |       46 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Verbs (GH #278) |       52 |       52 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **10750**| **10750**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Debugger Verbs (GH #278) |       54 |       54 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **10771**| **10771**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
