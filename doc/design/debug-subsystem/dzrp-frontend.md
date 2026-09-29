@@ -100,10 +100,10 @@ whole, so `done` here means the sub-item is approved, not merged.
 
 | WP | Branch `gh12-dzrp` (issue #12) | Status |
 |---|---|---|
-| **WP-1** | framing over the shared transport (T) | in review |
-| **WP-2** | session / registers / memory | in review |
-| **WP-3** | breakpoints / continue / notify | todo |
-| **WP-4** | tier 2 (the commands only an emulator can serve) | todo |
+| **WP-1** | framing over the shared transport (T) | **done** |
+| **WP-2** | session / registers / memory | **done** |
+| **WP-3** | breakpoints / continue / notify | in progress |
+| **WP-4** | tier 2 (the commands only an emulator can serve) | in progress |
 | **WP-5** | loop owners + CLI | todo |
 | **WP-6** | validation — **including the `tools/cspect_dzrp/cspect_dzrp.py` H1-H3 fixes** (owner decision §1.3 item 25: part of this package, not a separate change), and the V-LAT paused-cadence measurement (§11 item 6) | todo |
 | **WP-7** | docs | todo |
@@ -340,7 +340,7 @@ CAP ids are `backend.md` v1.
 | 22 | `CMD_EXEC_ASM` | console | UNS (deferred) | — | "Executed in the debugger context … does not change anything in the debugged program" (spec:702) needs a scratch execution context jnext does not have. Reply seq only + warn log; DeZog's console prints `error: undefined` — visible, not silent. Reconsider only if a client other than the console asks. |
 | 23 | `CMD_INTERRUPT_ON_OFF` | load | T1 | CAP-INS-01 | IFF1 = IFF2 = flag (spec:697-708; sent on every .sna/.z80 load, remote:1649,1705; up `:1700,1759`). |
 | 24 | `CMD_GET_SUPPORTED_COMMANDS` | dzrp, cspect, zxnext (3.8, right after `INIT`) | T1 | — (adapter-only) | 2.2.0, MUST (spec:710-731). Reply: 7 bytes LE, bit *n* = command *n* served. **Set:** 1 2 3 4 6 7 8 9 10 11 15 16 17 18 19 20 21 23 24 25 26 39 40 41 42 43 50 51 (28 bits) — **on the wire: `DE 8F BF 07 80 0F 0C`** (the unit row's expected bytes). **Clear:** 5 and 12 (removed in 2.2.0, still served for older clients), 13 14 22 (unsupported). Clearing 5/12 is safe because 3.8's `DZRP` enum no longer contains them (up `dzrpremote.ts:41,48` commented out), so `disableUnsupportedCommands` (up `:147-160`, which throws "Methode … does not exist" for an enum entry without a sender) never iterates them (N-6). DeZog turns every other clear bit into a client-side thrower, so an unsupported feature fails with a named error instead of a timeout — this is the 2.2 form of "reported, never silent". The pairs 40/41, 42/43, 50/51 are advertised together (up `:209-216` refuses an inconsistent field). DeZog's own gating of `-state` is swapped (up `:197-206`: `stateSave` disabled when 51 is clear, `stateRestore` when 50 is) — harmless here since both are set (N-7). |
-| 25 | `CMD_READ_BANK_MEM` | dzrp, cspect (3.8: bank-qualified memory views, `-md … bank=`) | T1 | CAP-INS-02 `Page{bank}` peek; CAP-INS-03 `SlotInfo.space` → CAP-INS-02 `Rom{index}` for 0xFF | Cmd: bank, offset u16, size u16 (spec:735-754; DeZog splits 64K into 2×32K, up `:853-875`). bank 0..223 → `peek(Page{bank}, offset, size)`; **offset + size must stay inside 8 KB** — bytes past the page are not served (reply the bytes that fit; a wholly out-of-range request gets an empty reply + warn). bank 0xFF (3.8's ROM id, one 16 KB bank spanning both slots — `zxnextmemorymodels.ts:64-104`, `bankSize: 0x4000`, slot 1 `bankOffset: 0x2000`) → offset 0x0000-0x1FFF is read through `SlotInfo(0).space`, 0x2000-0x3FFF through `SlotInfo(1).space` (settled by REQ-dzrp-12 / REQ-qt-31: `Rom{index}` names a **16 KB ROM image** 0..3, addresses 0..0x3FFF, read-only — on a ROM-in-SRAM machine SRAM pages 2·index / 2·index+1; a ROM slot's `SlotInfo.space` is `Rom{effective_page >> 1}` with `space_offset = (effective_page & 1)·0x2000` selecting its 8 KB half, so the adapter reads `peek(space, space_offset + (offset & 0x1FFF), n)` and composes nothing itself), **only while that slot `is_rom`**; when RAM is paged at 0x0000 (NR 0x50 ≠ 0xFF, or port 0xEFF7 bit 3, `mmu.cpp:536-538`) the ROM select `sel` is derived from CAP-INS-03 `paging_ports()` (7FFD b4 \| 1FFD b2) and the read is `peek(Rom{sel}, offset, n)`; if even that is unavailable the reply is empty + warn (N-1). |
+| 25 | `CMD_READ_BANK_MEM` | dzrp, cspect (3.8: bank-qualified memory views, `-md … bank=`) | T1 | CAP-INS-02 `Page{bank}` peek; CAP-INS-03 `SlotInfo.space` → CAP-INS-02 `Rom{index}` for 0xFF | Cmd: bank, offset u16, size u16 (spec:735-754; DeZog splits 64K into 2×32K, up `:853-875`). bank 0..223 → `peek(Page{bank}, offset, size)`; **offset + size must stay inside 8 KB** — bytes past the page are not served (reply the bytes that fit; a wholly out-of-range request gets an empty reply + warn). bank 0xFF (3.8's ROM id, one 16 KB bank spanning both slots — `zxnextmemorymodels.ts:64-104`, `bankSize: 0x4000`, slot 1 `bankOffset: 0x2000`) → offset 0x0000-0x1FFF is read through `SlotInfo(0).space`, 0x2000-0x3FFF through `SlotInfo(1).space` (settled by REQ-dzrp-12 / REQ-qt-31: `Rom{index}` names a **16 KB ROM image** 0..3, addresses 0..0x3FFF, read-only — on a ROM-in-SRAM machine SRAM pages 2·index / 2·index+1; a ROM slot's `SlotInfo.space` is `Rom{effective_page >> 1}` with `space_offset = (effective_page & 1)·0x2000` selecting its 8 KB half, so the adapter reads `peek(space, space_offset + (offset & 0x1FFF), n)` and composes nothing itself), **while that slot `is_rom`**; when RAM is paged at 0x0000 (NR 0x50 ≠ 0xFF, or port 0xEFF7 bit 3, `mmu.cpp:536-538`) the half is read through CAP-INS-03 **`rom_select()`** — the image legacy paging selects (VHDL `sram_rom`: machine type, 7FFD b4 / 1FFD b2 and the NR 0x8C locks folded by the backend) — as `peek(rom_select(), half·0x2000 + (offset & 0x1FFF), n)` (N-1; v1.8, §13.1 — the first formula here, "`paging_ports()` 7FFD b4 \| 1FFD b2", was wrong on the Next and ignored the locks). |
 | 26 | `CMD_WRITE_BANK_MEM` | load (3.8), dzrp console | T1 | CAP-INS-02 `Page{bank}` poke | Cmd: bank, offset u16, data (spec:756-775). Same range rule; ROM bank → nothing written, warn log (the command has no error field, unlike the removed `WRITE_BANK`). Loaders send offset 0 with 8192 bytes (up `dzrpremote.ts:1660-1661`). |
 | 39 | `CMD_ENABLE_BREAK_ON_INTERRUPT` | **none in 3.8.0-rc7** — the sender `sendDzrpCmdEnableBreakOnInterrupt` (up `dzrptransportremote.ts:1132-1135`) has no caller; the UI (`exceptionbreakpoints.ts:86-88, 299-301`) calls `Remote.enableBreakOnInterrupt`, which no DZRP class overrides and which returns `false` ("Only supported by zsim", `remotebase.ts:1115-1117`), so enabling the option prints "Break on interrupt: disabled." and puts nothing on the wire. Reachable today only from a foreign client (`cspect_dzrp.py`) | T1 | CAP-EVT `IntAck` subscription, `Stop`, owner=client | 2.2.0 (spec:776-789). Served and **advertised** (bit 39): the spec defines it, a later DeZog will wire it, and advertising costs only that 3.8 shows the "Break on Interrupt" exception option (`funcSupported`, up `:194`) — which then does nothing, DeZog's defect, not ours. 1 → subscribe `IntAck{Stop}` (the accepted-maskable-interrupt seam, `backend.md` §4.3, `emulator.cpp:1114`); 0 → unsubscribe. NMI is not an "interrupt" here. Stop → `NTF_PAUSE` reason 255, address PC, string `"Break on interrupt."` (§3.3). No DeZog-coverage claim in the man page (R-2). |
 | 40 | `CMD_ADD_BREAKPOINT` | cspect, dzrp | T1 | CAP-EVT Execute[a,a] Stop, owner=client, **no predicate** | §3.1. Cmd: addr u16, bank+1, condition\0 (spec:738-743). The condition string is **ignored** (decision 2). Reply u16 id; 0 = refused (spec:750; DeZog marks the bp unverified, remote:1378-1379). |
@@ -655,10 +655,12 @@ slot 1 (`zxnextmemorymodels.ts:64-104`). Each half is read through the
 pages 2·index / 2·index+1 — outside `Page{}`'s NR number space
 (`mmu.cpp:396-402, 546-547`; `emulator.cpp:6829` `set_rom_in_sram(true)`) —
 so the adapter composes no index of its own (R-1; REQ-dzrp-12 ACCEPTED, the
-same rule REQ-qt-31 settled). The half is served only while that slot
-`is_rom`; with RAM paged there the ROM select comes from `paging_ports()`
-(7FFD bit 4, 1FFD bit 2 → `Rom{sel}` at the DZRP offset), else empty + warn
-(N-1). Which ROM a bank-qualified DeZog view *means* is pinned by V-BANKMEM
+same rule REQ-qt-31 settled). The half is read through that slot's space
+while the slot `is_rom`; with RAM paged there it is read through CAP-INS-03
+`rom_select()` — the `Rom{}` image legacy paging selects, derived by the
+backend from the machine type, 7FFD bit 4 / 1FFD bit 2 and the NR 0x8C locks
+— at offset `half·0x2000` (N-1; v1.8 — `rom_select()` was added to the frozen
+header by owner approval, §13.1). Which ROM a bank-qualified DeZog view *means* is pinned by V-BANKMEM
 (§7.1). `WRITE_BANK_MEM` to 0xFE/0xFF writes nothing (warn log;
 `poke(Rom)` is `RefusedReadOnly`). jnext's *physical*
 store index differs (`to_sram_page` adds 0x20 in Next mode, `mmu.h:1387-1390`;
@@ -1005,8 +1007,11 @@ checks "unsupported" is said exactly for the clear bits, legacy 5/12 excepted).
 
 ### 12.2 Deviations and additions, each with its reason
 
-1. **`CMD_READ_BANK_MEM` bank 0xFF with RAM paged into a ROM slot: no
-   paging-derived fallback — empty reply + warn** (§2 row 25 / §5.2 / N-1 say
+1. **RETIRED in milestone 2 (§13.1)** — bank 0xFF with RAM paged at 0x0000
+   is now served through the new CAP-INS-03 `rom_select()`; §2 row 25 and
+   §5.2 say so. Kept as the record of why the design's formula was replaced:
+   **`CMD_READ_BANK_MEM` bank 0xFF with RAM paged into a ROM slot: no
+   paging-derived fallback — empty reply + warn** (§2 row 25 / §5.2 / N-1 said
    derive `sel` from `paging_ports()` as "7FFD b4 | 1FFD b2"). The ROM select
    is machine-specific — `Mmu::current_sram_rom()`: 48K → 0; +3 → two bits
    *with the NR 0x8C alt-ROM locks*; 128K and the **Next → one bit (7FFD
@@ -1106,7 +1111,8 @@ Implementation files only — no frozen header changed.
   16 MiB foreign `CMD_WRITE_STATE` takes ≥16 ticks. DeZog's is a token (§6);
   WP-4/WP-6 may raise `max_input` for DZRP if that is ever measured to
   matter.
-- **Backend gap (frozen header → owner): no query for the ROM a RAM-paged ROM
+- **CLOSED in milestone 2 (§13.1)** — `rom_select()` was added, owner-approved.
+  **Backend gap (frozen header → owner): no query for the ROM a RAM-paged ROM
   slot would serve.** It is what bank 0xFF needs when RAM is paged at 0x0000
   (12.2 item 1). Proposal: one INS-03 read, e.g. `uint8_t rom_select()
   const` (the `Rom{}` index legacy paging selects, `Mmu::current_sram_rom()`

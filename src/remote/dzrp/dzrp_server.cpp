@@ -475,10 +475,11 @@ void DzrpServer::cmd_write_bank(const Command& cmd) {
 // CMD_READ_BANK_MEM (25): bank, offset u16, size u16. Banks 0..223 read the
 // PHYSICAL page, regardless of any overlay; only bytes inside the 8 KB page
 // are served. Bank 0xFF is DeZog 3.8's 16 KB ROM bank: offset 0x0000-0x1FFF
-// is slot 0's ROM half, 0x2000-0x3FFF slot 1's, each read through the space
-// the backend names for that slot (`SlotInfo.space` + `space_offset`) — the
-// adapter composes no ROM index of its own (REQ-dzrp-12). A half is served
-// only while its slot IS ROM (design deviation: see dzrp-frontend.md §12).
+// is slot 0's ROM half, 0x2000-0x3FFF slot 1's. Each half is read through the
+// space the backend names — the adapter composes no ROM index of its own
+// (REQ-dzrp-12): `SlotInfo.space` + `space_offset` while the slot IS ROM (so
+// the bytes are the ones the CPU sees there), and `rom_select()` — the image
+// legacy paging selects — while RAM is paged in (design §5.2).
 void DzrpServer::cmd_read_bank_mem(const Command& cmd) {
     const std::uint8_t  bank   = cmd.payload[0];
     const std::uint16_t offset = le16(cmd.payload, 1);
@@ -491,13 +492,14 @@ void DzrpServer::cmd_read_bank_mem(const Command& cmd) {
         while (served < size) {
             const std::uint32_t off = static_cast<std::uint32_t>(offset) + served;
             if (off >= 2 * DZRP_BANK_BYTES) break;
-            const auto& si = slots[off / DZRP_BANK_BYTES];
-            if (!si.is_rom) break;
+            const std::uint32_t half    = off / DZRP_BANK_BYTES;
+            const auto&         si      = slots[half];
+            const MemSpace      space   = si.is_rom ? si.space : dbg_.rom_select();
+            const std::uint32_t base    = si.is_rom ? si.space_offset : half * DZRP_BANK_BYTES;
             const std::uint32_t in_half = off % DZRP_BANK_BYTES;
             const std::size_t   chunk =
                 std::min<std::size_t>(size - served, DZRP_BANK_BYTES - in_half);
-            const auto got =
-                dbg_.peek(si.space, si.space_offset + in_half, chunk, out.data() + served);
+            const auto got = dbg_.peek(space, base + in_half, chunk, out.data() + served);
             served += got.value;
             if (got.value < chunk) break;
         }

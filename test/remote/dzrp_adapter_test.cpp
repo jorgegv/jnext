@@ -856,6 +856,25 @@ static void session_rows() {
                   log.count("was removed in DZRP 2.2.0") == 1 &&
                   rig_new.emu.ula().get_border() == 1 && rig_old.emu.ula().get_border() == 1);
     }
+    {
+        // THE CLIENT'S NAME IS THE CLIENT'S CLAIM: kept to 64 printable bytes
+        // before it reaches a log line or the backend's client list (review
+        // finding #2). 100 bytes are sent; the 64-byte prefix is what shows,
+        // quoted, both in the adapter's line and in the backend's ATTACH line.
+        LogTap log;
+        Rig    rig;
+        Dz     c(rig);
+        std::string name;
+        for (int i = 0; i < 100; ++i) name.push_back(static_cast<char>('A' + i % 26));
+        const Resp r = c.init(2, 2, 0, name);
+        const std::string kept = name.substr(0, 64);
+        check("DZRP-SES-13", "a 100-byte CMD_INIT program name is kept to its first 64 bytes, in "
+                             "the adapter's log line and in the backend's client list",
+              r.payload.substr(0, 1) == bytes({0}) &&
+                  log.count("CMD_INIT from \"" + kept + "\" (DZRP 2.2.0)") == 1 &&
+                  log.count("\"" + kept + "\" kind=") == 1 &&
+                  log.count(name.substr(0, 65)) == 0);
+    }
 }
 
 // ── DZRP-SUP — CMD_GET_SUPPORTED_COMMANDS and the one table (WP-2) ─────────
@@ -1223,6 +1242,16 @@ static void bank_rows() {
         check("DZRP-BANK-03", "under an RZX playback CMD_WRITE_BANK answers error 1 "
                               "\"refused_rzx\" and writes nothing",
               r.payload == bytes({1}) + "refused_rzx" + std::string(1, '\0') && page3[0] == 0x3C);
+
+        // THE VALID SIDE OF THE LEGACY BOUNDARY (review finding #1): bank 223,
+        // the last page there is, is written — the refusals above start at 224.
+        const std::string top = pattern(DZRP_BANK_BYTES, 223);
+        const Resp        ok  = c.cmd(CMD_WRITE_BANK, bytes({223}) + top);
+        const std::uint8_t* p223 = rig.emu.mmu().nr_page_ptr(223);
+        check("DZRP-BANK-13", "CMD_WRITE_BANK to bank 223 — the top of the range — answers error 0 "
+                              "and lands all 8192 bytes in page 223",
+              ok.payload == bytes({0, 0}) && p223 &&
+                  std::string(reinterpret_cast<const char*>(p223), DZRP_BANK_BYTES) == top);
     }
     {
         Rig    rig(MachineType::ZXN_ISSUE2);
@@ -1290,15 +1319,20 @@ static void bank_rows() {
                   past.len == 1,
               hex(span.payload) + "| " + hex(top.payload));
 
-        // RAM paged into slot 0: that half is not ROM any more, so it is not
-        // served (design deviation — see dzrp-frontend.md); slot 1's still is.
+        // RAM paged into slot 0: the half at 0x0000 is still served — from the
+        // ROM image legacy paging selects (`rom_select()`), not from the RAM
+        // the CPU now sees there.
+        rig.emu.mmu().nr_page_ptr(5)[0] = 0x55;
         c.cmd(CMD_SET_SLOT, bytes({0, 5}));
-        const Resp gone = c.cmd(CMD_READ_BANK_MEM, bytes({0xFF}) + u16s(0x0000) + u16s(4));
+        const Resp cpu  = c.cmd(CMD_READ_MEM, bytes({0}) + u16s(0x0000) + u16s(1));
+        const Resp rom  = c.cmd(CMD_READ_BANK_MEM, bytes({0xFF}) + u16s(0x0000) + u16s(4));
         const Resp kept = c.cmd(CMD_READ_BANK_MEM, bytes({0xFF}) + u16s(0x2000) + u16s(4));
-        check("DZRP-BANK-09", "with RAM paged into slot 0 the bank-0xFF half at 0x0000 is not "
-                              "served (empty reply, warn), while slot 1's ROM half still is",
-              gone.len == 1 && kept.payload == m1 &&
-                  log.count("CMD_READ_BANK_MEM bank 255 offset 0x0000 size 4: nothing") == 1);
+        check("DZRP-BANK-09", "with RAM paged into slot 0 the bank-0xFF half at 0x0000 still reads "
+                              "the ROM legacy paging selects (image 0 here), not the RAM the CPU "
+                              "sees; slot 1's ROM half is unchanged",
+              cpu.payload == bytes({0x55}) && rom.payload == m0 && kept.payload == m1 &&
+                  log.count("CMD_READ_BANK_MEM bank 255 offset 0x0000") == 0,
+              hex(rom.payload));
     }
     {
         Rig    rig(MachineType::ZXN_ISSUE2);
@@ -1313,6 +1347,20 @@ static void bank_rows() {
         const Resp wfe = c.cmd(CMD_WRITE_BANK_MEM, bytes({0xFE}) + u16s(0) + std::string(16, '\x11'));
         const Resp w224 = c.cmd(CMD_WRITE_BANK_MEM, bytes({224}) + u16s(0) + std::string(16, '\x11'));
         std::string rom_after(reinterpret_cast<const char*>(rig.emu.ram().page_ptr(0)), 16);
+        // The image is the SELECTED one, not a fixed one: with 0x7FFD bit 4
+        // selecting ROM 1 before RAM is paged at 0x0000, bank 0xFF reads ROM 1
+        // (SRAM pages 2 and 3). The per-machine selection rule itself is
+        // pinned in debugger_backend_test (INS-03-10..17).
+        c.cmd(CMD_SET_SLOT, bytes({0, 0xFF}));
+        c.cmd(CMD_WRITE_PORT, u16s(0x7FFD) + bytes({0x10}));
+        c.cmd(CMD_SET_SLOT, bytes({0, 5}));
+        const Resp r1lo = c.cmd(CMD_READ_BANK_MEM, bytes({0xFF}) + u16s(0x0000) + u16s(2));
+        const Resp r1hi = c.cmd(CMD_READ_BANK_MEM, bytes({0xFF}) + u16s(0x2000) + u16s(2));
+        check("DZRP-BANK-14", "with 0x7FFD selecting ROM 1 and RAM paged into slot 0, bank 0xFF "
+                              "reads ROM 1: SRAM page 2 at 0x0000 and page 3 at 0x2000",
+              !rig.emu.mmu().is_slot_rom(0) && r1lo.payload == bytes({0xC8, 0xC9}) &&
+                  r1hi.payload == bytes({0xCC, 0xCD}),
+              hex(r1lo.payload) + "| " + hex(r1hi.payload));
         check("DZRP-BANK-10", "banks 0xFE and 224 read as empty with a warn line; a bank write to "
                               "0xFF, 0xFE or 224 writes nothing and says why",
               fe.len == 1 && e0.len == 1 && wff.len == 1 && wfe.len == 1 && w224.len == 1 &&
