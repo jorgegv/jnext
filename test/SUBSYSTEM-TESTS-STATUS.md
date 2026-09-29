@@ -116,7 +116,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Quit runs closeEvent cleanup |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply) |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Video Panel  |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Audio Panel  |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Audio Panel  |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persist. BP (GUI) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Inspection Reads |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -124,10 +124,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Key Bindings |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Menus        |       51 |       51 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Menus        |       52 |       52 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Panels (GH #278) |       40 |       40 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Verbs (GH #278) |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **10804**| **10804**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Debugger Panels (GH #278) |       46 |       46 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Verbs (GH #278) |       61 |       61 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **10815**| **10815**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
