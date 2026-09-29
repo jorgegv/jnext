@@ -1021,6 +1021,18 @@ target_link_libraries(script_parse_test PRIVATE
 target_include_directories(script_parse_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME script_parse_tests COMMAND script_parse_test)
 
+# GH #26 WP2 — the DSL evaluator: the value model, variables, the snapshot
+# stacks, interpolation and run-time errors, over a real Debugger (48K).
+# Qt-free: `gate: none`.
+add_executable(script_eval_test script/script_eval_test.cpp)
+target_link_libraries(script_eval_test PRIVATE
+    jnext_script
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(script_eval_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME script_eval_tests COMMAND script_eval_test)
+
 # Task 66 — AppConfig (GUI preferences: QSettings-backed load/save,
 # CLI-vs-saved-preference precedence). Needs jnext_gui (QSettings/QString
 # usage in src/gui/app_config.*), so it is gated on ENABLE_QT_UI like the

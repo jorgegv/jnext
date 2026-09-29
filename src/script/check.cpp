@@ -2,6 +2,7 @@
 
 #include "script/check.h"
 
+#include <limits>
 #include <map>
 
 #include "script/names.h"
@@ -142,6 +143,15 @@ PayloadScope scope_of(const EventSpec& ev) {
 // Binding
 // ---------------------------------------------------------------------------
 
+int ScriptNames::snapshot_slot(const std::string& name) {
+    auto it = snaps.find(name);
+    if (it != snaps.end()) return it->second;
+    const int slot = static_cast<int>(snap_order.size());
+    snaps.emplace(name, slot);
+    snap_order.push_back(name);
+    return slot;
+}
+
 namespace {
 
 // §2.5: the snapshot record is {regs, IFF1, IFF2, IM, SP, stack[0], mmu[0..7],
@@ -157,12 +167,25 @@ bool snapshot_field_known(const std::string& f) {
     return false;
 }
 
+const char* op_text(Op op) {
+    switch (op) {
+        case Op::Neg: return "-";     case Op::BitNot: return "~";  case Op::Not: return "not";
+        case Op::Or: return "or";     case Op::And: return "and";   case Op::Eq: return "==";
+        case Op::Ne: return "!=";     case Op::Lt: return "<";      case Op::Gt: return ">";
+        case Op::Le: return "<=";     case Op::Ge: return ">=";     case Op::BitOr: return "|";
+        case Op::BitXor: return "^";  case Op::BitAnd: return "&";  case Op::Shl: return "<<";
+        case Op::Shr: return ">>";    case Op::Add: return "+";     case Op::Sub: return "-";
+        case Op::Mul: return "*";     case Op::Div: return "/";     case Op::Mod: return "%";
+    }
+    return "?";
+}
+
 struct Binder {
-    const PayloadScope&          scope;
-    const std::set<std::string>* vars;
-    const SymbolResolver&        symbols;
-    bool                         require_symbols;
-    std::vector<Diagnostic>&     errors;
+    const PayloadScope&      scope;
+    ScriptNames*             names;  ///< null = no script (compile_expr)
+    const SymbolResolver&    symbols;
+    bool                     require_symbols;
+    std::vector<Diagnostic>& errors;
 
     void err(SourcePos p, std::string m) { errors.push_back(Diagnostic{p, std::move(m)}); }
 
@@ -170,22 +193,38 @@ struct Binder {
         err(e.pos, std::string(what) + " is only available inside a script");
     }
 
-    void walk_string(StringLit& s) {
-        for (StringPart& part : s.parts)
-            if (part.expr) walk(*part.expr);
+    /// An operand the grammar needs as an integer.
+    void need_int(const Expr& e, ValueType t, const std::string& what) {
+        if (t == ValueType::Str) err(e.pos, what + " must be an integer, not a string");
     }
 
-    void walk(Expr& e) {
+    void walk_string(StringLit& s) {
+        for (StringPart& part : s.parts) {
+            if (!part.expr) continue;
+            const ValueType t = walk(*part.expr);
+            if (t == ValueType::Str && part.fmt != Fmt::None)
+                err(part.expr->pos, "a format (x2, x4, d) applies to an integer, and this `${…}` is a string");
+        }
+    }
+
+    /// Bind `e`, give it its static type, and return it. On a type error the
+    /// error is recorded and `Int` returned, so one mistake reports once.
+    ValueType walk(Expr& e) {
+        e.type = walk_type(e);
+        return e.type;
+    }
+
+    ValueType walk_type(Expr& e) {
         switch (e.kind) {
             case ExprKind::Int:
-                return;
+                return ValueType::Int;
             case ExprKind::Str:
-                if (!vars) {
+                if (!names) {
                     err(e.pos, "a string is not valid here: a condition is an integer expression");
-                    return;
+                    return ValueType::Int;
                 }
                 walk_string(e.str);
-                return;
+                return ValueType::Str;
             case ExprKind::Name: {
                 const auto payload = payload_builtin(e.text);
                 const auto live    = live_builtin(e.text);
@@ -196,50 +235,69 @@ struct Binder {
                 } else {
                     err(e.pos, "`" + e.text + "` is event payload and is not available in " +
                                    scope.describe());
+                    return ValueType::Int;
                 }
-                return;
+                return e.builtin == Builtin::P_REASON ? ValueType::Str : ValueType::Int;
             }
-            case ExprKind::Var:
-                if (!vars) {
+            case ExprKind::Var: {
+                if (!names) {
                     err(e.pos, "unknown name `" + e.text + "`");
-                } else if (!vars->count(e.text)) {
-                    err(e.pos, "unknown variable `" + e.text + "` (declare it with `var`)");
+                    return ValueType::Int;
                 }
-                return;
+                auto it = names->vars.find(e.text);
+                if (it == names->vars.end()) {
+                    err(e.pos, "unknown variable `" + e.text + "` (declare it with `var`)");
+                } else if (it->second >= names->visible_vars) {
+                    err(e.pos, "variable `" + e.text + "` is used before its declaration");
+                } else {
+                    e.slot = it->second;
+                }
+                return ValueType::Int;
+            }
             case ExprKind::Symbol: {
                 if (!symbols) {
                     if (require_symbols)
                         err(e.pos, "`@" + e.text + "`: no symbol table is available here");
-                    return;
+                    return ValueType::Int;
                 }
                 const auto v = symbols(e.text);
                 if (!v) {
                     err(e.pos, "unknown symbol `@" + e.text + "` (not in any loaded MAP)");
-                    return;
+                    return ValueType::Int;
                 }
                 e.value    = *v;
                 e.resolved = true;
-                return;
+                return ValueType::Int;
             }
             case ExprKind::Unary:
-                walk(*e.a);
-                return;
-            case ExprKind::Binary:
-                walk(*e.a);
-                walk(*e.b);
-                return;
+                need_int(*e.a, walk(*e.a), std::string("the operand of `") + op_text(e.op) + "`");
+                return ValueType::Int;
+            case ExprKind::Binary: {
+                const ValueType l = walk(*e.a);
+                const ValueType r = walk(*e.b);
+                if (e.op == Op::Eq || e.op == Op::Ne) {
+                    if (l != r)
+                        err(e.pos, std::string("`") + op_text(e.op) +
+                                       "` compares a string with an integer");
+                } else {
+                    const std::string what = std::string("an operand of `") + op_text(e.op) + "`";
+                    need_int(*e.a, l, what);
+                    need_int(*e.b, r, what);
+                }
+                return ValueType::Int;
+            }
             case ExprKind::Mem: case ExprKind::Mem16: case ExprKind::NextReg:
             case ExprKind::Mmu: case ExprKind::Page: case ExprKind::Stack:
-                walk(*e.a);
-                return;
+                need_int(*e.a, walk(*e.a), "an index");
+                return ValueType::Int;
             case ExprKind::Phys:
-                walk(*e.a);
-                walk(*e.b);
-                return;
+                need_int(*e.a, walk(*e.a), "a `phys[]` page");
+                need_int(*e.b, walk(*e.b), "a `phys[]` offset");
+                return ValueType::Int;
             case ExprKind::SnapField:
-                if (!vars) {
+                if (!names) {
                     script_only(e, "a snapshot field");
-                    return;
+                    return ValueType::Int;
                 }
                 if (!snapshot_field_known(e.field)) {
                     err(e.pos, "unknown snapshot field `" + e.field + "`");
@@ -248,15 +306,19 @@ struct Binder {
                 } else if (e.field != "MMU" && e.a) {
                     err(e.pos, "snapshot field `" + e.field + "` takes no index");
                 }
-                if (e.a) walk(*e.a);
-                return;
+                e.slot = names->snapshot_slot(e.text);
+                if (e.a) need_int(*e.a, walk(*e.a), "an index");
+                return ValueType::Int;
             case ExprKind::Changed:
-                if (!vars) script_only(e, "`changed()`");
-                return;
             case ExprKind::Depth:
-                if (!vars) script_only(e, "`depth()`");
-                return;
+                if (!names) {
+                    script_only(e, e.kind == ExprKind::Changed ? "`changed()`" : "`depth()`");
+                    return ValueType::Int;
+                }
+                e.slot = names->snapshot_slot(e.text);
+                return ValueType::Int;
         }
+        return ValueType::Int;
     }
 };
 
@@ -264,20 +326,23 @@ struct ScriptChecker {
     Script&                  s;
     const CheckOptions&      opts;
     std::vector<Diagnostic>  errors;
-    std::set<std::string>    vars;
+    ScriptNames              names;
     std::map<std::string, SourcePos> labels;
 
     void err(SourcePos p, std::string m) { errors.push_back(Diagnostic{p, std::move(m)}); }
 
+    /// Bind an expression the grammar needs as an INTEGER (every expression
+    /// slot of §2.1 is one; strings live only inside `==`/`!=` and `${}`).
     void bind(ExprPtr& e, const PayloadScope& scope) {
         if (!e) return;
-        Binder b{scope, &vars, opts.symbols, /*require_symbols=*/false, errors};
-        b.walk(*e);
+        Binder b{scope, &names, opts.symbols, /*require_symbols=*/false, errors};
+        if (b.walk(*e) == ValueType::Str)
+            err(e->pos, "an integer is needed here, not a string");
     }
 
     void bind_string(std::optional<StringLit>& lit, const PayloadScope& scope) {
         if (!lit) return;
-        Binder b{scope, &vars, opts.symbols, false, errors};
+        Binder b{scope, &names, opts.symbols, false, errors};
         b.walk_string(*lit);
     }
 
@@ -290,8 +355,11 @@ struct ScriptChecker {
             return;
         }
         if (t->kind == ExprKind::Var) {
-            if (!vars.count(t->text))
+            auto it = names.vars.find(t->text);
+            if (it == names.vars.end())
                 err(t->pos, "unknown variable `" + t->text + "` (declare it with `var`)");
+            else
+                t->slot = it->second;
             return;
         }
         bind(t, scope);  // mem[] / mem16[] / phys[] / nextreg[]: bind the index
@@ -307,15 +375,18 @@ struct ScriptChecker {
             if ((a.kind == ActionKind::Enable || a.kind == ActionKind::Disable) &&
                 !labels.count(a.name))
                 err(a.name_pos, "`" + a.name + "` names no labelled rule");
+            if (a.kind == ActionKind::Snap || a.kind == ActionKind::Unsnap ||
+                a.kind == ActionKind::DumpDiff)
+                a.slot = names.snapshot_slot(a.name);
             check_actions(a.then_body, scope);
             check_actions(a.else_body, scope);
         }
     }
 
     void run() {
-        for (VarDecl& v : s.vars) {
-            if (!vars.insert(v.name).second)
-                err(v.pos, "variable `" + v.name + "` is already declared");
+        for (size_t k = 0; k < s.vars.size(); ++k) {
+            if (!names.vars.emplace(s.vars[k].name, static_cast<int>(k)).second)
+                err(s.vars[k].pos, "variable `" + s.vars[k].name + "` is already declared");
         }
         for (Rule& r : s.rules) {
             if (r.label.empty()) continue;
@@ -327,7 +398,13 @@ struct ScriptChecker {
                 labels.emplace(r.label, r.label_pos);
         }
         const PayloadScope none;
-        for (VarDecl& v : s.vars) bind(v.init, none);
+        // A `var` initializer runs at load time, in declaration order: it may
+        // read the variables declared BEFORE it, and no others.
+        for (size_t k = 0; k < s.vars.size(); ++k) {
+            names.visible_vars = static_cast<int>(k);
+            bind(s.vars[k].init, none);
+        }
+        names.visible_vars = std::numeric_limits<int>::max();
         for (Rule& r : s.rules) {
             EventSpec& ev = r.event;
             // Filter bounds are evaluated at registration: no event.
@@ -343,16 +420,17 @@ struct ScriptChecker {
             bind(r.when, scope);
             check_actions(r.body, scope);
         }
+        s.snapshots = names.snap_order;
     }
 };
 
 }  // namespace
 
-void bind_expr(Expr& e, const PayloadScope& scope, const std::set<std::string>* vars,
-               const SymbolResolver& symbols, bool require_symbols,
-               std::vector<Diagnostic>& errors) {
-    Binder b{scope, vars, symbols, require_symbols, errors};
-    b.walk(e);
+ValueType bind_expr(Expr& e, const PayloadScope& scope, ScriptNames* names,
+                    const SymbolResolver& symbols, bool require_symbols,
+                    std::vector<Diagnostic>& errors) {
+    Binder b{scope, names, symbols, require_symbols, errors};
+    return b.walk(e);
 }
 
 std::vector<Diagnostic> check_script(Script& script, const CheckOptions& opts) {

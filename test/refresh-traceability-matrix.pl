@@ -1087,6 +1087,7 @@ my %NO_MATRIX_SECTION = (
     # load-time checks) and its expression library. The FPGA core has no
     # debugger and no script language; the authority is dsl-frontend.md §2.
     'script_parse_test'         => 'debugger scripting language front end (GH #26, jnext-internal); the T80N core has no debugger',
+    'script_eval_test'          => 'debugger scripting language evaluator (GH #26, jnext-internal); the T80N core has no debugger',
     'debugger_persistent_bp_test' => 'debugger window raise-on-hit (host GUI lifecycle, GH #219)',
     'debugger_inspect_watchpoint_test' => 'debugger INSPECTION reads vs watchpoints (jnext-internal); the T80N core has no panels reading its bus',
     'debugger_video_panel_test' => 'debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build)',

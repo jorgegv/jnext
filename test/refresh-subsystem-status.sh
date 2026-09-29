@@ -171,6 +171,7 @@ BEGIN {
     M["resume_step_off_test"]          = "Debugger resume step-off"
     M["remote_transport_test"]         = "Debugger socket transport (GH #287)"
     M["script_parse_test"]             = "Debugger DSL front end (GH #26)"
+    M["script_eval_test"]              = "Debugger DSL evaluator (GH #26)"
     M["raster_state_test"]             = "Raster State (beam + ULA fetch)"
     M["app_config_test"]               = "GUI Preferences (AppConfig)"
     M["debugger_video_panel_test"]     = "Debugger Video Panel"
