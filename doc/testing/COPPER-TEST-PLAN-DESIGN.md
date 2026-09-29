@@ -727,6 +727,7 @@ reached with the debugger's run-to-cycle. `WAIT(v=150, h=0)` + `MOVE NR 0x14 ←
 | COP-GH290-02 | Restarted (mode 01 → 11) at the next frame's line 10, before its reload | 0x00 at line 190, 0x5A by line 200 — raw 194, counting from the reloaded 20 | zxula_timing.vhd:457-462 |
 | COP-GH290-03 | `WAIT(v=310, h=55)` (satisfied at hc_ula 452, 16 cycles before the reload), 14 NOPs (one cycle each), `MOVE NR 0x64 ← 20` — issued on the cycle BEFORE the reload | loaded by it: line 100 reads 56 | zxula_timing.vhd:457-462; copper.vhd:94 |
 | COP-GH290-04 | The same with 15 NOPs: the MOVE on the reload's own cycle | not loaded: line 100 reads 36, NR 0x64 reads 20 — pins the reload event to the master cycle | zxula_timing.vhd:457-462; zxnext.vhd:5442,6090 |
+| COP-GH290-05 | No frame events (no reload ever runs): NR 0x64 = 20, `WAIT(v=20)` + `MOVE NR 0x14 ← 0x5A` | 0x00 at line 63, 0x5A by line 70 — the lines from the reload's position on count from the register, as the readback and the line interrupt do there (VT-GH290-19/22) | zxula_timing.vhd:457-462; zxnext.vhd:3950 |
 
 ## Coverage notes (moved from the traceability matrix, GH #196)
 

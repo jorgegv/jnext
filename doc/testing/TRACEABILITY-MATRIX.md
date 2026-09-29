@@ -27,7 +27,7 @@ mentions them, so a test can no longer be absent from this document.
 | Layer2                                     |   220 |  220 |    0 |    0 |       0 |          0 |
 | Sprites                                    |   217 |  217 |    0 |    0 |       0 |          0 |
 | Tilemap                                    |    98 |   98 |    0 |    0 |       0 |          0 |
-| Copper                                     |    97 |   97 |    0 |    0 |       0 |          0 |
+| Copper                                     |    98 |   98 |    0 |    0 |       0 |          0 |
 | Compositor                                 |   284 |  284 |    0 |    0 |       0 |          0 |
 | Audio                                      |   221 |  221 |    0 |    0 |       0 |          0 |
 | DMA                                        |   160 |  160 |    0 |    0 |       0 |          0 |
@@ -54,7 +54,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: mmu_integration_test            |    89 |   89 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |    17 |   17 |    0 |    0 |       0 |          0 |
 | Companion: compositor_integration_test     |    50 |   50 |    0 |    0 |       0 |          0 |
-| Companion: copper_integration_test         |    18 |   18 |    0 |    0 |       0 |          0 |
+| Companion: copper_integration_test         |    19 |   19 |    0 |    0 |       0 |          0 |
 | Companion: tilemap_fetch_split_test        |    12 |   12 |    0 |    0 |       0 |          0 |
 | Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
 | Companion: divmmc_integration_test         |     6 |    6 |    0 |    0 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    30 |   24 |    0 |    6 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5374 | 5363 |    0 |   11 |       0 |          0 |
+| **Total**                                  |  5376 | 5365 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **5374**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5062**. Rows the 121 suites declared in `test/unit-tests.conf` run live: **10758**.
+Rows the sections above carry: **5376**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5063**. Rows the 121 suites declared in `test/unit-tests.conf` run live: **10759**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -1269,6 +1269,7 @@ Notes and rationale: [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md).
 | COP-GH290-02 | …and from the next frame's reload on it counts from the new offset: the WAIT lands on raw line 194 (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/copper/copper_integration_test.cpp:1449 |
 | COP-GH290-03 | a Copper MOVE NR 0x64 <- 20 on the cycle before the cvc reload is loaded by it: line 100 reads 56 (zxula_timing.vhd:457-462; copper.vhd:94) | zxula_timing.vhd:457-462, copper.vhd:94 | pass | test/copper/copper_integration_test.cpp:1496 |
 | COP-GH290-04 | …and one on the reload's own cycle is not: line 100 reads 36, the register already 20 (zxula_timing.vhd:457-462; zxnext.vhd:5442,6090) | zxula_timing.vhd:457-462, zxnext.vhd:5442,6090 | pass | test/copper/copper_integration_test.cpp:1503 |
+| COP-GH290-05 | no frame events: WAIT(v=20) after NR 0x64 = 20 is satisfied on the reload's line (raw 64), counting from the register as the readback does there, not on raw 84 (zxula_timing.vhd:457-462; zxnext.vhd:3950) | zxula_timing.vhd:457-462, zxnext.vhd:3950 | pass | test/copper/copper_integration_test.cpp:1544 |
 
 ## Compositor — `test/compositor/compositor_test.cpp`
 
@@ -5227,6 +5228,7 @@ Notes and rationale: [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md).
 | COP-GH290-02 | …and from the next frame's reload on it counts from the new offset: the WAIT lands on raw line 194 (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/copper/copper_integration_test.cpp:1449 |
 | COP-GH290-03 | a Copper MOVE NR 0x64 <- 20 on the cycle before the cvc reload is loaded by it: line 100 reads 56 (zxula_timing.vhd:457-462; copper.vhd:94) | zxula_timing.vhd:457-462, copper.vhd:94 | pass | test/copper/copper_integration_test.cpp:1496 |
 | COP-GH290-04 | …and one on the reload's own cycle is not: line 100 reads 36, the register already 20 (zxula_timing.vhd:457-462; zxnext.vhd:5442,6090) | zxula_timing.vhd:457-462, zxnext.vhd:5442,6090 | pass | test/copper/copper_integration_test.cpp:1503 |
+| COP-GH290-05 | no frame events: WAIT(v=20) after NR 0x64 = 20 is satisfied on the reload's line (raw 64), counting from the register as the readback does there, not on raw 84 (zxula_timing.vhd:457-462; zxnext.vhd:3950) | zxula_timing.vhd:457-462, zxnext.vhd:3950 | pass | test/copper/copper_integration_test.cpp:1544 |
 
 ### Companion regression suite — `test/tilemap/tilemap_fetch_split_test.cpp`
 

@@ -1507,6 +1507,49 @@ static void test_gh290_move_at_reload_edge() {
           "line100=" + std::to_string(on) + " (want 36) nr64=" + hex2(nr_on));
 }
 
+
+// COP-GH290-05 — with NO frame events (no run_frame(), so no reload ever
+// runs) the lines from the reload's position on count from NR 0x64 as it
+// stands, as the readback (VT-GH290-19) and the line interrupt (VT-GH290-22)
+// do there. WAIT(v=20) after NR 0x64 = 20 is then satisfied on raw line 64,
+// the reload's line, not on raw line 84 (counting from the never-reloaded 0).
+static void test_gh290_frameless_copper() {
+    set_group("GH290-CvcReload");
+
+    Emulator emu;
+    build_next_emulator(emu);
+    emu.mmu().write(0xC000, 0x18);   // JR $
+    emu.mmu().write(0xC001, 0xFE);
+    auto regs = emu.cpu().get_registers();
+    regs.PC = 0xC000;
+    emu.cpu().set_registers(regs);
+    for (int i = 0; i < 64; ++i)
+        program_word(emu, static_cast<uint16_t>(i), enc_move(0, 0));
+    program_word(emu, 0, enc_wait(0, 20));
+    program_word(emu, 1, enc_move(0x14, 0x5A));
+    program_word(emu, 2, enc_wait(0, 511));     // HALT
+    nr_write(emu, 0x64, 20);
+    nr_write(emu, 0x14, 0x00);
+    set_copper_mode(emu, 1);
+    const uint64_t mcpl = emu.timing().master_cycles_per_line;
+    auto step_to = [&](uint64_t target) {
+        for (int i = 0; i < 100000 && emu.clock().get() < target; ++i)
+            emu.execute_single_instruction();
+        return emu.clock().get() >= target;
+    };
+    bool ok = step_to(63 * mcpl + 200 * 4);
+    const uint8_t before = nr_read(emu, 0x14);
+    ok = ok && step_to(70 * mcpl);
+    const uint8_t after = nr_read(emu, 0x14);
+    check("COP-GH290-05",
+          "no frame events: WAIT(v=20) after NR 0x64 = 20 is satisfied on the "
+          "reload's line (raw 64), counting from the register as the readback "
+          "does there, not on raw 84 (zxula_timing.vhd:457-462; zxnext.vhd:3950)",
+          ok && before == 0x00 && after == 0x5A,
+          "line63=" + hex2(before) + " (want 0x00) line70=" + hex2(after) +
+              " (want 0x5a)");
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1547,6 +1590,7 @@ int main() {
 
     test_gh290_wait_uses_reloaded_cvc();
     test_gh290_move_at_reload_edge();
+    test_gh290_frameless_copper();
     std::printf("  Group: GH290-CvcReload — done\n");
 
     std::printf("\n====================================\n");
