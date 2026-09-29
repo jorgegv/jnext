@@ -366,7 +366,6 @@ void DzrpServer::end_session() {
     pending_pause_.reset();
     ntf_queue_.clear();
     wps_.clear();
-    tokens_.clear();
     last_save_refused_mid_frame_ = false;
 }
 
@@ -1136,7 +1135,6 @@ void DzrpServer::cmd_read_state(const Command& cmd) {
         return;
     }
     ++next_token_;
-    tokens_.insert(name);
     std::vector<std::uint8_t> out(STATE_TOKEN_MAGIC, STATE_TOKEN_MAGIC + 4);
     out.insert(out.end(), name.begin(), name.end());
     reply(cmd.seq, out);
@@ -1154,10 +1152,12 @@ void DzrpServer::cmd_write_state(const Command& cmd) {
     std::string name;
     bool        valid = p.size() > 4 && std::equal(p.begin(), p.begin() + 4, STATE_TOKEN_MAGIC);
     if (valid) {
+        // Held by the backend FOR THIS CLIENT: bookmarks are per client and die
+        // with its detach, and only this adapter saves under this client — so
+        // "issued by this session" and "held" are the same question.
         name.assign(p.begin() + 4, p.end());
         const auto held = dbg_.bookmarks(cid_);
-        valid = tokens_.count(name) &&
-                std::find(held.begin(), held.end(), name) != held.end();
+        valid = std::find(held.begin(), held.end(), name) != held.end();
     }
     reply(cmd.seq);
     if (!valid) {

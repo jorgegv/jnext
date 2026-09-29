@@ -37,7 +37,6 @@
 #include <functional>
 #include <map>
 #include <optional>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -258,7 +257,7 @@ private:
     std::vector<std::vector<std::uint8_t>> ntf_queue_;  // encoded frames
 
     // WP-4 — watchpoints (no ids on the wire: matched by the exact tuple) and
-    // the state tokens this session issued.
+    // the state-token counter (the names themselves are the backend's).
     struct Watch {
         std::uint16_t       addr;
         std::uint8_t        bank1;
@@ -267,7 +266,6 @@ private:
         jnext::dbg::EventId id;
     };
     std::vector<Watch>    wps_;
-    std::set<std::string> tokens_;
     std::uint32_t         next_token_ = 1;
     bool                  last_save_refused_mid_frame_ = false;
 };

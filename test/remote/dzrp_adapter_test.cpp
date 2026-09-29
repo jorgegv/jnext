@@ -62,6 +62,8 @@
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include "core/rzx.h"
+#include "debug/breakpoints.h"
+#include "debug/debug_state.h"
 #include "debug/debugger.h"
 #include "version.h"
 
@@ -1396,11 +1398,16 @@ static void bank_rows() {
         c.cmd(CMD_SET_SLOT, bytes({0, 5}));
         const Resp r1lo = c.cmd(CMD_READ_BANK_MEM, bytes({0xFF}) + u16s(0x0000) + u16s(2));
         const Resp r1hi = c.cmd(CMD_READ_BANK_MEM, bytes({0xFF}) + u16s(0x2000) + u16s(2));
+        // RAM in slot 1 as well: its half comes from the same image, at 0x2000.
+        c.cmd(CMD_SET_SLOT, bytes({1, 6}));
+        const Resp r1hr = c.cmd(CMD_READ_BANK_MEM, bytes({0xFF}) + u16s(0x2000) + u16s(2));
         check("DZRP-BANK-14", "with 0x7FFD selecting ROM 1 and RAM paged into slot 0, bank 0xFF "
-                              "reads ROM 1: SRAM page 2 at 0x0000 and page 3 at 0x2000",
+                              "reads ROM 1: SRAM page 2 at 0x0000 and page 3 at 0x2000 — and "
+                              "still page 3 once RAM is paged into slot 1 too",
               !rig.emu.mmu().is_slot_rom(0) && r1lo.payload == bytes({0xC8, 0xC9}) &&
-                  r1hi.payload == bytes({0xCC, 0xCD}),
-              hex(r1lo.payload) + "| " + hex(r1hi.payload));
+                  r1hi.payload == bytes({0xCC, 0xCD}) && !rig.emu.mmu().is_slot_rom(1) &&
+                  r1hr.payload == bytes({0xCC, 0xCD}),
+              hex(r1lo.payload) + "| " + hex(r1hi.payload) + "| " + hex(r1hr.payload));
         check("DZRP-BANK-10", "banks 0xFE and 224 read as empty with a warn line; a bank write to "
                               "0xFF, 0xFE or 224 writes nothing and says why",
               fe.len == 1 && e0.len == 1 && wff.len == 1 && wfe.len == 1 && w224.len == 1 &&
@@ -1987,6 +1994,50 @@ static void temp_rows() {
               five.ok && five.addr == 0x8001 && alt.ok && alt.addr == 0x8003 &&
                   log.count("alternate command 2 is not implemented") == 1);
     }
+    {
+        // A temporary whose ENABLE byte is 0 is not a temporary, whatever
+        // address follows it.
+        Rig rig;
+        Dz  c(rig);
+        c.init();
+        load_loop(rig);
+        c.cmd(CMD_CONTINUE, cont(0, 0x8001, 0, 0x8003));
+        const bool none = rig.dbg->subscriptions(true).empty();
+        const bool ran  = !run_until_paused(rig, 3);
+        c.cmd(CMD_PAUSE);
+        const Ntf n = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        check("DZRP-CONT-05", "CMD_CONTINUE with both enable bytes 0 installs no temporary at "
+                              "the addresses beside them: the loop through 0x8001 and 0x8003 runs "
+                              "until a CMD_PAUSE (reason 1)",
+              none && ran && n.ok && n.reason == BREAK_MANUAL);
+    }
+    {
+        // A stop the BACKEND did not cause (a legacy BreakpointSet PC
+        // breakpoint) leaves its transients armed; the adapter removes what is
+        // left of the CONTINUE's temporaries itself, or the next CONTINUE —
+        // which asked for none — would stop at a stale one.
+        Rig rig;
+        Dz  c(rig);
+        c.init();
+        load_loop(rig);
+        rig.emu.debug_state().breakpoints().add_pc(0x8001);
+        c.cmd(CMD_CONTINUE, cont(1, 0x8003));
+        run_until_paused(rig, 2);
+        c.tick();
+        const bool legacy_stop = c.ntfs.size() == 1 && rig.emu.cpu().get_registers().PC == 0x8001;
+        const bool swept       = rig.dbg->subscriptions(true).empty();
+        rig.emu.debug_state().breakpoints().remove_pc(0x8001);
+        c.ntfs.clear();
+        c.cmd(CMD_CONTINUE, cont());
+        const bool ran = !run_until_paused(rig, 3);
+        c.cmd(CMD_PAUSE);
+        const Ntf n = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        check("DZRP-TEMP-06", "after a stop the backend did not cause (a legacy PC breakpoint), "
+                              "the CONTINUE's leftover temporary is removed: the next plain "
+                              "CONTINUE runs past 0x8003 until a CMD_PAUSE",
+              legacy_stop && swept && ran && n.ok && n.reason == BREAK_MANUAL,
+              ntf_str(n));
+    }
 }
 
 static void notify_rows() {
@@ -2031,6 +2082,38 @@ static void notify_rows() {
         check("DZRP-PAUSE-03", "a CMD_PAUSE that stops a machine another client resumed is "
                                "notified too (it stopped something), reason 1",
               r.len == 1 && n.ok && n.reason == BREAK_MANUAL);
+        rig.dbg->detach(other);
+    }
+    {
+        // A CMD_PAUSE on a machine ANOTHER client paused: nothing happens — the
+        // pause stays that client's (a DZRP detach must not release it), and
+        // nothing is owed (a later stop by that client sends no NTF).
+        Rig  rig;
+        auto other = rig.dbg->attach({"gui", jnext::dbg::ClientKind::Test}).value;
+        Dz   c(rig);
+        c.init();
+        load_loop(rig);
+        rig.dbg->run(other);
+        rig.pump();
+        rig.emu.run_frame();
+        rig.dbg->pause(other);
+        rig.pump();
+        c.ntfs.clear();
+        c.order.clear();
+        const Resp r    = c.cmd(CMD_PAUSE);
+        const auto kept = rig.dbg->state().pause_reason.by;
+        rig.dbg->run(other);
+        c.tick();
+        rig.emu.run_frame();
+        rig.dbg->pause(other);
+        for (int i = 0; i < 3; ++i) c.tick();
+        c.p->close();
+        rig.pump(3);
+        check("DZRP-PAUSE-04", "CMD_PAUSE on a machine another client paused: the reply alone, "
+                               "the pause stays that client's, nothing is owed (its next stop "
+                               "sends no NTF), and DZRP's hang-up leaves the machine paused",
+              r.len == 1 && c.order == "R" && kept == other && c.ntfs.empty() &&
+                  rig.dbg->state().paused && rig.dbg->state().pause_reason.by == other);
         rig.dbg->detach(other);
     }
     {
@@ -2444,6 +2527,39 @@ static void state_rows() {
           old.len == 1 && on.ok && on.text == "no state to restore");
 }
 
+// ── DZRP-SES-14 — WP-3/WP-4 state is per session ───────────────────────────
+
+static void session_state_rows() {
+    // A session that ends mid-CONTINUE, holding a breakpoint and a watchpoint,
+    // leaves nothing to the next one: ids restart at 1, nothing is owed (a stop
+    // with no CONTINUE of the new session's own sends nothing), and the old
+    // subscriptions went with the detach.
+    Rig  rig;
+    auto other = rig.dbg->attach({"gui", jnext::dbg::ClientKind::Test}).value;
+    Dz   a(rig);
+    a.init();
+    load_loop(rig);
+    a.cmd(CMD_ADD_BREAKPOINT, add_bp(0x9000, 0));
+    a.cmd(CMD_ADD_WATCHPOINT, wp(0x9100, 0, 4, 2));
+    a.cmd(CMD_CONTINUE, cont(1, 0x9200));
+    a.p->close();
+    rig.pump(3);
+    const bool gone = rig.dbg->subscriptions(true).empty();
+    Dz b(rig);
+    b.init();
+    rig.dbg->run(other);
+    b.tick();
+    rig.emu.run_frame();
+    rig.dbg->pause(other);
+    for (int i = 0; i < 3; ++i) b.tick();
+    const Resp id = b.cmd(CMD_ADD_BREAKPOINT, add_bp(0x8000, 0));
+    check("DZRP-SES-14", "a new session starts clean: the old session's breakpoint, watchpoint "
+                         "and temporary went with its detach, nothing is owed (another client's "
+                         "stop sends it nothing), and breakpoint ids restart at 1",
+          gone && b.ntfs.empty() && bp_id(id) == 1);
+    rig.dbg->detach(other);
+}
+
 // ── DZRP-SPR — sprites, 16-19 (WP-4) ────────────────────────────────────────
 
 static void sprite_rows() {
@@ -2542,6 +2658,7 @@ int main() {
     watch_rows();
     state_rows();
     sprite_rows();
+    session_state_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass,
