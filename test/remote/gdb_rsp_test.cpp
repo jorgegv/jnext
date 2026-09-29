@@ -784,24 +784,75 @@ static void memory_rows() {
               w);
     }
     {
-        // ROM is refused BEFORE anything lands — also a write that straddles
-        // the ROM/RAM boundary at 0x4000 (48K: slots 0-1 are ROM).
+        // ROM (48K: slots 0-1): a write there is E01 and ROM is unchanged. A
+        // write straddling 0x3FFF/0x4000 is E01 too — not every byte landed —
+        // and its RAM byte landed, as the CPU's own write would leave it
+        // (GH #281 F1: the backend reports what landed; nothing is re-derived).
         Rig    rig;
         Client c(rig);
         open_session(c);
-        std::uint8_t rom0 = 0, ram0 = 0;
+        std::uint8_t rom0 = 0, rom3fff = 0, ram0 = 0;
         rig.dbg->peek(jnext::dbg::MemSpace::cpu(), 0x0000, 1, &rom0);
+        rig.dbg->peek(jnext::dbg::MemSpace::cpu(), 0x3FFF, 1, &rom3fff);
         rig.dbg->peek(jnext::dbg::MemSpace::cpu(), 0x4000, 1, &ram0);
+        const std::uint8_t ram_new = static_cast<std::uint8_t>(ram0 ^ 0xFF);
         const std::string a = c.cmd("M0,1:" + hex2(static_cast<std::uint8_t>(rom0 ^ 0xFF)));
-        const std::string b = c.cmd("M3fff,2:" + hex2(0x11) + hex2(static_cast<std::uint8_t>(ram0 ^ 0xFF)));
-        const std::string x = c.cmd("X3fff,2:ab");
-        std::uint8_t rom_after = 0, ram_after = 0;
+        const std::string b = c.cmd("M3fff,2:" + hex2(static_cast<std::uint8_t>(rom3fff ^ 0xFF)) +
+                                    hex2(ram_new));
+        const std::string x = c.cmd("X0,1:" + std::string(1, static_cast<char>(rom0 ^ 0x55)));
+        std::uint8_t rom_after = 0, rom3fff_after = 0, ram_after = 0;
         rig.dbg->peek(jnext::dbg::MemSpace::cpu(), 0x0000, 1, &rom_after);
+        rig.dbg->peek(jnext::dbg::MemSpace::cpu(), 0x3FFF, 1, &rom3fff_after);
         rig.dbg->peek(jnext::dbg::MemSpace::cpu(), 0x4000, 1, &ram_after);
-        check("GDB-MEM-03", "M or X onto a ROM-mapped slot is E01 and changes nothing — a write "
-                            "straddling 0x3FFF/0x4000 does not land its RAM byte either",
-              a == "E01" && b == "E01" && x == "E01" && rom_after == rom0 && ram_after == ram0,
+        check("GDB-MEM-03", "M or X onto ROM is E01 and ROM is unchanged; a write straddling "
+                            "0x3FFF/0x4000 is E01 (not all of it landed) with its RAM byte "
+                            "landed and its ROM byte not",
+              a == "E01" && b == "E01" && x == "E01" && rom_after == rom0 &&
+                  rom3fff_after == rom3fff && ram_after == ram_new,
               a + "/" + b + "/" + x);
+    }
+    {
+        // An OVERLAY over a ROM slot takes the write: Layer 2 write-over
+        // (port 0x123B bit 0) puts it in the Layer 2 page; the CPU view there
+        // still reads ROM.
+        Rig    rig(MachineType::ZXN_ISSUE2);
+        Client c(rig);
+        open_session(c);
+        rig.emu.port().out(0x123B, 0x01);
+        std::uint8_t rom = 0;
+        rig.dbg->peek(jnext::dbg::MemSpace::cpu(), 0x0010, 1, &rom);
+        const std::uint8_t  v    = static_cast<std::uint8_t>(rom ^ 0xFF);
+        const std::uint16_t page = static_cast<std::uint16_t>(rig.dbg->nextreg_peek(0x12) * 2);
+        const std::string   w    = c.cmd("M10,1:" + hex2(v));
+        std::uint8_t l2 = 0, cpu = 0;
+        rig.dbg->peek(jnext::dbg::MemSpace::page(page), 0x0010, 1, &l2);
+        rig.dbg->peek(jnext::dbg::MemSpace::cpu(), 0x0010, 1, &cpu);
+        check("GDB-MEM-08", "M at 0x0010 under Layer 2 write-over (a ROM slot) is OK: the byte "
+                            "lands in the Layer 2 page, and the CPU view there still reads ROM",
+              rig.dbg->mmu_slots()[0].is_rom && w == "OK" && l2 == v && cpu == rom, w);
+    }
+    {
+        // DivMMC paged in (port 0xE3 conmem): 0x2000-0x3FFF is its RAM, over
+        // a ROM slot — a write there lands; 0x0000-0x1FFF is its ROM.
+        Rig    rig(MachineType::ZXN_ISSUE2);
+        Client c(rig);
+        open_session(c);
+        rig.emu.port().out(0x00E3, 0x80);
+        const std::string w  = c.cmd("M2000,2:3cc3");
+        const std::string rb = c.cmd("m2000,2");
+        check("GDB-MEM-09", "M into DivMMC RAM (conmem, 0x2000, a ROM slot) is OK and reads back",
+              rig.dbg->mmu_slots()[1].is_rom && w == "OK" && rb == "3cc3", w + "/" + rb);
+
+        std::uint8_t d[2] = {};
+        rig.dbg->peek(jnext::dbg::MemSpace::cpu(), 0x1FFE, 2, d);
+        const std::string mix = c.cmd("M1ffe,4:" + hex2(d[0] ^ 0xFF) + hex2(d[1] ^ 0xFF) + "1122");
+        std::uint8_t after[4] = {};
+        rig.dbg->peek(jnext::dbg::MemSpace::cpu(), 0x1FFE, 4, after);
+        check("GDB-MEM-10", "an M straddling DivMMC ROM and DivMMC RAM is E01 — only part of it "
+                            "landed — with the RAM half written and the ROM half unchanged",
+              mix == "E01" && after[0] == d[0] && after[1] == d[1] && after[2] == 0x11 &&
+                  after[3] == 0x22,
+              mix);
     }
     {
         Rig    rig;

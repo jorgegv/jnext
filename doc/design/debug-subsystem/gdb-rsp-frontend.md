@@ -889,12 +889,12 @@ releases the client's pause.
    + `MemWrite`, one RSP id → two subscriptions" (§2 row 14). The landed
    backend has one `Mem` kind with an access mask (`events.h`); one
    subscription is the same filter and keeps the id map one to one.
-2. **`M`/`X` onto ROM is refused by the ADAPTER**, from CAP-INS-03
-   `mmu_slots()[s].is_rom` for every slot the write touches, before anything is
-   written (§4.1 said the backend's `poke` returns `RefusedReadOnly`,
-   REQ-gdb-6). The frozen header documents `poke(Cpu)` as "ROM ignored", and
-   DZRP's row DZRP-MEM-07 depends on exactly that (a straddling write lands its
-   RAM bytes). See finding F1.
+2. ~~`M`/`X` onto ROM is refused by the ADAPTER~~ — **superseded by the F1
+   fix (§12.4)**: the backend's `poke(Cpu)` now reports the bytes that landed,
+   as §4.1 / REQ-gdb-6 said it would, and `M`/`X` answer `E01` unless all of
+   them did. One difference from §4.1 remains, by the manager's decision: a
+   range straddling ROM and RAM is not refused up front — its RAM bytes land
+   (as the CPU's write would), and the reply is `E01`.
 3. **`?` always answers `T05`** — §2 row 3 and §7.3's GDB-STOP row — where
    §5.3's table lists "our `?`/`0x03`" together under `T02`. 0x03 answers
    `T02` (§2 row 18). The two sections disagreed; row 3 is the one the client
@@ -929,7 +929,7 @@ releases the client's pause.
 ### 12.3 Findings
 
 - **F1 — `backend.md` CAP-INS-02 and the frozen header disagree on
-  `poke(Cpu)` over ROM.** `backend.md` (CAP-INS-02, REQ-gdb-6 ACCEPTED) says
+  `poke(Cpu)` over ROM.** FIXED — see §12.4. `backend.md` (CAP-INS-02, REQ-gdb-6 ACCEPTED) says
   it "returns the count written and `RefusedReadOnly` when the range is
   read-only"; `debugger.h` says "ROM ignored", and the implementation returns
   `Ok` with the full count. DZRP relies on the header's reading
@@ -941,3 +941,30 @@ releases the client's pause.
   there. Resolving it needs a backend query ("would a CPU write to `addr`
   land?") or a `poke` mode that refuses before writing — an owner decision on
   the frozen header.
+
+### 12.4 The F1 fix (manager decision, 2026-09-29)
+
+No frozen-header change: `poke()` already returns `Expected<size_t>`, and
+CAP-INS-02 / REQ-gdb-6 already promised "the count written and
+`RefusedReadOnly`". The defect was the backend body reporting every byte as
+written. Now:
+
+- `Mmu::write_landed(addr, val)` is `Mmu::write` returning its own routing
+  decision (`write()` is it with the answer discarded, forced inline so the
+  guest's hot path is unchanged); `DivMmc::write` returns whether it stored the
+  byte, which `Mmu::divmmc_write` passes up. No overlay rule is restated.
+- `poke(Cpu)` offers every byte, counts what landed, returns `Ok` iff all of
+  them did and `RefusedReadOnly` with the partial count otherwise (0 when none
+  did); a MUTATE line only for what landed. Contract written into `backend.md`
+  CAP-INS-02 for packages Q and S.
+- GDB `M`/`X`: the adapter's ROM-slot pre-check is gone; `E01` unless the
+  backend says `Ok`. Layer 2 write-over and DivMMC / Multiface RAM over a ROM
+  slot now land (rows GDB-MEM-08/09); a DivMMC ROM/RAM straddle is `E01` with
+  its RAM half written (GDB-MEM-10); GDB-MEM-03 now asserts the straddle's RAM
+  byte LANDS.
+- DZRP `CMD_WRITE_MEM`: same wire (a seq-only reply, the same bytes landing);
+  the read-back that counted undelivered bytes is replaced by the backend's
+  count, which no longer mistakes a Layer 2 write-over byte (it lands in the
+  Layer 2 page, reads come from the normal map) for a dropped one. MEM-09's log
+  text changed ("did not land"); MEM-10 is new. `CMD_WRITE_BANK` /
+  `WRITE_BANK_MEM` use `poke(Page)` and are unaffected.

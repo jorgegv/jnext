@@ -683,10 +683,12 @@ void GdbServer::pkt_read_memory(const std::string& body) {
 }
 
 // `M<addr>,<len>:<hex>` and `X<addr>,<len>:<binary>`: through the live map, as
-// the CPU would write it. A write that touches a ROM-mapped slot is REFUSED
-// before anything is written (§4.1, REQ-gdb-6): `poke(Cpu)` itself drops ROM
-// bytes silently (`Mmu::write`), so the adapter asks INS-03 first and nothing
-// half-lands. `X` with length 0 is gdb's probe for `X` support: `OK`.
+// the CPU would write it — overlays honoured, so a byte Layer 2 write-over or
+// DivMMC / Multiface RAM takes lands. `poke(Cpu)` counts what landed (GH #281
+// F1): anything short of all of it is `E01` (§4.1, REQ-gdb-6), and the bytes
+// that could land did, exactly as the CPU's own write would have left them.
+// A range past 0xFFFF is refused before anything is written (the backend would
+// wrap it to 0x0000). `X` with length 0 is gdb's probe for `X` support: `OK`.
 void GdbServer::pkt_write_memory(const std::string& body, bool binary) {
     const std::size_t colon = body.find(':');
     std::uint32_t     addr = 0, len = 0;
@@ -706,22 +708,11 @@ void GdbServer::pkt_write_memory(const std::string& body, bool binary) {
         reply("OK");
         return;
     }
-    // The range is inside 0x0000-0xFFFF (checked above); the bound on `s` keeps
-    // the slot index inside the array whatever that check becomes.
-    const auto slots = dbg_.mmu_slots();
-    for (std::uint32_t s = addr >> 13; s <= (addr + len - 1) >> 13 && s < slots.size(); ++s) {
-        if (slots[s].is_rom) {
-            Log::debugger()->warn("gdb: write of {} bytes at 0x{:04X} refused: slot {} is ROM", len,
-                                  addr, s);
-            reply("E01");
-            return;
-        }
-    }
     const auto w = dbg_.poke(cid_, MemSpace::cpu(), addr, len,
                              reinterpret_cast<const std::uint8_t*>(data.data()));
     if (w.status != Result::Ok) {
-        Log::debugger()->warn("gdb: write of {} bytes at 0x{:04X} refused: {}", len, addr,
-                              result_name(w.status));
+        Log::debugger()->warn("gdb: write of {} bytes at 0x{:04X}: {} landed ({})", len, addr,
+                              w.value, result_name(w.status));
         reply("E01");
         return;
     }

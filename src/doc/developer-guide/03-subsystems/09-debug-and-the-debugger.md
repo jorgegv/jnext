@@ -258,6 +258,15 @@ that is not optional. A delivery happens inside `run_frame()`'s
 pokes an address it is watching would latch a watch on itself. `poke(Cpu)` takes
 a second scope of its own, so the property holds for any caller on any path.
 
+**`poke(Cpu)` reports what landed.** Every byte goes through
+`Mmu::write_landed()` — `Mmu::write` itself, returning its routing decision —
+so a byte an overlay takes (Layer 2 write-over, DivMMC or Multiface RAM, the
+alt-ROM write-over, config-mode SRAM) counts, and a byte dropped on ROM does
+not. The result is `Ok` only when every byte landed; otherwise
+`RefusedReadOnly`, carrying how many did (GH #281). Nothing is refused up
+front: a range across ROM and RAM still lands its RAM bytes, as the CPU's own
+write would.
+
 **`Mmu::write` latches before the overlay arbitration.** The watch check is at the
 TOP of the function, before the Multiface / DivMMC / Layer 2 / alt-ROM /
 config-mode cascade and before the `read_only_` drop, so a guest write into ROM
