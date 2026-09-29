@@ -3121,6 +3121,130 @@ static void section16_gh290_cvc_reload() {
               "reschedule has nothing to keep, and nothing fires",
               ok && n == 0, gw("fires", long(n), 0));
     }
+
+    // VT-GH290-42/43 — NR 0x22 bit 0 is the target's MSB, so an NR 0x22 write
+    // can change the TARGET too, and the compares in [e-3, e] must read the
+    // target from before it (int_line_num, zxula_timing.vhd:563-572). Target
+    // 300 (int_line_num 299) compares at raw line 52 of F2 (cvc 299 counting
+    // from 0: the lines before the reload); NR 0x22 = 0x02 keeps the enable
+    // and clears bit 8, making the target 44 (raw 107). 42: landing 1 cycle
+    // into the raw-52 compare pixel, the OLD target still fires there, then
+    // 44 fires at raw 107. 43: landing the cycle before it, only 107.
+    auto msb_flip = [](int delta, uint64_t& by54, uint64_t& by110) -> bool {
+        Emulator emu;
+        if (!gh290::build(emu)) return false;
+        const uint64_t f1 = emu.current_frame_cycle();
+        const uint64_t f2 = f1 + emu.timing().master_cycles_per_frame;
+        const uint64_t c  = gh290::at(emu, f2, 52, 380);
+        bool ok = gh290::run_to(emu, gh290::at(emu, f1, 100, 200));
+        g163::nr_write(emu, 0x23, 300 & 0xFF);
+        g163::nr_write(emu, 0x22, 0x03);          // enable, target MSB 1: 300
+        ok = ok && gh290::run_to(emu, gh290::at(emu, f2, 40, 200));
+        emu.reset_line_int_fire_count();
+        const uint64_t when = static_cast<uint64_t>(static_cast<int64_t>(c) + delta);
+        ok = ok && emu.clock().get() <= when;
+        if (!ok) return false;
+        emu.clock().tick(static_cast<int>(when - emu.clock().get()));
+        g163::nr_write(emu, 0x22, 0x02);          // enable, target MSB 0: 44
+        ok = gh290::run_to(emu, gh290::at(emu, f2, 54, 0));
+        by54 = emu.line_int_fire_count();
+        ok = ok && gh290::run_to(emu, gh290::at(emu, f2, 110, 0));
+        by110 = emu.line_int_fire_count();
+        return ok;
+    };
+    {
+        uint64_t by54 = 99, by110 = 99;
+        const bool ok = msb_flip(1, by54, by110);
+        check("VT-GH290-42",
+              "an NR 0x22 write clearing the target MSB 1 cycle into the old "
+              "target's compare pixel is too late for it: target 300 still fires "
+              "at raw 52, then 44 at raw 107 (zxula_timing.vhd:563-572,574-583)",
+              ok && by54 == 1 && by110 == 2,
+              gw("by_line54", long(by54), 1) + gw("by_line110", long(by110), 2));
+    }
+    {
+        uint64_t by54 = 99, by110 = 99;
+        const bool ok = msb_flip(-1, by54, by110);
+        check("VT-GH290-43",
+              "…and the cycle before that pixel it replaces the target: only raw "
+              "107 fires (zxula_timing.vhd:563-572)",
+              ok && by54 == 0 && by110 == 1,
+              gw("by_line54", long(by54), 0) + gw("by_line110", long(by110), 1));
+    }
+
+    // VT-GH290-44..47 — `OUT (C),A` to NR 0x22 and to NR 0xC4 (bit 1 of both
+    // is nr_22_line_interrupt_en, zxnext.vhd:5607-5610, fed straight into the
+    // compare, :6752) lands on its commit edge, start + 74 at 3.5 MHz, while
+    // the instruction ends at start + 96 — so the landing cycle and the clock
+    // fall on different sides of a boundary. Target 87 compares at c = raw
+    // 150, raw hc 380.
+    //   ENABLE started at c - 80: lands c - 6, before the compare pixel — it
+    //   fires this frame (by the clock, c + 16, it would be too late).
+    //   DISABLE started at c - 72: lands c + 2, inside the pixel, before the
+    //   enable is sampled in c + 3 — no fire (by the clock, c + 24, the
+    //   compare would already have been registered, and fire).
+    auto out_enable = [](uint8_t reg, uint8_t val, bool start_enabled,
+                         int start_before_c, uint64_t& by152) -> bool {
+        Emulator emu;
+        if (!gh290::build(emu)) return false;
+        const uint64_t f1 = emu.current_frame_cycle();
+        const uint64_t c  = gh290::at(emu, f1, 150, 380);
+        if (!gh290::run_to(emu, gh290::at(emu, f1, 100, 200))) return false;
+        g163::nr_write(emu, 0x23, 87);
+        g163::nr_write(emu, 0x22, start_enabled ? 0x02 : 0x00);
+        emu.reset_line_int_fire_count();
+        const uint64_t start = c - static_cast<uint64_t>(start_before_c);
+        if (emu.clock().get() > start) return false;
+        emu.port().out(0x243B, reg);                  // select, outside the OUT
+        emu.mmu().write(0x8000, 0xED);
+        emu.mmu().write(0x8001, 0x79);                // OUT (C),A
+        emu.mmu().write(0x8002, 0x18);
+        emu.mmu().write(0x8003, 0xFE);                // JR $
+        auto regs = emu.cpu().get_registers();
+        regs.PC = 0x8000;
+        regs.BC = 0x253B;
+        regs.AF = static_cast<uint16_t>((val << 8) | (regs.AF & 0x00FF));
+        emu.cpu().set_registers(regs);
+        emu.clock().tick(static_cast<int>(start - emu.clock().get()));
+        emu.execute_single_instruction();
+        const bool ok = gh290::run_to(emu, gh290::at(emu, f1, 152, 0));
+        by152 = emu.line_int_fire_count();
+        return ok;
+    };
+    {
+        uint64_t n = 99;
+        const bool ok = out_enable(0x22, 0x02, false, 80, n);
+        check("VT-GH290-44",
+              "OUT (C),A enabling the line interrupt through NR 0x22, committed 6 "
+              "cycles before the compare in the same instruction: it fires this "
+              "frame (zxnext.vhd:4739-4777,6752; zxula_timing.vhd:574-583)",
+              ok && n == 1, gw("by_line152", long(n), 1));
+    }
+    {
+        uint64_t n = 99;
+        const bool ok = out_enable(0x22, 0x00, true, 72, n);
+        check("VT-GH290-45",
+              "OUT (C),A disabling it through NR 0x22, committed 2 cycles into the "
+              "compare pixel: in time for the enable sample, no fire "
+              "(zxnext.vhd:4739-4777,6752; zxula_timing.vhd:574-583)",
+              ok && n == 0, gw("by_line152", long(n), 0));
+    }
+    {
+        uint64_t n = 99;
+        const bool ok = out_enable(0xC4, 0x03, false, 80, n);
+        check("VT-GH290-46",
+              "the same enable through NR 0xC4 bit 1 (the same flip-flop, "
+              "zxnext.vhd:5607-5610): fires this frame (zxula_timing.vhd:574-583)",
+              ok && n == 1, gw("by_line152", long(n), 1));
+    }
+    {
+        uint64_t n = 99;
+        const bool ok = out_enable(0xC4, 0x01, true, 72, n);
+        check("VT-GH290-47",
+              "…and the same disable through NR 0xC4: no fire "
+              "(zxnext.vhd:5607-5610; zxula_timing.vhd:574-583)",
+              ok && n == 0, gw("by_line152", long(n), 0));
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -3182,7 +3306,7 @@ int main() {
     std::printf("  Section 15: VT-S15-GH22-IN-DISPLAY   — done (2 live)\n");
 
     section16_gh290_cvc_reload();
-    std::printf("  Section 16: VT-S16-GH290-CVC-RELOAD — done (41 live)\n");
+    std::printf("  Section 16: VT-S16-GH290-CVC-RELOAD — done (47 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
