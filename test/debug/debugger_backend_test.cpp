@@ -5163,6 +5163,134 @@ int main() {
     }
 
     // =======================================================================
+    // INS-14 — render_layer (GH #278 package Q, WP4d)
+    //
+    // The eight layer views of the Qt Video panel, moved out of
+    // `src/debugger/video_panel.cpp` into the Qt-free backend. The panel's own
+    // suite (`debugger_video_panel_test`, the DVP rows) pins every view's
+    // PICTURE through the widget; these rows pin the VERB'S CONTRACT (design-qt
+    // §3.7) where the SDL-only configuration also runs them — the refusals,
+    // the 0x00000000 fill, "rows > vc untouched", the stride — and the
+    // guarantee the verb makes on its own: rendering a view changes nothing in
+    // the machine.
+    // =======================================================================
+    {
+        using jnext::dbg::Layer;
+        using jnext::dbg::RENDER_WIDTH;
+        constexpr uint32_t SENT = 0xDEADBEEFu;
+        constexpr size_t   ROWS = 256;
+
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        std::vector<uint32_t> buf(RENDER_WIDTH * ROWS, SENT);
+        auto untouched = [&] {
+            return std::all_of(buf.begin(), buf.end(),
+                               [](uint32_t v) { return v == SENT; });
+        };
+
+        const Result neg  = dbg.render_layer(Layer::Composite, -1,  buf.data(), RENDER_WIDTH);
+        const Result past = dbg.render_layer(Layer::Composite, 256, buf.data(), RENDER_WIDTH);
+        const bool clean = untouched();
+        const Result first = dbg.render_layer(Layer::Background, 0,   buf.data(), RENDER_WIDTH);
+        const Result last  = dbg.render_layer(Layer::Background, 255, buf.data(), RENDER_WIDTH);
+        check("INS-14-02", "render_layer() refuses a vc outside 0..255 (RefusedUnavailable, "
+                           "nothing written) and draws at both ends of the range",
+              neg == Result::RefusedUnavailable && past == Result::RefusedUnavailable &&
+                  clean && first == Result::Ok && last == Result::Ok,
+              std::string(jnext::dbg::result_name(neg)) + "/" +
+                  jnext::dbg::result_name(past) + " untouched=" + std::to_string(clean) +
+                  " 0:" + jnext::dbg::result_name(first) + " 255:" +
+                  jnext::dbg::result_name(last));
+
+        check("INS-14-03", "it refuses a null destination (RefusedUnavailable)",
+              dbg.render_layer(Layer::Composite, 100, nullptr, RENDER_WIDTH) ==
+                  Result::RefusedUnavailable);
+
+        std::fill(buf.begin(), buf.end(), SENT);
+        const Result narrow = dbg.render_layer(Layer::Composite, 100, buf.data(),
+                                               RENDER_WIDTH - 1);
+        const bool narrow_clean = untouched();
+        const Result exact = dbg.render_layer(Layer::Composite, 100, buf.data(),
+                                              RENDER_WIDTH);
+        check("INS-14-04", "it refuses a stride below RENDER_WIDTH (RefusedUnavailable, "
+                           "nothing written) and accepts exactly RENDER_WIDTH",
+              narrow == Result::RefusedUnavailable && narrow_clean && exact == Result::Ok,
+              std::string(jnext::dbg::result_name(narrow)) + " untouched=" +
+                  std::to_string(narrow_clean));
+
+        std::fill(buf.begin(), buf.end(), SENT);
+        const Result bogus = dbg.render_layer(Layer::Count, 100, buf.data(), RENDER_WIDTH);
+        check("INS-14-05", "a Layer outside the eight views is Unsupported, nothing written",
+              bogus == Result::Unsupported && untouched(),
+              jnext::dbg::result_name(bogus));
+
+        // The contract: over a wider stride, the sprite view of a machine with no
+        // sprite visible is all TRANSPARENT (0x00000000) in rows 0..vc, and the
+        // bytes it does not own — rows past vc, and each row's columns past 640 —
+        // keep whatever the caller had there.
+        constexpr size_t WIDE = RENDER_WIDTH + 17;
+        constexpr int    VC   = 100;
+        std::vector<uint32_t> wide(WIDE * ROWS, SENT);
+        const Result drawn = dbg.render_layer(Layer::Sprites, VC, wide.data(), WIDE);
+        bool zero_fill = true, rows_kept = true, pad_kept = true;
+        for (size_t y = 0; y < ROWS; ++y) {
+            for (size_t x = 0; x < WIDE; ++x) {
+                const uint32_t v = wide[y * WIDE + x];
+                if (y > static_cast<size_t>(VC))      rows_kept &= (v == SENT);
+                else if (x >= RENDER_WIDTH)           pad_kept  &= (v == SENT);
+                else                                  zero_fill &= (v == 0x00000000u);
+            }
+        }
+        check("INS-14-06", "rows 0..vc are drawn over a 0x00000000 fill (alpha 0 = "
+                           "transparent); rows past vc and the stride padding are not touched",
+              drawn == Result::Ok && zero_fill && rows_kept && pad_kept,
+              std::string("zero_fill=") + std::to_string(zero_fill) + " rows_kept=" +
+                  std::to_string(rows_kept) + " pad_kept=" + std::to_string(pad_kept));
+    }
+    {
+        // The composite view IS the picture: after a real frame, render_layer's
+        // Composite at vc 255 equals the emulator's own framebuffer, cell for
+        // cell and in all 32 bits — and it is opaque everywhere, since the
+        // compositor emits the NR 0x4A fallback wherever every layer is
+        // transparent. A mid-frame Copper MOVE to NR 0x4A makes the per-line
+        // replay part of what has to agree.
+        using jnext::dbg::Layer;
+        using jnext::dbg::RENDER_WIDTH;
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        auto nr = [&emu](uint8_t reg, uint8_t val) {
+            emu.port().out(0x243B, reg);
+            emu.port().out(0x253B, val);
+        };
+        nr(0x68, 0x80);        // ULA off: the fallback is the whole picture
+        nr(0x4A, 0x13);
+        nr(0x61, 0x00);
+        nr(0x62, 0x00);
+        for (uint16_t insn : {uint16_t(0x8000u | 100u), uint16_t((0x4Au << 8) | 0xE0u),
+                              uint16_t(0x8000u | 511u)}) {
+            nr(0x60, static_cast<uint8_t>(insn >> 8));
+            nr(0x60, static_cast<uint8_t>(insn & 0xFF));
+        }
+        nr(0x62, 0xC0);
+        emu.run_frame();
+        std::vector<uint32_t> comp(RENDER_WIDTH * 256, 0xDEADBEEFu);
+        const Result r = dbg.render_layer(Layer::Composite, 255, comp.data(), RENDER_WIDTH);
+        const auto fb = dbg.framebuffer();
+        size_t diffs = 0, transparent = 0;
+        for (size_t i = 0; i < comp.size() && i < fb.size; ++i) {
+            if (comp[i] != fb.data[i]) ++diffs;
+            if ((comp[i] & 0xFF000000u) != 0xFF000000u) ++transparent;
+        }
+        const bool split = fb.data[131 * RENDER_WIDTH] != fb.data[182 * RENDER_WIDTH];
+        check("INS-14-07", "render_layer(Composite, 255) after a frame is the emulator's own "
+                           "framebuffer in every bit, opaque everywhere, Copper split included",
+              r == Result::Ok && fb.size == comp.size() && diffs == 0 && transparent == 0 &&
+                  split,
+              std::to_string(diffs) + " differ, " + std::to_string(transparent) +
+                  " not opaque, split=" + std::to_string(split));
+    }
+
+    // =======================================================================
     // INS-16 / IN-02 / IN-03 — the input surface, read and injected
     // =======================================================================
     {
@@ -5302,9 +5430,9 @@ int main() {
         // PEND-B4-02 (coverage off and all-zero) retired by B4: coverage is
         // implemented, and INS-20-01 asserts the same fresh-backend answer.
         // PEND-B4-03 (screenshot refuses) retired by B4: CAP-01-01..09 pin it.
-        check("PEND-14-01", "render_layer() (unassigned, see the B1 report) refuses",
-              dbg.render_layer(jnext::dbg::Layer::Composite, 0, nullptr, 640) ==
-                  Result::Unsupported);
+        // PEND-14-01 (render_layer refuses Unsupported) retired by package Q
+        // WP4d: the verb is implemented (`debugger_render.cpp`), and
+        // INS-14-02..07 pin what it now does, refusals included.
         // probe_execute over the LEGACY model only — the subscription half is
         // EVT-PROBE-* below. Kept here because it is the one thing in this block
         // that was already answered for real rather than refused.
