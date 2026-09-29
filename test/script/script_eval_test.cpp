@@ -282,6 +282,18 @@ static void type_rows() {
          "an integer is needed here, not a string"},
         {"SEV-TYPE-FMT", "a format applies to integers: `${REASON:x2}` is refused at the expression",
          "on stop do log \"${REASON:x2}\" end", 19, "a format (x2, x4, d) applies to an integer"},
+        {"SEV-TYPE-FMT-X4", "`${REASON:x4}` is refused", "on stop do log \"${REASON:x4}\" end", 19,
+         "a format (x2, x4, d) applies to an integer"},
+        {"SEV-TYPE-FMT-D", "`${REASON:d}` is refused", "on stop do log \"${REASON:d}\" end", 19,
+         "a format (x2, x4, d) applies to an integer"},
+        {"SEV-TYPE-ARITH-RIGHT", "a string as the RIGHT operand of arithmetic is refused at the string",
+         "on frame when 1 + \"a\" == 2 do end", 19, "an operand of `+` must be an integer, not a string"},
+        {"SEV-TYPE-PHYS-PAGE", "a string `phys[]` page is refused", "on frame when phys[\"a\", 0] == 0 do end", 20,
+         "a `phys[]` page must be an integer"},
+        {"SEV-TYPE-PHYS-OFFSET", "a string `phys[]` offset is refused", "on frame when phys[0, \"a\"] == 0 do end",
+         23, "a `phys[]` offset must be an integer"},
+        {"SEV-TYPE-FIELD-INDEX", "a string snapshot-field index is refused", "on frame when s.MMU[\"a\"] == 0 do end",
+         21, "an index must be an integer"},
     };
     for (const T& r : ROWS) {
         const auto e = errs_of(r.src);
@@ -319,6 +331,9 @@ static void var_rows() {
         check("SEV-VAR-INIT", "initializers run in declaration order, each reading the ones before, and wrap",
               ok, dstr(L.errs) + got);
     }
+    check("SEV-VAR-SELF", "an initializer reading ITSELF is refused at the name (it is not declared yet)",
+          one_err_at(errs_of("var x = x"), 1, 9, "variable `x` is used before its declaration"),
+          dstr(errs_of("var x = x")));
     check("SEV-VAR-ORDER", "an initializer reading a LATER variable is refused at the name",
           one_err_at(errs_of("var b = a\nvar a = 1"), 1, 9, "variable `a` is used before its declaration"),
           dstr(errs_of("var b = a\nvar a = 1")));
@@ -634,12 +649,14 @@ static void changed_rows() {
     {
         base_state();
         L.st->snap(0, *g_dbg, at);  // IFF1 = 1, IFF2 = 0
+        const auto unchanged = ch(2);  // nothing moved; IFF1 != IFF2 in this fixture
         set_regs(0x1295, 0xBCDE, 0xFF00, true, true, 2);
         const auto iff2_only = ch(2);
         set_regs(0x1295, 0xBCDE, 0xFF00, false, false, 2);
         const auto iff1 = ch(2);
-        check("SEV-CHANGED-IFF1", "`changed(s, iff1)` sees IFF1 and not IFF2",
-              iff2_only && *iff2_only == 0 && iff1 && *iff1 == 1);
+        check("SEV-CHANGED-IFF1", "`changed(s, iff1)` is 0 with nothing changed (IFF1 1, IFF2 0), sees IFF1, and "
+              "not IFF2",
+              unchanged && *unchanged == 0 && iff2_only && *iff2_only == 0 && iff1 && *iff1 == 1);
         L.st->unsnap(0, at);
     }
     {
@@ -698,6 +715,34 @@ static void diff_rows() {
         threw = err_at(e.d, 1, 13, "snapshot stack `s` is empty");
     }
     check("SEV-DIFF-EMPTY", "dump_diff of an empty stack is a run-time error at the action", threw);
+    {
+        // Nested: the diff is against the TOP entry, not the oldest.
+        base_state();                                            // HL BCDE
+        L.st->snap(0, *g_dbg, at);
+        set_regs(0x1295, 0x1111, 0xFF00, true, false, 2);
+        L.st->snap(0, *g_dbg, at);                               // top: HL 1111
+        set_regs(0x1295, 0x2222, 0xFF00, true, false, 2);
+        const auto lines = L.st->diff(0, *g_dbg, at);
+        check("SEV-DIFF-TOP", "on a nested stack dump_diff compares with the TOP entry",
+              lines == std::vector<std::string>{"HL 1111 -> 2222"}, lines.empty() ? "" : lines[0]);
+        L.st->unsnap(0, at);
+        L.st->unsnap(0, at);
+    }
+    {
+        // IFF2, and a STACK0 value whose 4-digit padding shows.
+        set_regs(0x1295, 0xBCDE, 0xFF00, true, false, 2);
+        poke16(0xFF00, 0x0012);
+        L.st->snap(0, *g_dbg, at);
+        set_regs(0x1295, 0xBCDE, 0xFF00, true, true, 2);
+        poke16(0xFF00, 0x0034);
+        const auto lines = L.st->diff(0, *g_dbg, at);
+        std::string got;
+        for (const auto& l : lines) got += "[" + l + "] ";
+        check("SEV-DIFF-IFF2-STACK0", "dump_diff reports IFF2, and STACK0 as 4 hex digits",
+              lines == std::vector<std::string>{"IFF2 0 -> 1", "STACK0 0012 -> 0034"}, got);
+        L.st->unsnap(0, at);
+        poke16(0xFF00, 0x1234);
+    }
 }
 
 // ── Interpolation and strings ──────────────────────────────────────────────
@@ -750,6 +795,38 @@ static void interp_rows() {
 }
 
 // ── SEV-ERR — run-time errors ──────────────────────────────────────────────
+
+static void evaluate_rows() {
+    Loaded L = load("on stop when REASON == \"x\" and depth(s) == 300 do end on frame do snap s end");
+    const std::string reason = "MemPoint";
+    bool ok = L.ok();
+    std::string got;
+    if (ok) {
+        const Expr& w = *L.s().rules[0].when;  // (REASON == "x") and (depth(s) == 300)
+        try {
+            const Value vs = evaluate(*w.a->a, ctx_of(L, nullptr, &reason));
+            const Value vi = evaluate(*w.b->b, ctx_of(L));
+            ok = vs.type == ValueType::Str && vs.s == "MemPoint" && vi.type == ValueType::Int && vi.i == 300;
+            got = vs.s + " " + std::to_string(vi.i);
+        } catch (const EvalError& e) {
+            ok  = false;
+            got = e.d.to_string();
+        }
+    }
+    check("SEV-EVALUATE", "evaluate() returns a string for a string expression and an integer for an integer one",
+          ok, got + dstr(L.errs));
+    if (!L.ok()) return;
+    base_state();
+    for (int k = 0; k < 300; ++k) L.st->snap(0, *g_dbg, SourcePos{});
+    int32_t d = -1;
+    try {
+        d = eval_int(*L.s().rules[0].when->b->a, ctx_of(L));
+    } catch (const EvalError&) {
+    }
+    check("SEV-SNAP-DEPTH-WIDE", "`depth()` is not limited to 8 bits: 300 entries read 300", d == 300,
+          std::to_string(d));
+    while (L.st->depth(0) > 0) L.st->unsnap(0, SourcePos{});
+}
 
 static void err_rows() {
     {
@@ -982,6 +1059,7 @@ int main() {
     run_group("changed", changed_rows);
     run_group("diff", diff_rows);
     run_group("interp", interp_rows);
+    run_group("evaluate", evaluate_rows);
     run_group("err", err_rows);
     run_group("builtin", builtin_rows);
     run_group("work", work_rows);
