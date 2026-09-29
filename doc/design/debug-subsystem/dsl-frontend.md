@@ -35,8 +35,8 @@ whole, so `done` here means the sub-item is approved, not merged.
 
 | WP | Branch `gh26-dsl` (issue #26, carrying #279) | Status |
 |---|---|---|
-| **WP1** | lexer / parser / `compile_expr` **exported as a library** (Z WP-4 consumes it) — as built: Appendix G | in review |
-| **WP2** | evaluator + the snapshot stacks (`snap` / `unsnap` / `changed()`, which is how #279's span invariants are served with no new event kind) | todo |
+| **WP1** | lexer / parser / `compile_expr` **exported as a library** (Z WP-4 consumes it) — as built: Appendix G | **done** |
+| **WP2** | evaluator + the snapshot stacks (`snap` / `unsnap` / `changed()`, which is how #279's span invariants are served with no new event kind) | in progress |
 | **WP3** | engine over subscriptions, stop / exit policy. Headless script `stop` with no explicit `exit` is code **3** (never 2, a harness fault) | todo |
 | **WP4** | CLI + man page (`--script`, `--script-key`) | todo |
 | **WP5** | GUI — Script tab, **Alt+1..Alt+8** as the DSL host-key namespace in both windows. **Needs Q** | todo |
