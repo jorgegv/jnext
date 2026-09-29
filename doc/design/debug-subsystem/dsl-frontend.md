@@ -1532,3 +1532,74 @@ below is one §2.1 left open; none extends the language.
 | F4 | §3(a): "the parser warns on a `when PAGE ==` over a range wider than one slot". The range is known only after `@symbol` resolution. | WP1 does not warn. | WP3, at registration, where the resolved range is known. |
 | F5 | §8.1 asks `script_parse_test` for "one row per event kind proving the rule became exactly one subscription". | Registration is WP3; those rows land with it. | WP3. |
 | F6 | An `on stop` rule's `PC` binds to the payload PC, but a stop is not an `Event`. | None. | WP3 supplies it from `PausedInfo`. |
+
+## Appendix H — WP2 as built (2026-09-29)
+
+`src/script/`: `value.h` (the value model), `state.*` (variables and the
+snapshot stacks), the evaluator (`evaluator.*`) extended to every form, and the
+checker (`check.*`) extended with types and slots. Suite `script_eval_test`
+(`gate: none`). Every decision below is one §2 left open; none extends the
+language.
+
+### H.1 The value model
+
+| # | Decision | Why |
+|---|---|---|
+| H1 | **Two types, fixed at load time**: INTEGER (32-bit, wrapping; booleans are 0/1) and STRING. A string is a string literal (its `${…}` evaluated) or `REASON`; it can be compared with `==` / `!=` against another string and interpolated, and nothing else. | §2.1 lists string literals as expressions and `REASON` is a string (§2.3), but no action or builtin consumes a string value, and every expression slot of the grammar (a condition, a `set`, an index, a filter bound, a `var` initializer, `exit`, `dump_mem`, `out`, `joystick`, `press … for`, `log indent`) is an integer. |
+| H2 | **Variables are integers.** `var v = "x"` and `set v = "x"` are load-time errors. | No worked script stores a string, and a static type makes every type error a load-time error (§6.5: nothing runs partially) instead of a run-time one. |
+| H3 | **`check_script` types every expression** and refuses: a string in arithmetic or under `not`; a string compared with an integer; a string where an integer is needed; a format (`x2`, `x4`, `d`) on a string interpolation. `compile_expr` keeps refusing strings outright (Appendix G, G.2). | |
+
+### H.2 Variables
+
+- A variable's slot is its declaration index; `check_script` binds every reference and `set` target to it.
+- **Initializers run once, at load, in declaration order**, in the `None` scope (machine state allowed, payload not), and may read only the variables declared **before** them: a later one is a load-time error "used before its declaration". Rules read any variable, wherever it is declared.
+- Values wrap like every integer: `var big = 0x7FFFFFFF + 1` is INT_MIN.
+
+### H.3 Snapshot stacks (§2.5)
+
+- **The record**: the registers (`AF..HL2 IX IY SP PC I R IFF1 IFF2 IM`), the word at SP, the eight MMU slots as `mmu[s]` reads them (NR 0x50+s), FRAME and CYCLE (64-bit, read wrapped to 32) — captured through the inspection surface only.
+- **One stack per name**, with a slot in order of first appearance (`Script::snapshots`).
+- **Bounded at 4096 entries per name.** `snap` on a full stack, and `unsnap`, a field, `changed()` or `dump_diff` on an empty one, are **run-time errors at the action or expression, leaving the stack unchanged** (§6.5: the engine disables the rule). Dropping the oldest entry was rejected: every later exit would compare against the wrong entry, a silently wrong script. `depth()` of an empty stack is 0, not an error — it is how a script asks (§3(c) does).
+- **`changed()` compares exactly §2.5's groups**:
+  - `regs`: AF BC DE HL IX IY AF2 BC2 DE2 HL2 SP.
+  - `mmu`: all 8 slots.
+  - `iff1`: IFF1 only.
+  - `stack0`: the word at the *current* SP against the captured word. A moved SP over the same word is unchanged.
+- **`dump_diff`** returns one line per differing field, `NAME old -> new`, in the order AF BC DE HL IX IY AF2 BC2 DE2 HL2 SP IFF1 IFF2 IM STACK0 MMU0..MMU7. The values are upper-case hex, 4 digits for 16-bit, 2 for MMU, 1 for IFF/IM. **PC, I, R, FRAME and CYCLE are not compared**: between an entry and its exit they always differ, so they would bury the line that matters.
+
+### H.4 Interpolation
+
+- With no format, or with `d`, a value prints in signed decimal.
+- `x2` and `x4` print upper-case hex of the 32-bit pattern, zero-padded to **at least** 2 or 4 digits. A wider value keeps all its digits (`${0x1234:x2}` is `1234`, never a silently truncated `34`), and a negative one prints its pattern (`${-1:x4}` is `FFFFFFFF`).
+- A string piece (`${REASON}`) is inserted as it is.
+
+### H.5 Run-time errors (§6.5)
+
+- Every run-time failure throws `EvalError` with the failing node's position. That covers:
+  - division or modulo by zero;
+  - an accessor out of range;
+  - a refused `phys[]` page;
+  - a snapshot stack that is empty or full;
+  - `MMU[n]` outside 0..7;
+  - an `@symbol` left **unresolved** (the script was checked with no MAP): this is an error, not 0;
+  - `REASON` evaluated outside a stop delivery: this is an error, not "".
+- `make_condition`'s predicate turns a failure into *false* plus a report to its handler. The engine (WP3) catches a failure around a rule body and disables the rule.
+
+### H.6 Recursion
+
+- The new paths are the string comparison, interpolation, snapshot fields with an index, and variable initializers.
+- They recurse over the tree only, whose height the parser bounds (Appendix G13). A string node's height includes its interpolations', so the bound holds through them.
+- Row SEV-STACK runs each path at the bound on a 1 MB stack.
+
+### H.7 What WP3 consumes
+
+- `ScriptState`: variables (`set_var` is what `set v = …` calls), and `snap` / `unsnap` / `diff` for the three actions.
+- `init_vars`.
+- `eval_int`, `eval_str`, `evaluate` and `interpolate` for action operands and messages.
+- `make_condition` for each rule's `when`.
+- An `on stop` rule evaluates with `EvalContext::reason`, plus a synthetic `Event` carrying the paused PC (Appendix G.4 F6).
+
+### H.8 Deviations from the §8 test plan
+
+- §8 plans `script_eval_test` "against a fake inspection surface". `Debugger` is a concrete class in the frozen backend headers, so the suite runs a real `Debugger` over a 48K machine instead.
+- "Division by zero disabling the rule" is the engine's behaviour (WP3). WP2 pins that the error is raised and reported, positioned.

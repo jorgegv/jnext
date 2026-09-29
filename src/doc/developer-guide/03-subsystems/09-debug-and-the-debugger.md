@@ -757,9 +757,16 @@ It is layered, each stage consuming only the one before it:
   instruction's PC in an event rule and the CPU's PC elsewhere; `CPC` is legal
   only in a `copper` rule). The per-kind payload table admits a name only where
   the backend's `Event` actually carries it.
-- `evaluator.*` — the integer evaluator over a bound tree, reading through the
-  facade's const inspection surface (32-bit wrapping arithmetic; run-time
-  failures such as division by zero are reported, not thrown past the library).
+- `value.h` and `state.*` — the value model (integers, and strings that only
+  compare and interpolate; types are fixed by the checker at load time) and the
+  interpreter state: the variables and the snapshot stacks (`snap` / `unsnap` /
+  `changed()` / `dump_diff`, 4096 entries per name, a full or empty stack being a
+  run-time error rather than a silent drop).
+- `evaluator.*` — the evaluator over a checked tree, reading through the
+  facade's const inspection surface (32-bit wrapping arithmetic, `${…}`
+  interpolation; run-time failures such as division by zero are reported with a
+  position, never thrown past the library). `make_condition` turns a rule's
+  `when` into the backend's predicate over the script's live state.
 - `expr_compiler.h` — the stable public header other frontends call:
   `compile_expr(text, scope)` returns the backend's CAP-EVT predicate
   (`dbg::Condition`) and `eval_expr(text, debugger)` evaluates once. The ZRCP
@@ -768,7 +775,8 @@ It is layered, each stage consuming only the one before it:
 
 `script_parse_test` (`gate: none`) pins the grammar, every error class with its
 position, precedence, the per-kind payload table, the evaluation of every name
-against a real `Debugger`, and that every worked script of the design parses.
+against a real `Debugger`, and that every worked script of the design parses;
+`script_eval_test` pins the value model, the snapshot stacks and interpolation.
 The choices made where the grammar is silent are the design document's
 "WP1 as built" appendix. This section covers the front end only; the engine,
 the CLI and the recorder are later work packages of the same branch.
