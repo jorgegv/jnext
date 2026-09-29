@@ -628,7 +628,12 @@ void DebuggerManager::on_load_map_z88dk() {
     if (path.isEmpty())
         return;
 
-    if (symbol_table_.load_z88dk_map(path.toStdString())) {
+    // load_z88dk_map() returns the symbol count, or -1 when the file cannot be
+    // read — an int, not a bool (GH #278 WP0): tested as a bool, a failed read
+    // (-1) reported "MAP Loaded" over the old table, and a readable map with no
+    // `; addr` symbols (0) reported "Load Failed" after clearing it. Same test
+    // as the Simple loader below and as the backend's load_map().
+    if (symbol_table_.load_z88dk_map(path.toStdString()) >= 0) {
         QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
                 .arg(symbol_table_.size())
@@ -666,9 +671,17 @@ void DebuggerManager::refresh_panels() {
     if (!enabled_ || !debugger_window_)
         return;
 
+    // GH #278 WP0 — while paused the actions are refreshed with the panels.
+    // Their enabled state has inputs no verb touches: an RZX recording or
+    // playback started from the main window, the rewind buffer freed by Rewind
+    // Buffer Size... = 0. Recomputed only by the verbs, Step Back and Jump Here
+    // stayed enabled over them until the next verb, and the click was then
+    // refused. (While running every such action is off whatever those inputs
+    // are, and the verb that resumed has already said so.)
     if (emulator_->debug_state().paused()) {
         emulator_->snapshot_raster();
         debugger_window_->refresh_panels();
+        update_actions();
     } else {
         // Throttle refresh during running to ~4Hz.
         ++refresh_counter_;

@@ -2028,6 +2028,15 @@ fixed-width.</p>
 </tr>
 </tbody>
 </table>
+<p><strong>Frame numbers.</strong> A slot is tagged with the number of the frame it begins,
+and it is taken just <em>after</em> the frame counter has counted that frame, so a
+restored machine already holds <code>frame_num() = K+1</code> for the frame <em>K</em> it is about
+to run again. <code>Emulator::at_restored_frame_start()</code> marks that state (host-side,
+never serialised): <code>begin_new_frame()</code> then counts the frame once, not twice,
+and a debugger can tell the boundary <em>before</em> a restored frame from an ordinary
+boundary <em>after</em> a frame. When the machine runs forward from a rewind, the
+first new slot drops every slot from its frame on — the history the rewind left
+— so the ring always holds one timeline, one slot per tag (GH #278).</p>
 <p><code>replay_mode_</code> suppresses audio mixing and rendering throughout the
 fast-forward, so rewinding several seconds neither screeches through the
 speakers nor flickers through hundreds of frames; the picture is rendered once,

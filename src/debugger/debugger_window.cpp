@@ -255,14 +255,7 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     toolbar->addWidget(continue_btn_);
 
     frame_back_btn_ = new QPushButton(tr("|\u25C4 Frame Back"), this);
-    connect(frame_back_btn_, &QPushButton::clicked, this, [this]() {
-        if (debugger_mgr_ && emulator_ && emulator_->rewind_buffer()
-                && !emulator_->rewind_buffer()->empty()) {
-            uint32_t prev = emulator_->frame_num() > 0
-                ? emulator_->frame_num() - 1 : 0;
-            debugger_mgr_->on_rewind_to_frame(prev);
-        }
-    });
+    connect(frame_back_btn_, &QPushButton::clicked, this, &DebuggerWindow::frame_back);
     toolbar->addWidget(frame_back_btn_);
 
     step_back_btn_ = new QPushButton(tr("\u25C4 Step Back"), this);
@@ -507,14 +500,7 @@ void DebuggerWindow::create_menus() {
     // Alt+K: F is reserved for "Run to End of &Frame", which pairs with
     // "Run to End of Scan &Line" (issue #124).
     frame_back_action_ = debug_menu->addAction(tr("|< Frame Bac&k"));
-    connect(frame_back_action_, &QAction::triggered, this, [this]() {
-        if (debugger_mgr_ && emulator_ && emulator_->rewind_buffer()
-                && !emulator_->rewind_buffer()->empty()) {
-            uint32_t prev = emulator_->frame_num() > 0
-                ? emulator_->frame_num() - 1 : 0;
-            debugger_mgr_->on_rewind_to_frame(prev);
-        }
-    });
+    connect(frame_back_action_, &QAction::triggered, this, &DebuggerWindow::frame_back);
 
     step_back_action_ = debug_menu->addAction(tr("Step &Back"));
     connect(step_back_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_back);
@@ -771,6 +757,34 @@ void DebuggerWindow::update_trace_indicator() {
         trace_enable_action_->setChecked(active);
 }
 
+// GH #278 WP0 — ONE numbering for the rewind UI: the snapshot tags the slider
+// and rewind_to_frame() speak, where snapshot t holds the machine at the START
+// of frame t — the same numbering as the backend's time().frame. Emulator::
+// frame_num() counts the frames BEGUN, so it reads t+1 while frame t runs; the
+// label and the status line used to show that raw count, one ahead of the
+// slider, and Frame Back subtracted one from it wherever the machine was.
+
+/// The frame the machine is in: the one running; at an ordinary frame
+/// boundary the one just run; on a restored frame start the frame restored.
+uint32_t DebuggerWindow::rewind_position() const {
+    const uint32_t begun = emulator_->frame_num();
+    return begun > 0 ? begun - 1 : 0;
+}
+
+/// Frame Back (button and menu): the nearest snapshot BEFORE the current
+/// position — the start of the frame in flight or just run, or, when the
+/// machine already sits on a restored frame start, the start of the frame
+/// before it. The last is what used to repeat: Frame Back restored the frame
+/// it was already on, on every press.
+void DebuggerWindow::frame_back() {
+    if (!debugger_mgr_ || !emulator_ || !emulator_->rewind_buffer()
+            || emulator_->rewind_buffer()->empty())
+        return;
+    const uint32_t here = rewind_position();
+    const uint32_t target = emulator_->at_restored_frame_start() && here > 0 ? here - 1 : here;
+    debugger_mgr_->on_rewind_to_frame(target);
+}
+
 void DebuggerWindow::update_rewind_ui() {
     if (!emulator_) return;
 
@@ -791,24 +805,27 @@ void DebuggerWindow::update_rewind_ui() {
                 static_cast<int>(rb->oldest_frame_num()),
                 static_cast<int>(rb->newest_frame_num()));
             if (!is_paused)
-                rewind_slider_->setValue(static_cast<int>(emulator_->frame_num()));
+                rewind_slider_->setValue(static_cast<int>(rewind_position()));
             rewind_slider_->blockSignals(false);
         }
         if (rewind_frame_label_) {
             rewind_frame_label_->setText(
                 tr("Frame %1 / %2")
-                    .arg(emulator_->frame_num())
+                    .arg(rewind_position())
                     .arg(rb->newest_frame_num()));
         }
     }
 
     // Status bar indicator
     if (rb && !rb->empty()) {
-        bool is_rewound = emulator_->frame_num() < rb->newest_frame_num();
+        // Behind the newest snapshot, or sitting on a restored frame start
+        // (the newest's included): anything else is the live end.
+        bool is_rewound = rewind_position() < rb->newest_frame_num() ||
+                          emulator_->at_restored_frame_start();
         if (is_rewound) {
             statusBar()->showMessage(
                 tr("\u23EE Rewound: frame %1 of %2  (%3 / Continue to resume)")
-                    .arg(emulator_->frame_num())
+                    .arg(rewind_position())
                     .arg(rb->newest_frame_num())
                     .arg(QString::fromStdString(jnext::dbgkeys::render_combo(
                         keymap_.combo(jnext::dbgkeys::Action::Run)))));

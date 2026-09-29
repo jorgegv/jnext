@@ -23,7 +23,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 
 | WP | Branch `gh278-qt` (issue #278) | Status |
 |---|---|---|
-| **WP0** | close the identity gaps on the **current** tree, so the suites are green on both trees by construction | todo |
+| **WP0** | close the identity gaps on the **current** tree, so the suites are green on both trees by construction — as built: §6.2a | **done** — reviewed + APPROVED (rows, then the fix round); landed on `main` alone |
 | **WP1** | the `src/qt/` header move + `make build-matrix`. **Q is the single owner of this move**, and it lands with the rest of Q on Q's one branch | todo |
 | **WP2** | `DebuggerManager` verbs onto the backend facade | todo |
 | **WP3** | rewind / trace / corruption | todo |
@@ -215,7 +215,7 @@ Gate: `refresh()` returns while running (:257) — **"disasm does not follow PC 
 | 60 | `renderer().fallback_for_line(row)`, `renderer().fallback_colour()` | Background view + its title | P | 596, 603 |
 | 61 | `ula().vram_bank7()` | ULA view title "LIVE / NOT live" | P | 614 |
 
-Rows past `vc` are left unrendered; only the VISIBLE tab's view is refreshed (:1067-1073); a tab switch invalidates and refreshes immediately (:953-959). The rendered `QImage` is the test seam (`video_panel.h:47`).
+Rows past `vc` are left unrendered; only the VISIBLE tab's view is refreshed (:1067-1073); a tab switch invalidates and refreshes immediately (:953-959) — paused it renders, running it shows the placeholder (until the WP0 fix round a view switched to while running kept the picture of an earlier pause, §6.2a defect 5). The rendered `QImage` is the test seam (`video_panel.h:47`).
 
 ### 1.14 DebuggerWindow — `debugger_window.cpp` (menus, toolbar, dialogs)
 
@@ -223,7 +223,7 @@ Rows past `vc` are left unrendered; only the VISIBLE tab's view is refreshed (:1
 |---|---|---|---|
 | 62 | `trace_log().enabled()` / `.set_enabled(b)` / `.clear()` / `.export_to_file(path)` | Trace toggle button + Debug ▸ Trace submenu (Enable / Clear / Export…) | 218-238, 547-570, 755 |
 | 63 | `rewind_buffer()` `->empty() ->depth() ->oldest_frame_num() ->newest_frame_num() ->snapshot_bytes()` | Frame Back guard, slider range, status text "Rewind: N frames / M MB", "Rewound: frame a of b", size dialog | 259-263, 511-515, 582, 706-718, 777-816, 843-851 |
-| 64 | `frame_num()` | Frame Back target = `frame_num()-1`; slider thumb; labels | 261, 513, 794-811 |
+| 64 | `frame_num()`, `at_restored_frame_start()` | the frame the machine is in, in snapshot-tag numbering (`frame_num()-1`): slider thumb, label, "Rewound" status; Frame Back target = that frame, or the one before when the machine sits on a restored frame start (WP0 fix round, §6.2a defect 1) | `rewind_position()`, `frame_back()` |
 | 65 | `resize_rewind_buffer(n)` / `set_rewind_enabled(b)` / `rewind_enabled()` | Enable Rewind toggle (create-or-resume / keep-but-pause) + Rewind Buffer Size… | 593, 596, 608, 828, 888 |
 | 66 | `rzx_player().is_playing()`, `rzx_recorder().is_recording()` | `can_rewind` greying (mirrors `Emulator::rzx_blocks_rewind()`) | 713-714 |
 | 67 | `debug_state().paused()` | `update_actions(is_paused)` inputs | 225, 551, 613, 784 |
@@ -331,7 +331,7 @@ Yes/No (default No) when `last_state_error()` is non-empty and this
 | **Run to EOSL** `on_run_to_eosl` (:520) | paused; gate | `run_to_cycle(next line start)`; if that line is past the last visible fb row → next frame start | resumed-style |
 | **Run to Here / Cursor** (signal → :194) | gate | `run_to(addr)` = one-shot, `StepMode::NONE` | resumed-style |
 | **Step Back** `on_step_back` (:562) | rewind buffer non-empty; not RZX-blocked (refused silently at the GUI; core logs) | `Emulator::step_back(1)`: needs trace enabled + non-empty; target = trace[size-1].cycle; clears trace; `rewind_to_cycle` (restore nearest frame snapshot, replay forward silently); failure → `warn_state_corrupt` ONLY if `last_state_error()` set (benign failures are silent) | `set_paused(true)` ×4; `paused()`; follow PC; refresh |
-| **Frame Back** (window :255-265, :509-517) | buffer non-empty | `on_rewind_to_frame(frame_num()-1)` (0 floor) | as Step Back |
+| **Frame Back** (window `frame_back()`) | buffer non-empty | `on_rewind_to_frame(t)`: t = the frame the machine is in (tag `frame_num()-1`), or t-1 when it already sits on a restored frame start — so each press goes one frame further back (until the WP0 fix round it restored the same frame on every press) | as Step Back |
 | **Rewind to frame N** `on_rewind_to_frame` (:593) | as Step Back | `Emulator::rewind_to_frame(n)`: range-checked against buffer; restore that frame's snapshot (frame START), re-render framebuffer, `set_active(true)+pause()` | as Step Back |
 | **Rewind slider** (window :305-334) | toolbar visible when `depth()>1` | `sliderReleased` → `on_rewind_to_frame(value)`; Jump Here does the same; thumb follows `frame_num()` only while running (paused: user owns it) | |
 | **Enable Rewind** (window :580-614) | — | on: buffer absent → `resize_rewind_buffer(last_rewind_frames_)` (also enables trace); present → `set_rewind_enabled(true)` + `trace_log().set_enabled(true)`; off: `set_rewind_enabled(false)` = keep-but-pause | `update_rewind_ui`, `update_actions` |
@@ -470,7 +470,7 @@ projection of exactly what it does today):
 Of the 95 inventory rows, **93 map onto a v1/v3 CAP** (#94 → CAP-CTL-13; #95 → CAP-CTL-15 with REQ-qt-29) (with the 14 sub-REQs of
 §8, all answered, making the mapping exact) and **2 stay GUI-side by design**
 (Watches display list; layer-state derivation from four peeks).
-**Reach-arounds remaining = 0; REQs open = 0** (REQ-qt-29 accepted). The implementation gate is
+**Reach-arounds remaining = 0; REQs open = 0** (REQ-qt-29 accepted) — at design time; the WP0 fix round opened REQ-qt-09d (§8). The implementation gate is
 `grep -l 'core/emulator.h' src/debugger/*.cpp` empty (WP7).
 
 ### 3.5 Watches and data breakpoints vs the DSL (design-dsl's point 1)
@@ -758,17 +758,96 @@ written against the CURRENT tree and green there before a line of #278 moves.
 Every gap row is a behaviour a reviewer would otherwise have to check by hand
 after the refactor.
 
+### 6.2a WP0 as built (2026-09-28)
+
+Where each §6.2 row landed, and every way it differs from the table above.
+As first submitted, 83 rows: `debugger_panels_test` 36 (new, gate `dbg`),
+`debugger_verbs_test` 46 (new, gate `dbg`), `debugger_video_panel_test` +1
+(QVT-01), with no production change. The WP0 FIX ROUND (manager decision: the
+defects a work package surfaces are fixed on its branch) then fixed the seven
+defects listed at the end of this section, with rows pinning the fixed
+behaviour: panels 39, verbs 48, video_panel +2, plus rows in `rewind_test` and
+`debugger_backend_test` where the defect reached them. No test seam was added: every row reads what a user reads (label and cell
+text, cell colours, menu-item enabled state, modal titles and texts, files on
+disk) or where the machine stopped. The custom-painted Memory panel is read
+through a recording paint device that keeps the text items its `paintEvent`
+draws; the file dialogs are the REAL widget-based `QFileDialog`, answered by a
+timer (so §6.2's "the QFileDialog is not testable" did not hold).
+
+| §6.2 row(s) | Suite | As built |
+|---|---|---|
+| QSO-01..06 | verbs | As designed. Each row also asserts the action set (running shape while a call-like step runs, paused shape at the stop). QSO-04's restart routine is the row's own code under +3 all-RAM paging: a ROM `RST $38` ran the 48K interrupt routine on an unset-up machine and never came back. |
+| QSI-01..03 | verbs | As designed, plus **QSI-04** (added): the step's own UI — CPU panel and Disassembly on the new PC with no tick in between. |
+| QPE-01..05 | verbs | 01 Run freezes CPU / Stack / Call Stack / Disassembly (its listing too) and flips the actions; 02 a breakpoint's pause edge refreshes them; 03 the Disassembly re-centres; 04 raster read-out: dashes while running, the stop line after the edge's tick (the panel-only half already existed as DVP-RAS-11..14); 05 Break. Plus **QPE-06** (added after a surviving mutation): Step Over on a call, Step Out, Run to Here, Run to EOF and Run to EOSL freeze the panels exactly as Run does. |
+| QTH-01 | verbs | As designed, plus **QTH-02** (added): while paused every tick refreshes. |
+| QRW-01..12 | verbs | Renumbered: 01 toolbar shown only past one snapshot; 02 slider = [oldest, newest] tag and the label "Frame <newest> / <newest>" at the live end; 03 thumb at the live end while running; 04 thumb user-owned while paused; 05 "Rewind: N frames / M MB"; 06 after a jump to t, "Rewound: frame t of <newest> (F5 / Continue …)" and "Frame t / <newest>"; 07 / **07b** Frame Back button / menu, three presses from the live end = frames K, K-1, K-2; 08 Step Back button + menu; 09 slider release + Jump Here; 10 trace-off greys Step Back only; 11 RZX greys both on the next tick, running greys both; 12 Enable Rewind creates; **16** Buffer Size dialog (0 greys Step Back / Jump Here on the next tick); **17** Enable Rewind off = keep-but-pause; **18** Enable Rewind on resumes the same buffer; **19** a frame run again after a rewind keeps its number and the abandoned snapshots go. The restored machine is asserted by the HL a counter loop held at each tagged frame start. |
+| QRW-13..15 | verbs | As designed: refused (RZX), benign, corrupt. |
+| QWP-01..06 | panels | Split: QWP-06 is the immediate route, **QWP-07** (added) the `(rr)` route. |
+| QNR-01..03 | panels | 01 an edit runs NR 0x41's handler (palette entry + index advance); 02 the display is the live composed value, not the cache; 03 a refresh, and a non-hex edit, write nothing back. The "refresh uses `peek`, not `read`" half of §6.2 was ALREADY pinned: DVP-PEEK-02 drives the real `NextRegPanel`. |
+| QPN-* | panels | QPN-CPU-01..04 (02 sets F one bit at a time, review round 1), QPN-MMU-01..03, QPN-STK-01..02, QPN-CS-01..05 (03..05 INT / NMI frames and the ISR's return, fix round), QPN-SPR-01..05 (02 includes an extended 8-bit sprite, fix round), QPN-COP-01..04. |
+| QMP-01..05 | panels | 01 CPU-view read; 02 CPU-view edit (ROM untouched); 03 selector labels, compared exactly (fix round); 04 slot-view READ through the CPU map, overlay included (the WP8 "before" witness); **04b** (split) slot-view WRITE through the CPU map; 05 row colours at both ends of each range. QMP-06..09 stay reserved for WP8. |
+| QTR-01..04 | verbs | Step Back's greying on a trace toggle is folded into QTR-01 / QTR-02. |
+| QMAP-01..03 | verbs | Through the real file dialog, plus **QMAP-04** (fix round): the Z88DK loader's failure and zero-symbol cases. |
+| QEN-01..02 | verbs | 01 enabling on a paused machine shows it at once; 02 re-enabling a reused window on a running machine re-seeds it as running. |
+| QVT-01 | video_panel | Paused case, plus **QVT-02** (fix round): the running case. |
+| lint row | — | WP1, per the WP0 brief. |
+
+**Defects found by WP0, fixed in the WP0 fix round** (one commit each; rows
+pin the FIXED behaviour):
+
+1. **Frame numbering in the rewind UI** (`a9c592148`). A ring snapshot is taken
+   in `begin_new_frame()` after the counter counted its frame, and a restore
+   clears `frame_in_progress_`, so the restored frame was counted a SECOND time
+   when it ran: after `rewind_to_frame(K)` the re-run frame was tagged K+1, and
+   a `step_back` inside frame K moved `frame_num()` to K+2 (and pushed a
+   spurious `FrameEnded`). Fixed in the core by `Emulator::at_restored_frame_start()`
+   (host-side provenance, set by the two ring restores); the ring drops the
+   history a rewind left when the machine runs forward. The Qt window now names
+   the current frame by snapshot tag (label, "Rewound" status, thumb) and Frame
+   Back goes one frame further back per press; the backend's `run_to_frame()`
+   takes its base from the flag and its `FrameEnded` detector watches the frame
+   start cycle. No existing expected value changed (RTF-03, CTL-10-03 and
+   WV-REWIND-01 keep theirs). Rows: `rewind_test` SB-05, RTF-04..06;
+   `debugger_backend_test` F2-06, F2-07, SES-02-25; QRW-02/06/07/07b/19.
+2. **`on_load_map_z88dk()` tested an `int` as a `bool`** (`f0ebc1122`): now
+   `>= 0`. Rows: QMAP-04; `debugger_backend_test` SYM-10 (the backend was right).
+3. **The Call Stack never showed INT or NMI, and an ISR's return emptied it**
+   (`318690306`). `CallStack::on_interrupt()` had no caller; the CPU now reports
+   the kind of slot it ran (`Z80Cpu::last_slot_kind()`) and the post-slot hook
+   records INT / NMI frames; a return pops only the frames strictly below the
+   new SP. The backend's `call_stack()` is the same tracker. Rows: QPN-CS-03..05;
+   `debugger_backend_test` INS-12-03/04.
+4. **An extended 8-bit sprite's pattern** (`b12ef09e4`): `get_sprite_info()`
+   reports N5:N0 for an 8-bit sprite and N5:N0:N6 for a 4-bit one only
+   (sprites.vhd:801-804, :816, :962-963). Rows: QPN-SPR-02; `debugger_backend_test`
+   INS-08-14.
+5. **A layer tab switched to while running showed a stale picture**
+   (`42753859f`): the running early return now requires `last_vc_ == -1`. Row:
+   QVT-02.
+6. **The Memory page selector's casing** (`22bb5e3ec`): "Slot N (page XX)" with
+   the hex upper case, as the user guide says. QMP-03 compares exactly.
+7. **The actions were recomputed only by a verb** (`60c979520`, trimmed in
+   `b67d81ceb`): while paused the manager refreshes them with the panels on every
+   tick, so an RZX started from the main window, or the buffer freed by Rewind
+   Buffer Size... = 0, greys Step Back / Jump Here on the next tick (running,
+   every such action is already off). Rows: QRW-11, QRW-16.
+
+**Finding against the backend (for WP3):** the Qt rewind UI now needs
+`at_restored_frame_start()` — the one fact that tells the boundary BEFORE a
+restored frame from the ordinary boundary AFTER a frame, which have the same
+counter. The backend does not publish it; recorded as REQ-qt-09d in §8.
+
 ### 6.3 Mutation checks for the #278 reviewer
 
 Each mutation is applied to the REFACTORED tree, in its own build dir, and
 must turn at least one named row red (`feedback_mutation_harness_reports_absence`:
 prove the harness sees a known mutation first):
 
-1. `step_over()` in the backend: drop the DJNZ case → `QSO-04`.
+1. `step_over()` in the backend: drop the DJNZ case → `QSO-05` (the §6.2 order puts RST at 04; corrected by WP0).
 2. `run_to_end_of_frame()`: target `FB_HEIGHT-1` without `vblank_top` → DVP-11.
 3. Pause epoch: increment on resume as well → `QPE-*` (panels refresh while running).
 4. `render_layer(ULA_PRIMARY)`: follow the live bank instead of forcing it → DVP-03.
-5. `nextreg_peek` → `read` → DVP-PEEK + `QNR-02` (NR 0x2D latch).
+5. `nextreg_peek` → `read` → DVP-PEEK-02 (NR 0x2D latch); `nextreg_peek` → the raw cache → `QNR-02` (WP0: the latch half was already DVP-PEEK-02's).
 6. `read_memory` inside a guest scope → INSPW-01.
 7. Observer notification dropped from `add_pc` → GH220-*.
 8. `rewind_to_frame` outcome collapsed to bool → `QRW-13..15`.
@@ -870,6 +949,7 @@ Sent as `REQ-qt-<n>: <capability> — <why> — <site>`; answers recorded here.
 | 09 | rewind buffer control/range, frame number — `debugger_window.cpp:580-614, 774-890` | served: CAP-ST-03, CAP-INS-07 |
 | **09b** | `snapshot_bytes()` — `:816, :850` | **ACCEPTED** → `rewind_range()` = {oldest, newest, depth, capacity_frames, snapshot_bytes} |
 | **09c** | `rewind_blocked()` pre-query for greying — `:709-714` | **ACCEPTED** → `rewind_blocked() -> optional<string reason>` |
+| **09d** | "does the machine sit on a restored frame start?" (`Emulator::at_restored_frame_start()`, WP0 fix round) — Frame Back's target and the "Rewound" status need it (`debugger_window.cpp` `frame_back()`, `update_rewind_ui()`); the backend's own `run_to_frame()` already reads it | **OPEN** — raised by the WP0 fix round, for WP3; e.g. a flag in `Time` or `RewindRange` |
 | 10 | trace enable/export — `:214-244, 542-574` | served: CAP-INS-13 |
 | **10b** | `trace_enabled()` query + `trace_clear()` — `:218, 558, 755` | **ACCEPTED** → CAP-INS-13 |
 | 11 | corruption observables — `debugger_manager.cpp:279-303` | served: CAP-CTL-11 |
@@ -905,7 +985,7 @@ Sent as `REQ-qt-<n>: <capability> — <why> — <site>`; answers recorded here.
 MAPPED against backend.md v3 + the owner review of 2026-09-27 + round 4:
 **40 CAP ids used (35 of v1, +3 additions CAP-CTL-14 / CAP-INS-19 / per-client
 CAP-SES-05, + CAP-INS-02 `MemSpace::Page` and `MemSpace::Rom` per Q7/R-3), 15
-declined (§3.3), 0 REQs open, 0 reach-arounds (backend v7).** All 14
+declined (§3.3), 0 REQs open, 0 reach-arounds (backend v7).** (Since then the WP0 fix round opened REQ-qt-09d.) All 14
 sub-REQs ACCEPTED/CONFIRMED; REQ-qt-28 is NEEDS-PROTOTYPE by agreement
 (§3.7). To be re-confirmed as "MAPPED" against v2 when broadcast (additions
 only expected).

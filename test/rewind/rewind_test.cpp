@@ -200,11 +200,21 @@ static int test_step_back_pc()
            trace_size, expected_5, expected_10);
 
     // step_back(5)
+    const uint32_t frames_before = emu.frame_num();
     bool ok = emu.step_back(5);
     check("SB-01", ok, "step_back(5) reports success");
     uint16_t pc_after_5 = emu.cpu().get_registers().PC;
     printf("  PC after step_back(5):  0x%04X (expected 0x%04X)\n", pc_after_5, expected_5);
     check("SB-02", pc_after_5 == expected_5, "step_back(5) lands on the PC the trace recorded 5 instructions back");
+
+    // GH #278 — five instructions back is still inside the frame that just
+    // ran, so the frame counter must not move. The ring snapshot the rewind
+    // restores was taken after the counter counted its frame; the replay's
+    // re-run of begin_new_frame() used to count it again, leaving frame_num()
+    // one past the frame the machine was in.
+    check("SB-05", emu.frame_num() == frames_before && emu.frame_in_progress(),
+          "a step_back inside the last frame leaves frame_num() on that frame "
+          "(the replay counts the restored frame once)");
 
     // step_back(10) — fresh emulator for a clean trace
     Emulator emu2;
@@ -260,6 +270,40 @@ static int test_rewind_to_frame()
     // After rewind, the frame_num_ should reflect the restored state.
     check("RTF-03", emu.frame_num() == target_frame + 1,
           "frame_num is target+1 after the rewind (the snapshot is taken at the start of the target frame)");
+
+    // GH #278 — run the restored frame again: it is counted ONCE (the snapshot
+    // already counted it; the re-run of begin_new_frame() used to count it a
+    // second time, so frame_num() read target+2 and the re-run frame was
+    // snapshotted as target+1)...
+    const uint64_t restored_cycle = emu.current_frame_cycle();
+    check("RTF-04", emu.at_restored_frame_start(),
+          "the rewound machine reports it sits on a restored frame start");
+    emu.debug_state().resume();
+    emu.run_frame();
+    check("RTF-05", emu.frame_num() == target_frame + 1 && !emu.at_restored_frame_start() &&
+                    rb->newest_frame_num() == target_frame,
+          "the frame run again after a rewind is counted once and snapshotted under its own tag");
+    // ...and the history the rewind left behind is dropped as the machine runs
+    // forward: one slot per tag, and the target's slot is the re-run's.
+    check("RTF-06", rb->depth() == target_frame - rb->oldest_frame_num() + 1 &&
+                    rb->frame_cycle_for(target_frame) == restored_cycle,
+          "running forward from a rewind drops the abandoned snapshots (no tag held twice)");
+
+    // ...and only a RING restore sits on a counted frame start. A plain
+    // load_state() of a boundary snapshot (what a .jns load or a warm start
+    // does) is an ordinary boundary, even straight after a rewind: its next
+    // frame is counted.
+    std::vector<uint8_t> boundary(rb->snapshot_bytes(), 0);
+    StateWriter bw(boundary.data(), boundary.size());
+    emu.save_state(bw);
+    const uint32_t begun_at_save = emu.frame_num();
+    emu.rewind_to_frame(rb->oldest_frame_num());
+    StateReader br(boundary.data(), boundary.size());
+    const bool loaded = emu.load_state(br);
+    emu.debug_state().resume();
+    emu.run_frame();
+    check("RTF-07", loaded && emu.frame_num() == begun_at_save + 1,
+          "a load_state() after a rewind is an ordinary boundary: the next frame is counted");
 
     return 0;
 }

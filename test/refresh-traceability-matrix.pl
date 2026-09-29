@@ -1090,6 +1090,8 @@ my %NO_MATRIX_SECTION = (
     'debugger_keymap_test'      => 'user-redefinable debugger key bindings (host GUI + jnext.conf, GH #1); the commands they invoke are traced by the suites of the hardware each one drives',
     'debugger_menu_test'        => 'debugger menu reachability (host GUI)',
     'debugger_disasm_copy_test' => 'disassembly-panel selection and clipboard text (host GUI, GH #21); the disassembler it copies is traced in `## Z80N`',
+    'debugger_panels_test'      => 'debugger panel DISPLAY identity before the GH #278 backend refactor (host GUI); the hardware each panel shows is traced by its own subsystem suite',
+    'debugger_verbs_test'       => 'debugger verbs, pause edge and rewind/trace/MAP controls identity before the GH #278 backend refactor (host GUI, jnext-internal); the T80N core has no debugger',
 );
 
 # The head Summary table is generated between these markers. They are HTML

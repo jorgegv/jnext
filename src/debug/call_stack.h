@@ -33,8 +33,12 @@ public:
     /// Compares with pre-SP to determine if a CALL/RET was actually taken.
     void on_instruction_post(uint16_t new_sp, uint16_t new_pc);
 
-    /// Notify of an interrupt being taken (hardware push of PC).
-    void on_interrupt(uint16_t caller_pc, uint16_t target_pc, uint16_t new_sp);
+    /// Notify of an interrupt being taken (hardware push of PC), IN PLACE of
+    /// on_instruction_post() for that slot: an accepted INT or NMI fetches no
+    /// opcode, so the pre-slot capture describes an instruction that did not
+    /// run and is discarded. `type` is CallType::INT or CallType::NMI.
+    void on_interrupt(uint16_t caller_pc, uint16_t target_pc, uint16_t new_sp,
+                      CallType type = CallType::INT);
 
     /// Get the current call stack (most recent first).
     const std::vector<CallFrame>& frames() const { return frames_; }

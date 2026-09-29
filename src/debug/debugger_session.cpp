@@ -329,12 +329,16 @@ PausedInfo Debugger::Impl::paused_info() const {
 void Debugger::Impl::sync_notifications() {
     const bool     paused = ds().paused();
     const uint64_t gen    = ds().resume_generation();
-    // The RAW frame counter, not `frame_tag()`: the tag clamps (`raw > 0 ?
-    // raw - 1 : 0`) and reads 0 both before anything has run and after frame 0
-    // has ended, so comparing tags never saw the first frame end — on a fresh
-    // session or on a rebuilt machine (fix round 1, SES-02-22). The raw counter
-    // is unambiguous; the PAYLOAD is still the tag, the frame that ended.
-    const uint32_t frame  = emu.frame_num();
+    // The frame's START CYCLE, not the frame number. Not `frame_tag()`: the tag
+    // clamps (`raw > 0 ? raw - 1 : 0`) and reads 0 both before anything has run
+    // and after frame 0 has ended, so comparing tags never saw the first frame
+    // end — on a fresh session or on a rebuilt machine (fix round 1, SES-02-22).
+    // Not the raw counter either (GH #278): a rewind lands on a frame start the
+    // ring snapshot has already counted, so the first frame run again after it
+    // ends without the counter moving. `current_frame_cycle()` advances exactly
+    // when a frame ends and goes back on a rewind. The PAYLOAD is still the tag,
+    // the frame that ended.
+    const uint64_t frame  = emu.current_frame_cycle();
     const uint64_t rev    = events.revision();
 
     if (!notif_primed) {
@@ -345,7 +349,7 @@ void Debugger::Impl::sync_notifications() {
         notif_primed    = true;
         last_paused     = paused;
         last_resume_gen = gen;
-        last_frame      = frame;
+        last_frame_cycle = frame;
         last_subs_rev   = rev;
         return;
     }
@@ -387,9 +391,9 @@ void Debugger::Impl::sync_notifications() {
     // on, while per-FRAME precision already exists as `EventKind::Frame`, latched
     // at the site and delivered once per frame to a subscription. N pushes from
     // one pump would also tell a listener it had seen N ticks. Rows SES-02-12/13.
-    if (frame != last_frame) {
-        const bool forward = frame > last_frame;
-        last_frame         = frame;
+    if (frame != last_frame_cycle) {
+        const bool forward = frame > last_frame_cycle;
+        last_frame_cycle   = frame;
         if (forward) notify_frame_ended(frame_tag(emu));
     }
 }

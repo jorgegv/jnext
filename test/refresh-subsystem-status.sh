@@ -184,6 +184,8 @@ BEGIN {
     M["debugger_menu_test"]            = "Debugger Menus"
     M["rzx_menu_test"]                 = "RZX Menus"
     M["debugger_disasm_copy_test"]     = "Debugger Disasm Copy"
+    M["debugger_panels_test"]          = "Debugger Panels (GH #278)"
+    M["debugger_verbs_test"]           = "Debugger Verbs (GH #278)"
     M["emulator_boot_test"]            = "Emulator Boot"
     M["preferences_apply_test"]        = "GUI Preferences (Apply)"
     M["preferences_apply_policy_test"] = "GUI Preferences (Apply Policy)"

@@ -278,7 +278,7 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     //     that transition's notification, rule 4), paused-to-running (a `done`
     //     without `begin`) pushes `Resumed`.
     last_resume_gen = ds().resume_generation();
-    last_frame      = emu.frame_num();   // raw, as `sync_notifications()` reads it
+    last_frame_cycle = emu.current_frame_cycle();   // as `sync_notifications()` reads it
 }
 
 // ---------------------------------------------------------------------------

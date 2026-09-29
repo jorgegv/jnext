@@ -40,6 +40,8 @@ public:
     void refresh(int vc);
 
     /// Force re-render on the next refresh() call (e.g. after a tab switch).
+    /// -2, never -1: -1 means "the running placeholder is shown", the one
+    /// state refresh() may skip.
     void invalidate() { last_vc_ = -2; }
 
     /// The rendered layer image (test seam — see test/debugger/video_panel_test.cpp).

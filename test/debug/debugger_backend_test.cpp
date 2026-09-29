@@ -4562,6 +4562,64 @@ int main() {
               dbg.time().frame == emu.rewind_buffer()->newest_frame_num(),
               "tag=" + std::to_string(dbg.time().frame));
     }
+    {
+        // GH #278 — a step_back that stays inside the frame leaves the tag on
+        // that frame, and pushes no FrameEnded: nothing ended. The ring
+        // snapshot it restores already counted its frame, and the replay used
+        // to count it again, so the tag moved one FORWARD and the session
+        // announced a frame end that never happened.
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        cfg.rewind_buffer_frames = 8;
+        emu.init(cfg);
+        const uint8_t loop[] = { 0x23, 0x18, 0xFD };    // INC HL / JR $-1
+        for (size_t i = 0; i < sizeof(loop); ++i)
+            emu.mmu().write(static_cast<uint16_t>(PROG + i), loop[i]);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 0; r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+        Debugger dbg(emu);
+        RecListener l;
+        const ClientId a = dbg.attach(client("F2")).value;
+        dbg.set_listener(a, &l);
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        dbg.pause(a);
+        dbg.step_into(a);                         // now inside frame 3
+        dbg.step_into(a);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        const uint32_t tag   = dbg.time().frame;
+        const size_t   ended = l.frames.size();
+        const Result   sb    = dbg.step_back(a, 1);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("F2-06", "a step_back inside a frame keeps time().frame on that "
+                       "frame and pushes no FrameEnded",
+              sb == Result::Ok && dbg.time().frame == tag && l.frames.size() == ended,
+              "rc=" + std::string(jnext::dbg::result_name(sb)) + " tag " +
+                  std::to_string(tag) + " -> " + std::to_string(dbg.time().frame) +
+                  " pushes " + std::to_string(ended) + " -> " +
+                  std::to_string(l.frames.size()));
+
+        // GH #278 — run_to_frame() from a rewound frame start. The machine
+        // sits at the start of frame `back`, which the ring has counted; the
+        // verb took that boundary for the one AFTER a counted frame, so
+        // run_to_frame(back + 1) stopped at once, at the start of `back`.
+        const uint32_t back = dbg.rewind_range().oldest_frame + 1;
+        const Result rw = dbg.rewind_to_frame(a, back);
+        const uint64_t start = emu.current_frame_cycle();
+        const Result rt = dbg.run_to_frame(a, back + 1);
+        run_until_paused(emu, 4);
+        const uint64_t want = start + emu.timing().master_cycles_per_frame;
+        check("F2-07", "run_to_frame(K+1) from a rewound start of K stops in "
+                       "frame K+1 (tag K+1), one frame on — not at the start of K",
+              rw == Result::Ok && rt == Result::Ok && emu.debug_state().paused() &&
+                  dbg.time().frame == back + 1 && emu.current_frame_cycle() == want,
+              "rw=" + std::string(jnext::dbg::result_name(rw)) +
+                  " rt=" + std::string(jnext::dbg::result_name(rt)) + " tag=" +
+                  std::to_string(dbg.time().frame) + " frame_cycle=" +
+                  std::to_string(emu.current_frame_cycle()) + " want=" +
+                  std::to_string(want));
+    }
 
     // =======================================================================
     // INS-01 — registers
@@ -4838,6 +4896,13 @@ int main() {
         check("INS-08-03", "the engine's decode sees the write (not a parallel copy)",
               dbg.sprites().size() == 128 && dbg.sprites()[40].x == 0x20 &&
               dbg.sprites()[40].visible);
+        // GH #278 WP0 — an EXTENDED 8-bit sprite (attr3 bit 6 set, attr4 bit 7
+        // clear) fetches pattern N5:N0 (sprites.vhd:816, :962); the decode
+        // reported N5:N0<<1, the 4-bit numbering, for every extended sprite.
+        check("INS-08-14", "sprites() reports an extended 8-bit sprite's pattern "
+                           "as N5:N0, the pattern it fetches",
+              dbg.sprites()[40].pattern == 0x05 && !dbg.sprites()[40].is_4bit,
+              "pattern=" + std::to_string(dbg.sprites()[40].pattern));
         check("INS-08-04", "a wrong byte count is refused",
               dbg.set_sprite_attr_raw(1, 40, attr, 4) == Result::RefusedUnavailable);
         check("INS-08-05", "an out-of-range sprite index is refused",
@@ -4960,6 +5025,43 @@ int main() {
               dbg.trace_entries().value.empty());
         check("INS-13-05", "trace_resize(0) is refused",
               dbg.trace_resize(0) == Result::RefusedUnavailable);
+    }
+    {
+        // GH #278 WP0 — call_stack() is Emulator::call_stack(), so the Qt panel's
+        // defect was the backend's: an INT was no frame, and the ISR's RET
+        // emptied the stack of the routine it interrupted. +3 all-RAM paging
+        // puts this row's own IM 1 routine at $0038.
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX_PLUS3;
+        emu.init(cfg);
+        emu.port().write(0x1FFD, 0x01);
+        const uint8_t main_prog[] = { 0xCD, 0x00, 0x90 };          // CALL $9000
+        const uint8_t sub[]       = { 0x00, 0x18, 0xFD };          // NOP / JR $9000
+        const uint8_t isr[]       = { 0xFB, 0xC9 };                // EI / RET
+        for (size_t i = 0; i < sizeof(main_prog); ++i) emu.mmu().write(static_cast<uint16_t>(PROG + i), main_prog[i]);
+        for (size_t i = 0; i < sizeof(sub); ++i) emu.mmu().write(static_cast<uint16_t>(SUB + i), sub[i]);
+        for (size_t i = 0; i < sizeof(isr); ++i) emu.mmu().write(static_cast<uint16_t>(0x0038 + i), isr[i]);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 1; r.IFF2 = 1; r.IM = 1;
+        emu.cpu().set_registers(r);
+        Debugger dbg(emu);
+        dbg.set_call_stack_enabled(true);
+        emu.execute_single_instruction();                          // CALL
+        emu.cpu().request_interrupt(0xFF);
+        emu.execute_single_instruction();                          // INT
+        const auto& cs = dbg.call_stack();
+        check("INS-12-03", "an accepted INT is a call_stack() frame of type INT",
+              cs.size() == 2 && cs.back().type == CallType::INT &&
+                  cs.back().target_pc == 0x0038 && cs.front().type == CallType::CALL,
+              "frames=" + std::to_string(cs.size()));
+        emu.execute_single_instruction();                          // EI
+        emu.execute_single_instruction();                          // RET
+        check("INS-12-04", "and the routine's RET pops only its own frame",
+              dbg.call_stack().size() == 1 &&
+                  dbg.call_stack().back().type == CallType::CALL &&
+                  emu.cpu().get_registers().PC == SUB,
+              "frames=" + std::to_string(dbg.call_stack().size()));
     }
 
     // =======================================================================
@@ -5121,6 +5223,22 @@ int main() {
               !dbg.lookup(0x8000).has_value() && dbg.symbols().empty());
         check("SYM-03", "clear_symbols() is always Ok",
               dbg.clear_symbols() == Result::Ok);
+
+        // GH #278 WP0 — the case the Qt Map menu got wrong (it tested the
+        // loader's int as a bool): a readable Z88DK map with no `; addr` line
+        // is a successful load of ZERO symbols, not a failure.
+        const std::string consts = "/tmp/jnext_gh278_consts.map";
+        {
+            std::ofstream f(consts);
+            f << "__SIZE = $0010 ; const, public\n";
+        }
+        const auto zero = dbg.load_map(consts, jnext::dbg::MapFormat::Z88dk);
+        check("SYM-10", "a readable Z88DK map with no `; addr` symbols loads zero "
+                        "(Ok, 0), not a refusal",
+              zero.status == Result::Ok && zero.value == 0 && dbg.symbols().empty(),
+              std::string(jnext::dbg::result_name(zero.status)) + " " +
+                  std::to_string(zero.value));
+        std::remove(consts.c_str());
     }
 
     // =======================================================================
@@ -10676,6 +10794,16 @@ int main() {
                            "re-baselined, it did not mute",
               l.frames.size() == after_forward + 1,
               "frames=" + std::to_string(l.frames.size()));
+        // GH #278 — and it carries the frame that ran: the one the rewind
+        // restored. The ring had already counted it, so the counter does not
+        // move when it ends; the detector used to watch the counter and the
+        // restore counted the frame twice, which pushed the tag one past it.
+        check("SES-02-25", "the frame run again after a rewind is pushed with "
+                           "ITS tag, the frame the rewind restored",
+              l.frames.size() == after_forward + 1 && l.frames.back() == low,
+              "pushed=" + (l.frames.empty() ? std::string("-")
+                                            : std::to_string(l.frames.back())) +
+                  " low=" + std::to_string(low));
     }
     {
         // §4.3 makes `matched[]` part of the `Paused` contract: EVERY

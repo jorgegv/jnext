@@ -34,6 +34,9 @@ public:
     /// Task 60b (G67): if save_state does not write exactly snapshot_bytes
     /// (schema drift since construction), the slot is NOT published and an
     /// error is logged — a rewind can never restore a garbled snapshot.
+    /// GH #278: a `frame_num` at or below the newest held one first drops the
+    /// slots from that frame on — the history a rewind left behind — so every
+    /// tag in the ring is unique and the ring is one timeline.
     void take_snapshot(const Emulator& emu, uint64_t frame_cycle, uint32_t frame_num);
 
     /// Restore the nearest snapshot with frame_cycle <= target_cycle.

@@ -10,7 +10,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU INT pulse         |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU/Z80N IM2 regr.    |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Rewind                |      303 |      303 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Rewind                |      308 |      308 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper                |       82 |       82 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      259 |      259 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -92,7 +92,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Profiler              |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Resume Guard          |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Step Out     |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Backend (GH #276) |     1268 |     1268 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Backend (GH #276) |     1275 |     1275 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger I/O Watchpoints |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger BP Enable/Disable |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -113,7 +113,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Window scale + fullscreen geometry |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Quit runs closeEvent cleanup |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply) |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Video Panel  |      106 |      106 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Video Panel  |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persist. BP (GUI) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -124,6 +124,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Key Bindings |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **10543**| **10543**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Debugger Panels (GH #278) |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Verbs (GH #278) |       48 |       48 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **10644**| **10644**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
