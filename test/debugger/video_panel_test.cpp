@@ -1496,7 +1496,7 @@ static void test_run_to_targets() {
 
     jnext::dbg::Debugger backend(emu);   // GH #278 WP2 — outlives mgr
     QMainWindow host;
-    DebuggerManager mgr(&host, backend, &emu);
+    DebuggerManager mgr(&host, backend);
     mgr.set_enabled(true);
 
     const auto& t   = emu.timing();

@@ -607,7 +607,7 @@ struct DebuggerFixture {
     DebuggerFixture() {
         if (!build_next_emulator(emu)) return;
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
-        mgr = new DebuggerManager(&win, *backend, &emu, &win);   // parented → auto-freed
+        mgr = new DebuggerManager(&win, *backend, &win);   // parented → auto-freed
         mgr->set_enabled(true);                        // creates + shows the window
         dbg = mgr->debugger_window_ptr();
         ok  = (dbg != nullptr);
@@ -2273,7 +2273,7 @@ struct RunGuardFixture {
         emu.mmu().write(0x9000, 0x00);
 
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
-        mgr = new DebuggerManager(&win, *backend, &emu, &win);   // parented → auto-freed
+        mgr = new DebuggerManager(&win, *backend, &win);   // parented → auto-freed
         ok  = mgr->set_enabled(true);                  // attaches: arms the machine
     }
     ~RunGuardFixture() {

@@ -13,7 +13,16 @@
 // a Qt include or a `*_qt.*` file back under `src/debug/` fails here, in every
 // `make unit-test` and `make unit-test-sdl` run.
 //
-// The scanner is itself under test (QTF-06..08): a planted tree must trip each
+// GH #278 WP7 — and `src/debugger/` (the Qt debugger) reaches the machine only
+// through the backend: no file there includes a header from the core layers
+// (`core/`, `cpu/`, `memory/`, `video/`, `audio/`, `peripheral/`, `port/`) or
+// names the `Emulator` type in code (QTF-09..11). That is qt-frontend.md §3.4's
+// reach-around count, 0, as a gate instead of a one-off grep. The published
+// backend headers (`debug/debugger.h`, `debug/inspect.h`) may themselves pull
+// core VALUE headers in (§4's include budget, `lint-debug-headers.sh`); the
+// rule here is what a debugger source names directly.
+//
+// The scanner is itself under test (QTF-06..08, 12, 13): a planted tree must trip each
 // detector, and prose that merely names a Qt header must not. Without those
 // rows an always-empty scanner would pass QTF-01/02 on any tree.
 //
@@ -88,6 +97,51 @@ bool includes_emulator(const fs::path& p) {
     while (std::getline(in, line))
         if (std::regex_search(line, directive)) return true;
     return false;
+}
+
+/// An include DIRECTIVE of a core-layer header — the layers the backend
+/// encapsulates. `debug/`, `qt/`, `debugger/` and system headers are fine.
+bool includes_core(const fs::path& p) {
+    static const std::regex directive(
+        R"(^\s*#\s*include\s*["<](core|cpu|memory|video|audio|peripheral|port)/)");
+    std::ifstream in(p);
+    std::string line;
+    while (std::getline(in, line))
+        if (std::regex_search(line, directive)) return true;
+    return false;
+}
+
+/// The file's CODE: comments (`//`, `/* */`) and string / character literals
+/// blanked, so prose and UI text may name what code may not.
+std::string code_of(const fs::path& p) {
+    std::ifstream in(p);
+    const std::string s((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::string out;
+    out.reserve(s.size());
+    enum { CODE, LINE, BLOCK, STR, CHR } st = CODE;
+    for (size_t i = 0; i < s.size(); ++i) {
+        const char c = s[i], n = i + 1 < s.size() ? s[i + 1] : '\0';
+        switch (st) {
+            case CODE:
+                if (c == '/' && n == '/') { st = LINE; ++i; out += ' '; }
+                else if (c == '/' && n == '*') { st = BLOCK; ++i; out += ' '; }
+                else if (c == '"') { st = STR; out += ' '; }
+                else if (c == '\'') { st = CHR; out += ' '; }
+                else out += c;
+                break;
+            case LINE:  if (c == '\n') { st = CODE; out += c; } break;
+            case BLOCK: if (c == '*' && n == '/') { st = CODE; ++i; } else if (c == '\n') out += c; break;
+            case STR:   if (c == '\\') ++i; else if (c == '"') st = CODE; break;
+            case CHR:   if (c == '\\') ++i; else if (c == '\'') st = CODE; break;
+        }
+    }
+    return out;
+}
+
+/// The `Emulator` type named in code (a whole word: `EmulatorWidget` is not).
+bool names_emulator(const fs::path& p) {
+    static const std::regex word(R"(\bEmulator\b)");
+    return std::regex_search(code_of(p), word);
 }
 
 struct Scan {
@@ -198,6 +252,68 @@ int main() {
                       p.qt_includes.end() &&
                   p.qt_includes.size() == 1 && p.files == 4,
               "flagged: " + join(p.qt_includes) + " files=" + std::to_string(p.files));
+    }
+
+    // ── GH #278 WP7: src/debugger/ reaches the machine only through the backend
+    {
+        const fs::path dbg_dir = JNEXT_DEBUGGER_SRC_DIR;
+        std::vector<std::string> core_includes, emulator_named;
+        std::set<std::string>    names;
+        size_t                   files = 0;
+        for (const fs::path& p : files_under(dbg_dir)) {
+            ++files;
+            names.insert(p.filename().string());
+            const std::string rel = fs::relative(p, dbg_dir).string();
+            if (includes_core(p)) core_includes.push_back(rel);
+            if (names_emulator(p)) emulator_named.push_back(rel);
+        }
+        check("QTF-09", "no file under src/debugger/ includes a core-layer header "
+                        "(core/ cpu/ memory/ video/ audio/ peripheral/ port/)",
+              core_includes.empty(), "offenders: " + join(core_includes));
+        check("QTF-10", "no file under src/debugger/ names the Emulator type in code",
+              emulator_named.empty(), "offenders: " + join(emulator_named));
+        check("QTF-11", "the scan read the real src/debugger/ (debugger_manager.cpp is "
+                        "among at least 20 files)",
+              files >= 20 && names.count("debugger_manager.cpp") == 1,
+              "files=" + std::to_string(files) + " dir=" + dbg_dir.string());
+    }
+    // ── ...and its two detectors, on a planted tree
+    {
+        std::error_code ec;
+        const fs::path root = fs::temp_directory_path(ec) /
+                              ("jnext_debugger_reach_" + std::to_string(::getpid()));
+        fs::remove_all(root, ec);
+        fs::create_directories(root / "sub", ec);
+        write_file(root / "inc_core.cpp", "#include \"core/emulator.h\"\nint a;\n");
+        write_file(root / "sub" / "inc_mmu.h", "#pragma once\n  #  include <memory/mmu.h>\n");
+        write_file(root / "inc_ok.cpp",
+                   "#include \"debug/debugger.h\"\n#include \"qt/debug_keymap_qt.h\"\n"
+                   "// #include \"core/emulator.h\"\n"
+                   "const char* s = \"#include <video/ula.h>\";\n");
+        write_file(root / "names_fwd.h", "#pragma once\nclass Emulator;\n");
+        write_file(root / "sub" / "names_ptr.cpp", "void f(Emulator* e) { (void)e; }\n");
+        write_file(root / "names_ok.cpp",
+                   "// Emulator::snapshot_raster() is what this replaced\n"
+                   "/* an Emulator* once lived\n   here */\n"
+                   "const char* t = \"Attach to Emulator Window\";\n"
+                   "char q = '\"'; int EmulatorWidget = 0; // \" Emulator\n");
+        std::vector<std::string> inc, nam;
+        for (const fs::path& p : files_under(root)) {
+            const std::string rel = fs::relative(p, root).string();
+            if (includes_core(p)) inc.push_back(rel);
+            if (names_emulator(p)) nam.push_back(rel);
+        }
+        fs::remove_all(root, ec);
+        const std::vector<std::string> want_inc = {"inc_core.cpp",
+                                                   (fs::path("sub") / "inc_mmu.h").string()};
+        const std::vector<std::string> want_nam = {"names_fwd.h",
+                                                   (fs::path("sub") / "names_ptr.cpp").string()};
+        check("QTF-12", "the core-include detector flags a planted core/ and a spaced-out "
+                        "memory/ include, and not debug/, qt/, a commented include or a string",
+              inc == want_inc, "flagged: " + join(inc));
+        check("QTF-13", "the Emulator detector flags a forward declaration and a pointer "
+                        "parameter, and not comments, strings or EmulatorWidget",
+              nam == want_nam, "flagged: " + join(nam));
     }
 
     std::printf("\n======================================================\n");

@@ -103,7 +103,7 @@ struct Fixture {
     explicit Fixture(bool persistent) {
         build(emu, persistent);
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
-        mgr = new DebuggerManager(&win, *backend, &emu, &win);   // parented → auto-freed
+        mgr = new DebuggerManager(&win, *backend, &win);   // parented → auto-freed
         mgr->set_enabled(true);                        // create + show window
         // GH #278 WP4c — the user's breakpoint, set as the GUI sets it: a backend
         // subscription of the GUI's observer client, which outlives the window.
@@ -352,7 +352,7 @@ int main(int argc, char** argv) {
         bool open_on = false;
         {
             auto* host = new QMainWindow;
-            auto* mgr  = new DebuggerManager(host, backend, &emu, host);
+            auto* mgr  = new DebuggerManager(host, backend, host);
             mgr->set_enabled(true);
             open_on = backend.attached() && backend.armed() && backend.live_raster() &&
                       backend.call_stack_enabled();
@@ -425,7 +425,7 @@ int main(int argc, char** argv) {
         bool owned = false;
         {
             auto* host = new QMainWindow;
-            auto* mgr  = new DebuggerManager(host, backend, &emu, host);
+            auto* mgr  = new DebuggerManager(host, backend, host);
             mgr->breakpoints().add(BreakpointModel::Execute, BP_ADDR);
             owned = backend.subscriptions(true).size() == 1;
             delete host;       // ~QMainWindow -> ~DebuggerManager -> ~BreakpointModel

@@ -231,7 +231,7 @@ struct Fixture {
     Fixture() {
         build(emu);
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
-        mgr = new DebuggerManager(&win, *backend, &emu, &win);   // parented -> auto-freed
+        mgr = new DebuggerManager(&win, *backend, &win);   // parented -> auto-freed
         mgr->set_enabled(true);                        // creates + shows window
     }
 

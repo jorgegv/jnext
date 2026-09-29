@@ -161,7 +161,7 @@ struct Fixture {
         cfg.rewind_buffer_frames = rewind_frames;
         if (!emu.init(cfg)) return;
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
-        mgr = new DebuggerManager(&win, *backend, &emu, &win);   // parented -> freed
+        mgr = new DebuggerManager(&win, *backend, &win);   // parented -> freed
         if (paused) emu.debug_state().pause();
         ok = true;
     }

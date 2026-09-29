@@ -5,7 +5,6 @@
 #include "debug/debug_keymap.h"
 #include "debugger/window_attach.h"
 
-class Emulator;
 class BreakpointModel;
 class DebuggerManager;
 namespace jnext { namespace dbg { class Debugger; } }
@@ -36,8 +35,7 @@ class DebuggerWindow : public QMainWindow {
 public:
     /// `dbg` — the debugger backend the panels read through (GH #278 WP4a-d,
     /// WP5: every panel).
-    DebuggerWindow(Emulator* emulator, jnext::dbg::Debugger& dbg,
-                   QWidget* parent = nullptr);
+    explicit DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent = nullptr);
 
     void refresh_panels();
 
@@ -131,7 +129,6 @@ private:
     /// GH #1 — push keymap_ onto the actions and the toolbar text.
     void apply_keymap();
 
-    Emulator* emulator_;
     jnext::dbg::Debugger& dbg_;
     DebuggerManager* debugger_mgr_ = nullptr;
 

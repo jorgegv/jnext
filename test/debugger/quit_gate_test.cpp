@@ -167,7 +167,7 @@ struct Fixture {
     explicit Fixture(bool corrupt) {
         if (!build_next_emulator(emu)) return;
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
-        mgr = new DebuggerManager(&win, *backend, &emu, &win);  // parented → auto-freed
+        mgr = new DebuggerManager(&win, *backend, &win);  // parented → auto-freed
         mgr->set_enabled(true);                        // create + show window
         if (corrupt && !make_corrupt(emu)) return;
         emu.debug_state().pause();                     // arm the resume branch

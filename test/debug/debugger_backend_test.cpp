@@ -5246,6 +5246,58 @@ static void dzrp_d_rows() {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// GH #278 WP7 — a PAUSED machine's raster is taken by the backend at the query.
+// Until WP7 only the Qt debugger's refresh took `Emulator::snapshot_raster()`
+// (through its `Emulator*`), so raster() / time() of a machine a script or a
+// remote client had paused reported whatever the last Qt refresh left — on a
+// machine with no Qt window, the power-on zeros. No client calls
+// snapshot_raster() in these rows.
+// ═══════════════════════════════════════════════════════════════════════════
+static void q_wp7_raster_rows() {
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        emu.run_frame();
+        for (int i = 0; i < 400; ++i) emu.execute_single_instruction();   // mid-frame
+        dbg.pause(a);
+        const uint64_t elapsed = emu.clock().get() - emu.current_frame_cycle();
+        const uint64_t mcl     = emu.timing().master_cycles_per_line;
+        const int want_vc = static_cast<int>(elapsed / mcl);
+        const int want_hc = static_cast<int>((elapsed % mcl) / 4);
+        const auto ras = dbg.raster();
+        const auto t   = dbg.time();
+        check("INS-06-03", "raster() and time() of a paused machine report where it "
+                           "stopped, with no snapshot_raster() call by anyone",
+              want_vc > 0 && ras.raw_vc == want_vc && ras.raw_hc == want_hc &&
+                  t.vc_raw == want_vc && t.hc_raw == want_hc,
+              "want vc/hc=" + std::to_string(want_vc) + "/" + std::to_string(want_hc) +
+                  " raster=" + std::to_string(ras.raw_vc) + "/" + std::to_string(ras.raw_hc) +
+                  " time=" + std::to_string(t.vc_raw) + "/" + std::to_string(t.hc_raw));
+    }
+    {
+        // And RUNNING, the query leaves the last pause's snapshot alone, as the
+        // Qt refresh (which took it only while paused) always did.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        emu.run_frame();
+        for (int i = 0; i < 400; ++i) emu.execute_single_instruction();
+        emu.snapshot_raster();                        // "the last pause"
+        const int kept_vc = emu.paused_vc(), kept_hc = emu.paused_hc();
+        for (int i = 0; i < 400; ++i) emu.execute_single_instruction();
+        const auto ras = dbg.raster();
+        (void)dbg.time();
+        check("INS-06-04", "while running, raster() and time() do not move the last "
+                           "pause's snapshot",
+              !emu.debug_state().paused() && ras.raw_vc == kept_vc &&
+                  ras.raw_hc == kept_hc && emu.paused_vc() == kept_vc &&
+                  emu.paused_hc() == kept_hc,
+              "kept " + std::to_string(kept_vc) + "/" + std::to_string(kept_hc) + " raster " +
+                  std::to_string(ras.raw_vc) + "/" + std::to_string(ras.raw_hc));
+    }
+}
+
 int main() {
     std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
 
@@ -15411,6 +15463,7 @@ int main() {
 
     // GH #12 (package D) — one contiguous block, see dzrp_d_rows().
     dzrp_d_rows();
+    q_wp7_raster_rows();          // GH #278 WP7
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

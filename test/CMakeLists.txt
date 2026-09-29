@@ -993,7 +993,8 @@ add_test(NAME resume_guard_tests COMMAND resume_guard_test)
 add_executable(debug_qt_free_test debug/debug_qt_free_test.cpp)
 target_compile_definitions(debug_qt_free_test PRIVATE
     JNEXT_DEBUG_SRC_DIR="${CMAKE_SOURCE_DIR}/src/debug"
-    JNEXT_QT_SRC_DIR="${CMAKE_SOURCE_DIR}/src/qt")
+    JNEXT_QT_SRC_DIR="${CMAKE_SOURCE_DIR}/src/qt"
+    JNEXT_DEBUGGER_SRC_DIR="${CMAKE_SOURCE_DIR}/src/debugger")
 add_test(NAME debug_qt_free_tests COMMAND debug_qt_free_test)
 
 # GH #22 — RasterState: the pure, Qt-free derivation behind the debugger's

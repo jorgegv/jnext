@@ -1,6 +1,5 @@
 #include "debugger/audio_panel.h"
-#include "debug/debugger.h"
-#include "audio/audio_mute.h"
+#include "debug/debugger.h"   // also AudioMute::* (via inspect.h)
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>

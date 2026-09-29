@@ -1135,7 +1135,7 @@ int main(int argc, char** argv) {
         QStringList live = action_shortcuts(w2);
 #ifdef ENABLE_DEBUGGER
         {
-            DebuggerWindow dbg(&emu, backend, nullptr);   // GH #278 WP4: the panels' backend
+            DebuggerWindow dbg(backend, nullptr);   // GH #278: the panels' backend
             dbg.set_debugger_manager(w2.debugger_manager());
             live += action_shortcuts_of(dbg);
         }

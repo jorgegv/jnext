@@ -357,7 +357,7 @@ void MainWindow::set_emulator(Emulator* emu) {
         magic_bp_action_->setChecked(debugger_->magic_breakpoint());
 #ifdef ENABLE_DEBUGGER
     if (!debugger_mgr_ && emu) {
-        debugger_mgr_ = new DebuggerManager(this, *debugger_, emu, this);
+        debugger_mgr_ = new DebuggerManager(this, *debugger_, this);
         // Debugger starts disabled — main window stays fixed-size.
         // GH #1 — hand it the user's key bindings straight away: the window is
         // built now, and a keymap pushed only when it is first SHOWN would

@@ -1345,7 +1345,7 @@ struct WindowFixture {
         if (!build(emu, type)) return;
         emu.debug_state().pause();
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
-        mgr = new DebuggerManager(&win, *backend, &emu, &win);   // parented -> freed
+        mgr = new DebuggerManager(&win, *backend, &win);   // parented -> freed
         mgr->set_enabled(true);
         QApplication::processEvents();
         ok = mgr->debugger_window_ptr() != nullptr;

@@ -14,10 +14,6 @@
 #include "debugger/mmu_panel.h"
 #include "debugger/stack_panel.h"
 #include "debugger/callstack_panel.h"
-#include "core/emulator.h"
-#include "core/rzx_player.h"
-#include "debug/debug_state.h"
-#include "debug/rewind_buffer.h"
 
 #include "debugger/debugger_manager.h"
 #include "debug/debugger.h"
@@ -100,10 +96,8 @@ int title_bar_height(const QWidget* w) {
 }
 } // namespace
 
-DebuggerWindow::DebuggerWindow(Emulator* emulator, jnext::dbg::Debugger& dbg,
-                               QWidget* parent)
+DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent)
     : QMainWindow(parent)
-    , emulator_(emulator)
     , dbg_(dbg)
 {
     setWindowTitle(tr("JNEXT Debugger"));

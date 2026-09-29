@@ -9,7 +9,6 @@
 #include "debug/debugger.h"
 
 class BreakpointModel;
-class Emulator;
 class QMainWindow;
 class DebuggerWindow;
 
@@ -48,11 +47,12 @@ class DebuggerWindow;
 class DebuggerManager : public QObject {
     Q_OBJECT
 public:
-    /// `dbg` is the loop owner's backend for `emulator` (`QtApp::debugger()`) —
-    /// the ONE `Debugger` of that machine; the adapter never constructs its own.
-    /// It must outlive the manager.
+    /// `dbg` is the loop owner's backend (`QtApp::debugger()`) — the ONE
+    /// `Debugger` of that machine; the adapter never constructs its own, and
+    /// reaches the machine through nothing else (GH #278 WP7). It must outlive
+    /// the manager.
     DebuggerManager(QMainWindow* main_window, jnext::dbg::Debugger& dbg,
-                    Emulator* emulator, QObject* parent = nullptr);
+                    QObject* parent = nullptr);
     ~DebuggerManager() override;
 
     /// Is the debugger currently enabled (window visible, breakpoint checks active)?
@@ -181,9 +181,6 @@ private:
 
     QMainWindow* main_window_;
     jnext::dbg::Debugger& dbg_;
-    /// For what WP2/WP3/WP4c do not move: the DebuggerWindow and its panels
-    /// (WP4/WP7) and the raster snapshot before a paused refresh (WP4d).
-    Emulator* emulator_;
 
     /// GH #278 WP4c — owned (a QObject child); holds the observer client.
     BreakpointModel* bp_model_ = nullptr;

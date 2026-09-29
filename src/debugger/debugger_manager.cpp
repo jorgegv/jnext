@@ -10,8 +10,6 @@
 #include "debugger/nextreg_panel.h"
 #include "debugger/audio_panel.h"
 #include "debugger/memory_panel.h"
-#include "core/emulator.h"
-#include "debug/debug_state.h"
 
 #include <QMainWindow>
 #include <QMenuBar>
@@ -27,11 +25,10 @@
 #include <QStatusBar>
 
 DebuggerManager::DebuggerManager(QMainWindow* main_window, jnext::dbg::Debugger& dbg,
-                                 Emulator* emulator, QObject* parent)
+                                 QObject* parent)
     : QObject(parent)
     , main_window_(main_window)
     , dbg_(dbg)
-    , emulator_(emulator)
 {
     // Start with debugger DISABLED — no performance impact: no ARMING client
     // is attached until the window opens (attach_backend()). The breakpoints'
@@ -260,7 +257,7 @@ void DebuggerManager::ensure_window() {
     if (debugger_window_)
         return;
 
-    debugger_window_ = new DebuggerWindow(emulator_, dbg_, nullptr);
+    debugger_window_ = new DebuggerWindow(dbg_, nullptr);
     debugger_window_->set_debugger_manager(this);
     // GH #1 — BEFORE anything else touches the window. The window is created
     // lazily (the first time the debugger is enabled, from the menu, a magic
@@ -588,7 +585,8 @@ void DebuggerManager::refresh_panels() {
     // refused. (While running every such action is off whatever those inputs
     // are, and the verb that resumed has already said so.)
     if (dbg_.state().paused) {
-        emulator_->snapshot_raster();
+        // The raster the panels show is the backend's (INS-06), which takes a
+        // paused machine's snapshot at the query itself (GH #278 WP7).
         debugger_window_->refresh_panels();
         update_actions();
     } else {
