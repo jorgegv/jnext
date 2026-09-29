@@ -2749,6 +2749,129 @@ static void section16_gh290_cvc_reload() {
               "(0x0a) (zxula_timing.vhd:457-462)",
               ok && v == 0x14, gw("nr1f", v, 0x14));
     }
+
+    // VT-GH290-26/27 — the sample ON the reload cycle P. `cvc` is registered:
+    // it loads on the edge that starts cycle P (zxula_timing.vhd:457-462), so
+    // P is the first cycle carrying the new value, and an IN that samples P
+    // reads it. `IN A,(C)` samples 83 cycles after it starts (VT-GH265-03), so
+    // a start of P - 83 samples P. 26 is Section 14's frameless fixture (as
+    // VT-GH290-19), 27 a running frame in which the reload event runs at the
+    // end of the IN's instruction.
+    {
+        bool ok = false;
+        uint8_t v = 0xEE;
+        {
+            Emulator emu;
+            ok = g163::build_emulator(emu);
+            if (ok) {
+                g163::nr_write(emu, 0x64, 20);
+                ok = gh290::in_1f_at(emu, gh265::kStep - 83, v);
+            }
+        }
+        check("VT-GH290-26",
+              "no frame events: an IN sampling the reload cycle itself reads "
+              "the value the reload loads (0x14), not line 63's 310 counting "
+              "from 0 (zxula_timing.vhd:457-462; zxnext.vhd:5871-5876)",
+              ok && v == 0x14, gw("nr1f", v, 0x14));
+    }
+    {
+        Emulator emu;
+        const bool built = gh290::build(emu);
+        const uint64_t f1 = emu.current_frame_cycle();
+        bool ok = built;
+        uint8_t v = 0xEE;
+        if (built) {
+            ok = run_to(emu, at(emu, f1, 10, 200));
+            g163::nr_write(emu, 0x64, 20);
+            ok = ok && gh290::in_1f_at(emu, f1 + gh265::kStep - 83, v);
+        }
+        check("VT-GH290-27",
+              "running frame: an IN sampling the reload cycle reads the value "
+              "the reload loads (0x14), inside the instruction whose end runs "
+              "the reload event (zxula_timing.vhd:457-462)",
+              ok && v == 0x14, gw("nr1f", v, 0x14));
+    }
+
+    // VT-GH290-28/29 — where a line-interrupt TARGET must land to count for
+    // a compare. int_line_num is a CLK_7 register loaded from i_int_line on
+    // the edge that starts the compare pixel (zxula_timing.vhd:563-572), and
+    // the compare at hc_ula 255 is registered on the edge that ends it
+    // (:574-583). So a target visible from cycle `now` counts for the compare
+    // at pixel c iff now <= c - 1. Target 87 -> int_line_num 86 -> raw line
+    // 150, compare at c = line 150, raw hc 380. The line interrupt is enabled
+    // earlier with a target long passed; NR 0x23 = 87 is then written with the
+    // clock moved exactly to c (28: lands on c, too late — fires next frame)
+    // or to c - 1 (29: in time — fires this frame). A write outside any
+    // instruction lands at the clock.
+    {
+        auto land_at = [](int before_c, uint64_t& this_frame, uint64_t& next_frame) -> bool {
+            Emulator emu;
+            if (!gh290::build(emu)) return false;
+            const uint64_t f1 = emu.current_frame_cycle();
+            const uint64_t f2 = f1 + emu.timing().master_cycles_per_frame;
+            const uint64_t c  = gh290::at(emu, f1, 150, 380);
+            bool ok = gh290::run_to(emu, gh290::at(emu, f1, 100, 200));
+            g163::nr_write(emu, 0x23, 1);               // raw 64: long passed
+            g163::nr_write(emu, 0x22, 0x02);
+            emu.reset_line_int_fire_count();
+            const uint64_t when = c - static_cast<uint64_t>(before_c);
+            ok = ok && emu.clock().get() <= when;
+            if (!ok) return false;
+            emu.clock().tick(static_cast<int>(when - emu.clock().get()));
+            g163::nr_write(emu, 0x23, 87);
+            ok = gh290::run_to(emu, gh290::at(emu, f1, 152, 0));
+            this_frame = emu.line_int_fire_count();
+            ok = ok && gh290::run_to(emu, gh290::at(emu, f2, 152, 0));
+            next_frame = emu.line_int_fire_count();
+            return ok;
+        };
+        uint64_t on_this = 99, on_next = 99, early_this = 99, early_next = 99;
+        const bool ok_on    = land_at(0, on_this, on_next);
+        const bool ok_early = land_at(1, early_this, early_next);
+        check("VT-GH290-28",
+              "a line-interrupt target landing ON the compare cycle is one pixel "
+              "too late for it: no fire this frame, one the next "
+              "(zxula_timing.vhd:563-572,574-583)",
+              ok_on && on_this == 0 && on_next == 1,
+              gw("this_frame", long(on_this), 0) + gw("next_frame", long(on_next), 1));
+        check("VT-GH290-29",
+              "…and one landing the cycle before it counts: fires this frame "
+              "(zxula_timing.vhd:563-572,574-583)",
+              ok_early && early_this == 1 && early_next == 2,
+              gw("this_frame", long(early_this), 1)
+                  + gw("next_frame", long(early_next), 2));
+    }
+
+    // VT-GH290-30 — no frame events, the roll-forward's lines from the reload
+    // position on: they count from NR 0x64 too. NR 0x64 = 20 and the target
+    // (150 -> int_line_num 149 -> raw 193 counting from 20) written at line
+    // 200, after that position has passed: it rolls into the next frame at
+    // raw 193, not at 213 (counting from the never-reloaded 0).
+    {
+        Emulator emu;
+        bool ok = g163::build_emulator(emu);
+        uint64_t n1 = 99, n2 = 99;
+        if (ok) {
+            const uint64_t mcpf = emu.timing().master_cycles_per_frame;
+            g163::install_jr_self_loop(emu);
+            g163::nr_write(emu, 0x64, 20);
+            ok = g163::step_until_master_cycle(emu, 200ULL * 1824);
+            emu.reset_line_int_fire_count();
+            g163::nr_write(emu, 0x23, 150);
+            g163::nr_write(emu, 0x22, 0x02);
+            ok = ok && g163::step_until_master_cycle(emu, mcpf + 190ULL * 1824);
+            n1 = emu.line_int_fire_count();
+            ok = ok && g163::step_until_master_cycle(emu, mcpf + 200ULL * 1824);
+            n2 = emu.line_int_fire_count();
+        }
+        check("VT-GH290-30",
+              "no frame events: a target whose line has passed rolls into the "
+              "next frame's lines from the reload position on, counting from NR "
+              "0x64 (raw 193), not from the never-reloaded 0 (raw 213) "
+              "(zxula_timing.vhd:457-466,577)",
+              ok && n1 == 0 && n2 == 1,
+              gw("by_next_line190", long(n1), 0) + gw("by_next_line200", long(n2), 1));
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -2810,7 +2933,7 @@ int main() {
     std::printf("  Section 15: VT-S15-GH22-IN-DISPLAY   — done (2 live)\n");
 
     section16_gh290_cvc_reload();
-    std::printf("  Section 16: VT-S16-GH290-CVC-RELOAD — done (25 live)\n");
+    std::printf("  Section 16: VT-S16-GH290-CVC-RELOAD — done (30 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

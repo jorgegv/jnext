@@ -11705,9 +11705,26 @@ void Emulator::reschedule_line_interrupt()
     // The roll-forward covers the next frame too (the parallax 8-bit `ADD
     // 0x10` overflow case: line 244 -> line 4, where line 4 belongs to the
     // NEXT frame). Its lines before the reload count from what this frame's
-    // reload loads, and after it from the register again. Such an event is
-    // always superseded — begin_new_frame() reschedules first — but it is
-    // placed where the hardware would fire, not merely somewhere.
+    // reload loads, and after it from the register again.
+    //
+    // IN A RUNNING FRAME A ROLL-FORWARD EVENT NEVER FIRES: begin_new_frame()
+    // reschedules at the next frame's start, before any of that frame's
+    // positions, and bumps the generation. Where it is placed there, and with
+    // which offsets, is therefore unobservable. It fires only for a caller that
+    // runs no frame events (the videotiming Section 8 harness), which never
+    // reaches begin_new_frame(): VT-G163-WRAP-02 and VT-GH290-23/30 pin it
+    // there. In that mode no reload ever runs, so `after_reload` and
+    // `next_reload` are both the register — which also makes the post-reload
+    // arm's choice between the two equivalent in every mode.
+    //
+    // `c > now`: a target visible from cycle `now` counts for the compare at
+    // pixel c (hc_ula 255) iff now <= c - 1. int_line_num is a CLK_7 register
+    // loaded from i_int_line on the edge that STARTS pixel c
+    // (zxula_timing.vhd:563-572), and the compare is registered on the edge
+    // that ends it (:574-583); a write landing ON c reaches int_line_num one
+    // pixel too late (VT-GH290-28/29). `now` is when jnext applies the write:
+    // the clock, which for a deferred CPU NR write is the end of its
+    // instruction (G65), not its commit edge.
     const uint64_t mcpf   = timing_.master_cycles_per_frame;
     const uint64_t reload = video_timing_.cvc_reload_master_cycle_offset();
     const uint64_t now    = clock_.get();

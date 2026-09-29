@@ -40,7 +40,7 @@ mentions them, so a test can no longer be absent from this document.
 | Input                                      |   379 |  379 |    0 |    0 |       0 |          0 |
 | Rewind                                     |   308 |  308 |    0 |    0 |       0 |          0 |
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
-| VideoTiming                                |    89 |   89 |    0 |    0 |       0 |          0 |
+| VideoTiming                                |    94 |   94 |    0 |    0 |       0 |          0 |
 | Contention                                 |   160 |  160 |    0 |    0 |       0 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    88 |   87 |    0 |    1 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    30 |   24 |    0 |    6 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5376 | 5365 |    0 |   11 |       0 |          0 |
+| **Total**                                  |  5381 | 5370 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **5376**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5063**. Rows the 121 suites declared in `test/unit-tests.conf` run live: **10759**.
+Rows the sections above carry: **5381**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5068**. Rows the 121 suites declared in `test/unit-tests.conf` run live: **10764**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -3590,6 +3590,11 @@ Notes and rationale: [VIDEOTIMING-TEST-PLAN-DESIGN.md](VIDEOTIMING-TEST-PLAN-DES
 | VT-GH290-23 | no frame events, target 6: neither side of the first frame holds cvc 5 (raw 69 counting from 0 lies after the reload's position, raw 49 counting from 20 before it), so it rolls into the next frame's lines before that position, counting from NR 0x64: raw 49 (zxula_timing.vhd:457-466,577) | zxula_timing.vhd:457-466,577 | pass | test/videotiming/videotiming_test.cpp:2690 |
 | VT-GH290-24 | in the second frame run, an IN sampling just after the reload's position reads the value it loads (0x14), not the previous frame's reload (0x00) (zxula_timing.vhd:457-462; zxnext.vhd:5871-5876) | zxula_timing.vhd:457-462, zxnext.vhd:5871-5876 | pass | test/videotiming/videotiming_test.cpp:2716 |
 | VT-GH290-25 | after a restore into a machine that was past its reload, an IN sampling just after the restored frame's reload position reads the value it loads (0x14), not the restored pre-reload offset (0x0a) (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/videotiming/videotiming_test.cpp:2745 |
+| VT-GH290-26 | no frame events: an IN sampling the reload cycle itself reads the value the reload loads (0x14), not line 63's 310 counting from 0 (zxula_timing.vhd:457-462; zxnext.vhd:5871-5876) | zxula_timing.vhd:457-462, zxnext.vhd:5871-5876 | pass | test/videotiming/videotiming_test.cpp:2771 |
+| VT-GH290-27 | running frame: an IN sampling the reload cycle reads the value the reload loads (0x14), inside the instruction whose end runs the reload event (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/videotiming/videotiming_test.cpp:2788 |
+| VT-GH290-28 | a line-interrupt target landing ON the compare cycle is one pixel too late for it: no fire this frame, one the next (zxula_timing.vhd:563-572,574-583) | zxula_timing.vhd:563-572,574-583 | pass | test/videotiming/videotiming_test.cpp:2831 |
+| VT-GH290-29 | …and one landing the cycle before it counts: fires this frame (zxula_timing.vhd:563-572,574-583) | zxula_timing.vhd:563-572,574-583 | pass | test/videotiming/videotiming_test.cpp:2837 |
+| VT-GH290-30 | no frame events: a target whose line has passed rolls into the next frame's lines from the reload position on, counting from NR 0x64 (raw 193), not from the never-reloaded 0 (raw 213) (zxula_timing.vhd:457-466,577) | zxula_timing.vhd:457-466,577 | pass | test/videotiming/videotiming_test.cpp:2867 |
 | VT-01 | 48K hc_max()=447, vc_max()=311 after init(ZX48K) (zxula_timing.vhd:262,270) | zxula_timing.vhd:262,270 | pass | test/videotiming/videotiming_test.cpp:115 |
 | VT-02 | 128K hc_max()=455, vc_max()=310 after init(ZX128K) (zxula_timing.vhd:196,204) | zxula_timing.vhd:196,204 | pass | test/videotiming/videotiming_test.cpp:123 |
 | VT-04 | 128K display_origin() = {136, 64} (zxula_timing.vhd:195,203) | zxula_timing.vhd:195,203 | pass | test/videotiming/videotiming_test.cpp:145 |

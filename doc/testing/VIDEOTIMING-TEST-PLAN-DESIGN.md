@@ -1005,6 +1005,11 @@ raw line from raw hc 125 on.
 | VT-GH290-23 | No frame events: NR 0x64 = 20, target 6 (int_line_num 5) | no fire in the first frame (raw 69 lies after the reload's position, raw 49 before it); rolls into the next frame's lines before that position, counting from NR 0x64: raw 49 | zxula_timing.vhd:457-466,577 |
 | VT-GH290-24 | Running frame, the SECOND one run: NR 0x64 = 20 at line 10, `IN A,(C)` of NR 0x1F sampling P + 7 | 0x14 — "this frame's reload has run" is cleared at every frame end, so the IN reads the value the reload is about to load, not the previous frame's 0 | zxula_timing.vhd:457-462; zxnext.vhd:5871-5876 |
 | VT-GH290-25 | `load_state` of VT-GH290-11's stream into a machine paused PAST its own reload, then the same IN | 0x14, not 0x0A — a restore sits before the frame's reload whatever the machine was doing | zxula_timing.vhd:457-462 |
+| VT-GH290-26 | No frame events, NR 0x64 = 20: `IN A,(C)` of NR 0x1F started at P − 83, so it samples P itself | 0x14 — `cvc` loads on the edge that starts P, so P is the first cycle carrying the new value | zxula_timing.vhd:457-462; zxnext.vhd:5871-5876 |
+| VT-GH290-27 | The same in a running frame (NR 0x64 = 20 at line 10), the IN run through the per-instruction path | 0x14, read inside the instruction whose end runs the reload event | zxula_timing.vhd:457-462 |
+| VT-GH290-28 | Line int enabled with a passed target; clock moved to exactly the compare cycle c of target 87 (raw line 150, raw hc 380), then NR 0x23 = 87 written | no fire this frame, one the next: `int_line_num` loads on the edge that starts pixel c, so a target landing on c is one pixel late | zxula_timing.vhd:563-572,574-583 |
+| VT-GH290-29 | The same written at c − 1 | fires this frame (and again the next) | zxula_timing.vhd:563-572,574-583 |
+| VT-GH290-30 | No frame events: NR 0x64 = 20, target 150 written at line 200, after its line (raw 193) has passed | rolls into the next frame at raw 193 (counting from NR 0x64), not 213 | zxula_timing.vhd:457-466,577 |
 
 `DVP-RAS-04` (debugger_video_panel_test) was re-pinned by the same change: it
 asserted that a mid-frame NR 0x64 write moved the panel's `cvc` at once, which
