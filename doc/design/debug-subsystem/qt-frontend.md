@@ -28,8 +28,8 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP2** | `DebuggerManager` verbs onto the backend facade — as built: §4.1, §6.2b | **done** |
 | **WP3** | rewind / trace / corruption — as built: §6.2c | **done** — reviewed, REJECTED once (three items, §6.2c "review round 1"), then APPROVED on re-review |
 | **WP4a-d** | the panels (parallel-able). **WP4d also owns the `render_layer` MOVE itself**, not only its 106 DVP validation rows — owner decision 2026-09-27, closing a gap §10.1 left unassigned. **WP4c** (breakpoints and watches, B3 obligation 1, `active()` retired, REQ-qt-32) — as built: §4.1b, §6.2d | WP4c: **done** — reviewed + APPROVED; WP4a/b: **done** — reviewed, REJECTED once (one gap, §6.2e QWIN), then APPROVED on re-review (as built: §6.2e); WP4d: **done** — reviewed + APPROVED, merged (as built: §3.7a, §6.2f) |
-| **WP5** | memory panel (and the Disassembly panel's reads, the +3 latch fix) — as built: §6.2g | **in review** |
-| **WP6** | symbols / magic — as built: §6.2g | **in review** |
+| **WP5** | memory panel (and the Disassembly panel's reads, the +3 latch fix) — as built: §6.2g | **done** — reviewed + APPROVED |
+| **WP6** | symbols / magic — as built: §6.2g | **done** — reviewed + APPROVED |
 | **WP7** | reach-around grep = 0 (`grep -l 'core/emulator.h' src/debugger/*.cpp` empty) | todo |
 | **WP8** | **Memory panel physical-page view** — `MemSpace::Page` reads *and* writes (owner decision §1.3 item 15). **Last**, after the identity rows are green, with its own pinned rows | todo |
 
