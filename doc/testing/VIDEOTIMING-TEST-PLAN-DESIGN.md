@@ -998,6 +998,9 @@ raw line from raw hc 125 on.
 | VT-GH290-16 | `soft_reset()` at line 100 with `cvc` counting from 10 and NR 0x64 = 20 | NR 0x64 = 0; line 150 still reads 96 (from 10); next frame's line 100 reads 36 (reload loaded the cleared 0); pre-fix 106 and 56 | zxnext.vhd:5024; zxula_timing.vhd:457-466 (no reset input) |
 | VT-GH290-17 | `VideoTiming::cvc_reload_master_cycle_offset()` on 48K, 128K, +3, Pentagon, 48K 60 Hz, 128K 60 Hz | `(c_min_vactive * (c_max_hc + 1) + c_min_hactive - 11) * 4` with the VHDL constants | zxula_timing.vhd:159-167,195-204,229-238,261-270,289-298,423-425,457-462 |
 | VT-GH290-18 | Next at 60 Hz (`c_min_vactive` 40, `c_max_vc` 263): NR 0x64 = 20 mid-frame, the next frame's line 40 at raw hc 60 and 160 | 263 (old), then 20 — the reload follows the timing's `c_min_vactive` | zxula_timing.vhd:237-238,457-462 |
+| VT-GH290-19 | Section 14's fixture (no frames run), NR 0x64 = 20 written first: `IN A,(C)` of NR 0x1F sampling cycle P − 1, and one sampling P + 7 (P = 64·1824 + 500) | 0x36 (line 63 counting from 0), then 0x14 (the value the reload loads, read inside the instruction whose end would run the reload); pre-fix 0x13 at P − 1 | zxula_timing.vhd:423-425,457-462; zxnext.vhd:5871-5876 |
+| VT-GH290-20 | Running frame: `OUT (C),A` writing NR 0x64 = 20, started at P − 76 so its commit edge (io_request_edge + 2 = start + 74) is P − 2 | loaded by the reload: line 100 reads 56 | zxula_timing.vhd:457-462; zxnext.vhd:4739-4777,5442 |
+| VT-GH290-21 | The same started at P − 68: commit edge P + 6 | not loaded: line 100 reads 36, NR 0x64 reads 20; pre-fix 56 | zxula_timing.vhd:457-462; zxnext.vhd:4739-4777,5442,6090 |
 
 `DVP-RAS-04` (debugger_video_panel_test) was re-pinned by the same change: it
 asserted that a mid-frame NR 0x64 write moved the panel's `cvc` at once, which

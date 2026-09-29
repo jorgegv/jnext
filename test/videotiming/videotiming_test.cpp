@@ -2531,6 +2531,98 @@ static void section16_gh290_cvc_reload() {
                   + gw("line40@px60", pre_seam, cvc_of(emu, 39, 0))
                   + gw("line40@px160", post_seam, cvc_of(emu, 40, 20)));
     }
+
+    // VT-GH290-19 — the side of the reload is decided to the master cycle,
+    // and an IN inside the instruction that crosses it reads the value the
+    // reload loads even though the reload's event only runs once that
+    // instruction ends. Section 14's fixture (no frames run, so no reload
+    // event at all): `IN A,(C)` samples the master cycle before its reload
+    // edge, 84 cycles after it starts (VT-GH265-03). The reload is at cycle
+    // 64*1824 + 500 = gh265::kStep. NR 0x64 = 20 is written first; cvc counts
+    // from 0 until the reload.
+    {
+        auto in_1f = [](uint64_t start, bool& ok) -> uint8_t {
+            Emulator emu;
+            ok = g163::build_emulator(emu) && emu.clock().get() <= start;
+            if (!ok) return 0;
+            g163::nr_write(emu, 0x64, 20);
+            emu.port().out(0x243B, 0x1F);
+            auto regs = emu.cpu().get_registers();
+            regs.PC = 0x8000;
+            regs.BC = 0x253B;
+            emu.mmu().write(0x8000, 0xED);
+            emu.mmu().write(0x8001, 0x78);            // IN A,(C)
+            emu.cpu().set_registers(regs);
+            emu.clock().tick(static_cast<int>(start - emu.clock().get()));
+            emu.cpu().execute();
+            return static_cast<uint8_t>(emu.cpu().get_registers().AF >> 8);
+        };
+        bool ok1 = false, ok2 = false;
+        const uint8_t on_edge = in_1f(gh265::kStep - 84, ok1);   // samples kStep - 1
+        const uint8_t after   = in_1f(gh265::kStep - 76, ok2);   // samples kStep + 7
+        check("VT-GH290-19",
+              "an IN sampling the cycle before the reload reads cvc counting "
+              "from the old offset (line 63: 310 -> 0x36), one sampling after it "
+              "the reloaded 20 (0x14), inside the instruction whose end runs the "
+              "reload (zxula_timing.vhd:423-425,457-462; zxnext.vhd:5871-5876)",
+              ok1 && ok2 && on_edge == 0x36 && after == 0x14,
+              gw("edge_on", on_edge, 0x36) + gw("edge_after", after, 0x14));
+    }
+
+    // VT-GH290-20/21 — a CPU NR 0x64 write is ordered against the reload by
+    // its commit edge: io_request_edge() + 2 (zxnext.vhd:4739-4777), which for
+    // `OUT (C),A` at 3.5 MHz is 74 master cycles after the instruction starts
+    // (two M1s, then the I/O cycle's first clock: 9 T-states). The reload
+    // samples i_cu_offset on the edge that starts cycle P, so a write
+    // committing before it is loaded and one committing on or after it waits
+    // a frame. Instruction starts are 8-cycle aligned and P = 117236 = 4 mod
+    // 8, so the two nearest commits are P - 2 (start P - 76) and P + 6
+    // (start P - 68). Running frame; the clock is moved to the start between
+    // instructions, and the OUT is executed through the full per-instruction
+    // path that orders deferred CPU writes against the frame's events.
+    {
+        auto out_at = [](int start_before_reload, int& line100, int& nr64) -> bool {
+            Emulator emu;
+            if (!gh290::build(emu)) return false;
+            const uint64_t f1 = emu.current_frame_cycle();
+            const uint64_t p  = f1 + gh265::kStep;       // raw (64, 125): VT-GH257-06
+            const uint64_t start = p - static_cast<uint64_t>(start_before_reload);
+            bool ok = gh290::run_to(emu, gh290::at(emu, f1, 50, 200)) &&
+                      emu.clock().get() <= start;
+            if (!ok) return false;
+            emu.port().out(0x243B, 0x64);             // select, outside the OUT
+            emu.mmu().write(0x8000, 0xED);
+            emu.mmu().write(0x8001, 0x79);            // OUT (C),A
+            emu.mmu().write(0x8002, 0x18);
+            emu.mmu().write(0x8003, 0xFE);            // JR $
+            auto regs = emu.cpu().get_registers();
+            regs.PC = 0x8000;
+            regs.BC = 0x253B;
+            regs.AF = static_cast<uint16_t>((20 << 8) | (regs.AF & 0x00FF));
+            emu.cpu().set_registers(regs);
+            emu.clock().tick(static_cast<int>(start - emu.clock().get()));
+            emu.execute_single_instruction();
+            ok = gh290::run_to(emu, gh290::at(emu, f1, 100, 200));
+            line100 = gh290::read_cvc(emu);
+            nr64    = g163::nr_read(emu, 0x64);
+            return ok;
+        };
+        int before_l100 = -1, before_nr64 = -1, after_l100 = -1, after_nr64 = -1;
+        const bool ok1 = out_at(76, before_l100, before_nr64);
+        const bool ok2 = out_at(68, after_l100, after_nr64);
+        check("VT-GH290-20",
+              "OUT (C),A committing NR 0x64 = 20 two cycles before the reload is "
+              "loaded by it: line 100 of the same frame reads 56 "
+              "(zxula_timing.vhd:457-462; zxnext.vhd:4739-4777,5442)",
+              ok1 && before_l100 == 56 && before_nr64 == 20,
+              gw("line100", before_l100, 56) + gw("nr64", before_nr64, 20));
+        check("VT-GH290-21",
+              "…and committing six cycles after it is not: line 100 still reads "
+              "36, the register already 20 (zxula_timing.vhd:457-462; "
+              "zxnext.vhd:4739-4777,5442,6090)",
+              ok2 && after_l100 == 36 && after_nr64 == 20,
+              gw("line100", after_l100, 36) + gw("nr64", after_nr64, 20));
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -2592,7 +2684,7 @@ int main() {
     std::printf("  Section 15: VT-S15-GH22-IN-DISPLAY   — done (2 live)\n");
 
     section16_gh290_cvc_reload();
-    std::printf("  Section 16: VT-S16-GH290-CVC-RELOAD — done (18 live)\n");
+    std::printf("  Section 16: VT-S16-GH290-CVC-RELOAD — done (21 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
