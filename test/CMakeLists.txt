@@ -1020,6 +1020,18 @@ target_link_libraries(dzrp_adapter_test PRIVATE
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(dzrp_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME dzrp_adapter_tests COMMAND dzrp_adapter_test)
+# GH #26 WP1 (epic #276 package S) — the debugger DSL's lexer, parser, load-time
+# checks and the compile_expr / eval_expr library. Qt-free, so `gate: none`: it
+# runs in both configurations. The evaluation rows need a real Debugger over a
+# 48K Emulator, so it links the emulator like remote_transport_test.
+add_executable(script_parse_test script/script_parse_test.cpp)
+target_link_libraries(script_parse_test PRIVATE
+    jnext_script
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(script_parse_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME script_parse_tests COMMAND script_parse_test)
 
 # Task 66 — AppConfig (GUI preferences: QSettings-backed load/save,
 # CLI-vs-saved-preference precedence). Needs jnext_gui (QSettings/QString
