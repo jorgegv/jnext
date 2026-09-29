@@ -2,8 +2,6 @@
 
 #include "script/names.h"
 
-#include <cstring>
-
 namespace jnext {
 namespace script {
 
