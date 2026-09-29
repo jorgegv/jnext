@@ -666,7 +666,7 @@ int Z80Cpu::execute() {
     // Cleared here and set only at the real opcode fetch below, so a caller
     // can tell a completed instruction from an NMI/INT acknowledge or an
     // intercepted esxdos call. See fetched_opcode_last_execute().
-    fetched_opcode_ = false;
+    slot_kind_ = SlotKind::Other;
 
     // Push any externally set registers into FUSE state
     sync_fuse_from_regs(regs_);
@@ -698,6 +698,7 @@ int Z80Cpu::execute() {
             fuse_z80_nmi();
         }
         sync_regs_from_fuse(regs_);
+        slot_kind_ = SlotKind::Nmi;   // GH #278: see last_slot_kind()
         int cycles = (int)(tstates - before);
         return (cycles > 0) ? cycles : 11;
     }
@@ -791,6 +792,7 @@ int Z80Cpu::execute() {
                 sync_regs_from_fuse(regs_);
                 if (accepted) {
                     int_pending_ = false;
+                    slot_kind_ = SlotKind::Int;   // GH #278: see last_slot_kind()
                     return (int)(tstates - before);
                 }
                 // Defensive: fuse_z80_interrupt may still return 0 for
@@ -915,7 +917,7 @@ int Z80Cpu::execute() {
     if (on_m1_prefetch) on_m1_prefetch(pc);
 
     uint8_t  opcode = mem_.read(pc);
-    fetched_opcode_ = true;   // past every early return; the CPU read PC itself
+    slot_kind_ = SlotKind::Opcode;   // past every early return; the CPU read PC itself
 
     if (opcode == 0xED) {
         uint8_t ext = mem_.read(static_cast<uint16_t>(pc + 1));

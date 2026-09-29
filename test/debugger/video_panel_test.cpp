@@ -2019,6 +2019,76 @@ static void test_composite_is_default_tab() {
               tabs->currentIndex()));
 }
 
+// ── QVT-01 (GH #278 WP0): a tab switch renders the newly visible tab only ─
+//
+// VideoPanel refreshes only the visible layer view (video_panel.cpp:1066-1075),
+// and a tab switch refreshes at once (:952-960) rather than waiting for the next
+// manager tick. QVT-01 pins it while PAUSED, where every refresh renders.
+// QVT-02 pins it while RUNNING (GH #278 WP0 fix): the newly visible view shows
+// the running placeholder, not the picture it was rendered with during an
+// earlier pause — the early return took invalidate()'s -2 for "placeholder
+// already shown".
+static void test_tab_switch_renders_visible_only(Emulator& emu) {
+    set_group("QVT");
+
+    emu.debug_state().set_active(true);
+    emu.run_frame();
+    emu.debug_state().run_to_cycle(emu.current_frame_cycle() +
+                                   200 * emu.timing().master_cycles_per_line);
+    emu.run_frame();
+    emu.snapshot_raster();
+
+    VideoPanel panel(&emu);
+    auto* tabs = panel.findChild<QTabWidget*>();
+    // The "not rendered" picture is a solid fill of one colour, at whatever
+    // width the view last had — compare by colour, never by QImage equality.
+    const QRgb unrendered =
+        VideoLayerView(VideoLayerView::Layer::SPRITES, "x", nullptr).image().pixel(0, 0);
+    auto view_image = [&](int i) -> QImage {
+        QWidget* page = tabs ? tabs->widget(i) : nullptr;
+        auto* v = page ? page->findChild<VideoLayerView*>() : nullptr;
+        return v ? v->image() : QImage();
+    };
+    auto is_placeholder = [&](const QImage& img) {
+        if (img.isNull()) return false;
+        for (int y = 0; y < img.height(); ++y)
+            for (int x = 0; x < img.width(); ++x)
+                if (img.pixel(x, y) != unrendered) return false;
+        return true;
+    };
+
+    panel.refresh();                         // renders tab 0 (All layers) only
+    const bool composite_drawn = !is_placeholder(view_image(0));
+    if (tabs) tabs->setCurrentIndex(3);      // Sprites — no refresh() call here
+    const bool sprites_drawn = !is_placeholder(view_image(3));
+    bool others_untouched = true;
+    for (int i : {1, 2, 4, 5})
+        others_untouched = others_untouched && is_placeholder(view_image(i));
+    check("QVT-01",
+          "switching the layer tab (paused) renders the newly visible view at "
+          "once, and only it: the hidden views keep their placeholder",
+          emu.debug_state().paused() && tabs && composite_drawn && sprites_drawn &&
+              others_untouched,
+          fmt("paused=%d composite=%d sprites=%d others-placeholder=%d",
+              emu.debug_state().paused(), composite_drawn, sprites_drawn,
+              others_untouched));
+
+    // QVT-02 — the Sprites view now holds a paused picture. Resume, refresh
+    // (the visible Sprites view goes to the placeholder), go back to All
+    // layers (rendered during the pause, not since), switch while running.
+    emu.debug_state().resume();
+    panel.refresh();
+    const bool sprites_dimmed = is_placeholder(view_image(3));
+    if (tabs) tabs->setCurrentIndex(0);
+    const bool composite_dimmed = is_placeholder(view_image(0));
+    check("QVT-02",
+          "switching the layer tab while RUNNING shows the placeholder in the "
+          "newly visible view, never a picture left from an earlier pause",
+          !emu.debug_state().paused() && sprites_dimmed && composite_dimmed,
+          fmt("running=%d sprites placeholder=%d all-layers placeholder=%d",
+              !emu.debug_state().paused(), sprites_dimmed, composite_dimmed));
+}
+
 // ── DVP-RASTER: the raster position / ULA fetch indicator (GH #22) ────
 //
 // RasterState itself is pinned, per machine and against the VHDL, by
@@ -2709,6 +2779,12 @@ int main(int argc, char** argv) {
     std::printf("  Group: DVP-BG-COPPER  — done\n");
     test_composite_is_default_tab();
     std::printf("  Group: DVP-COMP-TAB   — done\n");
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_tab_switch_renders_visible_only(emu);
+        std::printf("  Group: QVT            — done\n");
+    }
     {
         Emulator emu;
         if (!build_next_emulator(emu)) return 1;

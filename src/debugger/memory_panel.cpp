@@ -196,8 +196,10 @@ void MemoryPanel::update_page_selector() {
         // get_effective_page: physical page in use (explicit NR 0x50-0x57 or
         // derived legacy page). get_page() would show 0xFF for legacy ROM slots.
         uint8_t page = emulator_->mmu().get_effective_page(i);
+        // The HEX is upper case, the words are not (GH #278 WP0): this used to
+        // upper-case the whole label, "SLOT 3 (PAGE 0B)" beside "CPU View".
         page_selector_->setItemText(i + 1,
-            QString("Slot %1 (page %2)").arg(i).arg(page, 2, 16, QChar('0')).toUpper());
+            QString("Slot %1 (page %2)").arg(i).arg(QString::asprintf("%02X", page)));
     }
 }
 

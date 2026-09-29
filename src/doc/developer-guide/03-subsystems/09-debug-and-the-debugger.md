@@ -130,7 +130,12 @@ incremented as an argument of `take_snapshot()`, so without
 "which frame is this?" got the same answer forever. The counter is
 *post*-incremented, so during frame K it reads K+1: the backend reports
 `frame_num() - 1`, which is the tag the rewind slot for that frame carries and
-the frame `--delayed-keypress-frames N` lands on.
+the frame `--delayed-keypress-frames N` lands on. A rewind lands on a frame
+start the ring has already counted (`Emulator::at_restored_frame_start()`), so
+`run_to_frame()` takes its base from that flag too, and the session's
+`FrameEnded` detector watches the frame's *start cycle* rather than the
+counter: the first frame run again after a rewind ends without the counter
+moving (GH #278).
 
 A verb whose machinery belongs to a later package is defined in ONE file,
 `debugger_pending.cpp`, and returns `Result::Unsupported` — never a silent
@@ -1021,7 +1026,7 @@ introspects:
 | Disassembly | `src/debug/disasm.*` over `Mmu::read`, with symbol substitution, a breakpoint gutter, and a selection you can copy as assembly |
 | Memory | raw bytes, either through the CPU's address space or a chosen MMU slot |
 | Stack | words at and above `SP` |
-| Call Stack | `src/debug/call_stack.*`, a shadow stack built from SP deltas |
+| Call Stack | `src/debug/call_stack.*`, a shadow stack built from SP deltas, plus a frame for each accepted INT or NMI (`Z80Cpu::last_slot_kind()` says which kind of slot ran); a return pops only the frames below the new SP |
 | Watches | byte / word / long at user addresses |
 | Breakpoints | the contents of `BreakpointSet` |
 | Video | the raster position in all four counter domains plus the ULA fetch phase (`src/debug/raster_state.*`), and each layer rendered separately — composite, ULA primary and shadow, Layer 2 active and shadow, sprites, tilemap, and the NR 0x4A fallback colour |

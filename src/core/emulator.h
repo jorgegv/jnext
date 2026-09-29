@@ -190,6 +190,24 @@ public:
     /// point a snapshot may be taken from (design §10.2 P7).
     bool frame_in_progress() const { return frame_in_progress_; }
 
+    /// GH #278 — true while the machine sits on a frame start restored from the
+    /// rewind ring, until that frame begins again.
+    ///
+    /// A ring snapshot is taken inside begin_new_frame(), after the frame counter
+    /// has counted the frame beginning, so a restored machine already holds
+    /// frame_num() = K+1 for the frame K it is about to (re)begin. The re-run of
+    /// begin_new_frame() therefore must not count K a second time — it used to,
+    /// so a step_back inside frame K left the counter at K+2 and the re-run frame
+    /// after rewind_to_frame(K) was tagged K+1. It also tells a debugger which of
+    /// the two frames a boundary belongs to: an ordinary boundary follows the
+    /// frame just run, this one precedes the frame it restored (the rewind UI's
+    /// Frame Back and "Rewound" line, and the backend's run_to_frame()).
+    ///
+    /// Host-side provenance, like replay_mode_: never serialised. Set by
+    /// rewind_to_cycle() / rewind_to_frame() on a successful restore; cleared by
+    /// begin_new_frame(), by any other load_state(), and by a hard reset.
+    bool at_restored_frame_start() const { return restored_frame_start_; }
+
     /// GH #276 B4 — true inside `end_of_frame()`'s closing window: from the
     /// `Frame` event's drain to the end of the auto-type tick that follows it.
     /// `frame_in_progress()` is already false there, but the frame's last work
@@ -1746,6 +1764,9 @@ private:
     /// returning from inside run_frame()'s loop, so the next call must RESUME that frame,
     /// not restart it.
     bool frame_in_progress_ = false;
+
+    /// GH #278 — see at_restored_frame_start().
+    bool restored_frame_start_ = false;
 
     /// GH #276 B4 — see frame_edge_open().
     bool frame_edge_open_ = false;

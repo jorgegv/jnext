@@ -193,6 +193,16 @@ Three entry points use the ring, and all of them funnel through `load_state()`:
 | `step_back(n)` | Use the `TraceLog` to find the start cycle of the instruction *n* back, then `rewind_to_cycle` it. Fails loudly if the trace is off — which is why enabling rewind also enables the trace. |
 | `rewind_to_frame(num)` | Restore a specific frame's snapshot, and render it straight away. |
 
+**Frame numbers.** A slot is tagged with the number of the frame it begins,
+and it is taken just *after* the frame counter has counted that frame, so a
+restored machine already holds `frame_num() = K+1` for the frame *K* it is about
+to run again. `Emulator::at_restored_frame_start()` marks that state (host-side,
+never serialised): `begin_new_frame()` then counts the frame once, not twice,
+and a debugger can tell the boundary *before* a restored frame from an ordinary
+boundary *after* a frame. When the machine runs forward from a rewind, the
+first new slot drops every slot from its frame on — the history the rewind left
+— so the ring always holds one timeline, one slot per tag (GH #278).
+
 `replay_mode_` suppresses audio mixing and rendering throughout the
 fast-forward, so rewinding several seconds neither screeches through the
 speakers nor flickers through hundreds of frames; the picture is rendered once,

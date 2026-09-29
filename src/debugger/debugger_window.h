@@ -107,6 +107,9 @@ private:
     void show_rewind_buffer_size_dialog();
     void update_trace_indicator();
     void update_rewind_ui();
+    /// GH #278 — the rewind UI's frame numbering; see debugger_window.cpp.
+    uint32_t rewind_position() const;
+    void frame_back();
     /// GH #1 — push keymap_ onto the actions and the toolbar text.
     void apply_keymap();
 

@@ -36,6 +36,15 @@ RewindBuffer::~RewindBuffer()
 
 void RewindBuffer::take_snapshot(const Emulator& emu, uint64_t frame_cycle, uint32_t frame_num)
 {
+    // GH #278 WP0 — a tag at or below the newest one means the machine was
+    // rewound and is running forward again from there: the slots from this
+    // frame on belong to the history it left, and they are dropped. Keeping
+    // them gave the ring two slots per tag, and frame_cycle_for() (first match,
+    // oldest first) answered from the abandoned one. Tags increase along the
+    // ring, so the abandoned history is exactly a suffix.
+    while (count_ > 0 && slots_[slot_index(count_ - 1)].frame_num >= frame_num)
+        --count_;
+
     // Determine write slot. Not full: the first free slot past the newest
     // (slot_index(count_)). Full: overwrite the oldest slot (at head_).
     const bool   full      = (count_ == slots_.size());

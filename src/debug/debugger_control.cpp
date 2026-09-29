@@ -264,9 +264,14 @@ Result Debugger::run_to_frame(ClientId by, uint32_t frame) {
     //     mid-frame K:   raw = K+1, frame_cycle_ = start of K   -> base = raw-1
     //     at a boundary: raw = K+1, frame_cycle_ = start of K+1 -> base = raw
     //     never run:     raw = 0,   frame_cycle_ = start of 0   -> base = raw
+    //     on a restored start of K (a rewind landed there):
+    //                    raw = K+1, frame_cycle_ = start of K   -> base = raw-1
     //
-    // is exact in all three. `raw - 1` cannot underflow: a frame in progress
-    // means at least one `begin_new_frame()` has run.
+    // is exact in all four (GH #278 added the fourth: a ring snapshot is taken
+    // after the counter counted its frame, so a rewind lands at a boundary that
+    // is already counted, and `base = raw` sent run_to_frame(K+1) to the start
+    // of K). `raw - 1` cannot underflow: a frame in progress, or a restored
+    // one, means at least one `begin_new_frame()` has run.
     const uint32_t now = frame_tag(impl_->emu);
     if (frame <= now) return Result::RefusedUnavailable;   // forward only
 
@@ -274,9 +279,13 @@ Result Debugger::run_to_frame(ClientId by, uint32_t frame) {
     // refusal above reads the clamped tag, so `run_to_frame(0)` is refused even
     // though frame 0 has not begun. That is the safe side of the clamp's
     // ambiguity — a refusal is an answer a caller can act on, where a stop that
-    // ran nothing would look like the frame had begun.
+    // ran nothing would look like the frame had begun. The same holds on a
+    // restored start of K: its tag is K, so run_to_frame(K) is refused although
+    // K has not begun again.
     const uint32_t raw  = impl_->emu.frame_num();
-    const uint32_t base = impl_->emu.frame_in_progress() ? raw - 1u : raw;
+    const bool counted  = impl_->emu.frame_in_progress() ||
+                          impl_->emu.at_restored_frame_start();
+    const uint32_t base = (counted && raw > 0) ? raw - 1u : raw;
     const MachineTiming& t = impl_->emu.timing();
     const uint64_t target = impl_->emu.current_frame_cycle()
                           + static_cast<uint64_t>(frame - base) * t.master_cycles_per_frame;

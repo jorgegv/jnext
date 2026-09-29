@@ -1126,7 +1126,13 @@ SpriteEngine::SpriteInfo SpriteEngine::get_sprite_info(uint8_t idx) const
     const auto& s = sprites_[idx];
     info.x              = s.x();
     info.y              = s.y();
-    info.pattern        = s.extended() ? s.pattern_7bit() : s.pattern_base();
+    // The pattern number the hardware FETCHES (GH #278 WP0): an 8-bit sprite
+    // names a 256-byte pattern with N5:N0 (sprites.vhd:816, :962 — the address
+    // is spr_rel_pattern(6 downto 1)); only a 4-bit sprite adds N6 as the low
+    // bit, selecting a 128-byte half (spr_cur_n6 <= attr4(6) and spr_cur_h,
+    // :801-804; :928, :963). This used to report the 7-bit form for EVERY
+    // extended sprite, so an extended 8-bit sprite showed twice its pattern.
+    info.pattern        = s.is_4bit() ? s.pattern_7bit() : s.pattern_base();
     info.palette_offset = s.palette_offset();
     info.visible        = s.visible();
     info.x_mirror       = s.x_mirror();

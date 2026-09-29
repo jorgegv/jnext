@@ -19,12 +19,14 @@ Once there is history, a rewind toolbar appears at the bottom of the window:
 | Action | Key | Effect |
 |---|---|---|
 | Step Back | **Shift+F7** | Undo the last instruction |
-| Frame Back | **Shift+F6** | Jump to the start of the previous frame |
+| Frame Back | **Shift+F6** | Jump to the start of the frame — or, if you are already at one, of the frame before |
 | Slider | — | Drag to any frame in the buffer and release to jump there |
 
 A rewind lands you at the *start* of the target frame, paused, with the
 emulator window redrawn to match. The status bar reports the buffer's size in
-frames and megabytes, and when you are rewound it shows which frame you are on.
+frames and megabytes, and when you are rewound it shows which frame you are on,
+numbered as the slider numbers it. Running forward again from a rewound frame
+discards the frames after it: the slider then ends at the frame you are on.
 Press **F5** to carry on from there.
 
 Step Back is greyed out when the trace log is off, when the buffer is empty,

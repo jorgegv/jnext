@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.49</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.50</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.49</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.50</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1911,7 +1911,12 @@ incremented as an argument of <code>take_snapshot()</code>, so without
 "which frame is this?" got the same answer forever. The counter is
 <em>post</em>-incremented, so during frame K it reads K+1: the backend reports
 <code>frame_num() - 1</code>, which is the tag the rewind slot for that frame carries and
-the frame <code>--delayed-keypress-frames N</code> lands on.</p>
+the frame <code>--delayed-keypress-frames N</code> lands on. A rewind lands on a frame
+start the ring has already counted (<code>Emulator::at_restored_frame_start()</code>), so
+<code>run_to_frame()</code> takes its base from that flag too, and the session's
+<code>FrameEnded</code> detector watches the frame's <em>start cycle</em> rather than the
+counter: the first frame run again after a rewind ends without the counter
+moving (GH #278).</p>
 <p>A verb whose machinery belongs to a later package is defined in ONE file,
 <code>debugger_pending.cpp</code>, and returns <code>Result::Unsupported</code> — never a silent
 no-op. Keeping them together means "what is not implemented yet" is something you
@@ -2802,7 +2807,7 @@ introspects:</p>
 </tr>
 <tr>
 <td>Call Stack</td>
-<td><code>src/debug/call_stack.*</code>, a shadow stack built from SP deltas</td>
+<td><code>src/debug/call_stack.*</code>, a shadow stack built from SP deltas, plus a frame for each accepted INT or NMI (<code>Z80Cpu::last_slot_kind()</code> says which kind of slot ran); a return pops only the frames below the new SP</td>
 </tr>
 <tr>
 <td>Watches</td>

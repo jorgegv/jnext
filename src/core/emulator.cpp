@@ -145,6 +145,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         irq_scheduler_.reset();
         frame_cycle_ = 0;
         frame_num_   = 0;
+        restored_frame_start_ = false;   // GH #278
         // No frame is in flight after a hard reset. A soft reset keeps the
         // clock, the scheduler and frame_cycle_, so the frame it lands in
         // goes on to its end: clearing the flag made the next run_frame()
@@ -8531,7 +8532,13 @@ void Emulator::begin_new_frame()
     // counter naming the frame it started in, so the next real snapshot reused
     // a tag. The counter now names the frame the machine is actually in,
     // whichever way it got there.
-    const uint32_t this_frame = frame_num_++;
+    //
+    // GH #278 — a frame restored from the ring is already counted: its snapshot
+    // was taken just after this increment. Count it once (see
+    // at_restored_frame_start()).
+    const uint32_t this_frame =
+        (restored_frame_start_ && frame_num_ > 0) ? frame_num_ - 1 : frame_num_++;
+    restored_frame_start_ = false;
     if (rewind_buffer_ && rewind_enabled_ && !replay_mode_) {
         rewind_buffer_->take_snapshot(*this, frame_cycle_, this_frame);
     }
@@ -10234,10 +10241,24 @@ uint64_t Emulator::step_one_instruction()
         if (debug_state_.raster_live())
             video_timing_.advance(tstates);
 
-        // Call stack tracking post-execution.
+        // Call stack tracking post-execution. GH #278 — an accepted INT or NMI
+        // is a frame too (CallStack::on_interrupt() had no caller), and it is
+        // ASKED of the CPU: such a slot fetches no opcode, so the pre-slot
+        // capture names an instruction that did not run, and a CALL or RST
+        // waiting at PC would otherwise be recorded as taken.
         if (call_stack_.enabled()) {
             const Z80Registers& post = cpu_.registers();
-            call_stack_.on_instruction_post(post.SP, post.PC);
+            switch (cpu_.last_slot_kind()) {
+                case Z80Cpu::SlotKind::Int:
+                    call_stack_.on_interrupt(pc_pre_exec, post.PC, post.SP, CallType::INT);
+                    break;
+                case Z80Cpu::SlotKind::Nmi:
+                    call_stack_.on_interrupt(pc_pre_exec, post.PC, post.SP, CallType::NMI);
+                    break;
+                default:
+                    call_stack_.on_instruction_post(post.SP, post.PC);
+                    break;
+            }
         }
 
         // GH #203 — the Step Out decision was made just after cpu_.execute()
@@ -12482,6 +12503,10 @@ bool Emulator::load_state(StateReader& r)
     // Without this, restoring while the debugger had a frame paused would leave the
     // flag set and the first restored frame would skip its own frame-start actions.
     frame_in_progress_ = false;
+    // GH #278 — only a RING restore sits on an already-counted frame start; the
+    // two rewind paths set this after their restore succeeds. Any other load (a
+    // .jns, a warm start) is an ordinary boundary.
+    restored_frame_start_ = false;
 
     // Core subsystems.
     clock_.load_state(r);
@@ -12986,6 +13011,7 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
         return UINT64_MAX;
     }
 
+    restored_frame_start_ = true;   // GH #278: the replay's first frame is counted
     Log::emulator()->debug("rewind_to_cycle: target={} snap_cycle={}", target_cycle, snap_cycle);
 
     if (snap_cycle > target_cycle) {
@@ -13148,6 +13174,7 @@ bool Emulator::rewind_to_frame(uint32_t target_frame_num)
         debug_state_.pause();
         return false;
     }
+    restored_frame_start_ = true;   // GH #278: sits on a counted frame start
 
     // Re-render so the main window framebuffer reflects the restored state.
     renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
