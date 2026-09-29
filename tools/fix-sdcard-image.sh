@@ -19,7 +19,15 @@
 #     NextZXOS picks up sensible default hardware settings on first
 #     boot (DivMMC off, AY+turbo on, ULA+ on, etc.).
 #
-# Requires: mtools (mcopy, mdir, mformat, minfo, mmd).
+#  3. **ZX81 ROM (GH #284).** The 24.11 distribution ships
+#     /MACHINES/NEXT/zx81.rom as ONE 16 KB page, but its menu.def loads the
+#     ZX81 entry as two, so the firmware boot menu stops on
+#     "zx81.rom...error reading!". When the file is exactly that 16 KB file
+#     (full SHA-256), it is replaced by itself twice (32 KB), as upstream
+#     tbblue did in commit e2df8e15. Any other zx81.rom is left alone. This
+#     is the same change jnext makes to the image it downloads.
+#
+# Requires: mtools (mcopy, mdir, mformat, minfo, mmd), sha256sum.
 #
 # Usage:
 #   ./tools/fix-sdcard-image.sh <source.img> [dest.img]
@@ -75,9 +83,9 @@ else
 fi
 
 # --- Required tools ---
-for tool in mcopy mdir mformat minfo mmd; do
+for tool in mcopy mdir mformat minfo mmd sha256sum; do
     if ! command -v "$tool" >/dev/null 2>&1; then
-        echo "ERROR: '$tool' (from mtools) is required" >&2
+        echo "ERROR: '$tool' (from mtools / coreutils) is required" >&2
         exit 1
     fi
 done
@@ -138,13 +146,19 @@ DRIVE_SPEC="$(abspath "$WORK")@@$PART_OFFSET"
 # --- Cleanup trap ---
 EXTRACT_DIR=""
 CONFIGFILE=""
+ZX81DIR=""
 cleanup() {
     [ -n "$EXTRACT_DIR" ] && [ -d "$EXTRACT_DIR" ] && rm -rf "$EXTRACT_DIR"
     [ -n "$CONFIGFILE" ]  && [ -f "$CONFIGFILE"  ] && rm -f  "$CONFIGFILE"
+    [ -n "$ZX81DIR" ]     && [ -d "$ZX81DIR"     ] && rm -rf "$ZX81DIR"
     # Only remove WORK_TMP if we still own it (i.e., the final rename
     # didn't happen — the script aborted mid-way). After a successful
     # rename we clear WORK_TMP so this becomes a no-op.
     [ -n "$WORK_TMP" ] && [ -f "$WORK_TMP" ] && rm -f "$WORK_TMP"
+    # Succeed explicitly. Under `set -e` the trap's status is the script's, and
+    # the false test above made every SUCCESSFUL run exit 1. A failing run
+    # still exits with its own status: `exit N` is kept across the trap.
+    return 0
 }
 trap cleanup EXIT
 
@@ -258,6 +272,27 @@ mcopy -i "$DRIVE_SPEC" -o "$CONFIGFILE" "::/machines/next/config.ini" </dev/null
 echo ""
 echo "Verifying ..."
 mdir -i "$DRIVE_SPEC" "::/machines/next/config.ini" </dev/null
+
+# --- Double the 24.11 distribution's 16 KB zx81.rom (GH #284) ---
+# Only the exact file, by FULL SHA-256: this literal is the same as
+# sdcard::kZx81Rom16kSha256 in src/core/sdcard_provisioner.cpp, and the
+# fix-sdcard-image-func regression row fails if the two ever differ. The new
+# file is built from the image's own bytes, so no ROM content lives here.
+# Idempotent: a re-run finds 32 KB, which is not the known file.
+ZX81_16K_SHA256=c294e4b60a0eba85c02a3d8b37f77de6c4516d873682dcf333813bd392d82aac
+echo ""
+ZX81DIR=$(mktemp -d /tmp/zx81-rom.XXXXXX)
+if mcopy -n -i "$DRIVE_SPEC" "::/machines/next/zx81.rom" "$ZX81DIR/zx81.rom" \
+        </dev/null 2>/dev/null \
+   && [ "$(wc -c < "$ZX81DIR/zx81.rom")" -eq 16384 ] \
+   && [ "$(LC_ALL=C sha256sum "$ZX81DIR/zx81.rom" | cut -d' ' -f1)" = "$ZX81_16K_SHA256" ]; then
+    echo "Doubling /MACHINES/NEXT/zx81.rom to 32 KB (the 24.11 16 KB file; GH #284) ..."
+    cat "$ZX81DIR/zx81.rom" "$ZX81DIR/zx81.rom" > "$ZX81DIR/zx81-32k.rom"
+    mcopy -i "$DRIVE_SPEC" -o "$ZX81DIR/zx81-32k.rom" "::/machines/next/zx81.rom" </dev/null
+    mdir -i "$DRIVE_SPEC" "::/machines/next/zx81.rom" </dev/null
+else
+    echo "/MACHINES/NEXT/zx81.rom is absent or not the 24.11 16 KB file; left as it is."
+fi
 
 # --- If we used a temp file for in-place reformat, swap it onto SRC ---
 if [ -n "$WORK_TMP" ]; then
