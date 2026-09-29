@@ -60,6 +60,8 @@ bool HeadlessApp::init(int argc, char* argv[]) {
     };
     debugger_->set_loop_driver(driver);
     host_probe_ = HostProbe::from_env(emulator_, *debugger_);   // GH #276 B5
+    // GH #12 (WP-5) — the socket debugger servers, on this loop's pump.
+    if (!debug_servers_.start(*debugger_, config_)) return false;
 
     running_ = true;
     Log::platform()->info("Headless mode initialized");
@@ -517,7 +519,38 @@ void HeadlessApp::run() {
     }
 
 
+    // GH #12 (WP-5) — wall time spent in the paused-with-a-remote wait below
+    // that has not yet been charged to the exit countdown, in microseconds.
+    long long paused_wait_us = 0;
+
     while (running_) {
+        // GH #12 (WP-5) — PAUSED WITH A REMOTE ATTACHED: no frame and no frame
+        // countdown, only the servers — `pump()` waits up to 50 ms for the next
+        // command (transport.md §2 item 15). This is what turns a paused
+        // headless run with DeZog attached from a busy spin into a poll.
+        //
+        // The ONE countdown that keeps running is the automatic exit, because
+        // it is a hard bound that always fires: a client holding the machine
+        // must not hold the process forever. It is charged in WALL time here,
+        // one count per 20 ms (a 50 Hz frame — the same period the GUI ticks,
+        // which count down paused or not), since a wait tick is not a frame.
+        // When it comes due the tick falls through: run_frame() does nothing on
+        // a paused machine, and the exit below fires as it always has.
+        if (DebugServers::headless_should_wait(debugger_->state().paused, pump_hint_)) {
+            const auto wait_start = std::chrono::steady_clock::now();
+            pump_hint_ = debugger_->pump(DebugServers::headless_wait_budget());
+            if (exit_countdown_ > 0) {
+                paused_wait_us += std::chrono::duration_cast<std::chrono::microseconds>(
+                                      std::chrono::steady_clock::now() - wait_start)
+                                      .count();
+                while (paused_wait_us >= 20000 && exit_countdown_ > 0) {
+                    --exit_countdown_;
+                    paused_wait_us -= 20000;
+                }
+            }
+            if (exit_countdown_ != 0) continue;
+        }
+
         // Headless reset facility (env-gated, zero cost when unset): --headless
         // has no Reset button, so this exercises the Task 70 cold-boot paths for
         // tests. JNEXT_DELAYED_RESET_FRAMES=N, JNEXT_DELAYED_RESET_TYPE =
@@ -734,7 +767,7 @@ void HeadlessApp::run() {
         // after the boot. `PumpBudget{}` never blocks; the paused-with-a-remote
         // budget is the socket transport's to choose (package T). With no client
         // and no service it writes nothing and moves nothing (row HOST-02).
-        debugger_->pump(jnext::dbg::PumpBudget{});
+        pump_hint_ = debugger_->pump(jnext::dbg::PumpBudget{});
 
         // --benchmark: stop after exactly N frames and report.
         if (benchmark_frames_ > 0 && ++bench_frames_done >= benchmark_frames_) {

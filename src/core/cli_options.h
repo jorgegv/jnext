@@ -79,6 +79,7 @@ enum class OptId {
     EspIpAddressAfter,
     MagicBreakpoint,
     PersistentBreakpoints,
+    DzrpPort,
     DebugListenAddress,
     EsxdosStub,
     EsxdosStubRoot,
@@ -629,22 +630,33 @@ inline constexpr Option OPTIONS[] = {
       "",
       "Keep breakpoints armed while the debugger window is\n"
       "closed; a hit reopens it (GUI debugger builds only)" },
+    // GH #12 — the DeZog Remote Protocol server (dzrp-frontend.md §4.3). The
+    // one port rule the three protocol designs agreed: absent = off, 0 = an
+    // OS-chosen port that is logged, any other value = that port. No default:
+    // DeZog's own defaults (11000 for `cspect`, 14000 for `dzrp`) are the
+    // user's to match, never assumed.
+    { "--dzrp-port", 1, Doc::Documented, OptId::DzrpPort,
+      "PORT",
+      "Serve the DeZog Remote Protocol (DZRP) on TCP PORT so\n"
+      "DeZog (remoteType \"cspect\" or \"dzrp\") or any DZRP\n"
+      "client can drive the debugger. Off unless given; PORT 0\n"
+      "binds an OS-chosen port and logs it. One client at a time." },
     // GH #287 — the bind address of the debugger protocol servers (DZRP #12,
     // ZRCP #280, GDB RSP #281), shared by all three and landed with their
-    // common transport, before any of them. Numeric only and loopback by
-    // default, on the same reasoning as --esp-listen-address: none of those
-    // protocols has any authentication, so widening it is an explicit act on
-    // the command line. The help text says what is TRUE of this binary: until
-    // the first server lands the value is checked and nothing listens. The
-    // designs' agreed wording, which names the three --<proto>-port flags, is
-    // the first server's to adopt.
+    // common transport. Numeric only and loopback by default, on the same
+    // reasoning as --esp-listen-address: none of those protocols has any
+    // authentication, so widening it is an explicit act on the command line.
+    // GH #12 (owner decision): REFUSED without a server port flag, as
+    // --esp-listen-address is without --esp — an address for a server that is
+    // off reads as "I configured where it listens" when nothing will. The help
+    // names only the port flags that exist; ZRCP and RSP add theirs.
     { "--debug-listen-address", 1, Doc::Documented, OptId::DebugListenAddress,
       "ADDR",
       "Bind address for the debugger protocol servers\n"
-      "(default 127.0.0.1). A numeric IP, never a name. A\n"
-      "non-loopback address exposes the debugger to the network:\n"
-      "none of its protocols has any authentication. No server\n"
-      "is available yet, so the address is only checked." },
+      "(--dzrp-port), default 127.0.0.1. A numeric IP, never a\n"
+      "name. A non-loopback address exposes the debugger to the\n"
+      "network: none of its protocols has any authentication.\n"
+      "Refused unless a server port is given." },
     { "--magic-port", 1, Doc::Documented, OptId::MagicPort,
       "PORT",
       "Enable magic debug port at PORT (hex, e.g. 0x00FF)" },
