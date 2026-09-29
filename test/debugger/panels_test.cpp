@@ -1223,6 +1223,9 @@ static void test_nextreg_panel() {
 // ===========================================================================
 struct WindowFixture {
     Emulator         emu;
+    // GH #278 WP2 — the loop owner's backend (QtApp::debugger()), built
+    // after init() and declared before the window, so it outlives the manager.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     QMainWindow      win;
     DebuggerManager* mgr = nullptr;
     bool             ok  = false;
@@ -1230,7 +1233,8 @@ struct WindowFixture {
     explicit WindowFixture(MachineType type = MachineType::ZX48K) {
         if (!build(emu, type)) return;
         emu.debug_state().pause();
-        mgr = new DebuggerManager(&win, &emu, &win);   // parented -> freed
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        mgr = new DebuggerManager(&win, *backend, &emu, &win);   // parented -> freed
         mgr->set_enabled(true);
         QApplication::processEvents();
         ok = mgr->debugger_window_ptr() != nullptr;

@@ -53,6 +53,7 @@
 #include "debugger/stack_panel.h"
 #include "debugger/video_panel.h"
 #include "memory/mmu.h"
+#include "platform/emulator_boot.h"
 #include "port/nextreg.h"
 #include "video/renderer.h"
 
@@ -143,6 +144,9 @@ constexpr uint16_t TEST_SP = 0xFF00;
 
 struct Fixture {
     Emulator         emu;
+    // GH #278 WP2 — the loop owner's backend (QtApp::debugger()), built
+    // after init() and declared before the window, so it outlives the manager.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     QMainWindow      win;
     DebuggerManager* mgr = nullptr;
     bool             ok  = false;
@@ -155,7 +159,8 @@ struct Fixture {
         cfg.type                 = type;
         cfg.rewind_buffer_frames = rewind_frames;
         if (!emu.init(cfg)) return;
-        mgr = new DebuggerManager(&win, &emu, &win);   // parented -> freed
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        mgr = new DebuggerManager(&win, *backend, &emu, &win);   // parented -> freed
         if (paused) emu.debug_state().pause();
         ok = true;
     }
@@ -918,6 +923,91 @@ static void test_pause_edge() {
               "a throttled refresh, actions flipped",
               bad.empty(), bad);
     }
+
+    // GH #278 WP2 — the window reads the machine's pause state from the backend
+    // on every tick, so a transition ANOTHER CLIENT causes reaches it too.
+
+    // QPE-07 — a RESUME the window did not cause (another client's run()): the
+    // next tick flips the actions to the running shape and the paused-only
+    // panels stop following the machine. Before WP2 the window learnt of a
+    // resume only from its own verbs, and stayed in the paused shape — frozen
+    // on a running machine, and deaf to its next pause edge.
+    {
+        Fixture f;
+        const char* desc = "another client's run(): on the next tick the actions "
+                           "flip to the running shape and CPU / Stack stop following";
+        if (!f.ok) { check("QPE-07", desc, false, "fixture"); }
+        else {
+            f.load(PROG, {0x18, 0xFE});                         // JR $
+            f.load(TEST_SP, {0x11, 0x22});
+            f.regs(PROG, [](Z80Registers& r) { r.HL = 0x1111; });
+            f.enable();
+            f.tick();                                           // the pause edge
+            DebuggerWindow* dbg = f.dbg();
+            const bool shown_paused = actions_paused_shape(dbg);
+            const jnext::dbg::ClientId remote =
+                f.backend->attach(jnext::dbg::ClientInfo{"remote", jnext::dbg::ClientKind::Dzrp})
+                    .value;
+            const jnext::dbg::Result rr = f.backend->run(remote);
+            f.tick();
+            const bool running = !f.paused() && actions_running_shape(dbg);
+            Z80Registers r = f.emu.cpu().get_registers();
+            r.HL = 0x2222;
+            f.emu.cpu().set_registers(r);
+            f.emu.mmu().write(TEST_SP, 0x99);
+            for (int i = 0; i < 12; ++i) f.mgr->refresh_panels();
+            const QString hl = cpu_value(dbg, "HL: ");
+            const QString w0 = table_cell(dbg->stack_panel(), 0, 1);
+            const QString want_w0 = QString::asprintf("%04X (%5d)", 0x2211, 0x2211);
+            check("QPE-07", desc,
+                  shown_paused && rr == jnext::dbg::Result::Ok && running && hl == "1111" &&
+                      w0 == want_w0,
+                  fmt("paused shape before=%d run=%s running shape after the tick=%d "
+                      "HL shown %s stack0 %s",
+                      shown_paused, jnext::dbg::result_name(rr), running, s(hl).c_str(),
+                      s(w0).c_str()));
+        }
+    }
+
+    // QPE-08 — a PAUSE another client causes while the window is open: the next
+    // tick is a full pause edge — CPU and Stack on the stopped state, the
+    // Disassembly on PC, the paused actions — and the pause stays that client's.
+    {
+        Fixture f(MachineType::ZX48K, 0, /*paused=*/false);
+        const char* desc = "another client's pause() with the window open: the next "
+                           "tick is a full pause edge, and the pause stays that client's";
+        if (!f.ok) { check("QPE-08", desc, false, "fixture"); }
+        else {
+            f.load(PROG, {0x23, 0x18, 0xFD});                   // INC HL / JR $8000
+            f.regs(PROG, [](Z80Registers& r) { r.HL = 0; });
+            f.enable();
+            DebuggerWindow* dbg = f.dbg();
+            if (auto* sb = dbg->disasm_panel()->findChild<QScrollBar*>()) sb->setValue(0xC000);
+            for (int i = 0; i < 3; ++i) f.tick();
+            const bool ran = !f.paused() && actions_running_shape(dbg);
+            const jnext::dbg::ClientId remote =
+                f.backend->attach(jnext::dbg::ClientInfo{"remote", jnext::dbg::ClientKind::Dzrp})
+                    .value;
+            f.backend->pause(remote);
+            f.tick();
+            const Z80Registers r = f.emu.cpu().get_registers();
+            const jnext::dbg::RunState st = f.backend->state();
+            check("QPE-08", desc,
+                  ran && f.paused() && actions_paused_shape(dbg) && r.HL != 0 &&
+                      cpu_value(dbg, "PC: ") == QString::asprintf("%04X", r.PC) &&
+                      cpu_value(dbg, "HL: ") == QString::asprintf("%04X", r.HL) &&
+                      table_cell(dbg->stack_panel(), 0, 0) == QString::asprintf("%04X", r.SP) &&
+                      disasm_shows(dbg->disasm_panel(), r.PC) &&
+                      st.pause_reason.kind == jnext::dbg::PauseReason::Kind::User &&
+                      st.pause_reason.by == remote,
+                  fmt("ran=%d paused=%d actions=%d PC=%04X shown=%s HL=%04X shown=%s "
+                      "disasm=%d by=%u (remote %u)",
+                      ran, f.paused(), actions_paused_shape(dbg), r.PC,
+                      s(cpu_value(dbg, "PC: ")).c_str(), r.HL,
+                      s(cpu_value(dbg, "HL: ")).c_str(),
+                      disasm_shows(dbg->disasm_panel(), r.PC), st.pause_reason.by, remote));
+        }
+    }
 }
 
 // ===========================================================================
@@ -1028,6 +1118,45 @@ static void test_enable_seeds() {
                   fmt("HL shown at enable=%s, after 13 ticks=%s, live=%04X",
                       s(hl_at_enable).c_str(), s(cpu_value(fx.dbg(), "HL: ")).c_str(),
                       live));
+        }
+    }
+
+    // QEN-03 — GH #278 WP2: with the window open, a hard reset keeps what the
+    // window switched on. The window is a backend client, which the backend
+    // re-applies on the rebuilt machine (CTL-12 rule 2): still ARMED (a
+    // breakpoint at the reset vector stops it), the live raster still on, and
+    // call-stack tracking still on. The last half is a defect fix: the window
+    // used to switch tracking on directly on the Emulator, which a cold boot
+    // reconstructs with tracking off, so after a hard reset the Call Stack
+    // stayed empty until the window was closed and reopened.
+    {
+        Fixture fx(MachineType::ZX48K, 0, /*paused=*/false);
+        const char* desc = "window open: a hard reset keeps the machine armed (a "
+                           "breakpoint at 0000 stops it), the live raster on and "
+                           "call-stack tracking on";
+        if (!fx.ok) { check("QEN-03", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x18, 0xFE});
+            fx.regs(PROG);
+            fx.enable();
+            fx.tick();
+            fx.emu.debug_state().breakpoints().add_pc(0x0000);   // carried by the boot
+            // QtApp::cold_boot(): the backend's begin, the frontend cold boot, done.
+            fx.backend->on_cold_boot_begin();
+            emulator_frontend_cold_boot(fx.emu, fx.emu.config(), std::string(),
+                                        ColdBootHooks{});
+            fx.backend->on_cold_boot_done();
+            const bool armed = fx.backend->armed();
+            const bool live  = fx.backend->live_raster();
+            const bool cs    = fx.backend->call_stack_enabled();
+            const bool ran_before = !fx.paused();
+            fx.tick();
+            check("QEN-03", desc,
+                  armed && live && cs && ran_before && fx.paused() && fx.pc() == 0x0000 &&
+                      actions_paused_shape(fx.dbg()),
+                  fmt("armed=%d live_raster=%d call_stack=%d running after boot=%d "
+                      "paused=%d PC=%04X",
+                      armed, live, cs, ran_before, fx.paused(), fx.pc()));
         }
     }
 }

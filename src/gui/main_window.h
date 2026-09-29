@@ -23,6 +23,7 @@ class QFocusEvent;
 #ifdef ENABLE_DEBUGGER
 class DebuggerManager;
 #endif
+namespace jnext { namespace dbg { class Debugger; } }
 
 /// Main emulator window — QMainWindow shell with emulator viewport, menu bar,
 /// toolbar, and status bar.  Keyboard events are dispatched to a configurable callback.
@@ -42,8 +43,15 @@ public:
     /// Access the central emulator display widget.
     EmulatorWidget* emulator_widget() { return emulator_widget_; }
 
+    /// GH #278 WP2 — the debugger backend of the machine set_emulator() binds:
+    /// the loop owner's ONE `jnext::dbg::Debugger` (`QtApp::debugger()`), which
+    /// the DebuggerManager adapts. Call it BEFORE set_emulator(); the pointer
+    /// must outlive this window. Without it no DebuggerManager is created.
+    void set_debugger(jnext::dbg::Debugger* dbg) { debugger_ = dbg; }
+
     /// Set the emulator pointer for direct callbacks.
-    /// When ENABLE_DEBUGGER is defined, also creates the DebuggerManager.
+    /// When ENABLE_DEBUGGER is defined, also creates the DebuggerManager (over
+    /// the backend set_debugger() supplied).
     /// Also shows the emulator's machine type (sync_machine_type_display()).
     void set_emulator(Emulator* emu);
 
@@ -433,6 +441,7 @@ private:
 #ifdef ENABLE_DEBUGGER
     DebuggerManager* debugger_mgr_ = nullptr;
 #endif
+    jnext::dbg::Debugger* debugger_ = nullptr;   // set_debugger()
 
     // Debugger toggle action (in View menu)
     QAction* debugger_action_ = nullptr;

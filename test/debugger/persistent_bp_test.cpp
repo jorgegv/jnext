@@ -92,12 +92,16 @@ void run_until_paused(Emulator& emu, int max_frames = 4) {
 // user is in after inspecting a program and dismissing the debugger.
 struct Fixture {
     Emulator         emu;
+    // GH #278 WP2 — the loop owner's backend (QtApp::debugger()), built
+    // after init() and declared before the window, so it outlives the manager.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     QMainWindow      win;
     DebuggerManager* mgr = nullptr;
 
     explicit Fixture(bool persistent) {
         build(emu, persistent);
-        mgr = new DebuggerManager(&win, &emu, &win);   // parented → auto-freed
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        mgr = new DebuggerManager(&win, *backend, &emu, &win);   // parented → auto-freed
         mgr->set_enabled(true);                        // create + show window
         emu.debug_state().breakpoints().add_pc(BP_ADDR);
         mgr->set_enabled(false);                       // user closes it again
@@ -197,6 +201,103 @@ int main(int argc, char** argv) {
               "the same breakpoint and stays open",
               fx.emu.debug_state().paused() && pc(fx.emu) == BP_ADDR &&
               fx.mgr->is_enabled() && fx.window_visible());
+    }
+
+    // ── GH #278 WP2 — the window's adapter is a backend client ONLY while
+    //    the window is open (qt-frontend.md §4 as built). A pause from any
+    //    source must still open a CLOSED window: it is pulled from the backend
+    //    on every tick, not pushed to an attached client. One row per source;
+    //    each first shows that nothing is attached at the moment of the stop.
+
+    // PBPUI-06 — the MAGIC breakpoint (ED FF), no flag: the machine is unarmed
+    // until the opcode executes, the hook stops it, and the next tick opens the
+    // window on it.
+    {
+        Fixture fx(/*persistent=*/false);
+        fx.emu.set_magic_breakpoint(true);
+        fx.emu.mmu().write(PROG, 0xED);
+        fx.emu.mmu().write(PROG + 1, 0xFF);
+        const bool detached_before = !fx.backend->attached() && !fx.backend->armed();
+        run_until_paused(fx.emu);
+        const jnext::dbg::RunState st = fx.backend->state();
+        const bool stopped = st.paused &&
+                             st.pause_reason.kind == jnext::dbg::PauseReason::Kind::Magic &&
+                             pc(fx.emu) == PROG + 2;
+        const bool shut_before = !fx.window_visible();
+
+        fx.mgr->check_breakpoint_hit();
+
+        check("PBPUI-06", "with the window closed and nothing attached, a magic "
+              "breakpoint's stop opens the debugger window on the next tick",
+              detached_before && stopped && shut_before && fx.mgr->is_enabled() &&
+              fx.window_visible());
+    }
+
+    // PBPUI-07 — a PERSISTENT breakpoint (GH #219): the machine is armed by the
+    // flag alone — no client attached — and the hit still opens the window.
+    // PBPUI-02's feature, with the "nobody attached" half made explicit.
+    {
+        Fixture fx(/*persistent=*/true);
+        const bool armed_unattached = fx.backend->armed() && !fx.backend->attached();
+        run_until_paused(fx.emu);
+        const bool stopped = fx.backend->state().paused && pc(fx.emu) == BP_ADDR;
+        const bool shut_before = !fx.window_visible();
+
+        fx.mgr->check_breakpoint_hit();
+
+        check("PBPUI-07", "with the window closed, armed only by "
+              "--persistent-breakpoints (no client attached), a breakpoint hit "
+              "opens the debugger window on the next tick",
+              armed_unattached && stopped && shut_before && fx.mgr->is_enabled() &&
+              fx.window_visible());
+    }
+
+    // PBPUI-08 — ANOTHER CLIENT's pause (owner Q5): a remote attaches and
+    // pauses; the next tick opens the window, and the pause is still that
+    // client's — the window neither re-owns nor resumes it.
+    {
+        Fixture fx(/*persistent=*/false);
+        fx.emu.run_frame();                        // unarmed: runs on to the park
+        const jnext::dbg::ClientId remote =
+            fx.backend->attach(jnext::dbg::ClientInfo{"remote", jnext::dbg::ClientKind::Dzrp})
+                .value;
+        const bool shut_before = !fx.window_visible() && !fx.mgr->is_enabled();
+        fx.backend->pause(remote);
+
+        fx.mgr->check_breakpoint_hit();
+
+        const jnext::dbg::RunState st = fx.backend->state();
+        check("PBPUI-08", "with the window closed, another client's pause opens the "
+              "debugger window on the next tick and stays that client's pause",
+              shut_before && fx.mgr->is_enabled() && fx.window_visible() && st.paused &&
+              st.pause_reason.kind == jnext::dbg::PauseReason::Kind::User &&
+              st.pause_reason.by == remote);
+    }
+
+    // PBPUI-09 — and CLOSING the window a magic breakpoint opened leaves the
+    // machine as closing always has: resumed and DISARMED. The magic hook still
+    // sets the legacy DebugState::active() bit, and the window no longer sets
+    // it, so it is the close that must still clear it (GH #278 WP2 — until WP3
+    // retires the bit); otherwise a leftover breakpoint would fire with the
+    // window shut — PBPUI-03's default, broken by one magic hit.
+    {
+        Fixture fx(/*persistent=*/false);
+        fx.emu.set_magic_breakpoint(true);
+        fx.emu.mmu().write(PROG, 0xED);
+        fx.emu.mmu().write(PROG + 1, 0xFF);
+        run_until_paused(fx.emu);
+        fx.mgr->check_breakpoint_hit();            // opens the window
+        const bool opened = fx.mgr->is_enabled() && fx.window_visible();
+        fx.mgr->set_enabled(false);                // the user closes it
+        const bool disarmed = !fx.backend->armed() && !fx.backend->attached() &&
+                              !fx.emu.debug_state().active() && !fx.backend->state().paused;
+        run_until_paused(fx.emu);                  // runs past BP_ADDR to the park
+        fx.mgr->check_breakpoint_hit();
+
+        check("PBPUI-09", "closing the window a magic breakpoint opened resumes and "
+              "disarms the machine: the leftover breakpoint no longer stops it",
+              opened && disarmed && !fx.emu.debug_state().paused() &&
+              pc(fx.emu) == 0x800E && !fx.mgr->is_enabled() && !fx.window_visible());
     }
 
     std::printf("\n=====================================\n");

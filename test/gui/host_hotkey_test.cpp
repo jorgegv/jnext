@@ -78,6 +78,7 @@
 
 #include "core/emulator.h"
 #include "gui/main_window.h"
+#include "debug/debugger.h"
 #include "input/keyboard.h"
 #include "platform/host_key_latch.h"
 #include "platform/host_key_wiring.h"
@@ -1112,7 +1113,11 @@ int main(int argc, char** argv) {
         EmulatorConfig cfg;
         emu.init(cfg);
 
+        // GH #278 WP2 — the backend the window's DebuggerManager adapts
+        // (QtApp::debugger()); declared before w2, so it outlives it.
+        jnext::dbg::Debugger backend(emu);
         MainWindow w2;
+        w2.set_debugger(&backend);
         w2.set_emulator(&emu);
         QApplication::processEvents();
 

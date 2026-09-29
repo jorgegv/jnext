@@ -214,12 +214,16 @@ bool stopped_at(Emulator& emu, uint16_t want) {
 // no inspection row watches an address in $8000-$8013.
 struct Fixture {
     Emulator         emu;
+    // GH #278 WP2 — the loop owner's backend (QtApp::debugger()), built
+    // after init() and declared before the window, so it outlives the manager.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     QMainWindow      win;
     DebuggerManager* mgr = nullptr;
 
     Fixture() {
         build(emu);
-        mgr = new DebuggerManager(&win, &emu, &win);   // parented -> auto-freed
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        mgr = new DebuggerManager(&win, *backend, &emu, &win);   // parented -> auto-freed
         mgr->set_enabled(true);                        // creates + shows window
     }
 

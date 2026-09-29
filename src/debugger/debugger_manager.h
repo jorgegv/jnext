@@ -6,9 +6,8 @@
 #include <memory>
 
 #include "debug/debug_keymap.h"
-
+#include "debug/debugger.h"
 #include "debug/symbol_table.h"
-#include "debug/resume_guard.h"
 
 class Emulator;
 class QMainWindow;
@@ -17,10 +16,34 @@ class DebuggerWindow;
 /// Manages the debugger enable/disable state, debug menu actions, toolbar,
 /// and the separate debugger window with all panels.
 /// Created by MainWindow when ENABLE_DEBUGGER is defined.
+///
+/// GH #278 WP2 — the Qt ADAPTER over the debugger backend (`jnext::dbg::Debugger`,
+/// `debug/debugger.h`). The control verbs — run, pause, step into/over/out,
+/// run to here, run to end of frame / scanline — are the backend's; so are the
+/// pause state the adapter reads, and the corruption observables the resume
+/// modal asks about (CTL-11). What stays here is Qt: the modal, the window, the
+/// panels' paused/running presentation, the Qt signals.
+///
+/// THE ATTACH POLICY (qt-frontend.md §4 as built; manager decision 2026-09-29):
+/// the adapter is a backend CLIENT exactly while the debugger window is open —
+/// attached by `set_enabled(true)`, detached by `set_enabled(false)` — and
+/// requests the live raster for as long. Not for the process lifetime: an
+/// attached client ARMS the machine, and a window that armed breakpoints while
+/// closed would change GH #219's default (`debugger_persistent_bp_test`
+/// PBPUI-03). A pause the window did not cause still opens it: the pause state
+/// is PULLED from the backend on every tick, whoever is attached.
+///
+/// The panels (`DebuggerWindow` and its 13) still take the `Emulator*` until
+/// WP4/WP7 move them onto the backend; so do the rewind verbs until WP3.
 class DebuggerManager : public QObject {
     Q_OBJECT
 public:
-    explicit DebuggerManager(QMainWindow* main_window, Emulator* emulator, QObject* parent = nullptr);
+    /// `dbg` is the loop owner's backend for `emulator` (`QtApp::debugger()`) —
+    /// the ONE `Debugger` of that machine; the adapter never constructs its own.
+    /// It must outlive the manager.
+    DebuggerManager(QMainWindow* main_window, jnext::dbg::Debugger& dbg,
+                    Emulator* emulator, QObject* parent = nullptr);
+    ~DebuggerManager() override;
 
     /// Is the debugger currently enabled (window visible, breakpoint checks active)?
     bool is_enabled() const { return enabled_; }
@@ -42,8 +65,12 @@ public:
     /// Called from on_frame_tick() — does nothing when debugger is disabled.
     void refresh_panels();
 
-    /// Check if debugger has caused a pause (breakpoint hit etc.)
-    /// and emit appropriate signals. Does nothing when disabled.
+    /// Once per frame tick, after the loop owner's pump: read the backend's
+    /// pause state and bring the window to it. A pause the window has not shown
+    /// yet — a breakpoint, a watchpoint, a magic breakpoint, a finished step,
+    /// another client's pause — is shown, opening the window first if it is
+    /// closed (GH #219; owner Q5 for a remote client); a resume the window did
+    /// not cause is shown too.
     void check_breakpoint_hit();
 
     /// Access the debugger window (may be null if not yet created).
@@ -59,9 +86,6 @@ public:
     /// Access the symbol table.
     SymbolTable& symbol_table() { return symbol_table_; }
     const SymbolTable& symbol_table() const { return symbol_table_; }
-
-    /// Access emulator (for debugger window menu actions).
-    Emulator* emulator() const { return emulator_; }
 
 public slots:
     void on_run();
@@ -96,6 +120,23 @@ private:
     void ensure_window();
     void update_actions();
 
+    /// THE ATTACH POLICY, in one place (see the class comment): become a
+    /// backend client and request the live raster / stop being one.
+    /// Idempotent.
+    void attach_backend();
+    void detach_backend();
+
+    /// The four paused-only panels (CPU, Disassembly, Stack, Call Stack).
+    void set_panels_paused(bool paused);
+
+    /// THE ONE pause-state transition of the window — the eleven copies of the
+    /// panel sequence every verb used to carry. Paused: the four panels
+    /// frozen, `paused()`, the disassembly re-centred on PC, a full refresh,
+    /// the paused actions. Running: the four panels released, `resumed()`, the
+    /// running actions. Records what the window now shows, which is what
+    /// check_breakpoint_hit() compares the backend's state against.
+    void apply_pause_state(bool paused);
+
     /// Task 60e: if the emulator flagged a corrupt state after a failed
     /// rewind/step-back (Emulator::last_state_error() non-empty), surface it
     /// to the user (status bar + modal warning). No-op on a benign failure
@@ -110,13 +151,24 @@ private:
     /// records the acknowledgment and returns true; on No it returns false and
     /// the caller MUST abort (stay paused). Every new corruption incident
     /// re-prompts. When the machine is clean it is a cheap no-op returning
-    /// true. The pure policy lives in ResumeGuard so it can be unit-tested.
+    /// true. The policy, and the acknowledgment, are the BACKEND'S (CTL-11:
+    /// `resume_blocked_by_corruption()` / `acknowledge_corruption()`), so the
+    /// modal gates exactly what the backend's verbs would refuse.
     bool confirm_resume_if_corrupt();
 
     QMainWindow* main_window_;
+    jnext::dbg::Debugger& dbg_;
+    /// For what WP2 does not move: the DebuggerWindow and its panels (WP4/WP7),
+    /// the rewind verbs and their warning (WP3), the raster snapshot before a
+    /// paused refresh (WP4d), and the legacy `DebugState::active()` bit the
+    /// window still CLEARS on close (see set_enabled()).
     Emulator* emulator_;
 
     bool enabled_ = false;
+
+    /// The backend client this window is while it is open (CLIENT_NONE while
+    /// closed). Every verb is attributed to it.
+    jnext::dbg::ClientId client_ = jnext::dbg::CLIENT_NONE;
 
     // The separate debugger window (created lazily on first enable)
     DebuggerWindow* debugger_window_ = nullptr;
@@ -130,13 +182,15 @@ private:
     // Symbol table for loaded MAP files
     SymbolTable symbol_table_;
 
-    // Task 60e — per-incident acknowledgment state for the corruption gate.
-    ResumeGuard resume_guard_;
-
     // Refresh throttle
     int refresh_counter_ = 0;
     static constexpr int REFRESH_INTERVAL = 12;
 
-    // Track previous pause state for breakpoint detection
-    bool was_paused_ = false;
+    /// Which pause state the window last SHOWN (apply_pause_state()). Not a
+    /// copy of the machine's state — that is the backend's, read on every tick
+    /// — but the window's own: check_breakpoint_hit() applies the machine's
+    /// state when the two differ. The enable seeds set the panels without it,
+    /// so a pause found already in force when the window opens still gets the
+    /// full pause-edge sequence on the next tick, as it always has.
+    bool shown_paused_ = false;
 };

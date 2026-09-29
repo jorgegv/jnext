@@ -593,6 +593,9 @@ bool build_next_emulator(Emulator& emu) {
 /// DebuggerManager exactly as the product does.
 struct DebuggerFixture {
     Emulator         emu;
+    // GH #278 WP2 — the loop owner's backend (QtApp::debugger()), built
+    // after init() and declared before the window, so it outlives the manager.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     QMainWindow      win;
     DebuggerManager* mgr = nullptr;
     DebuggerWindow*  dbg = nullptr;
@@ -600,7 +603,8 @@ struct DebuggerFixture {
 
     DebuggerFixture() {
         if (!build_next_emulator(emu)) return;
-        mgr = new DebuggerManager(&win, &emu, &win);   // parented → auto-freed
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        mgr = new DebuggerManager(&win, *backend, &emu, &win);   // parented → auto-freed
         mgr->set_enabled(true);                        // creates + shows the window
         dbg = mgr->debugger_window_ptr();
         ok  = (dbg != nullptr);
@@ -615,11 +619,16 @@ struct DebuggerFixture {
 /// DebuggerManager and therefore the Debug/View menu wiring under test.
 struct MainWindowFixture {
     Emulator   emu;
+    // GH #278 WP2 — the loop owner's backend, handed to the window before
+    // set_emulator() (QtApp's order); declared before it, so it outlives it.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     MainWindow win;
     bool       ok = false;
 
     MainWindowFixture() {
         if (!build_next_emulator(emu)) return;
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        win.set_debugger(backend.get());
         win.set_emulator(&emu);
         QApplication::processEvents();
         ok = win.debugger_manager() != nullptr;
@@ -1903,6 +1912,9 @@ struct RunGuardFixture {
     static constexpr uint16_t PARK = 0x800E;
 
     Emulator         emu;
+    // GH #278 WP2 — the loop owner's backend (QtApp::debugger()), built
+    // after init() and declared before the window, so it outlives the manager.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     QMainWindow      win;
     DebuggerManager* mgr = nullptr;
     bool             ok  = false;
@@ -1933,7 +1945,8 @@ struct RunGuardFixture {
             emu.mmu().write(static_cast<uint16_t>(PROG + i), prog[i]);
         emu.mmu().write(0x9000, 0x00);
 
-        mgr = new DebuggerManager(&win, &emu, &win);   // parented → auto-freed
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        mgr = new DebuggerManager(&win, *backend, &emu, &win);   // parented → auto-freed
         ok  = mgr->set_enabled(true);                  // also set_active(true)
     }
     ~RunGuardFixture() {

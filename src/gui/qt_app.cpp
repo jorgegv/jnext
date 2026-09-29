@@ -263,10 +263,11 @@ bool QtApp::init(int argc, char* argv[]) {
     // plan's §6.3): built on the initialised machine and kept across every cold
     // boot, with the loop driver registered, every boot this loop owner decides
     // on bracketed by begin/done (cold_boot() below) and a pump per tick
-    // (post_frames()). No client attached, so nothing is armed and the GUI runs
-    // as it did; the Qt window keeps driving `DebugState` directly until package
-    // Q makes its panels clients of THIS instance (`debugger()`). SES-04: Qt
-    // PAUSES on a `Stop` — the default, set here so the choice is visible.
+    // (post_frames()). The debugger window's DebuggerManager is a client of
+    // THIS instance while the window is open (GH #278 WP2; set_debugger()
+    // below) — and only then, so with it closed nothing is armed and the GUI
+    // runs as it did. SES-04: Qt PAUSES on a `Stop` — the default, set here so
+    // the choice is visible.
     debugger_ = std::make_unique<jnext::dbg::Debugger>(emulator_);
     debugger_->set_stop_policy(jnext::dbg::StopPolicy::Pause);
     {
@@ -285,7 +286,10 @@ bool QtApp::init(int argc, char* argv[]) {
     // Create the main window.
     main_window_ = new MainWindow();
 
-    // Wire emulator pointer so menus can call into it.
+    // Wire emulator pointer so menus can call into it — after the backend, so
+    // the DebuggerManager set_emulator() builds adapts THIS loop owner's one
+    // Debugger (GH #278 WP2).
+    main_window_->set_debugger(debugger_.get());
     main_window_->set_emulator(&emulator_);
     main_window_->set_unattended(exit_countdown_ >= 0);   // see set_delayed_exit()
 

@@ -154,9 +154,15 @@ where the verb promises — PC, cycle, pause reason), a *control* row per verb t
 the same program runs straight past, and the non-perturbation and frame-counter
 rows above.
 
-Everything else the rest of this chapter describes — `DebugState` consulted per
-instruction, `BreakpointSet`, `DebuggerManager` driving the panels — is still how
-the debugger works today; the frontends have not been moved onto the facade yet.
+The Qt debugger's control verbs go through the facade (GH #278 WP2):
+`DebuggerManager` is an adapter whose slots call `run()`, `pause()`, the three
+steps, `run_to()` and the two end-of-* verbs, asks the corruption modal's
+question through `resume_blocked_by_corruption()`, and reads the pause state
+from `state()` on every tick — see "The Qt adapter" below. Everything else the
+rest of this chapter describes — `DebugState` consulted per instruction,
+`BreakpointSet`, the panels reading the `Emulator` directly — is still how the
+debugger works today; the panels and the rewind verbs move in later work
+packages.
 
 ### The event pipeline (B2)
 
@@ -370,15 +376,19 @@ ids are never reused, so anything left behind would be kept for ever) — and,
 **iff the machine is paused by this client**, resumes it. A pause by another client survives, and an
 *unowned* pause is never released by any detach however many clients come and
 go: `PauseReason::Magic` and `PauseReason::Corrupt` carry `by == CLIENT_NONE`
-because neither is anyone's verb. There is no "last client" rule — the Qt
-adapter is attached for the process lifetime, so a remote is never the last one,
-and the point of the rule is that a crashed DeZog must not leave the machine
-hung.
+because neither is anyone's verb. There is no "last client" rule — the point of
+the rule is that a crashed DeZog must not leave the machine hung, whoever else
+is or is not attached. (The design once attached the Qt adapter for the process
+lifetime; as built it is attached only while its window is open, because an
+attach ARMS the machine — see "The Qt adapter" below.)
 
 **`attached()` is the OR of two contributors, for now.** `DebugState::active()`
-is what "a frontend is driving this machine" means on today's tree: the Qt
-debugger window sets it when it opens, and the magic-breakpoint hook sets it when
-the opcode executes. Neither is a backend client yet. So `attached()` is
+is the legacy "a frontend is driving this machine" bit. Until GH #278 WP2 the Qt
+debugger window set it when it opened; since then the window is a backend client
+while it is open, and the bit is set only by the magic-breakpoint hook (when the
+opcode executes) and the two rewind paths — the window still CLEARS it on close,
+as it always did, until WP3 retires the bit. Neither of those writers is a
+client. So `attached()` is
 `live_clients > 0 || DebugState::active()`, and the client term is its **own
 bit** on `DebugState` (`clients_attached_`) rather than a second writer of
 `active_` — because a `detach()` of the last client would otherwise clear a flag
@@ -395,8 +405,8 @@ per-instruction test, the `STEP_BACK` / `RUN_BACK_TO_CYCLE` step modes), and
 the per-instruction `VideoTiming::advance()` walk. `refresh_gates_()`
 precomputes both into `DebugState` bits (`attached_ = active_ ||
 clients_attached_`, `raster_live_ = active_ || live_raster_`), so each hot-path
-reader still pays one bool load, and `active_` stays a term of both until the Qt
-window becomes a client. Before the split a machine driven only by a remote
+reader still pays one bool load, and `active_` stays a term of both until its
+last writers, the magic hook and the rewind paths, stop setting it (GH #278 WP3). Before the split a machine driven only by a remote
 client never finished a Step Out. `Debugger::attached()` and `live_raster()` read
 those same bits back rather than re-deriving them, so the answer a client gets
 and the gate the hot loop obeys cannot disagree.
@@ -585,11 +595,13 @@ half of the hot-path gate — and B3 retired that half: `emulator_cold_boot()`
 zeroes it on its copy, and the backend's `gates_changed()` is its single owner.
 The rest — the *Qt panels'* breakpoint model, the observers that travel on its
 copy (the only reason `BreakpointPanel` and `DisasmPanel` stay subscribed; each
-registers once in its constructor), and `saved_active`, which keeps an open
-debugger window armed — has no other owner before package Q, so retiring it now
-would lose a user's breakpoints on every hard reset, unsubscribe two panels and
-leave an open window unarmed. Package Q retires it when the panels become
-clients. The reasoning is recorded at the site.
+registers once in its constructor), and `saved_active` — has no other owner
+before package Q, so retiring it now would lose a user's breakpoints on every
+hard reset and unsubscribe two panels. Package Q retires it when the panels
+become clients. (Since WP2 an open debugger window's own arm is a backend client,
+which the backend re-applies across the boot; `saved_active` now carries only
+the bit the magic hook and the rewind paths set, and retires with that bit.)
+The reasoning is recorded at the site.
 
 ### Input, capture, bookmarks and coverage (B4)
 
@@ -626,11 +638,14 @@ one `Debugger` in `init()` and keep it for the process: they register the
 `LoopDriver` (a client's `reset(Hard)` runs the loop owner's own boot; `load()`
 its load dispatch), bracket every cold boot THEY decide on — a guest NR 0x02
 hard reset, a NEX load request, F1, a menu load — with `on_cold_boot_begin()` /
-`on_cold_boot_done()`, and call `pump()` once per tick after the frames (and,
-in SDL and headless, after the cold-boot polls; Qt pumps in `post_frames`). With
-no client attached this arms nothing, so a run with it is bit-identical to a run
+`on_cold_boot_done()`, and call `pump()` once per tick after the frames and
+after the cold-boot polls (Qt in `post_frames()`, since GH #278 WP2 — it used to
+poll in `pre_frames()`, i.e. next tick, so a client `reset(Hard)` in this tick's
+pump destroyed the machine with the guest's request still pending). With no
+client attached this arms nothing, so a run with it is bit-identical to a run
 without it (rows HOST-01..05, the last three through the real `HeadlessApp`).
-`QtApp::debugger()` is the instance package Q's `DebuggerManager` is to use.
+`QtApp::debugger()` is the instance the Qt `DebuggerManager` adapts
+(`MainWindow::set_debugger()`).
 
 Because none of those calls changes an unattached run, nothing a normal run does
 can show one missing. The `JNEXT_HOST_PROBE` fixture (`src/platform/host_probe.h`,
@@ -641,6 +656,32 @@ with `Reset{Hard}` pushed and the pause still its own, resumes, and then asks fo
 `reset(Hard)` through the registered driver — one `HOSTPROBE` log line each. The
 regression rows `sdl-host-probe-func` and `qt-host-probe-func` read those lines
 for `SdlApp` and `QtApp`; row HOST-07 runs the same probe through `HeadlessApp`.
+`JNEXT_HOST_PROBE=order` runs a second script for the POLL ORDER: a `Frame`
+handler raises the guest hard-reset request from inside the frames, and in the
+next pump the probe issues its own `reset(Hard)` — a loop owner that polls before
+it pumps boots twice, guest first; one that pumps first boots once
+(`qt-host-order-func` for `QtApp`, HOST-08 for `HeadlessApp`).
+
+### The Qt adapter (GH #278 WP2)
+
+`DebuggerManager` holds the loop owner's `Debugger` and is a CLIENT of it
+**exactly while the debugger window is open**: `set_enabled(true)` attaches and
+requests the live raster, `set_enabled(false)` resumes a paused machine — whoever
+paused it, as closing the debugger always has — and detaches. Not for the process
+lifetime, which is what the design first said: an attach arms the machine
+(`armed = attached || persistent`), and a window that armed breakpoints while
+closed would make `--persistent-breakpoints` the default
+(`debugger_persistent_bp_test` PBPUI-03 pins the opposite).
+
+A pause the window did not cause still opens it, because the pause state is
+PULLED: `check_breakpoint_hit()` reads `state()` once per tick, after the pump,
+and brings the window to it in both directions — a pause it has not shown gets
+the pause-edge sequence (opening the window first if it is closed: a breakpoint,
+a magic breakpoint, a persistent breakpoint, another client's pause), a resume it
+did not cause gets the running one. What the window last showed is the one piece
+of state the adapter keeps for this, and it is presentation state, not a copy of
+the machine's. The eleven copies of the four panels' `set_paused()` sequence
+are one `apply_pause_state(bool)`.
 
 **The CLI `--delayed-*` flags keep their own countdowns.** Each loop owner counts
 LOOP TICKS for every `--delayed-*` flag, as before — a tick count survives a
@@ -696,8 +737,9 @@ floating-bus latch) and the eight MMU pages.
 and `Emulator::debug_state_` is an ordinary member either way.
 
 That is deliberate, because the hot loop's cost is not "is the debugger
-compiled in" but "is it *active*". `DebugState::active_` starts false and turns
-true only when the UI enables the debugger or a magic breakpoint fires.
+compiled in" but "is it *armed*". Nothing is armed until the debugger window
+opens (its backend client), `--persistent-breakpoints` is given, or a magic
+breakpoint fires (the legacy `DebugState::active_` bit).
 
 There are **two** booleans, and the split is load-bearing (GH #219).
 `active_` means *the debugger is driving the machine*: it gates the step modes
@@ -831,13 +873,13 @@ whenever the debugger is enabled, regardless of whether the machine is paused. T
 breakpoints go dead, because the consumer stops running there while PC does
 not.
 
-Step Over is not a special CPU mode. `DebuggerManager::on_step_over()` asks the
-disassembler whether the current instruction `is_call_like()` — `CALL nn`,
-`CALL cc,nn`, `RST n`, `DJNZ` — and if it is, sets a one-shot breakpoint at
-`PC + instruction_length()` and resumes; otherwise it degrades to Step Into.
-Run to Cursor is the same one-shot mechanism with a user-chosen address, and
-Run to End of Frame and End of Scanline are `run_to_cycle()` with a computed
-target.
+Step Over is not a special CPU mode. The backend's `step_over()` (CTL-04, which
+the Qt debugger's Step Over calls) asks the disassembler whether the current
+instruction `is_call_like()` — `CALL nn`, `CALL cc,nn`, `RST n`, `DJNZ` — and if
+it is, arms a transient `Execute` subscription at `PC + instruction_length()` and
+resumes; otherwise it is a Step Into. Run to Cursor is the same transient with a
+user-chosen address, and Run to End of Frame and End of Scanline are
+`run_to_cycle()` with a computed target.
 
 Step Out is the one mode whose termination is decided *after* the instruction
 rather than before it. `step_out()` records SP at the moment F8 was pressed;
@@ -887,8 +929,8 @@ Stepping must *observe* the emulation and never alter it — see
 `run_frame()` refuses to re-begin a frame that is already in progress.
 
 That function is the *raw* one-slot primitive, though, and the debugger does
-not use it directly: `DebuggerManager::on_step_into()` calls
-`Emulator::debugger_step()`. The difference is the frame boundary, which is
+not use it directly: the backend's `step_into()`, which the Qt debugger's Step
+Into calls, runs `Emulator::debugger_step()`. The difference is the frame boundary, which is
 easy to overlook — while the debugger holds the machine the frontends stop
 calling `run_frame()` altogether, so a step is the machine's only driver and
 inherits its frame loop as well as its inner one. `step_frame_slot()` begins a

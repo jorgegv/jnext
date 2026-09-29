@@ -109,10 +109,10 @@ public:
     /// GH #276 B4 — the process-lifetime debugger backend this loop owner
     /// hosts: built by a successful init(), kept across every cold boot,
     /// pumped once per tick in post_frames(). THE ONE `Debugger` for this
-    /// `Emulator` — package Q's `DebuggerManager` is meant to take this
-    /// instance rather than construct its own (the backend's reconstruct
-    /// detector in `load()` misreads with two). Valid only after init()
-    /// returned true.
+    /// `Emulator` — the `DebuggerManager` adapts this instance (handed over by
+    /// `MainWindow::set_debugger()`) rather than constructing its own (the
+    /// backend's reconstruct detector in `load()` misreads with two). Valid
+    /// only after init() returned true.
     jnext::dbg::Debugger& debugger() { return *debugger_; }
 
 private:

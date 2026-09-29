@@ -7,11 +7,7 @@
 #include "debugger/stack_panel.h"
 #include "debugger/callstack_panel.h"
 #include "core/emulator.h"
-#include "core/emulator_config.h"
-#include "video/renderer.h"
-#include "core/clock.h"
 #include "debug/debug_state.h"
-#include "debug/disasm.h"
 
 #include <QMainWindow>
 #include <QMenuBar>
@@ -26,12 +22,17 @@
 #include <QMessageBox>
 #include <QStatusBar>
 
-DebuggerManager::DebuggerManager(QMainWindow* main_window, Emulator* emulator, QObject* parent)
+DebuggerManager::DebuggerManager(QMainWindow* main_window, jnext::dbg::Debugger& dbg,
+                                 Emulator* emulator, QObject* parent)
     : QObject(parent)
     , main_window_(main_window)
+    , dbg_(dbg)
     , emulator_(emulator)
 {
-    // Start with debugger DISABLED — no performance impact.
+    // Start with debugger DISABLED — no performance impact: no client is
+    // attached until the window opens (attach_backend()). The legacy bit is
+    // cleared as it always was; see set_enabled() for why the window still
+    // clears it.
     emulator_->debug_state().set_active(false);
 
     // Watch main window move/resize to keep debugger sticky.
@@ -58,8 +59,69 @@ DebuggerManager::DebuggerManager(QMainWindow* main_window, Emulator* emulator, Q
     }
 
     create_debug_toolbar();
+}
 
-    was_paused_ = false;
+DebuggerManager::~DebuggerManager() {
+    // A manager destroyed with its window open (the app tearing down without a
+    // close) must not leave a client attached to a backend that outlives it.
+    detach_backend();
+}
+
+// ---------------------------------------------------------------------------
+// The attach policy and the pause-state presentation
+// ---------------------------------------------------------------------------
+
+void DebuggerManager::attach_backend() {
+    if (client_ != jnext::dbg::CLIENT_NONE) return;
+    // SES-01 — the attach arms the machine (§5: armed = attached || persistent)
+    // and switches the step machinery on (§4.1 `attached`); SES-05 — the live
+    // raster switches the render hint and the raster walk on. Together they are
+    // exactly what `DebugState::set_active(true)` switched on before WP2.
+    const auto r = dbg_.attach(jnext::dbg::ClientInfo{"Qt GUI", jnext::dbg::ClientKind::Gui});
+    client_ = r.value;
+    dbg_.set_live_raster(client_, true);
+    // INS-12 — call-stack tracking while the window is open, as before; through
+    // the backend it is also re-applied across a cold boot (CTL-12 rule 2), where
+    // the direct `call_stack().set_enabled()` it replaces was silently lost.
+    dbg_.set_call_stack_enabled(true);
+}
+
+void DebuggerManager::detach_backend() {
+    if (client_ == jnext::dbg::CLIENT_NONE) return;
+    dbg_.set_call_stack_enabled(false);
+    // SES-01 — removes this client's subscriptions (a Step Over or Run to Here
+    // target still in flight goes with the window) and its live-raster request.
+    // It resumes nothing here: set_enabled(false) has already resumed a paused
+    // machine, whoever paused it, before it gets here.
+    dbg_.detach(client_);
+    client_ = jnext::dbg::CLIENT_NONE;
+}
+
+void DebuggerManager::set_panels_paused(bool paused) {
+    if (!debugger_window_) return;
+    if (debugger_window_->disasm_panel())
+        debugger_window_->disasm_panel()->set_paused(paused);
+    if (debugger_window_->cpu_panel())
+        debugger_window_->cpu_panel()->set_paused(paused);
+    if (debugger_window_->stack_panel())
+        debugger_window_->stack_panel()->set_paused(paused);
+    if (debugger_window_->callstack_panel())
+        debugger_window_->callstack_panel()->set_paused(paused);
+}
+
+void DebuggerManager::apply_pause_state(bool paused) {
+    shown_paused_ = paused;
+    set_panels_paused(paused);
+    if (paused) {
+        emit this->paused();
+        if (debugger_window_) {
+            debugger_window_->activate_follow_pc();
+            debugger_window_->refresh_panels();
+        }
+    } else {
+        emit resumed();
+    }
+    update_actions();
 }
 
 bool DebuggerManager::eventFilter(QObject* obj, QEvent* event) {
@@ -89,8 +151,7 @@ bool DebuggerManager::set_enabled(bool enabled, bool prompt_on_corrupt) {
 
     if (enabled) {
         // Activate debug checks in the hot loop.
-        emulator_->debug_state().set_active(true);
-        emulator_->call_stack().set_enabled(true);
+        attach_backend();
 
         // Create the debugger window lazily.
         ensure_window();
@@ -106,22 +167,17 @@ bool DebuggerManager::set_enabled(bool enabled, bool prompt_on_corrupt) {
                 debugger_window_->position_next_to(main_window_);
         });
 
-        // Set panel paused state based on current emulator state.
-        bool is_paused = emulator_->debug_state().paused();
-        if (debugger_window_->disasm_panel())
-            debugger_window_->disasm_panel()->set_paused(is_paused);
-        if (debugger_window_->cpu_panel())
-            debugger_window_->cpu_panel()->set_paused(is_paused);
-        if (debugger_window_->stack_panel())
-            debugger_window_->stack_panel()->set_paused(is_paused);
-        if (debugger_window_->callstack_panel())
-            debugger_window_->callstack_panel()->set_paused(is_paused);
+        // Seed the panel paused state from the machine's. Deliberately NOT
+        // apply_pause_state(): a pause already in force gets the full
+        // pause-edge sequence from the next check_breakpoint_hit(), exactly as
+        // before (shown_paused_ is false while the window is closed).
+        set_panels_paused(dbg_.state().paused);
 
         // Refresh panels immediately.
         debugger_window_->refresh_panels();
     } else {
         // Resume if paused, then deactivate.
-        if (emulator_->debug_state().paused()) {
+        if (dbg_.state().paused) {
             // Task 60e: disabling the debugger auto-resumes — route it through
             // the same corruption gate. If the user declines, abort the disable
             // and keep the debugger enabled + paused so they can reset. enabled_
@@ -141,13 +197,36 @@ bool DebuggerManager::set_enabled(bool enabled, bool prompt_on_corrupt) {
                 emit enabled_changed(true);   // re-check the toolbar Debug button
                 return false;
             }
-            emulator_->debug_state().resume();
-            was_paused_ = false;
+            if (!prompt_on_corrupt) {
+                // Task 60f — the app-quit path is not gated (see the header):
+                // the machine is about to be destroyed. The backend's run()
+                // refuses an unacknowledged corruption (CTL-11), so the quit
+                // path acknowledges it without asking — the resume it has always
+                // done still happens, and nothing survives to be protected.
+                if (const auto inc = dbg_.resume_blocked_by_corruption())
+                    dbg_.acknowledge_corruption(inc->generation);
+            }
+            // Whoever paused it — this window, a breakpoint, the magic
+            // breakpoint, another client: closing the debugger resumes the
+            // machine, as it always has.
+            dbg_.run(client_);
+            shown_paused_ = false;
             emit resumed();
         }
+        shown_paused_ = false;
 
+        // TRANSITIONAL (GH #278 WP2 -> WP3). The window no longer SETS the
+        // legacy `DebugState::active()` bit — the attach and the live raster
+        // replaced it — but two core paths still do: the magic-breakpoint hook
+        // and the rewind paths (`rewind_to_cycle()` / `rewind_to_frame()`).
+        // Before WP2 this line was what cleared their bit when the window
+        // closed; without it a window closed after a magic hit or a rewind
+        // would leave the machine armed and the raster walk on, the very
+        // default PBPUI-03 pins. The bit, its two remaining writers and
+        // `emulator_cold_boot()`'s copy of it retire together in WP3
+        // (qt-frontend.md §7, B3 obligations 1 and 3).
         emulator_->debug_state().set_active(false);
-        emulator_->call_stack().set_enabled(false);
+        detach_backend();
 
         if (debugger_window_) {
             debugger_window_->save_position();
@@ -191,20 +270,12 @@ void DebuggerManager::ensure_window() {
 
     // Wire disasm panel "run to" signal and set symbol/watch pointers.
     if (auto* dp = debugger_window_->disasm_panel()) {
-        connect(dp, &DisasmPanel::run_to_requested, this, [this, dp](uint16_t addr) {
+        connect(dp, &DisasmPanel::run_to_requested, this, [this](uint16_t addr) {
             // Task 60e: "Run to Here" resumes execution — gate it too.
             if (!confirm_resume_if_corrupt()) return;
-            emulator_->debug_state().run_to(addr);
-            was_paused_ = false;
-            dp->set_paused(false);
-            if (debugger_window_->cpu_panel())
-                debugger_window_->cpu_panel()->set_paused(false);
-        if (debugger_window_->stack_panel())
-            debugger_window_->stack_panel()->set_paused(false);
-        if (debugger_window_->callstack_panel())
-            debugger_window_->callstack_panel()->set_paused(false);
-            emit resumed();
-            update_actions();
+            // CTL-06 — a transient Execute at addr, then run.
+            if (dbg_.run_to(client_, addr) != jnext::dbg::Result::Ok) return;
+            apply_pause_state(false);
         });
 
         dp->set_symbol_table(&symbol_table_);
@@ -295,12 +366,13 @@ void DebuggerManager::warn_state_corrupt(const QString& op) {
 }
 
 bool DebuggerManager::confirm_resume_if_corrupt() {
-    const bool corrupt = !emulator_->last_state_error().empty();
-    const uint64_t gen = emulator_->state_error_generation();
-    if (!resume_guard_.needs_confirmation(corrupt, gen))
-        return true;   // clean, or this incident already acknowledged
+    // CTL-11 — the backend's guard: empty when the machine is clean or this
+    // incident is already acknowledged.
+    const auto incident = dbg_.resume_blocked_by_corruption();
+    if (!incident)
+        return true;
 
-    const QString sub = QString::fromStdString(emulator_->last_state_error());
+    const QString sub = QString::fromStdString(incident->subsystem);
     QMessageBox::StandardButton btn = QMessageBox::warning(
         main_window_,
         QObject::tr("Machine State Corrupt"),
@@ -318,8 +390,10 @@ bool DebuggerManager::confirm_resume_if_corrupt() {
     // Acknowledge THIS incident so we don't re-prompt on every following
     // action — but leave last_state_error() set: acknowledging does not heal
     // the desync, so the breadcrumb survives until an actual reset. A new
-    // corruption bumps the generation and re-prompts.
-    resume_guard_.record_ack(gen);
+    // corruption bumps the generation and re-prompts. Acknowledged IN THE
+    // BACKEND, whose verbs would otherwise refuse the resume the user just
+    // agreed to (RefusedCorrupt).
+    dbg_.acknowledge_corruption(incident->generation);
     return true;
 }
 
@@ -327,51 +401,25 @@ void DebuggerManager::on_run() {
     if (!enabled_) return;
     // GH #223: Run on an already-running machine is a no-op, exactly as in
     // on_run_to_eof() / on_run_to_eosl() below. Without this, F5 pressed out of
-    // habit at the emulator window reached DebugState::resume(), whose
-    // clear_oneshot() silently threw away a pending Run to Here / step-over
-    // target. Ordered BEFORE confirm_resume_if_corrupt() — same as the siblings
-    // — because that call can raise a modal, and prompting the user about a
-    // resume we are about to refuse would be a question about nothing.
-    if (!emulator_->debug_state().paused()) return;
+    // habit at the emulator window reached the resume, which threw away a
+    // pending Run to Here / step-over target. Ordered BEFORE
+    // confirm_resume_if_corrupt() — same as the siblings — because that call
+    // can raise a modal, and prompting the user about a resume we are about to
+    // refuse would be a question about nothing. (The backend's run() is a
+    // no-op on a running machine too; this guard is the modal's.)
+    if (!dbg_.state().paused) return;
     // Task 60e: THE choke point — never silently resume a torn machine.
     if (!confirm_resume_if_corrupt()) return;
 
-    emulator_->debug_state().resume();
-    was_paused_ = false;
-    if (debugger_window_) {
-        if (debugger_window_->disasm_panel())
-            debugger_window_->disasm_panel()->set_paused(false);
-        if (debugger_window_->cpu_panel())
-            debugger_window_->cpu_panel()->set_paused(false);
-        if (debugger_window_->stack_panel())
-            debugger_window_->stack_panel()->set_paused(false);
-        if (debugger_window_->callstack_panel())
-            debugger_window_->callstack_panel()->set_paused(false);
-    }
-    emit resumed();
-    update_actions();
+    // CTL-02 — the GH #221 step-off is the backend's.
+    if (dbg_.run(client_) != jnext::dbg::Result::Ok) return;
+    apply_pause_state(false);
 }
 
 void DebuggerManager::on_pause() {
     if (!enabled_) return;
-    emulator_->debug_state().pause();
-    was_paused_ = true;
-    if (debugger_window_) {
-        if (debugger_window_->disasm_panel())
-            debugger_window_->disasm_panel()->set_paused(true);
-        if (debugger_window_->cpu_panel())
-            debugger_window_->cpu_panel()->set_paused(true);
-        if (debugger_window_->stack_panel())
-            debugger_window_->stack_panel()->set_paused(true);
-        if (debugger_window_->callstack_panel())
-            debugger_window_->callstack_panel()->set_paused(true);
-    }
-    emit paused();
-    if (debugger_window_) {
-        debugger_window_->activate_follow_pc();
-        debugger_window_->refresh_panels();
-    }
-    update_actions();
+    dbg_.pause(client_);   // CTL-01
+    apply_pause_state(true);
 }
 
 void DebuggerManager::on_step_into() {
@@ -380,183 +428,55 @@ void DebuggerManager::on_step_into() {
     // (possibly torn) CPU/MMU — gate it like every other execute path.
     if (!confirm_resume_if_corrupt()) return;
 
-    if (!emulator_->debug_state().paused()) {
-        emulator_->debug_state().pause();
-    }
-
-    // GH #207 — debugger_step(), not the raw execute_single_instruction()
-    // primitive: while we hold the machine nothing else calls run_frame(), so
-    // the Step has to turn frames over too, and a Step at a HALT has to run
-    // the halt out (the CPU leaves it only on an accepted interrupt).
-    emulator_->debugger_step();
-
-    emulator_->debug_state().pause();
-    was_paused_ = true;
-    if (debugger_window_) {
-        if (debugger_window_->disasm_panel())
-            debugger_window_->disasm_panel()->set_paused(true);
-        if (debugger_window_->cpu_panel())
-            debugger_window_->cpu_panel()->set_paused(true);
-        if (debugger_window_->stack_panel())
-            debugger_window_->stack_panel()->set_paused(true);
-        if (debugger_window_->callstack_panel())
-            debugger_window_->callstack_panel()->set_paused(true);
-    }
-    emit paused();
-    if (debugger_window_) {
-        debugger_window_->activate_follow_pc();
-        debugger_window_->refresh_panels();
-    }
-    update_actions();
+    // CTL-03 — synchronous: pauses a running machine first, runs one
+    // instruction through debugger_step() (the frame loop turned over, a HALT
+    // run out — GH #207), and leaves the machine paused.
+    if (dbg_.step_into(client_) != jnext::dbg::Result::Ok) return;
+    apply_pause_state(true);
 }
 
 void DebuggerManager::on_step_over() {
     if (!enabled_) return;
     if (!confirm_resume_if_corrupt()) return;   // Task 60e
 
-    if (!emulator_->debug_state().paused()) {
-        emulator_->debug_state().pause();
-    }
-
-    auto regs = emulator_->cpu().get_registers();
-    uint16_t pc = regs.PC;
-
-    auto read_fn = [this](uint16_t addr) -> uint8_t {
-        return emulator_->mmu().read(addr);
-    };
-
-    if (is_call_like(pc, read_fn)) {
-        int len = instruction_length(pc, read_fn);
-        uint16_t next_pc = static_cast<uint16_t>(pc + len);
-        emulator_->debug_state().step_over(next_pc);
-        was_paused_ = false;
-        if (debugger_window_) {
-            if (debugger_window_->disasm_panel())
-                debugger_window_->disasm_panel()->set_paused(false);
-            if (debugger_window_->cpu_panel())
-                debugger_window_->cpu_panel()->set_paused(false);
-        if (debugger_window_->stack_panel())
-            debugger_window_->stack_panel()->set_paused(false);
-        if (debugger_window_->callstack_panel())
-            debugger_window_->callstack_panel()->set_paused(false);
-        }
-        emit resumed();
-        update_actions();
-    } else {
-        on_step_into();
-    }
+    // CTL-04 — the call-like decision is the backend's: over a CALL / RST /
+    // DJNZ it arms a transient Execute at the next instruction and RUNS;
+    // anything else is a Step Into and stays paused. Which of the two happened
+    // is the machine's state, not something to re-derive here.
+    if (dbg_.step_over(client_) != jnext::dbg::Result::Ok) return;
+    apply_pause_state(dbg_.state().paused);
 }
 
 void DebuggerManager::on_step_out() {
     if (!enabled_) return;
     if (!confirm_resume_if_corrupt()) return;   // Task 60e
 
-    if (!emulator_->debug_state().paused()) {
-        emulator_->debug_state().pause();
-    }
-
-    auto regs = emulator_->cpu().get_registers();
-    emulator_->debug_state().step_out(regs.SP);
-    was_paused_ = false;
-    if (debugger_window_) {
-        if (debugger_window_->disasm_panel())
-            debugger_window_->disasm_panel()->set_paused(false);
-        if (debugger_window_->cpu_panel())
-            debugger_window_->cpu_panel()->set_paused(false);
-        if (debugger_window_->stack_panel())
-            debugger_window_->stack_panel()->set_paused(false);
-        if (debugger_window_->callstack_panel())
-            debugger_window_->callstack_panel()->set_paused(false);
-    }
-    emit resumed();
-    update_actions();
+    // CTL-05 — run until a return pops past the current stack depth (GH #203).
+    if (dbg_.step_out(client_) != jnext::dbg::Result::Ok) return;
+    apply_pause_state(false);
 }
 
 void DebuggerManager::on_run_to_eof() {
     if (!enabled_) return;
-    if (!emulator_->debug_state().paused()) return;
+    if (!dbg_.state().paused) return;
     if (!confirm_resume_if_corrupt()) return;   // Task 60e
 
-    // Target the midpoint of the last visible scanline, so that when the CPU
-    // stops every framebuffer row has been rendered and the video panel shows
-    // a complete picture.  If we are already past that point in the current
-    // frame (e.g. stepping from blanking), target the same scanline in the
-    // next frame.
-    //
-    // The last visible row is framebuffer row FB_HEIGHT-1, and since G164v2
-    // (Task 13) `fb_row = raw_vc - vblank_top()` — so the RAW VC we must run
-    // to is FB_HEIGHT-1 + vblank_top() (287 on the NEXT family, 303 on
-    // Pentagon, 263 on the 60 Hz overrides), not the bare FB_HEIGHT-1 = 255
-    // this used to target.  Stopping at raw VC 255 left the bottom 32
-    // framebuffer rows undrawn, so "Run to EOF" never actually reached the end
-    // of the frame.
-    uint64_t frame_start = emulator_->current_frame_cycle();
-    const auto& t = emulator_->timing();
-    const uint64_t last_vis_vc =
-        static_cast<uint64_t>(Renderer::FB_HEIGHT - 1
-                              + emulator_->video_timing().vblank_top());
-    const uint64_t last_vis_mid = last_vis_vc * t.master_cycles_per_line
-                                  + t.master_cycles_per_line / 2;
-    uint64_t target = frame_start + last_vis_mid;
-    if (emulator_->clock().get() >= target)
-        target += t.master_cycles_per_frame;
-
-    emulator_->debug_state().run_to_cycle(target);
-    was_paused_ = false;
-    if (debugger_window_) {
-        if (debugger_window_->disasm_panel())
-            debugger_window_->disasm_panel()->set_paused(false);
-        if (debugger_window_->cpu_panel())
-            debugger_window_->cpu_panel()->set_paused(false);
-        if (debugger_window_->stack_panel())
-            debugger_window_->stack_panel()->set_paused(false);
-        if (debugger_window_->callstack_panel())
-            debugger_window_->callstack_panel()->set_paused(false);
-    }
-    emit resumed();
-    update_actions();
+    // CTL-08 — the midpoint of the last VISIBLE scanline (raw VC
+    // FB_HEIGHT-1 + vblank_top, G164v2), or of the next frame's if already past
+    // it; the arithmetic moved to the backend verbatim.
+    if (dbg_.run_to_end_of_frame(client_) != jnext::dbg::Result::Ok) return;
+    apply_pause_state(false);
 }
 
 void DebuggerManager::on_run_to_eosl() {
     if (!enabled_) return;
-    if (!emulator_->debug_state().paused()) return;
+    if (!dbg_.state().paused) return;
     if (!confirm_resume_if_corrupt()) return;   // Task 60e
 
-    // Calculate the cycle at the end of the current scanline.
-    uint64_t frame_start = emulator_->current_frame_cycle();
-    uint64_t elapsed = emulator_->clock().get() - frame_start;
-    // Round up to the next scanline boundary.
-    const auto& t = emulator_->timing();
-    uint64_t next_line_start = ((elapsed / t.master_cycles_per_line) + 1) * t.master_cycles_per_line;
-    uint64_t next_line_vc    = next_line_start / t.master_cycles_per_line;
-    // Past the last visible row → jump straight to the next frame start.
-    //
-    // `next_line_vc` is a RAW VC; the visible framebuffer occupies raw VC
-    // [vblank_top(), vblank_top()+FB_HEIGHT).  Comparing the raw VC directly
-    // against FB_HEIGHT (as this used to) misclassified raw VC 256..287 — the
-    // bottom border, framebuffer rows 224..255 — as blanking, so "Run to
-    // EOSL" skipped to the next frame instead of the next scanline for the
-    // last 32 visible rows.  G164v2 / Task 13.
-    const int next_fb_row = static_cast<int>(next_line_vc)
-                            - emulator_->video_timing().vblank_top();
-    uint64_t target = (next_fb_row >= Renderer::FB_HEIGHT)
-                    ? frame_start + t.master_cycles_per_frame
-                    : frame_start + next_line_start;
-
-    emulator_->debug_state().run_to_cycle(target);
-    was_paused_ = false;
-    if (debugger_window_) {
-        if (debugger_window_->disasm_panel())
-            debugger_window_->disasm_panel()->set_paused(false);
-        if (debugger_window_->cpu_panel())
-            debugger_window_->cpu_panel()->set_paused(false);
-        if (debugger_window_->stack_panel())
-            debugger_window_->stack_panel()->set_paused(false);
-        if (debugger_window_->callstack_panel())
-            debugger_window_->callstack_panel()->set_paused(false);
-    }
-    emit resumed();
-    update_actions();
+    // CTL-08 — the next scanline start; past the last visible framebuffer row,
+    // the next frame's start (G164v2).
+    if (dbg_.run_to_end_of_scanline(client_) != jnext::dbg::Result::Ok) return;
+    apply_pause_state(false);
 }
 
 void DebuggerManager::on_step_back() {
@@ -571,23 +491,7 @@ void DebuggerManager::on_step_back() {
         return;
     }
 
-    was_paused_ = true;
-    if (debugger_window_) {
-        if (debugger_window_->disasm_panel())
-            debugger_window_->disasm_panel()->set_paused(true);
-        if (debugger_window_->cpu_panel())
-            debugger_window_->cpu_panel()->set_paused(true);
-        if (debugger_window_->stack_panel())
-            debugger_window_->stack_panel()->set_paused(true);
-        if (debugger_window_->callstack_panel())
-            debugger_window_->callstack_panel()->set_paused(true);
-    }
-    emit paused();
-    if (debugger_window_) {
-        debugger_window_->activate_follow_pc();
-        debugger_window_->refresh_panels();
-    }
-    update_actions();
+    apply_pause_state(true);
 }
 
 void DebuggerManager::on_rewind_to_frame(uint32_t frame_num) {
@@ -602,23 +506,7 @@ void DebuggerManager::on_rewind_to_frame(uint32_t frame_num) {
         return;
     }
 
-    was_paused_ = true;
-    if (debugger_window_) {
-        if (debugger_window_->disasm_panel())
-            debugger_window_->disasm_panel()->set_paused(true);
-        if (debugger_window_->cpu_panel())
-            debugger_window_->cpu_panel()->set_paused(true);
-        if (debugger_window_->stack_panel())
-            debugger_window_->stack_panel()->set_paused(true);
-        if (debugger_window_->callstack_panel())
-            debugger_window_->callstack_panel()->set_paused(true);
-    }
-    emit paused();
-    if (debugger_window_) {
-        debugger_window_->activate_follow_pc();
-        debugger_window_->refresh_panels();
-    }
-    update_actions();
+    apply_pause_state(true);
 }
 
 void DebuggerManager::on_load_map_z88dk() {
@@ -678,7 +566,7 @@ void DebuggerManager::refresh_panels() {
     // stayed enabled over them until the next verb, and the click was then
     // refused. (While running every such action is off whatever those inputs
     // are, and the verb that resumed has already said so.)
-    if (emulator_->debug_state().paused()) {
+    if (dbg_.state().paused) {
         emulator_->snapshot_raster();
         debugger_window_->refresh_panels();
         update_actions();
@@ -693,6 +581,11 @@ void DebuggerManager::refresh_panels() {
 }
 
 void DebuggerManager::check_breakpoint_hit() {
+    // GH #278 WP2 — the pause state is the BACKEND'S (CTL-13 `state()`), pulled
+    // here once per tick, after the loop owner's pump (qt-frontend.md §4 as
+    // built: no pause epoch exists, and a pull needs none — see there).
+    const bool paused = dbg_.state().paused;
+
     // Auto-enable debugger when a magic breakpoint (or other external trigger)
     // pauses the emulator while the debugger window is not yet open.
     //
@@ -700,36 +593,22 @@ void DebuggerManager::check_breakpoint_hit() {
     // ordinary breakpoint can now fire with the window shut, and this is what
     // forces it open on the hit. set_enabled(true) show()s, raise()s and
     // activateWindow()s, so no GUI call is needed anywhere in the core.
-    // Pinned by debugger_persistent_bp_test PBPUI-02.
-    if (!enabled_ && emulator_->debug_state().paused()) {
+    // Pinned by debugger_persistent_bp_test PBPUI-02. Owner Q5: another
+    // client's pause opens it too (PBPUI-08) — the window never asks whose
+    // pause it is.
+    if (!enabled_ && paused) {
         set_enabled(true);
     }
 
     if (!enabled_)
         return;
 
-    bool is_paused = emulator_->debug_state().paused();
-
-    // Detect transition from running to paused (breakpoint hit during run_frame).
-    if (is_paused && !was_paused_) {
-        was_paused_ = true;
-        if (debugger_window_) {
-            if (debugger_window_->disasm_panel())
-                debugger_window_->disasm_panel()->set_paused(true);
-            if (debugger_window_->cpu_panel())
-                debugger_window_->cpu_panel()->set_paused(true);
-        if (debugger_window_->stack_panel())
-            debugger_window_->stack_panel()->set_paused(true);
-        if (debugger_window_->callstack_panel())
-            debugger_window_->callstack_panel()->set_paused(true);
-        }
-        emit paused();
-        if (debugger_window_) {
-            debugger_window_->activate_follow_pc();
-            debugger_window_->refresh_panels();
-        }
-        update_actions();
-    }
+    // Bring the window to the machine's state when they differ: a pause it has
+    // not shown (breakpoint hit during run_frame(), a finished Step Over / Step
+    // Out / run-to, another client's pause) gets the pause-edge sequence; a
+    // resume it did not cause (another client's run) gets the running one.
+    if (paused != shown_paused_)
+        apply_pause_state(paused);
 }
 
 // ---------------------------------------------------------------------------
@@ -738,7 +617,7 @@ void DebuggerManager::check_breakpoint_hit() {
 
 void DebuggerManager::update_actions() {
     if (debugger_window_) {
-        bool is_paused = enabled_ && emulator_->debug_state().paused();
+        bool is_paused = enabled_ && dbg_.state().paused;
         debugger_window_->update_actions(is_paused);
     }
 }

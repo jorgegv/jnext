@@ -157,13 +157,17 @@ struct ModalWatcher {
 // the Task-60b corrupt state. Each row uses its own fixture for independence.
 struct Fixture {
     Emulator     emu;
+    // GH #278 WP2 — the loop owner's backend (QtApp::debugger()), built
+    // after init() and declared before the window, so it outlives the manager.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     QMainWindow  win;
     DebuggerManager* mgr = nullptr;
     bool         ok = false;
 
     explicit Fixture(bool corrupt) {
         if (!build_next_emulator(emu)) return;
-        mgr = new DebuggerManager(&win, &emu, &win);  // parented → auto-freed
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        mgr = new DebuggerManager(&win, *backend, &emu, &win);  // parented → auto-freed
         mgr->set_enabled(true);                        // create + show window
         if (corrupt && !make_corrupt(emu)) return;
         emu.debug_state().pause();                     // arm the resume branch
@@ -267,6 +271,28 @@ static void test_quit_gate() {
                   ret && !fx.mgr->is_enabled() && !watch.saw_modal,
                   fmt("ret=%d is_enabled=%d saw_modal=%d (expect 1,0,0)",
                       ret, fx.mgr->is_enabled(), watch.saw_modal));
+        }
+    }
+
+    // QG-06 — GH #278 WP2: the app-quit disable of a corrupt machine still
+    // RESUMES it, as it always has, with no modal. The resume now goes through
+    // the backend's run(), which refuses an unacknowledged corruption (CTL-11);
+    // the quit path acknowledges the incident itself — dropping that turns the
+    // resume into a silent refusal that QG-01's return value cannot see.
+    {
+        Fixture fx(/*corrupt=*/true);
+        if (!fx.ok) { check("QG-06", "fixture (corrupt+paused)", false); }
+        else {
+            ModalWatcher watch(QMessageBox::No);
+            const bool paused_before = fx.emu.debug_state().paused();
+            const bool ret = fx.mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+            watch.stop();
+            const bool paused_after = fx.emu.debug_state().paused();
+            check("QG-06", "app-quit path resumes a corrupt paused machine without "
+                  "the prompt (paused before, running after, no modal)",
+                  ret && paused_before && !paused_after && !watch.saw_modal,
+                  fmt("ret=%d paused before=%d after=%d saw_modal=%d (expect 1,1,0,0)",
+                      ret, paused_before, paused_after, watch.saw_modal));
         }
     }
 }
