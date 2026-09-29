@@ -34,12 +34,15 @@
 // Run: ./build/test/debugger_panels_test
 // ===========================================================================
 
+#include "audio/audio_mute.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "debug/breakpoints.h"
 #include "debug/call_stack.h"
 #include "debug/debug_state.h"
 #include "debug/symbol_table.h"
+#include "debugger/audio_panel.h"
+#include "debugger/breakpoint_model.h"
 #include "debugger/callstack_panel.h"
 #include "debugger/copper_panel.h"
 #include "debugger/cpu_panel.h"
@@ -704,6 +707,7 @@ static void test_stack_panel() {
     if (!build(emu, MachineType::ZX48K)) {
         check("QPN-STK-01", "fixture: 48K machine", false);
         check("QPN-STK-02", "fixture: 48K machine", false);
+        check("QPN-STK-03", "fixture: 48K machine", false);
         return;
     }
     jnext::dbg::Debugger dbg(emu);   // GH #278 WP4a/b: the panel reads through it
@@ -765,6 +769,36 @@ static void test_stack_panel() {
               "rows that would wrap past $FFFF show ----/-- instead of reading "
               "from $0000",
               bad.empty(), bad);
+    }
+    // QPN-STK-03 — GH #278 WP4a: the words are PEEKED (CAP-INS-02), so reading
+    // the stack is non-perturbing — here the +3 floating-bus latch, which the
+    // panel's old Mmu::read() moved on every contended address it displayed
+    // (F1; QWP-08 is the same defect in the Watches). SP sits in bank 5, so all
+    // 24 words are contended. The control half reads one of the same bytes
+    // through Mmu::read() and shows the latch DOES move there, so the row
+    // cannot pass on a machine that never latches.
+    {
+        Emulator p3;
+        const bool built = build(p3, MachineType::ZX_PLUS3);
+        jnext::dbg::Debugger p3_dbg(p3);
+        StackPanel p3_panel(&p3_dbg);
+        p3_panel.set_paused(true);
+        poke(p3, 0x4000, {0x34, 0x12});
+        Z80Registers r3 = p3.cpu().get_registers();
+        r3.SP = 0x4000;
+        p3.cpu().set_registers(r3);
+        p3.mmu().set_p3_floating_bus_dat(0x3C);
+        p3_panel.refresh();
+        const uint8_t latch_after_panel = p3.mmu().p3_floating_bus_dat();
+        (void)p3.mmu().read(0x4000);             // the control
+        const uint8_t latch_after_read = p3.mmu().p3_floating_bus_dat();
+        check("QPN-STK-03",
+              "the stack words are read without moving the +3 floating-bus latch, "
+              "and show the right bytes (control: Mmu::read() does move it)",
+              built && cell(&p3_panel, 0, 1) == "1234 ( 4660)" &&
+                  latch_after_panel == 0x3C && latch_after_read == 0x34,
+              fmt("word=%s latch after refresh %02X (want 3C) after read %02X (want 34)",
+                  s(cell(&p3_panel, 0, 1)).c_str(), latch_after_panel, latch_after_read));
     }
 }
 
@@ -1169,6 +1203,7 @@ static void test_nextreg_panel() {
         check("QNR-01", "fixture: Next machine", false);
         check("QNR-02", "fixture: Next machine", false);
         check("QNR-03", "fixture: Next machine", false);
+        check("QNR-04", "fixture: Next machine", false);
         return;
     }
     jnext::dbg::Debugger dbg(emu);   // GH #278 WP4a/b: the panel reads through it
@@ -1225,6 +1260,34 @@ static void test_nextreg_panel() {
               after_refresh == 0x20 && after_bad_edit == 0x20,
               fmt("index after refresh=%02X after 'zz'=%02X (want 20/20)",
                   after_refresh, after_bad_edit));
+    }
+
+    // QNR-04 — GH #278 WP4b: an edit is the backend's nextreg_write (INS-04),
+    // which REFUSES while an RZX records or plays — an edit the recording does
+    // not contain would make its playback diverge. So during a playback the
+    // edit writes nothing and the next refresh puts the register's own value
+    // back in the cell: the path a non-hex edit takes (QNR-03). This is a
+    // behaviour change from the direct NextReg::write it replaces, and a
+    // deliberate one. The control half: the same edit lands once the playback
+    // stops.
+    {
+        const uint8_t before = emu.nextreg().peek(0x14);
+        emu.rzx_player().start(RzxRecording{});
+        if (table) table->item(0x14, 2)->setText("5A");
+        const uint8_t during = emu.nextreg().peek(0x14);
+        panel.refresh();
+        const QString cell_after = table ? table->item(0x14, 2)->text() : QString();
+        emu.rzx_player().stop();
+        if (table) table->item(0x14, 2)->setText("5A");
+        const uint8_t after_stop = emu.nextreg().peek(0x14);
+        check("QNR-04",
+              "during an RZX playback an edit is refused (NR 0x14 unchanged, the "
+              "next refresh shows its value again); after it, the same edit lands",
+              table && before != 0x5A && during == before &&
+                  cell_after == QString::asprintf("%02X", before) && after_stop == 0x5A,
+              fmt("before=%02X during=%02X cell after refresh=%s after stop=%02X "
+                  "(want %02X/%02X/%02X/5A)", before, during, s(cell_after).c_str(),
+                  after_stop, before, before, before));
     }
 }
 
@@ -1471,6 +1534,107 @@ static void test_watch_panel() {
 }
 
 // ===========================================================================
+// QATR — GH #278 WP4b: WHOSE write a panel's write is. The NextREG and Audio
+// panels write through the backend (INS-04 nextreg_write, INS-10
+// set_audio_mute_mask), which logs every mutation as one SES-06 line,
+// "MUTATE <what> <old> -> <new> by <client>" (§4.2a). The client is the
+// debugger WINDOW's — the one every verb is attributed to — for as long as the
+// window is open: a reopened window's edit is its NEW client's, and an edit
+// while it is closed is no client's (0). Read off a listener, as a log reader
+// sees it; the window's client is read off the pause its own Pause makes.
+// ===========================================================================
+struct MutateLog : jnext::dbg::Listener {
+    std::vector<std::string> lines;
+    void on_paused(const jnext::dbg::PausedInfo&) override {}
+    void on_resumed(jnext::dbg::ClientId) override {}
+    void on_reset(jnext::dbg::ResetKind) override {}
+    void on_frame_ended(uint32_t) override {}
+    void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
+    void on_exit_requested(int) override {}
+    void on_log(jnext::dbg::LogLevel, const std::string& t) override {
+        if (t.rfind("MUTATE ", 0) == 0) lines.push_back(t);
+    }
+    std::string last() const { return lines.empty() ? std::string("<none>") : lines.back(); }
+};
+
+static void test_panel_attribution() {
+    set_group("QATR");
+
+    WindowFixture fx(MachineType::ZXN_ISSUE2);
+    NextRegPanel* np = fx.ok ? fx.dbg()->nextreg_panel() : nullptr;
+    AudioPanel*   ap = fx.ok ? fx.dbg()->audio_panel() : nullptr;
+    QTableWidget* nt = np ? np->findChild<QTableWidget*>() : nullptr;
+    QCheckBox*    ay1 = nullptr;
+    if (ap)
+        for (QCheckBox* cb : ap->findChildren<QCheckBox*>())
+            if (cb->text() == QLatin1String("AY #1")) ay1 = cb;
+    if (!nt || !ay1) {
+        check("QATR-01", "fixture: debugger window with its NextREG panel", false);
+        check("QATR-02", "fixture: debugger window with its Audio panel", false);
+        return;
+    }
+
+    MutateLog log;
+    const jnext::dbg::ClientId rec =
+        fx.backend->attach(jnext::dbg::ClientInfo{"rec", jnext::dbg::ClientKind::Test}).value;
+    fx.backend->set_listener(rec, &log);
+    const jnext::dbg::ClientId observer = fx.mgr->breakpoints().client();
+    auto window_client = [&]() {           // the window's Pause names its client
+        fx.mgr->on_pause();
+        return fx.backend->state().pause_reason.by;
+    };
+    auto nr_edit = [&](const char* text) {
+        nt->item(0x14, 2)->setText(QString::fromLatin1(text));
+        return log.last();
+    };
+    auto mute_click = [&]() {
+        ay1->click();
+        return log.last();
+    };
+    auto want = [](const char* what, unsigned from, unsigned to, jnext::dbg::ClientId by) {
+        return fmt("MUTATE %s 0x%X -> 0x%X by %u", what, from, to, static_cast<unsigned>(by));
+    };
+
+    const uint8_t nr14 = fx.emu.nextreg().peek(0x14);
+    np->refresh();
+    const jnext::dbg::ClientId win1 = window_client();
+    const std::string nr_open  = nr_edit("5A");
+    const std::string mu_open  = mute_click();                 // AY #1 muted
+    fx.mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+    const std::string nr_shut  = nr_edit("5B");
+    const std::string mu_shut  = mute_click();                 // audible again
+    fx.mgr->set_enabled(true);
+    QApplication::processEvents();
+    const jnext::dbg::ClientId win2 = window_client();
+    const std::string nr_again = nr_edit("5C");
+    const std::string mu_again = mute_click();                 // muted again
+
+    const bool ids_ok = win1 != jnext::dbg::CLIENT_NONE && win1 != observer &&
+                        win1 != rec && win2 != jnext::dbg::CLIENT_NONE && win2 != win1 &&
+                        win2 != observer && win2 != rec;
+    const unsigned AY1 = AudioMute::AY1;
+    check("QATR-01",
+          "a NextREG panel edit is logged as the window's client's MUTATE; after a "
+          "close, as no client's; after a reopen, as the new window client's",
+          ids_ok && nr_open == want("nextreg 0x14", nr14, 0x5A, win1) &&
+              nr_shut == want("nextreg 0x14", 0x5A, 0x5B, jnext::dbg::CLIENT_NONE) &&
+              nr_again == want("nextreg 0x14", 0x5B, 0x5C, win2),
+          fmt("win1=%u win2=%u observer=%u rec=%u | open '%s' | shut '%s' | again '%s'",
+              win1, win2, observer, rec, nr_open.c_str(), nr_shut.c_str(),
+              nr_again.c_str()));
+    check("QATR-02",
+          "an Audio panel mute toggle is logged the same way: the window's client, "
+          "no client while closed, the new client after a reopen",
+          ids_ok && mu_open == want("audio mute mask", 0, AY1, win1) &&
+              mu_shut == want("audio mute mask", AY1, 0, jnext::dbg::CLIENT_NONE) &&
+              mu_again == want("audio mute mask", 0, AY1, win2),
+          fmt("open '%s' | shut '%s' | again '%s'", mu_open.c_str(), mu_shut.c_str(),
+              mu_again.c_str()));
+    fx.backend->set_listener(rec, nullptr);
+    fx.backend->detach(rec);
+}
+
+// ===========================================================================
 // QMP — the Memory panel (memory_panel.cpp). CPU view: the bytes the CPU sees,
 // hex-edit through Mmu::write (ROM ignored), the SP/VRAM/attribute row
 // colours. Slot view: the CURRENT behaviour — reads and writes go through the
@@ -1690,6 +1854,7 @@ int main(int argc, char** argv) {
     test_copper_panel();
     test_nextreg_panel();
     test_watch_panel();
+    test_panel_attribution();
     test_memory_panel();
 
     std::printf("\n=====================================\n");

@@ -40,6 +40,7 @@
 #include <QCheckBox>
 #include <QLabel>
 #include <QString>
+#include <QTableWidget>
 
 #include <cstdarg>
 #include <cstdint>
@@ -550,6 +551,48 @@ static void test_mute_is_not_machine_state(Emulator& emu) {
     }
 }
 
+// ── DAP-REGS: the AY register table ────────────────────────────────────
+//
+// GH #278 WP4b — the table is the one read of this panel no row pinned
+// (qt-frontend.md §1.8 row 19), and WP4b moved it onto the backend's
+// ay_registers(chip). Every one of the 48 cells gets its own value, written
+// through the guest's ports: chip c, register r holds 0x80 + 0x10*c + r, so a
+// row, a column or a chip read from the wrong place shows a different number,
+// and chip 2's A0..AF check the upper-case hex.
+
+static void test_ay_register_table(Emulator& emu) {
+    set_group("DAP-REGS");
+
+    if (!build_next_emulator(emu)) { check("DAP-16", "emulator init", false); return; }
+    nr_write(emu, 0x08, 0x02);                  // turbosound_en: all three chips
+    static const uint8_t kSelect[3] = {0xFF, 0xFE, 0xFD};
+    for (int chip = 0; chip < 3; ++chip) {
+        emu.port().out(0xFFFD, kSelect[chip]);
+        for (uint8_t reg = 0; reg < 16; ++reg) {
+            emu.port().out(0xFFFD, reg);
+            emu.port().out(0xBFFD, static_cast<uint8_t>(0x80 + 0x10 * chip + reg));
+        }
+    }
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+    AudioPanel panel(&dbg);
+    panel.refresh();
+
+    auto* table = panel.findChild<QTableWidget*>();
+    std::string bad;
+    for (int chip = 0; chip < 3; ++chip)
+        for (int reg = 0; reg < 16; ++reg) {
+            const QString want = QString::asprintf("%02X", 0x80 + 0x10 * chip + reg);
+            QTableWidgetItem* it = table ? table->item(reg, chip) : nullptr;
+            const QString got = it ? it->text() : QStringLiteral("<no cell>");
+            if (got != want)
+                bad += fmt("AY#%d R%d '%s'(want %s) ", chip, reg,
+                           got.toUtf8().constData(), want.toUtf8().constData());
+        }
+    check("DAP-16", "the AY table shows chip N's register R in row R, column N, as "
+          "two upper-case hex digits",
+          table && bad.empty(), bad);
+}
+
 int main(int argc, char** argv) {
     // A QWidget needs a QApplication, but not a display.
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -564,6 +607,8 @@ int main(int argc, char** argv) {
     std::printf("  Group: DAP-MUTE       — done\n");
     test_mute_is_not_machine_state(emu);
     std::printf("  Group: DAP-INVIS      — done\n");
+    test_ay_register_table(emu);
+    std::printf("  Group: DAP-REGS       — done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
