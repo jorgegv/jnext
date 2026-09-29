@@ -1,0 +1,150 @@
+#pragma once
+
+// ---------------------------------------------------------------------------
+// DzrpServer — the DeZog Remote Protocol adapter (GH #12, epic #276 package D).
+//
+// A `remote::Protocol` over the shared transport (package T, transport.h): it
+// owns one `remote::Server`, parses DZRP frames from its `Connection`
+// (dzrp_frame.h), executes each command synchronously against the backend
+// (`jnext::dbg::Debugger`) and writes the reply. It never touches a socket and
+// never touches `Emulator`: the transport is T's, the machine is the backend's.
+//
+// Design: doc/design/debug-subsystem/dzrp-frontend.md. The command table is §2,
+// the session and loop model §4, the memory model on the wire §5.
+//
+// ── WIRING ─────────────────────────────────────────────────────────────────
+//
+// The loop owner (WP-5) does what every T adapter's owner does:
+//
+//     DzrpServer dzrp(debugger);
+//     dzrp.server().open(cfg.debug_listen_address, port);
+//     debugger.add_service(dzrp.server());
+//
+// and `Debugger::pump()` then drives it. The unit suite opens the same Server
+// over T's `FakeListener` instead.
+//
+// ── THE COMMAND TABLE IS ONE TABLE ─────────────────────────────────────────
+//
+// `CMD_GET_SUPPORTED_COMMANDS`' bitfield is computed from the SAME table the
+// dispatcher looks commands up in, so a command cannot be served and left
+// unadvertised, or advertised and not served. The two legacy commands DZRP
+// 2.2.0 removed (`CMD_WRITE_BANK`, `CMD_SET_BORDER`) are the one declared
+// exception: served for 2.0/2.1 clients, flagged `legacy`, never advertised.
+// ---------------------------------------------------------------------------
+
+#include <chrono>
+#include <cstdint>
+#include <functional>
+#include <string>
+#include <vector>
+
+#include "debug/debugger.h"
+#include "remote/dzrp/dzrp_frame.h"
+#include "remote/transport.h"
+
+namespace jnext {
+namespace remote {
+namespace dzrp {
+
+/// Command ids (DZRP 2.2.0, `DeZogProtocol.md`), including the two 2.2.0
+/// removed and the ones jnext reports unsupported.
+enum CommandId : std::uint8_t {
+    CMD_INIT                                = 1,
+    CMD_CLOSE                               = 2,
+    CMD_GET_REGISTERS                       = 3,
+    CMD_SET_REGISTER                        = 4,
+    CMD_WRITE_BANK                          = 5,   // removed in 2.2.0; legacy
+    CMD_CONTINUE                            = 6,
+    CMD_PAUSE                               = 7,
+    CMD_READ_MEM                            = 8,
+    CMD_WRITE_MEM                           = 9,
+    CMD_SET_SLOT                            = 10,
+    CMD_GET_TBBLUE_REG                      = 11,
+    CMD_SET_BORDER                          = 12,  // removed in 2.2.0; legacy
+    CMD_SET_BREAKPOINTS                     = 13,
+    CMD_RESTORE_MEM                         = 14,
+    CMD_LOOPBACK                            = 15,
+    CMD_GET_SPRITES_PALETTE                 = 16,
+    CMD_GET_SPRITES_CLIP_WINDOW_AND_CONTROL = 17,
+    CMD_GET_SPRITES                         = 18,
+    CMD_GET_SPRITE_PATTERNS                 = 19,
+    CMD_READ_PORT                           = 20,
+    CMD_WRITE_PORT                          = 21,
+    CMD_EXEC_ASM                            = 22,
+    CMD_INTERRUPT_ON_OFF                    = 23,
+    CMD_GET_SUPPORTED_COMMANDS              = 24,
+    CMD_READ_BANK_MEM                       = 25,
+    CMD_WRITE_BANK_MEM                      = 26,
+    CMD_ENABLE_BREAK_ON_INTERRUPT           = 39,
+    CMD_ADD_BREAKPOINT                      = 40,
+    CMD_REMOVE_BREAKPOINT                   = 41,
+    CMD_ADD_WATCHPOINT                      = 42,
+    CMD_REMOVE_WATCHPOINT                   = 43,
+    CMD_READ_STATE                          = 50,
+    CMD_WRITE_STATE                         = 51,
+};
+
+/// The most bytes `CMD_LOOPBACK` echoes (spec: "N is max. 8192").
+constexpr std::size_t LOOPBACK_MAX_BYTES = 8192;
+
+class DzrpServer final : public Protocol {
+public:
+    /// The clock the chunk timeout reads. Empty = `steady_clock::now`; the
+    /// unit suite passes its own, so a 5 s timeout is tested without waiting.
+    using Clock = std::function<std::chrono::steady_clock::time_point()>;
+
+    explicit DzrpServer(jnext::dbg::Debugger& dbg, Clock clock = {});
+
+    /// Unregisters its Server from the backend and ends a live session
+    /// (`on_disconnect()` runs, so the client is detached). The `Debugger` must
+    /// outlive this object.
+    ~DzrpServer() override;
+
+    DzrpServer(const DzrpServer&)            = delete;
+    DzrpServer& operator=(const DzrpServer&) = delete;
+
+    /// The transport this adapter serves on: `open()` it, `add_service()` it.
+    Server& server() { return server_; }
+
+    // ── remote::Protocol ──────────────────────────────────────────────────
+    void                    on_connect(Connection& c) override;
+    jnext::dbg::ServiceStep on_service(Connection& c) override;
+    void                    on_notify(Connection& c) override;
+    void                    on_disconnect() override;
+
+private:
+    /// One row of THE table (see the header banner).
+    struct CommandDef {
+        std::uint8_t id;
+        const char*  name;
+        /// Shortest payload the handler can act on; a shorter one is refused
+        /// before the handler runs. 0 for a command whose reply carries its
+        /// own error field, so the handler can report the fault in it.
+        std::uint32_t min_len;
+        /// Served but NOT advertised: removed in DZRP 2.2.0, kept for 2.0/2.1.
+        bool legacy;
+        void (DzrpServer::*run)(const Command&);
+    };
+    static const CommandDef COMMANDS[];
+    static const CommandDef* find_command(std::uint8_t id);
+
+    void execute(const Command& cmd);
+    void protocol_error(Connection& c, const std::string& why);
+    void reply(std::uint8_t seq, const std::vector<std::uint8_t>& payload = {});
+
+    // Handlers — one per served command.
+    void cmd_loopback(const Command& cmd);
+
+    jnext::dbg::Debugger& dbg_;
+    Clock                 clock_;
+    Server                server_;
+
+    // Per-connection state.
+    Connection*               conn_ = nullptr;  // valid inside on_service only
+    FrameParser               parser_;
+    std::vector<std::uint8_t> scratch_;
+};
+
+}  // namespace dzrp
+}  // namespace remote
+}  // namespace jnext

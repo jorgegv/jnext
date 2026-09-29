@@ -1008,6 +1008,19 @@ target_link_libraries(remote_transport_test PRIVATE
 target_include_directories(remote_transport_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME remote_transport_tests COMMAND remote_transport_test)
 
+# GH #12 (epic #276, package D) — the DZRP adapter (DeZog Remote Protocol) over
+# T's in-memory fake transport, on a real 48K / +3 / Next machine driven by
+# Debugger::pump(). Qt-free, so it is declared `gate: none` and runs in both
+# configurations. Links the emulator like remote_transport_test.
+add_executable(dzrp_adapter_test remote/dzrp_adapter_test.cpp)
+target_link_libraries(dzrp_adapter_test PRIVATE
+    jnext_remote
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(dzrp_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME dzrp_adapter_tests COMMAND dzrp_adapter_test)
+
 # Task 66 — AppConfig (GUI preferences: QSettings-backed load/save,
 # CLI-vs-saved-preference precedence). Needs jnext_gui (QSettings/QString
 # usage in src/gui/app_config.*), so it is gated on ENABLE_QT_UI like the
