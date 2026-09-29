@@ -63,10 +63,10 @@ std::vector<fs::path> files_under(const fs::path& root) {
     return out;
 }
 
-/// A file whose NAME marks it as Qt code: `<stem>_qt.<ext>`.
+/// A file whose NAME marks it as Qt code: any `*_qt.*` — a header, a source,
+/// an `.inl`, a multi-dot name — not only `*_qt.h`.
 bool is_qt_named(const fs::path& p) {
-    const std::string stem = p.stem().string();
-    return stem.size() >= 3 && stem.compare(stem.size() - 3, 3, "_qt") == 0;
+    return p.filename().string().find("_qt.") != std::string::npos;
 }
 
 /// An include DIRECTIVE of a Qt header (`#include <Q...>`, any spacing). A
@@ -168,9 +168,11 @@ int main() {
                               ("jnext_debug_qt_free_" + std::to_string(::getpid()));
         fs::remove_all(root, ec);
         fs::create_directories(root / "sub", ec);
-        // A *_qt.h with no Qt include; a plain file with a spaced-out Qt
-        // include in a subdirectory; and prose that only names a Qt header.
+        // A *_qt.h and a *_qt.cpp, neither with a Qt include; a plain file with
+        // a spaced-out Qt include in a subdirectory; and prose that only names
+        // a Qt header.
         write_file(root / "planted_qt.h", "#pragma once\n// no include here\n");
+        write_file(root / "sub" / "planted_qt.cpp", "int c;\n");
         write_file(root / "sub" / "plain.cpp", "int a;\n  #  include <QObject>\nint b;\n");
         write_file(root / "prose.h",
                    "// This file must never #include <QWidget> — and a comment\n"
@@ -180,8 +182,10 @@ int main() {
         const Scan p = scan(root);
         fs::remove_all(root, ec);
 
-        check("QTF-06", "the name detector flags a planted *_qt.h, and only it",
-              p.qt_named.size() == 1 && p.qt_named[0] == "planted_qt.h",
+        check("QTF-06", "the name detector flags a planted *_qt.h and a planted "
+                        "*_qt.cpp, and only them",
+              p.qt_named.size() == 2 && p.qt_named[0] == "planted_qt.h" &&
+                  p.qt_named[1] == (fs::path("sub") / "planted_qt.cpp").string(),
               "flagged: " + join(p.qt_named));
         check("QTF-07", "the include detector flags a spaced-out #include <Q...> in a "
                         "subdirectory",
@@ -192,7 +196,7 @@ int main() {
                         "are not include directives",
               std::find(p.qt_includes.begin(), p.qt_includes.end(), "prose.h") ==
                       p.qt_includes.end() &&
-                  p.qt_includes.size() == 1 && p.files == 3,
+                  p.qt_includes.size() == 1 && p.files == 4,
               "flagged: " + join(p.qt_includes) + " files=" + std::to_string(p.files));
     }
 
