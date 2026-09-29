@@ -106,10 +106,10 @@ whole, so `done` here means the sub-item is approved, not merged.
 |---|---|---|
 | **WP-1** | framing over the shared transport (T) | **done** |
 | **WP-2** | session / registers / memory | **done** |
-| **WP-3** | breakpoints / continue / notify | in review |
-| **WP-4** | tier 2 (the commands only an emulator can serve) | in review |
-| **WP-5** | loop owners + CLI | todo |
-| **WP-6** | validation — **including the `tools/cspect_dzrp/cspect_dzrp.py` H1-H3 fixes** (owner decision §1.3 item 25: part of this package, not a separate change), and the V-LAT paused-cadence measurement (§11 item 6) | todo |
+| **WP-3** | breakpoints / continue / notify | **done** |
+| **WP-4** | tier 2 (the commands only an emulator can serve) | **done** |
+| **WP-5** | loop owners + CLI | in progress |
+| **WP-6** | validation — **including the `tools/cspect_dzrp/cspect_dzrp.py` H1-H3 fixes** (owner decision §1.3 item 25: part of this package, not a separate change), and the V-LAT paused-cadence measurement (§11 item 6) | in progress (automated part) |
 | **WP-7** | docs | todo |
 
 WP-3, WP-4 and WP-5 may run in parallel after WP-2. Depends on: B0 (landed), B, T.

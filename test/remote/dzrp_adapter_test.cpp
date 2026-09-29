@@ -33,6 +33,8 @@
 //               NTF_PAUSE (reason, address, bank byte, the post-frame flush,
 //               exactly once), temp-beats-user (F8), long addresses (F7),
 //               break on interrupt, a hard reset sends nothing.
+//   DZRP-EDGE-* every bank / range / length check the other rows did not
+//               already pin from both sides (the milestone-3 sweep).
 //   DZRP-WP-*, DZRP-ST-*, DZRP-SPR-*  WP-4: watchpoints (both edges of a
 //               range, bank, the exact-tuple remove), state tokens validated
 //               before any backend call, sprites 16-19.
@@ -2640,6 +2642,217 @@ static void sprite_rows() {
           std::to_string(two.payload.size()) + "/" + std::to_string(four.payload.size()));
 }
 
+// ── DZRP-EDGE — every bank / range / length check, from BOTH sides ──────────
+//
+// The milestone-1 and milestone-2 reviews each found a valid/invalid boundary
+// tested from its invalid side only. These rows sweep every range check in
+// src/remote/dzrp/ that a row did not already pin on both sides; the rest are
+// listed in dzrp-frontend.md §14 with the rows that pin them.
+
+static void edge_rows() {
+    // bank1_to_page — the shared helper of CMD_ADD_BREAKPOINT and
+    // CMD_ADD_WATCHPOINT: 0 → no qualifier; 1..224 → page 0..223; 225..254 →
+    // refused (banks 224..253); 255 → a ROM bank, no qualifier.
+    {
+        Rig    rig;
+        LogTap log;
+        Dz     c(rig);
+        c.init();
+        const Resp b1   = c.cmd(CMD_ADD_BREAKPOINT, add_bp(0xC000, 1));
+        const Resp b224 = c.cmd(CMD_ADD_BREAKPOINT, add_bp(0xC000, 224));
+        const Resp b254 = c.cmd(CMD_ADD_BREAKPOINT, add_bp(0xC000, 254));
+        const Resp w224 = c.cmd(CMD_ADD_WATCHPOINT, wp(0xC000, 224, 1, 2));
+        const Resp w225 = c.cmd(CMD_ADD_WATCHPOINT, wp(0xC000, 225, 1, 2));
+        const Resp w254 = c.cmd(CMD_ADD_WATCHPOINT, wp(0xC000, 254, 1, 2));
+        const Resp w255 = c.cmd(CMD_ADD_WATCHPOINT, wp(0xC000, 255, 1, 2));
+        const auto subs = rig.dbg->subscriptions(false);
+        auto page_of = [&](jnext::dbg::EventKind k, std::size_t nth) {
+            std::size_t seen = 0;
+            for (const auto& x : subs)
+                if (x.kind == k && seen++ == nth) return static_cast<int>(x.filter.page);
+            return -1;
+        };
+        check("DZRP-EDGE-01", "bank+1 = 224 — bank 223, the last page — is a breakpoint and a "
+                              "watchpoint on page 223; bank+1 = 1 is page 0, not \"any bank\" "
+                              "(review of milestone 2, finding #1)",
+              bp_id(b1) == 1 && bp_id(b224) == 2 && w224.payload == bytes({0}) &&
+                  page_of(jnext::dbg::EventKind::Execute, 0) == 0 &&
+                  page_of(jnext::dbg::EventKind::Execute, 1) == 223 &&
+                  page_of(jnext::dbg::EventKind::Mem, 0) == 223);
+        check("DZRP-EDGE-02", "bank+1 = 225 and 254 — banks 224 and 253 — are refused, a "
+                              "breakpoint and a watchpoint alike; bank+1 = 255 (a ROM bank) "
+                              "is armed with no qualifier",
+              bp_id(b254) == 0 && w225.payload == bytes({1}) && w254.payload == bytes({1}) &&
+                  w255.payload == bytes({0}) &&
+                  page_of(jnext::dbg::EventKind::Mem, 1) == jnext::dbg::PAGE_ANY &&
+                  log.count("CMD_ADD_BREAKPOINT at 0xC000 refused: no bank 253") == 1);
+    }
+    {
+        // CMD_SET_SLOT: slot 7 is the last slot; bank 223 the last page; 0xFE
+        // becomes 0xFF on slot 0 ONLY — on slot 1 it is passed to NEXTREG 0x51
+        // as the guest's own write would (legacy ROM, register reads 0xFE).
+        Rig rig(MachineType::ZXN_ISSUE2);
+        Dz  c(rig);
+        c.init();
+        rig.emu.mmu().nr_page_ptr(223)[0] = 0xDF;
+        const Resp s7   = c.cmd(CMD_SET_SLOT, bytes({7, 223}));
+        const Resp rd   = c.cmd(CMD_READ_MEM, bytes({0}) + u16s(0xE000) + u16s(1));
+        const Resp fe1  = c.cmd(CMD_SET_SLOT, bytes({1, 0xFE}));
+        const Resp regs = c.cmd(CMD_GET_REGISTERS);
+        check("DZRP-EDGE-03", "CMD_SET_SLOT slot 7 and bank 223 — the last of each — map (error "
+                              "0); 0xFE on slot 1 is NOT rewritten to 0xFF (that is slot 0's rule) "
+                              "and slot 1 still serves ROM",
+              s7.payload == bytes({0}) && rd.payload == bytes({0xDF}) &&
+                  fe1.payload == bytes({0}) && regs.payload.size() == 37 &&
+                  static_cast<unsigned char>(regs.payload[29 + 7]) == 223 &&
+                  static_cast<unsigned char>(regs.payload[29 + 1]) == 0xFE &&
+                  rig.emu.mmu().is_slot_rom(1));
+    }
+    {
+        // CMD_WRITE_BANK_MEM's refusal words: 253 is "no such bank", 254 the
+        // first ROM bank.
+        Rig    rig;
+        LogTap log;
+        Dz     c(rig);
+        c.init();
+        c.cmd(CMD_WRITE_BANK_MEM, bytes({253}) + u16s(0) + bytes({1}));
+        c.cmd(CMD_WRITE_BANK_MEM, bytes({254}) + u16s(0) + bytes({1}));
+        check("DZRP-EDGE-04", "CMD_WRITE_BANK_MEM bank 253 is refused as \"no such bank\", bank "
+                              "254 as \"ROM is read-only\"",
+              log.count("CMD_WRITE_BANK_MEM to bank 253 refused: no such bank") == 1 &&
+                  log.count("CMD_WRITE_BANK_MEM to bank 254 refused: ROM is read-only") == 1);
+    }
+    {
+        // THE SHORTEST VALID PAYLOAD of each command whose minimum a MAL-01 row
+        // pins from below: served, not "malformed".
+        Rig    rig;
+        LogTap log;
+        Dz     c(rig);
+        c.init();
+        const Resp bp  = c.cmd(CMD_ADD_BREAKPOINT, u16s(0x8000) + bytes({0}));  // no condition byte
+        const Resp wm  = c.cmd(CMD_WRITE_MEM, bytes({0}) + u16s(0x9000));       // no data
+        const Resp wbm = c.cmd(CMD_WRITE_BANK_MEM, bytes({3}) + u16s(0));       // no data
+        const Resp in3 = c.cmd(CMD_INIT, bytes({2, 2, 0}));                     // no name
+        check("DZRP-EDGE-05", "the shortest valid payloads are served, not refused: a 3-byte "
+                              "CMD_ADD_BREAKPOINT (no condition string), a 3-byte CMD_WRITE_MEM "
+                              "and CMD_WRITE_BANK_MEM (no data), a 3-byte CMD_INIT (no name)",
+              bp_id(bp) == 1 && wm.len == 1 && wbm.len == 1 &&
+                  in3.payload.substr(0, 1) == bytes({0}) && log.count("malformed") == 0);
+    }
+    {
+        // CMD_INTERRUPT_ON_OFF: any non-zero byte is "on".
+        Rig rig;
+        Dz  c(rig);
+        c.init();
+        c.cmd(CMD_INTERRUPT_ON_OFF, bytes({0x80}));
+        const Z80Registers r = rig.emu.cpu().get_registers();
+        check("DZRP-EDGE-06", "CMD_INTERRUPT_ON_OFF 0x80 enables interrupts like 1 does",
+              r.IFF1 && r.IFF2);
+    }
+    {
+        // The sprite and pattern clamps: exactly at the end is not clamped (no
+        // warn), one past is; the pattern command's 3-byte payload is the
+        // 2-byte form with a byte to spare.
+        Rig    rig;
+        LogTap log;
+        Dz     c(rig);
+        c.init();
+        const Resp s127 = c.cmd(CMD_GET_SPRITES, bytes({127, 1}));
+        const Resp p62  = c.cmd(CMD_GET_SPRITE_PATTERNS, bytes({62, 2}));
+        const Resp p3   = c.cmd(CMD_GET_SPRITE_PATTERNS, bytes({1, 1, 0x40}));
+        const auto ram  = rig.dbg->pattern_ram();
+        check("DZRP-EDGE-07", "GET_SPRITES 127+1 and GET_SPRITE_PATTERNS 62+2 end exactly at the "
+                              "last sprite / pattern: served whole, with no clamp warning; a 3-byte "
+                              "GET_SPRITE_PATTERNS is the byte form (pattern 1, one pattern)",
+              s127.payload.size() == 5 && p62.payload.size() == 512 &&
+                  log.count("clamped") == 0 &&
+                  p3.payload == std::string(reinterpret_cast<const char*>(ram.data) + 256, 256));
+    }
+    {
+        // Breakpoint ids run to 65535, and past it a breakpoint is refused.
+        // Added and removed in turn, so the backend's table stays small: ids
+        // are never reused within a session, so the counter still reaches the
+        // end.
+        Rig    rig;
+        LogTap log;
+        Dz     c(rig);
+        c.init();
+        bool all = true;
+        for (int i = 1; i < 0xFFFF && all; ++i) {
+            const Resp a = c.cmd(CMD_ADD_BREAKPOINT, add_bp(0x9000, 0));
+            all = bp_id(a) == i;
+            c.cmd(CMD_REMOVE_BREAKPOINT, u16s(static_cast<std::uint16_t>(i)));
+        }
+        const Resp last = c.cmd(CMD_ADD_BREAKPOINT, add_bp(0x9000, 0));
+        const Resp past = c.cmd(CMD_ADD_BREAKPOINT, add_bp(0x9000, 0));
+        check("DZRP-EDGE-08", "breakpoint ids 1..65535 are issued once each; the 65535th is "
+                              "served, the next add is refused with id 0 and a warn line",
+              all && bp_id(last) == 0xFFFF && bp_id(past) == 0 &&
+                  log.count("all 65535 ids of this session are used") == 1);
+    }
+}
+
+// ── DZRP review items of milestone 2 ────────────────────────────────────────
+
+static void review_m2_rows() {
+    {
+        // Finding #2 — BOTH DEBTS AT ONCE: this client's CONTINUE is
+        // outstanding when its own CMD_PAUSE stops the machine. One NTF, and
+        // both debts settle: a later stop by another client sends nothing.
+        Rig  rig;
+        auto other = rig.dbg->attach({"gui", jnext::dbg::ClientKind::Test}).value;
+        Dz   c(rig);
+        c.init();
+        load_loop(rig);
+        c.cmd(CMD_CONTINUE, cont());
+        rig.emu.run_frame();
+        c.cmd(CMD_PAUSE);
+        const std::size_t first = c.ntfs.size();
+        const Ntf n = first == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        rig.dbg->run(other);
+        c.tick();
+        rig.emu.run_frame();
+        rig.dbg->pause(other);
+        for (int i = 0; i < 3; ++i) c.tick();
+        check("DZRP-PAUSE-05", "this client's own CMD_PAUSE during its own CONTINUE: exactly one "
+                               "NTF (reason 1), and BOTH debts are settled — another client's "
+                               "later stop sends nothing",
+              first == 1 && n.ok && n.reason == BREAK_MANUAL && c.ntfs.size() == 1);
+        rig.dbg->detach(other);
+    }
+    {
+        // Finding #4 — the WHOLE 4-byte magic is checked: "JNXA" + a name the
+        // backend holds is refused; "JNXB" + the same name restores.
+        Rig rig;
+        Dz  c(rig);
+        c.init();
+        const Resp s = c.cmd(CMD_READ_STATE);
+        const std::string name = s.payload.substr(4);
+        c.ntfs.clear();
+        c.cmd(CMD_WRITE_STATE, "JNXA" + name);
+        const Ntf  bad = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        c.ntfs.clear();
+        c.cmd(CMD_WRITE_STATE, "JNXB" + name);
+        check("DZRP-ST-08", "a token whose 4th magic byte is wrong is refused even with a name "
+                            "the backend holds; the right magic with that name restores (no NTF)",
+              bad.ok && bad.text == "no state to restore" && c.ntfs.empty());
+    }
+    {
+        // Finding #6 — a second CMD_ENABLE_BREAK_ON_INTERRUPT 1 does not stack
+        // a second IntAck subscription, so one 0 removes it.
+        Rig rig;
+        Dz  c(rig);
+        c.init();
+        c.cmd(CMD_ENABLE_BREAK_ON_INTERRUPT, bytes({1}));
+        c.cmd(CMD_ENABLE_BREAK_ON_INTERRUPT, bytes({1}));
+        const std::size_t armed = rig.dbg->subscriptions(true).size();
+        c.cmd(CMD_ENABLE_BREAK_ON_INTERRUPT, bytes({0}));
+        check("DZRP-BOI-03", "enabling break-on-interrupt twice arms ONE subscription, and one "
+                             "disable removes it",
+              armed == 1 && rig.dbg->subscriptions(true).empty());
+    }
+}
+
 int main() {
     std::printf("dzrp_adapter_test — the DZRP adapter over T's fake transport (GH #12)\n");
     framing_rows();
@@ -2659,6 +2872,8 @@ int main() {
     state_rows();
     sprite_rows();
     session_state_rows();
+    edge_rows();
+    review_m2_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass,
