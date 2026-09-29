@@ -67,6 +67,9 @@
 #include "peripheral/dma.h"
 #include "video/palette.h"
 #include "video/sprites.h"
+// GH #278 WP4d — the INS-14 render_layer rows.
+#include "core/saveable.h"
+#include "video/layer2.h"
 // GH #276 B3 — CTL-12's reconstruct rows drive the REAL
 // `emulator_frontend_cold_boot()`, not a stand-in: the whole point of the
 // contract is what `~Emulator()` + placement-new does to a surviving
@@ -4143,6 +4146,85 @@ static void q_wp2_host_order_rows() {
           ok && armed && first && total, seen);
 }
 
+// GH #278 WP4d — the INS-14-08/10 scene: a Next paused MID-FRAME with every
+// engine the eight render_layer views drive holding something that could stick
+// (see the comment at INS-14-08). Returns the framebuffer row the raster is
+// paused on; `guest_read` is what the guest's port 0x303B read returned just
+// before (both status bits, as frame 1's render latched them). `ula_on` false
+// turns the ULA and LoRes off, so the tilemap is what the composite shows in
+// the display area — INS-14-10 needs its per-line scroll split to be VISIBLE.
+static int wp4d_paused_scene(Emulator& emu, uint8_t& guest_read, bool ula_on = true) {
+    build(emu, MachineType::ZXN_ISSUE2);
+    auto nr = [&emu](uint8_t reg, uint8_t val) {
+        emu.port().out(0x243B, reg);
+        emu.port().out(0x253B, val);
+    };
+    emu.port().out(0x303B, 0x00);                          // pattern 0
+    for (int i = 0; i < 256; ++i) emu.port().out(0x5B, 0x77);
+    emu.port().out(0x303B, 0x00);                          // sprite 0..127
+    for (int i = 0; i < 128; ++i) {
+        emu.port().out(0x57, static_cast<uint8_t>(i * 2)); // X: overlapping
+        emu.port().out(0x57, 150);                         // Y: one line
+        emu.port().out(0x57, 0x00);
+        emu.port().out(0x57, 0x80);                        // visible, pattern 0
+    }
+    nr(0x15, ula_on ? 0x81 : 0x01);        // sprites visible (+ LoRes)
+    if (!ula_on) nr(0x68, 0x80);           // ULA off
+    nr(0x69, 0x80);        // Layer 2 on
+    nr(0x6B, 0x80);        // tilemap on
+    nr(0x14, 0x00);        // NR 0x14 = black: Layer 2's zeroed bank is transparent
+    // Varied bank-5 bytes, so the ULA / LoRes screen and the tilemap's tiles
+    // (map and definitions both default into bank 5) are not uniform and a
+    // scroll split is visible (INS-14-10).
+    for (uint16_t a = 0x4000; a < 0x5B00; ++a)
+        emu.mmu().write(a, static_cast<uint8_t>((a * 37u) >> 3));
+    // …and a tilemap palette that is not all one colour (its reset content is).
+    nr(0x43, 0x30);                        // write-select the tilemap first palette
+    nr(0x40, 0x00);
+    for (int i = 0; i < 256; ++i) nr(0x41, static_cast<uint8_t>(i));
+    nr(0x43, 0x00);
+    nr(0x61, 0x00);
+    nr(0x62, 0x00);
+    // Each value is set at the top of every frame and changed on line 60, so
+    // the paused frame really carries a split (a value written once would be
+    // the baseline of every later frame, and no split at all).
+    const uint16_t prog[] = {
+        uint16_t(0x8000u | 0u),
+        uint16_t((0x4Au << 8) | 0xE3u),     // NR 0x4A, top of frame
+        uint16_t((0x30u << 8) | 0x00u),     // tilemap scroll X, top of frame
+        uint16_t(0x8000u | 60u),
+        uint16_t((0x4Au << 8) | 0xE0u),     // NR 0x4A
+        uint16_t((0x16u << 8) | 0x10u),     // Layer 2 scroll X
+        uint16_t((0x40u << 8) | 0x05u),     // palette index
+        uint16_t((0x41u << 8) | 0x1Cu),     // palette value
+        uint16_t((0x30u << 8) | 0x03u),     // tilemap scroll X (per-line snapshot);
+                                            // 3, not a whole number of 8-px tiles
+        uint16_t(0x8000u | 511u),
+    };
+    for (uint16_t insn : prog) {
+        nr(0x60, static_cast<uint8_t>(insn >> 8));
+        nr(0x60, static_cast<uint8_t>(insn & 0xFF));
+    }
+    nr(0x62, 0xC0);
+    emu.run_frame();
+    emu.debug_state().set_active(true);
+    const int vbt = emu.video_timing().vblank_top();
+    emu.debug_state().run_to_cycle(emu.current_frame_cycle() +
+                                   static_cast<uint64_t>(vbt + 200) *
+                                       emu.timing().master_cycles_per_line + 300);
+    emu.run_frame();
+    emu.snapshot_raster();
+    constexpr int VBLANK_LINE = 300;
+    emu.palette().set_current_line(VBLANK_LINE);
+    emu.palette().write_control(0x10);
+    emu.palette().set_index(0x66);
+    emu.palette().write_8bit(0x77);
+    emu.layer2().set_current_line(VBLANK_LINE);
+    emu.layer2().set_scroll_y(123);
+    guest_read = emu.port().in(0x303B);                    // clears both bits
+    return static_cast<int>(emu.paused_vc()) - vbt;
+}
+
 int main() {
     std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
 
@@ -5289,6 +5371,128 @@ int main() {
               std::to_string(diffs) + " differ, " + std::to_string(transparent) +
                   " not opaque, split=" + std::to_string(split));
     }
+    {
+        // STATE PRESERVATION — the verb's own guarantee (design-qt §3.7, §4),
+        // measured the robust way: the machine's whole serialised state before
+        // and after rendering each of the eight views is byte-identical.
+        //
+        // The scene is built to make every engine the views drive do something
+        // that could stick: a Next paused MID-FRAME (raw line vblank_top+200)
+        // by a Copper program that has already written NR 0x4A, the Layer 2
+        // scroll, a palette entry and the tilemap scroll on earlier lines
+        // (non-empty per-line logs for the replay to walk, and a per-line
+        // snapshot split); VBLANK-tagged palette and Layer 2 writes,
+        // which only the replay's final flush restores (the DVP-16c class);
+        // Layer 2, the tilemap, LoRes and 128 sprites all on — the sprites
+        // overlapping on one line past the per-line budget, so drawing them
+        // latches BOTH port 0x303B status bits; and those bits cleared by a
+        // guest read first, so a render that re-latched them would show.
+        using jnext::dbg::Layer;
+        using jnext::dbg::RENDER_WIDTH;
+        Emulator emu;
+        uint8_t guest_read = 0;
+        const int fb_row = wp4d_paused_scene(emu, guest_read);
+        Debugger dbg(emu);
+
+        auto state_bytes = [&emu] {
+            StateWriter measure;
+            emu.save_state(measure);
+            std::vector<uint8_t> out(measure.position());
+            StateWriter w(out.data(), out.size());
+            emu.save_state(w);
+            return out;
+        };
+        // Each view against the state IMMEDIATELY before it, so a change is
+        // attributed to the view that made it rather than to every view after.
+        std::vector<uint32_t> buf(RENDER_WIDTH * 256);
+        std::string moved;
+        bool all_ok = true;
+        for (Layer l : {Layer::Composite, Layer::UlaPrimary, Layer::UlaShadow,
+                        Layer::Layer2Active, Layer::Layer2Shadow, Layer::Sprites,
+                        Layer::Tilemap, Layer::Background}) {
+            (void)emu.port().in(0x303B);   // the guest clears the status bits again
+            const std::vector<uint8_t> before = state_bytes();
+            all_ok &= dbg.render_layer(l, fb_row, buf.data(), RENDER_WIDTH) == Result::Ok;
+            const std::vector<uint8_t> after = state_bytes();
+            if (after != before) {
+                size_t at = 0;
+                while (at < after.size() && at < before.size() && after[at] == before[at]) ++at;
+                moved += " view" + std::to_string(static_cast<int>(l)) + "@" +
+                         std::to_string(at);
+            }
+        }
+        check("INS-14-08", "rendering each of the eight views mid-frame leaves the machine's "
+                           "serialised state byte-identical (sprite status bits, per-line "
+                           "logs, vblank-tagged writes)",
+              emu.debug_state().paused() && fb_row > 150 && fb_row < 256 && all_ok &&
+                  (guest_read & 0x03) == 0x03 && moved.empty(),
+              "paused=" + std::to_string(emu.debug_state().paused()) + " fb_row=" +
+                  std::to_string(fb_row) + " guest_read=" + hex(guest_read) +
+                  " changed:" + (moved.empty() ? std::string(" none") : moved));
+        // The same bits read the way the guest reads them, for the two views
+        // that run the sprite engine.
+        uint8_t seen[2] = {};
+        int n = 0;
+        for (Layer l : {Layer::Sprites, Layer::Composite}) {
+            (void)emu.port().in(0x303B);
+            (void)dbg.render_layer(l, fb_row, buf.data(), RENDER_WIDTH);
+            seen[n++] = emu.port().in(0x303B);
+        }
+        check("INS-14-09", "…and after the Sprites or Composite view drew 128 overlapping "
+                           "sprites, the guest's next port 0x303B read sees both status bits clear",
+              (seen[0] & 0x03) == 0 && (seen[1] & 0x03) == 0,
+              "sprites=" + hex(seen[0]) + " composite=" + hex(seen[1]));
+    }
+    {
+        // …and what is NOT serialised cannot leak into the future either: the
+        // change-log render cursors, the per-row scratch the compositor keeps.
+        // Two machines built alike; one renders all eight views while paused,
+        // the other does not; both then resume and run on. The frame they were
+        // paused in and the next one come out identical, as does the state.
+        using jnext::dbg::Layer;
+        using jnext::dbg::RENDER_WIDTH;
+        auto run_twin = [](bool render, std::vector<uint32_t>& fb_out,
+                           std::vector<uint8_t>& state_out) {
+            Emulator emu;
+            uint8_t guest_read = 0;
+            const int fb_row = wp4d_paused_scene(emu, guest_read, /*ula_on=*/false);
+            Debugger dbg(emu);
+            if (render) {
+                std::vector<uint32_t> buf(RENDER_WIDTH * 256);
+                for (Layer l : {Layer::Composite, Layer::UlaPrimary, Layer::UlaShadow,
+                                Layer::Layer2Active, Layer::Layer2Shadow, Layer::Sprites,
+                                Layer::Tilemap, Layer::Background})
+                    (void)dbg.render_layer(l, fb_row, buf.data(), RENDER_WIDTH);
+            }
+            // Both frames are kept: the paused frame is where a leaked per-line
+            // snapshot would show, and the next one is where a leak into the
+            // following frame's baseline would.
+            emu.debug_state().resume();
+            emu.run_frame();              // the rest of the paused frame
+            const auto fb = dbg.framebuffer();
+            fb_out.assign(fb.data, fb.data + fb.size);
+            emu.run_frame();              // and one more
+            fb_out.insert(fb_out.end(), fb.data, fb.data + fb.size);
+            StateWriter measure;
+            emu.save_state(measure);
+            state_out.assign(measure.position(), 0);
+            StateWriter w(state_out.data(), state_out.size());
+            emu.save_state(w);
+        };
+        std::vector<uint32_t> fb_plain, fb_rendered, fb_again;
+        std::vector<uint8_t>  st_plain, st_rendered, st_again;
+        run_twin(false, fb_plain, st_plain);
+        run_twin(false, fb_again, st_again);      // the twins' own determinism
+        run_twin(true,  fb_rendered, st_rendered);
+        const bool deterministic = fb_plain == fb_again && st_plain == st_again;
+        check("INS-14-10", "a machine that rendered all eight views while paused runs on "
+                           "exactly like its twin that did not: same next frames, same state",
+              deterministic && !fb_plain.empty() && fb_rendered == fb_plain &&
+                  st_rendered == st_plain,
+              std::string("twins deterministic=") + std::to_string(deterministic) +
+                  " fb_same=" + std::to_string(fb_rendered == fb_plain) +
+                  " state_same=" + std::to_string(st_rendered == st_plain));
+    }
 
     // =======================================================================
     // INS-16 / IN-02 / IN-03 — the input surface, read and injected
@@ -5432,7 +5636,7 @@ int main() {
         // PEND-B4-03 (screenshot refuses) retired by B4: CAP-01-01..09 pin it.
         // PEND-14-01 (render_layer refuses Unsupported) retired by package Q
         // WP4d: the verb is implemented (`debugger_render.cpp`), and
-        // INS-14-02..07 pin what it now does, refusals included.
+        // INS-14-02..09 pin what it now does, refusals included.
         // probe_execute over the LEGACY model only — the subscription half is
         // EVT-PROBE-* below. Kept here because it is the one thing in this block
         // that was already answered for real rather than refused.

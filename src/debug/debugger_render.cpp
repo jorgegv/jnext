@@ -29,7 +29,10 @@
 //
 // STATE PRESERVATION IS THIS VERB'S GUARANTEE, not the caller's. The replay
 // walks each change log to its end and leaves every live register where it
-// started (the long comment above `replay_rewind()`).
+// started (the long comment above `replay_rewind()`), and the port 0x303B
+// sprite status bits, which drawing sprites latches, are put back explicitly
+// (see `render_layer()`). Row INS-14-08 checks the whole serialised machine
+// state around each of the eight views.
 //
 // NOT ON THE HOT PATH. Nothing in the emulation loop calls this: its callers are
 // the Qt Video panel, which renders only while the machine is paused and only
@@ -160,6 +163,15 @@ Result Debugger::render_layer(Layer layer, int vc, uint32_t* dst,
     // SRAM, which is why the Layer 2 view rendered solid black on every Next
     // program.
     const bool rom_in_sram = emu.mmu().rom_in_sram();
+
+    // The port 0x303B status bits. Drawing sprites latches collision and
+    // max-sprites-per-line — rightly, for the live compositor, which runs the
+    // same engine — so the Sprites and Composite views would otherwise leave a
+    // guest-visible latch behind every paused refresh: the guest's next read
+    // of port 0x303B would see a collision the debugger drew, not the machine.
+    // The replay below does not cover them (they are not register writes), so
+    // they are put back explicitly (GH #278 WP4d; row INS-14-08/09).
+    const uint8_t sprite_status = emu.sprites().peek_status();
 
     // Replay the frame line by line, exactly as Renderer::render_frame does
     // (see the replay_* helpers above).  Rows past the paused raster position
@@ -298,6 +310,7 @@ Result Debugger::render_layer(Layer layer, int vc, uint32_t* dst,
     }
 
     replay_restore(emu);
+    emu.sprites().restore_status(sprite_status);
     return Result::Ok;
 }
 
