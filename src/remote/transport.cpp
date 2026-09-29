@@ -255,21 +255,22 @@ Server::Pass Server::pass() {
     //    which opens a fresh connection per check: every other one was refused.
     const bool had_client = active_ != nullptr;
     if (active_) serve();
-    // 2. Accept — unless the client still here has HUNG UP and the adapter is
-    //    still running what it sent (a command followed at once by a close is
-    //    still executed, `settle`). That session is ending; a redial waits in
-    //    the listener's queue for it rather than being refused by it.
-    if (listener_ && !(active_ && active_->gone_)) {
+    // 2. Accept — unless the client still here has HUNG UP. Its session is
+    //    ending (a command followed at once by a close is still executed,
+    //    `settle`, so a hung-up client can outlive this pass), and a redial
+    //    waits in the listener's queue for it rather than being refused by it.
+    if (listener_) {
         for (int i = 0; i < kAcceptsPerPass && listener_->listening(); ++i) {
             listener_->poll();
-            // ONE LAST LOOK AT THE CURRENT CLIENT, after the listener has
-            // parked whatever arrived and before taking it. A client that got
-            // its reply in (1) can hang up and redial before this point — it
-            // is another process, and this pass may be preempted — and its
+            // THE LOOK IS TAKEN HERE, after the listener has parked whatever
+            // arrived and before taking it — not only after (1). A client that
+            // got its reply in (1) can hang up and redial before this point —
+            // it is another process, and this pass may be preempted — and its
             // redial reached the kernel AFTER its hang-up did. So a pull made
             // now sees the hang-up whenever there is a redial to judge, and
             // the redial stays parked in the listener until the old session
-            // is retired (next pass), instead of being refused by it.
+            // is retired, instead of being refused by it. (A hang-up already
+            // seen in (1) is caught by the same test.)
             if (active_) {
                 active_->pull();
                 if (active_->gone_) break;
