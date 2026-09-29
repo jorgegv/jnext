@@ -32,8 +32,9 @@
 //
 // PROVENANCE OF THE TEST DESIGN. Several rows restate, for this adapter and
 // over the fake, checks from the owner's dezogif_ng DZRP conformance suite —
-// `/home/jorgegv/src/spectrum/dezogif_ng/test/dzrp/conformance.py` @ commit
-// 709ae7d77d444e0e14d88d5c6114b2a7c18e2be6 (GPLv3, as jnext). No code is
+// `test/dzrp/conformance.py` of the dezogif_ng repository (a sibling checkout
+// of this one) @ commit 709ae7d77d444e0e14d88d5c6114b2a7c18e2be6 (GPLv3, as
+// jnext). No code is
 // copied: those checks drive a live remote over TCP, which the fake cannot
 // host. The rows that restate one cite its check id (C2, C5, C9, C18, …).
 //
