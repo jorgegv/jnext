@@ -2946,11 +2946,11 @@ static void section16_gh290_cvc_reload() {
               gw("by_line152", long(r.by152), 1));
     }
     {
-        const LineIntRun r = line_int_run(target87_enabled, 1, retarget100);
+        const LineIntRun r = line_int_run(target87_enabled, 0, retarget100);
         check("VT-GH290-34",
-              "a TARGET change landing 1 cycle into the compare pixel is too late "
-              "for it: the OLD target still fires there (raw 150), and the new "
-              "one then fires at raw 163 (zxula_timing.vhd:563-572,574-583)",
+              "a TARGET change landing ON the compare cycle is too late for it: "
+              "the OLD target still fires there (raw 150), and the new one then "
+              "fires at raw 163 (zxula_timing.vhd:563-572,574-583)",
               r.ok && r.by152 == 1 && r.by170 == 2,
               gw("by_line152", long(r.by152), 1) + gw("by_line170", long(r.by170), 2));
     }
@@ -3022,6 +3022,69 @@ static void section16_gh290_cvc_reload() {
               ok && by152 == 1 && by170 == 2,
               gw("by_line152", long(by152), 1) + gw("by_line170", long(by170), 2));
     }
+
+    // VT-GH290-38/39 — a DISABLE and the compare it may be too late for. The
+    // compare at c is registered on edge c+4 with the enable of cycle c+3
+    // (zxula_timing.vhd:574-583, zxnext.vhd:6752). Disabling at c+3 is in time
+    // (no fire); at c+4 it is not — the compare was already registered with
+    // the old enable, so the event already scheduled for it must survive the
+    // reschedule (fires).
+    auto disable = [](Emulator& e) { g163::nr_write(e, 0x22, 0x00); };
+    {
+        const LineIntRun r = line_int_run(target87_enabled, 3, disable);
+        check("VT-GH290-38",
+              "a line-interrupt DISABLE landing 3 cycles into the compare pixel "
+              "stops that compare: no fire (zxula_timing.vhd:574-583; "
+              "zxnext.vhd:6752)",
+              r.ok && r.by152 == 0, gw("by_line152", long(r.by152), 0));
+    }
+    {
+        const LineIntRun r = line_int_run(target87_enabled, 4, disable);
+        check("VT-GH290-39",
+              "…one landing on the edge the compare is registered on is too late: "
+              "the compare already scheduled keeps its event and fires "
+              "(zxula_timing.vhd:574-583)",
+              r.ok && r.by152 == 1 && r.next152 == 1,
+              gw("by_line152", long(r.by152), 1) + gw("next_152", long(r.next152), 1));
+    }
+
+    // VT-GH290-40 — the live line-interrupt events are the machine's, and a
+    // restore replaces the machine: none of the replaced machine's may fire,
+    // nor be kept by the restored machine's first reschedule. b arms target 87
+    // (compare at raw 150 of its F1) and is loaded, at line 100, with a stream
+    // whose line interrupt is off and whose clock lies past that compare.
+    {
+        Emulator a;
+        bool ok = gh290::build(a);
+        std::vector<uint8_t> buf;
+        if (ok) {
+            const uint64_t fa = a.current_frame_cycle();
+            ok = run_to(a, fa + 2 * a.timing().master_cycles_per_frame);  // a boundary two frames on
+            buf = gh290::stream_of(a);
+        }
+        Emulator b;
+        ok = ok && gh290::build(b);
+        uint64_t after_step = 99, after_frame = 99;
+        if (ok) {
+            const uint64_t g0 = b.current_frame_cycle();
+            ok = run_to(b, at(b, g0, 100, 200));
+            g163::nr_write(b, 0x23, 87);
+            g163::nr_write(b, 0x22, 0x02);        // armed at raw 150 of b's frame
+            b.reset_line_int_fire_count();
+            StateReader r(buf.data(), buf.size());
+            ok = ok && b.load_state(r);
+            b.execute_single_instruction();       // no begin_new_frame() yet
+            after_step = b.line_int_fire_count();
+            b.run_frame();                        // its reschedule, then a whole frame
+            after_frame = b.line_int_fire_count();
+        }
+        check("VT-GH290-40",
+              "a restore drops the replaced machine's pending line interrupt: "
+              "no fire before the restored frame begins, nor after its first "
+              "reschedule (the restored line interrupt is off)",
+              ok && after_step == 0 && after_frame == 0,
+              gw("after_step", long(after_step), 0) + gw("after_frame", long(after_frame), 0));
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -3083,7 +3146,7 @@ int main() {
     std::printf("  Section 15: VT-S15-GH22-IN-DISPLAY   — done (2 live)\n");
 
     section16_gh290_cvc_reload();
-    std::printf("  Section 16: VT-S16-GH290-CVC-RELOAD — done (37 live)\n");
+    std::printf("  Section 16: VT-S16-GH290-CVC-RELOAD — done (40 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
