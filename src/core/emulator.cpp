@@ -6497,7 +6497,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     dma_.read_memory  = [this](uint16_t addr) -> uint8_t { return mmu_.read(addr); };
     dma_.write_memory = [this](uint16_t addr, uint8_t val) { mmu_.write(addr, val); };
-    dma_.read_io      = [this](uint16_t port) -> uint8_t { return port_.read(port); };
+    // GH #283 — guest_read(), not read(): a port read the DMA makes is input
+    // to the machine exactly as the CPU's IN is, so an RZX recording captures
+    // it and a playback answers it from the recording. It used to call read(),
+    // which carries neither hook, and a replay of a DMA-driven program read the
+    // live hardware instead. Not the CPU's own IN either: the bus cycle, its
+    // contention and its T-states are the CPU's (fuse_z80_readport()), and the
+    // DMA keeps its own timing (execute_burst(), charged in
+    // step_one_instruction()). The write path needs nothing: an RZX records no
+    // OUTs, so write() below is what the CPU's out() does.
+    dma_.read_io      = [this](uint16_t port) -> uint8_t { return port_.guest_read(port); };
     // GH #276 B2 §4.3 — BRACKET THE DMA'S SOURCE TAG. An I/O destination of
     // port 0x253B reaches `PortDispatch::write` and then the NextREG file, so
     // without this the write is tagged `EventSource::Cpu` and a
