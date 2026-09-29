@@ -728,6 +728,8 @@ reached with the debugger's run-to-cycle. `WAIT(v=150, h=0)` + `MOVE NR 0x14 ←
 | COP-GH290-03 | `WAIT(v=310, h=55)` (satisfied at hc_ula 452, 16 cycles before the reload), 14 NOPs (one cycle each), `MOVE NR 0x64 ← 20` — issued on the cycle BEFORE the reload | loaded by it: line 100 reads 56 | zxula_timing.vhd:457-462; copper.vhd:94 |
 | COP-GH290-04 | The same with 15 NOPs: the MOVE on the reload's own cycle | not loaded: line 100 reads 36, NR 0x64 reads 20 — pins the reload event to the master cycle | zxula_timing.vhd:457-462; zxnext.vhd:5442,6090 |
 | COP-GH290-05 | No frame events (no reload ever runs): NR 0x64 = 20, `WAIT(v=20)` + `MOVE NR 0x14 ← 0x5A` | 0x00 at line 63, 0x5A by line 70 — the lines from the reload's position on count from the register, as the readback and the line interrupt do there (VT-GH290-19/22) | zxula_timing.vhd:457-462; zxnext.vhd:3950 |
+| COP-GH290-06 | Line int enabled with a passed target; `WAIT(v=86, h=30)` (satisfied 12 cycles before target 87's compare at raw line 150, hc_ula 255), 10 NOPs, `MOVE NR 0x23 ← 87` — issued on the cycle before the compare | fires this frame: a Copper write lands on the cycle it is issued on, not at the end of the CPU instruction window; pre-fix not until the next frame | zxula_timing.vhd:563-583 |
+| COP-GH290-07 | The same with 11 NOPs: the MOVE on the compare's own cycle | no fire this frame (the target reaches `int_line_num` one pixel late), one the next | zxula_timing.vhd:563-572 |
 
 ## Coverage notes (moved from the traceability matrix, GH #196)
 

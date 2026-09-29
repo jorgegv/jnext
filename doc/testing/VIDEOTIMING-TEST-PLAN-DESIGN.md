@@ -1010,6 +1010,15 @@ raw line from raw hc 125 on.
 | VT-GH290-28 | Line int enabled with a passed target; clock moved to exactly the compare cycle c of target 87 (raw line 150, raw hc 380), then NR 0x23 = 87 written | no fire this frame, one the next: `int_line_num` loads on the edge that starts pixel c, so a target landing on c is one pixel late | zxula_timing.vhd:563-572,574-583 |
 | VT-GH290-29 | The same written at c − 1 | fires this frame (and again the next) | zxula_timing.vhd:563-572,574-583 |
 | VT-GH290-30 | No frame events: NR 0x64 = 20, target 150 written at line 200, after its line (raw 193) has passed | rolls into the next frame at raw 193 (counting from NR 0x64), not 213 | zxula_timing.vhd:457-466,577 |
+| VT-GH290-31 | Target 87 with the line int DISABLED; NR 0x22 = 0x02 (enable) written with the clock at c + 3 | fires this frame: the compare takes `i_inten_line` as it stands in its last cycle; pre-fix not until the next frame | zxula_timing.vhd:574-583; zxnext.vhd:6752 |
+| VT-GH290-32 | The same enable written at c + 4 | no fire this frame (the compare was registered on the edge the write lands on), one the next | zxula_timing.vhd:574-583 |
+| VT-GH290-33 | Target 87 enabled and armed; NR 0x22 = 0x02 rewritten unchanged at c + 2 | still fires this frame; pre-fix the rewrite superseded it | zxula_timing.vhd:563-583 |
+| VT-GH290-34 | Target 87 enabled and armed; NR 0x23 = 100 written at c + 1 | the OLD target still fires at raw 150 (`int_line_num` was loaded on the edge that started the pixel), then 100 at raw 163; pre-fix only 163 | zxula_timing.vhd:563-572,574-583 |
+| VT-GH290-35 | The same NR 0x23 = 100 written at c − 1 | no fire at raw 150, one at raw 163 | zxula_timing.vhd:563-572 |
+| VT-GH290-36 | NR 0x23 = 87 (from a passed target) by `OUT (C),A` started at c − 80: commit edge c − 6, instruction end c + 16 | fires this frame — the write lands on its commit edge, not at the instruction's end; pre-fix missed | zxnext.vhd:4739-4777; zxula_timing.vhd:563-583 |
+| VT-GH290-37 | Target 87 armed; NR 0x23 = 100 by `OUT (C),A` started at c − 64: commit edge c + 10 | the compare at c (registered at c + 4) fires on the old target, then 100 at raw 163; pre-fix the flush superseded it | zxnext.vhd:4739-4777; zxula_timing.vhd:563-583 |
+
+Fixture for 31-37: as VT-GH290-28/29 — target 87 compares at c = raw line 150, raw hc 380; the line int is configured at line 100; a write outside an instruction lands at the clock, which is moved to exactly c + delta. The three regions, for a change visible from cycle e: a compare at c ≤ e − 4 reads old enable and old target (an event already scheduled for it survives the reschedule); e − 3 ≤ c ≤ e reads the NEW enable with the OLD target; c ≥ e + 1 reads both new. The Copper side is COP-GH290-06/07.
 
 `DVP-RAS-04` (debugger_video_panel_test) was re-pinned by the same change: it
 asserted that a mid-frame NR 0x64 write moved the panel's `cvc` at once, which

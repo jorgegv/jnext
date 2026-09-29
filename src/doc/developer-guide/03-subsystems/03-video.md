@@ -92,6 +92,14 @@ from two offsets, one either side of it, so a `cvc` line can occur twice in it
 or not at all. The reloaded value is saved state (`cvc_offset_delta`, stored
 relative to NR 0x64).
 
+A write to the line-interrupt registers is timed the same way.
+`reschedule_line_interrupt()` takes the cycle the write lands on — a CPU
+write's commit edge, a Copper MOVE's own cycle — because the compare at
+`hc_ula == 255` reads the enable as it stands at the end of its pixel but the
+target as it stood before it (`zxula_timing.vhd:563-583`). A change landing
+inside that pixel still fires the old target, and a compare earlier in the
+same instruction window keeps its event.
+
 The other conversion that matters everywhere is
 `framebuffer_row = vc - VideoTiming::vblank_top()`. `vblank_top` is
 `min_vactive - 32` and it is **per-machine** — 32 for the Next family, 48 for

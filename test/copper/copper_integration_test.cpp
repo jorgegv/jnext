@@ -1550,6 +1550,64 @@ static void test_gh290_frameless_copper() {
               " (want 0x5a)");
 }
 
+
+// COP-GH290-06/07 — a Copper MOVE to NR 0x23 lands on the cycle it is issued
+// on, not at the end of the CPU instruction whose window the Copper was
+// stepping. Target 87 compares at c = raw line 150, hc_ula 255, i.e. cvc line
+// 86 (counting from 0), master cycle 1020 into it. WAIT(v=86, h=30) is
+// satisfied at hc_ula 252 (threshold (30<<3)+12, copper.vhd:94), 12 cycles
+// before c; n one-cycle NOPs then put the MOVE at c - 11 + n. The compare
+// reads the target as it stood in cycle c-1 (int_line_num, a CLK_7 register
+// loaded on the edge that starts the pixel, zxula_timing.vhd:563-572): a MOVE
+// at c - 1 reaches it, one at c does not.
+static void test_gh290_copper_line_int_target() {
+    set_group("GH290-CvcReload");
+
+    auto run = [](int nops, uint64_t& this_frame, uint64_t& next_frame) -> bool {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.mmu().write(0xC000, 0x18);   // JR $
+        emu.mmu().write(0xC001, 0xFE);
+        auto regs = emu.cpu().get_registers();
+        regs.PC = 0xC000;
+        emu.cpu().set_registers(regs);
+        for (int i = 0; i < 64; ++i)
+            program_word(emu, static_cast<uint16_t>(i), enc_move(0, 0));
+        program_word(emu, 0, enc_wait(30, 86));
+        program_word(emu, static_cast<uint16_t>(1 + nops), enc_move(0x23, 87));
+        program_word(emu, static_cast<uint16_t>(2 + nops), enc_wait(0, 511));   // HALT
+        emu.debug_state().set_active(true);
+        emu.run_frame();
+        const uint64_t f1 = emu.current_frame_cycle();
+        const uint64_t f2 = f1 + emu.timing().master_cycles_per_frame;
+        bool ok = gh290_run_to(emu, gh290_at(emu, f1, 100, 200));
+        nr_write(emu, 0x23, 1);                  // raw 64: long passed
+        nr_write(emu, 0x22, 0x02);
+        emu.reset_line_int_fire_count();
+        set_copper_mode(emu, 1);
+        ok = ok && gh290_run_to(emu, gh290_at(emu, f1, 152, 0));
+        this_frame = emu.line_int_fire_count();
+        ok = ok && gh290_run_to(emu, gh290_at(emu, f2, 152, 0));
+        next_frame = emu.line_int_fire_count();
+        return ok;
+    };
+    uint64_t before_this = 99, before_next = 99, on_this = 99, on_next = 99;
+    const bool ok1 = run(10, before_this, before_next);   // MOVE at c - 1
+    const bool ok2 = run(11, on_this, on_next);           // MOVE at c
+    check("COP-GH290-06",
+          "a Copper MOVE NR 0x23 = 87 on the cycle before the compare reaches it: "
+          "the line interrupt fires this frame (zxula_timing.vhd:563-583)",
+          ok1 && before_this == 1 && before_next == 2,
+          "this=" + std::to_string(before_this) + " (want 1) next=" +
+              std::to_string(before_next) + " (want 2)");
+    check("COP-GH290-07",
+          "…and one on the compare's own cycle is one pixel late: no fire this "
+          "frame, one the next (zxula_timing.vhd:563-572)",
+          ok2 && on_this == 0 && on_next == 1,
+          "this=" + std::to_string(on_this) + " (want 0) next=" +
+              std::to_string(on_next) + " (want 1)");
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1591,6 +1649,7 @@ int main() {
     test_gh290_wait_uses_reloaded_cvc();
     test_gh290_move_at_reload_edge();
     test_gh290_frameless_copper();
+    test_gh290_copper_line_int_target();
     std::printf("  Group: GH290-CvcReload — done\n");
 
     std::printf("\n====================================\n");

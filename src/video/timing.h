@@ -266,10 +266,14 @@ public:
     /// target==0 → c_max_vc (frame-boundary). target!=0 → target-1
     /// (VHDL zxula_timing.vhd:566-570). Public so the videotiming
     /// compliance suite (Section 6) can observe it directly.
-    uint16_t int_line_num() const {
-        if (int_line_target_ == 0)
+    uint16_t int_line_num() const { return int_line_num_for(int_line_target_); }
+
+    /// The same mapping for an arbitrary 9-bit @p target — the one a
+    /// target written a moment ago still has in `int_line_num` (GH #290).
+    uint16_t int_line_num_for(uint16_t target) const {
+        if (target == 0)
             return static_cast<uint16_t>(vc_max_);
-        return static_cast<uint16_t>(int_line_target_ - 1);
+        return static_cast<uint16_t>(target - 1);
     }
 
     // ---------------------------------------------------------------
@@ -358,9 +362,16 @@ public:
     /// — so the Emulator solves once per offset and keeps each answer only on
     /// its own side.
     uint64_t line_int_master_cycle_offset(uint8_t cu_offset) const {
+        return line_int_master_cycle_offset(cu_offset, int_line_target_);
+    }
+
+    /// GH #290 — the same, for an explicit line-interrupt @p target instead
+    /// of the current one: a compare in the pixel a target write lands in (or
+    /// the three before it) still reads the OLD target's `int_line_num`.
+    uint64_t line_int_master_cycle_offset(uint8_t cu_offset, uint16_t target) const {
         const uint64_t lines_per_frame  = static_cast<uint64_t>(vc_max_) + 1;
         const uint64_t pixels_per_line  = static_cast<uint64_t>(hc_max_) + 1;
-        const uint64_t target_cvc       = int_line_num();
+        const uint64_t target_cvc       = int_line_num_for(target);
         // cvc(vc) = (vc - min_vactive + cu_offset) mod lines_per_frame
         //   ⇒ vc = (target_cvc + min_vactive - cu_offset) mod lines_per_frame
         const uint64_t vc_fire =

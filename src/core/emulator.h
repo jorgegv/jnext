@@ -1835,6 +1835,17 @@ private:
     /// `line_int_fire_count()` is used by VT-G163-* rows.
     uint64_t line_int_fire_count_ = 0;
 
+    /// GH #290 — the compare positions (master cycles) of the live line-int
+    /// events of the current generation, so a reschedule can keep the ones a
+    /// change landed too late to reach (see reschedule_line_interrupt()).
+    /// Host bookkeeping of irq_scheduler_'s contents, which are not saved
+    /// either: cleared with them (hard init) and at every restore.
+    std::vector<uint64_t> line_int_pending_;
+
+    /// GH #290 — the master cycle of the Copper step being executed, for
+    /// nr_write_lands_at_(). Valid only while Copper::active_move_hc() >= 0.
+    uint64_t copper_step_cycle_ = 0;
+
     /// Task 60b — subsystem name of the sentinel that failed in the last
     /// load_state (empty when the last load succeeded). Not serialised.
     std::string last_state_error_;
@@ -2518,5 +2529,36 @@ private:
     /// and no-ops at fire time if a later (re)schedule has bumped the
     /// counter — strict superset of "compare target at fire time"
     /// because it correctly handles same-target rewrites too.
-    void reschedule_line_interrupt();
+    ///
+    /// GH #290 — WHEN a change lands decides which compares it reaches. The
+    /// compare at pixel c (hc_ula 255) is registered on the edge that ENDS the
+    /// pixel (zxula_timing.vhd:574-583): it takes `i_inten_line` as it stands
+    /// in cycle c+3, directly (zxnext.vhd:6752), but `int_line_num`, a CLK_7
+    /// register loaded on the edge that STARTS the pixel (:563-572), i.e. the
+    /// target as it stood in cycle c-1. So for a change visible from cycle
+    /// @p lands_at (= e):
+    ///   * c <= e-4 — enable and target both sampled before it: a compare
+    ///     already scheduled there fires as scheduled;
+    ///   * e-3 <= c <= e — the NEW enable with the OLD target (@p old_target);
+    ///   * c >= e+1 — both new.
+    /// Every live event is tracked in `line_int_pending_`, so the first class
+    /// survives the generation bump.
+    void reschedule_line_interrupt(uint64_t lands_at, uint16_t old_target);
+
+    /// A change that lands now and leaves the target as it is: frame start,
+    /// the cvc reload.
+    void reschedule_line_interrupt() {
+        reschedule_line_interrupt(clock_.get(),
+                                  video_timing_.line_interrupt_target());
+    }
+
+    /// Schedule the line-interrupt request of the compare at master cycle
+    /// @p compare in the current generation, and track it as live.
+    void arm_line_interrupt_(uint64_t compare);
+
+    /// GH #290 — the cycle an NR write being applied right now lands on: a
+    /// deferred CPU write's commit edge (nr_write_edge_, GH #265), a Copper
+    /// MOVE's own cycle (copper_step_cycle_), else the clock (the debugger, a
+    /// test harness).
+    uint64_t nr_write_lands_at_() const;
 };

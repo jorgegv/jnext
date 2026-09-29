@@ -19,6 +19,7 @@
 #include "peripheral/joy_uart_source.h"
 #include "peripheral/joy_uart_link.h"
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
@@ -219,6 +220,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     if (!preserve_memory) {
         video_timing_.set_cu_offset(0);
         cvc_reload_done_ = false;
+        line_int_pending_.clear();   // irq_scheduler_ was reset above
     }
     cpu_.reset(/*hard=*/!preserve_memory);
     im2_.reset();
@@ -3210,6 +3212,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // im2_.dev_[LINE].int_en == true via raise_req+tick observability.
         im2_.set_int_en(Im2Controller::DevIdx::LINE, (v & 0x02) != 0);
         const uint16_t cur = video_timing_.line_interrupt_target();
+        const uint16_t old_target = cur;   // GH #290 — for the reschedule below
         video_timing_.set_line_interrupt_target(
             static_cast<uint16_t>((cur & 0xFF) | ((v & 0x01) << 8)));
         // VHDL zxnext.vhd:3619-3620 — `nr_22_we` fans bit 2 of the new
@@ -3239,8 +3242,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         renderer_.ula().set_screen_mode(port_ff_reg_);
         // G163 — re-evaluate the line-int schedule. NR 0x22 carries the
         // line-int enable bit (bit 1) and the target MSB (bit 0); both
-        // affect the firing line.
-        reschedule_line_interrupt();
+        // affect the firing line. GH #290 — from the cycle the write lands on.
+        reschedule_line_interrupt(nr_write_lands_at_(), old_target);
         return v;
     });
 
@@ -3286,8 +3289,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             static_cast<uint16_t>((cur & 0x100) | v));
         // G163 — chained line-IRQ rewrites NR 0x23 mid-frame to retarget
         // the next firing line (parallax.nex pattern). VHDL fires every
-        // cycle when match (zxula_timing.vhd:577), so we must reschedule.
-        reschedule_line_interrupt();
+        // cycle when match (zxula_timing.vhd:577), so we must reschedule —
+        // GH #290: from the cycle the write lands on, with the old target
+        // for the compares that still read it.
+        reschedule_line_interrupt(nr_write_lands_at_(), cur);
         return v;
     });
     // VHDL zxnext.vhd:5995 — NR 0x23 read returns nr_23_line_interrupt(7:0).
@@ -4240,8 +4245,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // line-interrupt comparator at :6752). The same dynamic
         // re-evaluation requirement applies here: a mid-frame NR 0xC4
         // write that toggles bit 1 must invalidate / re-arm the
-        // pending line-int event, exactly as for NR 0x22.
-        reschedule_line_interrupt();
+        // pending line-int event, exactly as for NR 0x22 — GH #290: from the
+        // cycle the write lands on. It leaves the target alone.
+        reschedule_line_interrupt(nr_write_lands_at_(),
+                                  video_timing_.line_interrupt_target());
         // VHDL zxnext.vhd:3621-3622 — `nr_c4_we` fans (NOT bit 0) of
         // the new value into `port_ff_reg(6)`. The polarity is
         // inverted: cpu writes '1' to clear the disable bit.
@@ -11680,15 +11687,8 @@ void Emulator::clear_im2_status(Im2Controller::DevIdx d)
 // target rewrites also produce a fresh schedule, so the old event still
 // becomes a no-op.
 // ---------------------------------------------------------------------------
-void Emulator::reschedule_line_interrupt()
+void Emulator::reschedule_line_interrupt(uint64_t lands_at, uint16_t old_target)
 {
-    if (!video_timing_.line_interrupt_enable()) {
-        // Disable bit cleared mid-frame: bump the gen so any pending
-        // event no-ops, and do not enqueue a replacement.
-        ++line_int_schedule_gen_;
-        return;
-    }
-
     // GH #290 — a frame does not count from ONE offset. `cvc` reloads from
     // NR 0x64 once per frame, at ula_min_vactive (zxula_timing.vhd:457-462),
     // so the lines before the reload count from the value loaded a frame ago
@@ -11717,58 +11717,88 @@ void Emulator::reschedule_line_interrupt()
     // `next_reload` are both the register — which also makes the post-reload
     // arm's choice between the two equivalent in every mode.
     //
-    // `c > now`: a target visible from cycle `now` counts for the compare at
-    // pixel c (hc_ula 255) iff now <= c - 1. int_line_num is a CLK_7 register
-    // loaded from i_int_line on the edge that STARTS pixel c
-    // (zxula_timing.vhd:563-572), and the compare is registered on the edge
-    // that ends it (:574-583); a write landing ON c reaches int_line_num one
-    // pixel too late (VT-GH290-28/29). `now` is when jnext applies the write:
-    // the clock, which for a deferred CPU NR write is the end of its
-    // instruction (G65), not its commit edge.
+    // WHICH COMPARES THE CHANGE REACHES (see the declaration): the compare at
+    // pixel c is registered on the edge that ends it (:574-583) and takes the
+    // enable as it stands in cycle c+3 (i_inten_line, zxnext.vhd:6752) but
+    // the target as it stood in cycle c-1 (int_line_num, a CLK_7 register
+    // loaded on the edge that starts the pixel, :563-572). With e the first
+    // cycle the change is visible in:
+    //   c <= e-4       old enable, old target — kept as scheduled;
+    //   e-3 <= c <= e  NEW enable, OLD target (VT-GH290-31..35);
+    //   c >= e+1       new enable, new target (VT-GH290-28/29).
+    // e is the write's commit edge for a deferred CPU write and a Copper
+    // MOVE's own cycle, so a compare later in the same instruction window
+    // is reached and an earlier one is not superseded (VT-GH290-36/37).
+    const uint64_t e      = lands_at;
     const uint64_t mcpf   = timing_.master_cycles_per_frame;
     const uint64_t reload = video_timing_.cvc_reload_master_cycle_offset();
-    const uint64_t now    = clock_.get();
     const uint8_t  before_reload = video_timing_.cu_offset();
     const uint8_t  after_reload  = cvc_offset_after_reload_();
     const uint8_t  next_reload   = copper_.offset();
 
-    uint64_t fire_cycle = 0;
-    bool     found      = false;
-    // One frame's candidate: `off` solved for the offset of the side it lies
-    // on. An offset at or past the frame length is out of range and fires
-    // nowhere (the original run_frame guard's case).
-    auto consider = [&](uint64_t frame_base, uint8_t offset, bool pre_reload) {
-        const uint64_t off = video_timing_.line_int_master_cycle_offset(offset);
-        if (off >= mcpf || (off < reload) != pre_reload) return;
-        const uint64_t c = frame_base + off;
-        if (c > now && (!found || c < fire_cycle)) {
-            fire_cycle = c;
-            found      = true;
-        }
-    };
-    consider(frame_cycle_,        before_reload, /*pre_reload=*/true);
-    consider(frame_cycle_,        after_reload,  /*pre_reload=*/false);
-    if (!found) {
-        consider(frame_cycle_ + mcpf, after_reload, /*pre_reload=*/true);
-        consider(frame_cycle_ + mcpf, next_reload,  /*pre_reload=*/false);
-    }
-    if (!found) {
-        // No cvc value the target names occurs before the next frame's own
-        // reload: invalidate any stale event and enqueue nothing —
-        // begin_new_frame() and that reload reschedule.
-        ++line_int_schedule_gen_;
-        return;
-    }
+    // Compares the change came too late for: their events stay live.
+    std::vector<uint64_t> keep;
+    for (const uint64_t c : line_int_pending_)
+        if (c + 4 <= e) keep.push_back(c);
+    ++line_int_schedule_gen_;
+    line_int_pending_.clear();
+    for (const uint64_t c : keep) arm_line_interrupt_(c);
 
+    if (!video_timing_.line_interrupt_enable()) return;   // the new enable is off
+
+    // The compare position for `target` in the frame starting at `base`, on
+    // the side of that frame's reload `offset` belongs to — or none. An
+    // offset at or past the frame length is out of range and fires nowhere
+    // (the original run_frame guard's case).
+    constexpr uint64_t kNone = ~uint64_t{0};
+    auto side = [&](uint64_t base, uint8_t offset, bool pre_reload,
+                    uint16_t target) -> uint64_t {
+        const uint64_t off =
+            video_timing_.line_int_master_cycle_offset(offset, target);
+        if (off >= mcpf || (off < reload) != pre_reload) return kNone;
+        return base + off;
+    };
+    auto positions = [&](uint16_t target) -> std::array<uint64_t, 4> {
+        return {{ side(frame_cycle_,        before_reload, true,  target),
+                  side(frame_cycle_,        after_reload,  false, target),
+                  side(frame_cycle_ + mcpf, after_reload,  true,  target),
+                  side(frame_cycle_ + mcpf, next_reload,   false, target) }};
+    };
+
+    // The compare in the window [e-3, e] reads the old target: at most one
+    // compare position falls in any four consecutive cycles.
+    for (const uint64_t c : positions(old_target)) {
+        if (c != kNone && c + 3 >= e && c <= e) {
+            arm_line_interrupt_(c);
+            break;
+        }
+    }
+    // From e+1 on, the new target: the first compare that matches.
+    uint64_t next = kNone;
+    for (const uint64_t c : positions(video_timing_.line_interrupt_target()))
+        if (c != kNone && c > e && c < next) next = c;
+    // None: no cvc value the target names occurs before the next frame's own
+    // reload — begin_new_frame() and that reload reschedule.
+    if (next != kNone) arm_line_interrupt_(next);
+}
+
+void Emulator::arm_line_interrupt_(uint64_t compare)
+{
     // GH #265 — raised at the edge int_line goes high: the compare is
     // registered on CLK_7 (zxula_timing.vhd:574-583), one pixel (4 master
-    // cycles) after the compare position above.
-    const uint64_t int_req_edge = fire_cycle + 4;
-    ++line_int_schedule_gen_;
+    // cycles) after the compare position. An edge already behind the clock
+    // (a compare earlier in the instruction window that made the change) is
+    // raised at the end of that instruction with its own timestamp, like any
+    // interrupt request that fell inside it.
+    const uint64_t int_req_edge = compare + 4;
     const uint64_t my_gen = line_int_schedule_gen_;
+    line_int_pending_.push_back(compare);
     irq_scheduler_.schedule(int_req_edge, EventType::CPU_INT,
-        [this, my_gen, int_req_edge]() {
+        [this, my_gen, compare, int_req_edge]() {
             if (my_gen != line_int_schedule_gen_) return;  // superseded
+            const auto it = std::find(line_int_pending_.begin(),
+                                      line_int_pending_.end(), compare);
+            if (it != line_int_pending_.end()) line_int_pending_.erase(it);
             im2_.raise_req(Im2Controller::DevIdx::LINE, int_req_edge);
             // V20R-CPU-NIT-02 — pulse-mode CPU /INT now driven solely
             // by the post-im2_.tick() falling-edge poll at line ~5791.
@@ -11778,6 +11808,13 @@ void Emulator::reschedule_line_interrupt()
             im2_int_status_[0] |= 0x02;  // Line interrupt status
             ++line_int_fire_count_;       // G163 test-observable
         });
+}
+
+uint64_t Emulator::nr_write_lands_at_() const
+{
+    if (nr_write_edge_ != Im2Controller::kNoTime) return nr_write_edge_;
+    if (copper_.active_move_hc() >= 0) return copper_step_cycle_;
+    return clock_.get();
 }
 
 void Emulator::reload_cvc_offset_()
@@ -11797,14 +11834,8 @@ void Emulator::reload_cvc_offset_()
     // stale, and a frame whose earlier lines already matched has its second
     // match here. Re-derived EVERY frame rather than only when the value
     // changed: "changed" would have to mean "differs from what the schedule
-    // assumed", which nothing records.
-    //
-    // It cannot supersede a pre-reload fire that is still due. The latest one
-    // is at hc_ula 255 of the line before, which is (c_max_hc + 1) - 255
-    // pixels before this reload — 193 on 48K/Pentagon timing, 201 on 128K/+3,
-    // i.e. at least 772 master cycles — and irq_scheduler_ events are raised
-    // at the end of the instruction window this reload falls in, a window far
-    // shorter than that.
+    // assumed", which nothing records. A pre-reload fire still pending is
+    // kept by the reschedule's own rule (its compare lies before the clock).
     reschedule_line_interrupt();
 }
 
@@ -11964,6 +11995,7 @@ void Emulator::tick_copper_for_master_cycles(uint64_t begin, uint64_t master_cyc
             : video_timing_.cu_offset();
 
     for (uint64_t c = 0; c < master_cycles; ++c) {
+        copper_step_cycle_ = pre_clock + c;   // GH #290 — nr_write_lands_at_()
         copper_.execute(line_mc >> 2, cvc, nextreg_, cvc_offset);
         if (++line_mc == mcpl_i) {
             line_mc = 0;
@@ -12671,6 +12703,11 @@ bool Emulator::load_state(StateReader& r)
     restored_frame_start_ = false;
     // GH #290 — and at a frame boundary the frame's cvc reload is still ahead.
     cvc_reload_done_ = false;
+    // …and no line-interrupt event of the machine being replaced is live:
+    // irq_scheduler_ is not part of the state, and begin_new_frame()
+    // re-derives the schedule.
+    line_int_pending_.clear();
+    ++line_int_schedule_gen_;
 
     // Core subsystems.
     clock_.load_state(r);
