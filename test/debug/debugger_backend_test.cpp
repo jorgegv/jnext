@@ -4104,6 +4104,45 @@ static void b5_host_probe_rows() {
           ok && !armed_off && guest && reset_ok && end_two, seen);
 }
 
+// ── HOST-08 — JNEXT_HOST_PROBE=order (GH #278 WP2), through the real
+//    HeadlessApp: the probe's ORDER script reads right on a loop owner already
+//    known to poll the guest hard reset before its pump (HeadlessApp::run()).
+//    The regression row qt-host-order-func runs the same script in QtApp, whose
+//    poll WP2 moved there; this row is what makes its "guest-before-client=1"
+//    and "resets=2" mean what that row takes them to mean.
+static void q_wp2_host_order_rows() {
+    auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(512);
+    Log::platform()->sinks().push_back(ring);
+    ::setenv("JNEXT_HOST_PROBE", "order", 1);
+    bool ok = false;
+    {
+        EmulatorConfig cfg; cfg.type = MachineType::ZX48K;
+        HeadlessApp app;
+        app.set_config(cfg);
+        ok = app.init(0, nullptr);
+        app.set_delayed_exit(80);
+        app.run();
+        app.shutdown();
+    }
+    ::unsetenv("JNEXT_HOST_PROBE");
+    bool armed = false, first = false, total = false;
+    std::string seen;
+    for (const auto& l : ring->last_formatted()) {
+        if (l.find("HOSTPROBE") == std::string::npos) continue;
+        seen += "|" + l.substr(l.find("HOSTPROBE"));
+        if (l.find(", order)") != std::string::npos) armed = true;
+        if (l.find("HOSTPROBE order: guest-before-client=1 client=ok") != std::string::npos)
+            first = true;
+        if (l.find("HOSTPROBE order: resets=2") != std::string::npos) total = true;
+    }
+    Log::platform()->sinks().pop_back();
+    check("HOST-08", "JNEXT_HOST_PROBE=order through the real HeadlessApp: a guest hard "
+                     "reset raised inside the frames is performed before the pump, so "
+                     "the client's reset(Hard) in that pump comes second — two resets, "
+                     "guest first",
+          ok && armed && first && total, seen);
+}
+
 int main() {
     std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
 
@@ -13603,6 +13642,7 @@ int main() {
     b5_payload_rows();
     b5_detach_rows();
     b5_host_probe_rows();
+    q_wp2_host_order_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
