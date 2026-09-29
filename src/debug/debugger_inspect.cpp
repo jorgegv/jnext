@@ -379,6 +379,16 @@ Result Debugger::set_mmu_slot(ClientId by, int slot, uint8_t page) {
     return Result::Ok;
 }
 
+// GH #12 — the ROM image legacy paging selects: `Mmu::current_sram_rom()`,
+// which is VHDL `sram_rom` with the machine type and the NR 0x8C locks already
+// folded in. A whole `MemSpace`, so a client that wants the ROM behind a slot
+// that is RAM right now does not compose one from the paging ports (the
+// design's first formula for that, "7FFD b4 | 1FFD b2", was wrong on the Next
+// and ignored the locks everywhere).
+MemSpace Debugger::rom_select() const {
+    return MemSpace::rom(impl_->emu.mmu().current_sram_rom());
+}
+
 PagingPorts Debugger::paging_ports() const {
     PagingPorts p;
     const Mmu& mmu = impl_->emu.mmu();
