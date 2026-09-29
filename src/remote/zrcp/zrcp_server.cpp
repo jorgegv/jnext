@@ -460,7 +460,6 @@ ServiceStep ZrcpServer::on_service(Connection& c) {
     } reset{conn_};
 
     if (cid_ == CLIENT_NONE) return ServiceStep::Idle;  // the attach was refused
-    flush_pending();
     pull_input(c);
 
     if (in_run_ != RunKind::None) return service_run();
@@ -498,8 +497,9 @@ ServiceStep ZrcpServer::on_service(Connection& c) {
 // answered in this tick.
 void ZrcpServer::on_notify(Connection& c) {
     conn_ = &c;
-    flush_pending();
-    if ((in_run_ == RunKind::Run || in_run_ == RunKind::StepOver) && dbg_.state().paused)
+    if (in_run_ != RunKind::None &&
+        (reset_stop_owed_ ||
+         ((in_run_ == RunKind::Run || in_run_ == RunKind::StepOver) && dbg_.state().paused)))
         finish_run(false);
     conn_ = nullptr;
 }
@@ -516,8 +516,7 @@ void ZrcpServer::end_session() {
     conn_                    = nullptr;
     rx_.clear();
     discard_to_eol_          = false;
-    pending_.clear();
-    drop_transients_pending_ = false;
+    reset_stop_owed_         = false;
     step_mode_               = false;
     cr_mode_                 = false;
     debug_settings_          = 1;
@@ -540,20 +539,19 @@ void ZrcpServer::on_resumed(jnext::dbg::ClientId /*by*/) {}
 
 // §4.6 rule 4: a hard reset NEVER pauses a running machine, so a client blocked
 // in a run would wait for a stop that is not coming. Its reply is completed
-// here, from the event: the plain stop shape with the fresh machine's
-// registers — which then run on (`help hard-reset-cpu` says so).
+// from the event: the plain stop shape with the fresh machine's registers,
+// which then run on (`help hard-reset-cpu` says so). The reply is OWED, not
+// written here: it goes out at the next callback through finish_run(), like
+// any stop — in this pump's on_notify at the latest, with no frame run in
+// between, so the registers are the ones the reset left — which also makes a
+// line the client sent before it an interrupt of the run it was waiting on,
+// stops a parked `run n` from stepping the new machine, and removes a
+// cpu-step-over target of the replaced machine outside the backend's fan-out.
 void ZrcpServer::on_reset(jnext::dbg::ResetKind kind) {
     if (kind != jnext::dbg::ResetKind::Hard) return;
     // The fresh machine counts T-states from 0 again.
     tstates_base_ = 0;
-    if (in_run_ == RunKind::None) return;
-    pending_ += stop_reply("");
-    pending_ += "\n";
-    pending_ += prompt();
-    in_run_ = RunKind::None;
-    // A cpu-step-over target of the replaced machine must not stop the new
-    // one; removed at the next callback, not from inside the backend's fan-out.
-    drop_transients_pending_ = true;
+    if (in_run_ != RunKind::None) reset_stop_owed_ = true;
 }
 
 void ZrcpServer::on_frame_ended(std::uint32_t /*frame*/) {}
@@ -582,17 +580,6 @@ void ZrcpServer::send(const std::string& text) {
 
 void ZrcpServer::reply(const std::string& body) {
     send(body + "\n" + prompt());
-}
-
-void ZrcpServer::flush_pending() {
-    if (drop_transients_pending_) {
-        drop_transients_pending_ = false;
-        drop_transients();
-    }
-    if (pending_.empty()) return;
-    const std::string out = std::move(pending_);
-    pending_.clear();
-    send(out);
 }
 
 void ZrcpServer::pull_input(Connection& c) {
@@ -660,7 +647,13 @@ ServiceStep ZrcpServer::service_run() {
         } else {
             rx_.erase(0, nl + 1);
         }
-        if (!dbg_.state().paused) dbg_.pause(cid_);
+        // Stop a machine still running — unless a reset already answered this
+        // run: that reply is owed as it is, and a reset is never a pause.
+        if (!reset_stop_owed_ && !dbg_.state().paused) dbg_.pause(cid_);
+        finish_run(false);
+        return ServiceStep::Serviced;
+    }
+    if (reset_stop_owed_) {
         finish_run(false);
         return ServiceStep::Serviced;
     }
@@ -702,8 +695,14 @@ void ZrcpServer::run_slice() {
 
 void ZrcpServer::finish_run(bool limit_reached) {
     std::string out;
-    if (limit_reached) out += "Returning after " + std::to_string(run_limit_) + " opcodes\n";
-    out += stop_reply(fired_text(dbg_.state()));
+    if (reset_stop_owed_) {
+        // The reset answered it: the plain shape, never a `fired` line.
+        out              = stop_reply("");
+        reset_stop_owed_ = false;
+    } else {
+        if (limit_reached) out += "Returning after " + std::to_string(run_limit_) + " opcodes\n";
+        out += stop_reply(fired_text(dbg_.state()));
+    }
     in_run_        = RunKind::None;
     run_limit_     = 0;
     run_remaining_ = 0;
@@ -879,16 +878,10 @@ void ZrcpServer::cmd_set_debug_settings(const Cmd& c) {
 // ---------------------------------------------------------------------------
 
 std::vector<std::uint8_t> ZrcpServer::read_cpu(std::uint32_t addr, std::size_t n) const {
-    // The CPU view through the live mapping, side-effect free (`peek(Cpu)`),
-    // wrapping past FFFFH to 0000H as ZEsarUX does.
+    // The CPU view through the live mapping, side-effect free. `peek(Cpu)`
+    // wraps past FFFFH to 0000H itself, as ZEsarUX does (row ZRCP-MEM-01).
     std::vector<std::uint8_t> out(n);
-    std::size_t               done = 0;
-    while (done < n) {
-        const std::uint32_t a     = (addr + done) & 0xFFFF;
-        const std::size_t   chunk = std::min<std::size_t>(n - done, 0x10000 - a);
-        dbg_.peek(MemSpace::cpu(), a, chunk, out.data() + done);
-        done += chunk;
-    }
+    if (n > 0) dbg_.peek(MemSpace::cpu(), addr & 0xFFFF, n, out.data());
     return out;
 }
 
@@ -972,8 +965,9 @@ void ZrcpServer::cmd_write_memory(const Cmd& c) {
         }
         bytes.push_back(static_cast<std::uint8_t>(v));
     }
-    for (std::size_t i = 0; i < bytes.size(); ++i) {
-        const auto w = dbg_.poke(cid_, MemSpace::cpu(), (addr + i) & 0xFFFF, 1, &bytes[i]);
+    if (!bytes.empty()) {
+        // `poke(Cpu)` wraps past FFFFH itself, as `peek(Cpu)` does.
+        const auto w = dbg_.poke(cid_, MemSpace::cpu(), addr & 0xFFFF, bytes.size(), bytes.data());
         if (!poke_ok(w.status)) {
             reply(std::string("Error. write-memory refused: ") + result_name(w.status));
             return;
@@ -1011,16 +1005,12 @@ void ZrcpServer::cmd_write_memory_raw(const Cmd& c) {
         reply("Error. Invalid hexadecimal byte string");
         return;
     }
-    std::size_t done = 0;
-    while (done < bytes.size()) {
-        const std::uint32_t a     = (addr + done) & 0xFFFF;
-        const std::size_t   chunk = std::min<std::size_t>(bytes.size() - done, 0x10000 - a);
-        const auto w = dbg_.poke(cid_, MemSpace::cpu(), a, chunk, bytes.data() + done);
+    if (!bytes.empty()) {
+        const auto w = dbg_.poke(cid_, MemSpace::cpu(), addr & 0xFFFF, bytes.size(), bytes.data());
         if (!poke_ok(w.status)) {
             reply(std::string("Error. write-memory-raw refused: ") + result_name(w.status));
             return;
         }
-        done += chunk;
     }
     reply("");
 }

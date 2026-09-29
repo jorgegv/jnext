@@ -51,6 +51,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <cstdint>
 #include <cstdio>
 #include <memory>
@@ -710,9 +711,11 @@ static void format_rows() {
         parse_number("32768", n) && n == 32768 && parse_number("4294967295", n) &&
         n == 0xFFFFFFFFu && !parse_number("0x38", n) && !parse_number("", n) &&
         !parse_number("H", n) && !parse_number("12G", n) && !parse_number("-1", n) &&
-        !parse_number("4294967296", n) && !parse_number("FF", n);
+        !parse_number("4294967296", n) && !parse_number("FF", n) && !parse_number("ff", n) &&
+        !parse_number("1a", n);
     check("ZRCP-FMT-09", "numbers: decimal or H-suffixed hex; 0x38, a bare H, a sign, a stray "
-                         "letter and a value past 32 bits are refused, never read as 0 (§1.1)",
+                         "letter, hex digits with no H (either case) and a value past 32 bits "
+                         "are refused, never read as 0 (§1.1)",
               nums);
 
     check("ZRCP-FMT-10", "get-current-machine names the four machine types as DeZog matches "
@@ -1407,12 +1410,17 @@ static void run_rows() {
         const auto                      other = rig.dbg->attach({"loader", ClientKind::Test}).value;
         const std::vector<std::uint8_t> junk(64, 0x5A);
         rig.dbg->load_state_bytes(other, junk.data(), junk.size());
-        const std::string r = c.send_once("run\n");
-        check("ZRCP-RUN-08", "a run the backend refuses (a corrupt machine) is answered at once "
-                             "with the first line and the stop, fired \"Machine corrupt after "
-                             "failed rewind\"; the machine stays paused",
-              starts_with(r, kRunning + "Breakpoint fired: Machine corrupt after failed rewind\n") &&
-                  ends_with(r, PROMPT_STEP) && rig.dbg->state().paused,
+        const std::string r    = c.send_once("run\nabout\n");
+        const std::size_t cut  = r.find(PROMPT_STEP);
+        const std::string stop = cut == std::string::npos ? r : r.substr(0, cut + std::strlen(PROMPT_STEP));
+        const std::string next = cut == std::string::npos ? "" : r.substr(cut + std::strlen(PROMPT_STEP));
+        check("ZRCP-RUN-08", "a run the backend refuses (a corrupt machine) is answered in its "
+                             "own pass with the first line and the stop, fired \"Machine corrupt "
+                             "after failed rewind\"; the machine stays paused, and a line "
+                             "pipelined after it is a command again, not an interrupt",
+              starts_with(stop, kRunning + "Breakpoint fired: Machine corrupt after failed rewind\n") &&
+                  next == "jnext ZRCP remote command protocol\ncommand@cpu-step> " &&
+                  rig.dbg->state().paused,
               esc(r));
         rig.dbg->detach(other);
     }
@@ -1435,6 +1443,79 @@ static void run_rows() {
                   bad == "Error. Invalid run limit: 0x10\ncommand@cpu-step> " &&
                   rig.dbg->state().paused && rig.pc() == pc0,
               esc(big));
+    }
+}
+
+static void run_edge_rows() {
+    {
+        // §4.4: another client's pause while this client is idle at the prompt
+        // sends nothing, and the prompt keeps the client's own belief.
+        Rig rig;
+        Zc  c(rig);
+        const auto other = rig.dbg->attach({"gui", ClientKind::Test}).value;
+        rig.dbg->pause(other);
+        rig.pump();
+        rig.pump();
+        const std::string unsolicited = c.p->take();
+        const std::string prompt      = c.cmd("noop");
+        check("ZRCP-RUN-16", "another client's pause while this client is idle sends nothing, "
+                             "and the prompt stays command> (step mode is the client's belief, "
+                             "§4.4)",
+              unsolicited.empty() && prompt == "\ncommand> " && rig.dbg->state().paused,
+              esc(unsolicited));
+        rig.dbg->detach(other);
+    }
+    {
+        // §4.4: resumed by someone else while in step mode — `run` then simply
+        // stays attached to the running machine, and its reply arrives with the
+        // next stop.
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        const auto other = rig.dbg->attach({"gui", ClientKind::Test}).value;
+        rig.dbg->run(other);
+        const std::string head    = c.send_once("run\n");
+        rig.tick();
+        const std::string quiet   = c.p->take();
+        const bool        running = !rig.dbg->state().paused;
+        rig.dbg->pause(other);
+        rig.pump();
+        const std::string stop = c.p->take();
+        check("ZRCP-RUN-17", "run on a machine another client already resumed: the first line, "
+                             "silence while it runs, and the reply at the next stop (§4.4)",
+              head == kRunning && quiet.empty() && running && is_stop_shape(stop, PROG),
+              esc(head) + " / " + esc(stop));
+        rig.dbg->detach(other);
+    }
+    {
+        // A stop caused INSIDE a pump — here a DZRP client's CMD_PAUSE served
+        // after the ZRCP service in the same drain — is answered in that same
+        // pump, by on_notify: "a stop in this tick is notified in this tick".
+        Rig  rig;
+        auto dz  = std::make_unique<jnext::remote::dzrp::DzrpServer>(*rig.dbg);
+        auto dzl = std::make_unique<FakeListener>();
+        auto* dzlp = dzl.get();
+        dz->server().open(std::move(dzl), "127.0.0.1", 0);
+        rig.dbg->add_service(dz->server());
+        auto d = dzlp->connect();
+        rig.pump();
+        // CMD_INIT (1), seq 1: version 2.2.0 + an empty name.
+        d->send(std::string("\x04\x00\x00\x00\x01\x01\x02\x02\x00\x00", 10));
+        rig.pump();
+        d->take();
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        c.send_once("run\n");
+        rig.tick();
+        const bool running = !rig.dbg->state().paused;
+        // CMD_PAUSE (7), seq 2, no payload.
+        d->send(std::string("\x00\x00\x00\x00\x02\x07", 6));
+        rig.pump();
+        const std::string stop = c.p->take();
+        check("ZRCP-RUN-18", "a stop another service causes inside the same pump (a DZRP "
+                             "CMD_PAUSE) is answered in that pump, after its drain",
+              running && rig.dbg->state().paused && is_stop_shape(stop, PROG), esc(stop));
+        rig.dbg->remove_service(dz->server());
     }
 }
 
@@ -1580,6 +1661,23 @@ static void run_limit_rows() {
     }
 }
 
+/// A service registered after the ZRCP one that hard-resets the machine from
+/// inside the pump's drain, as another client's command would — once.
+struct ResetService final : jnext::dbg::Service {
+    Debugger&            dbg;
+    jnext::dbg::ClientId by;
+    bool                 armed = false;
+    ResetService(Debugger& d, jnext::dbg::ClientId c) : dbg(d), by(c) {}
+    jnext::dbg::ServiceStep service_once(int) override {
+        if (!armed) return jnext::dbg::ServiceStep::Idle;
+        armed = false;
+        dbg.reset(by, jnext::dbg::ResetKind::Hard);
+        return jnext::dbg::ServiceStep::Serviced;
+    }
+    void flush_notifications() override {}
+    bool peer_connected() const override { return false; }
+};
+
 static void reset_rows() {
     {
         Rig rig;
@@ -1664,6 +1762,127 @@ static void reset_rows() {
                   !rig.dbg->state().paused,
               esc(r));
         rig.dbg->detach(other);
+    }
+    {
+        // A line that arrives after a reset answered the run but before that
+        // answer went out was sent while the client still waited on the run:
+        // it is an interrupt, discarded, and the reply is the reset's — with
+        // the machine still running (a reset is never a pause).
+        Rig rig;
+        jnext::dbg::LoopDriver drv;
+        drv.cold_boot = [&rig]() {
+            EmulatorConfig cfg = rig.emu.config();
+            rig.emu.init(cfg);
+            return true;
+        };
+        rig.dbg->set_loop_driver(drv);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        c.send_once("run\n");
+        rig.tick();
+        const auto other = rig.dbg->attach({"gui", ClientKind::Test}).value;
+        rig.dbg->reset(other, jnext::dbg::ResetKind::Hard);
+        c.p->send("about\n");
+        rig.pump();
+        rig.pump();
+        const std::string r = c.p->take();
+        check("ZRCP-RST-06", "a line sent before the reset's run reply went out is an interrupt: "
+                             "discarded (never answered), the reply is the reset stop at 0000, "
+                             "and the machine is not paused",
+              is_stop_shape(r, 0x0000) && r.find("jnext ZRCP") == std::string::npos &&
+                  !rig.dbg->state().paused,
+              esc(r));
+        rig.dbg->detach(other);
+    }
+    {
+        // A reset made INSIDE a pump, by a service drained after this one, is
+        // answered in that same pump (on_notify), not one tick later.
+        Rig rig;
+        jnext::dbg::LoopDriver drv;
+        drv.cold_boot = [&rig]() {
+            EmulatorConfig cfg = rig.emu.config();
+            rig.emu.init(cfg);
+            return true;
+        };
+        rig.dbg->set_loop_driver(drv);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        c.send_once("run\n");
+        rig.tick();
+        const auto   other = rig.dbg->attach({"gui", ClientKind::Test}).value;
+        ResetService rs(*rig.dbg, other);
+        rig.dbg->add_service(rs);
+        rs.armed = true;
+        rig.dbg->pump(PumpBudget{});
+        const std::string r = c.p->take();
+        rig.dbg->remove_service(rs);
+        check("ZRCP-RST-09", "a hard reset another service makes inside the pump's drain is "
+                             "answered in that same pump, after the drain",
+              !rs.armed && is_stop_shape(r, 0x0000) && !rig.dbg->state().paused, esc(r));
+        rig.dbg->detach(other);
+    }
+    {
+        // A PARKED run n answered by a reset steps nothing more: the new
+        // machine stays exactly where the reset left it (paused at 0000 —
+        // it was paused, and a paused machine stays paused, rule 3).
+        Rig rig;
+        jnext::dbg::LoopDriver drv;
+        drv.cold_boot = [&rig]() {
+            EmulatorConfig cfg = rig.emu.config();
+            rig.emu.init(cfg);
+            return true;
+        };
+        rig.dbg->set_loop_driver(drv);
+        load_nops(rig, 100);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        g_clock_ticks = true;
+        c.p->send("run 100\n");
+        rig.dbg->pump(PumpBudget{});
+        rig.dbg->pump(PumpBudget{});
+        c.p->take();
+        const bool parked = rig.pc() == PROG + 2;
+        const auto other  = rig.dbg->attach({"gui", ClientKind::Test}).value;
+        rig.dbg->reset(other, jnext::dbg::ResetKind::Hard);
+        rig.dbg->pump(PumpBudget{});
+        g_clock_ticks = false;
+        const std::string r = c.p->take();
+        check("ZRCP-RST-07", "a run n parked between slices and answered by another client's hard "
+                             "reset steps the new machine no further: the reply is the plain stop "
+                             "at 0000 and PC is still 0000",
+              parked && is_stop_shape(r, 0x0000) && rig.pc() == 0x0000 &&
+                  r.find("Returning") == std::string::npos,
+              esc(r));
+        rig.dbg->detach(other);
+    }
+    {
+        // get-tstates-partial counts the NEW machine after hard-reset-cpu:
+        // the base set before it is dropped, not subtracted from a counter
+        // that restarted under it.
+        Rig rig;
+        jnext::dbg::LoopDriver drv;
+        drv.cold_boot = [&rig]() {
+            EmulatorConfig cfg = rig.emu.config();
+            rig.emu.init(cfg);
+            return true;
+        };
+        rig.dbg->set_loop_driver(drv);
+        load_nops(rig, 8);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        c.cmd("run 3");
+        c.cmd("reset-tstates-partial");
+        c.cmd("hard-reset-cpu");
+        c.cmd("write-memory-raw 32768 " + std::string(80, '0') + "18FE");
+        c.cmd("set-register PC=8000H");
+        c.cmd("run 30");
+        char want[16];
+        std::snprintf(want, sizeof(want), "%09llu",
+                      static_cast<unsigned long long>(rig.dbg->time().tstates_total));
+        const std::string p = c.cmd("get-tstates-partial");
+        check("ZRCP-RST-08", "after hard-reset-cpu the partial count is the new machine's own "
+                             "(the base taken before the reset no longer applies)",
+              p == reply_of(want, true) && rig.dbg->time().tstates_total >= 120, esc(p));
     }
     {
         Rig rig;
@@ -1763,6 +1982,7 @@ int main() {
     tbblue_rows();
     control_rows();
     run_rows();
+    run_edge_rows();
     run_limit_rows();
     reset_rows();
     nmi_rows();

@@ -164,7 +164,6 @@ private:
     const char* prompt() const { return step_mode_ ? PROMPT_STEP : PROMPT; }
     void send(const std::string& text);
     void reply(const std::string& body);
-    void flush_pending();
 
     // Input.
     void pull_input(Connection& c);
@@ -247,8 +246,6 @@ private:
     jnext::dbg::ClientId cid_  = jnext::dbg::CLIENT_NONE;
     std::string          rx_;               // received, not yet executed
     bool                 discard_to_eol_ = false;  // the rest of an interrupting line
-    std::string          pending_;          // owed output, written at the next callback
-    bool                 drop_transients_pending_ = false;
 
     // §4.1 — the session.
     bool          step_mode_      = false;
@@ -260,6 +257,9 @@ private:
     RunKind       in_run_        = RunKind::None;
     std::uint32_t run_limit_     = 0;
     std::uint32_t run_remaining_ = 0;
+    /// §4.6 rule 4 — a Reset{Hard} answered the run in flight; its plain stop
+    /// reply is owed at the next callback.
+    bool          reset_stop_owed_ = false;
 };
 
 }  // namespace zrcp
