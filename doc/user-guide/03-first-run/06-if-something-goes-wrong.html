@@ -2877,7 +2877,15 @@ prepare it again:</p>
 <pre><code class="language-sh">jnext --sdcard-download-force
 </code></pre>
 <p>This only affects the image in <code>~/.jnext/sdcard/</code>; it is ignored when you pass
-an explicit <code>--sdcard</code>.</p>
+an explicit <code>--sdcard</code>. It downloads the distribution again and builds a new
+working copy from it, so <strong>any files you saved on the card are lost</strong>.</p>
+<p><strong>The boot menu's ZX81 entry stops on <code>zx81.rom...error reading!</code>.</strong> Your
+working copy was prepared by an earlier version of JNEXT, before it doubled
+that ROM (see <a href="02-letting-jnext-fetch-one.html">Letting JNEXT fetch one</a>). JNEXT
+never rebuilds an existing copy by itself, because it holds your files.
+<code>jnext --sdcard-download-force</code> rebuilds it, at the cost above. The firmware
+remembers the ZX81 choice on the card, so until then every boot goes straight
+to that error: press SPACE while the firmware starts and pick another entry.</p>
 <p><strong>You are scripting JNEXT and it stops to ask a question.</strong> Use
 <code>--sdcard-download-confirm</code> to accept the download without prompting, or pass
 <code>--sdcard</code> so there is nothing to ask about. An unattended run that is asked a

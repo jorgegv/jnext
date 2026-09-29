@@ -2661,7 +2661,13 @@ see a write-protected card instead.</p>
 <p>Provisioning is a third, separate concern. <code>sdcard_provisioner.*</code> locates or
 downloads the canonical image and re-clusters a copy via <code>fat32_image.*</code>,
 because the shipped 1 GB image has too few clusters to be a spec-valid FAT32
-and the Next firmware's own FatFs — correctly — rejects it.</p>
+and the Next firmware's own FatFs — correctly — rejects it. The same pass
+writes a default <code>/MACHINES/NEXT/config.ini</code> and doubles the distribution's
+16 KB <code>zx81.rom</code> to the 32 KB the firmware boot menu loads (GH #284, as
+upstream tbblue did after the 24.11 release), only when it is that exact file.
+That recipe is versioned (<code>kFixedImageRecipe</code>, recorded in a <code>.recipe</code> sidecar
+next to the image). jnext never rebuilds an existing image because its recipe
+is old: the image holds the user's own files.</p>
 
 
 

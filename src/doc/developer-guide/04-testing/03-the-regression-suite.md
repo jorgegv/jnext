@@ -39,7 +39,7 @@ own SD-card clone. Any row whose guest **writes** to the card needs it.
 in run order. Each has its logic in `scripts/<name>.sh` and calls
 `begin_func <name>` to register that its row really was reported.
 
-Both files carry a `# expect: N` pin — currently 65 screenshots and 70
+Both files carry a `# expect: N` pin — currently 66 screenshots and 88
 functional — and the driver faults if a pin and the declared lines disagree.
 
 ## The independent witness
@@ -63,7 +63,7 @@ the manifest.
 At the end of a full run — that is, one not in `--update` mode — the driver
 proves three things: that every declared functional test reported **exactly
 one** row, that no undeclared row appeared, and that the grand total equals
-`4 lint + 1 sdcard-provision + screenshots + functional`. Any mismatch is
+`5 lint + 1 sdcard-provision + screenshots + functional`. Any mismatch is
 reported as a **harness fault**, exit 2, and is explicitly not a pass.
 
 Build artifacts that rows depend on — `rewind_test` and the SDL-only `jnext` —
@@ -81,7 +81,11 @@ lookup instead, and the suite provisions that image for itself in the
   from whatever happened to it between runs, re-deriving it only when it has
   drifted. This is not a theoretical concern: after an evening of manual
   NextZXOS booting the image had 11012 bytes changed, and a full run reported
-  91 pass / 5 FAIL on a branch that was green.
+  91 pass / 5 FAIL on a branch that was green. The hash witness is written
+  when the image is derived, so it cannot notice that jnext now derives a
+  different image. The gate therefore also re-derives when the image's
+  `.recipe` sidecar, written by jnext, does not hold the
+  `sdcard::kFixedImageRecipe` of the tree under test (GH #284).
 - **A per-run clone** points `JNEXT_CONFIG_DIR` at a private directory, so the
   run boots its own copy and every non-headless invocation starts from clean
   GUI preferences. That directory lives under `$HOME` rather than `/tmp`,
