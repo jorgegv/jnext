@@ -5256,25 +5256,35 @@ static void dzrp_d_rows() {
 // ═══════════════════════════════════════════════════════════════════════════
 static void q_wp7_raster_rows() {
     {
-        Emulator emu; build(emu);
-        Debugger dbg(emu);
-        const ClientId a = dbg.attach(client("A")).value;
-        emu.run_frame();
-        for (int i = 0; i < 400; ++i) emu.execute_single_instruction();   // mid-frame
-        dbg.pause(a);
-        const uint64_t elapsed = emu.clock().get() - emu.current_frame_cycle();
-        const uint64_t mcl     = emu.timing().master_cycles_per_line;
-        const int want_vc = static_cast<int>(elapsed / mcl);
-        const int want_hc = static_cast<int>((elapsed % mcl) / 4);
-        const auto ras = dbg.raster();
-        const auto t   = dbg.time();
+        // Each query on a machine of its OWN, so neither can ride on a
+        // snapshot the other took.
+        struct Paused { int want_vc = 0, want_hc = 0; };
+        auto pause_mid_frame = [](Emulator& emu, Debugger& dbg) {
+            const ClientId a = dbg.attach(client("A")).value;
+            emu.run_frame();
+            for (int i = 0; i < 400; ++i) emu.execute_single_instruction();   // mid-frame
+            dbg.pause(a);
+            const uint64_t elapsed = emu.clock().get() - emu.current_frame_cycle();
+            const uint64_t mcl     = emu.timing().master_cycles_per_line;
+            return Paused{static_cast<int>(elapsed / mcl),
+                          static_cast<int>((elapsed % mcl) / 4)};
+        };
+        Emulator e1; build(e1);
+        Debugger d1(e1);
+        const Paused p1 = pause_mid_frame(e1, d1);
+        const auto ras = d1.raster();
+        Emulator e2; build(e2);
+        Debugger d2(e2);
+        const Paused p2 = pause_mid_frame(e2, d2);
+        const auto t = d2.time();
         check("INS-06-03", "raster() and time() of a paused machine report where it "
                            "stopped, with no snapshot_raster() call by anyone",
-              want_vc > 0 && ras.raw_vc == want_vc && ras.raw_hc == want_hc &&
-                  t.vc_raw == want_vc && t.hc_raw == want_hc,
-              "want vc/hc=" + std::to_string(want_vc) + "/" + std::to_string(want_hc) +
+              p1.want_vc > 0 && ras.raw_vc == p1.want_vc && ras.raw_hc == p1.want_hc &&
+                  t.vc_raw == p2.want_vc && t.hc_raw == p2.want_hc,
+              "want vc/hc=" + std::to_string(p1.want_vc) + "/" + std::to_string(p1.want_hc) +
                   " raster=" + std::to_string(ras.raw_vc) + "/" + std::to_string(ras.raw_hc) +
-                  " time=" + std::to_string(t.vc_raw) + "/" + std::to_string(t.hc_raw));
+                  " time=" + std::to_string(t.vc_raw) + "/" + std::to_string(t.hc_raw) +
+                  " (want " + std::to_string(p2.want_vc) + "/" + std::to_string(p2.want_hc) + ")");
     }
     {
         // And RUNNING, the query leaves the last pause's snapshot alone, as the
