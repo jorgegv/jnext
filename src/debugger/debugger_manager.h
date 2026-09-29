@@ -41,10 +41,11 @@ class DebuggerWindow;
 /// A pause the window did not cause still opens it: the pause state is PULLED
 /// from the backend on every tick, whoever is attached.
 ///
-/// The window hands the backend to its panels; since WP4a/b (and WP4c's
-/// Watches and Breakpoints) nine of the 13 read through it, the rest still take
-/// the `Emulator*` until WP4d/WP5/WP7 move them. The window reaches the backend
-/// through backend() for its rewind, trace and action controls (WP3).
+/// The window hands the backend to its panels; since WP4a-d eleven of the 13
+/// read through it (the Breakpoints panel through the manager's
+/// BreakpointModel), and the Disassembly and Memory panels still take the
+/// `Emulator*` until WP5 moves them. The window reaches the backend through
+/// backend() for its rewind, trace and action controls (WP3).
 class DebuggerManager : public QObject {
     Q_OBJECT
 public:

@@ -584,10 +584,17 @@ public:
                     // boundary — tagging it a whole scanline early. Non-CPU
                     // writers (DMA, loaders) never set it and keep the
                     // coarse tag.
-                    const uint16_t line = attr_mux_write_pos_valid_
-                        ? attr_mux_write_line_ : attr_mux_current_line_;
+                    // Both halves of the position come from the same source:
+                    // a CPU write's own (line, hc), or the coarse (line, hc)
+                    // every other writer takes. The CPU's position is valid
+                    // for its ONE write only — fuse_z80_writebyte() ends it
+                    // with attr_mux_end_write() — so a DMA, loader or
+                    // debugger write can never inherit it (GH #278 WP4d).
+                    const bool     own  = attr_mux_write_pos_valid_;
+                    const uint16_t line = own ? attr_mux_write_line_ : attr_mux_current_line_;
+                    const uint16_t hc   = own ? attr_mux_write_hc_   : attr_mux_current_hc_;
                     attr_mux_write_pos_valid_ = false;
-                    mux.record_write(line, attr_mux_current_hc_, rel, val);
+                    mux.record_write(line, hc, rel, val);
                 }
             }
         }
@@ -625,12 +632,25 @@ public:
     /// as derived from the FUSE T-state counter in fuse_z80_writebyte().
     /// `vc` is raw scanline (frame-relative); it is converted to the same
     /// framebuffer-row space every per-scanline change log is tagged in.
+    ///
+    /// It describes the ONE write that follows and nothing after it: the CPU
+    /// calls attr_mux_end_write() once that write is done. The coarse
+    /// (`attr_mux_current_line_`, `attr_mux_current_hc_`) pair is untouched,
+    /// so it stays what every non-CPU writer is tagged with (GH #278 WP4d).
     void attr_mux_set_write_pos(int vc, int hc) {
-        attr_mux_current_hc_ = (hc < 0) ? 0 : static_cast<uint16_t>(hc);
+        attr_mux_write_hc_ = (hc < 0) ? 0 : static_cast<uint16_t>(hc);
         const int fb_row = vc - attr_mux_vblank_top_;
         attr_mux_write_line_ = (fb_row < 0) ? 0 : static_cast<uint16_t>(fb_row);
         attr_mux_write_pos_valid_ = true;
     }
+
+    /// End the position attr_mux_set_write_pos() gave: the write it described
+    /// has happened. Without this a CPU write to any address other than the
+    /// attribute plane left its position standing, and the next DMA, loader or
+    /// debugger write to an attribute was tagged with it — a transfer at line
+    /// 150 recoloured the cell from the line of a CALL's push at line 20
+    /// (mmu_integration_test G12-TAG-01..03).
+    void attr_mux_end_write() { attr_mux_write_pos_valid_ = false; }
 
     /// Update the scanline tag attached to subsequent attribute writes.
     /// `line` is framebuffer-row space (0..FB_HEIGHT-1), matching the
@@ -641,11 +661,11 @@ public:
     }
 
     /// Update the horizontal (7 MHz pixel-tick) position tag attached to
-    /// subsequent attribute writes (round 4, column-accurate resolution).
-    /// Set from the true per-write T-state position in
-    /// src/cpu/z80_cpu.cpp's fuse_z80_writebyte() for the production
-    /// path; bare-Mmu test fixtures may call this directly to exercise
-    /// column gating without a real CPU.
+    /// subsequent NON-CPU attribute writes (round 4, column-accurate
+    /// resolution). Production never sets it, so those writes resolve on
+    /// the line alone (hc 0); a CPU write carries its own hc through
+    /// attr_mux_set_write_pos(). Bare-Mmu test fixtures call this directly
+    /// to exercise column gating without a real CPU.
     void attr_mux_set_current_hc(int hc) {
         attr_mux_current_hc_ = (hc < 0) ? 0 : static_cast<uint16_t>(hc);
     }
@@ -1785,13 +1805,15 @@ private:
     AttributeMux   attr_mux5_;
     AttributeMux   attr_mux7_;
     uint16_t       attr_mux_current_line_ = 0;
-    // Round 4 column-accurate resolution: current 7 MHz-domain hc tag,
-    // set immediately before every write by z80_cpu.cpp (production) or
-    // directly by test fixtures. NOT persisted across a rewind snapshot
-    // — see AttributeMux's save_state/load_state doc comment for why.
+    // Round 4 column-accurate resolution: the coarse 7 MHz-domain hc tag
+    // of a NON-CPU write — 0 in production, set by test fixtures. NOT
+    // persisted across a rewind snapshot — see AttributeMux's
+    // save_state/load_state doc comment for why.
     uint16_t       attr_mux_current_hc_ = 0;
-    // Beam position captured at the exact write T-state (attr_mux_set_write_pos).
+    // Beam position captured at the exact write T-state (attr_mux_set_write_pos),
+    // valid for that one CPU write (attr_mux_end_write).
     uint16_t       attr_mux_write_line_      = 0;
+    uint16_t       attr_mux_write_hc_        = 0;
     bool           attr_mux_write_pos_valid_ = false;
     int            attr_mux_vblank_top_      = 0;
 

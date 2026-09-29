@@ -34,8 +34,8 @@ class QToolBar;
 class DebuggerWindow : public QMainWindow {
     Q_OBJECT
 public:
-    /// `dbg` — the debugger backend the panels read through (GH #278 WP4a/b:
-    /// CPU, MMU, Stack, Call Stack, Sprites, Copper, NextREG, Audio).
+    /// `dbg` — the debugger backend the panels read through (GH #278 WP4a/b/d:
+    /// CPU, MMU, Stack, Call Stack, Video, Sprites, Copper, NextREG, Audio).
     DebuggerWindow(Emulator* emulator, jnext::dbg::Debugger& dbg,
                    QWidget* parent = nullptr);
 

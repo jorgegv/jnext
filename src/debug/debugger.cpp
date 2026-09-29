@@ -5,9 +5,11 @@
 // Work package B1 of epic #276 (doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md
 // §10.1: "B1 facade + control + inspection over the existing primitives, no
 // hot-path change"). The control verbs are in `debugger_control.cpp`, the
-// inspection surface in `debugger_inspect.cpp`, and everything a LATER
-// sub-package owns is in `debugger_pending.cpp` — one file, so what is not yet
-// implemented is countable rather than scattered.
+// inspection surface in `debugger_inspect.cpp`. Everything a LATER sub-package
+// owned used to refuse from one file, `debugger_pending.cpp`, so what was not
+// yet implemented was countable rather than scattered; GH #278 WP4d moved its
+// last verb, `render_layer`, into `debugger_render.cpp`, and the empty file was
+// deleted (owner decision 2026-09-29).
 // ---------------------------------------------------------------------------
 
 #include "debug/debugger_impl.h"

@@ -340,13 +340,22 @@ void fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b) {
     // in the FUSE Z80 opcode-test harness, which has no video timing to tag
     // against.
     // (TASK27A §9 / C-DIV: the former attr_mux_set_current_hc(wpos.hc)
-    // call here was redundant — attr_mux_set_write_pos() sets the same
-    // attr_mux_current_hc_ field from the same wpos.hc.)
+    // call here was redundant with attr_mux_set_write_pos().)
+    //
+    // The position is valid for THIS write only, so it is ended as soon as the
+    // write returns. It used to be cleared only by the next write that reached
+    // the attribute plane, so a CPU write anywhere else left it standing, and
+    // the next DMA / loader / debugger write to an attribute was tagged with
+    // this write's line and column instead of its own (GH #278 WP4d,
+    // mmu_integration_test G12-TAG-01..03).
     if (s_contention_mmu) {
         const auto wpos = derive_hc_vc(tstates);
         s_contention_mmu->attr_mux_set_write_pos(wpos.vc, wpos.hc);
+        s_mem->write(address, b);
+        s_contention_mmu->attr_mux_end_write();
+    } else {
+        s_mem->write(address, b);
     }
-    s_mem->write(address, b);
 }
 
 // Expose tstates for contention callback to add delays

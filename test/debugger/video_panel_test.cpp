@@ -1,8 +1,9 @@
 // Debugger Video Panel Tests (Task 22a — "debugger video panels are broken")
 // ===========================================================================
 //
-// The debugger's per-layer views (src/debugger/video_panel.cpp,
-// VideoLayerView::render_to_image) must reproduce, for the paused frame, what
+// The debugger's per-layer views (src/debugger/video_panel.cpp, VideoLayerView,
+// drawn by the backend's render_layer() in src/debug/debugger_render.cpp since
+// GH #278 WP4d) must reproduce, for the paused frame, what
 // the live compositor (src/video/renderer.cpp, Renderer::render_frame) draws
 // for that layer.  The compositor is the oracle: everything it feeds the layer
 // engines, the panel must feed them too.  Several pieces of that state had
@@ -127,6 +128,7 @@
 #include <QApplication>
 #include <QImage>
 #include <QLabel>
+#include <QLayout>
 #include <QMainWindow>
 #include <QTabWidget>
 #include <QPixmap>
@@ -253,8 +255,9 @@ int fb_row_of(int screen_row) { return 32 + screen_row; }
 // Render one layer view at framebuffer row `fb_row` and hand back the image.
 // Renders through the real panel widget, so every step the panel takes (bank
 // selection, rom_in_sram, per-line replay, unrendered fill) is under test.
-QImage render_view(Emulator& emu, VideoLayerView::Layer layer, int fb_row) {
-    VideoLayerView view(layer, "test", &emu);
+QImage render_view(const jnext::dbg::Debugger& dbg, VideoLayerView::Layer layer,
+                   int fb_row) {
+    VideoLayerView view(layer, "test", &dbg);
     view.refresh(fb_row);
     return view.image();
 }
@@ -346,6 +349,7 @@ bool contains(const QImage& img, uint32_t argb) {
 
 static void test_layer2_rom_in_sram(Emulator& emu) {
     set_group("DVP-L2-SRAM");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     constexpr uint8_t ACTIVE_BANK = 9;
     constexpr uint8_t SHADOW_BANK = 20;
@@ -393,7 +397,7 @@ static void test_layer2_rom_in_sram(Emulator& emu) {
     const int   cell = l2_cell_256(SRC_X);
 
     {
-        QImage img = render_view(emu, VideoLayerView::Layer::LAYER2_ACTIVE, row);
+        QImage img = render_view(dbg, VideoLayerView::Layer::Layer2Active, row);
         const uint32_t got = px(img, cell, row);
         check("DVP-01",
               "Layer2 ACTIVE view fetches through the rom_in_sram +16 bank shift",
@@ -402,13 +406,34 @@ static void test_layer2_rom_in_sram(Emulator& emu) {
                   got, argb_true, argb_decoy));
     }
     {
-        QImage img = render_view(emu, VideoLayerView::Layer::LAYER2_SHADOW, row);
+        QImage img = render_view(dbg, VideoLayerView::Layer::Layer2Shadow, row);
         const uint32_t got = px(img, cell, row);
         check("DVP-02",
               "Layer2 SHADOW view fetches through the rom_in_sram +16 bank shift",
               got == argb_true,
               fmt("got=0x%08X want=0x%08X (unshifted decoy=0x%08X)",
                   got, argb_true, argb_decoy));
+    }
+
+    // DVP-02b (GH #278 WP4d) — the two views read DIFFERENT banks. The rows
+    // above plant the same index in both, so a Shadow view that drew the
+    // active bank passed them; give the shadow bank its own colour.
+    constexpr uint8_t IDX_SHADOW = 0x42;
+    set_l2_palette(pal, IDX_SHADOW, 0xE0);          // red
+    const uint32_t argb_shadow = pal.layer2_colour(IDX_SHADOW);
+    ram.write(l2_phys_addr(SHADOW_BANK, addr, /*rom_in_sram=*/true), IDX_SHADOW);
+    begin_frame(emu);
+    {
+        const uint32_t active = px(render_view(dbg, VideoLayerView::Layer::Layer2Active, row),
+                                   cell, row);
+        const uint32_t shadow = px(render_view(dbg, VideoLayerView::Layer::Layer2Shadow, row),
+                                   cell, row);
+        check("DVP-02b",
+              "Layer2 SHADOW view shows the SHADOW bank (NR 0x13), the ACTIVE view "
+              "the active bank (NR 0x12) — different pixels, different colours",
+              active == argb_true && shadow == argb_shadow && argb_shadow != argb_true,
+              fmt("active=0x%08X want 0x%08X  shadow=0x%08X want 0x%08X",
+                  active, argb_true, shadow, argb_shadow));
     }
 }
 
@@ -435,6 +460,7 @@ static void test_layer2_rom_in_sram(Emulator& emu) {
 
 static void test_layer2_transparent_rgb_replay(Emulator& emu) {
     set_group("DVP-L2-TRANSP");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     // Matches video_panel.cpp's own checker constants exactly (duplicated
     // here rather than exposed, following this file's existing convention
@@ -458,6 +484,7 @@ static void test_layer2_transparent_rgb_replay(Emulator& emu) {
     l2.set_enabled(true);
     l2.set_control(0x00);              // resolution 0 = 256x192 8bpp
     l2.set_active_bank(BANK);
+    l2.set_shadow_bank(BANK);          // DVP-21c renders the same pixels via the Shadow view
     l2.set_clip_x1(0); l2.set_clip_x2(255);
     l2.set_clip_y1(0); l2.set_clip_y2(191);
 
@@ -482,7 +509,7 @@ static void test_layer2_transparent_rgb_replay(Emulator& emu) {
     for (int row = SPLIT_ROW; row < Renderer::FB_HEIGHT; ++row)
         r.snapshot_transparent_rgb_for_line(row);
 
-    QImage img = render_view(emu, VideoLayerView::Layer::LAYER2_ACTIVE,
+    QImage img = render_view(dbg, VideoLayerView::Layer::Layer2Active,
                              Renderer::FB_HEIGHT - 1);
     const int cell = l2_cell_256(SRC_X);
 
@@ -510,7 +537,7 @@ static void test_layer2_transparent_rgb_replay(Emulator& emu) {
     // State preservation, mirroring DVP-19a.
     const uint8_t live_before = r.transparent_rgb();
     for (int i = 0; i < 3; ++i)
-        (void)render_view(emu, VideoLayerView::Layer::LAYER2_ACTIVE,
+        (void)render_view(dbg, VideoLayerView::Layer::Layer2Active,
                           Renderer::FB_HEIGHT - 1);
     check("DVP-21b",
           "...and rendering it leaves the live NR 0x14 and its per-line "
@@ -522,12 +549,30 @@ static void test_layer2_transparent_rgb_replay(Emulator& emu) {
               live_before, r.transparent_rgb(),
               SPLIT_ROW - 1, r.transparent_rgb_for_line(SPLIT_ROW - 1),
               SPLIT_ROW, r.transparent_rgb_for_line(SPLIT_ROW)));
+
+    // DVP-21c (GH #278 WP4d review round 1) — the SHADOW view reads the same
+    // per-row NR 0x14 snapshot. DVP-21 pins only the Active view, and a Shadow
+    // view that passed 0 instead of transparent_rgb_for_line(row) survived.
+    QImage sh = render_view(dbg, VideoLayerView::Layer::Layer2Shadow,
+                            Renderer::FB_HEIGHT - 1);
+    check("DVP-21c",
+          "the Layer 2 SHADOW view is opaque above the NR 0x14 split and "
+          "transparent (checkerboard) from the row it landed on — the per-line "
+          "snapshot, like the Active view",
+          px(sh, cell, SPLIT_ROW - 1) == argb_opaque
+              && px(sh, cell, SPLIT_ROW) == checker_at(SPLIT_ROW, cell)
+              && px(sh, cell, Renderer::FB_HEIGHT - 1)
+                     == checker_at(Renderer::FB_HEIGHT - 1, cell),
+          fmt("row%d=0x%08X (want 0x%08X) row%d=0x%08X (want checker 0x%08X)",
+              SPLIT_ROW - 1, px(sh, cell, SPLIT_ROW - 1), argb_opaque,
+              SPLIT_ROW, px(sh, cell, SPLIT_ROW), checker_at(SPLIT_ROW, cell)));
 }
 
 // ── DVP-03/04: ULA views must pin their bank, not follow port 0x7FFD ──
 
 static void test_ula_bank_views(Emulator& emu) {
     set_group("DVP-ULA-BANK");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     constexpr int SCREEN_ROW = 0;
 
@@ -575,7 +620,7 @@ static void test_ula_bank_views(Emulator& emu) {
     ula.set_shadow_screen_en(true);
     begin_frame(emu);
     {
-        QImage img = render_view(emu, VideoLayerView::Layer::ULA_PRIMARY, row);
+        QImage img = render_view(dbg, VideoLayerView::Layer::UlaPrimary, row);
         const uint32_t got = px(img, cell, row);
         check("DVP-03",
               "ULA PRIMARY view shows bank 5 even while the shadow screen is selected",
@@ -584,7 +629,7 @@ static void test_ula_bank_views(Emulator& emu) {
                   got, argb_bank5, argb_bank7));
     }
     {
-        QImage img = render_view(emu, VideoLayerView::Layer::ULA_SHADOW, row);
+        QImage img = render_view(dbg, VideoLayerView::Layer::UlaShadow, row);
         const uint32_t got = px(img, cell, row);
         check("DVP-04a",
               "ULA SHADOW view shows bank 7 while the shadow screen is selected",
@@ -600,7 +645,7 @@ static void test_ula_bank_views(Emulator& emu) {
     ula.set_shadow_screen_en(false);
     begin_frame(emu);
     {
-        QImage img = render_view(emu, VideoLayerView::Layer::ULA_SHADOW, row);
+        QImage img = render_view(dbg, VideoLayerView::Layer::UlaShadow, row);
         const uint32_t got = px(img, cell, row);
         check("DVP-04",
               "ULA SHADOW view shows bank 7 even while the primary screen is selected",
@@ -609,7 +654,7 @@ static void test_ula_bank_views(Emulator& emu) {
                   got, argb_bank7, argb_bank5));
     }
     {
-        QImage img = render_view(emu, VideoLayerView::Layer::ULA_PRIMARY, row);
+        QImage img = render_view(dbg, VideoLayerView::Layer::UlaPrimary, row);
         const uint32_t got = px(img, cell, row);
         check("DVP-03b",
               "ULA PRIMARY view shows bank 5 while the primary screen is selected",
@@ -626,6 +671,7 @@ static void test_ula_bank_views(Emulator& emu) {
 
 static void test_per_line_palette_replay(Emulator& emu) {
     set_group("DVP-REPLAY");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     constexpr uint8_t BANK       = 9;
     constexpr uint8_t IDX        = 0x55;
@@ -667,7 +713,7 @@ static void test_per_line_palette_replay(Emulator& emu) {
           fmt("A=0x%08X B=0x%08X", argb_a, argb_b));
 
     // Pause at the very bottom of the frame so every row is drawn.
-    QImage img = render_view(emu, VideoLayerView::Layer::LAYER2_ACTIVE,
+    QImage img = render_view(dbg, VideoLayerView::Layer::Layer2Active,
                              Renderer::FB_HEIGHT - 1);
     const int cell = l2_cell_256(SRC_X);
 
@@ -708,6 +754,7 @@ static void test_per_line_palette_replay(Emulator& emu) {
 
 static void test_per_line_palette_select_replay(Emulator& emu) {
     set_group("DVP-PALSEL");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     constexpr uint8_t BANK      = 9;
     constexpr uint8_t IDX       = 0x55;
@@ -786,7 +833,7 @@ static void test_per_line_palette_select_replay(Emulator& emu) {
               int(pal.active_layer2_palette()), int(pal.active_sprite_palette())));
 
     {
-        QImage img = render_view(emu, VideoLayerView::Layer::LAYER2_ACTIVE,
+        QImage img = render_view(dbg, VideoLayerView::Layer::Layer2Active,
                                  Renderer::FB_HEIGHT - 1);
         const int cell = l2_cell_256(SRC_X);
         const uint32_t above = px(img, cell, SPLIT_ROW - 1);
@@ -802,7 +849,7 @@ static void test_per_line_palette_select_replay(Emulator& emu) {
                   SPLIT_ROW + 20, below, l2_b));
     }
     {
-        QImage img = render_view(emu, VideoLayerView::Layer::SPRITES,
+        QImage img = render_view(dbg, VideoLayerView::Layer::Sprites,
                                  Renderer::FB_HEIGHT - 1);
         const int cell = 2 * SPR_X + 10;
         const uint32_t above = px(img, cell, SPLIT_ROW - 2);
@@ -837,6 +884,7 @@ static void test_per_line_palette_select_replay(Emulator& emu) {
 
 static void test_per_line_tilemap_palette_select_replay(Emulator& emu) {
     set_group("DVP-PALSEL-TM");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     constexpr uint8_t PAL_OFF   = 0x5;
     constexpr uint8_t PIXEL     = 0x0A;   // != NR 0x4C transparency (0x0F)
@@ -887,7 +935,7 @@ static void test_per_line_tilemap_palette_select_replay(Emulator& emu) {
               tm_a, tm_b, int(pal.active_tilemap_palette())));
 
     {
-        QImage img = render_view(emu, VideoLayerView::Layer::TILEMAP,
+        QImage img = render_view(dbg, VideoLayerView::Layer::Tilemap,
                                  Renderer::FB_HEIGHT - 1);
         // 40-col: tile column C covers source x 8C..8C+7, pixel-doubled into
         // framebuffer cells 16C..16C+15.
@@ -913,8 +961,8 @@ static void test_per_line_tilemap_palette_select_replay(Emulator& emu) {
 // panel's replay applies rows 0..FB_HEIGHT-1, so those entries are walked back
 // to exactly where they started whether or not the panel calls
 // replay_restore().  These rows therefore CANNOT fail if the panel drops the
-// final flush_remaining_changes(): deleting replay_restore() from
-// VideoLayerView::render_to_image leaves this whole group green (verified by
+// final flush_remaining_changes(): deleting replay_restore() from the render
+// (Debugger::render_layer since GH #278 WP4d) leaves this whole group green (verified by
 // mutation, Task 36).  Only entries tagged in VBLANK (line >= FB_HEIGHT) expose
 // that bug — the tilemap_demo class of defect the renderer's own flush comment
 // describes.  DVP-16c plants one and is what actually guards the invariant; it
@@ -923,6 +971,7 @@ static void test_per_line_tilemap_palette_select_replay(Emulator& emu) {
 
 static void test_no_state_mutation(Emulator& emu) {
     set_group("DVP-NOMUT");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     Layer2& l2 = emu.layer2();
     l2.set_enabled(true);
@@ -964,15 +1013,15 @@ static void test_no_state_mutation(Emulator& emu) {
     const bool     tm_enabled    = tm.enabled();
 
     // Refresh every view — each one runs a full rewind → replay → restore.
-    for (auto layer : { VideoLayerView::Layer::COMPOSITE,
-                        VideoLayerView::Layer::ULA_PRIMARY,
-                        VideoLayerView::Layer::ULA_SHADOW,
-                        VideoLayerView::Layer::LAYER2_ACTIVE,
-                        VideoLayerView::Layer::LAYER2_SHADOW,
-                        VideoLayerView::Layer::SPRITES,
-                        VideoLayerView::Layer::TILEMAP,
-                        VideoLayerView::Layer::BACKGROUND }) {
-        (void)render_view(emu, layer, Renderer::FB_HEIGHT - 1);
+    for (auto layer : { VideoLayerView::Layer::Composite,
+                        VideoLayerView::Layer::UlaPrimary,
+                        VideoLayerView::Layer::UlaShadow,
+                        VideoLayerView::Layer::Layer2Active,
+                        VideoLayerView::Layer::Layer2Shadow,
+                        VideoLayerView::Layer::Sprites,
+                        VideoLayerView::Layer::Tilemap,
+                        VideoLayerView::Layer::Background }) {
+        (void)render_view(dbg, layer, Renderer::FB_HEIGHT - 1);
     }
 
     check("DVP-06a", "panel refresh preserves the live Layer 2 scroll",
@@ -1008,6 +1057,7 @@ static void test_no_state_mutation(Emulator& emu) {
 
 static void test_tilemap_per_line_scroll(Emulator& emu) {
     set_group("DVP-TM-SCROLL");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     Tilemap& tm = emu.tilemap();
     tm.set_enabled(true);
@@ -1024,7 +1074,7 @@ static void test_tilemap_per_line_scroll(Emulator& emu) {
         tm.snapshot_scroll_for_line(row);
 
     // Pausing and refreshing must leave those snapshots alone AND use them.
-    (void)render_view(emu, VideoLayerView::Layer::TILEMAP,
+    (void)render_view(dbg, VideoLayerView::Layer::Tilemap,
                       Renderer::FB_HEIGHT - 1);
 
     check("DVP-07",
@@ -1038,6 +1088,7 @@ static void test_tilemap_per_line_scroll(Emulator& emu) {
 
 static void test_fb_row_conversion(Emulator& emu) {
     set_group("DVP-FBROW");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     // G164v2 / Task 13: fb_row = raw_vc - vblank_top().
     const int vt_next = emu.video_timing().vblank_top();
@@ -1081,7 +1132,7 @@ static void test_fb_row_conversion(Emulator& emu) {
     begin_frame(emu);
 
     const int cut = 137;
-    QImage img = render_view(emu, VideoLayerView::Layer::LAYER2_ACTIVE, cut);
+    QImage img = render_view(dbg, VideoLayerView::Layer::Layer2Active, cut);
     check("DVP-09",
           "row == the paused framebuffer row is drawn; row+1 is marked unrendered",
           px(img, 0, cut) != UNRENDERED_ARGB
@@ -1102,6 +1153,7 @@ static void test_fb_row_conversion(Emulator& emu) {
 
 static void test_ula_clip_window(Emulator& emu) {
     set_group("DVP-ULA-CLIP");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     emu.layer2().set_enabled(false);
 
@@ -1126,7 +1178,7 @@ static void test_ula_clip_window(Emulator& emu) {
     begin_frame(emu);
 
     const int row = fb_row_of(20);
-    QImage img = render_view(emu, VideoLayerView::Layer::ULA_PRIMARY, row);
+    QImage img = render_view(dbg, VideoLayerView::Layer::UlaPrimary, row);
 
     const uint32_t inside  = px(img, 64 + 2 * 40, row);   // src col 40 → kept
     const uint32_t outside = px(img, 64 + 2 * 10, row);   // src col 10 → clipped
@@ -1172,6 +1224,7 @@ static void test_ula_clip_window(Emulator& emu) {
 
 static void test_ula_view_select_bgnd_fallback(Emulator& emu) {
     set_group("DVP-ULA-BGND");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     constexpr uint8_t SKY    = 0x13;   // #0092FF
     constexpr uint8_t GROUND = 0xE0;   // bright red
@@ -1226,7 +1279,7 @@ static void test_ula_view_select_bgnd_fallback(Emulator& emu) {
 
     const int cell = 64 + 2 * 10;   // display column 10, inside the clip
 
-    QImage img = render_view(emu, VideoLayerView::Layer::ULA_PRIMARY,
+    QImage img = render_view(dbg, VideoLayerView::Layer::UlaPrimary,
                              Renderer::FB_HEIGHT - 1);
     check("DVP-22",
           "ULA PRIMARY view: a ULAnext select_bgnd paper pixel above the "
@@ -1245,7 +1298,7 @@ static void test_ula_view_select_bgnd_fallback(Emulator& emu) {
               SPLIT, px(img, cell, SPLIT),
               fb_row_of(180), px(img, cell, fb_row_of(180)), argb_ground));
 
-    QImage sh = render_view(emu, VideoLayerView::Layer::ULA_SHADOW,
+    QImage sh = render_view(dbg, VideoLayerView::Layer::UlaShadow,
                             Renderer::FB_HEIGHT - 1);
     check("DVP-22c",
           "ULA SHADOW view threads the same per-line fallback (same call "
@@ -1255,6 +1308,170 @@ static void test_ula_view_select_bgnd_fallback(Emulator& emu) {
           fmt("row%d=0x%08X (want sky) row%d=0x%08X (want ground)",
               SPLIT - 1, px(sh, cell, SPLIT - 1),
               SPLIT, px(sh, cell, SPLIT)));
+}
+
+// ── GH #278 WP4d — rows added when the render moved into the backend ───
+//
+// The render moved into `Debugger::render_layer`, which draws alpha 0 wherever
+// a view is transparent, and the widget now paints its checkerboard under every
+// alpha-0 cell alike. These rows pin what the widget kept, and the one place the
+// picture changed on purpose.
+
+// DVP-23 — the TILEMAP view shows the cells its clip window removes as
+// TRANSPARENT (the checkerboard), like every other transparent area. The one
+// deliberate display change of WP4d: Tilemap::render_scanline writes
+// 0x00000000 into every cell its NR 0x1B clip removes (tilemap.cpp: the Y-clip
+// row fill and the per-pixel X-clip), and the old widget let that overwrite
+// its checkerboard pre-fill — so clipped cells were drawn see-through (the tab
+// background) while an index-transparent tile, and the ULA (DVP-12), Layer 2
+// and sprite clips, all showed the checkerboard. In VHDL a clipped tilemap
+// pixel is exactly as transparent as an index-transparent one: pixel_en_s
+// gates both (tilemap.vhd:415-429). FAILS against the pre-WP4d widget.
+static void test_tilemap_clip_is_transparent(Emulator& emu) {
+    set_group("DVP-TM-CLIP");
+    jnext::dbg::Debugger dbg(emu);
+
+    // Matches video_panel.cpp's checker constants (see DVP-21).
+    constexpr uint32_t CHECKER_DARK_ARGB = 0xFFAAAAAA;
+    constexpr uint32_t CHECKER_LITE_ARGB = 0xFFCCCCCC;
+    constexpr int      CHECK_SZ          = 8;
+    auto checker_at = [](int row, int col) -> uint32_t {
+        const bool dark = (((row / CHECK_SZ) ^ (col / CHECK_SZ)) & 1) != 0;
+        return dark ? CHECKER_DARK_ARGB : CHECKER_LITE_ARGB;
+    };
+
+    constexpr uint8_t TM_PIXEL = 0x03;   // != NR 0x4C transparency (0x0F)
+    PaletteManager& pal = emu.palette();
+    paint_palette(pal, 0x30, TM_PIXEL, 0x1C);    // tilemap palette: green
+
+    uint8_t* b5 = emu.mmu().bank5_vram();
+    Tilemap& tm = emu.tilemap();
+    tm.set_map_base(TM_MAP_BASE);
+    tm.set_def_base(TM_DEF_BASE);
+    tm.set_control(0x80);                        // enable, 40-col
+    fill_tile(b5, 0, TM_PIXEL);                  // every cell opaque
+    for (int row = 0; row < 32; ++row)
+        for (int col = 0; col < TM_TILES_PER_ROW; ++col)
+            write_tile_map(b5, col, row, 0, 0x00);
+
+    // Clip: rows 40..200; 320-grid columns 40..201 = framebuffer cells 80..403
+    // (tilemap.vhd:415-424 xsv = x1*2, xev = x2*2+1, paced at hcounter).
+    tm.set_clip_x1(20); tm.set_clip_x2(100);
+    tm.set_clip_y1(40); tm.set_clip_y2(200);
+    begin_frame(emu);
+
+    const QImage img = render_view(dbg, VideoLayerView::Layer::Tilemap,
+                                   Renderer::FB_HEIGHT - 1);
+    const uint32_t tile = pal.tilemap_colour(TM_PIXEL);
+
+    check("DVP-23a",
+          "test premise: a tilemap cell INSIDE the clip window shows the tile",
+          px(img, 200, 100) == tile,
+          fmt("(200,100)=0x%08X want 0x%08X", px(img, 200, 100), tile));
+    check("DVP-23",
+          "the tilemap view shows cells its NR 0x1B clip removes — a Y-clipped row "
+          "and an X-clipped column — as the transparency checkerboard",
+          img.pixel(200, 20) == checker_at(20, 200)
+              && img.pixel(20, 100) == checker_at(100, 20),
+          fmt("y-clipped(200,20)=0x%08X want 0x%08X  x-clipped(20,100)=0x%08X "
+              "want 0x%08X", img.pixel(200, 20), checker_at(20, 200),
+              img.pixel(20, 100), checker_at(100, 20)));
+}
+
+// DVP-PAL-01 — the ULA palette swatch shows the ACTIVE ULA bank's first 32
+// entries (NR 0x43 bit 1), in the colours the palette's own ARGB cache holds.
+// Written through the NR handlers, into the SECOND bank only, with every entry
+// differing from the first bank's — so a swatch that read bank 0, or expanded
+// the RGB333 entries any other way, cannot match. Identity row: passes on the
+// pre-WP4d widget (which read Ula + PaletteManager directly) and on this one
+// (INS-15 `palette(UlaActive)` through the backend).
+static void test_palette_swatch(Emulator& emu) {
+    set_group("DVP-PAL");
+    jnext::dbg::Debugger dbg(emu);
+
+    emu.nextreg().write(0x43, 0x40);             // write-select ULA second bank
+    emu.nextreg().write(0x40, 0x00);             // index 0, auto-increment
+    for (int i = 0; i < 32; ++i)
+        emu.nextreg().write(0x41, static_cast<uint8_t>(0x25 + i * 7));
+    emu.nextreg().write(0x43, 0x02);             // bit 1: the SECOND ULA bank is active
+
+    PaletteManager& pal = emu.palette();
+    bool banks_differ = true;
+    for (int i = 0; i < 32; ++i)
+        banks_differ &= pal.ula_colour(true, static_cast<uint8_t>(i))
+                        != pal.ula_colour(false, static_cast<uint8_t>(i));
+
+    VideoPanel panel(&dbg);
+    panel.resize(panel.sizeHint());
+    if (panel.layout()) panel.layout()->activate();
+    panel.refresh();
+    auto* swatch = panel.findChild<QWidget*>(QStringLiteral("ulaPalette"));
+    if (!swatch) {
+        check("DVP-PAL-01", "the Video panel carries the ULA palette swatch", false);
+        return;
+    }
+    const QImage img  = swatch->grab().toImage();
+    const double dpr  = static_cast<double>(img.width()) / swatch->width();
+    const int    cell = swatch->width() / 32;
+    int bad = -1;
+    uint32_t got = 0, want = 0;
+    for (int i = 0; i < 32 && bad < 0; ++i) {
+        const int x = static_cast<int>((i * cell + cell / 2) * dpr);
+        const int y = static_cast<int>(10 * dpr);
+        got  = img.pixel(x, y) | 0xFF000000u;
+        want = pal.ula_colour(true, static_cast<uint8_t>(i)) | 0xFF000000u;
+        if (got != want) bad = i;
+    }
+    check("DVP-PAL-01",
+          "the ULA palette swatch shows the ACTIVE (NR 0x43 bit 1) bank's 32 "
+          "std-ULA entries, in the palette's own ARGB",
+          banks_differ && cell >= 2 && bad < 0,
+          fmt("banks_differ=%d cell=%d first bad entry=%d got=0x%08X want=0x%08X",
+              int(banks_differ), cell, bad, got, want));
+}
+
+// DVP-TITLE-01/02 — the view titles, which name what the user is looking at
+// (Task 40): the ULA views say which bank the ULA is actually reading, and the
+// Background view names NR 0x4A. Driven through the real port 0x7FFD and
+// NextREG paths. Identity rows: pass on the pre-WP4d widget and this one.
+static void test_view_titles(Emulator& emu) {
+    set_group("DVP-TITLE");
+    jnext::dbg::Debugger dbg(emu);
+    begin_frame(emu);
+
+    auto titles = [&dbg](QString& primary, QString& shadow) {
+        VideoLayerView p(VideoLayerView::Layer::UlaPrimary, "t", &dbg);
+        VideoLayerView s(VideoLayerView::Layer::UlaShadow, "t", &dbg);
+        p.refresh(100);
+        s.refresh(100);
+        primary = p.title();
+        shadow  = s.title();
+    };
+    QString p7, s7, p5, s5;
+    emu.port().out(0x7FFD, 0x08);                // bit 3: the shadow screen
+    const bool bank7 = emu.ula().vram_bank7();
+    titles(p7, s7);
+    emu.port().out(0x7FFD, 0x00);
+    const bool bank5 = !emu.ula().vram_bank7();
+    titles(p5, s5);
+    check("DVP-TITLE-01",
+          "the ULA view titles say which bank the ULA is reading, both ways round",
+          bank7 && bank5
+              && p7 == QString::fromUtf8("ULA primary (bank 5) — NOT live: the ULA is reading bank 7")
+              && s7 == QString::fromUtf8("ULA shadow (bank 7) — LIVE: the ULA is reading this bank")
+              && p5 == QString::fromUtf8("ULA primary (bank 5) — LIVE: the ULA is reading this bank")
+              && s5 == QString::fromUtf8("ULA shadow (bank 7) — NOT live: the ULA is reading bank 5"),
+          fmt("premise=%d/%d | %s | %s | %s | %s", int(bank7), int(bank5),
+              p7.toUtf8().constData(), s7.toUtf8().constData(),
+              p5.toUtf8().constData(), s5.toUtf8().constData()));
+
+    emu.nextreg().write(0x4A, 0xE0);
+    VideoLayerView bg(VideoLayerView::Layer::Background, "t", &dbg);
+    bg.refresh(100);
+    check("DVP-TITLE-02",
+          "the Background view's title names the NR 0x4A value",
+          bg.title() == QStringLiteral("Background colour (NR 0x4A = $E0)"),
+          fmt("title='%s'", bg.title().toUtf8().constData()));
 }
 
 // ── DVP-10/11: "Run to EOF" / "Run to EOSL" raster targets ────────────
@@ -1356,6 +1573,7 @@ static void test_run_to_targets() {
 
 static void test_composite_matches_framebuffer(Emulator& emu) {
     set_group("DVP-COMPOSITE");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     constexpr uint8_t L2_BANK   = 9;
     constexpr uint8_t L2_IDX    = 0x40;
@@ -1441,7 +1659,7 @@ static void test_composite_matches_framebuffer(Emulator& emu) {
               argb_ula, argb_l2, argb_tm, argb_spr));
 
     // The panel, paused at the last framebuffer row → every row drawn.
-    QImage img = render_view(emu, VideoLayerView::Layer::COMPOSITE,
+    QImage img = render_view(dbg, VideoLayerView::Layer::Composite,
                              Renderer::FB_HEIGHT - 1);
 
     check("DVP-13b",
@@ -1481,6 +1699,7 @@ static void test_composite_matches_framebuffer(Emulator& emu) {
 
 static void test_fallback_colour_sonic_case(Emulator& emu) {
     set_group("DVP-FALLBACK");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     // NR 0x4A = 0x13 → RRRGGGBB r3=0 g3=4 b2=3 → #0092FF (Renderer::rrrgggbb_to_argb).
     constexpr uint8_t  NR4A     = 0x13;
@@ -1531,7 +1750,7 @@ static void test_fallback_colour_sonic_case(Emulator& emu) {
 
     begin_frame(emu);
 
-    QImage comp = render_view(emu, VideoLayerView::Layer::COMPOSITE,
+    QImage comp = render_view(dbg, VideoLayerView::Layer::Composite,
                               Renderer::FB_HEIGHT - 1);
 
     // 40-col tilemap: tile column C covers source x 8C..8C+7, pixel-doubled to
@@ -1566,13 +1785,13 @@ static void test_fallback_colour_sonic_case(Emulator& emu) {
     // composite would be redundant — and the user's confusion would be a bug
     // rather than a missing view.
     bool in_any_layer = false;
-    for (auto layer : { VideoLayerView::Layer::ULA_PRIMARY,
-                        VideoLayerView::Layer::ULA_SHADOW,
-                        VideoLayerView::Layer::LAYER2_ACTIVE,
-                        VideoLayerView::Layer::LAYER2_SHADOW,
-                        VideoLayerView::Layer::SPRITES,
-                        VideoLayerView::Layer::TILEMAP }) {
-        QImage v = render_view(emu, layer, Renderer::FB_HEIGHT - 1);
+    for (auto layer : { VideoLayerView::Layer::UlaPrimary,
+                        VideoLayerView::Layer::UlaShadow,
+                        VideoLayerView::Layer::Layer2Active,
+                        VideoLayerView::Layer::Layer2Shadow,
+                        VideoLayerView::Layer::Sprites,
+                        VideoLayerView::Layer::Tilemap }) {
+        QImage v = render_view(dbg, layer, Renderer::FB_HEIGHT - 1);
         if (contains(v, FALLBACK)) in_any_layer = true;
     }
     check("DVP-14d",
@@ -1586,6 +1805,7 @@ static void test_fallback_colour_sonic_case(Emulator& emu) {
 
 static void test_composite_raster_cutoff(Emulator& emu) {
     set_group("DVP-COMP-RASTER");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     const uint32_t FALLBACK = Renderer::rrrgggbb_to_argb(0x13);
 
@@ -1599,7 +1819,7 @@ static void test_composite_raster_cutoff(Emulator& emu) {
     begin_frame(emu);
 
     constexpr int CUT = 137;
-    QImage img = render_view(emu, VideoLayerView::Layer::COMPOSITE, CUT);
+    QImage img = render_view(dbg, VideoLayerView::Layer::Composite, CUT);
 
     check("DVP-15",
           "composite draws the paused row and marks the row below it unrendered",
@@ -1619,6 +1839,7 @@ static void test_composite_raster_cutoff(Emulator& emu) {
 
 static void test_composite_no_state_mutation(Emulator& emu) {
     set_group("DVP-COMP-NOMUT");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     constexpr uint8_t L2_BANK = 9;
 
@@ -1703,7 +1924,7 @@ static void test_composite_no_state_mutation(Emulator& emu) {
     // Render the composite view repeatedly — each pass is a full rewind →
     // replay → restore round trip; N passes must be as harmless as one.
     for (int i = 0; i < 3; ++i)
-        (void)render_view(emu, VideoLayerView::Layer::COMPOSITE,
+        (void)render_view(dbg, VideoLayerView::Layer::Composite,
                           Renderer::FB_HEIGHT - 1);
 
     check("DVP-16",
@@ -1757,6 +1978,7 @@ static void test_composite_no_state_mutation(Emulator& emu) {
 
 static void test_background_view(Emulator& emu) {
     set_group("DVP-BACKGROUND");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     constexpr uint8_t SKY   = 0x13;   // #0092FF — sonic.nex's sky
     constexpr uint8_t GROUND = 0xE0;  // a clearly different colour
@@ -1788,7 +2010,7 @@ static void test_background_view(Emulator& emu) {
     for (int row = SPLIT; row < Renderer::FB_HEIGHT; ++row)
         r.snapshot_fallback_for_line(row);
 
-    QImage bg = render_view(emu, VideoLayerView::Layer::BACKGROUND,
+    QImage bg = render_view(dbg, VideoLayerView::Layer::Background,
                             Renderer::FB_HEIGHT - 1);
 
     check("DVP-18",
@@ -1810,18 +2032,18 @@ static void test_background_view(Emulator& emu) {
 
     check("DVP-19",
           "Background view honours the raster cut-off like every other view",
-          px(render_view(emu, VideoLayerView::Layer::BACKGROUND, 137), 0, 137)
+          px(render_view(dbg, VideoLayerView::Layer::Background, 137), 0, 137)
                   == argb_ground
-              && px(render_view(emu, VideoLayerView::Layer::BACKGROUND, 137),
+              && px(render_view(dbg, VideoLayerView::Layer::Background, 137),
                     0, 138) == UNRENDERED,
           fmt("row137=0x%08X row138=0x%08X",
-              px(render_view(emu, VideoLayerView::Layer::BACKGROUND, 137), 0, 137),
-              px(render_view(emu, VideoLayerView::Layer::BACKGROUND, 137), 0, 138)));
+              px(render_view(dbg, VideoLayerView::Layer::Background, 137), 0, 137),
+              px(render_view(dbg, VideoLayerView::Layer::Background, 137), 0, 138)));
 
     // State preservation: the Background view runs the same replay round trip.
     const uint8_t live_nr4a = r.fallback_colour();
     for (int i = 0; i < 3; ++i)
-        (void)render_view(emu, VideoLayerView::Layer::BACKGROUND,
+        (void)render_view(dbg, VideoLayerView::Layer::Background,
                           Renderer::FB_HEIGHT - 1);
     check("DVP-19a",
           "…and rendering it leaves the live NR 0x4A and its per-line snapshots alone",
@@ -1879,6 +2101,7 @@ static void test_background_copper() {
         check("DVP-18b", "Emulator construction for the Copper fixture", false);
         return;
     }
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     // Park the Z80 on a HALT so the boot ROM cannot issue NR writes of its own
     // — every NR 0x4A change this frame must come from the Copper.
@@ -1931,7 +2154,7 @@ static void test_background_copper() {
               row_after,  r.fallback_for_line(row_after),  GROUND));
 
     // Now the panel: paused at the end of the frame, every row drawn.
-    QImage bg = render_view(emu, VideoLayerView::Layer::BACKGROUND,
+    QImage bg = render_view(dbg, VideoLayerView::Layer::Background,
                             Renderer::FB_HEIGHT - 1);
 
     check("DVP-18b",
@@ -1948,7 +2171,7 @@ static void test_background_copper() {
     // The Background view is a window onto the compositor, not a second opinion:
     // with every layer transparent the composite IS the fallback, row for row —
     // and both must equal the framebuffer run_frame() actually produced.
-    QImage comp = render_view(emu, VideoLayerView::Layer::COMPOSITE,
+    QImage comp = render_view(dbg, VideoLayerView::Layer::Composite,
                               Renderer::FB_HEIGHT - 1);
     const uint32_t* fb = emu.get_framebuffer();
     auto fb_px = [&](int x, int y) {
@@ -1981,8 +2204,9 @@ static void test_composite_is_default_tab() {
         check("DVP-17", "Emulator construction for the tab-order check", false);
         return;
     }
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
-    VideoPanel panel(&emu);
+    VideoPanel panel(&dbg);
     auto* tabs = panel.findChild<QTabWidget*>();
     if (!tabs) {
         check("DVP-17", "VideoPanel has a QTabWidget", false);
@@ -2032,6 +2256,7 @@ static void test_composite_is_default_tab() {
 // already shown".
 static void test_tab_switch_renders_visible_only(Emulator& emu) {
     set_group("QVT");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     emu.debug_state().set_clients_attached(true);
     emu.debug_state().set_live_raster(true);
@@ -2041,12 +2266,12 @@ static void test_tab_switch_renders_visible_only(Emulator& emu) {
     emu.run_frame();
     emu.snapshot_raster();
 
-    VideoPanel panel(&emu);
+    VideoPanel panel(&dbg);
     auto* tabs = panel.findChild<QTabWidget*>();
     // The "not rendered" picture is a solid fill of one colour, at whatever
     // width the view last had — compare by colour, never by QImage equality.
     const QRgb unrendered =
-        VideoLayerView(VideoLayerView::Layer::SPRITES, "x", nullptr).image().pixel(0, 0);
+        VideoLayerView(VideoLayerView::Layer::Sprites, "x", nullptr).image().pixel(0, 0);
     auto view_image = [&](int i) -> QImage {
         QWidget* page = tabs ? tabs->widget(i) : nullptr;
         auto* v = page ? page->findChild<VideoLayerView*>() : nullptr;
@@ -2102,6 +2327,7 @@ static void test_tab_switch_renders_visible_only(Emulator& emu) {
 // the failure this group exists to catch.
 static void test_raster_indicator(Emulator& emu) {
     set_group("DVP-RASTER");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     emu.debug_state().set_clients_attached(true);
     emu.debug_state().set_live_raster(true);
@@ -2120,16 +2346,16 @@ static void test_raster_indicator(Emulator& emu) {
 
     check("DVP-RAS-01",
           "the panel reads the emulator's PAUSED raster snapshot, not VideoTiming::pos()",
-          video_panel_raster_state(emu).raw_hc == emu.paused_hc()
-              && video_panel_raster_state(emu).raw_vc == emu.paused_vc(),
+          video_panel_raster_state(dbg).raw_hc == emu.paused_hc()
+              && video_panel_raster_state(dbg).raw_vc == emu.paused_vc(),
           fmt("panel=(%d,%d) paused=(%d,%d) timing_pos=(%d,%d)",
-              video_panel_raster_state(emu).raw_hc,
-              video_panel_raster_state(emu).raw_vc,
+              video_panel_raster_state(dbg).raw_hc,
+              video_panel_raster_state(dbg).raw_vc,
               emu.paused_hc(), emu.paused_vc(),
               int(vt.pos().hc), int(vt.pos().vc)));
 
     {
-        const RasterState rs = video_panel_raster_state(emu);
+        const RasterState rs = video_panel_raster_state(dbg);
         // The four counters have four origins (zxula_timing.vhd:423-470): a
         // panel that wired the raw pair into every line would tie here.
         check("DVP-RAS-02",
@@ -2146,9 +2372,9 @@ static void test_raster_indicator(Emulator& emu) {
     // NR 0x64 (copper vertical offset) shifts cvc and nothing else
     // (zxula_timing.vhd:462).  Proves the panel reads the LIVE offset.
     {
-        const RasterState before = video_panel_raster_state(emu);
+        const RasterState before = video_panel_raster_state(dbg);
         emu.nextreg().write(0x64, 24);
-        const RasterState after = video_panel_raster_state(emu);
+        const RasterState after = video_panel_raster_state(dbg);
         const int lpf = vt.vc_max() + 1;
         check("DVP-RAS-04",
               "NR 0x64 shifts cvc only — the panel reads the live copper offset",
@@ -2166,7 +2392,7 @@ static void test_raster_indicator(Emulator& emu) {
     bool found = false;
     for (int i = 0; i < 4000 && !found; ++i) {
         emu.snapshot_raster();
-        if (video_panel_raster_state(emu).fetch == UlaFetch::Attribute) {
+        if (video_panel_raster_state(dbg).fetch == UlaFetch::Attribute) {
             found = true;
             break;
         }
@@ -2180,20 +2406,20 @@ static void test_raster_indicator(Emulator& emu) {
         emu.ula().set_screen_mode(0x02);            // Timex hi-colour
         check("DVP-RAS-06",
               "port 0xFF hi-colour turns the attribute slot into a bitmap fetch (zxula.vhd:238-239)",
-              video_panel_raster_state(emu).fetch == UlaFetch::Bitmap,
-              fmt("fetch=%s", ula_fetch_name(video_panel_raster_state(emu).fetch)));
+              video_panel_raster_state(dbg).fetch == UlaFetch::Bitmap,
+              fmt("fetch=%s", ula_fetch_name(video_panel_raster_state(dbg).fetch)));
         emu.ula().set_shadow_screen_en(true);
         check("DVP-RAS-07",
               "the shadow screen forces screen_mode \"000\" — attributes again (zxula.vhd:191)",
-              video_panel_raster_state(emu).fetch == UlaFetch::Attribute,
-              fmt("fetch=%s", ula_fetch_name(video_panel_raster_state(emu).fetch)));
+              video_panel_raster_state(dbg).fetch == UlaFetch::Attribute,
+              fmt("fetch=%s", ula_fetch_name(video_panel_raster_state(dbg).fetch)));
         emu.ula().set_shadow_screen_en(false);
         emu.ula().set_screen_mode(saved_ff);
     }
 
     // The frame diagram: three regions, positioned from the SAME VideoTiming.
     {
-        VideoPanel panel(&emu);
+        VideoPanel panel(&dbg);
         panel.refresh();
         auto* diagram = panel.findChild<QWidget*>(QStringLiteral("rasterDiagram"));
         if (!diagram) {
@@ -2236,6 +2462,29 @@ static void test_raster_indicator(Emulator& emu) {
         }
     }
 
+    // DVP-RAS-15 (GH #278 WP4d) — the panel hands its visible view the paused
+    // FRAMEBUFFER row, raw vc - vblank_top (G164v2), with vblank_top from the
+    // backend's machine(): the view is drawn down to that row and not one
+    // row further. DVP-08 pins fb_row_for_vc() itself; this is its wiring.
+    {
+        VideoPanel panel(&dbg);
+        panel.refresh();
+        auto* tabs = panel.findChild<QTabWidget*>();
+        QWidget* page = tabs ? tabs->widget(0) : nullptr;
+        auto* view = page ? page->findChild<VideoLayerView*>() : nullptr;
+        const QImage img = view ? view->image() : QImage();
+        const int fb = static_cast<int>(emu.paused_vc()) - vt.vblank_top();
+        const bool ok = !img.isNull() && fb >= 0 && fb + 1 < img.height();
+        check("DVP-RAS-15",
+              "the paused panel draws its view down to fb row = raw vc - vblank_top, "
+              "and marks the next row unrendered",
+              emu.debug_state().paused() && ok && px(img, 0, fb) != UNRENDERED
+                  && px(img, 0, fb + 1) == UNRENDERED,
+              fmt("raw vc=%d vblank_top=%d fb=%d row=0x%08X next=0x%08X",
+                  int(emu.paused_vc()), vt.vblank_top(), fb,
+                  ok ? px(img, 0, fb) : 0u, ok ? px(img, 0, fb + 1) : 0u));
+    }
+
     // ── The paused-only contract ────────────────────────────────────────
     //
     // "Updated only while the emulator is paused" is stated in the
@@ -2253,7 +2502,7 @@ static void test_raster_indicator(Emulator& emu) {
             return false;
         };
 
-        VideoPanel panel(&emu);
+        VideoPanel panel(&dbg);
         panel.resize(panel.sizeHint());
         auto* diagram = panel.findChild<QWidget*>(QStringLiteral("rasterDiagram"));
         auto* region  = panel.findChild<QLabel*>(QStringLiteral("rasterRegion"));
@@ -2362,13 +2611,14 @@ static void test_raster_indicator(Emulator& emu) {
 //                      bit-7-is-a-DISABLE-bit inversion, nothing more.
 static void test_layer_state_reads_live_registers(Emulator& emu) {
     set_group("DVP-LAYERSTATE");
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4d: the panel reads through it
 
     bool active[4];
     int  priority = -1;
 
     // Layer 2 ON via port 0x123B bit 1 — the beast.nex path. regs_[0x69] is untouched.
     emu.port().write(0x123B, 0x02);
-    video_panel_layer_state(emu, active, priority);
+    video_panel_layer_state(dbg, active, priority);
     check("DVP-LS-01",
           "Layer 2 enabled via port 0x123B is reported ACTIVE (cached NR 0x69 is stale)",
           active[1],
@@ -2386,7 +2636,7 @@ static void test_layer_state_reads_live_registers(Emulator& emu) {
     // Layer 2 OFF again through the same port: the flag must follow it back down, so
     // the fix cannot be "always report Layer 2 active".
     emu.port().write(0x123B, 0x00);
-    video_panel_layer_state(emu, active, priority);
+    video_panel_layer_state(dbg, active, priority);
     check("DVP-LS-03",
           "Layer 2 disabled via port 0x123B is reported INACTIVE",
           !active[1],
@@ -2398,7 +2648,7 @@ static void test_layer_state_reads_live_registers(Emulator& emu) {
     emu.nextreg().write(0x15, 0x00);          // cache says: no sprites, priority 0 (SLU)
     emu.renderer().set_sprite_en(true);       // …the machine says otherwise
     emu.renderer().set_layer_priority(3);     // priority 3 = LUS
-    video_panel_layer_state(emu, active, priority);
+    video_panel_layer_state(dbg, active, priority);
     check("DVP-LS-04",
           "sprites enabled on the Renderer is reported ACTIVE (cached NR 0x15 says off)",
           active[3],
@@ -2411,16 +2661,16 @@ static void test_layer_state_reads_live_registers(Emulator& emu) {
     // ULA: NR 0x68 bit 7 is a DISABLE bit, so the flag is inverted. NOT discriminative
     // (see the header) — the read handler sources bit 7 from the cache itself.
     emu.nextreg().write(0x68, 0x80);
-    video_panel_layer_state(emu, active, priority);
+    video_panel_layer_state(dbg, active, priority);
     check("DVP-LS-06", "ULA disabled via NR 0x68 b7 is reported INACTIVE", !active[0]);
     emu.nextreg().write(0x68, 0x00);
-    video_panel_layer_state(emu, active, priority);
+    video_panel_layer_state(dbg, active, priority);
     check("DVP-LS-07", "ULA enabled (NR 0x68 b7 clear) is reported ACTIVE", active[0]);
 
     // Tilemap: NR 0x6B's read handler returns the live tilemap control byte, so set it
     // on the Tilemap itself — regs_[0x6B] never sees this.
     emu.tilemap().set_control(0x80);
-    video_panel_layer_state(emu, active, priority);
+    video_panel_layer_state(dbg, active, priority);
     check("DVP-LS-08",
           "tilemap enabled via the live control byte is reported ACTIVE",
           active[2],
@@ -2721,6 +2971,25 @@ int main(int argc, char** argv) {
         if (!build_next_emulator(emu)) return 1;
         test_ula_view_select_bgnd_fallback(emu);
         std::printf("  Group: DVP-ULA-BGND   — done\n");
+    }
+    // ── GH #278 WP4d ─────────────────────────────────────────────────────
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_tilemap_clip_is_transparent(emu);
+        std::printf("  Group: DVP-TM-CLIP    — done\n");
+    }
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_palette_swatch(emu);
+        std::printf("  Group: DVP-PAL        — done\n");
+    }
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_view_titles(emu);
+        std::printf("  Group: DVP-TITLE      — done\n");
     }
     test_run_to_targets();
     std::printf("  Group: DVP-RUNTO      — done\n");
