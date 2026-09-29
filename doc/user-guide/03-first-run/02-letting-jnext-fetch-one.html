@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.50</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.52</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.50</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.52</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2885,7 +2885,22 @@ SD card image</strong>. Answer yes and JNEXT will:</p>
 <li>Download the official distribution archive and unpack the SD-card image from
    it, showing progress as it goes.</li>
 <li>Prepare a working copy of that image, keeping the downloaded original
-   untouched.</li>
+   untouched. The copy differs from the original in three ways:<ul>
+<li>its FAT32 partition is re-formatted with smaller clusters and the same
+  files. The original has too few clusters to be valid FAT32, and the
+  Next's firmware refuses such a card, as the real machine does;</li>
+<li>it gets a default <code>/MACHINES/NEXT/config.ini</code>, the firmware's settings
+  file;</li>
+<li><code>/MACHINES/NEXT/zx81.rom</code> is made 32 KB long: the same 16 KB ROM, twice.
+  The distribution ships it as 16 KB, but the firmware's boot menu loads
+  the ZX81 entry as 32 KB and stops on <code>zx81.rom...error reading!</code>. The
+  ZX Spectrum Next team made the same change after that distribution was
+  released. JNEXT makes it only when the file is exactly the one the
+  distribution ships. A working copy prepared by an earlier version of
+  JNEXT is not fixed automatically; see
+  <a href="06-if-something-goes-wrong.html">If something goes wrong</a>.</li>
+</ul>
+</li>
 <li>Boot from the working copy.</li>
 </ol>
 <p>Both files are kept in <code>~/.jnext/sdcard/</code>, and together they take about 2 GB of

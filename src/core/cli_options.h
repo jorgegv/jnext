@@ -79,6 +79,7 @@ enum class OptId {
     EspIpAddressAfter,
     MagicBreakpoint,
     PersistentBreakpoints,
+    DebugListenAddress,
     EsxdosStub,
     EsxdosStubRoot,
     EsxdosStubWritable,
@@ -628,6 +629,22 @@ inline constexpr Option OPTIONS[] = {
       "",
       "Keep breakpoints armed while the debugger window is\n"
       "closed; a hit reopens it (GUI debugger builds only)" },
+    // GH #287 — the bind address of the debugger protocol servers (DZRP #12,
+    // ZRCP #280, GDB RSP #281), shared by all three and landed with their
+    // common transport, before any of them. Numeric only and loopback by
+    // default, on the same reasoning as --esp-listen-address: none of those
+    // protocols has any authentication, so widening it is an explicit act on
+    // the command line. The help text says what is TRUE of this binary: until
+    // the first server lands the value is checked and nothing listens. The
+    // designs' agreed wording, which names the three --<proto>-port flags, is
+    // the first server's to adopt.
+    { "--debug-listen-address", 1, Doc::Documented, OptId::DebugListenAddress,
+      "ADDR",
+      "Bind address for the debugger protocol servers\n"
+      "(default 127.0.0.1). A numeric IP, never a name. A\n"
+      "non-loopback address exposes the debugger to the network:\n"
+      "none of its protocols has any authentication. No server\n"
+      "is available yet, so the address is only checked." },
     { "--magic-port", 1, Doc::Documented, OptId::MagicPort,
       "PORT",
       "Enable magic debug port at PORT (hex, e.g. 0x00FF)" },

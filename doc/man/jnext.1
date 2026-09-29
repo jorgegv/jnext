@@ -801,6 +801,18 @@ which is what \(lqpersistent\(rq costs; it is accepted but has no effect
 in \f[B]\-\-headless\f[R], in the SDL\-only build and in builds without
 the debugger, since only the debugger can set a breakpoint.
 .TP
+\f[B]\-\-debug\-listen\-address\f[R] \f[I]ADDR\f[R]
+Bind address for the debugger protocol servers, default
+\f[CR]127.0.0.1\f[R].
+\f[I]ADDR\f[R] is a numeric IP address, never a name \- an address
+resolved through DNS could change under you \- and anything else is
+refused at startup.
+The default means only this machine can reach the debugger; a
+non\-loopback address (\f[CR]0.0.0.0\f[R]) exposes it to your network,
+and none of the debugger protocols has any authentication.
+No protocol server is available in this version yet, so the address is
+checked and nothing listens.
+.TP
 \f[B]\-\-magic\-port\f[R] \f[I]PORT\f[R]
 Enable the magic debug port at \f[I]PORT\f[R] (hex, for example
 \f[CR]0x00FF\f[R]).
@@ -938,7 +950,10 @@ The image must be a spec\-valid FAT32 (at least 65525 clusters) \(em the
 same thing the Next\(cqs own firmware requires.
 The image jnext provisions for itself already is one; a hand\-made
 under\-clustered image is refused, and
-\f[CR]tools/fix\-sdcard\-image.sh\f[R] re\-clusters one.
+\f[CR]tools/fix\-sdcard\-image.sh\f[R] re\-clusters one, applying the
+same fixes jnext\(cqs own provisioning does (a default
+\f[CR]config.ini\f[R], and the 24.11 distribution\(cqs 16 KB
+\f[CR]zx81.rom\f[R] doubled so the firmware boot menu can load it).
 .PP
 The exit status says which of the things that can go wrong did; see
 \f[B]EXIT STATUS\f[R].

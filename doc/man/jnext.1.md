@@ -671,6 +671,15 @@ debugger ones.
     in builds without the debugger, since only the debugger can set a
     breakpoint.
 
+**\--debug-listen-address** *ADDR*
+:   Bind address for the debugger protocol servers, default `127.0.0.1`.
+    *ADDR* is a numeric IP address, never a name - an address resolved through
+    DNS could change under you - and anything else is refused at startup. The
+    default means only this machine can reach the debugger; a non-loopback
+    address (`0.0.0.0`) exposes it to your network, and none of the debugger
+    protocols has any authentication. No protocol server is available in this
+    version yet, so the address is checked and nothing listens.
+
 **\--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, for example `0x00FF`).
 
@@ -788,7 +797,9 @@ copy-on-write filesystem.
 The image must be a spec-valid FAT32 (at least 65525 clusters) — the same thing
 the Next's own firmware requires. The image jnext provisions for itself already
 is one; a hand-made under-clustered image is refused, and
-`tools/fix-sdcard-image.sh` re-clusters one.
+`tools/fix-sdcard-image.sh` re-clusters one, applying the same fixes jnext's own
+provisioning does (a default `config.ini`, and the 24.11 distribution's 16 KB
+`zx81.rom` doubled so the firmware boot menu can load it).
 
 The exit status says which of the things that can go wrong did; see
 **EXIT STATUS**.

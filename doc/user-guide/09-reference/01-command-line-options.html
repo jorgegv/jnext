@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.50</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.52</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.50</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.52</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3592,6 +3592,15 @@ on every instruction for the whole run, which is what “persistent”
 costs; it is accepted but has no effect in <strong>--headless</strong>, in the
 SDL-only build and in builds without the debugger, since only the
 debugger can set a breakpoint.</dd>
+<dt><strong>--debug-listen-address</strong> <em>ADDR</em></dt>
+<dd>Bind address for the debugger protocol servers, default <code>127.0.0.1</code>.
+<em>ADDR</em> is a numeric IP address, never a name - an address resolved
+through DNS could change under you - and anything else is refused at
+startup. The default means only this machine can reach the debugger;
+a non-loopback address (<code>0.0.0.0</code>) exposes it to your network, and
+none of the debugger protocols has any authentication. No protocol
+server is available in this version yet, so the address is checked
+and nothing listens.</dd>
 <dt><strong>--magic-port</strong> <em>PORT</em></dt>
 <dd>Enable the magic debug port at <em>PORT</em> (hex, for example <code>0x00FF</code>).</dd>
 <dt><strong>--magic-port-mode</strong> <em>MODE</em></dt>

@@ -146,6 +146,17 @@ sd_clone_for_run() {
     return 0
 }
 
+# sd_expected_recipe — print the fixed-image recipe number the jnext under test
+# derives (GH #284). Read from its one definition, sdcard::kFixedImageRecipe
+# in src/core/sdcard_provisioner.cpp: the binary is built from this same tree,
+# so no second copy of the number exists to drift. Fails (prints nothing) unless
+# exactly one line matches, so a reworded definition is loud, never a guess.
+sd_expected_recipe() {
+    local src="$PROJECT_DIR/src/core/sdcard_provisioner.cpp" pat='^const int kFixedImageRecipe = [0-9]+;$'
+    [[ "$(grep -cE "$pat" "$src" 2>/dev/null)" == 1 ]] || return 1
+    grep -E "$pat" "$src" | grep -oE '[0-9]+'
+}
+
 declared_count() {   # declared_count <conf>  — non-comment, non-blank lines
     grep -cvE '^[[:space:]]*(#|$)' "$1" || true
 }
@@ -316,6 +327,10 @@ regression_lib_init() {
     SD_MASTER_DIR="$HOME/.jnext/sdcard"
     SD_MASTER_IMAGE="$SD_MASTER_DIR/cspect-next-1gb-fixed.img"
     SD_MASTER_WITNESS="$SD_MASTER_IMAGE.sha256"
+    # Written by jnext itself when it derives the image: the number of the
+    # recipe that made it (sdcard::kFixedImageRecipe, GH #284). Absent on any
+    # image derived before recipes existed.
+    SD_MASTER_RECIPE="$SD_MASTER_IMAGE.recipe"
 
     # This run's PRIVATE state directory (GH #65). Two jobs at once:
     #

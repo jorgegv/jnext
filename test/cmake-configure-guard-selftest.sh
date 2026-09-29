@@ -312,7 +312,8 @@ check "no first-party glob without CONFIGURE_DEPENDS" "$bad_count" "0"
 # It also subsumes the vacuity guard the floor was written for: a wrong
 # ls-files pattern, or a run from outside a git checkout, scans nothing and
 # fails here on 0 != 18 rather than passing silently.
-EXPECTED_FIRST_PARTY_GLOBS=18
+# 18 -> 19: src/remote/CMakeLists.txt (GH #287, jnext_remote).
+EXPECTED_FIRST_PARTY_GLOBS=19
 check "exactly $EXPECTED_FIRST_PARTY_GLOBS first-party globs scanned" \
 	"$good_count" "$EXPECTED_FIRST_PARTY_GLOBS"
 
@@ -503,7 +504,8 @@ check "no first-party GLOB_RECURSE without the generated-dir filter" \
 # good as its denominator. Narrowing the file list would leave the unfiltered
 # count at 0 while silently scanning less. Updating this when you add or remove
 # a glob IS the point.
-EXPECTED_RECURSIVE_GLOBS=16
+# 16 -> 17: src/remote/CMakeLists.txt (GH #287, jnext_remote).
+EXPECTED_RECURSIVE_GLOBS=17
 check "exactly $EXPECTED_RECURSIVE_GLOBS first-party GLOB_RECURSE globs scanned" \
 	"$recursive_globs" "$EXPECTED_RECURSIVE_GLOBS"
 

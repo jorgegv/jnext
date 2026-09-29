@@ -302,6 +302,10 @@ add_subdirectory(src/port)
 # nothing from jnext, so it can be added before anything else and dropped into
 # another project unchanged. jnext_peripheral links it and owns the adapter.
 add_subdirectory(src/esp01)
+# GH #287 — the debugger protocol servers' shared socket transport (arch §3.1,
+# `jnext_remote`). Over esp01's public socket seam and the jnext_debug backend;
+# no toolkit, so it is built in every configuration (arch §3.2).
+add_subdirectory(src/remote)
 add_subdirectory(src/peripheral)
 add_subdirectory(src/platform)
 add_subdirectory(src/save)

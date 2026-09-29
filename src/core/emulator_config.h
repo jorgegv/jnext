@@ -196,6 +196,14 @@ struct EmulatorConfig {
     // window when a hit pauses the machine.
     bool persistent_breakpoints = false;
 
+    // GH #287 (--debug-listen-address): where the debugger protocol servers
+    // (DZRP #12, ZRCP #280, GDB RSP #281) bind. LOOPBACK BY DEFAULT: none of
+    // those protocols has any authentication, so exposing the debugger to the
+    // network is a deliberate, visible choice. Numeric only, as
+    // `esp_listen_address` is. Read by the loop owners when a server is
+    // registered; no server exists yet, so for now it is parsed and held.
+    std::string debug_listen_address = "127.0.0.1";
+
     // Host-side esxDOS compatibility for directly loaded NEX programs.
     // Provides one in-memory file and `run sibling.nex` chaining.
     bool esxdos_stub = false;
