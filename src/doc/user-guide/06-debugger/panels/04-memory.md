@@ -17,4 +17,6 @@ To edit, click a byte and type two hex digits — the write happens on the secon
 digit and the selection advances to the next byte. Arrow keys move the
 selection, **Page Up/Down**, **Home** and **End** scroll, and **Esc** clears
 the selection. Writes go through the MMU exactly as a `LD (nn),A` would, so
-ROM stays read-only.
+ROM stays read-only. While an RZX recording or playback is running an edit is
+refused — a write the recording does not contain would make its replay go
+wrong — and the byte keeps its value.

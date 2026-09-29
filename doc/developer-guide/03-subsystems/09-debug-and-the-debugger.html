@@ -1945,9 +1945,10 @@ as <code>BreakpointSet</code> is the core's legacy breakpoint store, which the h
 still obeys (and the core suites still drive) but no frontend writes any more.
 Since WP4a/b the CPU, MMU, Stack, Call Stack, Sprites, Copper, NextREG and
 Audio panels read — and the NextREG and Audio panels write — through the
-facade as well, and since WP4d so does the Video panel; the Disassembly and
-Memory panels still read the <code>Emulator</code> directly until their work package
-moves them.</p>
+facade as well, since WP4d so does the Video panel, and since WP5 the
+Disassembly and Memory panels (the Memory panel writes through it too): no
+panel reads the <code>Emulator</code> any more. Since WP6 the symbol table is the
+facade's (CAP-SYM) and the Magic Breakpoint item arms it through CTL-14.</p>
 <h3 id="the-event-pipeline-b2">The event pipeline (B2)<a class="headerlink" href="#the-event-pipeline-b2" title="Permanent link">&para;</a></h3>
 <p>Today's event vocabulary is "a PC breakpoint, a watchpoint, one one-shot, and
 nothing is conditional". B2 replaces it with the fourteen kinds of §4.3 of the
@@ -2520,20 +2521,25 @@ are one <code>apply_pause_state(bool)</code>. The same tick first lets the model
 breakpoint change another client made (below).</p>
 <p>The Watches panel stays a GUI-side list — a watch is a peek, not an event — and
 reads its values through <code>peek(MemSpace::cpu())</code>, so it moves neither a
-watchpoint nor the +3 floating-bus latch. The Stack panel reads its words the
-same way.</p>
+watchpoint nor the +3 floating-bus latch. The Stack, Memory and Disassembly
+panels read guest memory the same way (the Memory panel a row per peek, the
+disassembly through <code>memory_reader()</code>).</p>
 <p>The register panels (WP4a/b) are projections of the facade's inspection calls:
 <code>registers()</code>, <code>mmu_slots()</code> and <code>paging_ports()</code>, <code>ula_screen_regs()</code>,
 <code>call_stack()</code>, <code>sprites()</code>, <code>copper()</code>, <code>nextreg_peek()</code>, <code>ay_registers()</code> and
-the three live audio signals. Two of them write, and a write is a mutation the
+the three live audio signals. Three panels write, and a write is a mutation the
 backend logs as one line, <code>MUTATE &lt;what&gt; &lt;old&gt; -&gt; &lt;new&gt; by &lt;client&gt;</code>, attributed
 like a verb to the window's client (to no client while the window is closed —
-<code>DebuggerManager::set_panels_client()</code> keeps both panels told). A NextREG edit
+<code>DebuggerManager::set_panels_client()</code> keeps all three told). A NextREG edit
 is <code>nextreg_write()</code>, so the register's own handler runs exactly as for
-<code>NEXTREG nn,n</code>; it is refused while an RZX records or plays, since a write the
-recording does not contain would make its replay diverge, and the next refresh
-shows the register's value again. The Audio panel's mute boxes are
-<code>set_audio_mute_mask()</code>.</p>
+<code>NEXTREG nn,n</code>; a Memory hex edit is <code>poke(MemSpace::cpu())</code>, i.e.
+<code>Mmu::write</code> through the live map (ROM ignored, overlays honoured, no watch).
+Both are refused while an RZX records or plays, since a write the recording
+does not contain would make its replay diverge; the NextREG cell shows the
+register's value again at the next refresh, the Memory byte simply does not
+change. The Audio panel's mute boxes are <code>set_audio_mute_mask()</code>. The Memory
+panel's slot view still reads and writes through the CPU map at the slot's
+range, as it always has; the physical-page view is WP8.</p>
 <h3 id="the-shared-socket-transport-package-t">The shared socket transport (package T)<a class="headerlink" href="#the-shared-socket-transport-package-t" title="Permanent link">&para;</a></h3>
 <p>The three protocol servers the epic plans — DZRP, ZRCP and GDB RSP — share one
 transport, in <strong><code>src/remote/</code></strong> (target <code>jnext_remote</code>). It has no toolkit
@@ -2601,8 +2607,8 @@ branch, not about conditional compilation.</p>
 <h3 id="a-debugger-read-is-not-a-guest-access">A debugger read is not a guest access<a class="headerlink" href="#a-debugger-read-is-not-a-guest-access" title="Permanent link">&para;</a></h3>
 <p>There is a <strong>third</strong> boolean, and it exists because <code>Mmu::read()</code> is not the
 CPU's read. The Watches, Memory, Stack and Disassembly panels all
-inspected guest memory through the same <code>Mmu::read()</code> the CPU uses (the Watches
-and Stack panels peek since GH #278), so before
+inspected guest memory through the same <code>Mmu::read()</code> the CPU uses (all four
+peek since GH #278 WP4c-WP5), so before
 this gate existed a READ watchpoint on any address a panel happened to display
 was latched by the panel's own refresh — at roughly 4 Hz while the machine ran
 — and the next Run or Step stopped one instruction later at an unrelated
@@ -2887,7 +2893,7 @@ introspects:</p>
 </tr>
 <tr>
 <td>Disassembly</td>
-<td><code>src/debug/disasm.*</code> over <code>Mmu::read</code>, with symbol substitution, a breakpoint gutter, and a selection you can copy as assembly</td>
+<td><code>src/debug/disasm.*</code> over the backend's <code>memory_reader()</code> (a peek), with symbol substitution, a breakpoint gutter, and a selection you can copy as assembly</td>
 </tr>
 <tr>
 <td>Memory</td>
@@ -2987,9 +2993,11 @@ which is why the model diffs rather than trusting the payload.</p>
 <h2 id="symbols">Symbols<a class="headerlink" href="#symbols" title="Permanent link">&para;</a></h2>
 <p><code>src/debug/symbol_table.*</code> is a bidirectional address↔name map with two
 readers: <code>load_z88dk_map()</code> for z88dk linker output, and <code>load_simple_map()</code>
-for a plain <code>SYMBOL = $ADDR</code> list. <code>DebuggerManager</code> owns the table, and the
-disassembly, breakpoint and watch panels all consume it — which is why a
-breakpoint set on a symbol keeps its name in the breakpoint list.</p>
+for a plain <code>SYMBOL = $ADDR</code> list. The debugger backend owns the ONE table
+(CAP-SYM, since GH #278 WP6): the Map menu loads into it with <code>load_map()</code>, and
+the disassembly, call stack and breakpoint panels read <code>symbols()</code> — which is
+why a breakpoint set on a symbol keeps its name in the breakpoint list, and why
+a symbol any other client loads shows in the panels too.</p>
 <h2 id="copying-out-of-a-custom-painted-panel">Copying out of a custom-painted panel<a class="headerlink" href="#copying-out-of-a-custom-painted-panel" title="Permanent link">&para;</a></h2>
 <p>The disassembly panel paints itself, so there is no Qt text widget to inherit a
 selection from — it has to be built against the panel's own line model. Two

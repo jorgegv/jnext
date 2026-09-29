@@ -2882,7 +2882,8 @@ recognises both conventions:</p>
 <li><code>DD 01</code> — the CSpect form</li>
 </ul>
 <p>Enable it with <code>--magic-breakpoint</code>, or <strong>Debug ▸ Magic Breakpoint</strong> in the
-emulator window. When one executes, the machine pauses and the debugger opens
+emulator window; the menu item is ticked whenever it is enabled, whichever way
+you did it. When one executes, the machine pauses and the debugger opens
 itself if it was closed; execution then carries on right after its two bytes.</p>
 <p>When the feature is disabled — and on real hardware — the two forms differ.
 <code>ED FF</code> is a two-byte no-op, so you can leave it in the source. <code>DD 01</code> is not:

@@ -167,9 +167,10 @@ as `BreakpointSet` is the core's legacy breakpoint store, which the hot loop
 still obeys (and the core suites still drive) but no frontend writes any more.
 Since WP4a/b the CPU, MMU, Stack, Call Stack, Sprites, Copper, NextREG and
 Audio panels read — and the NextREG and Audio panels write — through the
-facade as well, and since WP4d so does the Video panel; the Disassembly and
-Memory panels still read the `Emulator` directly until their work package
-moves them.
+facade as well, since WP4d so does the Video panel, and since WP5 the
+Disassembly and Memory panels (the Memory panel writes through it too): no
+panel reads the `Emulator` any more. Since WP6 the symbol table is the
+facade's (CAP-SYM) and the Magic Breakpoint item arms it through CTL-14.
 
 ### The event pipeline (B2)
 
@@ -760,21 +761,26 @@ breakpoint change another client made (below).
 
 The Watches panel stays a GUI-side list — a watch is a peek, not an event — and
 reads its values through `peek(MemSpace::cpu())`, so it moves neither a
-watchpoint nor the +3 floating-bus latch. The Stack panel reads its words the
-same way.
+watchpoint nor the +3 floating-bus latch. The Stack, Memory and Disassembly
+panels read guest memory the same way (the Memory panel a row per peek, the
+disassembly through `memory_reader()`).
 
 The register panels (WP4a/b) are projections of the facade's inspection calls:
 `registers()`, `mmu_slots()` and `paging_ports()`, `ula_screen_regs()`,
 `call_stack()`, `sprites()`, `copper()`, `nextreg_peek()`, `ay_registers()` and
-the three live audio signals. Two of them write, and a write is a mutation the
+the three live audio signals. Three panels write, and a write is a mutation the
 backend logs as one line, `MUTATE <what> <old> -> <new> by <client>`, attributed
 like a verb to the window's client (to no client while the window is closed —
-`DebuggerManager::set_panels_client()` keeps both panels told). A NextREG edit
+`DebuggerManager::set_panels_client()` keeps all three told). A NextREG edit
 is `nextreg_write()`, so the register's own handler runs exactly as for
-`NEXTREG nn,n`; it is refused while an RZX records or plays, since a write the
-recording does not contain would make its replay diverge, and the next refresh
-shows the register's value again. The Audio panel's mute boxes are
-`set_audio_mute_mask()`.
+`NEXTREG nn,n`; a Memory hex edit is `poke(MemSpace::cpu())`, i.e.
+`Mmu::write` through the live map (ROM ignored, overlays honoured, no watch).
+Both are refused while an RZX records or plays, since a write the recording
+does not contain would make its replay diverge; the NextREG cell shows the
+register's value again at the next refresh, the Memory byte simply does not
+change. The Audio panel's mute boxes are `set_audio_mute_mask()`. The Memory
+panel's slot view still reads and writes through the CPU map at the slot's
+range, as it always has; the physical-page view is WP8.
 
 ### The shared socket transport (package T)
 
@@ -856,8 +862,8 @@ branch, not about conditional compilation.
 
 There is a **third** boolean, and it exists because `Mmu::read()` is not the
 CPU's read. The Watches, Memory, Stack and Disassembly panels all
-inspected guest memory through the same `Mmu::read()` the CPU uses (the Watches
-and Stack panels peek since GH #278), so before
+inspected guest memory through the same `Mmu::read()` the CPU uses (all four
+peek since GH #278 WP4c-WP5), so before
 this gate existed a READ watchpoint on any address a panel happened to display
 was latched by the panel's own refresh — at roughly 4 Hz while the machine ran
 — and the next Run or Step stopped one instruction later at an unrelated
@@ -1122,7 +1128,7 @@ introspects:
 |---|---|
 | CPU Registers | the Z80 register file, flags, IFF/IM, halt state, active ULA screen |
 | MMU | the 8 slot→page map with RAM/ROM type, plus the 128K bank view |
-| Disassembly | `src/debug/disasm.*` over `Mmu::read`, with symbol substitution, a breakpoint gutter, and a selection you can copy as assembly |
+| Disassembly | `src/debug/disasm.*` over the backend's `memory_reader()` (a peek), with symbol substitution, a breakpoint gutter, and a selection you can copy as assembly |
 | Memory | raw bytes, either through the CPU's address space or a chosen MMU slot |
 | Stack | words at and above `SP` |
 | Call Stack | `src/debug/call_stack.*`, a shadow stack built from SP deltas, plus a frame for each accepted INT or NMI (`Z80Cpu::last_slot_kind()` says which kind of slot ran); a return pops only the frames below the new SP |
@@ -1197,9 +1203,11 @@ which is why the model diffs rather than trusting the payload.
 
 `src/debug/symbol_table.*` is a bidirectional address↔name map with two
 readers: `load_z88dk_map()` for z88dk linker output, and `load_simple_map()`
-for a plain `SYMBOL = $ADDR` list. `DebuggerManager` owns the table, and the
-disassembly, breakpoint and watch panels all consume it — which is why a
-breakpoint set on a symbol keeps its name in the breakpoint list.
+for a plain `SYMBOL = $ADDR` list. The debugger backend owns the ONE table
+(CAP-SYM, since GH #278 WP6): the Map menu loads into it with `load_map()`, and
+the disassembly, call stack and breakpoint panels read `symbols()` — which is
+why a breakpoint set on a symbol keeps its name in the breakpoint list, and why
+a symbol any other client loads shows in the panels too.
 
 ## Copying out of a custom-painted panel
 
