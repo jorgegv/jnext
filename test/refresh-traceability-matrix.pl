@@ -1079,6 +1079,10 @@ my %NO_MATRIX_SECTION = (
     'io_watchpoint_test'        => 'debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger',
     'bp_enable_test'            => 'debugger breakpoint enable/disable policy (GH #225, jnext-internal); the T80N core has no debugger',
     'resume_step_off_test'      => 'debugger resume/step-off execution control (GH #221, jnext-internal); the T80N core has no debugger',
+    # GH #287 — the debugger protocol servers' shared socket transport. The FPGA
+    # core has no debugger and no host socket; the authority is the backend's
+    # SES-03 `Service` contract and the host socket layer (esp01's seam).
+    'remote_transport_test'     => 'debugger socket transport (GH #287, jnext-internal host sockets); the T80N core has no debugger',
     'debugger_persistent_bp_test' => 'debugger window raise-on-hit (host GUI lifecycle, GH #219)',
     'debugger_inspect_watchpoint_test' => 'debugger INSPECTION reads vs watchpoints (jnext-internal); the T80N core has no panels reading its bus',
     'debugger_video_panel_test' => 'debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build)',
