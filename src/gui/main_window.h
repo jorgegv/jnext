@@ -46,12 +46,14 @@ public:
     /// GH #278 WP2 — the debugger backend of the machine set_emulator() binds:
     /// the loop owner's ONE `jnext::dbg::Debugger` (`QtApp::debugger()`), which
     /// the DebuggerManager adapts. Call it BEFORE set_emulator(); the pointer
-    /// must outlive this window. Without it no DebuggerManager is created.
+    /// must outlive this window. In a debugger build, set_emulator() without
+    /// it throws `std::logic_error` — a window with no debugger is a wiring
+    /// error, never a quiet state.
     void set_debugger(jnext::dbg::Debugger* dbg) { debugger_ = dbg; }
 
     /// Set the emulator pointer for direct callbacks.
     /// When ENABLE_DEBUGGER is defined, also creates the DebuggerManager (over
-    /// the backend set_debugger() supplied).
+    /// the backend set_debugger() supplied; throws `std::logic_error` if none).
     /// Also shows the emulator's machine type (sync_machine_type_display()).
     void set_emulator(Emulator* emu);
 

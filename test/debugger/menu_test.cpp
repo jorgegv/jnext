@@ -111,6 +111,7 @@
 #include "memory/mmu.h"
 #include "platform/emulator_boot.h"
 
+#include <stdexcept>
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
@@ -2190,6 +2191,47 @@ static void test_magic_breakpoint_menu()
               fx.emu.config().magic_breakpoint ? 1 : 0, ram_untick, nr07_untick));
 }
 
+// ── MWD: the main window's debugger is never quietly missing ─────────
+//
+// GH #278 WP2 review round 1. MainWindow builds its DebuggerManager in
+// set_emulator(), over the backend set_debugger() supplied. A caller that
+// forgot set_debugger() used to get a window with NO debugger — no Debug
+// button, View > Debugger dead, the debugger keys unforwarded — and nothing
+// said so (six suites' fixtures were in exactly that state). Now it is a
+// wiring error, refused loudly before anything is bound.
+
+static void test_main_window_debugger_wiring()
+{
+    set_group("MWD");
+
+    Emulator emu;
+    const bool ok = build_next_emulator(emu);
+    jnext::dbg::Debugger backend(emu);
+    MainWindow win;
+
+    bool        threw = false;
+    std::string what;
+    try {
+        win.set_emulator(&emu);                 // no set_debugger() first
+    } catch (const std::logic_error& e) {
+        threw = true;
+        what  = e.what();
+    }
+    const bool refused_unbuilt = threw && win.debugger_manager() == nullptr &&
+                                 what.find("set_debugger") != std::string::npos;
+
+    win.set_debugger(&backend);                  // the control: wired, it builds
+    win.set_emulator(&emu);
+    const bool built = win.debugger_manager() != nullptr;
+    if (built) win.debugger_manager()->set_enabled(false, /*prompt_on_corrupt=*/false);
+
+    check("MWD-01", "set_emulator() with no debugger backend throws (naming "
+          "set_debugger()) and builds no manager; after set_debugger() it builds one",
+          ok && refused_unbuilt && built,
+          fmt("threw=%d what='%s' manager after refusal=%d manager when wired=%d",
+              threw, what.c_str(), refused_unbuilt, built));
+}
+
 int main(int argc, char** argv)
 {
     // Both windows own QWidgets, so a QApplication is required — but not a
@@ -2229,6 +2271,8 @@ int main(int argc, char** argv)
     std::printf("  Group: F5R            — done\n");
     test_magic_breakpoint_menu();
     std::printf("  Group: MBP            — done\n");
+    test_main_window_debugger_wiring();
+    std::printf("  Group: MWD            — done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
