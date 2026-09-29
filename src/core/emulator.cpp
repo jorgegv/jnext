@@ -11933,26 +11933,24 @@ void Emulator::tick_copper_for_master_cycles(uint64_t begin, uint64_t master_cyc
     const int mcpl_i = static_cast<int>(mcpl);
 
     // GH #290 — the offset the Copper's cvc counts from: the value of the
-    // last reload, not the NR 0x64 register. `cvc` above is rebased so that
-    // it wraps to 0 exactly AT the reload (the ula_min_vactive line starts at
-    // hc_ula 0), so the side of it the window starts on picks the offset,
-    // and the wrap switches it. advance_copper_across_row_boundaries() splits
-    // the window at the reload event, so in a running frame the wrap arm
-    // never switches anything; it keeps a window that spans the reload
-    // without that split (a harness driving instructions with no frame
-    // events) consistent with cvc_at(), whose side-of-the-reload test this
-    // is — on the UNFOLDED position, so the few cycles an instruction runs
-    // past the frame end count from what this frame's reload loaded.
-    uint8_t cvc_offset = elapsed0 >= video_timing_.cvc_reload_master_cycle_offset()
-                             ? cvc_offset_after_reload_()
-                             : video_timing_.cu_offset();
+    // last reload, not the NR 0x64 register. Which reload is decided by the
+    // side of this frame's reload the window STARTS on, tested on the unfolded
+    // position as cvc_at() does, so the few cycles an instruction runs past
+    // the frame end count from what this frame's reload loaded. One value
+    // serves the whole window because no window spans the reload:
+    // advance_copper_across_row_boundaries() splits it at the reload event.
+    // (A caller that drives instructions with no frame events has no reload
+    // to split at, and gets the starting side's value for that one window.)
+    const uint8_t cvc_offset =
+        elapsed0 >= video_timing_.cvc_reload_master_cycle_offset()
+            ? cvc_offset_after_reload_()
+            : video_timing_.cu_offset();
 
     for (uint64_t c = 0; c < master_cycles; ++c) {
         copper_.execute(line_mc >> 2, cvc, nextreg_, cvc_offset);
         if (++line_mc == mcpl_i) {
             line_mc = 0;
             if (++cvc == lpf) cvc = 0;
-            if (cvc == 0) cvc_offset = cvc_offset_after_reload_();
         }
     }
 }
