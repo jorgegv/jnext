@@ -4143,6 +4143,300 @@ static void q_wp2_host_order_rows() {
           ok && armed && first && total, seen);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// GH #278 WP3 — the rewind verbs as the Qt window drives them (CTL-09/10,
+// ST-03), B3 obligation 3, and the trace export (INS-13). A contiguous block,
+// kept apart from the parallel WP4d work in this file.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// A 48K machine with an `frames`-slot rewind ring and the trace on, running a
+/// counter loop (8000 INC HL / 8001 JR 8000) so every frame's snapshot holds a
+/// different machine.
+static void q_wp3_ring_machine(Emulator& emu, int frames) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZX48K;
+    cfg.rewind_buffer_frames = frames;
+    emu.init(cfg);
+    load_prog(emu, { 0x23, 0x18, 0xFD });
+    Z80Registers r = emu.cpu().get_registers();
+    r.HL = 0;
+    emu.cpu().set_registers(r);
+    emu.trace_log().set_enabled(true);
+}
+
+/// Flip the 'mmu' sentinel (ordinal 2) in ring slot `i` — rewind_test's
+/// SENT-CHAIN idiom: a restore of that slot tears the machine at 'mmu'.
+static bool q_wp3_tear_slot(Emulator& emu, size_t i) {
+    RewindBuffer* rb = emu.rewind_buffer();
+    const uint32_t want = Emulator::kStateSentinelMagic ^ 2u;
+    uint8_t* d = rb->slot_data_for_test(i);
+    for (size_t off = 0; off + 4 <= rb->snapshot_bytes(); ++off) {
+        uint32_t v;
+        std::memcpy(&v, d + off, 4);
+        if (v == want) { d[off] ^= 0xFF; return true; }
+    }
+    return false;
+}
+
+static void q_wp3_rewind_rows() {
+    // ── The classification: RefusedCorrupt only when a restore tore the
+    //    machine, RefusedUnavailable for every benign refusal ────────────────
+    {
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        for (int i = 0; i < 4; ++i) emu.run_frame();
+        dbg.pause(a);
+        emu.trace_log().set_enabled(false);
+        const uint64_t gen = emu.state_error_generation();
+        const Result r = dbg.step_back(a, 1);
+        check("CTL-09-02", "step_back() with the trace OFF is the benign "
+                           "RefusedUnavailable, not RefusedCorrupt, and latches nothing",
+              r == Result::RefusedUnavailable && emu.state_error_generation() == gen &&
+                  !dbg.resume_blocked_by_corruption().has_value(),
+              std::string("rc=") + jnext::dbg::result_name(r));
+        emu.trace_log().set_enabled(true);
+        dbg.trace_clear();
+        const Result r2 = dbg.step_back(a, 1);   // an empty trace, the same class
+        check("CTL-09-03", "and with the trace ON but EMPTY, the same",
+              r2 == Result::RefusedUnavailable,
+              std::string("rc=") + jnext::dbg::result_name(r2));
+    }
+    {
+        // A ring with a GAP: snapshotting paused for two frames, so frames
+        // inside [oldest, newest] exist that have no slot. The Emulator returns
+        // the same `false` for "no such slot" as for a torn restore.
+        Emulator emu;
+        q_wp3_ring_machine(emu, 20);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        dbg.set_rewind_enabled(false);
+        for (int i = 0; i < 2; ++i) emu.run_frame();
+        dbg.set_rewind_enabled(true);
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        dbg.pause(a);
+        const auto rr = dbg.rewind_range();
+        const uint32_t hole = rr.oldest_frame + 3;
+        const uint64_t gen = emu.state_error_generation();
+        const uint64_t at  = dbg.time().master_cycle;
+        const Result r = dbg.rewind_to_frame(a, hole);
+        check("CTL-10-05", "rewind_to_frame() to a frame INSIDE the ring's range with "
+                           "no slot (a gap) is RefusedUnavailable, not RefusedCorrupt, "
+                           "and leaves the machine where it was",
+              rr.depth == 6 && r == Result::RefusedUnavailable &&
+                  emu.state_error_generation() == gen && dbg.time().master_cycle == at,
+              "depth=" + std::to_string(rr.depth) + " frames " +
+                  std::to_string(rr.oldest_frame) + ".." + std::to_string(rr.newest_frame) +
+                  " rc=" + jnext::dbg::result_name(r));
+    }
+    {
+        // A TORN restore IS RefusedCorrupt — for both verbs — and latches the
+        // incident the Qt window's "Rewind Failed" modal names. The newest slot
+        // stays intact: Emulator::rewind_to_frame() restores it first.
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        for (int i = 0; i < 5; ++i) emu.run_frame();
+        dbg.pause(a);
+        RewindBuffer* rb = emu.rewind_buffer();
+        bool torn = true;
+        for (size_t i = 0; i + 1 < rb->depth(); ++i) torn = q_wp3_tear_slot(emu, i) && torn;
+        const auto rr = dbg.rewind_range();
+        const Result r = dbg.rewind_to_frame(a, rr.oldest_frame);
+        const auto inc = dbg.resume_blocked_by_corruption();
+        check("CTL-10-06", "a TORN restore in rewind_to_frame() is RefusedCorrupt, "
+                           "with the incident naming the subsystem",
+              torn && r == Result::RefusedCorrupt && inc.has_value() &&
+                  inc->subsystem == "mmu",
+              std::string("rc=") + jnext::dbg::result_name(r));
+
+        // RECOVERY: the machine is corrupt and nothing acknowledged it — a
+        // rewind to the INTACT newest slot is not gated on that (CTL-11 is for
+        // executing a torn machine; a rewind replaces it), it succeeds, and the
+        // successful restore clears the corruption.
+        const Result back = dbg.rewind_to_frame(a, rr.newest_frame);
+        check("CTL-10-07", "a rewind from a CORRUPT machine to an intact frame is not "
+                           "refused: it succeeds and the corruption is gone",
+              back == Result::Ok && !dbg.resume_blocked_by_corruption().has_value() &&
+                  emu.last_state_error().empty() && dbg.time().frame == rr.newest_frame,
+              std::string("rc=") + jnext::dbg::result_name(back) + " err='" +
+                  emu.last_state_error() + "'");
+    }
+    {
+        // A torn NEWEST slot is only that frame's problem: rewinding to another
+        // frame restores that frame alone (it used to restore the newest first,
+        // unconditionally, and fail every rewind on it).
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        for (int i = 0; i < 4; ++i) emu.run_frame();
+        dbg.pause(a);
+        RewindBuffer* rb = emu.rewind_buffer();
+        const bool torn = q_wp3_tear_slot(emu, rb->depth() - 1);
+        const auto rr = dbg.rewind_range();
+        const Result r = dbg.rewind_to_frame(a, rr.oldest_frame);
+        check("CTL-10-08", "with only the NEWEST slot torn, rewind_to_frame() to the "
+                           "oldest succeeds and latches no corruption",
+              torn && r == Result::Ok && dbg.time().frame == rr.oldest_frame &&
+                  !dbg.resume_blocked_by_corruption().has_value(),
+              std::string("rc=") + jnext::dbg::result_name(r));
+    }
+    {
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        for (int i = 0; i < 4; ++i) emu.run_frame();
+        dbg.pause(a);
+        RewindBuffer* rb = emu.rewind_buffer();
+        bool torn = true;
+        for (size_t i = 0; i < rb->depth(); ++i) torn = q_wp3_tear_slot(emu, i) && torn;
+        const Result r = dbg.step_back(a, 1);
+        const auto inc = dbg.resume_blocked_by_corruption();
+        check("CTL-09-04", "a TORN restore in step_back() is RefusedCorrupt, with the "
+                           "incident naming the subsystem",
+              torn && r == Result::RefusedCorrupt && inc.has_value() &&
+                  inc->subsystem == "mmu",
+              std::string("rc=") + jnext::dbg::result_name(r));
+    }
+    {
+        // ST-03 — 0 frees an EXISTING ring; a later non-zero resize creates a
+        // fresh one.
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        const bool had = dbg.rewind_range().depth == 3;
+        const Result r0 = dbg.resize_rewind_buffer(0);
+        const auto freed = dbg.rewind_range();
+        const bool blocked = dbg.rewind_blocked().has_value() &&
+                             *dbg.rewind_blocked() == Result::RefusedUnavailable;
+        check("ST-03-09", "resize_rewind_buffer(0) FREES an existing ring: capacity "
+                          "and depth 0, rewinds refused as unavailable",
+              had && r0 == Result::Ok && freed.capacity == 0 && freed.depth == 0 &&
+                  !dbg.rewind_enabled() && blocked);
+        const Result r5 = dbg.resize_rewind_buffer(5);
+        for (int i = 0; i < 2; ++i) emu.run_frame();
+        const auto again = dbg.rewind_range();
+        check("ST-03-10", "and a later non-zero resize creates a fresh ring that "
+                          "records again",
+              r5 == Result::Ok && again.capacity == 5 && again.depth == 2 &&
+                  dbg.rewind_enabled() && !dbg.rewind_blocked().has_value(),
+              "capacity=" + std::to_string(again.capacity) +
+                  " depth=" + std::to_string(again.depth));
+    }
+
+    // ── B3 obligation 3: a client's rewind leaves nothing armed behind it ──
+    {
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("remote", jnext::dbg::ClientKind::Dzrp)).value;
+        for (int i = 0; i < 4; ++i) emu.run_frame();
+        dbg.pause(a);
+        const Result r = dbg.step_back(a, 1);
+        const bool stepped = r == Result::Ok && dbg.state().paused;
+        dbg.detach(a);
+        check("OBL3-01", "a remote client's step_back(), then its detach: the machine "
+                         "is neither armed nor attached, the raster walk is off, and "
+                         "it runs (the pause was the client's)",
+              stepped && !dbg.armed() && !dbg.attached() && !dbg.live_raster() &&
+                  !emu.debug_state().raster_live() && !emu.debug_state().active() &&
+                  !dbg.state().paused,
+              std::string("rc=") + jnext::dbg::result_name(r) +
+                  " armed=" + (dbg.armed() ? "1" : "0") +
+                  " active=" + (emu.debug_state().active() ? "1" : "0"));
+    }
+    {
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("remote", jnext::dbg::ClientKind::Dzrp)).value;
+        for (int i = 0; i < 4; ++i) emu.run_frame();
+        dbg.pause(a);
+        const Result r = dbg.rewind_to_frame(a, dbg.rewind_range().oldest_frame);
+        const bool rewound = r == Result::Ok && dbg.state().paused;
+        dbg.detach(a);
+        check("OBL3-02", "and the same for rewind_to_frame()",
+              rewound && !dbg.armed() && !dbg.attached() &&
+                  !emu.debug_state().raster_live() && !emu.debug_state().active() &&
+                  !dbg.state().paused,
+              std::string("rc=") + jnext::dbg::result_name(r) +
+                  " armed=" + (dbg.armed() ? "1" : "0"));
+    }
+    {
+        // The replay still STOPS at its target with nothing attached at all:
+        // it is armed for the replay loop alone (DebugState::ReplayArmScope) —
+        // the arm it used to borrow from the Qt window's bit and keep.
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        emu.run_frame();
+        emu.run_frame();
+        const uint64_t mid = emu.current_frame_cycle() +
+                             emu.timing().master_cycles_per_frame / 3;
+        while (emu.clock().get() < mid) emu.execute_single_instruction();
+        const size_t n = emu.trace_log().size();
+        // step_back(1) undoes the LAST instruction: it lands on trace[size-1].
+        const uint64_t want = n >= 1 ? emu.trace_log().at(n - 1).cycle : 0;
+        const uint16_t want_pc = n >= 1 ? emu.trace_log().at(n - 1).pc : 0;
+        const bool unarmed_before = !emu.debug_state().armed();
+        const bool ok = emu.step_back(1);
+        check("OBL3-03", "with NOTHING attached, step_back() still lands on its target "
+                         "instruction, and leaves the machine unarmed",
+              unarmed_before && ok && emu.clock().get() == want && pc_of(emu) == want_pc &&
+                  !emu.debug_state().armed() && !emu.debug_state().active(),
+              "cycle " + std::to_string(emu.clock().get()) + " want " +
+                  std::to_string(want) + " pc " + hex(pc_of(emu)) + " want " + hex(want_pc));
+    }
+}
+
+/// INS-13 — the export writes EVERY field of the entry (GH #278 WP3): the ones
+/// GH #276 B4 added (I, R, IM, IFF1/IFF2, the word at SP, the eight MMU pages)
+/// were recorded and never written.
+static void q_wp3_trace_export_rows() {
+    Emulator emu;
+    build(emu);
+    Debugger dbg(emu);
+    Z80Registers r = emu.cpu().get_registers();
+    r.AF = 0x12D5; r.BC = 0x3456; r.DE = 0x789A; r.HL = 0xBCDE;
+    r.AF2 = 0x1111; r.BC2 = 0x2222; r.DE2 = 0x3333; r.HL2 = 0x4444;
+    r.IX = 0x5555; r.IY = 0x6666;
+    r.I = 0x3F; r.R = 0x05; r.IM = 1; r.IFF1 = 0; r.IFF2 = 1;   // no INT taken
+    emu.cpu().set_registers(r);
+    emu.mmu().write(TEST_SP, 0xCD);
+    emu.mmu().write(TEST_SP + 1, 0xAB);
+    dbg.set_trace_enabled(true);
+    dbg.trace_clear();
+    emu.execute_single_instruction();              // 8000 NOP
+    const TraceEntry e = emu.trace_log().at(0);
+    const std::string path = "/tmp/jnext_q_wp3_trace_" + std::to_string(::getpid()) + ".txt";
+    const Result rc = dbg.trace_export(path);
+    std::string line;
+    {
+        std::ifstream f(path);
+        std::getline(f, line);
+    }
+    std::remove(path.c_str());
+    char want[320];
+    std::snprintf(want, sizeof(want),
+        "%012llu  $8000  AF=12D5 BC=3456 DE=789A HL=BCDE"
+        "  AF'=1111 BC'=2222 DE'=3333 HL'=4444"
+        "  IX=5555 IY=6666 SP=FF00"
+        "  (SP)=ABCD I=3F R=%02X IM1 IFF1=0 IFF2=1"
+        "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X  [SZ-H-P-C]  00",
+        static_cast<unsigned long long>(e.cycle), e.r,
+        e.mmu[0], e.mmu[1], e.mmu[2], e.mmu[3], e.mmu[4], e.mmu[5], e.mmu[6], e.mmu[7]);
+    check("INS-13-14", "trace_export() writes every TraceEntry field — the word at SP, "
+                       "I, R, IM, IFF1, IFF2 and the eight MMU pages included — in "
+                       "the documented column order",
+          rc == Result::Ok && e.sp_word == 0xABCD && e.i == 0x3F && line == want,
+          "got  '" + line + "'\nwant '" + want + "'");
+}
+
 int main() {
     std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
 
@@ -5665,8 +5959,15 @@ int main() {
               !dbg.rewind_enabled());
         check("ST-03-06", "set_rewind_enabled(true) round-trips",
               dbg.set_rewind_enabled(true) == Result::Ok && dbg.rewind_enabled());
-        check("ST-03-07", "resize_rewind_buffer(0) is refused",
-              dbg.resize_rewind_buffer(0) == Result::RefusedUnavailable);
+        // GH #278 WP3 (manager decision 2026-09-29) — 0 FREES the ring, as the
+        // Emulator accessor CAP-ST-03 names does; B1 refused it, which left the
+        // Qt window's Rewind Buffer Size… = 0 with no published way to free.
+        // (Expected value flipped from RefusedUnavailable; ST-03-09 pins the
+        // free on a ring that exists.)
+        check("ST-03-07", "resize_rewind_buffer(0) with no ring is accepted and "
+                          "leaves none",
+              dbg.resize_rewind_buffer(0) == Result::Ok &&
+              dbg.rewind_range().capacity == 0);
         check("ST-03-08", "resize_rewind_buffer(n) sets the capacity to n",
               dbg.resize_rewind_buffer(16) == Result::Ok &&
               dbg.rewind_range().capacity == 16,
@@ -13643,6 +13944,8 @@ int main() {
     b5_detach_rows();
     b5_host_probe_rows();
     q_wp2_host_order_rows();
+    q_wp3_rewind_rows();          // GH #278 WP3
+    q_wp3_trace_export_rows();    // GH #278 WP3
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

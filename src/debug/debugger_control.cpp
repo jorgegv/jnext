@@ -360,10 +360,41 @@ Result Debugger::run_to_end_of_scanline(ClientId by) {
 // CTL-09 / CTL-10 — reverse execution
 //
 // SYNCHRONOUS, and the three refusals are distinguished (§4.1): `RefusedRzx`,
-// `RefusedUnavailable` (nothing to rewind to, or a frame outside the ring) and
-// `RefusedCorrupt` (the restore itself failed and left the machine torn — which
-// is the case DebuggerManager surfaces with warn_state_corrupt()).
+// `RefusedUnavailable` (nothing to rewind to, a frame outside the ring, or no
+// trace to find the instruction in) and `RefusedCorrupt` (the restore itself
+// failed and left the machine torn — the case DebuggerManager surfaces with
+// warn_state_corrupt()).
+//
+// GH #278 WP3 — WHICH FAILURE IT WAS IS READ OFF THE CORRUPTION COUNTER, not
+// guessed from the `false`. `Emulator::step_back()` / `rewind_to_frame()`
+// return the same `false` for a benign refusal (the trace is off or empty, the
+// frame has no snapshot) as for a torn restore, and these verbs used to call
+// every one of them `RefusedCorrupt` — so a client was told the machine was
+// corrupt when nothing had been touched, and the Qt window would have shown its
+// "Rewind Failed" modal for a trace that was merely switched off (QRW-14). A
+// torn restore is exactly the event that bumps `state_error_generation()`
+// (`Emulator::load_state()`), so a counter that moved during the call is the
+// one answer that means corrupt.
+//
+// NOT GATED ON AN EARLIER CORRUPTION (GH #278 WP3). CTL-11 stops a torn machine
+// from EXECUTING; a rewind does not execute it, it REPLACES it — and a restore
+// that succeeds clears `last_state_error()` (`load_state()` starts by clearing
+// it), so rewinding is how a user gets OUT of a corrupt state short of a reset.
+// The Qt window has always allowed it, without a prompt. Gating it here would
+// have refused the one way back with a "could not restore" that never tried.
 // ---------------------------------------------------------------------------
+
+namespace {
+
+/// The result of a rewind the Emulator reported as failed: `RefusedCorrupt`
+/// iff a restore tore the machine (the corruption counter moved), else the
+/// benign `RefusedUnavailable`.
+Result rewind_failure(const Emulator& emu, uint64_t gen_before) {
+    return emu.state_error_generation() != gen_before ? Result::RefusedCorrupt
+                                                      : Result::RefusedUnavailable;
+}
+
+}  // namespace
 
 Result Debugger::step_back(ClientId by, uint32_t n) {
     if (const Result nested = impl_->refuse_inside_delivery("step_back"); nested != Result::Ok)
@@ -371,11 +402,9 @@ Result Debugger::step_back(ClientId by, uint32_t n) {
     const Result refusal = impl_->rewind_refusal();
     if (refusal != Result::Ok) return refusal;
 
-    const Result gate = impl_->execute_gate();
-    if (gate != Result::Ok) return gate;
-
+    const uint64_t gen = impl_->emu.state_error_generation();
     if (!impl_->emu.step_back(static_cast<int>(n == 0 ? 1 : n)))
-        return Result::RefusedCorrupt;
+        return rewind_failure(impl_->emu, gen);
 
     impl_->arm(PauseReason::Kind::Step, by);
     return Result::Ok;
@@ -387,9 +416,6 @@ Result Debugger::rewind_to_frame(ClientId by, uint32_t frame) {
     const Result refusal = impl_->rewind_refusal();
     if (refusal != Result::Ok) return refusal;
 
-    const Result gate = impl_->execute_gate();
-    if (gate != Result::Ok) return gate;
-
     // A frame outside the ring is BENIGN (§4 `RefusedUnavailable`), not a
     // corruption: Emulator::rewind_to_frame() range-checks it and returns false
     // without attempting a restore, which is the same false a torn restore
@@ -399,7 +425,8 @@ Result Debugger::rewind_to_frame(ClientId by, uint32_t frame) {
     if (frame < rb->oldest_frame_num() || frame > rb->newest_frame_num())
         return Result::RefusedUnavailable;
 
-    if (!impl_->emu.rewind_to_frame(frame)) return Result::RefusedCorrupt;
+    const uint64_t gen = impl_->emu.state_error_generation();
+    if (!impl_->emu.rewind_to_frame(frame)) return rewind_failure(impl_->emu, gen);
 
     impl_->arm(PauseReason::Kind::Step, by);
     return Result::Ok;

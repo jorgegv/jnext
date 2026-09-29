@@ -533,8 +533,14 @@ std::optional<Result> Debugger::rewind_blocked() const {
     return r;
 }
 
+// ST-03 — `frames == 0` FREES the ring (GH #278 WP3, manager decision
+// 2026-09-29). CAP-ST-03 defines this verb as the existing
+// `Emulator::resize_rewind_buffer()`, which frees the ring on 0, and the Qt
+// window's Rewind Buffer Size… = 0 is how a user gives the memory back (QRW-16).
+// B1 refused 0 — the one deviation from the accessor it wraps, and it left the
+// Qt adapter with no published way to free the ring. A later non-zero resize
+// creates a fresh one (ST-03-09).
 Result Debugger::resize_rewind_buffer(size_t frames) {
-    if (frames == 0) return Result::RefusedUnavailable;
     impl_->emu.resize_rewind_buffer(static_cast<int>(frames));
     return Result::Ok;
 }

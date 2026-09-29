@@ -829,7 +829,7 @@ public:
     /// the same `Result` the verb would return, or empty if it would succeed.
     std::optional<Result> rewind_blocked() const;
 
-    /// ST-03 — resize the ring, in frames.
+    /// ST-03 — resize the ring, in frames. `0` frees it.
     Result resize_rewind_buffer(size_t frames);
 
     // =======================================================================
