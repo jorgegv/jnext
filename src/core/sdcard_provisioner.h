@@ -37,12 +37,34 @@
 /// The network fetch, the unzip, and the FAT32 patch are separate functions so
 /// each is independently unit-testable offline; the network fetch and the user
 /// confirmation are behind std::function seams so tests never touch the network.
+struct Fat32Tree; // core/fat32_image.h
+
 namespace sdcard {
 
 // Canonical constants.
 extern const char* const kDistroUrl;           // specnext distro zip URL
 extern const char* const kImageFileName;       // "cspect-next-1gb.img" (raw)
 extern const char* const kFixedImageFileName;  // "cspect-next-1gb-fixed.img"
+
+// The version of the recipe that turns the raw image into the fixed one
+// (patch_image_fat32). Bump it whenever that recipe changes what it writes.
+//   1 — FAT32 re-cluster to 8 KB clusters + default config.ini (Task 27).
+//       Images made by this recipe carry no recipe sidecar.
+//   2 — also doubles the 16 KB zx81.rom (GH #284).
+// provision_sd_card records it next to the image it derives, in
+// "<fixed image>" + kFixedImageRecipeSuffix, as the number and a newline.
+// jnext itself never rebuilds an existing image because that number is old or
+// missing: the image holds the user's own files. The regression suite's
+// test-owned master IS rebuilt on it (test/00regression/scripts/
+// 01-sdcard-provision.sh reads this constant from the .cpp, so keep its
+// definition on one line in the form `const int kFixedImageRecipe = N;`).
+extern const int kFixedImageRecipe;
+extern const char* const kFixedImageRecipeSuffix; // ".recipe"
+
+// GH #284 — SHA-256 of the 16 KB /MACHINES/NEXT/zx81.rom the 24.11
+// distribution image ships (Paul Farrow's ZX81 emulator v3.13, tbblue commit
+// 751d0b31).
+extern const char* const kZx81Rom16kSha256;
 
 // <config-dir>/sdcard, where <config-dir> is $JNEXT_CONFIG_DIR when set and
 // non-empty, else $HOME/.jnext. The override matches AppConfig and the
@@ -132,10 +154,21 @@ std::string sha256_file(const std::string& path);
 bool unzip_entry(const std::string& zip_path, const std::string& entry_basename,
                  const std::string& out_path, std::string& err);
 
+// GH #284. If `tree` holds MACHINES/NEXT/zx81.rom (matched case-insensitively)
+// and that file is exactly the 16 KB file whose SHA-256 is `known_sha256`,
+// replace it with itself twice (32 KB) and return true. Any other zx81.rom is
+// left untouched, and a missing one is not created; both return false.
+bool double_known_zx81_rom(Fat32Tree& tree, const std::string& known_sha256);
+
 // Fix a freshly extracted image in place: FAT32 recluster to 8 KB clusters
-// (so cluster count clears the FAT32 spec minimum) and inject the default
-// /MACHINES/NEXT/config.ini. Returns true on success, else sets `err`.
-bool patch_image_fat32(const std::string& image_path, std::string& err);
+// (so cluster count clears the FAT32 spec minimum), inject the default
+// /MACHINES/NEXT/config.ini, and double the known 16 KB zx81.rom
+// (double_known_zx81_rom). This is recipe kFixedImageRecipe. Returns true on
+// success, else sets `err`. `zx81_known_sha256` is a test seam: tests cannot
+// ship the ROM, so they pass the hash of a stand-in file. Production callers
+// leave the default.
+bool patch_image_fat32(const std::string& image_path, std::string& err,
+                       const std::string& zx81_known_sha256 = kZx81Rom16kSha256);
 
 struct ProvisionOptions {
     std::string explicit_path;      // --sdcard value ("" if not given)
