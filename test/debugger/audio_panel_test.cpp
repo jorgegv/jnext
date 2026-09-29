@@ -593,6 +593,32 @@ static void test_ay_register_table(Emulator& emu) {
           table && bad.empty(), bad);
 }
 
+// ── DAP-TS: the TurboSound line ────────────────────────────────────────
+//
+// GH #278 WP4b — "TurboSound: Yes/No" is the third live signal of the Info box
+// (`nr_08_psg_turbosound_en`, NR 0x08 bit 1, zxnext.vhd — TurboSound::enabled()),
+// now the backend's turbosound_enabled(). No row read it: a label printing the
+// signal inverted survived every other row (measured).
+
+static void test_turbosound_label(Emulator& emu) {
+    set_group("DAP-TS");
+
+    if (!build_next_emulator(emu)) { check("DAP-17", "emulator init", false); return; }
+    nr_write(emu, 0x08, 0x00);
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+    AudioPanel panel(&dbg);
+    panel.refresh();
+    const QString off = label_text(panel, "TurboSound:");
+    nr_write(emu, 0x08, 0x02);                  // bit 1: turbosound_en
+    panel.refresh();
+    const QString on = label_text(panel, "TurboSound:");
+    check("DAP-17", "NR 0x08 bit 1 clear shows TurboSound: No, set shows "
+          "TurboSound: Yes (the live enable)",
+          off == "TurboSound: No" && on == "TurboSound: Yes",
+          fmt("clear=\"%s\" set=\"%s\"", off.toUtf8().constData(),
+              on.toUtf8().constData()));
+}
+
 int main(int argc, char** argv) {
     // A QWidget needs a QApplication, but not a display.
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -609,6 +635,8 @@ int main(int argc, char** argv) {
     std::printf("  Group: DAP-INVIS      — done\n");
     test_ay_register_table(emu);
     std::printf("  Group: DAP-REGS       — done\n");
+    test_turbosound_label(emu);
+    std::printf("  Group: DAP-TS         — done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

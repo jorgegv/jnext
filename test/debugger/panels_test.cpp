@@ -970,6 +970,7 @@ static void test_sprite_panel() {
         check("QPN-SPR-03", "fixture: Next machine", false);
         check("QPN-SPR-04", "fixture: Next machine", false);
         check("QPN-SPR-05", "fixture: Next machine", false);
+        check("QPN-SPR-06", "fixture: Next machine", false);
         return;
     }
     // Sprite 5: extended, X = $134 (MSB set), Y = $156 (MSB in byte 4), pal 10,
@@ -1039,6 +1040,24 @@ static void test_sprite_panel() {
               s(cell(&panel, 5, 9)).c_str(), s(cell(&panel, 8, 8)).c_str(),
               s(cell(&panel, 8, 9)).c_str(), s(cell(&panel, 6, 8)).c_str(),
               s(cell(&panel, 6, 9)).c_str()));
+
+    // QPN-SPR-06 — GH #278 WP4b: the table's two ENDS are refreshed too. The
+    // rows above sit at 5..8, so a refresh loop that stopped one short (or
+    // started one late) was invisible to them — measured: a loop bound of
+    // sprites().size() - 1 survived every row.
+    put_sprite(emu, 0,   {0x21, 0x31, 0x00, 0x80 | 0x0A});   // X 33, Y 49, pat 0A
+    put_sprite(emu, 127, {0x40, 0x50, 0x00, 0x80 | 0x07});   // X 64, Y 80, pat 07
+    panel.refresh();
+    check("QPN-SPR-06",
+          "the first and the last sprite (0 and 127) are shown like any other",
+          cell(&panel, 0, 1) == "33" && cell(&panel, 0, 2) == "49" &&
+              cell(&panel, 0, 3) == "0A" && cell(&panel, 127, 0) == "127" &&
+              cell(&panel, 127, 1) == "64" && cell(&panel, 127, 2) == "80" &&
+              cell(&panel, 127, 3) == "07",
+          fmt("0: %s/%s/%s  127(#%s): %s/%s/%s", s(cell(&panel, 0, 1)).c_str(),
+              s(cell(&panel, 0, 2)).c_str(), s(cell(&panel, 0, 3)).c_str(),
+              s(cell(&panel, 127, 0)).c_str(), s(cell(&panel, 127, 1)).c_str(),
+              s(cell(&panel, 127, 2)).c_str(), s(cell(&panel, 127, 3)).c_str()));
 }
 
 // ===========================================================================
@@ -1135,6 +1154,24 @@ static void test_copper_panel() {
               ok && running_ok && stopped_ok,
               d1 + fmt(" / stopped: checked=%d label='%s'", run && run->isChecked(),
                        s(text_of(pcl)).c_str()));
+
+        // QPN-COP-05 — GH #278 WP4b: the Mode is the 2-bit NR 0x62 mode
+        // (7:6), not the running flag — the two agree on modes 0 and 1, which
+        // is all QPN-COP-02 drives, and a label printing the flag survived it.
+        emu.nextreg().write(0x62, 0x80);                    // mode 10
+        panel.refresh();
+        const QString mode2 = text_of(pcl);
+        const bool run2 = run && run->isChecked();
+        emu.nextreg().write(0x62, 0xC0);                    // mode 11
+        panel.refresh();
+        const QString mode3 = text_of(pcl);
+        const bool run3 = run && run->isChecked();
+        check("QPN-COP-05",
+              "modes 2 and 3 show as \"Mode: 2\" / \"Mode: 3\", with the Running box "
+              "checked",
+              ok && mode2.endsWith("Mode: 2") && mode3.endsWith("Mode: 3") && run2 && run3,
+              fmt("mode 10: '%s' checked=%d; mode 11: '%s' checked=%d",
+                  s(mode2).c_str(), run2, s(mode3).c_str(), run3));
     }
 
     {
