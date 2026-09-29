@@ -1817,7 +1817,11 @@ build — while the Qt <em>UI</em> sits above both and can be compiled out entir
 breakpoint and watchpoint sets, execution-control state, instruction trace log,
 call-stack tracker, symbol table, rewind ring buffer, and the raster-state
 derivation (<code>raster_state.*</code>) behind the Video panel's beam/fetch indicator. It
-has <strong>no Qt dependency at all</strong>. <strong><code>src/debugger/</code></strong> (target <code>jnext_debugger</code>) is the Qt 6 UI and
+has <strong>no Qt dependency at all</strong>, and that is gated rather than stated:
+<code>debug_qt_free_test</code> fails every <code>make unit-test</code> if a Qt include directive or a
+<code>*_qt.*</code> file appears under <code>src/debug/</code>. The Qt code both Qt libraries share —
+the debugger keymap's Qt conversions, the menu-bar Alt-navigation style — lives in
+the header-only <code>src/qt/</code> instead. <strong><code>src/debugger/</code></strong> (target <code>jnext_debugger</code>) is the Qt 6 UI and
 nothing else — panels, menus, the debugger window.</p>
 <p>Three things fall out of that. The backend is testable without a GUI:
 <code>rewind_test</code> and <code>resume_guard_test</code> link it with no Qt anywhere, while the
@@ -2703,7 +2707,8 @@ debugger-less build, or <code>PreferencesDialog::collect()</code> — which rebu
 pressed OK. And not in <code>src/gui/</code> either, because <code>ENABLE_QT_UI=OFF</code> with
 <code>ENABLE_DEBUGGER=ON</code> is a real build-matrix combination in which <code>jnext_gui</code>
 does not exist. The Qt conversions sit in the header-only
-<code>src/debug/debug_keymap_qt.h</code>, which <code>jnext_debug</code> itself never compiles.</p>
+<code>src/qt/debug_keymap_qt.h</code>, beside the model's other Qt-only consumers rather
+than inside the Qt-free library's directory.</p>
 <p><strong>The vocabulary is bounded.</strong> <code>Key</code> is an enum of function keys, letters,
 digits and sixteen named keys, not a mirror of <code>Qt::Key</code>. That is what makes
 <code>parse_combo()</code> able to refuse a value <em>by name</em>, makes <code>render_combo()</code>

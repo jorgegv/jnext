@@ -3,12 +3,11 @@
 // GH #268 — a bare Alt tap must never take the keyboard away from what the
 // user is typing into.
 //
-// HEADER-ONLY, and in src/debug/ for exactly the reason debug_keymap_qt.h
-// gives next door: BOTH jnext_gui (the emulator window) and jnext_debugger
-// (the debugger window) need it, and putting it in either directory would
-// create a link edge between them that the ENABLE_QT_UI x ENABLE_DEBUGGER
-// build matrix forbids. jnext_debug is Qt-free and never compiles this file;
-// only Qt translation units include it.
+// HEADER-ONLY, and in src/qt/ for exactly the reason debug_keymap_qt.h gives
+// next door: BOTH jnext_gui (the emulator window) and jnext_debugger (the
+// debugger window) need it, and putting it in either directory would create a
+// link edge between them that the ENABLE_QT_UI x ENABLE_DEBUGGER build matrix
+// forbids. Only Qt translation units include it.
 //
 // WHAT IT DEFENDS AGAINST. QMenuBar arms itself on the Alt SHORTCUT-OVERRIDE
 // and, on the matching Alt key-up with nothing pressed in between, calls

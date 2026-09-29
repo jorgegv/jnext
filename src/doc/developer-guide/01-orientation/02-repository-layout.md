@@ -50,6 +50,7 @@ profiler — surround the emulation rather than being part of it.
 | `input/` | The ZX keyboard matrix, joysticks, Kempston mouse, MD6 connector, membrane stick, NR 0x0B I/O mode, the F-key state machine, the phantom typist that types `LOAD ""` for you, and the host-side joystick/mouse dispatchers. |
 | `platform/` | The SDL frontend (`sdl_app`, `sdl_display`, `sdl_audio`, `sdl_input`), the headless frontend (`headless_app`), the cold-boot helper, and the small header-only policies for frame pacing and render skipping. |
 | `gui/` | The Qt 6 frontend: `QtApp`, `MainWindow`, `EmulatorWidget`, the preferences dialog and the saved-configuration store. |
+| `qt/` | Header-only Qt code that both Qt libraries need — the debugger keymap's Qt conversions and the menu-bar Alt-navigation style. No library target, no `Emulator`; it exists so that `jnext_gui` and `jnext_debugger` can share it without depending on each other, and so that `src/debug/` stays free of Qt (`debug_qt_free_test` fails if a Qt include or a `*_qt.h` reappears there). |
 | `debugger/` | The Qt 6 debugger window and its panels — CPU, disassembly, memory, MMU, stack, call stack, watches, breakpoints, video, sprites, copper, NextREG, audio. Compiled only when `ENABLE_DEBUGGER=ON`. |
 | `debug/` | The debugger *backend*, pure C++ with no GUI dependency: disassembler, breakpoint set, `DebugState`, trace log, call stack, symbol table, and the rewind ring buffer. Plus the four *published* headers `debugger.h`, `events.h`, `inspect.h`, `result.h` and the `jnext::dbg::Debugger` facade behind them (`debugger*.cpp`) — the backend of epic #276 that the three loop owners host and every debugger frontend talks to (see 3.9). |
 | `esp01/` | The emulated ESP-01 WiFi module — AT-command engine, socket layer, worker thread — built as its own library with its own tests. |
@@ -94,7 +95,7 @@ what makes the same `Emulator` object usable from an SDL window, from a Qt
 widget and from a headless loop with no display at all, and therefore what
 makes the unit suites and the regression suite possible.
 
-Qt is confined to `src/gui` and `src/debugger`. SDL is owned by `src/platform`
+Qt is confined to `src/gui`, `src/debugger` and the header-only `src/qt`. SDL is owned by `src/platform`
 — and, to be honest about it, by four headers in `src/input`: `keyboard.h`,
 `gamepad_host.h`, `joystick_dispatcher.h` and `mouse_dispatcher.h` all include
 `<SDL3/SDL.h>`. The keyboard case is structural rather than accidental.

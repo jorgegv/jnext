@@ -985,6 +985,17 @@ add_executable(resume_guard_test debug/resume_guard_test.cpp)
 target_include_directories(resume_guard_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME resume_guard_tests COMMAND resume_guard_test)
 
+# GH #278 WP1 — the lint row for "src/debug/ is Qt-free BY DIRECTORY": no Qt
+# include directive and no *_qt.* file under src/debug/, and src/qt/ header-only
+# with no Emulator. Reads the source tree, so the two paths are compile
+# definitions (the cli_options_test idiom); no Qt, no libraries — it runs in the
+# SDL-only tree too.
+add_executable(debug_qt_free_test debug/debug_qt_free_test.cpp)
+target_compile_definitions(debug_qt_free_test PRIVATE
+    JNEXT_DEBUG_SRC_DIR="${CMAKE_SOURCE_DIR}/src/debug"
+    JNEXT_QT_SRC_DIR="${CMAKE_SOURCE_DIR}/src/qt")
+add_test(NAME debug_qt_free_tests COMMAND debug_qt_free_test)
+
 # GH #22 — RasterState: the pure, Qt-free derivation behind the debugger's
 # raster position / ULA fetch indicator. Needs jnext_video for VideoTiming's
 # out-of-line init_timing(); everything else it touches is inline.

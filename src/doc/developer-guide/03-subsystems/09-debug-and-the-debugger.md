@@ -19,7 +19,11 @@ build — while the Qt *UI* sits above both and can be compiled out entirely.
 breakpoint and watchpoint sets, execution-control state, instruction trace log,
 call-stack tracker, symbol table, rewind ring buffer, and the raster-state
 derivation (`raster_state.*`) behind the Video panel's beam/fetch indicator. It
-has **no Qt dependency at all**. **`src/debugger/`** (target `jnext_debugger`) is the Qt 6 UI and
+has **no Qt dependency at all**, and that is gated rather than stated:
+`debug_qt_free_test` fails every `make unit-test` if a Qt include directive or a
+`*_qt.*` file appears under `src/debug/`. The Qt code both Qt libraries share —
+the debugger keymap's Qt conversions, the menu-bar Alt-navigation style — lives in
+the header-only `src/qt/` instead. **`src/debugger/`** (target `jnext_debugger`) is the Qt 6 UI and
 nothing else — panels, menus, the debugger window.
 
 Three things fall out of that. The backend is testable without a GUI:
@@ -932,7 +936,8 @@ debugger-less build, or `PreferencesDialog::collect()` — which rebuilds an
 pressed OK. And not in `src/gui/` either, because `ENABLE_QT_UI=OFF` with
 `ENABLE_DEBUGGER=ON` is a real build-matrix combination in which `jnext_gui`
 does not exist. The Qt conversions sit in the header-only
-`src/debug/debug_keymap_qt.h`, which `jnext_debug` itself never compiles.
+`src/qt/debug_keymap_qt.h`, beside the model's other Qt-only consumers rather
+than inside the Qt-free library's directory.
 
 **The vocabulary is bounded.** `Key` is an enum of function keys, letters,
 digits and sixteen named keys, not a mirror of `Qt::Key`. That is what makes

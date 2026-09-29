@@ -65,7 +65,7 @@
 
 #include "core/emulator.h"
 #include "debug/debug_keymap.h"
-#include "debug/debug_keymap_qt.h"
+#include "qt/debug_keymap_qt.h"
 #include "debug/debug_state.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"

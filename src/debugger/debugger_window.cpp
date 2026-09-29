@@ -1,6 +1,6 @@
 #include "debugger/debugger_window.h"
-#include "debug/menu_bar_alt_nav_qt.h"   // GH #268
-#include "debug/debug_keymap_qt.h"
+#include "qt/menu_bar_alt_nav_qt.h"   // GH #268
+#include "qt/debug_keymap_qt.h"
 #include "debugger/cpu_panel.h"
 #include "debugger/disasm_panel.h"
 #include "debugger/memory_panel.h"

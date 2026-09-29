@@ -19,11 +19,11 @@
 #include "input/mouse_dispatcher.h"
 #include "platform/pointer_capture.h"
 #include "platform/speed_report.h"
-#include "debug/menu_bar_alt_nav_qt.h"   // GH #268
+#include "qt/menu_bar_alt_nav_qt.h"   // GH #268
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
-#include "debug/debug_keymap_qt.h"
+#include "qt/debug_keymap_qt.h"
 #endif
 #include <ctime>
 
