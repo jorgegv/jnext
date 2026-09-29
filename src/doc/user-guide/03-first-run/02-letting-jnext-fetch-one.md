@@ -27,7 +27,9 @@ SD card image**. Answer yes and JNEXT will:
       the ZX81 entry as 32 KB and stops on `zx81.rom...error reading!`. The
       ZX Spectrum Next team made the same change after that distribution was
       released. JNEXT makes it only when the file is exactly the one the
-      distribution ships.
+      distribution ships. A working copy prepared by an earlier version of
+      JNEXT is not fixed automatically; see
+      [If something goes wrong](06-if-something-goes-wrong.md).
 3. Boot from the working copy.
 
 Both files are kept in `~/.jnext/sdcard/`, and together they take about 2 GB of

@@ -13,11 +13,13 @@ working copy from it, so **any files you saved on the card are lost**.
 
 **The boot menu's ZX81 entry stops on `zx81.rom...error reading!`.** Your
 working copy was prepared by an earlier version of JNEXT, before it doubled
-that ROM (see [Letting JNEXT fetch one](02-letting-jnext-fetch-one.md)). JNEXT
-never rebuilds an existing copy by itself, because it holds your files.
-`jnext --sdcard-download-force` rebuilds it, at the cost above. The firmware
-remembers the ZX81 choice on the card, so until then every boot goes straight
-to that error: press SPACE while the firmware starts and pick another entry.
+that ROM (see [Letting JNEXT fetch one](02-letting-jnext-fetch-one.md)).
+Existing working copies are not fixed automatically, because they hold your
+files. `jnext --sdcard-download-force` fixes it: it downloads the image again
+and replaces your working copy, **including anything you saved on it**. The
+firmware remembers the ZX81 choice on the card, so until then every boot goes
+straight to that error: press SPACE while the firmware starts and pick another
+entry.
 
 **You are scripting JNEXT and it stops to ask a question.** Use
 `--sdcard-download-confirm` to accept the download without prompting, or pass
