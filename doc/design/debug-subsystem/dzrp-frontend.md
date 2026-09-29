@@ -1344,9 +1344,11 @@ provenance of the copied clients; in short:
   four scenario clients ADAPTED to one client per server (each header says how):
   queued-commands ↔ drain-while-paused, split-command ↔ frame reassembly,
   orphan-notify / abandoned-send ↔ SES-01.
-- **`dzrp-paused-headless-func`** (the WP-5 CPU-time row) and
-  **`dzrp-cli-func`**; `debug-listen-address-func` rewritten for the refusal.
-- `functional_tests.conf` 89 → 106.
+- **`dzrp-paused-headless-func`** (the WP-5 CPU-time row), **`dzrp-sdl-func`**
+  and **`dzrp-qt-func`** (the server on the two GUI loop owners, and their
+  paused drain) and **`dzrp-cli-func`**; `debug-listen-address-func` rewritten
+  for the refusal.
+- `functional_tests.conf` 89 → 108.
 
 ### 14.4 Not done here
 

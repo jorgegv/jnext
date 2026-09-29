@@ -61,7 +61,8 @@ client's new connection before reading the old one's hang-up. Fixed in
 
 | Row | Proves |
 |---|---|
-| `dzrp-paused-headless-func` | a `--headless` run held paused by a client uses < 25 % of a core (the old loop spun), and its `--delayed-automatic-exit-frames` bound still fires, charged in wall time — exit status 0, ~2 s after the attach for 100 frames |
+| `dzrp-paused-headless-func` | a `--headless` run held paused by a client uses < 25 % of a core and executes nothing (the old loop spun), and its `--delayed-automatic-exit-frames` bound still fires, charged in wall time — exit status 0, ~2 s after the attach for 100 frames |
+| `dzrp-sdl-func`, `dzrp-qt-func` | the SDL and Qt loop owners register the server; eight commands queued while paused are answered within one tick (T's draining budget — the running one answers a command a tick); CONTINUE runs the program under that loop and PAUSE notifies |
 | `dzrp-cli-func` | `--dzrp-port` values outside 0..65535 refused by name; a port in use is a named startup error; no flag, nothing listens |
 | `debug-listen-address-func` | `--debug-listen-address` refused without a server port; with `--dzrp-port 0`, the default and each given address reach the listener |
 | `cspect-dzrp-selftest-func` | the harness client's own suite, H1-H3 included, at its pinned size |

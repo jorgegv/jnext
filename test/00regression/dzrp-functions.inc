@@ -15,11 +15,20 @@
 # The row ends it with dzrp_stop; the 120 s timeout is the hard bound behind
 # that.
 dzrp_launch() {
+    local log=$1
+    shift
+    dzrp_launch_cmd "$log" "$JNEXT" --headless --machine 48k "${SD_CARD_ARGS[@]}" \
+        --dzrp-port 0 "$@"
+}
+
+# dzrp_launch_cmd <log> <command...> — the same for any command line (the SDL
+# and Qt frontends, with their environment in front: `env VAR=... bin args`).
+# The command must include `--dzrp-port 0`.
+dzrp_launch_cmd() {
     local log=$1 i
     shift
     DZRP_PORT=""
-    LANG=C timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine 48k \
-        "${SD_CARD_ARGS[@]}" --dzrp-port 0 "$@" >"$log" 2>&1 &
+    LANG=C timeout --foreground --kill-after=5s 120s "$@" >"$log" 2>&1 &
     DZRP_PID=$!
     for i in $(seq 1 100); do
         DZRP_PORT=$(grep -aoE 'dzrp: listening on 127\.0\.0\.1:[0-9]+' "$log" 2>/dev/null |

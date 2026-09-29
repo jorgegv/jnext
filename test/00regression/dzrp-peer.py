@@ -15,9 +15,14 @@ wait is bounded: a silent server is a FAIL, never a hang.
 THE MACHINE. Every row runs `--machine 48k`, whose MMU is the fixed
 `FF FF 0A 0B 04 05 00 01` map. A scenario that needs a program writes it into
 RAM at 0x8000 with CMD_WRITE_MEM and points PC at it — exactly what DeZog does
-with a `.sna` — so no row depends on a demo build. Interrupts stay ON (IM 1,
-IY at the 48K ROM's system variables): the ROM's frame interrupt increments
-FRAMES (23672), which is how a row sees that frames were emulated.
+with a `.sna` — so no row depends on a demo build. Interrupts are turned ON
+(IM 1, IY at the 48K ROM's system variables), so the ROM's frame interrupt
+counts FRAMES (23672) while the program runs.
+
+"THE MACHINE RAN" IS READ FROM A COUNTER THE PROGRAM KEEPS, never from FRAMES
+alone before a program is loaded: a client can attach while the ROM is still
+clearing RAM (a GUI frontend runs at 50 Hz, so it does), and FRAMES is then
+whatever the RAM test left there. A 32-bit counter loop cannot wrap in a run.
 """
 
 import os
@@ -40,6 +45,12 @@ STACK = 0x9F00
 # `inc hl` at 0x8003 is where the breakpoint rows stop.
 COUNTER_LOOP = bytes([0x2A, 0x00, 0x90, 0x23, 0x22, 0x00, 0x90, 0x18, 0xF7])
 COUNTER = 0x9000
+
+# 8000 ld hl,0x9000 / inc (hl) / jr nz,8000 / inc hl / inc (hl) / jr nz,8000 /
+#      inc hl / inc (hl) / jr nz,8000 / inc hl / inc (hl) / jr 8000 — a 32-bit
+# little-endian counter at 0x9000, ~2000 counts a 3.5 MHz frame.
+COUNTER32_LOOP = bytes([0x21, 0x00, 0x90, 0x34, 0x20, 0xFA, 0x23, 0x34, 0x20, 0xF6,
+                        0x23, 0x34, 0x20, 0xF2, 0x23, 0x34, 0x18, 0xEE])
 
 
 class Fail(Exception):
@@ -77,6 +88,15 @@ def frames(c):
 
 def counter(c):
     return struct.unpack("<H", c.read_mem(COUNTER, 2))[0]
+
+
+def load_counter32(c):
+    c.write_mem(COUNTER, bytes(4))
+    load(c, COUNTER32_LOOP)
+
+
+def counter32(c):
+    return struct.unpack("<I", c.read_mem(COUNTER, 4))[0]
 
 
 def pause_expecting(c, reason, addr=None, timeout=TIMEOUT):
@@ -411,29 +431,88 @@ def sc_unsupported(port):
 
 
 def sc_close_resume(port):
-    """Pause, CLOSE -> frames run again; INIT again on the connection; reconnect."""
+    """Pause, CLOSE -> the machine runs again; INIT again on the connection; reconnect."""
     c = connect(port)
     try:
-        f0 = frames(c)
+        load_counter32(c)
+        n0 = counter32(c)
         time.sleep(0.3)
-        check(frames(c) == f0, "frames ran while CMD_INIT held the machine")
+        check(counter32(c) == n0, "the program ran while CMD_INIT held the machine")
         check(c.request(dz.Cmd.CLOSE) == b"", "CMD_CLOSE answered with a payload")
         time.sleep(0.5)
         c.init(name="jnext-regression")
-        f1 = frames(c)
-        check(f1 - f0 >= 5, "only %d frames ran after CMD_CLOSE" % (f1 - f0))
+        n1 = counter32(c)
+        check(n1 - n0 >= 10000, "the counter moved %d after CMD_CLOSE" % (n1 - n0))
     finally:
         c.close()
     time.sleep(0.5)
     c = connect(port)
     try:
-        f2 = frames(c)
-        check(f2 - f1 >= 5, "only %d frames ran after the client closed" % (f2 - f1))
+        n2 = counter32(c)
+        check(n2 - n1 >= 10000, "the counter moved %d after the client closed" % (n2 - n1))
         check(len(c.request(dz.Cmd.GET_REGISTERS)) == 37, "the new client got no register block")
     finally:
         c.close()
-    return ("held: 0 frames in 0.3 s; after CLOSE %d frames; after a close and reconnect "
-            "%d more" % (f1 - f0, f2 - f1))
+    return ("held: the counter still for 0.3 s; after CLOSE it ran %d; after a close and "
+            "reconnect %d more" % (n1 - n0, n2 - n1))
+
+
+# ---------------------------------------------------------------------------
+# dzrp-sdl-func / dzrp-qt-func — the server on the GUI loop owners
+# ---------------------------------------------------------------------------
+
+
+def sc_gui_drain(port):
+    """The server is up on this frontend's loop, serves a session, and drains.
+
+    THE DRAIN is what the paused budget `PumpBudget{0, 2, 10}` buys (T's
+    decision, transport.md §2 item 15): while paused with a client attached, a
+    chain of queued commands is answered in ONE tick. With the running budget
+    `PumpBudget{}` a GUI tick answers one command, so eight commands would
+    arrive a tick (~20 ms) apart. So eight LOOPBACKs are written in one send
+    and the spread of their replies' arrival is measured: one tick's drain is
+    a few milliseconds; eight ticks is well over 100.
+    """
+    s = socket.create_connection((HOST, port), timeout=TIMEOUT)
+    s.settimeout(TIMEOUT)
+    try:
+        s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        _l, rseq, body = raw_exchange(s, 1, dz.Cmd.INIT,
+                                      bytes([2, 2, 0]) + b"jnext-regression\x00")
+        check(rseq == 1 and body[:1] == b"\x00", "CMD_INIT failed: %s" % body.hex())
+        burst = b""
+        for i in range(8):
+            burst += struct.pack("<IBB", 4, 2 + i, int(dz.Cmd.LOOPBACK)) + bytes([i]) * 4
+        s.sendall(burst)
+        arrivals = []
+        for i in range(8):
+            length = struct.unpack("<I", recv_exact(s, 4))[0]
+            body = recv_exact(s, length)
+            arrivals.append(time.monotonic())
+            check(body[0] == 2 + i and body[1:] == bytes([i]) * 4,
+                  "burst reply %d: seq %d, %s" % (i, body[0], body[1:].hex()))
+        spread = arrivals[-1] - arrivals[0]
+        check(spread < 0.06, "the 8 queued replies were spread over %.0f ms: not drained in "
+              "one tick" % (spread * 1000))
+    finally:
+        s.close()
+
+    # And the machine runs under this loop when the client lets it: 0.5 s is
+    # ~25 frames at 50 Hz, ~50000 counts.
+    c = connect(port)
+    try:
+        load_counter32(c)
+        c.cont()
+        time.sleep(0.5)
+        c.pause()
+        pause_expecting(c, dz.BreakReason.MANUAL_BREAK)
+        n = counter32(c)
+        check(n >= 10000, "the counter reached only %d in 0.5 s after CMD_CONTINUE" % n)
+    finally:
+        c.close()
+    return ("8 commands queued while paused answered within %.1f ms (one tick's drain); "
+            "CONTINUE ran the program (counter %d in 0.5 s), PAUSE -> NTF 1"
+            % (spread * 1000, n))
 
 
 # ---------------------------------------------------------------------------
@@ -486,14 +565,18 @@ def sc_paused_headless(port, wrapper_pid, exit_frames):
     t_attach = time.monotonic()
     jpid = child_of(wrapper_pid)
     check(jpid is not None, "could not find jnext under pid %d" % wrapper_pid)
-    held = frames(c)
+    # The whole register set, R included (it counts every opcode fetch): a
+    # machine that executed anything while held would not read back the same.
+    r0 = c.get_registers()
+    held = regs_tuple(r0) + (r0.R,)
 
     time.sleep(0.2)
     cpu0, w0 = cpu_seconds(jpid), time.monotonic()
     time.sleep(1.0)
     cpu1, w1 = cpu_seconds(jpid), time.monotonic()
     used = (cpu1 - cpu0) / (w1 - w0)
-    check(frames(c) == held, "frames ran while the client held the machine paused")
+    r1 = c.get_registers()
+    check(regs_tuple(r1) + (r1.R,) == held, "the machine executed while the client held it")
     check(used < 0.25, "jnext used %.0f%% of a CPU while paused with a client attached"
           % (used * 100))
 
@@ -505,13 +588,16 @@ def sc_paused_headless(port, wrapper_pid, exit_frames):
     except OSError:
         pass
     gone = time.monotonic() - t_attach
-    expected = (exit_frames - held) * 0.020
+    # The frames run before the attach (one or two) are not subtracted: the
+    # 0.7 below absorbs them, and more than that would be a late attach.
+    expected = exit_frames * 0.020
     check(gone >= 0.7 * expected, "jnext exited %.2f s after the attach — before its exit bound "
           "(~%.1f s)" % (gone, expected))
     check(gone <= expected + 5.0, "jnext exited %.2f s after the attach, expected ~%.1f s"
           % (gone, expected))
-    return ("attached at frame %d; %.1f%% CPU while held; exited on its own %.2f s after the "
-            "attach (bound %d frames ~ %.1f s)" % (held, used * 100, gone, exit_frames, expected))
+    return ("%.1f%% CPU while held, nothing executed; exited on its own %.2f s after the "
+            "attach, the client still attached (bound %d frames ~ %.1f s)"
+            % (used * 100, gone, exit_frames, expected))
 
 
 SCENARIOS = {
@@ -525,6 +611,7 @@ SCENARIOS = {
     "unsupported": sc_unsupported,
     "close-resume": sc_close_resume,
     "paused-headless": sc_paused_headless,
+    "gui-drain": sc_gui_drain,
 }
 
 
