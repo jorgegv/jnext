@@ -160,10 +160,11 @@ public:
     /// `value` while scanline `line` was the current beam position (per
     /// Mmu::attr_mux_set_current_line, itself mirroring
     /// Emulator::on_scanline) and `hc` was the current horizontal
-    /// pixel-tick position within that scanline (per
-    /// Mmu::attr_mux_set_current_hc, set from the true per-write T-state
-    /// position in src/cpu/z80_cpu.cpp — see that file's
-    /// fuse_z80_writebyte()). Returns false and drops the write (once-
+    /// pixel-tick position within that scanline. A CPU write passes its
+    /// own (line, hc) from the true per-write T-state (Mmu::
+    /// attr_mux_set_write_pos, from src/cpu/z80_cpu.cpp's
+    /// fuse_z80_writebyte()); every other writer passes the coarse line
+    /// and hc 0 (Mmu::attr_mux_set_current_hc, fixtures only). Returns false and drops the write (once-
     /// per-frame warn via caller) if the log is already full — a
     /// conservative fallback that degrades to a stale (but never wrong-
     /// address) value for the overflow tail.
@@ -227,12 +228,11 @@ public:
     // scanline-tag cursor (`attr_mux_current_line_`) that genuinely
     // needs to survive a rewind. (The mux itself is always-on — no
     // "armed" state exists to persist as of Task 8 Nirvana round 3.)
-    // `attr_mux_current_hc_` (round 4) does NOT need persisting either:
-    // unlike the scanline tag (set once per on_scanline event, so it can
-    // go stale between a mid-scanline rewind-load and the next natural
-    // scanline boundary), the hc tag is set immediately before EVERY
-    // write in the same call sequence that consults it (z80_cpu.cpp),
-    // so it is never stale at the point it matters.
+    // The hc tags (round 4) do NOT need persisting either. A CPU write's
+    // (line, hc) is set immediately before that one write and ended right
+    // after it (z80_cpu.cpp, attr_mux_end_write), so it is never stale at
+    // the point it matters; `attr_mux_current_hc_`, the coarse hc of
+    // every other writer, is 0 in production.
 
 private:
     struct Entry {
