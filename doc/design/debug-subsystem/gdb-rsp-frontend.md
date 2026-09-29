@@ -45,6 +45,10 @@
 >   notifies while a remote client is connected (adopted; the §7.2 row's
 >   dependency is closed), a remote pause opens the Qt window. Noted without
 >   design change: DSL scripts may mutate the machine; DZRP → 2.2.0.
+> - v1.5 (2026-09-29, milestone 1 — WP-1..WP-4 implemented, branch
+>   `gh281-gdb-rsp`): §12 records what was built, every deviation from this
+>   design with its reason, and the findings. Sections 0-11 are unchanged:
+>   where the implementation differs, §12 says so and why.
 
 Every claim carries a `file:line` citation or a captured transcript. Paths:
 `z88dk/…` = `/home/jorgegv/src/spectrum/z88dk` (checkout at v2.4, HEAD
@@ -71,10 +75,10 @@ whole, so `done` here means the sub-item is approved, not merged.
 
 | WP | Branch `gh281-gdb-rsp` (issue #281) | Status |
 |---|---|---|
-| **WP-1** | codec | todo |
-| **WP-2** | target description + register packing. **The XML must stay under the 1023-byte ceiling** — a larger one segfaults `z88dk-gdb` v2.4 | todo |
-| **WP-3** | server | todo |
-| **WP-4** | wiring / CLI over the shared transport (T) | todo |
+| **WP-1** | codec | in review (§12) |
+| **WP-2** | target description + register packing. **The XML must stay under the 1023-byte ceiling** — a larger one segfaults `z88dk-gdb` v2.4 | in review (§12) |
+| **WP-3** | server | in review (§12) |
+| **WP-4** | wiring / CLI over the shared transport (T) | in review (§12) |
 | **WP-5** | acceptance row + user guide. §11 item 7: upstream-master `z88dk-gdb` `monitor` handling was designed from source and run only against v2.4 — close that here | todo |
 | **WP-6** | the z88dk wiki listing — **post-release**, out of scope for the epic itself | todo |
 
@@ -855,3 +859,85 @@ neither touches an RSP packet or a CAP this file uses.
   implementation.
 - Upstream z88dk-gdb `monitor` end to end (source-designed; re-run on the next
   z88dk update of this host).
+
+---
+
+## 12. Milestone 1 — WP-1..WP-4 as built (2026-09-29)
+
+### 12.1 What was built
+
+| WP | Files | What |
+|---|---|---|
+| WP-1 | `src/remote/gdb/rsp_codec.{h,cpp}` | Checksum, `}` escape/unescape, `frame_packet` (escapes `# $ } *` unconditionally — a text reply has none, a `qXfer` reply is then always well formed), hex helpers, and `RspParser`: incremental, yields ONE event at a time (packet / 0x03 outside a packet / bad checksum / oversize), resynchronises on `$`, drops an oversize body as it arrives. Pure: no backend. |
+| WP-2 | `src/remote/gdb/target_desc.{h,cpp}` | §3.1 verbatim as a `constexpr` string, 600 bytes, with a `static_assert` at 1022; `REG_NAMES` / `REG_IDS` in document order; `pack_registers` / `unpack_registers` / `pack_register` / `unpack_register` (16-bit LE, lower-case hex); clock pair from `Time::tstates_total`. |
+| WP-3 | `src/remote/gdb/rsp_server.{h,cpp}` | `GdbServer`: a `remote::Protocol` + `dbg::Listener` over T. §2's table, §5.4's state machine (`owed_` ∈ {None, Continue, Question, Interrupt}), the `Z` id map, `monitor` (§4.3). Attaches on connect (`ClientKind::GdbRsp`), detaches on `D` / `k` / hang-up. |
+| WP-4 | `src/core/cli_options.h`, `src/main.cpp`, `src/core/emulator_config.h`, `src/platform/debug_servers.*`, `doc/man/jnext.1.md` | `--gdb-port` (the one port rule), `EmulatorConfig::gdb_port`, `DebugServers::start` opens a `GdbServer` beside the `DzrpServer` — its own listener and backend client — so all three loop owners host it with no loop-owner edit; `--debug-listen-address` accepts `--gdb-port` as its server port. Man page: the OPTIONS row and a **REMOTE DEBUGGING (Z88DK-GDB)** section. |
+
+Tests: `gdb_rsp_test` (87 rows, `gate: none`) — GDB-FRM 11, GDB-SUP 6, GDB-REG 8,
+GDB-MEM 7, GDB-BP 11, GDB-STP 9, GDB-STOP 12, GDB-MON 12, GDB-UNS 4, GDB-GEN 1,
+GDB-SES 6. Regression rows `gdb-cli-func` (the CLI, a port in use, the
+z88dk-gdb connect sequence over a real socket with this suite's own framing,
+DZRP + GDB at once), `gdb-sdl-func`, `gdb-qt-func` (the two GUI loop owners).
+Hand-run against the real `z88dk-gdb` v2.4 (`reg`, `break 0x0038`, `cont`,
+`stepi`, `nexti`, `set hl`, `breakpoints`, `quit`): every exchange as §7.1
+predicted, `set hl` logs ONE `MUTATE`, `quit` sends `z0` + `D` and the detach
+releases the client's pause.
+
+### 12.2 Deviations from sections 0-11, each with its reason
+
+1. **`Z4` is ONE subscription**, `Mem` with `Access::ReadWrite`, not "`MemRead`
+   + `MemWrite`, one RSP id → two subscriptions" (§2 row 14). The landed
+   backend has one `Mem` kind with an access mask (`events.h`); one
+   subscription is the same filter and keeps the id map one to one.
+2. **`M`/`X` onto ROM is refused by the ADAPTER**, from CAP-INS-03
+   `mmu_slots()[s].is_rom` for every slot the write touches, before anything is
+   written (§4.1 said the backend's `poke` returns `RefusedReadOnly`,
+   REQ-gdb-6). The frozen header documents `poke(Cpu)` as "ROM ignored", and
+   DZRP's row DZRP-MEM-07 depends on exactly that (a straddling write lands its
+   RAM bytes). See finding F1.
+3. **`?` always answers `T05`** — §2 row 3 and §7.3's GDB-STOP row — where
+   §5.3's table lists "our `?`/`0x03`" together under `T02`. 0x03 answers
+   `T02` (§2 row 18). The two sections disagreed; row 3 is the one the client
+   depends on (N-12) and the unit rows were written from.
+4. **`G` writes only the registers that CHANGE** (§2 row 5 said "applies the
+   12 pairs"). z88dk-gdb's `set <reg>` resends the whole file (§7.1), and
+   CAP-INS-01 `set_register(PC)` clears `halted` (§4.2a): applying an
+   unchanged PC would un-HALT the CPU on every `set hl`, and log eleven
+   `MUTATE` lines for one register. Row GDB-REG-04.
+5. **Unsupported packets are logged on the `debugger` channel**, not a `remote`
+   one (§2 row 33) — T's decision 11: no new `--log-level` token.
+6. **Replies the design did not specify**, chosen so none is ever empty by
+   accident (an empty reply means "unsupported"): `m` with length 0 or starting
+   past 0xFFFF → `E01`; `X`/`M` with length 0 → `OK` (gdb probes `X` support
+   with `X<addr>,0:`); `M`/`X` running past 0xFFFF, or a watch range wrapping
+   past it, or of length 0 → `E01`; `qXfer:features:read` with length 0 →
+   `E00`; `i0` → `E01`. `c <addr>` and `s <addr>` both set PC first (row 16
+   named only `c`).
+7. **`monitor bp` names owners by client id**, marking this client's
+   "(this client)" (§4.3 said "this client / gui / dsl / …"): the frozen API
+   publishes no client-list query.
+8. **`monitor reset hard` prints the live PC and run state** it reads after the
+   reset ("hard reset: machine at PC=0000, still stopped"), not a fixed
+   "(nextboot.rom)" string — the machine type decides the PC. `reset` alone is
+   `reset soft`.
+9. **Three regression rows land with WP-4** (`gdb-cli-func`, `gdb-sdl-func`,
+   `gdb-qt-func`); §9 named only `cli-check` / `docs-man`. `main.cpp`'s parse
+   loop and the loop owners are linked into no unit suite, so only a row proves
+   them — D's `dzrp-cli/sdl/qt-func` precedent. WP-5 keeps `gdb-z88dk-func`,
+   the row with the real client.
+
+### 12.3 Findings
+
+- **F1 — `backend.md` CAP-INS-02 and the frozen header disagree on
+  `poke(Cpu)` over ROM.** `backend.md` (CAP-INS-02, REQ-gdb-6 ACCEPTED) says
+  it "returns the count written and `RefusedReadOnly` when the range is
+  read-only"; `debugger.h` says "ROM ignored", and the implementation returns
+  `Ok` with the full count. DZRP relies on the header's reading
+  (DZRP-MEM-07). Not changed here: it is the frozen interface's documented
+  semantics, and a change would alter D. **Consequence for RSP:** the adapter's
+  slot check is conservative — an overlay that makes part of a ROM slot
+  writable (Layer 2 write-over at 0x0000-0x3FFF, DivMMC RAM or Multiface RAM
+  at 0x2000-0x3FFF) is refused `E01` over RSP although the CPU could write
+  there. Resolving it needs a backend query ("would a CPU write to `addr`
+  land?") or a `poke` mode that refuses before writing — an owner decision on
+  the frozen header.
