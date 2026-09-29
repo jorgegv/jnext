@@ -161,6 +161,16 @@ static std::optional<Diagnostic> when_err(Loaded& L, size_t k, const DbgEvent* e
     return e;
 }
 
+/// Interpolate, turning an unexpected run-time error into visible text so the
+/// row fails by name rather than aborting its group.
+static std::string safe_interp(const StringLit& s, const EvalContext& ctx) {
+    try {
+        return interpolate(s, ctx);
+    } catch (const EvalError& e) {
+        return "<EvalError " + e.d.to_string() + ">";
+    }
+}
+
 static void set_regs(uint16_t af, uint16_t hl, uint16_t sp, bool iff1, bool iff2, uint8_t im) {
     Z80Registers r = g_emu->cpu().get_registers();
     r.AF  = af;     r.BC  = 0x3456; r.DE  = 0x789A; r.HL  = hl;
@@ -703,7 +713,7 @@ static void interp_rows() {
         base_state();
         Loaded L = load("on frame do log \"a ${A:x2} b ${HL:x4} c ${-3} d ${7:d} e\" end");
         std::string got;
-        if (L.ok()) got = interpolate(*L.s().rules[0].body[0].s1, ctx_of(L));
+        if (L.ok()) got = safe_interp(*L.s().rules[0].body[0].s1, ctx_of(L));
         check("SEV-INTERP", "a string's text and its `${…}` pieces, each in its format",
               got == "a 12 b BCDE c -3 d 7 e", got + dstr(L.errs));
     }
@@ -711,7 +721,7 @@ static void interp_rows() {
         Loaded L = load("on stop do log \"why=${REASON}!\" end");
         const std::string reason = "MemPoint";
         std::string got;
-        if (L.ok()) got = interpolate(*L.s().rules[0].body[0].s1, ctx_of(L, nullptr, &reason));
+        if (L.ok()) got = safe_interp(*L.s().rules[0].body[0].s1, ctx_of(L, nullptr, &reason));
         check("SEV-INTERP-STR", "a string piece is inserted as it is", got == "why=MemPoint!", got);
     }
     {
@@ -953,18 +963,29 @@ int main() {
     set_regs(0x1295, 0xBCDE, 0xFF00, false, false, 2);
     for (int k = 0; k < 2; ++k) emu.run_frame();
 
-    type_rows();
-    var_rows();
-    cond_rows();
-    snap_rows();
-    names_rows();
-    changed_rows();
-    diff_rows();
-    interp_rows();
-    err_rows();
-    builtin_rows();
-    work_rows();
-    stack_rows();
+    // An EvalError no row expected (a defect in the evaluator) must not end
+    // the run: the group is reported as failed and the rest still run. Its
+    // unreached rows are missing from `Total:`, which the manifest refuses.
+    auto run_group = [](const char* name, void (*fn)()) {
+        try {
+            fn();
+        } catch (const EvalError& e) {
+            ++g_fail;
+            std::printf("  FAIL (group %s aborted): unexpected EvalError %s\n", name, e.d.to_string().c_str());
+        }
+    };
+    run_group("type", type_rows);
+    run_group("var", var_rows);
+    run_group("cond", cond_rows);
+    run_group("snap", snap_rows);
+    run_group("names", names_rows);
+    run_group("changed", changed_rows);
+    run_group("diff", diff_rows);
+    run_group("interp", interp_rows);
+    run_group("err", err_rows);
+    run_group("builtin", builtin_rows);
+    run_group("work", work_rows);
+    run_group("stack", stack_rows);
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
