@@ -285,21 +285,23 @@ void DebuggerManager::ensure_window() {
             apply_pause_state(false);
         });
 
-        dp->set_symbol_table(&symbol_table_);
+        // GH #278 WP6 — the ONE symbol table is the backend's (CAP-SYM): the
+        // panels read it, the Map menu loads into it.
+        dp->set_symbol_table(&dbg_.symbols());
         if (debugger_window_->watch_panel())
             dp->set_watch_panel(debugger_window_->watch_panel());
     }
 
     // Wire call stack panel with symbol table.
     if (auto* cs = debugger_window_->callstack_panel()) {
-        cs->set_symbol_table(&symbol_table_);
+        cs->set_symbol_table(&dbg_.symbols());
     }
 
     // Wire breakpoint panel with symbol table. It needs no pointer to the
     // disassembly: both panels follow the GUI's BreakpointModel (GH #220; GH
     // #278 WP4c).
     if (auto* bp = debugger_window_->breakpoint_panel()) {
-        bp->set_symbol_table(&symbol_table_);
+        bp->set_symbol_table(&dbg_.symbols());
         bp->set_model(bp_model_);
     }
     if (auto* dp = debugger_window_->disasm_panel())
@@ -536,15 +538,15 @@ void DebuggerManager::on_load_map_z88dk() {
     if (path.isEmpty())
         return;
 
-    // load_z88dk_map() returns the symbol count, or -1 when the file cannot be
-    // read — an int, not a bool (GH #278 WP0): tested as a bool, a failed read
-    // (-1) reported "MAP Loaded" over the old table, and a readable map with no
-    // `; addr` symbols (0) reported "Load Failed" after clearing it. Same test
-    // as the Simple loader below and as the backend's load_map().
-    if (symbol_table_.load_z88dk_map(path.toStdString()) >= 0) {
+    // CAP-SYM — the backend's load_map(): Ok with the count, or refused when
+    // the file cannot be read (the loader's -1). NOT a bool test of the count
+    // (GH #278 WP0): a readable map with no `; addr` symbols loads 0 and is
+    // still "MAP Loaded"; a failed read never reports success over the old
+    // table.
+    if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::Z88dk)) {
         QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
-                .arg(symbol_table_.size())
+                .arg(dbg_.symbols().size())
                 .arg(path));
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
@@ -559,11 +561,10 @@ void DebuggerManager::on_load_map_simple() {
     if (path.isEmpty())
         return;
 
-    int count = symbol_table_.load_simple_map(path.toStdString());
-    if (count >= 0) {
+    if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::Simple)) {
         QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
-                .arg(symbol_table_.size())
+                .arg(dbg_.symbols().size())
                 .arg(path));
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),

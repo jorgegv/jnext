@@ -2152,8 +2152,8 @@ static void test_map_load() {
               box && box->title == "MAP Loaded" &&
                   box->text == QStringLiteral("Loaded 3 symbols from:\n%1")
                                    .arg(QString::fromStdString(path)) &&
-                  fx.mgr->symbol_table().size() == 3,
-              fmt("modals=%s table=%zu", m.describe().c_str(), fx.mgr->symbol_table().size()));
+                  fx.backend->symbols().size() == 3,
+              fmt("modals=%s table=%zu", m.describe().c_str(), fx.backend->symbols().size()));
     }
 
     {
@@ -2164,7 +2164,7 @@ static void test_map_load() {
         bad.after_file_accept = [gone_path]() { QFile::remove(QString::fromStdString(gone_path)); };
         if (QAction* a = item_named(load_menu, "Z88DK Format...")) a->trigger();
         bad.timer.stop();
-        const size_t after_bad = fx.mgr->symbol_table().size();
+        const size_t after_bad = fx.backend->symbols().size();
 
         // Z88DK, a readable map with nothing but a `; const`: a load of zero.
         const std::string none_path = write_file("consts.map", "__SIZE = $0010 ; const, public\n");
@@ -2185,9 +2185,9 @@ static void test_map_load() {
                   after_bad == 3 && noneb && noneb->title == "MAP Loaded" &&
                   noneb->text == QStringLiteral("Loaded 0 symbols from:\n%1")
                                      .arg(QString::fromStdString(none_path)) &&
-                  fx.mgr->symbol_table().size() == 0,
+                  fx.backend->symbols().size() == 0,
               fmt("bad: %s table after=%zu; none: %s table after=%zu", bad.describe().c_str(),
-                  after_bad, none.describe().c_str(), fx.mgr->symbol_table().size()));
+                  after_bad, none.describe().c_str(), fx.backend->symbols().size()));
     }
 
     {

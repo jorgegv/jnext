@@ -2476,6 +2476,7 @@ static void test_magic_breakpoint_menu()
               false, "fixture failed");
         check("MBP-02", "unticking Magic Breakpoint disarms it, again without a re-init",
               false, "fixture failed");
+        check("MBP-03", "the item shows the bound machine's arm", false, "fixture failed");
         return;
     }
 
@@ -2518,6 +2519,37 @@ static void test_magic_breakpoint_menu()
               "NR07=%u (want 3)",
               (item && item->isChecked()) ? 1 : 0, armed_after_untick ? 1 : 0,
               fx.emu.config().magic_breakpoint ? 1 : 0, ram_untick, nr07_untick));
+
+    // MBP-03 — GH #278 WP6: the item shows whether the BOUND machine's magic
+    // breakpoint is armed (CTL-14) — --magic-breakpoint arms it before the
+    // window exists. The old read sat in create_menus(), which runs in the
+    // constructor with no machine bound, so the item always opened UNCHECKED
+    // over an armed machine (measured on the pre-WP6 tree). Re-read on every
+    // bind: a cold boot binds a rebuilt machine.
+    {
+        Emulator emu;
+        const bool built = build_next_emulator(emu);
+        emu.set_magic_breakpoint(true);                  // as --magic-breakpoint does
+        jnext::dbg::Debugger backend(emu);
+        MainWindow win;
+        win.set_debugger(&backend);
+        win.set_emulator(&emu);
+        QApplication::processEvents();
+        QAction* it = item_named(menu_named(win.menuBar(), QStringLiteral("Debug")),
+                                 QStringLiteral("Magic Breakpoint"));
+        const bool armed_shows = it && it->isChecked();
+        emu.set_magic_breakpoint(false);                 // the rebuilt machine's state
+        win.set_emulator(&emu);                          // what a cold boot does
+        const bool rebind_shows = it && !it->isChecked();
+        if (win.debugger_manager())
+            win.debugger_manager()->set_enabled(false, /*prompt_on_corrupt=*/false);
+        check("MBP-03",
+              "over a machine whose magic breakpoint is armed the item opens checked, "
+              "and a bind of an unarmed machine unchecks it",
+              built && armed_shows && rebind_shows,
+              fmt("item=%d checked over armed=%d unchecked after rebind=%d", it != nullptr,
+                  armed_shows, rebind_shows));
+    }
 }
 
 // ── MWD: the main window's debugger is never quietly missing ─────────

@@ -1519,8 +1519,9 @@ static void test_watch_panel() {
     }
     DisasmPanel* dp = fx.dbg()->disasm_panel();
     WatchPanel*  wp = fx.dbg()->watch_panel();
-    fx.mgr->symbol_table().load_simple_map(
-        write_map(*g_tmp, "watch.map", "counter = $9000\nloop = $8003\n"));
+    // GH #278 WP6 — the symbol table is the backend's (CAP-SYM).
+    fx.backend->load_map(write_map(*g_tmp, "watch.map", "counter = $9000\nloop = $8003\n"),
+                         jnext::dbg::MapFormat::Simple);
 
     // $8000..: LD HL,$9000 / LD A,(HL) repeated, so every line offers the
     // immediate or the (HL) route, and $8003 carries the symbol "loop".

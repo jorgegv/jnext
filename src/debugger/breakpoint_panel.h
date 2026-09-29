@@ -43,7 +43,7 @@ public:
     void refresh();
 
     /// Set symbol table for address-to-name resolution.
-    void set_symbol_table(SymbolTable* st) { symbol_table_ = st; }
+    void set_symbol_table(const SymbolTable* st) { symbol_table_ = st; }
 
 public slots:
     void on_add();
@@ -57,7 +57,7 @@ private:
     void apply_enabled_cell(int row, bool enabled);
 
     QPointer<BreakpointModel> model_;
-    SymbolTable* symbol_table_ = nullptr;
+    const SymbolTable* symbol_table_ = nullptr;
     QTableWidget* table_ = nullptr;
     QCheckBox* master_check_ = nullptr;
 

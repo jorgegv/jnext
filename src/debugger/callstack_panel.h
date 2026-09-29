@@ -17,7 +17,7 @@ public:
 
     void refresh();
     void set_paused(bool paused);
-    void set_symbol_table(SymbolTable* st) { symbol_table_ = st; }
+    void set_symbol_table(const SymbolTable* st) { symbol_table_ = st; }
 
     QSize sizeHint() const override { return QSize(400, 300); }
 
@@ -25,7 +25,7 @@ private:
     void create_ui();
 
     const jnext::dbg::Debugger* dbg_;
-    SymbolTable* symbol_table_ = nullptr;
+    const SymbolTable* symbol_table_ = nullptr;
     bool paused_ = false;
     QTableWidget* table_ = nullptr;
 };

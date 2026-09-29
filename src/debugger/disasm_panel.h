@@ -60,7 +60,7 @@ public:
     void set_paused(bool paused);
 
     /// Set symbol table for address resolution in disassembly display.
-    void set_symbol_table(SymbolTable* st) { symbol_table_ = st; }
+    void set_symbol_table(const SymbolTable* st) { symbol_table_ = st; }
 
     /// Set watch panel for "Add Watch" context menu actions.
     void set_watch_panel(WatchPanel* wp) { watch_panel_ = wp; }
@@ -190,7 +190,7 @@ private:
     bool paused_ = true;
 
     // Optional: symbol table and watch panel for enhanced features
-    SymbolTable* symbol_table_ = nullptr;
+    const SymbolTable* symbol_table_ = nullptr;
     WatchPanel* watch_panel_ = nullptr;
 
     QPointer<BreakpointModel> bp_model_;

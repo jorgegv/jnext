@@ -7,7 +7,6 @@
 
 #include "debug/debug_keymap.h"
 #include "debug/debugger.h"
-#include "debug/symbol_table.h"
 
 class BreakpointModel;
 class Emulator;
@@ -103,10 +102,6 @@ public:
     /// the observer client. The Breakpoints panel, the disassembly and the
     /// window's Breakpoints menu all edit this one model.
     BreakpointModel& breakpoints() const { return *bp_model_; }
-
-    /// Access the symbol table.
-    SymbolTable& symbol_table() { return symbol_table_; }
-    const SymbolTable& symbol_table() const { return symbol_table_; }
 
 public slots:
     void on_run();
@@ -207,9 +202,6 @@ private:
     QAction* enable_action_ = nullptr;
 
     QToolBar* debug_toolbar_ = nullptr;
-
-    // Symbol table for loaded MAP files
-    SymbolTable symbol_table_;
 
     // Refresh throttle
     int refresh_counter_ = 0;
