@@ -1938,6 +1938,10 @@ profiler — surround the emulation rather than being part of it.</p>
 <td>The socket transport the debugger protocol servers share (<code>jnext_remote</code>): one non-blocking listener driven by the backend's <code>pump()</code>, over esp01's socket seam, plus the in-memory fake their unit suites use. No protocol server has landed in it yet (see 3.9).</td>
 </tr>
 <tr>
+<td><code>script/</code></td>
+<td>The debugger scripting language, <code>.jds</code> (<code>jnext_script</code>): lexer, parser, load-time checks, and the expression compiler as a library (<code>compile_expr</code> / <code>eval_expr</code>). Qt-free, over the <code>jnext::dbg::Debugger</code> facade only. Nothing in the shipped binary uses it yet (see 3.9).</td>
+</tr>
+<tr>
 <td><code>esp01/</code></td>
 <td>The emulated ESP-01 WiFi module — AT-command engine, socket layer, worker thread — built as its own library with its own tests.</td>
 </tr>

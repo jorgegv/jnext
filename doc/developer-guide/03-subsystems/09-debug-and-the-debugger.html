@@ -2486,6 +2486,43 @@ real socket on <code>127.0.0.1</code> port 0, and through <code>pump()</code>.</
 in <code>main.cpp</code> and held in <code>EmulatorConfig::debug_listen_address</code> for the servers
 to bind. The design, and the reason behind each rule above, is
 <code>doc/design/debug-subsystem/transport.md</code>.</p>
+<h3 id="the-scripting-language-front-end-package-s">The scripting language front end (package S)<a class="headerlink" href="#the-scripting-language-front-end-package-s" title="Permanent link">&para;</a></h3>
+<p>The debugger scripting language (<code>.jds</code>, GH #26) lives in <strong><code>src/script/</code></strong>
+(target <code>jnext_script</code>). Like <code>src/remote/</code> it has no toolkit dependency and is
+built in every configuration; it reads the machine only through the published
+<code>jnext::dbg::Debugger</code> facade, never through <code>Emulator</code>. As of its first work
+package it is a front end and a library: no script engine exists yet, and
+nothing in the shipped binary instantiates it.</p>
+<p>It is layered, each stage consuming only the one before it:</p>
+<ul>
+<li><code>lexer.*</code> — tokens. Comments are <code>;</code>, <code>//</code> and <code>#</code>; the bracketed
+  accessors (<code>mem[</code>, <code>page[</code>, <code>changed(</code>, …) are single tokens spelled with
+  their bracket, which is what tells the accessor <code>page[s]</code> from the <code>page</code>
+  of an address filter.</li>
+<li><code>parser.*</code> over <code>ast.h</code> — recursive descent over the grammar of record
+  (<code>doc/design/debug-subsystem/dsl-frontend.md</code> §2.1). It stops at the first
+  syntax error and reports it as <code>line:column: message</code>.</li>
+<li><code>check.*</code>, with <code>names.*</code> as the one table of reserved words, built-in state
+  names and payload names — the load-time checks, and BINDING: each upper-case
+  name is resolved to what it reads in its scope (<code>PC</code> is the causing
+  instruction's PC in an event rule and the CPU's PC elsewhere; <code>CPC</code> is legal
+  only in a <code>copper</code> rule). The per-kind payload table admits a name only where
+  the backend's <code>Event</code> actually carries it.</li>
+<li><code>evaluator.*</code> — the integer evaluator over a bound tree, reading through the
+  facade's const inspection surface (32-bit wrapping arithmetic; run-time
+  failures such as division by zero are reported, not thrown past the library).</li>
+<li><code>expr_compiler.h</code> — the stable public header other frontends call:
+  <code>compile_expr(text, scope)</code> returns the backend's CAP-EVT predicate
+  (<code>dbg::Condition</code>) and <code>eval_expr(text, debugger)</code> evaluates once. The ZRCP
+  adapter (package Z, not yet written) is designed to translate its dialect into
+  this grammar rather than own a second parser.</li>
+</ul>
+<p><code>script_parse_test</code> (<code>gate: none</code>) pins the grammar, every error class with its
+position, precedence, the per-kind payload table, the evaluation of every name
+against a real <code>Debugger</code>, and that every worked script of the design parses.
+The choices made where the grammar is silent are the design document's
+"WP1 as built" appendix. This section covers the front end only; the engine,
+the CLI and the recorder are later work packages of the same branch.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
 <p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
 <code>jnext_debugger</code> is neither compiled nor linked and every use site in
