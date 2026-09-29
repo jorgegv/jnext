@@ -1921,13 +1921,13 @@ start the ring has already counted (<code>Emulator::at_restored_frame_start()</c
 <code>FrameEnded</code> detector watches the frame's <em>start cycle</em> rather than the
 counter: the first frame run again after a rewind ends without the counter
 moving (GH #278).</p>
-<p>A verb whose machinery belonged to a later package was defined in ONE file,
-<code>debugger_pending.cpp</code>, and returned <code>Result::Unsupported</code> — never a silent
-no-op. Keeping them together made "what is not implemented yet" something you
-could count rather than a claim in a comment; the file's banner lists them by
-owning package. It is empty since GH #278 WP4d moved the last one,
-<code>render_layer</code> (INS-14), out of the Qt video panel into
-<code>debugger_render.cpp</code>.</p>
+<p>While epic #276 was being built, a verb whose machinery belonged to a later
+package was defined in ONE file, <code>debugger_pending.cpp</code>, and returned
+<code>Result::Unsupported</code> — never a silent no-op — so "what is not implemented yet"
+was something you could count rather than a claim in a comment. GH #278 WP4d
+moved the last one, <code>render_layer</code> (INS-14), out of the Qt video panel into
+<code>debugger_render.cpp</code>, and the empty file was deleted: every verb the published
+header declares is implemented.</p>
 <p><code>debugger_backend_test</code> is the backend's suite, headless and Qt-free: a wiring
 row per control verb (arm it through the facade, run, assert the machine stopped
 where the verb promises — PC, cycle, pause reason), a <em>control</em> row per verb that
