@@ -368,7 +368,13 @@ Result Debugger::set_mmu_slot(ClientId by, int slot, uint8_t page) {
         return Result::RefusedRzx;
 
     const uint8_t old_page = impl_->emu.mmu().get_nr_page(slot);
-    impl_->emu.mmu().set_page(slot, page);
+    // Through the NR 0x50-0x57 WRITE HANDLER, i.e. exactly what the guest's
+    // own `NEXTREG 0x50+slot,page` does (GH #12): page 0xFF on slot 0/1
+    // re-engages legacy ROM paging there (zxnext.vhd:4611-4612, :3052). A bare
+    // `Mmu::set_page(slot, 0xFF)` instead left the slot UNMAPPED — reads 0xFF,
+    // writes dropped — which is what DZRP's CMD_SET_SLOT 0,0xFF, sent for slots
+    // 0/1 on every DeZog .sna/.z80/.nex load, then did to the ROM.
+    impl_->emu.nextreg().write(static_cast<uint8_t>(0x50 + slot), page);
     impl_->log_mutate(by, "mmu slot " + std::to_string(slot), old_page, page);
     return Result::Ok;
 }
@@ -458,7 +464,11 @@ Result Debugger::port_out(ClientId by, uint16_t port, uint8_t value) {
     impl_->emu.port().write(port, value);
     char what[24];
     std::snprintf(what, sizeof(what), "port out 0x%04X", port);
-    impl_->log_mutate_range(by, what, "= 0x" + std::to_string(value));
+    // The value in HEX, as the `0x` says: `std::to_string` here once spelled
+    // 0x15 as "0x21" (GH #12).
+    char val[12];
+    std::snprintf(val, sizeof(val), "= 0x%02X", value);
+    impl_->log_mutate_range(by, what, val);
     return Result::Ok;
 }
 
@@ -908,6 +918,12 @@ InputState Debugger::input_state() const {
 // ---------------------------------------------------------------------------
 
 Result Debugger::set_border(ClientId by, uint8_t colour) {
+    // §4.2a's RZX wall, as every other mutation has it: a recording cannot
+    // carry the change and a playback would diverge (GH #12 — this verb alone
+    // lacked it).
+    if (impl_->emu.rzx_recorder().is_recording() ||
+        impl_->emu.rzx_player().is_playing())
+        return Result::RefusedRzx;
     const uint8_t old_colour = impl_->emu.ula().get_border();
     impl_->emu.ula().set_border(colour);
     impl_->log_mutate(by, "border", old_colour, colour & 0x07);
