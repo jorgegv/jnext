@@ -2,7 +2,7 @@
 
 Visual reference for every screenshot regression test in `test/00regression/`. Each entry shows the canonical reference screenshot the test runs are compared against. The full test suite is defined in [test/00regression/regression_tests.conf](../test/00regression/regression_tests.conf) and run by [test/00regression/regression.sh](../test/00regression/regression.sh); see [doc/testing/REGRESSION-TEST-SUITE.md](testing/REGRESSION-TEST-SUITE.md) for execution details.
 
-**65 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
+**66 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
 
 This document is checked against the conf by `make regression-doc-check`, which
 is a prerequisite of `make regression`: a conf row with no entry here, an entry
@@ -38,6 +38,11 @@ NextZXOS main menu after SPACE skips the welcome tour.
 CP/M started from the NextZXOS menu — the `.COM` import log (31 files imported, ending on `Press SPACE to exit to NextZXOS`). Runs against a private copy of the SD image (`@private-sd`), because CP/M start-up writes to it.
 
 <img src="../test/00regression/img/boot-nextzxos-cpm-reference.png" width="384" alt="boot-nextzxos-cpm reference"/>
+
+### `boot-fwmenu-zx81`
+The firmware boot menu's ZX81 entry (SPACE during the firmware boot, eight times DOWN, ENTER) booting into Paul Farrow's ZX81 emulator menu. The 24.11 distribution ships `zx81.rom` as one 16 KB page where the entry needs two, which stopped this boot on `zx81.rom...error reading!`; jnext's image recipe doubles the file, as upstream tbblue did (GH #284). Runs against a private copy of the SD image (`@private-sd`), because the firmware saves the choice to `config.ini`.
+
+<img src="../test/00regression/img/boot-fwmenu-zx81-reference.png" width="384" alt="boot-fwmenu-zx81 reference"/>
 
 ---
 
