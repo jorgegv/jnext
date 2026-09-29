@@ -313,7 +313,8 @@ check "no first-party glob without CONFIGURE_DEPENDS" "$bad_count" "0"
 # ls-files pattern, or a run from outside a git checkout, scans nothing and
 # fails here on 0 != 18 rather than passing silently.
 # 18 -> 19: src/remote/CMakeLists.txt (GH #287, jnext_remote).
-EXPECTED_FIRST_PARTY_GLOBS=19
+# 19 -> 20: src/script/CMakeLists.txt (GH #26, jnext_script).
+EXPECTED_FIRST_PARTY_GLOBS=20
 check "exactly $EXPECTED_FIRST_PARTY_GLOBS first-party globs scanned" \
 	"$good_count" "$EXPECTED_FIRST_PARTY_GLOBS"
 
@@ -505,7 +506,8 @@ check "no first-party GLOB_RECURSE without the generated-dir filter" \
 # count at 0 while silently scanning less. Updating this when you add or remove
 # a glob IS the point.
 # 16 -> 17: src/remote/CMakeLists.txt (GH #287, jnext_remote).
-EXPECTED_RECURSIVE_GLOBS=17
+# 17 -> 18: src/script/CMakeLists.txt (GH #26, jnext_script).
+EXPECTED_RECURSIVE_GLOBS=18
 check "exactly $EXPECTED_RECURSIVE_GLOBS first-party GLOB_RECURSE globs scanned" \
 	"$recursive_globs" "$EXPECTED_RECURSIVE_GLOBS"
 
