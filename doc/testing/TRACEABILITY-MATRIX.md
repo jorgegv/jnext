@@ -51,7 +51,7 @@ mentions them, so a test can no longer be absent from this document.
 | ESP-01 socket transport                    |   240 |  236 |    0 |    4 |       0 |          0 |
 | ESP-01 AT engine                           |   489 |  489 |    0 |    0 |       0 |          0 |
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
-| Companion: mmu_integration_test            |    89 |   89 |    0 |    0 |       0 |          0 |
+| Companion: mmu_integration_test            |    94 |   94 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |    17 |   17 |    0 |    0 |       0 |          0 |
 | Companion: compositor_integration_test     |    50 |   50 |    0 |    0 |       0 |          0 |
 | Companion: copper_integration_test         |    14 |   14 |    0 |    0 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    30 |   24 |    0 |    6 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5341 | 5330 |    0 |   11 |       0 |          0 |
+| **Total**                                  |  5346 | 5335 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **5341**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5033**. Rows the 122 suites declared in `test/unit-tests.conf` run live: **10765**.
+Rows the sections above carry: **5346**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5038**. Rows the 122 suites declared in `test/unit-tests.conf` run live: **10784**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -77,7 +77,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 79 suites (5816 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 79 suites (5830 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -126,7 +126,7 @@ These 79 suites (5816 live rows) have no VHDL-derived plan row to map, so they h
 | `resume_guard_test` | 11 | debugger resume-confirmation policy (jnext-internal) |
 | `debug_qt_free_test` | 8 | source-tree layout lint (GH #278 WP1: no Qt under src/debug/), no hardware behaviour |
 | `step_out_test` | 50 | debugger Step Out execution control (jnext-internal); the T80N core has no debugger |
-| `debugger_backend_test` | 1284 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
+| `debugger_backend_test` | 1297 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
 | `persistent_bp_test` | 18 | debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger |
 | `io_watchpoint_test` | 25 | debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger |
 | `bp_enable_test` | 23 | debugger breakpoint enable/disable policy (GH #225, jnext-internal); the T80N core has no debugger |
@@ -147,7 +147,7 @@ These 79 suites (5816 live rows) have no VHDL-derived plan row to map, so they h
 | `window_scale_test` | 10 | main-window scale/fullscreen geometry (host GUI) |
 | `quit_cleanup_test` | 7 | host shutdown ordering (GUI lifecycle) |
 | `preferences_apply_test` | 56 | Preferences dialog wiring (host GUI) |
-| `debugger_video_panel_test` | 115 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
+| `debugger_video_panel_test` | 116 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
 | `debugger_audio_panel_test` | 15 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
 | `debugger_quit_gate_test` | 8 | debugger quit gating (host GUI lifecycle) |
 | `debugger_persistent_bp_test` | 11 | debugger window raise-on-hit (host GUI lifecycle, GH #219) |
@@ -5004,95 +5004,100 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| MMU-EF7-IO-EN-00 | baseline: gate-open + EFF7=0x00 clears disable_p1024 + ram_at_0000 [zxnext.vhd:3780-3782 storage] | zxnext.vhd:3780-3782 | pass | test/mmu/mmu_integration_test.cpp:175 |
-| MMU-EF7-IO-EN-01 | NR 0x85 b2=0 — write 0x0C to 0xEFF7 dropped [zxnext.vhd:2604 port_eff7=lsb AND io_en, :2441/:2392 io_en=NR 0x85 b2] | zxnext.vhd:2604 | pass | test/mmu/mmu_integration_test.cpp:192 |
-| MMU-EF7-IO-EN-02 | NR 0x85 b2=1 — write 0x0C to 0xEFF7 sets disable_p1024 + ram_at_0000 [zxnext.vhd:2604 gate open, mmu.cpp:398 write_port_eff7 stores b2/b3] | zxnext.vhd:2604 | pass | test/mmu/mmu_integration_test.cpp:209 |
-| V12-MEM-01-A | NR 0x50 read-back returns verbatim 0xE5 after high-page write [zxnext.vhd:4686-4699,6059-6060] | zxnext.vhd:4686-4699,6059-6060 | pass | test/mmu/mmu_integration_test.cpp:252 |
-| V12-MEM-01-B | NR 0x8C write does NOT clobber NR 0x50 verbatim value [zxnext.vhd:3813 NR 0x8C absent from port_memory_change_dly, :4607-4700 MMU<i> only updates on listed triggers] | zxnext.vhd:3813 | pass | test/mmu/mmu_integration_test.cpp:264 |
-| V12-MEM-02-A | NR 0x08 bit 6 (contention_disable) reads back 1 after write+commit [zxnext.vhd:5176,5800-5823,5906] | zxnext.vhd:5176,5800-5823,5906 | pass | test/mmu/mmu_integration_test.cpp:321 |
-| V12-MEM-02-B | ContentionModel.contention_disable() is true post-commit on live emu [zxnext.vhd:5822-5823 commit on hc(8)='1' propagates shadow→effective] | zxnext.vhd:5822-5823 | pass | test/mmu/mmu_integration_test.cpp:329 |
-| V12-MEM-02-C | NR 0x08 bit 6 survives save/load round-trip [ContentionModel re-sync from Mmu.contention_disabled() in load_state] | — | pass | test/mmu/mmu_integration_test.cpp:366 |
-| V12-MEM-02-D | ContentionModel.contention_disable() (effective) is true post-load [zxnext.vhd:5823 effective committed value persists across non-reset edges] | zxnext.vhd:5823 | pass | test/mmu/mmu_integration_test.cpp:376 |
-| V12-MEM-03-A | Mmu.machine_type() round-trips ZX48K through save/load | — | pass | test/mmu/mmu_integration_test.cpp:474 |
-| V12-MEM-03-B | ContentionModel.type_ tracks Mmu.machine_type() across load_state — ZX48K + page=0x0A (bank 5) contends [zxnext.vhd:4490 mem_contend 48K bank-decode; rebuild_for_type wired into Emulator::load_state] | zxnext.vhd:4490 | pass | test/mmu/mmu_integration_test.cpp:500 |
-| V13-MEM-01-A | Baseline port 0x123B bit 1 = 0 after clearing both NR 0x69 and port 0x123B [zxnext.vhd:3933 read-back] | zxnext.vhd:3933 | pass | test/mmu/mmu_integration_test.cpp:560 |
-| V13-MEM-01-B | NR 0x69 bit 7 = 1 fans out into port 0x123B bit 1 = 1 [zxnext.vhd:3924-3925 nr_69_we drives port_123b_layer2_en] | zxnext.vhd:3924-3925 | pass | test/mmu/mmu_integration_test.cpp:571 |
-| V13-MEM-01-C | NR 0x69 bit 7 read-back = 1 after NR 0x69 = 0x80 write (Layer2 mirror — pre-fix path, regression guard) [zxnext.vhd:6095-6096] | zxnext.vhd:6095-6096 | pass | test/mmu/mmu_integration_test.cpp:582 |
-| V13-MEM-01-D | NR 0x69 bit 7 = 0 clears port 0x123B bit 1 (sweep guard — fix must not be a one-shot raise) [zxnext.vhd:3924-3925] | zxnext.vhd:3924-3925 | pass | test/mmu/mmu_integration_test.cpp:593 |
-| V13-MEM-01-E | NR 0x69 fan-out only touches port 0x123B bit 1 (other bits unchanged) [zxnext.vhd:3924-3925 port_123b_layer2_en is the ONLY field nr_69_we writes] | zxnext.vhd:3924-3925 | pass | test/mmu/mmu_integration_test.cpp:622 |
-| SWITCH-01 | live Next→128K machine switch clears Mmu::rom_in_sram | — | pass | test/mmu/mmu_integration_test.cpp:662 |
-| SWITCH-02 | post-switch standalone bank-7 writes land in flat RAM, not the Next-only BRAM buffer | — | pass | test/mmu/mmu_integration_test.cpp:674 |
-| MT-DEF-01 | Next (ZXN_ISSUE2) cold-boot NR $03 machine-type = 011 (+3) per the zxnext.vhd:1103 signal initialiser (the power-on default) | zxnext.vhd:1103 | pass | test/mmu/mmu_integration_test.cpp:707 |
-| MT-DEF-02 | +3 (ZX_PLUS3) cold-boot NR $03 machine-type = 011 (+3) | — | pass | test/mmu/mmu_integration_test.cpp:719 |
-| GH232-01 | the NR 0x03 typ_sel commit survives a soft reset in the Mmu (no reset clause for nr_03_machine_type) [zxnext.vhd:1103, :4926-5111] | zxnext.vhd:1103,4926-5111 | pass | test/mmu/mmu_integration_test.cpp:769 |
-| GH232-02 | soft reset rebuilds the contention bank decode from the PRESERVED machine type, not the CLI one [zxnext.vhd:4490-4492 mem_contend; :2981-3008 machine_type_*] | zxnext.vhd:4490-4492 | pass | test/mmu/mmu_integration_test.cpp:783 |
-| GH232-03 | soft reset rebuilds the contention LUT with the +3 pattern the preserved machine type selects [zxula.vhd:582-583] | zxula.vhd:582-583 | pass | test/mmu/mmu_integration_test.cpp:795 |
-| GH232-04 | the pulse-mode /INT width gate follows the NR 0x03 tim_sel written before a soft reset at the next frame edge — not at the write, not at the reset, and not the CLI machine type [zxnext.vhd:2033 pulse_count_end; :5761-5776 machine_timing_*; :6696-6703 eff_nr_03_machine_timing] | zxnext.vhd:2033 | pass | test/mmu/mmu_integration_test.cpp:835 |
-| GH232-05 | Im2Controller's copy of that same gate stays in lock-step with Z80Cpu's across the soft reset and the frame edge [zxnext.vhd:2033 — one VHDL signal, two jnext consumers] | zxnext.vhd:2033 | pass | test/mmu/mmu_integration_test.cpp:848 |
-| GH232-06 | Next cold boot: the /INT pulse-width gate agrees with the NR 0x03 tim_sel it booted with (011 = +3 → 32 cycles) [zxnext.vhd:1099 initialiser; :2033 gate] | zxnext.vhd:1099 | pass | test/mmu/mmu_integration_test.cpp:873 |
-| MF-SRAM-01 | Next MF window reads external SRAM pages 0x0A (ROM half) / 0x0B (RAM half) per VHDL :3029-3036 | — | pass | test/mmu/mmu_integration_test.cpp:931 |
-| MF-SRAM-02 | Next MF RAM half writes reach SRAM page 0x0B; ROM half is read-only (page 0x0A unchanged) | — | pass | test/mmu/mmu_integration_test.cpp:936 |
-| MF-SRAM-03 | standalone (128K) MF window is unaffected by SRAM pages 0x0A/0x0B — reads the private buffer, not page 0x0A | — | pass | test/mmu/mmu_integration_test.cpp:962 |
-| MF-SRAM-04 | standalone (128K) MF RAM write stays in the private buffer, does NOT reach SRAM page 0x0B | — | pass | test/mmu/mmu_integration_test.cpp:967 |
-| G156-HOLD-01 | boot_hold_frames_remaining() reflects set_boot_hold_frames() | — | pass | test/mmu/mmu_integration_test.cpp:986 |
-| G156-HOLD-02 | boot_hold_frames_remaining() decrements by exactly 1 per run_frame() | — | pass | test/mmu/mmu_integration_test.cpp:993 |
-| G156-HOLD-03 | boot_hold_frames_remaining() reaches exactly 0 after the full hold count of run_frame() calls | — | pass | test/mmu/mmu_integration_test.cpp:1003 |
-| G156-HOLD-04 | PC and R are frozen across every held frame (no instruction executed while boot_hold_frames_remaining_ > 0) | — | pass | test/mmu/mmu_integration_test.cpp:1016 |
-| G156-HOLD-05 | CPU resumes real execution once the hold ends — PC/R change over post-hold frames (the hold is not permanent) | — | pass | test/mmu/mmu_integration_test.cpp:1029 |
-| G156-HOLD-06 | pre-save remaining is genuinely mid-hold (neither the initial value nor zero) | — | pass | test/mmu/mmu_integration_test.cpp:1050 |
-| G156-HOLD-07 | save_state()/load_state() round-trip preserves boot_hold_frames_remaining_ exactly | — | pass | test/mmu/mmu_integration_test.cpp:1077 |
-| G156-HOLD-08 | the restored hold correctly resumes: exactly the restored remaining count of run_frame() calls exhausts it to 0 | — | pass | test/mmu/mmu_integration_test.cpp:1085 |
-| G156-HOLD-09 | PC/R stayed frozen for the entire restored hold — no instruction executed while resuming a mid-hold snapshot | — | pass | test/mmu/mmu_integration_test.cpp:1092 |
-| SNAPSAVE-SZX-RT-00 | SzxSaver::save() returns a non-empty buffer and reports success for a supported machine (+3) | — | pass | test/mmu/mmu_integration_test.cpp:1217 |
-| SNAPSAVE-SZX-RT-01 | saved .szx bytes written to disk | — | pass | test/mmu/mmu_integration_test.cpp:1223 |
-| SNAPSAVE-SZX-RT-02 | Emulator::load_szx() accepts the saved file | — | pass | test/mmu/mmu_integration_test.cpp:1234 |
-| SNAPSAVE-SZX-RT-REGS | full register set (both AF/BC/DE/HL sets, IX/IY/SP/PC, I/R/IFF/IM/halted) round-trips through save()->file->Emulator::load_szx() | — | pass | test/mmu/mmu_integration_test.cpp:1243 |
-| SNAPSAVE-SZX-RT-PAGING | classic paging ports (0x7FFD/0x1FFD) round-trip via ZXSTSPECREGS | — | pass | test/mmu/mmu_integration_test.cpp:1251 |
-| SNAPSAVE-SZX-RT-RAM | all 8 physical RAM banks (0-7) round-trip byte-for-byte via ZXSTRAMPAGE — a +3 save now carries its full RAM, not a truncated subset | — | pass | test/mmu/mmu_integration_test.cpp:1266 |
-| SNAPSAVE-SZX-RT-BORDER | border colour round-trips via ZXSTSPECREGS.chFe | — | pass | test/mmu/mmu_integration_test.cpp:1273 |
-| SNAPSAVE-SZX-RT-REFUSED | SzxSaver::save() refuses outright for a Next machine: ok=false, no data written, a non-empty error explaining why | — | pass | test/mmu/mmu_integration_test.cpp:1297 |
-| SNAPSAVE-SZX-RT-48K-00 | SzxSaver::save() succeeds for 48K | — | pass | test/mmu/mmu_integration_test.cpp:1339 |
-| SNAPSAVE-SZX-RT-48K-PAGESET | the SAVED FILE's ZXSTRAMPAGE chPageNo set is exactly {0,2,5} — independently scanned from raw bytes, not via SzxLoader | — | pass | test/mmu/mmu_integration_test.cpp:1348 |
-| SNAPSAVE-SZX-RT-48K-01 | saved 48K .szx bytes written to disk | — | pass | test/mmu/mmu_integration_test.cpp:1360 |
-| SNAPSAVE-SZX-RT-48K-02 | Emulator::load_szx() accepts the saved 48K file | — | pass | test/mmu/mmu_integration_test.cpp:1371 |
-| SNAPSAVE-SZX-RT-48K-REGS | register set round-trips through save()->file->Emulator::load_szx() for 48K | — | pass | test/mmu/mmu_integration_test.cpp:1377 |
-| SNAPSAVE-SZX-RT-48K-RAM | banks 0/2/5 (48K's real RAM) round-trip byte-for-byte via ZXSTRAMPAGE | — | pass | test/mmu/mmu_integration_test.cpp:1390 |
-| SNAPSAVE-SZX-RT-48K-BANK1-UNTOUCHED | bank 1 (not part of a 48K's RAM) is never written by load_szx() — reads back as the re-initialisation's all-zero fill, not the distinctive pattern emu1's physical bank 1 was seeded with | — | pass | test/mmu/mmu_integration_test.cpp:1408 |
-| SNAPSAVE-SZX-RT-48K-BORDER | border colour round-trips via ZXSTSPECREGS.chFe for 48K | — | pass | test/mmu/mmu_integration_test.cpp:1415 |
-| LOADER-REINIT-SNA | load_sna() re-initialises a running machine before applying the snapshot: RAM the .sna does not carry reads back zero | — | pass | test/mmu/mmu_integration_test.cpp:1524 |
-| LOADER-REINIT-SZX | load_szx() re-initialises a running machine before applying the snapshot: RAM the .szx does not carry reads back zero | — | pass | test/mmu/mmu_integration_test.cpp:1531 |
-| LOADER-REINIT-Z80 | load_z80() re-initialises a running machine before applying the snapshot: RAM the .z80 does not carry reads back zero | — | pass | test/mmu/mmu_integration_test.cpp:1537 |
-| SNAPSAVE-SNA-REFUSED-NEXT | SnaSaver::save() refuses a Next outright: no data, plus an error that names the machine and points at '.jns' | — | pass | test/mmu/mmu_integration_test.cpp:1674 |
-| SNAPSAVE-SNA-REFUSED-NO-PUSH | the refused save left the machine untouched — it never reached the 48K form's destructive PC push at SP-2 | — | pass | test/mmu/mmu_integration_test.cpp:1682 |
-| SNAPSAVE-SNA-48K-FORM | a 48K saves the 48K form: exactly 49179 bytes, no error, and the header's SP is the pushed SP-2 with PC on the stack there | — | pass | test/mmu/mmu_integration_test.cpp:1711 |
-| SNAPSAVE-SNA-48K-ROUNDTRIP | a 48K .sna loads back into a dirty 48K with banks 5, 2 and 0 byte-exact and every register, PC, SP and the border restored | — | pass | test/mmu/mmu_integration_test.cpp:1737 |
-| SNAPSAVE-SNA-128K-FORM | a 128K saves the 128K form: 131103 bytes, and the extended header at offset 49179 carries PC and the real port 0x7FFD | — | pass | test/mmu/mmu_integration_test.cpp:1773 |
-| SNAPSAVE-SNA-128K-NO-STACK-CLOBBER | the 128K form writes the REAL SP and leaves the guest stack alone — no PC is pushed at SP-2 | — | pass | test/mmu/mmu_integration_test.cpp:1787 |
-| SNAPSAVE-SNA-128K-ROUNDTRIP | a 128K .sna loads back with ALL EIGHT banks byte-exact, the 0x7FFD paging register, and every register, PC, SP and border | — | pass | test/mmu/mmu_integration_test.cpp:1809 |
-| SNAPSAVE-SNA-128K-PAGED-DUP-FORM | a 128K with bank 5 paged at 0xC000 writes the six-remaining-bank form (147487 bytes), matching SnaLoader's own skip set | — | pass | test/mmu/mmu_integration_test.cpp:1841 |
-| SNAPSAVE-SNA-128K-PAGED-DUP-ROUNDTRIP | and it round-trips: all eight banks byte-exact with bank 5 paged, so the duplicated block is read back consistently | — | pass | test/mmu/mmu_integration_test.cpp:1856 |
-| SNAPSAVE-SNA-PLUS3-NORMAL-FORM | a +3 in normal paging saves the 128K form (131103 bytes) — port 0x1FFD bit 3 is the +3 disk motor (zxnext.vhd:3757), which no SNA of any machine carries | zxnext.vhd:3757 | pass | test/mmu/mmu_integration_test.cpp:1884 |
-| SNAPSAVE-SNA-PLUS3-ROUNDTRIP | and it round-trips on a +3: all eight banks, 0x7FFD, the registers, PC, SP and the border | — | pass | test/mmu/mmu_integration_test.cpp:1901 |
-| SNAPSAVE-SNA-128K-DFFD-REFUSED | a 128K with extended paging active is refused: 0x7FFD alone cannot name the bank at 0xC000, so no file is written at all | — | pass | test/mmu/mmu_integration_test.cpp:1939 |
-| SNAPSAVE-SNA-128K-DFFD-MOVED-WINDOW | and the fixture really did move the window out of 0x7FFD's reach: slot 6 holds bank 8 and 0xC000 reads the byte written after the switch | — | pass | test/mmu/mmu_integration_test.cpp:1949 |
-| SNAPSAVE-SNA-128K-DFFD-NOT-SZX | the refusal does not recommend '.szx', which has no 0xDFFD field and could not carry this state either | — | pass | test/mmu/mmu_integration_test.cpp:1958 |
-| SNAPSAVE-SNA-128K-DFFD-ZERO-SAVES | a 128K with port 0xDFFD explicitly 0 still saves the 128K form and round-trips all eight banks, 0x7FFD and the registers | — | pass | test/mmu/mmu_integration_test.cpp:1994 |
-| SNAPSAVE-SNA-48K-DFFD-REFUSED | a 48K is exposed the same way and refused the same way: port 0xDFFD moves 0xC000 to bank 8, which the 48K form's third block — always reloaded as bank 0 — cannot describe | — | pass | test/mmu/mmu_integration_test.cpp:2018 |
-| SNAPSAVE-SNA-128K-SLOT-REMAP-REFUSED | a 128K whose 0x8000 window an NR 0x50-0x57 write moved off bank 2 is refused: the form's second block can only reload as bank 2 | — | pass | test/mmu/mmu_integration_test.cpp:2041 |
-| SNAPSAVE-SNA-128K-PENTAGON-REFUSED | Pentagon mapping mode composes the bank at 0xC000 from 0x7FFD bits 7:6, which the format's 3-bit field cannot name, and is refused by the same window check — mechanism-independent by construction | — | pass | test/mmu/mmu_integration_test.cpp:2064 |
-| SNAPSAVE-SNA-128K-PENTAGON-CLEAR-SAVES | Pentagon mode with 0x7FFD bits 7:6 clear still saves and round-trips all eight banks — the refusal is the window, not the mapping mode | — | pass | test/mmu/mmu_integration_test.cpp:2099 |
-| SNAPSAVE-SNA-PLUS3-SPECIAL-REFUSED | a +3 in SPECIAL PAGING is refused: the format's three blocks are banks 5, 2 and the paged bank, which is not that layout at all | — | pass | test/mmu/mmu_integration_test.cpp:2114 |
-| SNAPSAVE-SNA-PLUS3-ROMHIGH-REFUSED | a +3 with ROM 2 or 3 paged is refused: the format carries only 0x7FFD bit 4, so it would come back on a different ROM | — | pass | test/mmu/mmu_integration_test.cpp:2128 |
-| SNAPSAVE-NEX-RT-00 | NexSaver::save() returns a non-empty buffer | — | pass | test/mmu/mmu_integration_test.cpp:2164 |
-| SNAPSAVE-NEX-RT-01 | saved .nex bytes written to disk | — | pass | test/mmu/mmu_integration_test.cpp:2169 |
-| SNAPSAVE-NEX-RT-02 | Emulator::load_nex() accepts the saved file | — | pass | test/mmu/mmu_integration_test.cpp:2180 |
-| SNAPSAVE-NEX-RT-PCSP | PC/SP round-trip through save()->file->Emulator::load_nex() (the only two registers NEX's header carries) | — | pass | test/mmu/mmu_integration_test.cpp:2187 |
-| SNAPSAVE-NEX-RT-RAM | bank-20 (pages 40/41) content round-trips byte-for-byte through the .nex bank payload | — | pass | test/mmu/mmu_integration_test.cpp:2200 |
-| SNAPSAVE-NEX-RT-BORDER | border colour round-trips via the .nex header | — | pass | test/mmu/mmu_integration_test.cpp:2206 |
-| SNAPSAVE-NEX-RT-ENTRYBANK | entry_bank re-establishes the CPU-executable mapping at 0xC000-0xFFFF (MMU slots 6/7) in the freshly loaded Emulator | — | pass | test/mmu/mmu_integration_test.cpp:2211 |
-| MMU-G33-TRAP-01 | handle_sa_bytes_trap: A/IX/DE -> hand-computed TAP block on file; exit state PC=popped ret, SP+=2, IX+=DE, DE=0, carry set (mirrors the LD-BYTES trap return mechanics) | — | pass | test/mmu/mmu_integration_test.cpp:2303 |
-| MMU-G33-TRAP-02 | run_frame gate positive: SA-BYTES signature in slot-0 ROM + PC=0x04C2 + armed saver -> trap fires once, block on file, CPU parked at popped return address | — | pass | test/mmu/mmu_integration_test.cpp:2338 |
-| MMU-G33-TRAP-03 | run_frame gate negative: non-48K ROM bytes at 0x04C2 with the saver armed and PC=0x04C2 -> trap does NOT fire (zero blocks, empty file, CPU executes the real ROM code) — the ungated trap corrupted a plain NextZXOS boot (Task 57 review) | — | pass | test/mmu/mmu_integration_test.cpp:2369 |
+| MMU-EF7-IO-EN-00 | baseline: gate-open + EFF7=0x00 clears disable_p1024 + ram_at_0000 [zxnext.vhd:3780-3782 storage] | zxnext.vhd:3780-3782 | pass | test/mmu/mmu_integration_test.cpp:180 |
+| MMU-EF7-IO-EN-01 | NR 0x85 b2=0 — write 0x0C to 0xEFF7 dropped [zxnext.vhd:2604 port_eff7=lsb AND io_en, :2441/:2392 io_en=NR 0x85 b2] | zxnext.vhd:2604 | pass | test/mmu/mmu_integration_test.cpp:197 |
+| MMU-EF7-IO-EN-02 | NR 0x85 b2=1 — write 0x0C to 0xEFF7 sets disable_p1024 + ram_at_0000 [zxnext.vhd:2604 gate open, mmu.cpp:398 write_port_eff7 stores b2/b3] | zxnext.vhd:2604 | pass | test/mmu/mmu_integration_test.cpp:214 |
+| V12-MEM-01-A | NR 0x50 read-back returns verbatim 0xE5 after high-page write [zxnext.vhd:4686-4699,6059-6060] | zxnext.vhd:4686-4699,6059-6060 | pass | test/mmu/mmu_integration_test.cpp:257 |
+| V12-MEM-01-B | NR 0x8C write does NOT clobber NR 0x50 verbatim value [zxnext.vhd:3813 NR 0x8C absent from port_memory_change_dly, :4607-4700 MMU<i> only updates on listed triggers] | zxnext.vhd:3813 | pass | test/mmu/mmu_integration_test.cpp:269 |
+| V12-MEM-02-A | NR 0x08 bit 6 (contention_disable) reads back 1 after write+commit [zxnext.vhd:5176,5800-5823,5906] | zxnext.vhd:5176,5800-5823,5906 | pass | test/mmu/mmu_integration_test.cpp:326 |
+| V12-MEM-02-B | ContentionModel.contention_disable() is true post-commit on live emu [zxnext.vhd:5822-5823 commit on hc(8)='1' propagates shadow→effective] | zxnext.vhd:5822-5823 | pass | test/mmu/mmu_integration_test.cpp:334 |
+| V12-MEM-02-C | NR 0x08 bit 6 survives save/load round-trip [ContentionModel re-sync from Mmu.contention_disabled() in load_state] | — | pass | test/mmu/mmu_integration_test.cpp:371 |
+| V12-MEM-02-D | ContentionModel.contention_disable() (effective) is true post-load [zxnext.vhd:5823 effective committed value persists across non-reset edges] | zxnext.vhd:5823 | pass | test/mmu/mmu_integration_test.cpp:381 |
+| V12-MEM-03-A | Mmu.machine_type() round-trips ZX48K through save/load | — | pass | test/mmu/mmu_integration_test.cpp:479 |
+| V12-MEM-03-B | ContentionModel.type_ tracks Mmu.machine_type() across load_state — ZX48K + page=0x0A (bank 5) contends [zxnext.vhd:4490 mem_contend 48K bank-decode; rebuild_for_type wired into Emulator::load_state] | zxnext.vhd:4490 | pass | test/mmu/mmu_integration_test.cpp:505 |
+| V13-MEM-01-A | Baseline port 0x123B bit 1 = 0 after clearing both NR 0x69 and port 0x123B [zxnext.vhd:3933 read-back] | zxnext.vhd:3933 | pass | test/mmu/mmu_integration_test.cpp:565 |
+| V13-MEM-01-B | NR 0x69 bit 7 = 1 fans out into port 0x123B bit 1 = 1 [zxnext.vhd:3924-3925 nr_69_we drives port_123b_layer2_en] | zxnext.vhd:3924-3925 | pass | test/mmu/mmu_integration_test.cpp:576 |
+| V13-MEM-01-C | NR 0x69 bit 7 read-back = 1 after NR 0x69 = 0x80 write (Layer2 mirror — pre-fix path, regression guard) [zxnext.vhd:6095-6096] | zxnext.vhd:6095-6096 | pass | test/mmu/mmu_integration_test.cpp:587 |
+| V13-MEM-01-D | NR 0x69 bit 7 = 0 clears port 0x123B bit 1 (sweep guard — fix must not be a one-shot raise) [zxnext.vhd:3924-3925] | zxnext.vhd:3924-3925 | pass | test/mmu/mmu_integration_test.cpp:598 |
+| V13-MEM-01-E | NR 0x69 fan-out only touches port 0x123B bit 1 (other bits unchanged) [zxnext.vhd:3924-3925 port_123b_layer2_en is the ONLY field nr_69_we writes] | zxnext.vhd:3924-3925 | pass | test/mmu/mmu_integration_test.cpp:627 |
+| SWITCH-01 | live Next→128K machine switch clears Mmu::rom_in_sram | — | pass | test/mmu/mmu_integration_test.cpp:667 |
+| SWITCH-02 | post-switch standalone bank-7 writes land in flat RAM, not the Next-only BRAM buffer | — | pass | test/mmu/mmu_integration_test.cpp:679 |
+| MT-DEF-01 | Next (ZXN_ISSUE2) cold-boot NR $03 machine-type = 011 (+3) per the zxnext.vhd:1103 signal initialiser (the power-on default) | zxnext.vhd:1103 | pass | test/mmu/mmu_integration_test.cpp:712 |
+| MT-DEF-02 | +3 (ZX_PLUS3) cold-boot NR $03 machine-type = 011 (+3) | — | pass | test/mmu/mmu_integration_test.cpp:724 |
+| GH232-01 | the NR 0x03 typ_sel commit survives a soft reset in the Mmu (no reset clause for nr_03_machine_type) [zxnext.vhd:1103, :4926-5111] | zxnext.vhd:1103,4926-5111 | pass | test/mmu/mmu_integration_test.cpp:774 |
+| GH232-02 | soft reset rebuilds the contention bank decode from the PRESERVED machine type, not the CLI one [zxnext.vhd:4490-4492 mem_contend; :2981-3008 machine_type_*] | zxnext.vhd:4490-4492 | pass | test/mmu/mmu_integration_test.cpp:788 |
+| GH232-03 | soft reset rebuilds the contention LUT with the +3 pattern the preserved machine type selects [zxula.vhd:582-583] | zxula.vhd:582-583 | pass | test/mmu/mmu_integration_test.cpp:800 |
+| GH232-04 | the pulse-mode /INT width gate follows the NR 0x03 tim_sel written before a soft reset at the next frame edge — not at the write, not at the reset, and not the CLI machine type [zxnext.vhd:2033 pulse_count_end; :5761-5776 machine_timing_*; :6696-6703 eff_nr_03_machine_timing] | zxnext.vhd:2033 | pass | test/mmu/mmu_integration_test.cpp:840 |
+| GH232-05 | Im2Controller's copy of that same gate stays in lock-step with Z80Cpu's across the soft reset and the frame edge [zxnext.vhd:2033 — one VHDL signal, two jnext consumers] | zxnext.vhd:2033 | pass | test/mmu/mmu_integration_test.cpp:853 |
+| GH232-06 | Next cold boot: the /INT pulse-width gate agrees with the NR 0x03 tim_sel it booted with (011 = +3 → 32 cycles) [zxnext.vhd:1099 initialiser; :2033 gate] | zxnext.vhd:1099 | pass | test/mmu/mmu_integration_test.cpp:878 |
+| MF-SRAM-01 | Next MF window reads external SRAM pages 0x0A (ROM half) / 0x0B (RAM half) per VHDL :3029-3036 | — | pass | test/mmu/mmu_integration_test.cpp:936 |
+| MF-SRAM-02 | Next MF RAM half writes reach SRAM page 0x0B; ROM half is read-only (page 0x0A unchanged) | — | pass | test/mmu/mmu_integration_test.cpp:941 |
+| MF-SRAM-03 | standalone (128K) MF window is unaffected by SRAM pages 0x0A/0x0B — reads the private buffer, not page 0x0A | — | pass | test/mmu/mmu_integration_test.cpp:967 |
+| MF-SRAM-04 | standalone (128K) MF RAM write stays in the private buffer, does NOT reach SRAM page 0x0B | — | pass | test/mmu/mmu_integration_test.cpp:972 |
+| G156-HOLD-01 | boot_hold_frames_remaining() reflects set_boot_hold_frames() | — | pass | test/mmu/mmu_integration_test.cpp:991 |
+| G156-HOLD-02 | boot_hold_frames_remaining() decrements by exactly 1 per run_frame() | — | pass | test/mmu/mmu_integration_test.cpp:998 |
+| G156-HOLD-03 | boot_hold_frames_remaining() reaches exactly 0 after the full hold count of run_frame() calls | — | pass | test/mmu/mmu_integration_test.cpp:1008 |
+| G156-HOLD-04 | PC and R are frozen across every held frame (no instruction executed while boot_hold_frames_remaining_ > 0) | — | pass | test/mmu/mmu_integration_test.cpp:1021 |
+| G156-HOLD-05 | CPU resumes real execution once the hold ends — PC/R change over post-hold frames (the hold is not permanent) | — | pass | test/mmu/mmu_integration_test.cpp:1034 |
+| G156-HOLD-06 | pre-save remaining is genuinely mid-hold (neither the initial value nor zero) | — | pass | test/mmu/mmu_integration_test.cpp:1055 |
+| G156-HOLD-07 | save_state()/load_state() round-trip preserves boot_hold_frames_remaining_ exactly | — | pass | test/mmu/mmu_integration_test.cpp:1082 |
+| G156-HOLD-08 | the restored hold correctly resumes: exactly the restored remaining count of run_frame() calls exhausts it to 0 | — | pass | test/mmu/mmu_integration_test.cpp:1090 |
+| G156-HOLD-09 | PC/R stayed frozen for the entire restored hold — no instruction executed while resuming a mid-hold snapshot | — | pass | test/mmu/mmu_integration_test.cpp:1097 |
+| SNAPSAVE-SZX-RT-00 | SzxSaver::save() returns a non-empty buffer and reports success for a supported machine (+3) | — | pass | test/mmu/mmu_integration_test.cpp:1222 |
+| SNAPSAVE-SZX-RT-01 | saved .szx bytes written to disk | — | pass | test/mmu/mmu_integration_test.cpp:1228 |
+| SNAPSAVE-SZX-RT-02 | Emulator::load_szx() accepts the saved file | — | pass | test/mmu/mmu_integration_test.cpp:1239 |
+| SNAPSAVE-SZX-RT-REGS | full register set (both AF/BC/DE/HL sets, IX/IY/SP/PC, I/R/IFF/IM/halted) round-trips through save()->file->Emulator::load_szx() | — | pass | test/mmu/mmu_integration_test.cpp:1248 |
+| SNAPSAVE-SZX-RT-PAGING | classic paging ports (0x7FFD/0x1FFD) round-trip via ZXSTSPECREGS | — | pass | test/mmu/mmu_integration_test.cpp:1256 |
+| SNAPSAVE-SZX-RT-RAM | all 8 physical RAM banks (0-7) round-trip byte-for-byte via ZXSTRAMPAGE — a +3 save now carries its full RAM, not a truncated subset | — | pass | test/mmu/mmu_integration_test.cpp:1271 |
+| SNAPSAVE-SZX-RT-BORDER | border colour round-trips via ZXSTSPECREGS.chFe | — | pass | test/mmu/mmu_integration_test.cpp:1278 |
+| SNAPSAVE-SZX-RT-REFUSED | SzxSaver::save() refuses outright for a Next machine: ok=false, no data written, a non-empty error explaining why | — | pass | test/mmu/mmu_integration_test.cpp:1302 |
+| SNAPSAVE-SZX-RT-48K-00 | SzxSaver::save() succeeds for 48K | — | pass | test/mmu/mmu_integration_test.cpp:1344 |
+| SNAPSAVE-SZX-RT-48K-PAGESET | the SAVED FILE's ZXSTRAMPAGE chPageNo set is exactly {0,2,5} — independently scanned from raw bytes, not via SzxLoader | — | pass | test/mmu/mmu_integration_test.cpp:1353 |
+| SNAPSAVE-SZX-RT-48K-01 | saved 48K .szx bytes written to disk | — | pass | test/mmu/mmu_integration_test.cpp:1365 |
+| SNAPSAVE-SZX-RT-48K-02 | Emulator::load_szx() accepts the saved 48K file | — | pass | test/mmu/mmu_integration_test.cpp:1376 |
+| SNAPSAVE-SZX-RT-48K-REGS | register set round-trips through save()->file->Emulator::load_szx() for 48K | — | pass | test/mmu/mmu_integration_test.cpp:1382 |
+| SNAPSAVE-SZX-RT-48K-RAM | banks 0/2/5 (48K's real RAM) round-trip byte-for-byte via ZXSTRAMPAGE | — | pass | test/mmu/mmu_integration_test.cpp:1395 |
+| SNAPSAVE-SZX-RT-48K-BANK1-UNTOUCHED | bank 1 (not part of a 48K's RAM) is never written by load_szx() — reads back as the re-initialisation's all-zero fill, not the distinctive pattern emu1's physical bank 1 was seeded with | — | pass | test/mmu/mmu_integration_test.cpp:1413 |
+| SNAPSAVE-SZX-RT-48K-BORDER | border colour round-trips via ZXSTSPECREGS.chFe for 48K | — | pass | test/mmu/mmu_integration_test.cpp:1420 |
+| LOADER-REINIT-SNA | load_sna() re-initialises a running machine before applying the snapshot: RAM the .sna does not carry reads back zero | — | pass | test/mmu/mmu_integration_test.cpp:1529 |
+| LOADER-REINIT-SZX | load_szx() re-initialises a running machine before applying the snapshot: RAM the .szx does not carry reads back zero | — | pass | test/mmu/mmu_integration_test.cpp:1536 |
+| LOADER-REINIT-Z80 | load_z80() re-initialises a running machine before applying the snapshot: RAM the .z80 does not carry reads back zero | — | pass | test/mmu/mmu_integration_test.cpp:1542 |
+| SNAPSAVE-SNA-REFUSED-NEXT | SnaSaver::save() refuses a Next outright: no data, plus an error that names the machine and points at '.jns' | — | pass | test/mmu/mmu_integration_test.cpp:1679 |
+| SNAPSAVE-SNA-REFUSED-NO-PUSH | the refused save left the machine untouched — it never reached the 48K form's destructive PC push at SP-2 | — | pass | test/mmu/mmu_integration_test.cpp:1687 |
+| SNAPSAVE-SNA-48K-FORM | a 48K saves the 48K form: exactly 49179 bytes, no error, and the header's SP is the pushed SP-2 with PC on the stack there | — | pass | test/mmu/mmu_integration_test.cpp:1716 |
+| SNAPSAVE-SNA-48K-ROUNDTRIP | a 48K .sna loads back into a dirty 48K with banks 5, 2 and 0 byte-exact and every register, PC, SP and the border restored | — | pass | test/mmu/mmu_integration_test.cpp:1742 |
+| SNAPSAVE-SNA-128K-FORM | a 128K saves the 128K form: 131103 bytes, and the extended header at offset 49179 carries PC and the real port 0x7FFD | — | pass | test/mmu/mmu_integration_test.cpp:1778 |
+| SNAPSAVE-SNA-128K-NO-STACK-CLOBBER | the 128K form writes the REAL SP and leaves the guest stack alone — no PC is pushed at SP-2 | — | pass | test/mmu/mmu_integration_test.cpp:1792 |
+| SNAPSAVE-SNA-128K-ROUNDTRIP | a 128K .sna loads back with ALL EIGHT banks byte-exact, the 0x7FFD paging register, and every register, PC, SP and border | — | pass | test/mmu/mmu_integration_test.cpp:1814 |
+| SNAPSAVE-SNA-128K-PAGED-DUP-FORM | a 128K with bank 5 paged at 0xC000 writes the six-remaining-bank form (147487 bytes), matching SnaLoader's own skip set | — | pass | test/mmu/mmu_integration_test.cpp:1846 |
+| SNAPSAVE-SNA-128K-PAGED-DUP-ROUNDTRIP | and it round-trips: all eight banks byte-exact with bank 5 paged, so the duplicated block is read back consistently | — | pass | test/mmu/mmu_integration_test.cpp:1861 |
+| SNAPSAVE-SNA-PLUS3-NORMAL-FORM | a +3 in normal paging saves the 128K form (131103 bytes) — port 0x1FFD bit 3 is the +3 disk motor (zxnext.vhd:3757), which no SNA of any machine carries | zxnext.vhd:3757 | pass | test/mmu/mmu_integration_test.cpp:1889 |
+| SNAPSAVE-SNA-PLUS3-ROUNDTRIP | and it round-trips on a +3: all eight banks, 0x7FFD, the registers, PC, SP and the border | — | pass | test/mmu/mmu_integration_test.cpp:1906 |
+| SNAPSAVE-SNA-128K-DFFD-REFUSED | a 128K with extended paging active is refused: 0x7FFD alone cannot name the bank at 0xC000, so no file is written at all | — | pass | test/mmu/mmu_integration_test.cpp:1944 |
+| SNAPSAVE-SNA-128K-DFFD-MOVED-WINDOW | and the fixture really did move the window out of 0x7FFD's reach: slot 6 holds bank 8 and 0xC000 reads the byte written after the switch | — | pass | test/mmu/mmu_integration_test.cpp:1954 |
+| SNAPSAVE-SNA-128K-DFFD-NOT-SZX | the refusal does not recommend '.szx', which has no 0xDFFD field and could not carry this state either | — | pass | test/mmu/mmu_integration_test.cpp:1963 |
+| SNAPSAVE-SNA-128K-DFFD-ZERO-SAVES | a 128K with port 0xDFFD explicitly 0 still saves the 128K form and round-trips all eight banks, 0x7FFD and the registers | — | pass | test/mmu/mmu_integration_test.cpp:1999 |
+| SNAPSAVE-SNA-48K-DFFD-REFUSED | a 48K is exposed the same way and refused the same way: port 0xDFFD moves 0xC000 to bank 8, which the 48K form's third block — always reloaded as bank 0 — cannot describe | — | pass | test/mmu/mmu_integration_test.cpp:2023 |
+| SNAPSAVE-SNA-128K-SLOT-REMAP-REFUSED | a 128K whose 0x8000 window an NR 0x50-0x57 write moved off bank 2 is refused: the form's second block can only reload as bank 2 | — | pass | test/mmu/mmu_integration_test.cpp:2046 |
+| SNAPSAVE-SNA-128K-PENTAGON-REFUSED | Pentagon mapping mode composes the bank at 0xC000 from 0x7FFD bits 7:6, which the format's 3-bit field cannot name, and is refused by the same window check — mechanism-independent by construction | — | pass | test/mmu/mmu_integration_test.cpp:2069 |
+| SNAPSAVE-SNA-128K-PENTAGON-CLEAR-SAVES | Pentagon mode with 0x7FFD bits 7:6 clear still saves and round-trips all eight banks — the refusal is the window, not the mapping mode | — | pass | test/mmu/mmu_integration_test.cpp:2104 |
+| SNAPSAVE-SNA-PLUS3-SPECIAL-REFUSED | a +3 in SPECIAL PAGING is refused: the format's three blocks are banks 5, 2 and the paged bank, which is not that layout at all | — | pass | test/mmu/mmu_integration_test.cpp:2119 |
+| SNAPSAVE-SNA-PLUS3-ROMHIGH-REFUSED | a +3 with ROM 2 or 3 paged is refused: the format carries only 0x7FFD bit 4, so it would come back on a different ROM | — | pass | test/mmu/mmu_integration_test.cpp:2133 |
+| SNAPSAVE-NEX-RT-00 | NexSaver::save() returns a non-empty buffer | — | pass | test/mmu/mmu_integration_test.cpp:2169 |
+| SNAPSAVE-NEX-RT-01 | saved .nex bytes written to disk | — | pass | test/mmu/mmu_integration_test.cpp:2174 |
+| SNAPSAVE-NEX-RT-02 | Emulator::load_nex() accepts the saved file | — | pass | test/mmu/mmu_integration_test.cpp:2185 |
+| SNAPSAVE-NEX-RT-PCSP | PC/SP round-trip through save()->file->Emulator::load_nex() (the only two registers NEX's header carries) | — | pass | test/mmu/mmu_integration_test.cpp:2192 |
+| SNAPSAVE-NEX-RT-RAM | bank-20 (pages 40/41) content round-trips byte-for-byte through the .nex bank payload | — | pass | test/mmu/mmu_integration_test.cpp:2205 |
+| SNAPSAVE-NEX-RT-BORDER | border colour round-trips via the .nex header | — | pass | test/mmu/mmu_integration_test.cpp:2211 |
+| SNAPSAVE-NEX-RT-ENTRYBANK | entry_bank re-establishes the CPU-executable mapping at 0xC000-0xFFFF (MMU slots 6/7) in the freshly loaded Emulator | — | pass | test/mmu/mmu_integration_test.cpp:2216 |
+| MMU-G33-TRAP-01 | handle_sa_bytes_trap: A/IX/DE -> hand-computed TAP block on file; exit state PC=popped ret, SP+=2, IX+=DE, DE=0, carry set (mirrors the LD-BYTES trap return mechanics) | — | pass | test/mmu/mmu_integration_test.cpp:2308 |
+| MMU-G33-TRAP-02 | run_frame gate positive: SA-BYTES signature in slot-0 ROM + PC=0x04C2 + armed saver -> trap fires once, block on file, CPU parked at popped return address | — | pass | test/mmu/mmu_integration_test.cpp:2343 |
+| MMU-G33-TRAP-03 | run_frame gate negative: non-48K ROM bytes at 0x04C2 with the saver armed and PC=0x04C2 -> trap does NOT fire (zero blocks, empty file, CPU executes the real ROM code) — the ungated trap corrupted a plain NextZXOS boot (Task 57 review) | — | pass | test/mmu/mmu_integration_test.cpp:2374 |
+| G12-TAG-01 | a DMA write to an attribute, after a CPU write elsewhere in the frame, is tagged with the DMA's own line (visible from row 150, not 21) | — | pass | test/mmu/mmu_integration_test.cpp:2486 |
+| G12-TAG-02 | the debugger's poke(Cpu) to an attribute is tagged with the current line | — | pass | test/mmu/mmu_integration_test.cpp:2502 |
+| G12-TAG-03 | a tape loader's LD-BYTES trap writing an attribute is tagged with the current line | — | pass | test/mmu/mmu_integration_test.cpp:2535 |
+| G12-TAG-04 | a CPU attribute write that straddles a line start is tagged with the line it LANDED on, not the line its instruction began in | — | pass | test/mmu/mmu_integration_test.cpp:2577 |
+| G12-TAG-05 | a CPU attribute write late in a line keeps its own column: column 0, already fetched on that line, shows it from the next line | — | pass | test/mmu/mmu_integration_test.cpp:2619 |
 
 ### Companion integration suite — `test/ula/ula_integration_test.cpp`
 
