@@ -141,13 +141,13 @@ start the ring has already counted (`Emulator::at_restored_frame_start()`), so
 counter: the first frame run again after a rewind ends without the counter
 moving (GH #278).
 
-A verb whose machinery belonged to a later package was defined in ONE file,
-`debugger_pending.cpp`, and returned `Result::Unsupported` — never a silent
-no-op. Keeping them together made "what is not implemented yet" something you
-could count rather than a claim in a comment; the file's banner lists them by
-owning package. It is empty since GH #278 WP4d moved the last one,
-`render_layer` (INS-14), out of the Qt video panel into
-`debugger_render.cpp`.
+While epic #276 was being built, a verb whose machinery belonged to a later
+package was defined in ONE file, `debugger_pending.cpp`, and returned
+`Result::Unsupported` — never a silent no-op — so "what is not implemented yet"
+was something you could count rather than a claim in a comment. GH #278 WP4d
+moved the last one, `render_layer` (INS-14), out of the Qt video panel into
+`debugger_render.cpp`, and the empty file was deleted: every verb the published
+header declares is implemented.
 
 `debugger_backend_test` is the backend's suite, headless and Qt-free: a wiring
 row per control verb (arm it through the facade, run, assert the machine stopped

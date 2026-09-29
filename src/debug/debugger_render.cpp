@@ -6,8 +6,10 @@
 // debugger's `VideoLayerView::render_to_image` (`src/debugger/video_panel.cpp`)
 // and its three `replay_*` helpers, MOVED here verbatim so every frontend draws
 // the same eight views from the same code; `rom_in_sram` came with it. Until
-// this file existed the verb refused `Unsupported` from `debugger_pending.cpp`
-// (package B left it to Q, doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md §11).
+// this file existed the verb refused `Unsupported` from the pending file
+// `debugger_pending.cpp` (package B left it to Q,
+// doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md §11); that file, then empty, was
+// deleted (owner decision 2026-09-29).
 //
 // WHAT CHANGED IN THE MOVE, AND WHAT DID NOT (design-qt §3.7 is the contract):
 //

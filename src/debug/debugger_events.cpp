@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------------------
 // jnext::dbg::Debugger — §4.3 CAP-EVT and INS-17.
 //
-// Work package B2 of epic #276. The eleven verbs `debugger_pending.cpp` used to
-// refuse, plus the two things the hot loop calls into: the PRE-INSTRUCTION
-// `Execute` gate and the BOUNDARY DRAIN.
+// Work package B2 of epic #276. The eleven verbs the (since deleted) pending
+// file `debugger_pending.cpp` used to refuse, plus the two things the hot loop
+// calls into: the PRE-INSTRUCTION `Execute` gate and the BOUNDARY DRAIN.
 //
 // ── THE PIPELINE, END TO END ────────────────────────────────────────────────
 //
