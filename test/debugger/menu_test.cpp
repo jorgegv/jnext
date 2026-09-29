@@ -1858,6 +1858,7 @@ static void test_breakpoint_owners()
         check("BPOW-02", "another client's row is read-only in the panel", false, "fixture failed");
         check("BPOW-03", "a master switch flipped outside the panel reaches its control", false, "fixture failed");
         check("BPOW-04", "another client's Execute breakpoint draws no gutter dot", false, "fixture failed");
+        check("BPOW-05", "Edit on another client's row is refused", false, "fixture failed");
         return;
     }
     GuiBps bps{fx.mgr->breakpoints()};
@@ -1990,6 +1991,37 @@ static void test_breakpoint_owners()
                   before.red, own_added, after.red,
                   rows.join(QStringLiteral(", ")).toUtf8().constData()));
         bps.clear_all_pc();
+    }
+    // BPOW-05 — the panel's Edit refuses another client's row (WP4c review,
+    // M22): no dialog opens, and the row is not copied. Without the refusal the
+    // edit's remove() is a no-op on a row the GUI does not own, and its add()
+    // makes the GUI an OWN copy at the answered address.
+    {
+        for (const auto& si : fx.backend->subscriptions(false))
+            fx.backend->unsubscribe(si.owner, si.id);
+        jnext::dbg::Subscription s;
+        s.kind = jnext::dbg::EventKind::Execute;
+        s.action = jnext::dbg::Action::Stop;
+        s.filter.lo = s.filter.hi = 0x7000;
+        fx.backend->subscribe(remote, s);
+        tick();
+        const QStringList before = panel_rows(fx.dbg);
+        select_panel_row(fx.dbg, 0);
+        QPushButton* edit_btn = panel_button(fx.dbg, QStringLiteral("Edit"));
+        PanelAnswer ans;
+        ans.typed       = QStringLiteral("7000");
+        ans.combo_index = 0;
+        click_and_answer(edit_btn, ans);
+        tick();
+        const QStringList after = panel_rows(fx.dbg);
+        check("BPOW-05", "Edit on another client's row is refused: no dialog, and no "
+              "own copy of it is made",
+              edit_btn && before == QStringList{expect} && !ans.seen &&
+                  after == QStringList{expect},
+              fmt("button=%d before [%s] dialog=%d after [%s] (want only \"%s\")",
+                  edit_btn != nullptr, before.join(QStringLiteral(", ")).toUtf8().constData(),
+                  ans.seen, after.join(QStringLiteral(", ")).toUtf8().constData(),
+                  expect.toUtf8().constData()));
     }
     fx.backend->detach(remote);
 }

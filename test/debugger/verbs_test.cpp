@@ -648,6 +648,48 @@ static void test_io_breakpoints() {
                       "253B OUT)", fx.paused(), fx.pc()));
         }
     }
+    // QIO-03/04 — the rule's BOUNDARY, both sides of it (WP4c review, M9). 00FF
+    // is the last low-byte address: an IN from 12FF stops. 0100 is the first
+    // exact one: an IN from 2200 (low byte 00, as 0100's) passes and the IN from
+    // 0100 itself stops.
+    //   8000  01 FF 12   LD BC,$12FF     8003  ED 78   IN A,(C)
+    //   8005  00         NOP             8006  18 FE   JR $
+    {
+        Fixture fx(MachineType::ZX48K, 0, /*paused=*/false);
+        const char* desc = "an IO Read on 00FF — the last low-byte address — stops a "
+                           "guest IN from port 12FF, after the IN";
+        if (!fx.ok) { check("QIO-03", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x01, 0xFF, 0x12, 0xED, 0x78, 0x00, 0x18, 0xFE});
+            fx.regs(PROG);
+            fx.enable();
+            fx.mgr->breakpoints().add(BreakpointModel::IoRead, 0x00FF);
+            fx.tick_until_paused();
+            check("QIO-03", desc, fx.paused() && fx.pc() == 0x8005,
+                  fmt("paused=%d PC=%04X (want paused at 8005)", fx.paused(), fx.pc()));
+        }
+    }
+    //   8000  01 00 22   LD BC,$2200     8003  ED 78   IN A,(C)
+    //   8005  01 00 01   LD BC,$0100     8008  ED 78   IN A,(C)
+    //   800A  00         NOP             800B  18 FE   JR $
+    {
+        Fixture fx(MachineType::ZX48K, 0, /*paused=*/false);
+        const char* desc = "an IO Read on 0100 — the first exact address — lets an IN "
+                           "from 2200 (the same low byte) pass, and stops the IN from "
+                           "0100";
+        if (!fx.ok) { check("QIO-04", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x01, 0x00, 0x22, 0xED, 0x78, 0x01, 0x00, 0x01, 0xED, 0x78,
+                           0x00, 0x18, 0xFE});
+            fx.regs(PROG);
+            fx.enable();
+            fx.mgr->breakpoints().add(BreakpointModel::IoRead, 0x0100);
+            fx.tick_until_paused();
+            check("QIO-04", desc, fx.paused() && fx.pc() == 0x800A,
+                  fmt("paused=%d PC=%04X (want paused at 800A; 8005 = stopped on the "
+                      "2200 IN)", fx.paused(), fx.pc()));
+        }
+    }
 }
 
 // ===========================================================================
