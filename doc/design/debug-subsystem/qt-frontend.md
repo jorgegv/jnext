@@ -1332,6 +1332,7 @@ on a `Debugger` over the same `Emulator` — and pass unchanged. The new gap row
 | QATR-01/02 | `debugger_panels_test` | a NextREG edit and an Audio mute toggle are logged as the window's client's `MUTATE`; while the window is closed as no client's; after a reopen as the new client's |
 | DAP-16 | `debugger_audio_panel_test` | the AY register table — the one read of the panel no WP0 row pinned (§1.8 row 19) — shows chip N's register R at row R, column N, in upper-case hex |
 | QPN-SPR-06, QPN-COP-05, DAP-17 | `debugger_panels_test`, `debugger_audio_panel_test` | added for the three mutants of the move that survived: the Sprites table's first and last rows are refreshed; the Copper's Mode is the 2-bit NR 0x62 mode, not the running flag (they agree on modes 0/1); the TurboSound: Yes/No line follows NR 0x08 bit 1 |
+| QWIN-01..03 | `debugger_panels_test` | (review round 1, REJECT on this gap) the REAL window's MMU, Sprites and Copper panels show the machine — slot 2's page, sprite 0's X, the parked Copper PC — after a real pause edge: `DebuggerWindow::create_panels()` handing any of the three `nullptr` (review mutants N21/W1/W2) survived every suite before |
 | QIO-03/04, BPOW-05 | `debugger_verbs_test`, `debugger_menu_test` | (WP4c review M9, M22) both sides of the `00FF`/`0100` port boundary; the panel's Edit refuses another client's row |
 
 **Defect fixed:** the Stack panel read its 48 bytes through `Mmu::read()`, which
