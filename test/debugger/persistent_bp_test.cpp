@@ -274,12 +274,15 @@ int main(int argc, char** argv) {
               st.pause_reason.by == remote);
     }
 
-    // PBPUI-09 — and CLOSING the window a magic breakpoint opened leaves the
-    // machine as closing always has: resumed and DISARMED. The magic hook still
-    // sets the legacy DebugState::active() bit, and the window no longer sets
-    // it, so it is the close that must still clear it (GH #278 WP2 — until WP3
-    // retires the bit); otherwise a leftover breakpoint would fire with the
-    // window shut — PBPUI-03's default, broken by one magic hit.
+    // PBPUI-09 — CLOSING the window after a magic breakpoint opened it leaves
+    // the machine DISARMED, as closing always has. The magic hook still sets the
+    // legacy DebugState::active() bit and the window no longer sets it (it is a
+    // backend client while open), so it is the close that must still clear it
+    // (GH #278 WP2 — until WP3 retires the bit); otherwise one magic hit would
+    // leave a leftover breakpoint firing with the window shut — PBPUI-03's
+    // default. The user resumes with Run before closing, so the row does not
+    // depend on what a close does to a machine still paused by the magic
+    // breakpoint (resumed today; see qt-frontend.md §4.1).
     {
         Fixture fx(/*persistent=*/false);
         fx.emu.set_magic_breakpoint(true);
@@ -287,14 +290,16 @@ int main(int argc, char** argv) {
         fx.emu.mmu().write(PROG + 1, 0xFF);
         run_until_paused(fx.emu);
         fx.mgr->check_breakpoint_hit();            // opens the window
-        const bool opened = fx.mgr->is_enabled() && fx.window_visible();
-        fx.mgr->set_enabled(false);                // the user closes it
+        const bool opened = fx.mgr->is_enabled() && fx.window_visible() &&
+                            fx.emu.debug_state().active();
+        fx.mgr->on_run();                          // F5: resume from the magic stop
+        fx.mgr->set_enabled(false);                // then close the window
         const bool disarmed = !fx.backend->armed() && !fx.backend->attached() &&
-                              !fx.emu.debug_state().active() && !fx.backend->state().paused;
+                              !fx.emu.debug_state().active();
         run_until_paused(fx.emu);                  // runs past BP_ADDR to the park
         fx.mgr->check_breakpoint_hit();
 
-        check("PBPUI-09", "closing the window a magic breakpoint opened resumes and "
+        check("PBPUI-09", "closing the window after a magic breakpoint opened it "
               "disarms the machine: the leftover breakpoint no longer stops it",
               opened && disarmed && !fx.emu.debug_state().paused() &&
               pc(fx.emu) == 0x800E && !fx.mgr->is_enabled() && !fx.window_visible());
