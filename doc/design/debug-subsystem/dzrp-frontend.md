@@ -1307,7 +1307,7 @@ behaviour is unchanged from §13; what is new is the server being REACHABLE —
    headless or in the GUI (whose countdown was always per tick). Pinned by
    `dzrp-paused-headless-func`.
 2. **A related transport defect, fixed here** (T's `src/remote/transport.cpp`,
-   rows `XPT-SRV-30/31`): `Server::pass()` accepted new connections BEFORE it
+   rows `XPT-SRV-30/31/32`): `Server::pass()` accepted new connections BEFORE it
    read its current client, so a client that hung up and dialled again in the
    same pass — every reconnect, and dezogif_ng's conformance suite, which opens
    a connection per check — was refused as "a second client" of a session that

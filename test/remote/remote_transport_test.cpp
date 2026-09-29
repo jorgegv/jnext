@@ -834,6 +834,31 @@ static void server_rows() {
                   log.count("xpt: refused a connection from 127.0.0.2") == 0,
               "trail size=" + std::to_string(r.proto.trail.size()));
     }
+    {
+        // The session before the redial RAN A COMMAND in the same pass — the
+        // adapter's closing `bye` — so the redial's own command waits for the
+        // next pass (at most one per pass), but its greeting does not: it goes
+        // out in the pass that admitted it.
+        FakeRig r;
+        r.proto.welcome = "hi\n";
+        auto p1 = r.lsn->connect();
+        r.srv->service_once(0);
+        p1->take();
+        p1->send("bye\n");
+        auto p2 = r.lsn->connect(esp::ipv4(127, 0, 0, 2));
+        p2->send("ping\n");
+        const ServiceStep s1   = r.srv->service_once(0);
+        const std::string got1 = p2->take();
+        const ServiceStep s2   = r.srv->service_once(0);
+        check("XPT-SRV-32", "a redial in the pass the previous session's last command "
+                            "closed it: greeted in that pass, its own command served in "
+                            "the next — one command per pass",
+              s1 == ServiceStep::Serviced && p1->take() == "bye\n" && p1->closed_by_server() &&
+                  got1 == "hi\n" && s2 == ServiceStep::Serviced && p2->take() == "pong\n" &&
+                  r.proto.trail ==
+                      std::vector<std::string>({"C", "S:bye", "D", "C", "S:ping"}),
+              "got1='" + got1 + "' trail size=" + std::to_string(r.proto.trail.size()));
+    }
 }
 
 // ── XPT-NET — the real socket layer on loopback ────────────────────────────

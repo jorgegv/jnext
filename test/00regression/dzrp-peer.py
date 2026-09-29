@@ -585,6 +585,10 @@ def sc_paused_headless(port, wrapper_pid, exit_frames):
     try:
         while c._sock.recv(4096):
             pass
+    except socket.timeout:
+        raise Fail("jnext was still running %.0f s after the attach: its exit bound "
+                   "(%d frames) never fired while the client held the machine"
+                   % (time.monotonic() - t_attach, exit_frames))
     except OSError:
         pass
     gone = time.monotonic() - t_attach
@@ -593,7 +597,9 @@ def sc_paused_headless(port, wrapper_pid, exit_frames):
     expected = exit_frames * 0.020
     check(gone >= 0.7 * expected, "jnext exited %.2f s after the attach — before its exit bound "
           "(~%.1f s)" % (gone, expected))
-    check(gone <= expected + 5.0, "jnext exited %.2f s after the attach, expected ~%.1f s"
+    # The charge is WALL time, exact whatever the host load, so the bound is
+    # tight: a charge at half or double the rate lands outside [0.7x, x + 1 s].
+    check(gone <= expected + 1.0, "jnext exited %.2f s after the attach, expected ~%.1f s"
           % (gone, expected))
     return ("%.1f%% CPU while held, nothing executed; exited on its own %.2f s after the "
             "attach, the client still attached (bound %d frames ~ %.1f s)"
