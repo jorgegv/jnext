@@ -30,7 +30,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP4a-d** | the panels (parallel-able). **WP4d also owns the `render_layer` MOVE itself**, not only its 106 DVP validation rows — owner decision 2026-09-27, closing a gap §10.1 left unassigned. **WP4c** (breakpoints and watches, B3 obligation 1, `active()` retired, REQ-qt-32) — as built: §4.1b, §6.2d | WP4c: **done** — reviewed + APPROVED; WP4a/b: **done** — reviewed, REJECTED once (one gap, §6.2e QWIN), then APPROVED on re-review (as built: §6.2e); WP4d: **done** — reviewed + APPROVED, merged (as built: §3.7a, §6.2f) |
 | **WP5** | memory panel (and the Disassembly panel's reads, the +3 latch fix) — as built: §6.2g | **done** — reviewed + APPROVED |
 | **WP6** | symbols / magic — as built: §6.2g | **done** — reviewed + APPROVED |
-| **WP7** | reach-around grep = 0 (`grep -l 'core/emulator.h' src/debugger/*.cpp` empty) | todo |
+| **WP7** | reach-around grep = 0 (`grep -l 'core/emulator.h' src/debugger/*.cpp` empty) — as built: §6.2h | **in review** |
 | **WP8** | **Memory panel physical-page view** — `MemSpace::Page` reads *and* writes (owner decision §1.3 item 15). **Last**, after the identity rows are green, with its own pinned rows | todo |
 
 Depends on: B0 (landed), B. Q is the epic's **sufficiency proof** — any
@@ -1505,6 +1505,41 @@ read of the config sat in `create_menus()`, which runs in `MainWindow`'s
 constructor before any machine is bound (MBP-03). **Behaviour change:** a Memory
 edit during an RZX recording or playback is refused (QMP-11; user guide's Memory
 page), and every Memory edit logs one `MUTATE` line.
+
+### 6.2h WP7 as built (2026-09-29)
+
+**First, main merged in** (v1.0.53: T, #284, package D — then v1.0.54: S WP1).
+Counters recounted by hand, generated files regenerated: `debugger_backend_test`
+1331 + 12 (D) = 1343; functional `expect` 89 + 1 + 19 = 109; the suite pin
+moved 122 → 123 on BOTH sides in the second merge and the auto-merge kept 123 —
+recounted 124 (`debug_qt_free_test` here, `script_parse_test` there);
+`CLAUDE.md` 124 / 96 (the SDL run includes `debug_qt_free_test`). `qt_app.cpp`:
+the cold-boot polls stay before the pump (WP2) and the pump takes D's
+`DebugServers::frame_loop_budget()`.
+
+**The reach-around count is 0, and gated.** `grep -l 'core/emulator.h'
+src/debugger/*` is empty and no file in `src/debugger/` names `Emulator` in
+code. `DebuggerManager(QMainWindow*, Debugger&, QObject*)` and
+`DebuggerWindow(Debugger&, QWidget*)` take only the backend. What was left and
+where it went:
+
+| Was | Is |
+|---|---|
+| `DebuggerManager::refresh_panels()`: `emulator_->snapshot_raster()` before a paused refresh | the backend's `raster()` / `time()` take a PAUSED machine's snapshot at the query (`debugger_inspect.cpp`, `snapshot_if_paused`); running, they leave the last pause's alone, as the manager's call (paused only) did. An implementation change, no header change. It also fixes every other client: a script or remote client that paused a machine read the stale snapshot (power-on zeros with no Qt window) — INS-06-03 |
+| `DebuggerManager`: `Emulator*` passed to the window | gone |
+| `DebuggerWindow`: `Emulator*` stored, used nowhere; `core/emulator.h`, `core/rzx_player.h`, `debug/debug_state.h`, `debug/rewind_buffer.h` | gone (all four unused) |
+| `debugger_manager.cpp`: `core/emulator.h`, `debug/debug_state.h` | gone |
+| `audio_panel.cpp`: `audio/audio_mute.h` | `AudioMute::*` through `debug/debugger.h` → `inspect.h`, which publishes it |
+
+No published route was missing; no header changed.
+
+| Rows | Suite | Pins |
+|---|---|---|
+| QTF-09 | `debug_qt_free_test` | no `src/debugger/` file has an include directive of a core-layer header (`core/ cpu/ memory/ video/ audio/ peripheral/ port/`) |
+| QTF-10 | `debug_qt_free_test` | no `src/debugger/` file names the `Emulator` type in code (comments and string literals stripped: the prose and the "Attach to Emulator Window" menu text are not code) |
+| QTF-11 | `debug_qt_free_test` | anti-vacuity: the scan read the real `src/debugger/` |
+| QTF-12/13 | `debug_qt_free_test` | both detectors on a planted tree: a core and a spaced-out `memory/` include flagged, `debug/`, `qt/`, a commented include and a string not; a forward declaration and a pointer parameter flagged, comments, strings, a char literal holding `"` and `EmulatorWidget` not |
+| INS-06-03/04 | `debugger_backend_test` | a paused machine's `raster()` / `time()` report where it stopped with no `snapshot_raster()` call by anyone (fails without the backend change); a running one's is not moved |
 
 ### 6.3 Mutation checks for the #278 reviewer
 

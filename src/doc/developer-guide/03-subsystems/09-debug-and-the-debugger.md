@@ -4,8 +4,9 @@ The debugger is the developer-facing half of jnext: a way to stop the machine,
 look at everything inside it, change some of it, start it again — and, when
 rewind is on, run it backwards. It is not a separate program talking to the
 emulator over a wire. It lives in the same process and the same thread as the
-emulation, so a panel reads machine state by calling straight into `Emulator`
-rather than marshalling it across a boundary, and the run loop consults the
+emulation, so a panel reads machine state by a direct call — through the
+debugger backend, `jnext::dbg::Debugger`, since GH #278 — rather than
+marshalling it across a boundary, and the run loop consults the
 debugger's state once per instruction, before the fetch. That single
 consultation point is what makes stepping exact and breakpoints cheap.
 
@@ -24,7 +25,12 @@ has **no Qt dependency at all**, and that is gated rather than stated:
 `*_qt.*` file appears under `src/debug/`. The Qt code both Qt libraries share —
 the debugger keymap's Qt conversions, the menu-bar Alt-navigation style — lives in
 the header-only `src/qt/` instead. **`src/debugger/`** (target `jnext_debugger`) is the Qt 6 UI and
-nothing else — panels, menus, the debugger window.
+nothing else — panels, menus, the debugger window — and it reaches the machine
+only through the backend: since GH #278 WP7 no file there includes a header of
+the core layers (`core/`, `cpu/`, `memory/`, `video/`, `audio/`,
+`peripheral/`, `port/`) or names `Emulator` in code, and `debug_qt_free_test`
+(QTF-09..11) fails the run if one does. `DebuggerManager` and
+`DebuggerWindow` are constructed on the `Debugger` alone.
 
 Three things fall out of that. The backend is testable without a GUI:
 `rewind_test` and `resume_guard_test` link it with no Qt anywhere, while the
@@ -170,7 +176,11 @@ Audio panels read — and the NextREG and Audio panels write — through the
 facade as well, since WP4d so does the Video panel, and since WP5 the
 Disassembly and Memory panels (the Memory panel writes through it too): no
 panel reads the `Emulator` any more. Since WP6 the symbol table is the
-facade's (CAP-SYM) and the Magic Breakpoint item arms it through CTL-14.
+facade's (CAP-SYM) and the Magic Breakpoint item arms it through CTL-14. Since
+WP7 nothing in `src/debugger/` holds an `Emulator` at all: the last reach, the
+raster snapshot the manager took before a paused refresh, is the backend's —
+`raster()` and `time()` take a paused machine's snapshot at the query, for every
+client.
 
 ### The event pipeline (B2)
 
@@ -718,7 +728,7 @@ one pointer test per instruction. Each trace entry now carries I, R, IM, IFF1,
 IFF2, the word at SP (read with `peek()`, so the trace moves no watch and no +3
 floating-bus latch) and the eight MMU pages.
 
-### The Qt adapter (GH #278 WP2, WP4a-c)
+### The Qt adapter (GH #278 WP2, WP4a-c, WP7)
 
 `DebuggerManager` holds the loop owner's `Debugger` — handed over by
 `MainWindow::set_debugger()`, without which `set_emulator()` throws rather than

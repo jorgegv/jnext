@@ -1835,8 +1835,9 @@
 look at everything inside it, change some of it, start it again — and, when
 rewind is on, run it backwards. It is not a separate program talking to the
 emulator over a wire. It lives in the same process and the same thread as the
-emulation, so a panel reads machine state by calling straight into <code>Emulator</code>
-rather than marshalling it across a boundary, and the run loop consults the
+emulation, so a panel reads machine state by a direct call — through the
+debugger backend, <code>jnext::dbg::Debugger</code>, since GH #278 — rather than
+marshalling it across a boundary, and the run loop consults the
 debugger's state once per instruction, before the fetch. That single
 consultation point is what makes stepping exact and breakpoints cheap.</p>
 <p>The dependency runs one way and stops halfway. The emulator core owns and
@@ -1852,7 +1853,12 @@ has <strong>no Qt dependency at all</strong>, and that is gated rather than stat
 <code>*_qt.*</code> file appears under <code>src/debug/</code>. The Qt code both Qt libraries share —
 the debugger keymap's Qt conversions, the menu-bar Alt-navigation style — lives in
 the header-only <code>src/qt/</code> instead. <strong><code>src/debugger/</code></strong> (target <code>jnext_debugger</code>) is the Qt 6 UI and
-nothing else — panels, menus, the debugger window.</p>
+nothing else — panels, menus, the debugger window — and it reaches the machine
+only through the backend: since GH #278 WP7 no file there includes a header of
+the core layers (<code>core/</code>, <code>cpu/</code>, <code>memory/</code>, <code>video/</code>, <code>audio/</code>,
+<code>peripheral/</code>, <code>port/</code>) or names <code>Emulator</code> in code, and <code>debug_qt_free_test</code>
+(QTF-09..11) fails the run if one does. <code>DebuggerManager</code> and
+<code>DebuggerWindow</code> are constructed on the <code>Debugger</code> alone.</p>
 <p>Three things fall out of that. The backend is testable without a GUI:
 <code>rewind_test</code> and <code>resume_guard_test</code> link it with no Qt anywhere, while the
 <code>debugger_*</code> suites are the ones that need a Qt build. The emulator can own
@@ -1978,7 +1984,11 @@ Audio panels read — and the NextREG and Audio panels write — through the
 facade as well, since WP4d so does the Video panel, and since WP5 the
 Disassembly and Memory panels (the Memory panel writes through it too): no
 panel reads the <code>Emulator</code> any more. Since WP6 the symbol table is the
-facade's (CAP-SYM) and the Magic Breakpoint item arms it through CTL-14.</p>
+facade's (CAP-SYM) and the Magic Breakpoint item arms it through CTL-14. Since
+WP7 nothing in <code>src/debugger/</code> holds an <code>Emulator</code> at all: the last reach, the
+raster snapshot the manager took before a paused refresh, is the backend's —
+<code>raster()</code> and <code>time()</code> take a paused machine's snapshot at the query, for every
+client.</p>
 <h3 id="the-event-pipeline-b2">The event pipeline (B2)<a class="headerlink" href="#the-event-pipeline-b2" title="Permanent link">&para;</a></h3>
 <p>Today's event vocabulary is "a PC breakpoint, a watchpoint, one one-shot, and
 nothing is conditional". B2 replaces it with the fourteen kinds of §4.3 of the
@@ -2513,7 +2523,7 @@ the opcode at PC (an NMI or INT acknowledge does not run it). Switched off it is
 one pointer test per instruction. Each trace entry now carries I, R, IM, IFF1,
 IFF2, the word at SP (read with <code>peek()</code>, so the trace moves no watch and no +3
 floating-bus latch) and the eight MMU pages.</p>
-<h3 id="the-qt-adapter-gh-278-wp2-wp4a-c">The Qt adapter (GH #278 WP2, WP4a-c)<a class="headerlink" href="#the-qt-adapter-gh-278-wp2-wp4a-c" title="Permanent link">&para;</a></h3>
+<h3 id="the-qt-adapter-gh-278-wp2-wp4a-c-wp7">The Qt adapter (GH #278 WP2, WP4a-c, WP7)<a class="headerlink" href="#the-qt-adapter-gh-278-wp2-wp4a-c-wp7" title="Permanent link">&para;</a></h3>
 <p><code>DebuggerManager</code> holds the loop owner's <code>Debugger</code> — handed over by
 <code>MainWindow::set_debugger()</code>, without which <code>set_emulator()</code> throws rather than
 build a window with no debugger — and is TWO clients of it.</p>
