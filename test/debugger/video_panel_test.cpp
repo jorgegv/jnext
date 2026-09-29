@@ -484,6 +484,7 @@ static void test_layer2_transparent_rgb_replay(Emulator& emu) {
     l2.set_enabled(true);
     l2.set_control(0x00);              // resolution 0 = 256x192 8bpp
     l2.set_active_bank(BANK);
+    l2.set_shadow_bank(BANK);          // DVP-21c renders the same pixels via the Shadow view
     l2.set_clip_x1(0); l2.set_clip_x2(255);
     l2.set_clip_y1(0); l2.set_clip_y2(191);
 
@@ -548,6 +549,23 @@ static void test_layer2_transparent_rgb_replay(Emulator& emu) {
               live_before, r.transparent_rgb(),
               SPLIT_ROW - 1, r.transparent_rgb_for_line(SPLIT_ROW - 1),
               SPLIT_ROW, r.transparent_rgb_for_line(SPLIT_ROW)));
+
+    // DVP-21c (GH #278 WP4d review round 1) — the SHADOW view reads the same
+    // per-row NR 0x14 snapshot. DVP-21 pins only the Active view, and a Shadow
+    // view that passed 0 instead of transparent_rgb_for_line(row) survived.
+    QImage sh = render_view(dbg, VideoLayerView::Layer::Layer2Shadow,
+                            Renderer::FB_HEIGHT - 1);
+    check("DVP-21c",
+          "the Layer 2 SHADOW view is opaque above the NR 0x14 split and "
+          "transparent (checkerboard) from the row it landed on — the per-line "
+          "snapshot, like the Active view",
+          px(sh, cell, SPLIT_ROW - 1) == argb_opaque
+              && px(sh, cell, SPLIT_ROW) == checker_at(SPLIT_ROW, cell)
+              && px(sh, cell, Renderer::FB_HEIGHT - 1)
+                     == checker_at(Renderer::FB_HEIGHT - 1, cell),
+          fmt("row%d=0x%08X (want 0x%08X) row%d=0x%08X (want checker 0x%08X)",
+              SPLIT_ROW - 1, px(sh, cell, SPLIT_ROW - 1), argb_opaque,
+              SPLIT_ROW, px(sh, cell, SPLIT_ROW), checker_at(SPLIT_ROW, cell)));
 }
 
 // ── DVP-03/04: ULA views must pin their bank, not follow port 0x7FFD ──
