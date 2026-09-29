@@ -26,7 +26,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP0** | close the identity gaps on the **current** tree, so the suites are green on both trees by construction — as built: §6.2a | **done** — reviewed + APPROVED (rows, then the fix round); landed on `main` alone |
 | **WP1** | the `src/qt/` header move + `make build-matrix`. **Q is the single owner of this move**, and it lands with the rest of Q on Q's one branch — as built: §6.2b | **done** |
 | **WP2** | `DebuggerManager` verbs onto the backend facade — as built: §4.1, §6.2b | **done** |
-| **WP3** | rewind / trace / corruption | todo |
+| **WP3** | rewind / trace / corruption — as built: §6.2c | in review |
 | **WP4a-d** | the panels (parallel-able). **WP4d also owns the `render_layer` MOVE itself**, not only its 106 DVP validation rows — owner decision 2026-09-27, closing a gap §10.1 left unassigned | todo |
 | **WP5** | memory panel | todo |
 | **WP6** | symbols / magic | todo |
@@ -646,14 +646,16 @@ PBPUI-03. That is a change to the frozen `debugger.h`: it is REQ-qt-32 (§8),
 OWNER-APPROVED 2026-09-29, and it lands when package S or a remote server first
 needs it — not in Q.
 
-**Transitional, until WP3:** the window no longer SETS the legacy
-`DebugState::active()` bit — the attach and the live raster replaced it — but
-the magic-breakpoint hook and the two rewind paths still do. Closing the window
-therefore still CLEARS it (`set_enabled(false)`), as it did before, or one magic
-hit or rewind would leave the machine armed with the window shut (PBPUI-09).
-The bit, its two remaining writers, the window's clear and
-`emulator_cold_boot()`'s copy of it retire together in WP3 (§7, B3 obligations
-1 and 3).
+**Transitional:** the window no longer SETS the legacy `DebugState::active()`
+bit — the attach and the live raster replaced it. WP3 retired its two rewind
+writers (B3 obligation 3: the replay is armed by `DebugState::ReplayArmScope`
+for its own loop only). Its one remaining writer is the magic-breakpoint hook,
+which must hold a stop with no client attached at all (headless, SDL, a closed
+window). Closing the window therefore still CLEARS it (`set_enabled(false)`), as
+it did before, or one magic hit would leave the machine armed with the window
+shut (PBPUI-09). The bit, the magic hook's write, the window's clear and
+`emulator_cold_boot()`'s copy of it retire together with B3 obligation 1, in
+WP4c (§7).
 
 **Closing the window while a magic breakpoint holds the machine — SETTLED by
 the owner, 2026-09-29 ("ctl-13: agree").** Architecture §4.1 CTL-13 (owner
@@ -982,6 +984,43 @@ over — fixture code only.
 | HOST-08 | `debugger_backend_test` | `JNEXT_HOST_PROBE=order` through the real HeadlessApp: a guest hard reset raised inside the frames runs before the pump, and the client's `reset(Hard)` in that pump comes second |
 | `qt-host-order-func` | regression (functional) | the same script through QtApp — B3 obligation 2: QtApp now polls the guest hard reset (and the NEX `.run` request, the same deferred-reconstruct class) in `post_frames()` BEFORE the pump, as SdlApp and HeadlessApp do; polled in `pre_frames()` it ran next tick, and a client `reset(Hard)` in this tick's pump destroyed the machine with the guest's request still pending |
 
+### 6.2c WP3 as built (2026-09-29)
+
+The verbs and the window's rewind, trace and corruption controls drive the
+backend: `on_step_back()` / `on_rewind_to_frame()` call CTL-09/10 and warn only
+on `RefusedCorrupt` (a benign `RefusedRzx` / `RefusedUnavailable` is silent, as
+it was); the toolbar, the Rewind menu, Enable Rewind's three branches, the
+Buffer Size dialog and the status line read ST-03 `rewind_range()`; greying is
+`rewind_blocked()` — the SAME predicate the two rewind verbs refuse on — plus
+`trace_enabled()`; the trace ball, Enable Trace, Clear Trace and both Export
+routes are INS-13; `rewind_position()` is INS-07 `time().frame`. The window
+reaches the backend through `DebuggerManager::backend()`. What still reads the
+`Emulator` in `debugger_window.cpp`: the breakpoint menu (WP4c) and the two
+REQ-qt-09d reads (§8).
+
+No WP0 row and no `rewind_test` row changed an expected value. Backend changes
+(manager decisions 2026-09-29, recorded in `backend.md` CAP-CTL-09/10 and
+CAP-ST-03): the rewind verbs are not gated on CTL-11; their `RefusedCorrupt`
+means a restore tore the machine (the corruption generation moved), every benign
+refusal is `RefusedUnavailable`; `resize_rewind_buffer(0)` frees the ring
+(ST-03-07's expected value flipped).
+
+| Rows | Suite | Pins |
+|---|---|---|
+| CTL-09-02..04, CTL-10-05..08 | `debugger_backend_test` | the classification: trace off / empty and a frame with no slot (a gap) are benign `RefusedUnavailable` and move nothing; a torn restore is `RefusedCorrupt` with the incident naming the subsystem; a rewind from a corrupt machine to an intact frame succeeds and clears the corruption; a torn NEWEST slot no longer fails rewinds to other frames |
+| ST-03-07 (flipped), ST-03-09/10 | `debugger_backend_test` | `resize_rewind_buffer(0)` frees the ring (capacity and depth 0, rewinds refused as unavailable); a later non-zero resize creates a fresh ring that records |
+| OBL3-01..03 | `debugger_backend_test` | B3 obligation 3: a remote client's `step_back()` / `rewind_to_frame()` then its detach leave the machine unarmed, unattached, the raster walk off and running; a replay with nothing attached still lands on its target and leaves nothing armed |
+| INS-13-14 | `debugger_backend_test` | the trace export writes every `TraceEntry` field, B4's `(SP)`, I, R, IM, IFF1, IFF2 and MMU pages included, in the documented column order |
+| QRW-20 | `debugger_verbs_test` | through the window: after a torn rewind (the "Rewind Failed" modal), a rewind to an intact frame succeeds with no modal and the corruption is gone |
+| QTR-05 | `debugger_verbs_test` | a behaviour change, stated: the trace switched on from the window now survives a hard reset (INS-13 is client intent the backend re-applies, CTL-12 rule 2); it used to be reconstructed off |
+
+Defects fixed with those rows: the benign-as-corrupt classification (CTL-09-02/03,
+CTL-10-05); `Emulator::rewind_to_frame()` restored the NEWEST snapshot before
+looking the target up, so a gap moved the machine on a "benign" refusal and a
+torn newest slot failed every rewind (CTL-10-05, CTL-10-08); the export dropped
+B4's fields (INS-13-14); the stuck `active()` bit after a client's rewind
+(OBL3-01/02).
+
 ### 6.3 Mutation checks for the #278 reviewer
 
 Each mutation is applied to the REFACTORED tree, in its own build dir, and
@@ -1060,21 +1099,25 @@ construction). Then, in dependency order:
    those on too — the same things `active()` gated directly before B3, now
    reached through the two bits that replaced it in the hot path.
 
-**Status of the three (WP2, 2026-09-29):**
+**Status of the three (WP2 and WP3, 2026-09-29):**
 
-1. **Not yet due — WP3, with obligation 3.** WP2 does not make the panels'
-   breakpoints backend subscriptions (still the `BreakpointSet` the panels
-   observe; WP4c), so the restore is still their only owner. Its `active()`
-   half now carries only the bit the magic hook and the rewind paths set — the
+1. **Not yet due — WP4c.** The panels' breakpoints are still the
+   `BreakpointSet` they observe; they become subscriptions in WP4c, and the
+   restore is their only owner until then. Its `active()` half now carries only
+   the bit the magic hook sets (WP3 retired the rewind paths' writes) — the
    window's own arm is a backend client since WP2, which the backend re-applies
-   across a cold boot (QEN-03) — and it retires with that bit in WP3.
+   across a cold boot (QEN-03) — and it retires with that bit, the magic hook's
+   write and the window's clear, in WP4c.
 2. **Done in WP2** — both deferred reconstructs (hard reset, NEX `.run`) are
    polled in `post_frames()` before `pump()`; rows HOST-08 and
    `qt-host-order-func` (§6.2b).
-3. **Not yet due — WP3.** WP2 stopped the window SETTING the bit; its other two
-   writers are the rewind paths (this obligation) and the magic-breakpoint
-   hook, and the window still clears it on close (§4.1, PBPUI-09). WP3 moves the
-   rewind verbs onto the backend (CTL-09/10) and retires `active()` with them.
+3. **Done in WP3.** `Emulator::rewind_to_cycle()` / `rewind_to_frame()` no
+   longer call `set_active(true)` on any path: a restore only pauses, and the
+   replay is armed by `DebugState::ReplayArmScope` for its own loop, restoring
+   whatever armed the machine before. A client's `step_back()` /
+   `rewind_to_frame()` followed by its detach leaves the machine unarmed and
+   running (OBL3-01/02); a replay with nothing attached still stops on its
+   target (OBL3-03).
 
 **Branch discipline (review R-7; owner rule 2026-09-24, arch §10.3):** #278
 is one multi-stage issue and lives on **one** branch, `gh278-qt` (arch
@@ -1110,7 +1153,7 @@ Sent as `REQ-qt-<n>: <capability> — <why> — <site>`; answers recorded here.
 | 09 | rewind buffer control/range, frame number — `debugger_window.cpp:580-614, 774-890` | served: CAP-ST-03, CAP-INS-07 |
 | **09b** | `snapshot_bytes()` — `:816, :850` | **ACCEPTED** → `rewind_range()` = {oldest, newest, depth, capacity_frames, snapshot_bytes} |
 | **09c** | `rewind_blocked()` pre-query for greying — `:709-714` | **ACCEPTED** → `rewind_blocked() -> optional<string reason>` |
-| **09d** | "does the machine sit on a restored frame start?" (`Emulator::at_restored_frame_start()`, WP0 fix round) — Frame Back's target and the "Rewound" status need it (`debugger_window.cpp` `frame_back()`, `update_rewind_ui()`); the backend's own `run_to_frame()` already reads it | **OPEN** — raised by the WP0 fix round, for WP3; e.g. a flag in `Time` or `RewindRange` |
+| **09d** | "does the machine sit on a restored frame start?" (`Emulator::at_restored_frame_start()`, WP0 fix round) — Frame Back's target and the "Rewound" status need it (`debugger_window.cpp` `frame_back()`, `update_rewind_ui()`); the backend's own `run_to_frame()` already reads it | **WITH THE OWNER** (WP3, 2026-09-29): a public-header change — `bool at_restored_frame_start = false;` in `RewindRange` (ST-03). It is NOT derivable from the published API: a restored start of frame K and the ordinary boundary after K are identical in `time()`, `state()` and `at_frame_boundary()` except for `master_cycle`, and the start of K can only be computed from `rewind_range()`'s newest snapshot by assuming a fixed frame length, which an NR 0x03 timing or NR 0x05 50/60 Hz switch inside the ring's span breaks (manager: do not take the derivation). Until the owner answers, the two reads stay in `debugger_window.cpp`, each marked "WAITING ON REQ-qt-09d" |
 | 10 | trace enable/export — `:214-244, 542-574` | served: CAP-INS-13 |
 | **10b** | `trace_enabled()` query + `trace_clear()` — `:218, 558, 755` | **ACCEPTED** → CAP-INS-13 |
 | 11 | corruption observables — `debugger_manager.cpp:279-303` | served: CAP-CTL-11 |

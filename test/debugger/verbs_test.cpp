@@ -1725,6 +1725,50 @@ static void test_rewind_ui() {
                       m.describe().c_str(), s(status).c_str()));
         }
     }
+
+    // QRW-20 — GH #278 WP3: a REWIND is the way out of a corrupt state, as it
+    // always was. A rewind into a torn slot warns ("Rewind Failed"); a second
+    // rewind, to an intact frame, is NOT refused for that corruption — no modal,
+    // no resume prompt — and its successful restore clears the corruption. The
+    // backend used to gate its rewind verbs on CTL-11, which would have answered
+    // the second one with another "Rewind Failed" without trying.
+    {
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "after a torn rewind, a rewind to an intact frame "
+                           "succeeds with no modal and clears the corruption";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QRW-20", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 4);
+            RewindBuffer* rb = fx.emu.rewind_buffer();
+            const uint32_t mmu_sentinel = Emulator::kStateSentinelMagic ^ 2u;
+            size_t corrupted = 0;
+            for (size_t i = 0; i + 1 < rb->depth(); ++i) {     // all but the newest
+                uint8_t* d = rb->slot_data_for_test(i);
+                for (size_t off = 0; off + 4 <= rb->snapshot_bytes(); ++off) {
+                    uint32_t v;
+                    std::memcpy(&v, d + off, 4);
+                    if (v == mmu_sentinel) { d[off] ^= 0xFF; ++corrupted; break; }
+                }
+            }
+            const uint32_t oldest = rb->oldest_frame_num(), newest = rb->newest_frame_num();
+            Modals m1;
+            fx.mgr->on_rewind_to_frame(oldest);                  // torn
+            m1.timer.stop();
+            const bool torn = m1.boxes() == 1 && !fx.emu.last_state_error().empty();
+            Modals m2;
+            fx.mgr->on_rewind_to_frame(newest);                  // intact
+            m2.timer.stop();
+            check("QRW-20", desc,
+                  corrupted + 1 == rb->depth() && torn && m2.seen.empty() && fx.paused() &&
+                      fx.emu.last_state_error().empty() &&
+                      rewind_frame_label(fx.dbg()) != nullptr,
+                  fmt("corrupted %zu/%zu first=%s second=%s err='%s' paused=%d",
+                      corrupted, rb->depth(), m1.describe().c_str(), m2.describe().c_str(),
+                      fx.emu.last_state_error().c_str(), fx.paused()));
+        }
+    }
 }
 
 // ===========================================================================
@@ -1833,6 +1877,42 @@ static void test_trace_ui() {
               fmt("trace=%zu menu-file lines=%d button-file lines=%d modals: %s | %s | %s",
                   n, lines_in(via_menu), lines_in(via_button), m1.describe().c_str(),
                   m2.describe().c_str(), m3.describe().c_str()));
+    }
+
+    // QTR-05 — GH #278 WP3: the window switches the trace through the backend
+    // (INS-13), which re-applies a client's trace request on a rebuilt machine
+    // (CTL-12 rule 2). So a trace switched on from the window SURVIVES a hard
+    // reset — the ball stays green and the new machine records — where the
+    // Emulator switch it used to flip was reconstructed off.
+    {
+        Fixture f2(MachineType::ZX48K, 0, /*paused=*/false);
+        const char* desc = "a trace switched on from the window survives a hard reset: "
+                           "the ball stays green and the rebuilt machine records";
+        if (!f2.ok) { check("QTR-05", desc, false, "fixture"); }
+        else {
+            f2.load(PROG, {0x18, 0xFE});
+            f2.regs(PROG);
+            f2.enable();
+            DebuggerWindow* d2 = f2.dbg();
+            QAction* en = debug_sub_item(d2, "Trace", "Enable Trace");
+            const bool off0 = !f2.emu.trace_log().enabled();
+            if (en) en->trigger();                         // the menu's Enable Trace
+            const bool on = f2.emu.trace_log().enabled();
+            f2.backend->on_cold_boot_begin();              // QtApp::cold_boot()
+            emulator_frontend_cold_boot(f2.emu, f2.emu.config(), std::string(),
+                                        ColdBootHooks{});
+            f2.backend->on_cold_boot_done();
+            const bool kept = f2.emu.trace_log().enabled();
+            f2.tick();                                     // a frame on the new machine
+            QPushButton* ball2 = button_where(d2, [](const QString& t) {
+                return t == "Trace" || t.endsWith(": Trace");
+            });
+            check("QTR-05", desc,
+                  en && off0 && on && kept && f2.emu.trace_log().size() > 0 &&
+                      ball_colour(ball2) == qRgb(0x00, 0xC0, 0x00),
+                  fmt("off before=%d on=%d kept after reset=%d entries=%zu",
+                      off0, on, kept, f2.emu.trace_log().size()));
+        }
     }
 }
 

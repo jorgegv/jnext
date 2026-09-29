@@ -8,6 +8,7 @@
 
 class Emulator;
 class DebuggerManager;
+namespace jnext { namespace dbg { class Debugger; } }
 class CpuPanel;
 class DisasmPanel;
 class MemoryPanel;
@@ -110,6 +111,13 @@ private:
     /// GH #278 — the rewind UI's frame numbering; see debugger_window.cpp.
     uint32_t rewind_position() const;
     void frame_back();
+    /// GH #278 WP3 — the backend the manager adapts: the rewind toolbar and
+    /// menu, the trace menu and the action greying read it, not the Emulator.
+    /// Null only before set_debugger_manager().
+    jnext::dbg::Debugger* backend() const;
+    /// Export Trace (button and menu): the file dialog, the backend's INS-13
+    /// trace_export(), and "Export Failed" when it refuses.
+    void export_trace();
     /// GH #1 — push keymap_ onto the actions and the toolbar text.
     void apply_keymap();
 

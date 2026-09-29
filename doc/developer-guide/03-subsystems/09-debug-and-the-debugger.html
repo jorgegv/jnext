@@ -2174,16 +2174,20 @@ attach ARMS the machine — see "The Qt adapter" below.)</p>
 <p><strong><code>attached()</code> is the OR of two contributors, for now.</strong> <code>DebugState::active()</code>
 is the legacy "a frontend is driving this machine" bit. Until GH #278 WP2 the Qt
 debugger window set it when it opened; since then the window is a backend client
-while it is open, and the bit is set only by the magic-breakpoint hook (when the
-opcode executes) and the two rewind paths — the window still CLEARS it on close,
-as it always did, until WP3 retires the bit. Neither of those writers is a
-client. So <code>attached()</code> is
+while it is open. Until GH #278 WP3 the two rewind paths set it too, and nothing
+cleared it once a remote client had rewound. Its one writer now is the
+magic-breakpoint hook (when the opcode executes), which must hold its stop with
+no client attached at all — the window still CLEARS the bit on close, as it
+always did. So <code>attached()</code> is
 <code>live_clients &gt; 0 || DebugState::active()</code>, and the client term is its <strong>own
 bit</strong> on <code>DebugState</code> (<code>clients_attached_</code>) rather than a second writer of
 <code>active_</code> — because a <code>detach()</code> of the last client would otherwise clear a flag
 the Qt window owns, and nothing in <code>DebugState</code> can tell the two owners apart.
 <code>refresh_gates_()</code> ORs the three (<code>active_ || clients_attached_ ||
-persistent_</code>), so the identity <code>armed() == attached() || persistent()</code> holds
+persistent_</code>) — plus, since GH #278 WP3, <code>replay_armed_</code>, which
+<code>DebugState::ReplayArmScope</code> sets for the length of a rewind's replay loop alone
+(the replay's stop at its target is tested in <code>run_frame()</code>'s armed block) — so
+the identity <code>armed() == attached() || persistent()</code> holds outside a replay
 whichever contributor is set, and <code>SuspendScope</code> clears all three — its promise
 is "disarms breakpoints", and that is only true if it clears every contributor.</p>
 <p><strong>The two flags that replace <code>active()</code> in the hot path.</strong> §4.1 splits what
@@ -2194,7 +2198,7 @@ the per-instruction <code>VideoTiming::advance()</code> walk. <code>refresh_gate
 precomputes both into <code>DebugState</code> bits (<code>attached_ = active_ ||
 clients_attached_</code>, <code>raster_live_ = active_ || live_raster_</code>), so each hot-path
 reader still pays one bool load, and <code>active_</code> stays a term of both until its
-last writers, the magic hook and the rewind paths, stop setting it (GH #278 WP3). Before the split a machine driven only by a remote
+last writer, the magic hook, stops setting it. Before the split a machine driven only by a remote
 client never finished a Step Out. <code>Debugger::attached()</code> and <code>live_raster()</code> read
 those same bits back rather than re-deriving them, so the answer a client gets
 and the gate the hot loop obeys cannot disagree.</p>
@@ -2375,7 +2379,8 @@ before package Q, so retiring it now would lose a user's breakpoints on every
 hard reset and unsubscribe two panels. Package Q retires it when the panels
 become clients. (Since WP2 an open debugger window's own arm is a backend client,
 which the backend re-applies across the boot; <code>saved_active</code> now carries only
-the bit the magic hook and the rewind paths set, and retires with that bit.)
+the bit the magic hook sets — the rewind paths stopped setting it in GH #278
+WP3 — and retires with that bit.)
 The reasoning is recorded at the site.</p>
 <h3 id="input-capture-bookmarks-and-coverage-b4">Input, capture, bookmarks and coverage (B4)<a class="headerlink" href="#input-capture-bookmarks-and-coverage-b4" title="Permanent link">&para;</a></h3>
 <p><strong>Pulses append.</strong> <code>press_key(name | matrix position, hold_frames)</code> (IN-01)

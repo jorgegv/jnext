@@ -344,12 +344,14 @@ void DebuggerManager::create_debug_toolbar() {
 // ---------------------------------------------------------------------------
 
 void DebuggerManager::warn_state_corrupt(const QString& op) {
-    // Only true corruption sets Emulator::last_state_error(); benign
-    // step-back/rewind failures (empty buffer, disabled trace, frame out of
-    // range) never attempt a restore and leave it empty.
-    if (emulator_->last_state_error().empty())
+    // CTL-11 — the incident the failed restore just latched. Called only for
+    // the backend's RefusedCorrupt, which it returns only when the restore
+    // bumped the corruption generation, so the incident is fresh and
+    // unacknowledged; the guard is for a caller that got that wrong.
+    const auto incident = dbg_.resume_blocked_by_corruption();
+    if (!incident)
         return;
-    const QString sub = QString::fromStdString(emulator_->last_state_error());
+    const QString sub = QString::fromStdString(incident->subsystem);
     if (main_window_->statusBar()) {
         main_window_->statusBar()->showMessage(
             QObject::tr("%1 failed: snapshot restore desynced at '%2' — machine "
@@ -481,30 +483,31 @@ void DebuggerManager::on_run_to_eosl() {
 
 void DebuggerManager::on_step_back() {
     if (!enabled_) return;
-    if (!emulator_->rewind_buffer() || emulator_->rewind_buffer()->empty()) return;
-    // Refused, not failed: must not reach warn_state_corrupt() below.
-    if (emulator_->rzx_blocks_rewind("Step Back")) return;
-
-    bool ok = emulator_->step_back(1);
-    if (!ok) {
+    // CTL-09 — the three outcomes are the backend's: Ok (the machine is one
+    // instruction back, paused), a benign refusal — RefusedRzx (an RZX is
+    // recording or playing) or RefusedUnavailable (empty buffer, trace off or
+    // empty) — which is silent, as it always was, and RefusedCorrupt (the
+    // restore tore the machine), which is the only one that warns.
+    const jnext::dbg::Result r = dbg_.step_back(client_, 1);
+    if (r == jnext::dbg::Result::RefusedCorrupt) {
         warn_state_corrupt(QObject::tr("Step Back"));
         return;
     }
+    if (r != jnext::dbg::Result::Ok) return;
 
     apply_pause_state(true);
 }
 
 void DebuggerManager::on_rewind_to_frame(uint32_t frame_num) {
     if (!enabled_) return;
-    if (!emulator_->rewind_buffer() || emulator_->rewind_buffer()->empty()) return;
-    // Refused, not failed: must not reach warn_state_corrupt() below.
-    if (emulator_->rzx_blocks_rewind("Rewind To Frame")) return;
-
-    bool ok = emulator_->rewind_to_frame(frame_num);
-    if (!ok) {
+    // CTL-10 — as on_step_back(): a frame outside the ring is RefusedUnavailable
+    // (silent), a torn restore RefusedCorrupt (warned).
+    const jnext::dbg::Result r = dbg_.rewind_to_frame(client_, frame_num);
+    if (r == jnext::dbg::Result::RefusedCorrupt) {
         warn_state_corrupt(QObject::tr("Rewind To Frame"));
         return;
     }
+    if (r != jnext::dbg::Result::Ok) return;
 
     apply_pause_state(true);
 }

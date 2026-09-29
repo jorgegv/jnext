@@ -19,9 +19,10 @@ class DebuggerWindow;
 ///
 /// GH #278 WP2 — the Qt ADAPTER over the debugger backend (`jnext::dbg::Debugger`,
 /// `debug/debugger.h`). The control verbs — run, pause, step into/over/out,
-/// run to here, run to end of frame / scanline — are the backend's; so are the
-/// pause state the adapter reads, and the corruption observables the resume
-/// modal asks about (CTL-11). What stays here is Qt: the modal, the window, the
+/// run to here, run to end of frame / scanline — are the backend's, and since
+/// WP3 so are step back and rewind to frame (CTL-09/10); so are the pause state
+/// the adapter reads, and the corruption observables the resume modal and the
+/// rewind warning ask about (CTL-11). What stays here is Qt: the modal, the window, the
 /// panels' paused/running presentation, the Qt signals.
 ///
 /// THE ATTACH POLICY (qt-frontend.md §4 as built; manager decision 2026-09-29):
@@ -34,7 +35,8 @@ class DebuggerWindow;
 /// is PULLED from the backend on every tick, whoever is attached.
 ///
 /// The panels (`DebuggerWindow` and its 13) still take the `Emulator*` until
-/// WP4/WP7 move them onto the backend; so do the rewind verbs until WP3.
+/// WP4/WP7 move them onto the backend. The window reaches the backend through
+/// backend() for its rewind, trace and action controls (WP3).
 class DebuggerManager : public QObject {
     Q_OBJECT
 public:
@@ -82,6 +84,11 @@ public:
     /// and ensure_window() would build a window on the compiled-in defaults.
     /// Applies immediately when a window already exists.
     void set_keymap(const jnext::dbgkeys::Keymap& km);
+
+    /// GH #278 WP3 — the backend this adapter drives, for the DebuggerWindow's
+    /// own controls (rewind toolbar and menu, trace menu, action greying),
+    /// which read it rather than the Emulator.
+    jnext::dbg::Debugger& backend() const { return dbg_; }
 
     /// Access the symbol table.
     SymbolTable& symbol_table() { return symbol_table_; }
@@ -137,11 +144,12 @@ private:
     /// check_breakpoint_hit() compares the backend's state against.
     void apply_pause_state(bool paused);
 
-    /// Task 60e: if the emulator flagged a corrupt state after a failed
-    /// rewind/step-back (Emulator::last_state_error() non-empty), surface it
-    /// to the user (status bar + modal warning). No-op on a benign failure
-    /// (empty buffer, trace off, frame out of range) where no restore was
-    /// attempted. `op` names the operation for the message.
+    /// Task 60e: a step back or rewind whose restore tore the machine (the
+    /// backend's `RefusedCorrupt`) is surfaced to the user — status bar and a
+    /// modal naming the subsystem from the backend's incident (CTL-11). Called
+    /// ONLY for `RefusedCorrupt`: a benign refusal (`RefusedUnavailable` —
+    /// empty buffer, trace off, frame out of range — or `RefusedRzx`) never
+    /// reaches it. `op` names the operation for the message.
     void warn_state_corrupt(const QString& op);
 
     /// Task 60e — THE single choke point every resume/step/execute path must
@@ -158,10 +166,10 @@ private:
 
     QMainWindow* main_window_;
     jnext::dbg::Debugger& dbg_;
-    /// For what WP2 does not move: the DebuggerWindow and its panels (WP4/WP7),
-    /// the rewind verbs and their warning (WP3), the raster snapshot before a
-    /// paused refresh (WP4d), and the legacy `DebugState::active()` bit the
-    /// window still CLEARS on close (see set_enabled()).
+    /// For what WP2/WP3 do not move: the DebuggerWindow and its panels
+    /// (WP4/WP7), the raster snapshot before a paused refresh (WP4d), and the
+    /// legacy `DebugState::active()` bit the window still CLEARS on close (see
+    /// set_enabled()).
     Emulator* emulator_;
 
     bool enabled_ = false;
