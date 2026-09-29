@@ -39,7 +39,7 @@ own SD-card clone. Any row whose guest **writes** to the card needs it.
 in run order. Each has its logic in `scripts/<name>.sh` and calls
 `begin_func <name>` to register that its row really was reported.
 
-Both files carry a `# expect: N` pin — currently 66 screenshots and 88
+Both files carry a `# expect: N` pin — currently 66 screenshots and 89
 functional — and the driver faults if a pin and the declared lines disagree.
 
 ## The independent witness

@@ -2888,6 +2888,13 @@ and replaces your working copy, <strong>including anything you saved on it</stro
 firmware remembers the ZX81 choice on the card, so until then every boot goes
 straight to that error: press SPACE while the firmware starts and pick another
 entry.</p>
+<p>An image you pass with <code>--sdcard</code> has the same problem if it was made from that
+distribution, and <code>--sdcard-download-force</code> never touches it. Run
+<code>tools/fix-sdcard-image.sh</code> from JNEXT's source repository on it instead (it
+needs mtools), for example <code>tools/fix-sdcard-image.sh my.img my-fixed.img</code> to
+keep the original. It makes the same change to <code>zx81.rom</code>, keeps your files,
+and resets the firmware settings in <code>/MACHINES/NEXT/config.ini</code> to the
+defaults.</p>
 <p><strong>You are scripting JNEXT and it stops to ask a question.</strong> Use
 <code>--sdcard-download-confirm</code> to accept the download without prompting, or pass
 <code>--sdcard</code> so there is nothing to ask about. An unattended run that is asked a

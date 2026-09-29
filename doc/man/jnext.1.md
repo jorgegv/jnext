@@ -797,7 +797,9 @@ copy-on-write filesystem.
 The image must be a spec-valid FAT32 (at least 65525 clusters) — the same thing
 the Next's own firmware requires. The image jnext provisions for itself already
 is one; a hand-made under-clustered image is refused, and
-`tools/fix-sdcard-image.sh` re-clusters one.
+`tools/fix-sdcard-image.sh` re-clusters one, applying the same fixes jnext's own
+provisioning does (a default `config.ini`, and the 24.11 distribution's 16 KB
+`zx81.rom` doubled so the firmware boot menu can load it).
 
 The exit status says which of the things that can go wrong did; see
 **EXIT STATUS**.

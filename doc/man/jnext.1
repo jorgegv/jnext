@@ -950,7 +950,10 @@ The image must be a spec\-valid FAT32 (at least 65525 clusters) \(em the
 same thing the Next\(cqs own firmware requires.
 The image jnext provisions for itself already is one; a hand\-made
 under\-clustered image is refused, and
-\f[CR]tools/fix\-sdcard\-image.sh\f[R] re\-clusters one.
+\f[CR]tools/fix\-sdcard\-image.sh\f[R] re\-clusters one, applying the
+same fixes jnext\(cqs own provisioning does (a default
+\f[CR]config.ini\f[R], and the 24.11 distribution\(cqs 16 KB
+\f[CR]zx81.rom\f[R] doubled so the firmware boot menu can load it).
 .PP
 The exit status says which of the things that can go wrong did; see
 \f[B]EXIT STATUS\f[R].
