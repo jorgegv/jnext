@@ -59,6 +59,16 @@ class FakeCSpectServer:
         self.client_conn: socket.socket | None = None
         # Seconds between CONTINUE's response and its PAUSE notification.
         self.ntf_delay = 0.02
+        # False: CONTINUE sends no notification of its own, like a machine that
+        # runs until something stops it; PAUSE then answers and notifies.
+        self.continue_notifies = True
+        # True: after CONTINUE's response, one stray RESPONSE frame (seq 0x77)
+        # that no request asked for.
+        self.stray_after_continue = False
+        # True: GET_TBBLUE_REG's reply goes out as its first byte, a 50 ms
+        # pause, then the rest — so a thread polling the socket sees bytes
+        # arrive that the requesting thread, not it, will read.
+        self.split_replies = False
         # Canned register data — picked so each field is distinct.
         self.regs_payload = self._build_regs_payload()
 
@@ -150,7 +160,12 @@ class FakeCSpectServer:
             self._send(conn, dz.encode_response(seqno))
         elif cmd == c.GET_TBBLUE_REG:
             reg = payload[0]
-            self._send(conn, dz.encode_response(seqno, bytes([reg ^ 0x55])))
+            frame = dz.encode_response(seqno, bytes([reg ^ 0x55]))
+            if self.split_replies:
+                self._send(conn, frame[:1])
+                time.sleep(0.05)
+                frame = frame[1:]
+            self._send(conn, frame)
         elif cmd == c.ADD_BREAKPOINT:
             self._send(conn, dz.encode_response(seqno, struct.pack("<H", 42)))
         elif cmd == c.REMOVE_BREAKPOINT:
@@ -158,6 +173,10 @@ class FakeCSpectServer:
         elif cmd == c.CONTINUE:
             # Mirror real plugin: empty response now, PAUSE notification later.
             self._send(conn, dz.encode_response(seqno))
+            if self.stray_after_continue:
+                self._send(conn, dz.encode_response(0x77))
+            if not self.continue_notifies:
+                return
             # Tiny sleep so the client has time to enter wait_for_pause().
             threading.Timer(self.ntf_delay, lambda: self._send(
                 conn,
@@ -167,6 +186,9 @@ class FakeCSpectServer:
             )).start()
         elif cmd == c.PAUSE:
             self._send(conn, dz.encode_response(seqno))
+            if not self.continue_notifies:
+                self._send(conn, dz.encode_pause_ntf(dz.BreakReason.MANUAL_BREAK,
+                                                     long_address=0x8000))
         elif cmd == c.SET_REGISTER:
             self._send(conn, dz.encode_response(seqno))
         elif cmd == c.SET_SLOT:
@@ -339,7 +361,7 @@ class TestEndToEnd(unittest.TestCase):
         self.assertEqual(ntf.long_address, 0x01ED)
         self.assertGreaterEqual(time.monotonic() - t0, 0.15)
 
-    def test_h2_a_request_during_wait_for_pause_waits_for_it(self) -> None:
+    def test_h2_a_request_during_wait_for_pause_runs_and_frames_stay_whole(self) -> None:
         self.srv.ntf_delay = 0.3
         self.cli.init()
         self.cli.cont()
@@ -370,7 +392,54 @@ class TestEndToEnd(unittest.TestCase):
         self.assertNotIn("reg_err", got)
         self.assertEqual(got["ntf"].reason, dz.BreakReason.BREAKPOINT_HIT)
         self.assertEqual(got["reg"], 0x07 ^ 0x55)
-        self.assertGreaterEqual(got["reg_at"], got["ntf_at"])
+        # The request did not wait for the notification (GH #12 M3 review):
+        # the wait holds the lock only to read a frame, not for its duration.
+        self.assertLess(got["reg_at"], got["ntf_at"])
+
+    def test_wait_for_pause_does_not_block_a_pause_from_another_thread(self) -> None:
+        # A running machine notifies only when something stops it: here the
+        # other thread's pause(). While wait_for_pause held the lock for its
+        # whole wait, that pause() could not be sent until the wait timed out.
+        self.srv.continue_notifies = False
+        self.srv.split_replies = True
+        self.cli.init()
+        self.cli.cont()
+        got: dict = {}
+
+        def waiter() -> None:
+            try:
+                got["ntf"] = self.cli.wait_for_pause(timeout=3.0)
+            except Exception as e:  # noqa: BLE001
+                got["err"] = e
+
+        a = threading.Thread(target=waiter)
+        a.start()
+        time.sleep(0.1)
+        t0 = time.monotonic()
+        # Requests first: each reply is bytes the waiting thread sees arrive
+        # but must not read (it is not its frame, and the requester takes it
+        # under the lock) — nor block on once the requester has.
+        regs = [self.cli.get_tbblue_reg(r) for r in range(5)]
+        self.cli.pause()
+        paused_in = time.monotonic() - t0
+        a.join(5)
+        self.assertNotIn("err", got)
+        self.assertEqual(regs, [r ^ 0x55 for r in range(5)])
+        self.assertEqual(got["ntf"].reason, dz.BreakReason.MANUAL_BREAK)
+        self.assertLess(paused_in, 1.0)
+
+    def test_a_stray_response_during_wait_for_pause_is_an_error(self) -> None:
+        # A response no request asked for: an error naming it, at once — not
+        # dropped, which would leave the wait to time out none the wiser.
+        self.srv.continue_notifies = False
+        self.srv.stray_after_continue = True
+        self.cli.init()
+        self.cli.cont()
+        t0 = time.monotonic()
+        with self.assertRaises(dz.DZRPError) as ctx:
+            self.cli.wait_for_pause(timeout=2.0)
+        self.assertIn("no request outstanding", str(ctx.exception))
+        self.assertLess(time.monotonic() - t0, 1.0)
 
     def test_h3_close_is_idempotent_and_waits_for_the_lock(self) -> None:
         self.cli.init()

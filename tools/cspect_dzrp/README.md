@@ -202,5 +202,9 @@ The script:
   the stop that `cont()` caused. Take an earlier notification before the
   next `cont()` if you want it.
 * **Threads.** One re-entrant lock covers every socket read and write:
-  requests, `wait_for_pause()` (for its whole wait) and `close()`
-  (idempotent) — REVIEW H2/H3. Frames from two threads never interleave.
+  requests, `close()` (idempotent) and each frame `wait_for_pause()` reads —
+  REVIEW H2/H3. Frames from two threads never interleave. The wait itself
+  does NOT hold the lock: it polls the socket in 20 ms slices and takes the
+  lock only to read a frame that has begun to arrive, so another thread can
+  `pause()` the machine it is waiting on. A response that reaches the wait —
+  one no request asked for — raises `DZRPError`, never silently dropped.

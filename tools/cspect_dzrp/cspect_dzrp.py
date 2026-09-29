@@ -43,6 +43,7 @@ This module is pure stdlib (socket + struct).
 from __future__ import annotations
 
 import enum
+import select
 import socket
 import struct
 import threading
@@ -320,9 +321,11 @@ class CSpectDZRP:
     `cont()`.
 
     Thread safety (REVIEW H2/H3): every socket read and write — a request, a
-    `wait_for_pause()`, `close()` — happens under one re-entrant lock, so two
-    threads never interleave frames on the socket. A `wait_for_pause()` holds
-    the lock for its whole wait: another thread's request waits for it.
+    `wait_for_pause()`'s read of a frame, `close()` — happens under one
+    re-entrant lock, so two threads never interleave frames on the socket. A
+    `wait_for_pause()` does NOT hold the lock while it WAITS, only while it
+    reads a frame that has begun to arrive: another thread's request — a
+    `pause()` to stop the very machine the wait is for — runs in between.
     """
 
     def __init__(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
@@ -640,43 +643,58 @@ class CSpectDZRP:
 
     # ---------- notifications ---------------------------------------------
 
+    # The longest another thread waits for the lock while a `wait_for_pause()`
+    # is waiting: the wait looks at the socket in slices this long.
+    WAIT_SLICE = 0.02
+
     def wait_for_pause(self, timeout: float = 30.0) -> PauseNtf:
         """Block until a PAUSE notification arrives. Returns it.
 
-        Holds the lock for the whole wait (REVIEW H2): the socket is read by
-        one thread at a time, so a concurrent request cannot take this
-        notification's bytes as its response, nor this wait take its reply.
-        A response that arrives here anyway belongs to nobody and is an error,
-        never silently dropped.
+        THE WAIT DOES NOT HOLD THE LOCK (GH #12 M3 review): readiness is polled
+        without it, in `WAIT_SLICE` slices, and the lock is taken only to read a
+        frame whose bytes are already there. So another thread's request runs
+        during the wait — above all a `pause()`, which is how a wait on a
+        running machine is ended — and a notification that request reads on its
+        way is stashed in `self.notifications`, where the next turn finds it.
+        Frames stay whole and unshared (REVIEW H2): every read is under the
+        lock, and readiness is re-checked under it, since another thread may
+        have taken the bytes in between.
+
+        A response that arrives here belongs to nobody — any request's reply is
+        read by that request, under the lock — and is an error, never silently
+        dropped.
         """
-        with self._lock:
-            deadline = time.monotonic() + timeout
-            # First, serve any already-queued notification.
-            if self.notifications:
-                return self.notifications.pop(0)
-            if self._sock is None:
-                raise DZRPError("not connected")
-            old_to = self._sock.gettimeout()
+        deadline = time.monotonic() + timeout
+        while True:
+            with self._lock:
+                if self.notifications:
+                    return self.notifications.pop(0)
+                sock = self._sock
+                if sock is None:
+                    raise DZRPError("not connected")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("wait_for_pause timed out")
             try:
-                while True:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        raise TimeoutError("wait_for_pause timed out")
-                    self._sock.settimeout(remaining)
-                    seqno, payload = self._recv_frame()
-                    if seqno == 0:
-                        self._handle_notification(payload)
-                        if self.notifications:
-                            return self.notifications.pop(0)
-                        continue
-                    raise DZRPError(f"a response (seqno {seqno}) arrived with no "
-                                    f"request outstanding")
-            finally:
-                if self._sock is not None:
-                    try:
-                        self._sock.settimeout(old_to)
-                    except Exception:
-                        pass
+                ready, _, _ = select.select([sock], [], [], min(remaining, self.WAIT_SLICE))
+            except (OSError, ValueError):
+                ready = []          # closed meanwhile: the next turn says so
+            if not ready:
+                continue
+            with self._lock:
+                if self._sock is not sock:
+                    continue
+                if self.notifications:
+                    return self.notifications.pop(0)
+                still, _, _ = select.select([sock], [], [], 0)
+                if not still:
+                    continue        # another thread's request took the bytes
+                seqno, payload = self._recv_frame()
+                if seqno == 0:
+                    self._handle_notification(payload)
+                    continue
+                raise DZRPError(f"a response (seqno {seqno}) arrived with no "
+                                f"request outstanding")
 
 
 # --------------------------------------------------------------------------- #

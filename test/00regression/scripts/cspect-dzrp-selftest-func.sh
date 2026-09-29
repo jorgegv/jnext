@@ -10,10 +10,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # the dzrp-*-func rows drive jnext with. A harness with a known race is not a
 # harness: its REVIEW.md H1-H3 (a stale notification returned as a fresh stop,
 # an unlocked wait_for_pause, an unlocked close) are fixed, and each fix has a
-# test that fails with it reverted. Nothing ran this suite before; this row
+# test that fails with it reverted — as do the milestone-4 refinements: a wait
+# that no longer blocks another thread's pause(), and a stray response that is
+# an error rather than a silent drop. Nothing ran this suite before; this row
 # does, and pins its size, so a test that stops being collected shows as a
 # count, not as a quieter green.
-SELFTEST_COUNT=20
+SELFTEST_COUNT=22
 if want cspect-dzrp-selftest-func; then
     begin_func cspect-dzrp-selftest-func
     if ! command -v python3 &>/dev/null; then
