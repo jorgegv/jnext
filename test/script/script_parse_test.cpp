@@ -2131,10 +2131,14 @@ static void depth_rows() {
     {
         const ParseResult ifs = P("on frame do " + rep_str("if 1 then stop end ", 100) + "end");
         const EvalResult parens = E("(1)" + rep_str("+(1)", 150));
-        check("DEPTH-SIBLINGS", "the bounds count NESTING, not siblings: 100 `if`s in a row and 151 parenthesised "
-              "terms load",
-              ifs.ok() && ifs.script.rules[0].body.size() == 100 && parens.ok && parens.value == 151,
-              dstr(ifs.error) + dstr(parens.errors));
+        // 250 rules, each condition one `(` deep: 500 parser levels in all, one
+        // or two at a time — a guard that leaked would refuse this.
+        const ParseResult rules = P(rep_str("on frame when (1) do end ", 250));
+        check("DEPTH-SIBLINGS", "the bounds count NESTING, not siblings: 100 `if`s in a row, 151 parenthesised "
+              "terms, and 250 rules each with a parenthesised condition load",
+              ifs.ok() && ifs.script.rules[0].body.size() == 100 && parens.ok && parens.value == 151 &&
+                  rules.ok() && rules.script.rules.size() == 250,
+              dstr(ifs.error) + dstr(parens.errors) + dstr(rules.error));
     }
     {
         const std::string many = rep_str("on frame do log \"x\" end\n", 20000);
