@@ -100,9 +100,11 @@ int title_bar_height(const QWidget* w) {
 }
 } // namespace
 
-DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
+DebuggerWindow::DebuggerWindow(Emulator* emulator, jnext::dbg::Debugger& dbg,
+                               QWidget* parent)
     : QMainWindow(parent)
     , emulator_(emulator)
+    , dbg_(dbg)
 {
     setWindowTitle(tr("JNEXT Debugger"));
     create_panels();
@@ -1050,7 +1052,7 @@ void DebuggerWindow::create_panels() {
     disasm_panel_ = new DisasmPanel(emulator_);
     memory_panel_ = new MemoryPanel(emulator_);
     memory_panel_->setMinimumHeight(320);
-    video_panel_ = new VideoPanel(emulator_);
+    video_panel_ = new VideoPanel(&dbg_);
     sprite_panel_ = new SpritePanel(emulator_);
     copper_panel_ = new CopperPanel(emulator_);
     nextreg_panel_ = new NextRegPanel(emulator_);

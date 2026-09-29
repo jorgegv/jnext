@@ -1,14 +1,9 @@
 #include "debugger/video_panel.h"
-#include "core/emulator.h"
-#include "port/nextreg.h"
+#include "debug/debugger.h"
+// rgb333_to_argb8888() only: the ULA palette swatch needs the 9-bit (RGB333)
+// expansion the palette's own ARGB cache is built with, and the backend
+// publishes only the 8-bit `rrrgggbb_to_argb()` (GH #278 WP4d report).
 #include "video/palette.h"
-#include "video/renderer.h"
-#include "video/timing.h"
-#include "video/layer2.h"
-#include "video/sprites.h"
-#include "video/tilemap.h"
-#include "memory/ram.h"
-#include "debug/debug_state.h"
 
 #include <QShowEvent>
 #include <QVBoxLayout>
@@ -24,6 +19,7 @@
 #include <QScreen>
 #include <QString>
 #include <algorithm>
+#include <vector>
 
 // ---------------------------------------------------------------------------
 // PaletteSwatchWidget — 32 std-ULA palette entries in a horizontal row.
@@ -186,23 +182,21 @@ private:
 // Checkerboard tile size for transparent pixel indication.
 static constexpr int CHECK_SZ = 8;
 
+// Every view's width: the canonical framebuffer width the backend renders.
+static constexpr int RENDER_W = static_cast<int>(jnext::dbg::RENDER_WIDTH);
+
 // Dark background colour for "not yet rendered" rows.
 static constexpr uint32_t UNRENDERED_ARGB   = 0xFF111111;
 // Light checkerboard for transparent areas — matches typical image editor style.
 static constexpr uint32_t CHECKER_DARK_ARGB = 0xFFAAAAAA;
 static constexpr uint32_t CHECKER_LITE_ARGB = 0xFFCCCCCC;
 
-static void fill_checker(uint32_t* dst, int row, int width)
-{
-    for (int x = 0; x < width; ++x) {
-        bool dark = (((row / CHECK_SZ) ^ (x / CHECK_SZ)) & 1) != 0;
-        dst[x] = dark ? CHECKER_DARK_ARGB : CHECKER_LITE_ARGB;
-    }
-}
-
-// Repaint the checkerboard over every zero-alpha cell.  Used after the ULA
-// clip pass, which turns clipped-away cells TRANSPARENT (alpha 0); the panel's
-// convention is that transparent areas show the checkerboard.
+// Paint the checkerboard over every zero-alpha cell: the panel's convention is
+// that transparent areas show the checkerboard.  The backend draws a view with
+// alpha 0 wherever it is transparent — a cell the layer does not paint, one
+// its clip window removes (the ULA's NR 0x1A clip, applied by the compositor
+// stage; the tilemap's NR 0x1B clip, which writes 0 itself) — so this one pass
+// covers every view alike (GH #278 WP4d, design-qt §3.7).
 static void restore_checker_where_transparent(uint32_t* dst, int row, int width)
 {
     for (int x = 0; x < width; ++x) {
@@ -212,33 +206,10 @@ static void restore_checker_where_transparent(uint32_t* dst, int row, int width)
     }
 }
 
-// ---------------------------------------------------------------------------
-// Per-scanline state replay (mirrors Renderer::render_frame)
-// ---------------------------------------------------------------------------
-//
-// Every video subsystem keeps a per-frame change log of the register writes
-// the Z80 / Copper made mid-frame, tagged with the framebuffer row they landed
-// on.  `Renderer::render_frame` rewinds each log to the frame baseline and
-// replays it line by line, so row N is composited with the register state that
-// was live when the raster crossed row N.  That is what produces raster splits
-// — beast.nex's Layer 2 parallax bands, its per-line palette gradient,
-// parallax.nex's DMA-multiplexed sprites, tilemap scroll splits.
-//
-// The panel used to render every row with the END-OF-PAUSE live register
-// state, so all of those effects collapsed to a single flat value and the
-// panel showed something the compositor never draws.  The compositor is the
-// oracle for "what should this layer look like", so the panel replays the
-// frame exactly the same way.
-//
-// This is state-preserving.  Each subsystem's live register state is, by
-// construction, equal to the last entry in its change log (every write both
-// mutates the live register and appends a log entry).  So rewind → apply rows
-// 0..FB_HEIGHT-1 → flush-remaining walks the cursor to the end of the log and
-// leaves every live register exactly where it started; the render cursors are
-// reset by the next render_frame's rewind anyway.  It is the same round trip
-// render_frame performs once per frame — no more, no less.  We only ever do it
-// while the emulator is PAUSED (refresh() early-returns for vc < 0), so there
-// is no concurrent emulation to perturb.
+// The per-scanline state replay that makes each view show the register state
+// the raster saw on each row (raster splits, per-line palettes, scroll splits)
+// lives with the render in the backend now: `jnext::dbg::Debugger::render_layer`
+// (`src/debug/debugger_render.cpp`, GH #278 WP4d).
 
 // Which layers are enabled, and in what priority order — read through the NextREG
 // READ HANDLERS, never from the raw register cache.
@@ -277,20 +248,19 @@ static void restore_checker_where_transparent(uint32_t* dst, int row, int width)
 // being fetched: port 0xFF bits 2:0 select the Timex modes whose "attribute"
 // slots fetch a second bitmap plane instead, and the shadow-screen bit forces
 // screen_mode to "000" (zxula.vhd:191, :238-239, :248-249).
-RasterState video_panel_raster_state(Emulator& emu)
+RasterState video_panel_raster_state(const jnext::dbg::Debugger& dbg)
 {
-    return raster_state_at(emu.video_timing(),
-                           emu.paused_hc(), emu.paused_vc(),
-                           emu.ula().get_screen_mode_reg(),
-                           emu.ula().get_shadow_screen_en());
+    // The backend's INS-06 derivation is this one, with the same four inputs.
+    return dbg.raster();
 }
 
-void video_panel_layer_state(Emulator& emu, bool active_out[4], int& priority_out)
+void video_panel_layer_state(const jnext::dbg::Debugger& dbg, bool active_out[4],
+                             int& priority_out)
 {
-    const uint8_t reg15 = emu.nextreg().peek(0x15);
-    const uint8_t reg68 = emu.nextreg().peek(0x68);
-    const uint8_t reg69 = emu.nextreg().peek(0x69);
-    const uint8_t reg6b = emu.nextreg().peek(0x6B);
+    const uint8_t reg15 = dbg.nextreg_peek(0x15);
+    const uint8_t reg68 = dbg.nextreg_peek(0x68);
+    const uint8_t reg69 = dbg.nextreg_peek(0x69);
+    const uint8_t reg6b = dbg.nextreg_peek(0x6B);
 
     active_out[0] = !(reg68 & 0x80);   // ULA     (bit 7 = DISABLE)
     active_out[1] = !!(reg69 & 0x80);  // Layer 2
@@ -299,52 +269,13 @@ void video_panel_layer_state(Emulator& emu, bool active_out[4], int& priority_ou
     priority_out  = (reg15 >> 2) & 0x07;
 }
 
-static void replay_rewind(Emulator& emu)
-{
-    emu.palette().rewind_to_baseline();
-    emu.layer2().rewind_to_baseline();
-    emu.sprites().rewind_to_baseline();
-    emu.ula().rewind_to_baseline();            // port 0xFF Timex screen-mode
-    emu.ula().rewind_scroll_to_baseline();     // ULA scroll
-    emu.ula().palsel_rewind_to_baseline();     // ULA active-palette selector
-    emu.tilemap().rewind_nr6b_to_baseline();   // NR 0x6B
-    emu.mmu().attr_mux_rewind_to_baseline();   // G12 Nirvana-class attribute mux
-    emu.renderer().rewind_to_baseline_nr15();  // G02 NR 0x15 priority/sprite-en
-}
-
-static void replay_line(Emulator& emu, int row)
-{
-    emu.palette().apply_changes_for_line(row);
-    emu.layer2().apply_changes_for_line(row);
-    emu.sprites().apply_changes_for_line(row);
-    emu.ula().apply_changes_for_line(row);
-    emu.ula().apply_scroll_changes_for_line(row);
-    emu.ula().palsel_apply_changes_for_line(row);
-    emu.tilemap().apply_nr6b_changes_for_line(row);
-    emu.mmu().attr_mux_apply_line(row);        // G12 Nirvana-class attribute mux
-    emu.renderer().apply_changes_for_line_nr15(row);  // G02 NR 0x15
-}
-
-static void replay_restore(Emulator& emu)
-{
-    emu.palette().flush_remaining_changes();
-    emu.layer2().flush_remaining_changes();
-    emu.sprites().flush_remaining_changes();
-    emu.ula().flush_remaining_changes();
-    emu.ula().flush_remaining_scroll_changes();
-    emu.ula().palsel_flush_remaining_changes();
-    emu.tilemap().flush_remaining_nr6b_changes();
-    emu.mmu().attr_mux_flush_remaining();  // G12 Nirvana-class attribute mux
-    emu.renderer().flush_remaining_changes_nr15();  // G02 NR 0x15
-}
-
 VideoLayerView::VideoLayerView(Layer layer, const char* title,
-                               Emulator* emulator, QWidget* parent)
+                               const jnext::dbg::Debugger* dbg, QWidget* parent)
     : QWidget(parent)
     , layer_(layer)
     , title_(QString::fromLatin1(title))
-    , emulator_(emulator)
-    , image_(NATIVE_W, NATIVE_H, QImage::Format_ARGB32)
+    , dbg_(dbg)
+    , image_(RENDER_W, NATIVE_H, QImage::Format_ARGB32)
 {
     image_.fill(UNRENDERED_ARGB);
     // Don't call setFixedSize here — the widget's DPR is unknown until it is
@@ -398,222 +329,28 @@ void VideoLayerView::refresh(int vc)
 
 void VideoLayerView::render_to_image(int vc)
 {
-    if (!emulator_) {
-        image_.fill(UNRENDERED_ARGB);
-        return;
-    }
+    // Rows the raster has not reached yet this frame — and, when running or
+    // with no backend, the whole placeholder — are the "not rendered" colour.
+    image_.fill(UNRENDERED_ARGB);
+    if (!dbg_ || vc < 0) return;
 
-    // When running (vc < 0), show a dim placeholder.
-    if (vc < 0) {
-        image_.fill(UNRENDERED_ARGB);
-        return;
-    }
+    // The backend draws rows 0..vc over a 0x00000000 fill (INS-14) and leaves
+    // the rows below alone.
+    auto* bits = reinterpret_cast<uint32_t*>(image_.bits());
+    const size_t stride = static_cast<size_t>(image_.bytesPerLine()) / sizeof(uint32_t);
+    if (!jnext::dbg::ok(dbg_->render_layer(layer_, vc, bits, stride))) return;
 
-    Emulator& emu = *emulator_;
-
-    // Determine the native width for this layer.
-    // G104 phase 2: ULA renderer now emits 640 cells natively (canonical
-    // framebuffer width). The debugger panel must match or the QImage scanline
-    // dst will be overrun on every render call.
-    int layer_w = NATIVE_W;
-    switch (layer_) {
-        case Layer::COMPOSITE:
-        case Layer::BACKGROUND:
-            // The compositor's canonical output width (Renderer::FB_WIDTH).
-            layer_w = Renderer::FB_WIDTH;
-            break;
-        case Layer::ULA_PRIMARY:
-        case Layer::ULA_SHADOW:
-            layer_w = 640;
-            break;
-        case Layer::LAYER2_ACTIVE:
-        case Layer::LAYER2_SHADOW:
-            // G104 Phase 3: Layer 2 always emits 640 (pixel-doubled in
-            // 256-mode, pixel-doubled in 320-mode, native in 640-mode).
-            layer_w = 640;
-            break;
-        case Layer::TILEMAP:
-            // G104 phase 4: tilemap renderer now emits 640 cells in BOTH
-            // col-modes (40-col pixel-doubled, 80-col native).  Force
-            // layer_w=640 to match — a 320-wide buffer would be overrun by
-            // 40-col scenes (heap corruption in the QImage scanline).
-            layer_w = 640;
-            break;
-        case Layer::SPRITES:
-            // G104 phase 5: sprite engine now emits 640 cells (internal
-            // 320-grid + emit pixel-double).  layer_w must match or the
-            // QImage scanline buffer is overrun on every visible sprite —
-            // any sprite at logical x writes to dst[2x] AND dst[2x+1],
-            // overflowing a 320-wide buffer.
-            layer_w = 640;
-            break;
-        default:
-            break;
-    }
-
-    // Recreate QImage if the resolution changed.
-    if (image_.width() != layer_w || image_.height() != NATIVE_H) {
-        image_ = QImage(layer_w, NATIVE_H, QImage::Format_ARGB32);
-    }
-
-    // Layer 2 fetches its pixels straight out of physical SRAM, so it needs
-    // the same bank transform the compositor applies (renderer.cpp: the
-    // mmu.rom_in_sram() argument to Layer2::render_scanline).  On a Next the
-    // ROM lives in SRAM and every ZX RAM bank is shifted by +16 16K-banks
-    // (VHDL layer2.vhd:172); without this the panel read Layer 2 pixels from
-    // banks 0..N instead of 16..N+16 — i.e. from unrelated (usually zeroed)
-    // SRAM, which is why the Layer 2 view rendered solid black on every Next
-    // program.
-    const bool rom_in_sram = emu.mmu().rom_in_sram();
-
-    // Replay the frame line by line, exactly as Renderer::render_frame does
-    // (see the replay_* helpers above).  Rows past the paused raster position
-    // have not been drawn yet this frame, but we still have to walk the
-    // change-log cursors across them so replay_restore() puts every live
-    // register back where it was.
-    replay_rewind(emu);
-
-    for (int row = 0; row < 256; ++row) {
-        replay_line(emu, row);
-
-        uint32_t* dst = reinterpret_cast<uint32_t*>(image_.scanLine(row));
-
-        if (row > vc) {
-            std::fill_n(dst, layer_w, UNRENDERED_ARGB);
-            continue;
-        }
-
-        // Pre-fill with checkerboard so transparent areas are visible.
-        fill_checker(dst, row, layer_w);
-
-        switch (layer_) {
-            case Layer::COMPOSITE:
-                // The real compositor, not a second copy of it: the very row
-                // body Renderer::render_frame runs (Task 36).  It writes every
-                // one of the 640 cells — a composited pixel is never
-                // transparent, because wherever all four layers are, the
-                // NR 0x4A fallback colour is emitted instead — so the
-                // checkerboard pre-fill above is fully overwritten.
-                //
-                // That fallback colour is exactly why this view has to exist:
-                // it belongs to NO layer, so no per-layer view can show it, and
-                // the per-layer views therefore do not visibly add up to the
-                // picture on screen (sonic.nex: ULA disabled via NR 0x68 b7,
-                // Layer 2 empty, whole sky = NR 0x4A = 0x13 = #0092FF).
-                emu.renderer().render_row(dst, row, emu.mmu(), emu.ram(),
-                                          emu.palette(), emu.layer2(),
-                                          &emu.sprites(), &emu.tilemap());
-                break;
-
-            case Layer::ULA_PRIMARY:
-            case Layer::ULA_SHADOW:
-                // Force the bank: the live render_scanline() follows the
-                // port-0x7FFD b3 shadow selector, so with the shadow screen
-                // active the "Primary (bank 5)" view used to show bank 7.
-                // GH #95: thread the row's NR $4A fallback into the direct
-                // bank render — render_scanline_bank bypasses render_row's
-                // per-row set_select_bgnd_argb push, so a ULAnext
-                // `ula_select_bgnd` pixel (zxula.vhd:490/499-501/525 →
-                // zxnext.vhd:6986-6991) would otherwise show a stale value.
-                // Same per-line snapshot the BACKGROUND view reads below.
-                emu.ula().render_scanline_bank(
-                    dst, row, emu.mmu(),
-                    /*use_bank7=*/layer_ == Layer::ULA_SHADOW,
-                    Renderer::rrrgggbb_to_argb(
-                        emu.renderer().fallback_for_line(row)));
-                // The ULA is the one layer whose clip window (NR 0x1A) is
-                // applied by the COMPOSITOR rather than inside its own
-                // render_scanline (VHDL zxnext.vhd:7104 — ula_clipped feeds
-                // ula_transparent).  Layer 2 / Tilemap / Sprites all clip
-                // themselves, so without this the ULA view was the only layer
-                // view showing content the compositor suppresses.
-                emu.renderer().apply_ula_clip(dst, row);
-                // apply_ula_clip zeroes the clipped-away cells.  The ULA
-                // renderer itself only ever emits opaque pixels, so a zero
-                // alpha here means exactly "clipped away" — repaint the
-                // checkerboard there so it reads as transparent, like every
-                // other layer view.
-                restore_checker_where_transparent(dst, row, layer_w);
-                break;
-
-            case Layer::LAYER2_ACTIVE:
-                // G104 Phase 3: render_scanline_debug always emits 640.
-                // active_bank() is re-read per row — it is itself replayed
-                // per scanline (Layer2 bank change-log). transparent_rgb is
-                // read PER ROW from the renderer's own NR 0x14 snapshot —
-                // not from the live PaletteManager::global_transparency() —
-                // exactly like the BACKGROUND view's fallback_for_line(row)
-                // read below (Task 46).
-                // GH #163: the NR 0x43 b2 palette-bank select is replayed
-                // per row by replay_line() above (palsel_apply_changes_for_
-                // line), exactly like the Layer2 bank change-log, so read it
-                // per row too instead of leaving the colours on the live
-                // end-of-frame bank.
-                emu.layer2().render_scanline_debug(
-                    dst, row, emu.ram(), emu.palette(),
-                    emu.layer2().active_bank(),
-                    emu.renderer().transparent_rgb_for_line(row),
-                    rom_in_sram,
-                    emu.ula().get_active_layer2_palette());
-                break;
-
-            case Layer::LAYER2_SHADOW:
-                emu.layer2().render_scanline_debug(
-                    dst, row, emu.ram(), emu.palette(),
-                    emu.layer2().shadow_bank(),
-                    emu.renderer().transparent_rgb_for_line(row),
-                    rom_in_sram,
-                    emu.ula().get_active_layer2_palette());
-                break;
-
-            case Layer::SPRITES:
-                // GH #163: NR 0x43 b3, replayed per row — see LAYER2_ACTIVE.
-                emu.sprites().render_scanline_debug(
-                    dst, row, emu.palette(),
-                    emu.ula().get_active_sprite_palette());
-                break;
-
-            case Layer::TILEMAP: {
-                bool ula_over[640];
-                std::fill_n(ula_over, layer_w, false);
-                // G104 phase 4: tilemap render_scanline_debug always
-                // emits 640 (no width parameter).
-                // GH #168: NR 0x6B b4, replayed per row — see LAYER2_ACTIVE.
-                emu.tilemap().render_scanline_debug(
-                    dst, ula_over, row, emu.ram(), emu.palette(),
-                    /*textmode_flags=*/nullptr,
-                    emu.ula().get_active_tilemap_palette());
-                break;
-            }
-
-            case Layer::BACKGROUND: {
-                // The NR 0x4A fallback colour — what the compositor emits where
-                // EVERY layer is transparent (VHDL zxnext.vhd:7218-7352).  It
-                // belongs to no layer, so it appears in none of the views above;
-                // this one makes it inspectable directly, which is the whole
-                // point (sonic.nex's sky is nothing but this).
-                //
-                // Read PER ROW from the renderer's own snapshot — the exact byte
-                // render_row feeds rrrgggbb_to_argb for this row — not from the
-                // live NR 0x4A.  A Copper MOVE to NR 0x4A mid-frame paints a
-                // gradient down the raster; a flat swatch of the live register
-                // would show only the last value of the frame.
-                const uint32_t argb = Renderer::rrrgggbb_to_argb(
-                    emu.renderer().fallback_for_line(row));
-                std::fill_n(dst, layer_w, argb);
-                break;
-            }
-        }
-    }
-
-    replay_restore(emu);
+    for (int row = 0; row <= vc; ++row)
+        restore_checker_where_transparent(
+            reinterpret_cast<uint32_t*>(image_.scanLine(row)), row, RENDER_W);
 
     // Name the register value in the title, matching how the other views label
-    // themselves.  The live NR 0x4A is the end-of-frame value; when the Copper
-    // animates it, the bands in the image are the honest per-row story.
-    if (layer_ == Layer::BACKGROUND) {
+    // themselves.  NR 0x4A through the backend's peek — the value the register
+    // holds at the end of the frame so far; when the Copper animates it, the
+    // bands in the image are the honest per-row story.
+    if (layer_ == Layer::Background) {
         title_ = QString::asprintf("Background colour (NR 0x4A = $%02X)",
-                                   emu.renderer().fallback_colour());
+                                   dbg_->nextreg_peek(0x4A));
     }
 
     // The two ULA views pin their bank (that is the point of having both), so the one
@@ -622,9 +359,9 @@ void VideoLayerView::render_to_image(int vc)
     // SHADOW screen, so the default "Primary (bank 5)" view is a screenful of garbage
     // and looks like a broken panel. Say which bank is live, so the garbage explains
     // itself (Task 40).
-    if (layer_ == Layer::ULA_PRIMARY || layer_ == Layer::ULA_SHADOW) {
-        const bool showing_bank7 = (layer_ == Layer::ULA_SHADOW);
-        const bool live_bank7    = emu.ula().vram_bank7();
+    if (layer_ == Layer::UlaPrimary || layer_ == Layer::UlaShadow) {
+        const bool showing_bank7 = (layer_ == Layer::UlaShadow);
+        const bool live_bank7    = dbg_->ula_screen_regs().active_bank == 7;
         title_ = showing_bank7 ? QStringLiteral("ULA shadow (bank 7)")
                                : QStringLiteral("ULA primary (bank 5)");
         title_ += (showing_bank7 == live_bank7)
@@ -647,7 +384,7 @@ void VideoLayerView::paintEvent(QPaintEvent*)
 
     QPainter p(this);
 
-    // Pre-scale the source image (320×256 or 640×256) to fill the physical content area.
+    // Pre-scale the source image (640×256) to fill the physical content area.
     const qreal dpr    = devicePixelRatioF();
     const int   phys_w = qRound((width()  - 2 * MARGIN) * dpr);
     const int   phys_h = qRound((height() - TITLE_H - 2 * MARGIN) * dpr);
@@ -693,9 +430,9 @@ void VideoLayerView::paintEvent(QPaintEvent*)
 // VideoPanel
 // ---------------------------------------------------------------------------
 
-VideoPanel::VideoPanel(Emulator* emulator, QWidget* parent)
+VideoPanel::VideoPanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     : QWidget(parent)
-    , emulator_(emulator)
+    , dbg_(dbg)
 {
     create_ui();
 }
@@ -704,7 +441,7 @@ int VideoPanel::fb_row_for_vc(int raw_vc, int vblank_top)
 {
     // See the declaration in video_panel.h for the G164v2 rationale.
     const int fb_row = raw_vc - vblank_top;
-    return std::min(fb_row, Renderer::FB_HEIGHT - 1);
+    return std::min(fb_row, VideoLayerView::NATIVE_H - 1);
 }
 
 void VideoPanel::create_ui()
@@ -826,6 +563,9 @@ void VideoPanel::create_ui()
         row->setSpacing(4);
         row->addWidget(make_bold("ULA Palette: "));
         palette_widget_ = new PaletteSwatchWidget(this);
+        // Named so the panel test can grab it and check the swatch shows the
+        // ACTIVE ULA bank's colours (GH #278 WP4d).
+        palette_widget_->setObjectName(QStringLiteral("ulaPalette"));
         row->addWidget(palette_widget_, 1);
         layout->addLayout(row);
     }
@@ -859,7 +599,7 @@ void VideoPanel::create_ui()
         vbox->setSpacing(2);
 
         // Fixed-size screen view, centred so left/right margins are equal.
-        auto* view = new VideoLayerView(layer, view_title, emulator_, tab);
+        auto* view = new VideoLayerView(layer, view_title, dbg_, tab);
         vbox->addWidget(view, 0, Qt::AlignHCenter);
 
         // Fixed-height control row below the screen.
@@ -892,25 +632,25 @@ void VideoPanel::create_ui()
     // the NR 0x4A fallback colour (it belongs to no layer).
     composite_view_ = make_layer_tab(
         "All layers",
-        VideoLayerView::Layer::COMPOSITE, "All layers (composite)",
+        VideoLayerView::Layer::Composite, "All layers (composite)",
         nullptr, nullptr, nullptr, nullptr);
 
     // ULA tab — single view, radio buttons select primary/shadow.
     ula_view_ = make_layer_tab(
         "ULA",
-        VideoLayerView::Layer::ULA_PRIMARY, "ULA screen (bank 5/7)",
+        VideoLayerView::Layer::UlaPrimary, "ULA screen (bank 5/7)",
         "Primary (bank 5)", &ula_rb_primary_,
         "Shadow (bank 7)",  &ula_rb_shadow_);
 
     connect(ula_rb_primary_, &QRadioButton::toggled, this, [this](bool checked) {
         if (checked) {
-            ula_view_->setLayer(VideoLayerView::Layer::ULA_PRIMARY);
+            ula_view_->setLayer(VideoLayerView::Layer::UlaPrimary);
             refresh();
         }
     });
     connect(ula_rb_shadow_, &QRadioButton::toggled, this, [this](bool checked) {
         if (checked) {
-            ula_view_->setLayer(VideoLayerView::Layer::ULA_SHADOW);
+            ula_view_->setLayer(VideoLayerView::Layer::UlaShadow);
             refresh();
         }
     });
@@ -918,19 +658,19 @@ void VideoPanel::create_ui()
     // Layer 2 tab — single view, radio buttons select active/shadow bank.
     l2_view_ = make_layer_tab(
         "Layer2",
-        VideoLayerView::Layer::LAYER2_ACTIVE, "Layer 2",
+        VideoLayerView::Layer::Layer2Active, "Layer 2",
         "Active bank",  &l2_rb_active_,
         "Shadow bank",  &l2_rb_shadow_);
 
     connect(l2_rb_active_, &QRadioButton::toggled, this, [this](bool checked) {
         if (checked) {
-            l2_view_->setLayer(VideoLayerView::Layer::LAYER2_ACTIVE);
+            l2_view_->setLayer(VideoLayerView::Layer::Layer2Active);
             refresh();
         }
     });
     connect(l2_rb_shadow_, &QRadioButton::toggled, this, [this](bool checked) {
         if (checked) {
-            l2_view_->setLayer(VideoLayerView::Layer::LAYER2_SHADOW);
+            l2_view_->setLayer(VideoLayerView::Layer::Layer2Shadow);
             refresh();
         }
     });
@@ -938,20 +678,20 @@ void VideoPanel::create_ui()
     // Sprites tab — single view, no radio buttons.
     sprites_view_ = make_layer_tab(
         "Sprites",
-        VideoLayerView::Layer::SPRITES, "Sprites",
+        VideoLayerView::Layer::Sprites, "Sprites",
         nullptr, nullptr, nullptr, nullptr);
 
     // TileMap tab — single view, no radio buttons.
     tilemap_view_ = make_layer_tab(
         "TileMap",
-        VideoLayerView::Layer::TILEMAP, "TileMap",
+        VideoLayerView::Layer::Tilemap, "TileMap",
         nullptr, nullptr, nullptr, nullptr);
 
     // Background tab — rightmost.  The NR 0x4A fallback colour: the one thing
     // on screen that belongs to no layer, so no layer view can show it.
     background_view_ = make_layer_tab(
         "Background",
-        VideoLayerView::Layer::BACKGROUND, "Background colour (NR 0x4A)",
+        VideoLayerView::Layer::Background, "Background colour (NR 0x4A)",
         nullptr, nullptr, nullptr, nullptr);
 
     // When the user switches tabs, invalidate so the new tab renders immediately.
@@ -973,7 +713,7 @@ void VideoPanel::create_ui()
 
 void VideoPanel::refresh()
 {
-    if (!emulator_) return;
+    if (!dbg_) return;
 
     // ── Raster position + ULA fetch — paused only (GH #22) ───────────────────
     //
@@ -999,15 +739,16 @@ void VideoPanel::refresh()
     // fb_row is clamped to FB_HEIGHT-1 for the bottom border / bottom vblank.
     int vc = -1;
     {
-        const VideoTiming& vt = emulator_->video_timing();
+        // INS-19: the per-machine raster geometry, from the live VideoTiming.
+        const jnext::dbg::MachineInfo mi = dbg_->machine();
         auto* diagram = static_cast<RasterDiagramWidget*>(raster_diagram_);
-        diagram->set_frame(vt.hc_max() + 1, vt.vc_max() + 1,
-                           vt.max_hblank(), vt.max_vblank(),
-                           vt.display_origin().hc, vt.display_origin().vc);
+        diagram->set_frame(mi.hc_max + 1, mi.vc_max + 1,
+                           mi.max_hblank, mi.max_vblank,
+                           mi.display_origin_hc, mi.display_origin_vc);
 
-        if (emulator_->debug_state().paused()) {
-            const RasterState rs = video_panel_raster_state(*emulator_);
-            vc = fb_row_for_vc(rs.raw_vc, vt.vblank_top());
+        if (dbg_->state().paused) {
+            const RasterState rs = video_panel_raster_state(*dbg_);
+            vc = fb_row_for_vc(rs.raw_vc, mi.vblank_top);
 
             raw_label_->setText(QString::asprintf(
                 "raw     hc:%4d  vc:%4d   VHDL hc / vc (frame)",
@@ -1037,7 +778,7 @@ void VideoPanel::refresh()
     // ── Layer state ──────────────────────────────────────────────────────────
     bool layer_active[4];
     int priority;
-    video_panel_layer_state(*emulator_, layer_active, priority);
+    video_panel_layer_state(*dbg_, layer_active, priority);
 
     auto set_flag = [](QLabel* lbl, bool active) {
         if (active)
@@ -1061,11 +802,18 @@ void VideoPanel::refresh()
     //   0x18..0x1F: paper (BRIGHT=1)
     // Display shows the active ULA palette bank's 32 std-ULA-reachable
     // entries; ULAnext / ULA+ entries (0x20..0xFF) are not shown here.
+    // INS-15 `UlaActive` resolves NR 0x43 bit 1; the entries are RGB333, so
+    // they are expanded exactly as the palette's own ARGB cache is.
     uint32_t colours[PaletteSwatchWidget::N];
-    const bool active_bank = emulator_->ula().get_active_ula_palette();
-    for (int i = 0; i < PaletteSwatchWidget::N; ++i)
-        colours[i] = emulator_->palette().ula_colour(active_bank,
-                                                     static_cast<uint8_t>(i));
+    const std::vector<uint16_t> ula =
+        dbg_->palette(jnext::dbg::PaletteId::UlaActive);
+    for (int i = 0; i < PaletteSwatchWidget::N; ++i) {
+        const uint16_t rgb333 = static_cast<size_t>(i) < ula.size()
+                                    ? ula[static_cast<size_t>(i)] : 0;
+        colours[i] = rgb333_to_argb8888(static_cast<uint8_t>((rgb333 >> 6) & 0x07),
+                                        static_cast<uint8_t>((rgb333 >> 3) & 0x07),
+                                        static_cast<uint8_t>( rgb333       & 0x07));
+    }
     static_cast<PaletteSwatchWidget*>(palette_widget_)->set_colours(colours);
 
     // ── Layer sub-panel views — only refresh the visible tab ─────────────────

@@ -7,6 +7,7 @@
 #include "debugger/window_attach.h"
 
 class Emulator;
+namespace jnext { namespace dbg { class Debugger; } }
 class DebuggerManager;
 class CpuPanel;
 class DisasmPanel;
@@ -33,7 +34,10 @@ class QToolBar;
 class DebuggerWindow : public QMainWindow {
     Q_OBJECT
 public:
-    explicit DebuggerWindow(Emulator* emulator, QWidget* parent = nullptr);
+    /// `dbg` — the debugger backend the panels read through (GH #278 WP4d:
+    /// the Video panel is the first).
+    DebuggerWindow(Emulator* emulator, jnext::dbg::Debugger& dbg,
+                   QWidget* parent = nullptr);
 
     void refresh_panels();
 
@@ -114,6 +118,7 @@ private:
     void apply_keymap();
 
     Emulator* emulator_;
+    jnext::dbg::Debugger& dbg_;
     DebuggerManager* debugger_mgr_ = nullptr;
 
     // GH #114 — false once a size restored from the config file is in use, so

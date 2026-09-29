@@ -68,9 +68,9 @@ Below that, one tab per view:
 Two conventions to know. Rows the raster has **not yet reached** in the current
 frame are drawn dark, so you can see exactly how much of the frame is done at
 the point you stopped — pause mid-frame and the bottom of the picture is dark.
-**Transparent** pixels are drawn as a light checkerboard, the way an image
-editor shows them, which makes it obvious whether a layer is empty or merely
-transparent.
+**Transparent** pixels — including whatever a layer's clip window cuts away —
+are drawn as a light checkerboard, the way an image editor shows them, which
+makes it obvious whether a layer is empty or merely transparent.
 
 The views replay the frame's per-scanline register changes rather than drawing
 everything with the register values that happen to be live at the pause. That
