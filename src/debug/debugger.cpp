@@ -510,6 +510,10 @@ Result Debugger::set_rewind_enabled(bool enabled) {
 
 RewindRange Debugger::rewind_range() const {
     RewindRange rr;
+    // REQ-qt-09d (GH #278 WP3) — the machine's own flag, set by the two ring
+    // restores and cleared when the frame begins or by any other load. Read
+    // before the early returns: it describes the machine, not the ring.
+    rr.at_restored_frame_start = impl_->emu.at_restored_frame_start();
     const RewindBuffer* rb = impl_->emu.rewind_buffer();
     if (!rb) return rr;
     rr.depth          = rb->depth();

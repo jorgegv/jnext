@@ -135,8 +135,9 @@ incremented as an argument of `take_snapshot()`, so without
 *post*-incremented, so during frame K it reads K+1: the backend reports
 `frame_num() - 1`, which is the tag the rewind slot for that frame carries and
 the frame `--delayed-keypress-frames N` lands on. A rewind lands on a frame
-start the ring has already counted (`Emulator::at_restored_frame_start()`), so
-`run_to_frame()` takes its base from that flag too, and the session's
+start the ring has already counted (`Emulator::at_restored_frame_start()`,
+published as `RewindRange::at_restored_frame_start` for a frontend's Frame Back),
+so `run_to_frame()` takes its base from that flag too, and the session's
 `FrameEnded` detector watches the frame's *start cycle* rather than the
 counter: the first frame run again after a rewind ends without the counter
 moving (GH #278).

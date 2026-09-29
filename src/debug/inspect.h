@@ -693,6 +693,16 @@ struct RewindRange {
     size_t capacity = 0;
     /// Bytes per snapshot slot, fixed at construction.
     size_t snapshot_bytes = 0;
+    /// Does the machine sit on a frame start RESTORED from the ring — a
+    /// `rewind_to_frame()` landing, with the frame not yet run again? That
+    /// frame is already counted, so `Time::frame` names it, where at an
+    /// ordinary boundary `Time::frame` names the frame that just ENDED — the
+    /// two positions are otherwise identical to every other query. False after
+    /// the frame begins running, after `step_back()` (its replay begins the
+    /// frame), after a plain `load_state_bytes()` and at an ordinary boundary.
+    /// ADDED BY GH #278 WP3 (REQ-qt-09d; owner approval 2026-09-29) — the Qt
+    /// rewind UI's Frame Back target and "Rewound" status need it.
+    bool at_restored_frame_start = false;
 };
 
 /// CAP-SYM — which MAP file dialect `load_map()` parses.

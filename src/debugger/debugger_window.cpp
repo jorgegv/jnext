@@ -780,15 +780,13 @@ uint32_t DebuggerWindow::rewind_position() const {
 /// before it. The last is what used to repeat: Frame Back restored the frame
 /// it was already on, on every press.
 void DebuggerWindow::frame_back() {
-    if (!debugger_mgr_ || !backend() || backend()->rewind_range().depth == 0)
-        return;
+    if (!debugger_mgr_ || !backend()) return;
+    const jnext::dbg::RewindRange rr = backend()->rewind_range();   // ST-03
+    if (rr.depth == 0) return;
     const uint32_t here = rewind_position();
-    // WAITING ON REQ-qt-09d (qt-frontend.md §8, owner): the one fact the
-    // backend does not publish — does the machine sit on a frame start restored
-    // from the ring? It cannot be derived from the published API exactly (a
-    // runtime frame-length change inside the ring span breaks the derivation),
-    // so it is read from the Emulator until RewindRange carries it.
-    const uint32_t target = emulator_->at_restored_frame_start() && here > 0 ? here - 1 : here;
+    // REQ-qt-09d (owner-approved 2026-09-29): on a restored frame start the
+    // frame the machine is in IS the nearest snapshot, so one further back.
+    const uint32_t target = rr.at_restored_frame_start && here > 0 ? here - 1 : here;
     debugger_mgr_->on_rewind_to_frame(target);
 }
 
@@ -829,10 +827,9 @@ void DebuggerWindow::update_rewind_ui() {
     // Status bar indicator
     if (rr.depth > 0) {
         // Behind the newest snapshot, or sitting on a restored frame start
-        // (the newest's included): anything else is the live end. The second
-        // half is WAITING ON REQ-qt-09d — see frame_back().
+        // (the newest's included; REQ-qt-09d): anything else is the live end.
         const bool is_rewound = rewind_position() < rr.newest_frame ||
-                                emulator_->at_restored_frame_start();
+                                rr.at_restored_frame_start;
         if (is_rewound) {
             statusBar()->showMessage(
                 tr("\u23EE Rewound: frame %1 of %2  (%3 / Continue to resume)")

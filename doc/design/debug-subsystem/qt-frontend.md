@@ -994,13 +994,15 @@ Buffer Size dialog and the status line read ST-03 `rewind_range()`; greying is
 `rewind_blocked()` — the SAME predicate the two rewind verbs refuse on — plus
 `trace_enabled()`; the trace ball, Enable Trace, Clear Trace and both Export
 routes are INS-13; `rewind_position()` is INS-07 `time().frame`. The window
-reaches the backend through `DebuggerManager::backend()`. What still reads the
-`Emulator` in `debugger_window.cpp`: the breakpoint menu (WP4c) and the two
-REQ-qt-09d reads (§8).
+reaches the backend through `DebuggerManager::backend()`, and REQ-qt-09d's
+"restored frame start" through `RewindRange::at_restored_frame_start` (owner
+approval, §8). What still reads the `Emulator` in `debugger_window.cpp`: the
+breakpoint menu (WP4c).
 
 No WP0 row and no `rewind_test` row changed an expected value. Backend changes
 (manager decisions 2026-09-29, recorded in `backend.md` CAP-CTL-09/10 and
-CAP-ST-03): the rewind verbs are not gated on CTL-11; their `RefusedCorrupt`
+CAP-ST-03; the owner approved the one header field, REQ-qt-09d): the rewind
+verbs are not gated on CTL-11; their `RefusedCorrupt`
 means a restore tore the machine (the corruption generation moved), every benign
 refusal is `RefusedUnavailable`; `resize_rewind_buffer(0)` frees the ring
 (ST-03-07's expected value flipped).
@@ -1010,6 +1012,8 @@ refusal is `RefusedUnavailable`; `resize_rewind_buffer(0)` frees the ring
 | CTL-09-02..04, CTL-10-05..08 | `debugger_backend_test` | the classification: trace off / empty and a frame with no slot (a gap) are benign `RefusedUnavailable` and move nothing; a torn restore is `RefusedCorrupt` with the incident naming the subsystem; a rewind from a corrupt machine to an intact frame succeeds and clears the corruption; a torn NEWEST slot no longer fails rewinds to other frames |
 | ST-03-07 (flipped), ST-03-09/10 | `debugger_backend_test` | `resize_rewind_buffer(0)` frees the ring (capacity and depth 0, rewinds refused as unavailable); a later non-zero resize creates a fresh ring that records |
 | OBL3-01..03 | `debugger_backend_test` | B3 obligation 3: a remote client's `step_back()` / `rewind_to_frame()` then its detach leave the machine unarmed, unattached, the raster walk off and running; a replay with nothing attached still lands on its target and leaves nothing armed |
+| CTL-09-05 | `debugger_backend_test` | a `step_back()` from a corrupt machine is not refused either: it restores the intact newest frame and heals (added after the mutation "gate `step_back()` on CTL-11" survived) |
+| ST-03-11..15 | `debugger_backend_test` | REQ-qt-09d: `RewindRange::at_restored_frame_start` is true right after `rewind_to_frame()` lands on a frame start; false once the machine runs on, after `step_back()` (its replay begins the frame), after a plain `load_state_bytes()`, and at an ordinary boundary |
 | INS-13-14 | `debugger_backend_test` | the trace export writes every `TraceEntry` field, B4's `(SP)`, I, R, IM, IFF1, IFF2 and MMU pages included, in the documented column order |
 | QRW-20 | `debugger_verbs_test` | through the window: after a torn rewind (the "Rewind Failed" modal), a rewind to an intact frame succeeds with no modal and the corruption is gone |
 | QTR-05 | `debugger_verbs_test` | a behaviour change, stated: the trace switched on from the window now survives a hard reset (INS-13 is client intent the backend re-applies, CTL-12 rule 2); it used to be reconstructed off |
@@ -1153,7 +1157,7 @@ Sent as `REQ-qt-<n>: <capability> — <why> — <site>`; answers recorded here.
 | 09 | rewind buffer control/range, frame number — `debugger_window.cpp:580-614, 774-890` | served: CAP-ST-03, CAP-INS-07 |
 | **09b** | `snapshot_bytes()` — `:816, :850` | **ACCEPTED** → `rewind_range()` = {oldest, newest, depth, capacity_frames, snapshot_bytes} |
 | **09c** | `rewind_blocked()` pre-query for greying — `:709-714` | **ACCEPTED** → `rewind_blocked() -> optional<string reason>` |
-| **09d** | "does the machine sit on a restored frame start?" (`Emulator::at_restored_frame_start()`, WP0 fix round) — Frame Back's target and the "Rewound" status need it (`debugger_window.cpp` `frame_back()`, `update_rewind_ui()`); the backend's own `run_to_frame()` already reads it | **WITH THE OWNER** (WP3, 2026-09-29): a public-header change — `bool at_restored_frame_start = false;` in `RewindRange` (ST-03). It is NOT derivable from the published API: a restored start of frame K and the ordinary boundary after K are identical in `time()`, `state()` and `at_frame_boundary()` except for `master_cycle`, and the start of K can only be computed from `rewind_range()`'s newest snapshot by assuming a fixed frame length, which an NR 0x03 timing or NR 0x05 50/60 Hz switch inside the ring's span breaks (manager: do not take the derivation). Until the owner answers, the two reads stay in `debugger_window.cpp`, each marked "WAITING ON REQ-qt-09d" |
+| **09d** | "does the machine sit on a restored frame start?" (`Emulator::at_restored_frame_start()`, WP0 fix round) — Frame Back's target and the "Rewound" status need it (`debugger_window.cpp` `frame_back()`, `update_rewind_ui()`); the backend's own `run_to_frame()` already reads it | **OWNER-APPROVED 2026-09-29, DONE in WP3** — `bool at_restored_frame_start = false;` added to `RewindRange` (ST-03), the one declaration change WP3 makes to the frozen headers, filled from `Emulator::at_restored_frame_start()`; rows ST-03-11..15. It was not derivable from the rest of the published API: a restored start of frame K and the ordinary boundary after K are identical in `time()`, `state()` and `at_frame_boundary()` except for `master_cycle`, and the start of K could only be computed from `rewind_range()`'s newest snapshot by assuming a fixed frame length, which an NR 0x03 timing or NR 0x05 50/60 Hz switch inside the ring's span breaks. `frame_back()` and `update_rewind_ui()` read the field; the reach-around is gone |
 | 10 | trace enable/export — `:214-244, 542-574` | served: CAP-INS-13 |
 | **10b** | `trace_enabled()` query + `trace_clear()` — `:218, 558, 755` | **ACCEPTED** → CAP-INS-13 |
 | 11 | corruption observables — `debugger_manager.cpp:279-303` | served: CAP-CTL-11 |
@@ -1190,7 +1194,7 @@ Sent as `REQ-qt-<n>: <capability> — <why> — <site>`; answers recorded here.
 MAPPED against backend.md v3 + the owner review of 2026-09-27 + round 4:
 **40 CAP ids used (35 of v1, +3 additions CAP-CTL-14 / CAP-INS-19 / per-client
 CAP-SES-05, + CAP-INS-02 `MemSpace::Page` and `MemSpace::Rom` per Q7/R-3), 15
-declined (§3.3), 0 REQs open, 0 reach-arounds (backend v7).** (Since then the WP0 fix round opened REQ-qt-09d, and WP2 raised REQ-qt-32, owner-approved 2026-09-29.) All 14
+declined (§3.3), 0 REQs open, 0 reach-arounds (backend v7).** (Since then the WP0 fix round opened REQ-qt-09d — owner-approved and done in WP3 — and WP2 raised REQ-qt-32, owner-approved 2026-09-29.) All 14
 sub-REQs ACCEPTED/CONFIRMED; REQ-qt-28 is NEEDS-PROTOTYPE by agreement
 (§3.7). To be re-confirmed as "MAPPED" against v2 when broadcast (additions
 only expected).

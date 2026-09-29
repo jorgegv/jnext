@@ -4266,6 +4266,76 @@ static void q_wp3_rewind_rows() {
                   emu.last_state_error() + "'");
     }
     {
+        // The same recovery through step_back(): the machine is torn by a
+        // failed rewind, and a step back — whose target lies in the newest,
+        // intact frame — is not refused for it and heals it.
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        for (int i = 0; i < 5; ++i) emu.run_frame();
+        dbg.pause(a);
+        RewindBuffer* rb = emu.rewind_buffer();
+        bool torn = true;
+        for (size_t i = 0; i + 1 < rb->depth(); ++i) torn = q_wp3_tear_slot(emu, i) && torn;
+        const Result failed = dbg.rewind_to_frame(a, dbg.rewind_range().oldest_frame);
+        const bool corrupt = dbg.resume_blocked_by_corruption().has_value();
+        const Result back = dbg.step_back(a, 1);
+        check("CTL-09-05", "a step_back() from a CORRUPT machine is not refused: it "
+                           "restores the intact newest frame and the corruption is gone",
+              torn && failed == Result::RefusedCorrupt && corrupt && back == Result::Ok &&
+                  !dbg.resume_blocked_by_corruption().has_value() &&
+                  emu.last_state_error().empty(),
+              std::string("rc=") + jnext::dbg::result_name(back));
+    }
+    {
+        // REQ-qt-09d — RewindRange::at_restored_frame_start (owner approval
+        // 2026-09-29): true only on a frame start a ring restore landed on.
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        for (int i = 0; i < 4; ++i) emu.run_frame();
+        const bool ordinary = !dbg.rewind_range().at_restored_frame_start &&
+                              dbg.at_frame_boundary();
+        check("ST-03-15", "at an ordinary frame boundary it is false",
+              ordinary);
+        dbg.pause(a);
+        const auto rr = dbg.rewind_range();
+        const Result r = dbg.rewind_to_frame(a, rr.oldest_frame + 1);
+        const bool landed = r == Result::Ok && dbg.rewind_range().at_restored_frame_start &&
+                            dbg.at_frame_boundary() &&
+                            dbg.time().frame == rr.oldest_frame + 1;
+        check("ST-03-11", "right after rewind_to_frame() lands on a frame start it is "
+                          "TRUE",
+              landed, std::string("rc=") + jnext::dbg::result_name(r));
+        dbg.step_into(a);                          // the frame begins running
+        check("ST-03-12", "and false once the machine runs on (one instruction)",
+              !dbg.rewind_range().at_restored_frame_start);
+        dbg.rewind_to_frame(a, rr.oldest_frame + 1);
+        const bool again = dbg.rewind_range().at_restored_frame_start;
+        const Result sb = dbg.step_back(a, 1);
+        check("ST-03-13", "false after step_back(): its replay begins the frame it "
+                          "restores",
+              again && sb == Result::Ok && !dbg.rewind_range().at_restored_frame_start,
+              std::string("rc=") + jnext::dbg::result_name(sb));
+        // A plain state load of a snapshot SAVED at an ordinary boundary.
+        dbg.run(a);
+        emu.run_frame();
+        const auto bytes = dbg.save_state_bytes(a, jnext::dbg::SaveStateMode::AdvanceToBoundary);
+        dbg.pause(a);
+        dbg.rewind_to_frame(a, dbg.rewind_range().oldest_frame);
+        const bool before_load = dbg.rewind_range().at_restored_frame_start;
+        const Result lr = bytes.status == Result::Ok
+                              ? dbg.load_state_bytes(a, bytes.value.data(), bytes.value.size())
+                              : bytes.status;
+        check("ST-03-14", "and false after a plain load_state_bytes(), even from a "
+                          "restored frame start",
+              before_load && lr == Result::Ok &&
+                  !dbg.rewind_range().at_restored_frame_start,
+              std::string("rc=") + jnext::dbg::result_name(lr));
+    }
+    {
         // A torn NEWEST slot is only that frame's problem: rewinding to another
         // frame restores that frame alone (it used to restore the newest first,
         // unconditionally, and fail every rewind on it).
