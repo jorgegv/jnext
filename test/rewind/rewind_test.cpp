@@ -4368,10 +4368,10 @@ static int test_s5b_duplicated_ram_removed()
     // backing, so that array IS the store and still travels (§4.3(2)).
     {
         struct { MachineType type; const char* name; size_t want; } cases[] = {
-            { MachineType::ZXN_ISSUE2, "next",   2154295 },
-            { MachineType::ZX48K,      "48k",    2162487 },
-            { MachineType::ZX128K,     "128k",   2162487 },
-            { MachineType::ZX_PLUS3,   "plus3",  2162487 },
+            { MachineType::ZXN_ISSUE2, "next",   2154296 },
+            { MachineType::ZX48K,      "48k",    2162488 },
+            { MachineType::ZX128K,     "128k",   2162488 },
+            { MachineType::ZX_PLUS3,   "plus3",  2162488 },
         };
         bool all_ok = true;
         std::string detail;
@@ -4391,14 +4391,15 @@ static int test_s5b_duplicated_ram_removed()
         }
         if (!all_ok) fprintf(stderr, "  JNSX-S5B-LENGTHS: %s\n", detail.c_str());
         check("JNSX-S5B-LENGTHS", all_ok,
-              "the stream is 2 154 295 bytes on the Next and 2 162 487 on "
+              "the stream is 2 154 296 bytes on the Next and 2 162 488 on "
               "48K/128K/+3 — every deliberate change to the byte stream is a "
               "number in a test rather than a fact in a commit message, and "
               "the machine-dependence is exactly the Multiface array and "
               "nothing else. S5b re-baselined it to 2 153 701 / 2 161 893 by "
               "removing the duplicated RAM; S6 adds 594: mf_type (1 byte, "
               "§10.2 P13) and the SD card's SPI FSM (589 + its 4-byte "
-              "sentinel, §10.2 P1). Both deltas are machine-independent, so "
+              "sentinel, §10.2 P1); GH #290 adds 1: the tail block's "
+              "cvc_offset_delta. All three deltas are machine-independent, so "
               "the 8 192-byte gap between the two numbers is unchanged");
     }
 
@@ -4548,11 +4549,12 @@ static int test_s5b_duplicated_ram_removed()
     // only when nothing else would catch the change is one nobody can reason
     // about.
     check("S5B-WARMSTART-VERSION",
-          warm_start::kFormatVersion == 3,
-          "the warm-start state-stream format version is 3: S5b changed the "
-          "shape of Emulator::save_state and S6 changed it again (mf_type + "
-          "the SD FSM), and a cache recorded by an older jnext would "
-          "otherwise be read field-for-field wrong");
+          warm_start::kFormatVersion == 4,
+          "the warm-start state-stream format version is 4: S5b changed the "
+          "shape of Emulator::save_state, S6 changed it again (mf_type + "
+          "the SD FSM) and GH #290 again (the tail's cvc_offset_delta), and "
+          "a cache recorded by an older jnext would otherwise be read "
+          "field-for-field wrong");
 
     return 0;
 }
@@ -4774,9 +4776,10 @@ static int test_s6_gaps()
         emu.describe_tail(tail);
         check("S6-WIDTH-EMULATOR-BLOCKS",
               org.width() == 8u && nmi.width() == 1u && apx.width() == 8u &&
-                  tail.width() == 2u && apx.fields().size() == 8u &&
-                  tail.fields().size() == 2u,
-              "the four companion blocks measure 8 / 1 / 8 / 2 bytes: one "
+                  tail.width() == 3u && apx.fields().size() == 8u &&
+                  tail.fields().size() == 3u,
+              "the four companion blocks measure 8 / 1 / 8 / 3 bytes (the "
+              "tail's third is GH #290's cvc_offset_delta): one "
               "declaration per SENTINEL-DELIMITED block, because one "
               "describe_state cannot put its fields in two blocks (§9.5(2))");
     }

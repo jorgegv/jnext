@@ -71,7 +71,11 @@ namespace warm_start {
 /// stream went 2 153 701 -> 2 154 295 on the Next, so the length check would
 /// again have discarded a pre-S6 cache on its own; the bump is made because
 /// the rule above says to make it whenever `save_state` changes shape.
-constexpr uint32_t kFormatVersion = 3;
+/// **4 — GH #290 (2026-09-29).** The tail block grew `cvc_offset_delta`
+/// (1 byte): the offset `cvc` counts from became state of its own instead of
+/// a mirror of NR 0x64. 2 154 295 -> 2 154 296 on the Next; the length check
+/// alone would catch it, and the bump is made for the same reason as 3's.
+constexpr uint32_t kFormatVersion = 4;
 
 /// Everything a cached recording must agree with before it may be restored.
 ///

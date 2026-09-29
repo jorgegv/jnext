@@ -1810,6 +1810,18 @@ private:
     /// Master cycle counter at which the current frame started.
     uint64_t frame_cycle_ = 0;
 
+    /// GH #290 — whether THIS frame's `cvc` reload (reload_cvc_offset_(), at
+    /// VideoTiming::cvc_reload_master_cycle_offset()) has run. Until it has,
+    /// the lines from the reload on will count from the NR 0x64 register as it
+    /// then stands, not from `video_timing_.cu_offset()`.
+    ///
+    /// Derived, NOT saved: it is false at every point a snapshot can be taken
+    /// (the frame boundary), so the restore sets it false. Tied to
+    /// `frame_cycle_` — cleared where that advances (end_of_frame(), a hard
+    /// init, load_state()) — so between frames it already names the frame
+    /// `frame_cycle_` does. A soft reset keeps it with the frame it lands in.
+    bool cvc_reload_done_ = false;
+
     /// G163 — generation counter bumped on every line-interrupt
     /// (re)schedule. The scheduled `EventType::CPU_INT` lambda captures
     /// this counter by-value; at fire time it no-ops if the captured
@@ -2240,14 +2252,33 @@ private:
     // Private helpers
     // -----------------------------------------------------------------------
 
-    /// Schedule a full frame's worth of SCANLINE events into the scheduler.
+    /// Schedule a full frame's worth of SCANLINE events into the scheduler,
+    /// plus the frame's `cvc` reload (GH #290) and its VSYNC.
     void schedule_frame_events();
+
+    /// GH #290 — the `cvc` reload, zxula_timing.vhd:457-462: on the
+    /// `ula_max_hc` pulse of line `ula_min_vactive`, `cvc <= '0' &
+    /// i_cu_offset`, and `i_cu_offset` is the NR 0x64 register itself
+    /// (zxnext.vhd:6723). Scheduled once per frame by schedule_frame_events()
+    /// at VideoTiming::cvc_reload_master_cycle_offset(). Nowhere else does
+    /// an NR 0x64 write reach `cvc`.
+    void reload_cvc_offset_();
+
+    /// GH #290 — the offset the lines from THIS frame's `cvc` reload on
+    /// count from: what the reload loaded once it has run, and until then the
+    /// NR 0x64 register — the value it will load, as far as anything can know
+    /// before it happens. Lines before the reload count from
+    /// `video_timing_.cu_offset()`.
+    uint8_t cvc_offset_after_reload_() const {
+        return cvc_reload_done_ ? video_timing_.cu_offset() : copper_.offset();
+    }
 
     /// The VHDL `cvc` counter (o_vc_cu) during master cycle @p master_cycle
     /// (clock_'s timeline, same frame as frame_cycle_): the copper-offset
     /// raster line, origin = first paper line, wrapping at c_max_vc, shifted
-    /// by NR 0x64 cu_offset (zxula_timing.vhd:455-472). Read back by NR
-    /// 0x1E/0x1F at io_read_sample_cycle() (GH #265).
+    /// by the NR 0x64 value it was last reloaded from (zxula_timing.vhd:455-472;
+    /// GH #290 — not the live register). Read back by NR 0x1E/0x1F at
+    /// io_read_sample_cycle() (GH #265).
     int cvc_at(uint64_t master_cycle) const;
 
     /// GH #265 — the master cycle whose value a port read sees, when the

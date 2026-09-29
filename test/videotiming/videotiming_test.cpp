@@ -41,6 +41,9 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/saveable.h"  // StateWriter/StateReader (Section 11, Task 56)
+#include "core/jns_snapshot.h"          // Section 16 (GH #290): .jns round trip
+#include "save/state_desc_json.h"      // Section 16: a pre-GH #290 tail block
+#include "save/state_desc_defaults.h"  // Section 16: §12.2 default gate
 #include "../row_id.h"
 
 // ── Test infrastructure ───────────────────────────────────────────────
@@ -1926,6 +1929,610 @@ static void section14_gh265_nr_read_io_cycle() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Section 16 — GH #290: cvc reloads from NR 0x64 ONCE PER FRAME
+// VHDL: zxula_timing.vhd:423-425 (ula_max_hc, ula_min_vactive), :457-470
+//       (cvc <= '0' & i_cu_offset on the ula_max_hc pulse of line
+//       c_min_vactive; +1 on every other line; wrap at c_max_vc), :577 (the
+//       line-int compare on cvc); zxnext.vhd:5442 (NR 0x64 write), :6090
+//       (readback, last-write-wins), :6723 (i_cu_offset => the register),
+//       :5982-5986 (NR 0x1E/0x1F read cvc), :3950 (the Copper's vcount_i).
+//
+// jnext applied the register to cvc at once: a guest that wrote NR 0x64 and
+// then polled NR 0x1E/0x1F saw the new offset a frame early, and the line
+// interrupt was placed against whichever value it last looked at. The VT-25
+// row above sets the offset before any line runs, so it saw neither side.
+//
+// Harness: ZXN_ISSUE2 (128K/Next timing, 50 Hz: c_min_vactive 64, c_max_vc
+// 310, c_min_hactive 136 — zxula_timing.vhd:195,203,204 — so hc_ula reads 0
+// at raw hc 125 and the reload is at raw (64, 125)) parked in a `JR $` loop
+// with interrupts off. Unlike Section 8 it RUNS FRAMES: the reload is a
+// per-frame scheduler event, which only a frame begun by run_frame() has.
+// Positions are reached with the debugger's run-to-cycle, which stops at the
+// first instruction boundary at or after the target — at most one `JR $`
+// turn (96 master cycles, 24 pixels) late, so every target below sits at
+// least 24 pixels clear of the hc_ula 0 seam.
+// ══════════════════════════════════════════════════════════════════════
+
+namespace gh290 {
+
+static bool build(Emulator& emu, int rewind_frames = 0) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = rewind_frames;
+    if (!emu.init(cfg)) return false;
+    g163::install_jr_self_loop(emu);
+    emu.debug_state().set_active(true);
+    emu.run_frame();   // one whole frame: every later one is begun by run_frame()
+    return true;
+}
+
+// The master cycle of raw (line, px) in the frame that starts at `base`.
+static uint64_t at(const Emulator& emu, uint64_t base, int line, int px) {
+    return base
+         + static_cast<uint64_t>(line) * emu.timing().master_cycles_per_line
+         + static_cast<uint64_t>(px) * 4;
+}
+
+static bool run_to(Emulator& emu, uint64_t target) {
+    for (int i = 0; i < 16 && emu.clock().get() < target; ++i) {
+        emu.debug_state().run_to_cycle(target);
+        emu.run_frame();
+    }
+    return emu.clock().get() >= target;
+}
+
+// cvc as a guest reads it: NR 0x1E bit 0 is cvc(8), NR 0x1F cvc(7:0).
+static int read_cvc(Emulator& emu) {
+    const int hi = g163::nr_read(emu, 0x1E) & 0x01;
+    const int lo = g163::nr_read(emu, 0x1F);
+    return (hi << 8) | lo;
+}
+
+// The VHDL relation for the part of raw line `line` from hc_ula 0 on, with
+// cvc counting from `off`: (line - c_min_vactive + off) mod (c_max_vc + 1).
+static int cvc_of(const Emulator& emu, int line, int off) {
+    const int lpf  = emu.video_timing().vc_max() + 1;
+    const int minv = emu.video_timing().display_origin().vc;
+    return ((line - minv + off) % lpf + lpf) % lpf;
+}
+
+static std::string gw(const char* what, long got, long want) {
+    return std::string(what) + "=" + std::to_string(got) + " (want "
+         + std::to_string(want) + ") ";
+}
+
+static std::vector<uint8_t> stream_of(Emulator& e) {
+    StateWriter measure;
+    e.save_state(measure);
+    std::vector<uint8_t> buf(measure.position());
+    StateWriter w(buf.data(), buf.size());
+    e.save_state(w);
+    return buf;
+}
+
+// A machine standing on the boundary between F1 and F2 whose F1 reloaded
+// cvc from 10 (written at line 10, before the reload) and whose NR 0x64 was
+// then set to 20 (at line 100, after it). So at the boundary cvc counts from
+// 10 while the register holds 20 — the state a snapshot has to carry, with
+// neither value 0, so no reset or fresh-machine default can stand in for it.
+static bool build_split(Emulator& emu, int rewind_frames = 0) {
+    if (!build(emu, rewind_frames)) return false;
+    const uint64_t f1 = emu.current_frame_cycle();
+    const uint64_t f2 = f1 + emu.timing().master_cycles_per_frame;
+    bool ok = run_to(emu, at(emu, f1, 10, 200));
+    g163::nr_write(emu, 0x64, 10);
+    ok = ok && run_to(emu, at(emu, f1, 100, 200));
+    g163::nr_write(emu, 0x64, 20);
+    // To the boundary: the run_frame loop ends F1 at its frame_end, before
+    // any F2 instruction, and F2 is only begun by the next run_frame().
+    ok = ok && run_to(emu, f2);
+    return ok && emu.video_timing().cu_offset() == 10 &&
+           g163::nr_read(emu, 0x64) == 20;
+}
+
+}  // namespace gh290
+
+static void section16_gh290_cvc_reload() {
+    set_group("VT-S16-GH290-CVC-RELOAD");
+    using gh290::at;
+    using gh290::cvc_of;
+    using gh290::gw;
+    using gh290::read_cvc;
+    using gh290::run_to;
+
+    // VT-GH290-01..04 — an NR 0x64 write AFTER this frame's reload (raw line
+    // 100 > 64). The readback keeps counting from the old offset for the rest
+    // of the frame and through the next frame's lines before its reload, and
+    // switches at exactly that reload; the register itself reads back at once.
+    {
+        Emulator emu;
+        const bool built = gh290::build(emu);
+        const uint64_t f1 = emu.current_frame_cycle();
+        const uint64_t f2 = f1 + emu.timing().master_cycles_per_frame;
+        bool ok = built;
+        int at_write = -1, rest = -1, nr64 = -1;
+        int pre = -1, pre_seam = -1, post_seam = -1, post = -1;
+        if (built) {
+            ok = ok && run_to(emu, at(emu, f1, 100, 200));
+            g163::nr_write(emu, 0x64, 20);
+            at_write = read_cvc(emu);
+            nr64     = g163::nr_read(emu, 0x64);
+            ok = ok && run_to(emu, at(emu, f1, 150, 200));
+            rest = read_cvc(emu);
+            ok = ok && run_to(emu, at(emu, f2, 10, 200));
+            pre = read_cvc(emu);
+            ok = ok && run_to(emu, at(emu, f2, 64, 60));    // before hc_ula 0
+            pre_seam = read_cvc(emu);
+            ok = ok && run_to(emu, at(emu, f2, 64, 160));   // after it
+            post_seam = read_cvc(emu);
+            ok = ok && run_to(emu, at(emu, f2, 100, 200));
+            post = read_cvc(emu);
+        }
+        check("VT-GH290-01",
+              "NR 0x64 written after the frame's cvc reload: NR 0x1E/0x1F keep "
+              "counting from the old offset for the rest of the frame — cvc "
+              "samples i_cu_offset only at ula_min_vactive "
+              "(zxula_timing.vhd:457-466; zxnext.vhd:5982-5986)",
+              ok && at_write == cvc_of(emu, 100, 0) && rest == cvc_of(emu, 150, 0),
+              gw("at_write", at_write, cvc_of(emu, 100, 0))
+                  + gw("line150", rest, cvc_of(emu, 150, 0)));
+        check("VT-GH290-02",
+              "…and through the next frame's lines before its ula_min_vactive "
+              "line, including that line's own raw hc < c_min_hactive - 11 "
+              "(zxula_timing.vhd:423-425,457-470)",
+              ok && pre == cvc_of(emu, 10, 0) && pre_seam == cvc_of(emu, 63, 0),
+              gw("line10", pre, cvc_of(emu, 10, 0))
+                  + gw("line64@px60", pre_seam, cvc_of(emu, 63, 0)));
+        check("VT-GH290-03",
+              "…and count from the new offset from that line's hc_ula 0 on, the "
+              "one reload of the frame (zxula_timing.vhd:457-462)",
+              ok && post_seam == cvc_of(emu, 64, 20) && post == cvc_of(emu, 100, 20),
+              gw("line64@px160", post_seam, cvc_of(emu, 64, 20))
+                  + gw("line100", post, cvc_of(emu, 100, 20)));
+        check("VT-GH290-04",
+              "the NR 0x64 register itself reads the write back at once, while "
+              "cvc has not taken it (zxnext.vhd:5442,6090)",
+              ok && nr64 == 20, gw("nr64", nr64, 20));
+    }
+
+    // VT-GH290-05 — the other side of the condition: a write BEFORE the
+    // frame's reload (raw line 10 < 64) is loaded by that reload, in the same
+    // frame, while the lines before it still count from the old value.
+    {
+        Emulator emu;
+        const bool built = gh290::build(emu);
+        const uint64_t f1 = emu.current_frame_cycle();
+        bool ok = built;
+        int before = -1, after = -1;
+        if (built) {
+            ok = ok && run_to(emu, at(emu, f1, 10, 200));
+            g163::nr_write(emu, 0x64, 20);
+            before = read_cvc(emu);
+            ok = ok && run_to(emu, at(emu, f1, 100, 200));
+            after = read_cvc(emu);
+        }
+        check("VT-GH290-05",
+              "NR 0x64 written before the frame's cvc reload: the lines before "
+              "it keep the old offset, the reload loads the new one in the same "
+              "frame (zxula_timing.vhd:457-462)",
+              ok && before == cvc_of(emu, 10, 0) && after == cvc_of(emu, 100, 20),
+              gw("line10", before, cvc_of(emu, 10, 0))
+                  + gw("line100", after, cvc_of(emu, 100, 20)));
+    }
+
+    // VT-GH290-06/07 — the line interrupt compares cvc (zxula_timing.vhd:577),
+    // so an NR 0x22/0x23 write after a mid-frame NR 0x64 write schedules
+    // against the offset cvc is COUNTING from. Target 150 -> int_line_num 149
+    // (:566-570): raw line 64 + 149 - off, i.e. 213 while cvc counts from 0,
+    // 193 once it counts from 20. The pulse is at hc_ula 255 (raw hc 380).
+    {
+        Emulator emu;
+        const bool built = gh290::build(emu);
+        const uint64_t f1 = emu.current_frame_cycle();
+        const uint64_t f2 = f1 + emu.timing().master_cycles_per_frame;
+        bool ok = built;
+        uint64_t n1 = 99, n2 = 99, n3 = 99, n4 = 99;
+        if (built) {
+            ok = ok && run_to(emu, at(emu, f1, 100, 200));
+            g163::nr_write(emu, 0x64, 20);
+            emu.reset_line_int_fire_count();
+            g163::nr_write(emu, 0x23, 150);
+            g163::nr_write(emu, 0x22, 0x02);
+            ok = ok && run_to(emu, at(emu, f1, 200, 0));
+            n1 = emu.line_int_fire_count();
+            ok = ok && run_to(emu, at(emu, f1, 220, 0));
+            n2 = emu.line_int_fire_count();
+            ok = ok && run_to(emu, at(emu, f2, 200, 0));
+            n3 = emu.line_int_fire_count();
+            ok = ok && run_to(emu, at(emu, f2, 220, 0));
+            n4 = emu.line_int_fire_count();
+        }
+        check("VT-GH290-06",
+              "NR 0x22/0x23 written after a mid-frame NR 0x64 write: the line "
+              "interrupt fires on the line the RELOADED offset selects (raw "
+              "213), not the register's (raw 193) (zxula_timing.vhd:462,577)",
+              ok && n1 == 0 && n2 == 1,
+              gw("by_line200", long(n1), 0) + gw("by_line220", long(n2), 1));
+        check("VT-GH290-07",
+              "…and in the next frame, after its reload, on the new offset's "
+              "line only (raw 193, not also 213) (zxula_timing.vhd:457-462,577)",
+              ok && n3 == 2 && n4 == 2,
+              gw("by_f2_line200", long(n3), 2) + gw("by_f2_line220", long(n4), 2));
+    }
+
+    // VT-GH290-08 — the schedule a frame starts with places the lines after
+    // its reload against the register as it then stands; an NR 0x64 write
+    // BEFORE the reload makes that stale, and the reload re-derives it. F2
+    // begins with cvc and the register both 0 (fire at raw 213); NR 0x64 = 20
+    // at F2 line 10; the reload loads 20, so F2 fires at raw 193 and only there.
+    {
+        Emulator emu;
+        const bool built = gh290::build(emu);
+        const uint64_t f1 = emu.current_frame_cycle();
+        const uint64_t f2 = f1 + emu.timing().master_cycles_per_frame;
+        bool ok = built;
+        uint64_t n1 = 99, n2 = 99;
+        if (built) {
+            ok = ok && run_to(emu, at(emu, f1, 100, 200));
+            g163::nr_write(emu, 0x23, 150);
+            g163::nr_write(emu, 0x22, 0x02);
+            ok = ok && run_to(emu, at(emu, f2, 10, 200));
+            g163::nr_write(emu, 0x64, 20);
+            emu.reset_line_int_fire_count();
+            ok = ok && run_to(emu, at(emu, f2, 200, 0));
+            n1 = emu.line_int_fire_count();
+            ok = ok && run_to(emu, at(emu, f2, 220, 0));
+            n2 = emu.line_int_fire_count();
+        }
+        check("VT-GH290-08",
+              "NR 0x64 written before the reload in a frame whose line interrupt "
+              "is already scheduled: the reload re-derives it, so it fires on "
+              "the reloaded offset's line (raw 193) and not the stale one (213) "
+              "(zxula_timing.vhd:457-462,577)",
+              ok && n1 == 1 && n2 == 1,
+              gw("by_line200", long(n1), 1) + gw("by_line220", long(n2), 1));
+    }
+
+    // VT-GH290-09 — two offsets in one frame can REPEAT a cvc value, and
+    // :577 is evaluated every pixel, so it fires twice. F1 reloads 10 (written
+    // at line 10), NR 0x64 = 0 at line 100. Target 6 -> int_line_num 5. In F2
+    // the lines before the reload count from 10 (cvc 5 at raw 59), the rest
+    // from 0 (cvc 5 again at raw 69).
+    {
+        Emulator emu;
+        const bool built = gh290::build(emu);
+        const uint64_t f1 = emu.current_frame_cycle();
+        const uint64_t f2 = f1 + emu.timing().master_cycles_per_frame;
+        bool ok = built;
+        uint64_t n1 = 99, n2 = 99, n3 = 99;
+        if (built) {
+            ok = ok && run_to(emu, at(emu, f1, 10, 200));
+            g163::nr_write(emu, 0x64, 10);
+            ok = ok && run_to(emu, at(emu, f1, 100, 200));
+            g163::nr_write(emu, 0x64, 0);
+            g163::nr_write(emu, 0x23, 6);
+            g163::nr_write(emu, 0x22, 0x02);
+            emu.reset_line_int_fire_count();
+            ok = ok && run_to(emu, at(emu, f2, 64, 60));
+            n1 = emu.line_int_fire_count();
+            ok = ok && run_to(emu, at(emu, f2, 100, 0));
+            n2 = emu.line_int_fire_count();
+            ok = ok && run_to(emu, f2 + emu.timing().master_cycles_per_frame);
+            n3 = emu.line_int_fire_count();
+        }
+        check("VT-GH290-09",
+              "a frame whose cvc reloads a smaller offset repeats cvc values: "
+              "the line interrupt fires on both (raw 59 counting from 10, raw "
+              "69 counting from 0) and on no third line "
+              "(zxula_timing.vhd:457-466,577)",
+              ok && n1 == 1 && n2 == 2 && n3 == 2,
+              gw("by_line64", long(n1), 1) + gw("by_line100", long(n2), 2)
+                  + gw("by_f2_end", long(n3), 2));
+    }
+
+    // VT-GH290-10 — …and a larger reloaded offset SKIPS cvc values: F2's
+    // lines before its reload count from 0 (cvc 247..310), the rest from 10
+    // (cvc 10..256), so cvc 5 never occurs in F2 and target 6 does not fire
+    // there; F3's lines before its reload count from 10, so it fires at F3
+    // raw 59.
+    {
+        Emulator emu;
+        const bool built = gh290::build(emu);
+        const uint64_t f1 = emu.current_frame_cycle();
+        const uint64_t mcpf = emu.timing().master_cycles_per_frame;
+        const uint64_t f3 = f1 + 2 * mcpf;
+        bool ok = built;
+        uint64_t n1 = 99, n2 = 99;
+        if (built) {
+            ok = ok && run_to(emu, at(emu, f1, 100, 200));
+            g163::nr_write(emu, 0x64, 10);
+            g163::nr_write(emu, 0x23, 6);
+            g163::nr_write(emu, 0x22, 0x02);
+            emu.reset_line_int_fire_count();
+            ok = ok && run_to(emu, f3);
+            n1 = emu.line_int_fire_count();
+            ok = ok && run_to(emu, at(emu, f3, 64, 60));
+            n2 = emu.line_int_fire_count();
+        }
+        check("VT-GH290-10",
+              "a frame whose cvc reloads a larger offset skips cvc values: a "
+              "target among them does not fire that frame, and fires the next "
+              "one before its reload (zxula_timing.vhd:457-466,577)",
+              ok && n1 == 0 && n2 == 1,
+              gw("by_f3_start", long(n1), 0) + gw("by_f3_line64", long(n2), 1));
+    }
+
+    // VT-GH290-11 — the offset cvc counts from is machine state: a snapshot
+    // is taken at a frame boundary, where the next frame's first lines still
+    // count from the previous frame's reload. build_split() leaves it at 10
+    // with NR 0x64 = 20; a fresh machine (0 and 0) loads the binary stream.
+    {
+        Emulator a;
+        const bool split = gh290::build_split(a);
+        std::vector<uint8_t> buf = split ? gh290::stream_of(a)
+                                         : std::vector<uint8_t>();
+        Emulator b;
+        bool ok = split && gh290::build(b);
+        bool same = false;
+        int nr64 = -1, pre = -1, post = -1;
+        if (ok) {
+            StateReader r(buf.data(), buf.size());
+            ok = b.load_state(r);
+            same = ok && gh290::stream_of(b) == buf;
+            nr64 = g163::nr_read(b, 0x64);
+            const uint64_t g = b.current_frame_cycle();
+            ok = ok && run_to(b, at(b, g, 10, 200));
+            pre = read_cvc(b);
+            ok = ok && run_to(b, at(b, g, 100, 200));
+            post = read_cvc(b);
+        }
+        check("VT-GH290-11",
+              "save_state/load_state carry the offset cvc counts from apart "
+              "from NR 0x64: the restored frame's lines before its reload count "
+              "from 10, the reload loads the register's 20, and the stream "
+              "re-saves byte-identical (zxula_timing.vhd:457-466)",
+              ok && same && nr64 == 20 && pre == cvc_of(b, 10, 10) &&
+                  post == cvc_of(b, 100, 20),
+              std::string("split=") + std::to_string(split) + " same="
+                  + std::to_string(same) + " " + gw("nr64", nr64, 20)
+                  + gw("line10", pre, cvc_of(b, 10, 10))
+                  + gw("line100", post, cvc_of(b, 100, 20)));
+    }
+
+    // VT-GH290-12 — the same through a .jns, whose "emulator" member carries
+    // it as the key cvc_offset_delta.
+    {
+        Emulator a;
+        const bool split = gh290::build_split(a);
+        std::vector<uint8_t> jns;
+        std::string why;
+        bool ok = split;
+        if (ok) {
+            jnext::JnsSaveOptions opt;
+            jnext::JnsLoadReport rep;
+            ok = a.save_jns(opt, jns, rep, why);
+        }
+        Emulator b;
+        ok = ok && gh290::build(b);
+        int nr64 = -1, pre = -1, post = -1;
+        if (ok) {
+            jnext::JnsLoadOptions lopt;
+            jnext::JnsLoadReport rep;
+            ok = b.load_jns(jns.data(), jns.size(), lopt, rep, why);
+            nr64 = g163::nr_read(b, 0x64);
+            const uint64_t g = b.current_frame_cycle();
+            ok = ok && run_to(b, at(b, g, 10, 200));
+            pre = read_cvc(b);
+            ok = ok && run_to(b, at(b, g, 100, 200));
+            post = read_cvc(b);
+        }
+        check("VT-GH290-12",
+              "a .jns carries the offset cvc counts from apart from NR 0x64: "
+              "the restored frame counts from 10 until its reload, then from "
+              "20 (zxula_timing.vhd:457-466)",
+              ok && nr64 == 20 && pre == cvc_of(b, 10, 10) &&
+                  post == cvc_of(b, 100, 20),
+              std::string("split=") + std::to_string(split) + " why='" + why
+                  + "' " + gw("nr64", nr64, 20)
+                  + gw("line10", pre, cvc_of(b, 10, 10))
+                  + gw("line100", post, cvc_of(b, 100, 20)));
+    }
+
+    // VT-GH290-13 — …and a rewind. F2 begins with cvc counting from 10 and
+    // NR 0x64 = 20 (build_split); run into F2 past its reload (now 20), then
+    // rewind to F2 line 10: the ring's frame-start snapshot must bring back
+    // 10, and the replayed reload 20.
+    {
+        Emulator emu;
+        const bool split = gh290::build_split(emu, /*rewind_frames=*/4);
+        const uint64_t f2 = emu.current_frame_cycle();
+        bool ok = split;
+        int live = -1, pre = -1, post = -1;
+        uint64_t reached = 0;
+        if (ok) {
+            ok = run_to(emu, at(emu, f2, 150, 200));
+            live = read_cvc(emu);
+            reached = emu.rewind_to_cycle(at(emu, f2, 10, 200));
+            ok = ok && reached != UINT64_MAX && reached >= at(emu, f2, 10, 200)
+                    && reached < at(emu, f2, 11, 0);
+            pre = read_cvc(emu);
+            ok = ok && run_to(emu, at(emu, f2, 100, 200));
+            post = read_cvc(emu);
+        }
+        check("VT-GH290-13",
+              "a rewind into a frame restores the offset cvc counts from: before "
+              "the frame's reload 10 (not the 20 it had reloaded when the rewind "
+              "began), and 20 again after the replayed reload "
+              "(zxula_timing.vhd:457-466)",
+              ok && live == cvc_of(emu, 150, 20) && pre == cvc_of(emu, 10, 10) &&
+                  post == cvc_of(emu, 100, 20),
+              std::string("split=") + std::to_string(split)
+                  + " reached=" + std::to_string(reached) + " "
+                  + gw("live150", live, cvc_of(emu, 150, 20))
+                  + gw("line10", pre, cvc_of(emu, 10, 10))
+                  + gw("line100", post, cvc_of(emu, 100, 20)));
+    }
+
+    // VT-GH290-14 — a .jns written before the key existed (v1.0.41 on) comes
+    // from a jnext whose cvc counted from the register itself. The key is
+    // stored as the difference from NR 0x64 so that its declared default, 0,
+    // restores exactly that machine: cvc counting from NR 0x64.
+    {
+        Emulator emu;
+        const bool split = gh290::build_split(emu);   // cvc 10, register 20
+        jnext::save::JsonReadDesc rd(
+            "{\"nr_02_bus_reset\": false, \"prev_pulse_int_n\": true}");
+        emu.describe_tail(rd);
+        const std::string refusal = rd.refusal();
+        const int got = emu.video_timing().cu_offset();
+        check("VT-GH290-14",
+              "a tail block without cvc_offset_delta (a pre-GH #290 .jns) "
+              "restores cvc counting from NR 0x64, as that jnext's did, and is "
+              "not refused (NEXT-SNAPSHOT-FORMAT.md §12.2)",
+              split && refusal.empty() && got == 20,
+              std::string("split=") + std::to_string(split) + " refusal='"
+                  + refusal + "' " + gw("cvc_offset", got, 20));
+    }
+
+    // VT-GH290-15 — §12.2's gate on the declared default: it must equal what
+    // a reset leaves. The in-place hard init (the loaders' path) — power-on:
+    // NR 0x64 and the offset cvc counts from both 0 — from a machine where
+    // they were 20 and 10.
+    {
+        Emulator emu;
+        const bool split = gh290::build_split(emu);
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        const bool inited = emu.init(cfg);
+        jnext::save::DefaultCheckDesc d;
+        emu.describe_tail(d);
+        std::string detail;
+        for (const auto& m : d.mismatches())
+            detail += m.field + " declared=" + m.declared + " reset=" + m.actual + " ";
+        check("VT-GH290-15",
+              "a hard init leaves cvc_offset_delta at its declared default 0 "
+              "(the offset cvc counts from and NR 0x64 both 0, zxnext.vhd:5024), "
+              "and it is the tail block's one defaulted field",
+              split && inited && d.mismatches().empty() && d.defaulted() == 1 &&
+                  d.undefaulted() == 2 && emu.video_timing().cu_offset() == 0,
+              detail + "defaulted=" + std::to_string(d.defaulted())
+                  + " undefaulted=" + std::to_string(d.undefaulted())
+                  + " " + gw("cvc_offset", emu.video_timing().cu_offset(), 0));
+    }
+
+    // VT-GH290-16 — a SOFT reset clears the register (zxnext.vhd:5024) but
+    // not cvc: zxula_timing has no reset input at all. So cvc keeps counting
+    // from the old value until the frame's next reload, which loads the
+    // cleared register.
+    {
+        Emulator emu;
+        const bool built = gh290::build(emu);
+        const uint64_t f1 = emu.current_frame_cycle();
+        const uint64_t f2 = f1 + emu.timing().master_cycles_per_frame;
+        bool ok = built;
+        int nr64 = -1, rest = -1, next = -1;
+        if (built) {
+            ok = ok && run_to(emu, at(emu, f1, 10, 200));
+            g163::nr_write(emu, 0x64, 10);
+            ok = ok && run_to(emu, at(emu, f1, 100, 200));
+            g163::nr_write(emu, 0x64, 20);
+            emu.soft_reset();
+            g163::install_jr_self_loop(emu);   // the CPU reset left PC at 0
+            nr64 = g163::nr_read(emu, 0x64);
+            ok = ok && run_to(emu, at(emu, f1, 150, 200));
+            rest = read_cvc(emu);
+            ok = ok && run_to(emu, at(emu, f2, 100, 200));
+            next = read_cvc(emu);
+        }
+        check("VT-GH290-16",
+              "a soft reset clears NR 0x64 but cvc keeps counting from its last "
+              "reload (10) until the next one loads the cleared 0 "
+              "(zxnext.vhd:5024; zxula_timing.vhd has no reset input)",
+              ok && nr64 == 0 && rest == cvc_of(emu, 150, 10) &&
+                  next == cvc_of(emu, 100, 0),
+              gw("nr64", nr64, 0) + gw("line150", rest, cvc_of(emu, 150, 10))
+                  + gw("f2_line100", next, cvc_of(emu, 100, 0)));
+    }
+
+    // VT-GH290-17 — where the reload is, per timing: on the ula_max_hc pulse
+    // (raw hc c_min_hactive - 12) of raw line c_min_vactive, visible from the
+    // next pixel (zxula_timing.vhd:423-425,457-462). Master cycles =
+    // (c_min_vactive * (c_max_hc + 1) + c_min_hactive - 11) * 4, the
+    // constants read off the VHDL.
+    {
+        struct Case { MachineTimingMode mode; bool hz60; uint64_t want; const char* name; };
+        const Case cases[] = {
+            // 48K 50 Hz: vactive 64 (:269), hactive 128 (:261), max_hc 447 (:262)
+            { MachineTimingMode::Timing48,       false, (64ULL * 448 + 117) * 4, "48k-50" },
+            // 128K 50 Hz: vactive 64 (:203), hactive 136 (:195), max_hc 455 (:196)
+            { MachineTimingMode::Timing128,      false, (64ULL * 456 + 125) * 4, "128k-50" },
+            // +3 50 Hz: the same three constants as 128K
+            { MachineTimingMode::TimingPlus3,    false, (64ULL * 456 + 125) * 4, "p3-50" },
+            // Pentagon: vactive 80 (:167), hactive 128 (:159), max_hc 447 (:160)
+            { MachineTimingMode::TimingPentagon, false, (80ULL * 448 + 117) * 4, "pent" },
+            // 48K 60 Hz: vactive 40 (:297), hactive 128 (:289), max_hc 447 (:290)
+            { MachineTimingMode::Timing48,       true,  (40ULL * 448 + 117) * 4, "48k-60" },
+            // 128K 60 Hz: vactive 40 (:237), hactive 136 (:229), max_hc 455 (:230)
+            { MachineTimingMode::Timing128,      true,  (40ULL * 456 + 125) * 4, "128k-60" },
+        };
+        bool all = true;
+        std::string detail;
+        for (const Case& c : cases) {
+            VideoTiming t;
+            t.init_timing(c.mode, c.hz60);
+            const uint64_t got = t.cvc_reload_master_cycle_offset();
+            if (got != c.want) {
+                all = false;
+                detail += std::string(c.name) + "=" + std::to_string(got) + " (want "
+                        + std::to_string(c.want) + ") ";
+            }
+        }
+        check("VT-GH290-17",
+              "the cvc reload sits at raw (c_min_vactive, c_min_hactive - 11) on "
+              "every timing: 48K, 128K, +3, Pentagon, 48K and 128K at 60 Hz "
+              "(zxula_timing.vhd:159-167,195-204,229-238,261-270,289-298,423-425,457-462)",
+              all, detail);
+    }
+
+    // VT-GH290-18 — and the Emulator reloads there on a timing whose
+    // c_min_vactive is not 64: the Next at 60 Hz (NR 0x05 bit 2, committed at
+    // the frame edge, zxnext.vhd:6697-6700) has c_min_vactive 40 and c_max_vc
+    // 263 (zxula_timing.vhd:237-238).
+    {
+        Emulator emu;
+        const bool built = gh290::build(emu);
+        bool ok = built;
+        int pre_seam = -1, post_seam = -1;
+        bool at_60 = false;
+        if (built) {
+            g163::nr_write(emu, 0x05, 0x04);
+            emu.run_frame();   // commits 60 Hz at its start…
+            emu.run_frame();   // …and this one is a whole 60 Hz frame
+            at_60 = emu.video_timing().vc_max() == 263 &&
+                    emu.video_timing().display_origin().vc == 40;
+            const uint64_t f = emu.current_frame_cycle();
+            const uint64_t g = f + emu.timing().master_cycles_per_frame;
+            ok = ok && run_to(emu, at(emu, f, 100, 200));
+            g163::nr_write(emu, 0x64, 20);
+            ok = ok && run_to(emu, at(emu, g, 40, 60));
+            pre_seam = read_cvc(emu);
+            ok = ok && run_to(emu, at(emu, g, 40, 160));
+            post_seam = read_cvc(emu);
+        }
+        check("VT-GH290-18",
+              "at 60 Hz the reload is on raw line 40, not 64: NR 0x64 written "
+              "mid-frame reaches cvc at the next frame's line 40, hc_ula 0 "
+              "(zxula_timing.vhd:237-238,457-462)",
+              ok && at_60 && pre_seam == cvc_of(emu, 39, 0) &&
+                  post_seam == cvc_of(emu, 40, 20),
+              std::string("at_60=") + std::to_string(at_60) + " "
+                  + gw("line40@px60", pre_seam, cvc_of(emu, 39, 0))
+                  + gw("line40@px160", post_seam, cvc_of(emu, 40, 20)));
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1983,6 +2590,9 @@ int main() {
 
     section15_gh22_in_display_per_machine();
     std::printf("  Section 15: VT-S15-GH22-IN-DISPLAY   — done (2 live)\n");
+
+    section16_gh290_cvc_reload();
+    std::printf("  Section 16: VT-S16-GH290-CVC-RELOAD — done (18 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

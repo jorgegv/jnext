@@ -1363,6 +1363,97 @@ static void test_gh272_cpu_write_past_boundary() {
     }
 }
 
+// ── GH #290 — the Copper's WAIT compares the RELOADED cvc ─────────────
+//
+// VHDL zxnext.vhd:3950 feeds the Copper `vcount_i => cvc`, and cvc reloads
+// from NR 0x64 (i_cu_offset, :6723) only on the ula_min_vactive line
+// (zxula_timing.vhd:457-462); on every other line it just increments
+// (:463-466). jnext's Copper added the NR 0x64 register itself to its line
+// count, so a mid-frame NR 0x64 write moved every later WAIT at once.
+//
+// ZXN_ISSUE2, 128K/Next timing at 50 Hz: c_min_vactive 64, hc_ula 0 at raw
+// hc 125. The CPU is parked in `JR $` (interrupts off) and positions are
+// reached with the debugger's run-to-cycle (at most 96 master cycles late).
+// WAIT(v=150, h=0) is satisfied at raw line 64 + 150 - off: 214 while cvc
+// counts from 0, 194 once it counts from 20.
+
+static bool gh290_run_to(Emulator& emu, uint64_t target) {
+    for (int i = 0; i < 16 && emu.clock().get() < target; ++i) {
+        emu.debug_state().run_to_cycle(target);
+        emu.run_frame();
+    }
+    return emu.clock().get() >= target;
+}
+
+static uint64_t gh290_at(const Emulator& emu, uint64_t base, int line, int px) {
+    return base
+         + static_cast<uint64_t>(line) * emu.timing().master_cycles_per_line
+         + static_cast<uint64_t>(px) * 4;
+}
+
+static void test_gh290_wait_uses_reloaded_cvc() {
+    set_group("GH290-CvcReload");
+
+    Emulator emu;
+    build_next_emulator(emu);
+    emu.mmu().write(0xC000, 0x18);   // JR $
+    emu.mmu().write(0xC001, 0xFE);
+    {
+        auto regs = emu.cpu().get_registers();
+        regs.PC = 0xC000;
+        emu.cpu().set_registers(regs);
+    }
+    for (int i = 0; i < 64; ++i)
+        program_word(emu, static_cast<uint16_t>(i), enc_move(0, 0));
+    program_word(emu, 0, enc_wait(0, 150));
+    program_word(emu, 1, enc_move(0x14, 0x5A));
+    program_word(emu, 2, enc_wait(0, 511));     // HALT
+    emu.debug_state().set_active(true);
+    emu.run_frame();                             // later frames carry their reload
+
+    const uint64_t f1 = emu.current_frame_cycle();
+    const uint64_t f2 = f1 + emu.timing().master_cycles_per_frame;
+
+    // COP-GH290-01 — NR 0x64 = 20 written after F1's reload, then the Copper
+    // started: its WAIT still counts from 0 and lands on raw line 214.
+    bool ok = gh290_run_to(emu, gh290_at(emu, f1, 100, 200));
+    nr_write(emu, 0x64, 20);
+    nr_write(emu, 0x14, 0x00);
+    set_copper_mode(emu, 0);
+    set_copper_mode(emu, 1);
+    ok = ok && gh290_run_to(emu, gh290_at(emu, f1, 204, 0));
+    const uint8_t early = nr_read(emu, 0x14);
+    ok = ok && gh290_run_to(emu, gh290_at(emu, f1, 220, 0));
+    const uint8_t late = nr_read(emu, 0x14);
+    check("COP-GH290-01",
+          "WAIT(v=150) after a mid-frame NR 0x64 = 20 write compares the cvc "
+          "reloaded at ula_min_vactive (offset 0, raw line 214), not the "
+          "register (raw 194) (zxnext.vhd:3950; zxula_timing.vhd:457-466)",
+          ok && early == 0x00 && late == 0x5A,
+          "line204=" + hex2(early) + " (want 0x00) line220=" + hex2(late) +
+              " (want 0x5a)");
+
+    // COP-GH290-02 — restarted in F2 before its reload: after the reload
+    // cvc counts from 20, so the same WAIT lands on raw line 194. Restarted by
+    // switching to mode 11: a mode CHANGE resets the PC (copper.vhd's
+    // last_state edge), and 01 -> 00 -> 01 is none here because a stopped
+    // Copper is not stepped. Mode 11's own restart (cvc 0, hc 0) cannot
+    // intervene: F2 counts 257..310 before its reload and 20..266 after it.
+    ok = ok && gh290_run_to(emu, gh290_at(emu, f2, 10, 200));
+    nr_write(emu, 0x14, 0x00);
+    set_copper_mode(emu, 3);
+    ok = ok && gh290_run_to(emu, gh290_at(emu, f2, 190, 0));
+    const uint8_t before = nr_read(emu, 0x14);
+    ok = ok && gh290_run_to(emu, gh290_at(emu, f2, 200, 0));
+    const uint8_t after = nr_read(emu, 0x14);
+    check("COP-GH290-02",
+          "…and from the next frame's reload on it counts from the new offset: "
+          "the WAIT lands on raw line 194 (zxula_timing.vhd:457-462)",
+          ok && before == 0x00 && after == 0x5A,
+          "line190=" + hex2(before) + " (want 0x00) line200=" + hex2(after) +
+              " (want 0x5a)");
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1400,6 +1491,9 @@ int main() {
     test_gh272_row_boundary_atomic();
     test_gh272_cpu_write_past_boundary();
     std::printf("  Group: GH272-RowBoundary — done\n");
+
+    test_gh290_wait_uses_reloaded_cvc();
+    std::printf("  Group: GH290-CvcReload — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
