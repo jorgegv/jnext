@@ -108,8 +108,8 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP-2** | session / registers / memory | **done** |
 | **WP-3** | breakpoints / continue / notify | **done** |
 | **WP-4** | tier 2 (the commands only an emulator can serve) | **done** |
-| **WP-5** | loop owners + CLI | in progress |
-| **WP-6** | validation — **including the `tools/cspect_dzrp/cspect_dzrp.py` H1-H3 fixes** (owner decision §1.3 item 25: part of this package, not a separate change), and the V-LAT paused-cadence measurement (§11 item 6) | in progress (automated part) |
+| **WP-5** | loop owners + CLI | in review (§14) |
+| **WP-6** | validation — **including the `tools/cspect_dzrp/cspect_dzrp.py` H1-H3 fixes** (owner decision §1.3 item 25: part of this package, not a separate change), and the V-LAT paused-cadence measurement (§11 item 6) | automated part in review (§14); the §7.1 DeZog session and V-LAT are the owner checklist in `doc/testing/DZRP-VALIDATION.md`, not yet run |
 | **WP-7** | docs | todo |
 
 WP-3, WP-4 and WP-5 may run in parallel after WP-2. Depends on: B0 (landed), B, T.
@@ -1252,3 +1252,104 @@ milestone 1, bank-7 BRAM routing included (`DZRP-BANK-01`).
 - **An `IntAck` stop reports `PauseReason::Script`** (the backend's
   "subscriber's explicit stop" catch-all); the adapter recognises its
   break-on-interrupt stop through `matched[]`, which is what `matched[]` is for.
+
+## 14. Implementation record — milestone 3 (WP-5 loop owners + CLI, WP-6 automated validation)
+
+On top of `main` v1.0.52 (merged in; counters recounted by hand). Protocol
+behaviour is unchanged from §13; what is new is the server being REACHABLE —
+`--dzrp-port` in every frontend — and the live rows that drive it.
+
+### 14.1 WP-5 — where the server lives
+
+- **`src/platform/debug_servers.{h,cpp}`** (`DebugServers`): opens each server
+  the configuration asks for on `--debug-listen-address` and registers it with
+  `Debugger::add_service()`, and owns T's per-tick budgets
+  (transport.md §2 item 15) as two static functions, so the three loop owners
+  share one statement of them. A server that cannot listen is a STARTUP error
+  in every frontend (`init()` fails, exit non-zero): a server the user asked
+  for and cannot reach is not a warning scrolled past. Declared after each
+  owner's `debugger_` (destroyed first). `jnext_platform` links `jnext_remote`.
+- **Qt** (`qt_app.cpp`): one labelled block in `init()` registers the servers;
+  the existing `post_frames()` pump call gets `frame_loop_budget()` — same call,
+  same place. Neither the pump's position nor the reset poll moved (package Q
+  owns that ordering). **SDL**: the same two changes. Both: `PumpBudget{0, 2,
+  10}` while paused with a remote attached, else `PumpBudget{}`.
+- **Headless**: a new branch at the top of the loop — paused with a remote
+  attached → `pump(PumpBudget{50, 2, 10})` and `continue`: no frame and no frame
+  countdown. "Remote attached" is the PREVIOUS pump's `ServiceHint` (the only
+  place it is reported). Without a remote the loop is unchanged.
+- **`--dzrp-port N`**: `cli_options.h` row (before `--debug-listen-address`, the
+  man page's order), `main.cpp` case — a whole number 0..65535 or a usage error
+  naming the value — and `EmulatorConfig::dzrp_port` (-1 off, 0 OS-chosen).
+  **`--debug-listen-address` is refused without a server port** (owner
+  decision): `"--debug-listen-address requires a debugger server port
+  (--dzrp-port)."`, exit 1, the same rule and place as `--esp-listen-address`
+  without `--esp`.
+- **Docs**: man page OPTIONS entry and a REMOTE DEBUGGING (DEZOG) section; user
+  guide 6 "Remote debugging with DeZog" (functions/10).
+
+### 14.2 Deviations and precisions, each with its reason
+
+1. **The headless exit bound keeps running while a client holds the machine —
+   in wall time.** WP-5 says the paused branch runs "no frame-countdown
+   decrement", and §4.3 says the wall-clock `--delayed-automatic-exit` is the
+   bound to use with a debugger attached. Both hold for every countdown EXCEPT
+   the automatic exit: in headless it is a frame count (the seconds form is ×50
+   in `main.cpp`), so frozen with the frames it would let a client hold the
+   process forever — and the man page's contract for it is "a hard bound: it
+   always fires". So in the waiting branch it is charged one count per 20 ms of
+   wall time spent waiting (a 50 Hz frame — the rate at which the GUI ticks,
+   which count down paused or not); when it reaches 0 the tick falls through to
+   the normal path, where `run_frame()` is a no-op on a paused machine and the
+   exit fires as always. Both forms are charged alike — the frontends receive a
+   single frame count and cannot tell them apart — so §4.3's "the `-frames`
+   form never advances while a client holds the machine" does not hold, in
+   headless or in the GUI (whose countdown was always per tick). Pinned by
+   `dzrp-paused-headless-func`.
+2. **A related transport defect, fixed here** (T's `src/remote/transport.cpp`,
+   rows `XPT-SRV-30/31`): `Server::pass()` accepted new connections BEFORE it
+   read its current client, so a client that hung up and dialled again in the
+   same pass — every reconnect, and dezogif_ng's conformance suite, which opens
+   a connection per check — was refused as "a second client" of a session that
+   had already ended. Every other conformance check was lost to it. The pass
+   now serves the current client first (its hang-up is seen and the session
+   retired), then accepts, then serves a client admitted in that pass; a client
+   that hung up with commands still queued is finished first, and a redial
+   waits in the listener's queue for it instead of being refused. At most one
+   command per pass is kept. Recorded in transport.md §2 item 16.
+3. **The IPv6 address in the log line** is the socket layer's long form,
+   `[0:0:0:0:0:0:0:1]:<port>`, not `[::1]` — `esp::to_string`, outside this
+   package. Cosmetic; `debug-listen-address-func` accepts either spelling.
+
+### 14.3 WP-6 — the automated validation
+
+`doc/testing/DZRP-VALIDATION.md` lists every row, what each proves, and the
+provenance of the copied clients; in short:
+
+- **`tools/cspect_dzrp`**: REVIEW H1 (`cont()` drops superseded
+  notifications), H2 (`wait_for_pause()` holds the lock for its wait) and H3
+  (`close()` holds the lock and is idempotent) fixed, each with a test that
+  fails with its fix reverted; `init()` sends its version (2.2.0 by default, a
+  parameter) and name — jnext refuses a version-less INIT; methods for the
+  commands §7.2 needs. Its suite (20 tests) runs as `cspect-dzrp-selftest-func`.
+- **The nine §7.2 rows** through that client, via `test/00regression/dzrp-peer.py`
+  and `dzrp-functions.inc` (bounded wait for the listen line, `timeout
+  --kill-after` on every child, `LANG=C`, no trap, the harness's per-run SD
+  clone). Each needs no demo build: a program is written with `CMD_WRITE_MEM`
+  on the fixed 48K map.
+- **dezogif_ng**, copied into `test/dzrp/` at `709ae7d77d44`: `dzrp.py` (version
+  a parameter), `conformance.py` and `screen.py` unchanged —
+  `dzrp-conformance-func` requires C1-C17, C24, C25, C15 to PASS (C19-C23 test
+  the stub's RST-patching; C18 needs a second concurrent connection) — and the
+  four scenario clients ADAPTED to one client per server (each header says how):
+  queued-commands ↔ drain-while-paused, split-command ↔ frame reassembly,
+  orphan-notify / abandoned-send ↔ SES-01.
+- **`dzrp-paused-headless-func`** (the WP-5 CPU-time row) and
+  **`dzrp-cli-func`**; `debug-listen-address-func` rewritten for the refusal.
+- `functional_tests.conf` 89 → 106.
+
+### 14.4 Not done here
+
+The §7.1 DeZog 3.7.4 / 3.8 session and V-LAT need a person at VS Code: they are
+the owner checklist in `doc/testing/DZRP-VALIDATION.md` §3. WP-7 (developer
+guide page, `FEATURES.md`, ChangeLog) is the final milestone's.
