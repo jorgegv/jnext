@@ -11,28 +11,28 @@
       
       
       
-        <link rel="prev" href="index.html">
+        <link rel="prev" href="09-changing-the-keys.html">
       
       
-        <link rel="next" href="02-windows.html">
+        <link rel="next" href="../../07-automation-and-ci/index.html">
       
       
         
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
     
     
       
-        <title>Linux - JNEXT User Guide</title>
+        <title>Remote debugging with DeZog - JNEXT User Guide</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -51,7 +51,7 @@
       
     
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#linux" class="md-skip">
+        <a href="#remote-debugging-with-dezog" class="md-skip">
           Skip to content
         </a>
       
@@ -92,7 +92,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../index.html" title="JNEXT User Guide" class="md-header__button md-logo" aria-label="JNEXT User Guide" data-md-component="logo">
+    <a href="../../index.html" title="JNEXT User Guide" class="md-header__button md-logo" aria-label="JNEXT User Guide" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -112,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Linux
+              Remote debugging with DeZog
             
           </span>
         </div>
@@ -263,7 +263,7 @@
 
 <nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../index.html" title="JNEXT User Guide" class="md-nav__button md-logo" aria-label="JNEXT User Guide" data-md-component="logo">
+    <a href="../../index.html" title="JNEXT User Guide" class="md-nav__button md-logo" aria-label="JNEXT User Guide" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -326,7 +326,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../index.html" class="md-nav__link">
+      <a href="../../index.html" class="md-nav__link">
         
   
   
@@ -379,7 +379,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../01-introduction/index.html" class="md-nav__link ">
+            <a href="../../01-introduction/index.html" class="md-nav__link ">
               
   
   
@@ -423,7 +423,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../01-introduction/01-what-it-emulates.html" class="md-nav__link">
+      <a href="../../01-introduction/01-what-it-emulates.html" class="md-nav__link">
         
   
   
@@ -451,7 +451,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../01-introduction/02-how-faithful-it-is.html" class="md-nav__link">
+      <a href="../../01-introduction/02-how-faithful-it-is.html" class="md-nav__link">
         
   
   
@@ -479,7 +479,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../01-introduction/03-machines-at-a-glance.html" class="md-nav__link">
+      <a href="../../01-introduction/03-machines-at-a-glance.html" class="md-nav__link">
         
   
   
@@ -507,7 +507,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../01-introduction/04-getting-help-and-reporting-bugs.html" class="md-nav__link">
+      <a href="../../01-introduction/04-getting-help-and-reporting-bugs.html" class="md-nav__link">
         
   
   
@@ -539,8 +539,6 @@
       
   
   
-    
-  
   
   
     
@@ -566,15 +564,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="index.html" class="md-nav__link ">
+            <a href="../../02-installing/index.html" class="md-nav__link ">
               
   
   
@@ -598,7 +596,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -615,19 +613,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-      <a href="01-linux.html" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../02-installing/01-linux.html" class="md-nav__link">
         
   
   
@@ -643,7 +632,6 @@
   
 
       </a>
-      
     </li>
   
 
@@ -656,7 +644,7 @@
   
   
     <li class="md-nav__item">
-      <a href="02-windows.html" class="md-nav__link">
+      <a href="../../02-installing/02-windows.html" class="md-nav__link">
         
   
   
@@ -684,7 +672,7 @@
   
   
     <li class="md-nav__item">
-      <a href="03-macos.html" class="md-nav__link">
+      <a href="../../02-installing/03-macos.html" class="md-nav__link">
         
   
   
@@ -712,7 +700,7 @@
   
   
     <li class="md-nav__item">
-      <a href="04-optional-video-recording.html" class="md-nav__link">
+      <a href="../../02-installing/04-optional-video-recording.html" class="md-nav__link">
         
   
   
@@ -740,7 +728,7 @@
   
   
     <li class="md-nav__item">
-      <a href="05-checking-it-worked.html" class="md-nav__link">
+      <a href="../../02-installing/05-checking-it-worked.html" class="md-nav__link">
         
   
   
@@ -768,7 +756,7 @@
   
   
     <li class="md-nav__item">
-      <a href="06-building-from-source.html" class="md-nav__link">
+      <a href="../../02-installing/06-building-from-source.html" class="md-nav__link">
         
   
   
@@ -833,7 +821,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../03-first-run/index.html" class="md-nav__link ">
+            <a href="../../03-first-run/index.html" class="md-nav__link ">
               
   
   
@@ -877,7 +865,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html" class="md-nav__link">
+      <a href="../../03-first-run/01-why-jnext-needs-an-sd-card-image.html" class="md-nav__link">
         
   
   
@@ -905,7 +893,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-first-run/02-letting-jnext-fetch-one.html" class="md-nav__link">
+      <a href="../../03-first-run/02-letting-jnext-fetch-one.html" class="md-nav__link">
         
   
   
@@ -933,7 +921,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-first-run/03-using-your-own-image.html" class="md-nav__link">
+      <a href="../../03-first-run/03-using-your-own-image.html" class="md-nav__link">
         
   
   
@@ -961,7 +949,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-first-run/04-the-first-boot.html" class="md-nav__link">
+      <a href="../../03-first-run/04-the-first-boot.html" class="md-nav__link">
         
   
   
@@ -989,7 +977,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-first-run/05-running-a-program.html" class="md-nav__link">
+      <a href="../../03-first-run/05-running-a-program.html" class="md-nav__link">
         
   
   
@@ -1017,7 +1005,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-first-run/06-if-something-goes-wrong.html" class="md-nav__link">
+      <a href="../../03-first-run/06-if-something-goes-wrong.html" class="md-nav__link">
         
   
   
@@ -1076,7 +1064,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../04-configuration/index.html" class="md-nav__link ">
+            <a href="../../04-configuration/index.html" class="md-nav__link ">
               
   
   
@@ -1120,7 +1108,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../04-configuration/01-preferences.html" class="md-nav__link">
+      <a href="../../04-configuration/01-preferences.html" class="md-nav__link">
         
   
   
@@ -1148,7 +1136,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../04-configuration/02-the-configuration-file.html" class="md-nav__link">
+      <a href="../../04-configuration/02-the-configuration-file.html" class="md-nav__link">
         
   
   
@@ -1176,7 +1164,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../04-configuration/03-what-wins-the-command-line.html" class="md-nav__link">
+      <a href="../../04-configuration/03-what-wins-the-command-line.html" class="md-nav__link">
         
   
   
@@ -1247,7 +1235,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../05-running-programs/index.html" class="md-nav__link ">
+            <a href="../../05-running-programs/index.html" class="md-nav__link ">
               
   
   
@@ -1291,7 +1279,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/01-choosing-a-machine.html" class="md-nav__link">
+      <a href="../../05-running-programs/01-choosing-a-machine.html" class="md-nav__link">
         
   
   
@@ -1319,7 +1307,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/02-input.html" class="md-nav__link">
+      <a href="../../05-running-programs/02-input.html" class="md-nav__link">
         
   
   
@@ -1347,7 +1335,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/03-display.html" class="md-nav__link">
+      <a href="../../05-running-programs/03-display.html" class="md-nav__link">
         
   
   
@@ -1375,7 +1363,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/04-sound.html" class="md-nav__link">
+      <a href="../../05-running-programs/04-sound.html" class="md-nav__link">
         
   
   
@@ -1403,7 +1391,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/05-recording-and-playback.html" class="md-nav__link">
+      <a href="../../05-running-programs/05-recording-and-playback.html" class="md-nav__link">
         
   
   
@@ -1431,7 +1419,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/06-networking.html" class="md-nav__link">
+      <a href="../../05-running-programs/06-networking.html" class="md-nav__link">
         
   
   
@@ -1459,7 +1447,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/07-the-joystick-port-serial-cable.html" class="md-nav__link">
+      <a href="../../05-running-programs/07-the-joystick-port-serial-cable.html" class="md-nav__link">
         
   
   
@@ -1487,7 +1475,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/08-host-files-for-a-loaded-program.html" class="md-nav__link">
+      <a href="../../05-running-programs/08-host-files-for-a-loaded-program.html" class="md-nav__link">
         
   
   
@@ -1515,7 +1503,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05-running-programs/09-snapshots.html" class="md-nav__link">
+      <a href="../../05-running-programs/09-snapshots.html" class="md-nav__link">
         
   
   
@@ -1547,6 +1535,8 @@
       
   
   
+    
+  
   
   
     
@@ -1564,15 +1554,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../06-debugger/index.html" class="md-nav__link ">
+            <a href="../index.html" class="md-nav__link ">
               
   
   
@@ -1596,7 +1586,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1660,7 +1650,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../06-debugger/panels/index.html" class="md-nav__link ">
+            <a href="../panels/index.html" class="md-nav__link ">
               
   
   
@@ -1704,7 +1694,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/01-cpu-registers.html" class="md-nav__link">
+      <a href="../panels/01-cpu-registers.html" class="md-nav__link">
         
   
   
@@ -1732,7 +1722,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/02-mmu.html" class="md-nav__link">
+      <a href="../panels/02-mmu.html" class="md-nav__link">
         
   
   
@@ -1760,7 +1750,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/03-disassembly.html" class="md-nav__link">
+      <a href="../panels/03-disassembly.html" class="md-nav__link">
         
   
   
@@ -1788,7 +1778,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/04-memory.html" class="md-nav__link">
+      <a href="../panels/04-memory.html" class="md-nav__link">
         
   
   
@@ -1816,7 +1806,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/05-stack.html" class="md-nav__link">
+      <a href="../panels/05-stack.html" class="md-nav__link">
         
   
   
@@ -1844,7 +1834,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/06-call-stack.html" class="md-nav__link">
+      <a href="../panels/06-call-stack.html" class="md-nav__link">
         
   
   
@@ -1872,7 +1862,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/07-watches.html" class="md-nav__link">
+      <a href="../panels/07-watches.html" class="md-nav__link">
         
   
   
@@ -1900,7 +1890,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/08-breakpoints.html" class="md-nav__link">
+      <a href="../panels/08-breakpoints.html" class="md-nav__link">
         
   
   
@@ -1928,7 +1918,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/09-video.html" class="md-nav__link">
+      <a href="../panels/09-video.html" class="md-nav__link">
         
   
   
@@ -1956,7 +1946,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/10-sprites.html" class="md-nav__link">
+      <a href="../panels/10-sprites.html" class="md-nav__link">
         
   
   
@@ -1984,7 +1974,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/11-copper.html" class="md-nav__link">
+      <a href="../panels/11-copper.html" class="md-nav__link">
         
   
   
@@ -2012,7 +2002,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/12-nextreg.html" class="md-nav__link">
+      <a href="../panels/12-nextreg.html" class="md-nav__link">
         
   
   
@@ -2040,7 +2030,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/13-audio.html" class="md-nav__link">
+      <a href="../panels/13-audio.html" class="md-nav__link">
         
   
   
@@ -2073,6 +2063,8 @@
                 
   
   
+    
+  
   
   
     
@@ -2106,15 +2098,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_3" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../06-debugger/functions/index.html" class="md-nav__link ">
+            <a href="index.html" class="md-nav__link ">
               
   
   
@@ -2138,7 +2130,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_7_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2158,7 +2150,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/01-run-pause-and-the-step-family.html" class="md-nav__link">
+      <a href="01-run-pause-and-the-step-family.html" class="md-nav__link">
         
   
   
@@ -2186,7 +2178,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/02-run-to-cursor-run-to-end-of-frame-run-to-end-of-scanline.html" class="md-nav__link">
+      <a href="02-run-to-cursor-run-to-end-of-frame-run-to-end-of-scanline.html" class="md-nav__link">
         
   
   
@@ -2214,7 +2206,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/03-breakpoints-execute-read-write.html" class="md-nav__link">
+      <a href="03-breakpoints-execute-read-write.html" class="md-nav__link">
         
   
   
@@ -2242,7 +2234,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/04-watches-and-watch-sizes.html" class="md-nav__link">
+      <a href="04-watches-and-watch-sizes.html" class="md-nav__link">
         
   
   
@@ -2270,7 +2262,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/05-symbols-from-z88dk-map-files.html" class="md-nav__link">
+      <a href="05-symbols-from-z88dk-map-files.html" class="md-nav__link">
         
   
   
@@ -2298,7 +2290,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/06-the-trace-log.html" class="md-nav__link">
+      <a href="06-the-trace-log.html" class="md-nav__link">
         
   
   
@@ -2326,7 +2318,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/07-backward-execution-rewind.html" class="md-nav__link">
+      <a href="07-backward-execution-rewind.html" class="md-nav__link">
         
   
   
@@ -2354,7 +2346,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/08-the-magic-breakpoint-and-the-magic-port.html" class="md-nav__link">
+      <a href="08-the-magic-breakpoint-and-the-magic-port.html" class="md-nav__link">
         
   
   
@@ -2382,7 +2374,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/09-changing-the-keys.html" class="md-nav__link">
+      <a href="09-changing-the-keys.html" class="md-nav__link">
         
   
   
@@ -2407,10 +2399,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../06-debugger/functions/10-remote-debugging-with-dezog.html" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote debugging with DeZog
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="10-remote-debugging-with-dezog.html" class="md-nav__link md-nav__link--active">
         
   
   
@@ -2426,6 +2445,81 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#starting-jnext-for-dezog" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Starting JNEXT for DeZog
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pointing-dezog-at-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pointing DeZog at it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-to-expect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What to expect
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#headless-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Headless runs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2481,7 +2575,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../07-automation-and-ci/index.html" class="md-nav__link ">
+            <a href="../../07-automation-and-ci/index.html" class="md-nav__link ">
               
   
   
@@ -2525,7 +2619,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../07-automation-and-ci/01-headless-mode.html" class="md-nav__link">
+      <a href="../../07-automation-and-ci/01-headless-mode.html" class="md-nav__link">
         
   
   
@@ -2553,7 +2647,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../07-automation-and-ci/02-determinism.html" class="md-nav__link">
+      <a href="../../07-automation-and-ci/02-determinism.html" class="md-nav__link">
         
   
   
@@ -2581,7 +2675,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../07-automation-and-ci/03-exit-codes-and-the-capture-that-was-never-taken.html" class="md-nav__link">
+      <a href="../../07-automation-and-ci/03-exit-codes-and-the-capture-that-was-never-taken.html" class="md-nav__link">
         
   
   
@@ -2609,7 +2703,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../07-automation-and-ci/04-a-worked-example.html" class="md-nav__link">
+      <a href="../../07-automation-and-ci/04-a-worked-example.html" class="md-nav__link">
         
   
   
@@ -2637,7 +2731,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../07-automation-and-ci/05-beyond-screenshots.html" class="md-nav__link">
+      <a href="../../07-automation-and-ci/05-beyond-screenshots.html" class="md-nav__link">
         
   
   
@@ -2672,7 +2766,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../08-known-issues/index.html" class="md-nav__link">
+      <a href="../../08-known-issues/index.html" class="md-nav__link">
         
   
   
@@ -2725,7 +2819,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../09-reference/index.html" class="md-nav__link ">
+            <a href="../../09-reference/index.html" class="md-nav__link ">
               
   
   
@@ -2769,7 +2863,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../09-reference/01-command-line-options.html" class="md-nav__link">
+      <a href="../../09-reference/01-command-line-options.html" class="md-nav__link">
         
   
   
@@ -2797,7 +2891,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../09-reference/02-files-and-directories.html" class="md-nav__link">
+      <a href="../../09-reference/02-files-and-directories.html" class="md-nav__link">
         
   
   
@@ -2825,7 +2919,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../09-reference/03-zx-spectrum-next-hardware-documentation.html" class="md-nav__link">
+      <a href="../../09-reference/03-zx-spectrum-next-hardware-documentation.html" class="md-nav__link">
         
   
   
@@ -2853,7 +2947,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../09-reference/04-the-project.html" class="md-nav__link">
+      <a href="../../09-reference/04-the-project.html" class="md-nav__link">
         
   
   
@@ -2901,48 +2995,83 @@
   
 
 
-<h1 id="linux">Linux<a class="headerlink" href="#linux" title="Permanent link">&para;</a></h1>
-<table>
-<thead>
-<tr>
-<th>Distribution</th>
-<th>Command</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Fedora / RHEL</td>
-<td><code>sudo dnf install ./jnext-*.x86_64.rpm</code></td>
-</tr>
-<tr>
-<td>Ubuntu 24.04</td>
-<td><code>sudo apt install ./jnext_*_ubuntu24.04_amd64.deb</code></td>
-</tr>
-<tr>
-<td>Ubuntu 26.04</td>
-<td><code>sudo apt install ./jnext_*_ubuntu26.04_amd64.deb</code></td>
-</tr>
-<tr>
-<td>Any distribution</td>
-<td><code>flatpak install ./jnext-*-x86_64.flatpak</code></td>
-</tr>
-</tbody>
-</table>
-<p>The RPM and DEB packages put a <code>jnext</code> command on your <code>PATH</code> and add JNEXT to
-your desktop's application menu. Run it with:</p>
-<pre><code class="language-sh">jnext
+<h1 id="remote-debugging-with-dezog">Remote debugging with DeZog<a class="headerlink" href="#remote-debugging-with-dezog" title="Permanent link">&para;</a></h1>
+<p><a href="https://github.com/maziac/DeZog">DeZog</a> is a Z80 debugger that runs inside
+Visual Studio Code: breakpoints in your source files, stepping, registers,
+memory and disassembly views. It talks to the machine it debugs over the DeZog
+Remote Protocol (DZRP). JNEXT serves that protocol, so DeZog can debug a
+program running in JNEXT the same way it debugs one in CSpect or on a real
+Next.</p>
+<h2 id="starting-jnext-for-dezog">Starting JNEXT for DeZog<a class="headerlink" href="#starting-jnext-for-dezog" title="Permanent link">&para;</a></h2>
+<p>Give JNEXT a TCP port to listen on:</p>
+<pre><code class="language-console">$ jnext --dzrp-port 11000 --load mygame.nex
 </code></pre>
-<p>The Flatpak is launched from the application menu too, or from a terminal with
-its application ID:</p>
-<pre><code class="language-sh">flatpak run io.github.zxjogv.jnext
+<p>The log confirms it:</p>
+<pre><code>[debugger] [info] dzrp: listening on 127.0.0.1:11000
 </code></pre>
-<p>If your distribution is not listed, the Flatpak is the one to use — it carries
-its own dependencies and works anywhere Flatpak does.</p>
-<blockquote>
-<p><strong>Flatpak performance note.</strong> The Flatpak build runs about a third slower at
-high turbo speeds than the RPM and DEB packages. Normal (100 %) speed is
-unaffected. If you routinely fast-forward, prefer the native package.</p>
-</blockquote>
+<p><code>--dzrp-port 0</code> lets the system pick a free port and prints it in that same
+line, which is handy for scripts. The server is off unless you give the
+option, and it works in every frontend — the Qt window, the SDL build and
+<code>--headless</code>.</p>
+<h2 id="pointing-dezog-at-it">Pointing DeZog at it<a class="headerlink" href="#pointing-dezog-at-it" title="Permanent link">&para;</a></h2>
+<p>In your project's <code>.vscode/launch.json</code>, use a <code>cspect</code> remote with JNEXT's
+port:</p>
+<pre><code class="language-json">{
+    &quot;type&quot;: &quot;dezog&quot;,
+    &quot;request&quot;: &quot;launch&quot;,
+    &quot;name&quot;: &quot;JNEXT&quot;,
+    &quot;remoteType&quot;: &quot;cspect&quot;,
+    &quot;cspect&quot;: { &quot;hostname&quot;: &quot;localhost&quot;, &quot;port&quot;: 11000 },
+    &quot;sjasmplus&quot;: [ { &quot;path&quot;: &quot;mygame.sld&quot; } ],
+    &quot;topOfStack&quot;: &quot;stack_top&quot;
+}
+</code></pre>
+<p>The assembler and label settings are DeZog's, not JNEXT's; see DeZog's own
+documentation for them. DeZog releases that have a <code>dzrp</code> remote type can use
+that instead, with the same port.</p>
+<p>Start debugging in VS Code. <strong>Connecting pauses the machine</strong> and DeZog shows
+where it stopped.</p>
+<h2 id="what-to-expect">What to expect<a class="headerlink" href="#what-to-expect" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>DeZog's breakpoints are its own.</strong> Breakpoints and watchpoints set from
+  DeZog are kept apart from the ones in JNEXT's debugger window: they stop the
+  machine whether that window is open or closed, and they are removed when
+  DeZog disconnects. A DeZog session that crashes cannot leave the machine
+  stopped on one of them.</li>
+<li><strong>Disconnecting resumes the machine</strong> if the pause was DeZog's own. A pause
+  you made yourself in JNEXT's debugger window stays.</li>
+<li><strong>Both can drive the machine.</strong> JNEXT's debugger window and DeZog control the
+  same machine, and whichever acted last wins. If something other than DeZog
+  stops the machine while DeZog has it running — you press Pause in the
+  debugger window, or a magic breakpoint fires — DeZog is told it stopped, and
+  why.</li>
+<li><strong>One client at a time.</strong> A second connection is closed straight away.</li>
+<li><strong>Saving and restoring the state</strong> (<code>-state save</code> and <code>-state restore</code> in
+  DeZog's debug console) keeps the state inside JNEXT for the current session
+  only; the file DeZog writes just refers to it. A state can be saved only at a
+  frame boundary, so right after a breakpoint hit the save is refused — pause
+  the machine by hand, then save.</li>
+<li><strong>Not served:</strong> the commands a hardware stub uses to patch breakpoints into
+  memory, and DeZog's <code>-dbg cmd_exec_asm</code>. JNEXT answers them empty and logs a
+  warning, so DeZog never hangs waiting.</li>
+</ul>
+<h2 id="headless-runs">Headless runs<a class="headerlink" href="#headless-runs" title="Permanent link">&para;</a></h2>
+<p>With <code>--headless</code>, a client that holds the machine paused holds its frames
+too: nothing is emulated, and JNEXT sleeps until the next command instead of
+using the CPU. The automatic exit is still a hard bound — while a client holds
+the machine paused, <code>--delayed-automatic-exit</code> (in either form) is counted in
+wall time, one frame per 20 ms — so a run with a debugger attached still ends
+on time.</p>
+<h2 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h2>
+<p>The server listens on <code>127.0.0.1</code> only, so only programs on your own machine
+can reach it. <code>--debug-listen-address</code> changes that (for example <code>0.0.0.0</code> to
+debug from another computer), and it is refused unless a server port is given
+too. <strong>DZRP has no authentication</strong>: anyone who can reach the port controls the
+machine and can read and write all of its memory, so widen it only on a network
+you trust.</p>
+<hr />
+<p>For the full list of command-line options mentioned here, see <strong>jnext</strong>(1) or
+<a href="https://github.com/jorgegv/jnext/blob/main/USAGE.md">USAGE.md</a>.</p>
 
 
 
@@ -2992,10 +3121,10 @@ unaffected. If you routinely fast-forward, prefer the native package.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.indexes", "toc.integrate", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.indexes", "toc.integrate", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>

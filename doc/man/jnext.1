@@ -801,17 +801,28 @@ which is what \(lqpersistent\(rq costs; it is accepted but has no effect
 in \f[B]\-\-headless\f[R], in the SDL\-only build and in builds without
 the debugger, since only the debugger can set a breakpoint.
 .TP
+\f[B]\-\-dzrp\-port\f[R] \f[I]PORT\f[R]
+Serve the DeZog Remote Protocol (DZRP) on TCP \f[I]PORT\f[R], so DeZog
+\- or any other DZRP client \- can debug the running machine; see
+\f[B]REMOTE DEBUGGING (DEZOG)\f[R].
+Off unless given.
+\f[I]PORT\f[R] \f[CR]0\f[R] binds a free port the system chooses, and
+the log says which (\f[CR]dzrp: listening on 127.0.0.1:40123\f[R]).
+One client at a time: a second connection is closed at once.
+A port that cannot be bound (already in use, say) is a startup error.
+Works in every frontend, \f[B]\-\-headless\f[R] included.
+.TP
 \f[B]\-\-debug\-listen\-address\f[R] \f[I]ADDR\f[R]
-Bind address for the debugger protocol servers, default
-\f[CR]127.0.0.1\f[R].
+Bind address for the debugger protocol servers
+(\f[B]\-\-dzrp\-port\f[R]), default \f[CR]127.0.0.1\f[R].
 \f[I]ADDR\f[R] is a numeric IP address, never a name \- an address
 resolved through DNS could change under you \- and anything else is
 refused at startup.
 The default means only this machine can reach the debugger; a
 non\-loopback address (\f[CR]0.0.0.0\f[R]) exposes it to your network,
 and none of the debugger protocols has any authentication.
-No protocol server is available in this version yet, so the address is
-checked and nothing listens.
+Refused unless a server port is given too: an address for servers that
+are all off would configure nothing.
 .TP
 \f[B]\-\-magic\-port\f[R] \f[I]PORT\f[R]
 Enable the magic debug port at \f[I]PORT\f[R] (hex, for example
@@ -2064,6 +2075,69 @@ bottom stays visible, with any buttons that no longer fit reachable from
 its overflow menu.
 Its size is remembered between sessions and clamped to the screen it
 reopens on.
+.SH REMOTE DEBUGGING (DEZOG)
+With \f[B]\-\-dzrp\-port\f[R] \f[I]PORT\f[R], jnext serves the DeZog
+Remote Protocol (DZRP, version 2.2.0), the protocol DeZog \- the Z80
+debugger for Visual Studio Code \- uses to drive CSpect and real
+hardware.
+DeZog then debugs the program running in jnext from your editor:
+source\-level breakpoints, stepping, registers, memory, the MMU slots,
+NextREGs and sprites.
+.PP
+In DeZog\(cqs \f[CR]launch.json\f[R], point a \f[CR]cspect\f[R] remote
+at jnext\(cqs port:
+.IP
+.EX
+\(dqremoteType\(dq: \(dqcspect\(dq,
+\(dqcspect\(dq: { \(dqhostname\(dq: \(dqlocalhost\(dq, \(dqport\(dq: 11000 }
+.EE
+.PP
+and start jnext with the same port, for example
+\f[CR]jnext \-\-dzrp\-port 11000 \-\-load mygame.nex\f[R].
+DeZog releases that have a \f[CR]dzrp\f[R] remote type can use it
+instead, with the same port.
+.IP \(bu 2
+\f[B]Connecting pauses the machine\f[R], and DeZog shows where it
+stopped.
+Disconnecting resumes it if the pause was DeZog\(cqs own; a pause made
+from jnext\(cqs debugger window stays.
+.IP \(bu 2
+\f[B]Breakpoints and watchpoints set from DeZog belong to that
+session\f[R]: they are separate from the ones set in jnext\(cqs debugger
+window, they stop the machine whether that window is open or not, and
+they are removed when DeZog disconnects \- a DeZog that crashes cannot
+leave the machine stopped on them.
+.IP \(bu 2
+\f[B]Either side may pause or resume.\f[R] jnext\(cqs debugger window
+and DeZog drive the same machine and whoever acted last wins.
+When something other than DeZog stops the machine while DeZog has it
+running \- the debugger window, a magic breakpoint \- DeZog is told it
+stopped, and why.
+.IP \(bu 2
+\f[B]Saving and restoring the state\f[R] (DeZog\(cqs
+\f[CR]\-state save\f[R] / \f[CR]\-state restore\f[R]) keeps the state
+inside jnext for this session only; DeZog\(cqs file holds a reference to
+it.
+A state can only be saved at a frame boundary, so after a breakpoint hit
+the save is refused \- pause the machine by hand first.
+.IP \(bu 2
+\f[B]Not served\f[R]: the commands a hardware stub needs to patch
+breakpoints into memory (\f[CR]CMD_SET_BREAKPOINTS\f[R],
+\f[CR]CMD_RESTORE_MEM\f[R]) and \f[CR]CMD_EXEC_ASM\f[R].
+They are answered empty, with a warning in the log, so the client never
+waits.
+.PP
+In \f[B]\-\-headless\f[R] mode a client that holds the machine paused
+holds its frames too: nothing is emulated and jnext waits for the next
+command without using the CPU.
+The automatic exit (\f[B]\-\-delayed\-automatic\-exit\f[R] and its
+\f[B]\-frames\f[R] form) is still a hard bound: while a client holds the
+machine paused it is counted in wall time, one frame per 20 ms.
+.PP
+The server listens on \f[CR]127.0.0.1\f[R] unless
+\f[B]\-\-debug\-listen\-address\f[R] says otherwise.
+DZRP has no authentication: anyone who can reach the port controls the
+machine and can read and write all of its memory.
 .SH MAGIC BREAKPOINT AND MAGIC PORT
 The magic breakpoint uses the \f[CR]ED FF\f[R] (ZEsarUX) and
 \f[CR]DD 01\f[R] (CSpect) opcodes to pause the debugger when enabled;
