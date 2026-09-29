@@ -21,7 +21,10 @@ for asynchronous notifications (pause/break events).
 
 Notes / subtleties
 ------------------
-- DZRP version reported by the plugin: 2.0.0
+- DZRP version reported by the plugin: 2.0.0; jnext's server (`--dzrp-port`)
+  reports 2.2.0. `init()` sends this client's own version (default 2.2.0, a
+  parameter) and name, as the spec requires: jnext answers a CMD_INIT with no
+  version with error 1 and attaches nothing.
 - There is NO separate CMD_GET_SLOTS. The 8 NextReg slot mappings (NR $50..$57)
   are appended to the GET_REGISTERS response.
 - There is NO single-step command. Use CONTINUE with one or two temporary
@@ -82,6 +85,10 @@ class Cmd(enum.IntEnum):
     WRITE_PORT = 21
     EXEC_ASM = 22
     INTERRUPT_ON_OFF = 23
+    GET_SUPPORTED_COMMANDS = 24      # DZRP 2.2.0
+    READ_BANK_MEM = 25               # DZRP 2.2.0
+    WRITE_BANK_MEM = 26              # DZRP 2.2.0
+    ENABLE_BREAK_ON_INTERRUPT = 39   # DZRP 2.2.0
     ADD_BREAKPOINT = 40
     REMOVE_BREAKPOINT = 41
     ADD_WATCHPOINT = 42
@@ -299,13 +306,23 @@ class CSpectDZRP:
     """Synchronous DZRP client.
 
     Notifications (seqno=0) arriving while waiting for a response are placed in
-    `self.notifications` and a callback is invoked if registered. The most
-    common case is the PAUSE notification that arrives some time after a
-    CONTINUE response, so the canonical pattern is::
+    `self.notifications`. The most common case is the PAUSE notification that
+    arrives some time after a CONTINUE response, so the canonical pattern is::
 
         client.cont(tmp_bp1=0x01ED)
         ntf = client.wait_for_pause(timeout=10.0)
         regs = client.get_registers()
+
+    `cont()` DISCARDS every notification still queued when it is sent (REVIEW
+    H1): each belongs to a stop this CONTINUE supersedes, and handing one to the
+    `wait_for_pause()` that follows would report a stop the machine has not made
+    yet. So a caller that wants an earlier notification takes it BEFORE the next
+    `cont()`.
+
+    Thread safety (REVIEW H2/H3): every socket read and write — a request, a
+    `wait_for_pause()`, `close()` — happens under one re-entrant lock, so two
+    threads never interleave frames on the socket. A `wait_for_pause()` holds
+    the lock for its whole wait: another thread's request waits for it.
     """
 
     def __init__(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
@@ -316,7 +333,9 @@ class CSpectDZRP:
         self._sock: Optional[socket.socket] = None
         self._seqno = 0  # incremented before use; first req is seqno=1
         self.notifications: list[PauseNtf] = []
-        self._lock = threading.Lock()
+        # Re-entrant: `cont()` and `close()` hold it across `_request()` /
+        # `_send_only()`, which take it again.
+        self._lock = threading.RLock()
 
     # ---------- connection lifecycle ---------------------------------------
 
@@ -326,9 +345,16 @@ class CSpectDZRP:
         self._sock = s
 
     def close(self) -> None:
-        if self._sock is not None:
+        """Send CMD_CLOSE (best effort) and close the socket. Idempotent.
+
+        Under the lock (REVIEW H3): the CLOSE frame can no longer interleave
+        with another thread's request, and the socket is not closed under a
+        reader that holds the lock.
+        """
+        with self._lock:
+            if self._sock is None:
+                return
             try:
-                # Best-effort polite close.
                 try:
                     self._send_only(Cmd.CLOSE)
                 except Exception:
@@ -353,7 +379,9 @@ class CSpectDZRP:
         return self._seqno
 
     def _send_only(self, cmd: Cmd, payload: bytes = b"") -> int:
-        """Send a request, return the seqno used. No reply read."""
+        """Send a request, return the seqno used. No reply read.
+
+        The CALLER holds the lock (`_request`, `close`)."""
         if self._sock is None:
             raise DZRPError("not connected")
         seqno = self._next_seqno()
@@ -406,8 +434,19 @@ class CSpectDZRP:
 
     # ---------- public API: commands ---------------------------------------
 
-    def init(self) -> InitInfo:
-        p = self._request(Cmd.INIT)
+    def request(self, cmd: int, payload: bytes = b"") -> bytes:
+        """Any command by number, raw payload in, raw response payload out.
+
+        For commands this client has no method for, and for probing a remote
+        with ones it does not implement.
+        """
+        return self._request(cmd, payload)
+
+    def init(self, version: tuple[int, int, int] = (2, 2, 0),
+             name: str = "cspect_dzrp") -> InitInfo:
+        """CMD_INIT: this client's DZRP version (3 bytes, major first) and a
+        NUL-terminated program name, per the spec."""
+        p = self._request(Cmd.INIT, bytes(version) + name.encode("ascii") + b"\x00")
         if len(p) < 5:
             raise DZRPError(f"INIT response too short: {len(p)}")
         err = p[0]
@@ -491,13 +530,19 @@ class CSpectDZRP:
 
         Plugin response is empty; the actual stop arrives later as a PAUSE
         notification — call wait_for_pause() to block for it.
+
+        Notifications still queued are discarded FIRST, under the lock (REVIEW
+        H1): they belong to stops this CONTINUE supersedes, and the
+        `wait_for_pause()` that follows must see only the stop it causes.
         """
         b1_en = 1 if tmp_bp1 is not None else 0
         b1 = tmp_bp1 if tmp_bp1 is not None else 0
         b2_en = 1 if tmp_bp2 is not None else 0
         b2 = tmp_bp2 if tmp_bp2 is not None else 0
         payload = struct.pack("<BHBH", b1_en, b1 & 0xFFFF, b2_en, b2 & 0xFFFF)
-        self._request(Cmd.CONTINUE, payload)
+        with self._lock:
+            self.notifications.clear()
+            self._request(Cmd.CONTINUE, payload)
 
     def pause(self) -> None:
         self._request(Cmd.PAUSE)
@@ -517,34 +562,121 @@ class CSpectDZRP:
     def interrupt_on_off(self, enable: bool) -> None:
         self._request(Cmd.INTERRUPT_ON_OFF, bytes([1 if enable else 0]))
 
+    # ---------- DZRP 2.x commands the CSpect plugin may not serve ----------
+
+    def loopback(self, data: bytes) -> bytes:
+        return self._request(Cmd.LOOPBACK, data)
+
+    def get_supported_commands(self) -> bytes:
+        """DZRP 2.2.0: a bitfield, bit N set = command N is served."""
+        return self._request(Cmd.GET_SUPPORTED_COMMANDS)
+
+    def write_bank(self, bank: int, data: bytes) -> tuple[int, str]:
+        """CMD_WRITE_BANK (removed in 2.2.0): one 8 KiB bank. Returns
+        (error, message)."""
+        p = self._request(Cmd.WRITE_BANK, bytes([bank & 0xFF]) + data)
+        if not p:
+            raise DZRPError("WRITE_BANK returned no error byte")
+        msg = p[1:]
+        if msg and msg[-1] == 0:
+            msg = msg[:-1]
+        return p[0], msg.decode("ascii", errors="replace")
+
+    def read_bank_mem(self, bank: int, offset: int, size: int) -> bytes:
+        """DZRP 2.2.0: `size` bytes at `offset` of 8 KiB bank `bank` (0xFF =
+        the ROM). A remote serves what exists, so the reply may be shorter."""
+        return self._request(Cmd.READ_BANK_MEM,
+                             struct.pack("<BHH", bank & 0xFF, offset & 0xFFFF, size & 0xFFFF))
+
+    def write_bank_mem(self, bank: int, offset: int, data: bytes) -> None:
+        self._request(Cmd.WRITE_BANK_MEM, struct.pack("<BH", bank & 0xFF, offset & 0xFFFF) + data)
+
+    def set_border(self, colour: int) -> None:
+        """CMD_SET_BORDER (removed in 2.2.0)."""
+        self._request(Cmd.SET_BORDER, bytes([colour & 0xFF]))
+
+    def enable_break_on_interrupt(self, enable: bool) -> None:
+        """DZRP 2.2.0: stop at the entry of every accepted interrupt."""
+        self._request(Cmd.ENABLE_BREAK_ON_INTERRUPT, bytes([1 if enable else 0]))
+
+    def add_watchpoint(self, address: int, size: int, access: int, bank: int = 0) -> int:
+        """CMD_ADD_WATCHPOINT: `access` bit 0 = read, bit 1 = write; `bank` is
+        bank+1 as for breakpoints (0 = the 64K address). Returns the error byte
+        (0 = set)."""
+        p = self._request(Cmd.ADD_WATCHPOINT,
+                          struct.pack("<HBHB", address & 0xFFFF, bank & 0xFF,
+                                      size & 0xFFFF, access & 0xFF))
+        if len(p) != 1:
+            raise DZRPError(f"ADD_WATCHPOINT returned {len(p)} bytes")
+        return p[0]
+
+    def remove_watchpoint(self, address: int, size: int, access: int, bank: int = 0) -> None:
+        self._request(Cmd.REMOVE_WATCHPOINT,
+                      struct.pack("<HBHB", address & 0xFFFF, bank & 0xFF,
+                                  size & 0xFFFF, access & 0xFF))
+
+    def read_state(self) -> bytes:
+        """CMD_READ_STATE: the remote's opaque state blob (empty = refused)."""
+        return self._request(Cmd.READ_STATE)
+
+    def write_state(self, blob: bytes) -> None:
+        self._request(Cmd.WRITE_STATE, blob)
+
+    def get_sprites(self, index: int, count: int) -> bytes:
+        """5 attribute bytes per sprite."""
+        return self._request(Cmd.GET_SPRITES, bytes([index & 0xFF, count & 0xFF]))
+
+    def get_sprite_patterns(self, index: int, count: int) -> bytes:
+        """256 bytes per pattern."""
+        return self._request(Cmd.GET_SPRITE_PATTERNS, bytes([index & 0xFF, count & 0xFF]))
+
+    def get_sprites_palette(self, palette: int) -> bytes:
+        """256 two-byte entries."""
+        return self._request(Cmd.GET_SPRITES_PALETTE, bytes([palette & 0xFF]))
+
+    def get_sprites_clip_window_and_control(self) -> bytes:
+        """x1, x2, y1, y2, NR 0x15."""
+        return self._request(Cmd.GET_SPRITES_CLIP_WINDOW_AND_CONTROL)
+
     # ---------- notifications ---------------------------------------------
 
     def wait_for_pause(self, timeout: float = 30.0) -> PauseNtf:
-        """Block until a PAUSE notification arrives. Returns it."""
-        deadline = time.monotonic() + timeout
-        # First, serve any already-queued notification.
-        if self.notifications:
-            return self.notifications.pop(0)
-        if self._sock is None:
-            raise DZRPError("not connected")
-        old_to = self._sock.gettimeout()
-        try:
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise TimeoutError("wait_for_pause timed out")
-                self._sock.settimeout(remaining)
-                seqno, payload = self._recv_frame()
-                if seqno == 0:
-                    self._handle_notification(payload)
-                    if self.notifications:
-                        return self.notifications.pop(0)
-                # Stray response (shouldn't happen): silently drop.
-        finally:
+        """Block until a PAUSE notification arrives. Returns it.
+
+        Holds the lock for the whole wait (REVIEW H2): the socket is read by
+        one thread at a time, so a concurrent request cannot take this
+        notification's bytes as its response, nor this wait take its reply.
+        A response that arrives here anyway belongs to nobody and is an error,
+        never silently dropped.
+        """
+        with self._lock:
+            deadline = time.monotonic() + timeout
+            # First, serve any already-queued notification.
+            if self.notifications:
+                return self.notifications.pop(0)
+            if self._sock is None:
+                raise DZRPError("not connected")
+            old_to = self._sock.gettimeout()
             try:
-                self._sock.settimeout(old_to)
-            except Exception:
-                pass
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("wait_for_pause timed out")
+                    self._sock.settimeout(remaining)
+                    seqno, payload = self._recv_frame()
+                    if seqno == 0:
+                        self._handle_notification(payload)
+                        if self.notifications:
+                            return self.notifications.pop(0)
+                        continue
+                    raise DZRPError(f"a response (seqno {seqno}) arrived with no "
+                                    f"request outstanding")
+            finally:
+                if self._sock is not None:
+                    try:
+                        self._sock.settimeout(old_to)
+                    except Exception:
+                        pass
 
 
 # --------------------------------------------------------------------------- #

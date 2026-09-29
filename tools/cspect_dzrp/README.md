@@ -59,7 +59,7 @@ port via VM port-forwarding and pass `--host` to the scripts.
 
 | DZRP cmd                  | id  | Method                              |
 |---------------------------|-----|-------------------------------------|
-| `CMD_INIT`                | 1   | `client.init()`                     |
+| `CMD_INIT`                | 1   | `client.init(version, name)`        |
 | `CMD_CLOSE`               | 2   | `client.close()` (auto on exit)     |
 | `CMD_GET_REGISTERS`       | 3   | `client.get_registers()`            |
 | `CMD_SET_REGISTER`        | 4   | `client.set_register(name, value)`  |
@@ -75,6 +75,28 @@ port via VM port-forwarding and pass `--host` to the scripts.
 | `CMD_ADD_BREAKPOINT`      | 40  | `client.add_breakpoint(addr, bank)` |
 | `CMD_REMOVE_BREAKPOINT`   | 41  | `client.remove_breakpoint(id)`      |
 | `NTF_PAUSE`               | 1   | `client.wait_for_pause(timeout)`    |
+
+Added for jnext's own DZRP server (`--dzrp-port`, GH #12), which the regression
+rows drive with this client; the CSpect plugin may not serve all of them:
+
+| DZRP cmd                          | id  | Method                                          |
+|-----------------------------------|-----|-------------------------------------------------|
+| `CMD_WRITE_BANK`                  | 5   | `client.write_bank(bank, data)`                 |
+| `CMD_SET_BORDER`                  | 12  | `client.set_border(colour)`                     |
+| `CMD_LOOPBACK`                    | 15  | `client.loopback(data)`                         |
+| `CMD_GET_SPRITES_PALETTE`         | 16  | `client.get_sprites_palette(n)`                 |
+| `CMD_GET_SPRITES_CLIP_WINDOW_...` | 17  | `client.get_sprites_clip_window_and_control()`  |
+| `CMD_GET_SPRITES`                 | 18  | `client.get_sprites(index, count)`              |
+| `CMD_GET_SPRITE_PATTERNS`         | 19  | `client.get_sprite_patterns(index, count)`      |
+| `CMD_GET_SUPPORTED_COMMANDS`      | 24  | `client.get_supported_commands()`               |
+| `CMD_READ_BANK_MEM`               | 25  | `client.read_bank_mem(bank, offset, size)`      |
+| `CMD_WRITE_BANK_MEM`              | 26  | `client.write_bank_mem(bank, offset, data)`     |
+| `CMD_ENABLE_BREAK_ON_INTERRUPT`   | 39  | `client.enable_break_on_interrupt(bool)`        |
+| `CMD_ADD_WATCHPOINT`              | 42  | `client.add_watchpoint(addr, size, access, bank)` |
+| `CMD_REMOVE_WATCHPOINT`           | 43  | `client.remove_watchpoint(addr, size, access, bank)` |
+| `CMD_READ_STATE`                  | 50  | `client.read_state()`                           |
+| `CMD_WRITE_STATE`                 | 51  | `client.write_state(blob)`                      |
+| any                               | -   | `client.request(cmd_id, payload)` (raw)         |
 
 NextReg slot mapping (NR `$50..$57`) is **not** a separate command — it
 is appended to every `GET_REGISTERS` response. Use
@@ -162,12 +184,6 @@ The script:
 
 ## Known limitations
 
-* **No watchpoints.** The plugin supports them
-  (`CMD_ADD/REMOVE_WATCHPOINT`); we haven't exposed them yet — easy to
-  add (`addr:u16, size:u16, access:u8` where bit 0 = read, bit 1 = write).
-* **No bank write.** `CMD_WRITE_BANK` (8 KiB at a time) is unimplemented.
-* **No sprite/border/state commands** — these are useful only for full
-  debugger UIs, not for ground-truth diffing.
 * **Step-into/step-out aren't real.** As noted above, the plugin
   doesn't expose them; we approximate step-over by `CONTINUE
   tmp_bp1=PC+n`. For instructions whose length you don't know
@@ -179,7 +195,12 @@ The script:
 * **No multi-client support.** The plugin accepts one client at a
   time; if you re-connect, the previous breakpoint map is wiped.
 * **`PAUSE` notifications can race the `CONTINUE` response.** Our
-  `_request()` drains stray notifications while waiting for a response;
-  this is correct but means a hyperactive CPU can queue several pauses
-  before you call `wait_for_pause()`. Notifications are kept in
-  `client.notifications`.
+  `_request()` drains stray notifications while waiting for a response,
+  keeping them in `client.notifications`. `cont()` DISCARDS whatever is
+  still queued there before it sends (REVIEW H1): those stops are
+  superseded, and the `wait_for_pause()` after a `cont()` must see only
+  the stop that `cont()` caused. Take an earlier notification before the
+  next `cont()` if you want it.
+* **Threads.** One re-entrant lock covers every socket read and write:
+  requests, `wait_for_pause()` (for its whole wait) and `close()`
+  (idempotent) — REVIEW H2/H3. Frames from two threads never interleave.

@@ -57,6 +57,8 @@ class FakeCSpectServer:
         self.received: list[tuple[int, int, bytes]] = []
         self.thread = threading.Thread(target=self._serve, daemon=True)
         self.client_conn: socket.socket | None = None
+        # Seconds between CONTINUE's response and its PAUSE notification.
+        self.ntf_delay = 0.02
         # Canned register data — picked so each field is distinct.
         self.regs_payload = self._build_regs_payload()
 
@@ -157,7 +159,7 @@ class FakeCSpectServer:
             # Mirror real plugin: empty response now, PAUSE notification later.
             self._send(conn, dz.encode_response(seqno))
             # Tiny sleep so the client has time to enter wait_for_pause().
-            threading.Timer(0.02, lambda: self._send(
+            threading.Timer(self.ntf_delay, lambda: self._send(
                 conn,
                 dz.encode_pause_ntf(dz.BreakReason.BREAKPOINT_HIT,
                                     long_address=0x01ED,
@@ -177,6 +179,10 @@ class FakeCSpectServer:
             self._send(conn, dz.encode_response(seqno))
         elif cmd == c.CLOSE:
             self._send(conn, dz.encode_response(seqno))
+        elif cmd == c.ADD_WATCHPOINT:
+            self._send(conn, dz.encode_response(seqno, bytes([0])))
+        elif cmd == c.WRITE_BANK:
+            self._send(conn, dz.encode_response(seqno, b"\x00\x00"))
         else:
             # Unknown command: send empty response so client doesn't deadlock.
             self._send(conn, dz.encode_response(seqno))
@@ -303,6 +309,101 @@ class TestEndToEnd(unittest.TestCase):
         self.assertEqual(cmd, int(dz.Cmd.SET_REGISTER))
         self.assertEqual(payload[0], 0)  # PC reg num
         self.assertEqual(payload[1:3], b"\x00\x40")
+
+    # ---- the REVIEW.md H1-H3 fixes and CMD_INIT's payload (GH #12) --------
+
+    def test_init_sends_version_and_name(self) -> None:
+        self.cli.init()
+        self.cli.init(version=(2, 0, 0), name="x")
+        inits = [p for (_s, c, p) in self.srv.received if c == int(dz.Cmd.INIT)]
+        self.assertEqual(inits, [bytes([2, 2, 0]) + b"cspect_dzrp\x00",
+                                 bytes([2, 0, 0]) + b"x\x00"])
+
+    def test_h1_cont_discards_a_stale_notification(self) -> None:
+        # A stop that arrived earlier and was never waited for.
+        stale = dz.PauseNtf(dz.BreakReason.MANUAL_BREAK, 0x1234, "stale")
+        self.cli.init()
+        self.cli.notifications.append(stale)
+        self.cli.cont(tmp_bp1=0x01ED)
+        ntf = self.cli.wait_for_pause(timeout=2.0)
+        self.assertEqual((ntf.reason, ntf.long_address),
+                         (dz.BreakReason.BREAKPOINT_HIT, 0x01ED))
+
+    def test_h1_step_over_byte_waits_for_its_own_stop(self) -> None:
+        self.srv.ntf_delay = 0.2
+        self.cli.init()
+        self.cli.notifications.append(
+            dz.PauseNtf(dz.BreakReason.MANUAL_BREAK, 0x1234, "stale"))
+        t0 = time.monotonic()
+        ntf = self.cli.step_over_byte(1)
+        self.assertEqual(ntf.long_address, 0x01ED)
+        self.assertGreaterEqual(time.monotonic() - t0, 0.15)
+
+    def test_h2_a_request_during_wait_for_pause_waits_for_it(self) -> None:
+        self.srv.ntf_delay = 0.3
+        self.cli.init()
+        self.cli.cont()
+        got: dict = {}
+
+        def waiter() -> None:
+            try:
+                got["ntf"] = self.cli.wait_for_pause(timeout=2.0)
+                got["ntf_at"] = time.monotonic()
+            except Exception as e:  # noqa: BLE001
+                got["ntf_err"] = e
+
+        def reader() -> None:
+            try:
+                got["reg"] = self.cli.get_tbblue_reg(0x07)
+                got["reg_at"] = time.monotonic()
+            except Exception as e:  # noqa: BLE001
+                got["reg_err"] = e
+
+        a = threading.Thread(target=waiter)
+        a.start()
+        time.sleep(0.05)            # A is inside its wait, blocked on the socket
+        b = threading.Thread(target=reader)
+        b.start()
+        a.join(5)
+        b.join(5)
+        self.assertNotIn("ntf_err", got)
+        self.assertNotIn("reg_err", got)
+        self.assertEqual(got["ntf"].reason, dz.BreakReason.BREAKPOINT_HIT)
+        self.assertEqual(got["reg"], 0x07 ^ 0x55)
+        self.assertGreaterEqual(got["reg_at"], got["ntf_at"])
+
+    def test_h3_close_is_idempotent_and_waits_for_the_lock(self) -> None:
+        self.cli.init()
+        held = threading.Event()
+
+        def holder() -> None:
+            with self.cli._lock:
+                held.set()
+                time.sleep(0.3)
+
+        h = threading.Thread(target=holder)
+        h.start()
+        held.wait(2)
+        t0 = time.monotonic()
+        self.cli.close()
+        waited = time.monotonic() - t0
+        h.join(2)
+        self.cli.close()            # a second close is a no-op
+        time.sleep(0.1)
+        closes = [c for (_s, c, _p) in self.srv.received if c == int(dz.Cmd.CLOSE)]
+        self.assertGreaterEqual(waited, 0.25)
+        self.assertEqual(len(closes), 1)
+
+    def test_watchpoint_and_bank_payload_shapes(self) -> None:
+        self.cli.init()
+        self.assertEqual(self.cli.add_watchpoint(0x8000, 0x100, 2, bank=5), 0)
+        self.cli.read_bank_mem(14, 0x1FF0, 0x20)
+        err, msg = self.cli.write_bank(3, bytes(8192))
+        frames = {c: p for (_s, c, p) in self.srv.received}
+        self.assertEqual(frames[int(dz.Cmd.ADD_WATCHPOINT)], b"\x00\x80\x05\x00\x01\x02")
+        self.assertEqual(frames[int(dz.Cmd.READ_BANK_MEM)], b"\x0e\xf0\x1f\x20\x00")
+        self.assertEqual(len(frames[int(dz.Cmd.WRITE_BANK)]), 8193)
+        self.assertEqual((err, msg), (0, ""))
 
     def test_seqno_advances_and_skips_zero(self) -> None:
         self.cli.init()
