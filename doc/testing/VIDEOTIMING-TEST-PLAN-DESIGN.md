@@ -1020,6 +1020,7 @@ raw line from raw hc 125 on.
 | VT-GH290-38 | Target 87 enabled and armed; NR 0x22 = 0x00 (disable) at c + 3 | no fire — in time for the compare's enable | zxula_timing.vhd:574-583; zxnext.vhd:6752 |
 | VT-GH290-39 | The same disable at c + 4 | fires — the compare was registered on that edge with the old enable, so its scheduled event survives the reschedule; pre-fix dropped | zxula_timing.vhd:574-583 |
 | VT-GH290-40 | Machine b arms target 87, then `load_state` of a stream (line int off, clock past b's compare); one instruction, then a whole frame | no fire at all — a restore drops the replaced machine's live events (b's `irq_scheduler_` is not state) | — (jnext model: `line_int_pending_` hygiene) |
+| VT-GH290-41 | A machine with target 87 armed is re-initialised in place (hard), stepped without frames past that compare, then writes NR 0x22 = 0 | nothing fires — a hard init leaves no live event to keep | — (jnext model: `line_int_pending_` hygiene) |
 
 Fixture for 31-37: as VT-GH290-28/29 — target 87 compares at c = raw line 150, raw hc 380; the line int is configured at line 100; a write outside an instruction lands at the clock, which is moved to exactly c + delta. The three regions, for a change visible from cycle e: a compare at c ≤ e − 4 reads old enable and old target (an event already scheduled for it survives the reschedule); e − 3 ≤ c ≤ e reads the NEW enable with the OLD target; c ≥ e + 1 reads both new. The Copper side is COP-GH290-06/07.
 

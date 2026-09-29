@@ -3075,7 +3075,11 @@ static void section16_gh290_cvc_reload() {
             ok = ok && b.load_state(r);
             b.execute_single_instruction();       // no begin_new_frame() yet
             after_step = b.line_int_fire_count();
-            b.run_frame();                        // its reschedule, then a whole frame
+            // Its begin_new_frame() reschedule, then the whole restored frame.
+            // Through run_to(): b is paused by the debugger, and a bare
+            // run_frame() on a paused machine returns without running.
+            ok = ok && run_to(b, b.current_frame_cycle()
+                                     + b.timing().master_cycles_per_frame);
             after_frame = b.line_int_fire_count();
         }
         check("VT-GH290-40",
@@ -3084,6 +3088,38 @@ static void section16_gh290_cvc_reload() {
               "reschedule (the restored line interrupt is off)",
               ok && after_step == 0 && after_frame == 0,
               gw("after_step", long(after_step), 0) + gw("after_frame", long(after_frame), 0));
+    }
+
+    // VT-GH290-41 — …and so does an in-place hard init (the loaders' path),
+    // which empties irq_scheduler_: a machine that had target 87 armed is
+    // re-initialised, stepped without frames past where that compare was, and
+    // then writes NR 0x22 = 0. Nothing may fire: there is no live event, so
+    // none can be "kept".
+    {
+        Emulator emu;
+        bool ok = gh290::build(emu);
+        uint64_t n = 99;
+        if (ok) {
+            const uint64_t f1 = emu.current_frame_cycle();
+            const uint64_t c  = at(emu, f1, 150, 380);
+            ok = run_to(emu, at(emu, f1, 100, 200));
+            g163::nr_write(emu, 0x23, 87);
+            g163::nr_write(emu, 0x22, 0x02);     // armed at c
+            EmulatorConfig cfg;
+            cfg.type = MachineType::ZXN_ISSUE2;
+            cfg.rewind_buffer_frames = 0;
+            ok = ok && emu.init(cfg);
+            g163::install_jr_self_loop(emu);
+            emu.reset_line_int_fire_count();
+            ok = ok && g163::step_until_master_cycle(emu, c + 1824);
+            g163::nr_write(emu, 0x22, 0x00);
+            ok = ok && g163::step_until_master_cycle(emu, emu.clock().get() + 1824);
+            n = emu.line_int_fire_count();
+        }
+        check("VT-GH290-41",
+              "an in-place hard init leaves no line interrupt live: a later "
+              "reschedule has nothing to keep, and nothing fires",
+              ok && n == 0, gw("fires", long(n), 0));
     }
 }
 
@@ -3146,7 +3182,7 @@ int main() {
     std::printf("  Section 15: VT-S15-GH22-IN-DISPLAY   — done (2 live)\n");
 
     section16_gh290_cvc_reload();
-    std::printf("  Section 16: VT-S16-GH290-CVC-RELOAD — done (40 live)\n");
+    std::printf("  Section 16: VT-S16-GH290-CVC-RELOAD — done (41 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

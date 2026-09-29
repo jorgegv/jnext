@@ -40,7 +40,7 @@ mentions them, so a test can no longer be absent from this document.
 | Input                                      |   379 |  379 |    0 |    0 |       0 |          0 |
 | Rewind                                     |   308 |  308 |    0 |    0 |       0 |          0 |
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
-| VideoTiming                                |   104 |  104 |    0 |    0 |       0 |          0 |
+| VideoTiming                                |   105 |  105 |    0 |    0 |       0 |          0 |
 | Contention                                 |   160 |  160 |    0 |    0 |       0 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    88 |   87 |    0 |    1 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    30 |   24 |    0 |    6 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5395 | 5384 |    0 |   11 |       0 |          0 |
+| **Total**                                  |  5396 | 5385 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **5395**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5080**. Rows the 121 suites declared in `test/unit-tests.conf` run live: **10776**.
+Rows the sections above carry: **5396**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5081**. Rows the 121 suites declared in `test/unit-tests.conf` run live: **10777**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -3606,7 +3606,8 @@ Notes and rationale: [VIDEOTIMING-TEST-PLAN-DESIGN.md](VIDEOTIMING-TEST-PLAN-DES
 | VT-GH290-37 | OUT (C),A retargeting NR 0x23 ten cycles AFTER the compare, in the same instruction window: the compare had already fired on the old target (raw 150), then the new one fires at raw 163 (zxnext.vhd:4739-4777; zxula_timing.vhd:563-583) | zxnext.vhd:4739-4777, zxula_timing.vhd:563-583 | pass | test/videotiming/videotiming_test.cpp:3017 |
 | VT-GH290-38 | a line-interrupt DISABLE landing 3 cycles into the compare pixel stops that compare: no fire (zxula_timing.vhd:574-583; zxnext.vhd:6752) | zxula_timing.vhd:574-583, zxnext.vhd:6752 | pass | test/videotiming/videotiming_test.cpp:3035 |
 | VT-GH290-39 | …one landing on the edge the compare is registered on is too late: the compare already scheduled keeps its event and fires (zxula_timing.vhd:574-583) | zxula_timing.vhd:574-583 | pass | test/videotiming/videotiming_test.cpp:3043 |
-| VT-GH290-40 | a restore drops the replaced machine's pending line interrupt: no fire before the restored frame begins, nor after its first reschedule (the restored line interrupt is off) | — | pass | test/videotiming/videotiming_test.cpp:3081 |
+| VT-GH290-40 | a restore drops the replaced machine's pending line interrupt: no fire before the restored frame begins, nor after its first reschedule (the restored line interrupt is off) | — | pass | test/videotiming/videotiming_test.cpp:3085 |
+| VT-GH290-41 | an in-place hard init leaves no line interrupt live: a later reschedule has nothing to keep, and nothing fires | — | pass | test/videotiming/videotiming_test.cpp:3119 |
 | VT-01 | 48K hc_max()=447, vc_max()=311 after init(ZX48K) (zxula_timing.vhd:262,270) | zxula_timing.vhd:262,270 | pass | test/videotiming/videotiming_test.cpp:115 |
 | VT-02 | 128K hc_max()=455, vc_max()=310 after init(ZX128K) (zxula_timing.vhd:196,204) | zxula_timing.vhd:196,204 | pass | test/videotiming/videotiming_test.cpp:123 |
 | VT-04 | 128K display_origin() = {136, 64} (zxula_timing.vhd:195,203) | zxula_timing.vhd:195,203 | pass | test/videotiming/videotiming_test.cpp:145 |
