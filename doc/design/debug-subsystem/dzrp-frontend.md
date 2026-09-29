@@ -110,7 +110,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP-4** | tier 2 (the commands only an emulator can serve) | **done** |
 | **WP-5** | loop owners + CLI | **done** (§14) |
 | **WP-6** | validation — **including the `tools/cspect_dzrp/cspect_dzrp.py` H1-H3 fixes** (owner decision §1.3 item 25: part of this package, not a separate change), and the V-LAT paused-cadence measurement (§11 item 6) | **done (automated part)** (§14, §15). **Pending on the OWNER:** the manual DeZog 3.7.4 / VS Code session and the V-LAT measurement (§7.1) — the checklist is `doc/testing/DZRP-VALIDATION.md` §3 |
-| **WP-7** | docs | in review (§15) |
+| **WP-7** | docs | **done** (§15) |
 
 WP-3, WP-4 and WP-5 may run in parallel after WP-2. Depends on: B0 (landed), B, T.
 
