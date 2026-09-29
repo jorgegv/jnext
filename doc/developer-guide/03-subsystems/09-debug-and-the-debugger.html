@@ -2483,8 +2483,9 @@ floating-bus latch) and the eight MMU pages.</p>
 <p>The three protocol servers the epic plans — DZRP, ZRCP and GDB RSP — share one
 transport, in <strong><code>src/remote/</code></strong> (target <code>jnext_remote</code>). It has no toolkit
 dependency and is built in every configuration. It carries no protocol: it
-never parses a byte. The first server on it is DZRP (<code>--dzrp-port</code>, 3.10); the
-loop owners open it through <code>src/platform/debug_servers.*</code>.</p>
+never parses a byte. The first server on it is DZRP (<code>--dzrp-port</code>, 3.10), the
+second ZRCP (<code>--zrcp-port</code>, <code>src/remote/zrcp/</code>, GH #280); the loop owners open
+them through <code>src/platform/debug_servers.*</code>.</p>
 <p><code>remote::Server</code> is a <code>jnext::dbg::Service</code>, so <code>pump()</code> drives it: each
 <code>service_once(wait_ms)</code> accepts, reads, asks the adapter's <code>Protocol</code> to execute
 <strong>at most one</strong> complete command, and writes — repeated until a command ran or
@@ -2519,7 +2520,8 @@ and reads. <code>remote_transport_test</code> pins the transport over the fake, 
 real socket on <code>127.0.0.1</code> port 0, and through <code>pump()</code>.</p>
 <p><code>--debug-listen-address ADDR</code> (numeric only, default <code>127.0.0.1</code>) is validated
 in <code>main.cpp</code> and held in <code>EmulatorConfig::debug_listen_address</code> for the servers
-to bind; it is refused unless a server port (<code>--dzrp-port</code>) is given too. The design, and the reason behind each rule above, is
+to bind; it is refused unless a server port (<code>--dzrp-port</code> or <code>--zrcp-port</code>) is
+given too. The design, and the reason behind each rule above, is
 <code>doc/design/debug-subsystem/transport.md</code>.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
 <p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,

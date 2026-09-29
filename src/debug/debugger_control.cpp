@@ -131,6 +131,16 @@ Result Debugger::step_into(ClientId by) {
 
     if (!impl_->ds().paused()) impl_->ds().pause();
 
+    // REQ-zrcp-05 (GH #280 finding) — ARM BEFORE THE STEP. `arm()` clears the
+    // stop evidence of the stop the machine is leaving (the event-stop latch,
+    // `matched[]`), and the magic / legacy-watch latches go with it here for
+    // the same reason. Armed AFTER the step, as B1 did, it also cleared what
+    // THIS step's own boundary delivered — a watch the stepped instruction
+    // hit, the magic opcode it executed — so `state()` said `Step` for a stop
+    // an event caused, and a ZRCP `run n` could not see it.
+    impl_->arm(PauseReason::Kind::Step, by);
+    impl_->ds().clear_stop_evidence();
+
     // GH #207 — debugger_step(), not the raw execute_single_instruction()
     // primitive: while the debugger holds the machine nothing else calls
     // run_frame(), so the Step has to turn frames over too, and a Step at a HALT
@@ -138,7 +148,12 @@ Result Debugger::step_into(ClientId by) {
     impl_->emu.debugger_step();
     impl_->ds().pause();
 
-    impl_->arm(PauseReason::Kind::Step, by);
+    // The step's OWN stop, if it had one, is the reason: a subscription's
+    // `Stop`, the magic opcode or a legacy watchpoint, each latched during the
+    // step above. `state()` reads those only when no verb is armed, so the
+    // armed `Step` steps aside — "pause_reason reflects them" (REQ-zrcp-05).
+    if (impl_->event_stop_latched || impl_->ds().magic_stop() || impl_->ds().watch_stop())
+        impl_->armed_reason = PauseReason::Kind::None;
     return Result::Ok;
 }
 

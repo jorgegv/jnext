@@ -4391,6 +4391,46 @@ int main() {
         check("CTL-03-03", "a second step_into() lands on the CALL",
               pc_of(emu) == PROG + 2, "PC=" + hex(pc_of(emu)));
 
+        // REQ-zrcp-05 (GH #280): an event the STEPPED instruction raises is
+        // the step's reason. `step_into()` used to arm `Step` after the step,
+        // which cleared the very latch the step's boundary had just written.
+        {
+            Emulator emu2;
+            build_armed(emu2, {0x3E, 0x07, 0x32, 0x00, 0x90, 0xED, 0xFF, 0x00});
+            Debugger   dbg2(emu2);
+            const auto a = dbg2.attach(client("A")).value;
+            jnext::dbg::Subscription w;
+            w.kind      = jnext::dbg::EventKind::Mem;
+            w.filter.lo = w.filter.hi = 0x9000;
+            w.access    = jnext::dbg::Access::Write;
+            w.action    = jnext::dbg::Action::Stop;
+            const auto wid = dbg2.subscribe(a, w).value;
+            dbg2.pause(a);
+            dbg2.step_into(a);                  // LD A,7: nothing watched
+            const auto plain = dbg2.state().pause_reason;
+            dbg2.step_into(a);                  // LD (9000),A: the watch
+            const auto hit = dbg2.state().pause_reason;
+            check("CTL-03-04", "REQ-zrcp-05: a step whose instruction hits a Stop watch reports "
+                               "that Watch (id, write, 0x9000) — and a step that hits nothing "
+                               "still reports Step",
+                  plain.kind == PauseReason::Kind::Step &&
+                      hit.kind == PauseReason::Kind::Watch && hit.id == wid &&
+                      hit.addr == 0x9000 && jnext::dbg::has_write(hit.access) &&
+                      pc_of(emu2) == PROG + 5,
+                  "hit kind=" + std::to_string(static_cast<int>(hit.kind)));
+            dbg2.set_magic_breakpoint(true);
+            dbg2.step_into(a);                  // ED FF
+            const auto magic = dbg2.state().pause_reason;
+            dbg2.step_into(a);                  // NOP after it
+            const auto after = dbg2.state().pause_reason;
+            check("CTL-03-05", "REQ-zrcp-05: a step over the magic opcode reports Magic "
+                               "(unowned), and the next step leaves that stop: Step again",
+                  magic.kind == PauseReason::Kind::Magic && magic.by == jnext::dbg::CLIENT_NONE &&
+                      after.kind == PauseReason::Kind::Step && pc_of(emu2) == PROG + 8,
+                  "magic kind=" + std::to_string(static_cast<int>(magic.kind)) + " after=" +
+                      std::to_string(static_cast<int>(after.kind)));
+        }
+
         // Now at the CALL: step_over must not enter SUB.
         check("CTL-04-01", "step_over() at a CALL is accepted",
               dbg.step_over(1) == Result::Ok);

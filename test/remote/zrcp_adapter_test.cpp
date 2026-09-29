@@ -1,0 +1,1741 @@
+// jnext::remote::zrcp — the ZEsarUX remote command protocol adapter (GH #280,
+// epic #276 package Z). The fake-transport unit suite of zrcp-frontend.md
+// §6.2 ("unit tier").
+//
+// WHAT IS UNDER TEST. `ZrcpServer` (src/remote/zrcp/zrcp_server.*) and its
+// formatters (src/remote/zrcp/zrcp_format.*), run inside the PRODUCTION
+// `remote::Server` over T's in-memory `FakeListener` / `FakePeer`, on a real
+// `Emulator` + `Debugger`, driven through `Debugger::pump()` exactly as a loop
+// owner drives it. Only the kernel is replaced. Every row asserts BYTES ON THE
+// WIRE and, where a command touches the machine, MACHINE STATE — the #203
+// shape: a stop is proved by the machine being stopped, where it should be.
+//
+//   ZRCP-FR-*    framing (WP-1): the welcome, the prompt, the blank line,
+//                unknown / alias / extra arguments, set-cr, CRLF, one command
+//                per pass, split delivery, the overlong line.
+//   ZRCP-TAB-*   the command table: the census against ZEsarUX 12.0's `ls`,
+//                the unsupported and declined replies, help, ls.
+//   ZRCP-SES-*   the session: attach on connect, quit, hang-up, the second
+//                client, a pause that is not this client's.
+//   ZRCP-INFO-*  the information commands and the debug-settings byte.
+//   ZRCP-FMT-*   the formatters against the [T] bytes and DeZog's offsets.
+//   ZRCP-REG-*, ZRCP-MEM-*, ZRCP-DIS-*, ZRCP-PG-*, ZRCP-STK-*, ZRCP-TIME-*,
+//   ZRCP-TBB-*, ZRCP-PORT-*  WP-2's inspection commands on a live machine.
+//   ZRCP-CTL-*, ZRCP-RUN-*, ZRCP-RST-*  WP-3: cpu-step mode, the steps, the
+//                run state machine (§4.3), resets (§4.6), NMI.
+//
+// THE ORACLE. The byte strings quoted as [T1]..[T5] are verbatim replies of
+// ZEsarUX 12.0 recorded by the design's socket client (zrcp-frontend.md, head
+// of file); the register-line offsets are DeZog 3.7.4's
+// `decodezesaruxdata.ts`; the command census is ZEsarUX 12.0's own `ls`.
+//
+// EVERY WAIT IS BOUNDED. No row sleeps: `run n`'s slices run on a fake clock,
+// every pump loop has an iteration cap, and T's fake is finite.
+//
+// Run: ./build/test/zrcp_adapter_test
+
+#include "remote/dzrp/dzrp_server.h"
+#include "remote/fake_transport.h"
+#include "remote/transport.h"
+#include "remote/zrcp/zrcp_format.h"
+#include "remote/zrcp/zrcp_server.h"
+
+#include "core/emulator.h"
+#include "core/emulator_config.h"
+#include "core/log.h"
+#include "core/rzx.h"
+#include "debug/debugger.h"
+#include "version.h"
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstdlib>
+#include <cstdint>
+#include <cstdio>
+#include <memory>
+#include <set>
+#include <string>
+#include <vector>
+
+#include "../row_id.h"
+
+using jnext::dbg::ClientKind;
+using jnext::dbg::Debugger;
+using jnext::dbg::PauseReason;
+using jnext::dbg::PumpBudget;
+using jnext::dbg::Result;
+using jnext::remote::FakeListener;
+using jnext::remote::FakePeer;
+using namespace jnext::remote::zrcp;
+using SteadyClock = std::chrono::steady_clock;
+
+// ── Tiny test harness (matches dzrp_adapter_test) ──────────────────────────
+
+static int g_total = 0;
+static int g_pass  = 0;
+static int g_fail  = 0;
+
+static void check(const char* id, const char* desc, bool cond, const std::string& detail = {}) {
+    report_row_id(id);
+    ++g_total;
+    if (cond) {
+        ++g_pass;
+    } else {
+        ++g_fail;
+        std::printf("  FAIL %s: %s%s%s\n", id, desc, detail.empty() ? "" : " — ",
+                    detail.c_str());
+    }
+}
+
+/// A byte string as a C literal would spell it, for a FAIL line.
+static std::string esc(const std::string& s, std::size_t max = 240) {
+    std::string out;
+    for (std::size_t i = 0; i < s.size() && i < max; ++i) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        if (c == '\n') out += "\\n";
+        else if (c == '\r') out += "\\r";
+        else if (c < 32 || c > 126) {
+            char b[8];
+            std::snprintf(b, sizeof(b), "\\x%02X", c);
+            out += b;
+        } else out.push_back(static_cast<char>(c));
+    }
+    if (s.size() > max) out += "...";
+    return out;
+}
+
+static bool starts_with(const std::string& s, const std::string& p) {
+    return s.size() >= p.size() && s.compare(0, p.size(), p) == 0;
+}
+static bool ends_with(const std::string& s, const std::string& p) {
+    return s.size() >= p.size() && s.compare(s.size() - p.size(), p.size(), p) == 0;
+}
+
+// ── The fake clock `run n` slices by ───────────────────────────────────────
+
+static SteadyClock::time_point g_now = SteadyClock::time_point{} + std::chrono::hours(1);
+/// When set, every read of the clock advances it 1 ms, so a 2 ms slice ends
+/// after a couple of steps — a parked `run n` without any real timing.
+static bool g_clock_ticks = false;
+static SteadyClock::time_point fake_clock() {
+    if (g_clock_ticks) g_now += std::chrono::milliseconds(1);
+    return g_now;
+}
+
+// ── The rig: a real machine, the backend, the adapter over T's fake ────────
+
+constexpr std::uint16_t PROG = 0x8000;
+
+struct Rig {
+    Emulator                    emu;
+    std::unique_ptr<Debugger>   dbg;
+    std::unique_ptr<ZrcpServer> zrcp;
+    FakeListener*               lsn = nullptr;
+
+    explicit Rig(MachineType type = MachineType::ZX48K) {
+        EmulatorConfig cfg;
+        cfg.type = type;
+        emu.init(cfg);
+        // Parked on `JR $` at 0x8000, interrupts off — the backend suite's
+        // idiom: frames run, nothing moves.
+        load({0x18, 0xFE});
+        dbg  = std::make_unique<Debugger>(emu);
+        zrcp = std::make_unique<ZrcpServer>(*dbg, fake_clock);
+        auto l = std::make_unique<FakeListener>();
+        lsn    = l.get();
+        zrcp->server().open(std::move(l), "127.0.0.1", 0);
+        dbg->add_service(zrcp->server());
+    }
+
+    ~Rig() {
+        zrcp.reset();  // before the Debugger it unregisters from
+        dbg.reset();
+    }
+
+    /// A program at PROG, PC there, SP 0xFF00, interrupts off.
+    void load(const std::vector<std::uint8_t>& code, std::uint16_t at = PROG) {
+        for (std::size_t i = 0; i < code.size(); ++i)
+            emu.mmu().write(static_cast<std::uint16_t>(at + i), code[i]);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC   = at;
+        r.SP   = 0xFF00;
+        r.IFF1 = 0;
+        r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+    }
+
+    std::uint16_t pc() { return emu.cpu().get_registers().PC; }
+
+    /// One loop-owner tick: the frame batch (nothing if paused), then the pump
+    /// with T's budget for the state it finds (debug_servers.cpp's rule).
+    void tick() {
+        if (!dbg->state().paused) emu.run_frame();
+        pump();
+    }
+    void pump() {
+        if (dbg->state().paused)
+            dbg->pump(PumpBudget{0, 2, 10});
+        else
+            dbg->pump(PumpBudget{});
+    }
+};
+
+/// One ZRCP client.
+struct Zc {
+    Rig&                      rig;
+    std::shared_ptr<FakePeer> p;
+    std::string               rx;
+    std::string               welcome;
+
+    explicit Zc(Rig& r) : rig(r) {
+        p = rig.lsn->connect();
+        rig.pump();
+        welcome = p->take();
+    }
+
+    static bool has_prompt(const std::string& s) {
+        return ends_with(s, PROMPT) || ends_with(s, PROMPT_STEP);
+    }
+
+    /// Pump (no frames) until a prompt ends what arrived, or `max` pumps.
+    std::string wait(int max = 16) {
+        for (int i = 0; i < max && !has_prompt(rx); ++i) {
+            rig.pump();
+            rx += p->take();
+        }
+        std::string out;
+        out.swap(rx);
+        return out;
+    }
+
+    /// Tick (frames + pump) until a prompt, or `max` ticks.
+    std::string wait_ticks(int max = 16) {
+        for (int i = 0; i < max && !has_prompt(rx); ++i) {
+            rig.tick();
+            rx += p->take();
+        }
+        std::string out;
+        out.swap(rx);
+        return out;
+    }
+
+    /// Send one line and wait for its reply.
+    std::string cmd(const std::string& line, int max = 16) {
+        p->send(line + "\n");
+        return wait(max);
+    }
+
+    /// Send, pump once, and return exactly what came back (no waiting).
+    std::string send_once(const std::string& bytes) {
+        p->send(bytes);
+        rig.pump();
+        return p->take();
+    }
+};
+
+static std::string reply_of(const std::string& body, bool step = false) {
+    return body + "\n" + (step ? PROMPT_STEP : PROMPT);
+}
+
+// ===========================================================================
+// ZRCP-FR — framing (WP-1)
+// ===========================================================================
+
+static void framing_rows() {
+    {
+        Rig rig;
+        Zc  c(rig);
+        check("ZRCP-FR-01", "on connect the client is greeted with ZEsarUX's welcome and the "
+                            "prompt, byte for byte ([T1]), and attached to the backend",
+              c.welcome ==
+                      "Welcome to ZEsarUX remote command protocol (ZRCP)\nWrite help for "
+                      "available commands\n\ncommand> " &&
+                  rig.dbg->attached(),
+              esc(c.welcome));
+
+        check("ZRCP-FR-02", "a blank line is the empty command: \"\\ncommand> \" ([T5])",
+              c.cmd("") == "\ncommand> ");
+
+        check("ZRCP-FR-03", "an unknown command answers \"Unknown command\" ([T1])",
+              c.cmd("foo-unknown-command") == "Unknown command\ncommand> ");
+
+        const std::string lead  = c.cmd("   get-registers   ");
+        const std::string upper = c.cmd("GET-REGISTERS");
+        check("ZRCP-FR-04", "names are exact: leading whitespace and upper case are unknown "
+                            "commands ([T5])",
+              lead == "Unknown command\ncommand> " && upper == "Unknown command\ncommand> ",
+              esc(lead) + " / " + esc(upper));
+
+        const std::string gr    = c.cmd("gr");
+        const std::string full  = c.cmd("get-registers");
+        const std::string extra = c.cmd("get-registers foo bar");
+        check("ZRCP-FR-05", "the alias gr answers as get-registers, and extra arguments are "
+                            "ignored ([T5])",
+              starts_with(gr, "PC=8000 ") && gr == full && extra == full, esc(gr));
+
+        const std::string crlf = c.cmd("get-version\r");
+        check("ZRCP-FR-06", "a telnet CRLF line is one command: the name ends at the CR",
+              crlf == reply_of(std::string("12.0-jnext-") + JNEXT_VERSION_STRING), esc(crlf));
+
+        const std::string cr_on = c.cmd("set-cr");
+        const std::string after = c.cmd("get-version");
+        const std::string two   = c.cmd("disassemble 0 2");
+        check("ZRCP-FR-07", "set-cr: every later line feed of this session is preceded by a "
+                            "carriage return, prompt included",
+              cr_on == "\r\ncommand> " &&
+                  after == std::string("12.0-jnext-") + JNEXT_VERSION_STRING + "\r\ncommand> " &&
+                  two.find('\n') != std::string::npos &&
+                  std::count(two.begin(), two.end(), '\n') ==
+                      std::count(two.begin(), two.end(), '\r'),
+              esc(after) + " / " + esc(two));
+    }
+    {
+        // ONE COMMAND PER PASS: a running machine's pump (PumpBudget{}) asks
+        // the service once, so two pipelined commands take two pumps.
+        Rig rig;
+        Zc  c(rig);
+        const std::string first  = c.send_once("about\nget-version\n");
+        rig.pump();
+        const std::string second = c.p->take();
+        check("ZRCP-FR-08", "two commands in one send are answered in order, one per service "
+                            "pass (the running budget asks once per pump)",
+              first == "jnext ZRCP remote command protocol\ncommand> " &&
+                  second == reply_of(std::string("12.0-jnext-") + JNEXT_VERSION_STRING),
+              esc(first) + " / " + esc(second));
+    }
+    {
+        // SPLIT DELIVERY: one byte per pump; the command runs once, complete.
+        Rig rig;
+        Zc  c(rig);
+        const std::string line  = "about\n";
+        int               early = 0;
+        for (std::size_t i = 0; i + 1 < line.size(); ++i)
+            if (!c.send_once(line.substr(i, 1)).empty()) ++early;
+        const std::string done = c.send_once("\n");
+        check("ZRCP-FR-09", "a command delivered one byte per pump is answered once, when its "
+                            "newline arrives",
+              early == 0 && done == "jnext ZRCP remote command protocol\ncommand> ", esc(done));
+    }
+    {
+        // AN OVERLONG LINE is refused, the rest of it up to the newline
+        // discarded, and the session goes on.
+        Rig rig;
+        Zc  c(rig);
+        c.p->send(std::string(600 * 1024, 'x'));
+        const std::string refused = c.wait(64);
+        c.p->send(std::string(1000, 'y') + "\n");
+        const std::string after = c.cmd("about");
+        check("ZRCP-FR-10", "a line past 512 KiB with no newline is answered \"Error. Command "
+                            "line too long\", discarded to its newline, and the next command is "
+                            "served",
+              refused == "Error. Command line too long\ncommand> " &&
+                  after == "jnext ZRCP remote command protocol\ncommand> " &&
+                  !c.p->closed_by_server(),
+              esc(refused) + " / " + esc(after));
+    }
+}
+
+// ===========================================================================
+// ZRCP-TAB — the command table (WP-1)
+// ===========================================================================
+
+/// ZEsarUX 12.0's `ls` ([T1]): all 125 command names.
+static const char* const kZesaruxLs[] = {
+    "about", "assemble", "ayplayer", "clear-membreakpoints", "close-all-menus",
+    "cpu-code-coverage", "cpu-history", "cpu-panic", "cpu-step", "cpu-step-over",
+    "cpu-transaction-log", "debug-analyze-command", "disable-breakpoint",
+    "disable-breakpoints", "disassemble", "dump-nested-functions", "dump-scanline-buffer",
+    "enable-breakpoint", "enable-breakpoints", "enter-cpu-step",
+    "esxdoshandler-get-open-files", "evaluate", "exit-cpu-step", "exit-emulator",
+    "extended-stack", "find-label", "generate-nmi", "get-audio-buffer-info",
+    "get-breakpoints", "get-breakpointsactions", "get-breakpoints-optimized",
+    "get-buildnumber", "get-cpu-core-name", "get-cpu-frequency", "get-cpu-turbo-speed",
+    "get-crc32", "get-current-machine", "get-current-memory-zone", "get-debug-settings",
+    "get-io-ports", "get-membreakpoints", "get-machines", "get-memory-pages",
+    "get-memory-zones", "get-ocr", "get-os", "get-paging-state", "get-registers",
+    "get-snapshot", "get-stack-backtrace", "get-text-overlay", "get-tstates",
+    "get-tstates-partial", "get-ui-io-ports", "get-version", "get-video-driver",
+    "get-visualmem-written-dump", "get-visualmem-read-dump", "get-visualmem-opcode-dump",
+    "hard-reset-cpu", "help", "hexdump", "hexdump-internal", "ifrom-press-button",
+    "kartusho-press-button", "load-binary", "load-source-code", "ls", "mmc-reload", "noop",
+    "open-menu", "print-error", "print-footer", "put-snapshot", "qdos-get-open-files", "quit",
+    "read-memory", "realtape-open", "reset-cpu", "reset-tstates-partial", "run",
+    "save-binary", "save-binary-internal", "save-screen", "send-keys-ascii",
+    "send-keys-event", "send-keys-string", "set-breakpoint", "set-breakpointaction",
+    "set-cr", "set-debug-settings", "set-ui-io-ports", "set-machine", "set-membreakpoint",
+    "set-memory-zone", "set-register", "set-text-brightness", "set-verbose-level",
+    "set-window-zoom", "smartload", "snapshot-load", "snapshot-save",
+    "snapshot-inram-get-index", "snapshot-inram-load", "speech-empty-fifo", "speech-send",
+    "tbblue-get-clipwindow", "tbblue-set-clipwindow", "tbblue-get-palette",
+    "tbblue-get-pattern", "tbblue-get-register", "tbblue-get-sprite", "tbblue-set-palette",
+    "tbblue-set-pattern", "tbblue-set-register", "tbblue-set-sprite", "tsconf-get-af-port",
+    "tsconf-set-af-port", "view-basic", "write-memory", "write-memory-raw", "write-port",
+    "zeng-is-master", "zeng-online", "zxevo-get-nvram",
+};
+
+/// Served by the design (§2) and not yet by this build: breakpoints and
+/// conditions (WP-4), history / stack / coverage / load / bookmarks (WP-5).
+/// They answer `Unknown command` until their package adds their rows; this
+/// list shrinks to nothing as WP-4/WP-5 land.
+static const char* const kPendingWp45[] = {
+    "clear-membreakpoints", "cpu-code-coverage", "cpu-history", "disable-breakpoint",
+    "disable-breakpoints", "enable-breakpoint", "enable-breakpoints", "evaluate",
+    "extended-stack", "get-breakpoints", "get-breakpointsactions", "get-membreakpoints",
+    "load-binary", "save-binary", "set-breakpoint", "set-breakpointaction",
+    "set-membreakpoint", "smartload", "snapshot-load", "snapshot-save",
+};
+
+static void table_rows() {
+    const auto table = ZrcpServer::command_table();
+    std::set<std::string> ls(std::begin(kZesaruxLs), std::end(kZesaruxLs));
+    std::set<std::string> pending(std::begin(kPendingWp45), std::end(kPendingWp45));
+    std::set<std::string> rows;
+    int served = 0, declined = 0, unsupported = 0;
+    std::string stray;
+    for (const auto& t : table) {
+        rows.insert(t.name);
+        if (!ls.count(t.name)) stray += std::string(" ") + t.name;
+        served += t.cls == CommandClass::Served;
+        declined += t.cls == CommandClass::Declined;
+        unsupported += t.cls == CommandClass::Unsupported;
+    }
+    std::string missing;
+    for (const auto& n : ls)
+        if (!rows.count(n) && !pending.count(n)) missing += " " + n;
+    std::string both;
+    for (const auto& n : pending)
+        if (rows.count(n) || !ls.count(n)) both += " " + n;
+    check("ZRCP-TAB-01", "census against ZEsarUX 12.0's ls (125 names): every name is a table "
+                         "row or one of the 20 WP-4/5 names, no row is foreign; 47 served, 1 "
+                         "declined (exit-emulator), 57 unsupported — §2's 67 / 1 / 57 less the "
+                         "20 pending",
+              ls.size() == 125 && pending.size() == 20 && missing.empty() && stray.empty() &&
+                  both.empty() && served == 47 && declined == 1 && unsupported == 57,
+              "missing:" + missing + " stray:" + stray + " both:" + both + " served=" +
+                  std::to_string(served) + " unsupported=" + std::to_string(unsupported));
+
+    Rig rig;
+    Zc  c(rig);
+    const std::string u     = c.cmd("get-io-ports");
+    const std::string ua    = c.cmd("a 8000H NOP");
+    const std::string pend  = c.cmd("set-breakpoint 1 PC=0");
+    check("ZRCP-TAB-02", "an unsupported ZEsarUX command — by name or by ZEsarUX's alias — "
+                         "answers \"Error. Unsupported command in jnext: <name>\"; a pending "
+                         "WP-4 command is still unknown",
+              u == "Error. Unsupported command in jnext: get-io-ports\ncommand> " &&
+                  ua == "Error. Unsupported command in jnext: assemble\ncommand> " &&
+                  pend == "Unknown command\ncommand> ",
+              esc(u) + " / " + esc(ua) + " / " + esc(pend));
+
+    const std::string d = c.cmd("exit-emulator");
+    const std::string alive = c.cmd("noop");
+    check("ZRCP-TAB-03", "the declined exit-emulator answers the error and ends nothing: the "
+                         "session serves on and nothing asked the process to exit",
+              d == "Error. Unsupported command in jnext: exit-emulator\ncommand> " &&
+                  alive == "\ncommand> " && !c.p->closed_by_server(),
+              esc(d));
+
+    const std::string help = c.cmd("help");
+    check("ZRCP-TAB-04", "help lists the served and declined commands with a description and "
+                         "no unsupported one",
+              starts_with(help, "Available commands:\n") &&
+                  help.find("\nget-registers ") != std::string::npos &&
+                  help.find("\nexit-emulator ") != std::string::npos &&
+                  help.find("Declined in jnext") != std::string::npos &&
+                  help.find("\nget-io-ports") == std::string::npos &&
+                  help.find("\nassemble") == std::string::npos &&
+                  ends_with(help, "\ncommand> "),
+              esc(help, 400));
+
+    const std::string hgr  = c.cmd("help get-registers");
+    const std::string hsr  = c.cmd("help set-register");
+    const std::string hun  = c.cmd("help get-io-ports");
+    const std::string hno  = c.cmd("help nothing-at-all");
+    check("ZRCP-TAB-05", "help <cmd>: \"Syntax: name|alias params\\n\\nDescription\\n…\" as "
+                         "ZEsarUX's, the divergences stated (MMU, IM); an unsupported one says "
+                         "so; an unknown one has no help",
+              starts_with(hgr, "Syntax: get-registers|gr\n\nDescription\n") &&
+                  hgr.find("8000H+k") != std::string::npos &&
+                  starts_with(hsr, "Syntax: set-register|sr register=value\n\nDescription\n") &&
+                  hsr.find("IM") != std::string::npos &&
+                  hun == "Error. Unsupported command in jnext: get-io-ports\ncommand> " &&
+                  hno == "No help for that command\ncommand> ",
+              esc(hgr) + " / " + esc(hsr));
+
+    const std::string ls_out = c.cmd("ls");
+    // Four columns, each the longest listed name + 2 (remote_simple_help).
+    const std::size_t nl = ls_out.find('\n');
+    const std::string row1 = nl == std::string::npos ? "" : ls_out.substr(0, nl);
+    check("ZRCP-TAB-06", "ls: four columns of the served and declined names, each as wide as "
+                         "the longest + 2, no unsupported name",
+              starts_with(row1, "about") && row1.find("close-all-menus") != std::string::npos &&
+                  ls_out.find("get-io-ports") == std::string::npos &&
+                  ls_out.find("exit-emulator") != std::string::npos &&
+                  row1.size() == 4 * (std::string("tbblue-get-clipwindow").size() + 2),
+              esc(row1));
+}
+
+// ===========================================================================
+// ZRCP-SES — the session (WP-1)
+// ===========================================================================
+
+static void session_rows() {
+    {
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        const bool paused = rig.dbg->state().paused;
+        c.p->send("quit\n");
+        rig.pump();
+        const std::string bye = c.p->take();
+        for (int i = 0; i < 4; ++i) rig.pump();
+        check("ZRCP-SES-01", "quit: \"Sayonara baby\\n\", no prompt, the socket closed, the "
+                             "client detached and the pause it made released (SES-01)",
+              paused && bye == "Sayonara baby\n" && c.p->closed_by_server() &&
+                  !rig.dbg->attached() && !rig.dbg->state().paused,
+              esc(bye));
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        c.p->close();
+        for (int i = 0; i < 4; ++i) rig.pump();
+        check("ZRCP-SES-02", "a hang-up detaches the client and releases its pause, so a "
+                             "crashed client cannot leave the machine hung (§4.5)",
+              !rig.dbg->attached() && !rig.dbg->state().paused);
+    }
+    {
+        // A PAUSE THAT IS NOT THIS CLIENT'S survives it: enter-cpu-step does
+        // not re-pause a paused machine (D's CMD_INIT lesson), so the detach
+        // has nothing of this client's to release.
+        Rig        rig;
+        const auto other = rig.dbg->attach({"gui", ClientKind::Test}).value;
+        rig.dbg->pause(other);
+        {
+            Zc c(rig);
+            c.cmd("enter-cpu-step");
+            c.p->close();
+            for (int i = 0; i < 4; ++i) rig.pump();
+        }
+        check("ZRCP-SES-03", "enter-cpu-step on a machine another client paused leaves that "
+                             "pause its owner's: the ZRCP client's departure does not resume it",
+              rig.dbg->state().paused && rig.dbg->state().pause_reason.by == other);
+        rig.dbg->detach(other);
+    }
+    {
+        Rig rig;
+        Zc  a(rig);
+        auto second = rig.lsn->connect();
+        for (int i = 0; i < 3; ++i) rig.pump();
+        const std::string busy = second->take();
+        const std::string still = a.cmd("about");
+        check("ZRCP-SES-04", "a second client is told \"Error. Another ZRCP client is "
+                             "connected\\n\" and closed; the first serves on (§5.5)",
+              busy == "Error. Another ZRCP client is connected\n" &&
+                  second->closed_by_server() &&
+                  still == "jnext ZRCP remote command protocol\ncommand> ",
+              esc(busy));
+    }
+}
+
+// ===========================================================================
+// ZRCP-INFO — information (WP-1)
+// ===========================================================================
+
+static void info_rows() {
+    Rig rig;
+    Zc  c(rig);
+    const std::string about = c.cmd("about");
+    const std::string ver   = c.cmd("get-version");
+    const std::string build = c.cmd("get-buildnumber");
+    const std::string core  = c.cmd("get-cpu-core-name");
+    const std::string os    = c.cmd("get-os");
+    const std::string noop  = c.cmd("noop");
+    const std::string menus = c.cmd("close-all-menus");
+#if defined(_WIN32)
+    const std::string want_os = "Windows";
+#elif defined(__APPLE__)
+    const std::string want_os = "macOS";
+#else
+    const std::string want_os = "GNU/Linux";
+#endif
+    check("ZRCP-INFO-01", "about / get-version (12.0-jnext-<ver>: semver 12.0.0, >= DeZog's "
+                          "10.3, < 12.1) / get-buildnumber / get-cpu-core-name / get-os / noop / "
+                          "close-all-menus answer exactly",
+              about == "jnext ZRCP remote command protocol\ncommand> " &&
+                  ver == reply_of(std::string("12.0-jnext-") + JNEXT_VERSION_STRING) &&
+                  build == reply_of(JNEXT_VERSION_STRING) &&
+                  core == "jnext-fuse-z80\ncommand> " && os == reply_of(want_os) &&
+                  noop == "\ncommand> " && menus == "\ncommand> ",
+              esc(ver) + " / " + esc(os));
+
+    const std::string d0   = c.cmd("get-debug-settings");
+    const std::string set3 = c.cmd("set-debug-settings 3");
+    const std::string d3   = c.cmd("gds");
+    const std::string b5   = c.cmd("set-debug-settings 32");
+    const std::string d3b  = c.cmd("get-debug-settings");
+    const std::string none = c.cmd("set-debug-settings");
+    check("ZRCP-INFO-02", "the debug-settings byte starts at ZEsarUX's 1, stores and echoes; "
+                          "bit 5 (step over interrupt) is declined and changes nothing; no "
+                          "value is ZEsarUX's error",
+              d0 == "1\ncommand> " && set3 == "\ncommand> " && d3 == "3\ncommand> " &&
+                  b5 == "Error. Unsupported in jnext: step-over-interrupt (bit 5)\ncommand> " &&
+                  d3b == "3\ncommand> " && none == "ERROR. No parameter set\ncommand> ",
+              esc(b5));
+}
+
+// ===========================================================================
+// ZRCP-FMT — the formatters, against [T] bytes and DeZog's offsets (WP-2)
+// ===========================================================================
+
+/// Eight slots as a Next at reset shows them: ROM image `rom` in slots 0-1,
+/// RAM pages 10 11 4 5 0 1 above.
+static std::array<jnext::dbg::SlotInfo, 8> next_slots(int rom) {
+    std::array<jnext::dbg::SlotInfo, 8> s{};
+    const std::uint8_t ram[6] = {10, 11, 4, 5, 0, 1};
+    for (int i = 0; i < 2; ++i) {
+        s[static_cast<std::size_t>(i)].is_rom         = true;
+        s[static_cast<std::size_t>(i)].nr_page        = 0xFF;
+        s[static_cast<std::size_t>(i)].effective_page = static_cast<std::uint8_t>(rom * 2 + i);
+    }
+    for (int i = 0; i < 6; ++i) {
+        s[static_cast<std::size_t>(i + 2)].nr_page        = ram[i];
+        s[static_cast<std::size_t>(i + 2)].effective_page = ram[i];
+    }
+    return s;
+}
+
+/// DeZog 3.7.4's decoder (`decodezesaruxdata.ts`): the label's first
+/// `indexOf`, then a fixed width.
+static unsigned dezog_field(const std::string& line, const std::string& label, int width) {
+    const std::size_t at = line.find(label);
+    if (at == std::string::npos || at + label.size() + width > line.size()) return 0x10000u;
+    return static_cast<unsigned>(std::stoul(line.substr(at + label.size(), width), nullptr, 16));
+}
+
+static void format_rows() {
+    // [T1]'s get-registers, register for register.
+    Z80Registers r{};
+    r.PC = 0x0136; r.SP = 0xFFDD; r.AF = 0x03BE; r.BC = 0x4F9D; r.HL = 0x03DA; r.DE = 0x0000;
+    r.IX = 0xFFFF; r.IY = 0x16A0; r.AF2 = 0xFFFF; r.BC2 = 0xFFFF; r.HL2 = 0xFFFF;
+    r.DE2 = 0xFFFF; r.I = 0x00; r.R = 0x59; r.MEMPTR = 0x0136; r.IM = 1; r.IFF1 = 0; r.IFF2 = 0;
+    const std::string line = register_line(r, next_slots(3));
+    check("ZRCP-FMT-01", "the register line is [T1]'s byte for byte — lower-case hex, HL before "
+                         "DE, two spaces before F=, IM1, IFF--, VPS: 0 — except the two ROM "
+                         "slots, 8002 8003 where ZEsarUX 12.0 prints 0000 (§2.3.1)",
+              line == "PC=0136 SP=ffdd AF=03be BC=4f9d HL=03da DE=0000 IX=ffff IY=16a0 "
+                      "AF'=ffff BC'=ffff HL'=ffff DE'=ffff I=00 R=59  F=S-5H3PN- "
+                      "F'=SZ5H3PNC MEMPTR=0136 IM1 IFF-- VPS: 0 "
+                      "MMU=80028003000a000b0004000500000001",
+              esc(line));
+
+    Z80Registers v{};
+    v.PC = 0x1234; v.SP = 0x5678; v.AF = 0x9ABC; v.BC = 0xDEF0; v.DE = 0x1357; v.HL = 0x2468;
+    v.IX = 0xA1B2; v.IY = 0xC3D4; v.AF2 = 0xE5F6; v.BC2 = 0x0718; v.DE2 = 0x293A;
+    v.HL2 = 0x4B5C; v.I = 0x6D; v.R = 0x7E; v.IM = 2; v.IFF1 = 1; v.IFF2 = 1;
+    const std::string vl = register_line(v, next_slots(0));
+    const bool widths =
+        dezog_field(vl, "PC=", 4) == 0x1234 && dezog_field(vl, "SP=", 4) == 0x5678 &&
+        dezog_field(vl, "AF=", 4) == 0x9ABC && dezog_field(vl, "BC=", 4) == 0xDEF0 &&
+        dezog_field(vl, "HL=", 4) == 0x2468 && dezog_field(vl, "DE=", 4) == 0x1357 &&
+        dezog_field(vl, "IX=", 4) == 0xA1B2 && dezog_field(vl, "IY=", 4) == 0xC3D4 &&
+        dezog_field(vl, "AF'=", 4) == 0xE5F6 && dezog_field(vl, "BC'=", 4) == 0x0718 &&
+        dezog_field(vl, "HL'=", 4) == 0x4B5C && dezog_field(vl, "DE'=", 4) == 0x293A &&
+        dezog_field(vl, "I=", 2) == 0x6D && dezog_field(vl, "R=", 2) == 0x7E &&
+        vl.find(" IM2 ") != std::string::npos && vl.find(" IFF12 ") != std::string::npos;
+    check("ZRCP-FMT-02", "every field DeZog reads is at its label + the fixed width "
+                         "(decodezesaruxdata.ts: 4 hex for 16-bit, 2 for I/R, IM + one digit), "
+                         "with distinct values so a swapped field shows",
+              widths, esc(vl));
+
+    // The MMU= projection DeZog decodes (value >= 0x8000 -> ROM 0xFC + (v & 3)).
+    const std::string m0 = register_line(v, next_slots(0));
+    const std::string m1 = register_line(v, next_slots(1));
+    const std::string m2 = register_line(v, next_slots(2));
+    check("ZRCP-FMT-03", "MMU=: ROM 0 and 2 -> 8000 8001 (DeZog ROM0), ROM 1 and 3 -> 8002 "
+                         "8003 (ROM1); a RAM slot is its 8K page; never the 00ff sentinel",
+              ends_with(m0, "MMU=80008001000a000b0004000500000001") &&
+                  ends_with(m1, "MMU=80028003000a000b0004000500000001") &&
+                  ends_with(m2, "MMU=80008001000a000b0004000500000001") &&
+                  m0.find("00ff") == std::string::npos,
+              esc(m1));
+
+    check("ZRCP-FMT-04", "F=: SZ5H3PNC with - for each clear bit",
+              flags_string(0xFF) == "SZ5H3PNC" && flags_string(0x00) == "--------" &&
+                  flags_string(0xBE) == "S-5H3PN-" && flags_string(0x01) == "-------C");
+
+    const std::string dl = disasm_line(0x0083, "CALL $1C5E");
+    check("ZRCP-FMT-05", "a disassembly line is \"  0083 CALL 1C5E\" ([T5]): jnext's $ "
+                         "dropped, the mnemonic at column 7 where DeZog reads it",
+              dl == "  0083 CALL 1C5E" && dl.substr(7, 4) == "CALL" &&
+                  strip_dollar("LD ($5C5D),HL") == "LD (5C5D),HL" &&
+                  strip_dollar("DB $ED,$FF") == "DB ED,FF",
+              esc(dl));
+
+    // [T1] `hexdump 0 32` over [T1]'s ROM bytes.
+    const std::uint8_t rom[32] = {0xF3, 0xED, 0x56, 0xC3, 0x80, 0x00, 0xFF, 0xFF,
+                                  0xED, 0x4D, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                                  0xED, 0x4D, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                                  0xED, 0x4D, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    const std::string hd = hexdump(0, rom, 32);
+    const std::string hp = hexdump(0xFFFE, rom, 3);
+    check("ZRCP-FMT-06", "hexdump is [T1]'s byte for byte; a short last line is padded to the "
+                         "ASCII column",
+              hd == "  0000H F3 ED 56 C3 80 00 FF FF ED 4D FF FF FF FF FF FF  |..V......M......|\n"
+                    "  0010H ED 4D FF FF FF FF FF FF ED 4D FF FF FF FF FF FF  |.M.......M......|\n" &&
+                  hp == "  FFFEH F3 ED 56 " + std::string(40, ' ') + "|..V|\n",
+              esc(hp));
+
+    check("ZRCP-FMT-07", "get-crc32's CRC-32 of [T1]'s first 16 ROM bytes is [T1]'s cc66e252",
+              crc32_ieee(rom, 16) == 0xCC66E252u);
+
+    const std::string pages = memory_pages(next_slots(0), false);
+    const std::string verb  = memory_pages(next_slots(0), true);
+    check("ZRCP-FMT-08", "get-memory-pages is [T1]'s \"RO RO A10 A11 A4 A5 A0 A1 \"; verbose is "
+                         "[T3]'s Segment blocks",
+              pages == "RO RO A10 A11 A4 A5 A0 A1 " &&
+                  starts_with(verb, "Segment 1\nLong name: ROM\nShort name: RO\nStart: 0H\n"
+                                    "End: 1FFFH\n\nSegment 2\n") &&
+                  verb.find("Segment 3\nLong name: RAM 10\nShort name: A10\nStart: 4000H\n"
+                            "End: 5FFFH\n\n") != std::string::npos &&
+                  ends_with(verb, "Segment 8\nLong name: RAM 1\nShort name: A1\nStart: E000H\n"
+                                  "End: FFFFH\n\n"),
+              esc(verb, 400));
+
+    std::uint32_t n = 0;
+    const bool nums =
+        parse_number("38h", n) && n == 0x38 && parse_number("0FFH", n) && n == 0xFF &&
+        parse_number("32768", n) && n == 32768 && parse_number("4294967295", n) &&
+        n == 0xFFFFFFFFu && !parse_number("0x38", n) && !parse_number("", n) &&
+        !parse_number("H", n) && !parse_number("12G", n) && !parse_number("-1", n) &&
+        !parse_number("4294967296", n) && !parse_number("FF", n);
+    check("ZRCP-FMT-09", "numbers: decimal or H-suffixed hex; 0x38, a bare H, a sign, a stray "
+                         "letter and a value past 32 bits are refused, never read as 0 (§1.1)",
+              nums);
+
+    check("ZRCP-FMT-10", "get-current-machine names the four machine types as DeZog matches "
+                         "them (\"zx spectrum next\", \"48k\", \"128k\")",
+              machine_name(MachineType::ZXN_ISSUE2) == "ZX Spectrum Next" &&
+                  machine_name(MachineType::ZX48K) == "ZX Spectrum 48k" &&
+                  machine_name(MachineType::ZX128K) == "ZX Spectrum 128k" &&
+                  machine_name(MachineType::ZX_PLUS3) == "ZX Spectrum +3");
+}
+
+// ===========================================================================
+// WP-2 — inspection on a live machine
+// ===========================================================================
+
+/// An RZX playback in force: the backend refuses every mutation while one
+/// runs (D's idiom). No frame is run while it is on.
+struct RzxOn {
+    Emulator& emu;
+    explicit RzxOn(Emulator& e) : emu(e) { emu.rzx_player().start(RzxRecording{}); }
+    ~RzxOn() { emu.rzx_player().stop(); }
+};
+
+static std::string hex_of(const std::vector<std::uint8_t>& b) {
+    std::string out;
+    char        buf[4];
+    for (std::uint8_t x : b) {
+        std::snprintf(buf, sizeof(buf), "%02X", x);
+        out += buf;
+    }
+    return out;
+}
+
+static std::vector<std::uint8_t> peek(Rig& rig, std::uint16_t addr, std::size_t n) {
+    std::vector<std::uint8_t> out(n);
+    for (std::size_t i = 0; i < n; ++i)
+        rig.dbg->peek(jnext::dbg::MemSpace::cpu(), static_cast<std::uint16_t>(addr + i), 1,
+                      &out[i]);
+    return out;
+}
+
+static void register_rows() {
+    {
+        Rig rig;
+        Zc  c(rig);
+        const std::string gr   = c.cmd("get-registers");
+        const std::string want = register_line(rig.dbg->registers(), rig.dbg->mmu_slots());
+        check("ZRCP-REG-01", "get-registers is the live register line — PC=8000 on the rig, the "
+                             "48K ROM's two slots 8000 8001, RAM pages 10 11 4 5 0 1",
+              gr == reply_of(want) && starts_with(gr, "PC=8000 SP=ff00 ") &&
+                  gr.find("MMU=80008001000a000b0004000500000001") != std::string::npos,
+              esc(gr));
+
+        const std::string pc = c.cmd("set-register PC=9000H");
+        check("ZRCP-REG-02", "set-register PC=9000H answers the register line with PC=9000 and "
+                             "the machine's PC is 0x9000",
+              starts_with(pc, "PC=9000 ") && rig.pc() == 0x9000 &&
+                  pc == reply_of(register_line(rig.dbg->registers(), rig.dbg->mmu_slots())),
+              esc(pc));
+
+        Z80Registers r = rig.emu.cpu().get_registers();
+        r.AF2 = 0xFFFF; r.HL2 = 0xFFFF; r.AF = 0xFFFF;
+        rig.emu.cpu().set_registers(r);
+        c.cmd("set-register A'=12H");
+        c.cmd("set-register HL'=1234H");
+        c.cmd("set-register IFF1=1");
+        c.cmd("set-register I=3FH");
+        c.cmd("set-register R=7");
+        const std::string f = c.cmd("set-register F=1");
+        const Z80Registers m = rig.emu.cpu().get_registers();
+        check("ZRCP-REG-03", "[T4]'s set-register sequence: A'=12H -> AF'=12ff, HL'=1234H, "
+                             "IFF1=1 -> IFF1-, I=3FH, R=7 -> R=07, F=1 -> F=-------C, each in the "
+                             "machine",
+              f.find("AF'=12ff") != std::string::npos && f.find("HL'=1234") != std::string::npos &&
+                  f.find(" IFF1- ") != std::string::npos && f.find(" I=3f R=07 ") != std::string::npos &&
+                  f.find(" F=-------C ") != std::string::npos && m.AF2 == 0x12FF &&
+                  m.HL2 == 0x1234 && m.IFF1 == 1 && m.IFF2 == 0 && m.I == 0x3F && m.R == 7 &&
+                  (m.AF & 0xFF) == 0x01,
+              esc(f));
+
+        const std::string im2  = c.cmd("set-register IM=2");
+        const std::string im3  = c.cmd("set-register IM=3");
+        const std::string xx   = c.cmd("set-register XX=1");
+        const std::string hex0 = c.cmd("set-register PC=0x10");
+        const std::string noeq = c.cmd("set-register PC");
+        const std::string low  = c.cmd("set-register pc=4660");
+        check("ZRCP-REG-04", "IM=2 is set (divergence: ZEsarUX 12.0 refuses it); IM=3, an unknown "
+                             "name, 0x10 and a missing = answer \"Error changing register\"; names "
+                             "are case-insensitive",
+              im2.find(" IM2 ") != std::string::npos &&
+                  im3 == "Error changing register\ncommand> " &&
+                  xx == "Error changing register\ncommand> " &&
+                  hex0 == "Error changing register\ncommand> " &&
+                  noeq == "Error changing register\ncommand> " && starts_with(low, "PC=1234 ") &&
+                  rig.emu.cpu().get_registers().IM == 2 && rig.pc() == 0x1234,
+              esc(im3));
+        {
+            RzxOn rzx(rig.emu);
+            const std::string refused = c.cmd("set-register PC=100");
+            check("ZRCP-REG-05", "under an RZX the backend refuses the write: \"Error changing "
+                                 "register\" and PC unchanged",
+                  refused == "Error changing register\ncommand> " && rig.pc() == 0x1234,
+                  esc(refused));
+        }
+    }
+}
+
+static void memory_rows() {
+    Rig rig;
+    Zc  c(rig);
+    for (int i = 0; i < 4; ++i) rig.emu.mmu().write(static_cast<std::uint16_t>(0x9000 + i),
+                                                    static_cast<std::uint8_t>(0xA0 + i));
+    rig.emu.mmu().write(0xFFFF, 0x5A);
+    const std::string four = c.cmd("read-memory 36864 4");
+    const std::string one  = c.cmd("read-memory 9000H");
+    const std::string wrap = c.cmd("read-memory 65535 4");
+    const std::string want_wrap = "5A" + hex_of(peek(rig, 0, 3));
+    check("ZRCP-MEM-01", "read-memory: upper-case hex, two digits a byte, one line; address only "
+                         "= 1 byte; past FFFFH it wraps to 0000H ([T1])",
+          four == "A0A1A2A3\ncommand> " && one == "A0\ncommand> " &&
+              wrap == reply_of(want_wrap),
+          esc(four) + " / " + esc(wrap));
+
+    const std::string all  = c.cmd("read-memory");
+    const std::string zero = c.cmd("read-memory 0 0");
+    const std::string big  = c.cmd("read-memory 0 2000000");
+    const std::string bad  = c.cmd("read-memory 0x10");
+    check("ZRCP-MEM-02", "bare read-memory and length 0 are the whole 64 KB (131072 digits, as "
+                         "ZEsarUX's zone rule); a length past 1 MiB and 0x10 are refused",
+          all.size() == 131072 + std::string("\ncommand> ").size() &&
+              starts_with(all, hex_of(peek(rig, 0, 4))) && zero == all &&
+              big == "Error. Length too large (max 1048576)\ncommand> " &&
+              bad == "Error. Invalid number: 0x10\ncommand> ",
+          esc(big) + " / " + esc(bad));
+
+    const std::string wm    = c.cmd("write-memory 32768 65 66 67");
+    const auto        after = peek(rig, 0x8000, 3);
+    const auto        rom0  = peek(rig, 0, 1);
+    const std::string wrom  = c.cmd("write-memory 0 1");
+    const std::string badv  = c.cmd("write-memory 32768 256 1");
+    const std::string none  = c.cmd("write-memory");
+    check("ZRCP-MEM-03", "write-memory writes the bytes (empty reply); a byte into ROM is "
+                         "ignored with the same empty reply ([T4]); 256 is refused before "
+                         "anything is written; no parameter is ZEsarUX's error",
+          wm == "\ncommand> " && after == std::vector<std::uint8_t>({0x41, 0x42, 0x43}) &&
+              wrom == "\ncommand> " && peek(rig, 0, 1) == rom0 &&
+              badv == "Error. Invalid byte value: 256\ncommand> " &&
+              peek(rig, 0x8000, 1)[0] == 0x41 && none == "ERROR. No parameters set\ncommand> ",
+          esc(badv));
+
+    const std::string raw  = c.cmd("write-memory-raw 32768 0102ff");
+    const auto        rw   = peek(rig, 0x8000, 3);
+    const std::string odd  = c.cmd("write-memory-raw 32768 010");
+    const std::string junk = c.cmd("write-memory-raw 32768 zz");
+    std::string       rzx_r;
+    {
+        RzxOn rzx(rig.emu);
+        rzx_r = c.cmd("write-memory-raw 32768 7777");
+    }
+    check("ZRCP-MEM-04", "write-memory-raw writes hex pairs; an odd digit count or a non-hex "
+                         "digit is refused and writes nothing; under an RZX the refusal is said",
+          raw == "\ncommand> " && rw == std::vector<std::uint8_t>({0x01, 0x02, 0xFF}) &&
+              odd == "Error. Invalid hexadecimal byte string\ncommand> " &&
+              junk == "Error. Invalid hexadecimal byte string\ncommand> " &&
+              rzx_r == "Error. write-memory-raw refused: refused_rzx\ncommand> " &&
+              peek(rig, 0x8000, 3) == rw,
+          esc(odd) + " / " + esc(rzx_r));
+
+    const auto        b20  = peek(rig, 0x9000, 20);
+    const std::string hd   = c.cmd("hexdump 9000H 20");
+    const std::string hd1  = c.cmd("hexdump 0");
+    const auto        b16  = peek(rig, 0x9000, 16);
+    char              crc[16];
+    std::snprintf(crc, sizeof(crc), "%08x", crc32_ieee(b16.data(), b16.size()));
+    const std::string cr   = c.cmd("get-crc32 36864 16");
+    const std::string cr0  = c.cmd("get-crc32 0 0");
+    const std::string cr1  = c.cmd("get-crc32 0");
+    check("ZRCP-MEM-05", "hexdump and get-crc32 are the formatters over the live CPU view; "
+                         "ZEsarUX's parameter errors",
+          hd == reply_of(hexdump(0x9000, b20.data(), b20.size())) &&
+              hd1 == "ERROR. Needs two parameters\ncommand> " && cr == reply_of(crc) &&
+              cr0 == "ERROR. Length must be >0\ncommand> " &&
+              cr1 == "ERROR. Needs two parameters\ncommand> ",
+          esc(hd) + " / " + esc(cr));
+}
+
+static void disasm_rows() {
+    Rig rig;
+    rig.load({0x01, 0x00, 0xFF, 0x00, 0xCD, 0x5E, 0x1C, 0xC7});
+    rig.emu.mmu().write(0xFFFE, 0x00);
+    rig.emu.mmu().write(0xFFFF, 0x00);
+    Zc c(rig);
+    const std::string pc    = c.cmd("disassemble");
+    const std::string four  = c.cmd("d 8000H 4");
+    const std::string wrap  = c.cmd("disassemble 0FFFEH 3");
+    check("ZRCP-DIS-01", "disassemble: from PC by default, one line; n lines; ZEsarUX's operand "
+                         "spelling with no $ and the mnemonic at column 7 ([T1]); past FFFFH it "
+                         "wraps to 0000H ([T4])",
+          pc == "  8000 LD BC,FF00\ncommand> " &&
+              four == "  8000 LD BC,FF00\n  8003 NOP\n  8004 CALL 1C5E\n  8007 RST 00\ncommand> " &&
+              starts_with(wrap, "  FFFE NOP\n  FFFF NOP\n  0000 ") &&
+              four.find('$') == std::string::npos,
+          esc(four) + " / " + esc(wrap));
+}
+
+static void pages_stack_time_rows() {
+    {
+        Rig rig;
+        Zc  c(rig);
+        const std::string gmp = c.cmd("get-memory-pages");
+        const std::string v   = c.cmd("gmp verbose");
+        check("ZRCP-PG-01", "get-memory-pages on the 48K machine: \"RO RO A10 A11 A4 A5 A0 A1 \"; "
+                             "verbose is the segment list",
+              gmp == "RO RO A10 A11 A4 A5 A0 A1 \ncommand> " &&
+                  v == reply_of(memory_pages(rig.dbg->mmu_slots(), true)),
+              esc(gmp));
+    }
+    {
+        Rig rig;
+        const std::uint8_t stack[] = {0x34, 0x12, 0x78, 0x56, 0xBC, 0x9A, 0xF0, 0xDE, 0x11, 0x22};
+        for (std::size_t i = 0; i < sizeof(stack); ++i)
+            rig.emu.mmu().write(static_cast<std::uint16_t>(0xFF00 + i), stack[i]);
+        Zc c(rig);
+        const std::string three = c.cmd("get-stack-backtrace 3");
+        const std::string five  = c.cmd("get-stack-backtrace");
+        const std::string zero  = c.cmd("get-stack-backtrace 0");
+        c.cmd("set-register SP=65534");
+        rig.emu.mmu().write(0xFFFE, 0xCD);
+        rig.emu.mmu().write(0xFFFF, 0xAB);
+        const auto        rom  = peek(rig, 0, 2);
+        const std::string wrap = c.cmd("get-stack-backtrace 2");
+        char              w2[16];
+        std::snprintf(w2, sizeof(w2), "%04XH ", rom[0] | (rom[1] << 8));
+        check("ZRCP-STK-01", "get-stack-backtrace: little-endian words from SP, %04XH each + a "
+                              "space, 5 by default, 0 refused; past FFFFH it wraps",
+              three == "1234H 5678H 9ABCH \ncommand> " &&
+                  five == "1234H 5678H 9ABCH DEF0H 2211H \ncommand> " &&
+                  zero == "ERROR. Items must be >0\ncommand> " &&
+                  wrap == reply_of(std::string("ABCDH ") + w2),
+              esc(five) + " / " + esc(wrap));
+    }
+    {
+        Rig rig;
+        rig.load({0x00, 0x00, 0x18, 0xFE});
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const auto        t  = rig.dbg->time();
+        const auto        mi = rig.dbg->machine();
+        const std::string ts = c.cmd("get-tstates");
+        const std::string p0 = c.cmd("get-tstates-partial");
+        c.cmd("reset-tstates-partial");
+        c.cmd("cpu-step");
+        const std::string p1 = c.cmd("get-tstates-partial");
+        check("ZRCP-TIME-01", "get-tstates is the in-frame count in CPU T-states; "
+                              "get-tstates-partial is nine zero-padded digits and counts exactly "
+                              "the 4 T-states of the NOP stepped since reset-tstates-partial",
+              ts == reply_of(std::to_string(t.cycle_in_frame /
+                                            static_cast<std::uint64_t>(mi.cpu_divisor)),
+                             true) &&
+                  p0.size() >= 9 + std::string("\ncommand@cpu-step> ").size() &&
+                  p1 == "000000004\ncommand@cpu-step> ",
+              esc(ts) + " / " + esc(p1));
+
+        const std::string hz = c.cmd("get-cpu-frequency");
+        const double want = static_cast<double>(mi.master_cycles_per_frame) * mi.fps /
+                            mi.cpu_divisor;
+        const long long v = std::atoll(hz.c_str());
+        check("ZRCP-TIME-02", "get-cpu-frequency is the live CPU clock in decimal Hz: master "
+                              "cycles per second over the divisor, ~3.5 MHz on the 48K machine",
+              hz == reply_of(std::to_string(std::llround(want)), true) && v > 3400000 &&
+                  v < 3600000,
+              esc(hz));
+    }
+    {
+        std::string got;
+        for (MachineType t : {MachineType::ZX48K, MachineType::ZX128K, MachineType::ZX_PLUS3,
+                              MachineType::ZXN_ISSUE2}) {
+            Rig rig(t);
+            Zc  c(rig);
+            got += c.cmd("gcm");
+        }
+        check("ZRCP-MACH-01", "get-current-machine on the four machines",
+              got == "ZX Spectrum 48k\ncommand> ZX Spectrum 128k\ncommand> ZX Spectrum "
+                     "+3\ncommand> ZX Spectrum Next\ncommand> ",
+              esc(got));
+    }
+}
+
+static void tbblue_rows() {
+    Rig rig(MachineType::ZXN_ISSUE2);
+    Zc  c(rig);
+    char nr7[8];
+    std::snprintf(nr7, sizeof(nr7), "%02XH", rig.dbg->nextreg_peek(0x07));
+    const std::string r7  = c.cmd("tbblue-get-register 7");
+    const std::string r7h = c.cmd("tbblue-get-register 7H");
+    const std::string big = c.cmd("tbblue-get-register 256");
+    const std::string no  = c.cmd("tbblue-get-register");
+    check("ZRCP-TBB-01", "tbblue-get-register is the register through its read path as %02XH "
+                         "([T1]); 256 is out of range; no index is ZEsarUX's error",
+          r7 == reply_of(nr7) && r7h == r7 && big == "ERROR. Out of range\ncommand> " &&
+              no == "ERROR. No parameter set\ncommand> ",
+          esc(r7));
+
+    const std::string set = c.cmd("tbblue-set-register 80 5");
+    const std::string gmp = c.cmd("get-memory-pages");
+    const std::string oor = c.cmd("tbblue-set-register 80 256");
+    const std::string one = c.cmd("tbblue-set-register 80");
+    check("ZRCP-TBB-02", "tbblue-set-register 80 5 runs NR 0x50's handler: slot 0 is RAM page 5 "
+                         "(get-memory-pages says A5); 256 and a missing value are ZEsarUX's "
+                         "errors",
+          set == "\ncommand> " && starts_with(gmp, "A5 ") &&
+              rig.dbg->mmu_slots()[0].nr_page == 5 && !rig.dbg->mmu_slots()[0].is_rom &&
+              oor == "ERROR. Out of range\ncommand> " &&
+              one == "ERROR. Needs two parameters\ncommand> ",
+          esc(gmp));
+
+    const std::string s4  = c.cmd("tbblue-set-sprite 0 10 20 30 40");
+    const std::string g4  = c.cmd("tbblue-get-sprite 0");
+    const std::string s5  = c.cmd("tbblue-set-sprite 1 1 2 3 64 5");
+    const std::string g5  = c.cmd("tbblue-get-sprite 1");
+    const std::string gw  = c.cmd("tbblue-get-sprite 127 2");
+    const std::string g128 = c.cmd("tbblue-get-sprite 128");
+    const std::string s6  = c.cmd("tbblue-set-sprite 2 1 2 3 4 5 6");
+    const auto        a0  = rig.dbg->sprite_attr_raw(0).value;
+    check("ZRCP-TBB-03", "sprites: [T4]'s set 0 10 20 30 40 then get = \"0A 14 1E 28 \\n\\n\"; a "
+                         "fifth byte is shown when attribute 3 bit 6 is set; 127 2 wraps to 0; "
+                         "128 and six values are refused",
+          s4 == "\ncommand> " && g4 == "0A 14 1E 28 \n\ncommand> " && a0[0] == 10 &&
+              a0[3] == 40 && s5 == "\ncommand> " && g5 == "01 02 03 40 05 \n\ncommand> " &&
+              starts_with(gw.substr(gw.find('\n') + 1), "0A 14 1E 28 \n") &&
+              g128 == "ERROR. Out of range\ncommand> " &&
+              s6 == "Error. At most 5 attribute bytes\ncommand> ",
+          esc(g4) + " / " + esc(g5) + " / " + esc(gw));
+
+    const std::string sp  = c.cmd("tbblue-set-pattern 1 1 2 3");
+    const std::string g8  = c.cmd("tbblue-get-pattern 1 8");
+    const std::string g4b = c.cmd("tbblue-get-pattern 2 4 1");
+    const std::string bpp = c.cmd("tbblue-get-pattern 0 5");
+    const std::string o8  = c.cmd("tbblue-get-pattern 64 8");
+    const std::string ok4 = c.cmd("tbblue-get-pattern 127 4");
+    const std::string o4  = c.cmd("tbblue-get-pattern 128 4");
+    const auto        ram = rig.dbg->pattern_ram();
+    check("ZRCP-TBB-04", "patterns: set-pattern writes pattern RAM at index*256; an 8-bpp get is "
+                         "256 values, a 4-bpp get 128 bytes from index*128 (so 4-bpp 2 is 8-bpp "
+                         "1's first half); bpp 5, 8-bpp 64 and 4-bpp 128 are refused",
+          sp == "\ncommand> " && ram.data[256] == 1 && ram.data[258] == 3 &&
+              starts_with(g8, "01 02 03 ") && g8.size() == 256 * 3 + 2 + 9 &&
+              starts_with(g4b, "01 02 03 ") && g4b.size() == 128 * 3 + 2 + 9 &&
+              bpp == "ERROR. Invalid value for bpp: 5\ncommand> " &&
+              o8 == "ERROR. Out of range\ncommand> " && ok4.size() == 128 * 3 + 2 + 9 &&
+              o4 == "ERROR. Out of range\ncommand> ",
+          esc(g8, 40) + " / " + esc(bpp));
+
+    const std::string spal = c.cmd("tbblue-set-palette sprite first 255 1FFH");
+    const std::string gpal = c.cmd("tbblue-get-palette sprite first 255 1");
+    const auto        pal  = rig.dbg->palette(jnext::dbg::PaletteId::SpriteFirst);
+    char              w0[8];
+    std::snprintf(w0, sizeof(w0), "%03X ", pal[0] & 0x1FF);
+    const std::string wrap = c.cmd("tbblue-get-palette sprite first 255 2");
+    const std::string unk  = c.cmd("tbblue-get-palette tilemap first 0");
+    const std::string few  = c.cmd("tbblue-get-palette sprite first");
+    const std::string ten  = c.cmd("tbblue-set-palette ula second 0 200H");
+    check("ZRCP-TBB-05", "palettes: 9-bit %03X values; set writes the bank; 255 2 wraps to entry "
+                         "0; an unknown palette, two parameters and a 10-bit value are refused",
+          spal == "\ncommand> " && gpal == "1FF \ncommand> " && pal[255] == 0x1FF &&
+              wrap == reply_of(std::string("1FF ") + w0) &&
+              unk == "ERROR. Unknown palette\ncommand> " &&
+              few == "ERROR. Needs three parameter minimum\ncommand> " &&
+              ten == "Error. Invalid 9-bit colour: 200H\ncommand> ",
+          esc(gpal) + " / " + esc(wrap));
+
+    const std::string csp = c.cmd("tbblue-get-clipwindow sprite");
+    const std::string set2 = c.cmd("tbblue-set-clipwindow layer2 1 2 3 4");
+    const std::string cl2 = c.cmd("tbblue-get-clipwindow layer2");
+    const auto        w   = rig.dbg->clip_window(jnext::dbg::ClipLayer::Layer2);
+    const std::string cun = c.cmd("tbblue-get-clipwindow copper");
+    const std::string c0  = c.cmd("tbblue-get-clipwindow");
+    const std::string c4  = c.cmd("tbblue-set-clipwindow ula 1 2 3");
+    check("ZRCP-TBB-06", "clip windows: the sprite window at reset is [T1]'s \"0 255 0 191 \"; "
+                         "set layer2 1 2 3 4 goes through NR 0x1C + NR 0x18 into the live "
+                         "window; unknown, missing and short forms are ZEsarUX's errors",
+          csp == "0 255 0 191 \ncommand> " && set2 == "\ncommand> " &&
+              cl2 == "1 2 3 4 \ncommand> " && w.x1 == 1 && w.x2 == 2 && w.y1 == 3 && w.y2 == 4 &&
+              cun == "ERROR. Unknown clip window\ncommand> " &&
+              c0 == "ERROR. Needs one parameter\ncommand> " &&
+              c4 == "ERROR. Needs five parameters\ncommand> ",
+          esc(csp) + " / " + esc(cl2));
+
+    const std::string wp  = c.cmd("write-port 254 2");
+    const std::string wp1 = c.cmd("write-port 254");
+    std::string       wpr;
+    {
+        RzxOn rzx(rig.emu);
+        wpr = c.cmd("write-port 254 3");
+    }
+    check("ZRCP-PORT-01", "write-port 254 2 is a guest OUT: the border is 2; one parameter is "
+                          "ZEsarUX's error; under an RZX the refusal is said and the border "
+                          "stays",
+          wp == "\ncommand> " && rig.dbg->ula_screen_regs().border == 2 &&
+              wp1 == "ERROR. Needs two parameters\ncommand> " &&
+              wpr == "Error. write-port refused: refused_rzx\ncommand> " &&
+              rig.dbg->ula_screen_regs().border == 2,
+          esc(wpr));
+}
+
+// ===========================================================================
+// WP-3 — control and the run state machine
+// ===========================================================================
+
+/// The register line + TSTATES + the disassembly at PC, as a stop or a step
+/// reply carries it, without a `fired` line.
+static bool is_stop_shape(const std::string& r, std::uint16_t pc, bool step = true) {
+    char head[16];
+    std::snprintf(head, sizeof(head), "PC=%04x ", pc);
+    char dis[16];
+    std::snprintf(dis, sizeof(dis), "\n  %04X ", pc);
+    return starts_with(r, head) && r.find(" TSTATES: ") != std::string::npos &&
+           r.find(dis) != std::string::npos && ends_with(r, step ? PROMPT_STEP : PROMPT) &&
+           r.find("Breakpoint fired") == std::string::npos &&
+           std::count(r.begin(), r.end(), '>') == 1;
+}
+
+static bool zrcp_transient_left(Rig& rig) {
+    for (const auto& s : rig.dbg->subscriptions(true))
+        if (s.transient) return true;
+    return false;
+}
+
+static void control_rows() {
+    {
+        Rig rig;
+        Zc  c(rig);
+        const bool        was_running = !rig.dbg->state().paused;
+        const std::string e1          = c.cmd("enter-cpu-step");
+        const auto        st          = rig.dbg->state();
+        const std::string e2          = c.cmd("encs");
+        check("ZRCP-CTL-01", "enter-cpu-step pauses a running machine (User, this client) and the "
+                             "prompt becomes command@cpu-step> ([T2]); a second one is the same",
+              was_running && e1 == "\ncommand@cpu-step> " && st.paused &&
+                  st.pause_reason.kind == PauseReason::Kind::User && e2 == e1 &&
+                  rig.dbg->state().paused,
+              esc(e1));
+        const std::string x1 = c.cmd("exit-cpu-step");
+        const bool        running = !rig.dbg->state().paused;
+        const std::string x2 = c.cmd("ecs");
+        check("ZRCP-CTL-02", "exit-cpu-step resumes the machine and restores command> ; a "
+                             "second one is ZEsarUX's error ([T3])",
+              x1 == "\ncommand> " && running &&
+                  x2 == "Error. You are not in step to step mode\ncommand> ",
+              esc(x2));
+    }
+    {
+        Rig rig;
+        rig.load({0x00, 0x00, 0x18, 0xFE});
+        Zc c(rig);
+        const std::string out  = c.cmd("cpu-step");
+        c.cmd("enter-cpu-step");
+        const std::string step = c.cmd("cs");
+        check("ZRCP-CTL-03", "cpu-step outside step mode is ZEsarUX's error; inside, the machine "
+                             "executes exactly one instruction and the reply is the register "
+                             "line + TSTATES + the disassembly at the new PC, no fired line ([T3])",
+              out == "Error. You must first enter cpu-step mode\ncommand> " &&
+                  rig.pc() == PROG + 1 && is_stop_shape(step, PROG + 1) &&
+                  ends_with(step, "\n  8001 NOP\ncommand@cpu-step> "),
+              esc(step));
+
+        const auto other = rig.dbg->attach({"gui", ClientKind::Test}).value;
+        rig.dbg->run(other);
+        const bool        resumed = !rig.dbg->state().paused;
+        const std::string s2      = c.cmd("cpu-step");
+        check("ZRCP-CTL-04", "a cpu-step after another client resumed the machine pauses it "
+                             "first: still exactly one instruction, then paused (§4.4)",
+              resumed && rig.pc() == PROG + 2 && rig.dbg->state().paused &&
+                  is_stop_shape(s2, PROG + 2),
+              esc(s2));
+        rig.dbg->detach(other);
+    }
+    {
+        // cpu-step-over across a CALL: asynchronous — the subroutine runs in the
+        // loop owner's frames and the reply is the stop at the next instruction.
+        Rig rig;
+        rig.load({0xCD, 0x00, 0x90, 0x18, 0xFE});
+        rig.load({0x3E, 0x42, 0x32, 0x00, 0xA0, 0xC9}, 0x9000);
+        rig.load({0xCD, 0x00, 0x90, 0x18, 0xFE});
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string now = c.send_once("cpu-step-over\n");
+        const bool        running = !rig.dbg->state().paused;
+        const std::string r = c.wait_ticks(8);
+        check("ZRCP-CTL-05", "cpu-step-over at a CALL answers nothing at once (the machine runs), "
+                             "then stops at the instruction after it with the subroutine run (A000 "
+                             "= 42), as a plain stop — no fired line for its own target",
+              now.empty() && running && rig.dbg->state().paused && rig.pc() == PROG + 3 &&
+                  peek(rig, 0xA000, 1)[0] == 0x42 && is_stop_shape(r, PROG + 3) &&
+                  !zrcp_transient_left(rig),
+              esc(now) + " / " + esc(r));
+    }
+    {
+        Rig rig;
+        rig.emu.mmu().write(0xFF00, 0x34);
+        rig.emu.mmu().write(0xFF01, 0x12);
+        rig.load({0xC9});
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string ret = c.send_once("cpu-step-over\n");
+        const std::uint16_t after_ret = rig.pc();
+        rig.load({0xC3, 0x78, 0x56});
+        const std::string jp = c.send_once("cso\n");
+        check("ZRCP-CTL-06", "cpu-step-over on a RET or a JP is a plain step, answered in the "
+                             "same pump (ZEsarUX: nothing to run to)",
+              after_ret == 0x1234 && is_stop_shape(ret, 0x1234) && rig.pc() == 0x5678 &&
+                  is_stop_shape(jp, 0x5678),
+              esc(ret) + " / " + esc(jp));
+    }
+    {
+        // JR $: the step-over target is never reached. ZEsarUX hangs there;
+        // jnext stops on data (§10), discards the line, and leaves no target.
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        c.send_once("cpu-step-over\n");
+        for (int i = 0; i < 4; ++i) rig.tick();
+        const std::string quiet = c.p->take();
+        const bool        armed = zrcp_transient_left(rig) && !rig.dbg->state().paused;
+        const std::string stop  = c.send_once("\n");
+        rig.pump();
+        const std::string more = c.p->take();
+        check("ZRCP-CTL-07", "cpu-step-over on JR $ never reaches its target: silent while the "
+                             "machine runs, then any data stops it with a plain reply, the line "
+                             "is not executed, and its target is removed",
+              quiet.empty() && armed && rig.dbg->state().paused && is_stop_shape(stop, PROG) &&
+                  more.empty() && !zrcp_transient_left(rig),
+              esc(stop) + " / " + esc(more));
+    }
+    {
+        // A CORRUPT machine refuses every execute verb (CTL-11).
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        const auto                      other = rig.dbg->attach({"loader", ClientKind::Test}).value;
+        const std::vector<std::uint8_t> junk(64, 0x5A);
+        const Result latched = rig.dbg->load_state_bytes(other, junk.data(), junk.size());
+        const std::uint16_t pc0   = rig.pc();
+        const std::string   step  = c.cmd("cpu-step");
+        const std::string   exitc = c.cmd("exit-cpu-step");
+        check("ZRCP-CTL-08", "on a corrupt machine cpu-step and exit-cpu-step are refused with the "
+                             "corruption text; nothing executes and step mode stays (the prompt "
+                             "tells the truth)",
+              latched != Result::Ok && rig.pc() == pc0 &&
+                  step == "Error. Machine state is corrupt after a failed rewind; acknowledge it "
+                          "in the jnext debugger\ncommand@cpu-step> " &&
+                  exitc == step && rig.dbg->state().paused,
+              "latched=" + std::string(jnext::dbg::result_name(latched)) + " " + esc(step));
+        rig.dbg->detach(other);
+    }
+    {
+        Rig rig;
+        rig.load({0xED, 0xFF, 0x18, 0xFE});
+        rig.dbg->set_magic_breakpoint(true);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string s = c.cmd("cpu-step");
+        check("ZRCP-CTL-09", "cpu-step over the magic opcode: the machine stops after it and the "
+                             "reply is a step's, with no fired line (ZEsarUX names nothing after "
+                             "a step)",
+              rig.pc() == PROG + 2 && rig.dbg->state().paused && is_stop_shape(s, PROG + 2),
+              esc(s));
+    }
+}
+
+static const std::string kRunning =
+    "Running until a breakpoint, key press or data sent, menu opening or other event\n";
+
+static void run_rows() {
+    {
+        Rig rig;
+        Zc  c(rig);
+        const std::string r = c.cmd("run");
+        check("ZRCP-RUN-01", "run outside step mode: the first line, then ZEsarUX's error, and "
+                             "nothing runs differently ([T2] minus its stray CR, §10)",
+              r == kRunning + "Error. You must first enter cpu-step mode\ncommand> ", esc(r));
+    }
+    {
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0xED, 0xFF, 0x18, 0xFE});
+        rig.dbg->set_magic_breakpoint(true);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string first   = c.send_once("run\n");
+        const bool        running = !rig.dbg->state().paused;
+        const std::string stop    = c.wait_ticks(8);
+        const auto        st      = rig.dbg->state();
+        check("ZRCP-RUN-02", "run: \"Running until…\\n\" and NO prompt at once (DeZog asserts it "
+                             "is the whole first reply), the machine running; the magic opcode "
+                             "stops it: \"Breakpoint fired: Magic breakpoint\\n\" + the stop at "
+                             "8005, and the machine IS stopped there",
+              first == kRunning && running && st.paused &&
+                  st.pause_reason.kind == PauseReason::Kind::Magic && rig.pc() == PROG + 5 &&
+                  starts_with(stop, "Breakpoint fired: Magic breakpoint\nPC=8005 ") &&
+                  ends_with(stop, " TSTATES: " + std::to_string(rig.dbg->time().cycle_in_frame / 8) +
+                                      "\n  8005 JR 8005\ncommand@cpu-step> "),
+              esc(first) + " / " + esc(stop));
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        c.send_once("run\n");
+        rig.tick();
+        rig.tick();
+        const std::string quiet = c.p->take();
+        const bool        running = !rig.dbg->state().paused;
+        const std::string stop  = c.send_once("\n");
+        rig.pump();
+        rig.pump();
+        const std::string more = c.p->take();
+        check("ZRCP-RUN-03", "run then a bare newline (DeZog's pause): one stop reply, no fired "
+                             "line, exactly one prompt; the newline is not executed as a command "
+                             "(no second prompt); the machine is stopped ([T3])",
+              quiet.empty() && running && rig.dbg->state().paused && is_stop_shape(stop, PROG) &&
+                  more.empty(),
+              esc(stop) + " / " + esc(more));
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        c.send_once("run\n");
+        rig.tick();
+        const std::string stop = c.send_once("get-registers\n");
+        rig.pump();
+        const std::string more = c.p->take();
+        const std::string next = c.cmd("about");
+        check("ZRCP-RUN-04", "a command sent during a run stops it and is discarded, not executed: "
+                             "one stop reply, no register reply after it ([T3]); the next line is "
+                             "a command again",
+              is_stop_shape(stop, PROG) && more.empty() &&
+                  next == "jnext ZRCP remote command protocol\ncommand@cpu-step> ",
+              esc(stop) + " / " + esc(more));
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        c.send_once("run\n");
+        rig.tick();
+        const std::string stop = c.send_once("get-reg");
+        c.p->send("isters\nabout\n");
+        const std::string next = c.wait();
+        check("ZRCP-RUN-05", "a line split across the stop is discarded whole — up to its newline "
+                             "— and only the command after it is executed",
+              is_stop_shape(stop, PROG) &&
+                  next == "jnext ZRCP remote command protocol\ncommand@cpu-step> ",
+              esc(stop) + " / " + esc(next));
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        c.send_once("run\n");
+        rig.tick();
+        const auto other = rig.dbg->attach({"gui", ClientKind::Test}).value;
+        rig.dbg->pause(other);
+        rig.pump();
+        const std::string stop = c.p->take();
+        check("ZRCP-RUN-06", "another client's pause during this client's run ends it with a "
+                             "plain stop reply, in the same pump (§4.4)",
+              is_stop_shape(stop, PROG) && rig.dbg->state().pause_reason.by == other,
+              esc(stop));
+        rig.dbg->detach(other);
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string both = c.send_once("run\nabout\n");
+        rig.pump();
+        const std::string more = c.p->take();
+        check("ZRCP-RUN-07", "\"run\\nabout\\n\" in one send: the pipelined line is data sent "
+                             "during the run — it stops it and is never answered",
+              starts_with(both + more, kRunning) && is_stop_shape((both + more).substr(kRunning.size()), PROG) &&
+                  (both + more).find("jnext ZRCP") == std::string::npos,
+              esc(both + more));
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        const auto                      other = rig.dbg->attach({"loader", ClientKind::Test}).value;
+        const std::vector<std::uint8_t> junk(64, 0x5A);
+        rig.dbg->load_state_bytes(other, junk.data(), junk.size());
+        const std::string r = c.send_once("run\n");
+        check("ZRCP-RUN-08", "a run the backend refuses (a corrupt machine) is answered at once "
+                             "with the first line and the stop, fired \"Machine corrupt after "
+                             "failed rewind\"; the machine stays paused",
+              starts_with(r, kRunning + "Breakpoint fired: Machine corrupt after failed rewind\n") &&
+                  ends_with(r, PROMPT_STEP) && rig.dbg->state().paused,
+              esc(r));
+        rig.dbg->detach(other);
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        const std::uint16_t pc0 = rig.pc();
+        const std::string v  = c.cmd("run verbose");
+        const std::string ns = c.cmd("run no-stop-on-data");
+        const std::string ui = c.cmd("run 10 update-immediately");
+        const std::string big = c.cmd("run 1000001");
+        const std::string bad = c.cmd("run 0x10");
+        check("ZRCP-RUN-09", "run verbose / no-stop-on-data / update-immediately are declined by "
+                             "name; a limit past 1000000 and a bad number are refused; nothing ran",
+              v == "Error. Unsupported in jnext: run verbose\ncommand@cpu-step> " &&
+                  ns == "Error. Unsupported in jnext: no-stop-on-data\ncommand@cpu-step> " &&
+                  ui == "Error. Unsupported in jnext: update-immediately\ncommand@cpu-step> " &&
+                  big == "Error. Unsupported in jnext: a run limit above 1000000\ncommand@cpu-step> " &&
+                  bad == "Error. Invalid run limit: 0x10\ncommand@cpu-step> " &&
+                  rig.dbg->state().paused && rig.pc() == pc0,
+              esc(big));
+    }
+}
+
+/// NOPs from PROG, then JR $ — room for a counted run.
+static void load_nops(Rig& rig, int n) {
+    std::vector<std::uint8_t> code(static_cast<std::size_t>(n), 0x00);
+    code.push_back(0x18);
+    code.push_back(0xFE);
+    rig.load(code);
+}
+
+static void run_limit_rows() {
+    {
+        Rig rig;
+        load_nops(rig, 10);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string r = c.cmd("run 5");
+        check("ZRCP-RUN-10", "run 5 executes exactly five instructions: \"…, 5 opcodes run, or "
+                             "other event\\nReturning after 5 opcodes\\n\" + the stop ([T3]) at "
+                             "8005",
+              starts_with(r, "Running until a breakpoint, key press or data sent, menu opening, "
+                             "5 opcodes run, or other event\nReturning after 5 opcodes\nPC=8005 ") &&
+                  rig.pc() == PROG + 5 && rig.dbg->state().paused &&
+                  is_stop_shape(r.substr(r.find("PC=")), PROG + 5),
+              esc(r));
+    }
+    {
+        // THE BUDGET: with a clock that moves 1 ms a read, one slice is two
+        // steps. On the running budget (one service call per pump) a run 100
+        // therefore parks after each slice — never one pump for the lot.
+        Rig rig;
+        load_nops(rig, 100);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        g_clock_ticks = true;
+        c.p->send("run 100\n");
+        rig.dbg->pump(PumpBudget{});
+        const std::string head  = c.p->take();
+        const std::uint16_t pc1 = rig.pc();
+        rig.dbg->pump(PumpBudget{});
+        const std::string quiet = c.p->take();
+        const std::uint16_t pc2 = rig.pc();
+        std::string rest;
+        for (int i = 0; i < 200 && !Zc::has_prompt(rest); ++i) {
+            rig.dbg->pump(PumpBudget{});
+            rest += c.p->take();
+        }
+        g_clock_ticks = false;
+        check("ZRCP-RUN-11", "run 100 is parked between slices: the command's pass runs nothing, "
+                             "the next pass a slice (two steps on the ticking clock) and no reply; "
+                             "the run completes at 8064 over later pumps",
+              starts_with(head, "Running until") && !Zc::has_prompt(head) && pc1 == PROG &&
+                  quiet.empty() && pc2 == PROG + 2 && rig.pc() == PROG + 100 &&
+                  starts_with(rest, "Returning after 100 opcodes\nPC=8064 "),
+              "pc1=" + std::to_string(pc1) + " pc2=" + std::to_string(pc2) + " " + esc(rest));
+    }
+    {
+        Rig rig;
+        load_nops(rig, 100);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        g_clock_ticks = true;
+        c.p->send("run 100\n");
+        rig.dbg->pump(PumpBudget{});
+        rig.dbg->pump(PumpBudget{});
+        c.p->take();
+        c.p->send("\n");
+        rig.dbg->pump(PumpBudget{});
+        const std::string stop = c.p->take();
+        g_clock_ticks = false;
+        rig.pump();
+        const std::string more = c.p->take();
+        check("ZRCP-RUN-12", "data sent during run 100 stops it where it is: a plain stop, no "
+                             "\"Returning after\", the newline not executed",
+              rig.pc() == PROG + 2 && is_stop_shape(stop, PROG + 2) && more.empty() &&
+                  stop.find("Returning") == std::string::npos,
+              esc(stop));
+    }
+    {
+        // REQ-zrcp-05: an event inside a step is the step's reason, so a
+        // counted run ends on it — the magic opcode with its fired line.
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0xED, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0xFE});
+        rig.dbg->set_magic_breakpoint(true);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string r = c.cmd("run 8");
+        check("ZRCP-RUN-13", "run 8 over the magic opcode stops right after it (four "
+                             "instructions): \"Breakpoint fired: Magic breakpoint\", no "
+                             "\"Returning after\" (REQ-zrcp-05)",
+              rig.pc() == PROG + 5 &&
+                  rig.dbg->state().pause_reason.kind == PauseReason::Kind::Magic &&
+                  r.find("\nBreakpoint fired: Magic breakpoint\nPC=8005 ") != std::string::npos &&
+                  r.find("Returning") == std::string::npos,
+              esc(r));
+    }
+    {
+        // Another client's watch, hit inside a step, ends the count too — a
+        // plain stop: it is not this client's to name.
+        Rig rig;
+        rig.load({0x3E, 0x01, 0x32, 0x00, 0x90, 0x00, 0x00, 0x00, 0x00, 0x18, 0xFE});
+        const auto other = rig.dbg->attach({"gui", ClientKind::Test}).value;
+        jnext::dbg::Subscription w;
+        w.kind      = jnext::dbg::EventKind::Mem;
+        w.filter.lo = w.filter.hi = 0x9000;
+        w.access    = jnext::dbg::Access::Write;
+        w.action    = jnext::dbg::Action::Stop;
+        rig.dbg->subscribe(other, w);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string r = c.cmd("run 8");
+        check("ZRCP-RUN-14", "run 8 ends at the step whose write another client watches (after "
+                             "LD (9000),A, at 8005), as a plain stop; the reason is the Watch "
+                             "(REQ-zrcp-05)",
+              rig.pc() == PROG + 5 &&
+                  rig.dbg->state().pause_reason.kind == PauseReason::Kind::Watch &&
+                  is_stop_shape(r.substr(r.find("PC=")), PROG + 5) &&
+                  r.find("Returning") == std::string::npos,
+              esc(r));
+        rig.dbg->detach(other);
+    }
+    {
+        // A step that LANDS on an armed Execute ends the count there, before
+        // it runs — the GH #221 step-off would skip it on the next resume.
+        Rig rig;
+        load_nops(rig, 10);
+        const auto other = rig.dbg->attach({"gui", ClientKind::Test}).value;
+        jnext::dbg::Subscription bp;
+        bp.kind      = jnext::dbg::EventKind::Execute;
+        bp.filter.lo = bp.filter.hi = PROG + 3;
+        bp.action    = jnext::dbg::Action::Stop;
+        rig.dbg->subscribe(other, bp);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string r = c.cmd("run 8");
+        check("ZRCP-RUN-15", "run 8 stops on landing at 8003, where another client has an "
+                             "Execute breakpoint (probe_execute), with 8003 not yet executed",
+              rig.pc() == PROG + 3 && is_stop_shape(r.substr(r.find("PC=")), PROG + 3) &&
+                  r.find("Returning") == std::string::npos,
+              esc(r));
+        rig.dbg->detach(other);
+    }
+}
+
+static void reset_rows() {
+    {
+        Rig rig;
+        int boots = 0;
+        jnext::dbg::LoopDriver drv;
+        drv.cold_boot = [&rig, &boots]() {
+            ++boots;
+            EmulatorConfig cfg = rig.emu.config();
+            rig.emu.init(cfg);
+            return true;
+        };
+        rig.dbg->set_loop_driver(drv);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string r    = c.cmd("hard-reset-cpu");
+        const std::string regs = c.cmd("get-registers");
+        check("ZRCP-RST-01", "hard-reset-cpu in step mode: the cold boot runs before the empty "
+                             "reply, the machine is still paused, at PC 0000, and the next "
+                             "command sees it (§4.6)",
+              boots == 1 && r == "\ncommand@cpu-step> " && rig.dbg->state().paused &&
+                  rig.pc() == 0x0000 && starts_with(regs, "PC=0000 "),
+              esc(r) + " / " + esc(regs));
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        const std::string r = c.cmd("hard-reset-cpu");
+        check("ZRCP-RST-02", "with no cold-boot driver registered: \"Error. Unsupported in "
+                             "jnext: hard-reset-cpu\" — never a silent empty reply (§4.6 rule 6)",
+              r == "Error. Unsupported in jnext: hard-reset-cpu\ncommand> ", esc(r));
+    }
+    {
+        Rig rig;
+        jnext::dbg::LoopDriver drv;
+        drv.cold_boot = [&rig]() {
+            EmulatorConfig cfg = rig.emu.config();
+            rig.emu.init(cfg);
+            return true;
+        };
+        rig.dbg->set_loop_driver(drv);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        c.send_once("run\n");
+        rig.tick();
+        const auto   other = rig.dbg->attach({"gui", ClientKind::Test}).value;
+        const Result reset = rig.dbg->reset(other, jnext::dbg::ResetKind::Hard);
+        rig.pump();
+        const std::string r       = c.p->take();
+        const bool        running = !rig.dbg->state().paused;
+        check("ZRCP-RST-03", "another client's hard reset during this client's run completes the "
+                             "run reply from the Reset{Hard} event — a plain stop with the fresh "
+                             "machine at 0000 — and the machine is NOT paused (§4.6 rule 4)",
+              reset == Result::Ok && running && is_stop_shape(r, 0x0000), esc(r));
+        rig.dbg->detach(other);
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string r = c.cmd("reset-cpu");
+        check("ZRCP-RST-04", "reset-cpu is the soft reset: empty reply, PC 0000, step mode and "
+                             "the pause kept ([T3])",
+              r == "\ncommand@cpu-step> " && rig.pc() == 0x0000 && rig.dbg->state().paused,
+              esc(r));
+    }
+}
+
+static void nmi_rows() {
+    // The Multiface NMI button behind NR 0x06 bit 3 (zxnext.vhd:2090, 6348):
+    // with the gate open, generate-nmi is taken at the next boundaries and the
+    // CPU goes to 0066H, as ZEsarUX's [T4] generate-nmi + cpu-step did.
+    auto steps_after = [](bool press, std::string& reply) {
+        Rig rig(MachineType::ZXN_ISSUE2);
+        load_nops(rig, 16);
+        Zc c(rig);
+        c.cmd("tbblue-set-register 6 8");
+        c.cmd("enter-cpu-step");
+        if (press) reply = c.cmd("generate-nmi");
+        bool at_0066 = false;
+        for (int i = 0; i < 4 && !at_0066; ++i) {
+            c.cmd("cpu-step");
+            at_0066 = rig.pc() == 0x0066;
+        }
+        return at_0066;
+    };
+    std::string reply, unused;
+    const bool with    = steps_after(true, reply);
+    const bool without = steps_after(false, unused);
+    check("ZRCP-NMI-01", "generate-nmi presses the Multiface NMI button: empty reply, and within "
+                         "four steps the CPU is at 0066H — which the same steps without it never "
+                         "reach",
+          reply == "\ncommand@cpu-step> " && with && !without, esc(reply));
+}
+
+static void coexist_rows() {
+    {
+        // ALONGSIDE DZRP: two servers on one Debugger, one client each. A DZRP
+        // CMD_LOOPBACK and a ZRCP command are both answered in one pump, and
+        // the ZRCP client's enter-cpu-step is the machine both see.
+        Rig  rig;
+        auto dz  = std::make_unique<jnext::remote::dzrp::DzrpServer>(*rig.dbg);
+        auto dzl = std::make_unique<FakeListener>();
+        auto* dzlp = dzl.get();
+        dz->server().open(std::move(dzl), "127.0.0.1", 0);
+        rig.dbg->add_service(dz->server());
+        Zc   z(rig);
+        auto d = dzlp->connect();
+        rig.pump();
+        // CMD_LOOPBACK (15), seq 7, payload "hi": length counts the payload.
+        d->send(std::string("\x02\x00\x00\x00\x07\x0Fhi", 8));
+        z.p->send("enter-cpu-step\n");
+        rig.pump();
+        const std::string dr = d->take();
+        const std::string zr = z.p->take();
+        check("ZRCP-SES-06", "ZRCP alongside DZRP: both servers on one backend answer their own "
+                             "client in the same pump (DZRP's loopback echoed, ZRCP's "
+                             "enter-cpu-step pausing the shared machine)",
+              dr == std::string("\x03\x00\x00\x00\x07hi", 7) && zr == "\ncommand@cpu-step> " &&
+                  rig.dbg->state().paused,
+              esc(dr) + " / " + esc(zr));
+        rig.dbg->remove_service(dz->server());
+    }
+    {
+        // A cpu-step-over in flight when the client hangs up: its target goes
+        // with the client (SES-01), so it cannot stop the machine later.
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        c.send_once("cpu-step-over\n");
+        const bool armed = zrcp_transient_left(rig);
+        c.p->close();
+        for (int i = 0; i < 4; ++i) rig.tick();
+        check("ZRCP-SES-05", "a hang-up during cpu-step-over removes its target with the client "
+                             "(SES-01): no transient is left to stop the machine",
+              armed && !zrcp_transient_left(rig) && !rig.dbg->attached() &&
+                  !rig.dbg->state().paused);
+    }
+}
+
+int main() {
+    std::printf("zrcp_adapter_test — the ZRCP adapter over T's fake transport (GH #280)\n");
+    framing_rows();
+    table_rows();
+    session_rows();
+    info_rows();
+    format_rows();
+    register_rows();
+    memory_rows();
+    disasm_rows();
+    pages_stack_time_rows();
+    tbblue_rows();
+    control_rows();
+    run_rows();
+    run_limit_rows();
+    reset_rows();
+    nmi_rows();
+    coexist_rows();
+
+    std::printf("\n======================================================\n");
+    std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass,
+                g_fail, 0);
+    return g_fail == 0 ? 0 : 1;
+}

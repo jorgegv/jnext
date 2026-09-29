@@ -16,7 +16,7 @@ validated is `doc/testing/DZRP-VALIDATION.md`.
 | `src/remote/dzrp/dzrp_frame.{h,cpp}` | `FrameParser` and `encode_response`: the framing, and nothing else |
 | `src/remote/dzrp/dzrp_server.{h,cpp}` | `DzrpServer`, a `remote::Protocol` (the transport's adapter interface) and a `dbg::Listener` (the backend's push interface) |
 | `src/platform/debug_servers.{h,cpp}` | `DebugServers`: how a loop owner opens the server, registers it, and chooses each tick's pump budget |
-| `src/core/cli_options.h`, `src/main.cpp` | `--dzrp-port` (0..65535, 0 = a port the system chooses) and the rule that `--debug-listen-address` is refused without it |
+| `src/core/cli_options.h`, `src/main.cpp` | `--dzrp-port` (0..65535, 0 = a port the system chooses) and the rule that `--debug-listen-address` is refused without a server port |
 
 **Framing.** The two directions count their length differently, and both are
 easy to get wrong: a command's length counts its payload only, a response's (and

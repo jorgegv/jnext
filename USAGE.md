@@ -54,6 +54,7 @@ the two can never disagree. For building jnext from source, see
 - [KEYBOARD MAPPING](#keyboard-mapping)
 - [THE DEBUGGER](#the-debugger)
 - [REMOTE DEBUGGING (DEZOG)](#remote-debugging-dezog)
+- [REMOTE DEBUGGING (ZRCP)](#remote-debugging-zrcp)
 - [MAGIC BREAKPOINT AND MAGIC PORT](#magic-breakpoint-and-magic-port)
 - [EXAMPLES](#examples)
 - [FILES](#files)
@@ -767,15 +768,26 @@ connection is closed at once. A port that cannot be bound (already in
 use, say) is a startup error. Works in every frontend, **--headless**
 included.
 
+**--zrcp-port** *PORT*  
+Serve the ZEsarUX remote command protocol (ZRCP) on TCP *PORT*, so DeZog
+(its `zrcp` remote) - or `telnet`, or any other ZRCP client - can debug
+the running machine; see **REMOTE DEBUGGING (ZRCP)**. Off unless given;
+`10000` is the port those clients assume. *PORT* `0` binds a free port
+the system chooses, and the log says which
+(`zrcp: listening on 127.0.0.1:40123`). One client at a time: a second
+connection is told so and closed. A port that cannot be bound is a
+startup error. Works in every frontend, **--headless** included, and
+alongside **--dzrp-port**.
+
 **--debug-listen-address** *ADDR*  
-Bind address for the debugger protocol servers (**--dzrp-port**),
-default `127.0.0.1`. *ADDR* is a numeric IP address, never a name - an
-address resolved through DNS could change under you - and anything else
-is refused at startup. The default means only this machine can reach the
-debugger; a non-loopback address (`0.0.0.0`) exposes it to your network,
-and none of the debugger protocols has any authentication. Refused
-unless a server port is given too: an address for servers that are all
-off would configure nothing.
+Bind address for the debugger protocol servers (**--dzrp-port**,
+**--zrcp-port**), default `127.0.0.1`. *ADDR* is a numeric IP address,
+never a name - an address resolved through DNS could change under you -
+and anything else is refused at startup. The default means only this
+machine can reach the debugger; a non-loopback address (`0.0.0.0`)
+exposes it to your network, and none of the debugger protocols has any
+authentication. Refused unless a server port is given too: an address
+for servers that are all off would configure nothing.
 
 **--magic-port** *PORT*  
 Enable the magic debug port at *PORT* (hex, for example `0x00FF`).
@@ -1749,6 +1761,40 @@ the machine paused it is counted in wall time, one frame per 20 ms.
 The server listens on `127.0.0.1` unless **--debug-listen-address** says
 otherwise. DZRP has no authentication: anyone who can reach the port
 controls the machine and can read and write all of its memory.
+
+## REMOTE DEBUGGING (ZRCP)
+
+With **--zrcp-port** *PORT*, jnext serves the text protocol ZEsarUX
+offers on its `--remoteprotocol-port` (ZRCP), speaking as ZEsarUX 12.0
+does: a welcome, then one command per line, each answered by its reply
+and a prompt - `command>`, or `command@cpu-step>` while the machine is
+held in cpu-step mode. Try it by hand with `telnet localhost PORT` and
+`help`.
+
+- **Served**: the session and information commands (`about`,
+  `get-version`, `get-current-machine`, `help`, `ls`, `set-cr`, `quit`
+  …), inspection (`get-registers`, `set-register`, `read-memory`,
+  `write-memory`, `hexdump`, `disassemble`, `get-memory-pages`,
+  `get-tstates`, the `tbblue-*` registers, sprites, patterns, palettes
+  and clip windows) and control (`enter-cpu-step`, `cpu-step`,
+  `cpu-step-over`, `run`, `run` *n*, `hard-reset-cpu`, `reset-cpu`,
+  `generate-nmi`). `help` *command* describes each one, and every place
+  jnext answers differently from ZEsarUX.
+- **`run` stops on any data sent**: while it runs, any line the client
+  sends stops the machine and is discarded, not executed.
+- **`hard-reset-cpu` is a cold boot** of the whole machine, complete
+  before the reply; a paused machine stays paused.
+- **Declined**: `exit-emulator`, and the `run` options `verbose`,
+  `no-stop-on-data` and `update-immediately`. ZEsarUX commands jnext
+  does not serve answer `Error. Unsupported command in jnext:` and the
+  name.
+
+Connecting does not pause the machine; `enter-cpu-step` does.
+Disconnecting (or `quit`) resumes it if the pause was the client’s own.
+In **--headless** mode a client that holds the machine paused holds its
+frames too, exactly as for DZRP. ZRCP has no authentication either: the
+server listens on `127.0.0.1` unless **--debug-listen-address** says
+otherwise.
 
 ## MAGIC BREAKPOINT AND MAGIC PORT
 

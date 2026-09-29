@@ -689,8 +689,9 @@ floating-bus latch) and the eight MMU pages.
 The three protocol servers the epic plans — DZRP, ZRCP and GDB RSP — share one
 transport, in **`src/remote/`** (target `jnext_remote`). It has no toolkit
 dependency and is built in every configuration. It carries no protocol: it
-never parses a byte. The first server on it is DZRP (`--dzrp-port`, 3.10); the
-loop owners open it through `src/platform/debug_servers.*`.
+never parses a byte. The first server on it is DZRP (`--dzrp-port`, 3.10), the
+second ZRCP (`--zrcp-port`, `src/remote/zrcp/`, GH #280); the loop owners open
+them through `src/platform/debug_servers.*`.
 
 `remote::Server` is a `jnext::dbg::Service`, so `pump()` drives it: each
 `service_once(wait_ms)` accepts, reads, asks the adapter's `Protocol` to execute
@@ -729,7 +730,8 @@ real socket on `127.0.0.1` port 0, and through `pump()`.
 
 `--debug-listen-address ADDR` (numeric only, default `127.0.0.1`) is validated
 in `main.cpp` and held in `EmulatorConfig::debug_listen_address` for the servers
-to bind; it is refused unless a server port (`--dzrp-port`) is given too. The design, and the reason behind each rule above, is
+to bind; it is refused unless a server port (`--dzrp-port` or `--zrcp-port`) is
+given too. The design, and the reason behind each rule above, is
 `doc/design/debug-subsystem/transport.md`.
 
 ## What `ENABLE_DEBUGGER=OFF` removes

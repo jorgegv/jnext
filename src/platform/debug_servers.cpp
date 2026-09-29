@@ -2,13 +2,14 @@
 
 #include "core/log.h"
 #include "remote/dzrp/dzrp_server.h"
+#include "remote/zrcp/zrcp_server.h"
 
 using jnext::dbg::PumpBudget;
 using jnext::dbg::ServiceHint;
 
 DebugServers::DebugServers() = default;
 
-// Out of line: `DzrpServer` is only forward-declared in the header.
+// Out of line: the servers are only forward-declared in the header.
 DebugServers::~DebugServers() = default;
 
 bool DebugServers::start(jnext::dbg::Debugger& dbg, const EmulatorConfig& cfg) {
@@ -27,6 +28,21 @@ bool DebugServers::start(jnext::dbg::Debugger& dbg, const EmulatorConfig& cfg) {
         }
         dbg.add_service(s->server());
         dzrp_ = std::move(s);
+    }
+    if (cfg.zrcp_port >= 0) {
+        // GH #280 — the same shape, the same port rule. `zrcp: listening on
+        // <addr>:<port>` is what a `--zrcp-port 0` run (and zrcp-func) reads.
+        auto s = std::make_unique<jnext::remote::zrcp::ZrcpServer>(dbg);
+        if (!s->server().open(cfg.debug_listen_address,
+                              static_cast<std::uint16_t>(cfg.zrcp_port))) {
+            Log::platform()->error("--zrcp-port {}: the ZRCP server cannot listen on {} ({}) — "
+                                   "exiting",
+                                   cfg.zrcp_port, cfg.debug_listen_address,
+                                   s->server().last_error());
+            return false;
+        }
+        dbg.add_service(s->server());
+        zrcp_ = std::move(s);
     }
     return true;
 }

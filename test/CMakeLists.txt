@@ -1021,6 +1021,20 @@ target_link_libraries(dzrp_adapter_test PRIVATE
 target_include_directories(dzrp_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME dzrp_adapter_tests COMMAND dzrp_adapter_test)
 
+# GH #280 (epic #276, package Z) — the ZRCP adapter (the ZEsarUX remote command
+# protocol) over T's in-memory fake transport, on a real 48K / Next machine
+# driven by Debugger::pump(). Qt-free, so it is declared `gate: none` and runs
+# in both configurations. Links the emulator like dzrp_adapter_test.
+add_executable(zrcp_adapter_test remote/zrcp_adapter_test.cpp)
+target_link_libraries(zrcp_adapter_test PRIVATE
+    jnext_remote
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(zrcp_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(zrcp_adapter_test PRIVATE "${CMAKE_BINARY_DIR}/generated")
+add_test(NAME zrcp_adapter_tests COMMAND zrcp_adapter_test)
+
 # Task 66 — AppConfig (GUI preferences: QSettings-backed load/save,
 # CLI-vs-saved-preference precedence). Needs jnext_gui (QSettings/QString
 # usage in src/gui/app_config.*), so it is gated on ENABLE_QT_UI like the

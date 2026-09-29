@@ -812,9 +812,23 @@ One client at a time: a second connection is closed at once.
 A port that cannot be bound (already in use, say) is a startup error.
 Works in every frontend, \f[B]\-\-headless\f[R] included.
 .TP
+\f[B]\-\-zrcp\-port\f[R] \f[I]PORT\f[R]
+Serve the ZEsarUX remote command protocol (ZRCP) on TCP \f[I]PORT\f[R],
+so DeZog (its \f[CR]zrcp\f[R] remote) \- or \f[CR]telnet\f[R], or any
+other ZRCP client \- can debug the running machine; see \f[B]REMOTE
+DEBUGGING (ZRCP)\f[R].
+Off unless given; \f[CR]10000\f[R] is the port those clients assume.
+\f[I]PORT\f[R] \f[CR]0\f[R] binds a free port the system chooses, and
+the log says which (\f[CR]zrcp: listening on 127.0.0.1:40123\f[R]).
+One client at a time: a second connection is told so and closed.
+A port that cannot be bound is a startup error.
+Works in every frontend, \f[B]\-\-headless\f[R] included, and alongside
+\f[B]\-\-dzrp\-port\f[R].
+.TP
 \f[B]\-\-debug\-listen\-address\f[R] \f[I]ADDR\f[R]
 Bind address for the debugger protocol servers
-(\f[B]\-\-dzrp\-port\f[R]), default \f[CR]127.0.0.1\f[R].
+(\f[B]\-\-dzrp\-port\f[R], \f[B]\-\-zrcp\-port\f[R]), default
+\f[CR]127.0.0.1\f[R].
 \f[I]ADDR\f[R] is a numeric IP address, never a name \- an address
 resolved through DNS could change under you \- and anything else is
 refused at startup.
@@ -2138,6 +2152,52 @@ The server listens on \f[CR]127.0.0.1\f[R] unless
 \f[B]\-\-debug\-listen\-address\f[R] says otherwise.
 DZRP has no authentication: anyone who can reach the port controls the
 machine and can read and write all of its memory.
+.SH REMOTE DEBUGGING (ZRCP)
+With \f[B]\-\-zrcp\-port\f[R] \f[I]PORT\f[R], jnext serves the text
+protocol ZEsarUX offers on its \f[CR]\-\-remoteprotocol\-port\f[R]
+(ZRCP), speaking as ZEsarUX 12.0 does: a welcome, then one command per
+line, each answered by its reply and a prompt \- \f[CR]command>\f[R], or
+\f[CR]command\(atcpu\-step>\f[R] while the machine is held in cpu\-step
+mode.
+Try it by hand with \f[CR]telnet localhost PORT\f[R] and
+\f[CR]help\f[R].
+.IP \(bu 2
+\f[B]Served\f[R]: the session and information commands
+(\f[CR]about\f[R], \f[CR]get\-version\f[R],
+\f[CR]get\-current\-machine\f[R], \f[CR]help\f[R], \f[CR]ls\f[R],
+\f[CR]set\-cr\f[R], \f[CR]quit\f[R] \&...), inspection
+(\f[CR]get\-registers\f[R], \f[CR]set\-register\f[R],
+\f[CR]read\-memory\f[R], \f[CR]write\-memory\f[R], \f[CR]hexdump\f[R],
+\f[CR]disassemble\f[R], \f[CR]get\-memory\-pages\f[R],
+\f[CR]get\-tstates\f[R], the \f[CR]tbblue\-*\f[R] registers, sprites,
+patterns, palettes and clip windows) and control
+(\f[CR]enter\-cpu\-step\f[R], \f[CR]cpu\-step\f[R],
+\f[CR]cpu\-step\-over\f[R], \f[CR]run\f[R], \f[CR]run\f[R] \f[I]n\f[R],
+\f[CR]hard\-reset\-cpu\f[R], \f[CR]reset\-cpu\f[R],
+\f[CR]generate\-nmi\f[R]).
+\f[CR]help\f[R] \f[I]command\f[R] describes each one, and every place
+jnext answers differently from ZEsarUX.
+.IP \(bu 2
+\f[B]\f[CB]run\f[B] stops on any data sent\f[R]: while it runs, any line
+the client sends stops the machine and is discarded, not executed.
+.IP \(bu 2
+\f[B]\f[CB]hard\-reset\-cpu\f[B] is a cold boot\f[R] of the whole
+machine, complete before the reply; a paused machine stays paused.
+.IP \(bu 2
+\f[B]Declined\f[R]: \f[CR]exit\-emulator\f[R], and the \f[CR]run\f[R]
+options \f[CR]verbose\f[R], \f[CR]no\-stop\-on\-data\f[R] and
+\f[CR]update\-immediately\f[R].
+ZEsarUX commands jnext does not serve answer
+\f[CR]Error. Unsupported command in jnext:\f[R] and the name.
+.PP
+Connecting does not pause the machine; \f[CR]enter\-cpu\-step\f[R] does.
+Disconnecting (or \f[CR]quit\f[R]) resumes it if the pause was the
+client\(cqs own.
+In \f[B]\-\-headless\f[R] mode a client that holds the machine paused
+holds its frames too, exactly as for DZRP.
+ZRCP has no authentication either: the server listens on
+\f[CR]127.0.0.1\f[R] unless \f[B]\-\-debug\-listen\-address\f[R] says
+otherwise.
 .SH MAGIC BREAKPOINT AND MAGIC PORT
 The magic breakpoint uses the \f[CR]ED FF\f[R] (ZEsarUX) and
 \f[CR]DD 01\f[R] (CSpect) opcodes to pause the debugger when enabled;

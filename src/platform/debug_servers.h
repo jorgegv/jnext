@@ -8,7 +8,8 @@
 // puts the SOCKET servers on that pump: it opens each one the configuration
 // asks for on `EmulatorConfig::debug_listen_address` and registers it with
 // `Debugger::add_service()`, and it chooses each tick's `PumpBudget`. Today
-// that is DZRP (`--dzrp-port`); ZRCP (#280) and GDB RSP (#281) join here.
+// that is DZRP (`--dzrp-port`) and ZRCP (`--zrcp-port`, GH #280); GDB RSP
+// (#281) joins here.
 //
 // ── THE BUDGETS — T's recorded decision (transport.md §2 item 15) ───────────
 //
@@ -36,6 +37,9 @@ namespace jnext {
 namespace remote {
 namespace dzrp {
 class DzrpServer;
+}
+namespace zrcp {
+class ZrcpServer;
 }
 }  // namespace remote
 }  // namespace jnext
@@ -67,4 +71,5 @@ public:
 
 private:
     std::unique_ptr<jnext::remote::dzrp::DzrpServer> dzrp_;
+    std::unique_ptr<jnext::remote::zrcp::ZrcpServer> zrcp_;
 };
