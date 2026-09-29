@@ -100,9 +100,11 @@ int title_bar_height(const QWidget* w) {
 }
 } // namespace
 
-DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
+DebuggerWindow::DebuggerWindow(Emulator* emulator, jnext::dbg::Debugger& dbg,
+                               QWidget* parent)
     : QMainWindow(parent)
     , emulator_(emulator)
+    , dbg_(dbg)
 {
     setWindowTitle(tr("JNEXT Debugger"));
     create_panels();
@@ -1060,15 +1062,15 @@ void DebuggerWindow::set_attach_enabled(bool on) {
 
 void DebuggerWindow::create_panels() {
     // --- Create panels ---
-    cpu_panel_ = new CpuPanel(emulator_);
+    cpu_panel_ = new CpuPanel(&dbg_);
     disasm_panel_ = new DisasmPanel(emulator_);
     memory_panel_ = new MemoryPanel(emulator_);
     memory_panel_->setMinimumHeight(320);
     video_panel_ = new VideoPanel(emulator_);
-    sprite_panel_ = new SpritePanel(emulator_);
-    copper_panel_ = new CopperPanel(emulator_);
-    nextreg_panel_ = new NextRegPanel(emulator_);
-    audio_panel_ = new AudioPanel(emulator_);
+    sprite_panel_ = new SpritePanel(&dbg_);
+    copper_panel_ = new CopperPanel(&dbg_);
+    nextreg_panel_ = new NextRegPanel(&dbg_);
+    audio_panel_ = new AudioPanel(&dbg_);
     watch_panel_ = new WatchPanel();
 
     // --- Helper: wrap a widget in a titled QGroupBox ---
@@ -1097,8 +1099,8 @@ void DebuggerWindow::create_panels() {
 
     tab_widget_->setMinimumWidth(380);
 
-    stack_panel_ = new StackPanel(emulator_);
-    callstack_panel_ = new CallStackPanel(emulator_);
+    stack_panel_ = new StackPanel(&dbg_);
+    callstack_panel_ = new CallStackPanel(&dbg_);
     breakpoint_panel_ = new BreakpointPanel();
 
     // GH #220 — no panel-to-panel wiring here any more. Both panels follow the
@@ -1107,7 +1109,7 @@ void DebuggerWindow::create_panels() {
     // mutation route) knowing the other exists. The two hand-wired directions
     // this replaced had each shipped broken once.
 
-    mmu_panel_ = new MmuPanel(emulator_);
+    mmu_panel_ = new MmuPanel(&dbg_);
 
     auto* cpu_box = make_group(tr("CPU Registers"), cpu_panel_);
     auto* mmu_box = make_group(tr("MMU"), mmu_panel_);

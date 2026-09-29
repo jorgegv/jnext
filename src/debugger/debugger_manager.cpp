@@ -7,6 +7,8 @@
 #include "debugger/breakpoint_model.h"
 #include "debugger/stack_panel.h"
 #include "debugger/callstack_panel.h"
+#include "debugger/nextreg_panel.h"
+#include "debugger/audio_panel.h"
 #include "core/emulator.h"
 #include "debug/debug_state.h"
 
@@ -85,6 +87,7 @@ void DebuggerManager::attach_backend() {
     // the backend it is also re-applied across a cold boot (CTL-12 rule 2), where
     // the direct `call_stack().set_enabled()` it replaces was silently lost.
     dbg_.set_call_stack_enabled(true);
+    set_panels_client();
 }
 
 void DebuggerManager::detach_backend() {
@@ -96,6 +99,7 @@ void DebuggerManager::detach_backend() {
     // machine, whoever paused it, before it gets here.
     dbg_.detach(client_);
     client_ = jnext::dbg::CLIENT_NONE;
+    set_panels_client();
 }
 
 void DebuggerManager::set_panels_paused(bool paused) {
@@ -108,6 +112,12 @@ void DebuggerManager::set_panels_paused(bool paused) {
         debugger_window_->stack_panel()->set_paused(paused);
     if (debugger_window_->callstack_panel())
         debugger_window_->callstack_panel()->set_paused(paused);
+}
+
+void DebuggerManager::set_panels_client() {
+    if (!debugger_window_) return;
+    if (auto* p = debugger_window_->nextreg_panel()) p->set_client(client_);
+    if (auto* p = debugger_window_->audio_panel())   p->set_client(client_);
 }
 
 void DebuggerManager::apply_pause_state(bool paused) {
@@ -248,7 +258,7 @@ void DebuggerManager::ensure_window() {
     if (debugger_window_)
         return;
 
-    debugger_window_ = new DebuggerWindow(emulator_, nullptr);
+    debugger_window_ = new DebuggerWindow(emulator_, dbg_, nullptr);
     debugger_window_->set_debugger_manager(this);
     // GH #1 — BEFORE anything else touches the window. The window is created
     // lazily (the first time the debugger is enabled, from the menu, a magic
@@ -295,6 +305,9 @@ void DebuggerManager::ensure_window() {
     // GH #278 WP4c — a watch is a peek through the backend (§3.5).
     if (auto* wp = debugger_window_->watch_panel())
         wp->set_backend(&dbg_);
+    // GH #278 WP4b — whose client the panels' writes are (the window is built
+    // after the attach that opens it).
+    set_panels_client();
 }
 
 // ---------------------------------------------------------------------------

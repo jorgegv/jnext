@@ -1,15 +1,13 @@
 #include "debugger/stack_panel.h"
-#include "core/emulator.h"
-#include "cpu/z80_cpu.h"
-#include "memory/mmu.h"
+#include "debug/debugger.h"
 
 #include <QVBoxLayout>
 #include <QHeaderView>
 #include <QFont>
 
-StackPanel::StackPanel(Emulator* emulator, QWidget* parent)
+StackPanel::StackPanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     : QWidget(parent)
-    , emulator_(emulator)
+    , dbg_(dbg)
 {
     create_ui();
 }
@@ -56,11 +54,9 @@ void StackPanel::set_paused(bool paused) {
 }
 
 void StackPanel::refresh() {
-    if (!emulator_ || !paused_) return;
+    if (!dbg_ || !paused_) return;
 
-    auto regs = emulator_->cpu().get_registers();
-    auto& mmu = emulator_->mmu();
-    uint16_t sp = regs.SP;
+    uint16_t sp = dbg_->registers().SP;   // INS-01
 
     // Display in ascending address order: SP at top (row 0), higher addresses below.
     for (int r = 0; r < STACK_ROWS; ++r) {
@@ -78,8 +74,14 @@ void StackPanel::refresh() {
             continue;
         }
 
-        uint8_t lo = mmu.read(addr);
-        uint8_t hi = mmu.read(static_cast<uint16_t>(addr + 1));
+        // INS-02 — a PEEK, not the CPU's read: an observation moves nothing
+        // (the +3 floating-bus latch, which Mmu::read() latches on a contended
+        // address) and fires no watch. The high byte is addr + 1 modulo 64K, as
+        // it was: an odd SP's last row, $FFFF, pairs with $0000.
+        uint8_t b[2] = {0, 0};
+        dbg_->peek(jnext::dbg::MemSpace::cpu(), addr, 2, b);
+        uint8_t lo = b[0];
+        uint8_t hi = b[1];
         uint16_t word = lo | (hi << 8);
 
         table_->item(r, 0)->setText(QString::asprintf("%04X", addr));

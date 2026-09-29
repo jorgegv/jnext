@@ -30,8 +30,9 @@ class DebuggerWindow;
 /// 2026-09-29): the adapter is TWO backend clients.
 ///   * The WINDOW's client, attached exactly while the debugger window is open
 ///     — by `set_enabled(true)`, detached by `set_enabled(false)` — which
-///     requests the live raster for as long and to which every verb is
-///     attributed. Not for the process lifetime: an attached client ARMS the
+///     requests the live raster for as long and to which every verb — and
+///     every NextREG / Audio panel write (WP4b) — is attributed. Not for the
+///     process lifetime: an attached client ARMS the
 ///     machine, and a window that armed breakpoints while closed would change
 ///     GH #219's default (`debugger_persistent_bp_test` PBPUI-03).
 ///   * The GUI's BREAKPOINTS' owner, a non-arming OBSERVER client (REQ-qt-32)
@@ -40,9 +41,10 @@ class DebuggerWindow;
 /// A pause the window did not cause still opens it: the pause state is PULLED
 /// from the backend on every tick, whoever is attached.
 ///
-/// The panels (`DebuggerWindow` and its 13) still take the `Emulator*` until
-/// WP4/WP7 move them onto the backend. The window reaches the backend through
-/// backend() for its rewind, trace and action controls (WP3).
+/// The window hands the backend to its panels; since WP4a/b (and WP4c's
+/// Watches and Breakpoints) nine of the 13 read through it, the rest still take
+/// the `Emulator*` until WP4d/WP5/WP7 move them. The window reaches the backend
+/// through backend() for its rewind, trace and action controls (WP3).
 class DebuggerManager : public QObject {
     Q_OBJECT
 public:
@@ -146,6 +148,12 @@ private:
 
     /// The four paused-only panels (CPU, Disassembly, Stack, Call Stack).
     void set_panels_paused(bool paused);
+
+    /// GH #278 WP4b — the two panels that WRITE through the backend (NextREG,
+    /// Audio) attribute their writes to the window's client: `client_`, which
+    /// is CLIENT_NONE while the window is closed. Pushed on every attach and
+    /// detach, and when the window is built.
+    void set_panels_client();
 
     /// THE ONE pause-state transition of the window — the eleven copies of the
     /// panel sequence every verb used to carry. Paused: the four panels

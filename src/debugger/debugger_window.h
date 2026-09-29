@@ -34,7 +34,10 @@ class QToolBar;
 class DebuggerWindow : public QMainWindow {
     Q_OBJECT
 public:
-    explicit DebuggerWindow(Emulator* emulator, QWidget* parent = nullptr);
+    /// `dbg` — the debugger backend the panels read through (GH #278 WP4a/b:
+    /// CPU, MMU, Stack, Call Stack, Sprites, Copper, NextREG, Audio).
+    DebuggerWindow(Emulator* emulator, jnext::dbg::Debugger& dbg,
+                   QWidget* parent = nullptr);
 
     void refresh_panels();
 
@@ -77,6 +80,8 @@ public:
     BreakpointPanel* breakpoint_panel() { return breakpoint_panel_; }
     StackPanel* stack_panel() { return stack_panel_; }
     CallStackPanel* callstack_panel() { return callstack_panel_; }
+    NextRegPanel* nextreg_panel() { return nextreg_panel_; }
+    AudioPanel* audio_panel() { return audio_panel_; }
 
 signals:
     void window_closed();
@@ -126,6 +131,7 @@ private:
     void apply_keymap();
 
     Emulator* emulator_;
+    jnext::dbg::Debugger& dbg_;
     DebuggerManager* debugger_mgr_ = nullptr;
 
     // GH #114 — false once a size restored from the config file is in use, so

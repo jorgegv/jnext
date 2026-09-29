@@ -475,7 +475,8 @@ static void test_cpu_panel() {
         check("QPN-CPU-04", "fixture: 128K machine", false);
         return;
     }
-    CpuPanel panel(&emu);
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4a/b: the panel reads through it
+    CpuPanel panel(&dbg);
     panel.set_paused(true);
 
     Z80Registers r = emu.cpu().get_registers();
@@ -611,7 +612,8 @@ static void test_mmu_panel() {
             const uint8_t pages[8] = {0, 0, 0x21, 0x0B, 0x04, 0x35, 0x1E, 0x5F};
             for (int sl = 2; sl < 8; ++sl)
                 emu.nextreg().write(static_cast<uint8_t>(0x50 + sl), pages[sl]);
-            MmuPanel panel(&emu);
+            jnext::dbg::Debugger dbg(emu);   // GH #278 WP4a/b: the panel reads through it
+            MmuPanel panel(&dbg);
             panel.refresh();
 
             auto page_cell = [&](int sl) { return grid_value(&panel, "Page", sl + 1, 0); };
@@ -656,7 +658,8 @@ static void test_mmu_panel() {
         if (!build(emu, MachineType::ZX128K)) {
             check("QPN-MMU-03", "fixture: 128K machine", false);
         } else {
-            MmuPanel panel(&emu);
+            jnext::dbg::Debugger dbg(emu);   // GH #278 WP4a/b: the panel reads through it
+            MmuPanel panel(&dbg);
             panel.refresh();
             QLabel* bank = grid_value(&panel, "Bank:");
             QLabel* rom  = grid_value(&panel, "ROM:");
@@ -703,7 +706,8 @@ static void test_stack_panel() {
         check("QPN-STK-02", "fixture: 48K machine", false);
         return;
     }
-    StackPanel panel(&emu);
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4a/b: the panel reads through it
+    StackPanel panel(&dbg);
     panel.set_paused(true);
 
     constexpr uint16_t SP = 0xC000;
@@ -797,7 +801,8 @@ static void test_callstack_panel() {
     emu.call_stack().set_enabled(true);
     for (int i = 0; i < 3; ++i) emu.execute_single_instruction();
 
-    CallStackPanel panel(&emu);
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4a/b: the panel reads through it
+    CallStackPanel panel(&dbg);
     panel.set_paused(true);
     panel.refresh();
 
@@ -858,7 +863,8 @@ static void test_callstack_panel() {
         r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = 1; r.IFF2 = 1; r.IM = 1;
         emu.cpu().set_registers(r);
         emu.call_stack().set_enabled(true);
-        CallStackPanel panel(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP4a/b: the panel reads through it
+        CallStackPanel panel(&dbg);
         panel.set_paused(true);
 
         emu.execute_single_instruction();              // CALL $9000
@@ -944,7 +950,8 @@ static void test_sprite_panel() {
     // Sprite 8: extended 8-bit, scale 2x/1x (X scale 1, Y scale 0).
     put_sprite(emu, 8, {0x00, 0x00, 0x00, 0x80 | 0x40 | 0x02, (1 << 3)});
 
-    SpritePanel panel(&emu);
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4a/b: the panel reads through it
+    SpritePanel panel(&dbg);
     panel.refresh();
 
     const bool premise = emu.sprites().read_attr_byte(5, 0) == 0x34 &&
@@ -1055,7 +1062,8 @@ static void test_copper_panel() {
             emu.run_frame();
             ok = emu.copper().pc() == 2;
         }
-        CopperPanel panel(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP4a/b: the panel reads through it
+        CopperPanel panel(&dbg);
         panel.refresh();
 
         const char* want[5][4] = {
@@ -1098,7 +1106,8 @@ static void test_copper_panel() {
     {
         Emulator emu;
         const bool ok = copper_parked_at(emu, 100);
-        CopperPanel panel(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP4a/b: the panel reads through it
+        CopperPanel panel(&dbg);
         panel.refresh();
         // Window start = 100 - 32 = 68 ($044); the PC row is row 32.
         const QColor yellow(255, 255, 160);
@@ -1123,7 +1132,8 @@ static void test_copper_panel() {
         Emulator lo_emu, mid_emu, hi_emu;
         const bool ok = copper_parked_at(lo_emu, 5) && copper_parked_at(mid_emu, 100) &&
                         copper_parked_at(hi_emu, 1020);
-        CopperPanel lo(&lo_emu), mid(&mid_emu), hi(&hi_emu);
+        jnext::dbg::Debugger lo_dbg(lo_emu), mid_dbg(mid_emu), hi_dbg(hi_emu);
+        CopperPanel lo(&lo_dbg), mid(&mid_dbg), hi(&hi_dbg);
         lo.refresh(); mid.refresh(); hi.refresh();
         const bool win_ok =
             row_count(&mid) == 64 &&
@@ -1161,7 +1171,8 @@ static void test_nextreg_panel() {
         check("QNR-03", "fixture: Next machine", false);
         return;
     }
-    NextRegPanel panel(&emu);
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4a/b: the panel reads through it
+    NextRegPanel panel(&dbg);
     panel.refresh();
     auto* table = panel.findChild<QTableWidget*>();
 

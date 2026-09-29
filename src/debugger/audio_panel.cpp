@@ -1,5 +1,5 @@
 #include "debugger/audio_panel.h"
-#include "core/emulator.h"
+#include "debug/debugger.h"
 #include "audio/audio_mute.h"
 
 #include <QVBoxLayout>
@@ -28,9 +28,9 @@ static const char* const kRegNames[16] = {
     "R15 I/O B",
 };
 
-AudioPanel::AudioPanel(Emulator* emulator, QWidget* parent)
+AudioPanel::AudioPanel(jnext::dbg::Debugger* dbg, QWidget* parent)
     : QWidget(parent)
-    , emulator_(emulator)
+    , dbg_(dbg)
 {
     create_ui();
 }
@@ -95,14 +95,14 @@ void AudioPanel::create_ui() {
     mute_dac_ = new QCheckBox(tr("DAC"), sources_box);
     mute_beeper_ = new QCheckBox(tr("Beeper"), sources_box);
 
-    // Seed the boxes FROM the emulator (checked = audible), rather than
+    // Seed the boxes FROM the machine (checked = audible), rather than
     // hardcoding "all checked". The panel is re-created whenever the debugger
     // window is rebuilt, and the mute mask deliberately outlives that (and a
     // machine reset); seeding from the live mask is what keeps the tick-marks
     // from lying about what is actually audible. On a fresh machine the mask is
     // AudioMute::NONE, so this still comes up all-checked.
     // Done BEFORE the connects below, so seeding does not itself emit toggled().
-    const uint8_t mask = emulator_ ? emulator_->audio_mute_mask() : AudioMute::NONE;
+    const uint8_t mask = dbg_ ? dbg_->audio_mute_mask() : AudioMute::NONE;   // INS-10
     mute_ay0_->setChecked(!(mask & AudioMute::AY0));
     mute_ay1_->setChecked(!(mask & AudioMute::AY1));
     mute_ay2_->setChecked(!(mask & AudioMute::AY2));
@@ -112,7 +112,7 @@ void AudioPanel::create_ui() {
     // Task 48: these five boxes were pure decoration — there was no connect()
     // on any of them and nobody ever read isChecked(), so clicking them did
     // exactly nothing. Each toggle now recomputes the whole mask and pushes it
-    // to the emulator, which gates the corresponding output stage.
+    // to the machine, which gates the corresponding output stage.
     for (QCheckBox* cb : {mute_ay0_, mute_ay1_, mute_ay2_, mute_dac_, mute_beeper_})
         connect(cb, &QCheckBox::toggled, this, &AudioPanel::apply_source_mutes);
 
@@ -148,7 +148,7 @@ void AudioPanel::create_ui() {
 }
 
 void AudioPanel::apply_source_mutes() {
-    if (!emulator_)
+    if (!dbg_)
         return;
 
     // Checked = audible, unchecked = muted, so the mask bit is the NEGATION of
@@ -162,20 +162,18 @@ void AudioPanel::apply_source_mutes() {
     if (!mute_dac_->isChecked())    mask |= AudioMute::DAC;
     if (!mute_beeper_->isChecked()) mask |= AudioMute::BEEPER;
 
-    emulator_->set_audio_mute_mask(mask);
+    dbg_->set_audio_mute_mask(client_, mask);   // INS-10, attributed
 }
 
 void AudioPanel::refresh() {
-    if (!emulator_)
+    if (!dbg_)
         return;
 
-    const auto& ts = emulator_->turbosound();
-
-    // Update AY register table
+    // Update AY register table (INS-10: all 16 registers of each chip)
     for (int chip = 0; chip < 3; ++chip) {
-        const auto& ay = ts.ay(chip);
+        const auto regs = dbg_->ay_registers(chip);
         for (int reg = 0; reg < 16; ++reg) {
-            uint8_t val = ay.read_register(reg);
+            uint8_t val = regs.value[reg];
             auto* item = ay_table_->item(reg, chip);
             if (item) {
                 item->setText(QString("%1").arg(val, 2, 16, QChar('0')).toUpper());
@@ -184,27 +182,31 @@ void AudioPanel::refresh() {
     }
 
     // Update info labels
-    bool ts_enabled = ts.enabled();
+    bool ts_enabled = dbg_->turbosound_enabled();
     turbosound_label_->setText(
         tr("TurboSound: %1").arg(ts_enabled ? tr("Yes") : tr("No")));
 
     // AY/YM mode. VHDL zxnext.vhd:6389 wires `aymode_i <= nr_06_psg_mode(0)`
     // (audio/ym2149.vhd:86 "0 = YM, 1 = AY") into the chip core; NR 0x06
     // bits 1:0 are a 2-bit field (nextreg.txt: 00=YM, 01=AY, 10=ZXN-8950,
-    // 11=hold AY in reset) but only bit 0 drives chip mode. Read
-    // TurboSound::ay_mode() (src/audio/turbosound.h:57-58), which mirrors
-    // that live signal, instead of re-decoding a raw NextREG byte: the
-    // previous code read NR 0x06 bit 4, which is "Enable divmmc nmi by
-    // DRIVE button" (nextreg.txt) — an unrelated field.
-    ay_ym_label_->setText(tr("Mode: %1").arg(ts.ay_mode() ? "AY" : "YM"));
+    // 11=hold AY in reset) but only bit 0 drives chip mode. Read the
+    // backend's ay_mode() (INS-10: TurboSound::ay_mode(),
+    // src/audio/turbosound.h:57-58), which mirrors that live signal, instead
+    // of re-decoding a raw NextREG byte: the previous code read NR 0x06 bit 4,
+    // which is "Enable divmmc nmi by DRIVE button" (nextreg.txt) — an
+    // unrelated field.
+    ay_ym_label_->setText(tr("Mode: %1").arg(
+        dbg_->ay_mode() == jnext::dbg::AyChipMode::Ay ? "AY" : "YM"));
 
     // Stereo mode. VHDL zxnext.vhd:5177 — `nr_08_psg_stereo_mode` is a
     // SINGLE bit (NR 0x08 bit 5), not a 2-bit field; audio/turbosound.vhd:45
-    // — "0 = ABC, 1 = ACB for all psg". Read TurboSound::stereo_mode()
-    // (src/audio/turbosound.h:46-48), which mirrors that live signal. The
+    // — "0 = ABC, 1 = ACB for all psg". Read the backend's stereo_mode()
+    // (INS-10: TurboSound::stereo_mode(), src/audio/turbosound.h:46-48),
+    // which mirrors that live signal. The
     // previous code read bits 5:4 as a bogus 2-bit field (bit 4 is
     // nr_08_internal_speaker_en, VHDL zxnext.vhd:5178, unrelated to stereo)
     // against a 6-entry table that invented four stereo modes ZX Next
     // hardware does not have.
-    stereo_label_->setText(tr("Stereo: %1").arg(ts.stereo_mode() ? "ACB" : "ABC"));
+    stereo_label_->setText(tr("Stereo: %1").arg(
+        dbg_->stereo_mode() == jnext::dbg::StereoMode::Acb ? "ACB" : "ABC"));
 }

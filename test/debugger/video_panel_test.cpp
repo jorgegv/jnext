@@ -108,6 +108,7 @@
 #include "debugger/video_panel.h"
 #include "debugger/nextreg_panel.h"
 #include "debug/debug_state.h"
+#include "debug/debugger.h"
 #include "memory/mmu.h"
 #include "memory/ram.h"
 #include "video/layer2.h"
@@ -2456,7 +2457,8 @@ static void test_peek_does_not_mutate(Emulator& emu) {
     // this row still fails if someone points it back at read(). The latch must be
     // untouched. Through read() the sweep leaves 0x00 behind: R's low bits, clobbering
     // the guest's L sample.
-    NextRegPanel panel(&emu);
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+    NextRegPanel panel(&dbg);
     panel.refresh();
 
     check("DVP-PEEK-02",
