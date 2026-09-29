@@ -830,6 +830,52 @@ in `main.cpp` and held in `EmulatorConfig::debug_listen_address` for the servers
 to bind; it is refused unless a server port (`--dzrp-port`) is given too. The design, and the reason behind each rule above, is
 `doc/design/debug-subsystem/transport.md`.
 
+### The scripting language front end (package S)
+
+The debugger scripting language (`.jds`, GH #26) lives in **`src/script/`**
+(target `jnext_script`). Like `src/remote/` it has no toolkit dependency and is
+built in every configuration; it reads the machine only through the published
+`jnext::dbg::Debugger` facade, never through `Emulator`. As of its first work
+package it is a front end and a library: no script engine exists yet, and
+nothing in the shipped binary instantiates it.
+
+It is layered, each stage consuming only the one before it:
+
+- `lexer.*` — tokens. Comments are `;`, `//` and `#`; the bracketed
+  accessors (`mem[`, `page[`, `changed(`, …) are single tokens spelled with
+  their bracket, which is what tells the accessor `page[s]` from the `page`
+  of an address filter.
+- `parser.*` over `ast.h` — recursive descent over the grammar of record
+  (`doc/design/debug-subsystem/dsl-frontend.md` §2.1). It stops at the first
+  syntax error and reports it as `line:column: message`. It is also where
+  nesting is bounded: an expression tree at most 200 levels tall, `if`s nested
+  at most 64 deep, refused with a positioned error past that. A chain of
+  operators counts one level per operator, parentheses or not (the tree is
+  left-deep), so `a or b or …` stops at 200 terms. Every later pass
+  recurses over those trees and nothing else, so the bound made here is what
+  keeps a pathological script or ZRCP expression from overflowing the stack.
+- `check.*`, with `names.*` as the one table of reserved words, built-in state
+  names and payload names — the load-time checks, and BINDING: each upper-case
+  name is resolved to what it reads in its scope (`PC` is the causing
+  instruction's PC in an event rule and the CPU's PC elsewhere; `CPC` is legal
+  only in a `copper` rule). The per-kind payload table admits a name only where
+  the backend's `Event` actually carries it.
+- `evaluator.*` — the integer evaluator over a bound tree, reading through the
+  facade's const inspection surface (32-bit wrapping arithmetic; run-time
+  failures such as division by zero are reported, not thrown past the library).
+- `expr_compiler.h` — the stable public header other frontends call:
+  `compile_expr(text, scope)` returns the backend's CAP-EVT predicate
+  (`dbg::Condition`) and `eval_expr(text, debugger)` evaluates once. The ZRCP
+  adapter (package Z, not yet written) is designed to translate its dialect into
+  this grammar rather than own a second parser.
+
+`script_parse_test` (`gate: none`) pins the grammar, every error class with its
+position, precedence, the per-kind payload table, the evaluation of every name
+against a real `Debugger`, and that every worked script of the design parses.
+The choices made where the grammar is silent are the design document's
+"WP1 as built" appendix. This section covers the front end only; the engine,
+the CLI and the recorder are later work packages of the same branch.
+
 ## What `ENABLE_DEBUGGER=OFF` removes
 
 `ENABLE_DEBUGGER` (default `ON`) gates **only the Qt UI**. With it off,

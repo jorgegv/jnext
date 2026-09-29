@@ -91,7 +91,7 @@ The single authoritative protocol for landing any implemented change on `main`:
 
 1. **Dedicated branch + worktree** off current `main` — never edit `main` directly. Each independent feature gets its own branch (so parallel agents don't trash each other).
 2. **Full test triplet green on the branch, plus the SDL-only unit run** before review: `make clean && make gui-release`, then `make unit-test`, **`make unit-test-sdl`**, the FUSE Z80 suite (`./build/test/fuse_z80_test build/test/fuse` → 1356/1356), and `JNEXT_TEST_JOBS=4 make regression`. No FAIL anywhere (SKIPs only where already declared).
-   - `make unit-test-sdl` applies to **every** branch, not only GUI-touching ones (owner decision, 2026-09-25). Its 94 suites are the core emulator plus the platform decision-logic both frontends share, minus Qt and the debugger — and they INCLUDE `host_key_latch_test`, which drives the real `SdlInput::poll()` (GH #268) precisely because an SDL-only build is the only place that coverage survives. So an SDL-frontend change needs this run just as much as a core one does; do not read “the non-Qt set” as “no frontends”. Cost on a branch that actually changed code: ~17 s with a warm ccache (a no-op re-run of just the suites is ~9 s). See the two-configuration rule under **Testing**.
+   - `make unit-test-sdl` applies to **every** branch, not only GUI-touching ones (owner decision, 2026-09-25). Its 96 suites are the core emulator plus the platform decision-logic both frontends share, minus Qt and the debugger — and they INCLUDE `host_key_latch_test`, which drives the real `SdlInput::poll()` (GH #268) precisely because an SDL-only build is the only place that coverage survives. So an SDL-frontend change needs this run just as much as a core one does; do not read “the non-Qt set” as “no frontends”. Cost on a branch that actually changed code: ~17 s with a warm ccache (a no-op re-run of just the suites is ~9 s). See the two-configuration rule under **Testing**.
    - Use **`make regression`**, never bare `bash test/00regression/regression.sh`: the suite's `sdl-keypress-func` row needs `build/sdl-release`, which only the make target builds, so the bare script aborts as a harness fault. Two separate agents lost a run to this on 2026-09-25.
    - **A DOCUMENTATION-ONLY change runs NO code gate** (owner rule, 2026-09-27). If the branch or
      the set of changes to merge touches only documentation, run only the gates the documentation
@@ -348,8 +348,8 @@ in `ENABLE_QT_UI=ON / ENABLE_DEBUGGER=OFF` and nothing noticed.
 
 | target | configuration | build dir | suites |
 |--------|---------------|-----------|--------|
-| `make unit-test`     | Qt + debugger (the shipped one) | `build/`              | 122 |
-| `make unit-test-sdl` | SDL-only, no Qt, no debugger    | `build/sdl-unit-test` |  94 |
+| `make unit-test`     | Qt + debugger (the shipped one) | `build/`              | 124 |
+| `make unit-test-sdl` | SDL-only, no Qt, no debugger    | `build/sdl-unit-test` |  96 |
 
 The other two (Qt without the debugger; SDL with it) are not used in practice and
 stay **build-only**. CI runs both targets — the same two commands a human types —

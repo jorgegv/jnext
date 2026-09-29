@@ -101,6 +101,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Raster State (beam + ULA fetch) |       86 |       86 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger socket transport (GH #287) |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DZRP remote debugger adapter (GH #12) |      145 |      145 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger DSL front end (GH #26) |      257 |      257 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (AppConfig) |      116 |      116 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain configuration |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain Preferences |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -129,6 +130,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       53 |       53 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       61 |       61 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **11024**| **11024**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **11281**| **11281**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
