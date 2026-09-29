@@ -66,6 +66,10 @@
 >   with its reason, three backend defects fixed on the branch, and the design
 >   findings (T's fit, one backend gap). Sections 0-11 are unchanged: where
 >   the implementation differs, §12 says so and why.
+> - v1.8 (2026-09-29, milestone 2 — WP-3 + WP-4 implemented; milestone 1
+>   APPROVED): the owner-approved INS-03 `rom_select()` retires §12.2's
+>   deviation 1 (§2 row 25 and §5.2 now say so); §13 records WP-3/WP-4, their
+>   deviations and findings.
 
 Every claim below carries a `file:line` citation. Sources and their versions:
 
@@ -102,8 +106,8 @@ whole, so `done` here means the sub-item is approved, not merged.
 |---|---|---|
 | **WP-1** | framing over the shared transport (T) | **done** |
 | **WP-2** | session / registers / memory | **done** |
-| **WP-3** | breakpoints / continue / notify | in progress |
-| **WP-4** | tier 2 (the commands only an emulator can serve) | in progress |
+| **WP-3** | breakpoints / continue / notify | in review |
+| **WP-4** | tier 2 (the commands only an emulator can serve) | in review |
 | **WP-5** | loop owners + CLI | todo |
 | **WP-6** | validation — **including the `tools/cspect_dzrp/cspect_dzrp.py` H1-H3 fixes** (owner decision §1.3 item 25: part of this package, not a separate change), and the V-LAT paused-cadence measurement (§11 item 6) | todo |
 | **WP-7** | docs | todo |
@@ -1122,3 +1126,125 @@ Implementation files only — no frozen header changed.
 - `ClientInfo` cannot be changed after `attach()`, so a repeated `CMD_INIT`
   under a different program name keeps the first name in the backend's
   client list (the log line shows the new one). Cosmetic; no change proposed.
+
+---
+
+## 13. Implementation record — milestone 2 (WP-3 breakpoints / continue / notify, WP-4 tier 2)
+
+Same files as §12; `dzrp_adapter_test` grows to 134 rows, and
+`debugger_backend_test` gains one contiguous block (`dzrp_d_rows()`, 12 rows)
+for what package D changed in the backend.
+
+### 13.1 The INS-03 header addition — `MemSpace rom_select() const`
+
+**Owner-approved 2026-09-29.** `src/debug/debugger.h`, beside
+`paging_ports()`; the DIRECT-VALUE list goes 51 → 52. Returns
+`Rom{Mmu::current_sram_rom()}` — VHDL `sram_rom` (`zxnext.vhd:2981-3008`) with
+the machine type, 7FFD b4 / 1FFD b2 and the NR 0x8C lock bits folded in by the
+backend: 48K image 0 always; +3 the two port bits, or the two lock bits when
+either is set; 128K and the Next ONE bit (7FFD b4), or lock_rom1 when a lock is
+set.
+
+**Why this form.** Two were on the table: `uint8_t rom_select()` (an index),
+or a `SlotInfo` field for slots 0/1.
+- **A `MemSpace`, not an index**, for the reason `SlotInfo::space` is one
+  (REQ-qt-31, inspect.h's own banner): "the index is PART OF THE SPACE, not
+  something a caller composes". The caller adds only the slot's half offset
+  (`s · 0x2000`), which is geometry, not an index.
+- **A machine-wide query, not a `SlotInfo` field**: `sram_rom` is ONE signal in
+  the VHDL, not a per-slot one, and a field meaningful for two of eight slots
+  would carry a meaningless value in the other six. It sits in INS-03 beside
+  `paging_ports()`, the other machine-wide paging fact, and leaves `SlotInfo`
+  (which package Q's panels consume) untouched.
+
+Backend rows `INS-03-10..17` (48K, 128K, +3, Next; the lock bits; agreement with
+the slot view while ROM is paged; the answer while RAM is paged). DZRP uses it
+for `CMD_READ_BANK_MEM` bank 0xFF while RAM is paged at 0x0000
+(`DZRP-BANK-09/14`), which retires §12.2's deviation 1.
+
+**Also pinned at the backend now** (review of milestone 1, item 4): `D-FIX-01/02`
+(B-1, `set_mmu_slot(0/1, 0xFF)` re-engages the ROM), `D-FIX-03` (B-2, the hex
+`MUTATE port out`), `D-FIX-04` (B-3, `set_border` refused under RZX).
+
+### 13.2 WP-3 — what is served
+
+`CMD_CONTINUE` (6), `CMD_PAUSE` (7), `CMD_ENABLE_BREAK_ON_INTERRUPT` (39),
+`CMD_ADD_BREAKPOINT` (40), `CMD_REMOVE_BREAKPOINT` (41), and `NTF_PAUSE`, as §3
+designs them: transient `Execute` stops for DeZog's temporaries, `run()` (so the
+GH #221 step-off arm applies), the reply before anything runs; `NTF_PAUSE` built
+from `Paused{reason, matched[]}` in the post-frame flush (`on_notify`), temp
+first (F8), `bank+1` of the address's page (F7), once per `CONTINUE` or per
+`PAUSE` that stopped a running machine; a hard reset sends nothing. The
+bitfield is now §2 row 24's `DE 8F BF 07 80 0F 0C` (`DZRP-SUP-01`).
+
+### 13.3 WP-4 — what is served
+
+Watchpoints (42/43: `Mem[addr, addr+size-1]` + `access` + the `page`
+qualifier; reported with the accessed address and its bank byte, never
+filtered), state (50/51: the `"JNXB"` token over CAP-CAP-03, validated before
+any backend call), sprites (16-19). `CMD_WRITE_BANK` (5) was already served in
+milestone 1, bank-7 BRAM routing included (`DZRP-BANK-01`).
+
+### 13.4 Deviations and precisions, each with its reason
+
+1. **A breakpoint or watchpoint in a ROM bank is armed in every bank**
+   (§3.1/§5.4 are silent on ROM). The bank byte of a ROM address is 0xFF
+   (3.7.4: 0xFE + 1) or 0 (3.8: 0xFF + 1 overflows, §5.3), and the backend's
+   `page` qualifier compares against a ROM slot's ROM page index, not a DZRP
+   bank — so no qualifier can name "the ROM". `PAGE_ANY` is the honest arming;
+   a qualifier that never matched would be a breakpoint that never fires. A
+   bank that does not exist (224..0xFD) is refused: id 0 / error 1.
+2. **The `NTF_PAUSE` bank byte of a ROM slot**: slot 0 → 0xFF, slot 1 → 0
+   (§5.3 made precise). 0xFF is what DeZog 3.7.4 matches for slot 0 (its model
+   calls that ROM 0xFE); nothing fits for slot 1 or for 3.8 (`DZRP-NTF-03`).
+3. **The `NTF_PAUSE` is built in `on_notify()`, the Protocol flush, not in the
+   `on_paused()` listener callback** — building it unsubscribes the leftover
+   temporaries, which is not something to do from inside the backend's fan-out.
+   Same tick either way: `pump()` runs the fan-out and then the flush
+   (`DZRP-NTF-01`).
+4. **The adapter unsubscribes what is left of a `CONTINUE`'s temporaries at every
+   notified stop** — the backend removes transients at a stop IT causes, and
+   leaves them armed after one it did not (its own comment, "a legacy PC
+   breakpoint"); "removed automatically after the command is finished" (spec)
+   is then the adapter's to keep (`DZRP-TEMP-04/05`).
+5. **Temporaries are owned by the DZRP client**, with the `transient` flag that
+   hides them from every user list (`DZRP-TEMP-03`). The milestone-2 brief said
+   "`owner=internal`"; read as "not user-visible", which the flag is. An owner of
+   `CLIENT_NONE` would survive the client's detach and could stop the machine
+   later with nobody to answer — the SES-01 hazard.
+6. **A refused resume** (`run()` → `RefusedCorrupt`): reply, then `NTF_PAUSE`
+   255 `"resume refused: <result> (<subsystem>)"`, and the temporaries are
+   removed (`DZRP-CONT-04`).
+7. **Stop texts for reason 255** (§3.3 "e.g."): `"paused by another debugger
+   client"`, `"breakpoint of another debugger client"`, `"watchpoint of …"`,
+   `"stepped by …"`, `"run-to target of …"`, `"magic breakpoint"`, `"machine
+   state corrupt"`, a script's own text, and `"Break on interrupt."`. The
+   backend reports another client's identity only as an id, so the text cannot
+   say "GUI".
+8. **`CMD_READ_STATE` names**: `dzrp-<client id>-<n>`, n counting per session.
+   **`CMD_WRITE_STATE` validity** is "the backend holds this name FOR THIS
+   CLIENT" — bookmarks are per client and only this adapter saves under this
+   client, so a separate "issued by this session" set would be the same
+   question twice (it was written, and removed as redundant). Garbage, a wrong
+   magic, a bare magic, an unheld name, an empty payload → reply + `NTF_PAUSE`
+   255 `"no state to restore"` (+ `" (save was refused mid-frame)"` after a
+   mid-frame refusal), no backend call, no latch (`DZRP-ST-04/05/07`).
+9. **`CMD_GET_SPRITES_PALETTE` for a palette other than 0/1**: a seq-only reply +
+   warn; **`CMD_GET_SPRITES` / `CMD_GET_SPRITE_PATTERNS` past the end** are
+   clamped with a warn line (the design said "clamp"; the warn is added).
+10. **`CMD_ADD_WATCHPOINT`'s access byte** keeps bits 0-1; `CMD_REMOVE_WATCHPOINT`
+    compares the tuple exactly as sent, byte for byte.
+
+### 13.5 Findings
+
+- **`Rom{}` cannot name the NR 0x8C alternate ROM.** With NR 0x8C bit 7 set
+  (and bit 6 clear) the CPU reads slots 0/1 from the alt-ROM SRAM pages 12-15
+  (`mmu.h:362-364`), which no `Rom{0..3}` covers. So `SlotInfo.space`,
+  `rom_select()` and DZRP bank 0xFF name the ROM image beneath it, while
+  `peek(Cpu)` / `CMD_READ_MEM` show the alt ROM. The frozen `inspect.h` comment
+  on `MemSpace::Kind::Rom` ("the NR 0x8C alt-ROM overrides are already folded
+  into the slot's ROM select, so `Rom{0..3}` is complete") holds for the LOCK
+  bits only. Reported, not changed (frozen header).
+- **An `IntAck` stop reports `PauseReason::Script`** (the backend's
+  "subscriber's explicit stop" catch-all); the adapter recognises its
+  break-on-interrupt stop through `matched[]`, which is what `matched[]` is for.
