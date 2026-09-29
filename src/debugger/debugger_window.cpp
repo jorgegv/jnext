@@ -547,9 +547,10 @@ void DebuggerWindow::create_menus() {
 
     rewind_enable_action_ = rewind_menu->addAction(tr("&Enable Rewind"));
     rewind_enable_action_->setCheckable(true);
-    // ST-03: a ring exists iff it has a capacity (rewind_range() is all zero
-    // with none).
-    rewind_enable_action_->setChecked(backend() && backend()->rewind_range().capacity > 0);
+    // Its checked state is update_rewind_ui()'s, which set_debugger_manager()
+    // reaches through apply_keymap() before it returns — so no caller ever sees
+    // this action before that sync. (A construction-time setChecked() here was
+    // dead: overwritten within the same call, every path; WP3 review item 2.)
     connect(rewind_enable_action_, &QAction::triggered, this, [this](bool checked) {
         jnext::dbg::Debugger* dbg = backend();
         if (!dbg) return;
