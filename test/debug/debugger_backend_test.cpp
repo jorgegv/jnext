@@ -5511,6 +5511,11 @@ int main() {
         uint8_t before[2] = {};
         dbg.peek(MemSpace::cpu(), 0x0000, 2, before);
         const auto w = dbg.poke(1, MemSpace::cpu(), 0x0000, 2, src);
+        // And the ONE-byte form — what a one-byte RSP `M` or a Memory-panel
+        // edit sends, and the case with its own MUTATE line (old -> new).
+        const uint8_t rom5 = emu.mmu().peek(0x0005);
+        const uint8_t v5   = static_cast<uint8_t>(rom5 ^ 0xFF);
+        const auto    w1   = dbg.poke(1, MemSpace::cpu(), 0x0005, 1, &v5);
         uint8_t after[2] = {};
         dbg.peek(MemSpace::cpu(), 0x0000, 2, after);
         int mutates = 0;
@@ -5518,10 +5523,12 @@ int main() {
             if (l.find("MUTATE") != std::string::npos) ++mutates;
         auto& sinks = Log::debugger()->sinks();
         sinks.erase(std::remove(sinks.begin(), sinks.end(), ring), sinks.end());
-        check("INS-02-22", "poke(Cpu) wholly onto ROM (a 48K's 0x0000) is RefusedReadOnly with a "
-                           "count of 0, ROM is unchanged, and no MUTATE line claims a write",
+        check("INS-02-22", "poke(Cpu) wholly onto ROM (a 48K's 0x0000, 2 bytes, and 0x0005, 1 "
+                           "byte) is RefusedReadOnly with a count of 0, ROM is unchanged, and no "
+                           "MUTATE line claims a write",
               w.status == Result::RefusedReadOnly && w.value == 0 && before[0] == after[0] &&
-                  before[1] == after[1] && mutates == 0,
+                  before[1] == after[1] && w1.status == Result::RefusedReadOnly &&
+                  w1.value == 0 && emu.mmu().peek(0x0005) == rom5 && mutates == 0,
               std::string(jnext::dbg::result_name(w.status)) + " " + std::to_string(w.value) +
                   " mutates=" + std::to_string(mutates));
     }

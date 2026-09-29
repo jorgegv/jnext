@@ -968,3 +968,36 @@ written. Now:
   Layer 2 page, reads come from the normal map) for a dropped one. MEM-09's log
   text changed ("did not land"); MEM-10 is new. `CMD_WRITE_BANK` /
   `WRITE_BANK_MEM` use `poke(Page)` and are unaffected.
+
+### 12.5 Review round 1 (2026-09-29) — §5.4 corrected
+
+The review reproduced, with the real `z88dk-gdb` 2.4, one `c` answered by a
+`T02` and two `T05`s: a Ctrl-C at the prompt puts a 0x03 on the wire next to
+the following `c`, and §5.4's "0x03 while paused: reply `T02` at once" answered
+a request nobody was waiting on — the client then took it as the reply to the
+`c`, and the real stop reply landed where it expected its `g`/`m` reply. Two
+rules replace that part of §5.4 (this section supersedes §2 row 18 and §5.4's
+last paragraph):
+
+1. **0x03 is not a request.** It only asks for the stop that answers an
+   outstanding `c`/`s`/`i`/`?`; that stop's edge sends the one reply (`T02` for
+   this client's own pause, §5.3). With nothing owed — the client at its prompt,
+   or the stop reply already on its way — a running machine is paused and
+   **nothing** is sent. gdbserver answers nothing there either. (`Owed::Interrupt`
+   is gone.)
+2. **An inspection packet abandons an owed reply.** A client sends `g G p P m M
+   X Z z qRcmd` only when it believes the machine stopped, so it has already
+   taken some packet as its `c`/`i`/`?` reply; sending the owed `T` afterwards
+   would put it where the client expects this packet's reply. So rule 4 also
+   drops the owed reply, whether the machine still runs or has stopped with its
+   edge not yet sent.
+
+Rows: GDB-STOP-13 (0x03 then `c` at a breakpoint stop: one stop packet),
+GDB-STOP-14 (`?` during a `c` pauses; one reply), GDB-STOP-15 (the abandon, both
+orders); GDB-STOP-03 and GDB-FRM-06 now assert a 0x03 with nothing owed sends
+nothing. Re-verified with the real client in both wire orders (0x03 before and
+after the `c`). Also from the review: BP-12/13 (insert, remove — with another
+`kind` — insert again: live), SES-07 (the next session's breakpoint at the same
+address is live), REG-02 reads the clock pair from the served `g`, MON-10 hides
+another client's transient, and `debugger_backend_test` INS-02-22 adds the
+one-byte ROM poke (no MUTATE line).

@@ -215,6 +215,7 @@ ServiceStep GdbServer::on_service(Connection& c) {
                     c.write("-");
                     continue;
                 case RspEvent::Kind::Interrupt:
+                    Log::debugger()->trace("gdb: <- 0x03");
                     conn_ = &c;
                     pkt_interrupt();
                     conn_ = nullptr;
@@ -223,6 +224,7 @@ ServiceStep GdbServer::on_service(Connection& c) {
                     // The ack goes first; the client erases it (§1.2), a real
                     // gdb in ack mode needs it.
                     c.write("+");
+                    Log::debugger()->trace("gdb: <- {}", printable(ev.body));
                     conn_ = &c;
                     dispatch(ev.body);
                     conn_ = nullptr;
@@ -247,11 +249,11 @@ void GdbServer::on_notify(Connection& c) {
     std::string body;
     switch (owed_) {
         case Owed::Question:  body = kStopTrap; break;
-        case Owed::Interrupt: body = kStopInt; break;
         case Owed::Continue:  body = stop_reply(info); break;
         case Owed::None:      return;
     }
     owed_ = Owed::None;
+    Log::debugger()->trace("gdb: -> {} (stop reply)", printable(body));
     c.write(frame_packet(body));
 }
 
@@ -301,6 +303,7 @@ void GdbServer::on_log(jnext::dbg::LogLevel /*level*/, const std::string& /*text
 // ---------------------------------------------------------------------------
 
 void GdbServer::reply(const std::string& body) {
+    Log::debugger()->trace("gdb: -> {}", printable(body));
     if (conn_) conn_->write(frame_packet(body));
 }
 
@@ -313,6 +316,16 @@ void GdbServer::unsupported(const std::string& body) {
 }
 
 void GdbServer::pause_first() {
+    if (owed_ != Owed::None) {
+        // The client sends an inspection packet only when it believes the
+        // machine stopped, so it has already consumed some packet as the reply
+        // to its `c`/`i`/`?`. Answering later would put a `T` where it expects
+        // this packet's reply (review round 1).
+        Log::debugger()->debug("gdb: inspection packet while a stop reply is owed — "
+                               "the client counts the machine stopped; reply abandoned");
+        owed_ = Owed::None;
+        pending_.reset();
+    }
     if (dbg_.state().paused) return;
     Log::debugger()->info("gdb: client re-paused the machine (resumed by client {})",
                           last_resumer_);
@@ -453,24 +466,17 @@ void GdbServer::pkt_question() {
 }
 
 // 0x03 — Ctrl-C, or the client's temporary break to edit breakpoints while it
-// believes the machine runs (§1.1). Signal 2, SIGINT (§2 row 18).
+// believes the machine runs (§1.1). It is not a request and earns no reply of
+// its own: it asks for the stop that answers an outstanding `c`/`i`/`?`, and
+// that stop's edge sends the one reply (§5.3 gives T02 for this client's own
+// pause). With nothing owed the client is not waiting — it is at its prompt, or
+// the stop reply is already on its way — so a running machine is paused and
+// NOTHING is sent (review round 1: an answer here, with the real z88dk-gdb 2.4,
+// was taken as the reply to the next `g`/`m`).
 void GdbServer::pkt_interrupt() {
-    const bool paused = dbg_.state().paused;
-    if (owed_ != Owed::None) {
-        // The Ctrl-C of a `c`: pause, and the edge answers the `c` (§5.3 gives
-        // T02 for this client's own pause).
-        if (!paused) dbg_.pause(cid_);
-        return;
-    }
-    if (paused) {
-        reply(kStopInt);
-        return;
-    }
-    if (const Result r = dbg_.pause(cid_); r != Result::Ok) {
+    if (dbg_.state().paused) return;
+    if (const Result r = dbg_.pause(cid_); r != Result::Ok)
         Log::debugger()->warn("gdb: interrupt could not pause the machine: {}", result_name(r));
-        return;
-    }
-    owed_ = Owed::Interrupt;
 }
 
 // The optional `c <addr>` / `s <addr>`: resume at `addr` (a `P pc` first).

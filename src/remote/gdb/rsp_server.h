@@ -28,23 +28,30 @@
 //
 // The client routes replies POSITIONALLY: the next packet after a request is
 // taken as its reply, whatever it says (§1.2). So a stop reply (`T…`) may only
-// ever be the answer to `c`, `s`, `i`, `?` or a 0x03 — never spontaneous. One
-// field, `owed_`, records that one is owed and to which kind of request:
+// ever be the answer to a request the client is WAITING on — `c`, `s`, `i` or
+// `?` — never spontaneous, and exactly one per request. One field, `owed_`,
+// records that one is owed and to which kind of request:
 //
 //   request     machine paused            machine running
 //   `?`         reply T05 now             pause(); owed = Question
-//   0x03        reply T02 now             pause(); owed = Interrupt
 //   `s`         step_into(); reply T05 now (synchronous)
 //   `c`, `i`    run() / run_to(); owed = Continue (refused → E01, nothing owed)
+//   0x03        with a reply owed: pause a running machine; the edge answers
+//               with NOTHING owed: pause a running machine; reply NOTHING
 //
-//   (`?` or 0x03 while a reply is already owed owes no second one: the pause
-//   edge that is on its way answers the first.)
+// 0x03 IS NOT A REQUEST (review round 1, reproduced with the real z88dk-gdb
+// 2.4): it only asks for the stop that answers an outstanding `c`/`s`/`i`.
+// With nothing owed the client is at its prompt, or has already been sent the
+// stop reply and not read it yet — any `T` then would be taken as the reply to
+// its NEXT request (a `g`, an `m`). gdbserver answers nothing there either.
+// `?` while a reply is already owed owes no second one: the pause edge answers
+// the first.
 //
 // A backend `Paused` push is kept only while a reply is owed; `on_notify()`
 // (after the pump's drain) turns it into ONE packet and clears `owed_`. A
 // `Paused` with nothing owed — a GUI pause while the client already believes
 // the machine stopped — sends nothing: the client's model is already right.
-// Question → T05, Interrupt → T02; Continue → by the reason (§5.3):
+// Question → T05; Continue → by the reason (§5.3):
 //
 //   one of this client's Z0/Z1 matched   T05thread:1;swbreak:;
 //   one of this client's Z2/Z3/Z4        T05thread:1;watch|rwatch|awatch:<addr>;
@@ -53,7 +60,11 @@
 //
 // Rule 4: an inspection packet (`g G p P m M X Z z qRcmd`) that arrives while
 // the machine runs — resumed behind the client's back by the GUI — PAUSES it
-// first, then is served; no stop reply is owed, so none is sent.
+// first, then is served; no stop reply is owed, so none is sent. And an
+// inspection packet while a reply IS owed means the client already counts the
+// machine stopped (it has taken some earlier packet as that reply): the owed
+// reply is ABANDONED, so it cannot arrive later as the answer to something
+// else (review round 1).
 //
 // ── OWNERSHIP ──────────────────────────────────────────────────────────────
 //
@@ -113,7 +124,7 @@ public:
 
 private:
     /// Which request a stop reply is owed to (see the header banner).
-    enum class Owed : std::uint8_t { None, Continue, Question, Interrupt };
+    enum class Owed : std::uint8_t { None, Continue, Question };
 
     /// One `Z` insertion: type 0..4, address, and — for a watch — its length.
     struct BpKey {
@@ -131,7 +142,8 @@ private:
     void reply(const std::string& body);
     void unsupported(const std::string& body);
     void end_session();
-    /// Rule 4: pause a machine that is running behind the client's back.
+    /// Rule 4: pause a machine that is running behind the client's back, and
+    /// abandon a stop reply the client is evidently no longer waiting for.
     void pause_first();
     /// The §5.3 stop reply for a `Continue`.
     std::string stop_reply(const jnext::dbg::PausedInfo& info) const;

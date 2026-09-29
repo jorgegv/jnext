@@ -443,12 +443,12 @@ static void framing_rows() {
         Rig    rig;
         Client c(rig);
         load_loop(rig);
-        // 0x03 OUTSIDE a packet, while running: the interrupt.
-        const auto r = c.send_raw(std::string(1, '\x03'));
-        check("GDB-FRM-06", "a 0x03 outside a packet is Ctrl-C: the running machine stops and "
-                            "the reply is T02thread:1; — with no ack (it is not a packet)",
-              r.size() == 1 && r[0] == "T02thread:1;" && rig.dbg->state().paused &&
-                  c.w.acks.empty(),
+        // 0x03 OUTSIDE a packet, while running: the interrupt. It is not a
+        // request, and with no stop reply owed (no `c`) none is sent.
+        const auto r = c.send_raw(std::string(1, '\x03'), 3);
+        check("GDB-FRM-06", "a 0x03 outside a packet is Ctrl-C: the running machine stops, with "
+                            "no ack (it is not a packet) and — nothing being owed — no reply",
+              r.empty() && rig.dbg->state().paused && c.w.acks.empty() && c.p->pending() == 0,
               join(r) + " acks=" + c.w.acks);
     }
     {
@@ -632,13 +632,15 @@ static void register_rows() {
         c.send_raw(std::string(1, '\x03'), 2);
         const std::uint64_t t2 = rig.dbg->time().tstates_total;
         const std::string   lo2 = c.cmd("pc"), hi2 = c.cmd("pd");
-        check("GDB-REG-02", "clockl/clockh (p c / p d, g slots 12-13) are the low and high 16 "
-                            "bits of the monotonic T-state count, and move when a frame runs "
-                            "(past 0x10000, so the high half is non-zero)",
+        const std::string   g2  = c.cmd("g");
+        check("GDB-REG-02", "clockl/clockh (p c / p d, and the SERVED g's slots 12-13) are the "
+                            "low and high 16 bits of the monotonic T-state count, and move when "
+                            "a frame runs (past 0x10000, so the high half is non-zero)",
               before_ok && t2 > t && (t2 >> 16) != 0 &&
                   lo2 == le4(static_cast<std::uint16_t>(t2 & 0xFFFF)) &&
-                  hi2 == le4(static_cast<std::uint16_t>((t2 >> 16) & 0xFFFF)),
-              lo + " " + hi + " / " + lo2 + " " + hi2 + " t2=" + std::to_string(t2));
+                  hi2 == le4(static_cast<std::uint16_t>((t2 >> 16) & 0xFFFF)) &&
+                  g2.size() == 56 && g2.substr(48, 4) == lo2 && g2.substr(52, 4) == hi2,
+              lo + " " + hi + " / " + lo2 + " " + hi2 + " g2=" + g2 + " t2=" + std::to_string(t2));
     }
     {
         // THE ZERO-CLOBBER ROW. z88dk-gdb's `set hl 1234` sends the whole file
@@ -1093,6 +1095,41 @@ static void breakpoint_rows() {
     }
 }
 
+// Reached from breakpoint_rows(): insert, remove, insert again.
+static void reinsert_rows() {
+    {
+        // `break X`, `delete 1`, `break X` — an ordinary z88dk-gdb sequence.
+        // The remove must forget the insert (and ignore `kind`, a Z80
+        // breakpoint has none), or the second insert answers OK and never fires.
+        Rig    rig;
+        Client c(rig);
+        open_session(c);
+        load_loop(rig);
+        const std::string a = c.cmd("Z0,8002,1"), b = c.cmd("z0,8002,2");
+        const bool removed = rig.dbg->subscriptions(false).empty();
+        const std::string d = c.cmd("Z0,8002,1");
+        const std::string s = cont_and_stop(rig, c);
+        check("GDB-BP-12", "Z0, z0 with another kind (removes it: kind is ignored), Z0 again at "
+                           "one address: the re-inserted breakpoint is live — one subscription, "
+                           "and c stops on it with swbreak",
+              a == "OK" && b == "OK" && removed && d == "OK" &&
+                  rig.dbg->subscriptions(false).size() == 1 &&
+                  s == "T05thread:1;swbreak:;" && pc(rig) == 0x8002,
+              s);
+    }
+    {
+        Rig    rig;
+        Client c(rig);
+        open_session(c);
+        load_store_loop(rig, true, 0x9001);
+        const std::string a = c.cmd("Z2,9000,2"), b = c.cmd("z2,9000,2"), d = c.cmd("Z2,9000,2");
+        const std::string s = cont_and_stop(rig, c);
+        check("GDB-BP-13", "Z2, z2, Z2 on one range: the re-inserted watch is live and stops "
+                           "with watch:9001",
+              a == "OK" && b == "OK" && d == "OK" && s == "T05thread:1;watch:9001;", s);
+    }
+}
+
 // ── GDB-STP — s, i<len>, c (WP-3) ──────────────────────────────────────────
 
 /// 0x8000 CALL 0x9000; 0x8003 JR $.  0x9000 INC A; RET.
@@ -1293,11 +1330,50 @@ static void stop_rows() {
         Rig    rig;
         Client c(rig);
         open_session(c);
-        const auto r = c.send_raw(std::string(1, '\x03'), 1);
+        const auto r = c.send_raw(std::string(1, '\x03'), 3);
+        const std::string g = c.cmd("g");
         c.tick();
-        check("GDB-STOP-03", "0x03 on a stopped machine answers T02thread:1; at once (the "
-                             "client's temporary break), and nothing after it",
-              r.size() == 1 && r[0] == "T02thread:1;" && c.fresh().empty(), join(r));
+        check("GDB-STOP-03", "0x03 on a stopped machine with nothing owed sends NOTHING (it is "
+                             "not a request; the client is not waiting), so the next request's "
+                             "reply is its own — review round 1",
+              r.empty() && g.size() == 56 && c.fresh().empty() && rig.dbg->state().paused,
+              join(r) + " / " + g);
+    }
+    {
+        // THE REVIEWER'S REAL-CLIENT SEQUENCE (z88dk-gdb 2.4): Ctrl-C at the
+        // prompt at a breakpoint stop, then `cont` — the client puts the 0x03 on
+        // the wire before the `c`. Exactly ONE stop packet, the `c`'s, and the
+        // client's following `g`/`m` get their own replies with nothing glued on.
+        Rig    rig;
+        Client c(rig);
+        open_session(c);
+        load_loop(rig);
+        c.cmd("Z0,8002,1");
+        c.send_raw(pkt("c"), 1);
+        run_until_paused(rig);
+        const std::string first = [&] { c.tick(); auto f = c.fresh(); return f.empty() ? std::string() : f[0]; }();
+        c.p->send(std::string(1, '\x03') + pkt("c"));
+        std::vector<std::string> after;
+        for (int i = 0; i < 4; ++i) {
+            c.tick();
+            for (auto& b : c.fresh()) after.push_back(b);
+        }
+        const bool running = !rig.dbg->state().paused;
+        run_until_paused(rig);
+        for (int i = 0; i < 3; ++i) {
+            c.tick();
+            for (auto& b : c.fresh()) after.push_back(b);
+        }
+        const std::string g = c.cmd("g");
+        const std::string m = c.cmd("m8000,4");
+        c.tick();
+        check("GDB-STOP-13", "0x03 then c at a breakpoint stop: the 0x03 sends nothing, the c "
+                             "runs, and its ONE stop reply (swbreak) is the only packet; g and m "
+                             "then get exactly their own replies",
+              first == "T05thread:1;swbreak:;" && running &&
+                  after == std::vector<std::string>{"T05thread:1;swbreak:;"} && g.size() == 56 &&
+                  m.size() == 8 && c.fresh().empty(),
+              join(after) + " / " + g + " / " + m);
     }
     {
         // Ctrl-C during a `c`.
@@ -1446,6 +1522,59 @@ static void stop_rows() {
                   rig.dbg->state().pause_reason.kind == jnext::dbg::PauseReason::Kind::Step,
               join(r));
         rig.dbg->detach(other);
+    }
+    {
+        // `?` during an outstanding `c` (running): it stops the machine, and
+        // the one reply is the `c`'s — never a second T for the `?`.
+        Rig    rig;
+        Client c(rig);
+        open_session(c);
+        load_loop(rig);
+        c.send_raw(pkt("c"), 1);
+        rig.emu.run_frame();
+        c.p->send(pkt("?"));
+        std::vector<std::string> got;
+        for (int i = 0; i < 4; ++i) {
+            c.tick();
+            for (auto& b : c.fresh()) got.push_back(b);
+        }
+        check("GDB-STOP-14", "? during an outstanding c pauses the running machine (as this "
+                             "client) and ONE stop reply answers both",
+              got.size() == 1 && got[0] == "T02thread:1;" && rig.dbg->state().paused &&
+                  rig.dbg->state().pause_reason.by == rig.gdb->client(),
+              join(got));
+    }
+    {
+        // An inspection packet while a `c` is outstanding means the client
+        // already counts the machine stopped: the owed reply is ABANDONED —
+        // whether the machine still runs, or has stopped with its edge not yet
+        // sent (the two orders a real client can produce).
+        Rig    rig;
+        Client c(rig);
+        open_session(c);
+        load_loop(rig);
+        c.send_raw(pkt("c"), 1);
+        rig.emu.run_frame();
+        const std::string g1 = c.cmd("g");
+        c.tick();
+        c.tick();
+        const bool quiet1 = c.fresh().empty();
+
+        c.cmd("Z0,8002,1");
+        c.send_raw(pkt("c"), 1);
+        run_until_paused(rig);
+        c.p->send(pkt("m8000,2"));
+        std::vector<std::string> got;
+        for (int i = 0; i < 4; ++i) {
+            c.tick();
+            for (auto& b : c.fresh()) got.push_back(b);
+        }
+        check("GDB-STOP-15", "g on a running machine with a c outstanding is answered and NO T "
+                             "follows; m after the c's stop but before its reply went out is "
+                             "answered alone — the owed reply is abandoned, never glued on",
+              g1.size() == 56 && quiet1 && got.size() == 1 && got[0].size() == 4 &&
+                  rig.dbg->state().paused,
+              g1 + " / " + join(got));
     }
     {
         // `D` with a `c` outstanding: OK, and no late stop reply.
@@ -1656,6 +1785,10 @@ static void monitor_rows() {
         s.filter.hi = 0x9003;
         s.access    = jnext::dbg::Access::Write;
         rig.dbg->subscribe(other, s);
+        jnext::dbg::Subscription t;  // a transient: hidden from every user list
+        t.filter.lo = t.filter.hi = 0x8123;
+        t.transient = true;
+        rig.dbg->subscribe(other, t);
         std::string f1;
         const auto  l = c.monitor("bp", f1);
         const bool mine = l.size() == 2 && l[0].find("execute 8002") != std::string::npos &&
@@ -1664,7 +1797,7 @@ static void monitor_rows() {
                             l[1].find("owner " + std::to_string(other)) != std::string::npos &&
                             l[1].find("(this client)") == std::string::npos;
         check("GDB-MON-10", "monitor bp lists every client's breakpoints and watchpoints with "
-                            "the owner, this client's marked",
+                            "the owner, this client's marked, and no transient (8123 absent)",
               f1 == "OK" && mine && theirs, join(l));
         rig.dbg->detach(other);
     }
@@ -1866,6 +1999,30 @@ static void session_rows() {
                   q == "T05thread:1;",
               s + " / " + q);
     }
+    {
+        // The adapter serves many sessions: a breakpoint the first one set at A
+        // must not make the next session's Z0 at A a silent no-op.
+        Rig    rig;
+        Client a(rig);
+        open_session(a);
+        load_loop(rig);
+        a.cmd("Z0,8002,1");
+        a.cmd("D");
+        a.tick();
+        rig.dbg->pause(rig.dbg->attach({"hold", jnext::dbg::ClientKind::Test}).value);
+        set_pc(rig, 0x8000);
+        Client b(rig);
+        open_session(b);
+        const std::string z = b.cmd("Z0,8002,1");
+        const std::string s = cont_and_stop(rig, b);
+        check("GDB-SES-07", "after D, the next session's Z0 at the same address is a real "
+                            "breakpoint: one subscription, owned by the new client, and c stops "
+                            "on it",
+              z == "OK" && s == "T05thread:1;swbreak:;" && pc(rig) == 0x8002 &&
+                  rig.dbg->subscriptions(false).size() == 1 &&
+                  rig.dbg->subscriptions(false)[0].owner == rig.gdb->client(),
+              z + " / " + s);
+    }
 }
 
 int main() {
@@ -1875,6 +2032,7 @@ int main() {
     register_rows();
     memory_rows();
     breakpoint_rows();
+    reinsert_rows();
     step_rows();
     stop_rows();
     monitor_rows();
