@@ -549,6 +549,14 @@ def sc_paused_headless(port, wrapper_pid, exit_frames):
     it waits — a spinning loop burns a whole core — and (b) when jnext exits on
     its own: `--delayed-automatic-exit-frames N` must still fire, charged in
     wall time at 20 ms a frame while a client holds the machine.
+
+    THE HOLD STARTS CHATTY: for 0.8 s the client sends a LOOPBACK every couple
+    of milliseconds, so the headless loop goes round hundreds of times a second
+    (every command ends a `pump()` wait). The exit charge is WALL time, so it
+    does not care how often the loop turns — which is exactly what a loop that
+    also counted a frame per turn (the paused branch falling through instead of
+    `continue`-ing) does care about: it would exit within a fraction of a
+    second, mid-chat. The silent half after it is where the CPU is measured.
     """
     wrapper_pid, exit_frames = int(wrapper_pid), int(exit_frames)
     deadline = time.monotonic() + 20
@@ -570,9 +578,23 @@ def sc_paused_headless(port, wrapper_pid, exit_frames):
     r0 = c.get_registers()
     held = regs_tuple(r0) + (r0.R,)
 
-    time.sleep(0.2)
+    # Chatty: a round trip every ~2 ms until 0.85 s after the attach.
+    chats = 0
+    while time.monotonic() - t_attach < 0.85:
+        try:
+            echo = c.loopback(bytes([chats & 0xFF]))
+        except (OSError, dz.DZRPError):
+            raise Fail("jnext exited %.2f s after the attach, %d commands into a chatty "
+                       "hold — its exit bound counted loop turns, not wall time"
+                       % (time.monotonic() - t_attach, chats))
+        check(echo == bytes([chats & 0xFF]), "LOOPBACK %d echoed %r" % (chats, echo))
+        chats += 1
+        time.sleep(0.002)
+
+    # Silent: the CPU jnext burns while it waits.
+    time.sleep(0.05)
     cpu0, w0 = cpu_seconds(jpid), time.monotonic()
-    time.sleep(1.0)
+    time.sleep(0.8)
     cpu1, w1 = cpu_seconds(jpid), time.monotonic()
     used = (cpu1 - cpu0) / (w1 - w0)
     r1 = c.get_registers()
@@ -601,9 +623,9 @@ def sc_paused_headless(port, wrapper_pid, exit_frames):
     # tight: a charge at half or double the rate lands outside [0.7x, x + 1 s].
     check(gone <= expected + 1.0, "jnext exited %.2f s after the attach, expected ~%.1f s"
           % (gone, expected))
-    return ("%.1f%% CPU while held, nothing executed; exited on its own %.2f s after the "
-            "attach, the client still attached (bound %d frames ~ %.1f s)"
-            % (used * 100, gone, exit_frames, expected))
+    return ("%d commands in a chatty hold then %.1f%% CPU silent, nothing executed; exited on "
+            "its own %.2f s after the attach, the client still attached (bound %d frames ~ "
+            "%.1f s)" % (chats, used * 100, gone, exit_frames, expected))
 
 
 SCENARIOS = {
