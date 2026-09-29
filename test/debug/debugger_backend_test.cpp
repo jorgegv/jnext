@@ -5355,6 +5355,39 @@ int main() {
         check("INS-15-10", "rrrgggbb_to_argb() forwards to the renderer's expansion",
               jnext::dbg::rrrgggbb_to_argb(0xE3) == Renderer::rrrgggbb_to_argb(0xE3) &&
               jnext::dbg::rrrgggbb_to_argb(0x00) == Renderer::rrrgggbb_to_argb(0x00));
+
+        // GH #278 WP4d — REQ-qt-27c, owner-approved: the published RGB333
+        // expansion. All 512 inputs against the palette code's own function,
+        // and bits above the ninth ignored.
+        int bad333 = -1;
+        for (uint16_t v = 0; v < 512 && bad333 < 0; ++v) {
+            const uint32_t want = rgb333_to_argb8888(static_cast<uint8_t>((v >> 6) & 7),
+                                                     static_cast<uint8_t>((v >> 3) & 7),
+                                                     static_cast<uint8_t>(v & 7));
+            if (jnext::dbg::rgb333_to_argb(v) != want ||
+                jnext::dbg::rgb333_to_argb(static_cast<uint16_t>(v | 0xFE00)) != want)
+                bad333 = v;
+        }
+        check("INS-15-20", "rgb333_to_argb() is the palette's own expansion for all 512 "
+                           "RGB333 values, and reads only the low 9 bits",
+              bad333 < 0 && jnext::dbg::rgb333_to_argb(0x005) == 0xFF0000B6u &&
+                  jnext::dbg::rrrgggbb_to_argb(0x02) == 0xFF0000AAu,
+              "first mismatch at " + std::to_string(bad333));
+        // …and it is the colour the palette's ARGB cache shows for an entry:
+        // a whole bank written through set_palette(), read back as drawn.
+        int bad_entry = -1;
+        for (int i = 0; i < 256; ++i)
+            dbg.set_palette(1, PaletteId::TilemapSecond, static_cast<uint8_t>(i),
+                            static_cast<uint16_t>((i * 37 + 11) & 0x1FF));
+        const auto bank = dbg.palette(PaletteId::TilemapSecond);
+        for (int i = 0; i < 256 && bad_entry < 0; ++i)
+            if (emu.palette().tilemap_colour(true, static_cast<uint8_t>(i)) !=
+                jnext::dbg::rgb333_to_argb(bank[static_cast<size_t>(i)]))
+                bad_entry = i;
+        check("INS-15-21", "rgb333_to_argb() of each palette() entry is the colour the "
+                           "palette draws that entry in (a whole bank)",
+              bank.size() == 256 && bad_entry < 0,
+              "first mismatch at entry " + std::to_string(bad_entry));
     }
 
     // =======================================================================
@@ -5699,9 +5732,10 @@ int main() {
         // mux itself — the one place removing its flush can be seen.
         //
         // Each write states its beam position with attr_mux_set_write_pos(),
-        // as a CPU write does (fuse_z80_writebyte): a non-CPU write would
-        // inherit the position of the machine's last CPU write to ANY
-        // address, a stale-flag defect reported separately (WP4d round 1).
+        // as a CPU write does (fuse_z80_writebyte), so the row pins the replay
+        // and nothing else. (Writing it found the defect where a non-CPU write
+        // inherited the machine's last CPU write's position — fixed in the same
+        // round, mmu_integration_test G12-TAG-01..05.)
         {
             Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
             Debugger dbg(emu);

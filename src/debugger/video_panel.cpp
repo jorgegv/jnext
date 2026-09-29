@@ -1,9 +1,5 @@
 #include "debugger/video_panel.h"
 #include "debug/debugger.h"
-// rgb333_to_argb8888() only: the ULA palette swatch needs the 9-bit (RGB333)
-// expansion the palette's own ARGB cache is built with, and the backend
-// publishes only the 8-bit `rrrgggbb_to_argb()` (GH #278 WP4d report).
-#include "video/palette.h"
 
 #include <QShowEvent>
 #include <QVBoxLayout>
@@ -803,16 +799,14 @@ void VideoPanel::refresh()
     // Display shows the active ULA palette bank's 32 std-ULA-reachable
     // entries; ULAnext / ULA+ entries (0x20..0xFF) are not shown here.
     // INS-15 `UlaActive` resolves NR 0x43 bit 1; the entries are RGB333, so
-    // they are expanded exactly as the palette's own ARGB cache is.
+    // they go through INS-15's `rgb333_to_argb()`, the palette's own expansion.
     uint32_t colours[PaletteSwatchWidget::N];
     const std::vector<uint16_t> ula =
         dbg_->palette(jnext::dbg::PaletteId::UlaActive);
     for (int i = 0; i < PaletteSwatchWidget::N; ++i) {
         const uint16_t rgb333 = static_cast<size_t>(i) < ula.size()
                                     ? ula[static_cast<size_t>(i)] : 0;
-        colours[i] = rgb333_to_argb8888(static_cast<uint8_t>((rgb333 >> 6) & 0x07),
-                                        static_cast<uint8_t>((rgb333 >> 3) & 0x07),
-                                        static_cast<uint8_t>( rgb333       & 0x07));
+        colours[i] = jnext::dbg::rgb333_to_argb(rgb333);
     }
     static_cast<PaletteSwatchWidget*>(palette_widget_)->set_colours(colours);
 

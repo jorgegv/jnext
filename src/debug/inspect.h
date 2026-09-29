@@ -483,10 +483,10 @@ enum class StereoMode : uint8_t { Abc = 0, Acb = 1 };
 
 /// INS-14 — which layer view `render_layer()` draws.
 ///
-/// BACKEND-OWNED: the eight views exist today only as
-/// `VideoLayerView::Layer`, nested in a `Q_OBJECT` class
-/// (`src/debugger/video_panel.h`), and INS-14 requires the renderer to become a
-/// Qt-free function. `debug_types_check.cpp` pins the enumerator count.
+/// BACKEND-OWNED: the eight views used to exist only as `VideoLayerView::Layer`,
+/// nested in a `Q_OBJECT` class; INS-14 moved the renderer into the Qt-free
+/// backend (`debugger_render.cpp`, GH #278 WP4d) and that nested name is now an
+/// alias of this enum. `debug_types_check.cpp` pins the enumerator count.
 enum class Layer : uint8_t {
     /// Every layer composited exactly as the emulator window shows it.
     Composite = 0,
@@ -590,6 +590,19 @@ struct UlaScreenRegs {
 /// inputs (`Renderer::rrrgggbb_to_argb` is not `constexpr`, so a
 /// `static_assert` cannot do it here).
 uint32_t rrrgggbb_to_argb(uint8_t rrrgggbb);
+
+/// INS-15 — the one published RGB333 (9-bit) → ARGB8888 expansion: the colour a
+/// palette ENTRY — a value `palette()` returns — is shown in. Only the low 9
+/// bits are read.
+///
+/// Not `rrrgggbb_to_argb()` with the low blue bit dropped: an 8-bit RRRGGGBB
+/// byte has two blue bits and expands them differently (RGB333 blue `101` is
+/// 0xB6, RRRGGGBB blue `10` is 0xAA), so a palette entry needs this one. Same
+/// shape as `rrrgggbb_to_argb()`: declared here, implemented by forwarding to
+/// the palette's own expansion (`rgb333_to_argb8888()`, which fills the ARGB
+/// caches every layer is drawn from), and pinned over all 512 inputs by the
+/// backend suite. Owner-approved as REQ-qt-27c (GH #278 WP4d, 2026-09-29).
+uint32_t rgb333_to_argb(uint16_t rgb333);
 
 /// CAP-01 — the four `--delayed-screenshot-layers` bits (`layer_mask`).
 /// Numerically `Renderer::LAYER_*`; `debug_types_check.cpp` asserts it.
