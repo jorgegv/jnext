@@ -193,6 +193,8 @@ bool SdlApp::init(int argc, char* argv[]) {
     };
     debugger_->set_loop_driver(driver);
     host_probe_ = HostProbe::from_env(emulator_, *debugger_);   // GH #276 B5
+    // GH #12 (WP-5) — the socket debugger servers, on this loop's pump.
+    if (!debug_servers_.start(*debugger_, config_)) return false;
 
     running_ = true;
     return true;
@@ -451,7 +453,10 @@ void SdlApp::run() {
         // GH #276 B4 — SES-03: the backend's service call, once per tick after
         // the frame batch and after the two cold-boot polls above (CTL-12's
         // ordering — see HeadlessApp::run(), which places it the same way).
-        debugger_->pump(jnext::dbg::PumpBudget{});
+        // GH #12 (WP-5) — T's budget: drain a paused remote's commands, never
+        // block the tick (platform/debug_servers.h).
+        pump_hint_ = debugger_->pump(
+            DebugServers::frame_loop_budget(debugger_->state().paused, pump_hint_));
 
         // Task 19 fastload follow-up — when the phantom typist is
         // armed or a fast-load tape is in flight, skip pushing audio

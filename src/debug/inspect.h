@@ -125,8 +125,14 @@ struct MemSpace {
         /// Read-only: `poke` refuses with `Result::RefusedReadOnly`. On a
         /// `rom_in_sram_` machine (Next mode) it is SRAM pages `2·index` and
         /// `2·index+1`; on 48K/128K/+3 it is the `Rom` object's image (48K has
-        /// 1, 128K 2, +3 4). The NR 0x8C alt-ROM overrides are already folded
-        /// into the slot's ROM select, so `Rom{0..3}` is complete.
+        /// 1, 128K 2, +3 4). The NR 0x8C alt-ROM LOCK bits (5:4) are folded
+        /// into the ROM select, so `Rom{0..3}` covers every image legacy
+        /// paging can select. The NR 0x8C bit-7 ALTERNATE ROM itself is NOT
+        /// among them: with bit 7 set and bit 6 clear the CPU reads slots 0/1
+        /// from SRAM pages 12-15 (the alt-ROM read override in `Mmu::read`),
+        /// an overlay like DivMMC's — `Cpu` sees it, no `Rom{}` does. (This
+        /// comment said the overrides made `Rom{0..3}` complete; that held for
+        /// the lock bits only — corrected, comment only, GH #12.)
         Rom,
     };
 

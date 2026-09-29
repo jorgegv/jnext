@@ -200,9 +200,15 @@ struct EmulatorConfig {
     // (DZRP #12, ZRCP #280, GDB RSP #281) bind. LOOPBACK BY DEFAULT: none of
     // those protocols has any authentication, so exposing the debugger to the
     // network is a deliberate, visible choice. Numeric only, as
-    // `esp_listen_address` is. Read by the loop owners when a server is
-    // registered; no server exists yet, so for now it is parsed and held.
+    // `esp_listen_address` is. Read by the loop owners when they open a
+    // server (`platform/debug_servers.h`).
     std::string debug_listen_address = "127.0.0.1";
+
+    // GH #12 (--dzrp-port): the TCP port the DeZog Remote Protocol server
+    // listens on. -1 = off, the default (no server, nothing listens); 0 = an
+    // OS-chosen port, logged as `dzrp: listening on <addr>:<port>`; any other
+    // value is that port. CLI-only, like the address.
+    int dzrp_port = -1;
 
     // Host-side esxDOS compatibility for directly loaded NEX programs.
     // Provides one in-memory file and `run sibling.nex` chaining.
