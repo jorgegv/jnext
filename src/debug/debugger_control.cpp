@@ -400,7 +400,16 @@ Result Debugger::step_back(ClientId by, uint32_t n) {
     if (const Result nested = impl_->refuse_inside_delivery("step_back"); nested != Result::Ok)
         return nested;
     const Result refusal = impl_->rewind_refusal();
-    if (refusal != Result::Ok) return refusal;
+    if (refusal != Result::Ok) {
+        // REFUSED, AND SAID (fail loud). The refusal is decided before
+        // `Emulator::step_back()` runs, so that function's own RZX refusal —
+        // which logs it — is never reached: log it through the same function,
+        // with the same words, as it always was (WP3 review item 1; row
+        // CTL-09-06). NOT inside `rewind_refusal()`, which `rewind_blocked()`
+        // also calls on every greying tick.
+        if (refusal == Result::RefusedRzx) impl_->emu.rzx_blocks_rewind("step_back");
+        return refusal;
+    }
 
     const uint64_t gen = impl_->emu.state_error_generation();
     if (!impl_->emu.step_back(static_cast<int>(n == 0 ? 1 : n)))
@@ -414,7 +423,11 @@ Result Debugger::rewind_to_frame(ClientId by, uint32_t frame) {
     if (const Result nested = impl_->refuse_inside_delivery("rewind_to_frame"); nested != Result::Ok)
         return nested;
     const Result refusal = impl_->rewind_refusal();
-    if (refusal != Result::Ok) return refusal;
+    if (refusal != Result::Ok) {
+        // Refused, and said — as step_back() above (row CTL-10-09).
+        if (refusal == Result::RefusedRzx) impl_->emu.rzx_blocks_rewind("rewind_to_frame");
+        return refusal;
+    }
 
     // A frame outside the ring is BENIGN (§4 `RefusedUnavailable`), not a
     // corruption: Emulator::rewind_to_frame() range-checks it and returns false

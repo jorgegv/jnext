@@ -74,6 +74,7 @@
 #include "platform/emulator_boot.h"
 // GH #276 B4 — CAP-04's rows compare the file with what the format's saver
 // produces for the same machine.
+#include "core/rzx_player.h"
 #include "core/sna_saver.h"
 #include "core/szx_saver.h"
 // GH #276 B4 M2 — the HOST rows drive the real loop owner.
@@ -4372,6 +4373,50 @@ static void q_wp3_rewind_rows() {
               torn && r == Result::RefusedCorrupt && inc.has_value() &&
                   inc->subsystem == "mmu",
               std::string("rc=") + jnext::dbg::result_name(r));
+    }
+    {
+        // WP3 review item 1 — an RZX refusal is REFUSED, AND SAID. The backend
+        // decides it before `Emulator::step_back()` / `rewind_to_frame()` run, so
+        // their own logged refusal (`Emulator::rzx_blocks_rewind()`) is never
+        // reached; the verbs must log it themselves, with the same words, for
+        // every client. Read off the live `emulator` logger: a claim that
+        // something is logged is only worth what reading the log proves.
+        auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(512);
+        Log::emulator()->sinks().push_back(ring);
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        for (int i = 0; i < 4; ++i) emu.run_frame();
+        dbg.pause(a);
+        emu.rzx_player().start(RzxRecording{});
+        auto said = [&](const std::string& what) {
+            for (const auto& l : ring->last_formatted())
+                if (l.find(what + ": not while an RZX recording is playing (stop it first)") !=
+                    std::string::npos)
+                    return true;
+            return false;
+        };
+        // The GREYING query asks the same question on every tick and must stay
+        // quiet: only a refused VERB is an event worth a line.
+        const size_t lines_before = ring->last_formatted().size();
+        const auto blocked = dbg.rewind_blocked();
+        const bool quiet_query = blocked.has_value() && *blocked == Result::RefusedRzx &&
+                                 ring->last_formatted().size() == lines_before &&
+                                 lines_before < 512;
+        const Result rs = dbg.step_back(a, 1);
+        check("CTL-09-06", "step_back() refused for an RZX playback is RefusedRzx AND "
+                           "logs why, at error level, as the Emulator always did — "
+                           "while the rewind_blocked() greying query stays silent",
+              quiet_query && rs == Result::RefusedRzx && said("step_back"),
+              std::string("rc=") + jnext::dbg::result_name(rs));
+        const Result rf = dbg.rewind_to_frame(a, dbg.rewind_range().oldest_frame);
+        check("CTL-10-09", "and rewind_to_frame() the same",
+              rf == Result::RefusedRzx && said("rewind_to_frame"),
+              std::string("rc=") + jnext::dbg::result_name(rf));
+        emu.rzx_player().stop();
+        auto& sinks = Log::emulator()->sinks();
+        sinks.erase(std::remove(sinks.begin(), sinks.end(), ring), sinks.end());
     }
     {
         // ST-03 — 0 frees an EXISTING ring; a later non-zero resize creates a
