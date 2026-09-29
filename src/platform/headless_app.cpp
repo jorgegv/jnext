@@ -380,9 +380,15 @@ void HeadlessApp::run() {
     //   JNEXT_BENCH_WATCH=lo-hi   arm `Mem[lo,hi] Write` with a Continue handler
     //   JNEXT_BENCH_WATCH=p       arm nothing; --persistent-breakpoints only
     //
+    //   JNEXT_BENCH_WATCH=c       arm nothing; ATTACH one client instead
+    //
     // The `p` form exists because §6.3's armed rows conflated the latch cost with
     // the pre-existing `--persistent-breakpoints` per-instruction `should_break()`
-    // lookup; A − P is what isolates the latch. The handler returns `Continue`, so
+    // lookup; A − P is what isolates the latch. The `c` form (GH #278 Q WP2) is
+    // what a PROCESS-LIFETIME attach of the Qt adapter would leave the GUI in
+    // with its window closed: a client attached and nothing subscribed, so
+    // `armed()` and `attached()` are on through `clients_attached_` rather than
+    // through `persistent_`. C − U is that attach's hot-path cost. The handler returns `Continue`, so
     // nothing pauses — §6.2 records a run where the watch paused the machine and
     // the benchmark "measured" 13x by emulating nothing.
     //
@@ -401,8 +407,16 @@ void HeadlessApp::run() {
     if (const char* bw = std::getenv("JNEXT_BENCH_WATCH")) {
         static unsigned long long hits = 0;
         bench_watch_hits = &hits;
-        emulator_.debug_state().set_persistent_breakpoints(true);
-        if (bw[0] != 'p') {
+        if (bw[0] == 'c') {
+            const auto cid = debugger_->attach(
+                jnext::dbg::ClientInfo{"bench", jnext::dbg::ClientKind::Test});
+            Log::platform()->info("JNEXT_BENCH_WATCH: attached client {}, nothing "
+                                  "subscribed (armed={})",
+                                  cid.value, debugger_->armed() ? 1 : 0);
+        } else {
+            emulator_.debug_state().set_persistent_breakpoints(true);
+        }
+        if (bw[0] != 'p' && bw[0] != 'c') {
             unsigned lo = 0, hi = 0;
             if (std::sscanf(bw, "%x-%x", &lo, &hi) == 2) {
                 jnext::dbg::Subscription bs;
@@ -421,7 +435,7 @@ void HeadlessApp::run() {
                     "JNEXT_BENCH_WATCH: armed Mem[{:#06x},{:#06x}] Write", lo, hi);
             } else {
                 Log::platform()->warn(
-                    "JNEXT_BENCH_WATCH: expected 'lo-hi' in hex, or 'p'; got '{}'",
+                    "JNEXT_BENCH_WATCH: expected 'lo-hi' in hex, 'p' or 'c'; got '{}'",
                     bw);
             }
         }
