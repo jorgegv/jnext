@@ -295,7 +295,7 @@ struct LoopDriver {
 /// `Emulator` precisely so the reconstruct cannot lose them (CTL-12, CTL-15).
 // ---------------------------------------------------------------------------
 // DIRECT-VALUE QUERIES — the complete exception to "every verb returns a
-// `Result`" (`result.h`'s banner). These 51 read live machine state that always
+// `Result`" (`result.h`'s banner). These 52 read live machine state that always
 // exists, so they have no refusal case by construction and return their value
 // directly. THE LIST IS THE AUDIT: a query not on it must return `Result` or
 // `Expected<T>`, and moving one onto it is a claim that it cannot fail. The
@@ -307,8 +307,8 @@ struct LoopDriver {
 //                     persistent_breakpoints, master_enabled, client_enabled,
 //                     probe_execute, attached, live_raster, stop_policy,
 //                     at_frame_boundary, rewind_enabled, rewind_range
-//   registers/memory (5): registers, mmu_slots, paging_ports, nextreg_peek,
-//                     nextreg_selected
+//   registers/memory (6): registers, mmu_slots, paging_ports, rom_select,
+//                     nextreg_peek, nextreg_selected
 //   video/audio (16): raster, machine, time, sprites, pattern_ram,
 //                     sprite_clip, copper, framebuffer, palette,
 //                     active_ula_palette_bank, ula_screen_regs, clip_window,
@@ -518,6 +518,26 @@ public:
 
     /// INS-03 — the legacy paging ports as last written.
     PagingPorts paging_ports() const;
+
+    /// INS-03 — the 16 KB ROM image legacy paging SELECTS right now: VHDL
+    /// `sram_rom` (zxnext.vhd:2981-3008), with the machine type, port 0x7FFD
+    /// bit 4 / 0x1FFD bit 2 and the NR 0x8C alt-ROM lock bits folded in by the
+    /// backend (48K: always image 0; +3: two bits; 128K and the Next: one bit).
+    /// It is the image slots 0 and 1 map whenever they are ROM-mapped — slot
+    /// `s` its half at offset `s * 0x2000`, the same space `SlotInfo::space`
+    /// then reports — and it is answered WHETHER OR NOT RAM is paged there now,
+    /// which is the one question `SlotInfo::space` cannot answer: a RAM slot's
+    /// space is its page. Like `SlotInfo::space`, it names the image BENEATH an
+    /// NR 0x8C bit-7 alternate ROM: that is a read overlay (SRAM pages 12-15,
+    /// outside `Rom{0..3}`), which `peek(Cpu)` sees and no `Rom{}` does.
+    ///
+    /// A complete `MemSpace` (kind `Rom`), not an index, for the reason
+    /// `SlotInfo::space` is one: no client composes a ROM space itself.
+    ///
+    /// ADDED BY D (GH #12, owner-approved 2026-09-29) — DZRP 2.2.0's
+    /// `CMD_READ_BANK_MEM` bank 0xFF names "the ROM" even while RAM is paged at
+    /// 0x0000, and the backend published no way to say which image that is.
+    MemSpace rom_select() const;
 
     /// INS-04 — read a NextREG through its READ path, never a destructive one.
     uint8_t nextreg_peek(uint8_t reg) const;
@@ -970,7 +990,10 @@ private:
     // `doc/design/debug-subsystem/b0-cap-traceability.md` (SES-07) and in
     // `backend.md` CAP-SES-07. B4 added one more, `flush_captures()`, by owner
     // decision on the same day — recorded at its declaration, in
-    // `b0-cap-traceability.md` (CAP-01) and in `backend.md` CAP-CAP-01.)
+    // `b0-cap-traceability.md` (CAP-01) and in `backend.md` CAP-CAP-01. Package
+    // D added `rom_select()`, by owner approval on 2026-09-29 — recorded at its
+    // declaration, in `b0-cap-traceability.md` (INS-03) and in `backend.md`
+    // CAP-INS-03.)
     //
     // B0 declared the constructor, an out-of-line destructor and deleted
     // copy/move, and no storage at all — the shape a pImpl is prepared for. B1

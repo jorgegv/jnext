@@ -151,6 +151,9 @@ public:
 
     Debugger* dbg = nullptr;               // pump rows only
     ClientId  cid = jnext::dbg::CLIENT_NONE;
+    // Called after each command executes, inside the pass that ran it: how a
+    // row makes a CLIENT act between two steps of one pass (XPT-SRV-33).
+    std::function<void(const std::string&)> after_exec;
 
     void on_connect(Connection& c) override {
         ++connects;
@@ -174,6 +177,7 @@ public:
         execute(c, cmd);
         done.push_back(cmd);
         trail.push_back("S:" + cmd);
+        if (after_exec) after_exec(cmd);
         return ServiceStep::Serviced;
     }
 
@@ -206,6 +210,8 @@ private:
         } else if (cmd == "bye") {
             c.write("bye\n");
             c.close();
+        } else if (cmd == "quiet") {
+            // No reply: nothing for the pass to send (XPT-SRV-33).
         } else if (cmd == "pause" && dbg) {
             dbg->pause(cid);
             c.write("paused\n");
@@ -777,6 +783,121 @@ static void server_rows() {
                             "loop owner gets its thread back",
               st3 == ServiceStep::Idle && took3 < 1000 && r.proto.disconnects == 1,
               "took=" + std::to_string(took3) + "ms");
+    }
+    {
+        // GH #12 — the REDIAL. A client that reconnects hangs up and dials again
+        // in one breath, so both reach the same pass. The server used to accept
+        // before it read, and refused the redial as "a second client" of a
+        // session that had already ended (the dezogif_ng conformance suite,
+        // which opens a connection per check, lost every other one).
+        LogTap       log;
+        ServerConfig c = cfg_named("xpt");
+        c.busy_reply   = "busy\n";
+        FakeRig      r(c);
+        r.proto.welcome = "hi\n";
+        auto p1 = r.lsn->connect();
+        r.srv->service_once(0);
+        p1->take();
+        p1->close();
+        auto p2 = r.lsn->connect(esp::ipv4(127, 0, 0, 2));
+        const ServiceStep st = r.srv->service_once(0);
+        check("XPT-SRV-30", "a hang-up and a redial in the SAME pass: the hang-up is seen "
+                            "first, so the redial is admitted and greeted in that pass — "
+                            "never refused as a second client",
+              r.proto.trail == std::vector<std::string>({"C", "D", "C"}) &&
+                  st == ServiceStep::Idle && !p2->closed_by_server() && p2->take() == "hi\n" &&
+                  r.srv->peer_connected() &&
+                  log.count("xpt: refused a connection from 127.0.0.2") == 0,
+              "trail size=" + std::to_string(r.proto.trail.size()));
+    }
+    {
+        // The other side of the same edge: the hung-up client still has commands
+        // queued. Its session is not over — every command it sent is executed
+        // first, one per pass (XPT-SRV-10) — and the redial WAITS for it in the
+        // listener's queue instead of being refused by it.
+        LogTap       log;
+        ServerConfig c = cfg_named("xpt");
+        c.busy_reply   = "busy\n";
+        FakeRig      r(c);
+        auto p1 = r.lsn->connect();
+        r.srv->service_once(0);
+        p1->send("a\nb\n");
+        p1->close();
+        auto p2 = r.lsn->connect(esp::ipv4(127, 0, 0, 2));
+        const ServiceStep s1     = r.srv->service_once(0);
+        const std::size_t queued = r.lsn->queued();
+        for (int i = 0; i < 4; ++i) {
+            r.srv->service_once(0);
+            r.srv->flush_notifications();
+        }
+        check("XPT-SRV-31", "a redial behind a hang-up with commands still queued waits "
+                            "for them: both run, then the old session ends, then the "
+                            "redial is admitted — never refused",
+              s1 == ServiceStep::Serviced && queued == 1 &&
+                  r.proto.trail ==
+                      std::vector<std::string>({"C", "S:a", "S:b", "D", "C"}) &&
+                  !p2->closed_by_server() &&
+                  log.count("xpt: refused a connection from 127.0.0.2") == 0,
+              "trail size=" + std::to_string(r.proto.trail.size()));
+    }
+    {
+        // The session before the redial RAN A COMMAND in the same pass — the
+        // adapter's closing `bye` — so the redial's own command waits for the
+        // next pass (at most one per pass), but its greeting does not: it goes
+        // out in the pass that admitted it.
+        FakeRig r;
+        r.proto.welcome = "hi\n";
+        auto p1 = r.lsn->connect();
+        r.srv->service_once(0);
+        p1->take();
+        p1->send("bye\n");
+        auto p2 = r.lsn->connect(esp::ipv4(127, 0, 0, 2));
+        p2->send("ping\n");
+        const ServiceStep s1   = r.srv->service_once(0);
+        const std::string got1 = p2->take();
+        const ServiceStep s2   = r.srv->service_once(0);
+        check("XPT-SRV-32", "a redial in the pass the previous session's last command "
+                            "closed it: greeted in that pass, its own command served in "
+                            "the next — one command per pass",
+              s1 == ServiceStep::Serviced && p1->take() == "bye\n" && p1->closed_by_server() &&
+                  got1 == "hi\n" && s2 == ServiceStep::Serviced && p2->take() == "pong\n" &&
+                  r.proto.trail ==
+                      std::vector<std::string>({"C", "S:bye", "D", "C", "S:ping"}),
+              "got1='" + got1 + "' trail size=" + std::to_string(r.proto.trail.size()));
+    }
+    {
+        // GH #12 (gate re-run under load): the redial lands INSIDE the pass —
+        // the client reads the reply pushed in step (1), hangs up and dials
+        // again before step (2) accepts. Its hang-up is newer than (1)'s pull,
+        // so only a last look at the current client, taken after the listener
+        // has parked the redial, can see it. `after_exec` plays that client;
+        // the command is `quiet` (no reply) so that (1)'s own send cannot
+        // stumble on the closed peer first, which a real client, gone only
+        // AFTER reading its reply, never lets it do.
+        LogTap       log;
+        ServerConfig c = cfg_named("xpt");
+        c.busy_reply   = "busy\n";
+        FakeRig      r(c);
+        auto p1 = r.lsn->connect();
+        r.srv->service_once(0);
+        std::shared_ptr<FakePeer> p2;
+        r.proto.after_exec = [&](const std::string& cmd) {
+            if (cmd != "quiet") return;
+            p1->close();
+            p2 = r.lsn->connect(esp::ipv4(127, 0, 0, 2));
+        };
+        p1->send("quiet\n");
+        r.srv->service_once(0);
+        const bool parked = r.lsn->queued() == 1 && r.proto.connects == 1;
+        r.proto.after_exec = nullptr;
+        r.srv->service_once(0);
+        check("XPT-SRV-33", "a hang-up and redial made BETWEEN the steps of one pass: the "
+                            "redial stays parked, then is admitted the next pass — never "
+                            "refused as a second client",
+              parked && p2 && !p2->closed_by_server() && r.srv->peer_connected() &&
+                  r.proto.trail == std::vector<std::string>({"C", "S:quiet", "D", "C"}) &&
+                  log.count("xpt: refused a connection from 127.0.0.2") == 0,
+              "trail size=" + std::to_string(r.proto.trail.size()));
     }
 }
 

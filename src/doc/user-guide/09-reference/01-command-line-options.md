@@ -710,15 +710,25 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     SDL-only build and in builds without the debugger, since only the
     debugger can set a breakpoint.
 
+**--dzrp-port** *PORT*
+:   Serve the DeZog Remote Protocol (DZRP) on TCP *PORT*, so DeZog - or
+    any other DZRP client - can debug the running machine; see **REMOTE
+    DEBUGGING (DEZOG)**. Off unless given. *PORT* `0` binds a free port
+    the system chooses, and the log says which
+    (`dzrp: listening on 127.0.0.1:40123`). One client at a time: a
+    second connection is closed at once. A port that cannot be bound
+    (already in use, say) is a startup error. Works in every frontend,
+    **--headless** included.
+
 **--debug-listen-address** *ADDR*
-:   Bind address for the debugger protocol servers, default `127.0.0.1`.
-    *ADDR* is a numeric IP address, never a name - an address resolved
-    through DNS could change under you - and anything else is refused at
-    startup. The default means only this machine can reach the debugger;
-    a non-loopback address (`0.0.0.0`) exposes it to your network, and
-    none of the debugger protocols has any authentication. No protocol
-    server is available in this version yet, so the address is checked
-    and nothing listens.
+:   Bind address for the debugger protocol servers (**--dzrp-port**),
+    default `127.0.0.1`. *ADDR* is a numeric IP address, never a name -
+    an address resolved through DNS could change under you - and
+    anything else is refused at startup. The default means only this
+    machine can reach the debugger; a non-loopback address (`0.0.0.0`)
+    exposes it to your network, and none of the debugger protocols has
+    any authentication. Refused unless a server port is given too: an
+    address for servers that are all off would configure nothing.
 
 **--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, for example `0x00FF`).

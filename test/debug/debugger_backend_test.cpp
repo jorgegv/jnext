@@ -5047,6 +5047,205 @@ static uint8_t wp4d_status_scene(int kind, bool render, uint8_t& again,
     return first;
 }
 
+// ===========================================================================
+// GH #12 (epic #276 package D, DZRP) — BACKEND ROWS FOR PACKAGE D'S CHANGES.
+//
+// ONE CONTIGUOUS BLOCK, deliberately: package Q edits this file too, and a
+// block that stands alone merges as one hunk. Two groups:
+//
+//   D-FIX-*    the three defects package D found and fixed in
+//              `debugger_inspect.cpp`, pinned at the BACKEND contract so every
+//              client is covered, not only the DZRP adapter whose suite found
+//              them (review of D milestone 1, item 4).
+//   INS-03-1x  `rom_select()`, the INS-03 query package D added to the frozen
+//              header (owner-approved 2026-09-29): the ROM image legacy paging
+//              selects, on all four machine types, with the NR 0x8C locks.
+// ===========================================================================
+
+static void dzrp_d_rows() {
+    using jnext::dbg::MemSpace;
+    {
+        // D-FIX-01/02 — B-1: `set_mmu_slot(0/1, 0xFF)` is what `NEXTREG
+        // 0x50/0x51,0xFF` does: legacy ROM paging re-engaged. It used to call
+        // `Mmu::set_page`, which left the slot UNMAPPED (reads 0xFF, writes
+        // dropped). Each ROM SRAM page carries its own byte, so the CPU view at
+        // 0x0000 / 0x2000 shows which page answers.
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        for (int p = 0; p < 8; ++p)
+            emu.ram().page_ptr(static_cast<uint16_t>(p))[0] = static_cast<uint8_t>(0xB0 + p);
+        emu.mmu().nr_page_ptr(5)[0] = 0x55;
+        emu.mmu().nr_page_ptr(6)[0] = 0x66;
+        uint8_t rom0 = 0, rom1 = 0, ram0 = 0, ram1 = 0, back0 = 0, back1 = 0;
+        dbg.peek(MemSpace::cpu(), 0x0000, 1, &rom0);
+        dbg.peek(MemSpace::cpu(), 0x2000, 1, &rom1);
+        const bool mapped = dbg.set_mmu_slot(1, 0, 5) == Result::Ok &&
+                            dbg.set_mmu_slot(1, 1, 6) == Result::Ok;
+        dbg.peek(MemSpace::cpu(), 0x0000, 1, &ram0);
+        dbg.peek(MemSpace::cpu(), 0x2000, 1, &ram1);
+        const bool restored = dbg.set_mmu_slot(1, 0, 0xFF) == Result::Ok &&
+                              dbg.set_mmu_slot(1, 1, 0xFF) == Result::Ok;
+        dbg.peek(MemSpace::cpu(), 0x0000, 1, &back0);
+        dbg.peek(MemSpace::cpu(), 0x2000, 1, &back1);
+        const auto slots = dbg.mmu_slots();
+        check("D-FIX-01", "set_mmu_slot(0, 0xFF) after RAM was paged there re-engages the ROM, "
+                          "as NEXTREG 0x50,0xFF does: 0x0000 reads the ROM page again and the slot "
+                          "is read-only with NR value 0xFF",
+              mapped && restored && ram0 == 0x55 && back0 == rom0 && rom0 >= 0xB0 &&
+                  slots[0].is_rom && slots[0].nr_page == 0xFF,
+              hex(rom0) + " " + hex(ram0) + " " + hex(back0));
+        check("D-FIX-02", "and set_mmu_slot(1, 0xFF) does the same for slot 1's ROM half",
+              ram1 == 0x66 && back1 == rom1 && rom1 >= 0xB0 && slots[1].is_rom &&
+                  slots[1].nr_page == 0xFF,
+              hex(rom1) + " " + hex(ram1) + " " + hex(back1));
+    }
+    {
+        // D-FIX-03 — B-2: `port_out`'s MUTATE line spells the value in HEX, as
+        // its `0x` says; `std::to_string` once logged 0x15 as "0x21".
+        auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(16);
+        Log::debugger()->sinks().push_back(ring);
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        dbg.port_out(4, 0x00FE, 0x15);
+        bool hexed = false, decimal = false;
+        for (const auto& l : ring->last_formatted()) {
+            hexed   = hexed || l.find("MUTATE port out 0x00FE = 0x15 by 4") != std::string::npos;
+            decimal = decimal || l.find("= 0x21") != std::string::npos;
+        }
+        Log::debugger()->sinks().pop_back();
+        check("D-FIX-03", "port_out()'s MUTATE line spells the value in hex (0x15, not \"0x21\")",
+              hexed && !decimal);
+    }
+    {
+        // D-FIX-04 — B-3: `set_border` honours §4.2a's RZX wall like every other
+        // mutation verb; it alone lacked it.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        emu.ula().set_border(2);
+        emu.rzx_player().start(RzxRecording{});
+        const Result refused = dbg.set_border(1, 5);
+        const uint8_t during = emu.ula().get_border();
+        emu.rzx_player().stop();
+        const Result allowed = dbg.set_border(1, 5);
+        check("D-FIX-04", "set_border() is refused_rzx under an RZX playback, border unchanged, "
+                          "and allowed again once it stops",
+              refused == Result::RefusedRzx && during == 2 && allowed == Result::Ok &&
+                  emu.ula().get_border() == 5);
+    }
+
+    // ── rom_select() ────────────────────────────────────────────────────────
+    //
+    // VHDL `sram_rom` (zxnext.vhd:2981-3008): 48K "00" always; +3 the two
+    // 1FFD b2 / 7FFD b4 bits, or the two NR 0x8C lock bits when either is set;
+    // everything else (128K, the Next) '0' & 7FFD b4, or '0' & lock_rom1 when a
+    // lock is set.
+    auto sel = [](Debugger& d) { return static_cast<int>(d.rom_select().index); };
+    auto is_rom_space = [](Debugger& d) { return d.rom_select().kind == MemSpace::Kind::Rom; };
+    {
+        Emulator emu; build(emu, MachineType::ZX48K);
+        Debugger dbg(emu);
+        const int a = sel(dbg);
+        dbg.port_out(1, 0x7FFD, 0x10);
+        const int b = sel(dbg);
+        dbg.nextreg_write(1, 0x8C, 0x30);
+        const int c = sel(dbg);
+        check("INS-03-10", "rom_select() on a 48K is ROM image 0, whatever 0x7FFD and the NR 0x8C "
+                           "locks say, and it is a Rom space",
+              is_rom_space(dbg) && a == 0 && b == 0 && c == 0,
+              std::to_string(a) + std::to_string(b) + std::to_string(c));
+    }
+    {
+        Emulator emu; build(emu, MachineType::ZX128K);
+        Debugger dbg(emu);
+        const int a = sel(dbg);
+        dbg.port_out(1, 0x7FFD, 0x10);
+        const int b = sel(dbg);
+        dbg.port_out(1, 0x1FFD, 0x04);
+        const int c = sel(dbg);
+        check("INS-03-11", "rom_select() on a 128K follows 0x7FFD bit 4 alone: image 0, then 1, "
+                           "and 0x1FFD bit 2 does not make it 3",
+              a == 0 && b == 1 && c == 1,
+              std::to_string(a) + std::to_string(b) + std::to_string(c));
+        dbg.nextreg_write(1, 0x8C, 0x10);  // lock_rom0 only
+        const int d = sel(dbg);
+        dbg.port_out(1, 0x7FFD, 0x00);
+        dbg.nextreg_write(1, 0x8C, 0x20);  // lock_rom1
+        const int e = sel(dbg);
+        check("INS-03-12", "on a 128K an NR 0x8C lock overrides 0x7FFD: lock_rom0 alone gives "
+                           "image 0 with 7FFD b4 set, lock_rom1 gives image 1 with it clear",
+              d == 0 && e == 1, std::to_string(d) + std::to_string(e));
+    }
+    {
+        Emulator emu; build(emu, MachineType::ZX_PLUS3);
+        Debugger dbg(emu);
+        dbg.port_out(1, 0x7FFD, 0x10);
+        const int a = sel(dbg);
+        dbg.port_out(1, 0x1FFD, 0x04);
+        const int b = sel(dbg);
+        dbg.port_out(1, 0x7FFD, 0x00);
+        const int c = sel(dbg);
+        check("INS-03-13", "rom_select() on a +3 is the two bits 1FFD b2 : 7FFD b4 — images 1, "
+                           "3 and 2",
+              a == 1 && b == 3 && c == 2,
+              std::to_string(a) + std::to_string(b) + std::to_string(c));
+        dbg.port_out(1, 0x1FFD, 0x00);
+        dbg.nextreg_write(1, 0x8C, 0x20);
+        const int d = sel(dbg);
+        dbg.nextreg_write(1, 0x8C, 0x30);
+        const int e = sel(dbg);
+        dbg.nextreg_write(1, 0x8C, 0x10);
+        const int f = sel(dbg);
+        check("INS-03-14", "on a +3 the NR 0x8C locks ARE the two bits when either is set: "
+                           "images 2, 3 and 1 with the ports selecting 0",
+              d == 2 && e == 3 && f == 1,
+              std::to_string(d) + std::to_string(e) + std::to_string(f));
+    }
+    {
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        dbg.port_out(1, 0x1FFD, 0x04);
+        const int a = sel(dbg);
+        dbg.port_out(1, 0x7FFD, 0x10);
+        const int b = sel(dbg);
+        dbg.port_out(1, 0x7FFD, 0x00);
+        dbg.nextreg_write(1, 0x8C, 0x20);
+        const int c = sel(dbg);
+        check("INS-03-15", "rom_select() on the Next is ONE bit: 1FFD b2 alone leaves image 0, "
+                           "7FFD b4 gives 1, and lock_rom1 gives 1 — the design's first formula "
+                           "(7FFD b4 | 1FFD b2) would have said 2",
+              a == 0 && b == 1 && c == 1,
+              std::to_string(a) + std::to_string(b) + std::to_string(c));
+    }
+    {
+        // AGREEMENT WITH THE SLOT VIEW, and the question only this query can
+        // answer: with RAM paged into slot 0 it still names the image that
+        // `set_mmu_slot(0, 0xFF)` then restores.
+        Emulator emu; build(emu, MachineType::ZX_PLUS3);
+        Debugger dbg(emu);
+        dbg.port_out(1, 0x1FFD, 0x04);
+        const auto slots = dbg.mmu_slots();
+        const bool agree = slots[0].is_rom && slots[1].is_rom &&
+                           slots[0].space == dbg.rom_select() && slots[0].space_offset == 0 &&
+                           slots[1].space == dbg.rom_select() && slots[1].space_offset == 0x2000;
+        check("INS-03-16", "while slots 0/1 are ROM, rom_select() is the space both report, slot "
+                           "0 at offset 0 and slot 1 at 0x2000",
+              agree);
+        Emulator nx; build(nx, MachineType::ZXN_ISSUE2);
+        Debugger dn(nx);
+        dn.port_out(1, 0x7FFD, 0x10);
+        dn.set_mmu_slot(1, 0, 4);
+        const MemSpace while_ram = dn.rom_select();
+        const bool     ram_now   = !dn.mmu_slots()[0].is_rom;
+        dn.set_mmu_slot(1, 0, 0xFF);
+        const auto back = dn.mmu_slots();
+        check("INS-03-17", "with RAM paged into slot 0 rom_select() still names the image "
+                           "(1 here), and it is the space slot 0 reports once 0xFF restores the "
+                           "ROM",
+              ram_now && while_ram.kind == MemSpace::Kind::Rom && while_ram.index == 1 &&
+                  back[0].is_rom && back[0].space == while_ram);
+    }
+}
+
 int main() {
     std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
 
@@ -15209,6 +15408,9 @@ int main() {
     q4c_observer_rows();          // GH #278 WP4c
     q4c_master_mirror_rows();     // GH #278 WP4c
     q4c_magic_hold_rows();        // GH #278 WP4c
+
+    // GH #12 (package D) — one contiguous block, see dzrp_d_rows().
+    dzrp_d_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

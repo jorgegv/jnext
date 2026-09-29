@@ -20,3 +20,5 @@ target_include_directories(jnext_remote PUBLIC ${CMAKE_SOURCE_DIR}/src)
 # `debugger` channel (core/log.h, spdlog — which jnext_debug links PUBLIC).
 # esp01: the listener and transport interfaces, and the real socket twins.
 target_link_libraries(jnext_remote PUBLIC jnext_debug esp01 spdlog::spdlog)
+# The generated version.h: DZRP's CMD_INIT answers "jnext v<version>".
+target_include_directories(jnext_remote PRIVATE "${CMAKE_BINARY_DIR}/generated")

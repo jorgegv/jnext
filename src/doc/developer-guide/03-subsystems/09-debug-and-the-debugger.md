@@ -787,8 +787,8 @@ range, as it always has; the physical-page view is WP8.
 The three protocol servers the epic plans — DZRP, ZRCP and GDB RSP — share one
 transport, in **`src/remote/`** (target `jnext_remote`). It has no toolkit
 dependency and is built in every configuration. It carries no protocol: it
-never parses a byte. As of package T no server exists yet, so nothing in the
-shipped binary instantiates it.
+never parses a byte. The first server on it is DZRP (`--dzrp-port`, 3.10); the
+loop owners open it through `src/platform/debug_servers.*`.
 
 `remote::Server` is a `jnext::dbg::Service`, so `pump()` drives it: each
 `service_once(wait_ms)` accepts, reads, asks the adapter's `Protocol` to execute
@@ -800,7 +800,12 @@ kernel does not take then goes out on later passes), `close` (what is queued
 is still delivered, for a bounded time). `on_disconnect()` is called
 exactly once per `on_connect()`, whoever ended the session, and every byte a
 client sent before hanging up is offered to the adapter first. One client per
-listener: a second one is sent the adapter's `busy_reply` and closed. Two
+listener: a second one is sent the adapter's `busy_reply` and closed — but a
+client that hangs up and dials again is not a second one. A pass serves the
+current client first, so a hang-up is seen before a redial is judged; takes one
+more look at it after the listener has parked an arrival, since the client may
+have read its reply, hung up and redialled in between; and leaves the redial
+parked until the old session is retired (`XPT-SRV-30..33`). Two
 bounds keep a stuck client from costing the host memory: reading stops at
 `max_input` unconsumed bytes (backpressure through the kernel), and a client
 `max_output` bytes behind on its replies is disconnected.
@@ -822,7 +827,7 @@ real socket on `127.0.0.1` port 0, and through `pump()`.
 
 `--debug-listen-address ADDR` (numeric only, default `127.0.0.1`) is validated
 in `main.cpp` and held in `EmulatorConfig::debug_listen_address` for the servers
-to bind. The design, and the reason behind each rule above, is
+to bind; it is refused unless a server port (`--dzrp-port`) is given too. The design, and the reason behind each rule above, is
 `doc/design/debug-subsystem/transport.md`.
 
 ## What `ENABLE_DEBUGGER=OFF` removes

@@ -71,6 +71,7 @@ nav:
       - 3.7 Input: 03-subsystems/07-input.md
       - 3.8 Media and loaders: 03-subsystems/08-media-and-loaders.md
       - 3.9 Debug and the debugger: 03-subsystems/09-debug-and-the-debugger.md
+      - 3.10 The DZRP server (DeZog): 03-subsystems/10-the-dzrp-server.md
   - 4. Testing:
       - 04-testing/index.md
       - 4.1 The test triplet: 04-testing/01-the-test-triplet.md
@@ -115,7 +116,7 @@ validation:
 # every page at render time and docs-devguide-check byte-diffs a fresh render —
 # so config and rendered output must move together.
 extra:
-  doc_release: v1.0.52
+  doc_release: v1.0.53
 
 markdown_extensions:
   - admonition

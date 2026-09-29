@@ -283,6 +283,12 @@ bool QtApp::init(int argc, char* argv[]) {
     }
     host_probe_ = HostProbe::from_env(emulator_, *debugger_);   // GH #276 B5
 
+    // ── GH #12 (package D, WP-5) — the socket debugger servers ──────────────
+    // Service registration only; the pump's place and order are unchanged
+    // (post_frames() below). platform/debug_servers.h.
+    if (!debug_servers_.start(*debugger_, config_)) return false;
+    // ── end GH #12 ──────────────────────────────────────────────────────────
+
     // Create the main window.
     main_window_ = new MainWindow();
 
@@ -662,7 +668,10 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
     // --delayed-screenshot outcome below, which reads what this pump wrote.
     // §4.8 places it "where check_breakpoint_hit() sits today", i.e. in this
     // post-frames slot.
-    a.debugger_->pump(jnext::dbg::PumpBudget{});
+    // GH #12 (package D, WP-5) — T's budget: drain a paused remote's commands,
+    // never block the tick (platform/debug_servers.h). Same call, same place.
+    a.pump_hint_ = a.debugger_->pump(
+        DebugServers::frame_loop_budget(a.debugger_->state().paused, a.pump_hint_));
 
     // Delayed screenshot: take after countdown expires. The screenshot
     // helper vertically doubles the in-memory 640×256 framebuffer so the

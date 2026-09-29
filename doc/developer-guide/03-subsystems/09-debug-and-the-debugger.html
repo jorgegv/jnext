@@ -14,7 +14,7 @@
         <link rel="prev" href="08-media-and-loaders.html">
       
       
-        <link rel="next" href="../04-testing/index.html">
+        <link rel="next" href="10-the-dzrp-server.html">
       
       
         
@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.52</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.53</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.52</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.53</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -759,6 +759,8 @@
       
         
       
+        
+      
     
     
     
@@ -1141,6 +1143,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-the-dzrp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10 The DZRP server (DeZog)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -2544,8 +2574,8 @@ range, as it always has; the physical-page view is WP8.</p>
 <p>The three protocol servers the epic plans — DZRP, ZRCP and GDB RSP — share one
 transport, in <strong><code>src/remote/</code></strong> (target <code>jnext_remote</code>). It has no toolkit
 dependency and is built in every configuration. It carries no protocol: it
-never parses a byte. As of package T no server exists yet, so nothing in the
-shipped binary instantiates it.</p>
+never parses a byte. The first server on it is DZRP (<code>--dzrp-port</code>, 3.10); the
+loop owners open it through <code>src/platform/debug_servers.*</code>.</p>
 <p><code>remote::Server</code> is a <code>jnext::dbg::Service</code>, so <code>pump()</code> drives it: each
 <code>service_once(wait_ms)</code> accepts, reads, asks the adapter's <code>Protocol</code> to execute
 <strong>at most one</strong> complete command, and writes — repeated until a command ran or
@@ -2556,7 +2586,12 @@ kernel does not take then goes out on later passes), <code>close</code> (what is
 is still delivered, for a bounded time). <code>on_disconnect()</code> is called
 exactly once per <code>on_connect()</code>, whoever ended the session, and every byte a
 client sent before hanging up is offered to the adapter first. One client per
-listener: a second one is sent the adapter's <code>busy_reply</code> and closed. Two
+listener: a second one is sent the adapter's <code>busy_reply</code> and closed — but a
+client that hangs up and dials again is not a second one. A pass serves the
+current client first, so a hang-up is seen before a redial is judged; takes one
+more look at it after the listener has parked an arrival, since the client may
+have read its reply, hung up and redialled in between; and leaves the redial
+parked until the old session is retired (<code>XPT-SRV-30..33</code>). Two
 bounds keep a stuck client from costing the host memory: reading stops at
 <code>max_input</code> unconsumed bytes (backpressure through the kernel), and a client
 <code>max_output</code> bytes behind on its replies is disconnected.</p>
@@ -2575,7 +2610,7 @@ and reads. <code>remote_transport_test</code> pins the transport over the fake, 
 real socket on <code>127.0.0.1</code> port 0, and through <code>pump()</code>.</p>
 <p><code>--debug-listen-address ADDR</code> (numeric only, default <code>127.0.0.1</code>) is validated
 in <code>main.cpp</code> and held in <code>EmulatorConfig::debug_listen_address</code> for the servers
-to bind. The design, and the reason behind each rule above, is
+to bind; it is refused unless a server port (<code>--dzrp-port</code>) is given too. The design, and the reason behind each rule above, is
 <code>doc/design/debug-subsystem/transport.md</code>.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
 <p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
