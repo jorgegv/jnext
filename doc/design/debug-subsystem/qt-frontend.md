@@ -1025,6 +1025,26 @@ torn newest slot failed every rewind (CTL-10-05, CTL-10-08); the export dropped
 B4's fields (INS-13-14); the stuck `active()` bit after a client's rewind
 (OBL3-01/02).
 
+**Review round 1 (`scratchpad/q-wp3-review.md`, REJECT).** Three items, fixed as
+their own commits:
+1. *Fail loud.* The backend refuses a rewind during an RZX recording or
+   playback BEFORE `Emulator::step_back()` / `rewind_to_frame()` run, so their
+   logged refusal (`Emulator::rzx_blocks_rewind()`) was never reached and every
+   client lost the log line. The two verbs now log it through that same
+   function, with the same words; the `rewind_blocked()` greying query, which
+   shares the predicate and runs on every tick, stays silent. Rows CTL-09-06,
+   CTL-10-09.
+2. *The Enable Rewind menu's construction-time checked state.* The mutant that
+   forced it false survived because the line was DEAD, not unpinned:
+   `set_debugger_manager()` reaches `update_rewind_ui()` through
+   `apply_keymap()` before it returns, on every path, and that sync overwrites
+   the value. No row can catch an equivalent mutant, so the line was deleted;
+   the checked state a user sees on open is the sync's, which QRW-12/17/18 pin
+   (forcing the sync false turns all three red).
+3. *The Buffer Size dialog pre-fill.* It opens on the ring's depth (the frames
+   it holds), not its capacity — row QRW-21, with a partly filled ring (the
+   capacity mutant is caught).
+
 ### 6.3 Mutation checks for the #278 reviewer
 
 Each mutation is applied to the REFACTORED tree, in its own build dir, and
