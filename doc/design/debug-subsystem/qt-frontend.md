@@ -545,8 +545,8 @@ moves, the contract is wrong and the per-layer checker stays in the widget.
 
 **The prototype.** `render_to_image`'s render body, the three `replay_*`
 helpers and `rom_in_sram` moved verbatim into `Debugger::render_layer()`, in a
-new Qt-free `src/debug/debugger_render.cpp`; `debugger_pending.cpp` holds no
-definition any more. Before the widget changed, the OLD widget ran with a
+new Qt-free `src/debug/debugger_render.cpp`. `debugger_pending.cpp` was left
+with no definition, and was then deleted (owner decision 2026-09-29). Before the widget changed, the OLD widget ran with a
 shadow A/B: after drawing its own image with the per-layer checkerboard, it
 called the moved function, applied the uniform "alpha 0 → checkerboard" rule
 and compared all 640 × 256 pixels in all 32 bits. Results:
@@ -625,15 +625,19 @@ The rest of the panel reads through the backend too:
 - the frame diagram through INS-19 `machine()`;
 - the paused test through CTL-13 `state()`;
 - the layer flags and NR 0x15 priority through `nextreg_peek`;
-- the swatch through INS-15 `palette(UlaActive)`;
+- the swatch through INS-15 `palette(UlaActive)` and `rgb333_to_argb()`;
 - the titles through `nextreg_peek(0x4A)` and `ula_screen_regs()`.
 
-`video_panel.*` holds no `Emulator*` and includes no `core/emulator.h`. It does
-include `video/palette.h`, for one free function, `rgb333_to_argb8888()`. The
-swatch shows the palette's 9-bit RGB333 entries, and the backend publishes
-only the 8-bit `rrrgggbb_to_argb()`. That is a different expansion: blue `10`
-is `0xAA` one way and `0xB6` the other, and DVP-PAL-01 fails on it. This is
-REQ-qt-27c (§8), for WP7.
+`video_panel.*` holds no `Emulator*` and includes no core header at all. The
+first cut still included `video/palette.h` for `rgb333_to_argb8888()`. The
+swatch shows the palette's 9-bit RGB333 entries, and the backend then published
+only the 8-bit `rrrgggbb_to_argb()`, a different expansion: blue `10` is `0xAA`
+one way and `0xB6` the other, and DVP-PAL-01 fails on it. REQ-qt-27c (§8) asked
+for the 9-bit one; the owner approved it (2026-09-29), and review round 1 added
+`rgb333_to_argb()` to `inspect.h`. That is the only declaration WP4d adds to a
+frozen header. It is pinned by `debugger_backend_test` INS-15-20 (all 512
+inputs against the palette's own expansion) and INS-15-21 (a whole bank against
+the palette's ARGB cache).
 
 The window gained the one line of wiring the panel needs:
 `DebuggerWindow(Emulator*, jnext::dbg::Debugger&, QWidget*)`, passed by
@@ -1125,6 +1129,71 @@ DVP-TITLE-01/02, DVP-02b and DVP-RAS-15 pass.
 §6.3 mutation 4 (`render_layer(UlaPrimary)` follows the live bank) turns DVP-03
 red, as designed.
 
+**Review round 1 (2026-09-29).** The review found coverage gaps, not defects in
+the move. Removing six logs' rewind, apply or flush survived every row, and so
+did a status restore of 0, a dropped status bit, and the Layer2Shadow view
+ignoring the per-row NR 0x14. Rows added:
+
+| Rows | Suite | Pins |
+|---|---|---|
+| INS-14-11..17, 21 | `debugger_backend_test` | one row per per-scanline change log the replay walks: NR 0x15 (Composite), NR 0x6B (Tilemap), the attribute mux, ULA scroll, palette select, Timex mode (ULA view), sprite attributes (Sprites), Layer 2 (Layer2Active). Each has a baseline A, a write of B tagged at row 100 and a write of C tagged in VBLANK. The view must show A above row 100 and B from it, over two renders that agree bit for bit (a render that skips its rewind draws the SECOND picture wrong). After the render the live register must be C (the flush). The palette log is DVP-05/16c's |
+| INS-14-18..20 | `debugger_backend_test` | the port 0x303B bits the guest's own frame latched — both, collision alone, max-sprites alone — still read back after the Sprites and Composite views, then read-clear. Each scene is also run without a render, as the premise |
+| DVP-21c | `debugger_video_panel_test` | the Layer 2 SHADOW view reads the per-row NR 0x14 snapshot |
+| INS-15-20, INS-15-21 | `debugger_backend_test` | `rgb333_to_argb()` (REQ-qt-27c, above) |
+| G12-TAG-01..05 | `mmu_integration_test` | the attribute-mux tagging defect below, and a CPU write's own line and column |
+
+The mutation sweep covered every replay call (9 logs × rewind / apply / flush),
+the status save and restore, and the Layer2Shadow NR 0x14. All 34 are now
+caught.
+
+**A defect found by writing INS-14-13, fixed in its own commit.** The
+attribute mux tags each attribute write with its beam position.
+`fuse_z80_writebyte` set that position on EVERY CPU write, but only the next
+write that reached the attribute plane cleared it. So after a CPU write
+anywhere else — a CALL's push, say — the next NON-CPU attribute write was
+tagged with that CPU write's line and column instead of its own. That affects
+DMA, the tape-trap loaders and the debugger's `poke`: a DMA transfer at line
+150 recoloured the cell from line 21.
+
+The fix:
+- the CPU now ends the position right after its write (`attr_mux_end_write()`);
+- the CPU's column is kept in a field of its own, so the coarse tag of every
+  other writer stays line + column 0.
+
+G12-TAG-01..03 (DMA, poke, LD-BYTES trap) fail on the old tree, all at "row
+21, want 150". G12-TAG-04/05 are identity rows: a CPU write keeps its own line
+across a line start, and its own column late in a line. The five mutations of
+the fix are all caught.
+
+The hazard sweep of the other per-access tags the CPU bus callbacks set found
+no other leak:
+- `ContentionModel::mem_active_page_` is set immediately before each of its
+  consumers, in the same callback;
+- the I/O-cycle start behind `io_read_sample_cycle()` is gated on the CPU
+  executing (`executing_`);
+- `sram_read_wait28` is computed per read;
+- the floating bus and the Layer 2 write-over carry no per-write tag.
+
+The watchpoint latch is guest-scope by design (`GuestExecutionScope`).
+
+**The cost of the fix.** It adds one store per CPU memory write. It was
+measured by an interleaved A/B of `gui-release`: B at `2bcbd3f11` against N
+with the fix, 5 rounds, `perf stat` retired `instructions:u`, and a load gate
+that waits up to 2 minutes for the 1-minute load to fall below `nproc`.
+
+| Workload | instructions:u, median N − B |
+|---|---|
+| boot-48k (600 frames) | +2.17 M (**+0.015 %**) |
+| boot-nextzxos (400) | +3.91 M (**+0.016 %**) |
+| bifrost.tap (48K, 600) — the attribute-write-heavy one | +3.90 M (**+0.027 %**) |
+| nirvana.tap (48K, 600) | +3.47 M (**+0.023 %**) |
+
+- The run-to-run spread of B is ≤ 15 k instructions, so the delta is real, but
+  it is two to three ten-thousandths of the work.
+- `cycles:u` is void: the host load was 9-15 on 12 CPUs throughout (the gate
+  timed out), and cycles moved by up to ±18 % between identical binaries.
+- Script and raw numbers: the WP4d report.
+
 ### 6.3 Mutation checks for the #278 reviewer
 
 Each mutation is applied to the REFACTORED tree, in its own build dir, and
@@ -1282,7 +1351,7 @@ Sent as `REQ-qt-<n>: <capability> — <why> — <site>`; answers recorded here.
 | 27 | ULA palette — `:1060-1062` | served: CAP-INS-15 |
 | **27b** | active ULA palette bank + one RGB333→ARGB function | **ACCEPTED** → `PaletteId::UlaActive`, `active_ula_palette_bank()`, `rrrgggbb_to_argb` re-exported from `inspect.h` |
 | 28 | render_layer — `:394-630` | served: CAP-INS-14; split per §3.7 **NEEDS-PROTOTYPE** (agreed: verbatim move, re-run DVP first — WP4d step 1). **Implemented (WP4d, §3.7a):** the uniform alpha-0 contract held for every DVP render and 1088 renders of 34 programs; the one difference, the tilemap clip, was a presentation defect, fixed |
-| **27c** | a published RGB333 (9-bit) → ARGB expansion beside `rrrgggbb_to_argb()` — the ULA swatch shows `palette(UlaActive)`'s RGB333 entries, and the only published expansion is the 8-bit one, which gives different colours (blue `10`: `0xAA` vs `0xB6`; DVP-PAL-01 fails on it). WP4d includes `video/palette.h` for `rgb333_to_argb8888()` meanwhile — the last core include in `video_panel.cpp` | **OPEN** — raised by WP4d, a change to the frozen `inspect.h`; also stale there: the `Layer` doc comment still says the views live only in `VideoLayerView` |
+| **27c** | a published RGB333 (9-bit) → ARGB expansion beside `rrrgggbb_to_argb()` — the ULA swatch shows `palette(UlaActive)`'s RGB333 entries, and the only published expansion was the 8-bit one, which gives different colours (blue `10`: `0xAA` vs `0xB6`; DVP-PAL-01 fails on it) | **OWNER-APPROVED 2026-09-29; DONE in WP4d review round 1**: `rgb333_to_argb()` in `inspect.h` (the only declaration WP4d adds to a frozen header; the stale `Layer` doc comment beside it corrected), forwarding to `rgb333_to_argb8888()`; INS-15-20/21; `video_panel.cpp` has no core include left (§3.7a) |
 | **30** | WP8 contract on CAP-INS-02: `peek(Page{p})` returns the NR page's bytes regardless of any DivMMC/Multiface/L2 overlay over the slot; `poke(Page{p})` writes it, invisible to an overlay. **Reworded (review R-3):** `Page{p}` is used for RAM slots only; a ROM slot's bytes come from `MemSpace::Rom{…}` and its `poke` is `RefusedReadOnly` (panel renders "unchanged") — `memory_panel.cpp:123-154`, owner Q7 | **CONFIRMED** (backend CAP-INS-02 / §4.2a; matrix: Qt 39 used / 16 declined, INS-02 Page = S via Q WP8). The backend also logs every mutation as one SES-06 line `MUTATE <what> <old> -> <new> by <client>` — no panel change needed |
 | **31** | `SlotInfo` should carry the `MemSpace` that reads the slot's backing store (`space ∈ {Page{nr_page}, Rom{index}, bank7-BRAM…}`) so the Memory panel — and every other client — never composes a `MemSpace` from `effective_page` + `is_rom` (that composition is exactly what R-3 caught: `get_effective_page()` is SRAM-physical for ROM slots, `mmu.h:74-77`). Alternatively: settle the `Rom` enumeration (backend §11 item 1) and state the rule "ROM slot ⇒ `Rom{effective_page}`" explicitly. WP8 depends on one of the two | **ACCEPTED** (verified by the backend): CAP-INS-03 `SlotInfo.space` = `Page{nr_page}` for a RAM slot, `Rom{effective_page}` for a ROM slot; backend §11 item 1 closed from the code (`Rom{i}` = 8 KB ROM page index: SRAM pages 0..7 in Next mode, the `Rom` object's pages on 48K/128K/+3; `poke(Rom)` = `RefusedReadOnly`). WP8 branches on `SlotInfo.space` directly; the `is_rom` split is equivalent. **Refinement (backend, after the protocols review):** `Rom{index}` is a 16 KB ROM image (index 0..3, addresses 0..0x3FFF; SRAM pages 2i/2i+1 on the Next, the `Rom` object's image on classic machines), and `SlotInfo` carries `space` + `space_offset` (ROM slot → `Rom{effective_page >> 1}`, offset `(effective_page & 1)·0x2000`; RAM slot → `Page{nr_page}`, offset 0). WP8's read is `peek(space, space_offset + addr_in_slot, …)`; the 8 KB slot view and the QMP-06a/06b/07/08/09 rows are unaffected (they address bytes within the slot, never the image) |
 | **32** | a NON-ARMING observer attach — a client that installs a listener and counts toward no arm bit (a `ClientInfo` flag, or an `observe()` verb). SES-01's attach is the only way to become a client and it ARMS the machine (§5), so the Qt adapter cannot be a client for the process lifetime without changing GH #219's default (PBPUI-03, §4.1); B4's O5 is the same class for a loop owner and `ExitRequested` | **OWNER-APPROVED 2026-09-29** — a change to the frozen `debugger.h`, to be made when package S (the DSL) or a remote server first needs a non-arming listener; not in Q unless Q needs it (it does not: WP2 attaches while the window is open and pulls `state()`, manager decision 2026-09-29) |
