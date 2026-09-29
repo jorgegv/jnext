@@ -214,7 +214,7 @@ struct Fixture {
         // delivers those to a focused widget inside the ACTIVE window. A
         // parentless widget would make the two chord rows untestable through
         // the chord — which is exactly the part worth testing.
-        panel = new DisasmPanel(&emu);
+        panel = new DisasmPanel(backend.get());   // GH #278 WP5: reads through it
         panel->set_breakpoint_model(bps.get());
         win.setCentralWidget(panel);
         win.resize(700, PAINT_Y + VIS_LINES * LINE_H);

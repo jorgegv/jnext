@@ -1063,8 +1063,8 @@ void DebuggerWindow::set_attach_enabled(bool on) {
 void DebuggerWindow::create_panels() {
     // --- Create panels ---
     cpu_panel_ = new CpuPanel(&dbg_);
-    disasm_panel_ = new DisasmPanel(emulator_);
-    memory_panel_ = new MemoryPanel(emulator_);
+    disasm_panel_ = new DisasmPanel(&dbg_);
+    memory_panel_ = new MemoryPanel(&dbg_);
     memory_panel_->setMinimumHeight(320);
     video_panel_ = new VideoPanel(&dbg_);
     sprite_panel_ = new SpritePanel(&dbg_);

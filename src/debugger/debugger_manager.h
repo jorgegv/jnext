@@ -150,8 +150,8 @@ private:
     /// The four paused-only panels (CPU, Disassembly, Stack, Call Stack).
     void set_panels_paused(bool paused);
 
-    /// GH #278 WP4b — the two panels that WRITE through the backend (NextREG,
-    /// Audio) attribute their writes to the window's client: `client_`, which
+    /// GH #278 WP4b/WP5 — the three panels that WRITE through the backend
+    /// (NextREG, Audio, Memory) attribute their writes to the window's client: `client_`, which
     /// is CLIENT_NONE while the window is closed. Pushed on every attach and
     /// detach, and when the window is built.
     void set_panels_client();

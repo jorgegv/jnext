@@ -59,6 +59,9 @@
 #include "debugger/watch_panel.h"
 
 #include <QApplication>
+#include <QImage>
+#include <QKeyEvent>
+#include <QLineEdit>
 #include <QMainWindow>
 #include <QPixmap>
 
@@ -107,10 +110,15 @@ void check(const char* id, const char* desc, bool cond, const char* detail = "")
 //                     PC=$8000 and starts decoding `half*3` bytes BEFORE it,
 //                     so it always decodes forward across $7FFF. The CPU never
 //                     goes below $8000.
-//   $0010  MEMPANEL   the Memory panel's paintEvent, which draws from $0000.
-//                     48K ROM the program never executes. The one address
-//                     whose reader depends on widget geometry, so INSPW-06
-//                     proves the read happened instead of assuming it.
+//   $9210  MEMPANEL   the Memory panel's paintEvent, navigated there (Addr box
+//                     + Return, as a user does). RAM the program never
+//                     touches. The one address whose reader depends on widget
+//                     geometry, so INSPW-06 proves the read happened instead
+//                     of assuming it. (Until GH #278 WP5 it was $0010, 48K
+//                     ROM, where the panel draws unnavigated: the proof then
+//                     latched the panel's own Mmu::read() inside a guest
+//                     scope, which a peek can no longer be made to do, so the
+//                     proof is now a byte the paint must SHOW — see INSPW-06.)
 //   $E000  SAVERD     SnaSaver::save(), which reads every RAM page through the
 //   $FEFE  SAVERW     slot-7 window $E000-$FFFF and pushes PC at SP-2.
 //   $8013  CALLSTK    the call-stack tracker's 3-byte peek, from the park's
@@ -123,7 +131,7 @@ constexpr uint16_t PROG        = 0x8000;
 constexpr uint16_t DATA        = 0x9000;
 constexpr uint16_t SHOWN       = 0x9100;
 constexpr uint16_t DISASM_ONLY = 0x7FFF;
-constexpr uint16_t MEM_ONLY    = 0x0010;
+constexpr uint16_t MEM_ONLY    = 0x9210;
 constexpr uint16_t SAVER_READ  = 0xE000;
 constexpr uint16_t CALLSTK_ONLY = 0x8013;
 constexpr uint16_t TRACE_ONLY  = 0x8014;
@@ -368,6 +376,13 @@ int main(int argc, char** argv) {
         auto* mem = f.dbg()->findChild<MemoryPanel*>();
         f.emu.debug_state().breakpoints().add_watchpoint(MEM_ONLY, WatchType::READ);
         QPixmap px(mem ? mem->size() : QSize(1, 1));
+        if (mem) {                                  // Addr box + Return, as a user does
+            if (auto* edit = mem->findChild<QLineEdit*>()) {
+                edit->setText(QStringLiteral("$9210"));
+                QKeyEvent ret(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+                QApplication::sendEvent(edit, &ret);
+            }
+        }
 
         // NON-VACUITY, proven on the real stimulus. This row is the only one
         // whose stimulus depends on WIDGET GEOMETRY: `MemoryPanel::
@@ -382,19 +397,24 @@ int main(int argc, char** argv) {
         // So it is PROVEN rather than assumed, and proven on the address the
         // row is about rather than on a row count (which would not catch a
         // changed scroll offset, BYTES_PER_ROW, or page-selector mode): the
-        // panel is rendered ONCE inside a GuestExecutionScope, where a read
-        // DOES latch, and the latch must fire at exactly MEM_ONLY. That is
-        // the panel demonstrating it reads the watched byte.
+        // panel is painted with MEM_ONLY holding one value and then another,
+        // and the two pictures must differ — the paint SHOWS the watched byte,
+        // so it read it. (GH #278 WP5: the proof used to latch the panel's own
+        // read inside a GuestExecutionScope. The panel now reads through the
+        // backend's peek, which latches nothing in any scope — backend rows
+        // F1-04/05 — so that proof can no longer fire; this one does not
+        // depend on HOW the panel reads. The writes are host-side, outside
+        // execution, and the watch is a READ one: neither latches.)
         bool panel_really_reads = false;
         if (mem) {
-            DebugState::GuestExecutionScope probe(f.emu.debug_state());
-            mem->render(&px);                 // forces paintEvent -> read_byte()
-            panel_really_reads = f.emu.debug_state().data_bp_hit() &&
-                                 f.emu.debug_state().data_bp_addr() == MEM_ONLY;
+            QImage a(mem->size(), QImage::Format_ARGB32);
+            QImage b(mem->size(), QImage::Format_ARGB32);
+            f.emu.mmu().write(MEM_ONLY, 0x11);
+            mem->render(&a);                  // forces paintEvent -> the panel's read
+            f.emu.mmu().write(MEM_ONLY, 0xEE);
+            mem->render(&b);
+            panel_really_reads = a != b && !f.emu.debug_state().data_bp_hit();
         }
-        // Clear the probe's OWN latch — this row raised it deliberately, and
-        // it is the only place in this file that touches the flag by hand.
-        f.emu.debug_state().set_data_bp_hit(false);
 
         // THE ROW ITSELF: the same paint, now outside execution as a real
         // panel refresh is, must leave the machine alone.

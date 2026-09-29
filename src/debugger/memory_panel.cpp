@@ -1,7 +1,5 @@
 #include "debugger/memory_panel.h"
-#include "core/emulator.h"
-#include "cpu/z80_cpu.h"
-#include "memory/mmu.h"
+#include "debug/debugger.h"
 
 #include <QHBoxLayout>
 #include <QVBoxLayout>
@@ -18,9 +16,9 @@
 // Construction
 // ---------------------------------------------------------------------------
 
-MemoryPanel::MemoryPanel(Emulator* emulator, QWidget* parent)
+MemoryPanel::MemoryPanel(jnext::dbg::Debugger* dbg, QWidget* parent)
     : QWidget(parent)
-    , emulator_(emulator)
+    , dbg_(dbg)
 {
     create_ui();
     setFocusPolicy(Qt::StrongFocus);
@@ -119,39 +117,35 @@ QSize MemoryPanel::sizeHint() const {
 // Memory access helpers
 // ---------------------------------------------------------------------------
 
-uint8_t MemoryPanel::read_byte(uint16_t addr) const {
-    if (!emulator_) return 0;
-
+uint16_t MemoryPanel::cpu_address(uint16_t addr) const {
     int mode = page_selector_ ? page_selector_->currentIndex() : 0;
     if (mode == 0) {
-        // CPU view: read through the MMU as the CPU sees it.
-        return emulator_->mmu().read(addr);
-    } else {
-        // Slot view: read the specific 8K page in that slot.
-        // addr is 0x0000..0x1FFF within the page.
-        int slot = mode - 1;
-        // Read directly from RAM at page offset.
-        uint16_t phys = static_cast<uint16_t>(addr & 0x1FFF);
-        // Pages 0xFF and below are RAM pages; ROM pages are special.
-        // For simplicity, use the MMU slot mapping: temporarily compute
-        // the address as if reading from that slot's range.
-        uint16_t cpu_addr = static_cast<uint16_t>((slot << 13) | phys);
-        return emulator_->mmu().read(cpu_addr);
+        // CPU view: the address as the CPU sees it.
+        return addr;
     }
+    // Slot view: addr is 0x0000..0x1FFF within the slot's 8K. For
+    // simplicity (and, until WP8, for identity) it is read and written through
+    // the CPU map at that slot's range, NOT the physical page — so an overlay
+    // active in the slot shows through it.
+    int slot = mode - 1;
+    uint16_t phys = static_cast<uint16_t>(addr & 0x1FFF);
+    return static_cast<uint16_t>((slot << 13) | phys);
+}
+
+void MemoryPanel::read_bytes(uint16_t addr, uint8_t* out, size_t n) const {
+    if (!dbg_) return;
+    // INS-02 — a peek through the live CPU map, overlays included. A row never
+    // crosses a slot (16 bytes, 16-aligned), so the CPU-view wrap at $FFFF and
+    // the slot view's (slot << 13) mapping both hold across it.
+    dbg_->peek(jnext::dbg::MemSpace::cpu(), cpu_address(addr), n, out);
 }
 
 void MemoryPanel::write_byte(uint16_t addr, uint8_t val) {
-    if (!emulator_) return;
-
-    int mode = page_selector_ ? page_selector_->currentIndex() : 0;
-    if (mode == 0) {
-        emulator_->mmu().write(addr, val);
-    } else {
-        int slot = mode - 1;
-        uint16_t phys = static_cast<uint16_t>(addr & 0x1FFF);
-        uint16_t cpu_addr = static_cast<uint16_t>((slot << 13) | phys);
-        emulator_->mmu().write(cpu_addr, val);
-    }
+    if (!dbg_) return;
+    // INS-02 / §4.2a — `Mmu::write` through the live map (ROM ignored, the
+    // change logs and the attribute mux updated, no watch), logged as this
+    // client's MUTATE; refused while an RZX records or plays.
+    dbg_->poke(client_, jnext::dbg::MemSpace::cpu(), cpu_address(addr), 1, &val);
 }
 
 int MemoryPanel::total_rows() const {
@@ -190,12 +184,13 @@ void MemoryPanel::navigate_to_address(uint16_t addr) {
 }
 
 void MemoryPanel::update_page_selector() {
-    if (!emulator_ || !page_selector_) return;
+    if (!dbg_ || !page_selector_) return;
 
+    const auto slot_info = dbg_->mmu_slots();   // INS-03
     for (int i = 0; i < 8; ++i) {
-        // get_effective_page: physical page in use (explicit NR 0x50-0x57 or
-        // derived legacy page). get_page() would show 0xFF for legacy ROM slots.
-        uint8_t page = emulator_->mmu().get_effective_page(i);
+        // effective_page: physical page in use (explicit NR 0x50-0x57 or
+        // derived legacy page). nr_page would show 0xFF for legacy ROM slots.
+        uint8_t page = slot_info[i].effective_page;
         // The HEX is upper case, the words are not (GH #278 WP0): this used to
         // upper-case the whole label, "SLOT 3 (PAGE 0B)" beside "CPU View".
         page_selector_->setItemText(i + 1,
@@ -301,10 +296,10 @@ void MemoryPanel::paintEvent(QPaintEvent*) {
     int y0 = header_height();
     int vis = visible_rows();
 
-    if (!emulator_ || vis <= 0) return;
+    if (!dbg_ || vis <= 0) return;
 
     bool cpu_view = (page_selector_ ? page_selector_->currentIndex() : 0) == 0;
-    uint16_t sp = emulator_->cpu().get_registers().SP;
+    uint16_t sp = dbg_->registers().SP;
 
     for (int vrow = 0; vrow < vis; ++vrow) {
         int abs_row = scroll_offset_ + vrow;
@@ -344,13 +339,15 @@ void MemoryPanel::paintEvent(QPaintEvent*) {
         QString addr_str = QString("$%1").arg(base_addr & 0xFFFF, 4, 16, QChar('0')).toUpper();
         p.drawText(2, y + fm.ascent(), addr_str);
 
-        // Hex bytes
+        // Hex bytes — the row's sixteen in one bulk read.
         int hex_x = hex_area_left();
         char ascii_buf[BYTES_PER_ROW + 1];
+        uint8_t row_bytes[BYTES_PER_ROW] = {};
+        read_bytes(static_cast<uint16_t>(base_addr), row_bytes, BYTES_PER_ROW);
 
         for (int col = 0; col < BYTES_PER_ROW; ++col) {
             uint16_t addr = static_cast<uint16_t>(base_addr + col);
-            uint8_t byte = read_byte(addr);
+            uint8_t byte = row_bytes[col];
 
             // Calculate x position with group separator
             int x_pos;

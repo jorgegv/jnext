@@ -12,8 +12,8 @@
 
 class QAction;
 class BreakpointModel;
-class Emulator;
 class SymbolTable;
+namespace jnext { namespace dbg { class Debugger; } }
 class WatchPanel;
 
 /// Scrollable disassembly view with breakpoint gutter.
@@ -26,7 +26,10 @@ class WatchPanel;
 class DisasmPanel : public QWidget {
     Q_OBJECT
 public:
-    explicit DisasmPanel(Emulator* emulator, QWidget* parent = nullptr);
+    /// @param dbg  the debugger backend every read goes through (GH #278 WP5):
+    ///             the bytes are its memory_reader() — a peek, so disassembling
+    ///             moves nothing — and the registers its registers().
+    explicit DisasmPanel(const jnext::dbg::Debugger* dbg, QWidget* parent = nullptr);
 
     /// Re-disassemble around current PC and repaint.
     void refresh();
@@ -134,7 +137,7 @@ private:
     void navigate_to_address(const QString& text);
     static uint16_t extract_immediate16(const char* mnemonic);
 
-    Emulator* emulator_;
+    const jnext::dbg::Debugger* dbg_;
 
     // Navigation
     QLineEdit* addr_input_ = nullptr;

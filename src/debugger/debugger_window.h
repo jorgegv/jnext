@@ -34,8 +34,8 @@ class QToolBar;
 class DebuggerWindow : public QMainWindow {
     Q_OBJECT
 public:
-    /// `dbg` — the debugger backend the panels read through (GH #278 WP4a/b/d:
-    /// CPU, MMU, Stack, Call Stack, Video, Sprites, Copper, NextREG, Audio).
+    /// `dbg` — the debugger backend the panels read through (GH #278 WP4a-d,
+    /// WP5: every panel).
     DebuggerWindow(Emulator* emulator, jnext::dbg::Debugger& dbg,
                    QWidget* parent = nullptr);
 
@@ -82,6 +82,7 @@ public:
     CallStackPanel* callstack_panel() { return callstack_panel_; }
     NextRegPanel* nextreg_panel() { return nextreg_panel_; }
     AudioPanel* audio_panel() { return audio_panel_; }
+    MemoryPanel* memory_panel() { return memory_panel_; }
 
 signals:
     void window_closed();

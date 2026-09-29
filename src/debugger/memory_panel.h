@@ -5,7 +5,9 @@
 #include <QComboBox>
 #include <QScrollBar>
 
-class Emulator;
+#include "debug/events.h"   // jnext::dbg::ClientId
+
+namespace jnext { namespace dbg { class Debugger; } }
 
 /// Memory hex editor panel (shown as QDockWidget content).
 /// Custom-painted hex editor with address/hex/ASCII columns,
@@ -13,7 +15,16 @@ class Emulator;
 class MemoryPanel : public QWidget {
     Q_OBJECT
 public:
-    explicit MemoryPanel(Emulator* emulator, QWidget* parent = nullptr);
+    /// @param dbg  the debugger backend (GH #278 WP5): the bytes are its
+    ///             `peek(Cpu)`, an edit its `poke(Cpu)`, the slot labels its
+    ///             `mmu_slots()`, the SP row its `registers()`. Null shows
+    ///             nothing and writes nothing.
+    explicit MemoryPanel(jnext::dbg::Debugger* dbg, QWidget* parent = nullptr);
+
+    /// The client an edit is attributed to (the backend's MUTATE line). The
+    /// manager sets the debugger window's client while the window is open;
+    /// CLIENT_NONE otherwise.
+    void set_client(jnext::dbg::ClientId by) { client_ = by; }
 
     /// Update display with current memory and MMU state.
     void refresh();
@@ -38,8 +49,15 @@ private:
     int row_height() const;
     int header_height() const;
 
-    /// Read a byte depending on current view mode.
-    uint8_t read_byte(uint16_t addr) const;
+    /// The CPU address a view offset reads and writes: the offset itself in
+    /// the CPU view; `(slot << 13) | (addr & 0x1FFF)` in a slot view — still
+    /// through the CPU map, as it always was (the physical-page view is WP8).
+    uint16_t cpu_address(uint16_t addr) const;
+
+    /// Read `n` bytes of the current view from `addr` in ONE backend peek (the
+    /// paint reads a row at a time). A peek moves nothing: no watch, no +3
+    /// floating-bus latch.
+    void read_bytes(uint16_t addr, uint8_t* out, size_t n) const;
 
     /// Write a byte depending on current view mode.
     void write_byte(uint16_t addr, uint8_t val);
@@ -54,7 +72,8 @@ private:
     /// Scroll to make the selected_addr_ visible if needed.
     void ensure_visible();
 
-    Emulator* emulator_;
+    jnext::dbg::Debugger* dbg_;
+    jnext::dbg::ClientId  client_ = jnext::dbg::CLIENT_NONE;
 
     // Top bar widgets
     QLineEdit* addr_input_ = nullptr;

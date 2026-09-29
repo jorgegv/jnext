@@ -1600,14 +1600,16 @@ static void test_panel_attribution() {
     WindowFixture fx(MachineType::ZXN_ISSUE2);
     NextRegPanel* np = fx.ok ? fx.dbg()->nextreg_panel() : nullptr;
     AudioPanel*   ap = fx.ok ? fx.dbg()->audio_panel() : nullptr;
+    MemoryPanel*  mp = fx.ok ? fx.dbg()->memory_panel() : nullptr;
     QTableWidget* nt = np ? np->findChild<QTableWidget*>() : nullptr;
     QCheckBox*    ay1 = nullptr;
     if (ap)
         for (QCheckBox* cb : ap->findChildren<QCheckBox*>())
             if (cb->text() == QLatin1String("AY #1")) ay1 = cb;
-    if (!nt || !ay1) {
+    if (!nt || !ay1 || !mp) {
         check("QATR-01", "fixture: debugger window with its NextREG panel", false);
         check("QATR-02", "fixture: debugger window with its Audio panel", false);
+        check("QATR-03", "fixture: debugger window with its Memory panel", false);
         return;
     }
 
@@ -1628,23 +1630,33 @@ static void test_panel_attribution() {
         ay1->click();
         return log.last();
     };
+    auto mem_edit = [&](int hi, int lo) {        // two hex digits at $9000
+        go_to(mp, "9000");
+        send_key(mp, hi);
+        send_key(mp, lo);
+        return log.last();
+    };
     auto want = [](const char* what, unsigned from, unsigned to, jnext::dbg::ClientId by) {
         return fmt("MUTATE %s 0x%X -> 0x%X by %u", what, from, to, static_cast<unsigned>(by));
     };
 
     const uint8_t nr14 = fx.emu.nextreg().peek(0x14);
+    fx.emu.mmu().write(0x9000, 0x00);                          // the Memory edit's old value
     np->refresh();
     const jnext::dbg::ClientId win1 = window_client();
     const std::string nr_open  = nr_edit("5A");
     const std::string mu_open  = mute_click();                 // AY #1 muted
+    const std::string me_open  = mem_edit(Qt::Key_5, Qt::Key_A);
     fx.mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
     const std::string nr_shut  = nr_edit("5B");
     const std::string mu_shut  = mute_click();                 // audible again
+    const std::string me_shut  = mem_edit(Qt::Key_5, Qt::Key_B);
     fx.mgr->set_enabled(true);
     QApplication::processEvents();
     const jnext::dbg::ClientId win2 = window_client();
     const std::string nr_again = nr_edit("5C");
     const std::string mu_again = mute_click();                 // muted again
+    const std::string me_again = mem_edit(Qt::Key_5, Qt::Key_C);
 
     const bool ids_ok = win1 != jnext::dbg::CLIENT_NONE && win1 != observer &&
                         win1 != rec && win2 != jnext::dbg::CLIENT_NONE && win2 != win1 &&
@@ -1667,8 +1679,59 @@ static void test_panel_attribution() {
               mu_again == want("audio mute mask", 0, AY1, win2),
           fmt("open '%s' | shut '%s' | again '%s'", mu_open.c_str(), mu_shut.c_str(),
               mu_again.c_str()));
+    // QATR-03 — GH #278 WP5: a Memory panel hex edit is the backend's poke,
+    // logged the same way.
+    check("QATR-03",
+          "a Memory panel hex edit is logged the same way: the window's client, no "
+          "client while closed, the new client after a reopen",
+          ids_ok && me_open == want("mem cpu:0x9000", 0x00, 0x5A, win1) &&
+              me_shut == want("mem cpu:0x9000", 0x5A, 0x5B, jnext::dbg::CLIENT_NONE) &&
+              me_again == want("mem cpu:0x9000", 0x5B, 0x5C, win2),
+          fmt("open '%s' | shut '%s' | again '%s'", me_open.c_str(), me_shut.c_str(),
+              me_again.c_str()));
     fx.backend->set_listener(rec, nullptr);
     fx.backend->detach(rec);
+}
+
+// ===========================================================================
+// QDIS — GH #278 WP5: the Disassembly panel reads through the backend's
+// memory_reader() — a peek — so disassembling moves nothing. Its old
+// Mmu::read() moved the +3 floating-bus latch on every contended byte it
+// decoded (F1, the defect QWP-08, QPN-STK-03 and QMP-10 pin in the other
+// three panels that read guest memory).
+// ===========================================================================
+static void test_disasm_latch() {
+    set_group("QDIS");
+
+    Emulator emu;
+    const bool built = build(emu, MachineType::ZX_PLUS3);
+    jnext::dbg::Debugger dbg(emu);
+    DisasmPanel panel(&dbg);
+    panel.resize(700, 600);
+    panel.set_paused(true);
+    // $6000: LD A,$A5 repeated — bank 5, contended on the +3; PC sits in it, so
+    // follow-PC decodes around it, before and after.
+    for (uint16_t a = 0x5F00; a < 0x6100; a += 2) poke(emu, a, {0x3E, 0xA5});
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC = 0x6000;
+    emu.cpu().set_registers(r);
+    emu.mmu().set_p3_floating_bus_dat(0x3C);
+    panel.activate_follow_pc();
+    panel.refresh();
+    const uint8_t latch_after_panel = emu.mmu().p3_floating_bus_dat();
+    // Non-vacuity: the panel really decoded the contended bytes — it paints
+    // the $A5 immediates it read there.
+    bool shows_a5 = false;
+    for (const PaintedText& t : painted(&panel))
+        if (t.text.contains(QStringLiteral("$A5"))) shows_a5 = true;
+    (void)emu.mmu().read(0x6001);                 // the control
+    const uint8_t latch_after_read = emu.mmu().p3_floating_bus_dat();
+    check("QDIS-01",
+          "following PC into contended memory leaves the +3 floating-bus latch "
+          "alone (control: Mmu::read() moves it)",
+          built && shows_a5 && latch_after_panel == 0x3C && latch_after_read == 0xA5,
+          fmt("shows $A5=%d latch after refresh %02X (want 3C) after read %02X "
+              "(want A5)", shows_a5, latch_after_panel, latch_after_read));
 }
 
 // ===========================================================================
@@ -1744,7 +1807,8 @@ static void test_memory_panel() {
         const uint8_t bytes[16] = {0x41, 0x42, 0x07, 0x7E, 0x20, 0x7F, 0xFF, 0x00,
                                    0x5A, 0x61, 0x19, 0x80, 0x31, 0x32, 0x33, 0x2E};
         for (int i = 0; i < 16; ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), bytes[i]);
-        MemoryPanel mem(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP5: the panel reads through it
+        MemoryPanel mem(&dbg);
         mem.resize(700, 600);
         go_to(&mem, "$8000");
         const DumpRow row = dump_row(painted(&mem), "$8000");
@@ -1763,7 +1827,8 @@ static void test_memory_panel() {
     {
         Emulator emu;
         build(emu, MachineType::ZX48K);
-        MemoryPanel mem(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP5: the panel reads through it
+        MemoryPanel mem(&dbg);
         mem.resize(700, 600);
         const uint8_t rom0 = emu.mmu().read(0x0000);
         go_to(&mem, "8000");
@@ -1795,7 +1860,8 @@ static void test_memory_panel() {
     {
         Emulator emu;
         build(emu, MachineType::ZX128K);
-        MemoryPanel mem(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP5: the panel reads through it
+        MemoryPanel mem(&dbg);
         auto* combo = mem.findChild<QComboBox*>();
         mem.refresh();
         const QString s6_before = combo ? combo->itemText(7) : QString();
@@ -1830,7 +1896,8 @@ static void test_memory_panel() {
             emu.mmu().write(static_cast<uint16_t>(0x6010 + i), static_cast<uint8_t>(0xC0 + i));
             emu.mmu().write(static_cast<uint16_t>(0x0010 + i), 0x00);   // ROM: ignored
         }
-        MemoryPanel mem(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP5: the panel reads through it
+        MemoryPanel mem(&dbg);
         mem.resize(700, 600);
         select_view(&mem, 4);                           // Slot 3 = $6000-$7FFF
         const DumpRow slot3 = dump_row(painted(&mem), "$0010");
@@ -1862,7 +1929,8 @@ static void test_memory_panel() {
     {
         Emulator emu;
         build(emu, MachineType::ZX48K);
-        MemoryPanel mem(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP5: the panel reads through it
+        MemoryPanel mem(&dbg);
         mem.resize(700, 600);
         select_view(&mem, 6);                           // Slot 5 = $A000-$BFFF
         go_to(&mem, "0010");
@@ -1884,7 +1952,8 @@ static void test_memory_panel() {
         Z80Registers r = emu.cpu().get_registers();
         r.SP = 0x5A08;
         emu.cpu().set_registers(r);
-        MemoryPanel mem(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP5: the panel reads through it
+        MemoryPanel mem(&dbg);
         mem.resize(700, 600);
 
         auto row_colour = [&](const QString& label) -> QRgb {
@@ -1923,6 +1992,66 @@ static void test_memory_panel() {
               "row are white",
               bad.empty(), bad);
     }
+
+    // QMP-10 — GH #278 WP5: the paint reads through the backend's PEEK
+    // (CAP-INS-02, one bulk read per row), so painting the panel moves nothing
+    // — here the +3 floating-bus latch, which its old Mmu::read() moved on every
+    // contended byte it drew (F1; QWP-08 and QPN-STK-03 are the same defect in
+    // the Watches and Stack panels). All the rows drawn around $4000 are bank 5,
+    // contended on the +3. The control half reads one of the same bytes through
+    // Mmu::read() and shows the latch DOES move there.
+    {
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZX_PLUS3);
+        jnext::dbg::Debugger dbg(emu);
+        MemoryPanel mem(&dbg);
+        mem.resize(700, 600);
+        for (uint16_t a = 0x4000; a < 0x4010; ++a) emu.mmu().write(a, 0xA5);
+        go_to(&mem, "4000");
+        emu.mmu().set_p3_floating_bus_dat(0x3C);
+        const DumpRow row = dump_row(painted(&mem), "$4000");
+        const uint8_t latch_after_paint = emu.mmu().p3_floating_bus_dat();
+        (void)emu.mmu().read(0x4000);             // the control
+        const uint8_t latch_after_read = emu.mmu().p3_floating_bus_dat();
+        check("QMP-10",
+              "painting the panel over contended memory leaves the +3 floating-bus "
+              "latch alone and shows the right bytes (control: Mmu::read() moves it)",
+              built && row.found && row.bytes.size() == 16 && row.bytes[0] == "A5" &&
+                  row.bytes[15] == "A5" && latch_after_paint == 0x3C &&
+                  latch_after_read == 0xA5,
+              fmt("found=%d bytes=%s latch after paint %02X (want 3C) after read %02X "
+                  "(want A5)", row.found, s(joined(row.bytes)).c_str(), latch_after_paint,
+                  latch_after_read));
+    }
+
+    // QMP-11 — GH #278 WP5: an edit is the backend's poke (INS-02), which
+    // REFUSES while an RZX records or plays — a write the recording does not
+    // contain would make its playback diverge, as for a NextREG edit (QNR-04).
+    // A behaviour change from the direct Mmu::write, deliberate. The control
+    // half: the same edit lands once the playback stops.
+    {
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZX48K);
+        jnext::dbg::Debugger dbg(emu);
+        MemoryPanel mem(&dbg);
+        mem.resize(700, 600);
+        emu.mmu().write(0x8000, 0x00);
+        emu.rzx_player().start(RzxRecording{});
+        go_to(&mem, "8000");
+        send_key(&mem, Qt::Key_4);
+        send_key(&mem, Qt::Key_2);
+        const uint8_t during = emu.mmu().read(0x8000);
+        emu.rzx_player().stop();
+        go_to(&mem, "8000");
+        send_key(&mem, Qt::Key_4);
+        send_key(&mem, Qt::Key_2);
+        const uint8_t after = emu.mmu().read(0x8000);
+        check("QMP-11",
+              "during an RZX playback a hex edit is refused ($8000 unchanged); after "
+              "it, the same edit lands",
+              built && during == 0x00 && after == 0x42,
+              fmt("during=%02X (want 00) after stop=%02X (want 42)", during, after));
+    }
 }
 
 int main(int argc, char** argv) {
@@ -1949,6 +2078,7 @@ int main(int argc, char** argv) {
     test_panel_attribution();
     test_window_wiring();
     test_memory_panel();
+    test_disasm_latch();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

@@ -9,6 +9,7 @@
 #include "debugger/callstack_panel.h"
 #include "debugger/nextreg_panel.h"
 #include "debugger/audio_panel.h"
+#include "debugger/memory_panel.h"
 #include "core/emulator.h"
 #include "debug/debug_state.h"
 
@@ -118,6 +119,7 @@ void DebuggerManager::set_panels_client() {
     if (!debugger_window_) return;
     if (auto* p = debugger_window_->nextreg_panel()) p->set_client(client_);
     if (auto* p = debugger_window_->audio_panel())   p->set_client(client_);
+    if (auto* p = debugger_window_->memory_panel())  p->set_client(client_);
 }
 
 void DebuggerManager::apply_pause_state(bool paused) {

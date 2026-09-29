@@ -19,16 +19,16 @@
 #include <QGuiApplication>
 #include <QKeySequence>
 
-#include "core/emulator.h"
+#include "debug/debugger.h"
 #include "debug/symbol_table.h"
 #include "debugger/watch_panel.h"
 
 #include <cstring>
 #include <cstdlib>
 
-DisasmPanel::DisasmPanel(Emulator* emulator, QWidget* parent)
+DisasmPanel::DisasmPanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     : QWidget(parent)
-    , emulator_(emulator)
+    , dbg_(dbg)
 {
     // Set up monospace font
     mono_font_ = QFontDatabase::systemFont(QFontDatabase::FixedFont);
@@ -164,9 +164,7 @@ void DisasmPanel::navigate_to_address(const QString& text)
     int bytes_back = half * 3; // heuristic: avg Z80 instruction ~3 bytes
     uint16_t start = (addr >= bytes_back) ? (addr - bytes_back) : 0;
 
-    auto read_fn = [this](uint16_t a) -> uint8_t {
-        return emulator_->mmu().read(a);
-    };
+    const DisasmReadFn read_fn = dbg_->memory_reader();   // INS-11: a peek
 
     int extra_lines = visible_lines() + half + 10;
     std::vector<uint16_t> addrs;
@@ -200,12 +198,11 @@ void DisasmPanel::disassemble_from(uint16_t addr, int count)
     entries_.clear();
     entries_.reserve(count);
 
-    // Memory read function via emulator MMU
-    auto read_fn = [this](uint16_t a) -> uint8_t {
-        return emulator_->mmu().read(a);
-    };
+    // Memory read function: the backend's peek (INS-11), so disassembling
+    // moves nothing — not the +3 floating-bus latch Mmu::read() would.
+    const DisasmReadFn read_fn = dbg_->memory_reader();   // INS-11: a peek
 
-    uint16_t current_pc = emulator_->cpu().get_registers().PC;
+    uint16_t current_pc = dbg_->registers().PC;
     const BreakpointModel* bps = bp_model_.data();
 
     uint16_t cur = addr;
@@ -264,17 +261,15 @@ void DisasmPanel::refresh()
 
 void DisasmPanel::activate_follow_pc()
 {
-    if (!emulator_) return;
-    uint16_t pc = emulator_->cpu().get_registers().PC;
+    if (!dbg_) return;
+    uint16_t pc = dbg_->registers().PC;
 
     // Center PC in the middle of the visible area
     int half = visible_lines() / 2;
     int bytes_back = half * 3; // heuristic: avg Z80 instruction ~3 bytes
     uint16_t start = (pc >= bytes_back) ? (pc - bytes_back) : 0;
 
-    auto read_fn = [this](uint16_t a) -> uint8_t {
-        return emulator_->mmu().read(a);
-    };
+    const DisasmReadFn read_fn = dbg_->memory_reader();   // INS-11: a peek
 
     int extra_lines = visible_lines() + half + 10;
     std::vector<uint16_t> addrs;
@@ -310,7 +305,7 @@ uint16_t DisasmPanel::selected_address() const
         return entries_[selected_line_].line.addr;
     }
     // Fallback: return current PC
-    return emulator_->cpu().get_registers().PC;
+    return dbg_->registers().PC;
 }
 
 void DisasmPanel::run_to_selected()
@@ -398,9 +393,7 @@ QString DisasmPanel::selection_text(disasm_text::CopyFormat fmt) const
     // Live memory, not the painted lines — see the header comment. This is
     // also why a selection made before the view scrolled away still copies in
     // full: nothing about the copy depends on what is currently on screen.
-    auto read_fn = [this](uint16_t a) -> uint8_t {
-        return emulator_->mmu().read(a);
-    };
+    const DisasmReadFn read_fn = dbg_->memory_reader();   // INS-11: a peek
 
     const auto lines = disasm_text::collect_range(low, high, read_fn, symbol_table_);
     return QString::fromStdString(disasm_text::format_lines(lines, fmt));
@@ -624,9 +617,7 @@ void DisasmPanel::wheelEvent(QWheelEvent* event)
 
     if (lines_to_scroll > 0) {
         // Scroll down: advance view_addr_ by skipping some instructions
-        auto read_fn = [this](uint16_t a) -> uint8_t {
-            return emulator_->mmu().read(a);
-        };
+        const DisasmReadFn read_fn = dbg_->memory_reader();   // INS-11: a peek
         uint16_t addr = view_addr_;
         for (int i = 0; i < lines_to_scroll; ++i) {
             int len = instruction_length(addr, read_fn);
@@ -692,9 +683,7 @@ void DisasmPanel::keyPressEvent(QKeyEvent* event)
             update();
         } else if (!entries_.empty()) {
             // Scroll down by one line
-            auto read_fn = [this](uint16_t a) -> uint8_t {
-                return emulator_->mmu().read(a);
-            };
+            const DisasmReadFn read_fn = dbg_->memory_reader();   // INS-11: a peek
             int len = instruction_length(view_addr_, read_fn);
             view_addr_ = clamp_view_addr(static_cast<uint16_t>(view_addr_ + len));
             disassemble_from(view_addr_, visible_lines());
@@ -714,9 +703,7 @@ void DisasmPanel::keyPressEvent(QKeyEvent* event)
 
     case Qt::Key_PageDown: {
         nav = true;
-        auto read_fn = [this](uint16_t a) -> uint8_t {
-            return emulator_->mmu().read(a);
-        };
+        const DisasmReadFn read_fn = dbg_->memory_reader();   // INS-11: a peek
         uint16_t addr = view_addr_;
         for (int i = 0; i < visible_lines(); ++i) {
             int len = instruction_length(addr, read_fn);
@@ -847,7 +834,7 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
     uint16_t imm = extract_immediate16(mnem);
     bool has_imm = (imm != 0 || std::strstr(mnem, "$0000"));
 
-    auto regs = emulator_->cpu().get_registers();
+    auto regs = dbg_->registers();
     struct { const char* name; const char* pattern; uint16_t val; } reg_pairs[] = {
         {"HL", "(HL)", regs.HL}, {"DE", "(DE)", regs.DE}, {"BC", "(BC)", regs.BC},
         {"IX", "(IX", regs.IX}, {"IY", "(IY", regs.IY}, {"SP", "(SP)", regs.SP}
