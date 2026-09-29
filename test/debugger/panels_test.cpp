@@ -1672,6 +1672,61 @@ static void test_panel_attribution() {
 }
 
 // ===========================================================================
+// QWIN — GH #278 WP4a/b review round 1: the REAL window hands the backend to
+// its MMU, Sprites and Copper panels. Their QPN rows build each panel directly,
+// so a DebuggerWindow::create_panels() that handed one of them nullptr — a
+// permanently blank tab — survived every suite (review mutants N21/W1/W2).
+// These rows open the window over a machine in a known state, take a real
+// pause edge (which refreshes every panel), and read each panel as a user
+// does. The other five of the eight are reached through the window by
+// QPE/QEN/QMAP/QRW (CPU, Stack, Call Stack) and QATR/QTH (NextREG, Audio).
+// ===========================================================================
+static void test_window_wiring() {
+    set_group("QWIN");
+
+    WindowFixture fx(MachineType::ZXN_ISSUE2);
+    MmuPanel*    mmu = fx.ok ? fx.dbg()->findChild<MmuPanel*>() : nullptr;
+    SpritePanel* spr = fx.ok ? fx.dbg()->findChild<SpritePanel*>() : nullptr;
+    CopperPanel* cop = fx.ok ? fx.dbg()->findChild<CopperPanel*>() : nullptr;
+    if (!mmu || !spr || !cop) {
+        check("QWIN-01", "fixture: debugger window with its MMU panel", false);
+        check("QWIN-02", "fixture: debugger window with its Sprites panel", false);
+        check("QWIN-03", "fixture: debugger window with its Copper panel", false);
+        return;
+    }
+
+    poke(fx.emu, 0x8000, {0x18, 0xFE});                        // JR $
+    Z80Registers r = fx.emu.cpu().get_registers();
+    r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = 0; r.IFF2 = 0;
+    fx.emu.cpu().set_registers(r);
+    fx.emu.nextreg().write(0x52, 0x21);                        // slot 2 -> page $21
+    put_sprite(fx.emu, 0, {0x6E, 0x10, 0x00, 0x80 | 0x05});    // sprite 0: X 110
+    copper_word(fx.emu, 100, WAIT_500_H40);                    // park the Copper at 100
+    fx.emu.nextreg().write(0x62, 0x40);                        // mode 01: start at 0
+    fx.mgr->on_run();
+    fx.emu.run_frame();
+    fx.mgr->on_pause();                                        // the pause edge refreshes
+    QApplication::processEvents();
+
+    const QString page2 = text_of(grid_value(mmu, "Page", 3, 0));   // row = slot + 1
+    check("QWIN-01", "the window's MMU panel shows the machine: slot 2's page $21",
+          page2 == "21", fmt("slot 2 page '%s' (want 21)", s(page2).c_str()));
+
+    const QString x0 = cell(spr, 0, 1);
+    check("QWIN-02", "the window's Sprites panel shows the machine: sprite 0's X 110",
+          x0 == "110", fmt("sprite 0 X '%s' (want 110)", s(x0).c_str()));
+
+    QLabel* pcl = nullptr;
+    for (QLabel* l : cop->findChildren<QLabel*>())
+        if (l->text().startsWith("PC: ")) pcl = l;
+    const bool parked = fx.emu.copper().pc() == 100;
+    check("QWIN-03", "the window's Copper panel shows the machine: PC 064 (parked at 100)",
+          parked && pcl && pcl->text() == "PC: 064  Mode: 1",
+          fmt("copper pc=%u label '%s' (want PC: 064  Mode: 1)", fx.emu.copper().pc(),
+              s(text_of(pcl)).c_str()));
+}
+
+// ===========================================================================
 // QMP — the Memory panel (memory_panel.cpp). CPU view: the bytes the CPU sees,
 // hex-edit through Mmu::write (ROM ignored), the SP/VRAM/attribute row
 // colours. Slot view: the CURRENT behaviour — reads and writes go through the
@@ -1892,6 +1947,7 @@ int main(int argc, char** argv) {
     test_nextreg_panel();
     test_watch_panel();
     test_panel_attribution();
+    test_window_wiring();
     test_memory_panel();
 
     std::printf("\n=====================================\n");
