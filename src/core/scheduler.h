@@ -11,6 +11,7 @@
 
 enum class EventType {
     SCANLINE,     ///< End-of-scanline processing (render + audio accumulate)
+    CVC_RELOAD,   ///< cvc reloads from NR 0x64 at ula_min_vactive (GH #290)
     VSYNC,        ///< Vertical sync / start of new frame
     CPU_INT,      ///< CPU interrupt assertion (IM2 frame IRQ)
     CTC_TICK,     ///< CTC channel underflow / trigger

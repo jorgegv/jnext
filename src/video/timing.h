@@ -266,10 +266,14 @@ public:
     /// target==0 → c_max_vc (frame-boundary). target!=0 → target-1
     /// (VHDL zxula_timing.vhd:566-570). Public so the videotiming
     /// compliance suite (Section 6) can observe it directly.
-    uint16_t int_line_num() const {
-        if (int_line_target_ == 0)
+    uint16_t int_line_num() const { return int_line_num_for(int_line_target_); }
+
+    /// The same mapping for an arbitrary 9-bit @p target — the one a
+    /// target written a moment ago still has in `int_line_num` (GH #290).
+    uint16_t int_line_num_for(uint16_t target) const {
+        if (target == 0)
             return static_cast<uint16_t>(vc_max_);
-        return static_cast<uint16_t>(int_line_target_ - 1);
+        return static_cast<uint16_t>(target - 1);
     }
 
     // ---------------------------------------------------------------
@@ -279,12 +283,36 @@ public:
     //       compare against cvc).
     // ---------------------------------------------------------------
 
-    /// NR 0x64 — Copper vertical offset. VHDL `i_cu_offset` is loaded
-    /// into `cvc` at `ula_min_vactive` (zxula_timing.vhd:462). The
-    /// line-int comparator at :577 uses `cvc`, not raw `vc`, so the
-    /// scheduler must factor this offset into the firing-line lookup.
+    /// The offset `cvc` is counting from: the NR 0x64 value (`i_cu_offset`)
+    /// it was last reloaded from, at `ula_min_vactive`
+    /// (zxula_timing.vhd:457-462). The line-int comparator at :577 and the
+    /// Copper (zxnext.vhd:3950) use `cvc`, not raw `vc`, so both factor this
+    /// in.
+    ///
+    /// GH #290 — this is NOT the NR 0x64 register. That is
+    /// `Copper::offset()`, written straight away and read back last-write-wins
+    /// (zxnext.vhd:5442, :6090). `cvc` samples it only once per frame; at
+    /// every other line boundary it just increments (:463-466), so a mid-frame
+    /// write reaches this value at the next reload, which the Emulator performs
+    /// at `cvc_reload_master_cycle_offset()` into each frame.
     void    set_cu_offset(uint8_t v) { cu_offset_ = v; }
     uint8_t cu_offset() const        { return cu_offset_; }
+
+    /// GH #290 — where in the frame `cvc` reloads from `i_cu_offset`, in
+    /// 28 MHz master cycles from the frame's raw (0, 0).
+    ///
+    /// zxula_timing.vhd:423-425 and :457-462: the reload happens on the
+    /// `ula_max_hc` pulse (hc == c_min_hactive - 12) of the line where
+    /// `ula_min_vactive` holds (vc == c_min_vactive). `cvc` is registered, so
+    /// the reloaded value shows from the NEXT pixel, raw hc c_min_hactive - 11
+    /// — `hc_ula_zero_raw_hc()`, the same seam every other `cvc` line starts
+    /// at. An NR 0x64 write that commits before this cycle is loaded; one that
+    /// commits on it or later waits a frame.
+    uint64_t cvc_reload_master_cycle_offset() const {
+        const uint64_t pixels_per_line = static_cast<uint64_t>(hc_max_) + 1;
+        return (static_cast<uint64_t>(min_vactive_) * pixels_per_line
+                + static_cast<uint64_t>(hc_ula_zero_raw_hc())) * 4;
+    }
 
     /// Frame-INT firing offset within a frame, in 28 MHz master cycles.
     /// VHDL `int_ula <= '1' when (hc==c_int_h) and (vc==c_int_v)`
@@ -321,17 +349,36 @@ public:
     ///   cvc = ((vc - min_vactive + cu_offset) mod (c_max_vc+1)) for the
     ///   part of raw line vc at or after hc_ula == 0 — which contains the
     ///   hc_ula == 255 point, so the solved vc is the raw line that fires.
+    ///
+    /// This overload assumes the whole frame counts from `cu_offset()`.
     uint64_t line_int_master_cycle_offset() const {
+        return line_int_master_cycle_offset(cu_offset_);
+    }
+
+    /// GH #290 — the same, for a frame whose lines count from @p cu_offset.
+    /// A frame whose `cvc` reloads a DIFFERENT value counts from two offsets,
+    /// one either side of `cvc_reload_master_cycle_offset()`, and the solved
+    /// position is only real on the side of the reload its offset belongs to
+    /// — so the Emulator solves once per offset and keeps each answer only on
+    /// its own side.
+    uint64_t line_int_master_cycle_offset(uint8_t cu_offset) const {
+        return line_int_master_cycle_offset(cu_offset, int_line_target_);
+    }
+
+    /// GH #290 — the same, for an explicit line-interrupt @p target instead
+    /// of the current one: a compare in the pixel a target write lands in (or
+    /// the three before it) still reads the OLD target's `int_line_num`.
+    uint64_t line_int_master_cycle_offset(uint8_t cu_offset, uint16_t target) const {
         const uint64_t lines_per_frame  = static_cast<uint64_t>(vc_max_) + 1;
         const uint64_t pixels_per_line  = static_cast<uint64_t>(hc_max_) + 1;
-        const uint64_t target_cvc       = int_line_num();
+        const uint64_t target_cvc       = int_line_num_for(target);
         // cvc(vc) = (vc - min_vactive + cu_offset) mod lines_per_frame
         //   ⇒ vc = (target_cvc + min_vactive - cu_offset) mod lines_per_frame
         const uint64_t vc_fire =
             (target_cvc
              + static_cast<uint64_t>(min_vactive_)
              + lines_per_frame
-             - static_cast<uint64_t>(cu_offset_))
+             - static_cast<uint64_t>(cu_offset))
             % lines_per_frame;
         // Raw hc of hc_ula == 255. It stays inside the raw line on every
         // timing (380 < 456, 372 < 448); the modulo keeps a wrap into the
@@ -376,7 +423,8 @@ private:
     int      ula_int_pulses_   = 0;
     int      line_int_pulses_  = 0;
 
-    // NR 0x64 Copper vertical offset (VHDL i_cu_offset, zxnext.vhd:1197;
-    // loaded into cvc at ula_min_vactive — zxula_timing.vhd:462).
+    // The NR 0x64 value cvc was last reloaded from, at ula_min_vactive
+    // (zxula_timing.vhd:457-462). Not the register itself — GH #290, see
+    // cu_offset().
     uint8_t  cu_offset_        = 0;
 };

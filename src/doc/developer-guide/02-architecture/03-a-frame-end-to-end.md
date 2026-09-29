@@ -65,8 +65,9 @@ logs the compositor replays. The visible symptom is a frame that renders flat.
    Layer 2 scroll and bank, sprite attributes, ULA scroll, palette-select,
    Timex mode and border, tilemap scroll and fetch state and NR 0x6B, the
    attribute mux, NR 0x15, NR 0x68, NR 0x14, NR 0x4A, NR 0x1A and LoRes.
-7. Call `schedule_frame_events()`, which queues one `SCANLINE` event per line
-   plus a single `VSYNC`.
+7. Call `schedule_frame_events()`, which queues one `SCANLINE` event per line,
+   the frame's `CVC_RELOAD` (where `cvc` takes NR 0x64, GH #290) and a single
+   `VSYNC`.
 
 ## The inner loop
 
