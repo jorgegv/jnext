@@ -341,6 +341,7 @@ struct Modals {
     QString                    file_path;            // for a QFileDialog
     std::function<void()>      after_file_accept;    // e.g. make the file vanish
     int                        spin_value = -1;      // for a dialog with a QSpinBox
+    int                        spin_seen  = -1;      // ... and what it opened showing
     QMessageBox::StandardButton box_answer = QMessageBox::Ok;
     std::vector<Seen>          seen;
     QTimer                     timer;
@@ -372,8 +373,10 @@ struct Modals {
             return;
         }
         seen.push_back({"dialog", dlg->windowTitle(), {}});
-        if (auto* spin = dlg->findChild<QSpinBox*>())
+        if (auto* spin = dlg->findChild<QSpinBox*>()) {
+            spin_seen = spin->value();
             if (spin_value >= 0) spin->setValue(spin_value);
+        }
         dlg->accept();
     }
 
@@ -1638,6 +1641,33 @@ static void test_rewind_ui() {
                   fmt("same buffer=%d enabled=%d trace=%d depth %zu->%zu",
                       fx.emu.rewind_buffer() == rb, fx.emu.rewind_enabled(),
                       fx.emu.trace_log().enabled(), depth0, rb->depth()));
+        }
+    }
+
+    {
+        // WP3 review item 3 — the Buffer Size dialog opens on the ring's DEPTH
+        // (the frames it holds), not its capacity: with a partly filled ring the
+        // two differ, and the dialog's own comment says which one it means.
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "Rewind Buffer Size... opens pre-filled with the frames the "
+                           "ring HOLDS (its depth), not its capacity";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QRW-21", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 3);
+            const size_t depth0 = fx.emu.rewind_buffer()->depth();
+            const size_t cap0   = fx.emu.rewind_buffer()->capacity();
+            Modals m;
+            m.spin_value = static_cast<int>(cap0);           // answer: keep the size
+            if (QAction* sz = debug_sub_item(fx.dbg(), "Rewind", "Rewind Buffer Size..."))
+                sz->trigger();
+            m.timer.stop();
+            check("QRW-21", desc,
+                  m.seen.size() == 1 && depth0 > 0 && depth0 < cap0 &&
+                      m.spin_seen == static_cast<int>(depth0),
+                  fmt("dialogs=%zu pre-filled %d; depth %zu capacity %zu", m.seen.size(),
+                      m.spin_seen, depth0, cap0));
         }
     }
 
