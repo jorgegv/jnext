@@ -141,12 +141,13 @@ start the ring has already counted (`Emulator::at_restored_frame_start()`), so
 counter: the first frame run again after a rewind ends without the counter
 moving (GH #278).
 
-A verb whose machinery belongs to a later package is defined in ONE file,
-`debugger_pending.cpp`, and returns `Result::Unsupported` — never a silent
-no-op. Keeping them together means "what is not implemented yet" is something you
-can count rather than a claim in a comment; the file's banner lists them by
-owning package. Since B4 it holds one: `render_layer` (INS-14), whose move out
-of the Qt video panel is package Q's.
+A verb whose machinery belonged to a later package was defined in ONE file,
+`debugger_pending.cpp`, and returned `Result::Unsupported` — never a silent
+no-op. Keeping them together made "what is not implemented yet" something you
+could count rather than a claim in a comment; the file's banner lists them by
+owning package. It is empty since GH #278 WP4d moved the last one,
+`render_layer` (INS-14), out of the Qt video panel into
+`debugger_render.cpp`.
 
 `debugger_backend_test` is the backend's suite, headless and Qt-free: a wiring
 row per control verb (arm it through the facade, run, assert the machine stopped
@@ -1087,6 +1088,25 @@ introspects:
 For what these look like and how to drive them, see chapter 6 of the **user
 guide**, *The debugger* — a UI reference written against the running product,
 and not repeated here.
+
+The Video panel's layer views are drawn by the backend, not by the panel. The
+backend verb is `Debugger::render_layer()` (INS-14, `src/debug/debugger_render.cpp`,
+Qt-free). It fills rows 0..vc of a 640-wide buffer with `0x00000000`, so alpha 0
+means transparent, and then renders the view. It does this after rewinding and
+replaying every per-scanline change log exactly as `Renderer::render_frame`
+does, so a raster split shows as it does on screen. Rows past the raster are
+left alone. The panel keeps the presentation:
+
+- the `QImage`;
+- the dark "not yet rendered" rows;
+- the checkerboard under every alpha-0 cell, the same rule for all eight views;
+- the scaling, the red raster line and the titles.
+
+The render is state-preserving. The replay walks each log to its end, which
+puts every live register back. The port 0x303B sprite status bits, which
+drawing sprites latches, are saved and restored explicitly.
+`debugger_backend_test` INS-14-08 compares the whole serialised machine state
+around each view.
 
 The Video panel's raster block is worth a note, because it is the one place a
 user sees `hc`/`vc`, `hc_ula`/`vc_ula`, `cvc` and `phc` side by side. Every

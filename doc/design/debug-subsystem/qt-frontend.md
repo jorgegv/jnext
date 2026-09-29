@@ -27,7 +27,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP1** | the `src/qt/` header move + `make build-matrix`. **Q is the single owner of this move**, and it lands with the rest of Q on Q's one branch — as built: §6.2b | **done** |
 | **WP2** | `DebuggerManager` verbs onto the backend facade — as built: §4.1, §6.2b | **done** |
 | **WP3** | rewind / trace / corruption | todo |
-| **WP4a-d** | the panels (parallel-able). **WP4d also owns the `render_layer` MOVE itself**, not only its 106 DVP validation rows — owner decision 2026-09-27, closing a gap §10.1 left unassigned | todo |
+| **WP4a-d** | the panels (parallel-able). **WP4d also owns the `render_layer` MOVE itself**, not only its 106 DVP validation rows — owner decision 2026-09-27, closing a gap §10.1 left unassigned | WP4d **in review** (as built: §3.7a, §6.2c); WP4a-c todo |
 | **WP5** | memory panel | todo |
 | **WP6** | symbols / magic | todo |
 | **WP7** | reach-around grep = 0 (`grep -l 'core/emulator.h' src/debugger/*.cpp` empty) | todo |
@@ -541,6 +541,114 @@ cache set alpha FF, but this must be proved by running the 106 DVP rows
 against the moved function before the widget is touched (WP4d). If any row
 moves, the contract is wrong and the per-layer checker stays in the widget.
 
+### 3.7a As built (WP4d, 2026-09-29) — the contract held, with one display fix
+
+**The prototype.** `render_to_image`'s render body, the three `replay_*`
+helpers and `rom_in_sram` moved verbatim into `Debugger::render_layer()`, in a
+new Qt-free `src/debug/debugger_render.cpp`; `debugger_pending.cpp` holds no
+definition any more. Before the widget changed, the OLD widget ran with a
+shadow A/B: after drawing its own image with the per-layer checkerboard, it
+called the moved function, applied the uniform "alpha 0 → checkerboard" rule
+and compared all 640 × 256 pixels in all 32 bits. Results:
+
+- the DVP suite: 53 renders, 0 differing pixels, 108/108;
+- the 34 regression NEX programs, each paused at four raster rows, all eight
+  views: 1088 renders, 0 differing pixels, no row past `vc` touched;
+- the comparator itself was proved on a known answer: a flipped pixel was
+  reported.
+
+Then the widget switched. With the uniform rule, all 108 DVP rows stayed green,
+and **no DVP expectation changed.**
+
+**The one place the two rules differ** was found by reading every write the
+eight views make, not by a row. `Tilemap::render_scanline` writes
+`0x00000000` into every cell its NR 0x1B clip window removes: the Y-clip row
+fill and the per-pixel X-clip. The old widget let that write overwrite its
+checkerboard pre-fill, so a clipped-away tilemap area was drawn see-through,
+showing the tab background. Meanwhile:
+
+- an index-transparent tile showed the checkerboard;
+- so did the ULA clip (made so on purpose, DVP-12), the Layer 2 clip and the
+  sprite clip, which skip the cell;
+- in VHDL a clipped tilemap pixel is exactly as transparent as an
+  index-transparent one: `pixel_en_s` gates both (`tilemap.vhd:415-429`).
+
+The per-layer rule could not be kept anyway. After the backend's 0-fill,
+nothing tells a clipped cell from an untouched one without a second model of
+the clip. **So the contract is uniform, and the tilemap clip now shows the
+checkerboard.** This is the ONE deliberate display change of WP4d, agreed by
+the manager 2026-09-29, and pinned by DVP-23. That row fails against the
+pre-WP4d widget, which had its cell at `0x00000000`. The user guide already
+said transparent pixels are a checkerboard; it now says so of clipped areas
+too.
+
+**A second defect, fixed.** The Sprites and Composite views run the sprite
+engine, which latches the guest-visible port 0x303B status bits (collision,
+max-sprites-per-line) as it draws. So a paused refresh handed the guest a
+collision the debugger had drawn, and the round trip was not state-preserving.
+`render_layer()` now saves the two bits and puts them back, through
+`SpriteEngine::peek_status()` / `restore_status()`. This is a core accessor
+pair, not a published header. INS-14-08/09 pin it.
+
+**The hazard sweep** covered every engine and path the verb drives. Nothing
+else needed a fix, and INS-14-08 is the witness: the serialised machine state
+is byte-identical around each of the eight views, on a mid-frame Next with
+every engine active. The sweep found:
+
+- **ULA** (`render_scanline_in_bank`): restores the border, the ULA+/ULAnext
+  controls, the bank, the mode and the alt file. `render_scanline_bank` also
+  restores the `select_bgnd` scratch.
+- **Layer 2** debug render: restores enable, bank and the GH #270 segment
+  count.
+- **Tilemap** debug render: restores enable; the render itself is `const`.
+- **Sprites**: restores `sprites_visible_`. The two status bits were the one
+  gap, fixed above.
+- **Compositor row** (`render_row`): writes only per-row scratch, the ULA's
+  `select_bgnd` scratch (which the live path re-pushes before every use) and
+  the trace row.
+- **LoRes** (`apply_lores`): reads only.
+- **Replay**: restores every live register.
+
+What is not serialised cannot leak forward either. INS-14-10 runs two identical
+machines, one of which renders all eight views while paused; both run on
+identically.
+
+**The widget now** allocates one 640 × 256 `QImage`, fills it with the
+"not rendered" colour, and calls `render_layer()`. It then paints the
+checkerboard under every alpha-0 cell of rows ≤ vc, and draws the placeholder,
+DPR scaling and red raster line as before. `VideoLayerView::Layer` is an
+alias of `jnext::dbg::Layer`, so there is one enum.
+
+The rest of the panel reads through the backend too:
+
+- the raster block through CAP-INS-06 `raster()`;
+- the frame diagram through INS-19 `machine()`;
+- the paused test through CTL-13 `state()`;
+- the layer flags and NR 0x15 priority through `nextreg_peek`;
+- the swatch through INS-15 `palette(UlaActive)`;
+- the titles through `nextreg_peek(0x4A)` and `ula_screen_regs()`.
+
+`video_panel.*` holds no `Emulator*` and includes no `core/emulator.h`. It does
+include `video/palette.h`, for one free function, `rgb333_to_argb8888()`. The
+swatch shows the palette's 9-bit RGB333 entries, and the backend publishes
+only the 8-bit `rrrgggbb_to_argb()`. That is a different expansion: blue `10`
+is `0xAA` one way and `0xB6` the other, and DVP-PAL-01 fails on it. This is
+REQ-qt-27c (§8), for WP7.
+
+The window gained the one line of wiring the panel needs:
+`DebuggerWindow(Emulator*, jnext::dbg::Debugger&, QWidget*)`, passed by
+`DebuggerManager::ensure_window()`.
+
+**Hot path: none.** Measured from the call graph:
+
+- `render_layer()` has two callers, `VideoLayerView::render_to_image()` and
+  the test suites;
+- the widget renders only when `refresh(vc)` has `vc ≥ 0`, which
+  `VideoPanel::refresh()` passes only while `state().paused`;
+- it renders only the visible tab;
+- nothing in `Emulator::run_frame()` / `execute_single_instruction()` reaches
+  it (`grep -rn render_layer src/`).
+
 ### 3.6 Symbol table ownership
 
 Today the Qt manager owns it (`debugger_manager.h:131`). Every other frontend
@@ -982,6 +1090,41 @@ over — fixture code only.
 | HOST-08 | `debugger_backend_test` | `JNEXT_HOST_PROBE=order` through the real HeadlessApp: a guest hard reset raised inside the frames runs before the pump, and the client's `reset(Hard)` in that pump comes second |
 | `qt-host-order-func` | regression (functional) | the same script through QtApp — B3 obligation 2: QtApp now polls the guest hard reset (and the NEX `.run` request, the same deferred-reconstruct class) in `post_frames()` BEFORE the pump, as SdlApp and HeadlessApp do; polled in `pre_frames()` it ran next tick, and a client `reset(Hard)` in this tick's pump destroyed the machine with the guest's request still pending |
 
+### 6.2c WP4d as built (2026-09-29)
+
+No existing DVP or backend row changed its expected value. There are two
+kinds of change:
+
+- **Fixture code.** The DVP fixtures build a `jnext::dbg::Debugger` on their
+  `Emulator` and hand it to the panel. They spell the views by the backend's
+  enumerator names (`Layer::Layer2Active`, …). `host_hotkey_test` passes its
+  existing backend to the `DebuggerWindow` it builds.
+- **One retired row.** `PEND-14-01` asserted INS-14's `Unsupported` refusal.
+  The verb now exists, so the row is retired, not inverted. The rows below pin
+  what the verb does now.
+
+| Rows | Suite | Pins |
+|---|---|---|
+| INS-14-02..05 | `debugger_backend_test` | the refusals, each writing nothing: vc outside 0..255 (both ends accepted); a null destination; a stride below 640 (exactly 640 accepted) — all `RefusedUnavailable`; a `Layer` outside the eight is `Unsupported` |
+| INS-14-06 | `debugger_backend_test` | the contract over a WIDER stride: rows 0..vc are `0x00000000` where the view is transparent; rows past vc and the stride padding are untouched |
+| INS-14-07 | `debugger_backend_test` | `render_layer(Composite, 255)` after a frame equals `framebuffer()` in every bit, is opaque everywhere, and carries a Copper NR 0x4A split. This is the Qt-free witness that also runs in the SDL-only configuration |
+| INS-14-08 | `debugger_backend_test` | STATE PRESERVATION on a mid-frame Next with every engine active. The Copper has already written earlier lines, there are vblank-tagged writes, 128 overlapping sprites are past the line budget, and LoRes is on. Each of the eight views leaves the serialised machine state byte-identical. Red without the sprite-status fix (Composite and Sprites) |
+| INS-14-09 | `debugger_backend_test` | the same bits read as the guest reads them: after the Sprites or Composite view, port 0x303B reads both bits clear |
+| INS-14-10 | `debugger_backend_test` | twin machines, one rendering all eight views while paused, run on identically (framebuffer and state): the non-serialised state (render cursors, row scratch) leaks nothing forward. It checks both the rest of the paused frame and the next frame. The scene carries a visible tilemap scroll split, so the row is red for the DVP-06 bug class re-introduced into the Tilemap view, a per-line snapshot overwrite. INS-14-08 cannot see that class, because those snapshots are not serialised |
+| DVP-23a, DVP-23 | `debugger_video_panel_test` | the tilemap view shows its clipped-away cells, a Y-clipped row and an X-clipped column, as the checkerboard (§3.7a). **Fails on the pre-WP4d widget** |
+| DVP-PAL-01 | `debugger_video_panel_test` | the ULA swatch is the ACTIVE (NR 0x43 bit 1) bank's 32 entries in the palette's own ARGB, written through the NR handlers into the second bank only. Identity row: passes on both widgets |
+| DVP-TITLE-01/02 | `debugger_video_panel_test` | the ULA view titles name the bank the ULA reads, both ways round, through the real port 0x7FFD; the Background title names NR 0x4A. Identity rows: pass on both widgets |
+| DVP-02b | `debugger_video_panel_test` | the Layer 2 SHADOW view shows the shadow bank (NR 0x13), and the active view the active bank. DVP-01/02 plant the same index in both banks, so a Shadow view drawing the active bank survived them: mutation M23 |
+| DVP-RAS-15 | `debugger_video_panel_test` | the paused panel draws its visible view down to fb row = raw vc − `vblank_top` (from `machine()`) and not one row further. DVP-08 pins `fb_row_for_vc()` itself, and nothing pinned the panel's use of it: M16 survived |
+
+The new DVP rows were run against the pre-WP4d tree, in a throwaway worktree at
+`abdaf5a1a`. There they need only the `title()` seam and the swatch's object
+name added. DVP-23 FAILS there (115 rows, 114 pass). DVP-23a, DVP-PAL-01,
+DVP-TITLE-01/02, DVP-02b and DVP-RAS-15 pass.
+
+§6.3 mutation 4 (`render_layer(UlaPrimary)` follows the live bank) turns DVP-03
+red, as designed.
+
 ### 6.3 Mutation checks for the #278 reviewer
 
 Each mutation is applied to the REFACTORED tree, in its own build dir, and
@@ -1138,7 +1281,8 @@ Sent as `REQ-qt-<n>: <capability> — <why> — <site>`; answers recorded here.
 | 26 | layer_state() | adapter-side from CAP-INS-04 — no REQ |
 | 27 | ULA palette — `:1060-1062` | served: CAP-INS-15 |
 | **27b** | active ULA palette bank + one RGB333→ARGB function | **ACCEPTED** → `PaletteId::UlaActive`, `active_ula_palette_bank()`, `rrrgggbb_to_argb` re-exported from `inspect.h` |
-| 28 | render_layer — `:394-630` | served: CAP-INS-14; split per §3.7 **NEEDS-PROTOTYPE** (agreed: verbatim move, re-run DVP first — WP4d step 1) |
+| 28 | render_layer — `:394-630` | served: CAP-INS-14; split per §3.7 **NEEDS-PROTOTYPE** (agreed: verbatim move, re-run DVP first — WP4d step 1). **Implemented (WP4d, §3.7a):** the uniform alpha-0 contract held for every DVP render and 1088 renders of 34 programs; the one difference, the tilemap clip, was a presentation defect, fixed |
+| **27c** | a published RGB333 (9-bit) → ARGB expansion beside `rrrgggbb_to_argb()` — the ULA swatch shows `palette(UlaActive)`'s RGB333 entries, and the only published expansion is the 8-bit one, which gives different colours (blue `10`: `0xAA` vs `0xB6`; DVP-PAL-01 fails on it). WP4d includes `video/palette.h` for `rgb333_to_argb8888()` meanwhile — the last core include in `video_panel.cpp` | **OPEN** — raised by WP4d, a change to the frozen `inspect.h`; also stale there: the `Layer` doc comment still says the views live only in `VideoLayerView` |
 | **30** | WP8 contract on CAP-INS-02: `peek(Page{p})` returns the NR page's bytes regardless of any DivMMC/Multiface/L2 overlay over the slot; `poke(Page{p})` writes it, invisible to an overlay. **Reworded (review R-3):** `Page{p}` is used for RAM slots only; a ROM slot's bytes come from `MemSpace::Rom{…}` and its `poke` is `RefusedReadOnly` (panel renders "unchanged") — `memory_panel.cpp:123-154`, owner Q7 | **CONFIRMED** (backend CAP-INS-02 / §4.2a; matrix: Qt 39 used / 16 declined, INS-02 Page = S via Q WP8). The backend also logs every mutation as one SES-06 line `MUTATE <what> <old> -> <new> by <client>` — no panel change needed |
 | **31** | `SlotInfo` should carry the `MemSpace` that reads the slot's backing store (`space ∈ {Page{nr_page}, Rom{index}, bank7-BRAM…}`) so the Memory panel — and every other client — never composes a `MemSpace` from `effective_page` + `is_rom` (that composition is exactly what R-3 caught: `get_effective_page()` is SRAM-physical for ROM slots, `mmu.h:74-77`). Alternatively: settle the `Rom` enumeration (backend §11 item 1) and state the rule "ROM slot ⇒ `Rom{effective_page}`" explicitly. WP8 depends on one of the two | **ACCEPTED** (verified by the backend): CAP-INS-03 `SlotInfo.space` = `Page{nr_page}` for a RAM slot, `Rom{effective_page}` for a ROM slot; backend §11 item 1 closed from the code (`Rom{i}` = 8 KB ROM page index: SRAM pages 0..7 in Next mode, the `Rom` object's pages on 48K/128K/+3; `poke(Rom)` = `RefusedReadOnly`). WP8 branches on `SlotInfo.space` directly; the `is_rom` split is equivalent. **Refinement (backend, after the protocols review):** `Rom{index}` is a 16 KB ROM image (index 0..3, addresses 0..0x3FFF; SRAM pages 2i/2i+1 on the Next, the `Rom` object's image on classic machines), and `SlotInfo` carries `space` + `space_offset` (ROM slot → `Rom{effective_page >> 1}`, offset `(effective_page & 1)·0x2000`; RAM slot → `Page{nr_page}`, offset 0). WP8's read is `peek(space, space_offset + addr_in_slot, …)`; the 8 KB slot view and the QMP-06a/06b/07/08/09 rows are unaffected (they address bytes within the slot, never the image) |
 | **32** | a NON-ARMING observer attach — a client that installs a listener and counts toward no arm bit (a `ClientInfo` flag, or an `observe()` verb). SES-01's attach is the only way to become a client and it ARMS the machine (§5), so the Qt adapter cannot be a client for the process lifetime without changing GH #219's default (PBPUI-03, §4.1); B4's O5 is the same class for a loop owner and `ExitRequested` | **OWNER-APPROVED 2026-09-29** — a change to the frozen `debugger.h`, to be made when package S (the DSL) or a remote server first needs a non-arming listener; not in Q unless Q needs it (it does not: WP2 attaches while the window is open and pulls `state()`, manager decision 2026-09-29) |

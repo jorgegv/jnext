@@ -1921,12 +1921,13 @@ start the ring has already counted (<code>Emulator::at_restored_frame_start()</c
 <code>FrameEnded</code> detector watches the frame's <em>start cycle</em> rather than the
 counter: the first frame run again after a rewind ends without the counter
 moving (GH #278).</p>
-<p>A verb whose machinery belongs to a later package is defined in ONE file,
-<code>debugger_pending.cpp</code>, and returns <code>Result::Unsupported</code> — never a silent
-no-op. Keeping them together means "what is not implemented yet" is something you
-can count rather than a claim in a comment; the file's banner lists them by
-owning package. Since B4 it holds one: <code>render_layer</code> (INS-14), whose move out
-of the Qt video panel is package Q's.</p>
+<p>A verb whose machinery belonged to a later package was defined in ONE file,
+<code>debugger_pending.cpp</code>, and returned <code>Result::Unsupported</code> — never a silent
+no-op. Keeping them together made "what is not implemented yet" something you
+could count rather than a claim in a comment; the file's banner lists them by
+owning package. It is empty since GH #278 WP4d moved the last one,
+<code>render_layer</code> (INS-14), out of the Qt video panel into
+<code>debugger_render.cpp</code>.</p>
 <p><code>debugger_backend_test</code> is the backend's suite, headless and Qt-free: a wiring
 row per control verb (arm it through the facade, run, assert the machine stopped
 where the verb promises — PC, cycle, pause reason), a <em>control</em> row per verb that
@@ -2888,6 +2889,24 @@ introspects:</p>
 <p>For what these look like and how to drive them, see chapter 6 of the <strong>user
 guide</strong>, <em>The debugger</em> — a UI reference written against the running product,
 and not repeated here.</p>
+<p>The Video panel's layer views are drawn by the backend, not by the panel. The
+backend verb is <code>Debugger::render_layer()</code> (INS-14, <code>src/debug/debugger_render.cpp</code>,
+Qt-free). It fills rows 0..vc of a 640-wide buffer with <code>0x00000000</code>, so alpha 0
+means transparent, and then renders the view. It does this after rewinding and
+replaying every per-scanline change log exactly as <code>Renderer::render_frame</code>
+does, so a raster split shows as it does on screen. Rows past the raster are
+left alone. The panel keeps the presentation:</p>
+<ul>
+<li>the <code>QImage</code>;</li>
+<li>the dark "not yet rendered" rows;</li>
+<li>the checkerboard under every alpha-0 cell, the same rule for all eight views;</li>
+<li>the scaling, the red raster line and the titles.</li>
+</ul>
+<p>The render is state-preserving. The replay walks each log to its end, which
+puts every live register back. The port 0x303B sprite status bits, which
+drawing sprites latches, are saved and restored explicitly.
+<code>debugger_backend_test</code> INS-14-08 compares the whole serialised machine state
+around each view.</p>
 <p>The Video panel's raster block is worth a note, because it is the one place a
 user sees <code>hc</code>/<code>vc</code>, <code>hc_ula</code>/<code>vc_ula</code>, <code>cvc</code> and <code>phc</code> side by side. Every
 number is labelled with the VHDL signal it mirrors, and <code>cvc</code> is labelled as
