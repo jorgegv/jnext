@@ -28,8 +28,8 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP2** | `DebuggerManager` verbs onto the backend facade — as built: §4.1, §6.2b | **done** |
 | **WP3** | rewind / trace / corruption — as built: §6.2c | **done** — reviewed, REJECTED once (three items, §6.2c "review round 1"), then APPROVED on re-review |
 | **WP4a-d** | the panels (parallel-able). **WP4d also owns the `render_layer` MOVE itself**, not only its 106 DVP validation rows — owner decision 2026-09-27, closing a gap §10.1 left unassigned. **WP4c** (breakpoints and watches, B3 obligation 1, `active()` retired, REQ-qt-32) — as built: §4.1b, §6.2d | WP4c: **done** — reviewed + APPROVED; WP4a/b: **done** — reviewed, REJECTED once (one gap, §6.2e QWIN), then APPROVED on re-review (as built: §6.2e); WP4d: **done** — reviewed + APPROVED, merged (as built: §3.7a, §6.2f) |
-| **WP5** | memory panel | todo |
-| **WP6** | symbols / magic | todo |
+| **WP5** | memory panel (and the Disassembly panel's reads, the +3 latch fix) — as built: §6.2g | **in review** |
+| **WP6** | symbols / magic — as built: §6.2g | **in review** |
 | **WP7** | reach-around grep = 0 (`grep -l 'core/emulator.h' src/debugger/*.cpp` empty) | todo |
 | **WP8** | **Memory panel physical-page view** — `MemSpace::Page` reads *and* writes (owner decision §1.3 item 15). **Last**, after the identity rows are green, with its own pinned rows | todo |
 
@@ -1445,6 +1445,66 @@ that waits up to 2 minutes for the 1-minute load to fall below `nproc`.
 - `cycles:u` is void: the host load was 9-15 on 12 CPUs throughout (the gate
   timed out), and cycles moved by up to ±18 % between identical binaries.
 - Script and raw numbers: the WP4d report.
+
+### 6.2g WP5 and WP6 as built (2026-09-29)
+
+**WP5.** The Memory panel takes the backend (`MemoryPanel(Debugger*)`, plus
+`set_client()`, pushed by `DebuggerManager::set_panels_client()` like the
+NextREG and Audio panels). Its paint reads each row with ONE `peek(Cpu)` of 16
+bytes; a hex edit is `poke(client, Cpu, …)`; the page selector reads
+`mmu_slots()`, the SP row `registers()`. The slot view still reads and writes
+through the CPU map at `(slot << 13) | offset` — identity until WP8. The
+Disassembly panel takes the backend too (`DisasmPanel(const Debugger*)`): every
+read is `memory_reader()` (a peek), every register read `registers()`. The
+write path ignores `poke`'s count, so package G's change to that count (bytes
+that actually landed) cannot change what the panel does.
+
+**WP6.** `DebuggerManager` owns no `SymbolTable`: the Map menu's two loaders are
+`load_map(path, MapFormat::Z88dk / Simple)` — success is the verb's `Ok`, never
+the count (the WP0 int-as-bool fix, QMAP-04) — and the message reports
+`symbols().size()`; the disassembly, call stack and breakpoint panels are handed
+`&symbols()` (their `set_symbol_table()` takes a `const SymbolTable*` now). The
+Magic Breakpoint item (`MainWindow`, Debug menu) arms through
+`set_magic_breakpoint()` (CTL-14) and shows `magic_breakpoint()` on every
+`set_emulator()`. `MainWindow`'s key forwarding is unchanged.
+
+**End state (WP7's input).** `grep -l 'core/emulator.h' src/debugger/*.cpp`:
+`debugger_manager.cpp`, `debugger_window.cpp`. No panel reads the `Emulator`.
+What is left: `DebuggerManager` holds `Emulator*` for `snapshot_raster()` in
+`refresh_panels()` (row 85) and to hand it to the window; `DebuggerWindow`
+holds `Emulator*` and uses it nowhere, and still includes `core/emulator.h`,
+`core/rzx_player.h`, `debug/debug_state.h` and `debug/rewind_buffer.h`;
+`debugger_manager.cpp` includes `core/emulator.h` and `debug/debug_state.h`.
+
+**Fixtures, not expected values.** QMP-01..05, the QMAP rows, QWP-05..07, the
+GH21 rows and every other WP0 row keep their values; the Memory and Disassembly
+panels are built on a `Debugger`, and the rows that loaded symbols through the
+manager load them through `load_map()`. One row's NON-VACUITY half had to be
+re-expressed, and it is argued here: **INSPW-06** proved that the Memory panel's
+paint reads the watched address by painting it inside a `GuestExecutionScope`,
+where the panel's own `Mmu::read()` latched the watch. A peek latches nothing in
+any scope (backend F1-04/05), so that proof can no longer fire. It now paints the
+address with two different values and requires the two pictures to differ — the
+paint SHOWS the byte, so it read it — at a RAM address (`$9210`, navigated to)
+instead of ROM `$0010`; the row's claim (a paint fires no READ watch) and its
+assertion are unchanged, and the re-expressed row passes on the pre-WP5 tree too
+(measured).
+
+| Rows | Suite | Pins |
+|---|---|---|
+| QMP-10 | `debugger_panels_test` | the Memory panel's paint does not move the +3 floating-bus latch (control: `Mmu::read()` does) — **fails on the pre-WP5 tree** (latch 00) |
+| QDIS-01 | `debugger_panels_test` | the Disassembly panel's follow-PC decode does not move it either — **fails on the pre-WP5 tree** (latch A5) |
+| QMP-11 | `debugger_panels_test` | a hex edit is refused during an RZX playback; it lands after (a behaviour change, inherited from `poke`; fails on the pre-WP5 tree) |
+| QATR-03 | `debugger_panels_test` | a Memory panel edit is logged as the window client's `MUTATE mem cpu:0x9000 …`; no client while closed; the new client after a reopen |
+| QDN-01..06 | `debugger_disasm_copy_test` | the address box, Go to PC, the wheel, Down at the last line and Page Down walk REAL instruction lengths (3-byte lines), and the caret falls back to the PC — each a surviving mutant of the moved reads |
+| MBP-03 | `debugger_menu_test` | the Magic Breakpoint item opens ticked over an armed machine (`--magic-breakpoint`) and a bind of an unarmed machine unticks it — **fails on the pre-WP6 tree** |
+
+**Defects fixed:** the Memory and Disassembly panels moved the +3 floating-bus
+latch (QMP-10, QDIS-01); the Magic Breakpoint item always opened unticked — its
+read of the config sat in `create_menus()`, which runs in `MainWindow`'s
+constructor before any machine is bound (MBP-03). **Behaviour change:** a Memory
+edit during an RZX recording or playback is refused (QMP-11; user guide's Memory
+page), and every Memory edit logs one `MUTATE` line.
 
 ### 6.3 Mutation checks for the #278 reviewer
 
