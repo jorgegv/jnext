@@ -61,6 +61,11 @@
 >   REFUSE a mid-frame `CMD_READ_STATE` (the design as written), Q4 = the
 >   `cspect_dzrp.py` H1-H3 fixes land inside #12's WP-6. §10 retitled "Owner
 >   decisions — nothing open"; the "owner may prefer advance" wording removed.
+> - v1.7 (2026-09-29, milestone 1 — WP-1 + WP-2 implemented, branch
+>   `gh12-dzrp`): §12 records what was built, every deviation from this design
+>   with its reason, three backend defects fixed on the branch, and the design
+>   findings (T's fit, one backend gap). Sections 0-11 are unchanged: where
+>   the implementation differs, §12 says so and why.
 
 Every claim below carries a `file:line` citation. Sources and their versions:
 
@@ -95,8 +100,8 @@ whole, so `done` here means the sub-item is approved, not merged.
 
 | WP | Branch `gh12-dzrp` (issue #12) | Status |
 |---|---|---|
-| **WP-1** | framing over the shared transport (T) | todo |
-| **WP-2** | session / registers / memory | todo |
+| **WP-1** | framing over the shared transport (T) | in review |
+| **WP-2** | session / registers / memory | in review |
 | **WP-3** | breakpoints / continue / notify | todo |
 | **WP-4** | tier 2 (the commands only an emulator can serve) | todo |
 | **WP-5** | loop owners + CLI | todo |
@@ -970,3 +975,144 @@ Order: package T (its own branch, shared) → WP-1 → WP-2 → {WP-3, WP-4, WP-
 in parallel} → WP-6 → WP-7. Each WP
 gets an independent reviewer per CLAUDE.md; the full triplet plus
 `make unit-test-sdl` before every merge.
+
+---
+
+## 12. Implementation record — milestone 1 (WP-1 framing, WP-2 session / registers / memory)
+
+Code: `src/remote/dzrp/dzrp_frame.{h,cpp}` (WP-1) and
+`src/remote/dzrp/dzrp_server.{h,cpp}` (`DzrpServer`, WP-1 + WP-2), inside
+target `jnext_remote`. Suite: `test/remote/dzrp_adapter_test.cpp`
+(`gate: none`, both configurations). The adapter is a `remote::Protocol`
+that owns its `remote::Server`; the loop owner (WP-5) opens it and
+`add_service()`s it — nothing in this milestone touches a loop owner, the CLI,
+`src/gui/` or `src/platform/`.
+
+### 12.1 Served in milestone 1
+
+`CMD_INIT` (1), `CMD_CLOSE` (2), `CMD_GET_REGISTERS` (3), `CMD_SET_REGISTER`
+(4), `CMD_WRITE_BANK` (5, legacy), `CMD_READ_MEM` (8), `CMD_WRITE_MEM` (9),
+`CMD_SET_SLOT` (10), `CMD_GET_TBBLUE_REG` (11), `CMD_SET_BORDER` (12,
+legacy), `CMD_LOOPBACK` (15), `CMD_READ_PORT` (20), `CMD_WRITE_PORT` (21),
+`CMD_INTERRUPT_ON_OFF` (23), `CMD_GET_SUPPORTED_COMMANDS` (24),
+`CMD_READ_BANK_MEM` (25), `CMD_WRITE_BANK_MEM` (26). Everything else takes the
+unknown-command path until its WP lands. **The bitfield is therefore
+`1E 8F B0 07` in this milestone**; it grows to §2 row 24's `DE 8F BF 07 80 0F
+0C` as WP-3 (6, 7, 39, 40, 41) and WP-4 (16-19, 42, 43, 50, 51) add their rows
+to the one table — it is computed from that table, never written down
+(`DZRP-SUP-01` pins today's value; `DZRP-SUP-02` sends every id 0..255 and
+checks "unsupported" is said exactly for the clear bits, legacy 5/12 excepted).
+
+### 12.2 Deviations and additions, each with its reason
+
+1. **`CMD_READ_BANK_MEM` bank 0xFF with RAM paged into a ROM slot: no
+   paging-derived fallback — empty reply + warn** (§2 row 25 / §5.2 / N-1 say
+   derive `sel` from `paging_ports()` as "7FFD b4 | 1FFD b2"). The ROM select
+   is machine-specific — `Mmu::current_sram_rom()`: 48K → 0; +3 → two bits
+   *with the NR 0x8C alt-ROM locks*; 128K and the **Next → one bit (7FFD
+   b4) with the locks** — so the formula names the wrong image on the Next
+   whenever 1FFD b2 is set, and under any NR 0x8C lock on every machine. The
+   backend publishes no "ROM select" query, and composing one in the adapter
+   is exactly what REQ-qt-31 / REQ-dzrp-12 forbid. Serving the wrong ROM
+   silently is worse than an honest empty reply. A half is served only while
+   its slot `is_rom` (`DZRP-BANK-09`). Proposal for the owner in §12.4.
+2. **Commands before `CMD_INIT`** (the design is silent): machine commands are
+   refused — seq-only reply + warn `<CMD> before CMD_INIT — refused` — because
+   every mutation must be attributed (`ClientId by`) and the client is
+   attached by `CMD_INIT`. The machine-free ones (`INIT`, `CLOSE`,
+   `LOOPBACK`, `GET_SUPPORTED_COMMANDS`) are served. A `session` column in
+   the command table carries it (`DZRP-SES-11`).
+3. **A payload shorter than the command's fixed length** (silent in the
+   design): seq-only reply + warn `malformed <CMD>`, nothing executed
+   (`DZRP-MAL-01`); the three commands whose reply has an error field report
+   error 1 in it instead — `CMD_INIT` (full reply shape, nothing attached,
+   `DZRP-SES-10`), `CMD_WRITE_BANK` ("length must be 8192", also for an
+   over-long payload) and `CMD_SET_SLOT`. Bytes past a command's fields are
+   consumed and ignored (the frame is length-delimited).
+4. **`CMD_INIT` never calls `pause()` on a machine that is already paused**
+   (a precision of §4.1's "stays paused"): the backend's `pause()`
+   re-attributes a standing pause to the caller ("last verb wins"), and DZRP's
+   later detach would then release a pause that was never its own — a GUI
+   pause, or the unowned `Magic` stop no detach may clear (`DZRP-SES-08`). A
+   repeated `CMD_INIT` (conformance C6 sends five) renegotiates on the client
+   it has; it never attaches twice (`DZRP-SES-04`).
+5. **`CMD_CLOSE` keeps the connection** (§2 row 2 says "detach", and DZRP is
+   silent on the transport): the session returns to its pre-`INIT` state and a
+   new `CMD_INIT` on the same connection is served — DeZog's own stress list
+   sends `CLOSE` then `INIT` (conformance C15; `DZRP-SES-05`).
+6. **`CMD_LOOPBACK` over 8192 bytes** (the spec's maximum; the design gives no
+   over-limit behaviour): declined in-band with a seq-only reply + warn, and
+   the connection serves on (conformance C18; `DZRP-FR-04`).
+7. **Refusals of commands that have no error field** (`READ_PORT`,
+   `WRITE_PORT`, `SET_REGISTER`, `WRITE_MEM`, `WRITE_BANK_MEM`, `SET_BORDER`,
+   `INTERRUPT_ON_OFF` — today only the backend's RZX wall and the page bound
+   refuse): the ordinary reply, *short* for `READ_PORT` (never a made-up
+   value), plus a warn line naming the backend `Result`. `CMD_WRITE_BANK`'s
+   error string for a backend refusal is `result_name()` (e.g.
+   `refused_rzx`).
+8. **The chunk timeout runs from the last byte that advanced the frame**, as
+   DeZog's own "timeout between data chunks" does — a slow link that keeps
+   delivering is never cut off (`DZRP-FR-14`); 5 s of silence mid-frame is a
+   protocol error (`DZRP-FR-13`).
+9. **`CMD_SET_REGISTER` number 12**: the spec says "unused"; DeZog's `Z80_REG`
+   enum (verified identical to the spec table everywhere else, 3.7.4
+   `z80registers.ts:14-25` and upstream 3.8.0-rc7) names it `IR` (I<<8 | R).
+   DeZog's register panes never offer IR for editing, so only the raw debug
+   console can send it; it takes §2 row 4's unknown-index path (warn,
+   nothing written; `DZRP-REG-04`).
+10. **`CMD_WRITE_MEM`'s "dropped byte is logged at debug level"** is a
+    read-back: the bytes that do not read back as written are counted and
+    logged at debug ("ROM, or a write-only overlay"), because `peek`/`poke`
+    report no per-byte fate (`DZRP-MEM-09`).
+11. **Nothing was copied from `dezogif_ng`** (§ "Reuse, not rewrite"): its
+    `test/dzrp/` clients drive a live remote over TCP, which this milestone's
+    in-memory fake cannot host and which needs WP-5's `--dzrp-port`. What was
+    reused is the TEST DESIGN — C2 (length convention by violation), C4/C5
+    (loopback and its sizes), C6 (seq echo), C9 (framed on the length), C15
+    (`CLOSE` then `INIT` on one connection), C18 (oversize loopback declined,
+    remote serves on) — restated as `DZRP-FR-*` / `DZRP-SES-*` rows, with
+    provenance (`/home/jorgegv/src/spectrum/dezogif_ng/test/dzrp/conformance.py`
+    @ `709ae7d77d444e0e14d88d5c6114b2a7c18e2be6`) in the suite's header. The
+    copy, with the version made a parameter, belongs to WP-6.
+
+### 12.3 Backend defects found and fixed on this branch (each with its row)
+
+Implementation files only — no frozen header changed.
+
+- **B-1 `set_mmu_slot(slot 0/1, 0xFF)` UNMAPPED the slot** (reads 0xFF,
+  writes dropped): it called `Mmu::set_page()`, where the guest's `NEXTREG
+  0x50,0xFF` re-engages legacy ROM paging (the NR 0x50-0x57 write handler,
+  `zxnext.vhd:4611-4612, :3052`). DeZog sends `SET_SLOT` 0/1 = 0xFF on every
+  `.sna/.z80/.nex` load, so a DeZog load would have left the ROM unmapped.
+  Now `set_mmu_slot` runs the NR 0x50+slot write handler — exactly §2 row
+  10's "through the NR 0x50+slot write path". `DZRP-SLOT-02/03`.
+- **B-2 `port_out`'s `MUTATE` line printed the value in decimal after `0x`**
+  (`std::to_string`: 0x15 logged as "0x21"). `DZRP-PORT-05`.
+- **B-3 `set_border` lacked §4.2a's RZX wall** — the one mutation verb without
+  it. `DZRP-BRD-02`.
+
+### 12.4 Design findings
+
+- **T fits DZRP with no reach-around.** Everything goes through
+  `Connection::read/write/close` and the four `Protocol` callbacks; no socket
+  and no `Emulator` is touched. `on_service` executes at most one command
+  (the parser holds one frame and reads only `wanted()` bytes, so the rest of
+  a pipelined burst stays in T's buffer, where `max_input` backpressures the
+  peer — `DZRP-FR-15`), returns `Serviced` for it so the SES-03 drain answers
+  a queued chain in one pump while paused (`DZRP-FR-20`), and T's "every
+  pass, new bytes or not" is what the chunk timeout needs. One consequence,
+  not a defect: a frame larger than `max_input` (1 MiB) arrives at most 1 MiB
+  per pass, and a pass that completes no command ends the paused drain, so a
+  16 MiB foreign `CMD_WRITE_STATE` takes ≥16 ticks. DeZog's is a token (§6);
+  WP-4/WP-6 may raise `max_input` for DZRP if that is ever measured to
+  matter.
+- **Backend gap (frozen header → owner): no query for the ROM a RAM-paged ROM
+  slot would serve.** It is what bank 0xFF needs when RAM is paged at 0x0000
+  (12.2 item 1). Proposal: one INS-03 read, e.g. `uint8_t rom_select()
+  const` (the `Rom{}` index legacy paging selects, `Mmu::current_sram_rom()`
+  with the NR 0x8C locks folded in), or equivalently a `SlotInfo` field for
+  slots 0/1. Not needed by any released DeZog (its model only asks for bank
+  0xFF while GET_REGISTERS says ROM is paged); needed for full row-25 fidelity.
+- `ClientInfo` cannot be changed after `attach()`, so a repeated `CMD_INIT`
+  under a different program name keeps the first name in the backend's
+  client list (the log line shows the new one). Cosmetic; no change proposed.
