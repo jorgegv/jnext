@@ -151,6 +151,9 @@ public:
 
     Debugger* dbg = nullptr;               // pump rows only
     ClientId  cid = jnext::dbg::CLIENT_NONE;
+    // Called after each command executes, inside the pass that ran it: how a
+    // row makes a CLIENT act between two steps of one pass (XPT-SRV-33).
+    std::function<void(const std::string&)> after_exec;
 
     void on_connect(Connection& c) override {
         ++connects;
@@ -174,6 +177,7 @@ public:
         execute(c, cmd);
         done.push_back(cmd);
         trail.push_back("S:" + cmd);
+        if (after_exec) after_exec(cmd);
         return ServiceStep::Serviced;
     }
 
@@ -206,6 +210,8 @@ private:
         } else if (cmd == "bye") {
             c.write("bye\n");
             c.close();
+        } else if (cmd == "quiet") {
+            // No reply: nothing for the pass to send (XPT-SRV-33).
         } else if (cmd == "pause" && dbg) {
             dbg->pause(cid);
             c.write("paused\n");
@@ -858,6 +864,40 @@ static void server_rows() {
                   r.proto.trail ==
                       std::vector<std::string>({"C", "S:bye", "D", "C", "S:ping"}),
               "got1='" + got1 + "' trail size=" + std::to_string(r.proto.trail.size()));
+    }
+    {
+        // GH #12 (gate re-run under load): the redial lands INSIDE the pass —
+        // the client reads the reply pushed in step (1), hangs up and dials
+        // again before step (2) accepts. Its hang-up is newer than (1)'s pull,
+        // so only a last look at the current client, taken after the listener
+        // has parked the redial, can see it. `after_exec` plays that client;
+        // the command is `quiet` (no reply) so that (1)'s own send cannot
+        // stumble on the closed peer first, which a real client, gone only
+        // AFTER reading its reply, never lets it do.
+        LogTap       log;
+        ServerConfig c = cfg_named("xpt");
+        c.busy_reply   = "busy\n";
+        FakeRig      r(c);
+        auto p1 = r.lsn->connect();
+        r.srv->service_once(0);
+        std::shared_ptr<FakePeer> p2;
+        r.proto.after_exec = [&](const std::string& cmd) {
+            if (cmd != "quiet") return;
+            p1->close();
+            p2 = r.lsn->connect(esp::ipv4(127, 0, 0, 2));
+        };
+        p1->send("quiet\n");
+        r.srv->service_once(0);
+        const bool parked = r.lsn->queued() == 1 && r.proto.connects == 1;
+        r.proto.after_exec = nullptr;
+        r.srv->service_once(0);
+        check("XPT-SRV-33", "a hang-up and redial made BETWEEN the steps of one pass: the "
+                            "redial stays parked, then is admitted the next pass — never "
+                            "refused as a second client",
+              parked && p2 && !p2->closed_by_server() && r.srv->peer_connected() &&
+                  r.proto.trail == std::vector<std::string>({"C", "S:quiet", "D", "C"}) &&
+                  log.count("xpt: refused a connection from 127.0.0.2") == 0,
+              "trail size=" + std::to_string(r.proto.trail.size()));
     }
 }
 

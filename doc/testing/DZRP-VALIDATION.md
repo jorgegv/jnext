@@ -55,7 +55,8 @@ is. Each file's header says what, if anything, changed.
 The conformance suite found a real defect on its first run: every other check
 was refused as "a second client", because the transport accepted a reconnecting
 client's new connection before reading the old one's hang-up. Fixed in
-`src/remote/transport.cpp`, rows XPT-SRV-30/31/32.
+`src/remote/transport.cpp`, rows XPT-SRV-30..33 (the last one for the same
+race inside a single pass, which the first full gate on a loaded host exposed).
 
 ### The loop owners and the command line
 

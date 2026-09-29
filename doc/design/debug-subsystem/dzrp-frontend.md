@@ -1307,7 +1307,7 @@ behaviour is unchanged from §13; what is new is the server being REACHABLE —
    headless or in the GUI (whose countdown was always per tick). Pinned by
    `dzrp-paused-headless-func`.
 2. **A related transport defect, fixed here** (T's `src/remote/transport.cpp`,
-   rows `XPT-SRV-30/31/32`): `Server::pass()` accepted new connections BEFORE it
+   rows `XPT-SRV-30..33`): `Server::pass()` accepted new connections BEFORE it
    read its current client, so a client that hung up and dialled again in the
    same pass — every reconnect, and dezogif_ng's conformance suite, which opens
    a connection per check — was refused as "a second client" of a session that
@@ -1316,7 +1316,11 @@ behaviour is unchanged from §13; what is new is the server being REACHABLE —
    retired), then accepts, then serves a client admitted in that pass; a client
    that hung up with commands still queued is finished first, and a redial
    waits in the listener's queue for it instead of being refused. At most one
-   command per pass is kept. Recorded in transport.md §2 item 16.
+   command per pass is kept. A second window, found when the gate ran on a
+   loaded host (conformance lost checks again): the client can read the pass's
+   reply, hang up and redial BETWEEN its serve and its accept; the accept now
+   pulls the current client once more after the listener has parked the redial
+   (`XPT-SRV-33`). Recorded in transport.md §2 item 16.
 3. **The IPv6 address in the log line** is the socket layer's long form,
    `[0:0:0:0:0:0:0:1]:<port>`, not `[::1]` — `esp::to_string`, outside this
    package. Cosmetic; `debug-listen-address-func` accepts either spelling.

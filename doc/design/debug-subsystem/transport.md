@@ -212,7 +212,7 @@ port)` and `debugger.add_service(server)`. Its unit suite does the same with
     `src/platform/debug_servers.h`, dzrp-frontend.md §14.1).
 
 16. **The current client is served before new connections are accepted**
-    (GH #12, found by dezogif_ng's conformance suite, rows `XPT-SRV-30/31/32`).
+    (GH #12, found by dezogif_ng's conformance suite, rows `XPT-SRV-30..33`).
     `pass()` used to accept first, so a client that hung up and dialled again
     in the same pass — any reconnect, and a suite that opens a connection per
     check — was refused as "a second client" of a session that had already
@@ -221,7 +221,13 @@ port)` and `debugger.add_service(server)`. Its unit suite does the same with
     client has hung up but still has commands queued — its session is ending,
     and a redial waits in the listener's queue rather than being refused by
     it; (3) serves a client admitted in this pass, if nothing ran in (1): at
-    most one command per pass, as before.
+    most one command per pass, as before. In (2) the current client is PULLED
+    once more after the listener has parked an arrival and before it is taken:
+    a client can read (1)'s reply, hang up and redial before (2) runs (another
+    process; this pass may be preempted), and its redial reached the kernel
+    after its hang-up did, so that last look sees the hang-up whenever there is
+    a redial to judge (`XPT-SRV-33`; found when the milestone-3 gate ran on a
+    loaded host).
 
 ## 3. Where the three consumers' texts agree, differ, or are wrong
 

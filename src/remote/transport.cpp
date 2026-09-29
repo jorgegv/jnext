@@ -262,6 +262,18 @@ Server::Pass Server::pass() {
     if (listener_ && !(active_ && active_->gone_)) {
         for (int i = 0; i < kAcceptsPerPass && listener_->listening(); ++i) {
             listener_->poll();
+            // ONE LAST LOOK AT THE CURRENT CLIENT, after the listener has
+            // parked whatever arrived and before taking it. A client that got
+            // its reply in (1) can hang up and redial before this point — it
+            // is another process, and this pass may be preempted — and its
+            // redial reached the kernel AFTER its hang-up did. So a pull made
+            // now sees the hang-up whenever there is a redial to judge, and
+            // the redial stays parked in the listener until the old session
+            // is retired (next pass), instead of being refused by it.
+            if (active_) {
+                active_->pull();
+                if (active_->gone_) break;
+            }
             std::unique_ptr<esp::EspTransport> t = listener_->accept();
             if (!t) break;
             admit(std::move(t));

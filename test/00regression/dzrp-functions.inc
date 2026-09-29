@@ -110,6 +110,8 @@ dzrp_client_row() {
     if [[ $rc -eq 0 && ( -z "${DZRP_EXPECT_LAST:-}" || "$last" == "$DZRP_EXPECT_LAST" ) ]]; then
         pass_row " ($last)"
     else
-        fail_row " (exit $rc: $(tr '\n' ' ' <<<"$DZRP_CLIENT_OUT" | cut -c1-600))"
+        # The lines that say what failed, not the first 600 characters of the
+        # client's banner (conformance.py prints its FAIL lines mid-output).
+        fail_row " (exit $rc: $( (grep -E '^(FAIL|PRECONDITION)' <<<"$DZRP_CLIENT_OUT" || true; tail -n 1 <<<"$DZRP_CLIENT_OUT") | tr '\n' ' ' | cut -c1-900))"
     fi
 }
