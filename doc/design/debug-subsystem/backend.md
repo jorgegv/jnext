@@ -682,7 +682,12 @@ instruction boundary, and only the session that set one pays for it. It is the
   at the next stop, hidden from the user-model listing; any number of them.
   Step Over, Run to Here and DeZog's two temp breakpoints per `CMD_CONTINUE`
   all use it — one implementation of "temporary breakpoint" replaces today's
-  single one-shot [`breakpoints.h:205-209`].
+  single one-shot [`breakpoints.h:205-209`]. **A transient is OWNED like any
+  subscription — by the client that created it — so its `detach` removes it.**
+  Where a frontend design says a temporary target is "`owner=internal`" it
+  means *not user-visible* (this flag), never an owner of `CLIENT_NONE`: an
+  unowned temporary would outlive a crashed client and could stop the machine
+  with nobody to answer (SES-01; manager decision 2026-09-29, GH #12).
 - Today's PC breakpoints and watchpoints become `Execute[addr,addr]` /
   `Mem[addr,addr]` subscriptions with `action=Stop`, no condition, owner = the
   Qt client (REQ-qt-13d), so the Breakpoints panel lists the same model, and

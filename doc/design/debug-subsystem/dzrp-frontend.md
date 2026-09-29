@@ -1208,10 +1208,14 @@ milestone 1, bank-7 BRAM routing included (`DZRP-BANK-01`).
    breakpoint"); "removed automatically after the command is finished" (spec)
    is then the adapter's to keep (`DZRP-TEMP-04/05`).
 5. **Temporaries are owned by the DZRP client**, with the `transient` flag that
-   hides them from every user list (`DZRP-TEMP-03`). The milestone-2 brief said
-   "`owner=internal`"; read as "not user-visible", which the flag is. An owner of
-   `CLIENT_NONE` would survive the client's detach and could stop the machine
-   later with nobody to answer — the SES-01 hazard.
+   hides them from every user list (`DZRP-TEMP-03`). **Decided by the manager
+   2026-09-29:** "`owner=internal`" — the phrase qt-frontend.md §9 and the
+   milestone-2 brief use for DZRP's temporary targets — means *not
+   user-visible* (the `transient` flag), NOT an owner of `CLIENT_NONE`. The
+   reason is SES-01: a subscription owned by the client goes with its
+   `detach`, so a crashed DeZog cannot leave its temporaries armed to stop the
+   machine later with nobody to answer; an unowned one would survive it.
+   Recorded at the `transient` definition in `backend.md` §4.3 and arch §4.3.
 6. **A refused resume** (`run()` → `RefusedCorrupt`): reply, then `NTF_PAUSE`
    255 `"resume refused: <result> (<subsystem>)"`, and the temporaries are
    removed (`DZRP-CONT-04`).

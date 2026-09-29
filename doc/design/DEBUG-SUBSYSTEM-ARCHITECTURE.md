@@ -704,7 +704,11 @@ exactly the landed-on address on the next resume). `once` disables after the
 first accepted firing; `transient` is exempt from the master switch,
 auto-removed at the next stop, hidden from the user list, unlimited in number
 — Step Over, Run to Here and DeZog's two temp breakpoints per `CMD_CONTINUE`
-all use it, replacing today's single one-shot. Today's PC breakpoints and
+all use it, replacing today's single one-shot. A transient is owned by the
+client that created it, so that client's `detach` removes it; "`owner=internal`"
+in the frontend designs means *hidden from the user list*, never an owner of
+`CLIENT_NONE` (SES-01: a crashed client's temporaries must not outlive it;
+manager decision 2026-09-29, GH #12). Today's PC breakpoints and
 watchpoints become single-address `Execute` / `Mem` subscriptions owned by the
 Qt client; `BreakpointSet`'s observer contract survives as
 `SubscriptionsChanged{kinds}`.
