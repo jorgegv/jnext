@@ -93,8 +93,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Resume Guard          |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | src/debug Qt-free lint (GH #278) |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Step Out     |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Backend (GH #276) |     1297 |     1297 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger persistent BPs |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Backend (GH #276) |     1310 |     1310 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger persistent BPs |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger I/O Watchpoints |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger BP Enable/Disable |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger resume step-off |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -118,16 +118,16 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Video Panel  |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger persist. BP (GUI) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger persist. BP (GUI) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Inspection Reads |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Sizing |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Key Bindings |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Menus        |       46 |       46 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Menus        |       51 |       51 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Panels (GH #278) |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Verbs (GH #278) |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **10774**| **10774**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Debugger Panels (GH #278) |       40 |       40 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Verbs (GH #278) |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **10804**| **10804**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
