@@ -525,6 +525,34 @@ static void snap_rows() {
     }
 }
 
+static void names_rows() {
+    Loaded L = load("on frame when a.HL == b.HL do snap b end on frame when depth(a) * 10 + depth(b) == 0 do "
+                    "snap a end");
+    bool ok = L.ok() && L.s().snapshots.size() == 2 && L.s().snapshots[0] == "a" && L.s().snapshots[1] == "b";
+    std::string got;
+    if (ok) {
+        const int sa = L.s().rules[0].when->a->slot;
+        const int sb = L.s().rules[0].when->b->slot;
+        set_regs(0x1295, 0x1111, 0xFF00, false, false, 2);
+        L.st->snap(sa, *g_dbg, SourcePos{});
+        set_regs(0x1295, 0x2222, 0xFF00, false, false, 2);
+        L.st->snap(sb, *g_dbg, SourcePos{});
+        L.st->snap(sb, *g_dbg, SourcePos{});
+        const Expr& w0 = *L.s().rules[0].when;
+        const int32_t ha = eval_int(*w0.a, ctx_of(L));
+        const int32_t hb = eval_int(*w0.b, ctx_of(L));
+        const int32_t dd = eval_int(*L.s().rules[1].when->a, ctx_of(L));
+        ok = sa == 0 && sb == 1 && ha == 0x1111 && hb == 0x2222 && dd == 12;
+        got = std::to_string(sa) + "/" + std::to_string(sb) + " " + hex(static_cast<unsigned>(ha)) + " " +
+              hex(static_cast<unsigned>(hb)) + " " + std::to_string(dd);
+        L.st->unsnap(sa, SourcePos{});
+        L.st->unsnap(sb, SourcePos{});
+        L.st->unsnap(sb, SourcePos{});
+    }
+    check("SEV-SNAP-NAMES", "each name is its own stack: `a` and `b` keep their own entries and depths", ok,
+          got + dstr(L.errs));
+}
+
 static void changed_rows() {
     Loaded L = load("on frame when changed(s, regs) do end on frame when changed(s, mmu) do end "
                     "on frame when changed(s, iff1) do end on frame when changed(s, stack0) do end");
@@ -929,6 +957,7 @@ int main() {
     var_rows();
     cond_rows();
     snap_rows();
+    names_rows();
     changed_rows();
     diff_rows();
     interp_rows();
