@@ -59,6 +59,14 @@ using SEvt     = jnext::script::EventType;
 using jnext::dbg::EventKind;
 using jnext::dbg::EventSource;
 
+// The documented limits, spelled as LITERALS: the DEPTH rows derive their
+// boundaries and error columns from these, never from the header's constants,
+// so a changed limit turns rows red instead of moving them along with it.
+static constexpr int kDepth   = 200;  // MAX_EXPR_DEPTH
+static constexpr int kIfDepth = 64;   // MAX_IF_DEPTH
+/// The expression bound's message, as far as it states the limit.
+static const char* const kTooDeep = "expression too long or too deeply nested (limit 200 levels";
+
 // ── Tiny test harness (matches debugger_backend_test) ──────────────────────
 
 static int g_total = 0;
@@ -1078,9 +1086,9 @@ static void expr_rows() {
         }() + "1";
         check("PERR-EX-DEPTH", "`(`, unary `-` and `not` nested 1000 deep are refused by the parser's "
               "recursion bound (bound 1), not a crash; the other shapes are the DEPTH-* rows",
-              P(deep).error && P(deep).error->message.find("nested too deeply") != std::string::npos &&
-                  P(neg).error && P(neg).error->message.find("nested too deeply") != std::string::npos &&
-                  P(nots).error && P(nots).error->message.find("nested too deeply") != std::string::npos);
+              P(deep).error && P(deep).error->message.find(kTooDeep) != std::string::npos &&
+                  P(neg).error && P(neg).error->message.find(kTooDeep) != std::string::npos &&
+                  P(nots).error && P(nots).error->message.find(kTooDeep) != std::string::npos);
     }
     check("PERR-NAME-VAR", "a keyword, a built-in or a SOURCE constant cannot be a variable name",
           err_at(P("var on = 1").error, 1, 5, "reserved") && err_at(P("var A = 1").error, 1, 5, "reserved") &&
@@ -1952,12 +1960,6 @@ static void work_rows() {
 // enough to overflow the stack without the bound are refused, not a crash.
 // A crash here takes the whole binary down: the harness reads that as a FAIL.
 
-// The documented limits, spelled as LITERALS: the rows below derive their
-// boundaries and error columns from these, never from the header's constants,
-// so a changed limit turns rows red instead of moving them along with it.
-static constexpr int kDepth   = 200;  // MAX_EXPR_DEPTH
-static constexpr int kIfDepth = 64;   // MAX_IF_DEPTH
-
 static std::string rep_str(const std::string& s, int n) {
     std::string out;
     out.reserve(s.size() * static_cast<size_t>(n));
@@ -2028,16 +2030,16 @@ static void depth_rows() {
         const EvalResult r = E(big);
         const ParseResult s = P("var x = " + big);
         check("DEPTH-CHAIN-CRASH", "a 100 KB `1+1+…+1` is refused at the 200th `+`, through every entry point",
-              err_at(pr.error, 1, 2 * D, "nested too deeply") && !c && one_err_at(c.errors, 1, 2 * D, "nested too deeply") &&
-                  !r.ok && one_err_at(r.errors, 1, 2 * D, "nested too deeply") &&
-                  err_at(s.error, 1, 8 + 2 * D, "nested too deeply"),
+              err_at(pr.error, 1, 2 * D, kTooDeep) && !c && one_err_at(c.errors, 1, 2 * D, kTooDeep) &&
+                  !r.ok && one_err_at(r.errors, 1, 2 * D, kTooDeep) &&
+                  err_at(s.error, 1, 8 + 2 * D, kTooDeep),
               dstr(pr.error));
     }
     {
         const std::string big = "1" + rep_str(" or 1", 200000);  // 1 MB
         const EvalResult r = E(big);
         check("DEPTH-OR-CRASH", "a 1 MB `1 or 1 or …` is refused at the 200th `or` (column 5k-2)",
-              !r.ok && one_err_at(r.errors, 1, 5 * D - 2, "nested too deeply"), dstr(r.errors));
+              !r.ok && one_err_at(r.errors, 1, 5 * D - 2, kTooDeep), dstr(r.errors));
     }
     {
         // Without bound 3: SIGSEGV in parse_actions / check_actions.
@@ -2057,35 +2059,35 @@ static void depth_rows() {
         const EvalResult ok = E(chain(D - 1));
         const EvalResult no = E(chain(D));
         check("DEPTH-CHAIN-BOUNDARY", "a chain of 199 operators (tree height 200) evaluates; 200 are refused at the last",
-              ok.ok && ok.value == D && !no.ok && one_err_at(no.errors, 1, 2 * D, "nested too deeply"),
+              ok.ok && ok.value == D && !no.ok && one_err_at(no.errors, 1, 2 * D, kTooDeep),
               E_str(chain(D - 1)).substr(0, 60) + " " + dstr(no.errors));
     }
     {
         const EvalResult ok = E(rep_str("(", D - 1) + "7" + rep_str(")", D - 1));
         const EvalResult no = E(rep_str("(", D) + "7" + rep_str(")", D));
         check("DEPTH-PAREN-BOUNDARY", "199 nested `(` evaluate; 200 are refused at what the 200th opens",
-              ok.ok && ok.value == 7 && !no.ok && one_err_at(no.errors, 1, D + 1, "nested too deeply"),
+              ok.ok && ok.value == 7 && !no.ok && one_err_at(no.errors, 1, D + 1, kTooDeep),
               dstr(ok.errors) + dstr(no.errors));
     }
     {
         const EvalResult ok = E(rep_str("-", D - 1) + "1");
         const EvalResult no = E(rep_str("-", D) + "1");
         check("DEPTH-UNARY-BOUNDARY", "199 unary `-` evaluate (to -1); 200 are refused at the 200th",
-              ok.ok && ok.value == -1 && !no.ok && one_err_at(no.errors, 1, D, "nested too deeply"),
+              ok.ok && ok.value == -1 && !no.ok && one_err_at(no.errors, 1, D, kTooDeep),
               dstr(ok.errors) + dstr(no.errors));
     }
     {
         const EvalResult ok = E(rep_str("not ", D - 1) + "0");
         const EvalResult no = E(rep_str("not ", D) + "0");
         check("DEPTH-NOT-BOUNDARY", "199 `not` evaluate (to 1); 200 are refused at the 200th",
-              ok.ok && ok.value == 1 && !no.ok && one_err_at(no.errors, 1, 4 * (D - 1) + 1, "nested too deeply"),
+              ok.ok && ok.value == 1 && !no.ok && one_err_at(no.errors, 1, 4 * (D - 1) + 1, kTooDeep),
               dstr(ok.errors) + dstr(no.errors));
     }
     {
         const EvalResult ok = E(rep_str("mem[", D - 1) + "0" + rep_str("]", D - 1));
         const EvalResult no = E(rep_str("mem[", D) + "0" + rep_str("]", D));
         check("DEPTH-INDEX-BOUNDARY", "199 nested `mem[` evaluate; 200 are refused at what the 200th indexes",
-              ok.ok && !no.ok && one_err_at(no.errors, 1, 4 * D + 1, "nested too deeply"),
+              ok.ok && !no.ok && one_err_at(no.errors, 1, 4 * D + 1, kTooDeep),
               dstr(ok.errors) + dstr(no.errors));
     }
     {
@@ -2094,7 +2096,7 @@ static void depth_rows() {
         const ParseResult no = P("var x = \"${" + chain(D - 1) + "}\"");
         check("DEPTH-STRING", "a 200-tall interpolation loads in a `log`, but not inside a string EXPRESSION, "
               "whose node would be the 201st level",
-              ok.ok() && no.error && no.error->message.find("nested too deeply") != std::string::npos,
+              ok.ok() && no.error && no.error->message.find(kTooDeep) != std::string::npos,
               dstr(ok.error) + dstr(no.error));
     }
     {
@@ -2119,14 +2121,80 @@ static void depth_rows() {
         const EvalResult no = E("1+" + rep_str("-", D - 1) + "1");
         check("DEPTH-RIGHT-OPERAND", "a binary node's height counts its right operand: `1+--…-1` with a 200-tall "
               "right side is refused at the `+`",
-              ok.ok && ok.value == 2 && !no.ok && one_err_at(no.errors, 1, 2, "nested too deeply"),
+              ok.ok && ok.value == 2 && !no.ok && one_err_at(no.errors, 1, 2, kTooDeep),
               dstr(ok.errors) + dstr(no.errors));
     }
     {
         const ParseResult ok = P("on frame do set mem[" + chain(D - 2) + "] = 1 end");
         const ParseResult no = P("on frame do set mem[" + chain(D - 1) + "] = 1 end");
         check("DEPTH-LVALUE", "an lvalue's index node is bounded like any other: a 200-tall index is refused at `mem[`",
-              ok.ok() && err_at(no.error, 1, 17, "nested too deeply"), dstr(ok.error) + dstr(no.error));
+              ok.ok() && err_at(no.error, 1, 17, kTooDeep), dstr(ok.error) + dstr(no.error));
+    }
+    // ── One row per sealing site (review round 2): a 151-tall chain INSIDE the
+    // node, and a chain OUTSIDE it that only overflows if the node passes its
+    // child's height on. With that site's sealed() removed the node reports
+    // height 1 and the outer chain never overflows — which, nested, let trees
+    // of ~15000 levels through (the crash class). The node here is 152 tall,
+    // so 48 outer `+` reach exactly 200 and the 49th is refused, at column
+    // head + 2*49 - 1.
+    {
+        const char* const ACC[] = {"mem[", "mem16[", "nextreg[", "mmu[", "page[", "stack["};
+        std::string bad;
+        for (const char* a : ACC) {
+            const std::string head = std::string(a) + chain(150) + "]";
+            const CompiledPredicate ok = compile_expr(head + rep_str("+1", 48), {});
+            const CompiledPredicate no = compile_expr(head + rep_str("+1", 49), {});
+            if (!ok || no || !one_err_at(no.errors, 1, static_cast<int>(head.size()) + 97, kTooDeep))
+                bad += std::string(a) + " " + dstr(ok.errors) + dstr(no.errors) + " ";
+        }
+        check("DEPTH-SEAL-INDEX", "an index accessor (mem[ mem16[ nextreg[ mmu[ page[ stack[) passes its index's "
+              "height on: `acc[<151-tall>]+1…` overflows at the 49th `+`",
+              bad.empty(), bad);
+    }
+    {
+        std::string bad;
+        const std::string heads[] = {"phys[" + chain(150) + ", 0]", "phys[0, " + chain(150) + "]"};
+        for (const std::string& head : heads) {
+            const CompiledPredicate ok = compile_expr(head + rep_str("+1", 48), {});
+            const CompiledPredicate no = compile_expr(head + rep_str("+1", 49), {});
+            if (!ok || no || !one_err_at(no.errors, 1, static_cast<int>(head.size()) + 97, kTooDeep))
+                bad += head.substr(0, 8) + "… " + dstr(ok.errors) + dstr(no.errors) + " ";
+        }
+        check("DEPTH-SEAL-PHYS", "`phys[,]` passes the height of EITHER operand on: overflow at the 49th outer `+`",
+              bad.empty(), bad);
+    }
+    {
+        const ParseResult ok  = P("on frame do set phys[" + chain(D - 2) + ", 0] = 1 end");
+        const ParseResult no1 = P("on frame do set phys[" + chain(D - 1) + ", 0] = 1 end");
+        const ParseResult no2 = P("on frame do set phys[0, " + chain(D - 1) + "] = 1 end");
+        check("DEPTH-SEAL-PHYS-LVALUE", "a `set phys[,]` target is sealed like the expression: a 200-tall "
+              "operand, either one, makes it the 201st level, refused at `phys[`",
+              ok.ok() && err_at(no1.error, 1, 17, kTooDeep) && err_at(no2.error, 1, 17, kTooDeep),
+              dstr(ok.error) + dstr(no1.error) + dstr(no2.error));
+    }
+    {
+        const std::string head = "s.MMU[" + chain(150) + "]";
+        const ParseResult ok = P("var x = " + head + rep_str("+1", 48));
+        const ParseResult no = P("var x = " + head + rep_str("+1", 49));
+        check("DEPTH-SEAL-FIELD", "a snapshot field's index passes its height on: `s.MMU[<151-tall>]+1…` "
+              "overflows at the 49th `+`",
+              ok.ok() && err_at(no.error, 1, 8 + static_cast<int>(head.size()) + 97, kTooDeep),
+              dstr(ok.error) + dstr(no.error));
+    }
+    {
+        // The interpolation's parser continues the outer one's depth: 150 `(`
+        // outside the string plus 49 inside its `${}` is 201 levels (1 for the
+        // `var` expression, 1 for the interpolation's). Refused at the 50th
+        // inner `(`: column 8 + 150 + 3 + 50 = 211.
+        const auto src = [](int inner) {
+            return "var x = " + rep_str("(", 150) + "\"${" + rep_str("(", inner) + "1" + rep_str(")", inner) +
+                   "}\"" + rep_str(")", 150);
+        };
+        const ParseResult ok = P(src(48));
+        const ParseResult no = P(src(49));
+        check("DEPTH-INTERP-INHERIT", "an interpolation inherits the parser depth it appears at: 150 `(` outside "
+              "plus 49 inside `${}` are refused, 150 plus 48 load",
+              ok.ok() && err_at(no.error, 1, 211, kTooDeep), dstr(ok.error) + dstr(no.error));
     }
     {
         const ParseResult ifs = P("on frame do " + rep_str("if 1 then stop end ", 100) + "end");
@@ -2134,8 +2202,9 @@ static void depth_rows() {
         // 250 rules, each condition one `(` deep: 500 parser levels in all, one
         // or two at a time — a guard that leaked would refuse this.
         const ParseResult rules = P(rep_str("on frame when (1) do end ", 250));
-        check("DEPTH-SIBLINGS", "the bounds count NESTING, not siblings: 100 `if`s in a row, 151 parenthesised "
-              "terms, and 250 rules each with a parenthesised condition load",
+        check("DEPTH-SIBLINGS", "siblings are not nesting: 100 `if`s in a row, a 151-term chain of parenthesised "
+              "terms and 250 rules each with a parenthesised condition load (a chain still costs one level per "
+              "operator, parentheses or not: DEPTH-CHAIN-*)",
               ifs.ok() && ifs.script.rules[0].body.size() == 100 && parens.ok && parens.value == 151 &&
                   rules.ok() && rules.script.rules.size() == 250,
               dstr(ifs.error) + dstr(parens.errors) + dstr(rules.error));

@@ -18,9 +18,12 @@ struct ParseError {
     Diagnostic d;
 };
 
-/// The one message both expression bounds report (see parser.h).
+/// The one message both expression bounds report (see parser.h). It says what
+/// the limit counts: a flat `a or b or …` is refused by it too, since every
+/// chained operator is a level of the (left-deep) tree (review round 2).
 std::string too_deep() {
-    return "expression nested too deeply: more than " + std::to_string(MAX_EXPR_DEPTH) + " levels";
+    return "expression too long or too deeply nested (limit " + std::to_string(MAX_EXPR_DEPTH) +
+           " levels; each chained operator, bracket or nesting counts one)";
 }
 
 class Parser {
@@ -412,8 +415,7 @@ private:
             // Bound 3 (parser.h): `if` nesting, which the parser, the checker
             // and the Action destructor all recurse over.
             if (++if_depth_ > MAX_IF_DEPTH)
-                fail(a.pos, "`if` nested too deeply: more than " + std::to_string(MAX_IF_DEPTH) +
-                                " levels");
+                fail(a.pos, "`if` nested too deeply (limit " + std::to_string(MAX_IF_DEPTH) + ")");
             a.kind = ActionKind::If;
             a.e1   = parse_expr();
             expect_kw("then", "after the `if` condition");
