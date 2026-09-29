@@ -3837,6 +3837,47 @@ static void b5_payload_rows() {
                   byte.evs[0].value == 0x42,
               "n=" + std::to_string(byte.evs.size()));
     }
+    {
+        // GH #26 WP3 (DSL finding F1): Dma{Start} carries the I/O endpoints too,
+        // in the direction the block runs. The PL-PORT-01 transfer (RAM port A
+        // -> I/O port B), then the same ports run B -> A (R0 bit 2 clear), and a
+        // memory-to-memory block.
+        auto start_io = [](uint8_t r0, uint8_t r2, bool& src, bool& dst, size_t& n) {
+            Emulator emu; b5_build(emu, { 0x18, 0xFE });
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("B5")).value;
+            emu.nextreg().select(0x16);
+            emu.mmu().write(0xA000, 0x42);
+            Rec st;
+            Subscription s;
+            s.kind = EventKind::Dma; s.filter.dma_kind = jnext::dbg::DmaEventKind::Start;
+            s.action = Action::Continue; s.handler = recorder(st);
+            dbg.subscribe(a, s);
+            Dma& d = emu.dma();
+            auto w = [&](uint8_t v) { d.write(v, false); };
+            w(r0); w(0x00); w(0xA0); w(0x01); w(0x00);
+            w(0x14);                         // R1 port A = memory, inc
+            w(r2);                           // R2 port B
+            w(0xAD); w(0x3B); w(0x25);       // R4 mode + port B = 0x253B
+            w(0xCF); w(0x87);                // R6 LOAD, R6 ENABLE
+            emu.run_frame();
+            n   = st.evs.size();
+            src = n ? st.evs[0].dma_is_io_src : false;
+            dst = n ? st.evs[0].dma_is_io_dst : false;
+        };
+        bool src = false, dst = false;
+        size_t n = 0;
+        start_io(0x7D, 0x28, src, dst, n);
+        check("PL-DMA-IO-01", "Dma{Start} of a memory -> I/O block flags the DESTINATION as I/O "
+                              "and not the source (DSL finding F1)",
+              n >= 1 && dst && !src, "n=" + std::to_string(n));
+        start_io(0x79, 0x28, src, dst, n);
+        check("PL-DMA-IO-02", "the same ports run B -> A: the SOURCE is the I/O side",
+              n >= 1 && src && !dst, "n=" + std::to_string(n));
+        start_io(0x7D, 0x10, src, dst, n);
+        check("PL-DMA-IO-03", "a memory -> memory block flags neither",
+              n >= 1 && !src && !dst, "n=" + std::to_string(n));
+    }
     // §4.3 Dma: "`Start`/`End`: src, dst, length, direction, mode, bytes" —
     // direction and mode were never read. R0 bit 2 is the A->B flag and R4 bits
     // 6:5 the transfer mode (00 byte, 01 continuous, 10 burst — dma.vhd's
