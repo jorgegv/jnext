@@ -1965,7 +1965,7 @@ profiler — surround the emulation rather than being part of it.</p>
 </tr>
 <tr>
 <td><code>remote/</code></td>
-<td>The socket transport the debugger protocol servers share (<code>jnext_remote</code>): one non-blocking listener driven by the backend's <code>pump()</code>, over esp01's socket seam, plus the in-memory fake their unit suites use. <code>remote/dzrp/</code> is the DeZog Remote Protocol server (<code>--dzrp-port</code>, see 3.10).</td>
+<td>The socket transport the debugger protocol servers share (<code>jnext_remote</code>): one non-blocking listener driven by the backend's <code>pump()</code>, over esp01's socket seam, plus the in-memory fake their unit suites use. <code>remote/dzrp/</code> is the DeZog Remote Protocol server (<code>--dzrp-port</code>, see 3.10); <code>remote/gdb/</code> is the GDB remote serial protocol server for z88dk-gdb (<code>--gdb-port</code>).</td>
 </tr>
 <tr>
 <td><code>esp01/</code></td>
