@@ -23,6 +23,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "debug/debug_state.h"
+#include "debug/debugger.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 
@@ -303,6 +304,63 @@ int main(int argc, char** argv) {
               "disarms the machine: the leftover breakpoint no longer stops it",
               opened && disarmed && !fx.emu.debug_state().paused() &&
               pc(fx.emu) == 0x800E && !fx.mgr->is_enabled() && !fx.window_visible());
+    }
+
+    // PBPUI-10 — CLOSING the window leaves nothing of the window switched on:
+    // no client attached, the machine unarmed, the live raster off AND
+    // call-stack tracking off. Tracking is what the open window switched on
+    // through the backend (INS-12); a close that forgot to switch it off would
+    // leave the per-instruction CALL/RET tracking running for the rest of the
+    // session, with nobody looking — and, through the backend's record of the
+    // request, re-applied after every hard reset (GH #278 WP2 review round 1).
+    {
+        Fixture fx(/*persistent=*/false);          // opened once, then closed
+        const bool closed_off = !fx.mgr->is_enabled() && !fx.backend->attached() &&
+                                !fx.backend->armed() && !fx.backend->live_raster() &&
+                                !fx.backend->call_stack_enabled() &&
+                                !fx.emu.call_stack().enabled();
+        fx.mgr->set_enabled(true);                 // and once more, to be sure it
+        const bool open_on = fx.backend->attached() && fx.backend->armed() &&
+                             fx.backend->live_raster() &&
+                             fx.backend->call_stack_enabled();
+        fx.mgr->set_enabled(false);                // was switched on by the open
+        const bool closed_again = !fx.backend->attached() && !fx.backend->armed() &&
+                                  !fx.backend->live_raster() &&
+                                  !fx.backend->call_stack_enabled() &&
+                                  !fx.emu.call_stack().enabled();
+        check("PBPUI-10", "closing the window leaves no client attached, the machine "
+              "unarmed, the live raster off and call-stack tracking off",
+              closed_off && open_on && closed_again);
+    }
+
+    // PBPUI-11 — the manager DESTROYED with the window still open (its parent
+    // window torn down with no close, no set_enabled(false)) takes its client
+    // with it: the backend, which outlives it, is left neither armed nor
+    // attached, with the live raster and call-stack tracking off. Otherwise the
+    // loop owner's process-lifetime backend would carry a dead window's client —
+    // the machine armed, breakpoints live with no window — for the rest of the
+    // run.
+    {
+        Emulator emu;
+        build(emu, /*persistent=*/false);
+        jnext::dbg::Debugger backend(emu);
+        bool open_on = false;
+        {
+            auto* host = new QMainWindow;
+            auto* mgr  = new DebuggerManager(host, backend, &emu, host);
+            mgr->set_enabled(true);
+            open_on = backend.attached() && backend.armed() && backend.live_raster() &&
+                      backend.call_stack_enabled();
+            DebuggerWindow* w = mgr->debugger_window_ptr();
+            delete w;          // the parentless window first (the fixtures' order)
+            delete host;       // ~QMainWindow -> ~DebuggerManager, still enabled
+        }
+        check("PBPUI-11", "a manager destroyed with its window open detaches: the "
+              "surviving backend is neither armed nor attached, live raster and "
+              "call-stack tracking off",
+              open_on && !backend.attached() && !backend.armed() &&
+              !backend.live_raster() && !backend.call_stack_enabled() &&
+              !emu.call_stack().enabled());
     }
 
     std::printf("\n=====================================\n");
