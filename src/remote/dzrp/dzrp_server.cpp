@@ -10,14 +10,24 @@ namespace jnext {
 namespace remote {
 namespace dzrp {
 
+using jnext::dbg::Access;
+using jnext::dbg::Action;
 using jnext::dbg::CLIENT_NONE;
+using jnext::dbg::ClientId;
 using jnext::dbg::ClientInfo;
 using jnext::dbg::ClientKind;
+using jnext::dbg::EVENT_NONE;
+using jnext::dbg::EventId;
+using jnext::dbg::EventKind;
 using jnext::dbg::MemSpace;
+using jnext::dbg::PAGE_ANY;
+using jnext::dbg::PausedInfo;
+using jnext::dbg::PauseReason;
 using jnext::dbg::RegId;
 using jnext::dbg::Result;
 using jnext::dbg::result_name;
 using jnext::dbg::ServiceStep;
+using jnext::dbg::Subscription;
 
 namespace {
 
@@ -92,6 +102,50 @@ const char* unsupported_hint(std::uint8_t id) {
     }
 }
 
+/// A `bank+1` byte from the wire → the backend's page qualifier. 0 = none (a
+/// 64K address). A ROM bank (0xFE/0xFF) cannot be a qualifier: the backend
+/// names a ROM slot by its ROM page, not by the DZRP bank, and 3.8's ROM bank
+/// 0xFF does not even fit the byte (it arrives as 0) — so a ROM breakpoint is
+/// armed in every bank (§5.3). False for a bank that does not exist.
+bool bank1_to_page(std::uint8_t bank1, std::uint16_t& page) {
+    if (bank1 == 0) {
+        page = PAGE_ANY;
+        return true;
+    }
+    const std::uint8_t bank = static_cast<std::uint8_t>(bank1 - 1);
+    if (bank <= 223) {
+        page = bank;
+        return true;
+    }
+    if (bank >= 0xFE) {
+        page = PAGE_ANY;
+        return true;
+    }
+    return false;
+}
+
+bool contains(const std::vector<EventId>& v, EventId id) {
+    return std::find(v.begin(), v.end(), id) != v.end();
+}
+
+/// The string an `NTF_PAUSE` reason 255 carries for a stop that is not this
+/// client's to name (design §3.3 "anything else").
+std::string other_stop_text(const PauseReason& r) {
+    switch (r.kind) {
+        case PauseReason::Kind::User:       return "paused by another debugger client";
+        case PauseReason::Kind::Breakpoint: return "breakpoint of another debugger client";
+        case PauseReason::Kind::Watch:      return "watchpoint of another debugger client";
+        case PauseReason::Kind::Step:       return "stepped by another debugger client";
+        case PauseReason::Kind::RunTo:      return "run-to target of another debugger client";
+        case PauseReason::Kind::Magic:      return "magic breakpoint";
+        case PauseReason::Kind::Corrupt:    return "machine state corrupt";
+        case PauseReason::Kind::Script:
+            return r.text.empty() ? std::string("stopped by a debugger subscription") : r.text;
+        case PauseReason::Kind::None:       break;
+    }
+    return "paused";
+}
+
 /// The client's program name as a log line may show it: printable ASCII only,
 /// bounded. It is the client's claim, so it is never trusted to be either.
 std::string printable_name(const std::vector<std::uint8_t>& p, std::size_t from) {
@@ -109,24 +163,37 @@ std::string printable_name(const std::vector<std::uint8_t>& p, std::size_t from)
 //
 // `session` false: machine-free — answerable before CMD_INIT.
 const DzrpServer::CommandDef DzrpServer::COMMANDS[] = {
-    // id                         name                          min  legacy session handler
-    {CMD_INIT,                   "CMD_INIT",                   0, false, false, &DzrpServer::cmd_init},
-    {CMD_CLOSE,                  "CMD_CLOSE",                  0, false, false, &DzrpServer::cmd_close},
-    {CMD_GET_REGISTERS,          "CMD_GET_REGISTERS",          0, false, true,  &DzrpServer::cmd_get_registers},
-    {CMD_SET_REGISTER,           "CMD_SET_REGISTER",           3, false, true,  &DzrpServer::cmd_set_register},
-    {CMD_WRITE_BANK,             "CMD_WRITE_BANK",             0, true,  true,  &DzrpServer::cmd_write_bank},
-    {CMD_READ_MEM,               "CMD_READ_MEM",               5, false, true,  &DzrpServer::cmd_read_mem},
-    {CMD_WRITE_MEM,              "CMD_WRITE_MEM",              3, false, true,  &DzrpServer::cmd_write_mem},
-    {CMD_SET_SLOT,               "CMD_SET_SLOT",               0, false, true,  &DzrpServer::cmd_set_slot},
-    {CMD_GET_TBBLUE_REG,         "CMD_GET_TBBLUE_REG",         1, false, true,  &DzrpServer::cmd_get_tbblue_reg},
-    {CMD_SET_BORDER,             "CMD_SET_BORDER",             1, true,  true,  &DzrpServer::cmd_set_border},
-    {CMD_LOOPBACK,               "CMD_LOOPBACK",               0, false, false, &DzrpServer::cmd_loopback},
-    {CMD_READ_PORT,              "CMD_READ_PORT",              2, false, true,  &DzrpServer::cmd_read_port},
-    {CMD_WRITE_PORT,             "CMD_WRITE_PORT",             3, false, true,  &DzrpServer::cmd_write_port},
-    {CMD_INTERRUPT_ON_OFF,       "CMD_INTERRUPT_ON_OFF",       1, false, true,  &DzrpServer::cmd_interrupt_on_off},
-    {CMD_GET_SUPPORTED_COMMANDS, "CMD_GET_SUPPORTED_COMMANDS", 0, false, false, &DzrpServer::cmd_get_supported_commands},
-    {CMD_READ_BANK_MEM,          "CMD_READ_BANK_MEM",          5, false, true,  &DzrpServer::cmd_read_bank_mem},
-    {CMD_WRITE_BANK_MEM,         "CMD_WRITE_BANK_MEM",         3, false, true,  &DzrpServer::cmd_write_bank_mem},
+    // id                                      name                                        min legacy session handler
+    {CMD_INIT,                                "CMD_INIT",                                  0, false, false, &DzrpServer::cmd_init},
+    {CMD_CLOSE,                               "CMD_CLOSE",                                 0, false, false, &DzrpServer::cmd_close},
+    {CMD_GET_REGISTERS,                       "CMD_GET_REGISTERS",                         0, false, true,  &DzrpServer::cmd_get_registers},
+    {CMD_SET_REGISTER,                        "CMD_SET_REGISTER",                          3, false, true,  &DzrpServer::cmd_set_register},
+    {CMD_WRITE_BANK,                          "CMD_WRITE_BANK",                            0, true,  true,  &DzrpServer::cmd_write_bank},
+    {CMD_CONTINUE,                            "CMD_CONTINUE",                              5, false, true,  &DzrpServer::cmd_continue},
+    {CMD_PAUSE,                               "CMD_PAUSE",                                 0, false, true,  &DzrpServer::cmd_pause},
+    {CMD_READ_MEM,                            "CMD_READ_MEM",                              5, false, true,  &DzrpServer::cmd_read_mem},
+    {CMD_WRITE_MEM,                           "CMD_WRITE_MEM",                             3, false, true,  &DzrpServer::cmd_write_mem},
+    {CMD_SET_SLOT,                            "CMD_SET_SLOT",                              0, false, true,  &DzrpServer::cmd_set_slot},
+    {CMD_GET_TBBLUE_REG,                      "CMD_GET_TBBLUE_REG",                        1, false, true,  &DzrpServer::cmd_get_tbblue_reg},
+    {CMD_SET_BORDER,                          "CMD_SET_BORDER",                            1, true,  true,  &DzrpServer::cmd_set_border},
+    {CMD_LOOPBACK,                            "CMD_LOOPBACK",                              0, false, false, &DzrpServer::cmd_loopback},
+    {CMD_GET_SPRITES_PALETTE,                 "CMD_GET_SPRITES_PALETTE",                   1, false, true,  &DzrpServer::cmd_get_sprites_palette},
+    {CMD_GET_SPRITES_CLIP_WINDOW_AND_CONTROL, "CMD_GET_SPRITES_CLIP_WINDOW_AND_CONTROL",   0, false, true,  &DzrpServer::cmd_get_sprites_clip_window_and_control},
+    {CMD_GET_SPRITES,                         "CMD_GET_SPRITES",                           2, false, true,  &DzrpServer::cmd_get_sprites},
+    {CMD_GET_SPRITE_PATTERNS,                 "CMD_GET_SPRITE_PATTERNS",                   2, false, true,  &DzrpServer::cmd_get_sprite_patterns},
+    {CMD_READ_PORT,                           "CMD_READ_PORT",                             2, false, true,  &DzrpServer::cmd_read_port},
+    {CMD_WRITE_PORT,                          "CMD_WRITE_PORT",                            3, false, true,  &DzrpServer::cmd_write_port},
+    {CMD_INTERRUPT_ON_OFF,                    "CMD_INTERRUPT_ON_OFF",                      1, false, true,  &DzrpServer::cmd_interrupt_on_off},
+    {CMD_GET_SUPPORTED_COMMANDS,              "CMD_GET_SUPPORTED_COMMANDS",                0, false, false, &DzrpServer::cmd_get_supported_commands},
+    {CMD_READ_BANK_MEM,                       "CMD_READ_BANK_MEM",                         5, false, true,  &DzrpServer::cmd_read_bank_mem},
+    {CMD_WRITE_BANK_MEM,                      "CMD_WRITE_BANK_MEM",                        3, false, true,  &DzrpServer::cmd_write_bank_mem},
+    {CMD_ENABLE_BREAK_ON_INTERRUPT,           "CMD_ENABLE_BREAK_ON_INTERRUPT",             1, false, true,  &DzrpServer::cmd_enable_break_on_interrupt},
+    {CMD_ADD_BREAKPOINT,                      "CMD_ADD_BREAKPOINT",                        3, false, true,  &DzrpServer::cmd_add_breakpoint},
+    {CMD_REMOVE_BREAKPOINT,                   "CMD_REMOVE_BREAKPOINT",                     2, false, true,  &DzrpServer::cmd_remove_breakpoint},
+    {CMD_ADD_WATCHPOINT,                      "CMD_ADD_WATCHPOINT",                        0, false, true,  &DzrpServer::cmd_add_watchpoint},
+    {CMD_REMOVE_WATCHPOINT,                   "CMD_REMOVE_WATCHPOINT",                     6, false, true,  &DzrpServer::cmd_remove_watchpoint},
+    {CMD_READ_STATE,                          "CMD_READ_STATE",                            0, false, true,  &DzrpServer::cmd_read_state},
+    {CMD_WRITE_STATE,                         "CMD_WRITE_STATE",                           0, false, true,  &DzrpServer::cmd_write_state},
 };
 
 const DzrpServer::CommandDef* DzrpServer::find_command(std::uint8_t id) {
@@ -201,9 +268,78 @@ ServiceStep DzrpServer::on_service(Connection& c) {
     return ServiceStep::Idle;
 }
 
-void DzrpServer::on_notify(Connection& /*c*/) {
-    // Nothing is queued yet: `NTF_PAUSE` is WP-3's (design §3.3).
+// The post-frame flush (REQ-dzrp-8): `pump()` calls this AFTER its drain and
+// after the backend's `Paused` push, so a stop in this tick's frames reaches
+// the client in this tick — and after every reply the drain wrote, so a
+// CMD_PAUSE's response always precedes its notification (spec).
+void DzrpServer::on_notify(Connection& c) {
+    if (pending_pause_) {
+        const PausedInfo info = *pending_pause_;
+        pending_pause_.reset();
+        const PauseReason& r = info.reason;
+
+        // THE REASON (design §3.3), in this order. A temporary first (F8): a
+        // stop that satisfies both a CMD_CONTINUE temporary and a user
+        // breakpoint at the same address is reported 0, or DeZog evaluates the
+        // user breakpoint's condition, finds it false and runs the step away.
+        bool temp = false, bp = false, boi = false;
+        const jnext::dbg::Hit* watch = nullptr;
+        for (const jnext::dbg::Hit& h : info.matched) {
+            temp = temp || contains(temps_, h.event_id);
+            if (h.event_id == int_ack_) boi = true;
+            for (const auto& kv : bps_) bp = bp || kv.second == h.event_id;
+            for (const Watch& w : wps_)
+                if (w.id == h.event_id && !watch) watch = &h;
+        }
+        if (temp)
+            queue_pause_ntf(BREAK_NONE, info.pc, "");
+        else if (r.kind == PauseReason::Kind::User && r.by == cid_)
+            queue_pause_ntf(BREAK_MANUAL, info.pc, "");
+        else if (bp)
+            queue_pause_ntf(BREAK_BP, info.pc, "");
+        else if (watch)
+            queue_pause_ntf(jnext::dbg::has_write(watch->access) ? BREAK_WP_WRITE : BREAK_WP_READ,
+                            watch->addr, "");
+        else if (boi)
+            queue_pause_ntf(BREAK_OTHER, info.pc, "Break on interrupt.");
+        else
+            queue_pause_ntf(BREAK_OTHER, info.pc, other_stop_text(r));
+        continue_outstanding_ = false;
+        pause_owed_           = false;
+        drop_temporaries();
+    }
+    for (const auto& f : ntf_queue_) c.write(f.data(), f.size());
+    ntf_queue_.clear();
 }
+
+// ---------------------------------------------------------------------------
+// dbg::Listener — the backend's pushes (SES-02)
+// ---------------------------------------------------------------------------
+
+// A stop is recorded here and turned into an NTF_PAUSE in `on_notify()`, the
+// Protocol callback, rather than here inside the backend's fan-out: building it
+// ends with unsubscribing the leftover temporaries, which is not something to
+// do from inside a listener callback.
+//
+// EXACTLY ONCE: only while this client is owed one — a CMD_CONTINUE outstanding
+// (one per CONTINUE) or a CMD_PAUSE that stopped a running machine. A second
+// stop edge with nothing owed (a GUI pause after our breakpoint already stopped
+// it) is dropped; DeZog would ignore it anyway (buf:228).
+void DzrpServer::on_paused(const PausedInfo& info) {
+    if (!(continue_outstanding_ || pause_owed_)) return;
+    pending_pause_ = info;
+}
+
+// DZRP has no "resumed" notification (§4.4), no reset notification (§3.3: a
+// hard reset never pauses, so nothing is sent — the outstanding CONTINUE stays
+// outstanding and the next stop answers it), and no NTF_LOG in production
+// (§2). The other pushes carry nothing this protocol can say.
+void DzrpServer::on_resumed(ClientId /*by*/) {}
+void DzrpServer::on_reset(jnext::dbg::ResetKind /*kind*/) {}
+void DzrpServer::on_frame_ended(std::uint32_t /*frame*/) {}
+void DzrpServer::on_subscriptions_changed(jnext::dbg::EventKindMask /*kinds*/) {}
+void DzrpServer::on_exit_requested(int /*code*/) {}
+void DzrpServer::on_log(jnext::dbg::LogLevel /*level*/, const std::string& /*text*/) {}
 
 void DzrpServer::on_disconnect() {
     // A dropped socket is a CMD_CLOSE (design §2 row 2, §4.1): SES-01's detach
@@ -216,8 +352,49 @@ void DzrpServer::on_disconnect() {
 
 void DzrpServer::end_session() {
     if (cid_ == CLIENT_NONE) return;
+    // The backend's detach removes this client's subscriptions (breakpoints,
+    // watchpoints, temporaries, break-on-interrupt) and its bookmarks; the
+    // adapter forgets its names for them.
     dbg_.detach(cid_);
     cid_ = CLIENT_NONE;
+    bps_.clear();
+    next_bp_id_ = 1;
+    temps_.clear();
+    int_ack_              = EVENT_NONE;
+    continue_outstanding_ = false;
+    pause_owed_           = false;
+    pending_pause_.reset();
+    ntf_queue_.clear();
+    wps_.clear();
+    tokens_.clear();
+    last_save_refused_mid_frame_ = false;
+}
+
+std::uint8_t DzrpServer::bank_byte(std::uint16_t addr) const {
+    const int  slot = addr >> 13;
+    const auto si   = dbg_.mmu_slots()[static_cast<std::size_t>(slot)];
+    if (si.is_rom) return slot == 0 ? 0xFF : 0x00;
+    return static_cast<std::uint8_t>(si.nr_page + 1);
+}
+
+void DzrpServer::queue_pause_ntf(std::uint8_t reason, std::uint16_t addr,
+                                 const std::string& text) {
+    // Frame: len, seq 0, NTF_PAUSE, reason, addr u16, bank+1, string\0 — the
+    // string at least one byte (spec).
+    std::vector<std::uint8_t> p = {NTF_PAUSE, reason, static_cast<std::uint8_t>(addr & 0xFF),
+                                   static_cast<std::uint8_t>(addr >> 8), bank_byte(addr)};
+    p.insert(p.end(), text.begin(), text.end());
+    p.push_back(0);
+    ntf_queue_.push_back(encode_response(0, p));
+}
+
+void DzrpServer::drop_temporaries() {
+    // The backend removes transients at the stop it causes; a stop it did not
+    // cause (a legacy breakpoint) leaves them armed, so what is left of this
+    // CONTINUE's are removed here — "removed automatically after the command
+    // is finished" (spec). `unsubscribe` of one already gone is benign.
+    for (EventId id : temps_) dbg_.unsubscribe(cid_, id);
+    temps_.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -313,6 +490,8 @@ void DzrpServer::cmd_init(const Command& cmd) {
             return;
         }
         cid_ = a.value;
+        // SES-02: this client's stops arrive as `on_paused()` pushes.
+        dbg_.set_listener(cid_, this);
     }
     client_version_[0] = cmd.payload[0];
     client_version_[1] = cmd.payload[1];
@@ -640,6 +819,363 @@ void DzrpServer::cmd_loopback(const Command& cmd) {
 // every clear bit into a client-side thrower.
 void DzrpServer::cmd_get_supported_commands(const Command& cmd) {
     reply(cmd.seq, supported_bitfield());
+}
+
+// ---------------------------------------------------------------------------
+// WP-3 — continue, pause, breakpoints, break on interrupt (design §3)
+// ---------------------------------------------------------------------------
+
+// CMD_CONTINUE (6): bp1en, bp1 u16, bp2en, bp2 u16 [, alt, 4 bytes] — DeZog
+// sends 11 bytes, the CSpect reference reads 5 (F5). Each enabled address
+// becomes one TRANSIENT `Execute` subscription (hidden from every user list,
+// exempt from the master switch, removed at the next stop — REQ-dzrp-3); then
+// `run()`, whose GH #221 step-off arm is what makes a CONTINUE from a
+// breakpoint not re-hit it. The reply goes out BEFORE anything runs: the
+// machine only runs in the loop owner's next frames (§4.2).
+//
+// DeZog's division of labour, binding (§0 item 2): the temporaries ARE its
+// Step Into / Over / Out — it computed them — so the adapter never calls a
+// backend step verb.
+void DzrpServer::cmd_continue(const Command& cmd) {
+    const std::vector<std::uint8_t>& p = cmd.payload;
+    if (p.size() > 6 && p[6] != 0) {
+        // "At the moment there are no plans to implement 'step-over' or
+        // 'step-out' alternate commands. Only 0 is implemented." (spec) — and
+        // "the remote MIGHT execute the alternate command": treated as 0.
+        Log::debugger()->info("dzrp: CMD_CONTINUE alternate command {} is not implemented — "
+                              "running with the breakpoints instead",
+                              p[6]);
+    }
+    for (std::size_t at : {std::size_t{0}, std::size_t{3}}) {
+        if (p[at] == 0) continue;
+        Subscription sub;
+        sub.kind      = EventKind::Execute;
+        sub.filter.lo = sub.filter.hi = le16(p, at + 1);
+        sub.transient = true;
+        sub.action    = Action::Stop;
+        const auto s = dbg_.subscribe(cid_, sub);
+        if (s)
+            temps_.push_back(s.value);
+        else
+            Log::debugger()->warn("dzrp: CMD_CONTINUE temporary breakpoint at 0x{:04X} refused: {}",
+                                  sub.filter.lo, result_name(s.status));
+    }
+    reply(cmd.seq);
+    const Result r = dbg_.run(cid_);
+    if (r != Result::Ok) {
+        // The reply cannot carry a refusal, so the refusal is the stop DeZog
+        // is waiting for: NTF_PAUSE 255 with the reason, shown as the break
+        // reason, and the machine stays paused — the honest outcome (§3.2).
+        std::string why = std::string("resume refused: ") + result_name(r);
+        if (const auto inc = dbg_.resume_blocked_by_corruption())
+            why += " (" + inc->subsystem + ")";
+        Log::debugger()->warn("dzrp: CMD_CONTINUE {}", why);
+        drop_temporaries();
+        queue_pause_ntf(BREAK_OTHER, dbg_.registers().PC, why);
+        return;
+    }
+    continue_outstanding_ = true;
+}
+
+// CMD_PAUSE (7): reply; and ONE NTF_PAUSE reason 1, after the reply, ONLY if
+// this stopped a running machine — "if for some reason the program is not
+// running when received, nothing happens" (spec). Called from `pump()`, the
+// pause lands at a frame boundary.
+void DzrpServer::cmd_pause(const Command& cmd) {
+    reply(cmd.seq);
+    if (dbg_.state().paused) return;
+    if (const Result r = dbg_.pause(cid_); r != Result::Ok) {
+        Log::debugger()->warn("dzrp: CMD_PAUSE refused: {}", result_name(r));
+        return;
+    }
+    pause_owed_ = true;
+}
+
+// CMD_ENABLE_BREAK_ON_INTERRUPT (39): 1 → an `IntAck` subscription that stops
+// (the accepted-maskable-interrupt seam; NMI is not an "interrupt" here), 0 →
+// removed. The stop is NTF_PAUSE 255 at the handler's entry, "Break on
+// interrupt." — DeZog's own text for the zsim-only break (§3.3).
+void DzrpServer::cmd_enable_break_on_interrupt(const Command& cmd) {
+    if (cmd.payload[0] != 0 && int_ack_ == EVENT_NONE) {
+        Subscription sub;
+        sub.kind   = EventKind::IntAck;
+        sub.action = Action::Stop;
+        const auto s = dbg_.subscribe(cid_, sub);
+        if (s)
+            int_ack_ = s.value;
+        else
+            Log::debugger()->warn("dzrp: CMD_ENABLE_BREAK_ON_INTERRUPT refused: {}",
+                                  result_name(s.status));
+    } else if (cmd.payload[0] == 0 && int_ack_ != EVENT_NONE) {
+        dbg_.unsubscribe(cid_, int_ack_);
+        int_ack_ = EVENT_NONE;
+    }
+    reply(cmd.seq);
+}
+
+// CMD_ADD_BREAKPOINT (40): addr u16, bank+1, condition\0. One `Execute[a,a]`
+// subscription that stops, owned by this client (listed read-only in the GUI),
+// with NO condition: DeZog evaluates conditions itself and a conditional
+// breakpoint is an unconditional pause to the remote (§0 item 2) — the string
+// is ignored. Bank byte ≠ 0 → the `page` qualifier (REQ-dzrp-7): it fires only
+// with that page at the PC's slot. Reply: the id, 1..65535, never reused in a
+// session; 0 = refused, which DeZog shows as an unverified breakpoint.
+void DzrpServer::cmd_add_breakpoint(const Command& cmd) {
+    const std::uint16_t addr  = le16(cmd.payload, 0);
+    const std::uint8_t  bank1 = cmd.payload[2];
+    std::uint16_t       id    = 0;
+    std::uint16_t       page  = PAGE_ANY;
+    if (!bank1_to_page(bank1, page)) {
+        Log::debugger()->warn("dzrp: CMD_ADD_BREAKPOINT at 0x{:04X} refused: no bank {}", addr,
+                              bank1 - 1);
+    } else if (next_bp_id_ > 0xFFFF) {
+        Log::debugger()->warn("dzrp: CMD_ADD_BREAKPOINT at 0x{:04X} refused: all 65535 ids of "
+                              "this session are used",
+                              addr);
+    } else {
+        Subscription sub;
+        sub.kind        = EventKind::Execute;
+        sub.filter.lo   = sub.filter.hi = addr;
+        sub.filter.page = page;
+        sub.action      = Action::Stop;
+        const auto s = dbg_.subscribe(cid_, sub);
+        if (s) {
+            id       = static_cast<std::uint16_t>(next_bp_id_++);
+            bps_[id] = s.value;
+        } else {
+            Log::debugger()->warn("dzrp: CMD_ADD_BREAKPOINT at 0x{:04X} refused: {}", addr,
+                                  result_name(s.status));
+        }
+    }
+    reply(cmd.seq, {static_cast<std::uint8_t>(id & 0xFF), static_cast<std::uint8_t>(id >> 8)});
+}
+
+// CMD_REMOVE_BREAKPOINT (41): by id. An id this session did not issue (or
+// already removed) is a seq-only reply and a warn line.
+void DzrpServer::cmd_remove_breakpoint(const Command& cmd) {
+    const std::uint16_t id = le16(cmd.payload, 0);
+    const auto          it = bps_.find(id);
+    if (it == bps_.end()) {
+        Log::debugger()->warn("dzrp: CMD_REMOVE_BREAKPOINT: no breakpoint with id {}", id);
+    } else {
+        dbg_.unsubscribe(cid_, it->second);
+        bps_.erase(it);
+    }
+    reply(cmd.seq);
+}
+
+// ---------------------------------------------------------------------------
+// WP-4 — sprites (16-19), watchpoints (42/43), state bookmarks (50/51)
+// ---------------------------------------------------------------------------
+
+// CMD_GET_SPRITES_PALETTE (16): palette 0/1 → 256 entries, each LE
+// `RRRGGGBB, 0000000B` — the 9-bit RGB333 value split as the spec says.
+void DzrpServer::cmd_get_sprites_palette(const Command& cmd) {
+    const int bank = cmd.payload[0];
+    if (bank > 1) {
+        Log::debugger()->warn("dzrp: CMD_GET_SPRITES_PALETTE: no sprite palette {}", bank);
+        reply(cmd.seq);
+        return;
+    }
+    std::vector<std::uint8_t> out;
+    out.reserve(512);
+    for (int i = 0; i < 256; ++i) {
+        const std::uint16_t c =
+            dbg_.sprite_palette_rgb333(bank, static_cast<std::uint8_t>(i)).value;
+        out.push_back(static_cast<std::uint8_t>(c >> 1));
+        out.push_back(static_cast<std::uint8_t>(c & 1));
+    }
+    reply(cmd.seq, out);
+}
+
+// CMD_GET_SPRITES_CLIP_WINDOW_AND_CONTROL (17): x1, x2, y1, y2 from the live
+// sprite clip window, then NR 0x15 through its read path.
+void DzrpServer::cmd_get_sprites_clip_window_and_control(const Command& cmd) {
+    const auto w = dbg_.sprite_clip();
+    reply(cmd.seq, {w.x1, w.x2, w.y1, w.y2, dbg_.nextreg_peek(0x15)});
+}
+
+// CMD_GET_SPRITES (18): index, count → 5 raw attribute bytes per sprite, as
+// the engine holds them (the decoded `SpriteInfo` is lossy). A range past
+// sprite 127 is clamped, and the reply is the clamped length.
+void DzrpServer::cmd_get_sprites(const Command& cmd) {
+    const std::size_t index = cmd.payload[0];
+    std::size_t       count = cmd.payload[1];
+    if (index + count > jnext::dbg::SPRITE_COUNT) {
+        const std::size_t clamped = index >= jnext::dbg::SPRITE_COUNT
+                                        ? 0
+                                        : jnext::dbg::SPRITE_COUNT - index;
+        Log::debugger()->warn("dzrp: CMD_GET_SPRITES {} from {} runs past sprite 127 — "
+                              "clamped to {}",
+                              count, index, clamped);
+        count = clamped;
+    }
+    std::vector<std::uint8_t> out;
+    out.reserve(count * jnext::dbg::SPRITE_ATTR_BYTES);
+    for (std::size_t i = 0; i < count; ++i) {
+        const auto a = dbg_.sprite_attr_raw(static_cast<std::uint8_t>(index + i));
+        out.insert(out.end(), a.value.begin(), a.value.end());
+    }
+    reply(cmd.seq, out);
+}
+
+// CMD_GET_SPRITE_PATTERNS (19): index, count of 256-byte patterns — two bytes
+// from DeZog, two LE words by the spec (F6): both are accepted. Index 0..63,
+// count clamped to what is left of the 16 KB pattern RAM.
+void DzrpServer::cmd_get_sprite_patterns(const Command& cmd) {
+    const bool        words = cmd.payload.size() >= 4;
+    const std::size_t index = words ? le16(cmd.payload, 0) : cmd.payload[0];
+    std::size_t       count = words ? le16(cmd.payload, 2) : cmd.payload[1];
+    constexpr std::size_t kPatterns = jnext::dbg::PATTERN_RAM_BYTES / 256;
+    if (index + count > kPatterns) {
+        const std::size_t clamped = index >= kPatterns ? 0 : kPatterns - index;
+        Log::debugger()->warn("dzrp: CMD_GET_SPRITE_PATTERNS {} from {} runs past pattern 63 — "
+                              "clamped to {}",
+                              count, index, clamped);
+        count = clamped;
+    }
+    const auto ram = dbg_.pattern_ram();
+    std::vector<std::uint8_t> out;
+    if (count > 0)
+        out.assign(ram.data + index * 256, ram.data + (index + count) * 256);
+    reply(cmd.seq, out);
+}
+
+// CMD_ADD_WATCHPOINT (42): addr u16, bank+1, size u16, access (bit 0 read,
+// bit 1 write). One `Mem[addr, addr+size-1]` subscription that stops; a bank
+// byte ≠ 0 is the `page` qualifier (REQ-dzrp-11). Reported with the bank, never
+// filtered, never auto-continued (§5.4). Reply: error byte, 1 = refused (size
+// 0, no access bit, a range past 0xFFFF — DeZog ignores wrap-around too — or a
+// bank that does not exist).
+void DzrpServer::cmd_add_watchpoint(const Command& cmd) {
+    std::uint8_t err = 1;
+    if (cmd.payload.size() < 6) {
+        Log::debugger()->warn("dzrp: malformed CMD_ADD_WATCHPOINT: payload is {} bytes, needs 6",
+                              cmd.payload.size());
+    } else {
+        const std::uint16_t addr   = le16(cmd.payload, 0);
+        const std::uint8_t  bank1  = cmd.payload[2];
+        const std::uint16_t size   = le16(cmd.payload, 3);
+        const std::uint8_t  access = cmd.payload[5] & 0x03;
+        std::uint16_t       page   = PAGE_ANY;
+        const char*         why    = nullptr;
+        if (size == 0)
+            why = "size 0";
+        else if (access == 0)
+            why = "neither read nor write";
+        else if (std::uint32_t{addr} + size - 1 > 0xFFFF)
+            why = "the range runs past 0xFFFF";
+        else if (!bank1_to_page(bank1, page))
+            why = "no such bank";
+        if (why) {
+            Log::debugger()->warn("dzrp: CMD_ADD_WATCHPOINT at 0x{:04X} size {} refused: {}",
+                                  addr, size, why);
+        } else {
+            Subscription sub;
+            sub.kind        = EventKind::Mem;
+            sub.filter.lo   = addr;
+            sub.filter.hi   = static_cast<std::uint16_t>(addr + size - 1);
+            sub.filter.page = page;
+            sub.access      = static_cast<Access>(access);
+            sub.action      = Action::Stop;
+            const auto s = dbg_.subscribe(cid_, sub);
+            if (s) {
+                wps_.push_back(Watch{addr, bank1, size, cmd.payload[5], s.value});
+                err = 0;
+            } else {
+                Log::debugger()->warn("dzrp: CMD_ADD_WATCHPOINT at 0x{:04X} refused: {}", addr,
+                                      result_name(s.status));
+            }
+        }
+    }
+    reply(cmd.seq, {err});
+}
+
+// CMD_REMOVE_WATCHPOINT (43): DZRP watchpoints have no id, so the exact
+// (addr, bank+1, size, access) tuple the add carried is matched. One removed
+// per command; an unknown tuple is a seq-only reply and a warn line.
+void DzrpServer::cmd_remove_watchpoint(const Command& cmd) {
+    const std::uint16_t addr   = le16(cmd.payload, 0);
+    const std::uint8_t  bank1  = cmd.payload[2];
+    const std::uint16_t size   = le16(cmd.payload, 3);
+    const std::uint8_t  access = cmd.payload[5];
+    const auto it = std::find_if(wps_.begin(), wps_.end(), [&](const Watch& w) {
+        return w.addr == addr && w.bank1 == bank1 && w.size == size && w.access == access;
+    });
+    if (it == wps_.end()) {
+        Log::debugger()->warn("dzrp: CMD_REMOVE_WATCHPOINT: none at 0x{:04X} bank+1 {} size {} "
+                              "access {}",
+                              addr, bank1, size, access);
+    } else {
+        dbg_.unsubscribe(cid_, it->id);
+        wps_.erase(it);
+    }
+    reply(cmd.seq);
+}
+
+// CMD_READ_STATE (50): a BOOKMARK in the backend's named map (CAP-CAP-03), and
+// on the wire a token — "JNXB" + its name — not the snapshot: "arbitrary data,
+// the format is up to the remote" (spec). Only at a frame boundary: DeZog does
+// not re-read registers after a save (F9), so advancing to one would leave its
+// cached PC behind the machine. Mid-frame (after a breakpoint) the reply is
+// ZERO-LENGTH — "it was not possible to obtain the state" (spec) — and so is a
+// save past the bound of 8 (owner decision Q2; never a silent eviction).
+void DzrpServer::cmd_read_state(const Command& cmd) {
+    const std::string name =
+        "dzrp-" + std::to_string(cid_) + "-" + std::to_string(next_token_);
+    const Result r =
+        dbg_.bookmark_save(cid_, name, jnext::dbg::SaveStateMode::RefuseMidFrame);
+    last_save_refused_mid_frame_ = r == Result::NotAtFrameBoundary;
+    if (r != Result::Ok) {
+        Log::debugger()->warn("dzrp: CMD_READ_STATE refused: {}{}", result_name(r),
+                              r == Result::NotAtFrameBoundary
+                                  ? " — the machine stopped mid-frame; a state can be saved "
+                                    "after a manual pause"
+                                  : "");
+        reply(cmd.seq);
+        return;
+    }
+    ++next_token_;
+    tokens_.insert(name);
+    std::vector<std::uint8_t> out(STATE_TOKEN_MAGIC, STATE_TOKEN_MAGIC + 4);
+    out.insert(out.end(), name.begin(), name.end());
+    reply(cmd.seq, out);
+}
+
+// CMD_WRITE_STATE (51): the payload is VALIDATED BEFORE ANY BACKEND CALL
+// (review R-1). Empty (what DeZog sends back after a refused save), short,
+// without the magic, or naming a bookmark this session did not issue or the
+// backend no longer holds → reply, then NTF_PAUSE 255 "no state to restore";
+// `bookmark_restore` is not called, nothing is latched, the session goes on.
+// Only a valid token reaches the backend; a restore that then fails is reported
+// the same way with the reason.
+void DzrpServer::cmd_write_state(const Command& cmd) {
+    const std::vector<std::uint8_t>& p = cmd.payload;
+    std::string name;
+    bool        valid = p.size() > 4 && std::equal(p.begin(), p.begin() + 4, STATE_TOKEN_MAGIC);
+    if (valid) {
+        name.assign(p.begin() + 4, p.end());
+        const auto held = dbg_.bookmarks(cid_);
+        valid = tokens_.count(name) &&
+                std::find(held.begin(), held.end(), name) != held.end();
+    }
+    reply(cmd.seq);
+    if (!valid) {
+        const std::string why =
+            std::string("no state to restore") +
+            (last_save_refused_mid_frame_ ? " (save was refused mid-frame)" : "");
+        Log::debugger()->warn("dzrp: CMD_WRITE_STATE of {} bytes: {}", p.size(), why);
+        queue_pause_ntf(BREAK_OTHER, dbg_.registers().PC, why);
+        return;
+    }
+    const Result r = dbg_.bookmark_restore(cid_, name);
+    if (r != Result::Ok) {
+        std::string why = std::string("restore failed: ") + result_name(r);
+        if (const auto inc = dbg_.resume_blocked_by_corruption())
+            why += " (" + inc->subsystem + ")";
+        Log::debugger()->warn("dzrp: CMD_WRITE_STATE {}", why);
+        queue_pause_ntf(BREAK_OTHER, dbg_.registers().PC, why);
+    }
 }
 
 }  // namespace dzrp

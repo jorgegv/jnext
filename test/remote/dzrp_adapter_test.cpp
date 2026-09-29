@@ -26,6 +26,16 @@
 //   DZRP-NR-*, DZRP-PORT-*, DZRP-BRD-*  CMD_GET_TBBLUE_REG, CMD_READ/WRITE_PORT,
 //               the legacy CMD_SET_BORDER.
 //   DZRP-MAL-*  every fixed-length command, one byte short.
+//   DZRP-BRK-*, DZRP-CONT-*, DZRP-NTF-*, DZRP-PAUSE-*, DZRP-TEMP-*, DZRP-BOI-*,
+//   DZRP-RST-*  WP-3: CMD_ADD/REMOVE_BREAKPOINT, CMD_CONTINUE (reply before
+//               anything runs, GH #221 step-off through run(), a refused
+//               resume), CMD_PAUSE (NTF only when it stopped something),
+//               NTF_PAUSE (reason, address, bank byte, the post-frame flush,
+//               exactly once), temp-beats-user (F8), long addresses (F7),
+//               break on interrupt, a hard reset sends nothing.
+//   DZRP-WP-*, DZRP-ST-*, DZRP-SPR-*  WP-4: watchpoints (both edges of a
+//               range, bank, the exact-tuple remove), state tokens validated
+//               before any backend call, sprites 16-19.
 //
 // Every refusal path has a row: before CMD_INIT, malformed, unknown register,
 // out-of-range bank/slot, the page bound, and the backend's RZX wall.
@@ -70,6 +80,7 @@
 
 using jnext::dbg::Debugger;
 using jnext::dbg::PumpBudget;
+using jnext::dbg::Result;
 using jnext::remote::FakeListener;
 using jnext::remote::FakePeer;
 using namespace jnext::remote::dzrp;
@@ -620,13 +631,42 @@ struct Dz {
     std::string               rx;
     std::uint8_t              seq = 0;
 
+    /// Notifications (seq 0) as they came off the wire, oldest first, and
+    /// every frame in arrival order (`order`: 'R' reply, 'N' notification).
+    std::vector<Resp> ntfs;
+    std::string       order;
+
     explicit Dz(Rig& r) : rig(r), p(r.connect()) {}
 
-    /// Send one command and return its reply; `len` 0 if none came.
+    /// Take what the server wrote; notifications go to `ntfs`, replies are
+    /// returned.
+    std::vector<Resp> collect() {
+        rx += p->take();
+        std::vector<Resp> replies;
+        for (auto& f : take_frames(rx)) {
+            order.push_back(f.seq == 0 ? 'N' : 'R');
+            (f.seq == 0 ? ntfs : replies).push_back(f);
+        }
+        return replies;
+    }
+
+    /// Send one command and return its reply; `len` 0 if none came. Any
+    /// notification that arrives meanwhile is kept in `ntfs`.
     Resp cmd(std::uint8_t id, const std::string& payload = {}) {
         seq = static_cast<std::uint8_t>(seq % 255 + 1);
-        const auto r = exchange(rig, *p, rx, frame(seq, id, payload));
-        return r.empty() ? Resp{} : r[0];
+        p->send(frame(seq, id, payload));
+        for (int i = 0; i < 16; ++i) {
+            rig.pump();
+            for (const Resp& r : collect())
+                if (r.seq == seq) return r;
+        }
+        return Resp{};
+    }
+
+    /// One loop-owner tick's pump, collecting what it wrote.
+    void tick() {
+        rig.pump();
+        collect();
     }
     Resp init(int maj = 2, int min = 2, int pat = 0, const std::string& name = "dzrp-test") {
         return cmd(CMD_INIT, init_payload(maj, min, pat, name));
@@ -884,12 +924,12 @@ static void supported_rows() {
     LogTap log;
     Dz     c(rig);
     const Resp r = c.cmd(CMD_GET_SUPPORTED_COMMANDS);
-    // Milestone 1 serves 1 2 3 4 8 9 10 11 15 20 21 23 24 25 26 (+ legacy 5, 12,
-    // never advertised). WP-3/WP-4 add rows to THE table, and this expectation
-    // grows to the design's `DE 8F BF 07 80 0F 0C` with them.
+    // The whole of design §2 row 24: the legacy 5 and 12 are served but never
+    // advertised, and 13, 14 and 22 are unsupported.
     check("DZRP-SUP-01", "the bitfield names exactly the commands served, little endian, bit "
-                         "n = command n: 1E 8F B0 07 (1-4, 8-11, 15, 20, 21, 23-26)",
-          r.payload == bytes({0x1E, 0x8F, 0xB0, 0x07}), hex(r.payload));
+                         "n = command n: DE 8F BF 07 80 0F 0C (design §2 row 24: 1-4, 6-11, 15-21, "
+                         "23-26, 39-43, 50, 51)",
+          r.payload == bytes({0xDE, 0x8F, 0xBF, 0x07, 0x80, 0x0F, 0x0C}), hex(r.payload));
 
     // THE ONE TABLE, BOTH WAYS: every id 0..255 sent before CMD_INIT (so no
     // machine is touched) with an empty payload. "Unsupported" must be said for
@@ -1568,6 +1608,12 @@ static void malformed_rows() {
     const Z80Registers before = rig.emu.cpu().get_registers();
     struct Short { std::uint8_t id; const char* name; int min; };
     const Short cases[] = {
+        {CMD_CONTINUE, "CMD_CONTINUE", 5},             {CMD_ADD_BREAKPOINT, "CMD_ADD_BREAKPOINT", 3},
+        {CMD_REMOVE_BREAKPOINT, "CMD_REMOVE_BREAKPOINT", 2},
+        {CMD_REMOVE_WATCHPOINT, "CMD_REMOVE_WATCHPOINT", 6},
+        {CMD_ENABLE_BREAK_ON_INTERRUPT, "CMD_ENABLE_BREAK_ON_INTERRUPT", 1},
+        {CMD_GET_SPRITES_PALETTE, "CMD_GET_SPRITES_PALETTE", 1},
+        {CMD_GET_SPRITES, "CMD_GET_SPRITES", 2},       {CMD_GET_SPRITE_PATTERNS, "CMD_GET_SPRITE_PATTERNS", 2},
         {CMD_SET_REGISTER, "CMD_SET_REGISTER", 3},     {CMD_READ_MEM, "CMD_READ_MEM", 5},
         {CMD_WRITE_MEM, "CMD_WRITE_MEM", 3},           {CMD_GET_TBBLUE_REG, "CMD_GET_TBBLUE_REG", 1},
         {CMD_SET_BORDER, "CMD_SET_BORDER", 1},         {CMD_READ_PORT, "CMD_READ_PORT", 2},
@@ -1578,7 +1624,7 @@ static void malformed_rows() {
     std::string why;
     for (const Short& k : cases) {
         // One byte short, with values that would DO something if acted on.
-        const std::string p = bytes({0x00, 0x00, 0x90, 0x07, 0x00}).substr(0, static_cast<std::size_t>(k.min - 1));
+        const std::string p = bytes({0x01, 0x00, 0x90, 0x07, 0x00}).substr(0, static_cast<std::size_t>(k.min - 1));
         const Resp r = c.cmd(k.id, p);
         const std::string needle = std::string("malformed ") + k.name + ": payload is " +
                                    std::to_string(k.min - 1) + " bytes, needs at least " +
@@ -1592,8 +1638,890 @@ static void malformed_rows() {
     check("DZRP-MAL-01", "each fixed-length command one byte short gets a seq-only reply and a "
                          "\"malformed\" warn line naming it, and changes nothing",
           all && regs_equal(rig.emu.cpu().get_registers(), before) &&
-              rig.emu.ula().get_border() == 1 && rig.emu.mmu().peek(0x9000) == 0x42,
+              rig.emu.ula().get_border() == 1 && rig.emu.mmu().peek(0x9000) == 0x42 &&
+              rig.dbg->state().paused && rig.dbg->subscriptions(true).empty(),
           why);
+}
+
+// ── WP-3 / WP-4 helpers ────────────────────────────────────────────────────
+
+/// One `NTF_PAUSE` as it came off the wire.
+struct Ntf {
+    bool          ok     = false;  // a well-formed NTF_PAUSE
+    std::uint32_t len    = 0;
+    std::uint8_t  reason = 0;
+    std::uint16_t addr   = 0;
+    std::uint8_t  bank   = 0;
+    std::string   text;
+};
+
+static Ntf parse_ntf(const Resp& r) {
+    Ntf n;
+    const std::string& p = r.payload;
+    if (r.seq != 0 || p.size() < 6 || static_cast<unsigned char>(p[0]) != NTF_PAUSE ||
+        p.back() != '\0')
+        return n;
+    n.ok     = true;
+    n.len    = r.len;
+    n.reason = static_cast<std::uint8_t>(p[1]);
+    n.addr   = static_cast<std::uint16_t>(static_cast<unsigned char>(p[2]) |
+                                        (static_cast<unsigned char>(p[3]) << 8));
+    n.bank   = static_cast<std::uint8_t>(p[4]);
+    n.text   = p.substr(5, p.size() - 6);
+    return n;
+}
+
+static std::string ntf_str(const Ntf& n) {
+    char b[80];
+    std::snprintf(b, sizeof(b), "ok=%d reason=%u addr=%04X bank=%02X text=\"", n.ok,
+                  n.reason, n.addr, n.bank);
+    return b + n.text + "\"";
+}
+
+static void load_prog(Rig& rig, std::uint16_t at, std::initializer_list<int> code) {
+    std::uint16_t a = at;
+    for (int b : code) rig.emu.mmu().write(a++, static_cast<std::uint8_t>(b));
+}
+
+static void set_pc(Rig& rig, std::uint16_t pc) {
+    Z80Registers r = rig.emu.cpu().get_registers();
+    r.PC     = pc;
+    r.halted = false;
+    rig.emu.cpu().set_registers(r);
+}
+
+/// Run frames, as a loop owner does, until the machine pauses or `max` ran.
+static bool run_until_paused(Rig& rig, int max = 10) {
+    for (int i = 0; i < max && !rig.dbg->state().paused; ++i) rig.emu.run_frame();
+    return rig.dbg->state().paused;
+}
+
+static std::string cont(int bp1en = 0, std::uint16_t bp1 = 0, int bp2en = 0,
+                        std::uint16_t bp2 = 0, int alt = 0) {
+    // DeZog's 11-byte form (buf:484-490): bp1en, bp1, bp2en, bp2, alt, 4 unused.
+    return bytes({bp1en}) + u16s(bp1) + bytes({bp2en}) + u16s(bp2) + bytes({alt, 0, 0, 0, 0});
+}
+
+static std::string add_bp(std::uint16_t addr, int bank1, const std::string& cond = {}) {
+    return u16s(addr) + bytes({bank1}) + cond + std::string(1, '\0');
+}
+
+static std::uint16_t bp_id(const Resp& r) {
+    return r.payload.size() == 2
+               ? static_cast<std::uint16_t>(static_cast<unsigned char>(r.payload[0]) |
+                                            (static_cast<unsigned char>(r.payload[1]) << 8))
+               : 0xFFFF;
+}
+
+/// The loop at 0x8000: INC A; NOP; NOP; JR 0x8000.
+static void load_loop(Rig& rig) {
+    load_prog(rig, 0x8000, {0x3C, 0x00, 0x00, 0x18, 0xFB});
+    set_pc(rig, 0x8000);
+}
+
+static std::uint8_t reg_a(Rig& rig) {
+    return static_cast<std::uint8_t>(rig.emu.cpu().get_registers().AF >> 8);
+}
+
+// ── DZRP-BRK / CONT / NTF / PAUSE / TEMP / BOI — WP-3 ──────────────────────
+
+static void breakpoint_rows() {
+    {
+        Rig rig;
+        Dz  c(rig);
+        c.init();
+        load_loop(rig);
+        const Resp a  = c.cmd(CMD_ADD_BREAKPOINT, add_bp(0x8002, 0, "A == 3"));
+        const auto subs = rig.dbg->subscriptions(false);
+        check("DZRP-BRK-01", "CMD_ADD_BREAKPOINT answers id 1 (LE u16) and installs ONE "
+                             "unconditional Execute[0x8002] stop owned by the client, listed to "
+                             "every client — the condition string is DeZog's, never the remote's",
+              a.payload == bytes({1, 0}) && subs.size() == 1 &&
+                  subs[0].kind == jnext::dbg::EventKind::Execute && subs[0].filter.lo == 0x8002 &&
+                  subs[0].filter.hi == 0x8002 && subs[0].filter.page == jnext::dbg::PAGE_ANY &&
+                  !subs[0].has_condition && !subs[0].transient &&
+                  subs[0].action == jnext::dbg::Action::Stop &&
+                  subs[0].owner != jnext::dbg::CLIENT_NONE,
+              hex(a.payload));
+
+        // CONTINUE: the reply is on the wire BEFORE anything runs.
+        const std::uint64_t t0 = cycle(rig);
+        const Resp          r  = c.cmd(CMD_CONTINUE, cont());
+        const bool          no_run_yet = cycle(rig) == t0 && !rig.dbg->state().paused;
+        check("DZRP-CONT-01", "CMD_CONTINUE (DeZog's 11 bytes) is answered with the seq alone "
+                              "before the machine has run a cycle, and leaves it running",
+              r.len == 1 && r.seq == c.seq && no_run_yet);
+
+        // THE POST-FRAME FLUSH: the stop happens inside the loop owner's
+        // frames; the NTF is on the wire after ONE pump, not before it.
+        const bool   stopped = run_until_paused(rig);
+        const std::size_t before = c.p->pending();
+        c.tick();
+        const bool   one_tick = c.ntfs.size() == 1;
+        const Ntf    n        = one_tick ? parse_ntf(c.ntfs[0]) : Ntf{};
+        check("DZRP-NTF-01", "a breakpoint stop in the frames is notified by the very next "
+                             "pump — nothing on the wire before it, the NTF after exactly one",
+              stopped && before == 0 && one_tick);
+        check("DZRP-NTF-02", "NTF_PAUSE for it: seq 0, id 1, reason 2 (breakpoint), address "
+                             "0x8002, bank byte 5 (page 4 at slot 4, +1), an empty string — "
+                             "length 7 counting the seq",
+              n.ok && n.len == 7 && n.reason == BREAK_BP && n.addr == 0x8002 && n.bank == 5 &&
+                  n.text.empty() && rig.emu.cpu().get_registers().PC == 0x8002,
+              ntf_str(n));
+
+        // GH #221 STEP-OFF through `run()`: a CONTINUE from the breakpoint does
+        // not re-hit it at once — one loop iteration (A + 1) runs first.
+        const std::uint8_t a0 = reg_a(rig);
+        c.ntfs.clear();
+        c.cmd(CMD_CONTINUE, cont());
+        run_until_paused(rig);
+        c.tick();
+        const Ntf again = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        check("DZRP-CONT-02", "CMD_CONTINUE from the breakpoint it stopped on steps off it "
+                              "(GH #221, through run()): one iteration runs (A+1) and the next "
+                              "pass stops there again, reason 2",
+              again.ok && again.reason == BREAK_BP && again.addr == 0x8002 &&
+                  reg_a(rig) == static_cast<std::uint8_t>(a0 + 1),
+              ntf_str(again) + " A=" + std::to_string(reg_a(rig)));
+
+        // Removal: the breakpoint is gone from the backend and does not fire.
+        const Resp rm = c.cmd(CMD_REMOVE_BREAKPOINT, u16s(1));
+        c.ntfs.clear();
+        c.cmd(CMD_CONTINUE, cont());
+        const bool still_running = !run_until_paused(rig, 3);
+        const Resp pz = c.cmd(CMD_PAUSE);
+        const Ntf  pn = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        check("DZRP-BRK-02", "CMD_REMOVE_BREAKPOINT answers the seq alone and the breakpoint "
+                             "is gone: the machine runs three frames past 0x8002 until a "
+                             "CMD_PAUSE stops it (reason 1)",
+              rm.len == 1 && rig.dbg->subscriptions(true).empty() && still_running &&
+                  pz.len == 1 && pn.ok && pn.reason == BREAK_MANUAL);
+    }
+    {
+        Rig    rig;
+        LogTap log;
+        Dz     c(rig);
+        c.init();
+        const Resp a = c.cmd(CMD_ADD_BREAKPOINT, add_bp(0x8000, 0));
+        c.cmd(CMD_REMOVE_BREAKPOINT, u16s(bp_id(a)));
+        const Resp b    = c.cmd(CMD_ADD_BREAKPOINT, add_bp(0x8000, 0));
+        const Resp c3   = c.cmd(CMD_ADD_BREAKPOINT, add_bp(0x8000, 0));
+        const Resp none = c.cmd(CMD_REMOVE_BREAKPOINT, u16s(99));
+        const Resp twice = c.cmd(CMD_REMOVE_BREAKPOINT, u16s(1));
+        check("DZRP-BRK-03", "ids are never reused within a session (1, then 2 and 3 after 1 was "
+                             "removed); two breakpoints at one address are two ids and two "
+                             "subscriptions; removing an id never issued, or one already "
+                             "removed, is a seq-only reply and a warn line",
+              bp_id(a) == 1 && bp_id(b) == 2 && bp_id(c3) == 3 &&
+                  rig.dbg->subscriptions(false).size() == 2 && none.len == 1 && twice.len == 1 &&
+                  log.count("CMD_REMOVE_BREAKPOINT: no breakpoint with id 99") == 1 &&
+                  log.count("CMD_REMOVE_BREAKPOINT: no breakpoint with id 1") == 1);
+        c.cmd(CMD_REMOVE_BREAKPOINT, u16s(2));
+        load_loop(rig);
+        c.cmd(CMD_CONTINUE, cont());
+        run_until_paused(rig, 3);
+        c.tick();
+        const Ntf n = c.ntfs.empty() ? Ntf{} : parse_ntf(c.ntfs.back());
+        check("DZRP-BRK-04", "removing one of two breakpoints at the same address leaves the "
+                             "other firing",
+              n.ok && n.reason == BREAK_BP && n.addr == 0x8000 &&
+                  rig.dbg->subscriptions(false).size() == 1);
+    }
+    {
+        // F7 — A LONG BREAKPOINT: bank+1 = 15 is page 14's; it fires only with
+        // page 14 at the PC's slot, and the NTF reports bank byte 15.
+        Rig    rig;
+        LogTap log;
+        Dz     c(rig);
+        c.init();
+        rig.emu.mmu().nr_page_ptr(14)[0] = 0x18;  // JR $ at the top of page 14
+        rig.emu.mmu().nr_page_ptr(14)[1] = 0xFE;
+        rig.emu.mmu().nr_page_ptr(16)[0] = 0x18;  // and of page 16
+        rig.emu.mmu().nr_page_ptr(16)[1] = 0xFE;
+        c.cmd(CMD_SET_SLOT, bytes({6, 14}));
+        c.cmd(CMD_SET_REGISTER, bytes({0}) + u16s(0xC000));
+        const Resp a = c.cmd(CMD_ADD_BREAKPOINT, add_bp(0xC000, 15));
+        c.cmd(CMD_CONTINUE, cont());
+        run_until_paused(rig, 3);
+        c.tick();
+        const Ntf hit = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        check("DZRP-BRK-05", "a breakpoint with bank+1 = 15 is the backend's page qualifier 14, "
+                             "and its stop reports bank byte 15 (F7: DeZog keys breakpoints by "
+                             "long address)",
+              bp_id(a) == 1 && rig.dbg->subscriptions(false).size() == 1 &&
+                  rig.dbg->subscriptions(false)[0].filter.page == 14 && hit.ok &&
+                  hit.reason == BREAK_BP && hit.addr == 0xC000 && hit.bank == 15,
+              ntf_str(hit));
+        c.ntfs.clear();
+        c.cmd(CMD_SET_SLOT, bytes({6, 16}));
+        c.cmd(CMD_CONTINUE, cont());
+        const bool ran = !run_until_paused(rig, 3);
+        c.cmd(CMD_PAUSE);
+        const Ntf other = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        check("DZRP-BRK-06", "with page 16 at slot 6 the same address does not stop it: three "
+                             "frames run, and the CMD_PAUSE that ends them reports bank byte 17",
+              ran && other.ok && other.reason == BREAK_MANUAL && other.addr == 0xC000 &&
+                  other.bank == 17,
+              ntf_str(other));
+        const Resp bad = c.cmd(CMD_ADD_BREAKPOINT, add_bp(0xC000, 225));
+        const Resp rom = c.cmd(CMD_ADD_BREAKPOINT, add_bp(0x0038, 0xFF));
+        const auto subs = rig.dbg->subscriptions(false);
+        const bool rom_any = std::any_of(subs.begin(), subs.end(), [](const auto& s) {
+            return s.filter.lo == 0x0038 && s.filter.page == jnext::dbg::PAGE_ANY;
+        });
+        check("DZRP-BRK-07", "bank+1 = 225 (bank 224, which does not exist) is refused with id 0 "
+                             "and a warn line; bank+1 = 0xFF (3.7.4's slot-0 ROM, 0xFE) is armed "
+                             "in every bank, since the backend cannot name ROM by DZRP bank",
+              bp_id(bad) == 0 && log.count("CMD_ADD_BREAKPOINT at 0xC000 refused: no bank 224") == 1 &&
+                  bp_id(rom) == 2 && rom_any);
+    }
+    {
+        // ROM BANK BYTES (§5.3): slot 0's ROM reports 0xFF (DeZog 3.7.4's
+        // 0xFE + 1, which it can match), slot 1's reports 0 (0xFF + 1 does not
+        // fit the byte).
+        Rig rig;
+        Dz  c(rig);
+        c.init();
+        load_prog(rig, 0x8000, {0x00, 0xC3, 0x10, 0x00});  // NOP; JP 0x0010
+        set_pc(rig, 0x8000);
+        c.cmd(CMD_CONTINUE, cont(1, 0x0010, 1, 0x2010));
+        run_until_paused(rig, 2);
+        c.tick();
+        const Ntf s0 = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        c.ntfs.clear();
+        set_pc(rig, 0x8000);
+        load_prog(rig, 0x8002, {0x10, 0x20});  // JP 0x2010 now
+        c.cmd(CMD_CONTINUE, cont(1, 0x2010));
+        run_until_paused(rig, 2);
+        c.tick();
+        const Ntf s1 = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        check("DZRP-NTF-03", "a stop in slot 0's ROM reports bank byte 0xFF, one in slot 1's "
+                             "ROM reports 0",
+              s0.ok && s0.addr == 0x0010 && s0.bank == 0xFF && s1.ok && s1.addr == 0x2010 &&
+                  s1.bank == 0x00,
+              ntf_str(s0) + " | " + ntf_str(s1));
+    }
+}
+
+static void temp_rows() {
+    {
+        // F8 — TEMP BEATS USER: a user breakpoint and a CONTINUE temporary at
+        // one address stop as reason 0, or DeZog would evaluate the user
+        // breakpoint's condition, find it false and run the step away.
+        Rig rig;
+        Dz  c(rig);
+        c.init();
+        load_loop(rig);
+        c.cmd(CMD_ADD_BREAKPOINT, add_bp(0x8002, 0));
+        c.cmd(CMD_CONTINUE, cont(1, 0x8002));
+        run_until_paused(rig, 2);
+        c.tick();
+        const Ntf n = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        check("DZRP-TEMP-01", "a stop that is both a CONTINUE temporary and a user breakpoint "
+                              "is reported reason 0, not 2 (F8)",
+              n.ok && n.reason == BREAK_NONE && n.addr == 0x8002, ntf_str(n));
+        const auto all = rig.dbg->subscriptions(true);
+        check("DZRP-TEMP-02", "and the temporary is gone after the stop, the user breakpoint "
+                              "stays",
+              all.size() == 1 && !all[0].transient);
+    }
+    {
+        // Both temporary slots are honoured, and the temporaries are HIDDEN
+        // from every user list while armed (REQ-dzrp-3).
+        Rig rig;
+        Dz  c(rig);
+        c.init();
+        load_loop(rig);
+        c.cmd(CMD_CONTINUE, cont(1, 0x9000, 1, 0x8003));
+        const auto shown = rig.dbg->subscriptions(false);
+        const auto all   = rig.dbg->subscriptions(true);
+        const bool hidden = shown.empty() && all.size() == 2 && all[0].transient &&
+                            all[1].transient && all[0].owner != jnext::dbg::CLIENT_NONE;
+        run_until_paused(rig, 2);
+        c.tick();
+        const Ntf n = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        check("DZRP-TEMP-03", "CMD_CONTINUE's two temporaries are transient subscriptions hidden "
+                              "from the user list (listed only with include_transient)",
+              hidden);
+        check("DZRP-TEMP-04", "the SECOND temporary slot stops it too: reason 0 at 0x8003, and "
+                              "both temporaries are gone afterwards",
+              n.ok && n.reason == BREAK_NONE && n.addr == 0x8003 &&
+                  rig.dbg->subscriptions(true).empty(),
+              ntf_str(n));
+    }
+    {
+        // A stop that is NOT a temporary (a CMD_PAUSE) removes them too:
+        // "removed automatically after the command is finished" (spec).
+        Rig rig;
+        Dz  c(rig);
+        c.init();
+        load_loop(rig);
+        c.cmd(CMD_CONTINUE, cont(1, 0x9000));
+        rig.emu.run_frame();
+        c.cmd(CMD_PAUSE);
+        const Ntf n = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        check("DZRP-TEMP-05", "a CONTINUE ended by CMD_PAUSE instead of its temporary leaves no "
+                              "temporary behind",
+              n.ok && n.reason == BREAK_MANUAL && rig.dbg->subscriptions(true).empty());
+    }
+    {
+        // The 5-byte CSpect form, and a non-zero alternate command (spec: "only
+        // 0 is implemented") — logged and treated as 0 (F5).
+        Rig    rig;
+        LogTap log;
+        Dz     c(rig);
+        c.init();
+        load_loop(rig);
+        c.cmd(CMD_CONTINUE, bytes({1}) + u16s(0x8001) + bytes({0}) + u16s(0));
+        run_until_paused(rig, 2);
+        c.tick();
+        const Ntf five = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        c.ntfs.clear();
+        c.cmd(CMD_CONTINUE, cont(1, 0x8003, 0, 0, 2));
+        run_until_paused(rig, 2);
+        c.tick();
+        const Ntf alt = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        check("DZRP-CONT-03", "the CSpect reference's 5-byte CMD_CONTINUE is served (stop at "
+                              "0x8001), and a non-zero alternate command is logged and run as 0 "
+                              "(stop at 0x8003)",
+              five.ok && five.addr == 0x8001 && alt.ok && alt.addr == 0x8003 &&
+                  log.count("alternate command 2 is not implemented") == 1);
+    }
+}
+
+static void notify_rows() {
+    {
+        // CMD_PAUSE on a RUNNING machine: reply, THEN one NTF reason 1 — the
+        // spec's order — with the PC and its bank.
+        Rig rig;
+        Dz  c(rig);
+        c.init();
+        load_loop(rig);
+        c.cmd(CMD_CONTINUE, cont());
+        rig.emu.run_frame();
+        c.order.clear();
+        const Resp r = c.cmd(CMD_PAUSE);
+        const Ntf  n = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        const std::uint16_t pc = rig.emu.cpu().get_registers().PC;
+        check("DZRP-PAUSE-01", "CMD_PAUSE on a running machine: the reply, then ONE NTF_PAUSE "
+                               "reason 1 at the PC with its bank byte — in that order",
+              r.len == 1 && rig.dbg->state().paused && c.order == "RN" && n.ok &&
+                  n.reason == BREAK_MANUAL && n.addr == pc && n.bank == 5 && n.text.empty(),
+              c.order + " " + ntf_str(n));
+        c.ntfs.clear();
+        c.order.clear();
+        const Resp again = c.cmd(CMD_PAUSE);
+        for (int i = 0; i < 3; ++i) c.tick();
+        check("DZRP-PAUSE-02", "CMD_PAUSE on a machine already paused: the reply and nothing "
+                               "else — \"nothing happens\" (spec)",
+              again.len == 1 && c.order == "R" && c.ntfs.empty());
+    }
+    {
+        // A CMD_PAUSE that stops a machine ANOTHER client ran — no CONTINUE of
+        // ours outstanding — still stopped something, so it is notified.
+        Rig  rig;
+        auto other = rig.dbg->attach({"gui", jnext::dbg::ClientKind::Test}).value;
+        Dz   c(rig);
+        c.init();
+        load_loop(rig);
+        rig.dbg->run(other);
+        rig.pump();
+        const Resp r = c.cmd(CMD_PAUSE);
+        const Ntf  n = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        check("DZRP-PAUSE-03", "a CMD_PAUSE that stops a machine another client resumed is "
+                               "notified too (it stopped something), reason 1",
+              r.len == 1 && n.ok && n.reason == BREAK_MANUAL);
+        rig.dbg->detach(other);
+    }
+    {
+        // EXACTLY ONCE: one NTF per CONTINUE. A later stop with nothing owed —
+        // another client pausing, resuming and pausing again — sends nothing.
+        Rig  rig;
+        auto other = rig.dbg->attach({"gui", jnext::dbg::ClientKind::Test}).value;
+        Dz   c(rig);
+        c.init();
+        load_loop(rig);
+        c.cmd(CMD_ADD_BREAKPOINT, add_bp(0x8002, 0));
+        c.cmd(CMD_CONTINUE, cont());
+        run_until_paused(rig);
+        c.tick();
+        const std::size_t first = c.ntfs.size();
+        rig.dbg->run(other);
+        c.tick();
+        rig.emu.run_frame();
+        rig.dbg->pause(other);
+        for (int i = 0; i < 3; ++i) c.tick();
+        check("DZRP-NTF-04", "exactly one NTF_PAUSE per CONTINUE: after the breakpoint's, a later "
+                              "stop by another client, with no CONTINUE outstanding, sends nothing",
+              first == 1 && c.ntfs.size() == 1 && rig.dbg->state().paused);
+        rig.dbg->detach(other);
+    }
+    {
+        // A stop that is not this client's to name, while its CONTINUE is
+        // outstanding: reason 255 and a string (design §3.3, §4.4).
+        Rig  rig;
+        auto other = rig.dbg->attach({"gui", jnext::dbg::ClientKind::Test}).value;
+        Dz   c(rig);
+        c.init();
+        load_loop(rig);
+        c.cmd(CMD_CONTINUE, cont());
+        rig.emu.run_frame();
+        rig.dbg->pause(other);
+        c.tick();
+        const Ntf n = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        check("DZRP-NTF-05", "another client's pause during this client's CONTINUE is reported "
+                             "reason 255, \"paused by another debugger client\", at the PC",
+              n.ok && n.reason == BREAK_OTHER && n.text == "paused by another debugger client" &&
+                  n.addr == rig.emu.cpu().get_registers().PC,
+              ntf_str(n));
+        rig.dbg->detach(other);
+    }
+    {
+        // A REFUSED RESUME: the CONTINUE reply cannot carry it, so the refusal
+        // is the stop DeZog waits for — NTF 255 with the reason — and the
+        // machine stays paused (§3.2).
+        Rig    rig;
+        LogTap log;
+        Dz     c(rig);
+        c.init();
+        load_loop(rig);
+        const std::vector<std::uint8_t> junk(64, 0x5A);
+        const auto other = rig.dbg->attach({"loader", jnext::dbg::ClientKind::Test}).value;
+        const Result latched = rig.dbg->load_state_bytes(other, junk.data(), junk.size());
+        c.order.clear();
+        const Resp r = c.cmd(CMD_CONTINUE, cont(1, 0x8001));
+        const Ntf  n = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        check("DZRP-CONT-04", "a CONTINUE the backend refuses (a latched corruption) is answered, "
+                              "then NTF_PAUSE 255 \"resume refused: refused_corrupt …\"; the "
+                              "machine stays paused and the temporary is removed",
+              latched == Result::RefusedCorrupt && r.len == 1 && c.order == "RN" && n.ok &&
+                  n.reason == BREAK_OTHER &&
+                  n.text.rfind("resume refused: refused_corrupt", 0) == 0 &&
+                  rig.dbg->state().paused && rig.dbg->subscriptions(true).empty(),
+              c.order + " " + ntf_str(n));
+        rig.dbg->detach(other);
+    }
+    {
+        // A HARD RESET never pauses a running machine, and DZRP has no reset
+        // notification: nothing is sent; the outstanding CONTINUE is answered
+        // by the NEXT stop (§3.3's Reset{Hard} row).
+        Rig rig;
+        jnext::dbg::LoopDriver drv;
+        drv.cold_boot = [&rig]() {
+            EmulatorConfig cfg = rig.emu.config();
+            rig.emu.init(cfg);
+            return true;
+        };
+        rig.dbg->set_loop_driver(drv);
+        const auto other = rig.dbg->attach({"gui", jnext::dbg::ClientKind::Test}).value;
+        Dz c(rig);
+        c.init();
+        load_loop(rig);
+        c.cmd(CMD_CONTINUE, cont());
+        rig.emu.run_frame();
+        const Result reset = rig.dbg->reset(other, jnext::dbg::ResetKind::Hard);
+        for (int i = 0; i < 3; ++i) c.tick();
+        const std::size_t after_reset = c.ntfs.size();
+        const bool        running     = !rig.dbg->state().paused;
+        c.cmd(CMD_PAUSE);
+        const Ntf n = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        check("DZRP-RST-01", "a hard reset during this client's CONTINUE sends nothing and leaves "
+                             "the machine running; the next stop (a CMD_PAUSE) is the one "
+                             "NTF_PAUSE",
+              reset == Result::Ok && after_reset == 0 && running && c.ntfs.size() == 1 && n.ok &&
+                  n.reason == BREAK_MANUAL,
+              "reset=" + std::string(jnext::dbg::result_name(reset)));
+        rig.dbg->detach(other);
+    }
+}
+
+static void interrupt_rows() {
+    // IM 2 with a 257-byte vector table of 0x92 at 0x9000 (I = 0x90), so
+    // whatever byte the bus carries the vector is 0x9292 — the handler: EI; RETI.
+    auto prime = [](Rig& rig) {
+        load_loop(rig);
+        for (std::uint16_t a = 0x9000; a <= 0x9100; ++a) rig.emu.mmu().write(a, 0x92);
+        load_prog(rig, 0x9292, {0xFB, 0xED, 0x4D});
+        Z80Registers r = rig.emu.cpu().get_registers();
+        r.I    = 0x90;
+        r.IM   = 2;
+        r.IFF1 = 1;
+        r.IFF2 = 1;
+        rig.emu.cpu().set_registers(r);
+    };
+    {
+        Rig rig;
+        Dz  c(rig);
+        c.init();
+        prime(rig);
+        const Resp on = c.cmd(CMD_ENABLE_BREAK_ON_INTERRUPT, bytes({1}));
+        c.cmd(CMD_CONTINUE, cont());
+        const bool stopped = run_until_paused(rig, 3);
+        c.tick();
+        const Ntf n = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        check("DZRP-BOI-01", "CMD_ENABLE_BREAK_ON_INTERRUPT 1: the next accepted interrupt stops "
+                             "the machine within a frame, NTF_PAUSE 255 \"Break on interrupt.\" "
+                             "at the handler's entry (IM 2 → 0x9292)",
+              on.len == 1 && stopped && n.ok && n.reason == BREAK_OTHER &&
+                  n.text == "Break on interrupt." && n.addr == 0x9292,
+              ntf_str(n));
+        c.ntfs.clear();
+        const Resp off = c.cmd(CMD_ENABLE_BREAK_ON_INTERRUPT, bytes({0}));
+        c.cmd(CMD_CONTINUE, cont());
+        const bool ran = !run_until_paused(rig, 5);
+        c.cmd(CMD_PAUSE);
+        const Ntf p = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+        check("DZRP-BOI-02", "CMD_ENABLE_BREAK_ON_INTERRUPT 0: five frames of interrupts pass "
+                             "without a stop; the CMD_PAUSE that ends them is reason 1",
+              off.len == 1 && ran && p.ok && p.reason == BREAK_MANUAL &&
+                  rig.dbg->subscriptions(true).empty());
+    }
+}
+
+// ── DZRP-WP — watchpoints, 42/43 (WP-4) ─────────────────────────────────────
+
+static std::string wp(std::uint16_t addr, int bank1, std::uint16_t size, int access) {
+    return u16s(addr) + bytes({bank1}) + u16s(size) + bytes({access});
+}
+
+static void watch_rows() {
+    // Each program: LD (nn),A or LD A,(nn), then JR $.
+    auto store = [](Rig& rig, std::uint16_t target) {
+        load_prog(rig, 0x8000, {0x32, target & 0xFF, target >> 8, 0x18, 0xFE});
+        set_pc(rig, 0x8000);
+    };
+    auto fetch = [](Rig& rig, std::uint16_t target) {
+        load_prog(rig, 0x8000, {0x3A, target & 0xFF, target >> 8, 0x18, 0xFE});
+        set_pc(rig, 0x8000);
+    };
+    // CONTINUE, run up to `frames`; return the NTF that ends it (a CMD_PAUSE
+    // ends it when nothing stopped it).
+    auto go = [](Rig& rig, Dz& c, int frames) {
+        c.ntfs.clear();
+        c.cmd(CMD_CONTINUE, cont());
+        const bool stopped = run_until_paused(rig, frames);
+        if (stopped)
+            c.tick();
+        else
+            c.cmd(CMD_PAUSE);
+        return c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+    };
+    {
+        Rig rig;
+        Dz  c(rig);
+        c.init();
+        const Resp a = c.cmd(CMD_ADD_WATCHPOINT, wp(0x9000, 0, 0x100, 2));
+        const auto subs = rig.dbg->subscriptions(false);
+        check("DZRP-WP-01", "CMD_ADD_WATCHPOINT 0x9000 size 0x100 write answers error 0 and is "
+                            "ONE Mem[0x9000, 0x90FF] write subscription that stops",
+              a.payload == bytes({0}) && subs.size() == 1 &&
+                  subs[0].kind == jnext::dbg::EventKind::Mem && subs[0].filter.lo == 0x9000 &&
+                  subs[0].filter.hi == 0x90FF && subs[0].access == jnext::dbg::Access::Write &&
+                  subs[0].action == jnext::dbg::Action::Stop);
+        // BOTH EDGES, BOTH SIDES.
+        store(rig, 0x8FFF);
+        const Ntf below = go(rig, c, 2);
+        store(rig, 0x9000);
+        const Ntf lo = go(rig, c, 2);
+        store(rig, 0x90FF);
+        const Ntf hi = go(rig, c, 2);
+        store(rig, 0x9100);
+        const Ntf above = go(rig, c, 2);
+        check("DZRP-WP-02", "a write to 0x8FFF and to 0x9100 — one below and one above — does not "
+                            "stop; a write to 0x9000 and to 0x90FF — the two ends — does",
+              below.ok && below.reason == BREAK_MANUAL && above.ok &&
+                  above.reason == BREAK_MANUAL && lo.ok && lo.reason == BREAK_WP_WRITE &&
+                  hi.ok && hi.reason == BREAK_WP_WRITE,
+              ntf_str(below) + " | " + ntf_str(lo) + " | " + ntf_str(hi) + " | " + ntf_str(above));
+        check("DZRP-WP-03", "the stop reports reason 4 (write), the ACCESSED address (0x9000, "
+                            "0x90FF) and its slot's bank byte (page 4 at slot 4 → 5)",
+              lo.addr == 0x9000 && hi.addr == 0x90FF && lo.bank == 5 && hi.bank == 5,
+              ntf_str(lo) + " | " + ntf_str(hi));
+        fetch(rig, 0x9000);
+        const Ntf read = go(rig, c, 2);
+        check("DZRP-WP-04", "a write-only watchpoint is not stopped by a READ of its range",
+              read.ok && read.reason == BREAK_MANUAL, ntf_str(read));
+    }
+    {
+        Rig rig;
+        Dz  c(rig);
+        c.init();
+        c.cmd(CMD_ADD_WATCHPOINT, wp(0x9000, 0, 1, 1));
+        fetch(rig, 0x9000);
+        const Ntf r = go(rig, c, 2);
+        store(rig, 0x9000);
+        const Ntf w = go(rig, c, 2);
+        check("DZRP-WP-05", "a read watchpoint stops a read with reason 3 at the address, and "
+                            "is not stopped by a write",
+              r.ok && r.reason == BREAK_WP_READ && r.addr == 0x9000 && w.ok &&
+                  w.reason == BREAK_MANUAL,
+              ntf_str(r) + " | " + ntf_str(w));
+    }
+    {
+        // BANK: bank+1 = 15 fires only with page 14 behind the address, and the
+        // NTF carries the accessed address's bank byte — no filtering, no
+        // auto-continue (§5.4).
+        Rig rig;
+        Dz  c(rig);
+        c.init();
+        c.cmd(CMD_ADD_WATCHPOINT, wp(0xC010, 15, 1, 2));
+        c.cmd(CMD_SET_SLOT, bytes({6, 14}));
+        store(rig, 0xC010);
+        const Ntf in14 = go(rig, c, 2);
+        c.cmd(CMD_SET_SLOT, bytes({6, 16}));
+        store(rig, 0xC010);
+        const Ntf in16 = go(rig, c, 2);
+        check("DZRP-WP-06", "a watchpoint with bank+1 = 15 stops a write with page 14 at slot 6 "
+                            "(reason 4, bank byte 15) and not with page 16 there",
+              in14.ok && in14.reason == BREAK_WP_WRITE && in14.addr == 0xC010 &&
+                  in14.bank == 15 && in16.ok && in16.reason == BREAK_MANUAL,
+              ntf_str(in14) + " | " + ntf_str(in16));
+    }
+    {
+        Rig    rig;
+        LogTap log;
+        Dz     c(rig);
+        c.init();
+        const Resp z  = c.cmd(CMD_ADD_WATCHPOINT, wp(0x9000, 0, 0, 2));
+        const Resp na = c.cmd(CMD_ADD_WATCHPOINT, wp(0x9000, 0, 1, 0));
+        const Resp wr = c.cmd(CMD_ADD_WATCHPOINT, wp(0xFFF0, 0, 0x20, 2));
+        const Resp nb = c.cmd(CMD_ADD_WATCHPOINT, wp(0x9000, 225, 1, 2));
+        const Resp sh = c.cmd(CMD_ADD_WATCHPOINT, wp(0x9000, 0, 1, 2).substr(0, 5));
+        const Resp ok = c.cmd(CMD_ADD_WATCHPOINT, wp(0xFFF0, 0, 0x10, 2));
+        check("DZRP-WP-07", "CMD_ADD_WATCHPOINT answers error 1 and subscribes nothing for size "
+                            "0, no access bit, a range past 0xFFFF, bank 224 and a 5-byte "
+                            "payload — each with a warn line; 0xFFF0 size 0x10 (ending at 0xFFFF) "
+                            "is accepted",
+              z.payload == bytes({1}) && na.payload == bytes({1}) && wr.payload == bytes({1}) &&
+                  nb.payload == bytes({1}) && sh.payload == bytes({1}) &&
+                  ok.payload == bytes({0}) && rig.dbg->subscriptions(false).size() == 1 &&
+                  log.count("size 0 refused: size 0") == 1 &&
+                  log.count("refused: neither read nor write") == 1 &&
+                  log.count("refused: the range runs past 0xFFFF") == 1 &&
+                  log.count("refused: no such bank") == 1 &&
+                  log.count("malformed CMD_ADD_WATCHPOINT: payload is 5 bytes") == 1);
+        // REMOVE by the exact tuple: a different access leaves it.
+        const Resp miss = c.cmd(CMD_REMOVE_WATCHPOINT, wp(0xFFF0, 0, 0x10, 3));
+        const bool kept = rig.dbg->subscriptions(false).size() == 1;
+        const Resp hit  = c.cmd(CMD_REMOVE_WATCHPOINT, wp(0xFFF0, 0, 0x10, 2));
+        check("DZRP-WP-08", "CMD_REMOVE_WATCHPOINT matches the exact (addr, bank, size, access) "
+                            "tuple: a different access removes nothing and says so; the right "
+                            "one removes it; both replies are the seq alone",
+              miss.len == 1 && kept && hit.len == 1 && rig.dbg->subscriptions(false).empty() &&
+                  log.count("CMD_REMOVE_WATCHPOINT: none at 0xFFF0") == 1);
+    }
+}
+
+// ── DZRP-ST — state bookmarks, 50/51 (WP-4) ─────────────────────────────────
+
+static void state_rows() {
+    Rig    rig;
+    LogTap log;
+    Dz     c(rig);
+    c.init();
+    load_loop(rig);
+    const Resp        s     = c.cmd(CMD_READ_STATE);
+    const std::string token = s.payload;
+    // The name is "dzrp-<client id>-<n>"; the backend must hold it for that client.
+    const std::string name  = token.size() > 4 ? token.substr(4) : std::string();
+    const auto        dash  = name.rfind('-');
+    const jnext::dbg::ClientId owner =
+        name.rfind("dzrp-", 0) == 0 && dash > 5
+            ? static_cast<jnext::dbg::ClientId>(std::stoul(name.substr(5, dash - 5)))
+            : 0;
+    const auto held = rig.dbg->bookmarks(owner);
+    check("DZRP-ST-01", "CMD_READ_STATE after CMD_INIT's pause (a frame boundary) answers a "
+                        "TOKEN — \"JNXB\" + the name of a bookmark the backend now holds for "
+                        "this client — not the snapshot",
+          token.rfind("JNXB", 0) == 0 && name == "dzrp-" + std::to_string(owner) + "-1" &&
+              held == std::vector<std::string>({name}),
+          hex(token));
+
+    // Change the machine, then restore the token.
+    const Z80Registers saved = rig.emu.cpu().get_registers();
+    const std::uint8_t mem0  = rig.emu.mmu().peek(0x9000);
+    c.cmd(CMD_SET_REGISTER, bytes({3}) + u16s(0x1234));
+    c.cmd(CMD_WRITE_MEM, bytes({0}) + u16s(0x9000) + bytes({static_cast<std::uint8_t>(~mem0)}));
+    c.ntfs.clear();
+    const Resp w = c.cmd(CMD_WRITE_STATE, token);
+    for (int i = 0; i < 2; ++i) c.tick();
+    check("DZRP-ST-02", "CMD_WRITE_STATE with that token restores it — registers and memory are "
+                        "back — with a seq-only reply and no notification",
+          w.len == 1 && c.ntfs.empty() && regs_equal(rig.emu.cpu().get_registers(), saved) &&
+              rig.emu.mmu().peek(0x9000) == mem0);
+
+    // MID-FRAME: after a breakpoint the machine is inside a frame, and the save
+    // is REFUSED with a zero-length reply (F9, owner decision Q2).
+    c.cmd(CMD_ADD_BREAKPOINT, add_bp(0x8002, 0));
+    c.cmd(CMD_CONTINUE, cont());
+    run_until_paused(rig);
+    c.tick();
+    const Resp mid = c.cmd(CMD_READ_STATE);
+    check("DZRP-ST-03", "CMD_READ_STATE after a breakpoint (mid-frame) answers ZERO-length "
+                        "and says why — it never advances the machine",
+          mid.len == 1 && !rig.dbg->at_frame_boundary() &&
+              log.count("CMD_READ_STATE refused: not_at_frame_boundary") == 1 &&
+              rig.emu.cpu().get_registers().PC == 0x8002);
+
+    // WHAT DeZog SENDS BACK after that refusal: a 0-byte CMD_WRITE_STATE. It
+    // must reach no backend restore, latch nothing, and leave CONTINUE working.
+    const Z80Registers at_bp = rig.emu.cpu().get_registers();
+    c.ntfs.clear();
+    c.order.clear();
+    const Resp e = c.cmd(CMD_WRITE_STATE);
+    const Ntf  en = c.ntfs.size() == 1 ? parse_ntf(c.ntfs[0]) : Ntf{};
+    check("DZRP-ST-04", "an EMPTY CMD_WRITE_STATE is answered, then NTF_PAUSE 255 \"no state to "
+                        "restore (save was refused mid-frame)\"; registers unchanged, nothing "
+                        "latched",
+          e.len == 1 && c.order == "RN" && en.ok && en.reason == BREAK_OTHER &&
+              en.text == "no state to restore (save was refused mid-frame)" &&
+              regs_equal(rig.emu.cpu().get_registers(), at_bp) &&
+              !rig.dbg->resume_blocked_by_corruption(),
+          ntf_str(en));
+    c.cmd(CMD_REMOVE_BREAKPOINT, u16s(1));
+    c.ntfs.clear();
+    const Resp gar  = c.cmd(CMD_WRITE_STATE, std::string(200, '\x5A'));
+    const Resp mag  = c.cmd(CMD_WRITE_STATE, "XXXB" + token.substr(4));
+    const Resp un   = c.cmd(CMD_WRITE_STATE, "JNXBdzrp-99-1");
+    const Resp shrt = c.cmd(CMD_WRITE_STATE, "JNXB");
+    bool all255 = c.ntfs.size() == 4;
+    for (const Resp& r : c.ntfs) {
+        const Ntf n = parse_ntf(r);
+        all255 = all255 && n.ok && n.reason == BREAK_OTHER &&
+                 n.text.rfind("no state to restore", 0) == 0;
+    }
+    c.ntfs.clear();
+    const std::uint8_t a0 = reg_a(rig);
+    c.cmd(CMD_CONTINUE, cont(1, 0x8002));
+    run_until_paused(rig);
+    c.tick();
+    check("DZRP-ST-05", "garbage, a wrong magic, an unissued name and a bare magic are each "
+                        "answered and refused as \"no state to restore\" — no restore, no latch: "
+                        "a CONTINUE afterwards still runs",
+          gar.len == 1 && mag.len == 1 && un.len == 1 && shrt.len == 1 && all255 &&
+              !rig.dbg->resume_blocked_by_corruption() && c.ntfs.size() == 1 &&
+              reg_a(rig) == static_cast<std::uint8_t>(a0 + 1));
+
+    // THE BOUND: 8 bookmarks per client; a 9th save is zero-length, never an
+    // eviction. One is already held, so seven more succeed.
+    // Back to a frame boundary: run the rest of the frame, then pause from
+    // pump() — which lands on one (§4.2).
+    c.cmd(CMD_CONTINUE, cont());
+    rig.emu.run_frame();
+    c.cmd(CMD_PAUSE);
+    const bool boundary = rig.dbg->at_frame_boundary();
+    int good = 0;
+    for (int i = 0; i < 7; ++i) {
+        const Resp r = c.cmd(CMD_READ_STATE);
+        if (r.len > 1) ++good;
+    }
+    const Resp ninth = c.cmd(CMD_READ_STATE);
+    c.ntfs.clear();
+    const Resp first = c.cmd(CMD_WRITE_STATE, token);
+    check("DZRP-ST-06", "a client holds at most 8 bookmarks: seven more saves succeed, the ninth "
+                        "is zero-length with a warn line (never an eviction), and the first "
+                        "token still restores",
+          boundary && good == 7 && ninth.len == 1 &&
+              log.count("CMD_READ_STATE refused: refused_unavailable") == 1 &&
+              first.len == 1 && c.ntfs.empty() &&
+              regs_equal(rig.emu.cpu().get_registers(), saved),
+          "boundary=" + std::to_string(boundary) + " good=" + std::to_string(good) +
+              " ninth=" + std::to_string(ninth.len) + " warns=" +
+              std::to_string(log.count("CMD_READ_STATE refused: refused_unavailable")) +
+              " first=" + std::to_string(first.len) + " ntfs=" + std::to_string(c.ntfs.size()) +
+              " regs=" + std::to_string(regs_equal(rig.emu.cpu().get_registers(), saved)));
+
+    // A TOKEN DIES WITH ITS SESSION: bookmarks are per client and go with the
+    // detach, so a new session cannot restore the old token.
+    c.p->close();
+    rig.pump(3);
+    Dz d(rig);
+    d.init();
+    const Resp old = d.cmd(CMD_WRITE_STATE, token);
+    const Ntf  on  = d.ntfs.size() == 1 ? parse_ntf(d.ntfs[0]) : Ntf{};
+    check("DZRP-ST-07", "a token from an earlier session is refused as \"no state to restore\" "
+                        "— its bookmark died with the detach",
+          old.len == 1 && on.ok && on.text == "no state to restore");
+}
+
+// ── DZRP-SPR — sprites, 16-19 (WP-4) ────────────────────────────────────────
+
+static void sprite_rows() {
+    Rig    rig;
+    LogTap log;
+    Dz     c(rig);
+    c.init();
+    auto set_pal = [&](jnext::dbg::PaletteId id, int i, std::uint16_t v) {
+        rig.dbg->set_palette(1, id, static_cast<std::uint8_t>(i), v);
+    };
+    set_pal(jnext::dbg::PaletteId::SpriteFirst, 0, 0x1FF);
+    set_pal(jnext::dbg::PaletteId::SpriteFirst, 1, 0x001);
+    set_pal(jnext::dbg::PaletteId::SpriteFirst, 255, 0x0AB);
+    set_pal(jnext::dbg::PaletteId::SpriteSecond, 0, 0x100);
+    const Resp p0 = c.cmd(CMD_GET_SPRITES_PALETTE, bytes({0}));
+    const Resp p1 = c.cmd(CMD_GET_SPRITES_PALETTE, bytes({1}));
+    const Resp p2 = c.cmd(CMD_GET_SPRITES_PALETTE, bytes({2}));
+    check("DZRP-SPR-01", "CMD_GET_SPRITES_PALETTE answers 256 entries (512 bytes), each LE "
+                         "RRRGGGBB, 0000000B: 0x1FF → FF 01, 0x001 → 00 01, 0x0AB → 55 01; "
+                         "palette 1 is the second sprite bank (0x100 → 80 00)",
+          p0.payload.size() == 512 && p0.payload.substr(0, 4) == bytes({0xFF, 0x01, 0x00, 0x01}) &&
+              p0.payload.substr(510, 2) == bytes({0x55, 0x01}) && p1.payload.size() == 512 &&
+              p1.payload.substr(0, 2) == bytes({0x80, 0x00}),
+          hex(p0.payload.substr(0, 4)) + "| " + hex(p1.payload.substr(0, 2)));
+    check("DZRP-SPR-02", "palette 2 does not exist: a seq-only reply and a warn line",
+          p2.len == 1 && log.count("CMD_GET_SPRITES_PALETTE: no sprite palette 2") == 1);
+
+    // NR 0x19 cycles through the sprite clip window's four bytes.
+    for (int v : {10, 200, 20, 150}) rig.dbg->nextreg_write(1, 0x19, static_cast<std::uint8_t>(v));
+    rig.dbg->nextreg_write(1, 0x15, 0x0B);
+    const Resp clip = c.cmd(CMD_GET_SPRITES_CLIP_WINDOW_AND_CONTROL);
+    const auto w    = rig.dbg->sprite_clip();
+    check("DZRP-SPR-03", "CMD_GET_SPRITES_CLIP_WINDOW_AND_CONTROL answers x1 x2 y1 y2 from the "
+                         "live clip window, then NR 0x15",
+          clip.payload == bytes({w.x1, w.x2, w.y1, w.y2, 0x0B}) && w.x1 == 10 && w.x2 == 200 &&
+              w.y1 == 20 && w.y2 == 150,
+          hex(clip.payload));
+
+    const std::uint8_t s0[5]   = {0x11, 0x12, 0x13, 0x14, 0x15};
+    const std::uint8_t s1[5]   = {0x21, 0x22, 0x23, 0x24, 0x25};
+    const std::uint8_t s127[5] = {0x71, 0x72, 0x73, 0x74, 0x75};
+    rig.dbg->set_sprite_attr_raw(1, 0, s0, 5);
+    rig.dbg->set_sprite_attr_raw(1, 1, s1, 5);
+    rig.dbg->set_sprite_attr_raw(1, 127, s127, 5);
+    auto attrs = [&](int i) {
+        const auto a = rig.dbg->sprite_attr_raw(static_cast<std::uint8_t>(i)).value;
+        return std::string(reinterpret_cast<const char*>(a.data()), 5);
+    };
+    const Resp g01  = c.cmd(CMD_GET_SPRITES, bytes({0, 2}));
+    const Resp g127 = c.cmd(CMD_GET_SPRITES, bytes({127, 1}));
+    const Resp gcl  = c.cmd(CMD_GET_SPRITES, bytes({126, 5}));
+    const Resp g128 = c.cmd(CMD_GET_SPRITES, bytes({128, 1}));
+    check("DZRP-SPR-04", "CMD_GET_SPRITES answers the 5 raw attribute bytes per sprite: sprites "
+                         "0-1 are 10 bytes, 127 is 5; 126+5 is clamped to 2 sprites and 128+1 to "
+                         "none, each with a warn line",
+          g01.payload == attrs(0) + attrs(1) && attrs(0) == bytes({0x11, 0x12, 0x13, 0x14, 0x15}) &&
+              g127.payload == attrs(127) && g127.payload.size() == 5 &&
+              gcl.payload == attrs(126) + attrs(127) && g128.len == 1 &&
+              log.count("CMD_GET_SPRITES 5 from 126 runs past sprite 127 — clamped to 2") == 1 &&
+              log.count("CMD_GET_SPRITES 1 from 128 runs past sprite 127 — clamped to 0") == 1,
+          hex(g01.payload));
+
+    std::vector<std::uint8_t> pat(768);
+    for (std::size_t i = 0; i < pat.size(); ++i) pat[i] = static_cast<std::uint8_t>(i * 3 + 1);
+    rig.dbg->write_pattern_ram(1, 256, pat.data(), pat.size());
+    const std::string want(reinterpret_cast<const char*>(pat.data()), 512);
+    const Resp two  = c.cmd(CMD_GET_SPRITE_PATTERNS, bytes({1, 2}));
+    const Resp four = c.cmd(CMD_GET_SPRITE_PATTERNS, u16s(1) + u16s(2));
+    const Resp end  = c.cmd(CMD_GET_SPRITE_PATTERNS, bytes({63, 3}));
+    const Resp past = c.cmd(CMD_GET_SPRITE_PATTERNS, bytes({64, 1}));
+    const auto ram  = rig.dbg->pattern_ram();
+    check("DZRP-SPR-05", "CMD_GET_SPRITE_PATTERNS answers count × 256 bytes of pattern RAM from "
+                         "index × 256, in DeZog's 2-byte form and the spec's 4-byte form alike; "
+                         "63+3 is clamped to one pattern, 64 to none",
+          two.payload == want && four.payload == want &&
+              end.payload == std::string(reinterpret_cast<const char*>(ram.data) + 63 * 256, 256) &&
+              past.len == 1,
+          std::to_string(two.payload.size()) + "/" + std::to_string(four.payload.size()));
 }
 
 int main() {
@@ -1607,6 +2535,13 @@ int main() {
     slot_rows();
     nextreg_port_rows();
     malformed_rows();
+    breakpoint_rows();
+    temp_rows();
+    notify_rows();
+    interrupt_rows();
+    watch_rows();
+    state_rows();
+    sprite_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass,

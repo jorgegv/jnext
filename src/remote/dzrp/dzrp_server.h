@@ -35,6 +35,9 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <map>
+#include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -105,7 +108,25 @@ constexpr std::uint32_t DZRP_BANK_BYTES = 0x2000;
 /// halves are slot 0 and slot 1 (`zxnextmemorymodels.ts:64-104`).
 constexpr std::uint8_t DZRP_ROM_BANK = 0xFF;
 
-class DzrpServer final : public Protocol {
+/// `NTF_PAUSE`, the one notification jnext sends (`NTF_LOG` is not emitted).
+constexpr std::uint8_t NTF_PAUSE = 1;
+
+/// `NTF_PAUSE` break reasons (spec: 0 no reason / step, 1 manual break,
+/// 2 breakpoint, 3 watchpoint read, 4 watchpoint write, 255 other + string).
+enum BreakReason : std::uint8_t {
+    BREAK_NONE      = 0,
+    BREAK_MANUAL    = 1,
+    BREAK_BP        = 2,
+    BREAK_WP_READ   = 3,
+    BREAK_WP_WRITE  = 4,
+    BREAK_OTHER     = 255,
+};
+
+/// `CMD_READ_STATE`'s token prefix: the wire carries `"JNXB"` + a bookmark name
+/// the backend holds (design §6), never the multi-megabyte snapshot.
+constexpr char STATE_TOKEN_MAGIC[] = "JNXB";
+
+class DzrpServer final : public Protocol, public jnext::dbg::Listener {
 public:
     /// The clock the chunk timeout reads. Empty = `steady_clock::now`; the
     /// unit suite passes its own, so a 5 s timeout is tested without waiting.
@@ -129,6 +150,15 @@ public:
     jnext::dbg::ServiceStep on_service(Connection& c) override;
     void                    on_notify(Connection& c) override;
     void                    on_disconnect() override;
+
+    // ── dbg::Listener (SES-02) — installed for this client at CMD_INIT ──────
+    void on_paused(const jnext::dbg::PausedInfo& info) override;
+    void on_resumed(jnext::dbg::ClientId by) override;
+    void on_reset(jnext::dbg::ResetKind kind) override;
+    void on_frame_ended(std::uint32_t frame) override;
+    void on_subscriptions_changed(jnext::dbg::EventKindMask kinds) override;
+    void on_exit_requested(int code) override;
+    void on_log(jnext::dbg::LogLevel level, const std::string& text) override;
 
 private:
     /// One row of THE table (see the header banner).
@@ -160,6 +190,15 @@ private:
     void reply(std::uint8_t seq, const std::vector<std::uint8_t>& payload = {});
     void end_session();
 
+    /// The `bank+1` byte for `addr`: the page mapped at its slot + 1 (F7).
+    /// ROM cannot be named (§5.3): slot 0's ROM reports 0xFF (DeZog 3.7.4's
+    /// 0xFE + 1), slot 1's reports 0 (0xFF + 1 overflows).
+    std::uint8_t bank_byte(std::uint16_t addr) const;
+    /// Queue an `NTF_PAUSE` for the next `on_notify()`.
+    void queue_pause_ntf(std::uint8_t reason, std::uint16_t addr, const std::string& text);
+    /// Remove whatever is left of the outstanding `CMD_CONTINUE`'s temporaries.
+    void drop_temporaries();
+
     // Handlers — one per served command.
     void cmd_init(const Command& cmd);
     void cmd_close(const Command& cmd);
@@ -178,6 +217,21 @@ private:
     void cmd_get_supported_commands(const Command& cmd);
     void cmd_read_bank_mem(const Command& cmd);
     void cmd_write_bank_mem(const Command& cmd);
+    // WP-3
+    void cmd_continue(const Command& cmd);
+    void cmd_pause(const Command& cmd);
+    void cmd_enable_break_on_interrupt(const Command& cmd);
+    void cmd_add_breakpoint(const Command& cmd);
+    void cmd_remove_breakpoint(const Command& cmd);
+    // WP-4
+    void cmd_get_sprites_palette(const Command& cmd);
+    void cmd_get_sprites_clip_window_and_control(const Command& cmd);
+    void cmd_get_sprites(const Command& cmd);
+    void cmd_get_sprite_patterns(const Command& cmd);
+    void cmd_add_watchpoint(const Command& cmd);
+    void cmd_remove_watchpoint(const Command& cmd);
+    void cmd_read_state(const Command& cmd);
+    void cmd_write_state(const Command& cmd);
 
     jnext::dbg::Debugger& dbg_;
     Clock                 clock_;
@@ -191,6 +245,31 @@ private:
     // Per-session state: set by CMD_INIT, cleared by CMD_CLOSE or a disconnect.
     jnext::dbg::ClientId cid_ = jnext::dbg::CLIENT_NONE;
     std::uint8_t         client_version_[3] = {0, 0, 0};
+
+    // WP-3 — breakpoints (DZRP id → backend subscription), the outstanding
+    // CMD_CONTINUE's temporaries, break-on-interrupt, and what is owed.
+    std::map<std::uint16_t, jnext::dbg::EventId> bps_;
+    std::uint32_t                                next_bp_id_ = 1;  // 1..65535, never reused
+    std::vector<jnext::dbg::EventId>             temps_;
+    jnext::dbg::EventId                          int_ack_ = jnext::dbg::EVENT_NONE;
+    bool continue_outstanding_ = false;  // one NTF_PAUSE owed per CMD_CONTINUE
+    bool pause_owed_           = false;  // our CMD_PAUSE stopped a running machine
+    std::optional<jnext::dbg::PausedInfo>  pending_pause_;
+    std::vector<std::vector<std::uint8_t>> ntf_queue_;  // encoded frames
+
+    // WP-4 — watchpoints (no ids on the wire: matched by the exact tuple) and
+    // the state tokens this session issued.
+    struct Watch {
+        std::uint16_t       addr;
+        std::uint8_t        bank1;
+        std::uint16_t       size;
+        std::uint8_t        access;
+        jnext::dbg::EventId id;
+    };
+    std::vector<Watch>    wps_;
+    std::set<std::string> tokens_;
+    std::uint32_t         next_token_ = 1;
+    bool                  last_save_refused_mid_frame_ = false;
 };
 
 }  // namespace dzrp
