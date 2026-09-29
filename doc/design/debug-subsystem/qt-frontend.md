@@ -24,8 +24,8 @@ whole, so `done` here means the sub-item is approved, not merged.
 | WP | Branch `gh278-qt` (issue #278) | Status |
 |---|---|---|
 | **WP0** | close the identity gaps on the **current** tree, so the suites are green on both trees by construction — as built: §6.2a | **done** — reviewed + APPROVED (rows, then the fix round); landed on `main` alone |
-| **WP1** | the `src/qt/` header move + `make build-matrix`. **Q is the single owner of this move**, and it lands with the rest of Q on Q's one branch — as built: §6.2b | in review |
-| **WP2** | `DebuggerManager` verbs onto the backend facade — as built: §4.1, §6.2b | in review |
+| **WP1** | the `src/qt/` header move + `make build-matrix`. **Q is the single owner of this move**, and it lands with the rest of Q on Q's one branch — as built: §6.2b | **done** |
+| **WP2** | `DebuggerManager` verbs onto the backend facade — as built: §4.1, §6.2b | **done** |
 | **WP3** | rewind / trace / corruption | todo |
 | **WP4a-d** | the panels (parallel-able). **WP4d also owns the `render_layer` MOVE itself**, not only its 106 DVP validation rows — owner decision 2026-09-27, closing a gap §10.1 left unassigned | todo |
 | **WP5** | memory panel | todo |
