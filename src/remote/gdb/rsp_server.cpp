@@ -664,10 +664,11 @@ void GdbServer::pkt_write_register(const std::string& body) {
 
 // `m<addr>,<len>`: side-effect free (`peek(Cpu)` does not latch the +3
 // floating bus). A read past 0xFFFF is clipped; one that starts past it, or
-// reads nothing, is `E01` — an EMPTY reply would mean "m unsupported".
+// reads nothing (length 0), is `E01` — an EMPTY reply would mean "m
+// unsupported".
 void GdbServer::pkt_read_memory(const std::string& body) {
     std::uint32_t addr = 0, len = 0;
-    if (!parse_pair(body.substr(1), addr, len) || addr > 0xFFFF || len == 0 || len > kMaxRead) {
+    if (!parse_pair(body.substr(1), addr, len) || addr > 0xFFFF || len > kMaxRead) {
         reply("E01");
         return;
     }
@@ -705,8 +706,10 @@ void GdbServer::pkt_write_memory(const std::string& body, bool binary) {
         reply("OK");
         return;
     }
+    // The range is inside 0x0000-0xFFFF (checked above); the bound on `s` keeps
+    // the slot index inside the array whatever that check becomes.
     const auto slots = dbg_.mmu_slots();
-    for (std::uint32_t s = addr >> 13; s <= (addr + len - 1) >> 13; ++s) {
+    for (std::uint32_t s = addr >> 13; s <= (addr + len - 1) >> 13 && s < slots.size(); ++s) {
         if (slots[s].is_rom) {
             Log::debugger()->warn("gdb: write of {} bytes at 0x{:04X} refused: slot {} is ROM", len,
                                   addr, s);
@@ -740,15 +743,12 @@ void GdbServer::pkt_breakpoint(const std::string& body) {
         unsupported(body);
         return;
     }
-    const char type = body[1];
-    std::string args = body.size() > 3 ? body.substr(3) : std::string();
-    if (args.find(';') != std::string::npos) {
-        // `;cond_list` / `;cmds`: conditions are declined (§2 row 29) — never
-        // advertised, so a gdb evaluates them itself.
-        reply("E01");
-        return;
-    }
-    std::uint32_t addr = 0, kind = 0;
+    const char        type = body[1];
+    const std::string args = body.size() > 3 ? body.substr(3) : std::string();
+    std::uint32_t     addr = 0, kind = 0;
+    // A `;cond_list` / `;cmds` tail fails the parse of `kind`, so it is E01:
+    // conditions are declined (§2 row 29) — never advertised, so a gdb
+    // evaluates them itself.
     if (!parse_pair(args, addr, kind) || addr > 0xFFFF) {
         reply("E01");
         return;

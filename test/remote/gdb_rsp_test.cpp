@@ -501,11 +501,13 @@ static void framing_rows() {
         // The codec's pure helpers, against hand-computed bytes.
         std::string       un;
         const std::string framed = frame_packet("a#b");
-        check("GDB-FRM-10", "frame_packet escapes # $ } * (so a binary reply is well formed) "
-                            "and checksums the escaped body; unescape_binary refuses a lone "
-                            "trailing `}`",
-              framed == "$a}\x03" "b#" + hex2(sum("a}\x03" "b")) && !unescape_binary("ab}", un) &&
-                  unescape_binary("}]}\x0a", un) && un == "}*");
+        const std::string all4 = frame_packet("#$}*");
+        check("GDB-FRM-10", "frame_packet escapes each of # $ } * as } + byte^0x20 (so a binary "
+                            "reply is well formed) and checksums the escaped body; "
+                            "unescape_binary undoes it and refuses a lone trailing `}`",
+              framed == "$a}\x03" "b#" + hex2(sum("a}\x03" "b")) &&
+                  all4 == "$}\x03}\x04}]}\x0a#" + hex2(sum("}\x03}\x04}]}\x0a")) &&
+                  !unescape_binary("ab}", un) && unescape_binary("}]}\x0a", un) && un == "}*");
         std::uint32_t v = 0;
         check("GDB-FRM-11", "parse_hex_u32 takes 1..8 hex digits and nothing else: 9 digits, "
                             "an empty string and a non-hex digit are refused, never wrapped",
@@ -629,11 +631,14 @@ static void register_rows() {
         rig.emu.run_frame();
         c.send_raw(std::string(1, '\x03'), 2);
         const std::uint64_t t2 = rig.dbg->time().tstates_total;
-        const std::string   lo2 = c.cmd("pc");
+        const std::string   lo2 = c.cmd("pc"), hi2 = c.cmd("pd");
         check("GDB-REG-02", "clockl/clockh (p c / p d, g slots 12-13) are the low and high 16 "
-                            "bits of the monotonic T-state count, and move when a frame runs",
-              before_ok && t2 > t && lo2 == le4(static_cast<std::uint16_t>(t2 & 0xFFFF)),
-              lo + " " + hi + " t=" + std::to_string(t));
+                            "bits of the monotonic T-state count, and move when a frame runs "
+                            "(past 0x10000, so the high half is non-zero)",
+              before_ok && t2 > t && (t2 >> 16) != 0 &&
+                  lo2 == le4(static_cast<std::uint16_t>(t2 & 0xFFFF)) &&
+                  hi2 == le4(static_cast<std::uint16_t>((t2 >> 16) & 0xFFFF)),
+              lo + " " + hi + " / " + lo2 + " " + hi2 + " t2=" + std::to_string(t2));
     }
     {
         // THE ZERO-CLOBBER ROW. z88dk-gdb's `set hl 1234` sends the whole file
@@ -815,6 +820,28 @@ static void memory_rows() {
               x0 + " " + m0 + " " + xs + " " + ms + " " + mw + " " + mh);
     }
     {
+        // A write past 0xFFFF must not WRAP to 0x0000 — shown where 0x0000 is
+        // RAM (Next, slot 0 mapped to a RAM page), so a wrap would land.
+        Rig    rig(MachineType::ZXN_ISSUE2);
+        Client c(rig);
+        open_session(c);
+        rig.dbg->set_mmu_slot(rig.gdb->client(), 0, 0x20);
+        rig.dbg->set_mmu_slot(rig.gdb->client(), 7, 0x21);
+        std::uint8_t before[2] = {};
+        rig.dbg->peek(jnext::dbg::MemSpace::cpu(), 0xFFFF, 1, &before[0]);
+        rig.dbg->peek(jnext::dbg::MemSpace::cpu(), 0x0000, 1, &before[1]);
+        const std::string w = c.cmd("Mffff,2:" + hex2(before[0] ^ 0xFF) + hex2(before[1] ^ 0xFF));
+        const std::string x = c.cmd("Xffff,2:ab");
+        std::uint8_t after[2] = {};
+        rig.dbg->peek(jnext::dbg::MemSpace::cpu(), 0xFFFF, 1, &after[0]);
+        rig.dbg->peek(jnext::dbg::MemSpace::cpu(), 0x0000, 1, &after[1]);
+        check("GDB-MEM-07", "M or X that would run past 0xFFFF is E01 and writes nothing — not "
+                            "the last byte, and not a wrapped byte at 0x0000 (RAM here)",
+              !rig.dbg->mmu_slots()[0].is_rom && w == "E01" && x == "E01" &&
+                  after[0] == before[0] && after[1] == before[1],
+              w + "/" + x);
+    }
+    {
         Rig    rig;
         Client c(rig);
         open_session(c);
@@ -916,16 +943,19 @@ static void breakpoint_rows() {
         // BOTH EDGES of a write watch [0x9000, 0x9003].
         struct Case {
             std::uint16_t target;
+            bool          store;
             bool          stops;
         };
-        const Case cases[] = {{0x9003, true}, {0x9004, false}, {0x9000, true}, {0x8FFF, false}};
+        const Case cases[] = {{0x9003, true, true},  {0x9004, true, false},
+                              {0x9000, true, true},  {0x8FFF, true, false},
+                              {0x9001, false, false}};
         std::string got;
         bool        ok = true;
         for (const Case& k : cases) {
             Rig    rig;
             Client c(rig);
             open_session(c);
-            load_store_loop(rig, true, k.target);
+            load_store_loop(rig, k.store, k.target);
             const std::string z = c.cmd("Z2,9000,4");
             const std::string s = cont_and_stop(rig, c, 3);
             const std::string want = "T05thread:1;watch:" + std::string(k.target == 0x9003 ? "9003" : "9000") + ";";
@@ -933,8 +963,8 @@ static void breakpoint_rows() {
             got += s + " ";
         }
         check("GDB-BP-07", "Z2,9000,4 watches writes to 0x9000..0x9003: a write to the last byte "
-                           "and to the first stops with watch:<that address>; one past the end "
-                           "and one below the start run on",
+                           "and to the first stops with watch:<that address>; one past the end, "
+                           "one below the start and a READ inside the range run on",
               ok, got);
     }
     {
@@ -1144,12 +1174,17 @@ static void step_rows() {
         const Result latched = rig.dbg->load_state_bytes(other, junk.data(), junk.size());
         const std::string r  = c.cmd("c");
         const std::string i  = c.cmd("i3");
+        const std::string st = c.cmd("s");
         c.tick();
-        check("GDB-STP-08", "a c or i the backend refuses (a latched corruption) is E01 at once, "
-                            "the machine stays paused and no stop reply follows",
-              latched == Result::RefusedCorrupt && r == "E01" && i == "E01" &&
-                  rig.dbg->state().paused && c.fresh().empty(),
-              r + "/" + i);
+        const bool quiet = c.fresh().empty();
+        // Nothing is owed after a refusal: a `?` is answered at once.
+        const std::string q = c.cmd("?");
+        check("GDB-STP-08", "a c, i or s the backend refuses (a latched corruption) is E01 at "
+                            "once, the machine stays paused, no stop reply follows, and none is "
+                            "left owed (a later ? is answered at once)",
+              latched == Result::RefusedCorrupt && r == "E01" && i == "E01" && st == "E01" &&
+                  rig.dbg->state().paused && quiet && q == "T05thread:1;",
+              r + "/" + i + "/" + st + "/" + q);
         rig.dbg->detach(other);
     }
     {
@@ -1310,6 +1345,24 @@ static void stop_rows() {
               r.size() == 1 && r[0] == "T05thread:1;swbreak:;", join(r));
     }
     {
+        // `?` in the same tick as a breakpoint stop that answers a `c`: ONE
+        // reply, the breakpoint's.
+        Rig    rig;
+        Client c(rig);
+        open_session(c);
+        load_loop(rig);
+        c.cmd("Z0,8002,1");
+        c.send_raw(pkt("c"), 1);
+        run_until_paused(rig);
+        c.p->send(pkt("?"));
+        c.tick();
+        c.tick();
+        const auto r = c.fresh();
+        check("GDB-STOP-11", "a ? that arrives after a breakpoint stopped a c but before it was "
+                             "reported is answered by that stop reply, once — never two T packets",
+              r.size() == 1 && r[0] == "T05thread:1;swbreak:;", join(r));
+    }
+    {
         // A magic breakpoint (unowned) during a `c`.
         Rig    rig;
         Client c(rig);
@@ -1321,6 +1374,27 @@ static void stop_rows() {
         check("GDB-STOP-09", "a stop the client did not cause — the magic breakpoint — answers "
                              "its c with T02thread:1;",
               s == "T02thread:1;" && rig.dbg->state().paused, s);
+    }
+    {
+        // Another client's STEP answers this client's `c`: not a step of its
+        // own, so T02.
+        Rig    rig;
+        Client c(rig);
+        open_session(c);
+        load_loop(rig);
+        c.send_raw(pkt("c"), 1);
+        rig.emu.run_frame();
+        auto other = rig.dbg->attach({"gui", jnext::dbg::ClientKind::Test}).value;
+        rig.dbg->step_into(other);
+        c.tick();
+        const auto r = c.fresh();
+        check("GDB-STOP-12", "a c answered by another client's step (reason Step, by that "
+                             "client) is T02thread:1; — only this client's own step or run-to "
+                             "is T05",
+              r.size() == 1 && r[0] == "T02thread:1;" &&
+                  rig.dbg->state().pause_reason.kind == jnext::dbg::PauseReason::Kind::Step,
+              join(r));
+        rig.dbg->detach(other);
     }
     {
         // `D` with a `c` outstanding: OK, and no late stop reply.
