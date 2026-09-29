@@ -499,10 +499,13 @@ public:
     /// `sram_rom` (zxnext.vhd:2981-3008), with the machine type, port 0x7FFD
     /// bit 4 / 0x1FFD bit 2 and the NR 0x8C alt-ROM lock bits folded in by the
     /// backend (48K: always image 0; +3: two bits; 128K and the Next: one bit).
-    /// It is what slots 0 and 1 serve whenever they are ROM-mapped — slot `s`
-    /// its half at offset `s * 0x2000` — and it is answered WHETHER OR NOT RAM
-    /// is paged there now, which is the one question `SlotInfo::space` cannot
-    /// answer: a RAM slot's space is its page.
+    /// It is the image slots 0 and 1 map whenever they are ROM-mapped — slot
+    /// `s` its half at offset `s * 0x2000`, the same space `SlotInfo::space`
+    /// then reports — and it is answered WHETHER OR NOT RAM is paged there now,
+    /// which is the one question `SlotInfo::space` cannot answer: a RAM slot's
+    /// space is its page. Like `SlotInfo::space`, it names the image BENEATH an
+    /// NR 0x8C bit-7 alternate ROM: that is a read overlay (SRAM pages 12-15,
+    /// outside `Rom{0..3}`), which `peek(Cpu)` sees and no `Rom{}` does.
     ///
     /// A complete `MemSpace` (kind `Rom`), not an index, for the reason
     /// `SlotInfo::space` is one: no client composes a ROM space itself.
