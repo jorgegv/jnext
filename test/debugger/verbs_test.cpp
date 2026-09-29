@@ -602,6 +602,55 @@ static void test_step_over() {
 }
 
 // ===========================================================================
+// QIO — GH #278 WP4c: an I/O breakpoint set through the GUI's model is a Port
+// subscription whose mask carries GH #222's rule — an address 00-FF is a
+// LOW-BYTE match, 0100 and up an exact port. Asserted by where a guest IN/OUT
+// stops the machine, since a row that only reads the panel back cannot tell a
+// mask from its mirror image.
+// ===========================================================================
+static void test_io_breakpoints() {
+    set_group("QIO");
+
+    //   8000  01 FE 7F   LD BC,$7FFE     8003  ED 78   IN A,(C)
+    //   8005  00         NOP             8006  18 FE   JR $
+    {
+        Fixture fx(MachineType::ZX48K, 0, /*paused=*/false);
+        const char* desc = "an IO Read on 00FE (low-byte form) stops a guest IN from "
+                           "port 7FFE, after the IN";
+        if (!fx.ok) { check("QIO-01", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x01, 0xFE, 0x7F, 0xED, 0x78, 0x00, 0x18, 0xFE});
+            fx.regs(PROG);
+            fx.enable();
+            fx.mgr->breakpoints().add(BreakpointModel::IoRead, 0x00FE);
+            fx.tick_until_paused();
+            check("QIO-01", desc, fx.paused() && fx.pc() == 0x8005,
+                  fmt("paused=%d PC=%04X (want paused at 8005)", fx.paused(), fx.pc()));
+        }
+    }
+    //   8000  01 3B 25   LD BC,$253B     8003  ED 79   OUT (C),A
+    //   8005  01 3B 24   LD BC,$243B     8008  ED 79   OUT (C),A
+    //   800A  00         NOP             800B  18 FE   JR $
+    {
+        Fixture fx(MachineType::ZX48K, 0, /*paused=*/false);
+        const char* desc = "an IO Write on 243B (exact form) lets an OUT to 253B — the "
+                           "same low byte — pass, and stops the OUT to 243B";
+        if (!fx.ok) { check("QIO-02", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x01, 0x3B, 0x25, 0xED, 0x79, 0x01, 0x3B, 0x24, 0xED, 0x79,
+                           0x00, 0x18, 0xFE});
+            fx.regs(PROG, [](Z80Registers& r) { r.AF = 0x0000; });
+            fx.enable();
+            fx.mgr->breakpoints().add(BreakpointModel::IoWrite, 0x243B);
+            fx.tick_until_paused();
+            check("QIO-02", desc, fx.paused() && fx.pc() == 0x800A,
+                  fmt("paused=%d PC=%04X (want paused at 800A; 8005 = stopped on the "
+                      "253B OUT)", fx.paused(), fx.pc()));
+        }
+    }
+}
+
+// ===========================================================================
 // QSI — Step Into through the GUI verb (debugger_manager.cpp:377-411), which
 // is Emulator::debugger_step() (GH #207): it runs a HALT out, turns frames
 // over, and consumes the data-breakpoint latch.
@@ -2198,6 +2247,7 @@ int main(int argc, char** argv) {
     QApplication app(argc, argv);
 
     test_step_over();
+    test_io_breakpoints();
     test_step_into();
     test_pause_edge();
     test_throttle();

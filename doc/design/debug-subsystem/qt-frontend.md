@@ -26,7 +26,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP0** | close the identity gaps on the **current** tree, so the suites are green on both trees by construction — as built: §6.2a | **done** — reviewed + APPROVED (rows, then the fix round); landed on `main` alone |
 | **WP1** | the `src/qt/` header move + `make build-matrix`. **Q is the single owner of this move**, and it lands with the rest of Q on Q's one branch — as built: §6.2b | **done** |
 | **WP2** | `DebuggerManager` verbs onto the backend facade — as built: §4.1, §6.2b | **done** |
-| **WP3** | rewind / trace / corruption — as built: §6.2c | in review |
+| **WP3** | rewind / trace / corruption — as built: §6.2c | **done** — reviewed, REJECTED once (three items, §6.2c "review round 1"), then APPROVED on re-review |
 | **WP4a-d** | the panels (parallel-able). **WP4d also owns the `render_layer` MOVE itself**, not only its 106 DVP validation rows — owner decision 2026-09-27, closing a gap §10.1 left unassigned. **WP4c** (breakpoints and watches, B3 obligation 1, `active()` retired, REQ-qt-32) — as built: §4.1b, §6.2d | WP4c: in review; WP4a/b/d: todo |
 | **WP5** | memory panel | todo |
 | **WP6** | symbols / magic | todo |
@@ -1160,7 +1160,8 @@ the debugger's breakpoints and the window's arm — through the backend now).
 | MAGIC-HOLD-01/02, PBPM-01..04 | `debugger_backend_test`, `persistent_bp_test` | the magic hold: a hit on an unarmed machine holds at the next boundary, armed by the hold alone; the resume releases it (a leftover breakpoint no longer fires); it is its own contributor; `SuspendScope` clears and restores it; a remote client's `run()` of a magic stop leaves the machine unarmed |
 | CTL-09-06, CTL-10-09 | `debugger_backend_test` | (WP3 review) an RZX refusal is logged |
 | PBPUI-12..14 | `debugger_persistent_bp_test` | the breakpoints survive close and reopen (unarmed while closed); a remote client attached with the window closed arms them and their hit opens it; a destroyed manager takes the observer and its subscriptions with it |
-| BPOW-01..03 | `debugger_menu_test` | REQ-qt-13d: another client's subscription reaches the panel at the next tick, marked with its client; it is read-only (not tickable; Remove and Clear All leave it); a master flip from outside the panel reaches its control with nothing listed |
+| BPOW-01..04 | `debugger_menu_test` | REQ-qt-13d: another client's subscription reaches the panel at the next tick, marked with its client; it is read-only (not tickable; Remove and Clear All leave it); a master flip from outside the panel reaches its control with nothing listed; the gutter draws and toggles only the GUI's own Execute breakpoints (another client's draws no dot, and a click there adds the GUI's own) |
+| QIO-01/02 | `debugger_verbs_test` | an I/O breakpoint from the GUI stops a guest IN/OUT by GH #222's rule — `00FE` catches `IN` from `7FFE`, `243B` lets an `OUT` to `253B` pass and stops the one to `243B` (added after the "every port exact" mutant survived) |
 | BPEP-18 | `debugger_menu_test` | at one address the Execute row lists first, then the data rows in creation order — `BreakpointSet`'s order |
 | QWP-08 | `debugger_panels_test` | a watch is a peek: it does not move the +3 floating-bus latch (control: `Mmu::read()` does) |
 | QSO-07 | `debugger_verbs_test` | a breakpoint stop inside a stepped-over CALL drops the stale Step Over target, so the next Run runs on |

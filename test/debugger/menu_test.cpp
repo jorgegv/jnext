@@ -1857,6 +1857,7 @@ static void test_breakpoint_owners()
         check("BPOW-01", "another client's subscription reaches the panel at the next tick", false, "fixture failed");
         check("BPOW-02", "another client's row is read-only in the panel", false, "fixture failed");
         check("BPOW-03", "a master switch flipped outside the panel reaches its control", false, "fixture failed");
+        check("BPOW-04", "another client's Execute breakpoint draws no gutter dot", false, "fixture failed");
         return;
     }
     GuiBps bps{fx.mgr->breakpoints()};
@@ -1958,6 +1959,37 @@ static void test_breakpoint_owners()
               empty_on && before_tick && off && master->isChecked(),
               fmt("empty+on=%d still on before tick=%d off after tick=%d on again=%d",
                   empty_on, before_tick, off, master && master->isChecked()));
+    }
+    // BPOW-04 — the GUTTER draws and toggles only this GUI's Execute
+    // breakpoints. Another client's Execute subscription at a line draws no
+    // dot, and a gutter click there ADDS the GUI's own — it does not try to
+    // remove the other client's (which the backend would refuse, leaving the
+    // click doing nothing).
+    {
+        DisasmPanel* disasm = fx.dbg->disasm_panel();
+        bps.clear_all_pc();
+        bps.clear_all_watchpoints();
+        jnext::dbg::Subscription s;
+        s.kind = jnext::dbg::EventKind::Execute;
+        s.action = jnext::dbg::Action::Stop;
+        s.filter.lo = s.filter.hi = 0x8003;          // line 1 of the view below
+        fx.backend->subscribe(remote, s);
+        tick();
+        const bool armed = point_disasm_at(fx.emu, disasm, 0x8000);
+        const GutterMark before = gutter_mark(render_disasm(disasm));
+        gutter_click(disasm, 1);
+        const bool own_added = bps.pc_exists(0x8003) && bps.has_pc(0x8003);
+        const GutterMark after = gutter_mark(render_disasm(disasm));
+        const QStringList rows = panel_rows(fx.dbg);
+        check("BPOW-04", "another client's Execute breakpoint draws no gutter dot, and "
+              "a gutter click there adds the GUI's own",
+              armed && before.red == 0 && own_added && after.red > 0 &&
+                  rows == QStringList{QStringLiteral("Execute (client %1) $8003").arg(remote),
+                                      QStringLiteral("Execute $8003")},
+              fmt("armed=%d red before=%d own added=%d red after=%d rows=[%s]", armed,
+                  before.red, own_added, after.red,
+                  rows.join(QStringLiteral(", ")).toUtf8().constData()));
+        bps.clear_all_pc();
     }
     fx.backend->detach(remote);
 }

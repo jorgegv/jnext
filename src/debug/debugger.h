@@ -458,8 +458,8 @@ public:
     /// ends the pause releases the hold. So `--magic-breakpoint` alone leaves
     /// `armed()` false until the opcode executes, and false again once the
     /// stop is resumed (settled, Revision 6; the hold replaced the retired
-    /// `DebugState::active()` bit, which the hook used to set and nothing
-    /// cleared).
+    /// `DebugState::active()` bit, which the hook used to set and only the Qt
+    /// debugger window's close ever cleared).
     bool armed() const;
 
     /// §4.1 — the `--persistent-breakpoints` half of `armed()` (GH #219): keep
