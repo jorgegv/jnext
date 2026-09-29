@@ -87,6 +87,24 @@ enum CommandId : std::uint8_t {
 /// The most bytes `CMD_LOOPBACK` echoes (spec: "N is max. 8192").
 constexpr std::size_t LOOPBACK_MAX_BYTES = 8192;
 
+/// The DZRP version jnext answers `CMD_INIT` with (design F1): 2.2.0 satisfies
+/// DeZog 3.8 (`DZRP_VERSION [2,2,0]`) and, by DeZog's "major equal, remote minor
+/// >= client minor" rule, the marketplace 3.7.4 (`[2,0,0]`) as well.
+constexpr std::uint8_t DZRP_VERSION_MAJOR = 2;
+constexpr std::uint8_t DZRP_VERSION_MINOR = 2;
+constexpr std::uint8_t DZRP_VERSION_PATCH = 0;
+
+/// `CMD_INIT`'s machine type: ZXNEXT, for every `--machine` (design §5.1 — the
+/// MMU is the Next's in every mode; CSpect "will always return ZXNEXT" too).
+constexpr std::uint8_t DZRP_MACHINE_ZXNEXT = 4;
+
+/// Bytes in one DZRP bank = one MMU page (design §5.2).
+constexpr std::uint32_t DZRP_BANK_BYTES = 0x2000;
+
+/// DeZog 3.8's ROM bank id in `CMD_READ/WRITE_BANK_MEM`: ONE 16 KB bank whose
+/// halves are slot 0 and slot 1 (`zxnextmemorymodels.ts:64-104`).
+constexpr std::uint8_t DZRP_ROM_BANK = 0xFF;
+
 class DzrpServer final : public Protocol {
 public:
     /// The clock the chunk timeout reads. Empty = `steady_clock::now`; the
@@ -123,17 +141,43 @@ private:
         std::uint32_t min_len;
         /// Served but NOT advertised: removed in DZRP 2.2.0, kept for 2.0/2.1.
         bool legacy;
+        /// Touches the machine, so it needs the session `CMD_INIT` opens: a
+        /// mutation must be attributed to a client (`ClientId by`), and there
+        /// is none before `CMD_INIT`. Refused until then.
+        bool session;
         void (DzrpServer::*run)(const Command&);
     };
     static const CommandDef COMMANDS[];
     static const CommandDef* find_command(std::uint8_t id);
 
+    /// `CMD_GET_SUPPORTED_COMMANDS`' bitfield, from `COMMANDS`: bit n set iff
+    /// command n has a row and is not `legacy`. Little endian, as short as the
+    /// highest set bit allows (the spec lets trailing bytes be omitted).
+    static std::vector<std::uint8_t> supported_bitfield();
+
     void execute(const Command& cmd);
     void protocol_error(Connection& c, const std::string& why);
     void reply(std::uint8_t seq, const std::vector<std::uint8_t>& payload = {});
+    void end_session();
 
     // Handlers — one per served command.
+    void cmd_init(const Command& cmd);
+    void cmd_close(const Command& cmd);
+    void cmd_get_registers(const Command& cmd);
+    void cmd_set_register(const Command& cmd);
+    void cmd_write_bank(const Command& cmd);
+    void cmd_read_mem(const Command& cmd);
+    void cmd_write_mem(const Command& cmd);
+    void cmd_set_slot(const Command& cmd);
+    void cmd_get_tbblue_reg(const Command& cmd);
+    void cmd_set_border(const Command& cmd);
     void cmd_loopback(const Command& cmd);
+    void cmd_read_port(const Command& cmd);
+    void cmd_write_port(const Command& cmd);
+    void cmd_interrupt_on_off(const Command& cmd);
+    void cmd_get_supported_commands(const Command& cmd);
+    void cmd_read_bank_mem(const Command& cmd);
+    void cmd_write_bank_mem(const Command& cmd);
 
     jnext::dbg::Debugger& dbg_;
     Clock                 clock_;
@@ -143,6 +187,10 @@ private:
     Connection*               conn_ = nullptr;  // valid inside on_service only
     FrameParser               parser_;
     std::vector<std::uint8_t> scratch_;
+
+    // Per-session state: set by CMD_INIT, cleared by CMD_CLOSE or a disconnect.
+    jnext::dbg::ClientId cid_ = jnext::dbg::CLIENT_NONE;
+    std::uint8_t         client_version_[3] = {0, 0, 0};
 };
 
 }  // namespace dzrp
