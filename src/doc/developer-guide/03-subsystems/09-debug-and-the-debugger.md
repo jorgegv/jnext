@@ -662,27 +662,6 @@ next pump the probe issues its own `reset(Hard)` — a loop owner that polls bef
 it pumps boots twice, guest first; one that pumps first boots once
 (`qt-host-order-func` for `QtApp`, HOST-08 for `HeadlessApp`).
 
-### The Qt adapter (GH #278 WP2)
-
-`DebuggerManager` holds the loop owner's `Debugger` and is a CLIENT of it
-**exactly while the debugger window is open**: `set_enabled(true)` attaches and
-requests the live raster, `set_enabled(false)` resumes a paused machine — whoever
-paused it, as closing the debugger always has — and detaches. Not for the process
-lifetime, which is what the design first said: an attach arms the machine
-(`armed = attached || persistent`), and a window that armed breakpoints while
-closed would make `--persistent-breakpoints` the default
-(`debugger_persistent_bp_test` PBPUI-03 pins the opposite).
-
-A pause the window did not cause still opens it, because the pause state is
-PULLED: `check_breakpoint_hit()` reads `state()` once per tick, after the pump,
-and brings the window to it in both directions — a pause it has not shown gets
-the pause-edge sequence (opening the window first if it is closed: a breakpoint,
-a magic breakpoint, a persistent breakpoint, another client's pause), a resume it
-did not cause gets the running one. What the window last showed is the one piece
-of state the adapter keeps for this, and it is presentation state, not a copy of
-the machine's. The eleven copies of the four panels' `set_paused()` sequence
-are one `apply_pause_state(bool)`.
-
 **The CLI `--delayed-*` flags keep their own countdowns.** Each loop owner counts
 LOOP TICKS for every `--delayed-*` flag, as before — a tick count survives a
 cold boot and keeps counting while the machine is paused, which is what keeps
@@ -728,6 +707,27 @@ the opcode at PC (an NMI or INT acknowledge does not run it). Switched off it is
 one pointer test per instruction. Each trace entry now carries I, R, IM, IFF1,
 IFF2, the word at SP (read with `peek()`, so the trace moves no watch and no +3
 floating-bus latch) and the eight MMU pages.
+
+### The Qt adapter (GH #278 WP2)
+
+`DebuggerManager` holds the loop owner's `Debugger` and is a CLIENT of it
+**exactly while the debugger window is open**: `set_enabled(true)` attaches and
+requests the live raster, `set_enabled(false)` resumes a paused machine — whoever
+paused it, as closing the debugger always has — and detaches. Not for the process
+lifetime, which is what the design first said: an attach arms the machine
+(`armed = attached || persistent`), and a window that armed breakpoints while
+closed would make `--persistent-breakpoints` the default
+(`debugger_persistent_bp_test` PBPUI-03 pins the opposite).
+
+A pause the window did not cause still opens it, because the pause state is
+PULLED: `check_breakpoint_hit()` reads `state()` once per tick, after the pump,
+and brings the window to it in both directions — a pause it has not shown gets
+the pause-edge sequence (opening the window first if it is closed: a breakpoint,
+a magic breakpoint, a persistent breakpoint, another client's pause), a resume it
+did not cause gets the running one. What the window last showed is the one piece
+of state the adapter keeps for this, and it is presentation state, not a copy of
+the machine's. The eleven copies of the four panels' `set_paused()` sequence
+are one `apply_pause_state(bool)`.
 
 ## What `ENABLE_DEBUGGER=OFF` removes
 

@@ -2431,24 +2431,6 @@ handler raises the guest hard-reset request from inside the frames, and in the
 next pump the probe issues its own <code>reset(Hard)</code> — a loop owner that polls before
 it pumps boots twice, guest first; one that pumps first boots once
 (<code>qt-host-order-func</code> for <code>QtApp</code>, HOST-08 for <code>HeadlessApp</code>).</p>
-<h3 id="the-qt-adapter-gh-278-wp2">The Qt adapter (GH #278 WP2)<a class="headerlink" href="#the-qt-adapter-gh-278-wp2" title="Permanent link">&para;</a></h3>
-<p><code>DebuggerManager</code> holds the loop owner's <code>Debugger</code> and is a CLIENT of it
-<strong>exactly while the debugger window is open</strong>: <code>set_enabled(true)</code> attaches and
-requests the live raster, <code>set_enabled(false)</code> resumes a paused machine — whoever
-paused it, as closing the debugger always has — and detaches. Not for the process
-lifetime, which is what the design first said: an attach arms the machine
-(<code>armed = attached || persistent</code>), and a window that armed breakpoints while
-closed would make <code>--persistent-breakpoints</code> the default
-(<code>debugger_persistent_bp_test</code> PBPUI-03 pins the opposite).</p>
-<p>A pause the window did not cause still opens it, because the pause state is
-PULLED: <code>check_breakpoint_hit()</code> reads <code>state()</code> once per tick, after the pump,
-and brings the window to it in both directions — a pause it has not shown gets
-the pause-edge sequence (opening the window first if it is closed: a breakpoint,
-a magic breakpoint, a persistent breakpoint, another client's pause), a resume it
-did not cause gets the running one. What the window last showed is the one piece
-of state the adapter keeps for this, and it is presentation state, not a copy of
-the machine's. The eleven copies of the four panels' <code>set_paused()</code> sequence
-are one <code>apply_pause_state(bool)</code>.</p>
 <p><strong>The CLI <code>--delayed-*</code> flags keep their own countdowns.</strong> Each loop owner counts
 LOOP TICKS for every <code>--delayed-*</code> flag, as before — a tick count survives a
 cold boot and keeps counting while the machine is paused, which is what keeps
@@ -2491,6 +2473,24 @@ the opcode at PC (an NMI or INT acknowledge does not run it). Switched off it is
 one pointer test per instruction. Each trace entry now carries I, R, IM, IFF1,
 IFF2, the word at SP (read with <code>peek()</code>, so the trace moves no watch and no +3
 floating-bus latch) and the eight MMU pages.</p>
+<h3 id="the-qt-adapter-gh-278-wp2">The Qt adapter (GH #278 WP2)<a class="headerlink" href="#the-qt-adapter-gh-278-wp2" title="Permanent link">&para;</a></h3>
+<p><code>DebuggerManager</code> holds the loop owner's <code>Debugger</code> and is a CLIENT of it
+<strong>exactly while the debugger window is open</strong>: <code>set_enabled(true)</code> attaches and
+requests the live raster, <code>set_enabled(false)</code> resumes a paused machine — whoever
+paused it, as closing the debugger always has — and detaches. Not for the process
+lifetime, which is what the design first said: an attach arms the machine
+(<code>armed = attached || persistent</code>), and a window that armed breakpoints while
+closed would make <code>--persistent-breakpoints</code> the default
+(<code>debugger_persistent_bp_test</code> PBPUI-03 pins the opposite).</p>
+<p>A pause the window did not cause still opens it, because the pause state is
+PULLED: <code>check_breakpoint_hit()</code> reads <code>state()</code> once per tick, after the pump,
+and brings the window to it in both directions — a pause it has not shown gets
+the pause-edge sequence (opening the window first if it is closed: a breakpoint,
+a magic breakpoint, a persistent breakpoint, another client's pause), a resume it
+did not cause gets the running one. What the window last showed is the one piece
+of state the adapter keeps for this, and it is presentation state, not a copy of
+the machine's. The eleven copies of the four panels' <code>set_paused()</code> sequence
+are one <code>apply_pause_state(bool)</code>.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
 <p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
 <code>jnext_debugger</code> is neither compiled nor linked and every use site in
