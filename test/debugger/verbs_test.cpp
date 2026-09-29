@@ -1008,6 +1008,39 @@ static void test_pause_edge() {
                       disasm_shows(dbg->disasm_panel(), r.PC), st.pause_reason.by, remote));
         }
     }
+
+    // QPE-09 — the pause edge is an EDGE: while the machine stays paused, the
+    // ticks refresh the window but never re-centre the Disassembly. A user who
+    // has scrolled it away from PC keeps their view. (Re-applying the pause edge
+    // on every paused tick — a pause "epoch" counted per tick rather than per
+    // stop — snapped the view back to PC every 20 ms; no row saw it.)
+    {
+        Fixture f;
+        const char* desc = "while paused, ticks refresh the Disassembly but leave "
+                           "it where the user scrolled it (no re-centring on PC)";
+        if (!f.ok) { check("QPE-09", desc, false, "fixture"); }
+        else {
+            f.load(PROG, {0x18, 0xFE});                         // JR $
+            f.regs(PROG);
+            for (uint16_t a = 0xC000; a < 0xC100; ++a) f.emu.mmu().write(a, 0x00);
+            f.enable();
+            f.tick();                                           // the pause edge
+            DebuggerWindow* dbg = f.dbg();
+            const bool at_pc = disasm_shows(dbg->disasm_panel(), PROG);
+            if (auto* sb = dbg->disasm_panel()->findChild<QScrollBar*>()) sb->setValue(0xC000);
+            QApplication::processEvents();
+            for (int i = 0; i < 3; ++i) f.tick();
+            uint16_t lo = 0, hi = 0;
+            dbg->disasm_panel()->select_all_visible();
+            dbg->disasm_panel()->selection_range(lo, hi);
+            dbg->disasm_panel()->clear_selection();
+            check("QPE-09", desc,
+                  f.paused() && at_pc && lo == 0xC000 && !disasm_shows(dbg->disasm_panel(), PROG),
+                  fmt("paused=%d showed PC first=%d span after 3 ticks %04X..%04X "
+                      "shows PC=%d", f.paused(), at_pc, lo, hi,
+                      disasm_shows(dbg->disasm_panel(), PROG)));
+        }
+    }
 }
 
 // ===========================================================================
@@ -1133,7 +1166,7 @@ static void test_enable_seeds() {
         Fixture fx(MachineType::ZX48K, 0, /*paused=*/false);
         const char* desc = "window open: a hard reset keeps the machine armed (a "
                            "breakpoint at 0000 stops it), the live raster on and "
-                           "call-stack tracking on";
+                           "call-stack tracking on (a CALL stepped into is listed)";
         if (!fx.ok) { check("QEN-03", desc, false, "fixture"); }
         else {
             fx.load(PROG, {0x18, 0xFE});
@@ -1151,12 +1184,23 @@ static void test_enable_seeds() {
             const bool cs    = fx.backend->call_stack_enabled();
             const bool ran_before = !fx.paused();
             fx.tick();
+            const bool stopped = fx.paused() && fx.pc() == 0x0000 &&
+                                 actions_paused_shape(fx.dbg());
+            // And the Call Stack panel still TRACKS: a CALL stepped into on the
+            // rebuilt machine is listed.
+            fx.load(0x8000, {0xCD, 0x00, 0x90});                 // CALL $9000
+            fx.load(0x9000, {0x18, 0xFE});
+            fx.regs(0x8000);
+            fx.mgr->on_step_into();
+            CallStackPanel* csp = fx.dbg()->callstack_panel();
+            const bool tracked = fx.pc() == 0x9000 && table_rows(csp) == 1 &&
+                                 table_cell(csp, 0, 3) == "9000";
             check("QEN-03", desc,
-                  armed && live && cs && ran_before && fx.paused() && fx.pc() == 0x0000 &&
-                      actions_paused_shape(fx.dbg()),
+                  armed && live && cs && ran_before && stopped && tracked,
                   fmt("armed=%d live_raster=%d call_stack=%d running after boot=%d "
-                      "paused=%d PC=%04X",
-                      armed, live, cs, ran_before, fx.paused(), fx.pc()));
+                      "stopped at 0000=%d (PC=%04X) CALL tracked=%d (rows=%d)",
+                      armed, live, cs, ran_before, stopped, fx.pc(), tracked,
+                      table_rows(csp)));
         }
     }
 }

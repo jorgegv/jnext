@@ -295,6 +295,58 @@ static void test_quit_gate() {
                       ret, paused_before, paused_after, watch.saw_modal));
         }
     }
+
+    // QG-07 — GH #278 WP2: answering YES to the resume modal actually RESUMES.
+    // The modal is the Qt half of CTL-11; the backend's run() refuses an
+    // unacknowledged corruption, so the Yes must acknowledge the incident in the
+    // BACKEND — a Yes that only closed the dialog would leave the machine paused
+    // with no word said, and ask again on the next press. And once acknowledged,
+    // the same incident is never asked about again.
+    {
+        Fixture fx(/*corrupt=*/true);
+        if (!fx.ok) { check("QG-07", "fixture (corrupt+paused)", false); }
+        else {
+            ModalWatcher yes(QMessageBox::Yes);
+            fx.mgr->on_run();                          // F5 on the corrupt machine
+            yes.stop();
+            const bool resumed = !fx.emu.debug_state().paused();
+            fx.mgr->on_pause();
+            ModalWatcher again(QMessageBox::No);
+            fx.mgr->on_run();                          // the same incident: no question
+            again.stop();
+            check("QG-07", "Yes to the resume modal resumes the corrupt machine, and "
+                  "the same incident is not asked about again",
+                  yes.saw_modal && resumed && !again.saw_modal &&
+                      !fx.emu.debug_state().paused(),
+                  fmt("asked=%d resumed=%d asked again=%d running after 2nd Run=%d "
+                      "(expect 1,1,0,1)",
+                      yes.saw_modal, resumed, again.saw_modal,
+                      !fx.emu.debug_state().paused()));
+        }
+    }
+
+    // QG-08 — the gate asks only about a resume that WILL happen (GH #223's
+    // ordering). A corrupt machine can be RUNNING — a snapshot load that failed
+    // while it ran latches the corruption without pausing it — and Run, Run to
+    // End of Frame and Run to End of Scanline are refused on a running machine,
+    // so none of them may put the question first.
+    {
+        Fixture fx(/*corrupt=*/true);
+        if (!fx.ok) { check("QG-08", "fixture (corrupt)", false); }
+        else {
+            fx.emu.debug_state().resume();             // corrupt, and running
+            ModalWatcher watch(QMessageBox::No);
+            fx.mgr->on_run();
+            fx.mgr->on_run_to_eof();
+            fx.mgr->on_run_to_eosl();
+            watch.stop();
+            check("QG-08", "on a corrupt RUNNING machine Run / Run to EOF / Run to "
+                  "EOSL ask nothing (each is a no-op on a running machine)",
+                  !watch.saw_modal && !fx.emu.debug_state().paused(),
+                  fmt("saw_modal=%d paused=%d (expect 0,0)", watch.saw_modal,
+                      fx.emu.debug_state().paused()));
+        }
+    }
 }
 
 int main(int argc, char** argv) {
