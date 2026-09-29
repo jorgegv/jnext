@@ -746,7 +746,9 @@ It is layered, each stage consuming only the one before it:
   (`doc/design/debug-subsystem/dsl-frontend.md` §2.1). It stops at the first
   syntax error and reports it as `line:column: message`. It is also where
   nesting is bounded: an expression tree at most 200 levels tall, `if`s nested
-  at most 64 deep, refused with a positioned error past that. Every later pass
+  at most 64 deep, refused with a positioned error past that. A chain of
+  operators counts one level per operator, parentheses or not (the tree is
+  left-deep), so `a or b or …` stops at 200 terms. Every later pass
   recurses over those trees and nothing else, so the bound made here is what
   keeps a pathological script or ZRCP expression from overflowing the stack.
 - `check.*`, with `names.*` as the one table of reserved words, built-in state
