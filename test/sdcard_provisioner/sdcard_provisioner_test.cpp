@@ -52,6 +52,19 @@
 //   PROV-UNZIP-01  Extract a STORED entry from a crafted zip.
 //   PROV-UNZIP-02  Extract a DEFLATED entry from a crafted zip.
 //   PROV-UNZIP-03  Missing entry → false.
+//   PROV-ZX81-01..09  GH #284 — double_known_zx81_rom doubles
+//                  MACHINES/NEXT/zx81.rom only when it is the known 16 KB
+//                  file (full SHA-256); a different 16 KB file, a 32 KB file,
+//                  another size, a file elsewhere, or no file are left alone
+//                  and nothing is created; a re-run changes nothing; the path
+//                  matches case-insensitively; and patch_image_fat32 writes
+//                  the doubled file to disk. The ROM itself cannot be shipped,
+//                  so every row uses a 16 KB stand-in and passes its hash.
+//   PROV-RECIPE-01..04  GH #284 — a derive records kFixedImageRecipe in the
+//                  "<fixed>.recipe" sidecar (replacing a stale one); a failed
+//                  derive leaves no sidecar; an EXISTING fixed image with no
+//                  sidecar or an old one is used as-is and never rebuilt (it
+//                  holds the user's files); the zx81 recipe is number 2.
 
 #include "core/fat32_image.h"
 #include "core/sdcard_provisioner.h"
@@ -220,6 +233,58 @@ std::string read_first_token(const std::string& path) {
     std::string tok;
     f >> tok;
     return tok;
+}
+
+// GH #284. A 16 KB stand-in for the real zx81.rom, which cannot be shipped:
+// the rows hand its hash to double_known_zx81_rom / patch_image_fat32 in
+// place of kZx81Rom16kSha256. Not periodic, so a half copied wrongly shows.
+std::vector<uint8_t> zx81_standin() {
+    std::vector<uint8_t> v(16384);
+    for (size_t i = 0; i < v.size(); ++i)
+        v[i] = static_cast<uint8_t>((i * 2654435761u) >> 13);
+    return v;
+}
+std::vector<uint8_t> twice(const std::vector<uint8_t>& v) {
+    std::vector<uint8_t> t = v;
+    t.insert(t.end(), v.begin(), v.end());
+    return t;
+}
+Fat32Node bnode(const std::string& n, const std::vector<uint8_t>& data) {
+    Fat32Node x; x.name = n; x.is_dir = false; x.data = data;
+    return x;
+}
+Fat32Node dnode(const std::string& n, std::vector<Fat32Node> children) {
+    Fat32Node x; x.name = n; x.is_dir = true; x.children = std::move(children);
+    return x;
+}
+// <machines>/<next>/ holding 48.rom and, when `rom` is given, a zx81.rom
+// named `rom_name` — the layout of the distribution image.
+Fat32Tree zx81_tree(const std::vector<uint8_t>* rom,
+                    const std::string& rom_name = "zx81.rom",
+                    const std::string& machines = "MACHINES",
+                    const std::string& next = "NEXT") {
+    std::vector<Fat32Node> files;
+    files.push_back(bnode("48.rom", std::vector<uint8_t>(16384, 0x48)));
+    if (rom) files.push_back(bnode(rom_name, *rom));
+    Fat32Tree t;
+    t.root.push_back(dnode(machines, {dnode(next, std::move(files))}));
+    return t;
+}
+// Exact-name child lookup (the rows control every name).
+const Fat32Node* child(const std::vector<Fat32Node>& level, const std::string& n) {
+    for (const auto& x : level) if (x.name == n) return &x;
+    return nullptr;
+}
+const Fat32Node* at(const Fat32Tree& t, const std::string& a,
+                    const std::string& b, const std::string& c) {
+    const Fat32Node* x = child(t.root, a);
+    x = x ? child(x->children, b) : nullptr;
+    return x ? child(x->children, c) : nullptr;
+}
+std::string slurp_text(const std::string& path) {
+    std::ifstream f(path);
+    return std::string((std::istreambuf_iterator<char>(f)),
+                       std::istreambuf_iterator<char>());
 }
 
 } // namespace
@@ -625,6 +690,99 @@ int main() {
         std::remove(fixed.c_str());
     }
 
+    // -- PROV-RECIPE-01..04 (GH #284): the fixed image's recipe sidecar --
+    const std::string recipe = fixed + sdcard::kFixedImageRecipeSuffix;
+    const std::string recipe_now = std::to_string(sdcard::kFixedImageRecipe) + "\n";
+    {
+        // 01: a derive records the recipe that made the image, replacing a
+        // stale sidecar from an older one.
+        std::remove(fixed.c_str());
+        std::string berr;
+        bool src_ok = make_fat32_source(raw, 63, 1228800, berr);
+        write_sha256_sidecar(raw, sdcard::sha256_file(raw));
+        write_file(recipe, {'1', '\n'});
+        sdcard::ProvisionOptions o;
+        o.download = recording_dl;
+        o.confirm  = [](const std::string&) { return true; };
+        auto r = src_ok ? sdcard::provision_sd_card(o) : sdcard::ProvisionResult{};
+        check("PROV-RECIPE-01", "a derive writes <fixed>.recipe holding kFixedImageRecipe",
+              src_ok && r.status == sdcard::ProvisionStatus::Ok &&
+              file_exists(fixed) && slurp_text(recipe) == recipe_now,
+              berr + r.error + " recipe='" + slurp_text(recipe) + "'");
+
+        std::remove(raw.c_str());
+        std::remove(raw_sha.c_str());
+        std::remove(fixed.c_str());
+        std::remove(recipe.c_str());
+    }
+    {
+        // 02: a derive that fails (the raw is not FAT32, so the patch fails)
+        // leaves no sidecar, not even the stale one it found.
+        write_file(raw, std::vector<uint8_t>(4096, 0xEE));
+        write_sha256_sidecar(raw, sdcard::sha256_file(raw));
+        write_file(recipe, {'1', '\n'});
+        sdcard::ProvisionOptions o;
+        o.download = recording_dl;
+        o.confirm  = [](const std::string&) { return true; };
+        auto r = sdcard::provision_sd_card(o);
+        check("PROV-RECIPE-02", "a failed derive leaves no fixed image and no recipe sidecar",
+              r.status == sdcard::ProvisionStatus::Failed &&
+              !file_exists(fixed) && !file_exists(recipe));
+
+        std::remove(raw.c_str());
+        std::remove(raw_sha.c_str());
+        std::remove(fixed.c_str());
+        std::remove(recipe.c_str());
+    }
+    {
+        // 03: an EXISTING fixed image is never rebuilt for being old. It holds
+        // the user's own files (NextZXOS writes back, jnext persists it), so
+        // regenerating it from the raw would destroy them. Every image made
+        // before recipes existed has no sidecar (03); a newer jnext will meet
+        // images whose sidecar is merely old (03b).
+        const std::vector<uint8_t> user_image = {'u', 's', 'e', 'r', 'd', 'a', 't', 'a'};
+        write_file(raw, {'r', 'a', 'w'});
+        write_sha256_sidecar(raw, sdcard::sha256_file(raw));
+        for (int with_old_sidecar = 0; with_old_sidecar < 2; ++with_old_sidecar) {
+            write_file(fixed, user_image);
+            std::remove(recipe.c_str());
+            if (with_old_sidecar) write_file(recipe, {'1', '\n'});
+            download_called = false;
+            bool copy_called = false;
+            sdcard::ProvisionOptions o;
+            o.download = recording_dl;
+            o.confirm  = [](const std::string&) { return true; };
+            o.copy = [&](const std::string&, const std::string&, std::string& err) {
+                copy_called = true; err = "stub: must not copy"; return false;
+            };
+            auto r = sdcard::provision_sd_card(o);
+            const bool used_as_is =
+                r.status == sdcard::ProvisionStatus::Ok && r.path == fixed &&
+                !download_called && !copy_called && read_file(fixed) == user_image;
+            if (!with_old_sidecar)
+                check("PROV-RECIPE-03",
+                      "an existing fixed image with NO recipe sidecar is used as-is, "
+                      "not rebuilt, and no sidecar is invented for it",
+                      used_as_is && !file_exists(recipe), r.error);
+            else
+                check("PROV-RECIPE-03b",
+                      "an existing fixed image with an OLD recipe sidecar is used "
+                      "as-is, not rebuilt, and its sidecar is left alone",
+                      used_as_is && slurp_text(recipe) == "1\n", r.error);
+        }
+        std::remove(raw.c_str());
+        std::remove(raw_sha.c_str());
+        std::remove(fixed.c_str());
+        std::remove(recipe.c_str());
+    }
+    // 04: pins the number the header's recipe list gives the zx81 recipe (2,
+    // one above Task 27's recipe 1). The sidecars written to disk and the
+    // regression suite's master gate both key off this constant, so changing
+    // it is a deliberate act that must edit this row too.
+    check("PROV-RECIPE-04", "kFixedImageRecipe is 2 and the sidecar suffix is .recipe",
+          sdcard::kFixedImageRecipe == 2 &&
+          std::string(sdcard::kFixedImageRecipeSuffix) == ".recipe");
+
     // -- PROV-SHA-MISMATCH-01: a raw that no longer matches its .sha256 is
     //    untrusted → skip REJECTED, the download seam IS invoked --
     {
@@ -834,6 +992,132 @@ int main() {
         bool m_ok = sdcard::unzip_entry(tp("stored.zip"), "does-not-exist.img",
                                         tp("out_missing.bin"), err);
         check("PROV-UNZIP-03", "missing entry returns false", !m_ok);
+    }
+
+    // -- PROV-ZX81-01..09 (GH #284): double the known 16 KB zx81.rom only --
+    {
+        const std::vector<uint8_t> rom = zx81_standin();
+        const std::string known = sdcard::sha256_hex(rom);
+        const std::vector<uint8_t> rom_x2 = twice(rom);
+
+        // 01: the known 16 KB file becomes the same 16 KB twice (upstream
+        // tbblue e2df8e15's 32 KB file), in place, with nothing else touched.
+        {
+            Fat32Tree t = zx81_tree(&rom);
+            const bool applied = sdcard::double_known_zx81_rom(t, known);
+            const Fat32Node* z = at(t, "MACHINES", "NEXT", "zx81.rom");
+            const Fat32Node* n = child(child(t.root, "MACHINES")->children, "NEXT");
+            check("PROV-ZX81-01", "the known 16 KB zx81.rom is reported as doubled",
+                  applied);
+            check("PROV-ZX81-01b", "...and is now 32 KB = the 16 KB file twice",
+                  z && z->data == rom_x2,
+                  "size=" + std::to_string(z ? z->data.size() : 0));
+            check("PROV-ZX81-01c", "...and its sibling and directory are untouched",
+                  n && n->children.size() == 2 &&
+                  at(t, "MACHINES", "NEXT", "48.rom")->data ==
+                      std::vector<uint8_t>(16384, 0x48));
+        }
+        // 02: a different 16 KB file (one byte off) is not the known one.
+        {
+            std::vector<uint8_t> other = rom;
+            other[8000] ^= 0x01;
+            Fat32Tree t = zx81_tree(&other);
+            const bool applied = sdcard::double_known_zx81_rom(t, known);
+            const Fat32Node* z = at(t, "MACHINES", "NEXT", "zx81.rom");
+            check("PROV-ZX81-02", "a DIFFERENT 16 KB zx81.rom is left untouched",
+                  !applied && z && z->data == other);
+        }
+        // 03: a 32 KB file — upstream's fixed file, or a later distribution's
+        // — is left alone even though its first half is the known file.
+        {
+            Fat32Tree t = zx81_tree(&rom_x2);
+            const bool applied = sdcard::double_known_zx81_rom(t, known);
+            const Fat32Node* z = at(t, "MACHINES", "NEXT", "zx81.rom");
+            check("PROV-ZX81-03", "a 32 KB zx81.rom is left untouched",
+                  !applied && z && z->data == rom_x2);
+        }
+        // 04: another size whose first 16 KB is the known file (so a guard
+        // that hashes only a 16 KB prefix would accept it).
+        {
+            std::vector<uint8_t> longer = rom;
+            longer.push_back(0x00);
+            Fat32Tree t = zx81_tree(&longer);
+            const bool applied = sdcard::double_known_zx81_rom(t, known);
+            const Fat32Node* z = at(t, "MACHINES", "NEXT", "zx81.rom");
+            check("PROV-ZX81-04", "a 16385-byte zx81.rom starting with the known file is untouched",
+                  !applied && z && z->data == longer);
+        }
+        // 05: no zx81.rom, or no MACHINES directory at all: nothing created.
+        {
+            Fat32Tree t = zx81_tree(nullptr);
+            const bool applied = sdcard::double_known_zx81_rom(t, known);
+            const Fat32Node* n = child(child(t.root, "MACHINES")->children, "NEXT");
+            check("PROV-ZX81-05", "no zx81.rom in MACHINES/NEXT: nothing is created",
+                  !applied && n && n->children.size() == 1 &&
+                  !at(t, "MACHINES", "NEXT", "zx81.rom"));
+
+            Fat32Tree e;
+            e.root.push_back(bnode("TBBLUE.FW", {'f', 'w'}));
+            const bool applied_e = sdcard::double_known_zx81_rom(e, known);
+            check("PROV-ZX81-05b", "no MACHINES directory: nothing is created",
+                  !applied_e && e.root.size() == 1 && !child(e.root, "MACHINES"));
+        }
+        // 06: idempotent — a second pass over the doubled file changes nothing.
+        {
+            Fat32Tree t = zx81_tree(&rom);
+            const bool first = sdcard::double_known_zx81_rom(t, known);
+            const bool second = sdcard::double_known_zx81_rom(t, known);
+            const Fat32Node* z = at(t, "MACHINES", "NEXT", "zx81.rom");
+            check("PROV-ZX81-06", "a re-run does nothing: still exactly the file twice",
+                  first && !second && z && z->data == rom_x2);
+        }
+        // 07: FAT names are case-insensitive, and the image's own spelling of
+        // the directories and the file is kept.
+        {
+            Fat32Tree t = zx81_tree(&rom, "ZX81.ROM", "machines", "next");
+            const bool applied = sdcard::double_known_zx81_rom(t, known);
+            const Fat32Node* z = at(t, "machines", "next", "ZX81.ROM");
+            check("PROV-ZX81-07", "machines/next/ZX81.ROM is matched and doubled in place",
+                  applied && z && z->data == rom_x2);
+        }
+        // 08: the known bytes anywhere but MACHINES/NEXT are not the boot
+        // menu's ROM and are left alone.
+        {
+            Fat32Tree t;
+            t.root.push_back(bnode("zx81.rom", rom));
+            t.root.push_back(dnode("MACHINES", {dnode("ZX81", {bnode("zx81.rom", rom)})}));
+            const bool applied = sdcard::double_known_zx81_rom(t, known);
+            check("PROV-ZX81-08", "zx81.rom outside MACHINES/NEXT is left untouched",
+                  !applied && child(t.root, "zx81.rom")->data == rom &&
+                  at(t, "MACHINES", "ZX81", "zx81.rom")->data == rom);
+        }
+        // 09: end to end on disk — patch_image_fat32 applies it, and the
+        // 32 KB file reads back from the reformatted volume, next to the
+        // injected config.ini and the untouched 48.rom.
+        {
+            const std::string img = tp("zx81.img");
+            const uint32_t part_lba = 63, total = 1228800;
+            std::string err;
+            bool built = make_fat32_source(img, part_lba, total, err);
+            if (built) {
+                // Lay the MACHINES/NEXT tree down as the source's content.
+                Fat32Tree src = zx81_tree(&rom);
+                built = fat32_format_and_populate(img, part_lba, total, src, err);
+            }
+            const bool patched = built && sdcard::patch_image_fat32(img, err, known);
+            Fat32Tree back;
+            const bool read = patched && fat32_read_tree(img, part_lba, back);
+            const Fat32Node* z = read ? at(back, "MACHINES", "NEXT", "zx81.rom") : nullptr;
+            const Fat32Node* c = read ? at(back, "MACHINES", "NEXT", "config.ini") : nullptr;
+            const Fat32Node* r48 = read ? at(back, "MACHINES", "NEXT", "48.rom") : nullptr;
+            check("PROV-ZX81-09", "patch_image_fat32 writes the doubled zx81.rom to the image",
+                  z && z->data == rom_x2, err + " size=" +
+                  std::to_string(z ? z->data.size() : 0));
+            check("PROV-ZX81-09b", "...beside the injected config.ini and the untouched 48.rom",
+                  c && c->data == sdcard::default_config_ini() &&
+                  r48 && r48->data == std::vector<uint8_t>(16384, 0x48));
+            std::remove(img.c_str());
+        }
     }
 
     std::printf("\n====================================\n");
