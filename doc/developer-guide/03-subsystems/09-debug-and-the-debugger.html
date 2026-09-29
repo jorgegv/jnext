@@ -1941,9 +1941,11 @@ from <code>state()</code> on every tick — see "The Qt adapter" below. Since WP
 trace and corruption controls are the facade's too, and since WP4c the GUI's
 breakpoints are backend subscriptions. What the rest of this chapter describes
 as <code>BreakpointSet</code> is the core's legacy breakpoint store, which the hot loop
-still obeys (and the core suites still drive) but no frontend writes any more;
-the remaining panels still read the <code>Emulator</code> directly until their work
-packages move them.</p>
+still obeys (and the core suites still drive) but no frontend writes any more.
+Since WP4a/b the CPU, MMU, Stack, Call Stack, Sprites, Copper, NextREG and
+Audio panels read — and the NextREG and Audio panels write — through the
+facade as well; the Disassembly, Memory and Video panels still read the
+<code>Emulator</code> directly until their work packages move them.</p>
 <h3 id="the-event-pipeline-b2">The event pipeline (B2)<a class="headerlink" href="#the-event-pipeline-b2" title="Permanent link">&para;</a></h3>
 <p>Today's event vocabulary is "a PC breakpoint, a watchpoint, one one-shot, and
 nothing is conditional". B2 replaces it with the fourteen kinds of §4.3 of the
@@ -2478,7 +2480,7 @@ the opcode at PC (an NMI or INT acknowledge does not run it). Switched off it is
 one pointer test per instruction. Each trace entry now carries I, R, IM, IFF1,
 IFF2, the word at SP (read with <code>peek()</code>, so the trace moves no watch and no +3
 floating-bus latch) and the eight MMU pages.</p>
-<h3 id="the-qt-adapter-gh-278-wp2-wp4c">The Qt adapter (GH #278 WP2, WP4c)<a class="headerlink" href="#the-qt-adapter-gh-278-wp2-wp4c" title="Permanent link">&para;</a></h3>
+<h3 id="the-qt-adapter-gh-278-wp2-wp4a-c">The Qt adapter (GH #278 WP2, WP4a-c)<a class="headerlink" href="#the-qt-adapter-gh-278-wp2-wp4a-c" title="Permanent link">&para;</a></h3>
 <p><code>DebuggerManager</code> holds the loop owner's <code>Debugger</code> — handed over by
 <code>MainWindow::set_debugger()</code>, without which <code>set_emulator()</code> throws rather than
 build a window with no debugger — and is TWO clients of it.</p>
@@ -2516,7 +2518,20 @@ are one <code>apply_pause_state(bool)</code>. The same tick first lets the model
 breakpoint change another client made (below).</p>
 <p>The Watches panel stays a GUI-side list — a watch is a peek, not an event — and
 reads its values through <code>peek(MemSpace::cpu())</code>, so it moves neither a
-watchpoint nor the +3 floating-bus latch.</p>
+watchpoint nor the +3 floating-bus latch. The Stack panel reads its words the
+same way.</p>
+<p>The register panels (WP4a/b) are projections of the facade's inspection calls:
+<code>registers()</code>, <code>mmu_slots()</code> and <code>paging_ports()</code>, <code>ula_screen_regs()</code>,
+<code>call_stack()</code>, <code>sprites()</code>, <code>copper()</code>, <code>nextreg_peek()</code>, <code>ay_registers()</code> and
+the three live audio signals. Two of them write, and a write is a mutation the
+backend logs as one line, <code>MUTATE &lt;what&gt; &lt;old&gt; -&gt; &lt;new&gt; by &lt;client&gt;</code>, attributed
+like a verb to the window's client (to no client while the window is closed —
+<code>DebuggerManager::set_panels_client()</code> keeps both panels told). A NextREG edit
+is <code>nextreg_write()</code>, so the register's own handler runs exactly as for
+<code>NEXTREG nn,n</code>; it is refused while an RZX records or plays, since a write the
+recording does not contain would make its replay diverge, and the next refresh
+shows the register's value again. The Audio panel's mute boxes are
+<code>set_audio_mute_mask()</code>.</p>
 <h3 id="the-shared-socket-transport-package-t">The shared socket transport (package T)<a class="headerlink" href="#the-shared-socket-transport-package-t" title="Permanent link">&para;</a></h3>
 <p>The three protocol servers the epic plans — DZRP, ZRCP and GDB RSP — share one
 transport, in <strong><code>src/remote/</code></strong> (target <code>jnext_remote</code>). It has no toolkit
@@ -2584,7 +2599,8 @@ branch, not about conditional compilation.</p>
 <h3 id="a-debugger-read-is-not-a-guest-access">A debugger read is not a guest access<a class="headerlink" href="#a-debugger-read-is-not-a-guest-access" title="Permanent link">&para;</a></h3>
 <p>There is a <strong>third</strong> boolean, and it exists because <code>Mmu::read()</code> is not the
 CPU's read. The Watches, Memory, Stack and Disassembly panels all
-inspect guest memory through the same <code>Mmu::read()</code> the CPU uses, so before
+inspected guest memory through the same <code>Mmu::read()</code> the CPU uses (the Watches
+and Stack panels peek since GH #278), so before
 this gate existed a READ watchpoint on any address a panel happened to display
 was latched by the panel's own refresh — at roughly 4 Hz while the machine ran
 — and the next Run or Step stopped one instruction later at an unrelated

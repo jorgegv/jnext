@@ -163,9 +163,11 @@ from `state()` on every tick — see "The Qt adapter" below. Since WP3 the rewin
 trace and corruption controls are the facade's too, and since WP4c the GUI's
 breakpoints are backend subscriptions. What the rest of this chapter describes
 as `BreakpointSet` is the core's legacy breakpoint store, which the hot loop
-still obeys (and the core suites still drive) but no frontend writes any more;
-the remaining panels still read the `Emulator` directly until their work
-packages move them.
+still obeys (and the core suites still drive) but no frontend writes any more.
+Since WP4a/b the CPU, MMU, Stack, Call Stack, Sprites, Copper, NextREG and
+Audio panels read — and the NextREG and Audio panels write — through the
+facade as well; the Disassembly, Memory and Video panels still read the
+`Emulator` directly until their work packages move them.
 
 ### The event pipeline (B2)
 
@@ -713,7 +715,7 @@ one pointer test per instruction. Each trace entry now carries I, R, IM, IFF1,
 IFF2, the word at SP (read with `peek()`, so the trace moves no watch and no +3
 floating-bus latch) and the eight MMU pages.
 
-### The Qt adapter (GH #278 WP2, WP4c)
+### The Qt adapter (GH #278 WP2, WP4a-c)
 
 `DebuggerManager` holds the loop owner's `Debugger` — handed over by
 `MainWindow::set_debugger()`, without which `set_emulator()` throws rather than
@@ -756,7 +758,21 @@ breakpoint change another client made (below).
 
 The Watches panel stays a GUI-side list — a watch is a peek, not an event — and
 reads its values through `peek(MemSpace::cpu())`, so it moves neither a
-watchpoint nor the +3 floating-bus latch.
+watchpoint nor the +3 floating-bus latch. The Stack panel reads its words the
+same way.
+
+The register panels (WP4a/b) are projections of the facade's inspection calls:
+`registers()`, `mmu_slots()` and `paging_ports()`, `ula_screen_regs()`,
+`call_stack()`, `sprites()`, `copper()`, `nextreg_peek()`, `ay_registers()` and
+the three live audio signals. Two of them write, and a write is a mutation the
+backend logs as one line, `MUTATE <what> <old> -> <new> by <client>`, attributed
+like a verb to the window's client (to no client while the window is closed —
+`DebuggerManager::set_panels_client()` keeps both panels told). A NextREG edit
+is `nextreg_write()`, so the register's own handler runs exactly as for
+`NEXTREG nn,n`; it is refused while an RZX records or plays, since a write the
+recording does not contain would make its replay diverge, and the next refresh
+shows the register's value again. The Audio panel's mute boxes are
+`set_audio_mute_mask()`.
 
 ### The shared socket transport (package T)
 
@@ -838,7 +854,8 @@ branch, not about conditional compilation.
 
 There is a **third** boolean, and it exists because `Mmu::read()` is not the
 CPU's read. The Watches, Memory, Stack and Disassembly panels all
-inspect guest memory through the same `Mmu::read()` the CPU uses, so before
+inspected guest memory through the same `Mmu::read()` the CPU uses (the Watches
+and Stack panels peek since GH #278), so before
 this gate existed a READ watchpoint on any address a panel happened to display
 was latched by the panel's own refresh — at roughly 4 Hz while the machine ran
 — and the next Run or Step stopped one instruction later at an unrelated

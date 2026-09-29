@@ -27,7 +27,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP1** | the `src/qt/` header move + `make build-matrix`. **Q is the single owner of this move**, and it lands with the rest of Q on Q's one branch — as built: §6.2b | **done** |
 | **WP2** | `DebuggerManager` verbs onto the backend facade — as built: §4.1, §6.2b | **done** |
 | **WP3** | rewind / trace / corruption — as built: §6.2c | **done** — reviewed, REJECTED once (three items, §6.2c "review round 1"), then APPROVED on re-review |
-| **WP4a-d** | the panels (parallel-able). **WP4d also owns the `render_layer` MOVE itself**, not only its 106 DVP validation rows — owner decision 2026-09-27, closing a gap §10.1 left unassigned. **WP4c** (breakpoints and watches, B3 obligation 1, `active()` retired, REQ-qt-32) — as built: §4.1b, §6.2d | WP4c: **done** — reviewed + APPROVED; WP4a/b/d: todo |
+| **WP4a-d** | the panels (parallel-able). **WP4d also owns the `render_layer` MOVE itself**, not only its 106 DVP validation rows — owner decision 2026-09-27, closing a gap §10.1 left unassigned. **WP4c** (breakpoints and watches, B3 obligation 1, `active()` retired, REQ-qt-32) — as built: §4.1b, §6.2d | WP4c: **done** — reviewed + APPROVED; WP4a/b: **in review** (as built: §6.2e); WP4d: todo |
 | **WP5** | memory panel | todo |
 | **WP6** | symbols / magic | todo |
 | **WP7** | reach-around grep = 0 (`grep -l 'core/emulator.h' src/debugger/*.cpp` empty) | todo |
@@ -1182,6 +1182,55 @@ the debugger's breakpoints and the window's arm — through the backend now).
 - the magic hook's `active()` outlived its stop — MAGIC-HOLD-02, PBPM-02;
 - a hard reset reset the legacy set's master switch while the table's survived —
   MASTER-02 (reachable once the platform restore retired; fixed in the same WP).
+
+### 6.2e WP4a and WP4b as built (2026-09-29)
+
+The eight register panels read through the backend and hold no `Emulator*`;
+none includes `core/emulator.h` (WP7's grep, applied early to these files).
+Each takes the `Debugger` in its constructor, as WP4d's Video panel does, and
+`DebuggerWindow` takes it too (`DebuggerWindow(Emulator*, Debugger&, QWidget*)`,
+the same signature WP4d gives it).
+
+| Panel | Was | Is |
+|---|---|---|
+| CPU | `cpu().get_registers()`; `mmu().port_7ffd()` bit 3; `renderer().ula().get_screen_mode_reg()` bits 2:0 | `registers()` (INS-01); `paging_ports().port_7ffd` bit 3 (INS-03 — the byte this label always read; `ula_screen_regs().active_bank` is the ULA's copy of the bit); `ula_screen_regs().port_ff` bits 2:0 (INS-15), decoded by a local copy of `Ula::set_screen_mode`'s table instead of through `TimexScreenMode` |
+| MMU | `mmu().get_effective_page(s)`, `is_slot_rom(s)`, `port_7ffd()` | `mmu_slots()[s].effective_page`, `.is_rom`; `paging_ports().port_7ffd` (INS-03) |
+| Stack | `cpu().get_registers().SP`; `mmu().read(addr)` ×2 per row | `registers().SP`; `peek(MemSpace::cpu(), addr, 2)` (INS-02) — **a defect fix**, below |
+| Call Stack | `call_stack().frames()` | `call_stack()` (INS-12) |
+| Sprites | `sprites().get_sprite_info(i)` ×128 | `sprites()` (INS-08, the same `SpriteInfo` records) |
+| Copper | `copper().is_running()`, `pc()`, `mode()`, `instruction(a)` ×64 | `copper()`: `.running`, `.pc`, `.mode`, `.program.data[a]` (INS-09) |
+| NextREG | `nextreg().peek(i)` ×256; edit `nextreg().write(r, v)` | `nextreg_peek(i)`; edit `nextreg_write(client, r, v)` (INS-04) — the register's handler runs as before, the write is logged as the window client's `MUTATE`, and it is **refused during an RZX recording or playback**, below |
+| Audio | `turbosound().ay(c).read_register(r)`, `.enabled()`, `.ay_mode()`, `.stereo_mode()`; `audio_mute_mask()` / `set_audio_mute_mask(m)` | `ay_registers(c)`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()` (INS-10, the same live signals); `audio_mute_mask()` / `set_audio_mute_mask(client, m)`, logged as the window client's `MUTATE` |
+
+**Attribution.** The two writing panels are told whose writes they make by
+`DebuggerManager::set_panels_client()`: the window's client on every attach
+and when the window is built, `CLIENT_NONE` on every detach — the same client
+every verb is attributed to (§4.1). Not the observer: it is the breakpoints'
+owner, not the user at the window.
+
+**WP0's rows keep their expected values.** QPN-CPU/MMU/STK/CS/SPR/COP, QNR-01..03,
+DVP-PEEK-01..03 and DAP-01..15 changed only their fixture — the panel is built
+on a `Debugger` over the same `Emulator` — and pass unchanged.
+
+| Rows | Suite | Pins |
+|---|---|---|
+| QPN-STK-03 | `debugger_panels_test` | the Stack panel's words are peeked: a refresh does not move the +3 floating-bus latch (control: `Mmu::read()` does) |
+| QNR-04 | `debugger_panels_test` | during an RZX playback a NextREG edit is refused and the next refresh shows the register's value again; after it the same edit lands |
+| QATR-01/02 | `debugger_panels_test` | a NextREG edit and an Audio mute toggle are logged as the window's client's `MUTATE`; while the window is closed as no client's; after a reopen as the new client's |
+| DAP-16 | `debugger_audio_panel_test` | the AY register table — the one read of the panel no WP0 row pinned (§1.8 row 19) — shows chip N's register R at row R, column N, in upper-case hex |
+| QIO-03/04, BPOW-05 | `debugger_verbs_test`, `debugger_menu_test` | (WP4c review M9, M22) both sides of the `00FF`/`0100` port boundary; the panel's Edit refuses another client's row |
+
+**Defect fixed:** the Stack panel read its 48 bytes through `Mmu::read()`, which
+moves the +3 floating-bus latch on a contended address, so a paused refresh with
+SP in banks 4-7 changed what the guest's next floating-bus read returns (F1; the
+same defect QWP-08 fixed in the Watches). QPN-STK-03 fails on the pre-WP4a tree
+(latch `00`, want `3C`).
+
+**Behaviour changes, both inherited from the backend's published write path:**
+a NextREG edit during an RZX recording or playback is refused (the direct
+`NextReg::write` let it through and diverged the recording) — the user guide's
+NextREG page says so; and every panel write now logs one `MUTATE` info line
+(§4.2a, SES-06), on the `debugger` channel and to every listener.
 
 ### 6.3 Mutation checks for the #278 reviewer
 
