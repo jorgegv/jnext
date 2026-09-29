@@ -744,7 +744,11 @@ It is layered, each stage consuming only the one before it:
   of an address filter.
 - `parser.*` over `ast.h` — recursive descent over the grammar of record
   (`doc/design/debug-subsystem/dsl-frontend.md` §2.1). It stops at the first
-  syntax error and reports it as `line:column: message`.
+  syntax error and reports it as `line:column: message`. It is also where
+  nesting is bounded: an expression tree at most 200 levels tall, `if`s nested
+  at most 64 deep, refused with a positioned error past that. Every later pass
+  recurses over those trees and nothing else, so the bound made here is what
+  keeps a pathological script or ZRCP expression from overflowing the stack.
 - `check.*`, with `names.*` as the one table of reserved words, built-in state
   names and payload names — the load-time checks, and BINDING: each upper-case
   name is resolved to what it reads in its scope (`PC` is the causing
