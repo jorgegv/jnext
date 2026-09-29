@@ -253,7 +253,7 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
      CommandClass::Served, &ZrcpServer::cmd_get_tstates},
     {"get-tstates-partial", nullptr, nullptr,
      "Get the t-states partial counter since reset-tstates-partial. It is 64-bit and never "
-     "shows OVERFLOW",
+     "shows OVERFLOW. hard-reset-cpu restarts it with the new machine",
      CommandClass::Served, &ZrcpServer::cmd_get_tstates_partial},
     U("get-ui-io-ports", nullptr),
     {"get-version", nullptr, nullptr,

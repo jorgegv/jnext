@@ -1084,6 +1084,9 @@ static void tbblue_rows() {
           esc(gpal) + " / " + esc(wrap));
 
     const std::string csp = c.cmd("tbblue-get-clipwindow sprite");
+    // A guest write first advances Layer 2's rotating index to Y1, so only a
+    // set that resets the index (NR 0x1C) lands X1 X2 Y1 Y2 where they belong.
+    c.cmd("tbblue-set-register 24 9");
     const std::string set2 = c.cmd("tbblue-set-clipwindow layer2 1 2 3 4");
     const std::string cl2 = c.cmd("tbblue-get-clipwindow layer2");
     const auto        w   = rig.dbg->clip_window(jnext::dbg::ClipLayer::Layer2);
@@ -1092,7 +1095,8 @@ static void tbblue_rows() {
     const std::string c4  = c.cmd("tbblue-set-clipwindow ula 1 2 3");
     check("ZRCP-TBB-06", "clip windows: the sprite window at reset is [T1]'s \"0 255 0 191 \"; "
                          "set layer2 1 2 3 4 goes through NR 0x1C + NR 0x18 into the live "
-                         "window; unknown, missing and short forms are ZEsarUX's errors",
+                         "window even with the index advanced by a guest write; unknown, "
+                         "missing and short forms are ZEsarUX's errors",
           csp == "0 255 0 191 \ncommand> " && set2 == "\ncommand> " &&
               cl2 == "1 2 3 4 \ncommand> " && w.x1 == 1 && w.x2 == 2 && w.y1 == 3 && w.y2 == 4 &&
               cun == "ERROR. Unknown clip window\ncommand> " &&
@@ -1629,6 +1633,36 @@ static void reset_rows() {
                              "run reply from the Reset{Hard} event — a plain stop with the fresh "
                              "machine at 0000 — and the machine is NOT paused (§4.6 rule 4)",
               reset == Result::Ok && running && is_stop_shape(r, 0x0000), esc(r));
+        rig.dbg->detach(other);
+    }
+    {
+        // A cpu-step-over in flight across another client's hard reset: the
+        // reply is completed from the event, and its target — which would
+        // otherwise be re-applied onto the new machine and stop it with
+        // nobody waiting — is removed.
+        Rig rig;
+        jnext::dbg::LoopDriver drv;
+        drv.cold_boot = [&rig]() {
+            EmulatorConfig cfg = rig.emu.config();
+            rig.emu.init(cfg);
+            return true;
+        };
+        rig.dbg->set_loop_driver(drv);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        c.send_once("cpu-step-over\n");
+        rig.tick();
+        const bool   armed = zrcp_transient_left(rig);
+        const auto   other = rig.dbg->attach({"gui", ClientKind::Test}).value;
+        rig.dbg->reset(other, jnext::dbg::ResetKind::Hard);
+        rig.pump();
+        const std::string r = c.p->take();
+        check("ZRCP-RST-05", "a cpu-step-over in flight across another client's hard reset is "
+                             "answered from the event (a plain stop at 0000) and leaves no "
+                             "target behind on the new machine",
+              armed && is_stop_shape(r, 0x0000) && !zrcp_transient_left(rig) &&
+                  !rig.dbg->state().paused,
+              esc(r));
         rig.dbg->detach(other);
     }
     {
