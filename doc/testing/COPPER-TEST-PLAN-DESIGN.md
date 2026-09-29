@@ -725,6 +725,8 @@ reached with the debugger's run-to-cycle. `WAIT(v=150, h=0)` + `MOVE NR 0x14 ←
 |----|------|----------|----------------|
 | COP-GH290-01 | NR 0x64 = 20 at raw line 100 (after the frame's reload), then the Copper started (mode 01) | NR 0x14 still 0x00 at line 204, 0x5A by line 220 — the WAIT lands on raw 214 (offset 0), not 194; pre-fix 0x5A by line 204 | zxnext.vhd:3950; zxula_timing.vhd:457-466 |
 | COP-GH290-02 | Restarted (mode 01 → 11) at the next frame's line 10, before its reload | 0x00 at line 190, 0x5A by line 200 — raw 194, counting from the reloaded 20 | zxula_timing.vhd:457-462 |
+| COP-GH290-03 | `WAIT(v=310, h=55)` (satisfied at hc_ula 452, 16 cycles before the reload), 14 NOPs (one cycle each), `MOVE NR 0x64 ← 20` — issued on the cycle BEFORE the reload | loaded by it: line 100 reads 56 | zxula_timing.vhd:457-462; copper.vhd:94 |
+| COP-GH290-04 | The same with 15 NOPs: the MOVE on the reload's own cycle | not loaded: line 100 reads 36, NR 0x64 reads 20 — pins the reload event to the master cycle | zxula_timing.vhd:457-462; zxnext.vhd:5442,6090 |
 
 ## Coverage notes (moved from the traceability matrix, GH #196)
 

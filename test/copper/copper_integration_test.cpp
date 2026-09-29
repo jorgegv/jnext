@@ -1454,6 +1454,59 @@ static void test_gh290_wait_uses_reloaded_cvc() {
               " (want 0x5a)");
 }
 
+
+// COP-GH290-03/04 — the reload to the master cycle. A Copper MOVE is the one
+// NR writer with 1-cycle placement: WAIT(v=310, h=55) is satisfied at hc_ula
+// 452 of the cvc line before the reload (threshold (55<<3)+12, copper.vhd:94),
+// i.e. 16 cycles before it; each NOP (register 0) then takes one cycle and
+// the MOVE is issued on the next, so with n NOPs MOVE NR 0x64 <- 20 lands at
+// reload - 15 + n. The reload samples i_cu_offset on the edge that starts its
+// cycle (zxula_timing.vhd:457-462): a MOVE on the cycle before is loaded, one
+// on the reload's own cycle waits a frame.
+static void test_gh290_move_at_reload_edge() {
+    set_group("GH290-CvcReload");
+
+    auto run = [](int nops, int& line100, uint8_t& nr64) -> bool {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.mmu().write(0xC000, 0x18);   // JR $
+        emu.mmu().write(0xC001, 0xFE);
+        auto regs = emu.cpu().get_registers();
+        regs.PC = 0xC000;
+        emu.cpu().set_registers(regs);
+        for (int i = 0; i < 64; ++i)
+            program_word(emu, static_cast<uint16_t>(i), enc_move(0, 0));
+        program_word(emu, 0, enc_wait(55, 310));
+        program_word(emu, static_cast<uint16_t>(1 + nops), enc_move(0x64, 20));
+        program_word(emu, static_cast<uint16_t>(2 + nops), enc_wait(0, 511));   // HALT
+        emu.debug_state().set_active(true);
+        emu.run_frame();
+        const uint64_t f1 = emu.current_frame_cycle();
+        bool ok = gh290_run_to(emu, gh290_at(emu, f1, 10, 200));
+        set_copper_mode(emu, 1);                  // 00 -> 01: runs from PC 0
+        ok = ok && gh290_run_to(emu, gh290_at(emu, f1, 100, 200));
+        line100 = ((nr_read(emu, 0x1E) & 0x01) << 8) | nr_read(emu, 0x1F);
+        nr64    = nr_read(emu, 0x64);
+        return ok;
+    };
+    int before = -1, on = -1;
+    uint8_t nr_before = 0, nr_on = 0;
+    const bool ok1 = run(14, before, nr_before);   // MOVE at reload - 1
+    const bool ok2 = run(15, on, nr_on);           // MOVE at reload
+    check("COP-GH290-03",
+          "a Copper MOVE NR 0x64 <- 20 on the cycle before the cvc reload is "
+          "loaded by it: line 100 reads 56 (zxula_timing.vhd:457-462; "
+          "copper.vhd:94)",
+          ok1 && before == 56 && nr_before == 20,
+          "line100=" + std::to_string(before) + " (want 56) nr64=" +
+              hex2(nr_before));
+    check("COP-GH290-04",
+          "…and one on the reload's own cycle is not: line 100 reads 36, the "
+          "register already 20 (zxula_timing.vhd:457-462; zxnext.vhd:5442,6090)",
+          ok2 && on == 36 && nr_on == 20,
+          "line100=" + std::to_string(on) + " (want 36) nr64=" + hex2(nr_on));
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1493,6 +1546,7 @@ int main() {
     std::printf("  Group: GH272-RowBoundary — done\n");
 
     test_gh290_wait_uses_reloaded_cvc();
+    test_gh290_move_at_reload_edge();
     std::printf("  Group: GH290-CvcReload — done\n");
 
     std::printf("\n====================================\n");

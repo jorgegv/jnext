@@ -27,7 +27,7 @@ mentions them, so a test can no longer be absent from this document.
 | Layer2                                     |   220 |  220 |    0 |    0 |       0 |          0 |
 | Sprites                                    |   217 |  217 |    0 |    0 |       0 |          0 |
 | Tilemap                                    |    98 |   98 |    0 |    0 |       0 |          0 |
-| Copper                                     |    95 |   95 |    0 |    0 |       0 |          0 |
+| Copper                                     |    97 |   97 |    0 |    0 |       0 |          0 |
 | Compositor                                 |   284 |  284 |    0 |    0 |       0 |          0 |
 | Audio                                      |   221 |  221 |    0 |    0 |       0 |          0 |
 | DMA                                        |   160 |  160 |    0 |    0 |       0 |          0 |
@@ -40,7 +40,7 @@ mentions them, so a test can no longer be absent from this document.
 | Input                                      |   379 |  379 |    0 |    0 |       0 |          0 |
 | Rewind                                     |   308 |  308 |    0 |    0 |       0 |          0 |
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
-| VideoTiming                                |    85 |   85 |    0 |    0 |       0 |          0 |
+| VideoTiming                                |    89 |   89 |    0 |    0 |       0 |          0 |
 | Contention                                 |   160 |  160 |    0 |    0 |       0 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    88 |   87 |    0 |    1 |       0 |          0 |
@@ -54,7 +54,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: mmu_integration_test            |    89 |   89 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |    17 |   17 |    0 |    0 |       0 |          0 |
 | Companion: compositor_integration_test     |    50 |   50 |    0 |    0 |       0 |          0 |
-| Companion: copper_integration_test         |    16 |   16 |    0 |    0 |       0 |          0 |
+| Companion: copper_integration_test         |    18 |   18 |    0 |    0 |       0 |          0 |
 | Companion: tilemap_fetch_split_test        |    12 |   12 |    0 |    0 |       0 |          0 |
 | Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
 | Companion: divmmc_integration_test         |     6 |    6 |    0 |    0 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    30 |   24 |    0 |    6 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5366 | 5355 |    0 |   11 |       0 |          0 |
+| **Total**                                  |  5374 | 5363 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **5366**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5056**. Rows the 121 suites declared in `test/unit-tests.conf` run live: **10750**.
+Rows the sections above carry: **5374**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5062**. Rows the 121 suites declared in `test/unit-tests.conf` run live: **10758**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -77,7 +77,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 78 suites (5778 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 78 suites (5780 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -125,7 +125,7 @@ These 78 suites (5778 live rows) have no VHDL-derived plan row to map, so they h
 | `profiler_test` | 32 | jnext profiler output format (a developer tool) |
 | `resume_guard_test` | 11 | debugger resume-confirmation policy (jnext-internal) |
 | `step_out_test` | 50 | debugger Step Out execution control (jnext-internal); the T80N core has no debugger |
-| `debugger_backend_test` | 1275 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
+| `debugger_backend_test` | 1277 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
 | `persistent_bp_test` | 18 | debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger |
 | `io_watchpoint_test` | 25 | debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger |
 | `bp_enable_test` | 23 | debugger breakpoint enable/disable policy (GH #225, jnext-internal); the T80N core has no debugger |
@@ -1267,6 +1267,8 @@ Notes and rationale: [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md).
 | VT-GH181-06 | the registered reset puts hc_ula==0 exactly ONE pixel after the armed origin (VHDL zxula_timing.vhd:424 vs :427-436) | zxula_timing.vhd:424 | pass | test/videotiming/videotiming_test.cpp:268 |
 | COP-GH290-01 | WAIT(v=150) after a mid-frame NR 0x64 = 20 write compares the cvc reloaded at ula_min_vactive (offset 0, raw line 214), not the register (raw 194) (zxnext.vhd:3950; zxula_timing.vhd:457-466) | zxnext.vhd:3950, zxula_timing.vhd:457-466 | pass | test/copper/copper_integration_test.cpp:1428 |
 | COP-GH290-02 | …and from the next frame's reload on it counts from the new offset: the WAIT lands on raw line 194 (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/copper/copper_integration_test.cpp:1449 |
+| COP-GH290-03 | a Copper MOVE NR 0x64 <- 20 on the cycle before the cvc reload is loaded by it: line 100 reads 56 (zxula_timing.vhd:457-462; copper.vhd:94) | zxula_timing.vhd:457-462, copper.vhd:94 | pass | test/copper/copper_integration_test.cpp:1496 |
+| COP-GH290-04 | …and one on the reload's own cycle is not: line 100 reads 36, the register already 20 (zxula_timing.vhd:457-462; zxnext.vhd:5442,6090) | zxula_timing.vhd:457-462, zxnext.vhd:5442,6090 | pass | test/copper/copper_integration_test.cpp:1503 |
 
 ## Compositor — `test/compositor/compositor_test.cpp`
 
@@ -3562,27 +3564,31 @@ Notes and rationale: [VIDEOTIMING-TEST-PLAN-DESIGN.md](VIDEOTIMING-TEST-PLAN-DES
 | VT-GH265-04 | IN A,(n) of NR 0x1F: I/O cycle after 7 T, edge on the cvc step reads 0x36, one T-state later 0x00 (zxnext.vhd:5871-5876; t80na.vhd:214-222) | zxnext.vhd:5871-5876, t80na.vhd:214-222 | pass | test/videotiming/videotiming_test.cpp:1849 |
 | VT-GH265-05 | a loop polling NR 0x1F for line 0 leaves on the first turn whose IN samples past the cvc step: 12 instructions, not 15 (zxnext.vhd:5871-5876,5985-5986; t80na.vhd:214-222) | zxnext.vhd:5871-5876,5985-5986, t80na.vhd:214-222 | pass | test/videotiming/videotiming_test.cpp:1891 |
 | VT-GH265-06 | a NR 0x1F read outside any instruction samples at the clock, even after an IN has executed: 8 cycles before the step it reads 0x36 (zxnext.vhd:5985-5986; zxula_timing.vhd:457-470) | zxnext.vhd:5985-5986, zxula_timing.vhd:457-470 | pass | test/videotiming/videotiming_test.cpp:1922 |
-| VT-GH290-01 | NR 0x64 written after the frame's cvc reload: NR 0x1E/0x1F keep counting from the old offset for the rest of the frame — cvc samples i_cu_offset only at ula_min_vactive (zxula_timing.vhd:457-466; zxnext.vhd:5982-5986) | zxula_timing.vhd:457-466, zxnext.vhd:5982-5986 | pass | test/videotiming/videotiming_test.cpp:2072 |
-| VT-GH290-02 | …and through the next frame's lines before its ula_min_vactive line, including that line's own raw hc < c_min_hactive - 11 (zxula_timing.vhd:423-425,457-470) | zxula_timing.vhd:423-425,457-470 | pass | test/videotiming/videotiming_test.cpp:2080 |
-| VT-GH290-03 | …and count from the new offset from that line's hc_ula 0 on, the one reload of the frame (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/videotiming/videotiming_test.cpp:2087 |
-| VT-GH290-04 | the NR 0x64 register itself reads the write back at once, while cvc has not taken it (zxnext.vhd:5442,6090) | zxnext.vhd:5442,6090 | pass | test/videotiming/videotiming_test.cpp:2093 |
-| VT-GH290-05 | NR 0x64 written before the frame's cvc reload: the lines before it keep the old offset, the reload loads the new one in the same frame (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/videotiming/videotiming_test.cpp:2115 |
-| VT-GH290-06 | NR 0x22/0x23 written after a mid-frame NR 0x64 write: the line interrupt fires on the line the RELOADED offset selects (raw 213), not the register's (raw 193) (zxula_timing.vhd:462,577) | zxula_timing.vhd:462,577 | pass | test/videotiming/videotiming_test.cpp:2151 |
-| VT-GH290-07 | …and in the next frame, after its reload, on the new offset's line only (raw 193, not also 213) (zxula_timing.vhd:457-462,577) | zxula_timing.vhd:457-462,577 | pass | test/videotiming/videotiming_test.cpp:2157 |
-| VT-GH290-08 | NR 0x64 written before the reload in a frame whose line interrupt is already scheduled: the reload re-derives it, so it fires on the reloaded offset's line (raw 193) and not the stale one (213) (zxula_timing.vhd:457-462,577) | zxula_timing.vhd:457-462,577 | pass | test/videotiming/videotiming_test.cpp:2188 |
-| VT-GH290-09 | a frame whose cvc reloads a smaller offset repeats cvc values: the line interrupt fires on both (raw 59 counting from 10, raw 69 counting from 0) and on no third line (zxula_timing.vhd:457-466,577) | zxula_timing.vhd:457-466,577 | pass | test/videotiming/videotiming_test.cpp:2224 |
-| VT-GH290-10 | a frame whose cvc reloads a larger offset skips cvc values: a target among them does not fire that frame, and fires the next one before its reload (zxula_timing.vhd:457-466,577) | zxula_timing.vhd:457-466,577 | pass | test/videotiming/videotiming_test.cpp:2258 |
-| VT-GH290-11 | save_state/load_state carry the offset cvc counts from apart from NR 0x64: the restored frame's lines before its reload count from 10, the reload loads the register's 20, and the stream re-saves byte-identical (zxula_timing.vhd:457-466) | zxula_timing.vhd:457-466 | pass | test/videotiming/videotiming_test.cpp:2290 |
-| VT-GH290-12 | a .jns carries the offset cvc counts from apart from NR 0x64: the restored frame counts from 10 until its reload, then from 20 (zxula_timing.vhd:457-466) | zxula_timing.vhd:457-466 | pass | test/videotiming/videotiming_test.cpp:2330 |
-| VT-GH290-13 | a rewind into a frame restores the offset cvc counts from: before the frame's reload 10 (not the 20 it had reloaded when the rewind began), and 20 again after the replayed reload (zxula_timing.vhd:457-466) | zxula_timing.vhd:457-466 | pass | test/videotiming/videotiming_test.cpp:2363 |
-| VT-GH290-14 | a tail block without cvc_offset_delta (a pre-GH #290 .jns) restores cvc counting from NR 0x64, as that jnext's did, and is not refused (NEXT-SNAPSHOT-FORMAT.md §12.2) | — | pass | test/videotiming/videotiming_test.cpp:2389 |
-| VT-GH290-15 | a hard init leaves cvc_offset_delta at its declared default 0 (the offset cvc counts from and NR 0x64 both 0, zxnext.vhd:5024), and it is the tail block's one defaulted field | zxnext.vhd:5024 | pass | test/videotiming/videotiming_test.cpp:2414 |
-| VT-GH290-16 | a soft reset clears NR 0x64 but cvc keeps counting from its last reload (10) until the next one loads the cleared 0 (zxnext.vhd:5024; zxula_timing.vhd has no reset input) | zxnext.vhd:5024, zxula_timing.vhd | pass | test/videotiming/videotiming_test.cpp:2449 |
-| VT-GH290-17 | the cvc reload sits at raw (c_min_vactive, c_min_hactive - 11) on every timing: 48K, 128K, +3, Pentagon, 48K and 128K at 60 Hz (zxula_timing.vhd:159-167,195-204,229-238,261-270,289-298,423-425,457-462) | zxula_timing.vhd:159-167,195-204,229-238,261-270,289-298,423-425,457-462 | pass | test/videotiming/videotiming_test.cpp:2492 |
-| VT-GH290-18 | at 60 Hz the reload is on raw line 40, not 64: NR 0x64 written mid-frame reaches cvc at the next frame's line 40, hc_ula 0 (zxula_timing.vhd:237-238,457-462) | zxula_timing.vhd:237-238,457-462 | pass | test/videotiming/videotiming_test.cpp:2524 |
-| VT-GH290-19 | an IN sampling the cycle before the reload reads cvc counting from the old offset (line 63: 310 -> 0x36), one sampling after it the reloaded 20 (0x14), inside the instruction whose end runs the reload (zxula_timing.vhd:423-425,457-462; zxnext.vhd:5871-5876) | zxula_timing.vhd:423-425,457-462, zxnext.vhd:5871-5876 | pass | test/videotiming/videotiming_test.cpp:2563 |
-| VT-GH290-20 | OUT (C),A committing NR 0x64 = 20 two cycles before the reload is loaded by it: line 100 of the same frame reads 56 (zxula_timing.vhd:457-462; zxnext.vhd:4739-4777,5442) | zxula_timing.vhd:457-462, zxnext.vhd:4739-4777,5442 | pass | test/videotiming/videotiming_test.cpp:2613 |
-| VT-GH290-21 | …and committing six cycles after it is not: line 100 still reads 36, the register already 20 (zxula_timing.vhd:457-462; zxnext.vhd:4739-4777,5442,6090) | zxula_timing.vhd:457-462, zxnext.vhd:4739-4777,5442,6090 | pass | test/videotiming/videotiming_test.cpp:2619 |
+| VT-GH290-01 | NR 0x64 written after the frame's cvc reload: NR 0x1E/0x1F keep counting from the old offset for the rest of the frame — cvc samples i_cu_offset only at ula_min_vactive (zxula_timing.vhd:457-466; zxnext.vhd:5982-5986) | zxula_timing.vhd:457-466, zxnext.vhd:5982-5986 | pass | test/videotiming/videotiming_test.cpp:2093 |
+| VT-GH290-02 | …and through the next frame's lines before its ula_min_vactive line, including that line's own raw hc < c_min_hactive - 11 (zxula_timing.vhd:423-425,457-470) | zxula_timing.vhd:423-425,457-470 | pass | test/videotiming/videotiming_test.cpp:2101 |
+| VT-GH290-03 | …and count from the new offset from that line's hc_ula 0 on, the one reload of the frame (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/videotiming/videotiming_test.cpp:2108 |
+| VT-GH290-04 | the NR 0x64 register itself reads the write back at once, while cvc has not taken it (zxnext.vhd:5442,6090) | zxnext.vhd:5442,6090 | pass | test/videotiming/videotiming_test.cpp:2114 |
+| VT-GH290-05 | NR 0x64 written before the frame's cvc reload: the lines before it keep the old offset, the reload loads the new one in the same frame (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/videotiming/videotiming_test.cpp:2136 |
+| VT-GH290-06 | NR 0x22/0x23 written after a mid-frame NR 0x64 write: the line interrupt fires on the line the RELOADED offset selects (raw 213), not the register's (raw 193) (zxula_timing.vhd:462,577) | zxula_timing.vhd:462,577 | pass | test/videotiming/videotiming_test.cpp:2172 |
+| VT-GH290-07 | …and in the next frame, after its reload, on the new offset's line only (raw 193, not also 213) (zxula_timing.vhd:457-462,577) | zxula_timing.vhd:457-462,577 | pass | test/videotiming/videotiming_test.cpp:2178 |
+| VT-GH290-08 | NR 0x64 written before the reload in a frame whose line interrupt is already scheduled: the reload re-derives it, so it fires on the reloaded offset's line (raw 193) and not the stale one (213) (zxula_timing.vhd:457-462,577) | zxula_timing.vhd:457-462,577 | pass | test/videotiming/videotiming_test.cpp:2209 |
+| VT-GH290-09 | a frame whose cvc reloads a smaller offset repeats cvc values: the line interrupt fires on both (raw 59 counting from 10, raw 69 counting from 0) and on no third line (zxula_timing.vhd:457-466,577) | zxula_timing.vhd:457-466,577 | pass | test/videotiming/videotiming_test.cpp:2245 |
+| VT-GH290-10 | a frame whose cvc reloads a larger offset skips cvc values: a target among them does not fire that frame, and fires the next one before its reload (zxula_timing.vhd:457-466,577) | zxula_timing.vhd:457-466,577 | pass | test/videotiming/videotiming_test.cpp:2279 |
+| VT-GH290-11 | save_state/load_state carry the offset cvc counts from apart from NR 0x64: the restored frame's lines before its reload count from 10, the reload loads the register's 20, and the stream re-saves byte-identical (zxula_timing.vhd:457-466) | zxula_timing.vhd:457-466 | pass | test/videotiming/videotiming_test.cpp:2311 |
+| VT-GH290-12 | a .jns carries the offset cvc counts from apart from NR 0x64: the restored frame counts from 10 until its reload, then from 20 (zxula_timing.vhd:457-466) | zxula_timing.vhd:457-466 | pass | test/videotiming/videotiming_test.cpp:2351 |
+| VT-GH290-13 | a rewind into a frame restores the offset cvc counts from: before the frame's reload 10 (not the 20 it had reloaded when the rewind began), and 20 again after the replayed reload (zxula_timing.vhd:457-466) | zxula_timing.vhd:457-466 | pass | test/videotiming/videotiming_test.cpp:2384 |
+| VT-GH290-14 | a tail block without cvc_offset_delta (a pre-GH #290 .jns) restores cvc counting from NR 0x64, as that jnext's did, and is not refused (NEXT-SNAPSHOT-FORMAT.md §12.2) | — | pass | test/videotiming/videotiming_test.cpp:2410 |
+| VT-GH290-15 | a hard init leaves cvc_offset_delta at its declared default 0 (the offset cvc counts from and NR 0x64 both 0, zxnext.vhd:5024), and it is the tail block's one defaulted field | zxnext.vhd:5024 | pass | test/videotiming/videotiming_test.cpp:2435 |
+| VT-GH290-16 | a soft reset clears NR 0x64 but cvc keeps counting from its last reload (10) until the next one loads the cleared 0 (zxnext.vhd:5024; zxula_timing.vhd has no reset input) | zxnext.vhd:5024, zxula_timing.vhd | pass | test/videotiming/videotiming_test.cpp:2470 |
+| VT-GH290-17 | the cvc reload sits at raw (c_min_vactive, c_min_hactive - 11) on every timing: 48K, 128K, +3, Pentagon, 48K and 128K at 60 Hz (zxula_timing.vhd:159-167,195-204,229-238,261-270,289-298,423-425,457-462) | zxula_timing.vhd:159-167,195-204,229-238,261-270,289-298,423-425,457-462 | pass | test/videotiming/videotiming_test.cpp:2513 |
+| VT-GH290-18 | at 60 Hz the reload is on raw line 40, not 64: NR 0x64 written mid-frame reaches cvc at the next frame's line 40, hc_ula 0 (zxula_timing.vhd:237-238,457-462) | zxula_timing.vhd:237-238,457-462 | pass | test/videotiming/videotiming_test.cpp:2545 |
+| VT-GH290-19 | an IN sampling the cycle before the reload reads cvc counting from the old offset (line 63: 310 -> 0x36), one sampling after it the reloaded 20 (0x14), inside the instruction whose end runs the reload (zxula_timing.vhd:423-425,457-462; zxnext.vhd:5871-5876) | zxula_timing.vhd:423-425,457-462, zxnext.vhd:5871-5876 | pass | test/videotiming/videotiming_test.cpp:2584 |
+| VT-GH290-20 | OUT (C),A committing NR 0x64 = 20 two cycles before the reload is loaded by it: line 100 of the same frame reads 56 (zxula_timing.vhd:457-462; zxnext.vhd:4739-4777,5442) | zxula_timing.vhd:457-462, zxnext.vhd:4739-4777,5442 | pass | test/videotiming/videotiming_test.cpp:2634 |
+| VT-GH290-21 | …and committing six cycles after it is not: line 100 still reads 36, the register already 20 (zxula_timing.vhd:457-462; zxnext.vhd:4739-4777,5442,6090) | zxula_timing.vhd:457-462, zxnext.vhd:4739-4777,5442,6090 | pass | test/videotiming/videotiming_test.cpp:2640 |
+| VT-GH290-22 | no frame events: the line interrupt counts the lines from the reload's position on from NR 0x64 (raw 64 + 149 - 20 = 193), as the readback does, not from the never-reloaded 0 (raw 213) (zxula_timing.vhd:457-462,566-570,577) | zxula_timing.vhd:457-462,566-570,577 | pass | test/videotiming/videotiming_test.cpp:2667 |
+| VT-GH290-23 | no frame events, target 6: neither side of the first frame holds cvc 5 (raw 69 counting from 0 lies after the reload's position, raw 49 counting from 20 before it), so it rolls into the next frame's lines before that position, counting from NR 0x64: raw 49 (zxula_timing.vhd:457-466,577) | zxula_timing.vhd:457-466,577 | pass | test/videotiming/videotiming_test.cpp:2690 |
+| VT-GH290-24 | in the second frame run, an IN sampling just after the reload's position reads the value it loads (0x14), not the previous frame's reload (0x00) (zxula_timing.vhd:457-462; zxnext.vhd:5871-5876) | zxula_timing.vhd:457-462, zxnext.vhd:5871-5876 | pass | test/videotiming/videotiming_test.cpp:2716 |
+| VT-GH290-25 | after a restore into a machine that was past its reload, an IN sampling just after the restored frame's reload position reads the value it loads (0x14), not the restored pre-reload offset (0x0a) (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/videotiming/videotiming_test.cpp:2745 |
 | VT-01 | 48K hc_max()=447, vc_max()=311 after init(ZX48K) (zxula_timing.vhd:262,270) | zxula_timing.vhd:262,270 | pass | test/videotiming/videotiming_test.cpp:115 |
 | VT-02 | 128K hc_max()=455, vc_max()=310 after init(ZX128K) (zxula_timing.vhd:196,204) | zxula_timing.vhd:196,204 | pass | test/videotiming/videotiming_test.cpp:123 |
 | VT-04 | 128K display_origin() = {136, 64} (zxula_timing.vhd:195,203) | zxula_timing.vhd:195,203 | pass | test/videotiming/videotiming_test.cpp:145 |
@@ -5219,6 +5225,8 @@ Notes and rationale: [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md).
 | GH272-ROWATOM-03 | Emulator::init(ZXN_ISSUE2) failed | zxnext.vhd:4739-4777 | pass | test/copper/copper_integration_test.cpp:1350 |
 | COP-GH290-01 | WAIT(v=150) after a mid-frame NR 0x64 = 20 write compares the cvc reloaded at ula_min_vactive (offset 0, raw line 214), not the register (raw 194) (zxnext.vhd:3950; zxula_timing.vhd:457-466) | zxnext.vhd:3950, zxula_timing.vhd:457-466 | pass | test/copper/copper_integration_test.cpp:1428 |
 | COP-GH290-02 | …and from the next frame's reload on it counts from the new offset: the WAIT lands on raw line 194 (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/copper/copper_integration_test.cpp:1449 |
+| COP-GH290-03 | a Copper MOVE NR 0x64 <- 20 on the cycle before the cvc reload is loaded by it: line 100 reads 56 (zxula_timing.vhd:457-462; copper.vhd:94) | zxula_timing.vhd:457-462, copper.vhd:94 | pass | test/copper/copper_integration_test.cpp:1496 |
+| COP-GH290-04 | …and one on the reload's own cycle is not: line 100 reads 36, the register already 20 (zxula_timing.vhd:457-462; zxnext.vhd:5442,6090) | zxula_timing.vhd:457-462, zxnext.vhd:5442,6090 | pass | test/copper/copper_integration_test.cpp:1503 |
 
 ### Companion regression suite — `test/tilemap/tilemap_fetch_split_test.cpp`
 

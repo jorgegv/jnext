@@ -1001,6 +1001,10 @@ raw line from raw hc 125 on.
 | VT-GH290-19 | Section 14's fixture (no frames run), NR 0x64 = 20 written first: `IN A,(C)` of NR 0x1F sampling cycle P − 1, and one sampling P + 7 (P = 64·1824 + 500) | 0x36 (line 63 counting from 0), then 0x14 (the value the reload loads, read inside the instruction whose end would run the reload); pre-fix 0x13 at P − 1 | zxula_timing.vhd:423-425,457-462; zxnext.vhd:5871-5876 |
 | VT-GH290-20 | Running frame: `OUT (C),A` writing NR 0x64 = 20, started at P − 76 so its commit edge (io_request_edge + 2 = start + 74) is P − 2 | loaded by the reload: line 100 reads 56 | zxula_timing.vhd:457-462; zxnext.vhd:4739-4777,5442 |
 | VT-GH290-21 | The same started at P − 68: commit edge P + 6 | not loaded: line 100 reads 36, NR 0x64 reads 20; pre-fix 56 | zxula_timing.vhd:457-462; zxnext.vhd:4739-4777,5442,6090 |
+| VT-GH290-22 | No frame events (Section 8's harness, so no reload ever runs): NR 0x64 = 20, then NR 0x23 = 150 / NR 0x22 = 0x02 | fires by line 200 (raw 193): the lines from the reload's position on count from NR 0x64, the rule the readback follows (VT-GH290-19) | zxula_timing.vhd:457-462,566-570,577 |
+| VT-GH290-23 | No frame events: NR 0x64 = 20, target 6 (int_line_num 5) | no fire in the first frame (raw 69 lies after the reload's position, raw 49 before it); rolls into the next frame's lines before that position, counting from NR 0x64: raw 49 | zxula_timing.vhd:457-466,577 |
+| VT-GH290-24 | Running frame, the SECOND one run: NR 0x64 = 20 at line 10, `IN A,(C)` of NR 0x1F sampling P + 7 | 0x14 — "this frame's reload has run" is cleared at every frame end, so the IN reads the value the reload is about to load, not the previous frame's 0 | zxula_timing.vhd:457-462; zxnext.vhd:5871-5876 |
+| VT-GH290-25 | `load_state` of VT-GH290-11's stream into a machine paused PAST its own reload, then the same IN | 0x14, not 0x0A — a restore sits before the frame's reload whatever the machine was doing | zxula_timing.vhd:457-462 |
 
 `DVP-RAS-04` (debugger_video_panel_test) was re-pinned by the same change: it
 asserted that a mid-frame NR 0x64 write moved the panel's `cvc` at once, which

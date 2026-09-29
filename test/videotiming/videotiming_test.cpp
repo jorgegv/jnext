@@ -2031,6 +2031,27 @@ static bool build_split(Emulator& emu, int rewind_frames = 0) {
            g163::nr_read(emu, 0x64) == 20;
 }
 
+// `IN A,(C)` of NR 0x1F, started at master cycle `start` in a machine
+// already built, through the full per-instruction path (so the frame's events
+// run at its end). The clock is moved to `start` between instructions. The
+// IN samples 84 cycles after it starts (VT-GH265-03); a `JR $` follows it.
+static bool in_1f_at(Emulator& emu, uint64_t start, uint8_t& a) {
+    if (emu.clock().get() > start) return false;
+    emu.port().out(0x243B, 0x1F);
+    emu.mmu().write(0x8000, 0xED);
+    emu.mmu().write(0x8001, 0x78);            // IN A,(C)
+    emu.mmu().write(0x8002, 0x18);
+    emu.mmu().write(0x8003, 0xFE);            // JR $
+    auto regs = emu.cpu().get_registers();
+    regs.PC = 0x8000;
+    regs.BC = 0x253B;
+    emu.cpu().set_registers(regs);
+    emu.clock().tick(static_cast<int>(start - emu.clock().get()));
+    emu.execute_single_instruction();
+    a = static_cast<uint8_t>(emu.cpu().get_registers().AF >> 8);
+    return true;
+}
+
 }  // namespace gh290
 
 static void section16_gh290_cvc_reload() {
@@ -2623,6 +2644,111 @@ static void section16_gh290_cvc_reload() {
               ok2 && after_l100 == 36 && after_nr64 == 20,
               gw("line100", after_l100, 36) + gw("nr64", after_nr64, 20));
     }
+
+    // VT-GH290-22/23 — with NO frame events (Section 8's harness: run_frame()
+    // is never called, so no reload ever runs) the lines from the reload's
+    // position on count from NR 0x64 as it stands: the rule the readback
+    // follows there (VT-GH290-19). The line interrupt is placed by the same
+    // rule, in the current frame (22) and when it rolls into the next (23).
+    // In a running frame this is the prediction the reload then re-derives.
+    {
+        Emulator emu;
+        bool ok = g163::build_emulator(emu);
+        uint64_t n1 = 99;
+        if (ok) {
+            g163::install_jr_self_loop(emu);
+            emu.reset_line_int_fire_count();
+            g163::nr_write(emu, 0x64, 20);
+            g163::nr_write(emu, 0x23, 150);            // int_line_num 149
+            g163::nr_write(emu, 0x22, 0x02);
+            ok = g163::step_until_master_cycle(emu, 200ULL * 1824);
+            n1 = emu.line_int_fire_count();
+        }
+        check("VT-GH290-22",
+              "no frame events: the line interrupt counts the lines from the "
+              "reload's position on from NR 0x64 (raw 64 + 149 - 20 = 193), "
+              "as the readback does, not from the never-reloaded 0 (raw 213) "
+              "(zxula_timing.vhd:457-462,566-570,577)",
+              ok && n1 == 1, gw("by_line200", long(n1), 1));
+    }
+    {
+        Emulator emu;
+        bool ok = g163::build_emulator(emu);
+        uint64_t n1 = 99, n2 = 99;
+        if (ok) {
+            const uint64_t mcpf = emu.timing().master_cycles_per_frame;
+            g163::install_jr_self_loop(emu);
+            emu.reset_line_int_fire_count();
+            g163::nr_write(emu, 0x64, 20);
+            g163::nr_write(emu, 0x23, 6);              // int_line_num 5
+            g163::nr_write(emu, 0x22, 0x02);
+            ok = g163::step_until_master_cycle(emu, mcpf);
+            n1 = emu.line_int_fire_count();
+            ok = ok && g163::step_until_master_cycle(emu, mcpf + 60ULL * 1824);
+            n2 = emu.line_int_fire_count();
+        }
+        check("VT-GH290-23",
+              "no frame events, target 6: neither side of the first frame holds "
+              "cvc 5 (raw 69 counting from 0 lies after the reload's position, "
+              "raw 49 counting from 20 before it), so it rolls into the next "
+              "frame's lines before that position, counting from NR 0x64: raw "
+              "49 (zxula_timing.vhd:457-466,577)",
+              ok && n1 == 0 && n2 == 1,
+              gw("by_frame_end", long(n1), 0) + gw("by_next_line60", long(n2), 1));
+    }
+
+    // VT-GH290-24 — the flag that says whether THIS frame's reload has run is
+    // cleared at every frame end. F0 reloaded 0; NR 0x64 = 20 at F1 line 10;
+    // an IN sampling just after F1's reload position, inside the instruction
+    // whose end runs that reload, reads the value it loads (20), not the
+    // offset F0's reload left (0).
+    {
+        Emulator emu;
+        const bool built = gh290::build(emu);
+        const uint64_t f1 = emu.current_frame_cycle();
+        bool ok = built;
+        uint8_t v = 0xEE;
+        if (built) {
+            ok = run_to(emu, at(emu, f1, 10, 200));
+            g163::nr_write(emu, 0x64, 20);
+            ok = ok && gh290::in_1f_at(emu, f1 + gh265::kStep - 76, v);   // samples P + 7
+        }
+        check("VT-GH290-24",
+              "in the second frame run, an IN sampling just after the reload's "
+              "position reads the value it loads (0x14), not the previous "
+              "frame's reload (0x00) (zxula_timing.vhd:457-462; "
+              "zxnext.vhd:5871-5876)",
+              ok && v == 0x14, gw("nr1f", v, 0x14));
+    }
+
+    // VT-GH290-25 — …and at every restore: a snapshot sits at a frame
+    // boundary, before the frame's reload, whatever the machine it is loaded
+    // into was doing. Machine b is past ITS reload when build_split()'s
+    // stream (cvc 10, NR 0x64 20) is loaded into it; an IN sampling just after
+    // the restored frame's reload position reads 20, not 10.
+    {
+        Emulator a;
+        const bool split = gh290::build_split(a);
+        const std::vector<uint8_t> buf = split ? gh290::stream_of(a)
+                                               : std::vector<uint8_t>();
+        Emulator b;
+        bool ok = split && gh290::build(b);
+        uint8_t v = 0xEE;
+        if (ok) {
+            const uint64_t g0 = b.current_frame_cycle();
+            ok = run_to(b, at(b, g0, 100, 200));        // b's own reload has run
+            StateReader r(buf.data(), buf.size());
+            ok = ok && b.load_state(r);
+            const uint64_t g = b.current_frame_cycle();
+            ok = ok && gh290::in_1f_at(b, g + gh265::kStep - 76, v);
+        }
+        check("VT-GH290-25",
+              "after a restore into a machine that was past its reload, an IN "
+              "sampling just after the restored frame's reload position reads "
+              "the value it loads (0x14), not the restored pre-reload offset "
+              "(0x0a) (zxula_timing.vhd:457-462)",
+              ok && v == 0x14, gw("nr1f", v, 0x14));
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -2684,7 +2810,7 @@ int main() {
     std::printf("  Section 15: VT-S15-GH22-IN-DISPLAY   — done (2 live)\n");
 
     section16_gh290_cvc_reload();
-    std::printf("  Section 16: VT-S16-GH290-CVC-RELOAD — done (21 live)\n");
+    std::printf("  Section 16: VT-S16-GH290-CVC-RELOAD — done (25 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
