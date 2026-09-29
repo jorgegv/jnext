@@ -22,9 +22,9 @@ using dbg::EventKind;
 // Each name is admitted only where the backend's `Event` actually carries it
 // for EVERY event the scope can deliver (events.h and the drain,
 // debugger_events.cpp `build_event`). That is stricter than a literal reading
-// of §2.3 in two places, both recorded in dsl-frontend.md "WP1 as built":
-// `IO_SRC`/`IO_DST` are admitted on `dma byte` only (the backend fills them on
-// `Byte` alone — `Dma::latch_start_`/`latch_end_` set no I/O flags), and
+// of §2.3 in two places, recorded in dsl-frontend.md Appendices G and I:
+// `IO_SRC`/`IO_DST` are admitted on `dma byte` and `dma start` (WP3 made
+// `Dma::latch_start_` fill them, finding F1) but not `dma end`, and
 // `LEN`/`DMA_MODE` on `dma start`/`end` only (the `Byte` payload has neither).
 
 bool payload_legal(Builtin p, const PayloadScope& s) {
@@ -58,7 +58,9 @@ bool payload_legal(Builtin p, const PayloadScope& s) {
             if (p == Builtin::P_SRC || p == Builtin::P_DST) return true;
             if (p == Builtin::P_LEN || p == Builtin::P_DMA_MODE)
                 return s.dma && (*s.dma == DmaEventKind::Start || *s.dma == DmaEventKind::End);
-            if (p == Builtin::P_VALUE || p == Builtin::P_IO_SRC || p == Builtin::P_IO_DST)
+            if (p == Builtin::P_IO_SRC || p == Builtin::P_IO_DST)
+                return s.dma && (*s.dma == DmaEventKind::Byte || *s.dma == DmaEventKind::Start);
+            if (p == Builtin::P_VALUE)
                 return s.dma && *s.dma == DmaEventKind::Byte;
             return false;
         case EventKind::Frame:
