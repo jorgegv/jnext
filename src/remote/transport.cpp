@@ -240,13 +240,34 @@ void Server::flush_notifications() {
 
 Server::Pass Server::pass() {
     Pass p;
-    if (listener_) {
+    const auto serve = [&] {
+        active_->pull();
+        if (!active_->closing_ && !active_->overflow_) p.step = protocol_.on_service(*active_);
+        active_->push();
+        if (settle(p.step)) p.ended = true;
+    };
+    // 1. THE CLIENT ALREADY CONNECTED GOES FIRST (GH #12). A client that
+    //    reconnects hangs up and dials again in one breath, so both reach the
+    //    same pass. Accepting first judged the new connection against a
+    //    session that had in fact ended and refused it as "a second client";
+    //    served first, the hang-up is seen and the session retired, and the
+    //    redial is admitted below. Found by the dezogif_ng conformance suite,
+    //    which opens a fresh connection per check: every other one was refused.
+    const bool had_client = active_ != nullptr;
+    if (active_) serve();
+    // 2. Accept — unless the client still here has HUNG UP and the adapter is
+    //    still running what it sent (a command followed at once by a close is
+    //    still executed, `settle`). That session is ending; a redial waits in
+    //    the listener's queue for it rather than being refused by it.
+    if (listener_ && !(active_ && active_->gone_)) {
         for (int i = 0; i < kAcceptsPerPass && listener_->listening(); ++i) {
             listener_->poll();
             std::unique_ptr<esp::EspTransport> t = listener_->accept();
             if (!t) break;
             admit(std::move(t));
         }
+    }
+    if (listener_) {
         // `listener_` is only ever held after a successful `open()`, so one
         // that is not listening now has FAILED (the seam stops rather than
         // spins). Said once: a line per pass would bury everything else.
@@ -256,11 +277,13 @@ Server::Pass Server::pass() {
                                    cfg_.name, label_, bound_port_, listener_->last_error());
         }
     }
-    if (active_) {
-        active_->pull();
-        if (!active_->closing_ && !active_->overflow_) p.step = protocol_.on_service(*active_);
-        active_->push();
-        p.ended = settle(p.step);
+    // 3. A client admitted in THIS pass is served in it — its greeting, and a
+    //    command that came with its connection — unless the session before it
+    //    already ran a command here (AT MOST ONE per pass): then only the
+    //    greeting goes out now.
+    if (active_ && (!had_client || p.ended)) {
+        if (p.step == ServiceStep::Idle) serve();
+        else active_->push();
     }
     reap();
     return p;

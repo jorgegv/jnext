@@ -778,6 +778,62 @@ static void server_rows() {
               st3 == ServiceStep::Idle && took3 < 1000 && r.proto.disconnects == 1,
               "took=" + std::to_string(took3) + "ms");
     }
+    {
+        // GH #12 — the REDIAL. A client that reconnects hangs up and dials again
+        // in one breath, so both reach the same pass. The server used to accept
+        // before it read, and refused the redial as "a second client" of a
+        // session that had already ended (the dezogif_ng conformance suite,
+        // which opens a connection per check, lost every other one).
+        LogTap       log;
+        ServerConfig c = cfg_named("xpt");
+        c.busy_reply   = "busy\n";
+        FakeRig      r(c);
+        r.proto.welcome = "hi\n";
+        auto p1 = r.lsn->connect();
+        r.srv->service_once(0);
+        p1->take();
+        p1->close();
+        auto p2 = r.lsn->connect(esp::ipv4(127, 0, 0, 2));
+        const ServiceStep st = r.srv->service_once(0);
+        check("XPT-SRV-30", "a hang-up and a redial in the SAME pass: the hang-up is seen "
+                            "first, so the redial is admitted and greeted in that pass — "
+                            "never refused as a second client",
+              r.proto.trail == std::vector<std::string>({"C", "D", "C"}) &&
+                  st == ServiceStep::Idle && !p2->closed_by_server() && p2->take() == "hi\n" &&
+                  r.srv->peer_connected() &&
+                  log.count("xpt: refused a connection from 127.0.0.2") == 0,
+              "trail size=" + std::to_string(r.proto.trail.size()));
+    }
+    {
+        // The other side of the same edge: the hung-up client still has commands
+        // queued. Its session is not over — every command it sent is executed
+        // first, one per pass (XPT-SRV-10) — and the redial WAITS for it in the
+        // listener's queue instead of being refused by it.
+        LogTap       log;
+        ServerConfig c = cfg_named("xpt");
+        c.busy_reply   = "busy\n";
+        FakeRig      r(c);
+        auto p1 = r.lsn->connect();
+        r.srv->service_once(0);
+        p1->send("a\nb\n");
+        p1->close();
+        auto p2 = r.lsn->connect(esp::ipv4(127, 0, 0, 2));
+        const ServiceStep s1     = r.srv->service_once(0);
+        const std::size_t queued = r.lsn->queued();
+        for (int i = 0; i < 4; ++i) {
+            r.srv->service_once(0);
+            r.srv->flush_notifications();
+        }
+        check("XPT-SRV-31", "a redial behind a hang-up with commands still queued waits "
+                            "for them: both run, then the old session ends, then the "
+                            "redial is admitted — never refused",
+              s1 == ServiceStep::Serviced && queued == 1 &&
+                  r.proto.trail ==
+                      std::vector<std::string>({"C", "S:a", "S:b", "D", "C"}) &&
+                  !p2->closed_by_server() &&
+                  log.count("xpt: refused a connection from 127.0.0.2") == 0,
+              "trail size=" + std::to_string(r.proto.trail.size()));
+    }
 }
 
 // ── XPT-NET — the real socket layer on loopback ────────────────────────────
