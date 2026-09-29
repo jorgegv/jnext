@@ -16,7 +16,6 @@
 #include "debugger/callstack_panel.h"
 #include "core/emulator.h"
 #include "core/rzx_player.h"
-#include "debug/breakpoints.h"
 #include "debug/debug_state.h"
 #include "debug/rewind_buffer.h"
 
@@ -611,26 +610,27 @@ void DebuggerWindow::create_menus() {
 
     QAction* add_read_bp = bp_menu->addAction(tr("Add &Read Breakpoint..."));
     connect(add_read_bp, &QAction::triggered, this, [this]() {
-        show_add_data_bp_dialog(WatchType::READ);
+        show_add_data_bp_dialog(BreakpointModel::Read);
     });
 
     QAction* add_write_bp = bp_menu->addAction(tr("Add &Write Breakpoint..."));
     connect(add_write_bp, &QAction::triggered, this, [this]() {
-        show_add_data_bp_dialog(WatchType::WRITE);
+        show_add_data_bp_dialog(BreakpointModel::Write);
     });
 
     // Alt+B: W already belongs to "Add &Write Breakpoint..." (issue #124).
     QAction* add_rw_bp = bp_menu->addAction(tr("Add Read/Write &Breakpoint..."));
     connect(add_rw_bp, &QAction::triggered, this, [this]() {
-        show_add_data_bp_dialog(WatchType::READ_WRITE);
+        show_add_data_bp_dialog(BreakpointModel::ReadWrite);
     });
 
     bp_menu->addSeparator();
 
     QAction* clear_all_bp = bp_menu->addAction(tr("&Clear All Breakpoints"));
     connect(clear_all_bp, &QAction::triggered, this, [this]() {
-        emulator_->debug_state().breakpoints().clear_all_pc();
-        emulator_->debug_state().breakpoints().clear_all_watchpoints();
+        // This GUI's breakpoints: another client's are not the GUI's to delete
+        // (REQ-qt-13d). The model notifies both views.
+        if (BreakpointModel* m = breakpoint_model()) m->clear_all();
     });
 
     // --- Watches menu ---
@@ -722,6 +722,10 @@ void DebuggerWindow::restore_geometry() {
 
 jnext::dbg::Debugger* DebuggerWindow::backend() const {
     return debugger_mgr_ ? &debugger_mgr_->backend() : nullptr;
+}
+
+BreakpointModel* DebuggerWindow::breakpoint_model() const {
+    return debugger_mgr_ ? &debugger_mgr_->breakpoints() : nullptr;
 }
 
 /// F3 / Debug ▸ Trace ▸ Export Trace… — INS-13 `trace_export()`; the file
@@ -1065,7 +1069,7 @@ void DebuggerWindow::create_panels() {
     copper_panel_ = new CopperPanel(emulator_);
     nextreg_panel_ = new NextRegPanel(emulator_);
     audio_panel_ = new AudioPanel(emulator_);
-    watch_panel_ = new WatchPanel(emulator_);
+    watch_panel_ = new WatchPanel();
 
     // --- Helper: wrap a widget in a titled QGroupBox ---
     auto make_group = [](const QString& title, QWidget* content) -> QGroupBox* {
@@ -1095,13 +1099,13 @@ void DebuggerWindow::create_panels() {
 
     stack_panel_ = new StackPanel(emulator_);
     callstack_panel_ = new CallStackPanel(emulator_);
-    breakpoint_panel_ = new BreakpointPanel(emulator_);
+    breakpoint_panel_ = new BreakpointPanel();
 
-    // GH #220 — no panel-to-panel wiring here any more. Both panels subscribe
-    // to the BreakpointSet in their own constructors, so the list and the
-    // gutter track it without either of them (or any mutation route) knowing
-    // the other exists. The two hand-wired directions this replaced had each
-    // shipped broken once.
+    // GH #220 — no panel-to-panel wiring here any more. Both panels follow the
+    // GUI's BreakpointModel (DebuggerManager::ensure_window() hands it to them),
+    // so the list and the gutter track it without either of them (or any
+    // mutation route) knowing the other exists. The two hand-wired directions
+    // this replaced had each shipped broken once.
 
     mmu_panel_ = new MmuPanel(emulator_);
 
@@ -1214,33 +1218,32 @@ bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr) {
     return ok;
 }
 
-void DebuggerWindow::show_add_data_bp_dialog(WatchType type) {
+void DebuggerWindow::show_add_data_bp_dialog(int type) {
     QString type_name;
     switch (type) {
-        case WatchType::READ:       type_name = "Read"; break;
-        case WatchType::WRITE:      type_name = "Write"; break;
-        case WatchType::READ_WRITE: type_name = "Read/Write"; break;
-        default:                    type_name = "Data"; break;
+        case BreakpointModel::Read:      type_name = "Read"; break;
+        case BreakpointModel::Write:     type_name = "Write"; break;
+        case BreakpointModel::ReadWrite: type_name = "Read/Write"; break;
+        default:                         type_name = "Data"; break;
     }
 
     uint16_t addr = 0;
     if (!prompt_bp_address(tr("Add %1 Breakpoint").arg(type_name), addr)) return;
 
-    // GH #220 — no repaint here. add_watchpoint() notifies, the Breakpoints
-    // panel redraws, and the disassembly gutter correctly does not: it draws
-    // bps.has_pc(addr) only, and this route touches no PC breakpoint.
-    emulator_->debug_state().breakpoints().add_watchpoint(addr, type);
+    // GH #220 — no repaint here. The model notifies, the Breakpoints panel
+    // redraws, and the disassembly gutter correctly does not: it draws Execute
+    // breakpoints only, and this route touches none.
+    if (BreakpointModel* m = breakpoint_model()) m->add(type, addr);
 }
 
-// GH #215 — an Execute breakpoint is a PC breakpoint (add_pc), not a
-// watchpoint, which is why it needs its own entry point rather than a fourth
-// WatchType. That difference is now expressed once, by add_pc() notifying
-// PcBreakpoints, rather than by this site remembering to repaint the gutter.
+// GH #215 — an Execute breakpoint, the one a user reaches for first. The
+// model's notification carries the Execute kind, so the gutter redraws without
+// this site remembering to repaint it.
 void DebuggerWindow::show_add_exec_bp_dialog() {
     uint16_t addr = 0;
     if (!prompt_bp_address(tr("Add Execute Breakpoint"), addr)) return;
 
-    emulator_->debug_state().breakpoints().add_pc(addr);
+    if (BreakpointModel* m = breakpoint_model()) m->add(BreakpointModel::Execute, addr);
 }
 
 void DebuggerWindow::refresh_panels() {

@@ -1,16 +1,17 @@
 #pragma once
 
 #include <algorithm>
+#include <QPointer>
 #include <QWidget>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QScrollBar>
 #include <vector>
-#include "debug/breakpoints.h"
 #include "debug/disasm.h"
 #include "debug/disasm_text.h"
 
 class QAction;
+class BreakpointModel;
 class Emulator;
 class SymbolTable;
 class WatchPanel;
@@ -18,14 +19,14 @@ class WatchPanel;
 /// Scrollable disassembly view with breakpoint gutter.
 /// Uses custom painting for precise control over the display.
 ///
-/// GH #220 — it OBSERVES the BreakpointSet, but only the PC half: the gutter
-/// paints has_pc() and nothing else, so a watchpoint change is correctly none
-/// of its business and must not cost it a re-disassembly.
+/// GH #220 — it follows the GUI's BreakpointModel, but only its Execute kind:
+/// the gutter paints this GUI's Execute breakpoints and nothing else, so a
+/// data breakpoint change is correctly none of its business and must not cost
+/// it a re-disassembly (GH #278 WP4c: the model's changed(kinds) says which).
 class DisasmPanel : public QWidget {
     Q_OBJECT
 public:
     explicit DisasmPanel(Emulator* emulator, QWidget* parent = nullptr);
-    ~DisasmPanel() override;
 
     /// Re-disassemble around current PC and repaint.
     void refresh();
@@ -60,6 +61,12 @@ public:
 
     /// Set watch panel for "Add Watch" context menu actions.
     void set_watch_panel(WatchPanel* wp) { watch_panel_ = wp; }
+
+    /// GH #278 WP4c — the GUI's breakpoints, which the gutter draws and the
+    /// gutter click, "Toggle Breakpoint" and the "Break on Read/Write" items
+    /// edit. Without one the gutter is bare and those items do nothing. Held
+    /// weakly: the window may outlive the manager that owns the model.
+    void set_breakpoint_model(BreakpointModel* model);
 
     // --- GH #21: selecting and copying the listing -----------------------
     //
@@ -183,5 +190,5 @@ private:
     SymbolTable* symbol_table_ = nullptr;
     WatchPanel* watch_panel_ = nullptr;
 
-    BreakpointSet::ObserverId observer_ = 0;
+    QPointer<BreakpointModel> bp_model_;
 };

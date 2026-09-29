@@ -373,7 +373,8 @@ static int test_step_back_disabled()
     check("SBD-01", emu.rewind_buffer() == nullptr, "no rewind buffer is allocated when rewind is disabled");
 
     emu.run_frame();
-    emu.debug_state().set_active(true);
+    emu.debug_state().set_clients_attached(true);
+    emu.debug_state().set_live_raster(true);
     emu.trace_log().set_enabled(true);
     emu.execute_single_instruction();
 
@@ -1519,7 +1520,8 @@ static int test_rewind_callers_render_state()
         for (size_t i = 0; i < sizeof(prog); ++i)
             emu.mmu().write(static_cast<uint16_t>(0x8100 + i), prog[i]);
         rw_park(emu, 0x8100);        // the frame-1 snapshot starts here
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_pc(0x810D);  // the HALT
         emu.run_frame();             // breaks mid-frame after the OUT
         const uint8_t written = emu.sprites().read_pattern_byte(0);
@@ -4906,7 +4908,8 @@ static int test_s6_gaps()
         // exactly as a breakpoint does, leaving the frame half-executed.
         const uint64_t mid = emu.current_frame_cycle() +
                              emu.timing().master_cycles_per_frame / 2;
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().set_oneshot(0xBEEF);
         emu.debug_state().run_to_cycle(mid);
         emu.run_frame();
@@ -4950,7 +4953,8 @@ static int test_s6_gaps()
               "would be worse than one that refused");
 
         check("S6-P7-DEBUG-INTACT",
-              emu.debug_state().paused() && emu.debug_state().active() &&
+              emu.debug_state().paused() && emu.debug_state().attached() &&
+                  emu.debug_state().raster_live() &&
                   emu.debug_state().breakpoints().has_oneshot() &&
                   emu.debug_state().breakpoints().oneshot_addr() == 0xBEEF,
               "…and the debugging session is left exactly as it was found: "
@@ -6607,7 +6611,8 @@ static int test_s8_jns_roundtrip()
         // does, half-way down the frame.
         const uint64_t mid = a.current_frame_cycle() +
                              a.timing().master_cycles_per_frame / 2;
-        a.debug_state().set_active(true);
+        a.debug_state().set_clients_attached(true);
+        a.debug_state().set_live_raster(true);
         a.debug_state().run_to_cycle(mid);
         a.run_frame();
         const bool mid_frame = a.debug_state().paused() && a.frame_in_progress();

@@ -547,10 +547,10 @@ Result Debugger::set_magic_breakpoint(bool enabled) {
 // ---------------------------------------------------------------------------
 // §4.1 — the armed gate
 //
-// `armed()` is §5's formula `attached || persistent_breakpoints`, and
-// `DebugState::armed()` IS that formula over the three flags that feed it
-// (`active_ || clients_attached_ || persistent_`, GH #276 B3 — `attached()` is
-// the OR of the first two, see there). It is read rather than recomputed here
+// `armed()` is §5's formula `attached || persistent_breakpoints` plus the two
+// holds (a rewind's replay, a magic stop), and `DebugState::armed()` IS that
+// formula over the flags that feed it (`clients_attached_ || persistent_ ||
+// replay_armed_ || magic_hold_`, GH #278 WP4c). It is read rather than recomputed here
 // precisely so there is one gate: the hot loop consults `DebugState::armed()` on
 // every instruction, and a second copy of the formula in the backend could
 // disagree with the one the machine actually obeys.

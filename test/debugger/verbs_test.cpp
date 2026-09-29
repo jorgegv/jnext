@@ -43,6 +43,7 @@
 #include "debug/rewind_buffer.h"
 #include "debug/symbol_table.h"
 #include "debug/trace.h"
+#include "debugger/breakpoint_model.h"
 #include "debugger/breakpoint_panel.h"
 #include "debugger/callstack_panel.h"
 #include "debugger/cpu_panel.h"
@@ -564,6 +565,40 @@ static void test_step_over() {
                       s(cpu_value(fx.dbg(), "PC: ")).c_str()));
         }
     }
+
+    // QSO-07 — GH #278 WP4c: a breakpoint hit INSIDE the stepped-over call is a
+    // stop, and a stop drops the Step Over's target (§4.3: a transient is
+    // "auto-removed at the next stop") — so the next Run runs on and does not
+    // stop at the stale target. The GUI behaved so before package Q, where
+    // resume() cleared the one-shot; between WP2 and WP4c a breakpoint was a
+    // legacy `BreakpointSet` stop, which the backend did not see, and the stale
+    // target stopped the Run. As a subscription stop it is seen again.
+    //   8000  CD 00 90   CALL $9000     8003  00   NOP  <- the target
+    //   8004  18 FE      JR $                          <- the park
+    //   9000  3C   INC A   9001  3C   INC A  <- breakpoint   9002  C9  RET
+    {
+        Fixture fx;
+        const char* desc = "a breakpoint inside a stepped-over CALL stops it there, "
+                           "and the next Run does not stop at the stale Step Over "
+                           "target";
+        if (!fx.ok) { check("QSO-07", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0xCD, 0x00, 0x90, 0x00, 0x18, 0xFE});
+            fx.load(0x9000, {0x3C, 0x3C, 0xC9});
+            fx.regs(PROG, [](Z80Registers& r) { r.AF = 0x0000; });
+            fx.enable();
+            fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x9001);
+            fx.mgr->on_step_over();
+            fx.tick_until_paused();
+            const bool inside = fx.paused() && fx.pc() == 0x9001;
+            fx.mgr->on_run();
+            for (int i = 0; i < 3; ++i) fx.tick();
+            check("QSO-07", desc,
+                  inside && !fx.paused() && fx.pc() == 0x8004,
+                  fmt("stopped inside=%d; after Run paused=%d PC=%04X (want running at "
+                      "8004; 8003 is the stale target)", inside, fx.paused(), fx.pc()));
+        }
+    }
 }
 
 // ===========================================================================
@@ -643,7 +678,7 @@ static void test_step_into() {
             fx.load(0x8010, {0x18, 0xFE});
             fx.regs(PROG);
             fx.enable();
-            fx.emu.debug_state().breakpoints().add_watchpoint(0x9000, WatchType::READ);
+            fx.mgr->breakpoints().add(BreakpointModel::Read, 0x9000);
             fx.mgr->on_step_into();
             const uint16_t after_step = fx.pc();
             fx.mgr->on_run_to_eof();
@@ -771,7 +806,7 @@ static void test_pause_edge() {
                   disasm_shows(dbg->disasm_panel(), PROG), span_lo0, span_hi0, span_lo1,
                   span_hi1));
 
-        fx.emu.debug_state().breakpoints().add_pc(0x9001);
+        fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x9001);
         fx.tick_until_paused();
         const Z80Registers r = fx.emu.cpu().get_registers();
         const uint16_t word0 = static_cast<uint16_t>(fx.emu.mmu().read(r.SP) |
@@ -1176,7 +1211,10 @@ static void test_enable_seeds() {
             fx.regs(PROG);
             fx.enable();
             fx.tick();
-            fx.emu.debug_state().breakpoints().add_pc(0x0000);   // carried by the boot
+            // GH #278 WP4c — the GUI's breakpoint, carried by the BACKEND across
+            // the boot (CTL-12 rule 2): the platform restore that used to carry
+            // it is retired (B3 obligation 1).
+            fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x0000);
             // QtApp::cold_boot(): the backend's begin, the frontend cold boot, done.
             fx.backend->on_cold_boot_begin();
             emulator_frontend_cold_boot(fx.emu, fx.emu.config(), std::string(),
@@ -1671,6 +1709,38 @@ static void test_rewind_ui() {
         }
     }
 
+    {
+        // QRW-22 — GH #278 WP4c: a GUI breakpoint inside the REPLAYED span does
+        // not cut a Step Back short. A rewind restores the frame's snapshot and
+        // replays forward to the target instruction; the backend consults no
+        // subscription while it replays (§4.2a), so the replay lands on its
+        // target. As a legacy `BreakpointSet` entry the breakpoint stopped the
+        // replay at its first pass, and Step Back landed there instead — a
+        // defect, fixed by the breakpoints becoming subscriptions.
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "Step Back lands on the previous instruction even with a "
+                           "breakpoint on an address the replay passes";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QRW-22", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 3);
+            const size_t n = fx.emu.trace_log().size();
+            const uint64_t want_cycle = n ? fx.emu.trace_log().at(n - 1).cycle : 0;
+            const uint16_t want_pc    = n ? fx.emu.trace_log().at(n - 1).pc : 0;
+            // The loop's JR runs every other instruction, so the replay passes it
+            // many times between the frame's snapshot and the target.
+            fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x8001);
+            fx.mgr->on_step_back();
+            check("QRW-22", desc,
+                  n > 0 && fx.paused() && fx.emu.clock().get() == want_cycle &&
+                      fx.pc() == want_pc,
+                  fmt("cycle %llu (want %llu) PC %04X (want %04X)",
+                      static_cast<unsigned long long>(fx.emu.clock().get()),
+                      static_cast<unsigned long long>(want_cycle), fx.pc(), want_pc));
+        }
+    }
+
     // ── Failure classes (Task 60e): refused, benign, corrupt ─────────
     {
         Fixture fx(MachineType::ZX48K, 10);
@@ -2094,7 +2164,7 @@ static void test_map_load() {
         const QString target = table_cell(dbg->callstack_panel(), 0, 3);
 
         // Breakpoints: a PC breakpoint on a symbol's address.
-        fx.emu.debug_state().breakpoints().add_pc(0x8000);
+        fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x8000);
         BreakpointPanel* bp = dbg->breakpoint_panel();
         QString sym_col;
         if (auto* t = bp->findChild<QTableWidget*>())

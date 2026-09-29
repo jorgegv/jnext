@@ -187,10 +187,13 @@ static void build(Emulator& emu, MachineType type = MachineType::ZX48K) {
     emu.cpu().set_registers(r);
 }
 
-// The debugger has to be "driving" for the step machinery to be live — that is
-// `DebugState::active()`, which B3 turns into the client count.
+// The debugger has to be "driving" for the step machinery to be live — an
+// attached client and its live raster, set directly on `DebugState` for the rows
+// that have no `Debugger` client to attach (GH #278 WP4c: until then the Qt
+// window's `active()` bit, which set both).
 static void attach_and_pause(Emulator& emu) {
-    emu.debug_state().set_active(true);
+    emu.debug_state().set_clients_attached(true);
+    emu.debug_state().set_live_raster(true);
     emu.debug_state().pause();
 }
 
@@ -305,17 +308,18 @@ static void build_armed(Emulator& emu, const std::vector<uint8_t>& bytes,
     r.IFF1 = 0;
     r.IFF2 = 0;
     emu.cpu().set_registers(r);
-    emu.debug_state().set_active(true);
+    emu.debug_state().set_clients_attached(true);
+    emu.debug_state().set_live_raster(true);
 }
 
 // ── GH #276 B3 helpers (§4.8 CAP-SES) ──────────────────────────────────────
 
 /// Write `bytes` at PROG and point PC/SP at it, WITHOUT init() and WITHOUT
-/// set_active(). Two reasons it is not `build_armed`:
+/// arming. Two reasons it is not `build_armed`:
 ///
 ///   * B3's rows arm the machine by ATTACHING A CLIENT, which is the thing under
-///     test — `set_active(true)` would arm it by the other contributor and make
-///     every `attached()` / `armed()` row pass whatever `attach()` did.
+///     test — `build_armed`'s direct arm would make every `attached()` /
+///     `armed()` row pass whatever `attach()` did.
 ///   * after a cold boot the RAM is wiped, so the program has to be reloaded
 ///     into the RECONSTRUCTED machine without re-running init().
 static void load_prog(Emulator& emu, const std::vector<uint8_t>& bytes) {
@@ -2616,8 +2620,8 @@ struct B5KindCase {
 
 /// A 48K machine with `bytes` at PROG, PC/SP set and interrupts off — and NOT
 /// armed: every B5 machine is armed the way §9 says, THROUGH THE FACADE, by the
-/// client it attaches. `build_armed()`'s `set_active(true)` is the Qt window's
-/// contributor, which no remote client has.
+/// client it attaches. `build_armed()` arms `DebugState` directly, which no
+/// remote client can.
 static void b5_build(Emulator& emu, const std::vector<uint8_t>& bytes,
                      MachineType type = MachineType::ZX48K) {
     EmulatorConfig cfg;
@@ -4460,11 +4464,9 @@ static void q_wp3_rewind_rows() {
                          "is neither armed nor attached, the raster walk is off, and "
                          "it runs (the pause was the client's)",
               stepped && !dbg.armed() && !dbg.attached() && !dbg.live_raster() &&
-                  !emu.debug_state().raster_live() && !emu.debug_state().active() &&
-                  !dbg.state().paused,
+                  !emu.debug_state().raster_live() && !dbg.state().paused,
               std::string("rc=") + jnext::dbg::result_name(r) +
-                  " armed=" + (dbg.armed() ? "1" : "0") +
-                  " active=" + (emu.debug_state().active() ? "1" : "0"));
+                  " armed=" + (dbg.armed() ? "1" : "0"));
     }
     {
         Emulator emu;
@@ -4478,8 +4480,7 @@ static void q_wp3_rewind_rows() {
         dbg.detach(a);
         check("OBL3-02", "and the same for rewind_to_frame()",
               rewound && !dbg.armed() && !dbg.attached() &&
-                  !emu.debug_state().raster_live() && !emu.debug_state().active() &&
-                  !dbg.state().paused,
+                  !emu.debug_state().raster_live() && !dbg.state().paused,
               std::string("rc=") + jnext::dbg::result_name(r) +
                   " armed=" + (dbg.armed() ? "1" : "0"));
     }
@@ -4503,7 +4504,7 @@ static void q_wp3_rewind_rows() {
         check("OBL3-03", "with NOTHING attached, step_back() still lands on its target "
                          "instruction, and leaves the machine unarmed",
               unarmed_before && ok && emu.clock().get() == want && pc_of(emu) == want_pc &&
-                  !emu.debug_state().armed() && !emu.debug_state().active(),
+                  !emu.debug_state().armed() && !emu.debug_state().attached(),
               "cycle " + std::to_string(emu.clock().get()) + " want " +
                   std::to_string(want) + " pc " + hex(pc_of(emu)) + " want " + hex(want_pc));
     }
@@ -4552,6 +4553,302 @@ static void q_wp3_trace_export_rows() {
           "got  '" + line + "'\nwant '" + want + "'");
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// GH #278 WP4c — REQ-qt-32's non-arming OBSERVER client, the master switch's
+// legacy mirror across a cold boot, and the magic-breakpoint hold that replaced
+// `DebugState::active()`. A contiguous block, kept apart from the parallel WP4d
+// work in this file.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// A program with no CALL: six NOPs, then JR $ at PARK. It needs nothing but
+/// PROG.., so it survives being reloaded into a rebuilt machine whose RAM the
+/// reconstruct wiped.
+static const std::vector<uint8_t> kQ4cNops = { 0, 0, 0, 0, 0, 0, 0x18, 0xFE };
+
+static jnext::dbg::ClientInfo q4c_observer(const char* name) {
+    jnext::dbg::ClientInfo ci = client(name, jnext::dbg::ClientKind::Gui);
+    ci.observer = true;
+    return ci;
+}
+
+static Subscription q4c_exec_at(uint16_t addr) {
+    Subscription s;
+    s.kind      = EventKind::Execute;
+    s.filter.lo = addr;
+    s.filter.hi = addr;
+    s.action    = Action::Stop;
+    return s;
+}
+
+/// PC back to PROG, SP back to TEST_SP, interrupts off — the machine re-runs the
+/// program from its start.
+static void q4c_restart(Emulator& emu) {
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC   = PROG;
+    r.SP   = TEST_SP;
+    r.IFF1 = 0;
+    r.IFF2 = 0;
+    emu.cpu().set_registers(r);
+}
+
+static void q4c_observer_rows() {
+    // OBS-01 — the flag's whole meaning: it counts toward no arm bit.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        const bool alone = !dbg.armed() && !dbg.attached() &&
+                           !emu.debug_state().clients_attached() &&
+                           !emu.debug_state().armed();
+        const ClientId w =
+            dbg.attach(client("window", jnext::dbg::ClientKind::Gui)).value;
+        const bool with_w = dbg.armed() && dbg.attached();
+        dbg.detach(w);
+        const bool after_w = !dbg.armed() && !dbg.attached();
+        check("OBS-01", "an observer attach counts in neither armed() nor attached() — "
+                        "alone, next to an arming client, and after that client leaves",
+              o != jnext::dbg::CLIENT_NONE && alone && with_w && after_w,
+              "alone=" + std::to_string(alone) + " with_w=" + std::to_string(with_w) +
+                  " after_w=" + std::to_string(after_w));
+    }
+
+    // OBS-02..04 — its subscriptions fire ONLY while something else arms the
+    // machine: not at all alone, by another client's attach, by
+    // --persistent-breakpoints alone. The stop is the observer's.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        const auto id = dbg.subscribe(o, q4c_exec_at(AFTER_CALL));
+        emu.run_frame();
+        check("OBS-02", "an observer's Execute subscription on an otherwise unarmed "
+                        "machine does not fire: the machine runs past it to the park",
+              id.status == Result::Ok && !emu.debug_state().paused() &&
+                  pc_of(emu) == PARK,
+              "pc=" + hex(pc_of(emu)));
+
+        q4c_restart(emu);
+        const ClientId w =
+            dbg.attach(client("window", jnext::dbg::ClientKind::Gui)).value;
+        run_until_paused(emu);
+        const RunState st = dbg.state();
+        check("OBS-03", "armed by ANOTHER client's attach, it stops the machine on its "
+                        "address, and the stop is the observer's",
+              st.paused && pc_of(emu) == AFTER_CALL &&
+                  st.pause_reason.kind == PauseReason::Kind::Breakpoint &&
+                  st.pause_reason.id == id.value && st.pause_reason.by == o,
+              "pc=" + hex(pc_of(emu)) + " by=" + std::to_string(st.pause_reason.by));
+
+        q4c_restart(emu);
+        dbg.set_persistent_breakpoints(true);
+        dbg.detach(w);                         // not w's pause: it stays paused
+        const bool armed_by_flag_only = dbg.armed() && !dbg.attached();
+        dbg.run(o);
+        run_until_paused(emu);
+        check("OBS-04", "armed by --persistent-breakpoints ALONE (no arming client), it "
+                        "stops the machine on its address",
+              armed_by_flag_only && dbg.state().paused && pc_of(emu) == AFTER_CALL &&
+                  dbg.state().pause_reason.id == id.value,
+              "pc=" + hex(pc_of(emu)));
+    }
+
+    // OBS-05 — its detach removes its subscriptions (SES-01).
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        dbg.subscribe(o, q4c_exec_at(AFTER_CALL));
+        dbg.attach(client("window", jnext::dbg::ClientKind::Gui));
+        dbg.detach(o);
+        const bool gone = dbg.subscriptions(true).empty();
+        emu.run_frame();
+        check("OBS-05", "the observer's detach removes its subscriptions: none listed, "
+                        "and the armed machine runs past the address to the park",
+              gone && !emu.debug_state().paused() && pc_of(emu) == PARK,
+              "gone=" + std::to_string(gone) + " pc=" + hex(pc_of(emu)));
+    }
+
+    // OBS-06 — its subscriptions survive a cold boot via CTL-12 rule 2: the
+    // observer is a live client, so the backend keeps and re-applies them.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        const auto id = dbg.subscribe(o, q4c_exec_at(PROG + 3));
+        const ClientId w =
+            dbg.attach(client("window", jnext::dbg::ClientKind::Gui)).value;
+        jnext::dbg::LoopDriver d;
+        d.cold_boot = [&]() {
+            emulator_frontend_cold_boot(emu, emu.config(), std::string(),
+                                        ColdBootHooks{});
+            return true;
+        };
+        dbg.set_loop_driver(d);
+        const bool booted = dbg.reset(w, ResetKind::Hard) == Result::Ok;
+        load_prog(emu, kQ4cNops);
+        const auto subs   = dbg.subscriptions(false);
+        const bool listed = subs.size() == 1 && subs[0].id == id.value &&
+                            subs[0].owner == o && subs[0].live;
+        const bool armed_by_w = dbg.armed() && dbg.attached();   // w alone arms
+        run_until_paused(emu);
+        check("OBS-06", "an observer's subscription survives a hard reset (rule 2): "
+                        "still listed as its own and live, and it stops the rebuilt "
+                        "machine on its address",
+              booted && listed && armed_by_w && dbg.state().paused &&
+                  pc_of(emu) == PROG + 3 && dbg.state().pause_reason.id == id.value,
+              "booted=" + std::to_string(booted) + " listed=" + std::to_string(listed) +
+                  " pc=" + hex(pc_of(emu)));
+    }
+
+    // OBS-07/08 — SES-01's own-pause rule applies to it like any client: its
+    // detach releases ONLY a pause that is its own.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        const ClientId w =
+            dbg.attach(client("window", jnext::dbg::ClientKind::Gui)).value;
+        dbg.pause(w);
+        dbg.detach(o);
+        check("OBS-07", "another client's pause survives the observer's detach",
+              dbg.state().paused && dbg.state().pause_reason.by == w);
+    }
+    {
+        // (a) a stop on ITS subscription, (b) its OWN pause() verb.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        dbg.subscribe(o, q4c_exec_at(AFTER_CALL));
+        dbg.attach(client("window", jnext::dbg::ClientKind::Gui));
+        run_until_paused(emu);
+        const bool stopped_by_o = dbg.state().paused && dbg.state().pause_reason.by == o;
+        dbg.detach(o);
+        const bool released_a = !dbg.state().paused;
+
+        o = dbg.attach(q4c_observer("Qt GUI")).value;
+        dbg.pause(o);
+        const bool paused_by_o = dbg.state().paused && dbg.state().pause_reason.by == o;
+        dbg.detach(o);
+        const bool released_b = !dbg.state().paused;
+        check("OBS-08", "the observer's detach releases a pause that IS its own — a stop "
+                        "on its subscription, and its own pause()",
+              stopped_by_o && released_a && paused_by_o && released_b,
+              "a=" + std::to_string(stopped_by_o) + std::to_string(released_a) +
+                  " b=" + std::to_string(paused_by_o) + std::to_string(released_b));
+    }
+
+    // OBS-09 — its live-raster request is honoured (a render hint, not an arm).
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        dbg.set_live_raster(o, true);
+        check("OBS-09", "an observer's live-raster request is honoured, and still arms "
+                        "nothing",
+              dbg.live_raster() && emu.debug_state().raster_live() && !dbg.armed() &&
+                  !dbg.attached());
+    }
+}
+
+static void q4c_magic_hold_rows() {
+    // MAGIC-HOLD-01 — the hold, through the facade: a magic stop on a machine
+    // nothing arms is armed by the hold ALONE — not attached, no raster walk —
+    // and reported as the magic stop, unowned.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        dbg.set_magic_breakpoint(true);
+        emu.mmu().write(PROG, 0xED);
+        emu.mmu().write(PROG + 1, 0xFF);
+        const bool unarmed_before = !dbg.armed();
+        run_until_paused(emu);
+        const RunState st = dbg.state();
+        check("MAGIC-HOLD-01", "a magic stop on an unarmed machine holds it at the "
+                               "next boundary: armed() by the hold alone, not "
+                               "attached, no raster walk, reason Magic, unowned",
+              unarmed_before && st.paused && pc_of(emu) == PROG + 2 &&
+                  st.pause_reason.kind == PauseReason::Kind::Magic &&
+                  st.pause_reason.by == jnext::dbg::CLIENT_NONE && dbg.armed() &&
+                  !dbg.attached() && !dbg.live_raster() &&
+                  !emu.debug_state().raster_live(),
+              "pc=" + hex(pc_of(emu)));
+    }
+    // MAGIC-HOLD-02 — the leak the retired `active()` bit had: a REMOTE client
+    // attached, a magic stop, the remote's run() and detach. The machine must be
+    // left as nothing arms it — unarmed, the step machinery and raster walk off —
+    // so a breakpoint the GUI left behind no longer fires. With `active()` the
+    // hook's write outlived the stop for the rest of the session.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        dbg.subscribe(o, q4c_exec_at(AFTER_CALL));
+        const ClientId r =
+            dbg.attach(client("remote", jnext::dbg::ClientKind::Dzrp)).value;
+        dbg.set_magic_breakpoint(true);
+        emu.mmu().write(PROG, 0xED);
+        emu.mmu().write(PROG + 1, 0xFF);
+        run_until_paused(emu);
+        const bool magic = dbg.state().paused &&
+                           dbg.state().pause_reason.kind == PauseReason::Kind::Magic;
+        const Result rr = dbg.run(r);
+        dbg.detach(r);
+        const bool unarmed = !dbg.armed() && !dbg.attached() &&
+                             !emu.debug_state().raster_live() &&
+                             !emu.debug_state().magic_hold();
+        emu.run_frame();
+        check("MAGIC-HOLD-02", "a remote client's run() of a magic stop, then its "
+                               "detach: the machine is unarmed, and runs past the "
+                               "GUI's breakpoint to the park",
+              magic && rr == Result::Ok && unarmed && !dbg.state().paused &&
+                  pc_of(emu) == PARK,
+              "pc=" + hex(pc_of(emu)) + " armed=" + std::to_string(dbg.armed()));
+    }
+}
+
+static void q4c_master_mirror_rows() {
+    // MASTER-01/02 — the master switch across a cold boot. It is the backend's
+    // (the table lives on `Impl`), so it survives; the rebuilt `BreakpointSet`
+    // starts at `true`, and since the platform restore that carried it retired
+    // (B3 obligation 1) only the re-application brings the two back into step.
+    Emulator emu; build(emu);
+    Debugger dbg(emu);
+    const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+    const auto id = dbg.subscribe(o, q4c_exec_at(PROG + 3));
+    const ClientId w = dbg.attach(client("window", jnext::dbg::ClientKind::Gui)).value;
+    dbg.set_master_enabled(false);
+    jnext::dbg::LoopDriver d;
+    d.cold_boot = [&]() {
+        emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+        return true;
+    };
+    dbg.set_loop_driver(d);
+    dbg.reset(w, ResetKind::Hard);
+    load_prog(emu, kQ4cNops);
+    const auto subs = dbg.subscriptions(false);
+    const bool suspended = subs.size() == 1 && subs[0].id == id.value &&
+                           subs[0].enabled && !subs[0].live;
+    const bool reported_off = !dbg.master_enabled();
+    emu.run_frame();
+    check("MASTER-01", "a master switch left OFF survives a hard reset: reported off, the "
+                       "subscription listed enabled-but-suspended, and the armed machine "
+                       "runs past it",
+          reported_off && suspended && !emu.debug_state().paused() && pc_of(emu) == PARK,
+          "off=" + std::to_string(reported_off) + " suspended=" +
+              std::to_string(suspended) + " pc=" + hex(pc_of(emu)));
+    // A legacy PC breakpoint on the rebuilt machine is suspended by the same
+    // switch: the mirror, not the fresh `true`.
+    q4c_restart(emu);
+    emu.debug_state().breakpoints().add_pc(PROG + 4);
+    emu.run_frame();
+    check("MASTER-02", "and the rebuilt machine's legacy BreakpointSet is re-mirrored OFF "
+                       "by the re-application: a PC breakpoint added after the boot does "
+                       "not stop it",
+          !emu.debug_state().breakpoints().master_enabled() &&
+              !emu.debug_state().paused() && pc_of(emu) == PARK,
+          "pc=" + hex(pc_of(emu)));
+}
+
 int main() {
     std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
 
@@ -4561,7 +4858,8 @@ int main() {
     {
         Emulator emu; build(emu);
         Debugger dbg(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
 
         const Result r = dbg.pause(7);
         emu.run_frame();                      // must execute nothing
@@ -4871,7 +5169,9 @@ int main() {
               dbg.set_persistent_breakpoints(true) == Result::Ok &&
               dbg.persistent_breakpoints() && dbg.armed());
         dbg.set_persistent_breakpoints(false);
-        emu.debug_state().set_active(true);
+        // GH #278 WP4c — a frontend arms the machine by ATTACHING (the Qt
+        // window's `active()` bit this row set until then is retired).
+        dbg.attach(client("frontend", jnext::dbg::ClientKind::Gui));
         check("ARM-03", "an attached frontend arms it too",
               dbg.armed() && dbg.attached());
     }
@@ -4882,7 +5182,8 @@ int main() {
     {
         Emulator emu; build(emu);
         Debugger dbg(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_pc(AFTER_CALL);
         run_until_paused(emu);
         check("CTL-13-01", "a PC breakpoint stops the machine at its address",
@@ -4948,7 +5249,8 @@ int main() {
         // in — the contract is the verb's, not the caller's.
         Emulator emu; build(emu);
         Debugger dbg(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_watchpoint(0x4321, WatchType::READ);
         uint8_t b = 0;
         dbg.peek(MemSpace::cpu(), 0x4321, 1, &b);
@@ -6146,7 +6448,8 @@ int main() {
         // what reaches it.
         Emulator emu; build(emu);
         Debugger dbg(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().pause();
         emu.debug_state().run_to_cycle(emu.clock().get() + 5000);
         emu.run_frame();                       // stops part-way through frame 0
@@ -6165,7 +6468,8 @@ int main() {
         // gained a `by`. Mid-frame, so the advance actually runs.
         Emulator emu; build(emu);
         Debugger dbg(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().pause();
         emu.debug_state().run_to_cycle(emu.clock().get() + 5000);
         emu.run_frame();                             // stops mid-frame
@@ -7833,7 +8137,8 @@ int main() {
         s.action = Action::Continue; s.handler = recorder(rec);
         dbg.subscribe(1, s);
         emu.soft_reset();
-        emu.debug_state().set_active(true);      // init() does not clear it, but be explicit
+        emu.debug_state().set_clients_attached(true);      // init() does not clear it, but be explicit
+        emu.debug_state().set_live_raster(true);
         emu.execute_single_instruction();
         check("EVT-RESET-20", "Emulator::soft_reset() really raises Reset{Soft}",
               rec.evs.size() == 1 && rec.evs[0].reset_kind == ResetKind::Soft,
@@ -8919,7 +9224,8 @@ int main() {
         // verb still outranks both.
         Emulator emu; build(emu);
         Debugger dbg(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_pc(AFTER_CALL);
         emu.run_frame();
         check("REASON-20", "a legacy PC breakpoint stops the machine",
@@ -9227,7 +9533,8 @@ int main() {
         // subscription in place. That is §4.1's formula, and §6's premise.
         Emulator emu;
         build_armed(emu, { 0x3E, 0x5A, 0x32, 0x00, 0x90, 0x18, 0xFE });
-        emu.debug_state().set_active(false);
+        emu.debug_state().set_clients_attached(false);
+        emu.debug_state().set_live_raster(false);
         Debugger dbg(emu);
         Rec rec;
         Subscription s;
@@ -9472,7 +9779,8 @@ int main() {
     {
         Emulator emu;
         build_armed(emu, { 0x00, 0x18, 0xFD });
-        emu.debug_state().set_active(false);          // UNARMED
+        emu.debug_state().set_clients_attached(false);          // UNARMED
+        emu.debug_state().set_live_raster(false);
         Debugger dbg(emu);
         Rec rec;
         Subscription s;
@@ -9496,7 +9804,8 @@ int main() {
 
         // Now arm it. The point of the row: what arrives is THIS frame's events,
         // not a 512-entry dump of the three frames nobody was watching.
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.run_frame();
         check("EVT-GATE-24", "arming it delivers exactly the armed frame's events",
               rec.evs.size() == 1, "n=" + std::to_string(rec.evs.size()));
@@ -9512,7 +9821,8 @@ int main() {
         // term at the site as well as in the funnel (cost, not correctness).
         Emulator emu;
         build_armed(emu, { 0x00, 0x18, 0xFD });
-        emu.debug_state().set_active(false);
+        emu.debug_state().set_clients_attached(false);
+        emu.debug_state().set_live_raster(false);
         Debugger dbg(emu);
         Rec rec;
         Subscription s;
@@ -10385,7 +10695,8 @@ int main() {
             r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 0; r.IFF2 = 0;
             emu.cpu().set_registers(r);
         }
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         Debugger dbg(emu);
         emu.run_frame();
         emu.run_frame();
@@ -10470,7 +10781,8 @@ int main() {
                 r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 0; r.IFF2 = 0;
                 emu.cpu().set_registers(r);
             }
-            emu.debug_state().set_active(true);
+            emu.debug_state().set_clients_attached(true);
+            emu.debug_state().set_live_raster(true);
             Debugger dbg(emu);
 
             // A snapshot of the machine BEFORE the write, for the two verbs that
@@ -10548,7 +10860,8 @@ int main() {
         emu.mmu().write(PROG, 0x00);
         emu.mmu().write(PROG + 1, 0x18);
         emu.mmu().write(PROG + 2, 0xFD);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         Debugger dbg(emu);
         Subscription s;
         s.kind = EventKind::Mem; s.access = Access::Write;
@@ -10608,7 +10921,8 @@ int main() {
         dbg.subscribe(1, s);
         emu.run_frame();
         emu.soft_reset();
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.execute_single_instruction();
         check("EVT-LAND-20", "a soft reset's own Reset event survives the "
                              "reconciliation that same reset triggers",
@@ -10684,7 +10998,8 @@ int main() {
             r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 0; r.IFF2 = 0;
             emu.cpu().set_registers(r);
         }
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         Debugger dbg(emu);
 
         // The CTL-11-03 recipe: right length, wrong content past the half-way
@@ -11733,38 +12048,46 @@ int main() {
         dbg.detach(a);
     }
     {
-        // `attached()` is the OR OF TWO CONTRIBUTORS for the duration of the
-        // transition — the client list and `DebugState::active()`, which is what
-        // the Qt debugger window and the magic-breakpoint hook set. Both arms
-        // get a row, and so does the identity `armed() == attached() ||
-        // persistent()` over all four combinations, because that identity is the
-        // only thing that keeps the backend's gate and the hot loop's gate from
-        // disagreeing.
+        // `attached()` is the ARMING client list — since GH #278 WP4c retired
+        // the Qt window's `DebugState::active()`, which was its second
+        // contributor during the transition (the window is a client now). Each
+        // arm contributor keeps its OWN bit, and a row pins that a client's
+        // attach and detach leave another one alone; and the identity
+        // `armed() == attached() || persistent()` over all four combinations,
+        // because that identity is the only thing that keeps the backend's gate
+        // and the hot loop's gate from disagreeing.
         Emulator emu; build(emu);
         Debugger dbg(emu);
-        check("SES-05-06", "attached() is false with no client and no active flag",
+        check("SES-05-06", "attached() is false with no client",
               !dbg.attached() && !dbg.armed());
 
         const ClientId a = dbg.attach(client("A")).value;
         check("SES-05-07", "a CLIENT alone makes it attached and armed",
-              dbg.attached() && dbg.armed() && !emu.debug_state().active());
+              dbg.attached() && dbg.armed());
         dbg.detach(a);
 
-        emu.debug_state().set_active(true);
-        check("SES-05-08", "and DebugState::active() alone does too — the Qt window "
-                           "is not a client until package Q",
-              dbg.attached() && dbg.armed());
+        jnext::dbg::ClientInfo obs = client("observer", jnext::dbg::ClientKind::Gui);
+        obs.observer = true;
+        const ClientId o = dbg.attach(obs).value;
+        check("SES-05-08", "an OBSERVER client (REQ-qt-32) alone does NOT — the Qt "
+                           "GUI's breakpoint owner is one, and a closed window "
+                           "must leave the machine unarmed",
+              !dbg.attached() && !dbg.armed());
+        dbg.detach(o);
 
         // THE DIVERGENCE THIS DESIGN EXISTS TO PREVENT: a client attaching and
-        // detaching must not clear the flag the Qt window owns. Writing
-        // `set_active()` from `attach`/`detach` would do exactly that, and
-        // nothing in `DebugState` can tell the two owners apart.
+        // detaching must not clear an arm another contributor owns — here the
+        // magic breakpoint's hold (GH #278 WP4c), which is what the retired
+        // `active()` bit was when the magic hook set it. A shared bit would be
+        // cleared by the detach; nothing in `DebugState` could tell the owners
+        // apart.
+        emu.debug_state().hold_for_magic_stop();
         const ClientId b = dbg.attach(client("B")).value;
         dbg.detach(b);
-        check("SES-05-09", "a client's attach+detach leaves DebugState::active() "
-                           "ALONE — two owners, two bits",
-              emu.debug_state().active() && dbg.attached() && dbg.armed());
-        emu.debug_state().set_active(false);
+        check("SES-05-09", "a client's attach+detach leaves another arm contributor "
+                           "(the magic hold) ALONE — two owners, two bits",
+              emu.debug_state().magic_hold() && dbg.armed() && !dbg.attached());
+        emu.debug_state().resume();                    // releases the hold
 
         bool identity = true;
         std::string idetail;
@@ -11788,10 +12111,9 @@ int main() {
     }
     {
         // §4.1: "`attached` (≥1 client) gates the step machinery" — Step Out,
-        // Step Back and Run-Back-to-Cycle, which today's tree gates on
-        // `DebugState::active()`. A remote client is NOT `active()` (that is the
-        // Qt window's bit), so a machine driven ONLY by a client must still finish
-        // a Step Out: armed by attaching, never by `set_active()`.
+        // Step Back and Run-Back-to-Cycle, which the tree before B3 gated on
+        // the Qt window's `DebugState::active()` (retired by GH #278 WP4c). A
+        // machine driven ONLY by a remote client must still finish a Step Out.
         Emulator emu; build(emu);
         Debugger dbg(emu);
         const ClientId a = dbg.attach(client("Remote", jnext::dbg::ClientKind::Dzrp)).value;
@@ -11802,9 +12124,9 @@ int main() {
         dbg.pause(a);
         const Result r = dbg.step_out(a);
         run_until_paused(emu);
-        check("SES-05-13", "a CLIENT alone drives Step Out to completion — attached, "
-                           "not DebugState::active(), gates the step machinery",
-              in_sub && r == Result::Ok && !emu.debug_state().active() &&
+        check("SES-05-13", "a CLIENT alone drives Step Out to completion — attached "
+                           "gates the step machinery",
+              in_sub && r == Result::Ok &&
               dbg.state().paused && pc_of(emu) == AFTER_CALL,
               "PC=" + hex(pc_of(emu)) + std::string(" paused=") +
                   (dbg.state().paused ? "1" : "0"));
@@ -11822,24 +12144,25 @@ int main() {
         emu.run_frame();
         emu.run_frame();
         const uint64_t before = emu.clock().get();
-        // Read BEFORE the frame: the rewind itself sets `active()` on its way
-        // out (`Emulator::rewind_to_cycle()`, pre-existing), so afterwards it
-        // cannot show which gate let the step mode through.
-        const bool active_before = emu.debug_state().active();
+        // Read BEFORE the frame: the ONLY thing driving the machine is the
+        // client (no hold, no live raster), so it is what lets the step mode
+        // through.
+        const bool client_only = emu.debug_state().attached() &&
+                                 !emu.debug_state().magic_hold() &&
+                                 !emu.debug_state().raster_live();
         emu.debug_state().step_back(1);
         emu.run_frame();
         const uint64_t after = emu.clock().get();
         check("SES-05-17", "a CLIENT alone lets the STEP_BACK step mode run — the "
                            "clock goes backwards, not forwards",
-              !active_before && after < before,
+              client_only && after < before,
               "before=" + std::to_string(before) + " after=" + std::to_string(after));
         dbg.detach(a);
     }
     {
         // §4.1 / SES-05: `live_raster` (per client, ORed) gates the
         // per-instruction `VideoTiming::advance()` walk — observed on the counter
-        // it moves. BOTH directions and the OR, with `active()` false throughout
-        // so the Qt term cannot be what switches it on.
+        // it moves. BOTH directions and the OR.
         Emulator emu; build(emu);
         Debugger dbg(emu);
         const ClientId a = dbg.attach(client("A")).value;
@@ -11860,20 +12183,22 @@ int main() {
         const bool off1 = !walked();
         check("SES-05-14", "the raster walk runs iff SOME client asked for "
                            "live_raster — off, on for A, on for B alone, off again",
-              !emu.debug_state().active() && off0 && on_a && on_b && off1,
+              off0 && on_a && on_b && off1,
               std::string("off0=") + (off0 ? "1" : "0") + " a=" + (on_a ? "1" : "0") +
                   " b=" + (on_b ? "1" : "0") + " off1=" + (off1 ? "1" : "0"));
-        // The Qt window's term still switches it on by itself (pre-Q behaviour),
-        // and `Debugger::live_raster()` still answers what the CLIENTS asked for,
-        // not the gate — read while `active()` is TRUE, or it cannot tell.
-        emu.debug_state().set_active(true);
-        const bool on_active       = walked();
-        const bool verb_while_on   = dbg.live_raster();
-        emu.debug_state().set_active(false);
-        check("SES-05-18", "and DebugState::active() alone still walks — the Qt "
-                           "window is not a client until package Q — while "
-                           "live_raster() stays the clients' OR (false)",
-              on_active && !verb_while_on);
+        // GH #278 WP4c — an OBSERVER client's request walks too: the live
+        // raster is a render hint, not an arm (REQ-qt-32), and `live_raster()`
+        // reports it while the machine stays unarmed by that client.
+        jnext::dbg::ClientInfo obs = client("observer", jnext::dbg::ClientKind::Gui);
+        obs.observer = true;
+        const ClientId o = dbg.attach(obs).value;
+        dbg.set_live_raster(o, true);
+        const bool on_observer   = walked();
+        const bool verb_while_on = dbg.live_raster();
+        dbg.detach(o);
+        check("SES-05-18", "and an OBSERVER client's live-raster request walks too, "
+                           "reported by live_raster() — a render hint, not an arm",
+              on_observer && verb_while_on && !walked());
         dbg.detach(a);
         dbg.detach(b);
     }
@@ -11897,7 +12222,7 @@ int main() {
         const uint32_t px_on = emu.get_framebuffer()[0];
         check("SES-05-15", "a frame the frontend would skip is rendered iff a client "
                            "asked for live_raster — stale without it, fresh with it",
-              !emu.debug_state().active() && px_off == px0 && px_on != px0,
+              px_off == px0 && px_on != px0,
               "px0=" + hex(px0) + " off=" + hex(px_off) + " on=" + hex(px_on));
         dbg.detach(a);
     }
@@ -12129,10 +12454,19 @@ int main() {
         check("CTL-12-11", "a Mem subscription fires before the cold boot",
               hits_before > 0, "hits=" + std::to_string(hits_before));
 
-        // A stale latch in the ring, and a legacy PC breakpoint + `active()`, so
-        // the platform-side restore's behaviour can be asserted too.
-        emu.debug_state().breakpoints().add_pc(0xBEEF);
-        emu.debug_state().set_active(true);
+        // A stale latch in the ring; and the Qt GUI's shape (GH #278 WP4c): an
+        // OBSERVER client (REQ-qt-32) owning a PC breakpoint, next to the arming
+        // client A — so the retirement of the platform-side restore, and the
+        // client model that replaced it, can be asserted too.
+        jnext::dbg::ClientInfo gui = client("Qt GUI", jnext::dbg::ClientKind::Gui);
+        gui.observer = true;
+        const ClientId g = dbg.attach(gui).value;
+        {
+            Subscription bp;
+            bp.kind = EventKind::Execute; bp.action = Action::Stop;
+            bp.filter.lo = 0xBEEF; bp.filter.hi = 0xBEEF;
+            dbg.subscribe(g, bp);
+        }
         const uint8_t stale_mask = emu.debug_state().breakpoints().watch_slot_mask_wr();
 
         int boots = 0;
@@ -12175,18 +12509,28 @@ int main() {
                            "armed again",
               emu.debug_state().clients_attached() && dbg.attached() && dbg.armed());
 
-        // The PLATFORM-SIDE restore is deliberately NOT retired in B3, and this
-        // is the row that says so: the legacy breakpoints and `active()` survive
-        // because `emulator_boot.h` still saves and restores them, and the
-        // backend's re-application does not clobber either. See that file's
-        // "WHY THE TWO RESTORES ABOVE ARE *NOT* RETIRED" for the three Qt
-        // regressions retiring them would be.
-        check("CTL-12-16", "the Qt panels' legacy breakpoint model survived the boot "
-                           "(emulator_boot.h's restore, NOT retired in B3)",
-              emu.debug_state().breakpoints().has_pc(0xBEEF));
-        check("CTL-12-17", "and DebugState::active() survived it, unclobbered by the "
-                           "backend's own re-application",
-              emu.debug_state().active());
+        // B3 left the PLATFORM-SIDE restore standing because it was the only
+        // owner of the Qt panels' breakpoints and of the window's `active()`;
+        // GH #278 WP4c retired it (B3 obligation 1), and these two rows re-pin
+        // the same two facts against the client model that replaced it: the
+        // GUI's breakpoint survives as the OBSERVER's subscription (rule 2) —
+        // with the platform carrying nothing, its legacy set rebuilt empty —
+        // and the observer is still no arm contributor on the rebuilt machine.
+        bool gui_bp = false;
+        for (const auto& si : dbg.subscriptions(false))
+            if (si.owner == g && si.kind == EventKind::Execute &&
+                si.filter.lo == 0xBEEF && si.live)
+                gui_bp = true;
+        check("CTL-12-16", "the Qt GUI's breakpoint — an observer client's "
+                           "subscription — survived the boot by the backend's "
+                           "re-application, and the platform carried nothing: the "
+                           "rebuilt legacy BreakpointSet is empty",
+              gui_bp && emu.debug_state().breakpoints().empty());
+        dbg.detach(a);
+        check("CTL-12-17", "and on the rebuilt machine the observer still arms "
+                           "nothing: with the arming client gone the machine is "
+                           "unarmed, the breakpoint still listed",
+              !dbg.armed() && !dbg.attached() && dbg.subscriptions(false).size() == 1);
     }
     {
         // RULE 3 OVER THE *REAL* BOOT, both arms. A fake driver cannot test this:
@@ -12270,8 +12614,10 @@ int main() {
         // breakpoint during a free run — nobody's verb — and then resets.
         //
         // The discriminator is a legacy PC breakpoint at the address the boot
-        // lands on. It survives the boot via `emulator_boot.h`'s restore (see
-        // CTL-12-16), so it is there to be found.
+        // lands on. GH #278 WP4c: `emulator_boot.h` no longer carries the legacy
+        // set across the boot (B3 obligation 1; CTL-12-16), so it is set on the
+        // REBUILT machine, before `state()` is asked — the question is still how
+        // the re-applied pause reads there.
         Emulator emu; build(emu);
         Debugger dbg(emu);
         const ClientId a = dbg.attach(client("A")).value;
@@ -12287,8 +12633,8 @@ int main() {
         run_until_paused(emu, 3);
         const RunState pre = dbg.state();
         const uint16_t landing = 0x0000;        // a cold boot starts at 0x0000
-        emu.debug_state().breakpoints().add_pc(landing);
         dbg.reset(a, ResetKind::Hard);
+        emu.debug_state().breakpoints().add_pc(landing);
         check("CTL-12-27", "an UNOWNED pause is re-applied as Kind::None, so a landing "
                            "on a legacy PC breakpoint reports Breakpoint — Kind::User "
                            "would have swallowed it",
@@ -12472,12 +12818,13 @@ int main() {
                   std::to_string(static_cast<int>(delivered_kind)));
     }
     {
-        // THE SINGLE-OWNER RULE, for the one part of the platform restore that
-        // was the BACKEND's state: the event-mask half of `BreakpointSet`'s
-        // hot-path gate. `emulator_cold_boot()` copies the whole set across; it
-        // now drops that half from the copy, so the rebuilt machine's event gate
-        // is CLOSED until the backend's `gates_changed()` re-opens it — and the
-        // Qt panels' half (a legacy watchpoint's slot bit) is still carried.
+        // THE SINGLE-OWNER RULE, whole (GH #278 WP4c). B3 retired the BACKEND's
+        // part of the platform restore — the event-mask half of `BreakpointSet`'s
+        // hot-path gate — and left the Qt panels' half (a legacy watchpoint's slot
+        // bit) carried; WP4c retired that too (B3 obligation 1). So a bare cold
+        // boot now leaves BOTH halves closed, and only the backend's
+        // re-application re-opens the gate, from the live subscription table — the
+        // single owner of what the machine watches.
         //
         // Driven WITHOUT the backend's re-application first — a bare cold boot
         // with the `Debugger` alive but not told — because that is the only
@@ -12502,35 +12849,35 @@ int main() {
         emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
         const uint8_t bare = emu.debug_state().breakpoints().watch_slot_mask_wr();
         check("CTL-12-32", "a cold boot the backend has NOT re-applied yet leaves the "
-                           "event half of the gate CLOSED and the Qt half (a legacy "
-                           "watchpoint) carried — the platform no longer owns the "
-                           "backend's bytes",
-              before == (ev_bit | wp_bit) && bare == wp_bit,
+                           "whole gate CLOSED — the event half and the legacy half "
+                           "(a legacy watchpoint) alike: the platform carries "
+                           "nothing of the debugger's",
+              before == (ev_bit | wp_bit) && bare == 0,
               "before=" + hex(before) + " bare=" + hex(bare));
 
         dbg.on_cold_boot_done();
         const uint8_t after = emu.debug_state().breakpoints().watch_slot_mask_wr();
         check("CTL-12-33", "and the backend's re-application is what re-opens it, "
-                           "from the live subscription table",
-              after == (ev_bit | wp_bit), "after=" + hex(after));
+                           "from the live subscription table alone",
+              after == ev_bit, "after=" + hex(after));
     }
     {
-        // THE OBSERVERS, both directions. `BreakpointSet`'s copy carries its
-        // observers, and that is the only reason the Qt Breakpoints and
-        // Disassembly panels stay subscribed across a cold boot (each registers
-        // ONCE, in its constructor) — which is why B3 does NOT retire the
-        // platform-side restore until package Q moves those panels onto a
-        // `Debugger`. So: an observer registered before a backend `reset(Hard)`
-        // is notified by a change AFTER it (the restore carried it, and the
-        // backend's re-application did not disturb it), and its `ObserverId`
-        // still names it, so the panel destructor's `remove_observer()` really
-        // does unsubscribe it rather than silently matching nothing.
+        // THE OBSERVER'S TWO LIFETIME EDGES across a cold boot (GH #278 WP4c —
+        // re-pinned from `BreakpointSet`'s observers, which travelled on the
+        // platform restore's copy and are retired with it). The Qt panels now
+        // follow a `SubscriptionsChanged` push to an observer client, so: an
+        // observer client and its listener installed before a backend
+        // `reset(Hard)` are notified of a subscription change AFTER it, and its
+        // detach after the boot really ends that — the `ClientId` still names it.
         Emulator emu; build(emu);
         Debugger dbg(emu);
         const ClientId a = dbg.attach(client("A")).value;
-        int notified = 0;
-        const auto obs = emu.debug_state().breakpoints().add_observer(
-            [&notified](BreakpointChange) { ++notified; });
+        jnext::dbg::ClientInfo gui = client("Qt GUI", jnext::dbg::ClientKind::Gui);
+        gui.observer = true;
+        const ClientId g = dbg.attach(gui).value;
+        RecListener l;
+        dbg.set_listener(g, &l);
+        dbg.pump(jnext::dbg::PumpBudget{});             // prime the edge detector
         jnext::dbg::LoopDriver d;
         d.cold_boot = [&]() {
             emulator_frontend_cold_boot(emu, emu.config(), std::string(),
@@ -12539,16 +12886,27 @@ int main() {
         };
         dbg.set_loop_driver(d);
         dbg.reset(a, ResetKind::Hard);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        const size_t n0 = l.subs.size();
 
-        emu.debug_state().breakpoints().add_pc(0x1234);
-        check("CTL-12-34", "a BreakpointSet observer registered before the cold boot "
-                           "is notified by a change after it",
-              notified == 1, "notified=" + std::to_string(notified));
-        emu.debug_state().breakpoints().remove_observer(obs);
-        emu.debug_state().breakpoints().add_pc(0x2345);
-        check("CTL-12-35", "and its pre-boot ObserverId still names it — removing it "
-                           "after the boot really unsubscribes it",
-              notified == 1, "notified=" + std::to_string(notified));
+        Subscription bp;
+        bp.kind = EventKind::Execute; bp.action = Action::Stop;
+        bp.filter.lo = 0x1234; bp.filter.hi = 0x1234;
+        dbg.subscribe(g, bp);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("CTL-12-34", "an observer client's listener installed before the cold "
+                           "boot is notified of a subscription change after it",
+              l.subs.size() == n0 + 1, l.trail());
+        const bool detached = dbg.detach(g) == Result::Ok;
+        bp.filter.lo = 0x2345; bp.filter.hi = 0x2345;
+        dbg.subscribe(a, bp);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("CTL-12-35", "and its pre-boot ClientId still names it — detaching it "
+                           "after the boot really ends the notifications and takes "
+                           "its subscription",
+              detached && l.subs.size() == n0 + 1 &&
+                  dbg.subscriptions(false).size() == 1,
+              l.trail());
     }
     {
         // RULE 5 — the GUEST-initiated path. It needs NO registered driver: the
@@ -14061,6 +14419,9 @@ int main() {
     q_wp2_host_order_rows();
     q_wp3_rewind_rows();          // GH #278 WP3
     q_wp3_trace_export_rows();    // GH #278 WP3
+    q4c_observer_rows();          // GH #278 WP4c
+    q4c_master_mirror_rows();     // GH #278 WP4c
+    q4c_magic_hold_rows();        // GH #278 WP4c
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

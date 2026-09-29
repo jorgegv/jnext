@@ -2032,7 +2032,8 @@ static void test_composite_is_default_tab() {
 static void test_tab_switch_renders_visible_only(Emulator& emu) {
     set_group("QVT");
 
-    emu.debug_state().set_active(true);
+    emu.debug_state().set_clients_attached(true);
+    emu.debug_state().set_live_raster(true);
     emu.run_frame();
     emu.debug_state().run_to_cycle(emu.current_frame_cycle() +
                                    200 * emu.timing().master_cycles_per_line);
@@ -2101,7 +2102,8 @@ static void test_tab_switch_renders_visible_only(Emulator& emu) {
 static void test_raster_indicator(Emulator& emu) {
     set_group("DVP-RASTER");
 
-    emu.debug_state().set_active(true);
+    emu.debug_state().set_clients_attached(true);
+    emu.debug_state().set_live_raster(true);
     emu.run_frame();                       // settle: one clean frame
 
     const auto& t = emu.timing();
@@ -2519,7 +2521,8 @@ static void test_peek_does_not_mutate(Emulator& emu) {
 static void test_paused_frame_resumes_not_restarts(Emulator& emu) {
     set_group("DVP-RESUME");
 
-    emu.debug_state().set_active(true);
+    emu.debug_state().set_clients_attached(true);
+    emu.debug_state().set_live_raster(true);
     emu.run_frame();                      // settle: one clean frame
 
     // Pause partway through the next frame, exactly as "Break" / "Run to EOF" do.
@@ -2603,7 +2606,8 @@ static void test_resume_does_not_rewind_the_copper(Emulator& emu) {
 
     // Pause mid-frame, PAST several WAITs, so the Copper PC is deep in its program.
     const auto& t = emu.timing();
-    emu.debug_state().set_active(true);
+    emu.debug_state().set_clients_attached(true);
+    emu.debug_state().set_live_raster(true);
     emu.debug_state().run_to_cycle(emu.current_frame_cycle() + 120 * t.master_cycles_per_line);
     emu.run_frame();
     const uint16_t pc_before = emu.copper().pc();

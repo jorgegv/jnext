@@ -11,7 +11,6 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
-#include "debug/breakpoints.h"
 
 #include <cctype>
 #include <functional>
@@ -113,10 +112,12 @@ inline int emulator_load_delay_frames(const std::string& file) {
 /// Emulator::end_rzx_at_reset()), and the per-path record of failed RZX writes
 /// is carried across, so a recording lost here still fails the exit status.
 ///
-/// The host debugger's breakpoints and its active flag are PRESERVED across the
-/// reset: they belong to the host debugger, and (like a real hardware debugger)
-/// a target reset must not silently discard them. The debugger's per-source
-/// audio mute mask is preserved for the same reason: it is not machine state
+/// The host debugger's breakpoints are NOT carried here: since GH #278 WP4c
+/// they are subscriptions of the debugger backend (`jnext::dbg::Debugger`),
+/// which lives outside `Emulator` and re-applies them after the reconstruct
+/// (CTL-12 rule 2) — like a real hardware debugger, a target reset must not
+/// silently discard them, and it does not. The debugger's per-source audio mute
+/// mask IS preserved here: it is not machine state
 /// (Emulator::set_audio_mute_mask()), and the Audio panel that set it survives
 /// the boot without re-pushing it, so dropping it would leave a muted source
 /// audible under an unticked box (GH #239, DAP-14). The transient run/step state
@@ -130,17 +131,6 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     emu.end_rzx_at_reset("the power-on reset");
     auto saved_rzx_failed      = emu.rzx_failed_outputs();
 
-    BreakpointSet saved_bps    = emu.debug_state().breakpoints();
-    // GH #276 B3 — the copy carries the Qt panels' model AND the event-mask half
-    // (`ev_mask_rd_` / `ev_mask_wr_` / `ev_port_`) that a `jnext::dbg::Debugger`
-    // publishes into it. The first is the platform's to carry (see "WHY THE TWO
-    // RESTORES ... ARE NOT RETIRED" below); the second is the BACKEND'S, and
-    // carrying it made this function a second owner of it. So the half is
-    // dropped from the copy: the rebuilt machine starts with the event gate
-    // CLOSED, and only the backend's re-application re-opens it, from the live
-    // subscription table. Item 2 below; rows CTL-12-14 and CTL-12-32/33.
-    saved_bps.set_event_slot_masks(0, 0, false);
-    const bool    saved_active = emu.debug_state().active();
     const uint8_t saved_mute   = emu.audio_mute_mask();
     auto saved_esxdos_state    = emu.esxdos_stub_state();
 
@@ -150,9 +140,6 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     emu.~Emulator();
     new (&emu) Emulator();
     emu.init(boot_cfg);
-
-    emu.debug_state().breakpoints() = std::move(saved_bps);
-    emu.debug_state().set_active(saved_active);
 
     // ── GH #276 B3: THE BACKEND'S SHARE OF THIS RECONSTRUCT ─────────────────
     //
@@ -196,16 +183,16 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     //     been destructed. Re-installing it after `init()` means this boot's own
     //     transition is not reconciled through it, so the re-application ALSO arms
     //     `Kind::None` explicitly once, exactly as the hook would have.
-    //  2. **The EVENT mask half is NOT carried across.** `saved_bps` copies
-    //     `ev_mask_rd_` / `ev_mask_wr_` / `ev_port_` with the rest of the set,
-    //     and until B3 the copy was restored with them — stale-OPEN against a
-    //     `DebugState` whose `events_` is null (cost only: `Mmu::watch_read_` /
-    //     `watch_write_` early-return on a null table), and, worse, a second
-    //     owner of three bytes the backend publishes: a re-application that
-    //     forgot `gates_changed()` passed every row, because the restored
-    //     bytes happened to be right. The copy's event half is now zeroed before
-    //     the restore, so `gates_changed()` in (1) is the SINGLE owner of those
-    //     bytes, and forgetting it closes the gate observably.
+    //  2. **Nothing of the debugger's is carried across by THIS function.**
+    //     Until B3 it copied the whole `BreakpointSet` (the Qt panels' model,
+    //     their observers, and the backend's event-mask half) and `active()`
+    //     over the reconstruct; B3 retired the event-mask half, and GH #278
+    //     WP4c the rest (B3 obligation 1): the Qt panels' breakpoints are the
+    //     backend's subscriptions, their views follow the backend-side model,
+    //     and `active()` is gone. So the rebuilt machine's gates are CLOSED and
+    //     its `BreakpointSet` empty until the backend's re-application — the
+    //     SINGLE owner — re-opens them from the live subscription table and
+    //     re-mirrors the master switch (rows CTL-12-14/16/32/33).
     //  3. **The LATCH RING survives and its contents do not.** `EventTable` lives
     //     on `Debugger::Impl`, not on `Emulator`, so every entry latched by the
     //     destroyed machine is still in the ring and would be delivered at the
@@ -219,36 +206,17 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     //     but before (1) it is dropped on the null table; issued before (3) it is
     //     discarded with the stale entries.
     //
-    // ── WHY THE TWO RESTORES ABOVE ARE *NOT* RETIRED ────────────────────────
+    // ── THE TWO RESTORES B3 LEFT STANDING ARE RETIRED (GH #278 WP4c) ─────────
     //
-    // §4.1 CTL-12 says B3 retires the `BreakpointSet` / `active()` save-and-restore
-    // as "a second owner of the same state". Measured against this tree it is not
-    // the same state, and retiring it in B3 would be three functional regressions
-    // in the Qt GUI, which settled owner decision 8 forbids:
-    //
-    //   * `saved_bps` is the QT PANELS' breakpoint model, not the backend's. The
-    //     backend's events are `EventTable` subscriptions, which live on
-    //     `Debugger::Impl` and never needed restoring. Dropping the restore loses
-    //     every PC breakpoint and watchpoint a user set, on every hard reset.
-    //   * `BreakpointSet`'s COPY CARRIES ITS OBSERVERS, which is the only reason
-    //     `BreakpointPanel` and `DisasmPanel` stay subscribed across this call:
-    //     each registers once in its constructor and never re-registers. Without
-    //     the restore their `ObserverId`s name nothing, `remove_observer()` in
-    //     their destructors silently matches no row, and both tables stop
-    //     refreshing for the rest of the session.
-    //   * `saved_active` is what keeps an OPEN debugger window armed:
-    //     `DebuggerManager::set_enabled(true)` sets `active_` once and never
-    //     re-pushes it. Without the restore a hard reset leaves the window open
-    //     on an unarmed machine.
-    //
-    // The backend cannot take over any of the three until package Q moves the Qt
-    // frontend onto a `Debugger` (§10.1 Q WP2/WP6), and it does not double-restore
-    // them in the meantime: the re-application writes `clients_attached_`, which is
-    // its OWN bit (see `DebugState::clients_attached()`), and re-publishes the
-    // event masks — the one part of `saved_bps` that WAS the backend's, and which
-    // item 2 above therefore drops from the copy.
-    // Recorded here rather than only in the B3 report, because this is the site a
-    // Q author will read.
+    // B3 kept the `BreakpointSet` / `active()` save-and-restore because, before
+    // package Q, it was the only owner of the Qt panels' breakpoints, of the
+    // observers that kept those panels subscribed, and of the bit that kept an
+    // open window armed. Q moved all three to the backend: the breakpoints are
+    // an observer client's subscriptions (REQ-qt-32), the panels follow
+    // `BreakpointModel`, which never touches this object, and the open window
+    // is an arming client whose attach `clients_changed()` re-derives. A
+    // restore here would now be a second owner, so it is gone (qt-frontend.md
+    // §7, B3 obligation 1).
     // ────────────────────────────────────────────────────────────────────────
     emu.set_audio_mute_mask(saved_mute);
     emu.restore_esxdos_stub_state(std::move(saved_esxdos_state));

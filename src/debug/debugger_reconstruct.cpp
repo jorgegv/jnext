@@ -137,6 +137,13 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     ds().set_machine_replaced_hook(
         [this]() { arm(PauseReason::Kind::None, CLIENT_NONE); });
 
+    //     THE MASTER SWITCH'S LEGACY MIRROR (GH #278 WP4c). The switch is the
+    //     `EventTable`'s and survived; the rebuilt `BreakpointSet` starts with
+    //     its own `true`, and the platform restore that used to carry the old
+    //     one is retired (B3 obligation 1). `set_master_enabled()` keeps the two
+    //     in lockstep, so the re-application does too (row MASTER-03).
+    ds().breakpoints().set_master_enabled(events.master_enabled());
+
     // (1b) THE EIGHT-PAGE SEED. `DebugState::on_slot_remapped()` early-returns
     //      while the table is null, so every `rebuild_ptr()` during the new
     //      `init()` was discarded — exactly the defect B2 shipped and fixed in

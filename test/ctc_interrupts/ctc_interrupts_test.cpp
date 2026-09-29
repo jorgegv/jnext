@@ -1595,7 +1595,8 @@ static void test_single_step_int_delivery(Emulator& emu) {
     // SSTEP-09 left behind and stop being an independent row (it does test
     // the latch, and that is SSTEP-09's job alone).
     auto attach_debugger = [](Emulator& e) {
-        e.debug_state().set_active(true);
+        e.debug_state().set_clients_attached(true);
+        e.debug_state().set_live_raster(true);
         e.debug_state().set_data_bp_hit(false);
         e.debug_state().pause();
     };

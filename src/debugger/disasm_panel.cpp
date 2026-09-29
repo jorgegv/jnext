@@ -1,5 +1,5 @@
 #include "disasm_panel.h"
-#include "debug/breakpoints.h"
+#include "debugger/breakpoint_model.h"
 
 #include <cstring>
 #include <cstdlib>
@@ -137,18 +137,20 @@ DisasmPanel::DisasmPanel(Emulator* emulator, QWidget* parent)
     });
     addAction(select_all_action_);
 
-    // GH #220 — the gutter is driven by the set, not by whoever mutated it.
-    // PcBreakpoints ONLY: the gutter paints bps.has_pc() (see paintEvent), so
-    // re-disassembling on a watchpoint change would be pure waste.
-    observer_ = emulator_->debug_state().breakpoints().add_observer(
-        [this](BreakpointChange what) {
-            if (what == BreakpointChange::PcBreakpoints) refresh();
-        });
 }
 
-DisasmPanel::~DisasmPanel()
+void DisasmPanel::set_breakpoint_model(BreakpointModel* model)
 {
-    emulator_->debug_state().breakpoints().remove_observer(observer_);
+    if (bp_model_) disconnect(bp_model_, nullptr, this, nullptr);
+    bp_model_ = model;
+    // GH #220 — the gutter is driven by the model, not by whoever mutated it.
+    // The Execute kind ONLY: the gutter paints Execute breakpoints (see
+    // paintEvent), so re-disassembling on a data breakpoint change would be
+    // pure waste. Qt drops the connection when either side is destroyed.
+    if (bp_model_)
+        connect(bp_model_, &BreakpointModel::changed, this, [this](uint32_t kinds) {
+            if (kinds & jnext::dbg::kind_bit(jnext::dbg::EventKind::Execute)) refresh();
+        });
 }
 
 void DisasmPanel::navigate_to_address(const QString& text)
@@ -204,7 +206,7 @@ void DisasmPanel::disassemble_from(uint16_t addr, int count)
     };
 
     uint16_t current_pc = emulator_->cpu().get_registers().PC;
-    const auto& bps = emulator_->debug_state().breakpoints();
+    const BreakpointModel* bps = bp_model_.data();
 
     uint16_t cur = addr;
     for (int i = 0; i < count; ++i) {
@@ -214,8 +216,8 @@ void DisasmPanel::disassemble_from(uint16_t addr, int count)
         // GH #225 — two questions, not one: does a breakpoint EXIST here,
         // and can it fire? paintEvent draws a filled dot for the second and a
         // hollow ring for a breakpoint that is only the first.
-        entry.has_breakpoint  = bps.pc_exists(cur);
-        entry.breakpoint_live = bps.has_pc(cur);
+        entry.has_breakpoint  = bps && bps->pc_exists(cur);
+        entry.breakpoint_live = bps && bps->pc_live(cur);
         entries_.push_back(entry);
 
         cur = static_cast<uint16_t>(cur + entry.line.byte_count);
@@ -557,24 +559,26 @@ void DisasmPanel::mousePressEvent(QMouseEvent* event)
     if (static_cast<int>(evpos.x()) < GUTTER_WIDTH) {
         // Toggle breakpoint
         uint16_t addr = entries_[line].line.addr;
-        auto& bps = emulator_->debug_state().breakpoints();
-        // GH #225 — pc_exists(), not has_pc(): the gutter click toggles
+        BreakpointModel* bps = bp_model_.data();
+        if (!bps) return;
+        // GH #225 — pc_exists(), not pc_live(): the gutter click toggles
         // whether a breakpoint IS THERE, which is what it has always done.
-        // has_pc() is now "can it fire", so a click on a suspended breakpoint
+        // pc_live() is "can it fire", so a click on a suspended breakpoint
         // would have read "none here" and added a second one on top of it.
         // Enabling and disabling is the Breakpoints panel's checkbox.
-        if (bps.pc_exists(addr)) {
-            bps.remove_pc(addr);
+        if (bps->pc_exists(addr)) {
+            bps->remove(BreakpointModel::Execute, addr);
         } else {
-            bps.add_pc(addr);
+            bps->add(BreakpointModel::Execute, addr);
         }
-        // The set's observer has already run. While PAUSED it re-disassembled,
-        // so entries_ was rebuilt underneath us — hence the bounds check. While
-        // RUNNING refresh() is a no-op by design, and this patch plus update()
-        // is what still shows the dot the instant it is clicked.
+        // The model's notification has already run. While PAUSED it
+        // re-disassembled, so entries_ was rebuilt underneath us — hence the
+        // bounds check. While RUNNING refresh() is a no-op by design, and this
+        // patch plus update() is what still shows the dot the instant it is
+        // clicked.
         if (line < static_cast<int>(entries_.size())) {
-            entries_[line].has_breakpoint  = bps.pc_exists(addr);
-            entries_[line].breakpoint_live = bps.has_pc(addr);
+            entries_[line].has_breakpoint  = bps->pc_exists(addr);
+            entries_[line].breakpoint_live = bps->pc_live(addr);
         }
         update();
     } else {
@@ -809,16 +813,17 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
 
     auto* toggle_bp = menu.addAction("Toggle Breakpoint");
     connect(toggle_bp, &QAction::triggered, this, [this, addr, line]() {
-        auto& bps = emulator_->debug_state().breakpoints();
-        if (bps.pc_exists(addr)) {
-            bps.remove_pc(addr);
+        BreakpointModel* bps = bp_model_.data();
+        if (!bps) return;
+        if (bps->pc_exists(addr)) {
+            bps->remove(BreakpointModel::Execute, addr);
         } else {
-            bps.add_pc(addr);
+            bps->add(BreakpointModel::Execute, addr);
         }
         // Same as the gutter click above — see mousePressEvent().
         if (line < static_cast<int>(entries_.size())) {
-            entries_[line].has_breakpoint  = bps.pc_exists(addr);
-            entries_[line].breakpoint_live = bps.has_pc(addr);
+            entries_[line].has_breakpoint  = bps->pc_exists(addr);
+            entries_[line].breakpoint_live = bps->pc_live(addr);
         }
         update();
     });
@@ -892,12 +897,12 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
 
     // --- Data breakpoint actions ---
     //
-    // GH #218/#220 — every one of these adds a WATCHPOINT, which the
-    // Breakpoints panel lists but this gutter does not draw (it paints has_pc()
-    // only). #218 gave them an explicit signal to repaint that list; #220
-    // deleted it, because add_watchpoint() now notifies the list itself. Note
-    // what is NOT here as a result: no repaint of our own, and no wire to a
-    // panel we do not own.
+    // GH #218/#220 — every one of these adds a DATA breakpoint, which the
+    // Breakpoints panel lists but this gutter does not draw (it paints Execute
+    // breakpoints only). #218 gave them an explicit signal to repaint that
+    // list; #220 deleted it, because the model's mutators notify the list
+    // themselves. Note what is NOT here as a result: no repaint of our own, and
+    // no wire to a panel we do not own.
     {
         menu.addSeparator();
 
@@ -905,12 +910,12 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
             auto* bp_read = menu.addAction(
                 QString("Break on Read $%1").arg(imm, 4, 16, QChar('0')));
             connect(bp_read, &QAction::triggered, this, [this, imm]() {
-                emulator_->debug_state().breakpoints().add_watchpoint(imm, WatchType::READ);
+                if (bp_model_) bp_model_->add(BreakpointModel::Read, imm);
             });
             auto* bp_write = menu.addAction(
                 QString("Break on Write $%1").arg(imm, 4, 16, QChar('0')));
             connect(bp_write, &QAction::triggered, this, [this, imm]() {
-                emulator_->debug_state().breakpoints().add_watchpoint(imm, WatchType::WRITE);
+                if (bp_model_) bp_model_->add(BreakpointModel::Write, imm);
             });
         }
 
@@ -920,13 +925,13 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
                     QString("Break on Read (%1) = $%2").arg(rp.name)
                         .arg(rp.val, 4, 16, QChar('0')));
                 connect(bp_read, &QAction::triggered, this, [this, rp]() {
-                    emulator_->debug_state().breakpoints().add_watchpoint(rp.val, WatchType::READ);
+                    if (bp_model_) bp_model_->add(BreakpointModel::Read, rp.val);
                 });
                 auto* bp_write = menu.addAction(
                     QString("Break on Write (%1) = $%2").arg(rp.name)
                         .arg(rp.val, 4, 16, QChar('0')));
                 connect(bp_write, &QAction::triggered, this, [this, rp]() {
-                    emulator_->debug_state().breakpoints().add_watchpoint(rp.val, WatchType::WRITE);
+                    if (bp_model_) bp_model_->add(BreakpointModel::Write, rp.val);
                 });
             }
         }

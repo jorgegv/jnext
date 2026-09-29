@@ -4,6 +4,7 @@
 #include "debugger/disasm_panel.h"
 #include "debugger/watch_panel.h"
 #include "debugger/breakpoint_panel.h"
+#include "debugger/breakpoint_model.h"
 #include "debugger/stack_panel.h"
 #include "debugger/callstack_panel.h"
 #include "core/emulator.h"
@@ -29,11 +30,11 @@ DebuggerManager::DebuggerManager(QMainWindow* main_window, jnext::dbg::Debugger&
     , dbg_(dbg)
     , emulator_(emulator)
 {
-    // Start with debugger DISABLED — no performance impact: no client is
-    // attached until the window opens (attach_backend()). The legacy bit is
-    // cleared as it always was; see set_enabled() for why the window still
-    // clears it.
-    emulator_->debug_state().set_active(false);
+    // Start with debugger DISABLED — no performance impact: no ARMING client
+    // is attached until the window opens (attach_backend()). The breakpoints'
+    // owner is attached now, for the manager's lifetime, and arms nothing
+    // (REQ-qt-32; GH #278 WP4c).
+    bp_model_ = new BreakpointModel(dbg_, this);
 
     // Watch main window move/resize to keep debugger sticky.
     main_window_->installEventFilter(this);
@@ -215,17 +216,11 @@ bool DebuggerManager::set_enabled(bool enabled, bool prompt_on_corrupt) {
         }
         shown_paused_ = false;
 
-        // TRANSITIONAL (GH #278 WP2 -> WP3). The window no longer SETS the
-        // legacy `DebugState::active()` bit — the attach and the live raster
-        // replaced it — but two core paths still do: the magic-breakpoint hook
-        // and the rewind paths (`rewind_to_cycle()` / `rewind_to_frame()`).
-        // Before WP2 this line was what cleared their bit when the window
-        // closed; without it a window closed after a magic hit or a rewind
-        // would leave the machine armed and the raster walk on, the very
-        // default PBPUI-03 pins. The bit, its two remaining writers and
-        // `emulator_cold_boot()`'s copy of it retire together in WP3
-        // (qt-frontend.md §7, B3 obligations 1 and 3).
-        emulator_->debug_state().set_active(false);
+        // GH #278 WP4c — nothing else to clear. The legacy `active()` bit this
+        // used to clear (set by the magic-breakpoint hook and, before WP3, by
+        // the rewind paths) is retired: a magic stop now holds the machine only
+        // until the resume above releases it (DebugState's magic hold), so the
+        // detach leaves the machine unarmed — PBPUI-09.
         detach_backend();
 
         if (debugger_window_) {
@@ -289,10 +284,17 @@ void DebuggerManager::ensure_window() {
     }
 
     // Wire breakpoint panel with symbol table. It needs no pointer to the
-    // disassembly any more: both panels observe the BreakpointSet (GH #220).
+    // disassembly: both panels follow the GUI's BreakpointModel (GH #220; GH
+    // #278 WP4c).
     if (auto* bp = debugger_window_->breakpoint_panel()) {
         bp->set_symbol_table(&symbol_table_);
+        bp->set_model(bp_model_);
     }
+    if (auto* dp = debugger_window_->disasm_panel())
+        dp->set_breakpoint_model(bp_model_);
+    // GH #278 WP4c — a watch is a peek through the backend (§3.5).
+    if (auto* wp = debugger_window_->watch_panel())
+        wp->set_backend(&dbg_);
 }
 
 // ---------------------------------------------------------------------------
@@ -584,6 +586,11 @@ void DebuggerManager::refresh_panels() {
 }
 
 void DebuggerManager::check_breakpoint_hit() {
+    // GH #278 WP4c — another client's breakpoint change, pushed in the pump
+    // that just ran, reaches the Breakpoints panel and the gutter now: the
+    // model's listener only recorded it (REQ-qt-15b).
+    bp_model_->sync();
+
     // GH #278 WP2 — the pause state is the BACKEND'S (CTL-13 `state()`), pulled
     // here once per tick, after the loop owner's pump (qt-frontend.md §4 as
     // built: no pause epoch exists, and a pull needs none — see there).

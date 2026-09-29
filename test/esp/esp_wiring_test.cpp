@@ -1003,9 +1003,8 @@ int main() {
               !emu.esp_associated());
         // And forward again from the rewound point: the second pass reproduces
         // the first, which is the property in full. A rewind leaves the machine
-        // PAUSED and the debugger active (rewind_to_cycle's own contract), so
-        // resuming is part of the scenario, not test scaffolding.
-        emu.debug_state().set_active(false);
+        // PAUSED (rewind_to_cycle's own contract), so resuming is part of the
+        // scenario, not test scaffolding.
         emu.debug_state().resume();
         for (int i = 0; i < 4; ++i) emu.run_frame();
         check("SCHED-19", "...and running forward again re-crosses the far edge",
@@ -1043,11 +1042,13 @@ int main() {
         // frame — the second finds `frame_in_progress_` still set and resumes
         // rather than restarting, which is why the count belongs in
         // begin_new_frame() and not at the top of run_frame().
-        emu.debug_state().set_active(true);   // pause() is inert without it
+        emu.debug_state().set_clients_attached(true);   // pause() is inert without it
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().pause();
         emu.run_frame();                      // begins frame 2, then stops
         emu.debug_state().resume();
-        emu.debug_state().set_active(false);
+        emu.debug_state().set_clients_attached(false);
+        emu.debug_state().set_live_raster(false);
         emu.run_frame();                      // finishes frame 2
         check("SCHED-22", "a paused-and-resumed frame counts once, not twice",
               emu.esp_associated());
@@ -1226,7 +1227,6 @@ int main() {
 
         // Forward again through both edges: the second pass reproduces the
         // first, which is the property in full.
-        emu.debug_state().set_active(false);
         emu.debug_state().resume();
         for (int i = 0; i < 6; ++i) emu.run_frame();
         check("MOVED-09", "...and running forward re-crosses both edges to the new address",

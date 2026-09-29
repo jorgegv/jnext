@@ -1277,7 +1277,10 @@ static void test_watch_panel() {
     {
         Emulator emu;
         const bool built = build(emu, MachineType::ZX48K);
-        WatchPanel wp(&emu);
+        // GH #278 WP4c — a watch is a peek through the debugger backend.
+        jnext::dbg::Debugger dbg(emu);
+        WatchPanel wp;
+        wp.set_backend(&dbg);
         poke(emu, 0x9000, {0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 0xF6});
 
         DialogAnswer add;
@@ -1365,6 +1368,33 @@ static void test_watch_panel() {
                   after_last == "w|a",
               fmt("after middle '%s', first '%s', last '%s'", s(after_mid).c_str(),
                   s(after_first).c_str(), s(after_last).c_str()));
+    }
+
+    // QWP-08 — GH #278 WP4c: a watch is a PEEK (CAP-INS-02, §3.5), so reading it
+    // is non-perturbing — here the +3 floating-bus latch, which the panel's old
+    // Mmu::read() moved on every contended address it displayed (F1). The
+    // control half reads the same bytes through Mmu::read() and shows the latch
+    // DOES move there, so the row cannot pass on a machine that never latches.
+    {
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZX_PLUS3);
+        jnext::dbg::Debugger dbg(emu);
+        WatchPanel wp;
+        wp.set_backend(&dbg);
+        for (uint16_t a = 0x4000; a < 0x4004; ++a) emu.mmu().write(a, 0xA5);
+        emu.mmu().set_p3_floating_bus_dat(0x3C);
+        wp.add_watch(0x4000, "screen", 2);       // Long: four contended bytes
+        wp.refresh();
+        const uint8_t latch_after_watch = emu.mmu().p3_floating_bus_dat();
+        (void)emu.mmu().read(0x4000);            // the control
+        const uint8_t latch_after_read = emu.mmu().p3_floating_bus_dat();
+        check("QWP-08",
+              "a watch's value is read without moving the +3 floating-bus latch, "
+              "and shows the right bytes (control: Mmu::read() does move it)",
+              built && wcell(&wp, 0, 3) == "$A5A5A5A5" && latch_after_watch == 0x3C &&
+                  latch_after_read == 0xA5,
+              fmt("value=%s latch after watch %02X (want 3C) after read %02X (want A5)",
+                  s(wcell(&wp, 0, 3)).c_str(), latch_after_watch, latch_after_read));
     }
 
     // QWP-05..07 — the three disassembly routes, through the REAL window: the

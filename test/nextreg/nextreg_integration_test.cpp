@@ -23,6 +23,7 @@
 #include "core/saveable.h"
 #include "core/sna_saver.h"
 #include "debug/debug_state.h"
+#include "debug/debugger.h"
 #include "platform/emulator_boot.h"
 #include "input/joystick.h"
 #include "input/mouse.h"
@@ -1462,10 +1463,19 @@ static void test_reset_domain_e3_and_8c() {
 // ── Cold boot preserves debugger breakpoints (Task 70 review) ─────────
 //
 // A hard reset is a host COLD BOOT (emulator_cold_boot: reconstruct the
-// Emulator in place + re-run init()). Breakpoints live in DebugState, an
-// Emulator member, so a naive reconstruct would wipe them. Like a real
-// hardware debugger, a target reset must PRESERVE host breakpoints — so
-// emulator_cold_boot save/restores them (and the debugger active flag).
+// Emulator in place + re-run init()). Like a real hardware debugger, a target
+// reset must PRESERVE host breakpoints.
+//
+// GH #278 WP4c — WHO preserves them moved. Until then they lived in DebugState,
+// an Emulator member, and emulator_cold_boot() saved and restored them (and the
+// debugger window's `active()` bit). They are now subscriptions of the debugger
+// BACKEND — the Qt GUI's are owned by a non-arming observer client (REQ-qt-32)
+// — which lives OUTSIDE the Emulator and re-applies them after the reconstruct
+// (CTL-12 rule 2); the platform restore is retired (B3 obligation 1). So this
+// row drives the host path the way QtApp does — on_cold_boot_begin(), the
+// reconstruct, on_cold_boot_done() — and asserts the same two facts: the
+// breakpoints are still there, and the open debugger window still arms the
+// machine (its client, where the `active` flag was).
 // Hermetic: builds its OWN emulator (reconstruct would disturb the shared one).
 static void test_cold_boot_preserves_breakpoints() {
     set_group("Cold-Boot");
@@ -1475,22 +1485,37 @@ static void test_cold_boot_preserves_breakpoints() {
     cfg.type = MachineType::ZXN_ISSUE2;
     cfg.rewind_buffer_frames = 0;
 
-    emu.debug_state().breakpoints().add_pc(0x8000);
-    emu.debug_state().breakpoints().add_pc(0xC000);
-    emu.debug_state().set_active(true);
+    jnext::dbg::Debugger dbg(emu);
+    jnext::dbg::ClientInfo gui{"Qt GUI", jnext::dbg::ClientKind::Gui, /*observer=*/true};
+    const jnext::dbg::ClientId owner = dbg.attach(gui).value;
+    dbg.attach(jnext::dbg::ClientInfo{"window", jnext::dbg::ClientKind::Gui});
+    jnext::dbg::Subscription s;
+    s.kind   = jnext::dbg::EventKind::Execute;
+    s.action = jnext::dbg::Action::Stop;
+    s.filter.lo = s.filter.hi = 0x8000;
+    dbg.subscribe(owner, s);
+    s.filter.lo = s.filter.hi = 0xC000;
+    dbg.subscribe(owner, s);
 
+    dbg.on_cold_boot_begin();
     emulator_cold_boot(emu, cfg);   // the host cold-boot path
+    dbg.on_cold_boot_done();
 
-    const auto& bps = emu.debug_state().breakpoints().pc_breakpoints();
-    const bool kept = bps.count(0x8000) && bps.count(0xC000) &&
-                      emu.debug_state().active();
+    int b8000 = 0, bC000 = 0;
+    const auto subs = dbg.subscriptions(false);
+    for (const auto& si : subs) {
+        if (si.owner != owner || !si.live) continue;
+        if (si.filter.lo == 0x8000) ++b8000;
+        if (si.filter.lo == 0xC000) ++bC000;
+    }
+    const bool kept = b8000 == 1 && bC000 == 1 && dbg.attached() && dbg.armed();
     char detail[96];
-    snprintf(detail, sizeof(detail), "bp8000=%d bpC000=%d active=%d n=%zu",
-             (int)bps.count(0x8000), (int)bps.count(0xC000),
-             emu.debug_state().active() ? 1 : 0, bps.size());
+    snprintf(detail, sizeof(detail), "bp8000=%d bpC000=%d attached=%d n=%zu",
+             b8000, bC000, dbg.attached() ? 1 : 0, subs.size());
     check("CB-BP-01",
-          "host cold boot (reconstruct+init) preserves debugger PC "
-          "breakpoints + active flag [Task 70 review]",
+          "host cold boot (reconstruct+init) preserves the debugger's PC "
+          "breakpoints and the open window's arm — through the backend since "
+          "GH #278 WP4c [Task 70 review]",
           kept, detail);
 }
 

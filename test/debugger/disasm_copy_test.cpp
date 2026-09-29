@@ -54,9 +54,13 @@
 #include "debug/breakpoints.h"
 #include "debug/debug_state.h"
 #include "debug/disasm_text.h"
+#include "debug/debugger.h"
 #include "debug/symbol_table.h"
+#include "debugger/breakpoint_model.h"
 #include "debugger/disasm_panel.h"
 #include "memory/mmu.h"
+
+#include <memory>
 
 #include <QApplication>
 #include <QClipboard>
@@ -185,6 +189,12 @@ const char* const ADDR_3LINE =
 
 struct Fixture {
     Emulator     emu;
+    // GH #278 WP4c — the gutter draws the GUI's breakpoints, which are debugger
+    // backend subscriptions behind a BreakpointModel. Declared before the
+    // window: the panel lets go of the model first, the model of its client
+    // before the backend goes, the backend before the machine.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
+    std::unique_ptr<BreakpointModel>      bps;
     SymbolTable  symbols;
     QMainWindow  win;
     DisasmPanel* panel = nullptr;
@@ -195,6 +205,8 @@ struct Fixture {
         cfg.type                 = MachineType::ZXN_ISSUE2;
         cfg.rewind_buffer_frames = 0;
         if (!emu.init(cfg)) return;
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        bps     = std::make_unique<BreakpointModel>(*backend);
 
         // The panel lives in a real top-level window, as it does in the
         // product. That is not decoration: Ctrl+C and Ctrl+A are
@@ -203,6 +215,7 @@ struct Fixture {
         // parentless widget would make the two chord rows untestable through
         // the chord — which is exactly the part worth testing.
         panel = new DisasmPanel(&emu);
+        panel->set_breakpoint_model(bps.get());
         win.setCentralWidget(panel);
         win.resize(700, PAINT_Y + VIS_LINES * LINE_H);
         win.show();
@@ -475,7 +488,7 @@ void test_copy_text() {
 
     // The gutter is not text at all. Setting a breakpoint on a selected line
     // changes what the panel PAINTS and must change nothing that is copied.
-    fx.emu.debug_state().breakpoints().add_pc(0x8003);
+    fx.bps->add(BreakpointModel::Execute, 0x8003);
     QApplication::processEvents();
     // The observer re-disassembled; re-select the same lines.
     drag_lines(fx.panel, 0, 2);
@@ -486,7 +499,7 @@ void test_copy_text() {
           bp_asm == QString::fromLatin1(ASM_3LINE) &&
               bp_addr == QString::fromLatin1(ADDR_3LINE),
           shown(bp_asm) + " / " + shown(bp_addr));
-    fx.emu.debug_state().breakpoints().remove_pc(0x8003);
+    fx.bps->remove(BreakpointModel::Execute, 0x8003);
 }
 
 // ── Group CLP — the clipboard, and the routes that reach it ──────────
@@ -724,7 +737,7 @@ void test_selection_painting() {
     Z80Registers regs = fx.emu.cpu().get_registers();
     regs.PC = 0x8004;
     fx.emu.cpu().set_registers(regs);
-    fx.emu.debug_state().breakpoints().add_pc(0x8003);
+    fx.bps->add(BreakpointModel::Execute, 0x8003);
     fx.point_view_at(BASE);
     fx.panel->refresh();
     QApplication::processEvents();
@@ -770,7 +783,7 @@ void test_selection_painting() {
               row_bg(after, 2), row_bg(after, 0), row_bg(before, 2),
               gutter_bg(after, 0), gutter_bg(before, 0), gutter_dot(after, 1)));
 
-    fx.emu.debug_state().breakpoints().remove_pc(0x8003);
+    fx.bps->remove(BreakpointModel::Execute, 0x8003);
 }
 
 // ── Group SYM — the painter and the clipboard are ONE implementation ──

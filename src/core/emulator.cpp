@@ -1125,8 +1125,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // GH #219 — --persistent-breakpoints. Latched here, once, from the config:
     // it is a run-long property of the machine, not a UI state the debugger
-    // toggles. DebugState::armed() (the hot-path breakpoint gate) becomes
-    // active() || this, so closing the debugger window no longer disarms.
+    // toggles. It is one term of DebugState::armed() (the hot-path breakpoint
+    // gate), so closing the debugger window no longer disarms.
     debug_state_.set_persistent_breakpoints(cfg.persistent_breakpoints);
 
     // Magic breakpoint: ED FF (ZEsarUX) / DD 01 (CSpect) trigger debugger pause.
@@ -7924,7 +7924,13 @@ void Emulator::set_magic_breakpoint(bool enabled)
     }
     cpu_.on_magic_breakpoint = [this](uint16_t pc) -> bool {
         Log::emulator()->info("Magic breakpoint hit at PC={:#06x}", pc);
-        debug_state_.set_active(true);
+        // GH #278 WP4c — HOLD the stop, on a machine nothing else may arm (no
+        // client, no window, no flag): the hot loop honours a pause only inside
+        // its armed() block. The hold ends with this pause — the next resume
+        // releases it — so the machine is armed afterwards by exactly what
+        // armed it before (DebugState::hold_for_magic_stop()). It replaced
+        // set_active(true), which nothing but the Qt window's close cleared.
+        debug_state_.hold_for_magic_stop();
         debug_state_.pause();
         // CTL-13's evidence, latched UNCONDITIONALLY — not behind a
         // subscription gate, because `state()` must report
@@ -9372,11 +9378,12 @@ void Emulator::run_frame()
     while (clock_.get() < frame_end) {
         // Debugger breakpoint check — before executing the next instruction.
         //
-        // GH #219: armed(), not active(). armed() is active() OR
-        // --persistent-breakpoints, so breakpoints survive closing the
-        // debugger window; the other active() readers below (render hint,
-        // per-instruction VideoTiming walk, the rewind step modes) stay on
-        // active() so nothing but the check itself is switched on.
+        // GH #219: armed() — a client attached (the debugger window's among
+        // them) OR --persistent-breakpoints OR a hold (a rewind's replay, a
+        // magic stop), so breakpoints survive closing the debugger window;
+        // the render hint, the per-instruction VideoTiming walk and the rewind
+        // step modes read raster_live() / attached() instead, so nothing but
+        // the check itself is switched on by the flag.
         if (debug_state_.armed()) {
             // Check if an external trigger (e.g. magic breakpoint) already
             // paused the emulator during the previous instruction's execute().

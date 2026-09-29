@@ -24,6 +24,7 @@
 #include "core/emulator_config.h"
 #include "debug/debug_state.h"
 #include "debug/debugger.h"
+#include "debugger/breakpoint_model.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 
@@ -104,7 +105,9 @@ struct Fixture {
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
         mgr = new DebuggerManager(&win, *backend, &emu, &win);   // parented → auto-freed
         mgr->set_enabled(true);                        // create + show window
-        emu.debug_state().breakpoints().add_pc(BP_ADDR);
+        // GH #278 WP4c — the user's breakpoint, set as the GUI sets it: a backend
+        // subscription of the GUI's observer client, which outlives the window.
+        mgr->breakpoints().add(BreakpointModel::Execute, BP_ADDR);
         mgr->set_enabled(false);                       // user closes it again
     }
 
@@ -126,17 +129,18 @@ int main(int argc, char** argv) {
     std::printf("Persistent breakpoints — frontend (GH #219)\n");
     std::printf("======================================================\n\n");
 
-    // PBPUI-01 — the disable path itself. set_enabled(false) still clears
-    // active() (the debugger stops driving, and its costly per-instruction
-    // machinery goes with it), but with the flag it must NOT disarm: armed()
-    // survives. This is the exact line the issue named,
-    // debugger_manager.cpp's `debug_state().set_active(false)`.
+    // PBPUI-01 — the disable path itself. set_enabled(false) still stops the
+    // debugger driving the machine (its costly per-instruction machinery goes
+    // with it: GH #278 WP4c, the window's client detaches — the attach and the
+    // live raster that replaced the `active()` bit the issue named), but with
+    // the flag it must NOT disarm: armed() survives.
     {
         Fixture fx(/*persistent=*/true);
         check("PBPUI-01", "closing the debugger leaves breakpoints armed but "
               "the debugger inactive",
               !fx.mgr->is_enabled() && !fx.window_visible() &&
-              fx.emu.debug_state().armed() && !fx.emu.debug_state().active());
+              fx.emu.debug_state().armed() && !fx.emu.debug_state().attached() &&
+              !fx.emu.debug_state().raster_live());
     }
 
     // PBPUI-02 — THE FEATURE, end to end. Window closed, breakpoint set, the
@@ -276,14 +280,15 @@ int main(int argc, char** argv) {
     }
 
     // PBPUI-09 — CLOSING the window after a magic breakpoint opened it leaves
-    // the machine DISARMED, as closing always has. The magic hook still sets the
-    // legacy DebugState::active() bit and the window no longer sets it (it is a
-    // backend client while open), so it is the close that must still clear it
-    // (GH #278 WP2 — until WP3 retires the bit); otherwise one magic hit would
-    // leave a leftover breakpoint firing with the window shut — PBPUI-03's
-    // default. The user resumes with Run before closing, so the row does not
-    // depend on what a close does to a machine still paused by the magic
-    // breakpoint (resumed today; see qt-frontend.md §4.1).
+    // the machine DISARMED, as closing always has. The magic hook used to set
+    // the legacy DebugState::active() bit, which only the close cleared; GH
+    // #278 WP4c retired it — the hook now HOLDS its stop only until the resume
+    // (DebugState's magic hold) — so the Run releases the hold and the close
+    // detaches the window's client, and one magic hit cannot leave a leftover
+    // breakpoint firing with the window shut — PBPUI-03's default. The user
+    // resumes with Run before closing, so the row does not depend on what a
+    // close does to a machine still paused by the magic breakpoint (resumed;
+    // see qt-frontend.md §4.1).
     {
         Fixture fx(/*persistent=*/false);
         fx.emu.set_magic_breakpoint(true);
@@ -292,11 +297,11 @@ int main(int argc, char** argv) {
         run_until_paused(fx.emu);
         fx.mgr->check_breakpoint_hit();            // opens the window
         const bool opened = fx.mgr->is_enabled() && fx.window_visible() &&
-                            fx.emu.debug_state().active();
+                            fx.backend->attached() && fx.emu.debug_state().magic_hold();
         fx.mgr->on_run();                          // F5: resume from the magic stop
         fx.mgr->set_enabled(false);                // then close the window
         const bool disarmed = !fx.backend->armed() && !fx.backend->attached() &&
-                              !fx.emu.debug_state().active();
+                              !fx.emu.debug_state().magic_hold();
         run_until_paused(fx.emu);                  // runs past BP_ADDR to the park
         fx.mgr->check_breakpoint_hit();
 
@@ -361,6 +366,73 @@ int main(int argc, char** argv) {
               open_on && !backend.attached() && !backend.armed() &&
               !backend.live_raster() && !backend.call_stack_enabled() &&
               !emu.call_stack().enabled());
+    }
+
+    // ── GH #278 WP4c — the GUI's breakpoints are an OBSERVER client's backend
+    //    subscriptions (REQ-qt-32), owned for the manager's lifetime, while the
+    //    window's own client — the one that arms — comes and goes with the
+    //    window. These two rows are the cases the rejected design ("attach while
+    //    the window is open OR the flag is set, keep the model in the adapter
+    //    while detached") would have changed (qt-frontend.md §4.1b).
+
+    // PBPUI-12 — close and reopen keep the breakpoint; with the window closed
+    // and no flag the machine is unarmed and runs past it; reopened, it stops.
+    {
+        Fixture fx(/*persistent=*/false);          // added while open, then closed
+        const bool kept_closed = fx.mgr->breakpoints().pc_exists(BP_ADDR) &&
+                                 !fx.backend->armed();
+        run_until_paused(fx.emu);
+        const bool ran_past = !fx.emu.debug_state().paused() && pc(fx.emu) == 0x800E;
+
+        Z80Registers r = fx.emu.cpu().get_registers();
+        r.PC = PROG;
+        fx.emu.cpu().set_registers(r);
+        fx.mgr->set_enabled(true);                 // reopen
+        run_until_paused(fx.emu);
+        check("PBPUI-12", "the GUI's breakpoint survives closing and reopening the "
+              "window; closed (no flag) the machine is unarmed and runs past it, "
+              "reopened it stops on it",
+              kept_closed && ran_past && fx.emu.debug_state().paused() &&
+              pc(fx.emu) == BP_ADDR && fx.mgr->breakpoints().pc_exists(BP_ADDR));
+    }
+
+    // PBPUI-13 — a REMOTE client attached with the window closed arms the
+    // machine, and the GUI's breakpoint fires — as a BreakpointSet entry did —
+    // and opens the window (owner Q5); the stop is the GUI's breakpoint's.
+    {
+        Fixture fx(/*persistent=*/false);
+        fx.backend->attach(jnext::dbg::ClientInfo{"remote", jnext::dbg::ClientKind::Dzrp});
+        const bool shut_armed = !fx.window_visible() && fx.backend->armed();
+        run_until_paused(fx.emu);
+        const jnext::dbg::RunState st = fx.backend->state();
+        const bool stopped = st.paused && pc(fx.emu) == BP_ADDR &&
+                             st.pause_reason.kind == jnext::dbg::PauseReason::Kind::Breakpoint &&
+                             st.pause_reason.by == fx.mgr->breakpoints().client();
+        fx.mgr->check_breakpoint_hit();
+        check("PBPUI-13", "with the window closed and a remote client attached, the "
+              "GUI's breakpoint fires and the next tick opens the window",
+              shut_armed && stopped && fx.mgr->is_enabled() && fx.window_visible());
+    }
+
+    // PBPUI-14 — the manager DESTROYED takes the GUI's breakpoint owner with it:
+    // the observer client detaches, its subscriptions go, and nothing is left
+    // behind in the backend that outlives it (with its listener, a pointer into
+    // a freed model).
+    {
+        Emulator emu;
+        build(emu, /*persistent=*/false);
+        jnext::dbg::Debugger backend(emu);
+        bool owned = false;
+        {
+            auto* host = new QMainWindow;
+            auto* mgr  = new DebuggerManager(host, backend, &emu, host);
+            mgr->breakpoints().add(BreakpointModel::Execute, BP_ADDR);
+            owned = backend.subscriptions(true).size() == 1;
+            delete host;       // ~QMainWindow -> ~DebuggerManager -> ~BreakpointModel
+        }
+        check("PBPUI-14", "a manager destroyed takes the GUI's breakpoint owner with "
+              "it: no subscription is left in the surviving backend",
+              owned && backend.subscriptions(true).empty() && !backend.armed());
     }
 
     std::printf("\n=====================================\n");

@@ -2,11 +2,11 @@
 
 #include <QMainWindow>
 #include <QSettings>
-#include "debug/breakpoints.h"
 #include "debug/debug_keymap.h"
 #include "debugger/window_attach.h"
 
 class Emulator;
+class BreakpointModel;
 class DebuggerManager;
 namespace jnext { namespace dbg { class Debugger; } }
 class CpuPanel;
@@ -98,9 +98,10 @@ private:
     /// Stop attaching after the window system repeatedly ignored our moves,
     /// and tell the user — visibly, and recoverably.
     void give_up_on_attachment();
-    void show_add_data_bp_dialog(WatchType type);
-    /// GH #215 — Execute is the ordinary PC breakpoint, so it is not a
-    /// WatchType and cannot go through show_add_data_bp_dialog().
+    /// `type` is a BreakpointModel::Type: Read, Write or ReadWrite.
+    void show_add_data_bp_dialog(int type);
+    /// GH #215 — Execute is the ordinary PC breakpoint, reached first; it has
+    /// its own dialog title and menu entry.
     void show_add_exec_bp_dialog();
     /// Modal "Address (hex):" prompt shared by both of the above. Returns false
     /// when the user cancels or types something that is not hex.
@@ -115,6 +116,9 @@ private:
     /// menu, the trace menu and the action greying read it, not the Emulator.
     /// Null only before set_debugger_manager().
     jnext::dbg::Debugger* backend() const;
+    /// GH #278 WP4c — the GUI's breakpoints (the manager's), for the
+    /// Breakpoints menu. Null only before set_debugger_manager().
+    BreakpointModel* breakpoint_model() const;
     /// Export Trace (button and menu): the file dialog, the backend's INS-13
     /// trace_export(), and "Export Failed" when it refuses.
     void export_trace();

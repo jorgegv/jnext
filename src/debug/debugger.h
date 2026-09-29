@@ -84,8 +84,10 @@ namespace dbg {
 /// own. Plus `Test`, for `debugger_backend_test`'s fake clients: six
 /// enumerators total.
 enum class ClientKind : uint8_t {
-    /// The Qt GUI adapter — attached while its debugger window is open (an
-    /// attach arms the machine; qt-frontend.md §4.1). SES-01 needs no "last
+    /// The Qt GUI adapter. It is TWO clients (qt-frontend.md §4.1, GH #278
+    /// WP4c): a lifetime OBSERVER that owns the user's breakpoints
+    /// (`ClientInfo::observer`), and the debugger window, attached while it is
+    /// open because that attach arms the machine. SES-01 needs no "last
     /// client" condition: its release rule is per client.
     Gui = 0,
     /// The DZRP server (DeZog, ZX Basic Studio, `tools/cspect_dzrp`).
@@ -105,6 +107,23 @@ enum class ClientKind : uint8_t {
 struct ClientInfo {
     std::string name;
     ClientKind  kind = ClientKind::Test;
+
+    /// REQ-qt-32 (owner-approved 2026-09-29; landed by GH #278 WP4c) — a
+    /// NON-ARMING client. It is a client in every other respect: it owns
+    /// subscriptions, installs a listener, issues verbs, keeps bookmarks, may
+    /// request the live raster, and its `detach()` follows SES-01's rules. But
+    /// it counts toward NO arm bit: an attach of one leaves `armed()` and
+    /// `attached()` exactly as they were. So its subscriptions fire only while
+    /// something ELSE arms the machine — another client's attach,
+    /// `--persistent-breakpoints`, a rewind's replay.
+    ///
+    /// WHY IT EXISTS: SES-01's attach conflated LISTEN with ARM. The Qt GUI's
+    /// breakpoints must outlive its window (a closed window keeps them, and
+    /// `--persistent-breakpoints` fires them with the window shut), yet the
+    /// GUI must not arm the machine while its window is closed — GH #219's
+    /// default, pinned by PBPUI-03. An arming owner cannot do both; a
+    /// non-arming one can. Set at attach, fixed for the client's life.
+    bool observer = false;
 };
 
 /// Severity of an SES-06 message. Mirrors the spdlog levels the project already
@@ -429,14 +448,18 @@ public:
     /// false the backend is inert and costs what today's `DebugState::armed()`
     /// costs.
     ///
-    /// **`attached || persistent_breakpoints`** — §5's formula, and the whole
-    /// formula. The magic breakpoint is NOT a third term, though §4.1 once read
-    /// that way: it does not need one, because the magic hook lives on
+    /// **`attached || persistent_breakpoints`** — §5's formula — plus two
+    /// HOLDS, each lasting exactly as long as the thing it holds: a rewind's
+    /// replay (its own loop only, GH #278 WP3) and a magic-breakpoint stop
+    /// (while that pause stands, GH #278 WP4c). The magic hook lives on
     /// `Z80Cpu::on_magic_breakpoint` rather than behind the armed gate, so it
-    /// fires on an unarmed machine and SETS `active_` when it does. So
-    /// `--magic-breakpoint` alone leaves `armed()` false until the opcode
-    /// executes, which is the behaviour wanted and the reason the gate can stay
-    /// two-termed (settled, Revision 6).
+    /// fires on an unarmed machine; it arms the machine only so the hot loop
+    /// honours its pause at the next instruction boundary, and the resume that
+    /// ends the pause releases the hold. So `--magic-breakpoint` alone leaves
+    /// `armed()` false until the opcode executes, and false again once the
+    /// stop is resumed (settled, Revision 6; the hold replaced the retired
+    /// `DebugState::active()` bit, which the hook used to set and nothing
+    /// cleared).
     bool armed() const;
 
     /// §4.1 — the `--persistent-breakpoints` half of `armed()` (GH #219): keep
@@ -904,8 +927,9 @@ public:
     /// SES-05 — the ORed value.
     bool live_raster() const;
 
-    /// SES-05 — is any client attached? The gate on the step machinery, and the
-    /// `attached` half of `armed()`.
+    /// SES-05 — is any ARMING client attached? The gate on the step machinery,
+    /// and the `attached` half of `armed()`. An observer client
+    /// (`ClientInfo::observer`, REQ-qt-32) is not counted.
     bool attached() const;
 
     /// SES-06 — the backend's message sink. Reaches every listener as

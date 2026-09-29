@@ -1,23 +1,31 @@
 // Persistent breakpoints (--persistent-breakpoints) — GH #219.
 //
 // The feature: breakpoints and watchpoints normally go dead the moment the
-// debugger window is closed, because DebuggerManager::set_enabled(false) calls
-// DebugState::set_active(false) and every breakpoint check in the hot loop sat
-// behind active(). --persistent-breakpoints keeps them live for the whole run;
-// a hit pauses the machine and the frontend reopens the window.
+// debugger window is closed, because the window's close disarms the machine and
+// every breakpoint check in the hot loop sits behind armed(). --persistent-
+// breakpoints keeps them live for the whole run; a hit pauses the machine and
+// the frontend reopens the window.
 //
 // Two halves, deliberately:
 //
-//   PBPS-*  the DebugState predicate. active() is "the debugger is DRIVING the
-//           machine" (step modes, the render-every-frame hint, the
-//           per-instruction VideoTiming walk); armed() is the narrower "are
+//   PBPS-*  the DebugState predicate. attached() is "a debugger is DRIVING
+//           the machine" (the step machinery), raster_live() its render hint
+//           and per-instruction VideoTiming walk; armed() is the narrower "are
 //           breakpoints live". Separating them is the whole design: forcing
-//           active() true with the window shut would switch on machinery that
-//           costs real time and that nobody is looking at.
+//           the driving bits on with the window shut would switch on machinery
+//           that costs real time and that nobody is looking at.
+//
+//           GH #278 WP4c: "the window is open" was the `active()` bit, which
+//           set all three; the window is a backend client now, and what its
+//           attach switches on is exactly `set_clients_attached(true)` plus
+//           `set_live_raster(true)` — which is how these rows open it.
 //
 //   PBPW-*  the WIRING — a real Emulator, a real Z80 program, breakpoints and
 //           watchpoints armed through the same DebugState the debugger uses,
-//           with active() FALSE throughout to model a closed window.
+//           with no client attached throughout to model a closed window.
+//
+//   PBPM-*  GH #278 WP4c — the magic breakpoint's HOLD, the arm contributor
+//           that replaced the magic hook's write of `active()`.
 //
 // The DEFAULT is pinned as hard as the feature is. PBPW-01/-06/-08 assert that
 // without the flag a closed window still means nothing fires: they are what
@@ -115,6 +123,15 @@ static uint16_t pc(const Emulator& emu) {
     return const_cast<Emulator&>(emu).cpu().get_registers().PC;
 }
 
+// The debugger window opening / closing: what its backend client's attach and
+// live-raster request switch on, and its close switches off (GH #278 WP4c —
+// until then the window's `active()` bit).
+static void window(DebugState& ds, bool open) {
+    ds.set_clients_attached(open);
+    ds.set_live_raster(open);
+}
+static bool driving(const DebugState& ds) { return ds.attached() || ds.raster_live(); }
+
 int main() {
     std::printf("\n======================================================\n");
     std::printf("Persistent breakpoints (--persistent-breakpoints), GH #219\n");
@@ -125,18 +142,18 @@ int main() {
     // PBPS-01 — the default state of a fresh DebugState: nothing armed.
     {
         DebugState ds;
-        check("PBPS-01", "fresh DebugState: active/persistent/armed all false",
-              !ds.active() && !ds.persistent_breakpoints() && !ds.armed());
+        check("PBPS-01", "fresh DebugState: driving/persistent/armed all false",
+              !driving(ds) && !ds.persistent_breakpoints() && !ds.armed());
     }
 
     // PBPS-02 — the legacy coupling, unchanged: opening the debugger arms,
     // closing it disarms. This is the behaviour the default must keep.
     {
         DebugState ds;
-        ds.set_active(true);
+        window(ds, true);
         const bool on = ds.armed();
-        ds.set_active(false);
-        check("PBPS-02", "without the flag, armed() tracks active() exactly",
+        window(ds, false);
+        check("PBPS-02", "without the flag, armed() tracks the window's client exactly",
               on && !ds.armed());
     }
 
@@ -147,7 +164,7 @@ int main() {
         ds.set_persistent_breakpoints(true);
         check("PBPS-03", "the flag alone arms breakpoints without activating "
               "the debugger",
-              ds.armed() && !ds.active() && ds.persistent_breakpoints());
+              ds.armed() && !driving(ds) && ds.persistent_breakpoints());
     }
 
     // PBPS-04 — THE feature, at predicate level: open the window, close it,
@@ -155,21 +172,21 @@ int main() {
     {
         DebugState ds;
         ds.set_persistent_breakpoints(true);
-        ds.set_active(true);
-        const bool on = ds.armed() && ds.active();
-        ds.set_active(false);
+        window(ds, true);
+        const bool on = ds.armed() && ds.attached() && ds.raster_live();
+        window(ds, false);
         check("PBPS-04", "with the flag, closing the debugger leaves armed() "
-              "true and active() false",
-              on && ds.armed() && !ds.active());
+              "true and the debugger not driving",
+              on && ds.armed() && !driving(ds));
     }
 
     // PBPS-05 — order independence: the flag can be latched after the debugger
     // was already opened and closed, and vice versa. (init() sets it before the
-    // GUI exists; emulator_cold_boot() restores active() after init.)
+    // GUI exists; the backend re-applies the window's client after a cold boot.)
     {
         DebugState ds;
-        ds.set_active(true);
-        ds.set_active(false);
+        window(ds, true);
+        window(ds, false);
         ds.set_persistent_breakpoints(true);
         const bool late = ds.armed();
         ds.set_persistent_breakpoints(false);
@@ -207,32 +224,33 @@ int main() {
     }
 
     // PBPW-03 — the hit must NOT switch the debugger on behind the user's
-    // back. active() stays false, so the render-every-frame hint and the
-    // per-instruction VideoTiming walk (both active()-gated) stay off; only
-    // the frontend's set_enabled(true) may flip it. Mutation: implement the
-    // feature by forcing active() true and this row fails.
+    // back. attached() and raster_live() stay false, so the step machinery,
+    // the render-every-frame hint and the per-instruction VideoTiming walk
+    // stay off; only the frontend's set_enabled(true) — the window's client
+    // attach — may flip them. Mutation: implement the feature by forcing the
+    // driving bits on and this row fails.
     {
         Emulator emu;
         build(emu, /*persistent=*/true);
         emu.debug_state().breakpoints().add_pc(BP_ADDR);
         run_until_paused(emu);
         check("PBPW-03", "a persistent hit pauses without activating the "
-              "debugger (active() still false)",
-              emu.debug_state().paused() && !emu.debug_state().active());
+              "debugger (attached() and raster_live() still false)",
+              emu.debug_state().paused() && !driving(emu.debug_state()));
     }
 
     // PBPW-04 — with the window ALREADY OPEN the flag changes nothing: same
-    // stop, same PC, and active() is what the caller set it to.
+    // stop, same PC, and the driving bits are what the caller set them to.
     {
         Emulator emu;
         build(emu, /*persistent=*/true);
-        emu.debug_state().set_active(true);
+        window(emu.debug_state(), true);
         emu.debug_state().breakpoints().add_pc(BP_ADDR);
         run_until_paused(emu);
         check("PBPW-04", "with the flag and the window open, behaviour is "
               "indistinguishable from today",
               emu.debug_state().paused() && pc(emu) == BP_ADDR &&
-              emu.debug_state().active());
+              emu.debug_state().attached() && emu.debug_state().raster_live());
     }
 
     // PBPW-05 — control for PBPW-04: without the flag and with the window
@@ -241,7 +259,7 @@ int main() {
     {
         Emulator emu;
         build(emu, /*persistent=*/false);
-        emu.debug_state().set_active(true);
+        window(emu.debug_state(), true);
         emu.debug_state().breakpoints().add_pc(BP_ADDR);
         run_until_paused(emu);
         check("PBPW-05", "control: without the flag, an OPEN window stops at "
@@ -310,7 +328,7 @@ int main() {
         check("PBPW-10", "EmulatorConfig::persistent_breakpoints reaches "
               "DebugState through init()",
               on.debug_state().persistent_breakpoints() &&
-              on.debug_state().armed() && !on.debug_state().active() &&
+              on.debug_state().armed() && !driving(on.debug_state()) &&
               !off.debug_state().persistent_breakpoints() &&
               !off.debug_state().armed());
     }
@@ -331,26 +349,26 @@ int main() {
     // #221 fixed it, so the row now asserts the outcome too: the machine runs
     // ON, to the park. The NEXT hit still stopping it is PBPW-12's job, and the
     // #221 side of this — including the drop/keep rule for the step-off arm that
-    // makes the set_active(false) here safe — is test/debug/resume_step_off_test.cpp
+    // makes the window's close here safe — is test/debug/resume_step_off_test.cpp
     // (RSOW-09).
     {
         Emulator emu;
         build(emu, /*persistent=*/true);
-        emu.debug_state().set_active(true);
+        window(emu.debug_state(), true);
         emu.debug_state().breakpoints().add_pc(BP_ADDR);
         run_until_paused(emu);
         const bool stopped = emu.debug_state().paused() && pc(emu) == BP_ADDR;
 
         // Exactly what closing the window does, in order.
         emu.debug_state().resume();
-        emu.debug_state().set_active(false);
+        window(emu.debug_state(), false);
         run_until_paused(emu);
 
         check("PBPW-11", "closing the debugger window at a hit leaves "
-              "breakpoints armed (armed() true, active() false) and steps off "
+              "breakpoints armed (armed() true, not driving) and steps off "
               "the hit rather than re-firing it",
               stopped && emu.debug_state().armed() &&
-              !emu.debug_state().active() &&
+              !driving(emu.debug_state()) &&
               !emu.debug_state().paused() && pc(emu) == 0x800E);
     }
 
@@ -392,6 +410,80 @@ int main() {
               !emu.debug_state().persistent_breakpoints() &&
               !emu.debug_state().armed() &&
               !emu.debug_state().paused() && pc(emu) == 0x800E);
+    }
+
+    // ─────────────────── PBPM: the magic breakpoint's hold ─────────────
+    //
+    // GH #278 WP4c. The magic hook used to set `active()` — the Qt window's bit
+    // — so a hit on an UNARMED machine (headless, SDL, a closed window) was
+    // honoured at the next instruction boundary, the hot loop checking a pause
+    // only inside its armed() block. Nothing but the window's close ever
+    // cleared the bit, so the machine stayed armed, and the step machinery and
+    // raster walk on, for the rest of the run. The hold replaced it: armed()
+    // only, set by the hook, released by the resume that ends the stop.
+    {
+        Emulator emu;
+        build(emu, /*persistent=*/false);
+        emu.set_magic_breakpoint(true);
+        emu.mmu().write(PROG, 0xED);          // ED FF, the magic opcode
+        emu.mmu().write(PROG + 1, 0xFF);
+        const bool unarmed_before = !emu.debug_state().armed();
+        run_until_paused(emu);
+        const DebugState& ds = emu.debug_state();
+        check("PBPM-01", "a magic breakpoint on an UNARMED machine stops at the "
+              "next instruction boundary, HELD: armed() by the hold alone, the "
+              "debugger not driving",
+              unarmed_before && ds.paused() && pc(emu) == PROG + 2 &&
+              ds.magic_hold() && ds.armed() && !driving(ds));
+
+        // A breakpoint left behind on the resumed path: with the hold released
+        // the machine is unarmed again, so it runs past it — which it would not
+        // if the hit had left the machine armed for good, as active() did.
+        emu.debug_state().breakpoints().add_pc(BP_ADDR);
+        emu.debug_state().resume();
+        const bool released = !ds.magic_hold() && !ds.armed() && !driving(ds);
+        run_until_paused(emu);
+        check("PBPM-02", "the resume RELEASES the hold: the machine is unarmed "
+              "again and runs past a breakpoint to the park",
+              released && !ds.paused() && pc(emu) == 0x800E);
+    }
+
+    // PBPM-03 — the hold is its OWN contributor: releasing it leaves whatever
+    // else armed the machine (here, the open window's client) exactly as it was.
+    {
+        Emulator emu;
+        build(emu, /*persistent=*/false);
+        window(emu.debug_state(), true);
+        emu.set_magic_breakpoint(true);
+        emu.mmu().write(PROG, 0xED);
+        emu.mmu().write(PROG + 1, 0xFF);
+        emu.debug_state().breakpoints().add_pc(BP_ADDR);
+        run_until_paused(emu);
+        const bool magic_stop = emu.debug_state().paused() && pc(emu) == PROG + 2 &&
+                                emu.debug_state().magic_hold();
+        emu.debug_state().resume();
+        run_until_paused(emu);
+        check("PBPM-03", "with the window open, the resume releases only the "
+              "hold: still armed by the window, the next breakpoint stops it",
+              magic_stop && !emu.debug_state().magic_hold() &&
+              emu.debug_state().armed() && emu.debug_state().attached() &&
+              emu.debug_state().paused() && pc(emu) == BP_ADDR);
+    }
+
+    // PBPM-04 — SuspendScope disarms the machine whatever armed it, the hold
+    // included, and gives it back afterwards.
+    {
+        DebugState ds;
+        ds.hold_for_magic_stop();
+        ds.pause();
+        bool inside = true;
+        {
+            DebugState::SuspendScope s(ds);
+            inside = !ds.armed() && !ds.magic_hold() && !ds.paused();
+        }
+        check("PBPM-04", "SuspendScope clears the magic hold for its span and "
+              "restores it",
+              inside && ds.magic_hold() && ds.armed() && ds.paused());
     }
 
     // ── Summary ────────────────────────────────────────────────────────

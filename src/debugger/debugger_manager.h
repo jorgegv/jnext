@@ -9,6 +9,7 @@
 #include "debug/debugger.h"
 #include "debug/symbol_table.h"
 
+class BreakpointModel;
 class Emulator;
 class QMainWindow;
 class DebuggerWindow;
@@ -25,14 +26,19 @@ class DebuggerWindow;
 /// rewind warning ask about (CTL-11). What stays here is Qt: the modal, the window, the
 /// panels' paused/running presentation, the Qt signals.
 ///
-/// THE ATTACH POLICY (qt-frontend.md §4 as built; manager decision 2026-09-29):
-/// the adapter is a backend CLIENT exactly while the debugger window is open —
-/// attached by `set_enabled(true)`, detached by `set_enabled(false)` — and
-/// requests the live raster for as long. Not for the process lifetime: an
-/// attached client ARMS the machine, and a window that armed breakpoints while
-/// closed would change GH #219's default (`debugger_persistent_bp_test`
-/// PBPUI-03). A pause the window did not cause still opens it: the pause state
-/// is PULLED from the backend on every tick, whoever is attached.
+/// THE ATTACH POLICY (qt-frontend.md §4 as built; manager decisions
+/// 2026-09-29): the adapter is TWO backend clients.
+///   * The WINDOW's client, attached exactly while the debugger window is open
+///     — by `set_enabled(true)`, detached by `set_enabled(false)` — which
+///     requests the live raster for as long and to which every verb is
+///     attributed. Not for the process lifetime: an attached client ARMS the
+///     machine, and a window that armed breakpoints while closed would change
+///     GH #219's default (`debugger_persistent_bp_test` PBPUI-03).
+///   * The GUI's BREAKPOINTS' owner, a non-arming OBSERVER client (REQ-qt-32)
+///     held by the BreakpointModel for the manager's lifetime (GH #278 WP4c),
+///     so the user's breakpoints outlive the window without arming anything.
+/// A pause the window did not cause still opens it: the pause state is PULLED
+/// from the backend on every tick, whoever is attached.
 ///
 /// The panels (`DebuggerWindow` and its 13) still take the `Emulator*` until
 /// WP4/WP7 move them onto the backend. The window reaches the backend through
@@ -89,6 +95,11 @@ public:
     /// own controls (rewind toolbar and menu, trace menu, action greying),
     /// which read it rather than the Emulator.
     jnext::dbg::Debugger& backend() const { return dbg_; }
+
+    /// GH #278 WP4c — the GUI's breakpoints, as backend subscriptions owned by
+    /// the observer client. The Breakpoints panel, the disassembly and the
+    /// window's Breakpoints menu all edit this one model.
+    BreakpointModel& breakpoints() const { return *bp_model_; }
 
     /// Access the symbol table.
     SymbolTable& symbol_table() { return symbol_table_; }
@@ -166,11 +177,12 @@ private:
 
     QMainWindow* main_window_;
     jnext::dbg::Debugger& dbg_;
-    /// For what WP2/WP3 do not move: the DebuggerWindow and its panels
-    /// (WP4/WP7), the raster snapshot before a paused refresh (WP4d), and the
-    /// legacy `DebugState::active()` bit the window still CLEARS on close (see
-    /// set_enabled()).
+    /// For what WP2/WP3/WP4c do not move: the DebuggerWindow and its panels
+    /// (WP4/WP7) and the raster snapshot before a paused refresh (WP4d).
     Emulator* emulator_;
+
+    /// GH #278 WP4c — owned (a QObject child); holds the observer client.
+    BreakpointModel* bp_model_ = nullptr;
 
     bool enabled_ = false;
 

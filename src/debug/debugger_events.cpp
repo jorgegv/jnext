@@ -157,19 +157,20 @@ Result Debugger::set_enabled(ClientId by, EventId id, bool enabled) {
 // ---------------------------------------------------------------------------
 
 bool Debugger::master_enabled() const {
-    // ONE user-visible switch (GH #225). The legacy `BreakpointSet` half is
-    // what the Qt panels still drive directly until package Q, and the two are
-    // kept in lockstep by set_master_enabled() below, so either one is the
-    // answer. Reported from BreakpointSet because that is where a Qt-side
-    // toggle lands.
+    // ONE user-visible switch (GH #225). The two halves are kept in lockstep by
+    // set_master_enabled() below AND across a cold boot by the re-application
+    // (`reapply_after_machine_rebuild()`, GH #278 WP4c), so either one is the
+    // answer; reported from BreakpointSet, as it always has been.
     return impl_->ds().breakpoints().master_enabled();
 }
 
 Result Debugger::set_master_enabled(bool enabled) {
-    // BOTH halves, because there is one switch: the `EventTable`'s
-    // subscriptions and `BreakpointSet`'s PC breakpoints and watchpoints are two
-    // models of the same user-facing list during the Q transition, and a switch
-    // that suspended only one of them would suspend half the user's breakpoints.
+    // BOTH halves, because there is one switch: the legacy `BreakpointSet` has
+    // no frontend writer left since GH #278 WP4c, but it is still a stop source
+    // the hot loop obeys (the core suites drive it), and a switch that
+    // suspended only the subscriptions would leave it live. The re-application
+    // after a cold boot mirrors the table's value into the rebuilt set
+    // (`reapply_after_machine_rebuild()`), so the two cannot drift apart there.
     impl_->ds().breakpoints().set_master_enabled(enabled);
     impl_->events.set_master_enabled(enabled);
     impl_->gates_changed();
