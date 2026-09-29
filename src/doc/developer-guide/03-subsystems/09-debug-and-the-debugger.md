@@ -710,7 +710,9 @@ floating-bus latch) and the eight MMU pages.
 
 ### The Qt adapter (GH #278 WP2)
 
-`DebuggerManager` holds the loop owner's `Debugger` and is a CLIENT of it
+`DebuggerManager` holds the loop owner's `Debugger` — handed over by
+`MainWindow::set_debugger()`, without which `set_emulator()` throws rather than
+build a window with no debugger — and is a CLIENT of it
 **exactly while the debugger window is open**: `set_enabled(true)` attaches and
 requests the live raster, `set_enabled(false)` resumes a paused machine — whoever
 paused it, as closing the debugger always has — and detaches. Not for the process

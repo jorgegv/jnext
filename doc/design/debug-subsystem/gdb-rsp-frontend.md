@@ -777,7 +777,10 @@ All sent 2026-09-26, all answered by `design-backend` the same evening.
 **Cross-frontend agreements recorded:** design-dsl — same range-watch
 primitive, payload `{addr, value, phys_page, pc_pre_exec, cycle, frame}`,
 predicate slot left empty by RSP. design-qt — Qt adapter attached for the
-process lifetime and receives every `Paused{by, reason}`; gdb-owned
+process lifetime and receives every `Paused{by, reason}` (as built by GH #278
+WP2: attached only while its window is open, because an attach arms the
+machine; it pulls the pause state every tick, so it still reacts to every
+pause, gdb's included — `qt-frontend.md` §4.1); gdb-owned
 subscriptions shown read-only with their owner in the Breakpoints panel;
 transient one-shots are `owner=internal`. design-dzrp — shared transport,
 notification timing and CLI spelling as amended in §6; DZRP documents a

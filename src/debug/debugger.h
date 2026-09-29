@@ -84,8 +84,9 @@ namespace dbg {
 /// own. Plus `Test`, for `debugger_backend_test`'s fake clients: six
 /// enumerators total.
 enum class ClientKind : uint8_t {
-    /// The Qt GUI adapter — attached for the process lifetime, which is why
-    /// SES-01 needs no "last client" condition.
+    /// The Qt GUI adapter — attached while its debugger window is open (an
+    /// attach arms the machine; qt-frontend.md §4.1). SES-01 needs no "last
+    /// client" condition: its release rule is per client.
     Gui = 0,
     /// The DZRP server (DeZog, ZX Basic Studio, `tools/cspect_dzrp`).
     Dzrp,

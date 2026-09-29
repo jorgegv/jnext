@@ -2474,7 +2474,9 @@ one pointer test per instruction. Each trace entry now carries I, R, IM, IFF1,
 IFF2, the word at SP (read with <code>peek()</code>, so the trace moves no watch and no +3
 floating-bus latch) and the eight MMU pages.</p>
 <h3 id="the-qt-adapter-gh-278-wp2">The Qt adapter (GH #278 WP2)<a class="headerlink" href="#the-qt-adapter-gh-278-wp2" title="Permanent link">&para;</a></h3>
-<p><code>DebuggerManager</code> holds the loop owner's <code>Debugger</code> and is a CLIENT of it
+<p><code>DebuggerManager</code> holds the loop owner's <code>Debugger</code> — handed over by
+<code>MainWindow::set_debugger()</code>, without which <code>set_emulator()</code> throws rather than
+build a window with no debugger — and is a CLIENT of it
 <strong>exactly while the debugger window is open</strong>: <code>set_enabled(true)</code> attaches and
 requests the live raster, <code>set_enabled(false)</code> resumes a paused machine — whoever
 paused it, as closing the debugger always has — and detaches. Not for the process

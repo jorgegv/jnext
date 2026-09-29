@@ -403,7 +403,7 @@ accessor):
 
 | Rows | Need | CAP (backend.md v1) | +REQ / notes |
 |---|---|---|---|
-| 71-72, 89 | attach/detach; the "active" render hint; call-stack tracking on while attached | CAP-SES-01, CAP-SES-05, CAP-INS-12 (`set_enabled`) | **REQ-qt-01b**: per-client `set_live_raster(cid, bool)` — the Qt adapter stays attached for the process lifetime (§4) and toggles this when the window shows/hides; **REQ-qt-01c (finding)**: `DebugState::active()` also gates the STEP machinery (`OUT`, `STEP_BACK`, `RUN_BACK_TO_CYCLE` — `debug_state.h:17`, `emulator.cpp:9251,9916`), so CAP-SES-05 must not tie those to `live_raster` |
+| 71-72, 89 | attach/detach; the "active" render hint; call-stack tracking on while attached | CAP-SES-01, CAP-SES-05, CAP-INS-12 (`set_enabled`) | **REQ-qt-01b**: per-client `set_live_raster(cid, bool)` — the Qt adapter stays attached for the process lifetime (§4) and toggles this when the window shows/hides (**as built, WP2: attached only while the window is open**, because an attach arms the machine — §4.1; REQ-qt-32 is the owner-approved way back to a lifetime listener); **REQ-qt-01c (finding)**: `DebugState::active()` also gates the STEP machinery (`OUT`, `STEP_BACK`, `RUN_BACK_TO_CYCLE` — `debug_state.h:17`, `emulator.cpp:9251,9916`), so CAP-SES-05 must not tie those to `live_raster` |
 | 73, 67, 49 | `paused()` | CAP-CTL-13 `state().paused` | — |
 | 74 | resume with GH #221 step-off and GH #223 no-op | CAP-CTL-02 | — |
 | 75 | pause | CAP-CTL-01 | — |
@@ -642,8 +642,9 @@ without also switching the hot path on, which is the same class as B4's O5 (a
 loop owner has no non-arming way to hear `ExitRequested`). A non-arming
 observer attach (a `ClientInfo` flag, or an `observe()` verb, that installs a
 listener and counts toward no arm bit) would let a lifetime attach coexist with
-PBPUI-03. That is a change to the frozen `debugger.h`, so it is NOT made here:
-it is REQ-qt-32 (§8), a proposed header change for the owner.
+PBPUI-03. That is a change to the frozen `debugger.h`: it is REQ-qt-32 (§8),
+OWNER-APPROVED 2026-09-29, and it lands when package S or a remote server first
+needs it — not in Q.
 
 **Transitional, until WP3:** the window no longer SETS the legacy
 `DebugState::active()` bit — the attach and the live raster replaced it — but
@@ -654,14 +655,20 @@ The bit, its two remaining writers, the window's clear and
 `emulator_cold_boot()`'s copy of it retire together in WP3 (§7, B3 obligations
 1 and 3).
 
-**A conflict WP2 did not resolve (for the owner):** architecture §4.1 CTL-13
-says closing the Qt debugger window must NOT resume a `Magic` pause (owner
-decision 2026-09-27). The window has always resumed ANY pause on close, and WP2
-keeps that (behaviour identity; `set_enabled(false)` calls `run()` whoever
-paused). Applied literally, the CTL-13 text would leave a magic-paused machine
-paused with the window shut — and the next tick's GH #219 auto-open would
-re-open it at once, so the window could not be closed at all. No row pins
-either reading for a close while magic-paused (PBPUI-09 resumes first).
+**Closing the window while a magic breakpoint holds the machine — SETTLED by
+the owner, 2026-09-29 ("ctl-13: agree").** Architecture §4.1 CTL-13 (owner
+decision 2026-09-27) said closing the Qt debugger window must NOT resume a
+`Magic` pause. The window has always resumed ANY pause on close, and applied
+literally the CTL-13 text would leave a magic-paused machine paused with the
+window shut — which the next tick's GH #219 auto-open reopens at once, so the
+window could not be closed at all. The review of this milestone put the
+conflict to the owner, whose ruling is: **closing the window resumes, whoever
+paused, `Magic` included, as it always has; the design text is amended.** The
+no-owner rule for `Magic` / `Corrupt` binds SES-01's `detach()` (a client's
+departure never releases an unowned pause) and nothing else; the Qt window's
+close is a user's Run, not a detach. CTL-13 is amended accordingly (arch §4.1).
+No row pins a close while magic-paused (PBPUI-09 resumes first); the behaviour
+is `set_enabled(false)`'s, unchanged by WP2.
 
 ### 4.2 The hot-path cost of an attached client (interleaved A/B, WP2)
 
@@ -961,7 +968,7 @@ over — fixture code only.
 
 | Rows | Suite | Pins |
 |---|---|---|
-| QTF-01..08 | `debug_qt_free_test` (new, gate none — both configurations) | WP1's lint row: no Qt include directive and no `*_qt.*` under `src/debug/`, the scan read the real directory, `src/qt/` header-only with the two headers and no `Emulator`; 06..08 prove the scanner on a planted tree (both detectors fire; prose, a commented-out include and a string do not). §6.3 mutation 10 turns 01, 02 and 04 red |
+| QTF-01..08 | `debug_qt_free_test` (new, gate none — both configurations) | WP1's lint row: no Qt include directive and no `*_qt.*` under `src/debug/`, the scan read the real directory, `src/qt/` header-only with the two headers and no `Emulator`; 06..08 prove the scanner on a planted tree (both detectors fire — the name detector on a `*_qt.h` AND a `*_qt.cpp`, review round 1; prose, a commented-out include and a string do not). §6.3 mutation 10 turns 01, 02 and 04 red |
 | PBPUI-06..08 | `debugger_persistent_bp_test` | with the window closed and the adapter detached, a pause from each source still opens it on the next tick: the magic breakpoint (nothing armed until it fires), a persistent breakpoint (armed by the flag, no client), another client's `pause()` — which stays that client's pause (owner Q5) |
 | PBPUI-09 | `debugger_persistent_bp_test` | closing the window after a magic breakpoint opened it DISARMS the machine (the §4.1 transitional clear of the legacy bit); the user resumes first, so the row does not pin what a close does to a machine still paused by the magic breakpoint — see the CTL-13 note in §4.1 |
 | QPE-07, QPE-08 | `debugger_verbs_test` | another client's `run()` reaches the window as a resume (defect: it used to stay in the paused shape), and its `pause()` as a full pause edge |
@@ -970,6 +977,8 @@ over — fixture code only.
 | QG-06 | `debugger_quit_gate_test` | the app-quit disable still resumes a corrupt machine, now through the backend's `run()` (which refuses an unacknowledged corruption; the quit path acknowledges it itself) |
 | QG-07 | `debugger_quit_gate_test` | Yes to the resume modal RESUMES — the Yes acknowledges the incident in the backend, whose `run()` would otherwise refuse — and the same incident is not asked about again |
 | QG-08 | `debugger_quit_gate_test` | a corrupt but RUNNING machine (a snapshot load that failed while it ran) is asked nothing by Run / Run to EOF / Run to EOSL, each a no-op there (GH #223's ordering: never ask about a resume that will not happen) |
+| PBPUI-10, PBPUI-11 | `debugger_persistent_bp_test` | (review round 1) closing the window, and a manager DESTROYED with its window still open (its parent torn down, no close), each leave the surviving backend unarmed and detached with the live raster and call-stack tracking off — the two lines of `detach_backend()` / `~DebuggerManager()` that make a closed window cost nothing, which no row saw before |
+| MWD-01 | `debugger_menu_test` | (review round 1) `MainWindow::set_emulator()` without `set_debugger()` throws `std::logic_error` and builds no manager; wired, it builds one. Six Qt fixtures (`audio_gain_preferences`, `esp_status`, `load_error`, `nex_v13_dialog`, `preferences_apply`, `rzx_menu`) had silently lost their manager to the old quiet skip; they now hand over a backend. Swapping `QtApp::init()`'s `set_debugger()` / `set_emulator()` order now fails every Qt regression row at startup |
 | HOST-08 | `debugger_backend_test` | `JNEXT_HOST_PROBE=order` through the real HeadlessApp: a guest hard reset raised inside the frames runs before the pump, and the client's `reset(Hard)` in that pump comes second |
 | `qt-host-order-func` | regression (functional) | the same script through QtApp — B3 obligation 2: QtApp now polls the guest hard reset (and the NEX `.run` request, the same deferred-reconstruct class) in `post_frames()` BEFORE the pump, as SdlApp and HeadlessApp do; polled in `pre_frames()` it ran next tick, and a client `reset(Hard)` in this tick's pump destroyed the machine with the guest's request still pending |
 
@@ -1088,7 +1097,7 @@ Sent as `REQ-qt-<n>: <capability> — <why> — <site>`; answers recorded here.
 | REQ | Capability | Status vs backend.md v1 |
 |---|---|---|
 | 01 | attach()/detach() — `debugger_manager.cpp:92-93,149-150` | served: CAP-SES-01/05, CAP-INS-12 |
-| **01b** | per-client `set_live_raster(cid, bool)` — the adapter stays attached; window show/hide toggles the render hint — `:90-99, :152-155` | **ACCEPTED** → CAP-SES-05 per-client, OR'd into the render hint + raster walk |
+| **01b** | per-client `set_live_raster(cid, bool)` — the adapter stays attached; window show/hide toggles the render hint — `:90-99, :152-155` | **ACCEPTED** → CAP-SES-05 per-client, OR'd into the render hint + raster walk. As built (WP2): the adapter attaches and requests the live raster while its window is open (§4.1) |
 | **01c** | finding: `active()` gates the step machinery too (`debug_state.h:17`, `emulator.cpp:9251, 9916`); CAP-SES-05 must not make step-out / step-back depend on `live_raster` | **ACCEPTED** → two flags: `attached` gates the step machinery, `live_raster` only the render hint/raster walk |
 | 02 | paused()/pause()/resume() — `:326-375` | served: CAP-CTL-01/02/13 |
 | 03 | step_into() = `debugger_step()` — `:391` | served: CAP-CTL-03 |
@@ -1132,13 +1141,13 @@ Sent as `REQ-qt-<n>: <capability> — <why> — <site>`; answers recorded here.
 | 28 | render_layer — `:394-630` | served: CAP-INS-14; split per §3.7 **NEEDS-PROTOTYPE** (agreed: verbatim move, re-run DVP first — WP4d step 1) |
 | **30** | WP8 contract on CAP-INS-02: `peek(Page{p})` returns the NR page's bytes regardless of any DivMMC/Multiface/L2 overlay over the slot; `poke(Page{p})` writes it, invisible to an overlay. **Reworded (review R-3):** `Page{p}` is used for RAM slots only; a ROM slot's bytes come from `MemSpace::Rom{…}` and its `poke` is `RefusedReadOnly` (panel renders "unchanged") — `memory_panel.cpp:123-154`, owner Q7 | **CONFIRMED** (backend CAP-INS-02 / §4.2a; matrix: Qt 39 used / 16 declined, INS-02 Page = S via Q WP8). The backend also logs every mutation as one SES-06 line `MUTATE <what> <old> -> <new> by <client>` — no panel change needed |
 | **31** | `SlotInfo` should carry the `MemSpace` that reads the slot's backing store (`space ∈ {Page{nr_page}, Rom{index}, bank7-BRAM…}`) so the Memory panel — and every other client — never composes a `MemSpace` from `effective_page` + `is_rom` (that composition is exactly what R-3 caught: `get_effective_page()` is SRAM-physical for ROM slots, `mmu.h:74-77`). Alternatively: settle the `Rom` enumeration (backend §11 item 1) and state the rule "ROM slot ⇒ `Rom{effective_page}`" explicitly. WP8 depends on one of the two | **ACCEPTED** (verified by the backend): CAP-INS-03 `SlotInfo.space` = `Page{nr_page}` for a RAM slot, `Rom{effective_page}` for a ROM slot; backend §11 item 1 closed from the code (`Rom{i}` = 8 KB ROM page index: SRAM pages 0..7 in Next mode, the `Rom` object's pages on 48K/128K/+3; `poke(Rom)` = `RefusedReadOnly`). WP8 branches on `SlotInfo.space` directly; the `is_rom` split is equivalent. **Refinement (backend, after the protocols review):** `Rom{index}` is a 16 KB ROM image (index 0..3, addresses 0..0x3FFF; SRAM pages 2i/2i+1 on the Next, the `Rom` object's image on classic machines), and `SlotInfo` carries `space` + `space_offset` (ROM slot → `Rom{effective_page >> 1}`, offset `(effective_page & 1)·0x2000`; RAM slot → `Page{nr_page}`, offset 0). WP8's read is `peek(space, space_offset + addr_in_slot, …)`; the 8 KB slot view and the QMP-06a/06b/07/08/09 rows are unaffected (they address bytes within the slot, never the image) |
-| **32** | a NON-ARMING observer attach — a client that installs a listener and counts toward no arm bit (a `ClientInfo` flag, or an `observe()` verb). SES-01's attach is the only way to become a client and it ARMS the machine (§5), so the Qt adapter cannot be a client for the process lifetime without changing GH #219's default (PBPUI-03, §4.1); B4's O5 is the same class for a loop owner and `ExitRequested` | **PROPOSED — needs the OWNER** (a change to the frozen `debugger.h`; not made). WP2 attaches while the window is open instead (manager decision 2026-09-29) |
+| **32** | a NON-ARMING observer attach — a client that installs a listener and counts toward no arm bit (a `ClientInfo` flag, or an `observe()` verb). SES-01's attach is the only way to become a client and it ARMS the machine (§5), so the Qt adapter cannot be a client for the process lifetime without changing GH #219's default (PBPUI-03, §4.1); B4's O5 is the same class for a loop owner and `ExitRequested` | **OWNER-APPROVED 2026-09-29** — a change to the frozen `debugger.h`, to be made when package S (the DSL) or a remote server first needs a non-arming listener; not in Q unless Q needs it (it does not: WP2 attaches while the window is open and pulls `state()`, manager decision 2026-09-29) |
 | **29** | CAP-CTL-15 `load(path)` must preserve every client's subscriptions, the master switch and the attached/live_raster state across the destroy/reconstruct, exactly as `emulator_cold_boot()` does for `BreakpointSet` + `active()` today — `src/platform/emulator_boot.h:133-146` (review N-10) | **ACCEPTED** (verified by design-backend): CAP-CTL-15 `load()` and CAP-CTL-12 `reset(Hard)` share the reconstruct contract — subscriptions, enable flags, master/per-client switches, attached/live_raster and the symbol table are kept outside `Emulator` and the hooks re-installed after the placement-new; a backend row pins it |
 
 MAPPED against backend.md v3 + the owner review of 2026-09-27 + round 4:
 **40 CAP ids used (35 of v1, +3 additions CAP-CTL-14 / CAP-INS-19 / per-client
 CAP-SES-05, + CAP-INS-02 `MemSpace::Page` and `MemSpace::Rom` per Q7/R-3), 15
-declined (§3.3), 0 REQs open, 0 reach-arounds (backend v7).** (Since then the WP0 fix round opened REQ-qt-09d, and WP2 proposed REQ-qt-32 to the owner.) All 14
+declined (§3.3), 0 REQs open, 0 reach-arounds (backend v7).** (Since then the WP0 fix round opened REQ-qt-09d, and WP2 raised REQ-qt-32, owner-approved 2026-09-29.) All 14
 sub-REQs ACCEPTED/CONFIRMED; REQ-qt-28 is NEEDS-PROTOTYPE by agreement
 (§3.7). To be re-confirmed as "MAPPED" against v2 when broadcast (additions
 only expected).
@@ -1148,6 +1157,14 @@ only expected).
 ## 9. Open questions for the owner
 
 None open.
+
+Settled by the owner (2026-09-29, GH #278 milestone-1 review):
+* **CTL-13 — closing the Qt debugger window while a `Magic` pause holds the
+  machine: it resumes, as it always has ("ctl-13: agree").** The window's close
+  resumes whoever paused; the no-owner rule for `Magic`/`Corrupt` binds only
+  SES-01's `detach()`. Architecture §4.1 CTL-13 amended to say so (§4.1 above).
+* **REQ-qt-32 — a non-arming observer attach: approved**, to land with package
+  S or the first remote server that needs it, not in Q (§8).
 
 Settled by the owner (review 2026-09-27):
 * **Q7 — Memory panel "slot view" becomes a TRUE physical-page read.**
