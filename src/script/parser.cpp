@@ -18,9 +18,10 @@ struct ParseError {
     Diagnostic d;
 };
 
-/// A nesting bound, so a pathological input (ten thousand `(`) is an error
-/// and not a stack overflow.
-constexpr int MAX_DEPTH = 200;
+/// The one message both expression bounds report (see parser.h).
+std::string too_deep() {
+    return "expression nested too deeply: more than " + std::to_string(MAX_EXPR_DEPTH) + " levels";
+}
 
 class Parser {
 public:
@@ -51,7 +52,8 @@ public:
 private:
     std::vector<Token> t_;
     size_t             i_ = 0;
-    int                depth_ = 0;
+    int                depth_ = 0;     ///< parser recursion (bound 1 of parser.h)
+    int                if_depth_ = 0;  ///< `if` nesting (bound 3 of parser.h)
 
     // ── token helpers ──────────────────────────────────────────────────────
 
@@ -407,6 +409,11 @@ private:
             a.e1   = parse_expr();
             a.e2   = parse_expr();
         } else if (w == "if") {
+            // Bound 3 (parser.h): `if` nesting, which the parser, the checker
+            // and the Action destructor all recurse over.
+            if (++if_depth_ > MAX_IF_DEPTH)
+                fail(a.pos, "`if` nested too deeply: more than " + std::to_string(MAX_IF_DEPTH) +
+                                " levels");
             a.kind = ActionKind::If;
             a.e1   = parse_expr();
             expect_kw("then", "after the `if` condition");
@@ -417,6 +424,7 @@ private:
                 a.else_body = parse_actions({"end"}, a.pos);
             }
             take();  // `end`
+            --if_depth_;
         } else {
             // Report at the word itself, not after it.
             fail(a.pos, "expected an action or `end`, found `" + w + "`");
@@ -461,7 +469,7 @@ private:
                 take();
                 node->a = parse_expr();
                 expect(Tok::RBracket, "to close the index");
-                return node;
+                return sealed(std::move(node));
             }
             case Tok::PhysL: {
                 node->kind = ExprKind::Phys;
@@ -470,7 +478,7 @@ private:
                 expect(Tok::Comma, "between the page and the offset");
                 node->b = parse_expr();
                 expect(Tok::RBracket, "to close `phys[`");
-                return node;
+                return sealed(std::move(node));
             }
             default:
                 fail(tk.pos, describe(tk) + " cannot be assigned: " + WHAT);
@@ -482,14 +490,33 @@ private:
     // §2.1 precedence, low to high: or; and; not; == != < > <= >=; | ^; &;
     // << >>; + -; * / %; unary - ~.
 
+    // Bound 1 (parser.h): the parser's own recursion — one level per
+    // `parse_expr` (a `(`, an index, an interpolation), per `not` and per
+    // unary operator.
     struct DepthGuard {
         Parser& p;
         explicit DepthGuard(Parser& pp) : p(pp) {
-            if (++p.depth_ > MAX_DEPTH)
-                fail(p.cur().pos, "expression nested too deeply");
+            if (++p.depth_ > MAX_EXPR_DEPTH) fail(p.cur().pos, too_deep());
         }
         ~DepthGuard() { --p.depth_; }
     };
+
+    // Bound 2 (parser.h): the HEIGHT of the tree. Every composite node goes
+    // through here, so no tree the parser returns is taller than
+    // MAX_EXPR_DEPTH — which is what bounds the binder, the evaluator and the
+    // destructor chain, all recursive. The binary loops are why this is needed
+    // on top of bound 1: `1+1+…+1` is a loop in the parser but a left-deep
+    // tree one level per operator (review round 1, B1).
+    static ExprPtr sealed(ExprPtr e) {
+        int h = 0;
+        if (e->a) h = e->a->depth;
+        if (e->b && e->b->depth > h) h = e->b->depth;
+        for (const StringPart& part : e->str.parts)
+            if (part.expr && part.expr->depth > h) h = part.expr->depth;
+        e->depth = h + 1;
+        if (e->depth > MAX_EXPR_DEPTH) fail(e->pos, too_deep());
+        return e;
+    }
 
     static ExprPtr binary(Op op, SourcePos pos, ExprPtr l, ExprPtr r) {
         auto e  = std::make_shared<Expr>();
@@ -498,7 +525,7 @@ private:
         e->pos  = pos;
         e->a    = std::move(l);
         e->b    = std::move(r);
-        return e;
+        return sealed(std::move(e));
     }
 
     static ExprPtr unary(Op op, SourcePos pos, ExprPtr a) {
@@ -507,7 +534,7 @@ private:
         e->op   = op;
         e->pos  = pos;
         e->a    = std::move(a);
-        return e;
+        return sealed(std::move(e));
     }
 
     ExprPtr parse_expr() {
@@ -625,7 +652,7 @@ private:
         e->pos  = p;
         e->a    = parse_expr();
         expect(Tok::RBracket, close_what);
-        return e;
+        return sealed(std::move(e));
     }
 
     ExprPtr parse_primary() {
@@ -644,7 +671,7 @@ private:
                 e->kind = ExprKind::Str;
                 e->pos  = p;
                 e->str  = take_string("");
-                return e;
+                return sealed(std::move(e));
             }
             case Tok::Symbol: {
                 auto e  = std::make_shared<Expr>();
@@ -674,7 +701,7 @@ private:
                 expect(Tok::Comma, "between the page and the offset");
                 e->b = parse_expr();
                 expect(Tok::RBracket, "to close `phys[`");
-                return e;
+                return sealed(std::move(e));
             }
             case Tok::ChangedL: {
                 take();
@@ -743,7 +770,7 @@ private:
                         e->a = parse_expr();
                         expect(Tok::RBracket, "to close the field index");
                     }
-                    return e;
+                    return sealed(std::move(e));
                 }
                 e->kind = ExprKind::Var;
                 e->text = w;

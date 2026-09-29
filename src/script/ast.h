@@ -118,6 +118,10 @@ struct Expr {
     Builtin     builtin = Builtin::None;  ///< Name, after binding
     ExprPtr     a, b;             ///< operands / index / phys page+offset
     StringLit   str;              ///< Str
+    /// Height of this subtree (a leaf is 1). The parser refuses any tree
+    /// taller than MAX_EXPR_DEPTH (parser.h), which is what bounds every
+    /// recursive pass over it.
+    int         depth = 1;
 };
 
 // ---------------------------------------------------------------------------

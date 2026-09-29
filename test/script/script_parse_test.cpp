@@ -32,6 +32,7 @@
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
 
+#include <pthread.h>
 #include <unistd.h>
 
 #include <cstdint>
@@ -440,6 +441,14 @@ static void lex_rows() {
               ok && r.tokens[0].pieces[0].fmt == Fmt::X2 &&
                   r.tokens[0].pieces[1].fmt == Fmt::D && r.tokens[0].pieces[2].fmt == Fmt::None);
     }
+    {
+        const LexResult r = lex("\"${A: x4 }${B :x2}${C:  d}\"");
+        const bool ok = !r.error && r.tokens[0].pieces.size() == 3;
+        check("LEX-FMT-BLANKS", "blanks around a format, before or after it, are ignored",
+              ok && r.tokens[0].pieces[0].fmt == Fmt::X4 && r.tokens[0].pieces[1].fmt == Fmt::X2 &&
+                  r.tokens[0].pieces[2].fmt == Fmt::D && r.tokens[0].pieces[1].text == "B ",
+              dstr(r.error));
+    }
     check("LEX-12", "an unknown format is an error at the format",
           err_at(lex("\"${A:x3}\"").error, 1, 6, "unknown format 'x3'"),
           dstr(lex("\"${A:x3}\"").error));
@@ -489,6 +498,19 @@ static void lex_rows() {
           kinds("a..b") == std::vector<Tok>{Tok::Ident, Tok::DotDot, Tok::Ident, Tok::Eof} &&
               kinds("a.b") == std::vector<Tok>{Tok::Ident, Tok::Dot, Tok::Ident, Tok::Eof} &&
               kinds("1..2") == std::vector<Tok>{Tok::Int, Tok::DotDot, Tok::Int, Tok::Eof});
+    {
+        std::string crlf;
+        for (const char* c = S3C; *c; ++c) {
+            if (*c == '\n') crlf += '\r';
+            crlf += *c;
+        }
+        const ParseResult r = P(crlf);
+        const auto errs = P_check(crlf, table({{"isr", 1}, {"isr_exit", 2}}));
+        check("LEX-CRLF", "a CRLF script (a Windows checkout) loads as its LF twin, and positions are unchanged",
+              r.ok() && r.script.rules.size() == 2 && r.script.rules[1].body.size() == 2 && errs.empty() &&
+                  err_at(P("on frame do\r\n  ?").error, 2, 3, "'?'"),
+              dstr(r.error) + dstr(errs));
+    }
     check("LEX-25", "the two-character operators",
           kinds("<< >> == != <= >= < > =") ==
               std::vector<Tok>{Tok::Shl, Tok::Shr, Tok::Eq, Tok::Ne, Tok::Le, Tok::Ge, Tok::Lt,
@@ -744,6 +766,15 @@ static void event_rows() {
               ev0(a) && ev0(a)->type == SEvt::Dma && ev0(a)->dma == DmaSub::Start && ev0(b) &&
                   ev0(b)->dma == DmaSub::Byte && !ev0(b)->lo && ev0(c) &&
                   is_int(ev0(c)->lo, 0x8000) && is_int(ev0(c)->hi, 0x9FFF));
+    }
+    {
+        const ParseResult a = P("on dma byte page 5 do end");
+        const ParseResult b = P("on dma byte 0x4000..0x5AFF page 5 do end");
+        check("PARSE-EV-DMA-BYTE-PAGE", "`dma byte` takes a full addr_spec: `page P`, and `LO..HI page P` "
+              "(registering either is WP3's, dsl-frontend.md G.4 F2)",
+              ev0(a) && ev0(a)->dma == DmaSub::Byte && ev0(a)->page_only && is_int(ev0(a)->page_lo, 5) &&
+                  !ev0(a)->lo && ev0(b) && !ev0(b)->page_only && is_int(ev0(b)->lo, 0x4000) &&
+                  is_int(ev0(b)->hi, 0x5AFF) && is_int(ev0(b)->page_lo, 5));
     }
     {
         const ParseResult a = P("on dma end do log \"x\" end");
@@ -1018,6 +1049,16 @@ static void expr_rows() {
               is_kind(e, ExprKind::Str) && e->str.parts.size() == 3 && e->str.parts[0].text == "a" &&
                   is_kind(e->str.parts[1].expr, ExprKind::Binary) && e->str.parts[2].text == "c");
     }
+    {
+        const auto b = body_of("log \"${A:x2}${B:x4}${C:d}${D}\"");
+        bool ok = b.size() == 1 && b[0].s1 && b[0].s1->parts.size() == 4;
+        if (ok) {
+            const auto& pt = b[0].s1->parts;
+            ok = pt[0].expr && pt[0].fmt == Fmt::X2 && pt[1].fmt == Fmt::X4 && pt[2].fmt == Fmt::D &&
+                 pt[3].fmt == Fmt::None && pt[3].expr && pt[3].expr->text == "D";
+        }
+        check("PARSE-EX-STRING-FMT", "each interpolation's format reaches the tree: x2, x4, d, none", ok);
+    }
     check("PARSE-EX-INTERP-POS", "an error inside `${…}` reports its true line and column",
           err_at(P("on frame do\n  log \"v=${1 +}\" end").error, 2, 15,
                  "expected an expression, found end of input"),
@@ -1035,7 +1076,8 @@ static void expr_rows() {
             for (int k = 0; k < 1000; ++k) s += "not ";
             return s;
         }() + "1";
-        check("PERR-EX-DEPTH", "pathological nesting is an error, not a crash",
+        check("PERR-EX-DEPTH", "`(`, unary `-` and `not` nested 1000 deep are refused by the parser's "
+              "recursion bound (bound 1), not a crash; the other shapes are the DEPTH-* rows",
               P(deep).error && P(deep).error->message.find("nested too deeply") != std::string::npos &&
                   P(neg).error && P(neg).error->message.find("nested too deeply") != std::string::npos &&
                   P(nots).error && P(nots).error->message.find("nested too deeply") != std::string::npos);
@@ -1124,12 +1166,29 @@ static void eval_semantic_rows() {
     }
     check("EVAL-SHIFT", "shift counts use their low five bits; `>>` is arithmetic",
           E_is("1 << 33", 2) && E_is("-8 >> 1", -4) && E_is("0x80000000 >> 31", -1) &&
-              E_is("1 << 31", INT32_MIN) && E_is("0x40 >> 4", 4),
+              E_is("1 << 31", INT32_MIN) && E_is("0x40 >> 4", 4) && E_is("0 >> 1", 0) &&
+              E_is("0 >> 31", 0),
           E_str("-8 >> 1"));
     check("EVAL-LOGIC", "comparisons and `and`/`or`/`not` give 1 or 0",
           E_is("3 and 5", 1) && E_is("0 or 7", 1) && E_is("not 5", 0) && E_is("not 0", 1) &&
               E_is("3 == 3", 1) && E_is("2 > 3", 0) && E_is("3 != 3", 0) && E_is("3 <= 3", 1) &&
               E_is("4 >= 5", 0) && E_is("-1 < 0", 1));
+    {
+        // Every comparison at l < r, l == r and l > r: an operator swapped for
+        // its neighbour (>= for >, != answering like <) differs somewhere.
+        struct Cmp { const char* op; int lt, eq, gt; };
+        static const Cmp CMPS[] = {{"==", 0, 1, 0}, {"!=", 1, 0, 1}, {"<", 1, 0, 0},
+                                   {">", 0, 0, 1},  {"<=", 1, 1, 0}, {">=", 0, 1, 1}};
+        std::string bad;
+        for (const Cmp& c : CMPS) {
+            const std::string op = c.op;
+            if (!E_is("3 " + op + " 5", c.lt)) bad += "3" + op + "5 ";
+            if (!E_is("5 " + op + " 5", c.eq)) bad += "5" + op + "5 ";
+            if (!E_is("5 " + op + " 3", c.gt)) bad += "5" + op + "3 ";
+            if (!E_is("-5 " + op + " 3", c.lt)) bad += "-5" + op + "3 ";
+        }
+        check("EVAL-CMP-TABLE", "each comparison at l<r, l==r, l>r (signed)", bad.empty(), bad);
+    }
     check("EVAL-SHORT", "`and` / `or` short-circuit: the right side is not evaluated",
           E_is("0 and 1 / 0", 0) && E_is("1 or 1 / 0", 1));
     check("EVAL-BITS", "`~`, `^`, `|`, `&`",
@@ -1254,6 +1313,18 @@ static void eval_state_rows(Emulator& emu) {
     check("EVAL-STACK", "stack[n] is the word at SP + 2n",
           E_is("stack[0]", 0x1234) && E_is("stack[1]", 0x5678) && E_is("stack[-1]", 0xBEEF),
           E_str("stack[0]") + " " + E_str("stack[1]"));
+    emu.mmu().write(0xFFFE, 0x11);
+    {
+        uint8_t z[2] = {0, 0};
+        g_dbg->peek(jnext::dbg::MemSpace::cpu(), 0x0000, 2, z);
+        const EvalResult over  = E("stack[0x80]");
+        const EvalResult under = E("stack[-0x7F81]");
+        check("EVAL-STACK-BOUNDARY", "SP + 2n = 0xFFFE and = 0 are the last slots in range; 0x10000 and -2 are not",
+              E_is("stack[0x7F]", 0x3411) && E_is("stack[-0x7F80]", z[0] | (z[1] << 8)) && !over.ok &&
+                  one_err_at(over.errors, 1, 1, "outside 0..0xFFFF") && !under.ok &&
+                  one_err_at(under.errors, 1, 1, "outside 0..0xFFFF"),
+              E_str("stack[0x7F]") + " " + dstr(over.errors));
+    }
     check("EVAL-STACK-RANGE", "a stack slot outside 0..0xFFFF is a run-time error",
           !E("stack[0x8000]").ok && !E("stack[-0x8000]").ok, dstr(E("stack[0x8000]").errors));
 
@@ -1275,6 +1346,14 @@ static void eval_state_rows(Emulator& emu) {
           mmu_ok && differs && !E("mmu[8]").ok && !E("page[-1]").ok);
 
     const std::string p4 = std::to_string(slots[4].nr_page);
+    emu.mmu().write(0x9FFF, 0x5C);  // slot 4's last byte: phys[p4, 0x1FFF]
+    {
+        const EvalResult past = E("phys[" + p4 + ", 0x2000]");
+        check("EVAL-PHYS-BOUNDARY", "phys[] offset 0x1FFF is the page's last byte; 0x2000 is refused AS an offset",
+              E_is("phys[" + p4 + ", 0x1FFF]", 0x5C) && !past.ok &&
+                  one_err_at(past.errors, 1, 1, "offset 0x2000 is outside 0..0x1FFF"),
+              E_str("phys[" + p4 + ", 0x1FFF]") + " " + dstr(past.errors));
+    }
     {
         const EvalResult bad = E("phys[0xFE, 0]");
         check("EVAL-PHYS", "phys[page, off] reads the physical page; a refused page and an offset "
@@ -1569,6 +1648,12 @@ static void payload_value_rows() {
         const bool five = T("KEY == 5", EventKind::Host, ev);
         std::snprintf(ev.host_name, sizeof ev.host_name, "%s", "script1");
         check("PAYV-HOST", "hostkey: KEY is N of `scriptN`", five && T("KEY == 1", EventKind::Host, ev));
+        std::string bad;
+        for (const char* n : {"script9", "script0", "script", "script10", "key1"}) {
+            std::snprintf(ev.host_name, sizeof ev.host_name, "%s", n);
+            if (!T("KEY == 0", EventKind::Host, ev)) bad += std::string(n) + " ";
+        }
+        check("PAYV-HOST-OTHER", "a host name that is not script1..script8 has KEY 0", bad.empty(), bad);
     }
     const RasterState rs = g_dbg->raster();
     {
@@ -1658,6 +1743,35 @@ static void check_rows() {
           one_err_at(P_check("on write ADDR do end"), 1, 10, "not available in no event") &&
               one_err_at(P_check("on io_write mask VALUE value 1 do end"), 1, 18, "not available in no event"),
           dstr(P_check("on write ADDR do end")));
+    {
+        // Every registration-time operand of EventSpec, each holding a payload
+        // name: lo, hi, page_lo, page_hi, mask, value, at_lo, at_hi.
+        struct Op8 { const char* src; int col; const char* name; };
+        static const Op8 OPS[] = {
+            {"on write ADDR do end", 10, "ADDR"},
+            {"on write 0..ADDR do end", 13, "ADDR"},
+            {"on write 0 page PAGE do end", 17, "PAGE"},
+            {"on execute page 1..PAGE do end", 20, "PAGE"},
+            {"on io_write mask VALUE value 1 do end", 18, "VALUE"},
+            {"on io_write mask 0xFF value VALUE do end", 29, "VALUE"},
+            {"on copper wait at CPC do end", 19, "CPC"},
+            {"on copper wait at 0..CPC do end", 22, "CPC"},
+        };
+        std::string bad;
+        for (const Op8& o : OPS)
+            if (!one_err_at(P_check(o.src), 1, o.col, std::string("`") + o.name + "` is event payload"))
+                bad += std::string("[") + o.src + " -> " + dstr(P_check(o.src)) + "] ";
+        check("CHK-FILTER-OPERANDS", "every filter operand (lo hi page page_hi mask value at at_hi) is bound "
+              "with no event", bad.empty(), bad);
+    }
+    {
+        ParseResult r = P("on write 0 do if 1 then set B = PREV else set A = VALUE end end");
+        const auto errs = r.ok() ? check_script(r.script) : std::vector<Diagnostic>{{}};
+        const bool bound = r.ok() && errs.empty() &&
+                           r.script.rules[0].body[0].then_body[0].e1->builtin == Builtin::P_PREV &&
+                           r.script.rules[0].body[0].else_body[0].e1->builtin == Builtin::P_VALUE;
+        check("CHK-IF-SCOPE", "both branches of an `if` are in the rule's event scope", bound, dstr(errs));
+    }
     check("CHK-VAR-INIT", "a `var` initializer has no event",
           one_err_at(P_check("var v = VALUE"), 1, 9, "not available in no event"), dstr(P_check("var v = VALUE")));
     check("CHK-INTERP", "the per-kind check reaches inside `${…}`, at the name's true column",
@@ -1828,6 +1942,208 @@ static void work_rows() {
     }
 }
 
+// ── DEPTH — the recursion bounds (parser.h), review round 1 B1 ──────────────
+//
+// Every recursive pass in src/script/ recurses over expression nesting or `if`
+// nesting, and nothing else. These rows pin, for each shape that can nest,
+// that the deepest input the bounds accept is ACCEPTED and one level more is
+// REFUSED with a positioned error — and, for the two shapes the first version
+// did not bound (a left-associative chain, nested `if`s), that inputs large
+// enough to overflow the stack without the bound are refused, not a crash.
+// A crash here takes the whole binary down: the harness reads that as a FAIL.
+
+// The documented limits, spelled as LITERALS: the rows below derive their
+// boundaries and error columns from these, never from the header's constants,
+// so a changed limit turns rows red instead of moving them along with it.
+static constexpr int kDepth   = 200;  // MAX_EXPR_DEPTH
+static constexpr int kIfDepth = 64;   // MAX_IF_DEPTH
+
+static std::string rep_str(const std::string& s, int n) {
+    std::string out;
+    out.reserve(s.size() * static_cast<size_t>(n));
+    for (int k = 0; k < n; ++k) out += s;
+    return out;
+}
+
+/// `1` followed by `n` copies of `+1` — a left-deep tree n+1 nodes tall.
+static std::string chain(int n) { return "1" + rep_str("+1", n); }
+
+/// `on frame do` with `n` nested `if 1 then … end`.
+static std::string nested_ifs(int n) {
+    return "on frame do " + rep_str("if 1 then ", n) + "stop " + rep_str("end ", n) + "end";
+}
+
+/// The deepest accepted shapes, run through parse, check, compile, evaluate and
+/// destruction. Returns "" or what failed. Used on a small thread stack by
+/// DEPTH-STACK.
+static std::string deepest_accepted() {
+    const int D = kDepth - 1;
+    std::string bad;
+    const std::string exprs[] = {
+        chain(D),                                                // tree height 200
+        rep_str("(", D) + "1" + rep_str(")", D),                 // parser depth 200
+        rep_str("-", D) + "1",
+        rep_str("not ", D) + "1",
+        rep_str("mem[", D) + "0" + rep_str("]", D),
+        rep_str("(1+", D) + "1" + rep_str(")", D),               // both bounds at once
+    };
+    for (const std::string& e : exprs) {
+        const EvalResult r = E(e);
+        const CompiledPredicate c = compile_expr(e, {});
+        if (!r.ok || !c) bad += "[" + e.substr(0, 12) + "… " + dstr(r.errors) + "] ";
+        else (void)c.predicate(DbgEvent{}, *g_dbg);
+    }
+    {
+        // A script at the `if` bound (63 around the innermost one = 64) whose
+        // innermost condition and log are at the expression bounds.
+        const std::string s2 = "on frame do " + rep_str("if 1 then ", kIfDepth - 1) +
+                               "if " + rep_str("(", D - 1) + "1" + rep_str(")", D - 1) + " then " +
+                               "log \"${" + chain(D) + "}\" end " + rep_str("end ", kIfDepth - 1) +
+                               "end";
+        ParseResult r = P(s2);
+        const auto errs = r.ok() ? check_script(r.script) : std::vector<Diagnostic>{};
+        if (!r.ok() || !errs.empty()) bad += "[if-script " + dstr(r.error) + dstr(errs) + "] ";
+    }
+    return bad;
+}
+
+struct StackJob {
+    std::string result = "(not run)";
+};
+
+static void* stack_job(void* arg) {
+    static_cast<StackJob*>(arg)->result = deepest_accepted();
+    return nullptr;
+}
+
+static void depth_rows() {
+    const int D = kDepth;
+    check("DEPTH-LIMITS", "the bounds are the documented ones: expressions 200 levels, `if` nesting 64 (parser.h)",
+          MAX_EXPR_DEPTH == kDepth && MAX_IF_DEPTH == kIfDepth);
+    {
+        // Without bound 2: SIGSEGV in bind_expr / the evaluator (review: 100 KB).
+        const std::string big = chain(50000);
+        const ExprParseResult pr = parse_expression(big);
+        const CompiledPredicate c = compile_expr(big, {});
+        const EvalResult r = E(big);
+        const ParseResult s = P("var x = " + big);
+        check("DEPTH-CHAIN-CRASH", "a 100 KB `1+1+…+1` is refused at the 200th `+`, through every entry point",
+              err_at(pr.error, 1, 2 * D, "nested too deeply") && !c && one_err_at(c.errors, 1, 2 * D, "nested too deeply") &&
+                  !r.ok && one_err_at(r.errors, 1, 2 * D, "nested too deeply") &&
+                  err_at(s.error, 1, 8 + 2 * D, "nested too deeply"),
+              dstr(pr.error));
+    }
+    {
+        const std::string big = "1" + rep_str(" or 1", 200000);  // 1 MB
+        const EvalResult r = E(big);
+        check("DEPTH-OR-CRASH", "a 1 MB `1 or 1 or …` is refused at the 200th `or` (column 5k-2)",
+              !r.ok && one_err_at(r.errors, 1, 5 * D - 2, "nested too deeply"), dstr(r.errors));
+    }
+    {
+        // Without bound 3: SIGSEGV in parse_actions / check_actions.
+        const ParseResult r = P(nested_ifs(50000));
+        check("DEPTH-IF-CRASH", "50000 nested `if`s are refused at the 65th `if`",
+              err_at(r.error, 1, 13 + 10 * kIfDepth, "`if` nested too deeply"), dstr(r.error));
+    }
+    {
+        ParseResult ok = P(nested_ifs(kIfDepth));
+        const auto errs = ok.ok() ? check_script(ok.script) : std::vector<Diagnostic>{};
+        const ParseResult no = P(nested_ifs(kIfDepth + 1));
+        check("DEPTH-IF-BOUNDARY", "64 nested `if`s load; 65 are refused at the 65th",
+              ok.ok() && errs.empty() && err_at(no.error, 1, 13 + 10 * kIfDepth, "`if` nested too deeply"),
+              dstr(ok.error) + dstr(no.error));
+    }
+    {
+        const EvalResult ok = E(chain(D - 1));
+        const EvalResult no = E(chain(D));
+        check("DEPTH-CHAIN-BOUNDARY", "a chain of 199 operators (tree height 200) evaluates; 200 are refused at the last",
+              ok.ok && ok.value == D && !no.ok && one_err_at(no.errors, 1, 2 * D, "nested too deeply"),
+              E_str(chain(D - 1)).substr(0, 60) + " " + dstr(no.errors));
+    }
+    {
+        const EvalResult ok = E(rep_str("(", D - 1) + "7" + rep_str(")", D - 1));
+        const EvalResult no = E(rep_str("(", D) + "7" + rep_str(")", D));
+        check("DEPTH-PAREN-BOUNDARY", "199 nested `(` evaluate; 200 are refused at what the 200th opens",
+              ok.ok && ok.value == 7 && !no.ok && one_err_at(no.errors, 1, D + 1, "nested too deeply"),
+              dstr(ok.errors) + dstr(no.errors));
+    }
+    {
+        const EvalResult ok = E(rep_str("-", D - 1) + "1");
+        const EvalResult no = E(rep_str("-", D) + "1");
+        check("DEPTH-UNARY-BOUNDARY", "199 unary `-` evaluate (to -1); 200 are refused at the 200th",
+              ok.ok && ok.value == -1 && !no.ok && one_err_at(no.errors, 1, D, "nested too deeply"),
+              dstr(ok.errors) + dstr(no.errors));
+    }
+    {
+        const EvalResult ok = E(rep_str("not ", D - 1) + "0");
+        const EvalResult no = E(rep_str("not ", D) + "0");
+        check("DEPTH-NOT-BOUNDARY", "199 `not` evaluate (to 1); 200 are refused at the 200th",
+              ok.ok && ok.value == 1 && !no.ok && one_err_at(no.errors, 1, 4 * (D - 1) + 1, "nested too deeply"),
+              dstr(ok.errors) + dstr(no.errors));
+    }
+    {
+        const EvalResult ok = E(rep_str("mem[", D - 1) + "0" + rep_str("]", D - 1));
+        const EvalResult no = E(rep_str("mem[", D) + "0" + rep_str("]", D));
+        check("DEPTH-INDEX-BOUNDARY", "199 nested `mem[` evaluate; 200 are refused at what the 200th indexes",
+              ok.ok && !no.ok && one_err_at(no.errors, 1, 4 * D + 1, "nested too deeply"),
+              dstr(ok.errors) + dstr(no.errors));
+    }
+    {
+        // A string node is one level above its interpolations (bound 2).
+        const ParseResult ok = P("on frame do log \"${" + chain(D - 1) + "}\" end");
+        const ParseResult no = P("var x = \"${" + chain(D - 1) + "}\"");
+        check("DEPTH-STRING", "a 200-tall interpolation loads in a `log`, but not inside a string EXPRESSION, "
+              "whose node would be the 201st level",
+              ok.ok() && no.error && no.error->message.find("nested too deeply") != std::string::npos,
+              dstr(ok.error) + dstr(no.error));
+    }
+    {
+        // What the bounds cost in stack: the deepest accepted shapes, all of
+        // them, on a thread with a 1 MB stack (the main thread has 8 MB).
+        StackJob job;
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setstacksize(&attr, 1u << 20);
+        pthread_t th;
+        const bool started = pthread_create(&th, &attr, stack_job, &job) == 0;
+        if (started) pthread_join(th, nullptr);
+        pthread_attr_destroy(&attr);
+        check("DEPTH-STACK", "the deepest accepted shapes parse, check, compile, evaluate and are destroyed "
+              "within a 1 MB stack",
+              started && job.result.empty(), job.result);
+    }
+    {
+        // Bound 2 must count BOTH operands: a right operand made of unaries is
+        // within bound 1 (199 levels) but makes the `+` the 201st.
+        const EvalResult ok = E("1+" + rep_str("-", D - 2) + "1");
+        const EvalResult no = E("1+" + rep_str("-", D - 1) + "1");
+        check("DEPTH-RIGHT-OPERAND", "a binary node's height counts its right operand: `1+--…-1` with a 200-tall "
+              "right side is refused at the `+`",
+              ok.ok && ok.value == 2 && !no.ok && one_err_at(no.errors, 1, 2, "nested too deeply"),
+              dstr(ok.errors) + dstr(no.errors));
+    }
+    {
+        const ParseResult ok = P("on frame do set mem[" + chain(D - 2) + "] = 1 end");
+        const ParseResult no = P("on frame do set mem[" + chain(D - 1) + "] = 1 end");
+        check("DEPTH-LVALUE", "an lvalue's index node is bounded like any other: a 200-tall index is refused at `mem[`",
+              ok.ok() && err_at(no.error, 1, 17, "nested too deeply"), dstr(ok.error) + dstr(no.error));
+    }
+    {
+        const ParseResult ifs = P("on frame do " + rep_str("if 1 then stop end ", 100) + "end");
+        const EvalResult parens = E("(1)" + rep_str("+(1)", 150));
+        check("DEPTH-SIBLINGS", "the bounds count NESTING, not siblings: 100 `if`s in a row and 151 parenthesised "
+              "terms load",
+              ifs.ok() && ifs.script.rules[0].body.size() == 100 && parens.ok && parens.value == 151,
+              dstr(ifs.error) + dstr(parens.errors));
+    }
+    {
+        const std::string many = rep_str("on frame do log \"x\" end\n", 20000);
+        const ParseResult r = P(many);
+        check("DEPTH-FLAT", "a flat script (20000 rules) is not a nesting and loads: the bounds are on depth, not size",
+              r.ok() && r.script.rules.size() == 20000, dstr(r.error));
+    }
+}
+
 // ── main ───────────────────────────────────────────────────────────────────
 
 int main() {
@@ -1864,6 +2180,7 @@ int main() {
     cexpr_rows();
     payload_rows();
     payload_value_rows();
+    depth_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
