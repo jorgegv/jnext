@@ -18,7 +18,7 @@ $ jnext --dzrp-port 11000 --load mygame.nex
 The log confirms it:
 
 ```
-[debugger] [info] dzrp: listening on 127.0.0.1:11000
+[13:10:21.837] [debugger] [info] dzrp: listening on 127.0.0.1:11000
 ```
 
 `--dzrp-port 0` lets the system pick a free port and prints it in that same

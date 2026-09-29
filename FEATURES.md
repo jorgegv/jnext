@@ -131,6 +131,7 @@
 - Save Snapshot while paused mid-frame: the emulator completes the frame in flight and saves at the boundary rather than refusing, so the menu item is always available. The restored machine is up to one frame past where you paused, and the status bar says so
 - Magic breakpoint: `ED FF` (ZEsarUX) / `DD 01` (CSpect) triggers debugger pause
 - Magic debug port: configurable 16-bit port logs writes as hex/dec/ascii
+- **Remote debugging over DZRP (DeZog)**: `--dzrp-port N` serves the DeZog Remote Protocol 2.2.0 in every frontend (Qt, SDL, `--headless`) for DeZog's `cspect` and `dzrp` remote types — breakpoints (banked too), watchpoints, stepping, registers, memory and banks, NextREGs, sprites, state save/restore — alongside the Qt debugger, loopback-only unless `--debug-listen-address` says otherwise; checked by two independent DZRP clients (jnext's own and the dezogif_ng conformance suite)
 
 ## CLI
 - `--machine`, `--load`, `--headless`, `--tape-realtime`, `--tape-save`, `--esxdos-stub`

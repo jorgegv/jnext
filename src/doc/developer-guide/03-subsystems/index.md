@@ -111,3 +111,4 @@ omission below is a decision with a reason, not a gap waiting to be filled:
 - [3.7 Input](07-input.md)
 - [3.8 Media and loaders](08-media-and-loaders.md)
 - [3.9 Debug and the debugger](09-debug-and-the-debugger.md)
+- [3.10 The DZRP server (DeZog)](10-the-dzrp-server.md)

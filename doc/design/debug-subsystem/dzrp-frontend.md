@@ -108,9 +108,9 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP-2** | session / registers / memory | **done** |
 | **WP-3** | breakpoints / continue / notify | **done** |
 | **WP-4** | tier 2 (the commands only an emulator can serve) | **done** |
-| **WP-5** | loop owners + CLI | in review (§14) |
-| **WP-6** | validation — **including the `tools/cspect_dzrp/cspect_dzrp.py` H1-H3 fixes** (owner decision §1.3 item 25: part of this package, not a separate change), and the V-LAT paused-cadence measurement (§11 item 6) | automated part in review (§14); the §7.1 DeZog session and V-LAT are the owner checklist in `doc/testing/DZRP-VALIDATION.md`, not yet run |
-| **WP-7** | docs | todo |
+| **WP-5** | loop owners + CLI | **done** (§14) |
+| **WP-6** | validation — **including the `tools/cspect_dzrp/cspect_dzrp.py` H1-H3 fixes** (owner decision §1.3 item 25: part of this package, not a separate change), and the V-LAT paused-cadence measurement (§11 item 6) | **done (automated part)** (§14, §15). **Pending on the OWNER:** the manual DeZog 3.7.4 / VS Code session and the V-LAT measurement (§7.1) — the checklist is `doc/testing/DZRP-VALIDATION.md` §3 |
+| **WP-7** | docs | in review (§15) |
 
 WP-3, WP-4 and WP-5 may run in parallel after WP-2. Depends on: B0 (landed), B, T.
 
@@ -1331,11 +1331,11 @@ behaviour is unchanged from §13; what is new is the server being REACHABLE —
 provenance of the copied clients; in short:
 
 - **`tools/cspect_dzrp`**: REVIEW H1 (`cont()` drops superseded
-  notifications), H2 (`wait_for_pause()` holds the lock for its wait) and H3
+  notifications), H2 (frames read under the lock; §15 item 3 refines the wait) and H3
   (`close()` holds the lock and is idempotent) fixed, each with a test that
   fails with its fix reverted; `init()` sends its version (2.2.0 by default, a
   parameter) and name — jnext refuses a version-less INIT; methods for the
-  commands §7.2 needs. Its suite (20 tests) runs as `cspect-dzrp-selftest-func`.
+  commands §7.2 needs. Its suite (20 tests; 22 after §15) runs as `cspect-dzrp-selftest-func`.
 - **The nine §7.2 rows** through that client, via `test/00regression/dzrp-peer.py`
   and `dzrp-functions.inc` (bounded wait for the listen line, `timeout
   --kill-after` on every child, `LANG=C`, no trap, the harness's per-run SD
@@ -1359,3 +1359,38 @@ provenance of the copied clients; in short:
 The §7.1 DeZog 3.7.4 / 3.8 session and V-LAT need a person at VS Code: they are
 the owner checklist in `doc/testing/DZRP-VALIDATION.md` §3. WP-7 (developer
 guide page, `FEATURES.md`, ChangeLog) is the final milestone's.
+
+## 15. Implementation record — milestone 4 (the M3 review notes, WP-7 docs)
+
+1. **The headless paused branch's `continue` is now pinned** (M3 review note 1,
+   mutant R07). `dzrp-paused-headless-func` held the machine SILENTLY, so each
+   wait turn lasted ~50 ms and a branch that fell through — counting a frame per
+   turn on top of the wall-time charge — only exited 1.4× early, at the edge of
+   the row's 0.7× floor. The hold now starts CHATTY: 0.8 s of a LOOPBACK every
+   ~2 ms, so the loop turns hundreds of times a second. The wall-time charge
+   does not care how often it turns; a per-turn count does, and the mutant
+   exits mid-chat (measured 0.49 s against ~2 s). The floor is unchanged,
+   because it has to absorb the frames run before the attach under load: the
+   discrimination comes from the mechanism, not from a tighter bound.
+2. **The transport's accept guard is gone** (note 2, U15: redundant). The
+   last-look pull in step (2) already stops the accept loop for a client that
+   hung up in step (1) as well as one that hung up after it; one test, one
+   comment. XPT-SRV-30..33 unchanged and green.
+3. **`cspect_dzrp.wait_for_pause()` no longer holds the lock for the whole
+   wait** (note 4). Holding it — the first H2 fix — blocked another thread's
+   `pause()`, the usual way a wait on a running machine ends. The wait polls
+   readiness without the lock (20 ms slices) and takes it only to read a frame
+   whose bytes are there, re-checking readiness under it (another thread's
+   request may have taken them). Frames stay whole and unshared: every read is
+   still under the lock.
+4. **A stray response during the wait is tested** (note 3, mutant C06): it
+   raises `DZRPError` at once rather than being dropped and left to time out.
+5. **WP-7**: the developer guide gains 3.10 "The DZRP server (DeZog)" (what is
+   served, the two remote types, the ROM-bank limit and `rom_select()`, the
+   loop and pump, the mapping onto the backend including "owner=internal"
+   temporaries and SES-01), and 3.9 / the repository layout no longer say no
+   server exists. `FEATURES.md` has its line. No ChangeLog entry (owner rule).
+   The user-guide page and the man-page section were re-checked against the
+   binary (the log line now shows its real form; a DZRP breakpoint was
+   confirmed to fire in the Qt frontend with the debugger window closed, as
+   both pages say).
