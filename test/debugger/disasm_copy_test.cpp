@@ -68,7 +68,9 @@
 #include <QKeyEvent>
 #include <QMenu>
 #include <QMouseEvent>
+#include <QLineEdit>
 #include <QScrollBar>
+#include <QWheelEvent>
 #include <QTimer>
 #include <QMainWindow>
 #include <QtTest/QtTest>
@@ -991,6 +993,118 @@ void test_drag_and_caret() {
     }
 }
 
+// ── NAV: the panel's walks over real instruction lengths ──────────────
+//
+// GH #278 WP5 moved every one of the panel's memory reads onto the backend's
+// memory_reader() (a peek). Five of those reads feed NAVIGATION — the address
+// box, Go to PC, the wheel, Down at the last line, Page Down — which walk
+// forward instruction by instruction, and no row read where they land: each
+// read could return zeros (every byte a 1-byte NOP) and the suite stayed green
+// (mutants D1/D3/D5/D6/D7 of the WP5 pass). These rows lay a run of 3-byte
+// instructions and assert each walk steps 3 bytes a line. The top line is the
+// scrollbar's value, which disassemble_from() syncs to view_addr_. Plus the
+// caret's fallback, the PC (D10).
+
+// $9E02..: LD HL,$1234 (3 bytes) repeated, so every instruction boundary is
+// $9E02 + 3k — $A000 is one (510 = 3 x 170).
+constexpr uint16_t NAV_RUN  = 0x9E02;
+constexpr uint16_t NAV_HERE = 0xA000;
+
+bool lay_nav_run(Emulator& emu) {
+    for (uint16_t a = NAV_RUN; a < 0xA200; a = static_cast<uint16_t>(a + 3)) {
+        emu.mmu().write(a, 0x21);
+        emu.mmu().write(static_cast<uint16_t>(a + 1), 0x34);
+        emu.mmu().write(static_cast<uint16_t>(a + 2), 0x12);
+    }
+    return emu.mmu().read(NAV_HERE) == 0x21 && emu.mmu().read(NAV_HERE + 3) == 0x21;
+}
+
+int top_of(DisasmPanel* p) {
+    auto* sb = p->findChild<QScrollBar*>();
+    return sb ? sb->value() : -1;
+}
+
+void test_navigation() {
+    set_group("NAV");
+    Fixture fx;
+    const bool laid = fx.ok && lay_nav_run(fx.emu);
+    if (!laid) {
+        for (const char* id : {"QDN-01", "QDN-02", "QDN-03", "QDN-04", "QDN-05", "QDN-06"})
+            check(id, "fixture came up", false, "emulator or memory setup failed");
+        return;
+    }
+    constexpr int HALF = VIS_LINES / 2;
+
+    // QDN-01 — the address box CENTRES the address: half a window of 3-byte
+    // lines above it (zeros would put it half a window of 1-byte lines above).
+    {
+        auto* edit = fx.panel->findChild<QLineEdit*>();
+        if (edit) {
+            edit->setText(QStringLiteral("A000"));
+            send_key(edit, Qt::Key_Return);
+        }
+        const int top = top_of(fx.panel);
+        check("QDN-01", "the address box centres $A000 with 3-byte lines above it",
+              edit && top == NAV_HERE - 3 * HALF,
+              fmt("top=%04X (want %04X)", top, NAV_HERE - 3 * HALF));
+    }
+    // QDN-02 — Go to PC centres the PC the same way.
+    {
+        Z80Registers r = fx.emu.cpu().get_registers();
+        r.PC = NAV_HERE;
+        fx.emu.cpu().set_registers(r);
+        fx.point_view_at(0x8000);
+        fx.panel->activate_follow_pc();
+        const int top = top_of(fx.panel);
+        check("QDN-02", "Go to PC centres PC=$A000 with 3-byte lines above it",
+              top == NAV_HERE - 3 * HALF,
+              fmt("top=%04X (want %04X)", top, NAV_HERE - 3 * HALF));
+    }
+    // QDN-03 — the wheel scrolls three LINES down: three instructions, 9 bytes.
+    {
+        fx.point_view_at(NAV_HERE);
+        const QPointF pos(TEXT_X, y_of(2));
+        QWheelEvent wheel(pos, fx.panel->mapToGlobal(pos.toPoint()), QPoint(0, 0),
+                          QPoint(0, -120), Qt::NoButton, Qt::NoModifier,
+                          Qt::NoScrollPhase, false);
+        QApplication::sendEvent(fx.panel, &wheel);
+        const int top = top_of(fx.panel);
+        check("QDN-03", "a wheel step down scrolls three 3-byte lines ($A000 -> $A009)",
+              top == NAV_HERE + 9, fmt("top=%04X (want %04X)", top, NAV_HERE + 9));
+    }
+    // QDN-04 — Down on the LAST line scrolls one instruction: 3 bytes.
+    {
+        fx.point_view_at(NAV_HERE);
+        press_line(fx.panel, VIS_LINES - 1);
+        release_mouse(fx.panel, VIS_LINES - 1);
+        send_key(fx.panel, Qt::Key_Down);
+        const int top = top_of(fx.panel);
+        check("QDN-04", "Down on the last line scrolls one 3-byte instruction ($A000 -> "
+              "$A003)", top == NAV_HERE + 3, fmt("top=%04X (want %04X)", top, NAV_HERE + 3));
+    }
+    // QDN-05 — Page Down scrolls a window of instructions: 20 x 3 bytes.
+    {
+        fx.point_view_at(NAV_HERE);
+        send_key(fx.panel, Qt::Key_PageDown);
+        const int top = top_of(fx.panel);
+        check("QDN-05", "Page Down scrolls a window of 3-byte lines ($A000 -> $A03C)",
+              top == NAV_HERE + 3 * VIS_LINES,
+              fmt("top=%04X (want %04X)", top, NAV_HERE + 3 * VIS_LINES));
+    }
+    // QDN-06 — with no caret, the caret's address is the PC (what Run to Cursor
+    // runs to), not another register.
+    {
+        Fixture fresh;
+        Z80Registers r = fresh.emu.cpu().get_registers();
+        r.PC = NAV_HERE; r.SP = 0xFF00; r.HL = 0x1234;
+        fresh.emu.cpu().set_registers(r);
+        const uint16_t caret = fresh.ok ? fresh.panel->selected_address() : 0;
+        check("QDN-06", "with no caret line, the caret address is the PC",
+              fresh.ok && caret == NAV_HERE, fmt("caret=%04X (want %04X)", caret, NAV_HERE));
+    }
+}
+
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1034,6 +1148,8 @@ int main(int argc, char** argv)
     std::printf("  Group: EDGE           — done\n");
     test_drag_and_caret();
     std::printf("  Group: DRAG           — done\n");
+    test_navigation();
+    std::printf("  Group: NAV            — done\n");
 
     QFile::remove(map_path);
 
