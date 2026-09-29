@@ -873,8 +873,8 @@ neither touches an RSP packet or a CAP this file uses.
 | WP-3 | `src/remote/gdb/rsp_server.{h,cpp}` | `GdbServer`: a `remote::Protocol` + `dbg::Listener` over T. §2's table, §5.4's state machine (`owed_` ∈ {None, Continue, Question, Interrupt}), the `Z` id map, `monitor` (§4.3). Attaches on connect (`ClientKind::GdbRsp`), detaches on `D` / `k` / hang-up. |
 | WP-4 | `src/core/cli_options.h`, `src/main.cpp`, `src/core/emulator_config.h`, `src/platform/debug_servers.*`, `doc/man/jnext.1.md` | `--gdb-port` (the one port rule), `EmulatorConfig::gdb_port`, `DebugServers::start` opens a `GdbServer` beside the `DzrpServer` — its own listener and backend client — so all three loop owners host it with no loop-owner edit; `--debug-listen-address` accepts `--gdb-port` as its server port. Man page: the OPTIONS row and a **REMOTE DEBUGGING (Z88DK-GDB)** section. |
 
-Tests: `gdb_rsp_test` (87 rows, `gate: none`) — GDB-FRM 11, GDB-SUP 6, GDB-REG 8,
-GDB-MEM 7, GDB-BP 11, GDB-STP 9, GDB-STOP 12, GDB-MON 12, GDB-UNS 4, GDB-GEN 1,
+Tests: `gdb_rsp_test` (90 rows, `gate: none`) — GDB-FRM 11, GDB-SUP 6, GDB-REG 8,
+GDB-MEM 10 (three of them the F1 fix's, §12.4), GDB-BP 11, GDB-STP 9, GDB-STOP 12, GDB-MON 12, GDB-UNS 4, GDB-GEN 1,
 GDB-SES 6. Regression rows `gdb-cli-func` (the CLI, a port in use, the
 z88dk-gdb connect sequence over a real socket with this suite's own framing,
 DZRP + GDB at once), `gdb-sdl-func`, `gdb-qt-func` (the two GUI loop owners).
