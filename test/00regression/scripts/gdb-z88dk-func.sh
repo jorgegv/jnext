@@ -111,8 +111,12 @@ if want gdb-z88dk-func; then
             fails+=("jnext did not release the client's pause on D")
         if grep -q "w: qRcmd," "$clog"; then
             mon="monitor answered (upstream client)"
-            grep -q "^slot 0: page" "$clog" || fails+=("monitor mmu output missing")
-            grep -q "^NR 07 = " "$clog" || fails+=("monitor nextreg 0x07 output missing")
+            # Each monitor line is its own line on the client's console: the
+            # first and the last slot, the paging-port line, and the NextREG.
+            grep -q "^slot 0: page" "$clog" && grep -q "^slot 7: page" "$clog" &&
+                grep -q "^7FFD=" "$clog" || fails+=("monitor mmu output missing or run together")
+            grep -qE "^NR 07 = [0-9A-F]{2}$" "$clog" ||
+                fails+=("monitor nextreg 0x07 output missing or run together")
         else
             mon="client has no monitor (v2.4)"
         fi
