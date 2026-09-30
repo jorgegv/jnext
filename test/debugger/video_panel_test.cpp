@@ -2139,17 +2139,21 @@ static void test_raster_indicator(Emulator& emu) {
               fmt("cvc=%d vc_ula=%d raw_vc=%d", rs.cvc, rs.vc_ula, rs.raw_vc));
     }
 
-    // NR 0x64 (copper vertical offset) shifts cvc and nothing else
-    // (zxula_timing.vhd:462).  Proves the panel reads the LIVE offset.
+    // NR 0x64 (copper vertical offset) reaches cvc only at the next reload,
+    // on the ula_min_vactive line (zxula_timing.vhd:457-466): cvc samples the
+    // register once per frame and merely increments on every other line.
+    // Paused at raw line 100, past this frame's reload, a write must move
+    // neither counter.  GH #290 — this row used to assert the opposite (cvc
+    // shifted by the write at once), pinning the live read the fix removes.
+    // Proves the panel reads the offset cvc was RELOADED from, not the register.
     {
         const RasterState before = video_panel_raster_state(emu);
         emu.nextreg().write(0x64, 24);
         const RasterState after = video_panel_raster_state(emu);
-        const int lpf = vt.vc_max() + 1;
         check("DVP-RAS-04",
-              "NR 0x64 shifts cvc only — the panel reads the live copper offset",
-              after.cvc == (before.vc_ula + 24) % lpf
-                  && after.vc_ula == before.vc_ula,
+              "a mid-frame NR 0x64 write moves neither cvc nor vc_ula — the panel "
+              "reads the offset cvc was reloaded from, not the register (GH #290)",
+              after.cvc == before.cvc && after.vc_ula == before.vc_ula,
               fmt("cvc %d -> %d, vc_ula %d -> %d", before.cvc, after.cvc,
                   before.vc_ula, after.vc_ula));
         emu.nextreg().write(0x64, 0);

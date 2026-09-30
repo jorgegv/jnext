@@ -172,6 +172,7 @@ BEGIN {
     M["remote_transport_test"]         = "Debugger socket transport (GH #287)"
     M["dzrp_adapter_test"]             = "DZRP remote debugger adapter (GH #12)"
     M["gdb_rsp_test"]                  = "GDB RSP remote debugger adapter (GH #281)"
+    M["script_parse_test"]             = "Debugger DSL front end (GH #26)"
     M["raster_state_test"]             = "Raster State (beam + ULA fetch)"
     M["app_config_test"]               = "GUI Preferences (AppConfig)"
     M["debugger_video_panel_test"]     = "Debugger Video Panel"

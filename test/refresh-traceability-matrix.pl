@@ -1092,6 +1092,10 @@ my %NO_MATRIX_SECTION = (
     # the z88dk-gdb client's source, not the FPGA; the hardware each packet
     # reads or writes is traced in its own section.
     'gdb_rsp_test'              => 'GDB RSP remote-debugger adapter (GH #281; GDB remote protocol + z88dk-gdb, jnext-internal); the T80N core has no debugger',
+    # GH #26 WP1 — the debugger scripting language's front end (lexer, parser,
+    # load-time checks) and its expression library. The FPGA core has no
+    # debugger and no script language; the authority is dsl-frontend.md §2.
+    'script_parse_test'         => 'debugger scripting language front end (GH #26, jnext-internal); the T80N core has no debugger',
     'debugger_persistent_bp_test' => 'debugger window raise-on-hit (host GUI lifecycle, GH #219)',
     'debugger_inspect_watchpoint_test' => 'debugger INSPECTION reads vs watchpoints (jnext-internal); the T80N core has no panels reading its bus',
     'debugger_video_panel_test' => 'debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build)',

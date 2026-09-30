@@ -143,7 +143,7 @@ validation:
 # and docs-userguide-check byte-diffs a fresh render — so config and rendered
 # output must move together, which is exactly what sync-version.sh guarantees.
 extra:
-  doc_release: v1.0.53
+  doc_release: v1.0.55
 
 markdown_extensions:
   - admonition

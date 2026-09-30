@@ -91,7 +91,21 @@ public:
     ///            zxula_timing.vhd:457-472), less the NR 0x64 offset,
     ///            which execute() re-applies.
     /// @param nextreg  reference to NextReg for MOVE writes
-    void execute(int hc, int vc, NextReg& nextreg);
+    /// @param cvc_offset  the offset `cvc` counts from at this cycle: the
+    ///            NR 0x64 value it was last RELOADED from at
+    ///            `ula_min_vactive` (zxula_timing.vhd:457-462), which is not
+    ///            the register once NR 0x64 has been written since (GH #290).
+    ///            The reload lives in the timing block, not in the Copper, so
+    ///            the Emulator passes it in.
+    void execute(int hc, int vc, NextReg& nextreg, uint8_t cvc_offset);
+
+    /// The stand-alone form, for a caller with no timing model: `cvc` counts
+    /// from the NR 0x64 register as it is now, i.e. the reload is taken to
+    /// have happened before the first line the caller steps. The Emulator
+    /// never uses it (GH #290).
+    void execute(int hc, int vc, NextReg& nextreg) {
+        execute(hc, vc, nextreg, offset_);
+    }
 
     /// Called at frame start (vc=0, hc=0).
     /// In mode 11, resets PC to 0.
@@ -133,7 +147,8 @@ public:
     uint8_t read_reg_0x64() const { return offset_; }
 
     /// Public accessor for the vertical offset (used by emulator wiring
-    /// and tests). Returns the last value written via NR 0x64.
+    /// and tests). Returns the last value written via NR 0x64 — the
+    /// register, which `cvc` samples only at `ula_min_vactive` (GH #290).
     uint8_t offset() const { return offset_; }
 
     /// Configure the Copper-vertical-counter wrap value (c_max_vc).
@@ -207,8 +222,10 @@ private:
     // The emulator today passes a rebased vc already equal to 0 at the
     // first active display line, so we only need to model the offset
     // reload and the wrap. Copper::execute() computes
-    //   cvc_effective = (vc + offset_) % (c_max_vc_ + 1)
-    // and uses that for WAIT vpos compares.
+    //   cvc_effective = (vc + cvc_offset) % (c_max_vc_ + 1)
+    // and uses that for WAIT vpos compares. `cvc_offset` is the value of
+    // the last reload, which the Emulator passes in; `offset_` below is the
+    // NR 0x64 register the reload samples (GH #290).
     //
     // Defaults:
     //   offset_   = 0    — matches VHDL reset (zxnext.vhd:5024).

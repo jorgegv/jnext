@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.53</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.55</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.53</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.55</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1966,6 +1966,10 @@ profiler — surround the emulation rather than being part of it.</p>
 <tr>
 <td><code>remote/</code></td>
 <td>The socket transport the debugger protocol servers share (<code>jnext_remote</code>): one non-blocking listener driven by the backend's <code>pump()</code>, over esp01's socket seam, plus the in-memory fake their unit suites use. <code>remote/dzrp/</code> is the DeZog Remote Protocol server (<code>--dzrp-port</code>, see 3.10); <code>remote/gdb/</code> is the GDB remote serial protocol server for z88dk-gdb (<code>--gdb-port</code>).</td>
+</tr>
+<tr>
+<td><code>script/</code></td>
+<td>The debugger scripting language, <code>.jds</code> (<code>jnext_script</code>): lexer, parser, load-time checks, and the expression compiler as a library (<code>compile_expr</code> / <code>eval_expr</code>). Qt-free, over the <code>jnext::dbg::Debugger</code> facade only. Nothing in the shipped binary uses it yet (see 3.9).</td>
 </tr>
 <tr>
 <td><code>esp01/</code></td>
