@@ -29,6 +29,7 @@
 // Run: ./build/test/debug_qt_free_test
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -100,10 +101,13 @@ bool includes_emulator(const fs::path& p) {
 }
 
 /// An include DIRECTIVE of a core-layer header — the layers the backend
-/// encapsulates. `debug/`, `qt/`, `debugger/` and system headers are fine.
+/// encapsulates — with the layer directory ANYWHERE in the path, so a relative
+/// `"../core/emulator.h"` (which resolves to src/core) counts as much as
+/// `"core/emulator.h"` (WP7 review round 1). `debug/`, `qt/`, `debugger/` and
+/// system headers are fine; `memory_panel.h` is a file, not the `memory/` layer.
 bool includes_core(const fs::path& p) {
     static const std::regex directive(
-        R"(^\s*#\s*include\s*["<](core|cpu|memory|video|audio|peripheral|port)/)");
+        R"(^\s*#\s*include\s*["<][^">]*\b(core|cpu|memory|video|audio|peripheral|port)/)");
     std::ifstream in(p);
     std::string line;
     while (std::getline(in, line))
@@ -112,7 +116,19 @@ bool includes_core(const fs::path& p) {
 }
 
 /// The file's CODE: comments (`//`, `/* */`) and string / character literals
-/// blanked, so prose and UI text may name what code may not.
+/// blanked, so prose and UI text may name what code may not. A `'` inside a
+/// NUMBER (`1'000`, `0xFF'FF` — a C++14 digit separator) is code, not the start
+/// of a character literal: taken for one, it swallowed the rest of the file up
+/// to the next `'` (WP7 review round 1). A prefixed literal (`L'x'`, `u8'x'`)
+/// follows a token that starts with a letter, so it is still a literal.
+bool in_number(const std::string& s, size_t i) {
+    size_t b = i;
+    while (b > 0 && (std::isalnum(static_cast<unsigned char>(s[b - 1])) || s[b - 1] == '\'' ||
+                     s[b - 1] == '.' || s[b - 1] == '_'))
+        --b;
+    return b < i && std::isdigit(static_cast<unsigned char>(s[b]));
+}
+
 std::string code_of(const fs::path& p) {
     std::ifstream in(p);
     const std::string s((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
@@ -126,6 +142,7 @@ std::string code_of(const fs::path& p) {
                 if (c == '/' && n == '/') { st = LINE; ++i; out += ' '; }
                 else if (c == '/' && n == '*') { st = BLOCK; ++i; out += ' '; }
                 else if (c == '"') { st = STR; out += ' '; }
+                else if (c == '\'' && in_number(s, i)) out += c;      // digit separator
                 else if (c == '\'') { st = CHR; out += ' '; }
                 else out += c;
                 break;
@@ -284,19 +301,38 @@ int main() {
                               ("jnext_debugger_reach_" + std::to_string(::getpid()));
         fs::remove_all(root, ec);
         fs::create_directories(root / "sub", ec);
-        write_file(root / "inc_core.cpp", "#include \"core/emulator.h\"\nint a;\n");
+        // One include per layer, all seven (a detector that forgot one fails
+        // here), a relative `../core/` spelling in a subdirectory, and lookalikes
+        // that must NOT count.
+        for (const char* layer : {"core", "cpu", "memory", "video", "audio", "peripheral", "port"})
+            write_file(root / (std::string("inc_") + layer + ".cpp"),
+                       std::string("#include \"") + layer + "/x.h\"\nint a;\n");
         write_file(root / "sub" / "inc_mmu.h", "#pragma once\n  #  include <memory/mmu.h>\n");
+        write_file(root / "sub" / "inc_rel.cpp", "#include \"../core/emulator.h\"\n");
         write_file(root / "inc_ok.cpp",
                    "#include \"debug/debugger.h\"\n#include \"qt/debug_keymap_qt.h\"\n"
+                   "#include \"debugger/memory_panel.h\"\n#include \"debugger/audio_panel.h\"\n"
+                   "#include <libcore/x.h>\n"
                    "// #include \"core/emulator.h\"\n"
                    "const char* s = \"#include <video/ula.h>\";\n");
         write_file(root / "names_fwd.h", "#pragma once\nclass Emulator;\n");
         write_file(root / "sub" / "names_ptr.cpp", "void f(Emulator* e) { (void)e; }\n");
+        // A digit separator before real code: read as a char literal, it hid the
+        // rest of the file.
+        write_file(root / "names_sep.h",
+                   "static const int kx = 1'000;\nclass Emulator;\nstatic Emulator* leak_ = nullptr;\n");
         write_file(root / "names_ok.cpp",
                    "// Emulator::snapshot_raster() is what this replaced\n"
                    "/* an Emulator* once lived\n   here */\n"
                    "const char* t = \"Attach to Emulator Window\";\n"
-                   "char q = '\"'; int EmulatorWidget = 0; // \" Emulator\n");
+                   "char q = '\"'; int EmulatorWidget = 0; // \" Emulator\n"
+                   "wchar_t w = L'x'; int big = 0x1F'FF;\n");
+        // A string that ESCAPES its quotes around the word: without the escape
+        // handling the string ends early and the word leaks into code.
+        write_file(root / "names_esc.cpp", "const char* e = \"say \\\"Emulator\\\" here\";\nint z;\n");
+        // A MULTI-LINE block comment naming the type on a later line: read as a
+        // line comment it would end at the first newline.
+        write_file(root / "names_block.cpp", "/* the old manager held\n   an Emulator* here */\nint y;\n");
         std::vector<std::string> inc, nam;
         for (const fs::path& p : files_under(root)) {
             const std::string rel = fs::relative(p, root).string();
@@ -304,15 +340,20 @@ int main() {
             if (names_emulator(p)) nam.push_back(rel);
         }
         fs::remove_all(root, ec);
-        const std::vector<std::string> want_inc = {"inc_core.cpp",
-                                                   (fs::path("sub") / "inc_mmu.h").string()};
-        const std::vector<std::string> want_nam = {"names_fwd.h",
-                                                   (fs::path("sub") / "names_ptr.cpp").string()};
-        check("QTF-12", "the core-include detector flags a planted core/ and a spaced-out "
-                        "memory/ include, and not debug/, qt/, a commented include or a string",
+        const std::vector<std::string> want_inc = {
+            "inc_audio.cpp", "inc_core.cpp", "inc_cpu.cpp", "inc_memory.cpp",
+            "inc_peripheral.cpp", "inc_port.cpp", "inc_video.cpp",
+            (fs::path("sub") / "inc_mmu.h").string(), (fs::path("sub") / "inc_rel.cpp").string()};
+        const std::vector<std::string> want_nam = {
+            "names_fwd.h", "names_sep.h", (fs::path("sub") / "names_ptr.cpp").string()};
+        check("QTF-12", "the core-include detector flags an include of each of the seven "
+                        "layers, a spaced-out one and a relative ../core/ one, and not debug/, "
+                        "qt/, debugger/memory_panel.h, libcore/, a commented include or a string",
               inc == want_inc, "flagged: " + join(inc));
-        check("QTF-13", "the Emulator detector flags a forward declaration and a pointer "
-                        "parameter, and not comments, strings or EmulatorWidget",
+        check("QTF-13", "the Emulator detector flags a forward declaration, a pointer "
+                        "parameter and code after a digit separator, and not comments (a "
+                        "multi-line block included), strings (with escaped quotes), char "
+                        "literals or EmulatorWidget",
               nam == want_nam, "flagged: " + join(nam));
     }
 
