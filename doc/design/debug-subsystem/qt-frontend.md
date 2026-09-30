@@ -1535,10 +1535,10 @@ No published route was missing; no header changed.
 
 | Rows | Suite | Pins |
 |---|---|---|
-| QTF-09 | `debug_qt_free_test` | no `src/debugger/` file has an include directive of a core-layer header (`core/ cpu/ memory/ video/ audio/ peripheral/ port/`) |
-| QTF-10 | `debug_qt_free_test` | no `src/debugger/` file names the `Emulator` type in code (comments and string literals stripped: the prose and the "Attach to Emulator Window" menu text are not code) |
+| QTF-09 | `debug_qt_free_test` | no `src/debugger/` file has an include directive of a core-layer header — the layer directory ANYWHERE in the path, so `"../core/emulator.h"` counts (review round 1) |
+| QTF-10 | `debug_qt_free_test` | no `src/debugger/` file names the `Emulator` type in code (comments and string / char literals stripped; a `'` inside a number is a C++14 digit separator, not a literal — review round 1) |
 | QTF-11 | `debug_qt_free_test` | anti-vacuity: the scan read the real `src/debugger/` |
-| QTF-12/13 | `debug_qt_free_test` | both detectors on a planted tree: a core and a spaced-out `memory/` include flagged, `debug/`, `qt/`, a commented include and a string not; a forward declaration and a pointer parameter flagged, comments, strings, a char literal holding `"` and `EmulatorWidget` not |
+| QTF-12/13 | `debug_qt_free_test` | both detectors on a planted tree, one plant per branch (review round 1): an include of each of the seven layers, a spaced-out one and a relative `../core/` one flagged — `debug/`, `qt/`, `debugger/memory_panel.h`, `libcore/`, a commented include and a string not; a forward declaration, a pointer parameter and code after `1'000` flagged — a multi-line block comment, a string with escaped quotes, `'"'` and `L'"'` char literals, and `EmulatorWidget` not |
 | INS-06-03/04 | `debugger_backend_test` | a paused machine's `raster()` / `time()` report where it stopped with no `snapshot_raster()` call by anyone (fails without the backend change); a running one's is not moved |
 
 ### 6.3 Mutation checks for the #278 reviewer
