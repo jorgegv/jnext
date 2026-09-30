@@ -339,6 +339,30 @@ bool select_view(MemoryPanel* mem, int index) {
     return true;
 }
 
+/// GH #278 WP8 — pick the selector's "Page..." item (index 9) and answer the
+/// page-number prompt it opens with `typed` (or cancel it).
+struct PageAnswer {
+    bool    seen = false;
+    QString prompt_title;
+};
+PageAnswer select_page_view(MemoryPanel* mem, const QString& typed, bool accept = true) {
+    PageAnswer ans;
+    QTimer timer;
+    QObject::connect(&timer, &QTimer::timeout, [&]() {
+        auto* dlg = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!dlg) return;
+        ans.seen = true;
+        ans.prompt_title = dlg->windowTitle();
+        if (auto* edit = dlg->findChild<QLineEdit*>()) edit->setText(typed);
+        if (accept) dlg->accept(); else dlg->reject();
+    });
+    timer.start(1);
+    select_view(mem, 9);
+    timer.stop();
+    QApplication::processEvents();
+    return ans;
+}
+
 // ── Answering dialogs and popups (the menu_test idioms) ───────────────
 
 /// Answers the modal dialog a click opens: fills its line edits in creation
@@ -1874,7 +1898,10 @@ static void test_memory_panel() {
         const QString s0 = combo ? combo->itemText(1) : QString();
         const QString want_s0 = QString::asprintf("Slot 0 (page %02X)",
                                                   emu.mmu().get_effective_page(0));
-        const bool ok = combo && combo->count() == 9 && combo->itemText(0) == "CPU View" &&
+        // GH #278 WP8 (owner decision Q7) added the tenth item, "Page...": any
+        // physical page through the selector (QMP-07). The count was 9.
+        const bool ok = combo && combo->count() == 10 && combo->itemText(0) == "CPU View" &&
+                        combo->itemText(9) == "Page..." &&
                         emu.mmu().get_effective_page(0) != 0xFF &&
                         s0 == want_s0 &&
                         s6_before == "Slot 6 (page 00)" &&
@@ -1883,47 +1910,236 @@ static void test_memory_panel() {
                         s2 == "Slot 2 (page 0A)";
         check("QMP-03",
               "the selector offers CPU View + Slot 0..7, each naming the page in "
-              "effect (the ROM slot's too), and follows a bank switch on refresh",
+              "effect (the ROM slot's too), and follows a bank switch on refresh — "
+              "then Page... (GH #278 WP8)",
               ok, fmt("before '%s' after '%s' '%s' '%s' slot0 '%s' (want '%s')",
                       s(s6_before).c_str(), s(s6).c_str(), s(s7).c_str(), s(s2).c_str(),
                       s(s0).c_str(), s(want_s0).c_str()));
     }
 
-    // QMP-04 — slot view reads through the CPU map, overlay included.
+    // GH #278 WP8 (owner decision Q7, review R-3) — the slot view is the slot's
+    // PHYSICAL backing store, read and written through CAP-INS-02 in the space
+    // CAP-INS-03's SlotInfo names: Page{nr_page} for a RAM slot, Rom{...} for a
+    // ROM slot. QMP-04 pinned the opposite — the slot view read through the CPU
+    // map, an overlay over the slot showing in it — and is retired; QMP-06..09
+    // and QMP-12 replace it (qt-frontend.md §6.2). QMP-04b stays: with no
+    // overlay the physical page IS what the CPU sees there.
+    auto plant_row = [](uint8_t* p, uint8_t base) {       // 16 distinct bytes
+        for (int i = 0; i < 16; ++i) p[0x10 + i] = static_cast<uint8_t>(base + i);
+    };
+    auto want_row = [](uint8_t base) {
+        QStringList w;
+        for (int i = 0; i < 16; ++i) w << QString::asprintf("%02X", (base + i) & 0xFF);
+        return w;
+    };
+
+    // QMP-06a — a ROM slot under an overlay: DivMMC's ROM (conmem) over slot 0.
+    // The CPU view shows DivMMC's bytes, the Slot 0 view the ROM's, read through
+    // SlotInfo's Rom{...}. The Page{} space at the ROM slot's own (SRAM-physical)
+    // page number holds a THIRD set, so a view that fed the ROM's page number to
+    // Page{} shows those instead (the R-3 mistake).
     {
         Emulator emu;
-        build(emu, MachineType::ZX48K);
-        for (int i = 0; i < 16; ++i) {
-            emu.mmu().write(static_cast<uint16_t>(0x6010 + i), static_cast<uint8_t>(0xC0 + i));
-            emu.mmu().write(static_cast<uint16_t>(0x0010 + i), 0x00);   // ROM: ignored
-        }
-        jnext::dbg::Debugger dbg(emu);   // GH #278 WP5: the panel reads through it
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        jnext::dbg::Debugger dbg(emu);
+        const auto slot0 = dbg.mmu_slots()[0];
+        const uint8_t e = slot0.effective_page;
+        plant_row(emu.ram().page_ptr(e), 0x40);                  // the ROM
+        plant_row(emu.ram().page_ptr(0x08), 0x80);               // DivMMC ROM (SRAM 8)
+        uint8_t decoy[16];
+        for (int i = 0; i < 16; ++i) decoy[i] = static_cast<uint8_t>(0xB0 + i);
+        dbg.poke(0, jnext::dbg::MemSpace::page(e), 0x10, 16, decoy);   // Page{e}
+        emu.port().out(0x00E3, 0x80);                            // conmem: DivMMC ROM in
+        const bool overlay_live = emu.mmu().read(0x0010) == 0x80;
         MemoryPanel mem(&dbg);
         mem.resize(700, 600);
-        select_view(&mem, 4);                           // Slot 3 = $6000-$7FFF
-        const DumpRow slot3 = dump_row(painted(&mem), "$0010");
-        QStringList want3;
-        for (int i = 0; i < 16; ++i) want3 << QString::asprintf("%02X", 0xC0 + i);
+        const DumpRow cpu = dump_row(painted(&mem), "$0010");
+        select_view(&mem, 1);                                    // Slot 0
+        const DumpRow rom = dump_row(painted(&mem), "$0010");
+        check("QMP-06a",
+              "a ROM slot under an overlay: the CPU view shows DivMMC's bytes, the Slot 0 "
+              "view the ROM's (Rom{...}), not the overlay's nor Page{} at the ROM's page",
+              built && slot0.is_rom && (e & 1) == 0 && overlay_live && cpu.found &&
+                  cpu.bytes == want_row(0x80) && rom.found && rom.bytes == want_row(0x40),
+              fmt("rom=%d e=%02X overlay=%d cpu=%s slot0=%s", slot0.is_rom, e, overlay_live,
+                  s(joined(cpu.bytes)).c_str(), s(joined(rom.bytes)).c_str()));
+    }
 
-        // A Layer 2 read/write overlay on $0000-$3FFF (port 0x123B bits 2+0):
-        // the CPU sees Layer 2 RAM where the ROM is, and so does "Slot 0".
-        emu.port().write(0x123B, 0x05);
+    // QMP-06b / QMP-08 — a RAM slot under an overlay: the Multiface's RAM over
+    // slot 1 ($2000-$3FFF) with NR 0x51 = page $30. The CPU view shows the MF
+    // RAM, the Slot 1 view page $30 (Page{nr_page}); a Slot 1 edit lands in page
+    // $30 and the CPU view, still under the overlay, does not see it. And a ROM
+    // slot's edit (Slot 0) is refused: its byte paints unchanged.
+    {
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        jnext::dbg::Debugger dbg(emu);
+        emu.nextreg().write(0x51, 0x30);
+        uint8_t page_bytes[16];
+        for (int i = 0; i < 16; ++i) page_bytes[i] = static_cast<uint8_t>(0x50 + i);
+        dbg.poke(0, jnext::dbg::MemSpace::page(0x30), 0x10, 16, page_bytes);
+        emu.multiface().set_enabled(true);                       // the MF overlay in
+        emu.multiface().button_press();
+        emu.multiface().on_m1(0x0066, true);
+        for (int i = 0; i < 16; ++i)                             // lands in MF RAM
+            emu.mmu().write(static_cast<uint16_t>(0x2010 + i), static_cast<uint8_t>(0x90 + i));
+        uint8_t pg = 0;
+        dbg.peek(jnext::dbg::MemSpace::page(0x30), 0x10, 1, &pg);
+        const bool overlay_live = emu.mmu().read(0x2010) == 0x90 && pg == 0x50;
+        MemoryPanel mem(&dbg);
+        mem.resize(700, 600);
+        go_to(&mem, "2010");
+        const DumpRow cpu = dump_row(painted(&mem), "$2010");
+        select_view(&mem, 2);                                    // Slot 1
+        const DumpRow slot1 = dump_row(painted(&mem), "$0010");
+        const auto info1 = dbg.mmu_slots()[1];
+        check("QMP-06b",
+              "a RAM slot under an overlay: the CPU view shows the Multiface RAM, the "
+              "Slot 1 view page $30 (Page{nr_page}), not the overlay",
+              built && !info1.is_rom && info1.nr_page == 0x30 && overlay_live && cpu.found &&
+                  cpu.bytes == want_row(0x90) && slot1.found && slot1.bytes == want_row(0x50),
+              fmt("overlay=%d nr=%02X cpu=%s slot1=%s", overlay_live, info1.nr_page,
+                  s(joined(cpu.bytes)).c_str(), s(joined(slot1.bytes)).c_str()));
+
+        go_to(&mem, "0010");                                     // Slot 1, offset $0010
+        send_key(&mem, Qt::Key_5);
+        send_key(&mem, Qt::Key_A);
+        uint8_t landed = 0;
+        dbg.peek(jnext::dbg::MemSpace::page(0x30), 0x10, 1, &landed);
+        const uint8_t cpu_sees = emu.mmu().read(0x2010);
+        // A ROM slot: Slot 0's edit is refused (RefusedReadOnly), unchanged.
+        select_view(&mem, 1);
+        const DumpRow rom_before = dump_row(painted(&mem), "$0010");
+        go_to(&mem, "0010");
+        send_key(&mem, Qt::Key_1);
+        send_key(&mem, Qt::Key_2);
+        const DumpRow rom_after = dump_row(painted(&mem), "$0010");
+        check("QMP-08",
+              "a Slot 1 edit lands in page $30 and the CPU view, under the overlay, does "
+              "not see it; a ROM slot's edit is refused and paints unchanged",
+              landed == 0x5A && cpu_sees == 0x90 && rom_before.found && rom_after.found &&
+                  rom_after.bytes == rom_before.bytes && rom_after.bytes.value(0) != "12",
+              fmt("page30[10]=%02X cpu 2010=%02X rom before=%s after=%s", landed, cpu_sees,
+                  s(joined(rom_before.bytes)).c_str(), s(joined(rom_after.bytes)).c_str()));
+    }
+
+    // QMP-07 — a page in NO slot is readable through the selector's "Page..."
+    // item, and a Page view edit writes that page.
+    {
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        jnext::dbg::Debugger dbg(emu);
+        uint8_t bytes[16];
+        for (int i = 0; i < 16; ++i) bytes[i] = static_cast<uint8_t>(0x60 + i);
+        dbg.poke(0, jnext::dbg::MemSpace::page(0x47), 0x10, 16, bytes);
+        bool in_no_slot = true;
+        for (const auto& si : dbg.mmu_slots())
+            if (!si.is_rom && si.nr_page == 0x47) in_no_slot = false;
+        MemoryPanel mem(&dbg);
+        mem.resize(700, 600);
+        auto* combo = mem.findChild<QComboBox*>();
+        const PageAnswer ans = select_page_view(&mem, "47");
+        const DumpRow row = dump_row(painted(&mem), "$0010");
+        go_to(&mem, "0011");
+        send_key(&mem, Qt::Key_E);
+        send_key(&mem, Qt::Key_E);
+        uint8_t landed = 0;
+        dbg.peek(jnext::dbg::MemSpace::page(0x47), 0x11, 1, &landed);
+        // Cancelled, and a number with no backing store: the view does not move.
+        select_view(&mem, 3);
+        const PageAnswer cancel = select_page_view(&mem, "12", /*accept=*/false);
+        const int after_cancel = combo ? combo->currentIndex() : -1;
+        const PageAnswer bad = select_page_view(&mem, "E0");
+        const int after_bad = combo ? combo->currentIndex() : -1;
+        check("QMP-07",
+              "Page... asks for an NR page and shows page $47, which is in no slot, and "
+              "an edit there writes it; a cancel or a page past $DF leaves the view",
+              built && in_no_slot && ans.seen && combo && combo->itemText(9) == "Page 47" &&
+                  row.found && row.bytes == want_row(0x60) && landed == 0xEE &&
+                  cancel.seen && after_cancel == 3 && bad.seen && after_bad == 3,
+              fmt("in_no_slot=%d prompt=%d item='%s' row=%s landed=%02X cancel->%d bad->%d",
+                  in_no_slot, ans.seen, combo ? s(combo->itemText(9)).c_str() : "",
+                  s(joined(row.bytes)).c_str(), landed, after_cancel, after_bad));
+    }
+
+    // QMP-09 — a Layer 2 write-over (port 0x123B) in slot 0 does not leak into
+    // the slot view: the CPU's writes land in Layer 2, the CPU sees them, the
+    // Slot 0 view still shows the ROM.
+    {
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        jnext::dbg::Debugger dbg(emu);
+        const uint8_t e = dbg.mmu_slots()[0].effective_page;
+        plant_row(emu.ram().page_ptr(e), 0x20);                  // the ROM
+        emu.port().write(0x123B, 0x05);                          // L2 read+write over 0-3FFF
         for (int i = 0; i < 16; ++i)
             emu.mmu().write(static_cast<uint16_t>(0x0010 + i), static_cast<uint8_t>(0x70 + i));
         const bool overlay_live = emu.mmu().read(0x0010) == 0x70;
-        select_view(&mem, 1);                           // Slot 0
+        MemoryPanel mem(&dbg);
+        mem.resize(700, 600);
+        select_view(&mem, 1);
         const DumpRow slot0 = dump_row(painted(&mem), "$0010");
-        QStringList want0;
-        for (int i = 0; i < 16; ++i) want0 << QString::asprintf("%02X", 0x70 + i);
-        emu.port().write(0x123B, 0x00);
+        check("QMP-09",
+              "a Layer 2 write-over in slot 0 does not leak into the Slot 0 view: it "
+              "shows the ROM while the CPU sees Layer 2",
+              built && overlay_live && slot0.found && slot0.bytes == want_row(0x20),
+              fmt("overlay=%d slot0=%s", overlay_live, s(joined(slot0.bytes)).c_str()));
+    }
 
-        check("QMP-04",
-              "a Slot view paints CPU address (slot<<13)|offset — slot 3 row "
-              "$0010 is $6010 — and an overlay mapped over the slot shows in it",
-              slot3.found && slot3.bytes == want3 && overlay_live && slot0.found &&
-                  slot0.bytes == want0,
-              fmt("slot3=%s overlay_live=%d slot0=%s", s(joined(slot3.bytes)).c_str(),
-                  overlay_live, s(joined(slot0.bytes)).c_str()));
+    // QMP-12 — the slot view's offset is the WHOLE 8K (addr & 0x1FFF): at an
+    // offset past $1000 it reads and writes that offset, not the one $1000 below
+    // (the & 0x0FFF mutant q-wp56-review noted).
+    {
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        jnext::dbg::Debugger dbg(emu);
+        emu.nextreg().write(0x53, 0x31);                         // slot 3 = page $31
+        uint8_t hi[16], lo[16];
+        for (int i = 0; i < 16; ++i) {
+            hi[i] = static_cast<uint8_t>(0xA0 + i);
+            lo[i] = static_cast<uint8_t>(0x10 + i);
+        }
+        dbg.poke(0, jnext::dbg::MemSpace::page(0x31), 0x1A30, 16, hi);
+        dbg.poke(0, jnext::dbg::MemSpace::page(0x31), 0x0A30, 16, lo);
+        MemoryPanel mem(&dbg);
+        mem.resize(700, 600);
+        select_view(&mem, 4);                                    // Slot 3
+        go_to(&mem, "1A30");
+        const DumpRow row = dump_row(painted(&mem), "$1A30");
+        QStringList want;
+        for (int i = 0; i < 16; ++i) want << QString::asprintf("%02X", 0xA0 + i);
+        go_to(&mem, "1A40");
+        send_key(&mem, Qt::Key_7);
+        send_key(&mem, Qt::Key_7);
+        uint8_t at_hi = 0, at_lo = 0;
+        dbg.peek(jnext::dbg::MemSpace::page(0x31), 0x1A40, 1, &at_hi);
+        dbg.peek(jnext::dbg::MemSpace::page(0x31), 0x0A40, 1, &at_lo);
+        check("QMP-12",
+              "a Slot view at offset $1A30 reads the page's $1A30 bytes, and an edit at "
+              "$1A40 writes $1A40, not $0A40",
+              built && row.found && row.bytes == want && at_hi == 0x77 && at_lo != 0x77,
+              fmt("row=%s 1A40=%02X 0A40=%02X", s(joined(row.bytes)).c_str(), at_hi, at_lo));
+    }
+
+    // QMP-13 — a view change starts the new view at its TOP. The scroll bar kept
+    // the old view's position and put it straight back (clamped to the new
+    // range): a Slot view opened from CPU View at $8000 showed its last rows
+    // instead of offset $0000 (found writing QMP-06b, GH #278 WP8).
+    {
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZX48K);
+        jnext::dbg::Debugger dbg(emu);
+        MemoryPanel mem(&dbg);
+        mem.resize(700, 600);
+        go_to(&mem, "8000");
+        select_view(&mem, 3);                                    // Slot 2
+        auto* sb = mem.findChild<QScrollBar*>();
+        const DumpRow top = dump_row(painted(&mem), "$0000");
+        check("QMP-13",
+              "switching from CPU View at $8000 to a Slot view shows the slot from "
+              "offset $0000, with the scroll bar at the top",
+              built && sb && sb->value() == 0 && top.found,
+              fmt("scroll=%d $0000 painted=%d", sb ? sb->value() : -1, top.found));
     }
 
     // QMP-04b — slot view writes through the CPU map too.

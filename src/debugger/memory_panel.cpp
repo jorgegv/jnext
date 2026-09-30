@@ -11,6 +11,8 @@
 #include <QWheelEvent>
 #include <QResizeEvent>
 #include <QPaintEvent>
+#include <QInputDialog>
+#include <QSignalBlocker>
 
 // ---------------------------------------------------------------------------
 // Construction
@@ -59,14 +61,27 @@ void MemoryPanel::create_ui() {
     for (int i = 0; i < 8; ++i) {
         page_selector_->addItem(QString("Slot %1 (page --)").arg(i));
     }
+    // GH #278 WP8 — any physical page, mapped in a slot or not.
+    page_selector_->addItem(tr("Page..."));
     top_bar->addWidget(page_selector_);
 
     connect(page_selector_, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this](int) {
+            this, [this](int idx) {
+        if (idx == PAGE_ITEM && !choose_page()) {
+            // Cancelled or not a page: back to where the user was.
+            const QSignalBlocker block(page_selector_);
+            page_selector_->setCurrentIndex(prev_mode_);
+            return;
+        }
+        prev_mode_ = idx;
         scroll_offset_ = 0;
         selected_addr_ = -1;
         edit_nibble_ = 0;
         update_scroll_bar();
+        // The new view starts at its top: the scroll bar still held the old
+        // view's position, and its valueChanged put scroll_offset_ back there —
+        // a Slot view opened from CPU View at $2010 showed its last rows.
+        scroll_bar_->setValue(0);
         update();
     });
 
@@ -117,35 +132,51 @@ QSize MemoryPanel::sizeHint() const {
 // Memory access helpers
 // ---------------------------------------------------------------------------
 
-uint16_t MemoryPanel::cpu_address(uint16_t addr) const {
+MemoryPanel::Where MemoryPanel::locate(uint16_t addr) const {
     int mode = page_selector_ ? page_selector_->currentIndex() : 0;
-    if (mode == 0) {
-        // CPU view: the address as the CPU sees it.
-        return addr;
-    }
-    // Slot view: addr is 0x0000..0x1FFF within the slot's 8K. For
-    // simplicity (and, until WP8, for identity) it is read and written through
-    // the CPU map at that slot's range, NOT the physical page — so an overlay
-    // active in the slot shows through it.
-    int slot = mode - 1;
-    uint16_t phys = static_cast<uint16_t>(addr & 0x1FFF);
-    return static_cast<uint16_t>((slot << 13) | phys);
+    if (mode == 0)                                   // CPU view: as the CPU sees it
+        return {jnext::dbg::MemSpace::cpu(), addr};
+    const uint32_t off = addr & 0x1FFF;              // within the 8K view
+    if (mode == PAGE_ITEM)                           // the NR page the user picked
+        return {jnext::dbg::MemSpace::page(static_cast<uint16_t>(page_)), off};
+    // A slot: its physical backing store, exactly as the backend names it.
+    const jnext::dbg::SlotInfo slot = dbg_->mmu_slots()[mode - 1];
+    return {slot.space, slot.space_offset + off};
 }
 
 void MemoryPanel::read_bytes(uint16_t addr, uint8_t* out, size_t n) const {
     if (!dbg_) return;
-    // INS-02 — a peek through the live CPU map, overlays included. A row never
-    // crosses a slot (16 bytes, 16-aligned), so the CPU-view wrap at $FFFF and
-    // the slot view's (slot << 13) mapping both hold across it.
-    dbg_->peek(jnext::dbg::MemSpace::cpu(), cpu_address(addr), n, out);
+    // INS-02 — a peek: the live CPU map in the CPU view, the physical space in
+    // a slot or Page view. A row never crosses an 8K view (16 bytes,
+    // 16-aligned), so one peek per row holds in every view.
+    const Where w = locate(addr);
+    dbg_->peek(w.space, w.addr, n, out);
 }
 
 void MemoryPanel::write_byte(uint16_t addr, uint8_t val) {
     if (!dbg_) return;
-    // INS-02 / §4.2a — `Mmu::write` through the live map (ROM ignored, the
-    // change logs and the attribute mux updated, no watch), logged as this
-    // client's MUTATE; refused while an RZX records or plays.
-    dbg_->poke(client_, jnext::dbg::MemSpace::cpu(), cpu_address(addr), 1, &val);
+    // INS-02 / §4.2a — the CPU view writes through the live map (`Mmu::write`:
+    // ROM ignored, overlays honoured, no watch); a slot or Page view writes the
+    // physical page, which no overlay sees. A ROM slot is `RefusedReadOnly`.
+    // Logged as this client's MUTATE; refused while an RZX records or plays.
+    const Where w = locate(addr);
+    dbg_->poke(client_, w.space, w.addr, 1, &val);
+}
+
+bool MemoryPanel::choose_page() {
+    bool ok = false;
+    QString text = QInputDialog::getText(
+        this, tr("Physical Page"), tr("NR page number (hex, 00-DF):"), QLineEdit::Normal,
+        page_ >= 0 ? QString::asprintf("%02X", page_) : QString(), &ok).trimmed();
+    if (!ok) return false;
+    if (text.startsWith('$')) text = text.mid(1);
+    if (text.startsWith("0x", Qt::CaseInsensitive)) text = text.mid(2);
+    bool num = false;
+    const unsigned v = text.toUInt(&num, 16);
+    if (!num || v > 0xDF) return false;          // 0xE0.. has no backing store
+    page_ = static_cast<int>(v);
+    page_selector_->setItemText(PAGE_ITEM, QString::asprintf("Page %02X", page_));
+    return true;
 }
 
 int MemoryPanel::total_rows() const {
