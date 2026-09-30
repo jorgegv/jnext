@@ -79,7 +79,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP-2** | target description + register packing. **The XML must stay under the 1023-byte ceiling** — a larger one segfaults `z88dk-gdb` v2.4 | **done** (§12; independently reviewed and APPROVED at `0673fca34`) |
 | **WP-3** | server | **done** (§12; independently reviewed and APPROVED at `0673fca34`) |
 | **WP-4** | wiring / CLI over the shared transport (T) | **done** (§12; independently reviewed and APPROVED at `0673fca34`) |
-| **WP-5** | acceptance row + user guide. §11 item 7: upstream-master `z88dk-gdb` `monitor` handling was designed from source and run only against v2.4 — close that here | todo |
+| **WP-5** | acceptance row + user guide. §11 item 7: upstream-master `z88dk-gdb` `monitor` handling was designed from source and run only against v2.4 — close that here | in review (§13) |
 | **WP-6** | the z88dk wiki listing — **post-release**, out of scope for the epic itself | todo |
 
 Depends on: B0 (landed), B, T.
@@ -1001,3 +1001,54 @@ after the `c`). Also from the review: BP-12/13 (insert, remove — with another
 address is live), REG-02 reads the clock pair from the served `g`, MON-10 hides
 another client's transient, and `debugger_backend_test` INS-02-22 adds the
 one-byte ROM poke (no MUTATE line).
+
+---
+
+## 13. Milestone 2 — WP-5 as built (2026-09-30)
+
+### 13.1 What was built
+
+- **`gdb-z88dk-func`** (`test/00regression/scripts/gdb-z88dk-func.sh`): the
+  real `z88dk-gdb` against a live headless jnext (`--gdb-port 0`, the harness's
+  per-run SD clone), scripted through stdin, every assertion on the CLIENT's log
+  plus jnext's `DETACH … (released its pause)`. Client lookup: `$Z88DK_GDB`,
+  then `PATH`, then the source-tree default `$HOME/src/spectrum/z88dk/bin/z88dk-gdb`;
+  none found → a declared SKIP naming `Z88DK_GDB` (CI). No `trap`,
+  `timeout --foreground --kill-after`, `LANG=C` children; the client runs in
+  `$TMP_DIR` (it writes `.ticks_history.txt` into its current directory).
+- **Fixture** `test/00regression/nex/magic_bp_demo.map`: the z88dk linker map of
+  `demo/magic_bp_demo` (`zcc … -m`), whose NEX rebuilt byte-identical to the
+  checked-in `magic_bp_demo.nex`; trimmed to what the client reads (the demo
+  module's symbols and the non-empty sections' `__*_head/_tail/_size`; 88 lines,
+  6.7 KB instead of 700 KB) with the z88dk install prefix in its comment fields
+  rewritten to `z88dk/`.
+- **User guide** 6.11 "Debugging with z88dk-gdb"; **developer guide** 3.11 "The
+  GDB RSP server"; FEATURES.md; a ChangeLog Unreleased Developer Features line.
+
+### 13.2 Deviations from §7.2, each with its reason
+
+1. **The session restarts `main` itself** (`set pc 0x816a`) and breaks on
+   `_print_str`, not `_main`. §7.2 assumed `?` would stop the machine inside the
+   NEX boot hold; headless runs at full speed, and the demo is at its final HALT
+   loop before the client can connect (measured). `_print_str` is called six
+   times from `main`, so `break _print_str` + `cont` stops deterministically, and
+   `break 0x8152` + `nexti` puts `nexti` on a CALL (the `i3` packet). `set pc`
+   also exercises `G`.
+2. **`monitor` is asserted only when the client sent `qRcmd`.** v2.4 has no
+   `monitor` (it sends nothing for it); the PASS line says which client ran.
+3. **Exit status 1 is tolerated for one documented reason:** upstream
+   z88dk-gdb's network thread calls `remote_closed()` → `exit(1)` once the socket
+   ends after `D`, racing the main thread's `exit(0)` (upstream
+   `debugger_gdb.c` `network_read_thread` / `gdb_remote_closed`). It is accepted
+   only with `D` answered `OK` and "Connection to remote closed." printed after
+   it; v2.4 exits 0.
+
+### 13.3 §11 item 7 closed: the upstream client, run
+
+Upstream `z88dk-gdb` (master `a61dbb0`, 2026-09-30) was built from source in
+scratch and run through the same session: the connect sequence, map symbols,
+`set pc`, `break`/`cont`/`stepi`/`nexti` (`i3`) and `quit` behave as with v2.4,
+and `monitor mmu` / `monitor nextreg 0x07` print the jnext output exactly —
+upstream's `process_packet` decodes the `O` packets before the positional reply
+routing, and the final `OK` ends the request (the client prints it). The row
+passed with both clients.

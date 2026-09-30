@@ -11,8 +11,10 @@
       
       
       
-        <link rel="prev" href="02-branches-worktrees-and-review.html">
+        <link rel="prev" href="10-the-dzrp-server.html">
       
+      
+        <link rel="next" href="../04-testing/index.html">
       
       
         
@@ -23,7 +25,7 @@
     
     
       
-        <title>6.3 House style - JNEXT Developer Guide</title>
+        <title>3.11 The GDB RSP server (z88dk-gdb) - JNEXT Developer Guide</title>
       
     
     
@@ -76,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#63-house-style" class="md-skip">
+        <a href="#311-the-gdb-rsp-server-z88dk-gdb" class="md-skip">
           Skip to content
         </a>
       
@@ -112,7 +114,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              6.3 House style
+              3.11 The GDB RSP server (z88dk-gdb)
             
           </span>
         </div>
@@ -728,6 +730,8 @@
       
   
   
+    
+  
   
   
     
@@ -763,15 +767,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../03-subsystems/index.html" class="md-nav__link ">
+            <a href="index.html" class="md-nav__link ">
               
   
   
@@ -795,7 +799,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -815,7 +819,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-subsystems/01-cpu.html" class="md-nav__link">
+      <a href="01-cpu.html" class="md-nav__link">
         
   
   
@@ -843,7 +847,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-subsystems/02-memory.html" class="md-nav__link">
+      <a href="02-memory.html" class="md-nav__link">
         
   
   
@@ -871,7 +875,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-subsystems/03-video.html" class="md-nav__link">
+      <a href="03-video.html" class="md-nav__link">
         
   
   
@@ -899,7 +903,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-subsystems/04-audio.html" class="md-nav__link">
+      <a href="04-audio.html" class="md-nav__link">
         
   
   
@@ -927,7 +931,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-subsystems/05-ports-and-nextreg.html" class="md-nav__link">
+      <a href="05-ports-and-nextreg.html" class="md-nav__link">
         
   
   
@@ -955,7 +959,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-subsystems/06-peripherals.html" class="md-nav__link">
+      <a href="06-peripherals.html" class="md-nav__link">
         
   
   
@@ -983,7 +987,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-subsystems/07-input.html" class="md-nav__link">
+      <a href="07-input.html" class="md-nav__link">
         
   
   
@@ -1011,7 +1015,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-subsystems/08-media-and-loaders.html" class="md-nav__link">
+      <a href="08-media-and-loaders.html" class="md-nav__link">
         
   
   
@@ -1039,7 +1043,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-subsystems/09-debug-and-the-debugger.html" class="md-nav__link">
+      <a href="09-debug-and-the-debugger.html" class="md-nav__link">
         
   
   
@@ -1067,7 +1071,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-subsystems/10-the-dzrp-server.html" class="md-nav__link">
+      <a href="10-the-dzrp-server.html" class="md-nav__link">
         
   
   
@@ -1092,10 +1096,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../03-subsystems/11-the-gdb-rsp-server.html" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.11 The GDB RSP server (z88dk-gdb)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="11-the-gdb-rsp-server.html" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1111,6 +1142,70 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-pieces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The pieces
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stop-replies-one-per-request-never-spontaneous" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stop replies: one per request, never spontaneous
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#memory-registers-breakpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory, registers, breakpoints
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1595,8 +1690,6 @@
       
   
   
-    
-  
   
   
     
@@ -1616,15 +1709,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="index.html" class="md-nav__link ">
+            <a href="../06-contributing/index.html" class="md-nav__link ">
               
   
   
@@ -1648,7 +1741,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1668,7 +1761,7 @@
   
   
     <li class="md-nav__item">
-      <a href="01-issues-and-pull-requests.html" class="md-nav__link">
+      <a href="../06-contributing/01-issues-and-pull-requests.html" class="md-nav__link">
         
   
   
@@ -1696,7 +1789,7 @@
   
   
     <li class="md-nav__item">
-      <a href="02-branches-worktrees-and-review.html" class="md-nav__link">
+      <a href="../06-contributing/02-branches-worktrees-and-review.html" class="md-nav__link">
         
   
   
@@ -1721,37 +1814,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    6.3 House style
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="03-house-style.html" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../06-contributing/03-house-style.html" class="md-nav__link">
         
   
   
@@ -1767,92 +1833,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#match-the-surrounding-code" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Match the surrounding code
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#comments-explain-why" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Comments explain WHY
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#cite-the-vhdl" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Cite the VHDL
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#commit-messages-terse-but-insightful" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Commit messages: terse but insightful
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#keep-the-change-scoped" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Keep the change scoped
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#documentation-is-part-of-the-change" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Documentation is part of the change
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1885,89 +1865,82 @@
   
 
 
-<h1 id="63-house-style">6.3 House style<a class="headerlink" href="#63-house-style" title="Permanent link">&para;</a></h1>
-<p>There is no formatter config here, and no lint enforces most of what follows.
-This page is what reviewers actually look for. Some of it is written down in
-<code>CLAUDE.md</code>; the rest is derived from reading the code and the commit history,
-and each section says which.</p>
-<h2 id="match-the-surrounding-code">Match the surrounding code<a class="headerlink" href="#match-the-surrounding-code" title="Permanent link">&para;</a></h2>
-<p><em>(Derived from <code>CLAUDE.md</code>'s "surgical changes" and "scope restriction" rules,
-and visible throughout the tree.)</em></p>
-<p>Touch only what the task requires. Do not reformat adjacent lines, rename things
-you happened to read on the way past, or "improve" a comment you did not come
-there to change. Match the style of the file you are in rather than importing
-your own into it.</p>
-<p>The reason is entirely practical: a diff that mixes one real change with thirty
-cosmetic ones costs the reviewer the ability to see the real one, and that
-reviewer is the gate the whole process depends on.</p>
-<p>If you do notice a genuine second problem, say so — in a note, in the pull
-request, or as a new issue. Just do not fix it in the same change.</p>
-<h2 id="comments-explain-why">Comments explain WHY<a class="headerlink" href="#comments-explain-why" title="Permanent link">&para;</a></h2>
-<p><em>(Derived from reading the sources; the pattern is consistent enough to count as
-a convention rather than a habit.)</em></p>
-<p>The code already says what it does, so comments here are used almost exclusively
-for the reason it does it — and that reason is very often a hardware fact which
-is not inferable from the C++ in front of you. <code>src/video/lores.h</code>, for example,
-opens by explaining that LoRes is <em>not</em> a compositor layer: it substitutes its
-pixel inside the ULA's slot. A reader who assumed the obvious thing instead
-would go on to design the wrong thing. The Makefile applies the same discipline
-in a different medium, where the one-line <code>#</code> description above a target is the
-documentation and every paragraph of rationale sits inside the recipe as <code>@#</code>
-lines.</p>
-<p>The comments that pay for themselves are the ones recording a decision that
-looks wrong until you know its history: why LTO is disabled for exactly one
-build, why a check is a prerequisite of one target and not another, why a test
-concurrency cap is not a politeness setting. Several of the longest comment
-blocks in the tree are of that kind, and they are long because the same mistake
-was made twice before someone wrote it down.</p>
-<h2 id="cite-the-vhdl">Cite the VHDL<a class="headerlink" href="#cite-the-vhdl" title="Permanent link">&para;</a></h2>
-<p><em>(Derived from <code>CLAUDE.md</code>, which makes the FPGA VHDL sources the authoritative
-hardware spec, and confirmed by reading the code: 94 files under <code>src/</code> carry
-<code>.vhd</code> citations.)</em></p>
-<p>Where behaviour is derived from the ZX Next FPGA core, name the file <strong>and the
-line range</strong>:</p>
-<pre><code class="language-cpp">// VHDL sprites.vhd:655-657 — a port-0x303B write pulses attr_num_change,
-</code></pre>
-<p>Class-level documentation goes a step further and names the entity being
-modelled, its size, and the test plan that covers it.</p>
-<p>This is not decoration. A citation is what lets the next reader — or the
-traceability tooling — check the model against the specification rather than
-against your intent, and it is the reason "the VHDL says so" is an argument that
-wins here while "the other emulator does it this way" is not. When a fix could
-be either a plausible hack or the faithful reading of the hardware, be faithful.</p>
-<h2 id="commit-messages-terse-but-insightful">Commit messages: terse but insightful<a class="headerlink" href="#commit-messages-terse-but-insightful" title="Permanent link">&para;</a></h2>
-<p><em>(<code>CLAUDE.md</code> states the rule; the shape below is read off the recent history.)</em></p>
-<p>One line, lower case, a short type prefix, and — where there is room for it —
-the reason rather than only the change:</p>
-<pre><code>release: any packaging error now blocks the release
-ci: actually build the flatpak bundle, instead of skipping it
-fix(ci): runner.temp is not available in job-level env — it rejects the file
-doc(guide): chapter 8 links to the tracker instead of listing issues
-</code></pre>
-<p>Note what the third one manages to do in one line: it names the mechanism, not
-just the symptom. That is the "insightful" half of the rule, and it is the
-difference between a log you can bisect against and a list of the word "fix".</p>
-<p><strong>No <code>Co-Authored-By</code> trailers.</strong> That is an explicit project rule.</p>
-<h2 id="keep-the-change-scoped">Keep the change scoped<a class="headerlink" href="#keep-the-change-scoped" title="Permanent link">&para;</a></h2>
-<p><em>(<code>CLAUDE.md</code>, and the reason the merge protocol works at all.)</em></p>
-<p>One branch, one independent change. If a task turns out to contain two unrelated
-changes, split it. Parallel branches are the normal state of this repository
-rather than an exception, and a reviewer can give a binary verdict on one change
-far more usefully than on two tangled together.</p>
-<p>When a change alters an interface or fixes a bug in a subsystem, the
-corresponding test plan is part of that change: add the cases covering the new
-or fixed behaviour in the same branch, and let the independent review cover the
-new test code too.</p>
-<h2 id="documentation-is-part-of-the-change">Documentation is part of the change<a class="headerlink" href="#documentation-is-part-of-the-change" title="Permanent link">&para;</a></h2>
-<p><em>(<code>CLAUDE.md</code>; also enforced mechanically, for the generated outputs.)</em></p>
-<p>The man page, <code>USAGE.md</code>, the user guide and this developer guide are all
-generated from committed sources, and a stale committed output fails the next
-test run rather than waiting for a reviewer to notice. So edit the source,
-re-render, and commit both in the same change.</p>
-<p>The half that no gate can see is whether the prose is still <em>true</em>. When you
-change a subsystem, check whether this guide still describes it correctly — a
-stale paragraph here is the same class of defect as a stale man page, with the
-important difference that nothing will tell you about it.</p>
+<h1 id="311-the-gdb-rsp-server-z88dk-gdb">3.11 The GDB RSP server (z88dk-gdb)<a class="headerlink" href="#311-the-gdb-rsp-server-z88dk-gdb" title="Permanent link">&para;</a></h1>
+<p><code>--gdb-port N</code> makes JNEXT serve the GDB Remote Serial Protocol to
+<code>z88dk-gdb</code>, z88dk's debugger (a distribution's <code>gdb</code> has no Z80 target, so the
+Z80 register model lives on this side, in the target description the server
+hands the client). The server is <code>src/remote/gdb/</code>, one adapter over the shared
+socket transport of 3.9, reaching the machine only through <code>jnext::dbg::Debugger</code>.
+The design, with the client measurements every rule below comes from, is
+<code>doc/design/debug-subsystem/gdb-rsp-frontend.md</code> (§12 records what was built
+and every deviation).</p>
+<h2 id="the-pieces">The pieces<a class="headerlink" href="#the-pieces" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>src/remote/gdb/rsp_codec.{h,cpp}</code></td>
+<td>framing (<code>$…#xx</code>), checksum, <code>}</code> escapes, hex; <code>RspParser</code> yields ONE event at a time (packet, 0x03 outside a packet, bad checksum, oversize)</td>
+</tr>
+<tr>
+<td><code>src/remote/gdb/target_desc.{h,cpp}</code></td>
+<td>the 600-byte <code>target.xml</code> as a <code>constexpr</code> string — a <code>static_assert</code> keeps it at or under 1022 bytes, because <code>z88dk-gdb</code> 2.4 copies the reply into <code>char[1024]</code> and a larger one crashes it — and the <code>g</code>/<code>G</code>/<code>p</code>/<code>P</code> packing in document order</td>
+</tr>
+<tr>
+<td><code>src/remote/gdb/rsp_server.{h,cpp}</code></td>
+<td><code>GdbServer</code>, a <code>remote::Protocol</code> and a <code>dbg::Listener</code>: the packet table, the stop-reply state machine, the <code>Z</code> breakpoint map and <code>monitor</code> (<code>qRcmd</code>)</td>
+</tr>
+<tr>
+<td><code>src/platform/debug_servers.{h,cpp}</code></td>
+<td><code>DebugServers</code> opens it beside the DZRP server — its own listener, its own backend client — in all three loop owners</td>
+</tr>
+</tbody>
+</table>
+<h2 id="stop-replies-one-per-request-never-spontaneous">Stop replies: one per request, never spontaneous<a class="headerlink" href="#stop-replies-one-per-request-never-spontaneous" title="Permanent link">&para;</a></h2>
+<p>The client routes replies by position — the next packet after a request is
+that request's reply — so a <code>T</code> stop reply may only ever answer a request the
+client is waiting on: <code>c</code>, <code>s</code>, <code>i&lt;len&gt;</code> (z88dk's step over a CALL, served as
+<code>run_to(pc+len)</code>) or <code>?</code>. One field, <code>owed_</code>, says a reply is owed and to what;
+the backend's <code>Paused</code> push is kept only while one is owed and is written by
+<code>on_notify()</code> after the pump's drain. Two rules come from running the real
+client (gdb-rsp-frontend.md §12.5):</p>
+<ul>
+<li><strong>0x03 is not a request.</strong> It pauses a running machine; the stop edge then
+  answers whatever is owed. With nothing owed it sends nothing: z88dk-gdb puts
+  the 0x03 of a Ctrl-C typed at its prompt next to its following <code>c</code>, and an
+  answer there was taken as that <code>c</code>'s reply.</li>
+<li><strong>An inspection packet abandons an owed reply.</strong> <code>g G p P m M X Z z qRcmd</code>
+  are sent only by a client that counts the machine stopped; they pause a
+  running machine first and drop any owed reply, which would otherwise arrive
+  where the client expects this packet's.</li>
+</ul>
+<h2 id="memory-registers-breakpoints">Memory, registers, breakpoints<a class="headerlink" href="#memory-registers-breakpoints" title="Permanent link">&para;</a></h2>
+<p><code>m</code>/<code>M</code>/<code>X</code> are the 64 KB CPU view. A write reports <code>E01</code> unless every byte
+landed: <code>poke(Cpu)</code> returns the count <code>Mmu::write_landed()</code> says reached memory,
+so an overlay that takes a byte over a ROM slot (Layer 2 write-over, DivMMC or
+Multiface RAM) counts and ROM does not. <code>G</code> writes only the registers that
+change — the client resends the whole file on every <code>set</code>, and rewriting an
+unchanged PC would clear a HALT. <code>Z0</code>/<code>Z1</code> are one <code>Execute</code> subscription each,
+<code>Z2</code>/<code>Z3</code>/<code>Z4</code> one <code>Mem</code> subscription (write, read, either), all owned by the
+client and removed by its detach (<code>D</code>, <code>k</code> or a dropped socket), so a crashed
+client can never leave a stopping breakpoint behind.</p>
+<h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>gdb_rsp_test</code> (Qt-free, both configurations) runs the production <code>Server</code>
+  over T's in-memory fake, on a real machine through <code>pump()</code>: the wire, the
+  target description under the ceiling, every packet class, the stop-reply
+  state machine, <code>monitor</code>, and DZRP and GDB on one backend.</li>
+<li><code>gdb-cli-func</code>, <code>gdb-sdl-func</code> and <code>gdb-qt-func</code> drive the real binary over a
+  socket with an independent client (<code>test/00regression/gdb-peer.py</code>).</li>
+<li><code>gdb-z88dk-func</code> is the acceptance row: the real <code>z88dk-gdb</code> debugging
+  <code>magic_bp_demo.nex</code> with its linker map. It skips when no <code>z88dk-gdb</code> is
+  found (<code>Z88DK_GDB</code>, then <code>PATH</code>, then the source-tree default).</li>
+</ul>
 
 
 

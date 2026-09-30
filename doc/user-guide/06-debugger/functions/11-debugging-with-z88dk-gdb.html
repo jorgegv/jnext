@@ -11,10 +11,10 @@
       
       
       
-        <link rel="prev" href="03-breakpoints-execute-read-write.html">
+        <link rel="prev" href="10-remote-debugging-with-dezog.html">
       
       
-        <link rel="next" href="05-symbols-from-z88dk-map-files.html">
+        <link rel="next" href="../../07-automation-and-ci/index.html">
       
       
         
@@ -25,7 +25,7 @@
     
     
       
-        <title>Watches and watch sizes - JNEXT User Guide</title>
+        <title>Debugging with z88dk-gdb - JNEXT User Guide</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#watches-and-watch-sizes" class="md-skip">
+        <a href="#debugging-with-z88dk-gdb" class="md-skip">
           Skip to content
         </a>
       
@@ -112,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Watches and watch sizes
+              Debugging with z88dk-gdb
             
           </span>
         </div>
@@ -2233,19 +2233,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-      <a href="04-watches-and-watch-sizes.html" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="04-watches-and-watch-sizes.html" class="md-nav__link">
         
   
   
@@ -2261,7 +2252,6 @@
   
 
       </a>
-      
     </li>
   
 
@@ -2439,10 +2429,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="11-debugging-with-z88dk-gdb.html" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debugging with z88dk-gdb
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="11-debugging-with-z88dk-gdb.html" class="md-nav__link md-nav__link--active">
         
   
   
@@ -2458,6 +2475,103 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#build-with-a-map-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build with a map file
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#start-jnext-then-connect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Start JNEXT, then connect
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A session
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-to-expect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What to expect
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#monitor-the-next-specific-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        monitor: the Next-specific state
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#headless-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Headless runs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2933,38 +3047,145 @@
   
 
 
-<h1 id="watches-and-watch-sizes">Watches and watch sizes<a class="headerlink" href="#watches-and-watch-sizes" title="Permanent link">&para;</a></h1>
-<p>A watch shows the live contents of an address in one of three sizes:</p>
+<h1 id="debugging-with-z88dk-gdb">Debugging with z88dk-gdb<a class="headerlink" href="#debugging-with-z88dk-gdb" title="Permanent link">&para;</a></h1>
+<p><code>z88dk-gdb</code> is z88dk's command-line debugger. It speaks the GDB remote serial
+protocol, and JNEXT serves that protocol, so you can debug a z88dk program
+running in JNEXT from a terminal: breakpoints on your own symbols, stepping,
+registers, memory, and the source line you stopped on. (The <code>gdb</code> your
+distribution ships cannot help here — it has no Z80 support; <code>z88dk-gdb</code> is
+the client.)</p>
+<h2 id="build-with-a-map-file">Build with a map file<a class="headerlink" href="#build-with-a-map-file" title="Permanent link">&para;</a></h2>
+<p><code>z88dk-gdb</code> finds your symbols in the linker map, so add <code>-m</code> to the <code>zcc</code>
+line:</p>
+<pre><code class="language-console">$ zcc +zxn -vn -startup=31 -clib=sdcc_ix -SO3 mygame.c -o mygame \
+      -subtype=nex -create-app -m
+</code></pre>
+<p>That writes <code>mygame.map</code> next to <code>mygame.nex</code>.</p>
+<h2 id="start-jnext-then-connect">Start JNEXT, then connect<a class="headerlink" href="#start-jnext-then-connect" title="Permanent link">&para;</a></h2>
+<p>Give JNEXT a TCP port:</p>
+<pre><code class="language-console">$ jnext --gdb-port 3333 --load mygame.nex
+</code></pre>
+<p>The log confirms it:</p>
+<pre><code>[13:10:21.837] [debugger] [info] gdb: listening on 127.0.0.1:3333
+</code></pre>
+<p><code>--gdb-port 0</code> lets the system pick a free port and prints it in that line.
+The server is off unless you give the option, and it works in every frontend —
+the Qt window, the SDL build and <code>--headless</code>. It can run together with the
+DeZog server (<code>--dzrp-port</code>): each has its own port and its own client.</p>
+<p>Then connect, handing <code>z88dk-gdb</code> the map:</p>
+<pre><code class="language-console">$ z88dk-gdb -h 127.0.0.1 -p 3333 -x mygame.map
+</code></pre>
+<p><strong>Connecting stops the machine</strong>, and <code>z88dk-gdb</code> shows where. JNEXT starts
+your program as soon as it loads, so by the time you connect it is usually past
+<code>main</code>: put breakpoints in code that runs again, such as your main loop.</p>
+<h2 id="a-session">A session<a class="headerlink" href="#a-session" title="Permanent link">&para;</a></h2>
+<pre><code>&gt; break _update_player   # a symbol from the map
+&gt; cont                   # runs until it is called
+Hit breakpoint 1: @8412 (_update_player)
+&gt; reg                    # registers, and the flags
+&gt; stepi                  # one instruction
+&gt; nexti                  # one instruction, running a CALL through
+&gt; x /16 0x8000           # memory
+&gt; set hl 0x1234          # write a register
+&gt; quit                   # detach; JNEXT keeps running
+</code></pre>
+<p>Press <strong>Ctrl-C</strong> while the program runs to stop it.</p>
+<h2 id="what-to-expect">What to expect<a class="headerlink" href="#what-to-expect" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Memory is what the Z80 sees now</strong>: the 64 KB CPU view, with the current
+  MMU mapping and any overlay (DivMMC, Multiface, Layer 2 write-over) as the CPU
+  has it. A write that lands on ROM is refused; the parts of a write that do
+  land (RAM, an overlay's RAM) stay written.</li>
+<li><strong>Your breakpoints are your session's.</strong> They stop the machine whether
+  JNEXT's debugger window is open or closed, and they are removed when
+  <code>z88dk-gdb</code> disconnects — a crashed client cannot leave the machine stopped
+  on one of them. <code>quit</code> resumes the machine if the stop was the client's own;
+  a pause you made in JNEXT's debugger window stays.</li>
+<li><strong>Both can drive the machine.</strong> JNEXT's debugger window and <code>z88dk-gdb</code>
+  control the same machine, and whichever acted last wins. If something else
+  stops the machine while <code>z88dk-gdb</code> has it running, the client is told it
+  stopped.</li>
+<li><strong>I, R, IFF1/IFF2 and IM are not in <code>reg</code>.</strong> <code>z88dk-gdb</code>'s <code>set</code> writes the
+  whole register set at once and zeroes every register it does not know, so
+  those five are left out on purpose. Use <code>monitor regs</code> and <code>monitor set</code> (see
+  below).</li>
+<li><strong>One client at a time.</strong> A second connection is closed straight away.</li>
+</ul>
+<h2 id="monitor-the-next-specific-state">monitor: the Next-specific state<a class="headerlink" href="#monitor-the-next-specific-state" title="Permanent link">&para;</a></h2>
+<p>Recent <code>z88dk-gdb</code> versions (newer than 2.4) have a <code>monitor</code> command, which
+reaches what the GDB protocol itself cannot express:</p>
 <table>
 <thead>
 <tr>
-<th>Size</th>
-<th>Bytes</th>
-<th>Displayed as</th>
+<th>Command</th>
+<th>What it does</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Byte</td>
-<td>1</td>
-<td><code>$XX</code></td>
+<td><code>monitor help</code></td>
+<td>lists these commands</td>
 </tr>
 <tr>
-<td>Word</td>
-<td>2</td>
-<td><code>$XXXX</code></td>
+<td><code>monitor regs</code></td>
+<td>I, R, IFF1, IFF2, IM, HALT and MEMPTR, and the register pairs</td>
 </tr>
 <tr>
-<td>Long</td>
-<td>4</td>
-<td><code>$XXXXXXXX</code></td>
+<td><code>monitor set i\|r\|iff1\|iff2\|im VALUE</code></td>
+<td>writes one of those</td>
+</tr>
+<tr>
+<td><code>monitor mmu</code></td>
+<td>the eight MMU slots and the paging ports</td>
+</tr>
+<tr>
+<td><code>monitor mmu SLOT PAGE</code></td>
+<td>maps a page at a slot, as <code>NEXTREG 0x50+SLOT</code> does</td>
+</tr>
+<tr>
+<td><code>monitor nextreg [REG [VALUE]]</code></td>
+<td>all NextREGs, one, or writes one</td>
+</tr>
+<tr>
+<td><code>monitor page N OFF [LEN]</code></td>
+<td>a hex dump of physical 8 KB page N</td>
+</tr>
+<tr>
+<td><code>monitor in PORT</code> / <code>monitor out PORT VALUE</code></td>
+<td>a real port access — it can change the device's state</td>
+</tr>
+<tr>
+<td><code>monitor sym NAME\|ADDR</code></td>
+<td>JNEXT's own symbol table (the debugger window's map)</td>
+</tr>
+<tr>
+<td><code>monitor time</code></td>
+<td>frame, cycle, T-states and the raster position</td>
+</tr>
+<tr>
+<td><code>monitor reset [soft\|hard]</code></td>
+<td>resets the machine; it stays stopped</td>
+</tr>
+<tr>
+<td><code>monitor bp</code></td>
+<td>every breakpoint and watchpoint, and who set it</td>
 </tr>
 </tbody>
 </table>
-<p>Word and Long are assembled little-endian, low byte first, matching the Z80's
-own convention — so a Word watch on a <code>LD (nn),HL</code> destination reads back <code>HL</code>.</p>
-<p>Watches read through the CPU's current view of memory, so a watch on a banked
-address follows whatever is paged in at that moment.</p>
+<p>Numbers may be written <code>0x..</code>, <code>$..</code> or in decimal.</p>
+<h2 id="headless-runs">Headless runs<a class="headerlink" href="#headless-runs" title="Permanent link">&para;</a></h2>
+<p>With <code>--headless</code>, a client that holds the machine stopped holds its frames
+too: nothing is emulated, and JNEXT sleeps until the next command. The
+automatic exit is still a hard bound, counted in wall time while the machine
+is held, exactly as for DeZog.</p>
+<h2 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h2>
+<p>The server listens on <code>127.0.0.1</code> only. <code>--debug-listen-address</code> widens it (it
+is refused unless a server port is given too). <strong>The GDB protocol has no
+authentication</strong>: anyone who can reach the port controls the machine and can
+read and write all of its memory.</p>
+<hr />
+<p>For the command-line options, see <strong>jnext</strong>(1) or
+<a href="https://github.com/jorgegv/jnext/blob/main/USAGE.md">USAGE.md</a>.</p>
 
 
 
