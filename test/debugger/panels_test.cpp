@@ -2131,6 +2131,105 @@ static void test_memory_panel() {
               fmt("row=%s 1A40=%02X 0A40=%02X", s(joined(row.bytes)).c_str(), at_hi, at_lo));
     }
 
+    // QMP-14 — a LEGACY-paged machine's slots (WP8 review round 1; retired
+    // QMP-04's no-overlay half, restored): on 48K and 128K the slots are mapped
+    // by the ROM / port 0x7FFD logic. 48K Slot 3 shows what the CPU sees at
+    // $6010, Slot 0 the ROM the CPU sees at $0010 — the legacy machine's own
+    // ROM image, not SRAM, through Rom{...} — and on 128K Slot 6 the bank 7FFD
+    // selects. The ROM is planted through the Mmu's image pointer (test only):
+    // the unit-test build loads no ROM, and an all-FF ROM tells nothing apart.
+    {
+        Emulator e48;
+        const bool built48 = build(e48, MachineType::ZX48K);
+        for (int i = 0; i < 16; ++i)
+            e48.mmu().write(static_cast<uint16_t>(0x6010 + i), static_cast<uint8_t>(0xC0 + i));
+        if (auto* img = const_cast<uint8_t*>(e48.mmu().rom_image_ptr(0)))
+            for (int i = 0; i < 16; ++i) img[0x10 + i] = static_cast<uint8_t>(0xE0 + i);
+        jnext::dbg::Debugger d48(e48);
+        const auto s48 = d48.mmu_slots();
+        MemoryPanel m48(&d48);
+        m48.resize(700, 600);
+        select_view(&m48, 4);                                    // Slot 3
+        const DumpRow slot3 = dump_row(painted(&m48), "$0010");
+        QStringList want3;
+        for (int i = 0; i < 16; ++i) want3 << QString::asprintf("%02X", 0xC0 + i);
+        select_view(&m48, 1);                                    // Slot 0 (ROM)
+        const DumpRow slot0 = dump_row(painted(&m48), "$0010");
+        QStringList want0;
+        uint8_t rom[16];
+        d48.peek(jnext::dbg::MemSpace::cpu(), 0x0010, 16, rom);
+        for (int i = 0; i < 16; ++i) want0 << QString::asprintf("%02X", rom[i]);
+        bool rom_varied = false;
+        for (int i = 1; i < 16; ++i) rom_varied |= rom[i] != rom[0];
+
+        Emulator e128;
+        const bool built128 = build(e128, MachineType::ZX128K);
+        e128.port().write(0x7FFD, 0x03);                         // bank 3 at $C000
+        for (int i = 0; i < 16; ++i)
+            e128.mmu().write(static_cast<uint16_t>(0xC010 + i), static_cast<uint8_t>(0x30 + i));
+        jnext::dbg::Debugger d128(e128);
+        MemoryPanel m128(&d128);
+        m128.resize(700, 600);
+        select_view(&m128, 7);                                   // Slot 6
+        const DumpRow slot6 = dump_row(painted(&m128), "$0010");
+        QStringList want6;
+        for (int i = 0; i < 16; ++i) want6 << QString::asprintf("%02X", 0x30 + i);
+        check("QMP-14",
+              "on legacy-paged 48K/128K machines a Slot view shows the page the slot maps "
+              "(48K Slot 3 = $6010's bytes, Slot 0 = the ROM at $0010; 128K Slot 6 = "
+              "bank 3)",
+              built48 && built128 && !s48[3].is_rom && s48[0].is_rom && rom_varied &&
+                  rom[0] == 0xE0 &&
+                  slot3.found && slot3.bytes == want3 && slot0.found && slot0.bytes == want0 &&
+                  slot6.found && slot6.bytes == want6,
+              fmt("nr3=%02X rom_varied=%d slot3=%s slot0=%s (want %s) slot6=%s",
+                  s48[3].nr_page, rom_varied, s(joined(slot3.bytes)).c_str(),
+                  s(joined(slot0.bytes)).c_str(), s(joined(want0)).c_str(),
+                  s(joined(slot6.bytes)).c_str()));
+    }
+
+    // QMP-15 — Page... accepts the LAST page, DF, and the address box's own
+    // prefixes, $47 and 0x47 (WP8 review round 1: all three survived mutants).
+    {
+        Emulator emu;
+        const bool built = build(emu, MachineType::ZXN_ISSUE2);
+        jnext::dbg::Debugger dbg(emu);
+        uint8_t df[16], p47[16];
+        for (int i = 0; i < 16; ++i) {
+            df[i]  = static_cast<uint8_t>(0xD0 + i);
+            p47[i] = static_cast<uint8_t>(0x47 + i);
+        }
+        dbg.poke(0, jnext::dbg::MemSpace::page(0xDF), 0x10, 16, df);
+        dbg.poke(0, jnext::dbg::MemSpace::page(0x47), 0x10, 16, p47);
+        MemoryPanel mem(&dbg);
+        mem.resize(700, 600);
+        auto* combo = mem.findChild<QComboBox*>();
+        auto view_of = [&](const char* typed, QString& item) {
+            select_view(&mem, 0);                                // leave the Page view
+            select_page_view(&mem, QString::fromLatin1(typed));
+            item = combo ? combo->itemText(9) : QString();
+            const bool on_page = combo && combo->currentIndex() == 9;
+            const DumpRow r = dump_row(painted(&mem), "$0010");
+            return on_page && r.found ? joined(r.bytes) : QString("<not shown>");
+        };
+        QString i_df, i_dollar, i_hex;
+        const QString v_df     = view_of("DF", i_df);
+        const QString v_dollar = view_of("$47", i_dollar);
+        const QString v_hex    = view_of("0x47", i_hex);
+        QStringList w_df, w_47;
+        for (int i = 0; i < 16; ++i) {
+            w_df << QString::asprintf("%02X", 0xD0 + i);
+            w_47 << QString::asprintf("%02X", 0x47 + i);
+        }
+        check("QMP-15",
+              "Page... accepts DF, the last page, and reads $47 and 0x47 as page 47",
+              built && i_df == "Page DF" && v_df == joined(w_df) && i_dollar == "Page 47" &&
+                  v_dollar == joined(w_47) && i_hex == "Page 47" && v_hex == joined(w_47),
+              fmt("DF: %s %s | $47: %s %s | 0x47: %s %s", s(i_df).c_str(), s(v_df).c_str(),
+                  s(i_dollar).c_str(), s(v_dollar).c_str(), s(i_hex).c_str(),
+                  s(v_hex).c_str()));
+    }
+
     // QMP-13 — a view change starts the new view at its TOP. The scroll bar kept
     // the old view's position and put it straight back (clamped to the new
     // range): a Slot view opened from CPU View at $8000 showed its last rows
