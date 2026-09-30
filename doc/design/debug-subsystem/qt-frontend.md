@@ -1577,6 +1577,8 @@ number the user typed. The slot labels (CAP-INS-03) are unchanged.
 | QMP-09 | `debugger_panels_test` | a Layer 2 write-over (port 0x123B) in slot 0 does not leak into the Slot 0 view |
 | QMP-12 | `debugger_panels_test` | an offset past $1000: reads $1A30 and writes $1A40 of the page, not $1000 below (the `& 0x0FFF` survivor `q-wp56-review` noted) |
 | QMP-13 | `debugger_panels_test` | a view change starts at the top — **defect found writing QMP-06b**: the scroll bar kept the old view's position and `valueChanged` put it straight back, so a Slot view opened from CPU View at $8000 showed its last rows |
+| QMP-14 | `debugger_panels_test` | (review round 1) legacy-paged 48K/128K slots: 48K Slot 3 = what the CPU sees at $6010, Slot 0 = the legacy ROM image (`Rom{…}`, not SRAM) at $0010, 128K Slot 6 = the 0x7FFD bank — retired QMP-04's no-overlay half, restored |
+| QMP-15 | `debugger_panels_test` | (review round 1) `Page...` accepts DF, the last page, and `$47` / `0x47` as page 47 |
 
 ### 6.3 Mutation checks for the #278 reviewer
 
