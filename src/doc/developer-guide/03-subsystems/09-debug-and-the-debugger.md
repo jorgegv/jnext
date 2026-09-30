@@ -789,8 +789,14 @@ Both are refused while an RZX records or plays, since a write the recording
 does not contain would make its replay diverge; the NextREG cell shows the
 register's value again at the next refresh, the Memory byte simply does not
 change. The Audio panel's mute boxes are `set_audio_mute_mask()`. The Memory
-panel's slot view still reads and writes through the CPU map at the slot's
-range, as it always has; the physical-page view is WP8.
+panel's slot view (WP8, owner decision Q7) reads and writes the slot's PHYSICAL
+backing store in the space `mmu_slots()` names — `Page{nr_page}` for a RAM
+slot, `Rom{...}` for a ROM slot, whose `poke` is `RefusedReadOnly` — at
+`space_offset + (addr & 0x1FFF)`; the panel never composes a space from
+`effective_page` and `is_rom` (a ROM slot's effective page is SRAM-physical,
+outside `Page{}`'s numbering). So an overlay over the slot (DivMMC, Multiface,
+Layer 2) no longer shows in it, and its "Page..." item reads any `Page{p}`,
+mapped in a slot or not.
 
 ### The shared socket transport (package T)
 
@@ -1190,7 +1196,7 @@ introspects:
 | CPU Registers | the Z80 register file, flags, IFF/IM, halt state, active ULA screen |
 | MMU | the 8 slot→page map with RAM/ROM type, plus the 128K bank view |
 | Disassembly | `src/debug/disasm.*` over the backend's `memory_reader()` (a peek), with symbol substitution, a breakpoint gutter, and a selection you can copy as assembly |
-| Memory | raw bytes, either through the CPU's address space or a chosen MMU slot |
+| Memory | raw bytes through the CPU's address space, or the physical page of a chosen MMU slot or of any NR page |
 | Stack | words at and above `SP` |
 | Call Stack | `src/debug/call_stack.*`, a shadow stack built from SP deltas, plus a frame for each accepted INT or NMI (`Z80Cpu::last_slot_kind()` says which kind of slot ran); a return pops only the frames below the new SP |
 | Watches | byte / word / long at user addresses |

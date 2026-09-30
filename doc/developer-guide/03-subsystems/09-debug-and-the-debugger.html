@@ -2578,8 +2578,14 @@ Both are refused while an RZX records or plays, since a write the recording
 does not contain would make its replay diverge; the NextREG cell shows the
 register's value again at the next refresh, the Memory byte simply does not
 change. The Audio panel's mute boxes are <code>set_audio_mute_mask()</code>. The Memory
-panel's slot view still reads and writes through the CPU map at the slot's
-range, as it always has; the physical-page view is WP8.</p>
+panel's slot view (WP8, owner decision Q7) reads and writes the slot's PHYSICAL
+backing store in the space <code>mmu_slots()</code> names — <code>Page{nr_page}</code> for a RAM
+slot, <code>Rom{...}</code> for a ROM slot, whose <code>poke</code> is <code>RefusedReadOnly</code> — at
+<code>space_offset + (addr &amp; 0x1FFF)</code>; the panel never composes a space from
+<code>effective_page</code> and <code>is_rom</code> (a ROM slot's effective page is SRAM-physical,
+outside <code>Page{}</code>'s numbering). So an overlay over the slot (DivMMC, Multiface,
+Layer 2) no longer shows in it, and its "Page..." item reads any <code>Page{p}</code>,
+mapped in a slot or not.</p>
 <h3 id="the-shared-socket-transport-package-t">The shared socket transport (package T)<a class="headerlink" href="#the-shared-socket-transport-package-t" title="Permanent link">&para;</a></h3>
 <p>The three protocol servers the epic plans — DZRP, ZRCP and GDB RSP — share one
 transport, in <strong><code>src/remote/</code></strong> (target <code>jnext_remote</code>). It has no toolkit
@@ -2985,7 +2991,7 @@ introspects:</p>
 </tr>
 <tr>
 <td>Memory</td>
-<td>raw bytes, either through the CPU's address space or a chosen MMU slot</td>
+<td>raw bytes through the CPU's address space, or the physical page of a chosen MMU slot or of any NR page</td>
 </tr>
 <tr>
 <td>Stack</td>

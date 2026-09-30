@@ -31,7 +31,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP5** | memory panel (and the Disassembly panel's reads, the +3 latch fix) — as built: §6.2g | **done** — reviewed + APPROVED |
 | **WP6** | symbols / magic — as built: §6.2g | **done** — reviewed + APPROVED |
 | **WP7** | reach-around grep = 0 (`grep -l 'core/emulator.h' src/debugger/*.cpp` empty) — as built: §6.2h | **done** — reviewed, REJECTED once (the lint's durability), then APPROVED on re-review |
-| **WP8** | **Memory panel physical-page view** — `MemSpace::Page` reads *and* writes (owner decision §1.3 item 15). **Last**, after the identity rows are green, with its own pinned rows | todo |
+| **WP8** | **Memory panel physical-page view** — `MemSpace::Page` reads *and* writes (owner decision §1.3 item 15). **Last**, after the identity rows are green, with its own pinned rows — as built: §6.2i | **in review** |
 
 Depends on: B0 (landed), B. Q is the epic's **sufficiency proof** — any
 insufficiency it finds is a finding against the architecture document, not a
@@ -1540,6 +1540,43 @@ No published route was missing; no header changed.
 | QTF-11 | `debug_qt_free_test` | anti-vacuity: the scan read the real `src/debugger/` |
 | QTF-12/13 | `debug_qt_free_test` | both detectors on a planted tree, one plant per branch (review round 1): an include of each of the seven layers, a spaced-out one and a relative `../core/` one flagged — `debug/`, `qt/`, `debugger/memory_panel.h`, `libcore/`, a commented include and a string not; a forward declaration, a pointer parameter and code after `1'000` flagged — a multi-line block comment, a string with escaped quotes, `'"'` and `L'"'` char literals, and `EmulatorWidget` not |
 | INS-06-03/04 | `debugger_backend_test` | a paused machine's `raster()` / `time()` report where it stopped with no `snapshot_raster()` call by anyone (fails without the backend change); a running one's is not moved |
+
+### 6.2i WP8 as built (2026-09-30)
+
+**The one deliberate behaviour change of #278 (owner decision Q7, review R-3).**
+`MemoryPanel::locate()` names where a view offset lives: the CPU view is
+`MemSpace::cpu()` at the address; a slot view is the slot's own
+`SlotInfo::space` at `space_offset + (addr & 0x1FFF)` — `Page{nr_page}` for a
+RAM slot, `Rom{effective_page >> 1}` (offset `(effective_page & 1) * 0x2000`)
+for a ROM slot, exactly as CAP-INS-03 hands them over (REQ-qt-31); the panel
+composes no space itself. The paint reads a row per `peek` there, and a hex edit
+`poke`s there: a RAM slot's edit lands in the physical page, which an overlay
+over the slot does not see; a ROM slot's is `RefusedReadOnly` and the byte
+paints unchanged. For QMP-07 ("an unmapped page is readable through the
+selector") the selector gained a tenth item, **Page...**: it asks for an NR page
+number (hex, 00-DF; a cancel or a number with no backing store leaves the view
+as it was) and shows `Page{p}` — the one space the panel does compose, from the
+number the user typed. The slot labels (CAP-INS-03) are unchanged.
+
+**Expected values changed, both by this decision:**
+- **QMP-04 retired.** It pinned that a slot view reads through the CPU map with
+  an overlay showing in it — now the opposite; QMP-06a/06b/09 pin the new
+  behaviour for a DivMMC, a Multiface and a Layer 2 overlay. Its first half (a
+  slot view with no overlay shows the page mapped there) is implied by every
+  new row.
+- **QMP-03**: the selector has 10 items, the last `Page...` (was 9).
+- QMP-04b (a slot edit lands where the CPU sees it) is unchanged and still true:
+  with no overlay the physical page IS the CPU's view of the slot.
+
+| Rows | Suite | Pins |
+|---|---|---|
+| QMP-06a | `debugger_panels_test` | a ROM slot under DivMMC's conmem ROM: CPU view = DivMMC's bytes, Slot 0 = the ROM's (`Rom{…}`); `Page{}` at the ROM's own page number is planted with a THIRD set, so the R-3 mistake shows as a failure |
+| QMP-06b | `debugger_panels_test` | a RAM slot under the Multiface's RAM (NR 0x51 = $30): CPU view = MF RAM, Slot 1 = page $30 |
+| QMP-07 | `debugger_panels_test` | `Page...` shows page $47, which is in no slot, and an edit writes it; cancel or `E0` leave the view |
+| QMP-08 | `debugger_panels_test` | a Slot 1 edit lands in page $30, unseen by the CPU view under the overlay; a Slot 0 (ROM) edit is refused and paints unchanged |
+| QMP-09 | `debugger_panels_test` | a Layer 2 write-over (port 0x123B) in slot 0 does not leak into the Slot 0 view |
+| QMP-12 | `debugger_panels_test` | an offset past $1000: reads $1A30 and writes $1A40 of the page, not $1000 below (the `& 0x0FFF` survivor `q-wp56-review` noted) |
+| QMP-13 | `debugger_panels_test` | a view change starts at the top — **defect found writing QMP-06b**: the scroll bar kept the old view's position and `valueChanged` put it straight back, so a Slot view opened from CPU View at $8000 showed its last rows |
 
 ### 6.3 Mutation checks for the #278 reviewer
 
