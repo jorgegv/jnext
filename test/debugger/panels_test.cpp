@@ -1945,6 +1945,7 @@ static void test_memory_panel() {
         const auto slot0 = dbg.mmu_slots()[0];
         const uint8_t e = slot0.effective_page;
         plant_row(emu.ram().page_ptr(e), 0x40);                  // the ROM
+        plant_row(emu.ram().page_ptr(e + 1), 0x30);              // its second 8K (slot 1)
         plant_row(emu.ram().page_ptr(0x08), 0x80);               // DivMMC ROM (SRAM 8)
         uint8_t decoy[16];
         for (int i = 0; i < 16; ++i) decoy[i] = static_cast<uint8_t>(0xB0 + i);
@@ -1956,13 +1957,22 @@ static void test_memory_panel() {
         const DumpRow cpu = dump_row(painted(&mem), "$0010");
         select_view(&mem, 1);                                    // Slot 0
         const DumpRow rom = dump_row(painted(&mem), "$0010");
+        // Slot 1 is the same 16K ROM image's second half: SlotInfo's
+        // space_offset $2000 within Rom{...}.
+        const auto slot1 = dbg.mmu_slots()[1];
+        select_view(&mem, 2);
+        const DumpRow rom_hi = dump_row(painted(&mem), "$0010");
         check("QMP-06a",
               "a ROM slot under an overlay: the CPU view shows DivMMC's bytes, the Slot 0 "
-              "view the ROM's (Rom{...}), not the overlay's nor Page{} at the ROM's page",
+              "view the ROM's (Rom{...}), not the overlay's nor Page{} at the ROM's page; "
+              "Slot 1 the image's second half",
               built && slot0.is_rom && (e & 1) == 0 && overlay_live && cpu.found &&
-                  cpu.bytes == want_row(0x80) && rom.found && rom.bytes == want_row(0x40),
-              fmt("rom=%d e=%02X overlay=%d cpu=%s slot0=%s", slot0.is_rom, e, overlay_live,
-                  s(joined(cpu.bytes)).c_str(), s(joined(rom.bytes)).c_str()));
+                  cpu.bytes == want_row(0x80) && rom.found && rom.bytes == want_row(0x40) &&
+                  slot1.is_rom && slot1.effective_page == e + 1 && rom_hi.found &&
+                  rom_hi.bytes == want_row(0x30),
+              fmt("rom=%d e=%02X overlay=%d cpu=%s slot0=%s slot1(e=%02X)=%s", slot0.is_rom,
+                  e, overlay_live, s(joined(cpu.bytes)).c_str(), s(joined(rom.bytes)).c_str(),
+                  slot1.effective_page, s(joined(rom_hi.bytes)).c_str()));
     }
 
     // QMP-06b / QMP-08 — a RAM slot under an overlay: the Multiface's RAM over
