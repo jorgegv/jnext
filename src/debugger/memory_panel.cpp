@@ -170,7 +170,8 @@ bool MemoryPanel::choose_page() {
         page_ >= 0 ? QString::asprintf("%02X", page_) : QString(), &ok).trimmed();
     if (!ok) return false;
     if (text.startsWith('$')) text = text.mid(1);
-    if (text.startsWith("0x", Qt::CaseInsensitive)) text = text.mid(2);
+    // No "0x" strip: QString::toUInt(base 16) accepts the prefix itself
+    // (QMP-15 types 0x47), so a strip line here was dead (review R11).
     bool num = false;
     const unsigned v = text.toUInt(&num, 16);
     if (!num || v > 0xDF) return false;          // 0xE0.. has no backing store
