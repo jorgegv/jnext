@@ -75,10 +75,10 @@ whole, so `done` here means the sub-item is approved, not merged.
 
 | WP | Branch `gh281-gdb-rsp` (issue #281) | Status |
 |---|---|---|
-| **WP-1** | codec | in review (§12) |
-| **WP-2** | target description + register packing. **The XML must stay under the 1023-byte ceiling** — a larger one segfaults `z88dk-gdb` v2.4 | in review (§12) |
-| **WP-3** | server | in review (§12) |
-| **WP-4** | wiring / CLI over the shared transport (T) | in review (§12) |
+| **WP-1** | codec | **done** (§12; independently reviewed and APPROVED at `0673fca34`) |
+| **WP-2** | target description + register packing. **The XML must stay under the 1023-byte ceiling** — a larger one segfaults `z88dk-gdb` v2.4 | **done** (§12; independently reviewed and APPROVED at `0673fca34`) |
+| **WP-3** | server | **done** (§12; independently reviewed and APPROVED at `0673fca34`) |
+| **WP-4** | wiring / CLI over the shared transport (T) | **done** (§12; independently reviewed and APPROVED at `0673fca34`) |
 | **WP-5** | acceptance row + user guide. §11 item 7: upstream-master `z88dk-gdb` `monitor` handling was designed from source and run only against v2.4 — close that here | todo |
 | **WP-6** | the z88dk wiki listing — **post-release**, out of scope for the epic itself | todo |
 

@@ -1595,6 +1595,7 @@ static void stop_rows() {
         const Verb verbs[] = {
             {"G", ""},  // filled in with the paused machine's own registers
             {"p0", ""},
+            {"P0=0000", "OK"},
             {"Z0,9000,1", "OK"},
             {"z0,9005,1", "OK"},
             {"m8000,2", ""},
@@ -1635,7 +1636,7 @@ static void stop_rows() {
                        (rig.dbg->state().paused ? "1" : "0") + "; ";
             }
         }
-        check("GDB-STOP-16", "each of G, p, Z, z, m, M, X and qRcmd sent while a c runs pauses the "
+        check("GDB-STOP-16", "each of G, p, P, Z, z, m, M, X and qRcmd sent while a c runs pauses the "
                              "machine first (as this client), gets exactly its own reply, and no T "
                              "follows — the c's owed reply is abandoned",
               ok, why);
