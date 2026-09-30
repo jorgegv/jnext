@@ -330,6 +330,10 @@ int main() {
         // A string that ESCAPES its quotes around the word: without the escape
         // handling the string ends early and the word leaks into code.
         write_file(root / "names_esc.cpp", "const char* e = \"say \\\"Emulator\\\" here\";\nint z;\n");
+        // A PREFIXED char literal holding a quote: `L'"'` follows a token that
+        // starts with a letter, so it is a literal, not a digit separator — read
+        // as one, the quote opens a string that runs into the comment.
+        write_file(root / "names_pfx.cpp", "wchar_t w = L'\"'; // \" Emulator\nint v;\n");
         // A MULTI-LINE block comment naming the type on a later line: read as a
         // line comment it would end at the first newline.
         write_file(root / "names_block.cpp", "/* the old manager held\n   an Emulator* here */\nint y;\n");
