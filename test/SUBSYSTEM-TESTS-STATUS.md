@@ -128,8 +128,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Key Bindings |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       53 |       53 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Panels (GH #278) |       53 |       53 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Panels (GH #278) |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       61 |       61 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **11288**| **11288**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **11294**| **11294**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
