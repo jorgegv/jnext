@@ -1555,10 +1555,16 @@ static void stop_rows() {
         load_loop(rig);
         c.send_raw(pkt("c"), 1);
         rig.emu.run_frame();
-        const std::string g1 = c.cmd("g");
-        c.tick();
-        c.tick();
-        const bool quiet1 = c.fresh().empty();
+        // EVERY packet the `g`'s pump wrote, not just the first: a `T` glued
+        // behind the `g` reply is exactly the defect (review round 2).
+        std::vector<std::string> g_all;
+        c.p->send(pkt("g"));
+        for (int i = 0; i < 4; ++i) {
+            c.tick();
+            for (auto& b : c.fresh()) g_all.push_back(b);
+        }
+        const std::string g1     = g_all.empty() ? std::string() : g_all[0];
+        const bool        quiet1 = g_all.size() == 1;
 
         c.cmd("Z0,8002,1");
         c.send_raw(pkt("c"), 1);
@@ -1575,6 +1581,64 @@ static void stop_rows() {
               g1.size() == 56 && quiet1 && got.size() == 1 && got[0].size() == 4 &&
                   rig.dbg->state().paused,
               g1 + " / " + join(got));
+    }
+    {
+        // The same rule for EACH inspection verb (sibling-verbs rule): on a
+        // machine RUNNING a `c`, the verb pauses it first, is answered, and the
+        // `c`'s owed reply is abandoned — its pump writes exactly one packet,
+        // and nothing follows. A verb that skipped the pause would leave the
+        // machine running; one that kept the owed reply would glue a `T` on.
+        struct Verb {
+            const char* body;
+            const char* reply;  // exact reply; "" = any non-empty, non-T
+        };
+        const Verb verbs[] = {
+            {"G", ""},  // filled in with the paused machine's own registers
+            {"p0", ""},
+            {"Z0,9000,1", "OK"},
+            {"z0,9005,1", "OK"},
+            {"m8000,2", ""},
+            {"M9000,1:aa", "OK"},
+            {"X9000,1:b", "OK"},
+            {"qRcmd,74696d65", "OK"},  // "time": O lines, then OK
+        };
+        bool        ok = true;
+        std::string why;
+        for (const Verb& v : verbs) {
+            Rig    rig;
+            Client c(rig);
+            open_session(c);
+            load_loop(rig);
+            const std::string regs = c.cmd("g");
+            if (std::string(v.body) == "z0,9005,1") c.cmd("Z0,9005,1");  // never executed
+            c.send_raw(pkt("c"), 1);
+            rig.emu.run_frame();
+            const bool running = !rig.dbg->state().paused;
+            const std::string body = std::string(v.body) == "G" ? "G" + regs : std::string(v.body);
+            c.p->send(pkt(body));
+            std::vector<std::string> all;
+            for (int i = 0; i < 4; ++i) {
+                c.tick();
+                for (auto& b : c.fresh()) all.push_back(b);
+            }
+            // A `monitor` reply is O lines then its final `OK`.
+            std::vector<std::string> finals;
+            for (const auto& b : all)
+                if (!(b.size() > 1 && b[0] == 'O' && b != "OK")) finals.push_back(b);
+            const bool one = finals.size() == 1 && !finals[0].empty() && finals[0][0] != 'T' &&
+                             (v.reply[0] == '\0' || finals[0] == v.reply);
+            if (!(running && one && rig.dbg->state().paused &&
+                  rig.dbg->state().pause_reason.by == rig.gdb->client())) {
+                ok = false;
+                why += std::string(v.body) + ": [" + join(all) + "] running=" +
+                       (running ? "1" : "0") + " paused=" +
+                       (rig.dbg->state().paused ? "1" : "0") + "; ";
+            }
+        }
+        check("GDB-STOP-16", "each of G, p, Z, z, m, M, X and qRcmd sent while a c runs pauses the "
+                             "machine first (as this client), gets exactly its own reply, and no T "
+                             "follows — the c's owed reply is abandoned",
+              ok, why);
     }
     {
         // `D` with a `c` outstanding: OK, and no late stop reply.
