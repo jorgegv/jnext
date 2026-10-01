@@ -4062,6 +4062,45 @@ static void wp5_history_rows() {
               n8 == reply_of("8", true), esc(n8));
     }
     {
+        // M3 review round 3: a loop owner's DEFERRED cold boot (GUI Reset, F1,
+        // an NR 0x02 reset, a NEX .run, a menu load, an SD swap) ends its tick
+        // before the pump, so the new machine runs a frame before the next
+        // callback and its clock is past the old one: only on_reset(Hard)
+        // drops the base there. The reviewer's rig.
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0x18, 0xFE});
+        jnext::dbg::LoopDriver drv;
+        drv.cold_boot = [&rig]() {
+            EmulatorConfig cfg = rig.emu.config();
+            rig.emu.init(cfg);
+            rig.emu.trace_log().clear();
+            return true;
+        };
+        rig.dbg->set_loop_driver(drv);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        c.cmd("cpu-history enabled yes");
+        c.cmd("hard-reset-cpu");
+        for (int k = 0; k < 5; ++k) c.cmd("cpu-step");
+        c.cmd("cpu-history clear");                // base: the 5th step from a cold boot
+        c.cmd("exit-cpu-step");
+        rig.emu.run_frame();                       // the old machine's frame
+        rig.dbg->on_cold_boot_begin();             // a cold boot outside the pump
+        drv.cold_boot();
+        rig.dbg->on_cold_boot_done();
+        rig.emu.run_frame();                       // the new machine's frame, before the pump
+        c.cmd("enter-cpu-step");
+        const auto trace = rig.dbg->trace_entries();
+        const std::size_t want = trace ? trace.value.size() : 0;
+        const std::string got = c.cmd("cpu-history get-size");
+        check("ZRCP-HIS-18", "a deferred cold boot outside the pump, the new machine running a "
+                             "frame before the next callback: the history shows the whole new "
+                             "trace (on_reset drops the base; the watch never sees the clock go "
+                             "back)",
+              want > 5 && got == reply_of(std::to_string(want), true),
+              "want " + std::to_string(want) + " got " + esc(got));
+    }
+    {
         // R2-2 / U01: a base that has left the trace (here another client's
         // Clear Trace) means every entry is newer than the clear.
         Rig rig;

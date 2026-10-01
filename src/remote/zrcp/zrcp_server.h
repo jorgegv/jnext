@@ -377,10 +377,11 @@ private:
     bool           hist_has_base_ = false;
     std::uint64_t  hist_base_cycle_ = 0;
     /// The master cycle last seen at a callback (`on_service` / `on_notify`).
-    /// The base is a cycle, so it is dropped whenever the clock goes BACKWARDS —
-    /// a cold boot (its `Reset{Hard}` is followed by this pump's `on_notify`
-    /// before any frame), a load, a restored snapshot, a rewind — since a later
-    /// entry could carry the base's cycle again.
+    /// The base is a cycle, so it is dropped whenever the clock goes BACKWARDS
+    /// — an in-place load, a restored snapshot or `.jns`, a Step Back, a rewind,
+    /// all inside a pump verb or with the machine paused, so a callback sees
+    /// them before any frame — since a later entry could carry the base's cycle
+    /// again. A cold boot is dropped by `on_reset(Hard)` instead (see there).
     std::uint64_t  hist_clock_seen_ = 0;
     void           hist_watch_clock();
     std::uint64_t  hist_gen_     = 0;       // bumped by clear / resize / enable / a filter
