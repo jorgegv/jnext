@@ -2095,6 +2095,46 @@ static void host_deferred_rows() {
               std::to_string(g.host->unreached_verdicts()));
 }
 
+static void host_round1_rows() {
+    {
+        // An `exit` in an `else` branch is a verdict too.
+        HostRig g;
+        ScriptHostOptions o;
+        o.scripts = {tmp_file("else.jds", "on frame 300 do if FRAME == 0 then log \"x\" else exit 2 end end\n")};
+        const bool ok = g.start(o);
+        check("SCRIPT-HOST-UNREACHED-ELSE", "a rule whose `exit` sits in the `else` branch of an `if` counts as "
+                                            "an unreached verdict until it fires",
+              ok && g.host->unreached_verdicts() == 1, "n=" + std::to_string(g.host->unreached_verdicts()));
+    }
+    {
+        // A key scheduled for a frame already past is delivered at the NEXT
+        // edge, not lost (and then counted as never delivered for ever).
+        Rig g(kPark);
+        const bool ok = g.load("on hostkey 3 do log \"K3 F${FRAME}\" end\n");
+        g.frames(3);
+        g.eng->queue_host_key(0, 3);
+        const size_t pending = g.eng->unreached_verdicts();
+        g.frames(1);
+        check("SCRIPT-HOST-KEY-PAST", "a key queued for frame 0 after frame 2 has ended is delivered at the "
+                                      "next edge (frame 3), once, and is no longer pending",
+              ok && pending == 1 && g.sink.count("K3 F3") == 1 && g.sink.count("K3 F") == 1 &&
+                  g.eng->unreached_verdicts() == 0,
+              "pending=" + std::to_string(pending) + " " + g.sink.tail(2));
+    }
+    {
+        Rig g(kPark);
+        const bool ok = g.load("on hostkey 4 do log \"K4\" end\n");
+        g.eng->queue_host_key(5, 4);
+        const size_t before = g.eng->unreached_verdicts();
+        g.eng->unload_all();
+        g.frames(7);
+        check("SCRIPT-HOST-KEY-UNLOAD", "`unload_all` drops the scheduled keys too: nothing pending, nothing "
+                                        "raised",
+              ok && before == 1 && g.eng->unreached_verdicts() == 0 && g.sink.count("K4") == 0,
+              "before=" + std::to_string(before));
+    }
+}
+
 int main() {
     std::printf("script_events_test — the debugger DSL engine on a real machine (GH #26 WP3)\n");
 
@@ -2119,6 +2159,7 @@ int main() {
     run_group("bounds", bounds_rows);
     run_group("host", host_rows);
     run_group("host_deferred", host_deferred_rows);
+    run_group("host_round1", host_round1_rows);
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);

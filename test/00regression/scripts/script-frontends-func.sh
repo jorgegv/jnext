@@ -8,7 +8,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 
 # GH #26 WP4 (§6.3) — the two windowed loop owners. The SDL-only frontend has
 # no pause, so a script decides its exit as headless does: `exit 7` exits 7,
-# a `stop` exits 3, a verdict the watchdog cut off exits 3. The Qt GUI never exits from a script: `exit 4` is logged
+# a `stop` exits 3, a verdict the watchdog cut off exits 3, and a script's
+# `exit 0` never hides an earlier failure (a failed --load keeps 1). The Qt GUI never exits from a script: `exit 4` is logged
 # and pauses, and the run ends at the --delayed-automatic-exit bound with 0;
 # a script that does not load is still a startup failure (exit 1).
 if want script-frontends-func; then
@@ -19,6 +20,7 @@ if want script-frontends-func; then
     printf 'on frame 3 do stop "sdl stop" end\n' > "$TMP_DIR/sf-stop.jds"
     printf 'on frame 3 do exit 4 end\n' > "$TMP_DIR/sf-gui.jds"
     printf 'on frame 5000 do exit 0 end\n' > "$TMP_DIR/sf-late.jds"
+    printf 'on frame 90 do exit 0 end\n' > "$TMP_DIR/sf-hide.jds"
     printf 'on frame 3 do\n  log +\nend\n' > "$TMP_DIR/sf-bad.jds"
     sdl_run() {
         LANG=C timeout --foreground --kill-after=5s 60s env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=dummy \
@@ -47,6 +49,10 @@ if want script-frontends-func; then
         if [[ $rc -ne 3 ]] || ! grep -q "SCRIPT: 1 deferred actions never ran" <<<"$out"; then
             fails+=("SDL watchdog before the verdict: exit $rc")
         fi
+        out=$(sdl_run --load "$TMP_DIR/sf-missing.tap" --script "$TMP_DIR/sf-hide.jds") && rc=0 || rc=$?
+        if [[ $rc -ne 1 ]] || ! grep -q "script requested exit 0" <<<"$out"; then
+            fails+=("SDL exit 0 after a failed --load: exit $rc")
+        fi
     fi
     out=$(qt_run --script "$TMP_DIR/sf-gui.jds") && rc=0 || rc=$?
     if [[ $rc -ne 0 ]] || ! grep -q "SCRIPT EXIT 4" <<<"$out" || grep -q "script requested exit" <<<"$out"; then
@@ -57,7 +63,7 @@ if want script-frontends-func; then
         fails+=("Qt load error: exit $rc")
     fi
     if [[ ${#fails[@]} -eq 0 ]]; then
-        pass_row " (SDL: exit 7 = 7, stop = 3, verdict not reached = 3; Qt: exit pauses, bound exits 0; Qt load error = 1)"
+        pass_row " (SDL: exit 7 = 7, stop = 3, verdict not reached = 3, exit 0 keeps a failed --load's 1; Qt: exit pauses, bound exits 0; Qt load error = 1)"
     else
         fail_row " (${fails[*]})"
     fi
