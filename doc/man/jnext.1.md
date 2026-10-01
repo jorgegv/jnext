@@ -1718,7 +1718,8 @@ Try it by hand with `telnet localhost PORT` and `help`.
   Breakpoints belong to the session: they start disabled, as in ZEsarUX, and
   are removed when the client disconnects.
 - **History, coverage and call tracking are the machine's**: a client turns
-  off only what it turned on. **`snapshot-save` / `snapshot-load` are
+  off only what it turned on, and its `cpu-history clear` / `set-max-size`
+  change only its own view, never the trace jnext's Step Back reads. **`snapshot-save` / `snapshot-load` are
   in-memory snapshots of the session** (nothing is written to disk), saved
   with the machine paused while running, not at a breakpoint.
   **`smartload`, `load-binary` and `save-binary` read and write files on the

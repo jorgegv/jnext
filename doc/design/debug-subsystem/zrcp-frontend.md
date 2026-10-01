@@ -1309,6 +1309,8 @@ at the PC's own slot (`EVT-PROBE-14`). Review round 1 found the first, interim c
 **Served (8):** `cpu-history`, `cpu-code-coverage`, `extended-stack`,
 `smartload|sl`, `load-binary`, `save-binary`, `snapshot-save`,
 `snapshot-load`. 67 served, 1 declined, 57 unsupported (`ZRCP-TAB-01`).
+`get-pc` with a negative count answers ZEsarUX's `Error. Can't be negative`,
+and a negative index is honoured as ZEsarUX's `parse_string_to_number` does.
 Oracles: ZEsarUX 12.0's `remote.c` (`remote_cpu_history`,
 `remote_extended_stack`, `remote_cpu_code_coverage`, the file and snapshot
 handlers), `debug.c` (`cpu_history_legacy_regs_bin_to_string`, the index rule,
@@ -1324,12 +1326,18 @@ DeZog's `zesaruxremote.ts` / `zesaruxcpuhistory.ts` (init, every-step `get`,
    `get-pc`, `get-size`, the index errors and the line are ZEsarUX's, byte for
    byte, with the memory-access list empty (jnext records none — the trailing
    space stays). `started` is recorded but the history records while it is
-   `enabled`. `set-max-size` takes 1..1000000 (ZEsarUX 10000000; a jnext
-   entry is 56 bytes). `ignrephalt` / `ignrepldxr` are a VIEW over the
-   recorded entries, ZEsarUX's rule (the first of a run of HALTs / LDIR /
-   LDDR is kept) applied when read, so they also apply to entries recorded
-   before they were set. `get-max-size` is the size this session set (the
-   trace log's own default, 10000, before).
+   `enabled`. **`clear` and `set-max-size` act on the session's VIEW, never on
+   the machine's trace** (review round 1): that trace is the one jnext's Step
+   Back and rewind read, and DeZog sends both on every launch, so clearing or
+   resizing it would cut another user's Step Back for the rest of the
+   process. `clear` records the newest trace entry as the view's base (only
+   later entries are shown; if the base has left the ring, every entry is
+   newer); `set-max-size` (1..1000000) caps the view at the newest n. So the
+   history holds at most what the machine's trace holds — 10000 entries by
+   default — whatever `set-max-size` says; `get-max-size` reports the size
+   set. `ignrephalt` / `ignrepldxr` are also a VIEW, ZEsarUX's rule (the
+   first of a run of HALTs / LDIR / LDDR is kept) applied when read, so they
+   also apply to entries recorded before they were set.
 2. **`MMU=` in a history entry** is the get-registers projection
    (`mapped_page`), built from the entry's eight effective pages. The entry
    does not record whether a slot was ROM (`TraceEntry` has no such field),
@@ -1365,10 +1373,14 @@ DeZog's `zesaruxremote.ts` / `zesaruxcpuhistory.ts` (init, every-step `get`,
 8. **`load-binary` / `save-binary`** work on the CPU view (writes to ROM land
    nowhere; addresses wrap at FFFFH); `save-binary` length 0 is 64 KB; an
    address must fit 16 bits (milestone 1's rule). `save-binary` answers a
-   failure `ERROR loading file`, ZEsarUX's own text.
+   failure `ERROR loading file`, ZEsarUX's own text, and so does a
+   `load-binary` of something that is not a readable file (a directory). A
+   write the backend REFUSES — an RZX session, a corrupt machine — is said,
+   as `write-memory` says it: `Error. load-binary refused: <reason> (<n>
+   bytes loaded)` (review round 1; a write to ROM stays silent).
 
-Rows: `ZRCP-FMT-14`, `ZRCP-HIS-01..10`, `ZRCP-XST-01..03`, `ZRCP-COV-01`,
-`ZRCP-LOAD-01..04`, `ZRCP-SNAP-01..03`; the regression row `zrcp-hist-func` (§6.2 item 7 and the
+Rows: `ZRCP-FMT-14`, `ZRCP-HIS-01..13`, `ZRCP-XST-01..04`, `ZRCP-COV-01`,
+`ZRCP-LOAD-01..05`, `ZRCP-SNAP-01..03`; the regression row `zrcp-hist-func` (§6.2 item 7 and the
 rest of WP-5 against a live jnext: a `.sna` smartloaded, history, coverage,
 extended stack, load/save-binary, a snapshot round trip).
 

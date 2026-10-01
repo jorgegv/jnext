@@ -368,7 +368,15 @@ private:
     bool           hist_started_ = false;
     bool           ign_halt_     = false;
     bool           ign_ldxr_     = false;
-    std::uint32_t  hist_max_     = 10000;   // the TraceLog's own default capacity
+    /// `set-max-size`: a VIEW limit — the newest `hist_max_` entries are shown.
+    /// The machine's trace (which jnext's Step Back reads) is never resized.
+    std::uint32_t  hist_max_     = 10000;   // ZEsarUX reports a size; the trace log's own default
+    /// `clear`: a VIEW base — the newest machine-trace entry at the clear
+    /// (`cycle`, `pc`); only entries after it are shown. The machine's trace
+    /// is never cleared.
+    bool           hist_has_base_ = false;
+    std::uint64_t  hist_base_cycle_ = 0;
+    std::uint16_t  hist_base_pc_    = 0;
     std::uint64_t  hist_gen_     = 0;       // bumped by clear / resize / enable / a filter
     std::array<std::uint64_t, 3> hist_key_{{~0ull, ~0ull, ~0ull}};
     std::vector<::TraceEntry> hist_view_;

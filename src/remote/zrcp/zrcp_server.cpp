@@ -262,7 +262,10 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
      "Runs cpu history actions: enabled yes|no, is-enabled, started yes|no, is-started, "
      "set-max-size n (1 to 1000000; ZEsarUX allows 10000000, a jnext entry is 56 bytes), "
      "get-max-size, get-size, clear, get i (0 = the newest), get-pc start n, ignrephalt "
-     "yes|no, ignrepldxr yes|no. The history is jnext's trace log: started is recorded but "
+     "yes|no, ignrepldxr yes|no. clear and set-max-size act on this session's view only: "
+     "the machine's trace, which jnext's Step Back reads, is never cleared or resized, so the "
+     "history holds at most what it holds (10000 entries by default). The history is jnext's "
+     "trace log: started is recorded but "
      "the history records while it is enabled; ignrephalt / ignrepldxr filter the view (a "
      "run of HALTs or LDIR / LDDR shows its first entry), so they apply to entries already "
      "recorded too; MMU is the get-registers projection, a ROM slot recognised by the "
@@ -728,6 +731,7 @@ void ZrcpServer::end_session() {
     hist_ = xstack_ = cov_ = Owned{};
     hist_started_ = ign_halt_ = ign_ldxr_ = false;
     hist_max_     = 10000;
+    hist_has_base_ = false;
     ++hist_gen_;
     hist_view_.clear();
     // WP-4 — the detach above removed every subscription; the session's map of
@@ -2279,10 +2283,21 @@ const std::vector<::TraceEntry>& ZrcpServer::history_view() {
     hist_view_.clear();
     const auto all = dbg_.trace_entries();
     if (!all) return hist_view_;
+    // `clear`'s base: only what the machine recorded after it. Not found — it
+    // fell out of the ring, or the machine was rebuilt — means every entry is
+    // newer than the clear.
+    std::size_t from = 0;
+    if (hist_has_base_)
+        for (std::size_t k = all.value.size(); k-- > 0;)
+            if (all.value[k].cycle == hist_base_cycle_ && all.value[k].pc == hist_base_pc_) {
+                from = k + 1;
+                break;
+            }
     // `cpu_history_add_element`'s rule, as a view: of a run of consecutive HALTs
     // (or LDIR / LDDR) only the first is kept.
     int halts = 0, ldxrs = 0;
-    for (const auto& e : all.value) {
+    for (std::size_t k = from; k < all.value.size(); ++k) {
+        const auto& e = all.value[k];
         const bool halt = e.opcode_bytes[0] == 0x76;
         const bool ldxr = e.opcode_bytes[0] == 0xED &&
                           (e.opcode_bytes[1] == 0xB0 || e.opcode_bytes[1] == 0xB8);
@@ -2291,6 +2306,10 @@ const std::vector<::TraceEntry>& ZrcpServer::history_view() {
         if ((ign_halt_ && halts > 1) || (ign_ldxr_ && ldxrs > 1)) continue;
         hist_view_.push_back(e);
     }
+    // `set-max-size`'s limit: ZEsarUX's ring of that size keeps the newest.
+    if (hist_view_.size() > hist_max_)
+        hist_view_.erase(hist_view_.begin(),
+                         hist_view_.end() - static_cast<std::ptrdiff_t>(hist_max_));
     return hist_view_;
 }
 
@@ -2344,9 +2363,9 @@ void ZrcpServer::cmd_cpu_history(const Cmd& c) {
     if (iequals(p, "restore") || iequals(p, "get-extended")) {
         if (!hist_.on) return reply(kNotEnabledNl);
         return reply(iequals(p, "restore")
-                         ? "Error. Unsupported in jnext: cpu-history restore — use the jnext "
+                         ? "Error. Unsupported in jnext: cpu-history restore - use the jnext "
                            "debugger's Step Back"
-                         : "Error. Unsupported in jnext: cpu-history get-extended — jnext "
+                         : "Error. Unsupported in jnext: cpu-history get-extended - jnext "
                            "records no paging-port values");
     }
     const bool known = iequals(p, "started") || iequals(p, "set-max-size") ||
@@ -2358,17 +2377,24 @@ void ZrcpServer::cmd_cpu_history(const Cmd& c) {
         hist_started_ = is_yes(value);
         return reply("");
     }
+    // `set-max-size` and `clear` act on this session's VIEW, never on the
+    // machine's trace — jnext's Step Back and rewind read that one (§11.9).
     if (iequals(p, "set-max-size")) {
         std::uint32_t n = 0;
         if (!parse_number(value, n) || n < 1 || n > kHistoryMax)
             return reply("ERROR: Value out of range");
-        dbg_.trace_resize(n);
         hist_max_ = n;
         ++hist_gen_;
         return reply("");
     }
     if (iequals(p, "clear")) {
-        dbg_.trace_clear();
+        hist_has_base_ = false;
+        const auto all = dbg_.trace_entries();
+        if (all && !all.value.empty()) {
+            hist_has_base_   = true;
+            hist_base_cycle_ = all.value.back().cycle;
+            hist_base_pc_    = all.value.back().pc;
+        }
         ++hist_gen_;
         return reply("");
     }
@@ -2395,18 +2421,25 @@ void ZrcpServer::cmd_cpu_history(const Cmd& c) {
             out = history_line(e, history_mmu(e));
         }
     };
-    std::uint32_t i = 0;
-    if (!parse_number(value, i)) i = 0;  // ZEsarUX reads garbage as 0
+    // ZEsarUX reads these with `parse_string_to_number`: a sign is honoured,
+    // garbage is 0.
+    const auto signed_arg = [](const std::string& tok) -> long {
+        const bool neg = !tok.empty() && tok[0] == '-';
+        std::uint32_t v = 0;
+        if (!parse_number(neg ? tok.substr(1) : tok, v)) return 0;
+        return neg ? -static_cast<long>(v) : static_cast<long>(v);
+    };
+    const long i = signed_arg(value);
     if (iequals(p, "get")) {
         std::string out;
-        element(total - static_cast<long>(i) - 1, false, out);
+        element(total - i - 1, false, out);
         return reply(out);
     }
     // get-pc start n: n PCs from `start` towards the oldest, each "%04x ".
-    std::uint32_t n = 0;
-    if (c.args.size() > 2 && !parse_number(c.args[2], n)) n = 0;
-    long count = std::min<long>(static_cast<long>(n), total);
-    long idx   = total - static_cast<long>(i) - 1;
+    const long n = c.args.size() > 2 ? signed_arg(c.args[2]) : 0;
+    if (n < 0) return reply("Error. Can't be negative");
+    long count = std::min<long>(n, total);
+    long idx   = total - i - 1;
     std::string out;
     for (; count > 0; --count, --idx) {
         std::string one;
@@ -2526,12 +2559,22 @@ void ZrcpServer::cmd_load_binary(const Cmd& c) {
     if (len == 0 || len > kLoadMax) len = kLoadMax;
     std::vector<std::uint8_t> bytes(len);
     const std::size_t got = std::fread(bytes.data(), 1, bytes.size(), f);
+    const bool        bad = std::ferror(f) != 0;  // a directory opens, and fails here
     std::fclose(f);
+    if (bad) return reply("ERROR loading file");
     bytes.resize(got);
-    // The CPU view wraps at FFFFH; a write to ROM lands nowhere (as ZEsarUX).
+    // The CPU view wraps at FFFFH; a write to ROM lands nowhere (as ZEsarUX, and
+    // as write-memory: `RefusedReadOnly` is silent). Any other refusal — an RZX
+    // recording, a corrupt machine — is said, with what had landed by then.
+    std::size_t landed = 0;
     for (std::size_t off = 0; off < bytes.size(); off += 0x10000) {
         const std::size_t n = std::min<std::size_t>(0x10000, bytes.size() - off);
-        dbg_.poke(cid_, MemSpace::cpu(), static_cast<std::uint16_t>(addr + off), n, bytes.data() + off);
+        const auto w = dbg_.poke(cid_, MemSpace::cpu(), static_cast<std::uint16_t>(addr + off), n,
+                                 bytes.data() + off);
+        if (!poke_ok(w.status))
+            return reply(std::string("Error. load-binary refused: ") + result_name(w.status) +
+                         " (" + std::to_string(landed) + " bytes loaded)");
+        landed += w.value;
     }
     reply("");
 }

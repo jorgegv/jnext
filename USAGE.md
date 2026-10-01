@@ -1854,11 +1854,13 @@ held in cpu-step mode. Try it by hand with `telnet localhost PORT` and
   belong to the session: they start disabled, as in ZEsarUX, and are
   removed when the client disconnects.
 - **History, coverage and call tracking are the machine’s**: a client
-  turns off only what it turned on. **`snapshot-save` / `snapshot-load`
-  are in-memory snapshots of the session** (nothing is written to disk),
-  saved with the machine paused while running, not at a breakpoint.
-  **`smartload`, `load-binary` and `save-binary` read and write files on
-  the host running jnext**, as ZEsarUX’s do.
+  turns off only what it turned on, and its `cpu-history clear` /
+  `set-max-size` change only its own view, never the trace jnext’s Step
+  Back reads. **`snapshot-save` / `snapshot-load` are in-memory
+  snapshots of the session** (nothing is written to disk), saved with
+  the machine paused while running, not at a breakpoint. **`smartload`,
+  `load-binary` and `save-binary` read and write files on the host
+  running jnext**, as ZEsarUX’s do.
 - **Declined**: `exit-emulator`, and the `run` options `verbose`,
   `no-stop-on-data` and `update-immediately`. ZEsarUX commands jnext
   does not serve answer `Error. Unsupported command in jnext:` and the

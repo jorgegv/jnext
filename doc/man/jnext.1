@@ -2275,7 +2275,9 @@ Breakpoints belong to the session: they start disabled, as in ZEsarUX,
 and are removed when the client disconnects.
 .IP \(bu 2
 \f[B]History, coverage and call tracking are the machine\(cqs\f[R]: a
-client turns off only what it turned on.
+client turns off only what it turned on, and its
+\f[CR]cpu\-history clear\f[R] / \f[CR]set\-max\-size\f[R] change only
+its own view, never the trace jnext\(cqs Step Back reads.
 \f[B]\f[CB]snapshot\-save\f[B] / \f[CB]snapshot\-load\f[B] are
 in\-memory snapshots of the session\f[R] (nothing is written to disk),
 saved with the machine paused while running, not at a breakpoint.

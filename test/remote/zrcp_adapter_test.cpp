@@ -3864,10 +3864,12 @@ static void wp5_history_rows() {
         const std::string rs  = c.cmd("cpu-history restore 0");
         const std::string ge  = c.cmd("cpu-history get-extended 0");
         check("ZRCP-HIS-06", "started yes / is-started 1; restore and get-extended are declined "
-                             "by name with the reason",
+                             "by name with the reason, in plain ASCII",
               st == reply_of("", true) && ist == reply_of("1", true) &&
                   starts_with(rs, "Error. Unsupported in jnext: cpu-history restore") &&
-                  starts_with(ge, "Error. Unsupported in jnext: cpu-history get-extended"),
+                  starts_with(ge, "Error. Unsupported in jnext: cpu-history get-extended") &&
+                  std::all_of(rs.begin(), rs.end(), [](char ch) { return (ch & 0x80) == 0; }) &&
+                  std::all_of(ge.begin(), ge.end(), [](char ch) { return (ch & 0x80) == 0; }),
               esc(rs) + " / " + esc(ge));
     }
     {
@@ -3912,10 +3914,11 @@ static void wp5_history_rows() {
         // ignrephalt: consecutive HALT entries collapse to the first.
         Rig rig;
         rig.load({0x00, 0x76});  // NOP / HALT, interrupts off
+        rig.dbg->trace_resize(100000);  // the machine's trace: one frame of HALTs fits
         Zc c(rig);
         c.cmd("enter-cpu-step");
         c.cmd("cpu-history enabled yes");
-        c.cmd("cpu-history set-max-size 100000");  // one frame of HALTs fits
+        c.cmd("cpu-history set-max-size 100000");
         c.cmd("exit-cpu-step");
         rig.tick();
         c.cmd("enter-cpu-step");
@@ -3955,6 +3958,80 @@ static void wp5_history_rows() {
         check("ZRCP-HIS-09", "a trace another client had on stays on through enabled yes / no; "
                              "one this session turned on goes off when it quits",
               kept && on_mid && !rig.dbg->trace_enabled());
+    }
+    {
+        // B2 (M3 review): clear and set-max-size act on the session's VIEW.
+        // The machine's trace — which Step Back and rewind read — keeps every
+        // entry and its capacity, and Step Back still reaches past the clear.
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0xFE});
+        rig.dbg->set_rewind_enabled(true);
+        rig.emu.resize_rewind_buffer(8);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        c.cmd("cpu-history enabled yes");          // the trace is rewind's: not owned
+        c.cmd("cpu-step");
+        c.cmd("cpu-step");
+        c.cmd("cpu-step");                          // PC 8003
+        const auto before = rig.dbg->trace_entries();
+        const std::size_t n_before = before ? before.value.size() : 0;
+        const std::string clr  = c.cmd("cpu-history clear");
+        const std::string zero = c.cmd("cpu-history get-size");
+        const std::string max  = c.cmd("cpu-history set-max-size 2");
+        c.cmd("cpu-step");
+        c.cmd("cpu-step");
+        c.cmd("cpu-step");                          // PC 8006
+        const std::string two  = c.cmd("cpu-history get-size");
+        const std::string pcs  = c.cmd("cpu-history get-pc 0 2");
+        const auto after = rig.dbg->trace_entries();
+        const std::size_t n_after = after ? after.value.size() : 0;
+        const Result back = rig.dbg->step_back(rig.dbg->attach({"gui", ClientKind::Test}).value, 5);
+        const auto pc_back = rig.pc();
+        check("ZRCP-HIS-11", "with rewind on: the session's clear empties ITS history (0) and "
+                             "set-max-size 2 caps ITS view (the newest 2), while the machine's "
+                             "trace keeps all its entries (3 -> 6) and Step Back of 5 lands at "
+                             "8001, before the clear",
+              clr == reply_of("", true) && zero == reply_of("0", true) &&
+                  max == reply_of("", true) && two == reply_of("2", true) &&
+                  pcs == reply_of("8005 8004 ", true) && n_before == 3 && n_after == 6 &&
+                  back == Result::Ok && pc_back == 0x8001,
+              "trace " + std::to_string(n_before) + "->" + std::to_string(n_after) + " back=" +
+                  std::to_string(static_cast<int>(back)) + " pc=" + std::to_string(pc_back) +
+                  " " + esc(pcs));
+    }
+    {
+        // H09: a slot that is ROM now is taken as ROM for an entry only if the
+        // entry recorded the same page. On the Next, slot 0 holds RAM page 4
+        // when the entry is recorded and ROM again when it is read.
+        Rig rig(MachineType::ZXN_ISSUE2);
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        c.cmd("cpu-history enabled yes");
+        c.cmd("tbblue-set-register 80 4");          // NR 0x50: slot 0 = RAM page 4
+        c.cmd("cpu-step");
+        c.cmd("tbblue-set-register 80 255");        // slot 0 = ROM again
+        const std::string g = c.cmd("cpu-history get 0");
+        const auto at = g.find(" MMU=");
+        check("ZRCP-HIS-12", "history MMU=: an entry recorded with RAM page 4 in slot 0 shows "
+                             "0004 there although slot 0 is ROM now (a different page)",
+              at != std::string::npos && g.compare(at + 5, 4, "0004") == 0, esc(g, 260));
+    }
+    {
+        Rig rig;
+        rig.load({0x00, 0x00, 0x18, 0xFE});
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        c.cmd("cpu-history enabled yes");
+        c.cmd("cpu-step");
+        c.cmd("cpu-step");
+        const std::string neg  = c.cmd("cpu-history get-pc 0 -1");
+        const std::string negi = c.cmd("cpu-history get -1");
+        check("ZRCP-HIS-13", "a negative get-pc count answers ZEsarUX's \"Error. Can't be "
+                             "negative\"; get -1 is past the newest: \"ERROR: index beyond total "
+                             "elements (2)\"",
+              neg == reply_of("Error. Can't be negative", true) &&
+                  negi == reply_of("ERROR: index beyond total elements (2)", true),
+              esc(neg) + " / " + esc(negi));
     }
 }
 
@@ -4048,6 +4125,24 @@ static void wp5_stack_coverage_rows() {
                   !rig.dbg->coverage_enabled(),
               esc(got) + " / " + esc(emp));
     }
+    {
+        // B3 (M3 review): a session that turned call tracking and coverage on
+        // turns them off when it ends — a hang-up, with no enabled no.
+        Rig rig;
+        bool xst_on = false, cov_on = false;
+        {
+            Zc c(rig);
+            c.cmd("extended-stack enabled yes");
+            c.cmd("cpu-code-coverage enabled yes");
+            xst_on = rig.dbg->call_stack_enabled();
+            cov_on = rig.dbg->coverage_enabled();
+            c.p->close();
+            for (int i = 0; i < 4; ++i) rig.pump();
+        }
+        check("ZRCP-XST-04", "a session that turned call tracking and coverage on, and hangs "
+                             "up, leaves both off",
+              xst_on && cov_on && !rig.dbg->call_stack_enabled() && !rig.dbg->coverage_enabled());
+    }
 }
 
 static void wp5_load_rows() {
@@ -4078,6 +4173,37 @@ static void wp5_load_rows() {
                   miss == reply_of("ERROR loading file") &&
                   addr == reply_of("Error. Invalid address: 10000H"),
               esc(got) + " / " + esc(got2) + " / " + esc(miss));
+    }
+    {
+        // B1 (M3 review): a refused load is said, as write-memory says it; a
+        // directory is not a file.
+        const std::string bin = zrcp_tmp("rzx", ".bin");
+        {
+            std::FILE* f = std::fopen(bin.c_str(), "wb");
+            const std::uint8_t b[] = {0x11, 0x22};
+            std::fwrite(b, 1, 2, f);
+            std::fclose(f);
+        }
+        Rig rig;
+        Zc  c(rig);
+        const auto before = peek(rig, 0x9000, 2);
+        std::string refused, wm;
+        {
+            RzxOn rzx(rig.emu);
+            refused = c.cmd("load-binary " + bin + " 36864 0");
+            wm      = c.cmd("write-memory 36864 1");
+        }
+        const auto after = peek(rig, 0x9000, 2);
+        const std::string dir = c.cmd("load-binary /tmp 36864 0");
+        std::remove(bin.c_str());
+        check("ZRCP-LOAD-05", "during an RZX session load-binary is refused like write-memory, "
+                              "naming the reason and what landed (0 bytes), and memory is "
+                              "unchanged; a directory answers \"ERROR loading file\"",
+              starts_with(refused, "Error. load-binary refused: ") &&
+                  refused.find("(0 bytes loaded)") != std::string::npos &&
+                  starts_with(wm, "Error. write-memory refused: ") && before == after &&
+                  dir == reply_of("ERROR loading file"),
+              esc(refused) + " / " + esc(wm) + " / " + esc(dir));
     }
     {
         const std::string out = zrcp_tmp("save", ".bin");

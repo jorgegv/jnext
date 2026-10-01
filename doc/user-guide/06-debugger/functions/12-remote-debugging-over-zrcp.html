@@ -3092,7 +3092,9 @@ says where JNEXT behaves differently from ZEsarUX.</p>
   <code>A&lt;&gt;0 AND (HL&amp;FFH)=5</code>, ...).</li>
 <li><strong>The history, the coverage and the call tracking are the machine's.</strong> A
   client that turns one on turns it off again when it leaves; one that was
-  already on — the trace you enabled in the debugger window — stays on.</li>
+  already on — the trace you enabled in the debugger window — stays on. A
+  client's <code>cpu-history clear</code> and <code>set-max-size</code> change only what that client
+  sees: JNEXT's own Step Back keeps its whole history.</li>
 <li><strong><code>snapshot-save</code> / <code>snapshot-load</code> keep the snapshot in memory</strong>, for that
   session only; nothing is written to disk. Save it with the machine paused
   while it runs, not stopped at a breakpoint (a breakpoint stops it
