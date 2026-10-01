@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.58</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.58</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2013,7 +2013,9 @@ programming ports, <code>0x6B</code> (ZXN) and <code>0x0B</code> (Z80-DMA compat
 between them is the counter's initial value, not the register protocol.</p>
 <p>Memory and I/O access go through four callbacks bound to <code>Mmu</code> and
 <code>PortDispatch</code>, so a DMA-driven <code>OUT</code> re-enters the normal dispatcher — which is
-why <code>PortDispatch::write()</code> has to tolerate a nested write. <code>execute_burst(16)</code>
+why <code>PortDispatch::write()</code> has to tolerate a nested write. A DMA port read goes
+through <code>PortDispatch::guest_read()</code>, so an RZX records and replays it like the
+CPU's <code>IN</code> (GH #283). <code>execute_burst(16)</code>
 runs from the instruction loop, and <code>dma_holds_bus()</code> both stalls the CPU and
 silences the DMA ports. In burst mode the CPU is released during the prescaler
 wait; in continuous and byte mode it is not.</p>

@@ -496,6 +496,38 @@ NR 0x07 gate + `Mmu::sram_read_wait28()` qualifier, burst charged in
 | 23.6 | mem->I/O keeps the read-side wait | zxnext.vhd:3144,3175 | mem->I/O block: all 8 source reads wait; I/O destination irrelevant |
 | 23.7 | ENABLE while a genuine IM2 device request is pending must not permanently stall the CPU, and the LIVE per-instruction `im2_.dma_delay()` resample must track it (GH #102 TX-1696 freeze, session 3; reboot regression, session 4) | zxnext.vhd `dma_holds_bus <= '1' when z80_busak_n = '0'`; dma.vhd:267-269 (`dma_delay_i` defer gate); zxnext.vhd:2001-2010 (`im2_dma_delay`, `rising_edge(i_CLK_CPU)`) | Full-Emulator: CTC0 raised to S_REQ with `dma_int_en` set, then ENABLE issued — DMA stays deferred (`state()==TRANSFERRING`, `dma_holds_bus()==false`) AND the CPU executes a normal instruction that step (PC advances); clearing CTC0's `dma_int_en` (servicing the pending cause) lets the transfer complete on the next step |
 
+### 25. RZX record/replay of DMA port reads (GH #283) (12 tests)
+
+An RZX recording stores every value the machine reads from a port and a
+playback answers those reads from the recording. The DMA's I/O-source read
+used to call `PortDispatch::read()`, which carries neither RZX hook, so a DMA
+port read was never recorded and a playback read the live hardware. It now
+calls `PortDispatch::guest_read()` — the RZX-aware read the CPU's `IN` also
+takes — and nothing of the CPU's bus cycle. Tool reads (`read()`, the
+debugger's `port_in()`) stay out of the recording, and `port_in()` is refused
+while an RZX records or plays. On playback the replayed read still raises the
+I/O watchpoint and latches the CAP-EVT `Port` event (rows GH283-08..12).
+
+No VHDL oracle for the hooks (RZX is a host file format). The hardware fact the
+rows stand on is that the zxnDMA port decode has no machine-type term, so the
+rows run on a 48K, the machine an RZX can be recorded on (GH #274). All rows
+drive a real 48K `Emulator`, the DMA programmed through port 0x6B.
+
+| # | Test | VHDL Reference | Verification |
+|---|------|----------------|--------------|
+| GH283-01 | zxnDMA on a 48K | zxnext.vhd:2405,2440,2643 | I/O (0x7FFE, SPACE held) -> memory block lands the port value |
+| GH283-02 | DMA reads are recorded | — | Under `rzx_in_record`, 4 reads captured in order, equal to what reached memory |
+| GH283-03 | DMA keeps its own timing | — | Recorded 4-byte burst = 8 T, T-state counter +8 only (no CPU bus cycle) |
+| GH283-04 | DMA reads are replayed | — | Under `rzx_in_override`, memory receives the scripted values in order |
+| GH283-05 | Replay does not touch the port | — | No live read of 0x7FFE reaches the dispatcher during playback |
+| GH283-06 | `read()` is not recorded | — | A tool's `PortDispatch::read()` adds nothing to the recording; a CPU `in()` after it records one |
+| GH283-07 | Debugger `port_in()` refused while recording | — | Real recording: `port_in()` returns `RefusedRzx` and the live port is not dispatched |
+| GH283-08 | Playback: watchpoint on the DMA's read | — | IO_READ watchpoint on the port stops the machine on the DMA's replayed read; memory has the replayed value |
+| GH283-09 | Playback: watchpoint on the CPU's IN | — | Stops after the IN (PC+2), A holds the replayed value |
+| GH283-10 | Playback: watchpoint elsewhere | — | A watchpoint on another port stops neither replayed read |
+| GH283-11 | Playback: CAP-EVT Port latch | — | Port{Read} subscription gets the DMA's then the CPU's read, source Dma/Cpu, each with the REPLAYED value (≠ live) |
+| GH283-12 | Playback: Port latch elsewhere | — | A subscription on another port receives nothing |
+
 ## Test Count Summary
 
 | Section | Tests |
@@ -523,6 +555,7 @@ NR 0x07 gate + `Mmu::sram_read_wait28()` qualifier, burst charged in
 | 21. Timing bytes | 6 |
 | 22. Edge cases | 6 |
 | 23. 28 MHz SRAM read wait (DMA, GH #106); 23.7 bus-arbitration deadlock (GH #102) | 7 |
+| 25. RZX record/replay of DMA port reads (GH #283) | 12 |
 | **Total** | **~151** |
 
 ## Implementation Notes

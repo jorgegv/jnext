@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.58</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.58</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3152,7 +3152,7 @@ reaches what the GDB protocol itself cannot express:</p>
 </tr>
 <tr>
 <td><code>monitor in PORT</code> / <code>monitor out PORT VALUE</code></td>
-<td>a real port access — it can change the device's state</td>
+<td>a real port access — it can change the device's state, so both are refused while an RZX recording or playback is running</td>
 </tr>
 <tr>
 <td><code>monitor sym NAME\|ADDR</code></td>

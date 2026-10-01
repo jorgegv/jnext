@@ -470,9 +470,16 @@ uint8_t Debugger::nextreg_selected() const {
 // ---------------------------------------------------------------------------
 
 Expected<uint8_t> Debugger::port_in(ClientId by, uint16_t port) {
-    if (impl_->emu.rzx_player().is_playing()) {
-        // An RZX playback replays the guest's IN values from the recording; an
-        // extra dispatch consumes one and diverges everything after it.
+    // Refused while an RZX records or plays, as port_out() is. The read goes
+    // through PortDispatch::read(), which never touches the RZX log: nothing is
+    // recorded and no recorded value is consumed. What it does do is dispatch
+    // the LIVE handler, and a port read has side effects (a UART RX pop and its
+    // interrupt, the SPI shift, a Multiface strobe that pages memory). During a
+    // recording that changes the machine in a way the file cannot replay;
+    // during a playback it touches hardware the replay otherwise never reads
+    // (GH #283).
+    if (impl_->emu.rzx_recorder().is_recording() ||
+        impl_->emu.rzx_player().is_playing()) {
         return make_refused<uint8_t>(Result::RefusedRzx);
     }
     const uint8_t v = impl_->emu.port().read(port);

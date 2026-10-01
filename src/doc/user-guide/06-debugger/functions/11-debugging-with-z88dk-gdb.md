@@ -99,7 +99,7 @@ reaches what the GDB protocol itself cannot express:
 | `monitor mmu SLOT PAGE` | maps a page at a slot, as `NEXTREG 0x50+SLOT` does |
 | `monitor nextreg [REG [VALUE]]` | all NextREGs, one, or writes one |
 | `monitor page N OFF [LEN]` | a hex dump of physical 8 KB page N |
-| `monitor in PORT` / `monitor out PORT VALUE` | a real port access — it can change the device's state |
+| `monitor in PORT` / `monitor out PORT VALUE` | a real port access — it can change the device's state, so both are refused while an RZX recording or playback is running |
 | `monitor sym NAME\|ADDR` | JNEXT's own symbol table (the debugger window's map) |
 | `monitor time` | frame, cycle, T-states and the raster position |
 | `monitor reset [soft\|hard]` | resets the machine; it stays stopped |
