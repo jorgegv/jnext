@@ -1926,17 +1926,18 @@ on and the command that replays it:
     jnext --headless --machine next --load game.nex --script session.jds \
           --delayed-automatic-exit-frames 1010
 
-run from the script’s directory. The replay asserts the machine type and
-the joystick mode (NR 0x05) it was recorded with, applies the same input
-at the same frames, and ends with `exit 0`: a `.scr` that differs exits
-`3`. A cold boot (a hard reset, or loading a program from the menu)
-restarts the recording, because a replay starts at power-on too. What
-cannot be replayed exactly is written into the script as a `WARNING`
-(and logged again when it replays): a key changed while the machine was
-paused in the middle of a frame, input held before the recording began,
-a rewind. Keys jnext types by itself (a tape’s `LOAD ""`,
-**--delayed-keypress**) are recorded like any others, so replay without
-the options that typed them.
+run in the directory holding the captures (the script names them
+relative to it). The replay asserts the machine type and the joystick
+mode (NR 0x05) it was recorded with, applies the same input at the same
+frames, and ends with `exit 0`: a `.scr` that differs exits `3`. A cold
+boot (a hard reset, or loading a program from the menu) restarts the
+recording, because a replay starts at power-on too. What cannot be
+replayed exactly is written into the script as a `WARNING` (and logged
+again when it replays): a key changed while the machine was paused in
+the middle of a frame, input held before the recording began, a rewind.
+Keys jnext types by itself (a tape’s `LOAD ""`, **--delayed-keypress**)
+are recorded like any others, so replay without the options that typed
+them.
 
 **Exit status** in **--headless** (and the SDL-only build): `0` for a
 clean run or `exit 0`; *N* for `exit` *N*; `3` for a `stop` or a failed
