@@ -10,6 +10,7 @@
 - Z80 CTC, UART, DMA, SPI, I2C/RTC peripherals (VHDL-verified)
 - Host USB gamepads (up to 2, hot-plug) mapped to the Next's two joystick connectors; mode via NR 0x05 (Kempston/Sinclair/Cursor/MD). Either connector can instead be driven by the host cursor keys + Space (fire), selectable per connector (`--joy1-source`/`--joy2-source`, Input menu, Preferences; persisted)
 - DivMMC with 8KB SRAM, automap, and SD card image mounting
+- Live SD-card change (GH #93): **File > Insert SD Card Image / Eject SD Card**, and `--delayed-sdcard-insert-frames N FILE` headless, swap the card in the running machine without a reset, so NextZXOS's REMOUNT ("Remove/insert SD and press Y") works as on hardware — and a RAMdisk survives a card-to-card copy. Hardware has no card-detect line, so nothing is signalled to the guest. The ROMs are not re-read (a later hard reset or program load reads them from the new card), `--sdcard-readonly` carries over, an inserted card does not become the saved default (Preferences owns that), and the change is refused while an RZX records or plays, while a directly loaded NEX holds its file open, or while another change is pending; it drops the warm-start recording and the rewind history
 - Floating bus emulation (48K/128K modes)
 - Pentagon-512 / Pentagon-1024 paging modes via NextREG NR 0x8F (Next FPGA feature)
 

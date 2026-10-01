@@ -654,6 +654,14 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
     // pump, the delayed-screenshot / delayed-exit countdowns, the debugger
     // refresh — is left to the next one, which runs on the fresh machine: what
     // SdlApp's `continue` does, and what the abandoned pre_frames() tick used to.
+    //
+    // GH #93 — a File > Insert / Eject SD card first, so a reset in the same
+    // tick boots the new card (emulator_service_sd_card_change()).
+    if (auto sd = emulator_service_sd_card_change(a.emulator_, a.config_, a.config_set_);
+        sd && a.main_window_) {
+        a.main_window_->sd_card_change_finished(QString::fromStdString(sd->change.image),
+                                                QString::fromStdString(sd->error));
+    }
     if (std::string load_file = a.emulator_.take_nex_load_request(); !load_file.empty()) {
         a.cold_boot(load_file);
         return;

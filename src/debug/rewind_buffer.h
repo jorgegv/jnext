@@ -46,6 +46,10 @@ public:
     /// machine is partially restored and must not be reported as rewound.
     uint64_t restore_nearest(uint64_t target_cycle, Emulator& emu) const;
 
+    /// Drop every snapshot, keeping the allocation (GH #93: an SD card change
+    /// makes the held history restore one card's state machine onto another).
+    void clear() { head_ = 0; count_ = 0; }
+
     /// Number of snapshots currently stored (0..max_frames).
     size_t depth() const { return count_; }
     bool   empty() const { return count_ == 0; }

@@ -121,6 +121,13 @@ as a write-protected card would. This runtime path is entirely separate from the
 host-side FAT32 reader in `src/core/sd_rom_extractor.{h,cpp}`, which pulls the
 ROM images out of the same file at startup.
 
+The card can be changed while the machine runs (`Emulator::change_sd_card()`,
+GH #93): `mount()` is a full `reset()` of the protocol state, so the guest has to
+initialise the new card from CMD0, which is what NextZXOS's REMOUNT does after
+its "press Y". There is no card-detect line to model — the Next's SD port is five
+pins (`zxnext_top_issue2.vhd:60-64`). The ROMs are not re-extracted on a change;
+the next power-on reads them from the new card.
+
 The card serves **both SD capacity classes**, and which one it is is decided by
 the host, not by the image. ACMD41's HCS bit is latched during init, CMD58
 reports it straight back as the OCR's CCS bit, and everything downstream follows
