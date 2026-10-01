@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=71
+EXPECTED_TOTAL=73
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -1180,6 +1180,9 @@ check "HS-42" "real INT/TERM trap statements clean up AND terminate (GH #75)" 0 
 # rather than quietly probing the wrong text.
 cleanup_body_probe() {   # cleanup_body_probe <script> <fn> <var>...
     # -> "rc=<n> fast=<y|n> gone=<y|n> sibling=<y|n>"  |  "extract=FAILED(...)"
+    # A <var> written `file:NAME` names a single FILE the body removes (the
+    # bench scripts' ~/tmp clone image) rather than a directory; its fixture
+    # sits in the fake ~/tmp beside a sibling image that must survive.
     local script=$1 fn=$2; shift 2
     local body first last ndefs
     body=$(sed -n "/^${fn}() {/,/^}/p" "$script")
@@ -1202,8 +1205,16 @@ cleanup_body_probe() {   # cleanup_body_probe <script> <fn> <var>...
         echo 'set -euo pipefail'
         echo "HOME=$(printf %q "$fh")"
     } > "$probe"
-    local var d fixtures=()
+    local var d fixtures=() file_sib=""
     for var in "$@"; do
+        if [[ "$var" == file:* ]]; then
+            var=${var#file:}; d="$fh/tmp/fx-$var.img"
+            file_sib="$fh/tmp/other-live-run.img"
+            mkdir -p "$fh/tmp"; touch "$d" "$file_sib"
+            fixtures+=("$d")
+            echo "$var=$(printf %q "$d")" >> "$probe"
+            continue
+        fi
         if [[ "$var" == TMP_DIR ]]; then d="$fh-scratch"; else d="$fh/.jnext/runs/fx-$var"; fi
         mkdir -p "$d"; touch "$d/payload.img"
         fixtures+=("$d")
@@ -1220,6 +1231,7 @@ cleanup_body_probe() {   # cleanup_body_probe <script> <fn> <var>...
     local gone=y
     for d in "${fixtures[@]}"; do [[ -e "$d" ]] && gone=n; done
     local sibling=n; [[ -e "$fh/.jnext/runs/other-live-run/payload.img" ]] && sibling=y
+    [[ -z "$file_sib" || -e "$file_sib" ]] || sibling=n
     rm -rf "$fh" "$fh-scratch" "$probe"
     echo "rc=$rc fast=$fast gone=$gone sibling=$sibling"
 }
@@ -1234,6 +1246,16 @@ check "HS-43b" "REAL bench_cleanup body: bounded, removes only its run dir (GH #
 
 out=$(cleanup_body_probe "$PROJECT_DIR/test/00regression/test-functions.inc" regression_cleanup RUN_DIR TMP_DIR)
 check "HS-43c" "REAL regression_cleanup body: bounded, removes its dirs (GH #79)" 0 0 \
+    "$out" "rc=0 fast=y gone=y sibling=y"
+
+# The two bench scripts that clone the SD image to a per-run ~/tmp FILE.
+# HS-42 covers their trap wiring against a STUB; these run the real bodies.
+out=$(cleanup_body_probe "$PROJECT_DIR/test/bench/ab-hotlatch.sh" bench_cleanup file:CLONE)
+check "HS-43d" "REAL ab-hotlatch bench_cleanup body: bounded, removes only its clone file" 0 0 \
+    "$out" "rc=0 fast=y gone=y sibling=y"
+
+out=$(cleanup_body_probe "$PROJECT_DIR/test/bench/perf-attach.sh" bench_cleanup file:CLONE)
+check "HS-43e" "REAL perf-attach bench_cleanup body: bounded, removes only its clone file" 0 0 \
     "$out" "rc=0 fast=y gone=y sibling=y"
 
 # ------------------------------------------------ host load (GH #245)
