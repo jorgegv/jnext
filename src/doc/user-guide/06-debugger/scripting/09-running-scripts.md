@@ -77,8 +77,8 @@ debugger window (**Alt+D**):
 
 A script loaded from the menu starts at once, and `FRAME` — and `on frame N` —
 count the **machine's** frames, not frames since you loaded it. The log says
-so: `SCRIPT … loaded at FRAME n (FRAME and `on frame N` count the machine's
-frames)`. A rule that wants "50 frames after I loaded it" captures `FRAME` in a
+so: ``SCRIPT … loaded at FRAME n (FRAME and `on frame N` count the machine's
+frames)``. A rule that wants "50 frames after I loaded it" captures `FRAME` in a
 variable from a `once` rule.
 
 ![The Script tab, with a script loaded on a booted Next](../../img/debugger-script.png)

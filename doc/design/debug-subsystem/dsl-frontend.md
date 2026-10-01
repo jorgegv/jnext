@@ -2240,6 +2240,12 @@ pasted (time stamps and `[client N]` trimmed).
 - **The man page's `# REMOTE DEBUGGING (ZRCP)` heading had no blank line
   before it**, so pandoc swallowed the whole ZRCP section into SCRIPTING (a
   literal `# REMOTE…` line in the roff).
+- **The Script tab elided its Event and State cells** (`write …`, `armed, …`)
+  at the window's default width. The columns are now sized to their text when
+  it changes. QSCR-14.
+- **`docshot` did not build** (GH #278 WP7 changed `DebuggerManager`'s
+  constructor and the Video panel's raster helper); fixed, and it now also
+  captures the Script tab (`debugger-script.png`, used by the guide).
 
 ### N.2 Found, documented, not changed (owner's call)
 
