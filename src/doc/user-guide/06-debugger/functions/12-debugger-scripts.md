@@ -24,7 +24,7 @@ the machine's own frames, not frames since you loaded the script.
 **Alt+1** to **Alt+8** are the script host keys: Alt+*N* runs the scripts'
 `on hostkey N` rules. They work in the emulator window — with the debugger
 window open or closed — and in the debugger window; in a headless run
-`--script-key FRAME N` presses one.
+`--script-key FRAME N` presses one. Holding a key down counts as one press.
 
 They are taken from the Spectrum: Alt+1 to Alt+8 never type their digit into
 the program you are running, even with no script loaded, so what they do never

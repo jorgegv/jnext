@@ -1845,7 +1845,8 @@ pinned menu shape (`debugger_accel_test`).
   a held chord raises nothing; `release_all()` forgets a chord whose key-up
   went to another window.
 - **The debugger window**: eight `Qt::WindowShortcut` `QAction`s, not menu
-  items, each raising the same event; `validate_combo` refuses `Alt+1..Alt+8`
+  items, each raising the same event, with auto-repeat off (a held chord
+  raises once there too — review round 1 found it raising per autorepeat); `validate_combo` refuses `Alt+1..Alt+8`
   by name ("Alt+1..Alt+8 are the script host keys"), so a saved binding there
   is a `LoadIssue` and keeps its default.
 - **SDL parity**: full — the SDL window's key callback forwards Alt+digit to

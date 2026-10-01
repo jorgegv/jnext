@@ -989,6 +989,21 @@ void test_script_keys() {
             check("DKSK-01", "Alt+1 / Alt+8 in the focused debugger window raise script1 / script8 "
                              "(through the real shortcut map), and Alt+9 raises nothing",
                   got == "script1 script8 ", got);
+            // A HELD Alt+5 — one press and its autorepeats — raises script5
+            // once, as the Router does in the emulator window.
+            raised.clear();
+            if (QWindow* wh = fx.dbg->windowHandle()) {
+                QTest::simulateEvent(wh, true, Qt::Key_5, Qt::AltModifier, QString(), false);
+                QTest::simulateEvent(wh, true, Qt::Key_5, Qt::AltModifier, QString(), true);
+                QTest::simulateEvent(wh, true, Qt::Key_5, Qt::AltModifier, QString(), true);
+                QTest::simulateEvent(wh, false, Qt::Key_5, Qt::AltModifier, QString(), false);
+            }
+            settle(80);
+            std::string held;
+            for (const auto& r : raised) held += r + " ";
+            check("DKSK-04", "a held Alt+5 in the debugger window (a press and two autorepeats) raises "
+                             "script5 once, as a held chord does in the emulator window",
+                  held == "script5 ", held);
             fx.backend->detach(cid);
         }
     }
@@ -1022,12 +1037,35 @@ void test_script_keys() {
             fx.win.show();
             fx.win.activateWindow();
             settle(150);
+            // Preconditions, or the row proves nothing: the debugger window is
+            // open, its Alt+3 action is live, and the EMULATOR window is active.
+            DebuggerWindow* dw = mgr->debugger_window_ptr();
+            QAction* a3 = dw ? dw->script_key_action(2) : nullptr;
+            const bool armed = dw && dw->isVisible() && a3 && a3->isEnabled() &&
+                               QApplication::activeWindow() == &fx.win;
             press_shortcut(&fx.win, parsed("Alt+3"));
             std::string got;
             for (const auto& r : raised) got += r + " ";
+            // A third top-level window (any other jnext window — a dialog, the
+            // SD download window) is neither the emulator's nor the debugger's:
+            // Alt+3 there is not a script key at all. An application-wide
+            // action would fire it.
+            QWidget other;
+            other.show();
+            other.activateWindow();
+            settle(150);
+            const bool other_active = QApplication::activeWindow() == &other;
+            raised.clear();
+            press_shortcut(&other, parsed("Alt+3"));
+            std::string got_other;
+            for (const auto& r : raised) got_other += r + " ";
             check("DKSK-03", "with the emulator window focused and the debugger window open, Alt+3 raises "
-                             "script3 exactly once (the debugger window's actions are window-scoped)",
-                  got == "script3 ", got);
+                             "script3 exactly once; in a third window it raises nothing (the debugger "
+                             "window's actions are window-scoped)",
+                  armed && other_active && got == "script3 " && got_other.empty(),
+                  armed && other_active ? "emulator: " + got + "| other: " + got_other
+                                        : "not armed: debugger window hidden, action disabled or the "
+                                          "pressed window not active");
             fx.win.set_key_callback(nullptr);
             fx.win.set_keyboard_lost_callback(nullptr);
             fx.backend->detach(cid);

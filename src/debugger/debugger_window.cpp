@@ -609,6 +609,7 @@ void DebuggerWindow::create_menus() {
         auto* a = new QAction(tr("Script Key %1").arg(n), this);
         a->setShortcut(QKeySequence(Qt::ALT | static_cast<Qt::Key>(Qt::Key_0 + n)));
         a->setShortcutContext(Qt::WindowShortcut);
+        a->setAutoRepeat(false);   // a held chord raises once, as the Router's does
         connect(a, &QAction::triggered, this, [this, n]() {
             dbg_.raise_host_event(jnext::dbg::CLIENT_NONE, "script" + std::to_string(n));
         });
