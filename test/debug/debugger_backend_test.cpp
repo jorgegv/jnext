@@ -9347,6 +9347,33 @@ int main() {
                               "listed and still live, and the machine was not stopped",
               still.size() == 1 && still[0] == ido && live && !dbg.state().paused);
     }
+    {
+        // Only what COULD fire: not a subscription of another kind whose range
+        // covers the PC, and not a spent once re-enabled (delivery skips it).
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });  // 8000 NOP; 8001 JR 8000
+        Debugger dbg(emu);
+        Subscription o;
+        o.kind = EventKind::Execute; o.filter.lo = o.filter.hi = PROG + 1;
+        o.once = true;
+        const auto ido = dbg.subscribe(1, o).value;
+        run_until_paused(emu);
+        const bool fired = dbg.state().paused && pc_of(emu) == PROG + 1 &&
+                           dbg.state().pause_reason.id == ido;
+        dbg.set_enabled(1, ido, true);
+        Subscription m;  // after the run, so it cannot be what stopped it
+        m.kind = EventKind::Mem; m.filter.lo = 0x8000; m.filter.hi = 0x8FFF;
+        dbg.subscribe(1, m);
+        bool live = false;
+        for (const auto& si : dbg.subscriptions(false))
+            if (si.id == ido) live = si.live;
+        check("EVT-PROBE-13", "probe_execute lists no Mem subscription covering the PC, and no "
+                              "spent once subscription its owner re-enabled (live again, but "
+                              "delivery skips it)",
+              fired && live && dbg.probe_execute(PROG + 1).empty() &&
+                  dbg.probe_execute(PROG).empty(),
+              std::string("fired=") + (fired ? "1" : "0") + " live=" + (live ? "1" : "0"));
+    }
 
     // ── EVT-TIME — Frame, Scanline, Cycle ────────────────────────────────
     {

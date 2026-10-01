@@ -3411,6 +3411,22 @@ static void wp4_slot_rows() {
         rig.dbg->detach(other);
     }
     {
+        // A legacy BreakpointSet PC breakpoint (probe_execute's EVENT_NONE
+        // entry) ends a run n too, with a PC-free slot of this session armed.
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0xFE});
+        rig.emu.debug_state().breakpoints().add_pc(0x8003);
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 B=99");
+        const std::string r = c.cmd("run 6", 32);
+        check("ZRCP-BP-29", "run n stops at a legacy PC breakpoint (8003) with a PC-free slot "
+                            "of this session armed: no fired line, no Returning line",
+              rig.pc() == 0x8003 && r.find("Returning after") == std::string::npos &&
+                  r.find("Breakpoint fired") == std::string::npos,
+              esc(r, 160));
+    }
+    {
         // The fired-line fallback names a PC-free slot only when it fired at
         // this boundary (its edge), not merely because it is true there.
         Rig rig;
