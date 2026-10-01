@@ -12692,6 +12692,85 @@ int main() {
         dbg.detach(o);
     }
     {
+        // A DETACH INSIDE A FAN-OUT (GH #280 N1, review round 3). While a push is
+        // being delivered, `compact_clients()` is deferred, so a client another
+        // listener has already detached is still a TOMBSTONED row in `clients`.
+        // The heir must be a LIVE client: a tombstone that inherited the pause
+        // would never detach again, and the machine would stay paused with no
+        // client able to release it. Two shapes: the earliest row is the
+        // tombstone (N1-13), and the original pauser is (N1-14).
+        struct Churn : jnext::dbg::Listener {
+            Debugger* dbg   = nullptr;
+            bool      armed = false;
+            int       fired = 0;
+            std::vector<ClientId> leave;   // detached in this order, once
+            void churn() {
+                if (!armed) return;
+                armed = false;
+                ++fired;
+                for (ClientId id : leave) dbg->detach(id);
+            }
+            void on_paused(const jnext::dbg::PausedInfo&) override { churn(); }
+            void on_resumed(ClientId) override {}
+            void on_reset(ResetKind) override {}
+            void on_frame_ended(uint32_t) override {}
+            void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
+            void on_exit_requested(int) override {}
+            void on_log(jnext::dbg::LogLevel, const std::string&) override { churn(); }
+        };
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            Churn churn;
+            churn.dbg = &dbg;
+            const ClientId v = dbg.attach(client("V")).value;
+            const ClientId a = dbg.attach(client("A")).value;
+            const ClientId k = dbg.attach(client("K")).value;
+            dbg.set_listener(k, &churn);
+            dbg.pump(jnext::dbg::PumpBudget{});        // prime, running
+            churn.leave = {v, a};                      // V first: a tombstone by A's turn
+            churn.armed = true;
+            dbg.pause(a);
+            dbg.pump(jnext::dbg::PumpBudget{});        // K's listener: detach V, then A
+            const RunState mid = dbg.state();
+            dbg.detach(k);
+            check("N1-13", "a detach inside a fan-out, after another listener detached the "
+                           "EARLIEST client: A's pause passes to K, the live client, not to "
+                           "V's tombstone — and K's own detach then releases it",
+                  churn.fired == 1 && mid.paused && mid.pause_reason.by == k &&
+                      !dbg.state().paused,
+                  "fired=" + std::to_string(churn.fired) + " mid." + n1_owner(mid) +
+                      " released=" + (dbg.state().paused ? "0" : "1"));
+        }
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            Churn churn;
+            churn.dbg = &dbg;
+            const ClientId a = dbg.attach(client("A")).value;
+            const ClientId b = dbg.attach(client("B")).value;
+            const ClientId k = dbg.attach(client("K")).value;
+            dbg.set_listener(k, &churn);
+            dbg.pump(jnext::dbg::PumpBudget{});        // prime, running
+            dbg.pause(a);
+            dbg.pump(jnext::dbg::PumpBudget{});
+            dbg.step_into(b);                          // B owns the Step stop; origin A
+            churn.leave = {a, b};                      // the origin first: a tombstone
+            churn.armed = true;
+            // A step leaves the machine paused, so it pushes no new `Paused`;
+            // an SES-06 log line is the fan-out that delivers the churn here.
+            dbg.log(k, jnext::dbg::LogLevel::Info, "churn");
+            const RunState mid = dbg.state();
+            dbg.detach(k);
+            check("N1-14", "and after another listener detached the ORIGINAL PAUSER: B's "
+                           "pause passes to K, not to A's tombstone; K's detach releases it",
+                  churn.fired == 1 && mid.paused && mid.pause_reason.by == k &&
+                      !dbg.state().paused,
+                  "fired=" + std::to_string(churn.fired) + " mid." + n1_owner(mid) +
+                      " released=" + (dbg.state().paused ? "0" : "1"));
+        }
+    }
+    {
         // ONLY AN OBSERVER REMAINS: it arms nothing and inherits nothing, so
         // the last ARMING client's detach releases the pause — a crashed DeZog
         // in a Qt GUI session (whose observer lives as long as the GUI) must not
