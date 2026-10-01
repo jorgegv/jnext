@@ -515,17 +515,12 @@ FileAddStatus scan_host_dir(const std::filesystem::path& dir,
         }
     }
 
+    // A directory that cannot be opened leaves `ec` set and `it` at the end,
+    // so the one check after the loop covers opening and reading alike.
     std::vector<fs::path> entries;
     fs::directory_iterator it(dir, ec);
-    if (ec) {
-        err = "cannot list directory '" + dir.u8string() + "' (" +
-              ec.message() + ")";
-        return FileAddStatus::SourceUnreadable;
-    }
-    for (; it != fs::directory_iterator(); it.increment(ec)) {
-        if (ec) break;
+    for (; !ec && it != fs::directory_iterator(); it.increment(ec))
         entries.push_back(it->path());
-    }
     if (ec) {
         err = "cannot list directory '" + dir.u8string() + "' (" +
               ec.message() + ")";

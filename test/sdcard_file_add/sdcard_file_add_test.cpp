@@ -1416,6 +1416,8 @@ void test_tree_rollback() {
 // truncated to be rewritten), and the message has to say so rather than
 // claim the card is as it was. A directory of many long names, sorted ahead
 // of the replaced file, eats the clusters the pre-check set aside for it.
+// Unlike SDFA-T33, where the replacement had already SUCCEEDED, here the
+// failing file is the replaced one.
 void test_tree_replace_lost() {
     const fs::path img = g_scratch / "lost.img";
     std::string why, err;
@@ -1446,7 +1448,9 @@ void test_tree_replace_lost() {
         std::snprintf(name, sizeof name, "a rather long file name %02d.txt", i);
         write_host_file(t / "lots" / name, {});
     }
-    write_host_file(t / "ZZZ.BIN", payload(20 * kClusterBytes, 131));
+    // Lowercase on the host so it sorts AFTER "lots" (byte order puts
+    // uppercase first); FAT matches it to ZZZ.BIN regardless of case.
+    write_host_file(t / "zzz.bin", payload(20 * kClusterBytes, 131));
     const uint32_t free_before = fsinfo_free_count(img);
     const FileAddStatus st =
         sdcard::add_to_image(img.string(), t.string(), "/RL", true, err);
