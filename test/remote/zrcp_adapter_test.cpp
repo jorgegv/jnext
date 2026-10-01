@@ -2619,6 +2619,13 @@ static void wp4_condition_rows() {
             const std::string r = ev(c, f);
             if (r != "0") bad += std::string(" [") + f + "=" + r + " with F=28]";
         }
+        z.AF = 0x1204;  // F: P/V alone — FP and FV read it, nothing else does
+        rig.emu.cpu().set_registers(z);
+        for (const char* f : {"FS", "FZ", "FH", "FP", "FV", "FN", "FC"}) {
+            const std::string r  = ev(c, f);
+            const bool        pv = std::string(f) == "FP" || std::string(f) == "FV";
+            if (r != (pv ? "1" : "0")) bad += std::string(" [") + f + "=" + r + " with F=04]";
+        }
         check("ZRCP-CND-05", "every honoured register name reads its register (the 8-bit "
                              "alternates from AF'..HL', FV as FP), each flag 1 when set and 0 "
                              "when clear, IFF1/IFF2, case-insensitively",
@@ -2818,6 +2825,8 @@ static void wp4_condition_rows() {
         static const struct { const char* e; const char* v; } kChain[] = {
             {"SEG3=0 AND 0", "0"}, {"SEG3=1 AND 1", "0"}, {"SEG3=0 AND 1", "1"},
             {"SEG3<>0 AND 1", "0"}, {"SEG3<1 AND 2", "1"}, {"SEG3>=1 AND 1", "0"},
+            {"SEG3<0 AND 1", "0"},  {"SEG3<=0 AND 1", "1"}, {"SEG3>0 AND 1", "0"},
+            {"SEG3>=0 AND 1", "1"},
             {"FF", "Error parsing"}, {"PEEK(0)PEEK(1)", "Error parsing"},
         };
         std::string bad;
@@ -3189,6 +3198,37 @@ static void wp4_slot_rows() {
                   ga == "2: menu\n\ncommand@cpu-step> " && rig.dbg->subscriptions(true).empty(),
               esc(gb) + " / " + esc(gm));
     }
+    {
+        // run n does not end on a print-action slot: it prints and steps on.
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0xFE});
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpointaction 1 prints here");
+        c.cmd("set-breakpoint 1 PC=8001H");
+        const std::string r = c.cmd("run 3", 32);
+        check("ZRCP-BP-19", "run n over a print-action slot's address does not stop there: it "
+                            "runs its 3 opcodes",
+              rig.pc() == 0x8003 && r.find("Returning after 3 opcodes\n") != std::string::npos &&
+                  r.find("Breakpoint fired") == std::string::npos,
+              esc(r));
+    }
+    {
+        // A bare native variable is a condition on its value: SEG3 is 0 on
+        // the 48K, so it never fires.
+        Rig rig;
+        rig.load({0x00, 0x00, 0x18, 0xFE});
+        Zc c(rig);
+        bp_on(c);
+        const std::string set = c.cmd("set-breakpoint 1 SEG3");
+        c.send_once("run\n");
+        for (int i = 0; i < 4; ++i) rig.tick();
+        const bool running = !rig.dbg->state().paused;
+        const std::string stop = c.send_once("\n") + c.wait(8);
+        check("ZRCP-BP-20", "a bare SEG3 condition (0 on the 48K) is accepted and never fires: "
+                            "data stops the run at JR $",
+              set == reply_of("", true) && running && is_stop_shape(stop, 0x8002), esc(stop));
+    }
 }
 
 static void wp4_mem_rows() {
@@ -3349,14 +3389,20 @@ static void wp4_mem_rows() {
         int mems = 0;
         for (const auto& s : rig.dbg->subscriptions(false)) mems += s.kind == jnext::dbg::EventKind::Mem;
         const std::string kept = c.cmd("get-membreakpoints");
+        c.cmd("enable-breakpoints");
+        int rearmed = 0;
+        for (const auto& s : rig.dbg->subscriptions(false))
+            rearmed += s.kind == jnext::dbg::EventKind::Mem;
+        c.cmd("disable-breakpoints");
         check("ZRCP-MBP-07", "set-membreakpoint's errors are ZEsarUX's (two parameters, address "
                              "0..10000H — 10000H is 0000 —, type 0..255); disable-breakpoints "
-                             "disarms the memory breakpoints and keeps the map",
+                             "disarms the memory breakpoints and keeps the map, and "
+                             "enable-breakpoints re-arms them",
               few == reply_of("ERROR. Needs two parameters minimum", true) &&
                   addr == reply_of("ERROR. Address out of range", true) &&
                   max == reply_of("", true) && type == reply_of("ERROR. Type out of range", true) &&
                   at0 == "Breakpoints: On\n0000H : 1\n\ncommand@cpu-step> " && mems == 0 &&
-                  kept == "Breakpoints: Off\n0000H : 1\n\ncommand@cpu-step> ",
+                  kept == "Breakpoints: Off\n0000H : 1\n\ncommand@cpu-step> " && rearmed == 1,
               esc(few) + " / " + esc(addr) + " / " + esc(kept));
     }
 }
