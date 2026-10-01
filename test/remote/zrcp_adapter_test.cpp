@@ -3894,6 +3894,21 @@ static void wp5_history_rows() {
               esc(all) + " / " + esc(one) + " / " + esc(pcs));
     }
     {
+        // ... and of LDDR (ED B8) as of LDIR.
+        Rig rig;
+        rig.load({0x01, 0x03, 0x00, 0x21, 0x02, 0x90, 0x11, 0x02, 0x91, 0xED, 0xB8, 0x00,
+                  0x18, 0xFE});
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        c.cmd("cpu-history enabled yes");
+        c.cmd("cpu-history ignrepldxr yes");
+        c.cmd("run 7", 32);
+        const std::string one = c.cmd("cpu-history get-size");
+        check("ZRCP-HIS-10", "ignrepldxr yes collapses a run of LDDR iterations as it does LDIR "
+                             "(7 executed, 5 listed)",
+              one == reply_of("5", true), esc(one));
+    }
+    {
         // ignrephalt: consecutive HALT entries collapse to the first.
         Rig rig;
         rig.load({0x00, 0x76});  // NOP / HALT, interrupts off
@@ -3971,6 +3986,25 @@ static void wp5_stack_coverage_rows() {
                   none == reply_of("ERROR. Needs at least one parameter", true) &&
                   bad == reply_of("Error. Unknown parameter", true),
               esc(two) + " / " + esc(at));
+    }
+    {
+        // An accepted interrupt's return address is maskable_interrupt.
+        // 8000 EI / 8001 HALT / 8002 JR $, IM 1: the step over the HALT runs it
+        // out to the interrupt (GH #207), which pushes 8002.
+        Rig rig;
+        rig.load({0xFB, 0x76, 0x18, 0xFE});
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        c.cmd("set-register IM=1");
+        c.cmd("extended-stack enabled yes");
+        for (int i = 0; i < 6 && rig.pc() != 0x0038; ++i) c.cmd("cpu-step", 64);
+        const std::string at  = c.cmd("get-registers");
+        const std::string top = c.cmd("extended-stack get 1");
+        check("ZRCP-XST-03", "after the HALT is run out to an IM 1 interrupt, the stacked return "
+                              "address 8002 is typed maskable_interrupt",
+              starts_with(at, "PC=0038 ") &&
+                  top == "8002H maskable_interrupt\n\ncommand@cpu-step> ",
+              esc(at, 30) + " / " + esc(top));
     }
     {
         Rig rig;
