@@ -2243,6 +2243,12 @@ pasted (time stamps and `[client N]` trimmed).
 - **The Script tab elided its Event and State cells** (`write …`, `armed, …`)
   at the window's default width. The columns are now sized to their text when
   it changes. QSCR-14.
+- **Every headless stop logged `[warning] STOP under StopPolicy::ExitNonZero —
+  requesting exit 3`**, a passing script `exit 0`'s included. The backend
+  cannot know which exit the loop owner takes, so its line is now neutral and
+  at info (`… — asking the loop owner to exit`); `ScriptHost`'s listener, which
+  decides, logs the old warning when the exit it takes IS the stop's.
+  SCRIPT-HOST-STOP-WARNING.
 - **`docshot` did not build** (GH #278 WP7 changed `DebuggerManager`'s
   constructor and the Video panel's raster helper); fixed, and it now also
   captures the Script tab (`debugger-script.png`, used by the guide).
@@ -2253,9 +2259,6 @@ pasted (time stamps and `[client N]` trimmed).
   ROM page number, 0..7 — the same numbers as RAM pages 0..7, so `on execute
   page 0` also matches ROM code. Documented, with `mmu[s] != 0xFF` as the RAM
   test.
-- The backend logs `STOP under StopPolicy::ExitNonZero — requesting exit 3`
-  for every headless stop, a script `exit 0`'s included; the verdict is the
-  host's `script requested exit N` line. Documented.
 - `save_snapshot` (like `--delayed-snapshot`) writes `.sna` data for any
   extension but `.jns`/`.szx`/`.nex`, `.z80` included. Documented.
 - `screenshot` / `save_snapshot` and an `exit` in the same frame rule: the run

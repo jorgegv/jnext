@@ -498,7 +498,11 @@ something else is a trap for whoever wrote it — and the §4.8 override
 (`ExitNonZero` becomes `Pause` while a remote client is *connected*, so a client
 blocked on `run` gets its stop reply) lives at the one place the policy is
 consumed. The exit code with no script to name one is **3**: never 2, which both
-harnesses use for a harness fault, and 1 stays "jnext could not run".
+harnesses use for a harness fault, and 1 stays "jnext could not run". The
+backend logs that request at info and neutrally (`… — asking the loop owner to
+exit`): a script's own `exit n` stops the machine too, and only the listener
+that decides — `ScriptHost`'s — knows which code is taken, so it logs the
+`requesting exit 3` warning when it is the stop's (GH #26 WP9).
 
 An explicit `pause()` is a stop that drops the transient subscriptions but is
 **not** an `Action::Stop`, so it never requests an exit. One function serves both
