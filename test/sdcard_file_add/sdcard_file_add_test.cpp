@@ -392,6 +392,15 @@ uint32_t fat_scan_free(const fs::path& image) {
     return n;
 }
 
+// The two free-cluster accounts agree: FSInfo (what FatFs last WROTE) and a
+// scan of FAT #1 (what is really allocated). A cluster freed only in FatFs's
+// memory and never flushed shows up as exactly this disagreement — the lost
+// cluster fsck.vfat reclaims (GH #292 review round 3).
+bool free_counts_agree(const fs::path& image) {
+    const uint32_t a = fsinfo_free_count(image);
+    return a != 0xFFFFFFFFu && a == fat_scan_free(image);
+}
+
 // Does `long_name` appear in the directory `dir` of the image, with `size`
 // bytes? Uses fat32_read_tree, which reconstructs VFAT long names — the short
 // name reader (extract_sd_rom) cannot see them at all.
@@ -662,7 +671,7 @@ void test_writes() {
     check("SDFA-W20", "the original fixture files survived every write above",
           fixture_tree_intact(img));
     check("SDFA-W21", "both FAT copies still agree after all of them",
-          fats_agree(img, fat_detail), fat_detail);
+          fats_agree(img, fat_detail) && free_counts_agree(img), fat_detail);
 
     // ---- destination conflicts ---------------------------------------------
     write_host_file(src, small);
@@ -1126,7 +1135,7 @@ void test_defaults() {
           st == FileAddStatus::SourceUnreadable &&
           err.find("device") != std::string::npos && file_digest(img) == before, err);
     check("SDFA-D13", "the fixture tree and both FATs survived the default-dest copies",
-          fixture_tree_intact(img) && fats_agree(img, why), why);
+          fixture_tree_intact(img) && fats_agree(img, why) && free_counts_agree(img), why);
 }
 
 // ---------------------------------------------------------------------------
@@ -1203,7 +1212,7 @@ void test_tree() {
     check("SDFA-T08", "the files already on the card are untouched",
           fixture_tree_intact(img));
     check("SDFA-T09", "both FAT copies agree after the tree copy",
-          fats_agree(img, why), why);
+          fats_agree(img, why) && free_counts_agree(img), why);
 
     // ---- merging into what is there -------------------------------------------
     const fs::path more = g_scratch / "more";
@@ -1302,7 +1311,7 @@ void test_tree() {
           err.find("ends in a '.' or a space") != std::string::npos &&
           file_digest(img) == before, err);
     check("SDFA-T19", "after all of it the fixture files and both FATs are intact",
-          fixture_tree_intact(img) && fats_agree(img, why), why);
+          fixture_tree_intact(img) && fats_agree(img, why) && free_counts_agree(img), why);
 }
 
 // Host-side refusals: each one leaves the card byte-for-byte as it was.
@@ -1471,7 +1480,7 @@ void test_tree_refusals() {
     }
     check("SDFA-T31", "no refusal touched the card: it is the image the links left",
           file_digest(img) != pristine && fixture_tree_intact(img) &&
-          fats_agree(img, why), why);
+          fats_agree(img, why) && free_counts_agree(img), why);
 }
 
 // A copy that fails PART-WAY is rolled back.
@@ -1527,10 +1536,11 @@ void test_tree_rollback() {
     check("SDFA-T34", "...and nothing it created is left on the card",
           !card_has(img, "/RB/lots") && card_has(img, "/RB"));
     check("SDFA-T35", "...with every cluster it took given back",
-          fsinfo_free_count(img) == free_before,
-          std::to_string(free_before) + " -> " + std::to_string(fsinfo_free_count(img)));
+          fsinfo_free_count(img) == free_before && fat_scan_free(img) == free_before,
+          std::to_string(free_before) + " -> " + std::to_string(fsinfo_free_count(img)) +
+          " (FAT scan " + std::to_string(fat_scan_free(img)) + ")");
     check("SDFA-T36", "...and the volume consistent: fixture intact, FATs agree",
-          fixture_tree_intact(img) && fats_agree(img, why), why);
+          fixture_tree_intact(img) && fats_agree(img, why) && free_counts_agree(img), why);
 
     // One cluster per new directory is the pre-check's floor: four empty
     // directories cannot fit in three clusters, and that is known before
@@ -1574,12 +1584,15 @@ void test_tree_rollback() {
         std::snprintf(name, sizeof name, "a rather long file name %02d.txt", i);
         write_host_file(into / "lots" / name, {});
     }
+    const uint32_t free4 = fsinfo_free_count(img);
     const FileAddStatus st4 =
         sdcard::add_to_image(img.string(), into.string(), "/EMPTYDST", false, err);
     check("SDFA-T44", "a rollback keeps an empty directory it only merged into",
           mk == FileAddStatus::Ok && st4 == FileAddStatus::ImageFull &&
           card_has(img, "/EMPTYDST") && !card_has(img, "/EMPTYDST/lots") &&
-          err.find("could not be removed") == std::string::npos, err);
+          err.find("could not be removed") == std::string::npos &&
+          fsinfo_free_count(img) == free4 && fat_scan_free(img) == free4 &&
+          fats_agree(img, why), err + why);
 }
 
 // A card whose /P directory holds exactly one FULL 512-byte cluster of
@@ -1648,8 +1661,8 @@ void test_file_new_dirs() {
     // Everything it made is given back. /P keeps the cluster it grew by —
     // FAT never shrinks a directory — and that is the only residue.
     check("SDFA-W58", "...every cluster it made is given back but /P's growth; FATs agree",
-          fsinfo_free_count(img) == free1 - 1 && fixture_tree_intact(img) &&
-          fats_agree(img, why),
+          fsinfo_free_count(img) == free1 - 1 && fat_scan_free(img) == free1 - 1 &&
+          fixture_tree_intact(img) && fats_agree(img, why),
           std::to_string(free1) + " -> " + std::to_string(fsinfo_free_count(img)) + why);
 
     // The largest file FAT32 can hold is 4 GiB - 1: refused only for space.
@@ -1673,9 +1686,29 @@ void test_file_new_dirs() {
     fs::remove_all(t, ec);
     fs::create_directories(t / "D1", ec);
     st = sdcard::add_to_image(img.string(), t.string(), "/P", false, err);
-    check("SDFA-T45", "a directory that runs out of room mid-tree is image-full",
-          free2 == 1 && st == FileAddStatus::ImageFull && !card_has(img, "/P/D1"),
-          "free=" + std::to_string(free2) + "; " + err);
+    // ...and the cluster f_mkdir took and gave back is free ON THE CARD: no
+    // later operation flushes FatFs's FAT window for it (review round 3).
+    check("SDFA-T45", "a directory that runs out of room mid-tree is image-full, nothing lost",
+          free2 == 1 && st == FileAddStatus::ImageFull && !card_has(img, "/P/D1") &&
+          fsinfo_free_count(img) == free2 && fat_scan_free(img) == free2 &&
+          fats_agree(img, why),
+          "free=" + std::to_string(free2) + " after: FSInfo " +
+          std::to_string(fsinfo_free_count(img)) + " FAT scan " +
+          std::to_string(fat_scan_free(img)) + "; " + err + why);
+
+    // The same for a single FILE whose one new directory cannot be made.
+    uint32_t free3 = 0;
+    img = full_parent_fixture("mkdir1-file.img", 1, free3);
+    const fs::path z = g_scratch / "z-empty.bin";
+    write_host_file(z, {});
+    st = sdcard::add_to_image(img.string(), z.string(), "/P/A/z.bin", false, err);
+    check("SDFA-W67", "a file whose only new directory cannot be made leaves nothing lost",
+          free3 == 1 && st == FileAddStatus::ImageFull && !card_has(img, "/P/A") &&
+          fsinfo_free_count(img) == free3 && fat_scan_free(img) == free3 &&
+          fats_agree(img, why),
+          "free=" + std::to_string(free3) + " after: FSInfo " +
+          std::to_string(fsinfo_free_count(img)) + " FAT scan " +
+          std::to_string(fat_scan_free(img)) + "; " + err + why);
 }
 
 // GH #292 review round 2 — EVERY directory an add makes, at any depth, for a
@@ -1819,8 +1852,9 @@ void test_tree_replace_lost() {
         sdcard::add_to_image(img.string(), t.string(), "/RL", true, err);
     check("SDFA-T40", "a file lost while being replaced is reported as lost",
           free_before == leave && st == FileAddStatus::ImageFull &&
-          err.find("1 existing file(s) had already been replaced") != std::string::npos,
-          "fixture free=" + std::to_string(free_before) + "; " + err);
+          err.find("1 existing file(s) had already been replaced") != std::string::npos &&
+          free_counts_agree(img) && fats_agree(img, why),
+          "fixture free=" + std::to_string(free_before) + "; " + err + why);
 }
 
 }  // namespace

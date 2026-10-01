@@ -14,7 +14,7 @@ that knowing the rule is usually faster than grepping.
 | `doc/` | Documentation. `doc/design/` holds design plans (including the roadmap), `doc/testing/` the per-subsystem test plans and the generated traceability matrix, `doc/man/` the man-page source, `doc/user-guide/` and `doc/developer-guide/` the **rendered and committed** guides. |
 | `demo/` | z88dk test programs, one directory per feature (`copper_demo`, `tilemap_demo`, `lores_demo`, …), built to `.nex`/`.tap` by `demo/Makefile`. Most regression screenshots are of these. |
 | `packaging/` | Everything that turns a build into a package: `rpm/`, `debian/`, `flatpak/`, `macos/`, `windows/`, the AppStream metadata in `assets/`, and `sync-version.sh`, the one script that knows every file hard-coding the version. |
-| `third_party/` | Vendored dependencies: `fuse-z80/` (the Z80 core, GPLv2-or-later), `spdlog/` (logging, submodule), `zot/` (TZX playback, MIT), `fatfs/` (FAT filesystem, used for SD-image work). |
+| `third_party/` | Vendored dependencies: `fuse-z80/` (the Z80 core, GPLv2-or-later), `spdlog/` (logging, submodule), `zot/` (TZX playback, MIT), `fatfs/` (FAT filesystem, used for SD-image work; carries one local addition, `f_syncvol()`, marked in `ff.c`, which flushes the volume before jnext unmounts it). |
 | `tools/` | Developer utilities that are not part of the build: SD-image fixers, CSpect/DZRP differential-debugging helpers, profiler post-processing, the user-guide server. |
 | `roms/` | `nextboot.rom` and nothing else. The 8 KB FPGA boot ROM is embedded into the binary at build time; every other ROM is read out of the SD-card image at runtime. Git-ignored beyond that file. |
 | `cmake/` | `GenerateVersion.cmake` — derives the version from `version.yaml`. |

@@ -288,8 +288,19 @@ struct MountedCard {
         return FileAddStatus::Ok;
     }
 
+    // Flush, THEN unmount. A failed FatFs call can leave a change in its
+    // memory that no later call writes out — a failed f_mkdir frees its
+    // cluster only there — and f_mount(nullptr) discards it, leaving a lost
+    // cluster on the card (GH #292 review round 3). f_syncvol() is a jnext
+    // addition to the vendored FatFs (see ff.c); on a volume with nothing
+    // pending it writes nothing. Its result is not reported: every path that
+    // reaches here after a failure already returns an error, and a successful
+    // copy has synced at its own last call.
     ~MountedCard() {
-        if (mounted)  f_mount(nullptr, "0:", 0);
+        if (mounted) {
+            f_syncvol("0:");
+            f_mount(nullptr, "0:", 0);
+        }
         if (attached) fatfs_glue::detach(kDrive);
     }
 };
