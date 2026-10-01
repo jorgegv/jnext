@@ -770,7 +770,16 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
 :   Deliver script host key *N* (`1` to `8`) at emulated frame *FRAME*
     (**--headless** only; repeatable): the script’s `on hostkey` *N*
     rules run at the end of frame *FRAME*, where `on frame` *FRAME*
-    runs. Needs a **--script**.
+    runs. Needs a **--script**, or a **--record-script** (key `8` is the
+    recorder’s capture).
+
+**--record-script** *FILE*
+:   Record the session as a replay script; see **Recording a session**
+    under [the SCRIPTING section of the man
+    page](https://github.com/jorgegv/jnext/blob/main/USAGE.md#scripting).
+    Every input change is written as the frame it landed on, each Alt +
+    8 (or **--script-key** *FRAME* `8`) captures the screen, and *FILE*
+    is written when jnext exits. Works in every frontend.
 
 **--map** *FILE*
 :   Load a z88dk `.map` symbol table, so a script can name an address as

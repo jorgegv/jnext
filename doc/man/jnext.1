@@ -870,7 +870,16 @@ emulated frame \f[I]FRAME\f[R] (\f[B]\-\-headless\f[R] only;
 repeatable): the script\(cqs \f[CR]on hostkey\f[R] \f[I]N\f[R] rules run
 at the end of frame \f[I]FRAME\f[R], where \f[CR]on frame\f[R]
 \f[I]FRAME\f[R] runs.
-Needs a \f[B]\-\-script\f[R].
+Needs a \f[B]\-\-script\f[R], or a \f[B]\-\-record\-script\f[R] (key
+\f[CR]8\f[R] is the recorder\(cqs capture).
+.TP
+\f[B]\-\-record\-script\f[R] \f[I]FILE\f[R]
+Record the session as a replay script; see \f[B]Recording a session\f[R]
+under \f[B]SCRIPTING\f[R].
+Every input change is written as the frame it landed on, each Alt + 8
+(or \f[B]\-\-script\-key\f[R] \f[I]FRAME\f[R] \f[CR]8\f[R]) captures the
+screen, and \f[I]FILE\f[R] is written when jnext exits.
+Works in every frontend.
 .TP
 \f[B]\-\-map\f[R] \f[I]FILE\f[R]
 Load a z88dk \f[CR].map\f[R] symbol table, so a script can name an
@@ -2328,6 +2337,41 @@ frames since the load.
 In the GUI a script never ends the program: \f[CR]stop\f[R], a failed
 \f[CR]assert\f[R] and \f[CR]exit\f[R] pause the machine and open the
 debugger.
+.PP
+\f[B]Recording a session.\f[R] \f[B]Script > Record Script\&...\f[R] in
+the debugger window (or the Script tab\(cqs \f[B]Record\&...\f[R], or
+\f[B]\-\-record\-script\f[R] \f[I]FILE\f[R]) records what you do into a
+replay script: every change of the keyboard, the Next extended keys and
+both joysticks, as \f[CR]press\f[R] / \f[CR]release\f[R] /
+\f[CR]joystick\f[R] at the frame it landed on, and a capture at each
+\f[B]Alt + 8\f[R] (or \f[B]Script > Capture Screen\f[R]).
+A capture is the ULA screen memory (\f[I]base\f[R]\f[CR]\-0001.scr\f[R]
+and a \f[CR]compare_scr\f[R] line) when only the ULA layer is on, and
+otherwise a PNG (\f[I]base\f[R]\f[CR]\-0001.png\f[R], and a
+\f[CR]screenshot\f[R] of \f[I]base\f[R]\f[CR]\-0001\-replay.png\f[R] to
+compare it with).
+\f[B]Stop Recording\f[R] \- or leaving jnext \- writes the script.
+Its header says what it was recorded on and the command that replays it:
+.IP
+.EX
+jnext \-\-headless \-\-machine next \-\-load game.nex \-\-script session.jds \(rs
+      \-\-delayed\-automatic\-exit\-frames 1010
+.EE
+.PP
+run from the script\(cqs directory.
+The replay asserts the machine type and the joystick mode (NR 0x05) it
+was recorded with, applies the same input at the same frames, and ends
+with \f[CR]exit 0\f[R]: a \f[CR].scr\f[R] that differs exits
+\f[CR]3\f[R].
+A cold boot (a hard reset, or loading a program from the menu) restarts
+the recording, because a replay starts at power\-on too.
+What cannot be replayed exactly is written into the script as a
+\f[CR]WARNING\f[R] (and logged again when it replays): a key changed
+while the machine was paused in the middle of a frame, input held before
+the recording began, a rewind.
+Keys jnext types by itself (a tape\(cqs \f[CR]LOAD \(dq\(dq\f[R],
+\f[B]\-\-delayed\-keypress\f[R]) are recorded like any others, so replay
+without the options that typed them.
 .PP
 \f[B]Exit status\f[R] in \f[B]\-\-headless\f[R] (and the SDL\-only
 build): \f[CR]0\f[R] for a clean run or \f[CR]exit 0\f[R]; \f[I]N\f[R]

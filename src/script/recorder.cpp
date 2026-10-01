@@ -285,7 +285,8 @@ std::string Recorder::script() const {
     s += "# joystick: nr05=" + hex(nr05_, 2) + "\n";
     s += "# recorded: FRAME " + std::to_string(first) + ".." + std::to_string(have_frame_ ? last_frame_ : 0) +
          ", " + std::to_string(edges_) + " input edges, " + std::to_string(captures_) + " captures\n";
-    s += "# replay (from this file's directory — the captures are named relative to it):\n";
+    s += "# replay, in the directory holding the captures (they are named relative to it; the\n"
+         "# program's path is as it was loaded):\n";
     s += "#   jnext --headless --machine " + machine_flag(machine_) +
          (info_.rtc.empty() ? std::string() : " --rtc \"" + info_.rtc + "\"") +
          (info_.load_file.empty() ? std::string() : " --load " + info_.load_file) + " --script " + base_ +

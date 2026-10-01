@@ -724,7 +724,14 @@ debugger ones.
 :   Deliver script host key *N* (`1` to `8`) at emulated frame *FRAME*
     (**\--headless** only; repeatable): the script's `on hostkey` *N* rules run
     at the end of frame *FRAME*, where `on frame` *FRAME* runs. Needs a
-    **\--script**.
+    **\--script**, or a **\--record-script** (key `8` is the recorder's
+    capture).
+
+**\--record-script** *FILE*
+:   Record the session as a replay script; see **Recording a session** under
+    **SCRIPTING**. Every input change is written as the frame it landed on,
+    each Alt + 8 (or **\--script-key** *FRAME* `8`) captures the screen, and
+    *FILE* is written when jnext exits. Works in every frontend.
 
 **\--map** *FILE*
 :   Load a z88dk `.map` symbol table, so a script can name an address as
@@ -1764,6 +1771,34 @@ same files again and **Unload Scripts** removes them all; scripts given with
 once, and `FRAME` (and `on frame` *N*) count the machine's frames, not frames
 since the load. In the GUI a script never ends the program: `stop`, a failed
 `assert` and `exit` pause the machine and open the debugger.
+
+**Recording a session.** **Script > Record Script...** in the debugger window
+(or the Script tab's **Record...**, or **\--record-script** *FILE*) records
+what you do into a replay script: every change of the keyboard, the Next
+extended keys and both joysticks, as `press` / `release` / `joystick` at the
+frame it landed on, and a capture at each **Alt + 8** (or **Script > Capture
+Screen**). A capture is the ULA screen memory (*base*`-0001.scr` and a
+`compare_scr` line) when only the ULA layer is on, and otherwise a PNG
+(*base*`-0001.png`, and a `screenshot` of *base*`-0001-replay.png` to compare
+it with). **Stop Recording** - or leaving jnext - writes the script. Its header
+says what it was recorded on and the command that replays it:
+
+```
+jnext --headless --machine next --load game.nex --script session.jds \
+      --delayed-automatic-exit-frames 1010
+```
+
+run in the directory holding the captures (the script names them relative to
+it). The replay asserts the machine type and the
+joystick mode (NR 0x05) it was recorded with, applies the same input at the
+same frames, and ends with `exit 0`: a `.scr` that differs exits `3`. A cold
+boot (a hard reset, or loading a program from the menu) restarts the recording,
+because a replay starts at power-on too. What cannot be replayed exactly is
+written into the script as a `WARNING` (and logged again when it replays): a
+key changed while the machine was paused in the middle of a frame, input held
+before the recording began, a rewind. Keys jnext types by itself (a tape's
+`LOAD ""`, **\--delayed-keypress**) are recorded like any others, so replay
+without the options that typed them.
 
 **Exit status** in **\--headless** (and the SDL-only build): `0` for a clean run
 or `exit 0`; *N* for `exit` *N*; `3` for a `stop` or a failed `assert`; `1`
