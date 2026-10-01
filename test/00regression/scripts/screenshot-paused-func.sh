@@ -34,11 +34,12 @@ if want screenshot-paused-func; then
     then pctrl_rc=0; else pctrl_rc=1; fi
 
     if [[ "$paused_rc" -ne 0 ]] && [[ ! -f "$png" ]] \
-       && echo "$out" | grep -q "NO screenshot was written" \
+       && grep -q "NO screenshot was written" <<<"$out" \
        && [[ "$pctrl_rc" -eq 0 ]] && [[ -s "$png_ok" ]]; then
         pass_row " (paused debugger: error + exit!=0, no PNG; control writes one)"
     else
         fail_row " (paused_rc=$paused_rc png_exists=$([[ -f "$png" ]] && echo y || echo n) control_rc=$pctrl_rc)"
+        show_output "jnext" "$out"
     fi
 fi
 

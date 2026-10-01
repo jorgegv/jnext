@@ -19,7 +19,7 @@ if want harness-selftest-func; then
         pass_row " ($hs_line)"
     else
         fail_row " (the test harness itself is broken — see below)"
-        echo "$hs_out" | grep -E '^\s*FAIL' | head -5 | sed -E 's/^/      /'
+        grep -E '^\s*FAIL' <<<"$hs_out" | head -5 | sed -E 's/^/      /' || true
     fi
 fi
 

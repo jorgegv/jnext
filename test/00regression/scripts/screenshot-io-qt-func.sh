@@ -31,12 +31,13 @@ if want screenshot-io-qt-func; then
     then qioctrl_rc=0; else qioctrl_rc=1; fi
 
     if [[ "$qio_rc" -ne 0 ]] && [[ ! -f "$bad_png" ]] \
-       && echo "$out" | grep -q "FAILED to write" \
-       && echo "$out" | grep -q "No such file or directory" \
+       && grep -q "FAILED to write" <<<"$out" \
+       && grep -q "No such file or directory" <<<"$out" \
        && [[ "$qioctrl_rc" -eq 0 ]] && [[ -s "$png_ok" ]]; then
         pass_row " (Qt unwritable path: error+reason, exit!=0, no PNG; control writes one)"
     else
         fail_row " (qt_io_rc=$qio_rc png_exists=$([[ -f "$bad_png" ]] && echo y || echo n) control_rc=$qioctrl_rc)"
+        show_output "jnext" "$out"
     fi
 fi
 

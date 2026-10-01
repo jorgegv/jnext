@@ -60,14 +60,16 @@ if want sdl-exit-contract-func; then
         # positive control produced no PNG, so it can never mask a real defect.
         sdl_init_re="SDL_Init:|SDL_CreateWindow:|SDL_CreateRenderer:|SDL_CreateTexture:"
 
-        if [[ ! -s "$at_n" ]] && echo "$at_out" | grep -qE "$sdl_init_re"; then
+        if [[ ! -s "$at_n" ]] && grep -qE "$sdl_init_re" <<<"$at_out"; then
             skip_row " (SDL could not open a video device on this host; no capture was possible)"
         elif [[ "$at_rc" -eq 0 ]] && [[ -s "$at_n" ]] \
              && [[ "$past_rc" -ne 0 ]] && [[ ! -f "$past_n" ]] \
-             && echo "$past_out" | grep -q "NO screenshot was written"; then
+             && grep -q "NO screenshot was written" <<<"$past_out"; then
             pass_row " (capture due at exit frame $N taken, exit 0; one due at $((N + 1)) not taken, error + exit!=0)"
         else
             fail_row " (at_rc=$at_rc at_png=$([[ -s "$at_n" ]] && echo y || echo n) past_rc=$past_rc past_png=$([[ -f "$past_n" ]] && echo y || echo n))"
+            show_output "at-bound run" "$at_out"
+            show_output "past-bound run" "$past_out"
         fi
     fi
 fi

@@ -17,8 +17,9 @@ if want benchmark-func; then
     bench_out=$(timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --machine 48k \
         "${SD_CARD_ARGS[@]}" --benchmark 20 2>/dev/null) || true
     bench_count=$(echo "$bench_out" | grep -c '^BENCH ' || true)
-    if [[ "$bench_count" -eq 1 ]] && echo "$bench_out" | grep -qE \
-        '^BENCH workload=boot-48k frames=20 wall=[0-9]+\.[0-9]+ fps=[0-9]+\.[0-9]+ tstates_per_sec=[0-9]+ tstates_per_frame=69888 cpu=3\.5MHz core=[0-9]+@[0-9]+kHz build=.+$'; then
+    if [[ "$bench_count" -eq 1 ]] && grep -qE \
+        '^BENCH workload=boot-48k frames=20 wall=[0-9]+\.[0-9]+ fps=[0-9]+\.[0-9]+ tstates_per_sec=[0-9]+ tstates_per_frame=69888 cpu=3\.5MHz core=[0-9]+@[0-9]+kHz build=.+$' \
+        <<<"$bench_out"; then
         pass_row " (one well-formed BENCH line, 69888 T-states/frame @ 3.5MHz)"
     else
         fail_row " (BENCH line missing or malformed; got: $(echo "$bench_out" | grep '^BENCH ' || echo '<none>'))"

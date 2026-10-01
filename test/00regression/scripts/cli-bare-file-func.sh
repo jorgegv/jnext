@@ -24,8 +24,9 @@ if want cli-bare-file-func; then
     if timeout --foreground --kill-after=5s 20s "$JNEXT" --headless \
         "${SD_CARD_ARGS[@]}" --load "$bare_nex" "$bare_nex" --delayed-automatic-exit 1 >/dev/null 2>&1
     then both_rc=0; else both_rc=1; fi
-    if ! echo "$bare_out" | grep -q "NEX: loaded"; then
+    if ! grep -q "NEX: loaded" <<<"$bare_out"; then
         fail_row " (bare filename did not load the NEX)"
+        show_output "jnext" "$bare_out"
     elif [[ $typo_rc -eq 0 ]]; then
         fail_row " (a mistyped flag was accepted as a filename)"
     elif [[ $both_rc -eq 0 ]]; then

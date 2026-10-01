@@ -83,7 +83,7 @@ $ JNEXT_TEST_JOBS=4 bash test/00regression/regression.sh
 ```
 
 This layer launches the real `jnext` binary headless and looks at what comes
-out of it. It reports **187 rows**, made up of 5 preflight lints, 1 SD-image
+out of it. It reports **188 rows**, made up of 6 preflight lints, 1 SD-image
 provisioning row, 66 screenshot rows and 115 functional rows. The last two
 numbers come from the `# expect: 66` and `# expect: 115` pins in
 `regression_tests.conf` and `functional_tests.conf`, and the arithmetic that

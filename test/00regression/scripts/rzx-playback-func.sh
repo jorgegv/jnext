@@ -22,10 +22,11 @@ if want rzx-playback-func; then
             "${SD_CARD_ARGS[@]}" \
             --rzx-play "$rzx_rt" \
             --delayed-automatic-exit 3 2>&1) || true
-        if echo "$play_output" | grep -qi "rzx.*play\|rzx.*load\|rzx.*snapshot"; then
+        if grep -qi "rzx.*play\|rzx.*load\|rzx.*snapshot" <<<"$play_output"; then
             pass_row " (RZX playback started successfully)"
         else
             fail_row " (no RZX playback confirmation in log)"
+            show_output "jnext" "$play_output"
         fi
     else
         fail_row " (RZX recording failed, cannot test playback)"
