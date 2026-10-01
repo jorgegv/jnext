@@ -247,16 +247,18 @@ inline constexpr Option OPTIONS[] = {
     // exit status says what happened (see jnext(1) EXIT STATUS).
     { "--sdcard-file-add", 1, Doc::Documented, OptId::SdcardFileAdd,
       "FILE",
-      "Copy host FILE into the SD image and exit without\n"
-      "starting emulation. Needs --sdcard-file-dest PATH." },
+      "Copy host FILE, or a whole directory, into the SD image\n"
+      "and exit without starting emulation. Lands in the card\n"
+      "root under its own name unless --sdcard-file-dest says\n"
+      "otherwise. Given once per run." },
     { "--sdcard-file-dest", 1, Doc::Documented, OptId::SdcardFileDest,
       "PATH",
-      "Where --sdcard-file-add puts the file on the card, as an\n"
-      "absolute path (e.g. /NEXTZXOS/DRV-A.DSK). Missing\n"
-      "directories are created." },
+      "Optional: the card path --sdcard-file-add's FILE becomes,\n"
+      "as an absolute path (e.g. /NEXTZXOS/DRV-A.DSK; '/' merges\n"
+      "a directory into the root). Missing directories are created." },
     { "--sdcard-file-force", 0, Doc::Documented, OptId::SdcardFileForce,
       "",
-      "Let --sdcard-file-add replace an existing file. Without\n"
+      "Let --sdcard-file-add replace existing files. Without\n"
       "it an existing destination is refused, untouched." },
     { "--warm-start-regenerate", 0, Doc::Documented, OptId::WarmStartRegenerate,
       "",

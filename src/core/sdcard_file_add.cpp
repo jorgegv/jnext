@@ -7,6 +7,7 @@ extern "C" {
 #include "third_party/fatfs/ff.h"
 }
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstring>
@@ -243,145 +244,115 @@ bool normalize_dest_path(const std::string& dest_path,
     return true;
 }
 
-FileAddStatus add_file_to_image(const std::string& image_path,
-                                const std::string& host_file,
-                                const std::string& dest_path,
-                                bool overwrite,
-                                std::string& err) {
-    err.clear();
+namespace {
 
-    // ---- 1. the source -----------------------------------------------------
-    std::ifstream src(host_file, std::ios::binary | std::ios::ate);
-    if (!src) {
-        err = "cannot open source file '" + host_file + "'";
-        return FileAddStatus::SourceUnreadable;
-    }
-    const std::streamoff src_end = src.tellg();
-    // Defensive, and known to be so: every host path that gets past the open
-    // above reports a size, so nothing in the test suite reaches this branch
-    // (it is a declared surviving mutant in sdcard_file_add_test's header). It
-    // stays because a negative size would otherwise be cast to an enormous
-    // unsigned one and drive the copy loop with it.
-    if (src_end < 0) {
-        err = "cannot determine the size of '" + host_file +
-              "' (is it a directory?)";
-        return FileAddStatus::SourceUnreadable;
-    }
-    const uint64_t src_size = static_cast<uint64_t>(src_end);
-    if (src_size > kMaxFileSize) {
-        err = "'" + host_file + "' is " + std::to_string(src_size) +
-              " bytes; FAT32 cannot store a file of 4 GiB or more";
-        return FileAddStatus::SourceUnreadable;
-    }
-    src.seekg(0, std::ios::beg);
-    if (!src) {
-        err = "cannot rewind source file '" + host_file + "'";
-        return FileAddStatus::SourceUnreadable;
+// The image, attached to FatFs drive 0: and mounted, for as long as this
+// object lives. Unmount (which flushes FatFs's own caches) happens before the
+// backing file is closed, on every return path.
+struct MountedCard {
+    FATFS fs{};
+    bool  attached = false;
+    bool  mounted  = false;
+
+    FileAddStatus mount(const std::string& image_path, std::string& err) {
+        PartitionInfo part;
+        if (!read_partition_info(image_path, part, err))
+            return FileAddStatus::ImageUnusable;
+        std::string glue_err;
+        if (!fatfs_glue::attach(kDrive, image_path, part.lba,
+                                part.total_sectors, glue_err)) {
+            err = "cannot open SD image '" + image_path +
+                  "' for writing (" + glue_err + ")";
+            return FileAddStatus::ImageUnusable;
+        }
+        attached = true;
+        const FRESULT fr = f_mount(&fs, "0:", 1 /* mount now */);
+        if (fr != FR_OK) {
+            err = "'" + image_path +
+                  "' does not hold a FAT32 filesystem this build can mount (" +
+                  fr_str(fr) +
+                  "). An under-clustered image (< 65525 clusters) is rejected "
+                  "by the Next's own firmware too; tools/fix-sdcard-image.sh "
+                  "re-clusters one";
+            return FileAddStatus::ImageUnusable;
+        }
+        mounted = true;
+        return FileAddStatus::Ok;
     }
 
-    // ---- 2. the destination path ------------------------------------------
-    std::string fat_path;
-    if (!normalize_dest_path(dest_path, fat_path, err))
-        return FileAddStatus::DestInvalid;
-
-    // ---- 3. the image ------------------------------------------------------
-    PartitionInfo part;
-    if (!read_partition_info(image_path, part, err))
-        return FileAddStatus::ImageUnusable;
-
-    std::string glue_err;
-    if (!fatfs_glue::attach(kDrive, image_path, part.lba, part.total_sectors,
-                            glue_err)) {
-        err = "cannot open SD image '" + image_path +
-              "' for writing (" + glue_err + ")";
-        return FileAddStatus::ImageUnusable;
+    ~MountedCard() {
+        if (mounted)  f_mount(nullptr, "0:", 0);
+        if (attached) fatfs_glue::detach(kDrive);
     }
-    // RAII: flush + close the backing file on every return path below.
-    struct Detacher {
-        uint8_t drive;
-        ~Detacher() { fatfs_glue::detach(drive); }
-    } detacher{kDrive};
+};
 
-    FATFS   fs{};
-    FRESULT fr = f_mount(&fs, "0:", 1 /* mount now */);
-    if (fr != FR_OK) {
-        err = "'" + image_path +
-              "' does not hold a FAT32 filesystem this build can mount (" +
-              fr_str(fr) +
-              "). An under-clustered image (< 65525 clusters) is rejected by "
-              "the Next's own firmware too; tools/fix-sdcard-image.sh "
-              "re-clusters one";
-        return FileAddStatus::ImageUnusable;
-    }
-    // RAII: unmount (which flushes FatFs's own caches) before the Detacher
-    // closes the file.
-    struct Unmounter {
-        ~Unmounter() { f_mount(nullptr, "0:", 0); }
-    } unmounter;
-
-    // ---- 4. free space -----------------------------------------------------
-    // Asked BEFORE anything is created, so a too-big file is refused with the
-    // card untouched instead of leaving a half-written entry behind.
-    DWORD   free_clusters = 0;
-    FATFS*  fsp           = nullptr;
-    fr = f_getfree("0:", &free_clusters, &fsp);
+// Free clusters on the mounted card, and the cluster size.
+FileAddStatus card_free_space(const std::string& image_path,
+                              uint64_t& free_clusters, uint64_t& cluster_bytes,
+                              std::string& err) {
+    DWORD  nfree = 0;
+    FATFS* fsp   = nullptr;
+    const FRESULT fr = f_getfree("0:", &nfree, &fsp);
     if (fr != FR_OK || fsp == nullptr) {
         err = "cannot read the free-space map of '" + image_path + "' (" +
               fr_str(fr) + ")";
         return FileAddStatus::ImageUnusable;
     }
-    const uint64_t cluster_bytes =
-        static_cast<uint64_t>(fsp->csize) * kSectorSize;
-    const uint64_t need_clusters =
-        (src_size + cluster_bytes - 1) / cluster_bytes;
-    if (need_clusters > free_clusters) {
-        err = "'" + image_path + "' has " +
-              std::to_string(static_cast<uint64_t>(free_clusters) * cluster_bytes / 1024) +
-              " KB free; '" + host_file + "' needs " +
-              std::to_string(need_clusters * cluster_bytes / 1024) + " KB";
+    free_clusters = nfree;
+    cluster_bytes = static_cast<uint64_t>(fsp->csize) * kSectorSize;
+    return FileAddStatus::Ok;
+}
+
+// Make sure the directory `fat_dir` exists on the card, creating it when it
+// does not. `name` is its last component and `dest_display` the user's whole
+// destination, both for messages. `created` says whether this call made it.
+FileAddStatus ensure_card_dir(const std::string& fat_dir,
+                              const std::string& name,
+                              const std::string& dest_display,
+                              bool& created, std::string& err) {
+    created = false;
+    const FRESULT mk = f_mkdir(fat_dir.c_str());
+    if (mk == FR_OK) {
+        created = true;
+        return FileAddStatus::Ok;
+    }
+    if (mk == FR_EXIST) {
+        // Something is already there — it has to be a DIRECTORY, or the rest
+        // of the path cannot exist. f_mkdir reports FR_EXIST for an existing
+        // file just the same, so ask.
+        FILINFO fno{};
+        const FRESULT st = f_stat(fat_dir.c_str(), &fno);
+        if (st != FR_OK) {
+            err = "cannot inspect '" + name + "' on the card (" + fr_str(st) + ")";
+            return FileAddStatus::DestInvalid;
+        }
+        if ((fno.fattrib & AM_DIR) == 0) {
+            err = "'" + name + "' already exists on the card as a file, so '" +
+                  dest_display + "' cannot be a path through it";
+            return FileAddStatus::DestInvalid;
+        }
+        return FileAddStatus::Ok;
+    }
+    if (mk == FR_DENIED) {
+        err = "cannot create directory '" + name +
+              "' on the card: no free space or no free directory slots";
         return FileAddStatus::ImageFull;
     }
+    err = "cannot create directory '" + name + "' on the card (" + fr_str(mk) + ")";
+    return FileAddStatus::DestInvalid;
+}
 
-    // ---- 5. intermediate directories ---------------------------------------
-    // Decision: missing directories are CREATED. `--sdcard-file-dest
-    // /DEMOS/x.nex` on a card with no /DEMOS must work without a second step.
-    {
-        const std::vector<std::string> parts = split_slash(dest_path);
-        std::string prefix = "0:";
-        for (std::size_t i = 0; i + 1 < parts.size(); ++i) {
-            prefix += "/";
-            prefix += parts[i];
-            FRESULT mk = f_mkdir(prefix.c_str());
-            if (mk == FR_EXIST) {
-                // Something is already there — it has to be a DIRECTORY, or
-                // the rest of the path cannot exist. f_mkdir reports FR_EXIST
-                // for an existing file just the same, so ask.
-                FILINFO fno{};
-                FRESULT st = f_stat(prefix.c_str(), &fno);
-                if (st != FR_OK) {
-                    err = "cannot inspect '" + parts[i] + "' on the card (" +
-                          fr_str(st) + ")";
-                    return FileAddStatus::DestInvalid;
-                }
-                if ((fno.fattrib & AM_DIR) == 0) {
-                    err = "'" + parts[i] +
-                          "' already exists on the card as a file, so '" +
-                          dest_path + "' cannot be a path through it";
-                    return FileAddStatus::DestInvalid;
-                }
-            } else if (mk == FR_DENIED) {
-                err = "cannot create directory '" + parts[i] +
-                      "' on the card: no free space or no free directory slots";
-                return FileAddStatus::ImageFull;
-            } else if (mk != FR_OK) {
-                err = "cannot create directory '" + parts[i] + "' on the card (" +
-                      fr_str(mk) + ")";
-                return FileAddStatus::DestInvalid;
-            }
-        }
-    }
-
-    // ---- 6. what is already at the destination ------------------------------
+// Write `src_size` bytes of `src` to the card file `fat_path`, whose parent
+// directory exists. `replaced` says whether a file was already there.
+FileAddStatus write_card_file(const std::string& image_path,
+                              const std::string& fat_path,
+                              const std::string& dest_path,
+                              const std::string& host_file,
+                              std::ifstream& src, uint64_t src_size,
+                              bool overwrite, bool& replaced,
+                              std::string& err) {
+    replaced = false;
+    // ---- what is already at the destination ---------------------------------
     // Only the two things f_open cannot answer are decided here — whether the
     // destination is a directory, and whether it is marked read-only. Whether
     // it EXISTS is left to f_open's FA_CREATE_NEW below, so there is exactly
@@ -403,6 +374,7 @@ FileAddStatus add_file_to_image(const std::string& image_path,
                 return FileAddStatus::DestInvalid;
             }
             existing_size = static_cast<uint64_t>(fno.fsize);
+            replaced = true;
         } else if (st != FR_NO_FILE && st != FR_NO_PATH) {
             err = "cannot inspect '" + dest_path + "' on the card (" +
                   fr_str(st) + ")";
@@ -410,14 +382,14 @@ FileAddStatus add_file_to_image(const std::string& image_path,
         }
     }
 
-    // ---- 7. copy -----------------------------------------------------------
+    // ---- copy -----------------------------------------------------------------
     // Decision: an existing destination is REFUSED unless --sdcard-file-force
     // was given. Silently replacing DRV-A.DSK would destroy a disk image.
     // FA_CREATE_NEW is what enforces it: the file is never opened for writing
     // at all, so nothing can go wrong between the decision and the truncation.
     FIL fp{};
-    fr = f_open(&fp, fat_path.c_str(),
-                FA_WRITE | (overwrite ? FA_CREATE_ALWAYS : FA_CREATE_NEW));
+    FRESULT fr = f_open(&fp, fat_path.c_str(),
+                        FA_WRITE | (overwrite ? FA_CREATE_ALWAYS : FA_CREATE_NEW));
     if (fr == FR_EXIST) {
         err = "'" + dest_path + "' already exists on the card (" +
               std::to_string(existing_size) +
@@ -481,6 +453,524 @@ FileAddStatus add_file_to_image(const std::string& image_path,
         return FileAddStatus::ImageUnusable;
     }
     return FileAddStatus::Ok;
+}
+
+// "dir/" -> "dir", leaving a root ("/", "C:\") alone.
+void strip_trailing_separator(std::filesystem::path& p) {
+    if (!p.has_filename() && p.has_parent_path() && p != p.root_path())
+        p = p.parent_path();
+}
+
+// ---------------------------------------------------------------------------
+// Directory trees (GH #292)
+// ---------------------------------------------------------------------------
+
+// One thing to put on the card. `rel` is its path below the destination.
+struct TreeNode {
+    std::vector<std::string> rel;
+    std::filesystem::path    host;
+    bool                     is_dir = false;
+    uint64_t                 size   = 0;
+};
+
+std::string upper_ascii(std::string s) {
+    for (char& c : s)
+        if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+    return s;
+}
+
+std::string join_card(const std::vector<std::string>& parts) {
+    std::string out;
+    for (const std::string& c : parts) { out += "/"; out += c; }
+    return out.empty() ? "/" : out;
+}
+
+// Walk the host directory `dir` (already known to be one), appending what it
+// holds to `out` in pre-order — a directory before its contents — sorted by
+// name so the card comes out the same on every host. `ancestors` holds the
+// canonical path of every directory on the way down: meeting one of them again
+// means a symlink loops back, and following it would never end.
+//
+// Everything that would make the copy fail on the host side is found HERE,
+// before the image is opened: a partial copy is never the way a refusal is
+// discovered.
+FileAddStatus scan_host_dir(const std::filesystem::path& dir,
+                            std::vector<std::string>& rel,
+                            std::vector<std::filesystem::path>& ancestors,
+                            std::vector<TreeNode>& out, std::string& err) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path canon = fs::canonical(dir, ec);
+    if (ec) {
+        err = "cannot resolve directory '" + dir.u8string() + "' (" +
+              ec.message() + ")";
+        return FileAddStatus::SourceUnreadable;
+    }
+    for (const fs::path& a : ancestors) {
+        if (a == canon) {
+            err = "'" + dir.u8string() + "' is a symbolic link back to '" +
+                  a.u8string() + "', which contains it; copying it would "
+                  "never end";
+            return FileAddStatus::SourceUnreadable;
+        }
+    }
+
+    std::vector<fs::path> entries;
+    fs::directory_iterator it(dir, ec);
+    if (ec) {
+        err = "cannot list directory '" + dir.u8string() + "' (" +
+              ec.message() + ")";
+        return FileAddStatus::SourceUnreadable;
+    }
+    for (; it != fs::directory_iterator(); it.increment(ec)) {
+        if (ec) break;
+        entries.push_back(it->path());
+    }
+    if (ec) {
+        err = "cannot list directory '" + dir.u8string() + "' (" +
+              ec.message() + ")";
+        return FileAddStatus::SourceUnreadable;
+    }
+    std::sort(entries.begin(), entries.end(),
+              [](const fs::path& a, const fs::path& b) {
+                  return a.filename().u8string() < b.filename().u8string();
+              });
+
+    // FAT compares names without regard to case, so two host files that
+    // differ only in case would be ONE file on the card — the second copy
+    // either refused as a clash with the first or, with force, replacing it.
+    // Either way the card would not hold what the host holds. Refused up
+    // front, naming both.
+    std::vector<std::pair<std::string, std::string>> seen;  // upper, original
+    for (const fs::path& p : entries) {
+        const std::string name = p.filename().u8string();
+        const std::string up   = upper_ascii(name);
+        for (const auto& s : seen) {
+            if (s.first == up) {
+                err = "'" + s.second + "' and '" + name + "' in '" +
+                      dir.u8string() + "' would be the same name on the card "
+                      "(FAT names are not case-sensitive)";
+                return FileAddStatus::DestInvalid;
+            }
+        }
+        seen.emplace_back(up, name);
+    }
+
+    ancestors.push_back(canon);
+    for (const fs::path& p : entries) {
+        const std::string name = p.filename().u8string();
+        std::string fat_unused, why;
+        if (!normalize_dest_path("/" + name, fat_unused, why)) {
+            err = "'" + p.u8string() + "' cannot be copied: " + why;
+            return FileAddStatus::DestInvalid;
+        }
+        rel.push_back(name);
+
+        // status() FOLLOWS a symlink, which is the policy: the card gets what
+        // the link points at.
+        const fs::file_status st = fs::status(p, ec);
+        if (ec || !fs::exists(st)) {
+            err = fs::is_symlink(fs::symlink_status(p, ec))
+                ? "'" + p.u8string() + "' is a symbolic link to nothing"
+                : "cannot read '" + p.u8string() + "'";
+            return FileAddStatus::SourceUnreadable;
+        }
+        if (fs::is_directory(st)) {
+            out.push_back(TreeNode{rel, p, true, 0});
+            const FileAddStatus s = scan_host_dir(p, rel, ancestors, out, err);
+            if (s != FileAddStatus::Ok) return s;
+        } else if (fs::is_regular_file(st)) {
+            const uintmax_t size = fs::file_size(p, ec);
+            std::ifstream probe(p, std::ios::binary);
+            if (ec || !probe) {
+                err = "cannot open source file '" + p.u8string() + "'";
+                return FileAddStatus::SourceUnreadable;
+            }
+            if (size > kMaxFileSize) {
+                err = "'" + p.u8string() + "' is " + std::to_string(size) +
+                      " bytes; FAT32 cannot store a file of 4 GiB or more";
+                return FileAddStatus::SourceUnreadable;
+            }
+            out.push_back(TreeNode{rel, p, false, static_cast<uint64_t>(size)});
+        } else {
+            err = "'" + p.u8string() + "' is neither a regular file nor a "
+                  "directory (a device, FIFO or socket); it cannot be copied "
+                  "onto a FAT card";
+            return FileAddStatus::SourceUnreadable;
+        }
+        rel.pop_back();
+    }
+    ancestors.pop_back();
+    return FileAddStatus::Ok;
+}
+
+FileAddStatus add_dir_to_image(const std::string& image_path,
+                               const std::string& host_dir,
+                               const std::string& dest_path,
+                               bool overwrite, std::string& err,
+                               AddSummary* summary) {
+    namespace fs = std::filesystem;
+
+    // ---- 1. the destination: a path, or "/" for the card root ---------------
+    // add_to_image() has already replaced an empty destination with the
+    // default one, so no components here means the user wrote "/".
+    const std::vector<std::string> dest_parts = split_slash(dest_path);
+    if (!dest_parts.empty()) {
+        std::string unused;
+        if (!normalize_dest_path(dest_path, unused, err))
+            return FileAddStatus::DestInvalid;
+    }
+
+    // ---- 2. the host tree, entirely, before the image is touched ------------
+    // The destination itself and the directories leading to it come first, as
+    // directory nodes of their own; the tree hangs below them.
+    std::vector<TreeNode> nodes;
+    for (std::size_t i = 0; i < dest_parts.size(); ++i) {
+        TreeNode n;
+        n.rel.assign(dest_parts.begin(), dest_parts.begin() + i + 1);
+        n.is_dir = true;
+        nodes.push_back(n);
+    }
+    {
+        std::vector<std::string> rel = dest_parts;
+        std::vector<fs::path>    ancestors;
+        const FileAddStatus st =
+            scan_host_dir(fs::path(host_dir), rel, ancestors, nodes, err);
+        if (st != FileAddStatus::Ok) return st;
+    }
+
+    // ---- 3. the image ------------------------------------------------------
+    MountedCard card;
+    FileAddStatus st = card.mount(image_path, err);
+    if (st != FileAddStatus::Ok) return st;
+
+    // ---- 4. what is already on the card -------------------------------------
+    // Every clash is found now, so a refusal leaves the card untouched.
+    // Directories already there are merged into; files follow the single-file
+    // rule. A hard conflict is reported at once; existing files are counted
+    // so the refusal can say how many there are, not just the first.
+    std::vector<bool> exists(nodes.size(), false);
+    std::size_t clashes = 0;
+    std::string first_clash;
+    uint64_t    first_clash_size = 0;
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+        const TreeNode& n = nodes[i];
+        const std::string card_path = join_card(n.rel);
+        const std::string fat_path  = "0:" + card_path;
+        FILINFO fno{};
+        const FRESULT fr = f_stat(fat_path.c_str(), &fno);
+        if (fr == FR_NO_FILE || fr == FR_NO_PATH) continue;
+        if (fr != FR_OK) {
+            err = "cannot inspect '" + card_path + "' on the card (" +
+                  fr_str(fr) + ")";
+            return FileAddStatus::DestInvalid;
+        }
+        const bool card_is_dir = (fno.fattrib & AM_DIR) != 0;
+        if (n.is_dir && !card_is_dir) {
+            err = "'" + card_path + "' already exists on the card as a file, "
+                  "so the directory '" + host_dir + "' cannot be copied there";
+            return FileAddStatus::DestInvalid;
+        }
+        if (!n.is_dir && card_is_dir) {
+            err = "'" + card_path + "' already exists on the card as a "
+                  "directory, so '" + n.host.u8string() +
+                  "' cannot be copied there";
+            return FileAddStatus::DestInvalid;
+        }
+        if (!n.is_dir && overwrite && (fno.fattrib & AM_RDO)) {
+            err = "'" + card_path +
+                  "' is marked read-only on the card and was not replaced";
+            return FileAddStatus::DestInvalid;
+        }
+        exists[i] = true;
+        if (!n.is_dir && !overwrite) {
+            if (clashes++ == 0) {
+                first_clash      = card_path;
+                first_clash_size = static_cast<uint64_t>(fno.fsize);
+            }
+        }
+    }
+    if (clashes > 0) {
+        err = "'" + first_clash + "' already exists on the card (" +
+              std::to_string(first_clash_size) + " bytes)" +
+              (clashes > 1 ? " and so do " + std::to_string(clashes - 1) +
+                             " more files of this copy"
+                           : std::string()) +
+              "; pass --sdcard-file-force to replace them. Nothing was written";
+        return FileAddStatus::DestExists;
+    }
+
+    // ---- 5. free space ----------------------------------------------------------
+    // Data clusters for every file plus one cluster per directory that has to
+    // be made. That is a LOWER bound — a directory with many entries needs
+    // more than one cluster, and a parent may need to grow — so passing it
+    // does not promise the copy fits; running out later is still caught, and
+    // rolled back, below. What it does promise is that a copy which cannot
+    // POSSIBLY fit is refused with the card untouched.
+    uint64_t free_clusters = 0, cluster_bytes = 0;
+    st = card_free_space(image_path, free_clusters, cluster_bytes, err);
+    if (st != FileAddStatus::Ok) return st;
+    uint64_t need = 0;
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+        if (nodes[i].is_dir)
+            need += exists[i] ? 0 : 1;
+        else
+            need += (nodes[i].size + cluster_bytes - 1) / cluster_bytes;
+    }
+    if (need > free_clusters) {
+        err = "'" + image_path + "' has " +
+              std::to_string(free_clusters * cluster_bytes / 1024) +
+              " KB free; '" + host_dir + "' needs at least " +
+              std::to_string(need * cluster_bytes / 1024) + " KB";
+        return FileAddStatus::ImageFull;
+    }
+
+    // ---- 6. copy, rolling back on failure --------------------------------------
+    std::vector<std::string> created;   // FatFs paths, in creation order
+    unsigned replaced_count = 0, files = 0, dirs_created = 0;
+    uint64_t bytes = 0;
+    auto rollback = [&](FileAddStatus s) {
+        std::size_t left = 0;
+        for (auto r = created.rbegin(); r != created.rend(); ++r)
+            if (f_unlink(r->c_str()) != FR_OK) ++left;
+        err += "; the copy was rolled back";
+        if (left > 0)
+            err += ", but " + std::to_string(left) +
+                   " of the entries it created could not be removed";
+        if (replaced_count > 0)
+            err += ". " + std::to_string(replaced_count) +
+                   " existing file(s) had already been replaced "
+                   "(--sdcard-file-force) and cannot be restored";
+        return s;
+    };
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+        const TreeNode& n = nodes[i];
+        const std::string card_path = join_card(n.rel);
+        const std::string fat_path  = "0:" + card_path;
+        if (n.is_dir) {
+            if (exists[i]) continue;
+            bool made = false;
+            st = ensure_card_dir(fat_path, n.rel.back(), card_path, made, err);
+            if (st != FileAddStatus::Ok) return rollback(st);
+            if (made) { created.push_back(fat_path); ++dirs_created; }
+            continue;
+        }
+        std::ifstream src(n.host, std::ios::binary);
+        if (!src) {
+            err = "cannot open source file '" + n.host.u8string() + "'";
+            return rollback(FileAddStatus::SourceUnreadable);
+        }
+        bool replaced = false;
+        st = write_card_file(image_path, fat_path, card_path, n.host.u8string(),
+                             src, n.size, overwrite, replaced, err);
+        if (st != FileAddStatus::Ok) {
+            // write_card_file already removed its own partial file; a file it
+            // was REPLACING is gone with it.
+            if (replaced) ++replaced_count;
+            return rollback(st);
+        }
+        if (replaced) ++replaced_count;
+        else          created.push_back(fat_path);
+        ++files;
+        bytes += n.size;
+    }
+
+    if (summary) {
+        *summary = AddSummary{};
+        summary->is_dir       = true;
+        summary->dest         = join_card(dest_parts);
+        summary->files        = files;
+        summary->dirs_created = dirs_created;
+        summary->bytes        = bytes;
+    }
+    return FileAddStatus::Ok;
+}
+
+}  // namespace
+
+FileAddStatus add_file_to_image(const std::string& image_path,
+                                const std::string& host_file,
+                                const std::string& dest_path,
+                                bool overwrite,
+                                std::string& err) {
+    err.clear();
+
+    // ---- 1. the source -----------------------------------------------------
+    std::ifstream src(host_file, std::ios::binary | std::ios::ate);
+    if (!src) {
+        err = "cannot open source file '" + host_file + "'";
+        return FileAddStatus::SourceUnreadable;
+    }
+    const std::streamoff src_end = src.tellg();
+    // Defensive, and known to be so: every host path that gets past the open
+    // above reports a size, so nothing in the test suite reaches this branch
+    // (it is a declared surviving mutant in sdcard_file_add_test's header). It
+    // stays because a negative size would otherwise be cast to an enormous
+    // unsigned one and drive the copy loop with it.
+    if (src_end < 0) {
+        err = "cannot determine the size of '" + host_file +
+              "' (is it a directory?)";
+        return FileAddStatus::SourceUnreadable;
+    }
+    const uint64_t src_size = static_cast<uint64_t>(src_end);
+    if (src_size > kMaxFileSize) {
+        err = "'" + host_file + "' is " + std::to_string(src_size) +
+              " bytes; FAT32 cannot store a file of 4 GiB or more";
+        return FileAddStatus::SourceUnreadable;
+    }
+    src.seekg(0, std::ios::beg);
+    if (!src) {
+        err = "cannot rewind source file '" + host_file + "'";
+        return FileAddStatus::SourceUnreadable;
+    }
+
+    // ---- 2. the destination path ------------------------------------------
+    std::string fat_path;
+    if (!normalize_dest_path(dest_path, fat_path, err))
+        return FileAddStatus::DestInvalid;
+
+    // ---- 3. the image ------------------------------------------------------
+    MountedCard card;
+    FileAddStatus st = card.mount(image_path, err);
+    if (st != FileAddStatus::Ok) return st;
+
+    // ---- 4. free space -----------------------------------------------------
+    // Asked BEFORE anything is created, so a too-big file is refused with the
+    // card untouched instead of leaving a half-written entry behind.
+    uint64_t free_clusters = 0, cluster_bytes = 0;
+    st = card_free_space(image_path, free_clusters, cluster_bytes, err);
+    if (st != FileAddStatus::Ok) return st;
+    const uint64_t need_clusters =
+        (src_size + cluster_bytes - 1) / cluster_bytes;
+    if (need_clusters > free_clusters) {
+        err = "'" + image_path + "' has " +
+              std::to_string(free_clusters * cluster_bytes / 1024) +
+              " KB free; '" + host_file + "' needs " +
+              std::to_string(need_clusters * cluster_bytes / 1024) + " KB";
+        return FileAddStatus::ImageFull;
+    }
+
+    // ---- 5. intermediate directories ---------------------------------------
+    // Decision: missing directories are CREATED. `--sdcard-file-dest
+    // /DEMOS/x.nex` on a card with no /DEMOS must work without a second step.
+    {
+        const std::vector<std::string> parts = split_slash(dest_path);
+        std::string prefix = "0:";
+        for (std::size_t i = 0; i + 1 < parts.size(); ++i) {
+            prefix += "/";
+            prefix += parts[i];
+            bool created = false;
+            st = ensure_card_dir(prefix, parts[i], dest_path, created, err);
+            if (st != FileAddStatus::Ok) return st;
+        }
+    }
+
+    // ---- 6 + 7. what is already there, and the copy -------------------------
+    bool replaced = false;
+    return write_card_file(image_path, fat_path, dest_path, host_file, src,
+                           src_size, overwrite, replaced, err);
+}
+
+std::string file_add_usage_error(int add_count, int dest_count,
+                                 bool dest_empty, bool force) {
+    if (add_count == 0) {
+        if (dest_count > 0) return "--sdcard-file-dest requires --sdcard-file-add FILE.";
+        if (force)          return "--sdcard-file-force requires --sdcard-file-add FILE.";
+        return std::string();
+    }
+    if (add_count > 1 || dest_count > 1) {
+        return std::string(add_count > 1 ? "--sdcard-file-add"
+                                         : "--sdcard-file-dest") +
+               " was given more than once: one run copies ONE file or "
+               "directory. Put several files in a directory and add that, or "
+               "run jnext once per file.";
+    }
+    if (dest_count > 0 && dest_empty) {
+        return "--sdcard-file-dest was given an empty PATH. Leave the option "
+               "out to copy into the root of the card.";
+    }
+    return std::string();
+}
+
+bool default_dest_path(const std::string& host_path,
+                       std::string& dest_out,
+                       std::string& err) {
+    namespace fs = std::filesystem;
+    dest_out.clear();
+    // Lexical only: the name is the one the user TYPED. Resolving symlinks
+    // here would land `latest.nex -> v3.nex` as /v3.nex.
+    fs::path p = fs::path(host_path).lexically_normal();
+    strip_trailing_separator(p);
+    // `.`, `..` and an empty path have no name of their own; the directory
+    // they mean does.
+    const std::string bare = p.filename().u8string();
+    if (bare.empty() || bare == "." || bare == "..") {
+        std::error_code ec;
+        p = fs::absolute(fs::path(host_path), ec).lexically_normal();
+        if (ec) p.clear();
+        strip_trailing_separator(p);
+    }
+    const std::string name = p.filename().u8string();
+    if (name.empty() || name == "." || name == "..") {
+        err = "cannot take a card name from '" + host_path +
+              "'; give --sdcard-file-dest PATH";
+        return false;
+    }
+    std::string fat_path, why;
+    if (!normalize_dest_path("/" + name, fat_path, why)) {
+        err = "the card name taken from '" + host_path + "' is unusable (" +
+              why + "); give --sdcard-file-dest PATH";
+        return false;
+    }
+    dest_out = "/" + name;
+    return true;
+}
+
+FileAddStatus add_to_image(const std::string& image_path,
+                           const std::string& host_path,
+                           const std::string& dest_path,
+                           bool overwrite,
+                           std::string& err,
+                           AddSummary* summary) {
+    namespace fs = std::filesystem;
+    err.clear();
+
+    // What the source IS decides everything else, so it is asked first —
+    // following a symlink, which is what a user giving one means.
+    std::error_code ec;
+    const fs::file_status sst = fs::status(fs::path(host_path), ec);
+    const bool is_dir = !ec && fs::is_directory(sst);
+
+    // The destination: given, or the card root under the source's own name.
+    std::string dest = dest_path;
+    if (dest.empty()) {
+        if (!default_dest_path(host_path, dest, err))
+            return FileAddStatus::DestInvalid;
+    }
+
+    if (!is_dir) {
+        // Not a directory: a regular file, or something add_file_to_image()
+        // will refuse with the message it always gave (missing, unreadable).
+        // A FIFO is refused HERE instead — opening one to read it would block
+        // until something writes to it, which in a script is forever.
+        if (!ec && fs::exists(sst) && !fs::is_regular_file(sst)) {
+            err = "'" + host_path + "' is neither a regular file nor a "
+                  "directory (a device, FIFO or socket); it cannot be copied "
+                  "onto a FAT card";
+            return FileAddStatus::SourceUnreadable;
+        }
+        const FileAddStatus st =
+            add_file_to_image(image_path, host_path, dest, overwrite, err);
+        if (st == FileAddStatus::Ok && summary) {
+            *summary = AddSummary{};
+            summary->dest  = dest;
+            summary->files = 1;
+            summary->bytes = fs::file_size(fs::path(host_path), ec);
+        }
+        return st;
+    }
+    return add_dir_to_image(image_path, host_path, dest, overwrite, err,
+                            summary);
 }
 
 }  // namespace sdcard

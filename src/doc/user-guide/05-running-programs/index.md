@@ -89,17 +89,23 @@ from — the quickest route while you are developing one. The second is to do
 what a real Next does: boot NextZXOS from the SD card image and start the
 program from the **Browser**, with its files next to it on the card. Many
 programs, games included, are already on the image JNEXT uses by default. To
-add your own, copy each file in with JNEXT itself:
+add your own, copy them in with JNEXT itself:
 
 ```
 jnext --sdcard-file-add game.nex --sdcard-file-dest /DEMOS/game.nex
+jnext --sdcard-file-add mygames
 ```
 
-That copies one host file into the card and exits without starting the
-machine, creating any missing directories on the way; `--sdcard-file-force`
-lets it replace a file that is already there. For a whole directory at once,
-any tool that writes FAT32 disk images — `mcopy` from mtools, say — still
-works.
+The first copies one host file to `/DEMOS/game.nex`; the second copies the
+whole `mygames` directory, everything in it included, to `/mygames`. Either
+way JNEXT copies and exits without starting the machine. `--sdcard-file-dest`
+is optional: without it the file or directory goes into the root of the card
+under its own name, and with `--sdcard-file-dest /` a directory's contents go
+straight into the root. Missing directories on the way are created, existing
+ones are merged into, and a file that is already there is refused unless you
+add `--sdcard-file-force`. A copy that cannot be completed is refused or undone
+as a whole, never left half-done; the **jnext(1)** man page, under PUTTING A
+FILE ON THE CARD, lists exactly what is refused and why.
 
 (A NEX file whose header asks to keep its own file open can also read that
 file, and read files next to it, when loaded directly. It cannot write them.)
