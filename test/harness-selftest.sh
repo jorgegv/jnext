@@ -851,12 +851,8 @@ check "HS-57b" "a forbidden include in a published header FAILS the preflight, n
 # two rows alone and regression.sh never sets it.
 LPG_FIX="$T/lint-pipe-grepq"
 rm -rf "$LPG_FIX"; mkdir -p "$LPG_FIX/clean" "$LPG_FIX/dirty"
-printf '#!/usr/bin/env bash
-grep -q "x" <<<"$out"
-'    > "$LPG_FIX/clean/row-func.sh"
-printf '#!/usr/bin/env bash
-echo "$out" | grep -q "x"
-' > "$LPG_FIX/dirty/row-func.sh"
+printf '#!/usr/bin/env bash\ngrep -q "x" <<<"$out"\n'    > "$LPG_FIX/clean/row-func.sh"
+printf '#!/usr/bin/env bash\necho "$out" | grep -q "x"\n' > "$LPG_FIX/dirty/row-func.sh"
 run_preflight_pipe_grepq() {   # run_preflight_pipe_grepq <clean|dirty>
     JNEXT_LINT_PIPE_GREPQ_DIR="$LPG_FIX/$1" timeout --kill-after=5s "${INVOKE_TIMEOUT}s" \
         bash "$PROJECT_DIR/test/00regression/scripts/00-preflight-lint.sh" 2>&1

@@ -82,13 +82,27 @@
 #     fails the safe way: a fixture line that pipes into `grep -q` is flagged,
 #     and is MARKED, never skipped by inference. No line in the tree needs it
 #     today.
+#   * an ANSI-C `$'...'` string holding an escaped apostrophe (`\'`): the
+#     scanner reads it as a plain single-quoted string, which the `\'` closes,
+#     so the rest of the line is read as code. Two self-test fixture lines in
+#     this file are marked for exactly that.
+#   * a quoted string that spans physical lines WITHOUT backslash
+#     continuations (a multi-line message, an inline awk or python program):
+#     the quote state is reset at every line end, so its later lines are read
+#     as code, and a `| grep -q` written inside it is flagged. The reset is the
+#     safe direction: carried across lines, one stray apostrophe ("Don't" in
+#     heredoc text) opened a quote that hid every line after it — two files in
+#     the tree ended inside such a quote — while the scan still reported them
+#     whole. Mark the line.
 # The escape for a deliberate case is a trailing
 # `# lint-pipe-grepq: allow (<why>)` on the line (any physical line of a
 # continued one) — used once, by harness-selftest.sh, whose membership probe
 # builds the hazard on purpose to prove the in-shell lookup that replaced it.
 #
 # ALSO NOT SEEN (deliberate, these are the legitimate shapes): comments, and a
-# `|` or `grep -q` inside a quoted string on the same logical line.
+# `|` or `grep -q` inside a quoted string that opens and closes on the same
+# logical line (one physical line, or several joined by backslash
+# continuations). Quote state never carries past the end of a logical line.
 #
 # Env (TEST ONLY — set by harness-selftest HS-67a/HS-67b to prove this lint is
 # wired into the regression preflight; regression.sh never sets it):
@@ -206,7 +220,14 @@ scan_awk() {
         # check(): the matcher on the logical line now complete, and the count
         # of physical lines it covered.
         function check(   t) {
+            # Quote state is RESET for every logical line and never carries to
+            # the next: one stray apostrophe (as in heredoc prose) would
+            # otherwise open a quote that hides every line after it while the
+            # scan still counts them as checked. A real string spanning lines
+            # is then read as code on its later lines (see MAY WRONGLY FLAG).
+            qst = 0; qcontent = ""
             analyse(logical)
+            if (qst != 0) open_at_end++
             if (!allow && quiet_grep_after_pipe(SKEL)) {
                 t = logical; gsub(/^[ \t]+/, "", t)
                 print "OFFENDER\t" path ":" start ": " substr(t, 1, 160)
@@ -219,10 +240,11 @@ scan_awk() {
         function finish() {
             if (logical != "") check()
             print "CHECKED\t" path "\t" checked
+            print "OPENQUOTE\t" path "\t" open_at_end
         }
         FNR == 1 {
             if (NR > 1) finish()
-            path = FILENAME; checked = 0
+            path = FILENAME; checked = 0; open_at_end = 0
             qst = 0; qcontent = ""; logical = ""; start = 0; allow = 0
         }
         {
@@ -325,6 +347,8 @@ selftest() {
         1 'offender after $(( a << b ))'    $'x=$(( a << b ))\necho "$o" | grep -q y'
         1 'offender after a <<< line'       $'grep -q x <<<"$o"\necho "$o" | grep -q y'
         1 'offender after a quoted <<X'     $'echo "see <<X"\necho "$o" | grep -q y'
+        1 'offender after an unclosed quote' $'msg=Don\'t stop here\necho "$o" | grep -q y'  # lint-pipe-grepq: allow ($'' escape)
+        1 'offender after an apostrophe in a heredoc' $'cat <<X\nDon\'t do it\nX\necho "$o" | grep -q y'  # lint-pipe-grepq: allow ($'' escape)
     )
     local i=0 rc
     while (( i < ${#cases[@]} )); do
@@ -351,6 +375,9 @@ selftest() {
     else fail=$((fail + 1)); echo "[lint-pipe-grepq] SELFTEST FAIL: a file without pipefail was flagged" >&2; fi
     if [[ -n "$(FORCE=0 scan_files "$d/pf.sh")" ]]; then pass=$((pass + 1))
     else fail=$((fail + 1)); echo "[lint-pipe-grepq] SELFTEST FAIL: a file with set -euo pipefail was not flagged" >&2; fi
+    printf '%s\n' '#!/usr/bin/env bash' 'echo "$o" | grep -q x' '' 'f() { :; }' 'set -o pipefail' > "$d/latepf.sh"
+    if [[ -n "$(FORCE=0 scan_files "$d/latepf.sh")" ]]; then pass=$((pass + 1))
+    else fail=$((fail + 1)); echo "[lint-pipe-grepq] SELFTEST FAIL: pipefail set late in the file did not bring the earlier line into scope" >&2; fi
     mkdir -p "$d/test/00regression"
     printf '%s\n' '#!/usr/bin/env bash' 'echo "$o" | grep -q x' > "$d/test/00regression/row.inc"
     if [[ -n "$(FORCE=0 scan_files "$d/test/00regression/row.inc")" ]]; then pass=$((pass + 1))

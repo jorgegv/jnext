@@ -1987,11 +1987,13 @@ verdict on the real tree is trusted at all:</p>
   comment stripper changed nothing, because every comment fixture was inert for
   a second reason as well. The two cases that close it exist because of the
   mutation, not because anyone thought of them first.</li>
-<li><code>test/lint-pipe-grepq.sh</code> carries <strong>38 pinned cases: 21 that must flag, 15
+<li><code>test/lint-pipe-grepq.sh</code> carries <strong>41 pinned cases: 24 that must flag, 15
   that must not, and 2 that pin its coverage check</strong>. They include both scope
   rules — the same <code>echo "$o" | grep -q</code> line is flagged in a file that sets
-  <code>pipefail</code>, flagged in a file under <code>test/00regression/</code> with no <code>pipefail</code>
-  line (the harness sources it into its own), and not flagged elsewhere — and
+  <code>pipefail</code> (anywhere in the file, including after the line), flagged in a
+  file under <code>test/00regression/</code> with no <code>pipefail</code> line (the harness sources
+  it into its own), and not flagged elsewhere — the quote rule (quote state is
+  reset at every line end, so a stray apostrophe cannot hide what follows), and
   the heredoc rule: a body is scanned like code and a fixture line is marked,
   because an earlier version that guessed where heredocs end hid 555 lines.
   The lint also counts the lines that reached its matcher and refuses the run
