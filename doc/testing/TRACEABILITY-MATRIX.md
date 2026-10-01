@@ -65,7 +65,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  5407 | 5396 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **5407**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5092**. Rows the 127 suites declared in `test/unit-tests.conf` run live: **11592**.
+Rows the sections above carry: **5407**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5092**. Rows the 127 suites declared in `test/unit-tests.conf` run live: **11602**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -77,7 +77,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 84 suites (6584 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 84 suites (6594 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -136,7 +136,7 @@ These 84 suites (6584 live rows) have no VHDL-derived plan row to map, so they h
 | `gdb_rsp_test` | 97 | GDB RSP remote-debugger adapter (GH #281; GDB remote protocol + z88dk-gdb, jnext-internal); the T80N core has no debugger |
 | `script_parse_test` | 257 | debugger scripting language front end (GH #26, jnext-internal); the T80N core has no debugger |
 | `script_eval_test` | 60 | debugger scripting language evaluator (GH #26, jnext-internal); the T80N core has no debugger |
-| `script_events_test` | 70 | debugger scripting language engine (GH #26, jnext-internal); the T80N core has no debugger |
+| `script_events_test` | 80 | debugger scripting language engine (GH #26, jnext-internal); the T80N core has no debugger |
 | `app_config_test` | 116 | jnext.conf schema/precedence (host settings file) |
 | `audio_gain_config_test` | 22 | gain settings persistence (host settings file) |
 | `audio_gain_preferences_test` | 10 | gain controls in the Preferences dialog (host GUI) |
