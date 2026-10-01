@@ -129,6 +129,12 @@ public:
     /// used — identical treatment to set_delayed_keypress_seconds.
     bool set_delayed_nmi_seconds(const std::string& button, int delay_seconds);
 
+    /// GH #93 — --delayed-sdcard-insert-frames: after N frames, insert the
+    /// card `image` as File > Insert SD Card Image… does (requested, then
+    /// performed between frames). A refused or failed change fails the run.
+    /// Repeatable: each call queues one independent change.
+    void set_delayed_sdcard_insert(const std::string& image, int delay_frames);
+
     /// Which of the two NMI buttons a --delayed-nmi press targets.
     /// Public because the name→enum parser is a free function in the
     /// .cpp, alongside the keypress name parser.
@@ -232,6 +238,13 @@ private:
         int           countdown;  // in frames
     };
     std::vector<DelayedNmi> delayed_nmis_;
+
+    // Pending --delayed-sdcard-insert-frames changes (GH #93).
+    struct DelayedSdInsert {
+        std::string image;
+        int         countdown;  // in frames
+    };
+    std::vector<DelayedSdInsert> delayed_sd_inserts_;
 
     // Pending seconds-form NMI presses awaiting conversion in run().
     struct PendingSecondsNmi {

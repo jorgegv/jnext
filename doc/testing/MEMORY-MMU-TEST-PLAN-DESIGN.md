@@ -986,17 +986,22 @@ carries COVERED-AT comments.
 
 ### Category 21: SD Card Hot-Plug / Unmount (parked here as `BOOT-SD-*`)
 
-> Note: G158 is a runtime-UX gap (real Next has CD/CS detect; jnext's
-> `SdCardDevice::mount`/`unmount` exist but are invoked only once at
-> startup from `src/core/emulator.cpp:2197-2200`). Rows live in
-> `test/sdcard/sdcard_test.cpp` because the mount/unmount API is
-> reachable there. Future GUI menu work should rebind once a visible
-> affordance lands.
+> Note (GH #93, 2026-10-01): the real Next has NO card-detect line — the
+> SD port is five pins, `sd_cs0_n_o`, `sd_cs1_n_o`, `sd_sclk_o`,
+> `sd_mosi_o`, `sd_miso_i` (`zxnext_top_issue2.vhd:60-64`, same in issue
+> 4/5), and NR 0x0A bit 5 swaps chip-select between two *sockets*, not
+> media. The firmware cannot notice a swap, which is why NextZXOS has
+> REMOUNT ("Remove/insert SD and press Y"). These rows are device-tier
+> (`test/sdcard/sdcard_test.cpp`) and both pass; the oracle is the SD SPI
+> protocol, not hardware. The live swap itself (File > Insert SD Card
+> Image… / Eject SD Card, `--delayed-sdcard-insert-frames`) is covered by
+> `emulator_boot_test` EB-53..EB-61, `warm_start_test` WSR-SWAP-01/02 and
+> the `sdcard-swap-func` regression row (REMOUNT end to end).
 
 | ID        | Test                                  | Setup                                                                | Expected                                                                                    |
 |-----------|---------------------------------------|----------------------------------------------------------------------|---------------------------------------------------------------------------------------------|
-| BOOT-SD-01 | mount → unmount → re-mount round-trip | `sd.mount(img)`; issue CMD17 read; `sd.unmount()`; `sd.mount(img)`; CMD17 read | First read returns image bytes; post-unmount no spurious data leak; second mount reads same bytes. skip — runtime API not exposed in GUI/CLI (see G158) |
-| BOOT-SD-02 | unmount mid-transfer is safe          | `sd.mount(img)`; begin CMD17; call `sd.unmount()` mid-block          | No data race; subsequent reads return safe-default (0xFF). VHDL: card-detect/CS controls. skip — mid-transfer safety untested (see G158) |
+| BOOT-SD-01 | mount → re-mount of a DISTINCT image → back | `sd.mount(img1)`; CMD17 sector 0; `sd.mount(img2)`; CMD17; `sd.mount(img1)`; CMD17 | Each read returns the sector 0 of the image mounted at that moment. **Implemented** (SD SPI spec) |
+| BOOT-SD-02 | unmount mid-transfer is safe          | `sd.mount(img)`; open a CMD18 stream; `sd.unmount()` mid-stream; re-mount; CMD17 | The state machine is cleaned up: the re-mounted card answers CMD17 with the right data. **Implemented** (SD SPI spec) |
 
 ### Category 22: Tape SAVE Pipeline (parked here as `BOOT-TAPESAVE-*`)
 

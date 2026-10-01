@@ -319,6 +319,8 @@ int main(int argc, char* argv[]) {
     std::vector<DelayedKeyArg> delayed_keys;
     struct DelayedNmiArg { int delay; std::string button; bool in_frames; };
     std::vector<DelayedNmiArg> delayed_nmis;
+    struct DelayedSdInsertArg { int delay; std::string image; };
+    std::vector<DelayedSdInsertArg> delayed_sd_inserts;   // GH #93
 
     // Parse command-line arguments.
     //
@@ -865,6 +867,11 @@ int main(int argc, char* argv[]) {
                 delayed_nmis.push_back({dn_n, v[1], in_frames});
                 break;
             }
+            case cli::OptId::DelayedSdcardInsertFrames:
+                // GH #93. The image is checked when the change is performed,
+                // which refuses an unreadable one and fails the run.
+                delayed_sd_inserts.push_back({std::stoi(v[0]), v[1]});
+                break;
             case cli::OptId::RewindBufferSize:
                 rewind_buffer_frames = std::stoi(v[0]);
                 if (rewind_buffer_frames < 0) rewind_buffer_frames = 0;
@@ -1098,6 +1105,7 @@ int main(int argc, char* argv[]) {
     if (!headless) {
         const char* headless_only = !delayed_keys.empty()  ? "--delayed-keypress"
                                   : !delayed_nmis.empty()  ? "--delayed-nmi"
+                                  : !delayed_sd_inserts.empty() ? "--delayed-sdcard-insert-frames"
                                   : !snapshot_file.empty() ? "--delayed-snapshot"
                                   : nullptr;
         if (headless_only) {
@@ -1857,6 +1865,7 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
         }
+        for (auto& si : delayed_sd_inserts) app.set_delayed_sdcard_insert(si.image, si.delay);
         result = configure_and_run(app);
     } else {
 #ifdef ENABLE_QT_UI

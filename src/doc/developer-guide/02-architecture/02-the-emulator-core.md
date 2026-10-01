@@ -130,3 +130,14 @@ from inside `run_frame()` — you cannot destroy the object whose code you are
 currently executing. So the emulator only *records* the request, and the
 frontend polls `take_hard_reset_request()` after each frame returns and
 performs the reconstruction from there.
+
+A live SD-card change (File > Insert SD Card Image / Eject SD Card, and the
+headless `--delayed-sdcard-insert-frames`, GH #93) borrows the same shape
+although it comes from the host, not the guest: `request_sd_card_change()`
+records it, and the loop owner performs it after its frames with
+`emulator_service_sd_card_change()` (`src/platform/emulator_boot.h`), BEFORE the
+cold-boot polls so a reset in the same tick boots the new card. The card lives in
+two configs and that helper updates both: the emulator's (an in-place `init()`,
+which every program load does, remounts from it) and the frontend's own (every
+cold boot rebuilds from it). `HeadlessApp` and `QtApp` poll it; `SdlApp` has no
+way to raise one, so it does not.

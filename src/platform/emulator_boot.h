@@ -15,6 +15,7 @@
 #include <cctype>
 #include <functional>
 #include <new>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -318,4 +319,40 @@ inline void emulator_frontend_cold_boot(Emulator& emu, EmulatorConfig base_cfg,
     if (!load_file.empty() && hooks.schedule_load)
         hooks.schedule_load(load_file, emulator_load_delay_frames(load_file));
     if (hooks.on_booted)           hooks.on_booted();
+}
+
+// ---------------------------------------------------------------------------
+// GH #93 — a live SD-card change, performed between frames.
+// ---------------------------------------------------------------------------
+
+/// What a serviced card change did: the request, and why it failed (empty on
+/// success).
+struct SdCardChangeOutcome {
+    Emulator::SdCardChange change;
+    std::string            error;
+};
+
+/// Perform the card change a frontend action requested
+/// (Emulator::request_sd_card_change), if any. Polled by a loop owner after its
+/// frames, BEFORE its cold-boot polls, so a reset raised in the same tick boots
+/// the new card.
+///
+/// The card lives in TWO configs and both must follow it: the emulator's, which
+/// change_sd_card() updates and an in-place init() (a program load) reads; and
+/// the frontend's own, from which every cold boot (F1, NR 0x02, Reset, a menu
+/// load, a debugger reset) rebuilds the machine. Update only the first and the
+/// next hard reset silently puts the OLD card back. An eject changes neither:
+/// jnext reads the machine's ROMs from that card at power-on.
+inline std::optional<SdCardChangeOutcome>
+emulator_service_sd_card_change(Emulator& emu, EmulatorConfig& frontend_cfg,
+                                bool& frontend_cfg_set) {
+    std::optional<Emulator::SdCardChange> request = emu.take_sd_card_change_request();
+    if (!request) return std::nullopt;
+    SdCardChangeOutcome outcome{*request, emu.change_sd_card(*request)};
+    if (outcome.error.empty() && !request->image.empty()) {
+        frontend_cfg.sd_card_image    = request->image;
+        frontend_cfg.sd_card_readonly = request->read_only;
+        frontend_cfg_set              = true;
+    }
+    return outcome;
 }

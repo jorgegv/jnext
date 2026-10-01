@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# One functional test of the regression suite. Sourced by regression.sh (the
+# driver); also directly executable — the lib then self-initializes and
+# standalone_summary prints the totals.
+# shellcheck source=test/00regression/test-functions.inc
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
+
+# GH #93 — changing the SD card while the machine runs.
+#
+# The Next has no card-detect line, so NextZXOS cannot notice a swap; its
+# REMOUNT command asks "Remove/insert SD and press Y" and re-reads the card
+# when Y comes. This row drives exactly that, end to end, headless:
+#
+#   swap     boot card A, type REMOUNT, insert card B (--delayed-sdcard-insert-
+#            frames), press Y, then `.nexload magic.nex` — a file that exists
+#            ONLY on card B. Its program writes "Hello from ZX Next!" to the
+#            magic port, so the line on stderr is the guest having read card B.
+#   control  the same keystrokes with no insert: the file is not on card A, so
+#            the line must NOT appear. Without it, "swap printed the line" could
+#            mean the file was reachable anyway.
+#
+# Two more parts pin the frontends' share:
+#
+#   refused  a headless insert of a missing image fails the run (exit != 0),
+#            as a failed --load does, and names the image.
+#   qt       QtApp's own poll, through JNEXT_HOST_PROBE=sdcard:<image>
+#            (src/platform/host_probe.h): the probe requests the change File >
+#            Insert SD Card Image requests, QtApp performs it between frames,
+#            and a hard reset afterwards still has the NEW card — which is the
+#            frontend's own config, the one every cold boot rebuilds from.
+#
+# Every card is a private reflink clone under $RUN_DIR, the shape the screenshot
+# suite's `@private-sd` sentinel uses; the harness's EXIT trap removes them. This
+# row installs no trap of its own (GH #153).
+if want sdcard-swap-func; then
+    begin_func sdcard-swap-func
+
+    faults=()
+    BASE="$RUN_DIR/private/sdcard-swap"
+    W="$BASE/work"
+    mkdir -p "$W"
+    MASTER="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+
+    clone_a() {   # clone_a <name> — a config dir whose fallback card is a clone of A
+        mkdir -p "$BASE/$1/sdcard"
+        cp --reflink=auto "$MASTER" "$BASE/$1/sdcard/cspect-next-1gb-fixed.img"
+    }
+    clone_a swap
+    clone_a control
+    clone_a qt
+    clone_a refused
+
+    # Card B: card A plus MAGIC.NEX, written by jnext's own --sdcard-file-add
+    # (validated by a foreign reader in sdcard-file-add-func).
+    CARD_B="$BASE/card-b.img"
+    cp --reflink=auto "$MASTER" "$CARD_B"
+    rc=0
+    timeout --foreground --kill-after=5s 120s \
+        "$JNEXT" --sdcard "$CARD_B" \
+                 --sdcard-file-add "$PROJECT_DIR/test/00regression/nex/magic_port_demo.nex" \
+                 --sdcard-file-dest /MAGIC.NEX > "$W/add.log" 2>&1 || rc=$?
+    [[ $rc -eq 0 ]] || faults+=("--sdcard-file-add onto card B exited $rc")
+
+    # Frame-based throughout. SPACE@400 skips the welcome tour, DOWN+ENTER reach
+    # the command line (as boot-nextzxos-dotls), REMOUNT is typed from 560 and
+    # its prompt is up by 700; the card goes in at 720 and Y at 760. The re-read
+    # takes ~280 frames; `.nexload magic.nex` is typed from 1100.
+    keys=(--delayed-keypress-frames 400 space --delayed-keypress-frames 470 down
+          --delayed-keypress-frames 500 enter)
+    f=560
+    for k in r e m o u n t enter; do
+        keys+=(--delayed-keypress-frames "$f" "$k"); f=$((f + 15))
+    done
+    keys+=(--delayed-keypress-frames 760 y)
+    f=1100
+    for k in . n e x l o a d space m a g i c . n e x enter; do
+        keys+=(--delayed-keypress-frames "$f" "$k"); f=$((f + 15))
+    done
+
+    remount_run() {   # remount_run <name> [extra args...]
+        local name=$1 rc=0; shift
+        JNEXT_CONFIG_DIR="$BASE/$name" timeout --foreground --kill-after=5s 300s \
+            "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" \
+                     --magic-port 0xCAFE --magic-port-mode line \
+                     "${keys[@]}" "$@" \
+                     --delayed-automatic-exit-frames 1500 \
+            > "$W/$name.log" 2>&1 || rc=$?
+        [[ $rc -eq 0 ]] || faults+=("$name: the NextZXOS run exited $rc")
+    }
+    remount_run swap --delayed-sdcard-insert-frames 720 "$CARD_B"
+    remount_run control
+
+    grep -qF "SD card inserted: '$CARD_B'" "$W/swap.log" \
+        || faults+=("swap: the card change was not performed")
+    grep -qF "Hello from ZX Next!" "$W/swap.log" \
+        || faults+=("swap: after REMOUNT + Y, NextZXOS did not run MAGIC.NEX from card B")
+    grep -qF "Hello from ZX Next!" "$W/control.log" \
+        && faults+=("control: MAGIC.NEX ran from card A, so the swap result proves nothing")
+
+    # refused: a missing image fails the run, and the card stays.
+    rc=0
+    JNEXT_CONFIG_DIR="$BASE/refused" timeout --foreground --kill-after=5s 120s \
+        "$JNEXT" --headless --machine 48k --rewind-buffer-size 0 \
+                 --delayed-sdcard-insert-frames 5 "$BASE/no-such-card.img" \
+                 --delayed-automatic-exit-frames 20 > "$W/refused.log" 2>&1 || rc=$?
+    [[ $rc -ne 0 ]] || faults+=("refused: an insert of a missing image exited 0")
+    grep -qF "cannot open '$BASE/no-such-card.img'" "$W/refused.log" \
+        || faults+=("refused: the failure does not name the image")
+
+    # qt: QtApp's poll and its own config. Offscreen, as qt-host-order-func.
+    rc=0
+    JNEXT_CONFIG_DIR="$BASE/qt" JNEXT_HOST_PROBE="sdcard:$CARD_B" \
+    QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy \
+    timeout --foreground --kill-after=5s 120s \
+        "$JNEXT" --silent --machine 48k --rewind-buffer-size 0 \
+                 --delayed-automatic-exit-frames 150 > "$W/qt.log" 2>&1 || rc=$?
+    [[ $rc -eq 0 ]] || faults+=("qt: the run exited $rc")
+    grep -qF "HOSTPROBE sdcard: inserted=1" "$W/qt.log" \
+        || faults+=("qt: QtApp did not perform the requested card change")
+    grep -qF "HOSTPROBE sdcard: after-reset=1" "$W/qt.log" \
+        || faults+=("qt: a hard reset after the change did not keep the new card")
+
+    if [[ ${#faults[@]} -eq 0 ]]; then
+        pass_row " (REMOUNT read the inserted card; control did not; refusal and Qt poll pinned)"
+    else
+        fail_row " (${#faults[@]} fault(s) in the live SD-card change)"
+        printf '      %s\n' "${faults[@]}"
+    fi
+fi
+
+[[ "${BASH_SOURCE[0]}" != "$0" ]] || standalone_summary

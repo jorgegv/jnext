@@ -221,10 +221,11 @@ static void test_accelerators(MainWindow& w)
     // and for the same reason: every row above passes trivially against an
     // empty harvest, so the shape of the walk is pinned. Eight menus; thirteen
     // popups (File, Machine + Machine Type + CPU Speed + Emulator Speed, Input
-    // + Joy 1 + Joy 2, Tape, Debug, View, Settings, Help); forty-five
+    // + Joy 1 + Joy 2, Tape, Debug, View, Settings, Help); forty-six
     // mnemonics; twelve shortcuts — plus, in a debugger build, the two
     // View/Debug entries sharing one Alt+D. (GH #19 added one of each:
-    // File > Quic&k Screenshot, Alt+K.)
+    // File > Quic&k Screenshot, Alt+K. GH #93 added a mnemonic: File > &Eject
+    // SD Card.)
     //
     // ADDING OR REMOVING A MENU ENTRY MEANS UPDATING THESE NUMBERS, and that
     // edit is the point: it is the claim about how much of the menu tree is
@@ -238,14 +239,14 @@ static void test_accelerators(MainWindow& w)
         const bool as_expected =
                top.size()           == 8
             && popup_scopes.size()  == 13
-            && menu_accels.size()   == 45 + kDebuggerMnemonics
+            && menu_accels.size()   == 46 + kDebuggerMnemonics
             && key_accels.size()    == 12 + kDebuggerShortcuts;
         check("MA-05", "the harvest matches the pinned shape of the menu tree",
               as_expected,
               fmt("menus=%zu (want 8), popups=%zu (want 13), mnemonics=%zu (want %zu), "
                   "shortcuts=%zu (want %zu)",
                   top.size(), popup_scopes.size(),
-                  menu_accels.size(), 45 + kDebuggerMnemonics,
+                  menu_accels.size(), 46 + kDebuggerMnemonics,
                   key_accels.size(), 12 + kDebuggerShortcuts));
     }
 }

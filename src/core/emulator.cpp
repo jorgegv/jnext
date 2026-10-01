@@ -7908,6 +7908,75 @@ std::string Emulator::take_nex_load_request()
     return request;
 }
 
+std::string Emulator::sd_card_change_refusal() const
+{
+    if (rzx_recorder_.is_recording())
+        return "an RZX recording is being made (stop it first)";
+    if (rzx_player_.is_playing())
+        return "an RZX recording is playing (stop it first)";
+    // unmount() drops the read overlay, and with it the file a directly loaded
+    // extended NEX keeps open (load_nex()): the running program would lose it
+    // mid-read. On hardware that file lives on the card being pulled.
+    if (sd_card_.has_read_overlay())
+        return "the loaded NEX program keeps its own file open on the card";
+    return {};
+}
+
+std::string Emulator::request_sd_card_change(SdCardChange change)
+{
+    std::string why = sd_card_change_refusal();
+    if (!why.empty()) {
+        Log::emulator()->error("SD card change refused: {}", why);
+        return why;
+    }
+    sd_card_change_request_ = std::move(change);
+    return {};
+}
+
+std::optional<Emulator::SdCardChange> Emulator::take_sd_card_change_request()
+{
+    std::optional<SdCardChange> request = std::move(sd_card_change_request_);
+    sd_card_change_request_.reset();
+    return request;
+}
+
+std::string Emulator::change_sd_card(const SdCardChange& change)
+{
+    std::string why = sd_card_change_refusal();
+    if (why.empty() && !change.image.empty() &&
+        !std::ifstream(change.image, std::ios::binary).is_open())
+        why = "cannot open '" + change.image + "'";
+    if (!why.empty()) {
+        Log::emulator()->error("SD card change refused: {}", why);
+        return why;
+    }
+
+    if (change.image.empty()) {
+        sd_card_.unmount();
+        Log::emulator()->info("SD card ejected");
+    } else if (sd_card_.mount(change.image, change.read_only)) {
+        // The card the machine powers on with from now on: a hard reset, a
+        // program load (an in-place init()), a .jns save's card identity and
+        // the warm start all read it from here.
+        config_.sd_card_image    = change.image;
+        config_.sd_card_readonly = change.read_only;
+        Log::emulator()->info("SD card inserted: '{}'{}", change.image,
+                              change.read_only ? " (read-only)" : "");
+    } else {
+        // mount() unmounted the old card first; the slot is now empty.
+        why = "could not mount '" + change.image + "'; the slot is empty";
+        Log::emulator()->error("SD card change: {}", why);
+    }
+
+    // Whatever happened to the slot, it is not the card these were taken with.
+    // The warm start is a booted machine recorded off a card; the rewind ring
+    // holds the SD state machine of the old one, but not its contents.
+    warm_start_state_.clear();
+    warm_start_failed_image_.clear();
+    if (rewind_buffer_) rewind_buffer_->clear();
+    return why;
+}
+
 Emulator::EsxdosStubState Emulator::esxdos_stub_state() const
 {
     return {esxdos_stub_filename_, esxdos_stub_file_};

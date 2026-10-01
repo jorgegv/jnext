@@ -690,6 +690,11 @@ handler raises the guest hard-reset request from inside the frames, and in the
 next pump the probe issues its own `reset(Hard)` — a loop owner that polls before
 it pumps boots twice, guest first; one that pumps first boots once
 (`qt-host-order-func` for `QtApp`, HOST-08 for `HeadlessApp`).
+`JNEXT_HOST_PROBE=sdcard:<image>` runs a third, for the SD-card change poll
+(GH #93): it requests a card change, reports when the loop owner has performed
+it, then raises a guest hard reset and reports whether the rebuilt machine still
+has the new card — i.e. whether the loop owner updated its own config too
+(`sdcard-swap-func` for `QtApp`).
 
 **The CLI `--delayed-*` flags keep their own countdowns.** Each loop owner counts
 LOOP TICKS for every `--delayed-*` flag, as before — a tick count survives a
