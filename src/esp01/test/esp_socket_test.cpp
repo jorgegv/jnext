@@ -77,6 +77,7 @@
 #include <cstring>
 #include <ctime>
 #include <functional>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -1317,13 +1318,27 @@ int main() {
         // could not tell binding from coincidence.
         UdpPeer peer;
         if (peer.start()) {
-            // A high, fixed port: unprivileged, and outside the ephemeral range
-            // Linux picks from (32768-60999 by default), so an OS-assigned port
-            // cannot land on it by chance and fake a pass.
-            const std::uint16_t want = 24123;
-            auto t = make_socket_transport(loopback_ok());
-            bool bound = t->begin_connect("127.0.0.1", peer.port(), Protocol::Udp, want) &&
-                         pump_until(*t, TransportState::Connected);
+            // A high port: unprivileged, and outside the ephemeral range Linux
+            // picks from (32768-60999 by default), so an OS-assigned port
+            // cannot land on it by chance and fake a pass. Not one fixed
+            // number: a concurrent run would hold it and this bind would fail.
+            // The transport's own bind is the probe — no probe-close-rebind gap
+            // for another process to fall into: from a per-process start in
+            // 20000-29999, take the first port it actually binds. If none
+            // binds, `want` stays 0 and the row FAILS.
+            std::uint16_t want = 0;
+            std::unique_ptr<EspTransport> t;
+            const unsigned first = static_cast<unsigned>(::getpid()) % 10000u;
+            for (unsigned i = 0; i < 10000u && want == 0; ++i) {
+                const auto port = static_cast<std::uint16_t>(20000u + (first + i) % 10000u);
+                auto c = make_socket_transport(loopback_ok());
+                if (c->begin_connect("127.0.0.1", peer.port(), Protocol::Udp, port) &&
+                    pump_until(*c, TransportState::Connected)) {
+                    want = port;
+                    t    = std::move(c);
+                }
+            }
+            bool bound = want != 0;
             if (bound) {
                 const char ping[] = "P";
                 t->send(reinterpret_cast<const std::uint8_t*>(ping), 1);

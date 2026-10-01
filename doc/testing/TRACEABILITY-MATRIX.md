@@ -2495,8 +2495,8 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | DUAL-02 | uart.vhd:282-286,355,371 - UART 0 reads 0x03, UART 1 reads 0x45 | uart.vhd:282-286,355,371 | pass | test/uart/uart_test.cpp:1437 |
 | DUAL-03 | uart.vhd:300-305 - per-channel framing: UART 0=0x1B, UART 1=0x18 | uart.vhd:300-305 | pass | test/uart/uart_test.cpp:1452 |
 | DUAL-04 | uart.vhd:346-378 - UART 1 status unaffected by UART 0 RX byte | uart.vhd:346-378 | pass | test/uart/uart_test.cpp:1465 |
-| DUAL-05 | uart.vhd gates tx_wr on uart_select_r bit 6; zxnext.vhd:3343-3344 routes UART 0 TX → ESP pin, UART 1 TX → Pi pin. Selecting a channel via port 0x153B directs port 0x133B TX writes to that channel ONLY — cross-talk between channels is impossible | zxnext.vhd | pass | test/uart/uart_integration_test.cpp:657 |
-| DUAL-06 | zxnext.vhd:3340-3341 — joystick-UART RX routes to UART 0 when NR 0x0B joy_iomode_uart_en=1 & bit0=0, to UART 1 when it is 1 & bit0=1, and is dropped when the enable is clear | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:714 |
+| DUAL-05 | uart.vhd gates tx_wr on uart_select_r bit 6; zxnext.vhd:3343-3344 routes UART 0 TX → ESP pin, UART 1 TX → Pi pin. Selecting a channel via port 0x153B directs port 0x133B TX writes to that channel ONLY — cross-talk between channels is impossible | zxnext.vhd | pass | test/uart/uart_integration_test.cpp:659 |
+| DUAL-06 | zxnext.vhd:3340-3341 — joystick-UART RX routes to UART 0 when NR 0x0B joy_iomode_uart_en=1 & bit0=0, to UART 1 when it is 1 & bit0=1, and is dropped when the enable is clear | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:716 |
 | I2C-01 | zxnext.vhd:3235-3247 - reset releases SCL and SDA high | zxnext.vhd:3235-3247 | pass | test/uart/uart_test.cpp:1500 |
 | I2C-02 | zxnext.vhd:3237-3238 - write 0 sets SCL output low | zxnext.vhd:3237-3238 | pass | test/uart/uart_test.cpp:1512 |
 | I2C-03 | zxnext.vhd:3237-3238 - write 1 releases SCL output high | zxnext.vhd:3237-3238 | pass | test/uart/uart_test.cpp:1524 |
@@ -2506,7 +2506,7 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | I2C-07 | zxnext.vhd:3266 - SDA read upper bits = 0xFE | zxnext.vhd:3266 | pass | test/uart/uart_test.cpp:1569 |
 | I2C-08 | zxnext.vhd:3238 - SCL write takes cpu_do(0) only; 0xFE -> 0 | zxnext.vhd:3238 | pass | test/uart/uart_test.cpp:1581 |
 | I2C-09 | zxnext.vhd:3259,3266 - read upper 7 bits stay 1 while lines low | zxnext.vhd:3259,3266 | pass | test/uart/uart_test.cpp:1595 |
-| I2C-10 | internal_port_enable(10) gates 0x103B/0x113B (same mechanism as GATE-02) [zxnext.vhd:2418, :2392] | zxnext.vhd:2418,2392 | pass | test/uart/uart_integration_test.cpp:598 |
+| I2C-10 | internal_port_enable(10) gates 0x103B/0x113B (same mechanism as GATE-02) [zxnext.vhd:2418, :2392] | zxnext.vhd:2418,2392 | pass | test/uart/uart_integration_test.cpp:600 |
 | I2C-11 | zxnext.vhd:3259 - pi_i2c1_scl AND-gates the SCL read path (with NR 0xA0 bit 3 enabling the Pi bridge per G138) | zxnext.vhd:3259 | pass | test/uart/uart_test.cpp:1624 |
 | I2C-12 | zxnext.vhd:3235-3247 - reset releases both lines high | zxnext.vhd:3235-3247 | pass | test/uart/uart_test.cpp:1639 |
 | I2C-13 | zxnext.vhd:2280, 2317-2318 - NR 0xA0 bit 3 gates pi_i2c1_scl/sda; when off the Pi-low is masked to 1 at the wired-AND boundary | zxnext.vhd:2280,2317-2318 | pass | test/uart/uart_test.cpp:1670 |
@@ -2538,23 +2538,23 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | RTC-20 | Task 28 fixed-time survives reset() — battery-backed DS1307; NextZXOS mid-boot soft reset must not fall back to host clock | — | pass | test/uart/uart_test.cpp:2246 |
 | RTC-21 | Task 28 fixed-time + 12h mode — pinned 15:00 encodes as 3 PM (0x63: mode bit 6 + PM bit 5 + BCD 03) | — | pass | test/uart/uart_test.cpp:2275 |
 | RTC-22 | Task 28 parse_rtc_datetime — space/'T' forms equivalent; TZ/DST-independent (DST-gap datetime accepted); leap years handled; garbage / trailing chars / out-of-range / invalid dates rejected | — | pass | test/uart/uart_test.cpp:2312 |
-| INT-01 | UART0 rx_avail fires UART0_RX (vector 1) with NR 0xC6 bit 0 set [zxnext.vhd:1941-1944, :1949-1950; im2.cpp:313-323] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:203 |
-| INT-02 | UART0 rx_near_full fires UART0_RX with NR 0xC6 bit 1 set only (near-full override) [zxnext.vhd:1943, :1950; plan-drift note] | zxnext.vhd:1941-1944, zxnext.vhd:1943,1950 | pass | test/uart/uart_integration_test.cpp:232 |
-| INT-03 | UART1 rx_avail fires UART1_RX (vector 2) with NR 0xC6 bit 4 set [zxnext.vhd:1941-1944, :1949-1950] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:250 |
-| INT-04 | UART1 rx_near_full fires UART1_RX with NR 0xC6 bit 5 set only [zxnext.vhd:1942, :1950] | zxnext.vhd:1942,1950 | pass | test/uart/uart_integration_test.cpp:266 |
-| INT-05 | UART0 tx_empty fires UART0_TX (vector 12) with NR 0xC6 bit 2 set [zxnext.vhd:1941, :1949] | zxnext.vhd:1941,1949 | pass | test/uart/uart_integration_test.cpp:292 |
-| INT-06 | UART1 tx_empty fires UART1_TX (vector 13) with NR 0xC6 bit 6 set [zxnext.vhd:1941, :1949] | zxnext.vhd:1941,1949 | pass | test/uart/uart_integration_test.cpp:308 |
-| INT-07 | UART RX request shape is near_full OR (avail AND NOT NR 0xC6 bit 1) — single per-byte avail must NOT fire when bit 1 is set, near-full does [zxnext.vhd:1941-1944, G134] | zxnext.vhd:1941-1944 | pass | test/uart/uart_integration_test.cpp:349 |
-| GATE-01 | UART port enable gate: NR 0x83 bit 4 → ports 0x133B-0x163B; when closed reads=0xFF + writes ignored [zxnext.vhd:2420, :2392; emulator.cpp register_io_ports] | zxnext.vhd:2420,2392 | pass | test/uart/uart_integration_test.cpp:427 |
-| GATE-02 | I2C port enable gate: NR 0x83 bit 2 → ports 0x103B/0x113B; when closed reads=0xFF + writes ignored [zxnext.vhd:2418, :2392] | zxnext.vhd:2418,2392 | pass | test/uart/uart_integration_test.cpp:476 |
-| GATE-03 | NR 0x83 bits 0/2/4 independently gate DivMMC/I2C/UART [zxnext.vhd:2412, :2418, :2420, :2392; :5499-5509] | zxnext.vhd:2412,2418,2420,2392 | pass | test/uart/uart_integration_test.cpp:569 |
-| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:1241 | pass | test/uart/uart_integration_test.cpp:2725 |
-| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:2754 |
-| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:2785 |
+| INT-01 | UART0 rx_avail fires UART0_RX (vector 1) with NR 0xC6 bit 0 set [zxnext.vhd:1941-1944, :1949-1950; im2.cpp:313-323] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:205 |
+| INT-02 | UART0 rx_near_full fires UART0_RX with NR 0xC6 bit 1 set only (near-full override) [zxnext.vhd:1943, :1950; plan-drift note] | zxnext.vhd:1941-1944, zxnext.vhd:1943,1950 | pass | test/uart/uart_integration_test.cpp:234 |
+| INT-03 | UART1 rx_avail fires UART1_RX (vector 2) with NR 0xC6 bit 4 set [zxnext.vhd:1941-1944, :1949-1950] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:252 |
+| INT-04 | UART1 rx_near_full fires UART1_RX with NR 0xC6 bit 5 set only [zxnext.vhd:1942, :1950] | zxnext.vhd:1942,1950 | pass | test/uart/uart_integration_test.cpp:268 |
+| INT-05 | UART0 tx_empty fires UART0_TX (vector 12) with NR 0xC6 bit 2 set [zxnext.vhd:1941, :1949] | zxnext.vhd:1941,1949 | pass | test/uart/uart_integration_test.cpp:294 |
+| INT-06 | UART1 tx_empty fires UART1_TX (vector 13) with NR 0xC6 bit 6 set [zxnext.vhd:1941, :1949] | zxnext.vhd:1941,1949 | pass | test/uart/uart_integration_test.cpp:310 |
+| INT-07 | UART RX request shape is near_full OR (avail AND NOT NR 0xC6 bit 1) — single per-byte avail must NOT fire when bit 1 is set, near-full does [zxnext.vhd:1941-1944, G134] | zxnext.vhd:1941-1944 | pass | test/uart/uart_integration_test.cpp:351 |
+| GATE-01 | UART port enable gate: NR 0x83 bit 4 → ports 0x133B-0x163B; when closed reads=0xFF + writes ignored [zxnext.vhd:2420, :2392; emulator.cpp register_io_ports] | zxnext.vhd:2420,2392 | pass | test/uart/uart_integration_test.cpp:429 |
+| GATE-02 | I2C port enable gate: NR 0x83 bit 2 → ports 0x103B/0x113B; when closed reads=0xFF + writes ignored [zxnext.vhd:2418, :2392] | zxnext.vhd:2418,2392 | pass | test/uart/uart_integration_test.cpp:478 |
+| GATE-03 | NR 0x83 bits 0/2/4 independently gate DivMMC/I2C/UART [zxnext.vhd:2412, :2418, :2420, :2392; :5499-5509] | zxnext.vhd:2412,2418,2420,2392 | pass | test/uart/uart_integration_test.cpp:571 |
+| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:1241 | pass | test/uart/uart_integration_test.cpp:2738 |
+| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:2767 |
+| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:2798 |
 | TX-C1-ACC-01 | single tick span across a byte boundary: bytes exactly prescaler*frame_bits=2430 cycles apart [uart.vhd:297-299,318-320]; boundaries exact to one cycle; tx_empty at end | uart.vhd:297-299 | pass | test/uart/uart_test.cpp:2499 |
 | TX-C1-ACC-02 | one tick(4*2430) span drains 4 FIFO bytes back-to-back (starts at 0/T/2T/3T); last completion exactly at 4T [uart.vhd:297-299,318-320] | uart.vhd:297-299,318-320 | pass | test/uart/uart_test.cpp:2527 |
-| UART-RD-GH265-01 | UART status IN latches the transmitter as of the port_uart_dat reload 83 cycles in, not the instruction start (zxnext.vhd:3418-3423; t80na.vhd:214-222) | zxnext.vhd:3418-3423, t80na.vhd:214-222 | pass | test/uart/uart_integration_test.cpp:2833 |
-| UART-WR-GH265-01 | UART TX write taken on the edge after IORQ+WR, 73 cycles into OUT (C),A (t80na.vhd:148-150; zxnext.vhd:3418-3423) | t80na.vhd:148-150, zxnext.vhd:3418-3423 | pass | test/uart/uart_integration_test.cpp:2872 |
+| UART-RD-GH265-01 | UART status IN latches the transmitter as of the port_uart_dat reload 83 cycles in, not the instruction start (zxnext.vhd:3418-3423; t80na.vhd:214-222) | zxnext.vhd:3418-3423, t80na.vhd:214-222 | pass | test/uart/uart_integration_test.cpp:2846 |
+| UART-WR-GH265-01 | UART TX write taken on the edge after IORQ+WR, 73 cycles into OUT (C),A (t80na.vhd:148-150; zxnext.vhd:3418-3423) | t80na.vhd:148-150, zxnext.vhd:3418-3423 | pass | test/uart/uart_integration_test.cpp:2885 |
 | I2C-P05a | DS1307 - restart + read address 0xD1 returns ACK=0 | — | pass | test/uart/uart_test.cpp:1776 |
 | I2C-P05b | DS1307 - seconds register is valid BCD (upper<=5, lower<=9) | — | pass | test/uart/uart_test.cpp:1780 |
 
@@ -4306,246 +4306,246 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| POL-LB-01 | 127.0.0.1 → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:556 |
-| POL-LB-02 | 127.0.0.0 → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:558 |
-| POL-LB-03 | 127.255.255.255 → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:560 |
-| POL-LB-04 | 126.255.255.255 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:562 |
-| POL-LB-05 | 128.0.0.0 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:564 |
-| POL-LB-06 | 0:0:0:0:0:0:0:1 → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:566 |
-| POL-LB-07 | 0:0:0:0:0:0:0:2 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:569 |
-| POL-LB-08 | v4mapped(127, 0, 0, 1) → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:572 |
-| POL-LB-09 | 127.0.0.1 → None under loopback_ok | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:575 |
-| POL-LB-10 | 0:0:0:0:0:0:0:1 → None under loopback_ok | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:577 |
-| POL-LL-01 | 169.254.0.0 → LinkLocal | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:581 |
-| POL-LL-02 | 169.254.255.255 → LinkLocal | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:583 |
-| POL-LL-03 | 169.253.255.255 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:585 |
-| POL-LL-04 | 169.255.0.0 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:587 |
-| POL-LL-05 | 0xfe80:0:0:0:0:0:0:1 → LinkLocal | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:589 |
-| POL-LL-06 | 0xfebf:0xffff:0xffff:0xffff:0xffff:0xffff:0xffff:0xffff → LinkLocal | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:591 |
-| POL-LL-07 | 0xfe7f:0:0:0:0:0:0:1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:594 |
-| POL-LL-08 | 0xfec0:0:0:0:0:0:0:1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:596 |
-| POL-MD-01 | 169.254.169.254 → CloudMetadata | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:601 |
-| POL-MD-02 | 100.100.100.200 → CloudMetadata | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:605 |
-| POL-MD-03 | 100.100.100.199 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:607 |
-| POL-MD-04 | 0xfd00:0x0ec2:0:0:0:0:0:0x0254 → CloudMetadata | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:610 |
-| POL-MD-05 | 0xfd00:0x0ec2:0:0:0:0:0:0x0253 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:612 |
-| POL-MD-06 | v4mapped(169, 254, 169, 254) → CloudMetadata | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:614 |
-| POL-MD-07 | 169.254.169.254 → LinkLocal with deny_cloud_metadata off | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:621 |
-| POL-MD-08 | 169.254.169.254 → None with deny_cloud_metadata off, deny_link_local off | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:625 |
-| POL-PRIV-01 | 10.0.0.1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:630 |
-| POL-PRIV-02 | 10.255.255.255 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:632 |
-| POL-PRIV-03 | 172.16.0.1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:634 |
-| POL-PRIV-04 | 172.31.255.255 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:636 |
-| POL-PRIV-05 | 192.168.1.1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:638 |
-| POL-PRIV-06 | 100.64.0.1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:640 |
-| POL-PRIV-07 | 0xfd12:0x3456:0:0:0:0:0:1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:642 |
-| POL-PRIV-08 | 10.0.0.1 → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:648 |
-| POL-PRIV-09 | 192.168.1.1 → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:650 |
-| POL-PRIV-10 | 172.16.0.0 → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:652 |
-| POL-PRIV-11 | 172.15.255.255 → None with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:654 |
-| POL-PRIV-12 | 172.32.0.0 → None with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:656 |
-| POL-PRIV-13 | 100.64.0.1 → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:658 |
-| POL-PRIV-14 | 100.63.255.255 → None with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:660 |
-| POL-PRIV-15 | 0xfd12:0:0:0:0:0:0:1 → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:662 |
-| POL-PRIV-16 | 0xfc00:0:0:0:0:0:0:1 → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:664 |
-| POL-PRIV-17 | 0xfe00:0:0:0:0:0:0:1 → None with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:666 |
-| POL-RSV-01 | 0.0.0.0 → Unspecified | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:671 |
-| POL-RSV-02 | 0.255.255.255 → Unspecified | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:673 |
-| POL-RSV-03 | 1.0.0.0 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:675 |
-| POL-RSV-04 | 0:0:0:0:0:0:0:0 → Unspecified | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:677 |
-| POL-RSV-05 | 224.0.0.1 → MulticastOrReserved | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:679 |
-| POL-RSV-06 | 223.255.255.255 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:681 |
-| POL-RSV-07 | 240.0.0.0 → MulticastOrReserved | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:683 |
-| POL-RSV-08 | 255.255.255.255 → MulticastOrReserved | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:685 |
-| POL-RSV-09 | 0xff02:0:0:0:0:0:0:1 → MulticastOrReserved | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:687 |
-| NORM-01 | ::ffff:1.2.3.4 unwraps to 1.2.3.4 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:691 |
-| NORM-02 | 64:ff9b::1.2.3.4 unwraps to 1.2.3.4 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:697 |
-| NORM-03 | ipv6(nat64) → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:701 |
-| NORM-04 | IPv4-compatible ::1.2.3.4 unwraps to 1.2.3.4 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:707 |
-| NORM-05 | :: keeps its IPv6 identity (not 0.0.0.0) | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:710 |
-| NORM-06 | ::1 keeps its IPv6 identity (not 0.0.0.1) | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:712 |
-| NORM-07 | ::0.0.0.5 is not unwrapped either | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:714 |
-| NORM-08 | an ordinary IPv6 address is unchanged | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:716 |
-| NORM-09 | an IPv4 address is returned unchanged | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:719 |
-| POL-TUN-01 | sixtofour(127, 0, 0, 1) → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:726 |
-| POL-TUN-02 | sixtofour(169, 254, 169, 254) → CloudMetadata | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:728 |
-| POL-TUN-03 | sixtofour(169, 254, 0, 1) → LinkLocal | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:730 |
-| POL-TUN-04 | sixtofour(93, 184, 216, 34) → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:732 |
-| POL-TUN-05 | sixtofour(10, 0, 0, 1) → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:737 |
-| POL-TUN-06 | sixtofour(10, 0, 0, 1) → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:742 |
-| POL-TUN-07 | 0x2001:0x0000:0x7f00:0x0001:0:0:0x80ff:0xfffe → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:750 |
-| POL-TUN-08 | 0x2001:0x0db8:0:0:0:0x5efe:0x7f00:0x0001 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:755 |
-| POL-TUN-09 | 0xfe80:0:0:0:0:0x5efe:0x7f00:0x0001 → LinkLocal | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:758 |
-| POL-TUN-10 | normalize() leaves a 6to4 address as IPv6 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:760 |
-| POL-TUN-11 | a 6to4 address does not win the IPv4 preference pass | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:770 |
-| POL-TUN-12 | tunnel_endpoint() extracts the 6to4 gateway address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:776 |
-| POL-TUN-13 | tunnel_endpoint() declines an ordinary IPv6 address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:779 |
-| POL-TUN-14 | tunnel_endpoint() declines an IPv4 address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:784 |
-| ESP-SEL-01 | an empty candidate list selects nothing | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:792 |
-| ESP-SEL-02 | IPv4 is preferred even when IPv6 comes first | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:800 |
-| ESP-SEL-03 | a denied candidate is skipped for an allowed one | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:808 |
-| ESP-SEL-04 | IPv6 is used when there is no IPv4 candidate | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:816 |
-| ESP-SEL-05 | all-denied reports the FIRST candidate's reason | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:825 |
-| ESP-SEL-06 | with loopback allowed, IPv4 loopback still wins over IPv6 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:834 |
-| ESP-SEL-07 | a mapped IPv4 candidate counts as IPv4 and is returned verbatim | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:843 |
-| FMT-01 | IPv4 renders as a dotted quad | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:849 |
-| FMT-02 | IPv6 renders in full, uncompressed 8-group form | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:851 |
-| FMT-03 | IPv6 groups drop leading zeros but keep their positions | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:853 |
-| FMT-04 | every deny reason has distinct text | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:856 |
-| FMT-05 | every transport state has distinct text | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:860 |
-| SEAM-01 | the default threshold is info — the module's own quiet default | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:873 |
-| SEAM-02 | every level has distinct, non-'unknown' text | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:875 |
-| SEAM-03 | a byte renders as two upper-case hex digits, not as a character | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:879 |
-| SEAM-04 | an installed sink receives the module's output | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:890 |
-| SEAM-04b | ...and clearing the sink restores silence, at any level | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:895 |
-| SEAM-05 | the threshold drops everything below it and keeps the rest | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:904 |
-| SEAM-06 | lowering the threshold lets trace through | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:909 |
-| SEAM-07 | {} substitutes positionally, in order, for mixed types | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:919 |
-| SEAM-08 | {{ and }} are literal braces | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:921 |
-| SEAM-09 | a format spec inside the braces is ignored, not printed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:922 |
-| SEAM-10 | surplus arguments and surplus placeholders are both harmless | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:924 |
-| SOCK-TRACE-01 | an IP literal is resolved without a DNS lookup | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:959 |
-| SOCK-TRACE-02 | at the default level a full session logs open + close and nothing else | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:977 |
-| SOCK-TRACE-03 | a policy refusal is logged at the default level | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:991 |
-| SOCK-TRACE-04 | a host NAME takes the resolve path, not the numeric fast path | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1010 |
-| TR-01 | a fresh transport is Idle with no error | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1031 |
-| TR-02 | an empty host is rejected outright, leaving the state alone | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1033 |
-| TR-03 | port 0 is rejected outright | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1035 |
-| TR-04 | close() on an idle transport stays Idle | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1037 |
-| TR-05 | send() before Connected moves no bytes | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1040 |
-| TR-06 | recv() before Connected moves no bytes | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1042 |
-| TR-07 | poll() in Idle is a harmless no-op | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1044 |
-| TR-08 | an accepted request parks in Resolving without resolving | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1047 |
-| TR-09 | a second request while busy is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1050 |
-| SEC-01 | the default policy refuses a loopback connect | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1061 |
-| SEC-02 | the refusal says WHY, naming the policy | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1070 |
-| SEC-03 | a refused connect never reached the listener | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1073 |
-| SEC-04 | an address-policy refusal reports the rule that refused it, without anyone parsing last_error() | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1091 |
-| SEC-05 | a fresh request clears the previous refusal verdict | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1102 |
-| SEC-06 | a network failure reports no deny reason, so it cannot be mistaken for a deliberate block | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1115 |
-| NET-01 | connect request accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1139 |
-| NET-02 | the connect completes through poll() alone | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1141 |
-| NET-03 | the listener sees the connection | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1144 |
-| NET-04 | peer_address() is the loopback address connected to | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1145 |
-| NET-05 | send() accepts the bytes | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1152 |
-| NET-06 | the server receives exactly what was sent | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1154 |
-| NET-07 | recv() with nothing pending returns 0 and stays Connected | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1158 |
-| NET-08 | recv() returns exactly what the server sent | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1174 |
-| NET-09 | a peer close moves the transport to Closed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1178 |
-| NET-10 | send/recv after Closed move no bytes | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1181 |
-| NET-11 | a closed transport accepts a new connect | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1185 |
-| NET-12 | close() on a live connection ends in Closed and the server sees EOF | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1190 |
-| UDPT-01 | a UDP connect request is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1223 |
-| UDPT-02 | ...and completes through poll() alone, never passing through Connecting — a datagram connect has no handshake to wait for | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1225 |
-| UDPT-03 | send() puts the whole datagram out, all-or-nothing | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1231 |
-| UDPT-04 | the peer receives exactly that datagram | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1234 |
-| UDPT-05 | recv() with nothing pending returns 0 and stays Connected — UDP has no EOF, so a quiet socket must not close the connection | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1238 |
-| LONGER-TWO | — | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1246 |
-| UDPT-06 | two datagrams arrive as two reads with their own boundaries | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1253 |
-| UDPT-07 | ...and the connection is still live afterwards | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1255 |
-| UDPT-08 | a datagram larger than the buffer is truncated to it, not failed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1267 |
-| AFTER-EMPTY | — | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1289 |
-| UDPT-13 | a zero-length datagram is not an end of stream — the connection survives it and still delivers what comes after | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1296 |
-| UDPT-09 | close() on a live UDP connection ends in Closed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1303 |
-| UDPT-10 | AT+CIPSTART's <local port> really binds — the peer sees that source port | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1332 |
-| UDPT-11 | ...while local port 0 leaves the choice to the OS | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1345 |
-| UDPT-12 | the address policy denies a UDP target just as it denies a TCP one | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1363 |
-| NET-ERR-01 | a connect to a closed port ends in Failed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1385 |
-| NET-ERR-02 | the failure carries an explanatory error string | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1386 |
-| ESP-RST-01 | a peer that RSTs after serving its data is reported at warn, and the run carries no error line at all | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1454 |
-| ESP-RST-02 | a peer that RSTs having served nothing is still an error | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1476 |
-| SIG-01 | fork() unavailable on this host | (host sockets) | skip | src/esp01/test/esp_socket_test.cpp:1507 |
-| SIG-02 | fork() unavailable on this host | (host sockets) | skip | src/esp01/test/esp_socket_test.cpp:1508 |
-| ASYNC-01 | an IP literal resolves synchronously in the first poll() and never reaches the resolver | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1573 |
-| ASYNC-11 | the poll() that STARTS a lookup returns immediately instead of waiting it out | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1609 |
-| ASYNC-02 | 200 poll()s during an outstanding lookup return promptly and leave the transport in Resolving | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1635 |
-| ASYNC-03 | the lookup ran on a thread other than the caller's | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1640 |
-| ASYNC-04 | opening the gate completes the connect through the async path, to the address the resolver returned | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1646 |
-| ASYNC-05 | the address policy is enforced on the RESOLVED address, and the refused connect never reached the listener | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1668 |
-| ASYNC-06 | close() during a lookup returns at once and the late result never resurrects the transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1705 |
-| ASYNC-10 | a lookup abandoned by close() is never applied to the next connect | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1721 |
-| ASYNC-07 | destroying a transport mid-lookup returns immediately instead of waiting out the resolver | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1756 |
-| ASYNC-08 | ...and the orphaned lookup runs to completion AFTER it, into a result block that outlived the transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1770 |
-| ASYNC-09 | AT+CIPSTART's deadline bounds NAME RESOLUTION, not just the TCP handshake | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1810 |
-| ASYNC-12 | a throwing resolver degrades to a failed lookup instead of aborting the process, and its half-built address list is discarded | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1843 |
-| IPP-01 | a dotted quad parses to the address it spells | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1871 |
-| IPP-02 | the wildcard parses | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1873 |
-| IPP-03 | an IPv6 literal parses, elision and all | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1874 |
-| IPP-04 | a NAME is refused rather than resolved — a bind address that could depend on DNS is one that could change under the user | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1876 |
-| IPP-05 | so is an empty string | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1880 |
-| IPP-06 | and so is a malformed quad | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1881 |
-| IPP-07 | round trip: to_string(parse_ip(x)) == x | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1882 |
-| LSN-01 | open(0) binds and reports the port the OS chose | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1896 |
-| LSN-02 | accept() with nothing pending returns null rather than waiting | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1898 |
-| LSN-03 | a real client can connect | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1903 |
-| LSN-04 | poll() + accept() yield a transport, already Connected | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1905 |
-| LSN-05 | whose peer_address() is the client's | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1907 |
-| LSN-21 | recv() on the accepted transport with nothing pending returns 0 at once and stays Connected — the accepted socket really is non-blocking | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1926 |
-| LSN-06 | guest -> peer: send() on the accepted transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1935 |
-| LSN-07 | ...and the client receives exactly those bytes | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1937 |
-| LSN-08 | peer -> guest: the client can send | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1941 |
-| LSN-09 | ...and recv() on the accepted transport yields them | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1949 |
-| LSN-10 | a client close moves the accepted transport to Closed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1953 |
-| LSN-11 | two connects, but poll() parks only one | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1971 |
-| LSN-12 | ...and the second is taken by the NEXT poll | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1973 |
-| LSN-13 | close() stops listening | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1980 |
-| LSN-14 | ...and the port can be bound again | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1985 |
-| LSN-15 | a port already in use is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2004 |
-| LSN-16 | ...with a reason, and nothing listening | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2006 |
-| LSN-17 | an address that is not local is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2018 |
-| LSN-18 | ...and does not silently become the wildcard | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2020 |
-| LSN-19 | a listener bound to 127.0.0.1 is NOT reachable through this host's LAN address — the default really confines it | (host sockets) | skip | src/esp01/test/esp_socket_test.cpp:2042 |
-| LSN-20 | ...and --esp-listen-address 0.0.0.0 IS, so widening is a real act and not a no-op | (host sockets) | skip | src/esp01/test/esp_socket_test.cpp:2054 |
-| RSLV-01 | a fresh resolver is Idle and holds no error | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2071 |
-| RSLV-02 | an empty host is REFUSED outright, leaving the state untouched | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2076 |
-| RSLV-03 | an IP literal resolves synchronously, and the injected resolver is never consulted for one | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2083 |
-| RSLV-04 | a literal the policy denies FAILS rather than being echoed back — the command cannot launder a refused address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2095 |
-| RSLV-05 | a NAME that resolves to a denied address is refused on the address, not on the name | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2106 |
-| RSLV-06 | an allowed name reaches Done carrying the resolved address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2118 |
-| RSLV-07 | ...and the lookup really ran off the calling thread | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2121 |
-| RSLV-08 | a second begin() while one is in flight is refused, so an answer can never be silently replaced | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2128 |
-| RSLV-09 | a resolver that throws AFTER appending an address fails the lookup and adopts nothing | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2138 |
-| RSLV-10 | reset() returns it to Idle and drops the result | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2148 |
-| RSLV-12 | a resolver that says SUCCESS but returns no addresses is a FAILED lookup, not a success with nothing in it | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2155 |
-| RSLV-11a | the lookup is genuinely in flight before we destroy it | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2171 |
-| RSLV-11 | destroying a resolver mid-lookup returns immediately — one shared_ptr dropped, no join, nothing to wait for | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2177 |
-| PHOST-01 | an ordinary hostname is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2193 |
-| PHOST-02 | an IPv4 literal is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2195 |
-| PHOST-03 | an IPv6 literal is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2196 |
-| PHOST-04 | underscores and hyphens inside a name are accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2197 |
-| PHOST-05 | an empty host is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2199 |
-| PHOST-06 | a leading '-' is refused — it would be an OPTION, not a host | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2204 |
-| PHOST-07 | ...including a long-form option | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2206 |
-| PHOST-08 | a shell metacharacter is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2209 |
-| PHOST-09 | a command substitution is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2210 |
-| PHOST-10 | a pipe or redirect is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2212 |
-| PHOST-11 | an embedded space is refused — it would split into two argv words | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2214 |
-| PHOST-12 | an embedded NUL truncates nothing, because the whole string is checked and the NUL itself is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2216 |
-| PHOST-13 | a newline is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2219 |
-| PHOST-14 | 255 bytes is the longest accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2220 |
-| PHOST-15 | 256 bytes is the first refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2222 |
-| PICMP-01 | an implausible host is refused before anything is opened | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2245 |
-| PICMP-02 | a literal the address policy denies FAILS without an echo ever being sent | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2257 |
-| PICMP-03 | and so does the cloud-metadata address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2266 |
-| PICMP-04 | reset() returns it to Idle, as EspPinger promises | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2274 |
-| PICMP-05 | an IPv6-only address is refused as having no IPv4 address, not echoed at four bytes of itself | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2292 |
-| SNTPR-01 | a server the address policy denies FAILS *on the policy*, without a datagram being sent — an NTP server is not an exception to the rule the rest of this surface follows | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2319 |
-| SNTPR-02 | an implausible server name is refused outright | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2328 |
-| NTPC-01 | the NTP epoch offset is applied exactly (2 208 988 800 s) | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2345 |
-| NTPC-02 | and it formats to the string the 1.x manual's own example gives | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2347 |
-| NTPC-03 | a ZERO timestamp means 'unsynchronised' and is REFUSED, not turned into 1900 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2352 |
-| NTPC-04 | a pre-1970 timestamp is refused too | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2355 |
-| NTPC-05 | the largest NTP second still converts | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2357 |
-| SNTP-01 | a positive timezone moves the clock forward | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2362 |
-| SNTP-02 | a negative one moves it back, across a day boundary | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2364 |
-| SNTP-03 | +13 crosses into the next day and the weekday follows | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2366 |
-| SNTP-04 | the Unix epoch itself formats as a Thursday | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2372 |
-| SNTP-05 | a leap day is a real day, not the 1st of March | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2374 |
-| SNTP-06 | and the arithmetic survives past the 32-bit time_t wrap | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2376 |
-| SNTP-08 | 2100 is NOT a leap year, so 1 March falls where it should | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2384 |
-| SNTP-09 | ...and February 2100 has 28 days, not 29 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2386 |
-| SNTP-10 | a date after 2100 is not shifted by a phantom leap day | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2395 |
-| SNTP-07 | a negative result is clamped rather than wrapping | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2397 |
+| POL-LB-01 | 127.0.0.1 → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:557 |
+| POL-LB-02 | 127.0.0.0 → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:559 |
+| POL-LB-03 | 127.255.255.255 → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:561 |
+| POL-LB-04 | 126.255.255.255 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:563 |
+| POL-LB-05 | 128.0.0.0 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:565 |
+| POL-LB-06 | 0:0:0:0:0:0:0:1 → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:567 |
+| POL-LB-07 | 0:0:0:0:0:0:0:2 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:570 |
+| POL-LB-08 | v4mapped(127, 0, 0, 1) → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:573 |
+| POL-LB-09 | 127.0.0.1 → None under loopback_ok | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:576 |
+| POL-LB-10 | 0:0:0:0:0:0:0:1 → None under loopback_ok | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:578 |
+| POL-LL-01 | 169.254.0.0 → LinkLocal | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:582 |
+| POL-LL-02 | 169.254.255.255 → LinkLocal | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:584 |
+| POL-LL-03 | 169.253.255.255 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:586 |
+| POL-LL-04 | 169.255.0.0 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:588 |
+| POL-LL-05 | 0xfe80:0:0:0:0:0:0:1 → LinkLocal | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:590 |
+| POL-LL-06 | 0xfebf:0xffff:0xffff:0xffff:0xffff:0xffff:0xffff:0xffff → LinkLocal | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:592 |
+| POL-LL-07 | 0xfe7f:0:0:0:0:0:0:1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:595 |
+| POL-LL-08 | 0xfec0:0:0:0:0:0:0:1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:597 |
+| POL-MD-01 | 169.254.169.254 → CloudMetadata | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:602 |
+| POL-MD-02 | 100.100.100.200 → CloudMetadata | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:606 |
+| POL-MD-03 | 100.100.100.199 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:608 |
+| POL-MD-04 | 0xfd00:0x0ec2:0:0:0:0:0:0x0254 → CloudMetadata | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:611 |
+| POL-MD-05 | 0xfd00:0x0ec2:0:0:0:0:0:0x0253 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:613 |
+| POL-MD-06 | v4mapped(169, 254, 169, 254) → CloudMetadata | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:615 |
+| POL-MD-07 | 169.254.169.254 → LinkLocal with deny_cloud_metadata off | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:622 |
+| POL-MD-08 | 169.254.169.254 → None with deny_cloud_metadata off, deny_link_local off | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:626 |
+| POL-PRIV-01 | 10.0.0.1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:631 |
+| POL-PRIV-02 | 10.255.255.255 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:633 |
+| POL-PRIV-03 | 172.16.0.1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:635 |
+| POL-PRIV-04 | 172.31.255.255 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:637 |
+| POL-PRIV-05 | 192.168.1.1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:639 |
+| POL-PRIV-06 | 100.64.0.1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:641 |
+| POL-PRIV-07 | 0xfd12:0x3456:0:0:0:0:0:1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:643 |
+| POL-PRIV-08 | 10.0.0.1 → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:649 |
+| POL-PRIV-09 | 192.168.1.1 → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:651 |
+| POL-PRIV-10 | 172.16.0.0 → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:653 |
+| POL-PRIV-11 | 172.15.255.255 → None with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:655 |
+| POL-PRIV-12 | 172.32.0.0 → None with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:657 |
+| POL-PRIV-13 | 100.64.0.1 → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:659 |
+| POL-PRIV-14 | 100.63.255.255 → None with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:661 |
+| POL-PRIV-15 | 0xfd12:0:0:0:0:0:0:1 → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:663 |
+| POL-PRIV-16 | 0xfc00:0:0:0:0:0:0:1 → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:665 |
+| POL-PRIV-17 | 0xfe00:0:0:0:0:0:0:1 → None with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:667 |
+| POL-RSV-01 | 0.0.0.0 → Unspecified | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:672 |
+| POL-RSV-02 | 0.255.255.255 → Unspecified | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:674 |
+| POL-RSV-03 | 1.0.0.0 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:676 |
+| POL-RSV-04 | 0:0:0:0:0:0:0:0 → Unspecified | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:678 |
+| POL-RSV-05 | 224.0.0.1 → MulticastOrReserved | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:680 |
+| POL-RSV-06 | 223.255.255.255 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:682 |
+| POL-RSV-07 | 240.0.0.0 → MulticastOrReserved | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:684 |
+| POL-RSV-08 | 255.255.255.255 → MulticastOrReserved | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:686 |
+| POL-RSV-09 | 0xff02:0:0:0:0:0:0:1 → MulticastOrReserved | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:688 |
+| NORM-01 | ::ffff:1.2.3.4 unwraps to 1.2.3.4 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:692 |
+| NORM-02 | 64:ff9b::1.2.3.4 unwraps to 1.2.3.4 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:698 |
+| NORM-03 | ipv6(nat64) → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:702 |
+| NORM-04 | IPv4-compatible ::1.2.3.4 unwraps to 1.2.3.4 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:708 |
+| NORM-05 | :: keeps its IPv6 identity (not 0.0.0.0) | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:711 |
+| NORM-06 | ::1 keeps its IPv6 identity (not 0.0.0.1) | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:713 |
+| NORM-07 | ::0.0.0.5 is not unwrapped either | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:715 |
+| NORM-08 | an ordinary IPv6 address is unchanged | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:717 |
+| NORM-09 | an IPv4 address is returned unchanged | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:720 |
+| POL-TUN-01 | sixtofour(127, 0, 0, 1) → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:727 |
+| POL-TUN-02 | sixtofour(169, 254, 169, 254) → CloudMetadata | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:729 |
+| POL-TUN-03 | sixtofour(169, 254, 0, 1) → LinkLocal | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:731 |
+| POL-TUN-04 | sixtofour(93, 184, 216, 34) → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:733 |
+| POL-TUN-05 | sixtofour(10, 0, 0, 1) → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:738 |
+| POL-TUN-06 | sixtofour(10, 0, 0, 1) → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:743 |
+| POL-TUN-07 | 0x2001:0x0000:0x7f00:0x0001:0:0:0x80ff:0xfffe → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:751 |
+| POL-TUN-08 | 0x2001:0x0db8:0:0:0:0x5efe:0x7f00:0x0001 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:756 |
+| POL-TUN-09 | 0xfe80:0:0:0:0:0x5efe:0x7f00:0x0001 → LinkLocal | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:759 |
+| POL-TUN-10 | normalize() leaves a 6to4 address as IPv6 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:761 |
+| POL-TUN-11 | a 6to4 address does not win the IPv4 preference pass | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:771 |
+| POL-TUN-12 | tunnel_endpoint() extracts the 6to4 gateway address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:777 |
+| POL-TUN-13 | tunnel_endpoint() declines an ordinary IPv6 address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:780 |
+| POL-TUN-14 | tunnel_endpoint() declines an IPv4 address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:785 |
+| ESP-SEL-01 | an empty candidate list selects nothing | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:793 |
+| ESP-SEL-02 | IPv4 is preferred even when IPv6 comes first | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:801 |
+| ESP-SEL-03 | a denied candidate is skipped for an allowed one | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:809 |
+| ESP-SEL-04 | IPv6 is used when there is no IPv4 candidate | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:817 |
+| ESP-SEL-05 | all-denied reports the FIRST candidate's reason | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:826 |
+| ESP-SEL-06 | with loopback allowed, IPv4 loopback still wins over IPv6 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:835 |
+| ESP-SEL-07 | a mapped IPv4 candidate counts as IPv4 and is returned verbatim | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:844 |
+| FMT-01 | IPv4 renders as a dotted quad | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:850 |
+| FMT-02 | IPv6 renders in full, uncompressed 8-group form | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:852 |
+| FMT-03 | IPv6 groups drop leading zeros but keep their positions | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:854 |
+| FMT-04 | every deny reason has distinct text | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:857 |
+| FMT-05 | every transport state has distinct text | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:861 |
+| SEAM-01 | the default threshold is info — the module's own quiet default | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:874 |
+| SEAM-02 | every level has distinct, non-'unknown' text | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:876 |
+| SEAM-03 | a byte renders as two upper-case hex digits, not as a character | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:880 |
+| SEAM-04 | an installed sink receives the module's output | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:891 |
+| SEAM-04b | ...and clearing the sink restores silence, at any level | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:896 |
+| SEAM-05 | the threshold drops everything below it and keeps the rest | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:905 |
+| SEAM-06 | lowering the threshold lets trace through | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:910 |
+| SEAM-07 | {} substitutes positionally, in order, for mixed types | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:920 |
+| SEAM-08 | {{ and }} are literal braces | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:922 |
+| SEAM-09 | a format spec inside the braces is ignored, not printed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:923 |
+| SEAM-10 | surplus arguments and surplus placeholders are both harmless | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:925 |
+| SOCK-TRACE-01 | an IP literal is resolved without a DNS lookup | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:960 |
+| SOCK-TRACE-02 | at the default level a full session logs open + close and nothing else | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:978 |
+| SOCK-TRACE-03 | a policy refusal is logged at the default level | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:992 |
+| SOCK-TRACE-04 | a host NAME takes the resolve path, not the numeric fast path | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1011 |
+| TR-01 | a fresh transport is Idle with no error | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1032 |
+| TR-02 | an empty host is rejected outright, leaving the state alone | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1034 |
+| TR-03 | port 0 is rejected outright | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1036 |
+| TR-04 | close() on an idle transport stays Idle | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1038 |
+| TR-05 | send() before Connected moves no bytes | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1041 |
+| TR-06 | recv() before Connected moves no bytes | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1043 |
+| TR-07 | poll() in Idle is a harmless no-op | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1045 |
+| TR-08 | an accepted request parks in Resolving without resolving | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1048 |
+| TR-09 | a second request while busy is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1051 |
+| SEC-01 | the default policy refuses a loopback connect | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1062 |
+| SEC-02 | the refusal says WHY, naming the policy | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1071 |
+| SEC-03 | a refused connect never reached the listener | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1074 |
+| SEC-04 | an address-policy refusal reports the rule that refused it, without anyone parsing last_error() | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1092 |
+| SEC-05 | a fresh request clears the previous refusal verdict | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1103 |
+| SEC-06 | a network failure reports no deny reason, so it cannot be mistaken for a deliberate block | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1116 |
+| NET-01 | connect request accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1140 |
+| NET-02 | the connect completes through poll() alone | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1142 |
+| NET-03 | the listener sees the connection | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1145 |
+| NET-04 | peer_address() is the loopback address connected to | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1146 |
+| NET-05 | send() accepts the bytes | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1153 |
+| NET-06 | the server receives exactly what was sent | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1155 |
+| NET-07 | recv() with nothing pending returns 0 and stays Connected | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1159 |
+| NET-08 | recv() returns exactly what the server sent | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1175 |
+| NET-09 | a peer close moves the transport to Closed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1179 |
+| NET-10 | send/recv after Closed move no bytes | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1182 |
+| NET-11 | a closed transport accepts a new connect | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1186 |
+| NET-12 | close() on a live connection ends in Closed and the server sees EOF | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1191 |
+| UDPT-01 | a UDP connect request is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1224 |
+| UDPT-02 | ...and completes through poll() alone, never passing through Connecting — a datagram connect has no handshake to wait for | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1226 |
+| UDPT-03 | send() puts the whole datagram out, all-or-nothing | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1232 |
+| UDPT-04 | the peer receives exactly that datagram | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1235 |
+| UDPT-05 | recv() with nothing pending returns 0 and stays Connected — UDP has no EOF, so a quiet socket must not close the connection | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1239 |
+| LONGER-TWO | — | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1247 |
+| UDPT-06 | two datagrams arrive as two reads with their own boundaries | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1254 |
+| UDPT-07 | ...and the connection is still live afterwards | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1256 |
+| UDPT-08 | a datagram larger than the buffer is truncated to it, not failed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1268 |
+| AFTER-EMPTY | — | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1290 |
+| UDPT-13 | a zero-length datagram is not an end of stream — the connection survives it and still delivers what comes after | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1297 |
+| UDPT-09 | close() on a live UDP connection ends in Closed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1304 |
+| UDPT-10 | AT+CIPSTART's <local port> really binds — the peer sees that source port | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1347 |
+| UDPT-11 | ...while local port 0 leaves the choice to the OS | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1360 |
+| UDPT-12 | the address policy denies a UDP target just as it denies a TCP one | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1378 |
+| NET-ERR-01 | a connect to a closed port ends in Failed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1400 |
+| NET-ERR-02 | the failure carries an explanatory error string | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1401 |
+| ESP-RST-01 | a peer that RSTs after serving its data is reported at warn, and the run carries no error line at all | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1469 |
+| ESP-RST-02 | a peer that RSTs having served nothing is still an error | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1491 |
+| SIG-01 | fork() unavailable on this host | (host sockets) | skip | src/esp01/test/esp_socket_test.cpp:1522 |
+| SIG-02 | fork() unavailable on this host | (host sockets) | skip | src/esp01/test/esp_socket_test.cpp:1523 |
+| ASYNC-01 | an IP literal resolves synchronously in the first poll() and never reaches the resolver | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1588 |
+| ASYNC-11 | the poll() that STARTS a lookup returns immediately instead of waiting it out | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1624 |
+| ASYNC-02 | 200 poll()s during an outstanding lookup return promptly and leave the transport in Resolving | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1650 |
+| ASYNC-03 | the lookup ran on a thread other than the caller's | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1655 |
+| ASYNC-04 | opening the gate completes the connect through the async path, to the address the resolver returned | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1661 |
+| ASYNC-05 | the address policy is enforced on the RESOLVED address, and the refused connect never reached the listener | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1683 |
+| ASYNC-06 | close() during a lookup returns at once and the late result never resurrects the transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1720 |
+| ASYNC-10 | a lookup abandoned by close() is never applied to the next connect | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1736 |
+| ASYNC-07 | destroying a transport mid-lookup returns immediately instead of waiting out the resolver | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1771 |
+| ASYNC-08 | ...and the orphaned lookup runs to completion AFTER it, into a result block that outlived the transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1785 |
+| ASYNC-09 | AT+CIPSTART's deadline bounds NAME RESOLUTION, not just the TCP handshake | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1825 |
+| ASYNC-12 | a throwing resolver degrades to a failed lookup instead of aborting the process, and its half-built address list is discarded | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1858 |
+| IPP-01 | a dotted quad parses to the address it spells | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1886 |
+| IPP-02 | the wildcard parses | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1888 |
+| IPP-03 | an IPv6 literal parses, elision and all | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1889 |
+| IPP-04 | a NAME is refused rather than resolved — a bind address that could depend on DNS is one that could change under the user | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1891 |
+| IPP-05 | so is an empty string | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1895 |
+| IPP-06 | and so is a malformed quad | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1896 |
+| IPP-07 | round trip: to_string(parse_ip(x)) == x | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1897 |
+| LSN-01 | open(0) binds and reports the port the OS chose | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1911 |
+| LSN-02 | accept() with nothing pending returns null rather than waiting | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1913 |
+| LSN-03 | a real client can connect | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1918 |
+| LSN-04 | poll() + accept() yield a transport, already Connected | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1920 |
+| LSN-05 | whose peer_address() is the client's | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1922 |
+| LSN-21 | recv() on the accepted transport with nothing pending returns 0 at once and stays Connected — the accepted socket really is non-blocking | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1941 |
+| LSN-06 | guest -> peer: send() on the accepted transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1950 |
+| LSN-07 | ...and the client receives exactly those bytes | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1952 |
+| LSN-08 | peer -> guest: the client can send | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1956 |
+| LSN-09 | ...and recv() on the accepted transport yields them | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1964 |
+| LSN-10 | a client close moves the accepted transport to Closed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1968 |
+| LSN-11 | two connects, but poll() parks only one | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1986 |
+| LSN-12 | ...and the second is taken by the NEXT poll | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1988 |
+| LSN-13 | close() stops listening | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1995 |
+| LSN-14 | ...and the port can be bound again | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2000 |
+| LSN-15 | a port already in use is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2019 |
+| LSN-16 | ...with a reason, and nothing listening | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2021 |
+| LSN-17 | an address that is not local is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2033 |
+| LSN-18 | ...and does not silently become the wildcard | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2035 |
+| LSN-19 | a listener bound to 127.0.0.1 is NOT reachable through this host's LAN address — the default really confines it | (host sockets) | skip | src/esp01/test/esp_socket_test.cpp:2057 |
+| LSN-20 | ...and --esp-listen-address 0.0.0.0 IS, so widening is a real act and not a no-op | (host sockets) | skip | src/esp01/test/esp_socket_test.cpp:2069 |
+| RSLV-01 | a fresh resolver is Idle and holds no error | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2086 |
+| RSLV-02 | an empty host is REFUSED outright, leaving the state untouched | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2091 |
+| RSLV-03 | an IP literal resolves synchronously, and the injected resolver is never consulted for one | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2098 |
+| RSLV-04 | a literal the policy denies FAILS rather than being echoed back — the command cannot launder a refused address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2110 |
+| RSLV-05 | a NAME that resolves to a denied address is refused on the address, not on the name | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2121 |
+| RSLV-06 | an allowed name reaches Done carrying the resolved address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2133 |
+| RSLV-07 | ...and the lookup really ran off the calling thread | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2136 |
+| RSLV-08 | a second begin() while one is in flight is refused, so an answer can never be silently replaced | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2143 |
+| RSLV-09 | a resolver that throws AFTER appending an address fails the lookup and adopts nothing | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2153 |
+| RSLV-10 | reset() returns it to Idle and drops the result | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2163 |
+| RSLV-12 | a resolver that says SUCCESS but returns no addresses is a FAILED lookup, not a success with nothing in it | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2170 |
+| RSLV-11a | the lookup is genuinely in flight before we destroy it | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2186 |
+| RSLV-11 | destroying a resolver mid-lookup returns immediately — one shared_ptr dropped, no join, nothing to wait for | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2192 |
+| PHOST-01 | an ordinary hostname is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2208 |
+| PHOST-02 | an IPv4 literal is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2210 |
+| PHOST-03 | an IPv6 literal is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2211 |
+| PHOST-04 | underscores and hyphens inside a name are accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2212 |
+| PHOST-05 | an empty host is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2214 |
+| PHOST-06 | a leading '-' is refused — it would be an OPTION, not a host | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2219 |
+| PHOST-07 | ...including a long-form option | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2221 |
+| PHOST-08 | a shell metacharacter is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2224 |
+| PHOST-09 | a command substitution is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2225 |
+| PHOST-10 | a pipe or redirect is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2227 |
+| PHOST-11 | an embedded space is refused — it would split into two argv words | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2229 |
+| PHOST-12 | an embedded NUL truncates nothing, because the whole string is checked and the NUL itself is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2231 |
+| PHOST-13 | a newline is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2234 |
+| PHOST-14 | 255 bytes is the longest accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2235 |
+| PHOST-15 | 256 bytes is the first refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2237 |
+| PICMP-01 | an implausible host is refused before anything is opened | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2260 |
+| PICMP-02 | a literal the address policy denies FAILS without an echo ever being sent | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2272 |
+| PICMP-03 | and so does the cloud-metadata address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2281 |
+| PICMP-04 | reset() returns it to Idle, as EspPinger promises | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2289 |
+| PICMP-05 | an IPv6-only address is refused as having no IPv4 address, not echoed at four bytes of itself | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2307 |
+| SNTPR-01 | a server the address policy denies FAILS *on the policy*, without a datagram being sent — an NTP server is not an exception to the rule the rest of this surface follows | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2334 |
+| SNTPR-02 | an implausible server name is refused outright | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2343 |
+| NTPC-01 | the NTP epoch offset is applied exactly (2 208 988 800 s) | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2360 |
+| NTPC-02 | and it formats to the string the 1.x manual's own example gives | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2362 |
+| NTPC-03 | a ZERO timestamp means 'unsynchronised' and is REFUSED, not turned into 1900 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2367 |
+| NTPC-04 | a pre-1970 timestamp is refused too | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2370 |
+| NTPC-05 | the largest NTP second still converts | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2372 |
+| SNTP-01 | a positive timezone moves the clock forward | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2377 |
+| SNTP-02 | a negative one moves it back, across a day boundary | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2379 |
+| SNTP-03 | +13 crosses into the next day and the weekday follows | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2381 |
+| SNTP-04 | the Unix epoch itself formats as a Thursday | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2387 |
+| SNTP-05 | a leap day is a real day, not the 1st of March | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2389 |
+| SNTP-06 | and the arithmetic survives past the 32-bit time_t wrap | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2391 |
+| SNTP-08 | 2100 is NOT a leap year, so 1 March falls where it should | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2399 |
+| SNTP-09 | ...and February 2100 has 28 days, not 29 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2401 |
+| SNTP-10 | a date after 2100 is not shifted by a phantom leap day | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2410 |
+| SNTP-07 | a negative result is clamped rather than wrapping | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2412 |
 
 ## ESP-01 AT engine — `src/esp01/test/esp_at_test.cpp`
 
@@ -5849,54 +5849,54 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| INT-01 | UART0 rx_avail fires UART0_RX (vector 1) with NR 0xC6 bit 0 set [zxnext.vhd:1941-1944, :1949-1950; im2.cpp:313-323] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:203 |
-| INT-02 | UART0 rx_near_full fires UART0_RX with NR 0xC6 bit 1 set only (near-full override) [zxnext.vhd:1943, :1950; plan-drift note] | zxnext.vhd:1941-1944, zxnext.vhd:1943,1950 | pass | test/uart/uart_integration_test.cpp:232 |
-| INT-03 | UART1 rx_avail fires UART1_RX (vector 2) with NR 0xC6 bit 4 set [zxnext.vhd:1941-1944, :1949-1950] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:250 |
-| INT-04 | UART1 rx_near_full fires UART1_RX with NR 0xC6 bit 5 set only [zxnext.vhd:1942, :1950] | zxnext.vhd:1942,1950 | pass | test/uart/uart_integration_test.cpp:266 |
-| INT-05 | UART0 tx_empty fires UART0_TX (vector 12) with NR 0xC6 bit 2 set [zxnext.vhd:1941, :1949] | zxnext.vhd:1941,1949 | pass | test/uart/uart_integration_test.cpp:292 |
-| INT-06 | UART1 tx_empty fires UART1_TX (vector 13) with NR 0xC6 bit 6 set [zxnext.vhd:1941, :1949] | zxnext.vhd:1941,1949 | pass | test/uart/uart_integration_test.cpp:308 |
-| INT-07 | UART RX request shape is near_full OR (avail AND NOT NR 0xC6 bit 1) — single per-byte avail must NOT fire when bit 1 is set, near-full does [zxnext.vhd:1941-1944, G134] | zxnext.vhd:1941-1944 | pass | test/uart/uart_integration_test.cpp:349 |
-| GATE-01 | UART port enable gate: NR 0x83 bit 4 → ports 0x133B-0x163B; when closed reads=0xFF + writes ignored [zxnext.vhd:2420, :2392; emulator.cpp register_io_ports] | zxnext.vhd:2420,2392 | pass | test/uart/uart_integration_test.cpp:427 |
-| GATE-02 | I2C port enable gate: NR 0x83 bit 2 → ports 0x103B/0x113B; when closed reads=0xFF + writes ignored [zxnext.vhd:2418, :2392] | zxnext.vhd:2418,2392 | pass | test/uart/uart_integration_test.cpp:476 |
-| GATE-03 | NR 0x83 bits 0/2/4 independently gate DivMMC/I2C/UART [zxnext.vhd:2412, :2418, :2420, :2392; :5499-5509] | zxnext.vhd:2412,2418,2420,2392 | pass | test/uart/uart_integration_test.cpp:569 |
-| I2C-10 | internal_port_enable(10) gates 0x103B/0x113B (same mechanism as GATE-02) [zxnext.vhd:2418, :2392] | zxnext.vhd:2418,2392 | pass | test/uart/uart_integration_test.cpp:598 |
-| DUAL-05 | uart.vhd gates tx_wr on uart_select_r bit 6; zxnext.vhd:3343-3344 routes UART 0 TX → ESP pin, UART 1 TX → Pi pin. Selecting a channel via port 0x153B directs port 0x133B TX writes to that channel ONLY — cross-talk between channels is impossible | uart.vhd, zxnext.vhd:3343-3344 | pass | test/uart/uart_integration_test.cpp:657 |
-| DUAL-06 | zxnext.vhd:3340-3341 — joystick-UART RX routes to UART 0 when NR 0x0B joy_iomode_uart_en=1 & bit0=0, to UART 1 when it is 1 & bit0=1, and is dropped when the enable is clear | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:714 |
-| DUAL-07 | zxnext.vhd:3537 — joy_iomode_uart_en is NR 0x0B bit 7 AND bit 5, so pin-7 modes "00" (static) and "01" (CTC-toggled) route no UART RX even with bit 7 set, while mode "11" does (GH #251) | zxnext.vhd:3537 | pass | test/uart/uart_integration_test.cpp:764 |
-| DEV-01 | Uart::attach_device diverts channel TX to UartDevice::receive and suppresses the default loopback [uart.cpp deliver_tx_byte; zxnext.vhd:1611, :3381 UART 0 = ESP] | zxnext.vhd:1611,3381 | pass | test/uart/uart_integration_test.cpp:839 |
-| DEV-02 | UartDevice::send_to_guest injects through Uart::inject_rx: the guest reads the byte at 0x143B and IM2 UART0_RX follows the NR 0xC6 request mask near_full OR (avail AND NOT bit1) [zxnext.vhd:1941-1944, :1949-1950] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:891 |
-| DEV-03 | Uart::detach_device restores loopback and clears the device's RxSink — a detached channel behaves exactly like one that never had a device [uart_device.h lifetime contract] | — | pass | test/uart/uart_integration_test.cpp:928 |
-| DEV-05 | An attached UartDevice takes precedence over on_tx_byte: the device receives the byte and the observer hook is suppressed, so exactly one consumer sees it [uart.cpp deliver_tx_byte] | — | pass | test/uart/uart_integration_test.cpp:964 |
-| DEV-04 | UartDevice attachment is per-channel: UART 0 (ESP) and UART 1 (Pi) backends each see only their own channel's TX [zxnext.vhd:3343-3344; uart.vhd tx_wr gated on uart_select_r bit 6] | zxnext.vhd:3343-3344, uart.vhd | pass | test/uart/uart_integration_test.cpp:999 |
-| ESP-01 | guest TX on UART 0 egresses to the REAL emulated ESP-01, which parses the AT line and answers — not to the channel's loopback [zxnext.vhd:1611-1612, :3381 UART 0 = ESP] | zxnext.vhd:1611-1612,3381 | pass | test/uart/uart_integration_test.cpp:1169 |
-| ESP-02 | the ESP's reply lands in the UART 0 RX FIFO and raises the UART0_RX IM2 vector under the NR 0xC6 request mask near_full OR (avail AND NOT bit1) [zxnext.vhd:1941-1944, :1949-1950] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:1201 |
-| ESP-03 | NR 0x02 bit 7 (o_RESET_PERIPHERAL) latches and reads back, and in v1.0 drives NO device reset — the attached ESP keeps its state across it; nextsync's recovery path is a v1.1 extension point (design doc §4.2) [zxnext.vhd:5119, :1579; nextreg.txt:48] | zxnext.vhd:5119,1579 | pass | test/uart/uart_integration_test.cpp:1251 |
-| ESP-04 | with no ESP backend attached, UART 0 keeps its loopback: the guest's own bytes come back and nothing answers them | — | pass | test/uart/uart_integration_test.cpp:1276 |
-| JOY-01 | zxnext.vhd:3340 — while the joystick UART mux owns UART 0, `uart0_rx` selects `joy_uart_rx` and the ESP's own RX pin is not selected, so its bytes are lost; with the mux off they arrive | zxnext.vhd:3340 | pass | test/uart/uart_integration_test.cpp:1583 |
-| JOY-02 | zxnext.vhd:3343 — while the joystick UART mux owns UART 0 the module-facing TX pin is held idle, so a transmitted byte reaches neither the ESP nor a loopback into the channel's own RX FIFO; with the mux off the ESP receives normally | zxnext.vhd:3343 | pass | test/uart/uart_integration_test.cpp:1617 |
-| JOY-03 | zxnext.vhd:3340-3341 — NR 0x0B bit 0 selects WHICH channel the joystick connector takes, so with bit 0 = 1 the UART 1 pins are shadowed and the ESP on UART 0 keeps both directions | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:1649 |
-| JOY-04 | GH #251 — a serial source attached with --joy-uart-rx arrives on the channel NR 0x0B bit 0 selects, through the same zxnext.vhd:3340-3341 mux the guest reads at port 0x143B | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:1672 |
-| JOY-05 | zxnext.vhd:3538 — `joy_uart_rx` is read from i_JOY_LEFT(5) or i_JOY_RIGHT(5) according to NR 0x0B bit 4, so a cable in the other socket is a pin the machine is not looking at and its bytes are lost rather than delivered | zxnext.vhd:3538 | pass | test/uart/uart_integration_test.cpp:1703 |
-| JOY-06 | GH #251 — --joy-uart-rx-delay-frames N holds the stream for N COMPLETE frames (counted at the once-per-frame end seam) and releases it in the (N+1)th | — | pass | test/uart/uart_integration_test.cpp:1730 |
-| JOY-07 | GH #251 — JoyUartSource paces delivery at one byte per UartChannel::byte_transfer_ticks() (the same clock the ESP RX path uses), and stops when the stream is exhausted | — | pass | test/uart/uart_integration_test.cpp:1771 |
-| JOY-08 | GH #251 — read_joy_uart_source_file refuses a missing file AND an empty one (a source that sends nothing tests nothing), and reads a real one whole | — | pass | test/uart/uart_integration_test.cpp:1811 |
-| JOY-09 | zxnext.vhd:3341,3344 — the joystick UART mux isolates UART 1 exactly as it isolates UART 0: with NR 0x0B bit 0 = 1 the Pi backend is neither heard nor spoken to and nothing loops back, and with the mux off both directions return | zxnext.vhd:3341,3344 | pass | test/uart/uart_integration_test.cpp:1864 |
-| JOY-10 | GH #251 — JoyUartSource's cursor rides in the emulator state stream, so a rewind puts the cable back where it was and the replayed frames deliver byte-for-byte what they delivered the first time, across a schedule that both delivers and drops | — | pass | test/uart/uart_integration_test.cpp:1961 |
-| JOY-11 | GH #251 — a rewind INTO --joy-uart-rx-delay-frames' hold restores how much of the hold had been served, so the replay stays silent for the rest of it and releases the stream in the same frame as the run it reproduces | — | pass | test/uart/uart_integration_test.cpp:2028 |
-| JOY-12 | zxnext.vhd:3340-3341 — the joystick cable is paced at the byte time of the channel NR 0x0B bit 0 routes it to (each channel's receiver samples at its own prescaler, uart.vhd:404,589): with channel 1 programmed 8x slower than channel 0, routing to channel 1 delivers at channel 1's rate and routing to channel 0 at channel 0's | zxnext.vhd:3340-3341, uart.vhd:404,589 | pass | test/uart/uart_integration_test.cpp:2098 |
-| JOY-13 | zxnext.vhd:3526-3531,1593 — while the joystick UART mux owns UART 0 a transmitted byte leaves on joy pin 7, not through the module-facing pin (:3343) and not looped back into the channel's own RX FIFO; with the mux off it goes to the module instead | zxnext.vhd:3526-3531,1593 | pass | test/uart/uart_integration_test.cpp:2171 |
-| JOY-14 | zxnext.vhd:3526-3530 — with NR 0x0B bit 0 = 1 it is UART 1's TX that pin 7 carries, while UART 0 keeps its own module-facing pin and reaches the ESP normally | zxnext.vhd:3526-3530 | pass | test/uart/uart_integration_test.cpp:2218 |
-| JOY-15 | zxnext.vhd:3538 vs :1593 + md6_joystick_connector_x2.vhd:109,117 — NR 0x0B bit 4 selects which socket is LISTENED to, while pin 7 is presented to both sockets in turn, so a cable in the unselected socket is not heard by the Next yet still hears it | zxnext.vhd:3538, md6_joystick_connector_x2.vhd:109,117 | pass | test/uart/uart_integration_test.cpp:2267 |
-| JOY-16 | GH #252 — a live joystick-port cable carries both directions at once: the host's bytes reach port 0x143B through the zxnext.vhd:3340-3341 RX mux and the guest's reach the host through the zxnext.vhd:3526-3531 pin-7 TX mux, over real FIFOs opened while the machine runs | zxnext.vhd:3340-3341, zxnext.vhd:3526-3531 | pass | test/uart/uart_integration_test.cpp:2315 |
-| JOY-17 | uart.vhd:404 / uart_rx.vhd — the live cable delivers at the receiving channel's byte time (prescaler * frame_bits), so a 3000-byte host burst arrives over many frames in order rather than overflowing the 512-entry RX FIFO in one | uart.vhd:404, uart_rx.vhd | pass | test/uart/uart_integration_test.cpp:2373 |
-| JOY-18 | GH #252 — the Next->host FIFO is opened lazily because O_WRONLY\|O_NONBLOCK on a FIFO with no reader is ENXIO: with no peer the run proceeds and nothing is lost or faulted, and a reader that attaches later receives what was queued | — | pass | test/uart/uart_integration_test.cpp:2417 |
-| JOY-19 | GH #252 — a peer that closes mid-session makes the next write EPIPE (SIGPIPE is ignored, so the emulator survives it); the stale queue is discarded and counted rather than delivered to the next peer, and the cable re-opens for one that reconnects | — | pass | test/uart/uart_integration_test.cpp:2461 |
-| JOY-20 | GH #252 — the live cable is held inert while replay_mode_ holds (the EspUartAdapter::set_inert posture): a re-executed frame neither re-transmits to the peer nor consumes the host bytes the resumed timeline still needs, and both directions return when the gate lifts | — | pass | test/uart/uart_integration_test.cpp:2516 |
-| JOY-21 | GH #252 — the pty transport carries the same zxnext.vhd:3340-3341 / :3526-3531 mux in both directions over one descriptor, with the termios in raw mode so a 0x0D is delivered as a byte rather than translated by the line discipline | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:2599 |
-| JOY-22 | GH #252 — a peer lost mid-session takes the RECEIVE queue with it as well as the transmit one: host bytes already read off the descriptor but not yet clocked into the guest are discarded, so the next peer's session does not begin with the tail of the previous one's message | — | pass | test/uart/uart_integration_test.cpp:2680 |
-| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:5080,6188-6189 | pass | test/uart/uart_integration_test.cpp:2725 |
-| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:2754 |
-| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2280,2317-2318 | pass | test/uart/uart_integration_test.cpp:2785 |
-| UART-RD-GH265-01 | UART status IN latches the transmitter as of the port_uart_dat reload 83 cycles in, not the instruction start (zxnext.vhd:3418-3423; t80na.vhd:214-222) | zxnext.vhd:3418-3423, t80na.vhd:214-222 | pass | test/uart/uart_integration_test.cpp:2833 |
-| UART-WR-GH265-01 | UART TX write taken on the edge after IORQ+WR, 73 cycles into OUT (C),A (t80na.vhd:148-150; zxnext.vhd:3418-3423) | t80na.vhd:148-150, zxnext.vhd:3418-3423 | pass | test/uart/uart_integration_test.cpp:2872 |
+| INT-01 | UART0 rx_avail fires UART0_RX (vector 1) with NR 0xC6 bit 0 set [zxnext.vhd:1941-1944, :1949-1950; im2.cpp:313-323] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:205 |
+| INT-02 | UART0 rx_near_full fires UART0_RX with NR 0xC6 bit 1 set only (near-full override) [zxnext.vhd:1943, :1950; plan-drift note] | zxnext.vhd:1941-1944, zxnext.vhd:1943,1950 | pass | test/uart/uart_integration_test.cpp:234 |
+| INT-03 | UART1 rx_avail fires UART1_RX (vector 2) with NR 0xC6 bit 4 set [zxnext.vhd:1941-1944, :1949-1950] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:252 |
+| INT-04 | UART1 rx_near_full fires UART1_RX with NR 0xC6 bit 5 set only [zxnext.vhd:1942, :1950] | zxnext.vhd:1942,1950 | pass | test/uart/uart_integration_test.cpp:268 |
+| INT-05 | UART0 tx_empty fires UART0_TX (vector 12) with NR 0xC6 bit 2 set [zxnext.vhd:1941, :1949] | zxnext.vhd:1941,1949 | pass | test/uart/uart_integration_test.cpp:294 |
+| INT-06 | UART1 tx_empty fires UART1_TX (vector 13) with NR 0xC6 bit 6 set [zxnext.vhd:1941, :1949] | zxnext.vhd:1941,1949 | pass | test/uart/uart_integration_test.cpp:310 |
+| INT-07 | UART RX request shape is near_full OR (avail AND NOT NR 0xC6 bit 1) — single per-byte avail must NOT fire when bit 1 is set, near-full does [zxnext.vhd:1941-1944, G134] | zxnext.vhd:1941-1944 | pass | test/uart/uart_integration_test.cpp:351 |
+| GATE-01 | UART port enable gate: NR 0x83 bit 4 → ports 0x133B-0x163B; when closed reads=0xFF + writes ignored [zxnext.vhd:2420, :2392; emulator.cpp register_io_ports] | zxnext.vhd:2420,2392 | pass | test/uart/uart_integration_test.cpp:429 |
+| GATE-02 | I2C port enable gate: NR 0x83 bit 2 → ports 0x103B/0x113B; when closed reads=0xFF + writes ignored [zxnext.vhd:2418, :2392] | zxnext.vhd:2418,2392 | pass | test/uart/uart_integration_test.cpp:478 |
+| GATE-03 | NR 0x83 bits 0/2/4 independently gate DivMMC/I2C/UART [zxnext.vhd:2412, :2418, :2420, :2392; :5499-5509] | zxnext.vhd:2412,2418,2420,2392 | pass | test/uart/uart_integration_test.cpp:571 |
+| I2C-10 | internal_port_enable(10) gates 0x103B/0x113B (same mechanism as GATE-02) [zxnext.vhd:2418, :2392] | zxnext.vhd:2418,2392 | pass | test/uart/uart_integration_test.cpp:600 |
+| DUAL-05 | uart.vhd gates tx_wr on uart_select_r bit 6; zxnext.vhd:3343-3344 routes UART 0 TX → ESP pin, UART 1 TX → Pi pin. Selecting a channel via port 0x153B directs port 0x133B TX writes to that channel ONLY — cross-talk between channels is impossible | uart.vhd, zxnext.vhd:3343-3344 | pass | test/uart/uart_integration_test.cpp:659 |
+| DUAL-06 | zxnext.vhd:3340-3341 — joystick-UART RX routes to UART 0 when NR 0x0B joy_iomode_uart_en=1 & bit0=0, to UART 1 when it is 1 & bit0=1, and is dropped when the enable is clear | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:716 |
+| DUAL-07 | zxnext.vhd:3537 — joy_iomode_uart_en is NR 0x0B bit 7 AND bit 5, so pin-7 modes "00" (static) and "01" (CTC-toggled) route no UART RX even with bit 7 set, while mode "11" does (GH #251) | zxnext.vhd:3537 | pass | test/uart/uart_integration_test.cpp:766 |
+| DEV-01 | Uart::attach_device diverts channel TX to UartDevice::receive and suppresses the default loopback [uart.cpp deliver_tx_byte; zxnext.vhd:1611, :3381 UART 0 = ESP] | zxnext.vhd:1611,3381 | pass | test/uart/uart_integration_test.cpp:841 |
+| DEV-02 | UartDevice::send_to_guest injects through Uart::inject_rx: the guest reads the byte at 0x143B and IM2 UART0_RX follows the NR 0xC6 request mask near_full OR (avail AND NOT bit1) [zxnext.vhd:1941-1944, :1949-1950] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:893 |
+| DEV-03 | Uart::detach_device restores loopback and clears the device's RxSink — a detached channel behaves exactly like one that never had a device [uart_device.h lifetime contract] | — | pass | test/uart/uart_integration_test.cpp:930 |
+| DEV-05 | An attached UartDevice takes precedence over on_tx_byte: the device receives the byte and the observer hook is suppressed, so exactly one consumer sees it [uart.cpp deliver_tx_byte] | — | pass | test/uart/uart_integration_test.cpp:966 |
+| DEV-04 | UartDevice attachment is per-channel: UART 0 (ESP) and UART 1 (Pi) backends each see only their own channel's TX [zxnext.vhd:3343-3344; uart.vhd tx_wr gated on uart_select_r bit 6] | zxnext.vhd:3343-3344, uart.vhd | pass | test/uart/uart_integration_test.cpp:1001 |
+| ESP-01 | guest TX on UART 0 egresses to the REAL emulated ESP-01, which parses the AT line and answers — not to the channel's loopback [zxnext.vhd:1611-1612, :3381 UART 0 = ESP] | zxnext.vhd:1611-1612,3381 | pass | test/uart/uart_integration_test.cpp:1171 |
+| ESP-02 | the ESP's reply lands in the UART 0 RX FIFO and raises the UART0_RX IM2 vector under the NR 0xC6 request mask near_full OR (avail AND NOT bit1) [zxnext.vhd:1941-1944, :1949-1950] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:1203 |
+| ESP-03 | NR 0x02 bit 7 (o_RESET_PERIPHERAL) latches and reads back, and in v1.0 drives NO device reset — the attached ESP keeps its state across it; nextsync's recovery path is a v1.1 extension point (design doc §4.2) [zxnext.vhd:5119, :1579; nextreg.txt:48] | zxnext.vhd:5119,1579 | pass | test/uart/uart_integration_test.cpp:1253 |
+| ESP-04 | with no ESP backend attached, UART 0 keeps its loopback: the guest's own bytes come back and nothing answers them | — | pass | test/uart/uart_integration_test.cpp:1278 |
+| JOY-01 | zxnext.vhd:3340 — while the joystick UART mux owns UART 0, `uart0_rx` selects `joy_uart_rx` and the ESP's own RX pin is not selected, so its bytes are lost; with the mux off they arrive | zxnext.vhd:3340 | pass | test/uart/uart_integration_test.cpp:1595 |
+| JOY-02 | zxnext.vhd:3343 — while the joystick UART mux owns UART 0 the module-facing TX pin is held idle, so a transmitted byte reaches neither the ESP nor a loopback into the channel's own RX FIFO; with the mux off the ESP receives normally | zxnext.vhd:3343 | pass | test/uart/uart_integration_test.cpp:1629 |
+| JOY-03 | zxnext.vhd:3340-3341 — NR 0x0B bit 0 selects WHICH channel the joystick connector takes, so with bit 0 = 1 the UART 1 pins are shadowed and the ESP on UART 0 keeps both directions | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:1661 |
+| JOY-04 | GH #251 — a serial source attached with --joy-uart-rx arrives on the channel NR 0x0B bit 0 selects, through the same zxnext.vhd:3340-3341 mux the guest reads at port 0x143B | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:1684 |
+| JOY-05 | zxnext.vhd:3538 — `joy_uart_rx` is read from i_JOY_LEFT(5) or i_JOY_RIGHT(5) according to NR 0x0B bit 4, so a cable in the other socket is a pin the machine is not looking at and its bytes are lost rather than delivered | zxnext.vhd:3538 | pass | test/uart/uart_integration_test.cpp:1715 |
+| JOY-06 | GH #251 — --joy-uart-rx-delay-frames N holds the stream for N COMPLETE frames (counted at the once-per-frame end seam) and releases it in the (N+1)th | — | pass | test/uart/uart_integration_test.cpp:1742 |
+| JOY-07 | GH #251 — JoyUartSource paces delivery at one byte per UartChannel::byte_transfer_ticks() (the same clock the ESP RX path uses), and stops when the stream is exhausted | — | pass | test/uart/uart_integration_test.cpp:1783 |
+| JOY-08 | GH #251 — read_joy_uart_source_file refuses a missing file AND an empty one (a source that sends nothing tests nothing), and reads a real one whole | — | pass | test/uart/uart_integration_test.cpp:1824 |
+| JOY-09 | zxnext.vhd:3341,3344 — the joystick UART mux isolates UART 1 exactly as it isolates UART 0: with NR 0x0B bit 0 = 1 the Pi backend is neither heard nor spoken to and nothing loops back, and with the mux off both directions return | zxnext.vhd:3341,3344 | pass | test/uart/uart_integration_test.cpp:1877 |
+| JOY-10 | GH #251 — JoyUartSource's cursor rides in the emulator state stream, so a rewind puts the cable back where it was and the replayed frames deliver byte-for-byte what they delivered the first time, across a schedule that both delivers and drops | — | pass | test/uart/uart_integration_test.cpp:1974 |
+| JOY-11 | GH #251 — a rewind INTO --joy-uart-rx-delay-frames' hold restores how much of the hold had been served, so the replay stays silent for the rest of it and releases the stream in the same frame as the run it reproduces | — | pass | test/uart/uart_integration_test.cpp:2041 |
+| JOY-12 | zxnext.vhd:3340-3341 — the joystick cable is paced at the byte time of the channel NR 0x0B bit 0 routes it to (each channel's receiver samples at its own prescaler, uart.vhd:404,589): with channel 1 programmed 8x slower than channel 0, routing to channel 1 delivers at channel 1's rate and routing to channel 0 at channel 0's | zxnext.vhd:3340-3341, uart.vhd:404,589 | pass | test/uart/uart_integration_test.cpp:2111 |
+| JOY-13 | zxnext.vhd:3526-3531,1593 — while the joystick UART mux owns UART 0 a transmitted byte leaves on joy pin 7, not through the module-facing pin (:3343) and not looped back into the channel's own RX FIFO; with the mux off it goes to the module instead | zxnext.vhd:3526-3531,1593 | pass | test/uart/uart_integration_test.cpp:2184 |
+| JOY-14 | zxnext.vhd:3526-3530 — with NR 0x0B bit 0 = 1 it is UART 1's TX that pin 7 carries, while UART 0 keeps its own module-facing pin and reaches the ESP normally | zxnext.vhd:3526-3530 | pass | test/uart/uart_integration_test.cpp:2231 |
+| JOY-15 | zxnext.vhd:3538 vs :1593 + md6_joystick_connector_x2.vhd:109,117 — NR 0x0B bit 4 selects which socket is LISTENED to, while pin 7 is presented to both sockets in turn, so a cable in the unselected socket is not heard by the Next yet still hears it | zxnext.vhd:3538, md6_joystick_connector_x2.vhd:109,117 | pass | test/uart/uart_integration_test.cpp:2280 |
+| JOY-16 | GH #252 — a live joystick-port cable carries both directions at once: the host's bytes reach port 0x143B through the zxnext.vhd:3340-3341 RX mux and the guest's reach the host through the zxnext.vhd:3526-3531 pin-7 TX mux, over real FIFOs opened while the machine runs | zxnext.vhd:3340-3341, zxnext.vhd:3526-3531 | pass | test/uart/uart_integration_test.cpp:2328 |
+| JOY-17 | uart.vhd:404 / uart_rx.vhd — the live cable delivers at the receiving channel's byte time (prescaler * frame_bits), so a 3000-byte host burst arrives over many frames in order rather than overflowing the 512-entry RX FIFO in one | uart.vhd:404, uart_rx.vhd | pass | test/uart/uart_integration_test.cpp:2386 |
+| JOY-18 | GH #252 — the Next->host FIFO is opened lazily because O_WRONLY\|O_NONBLOCK on a FIFO with no reader is ENXIO: with no peer the run proceeds and nothing is lost or faulted, and a reader that attaches later receives what was queued | — | pass | test/uart/uart_integration_test.cpp:2430 |
+| JOY-19 | GH #252 — a peer that closes mid-session makes the next write EPIPE (SIGPIPE is ignored, so the emulator survives it); the stale queue is discarded and counted rather than delivered to the next peer, and the cable re-opens for one that reconnects | — | pass | test/uart/uart_integration_test.cpp:2474 |
+| JOY-20 | GH #252 — the live cable is held inert while replay_mode_ holds (the EspUartAdapter::set_inert posture): a re-executed frame neither re-transmits to the peer nor consumes the host bytes the resumed timeline still needs, and both directions return when the gate lifts | — | pass | test/uart/uart_integration_test.cpp:2529 |
+| JOY-21 | GH #252 — the pty transport carries the same zxnext.vhd:3340-3341 / :3526-3531 mux in both directions over one descriptor, with the termios in raw mode so a 0x0D is delivered as a byte rather than translated by the line discipline | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:2612 |
+| JOY-22 | GH #252 — a peer lost mid-session takes the RECEIVE queue with it as well as the transmit one: host bytes already read off the descriptor but not yet clocked into the guest are discarded, so the next peer's session does not begin with the tail of the previous one's message | — | pass | test/uart/uart_integration_test.cpp:2693 |
+| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:5080,6188-6189 | pass | test/uart/uart_integration_test.cpp:2738 |
+| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:2767 |
+| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2280,2317-2318 | pass | test/uart/uart_integration_test.cpp:2798 |
+| UART-RD-GH265-01 | UART status IN latches the transmitter as of the port_uart_dat reload 83 cycles in, not the instruction start (zxnext.vhd:3418-3423; t80na.vhd:214-222) | zxnext.vhd:3418-3423, t80na.vhd:214-222 | pass | test/uart/uart_integration_test.cpp:2846 |
+| UART-WR-GH265-01 | UART TX write taken on the edge after IORQ+WR, 73 cycles into OUT (C),A (t80na.vhd:148-150; zxnext.vhd:3418-3423) | t80na.vhd:148-150, zxnext.vhd:3418-3423 | pass | test/uart/uart_integration_test.cpp:2885 |
 

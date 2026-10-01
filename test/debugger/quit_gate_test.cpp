@@ -48,6 +48,7 @@
 #include <QApplication>
 #include <QMainWindow>
 #include <QMessageBox>
+#include <QTemporaryDir>
 #include <QTimer>
 
 #include <cstdarg>
@@ -353,6 +354,17 @@ int main(int argc, char** argv) {
     // DebuggerManager owns QWidgets, so a QApplication is required — but not a
     // display: force the offscreen QPA platform.
     qputenv("QT_QPA_PLATFORM", "offscreen");
+
+    // Isolate the config file: the debugger window saves Debugger.conf, and the
+    // real ~/.jnext belongs to the user (and is shared by concurrent runs).
+    QTemporaryDir cfg;
+    if (!cfg.isValid()) {
+        std::printf("  FAIL: could not create a temporary config directory\n");
+        std::printf("Total:    0  Passed:    0  Failed:    1  Skipped:    0\n");
+        return 1;
+    }
+    qputenv("JNEXT_CONFIG_DIR", cfg.path().toUtf8());
+
     QApplication app(argc, argv);
 
     test_quit_gate();

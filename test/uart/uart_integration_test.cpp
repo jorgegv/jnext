@@ -41,6 +41,8 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#else
+#include <process.h>
 #endif
 #include "../row_id.h"
 
@@ -1307,6 +1309,16 @@ static void test_esp_backend() {
 
 namespace {
 
+// A tag unique to this process: concurrent runs share the temp directory, and a
+// fixed name lets one run replace or delete another's file (or FIFO).
+std::string pid_tag() {
+#ifdef _WIN32
+    return std::to_string(::_getpid());
+#else
+    return std::to_string(::getpid());
+#endif
+}
+
 // A `--joy-uart-rx` stream on disk, removed when the row's scope ends. Real
 // file I/O rather than a test-only injection hook, so the row covers
 // read_joy_uart_source_file() and the config seam a command line actually uses.
@@ -1314,7 +1326,7 @@ class TempSourceFile {
 public:
     explicit TempSourceFile(const std::string& tag, const std::vector<uint8_t>& bytes) {
         path_ = (std::filesystem::temp_directory_path()
-                 / ("jnext-joy-uart-" + tag + ".bin")).string();
+                 / ("jnext-joy-uart-" + tag + "-" + pid_tag() + ".bin")).string();
         std::ofstream out(path_, std::ios::binary | std::ios::trunc);
         out.write(reinterpret_cast<const char*>(bytes.data()),
                   static_cast<std::streamsize>(bytes.size()));
@@ -1450,7 +1462,7 @@ class TempFifoCable {
 public:
     explicit TempFifoCable(const std::string& tag) {
         base_ = (std::filesystem::temp_directory_path()
-                 / ("jnext-joy-cable-" + tag)).string();
+                 / ("jnext-joy-cable-" + tag + "-" + pid_tag())).string();
         remove_files();
     }
     ~TempFifoCable() {
@@ -1793,7 +1805,8 @@ static void test_joy_uart_cable() {
 
         std::string error_missing;
         const std::string missing =
-            (std::filesystem::temp_directory_path() / "jnext-joy-uart-nonexistent.bin")
+            (std::filesystem::temp_directory_path() /
+             ("jnext-joy-uart-nonexistent-" + pid_tag() + ".bin"))
                 .string();
         std::error_code ec;
         std::filesystem::remove(missing, ec);
