@@ -1662,6 +1662,22 @@ int main()
                   step1 && keys == std::vector<int>{4, 5, 5} && kb.count(digit(5), true) == 0,
                   got(keys) + " " + got(kb));
         }
+        // HKL-SK-05: attach() (a cold boot rebinding the sink) forgets a chord
+        // held across it, so the next Alt+N raises again.
+        {
+            FakeKeyboard kb;
+            TestRouter r;
+            r.attach(kb);
+            std::vector<int> keys;
+            r.set_script_key_callback([&keys](int n) { keys.push_back(n); });
+            r.on_host_key(LALT, true);
+            r.on_host_key(digit(6), true);
+            r.attach(kb);
+            r.on_host_key(LALT, true);
+            r.on_host_key(digit(6), true);
+            check("HKL-SK-05", "after attach() (a cold boot) a chord held across it raises again",
+                  keys == std::vector<int>{6, 6}, got(keys));
+        }
         // HKL-SK-04: with no callback (no backend) the chord is still swallowed.
         {
             FakeKeyboard kb;

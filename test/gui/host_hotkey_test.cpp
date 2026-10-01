@@ -82,8 +82,10 @@
 #include "input/keyboard.h"
 #include "platform/host_key_latch.h"
 #include "platform/host_key_wiring.h"
+#include "script/script_host.h"
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_window.h"
+#include "debugger/debugger_manager.h"
 #endif
 #include "../row_id.h"
 
@@ -1207,8 +1209,18 @@ int main(int argc, char** argv) {
         jnext::dbg::Debugger backend(emu);
         MainWindow w2;
         w2.set_debugger(&backend);
+        jnext::script::ScriptHost script_host;   // GH #26 WP5 — QtApp's order
+        w2.set_script_host(&script_host);
         w2.set_emulator(&emu);
         QApplication::processEvents();
+#ifdef ENABLE_DEBUGGER
+        check("H-SCRIPT-10", "the emulator window hands the loop owner's script host to the debugger "
+                             "manager it builds (the Script tab's host)",
+              w2.debugger_manager() && w2.debugger_manager()->script_host() == &script_host, "");
+#else
+        check("H-SCRIPT-10", "with the debugger compiled out, the script host is accepted and nothing "
+                             "else needs it", true, "");
+#endif
 
         // The "live bindings" set spans BOTH windows. The debugger window is a
         // separate top level (parent nullptr, debugger_manager.cpp:171), so its

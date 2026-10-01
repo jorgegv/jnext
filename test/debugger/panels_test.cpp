@@ -2463,13 +2463,29 @@ static void test_script_panel() {
         const bool loads = w && w->script_panel() &&
                            w->script_panel()->load_path(QString::fromStdString(
                                scr_file("tab.jds", "on frame 0 do log \"T\" end\n")));
+        // The menu's Reload and Unload act (Load opens a file dialog).
+        size_t after_reload = 99, after_unload = 99;
+        if (w)
+            for (QAction* m : w->menuBar()->actions())
+                if (m->text() == QStringLiteral("&Script") && m->menu())
+                    for (QAction* a : m->menu()->actions()) {
+                        if (a->text() == QStringLiteral("&Reload Scripts")) {
+                            a->trigger();
+                            after_reload = host.files().size();
+                        }
+                        if (a->text() == QStringLiteral("&Unload Scripts")) {
+                            a->trigger();
+                            after_unload = host.files().size();
+                        }
+                    }
         check("QSCR-01", "the debugger window has a Script tab holding the Script panel, and a &Script "
-                         "menu with Load Script…, Reload Scripts and Unload Scripts; the panel drives "
-                         "the manager's script host",
+                         "menu with Load Script…, Reload Scripts and Unload Scripts (the last two act); "
+                         "the panel drives the manager's script host",
               started && tabs && tabs->widget(script_tab) == w->script_panel() &&
                   items == QStringList({"&Load Script...", "&Reload Scripts", "&Unload Scripts"}) && loads &&
-                  host.files().size() == 1,
-              fmt("tab=%d items=%s files=%zu", script_tab, s(items.join('|')).c_str(), host.files().size()));
+                  after_reload == 1 && after_unload == 0,
+              fmt("tab=%d items=%s reload=%zu unload=%zu", script_tab, s(items.join('|')).c_str(),
+                  after_reload, after_unload));
         if (fx.ok) fx.mgr->set_script_host(nullptr);
         host.unload_all();
     }
@@ -2482,9 +2498,12 @@ static void test_script_panel() {
         const bool row = fx.panel.rule_table()->rowCount() == 1 && fx.cell(0, 0) == "w.jds" &&
                          fx.cell(0, 1) == "w" && fx.cell(0, 2) == "write 9000" && fx.cell(0, 3) == "spent (once)" &&
                          fx.cell(0, 4) == "1";
+        fx.panel.refresh();
+        int loaded_lines = 0;
+        for (const QString& l : fx.panel.log_lines()) if (l.contains("loaded at FRAME")) ++loaded_lines;
         check("QSCR-02", "a loaded script's rule is listed — file, label, the event with its filter resolved, "
                          "its state (a fired `once`: spent) and its hit count — and its log lines reach the panel",
-              ok && errors.isEmpty() && row && fx.log_has("loaded at FRAME") && fx.log_has("] W 5A"),
+              ok && errors.isEmpty() && row && loaded_lines == 1 && fx.log_has("] W 5A"),
               fmt("rows=%d [%s|%s|%s|%s|%s] log=%d", fx.panel.rule_table()->rowCount(), s(fx.cell(0, 0)).c_str(),
                   s(fx.cell(0, 1)).c_str(), s(fx.cell(0, 2)).c_str(), s(fx.cell(0, 3)).c_str(),
                   s(fx.cell(0, 4)).c_str(), int(fx.panel.log_lines().size())));
@@ -2501,10 +2520,17 @@ static void test_script_panel() {
         const QString again = fx.panel.reload_all();
         const bool reloaded = again.isEmpty() && fx.panel.rule_table()->rowCount() == 1 &&
                               fx.cell(0, 4) == "0" && fx.cell(0, 3) == "armed" && hits_before > 0;
+        // A file that has gone away is reported by Reload, by name.
+        const std::string gone = scr_file("gone.jds", "on frame 0 do log \"G\" end\n");
+        fx.panel.load_path(QString::fromStdString(gone));
+        QFile::remove(QString::fromStdString(gone));
+        const QString gone_err = fx.panel.reload_all();
+        const bool reload_reports = gone_err.contains(QString::fromStdString(gone)) &&
+                                    gone_err.contains("cannot be read");
         fx.panel.unload_all();
         check("QSCR-04", "Reload loads the same files again (hits start over, `once` re-armed); Unload All empties the table "
                          "and the verdict says nothing is loaded",
-              reloaded && fx.panel.rule_table()->rowCount() == 0 &&
+              reloaded && reload_reports && fx.panel.rule_table()->rowCount() == 0 &&
                   fx.panel.verdict_text() == "No script loaded." && fx.host.engine() == nullptr,
               fmt("reloaded=%d rows=%d verdict=%s", reloaded, fx.panel.rule_table()->rowCount(),
                   s(fx.panel.verdict_text()).c_str()));

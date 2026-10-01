@@ -2137,6 +2137,27 @@ static void host_round1_rows() {
 
 static void host_gui_rows() {
     {
+        // status(): the FIRST exit, the stops a rule caused (not an `on stop`
+        // rule's own `stop`, which only logs), the last stop's reason.
+        HostRig g(kLoop);
+        g.dbg->set_stop_policy(jnext::dbg::StopPolicy::Pause);
+        ScriptHostOptions o;
+        o.exits = false;
+        o.scripts = {tmp_file("st.jds", "on frame 0 do exit 4 end\non frame 2 do exit 6 end\n"
+                                        "on frame 3 do stop \"three\" end\non stop do stop \"nested\" end\n")};
+        const bool ok = g.start(o);
+        for (int i = 0; i < 4; ++i) {
+            g.run(1);
+            if (g.dbg->state().paused) g.dbg->run(g.tc);
+        }
+        const auto st = g.host->engine()->status();
+        check("SCRIPT-HOST-STATUS", "status() keeps the FIRST exit code, counts the stops rules caused (an "
+                                    "`on stop` rule's own `stop` only logs) and names the last one",
+              ok && st.exit_code == std::optional<int>(4) && st.stops == 1 && st.last_stop == "three",
+              "exit=" + (st.exit_code ? std::to_string(*st.exit_code) : std::string("none")) +
+                  " stops=" + std::to_string(st.stops) + " last=" + st.last_stop);
+    }
+    {
         // The GUI's path: start() with nothing, then load from the menu.
         HostRig g(kLoop);
         ScriptHostOptions o;
@@ -2149,7 +2170,7 @@ static void host_gui_rows() {
         const auto lines = g.host->log_since(0);
         bool tagged = false, g1 = false, loaded = false, err = false;
         for (const auto& l : lines) {
-            if (l.find("[client") != std::string::npos) tagged = true;
+            if (l.find("[client") != std::string::npos || l.find("ATTACH") != std::string::npos) tagged = true;
             if (l.find("] G1") != std::string::npos) g1 = true;
             if (l.find("loaded at FRAME") != std::string::npos) loaded = true;
             if (l.find("SCRIPT ERROR") != std::string::npos && l.find("gui2.jds:2:") != std::string::npos) err = true;
