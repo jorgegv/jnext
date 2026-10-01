@@ -12648,6 +12648,50 @@ int main() {
                        "A's", !dbg.state().paused);
     }
     {
+        // A RESUME THAT IS NO BACKEND VERB (`DebugState::resume()` — the hot
+        // loop's and the legacy panels' own path, which never reaches `arm()`)
+        // still ends the stretch for a step that then PAUSES the running
+        // machine: that step starts a stretch of its own, with no origin.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId d = dbg.attach(client("D")).value;
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        const ClientId c = dbg.attach(client("C")).value;
+        dbg.pause(a);
+        dbg.step_into(b);                       // origin: A
+        emu.debug_state().resume();             // running, no verb
+        const bool running = !dbg.state().paused;
+        dbg.step_into(c);                       // pauses the running machine
+        dbg.detach(c);
+        const RunState st = dbg.state();
+        check("N1-11", "A pauses, B steps, the machine is resumed outside the backend, C "
+                       "steps it (pausing it) and detaches: the pause goes to the earliest "
+                       "client D — A's old pause is not C's origin",
+              running && st.paused && st.pause_reason.by == d, n1_owner(st));
+        dbg.detach(a);
+        dbg.detach(b);
+        dbg.detach(d);
+    }
+    {
+        // AN OBSERVER ORIGIN does not inherit either: the observer paused, an
+        // arming client stepped and left, and the earliest ARMING client takes it.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        const ClientId c = dbg.attach(client("C")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.pause(o);
+        dbg.step_into(b);
+        dbg.detach(b);
+        const RunState st = dbg.state();
+        check("N1-12", "an observer pauses, B steps and detaches: the pause goes to C, the "
+                       "earliest ARMING client, not back to the observer",
+              st.paused && st.pause_reason.by == c, n1_owner(st));
+        dbg.detach(c);
+        dbg.detach(o);
+    }
+    {
         // ONLY AN OBSERVER REMAINS: it arms nothing and inherits nothing, so
         // the last ARMING client's detach releases the pause — a crashed DeZog
         // in a Qt GUI session (whose observer lives as long as the GUI) must not

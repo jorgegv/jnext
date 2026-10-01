@@ -202,7 +202,6 @@ Result Debugger::detach(ClientId cid) {
         // is not read for this stop, and rewriting it changes nothing.
         impl_->armed_by = heir;
         if (impl_->event_stop_latched) impl_->event_stop.by = heir;
-        impl_->pause_origin = CLIENT_NONE;
     }
 
     // THE SAME RULE FOR A PAUSE THAT IS WAITING OUT A GUEST COLD BOOT: an
