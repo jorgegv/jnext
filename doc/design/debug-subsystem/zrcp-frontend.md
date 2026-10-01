@@ -1013,7 +1013,6 @@ in jnext: <name>` and is not listed row by row.
 | `cpu-history` starts empty and records after `started yes` | is a view of jnext's trace: `enabled yes` shows what the trace already holds (up to 10000 entries), `clear` starts the view afresh, `started` is stored but changes nothing | §11.9 item 1; pinned by `ZRCP-HIS-16` |
 | `cpu-history clear` / `set-max-size` clear / resize the history (up to 10000000) | move this session's view only (1..1000000); the machine's trace, which jnext's Step Back reads, is never touched | §11.9 item 1 |
 | `cpu-history get-extended`, `restore` | declined | §11.9 item 3 |
-| `MMU=` in a history entry is the page map then | the get-registers projection; a slot's ROM-ness is today's | §11.9 item 2 |
 | history, coverage and call tracking are the session's | the machine's: a session turns off only what it turned on | §11.9 item 4 |
 | `extended-stack get` types `push` | `default` (jnext does not tell them apart); `clear` does nothing | §11.9 item 5 |
 | `snapshot-save` / `snapshot-load` write / read a file | in-memory bookmarks of the session, at most 8; `snapshot-save` refuses mid-frame (at a breakpoint) | §11.9 item 6 |
@@ -1435,15 +1434,17 @@ DeZog's `zesaruxremote.ts` / `zesaruxcpuhistory.ts` (init, every-step `get`,
    first of a run of HALTs / LDIR / LDDR is kept) applied when read, so they
    also apply to entries recorded before they were set.
 2. **`MMU=` in a history entry** is the get-registers projection
-   (`mapped_page`), built from the entry's eight effective pages. The entry
-   does not record whether a slot was ROM (`TraceEntry` has no such field),
-   so a slot is taken as ROM when it is ROM now and still holds the same page
-   — exact unless the program switched a slot between ROM and RAM since the
-   entry. **Frozen-header need, reported, not made:** a per-slot ROM flag (a
-   byte mask) in `TraceEntry`, filled by the recorder.
-3. **Declined:** `cpu-history get-extended` (it adds paging-port values the
-   entry does not hold — the same header need) and `restore` (use the jnext
-   debugger's Step Back), each by name with the reason.
+   (`mapped_page`), built from the entry's eight effective pages and its
+   `rom_slots` mask (bit n: slot n held ROM), both recorded with the entry, so
+   it is exact whatever the program has mapped since. (Milestone 3 shipped an
+   approximation — a slot counted as ROM when it was ROM *now* and held the
+   same page — and reported the missing field as a frozen-header need; the
+   owner approved the one-byte mask on 2026-10-01. `ZRCP-HIS-19` pins the two
+   cases the approximation got wrong, backend row `INS-13-15` the recording.)
+3. **Declined:** `cpu-history get-extended` (it adds the 7FFD / 1FFD
+   paging-port values, which the entry does not hold and, by the same owner
+   decision, will not) and `restore` (use the jnext debugger's Step Back),
+   each by name with the reason.
 4. **Machine-wide switches.** The trace, the coverage and call tracking are
    the machine's, not the session's. A session's `enabled yes` switches the
    backend on only if it was off, and its `enabled no` — or its end — turns off

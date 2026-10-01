@@ -2603,7 +2603,9 @@ which a Step never passes through — and only for a slot that actually fetched
 the opcode at PC (an NMI or INT acknowledge does not run it). Switched off it is
 one pointer test per instruction. Each trace entry now carries I, R, IM, IFF1,
 IFF2, the word at SP (read with <code>peek()</code>, so the trace moves no watch and no +3
-floating-bus latch) and the eight MMU pages.</p>
+floating-bus latch), the eight MMU pages and <code>rom_slots</code>, a bit per slot that
+held ROM (GH #280; it fills the struct's tail padding, so an entry stays 56
+bytes).</p>
 <h3 id="the-qt-adapter-gh-278-wp2-wp4a-c-wp7">The Qt adapter (GH #278 WP2, WP4a-c, WP7)<a class="headerlink" href="#the-qt-adapter-gh-278-wp2-wp4a-c-wp7" title="Permanent link">&para;</a></h3>
 <p><code>DebuggerManager</code> holds the loop owner's <code>Debugger</code> — handed over by
 <code>MainWindow::set_debugger()</code>, without which <code>set_emulator()</code> throws rather than

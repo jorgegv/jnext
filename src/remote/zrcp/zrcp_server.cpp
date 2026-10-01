@@ -269,8 +269,8 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
      "started is recorded but "
      "the history records while it is enabled; ignrephalt / ignrepldxr filter the view (a "
      "run of HALTs or LDIR / LDDR shows its first entry), so they apply to entries already "
-     "recorded too; MMU is the get-registers projection, a ROM slot recognised by the "
-     "current mapping. Declined in jnext: get-extended (jnext records no paging-port "
+     "recorded too; MMU is the get-registers projection of the pages and ROM slots the "
+     "entry recorded. Declined in jnext: get-extended (jnext records no paging-port "
      "values) and restore (use the jnext debugger's Step Back)",
      CommandClass::Served, &ZrcpServer::cmd_cpu_history},
     U("cpu-panic", nullptr),
@@ -2334,16 +2334,14 @@ const std::vector<::TraceEntry>& ZrcpServer::history_view() {
     return hist_view_;
 }
 
-// The entry's eight `MMU=` values in the get-registers projection. The entry
-// records each slot's effective page but not whether it was ROM, so a slot is
-// taken as ROM when it is ROM NOW and still holds the same page (§11.9).
+// The entry's eight `MMU=` values in the get-registers projection, from the
+// effective pages and the ROM mask the entry recorded (§11.9 item 2).
 std::array<std::uint16_t, 8> ZrcpServer::history_mmu(const ::TraceEntry& e) const {
-    const auto cur  = dbg_.mmu_slots();
     const auto type = dbg_.machine().type;
     std::array<jnext::dbg::SlotInfo, 8> s{};
     for (std::size_t i = 0; i < 8; ++i) {
         s[i].effective_page = e.mmu[i];
-        s[i].is_rom         = cur[i].is_rom && cur[i].effective_page == e.mmu[i];
+        s[i].is_rom         = (e.rom_slots >> i) & 1u;  // as recorded (GH #280)
     }
     std::array<std::uint16_t, 8> out{};
     for (int i = 0; i < 8; ++i) out[static_cast<std::size_t>(i)] = mapped_page(s, i, type);

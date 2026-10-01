@@ -783,6 +783,47 @@ static void b4_trace_rows() {
               mmu_ok && distinct);
     }
     {
+        // GH #280 (owner decision 2026-10-01): each entry records which slots
+        // held ROM, as Mmu::is_slot_rom() said at that instruction. Slot 0 is
+        // switched ROM -> RAM -> ROM between three traced steps, so a mask
+        // written once, from one slot, or from the current mapping at read
+        // time differs from the truth in at least one entry.
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        const ClientId c = dbg.attach(client("trace-rom", jnext::dbg::ClientKind::Gui)).value;
+        auto live_mask = [&emu]() {
+            uint8_t m = 0;
+            for (int s = 0; s < 8; ++s)
+                m |= static_cast<uint8_t>(emu.mmu().is_slot_rom(s) ? 1u << s : 0u);
+            return m;
+        };
+        dbg.set_trace_enabled(true);
+        dbg.trace_clear();
+        std::array<uint8_t, 3> want{};
+        want[0] = live_mask();
+        emu.execute_single_instruction();          // slot 0 ROM
+        dbg.set_mmu_slot(c, 0, 4);                 // slot 0 = RAM page 4
+        want[1] = live_mask();
+        emu.execute_single_instruction();
+        dbg.set_mmu_slot(c, 0, 0xFF);              // slot 0 = ROM again
+        want[2] = live_mask();
+        emu.execute_single_instruction();
+        const auto got = dbg.trace_entries();
+        const std::vector<TraceEntry>& es = got.value;
+        bool ok = es.size() == 3 && (want[0] & 1u) && !(want[1] & 1u) && (want[2] & 1u) &&
+                  want[0] != 0xFF && want[0] != 0;
+        std::string seen;
+        for (std::size_t i = 0; i < es.size() && i < 3; ++i) {
+            if (es[i].rom_slots != want[i]) ok = false;
+            seen += hex(es[i].rom_slots) + "/" + hex(want[i]) + " ";
+        }
+        check("INS-13-15", "an entry records rom_slots, bit n = slot n held ROM at that "
+                           "instruction: slot 0 ROM, RAM, ROM again across three steps, "
+                           "the other slots as mapped; TraceEntry stays 56 bytes",
+              ok && sizeof(TraceEntry) == 56,
+              "got/want " + seen + "size " + std::to_string(sizeof(TraceEntry)));
+    }
+    {
         // The (SP) read must not PERTURB. +3 mode: SP in contended bank 5, PC in
         // uncontended bank 2, so the CPU's own opcode fetch never touches the
         // floating-bus latch and a `read()` of (SP) would leave it moved.
@@ -4557,9 +4598,10 @@ static void q_wp3_trace_export_rows() {
         "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X  [SZ-H-P-C]  00",
         static_cast<unsigned long long>(e.cycle), e.r,
         e.mmu[0], e.mmu[1], e.mmu[2], e.mmu[3], e.mmu[4], e.mmu[5], e.mmu[6], e.mmu[7]);
-    check("INS-13-14", "trace_export() writes every TraceEntry field — the word at SP, "
-                       "I, R, IM, IFF1, IFF2 and the eight MMU pages included — in "
-                       "the documented column order",
+    check("INS-13-14", "trace_export() writes every TraceEntry field its documented "
+                       "column list names — the word at SP, I, R, IM, IFF1, IFF2 and the "
+                       "eight MMU pages included — in that order (rom_slots, GH #280, is "
+                       "not in the list)",
           rc == Result::Ok && e.sp_word == 0xABCD && e.i == 0x3F && line == want,
           "got  '" + line + "'\nwant '" + want + "'");
 }

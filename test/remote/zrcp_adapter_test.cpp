@@ -4002,9 +4002,9 @@ static void wp5_history_rows() {
                   " " + esc(pcs));
     }
     {
-        // H09: a slot that is ROM now is taken as ROM for an entry only if the
-        // entry recorded the same page. On the Next, slot 0 holds RAM page 4
-        // when the entry is recorded and ROM again when it is read.
+        // H09: an entry's slot is RAM or ROM as the entry recorded it
+        // (TraceEntry::rom_slots), not as it is now. On the Next, slot 0 holds
+        // RAM page 4 when the entry is recorded and ROM again when it is read.
         Rig rig(MachineType::ZXN_ISSUE2);
         Zc  c(rig);
         c.cmd("enter-cpu-step");
@@ -4017,6 +4017,46 @@ static void wp5_history_rows() {
         check("ZRCP-HIS-12", "history MMU=: an entry recorded with RAM page 4 in slot 0 shows "
                              "0004 there although slot 0 is ROM now (a different page)",
               at != std::string::npos && g.compare(at + 5, 4, "0004") == 0, esc(g, 260));
+    }
+    {
+        // GH #280 rom_slots: the two cases the old "ROM now and the same page"
+        // rule got wrong. (a) An entry recorded with ROM in slot 0, read after
+        // slot 0 became RAM: still ROM's MMU= value, the one get-registers
+        // showed then. (b) An entry recorded with RAM page p in slot 0, where p
+        // is the ROM's own effective page, read after slot 0 is ROM again (same
+        // page number): still RAM, 00pp.
+        Rig rig(MachineType::ZXN_ISSUE2);
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        c.cmd("cpu-history enabled yes");
+        const std::string regs = c.cmd("get-registers");
+        const auto ra = regs.find(" MMU=");
+        const std::string rom_field = ra == std::string::npos ? "" : regs.substr(ra + 5, 4);
+        const unsigned rom_page = rig.dbg->mmu_slots()[0].effective_page;
+        c.cmd("cpu-step");                              // entry A: slot 0 ROM
+        c.cmd("tbblue-set-register 80 4");              // slot 0 = RAM page 4
+        const std::string ga = c.cmd("cpu-history get 0");
+        c.cmd("tbblue-set-register 80 " + std::to_string(rom_page));  // RAM page == ROM's page
+        c.cmd("cpu-step");                              // entry B: slot 0 RAM page rom_page
+        c.cmd("tbblue-set-register 80 255");            // slot 0 = ROM again
+        const std::string gb = c.cmd("cpu-history get 0");
+        const std::string ga2 = c.cmd("cpu-history get 1");    // entry A, read again
+        char ram_field[8];
+        std::snprintf(ram_field, sizeof(ram_field), "%04x", rom_page);
+        const auto aa = ga.find(" MMU=");
+        const auto ab = gb.find(" MMU=");
+        const auto aa2 = ga2.find(" MMU=");
+        const bool rom_is_8000 = !rom_field.empty() && rom_field[0] == '8';
+        check("ZRCP-HIS-19", "history MMU= uses the entry's recorded ROM mask: an entry taken "
+                             "with ROM in slot 0 keeps ROM's value after the slot becomes RAM, "
+                             "and one taken with RAM page p (the ROM's own page number) keeps "
+                             "00pp after the slot is ROM again",
+              rom_is_8000 && rom_page < 0xE0 && aa != std::string::npos &&
+                  ga.compare(aa + 5, 4, rom_field) == 0 && ab != std::string::npos &&
+                  gb.compare(ab + 5, 4, ram_field) == 0 && aa2 != std::string::npos &&
+                  ga2.compare(aa2 + 5, 4, rom_field) == 0,
+              "rom=" + rom_field + " page=" + std::to_string(rom_page) + " A=" + esc(ga, 200) +
+                  " B=" + esc(gb, 200) + " A'=" + esc(ga2, 200));
     }
     {
         Rig rig;
