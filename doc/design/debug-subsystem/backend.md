@@ -672,8 +672,11 @@ live = master && client_enabled(owner) && enabled, rebuilt on change, never per
 instruction. `probe_execute(pc) -> vector<EventId>` is a pure query ("which
 live Execute subscriptions would fire here": filter and page, and the condition
 evaluated now against the `Execute` event the gate would build, under an
-`InspectionScope`, recording nothing; a legacy PC breakpoint adds an
-`EVENT_NONE` entry; the action and handler are the caller's to judge — landed
+`InspectionScope`, recording nothing, and — as delivery — nothing at all in
+replay mode; a legacy PC breakpoint adds an `EVENT_NONE` entry; the action and
+handler are the caller's to judge. A condition may keep state (ZRCP's
+On-Change edge) only if it is idempotent per boundary, since a probe may
+evaluate it again at the boundary delivery already did — landed
 by GH #280 WP-4, it replaced a `bool` that ignored conditions) for adapters whose step loops must
 report a breakpoint at the PC a step landed on (REQ-zrcp-05): the pre-instruction
 gate cannot report it, because the GH #221 step-off skips exactly that address on

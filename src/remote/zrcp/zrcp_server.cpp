@@ -1839,10 +1839,8 @@ void ZrcpServer::arm_slot(int index) {
         const auto inner = sl.predicate;
         const auto edge  = sl.edge;
         sub.condition = [inner, edge](const jnext::dbg::Event& ev, const jnext::dbg::Debugger& d) {
-            const bool v = !inner || inner(ev, d);
-            edge->fired  = v && !edge->prev;
-            edge->prev   = v;
-            return edge->fired;
+            if (ev.cycle == edge->cycle) return edge->fired;  // this boundary, again
+            return edge->step(ev.cycle, !inner || inner(ev, d));
         };
     }
     if (action_stops(sl.action)) {
@@ -1869,6 +1867,7 @@ bool ZrcpServer::slot_fires_at(int index, std::uint16_t pc) const {
     if (!sl.predicate) return true;
     jnext::dbg::Event ev;
     ev.kind  = jnext::dbg::EventKind::Execute;
+    ev.cycle = dbg_.time().master_cycle;
     ev.pc    = pc;
     ev.id    = sl.sub;
     ev.owner = cid_;
@@ -1882,18 +1881,21 @@ bool ZrcpServer::slot_fires_at(int index, std::uint16_t pc) const {
 bool ZrcpServer::slot_edge_at(int index, std::uint16_t pc) {
     Slot& sl = slots_[static_cast<std::size_t>(index)];
     if (!sl.edge) return slot_fires_at(index, pc);
-    const bool v = slot_fires_at(index, pc);
-    sl.edge->fired = v && !sl.edge->prev;
-    sl.edge->prev  = v;
-    return sl.edge->fired;
+    const std::uint64_t at = dbg_.time().master_cycle;
+    if (at == sl.edge->cycle) return sl.edge->fired;
+    return sl.edge->step(at, slot_fires_at(index, pc));
 }
 
 // Would another client's breakpoint — or a legacy `BreakpointSet` PC
-// breakpoint (`EVENT_NONE`) — fire at `pc`? `probe_execute` lists every live
-// `Execute` subscription covering it whose condition holds now; this session's
-// own are left to its slots' (On-Change) evaluation, and a subscription whose
-// static verdict neither stops nor has a handler that could is not a
-// breakpoint.
+// breakpoint (`EVENT_NONE`) — STOP the machine at `pc`? `probe_execute` lists
+// every live `Execute` subscription covering it whose condition holds now; this
+// session's own are left to its slots' (On-Change) evaluation. Of the others,
+// only a static `Stop` with no handler is a breakpoint: a `Log` / `Continue`
+// one would not stop a free `run`, so it must not end a `run n` either; and a
+// handler's verdict OVERRIDES the static action (`events.h` `Handler`) and is
+// known only by running the handler, which a probe may not do (it may mutate,
+// §4.2a) — so a handler subscription is not counted (§11.8). Every jnext
+// frontend's breakpoint (DZRP, GDB, the Qt GUI) is a static `Stop`.
 bool ZrcpServer::other_breakpoint_at(std::uint16_t pc) const {
     const auto ids = dbg_.probe_execute(pc);
     if (ids.empty()) return false;
@@ -1901,7 +1903,7 @@ bool ZrcpServer::other_breakpoint_at(std::uint16_t pc) const {
     for (const auto id : ids) {
         if (id == jnext::dbg::EVENT_NONE) return true;
         for (const auto& s : subs)
-            if (s.id == id && s.owner != cid_ && (s.action == Action::Stop || s.has_handler))
+            if (s.id == id && s.owner != cid_ && s.action == Action::Stop && !s.has_handler)
                 return true;
     }
     return false;

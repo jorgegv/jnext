@@ -9374,6 +9374,52 @@ int main() {
                   dbg.probe_execute(PROG).empty(),
               std::string("fired=") + (fired ? "1" : "0") + " live=" + (live ? "1" : "0"));
     }
+    {
+        // R2-1 (M2 review round 2): a page qualifier that DOES match. The page
+        // is the one mapped at the PC's OWN slot.
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        const uint16_t own   = emu.mmu().get_effective_page(PROG >> 13);
+        const uint16_t other = emu.mmu().get_effective_page(((PROG >> 13) + 1) & 7);
+        Subscription in;
+        in.kind = EventKind::Execute; in.filter.lo = in.filter.hi = PROG;
+        in.filter.page = own;
+        const auto idin = dbg.subscribe(1, in).value;
+        Subscription out = in;
+        out.filter.page = other;
+        dbg.subscribe(1, out);
+        const auto got = dbg.probe_execute(PROG);
+        check("EVT-PROBE-14", "a page-qualified subscription is listed when its page is the one "
+                              "mapped at the PC's slot, and the same one naming the next slot's "
+                              "page is not",
+              own != other && got.size() == 1 && got[0] == idin,
+              "own=" + hex(own) + " other=" + hex(other) + " n=" + std::to_string(got.size()));
+    }
+    {
+        // The condition contract: a predicate runs only when !replay_mode, and
+        // in replay nothing is delivered — so a probe lists nothing either.
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        int calls = 0;
+        Subscription c;
+        c.kind = EventKind::Execute; c.filter.lo = c.filter.hi = PROG;
+        c.condition = [&](const jnext::dbg::Event&, const Debugger&) { ++calls; return true; };
+        dbg.subscribe(1, c);
+        emu.debug_state().breakpoints().add_pc(PROG);
+        emu.set_replay_mode(true);
+        const bool empty_in_replay = dbg.probe_execute(PROG).empty();
+        const int  calls_in_replay = calls;
+        emu.set_replay_mode(false);
+        const auto live = dbg.probe_execute(PROG);
+        check("EVT-PROBE-15", "in replay mode probe_execute lists nothing and runs no condition "
+                              "(as delivery); out of it, the same subscription and the legacy "
+                              "breakpoint are listed",
+              empty_in_replay && calls_in_replay == 0 && live.size() == 2 && calls == 1,
+              "calls=" + std::to_string(calls_in_replay) + "/" + std::to_string(calls) +
+                  " n=" + std::to_string(live.size()));
+    }
 
     // ── EVT-TIME — Frame, Scanline, Cycle ────────────────────────────────
     {

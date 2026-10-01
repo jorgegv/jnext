@@ -1286,9 +1286,23 @@ and it asks:
   fired line, a print slot prints and the run steps on
   (`ZRCP-BP-15/16/19/24`);
 - `probe_execute`, for everyone else: an `EVENT_NONE` entry (a legacy PC
-  breakpoint), or another client's subscription that stops or has a handler
-  that might, ends the run; this session's own ids are left to the slots
-  (`ZRCP-BP-21/25/28/29`). Review round 1 found the first, interim cut skipped
+  breakpoint), or another client's static-`Stop` subscription with no handler,
+  ends the run; this session's own ids are left to the slots
+  (`ZRCP-BP-21/25/28/29/30`). A `Log` / `Continue` one would not stop a free
+  `run`, so it does not end a `run n`; a HANDLER's verdict overrides the static
+  action (`events.h` `Handler`) and is known only by running it, which a pure
+  probe may not, so a handler subscription is not counted either (review round
+  2). Every jnext frontend's breakpoint — DZRP, GDB, the Qt GUI — is a static
+  `Stop`; the residual is a handler (a future DSL rule) that would return `Stop`
+  at the landing PC, which a `run n` passes.
+
+The On-Change state is keyed to the boundary (the event's master cycle): a
+second evaluation of the same slot's condition at the same cycle — a
+`probe_execute`, the landing check — returns the cached result and advances
+nothing (`ZRCP-BP-31`). `probe_execute` honours the condition contract's
+`!replay_mode` rule as delivery does: in replay it lists nothing and runs no
+condition (`EVT-PROBE-15`); a page qualifier is matched against the page mapped
+at the PC's own slot (`EVT-PROBE-14`). Review round 1 found the first, interim cut skipped
   other clients wherever a slot of this session covered the PC — which a
   PC-free slot does everywhere — and could not evaluate their conditions; both
   are gone.

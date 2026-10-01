@@ -260,8 +260,19 @@ private:
     /// PC-free slot: its condition's value at the last boundary it was
     /// evaluated at, and whether that evaluation was a false→true edge.
     struct Edge {
-        bool prev  = false;
-        bool fired = false;
+        bool          prev  = false;
+        bool          fired = false;
+        /// The boundary (master cycle) `prev` / `fired` describe. A second
+        /// evaluation at the same boundary — a `probe_execute`, the landing
+        /// check — returns `fired` and advances nothing.
+        std::uint64_t cycle = UINT64_MAX;
+        bool step(std::uint64_t at, bool v) {
+            if (at == cycle) return fired;
+            cycle = at;
+            fired = v && !prev;
+            prev  = v;
+            return fired;
+        }
     };
 
     /// One condition slot (§4.1 `slots[1..100]`).

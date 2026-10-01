@@ -207,6 +207,10 @@ std::vector<EventId> Debugger::probe_execute(uint16_t pc) const {
     // reads fire nothing. Nothing is recorded — no `seq`, no hit, no `once`.
     // The action and the handler are the caller's to judge.
     std::vector<EventId> out;
+    // The condition contract (`events.h` `Condition`): a predicate runs only
+    // when `!replay_mode_`, and in replay nothing is delivered at all
+    // (`execute_gate()`), so nothing would fire: empty, and no condition runs.
+    if (impl_->emu.replay_mode()) return out;
     if (impl_->ds().breakpoints().has_pc(pc)) out.push_back(EVENT_NONE);
 
     Event ev;

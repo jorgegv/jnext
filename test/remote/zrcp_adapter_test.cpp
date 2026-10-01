@@ -3427,6 +3427,73 @@ static void wp4_slot_rows() {
               esc(r, 160));
     }
     {
+        // R2-2 (M2 review round 2): only a subscription that would STOP ends
+        // run n. Another client's handler subscription (a DSL logger: its
+        // handler returns Continue) does not, whatever its static action; a
+        // static Stop one does.
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0xFE});
+        const auto other = rig.dbg->attach({"dsl", ClientKind::Test}).value;
+        int handled = 0;
+        jnext::dbg::Subscription h;
+        h.kind      = jnext::dbg::EventKind::Execute;
+        h.filter.lo = h.filter.hi = 0x8002;
+        h.action    = jnext::dbg::Action::Continue;
+        h.handler   = [&](const jnext::dbg::Event&, Debugger&) {
+            ++handled;
+            return jnext::dbg::Action::Continue;
+        };
+        rig.dbg->subscribe(other, h);
+        jnext::dbg::Subscription hs = h;   // a handler with a static Stop
+        hs.filter.lo = hs.filter.hi = 0x8003;
+        hs.action    = jnext::dbg::Action::Stop;
+        rig.dbg->subscribe(other, hs);
+        jnext::dbg::Subscription stop;
+        stop.kind      = jnext::dbg::EventKind::Execute;
+        stop.filter.lo = stop.filter.hi = 0x8005;
+        rig.dbg->subscribe(other, stop);
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 B=99");
+        const std::string r = c.cmd("run 7", 32);
+        check("ZRCP-BP-30", "run n runs past another client's handler subscriptions (8002, "
+                            "Continue; 8003, static Stop overridden by its handler) and stops at "
+                            "its static-Stop breakpoint (8005); no handler ran in run n",
+              rig.pc() == 0x8005 && r.find("Returning after") == std::string::npos &&
+                  r.find("Breakpoint fired") == std::string::npos && handled == 0,
+              esc(r, 160) + " handled=" + std::to_string(handled));
+        rig.dbg->detach(other);
+    }
+    {
+        // On-Change state is keyed to the boundary: extra evaluations of the
+        // condition at the SAME cycle (a probe_execute) never advance it.
+        Rig rig;
+        rig.load({0x00, 0x18, 0xFD});
+        Z80Registers z = rig.emu.cpu().get_registers();
+        z.AF = 0x0000;
+        rig.emu.cpu().set_registers(z);
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 A=0");
+        const std::string first = run_to_stop(c);          // the edge: fires
+        z = rig.emu.cpu().get_registers();
+        z.AF = 0x0100;                                      // A=1, at the same boundary
+        rig.emu.cpu().set_registers(z);
+        for (int i = 0; i < 3; ++i) rig.dbg->probe_execute(rig.pc());
+        z.AF = 0x0000;                                      // A=0 again
+        rig.emu.cpu().set_registers(z);
+        c.send_once("run\n");
+        for (int i = 0; i < 3; ++i) rig.tick();
+        const bool ran_on = !rig.dbg->state().paused;
+        const std::string plain = c.send_once("\n") + c.wait(8);
+        check("ZRCP-BP-31", "probing the slot's condition three times at the stop's own "
+                            "boundary (with A momentarily 1) does not move its On-Change state: "
+                            "with A=0 throughout the machine's boundaries, the next run runs on",
+              first.find("Breakpoint fired: A=0\n") != std::string::npos && ran_on &&
+                  plain.find("Breakpoint fired") == std::string::npos,
+              esc(first, 80) + " / " + esc(plain, 80));
+    }
+    {
         // The fired-line fallback names a PC-free slot only when it fired at
         // this boundary (its edge), not merely because it is true there.
         Rig rig;
