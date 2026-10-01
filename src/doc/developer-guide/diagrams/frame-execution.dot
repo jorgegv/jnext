@@ -6,8 +6,8 @@
 //
 // The two facts this figure exists to make obvious:
 //   * a PAUSED frame is RESUMED, not restarted — begin_new_frame() runs only
-//     when no frame is in flight, because its per-frame work (rewinding the
-//     Copper PC, clearing the per-scanline change logs) would corrupt a frame
+//     when no frame is in flight, because its per-frame work (clearing the
+//     per-scanline change logs) would corrupt a frame
 //     that is still half-executed;
 //   * every debugger exit is an EARLY RETURN out of the middle of the loop,
 //     leaving the frame in flight for the next call.
@@ -35,7 +35,7 @@ digraph frame_execution {
 
     inpr [shape=diamond, style="filled", fillcolor="#f5dfe2",
           label="frame already\nin flight?", margin="0.02,0.02"];
-    begin [label="begin_new_frame()\nCopper PC rewind, per-scanline change logs\ncleared, interrupts scheduled, rewind snapshot",
+    begin [label="begin_new_frame()\nper-scanline change logs cleared,\ninterrupts scheduled, rewind snapshot",
            fillcolor="#ecdfe0"];
 
     loop [label="while clock < frame_end", shape=hexagon, style="filled",

@@ -2760,10 +2760,10 @@ static void test_peek_does_not_mutate(Emulator& emu) {
 // leaving the frame half-executed; the frontend then calls run_frame() again to continue
 // it. run_frame() re-ran its entire frame-start block on that call — mid-frame:
 //
-//   copper_.on_vsync()        rewound the Copper's PC, so a Copper program restarted at
-//                             mid-frame re-executed its WAITs against scanlines already
-//                             gone by, never matched again, and wrote NOTHING for the
-//                             rest of the frame;
+//   copper_.on_vsync()        rewound the Copper's PC (gone since GH #293), so a Copper
+//                             program restarted at mid-frame re-executed its WAITs
+//                             against scanlines already gone by, never matched again,
+//                             and wrote NOTHING for the rest of the frame;
 //   palette_.start_frame()    CLEARED the per-scanline palette change log and rebaselined
 //     (and the same for      it to the mid-frame state — and that log is exactly what the
 //      layer2/sprites/ula/    compositor and the debugger's video panels replay to
@@ -2821,12 +2821,12 @@ static void test_paused_frame_resumes_not_restarts(Emulator& emu) {
 
 // The Copper half of the same bug, on its own.
 //
-// copper_.on_vsync() and the change-log start_frame()s are two INDEPENDENT casualties of
-// re-running the frame-start block mid-frame, and today one boolean guards both. The row
-// above would still pass if a future change decided that "only the change logs need the
-// guard; on_vsync() is harmless" — and beast.nex's sky would silently go flat again, which
-// is precisely the reported symptom. So the Copper gets its own row, with a real Copper
-// program: WAIT scanline N, MOVE a palette colour — the shape that paints a gradient.
+// copper_.on_vsync() and the change-log start_frame()s were two INDEPENDENT casualties of
+// re-running the frame-start block mid-frame. GH #293 removed on_vsync(): the hardware has
+// no frame-start Copper restart, so the frame-start block no longer touches the Copper and
+// these rows can no longer fail through it. They stay as the invariant the user reported
+// (a resumed frame keeps painting), with a real Copper program: WAIT scanline N, MOVE a
+// palette colour — the shape that paints a gradient.
 //
 // A Copper rewound to PC 0 mid-frame re-executes its WAITs against scanlines that have
 // already gone by, so it never matches again and writes nothing for the rest of the frame.
@@ -2855,9 +2855,8 @@ static void test_resume_does_not_rewind_the_copper(Emulator& emu) {
         program_word(static_cast<uint16_t>(i * 3 + 1), enc_move(0x40, 0x10));            // palette index
         program_word(static_cast<uint16_t>(i * 3 + 2), enc_move(0x41, static_cast<uint8_t>(i * 4)));
     }
-    nr(0x62, 0xC0);                       // mode 11 = run + RESET PC AT VSYNC (what a
-                                          // per-frame gradient uses, and what makes
-                                          // on_vsync() mid-frame destructive)
+    nr(0x62, 0xC0);                       // mode 11 = run + restart at cvc 0 (what a
+                                          // per-frame gradient uses)
     emu.run_frame();                      // one clean frame with the Copper running
 
     // Pause mid-frame, PAST several WAITs, so the Copper PC is deep in its program.

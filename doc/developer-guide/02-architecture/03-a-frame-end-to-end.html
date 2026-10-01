@@ -1904,9 +1904,8 @@ timing_.master_cycles_per_frame</code>, and:</p>
 pauses, it does so by returning from inside the loop below, part-way through a
 frame; the next call to <code>run_frame()</code> must therefore <strong>resume</strong> that frame
 rather than start a fresh one. Calling <code>begin_new_frame()</code> in the middle of a
-frame would rewind the Copper's program counter, so its WAITs would never match
-again for the rest of that frame, and would re-baseline the per-scanline change
-logs the compositor replays. The visible symptom is a frame that renders flat.</p>
+frame would re-baseline the per-scanline change logs the compositor replays.
+The visible symptom is a frame that renders flat.</p>
 <p><code>begin_new_frame()</code> (<code>:6917</code>) does the following, in order:</p>
 <ol>
 <li>Take a rewind snapshot, if rewind is enabled. Frame boundaries are chosen
@@ -1926,7 +1925,8 @@ logs the compositor replays. The visible symptom is a frame that renders flat.</
 <li>Schedule the <strong>ULA frame interrupt</strong> at
    <code>VideoTiming::frame_int_master_cycle_offset()</code>, and the <strong>line interrupt</strong>
    via <code>reschedule_line_interrupt()</code>.</li>
-<li>Begin an RZX playback or recording frame, and notify the Copper of vsync.</li>
+<li>Begin an RZX playback or recording frame. The Copper gets no frame-start
+   call: its mode-11 restart is at <code>cvc</code> 0, inside <code>Copper::execute()</code> (GH #293).</li>
 <li>Baseline about fifteen per-scanline change logs and snapshots: the palette,
    Layer 2 scroll and bank, sprite attributes, ULA scroll, palette-select,
    Timex mode and border, tilemap scroll and fetch state and NR 0x6B, the

@@ -10,6 +10,7 @@
 - ZX81 boots from the firmware boot menu; REQUIRES re-downloading the SD image (`--sdcard-download-force`), which replaces anything saved on it
 - Debugger panels no longer disturb the +3 floating bus; Step Back, Step Over and the Magic Breakpoint menu fixed
 - RZX recordings now capture and replay DMA port reads, so DMA-driven programs replay faithfully
+- Copper programs in restart-every-frame mode run to the end of the frame: Copper-played DAC samples no longer stall
 
 ## v1.0.44 (2026-09-26)
 

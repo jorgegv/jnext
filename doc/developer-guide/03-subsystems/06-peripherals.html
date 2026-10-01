@@ -1992,7 +1992,16 @@ the 7 MHz ULA pixel counter, zeroed 11 pixels before the active display — it i
 raw line start. jnext passed the raw 28 MHz offset, which put
 every <code>WAIT</code> four times too early and one row off (GH #181). <code>WAIT</code> also
 compares <code>hc &gt;= (hpos&lt;&lt;3)+12</code> in wrapping 9-bit arithmetic, so <code>hpos=63</code> yields
-4, not 516.</p>
+4, not 516. A threshold above the line's last <code>hc_ula</code> (455, or 447 on 48K and Pentagon
+timing) is never reached, so such a <code>WAIT</code> stalls until the next restart.</p>
+<p>Mode 11 restarts the program at <code>cvc</code> 0 / <code>hc_ula</code> 0 and nowhere else
+(<code>copper.vhd:80</code>); that is <code>c_min_vactive</code> lines into the raw frame, not its
+top. jnext also rewound it at the raw frame start, cutting every whole-frame
+program off <code>c_min_vactive</code> lines early: 64 at 50 Hz, 80 on Pentagon, 40 at
+60 Hz (GH #293). An NR 0x62 write that leaves the mode bits unchanged does
+nothing to the Copper: only a mode change resets its PC. A stopped Copper is
+not stepped, except to latch a pending mode write, so that a stop and a
+restart (<code>00</code> then <code>01</code>/<code>11</code>) is still seen as a mode change.</p>
 <h2 id="dma">DMA<a class="headerlink" href="#dma" title="Permanent link">&para;</a></h2>
 <p>A DMA controller copies blocks of bytes — memory to memory, or memory to and
 from an I/O port — without the CPU touching each one. On a Next this is how

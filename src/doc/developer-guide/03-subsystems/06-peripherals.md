@@ -37,7 +37,17 @@ the 7 MHz ULA pixel counter, zeroed 11 pixels before the active display — it i
 raw line start. jnext passed the raw 28 MHz offset, which put
 every `WAIT` four times too early and one row off (GH #181). `WAIT` also
 compares `hc >= (hpos<<3)+12` in wrapping 9-bit arithmetic, so `hpos=63` yields
-4, not 516.
+4, not 516. A threshold above the line's last `hc_ula` (455, or 447 on 48K and Pentagon
+timing) is never reached, so such a `WAIT` stalls until the next restart.
+
+Mode 11 restarts the program at `cvc` 0 / `hc_ula` 0 and nowhere else
+(`copper.vhd:80`); that is `c_min_vactive` lines into the raw frame, not its
+top. jnext also rewound it at the raw frame start, cutting every whole-frame
+program off `c_min_vactive` lines early: 64 at 50 Hz, 80 on Pentagon, 40 at
+60 Hz (GH #293). An NR 0x62 write that leaves the mode bits unchanged does
+nothing to the Copper: only a mode change resets its PC. A stopped Copper is
+not stepped, except to latch a pending mode write, so that a stop and a
+restart (`00` then `01`/`11`) is still seen as a mode change.
 
 ## DMA
 

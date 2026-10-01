@@ -37,9 +37,8 @@ That guard is load-bearing, and the reason is the debugger. When the debugger
 pauses, it does so by returning from inside the loop below, part-way through a
 frame; the next call to `run_frame()` must therefore **resume** that frame
 rather than start a fresh one. Calling `begin_new_frame()` in the middle of a
-frame would rewind the Copper's program counter, so its WAITs would never match
-again for the rest of that frame, and would re-baseline the per-scanline change
-logs the compositor replays. The visible symptom is a frame that renders flat.
+frame would re-baseline the per-scanline change logs the compositor replays.
+The visible symptom is a frame that renders flat.
 
 `begin_new_frame()` (`:6917`) does the following, in order:
 
@@ -60,7 +59,8 @@ logs the compositor replays. The visible symptom is a frame that renders flat.
 4. Schedule the **ULA frame interrupt** at
    `VideoTiming::frame_int_master_cycle_offset()`, and the **line interrupt**
    via `reschedule_line_interrupt()`.
-5. Begin an RZX playback or recording frame, and notify the Copper of vsync.
+5. Begin an RZX playback or recording frame. The Copper gets no frame-start
+   call: its mode-11 restart is at `cvc` 0, inside `Copper::execute()` (GH #293).
 6. Baseline about fifteen per-scanline change logs and snapshots: the palette,
    Layer 2 scroll and bank, sprite attributes, ULA scroll, palette-select,
    Timex mode and border, tilemap scroll and fetch state and NR 0x6B, the
