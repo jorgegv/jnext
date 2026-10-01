@@ -1072,7 +1072,11 @@ checks "unsupported" is said exactly for the clear bits, legacy 5/12 excepted).
 10. **`CMD_WRITE_MEM`'s "dropped byte is logged at debug level"** is a
     read-back: the bytes that do not read back as written are counted and
     logged at debug ("ROM, or a write-only overlay"), because `peek`/`poke`
-    report no per-byte fate (`DZRP-MEM-09`).
+    report no per-byte fate (`DZRP-MEM-09`). **Superseded by GH #281 F1
+    (2026-09-29):** `poke(Cpu)` now returns the bytes that landed, and the
+    adapter logs `n - value` "did not land" from that count; the read-back is
+    gone, and with it the false report of a Layer 2 write-over byte as dropped
+    (`DZRP-MEM-10`). The wire is unchanged.
 11. **Nothing was copied from `dezogif_ng`** (§ "Reuse, not rewrite"): its
     `test/dzrp/` clients drive a live remote over TCP, which this milestone's
     in-memory fake cannot host and which needs WP-5's `--dzrp-port`. What was

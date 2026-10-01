@@ -80,6 +80,7 @@ enum class OptId {
     MagicBreakpoint,
     PersistentBreakpoints,
     DzrpPort,
+    GdbPort,
     DebugListenAddress,
     EsxdosStub,
     EsxdosStubRoot,
@@ -641,6 +642,14 @@ inline constexpr Option OPTIONS[] = {
       "DeZog (remoteType \"cspect\" or \"dzrp\") or any DZRP\n"
       "client can drive the debugger. Off unless given; PORT 0\n"
       "binds an OS-chosen port and logs it. One client at a time." },
+    // GH #281 — the GDB Remote Serial Protocol server (gdb-rsp-frontend.md
+    // §6.4), for z88dk-gdb. The same port rule as --dzrp-port; the two may run
+    // at once, each on its own port with its own client.
+    { "--gdb-port", 1, Doc::Documented, OptId::GdbPort,
+      "PORT",
+      "Serve the GDB remote protocol (z88dk-gdb) on TCP PORT.\n"
+      "Off unless given; PORT 0 binds an OS-chosen port and logs\n"
+      "it. One client at a time." },
     // GH #287 — the bind address of the debugger protocol servers (DZRP #12,
     // ZRCP #280, GDB RSP #281), shared by all three and landed with their
     // common transport. Numeric only and loopback by default, on the same
@@ -649,14 +658,14 @@ inline constexpr Option OPTIONS[] = {
     // GH #12 (owner decision): REFUSED without a server port flag, as
     // --esp-listen-address is without --esp — an address for a server that is
     // off reads as "I configured where it listens" when nothing will. The help
-    // names only the port flags that exist; ZRCP and RSP add theirs.
+    // names only the port flags that exist; ZRCP adds its own.
     { "--debug-listen-address", 1, Doc::Documented, OptId::DebugListenAddress,
       "ADDR",
       "Bind address for the debugger protocol servers\n"
-      "(--dzrp-port), default 127.0.0.1. A numeric IP, never a\n"
-      "name. A non-loopback address exposes the debugger to the\n"
-      "network: none of its protocols has any authentication.\n"
-      "Refused unless a server port is given." },
+      "(--dzrp-port, --gdb-port), default 127.0.0.1. A numeric\n"
+      "IP, never a name. A non-loopback address exposes the\n"
+      "debugger to the network: none of its protocols has any\n"
+      "authentication. Refused unless a server port is given." },
     { "--magic-port", 1, Doc::Documented, OptId::MagicPort,
       "PORT",
       "Enable magic debug port at PORT (hex, e.g. 0x00FF)" },
