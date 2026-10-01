@@ -29,17 +29,17 @@ for the key to go to:
 The script's lines go to the log, which is standard error (or the file
 `--log-file` names), among JNEXT's own. A complete passing run of
 [`third100.jds`](01-your-first-script.md#3-make-a-check-that-can-fail), time
-stamps aside:
+stamps aside (and the home directory shown as `/home/user`):
 
 ```
 [emulator] [info] jnext 1.0.64
-[emulator] [info] sdcard: using default image /home/jorgegv/.jnext/sdcard/cspect-next-1gb-fixed.img
+[emulator] [info] sdcard: using default image /home/user/.jnext/sdcard/cspect-next-1gb-fixed.img
 [emulator] [info] Initializing emulator: machine_type=1[48K] cpu_speed=0[3.5 MHz] lines=312 tstates/line=224
 [emulator] [info] Machine ROM loaded from SD '/MACHINES/NEXT/48.rom' (16384 bytes -> 1 banks): 48K BASIC
-[emulator] [info] Machine type: 48K (ROMs from SD '/home/jorgegv/.jnext/sdcard/cspect-next-1gb-fixed.img')
+[emulator] [info] Machine type: 48K (ROMs from SD '/home/user/.jnext/sdcard/cspect-next-1gb-fixed.img')
 [emulator] [info] DivMMC enabled, ROM loaded from SD '/MACHINES/NEXT/enNxtmmc.rom' (8192 bytes)
 [emulator] [info] Multiface ROM loaded from SD '/MACHINES/NEXT/enNextMf.rom' (8192 bytes)
-[emulator] [info] SD card image mounted: '/home/jorgegv/.jnext/sdcard/cspect-next-1gb-fixed.img'
+[emulator] [info] SD card image mounted: '/home/user/.jnext/sdcard/cspect-next-1gb-fixed.img'
 [debugger] [info] ATTACH client 1 "script host" kind=4 observer
 [debugger] [info] ATTACH client 2 "script engine" kind=4
 [debugger] [info] SCRIPT loaded third100.jds: 2 rules [client 2]
