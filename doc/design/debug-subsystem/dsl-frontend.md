@@ -42,7 +42,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP5** | GUI — Script tab, **Alt+1..Alt+8** as the DSL host-key namespace in both windows. **Needs Q** — as built: Appendix K | **done** |
 | **WP6** | the recorder — **this is #20**, after its re-scope: recorder + `compare_scr` + INS-16 + the two parked DAPR rows — as built: Appendix L | **done** |
 | **WP7** | demos + the `script-*-func` rows — delivered together with WP10, as built: Appendix M | in review |
-| **WP8** | developer-guide pages | todo |
+| **WP8** | developer-guide pages — developer guide 3.12, `script-pipeline` figure, FEATURES.md (§9 WP8b; its man-page part was WP4/WP6) | in review |
 | **WP9** | **an exhaustive User Guide chapter for the DSL** (`src/doc/user-guide`, `docs-userguide-check`-gated) — the owner's words: the most powerful feature of jnext | todo |
 | **WP10** | **a demo program + script suite** under `demo/dsl_demo/` exercising every event kind and action, with ten `script-*-func` rows — the same deliverable as WP7, done as one package (Appendix M) | in review |
 
