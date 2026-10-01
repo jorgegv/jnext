@@ -2137,6 +2137,28 @@ static void host_round1_rows() {
 
 static void host_gui_rows() {
     {
+        // The Script tab's Event column: the filter as REGISTERED.
+        Rig g(kPark);
+        const std::string map = tmp_file("d.map", "SYM = $9100 ; const\n");
+        g.dbg->load_map(map, jnext::dbg::MapFormat::Simple);
+        const bool ok = g.load("on write 0x9000..0x9001 do log \"x\" end\n"
+                               "on write @SYM do log \"x\" end\n"
+                               "on execute page 4..5 do log \"x\" end\n"
+                               "on io_write 0xFE do log \"x\" end\n"
+                               "on frame 10 do log \"x\" end\n"
+                               "on copper move 0x43 at 1..3 do log \"x\" end\n"
+                               "on dma byte 0x4000..0x57FF do log \"x\" end\n"
+                               "on hostkey 3 do log \"x\" end\n");
+        std::string got;
+        for (const auto& r : g.eng->rules()) got += r.event + "|";
+        check("SCRIPT-HOST-DESCRIBE", "each rule's event is described with its filter as registered — a "
+                                      "range, a symbol resolved, a page range, a port, a frame, a Copper "
+                                      "register and PC range, a DMA range, a host key",
+              ok && got == "write 9000..9001|write 9100|execute page 4..5|io_write 00FE|frame 10|"
+                           "copper move 0043 at 1..3|dma byte 4000..57FF|hostkey 3|",
+              got);
+    }
+    {
         // status(): the FIRST exit, the stops a rule caused (not an `on stop`
         // rule's own `stop`, which only logs), the last stop's reason.
         HostRig g(kLoop);
@@ -2169,7 +2191,9 @@ static void host_gui_rows() {
         g.run(3);
         const auto lines = g.host->log_since(0);
         bool tagged = false, g1 = false, loaded = false, err = false;
+        int loaded_n = 0;
         for (const auto& l : lines) {
+            if (l.find("loaded at FRAME") != std::string::npos) ++loaded_n;
             if (l.find("[client") != std::string::npos || l.find("ATTACH") != std::string::npos) tagged = true;
             if (l.find("] G1") != std::string::npos) g1 = true;
             if (l.find("loaded at FRAME") != std::string::npos) loaded = true;
@@ -2179,7 +2203,7 @@ static void host_gui_rows() {
                                       "an error is refused and the first stays; the log carries the engine's "
                                       "lines without the backend's client tag, the load note and the error",
               started && !armed0 && r.ok() && !bad.ok() && g.host->files().size() == 1 && g.dbg->armed() &&
-                  g1 && loaded && err && !tagged,
+                  g1 && loaded && loaded_n == 1 && err && !tagged,
               "files=" + std::to_string(g.host->files().size()) + " lines=" + std::to_string(lines.size()));
     }
     {

@@ -46,6 +46,7 @@ public:
     /// The log as shown (rows).
     QStringList log_lines() const;
     QTableWidget* rule_table() const { return table_; }
+    jnext::script::ScriptHost* host() const { return host_; }
 
     QSize sizeHint() const override { return QSize(380, 400); }
 

@@ -2441,6 +2441,26 @@ struct ScriptFixture {
 static void test_script_panel() {
     set_group("QSCR");
     {
+        // QtApp's order: the host is handed to the manager BEFORE the window
+        // exists (it is built when the debugger is first opened).
+        Emulator emu;
+        build(emu, MachineType::ZX48K);
+        jnext::dbg::Debugger backend(emu);
+        jnext::script::ScriptHost host;
+        QMainWindow win;
+        auto* mgr = new DebuggerManager(&win, backend, &win);
+        mgr->set_script_host(&host);
+        const bool no_window_yet = mgr->debugger_window_ptr() == nullptr;
+        mgr->set_enabled(true);
+        QApplication::processEvents();
+        DebuggerWindow* w = mgr->debugger_window_ptr();
+        check("QSCR-08", "a script host handed to the manager before its window exists reaches the "
+                         "Script tab of the window it builds later",
+              no_window_yet && w && w->script_panel() && w->script_panel()->host() == &host, "");
+        mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+        delete w;
+    }
+    {
         // The tab and the menu, in the real window, on the manager's host.
         WindowFixture fx;
         jnext::script::ScriptHost host;
