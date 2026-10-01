@@ -1207,10 +1207,13 @@ static void memory_rows() {
         Log::debugger()->set_level(spdlog::level::debug);
         c.cmd(CMD_WRITE_MEM, bytes({0}) + u16s(0x3FFE) + bytes({~rom0 & 0xFF, ~rom1 & 0xFF, 0x5B, 0x6C}));
         c.cmd(CMD_WRITE_MEM, bytes({0}) + u16s(0x9300) + bytes({1, 2, 3}));
+        c.cmd(CMD_WRITE_MEM, bytes({0}) + u16s(0x3FFF) + bytes({~rom1 & 0xFF, 0x5C, 0x6D}));
         Log::debugger()->set_level(level);
         check("DZRP-MEM-09", "a write whose ROM bytes were dropped says, at debug level, how many "
-                             "did not read back (2 of 4); a write that landed whole says nothing",
-              log.count("CMD_WRITE_MEM at 0x3FFE: 2 of 4 bytes do not read back") == 1 &&
+                             "did not land (2 of 4, the backend's count); a write that landed "
+                             "whole says nothing",
+              log.count("CMD_WRITE_MEM at 0x3FFE: 2 of 4 bytes did not land") == 1 &&
+                  log.count("CMD_WRITE_MEM at 0x3FFF: 1 of 3 bytes did not land") == 1 &&
                   log.count("CMD_WRITE_MEM at 0x9300") == 0);
     }
     {
@@ -1228,6 +1231,30 @@ static void memory_rows() {
                              "and a refused_rzx warn line",
               r.len == 1 && rig.emu.mmu().peek(0x9200) == 0x12 &&
                   log.count("CMD_WRITE_MEM of 2 bytes at 0x9200 refused: refused_rzx") == 1);
+    }
+    {
+        // GH #281 F1 — a byte an OVERLAY takes has landed: Layer 2 write-over
+        // (port 0x123B bit 0, 0x0000-0x3FFF) puts it in the Layer 2 page while
+        // reads there still come from ROM. The read-back this adapter used to
+        // do counted it as not written; the backend's count does not.
+        Rig    rig(MachineType::ZXN_ISSUE2);
+        LogTap log;
+        Dz     c(rig);
+        c.init();
+        rig.emu.port().out(0x123B, 0x01);
+        const std::uint8_t  rom  = rig.emu.mmu().peek(0x0010);
+        const std::uint16_t page = static_cast<std::uint16_t>(rig.dbg->nextreg_peek(0x12) * 2);
+        const auto level = Log::debugger()->level();
+        Log::debugger()->set_level(spdlog::level::debug);
+        const Resp r = c.cmd(CMD_WRITE_MEM, bytes({0}) + u16s(0x0010) + bytes({rom ^ 0xFF}));
+        Log::debugger()->set_level(level);
+        std::uint8_t l2 = 0;
+        rig.dbg->peek(jnext::dbg::MemSpace::page(page), 0x0010, 1, &l2);
+        check("DZRP-MEM-10", "CMD_WRITE_MEM under Layer 2 write-over lands the byte in the Layer 2 "
+                             "page (the CPU view still reads ROM) and logs nothing: it landed",
+              r.len == 1 && l2 == static_cast<std::uint8_t>(rom ^ 0xFF) &&
+                  rig.emu.mmu().peek(0x0010) == rom && log.count("CMD_WRITE_MEM at 0x0010") == 0,
+              "l2=" + std::to_string(l2));
     }
 }
 

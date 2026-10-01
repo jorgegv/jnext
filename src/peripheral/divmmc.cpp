@@ -596,8 +596,8 @@ uint8_t DivMmc::read(uint16_t addr) const {
     }
 }
 
-void DivMmc::write(uint16_t addr, uint8_t val) {
-    if (addr >= 0x4000) return;  // outside DivMMC range
+bool DivMmc::write(uint16_t addr, uint8_t val) {
+    if (addr >= 0x4000) return false;  // outside DivMMC range
 
     bool page0 = (addr < 0x2000);
 
@@ -611,18 +611,19 @@ void DivMmc::write(uint16_t addr, uint8_t val) {
             // Since we model ROM as writable storage when conmem forces it:
             // Actually from VHDL: rdonly = '1' when page0 — slot 0 is ALWAYS
             // read-only regardless of conmem. Writes are simply discarded.
-            return;
+            return false;
         }
         // All other cases: slot 0 is read-only
-        return;
+        return false;
     }
 
     // Slot 1: writable unless mapram is set AND bank is 3
     if (mapram_ && bank_ == 3) {
-        return;  // read-only
+        return false;  // read-only
     }
 
     ram_data()[bank_ * kRamPageSize + (addr & 0x1FFF)] = val;
+    return true;
 }
 
 // GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the

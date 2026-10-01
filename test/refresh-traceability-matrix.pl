@@ -1088,6 +1088,10 @@ my %NO_MATRIX_SECTION = (
     # hardware each command reads or writes is traced in its own section, and
     # the backend facade it goes through in `debugger_backend_test`.
     'dzrp_adapter_test'         => 'DZRP remote-debugger adapter (GH #12; DeZog protocol spec, jnext-internal); the T80N core has no debugger',
+    # GH #281 — the GDB RSP adapter. Its oracle is the GDB remote protocol and
+    # the z88dk-gdb client's source, not the FPGA; the hardware each packet
+    # reads or writes is traced in its own section.
+    'gdb_rsp_test'              => 'GDB RSP remote-debugger adapter (GH #281; GDB remote protocol + z88dk-gdb, jnext-internal); the T80N core has no debugger',
     # GH #26 WP1 — the debugger scripting language's front end (lexer, parser,
     # load-time checks) and its expression library. The FPGA core has no
     # debugger and no script language; the authority is dsl-frontend.md §2.
