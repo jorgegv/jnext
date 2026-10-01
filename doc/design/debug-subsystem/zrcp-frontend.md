@@ -71,9 +71,9 @@ whole, so `done` here means the sub-item is approved, not merged.
 
 | WP | Branch `gh280-zrcp` (issue #280) | Status |
 |---|---|---|
-| **WP-1** | session skeleton over the shared transport (T) | in review |
-| **WP-2** | formatters | in review |
-| **WP-3** | control / run | in review |
+| **WP-1** | session skeleton over the shared transport (T) | **done** |
+| **WP-2** | formatters | **done** |
+| **WP-3** | control / run | **done** |
 | **WP-4** | breakpoints + conditions — **needs S's WP1**, the DSL's `compile_expr` exported as a library. §11 item 8: whether that library covers ZRCP's honoured condition subset without a fallback parser is measured here | todo |
 | **WP-5** | history / coverage / load | todo |
 | **WP-6** | fixtures + docs | todo |
