@@ -1641,8 +1641,10 @@ Try it by hand with `telnet localhost PORT` and `help`.
   `disassemble`, `get-memory-pages`, `get-tstates`, the `tbblue-*` registers,
   sprites, patterns, palettes and clip windows) and control (`enter-cpu-step`,
   `cpu-step`, `cpu-step-over`, `run`, `run` *n*, `hard-reset-cpu`,
-  `reset-cpu`, `generate-nmi`). `help` *command* describes each one, and
-  every place jnext answers differently from ZEsarUX.
+  `reset-cpu`, `generate-nmi`). `help` *command* describes each one, with
+  the divergences from ZEsarUX that a client can see in its replies. Numbers
+  are decimal or hexadecimal with an `H` suffix (`8000H`); a malformed or
+  out-of-range value is refused rather than read as something else.
 - **`run` stops on any data sent**: while it runs, any line the client sends
   stops the machine and is discarded, not executed.
 - **`hard-reset-cpu` is a cold boot** of the whole machine, complete before

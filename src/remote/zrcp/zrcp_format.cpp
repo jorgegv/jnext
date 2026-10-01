@@ -23,8 +23,26 @@ std::uint16_t mmu_value(const jnext::dbg::SlotInfo& slot, int index) {
                                       (static_cast<unsigned>(index) & 1u));
 }
 
+/// 16 K segment `seg` (0..3) of a legacy machine as ZEsarUX's mem128.c records
+/// it: ROM image or RAM bank, from the segment's first 8 K slot.
+static std::uint16_t legacy_segment(const std::array<jnext::dbg::SlotInfo, 8>& slots, int seg) {
+    const auto& s = slots[static_cast<std::size_t>(seg * 2)];
+    const unsigned v = static_cast<unsigned>(s.effective_page) >> 1;
+    return static_cast<std::uint16_t>(s.is_rom ? 0x8000u + v : v);
+}
+
+std::string mmu_field_legacy(const std::array<jnext::dbg::SlotInfo, 8>& slots) {
+    char buf[8];
+    std::string out;
+    for (int seg = 0; seg < 4; ++seg) {
+        std::snprintf(buf, sizeof(buf), "%04x", legacy_segment(slots, seg));
+        out += buf;
+    }
+    return out + "0000000000000000";
+}
+
 std::string register_line(const Z80Registers& r,
-                          const std::array<jnext::dbg::SlotInfo, 8>& slots) {
+                          const std::array<jnext::dbg::SlotInfo, 8>& slots, MachineType type) {
     // ZEsarUX's print_registers() format string (debug.c), field for field.
     char buf[320];
     std::snprintf(buf, sizeof(buf),
@@ -36,6 +54,7 @@ std::string register_line(const Z80Registers& r,
                   flags_string(static_cast<std::uint8_t>(r.AF2 & 0xFF)).c_str(), r.MEMPTR,
                   static_cast<unsigned>(r.IM), r.IFF1 ? '1' : '-', r.IFF2 ? '2' : '-');
     std::string out = buf;
+    if (type != MachineType::ZXN_ISSUE2) return out + mmu_field_legacy(slots);
     for (int i = 0; i < 8; ++i) {
         std::snprintf(buf, sizeof(buf), "%04x", mmu_value(slots[static_cast<std::size_t>(i)], i));
         out += buf;
@@ -91,9 +110,40 @@ std::uint32_t crc32_ieee(const std::uint8_t* bytes, std::size_t n) {
     return crc ^ 0xFFFFFFFFu;
 }
 
-std::string memory_pages(const std::array<jnext::dbg::SlotInfo, 8>& slots, bool verbose) {
+std::string memory_pages(const std::array<jnext::dbg::SlotInfo, 8>& slots, bool verbose,
+                         MachineType type) {
     std::string out;
     char        buf[160];
+    if (type != MachineType::ZXN_ISSUE2) {
+        // ZEsarUX's 48K default is two fixed segments; 128K / +3 are four 16 K
+        // ones named from mem128.c's map (debug.c, the RO%X / RA%X branch).
+        struct Seg { std::string shortname, longname; unsigned start, end; };
+        std::vector<Seg> segs;
+        if (type == MachineType::ZX48K) {
+            segs.push_back({"ROM", "System ROM", 0x0000, 0x3FFF});
+            segs.push_back({"RAM", "System RAM", 0x4000, 0xFFFF});
+        } else {
+            for (int seg = 0; seg < 4; ++seg) {
+                const std::uint16_t v = legacy_segment(slots, seg);
+                char sn[16], ln[32];
+                std::snprintf(sn, sizeof(sn), (v & 0x8000) ? "RO%X" : "RA%X", v & 0x7FFFu);
+                std::snprintf(ln, sizeof(ln), (v & 0x8000) ? "ROM %X" : "RAM %X", v & 0x7FFFu);
+                segs.push_back({sn, ln, seg * 0x4000u, seg * 0x4000u + 0x3FFF});
+            }
+        }
+        for (std::size_t i = 0; i < segs.size(); ++i) {
+            if (!verbose) {
+                out += segs[i].shortname + " ";
+                continue;
+            }
+            std::snprintf(buf, sizeof(buf),
+                          "Segment %d\nLong name: %s\nShort name: %s\nStart: %XH\nEnd: %XH\n\n",
+                          static_cast<int>(i) + 1, segs[i].longname.c_str(),
+                          segs[i].shortname.c_str(), segs[i].start, segs[i].end);
+            out += buf;
+        }
+        return out;
+    }
     for (int i = 0; i < 8; ++i) {
         const auto& s = slots[static_cast<std::size_t>(i)];
         const std::string shortname =

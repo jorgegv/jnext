@@ -4431,6 +4431,33 @@ int main() {
                       std::to_string(static_cast<int>(after.kind)));
         }
 
+        // REQ-zrcp-05, the third arm: a LEGACY `BreakpointSet` watchpoint (the
+        // Qt panels' model until package Q) hit by the stepped instruction is
+        // the step's reason too, with its address; the next step is Step again.
+        {
+            Emulator emu3;
+            build_armed(emu3, {0x3E, 0x07, 0x32, 0x00, 0x90, 0x00, 0x00});
+            Debugger   dbg3(emu3);
+            const auto a = dbg3.attach(client("A")).value;
+            emu3.debug_state().breakpoints().add_watchpoint(0x9000, WatchType::WRITE);
+            dbg3.pause(a);
+            dbg3.step_into(a);                  // LD A,7: nothing watched
+            const auto plain = dbg3.state().pause_reason;
+            dbg3.step_into(a);                  // LD (9000),A: the legacy watch
+            const auto hit = dbg3.state().pause_reason;
+            dbg3.step_into(a);                  // NOP
+            const auto after = dbg3.state().pause_reason;
+            check("CTL-03-06", "REQ-zrcp-05: a step whose instruction hits a legacy write "
+                               "watchpoint reports Watch at 0x9000 (write); the steps around "
+                               "it report Step",
+                  plain.kind == PauseReason::Kind::Step &&
+                      hit.kind == PauseReason::Kind::Watch && hit.addr == 0x9000 &&
+                      jnext::dbg::has_write(hit.access) &&
+                      after.kind == PauseReason::Kind::Step && pc_of(emu3) == PROG + 6,
+                  "hit kind=" + std::to_string(static_cast<int>(hit.kind)) + " addr=" +
+                      hex(hit.addr) + " after=" + std::to_string(static_cast<int>(after.kind)));
+        }
+
         // Now at the CALL: step_over must not enter SUB.
         check("CTL-04-01", "step_over() at a CALL is accepted",
               dbg.step_over(1) == Result::Ok);

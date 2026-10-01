@@ -37,11 +37,22 @@ std::string flags_string(std::uint8_t f);
 /// sentinel and never ZEsarUX 12.0's own `0000` for a ROM slot.
 std::uint16_t mmu_value(const jnext::dbg::SlotInfo& slot, int index);
 
+/// The `MMU=` field on a NON-Next machine (48K, 128K, +3): ZEsarUX's legacy
+/// projection (`mem128.c`, `debug_paginas_memoria_mapeadas[0..3]`) — four 16 K
+/// segments, a ROM segment `0x8000 + image` (`DEBUG_PAGINA_MAP_ES_ROM + rom`), a
+/// RAM segment its 16 K bank — then four `0000`s for the slots ZEsarUX leaves
+/// unset there. DeZog's 128K decoder reads exactly the first four, as 16 K slots
+/// (`decodezesaruxdata.ts`: `>= 0x8000` -> ROM `8 + (v & 1)`, else the bank). A
+/// segment's value is read from its first 8 K slot.
+std::string mmu_field_legacy(const std::array<jnext::dbg::SlotInfo, 8>& slots);
+
 /// `get-registers` / `set-register`: the register line, byte for byte as §1.4:
 /// lower-case hex, `HL` before `DE`, two spaces before `F=`, `IM%d`, `IFF%c%c`,
-/// `VPS: 0`, eight `MMU=` values with no separator. No trailing newline.
+/// `VPS: 0`, eight `MMU=` values with no separator — the Next's 8 x 8 K slots
+/// (`mmu_value`) on the Next, `mmu_field_legacy` on every other machine. No
+/// trailing newline.
 std::string register_line(const Z80Registers& r,
-                          const std::array<jnext::dbg::SlotInfo, 8>& slots);
+                          const std::array<jnext::dbg::SlotInfo, 8>& slots, MachineType type);
 
 /// A disassembly mnemonic in ZEsarUX's spelling: jnext's `$XXXX` operands lose
 /// their `$` (`JR $0136` -> `JR 0136`), and nothing else changes.
@@ -60,9 +71,13 @@ std::string hexdump(std::uint16_t addr, const std::uint8_t* bytes, std::size_t n
 /// `util_crc32_calculation` computes for `get-crc32`.
 std::uint32_t crc32_ieee(const std::uint8_t* bytes, std::size_t n);
 
-/// `get-memory-pages`: `RO` for a ROM slot, `A<page>` for RAM, each followed by
-/// one space. `verbose`: one `Segment` block per slot (§1.4, [T3]).
-std::string memory_pages(const std::array<jnext::dbg::SlotInfo, 8>& slots, bool verbose);
+/// `get-memory-pages`, as ZEsarUX's `debug_get_memory_pages_extended()` spells
+/// each machine: on the Next `RO` for a ROM slot and `A<page>` for RAM, eight
+/// 8 K segments ([T1]); on 128K / +3 four 16 K segments `RO<rom>` / `RA<bank>`
+/// (`%X`); on 48K two, `ROM` and `RAM`. Each followed by one space. `verbose`:
+/// one `Segment` block per segment ([T3]).
+std::string memory_pages(const std::array<jnext::dbg::SlotInfo, 8>& slots, bool verbose,
+                         MachineType type);
 
 /// `get-current-machine`: the name DeZog keys its memory model on (§2.1).
 std::string machine_name(MachineType type);

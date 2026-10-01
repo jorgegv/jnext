@@ -112,6 +112,26 @@ bool is_jp_like(std::uint8_t op, std::uint8_t op2) {
     }
 }
 
+/// A CPU address: a ZEsarUX number that fits 16 bits. ZEsarUX reads
+/// `70000` as 1170H; jnext refuses it (§11.3 item 9).
+bool parse_addr(const std::string& tok, std::uint32_t& out) {
+    return parse_number(tok, out) && out <= 0xFFFF;
+}
+
+/// The widest value `set-register` accepts for `id`: 16-bit pairs, IM 0..2,
+/// the interrupt flip-flops 0/1, and a byte for everything else.
+std::uint32_t register_max(RegId id) {
+    switch (id) {
+        case RegId::AF: case RegId::BC: case RegId::DE: case RegId::HL:
+        case RegId::AF2: case RegId::BC2: case RegId::DE2: case RegId::HL2:
+        case RegId::IX: case RegId::IY: case RegId::SP: case RegId::PC:
+            return 0xFFFF;
+        case RegId::IM:   return 2;
+        case RegId::IFF1: case RegId::IFF2: return 1;
+        default:          return 0xFF;
+    }
+}
+
 bool palette_id(const std::string& name, const std::string& which, jnext::dbg::PaletteId& out) {
     using jnext::dbg::PaletteId;
     bool second;
@@ -230,8 +250,9 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
     U("get-io-ports", nullptr),
     U("get-machines", nullptr),
     {"get-memory-pages", "|gmp", "[verbose]",
-     "Returns current state of memory pages: RO for a ROM slot, A<page> for a RAM slot (the 8K "
-     "page). verbose gives a description of every page",
+     "Returns current state of memory pages: on the Next RO for a ROM slot, A<page> for a RAM "
+     "slot (the 8K page); on the 128K and +3 the four 16K segments RO<rom> / RA<bank>; on the "
+     "48K ROM and RAM. verbose gives a description of every page",
      CommandClass::Served, &ZrcpServer::cmd_get_memory_pages},
     U("get-memory-zones", "|gmz"),
     U("get-ocr", nullptr),
@@ -239,10 +260,12 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
      &ZrcpServer::cmd_get_os},
     U("get-paging-state", nullptr),
     {"get-registers", "|gr", nullptr,
-     "Get CPU registers. VPS is always 0 (it is ZEsarUX's video pause state). MMU is the eight "
-     "slots: a RAM slot is its 8K page; a ROM slot is 8000H+k in DeZog's two-ROM model (ROM 0 "
-     "and 2 read as ROM0, ROM 1 and 3 as ROM1: jnext has four ROMs, DeZog's model two), never "
-     "ZEsarUX 12.0's 0000",
+     "Get CPU registers. VPS is always 0 (it is ZEsarUX's video pause state). On the Next, MMU "
+     "is the eight slots: a RAM slot is its 8K page; a ROM slot is 8000H+k in DeZog's two-ROM "
+     "model (ROM 0 and 2 read as ROM0, ROM 1 and 3 as ROM1: jnext has four ROMs, DeZog's model "
+     "two), never ZEsarUX 12.0's 0000. On the 48K, 128K and +3 it is ZEsarUX's own legacy form: "
+     "four 16K segments (8000H+ROM, or the RAM bank), then four 0000. Numbers in every command "
+     "are decimal or hexadecimal with an H suffix; an address must fit 16 bits",
      CommandClass::Served, &ZrcpServer::cmd_get_registers},
     U("get-snapshot", nullptr),
     {"get-stack-backtrace", nullptr, "[items]",
@@ -716,7 +739,8 @@ std::string ZrcpServer::stop_reply(const std::string& fired) const {
     std::string out;
     if (!fired.empty()) out += "Breakpoint fired: " + fired + "\n";
     const Z80Registers r = dbg_.registers();
-    out += register_line(r, dbg_.mmu_slots()) + " TSTATES: " + tstates_text() + "\n";
+    out += register_line(r, dbg_.mmu_slots(), dbg_.machine().type) + " TSTATES: " +
+           tstates_text() + "\n";
     const auto d = dbg_.disassemble(r.PC, 1, nullptr);
     out += disasm_line(r.PC, d.empty() ? std::string("?") : std::string(d[0].mnemonic));
     return out;
@@ -886,7 +910,7 @@ std::vector<std::uint8_t> ZrcpServer::read_cpu(std::uint32_t addr, std::size_t n
 }
 
 void ZrcpServer::cmd_get_registers(const Cmd&) {
-    reply(register_line(dbg_.registers(), dbg_.mmu_slots()));
+    reply(register_line(dbg_.registers(), dbg_.mmu_slots(), dbg_.machine().type));
 }
 
 void ZrcpServer::cmd_set_register(const Cmd& c) {
@@ -896,23 +920,22 @@ void ZrcpServer::cmd_set_register(const Cmd& c) {
     RegId             id;
     std::uint32_t     v = 0;
     if (eq == std::string::npos || !register_id(c.params.substr(0, eq), id) ||
-        !parse_number(c.params.substr(eq + 1), v) || (id == RegId::IM && v > 2)) {
+        !parse_number(c.params.substr(eq + 1), v) || v > register_max(id)) {
         reply("Error changing register");
         return;
     }
-    if (id == RegId::IFF1 || id == RegId::IFF2) v = v != 0;
-    if (dbg_.set_register(cid_, id, static_cast<std::uint16_t>(v & 0xFFFF)) != Result::Ok) {
+    if (dbg_.set_register(cid_, id, static_cast<std::uint16_t>(v)) != Result::Ok) {
         reply("Error changing register");
         return;
     }
-    reply(register_line(dbg_.registers(), dbg_.mmu_slots()));
+    reply(register_line(dbg_.registers(), dbg_.mmu_slots(), dbg_.machine().type));
 }
 
 void ZrcpServer::cmd_read_memory(const Cmd& c) {
     std::uint32_t addr = 0, len = 0x10000;
     if (!c.args.empty()) {
-        if (!parse_number(c.args[0], addr)) {
-            reply("Error. Invalid number: " + c.args[0]);
+        if (!parse_addr(c.args[0], addr)) {
+            reply("Error. Invalid address: " + c.args[0]);
             return;
         }
         len = 1;
@@ -952,8 +975,8 @@ void ZrcpServer::cmd_write_memory(const Cmd& c) {
         reply("ERROR. No parameters set");
         return;
     }
-    if (!parse_number(c.args[0], addr)) {
-        reply("Error. Invalid number: " + c.args[0]);
+    if (!parse_addr(c.args[0], addr)) {
+        reply("Error. Invalid address: " + c.args[0]);
         return;
     }
     std::vector<std::uint8_t> bytes;
@@ -982,8 +1005,8 @@ void ZrcpServer::cmd_write_memory_raw(const Cmd& c) {
         reply("ERROR. No parameters set");
         return;
     }
-    if (!parse_number(c.args[0], addr)) {
-        reply("Error. Invalid number: " + c.args[0]);
+    if (!parse_addr(c.args[0], addr)) {
+        reply("Error. Invalid address: " + c.args[0]);
         return;
     }
     const std::string hex = c.args.size() > 1 ? c.args[1] : std::string();
@@ -1021,8 +1044,8 @@ void ZrcpServer::cmd_hexdump(const Cmd& c) {
         reply("ERROR. Needs two parameters");
         return;
     }
-    if (!parse_number(c.args[0], addr) || !parse_number(c.args[1], len)) {
-        reply("Error. Invalid number");
+    if (!parse_addr(c.args[0], addr) || !parse_number(c.args[1], len)) {
+        reply("Error. Invalid address or length");
         return;
     }
     if (len > kMaxMemLen) {
@@ -1039,8 +1062,8 @@ void ZrcpServer::cmd_get_crc32(const Cmd& c) {
         reply("ERROR. Needs two parameters");
         return;
     }
-    if (!parse_number(c.args[0], addr) || !parse_number(c.args[1], len)) {
-        reply("Error. Invalid number");
+    if (!parse_addr(c.args[0], addr) || !parse_number(c.args[1], len)) {
+        reply("Error. Invalid address or length");
         return;
     }
     if (len < 1) {
@@ -1059,8 +1082,8 @@ void ZrcpServer::cmd_get_crc32(const Cmd& c) {
 
 void ZrcpServer::cmd_disassemble(const Cmd& c) {
     std::uint32_t addr = dbg_.registers().PC, lines = 1;
-    if (!c.args.empty() && !parse_number(c.args[0], addr)) {
-        reply("Error. Invalid number: " + c.args[0]);
+    if (!c.args.empty() && !parse_addr(c.args[0], addr)) {
+        reply("Error. Invalid address: " + c.args[0]);
         return;
     }
     if (c.args.size() > 1 && !parse_number(c.args[1], lines)) {
@@ -1084,7 +1107,8 @@ void ZrcpServer::cmd_disassemble(const Cmd& c) {
 }
 
 void ZrcpServer::cmd_get_memory_pages(const Cmd& c) {
-    reply(memory_pages(dbg_.mmu_slots(), !c.args.empty() && c.args[0] == "verbose"));
+    reply(memory_pages(dbg_.mmu_slots(), !c.args.empty() && c.args[0] == "verbose",
+                       dbg_.machine().type));
 }
 
 void ZrcpServer::cmd_get_stack_backtrace(const Cmd& c) {

@@ -622,7 +622,7 @@ static void format_rows() {
     r.PC = 0x0136; r.SP = 0xFFDD; r.AF = 0x03BE; r.BC = 0x4F9D; r.HL = 0x03DA; r.DE = 0x0000;
     r.IX = 0xFFFF; r.IY = 0x16A0; r.AF2 = 0xFFFF; r.BC2 = 0xFFFF; r.HL2 = 0xFFFF;
     r.DE2 = 0xFFFF; r.I = 0x00; r.R = 0x59; r.MEMPTR = 0x0136; r.IM = 1; r.IFF1 = 0; r.IFF2 = 0;
-    const std::string line = register_line(r, next_slots(3));
+    const std::string line = register_line(r, next_slots(3), MachineType::ZXN_ISSUE2);
     check("ZRCP-FMT-01", "the register line is [T1]'s byte for byte — lower-case hex, HL before "
                          "DE, two spaces before F=, IM1, IFF--, VPS: 0 — except the two ROM "
                          "slots, 8002 8003 where ZEsarUX 12.0 prints 0000 (§2.3.1)",
@@ -635,8 +635,8 @@ static void format_rows() {
     Z80Registers v{};
     v.PC = 0x1234; v.SP = 0x5678; v.AF = 0x9ABC; v.BC = 0xDEF0; v.DE = 0x1357; v.HL = 0x2468;
     v.IX = 0xA1B2; v.IY = 0xC3D4; v.AF2 = 0xE5F6; v.BC2 = 0x0718; v.DE2 = 0x293A;
-    v.HL2 = 0x4B5C; v.I = 0x6D; v.R = 0x7E; v.IM = 2; v.IFF1 = 1; v.IFF2 = 1;
-    const std::string vl = register_line(v, next_slots(0));
+    v.HL2 = 0x4B5C; v.I = 0x6D; v.R = 0x7E; v.IM = 2; v.IFF1 = 1; v.IFF2 = 1; v.MEMPTR = 0x8F9E;
+    const std::string vl = register_line(v, next_slots(0), MachineType::ZXN_ISSUE2);
     const bool widths =
         dezog_field(vl, "PC=", 4) == 0x1234 && dezog_field(vl, "SP=", 4) == 0x5678 &&
         dezog_field(vl, "AF=", 4) == 0x9ABC && dezog_field(vl, "BC=", 4) == 0xDEF0 &&
@@ -645,16 +645,17 @@ static void format_rows() {
         dezog_field(vl, "AF'=", 4) == 0xE5F6 && dezog_field(vl, "BC'=", 4) == 0x0718 &&
         dezog_field(vl, "HL'=", 4) == 0x4B5C && dezog_field(vl, "DE'=", 4) == 0x293A &&
         dezog_field(vl, "I=", 2) == 0x6D && dezog_field(vl, "R=", 2) == 0x7E &&
-        vl.find(" IM2 ") != std::string::npos && vl.find(" IFF12 ") != std::string::npos;
+        vl.find(" IM2 ") != std::string::npos && vl.find(" IFF12 ") != std::string::npos &&
+        vl.find(" MEMPTR=8f9e ") != std::string::npos;
     check("ZRCP-FMT-02", "every field DeZog reads is at its label + the fixed width "
                          "(decodezesaruxdata.ts: 4 hex for 16-bit, 2 for I/R, IM + one digit), "
-                         "with distinct values so a swapped field shows",
+                         "with distinct values so a swapped field shows; MEMPTR is its own",
               widths, esc(vl));
 
     // The MMU= projection DeZog decodes (value >= 0x8000 -> ROM 0xFC + (v & 3)).
-    const std::string m0 = register_line(v, next_slots(0));
-    const std::string m1 = register_line(v, next_slots(1));
-    const std::string m2 = register_line(v, next_slots(2));
+    const std::string m0 = register_line(v, next_slots(0), MachineType::ZXN_ISSUE2);
+    const std::string m1 = register_line(v, next_slots(1), MachineType::ZXN_ISSUE2);
+    const std::string m2 = register_line(v, next_slots(2), MachineType::ZXN_ISSUE2);
     check("ZRCP-FMT-03", "MMU=: ROM 0 and 2 -> 8000 8001 (DeZog ROM0), ROM 1 and 3 -> 8002 "
                          "8003 (ROM1); a RAM slot is its 8K page; never the 00ff sentinel",
               ends_with(m0, "MMU=80008001000a000b0004000500000001") &&
@@ -692,8 +693,8 @@ static void format_rows() {
     check("ZRCP-FMT-07", "get-crc32's CRC-32 of [T1]'s first 16 ROM bytes is [T1]'s cc66e252",
               crc32_ieee(rom, 16) == 0xCC66E252u);
 
-    const std::string pages = memory_pages(next_slots(0), false);
-    const std::string verb  = memory_pages(next_slots(0), true);
+    const std::string pages = memory_pages(next_slots(0), false, MachineType::ZXN_ISSUE2);
+    const std::string verb  = memory_pages(next_slots(0), true, MachineType::ZXN_ISSUE2);
     check("ZRCP-FMT-08", "get-memory-pages is [T1]'s \"RO RO A10 A11 A4 A5 A0 A1 \"; verbose is "
                          "[T3]'s Segment blocks",
               pages == "RO RO A10 A11 A4 A5 A0 A1 " &&
@@ -761,18 +762,19 @@ static void register_rows() {
         Rig rig;
         Zc  c(rig);
         const std::string gr   = c.cmd("get-registers");
-        const std::string want = register_line(rig.dbg->registers(), rig.dbg->mmu_slots());
-        check("ZRCP-REG-01", "get-registers is the live register line — PC=8000 on the rig, the "
-                             "48K ROM's two slots 8000 8001, RAM pages 10 11 4 5 0 1",
+        const std::string want = register_line(rig.dbg->registers(), rig.dbg->mmu_slots(), rig.dbg->machine().type);
+        check("ZRCP-REG-01", "get-registers is the live register line — PC=8000 on the rig, and "
+                             "on the 48K machine ZEsarUX's legacy MMU=: ROM 0, banks 5 2 0, then "
+                             "four 0000",
               gr == reply_of(want) && starts_with(gr, "PC=8000 SP=ff00 ") &&
-                  gr.find("MMU=80008001000a000b0004000500000001") != std::string::npos,
+                  gr.find("MMU=80000005000200000000000000000000\n") != std::string::npos,
               esc(gr));
 
         const std::string pc = c.cmd("set-register PC=9000H");
         check("ZRCP-REG-02", "set-register PC=9000H answers the register line with PC=9000 and "
                              "the machine's PC is 0x9000",
               starts_with(pc, "PC=9000 ") && rig.pc() == 0x9000 &&
-                  pc == reply_of(register_line(rig.dbg->registers(), rig.dbg->mmu_slots())),
+                  pc == reply_of(register_line(rig.dbg->registers(), rig.dbg->mmu_slots(), rig.dbg->machine().type)),
               esc(pc));
 
         Z80Registers r = rig.emu.cpu().get_registers();
@@ -847,7 +849,7 @@ static void memory_rows() {
           all.size() == 131072 + std::string("\ncommand> ").size() &&
               starts_with(all, hex_of(peek(rig, 0, 4))) && zero == all &&
               big == "Error. Length too large (max 1048576)\ncommand> " &&
-              bad == "Error. Invalid number: 0x10\ncommand> ",
+              bad == "Error. Invalid address: 0x10\ncommand> ",
           esc(big) + " / " + esc(bad));
 
     const std::string wm    = c.cmd("write-memory 32768 65 66 67");
@@ -926,10 +928,10 @@ static void pages_stack_time_rows() {
         Zc  c(rig);
         const std::string gmp = c.cmd("get-memory-pages");
         const std::string v   = c.cmd("gmp verbose");
-        check("ZRCP-PG-01", "get-memory-pages on the 48K machine: \"RO RO A10 A11 A4 A5 A0 A1 \"; "
-                             "verbose is the segment list",
-              gmp == "RO RO A10 A11 A4 A5 A0 A1 \ncommand> " &&
-                  v == reply_of(memory_pages(rig.dbg->mmu_slots(), true)),
+        check("ZRCP-PG-01", "get-memory-pages on the 48K machine is ZEsarUX's two fixed "
+                             "segments \"ROM RAM \"; verbose is the segment list",
+              gmp == "ROM RAM \ncommand> " &&
+                  v == reply_of(memory_pages(rig.dbg->mmu_slots(), true, rig.dbg->machine().type)),
               esc(gmp));
     }
     {
@@ -1968,6 +1970,380 @@ static void coexist_rows() {
     }
 }
 
+// ===========================================================================
+// Review round 1 — the legacy MMU= projection, the session reset, the
+// cpu-step-over plain-step set, the tbblue name mappings, and the edges
+// ===========================================================================
+
+/// Eight slots of a legacy machine: ROM image `rom` at 0000, banks 5 and 2,
+/// bank `top` at C000 — as jnext's MMU maps 16 K banks onto 8 K pages.
+static std::array<jnext::dbg::SlotInfo, 8> legacy_slots(int rom, int top) {
+    std::array<jnext::dbg::SlotInfo, 8> s{};
+    const int banks[3] = {5, 2, top};
+    for (int i = 0; i < 2; ++i) {
+        s[static_cast<std::size_t>(i)].is_rom         = true;
+        s[static_cast<std::size_t>(i)].effective_page = static_cast<std::uint8_t>(rom * 2 + i);
+    }
+    for (int b = 0; b < 3; ++b)
+        for (int h = 0; h < 2; ++h) {
+            auto& x          = s[static_cast<std::size_t>(2 + b * 2 + h)];
+            x.nr_page        = static_cast<std::uint8_t>(banks[b] * 2 + h);
+            x.effective_page = x.nr_page;
+        }
+    return s;
+}
+
+/// DeZog 3.7.4's 128K decoder (`DecodeZesaruxRegistersZx128k.parseSlots`):
+/// the first four 4-digit fields of MMU=, a value >= 0x8000 is ROM 8 + (v & 1).
+static std::vector<int> dezog_128k(const std::string& line) {
+    std::vector<int> out;
+    const std::size_t at = line.find("MMU=");
+    if (at == std::string::npos) return out;
+    for (int i = 0; i < 4; ++i) {
+        const int v = std::stoi(line.substr(at + 4 + 4 * static_cast<std::size_t>(i), 4), nullptr, 16);
+        out.push_back(v >= 0x8000 ? 8 + (v & 1) : v);
+    }
+    return out;
+}
+
+static void legacy_rows() {
+    {
+        Z80Registers r{};
+        const std::string l128 = register_line(r, legacy_slots(0, 0), MachineType::ZX128K);
+        const std::string l128r1 = register_line(r, legacy_slots(1, 3), MachineType::ZX128K);
+        const std::string l48 = register_line(r, legacy_slots(0, 0), MachineType::ZX48K);
+        auto all_ram = legacy_slots(0, 3);
+        const int cfg[4] = {4, 7, 6, 3};
+        for (int i = 0; i < 8; ++i) {
+            all_ram[static_cast<std::size_t>(i)].is_rom = false;
+            all_ram[static_cast<std::size_t>(i)].effective_page =
+                static_cast<std::uint8_t>(cfg[i / 2] * 2 + (i & 1));
+        }
+        const std::string lp3 = register_line(r, all_ram, MachineType::ZX_PLUS3);
+        const std::string lp3r = register_line(r, legacy_slots(3, 0), MachineType::ZX_PLUS3);
+        check("ZRCP-FMT-11", "MMU= on the 48K / 128K / +3 is ZEsarUX's legacy form (mem128.c): "
+                             "four 16K segments, ROM = 8000H+image, RAM = its bank, then four "
+                             "0000 — and DeZog's 128K decoder reads [ROM0,5,2,0] and [ROM1,5,2,3] "
+                             "from it",
+              ends_with(l128, "MMU=80000005000200000000000000000000") &&
+                  ends_with(l128r1, "MMU=80010005000200030000000000000000") &&
+                  dezog_128k(l128) == std::vector<int>({8, 5, 2, 0}) &&
+                  dezog_128k(l128r1) == std::vector<int>({9, 5, 2, 3}) &&
+                  ends_with(l48, "MMU=80000005000200000000000000000000") &&
+                  ends_with(lp3, "MMU=00040007000600030000000000000000") &&
+                  ends_with(lp3r, "MMU=80030005000200000000000000000000"),
+              esc(l128) + " / " + esc(lp3));
+
+        const std::string p128  = memory_pages(legacy_slots(1, 7), false, MachineType::ZX128K);
+        const std::string pp3   = memory_pages(all_ram, false, MachineType::ZX_PLUS3);
+        const std::string p48   = memory_pages(legacy_slots(0, 0), false, MachineType::ZX48K);
+        const std::string v128  = memory_pages(legacy_slots(0, 0), true, MachineType::ZX128K);
+        const std::string v48   = memory_pages(legacy_slots(0, 0), true, MachineType::ZX48K);
+        check("ZRCP-FMT-12", "get-memory-pages on the legacy machines is ZEsarUX's: 128K/+3 four "
+                             "16K segments RO<rom> RA<bank> (%X), 48K the two fixed segments ROM "
+                             "RAM; verbose spells each segment's span",
+              p128 == "RO1 RA5 RA2 RA7 " && pp3 == "RA4 RA7 RA6 RA3 " && p48 == "ROM RAM " &&
+                  starts_with(v128, "Segment 1\nLong name: ROM 0\nShort name: RO0\nStart: 0H\n"
+                                    "End: 3FFFH\n\nSegment 2\nLong name: RAM 5\nShort name: RA5\n"
+                                    "Start: 4000H\nEnd: 7FFFH\n\n") &&
+                  v48 == "Segment 1\nLong name: System ROM\nShort name: ROM\nStart: 0H\nEnd: "
+                         "3FFFH\n\nSegment 2\nLong name: System RAM\nShort name: RAM\nStart: "
+                         "4000H\nEnd: FFFFH\n\n",
+              esc(p128) + " / " + esc(v128, 120));
+    }
+    {
+        // LIVE on the 128K machine: the paging port moves what DeZog decodes.
+        Rig rig(MachineType::ZX128K);
+        Zc  c(rig);
+        const std::string r0 = c.cmd("get-registers");
+        c.cmd("write-port 32765 19");   // 0x13: bank 3 at C000, ROM 1
+        const std::string r1 = c.cmd("get-registers");
+        const std::string pg = c.cmd("get-memory-pages");
+        check("ZRCP-REG-06", "on a live 128K machine DeZog's 128K decoder reads [ROM0,5,2,0] from "
+                             "get-registers, and [ROM1,5,2,3] after OUT 7FFDH 13H; "
+                             "get-memory-pages says RO1 RA5 RA2 RA3",
+              dezog_128k(r0) == std::vector<int>({8, 5, 2, 0}) &&
+                  dezog_128k(r1) == std::vector<int>({9, 5, 2, 3}) &&
+                  pg == "RO1 RA5 RA2 RA3 \ncommand> ",
+              esc(r0) + " / " + esc(r1) + " / " + esc(pg));
+    }
+    {
+        // LIVE on the +3: ROM 3 by both ROM bits, then the all-RAM 4 7 6 3 map.
+        Rig rig(MachineType::ZX_PLUS3);
+        Zc  c(rig);
+        c.cmd("write-port 32765 16");   // 7FFD bit 4
+        c.cmd("write-port 8189 4");     // 1FFD bit 2: ROM 3
+        const std::string rom3 = c.cmd("get-memory-pages");
+        c.cmd("write-port 8189 7");     // special paging, configuration 3
+        const std::string ram  = c.cmd("get-memory-pages");
+        const std::string regs = c.cmd("get-registers");
+        check("ZRCP-REG-07", "on a live +3: ROM 3 reads RO3, and the all-RAM configuration 3 "
+                             "reads RA4 RA7 RA6 RA3 with MMU=0004000700060003 and four 0000",
+              rom3 == "RO3 RA5 RA2 RA0 \ncommand> " && ram == "RA4 RA7 RA6 RA3 \ncommand> " &&
+                  regs.find("MMU=00040007000600030000000000000000\n") != std::string::npos,
+              esc(rom3) + " / " + esc(ram));
+    }
+}
+
+static void session_reset_rows() {
+    // The server outlives its connections: what one client set must not be the
+    // next client's (§4.5 "step_mode dies with the session").
+    Rig rig;
+    {
+        Zc a(rig);
+        a.cmd("set-cr");
+        a.cmd("set-debug-settings 3");
+        a.cmd("enter-cpu-step");
+        a.p->send("quit\n");
+        for (int i = 0; i < 4; ++i) rig.pump();
+    }
+    Zc b(rig);
+    const std::string ds   = b.cmd("get-debug-settings");
+    const std::string step = b.cmd("cpu-step");
+    check("ZRCP-SES-07", "a new client starts clean after one that set set-cr, debug settings 3 "
+                         "and step mode: plain command> prompts with no CR, debug settings 1, and "
+                         "cpu-step refused until it enters step mode itself",
+          ends_with(b.welcome, "\ncommand> ") && b.welcome.find('\r') == std::string::npos &&
+              ds == "1\ncommand> " &&
+              step == "Error. You must first enter cpu-step mode\ncommand> ",
+          esc(ds) + " / " + esc(step));
+
+    std::string ex, lo;
+    for (const char* q : {"exit", "logout"}) {
+        Rig r2;
+        Zc  c(r2);
+        c.p->send(std::string(q) + "\n");
+        for (int i = 0; i < 4; ++i) r2.pump();
+        (q[0] == 'e' ? ex : lo) = c.p->take() + (c.p->closed_by_server() ? "<closed>" : "");
+    }
+    check("ZRCP-SES-08", "quit's aliases exit and logout say goodbye and close too",
+          ex == "Sayonara baby\n<closed>" && lo == "Sayonara baby\n<closed>", esc(ex) + " / " + esc(lo));
+}
+
+static void step_over_set_rows() {
+    // §11.3 item 8: every instruction cpu-step-over treats as a plain step —
+    // ZEsarUX's si_cpu_step_over_jpret() list, plus JP NZ (C2), JP (IX), JP (IY)
+    // and RETI / RETN. Each must answer in the SAME pump with no frame run (a
+    // synchronous step); one misclassified would become run_to(pc + len), an
+    // address a jump never reaches.
+    static const struct { const char* name; std::vector<std::uint8_t> code; } kCases[] = {
+        {"JP nn", {0xC3, 0x34, 0x12}},     {"JP NZ", {0xC2, 0x34, 0x12}},
+        {"JP Z", {0xCA, 0x34, 0x12}},      {"JP NC", {0xD2, 0x34, 0x12}},
+        {"JP C", {0xDA, 0x34, 0x12}},      {"JP PO", {0xE2, 0x34, 0x12}},
+        {"JP PE", {0xEA, 0x34, 0x12}},     {"JP P", {0xF2, 0x34, 0x12}},
+        {"JP M", {0xFA, 0x34, 0x12}},      {"JP (HL)", {0xE9}},
+        {"JP (IX)", {0xDD, 0xE9}},         {"JP (IY)", {0xFD, 0xE9}},
+        {"RET", {0xC9}},                   {"RET NZ", {0xC0}},
+        {"RET Z", {0xC8}},                 {"RET NC", {0xD0}},
+        {"RET C", {0xD8}},                 {"RET PO", {0xE0}},
+        {"RET PE", {0xE8}},                {"RET P", {0xF0}},
+        {"RET M", {0xF8}},                 {"RETI", {0xED, 0x4D}},
+        {"RETN", {0xED, 0x45}},
+    };
+    Rig rig;
+    rig.emu.mmu().write(0xFF00, 0x34);
+    rig.emu.mmu().write(0xFF01, 0x12);
+    Zc c(rig);
+    c.cmd("enter-cpu-step");
+    std::string bad;
+    for (const auto& k : kCases) {
+        rig.load(k.code);
+        Z80Registers r = rig.emu.cpu().get_registers();
+        r.HL = 0x5678; r.IX = 0x6789; r.IY = 0x789A;
+        rig.emu.cpu().set_registers(r);
+        const std::string rep = c.send_once("cpu-step-over\n");
+        if (!(rig.pc() != PROG && is_stop_shape(rep, rig.pc()))) bad += std::string(" ") + k.name;
+        c.rx.clear();
+    }
+    check("ZRCP-CTL-10", "cpu-step-over is a synchronous plain step on all 23 JP / RET forms "
+                         "(ZEsarUX's list + JP NZ, JP (IX), JP (IY), RETI, RETN): each answered "
+                         "in the same pump, the machine one instruction on",
+          bad.empty(), "not a plain step:" + bad);
+}
+
+static void tbblue_name_rows() {
+    Rig rig(MachineType::ZXN_ISSUE2);
+    Zc  c(rig);
+    const char* names[4] = {"ula", "layer2", "sprite", "tilemap"};
+    const jnext::dbg::ClipLayer layers[4] = {jnext::dbg::ClipLayer::Ula,
+                                             jnext::dbg::ClipLayer::Layer2,
+                                             jnext::dbg::ClipLayer::Sprites,
+                                             jnext::dbg::ClipLayer::Tilemap};
+    for (int i = 0; i < 4; ++i) {
+        const int b = 1 + i * 4;
+        c.cmd(std::string("tbblue-set-clipwindow ") + names[i] + " " + std::to_string(b) + " " +
+              std::to_string(b + 1) + " " + std::to_string(b + 2) + " " + std::to_string(b + 3));
+    }
+    std::string bad;
+    for (int i = 0; i < 4; ++i) {
+        const int b = 1 + i * 4;
+        const std::string want = std::to_string(b) + " " + std::to_string(b + 1) + " " +
+                                 std::to_string(b + 2) + " " + std::to_string(b + 3) + " ";
+        const auto w = rig.dbg->clip_window(layers[i]);
+        if (c.cmd(std::string("tbblue-get-clipwindow ") + names[i]) != reply_of(want) ||
+            w.x1 != b || w.y2 != b + 3)
+            bad += std::string(" ") + names[i];
+    }
+    check("ZRCP-TBB-07", "each of the four clip windows, set to its own distinct values, reads "
+                         "back its own — over the wire and in the live layer state",
+          bad.empty(), "swapped:" + bad);
+
+    const char* pal[3] = {"ula", "layer2", "sprite"};
+    const jnext::dbg::PaletteId ids[6] = {
+        jnext::dbg::PaletteId::UlaFirst,    jnext::dbg::PaletteId::UlaSecond,
+        jnext::dbg::PaletteId::Layer2First, jnext::dbg::PaletteId::Layer2Second,
+        jnext::dbg::PaletteId::SpriteFirst, jnext::dbg::PaletteId::SpriteSecond};
+    for (int i = 0; i < 6; ++i)
+        c.cmd(std::string("tbblue-set-palette ") + pal[i / 2] + (i & 1 ? " second" : " first") +
+              " 7 " + std::to_string(0x101 + i * 0x11));
+    std::string pbad;
+    for (int i = 0; i < 6; ++i) {
+        char want[8];
+        std::snprintf(want, sizeof(want), "%03X ", 0x101 + i * 0x11);
+        const std::string got = c.cmd(std::string("tbblue-get-palette ") + pal[i / 2] +
+                                      (i & 1 ? " second" : " first") + " 7");
+        if (got != reply_of(want) || rig.dbg->palette(ids[i])[7] != 0x101 + i * 0x11)
+            pbad += std::string(" ") + pal[i / 2] + (i & 1 ? "/second" : "/first");
+    }
+    check("ZRCP-TBB-08", "each of the six palettes (ula|layer2|sprite x first|second), set at "
+                         "entry 7 to its own value, reads back its own — over the wire and in "
+                         "the backend's bank",
+          pbad.empty(), "swapped:" + pbad);
+}
+
+static void edge_rows() {
+    {
+        std::uint8_t b[20];
+        for (int i = 0; i < 20; ++i) b[i] = static_cast<std::uint8_t>(0x41 + i);
+        b[2] = 0x7E;
+        b[3] = 0x7F;
+        const std::string h = hexdump(0xFFF8, b, 20);
+        check("ZRCP-FMT-13", "hexdump: the line address wraps past FFFFH to 0008H, and 7EH prints "
+                             "while 7FH is a dot (ZEsarUX's c < 32 || c > 126)",
+              starts_with(h, "  FFF8H 41 42 7E 7F ") && h.find("|AB~.EF") != std::string::npos &&
+                  h.find("\n  0008H 51 52 53 54 ") != std::string::npos,
+              esc(h));
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        const std::string mib   = c.cmd("read-memory 0 1048576");
+        const std::string stk   = c.cmd("get-stack-backtrace 32768");
+        const std::string stk1  = c.cmd("get-stack-backtrace 32769");
+        const std::string dis   = c.cmd("disassemble 0 65536");
+        const std::string dis1  = c.cmd("disassemble 0 65537");
+        check("ZRCP-MEM-06", "the bounds are inclusive: read-memory of exactly 1 MiB, a 32768-word "
+                             "backtrace and 65536 disassembly lines are served; one more is refused",
+              mib.size() == 2 * 1048576 + std::string("\ncommand> ").size() &&
+                  stk.size() == 6 * 32768 + std::string("\ncommand> ").size() &&
+                  stk1 == "Error. Too many items (max 32768)\ncommand> " &&
+                  std::count(dis.begin(), dis.end(), '\n') == 65536 &&
+                  dis1 == "Error. Too many lines (max 65536)\ncommand> ",
+              esc(stk1) + " / " + esc(dis1));
+
+        const std::uint16_t pc0 = rig.pc();
+        const std::string pc  = c.cmd("set-register PC=10000H");
+        const std::string a   = c.cmd("set-register A=100H");
+        const std::string iff = c.cmd("set-register IFF1=2");
+        const std::string rm  = c.cmd("read-memory 70000 1");
+        const std::string wm  = c.cmd("write-memory 65536 1");
+        const std::string ds  = c.cmd("disassemble 10000H");
+        check("ZRCP-REG-08", "out-of-range values are refused, never truncated (§11.3 items 9, "
+                             "11): PC=10000H, A=100H and IFF1=2 change nothing; addresses past "
+                             "FFFFH are refused by read-memory, write-memory and disassemble",
+              pc == "Error changing register\ncommand> " && a == pc && iff == pc &&
+                  rig.pc() == pc0 && rm == "Error. Invalid address: 70000\ncommand> " &&
+                  wm == "Error. Invalid address: 65536\ncommand> " &&
+                  ds == "Error. Invalid address: 10000H\ncommand> ",
+              esc(pc) + " / " + esc(rm));
+    }
+    {
+        // ZEsarUX prints BOTH lines when the count ends on a stop (remote.c:
+        // "Returning after" in the loop, then "Breakpoint fired" after it).
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0xED, 0xFF, 0x18, 0xFE});
+        rig.dbg->set_magic_breakpoint(true);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string r = c.cmd("run 4");
+        check("ZRCP-RUN-19", "run 4 whose fourth step is the magic opcode: \"Returning after 4 "
+                             "opcodes\" AND \"Breakpoint fired: Magic breakpoint\", in that order",
+              r.find("\nReturning after 4 opcodes\nBreakpoint fired: Magic breakpoint\nPC=8005 ") !=
+                  std::string::npos,
+              esc(r));
+    }
+    {
+        // An interrupt discards ITS line only: complete lines sent after it in
+        // the same write are commands.
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        c.send_once("run\n");
+        rig.tick();
+        c.p->send("\nabout\n");
+        const std::string r = c.wait();
+        std::string rest = c.wait(4);
+        check("ZRCP-RUN-20", "\"\\nabout\\n\" during a run: the blank line stops it and is "
+                             "discarded, the about behind it is answered",
+              ends_with(r + rest, "\ncommand@cpu-step> jnext ZRCP remote command protocol\n"
+                                  "command@cpu-step> "),
+              esc(r + rest));
+    }
+    {
+        // A step refused in the middle of run n (the machine went corrupt) ends
+        // the run with its reason, and nothing more executes.
+        Rig rig;
+        load_nops(rig, 100);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        g_clock_ticks = true;
+        c.p->send("run 100\n");
+        rig.dbg->pump(PumpBudget{});
+        rig.dbg->pump(PumpBudget{});
+        c.p->take();
+        const auto                      other = rig.dbg->attach({"loader", ClientKind::Test}).value;
+        const std::vector<std::uint8_t> junk(64, 0x5A);
+        rig.dbg->load_state_bytes(other, junk.data(), junk.size());
+        const std::uint16_t pc1 = rig.pc();
+        rig.dbg->pump(PumpBudget{});
+        g_clock_ticks = false;
+        const std::string r = c.p->take();
+        check("ZRCP-RUN-21", "a step refused inside run n ends it with the refusal's reason "
+                             "(fired \"Machine corrupt after failed rewind\"), not a count line, "
+                             "and the machine steps no further",
+              starts_with(r, "Breakpoint fired: Machine corrupt after failed rewind\n") &&
+                  r.find("Returning") == std::string::npos && rig.pc() == pc1,
+              esc(r));
+        rig.dbg->detach(other);
+    }
+    {
+        // §4.6 rule 4 is a HARD reset's: a soft reset answers no run.
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        c.send_once("run\n");
+        rig.tick();
+        const auto other = rig.dbg->attach({"gui", ClientKind::Test}).value;
+        rig.dbg->reset(other, jnext::dbg::ResetKind::Soft);
+        rig.pump();
+        rig.tick();
+        const std::string quiet   = c.p->take();
+        const bool        running = !rig.dbg->state().paused;
+        check("ZRCP-RUN-22", "another client's SOFT reset during a run sends nothing: the run goes "
+                             "on (only Reset{Hard} completes it)",
+              quiet.empty() && running, esc(quiet));
+        rig.dbg->detach(other);
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string r = c.cmd("run 1000000", 64);
+        check("ZRCP-RUN-23", "run 1000000, the cap itself, is served and counts to the end",
+              r.find("\nReturning after 1000000 opcodes\nPC=8000 ") != std::string::npos, esc(r));
+    }
+}
+
 int main() {
     std::printf("zrcp_adapter_test — the ZRCP adapter over T's fake transport (GH #280)\n");
     framing_rows();
@@ -1987,6 +2363,11 @@ int main() {
     reset_rows();
     nmi_rows();
     coexist_rows();
+    legacy_rows();
+    session_reset_rows();
+    step_over_set_rows();
+    tbblue_name_rows();
+    edge_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass,
