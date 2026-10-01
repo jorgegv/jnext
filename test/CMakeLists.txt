@@ -614,6 +614,16 @@ target_link_libraries(tzx_loader_test PRIVATE
 target_include_directories(tzx_loader_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME tzx_loader_tests COMMAND tzx_loader_test)
 
+# Tape SAVE to TZX / WAV (GH #89): the encoders, the edge-stream decoder, the
+# recorder's files, and the tape-out capture through the real Emulator.
+add_executable(tape_save_test core/tape_save_test.cpp)
+target_link_libraries(tape_save_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(tape_save_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME tape_save_tests COMMAND tape_save_test)
+
 # A loaded snapshot's interrupt mode reaches the IM latch behind NR 0xC0
 # (.sna, .z80, .szx through the real Emulator::load_* paths).
 add_executable(snapshot_im_test core/snapshot_im_test.cpp)

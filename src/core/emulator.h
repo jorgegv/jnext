@@ -60,6 +60,7 @@ namespace jnext { namespace save { class StateDesc; } }
 #include "debug/debug_state.h"
 #include "core/tap_loader.h"
 #include "core/tap_saver.h"
+#include "core/tape_recorder.h"
 #include "core/tzx_loader.h"
 #include "core/sna_loader.h"
 #include "core/szx_loader.h"
@@ -556,6 +557,24 @@ public:
     /// Access the tape saver (G33 Phase 1 — trap-based SAVE→TAP).
     TapSaver& tap_saver() { return tap_saver_; }
     const TapSaver& tap_saver() const { return tap_saver_; }
+
+    /// Tape SAVE to TZX / WAV (GH #89): tape-out capture plus trapped ROM blocks.
+    TapeRecorder& tape_recorder() { return tape_recorder_; }
+    const TapeRecorder& tape_recorder() const { return tape_recorder_; }
+
+    /// Arm tape saving to `path`, which is what `--tape-save` does: `.tzx` and
+    /// `.wav` go to the TapeRecorder, anything else to the TAP saver. Stops a
+    /// save to another file first. Refused (false, logged) while an RZX records
+    /// or plays, or when the file cannot be used. Sets config().tape_save_file,
+    /// so a re-init() keeps saving to it.
+    bool start_tape_save(const std::string& path);
+    /// Finish the file being saved to and disarm; clears config().tape_save_file.
+    void stop_tape_save();
+    /// True while either saver is armed.
+    bool tape_save_active() const { return tap_saver_.active() || tape_recorder_.active(); }
+    /// The tape-out (MIC jack) level, zxnext.vhd:6503 `beep_mic_final` — see
+    /// the definition.
+    bool tape_out_level() const;
 
     /// Access the TZX loader.
     TzxLoader& tzx_tape() { return tzx_tape_; }
@@ -1623,6 +1642,8 @@ private:
     // G33 Phase 1 — trap-based SAVE→TAP. Inactive unless --tape-save
     // supplied (EmulatorConfig::tape_save_file); armed via Emulator::init().
     TapSaver        tap_saver_;
+    // GH #89 — TZX / WAV tape saving; armed like tap_saver_, by extension.
+    TapeRecorder    tape_recorder_;
     TzxLoader       tzx_tape_;
     WavLoader       wav_tape_;
     VideoRecorder   video_recorder_;

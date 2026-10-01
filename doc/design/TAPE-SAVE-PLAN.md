@@ -90,11 +90,13 @@ The edge stream is cut into segments at any interval longer than 65535 T-states
 (18.7 ms): no data pulse is that long, and 65535 is the largest pulse a TZX block can
 hold. Each segment is decoded left to right:
 
-1. **Data block.** At least 256 consecutive pulses equal within tolerance (pilot), two
+1. **Data block.** At least 256 consecutive pulses equal within 1/8 (pilot), two
    shorter pulses (sync), then pulse pairs whose halves are equal; the pair lengths fall
-   into two classes, short (0) and long (1), with long at least 1.5 × short. Bits are MSB
-   first. An edge left alone after the last bit (a saver restoring the border) belongs to
-   the block's end, as the TZX player's own closing edge does.
+   into two classes, short (0) and long (1), with long at least 1.5 × short (one class
+   only at the ROM's own lengths). Bits are MSB first. After whole bytes, one more edge
+   is the block's end, not a bit: the ROM itself adds it (SA/LD-RET restores the border
+   about 855 T after the last bit). A last pulse with no matching second half is read as
+   a bit only when it completes a byte.
    - All timings within 1/16 of the ROM's (pilot 2168, sync 667/735, 855/1710, pilot
      count 8063 for a flag byte below 0x80 and 3223 otherwise, within 1 %) and a whole
      number of bytes: **block 0x10**.
@@ -112,9 +114,10 @@ segment's first edge, a trapped block, or stopping the save), in milliseconds, c
 that ends a segment has an open last edge: it is written as a 1 ms pulse (TZX's own rule
 for finishing the last edge), followed by a 0x20 pause for the rest (at least 1 ms, since
 0 in 0x20 means "stop the tape"). Because a block's pause is only known when the next
-event arrives, the last block is held in memory until then and written by the next
-event or by closing; earlier blocks are written as soon as their segment is decoded,
-which happens on the next event or once the silence passes the segment threshold.
+event arrives, a segment is decoded and written when the next event arrives or saving
+stops; a trapped ROM block likewise waits for the next event. A segment that reaches
+2^20 edges without a pause is decoded at that point, so a saver that never stops cannot
+grow memory without bound.
 
 A trapped ROM block becomes a 0x10 block with the exact bytes; its pause is measured
 the same way (the ROM's own one-second gap between header and data runs outside the trap,
@@ -130,8 +133,9 @@ pulse train (pilot 8063/3223 × 2168, sync 667 + 735, 855/855 or 1710/1710 per b
 first, closing edge), which moves the position forward by its length while emulated time
 stands still. Levels are 0x40 (low) and 0xC0 (high), so any threshold reader splits them
 at the midpoint. Nothing is written before the first event. Stopping writes the held level
-for the time since the last event (same cap) and patches the header. The header is also
-patched at every segment flush, so a killed run leaves a valid file up to that point.
+for the time since the last event (same cap) and patches the RIFF and data sizes. A run
+that is killed rather than stopped leaves the sizes of the last stop; the samples are on
+disk.
 
 ## 7. GUI and frontends
 
@@ -159,8 +163,9 @@ and the file is finished when the emulator is destroyed at exit.
   are static functions so unit rows test them byte-exact without an emulator.
 - `Emulator` arms `TapSaver` for TAP and `TapeRecorder` for TZX/WAV
   (`start_tape_save()` / `stop_tape_save()` / `tape_save_active()`), samples
-  `tape_out_level()` at the end of each slot, polls the recorder once per frame and closes
-  it in the destructor and before re-arming.
+  `tape_out_level()` at the end of each slot, and closes the recorder in the destructor
+  and before re-arming. `emulator_cold_boot()` carries the live `tape_save_file` across a
+  power-on reset, so a save started from the menu survives it.
 - `TapSaver::handle_sa_bytes_trap` hands the block to the recorder when one is armed.
 
 ## 9. Known limits

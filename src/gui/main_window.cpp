@@ -355,6 +355,9 @@ void MainWindow::set_emulator(Emulator* emu) {
     // the item always opened unchecked.
     if (magic_bp_action_ && debugger_ && emu)
         magic_bp_action_->setChecked(debugger_->magic_breakpoint());
+    // GH #89 — Tape > Start / Stop Saving show a --tape-save at once, not at
+    // the first status tick.
+    update_tape_status();
 #ifdef ENABLE_DEBUGGER
     if (!debugger_mgr_ && emu) {
         debugger_mgr_ = new DebuggerManager(this, *debugger_, this);
@@ -944,6 +947,19 @@ void MainWindow::create_menus() {
     tape_fast_action_->setChecked(true);  // fast load is default
     connect(tape_fast_action_, &QAction::triggered, this, &MainWindow::on_tape_fast_load);
 
+    // GH #89 — what --tape-save does, from the menu. No shortcut, like the
+    // rest of this menu: a host Alt shortcut takes a key from the guest, and
+    // saving is not frequent. Their enabled state follows the emulator
+    // (update_tape_status()), so a --tape-save start shows Stop enabled.
+    tape_menu->addSeparator();
+    tape_save_start_action_ = tape_menu->addAction(tr("Start &Saving..."));
+    tape_save_start_action_->setStatusTip(
+        tr("Save to a TAP, TZX or WAV file: SAVEs and the tape output are appended"));
+    connect(tape_save_start_action_, &QAction::triggered, this, &MainWindow::on_tape_save_start);
+    tape_save_stop_action_ = tape_menu->addAction(tr("Stop Sa&ving"));
+    tape_save_stop_action_->setEnabled(false);
+    connect(tape_save_stop_action_, &QAction::triggered, this, &MainWindow::on_tape_save_stop);
+
     // --- Debug menu ---
     // Mnemonic is Alt+B ("De&bug"), NOT Alt+D: Alt+D is the View > Debugger
     // shortcut (#115). Alt+D was ALSO the reason keyboard.cpp could not give
@@ -1233,7 +1249,7 @@ void MainWindow::handle_load_path(const QString& path) {
     // play is refused with the running machine untouched — the same check
     // for File > Open and File > Play RZX Recording, which both come here.
     if (emulator_load_routes_to_rzx(file)) {
-        if (emulator_ && emulator_->tap_saver().active()) {
+        if (emulator_ && emulator_->tape_save_active()) {
             QMessageBox::warning(this, tr("Play RZX Recording"), rzx_tape_save_refusal());
             return;
         }
@@ -1518,8 +1534,58 @@ void MainWindow::on_tape_fast_load(bool checked) {
     emulator_->tzx_tape().set_fast_load(checked);
 }
 
+void MainWindow::on_tape_save_start() {
+    if (!emulator_) return;
+    QString filter;
+    QString path = QFileDialog::getSaveFileName(
+        this, tr("Save to Tape File"), app_config_.data().last_load_dir,
+        tr("TZX Files (*.tzx);;WAV Files (*.wav);;TAP Files (*.tap)"), &filter,
+        // Saving appends to an existing file, so there is nothing to confirm.
+        QFileDialog::DontConfirmOverwrite);
+    if (path.isEmpty()) return;
+    // A name typed without an extension takes the chosen filter's: the
+    // extension is what selects the format.
+    if (QFileInfo(path).suffix().isEmpty())
+        path += filter.startsWith("WAV") ? ".wav" : filter.startsWith("TAP") ? ".tap" : ".tzx";
+    handle_tape_save_path(path);
+}
+
+void MainWindow::handle_tape_save_path(const QString& path) {
+    if (!emulator_) return;
+    if (emulator_->rzx_recorder().is_recording() || emulator_->rzx_player().is_playing()) {
+        QMessageBox::warning(this, tr("Save to Tape File"),
+            tr("Tape saving cannot start while an RZX recording or playback runs: its "
+               "SAVE trap skips the ROM routine, which a recording cannot replay."));
+        return;
+    }
+    if (!emulator_->start_tape_save(path.toStdString())) {
+        QMessageBox::warning(this, tr("Save to Tape File"),
+            tr("Cannot save to %1.\n\nThe file cannot be written, or it already exists "
+               "and is not a tape of that format.").arg(path));
+    }
+    update_tape_status();
+}
+
+void MainWindow::on_tape_save_stop() {
+    if (!emulator_) return;
+    emulator_->stop_tape_save();
+    update_tape_status();
+}
+
 void MainWindow::update_tape_status() {
     if (!tape_label_ || !emulator_) return;
+
+    // GH #89 — Start / Stop Saving follow the emulator, wherever saving was
+    // started (--tape-save, this menu) or stopped.
+    const bool saving = emulator_->tape_save_active();
+    if (tape_save_start_action_) tape_save_start_action_->setEnabled(!saving);
+    if (tape_save_stop_action_) {
+        tape_save_stop_action_->setEnabled(saving);
+        tape_save_stop_action_->setStatusTip(
+            saving ? tr("Finish saving to %1")
+                         .arg(QString::fromStdString(emulator_->config().tape_save_file))
+                   : QString());
+    }
 
     const auto& tap = emulator_->tape();
     const auto& tzx = emulator_->tzx_tape();
@@ -1734,7 +1800,7 @@ QString MainWindow::rzx_record_refusal() const {
         return tr("An RZX recording is playing. Input cannot be recorded during "
                   "playback, so wait for it to finish.");
     }
-    if (emulator_->tap_saver().active()) return rzx_tape_save_refusal();
+    if (emulator_->tape_save_active()) return rzx_tape_save_refusal();
     // GH #274 — the Next is JNEXT's default machine, so this is the refusal a
     // user is most likely to meet. It has to read as "use another machine",
     // never as "recording is broken", and it is shown BEFORE the file picker.
@@ -1752,9 +1818,9 @@ QString MainWindow::rzx_record_refusal() const {
 }
 
 QString MainWindow::rzx_tape_save_refusal() const {
-    return tr("JNEXT was started with --tape-save, which cannot be combined with RZX "
-              "recording or playback: its SAVE trap skips the ROM routine, which a "
-              "recording cannot replay.\n\nRestart without --tape-save to use RZX.");
+    return tr("Tape saving is on, and it cannot be combined with RZX recording or "
+              "playback: its SAVE trap skips the ROM routine, which a recording cannot "
+              "replay.\n\nStop it first (Tape > Stop Saving).");
 }
 
 void MainWindow::handle_rzx_record_path(const QString& path) {

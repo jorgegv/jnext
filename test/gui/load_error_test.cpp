@@ -19,6 +19,9 @@
 // offscreen MainWindow and answer the real QMessageBox through a polling
 // timer, the idiom of nex_v13_dialog_test / quit_gate_test.
 //
+// LE-24..LE-26 (GH #89) drive Tape > Start Saving…'s post-picker half and the
+// Stop Saving action.
+//
 // LE-19..LE-23 (GH #93) drive File > Insert SD Card Image…'s post-picker half,
 // the real File > Eject SD Card action, and the report the frontend hands back
 // once it has performed the change between frames.
@@ -535,6 +538,77 @@ int main(int argc, char** argv) {
                   sc.contains("*.jns") && sc.contains("*.sna") &&
                   sc.contains("*.szx") && sc.contains("*.nex"),
               q(sc));
+    }
+
+    // GH #89 — Tape > Start Saving... / Stop Saving: the post-picker half and
+    // the Stop action, driven on a real window.
+    auto find_action = [](MainWindow& win, const char* text) -> QAction* {
+        for (QAction* a : win.findChildren<QAction*>())
+            if (a->text() == text) return a;
+        return nullptr;
+    };
+    // LE-24 — Start Saving arms the file, Stop finishes it.
+    {
+        Fixture f;
+        DialogWatcher w;
+        QAction* start = find_action(f.win, "Start &Saving...");
+        QAction* stop = find_action(f.win, "Stop Sa&ving");
+        const bool idle = start && stop && start->isEnabled() && !stop->isEnabled();
+        const std::string path = (g_root / "menu.tzx").string();
+        f.win.handle_tape_save_path(QString::fromStdString(path));
+        const bool saving = f.emu.tape_save_active() && f.emu.tape_recorder().path() == path &&
+                            start && !start->isEnabled() && stop && stop->isEnabled();
+        if (stop) stop->trigger();
+        w.stop();
+        std::ifstream in(path, std::ios::binary);
+        char sig[8] = {};
+        in.read(sig, 8);
+        const bool finished = in && std::memcmp(sig, "ZXTape!\x1A", 8) == 0 &&
+                              !f.emu.tape_save_active() && start && start->isEnabled() &&
+                              !stop->isEnabled();
+        check("LE-24",
+              "Tape > Start Saving... arms the chosen file as --tape-save would (Start "
+              "disabled, Stop enabled, no dialog); Tape > Stop Saving finishes it (a TZX on "
+              "disk) and disarms",
+              f.ok && idle && saving && finished && w.seen == 0,
+              fmt("idle=%d saving=%d finished=%d seen=%d", idle ? 1 : 0, saving ? 1 : 0,
+                  finished ? 1 : 0, w.seen));
+    }
+    // LE-25 — a machine already saving (--tape-save) shows Stop enabled at once.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        cfg.tape_save_file = (g_root / "cli.wav").string();
+        const bool init_ok = emu.init(cfg);
+        auto backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        MainWindow win;
+        win.set_debugger(backend.get());
+        win.set_emulator(&emu);
+        QAction* start = find_action(win, "Start &Saving...");
+        QAction* stop = find_action(win, "Stop Sa&ving");
+        check("LE-25",
+              "with --tape-save on the command line the window binds with Stop Saving "
+              "enabled and Start Saving disabled",
+              init_ok && emu.tape_save_active() && start && !start->isEnabled() && stop &&
+                  stop->isEnabled());
+    }
+    // LE-26 — a file that cannot be used is refused in a dialog naming it.
+    {
+        Fixture f;
+        DialogWatcher w;
+        const std::string path = write_file("notatape.tzx", Bytes(40, 0x5A));
+        f.win.handle_tape_save_path(QString::fromStdString(path));
+        w.pump(200);
+        w.stop();
+        QAction* start = find_action(f.win, "Start &Saving...");
+        check("LE-26",
+              "Start Saving on an existing file that is not a TZX shows a warning naming it, "
+              "and saving stays off",
+              f.ok && w.seen == 1 && w.text.contains("notatape.tzx") &&
+                  !f.emu.tape_save_active() && start && start->isEnabled(),
+              fmt("seen=%d text=%s", w.seen, q(w.text).c_str()));
     }
 
     std::filesystem::remove_all(g_root, ec);

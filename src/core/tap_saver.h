@@ -95,6 +95,9 @@ public:
     /// trap is only armed while active.
     bool active() const { return !path_.empty(); }
 
+    /// Disarm (the file is already complete: every block is written whole).
+    void close() { path_.clear(); }
+
     const std::string& output_path() const { return path_; }
 
     size_t blocks_written() const { return blocks_written_; }

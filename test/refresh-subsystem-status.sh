@@ -151,6 +151,7 @@ BEGIN {
     M["extended_nex_test"]             = "Extended NEX streaming"
     M["tap_loader_test"]               = "TAP loader (container)"
     M["tzx_loader_test"]               = "TZX loader (container)"
+    M["tape_save_test"]                = "Tape SAVE TZX/WAV (GH #89)"
     M["snapshot_im_test"]              = "Snapshot IM latch (NR 0xC0)"
     M["dma_test"]                      = "DMA"
     M["tilemap_test"]                  = "Tilemap"

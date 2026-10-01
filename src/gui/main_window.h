@@ -187,6 +187,11 @@ public:
     // Fast Load toggle shows, and reports a file the loader refuses.
     void handle_tape_path(const QString& path);
 
+    // GH #89 — the post-picker half of Tape > Start Saving..., split out like
+    // handle_tape_path(): arms saving to `path` as --tape-save would, and
+    // reports a refusal (an RZX running, a file that cannot be used) in a dialog.
+    void handle_tape_save_path(const QString& path);
+
     // GH #93 — the post-picker half of File > Insert SD Card Image…, and File >
     // Eject SD Card (`path` empty), split out like handle_tape_path() so a
     // suite can drive them without a file dialog. They REQUEST the change
@@ -329,6 +334,8 @@ private:
     void on_tape_eject();
     void on_tape_rewind();
     void on_tape_fast_load(bool checked);
+    void on_tape_save_start();
+    void on_tape_save_stop();
     void update_tape_status();
 
     /// GH #25 — refresh the ESP status cell from the emulator's connection log.
@@ -461,6 +468,8 @@ private:
     QAction* tape_eject_action_  = nullptr;
     QAction* tape_rewind_action_ = nullptr;
     QAction* tape_fast_action_   = nullptr;
+    QAction* tape_save_start_action_ = nullptr;   // GH #89
+    QAction* tape_save_stop_action_  = nullptr;
     QLabel*  tape_label_         = nullptr;
 
     // GH #25 — ESP status cell. Created always, SHOWN only when the emulator
