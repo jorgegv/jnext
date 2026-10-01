@@ -24,4 +24,5 @@ target_link_libraries(jnext_debugger PUBLIC
     jnext_port
     jnext_peripheral
     jnext_input
+    jnext_script
     spdlog::spdlog)

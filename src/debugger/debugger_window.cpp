@@ -7,6 +7,7 @@
 #include "debugger/video_panel.h"
 #include "debugger/sprite_panel.h"
 #include "debugger/copper_panel.h"
+#include "debugger/script_panel.h"
 #include "debugger/nextreg_panel.h"
 #include "debugger/audio_panel.h"
 #include "debugger/watch_panel.h"
@@ -197,6 +198,7 @@ void DebuggerWindow::closeEvent(QCloseEvent* event) {
 
 void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     debugger_mgr_ = mgr;
+    if (script_panel_ && mgr) script_panel_->set_host(mgr->script_host());   // GH #26 WP5
 
     // Create the menu bar with debug actions.
     create_menus();
@@ -582,6 +584,37 @@ void DebuggerWindow::create_menus() {
 
     QAction* rewind_size_action = rewind_menu->addAction(tr("Rewind &Buffer Size..."));
     connect(rewind_size_action, &QAction::triggered, this, &DebuggerWindow::show_rewind_buffer_size_dialog);
+
+    // --- Script menu (GH #26 WP5, dsl-frontend.md §6.4) ---
+    // Alt+S: free among this bar's mnemonics (D, S, M, B, W, N).
+    QMenu* script_menu = bar->addMenu(tr("&Script"));
+    QAction* load_script = script_menu->addAction(tr("&Load Script..."));
+    connect(load_script, &QAction::triggered, this, [this]() {
+        if (script_panel_) script_panel_->on_load_clicked();
+    });
+    QAction* reload_scripts = script_menu->addAction(tr("&Reload Scripts"));
+    connect(reload_scripts, &QAction::triggered, this, [this]() {
+        if (script_panel_) script_panel_->on_reload_clicked();
+    });
+    QAction* unload_scripts = script_menu->addAction(tr("&Unload Scripts"));
+    connect(unload_scripts, &QAction::triggered, this, [this]() {
+        if (script_panel_) script_panel_->on_unload_clicked();
+    });
+
+    // GH #26 WP5 — Alt+1..Alt+8, the script host keys, in THIS window too
+    // (qt-frontend.md §5.3): eight window-wide QActions, not menu items. The
+    // keymap refuses these chords (debug_keymap.cpp), so no debugger action
+    // can be ambiguous with them (GH #124).
+    for (int n = 1; n <= 8; ++n) {
+        auto* a = new QAction(tr("Script Key %1").arg(n), this);
+        a->setShortcut(QKeySequence(Qt::ALT | static_cast<Qt::Key>(Qt::Key_0 + n)));
+        a->setShortcutContext(Qt::WindowShortcut);
+        connect(a, &QAction::triggered, this, [this, n]() {
+            dbg_.raise_host_event(jnext::dbg::CLIENT_NONE, "script" + std::to_string(n));
+        });
+        addAction(a);
+        script_key_actions_[n - 1] = a;
+    }
 
     // --- Map menu ---
     QMenu* map_menu = bar->addMenu(tr("&Map"));
@@ -1090,6 +1123,10 @@ void DebuggerWindow::create_panels() {
     tab_widget_->addTab(copper_panel_, tr("Copper"));
     tab_widget_->addTab(nextreg_panel_, tr("NextREG"));
     tab_widget_->addTab(audio_panel_, tr("Audio"));
+    // GH #26 WP5 — the Script tab (dsl-frontend.md §6.4). Its host is the
+    // manager's, handed over in set_debugger_manager().
+    script_panel_ = new ScriptPanel();
+    tab_widget_->addTab(script_panel_, tr("Script"));
 
     tab_widget_->setMinimumWidth(380);
 
@@ -1256,5 +1293,6 @@ void DebuggerWindow::refresh_panels() {
     if (stack_panel_) stack_panel_->refresh();
     if (callstack_panel_) callstack_panel_->refresh();
     if (breakpoint_panel_) breakpoint_panel_->refresh();
+    if (script_panel_) script_panel_->refresh();
     update_rewind_ui();
 }

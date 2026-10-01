@@ -21,10 +21,15 @@
 //   * a run-time error: 1, at the next frame edge.
 // With `exits = false` (the Qt GUI) nothing is ever requested: a script `exit`
 // logs and pauses, a GUI never exits from a script.
+//
+// THE GUI (WP5, Appendix K). The Qt Script tab loads, unloads and reloads
+// scripts through `load_file()` / `unload_all()` / `reload()`, and shows the
+// engine's log lines (`log_since()`), its rules and `ScriptEngine::status()`.
 // ---------------------------------------------------------------------------
 
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <string>
 #include <utility>
@@ -70,17 +75,49 @@ public:
     std::size_t unreached_verdicts() const;
 
     ScriptEngine* engine() { return engine_.get(); }
+    const ScriptEngine* engine() const { return engine_.get(); }
+
+    // ── the GUI (WP5) ────────────────────────────────────────────────────────
+
+    /// Load one more script at run time (Script > Load Script…). Registered at
+    /// once; a script with any error registers nothing and the others stay.
+    /// Needs a prior `start()`, which names the backend.
+    LoadResult load_file(const std::string& file);
+    /// Unload every script (and the engine with them: its client arms the
+    /// machine).
+    void unload_all();
+    /// Unload, then load the same files again in the same order.
+    std::vector<LoadResult> reload();
+    /// The files loaded now, in load order.
+    const std::vector<std::string>& files() const { return files_; }
+
+    /// The script log: the engine's lines (without the backend's client tag)
+    /// and the host's own errors, the last MAX_LOG_LINES of them. `seq` is a
+    /// count of lines ever logged; `log_since(n)` returns those after the n-th
+    /// still held.
+    static constexpr std::size_t MAX_LOG_LINES = 2000;
+    uint64_t log_seq() const { return log_seq_; }
+    std::vector<std::string> log_since(uint64_t seq) const;
 
 private:
-    struct ExitListener;
+    struct HostListener;
     void request(int code);
+    void capture(const std::string& text);
+    void remember(const std::string& line);
+    void error(const std::string& text);
+    bool ensure_engine();
+    LoadResult load_one(const std::string& file, const char* origin);
 
     dbg::Debugger*                 dbg_ = nullptr;
     std::unique_ptr<ScriptEngine>  engine_;
-    std::unique_ptr<ExitListener>  listener_;
+    std::unique_ptr<HostListener>  listener_;
     dbg::ClientId                  listener_cid_ = dbg::CLIENT_NONE;
+    bool                           exits_     = true;
     bool                           requested_ = false;
     int                            code_      = 0;
+    std::vector<std::string>       files_;
+    std::deque<std::string>        log_;
+    uint64_t                       log_seq_ = 0;
 };
 
 }  // namespace script

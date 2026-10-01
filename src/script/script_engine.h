@@ -109,8 +109,21 @@ public:
         bool     enabled = true;
         bool     dead    = false;        ///< disabled by a run-time error
         uint64_t hits    = 0;
+        bool     spent   = false;        ///< a `once` rule that has fired
+        bool     verdict = false;        ///< its body holds an `exit` / `compare_scr`
+        std::string event;               ///< the event, filter resolved: `write 9000..9001`
     };
     std::vector<RuleView> rules() const;
+
+    /// What a run has reached so far (WP5: the Script tab's verdict line).
+    struct Status {
+        std::optional<int> exit_code;    ///< the first `exit n` a rule ran
+        std::size_t stops = 0;           ///< `stop`s, failed `assert`s and `compare_scr`s
+        std::string last_stop;           ///< the reason of the latest
+        std::size_t runtime_errors = 0;
+        std::size_t unreached = 0;       ///< `unreached_verdicts()`
+    };
+    Status status() const;
 
     /// The interpreter state of the `index`-th loaded script (rows).
     ScriptState* state(size_t index);
@@ -178,6 +191,9 @@ private:
     uint64_t       overflow_logged_cycle_ = UINT64_MAX;
     size_t         runtime_errors_ = 0;
     std::string    stop_reason_;       ///< the reason of the engine's own pending stop
+    std::optional<int> first_exit_;    ///< status(): the first `exit n`
+    std::size_t    stops_ = 0;         ///< status(): stop verdicts so far
+    std::string    last_stop_;         ///< status(): the latest stop's reason
     std::string    last_stop_reason_;  ///< `REASON` for the `on stop` rules running now
     bool           in_frame_delivery_ = false;
 };

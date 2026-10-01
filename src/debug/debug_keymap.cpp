@@ -190,6 +190,17 @@ bool validate_combo(const Combo& c, std::string& why) {
         return false;
     }
 
+    // GH #26 WP5: Alt+1..Alt+8 are the script host keys in BOTH windows
+    // (dsl-frontend.md §6.4, qt-frontend.md §5.3) — a QAction in the debugger
+    // window, the key Router in the emulator window. A debugger action bound
+    // there would be AMBIGUOUS with the script QAction (GH #124) in one window
+    // and lose silently in the other, so it is refused by name, as Alt+letter
+    // is. Alt+9 and Alt+0 stay bindable.
+    if (c.mods == MOD_ALT && c.key >= Key::Num1 && c.key <= Key::Num8) {
+        why = "Alt+1..Alt+8 are the script host keys";
+        return false;
+    }
+
     // GH #21: the disassembly panel's Copy / Select All.
     if (c.mods == MOD_CTRL && (c.key == Key::C || c.key == Key::A)) {
         why = "reserved by the disassembly panel for Copy / Select All";

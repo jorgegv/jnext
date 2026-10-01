@@ -195,6 +195,9 @@ bool SdlApp::init(int argc, char* argv[]) {
     host_probe_ = HostProbe::from_env(emulator_, *debugger_);   // GH #276 B5
     // GH #12 (WP-5) — the socket debugger servers, on this loop's pump.
     if (!debug_servers_.start(*debugger_, config_)) return false;
+    // GH #26 WP5 — Alt+1..Alt+8 are the script host keys (host_key_wiring.h),
+    // as in the Qt window: the backend exists now, the Router was bound above.
+    wire_script_keys(key_router_, *debugger_);
     // GH #26 WP4 — the scripts, after the servers and before the machine runs:
     // a script that does not load is a startup failure (exit 1, §6.5).
     {

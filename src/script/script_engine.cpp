@@ -548,6 +548,10 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
     };
     auto stop_with = [&](const std::string& why) {
         stop_reason_ = why;
+        if (reason == nullptr) {   // a `stop` in an `on stop` body only logs
+            ++stops_;
+            last_stop_ = why;
+        }
         // PC and CYCLE are the event's (the causing instruction, §6.3).
         log(dbg::LogLevel::Warn, "SCRIPT STOP: " + why + " at PC=" + hex(ev.pc, 4) + " FRAME=" +
                                      std::to_string(d.time().frame) + " CYCLE=" +
@@ -578,6 +582,7 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
             case ActionKind::Exit: {
                 int32_t code = eval_int(*a.e1, ctx);
                 log(dbg::LogLevel::Info, stamp() + " SCRIPT EXIT " + std::to_string(code));
+                if (!first_exit_) first_exit_ = code;
                 if (host_.exit) {
                     // §2.6: a capture this script queued that is still pending
                     // (NoFrame — dropped) or failed to write makes the exit
@@ -900,6 +905,8 @@ Verdict ScriptEngine::compare_scr_now(RuleRec* r, const std::string& file, const
                                      " != screen " + std::to_string(have.size()));
     log(dbg::LogLevel::Warn, stamp() + " ASSERT FAILED: " + msg);
     stop_reason_ = msg;
+    ++stops_;
+    last_stop_ = msg;
     return Verdict::Stop;
 }
 
@@ -910,6 +917,87 @@ Verdict ScriptEngine::compare_scr_now(RuleRec* r, const std::string& file, const
 void ScriptEngine::queue_host_key(uint32_t frame, int key) {
     host_keys_.emplace_back(frame, key);
     ensure_edge();
+}
+
+namespace {
+
+std::string hex4(unsigned v) {
+    char b[8];
+    std::snprintf(b, sizeof b, "%04X", v & 0xFFFFu);
+    return b;
+}
+
+}  // namespace
+
+// The event as the Script tab lists it, with the filter as REGISTERED (bounds
+// resolved, `@symbols` replaced by their addresses).
+static std::string describe_event(const Rule& r, const std::vector<dbg::Subscription>& t) {
+    const EventSpec& e = r.event;
+    auto range = [](unsigned lo, unsigned hi) {
+        return lo == hi ? hex4(lo) : hex4(lo) + ".." + hex4(hi);
+    };
+    std::string s;
+    switch (e.type) {
+        case EventType::Execute:   s = "execute"; break;
+        case EventType::Read:      s = "read"; break;
+        case EventType::Write:     s = "write"; break;
+        case EventType::IoRead:    s = "io_read"; break;
+        case EventType::IoWrite:   s = "io_write"; break;
+        case EventType::NextReg:   s = "nextreg"; break;
+        case EventType::Frame:     s = "frame"; break;
+        case EventType::Scanline:  s = "scanline"; break;
+        case EventType::Cycle:     s = "cycle"; break;
+        case EventType::Interrupt: s = "interrupt"; break;
+        case EventType::Nmi:       s = "nmi"; break;
+        case EventType::Reset:     s = "reset"; break;
+        case EventType::HostKey:   s = "hostkey " + std::to_string(e.hostkey); break;
+        case EventType::Stop:      s = "stop"; break;
+        case EventType::Copper:
+            s = e.copper == CopperSub::Move ? "copper move" : e.copper == CopperSub::Wait ? "copper wait" : "copper halt";
+            break;
+        case EventType::Dma:
+            s = e.dma == DmaSub::Start ? "dma start" : e.dma == DmaSub::Byte ? "dma byte" : "dma end";
+            break;
+    }
+    if (t.empty()) return s;
+    const dbg::EventFilter& f = t.front().filter;
+    switch (e.type) {
+        case EventType::Execute:
+        case EventType::Read:
+        case EventType::Write:
+            if (e.page_only) {
+                const unsigned p1 = e.type == EventType::Execute ? t.front().filter.page : f.pages.front();
+                const unsigned p2 = e.type == EventType::Execute ? t.back().filter.page : f.pages.back();
+                s += " page " + std::to_string(p1) + (p2 != p1 ? ".." + std::to_string(p2) : "");
+            } else {
+                s += " " + range(f.lo, f.hi);
+                if (f.page != dbg::PAGE_ANY) s += " page " + std::to_string(f.page);
+            }
+            break;
+        case EventType::IoRead:
+        case EventType::IoWrite:
+            if (e.mask) s += " mask " + hex4(f.port_mask) + " value " + hex4(f.port_value);
+            else if (f.port_mask != 0) s += " " + hex4(f.port_value);
+            else s += " (range)";
+            break;
+        case EventType::NextReg:
+            if (!f.regs.empty()) s += " " + range(f.regs.front(), f.regs.back());
+            break;
+        case EventType::Frame:
+            if (f.frame != dbg::FRAME_EVERY) s += " " + std::to_string(f.frame);
+            break;
+        case EventType::Scanline: s += " " + std::to_string(f.scanline); break;
+        case EventType::Cycle:    s += " " + std::to_string(f.cycle); break;
+        case EventType::Copper:
+            if (!f.regs.empty()) s += " " + range(f.regs.front(), f.regs.back());
+            if (e.at_lo) s += " at " + std::to_string(f.lo) + (f.hi != f.lo ? ".." + std::to_string(f.hi) : "");
+            break;
+        case EventType::Dma:
+            if (e.lo) s += " " + range(f.lo, f.hi);
+            break;
+        default: break;
+    }
+    return s;
 }
 
 namespace {
@@ -1031,10 +1119,23 @@ std::vector<ScriptEngine::RuleView> ScriptEngine::rules() const {
             v.enabled = r->enabled;
             v.dead    = r->dead;
             v.hits    = r->hits;
+            v.spent   = r->rule->once && r->fired;
+            v.verdict = has_verdict(r->rule->body);
+            v.event   = describe_event(*r->rule, r->templates);
             out.push_back(v);
         }
     }
     return out;
+}
+
+ScriptEngine::Status ScriptEngine::status() const {
+    Status s;
+    s.exit_code      = first_exit_;
+    s.stops          = stops_;
+    s.last_stop      = last_stop_;
+    s.runtime_errors = runtime_errors_;
+    s.unreached      = unreached_verdicts();
+    return s;
 }
 
 ScriptState* ScriptEngine::state(size_t index) {

@@ -306,6 +306,7 @@ bool QtApp::init(int argc, char* argv[]) {
     // the DebuggerManager set_emulator() builds adapts THIS loop owner's one
     // Debugger (GH #278 WP2).
     main_window_->set_debugger(debugger_.get());
+    main_window_->set_script_host(&script_host_);   // GH #26 WP5 — the Script tab
     main_window_->set_emulator(&emulator_);
     main_window_->set_unattended(exit_countdown_ >= 0);   // see set_delayed_exit()
 
@@ -324,6 +325,8 @@ bool QtApp::init(int argc, char* argv[]) {
     // live in wire_host_keys() so the suite can drive the real wiring; see the
     // header for why that matters (GH #268).
     wire_host_keys(*main_window_, key_router_);
+    // GH #26 WP5 — Alt+1..Alt+8 are the script host keys (host_key_wiring.h).
+    wire_script_keys(key_router_, *debugger_);
 
     // Task 79 — SDL gamepad host + per-connector input-source wiring.
     wire_gamepad_and_sources(cfg);

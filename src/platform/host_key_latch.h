@@ -4,6 +4,7 @@
 #include <bitset>
 #include <cstddef>
 #include <deque>
+#include <functional>
 #include <vector>
 
 /// Minimum-hold latch for host key events (GitHub issue #120).
@@ -101,6 +102,15 @@ inline constexpr int MAX_KEYS = 512;
 /// would be split across two frames and stop working.
 inline constexpr int MOD_FIRST = 224;   // SDL_SCANCODE_LCTRL
 inline constexpr int MOD_LAST  = 231;   // SDL_SCANCODE_RGUI
+
+/// GH #26 WP5 — the digit keys 1..8 (SDL_SCANCODE_1..SDL_SCANCODE_8, 30..37,
+/// contiguous) and the modifier scancodes the script host-key chord reads.
+/// Hard-coded for the same reason as MOD_FIRST, and pinned against SDL by the
+/// same static_asserts in src/input/keyboard.cpp.
+inline constexpr int SC_DIGIT_1 = 30;   // SDL_SCANCODE_1
+inline constexpr int SC_DIGIT_8 = 37;   // SDL_SCANCODE_8
+inline constexpr int SC_LCTRL = 224, SC_LSHIFT = 225, SC_LALT = 226, SC_LGUI = 227;
+inline constexpr int SC_RCTRL = 228, SC_RSHIFT = 229, SC_RALT = 230, SC_RGUI = 231;
 
 /// True for the scancodes above. Out-of-range scancodes are NOT modifiers:
 /// they are unknown keys and get the conservative treatment.
@@ -298,8 +308,19 @@ public:
         pending_.clear();
         host_down_.reset();
         sink_down_.reset();
+        script_down_.reset();
         key_awaiting_frame_ = false;
     }
+
+    /// GH #26 WP5 (dsl-frontend.md §6.4, qt-frontend.md §5.3) — the script
+    /// host keys. Alt+1..Alt+8, with no other modifier held, are HOST chords:
+    /// `fn(n)` is called on the press (the frontend raises the backend's
+    /// `Host{scriptN}`), and the digit's press AND its release are swallowed —
+    /// they never reach the guest, whether or not a script is loaded (a chord's
+    /// meaning must not depend on what is loaded). Alt+9, Alt+0 and every other
+    /// key are unchanged. Here, in the Router both frontends share, so the Qt
+    /// window and the SDL window cannot disagree. An empty `fn` still swallows.
+    void set_script_key_callback(std::function<void(int)> fn) { script_key_ = std::move(fn); }
 
     /// One host key event. Applied at once when the gates permit, queued
     /// otherwise — see the SERIALISATION block above for the gates.
@@ -307,6 +328,20 @@ public:
     {
         if (!sink_) return;                       // events before attach()
         const int i = static_cast<int>(sc);
+        if (i >= SC_DIGIT_1 && i <= SC_DIGIT_8) {
+            const std::size_t d = static_cast<std::size_t>(i - SC_DIGIT_1);
+            if (pressed) {
+                if (script_down_.test(d)) return;   // autorepeat of a held chord
+                if (script_chord_held()) {
+                    script_down_.set(d);
+                    if (script_key_) script_key_(static_cast<int>(d) + 1);
+                    return;
+                }
+            } else if (script_down_.test(d)) {
+                script_down_.reset(d);              // its release is the host's too
+                return;
+            }
+        }
 
         if (in_range(i)) {
             // AUTOREPEAT IS NOT A KEYSTROKE. The host says a key it already
@@ -360,6 +395,7 @@ public:
     {
         if (!sink_) return;
         pending_.clear();
+        script_down_.reset();   // a key-up that went elsewhere must not eat a later press
         for (std::size_t i = 0; i < MAX_KEYS; ++i) {
             if (!sink_down_.test(i)) continue;
             sink_->set_key(static_cast<Scancode>(i), false);
@@ -402,6 +438,17 @@ private:
     };
 
     static bool in_range(int sc) { return sc >= 0 && sc < MAX_KEYS; }
+
+    /// Alt held, and nothing else: Ctrl/Shift/GUI with it make a different
+    /// chord (Ctrl+Alt is the pointer release; Shift+Alt a guest compound).
+    bool script_chord_held() const
+    {
+        const bool alt  = host_down_.test(SC_LALT) || host_down_.test(SC_RALT);
+        const bool more = host_down_.test(SC_LCTRL) || host_down_.test(SC_RCTRL) ||
+                          host_down_.test(SC_LSHIFT) || host_down_.test(SC_RSHIFT) ||
+                          host_down_.test(SC_LGUI) || host_down_.test(SC_RGUI);
+        return alt && !more;
+    }
 
     /// Gates (b) and (c). Gate (a) — the queue being empty — is checked by the
     /// caller, because the drain deliberately violates it: it IS the head.
@@ -506,6 +553,10 @@ private:
     /// Gate (c): a non-modifier press has been applied that no emulated frame
     /// has sampled yet.
     bool key_awaiting_frame_ = false;
+    /// GH #26 WP5 — the digits 1..8 whose press was taken as a script host key,
+    /// so their release is swallowed too (even if Alt was let go first).
+    std::bitset<8> script_down_;
+    std::function<void(int)> script_key_;
 };
 
 }  // namespace host_key_latch
