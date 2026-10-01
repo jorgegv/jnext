@@ -20,6 +20,7 @@
 #include "core/emulator_config.h"
 #include "peripheral/copper.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdint>
 #include <string>
@@ -1611,6 +1612,136 @@ static void test_gh290_copper_line_int_target() {
               std::to_string(on_next) + " (want 1)");
 }
 
+// ── GH #293 — no mode-11 restart at the raw frame start ──────────────
+//
+// copper.vhd:80 restarts a mode-11 program only at vcount_i = 0 and
+// hcount_i = 0, i.e. cvc 0 / hc_ula 0 (zxnext.vhd:3949-3950). jnext also
+// rewound it at the raw frame start (Copper::on_vsync), which at Next 50 Hz
+// is cvc (0 - 64) mod 311 = 247: a program covering the whole frame stalled
+// for its last 64 lines and the DAC held its last value.
+//
+// ZXN_ISSUE2, Next timing 50 Hz, CPU parked in `DI; JR $`, DAC enabled.
+// Program (NEXTEST's audio shape): for v = 0..310, WAIT(v, 0) then
+// MOVE NR 0x2D <- v & 0xFF (DAC channels A and D); HALT after.
+
+namespace {
+struct Gh293Probe {
+    Emulator* emu = nullptr;
+    int  dac_a_writes = 0;
+    bool capture = false;
+    std::vector<int16_t> left_in_window;   // raw lines 1..62 of the frame
+};
+}
+
+static void gh293_build(Emulator& emu, Gh293Probe& probe) {
+    probe.emu = &emu;
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    cfg.dac_write_callback = [&probe](uint64_t, int ch, uint8_t) {
+        if (ch == 0) ++probe.dac_a_writes;
+    };
+    cfg.audio_capture_callback = [&probe](const int16_t* pair, int count) {
+        if (!probe.capture) return;
+        Emulator& e = *probe.emu;
+        const uint64_t line = (e.clock().get() - e.current_frame_cycle())
+                            / e.timing().master_cycles_per_line;
+        if (line >= 1 && line <= 62)
+            for (int i = 0; i < count; ++i) probe.left_in_window.push_back(pair[2 * i]);
+    };
+    emu.init(cfg);
+    emu.mmu().write(0xC000, 0xF3);   // DI
+    emu.mmu().write(0xC001, 0x18);   // JR $
+    emu.mmu().write(0xC002, 0xFE);
+    auto regs = emu.cpu().get_registers();
+    regs.PC = 0xC000;
+    emu.cpu().set_registers(regs);
+
+    nr_write(emu, 0x08, 0x08);       // NR 0x08 bit 3: DAC enable
+    for (int v = 0; v <= 310; ++v) {
+        program_word(emu, static_cast<uint16_t>(2 * v), enc_wait(0, static_cast<uint16_t>(v)));
+        program_word(emu, static_cast<uint16_t>(2 * v + 1),
+                     enc_move(0x2D, static_cast<uint8_t>(v & 0xFF)));
+    }
+    program_word(emu, 622, enc_wait(0, 511));   // HALT
+    set_copper_mode(emu, 0);
+    set_copper_mode(emu, 3);
+    emu.run_frame();
+    emu.run_frame();
+}
+
+static void test_gh293_no_frame_start_restart() {
+    set_group("GH293-FrameRestart");
+
+    {
+        Emulator emu;
+        Gh293Probe probe;
+        gh293_build(emu, probe);
+
+        probe.dac_a_writes = 0;
+        probe.capture = true;
+        emu.run_frame();
+        probe.capture = false;
+        const int writes = probe.dac_a_writes;
+        check("COP-GH293-01",
+              "a mode-11 program with one DAC MOVE per cvc line makes 311 writes "
+              "per frame: no restart at the raw frame start (copper.vhd:80-110)",
+              writes == 311,
+              "writes=" + std::to_string(writes) + " (want 311; 247 = rewound at raw line 0)");
+
+        std::vector<int16_t> levels = probe.left_in_window;
+        std::sort(levels.begin(), levels.end());
+        const size_t distinct = static_cast<size_t>(
+            std::unique(levels.begin(), levels.end()) - levels.begin());
+        check("COP-GH293-03",
+              "the DAC ramp written over cvc 248..309 reaches the mixer: the left "
+              "output takes many levels there, not one held value (copper.vhd:80)",
+              distinct >= 60,
+              "distinct=" + std::to_string(distinct) + " of " +
+                  std::to_string(probe.left_in_window.size()) + " samples (want >= 60)");
+    }
+
+    {
+        Emulator emu;
+        Gh293Probe probe;
+        gh293_build(emu, probe);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
+
+        const uint64_t f = emu.current_frame_cycle();
+        bool ok = gh290_run_to(emu, gh290_at(emu, f, 30, 300));
+        const uint16_t pc30 = emu.copper().pc();
+        check("COP-GH293-02",
+              "at raw line 30 (cvc 277) the Copper is at WAIT(278), not rewound to "
+              "its first WAIT at the raw frame start (copper.vhd:80-83)",
+              ok && pc30 == 556,
+              "pc=" + std::to_string(pc30) + " (want 556; 0 = rewound at raw line 0)");
+
+        // The reporter's hypothesis: an NR 0x62 write that keeps mode 11 but
+        // changes the upload index (the per-frame re-upload) must not restart.
+        ok = ok && gh290_run_to(emu, gh290_at(emu, f, 200, 300));
+        const uint16_t pc_before = emu.copper().pc();
+        probe.dac_a_writes = 0;
+        nr_write(emu, 0x61, 0x00);
+        nr_write(emu, 0x62, 0xC1);
+        ok = ok && gh290_run_to(emu, gh290_at(emu, f, 200, 400));
+        const uint16_t pc_after = emu.copper().pc();
+        // On to cvc 0 (raw line 64 of the next frame): the writes for cvc
+        // 137..310 all land after the NR write.
+        ok = ok && gh290_run_to(emu, f + emu.timing().master_cycles_per_frame
+                                       + 64 * emu.timing().master_cycles_per_line);
+        const int total = probe.dac_a_writes;
+        check("COP-GH293-04",
+              "a mid-frame NR 0x61/0x62 write keeping mode 11 (upload index changed) "
+              "does not restart the Copper (copper.vhd:70; zxnext.vhd:5426-5431)",
+              ok && pc_before == 274 && pc_after == pc_before &&
+                  emu.nextreg().read(0x62) == 0xC1 && total == 311 - 137,
+              "pc " + std::to_string(pc_before) + " -> " + std::to_string(pc_after) +
+                  " (want 274 -> 274), writes to frame end=" + std::to_string(total) +
+                  " (want 174)");
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1654,6 +1785,9 @@ int main() {
     test_gh290_frameless_copper();
     test_gh290_copper_line_int_target();
     std::printf("  Group: GH290-CvcReload — done\n");
+
+    test_gh293_no_frame_start_restart();
+    std::printf("  Group: GH293-FrameRestart — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

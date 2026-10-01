@@ -27,7 +27,7 @@ mentions them, so a test can no longer be absent from this document.
 | Layer2                                     |   220 |  220 |    0 |    0 |       0 |          0 |
 | Sprites                                    |   217 |  217 |    0 |    0 |       0 |          0 |
 | Tilemap                                    |    98 |   98 |    0 |    0 |       0 |          0 |
-| Copper                                     |   100 |  100 |    0 |    0 |       0 |          0 |
+| Copper                                     |   105 |  105 |    0 |    0 |       0 |          0 |
 | Compositor                                 |   284 |  284 |    0 |    0 |       0 |          0 |
 | Audio                                      |   221 |  221 |    0 |    0 |       0 |          0 |
 | DMA                                        |   160 |  160 |    0 |    0 |       0 |          0 |
@@ -54,7 +54,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: mmu_integration_test            |    94 |   94 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |    17 |   17 |    0 |    0 |       0 |          0 |
 | Companion: compositor_integration_test     |    50 |   50 |    0 |    0 |       0 |          0 |
-| Companion: copper_integration_test         |    21 |   21 |    0 |    0 |       0 |          0 |
+| Companion: copper_integration_test         |    25 |   25 |    0 |    0 |       0 |          0 |
 | Companion: tilemap_fetch_split_test        |    12 |   12 |    0 |    0 |       0 |          0 |
 | Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
 | Companion: divmmc_integration_test         |     6 |    6 |    0 |    0 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    30 |   24 |    0 |    6 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5407 | 5396 |    0 |   11 |       0 |          0 |
+| **Total**                                  |  5416 | 5405 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **5407**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5092**. Rows the 125 suites declared in `test/unit-tests.conf` run live: **11458**.
+Rows the sections above carry: **5416**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5097**. Rows the 125 suites declared in `test/unit-tests.conf` run live: **11463**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -1222,60 +1222,65 @@ Notes and rationale: [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md).
 | CTL-06c | Mode 10 resume keeps addr, never touches 0 | copper.vhd:70-85 | pass | test/copper/copper_test.cpp:1047 |
 | CTL-07 | Mode change clears pending and resets on 01 | copper.vhd:78 | pass | test/copper/copper_test.cpp:1070 |
 | CTL-08 | Same-mode 01 rewrite does not reset addr | copper.vhd:70 | pass | test/copper/copper_test.cpp:1086 |
-| CTL-09 | Mode 01 -> 11 resets addr | copper.vhd:74-76,80-83 | pass | test/copper/copper_test.cpp:1100 |
-| CTL-10 | Mode 11 -> 10 preserves addr | copper.vhd:70-78 | pass | test/copper/copper_test.cpp:1116 |
-| TIM-01 | MOVE consumes 2 copper clocks | copper.vhd:87-89,100-108 | pass | test/copper/copper_test.cpp:1144 |
-| TIM-02 | WAIT mismatch stalls addr | copper.vhd:92-98 | pass | test/copper/copper_test.cpp:1156 |
-| TIM-03 | 10 consecutive MOVEs emit 10 pulses | copper.vhd:85-110 | pass | test/copper/copper_test.cpp:1172 |
-| TIM-04 | WAIT -> MOVE no extra dead cycle | copper.vhd:85-110 | pass | test/copper/copper_test.cpp:1191 |
-| TIM-05 | Dual-port fetch returns freshly-written data | zxnext.vhd:3959-3998 | pass | test/copper/copper_test.cpp:1208 |
-| TIM-CYC-02 | a satisfied Copper WAIT advances on a 28 MHz cycle, not on a Z80 instruction: an 8-MOVE burst behind an already-satisfied WAIT still retires inside ONE instruction window, the same one an unguarded burst needs [copper.vhd:92-98 WAIT advance + :100-108 MOVE, clocked by zxnext.vhd:3944 i_CLK_28; hcount_i/vcount_i = hc_ula/cvc per zxnext.vhd:3949-3950] | device/copper.vhd:92-98,100-108, zxnext.vhd:3944,3949-3950 | pass | test/copper/copper_integration_test.cpp:293 |
-| OFS-01 | Default offset = 0 after reset (5024) | zxnext.vhd:5024 | pass | test/copper/copper_test.cpp:1243 |
-| OFS-02 | offset=0x20: WAIT(0,0x20) fires at raw vc=0 (462) | zxula_timing.vhd:462 | pass | test/copper/copper_test.cpp:1266 |
-| OFS-03 | WAIT(0,10) + offset=10 fires at raw vc=0 (cvc, 462/94) | zxula_timing.vhd:462, copper.vhd:94 | pass | test/copper/copper_test.cpp:1288 |
-| OFS-04 | NR 0x64 read-back returns written value (6090) | zxnext.vhd:6090 | pass | test/copper/copper_test.cpp:1299 |
-| OFS-05 | Hard reset clears offset to 0 (5024) | zxnext.vhd:5024 | pass | test/copper/copper_test.cpp:1310 |
-| OFS-06 | cvc wraps at c_max_vc; mode-11 restart re-fires MOVE (463-464) | zxula_timing.vhd:463-464, copper.vhd:80 | pass | test/copper/copper_test.cpp:1339 |
-| ARB-01 | Cycle A: Copper write wins (pulse=Copper's 0x55) (4769-4777) | zxnext.vhd:4769,4775-4777 | pass | test/copper/copper_test.cpp:1420 |
-| ARB-02 | Deferred CPU write not dropped: pulses=[0x55,0xAA] (4769) | zxnext.vhd:4769 | pass | test/copper/copper_test.cpp:1446 |
-| ARB-03 | Priority mux: Copper NR 0x40 + CPU NR 0x07 both land (4769-4777) | zxnext.vhd:4769-4777 | pass | test/copper/copper_test.cpp:1475 |
-| ARB-04 | Copper cannot address NR 0x80..0xFF | zxnext.vhd:4731 | pass | test/copper/copper_test.cpp:1373 |
-| ARB-05 | Mode 00 never issues copper write (VHDL copper.vhd:92-97) | copper.vhd:92-97 | pass | test/copper/copper_test.cpp:1391 |
-| ARB-06 | Copper MOVE NR 0x02 bit 3 -> NmiSource MF latch + FSM IDLE->FETCH (zxnext.vhd:3830-3832, :2090, :2095-2128) | zxnext.vhd:3830-3832,2090,2095-2128 | pass | test/copper/copper_test.cpp:1526 |
-| MUT-01 | Copper writing NR 0x62=0x00 stops itself | copper.vhd | pass | test/copper/copper_test.cpp:1588 |
-| MUT-02 | Copper self-switch to mode 10 preserves addr | copper.vhd:70-78 | pass | test/copper/copper_test.cpp:1608 |
-| MUT-03 | Copper NR 0x62 write updates CPU addr_hi only, preserves low byte; pc independent | zxnext.vhd:3968/3989, zxnext.vhd:5430-5431 | pass | test/copper/copper_test.cpp:1640 |
-| MUT-04 | Copper MOVE NR 0x60 self-modifies RAM[8].MSB | zxnext.vhd:3977,3978,4884-4886,5419-5424 | pass | test/copper/copper_test.cpp:1665 |
-| EDG-01 | pc wraps at 1024 silently | copper.vhd:48,108 | pass | test/copper/copper_test.cpp:1687 |
-| EDG-02 | Impossible WAIT keeps pc=0 forever | copper.vhd:92-96 | pass | test/copper/copper_test.cpp:1703 |
-| EDG-03 | Instr[1023] MOVE fires exactly once on wrap | copper.vhd:108 | pass | test/copper/copper_test.cpp:1721 |
-| EDG-04 | MOVE pulse mid-flight is preserved; stop prevents next | zxnext.vhd:4709,4729, copper.vhd:78 | pass | test/copper/copper_test.cpp:1743 |
-| EDG-05 | Mode 11 vblank restart suppresses pending, re-fires next cycle | copper.vhd:80-83 | pass | test/copper/copper_test.cpp:1764 |
-| EDG-06 | WAIT hpos=0 +12 constant boundary | copper.vhd:94 | pass | test/copper/copper_test.cpp:1779 |
-| EDG-07 | All-WAIT impossible program emits no writes | copper.vhd:92-98 | pass | test/copper/copper_test.cpp:1794 |
-| EDG-08 | All-NOP program wraps silently | copper.vhd:104-108 | pass | test/copper/copper_test.cpp:1810 |
-| EDG-09 | Mode toggling sequence resets/preserves correctly | copper.vhd:70-78 | pass | test/copper/copper_test.cpp:1836 |
-| COP-RST-01 | Copper reset clears pc, mode | copper.vhd:60-65 | pass | test/copper/copper_test.cpp:1861 |
-| COP-RST-02 | NR state fresh: pointer=0, write stores land at word 0 | zxnext.vhd:5020-5024 | pass | test/copper/copper_test.cpp:1876 |
-| COP-RST-03 | Fresh reset + NR 0x62=0x00 is a no-op (pc=0, mode=0) | copper.vhd:50,70 | pass | test/copper/copper_test.cpp:1892 |
-| COP-RST-04 | Soft reset preserves Copper instruction RAM (dpram2 has no reset) | zxnext.vhd:3959-3996, copper.vhd:60-65 | pass | test/copper/copper_test.cpp:1921 |
-| T58-CVC-01 | Emulator::init(ZXN_ISSUE2) failed | zxula_timing.vhd:204,238,457-470, zxnext.vhd:6697-6700,6720 | pass | test/copper/copper_integration_test.cpp:453 |
-| GH181-HCULA-01 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxula_timing.vhd:423-436, zxnext.vhd:3949,6737 | pass | test/copper/copper_integration_test.cpp:586 |
-| GH181-HCULA-02 | hpos step of 50 == 400 raw PIXELS between two WAITs on one cvc line (7 MHz hc_ula), not 400 master cycles = 100 pixels [copper.vhd:94; zxnext.vhd:3949 + :6737] | copper.vhd:94, zxula_timing.vhd:427-438 | pass | test/copper/copper_integration_test.cpp:604 |
-| GH181-HCULA-03 | show512 WAIT(vpos=95,hpos=52) MOVE lands on raw line 160 (fb row 128) at raw hc 97, not raw line 159 (fb row 127) [copper.vhd:94; zxula_timing.vhd:423-436, :457-470] | copper.vhd:94, zxula_timing.vhd:423-436,457-470 | pass | test/copper/copper_integration_test.cpp:627 |
+| CTL-08b | Same-mode 11 rewrite with a new index does not reset addr | zxnext.vhd:5429-5431, copper.vhd:70 | pass | test/copper/copper_test.cpp:1105 |
+| CTL-09 | Mode 01 -> 11 resets addr | copper.vhd:74-76,80-83 | pass | test/copper/copper_test.cpp:1119 |
+| CTL-10 | Mode 11 -> 10 preserves addr | copper.vhd:70-78 | pass | test/copper/copper_test.cpp:1135 |
+| TIM-01 | MOVE consumes 2 copper clocks | copper.vhd:87-89,100-108 | pass | test/copper/copper_test.cpp:1163 |
+| TIM-02 | WAIT mismatch stalls addr | copper.vhd:92-98 | pass | test/copper/copper_test.cpp:1175 |
+| TIM-03 | 10 consecutive MOVEs emit 10 pulses | copper.vhd:85-110 | pass | test/copper/copper_test.cpp:1191 |
+| TIM-04 | WAIT -> MOVE no extra dead cycle | copper.vhd:85-110 | pass | test/copper/copper_test.cpp:1210 |
+| TIM-05 | Dual-port fetch returns freshly-written data | zxnext.vhd:3959-3998 | pass | test/copper/copper_test.cpp:1227 |
+| TIM-CYC-02 | a satisfied Copper WAIT advances on a 28 MHz cycle, not on a Z80 instruction: an 8-MOVE burst behind an already-satisfied WAIT still retires inside ONE instruction window, the same one an unguarded burst needs [copper.vhd:92-98 WAIT advance + :100-108 MOVE, clocked by zxnext.vhd:3944 i_CLK_28; hcount_i/vcount_i = hc_ula/cvc per zxnext.vhd:3949-3950] | device/copper.vhd:92-98,100-108, zxnext.vhd:3944,3949-3950 | pass | test/copper/copper_integration_test.cpp:294 |
+| OFS-01 | Default offset = 0 after reset (5024) | zxnext.vhd:5024 | pass | test/copper/copper_test.cpp:1262 |
+| OFS-02 | offset=0x20: WAIT(0,0x20) fires at raw vc=0 (462) | zxula_timing.vhd:462 | pass | test/copper/copper_test.cpp:1285 |
+| OFS-03 | WAIT(0,10) + offset=10 fires at raw vc=0 (cvc, 462/94) | zxula_timing.vhd:462, copper.vhd:94 | pass | test/copper/copper_test.cpp:1307 |
+| OFS-04 | NR 0x64 read-back returns written value (6090) | zxnext.vhd:6090 | pass | test/copper/copper_test.cpp:1318 |
+| OFS-05 | Hard reset clears offset to 0 (5024) | zxnext.vhd:5024 | pass | test/copper/copper_test.cpp:1329 |
+| OFS-06 | cvc wraps at c_max_vc; mode-11 restart re-fires MOVE (463-464) | zxula_timing.vhd:463-464, copper.vhd:80 | pass | test/copper/copper_test.cpp:1358 |
+| ARB-01 | Cycle A: Copper write wins (pulse=Copper's 0x55) (4769-4777) | zxnext.vhd:4769,4775-4777 | pass | test/copper/copper_test.cpp:1439 |
+| ARB-02 | Deferred CPU write not dropped: pulses=[0x55,0xAA] (4769) | zxnext.vhd:4769 | pass | test/copper/copper_test.cpp:1465 |
+| ARB-03 | Priority mux: Copper NR 0x40 + CPU NR 0x07 both land (4769-4777) | zxnext.vhd:4769-4777 | pass | test/copper/copper_test.cpp:1494 |
+| ARB-04 | Copper cannot address NR 0x80..0xFF | zxnext.vhd:4731 | pass | test/copper/copper_test.cpp:1392 |
+| ARB-05 | Mode 00 never issues copper write (VHDL copper.vhd:92-97) | copper.vhd:92-97 | pass | test/copper/copper_test.cpp:1410 |
+| ARB-06 | Copper MOVE NR 0x02 bit 3 -> NmiSource MF latch + FSM IDLE->FETCH (zxnext.vhd:3830-3832, :2090, :2095-2128) | zxnext.vhd:3830-3832,2090,2095-2128 | pass | test/copper/copper_test.cpp:1545 |
+| MUT-01 | Copper writing NR 0x62=0x00 stops itself | copper.vhd | pass | test/copper/copper_test.cpp:1607 |
+| MUT-02 | Copper self-switch to mode 10 preserves addr | copper.vhd:70-78 | pass | test/copper/copper_test.cpp:1627 |
+| MUT-03 | Copper NR 0x62 write updates CPU addr_hi only, preserves low byte; pc independent | zxnext.vhd:3968/3989, zxnext.vhd:5430-5431 | pass | test/copper/copper_test.cpp:1659 |
+| MUT-04 | Copper MOVE NR 0x60 self-modifies RAM[8].MSB | zxnext.vhd:3977,3978,4884-4886,5419-5424 | pass | test/copper/copper_test.cpp:1684 |
+| EDG-01 | pc wraps at 1024 silently | copper.vhd:48,108 | pass | test/copper/copper_test.cpp:1706 |
+| EDG-02 | Impossible WAIT keeps pc=0 forever | copper.vhd:92-96 | pass | test/copper/copper_test.cpp:1722 |
+| EDG-03 | Instr[1023] MOVE fires exactly once on wrap | copper.vhd:108 | pass | test/copper/copper_test.cpp:1740 |
+| EDG-04 | MOVE pulse mid-flight is preserved; stop prevents next | zxnext.vhd:4709,4729, copper.vhd:78 | pass | test/copper/copper_test.cpp:1762 |
+| EDG-05 | Mode 11 vblank restart suppresses pending, re-fires next cycle | copper.vhd:80-83 | pass | test/copper/copper_test.cpp:1783 |
+| EDG-06 | WAIT hpos=0 +12 constant boundary | copper.vhd:94 | pass | test/copper/copper_test.cpp:1798 |
+| EDG-07 | All-WAIT impossible program emits no writes | copper.vhd:92-98 | pass | test/copper/copper_test.cpp:1813 |
+| EDG-08 | All-NOP program wraps silently | copper.vhd:104-108 | pass | test/copper/copper_test.cpp:1829 |
+| EDG-09 | Mode toggling sequence resets/preserves correctly | copper.vhd:70-78 | pass | test/copper/copper_test.cpp:1855 |
+| COP-RST-01 | Copper reset clears pc, mode | copper.vhd:60-65 | pass | test/copper/copper_test.cpp:1880 |
+| COP-RST-02 | NR state fresh: pointer=0, write stores land at word 0 | zxnext.vhd:5020-5024 | pass | test/copper/copper_test.cpp:1895 |
+| COP-RST-03 | Fresh reset + NR 0x62=0x00 is a no-op (pc=0, mode=0) | copper.vhd:50,70 | pass | test/copper/copper_test.cpp:1911 |
+| COP-RST-04 | Soft reset preserves Copper instruction RAM (dpram2 has no reset) | zxnext.vhd:3959-3996, copper.vhd:60-65 | pass | test/copper/copper_test.cpp:1940 |
+| T58-CVC-01 | Emulator::init(ZXN_ISSUE2) failed | zxula_timing.vhd:204,238,457-470, zxnext.vhd:6697-6700,6720 | pass | test/copper/copper_integration_test.cpp:454 |
+| GH181-HCULA-01 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxula_timing.vhd:423-436, zxnext.vhd:3949,6737 | pass | test/copper/copper_integration_test.cpp:587 |
+| GH181-HCULA-02 | hpos step of 50 == 400 raw PIXELS between two WAITs on one cvc line (7 MHz hc_ula), not 400 master cycles = 100 pixels [copper.vhd:94; zxnext.vhd:3949 + :6737] | copper.vhd:94, zxula_timing.vhd:427-438 | pass | test/copper/copper_integration_test.cpp:605 |
+| GH181-HCULA-03 | show512 WAIT(vpos=95,hpos=52) MOVE lands on raw line 160 (fb row 128) at raw hc 97, not raw line 159 (fb row 127) [copper.vhd:94; zxula_timing.vhd:423-436, :457-470] | copper.vhd:94, zxula_timing.vhd:423-436,457-470 | pass | test/copper/copper_integration_test.cpp:628 |
 | VT-GH181-01 | 48K timing: hc_ula==0 at raw hc = c_min_hactive - 11 = 117 (VHDL zxula_timing.vhd:261,423-436,344) | zxula_timing.vhd:261,423-436,344 | pass | test/videotiming/videotiming_test.cpp:219 |
 | VT-GH181-02 | 128K timing: hc_ula==0 at raw hc = c_min_hactive - 11 = 125 (VHDL zxula_timing.vhd:195,423-436,344) | zxula_timing.vhd:195,423-436,344 | pass | test/videotiming/videotiming_test.cpp:228 |
 | VT-GH181-03 | +3 timing: hc_ula==0 at raw hc = c_min_hactive - 11 = 125 (VHDL zxula_timing.vhd:195,423-436,344) | zxula_timing.vhd:195,423-436,344 | pass | test/videotiming/videotiming_test.cpp:237 |
 | VT-GH181-04 | Pentagon timing: hc_ula==0 at raw hc = c_min_hactive - 11 = 117 (VHDL zxula_timing.vhd:159,423-436,344) | zxula_timing.vhd:159,423-436,344 | pass | test/videotiming/videotiming_test.cpp:246 |
 | VT-GH181-05 | Next (ZXN_ISSUE2, 128K-class slot): hc_ula==0 at raw hc = 125 (VHDL zxula_timing.vhd:195,423-436,344) | zxula_timing.vhd:195,423-436,344 | pass | test/videotiming/videotiming_test.cpp:256 |
 | VT-GH181-06 | the registered reset puts hc_ula==0 exactly ONE pixel after the armed origin (VHDL zxula_timing.vhd:424 vs :427-436) | zxula_timing.vhd:424 | pass | test/videotiming/videotiming_test.cpp:268 |
-| COP-GH290-01 | WAIT(v=150) after a mid-frame NR 0x64 = 20 write compares the cvc reloaded at ula_min_vactive (offset 0, raw line 214), not the register (raw 194) (zxnext.vhd:3950; zxula_timing.vhd:457-466) | zxnext.vhd:3950, zxula_timing.vhd:457-466 | pass | test/copper/copper_integration_test.cpp:1429 |
-| COP-GH290-02 | …and from the next frame's reload on it counts from the new offset: the WAIT lands on raw line 194 (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/copper/copper_integration_test.cpp:1450 |
-| COP-GH290-03 | a Copper MOVE NR 0x64 <- 20 on the cycle before the cvc reload is loaded by it: line 100 reads 56 (zxula_timing.vhd:457-462; copper.vhd:94) | zxula_timing.vhd:457-462, copper.vhd:94 | pass | test/copper/copper_integration_test.cpp:1498 |
-| COP-GH290-04 | …and one on the reload's own cycle is not: line 100 reads 36, the register already 20 (zxula_timing.vhd:457-462; zxnext.vhd:5442,6090) | zxula_timing.vhd:457-462, zxnext.vhd:5442,6090 | pass | test/copper/copper_integration_test.cpp:1505 |
-| COP-GH290-05 | no frame events: WAIT(v=20) after NR 0x64 = 20 is satisfied on the reload's line (raw 64), counting from the register as the readback does there, not on raw 84 (zxula_timing.vhd:457-462; zxnext.vhd:3950) | zxula_timing.vhd:457-462, zxnext.vhd:3950 | pass | test/copper/copper_integration_test.cpp:1546 |
-| COP-GH290-06 | a Copper MOVE NR 0x23 = 87 on the cycle before the compare reaches it: the line interrupt fires this frame (zxula_timing.vhd:563-583) | zxula_timing.vhd:563-583 | pass | test/copper/copper_integration_test.cpp:1600 |
-| COP-GH290-07 | …and one on the compare's own cycle is one pixel late: no fire this frame, one the next (zxula_timing.vhd:563-572) | zxula_timing.vhd:563-572 | pass | test/copper/copper_integration_test.cpp:1606 |
+| COP-GH290-01 | WAIT(v=150) after a mid-frame NR 0x64 = 20 write compares the cvc reloaded at ula_min_vactive (offset 0, raw line 214), not the register (raw 194) (zxnext.vhd:3950; zxula_timing.vhd:457-466) | zxnext.vhd:3950, zxula_timing.vhd:457-466 | pass | test/copper/copper_integration_test.cpp:1430 |
+| COP-GH290-02 | …and from the next frame's reload on it counts from the new offset: the WAIT lands on raw line 194 (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/copper/copper_integration_test.cpp:1451 |
+| COP-GH290-03 | a Copper MOVE NR 0x64 <- 20 on the cycle before the cvc reload is loaded by it: line 100 reads 56 (zxula_timing.vhd:457-462; copper.vhd:94) | zxula_timing.vhd:457-462, copper.vhd:94 | pass | test/copper/copper_integration_test.cpp:1499 |
+| COP-GH290-04 | …and one on the reload's own cycle is not: line 100 reads 36, the register already 20 (zxula_timing.vhd:457-462; zxnext.vhd:5442,6090) | zxula_timing.vhd:457-462, zxnext.vhd:5442,6090 | pass | test/copper/copper_integration_test.cpp:1506 |
+| COP-GH290-05 | no frame events: WAIT(v=20) after NR 0x64 = 20 is satisfied on the reload's line (raw 64), counting from the register as the readback does there, not on raw 84 (zxula_timing.vhd:457-462; zxnext.vhd:3950) | zxula_timing.vhd:457-462, zxnext.vhd:3950 | pass | test/copper/copper_integration_test.cpp:1547 |
+| COP-GH290-06 | a Copper MOVE NR 0x23 = 87 on the cycle before the compare reaches it: the line interrupt fires this frame (zxula_timing.vhd:563-583) | zxula_timing.vhd:563-583 | pass | test/copper/copper_integration_test.cpp:1601 |
+| COP-GH290-07 | …and one on the compare's own cycle is one pixel late: no fire this frame, one the next (zxula_timing.vhd:563-572) | zxula_timing.vhd:563-572 | pass | test/copper/copper_integration_test.cpp:1607 |
+| COP-GH293-01 | a mode-11 program with one DAC MOVE per cvc line makes 311 writes per frame: no restart at the raw frame start (copper.vhd:80-110) | copper.vhd:80-110, zxula_timing.vhd:457-470 | pass | test/copper/copper_integration_test.cpp:1686 |
+| COP-GH293-02 | at raw line 30 (cvc 277) the Copper is at WAIT(278), not rewound to its first WAIT at the raw frame start (copper.vhd:80-83) | copper.vhd:80-83, zxnext.vhd:3949-3950 | pass | test/copper/copper_integration_test.cpp:1714 |
+| COP-GH293-03 | the DAC ramp written over cvc 248..309 reaches the mixer: the left output takes many levels there, not one held value (copper.vhd:80) | copper.vhd:80, soundrive.vhd:85-89, audio_mixer.vhd | pass | test/copper/copper_integration_test.cpp:1696 |
+| COP-GH293-04 | a mid-frame NR 0x61/0x62 write keeping mode 11 (upload index changed) does not restart the Copper (copper.vhd:70; zxnext.vhd:5426-5431) | copper.vhd:70, zxnext.vhd:5426-5431 | pass | test/copper/copper_integration_test.cpp:1734 |
 
 ## Compositor — `test/compositor/compositor_test.cpp`
 
@@ -5243,27 +5248,31 @@ Notes and rationale: [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| G117-MPC-01 | 16 Copper MOVEs to NR 0x14 all fire within 3 Z80 instructions (post-G117 cycle-accurate scheduler) | — | pass | test/copper/copper_integration_test.cpp:167 |
-| TIM-CYC-02 | a satisfied Copper WAIT advances on a 28 MHz cycle, not on a Z80 instruction: an 8-MOVE burst behind an already-satisfied WAIT still retires inside ONE instruction window, the same one an unguarded burst needs [copper.vhd:92-98 WAIT advance + :100-108 MOVE, clocked by zxnext.vhd:3944 i_CLK_28; hcount_i/vcount_i = hc_ula/cvc per zxnext.vhd:3949-3950] | copper.vhd:92-98, zxnext.vhd:3944, zxnext.vhd:3949-3950 | pass | test/copper/copper_integration_test.cpp:293 |
-| G65-PRI-01 | Tied-edge CPU vs Copper NR write: CPU value wins as final (VHDL zxnext.vhd:4769-4777 — Copper-priority mux + CPU-held-over) | zxnext.vhd:4769-4777 | pass | test/copper/copper_integration_test.cpp:378 |
-| T58-CVC-01 | Emulator::init(ZXN_ISSUE2) failed | zxula_timing.vhd:204/238/457-470, zxnext.vhd:6697-6700 | pass | test/copper/copper_integration_test.cpp:453 |
-| GH181-HCULA-01 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxula_timing.vhd:423-436 | pass | test/copper/copper_integration_test.cpp:586 |
-| GH181-HCULA-02 | hpos step of 50 == 400 raw PIXELS between two WAITs on one cvc line (7 MHz hc_ula), not 400 master cycles = 100 pixels [copper.vhd:94; zxnext.vhd:3949 + :6737] | copper.vhd:94, zxnext.vhd:3949,6737 | pass | test/copper/copper_integration_test.cpp:604 |
-| GH181-HCULA-03 | show512 WAIT(vpos=95,hpos=52) MOVE lands on raw line 160 (fb row 128) at raw hc 97, not raw line 159 (fb row 127) [copper.vhd:94; zxula_timing.vhd:423-436, :457-470] | copper.vhd:94, zxula_timing.vhd:423-436,457-470 | pass | test/copper/copper_integration_test.cpp:627 |
-| GH181-HCULA-04 | Emulator::init(ZXN_ISSUE2) failed | zxula_timing.vhd:423-436,457-470, copper.vhd:94 | pass | test/copper/copper_integration_test.cpp:716 |
-| GH270-HPOS-01 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxula_timing.vhd:423-436 | pass | test/copper/copper_integration_test.cpp:813 |
-| GH270-HPOS-02 | Emulator::init(ZXN_ISSUE2) failed | — | pass | test/copper/copper_integration_test.cpp:848 |
-| GH270-HPOS-03 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxnext.vhd:5220,5226, layer2.vhd:110-122 | pass | test/copper/copper_integration_test.cpp:997 |
-| GH272-ROWATOM-01 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxula_timing.vhd:423-436, tilemap.vhd:345-354,427 | pass | test/copper/copper_integration_test.cpp:1152 |
-| GH272-ROWATOM-02 | Emulator::init(ZXN_ISSUE2) failed | zxnext.vhd:4739-4777 | pass | test/copper/copper_integration_test.cpp:1287 |
-| GH272-ROWATOM-03 | Emulator::init(ZXN_ISSUE2) failed | zxnext.vhd:4739-4777 | pass | test/copper/copper_integration_test.cpp:1350 |
-| COP-GH290-01 | WAIT(v=150) after a mid-frame NR 0x64 = 20 write compares the cvc reloaded at ula_min_vactive (offset 0, raw line 214), not the register (raw 194) (zxnext.vhd:3950; zxula_timing.vhd:457-466) | zxnext.vhd:3950, zxula_timing.vhd:457-466 | pass | test/copper/copper_integration_test.cpp:1429 |
-| COP-GH290-02 | …and from the next frame's reload on it counts from the new offset: the WAIT lands on raw line 194 (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/copper/copper_integration_test.cpp:1450 |
-| COP-GH290-03 | a Copper MOVE NR 0x64 <- 20 on the cycle before the cvc reload is loaded by it: line 100 reads 56 (zxula_timing.vhd:457-462; copper.vhd:94) | zxula_timing.vhd:457-462, copper.vhd:94 | pass | test/copper/copper_integration_test.cpp:1498 |
-| COP-GH290-04 | …and one on the reload's own cycle is not: line 100 reads 36, the register already 20 (zxula_timing.vhd:457-462; zxnext.vhd:5442,6090) | zxula_timing.vhd:457-462, zxnext.vhd:5442,6090 | pass | test/copper/copper_integration_test.cpp:1505 |
-| COP-GH290-05 | no frame events: WAIT(v=20) after NR 0x64 = 20 is satisfied on the reload's line (raw 64), counting from the register as the readback does there, not on raw 84 (zxula_timing.vhd:457-462; zxnext.vhd:3950) | zxula_timing.vhd:457-462, zxnext.vhd:3950 | pass | test/copper/copper_integration_test.cpp:1546 |
-| COP-GH290-06 | a Copper MOVE NR 0x23 = 87 on the cycle before the compare reaches it: the line interrupt fires this frame (zxula_timing.vhd:563-583) | zxula_timing.vhd:563-583 | pass | test/copper/copper_integration_test.cpp:1600 |
-| COP-GH290-07 | …and one on the compare's own cycle is one pixel late: no fire this frame, one the next (zxula_timing.vhd:563-572) | zxula_timing.vhd:563-572 | pass | test/copper/copper_integration_test.cpp:1606 |
+| G117-MPC-01 | 16 Copper MOVEs to NR 0x14 all fire within 3 Z80 instructions (post-G117 cycle-accurate scheduler) | — | pass | test/copper/copper_integration_test.cpp:168 |
+| TIM-CYC-02 | a satisfied Copper WAIT advances on a 28 MHz cycle, not on a Z80 instruction: an 8-MOVE burst behind an already-satisfied WAIT still retires inside ONE instruction window, the same one an unguarded burst needs [copper.vhd:92-98 WAIT advance + :100-108 MOVE, clocked by zxnext.vhd:3944 i_CLK_28; hcount_i/vcount_i = hc_ula/cvc per zxnext.vhd:3949-3950] | copper.vhd:92-98, zxnext.vhd:3944, zxnext.vhd:3949-3950 | pass | test/copper/copper_integration_test.cpp:294 |
+| G65-PRI-01 | Tied-edge CPU vs Copper NR write: CPU value wins as final (VHDL zxnext.vhd:4769-4777 — Copper-priority mux + CPU-held-over) | zxnext.vhd:4769-4777 | pass | test/copper/copper_integration_test.cpp:379 |
+| T58-CVC-01 | Emulator::init(ZXN_ISSUE2) failed | zxula_timing.vhd:204/238/457-470, zxnext.vhd:6697-6700 | pass | test/copper/copper_integration_test.cpp:454 |
+| GH181-HCULA-01 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxula_timing.vhd:423-436 | pass | test/copper/copper_integration_test.cpp:587 |
+| GH181-HCULA-02 | hpos step of 50 == 400 raw PIXELS between two WAITs on one cvc line (7 MHz hc_ula), not 400 master cycles = 100 pixels [copper.vhd:94; zxnext.vhd:3949 + :6737] | copper.vhd:94, zxnext.vhd:3949,6737 | pass | test/copper/copper_integration_test.cpp:605 |
+| GH181-HCULA-03 | show512 WAIT(vpos=95,hpos=52) MOVE lands on raw line 160 (fb row 128) at raw hc 97, not raw line 159 (fb row 127) [copper.vhd:94; zxula_timing.vhd:423-436, :457-470] | copper.vhd:94, zxula_timing.vhd:423-436,457-470 | pass | test/copper/copper_integration_test.cpp:628 |
+| GH181-HCULA-04 | Emulator::init(ZXN_ISSUE2) failed | zxula_timing.vhd:423-436,457-470, copper.vhd:94 | pass | test/copper/copper_integration_test.cpp:717 |
+| GH270-HPOS-01 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxula_timing.vhd:423-436 | pass | test/copper/copper_integration_test.cpp:814 |
+| GH270-HPOS-02 | Emulator::init(ZXN_ISSUE2) failed | — | pass | test/copper/copper_integration_test.cpp:849 |
+| GH270-HPOS-03 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxnext.vhd:5220,5226, layer2.vhd:110-122 | pass | test/copper/copper_integration_test.cpp:998 |
+| GH272-ROWATOM-01 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxula_timing.vhd:423-436, tilemap.vhd:345-354,427 | pass | test/copper/copper_integration_test.cpp:1153 |
+| GH272-ROWATOM-02 | Emulator::init(ZXN_ISSUE2) failed | zxnext.vhd:4739-4777 | pass | test/copper/copper_integration_test.cpp:1288 |
+| GH272-ROWATOM-03 | Emulator::init(ZXN_ISSUE2) failed | zxnext.vhd:4739-4777 | pass | test/copper/copper_integration_test.cpp:1351 |
+| COP-GH290-01 | WAIT(v=150) after a mid-frame NR 0x64 = 20 write compares the cvc reloaded at ula_min_vactive (offset 0, raw line 214), not the register (raw 194) (zxnext.vhd:3950; zxula_timing.vhd:457-466) | zxnext.vhd:3950, zxula_timing.vhd:457-466 | pass | test/copper/copper_integration_test.cpp:1430 |
+| COP-GH290-02 | …and from the next frame's reload on it counts from the new offset: the WAIT lands on raw line 194 (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/copper/copper_integration_test.cpp:1451 |
+| COP-GH290-03 | a Copper MOVE NR 0x64 <- 20 on the cycle before the cvc reload is loaded by it: line 100 reads 56 (zxula_timing.vhd:457-462; copper.vhd:94) | zxula_timing.vhd:457-462, copper.vhd:94 | pass | test/copper/copper_integration_test.cpp:1499 |
+| COP-GH290-04 | …and one on the reload's own cycle is not: line 100 reads 36, the register already 20 (zxula_timing.vhd:457-462; zxnext.vhd:5442,6090) | zxula_timing.vhd:457-462, zxnext.vhd:5442,6090 | pass | test/copper/copper_integration_test.cpp:1506 |
+| COP-GH290-05 | no frame events: WAIT(v=20) after NR 0x64 = 20 is satisfied on the reload's line (raw 64), counting from the register as the readback does there, not on raw 84 (zxula_timing.vhd:457-462; zxnext.vhd:3950) | zxula_timing.vhd:457-462, zxnext.vhd:3950 | pass | test/copper/copper_integration_test.cpp:1547 |
+| COP-GH290-06 | a Copper MOVE NR 0x23 = 87 on the cycle before the compare reaches it: the line interrupt fires this frame (zxula_timing.vhd:563-583) | zxula_timing.vhd:563-583 | pass | test/copper/copper_integration_test.cpp:1601 |
+| COP-GH290-07 | …and one on the compare's own cycle is one pixel late: no fire this frame, one the next (zxula_timing.vhd:563-572) | zxula_timing.vhd:563-572 | pass | test/copper/copper_integration_test.cpp:1607 |
+| COP-GH293-01 | a mode-11 program with one DAC MOVE per cvc line makes 311 writes per frame: no restart at the raw frame start (copper.vhd:80-110) | copper.vhd:80-110 | pass | test/copper/copper_integration_test.cpp:1686 |
+| COP-GH293-03 | the DAC ramp written over cvc 248..309 reaches the mixer: the left output takes many levels there, not one held value (copper.vhd:80) | copper.vhd:80 | pass | test/copper/copper_integration_test.cpp:1696 |
+| COP-GH293-02 | at raw line 30 (cvc 277) the Copper is at WAIT(278), not rewound to its first WAIT at the raw frame start (copper.vhd:80-83) | copper.vhd:80-83 | pass | test/copper/copper_integration_test.cpp:1714 |
+| COP-GH293-04 | a mid-frame NR 0x61/0x62 write keeping mode 11 (upload index changed) does not restart the Copper (copper.vhd:70; zxnext.vhd:5426-5431) | copper.vhd:70, zxnext.vhd:5426-5431 | pass | test/copper/copper_integration_test.cpp:1734 |
 
 ### Companion regression suite — `test/tilemap/tilemap_fetch_split_test.cpp`
 

@@ -88,7 +88,7 @@ master cycles, so a guest that has switched to 60 Hz paces at 60 fps.
 A frame is not necessarily one call, though. The debugger pauses by returning
 from inside the inner loop, part-way through a frame, so `frame_in_progress_`
 records that the next call must resume the half-executed frame rather than
-start a new one. Restarting would rewind the Copper and wipe the change logs of
+start a new one. Restarting would wipe the change logs of
 a frame that is still in flight — which is exactly the state a developer is
 looking at when they hit a breakpoint mid-screen.
 

@@ -107,10 +107,6 @@ public:
         execute(hc, vc, nextreg, offset_);
     }
 
-    /// Called at frame start (vc=0, hc=0).
-    /// In mode 11, resets PC to 0.
-    void on_vsync();
-
     // ── NextREG write handlers ──────────────────────────────────────
 
     /// NextREG 0x60 — copper data (8-bit write, auto-increment addr).

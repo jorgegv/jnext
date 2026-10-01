@@ -1088,6 +1088,25 @@ void group4_modes() {
               fmt("before=%u after=%u", before, cu.pc()));
     }
 
+    // CTL-08b (GH #293): the same for mode 11, with the upload index changed
+    // in the same write — what a program re-uploading half its list each
+    // frame does. NR 0x62 loads only nr_62_copper_mode and nr_copper_addr
+    // (10 downto 8) (zxnext.vhd:5429-5431); nr_copper_addr is the CPU's write
+    // pointer, and an unchanged mode skips copper.vhd:70's branch.
+    {
+        reset_both(cu, nr);
+        for (int i = 0; i < 10; ++i) program_word(cu, i, enc_move(0x00, 0));
+        set_mode(cu, 3);
+        cu.execute(12, 1, nr);  // mode change -> pc=0 (vc=1: no restart)
+        for (int i = 0; i < 7; ++i) cu.execute(12, 1, nr);  // pc=7
+        uint16_t before = cu.pc();
+        cu.write_reg_0x62(0xC2);  // same mode 11, write-address bits 10:8 = 2
+        cu.execute(12, 1, nr);    // next NOP (pc=8), NOT a reset
+        check("CTL-08b", "Same-mode 11 rewrite with a new index does not reset addr",
+              before == 7 && cu.pc() == 8 && cu.read_reg_0x62() == 0xC2,
+              fmt("before=%u after=%u nr62=0x%02x", before, cu.pc(), cu.read_reg_0x62()));
+    }
+
     // CTL-09: Mode 01 -> 11 mid-execution. New state 11 triggers reset.
     {
         reset_both(cu, nr);

@@ -8749,8 +8749,9 @@ void Emulator::begin_new_frame()
         rzx_frame_instruction_count_ = 0;
     }
 
-    // Notify copper of frame start (resets PC in mode 11).
-    copper_.on_vsync();
+    // No Copper action here: the mode-11 restart is at cvc 0 / hc_ula 0
+    // (copper.vhd:80), inside Copper::execute(), not at the raw frame start
+    // (GH #293).
 
     // Initialize per-line fallback array to current value.
     // The copper will update individual lines during execution.
@@ -9373,9 +9374,10 @@ void Emulator::run_frame()
     // one of the actions in begin_new_frame() is a FRAME-START action, and re-running
     // them mid-frame corrupts the frame that is still in flight:
     //
-    //   * copper_.on_vsync() rewinds the Copper's PC. A Copper program restarted at
-    //     mid-frame re-executes its WAITs against scanlines that have already gone by,
-    //     so it never matches again and writes NOTHING for the rest of the frame.
+    //   * copper_.on_vsync() rewound the Copper's PC (removed by GH #293: hardware has
+    //     no frame-start restart). A Copper program restarted at mid-frame re-executes
+    //     its WAITs against scanlines that have already gone by, so it never matches
+    //     again and writes NOTHING for the rest of the frame.
     //   * palette_/layer2_/sprites_/ula_/tilemap_.start_frame() CLEAR the per-scanline
     //     change logs and re-baseline them to the mid-frame state. Those logs are what
     //     the compositor (and the debugger's video panels) replay to reproduce raster
