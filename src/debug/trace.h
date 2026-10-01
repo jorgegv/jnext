@@ -72,7 +72,7 @@ public:
 
     /// Export all entries to a text file, one line per instruction:
     /// CYCLE  $PC  AF= BC= DE= HL=  AF'= BC'= DE'= HL'=  IX= IY= SP=
-    /// (SP)= I= R= IMn IFF1= IFF2=  MMU=p0 .. p7  [FLAGS]  BYTES
+    /// (SP)= I= R= IMn IFF1= IFF2=  MMU=p0 .. p7 ROM=mask  [FLAGS]  BYTES
     bool export_to_file(const std::string& path) const;
 
 private:

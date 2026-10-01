@@ -4564,7 +4564,7 @@ static void q_wp3_rewind_rows() {
 
 /// INS-13 — the export writes EVERY field of the entry (GH #278 WP3): the ones
 /// GH #276 B4 added (I, R, IM, IFF1/IFF2, the word at SP, the eight MMU pages)
-/// were recorded and never written.
+/// were recorded and never written; GH #280 adds the ROM-slot mask (ROM=).
 static void q_wp3_trace_export_rows() {
     Emulator emu;
     build(emu);
@@ -4595,14 +4595,17 @@ static void q_wp3_trace_export_rows() {
         "  AF'=1111 BC'=2222 DE'=3333 HL'=4444"
         "  IX=5555 IY=6666 SP=FF00"
         "  (SP)=ABCD I=3F R=%02X IM1 IFF1=0 IFF2=1"
-        "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X  [SZ-H-P-C]  00",
+        "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X ROM=03  [SZ-H-P-C]  00",
         static_cast<unsigned long long>(e.cycle), e.r,
         e.mmu[0], e.mmu[1], e.mmu[2], e.mmu[3], e.mmu[4], e.mmu[5], e.mmu[6], e.mmu[7]);
-    check("INS-13-14", "trace_export() writes every TraceEntry field its documented "
-                       "column list names — the word at SP, I, R, IM, IFF1, IFF2 and the "
-                       "eight MMU pages included — in that order (rom_slots, GH #280, is "
-                       "not in the list)",
-          rc == Result::Ok && e.sp_word == 0xABCD && e.i == 0x3F && line == want,
+    // ROM= is a literal, not read back from the entry: a 48K maps ROM in
+    // slots 0 and 1 only, so the mask is 03 — a column written from another
+    // field (or from the live mapping) shows up as a different line.
+    check("INS-13-14", "trace_export() writes every TraceEntry field — the word at SP, "
+                       "I, R, IM, IFF1, IFF2, the eight MMU pages and the ROM-slot mask "
+                       "(ROM=03 on a 48K) included — in the documented column order",
+          rc == Result::Ok && e.sp_word == 0xABCD && e.i == 0x3F && e.rom_slots == 0x03 &&
+              line == want,
           "got  '" + line + "'\nwant '" + want + "'");
 }
 

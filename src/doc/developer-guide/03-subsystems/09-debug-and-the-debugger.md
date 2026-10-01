@@ -750,7 +750,8 @@ one pointer test per instruction. Each trace entry now carries I, R, IM, IFF1,
 IFF2, the word at SP (read with `peek()`, so the trace moves no watch and no +3
 floating-bus latch), the eight MMU pages and `rom_slots`, a bit per slot that
 held ROM (GH #280; it fills the struct's tail padding, so an entry stays 56
-bytes).
+bytes). `trace_export()` writes every one of them; the mask is the `ROM=` column
+after the pages.
 
 ### The Qt adapter (GH #278 WP2, WP4a-c, WP7)
 
