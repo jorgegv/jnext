@@ -3878,6 +3878,30 @@ static void b5_payload_rows() {
         check("PL-DMA-IO-03", "a memory -> memory block flags neither",
               n >= 1 && !src && !dst, "n=" + std::to_string(n));
     }
+    {
+        // GH #26 WP3: the NextRegWrite a Copper MOVE fans out to carries `prev`,
+        // the register's byte before the MOVE, exactly as a CPU write's does
+        // (the DSL's §8 post-commit contract). It was always 0.
+        Emulator emu; b5_build(emu, { 0x18, 0xFE });
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("B5")).value;
+        emu.nextreg().write(0x7F, 0x3C);
+        Rec nr;
+        Subscription s;
+        s.kind = EventKind::NextRegWrite; s.filter.regs = {0x7F};
+        s.action = Action::Continue; s.handler = recorder(nr);
+        dbg.subscribe(a, s);
+        copper_program(emu, { move_word(0x7F, 0x44), HALT_WORD });
+        copper_start(emu);
+        emu.run_frame();
+        check("PL-NR-COPPER-PREV", "a Copper MOVE's NextRegWrite carries `prev` — the register's "
+                                   "byte before the MOVE — as a CPU write's does",
+              nr.evs.size() == 1 && nr.evs[0].source == EventSource::Copper &&
+                  nr.evs[0].value == 0x44 && nr.evs[0].prev == 0x3C,
+              nr.evs.empty() ? "n=0"
+                             : "n=" + std::to_string(nr.evs.size()) + " value=" +
+                                   hex(nr.evs[0].value) + " prev=" + hex(nr.evs[0].prev));
+    }
     // §4.3 Dma: "`Start`/`End`: src, dst, length, direction, mode, bytes" —
     // direction and mode were never read. R0 bit 2 is the A->B flag and R4 bits
     // 6:5 the transfer mode (00 byte, 01 continuous, 10 burst — dma.vhd's

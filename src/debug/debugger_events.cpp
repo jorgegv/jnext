@@ -551,10 +551,10 @@ bool Debugger::Impl::drain_boundary() {
             nr.source     = EventSource::Copper;
             nr.overflowed = overflowed;
             nr.dropped    = dropped;
-            // `prev` is NOT carried: the Copper site latches before the write,
-            // but it does not peek the register (the NR-side hook is what does,
-            // and it is suppressed for a Copper write precisely so there is one
-            // entry). Reported as a limitation rather than filled with `value`.
+            // `prev`: the Copper site peeks the register before the write, as
+            // the CPU-side hook does (GH #26 WP3 — the §8 post-commit contract
+            // holds for a Copper MOVE as for a CPU write).
+            nr.prev       = events.at(i).prev;
             deliver_to_subscribers(nr, stop, CLIENT_NONE);
         }
     }
