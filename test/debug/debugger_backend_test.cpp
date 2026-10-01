@@ -7147,7 +7147,7 @@ int main() {
         // that was already answered for real rather than refused.
         emu.debug_state().breakpoints().add_pc(0x1234);
         check("PEND-B2-02", "probe_execute() answers over today's breakpoint set",
-              dbg.probe_execute(0x1234) && !dbg.probe_execute(0x1235));
+              !dbg.probe_execute(0x1234).empty() && dbg.probe_execute(0x1235).empty());
     }
 
     // =======================================================================
@@ -9239,34 +9239,113 @@ int main() {
         build_armed(emu, { 0x00, 0x18, 0xFD });
         Debugger dbg(emu);
         check("EVT-PROBE-01", "nothing armed -> false everywhere",
-              !dbg.probe_execute(0x8000) && !dbg.probe_execute(0x0000));
+              dbg.probe_execute(0x8000).empty() && dbg.probe_execute(0x0000).empty());
         Subscription s;
         s.kind = EventKind::Execute; s.filter.lo = 0x1000; s.filter.hi = 0x1FFF;
         const auto sub = dbg.subscribe(1, s);
         check("EVT-PROBE-02", "an Execute RANGE answers true across the whole range",
-              dbg.probe_execute(0x1000) && dbg.probe_execute(0x17FF) &&
-              dbg.probe_execute(0x1FFF));
+              !dbg.probe_execute(0x1000).empty() && !dbg.probe_execute(0x17FF).empty() &&
+              !dbg.probe_execute(0x1FFF).empty());
         check("EVT-PROBE-03", "and false outside it",
-              !dbg.probe_execute(0x0FFF) && !dbg.probe_execute(0x2000));
+              dbg.probe_execute(0x0FFF).empty() && dbg.probe_execute(0x2000).empty());
         check("EVT-PROBE-04", "a disabled subscription answers false",
               dbg.set_enabled(1, sub.value, false) == Result::Ok &&
-              !dbg.probe_execute(0x1000));
+              dbg.probe_execute(0x1000).empty());
         dbg.set_enabled(1, sub.value, true);
         Subscription tr;
         tr.kind = EventKind::Execute; tr.filter.lo = 0x5000; tr.filter.hi = 0x5000;
         tr.transient = true;
         dbg.subscribe(1, tr);
         check("EVT-PROBE-05", "a TRANSIENT subscription counts — the step-off arm needs it",
-              dbg.probe_execute(0x5000));
+              !dbg.probe_execute(0x5000).empty());
         emu.debug_state().breakpoints().add_pc(0x7000);
         check("EVT-PROBE-06", "and the legacy PC-breakpoint model still counts too",
-              dbg.probe_execute(0x7000));
+              !dbg.probe_execute(0x7000).empty());
         Subscription pg;
         pg.kind = EventKind::Execute; pg.filter.lo = 0x9000; pg.filter.hi = 0x9000;
         pg.filter.page = 0xFE;      // a page no slot holds
         dbg.subscribe(1, pg);
         check("EVT-PROBE-07", "a page qualifier that no slot satisfies answers false",
-              !dbg.probe_execute(0x9000));
+              dbg.probe_execute(0x9000).empty());
+    }
+    {
+        // GH #280 WP-4 (owner decision 2026-09-29): the ids, with conditions
+        // evaluated against the Execute event the backend would build there.
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        Subscription a;
+        a.kind = EventKind::Execute; a.filter.lo = 0x1000; a.filter.hi = 0x1FFF;
+        const auto ida = dbg.subscribe(1, a).value;
+        Subscription b = a;
+        b.filter.lo = b.filter.hi = 0x1234;
+        b.transient = true;
+        const auto idb = dbg.subscribe(1, b).value;
+        const auto both = dbg.probe_execute(0x1234);
+        const auto one  = dbg.probe_execute(0x1000);
+        check("EVT-PROBE-08", "probe_execute lists the id of every live Execute subscription "
+                              "covering the PC, transient included, and only those",
+              both.size() == 2 && std::count(both.begin(), both.end(), ida) == 1 &&
+                  std::count(both.begin(), both.end(), idb) == 1 && one.size() == 1 &&
+                  one[0] == ida,
+              "n=" + std::to_string(both.size()) + "/" + std::to_string(one.size()));
+
+        // A condition on A: listed only while it holds.
+        Subscription c;
+        c.kind = EventKind::Execute; c.filter.lo = c.filter.hi = 0x3000;
+        c.condition = [](const jnext::dbg::Event&, const Debugger& d) {
+            return d.registers().AF >> 8 == 0x42;
+        };
+        const auto idc = dbg.subscribe(1, c).value;
+        Z80Registers r = emu.cpu().get_registers();
+        r.AF = 0x0000;
+        emu.cpu().set_registers(r);
+        const bool off = dbg.probe_execute(0x3000).empty();
+        r.AF = 0x4200;
+        emu.cpu().set_registers(r);
+        const auto on = dbg.probe_execute(0x3000);
+        check("EVT-PROBE-09", "a subscription whose condition is false at the PC is not listed; "
+                              "the same one is listed once the condition holds",
+              off && on.size() == 1 && on[0] == idc);
+
+        // What the condition is shown: the Execute event for the probed PC.
+        jnext::dbg::Event seen;
+        int calls = 0;
+        Subscription d;
+        d.kind = EventKind::Execute; d.filter.lo = d.filter.hi = 0x4000;
+        d.condition = [&](const jnext::dbg::Event& ev, const Debugger&) {
+            seen = ev;
+            ++calls;
+            return true;
+        };
+        const auto idd = dbg.subscribe(1, d).value;
+        dbg.probe_execute(0x4000);
+        check("EVT-PROBE-10", "the condition sees the Execute event the backend would build at "
+                              "the probed PC: its kind, PC, id and owner",
+              calls == 1 && seen.kind == EventKind::Execute && seen.pc == 0x4000 &&
+                  seen.id == idd && seen.owner == 1,
+              "calls=" + std::to_string(calls) + " pc=" + hex(seen.pc));
+
+        emu.debug_state().breakpoints().add_pc(0x5000);
+        const auto legacy = dbg.probe_execute(0x5000);
+        check("EVT-PROBE-11", "a legacy BreakpointSet PC breakpoint adds exactly one EVENT_NONE "
+                              "entry (it has no id)",
+              legacy.size() == 1 && legacy[0] == jnext::dbg::EVENT_NONE);
+
+        // Pure: a once subscription survives being probed; nothing fired.
+        Subscription o;
+        o.kind = EventKind::Execute; o.filter.lo = o.filter.hi = 0x6000;
+        o.once = true;
+        const auto ido = dbg.subscribe(1, o).value;
+        dbg.probe_execute(0x6000);
+        dbg.probe_execute(0x6000);
+        const auto still = dbg.probe_execute(0x6000);
+        bool live = false;
+        for (const auto& si : dbg.subscriptions(false))
+            if (si.id == ido) live = si.live;
+        check("EVT-PROBE-12", "probing is pure: a once subscription probed three times is still "
+                              "listed and still live, and the machine was not stopped",
+              still.size() == 1 && still[0] == ido && live && !dbg.state().paused);
     }
 
     // ── EVT-TIME — Frame, Scanline, Cycle ────────────────────────────────

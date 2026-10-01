@@ -194,22 +194,42 @@ Result Debugger::set_client_enabled(ClientId cid, bool enabled) {
 // §4.3 — probe_execute
 // ---------------------------------------------------------------------------
 
-bool Debugger::probe_execute(uint16_t pc) const {
+std::vector<EventId> Debugger::probe_execute(uint16_t pc) const {
     // A PURE query, and it must cover BOTH models: the GH #221 step-off arm
-    // asks "is there something at the address I am standing on", and during the
-    // Q transition that something may be a legacy PC breakpoint or an `Execute`
-    // subscription. Transient ones count — a Step Over's target IS a reason to
-    // skip the address on the next resume.
-    if (impl_->ds().breakpoints().has_pc(pc)) return true;
+    // asks "what is there at the address I am standing on", and that may be a
+    // legacy PC breakpoint (which has no id: an `EVENT_NONE` entry) or an
+    // `Execute` subscription. Transient ones count — a Step Over's target IS a
+    // reason to skip the address on the next resume.
+    //
+    // CONDITIONS ARE EVALUATED (owner decision 2026-09-29, Z WP-4 /
+    // REQ-zrcp-05): against the `Execute` event `execute_gate()` would build
+    // here, under the same `InspectionScope` a delivery uses, so a condition's
+    // reads fire nothing. Nothing is recorded — no `seq`, no hit, no `once`.
+    // The action and the handler are the caller's to judge.
+    std::vector<EventId> out;
+    if (impl_->ds().breakpoints().has_pc(pc)) out.push_back(EVENT_NONE);
+
+    Event ev;
+    ev.kind      = EventKind::Execute;
+    ev.cycle     = impl_->emu.clock().get();
+    ev.frame     = frame_tag(impl_->emu);
+    ev.pc        = pc;
+    ev.phys_page = impl_->emu.mmu().get_effective_page(pc >> 13);
+
+    DebugState::InspectionScope scope(impl_->ds());
     for (const auto& e : impl_->events.entries()) {
-        if (!e.live || e.kind != EventKind::Execute) continue;
+        if (!e.live || e.once_fired || e.kind != EventKind::Execute) continue;
         if (pc < e.filter.lo || pc > e.filter.hi) continue;
-        if (e.filter.page != PAGE_ANY &&
-            e.filter.page != impl_->emu.mmu().get_effective_page(pc >> 13))
-            continue;
-        return true;
+        if (e.filter.page != PAGE_ANY && e.filter.page != ev.phys_page) continue;
+        if (e.condition) {
+            Event mine = ev;
+            mine.id    = e.id;
+            mine.owner = e.owner;
+            if (!e.condition(mine, *this)) continue;
+        }
+        out.push_back(e.id);
     }
-    return false;
+    return out;
 }
 
 // ---------------------------------------------------------------------------

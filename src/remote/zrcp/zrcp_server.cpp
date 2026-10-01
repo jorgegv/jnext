@@ -848,21 +848,16 @@ void ZrcpServer::run_slice() {
         // breakpoint is evaluated by the backend inside a `run n`: this is the
         // one evaluation of the boundary the machine has landed on.
         //   * This session's slots: their own predicate (a PC-free one through
-        //     its On-Change state). A stop slot ends the run; a print slot
-        //     prints and the run steps on, as ZEsarUX runs actions inside a run.
-        //   * Every other client's live `Execute` breakpoint at this PC (its
-        //     condition cannot be asked); and `probe_execute`, the only view of
-        //     a legacy `BreakpointSet` PC breakpoint, where no slot of this
-        //     session covers the PC — it counts this session's slots too.
-        // The owner-approved `probe_execute -> vector<EventId>` that evaluates
-        // predicates replaces the last two; it is not in this build (§11.8).
-        bool covered = false;
-        bool stop    = false;
+        //     its On-Change state, which a stateless probe cannot judge). A stop
+        //     slot ends the run; a print slot prints and the run steps on, as
+        //     ZEsarUX runs actions inside a run.
+        //   * Every other client's breakpoint, and a legacy PC breakpoint, that
+        //     would fire here — `probe_execute`, conditions evaluated.
+        bool stop = false;
         for (int i = 0; i < BREAKPOINT_SLOTS; ++i) {
             const Slot& sl = slots_[static_cast<std::size_t>(i)];
             if (sl.sub == jnext::dbg::EVENT_NONE) continue;
             if (sl.cond.fast_pc && *sl.cond.fast_pc != st.pc) continue;
-            covered = true;
             if (!slot_edge_at(i, st.pc)) continue;
             if (!action_stops(sl.action)) {
                 queue_action_log(i);
@@ -871,7 +866,7 @@ void ZrcpServer::run_slice() {
                 stop             = true;
             }
         }
-        if (stop || other_breakpoint_at(st.pc) || (!covered && dbg_.probe_execute(st.pc))) {
+        if (stop || other_breakpoint_at(st.pc)) {
             finish_run(run_remaining_ == 0);
             return;
         }
@@ -1893,18 +1888,21 @@ bool ZrcpServer::slot_edge_at(int index, std::uint16_t pc) {
     return sl.edge->fired;
 }
 
-// Another client's live `Execute` breakpoint covering `pc` (its filter and page;
-// its condition, if any, cannot be asked — §11.8). A subscription whose static
-// verdict neither stops nor has a handler that could is not a breakpoint.
+// Would another client's breakpoint — or a legacy `BreakpointSet` PC
+// breakpoint (`EVENT_NONE`) — fire at `pc`? `probe_execute` lists every live
+// `Execute` subscription covering it whose condition holds now; this session's
+// own are left to its slots' (On-Change) evaluation, and a subscription whose
+// static verdict neither stops nor has a handler that could is not a
+// breakpoint.
 bool ZrcpServer::other_breakpoint_at(std::uint16_t pc) const {
-    const auto slots = dbg_.mmu_slots();
-    for (const auto& s : dbg_.subscriptions(true)) {
-        if (s.owner == cid_ || !s.live || s.kind != jnext::dbg::EventKind::Execute) continue;
-        if (pc < s.filter.lo || pc > s.filter.hi) continue;
-        if (s.filter.page != jnext::dbg::PAGE_ANY &&
-            s.filter.page != slots[static_cast<std::size_t>(pc >> 13)].effective_page)
-            continue;
-        if (s.action == Action::Stop || s.has_handler) return true;
+    const auto ids = dbg_.probe_execute(pc);
+    if (ids.empty()) return false;
+    const auto subs = dbg_.subscriptions(true);
+    for (const auto id : ids) {
+        if (id == jnext::dbg::EVENT_NONE) return true;
+        for (const auto& s : subs)
+            if (s.id == id && s.owner != cid_ && (s.action == Action::Stop || s.has_handler))
+                return true;
     }
     return false;
 }

@@ -3375,6 +3375,42 @@ static void wp4_slot_rows() {
         rig.dbg->detach(other);
     }
     {
+        // run n honours another client's CONDITIONAL breakpoint as the backend
+        // would: stops where its condition holds, runs past it where it does
+        // not (probe_execute evaluates it).
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0xFE});
+        const auto other = rig.dbg->attach({"gdb", ClientKind::Test}).value;
+        jnext::dbg::Subscription s;
+        s.kind      = jnext::dbg::EventKind::Execute;
+        s.filter.lo = s.filter.hi = 0x8003;
+        s.condition = [](const jnext::dbg::Event&, const Debugger& d) {
+            return (d.registers().AF >> 8) == 0x42;
+        };
+        rig.dbg->subscribe(other, s);
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 B=99");          // a PC-free slot of this session, false
+        Z80Registers z = rig.emu.cpu().get_registers();
+        z.AF = 0x0000;
+        rig.emu.cpu().set_registers(z);
+        const std::string past = c.cmd("run 6", 32);
+        const auto pc1 = rig.pc();
+        z = rig.emu.cpu().get_registers();
+        z.PC = PROG;
+        z.AF = 0x4200;
+        rig.emu.cpu().set_registers(z);
+        const std::string stop = c.cmd("run 6", 32);
+        check("ZRCP-BP-28", "run n and another client's conditional breakpoint at 8003: with "
+                            "its condition false the 6 opcodes run past it; with it true the run "
+                            "stops there, no fired line",
+              pc1 == 0x8006 && past.find("Returning after 6 opcodes\n") != std::string::npos &&
+                  rig.pc() == 0x8003 && stop.find("Returning after") == std::string::npos &&
+                  stop.find("Breakpoint fired") == std::string::npos,
+              esc(past, 120) + " / " + esc(stop, 120));
+        rig.dbg->detach(other);
+    }
+    {
         // The fired-line fallback names a PC-free slot only when it fired at
         // this boundary (its edge), not merely because it is true there.
         Rig rig;

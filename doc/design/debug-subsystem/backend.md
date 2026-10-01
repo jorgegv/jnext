@@ -669,8 +669,12 @@ action, enabled, owner}`; `subscribe(...) -> EventId`, `unsubscribe(id)`,
 switch** `set_client_enabled(cid, bool)` (REQ-zrcp-03: DeZog toggles
 `enable-/disable-breakpoints` per session; a human's Qt rows must survive) —
 live = master && client_enabled(owner) && enabled, rebuilt on change, never per
-instruction. `probe_execute(pc) -> vector<EventId>` is a pure query ("would an
-enabled Execute subscription match here") for adapters whose step loops must
+instruction. `probe_execute(pc) -> vector<EventId>` is a pure query ("which
+live Execute subscriptions would fire here": filter and page, and the condition
+evaluated now against the `Execute` event the gate would build, under an
+`InspectionScope`, recording nothing; a legacy PC breakpoint adds an
+`EVENT_NONE` entry; the action and handler are the caller's to judge — landed
+by GH #280 WP-4, it replaced a `bool` that ignored conditions) for adapters whose step loops must
 report a breakpoint at the PC a step landed on (REQ-zrcp-05): the pre-instruction
 gate cannot report it, because the GH #221 step-off skips exactly that address on
 the next resume.

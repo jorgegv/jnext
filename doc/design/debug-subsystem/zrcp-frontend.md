@@ -1099,6 +1099,8 @@ evidence, and lets the step's own event be the reason
    subscription's ACTION: a `Log`-only `Execute` subscription (a DSL logger)
    ends a `run n` exactly as a `Stop` would. WP-4 has to evaluate its own
    conditions and actions in the loop or ask for the header change.
+   **Resolved in WP-4** (§11.8): the header change landed, conditions are
+   evaluated, and the adapter judges the action.
 4. §8 assigns no WP to `tbblue-set-*` / `write-port` (deviation 3).
 5. The census holds: ZEsarUX 12.0's `ls` is 125 names, §2's 67 S + 1 D + 57 U
    (`ZRCP-TAB-01`).
@@ -1267,25 +1269,26 @@ What the library could not do, and what was done instead:
 - **ZEsarUX's grouping** is reproduced by the translation (deviation 1); the
   DSL needs only its brackets.
 
-**`probe_execute -> vector<EventId>` (owner-approved, NOT in this build).** The
-frozen-header change was refused by the session's permission policy (the same
-refusal as the `detach()` comment). Until it lands, `run n`'s landing check is
-the only place a breakpoint is evaluated inside a `run n` (each step's own
-`Execute` match is skipped by the GH #221 step-off), and it asks:
+**`probe_execute -> vector<EventId>` (owner-approved 2026-09-29, landed in
+review round 1).** The frozen-header change (`530dd22d3`, applied on the owner's
+instruction after the session's permission policy refused it to the author)
+returns the id of every live `Execute` subscription covering the PC whose
+condition holds now, evaluated against the `Execute` event `execute_gate()`
+would build, under an `InspectionScope`, recording nothing; a legacy
+`BreakpointSet` PC breakpoint adds an `EVENT_NONE` entry (`EVT-PROBE-08..12`).
+`run n`'s landing check is the only place a breakpoint is evaluated inside a
+`run n` (each step's own `Execute` match is skipped by the GH #221 step-off),
+and it asks:
 
-- this session's slots, with their own predicates (On Change for a PC-free
-  one): a stop slot ends the run with its fired line, a print slot prints and
-  the run steps on (`ZRCP-BP-15/16/19/24`);
-- every other client's live `Execute` subscription at the PC, from
-  `subscriptions()` (Stop, or a handler that might stop; not a disabled or
-  Log-only one), whatever slots this session has (`ZRCP-BP-21/25`; review round
-  1 found the first cut skipped them wherever a slot of this session covered
-  the PC — which a PC-free slot does everywhere);
-- `probe_execute`, the one view of a legacy `BreakpointSet` PC breakpoint
-  (nothing in `src/` sets one any more), where no slot of this session covers
-  the PC.
-
-Another client's CONDITIONAL breakpoint at the landing PC still ends a `run n`
-when its condition is false (§11.5 item 3). The backend change, its rows, and
-replacing the last two arms with it are the remaining WP-4 item.
+- this session's slots, with their own predicates — On Change for a PC-free
+  one, which a stateless probe cannot judge: a stop slot ends the run with its
+  fired line, a print slot prints and the run steps on
+  (`ZRCP-BP-15/16/19/24`);
+- `probe_execute`, for everyone else: an `EVENT_NONE` entry (a legacy PC
+  breakpoint), or another client's subscription that stops or has a handler
+  that might, ends the run; this session's own ids are left to the slots
+  (`ZRCP-BP-21/25/28`). Review round 1 found the first, interim cut skipped
+  other clients wherever a slot of this session covered the PC — which a
+  PC-free slot does everywhere — and could not evaluate their conditions; both
+  are gone.
 
