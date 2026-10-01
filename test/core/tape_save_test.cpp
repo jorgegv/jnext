@@ -972,6 +972,28 @@ void emulator_rows() {
                   b.load_file.empty() && b.sd_card_image == "card.img" &&
                   b.type == MachineType::ZXN_ISSUE2);
     }
+    {
+        // B3 through the machine: a program's own MIC pulses, then silence. Two
+        // frames later (40 ms > 65535 T) the frame-end poll has written them,
+        // though the save was never stopped.
+        //   DI / LD A,8 / OUT ($FE),A / XOR A / OUT ($FE),A / JR $
+        auto emu = next_machine();
+        const std::string path = tmp("killed-mic.tzx");
+        std::filesystem::remove(path);
+        emu->start_tape_save(path);
+        poke(*emu, 0x8000, {0xF3, 0x3E, 0x08, 0xD3, 0xFE, 0xAF, 0xD3, 0xFE, 0x18, 0xFE});
+        start_at(*emu, 0x8000);
+        emu->run_frame();
+        emu->run_frame();
+        const TzxView v = view(read_file(path));
+        // OUT ($FE),A to OUT ($FE),A: XOR A (4) + OUT (11) = 15 T.
+        const bool on_disk = v.ids == std::vector<uint8_t>{0x13, 0x20} &&
+                             v.pulses == std::vector<uint32_t>{15, 3500};
+        emu->stop_tape_save();
+        check("TSAVE-54", "a program's MIC pulses followed by silence reach the disk at the end of "
+              "the frame that sees the silence, with the save still running (a killed run keeps "
+              "them)", on_disk, hex(read_file(path), 64));
+    }
 }
 
 void round1_rows() {
