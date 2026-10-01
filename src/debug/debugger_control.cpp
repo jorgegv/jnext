@@ -129,6 +129,17 @@ Result Debugger::step_into(ClientId by) {
     const Result gate = impl_->execute_gate();
     if (gate != Result::Ok) return gate;
 
+    // SES-01 pause ownership (GH #280 N1). Stepping a machine that is ALREADY
+    // paused continues the paused stretch: whoever held it before this step —
+    // the client that first paused it, kept across earlier steps — is kept as
+    // its origin, so this stepper's detach can hand the pause back. A step
+    // that PAUSES a running machine starts a stretch of its own. Read before
+    // `arm()`, which clears it.
+    const ClientId origin =
+        !impl_->ds().paused()                  ? CLIENT_NONE
+        : impl_->pause_origin != CLIENT_NONE   ? impl_->pause_origin
+                                               : state().pause_reason.by;
+
     if (!impl_->ds().paused()) impl_->ds().pause();
 
     // REQ-zrcp-05 (GH #280 finding) — ARM BEFORE THE STEP. `arm()` clears the
@@ -139,6 +150,7 @@ Result Debugger::step_into(ClientId by) {
     // hit, the magic opcode it executed — so `state()` said `Step` for a stop
     // an event caused, and a ZRCP `run n` could not see it.
     impl_->arm(PauseReason::Kind::Step, by);
+    impl_->pause_origin = origin;
     impl_->ds().clear_stop_evidence();
 
     // GH #207 — debugger_step(), not the raw execute_single_instruction()

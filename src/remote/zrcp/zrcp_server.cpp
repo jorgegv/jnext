@@ -533,7 +533,8 @@ void ZrcpServer::on_disconnect() {
 
 void ZrcpServer::end_session() {
     // SES-01: the backend removes this client's subscriptions (a cpu-step-over
-    // target included) and resumes the machine iff the pause is this client's.
+    // target included); a pause that is this client's passes to a remaining
+    // client, or is released when none remains (GH #280 N1).
     if (cid_ != CLIENT_NONE) dbg_.detach(cid_);
     cid_                     = CLIENT_NONE;
     conn_                    = nullptr;
@@ -1446,7 +1447,7 @@ void ZrcpServer::cmd_write_port(const Cmd& c) {
 void ZrcpServer::cmd_enter_cpu_step(const Cmd&) {
     // PAUSE ONLY A RUNNING MACHINE (D's lesson, dzrp_server.cpp CMD_INIT):
     // `pause()` on a paused machine re-attributes the stop, and this client's
-    // detach would then release a pause that was never its own.
+    // detach would then hand on (or release) a pause that was never its own.
     if (!dbg_.state().paused) dbg_.pause(cid_);
     step_mode_ = true;
     reply("");

@@ -79,6 +79,16 @@ struct Debugger::Impl {
     /// was one" (GH #276 B5: `state()` never filled it).
     EventId           armed_target_id = EVENT_NONE;
 
+    /// SES-01 pause ownership (GH #280 N1, owner decision 2026-10-01: "the
+    /// pause should belong to the one remaining"). The client whose pause the
+    /// machine has been held in while OTHER clients single-stepped it: a
+    /// `step_into()` on a paused machine makes the stepper the reported owner
+    /// (`Step`, by: stepper) but must not erase who paused it, because the
+    /// stepper's detach hands the pause back to that client. Set only by
+    /// `step_into()`; cleared by every other control verb through `arm()` — a
+    /// run, a run-to or a new pause ends the stretch it describes.
+    ClientId          pause_origin = CLIENT_NONE;
+
     // ── Convenience ─────────────────────────────────────────────────────────
 
     DebugState&       ds()       { return emu.debug_state(); }
@@ -93,6 +103,7 @@ struct Debugger::Impl {
         has_target   = false;
         armed_target = 0;
         armed_target_id = EVENT_NONE;
+        pause_origin    = CLIENT_NONE;
         // GH #276 B2 — the event-stop latch describes the stop the machine is
         // LEAVING, and every control verb calls this. Clearing it here rather
         // than at each verb is the same argument `DebugState::unpause_()` makes
@@ -508,8 +519,8 @@ struct Debugger::Impl {
     /// Consumed by `done`; OVERWRITTEN by a second `begin` (last wins); CLEARED
     /// by `reset(Hard)` and `load()`, which land a machine of their own (a
     /// capture that described the machine before THEM is stale); and a detach
-    /// of its owner releases the pause it recorded, exactly as SES-01 releases
-    /// the live one.
+    /// of its owner passes the pause it recorded to the same heir SES-01 gives
+    /// the live one, or releases it when no arming client remains (GH #280 N1).
     std::optional<PreBoot> pending_boot;
 
     /// CTL-12 — re-bind to the machine at `emu`'s address and re-apply

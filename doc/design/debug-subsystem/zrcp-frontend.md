@@ -574,9 +574,10 @@ are the same values.
 
 Socket close, `quit`, or a fatal parse: `CAP-SES-01 detach(cid)` — the
 backend removes this client's subscriptions and, if the machine is paused *by
-this client*, resumes it (owner question 2 in `backend.md` §13; this adapter
-wants the proposed default: a crashed DeZog must not leave the machine hung).
-`step_mode` dies with the session.
+this client*, passes that pause to a remaining client, or resumes the machine
+when no other arming client remains (owner question 2 in `backend.md` §13, as
+refined by the owner's N1 decision of 2026-10-01 — §11.6; a crashed DeZog must
+not leave the machine hung). `step_mode` dies with the session.
 
 ### 4.6 What a session observes across a hard reset (cold boot) — REQ-zrcp-15
 
@@ -1113,4 +1114,38 @@ evidence, and lets the step's own event be the reason
    ZRCP client that steps a machine another client paused, then quits or
    crashes, releases that pause on its detach (CAP-SES-01 as written). DeZog's
    own disconnect sends `exit-cpu-step` first; a telnet or crashed client does
-   not.
+   not. **Decided by the owner (N1, 2026-10-01) and implemented on this branch
+   — §11.6.**
+
+### 11.6 Pause ownership on detach (owner decision N1, 2026-10-01)
+
+The owner's words: "The pause should belong to the one remaining." Implemented
+in the backend (`src/debug/debugger_session.cpp` `detach()`,
+`debugger_control.cpp` `step_into()`, a private `Impl::pause_origin`), so it
+holds for every client — ZRCP, DZRP, GDB RSP and Qt alike, since each adapter
+only calls `detach()`. No public header changed; the frozen `debugger.h`
+comment on `detach()` ("there is no 'last client' condition") is now stale and
+is reported for the owner rather than edited. The rule (`backend.md`
+CAP-SES-01):
+
+- A detaching client's own pause is **released only when no other arming
+  client remains**. Otherwise it passes, and the machine stays paused.
+- **The heir** is the client the machine was paused by before the leaver
+  stepped it, if that client is still attached; `step_into()` on a paused
+  machine keeps that origin across any number of steps, and every other
+  control verb ends it. Failing that, the **earliest-attached** remaining
+  client (lowest id).
+- **Observers do not count** (REQ-qt-32): the Qt GUI keeps one for its whole
+  life, and counting it would make every GUI-session detach keep the machine
+  paused — the hung machine the release exists to prevent.
+- A pending cold-boot capture owned by the leaver follows the same rule.
+- Internal step / run targets are still dropped (they are subscriptions).
+- The Qt window's close resumes the machine itself before its detach
+  (`DebuggerManager::detach_backend()`), a user action this rule does not
+  touch.
+
+Rows: backend `N1-01..10` and `CTL-12-47c` (new); `SES-01-12`, `SES-01-22`,
+`CTL-12-47`, `REENT-24` and `OBS-08` **rewritten**, because each asserted the
+old release with another arming client attached (`REENT-24` and `SES-01-22`
+now use an observer bystander, which keeps what they pin: the release itself);
+ZRCP `ZRCP-SES-09/10` through the real adapter.

@@ -526,6 +526,52 @@ static void session_rows() {
         rig.dbg->detach(other);
     }
     {
+        // GH #280 N1 (owner decision 2026-10-01, "the pause should belong to
+        // the one remaining"), through the real adapter path: a ZRCP client
+        // that STEPS a machine another client paused owns the Step stop, and
+        // its hang-up hands the pause back instead of releasing it.
+        Rig        rig;
+        const auto other = rig.dbg->attach({"gui", ClientKind::Test}).value;
+        rig.dbg->pause(other);
+        bool zrcp_owned = false;
+        {
+            Zc c(rig);
+            c.cmd("enter-cpu-step");
+            c.cmd("cpu-step");
+            zrcp_owned = rig.dbg->state().pause_reason.by != other;
+            c.p->close();
+            for (int i = 0; i < 4; ++i) rig.pump();
+        }
+        const auto st = rig.dbg->state();
+        check("ZRCP-SES-09", "another client pauses, the ZRCP client cpu-steps (its own "
+                             "Step stop) and hangs up: still paused, the other client's "
+                             "again",
+              zrcp_owned && st.paused && st.pause_reason.by == other,
+              "paused=" + std::to_string(st.paused) + " by=" +
+                  std::to_string(st.pause_reason.by));
+        rig.dbg->detach(other);
+    }
+    {
+        // The ZRCP client's OWN pause, another client attached and idle: the
+        // hang-up passes it on; that client's own detach, the last, releases it.
+        Rig        rig;
+        const auto other = rig.dbg->attach({"gui", ClientKind::Test}).value;
+        {
+            Zc c(rig);
+            c.cmd("enter-cpu-step");
+            c.p->close();
+            for (int i = 0; i < 4; ++i) rig.pump();
+        }
+        const auto st = rig.dbg->state();
+        rig.dbg->detach(other);
+        check("ZRCP-SES-10", "enter-cpu-step pauses a running machine, the ZRCP client "
+                             "hangs up with another client attached: still paused, now "
+                             "the other client's; its later detach releases it",
+              st.paused && st.pause_reason.by == other && !rig.dbg->state().paused,
+              "paused=" + std::to_string(st.paused) + " by=" +
+                  std::to_string(st.pause_reason.by));
+    }
+    {
         Rig rig;
         Zc  a(rig);
         auto second = rig.lsn->connect();

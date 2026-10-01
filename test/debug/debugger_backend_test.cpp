@@ -4705,7 +4705,10 @@ static void q4c_observer_rows() {
     }
 
     // OBS-07/08 — SES-01's own-pause rule applies to it like any client: its
-    // detach releases ONLY a pause that is its own.
+    // detach touches ONLY a pause that is its own — and, GH #280 N1, passes
+    // that pause to a remaining arming client, releasing it only when none
+    // remains (OBS-08 was rewritten for N1; it used to assert a release with
+    // the window still attached).
     {
         Emulator emu; build(emu);
         Debugger dbg(emu);
@@ -4723,22 +4726,24 @@ static void q4c_observer_rows() {
         Debugger dbg(emu);
         ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
         dbg.subscribe(o, q4c_exec_at(AFTER_CALL));
-        dbg.attach(client("window", jnext::dbg::ClientKind::Gui));
+        const ClientId w =
+            dbg.attach(client("window", jnext::dbg::ClientKind::Gui)).value;
         run_until_paused(emu);
         const bool stopped_by_o = dbg.state().paused && dbg.state().pause_reason.by == o;
         dbg.detach(o);
-        const bool released_a = !dbg.state().paused;
+        const bool passed_a = dbg.state().paused && dbg.state().pause_reason.by == w;
 
         o = dbg.attach(q4c_observer("Qt GUI")).value;
         dbg.pause(o);
         const bool paused_by_o = dbg.state().paused && dbg.state().pause_reason.by == o;
         dbg.detach(o);
-        const bool released_b = !dbg.state().paused;
-        check("OBS-08", "the observer's detach releases a pause that IS its own — a stop "
-                        "on its subscription, and its own pause()",
-              stopped_by_o && released_a && paused_by_o && released_b,
-              "a=" + std::to_string(stopped_by_o) + std::to_string(released_a) +
-                  " b=" + std::to_string(paused_by_o) + std::to_string(released_b));
+        const bool passed_b = dbg.state().paused && dbg.state().pause_reason.by == w;
+        check("OBS-08", "the observer's detach passes a pause that IS its own to the "
+                        "remaining arming client — a stop on its subscription, and its "
+                        "own pause()",
+              stopped_by_o && passed_a && paused_by_o && passed_b,
+              "a=" + std::to_string(stopped_by_o) + std::to_string(passed_a) +
+                  " b=" + std::to_string(paused_by_o) + std::to_string(passed_b));
     }
 
     // OBS-09 — its live-raster request is honoured (a render hint, not an arm).
@@ -5306,6 +5311,12 @@ static void q_wp7_raster_rows() {
               "kept " + std::to_string(kept_vc) + "/" + std::to_string(kept_hc) + " raster " +
                   std::to_string(ras.raw_vc) + "/" + std::to_string(ras.raw_hc));
     }
+}
+
+/// GH #280 N1 rows' failure detail: is the machine paused, and whose is it.
+static std::string n1_owner(const RunState& st) {
+    return std::string("paused=") + (st.paused ? "1" : "0") +
+           " by=" + std::to_string(st.pause_reason.by);
 }
 
 int main() {
@@ -12482,17 +12493,24 @@ int main() {
               dbg.subscriptions(true)[0].live && sa.value != sb.value);
     }
     {
-        // SES-01's one rule, and its THREE arms. A pause this client owns is
-        // released; a pause ANOTHER client owns survives; an UNOWNED pause
-        // (`CLIENT_NONE`) survives every detach there will ever be.
+        // SES-01's one rule, and its THREE arms. A pause this client owns
+        // passes to a remaining client (GH #280 N1) and is released only by
+        // the last one out (SES-01-17, N1-03); a pause ANOTHER client owns
+        // survives; an UNOWNED pause (`CLIENT_NONE`) survives every detach
+        // there will ever be.
+        //
+        // REWRITTEN BY GH #280 N1 (owner decision 2026-10-01, "the pause should
+        // belong to the one remaining"): this row used to assert that A's
+        // detach RESUMED the machine with B still attached.
         Emulator emu; build(emu);
         Debugger dbg(emu);
         const ClientId a = dbg.attach(client("A")).value;
         const ClientId b = dbg.attach(client("B")).value;
         dbg.pause(a);
-        check("SES-01-12", "detach of the client that paused resumes the machine",
+        check("SES-01-12", "detach of the client that paused, with another client "
+                           "attached, passes the pause to it: still paused, now B's",
               dbg.state().paused && dbg.detach(a) == Result::Ok &&
-              !dbg.state().paused);
+              dbg.state().paused && dbg.state().pause_reason.by == b);
 
         const ClientId a2 = dbg.attach(client("A2")).value;
         dbg.pause(b);
@@ -12500,6 +12518,150 @@ int main() {
               dbg.state().paused && dbg.detach(a2) == Result::Ok &&
               dbg.state().paused);
         dbg.detach(b);
+    }
+    // ── GH #280 N1 — WHO INHERITS A PAUSE (owner decision 2026-10-01: "the
+    // pause should belong to the one remaining"). A detaching client never
+    // releases its pause while an arming client remains; the pause passes to
+    // the client the machine was paused by before the leaver stepped it, if
+    // still attached, else to the earliest-attached remaining client. The last
+    // arming client out releases it. Each case attaches an EARLIER bystander C
+    // so "the original pauser" and "the earliest client" are different answers.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId c = dbg.attach(client("C")).value;
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.pause(a);
+        dbg.step_into(b);
+        const bool b_owns = dbg.state().pause_reason.by == b;
+        dbg.detach(b);
+        const RunState st = dbg.state();
+        check("N1-01", "A pauses, B steps (B now owns the Step stop), B detaches: the "
+                       "machine stays paused and A owns it — the original pauser, not "
+                       "the earliest client C",
+              b_owns && st.paused && st.pause_reason.by == a, n1_owner(st));
+        dbg.detach(a);
+        const RunState st2 = dbg.state();
+        check("N1-02", "and A, now the owner, passes it on in turn: its detach leaves the "
+                       "machine paused and owned by C",
+              st2.paused && st2.pause_reason.by == c, n1_owner(st2));
+        dbg.detach(c);
+        check("N1-03", "and C, the last client out, releases it: the machine runs",
+              !dbg.state().paused);
+    }
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId c = dbg.attach(client("C")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.pause(b);
+        dbg.detach(b);
+        const RunState st = dbg.state();
+        check("N1-04", "B pauses alone, A and C attached and idle, B detaches: paused, "
+                       "owned by A, the earliest-attached remaining client",
+              st.paused && st.pause_reason.by == a, n1_owner(st));
+        dbg.detach(a);
+        dbg.detach(c);
+    }
+    {
+        // SEVERAL steps keep the origin: the second step must not record the
+        // first stepper as the pauser.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId c = dbg.attach(client("C")).value;
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.pause(a);
+        dbg.step_into(b);
+        dbg.step_into(b);
+        dbg.step_into(b);
+        dbg.detach(b);
+        const RunState st = dbg.state();
+        check("N1-05", "A pauses, B steps three times, B detaches: A still owns it",
+              st.paused && st.pause_reason.by == a, n1_owner(st));
+        dbg.detach(a);
+        dbg.detach(c);
+    }
+    {
+        // A RUN ends the stretch: after B runs and pauses the machine itself,
+        // A is no longer "the client that paused it".
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId c = dbg.attach(client("C")).value;
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.pause(a);
+        dbg.step_into(b);
+        dbg.run(b);
+        dbg.pause(b);
+        dbg.detach(b);
+        const RunState st = dbg.state();
+        check("N1-06", "A pauses, B steps, B runs, B pauses, B detaches: the pause is "
+                       "B's own, so it goes to the earliest client C, not to A",
+              st.paused && st.pause_reason.by == c, n1_owner(st));
+        dbg.detach(a);
+        dbg.detach(c);
+    }
+    {
+        // The ORIGIN LEFT FIRST: A pauses, B steps, A leaves (B's pause, so A's
+        // detach changes nothing), then B leaves — A is gone, so the earliest
+        // remaining client C inherits.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId c = dbg.attach(client("C")).value;
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.pause(a);
+        dbg.step_into(b);
+        dbg.detach(a);
+        const bool still_b = dbg.state().paused && dbg.state().pause_reason.by == b;
+        dbg.detach(b);
+        const RunState st = dbg.state();
+        check("N1-07", "A pauses, B steps, A detaches (nothing of A's to pass), B "
+                       "detaches: C, the earliest remaining client, owns it",
+              still_b && st.paused && st.pause_reason.by == c, n1_owner(st));
+        dbg.detach(c);
+    }
+    {
+        // A SUBSCRIPTION's Stop is owned through the event-stop latch, not the
+        // armed verb — the second place `state()` reads an owner from.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        Subscription s;
+        s.kind      = EventKind::Execute;
+        s.filter.lo = AFTER_CALL; s.filter.hi = AFTER_CALL;
+        s.action    = Action::Stop;
+        dbg.subscribe(b, s);
+        run_until_paused(emu, 3);
+        const bool b_stop = dbg.state().paused && dbg.state().pause_reason.by == b;
+        dbg.detach(b);
+        const RunState st = dbg.state();
+        check("N1-08", "a stop on B's subscription, B detaches with A attached: still "
+                       "paused, owned by A, although the subscription is gone",
+              b_stop && st.paused && st.pause_reason.by == a, n1_owner(st));
+        dbg.detach(a);
+        check("N1-09", "and A's detach then releases it — the inherited pause is really "
+                       "A's", !dbg.state().paused);
+    }
+    {
+        // ONLY AN OBSERVER REMAINS: it arms nothing and inherits nothing, so
+        // the last ARMING client's detach releases the pause — a crashed DeZog
+        // in a Qt GUI session (whose observer lives as long as the GUI) must not
+        // leave the machine hung.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.pause(a);
+        dbg.detach(a);
+        check("N1-10", "A pauses with only an observer attached besides it; A's detach "
+                       "releases the pause — an observer never inherits one",
+              !dbg.state().paused);
+        dbg.detach(o);
     }
     {
         // SES-01's rule names TWO ways a pause can be a client's: "its `pause()`,
@@ -12649,11 +12811,15 @@ int main() {
         // would tell every other client the backend resumed the machine on its
         // own initiative. The departing client has no listener any more, so it is
         // the OTHER client that sees the `Resumed{by}`.
+        //
+        // GH #280 N1: a release happens only when no ARMING client remains, so
+        // the client that watches it is an OBSERVER (REQ-qt-32) — the Qt GUI's
+        // shape, and the one population that sees a release and inherits nothing.
         Emulator emu; build(emu);
         Debugger dbg(emu);
         RecListener lb;
         const ClientId a = dbg.attach(client("A")).value;
-        const ClientId b = dbg.attach(client("B")).value;
+        const ClientId b = dbg.attach(q4c_observer("B")).value;
         dbg.set_listener(b, &lb);
         dbg.pump(jnext::dbg::PumpBudget{});            // prime, running
         dbg.pause(a);
@@ -14387,8 +14553,10 @@ int main() {
                       running_after_verb && !dbg.state().paused, reason(dbg.state()));
             }
         }
-        {   // A detach of the pending capture's OWNER releases the pause it
-            // recorded; a detach of ANOTHER client does not.
+        {   // A detach of the pending capture's OWNER passes the pause it recorded
+            // to the remaining client (GH #280 N1; this row used to assert the
+            // release); a detach of ANOTHER client does not touch it. The last
+            // client out releases it: CTL-12-47c below.
             for (int owner_leaves = 0; owner_leaves < 2; ++owner_leaves) {
                 Emulator emu; build(emu);
                 Debugger dbg(emu);
@@ -14402,15 +14570,30 @@ int main() {
                 const RunState st = dbg.state();
                 check(owner_leaves ? "CTL-12-47" : "CTL-12-47b",
                       owner_leaves
-                          ? "a detach of the capture's OWNER between begin and done "
-                            "releases the pause it recorded — SES-01 for a pause "
-                            "waiting out a boot"
+                          ? "a detach of the capture's OWNER between begin and done, "
+                            "with another client attached, passes the pause it "
+                            "recorded to that client — SES-01 for a pause waiting "
+                            "out a boot"
                           : "and a detach of ANOTHER client leaves it: still paused, "
                             "still A's",
-                      owner_leaves ? !st.paused
+                      owner_leaves ? (st.paused && st.pause_reason.by == b)
                                    : (st.paused && st.pause_reason.by == a),
                       reason(st));
             }
+        }
+        {   // The LAST client out releases the captured pause (GH #280 N1).
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            dbg.attach(q4c_observer("Qt GUI"));     // an observer inherits nothing
+            dbg.pause(a);
+            dbg.on_cold_boot_begin();
+            dbg.detach(a);
+            boot(emu);
+            dbg.on_cold_boot_done();
+            check("CTL-12-47c", "a detach of the capture's owner when no other arming "
+                                "client remains releases the pause it recorded",
+                  !dbg.state().paused, reason(dbg.state()));
         }
         {   // begin with NO driver, on a CORRUPT paused machine: a notification,
             // it never refuses. The unowned pause comes back unowned, and the
@@ -15530,7 +15713,9 @@ int main() {
             Emulator emu; build(emu);
             Debugger dbg(emu);
             const ClientId a = dbg.attach(client("A")).value;
-            const ClientId b = dbg.attach(client("B")).value;
+            // An OBSERVER, so A's departure leaves no arming client and SES-01
+            // releases A's pause (GH #280 N1: with an arming B it would pass).
+            const ClientId b = dbg.attach(q4c_observer("B")).value;
             Result from_detach = Result::Unsupported;
             Subscription h;
             h.kind   = EventKind::Host;

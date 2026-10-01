@@ -400,14 +400,22 @@ reconstruct.
 `detach(cid)` removes that client's subscriptions — and every other record
 keyed by its id (its per-client event switch, its unflushed capture failures:
 ids are never reused, so anything left behind would be kept for ever) — and,
-**iff the machine is paused by this client**, resumes it. A pause by another client survives, and an
-*unowned* pause is never released by any detach however many clients come and
-go: `PauseReason::Magic` and `PauseReason::Corrupt` carry `by == CLIENT_NONE`
-because neither is anyone's verb. There is no "last client" rule — the point of
-the rule is that a crashed DeZog must not leave the machine hung, whoever else
-is or is not attached. (The design once attached the Qt adapter for the process
-lifetime; as built it is attached only while its window is open, because an
-attach ARMS the machine — see "The Qt adapter" below.)
+**iff the machine is paused by this client**, hands that pause on. While another
+*arming* client remains the machine stays paused and the pause becomes that
+client's (`pause_reason.by` is rewritten, nothing is pushed): the client the
+machine was paused by before the leaver single-stepped it, if it is still
+attached (`step_into()` on a paused machine keeps that origin in
+`Impl::pause_origin`; every other control verb clears it), otherwise the
+earliest-attached remaining client. Only the last arming client out releases
+it, which is what keeps a crashed DeZog from leaving the machine hung (owner
+decision, GH #280 N1). An observer (REQ-qt-32) neither inherits a pause nor
+holds one back from release — the Qt GUI keeps one for its whole life. A pause
+by another client survives, and an *unowned* pause is never released by any
+detach however many clients come and go: `PauseReason::Magic` and
+`PauseReason::Corrupt` carry `by == CLIENT_NONE` because neither is anyone's
+verb. (The design once attached the Qt adapter for the process lifetime; as
+built it is attached only while its window is open, because an attach ARMS the
+machine — see "The Qt adapter" below.)
 
 **`attached()` is the ARMING client list.** `DebugState::active()` was the
 legacy "a frontend is driving this machine" bit: the Qt debugger window set it
