@@ -248,7 +248,7 @@ moves keyboard focus to the menu bar, where the next letter that is a top-level
 mnemonic is swallowed and opens that popup instead of typing. In an ordinary
 application that is a convenience; here Alt is part of typing, so the menu bar
 is given a `QProxyStyle` reporting `SH_MenuBar_AltKeyNavigation` as off
-(`src/debug/menu_bar_alt_nav_qt.h`, installed by both the emulator window and
+(`src/qt/menu_bar_alt_nav_qt.h`, installed by both the emulator window and
 the debugger window). Alt+*letter* mnemonics are unaffected — Qt opens those
 through the shortcut map, not through this hint — and `handle_key()`
 additionally feeds the guest nothing at all while a Qt popup owns the keyboard

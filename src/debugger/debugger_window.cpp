@@ -1,6 +1,6 @@
 #include "debugger/debugger_window.h"
-#include "debug/menu_bar_alt_nav_qt.h"   // GH #268
-#include "debug/debug_keymap_qt.h"
+#include "qt/menu_bar_alt_nav_qt.h"   // GH #268
+#include "qt/debug_keymap_qt.h"
 #include "debugger/cpu_panel.h"
 #include "debugger/disasm_panel.h"
 #include "debugger/memory_panel.h"
@@ -14,13 +14,9 @@
 #include "debugger/mmu_panel.h"
 #include "debugger/stack_panel.h"
 #include "debugger/callstack_panel.h"
-#include "core/emulator.h"
-#include "core/rzx_player.h"
-#include "debug/breakpoints.h"
-#include "debug/debug_state.h"
-#include "debug/rewind_buffer.h"
 
 #include "debugger/debugger_manager.h"
+#include "debug/debugger.h"
 #include "debugger/window_attach.h"
 
 #include <QCloseEvent>
@@ -100,9 +96,9 @@ int title_bar_height(const QWidget* w) {
 }
 } // namespace
 
-DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
+DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent)
     : QMainWindow(parent)
-    , emulator_(emulator)
+    , dbg_(dbg)
 {
     setWindowTitle(tr("JNEXT Debugger"));
     create_panels();
@@ -214,15 +210,16 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     trace_toggle_btn_ = new QPushButton(this);
     update_trace_indicator();
     connect(trace_toggle_btn_, &QPushButton::clicked, this, [this]() {
-        if (!emulator_) return;
-        bool new_state = !emulator_->trace_log().enabled();
-        emulator_->trace_log().set_enabled(new_state);
+        jnext::dbg::Debugger* dbg = backend();
+        if (!dbg) return;
+        const bool new_state = !dbg->trace_enabled();   // INS-13
+        dbg->set_trace_enabled(new_state);
         if (trace_enable_action_)
             trace_enable_action_->setChecked(new_state);
         update_trace_indicator();
         // Step Back's enabled-state is gated on the trace (Task 27 A1b) —
         // refresh it now rather than waiting for the next pause/step.
-        update_actions(emulator_->debug_state().paused());
+        update_actions(dbg->state().paused);
     });
     toolbar->addWidget(trace_toggle_btn_);
 
@@ -230,17 +227,7 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     // function — it quotes a key, so it must follow the binding (GH #1).
     export_trace_btn_ = new QPushButton(this);
     connect(export_trace_btn_, &QPushButton::clicked, this, [this]() {
-        if (!emulator_) return;
-        QString path = QFileDialog::getSaveFileName(
-            this, tr("Export Trace Log"), QString(),
-            tr("Text Files (*.txt);;All Files (*)"));
-        if (!path.isEmpty()) {
-            bool ok = emulator_->trace_log().export_to_file(path.toStdString());
-            if (!ok) {
-                QMessageBox::warning(this, tr("Export Failed"),
-                    tr("Could not write trace log to:\n%1").arg(path));
-            }
-        }
+        export_trace();
     });
     toolbar->addWidget(export_trace_btn_);
 
@@ -530,33 +517,23 @@ void DebuggerWindow::create_menus() {
     trace_enable_action_ = trace_menu->addAction(tr("&Enable Trace"));
     trace_enable_action_->setCheckable(true);
     connect(trace_enable_action_, &QAction::triggered, this, [this](bool checked) {
-        if (emulator_) {
-            emulator_->trace_log().set_enabled(checked);
+        if (jnext::dbg::Debugger* dbg = backend()) {
+            dbg->set_trace_enabled(checked);   // INS-13
             update_trace_indicator();
             // Step Back's enabled-state is gated on the trace (Task 27 A1b).
-            update_actions(emulator_->debug_state().paused());
+            update_actions(dbg->state().paused);
         }
     });
 
     QAction* clear_trace = trace_menu->addAction(tr("&Clear Trace"));
     connect(clear_trace, &QAction::triggered, this, [this]() {
-        if (emulator_)
-            emulator_->trace_log().clear();
+        if (jnext::dbg::Debugger* dbg = backend())
+            dbg->trace_clear();   // INS-13
     });
 
     trace_export_action_ = trace_menu->addAction(tr("E&xport Trace..."));
     connect(trace_export_action_, &QAction::triggered, this, [this]() {
-        if (!emulator_) return;
-        QString path = QFileDialog::getSaveFileName(
-            this, tr("Export Trace Log"), QString(),
-            tr("Text Files (*.txt);;All Files (*)"));
-        if (!path.isEmpty()) {
-            bool ok = emulator_->trace_log().export_to_file(path.toStdString());
-            if (!ok) {
-                QMessageBox::warning(this, tr("Export Failed"),
-                    tr("Could not write trace log to:\n%1").arg(path));
-            }
-        }
+        export_trace();
     });
 
     // Rewind submenu
@@ -565,25 +542,29 @@ void DebuggerWindow::create_menus() {
 
     rewind_enable_action_ = rewind_menu->addAction(tr("&Enable Rewind"));
     rewind_enable_action_->setCheckable(true);
-    rewind_enable_action_->setChecked(emulator_ && emulator_->rewind_buffer() != nullptr);
+    // Its checked state is update_rewind_ui()'s, which set_debugger_manager()
+    // reaches through apply_keymap() before it returns — so no caller ever sees
+    // this action before that sync. (A construction-time setChecked() here was
+    // dead: overwritten within the same call, every path; WP3 review item 2.)
     connect(rewind_enable_action_, &QAction::triggered, this, [this](bool checked) {
-        if (!emulator_) return;
+        jnext::dbg::Debugger* dbg = backend();
+        if (!dbg) return;
         if (checked) {
-            if (!emulator_->rewind_buffer()) {
+            if (dbg->rewind_range().capacity == 0) {
                 // Live allocation (Task 27 A1b): no restart needed. The
                 // buffer is mmap-backed (Task 27 A1), so the memory is
                 // faulted lazily as snapshots are taken. This also enables
                 // snapshotting and the instruction trace (step_back() needs
                 // it) — see Emulator::resize_rewind_buffer(). Snapshots
                 // start from the next completed frame.
-                emulator_->resize_rewind_buffer(last_rewind_frames_);
+                dbg->resize_rewind_buffer(static_cast<size_t>(last_rewind_frames_));
             } else {
                 // Buffer exists but snapshotting is paused — resume it.
-                emulator_->set_rewind_enabled(true);
+                dbg->set_rewind_enabled(true);
                 // Re-assert the instruction trace: step_back() cannot work
                 // without it, and it may have been manually disabled via
                 // Debug > Trace while rewind was off.
-                emulator_->trace_log().set_enabled(true);
+                dbg->set_trace_enabled(true);
             }
             update_trace_indicator();
         } else {
@@ -591,12 +572,12 @@ void DebuggerWindow::create_menus() {
             // toggle): snapshotting stops but the buffer and its recorded
             // history are retained, so the user can still rewind into the
             // past. To free the memory, use Rewind Buffer Size... = 0.
-            emulator_->set_rewind_enabled(false);
+            dbg->set_rewind_enabled(false);
         }
         update_rewind_ui();
         // The toggle can flip the trace on (resume branch), which gates
         // Step Back's enabled-state — refresh it immediately.
-        update_actions(emulator_->debug_state().paused());
+        update_actions(dbg->state().paused);
     });
 
     QAction* rewind_size_action = rewind_menu->addAction(tr("Rewind &Buffer Size..."));
@@ -625,26 +606,27 @@ void DebuggerWindow::create_menus() {
 
     QAction* add_read_bp = bp_menu->addAction(tr("Add &Read Breakpoint..."));
     connect(add_read_bp, &QAction::triggered, this, [this]() {
-        show_add_data_bp_dialog(WatchType::READ);
+        show_add_data_bp_dialog(BreakpointModel::Read);
     });
 
     QAction* add_write_bp = bp_menu->addAction(tr("Add &Write Breakpoint..."));
     connect(add_write_bp, &QAction::triggered, this, [this]() {
-        show_add_data_bp_dialog(WatchType::WRITE);
+        show_add_data_bp_dialog(BreakpointModel::Write);
     });
 
     // Alt+B: W already belongs to "Add &Write Breakpoint..." (issue #124).
     QAction* add_rw_bp = bp_menu->addAction(tr("Add Read/Write &Breakpoint..."));
     connect(add_rw_bp, &QAction::triggered, this, [this]() {
-        show_add_data_bp_dialog(WatchType::READ_WRITE);
+        show_add_data_bp_dialog(BreakpointModel::ReadWrite);
     });
 
     bp_menu->addSeparator();
 
     QAction* clear_all_bp = bp_menu->addAction(tr("&Clear All Breakpoints"));
     connect(clear_all_bp, &QAction::triggered, this, [this]() {
-        emulator_->debug_state().breakpoints().clear_all_pc();
-        emulator_->debug_state().breakpoints().clear_all_watchpoints();
+        // This GUI's breakpoints: another client's are not the GUI's to delete
+        // (REQ-qt-13d). The model notifies both views.
+        if (BreakpointModel* m = breakpoint_model()) m->clear_all();
     });
 
     // --- Watches menu ---
@@ -690,18 +672,16 @@ void DebuggerWindow::update_actions(bool is_paused) {
     if (step_out_action_)  step_out_action_->setEnabled(is_paused);
 
     // Rewinding (frame jump) is only available when paused, the rewind
-    // buffer has snapshots, and no RZX recording is playing or being made
-    // (Emulator::rzx_blocks_rewind()).
-    bool can_rewind = is_paused
-        && emulator_
-        && emulator_->rewind_buffer()
-        && !emulator_->rewind_buffer()->empty()
-        && !emulator_->rzx_player().is_playing()
-        && !emulator_->rzx_recorder().is_recording();
+    // buffer has snapshots, and no RZX recording is playing or being made:
+    // exactly the backend's ST-03 rewind_blocked(), the SAME predicate its two
+    // rewind verbs refuse on, so what is greyed and what is refused cannot
+    // disagree.
+    jnext::dbg::Debugger* dbg = backend();
+    const bool can_rewind = is_paused && dbg && !dbg->rewind_blocked().has_value();
     // Step Back additionally needs the instruction trace to locate the
-    // target instruction's cycle — Emulator::step_back() fails loudly
-    // without it (Task 27 A2), so grey the action out instead.
-    bool can_step_back = can_rewind && emulator_->trace_log().enabled();
+    // target instruction's cycle — Emulator::step_back() fails without it
+    // (Task 27 A2), so grey the action out instead.
+    const bool can_step_back = can_rewind && dbg->trace_enabled();
     if (step_back_action_) step_back_action_->setEnabled(can_step_back);
     if (rewind_jump_btn_)  rewind_jump_btn_->setEnabled(can_rewind);
 }
@@ -736,9 +716,32 @@ void DebuggerWindow::restore_geometry() {
     // No-op: size is restored in constructor, position is set by MainWindow.
 }
 
+jnext::dbg::Debugger* DebuggerWindow::backend() const {
+    return debugger_mgr_ ? &debugger_mgr_->backend() : nullptr;
+}
+
+BreakpointModel* DebuggerWindow::breakpoint_model() const {
+    return debugger_mgr_ ? &debugger_mgr_->breakpoints() : nullptr;
+}
+
+/// F3 / Debug ▸ Trace ▸ Export Trace… — INS-13 `trace_export()`; the file
+/// dialog and the failure box are the window's.
+void DebuggerWindow::export_trace() {
+    jnext::dbg::Debugger* dbg = backend();
+    if (!dbg) return;
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("Export Trace Log"), QString(),
+        tr("Text Files (*.txt);;All Files (*)"));
+    if (path.isEmpty()) return;
+    if (dbg->trace_export(path.toStdString()) != jnext::dbg::Result::Ok) {
+        QMessageBox::warning(this, tr("Export Failed"),
+            tr("Could not write trace log to:\n%1").arg(path));
+    }
+}
+
 void DebuggerWindow::update_trace_indicator() {
     if (!trace_toggle_btn_) return;
-    bool active = emulator_ && emulator_->trace_log().enabled();
+    const bool active = backend() && backend()->trace_enabled();   // INS-13
     QColor color = active ? QColor(0x00, 0xC0, 0x00) : QColor(0xC0, 0x00, 0x00);
 
     QPixmap pix(14, 14);
@@ -767,8 +770,9 @@ void DebuggerWindow::update_trace_indicator() {
 /// The frame the machine is in: the one running; at an ordinary frame
 /// boundary the one just run; on a restored frame start the frame restored.
 uint32_t DebuggerWindow::rewind_position() const {
-    const uint32_t begun = emulator_->frame_num();
-    return begun > 0 ? begun - 1 : 0;
+    // INS-07 — `time().frame` IS this number: the backend reports the frame
+    // counter minus one, clamped at 0 (F2), the tag the ring's slots carry.
+    return backend() ? backend()->time().frame : 0;
 }
 
 /// Frame Back (button and menu): the nearest snapshot BEFORE the current
@@ -777,33 +781,38 @@ uint32_t DebuggerWindow::rewind_position() const {
 /// before it. The last is what used to repeat: Frame Back restored the frame
 /// it was already on, on every press.
 void DebuggerWindow::frame_back() {
-    if (!debugger_mgr_ || !emulator_ || !emulator_->rewind_buffer()
-            || emulator_->rewind_buffer()->empty())
-        return;
+    if (!debugger_mgr_ || !backend()) return;
+    const jnext::dbg::RewindRange rr = backend()->rewind_range();   // ST-03
+    if (rr.depth == 0) return;
     const uint32_t here = rewind_position();
-    const uint32_t target = emulator_->at_restored_frame_start() && here > 0 ? here - 1 : here;
+    // REQ-qt-09d (owner-approved 2026-09-29): on a restored frame start the
+    // frame the machine is in IS the nearest snapshot, so one further back.
+    const uint32_t target = rr.at_restored_frame_start && here > 0 ? here - 1 : here;
     debugger_mgr_->on_rewind_to_frame(target);
 }
 
 void DebuggerWindow::update_rewind_ui() {
-    if (!emulator_) return;
+    jnext::dbg::Debugger* dbg = backend();
+    if (!dbg) return;
 
-    auto* rb = emulator_->rewind_buffer();
-    bool has_rewind = rb && !rb->empty() && rb->depth() > 1;
+    // ST-03 — the ring as the backend publishes it: all zero with no ring,
+    // depth 0 with an empty one.
+    const jnext::dbg::RewindRange rr = dbg->rewind_range();
+    const bool has_rewind = rr.depth > 1;
 
     // Show/hide the rewind toolbar
     if (rewind_toolbar_)
         rewind_toolbar_->setVisible(has_rewind);
 
-    bool is_paused = emulator_->debug_state().paused();
+    const bool is_paused = dbg->state().paused;
     if (has_rewind && !rewind_slider_dragging_) {
         // Always update the range; only move the thumb when running (not paused).
         // When paused, the user controls the slider position.
         if (rewind_slider_) {
             rewind_slider_->blockSignals(true);
             rewind_slider_->setRange(
-                static_cast<int>(rb->oldest_frame_num()),
-                static_cast<int>(rb->newest_frame_num()));
+                static_cast<int>(rr.oldest_frame),
+                static_cast<int>(rr.newest_frame));
             if (!is_paused)
                 rewind_slider_->setValue(static_cast<int>(rewind_position()));
             rewind_slider_->blockSignals(false);
@@ -812,28 +821,28 @@ void DebuggerWindow::update_rewind_ui() {
             rewind_frame_label_->setText(
                 tr("Frame %1 / %2")
                     .arg(rewind_position())
-                    .arg(rb->newest_frame_num()));
+                    .arg(rr.newest_frame));
         }
     }
 
     // Status bar indicator
-    if (rb && !rb->empty()) {
+    if (rr.depth > 0) {
         // Behind the newest snapshot, or sitting on a restored frame start
-        // (the newest's included): anything else is the live end.
-        bool is_rewound = rewind_position() < rb->newest_frame_num() ||
-                          emulator_->at_restored_frame_start();
+        // (the newest's included; REQ-qt-09d): anything else is the live end.
+        const bool is_rewound = rewind_position() < rr.newest_frame ||
+                                rr.at_restored_frame_start;
         if (is_rewound) {
             statusBar()->showMessage(
                 tr("\u23EE Rewound: frame %1 of %2  (%3 / Continue to resume)")
                     .arg(rewind_position())
-                    .arg(rb->newest_frame_num())
+                    .arg(rr.newest_frame)
                     .arg(QString::fromStdString(jnext::dbgkeys::render_combo(
                         keymap_.combo(jnext::dbgkeys::Action::Run)))));
         } else {
-            size_t mb = (rb->depth() * rb->snapshot_bytes() + 524288) / 1048576;
+            const size_t mb = (rr.depth * rr.snapshot_bytes + 524288) / 1048576;
             statusBar()->showMessage(
                 tr("\u23EE Rewind: %1 frames / %2 MB")
-                    .arg(rb->depth())
+                    .arg(rr.depth)
                     .arg(mb));
         }
     } else {
@@ -842,11 +851,13 @@ void DebuggerWindow::update_rewind_ui() {
 
     // Sync menu checkmark
     if (rewind_enable_action_)
-        rewind_enable_action_->setChecked(rb != nullptr && emulator_->rewind_enabled());
+        rewind_enable_action_->setChecked(rr.capacity > 0 && dbg->rewind_enabled());
 }
 
 void DebuggerWindow::show_rewind_buffer_size_dialog() {
-    if (!emulator_) return;
+    jnext::dbg::Debugger* dbg = backend();
+    if (!dbg) return;
+    const jnext::dbg::RewindRange rr = dbg->rewind_range();   // ST-03
 
     QDialog dlg(this);
     dlg.setWindowTitle(tr("Rewind Buffer Size"));
@@ -857,15 +868,13 @@ void DebuggerWindow::show_rewind_buffer_size_dialog() {
     auto* spin = new QSpinBox(&dlg);
     spin->setRange(0, 2000);
     spin->setSuffix(tr(" frames"));
-    int current_frames = emulator_->rewind_buffer()
-        ? static_cast<int>(emulator_->rewind_buffer()->depth()) : 0;
+    int current_frames = static_cast<int>(rr.depth);
     // Show the max capacity (depth() is current fill, not capacity)
     // Use snapshot_bytes to estimate from allocated memory
     // Since we don't expose max_frames, use config value as best estimate
     spin->setValue(current_frames > 0 ? current_frames : last_rewind_frames_);
 
-    size_t snap_bytes = emulator_->rewind_buffer()
-        ? emulator_->rewind_buffer()->snapshot_bytes() : 0;
+    size_t snap_bytes = rr.snapshot_bytes;
     QString info;
     if (snap_bytes > 0) {
         size_t est_mb = (static_cast<uint64_t>(spin->value()) * snap_bytes + 524288) / 1048576;
@@ -902,7 +911,8 @@ void DebuggerWindow::show_rewind_buffer_size_dialog() {
     int new_frames = spin->value();
     if (new_frames > 0)
         last_rewind_frames_ = new_frames;  // Session default for Enable Rewind
-    emulator_->resize_rewind_buffer(new_frames);
+    // ST-03 — 0 frees the ring (GH #278 WP3), anything else creates a fresh one.
+    dbg->resize_rewind_buffer(static_cast<size_t>(new_frames));
     update_rewind_ui();
 }
 
@@ -1046,16 +1056,16 @@ void DebuggerWindow::set_attach_enabled(bool on) {
 
 void DebuggerWindow::create_panels() {
     // --- Create panels ---
-    cpu_panel_ = new CpuPanel(emulator_);
-    disasm_panel_ = new DisasmPanel(emulator_);
-    memory_panel_ = new MemoryPanel(emulator_);
+    cpu_panel_ = new CpuPanel(&dbg_);
+    disasm_panel_ = new DisasmPanel(&dbg_);
+    memory_panel_ = new MemoryPanel(&dbg_);
     memory_panel_->setMinimumHeight(320);
-    video_panel_ = new VideoPanel(emulator_);
-    sprite_panel_ = new SpritePanel(emulator_);
-    copper_panel_ = new CopperPanel(emulator_);
-    nextreg_panel_ = new NextRegPanel(emulator_);
-    audio_panel_ = new AudioPanel(emulator_);
-    watch_panel_ = new WatchPanel(emulator_);
+    video_panel_ = new VideoPanel(&dbg_);
+    sprite_panel_ = new SpritePanel(&dbg_);
+    copper_panel_ = new CopperPanel(&dbg_);
+    nextreg_panel_ = new NextRegPanel(&dbg_);
+    audio_panel_ = new AudioPanel(&dbg_);
+    watch_panel_ = new WatchPanel();
 
     // --- Helper: wrap a widget in a titled QGroupBox ---
     auto make_group = [](const QString& title, QWidget* content) -> QGroupBox* {
@@ -1083,17 +1093,17 @@ void DebuggerWindow::create_panels() {
 
     tab_widget_->setMinimumWidth(380);
 
-    stack_panel_ = new StackPanel(emulator_);
-    callstack_panel_ = new CallStackPanel(emulator_);
-    breakpoint_panel_ = new BreakpointPanel(emulator_);
+    stack_panel_ = new StackPanel(&dbg_);
+    callstack_panel_ = new CallStackPanel(&dbg_);
+    breakpoint_panel_ = new BreakpointPanel();
 
-    // GH #220 — no panel-to-panel wiring here any more. Both panels subscribe
-    // to the BreakpointSet in their own constructors, so the list and the
-    // gutter track it without either of them (or any mutation route) knowing
-    // the other exists. The two hand-wired directions this replaced had each
-    // shipped broken once.
+    // GH #220 — no panel-to-panel wiring here any more. Both panels follow the
+    // GUI's BreakpointModel (DebuggerManager::ensure_window() hands it to them),
+    // so the list and the gutter track it without either of them (or any
+    // mutation route) knowing the other exists. The two hand-wired directions
+    // this replaced had each shipped broken once.
 
-    mmu_panel_ = new MmuPanel(emulator_);
+    mmu_panel_ = new MmuPanel(&dbg_);
 
     auto* cpu_box = make_group(tr("CPU Registers"), cpu_panel_);
     auto* mmu_box = make_group(tr("MMU"), mmu_panel_);
@@ -1204,33 +1214,32 @@ bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr) {
     return ok;
 }
 
-void DebuggerWindow::show_add_data_bp_dialog(WatchType type) {
+void DebuggerWindow::show_add_data_bp_dialog(int type) {
     QString type_name;
     switch (type) {
-        case WatchType::READ:       type_name = "Read"; break;
-        case WatchType::WRITE:      type_name = "Write"; break;
-        case WatchType::READ_WRITE: type_name = "Read/Write"; break;
-        default:                    type_name = "Data"; break;
+        case BreakpointModel::Read:      type_name = "Read"; break;
+        case BreakpointModel::Write:     type_name = "Write"; break;
+        case BreakpointModel::ReadWrite: type_name = "Read/Write"; break;
+        default:                         type_name = "Data"; break;
     }
 
     uint16_t addr = 0;
     if (!prompt_bp_address(tr("Add %1 Breakpoint").arg(type_name), addr)) return;
 
-    // GH #220 — no repaint here. add_watchpoint() notifies, the Breakpoints
-    // panel redraws, and the disassembly gutter correctly does not: it draws
-    // bps.has_pc(addr) only, and this route touches no PC breakpoint.
-    emulator_->debug_state().breakpoints().add_watchpoint(addr, type);
+    // GH #220 — no repaint here. The model notifies, the Breakpoints panel
+    // redraws, and the disassembly gutter correctly does not: it draws Execute
+    // breakpoints only, and this route touches none.
+    if (BreakpointModel* m = breakpoint_model()) m->add(type, addr);
 }
 
-// GH #215 — an Execute breakpoint is a PC breakpoint (add_pc), not a
-// watchpoint, which is why it needs its own entry point rather than a fourth
-// WatchType. That difference is now expressed once, by add_pc() notifying
-// PcBreakpoints, rather than by this site remembering to repaint the gutter.
+// GH #215 — an Execute breakpoint, the one a user reaches for first. The
+// model's notification carries the Execute kind, so the gutter redraws without
+// this site remembering to repaint it.
 void DebuggerWindow::show_add_exec_bp_dialog() {
     uint16_t addr = 0;
     if (!prompt_bp_address(tr("Add Execute Breakpoint"), addr)) return;
 
-    emulator_->debug_state().breakpoints().add_pc(addr);
+    if (BreakpointModel* m = breakpoint_model()) m->add(BreakpointModel::Execute, addr);
 }
 
 void DebuggerWindow::refresh_panels() {

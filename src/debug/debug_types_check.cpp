@@ -179,9 +179,10 @@ static_assert((LAYER_MASK_ULA | LAYER_MASK_LAYER2 | LAYER_MASK_SPRITES |
                LAYER_MASK_TILES) == LAYER_MASK_ALL,
               "the four layer bits must cover LAYER_MASK_ALL");
 
-// `Layer` (INS-14) has no non-Qt counterpart to mirror — its eight views exist
-// today only inside `VideoLayerView`, a `Q_OBJECT`. The count is the whole
-// signal, so it is derived from `Layer::Count` and catches an append.
+// `Layer` (INS-14) has no counterpart to mirror: it IS the one definition of the
+// eight views (the Qt panel's `VideoLayerView::Layer` is an alias of it since
+// GH #278 WP4d, which moved the render into `debugger_render.cpp`). The count is
+// the whole signal, so it is derived from `Layer::Count` and catches an append.
 static_assert(LAYER_COUNT == 8, "§4 INS-14 / the video panel have eight views");
 static_assert(static_cast<size_t>(Layer::Background) + 1 == LAYER_COUNT,
               "Layer::Count must sit immediately after the last real view");

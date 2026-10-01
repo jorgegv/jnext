@@ -8,13 +8,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 
 # QtApp's three debugger-backend hosting call sites (GH #276 B5): the SES-07
 # driver registration, on_cold_boot_begin()/done() around the cold boot QtApp
-# decides on (its pre_frames() hard-reset poll), and the pump() in
+# decides on (its post_frames() hard-reset poll), and the pump() in
 # post_frames(). The twin of sdl-host-probe-func — see there for the probe
 # (src/platform/host_probe.h) and which line each removed call site turns wrong.
 #
-# Qt polls the hard-reset request in pre_frames(), BEFORE the frames, and pumps
-# in post_frames() — the opposite order to SDL and headless — and it keeps
-# polling while paused, so the probe's paused machine is still cold-booted.
+# Qt polls the hard-reset request in post_frames(), after the frames and before
+# the pump — the order SDL and headless use (GH #278 WP2; qt-host-order-func
+# pins the order itself) — and it keeps polling while paused, so the probe's
+# paused machine is still cold-booted.
 # QT_QPA_PLATFORM=offscreen, as screenshot-io-qt-func: no X server needed.
 if want qt-host-probe-func; then
     begin_func qt-host-probe-func

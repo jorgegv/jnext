@@ -1,15 +1,14 @@
 #include "debugger/callstack_panel.h"
-#include "core/emulator.h"
-#include "debug/call_stack.h"
+#include "debug/debugger.h"
 #include "debug/symbol_table.h"
 
 #include <QVBoxLayout>
 #include <QHeaderView>
 #include <QFont>
 
-CallStackPanel::CallStackPanel(Emulator* emulator, QWidget* parent)
+CallStackPanel::CallStackPanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     : QWidget(parent)
-    , emulator_(emulator)
+    , dbg_(dbg)
 {
     create_ui();
 }
@@ -44,9 +43,9 @@ void CallStackPanel::set_paused(bool paused) {
 }
 
 void CallStackPanel::refresh() {
-    if (!emulator_ || !paused_) return;
+    if (!dbg_ || !paused_) return;
 
-    const auto& frames = emulator_->call_stack().frames();
+    const auto& frames = dbg_->call_stack();   // INS-12
     int count = static_cast<int>(frames.size());
 
     table_->setRowCount(count);

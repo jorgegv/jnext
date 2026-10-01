@@ -2,12 +2,12 @@
 
 #include <QMainWindow>
 #include <QSettings>
-#include "debug/breakpoints.h"
 #include "debug/debug_keymap.h"
 #include "debugger/window_attach.h"
 
-class Emulator;
+class BreakpointModel;
 class DebuggerManager;
+namespace jnext { namespace dbg { class Debugger; } }
 class CpuPanel;
 class DisasmPanel;
 class MemoryPanel;
@@ -33,7 +33,9 @@ class QToolBar;
 class DebuggerWindow : public QMainWindow {
     Q_OBJECT
 public:
-    explicit DebuggerWindow(Emulator* emulator, QWidget* parent = nullptr);
+    /// `dbg` — the debugger backend the panels read through (GH #278 WP4a-d,
+    /// WP5: every panel).
+    explicit DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent = nullptr);
 
     void refresh_panels();
 
@@ -76,6 +78,9 @@ public:
     BreakpointPanel* breakpoint_panel() { return breakpoint_panel_; }
     StackPanel* stack_panel() { return stack_panel_; }
     CallStackPanel* callstack_panel() { return callstack_panel_; }
+    NextRegPanel* nextreg_panel() { return nextreg_panel_; }
+    AudioPanel* audio_panel() { return audio_panel_; }
+    MemoryPanel* memory_panel() { return memory_panel_; }
 
 signals:
     void window_closed();
@@ -97,9 +102,10 @@ private:
     /// Stop attaching after the window system repeatedly ignored our moves,
     /// and tell the user — visibly, and recoverably.
     void give_up_on_attachment();
-    void show_add_data_bp_dialog(WatchType type);
-    /// GH #215 — Execute is the ordinary PC breakpoint, so it is not a
-    /// WatchType and cannot go through show_add_data_bp_dialog().
+    /// `type` is a BreakpointModel::Type: Read, Write or ReadWrite.
+    void show_add_data_bp_dialog(int type);
+    /// GH #215 — Execute is the ordinary PC breakpoint, reached first; it has
+    /// its own dialog title and menu entry.
     void show_add_exec_bp_dialog();
     /// Modal "Address (hex):" prompt shared by both of the above. Returns false
     /// when the user cancels or types something that is not hex.
@@ -110,10 +116,20 @@ private:
     /// GH #278 — the rewind UI's frame numbering; see debugger_window.cpp.
     uint32_t rewind_position() const;
     void frame_back();
+    /// GH #278 WP3 — the backend the manager adapts: the rewind toolbar and
+    /// menu, the trace menu and the action greying read it, not the Emulator.
+    /// Null only before set_debugger_manager().
+    jnext::dbg::Debugger* backend() const;
+    /// GH #278 WP4c — the GUI's breakpoints (the manager's), for the
+    /// Breakpoints menu. Null only before set_debugger_manager().
+    BreakpointModel* breakpoint_model() const;
+    /// Export Trace (button and menu): the file dialog, the backend's INS-13
+    /// trace_export(), and "Export Failed" when it refuses.
+    void export_trace();
     /// GH #1 — push keymap_ onto the actions and the toolbar text.
     void apply_keymap();
 
-    Emulator* emulator_;
+    jnext::dbg::Debugger& dbg_;
     DebuggerManager* debugger_mgr_ = nullptr;
 
     // GH #114 — false once a size restored from the config file is in use, so

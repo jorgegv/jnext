@@ -1,15 +1,14 @@
 #include "debugger/mmu_panel.h"
-#include "core/emulator.h"
-#include "memory/mmu.h"
+#include "debug/debugger.h"
 
 #include <QGridLayout>
 #include <QVBoxLayout>
 #include <QFrame>
 #include <QFont>
 
-MmuPanel::MmuPanel(Emulator* emulator, QWidget* parent)
+MmuPanel::MmuPanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     : QWidget(parent)
-    , emulator_(emulator)
+    , dbg_(dbg)
 {
     create_ui();
 }
@@ -104,17 +103,18 @@ void MmuPanel::create_ui() {
 }
 
 void MmuPanel::refresh() {
-    if (!emulator_) return;
+    if (!dbg_) return;
 
-    auto& mmu = emulator_->mmu();
+    // INS-03 — the eight slots and the legacy paging ports.
+    const auto slot_info = dbg_->mmu_slots();
 
     for (int s = 0; s < 8; ++s) {
-        // get_effective_page returns the physical page in use: the explicit NR
+        // effective_page is the physical page in use: the explicit NR
         // 0x50-0x57 value when set (nr_mmu_[s] != 0xFF), else the derived page
-        // from legacy paging. get_page() would show 0xFF for legacy slots 0/1
+        // from legacy paging. nr_page would show 0xFF for legacy slots 0/1
         // after Option C.
-        uint8_t page = mmu.get_effective_page(s);
-        bool is_rom = mmu.is_slot_rom(s);
+        uint8_t page = slot_info[s].effective_page;
+        bool is_rom = slot_info[s].is_rom;
 
         slot_page_[s]->setText(QString::asprintf("%02X", page));
 
@@ -127,7 +127,7 @@ void MmuPanel::refresh() {
         }
     }
 
-    uint8_t p7ffd = mmu.port_7ffd();
+    uint8_t p7ffd = dbg_->paging_ports().port_7ffd;
     bank_128k_->setText(QString::number(p7ffd & 0x07));
     rom_select_->setText(QString::number((p7ffd >> 4) & 1));
     bool locked = (p7ffd >> 5) & 1;

@@ -5,9 +5,11 @@
 // Work package B1 of epic #276 (doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md
 // §10.1: "B1 facade + control + inspection over the existing primitives, no
 // hot-path change"). The control verbs are in `debugger_control.cpp`, the
-// inspection surface in `debugger_inspect.cpp`, and everything a LATER
-// sub-package owns is in `debugger_pending.cpp` — one file, so what is not yet
-// implemented is countable rather than scattered.
+// inspection surface in `debugger_inspect.cpp`. Everything a LATER sub-package
+// owned used to refuse from one file, `debugger_pending.cpp`, so what was not
+// yet implemented was countable rather than scattered; GH #278 WP4d moved its
+// last verb, `render_layer`, into `debugger_render.cpp`, and the empty file was
+// deleted (owner decision 2026-09-29).
 // ---------------------------------------------------------------------------
 
 #include "debug/debugger_impl.h"
@@ -510,6 +512,10 @@ Result Debugger::set_rewind_enabled(bool enabled) {
 
 RewindRange Debugger::rewind_range() const {
     RewindRange rr;
+    // REQ-qt-09d (GH #278 WP3) — the machine's own flag, set by the two ring
+    // restores and cleared when the frame begins or by any other load. Read
+    // before the early returns: it describes the machine, not the ring.
+    rr.at_restored_frame_start = impl_->emu.at_restored_frame_start();
     const RewindBuffer* rb = impl_->emu.rewind_buffer();
     if (!rb) return rr;
     rr.depth          = rb->depth();
@@ -533,8 +539,14 @@ std::optional<Result> Debugger::rewind_blocked() const {
     return r;
 }
 
+// ST-03 — `frames == 0` FREES the ring (GH #278 WP3, manager decision
+// 2026-09-29). CAP-ST-03 defines this verb as the existing
+// `Emulator::resize_rewind_buffer()`, which frees the ring on 0, and the Qt
+// window's Rewind Buffer Size… = 0 is how a user gives the memory back (QRW-16).
+// B1 refused 0 — the one deviation from the accessor it wraps, and it left the
+// Qt adapter with no published way to free the ring. A later non-zero resize
+// creates a fresh one (ST-03-09).
 Result Debugger::resize_rewind_buffer(size_t frames) {
-    if (frames == 0) return Result::RefusedUnavailable;
     impl_->emu.resize_rewind_buffer(static_cast<int>(frames));
     return Result::Ok;
 }

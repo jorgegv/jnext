@@ -65,7 +65,7 @@
 
 #include "core/emulator.h"
 #include "debug/debug_keymap.h"
-#include "debug/debug_keymap_qt.h"
+#include "qt/debug_keymap_qt.h"
 #include "debug/debug_state.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
@@ -126,6 +126,9 @@ EmulatorConfig next_config() {
 /// DebuggerManager exactly as the product does.
 struct DebuggerFixture {
     Emulator         emu;
+    // GH #278 WP2 — the loop owner's backend (QtApp::debugger()), built
+    // after init() and declared before the window, so it outlives the manager.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     QMainWindow      win;
     DebuggerManager* mgr = nullptr;
     DebuggerWindow*  dbg = nullptr;
@@ -133,7 +136,8 @@ struct DebuggerFixture {
 
     DebuggerFixture() {
         if (!emu.init(next_config())) return;
-        mgr = new DebuggerManager(&win, &emu, &win);   // parented -> auto-freed
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        mgr = new DebuggerManager(&win, *backend, &win);   // parented -> auto-freed
         mgr->set_enabled(true);                        // creates + shows the window
         dbg = mgr->debugger_window_ptr();
         ok  = (dbg != nullptr);
@@ -154,11 +158,16 @@ struct DebuggerFixture {
 /// DebuggerManager and therefore the forwarding block under test.
 struct MainWindowFixture {
     Emulator   emu;
+    // GH #278 WP2 — the loop owner's backend, handed to the window before
+    // set_emulator() (QtApp's order); declared before it, so it outlives it.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     MainWindow win;
     bool       ok = false;
 
     MainWindowFixture() {
         if (!emu.init(next_config())) return;
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        win.set_debugger(backend.get());
         win.set_emulator(&emu);
         QApplication::processEvents();
         ok = win.debugger_manager() != nullptr;

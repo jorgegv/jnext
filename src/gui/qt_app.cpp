@@ -263,10 +263,11 @@ bool QtApp::init(int argc, char* argv[]) {
     // plan's §6.3): built on the initialised machine and kept across every cold
     // boot, with the loop driver registered, every boot this loop owner decides
     // on bracketed by begin/done (cold_boot() below) and a pump per tick
-    // (post_frames()). No client attached, so nothing is armed and the GUI runs
-    // as it did; the Qt window keeps driving `DebugState` directly until package
-    // Q makes its panels clients of THIS instance (`debugger()`). SES-04: Qt
-    // PAUSES on a `Stop` — the default, set here so the choice is visible.
+    // (post_frames()). The debugger window's DebuggerManager is a client of
+    // THIS instance while the window is open (GH #278 WP2; set_debugger()
+    // below) — and only then, so with it closed nothing is armed and the GUI
+    // runs as it did. SES-04: Qt PAUSES on a `Stop` — the default, set here so
+    // the choice is visible.
     debugger_ = std::make_unique<jnext::dbg::Debugger>(emulator_);
     debugger_->set_stop_policy(jnext::dbg::StopPolicy::Pause);
     {
@@ -291,7 +292,10 @@ bool QtApp::init(int argc, char* argv[]) {
     // Create the main window.
     main_window_ = new MainWindow();
 
-    // Wire emulator pointer so menus can call into it.
+    // Wire emulator pointer so menus can call into it — after the backend, so
+    // the DebuggerManager set_emulator() builds adapts THIS loop owner's one
+    // Debugger (GH #278 WP2).
+    main_window_->set_debugger(debugger_.get());
     main_window_->set_emulator(&emulator_);
     main_window_->set_unattended(exit_countdown_ >= 0);   // see set_delayed_exit()
 
@@ -541,20 +545,12 @@ bool QtApp::TickEffects::pre_frames() {
         }
     }
 
-    // M_EXECCMD requests use the same cold-boot path as menu loads.
-    if (std::string load_file = a.emulator_.take_nex_load_request(); !load_file.empty()) {
-        a.cold_boot(load_file);
-        return false;
-    }
-
-    // Task 70 — a hard reset (Reset button / F1 / a program's NR 0x02 bit 1)
-    // is a power-on cold boot and cannot run inside run_frame(); it is
-    // performed here between frames. cold_boot() reconstructs the emulator, so
-    // abandon the tick and let the next one run the fresh machine.
-    if (a.emulator_.take_hard_reset_request()) {
-        a.cold_boot();
-        return false;
-    }
+    // The deferred cold boots — an M_EXECCMD `.run` of a NEX, a hard reset
+    // (Reset button / F1 / a program's NR 0x02 bit 1) — are NOT polled here any
+    // more: post_frames() polls them after the frames and BEFORE the backend's
+    // pump, as SdlApp and HeadlessApp do (GH #278 WP2, B3 obligation 2). So this
+    // step never reconstructs the machine, and the tick is never abandoned
+    // here; the sequencer's abandon path stays for a frontend that needs it.
 
     // Apply pending inject when countdown reaches zero.
     if (a.inject_countdown_ == 0) {
@@ -642,16 +638,36 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
     // Router::on_tick_end and is pinned by rows RT-04a/b/c.
     a.key_router_.on_tick_end(frames_rendered);
 
+    // THE DEFERRED COLD BOOTS, polled BEFORE the pump (GH #278 WP2 — the B3
+    // obligation, CAP-CTL-12's ordering paragraph). A guest raises them inside
+    // THIS tick's frames: an M_EXECCMD `.run` of a NEX (same cold-boot path as
+    // a menu load) and a hard reset (Reset button / F1 / a program's NR 0x02
+    // bit 1 — a power-on cold boot, which cannot run inside run_frame()).
+    // Performing them here, before a client's commands, is what makes a guest
+    // reset and a client `reset(Hard)` in one tick run in THAT order; they used
+    // to be polled in pre_frames(), i.e. next tick, so a client `reset(Hard)` in
+    // this pump destroyed the machine with the guest's request still pending on
+    // it and the guest reset silently never happened (row qt-host-order-func).
+    // SdlApp and HeadlessApp poll in the same place, in the same order.
+    //
+    // cold_boot() reconstructs the emulator, so the rest of this tick — the
+    // pump, the delayed-screenshot / delayed-exit countdowns, the debugger
+    // refresh — is left to the next one, which runs on the fresh machine: what
+    // SdlApp's `continue` does, and what the abandoned pre_frames() tick used to.
+    if (std::string load_file = a.emulator_.take_nex_load_request(); !load_file.empty()) {
+        a.cold_boot(load_file);
+        return;
+    }
+    if (a.emulator_.take_hard_reset_request()) {
+        a.cold_boot();
+        return;
+    }
+
     // GH #276 B4 — SES-03: the hosted backend's service call, once per tick
-    // after the frame batch — BEFORE the --delayed-screenshot outcome below,
-    // which reads what this pump wrote. §4.8 places it "where
-    // check_breakpoint_hit() sits today", i.e. in this post-frames slot. NOT
-    // AFTER THE COLD-BOOT POLL, unlike SDL and headless: Qt polls the
-    // hard-reset and NEX-load flags in pre_frames(), so a guest reset raised in
-    // THIS tick's frames is performed next tick — after this pump. A client
-    // `reset(Hard)` in this pump would therefore subsume it rather than follow
-    // it (F7). Unreachable until a client exists; moving the poll is package
-    // Q's (qt-frontend.md §7, "Inherited from backend package B3").
+    // after the frame batch and after the cold-boot polls above — BEFORE the
+    // --delayed-screenshot outcome below, which reads what this pump wrote.
+    // §4.8 places it "where check_breakpoint_hit() sits today", i.e. in this
+    // post-frames slot.
     // GH #12 (package D, WP-5) — T's budget: drain a paused remote's commands,
     // never block the tick (platform/debug_servers.h). Same call, same place.
     a.pump_hint_ = a.debugger_->pump(

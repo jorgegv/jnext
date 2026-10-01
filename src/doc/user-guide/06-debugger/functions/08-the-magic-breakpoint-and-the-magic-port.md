@@ -9,7 +9,8 @@ recognises both conventions:
 - `DD 01` — the CSpect form
 
 Enable it with `--magic-breakpoint`, or **Debug ▸ Magic Breakpoint** in the
-emulator window. When one executes, the machine pauses and the debugger opens
+emulator window; the menu item is ticked whenever it is enabled, whichever way
+you did it. When one executes, the machine pauses and the debugger opens
 itself if it was closed; execution then carries on right after its two bytes.
 
 When the feature is disabled — and on real hardware — the two forms differ.

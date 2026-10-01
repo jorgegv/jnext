@@ -43,6 +43,7 @@
 #include "debug/rewind_buffer.h"
 #include "debug/symbol_table.h"
 #include "debug/trace.h"
+#include "debugger/breakpoint_model.h"
 #include "debugger/breakpoint_panel.h"
 #include "debugger/callstack_panel.h"
 #include "debugger/cpu_panel.h"
@@ -53,6 +54,7 @@
 #include "debugger/stack_panel.h"
 #include "debugger/video_panel.h"
 #include "memory/mmu.h"
+#include "platform/emulator_boot.h"
 #include "port/nextreg.h"
 #include "video/renderer.h"
 
@@ -143,6 +145,9 @@ constexpr uint16_t TEST_SP = 0xFF00;
 
 struct Fixture {
     Emulator         emu;
+    // GH #278 WP2 — the loop owner's backend (QtApp::debugger()), built
+    // after init() and declared before the window, so it outlives the manager.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     QMainWindow      win;
     DebuggerManager* mgr = nullptr;
     bool             ok  = false;
@@ -155,7 +160,8 @@ struct Fixture {
         cfg.type                 = type;
         cfg.rewind_buffer_frames = rewind_frames;
         if (!emu.init(cfg)) return;
-        mgr = new DebuggerManager(&win, &emu, &win);   // parented -> freed
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        mgr = new DebuggerManager(&win, *backend, &win);   // parented -> freed
         if (paused) emu.debug_state().pause();
         ok = true;
     }
@@ -336,6 +342,7 @@ struct Modals {
     QString                    file_path;            // for a QFileDialog
     std::function<void()>      after_file_accept;    // e.g. make the file vanish
     int                        spin_value = -1;      // for a dialog with a QSpinBox
+    int                        spin_seen  = -1;      // ... and what it opened showing
     QMessageBox::StandardButton box_answer = QMessageBox::Ok;
     std::vector<Seen>          seen;
     QTimer                     timer;
@@ -367,8 +374,10 @@ struct Modals {
             return;
         }
         seen.push_back({"dialog", dlg->windowTitle(), {}});
-        if (auto* spin = dlg->findChild<QSpinBox*>())
+        if (auto* spin = dlg->findChild<QSpinBox*>()) {
+            spin_seen = spin->value();
             if (spin_value >= 0) spin->setValue(spin_value);
+        }
         dlg->accept();
     }
 
@@ -556,6 +565,131 @@ static void test_step_over() {
                       s(cpu_value(fx.dbg(), "PC: ")).c_str()));
         }
     }
+
+    // QSO-07 — GH #278 WP4c: a breakpoint hit INSIDE the stepped-over call is a
+    // stop, and a stop drops the Step Over's target (§4.3: a transient is
+    // "auto-removed at the next stop") — so the next Run runs on and does not
+    // stop at the stale target. The GUI behaved so before package Q, where
+    // resume() cleared the one-shot; between WP2 and WP4c a breakpoint was a
+    // legacy `BreakpointSet` stop, which the backend did not see, and the stale
+    // target stopped the Run. As a subscription stop it is seen again.
+    //   8000  CD 00 90   CALL $9000     8003  00   NOP  <- the target
+    //   8004  18 FE      JR $                          <- the park
+    //   9000  3C   INC A   9001  3C   INC A  <- breakpoint   9002  C9  RET
+    {
+        Fixture fx;
+        const char* desc = "a breakpoint inside a stepped-over CALL stops it there, "
+                           "and the next Run does not stop at the stale Step Over "
+                           "target";
+        if (!fx.ok) { check("QSO-07", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0xCD, 0x00, 0x90, 0x00, 0x18, 0xFE});
+            fx.load(0x9000, {0x3C, 0x3C, 0xC9});
+            fx.regs(PROG, [](Z80Registers& r) { r.AF = 0x0000; });
+            fx.enable();
+            fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x9001);
+            fx.mgr->on_step_over();
+            fx.tick_until_paused();
+            const bool inside = fx.paused() && fx.pc() == 0x9001;
+            fx.mgr->on_run();
+            for (int i = 0; i < 3; ++i) fx.tick();
+            check("QSO-07", desc,
+                  inside && !fx.paused() && fx.pc() == 0x8004,
+                  fmt("stopped inside=%d; after Run paused=%d PC=%04X (want running at "
+                      "8004; 8003 is the stale target)", inside, fx.paused(), fx.pc()));
+        }
+    }
+}
+
+// ===========================================================================
+// QIO — GH #278 WP4c: an I/O breakpoint set through the GUI's model is a Port
+// subscription whose mask carries GH #222's rule — an address 00-FF is a
+// LOW-BYTE match, 0100 and up an exact port. Asserted by where a guest IN/OUT
+// stops the machine, since a row that only reads the panel back cannot tell a
+// mask from its mirror image.
+// ===========================================================================
+static void test_io_breakpoints() {
+    set_group("QIO");
+
+    //   8000  01 FE 7F   LD BC,$7FFE     8003  ED 78   IN A,(C)
+    //   8005  00         NOP             8006  18 FE   JR $
+    {
+        Fixture fx(MachineType::ZX48K, 0, /*paused=*/false);
+        const char* desc = "an IO Read on 00FE (low-byte form) stops a guest IN from "
+                           "port 7FFE, after the IN";
+        if (!fx.ok) { check("QIO-01", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x01, 0xFE, 0x7F, 0xED, 0x78, 0x00, 0x18, 0xFE});
+            fx.regs(PROG);
+            fx.enable();
+            fx.mgr->breakpoints().add(BreakpointModel::IoRead, 0x00FE);
+            fx.tick_until_paused();
+            check("QIO-01", desc, fx.paused() && fx.pc() == 0x8005,
+                  fmt("paused=%d PC=%04X (want paused at 8005)", fx.paused(), fx.pc()));
+        }
+    }
+    //   8000  01 3B 25   LD BC,$253B     8003  ED 79   OUT (C),A
+    //   8005  01 3B 24   LD BC,$243B     8008  ED 79   OUT (C),A
+    //   800A  00         NOP             800B  18 FE   JR $
+    {
+        Fixture fx(MachineType::ZX48K, 0, /*paused=*/false);
+        const char* desc = "an IO Write on 243B (exact form) lets an OUT to 253B — the "
+                           "same low byte — pass, and stops the OUT to 243B";
+        if (!fx.ok) { check("QIO-02", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x01, 0x3B, 0x25, 0xED, 0x79, 0x01, 0x3B, 0x24, 0xED, 0x79,
+                           0x00, 0x18, 0xFE});
+            fx.regs(PROG, [](Z80Registers& r) { r.AF = 0x0000; });
+            fx.enable();
+            fx.mgr->breakpoints().add(BreakpointModel::IoWrite, 0x243B);
+            fx.tick_until_paused();
+            check("QIO-02", desc, fx.paused() && fx.pc() == 0x800A,
+                  fmt("paused=%d PC=%04X (want paused at 800A; 8005 = stopped on the "
+                      "253B OUT)", fx.paused(), fx.pc()));
+        }
+    }
+    // QIO-03/04 — the rule's BOUNDARY, both sides of it (WP4c review, M9). 00FF
+    // is the last low-byte address: an IN from 12FF stops. 0100 is the first
+    // exact one: an IN from 2200 (low byte 00, as 0100's) passes and the IN from
+    // 0100 itself stops.
+    //   8000  01 FF 12   LD BC,$12FF     8003  ED 78   IN A,(C)
+    //   8005  00         NOP             8006  18 FE   JR $
+    {
+        Fixture fx(MachineType::ZX48K, 0, /*paused=*/false);
+        const char* desc = "an IO Read on 00FF — the last low-byte address — stops a "
+                           "guest IN from port 12FF, after the IN";
+        if (!fx.ok) { check("QIO-03", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x01, 0xFF, 0x12, 0xED, 0x78, 0x00, 0x18, 0xFE});
+            fx.regs(PROG);
+            fx.enable();
+            fx.mgr->breakpoints().add(BreakpointModel::IoRead, 0x00FF);
+            fx.tick_until_paused();
+            check("QIO-03", desc, fx.paused() && fx.pc() == 0x8005,
+                  fmt("paused=%d PC=%04X (want paused at 8005)", fx.paused(), fx.pc()));
+        }
+    }
+    //   8000  01 00 22   LD BC,$2200     8003  ED 78   IN A,(C)
+    //   8005  01 00 01   LD BC,$0100     8008  ED 78   IN A,(C)
+    //   800A  00         NOP             800B  18 FE   JR $
+    {
+        Fixture fx(MachineType::ZX48K, 0, /*paused=*/false);
+        const char* desc = "an IO Read on 0100 — the first exact address — lets an IN "
+                           "from 2200 (the same low byte) pass, and stops the IN from "
+                           "0100";
+        if (!fx.ok) { check("QIO-04", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x01, 0x00, 0x22, 0xED, 0x78, 0x01, 0x00, 0x01, 0xED, 0x78,
+                           0x00, 0x18, 0xFE});
+            fx.regs(PROG);
+            fx.enable();
+            fx.mgr->breakpoints().add(BreakpointModel::IoRead, 0x0100);
+            fx.tick_until_paused();
+            check("QIO-04", desc, fx.paused() && fx.pc() == 0x800A,
+                  fmt("paused=%d PC=%04X (want paused at 800A; 8005 = stopped on the "
+                      "2200 IN)", fx.paused(), fx.pc()));
+        }
+    }
 }
 
 // ===========================================================================
@@ -635,7 +769,7 @@ static void test_step_into() {
             fx.load(0x8010, {0x18, 0xFE});
             fx.regs(PROG);
             fx.enable();
-            fx.emu.debug_state().breakpoints().add_watchpoint(0x9000, WatchType::READ);
+            fx.mgr->breakpoints().add(BreakpointModel::Read, 0x9000);
             fx.mgr->on_step_into();
             const uint16_t after_step = fx.pc();
             fx.mgr->on_run_to_eof();
@@ -763,7 +897,7 @@ static void test_pause_edge() {
                   disasm_shows(dbg->disasm_panel(), PROG), span_lo0, span_hi0, span_lo1,
                   span_hi1));
 
-        fx.emu.debug_state().breakpoints().add_pc(0x9001);
+        fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x9001);
         fx.tick_until_paused();
         const Z80Registers r = fx.emu.cpu().get_registers();
         const uint16_t word0 = static_cast<uint16_t>(fx.emu.mmu().read(r.SP) |
@@ -918,6 +1052,124 @@ static void test_pause_edge() {
               "a throttled refresh, actions flipped",
               bad.empty(), bad);
     }
+
+    // GH #278 WP2 — the window reads the machine's pause state from the backend
+    // on every tick, so a transition ANOTHER CLIENT causes reaches it too.
+
+    // QPE-07 — a RESUME the window did not cause (another client's run()): the
+    // next tick flips the actions to the running shape and the paused-only
+    // panels stop following the machine. Before WP2 the window learnt of a
+    // resume only from its own verbs, and stayed in the paused shape — frozen
+    // on a running machine, and deaf to its next pause edge.
+    {
+        Fixture f;
+        const char* desc = "another client's run(): on the next tick the actions "
+                           "flip to the running shape and CPU / Stack stop following";
+        if (!f.ok) { check("QPE-07", desc, false, "fixture"); }
+        else {
+            f.load(PROG, {0x18, 0xFE});                         // JR $
+            f.load(TEST_SP, {0x11, 0x22});
+            f.regs(PROG, [](Z80Registers& r) { r.HL = 0x1111; });
+            f.enable();
+            f.tick();                                           // the pause edge
+            DebuggerWindow* dbg = f.dbg();
+            const bool shown_paused = actions_paused_shape(dbg);
+            const jnext::dbg::ClientId remote =
+                f.backend->attach(jnext::dbg::ClientInfo{"remote", jnext::dbg::ClientKind::Dzrp})
+                    .value;
+            const jnext::dbg::Result rr = f.backend->run(remote);
+            f.tick();
+            const bool running = !f.paused() && actions_running_shape(dbg);
+            Z80Registers r = f.emu.cpu().get_registers();
+            r.HL = 0x2222;
+            f.emu.cpu().set_registers(r);
+            f.emu.mmu().write(TEST_SP, 0x99);
+            for (int i = 0; i < 12; ++i) f.mgr->refresh_panels();
+            const QString hl = cpu_value(dbg, "HL: ");
+            const QString w0 = table_cell(dbg->stack_panel(), 0, 1);
+            const QString want_w0 = QString::asprintf("%04X (%5d)", 0x2211, 0x2211);
+            check("QPE-07", desc,
+                  shown_paused && rr == jnext::dbg::Result::Ok && running && hl == "1111" &&
+                      w0 == want_w0,
+                  fmt("paused shape before=%d run=%s running shape after the tick=%d "
+                      "HL shown %s stack0 %s",
+                      shown_paused, jnext::dbg::result_name(rr), running, s(hl).c_str(),
+                      s(w0).c_str()));
+        }
+    }
+
+    // QPE-08 — a PAUSE another client causes while the window is open: the next
+    // tick is a full pause edge — CPU and Stack on the stopped state, the
+    // Disassembly on PC, the paused actions — and the pause stays that client's.
+    {
+        Fixture f(MachineType::ZX48K, 0, /*paused=*/false);
+        const char* desc = "another client's pause() with the window open: the next "
+                           "tick is a full pause edge, and the pause stays that client's";
+        if (!f.ok) { check("QPE-08", desc, false, "fixture"); }
+        else {
+            f.load(PROG, {0x23, 0x18, 0xFD});                   // INC HL / JR $8000
+            f.regs(PROG, [](Z80Registers& r) { r.HL = 0; });
+            f.enable();
+            DebuggerWindow* dbg = f.dbg();
+            if (auto* sb = dbg->disasm_panel()->findChild<QScrollBar*>()) sb->setValue(0xC000);
+            for (int i = 0; i < 3; ++i) f.tick();
+            const bool ran = !f.paused() && actions_running_shape(dbg);
+            const jnext::dbg::ClientId remote =
+                f.backend->attach(jnext::dbg::ClientInfo{"remote", jnext::dbg::ClientKind::Dzrp})
+                    .value;
+            f.backend->pause(remote);
+            f.tick();
+            const Z80Registers r = f.emu.cpu().get_registers();
+            const jnext::dbg::RunState st = f.backend->state();
+            check("QPE-08", desc,
+                  ran && f.paused() && actions_paused_shape(dbg) && r.HL != 0 &&
+                      cpu_value(dbg, "PC: ") == QString::asprintf("%04X", r.PC) &&
+                      cpu_value(dbg, "HL: ") == QString::asprintf("%04X", r.HL) &&
+                      table_cell(dbg->stack_panel(), 0, 0) == QString::asprintf("%04X", r.SP) &&
+                      disasm_shows(dbg->disasm_panel(), r.PC) &&
+                      st.pause_reason.kind == jnext::dbg::PauseReason::Kind::User &&
+                      st.pause_reason.by == remote,
+                  fmt("ran=%d paused=%d actions=%d PC=%04X shown=%s HL=%04X shown=%s "
+                      "disasm=%d by=%u (remote %u)",
+                      ran, f.paused(), actions_paused_shape(dbg), r.PC,
+                      s(cpu_value(dbg, "PC: ")).c_str(), r.HL,
+                      s(cpu_value(dbg, "HL: ")).c_str(),
+                      disasm_shows(dbg->disasm_panel(), r.PC), st.pause_reason.by, remote));
+        }
+    }
+
+    // QPE-09 — the pause edge is an EDGE: while the machine stays paused, the
+    // ticks refresh the window but never re-centre the Disassembly. A user who
+    // has scrolled it away from PC keeps their view. (Re-applying the pause edge
+    // on every paused tick — a pause "epoch" counted per tick rather than per
+    // stop — snapped the view back to PC every 20 ms; no row saw it.)
+    {
+        Fixture f;
+        const char* desc = "while paused, ticks refresh the Disassembly but leave "
+                           "it where the user scrolled it (no re-centring on PC)";
+        if (!f.ok) { check("QPE-09", desc, false, "fixture"); }
+        else {
+            f.load(PROG, {0x18, 0xFE});                         // JR $
+            f.regs(PROG);
+            for (uint16_t a = 0xC000; a < 0xC100; ++a) f.emu.mmu().write(a, 0x00);
+            f.enable();
+            f.tick();                                           // the pause edge
+            DebuggerWindow* dbg = f.dbg();
+            const bool at_pc = disasm_shows(dbg->disasm_panel(), PROG);
+            if (auto* sb = dbg->disasm_panel()->findChild<QScrollBar*>()) sb->setValue(0xC000);
+            QApplication::processEvents();
+            for (int i = 0; i < 3; ++i) f.tick();
+            uint16_t lo = 0, hi = 0;
+            dbg->disasm_panel()->select_all_visible();
+            dbg->disasm_panel()->selection_range(lo, hi);
+            dbg->disasm_panel()->clear_selection();
+            check("QPE-09", desc,
+                  f.paused() && at_pc && lo == 0xC000 && !disasm_shows(dbg->disasm_panel(), PROG),
+                  fmt("paused=%d showed PC first=%d span after 3 ticks %04X..%04X "
+                      "shows PC=%d", f.paused(), at_pc, lo, hi,
+                      disasm_shows(dbg->disasm_panel(), PROG)));
+        }
+    }
 }
 
 // ===========================================================================
@@ -1028,6 +1280,59 @@ static void test_enable_seeds() {
                   fmt("HL shown at enable=%s, after 13 ticks=%s, live=%04X",
                       s(hl_at_enable).c_str(), s(cpu_value(fx.dbg(), "HL: ")).c_str(),
                       live));
+        }
+    }
+
+    // QEN-03 — GH #278 WP2: with the window open, a hard reset keeps what the
+    // window switched on. The window is a backend client, which the backend
+    // re-applies on the rebuilt machine (CTL-12 rule 2): still ARMED (a
+    // breakpoint at the reset vector stops it), the live raster still on, and
+    // call-stack tracking still on. The last half is a defect fix: the window
+    // used to switch tracking on directly on the Emulator, which a cold boot
+    // reconstructs with tracking off, so after a hard reset the Call Stack
+    // stayed empty until the window was closed and reopened.
+    {
+        Fixture fx(MachineType::ZX48K, 0, /*paused=*/false);
+        const char* desc = "window open: a hard reset keeps the machine armed (a "
+                           "breakpoint at 0000 stops it), the live raster on and "
+                           "call-stack tracking on (a CALL stepped into is listed)";
+        if (!fx.ok) { check("QEN-03", desc, false, "fixture"); }
+        else {
+            fx.load(PROG, {0x18, 0xFE});
+            fx.regs(PROG);
+            fx.enable();
+            fx.tick();
+            // GH #278 WP4c — the GUI's breakpoint, carried by the BACKEND across
+            // the boot (CTL-12 rule 2): the platform restore that used to carry
+            // it is retired (B3 obligation 1).
+            fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x0000);
+            // QtApp::cold_boot(): the backend's begin, the frontend cold boot, done.
+            fx.backend->on_cold_boot_begin();
+            emulator_frontend_cold_boot(fx.emu, fx.emu.config(), std::string(),
+                                        ColdBootHooks{});
+            fx.backend->on_cold_boot_done();
+            const bool armed = fx.backend->armed();
+            const bool live  = fx.backend->live_raster();
+            const bool cs    = fx.backend->call_stack_enabled();
+            const bool ran_before = !fx.paused();
+            fx.tick();
+            const bool stopped = fx.paused() && fx.pc() == 0x0000 &&
+                                 actions_paused_shape(fx.dbg());
+            // And the Call Stack panel still TRACKS: a CALL stepped into on the
+            // rebuilt machine is listed.
+            fx.load(0x8000, {0xCD, 0x00, 0x90});                 // CALL $9000
+            fx.load(0x9000, {0x18, 0xFE});
+            fx.regs(0x8000);
+            fx.mgr->on_step_into();
+            CallStackPanel* csp = fx.dbg()->callstack_panel();
+            const bool tracked = fx.pc() == 0x9000 && table_rows(csp) == 1 &&
+                                 table_cell(csp, 0, 3) == "9000";
+            check("QEN-03", desc,
+                  armed && live && cs && ran_before && stopped && tracked,
+                  fmt("armed=%d live_raster=%d call_stack=%d running after boot=%d "
+                      "stopped at 0000=%d (PC=%04X) CALL tracked=%d (rows=%d)",
+                      armed, live, cs, ran_before, stopped, fx.pc(), tracked,
+                      table_rows(csp)));
         }
     }
 }
@@ -1468,6 +1773,65 @@ static void test_rewind_ui() {
         }
     }
 
+    {
+        // WP3 review item 3 — the Buffer Size dialog opens on the ring's DEPTH
+        // (the frames it holds), not its capacity: with a partly filled ring the
+        // two differ, and the dialog's own comment says which one it means.
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "Rewind Buffer Size... opens pre-filled with the frames the "
+                           "ring HOLDS (its depth), not its capacity";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QRW-21", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 3);
+            const size_t depth0 = fx.emu.rewind_buffer()->depth();
+            const size_t cap0   = fx.emu.rewind_buffer()->capacity();
+            Modals m;
+            m.spin_value = static_cast<int>(cap0);           // answer: keep the size
+            if (QAction* sz = debug_sub_item(fx.dbg(), "Rewind", "Rewind Buffer Size..."))
+                sz->trigger();
+            m.timer.stop();
+            check("QRW-21", desc,
+                  m.seen.size() == 1 && depth0 > 0 && depth0 < cap0 &&
+                      m.spin_seen == static_cast<int>(depth0),
+                  fmt("dialogs=%zu pre-filled %d; depth %zu capacity %zu", m.seen.size(),
+                      m.spin_seen, depth0, cap0));
+        }
+    }
+
+    {
+        // QRW-22 — GH #278 WP4c: a GUI breakpoint inside the REPLAYED span does
+        // not cut a Step Back short. A rewind restores the frame's snapshot and
+        // replays forward to the target instruction; the backend consults no
+        // subscription while it replays (§4.2a), so the replay lands on its
+        // target. As a legacy `BreakpointSet` entry the breakpoint stopped the
+        // replay at its first pass, and Step Back landed there instead — a
+        // defect, fixed by the breakpoints becoming subscriptions.
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "Step Back lands on the previous instruction even with a "
+                           "breakpoint on an address the replay passes";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QRW-22", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 3);
+            const size_t n = fx.emu.trace_log().size();
+            const uint64_t want_cycle = n ? fx.emu.trace_log().at(n - 1).cycle : 0;
+            const uint16_t want_pc    = n ? fx.emu.trace_log().at(n - 1).pc : 0;
+            // The loop's JR runs every other instruction, so the replay passes it
+            // many times between the frame's snapshot and the target.
+            fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x8001);
+            fx.mgr->on_step_back();
+            check("QRW-22", desc,
+                  n > 0 && fx.paused() && fx.emu.clock().get() == want_cycle &&
+                      fx.pc() == want_pc,
+                  fmt("cycle %llu (want %llu) PC %04X (want %04X)",
+                      static_cast<unsigned long long>(fx.emu.clock().get()),
+                      static_cast<unsigned long long>(want_cycle), fx.pc(), want_pc));
+        }
+    }
+
     // ── Failure classes (Task 60e): refused, benign, corrupt ─────────
     {
         Fixture fx(MachineType::ZX48K, 10);
@@ -1550,6 +1914,50 @@ static void test_rewind_ui() {
                       status.startsWith("Step Back failed: snapshot restore desynced at 'mmu'"),
                   fmt("corrupted %zu/%zu modals=%s status='%s'", corrupted, rb->depth(),
                       m.describe().c_str(), s(status).c_str()));
+        }
+    }
+
+    // QRW-20 — GH #278 WP3: a REWIND is the way out of a corrupt state, as it
+    // always was. A rewind into a torn slot warns ("Rewind Failed"); a second
+    // rewind, to an intact frame, is NOT refused for that corruption — no modal,
+    // no resume prompt — and its successful restore clears the corruption. The
+    // backend used to gate its rewind verbs on CTL-11, which would have answered
+    // the second one with another "Rewind Failed" without trying.
+    {
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "after a torn rewind, a rewind to an intact frame "
+                           "succeeds with no modal and clears the corruption";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QRW-20", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 4);
+            RewindBuffer* rb = fx.emu.rewind_buffer();
+            const uint32_t mmu_sentinel = Emulator::kStateSentinelMagic ^ 2u;
+            size_t corrupted = 0;
+            for (size_t i = 0; i + 1 < rb->depth(); ++i) {     // all but the newest
+                uint8_t* d = rb->slot_data_for_test(i);
+                for (size_t off = 0; off + 4 <= rb->snapshot_bytes(); ++off) {
+                    uint32_t v;
+                    std::memcpy(&v, d + off, 4);
+                    if (v == mmu_sentinel) { d[off] ^= 0xFF; ++corrupted; break; }
+                }
+            }
+            const uint32_t oldest = rb->oldest_frame_num(), newest = rb->newest_frame_num();
+            Modals m1;
+            fx.mgr->on_rewind_to_frame(oldest);                  // torn
+            m1.timer.stop();
+            const bool torn = m1.boxes() == 1 && !fx.emu.last_state_error().empty();
+            Modals m2;
+            fx.mgr->on_rewind_to_frame(newest);                  // intact
+            m2.timer.stop();
+            check("QRW-20", desc,
+                  corrupted + 1 == rb->depth() && torn && m2.seen.empty() && fx.paused() &&
+                      fx.emu.last_state_error().empty() &&
+                      rewind_frame_label(fx.dbg()) != nullptr,
+                  fmt("corrupted %zu/%zu first=%s second=%s err='%s' paused=%d",
+                      corrupted, rb->depth(), m1.describe().c_str(), m2.describe().c_str(),
+                      fx.emu.last_state_error().c_str(), fx.paused()));
         }
     }
 }
@@ -1661,6 +2069,42 @@ static void test_trace_ui() {
                   n, lines_in(via_menu), lines_in(via_button), m1.describe().c_str(),
                   m2.describe().c_str(), m3.describe().c_str()));
     }
+
+    // QTR-05 — GH #278 WP3: the window switches the trace through the backend
+    // (INS-13), which re-applies a client's trace request on a rebuilt machine
+    // (CTL-12 rule 2). So a trace switched on from the window SURVIVES a hard
+    // reset — the ball stays green and the new machine records — where the
+    // Emulator switch it used to flip was reconstructed off.
+    {
+        Fixture f2(MachineType::ZX48K, 0, /*paused=*/false);
+        const char* desc = "a trace switched on from the window survives a hard reset: "
+                           "the ball stays green and the rebuilt machine records";
+        if (!f2.ok) { check("QTR-05", desc, false, "fixture"); }
+        else {
+            f2.load(PROG, {0x18, 0xFE});
+            f2.regs(PROG);
+            f2.enable();
+            DebuggerWindow* d2 = f2.dbg();
+            QAction* en = debug_sub_item(d2, "Trace", "Enable Trace");
+            const bool off0 = !f2.emu.trace_log().enabled();
+            if (en) en->trigger();                         // the menu's Enable Trace
+            const bool on = f2.emu.trace_log().enabled();
+            f2.backend->on_cold_boot_begin();              // QtApp::cold_boot()
+            emulator_frontend_cold_boot(f2.emu, f2.emu.config(), std::string(),
+                                        ColdBootHooks{});
+            f2.backend->on_cold_boot_done();
+            const bool kept = f2.emu.trace_log().enabled();
+            f2.tick();                                     // a frame on the new machine
+            QPushButton* ball2 = button_where(d2, [](const QString& t) {
+                return t == "Trace" || t.endsWith(": Trace");
+            });
+            check("QTR-05", desc,
+                  en && off0 && on && kept && f2.emu.trace_log().size() > 0 &&
+                      ball_colour(ball2) == qRgb(0x00, 0xC0, 0x00),
+                  fmt("off before=%d on=%d kept after reset=%d entries=%zu",
+                      off0, on, kept, f2.emu.trace_log().size()));
+        }
+    }
 }
 
 // ===========================================================================
@@ -1708,8 +2152,8 @@ static void test_map_load() {
               box && box->title == "MAP Loaded" &&
                   box->text == QStringLiteral("Loaded 3 symbols from:\n%1")
                                    .arg(QString::fromStdString(path)) &&
-                  fx.mgr->symbol_table().size() == 3,
-              fmt("modals=%s table=%zu", m.describe().c_str(), fx.mgr->symbol_table().size()));
+                  fx.backend->symbols().size() == 3,
+              fmt("modals=%s table=%zu", m.describe().c_str(), fx.backend->symbols().size()));
     }
 
     {
@@ -1720,7 +2164,7 @@ static void test_map_load() {
         bad.after_file_accept = [gone_path]() { QFile::remove(QString::fromStdString(gone_path)); };
         if (QAction* a = item_named(load_menu, "Z88DK Format...")) a->trigger();
         bad.timer.stop();
-        const size_t after_bad = fx.mgr->symbol_table().size();
+        const size_t after_bad = fx.backend->symbols().size();
 
         // Z88DK, a readable map with nothing but a `; const`: a load of zero.
         const std::string none_path = write_file("consts.map", "__SIZE = $0010 ; const, public\n");
@@ -1741,9 +2185,9 @@ static void test_map_load() {
                   after_bad == 3 && noneb && noneb->title == "MAP Loaded" &&
                   noneb->text == QStringLiteral("Loaded 0 symbols from:\n%1")
                                      .arg(QString::fromStdString(none_path)) &&
-                  fx.mgr->symbol_table().size() == 0,
+                  fx.backend->symbols().size() == 0,
               fmt("bad: %s table after=%zu; none: %s table after=%zu", bad.describe().c_str(),
-                  after_bad, none.describe().c_str(), fx.mgr->symbol_table().size()));
+                  after_bad, none.describe().c_str(), fx.backend->symbols().size()));
     }
 
     {
@@ -1811,7 +2255,7 @@ static void test_map_load() {
         const QString target = table_cell(dbg->callstack_panel(), 0, 3);
 
         // Breakpoints: a PC breakpoint on a symbol's address.
-        fx.emu.debug_state().breakpoints().add_pc(0x8000);
+        fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x8000);
         BreakpointPanel* bp = dbg->breakpoint_panel();
         QString sym_col;
         if (auto* t = bp->findChild<QTableWidget*>())
@@ -1845,6 +2289,7 @@ int main(int argc, char** argv) {
     QApplication app(argc, argv);
 
     test_step_over();
+    test_io_breakpoints();
     test_step_into();
     test_pause_edge();
     test_throttle();

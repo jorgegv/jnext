@@ -1370,16 +1370,15 @@ CableFrame run_cable_frame(Emulator& emu, uint8_t nr_0b) {
 
 // Rewind to `frame` and leave the machine RUNNABLE.
 //
-// `Emulator::rewind_to_frame` deliberately ends with
-// `debug_state_.set_active(true); debug_state_.pause()` — a rewind in the GUI
-// lands the user in the debugger at the restored instant. `run_frame()` returns
-// immediately while that holds (emulator.cpp:7813-7816), so a programmatic
-// replay that does not clear it silently executes NOTHING and every "the replay
+// `Emulator::rewind_to_frame` deliberately ends PAUSED — a rewind in the GUI
+// lands the user in the debugger at the restored instant — so a programmatic
+// replay that does not resume silently executes NOTHING and every "the replay
 // matched" assertion becomes a comparison of empty frames against empty frames.
+// (It used to arm the machine too, by the `active()` bit this also cleared; GH
+// #278 WP3 stopped that and WP4c retired the bit.)
 bool rewind_and_resume(Emulator& emu, uint32_t frame) {
     if (!emu.rewind_to_frame(frame)) return false;
     emu.debug_state().resume();
-    emu.debug_state().set_active(false);
     return true;
 }
 

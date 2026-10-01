@@ -1,6 +1,5 @@
 #include "debugger/nextreg_panel.h"
-#include "core/emulator.h"
-#include "port/nextreg.h"
+#include "debug/debugger.h"
 
 #include <QVBoxLayout>
 #include <QHeaderView>
@@ -108,9 +107,9 @@ const char* NextRegPanel::reg_name(uint8_t reg) {
 // NextRegPanel
 // ---------------------------------------------------------------------------
 
-NextRegPanel::NextRegPanel(Emulator* emulator, QWidget* parent)
+NextRegPanel::NextRegPanel(jnext::dbg::Debugger* dbg, QWidget* parent)
     : QWidget(parent)
-    , emulator_(emulator)
+    , dbg_(dbg)
 {
     create_ui();
 }
@@ -162,7 +161,7 @@ void NextRegPanel::create_ui() {
 
     // Connect cell edit to write NextREG
     connect(table_, &QTableWidget::cellChanged, this, [this](int row, int column) {
-        if (!emulator_ || column != 2) return;
+        if (!dbg_ || column != 2) return;
 
         auto* item = table_->item(row, column);
         if (!item) return;
@@ -171,14 +170,19 @@ void NextRegPanel::create_ui() {
         uint8_t val = static_cast<uint8_t>(item->text().toUInt(&ok, 16));
         if (!ok) return;
 
-        emulator_->nextreg().write(static_cast<uint8_t>(row), val);
+        // INS-04 — THE Z80's write path: the register's handler runs, and the
+        // backend logs the MUTATE line naming this client. Refused only while
+        // an RZX records or plays (an edit would diverge the recording); then,
+        // as for a non-hex edit, nothing is written and the next refresh puts
+        // the register's own value back in the cell.
+        dbg_->nextreg_write(client_, static_cast<uint8_t>(row), val);
     });
 
     layout->addWidget(table_);
 }
 
 void NextRegPanel::refresh() {
-    if (!emulator_ || !table_) return;
+    if (!dbg_ || !table_) return;
 
     // Block signals during bulk update to avoid triggering cellChanged
     table_->blockSignals(true);
@@ -202,8 +206,9 @@ void NextRegPanel::refresh() {
         // the debugger invented. read() also emits a trace line per register, i.e. ~1000
         // phantom NextREG reads a second into the log used to diagnose NextREG traffic.
         //
-        // peek() is the same value with neither consequence.
-        uint8_t val = emulator_->nextreg().peek(static_cast<uint8_t>(i));
+        // peek() is the same value with neither consequence — the backend's
+        // nextreg_peek() (INS-04) is exactly that NextReg::peek().
+        uint8_t val = dbg_->nextreg_peek(static_cast<uint8_t>(i));
 
         // Hex column
         table_->item(i, 2)->setText(QString::asprintf("%02X", val));

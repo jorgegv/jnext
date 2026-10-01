@@ -3,13 +3,15 @@
 #include <QWidget>
 #include <QTableWidget>
 
-class Emulator;
+namespace jnext { namespace dbg { class Debugger; } }
 
 /// Debugger panel showing all 128 hardware sprites in a table.
 class SpritePanel : public QWidget {
     Q_OBJECT
 public:
-    explicit SpritePanel(Emulator* emulator, QWidget* parent = nullptr);
+    /// @param dbg  the debugger backend every read goes through (GH #278 WP4b);
+    ///             null shows nothing.
+    explicit SpritePanel(const jnext::dbg::Debugger* dbg, QWidget* parent = nullptr);
 
     /// Update display with current sprite state.
     void refresh();
@@ -19,6 +21,6 @@ public:
 private:
     void create_ui();
 
-    Emulator* emulator_;
+    const jnext::dbg::Debugger* dbg_;
     QTableWidget* table_ = nullptr;
 };
