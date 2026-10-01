@@ -19,6 +19,7 @@
 #include "peripheral/joy_uart_source.h"
 #include "peripheral/joy_uart_link.h"
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
@@ -210,6 +211,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     sprites_.reset(/*hard=*/!preserve_memory);
     tilemap_.reset(/*hard=*/!preserve_memory);
     copper_.reset();
+    // GH #290 — the value `cvc` counts from is NOT reset with the NR 0x64
+    // register copper_.reset() just cleared (zxnext.vhd:5024): zxula_timing
+    // has no reset input at all, so after a SOFT reset `cvc` keeps counting
+    // from the old value until the frame's next reload loads the cleared
+    // register. A hard reset is power-on and restarts the frame at raw
+    // (0, 0) (frame_cycle_ = 0 above): the power-on register value, 0.
+    if (!preserve_memory) {
+        video_timing_.set_cu_offset(0);
+        cvc_reload_done_ = false;
+        line_int_pending_.clear();   // irq_scheduler_ was reset above
+    }
     cpu_.reset(/*hard=*/!preserve_memory);
     im2_.reset();
     // V20-IM2-01 — reset pulse-mode edge-detect shadow (init path).
@@ -3032,12 +3044,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Register 0x64: Copper vertical line offset (NR 0x64).
     // VHDL: zxnext.vhd:5442 (write), :6090 (read-back), :6723 (wired
     //       into zxula_timing.vhd i_cu_offset).
-    // G109: i_cu_offset feeds cvc reload at zxula_timing.vhd:462; the
-    // line-int comparator at :577 uses cvc, so VideoTiming must mirror
-    // the offset for line-int scheduling to match VHDL semantics.
+    // G109: i_cu_offset feeds the cvc reload at zxula_timing.vhd:462, and
+    // the line-int comparator (:577), the Copper (zxnext.vhd:3950) and the
+    // NR 0x1E/0x1F readback (:5982-5986) all use cvc.
+    // GH #290 — so the write lands in the REGISTER only. cvc samples it once
+    // per frame, at ula_min_vactive (zxula_timing.vhd:457-462), and merely
+    // increments at every other line boundary (:463-466); reload_cvc_offset_()
+    // is where a write reaches it. The readback stays last-write-wins (:6090).
     nextreg_.set_write_handler(0x64, [this](uint8_t v) -> uint8_t {
         copper_.write_reg_0x64(v);
-        video_timing_.set_cu_offset(v);
         return v;
     });
     nextreg_.set_read_handler (0x64, [this]() -> uint8_t { return copper_.read_reg_0x64(); });
@@ -3197,6 +3212,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // im2_.dev_[LINE].int_en == true via raise_req+tick observability.
         im2_.set_int_en(Im2Controller::DevIdx::LINE, (v & 0x02) != 0);
         const uint16_t cur = video_timing_.line_interrupt_target();
+        const uint16_t old_target = cur;   // GH #290 — for the reschedule below
         video_timing_.set_line_interrupt_target(
             static_cast<uint16_t>((cur & 0xFF) | ((v & 0x01) << 8)));
         // VHDL zxnext.vhd:3619-3620 — `nr_22_we` fans bit 2 of the new
@@ -3226,8 +3242,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         renderer_.ula().set_screen_mode(port_ff_reg_);
         // G163 — re-evaluate the line-int schedule. NR 0x22 carries the
         // line-int enable bit (bit 1) and the target MSB (bit 0); both
-        // affect the firing line.
-        reschedule_line_interrupt();
+        // affect the firing line. GH #290 — from the cycle the write lands on.
+        reschedule_line_interrupt(nr_write_lands_at_(), old_target);
         return v;
     });
 
@@ -3273,8 +3289,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             static_cast<uint16_t>((cur & 0x100) | v));
         // G163 — chained line-IRQ rewrites NR 0x23 mid-frame to retarget
         // the next firing line (parallax.nex pattern). VHDL fires every
-        // cycle when match (zxula_timing.vhd:577), so we must reschedule.
-        reschedule_line_interrupt();
+        // cycle when match (zxula_timing.vhd:577), so we must reschedule —
+        // GH #290: from the cycle the write lands on, with the old target
+        // for the compares that still read it.
+        reschedule_line_interrupt(nr_write_lands_at_(), cur);
         return v;
     });
     // VHDL zxnext.vhd:5995 — NR 0x23 read returns nr_23_line_interrupt(7:0).
@@ -4227,8 +4245,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // line-interrupt comparator at :6752). The same dynamic
         // re-evaluation requirement applies here: a mid-frame NR 0xC4
         // write that toggles bit 1 must invalidate / re-arm the
-        // pending line-int event, exactly as for NR 0x22.
-        reschedule_line_interrupt();
+        // pending line-int event, exactly as for NR 0x22 — GH #290: from the
+        // cycle the write lands on. It leaves the target alone.
+        reschedule_line_interrupt(nr_write_lands_at_(),
+                                  video_timing_.line_interrupt_target());
         // VHDL zxnext.vhd:3621-3622 — `nr_c4_we` fans (NOT bit 0) of
         // the new value into `port_ff_reg(6)`. The polarity is
         // inverted: cpu writes '1' to clear the disable bit.
@@ -9588,6 +9608,8 @@ void Emulator::end_of_frame(uint64_t frame_end)
         last_frame_hc_ = static_cast<int>((elapsed % timing_.master_cycles_per_line) / 4);
     }
     frame_cycle_ = frame_end;
+    // GH #290 — and the frame frame_cycle_ now names has not reloaded cvc yet.
+    cvc_reload_done_ = false;
     // The frame ran to completion, so the NEXT run_frame() call begins a new one.
     // Every early return above (breakpoint, pause, run-to-cycle) leaves this true, so
     // that call resumes this frame instead of restarting it.
@@ -11163,6 +11185,18 @@ void Emulator::schedule_frame_events()
             [this, line]() { on_scanline(line); });
     }
 
+    // GH #290 — the frame's one `cvc` reload, mid-line (raw hc
+    // c_min_hactive - 11 of line c_min_vactive), so never on a SCANLINE's
+    // cycle. In THIS queue because advance_copper_across_row_boundaries()
+    // splits every instruction window at its events: the Copper steps and the
+    // CPU NR writes before the reload land before it, and those after it after
+    // it, which is what makes an NR 0x64 write on either side of the reload
+    // exact.
+    scheduler_.schedule(
+        frame_cycle_ + video_timing_.cvc_reload_master_cycle_offset(),
+        EventType::CVC_RELOAD,
+        [this]() { reload_cvc_offset_(); });
+
     // VSYNC fires at the very end of the frame.
     scheduler_.schedule(
         frame_cycle_ + timing_.master_cycles_per_frame,
@@ -11660,42 +11694,118 @@ void Emulator::clear_im2_status(Im2Controller::DevIdx d)
 // target rewrites also produce a fresh schedule, so the old event still
 // becomes a no-op.
 // ---------------------------------------------------------------------------
-void Emulator::reschedule_line_interrupt()
+void Emulator::reschedule_line_interrupt(uint64_t lands_at, uint16_t old_target)
 {
-    if (!video_timing_.line_interrupt_enable()) {
-        // Disable bit cleared mid-frame: bump the gen so any pending
-        // event no-ops, and do not enqueue a replacement.
-        ++line_int_schedule_gen_;
-        return;
-    }
+    // GH #290 — a frame does not count from ONE offset. `cvc` reloads from
+    // NR 0x64 once per frame, at ula_min_vactive (zxula_timing.vhd:457-462),
+    // so the lines before the reload count from the value loaded a frame ago
+    // and the lines from it on from the value it loads. When the two differ a
+    // cvc value can occur twice in one frame (both fire, :577 is re-evaluated
+    // every pixel) or not at all. So each offset is solved separately and its
+    // answer kept only on its own side of the reload.
+    //
+    // Before the reload has run, the value it will load is predicted as the
+    // register as it stands; reload_cvc_offset_() re-derives this schedule
+    // when it runs, which corrects a prediction an NR 0x64 write has since
+    // made stale and arms the second fire of a frame that has one.
+    //
+    // The roll-forward covers the next frame too (the parallax 8-bit `ADD
+    // 0x10` overflow case: line 244 -> line 4, where line 4 belongs to the
+    // NEXT frame). Its lines before the reload count from what this frame's
+    // reload loads, and after it from the register again.
+    //
+    // IN A RUNNING FRAME A ROLL-FORWARD EVENT NEVER FIRES: begin_new_frame()
+    // reschedules at the next frame's start, before any of that frame's
+    // positions, and bumps the generation. Where it is placed there, and with
+    // which offsets, is therefore unobservable. It fires only for a caller that
+    // runs no frame events (the videotiming Section 8 harness), which never
+    // reaches begin_new_frame(): VT-G163-WRAP-02 and VT-GH290-23/30 pin it
+    // there. In that mode no reload ever runs, so `after_reload` and
+    // `next_reload` are both the register — which also makes the post-reload
+    // arm's choice between the two equivalent in every mode.
+    //
+    // WHICH COMPARES THE CHANGE REACHES (see the declaration): the compare at
+    // pixel c is registered on the edge that ends it (:574-583) and takes the
+    // enable as it stands in cycle c+3 (i_inten_line, zxnext.vhd:6752) but
+    // the target as it stood in cycle c-1 (int_line_num, a CLK_7 register
+    // loaded on the edge that starts the pixel, :563-572). With e the first
+    // cycle the change is visible in:
+    //   c <= e-4       old enable, old target — kept as scheduled;
+    //   e-3 <= c <= e  NEW enable, OLD target (VT-GH290-31..35);
+    //   c >= e+1       new enable, new target (VT-GH290-28/29).
+    // e is the write's commit edge for a deferred CPU write and a Copper
+    // MOVE's own cycle, so a compare later in the same instruction window
+    // is reached and an earlier one is not superseded (VT-GH290-36/37).
+    const uint64_t e      = lands_at;
+    const uint64_t mcpf   = timing_.master_cycles_per_frame;
+    const uint64_t reload = video_timing_.cvc_reload_master_cycle_offset();
+    const uint8_t  before_reload = video_timing_.cu_offset();
+    const uint8_t  after_reload  = cvc_offset_after_reload_();
+    const uint8_t  next_reload   = copper_.offset();
 
-    const uint64_t line_offset = video_timing_.line_int_master_cycle_offset();
-    if (line_offset >= timing_.master_cycles_per_frame) {
-        // Out-of-range target: bump the gen to invalidate any stale
-        // event but do not enqueue a replacement (matches the existing
-        // run_frame guard at the original schedule site).
-        ++line_int_schedule_gen_;
-        return;
-    }
+    // Compares the change came too late for: their events stay live.
+    std::vector<uint64_t> keep;
+    for (const uint64_t c : line_int_pending_)
+        if (c + 4 <= e) keep.push_back(c);
+    ++line_int_schedule_gen_;
+    line_int_pending_.clear();
+    for (const uint64_t c : keep) arm_line_interrupt_(c);
 
-    uint64_t fire_cycle = frame_cycle_ + line_offset;
-    if (fire_cycle <= clock_.get()) {
-        // The firing scanline within this frame has already passed —
-        // roll forward one frame. Handles the parallax 8-bit `ADD 0x10`
-        // overflow case (line 244 → line 4, where line 4 belongs to the
-        // NEXT frame).
-        fire_cycle += timing_.master_cycles_per_frame;
-    }
+    if (!video_timing_.line_interrupt_enable()) return;   // the new enable is off
 
+    // The compare position for `target` in the frame starting at `base`, on
+    // the side of that frame's reload `offset` belongs to — or none. An
+    // offset at or past the frame length is out of range and fires nowhere
+    // (the original run_frame guard's case).
+    constexpr uint64_t kNone = ~uint64_t{0};
+    auto side = [&](uint64_t base, uint8_t offset, bool pre_reload,
+                    uint16_t target) -> uint64_t {
+        const uint64_t off =
+            video_timing_.line_int_master_cycle_offset(offset, target);
+        if (off >= mcpf || (off < reload) != pre_reload) return kNone;
+        return base + off;
+    };
+    auto positions = [&](uint16_t target) -> std::array<uint64_t, 4> {
+        return {{ side(frame_cycle_,        before_reload, true,  target),
+                  side(frame_cycle_,        after_reload,  false, target),
+                  side(frame_cycle_ + mcpf, after_reload,  true,  target),
+                  side(frame_cycle_ + mcpf, next_reload,   false, target) }};
+    };
+
+    // The compare in the window [e-3, e] reads the old target: at most one
+    // compare position falls in any four consecutive cycles.
+    for (const uint64_t c : positions(old_target)) {
+        if (c != kNone && c + 3 >= e && c <= e) {
+            arm_line_interrupt_(c);
+            break;
+        }
+    }
+    // From e+1 on, the new target: the first compare that matches.
+    uint64_t next = kNone;
+    for (const uint64_t c : positions(video_timing_.line_interrupt_target()))
+        if (c != kNone && c > e && c < next) next = c;
+    // None: no cvc value the target names occurs before the next frame's own
+    // reload — begin_new_frame() and that reload reschedule.
+    if (next != kNone) arm_line_interrupt_(next);
+}
+
+void Emulator::arm_line_interrupt_(uint64_t compare)
+{
     // GH #265 — raised at the edge int_line goes high: the compare is
     // registered on CLK_7 (zxula_timing.vhd:574-583), one pixel (4 master
-    // cycles) after the compare position above.
-    const uint64_t int_req_edge = fire_cycle + 4;
-    ++line_int_schedule_gen_;
+    // cycles) after the compare position. An edge already behind the clock
+    // (a compare earlier in the instruction window that made the change) is
+    // raised at the end of that instruction with its own timestamp, like any
+    // interrupt request that fell inside it.
+    const uint64_t int_req_edge = compare + 4;
     const uint64_t my_gen = line_int_schedule_gen_;
+    line_int_pending_.push_back(compare);
     irq_scheduler_.schedule(int_req_edge, EventType::CPU_INT,
-        [this, my_gen, int_req_edge]() {
+        [this, my_gen, compare, int_req_edge]() {
             if (my_gen != line_int_schedule_gen_) return;  // superseded
+            const auto it = std::find(line_int_pending_.begin(),
+                                      line_int_pending_.end(), compare);
+            if (it != line_int_pending_.end()) line_int_pending_.erase(it);
             im2_.raise_req(Im2Controller::DevIdx::LINE, int_req_edge);
             // V20R-CPU-NIT-02 — pulse-mode CPU /INT now driven solely
             // by the post-im2_.tick() falling-edge poll at line ~5791.
@@ -11705,6 +11815,35 @@ void Emulator::reschedule_line_interrupt()
             im2_int_status_[0] |= 0x02;  // Line interrupt status
             ++line_int_fire_count_;       // G163 test-observable
         });
+}
+
+uint64_t Emulator::nr_write_lands_at_() const
+{
+    if (nr_write_edge_ != Im2Controller::kNoTime) return nr_write_edge_;
+    if (copper_.active_move_hc() >= 0) return copper_step_cycle_;
+    return clock_.get();
+}
+
+void Emulator::reload_cvc_offset_()
+{
+    // GH #290 — zxula_timing.vhd:457-462, on the ula_max_hc pulse of the
+    // ula_min_vactive line:
+    //     cvc <= unsigned('0' & i_cu_offset);
+    // with i_cu_offset => nr_64_copper_offset (zxnext.vhd:6723). The one
+    // point in the frame an NR 0x64 write reaches cvc — and so the Copper
+    // (zxnext.vhd:3950), the line interrupt (zxula_timing.vhd:577) and the
+    // NR 0x1E/0x1F readback (zxnext.vhd:5982-5986).
+    video_timing_.set_cu_offset(copper_.offset());
+    cvc_reload_done_ = true;
+
+    // The lines from here on count from the value just loaded. The schedule
+    // placed them against a prediction, which an NR 0x64 write may have made
+    // stale, and a frame whose earlier lines already matched has its second
+    // match here. Re-derived EVERY frame rather than only when the value
+    // changed: "changed" would have to mean "differs from what the schedule
+    // assumed", which nothing records. A pre-reload fire still pending is
+    // kept by the reschedule's own rule (its compare lies before the clock).
+    reschedule_line_interrupt();
 }
 
 void Emulator::advance_copper_across_row_boundaries(uint64_t master_cycles)
@@ -11720,7 +11859,10 @@ void Emulator::advance_copper_across_row_boundaries(uint64_t master_cycles)
     uint64_t       cur  = post - master_cycles;
 
     // `scheduler_` carries ONLY the video-row queue: one SCANLINE event
-    // per raw line (schedule_frame_events()) plus the frame's VSYNC.
+    // per raw line (schedule_frame_events()) plus the frame's VSYNC — and
+    // the frame's `cvc` reload (GH #290), a video-timing boundary of the
+    // same kind: the Copper steps and CPU NR writes before it must land
+    // before it, or an NR 0x64 write is loaded a frame late or early.
     // The interrupt fabric lives in `irq_scheduler_`, which is left
     // exactly where it was at the end of the cluster — moving interrupt
     // requests relative to an instruction is not what this fixes.
@@ -11845,8 +11987,23 @@ void Emulator::tick_copper_for_master_cycles(uint64_t begin, uint64_t master_cyc
     int cvc     = (uline - origin_vc + lpf) % lpf;
     const int mcpl_i = static_cast<int>(mcpl);
 
+    // GH #290 — the offset the Copper's cvc counts from: the value of the
+    // last reload, not the NR 0x64 register. Which reload is decided by the
+    // side of this frame's reload the window STARTS on, tested on the unfolded
+    // position as cvc_at() does, so the few cycles an instruction runs past
+    // the frame end count from what this frame's reload loaded. One value
+    // serves the whole window because no window spans the reload:
+    // advance_copper_across_row_boundaries() splits it at the reload event.
+    // (A caller that drives instructions with no frame events has no reload
+    // to split at, and gets the starting side's value for that one window.)
+    const uint8_t cvc_offset =
+        elapsed0 >= video_timing_.cvc_reload_master_cycle_offset()
+            ? cvc_offset_after_reload_()
+            : video_timing_.cu_offset();
+
     for (uint64_t c = 0; c < master_cycles; ++c) {
-        copper_.execute(line_mc >> 2, cvc, nextreg_);
+        copper_step_cycle_ = pre_clock + c;   // GH #290 — nr_write_lands_at_()
+        copper_.execute(line_mc >> 2, cvc, nextreg_, cvc_offset);
         if (++line_mc == mcpl_i) {
             line_mc = 0;
             if (++cvc == lpf) cvc = 0;
@@ -11894,7 +12051,17 @@ int Emulator::cvc_at(uint64_t master_cycle) const
     const int raw_vc = static_cast<int>(shifted / timing_.master_cycles_per_line);
     const int lines_per_frame = video_timing_.vc_max() + 1;
     const int min_vactive     = video_timing_.display_origin().vc;
-    const int cu_offset       = video_timing_.cu_offset();
+    // GH #290 — the offset is the one cvc was last RELOADED from, and which
+    // reload depends on the side of this frame's reload the position is on
+    // (zxula_timing.vhd:457-466: the counter samples i_cu_offset only at
+    // ula_min_vactive and merely increments elsewhere). Tested on the
+    // UNFOLDED position: a sample past the frame end lies in the next
+    // frame's pre-reload lines, which count from what this frame's reload
+    // loaded — the same value as this frame's post-reload lines.
+    const int cu_offset =
+        (elapsed >= video_timing_.cvc_reload_master_cycle_offset())
+            ? cvc_offset_after_reload_()
+            : video_timing_.cu_offset();
     int cvc = (raw_vc - min_vactive + cu_offset) % lines_per_frame;
     if (cvc < 0)
         cvc += lines_per_frame;
@@ -12167,6 +12334,33 @@ void Emulator::describe_tail(jnext::save::StateDesc& d)
     // poll. Without it a restore mid-pulse would see `!cur && prev` on the
     // next tick and fire a spurious request_interrupt(0xFF).
     d.boolean("prev_pulse_int_n", prev_pulse_int_n_);
+
+    // GH #290 — the offset cvc counts from (VideoTiming::cu_offset()): the
+    // NR 0x64 value of its last reload (zxula_timing.vhd:457-462). Machine
+    // state, not derivable: a snapshot is taken at a frame boundary, where the
+    // frame's first lines still count from the PREVIOUS frame's reload, and
+    // NR 0x64 may have been written since.
+    //
+    // STORED AS ITS DIFFERENCE FROM NR 0x64, mod 256 — (cvc offset - NR 0x64)
+    // — and that is what makes the declared default honest. A `.jns` written
+    // before this key existed (v1.0.41 onwards) comes from a jnext that
+    // applied NR 0x64 to cvc straight away, i.e. whose cvc offset WAS the
+    // register; a missing key restoring a difference of 0 restores exactly
+    // that machine. A plain value has no such constant: 0 would restore the
+    // wrong offset for any file whose NR 0x64 was not 0, and a required key
+    // would refuse every one of them. 0 is also what a hard reset leaves
+    // (both are 0), which is §12.2's gate on a declared default.
+    //
+    // Needs NR 0x64 restored FIRST, and it is in both encodings: the Copper
+    // is block 11 of `save_state` and this is the tail block, and
+    // `visit_jns_subsystems()` visits "emulator" last. On the write side the
+    // setter stores back the value the getter just gave — `state_desc.h`'s
+    // write-back shape (a), a no-op.
+    uint8_t cvc_offset_delta =
+        static_cast<uint8_t>(video_timing_.cu_offset() - copper_.offset());
+    d.u8("cvc_offset_delta", cvc_offset_delta, 0);
+    video_timing_.set_cu_offset(
+        static_cast<uint8_t>(copper_.offset() + cvc_offset_delta));
 }
 
 bool Emulator::advance_to_frame_boundary()
@@ -12514,6 +12708,13 @@ bool Emulator::load_state(StateReader& r)
     // two rewind paths set this after their restore succeeds. Any other load (a
     // .jns, a warm start) is an ordinary boundary.
     restored_frame_start_ = false;
+    // GH #290 — and at a frame boundary the frame's cvc reload is still ahead.
+    cvc_reload_done_ = false;
+    // …and no line-interrupt event of the machine being replaced is live:
+    // irq_scheduler_ is not part of the state, and begin_new_frame()
+    // re-derives the schedule.
+    line_int_pending_.clear();
+    ++line_int_schedule_gen_;
 
     // Core subsystems.
     clock_.load_state(r);
@@ -12555,9 +12756,9 @@ bool Emulator::load_state(StateReader& r)
     // Peripheral subsystems.
     copper_.load_state(r);
     if (!check_sentinel("copper")) return false;
-    // G109: mirror the just-loaded NR 0x64 cu_offset onto VideoTiming so
-    // the line-int comparator stays consistent with Copper across save/load.
-    video_timing_.set_cu_offset(copper_.offset());
+    // GH #290 — no mirror of the NR 0x64 register onto VideoTiming here any
+    // more: the offset cvc counts from is its own state, restored from the
+    // "tail" block (describe_tail()), and it can differ from the register.
     ctc_.load_state(r);
     if (!check_sentinel("ctc")) return false;
     dma_.load_state(r);
@@ -13378,7 +13579,13 @@ void Emulator::debug_latch_scanline_(int raw_line)
     // name the line's START, `cvc` names the counter the guest reads across it.
     const int lpf  = video_timing_.vc_max() + 1;
     const int minv = video_timing_.display_origin().vc;
-    const int cuo  = video_timing_.cu_offset();
+    // GH #290 — the offset of the reload this line's cvc counts from: the
+    // ula_min_vactive line and every one after it count from THIS frame's
+    // reload (zxula_timing.vhd:457-462). For line `minv` itself that reload
+    // is still ~120 pixels ahead when this runs at the line's start, so the
+    // value it will load is the register as it stands.
+    const int cuo  = (raw_line >= minv) ? cvc_offset_after_reload_()
+                                        : video_timing_.cu_offset();
     int cvc = (raw_line - minv + cuo) % lpf;
     if (cvc < 0) cvc += lpf;
     e.cvc = static_cast<int16_t>(cvc);

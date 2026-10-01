@@ -11066,6 +11066,50 @@ int main() {
                       std::to_string(frame_start));
         }
     }
+    {
+        // EVT-TIME-32/33 (GH #290) — `cvc` counts from the NR 0x64 value it was
+        // last RELOADED from, and the reload is ~120 pixels into raw line
+        // c_min_vactive (zxula_timing.vhd:457-462): AFTER that line's Scanline
+        // event is latched at the line's start. Frame 1 reloads 0; NR 0x64 = 20
+        // is written at the boundary, so frame 2's lines before its reload
+        // still count from 0 — raw c_min_vactive-1 is cvc lpf-1 — and the
+        // reload line and every one after count from 20.
+        Emulator emu;
+        build_armed(emu, { 0x18, 0xFE });
+        Debugger dbg(emu);
+        emu.run_frame();
+        emu.nextreg().write(0x64, 20);
+        const int lpf  = emu.video_timing().vc_max() + 1;
+        const int minv = emu.video_timing().display_origin().vc;
+        Rec before, reload;
+        Subscription s1;
+        s1.kind = EventKind::Scanline;
+        s1.filter.scanline = static_cast<int16_t>(lpf - 1);
+        s1.action = Action::Continue; s1.handler = recorder(before);
+        dbg.subscribe(1, s1);
+        Subscription s2;
+        s2.kind = EventKind::Scanline;
+        s2.filter.scanline = 20;
+        s2.action = Action::Continue; s2.handler = recorder(reload);
+        dbg.subscribe(1, s2);
+        emu.run_frame();
+        check("EVT-TIME-32", "the ula_min_vactive line's Scanline event names cvc "
+                             "20: its cvc is loaded by the frame's reload, after "
+                             "the line's start where the event is latched, from "
+                             "NR 0x64 as it stands (zxula_timing.vhd:457-462)",
+              reload.evs.size() == 1 && reload.evs[0].vc == minv,
+              "n=" + std::to_string(reload.evs.size()) +
+                  (reload.evs.empty() ? std::string()
+                                      : " vc=" + std::to_string(reload.evs[0].vc)));
+        check("EVT-TIME-33", "and the line before it still names cvc lpf-1, "
+                             "counting from the previous frame's reload: an NR "
+                             "0x64 write does not reach the lines before the next "
+                             "reload (zxula_timing.vhd:457-466)",
+              before.evs.size() == 1 && before.evs[0].vc == minv - 1,
+              "n=" + std::to_string(before.evs.size()) +
+                  (before.evs.empty() ? std::string()
+                                      : " vc=" + std::to_string(before.evs[0].vc)));
+    }
 
     // ── EVT-COP-60..66 — one arming flag per Copper sub-kind ───────────────
     //

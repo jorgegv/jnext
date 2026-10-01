@@ -14,7 +14,7 @@ do not agree:
 |---|---|---|
 | `raw` | The frame counters `hc` / `vc` | Top-left of the whole frame, blanking included |
 | `ULA` | `hc_ula` / `vc_ula` | The ULA's own counters: both read 0 at the start of the display area |
-| `Copper` | `cvc` | `vc_ula` plus the NR `0x64` copper offset — **this is the counter NR `0x1E`/`0x1F` report** |
+| `Copper` | `cvc` | `vc_ula` plus the NR `0x64` copper offset as it stood at the start of the display area (a mid-frame write shows from the next frame) — **this is the counter NR `0x1E`/`0x1F` report** |
 | `Pixel` | `phc` / `vc_ula` | The pixel being generated: `0,0` is the top-left paper pixel |
 
 Read the labels. `vc` 100 and `cvc` 36 can be the same instant on a 128K

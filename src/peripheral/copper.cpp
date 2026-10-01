@@ -127,7 +127,7 @@ void Copper::on_vsync() {
     }
 }
 
-void Copper::execute(int hc, int vc, NextReg& nextreg) {
+void Copper::execute(int hc, int vc, NextReg& nextreg, uint8_t cvc_offset) {
     // Check for mode change (edge detection, matching VHDL last_state_s)
     if (last_mode_ != mode_) {
         last_mode_ = mode_;
@@ -150,7 +150,9 @@ void Copper::execute(int hc, int vc, NextReg& nextreg) {
     // copper.vhd:80 matches vcount_i==0 & hcount_i==0 as the mode-11
     // restart condition. So with offset != 0 the restart point shifts
     // along with cvc — matching the VHDL behaviour, not raw vc.
-    int cvc_restart = (vc + static_cast<int>(offset_)) % (c_max_vc_ + 1);
+    // `cvc_offset`, not the NR 0x64 register: cvc samples the register only
+    // at ula_min_vactive (zxula_timing.vhd:457-462, GH #290).
+    int cvc_restart = (vc + static_cast<int>(cvc_offset)) % (c_max_vc_ + 1);
     if (mode_ == 3 && cvc_restart == 0 && hc == 0) {
         pc_ = 0;
         move_pending_ = false;
@@ -181,7 +183,7 @@ void Copper::execute(int hc, int vc, NextReg& nextreg) {
     // against (`Event::hc_ula` / `Event::cvc`). The WAIT arm's own
     // `cvc_effective` below is this same expression and is kept where it is so
     // the VHDL derivation stays next to the comparison it explains.
-    const int cvc_this_cycle = (vc + static_cast<int>(offset_)) % (c_max_vc_ + 1);
+    const int cvc_this_cycle = (vc + static_cast<int>(cvc_offset)) % (c_max_vc_ + 1);
 
     if (is_wait(instr)) {
         // WAIT: compare cvc_effective == vpos AND hc >= (hpos << 3) + 12.
@@ -190,10 +192,11 @@ void Copper::execute(int hc, int vc, NextReg& nextreg) {
         // offset on the first active display line, then increments per
         // line and wraps to 0 when it reaches c_max_vc. The emulator
         // passes a vc that is already 0 at the first active line, so we
-        // model the VHDL cvc as (vc + offset_) mod (c_max_vc_ + 1).
+        // model the VHDL cvc as (vc + cvc_offset) mod (c_max_vc_ + 1), where
+        // cvc_offset is the value of that last reload (GH #290).
         int vpos = wait_vpos(instr);
         int hthresh = wait_hpos_threshold(instr);
-        int cvc_effective = (vc + static_cast<int>(offset_)) % (c_max_vc_ + 1);
+        int cvc_effective = (vc + static_cast<int>(cvc_offset)) % (c_max_vc_ + 1);
 
         if (cvc_effective == vpos && hc >= hthresh) {
             // GH #276 B2 §4.3 `Copper{Wait}` — "a WAIT was satisfied (the
@@ -209,7 +212,7 @@ void Copper::execute(int hc, int vc, NextReg& nextreg) {
             // out-of-line call with tracing off (GH #244).
             if (Log::copper()->should_log(spdlog::level::trace))
                 Log::copper()->trace("WAIT satisfied at cvc={} (vc={} off={}) hc={}, PC now {}",
-                                     cvc_effective, vc, offset_, hc, pc_);
+                                     cvc_effective, vc, cvc_offset, hc, pc_);
             halt_stalling_ = false;
         } else {
             // Otherwise stall (stay at this instruction).
