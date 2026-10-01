@@ -124,7 +124,11 @@ the machine by hand.
   client that turns one on turns it off again when it leaves; one that was
   already on — the trace you enabled in the debugger window — stays on. A
   client's `cpu-history clear` and `set-max-size` change only what that client
-  sees: JNEXT's own Step Back keeps its whole history.
+  sees: JNEXT's own Step Back keeps its whole history. Because the history is
+  JNEXT's trace, `cpu-history enabled yes` shows what the trace already holds
+  (up to 10000 entries) and `clear` starts the view afresh, where ZEsarUX's
+  history starts empty and records only after `started yes`. DeZog sends
+  `clear` itself, so it sees only its own steps.
 - **`snapshot-save` / `snapshot-load` keep the snapshot in memory**, for that
   session only; nothing is written to disk. Save it with the machine paused
   while it runs, not stopped at a breakpoint (a breakpoint stops it

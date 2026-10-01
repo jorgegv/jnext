@@ -4552,50 +4552,59 @@ static void fixture_rows() {
     std::string                 err;
     const std::vector<FixScene> scenes = fix_load(JNEXT_ZRCP_FIXTURE, err);
 
+    // `exchanges` pins each scene's size, so a reply cannot be "fixed" by
+    // deleting its exchange from the fixture (WP-6 review round 1).
     struct Case {
         const char* id;
         const char* scene;
+        std::size_t exchanges;
         const char* desc;
     };
     static const Case kCases[] = {
-        {"ZRCP-FIX-02", "session",
+        {"ZRCP-FIX-02", "session", 10,
          "fixture scene `session`: the blank line, noop, unknown and exact-name commands, the "
          "debug-settings byte, quit — ZEsarUX 12.0's bytes"},
-        {"ZRCP-FIX-03", "memory",
+        {"ZRCP-FIX-03", "memory", 7,
          "fixture scene `memory`: write-memory, write-memory-raw, read-memory round trips and "
          "an unknown register — ZEsarUX 12.0's bytes"},
-        {"ZRCP-FIX-04", "evaluate",
+        {"ZRCP-FIX-04", "evaluate", 7,
          "fixture scene `evaluate`: constant expressions in both number spellings and both "
          "equality operators — ZEsarUX 12.0's bytes"},
-        {"ZRCP-FIX-05", "breakpoints-off",
+        {"ZRCP-FIX-05", "breakpoints-off", 3,
          "fixture scene `breakpoints-off`: the list and the refusal while breakpoints are off "
          "— ZEsarUX 12.0's bytes"},
-        {"ZRCP-FIX-06", "breakpoints",
+        {"ZRCP-FIX-06", "breakpoints", 30,
          "fixture scene `breakpoints`: slot set / enable / disable, the canonical condition "
          "spellings, slot bounds 0 and 101, the global switch — ZEsarUX 12.0's bytes"},
-        {"ZRCP-FIX-07", "membreakpoints",
+        {"ZRCP-FIX-07", "membreakpoints", 9,
          "fixture scene `membreakpoints`: memory breakpoints set, listed, removed, cleared — "
          "ZEsarUX 12.0's bytes"},
-        {"ZRCP-FIX-08", "tbblue",
+        {"ZRCP-FIX-08", "tbblue", 12,
          "fixture scene `tbblue`: NextREG, clip windows, sprites and the ULA palette (ZEsarUX "
          "on TBBlue) — ZEsarUX 12.0's bytes"},
-        {"ZRCP-FIX-09", "cpu-step",
-         "fixture scene `cpu-step`: the step prompt, hard reset, slots, history / coverage / "
+        {"ZRCP-FIX-09", "cpu-step", 23,
+         "fixture scene `cpu-step`: the step prompt, slots, history / coverage / "
          "extended-stack switches, exit — ZEsarUX 12.0's bytes"},
-        {"ZRCP-FIX-10", "run",
+        {"ZRCP-FIX-10", "run", 2,
          "fixture scene `run`: `run` answers the Running line and nothing else while the "
          "machine runs — ZEsarUX 12.0's bytes"},
     };
 
     std::string names, want;
-    for (const FixScene& sc : scenes) names += sc.name + " ";
-    for (const Case& k : kCases) want += std::string(k.scene) + " ";
+    std::size_t total = 0;
+    for (const FixScene& sc : scenes) {
+        names += sc.name + ":" + std::to_string(sc.ex.size()) + " ";
+        total += sc.ex.size();
+    }
+    for (const Case& k : kCases)
+        want += std::string(k.scene) + ":" + std::to_string(k.exchanges) + " ";
     check("ZRCP-FIX-01", "the fixture parses and holds exactly the scenes this suite replays, in "
-                         "order, each with a welcome and at least one exchange",
-          err.empty() && names == want &&
+                         "order, each with a welcome and exactly its pinned number of exchanges "
+                         "(103 in all)",
+          err.empty() && names == want && total == 103 &&
               std::all_of(scenes.begin(), scenes.end(),
-                          [](const FixScene& sc) { return !sc.welcome.empty() && !sc.ex.empty(); }),
-          err.empty() ? names : err);
+                          [](const FixScene& sc) { return !sc.welcome.empty(); }),
+          err.empty() ? names + "total " + std::to_string(total) : err);
 
     for (const Case& k : kCases) {
         const FixScene* sc = nullptr;

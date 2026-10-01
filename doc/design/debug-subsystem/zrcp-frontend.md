@@ -976,19 +976,53 @@ version 2.2.0 (DZRP-only).
 
 ---
 
-## 10. Deliberate divergences from ZEsarUX 12.0 (all stated in `help`)
+## 10. Deliberate divergences from ZEsarUX 12.0
+
+The complete list of what a ZRCP client sees jnext do differently from ZEsarUX
+12.0, milestone by milestone (WP-6 review round 1 completed it; until then it
+held milestone 1's rows only). Most are also stated in `help <command>`; the
+detail and the reason for each is in the section named. A ZEsarUX command
+jnext does not serve at all (57 of them) answers `Error. Unsupported command
+in jnext: <name>` and is not listed row by row.
 
 | ZEsarUX | jnext ZRCP | Why |
 |---|---|---|
 | `cpu-step-over` on `JR $` never returns | interruptible by socket data | a hung connection is a worse failure than a different stop |
-| condition text canonicalised on echo (`PC=38H`) | echoed as given, trimmed | cosmetic; no client parses it; ZEsarUX's pretty-printer is not worth reproducing |
 | `set-register IM=n` → `Error changing register` | works | jnext can |
 | `MMU=0000` for ROM slots on the Next | `8000h+k` (§2.3.1) | DeZog's decoder expects it; ZEsarUX's value is its own bug |
 | a bad condition leaves the slot `None` | slot unchanged | a typo must not silently delete a working breakpoint |
 | `run verbose`, `no-stop-on-data`, `update-immediately` | declined | §2.2 |
 | `hard-reset-cpu` is instantaneous | is a cold boot, completed synchronously inside the reply (§4.6) | Task 70 semantics; REQ-zrcp-15 |
 | stray `\r` in the "not in cpu-step mode" error | plain `\n` | ZEsarUX artefact |
-| multiple simultaneous clients (unprobed) | one | nobody needs more; arbitration lives in the backend anyway |
+| multiple simultaneous clients (unprobed) | one; a second is told `Error. Another ZRCP client is connected` and closed | nobody needs more; arbitration lives in the backend anyway |
+| `about`, `get-version`, `get-buildnumber`, `get-cpu-core-name` name ZEsarUX | name jnext (`get-version` = `12.0-jnext-<ver>`, still ≥ 10.3 for DeZog) | §1.3 items 17-18, §11.3 item 4 |
+| `set-cr`: `\n\r`, some writes only, process-global | CRLF on every write, this session only | §11.3 item 1 |
+| `atoi()`-style numbers (`0x38` or a typo read as 0, values truncated) | decimal or `H` hex, in range, else an error | §11.3 item 9 |
+| produces any size asked for | bounds on line length, dumps, `disassemble`, `run n` … each answered with an error | §11.3 item 10 |
+| a malformed write is truncated or written as 0 | refused before the first byte lands | §11.3 item 11 |
+| `tbblue-*` → `ERROR. Machine is not TBBlue` off TBBlue | served on every machine (jnext is always the Next core) | §11.3 item 12 |
+| `tbblue-set-sprite` cannot write the fifth byte | writes 1-5 bytes from byte 0 | §11.3 item 13 |
+| `get-tstates-partial` survives a reset | restarts at a hard reset | §11.3 item 14 |
+| `cpu-step-over` on `JP NZ`, `JP (IX)`, `JP (IY)`, RETI, RETN runs to the address after it (missing from `si_cpu_step_over_jpret()`) | a plain step: none of them has a next instruction to run to | §11.3 item 8 |
+| `help` of a command it does not serve | answers the unsupported error | §11.3 item 16 |
+| `set-debug-settings` bit 5 (step over interrupt) | refused (`Error. Unsupported in jnext: step-over-interrupt (bit 5)`); bits 0-4 stored, change no reply | §2.5 — DeZog shows it once, with `skipInterrupt: true` only |
+| condition terms `MRA MRV MWA MWV PRA PRV PWA PWV`, `TSTATES*`, `SCANLINE`, `*FIRED`, `ENTERROM`/`EXITROM`, `HILOWMAPPED`, `PD765PCN`, `USP`, `EPC`, `COPPERPC`, 68000/TSConf registers, `FPEEK IN ABS BYTE WORD OPM*` | refused by `set-breakpoint` and `evaluate` | §11.7 item 6 |
+| breakpoint actions other than empty / `menu` / `break` / `prints` / `printregs` / `printe` / `printc` | refused by `set-breakpointaction` | §11.7 item 5 |
+| print actions write to ZEsarUX's console | sent to the session as a `log> …` line | §11.7 item 5 |
+| a `PC=` breakpoint on `JR $` fires once (On Change) | fires on every pass after the run's first step | §11.7 item 2 |
+| `cpu-history` starts empty and records after `started yes` | is a view of jnext's trace: `enabled yes` shows what the trace already holds (up to 10000 entries), `clear` starts the view afresh, `started` is stored but changes nothing | §11.9 item 1; pinned by `ZRCP-HIS-16` |
+| `cpu-history clear` / `set-max-size` clear / resize the history (up to 10000000) | move this session's view only (1..1000000); the machine's trace, which jnext's Step Back reads, is never touched | §11.9 item 1 |
+| `cpu-history get-extended`, `restore` | declined | §11.9 item 3 |
+| `MMU=` in a history entry is the page map then | the get-registers projection; a slot's ROM-ness is today's | §11.9 item 2 |
+| history, coverage and call tracking are the session's | the machine's: a session turns off only what it turned on | §11.9 item 4 |
+| `extended-stack get` types `push` | `default` (jnext does not tell them apart); `clear` does nothing | §11.9 item 5 |
+| `snapshot-save` / `snapshot-load` write / read a file | in-memory bookmarks of the session, at most 8; `snapshot-save` refuses mid-frame (at a breakpoint) | §11.9 item 6 |
+| `smartload` errors | any refusal answers `Error. Unknown file format`, the reason goes to jnext's log; the formats are jnext's `--load` table | §11.9 item 7 |
+| `load-binary` writes whatever it can | a write the backend refuses (an RZX session) is said, with the count loaded | §11.9 item 8 |
+
+ZEsarUX's canonical condition echo (`PC=38H` for `PC=0038H`) was listed here
+as a divergence until milestone 2, which reproduces it (§11.7); it is no
+longer one.
 
 ---
 
@@ -1487,4 +1521,17 @@ paragraph; the developer guide gained 3.12, *The ZRCP server*, beside 3.10 /
 
 Rows: `ZRCP-FIX-01..10` (zrcp_adapter_test 201 → 211); `zrcp-func` gains the
 fixture replay (row count unchanged).
+
+**Review round 1 (REJECT, three fixes).** §10 claimed to be the complete
+divergence list but held milestone 1's rows only: it now lists every
+client-visible divergence of all three milestones and §2.5 (and drops the
+canonical-echo row milestone 2 made obsolete). The history-at-enable behaviour
+— `enabled yes` shows what the trace already holds, where ZEsarUX starts
+empty — stays as designed (`ZRCP-HIS-16` pins it) and is now said in a §10
+row, in `help cpu-history` and in the user guide. The fixture's size is
+pinned: `ZRCP-FIX-01` checks each scene's exchange count (103 in all) and
+`zrcp-peer.py`'s `fixture` scenario checks the same list and that it replayed
+all 103, so deleting an exchange or replaying fewer scenes fails (the
+reviewer's F06 / P03 mutants, now caught). `ZRCP-FIX-09`'s text no longer
+claims a hard reset its scene does not have.
 

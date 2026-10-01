@@ -43,6 +43,11 @@ FIXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fixtur
 WELCOME = None  # both read from FIXTURE by main(): ZEsarUX 12.0's own bytes
 RUNNING = None
 BUSY = b"Error. Another ZRCP client is"
+# Each scene's exchange count, pinned here AND in zrcp_adapter_test's ZRCP-FIX
+# table: a reply must not be "fixed" by deleting its exchange (103 in all).
+FIXTURE_SCENES = [("session", 10), ("memory", 7), ("evaluate", 7), ("breakpoints-off", 3),
+                  ("breakpoints", 30), ("membreakpoints", 9), ("tbblue", 12),
+                  ("cpu-step", 23), ("run", 2)]
 PROGRAM = "000000EDFF18FE"
 
 # DeZog 3.7.4 decodezesaruxdata.ts: each label is found once, then a fixed
@@ -499,6 +504,9 @@ def sc_m3(port, tmpdir):
 def sc_fixture(port):
     """Every scene of FIXTURE, each on a new connection, byte for byte."""
     scenes = load_fixture()
+    got_shape = [(name, len(ex)) for name, _, ex in scenes]
+    check(got_shape == FIXTURE_SCENES,
+          "the fixture's scenes are %r, pinned %r" % (got_shape, FIXTURE_SCENES))
     total = 0
     for name, welcome, ex in scenes:
         deadline = time.time() + TIMEOUT
@@ -522,6 +530,8 @@ def sc_fixture(port):
                                                                   want[:200]))
             total += 1
         z.close()
+    check(total == sum(n for _, n in FIXTURE_SCENES) == 103,
+          "replayed %d exchanges, pinned 103" % total)
     return "fixture: %d scenes, %d exchanges byte-identical to ZEsarUX 12.0" % (len(scenes),
                                                                               total)
 
