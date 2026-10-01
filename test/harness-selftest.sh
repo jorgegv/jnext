@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=73
+EXPECTED_TOTAL=75
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -750,13 +750,14 @@ run_preflight_lint() {   # run_preflight_lint <clean|dirty>
 
 # A clean fixture must reach the lint (its own "[lint-traps] scanned:" line is printed
 # by lint-traps.sh, so seeing it proves the script actually ran) and pass, giving the
-# preflight its documented 5 rows (assertions, traps, timeouts, hardcoded paths,
-# debug-headers — GH #204 added the third, the unescalated-timeout lint the fourth and
-# GH #276 B0's published-header include-graph lint the fifth; this count is deliberately
-# pinned, so adding a sixth fails here first).
+# preflight its documented 6 rows (assertions, traps, timeouts, hardcoded paths,
+# debug-headers, pipe-grepq — GH #204 added the third, the unescalated-timeout lint the
+# fourth, GH #276 B0's published-header include-graph lint the fifth and the quiet-grep
+# pipe lint the sixth; this count is deliberately pinned, so adding a seventh fails here
+# first).
 out=$(run_preflight_lint clean); rc=$?
 check "HS-49a" "the trap lint is reached from the regression preflight, as row 2 (GH #153)" 0 $rc \
-    "$out" "[lint-traps] scanned:" "no row script installs its own trap" "Pass: 5"
+    "$out" "[lint-traps] scanned:" "no row script installs its own trap" "Pass: 6"
 
 # The other arm: an offending fixture must turn that row red and fail the preflight.
 # Without it HS-49a would also pass on a call whose exit status was discarded.
@@ -788,7 +789,7 @@ run_preflight_timeouts() {   # run_preflight_timeouts <clean|dirty>
 
 out=$(run_preflight_timeouts clean); rc=$?
 check "HS-56a" "the unescalated-timeout lint is reached from the regression preflight, as row 3" 0 $rc \
-    "$out" "[lint-timeouts] scanned:" "every 'timeout' escalates to SIGKILL" "Pass: 5"
+    "$out" "[lint-timeouts] scanned:" "every 'timeout' escalates to SIGKILL" "Pass: 6"
 
 # The other arm: a bare `timeout` must turn that row red and fail the whole preflight.
 # Without it HS-56a would also pass on a call whose exit status was discarded.
@@ -831,7 +832,7 @@ run_preflight_debug_headers() {   # run_preflight_debug_headers <clean|dirty>
 
 out=$(run_preflight_debug_headers clean); rc=$?
 check "HS-57a" "the published-header include-graph lint is reached from the regression preflight, as row 5 (GH #276)" 0 $rc \
-    "$out" "published header(s) checked" "no published debug header reaches a forbidden dependency" "Pass: 5"
+    "$out" "published header(s) checked" "no published debug header reaches a forbidden dependency" "Pass: 6"
 
 # The other arm: a forbidden include must turn that row red and fail the whole preflight.
 # Without it HS-57a would also pass on a call whose exit status was discarded — which is
@@ -839,6 +840,36 @@ check "HS-57a" "the published-header include-graph lint is reached from the regr
 out=$(run_preflight_debug_headers dirty); rc=$?
 check "HS-57b" "a forbidden include in a published header FAILS the preflight, not just the lint (GH #276)" 1 $rc \
     "$out" "reaches a FORBIDDEN dependency" "core/emulator.h" "Fail: 1"
+
+# ------------- the quiet-grep pipe lint must stay wired to the same preflight
+# Sixth instance of the shape. test/lint-pipe-grepq.sh self-tests its own case table on
+# every invocation, so it can prove it still DETECTS `producer | grep -q`; only these two
+# rows prove it is still REACHED and that its verdict still turns the preflight row red.
+# What it guards fails nothing on its own: a row whose `echo "$out" | grep -q` loses to
+# SIGPIPE under load flips its verdict, and the next solo run passes.
+# JNEXT_LINT_PIPE_GREPQ_DIR aims the lint at a fixture directory; it exists for these
+# two rows alone and regression.sh never sets it.
+LPG_FIX="$T/lint-pipe-grepq"
+rm -rf "$LPG_FIX"; mkdir -p "$LPG_FIX/clean" "$LPG_FIX/dirty"
+printf '#!/usr/bin/env bash
+grep -q "x" <<<"$out"
+'    > "$LPG_FIX/clean/row-func.sh"
+printf '#!/usr/bin/env bash
+echo "$out" | grep -q "x"
+' > "$LPG_FIX/dirty/row-func.sh"
+run_preflight_pipe_grepq() {   # run_preflight_pipe_grepq <clean|dirty>
+    JNEXT_LINT_PIPE_GREPQ_DIR="$LPG_FIX/$1" timeout --kill-after=5s "${INVOKE_TIMEOUT}s" \
+        bash "$PROJECT_DIR/test/00regression/scripts/00-preflight-lint.sh" 2>&1
+}
+
+out=$(run_preflight_pipe_grepq clean); rc=$?
+check "HS-67a" "the quiet-grep pipe lint is reached from the regression preflight, as row 6" 0 $rc \
+    "$out" "[lint-pipe-grepq] scanned:" "no pipeline ends in a quiet grep" "Pass: 6"
+
+# The other arm: an offending pipe must turn that row red and fail the whole preflight.
+out=$(run_preflight_pipe_grepq dirty); rc=$?
+check "HS-67b" "a pipe into grep -q FAILS the preflight, not just the lint" 1 $rc \
+    "$out" "a pipeline ends in a quiet grep under pipefail" "Fail: 1"
 
 # Where the run LIVES must not decide the verdict. The lint's patterns once saw
 # absolute paths, so its own `mktemp -d` translation unit, or a source root under a
@@ -942,7 +973,7 @@ membership_probe() {   # membership_probe <hash|pipe> <target> -> FOUND | ABSENT
           declare -A H; local n; for n in "${LIST[@]}"; do H["$n"]=1; done
           if [[ -n "${H[$2]:-}" ]]; then echo FOUND; else echo ABSENT; fi
       else
-          if printf '%s\n' "${LIST[@]}" | grep -qx "$2"; then echo FOUND; else echo ABSENT; fi
+          if printf '%s\n' "${LIST[@]}" | grep -qx "$2"; then echo FOUND; else echo ABSENT; fi  # lint-pipe-grepq: allow (builds the hazard on purpose)
       fi )
 }
 probe_count() {        # probe_count <impl> <target> <n> -> "<found>/<n>"

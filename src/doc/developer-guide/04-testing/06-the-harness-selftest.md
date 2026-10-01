@@ -67,7 +67,7 @@ the count — and the driver must still call it.
 
 ## It pins its own count
 
-`EXPECTED_TOTAL = 73` sits in the script, right next to the rows it counts, and
+`EXPECTED_TOTAL = 75` sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is
@@ -108,7 +108,7 @@ long enough to rot into failing on 18 rows.
 
 ## The lint self-tests
 
-Three of the lints verify themselves on **every invocation**, before their
+Four of the lints verify themselves on **every invocation**, before their
 verdict on the real tree is trusted at all:
 
 - `test/lint-assertions.sh` writes a fixture containing one instance of each
@@ -129,6 +129,9 @@ verdict on the real tree is trusted at all:
   comment stripper changed nothing, because every comment fixture was inert for
   a second reason as well. The two cases that close it exist because of the
   mutation, not because anyone thought of them first.
+- `test/lint-pipe-grepq.sh` carries **26 pinned cases: 13 that must flag and
+  13 that must not**, including its scope rule: the same `echo "$o" | grep -q`
+  line is flagged in a file that sets `pipefail` and not in one that does not.
 
 Both directions matter, and not equally. A false negative merely fails to help,
 whereas a false positive blocks a correct row — and that is the one that costs.

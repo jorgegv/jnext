@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Group rows: the five static preflight lints, always rows 1-5 of the suite.
+# Group rows: the six static preflight lints, always rows 1-6 of the suite.
 # Sourced by regression.sh (the driver); also directly executable.
 # shellcheck source=test/00regression/test-functions.inc
 set -euo pipefail
@@ -85,6 +85,22 @@ if bash "$PROJECT_DIR/test/lint-debug-headers.sh"; then
     printf "  "; pass_row ": no published debug header reaches a forbidden dependency"
 else
     printf "  "; fail_row ": a published debug header reaches a forbidden dependency (see above)"
+fi
+echo ""
+
+# --- quiet-grep-in-a-pipe lint ---
+# Under pipefail, `producer | grep -q` reports NO MATCH for a line that is
+# there whenever grep exits on its match while the producer is still writing:
+# the producer dies of SIGPIPE and 141 becomes the pipeline's status. That is
+# what made warm-start-func fail under load and pass solo; 47 lines across
+# 23 test scripts carried the same pattern. Scope: every tracked test script
+# that runs under pipefail, which includes every row script here.
+echo -e "${BOLD}[lint-pipe-grepq] Scanning pipefail test scripts for a quiet grep at the end of a pipe...${RESET}"
+CURRENT_ROW=lint-pipe-grepq
+if bash "$PROJECT_DIR/test/lint-pipe-grepq.sh"; then
+    printf "  "; pass_row ": no pipeline ends in a quiet grep"
+else
+    printf "  "; fail_row ": a pipeline ends in a quiet grep under pipefail (see above)"
 fi
 echo ""
 

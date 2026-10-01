@@ -75,9 +75,9 @@ if want snapshot-paused-advance-func; then
     then reload_rc=0; fi
 
     advanced=0
-    echo "$out"  | grep -q "advanced to the next frame boundary" && advanced=1
+    grep -q "advanced to the next frame boundary" <<<"$out" && advanced=1
     ctrl_quiet=1
-    echo "$ctrl" | grep -q "advanced to the next frame boundary" && ctrl_quiet=0
+    grep -q "advanced to the next frame boundary" <<<"$ctrl" && ctrl_quiet=0
 
     if [[ "$paused_rc" -eq 0 ]] && [[ -s "$paused_jns" ]] && [[ "$advanced" -eq 1 ]] \
        && [[ "$ctrl_rc" -eq 0 ]] && [[ -s "$control_jns" ]] && [[ "$ctrl_quiet" -eq 1 ]] \
@@ -85,6 +85,8 @@ if want snapshot-paused-advance-func; then
         pass_row " (paused save wrote + advanced + reloads; control never advances)"
     else
         fail_row " (paused_rc=$paused_rc advanced=$advanced reload_rc=$reload_rc control_rc=$ctrl_rc ctrl_quiet=$ctrl_quiet)"
+        show_output "paused run" "$out"
+        show_output "control run" "$ctrl"
     fi
 fi
 
