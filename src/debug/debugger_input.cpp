@@ -4,9 +4,9 @@
 // Work package B1 of epic #276. IN-02 / IN-03 / IN-04 are level sets over
 // accessors that already exist, plus `Keyboard::set_matrix_bit`, which §4 names
 // and this branch made public (the full list of additions is in
-// `debugger_inspect.cpp`'s banner). They are here rather than in
-// `debugger_pending.cpp` because nothing about them needs machinery a later
-// package brings.
+// `debugger_inspect.cpp`'s banner). They were never in the pending file
+// (`debugger_pending.cpp`, deleted by GH #278 WP4d once empty) because nothing
+// about them needed machinery a later package brings.
 //
 // GH #276 B4 — IN-01 `press_key`, the timed PULSE, is here too now, over the
 // reworked `Keyboard::queue_auto_type()` (it APPENDS: the 4-frame released gap

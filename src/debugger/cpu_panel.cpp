@@ -1,9 +1,5 @@
 #include "debugger/cpu_panel.h"
-#include "core/emulator.h"
-#include "cpu/z80_cpu.h"
-#include "video/renderer.h"
-#include "video/ula.h"
-#include "memory/mmu.h"
+#include "debug/debugger.h"
 
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -13,9 +9,9 @@
 #include <QPainter>
 #include <QString>
 
-CpuPanel::CpuPanel(Emulator* emulator, QWidget* parent)
+CpuPanel::CpuPanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     : QWidget(parent)
-    , emulator_(emulator)
+    , dbg_(dbg)
 {
     create_ui();
 }
@@ -193,10 +189,10 @@ void CpuPanel::paintEvent(QPaintEvent* event) {
 }
 
 void CpuPanel::refresh() {
-    if (!emulator_) return;
+    if (!dbg_) return;
     if (!paused_) return;
 
-    auto regs = emulator_->cpu().get_registers();
+    const Z80Registers regs = dbg_->registers();   // INS-01
 
     // 16-bit registers
     reg_af_->setText(QString::asprintf("%04X", regs.AF));
@@ -244,29 +240,22 @@ void CpuPanel::refresh() {
         reg_halted_->setStyleSheet("");
     }
 
-    // ULA active screen.  Mode bits live in port_ff(2:0) per VHDL
-    // zxula.vhd:191 (`screen_mode_s <= i_port_ff_reg(2 downto 0)`).
-    bool shadow = (emulator_->mmu().port_7ffd() >> 3) & 1;
-    uint8_t screen_mode_reg = emulator_->renderer().ula().get_screen_mode_reg();
-    const uint8_t mode_bits = static_cast<uint8_t>(screen_mode_reg & 0x07);
-    // Map raw mode_bits to the TimexScreenMode enum; mirrors the
-    // case-statement in Ula::set_screen_mode.
-    TimexScreenMode mode;
-    switch (mode_bits) {
-        case 0: mode = TimexScreenMode::STANDARD;   break;
-        case 1: mode = TimexScreenMode::STANDARD_1; break;
-        case 2:
-        case 3: mode = TimexScreenMode::HI_COLOUR;  break;
-        case 6:
-        case 7: mode = TimexScreenMode::HI_RES;     break;
-        default: mode = TimexScreenMode::STANDARD;  break;
-    }
+    // ULA active screen. The bank is port 0x7FFD bit 3 as last written
+    // (INS-03 `paging_ports()` — the byte this label has always read; the ULA
+    // holds a copy of the bit, `ula_screen_regs().active_bank`). The mode bits
+    // live in port_ff(2:0) per VHDL zxula.vhd:191 (`screen_mode_s <=
+    // i_port_ff_reg(2 downto 0)`), INS-15.
+    const bool shadow = (dbg_->paging_ports().port_7ffd >> 3) & 1;
+    const uint8_t mode_bits = static_cast<uint8_t>(dbg_->ula_screen_regs().port_ff & 0x07);
 
+    // The mode each value selects mirrors the case-statement in
+    // Ula::set_screen_mode: 1 the alternate screen, 2/3 hi-colour, 6/7 hi-res,
+    // anything else (0, 4, 5) standard.
     QString screen_text = shadow ? "Bank 7" : "Bank 5";
-    switch (mode) {
-        case TimexScreenMode::STANDARD_1: screen_text += " Alt"; break;
-        case TimexScreenMode::HI_COLOUR:  screen_text += " HiCol"; break;
-        case TimexScreenMode::HI_RES:     screen_text += " HiRes"; break;
+    switch (mode_bits) {
+        case 1:           screen_text += " Alt";   break;
+        case 2: case 3:   screen_text += " HiCol"; break;
+        case 6: case 7:   screen_text += " HiRes"; break;
         default: break;
     }
     ula_screen_->setText(screen_text);

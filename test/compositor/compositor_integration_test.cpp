@@ -1795,7 +1795,8 @@ static void test_srst_integration(Emulator& emu) {
         nr_write_port(emu, 0x68, 0x80);
         nr_write_port(emu, 0x4A, 0x03);
         srst_copper(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_pc(0x0000);
         emu.run_frame();
         const bool paused = emu.debug_state().paused() &&
@@ -1803,7 +1804,8 @@ static void test_srst_integration(Emulator& emu) {
         emu.debug_state().breakpoints().clear_all_pc();
         emu.debug_state().resume();
         emu.run_frame();
-        emu.debug_state().set_active(false);
+        emu.debug_state().set_clients_attached(false);
+        emu.debug_state().set_live_raster(false);
         std::string d;
         const bool ok = srst_split(emu, kDispCol, FALLBACK, P_RED, d);
         check("SRST-14",
@@ -1919,7 +1921,8 @@ static void test_srst_integration(Emulator& emu) {
                          Renderer::FB_HEIGHT;
         const std::vector<uint32_t> shown(fb, fb + n);
         srst_copper(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_pc(0x0000);
         emu.run_frame();                  // frame 1: resets at cvc 100, breaks
         const bool paused = emu.debug_state().paused() &&
@@ -1933,7 +1936,8 @@ static void test_srst_integration(Emulator& emu) {
             if (emu.get_framebuffer()[i] != shown[i]) ++diff_host;
         emu.debug_state().breakpoints().clear_all_pc();
         emu.debug_state().resume();
-        emu.debug_state().set_active(false);
+        emu.debug_state().set_clients_attached(false);
+        emu.debug_state().set_live_raster(false);
         const bool not_black = shown[static_cast<size_t>(kResetRow) *
                                      emu.get_framebuffer_width() + kDispCol] == P_RED;
         check("SRST-18",

@@ -1,6 +1,5 @@
 #include "debugger/copper_panel.h"
-#include "core/emulator.h"
-#include "peripheral/copper.h"
+#include "debug/debugger.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -10,9 +9,9 @@
 
 static constexpr int DISPLAY_ROWS = 64;
 
-CopperPanel::CopperPanel(Emulator* emulator, QWidget* parent)
+CopperPanel::CopperPanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     : QWidget(parent)
-    , emulator_(emulator)
+    , dbg_(dbg)
 {
     create_ui();
 }
@@ -93,16 +92,17 @@ static void decode_copper_instr(uint16_t instr, QString& type, QString& details)
 }
 
 void CopperPanel::refresh() {
-    if (!emulator_ || !table_) return;
+    if (!dbg_ || !table_) return;
 
-    auto& copper = emulator_->copper();
+    // INS-09 — PC, running, mode and a view of the 1024-word program.
+    const jnext::dbg::CopperState copper = dbg_->copper();
 
     // Update running state
-    enable_check_->setChecked(copper.is_running());
+    enable_check_->setChecked(copper.running);
 
     // Update PC display
-    uint16_t pc = copper.pc();
-    pc_label_->setText(QString::asprintf("PC: %03X  Mode: %d", pc, copper.mode()));
+    uint16_t pc = copper.pc;
+    pc_label_->setText(QString::asprintf("PC: %03X  Mode: %d", pc, copper.mode));
 
     // Show DISPLAY_ROWS instructions centered around PC
     int start = static_cast<int>(pc) - DISPLAY_ROWS / 2;
@@ -111,7 +111,7 @@ void CopperPanel::refresh() {
 
     for (int r = 0; r < DISPLAY_ROWS; ++r) {
         int addr = start + r;
-        uint16_t instr = copper.instruction(static_cast<uint16_t>(addr));
+        uint16_t instr = copper.program.data[addr];   // addr is clamped to 0..1023 above
 
         QString type, details;
         decode_copper_instr(instr, type, details);

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.56</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.56</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2116,7 +2116,7 @@ moves keyboard focus to the menu bar, where the next letter that is a top-level
 mnemonic is swallowed and opens that popup instead of typing. In an ordinary
 application that is a convenience; here Alt is part of typing, so the menu bar
 is given a <code>QProxyStyle</code> reporting <code>SH_MenuBar_AltKeyNavigation</code> as off
-(<code>src/debug/menu_bar_alt_nav_qt.h</code>, installed by both the emulator window and
+(<code>src/qt/menu_bar_alt_nav_qt.h</code>, installed by both the emulator window and
 the debugger window). Alt+<em>letter</em> mnemonics are unaffected — Qt opens those
 through the shortcut map, not through this hint — and <code>handle_key()</code>
 additionally feeds the guest nothing at all while a Qt popup owns the keyboard

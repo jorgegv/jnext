@@ -1,0 +1,32 @@
+# GH #278 Q WP2 — the cost of an attached client, interleaved A/B
+# Quiet-enough host (load 3.7 -> 2.5). copper-demo is VOID (spread 8-14 %); P is void on the two NEX workloads (see perf-attach.sh). The load-independent instruction deltas are attach-perf-aa02eaf51.txt.
+# sha=aa02eaf51 core=9 pairs=5 load1_start=3.70
+# baseline=/home/jorgegv/tmp/q-m1/bench/jnext-base-85135a744
+# new=/home/jorgegv/tmp/worktrees/gh278-qt/build/gui-release/jnext
+
+## boot-nextzxos (machine=next frames=400)
+  B   median=   170127892 T/s  spread=  4.5%  hits=-          (baseline)
+  U   median=   168927316 T/s  spread=  5.3%  hits=-          -0.7% vs B
+  P   median=   162892049 T/s  spread= 12.4%  hits=0          -4.3% vs B
+  C   median=   162344493 T/s  spread=  5.3%  hits=0          -4.6% vs B
+
+## copper-demo (machine=next frames=400 load=copper_demo.nex)
+  B   median=    66268739 T/s  spread= 11.0%  hits=-          (baseline)
+  U   median=    68007039 T/s  spread=  7.9%  hits=-          +2.6% vs B
+  P   median=    68331331 T/s  spread= 14.4%  hits=0          +3.1% vs B
+  C   median=    64687091 T/s  spread= 11.0%  hits=0          -2.4% vs B
+
+## beast (machine=next frames=400 load=beast.nex)
+  B   median=    62284788 T/s  spread=  5.1%  hits=-          (baseline)
+  U   median=    62486573 T/s  spread=  4.9%  hits=-          +0.3% vs B
+  P   median=    62791556 T/s  spread=  3.4%  hits=0          +0.8% vs B
+  C   median=    61608873 T/s  spread=  4.9%  hits=0          -1.1% vs B
+
+## boot-48k (machine=48k frames=600)
+  B   median=    62019140 T/s  spread=  4.3%  hits=-          (baseline)
+  U   median=    62664963 T/s  spread=  4.4%  hits=-          +1.0% vs B
+  P   median=    61866666 T/s  spread=  2.9%  hits=0          -0.2% vs B
+  C   median=    61679074 T/s  spread=  3.3%  hits=0          -0.5% vs B
+
+# load1_end=2.46
+# result file: /home/jorgegv/tmp/worktrees/gh278-qt/test/bench/attach-aa02eaf51.txt

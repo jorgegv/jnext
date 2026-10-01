@@ -1,0 +1,72 @@
+# perf-attach: sha=aa02eaf51 reps=3 load1_start=9.98
+# baseline=/home/jorgegv/tmp/q-m1/bench/jnext-base-85135a744
+# new=build/gui-release/jnext
+  boot-48k r1 B 14508542322 3385247330
+  boot-48k r1 U 14508538282 5111080996
+  boot-48k r1 P 14686562280 4825967456
+  boot-48k r1 C 14695054202 3346285029
+  boot-48k r2 B 14508544087 5189692683
+  boot-48k r2 U 14508551602 4052424905
+  boot-48k r2 P 14686560601 3343529954
+  boot-48k r2 C 14695056186 3254860357
+  boot-48k r3 B 14508544128 4170575655
+  boot-48k r3 U 14508537007 4222655783
+  boot-48k r3 P 14686560590 4480169136
+  boot-48k r3 C 14695057968 4148414333
+## boot-48k (machine=48k frames=600)
+  B median instructions:u=    14508544087  +0.00% vs U
+  U median instructions:u=    14508538282  +0.00% vs U
+  P median instructions:u=    14686560601  +1.23% vs U
+  C median instructions:u=    14695056186  +1.29% vs U
+  boot-nextzxos r1 B 25198901082 6094232594
+  boot-nextzxos r1 U 25198904262 6086153286
+  boot-nextzxos r1 P 25747785673 7075664671
+  boot-nextzxos r1 C 25950610692 7224073440
+  boot-nextzxos r2 B 25198895866 6415991854
+  boot-nextzxos r2 U 25198897416 6667050902
+  boot-nextzxos r2 P 25747785304 6080905446
+  boot-nextzxos r2 C 25950609246 6519148771
+  boot-nextzxos r3 B 25198902117 6494815831
+  boot-nextzxos r3 U 25196752615 6245271890
+  boot-nextzxos r3 P 25747786015 6448878080
+  boot-nextzxos r3 C 25950608192 6383175183
+## boot-nextzxos (machine=next frames=400)
+  B median instructions:u=    25198901082  +0.00% vs U
+  U median instructions:u=    25198897416  +0.00% vs U
+  P median instructions:u=    25747785673  +2.18% vs U
+  C median instructions:u=    25950609246  +2.98% vs U
+  beast r1 B 58352767396 13805075762
+  beast r1 U 58352768881 13457706955
+  beast r1 P 58352773652 13735867959
+  beast r1 C 59802971434 13842018824
+  beast r2 B 58352767471 13170432457
+  beast r2 U 58352768798 13057429648
+  beast r2 P 58352771623 13487326103
+  beast r2 C 59802977537 13515141014
+  beast r3 B 58352766294 13299424481
+  beast r3 U 58352762686 12840796385
+  beast r3 P 58352777926 12783223364
+  beast r3 C 59802976637 12972230985
+## beast (machine=next frames=400 load=beast.nex)
+  B median instructions:u=    58352767396  -0.00% vs U
+  U median instructions:u=    58352768798  +0.00% vs U
+  P median instructions:u=    58352773652  +0.00% vs U
+  C median instructions:u=    59802976637  +2.49% vs U
+  copper-demo r1 B 64755192617 13669396043
+  copper-demo r1 U 64755187285 13701937419
+  copper-demo r1 P 64752345446 13598801485
+  copper-demo r1 C 66515524184 13922406372
+  copper-demo r2 B 64755189592 13661305404
+  copper-demo r2 U 64755194727 13572499507
+  copper-demo r2 P 64755202119 13626124232
+  copper-demo r2 C 66515525961 13998159361
+  copper-demo r3 B 64755192997 13698590252
+  copper-demo r3 U 64755199006 13608203486
+  copper-demo r3 P 64755203690 13640483875
+  copper-demo r3 C 66512664802 13838384821
+## copper-demo (machine=next frames=400 load=copper_demo.nex)
+  B median instructions:u=    64755192617  -0.00% vs U
+  U median instructions:u=    64755194727  +0.00% vs U
+  P median instructions:u=    64755202119  +0.00% vs U
+  C median instructions:u=    66515524184  +2.72% vs U
+# load1_end=4.60

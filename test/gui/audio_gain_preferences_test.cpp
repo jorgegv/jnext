@@ -2,6 +2,7 @@
 #include "core/emulator_config.h"
 #include "gui/app_config.h"
 #include "gui/main_window.h"
+#include "debug/debugger.h"
 #include "gui/preferences_dialog.h"
 
 #include <QApplication>
@@ -90,7 +91,11 @@ int main(int argc, char** argv)
     EmulatorConfig config;
     config.type = MachineType::ZX48K;
     check("SGP-09", emulator.init(config));
+    // GH #278 WP2 — the loop owner's debugger backend, which set_emulator()
+    // requires in a debugger build; declared before the window, so it outlives it.
+    jnext::dbg::Debugger backend(emulator);
     MainWindow window;
+    window.set_debugger(&backend);
     window.set_emulator(&emulator);
     window.apply_startup_config(collected);
     check("SGP-10", emulator.mixer().output_gain_db() == -1.0f &&

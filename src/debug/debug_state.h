@@ -16,25 +16,28 @@ enum class StepMode { NONE, INTO, OVER, OUT, RUN_TO_CYCLE, STEP_BACK, RUN_BACK_T
 /// and breakpoint checking.  Pure C++ — no GUI dependency.
 class DebugState {
 public:
-    /// Is the debugger active — i.e. DRIVING the machine (the UI has it open)?
+    /// GH #278 WP4c — THE MAGIC-BREAKPOINT HOLD: the one arm contributor a guest
+    /// instruction raises, and it holds exactly one thing — the pause of the
+    /// magic stop that raised it.
     ///
-    /// This is the gate on everything that only makes sense while a human is
-    /// watching, and it is deliberately NOT the gate on "are breakpoints
-    /// live" — see armed() below. What it switches on, all in the hot path:
-    ///   * the STEP machinery (StepMode OUT / STEP_BACK / RUN_BACK_TO_CYCLE)
-    ///   * Emulator::run_frame's "render every frame" hint, so the panels see
-    ///     a live framebuffer
-    ///   * the per-instruction VideoTiming::advance() walk (Task 27 C10),
-    ///     whose only observer is a human reading the raster readout
-    /// Forcing this true with the window closed would switch all of that on
-    /// for nobody's benefit, which is why GH #219 did not do it.
+    /// The magic hook (`Emulator::set_magic_breakpoint()`) runs inside an
+    /// instruction on a machine that may be UNARMED (headless, SDL, a closed
+    /// Qt window), and the hot loop honours a pause only inside its armed()
+    /// block: without an arm the machine would run on to the end of the frame
+    /// past the ED FF. So the hook arms the machine by this bit and pauses it,
+    /// and the next resume — unpause_(), every transition out of paused —
+    /// releases it. What arms the machine after that is exactly what armed it
+    /// before the opcode: nothing, a client, the flag.
     ///
-    /// GH #276 B3 — the hot path no longer reads this bit directly: the step
-    /// machinery reads attached() and the other two read raster_live(), each of
-    /// which has active_ as one term. So this bit still switches all three on,
-    /// and a backend client can switch on the ones it asked for (see there).
-    bool active() const { return active_; }
-    void set_active(bool a) { active_ = a; refresh_gates_(); }
+    /// It replaced `active()`, the Qt window's bit, which the hook used to set
+    /// and nothing but the window's close ever cleared: one magic hit with no
+    /// window (a remote client's run() of the magic stop, say) left the machine
+    /// armed — and the step machinery and raster walk on — for the rest of the
+    /// session. It is an armed() contributor ONLY: it does not switch on the
+    /// step machinery (attached()) or the raster walk (raster_live()), which
+    /// belong to whoever is driving the machine, and nobody is while it holds.
+    void hold_for_magic_stop() { magic_hold_ = true; refresh_gates_(); }
+    bool magic_hold() const { return magic_hold_; }
 
     /// GH #219 — `--persistent-breakpoints`: keep breakpoints live for the
     /// whole run, not just while the debugger window is open. Set once from
@@ -42,22 +45,15 @@ public:
     bool persistent_breakpoints() const { return persistent_; }
     void set_persistent_breakpoints(bool p) { persistent_ = p; refresh_gates_(); }
 
-    /// GH #276 B3 (SES-01/SES-05) — is at least one `jnext::dbg::Debugger`
-    /// CLIENT attached? A THIRD, INDEPENDENT contributor to armed(), and it has
-    /// to be its own bit rather than a second writer of active_.
+    /// GH #276 B3 (SES-01/SES-05) — is at least one ARMING `jnext::dbg::Debugger`
+    /// CLIENT attached (an observer, REQ-qt-32, does not count)? Published by
+    /// `Debugger::Impl::clients_changed()`, its one writer.
     ///
-    /// active_ has owners already: the Qt debugger window
-    /// (`DebuggerManager::set_enabled()`) and the magic-breakpoint hook, which
-    /// sets it when the opcode executes. If `Debugger::attach()` wrote active_
-    /// instead, `detach()` of the last client would have to clear it — and
-    /// would then clear a flag the Qt window or the magic hook owns, silently
-    /// disarming a debugger session nobody detached from. The two cannot be
-    /// distinguished from one bit: this class does not know who set it.
-    ///
-    /// So each contributor keeps its own bit and refresh_gates_() ORs them,
-    /// exactly as it already does for active_ and persistent_. Every new
-    /// contributor must be added to refresh_gates_() AND to SuspendScope, whose
-    /// job is to disarm the machine whatever armed it.
+    /// Each armed() contributor keeps its OWN bit and refresh_gates_() ORs them:
+    /// a shared bit would let one owner's release clear another's arm, and this
+    /// class does not know who set it. Every new contributor must be added to
+    /// refresh_gates_() AND to SuspendScope, whose job is to disarm the machine
+    /// whatever armed it.
     bool clients_attached() const { return clients_attached_; }
     void set_clients_attached(bool a) { clients_attached_ = a; refresh_gates_(); }
 
@@ -67,16 +63,17 @@ public:
     /// walk." Both are precomputed by refresh_gates_(), exactly like armed_, so
     /// each reader pays one bool load — the same as the active() it replaces.
     ///
-    /// attached() = active_ || clients_attached_. The STEP machinery (Step Out's
+    /// attached() = clients_attached_. The STEP machinery (Step Out's
     /// per-instruction test, the STEP_BACK / RUN_BACK_TO_CYCLE step modes) reads
-    /// it. Before this existed they read active(), so a machine driven only by a
-    /// backend client — a DZRP session with the Qt window closed — never finished
-    /// a Step Out (row SES-05-13).
+    /// it. Before B3 they read active(), so a machine driven only by a backend
+    /// client — a DZRP session with the Qt window closed — never finished a
+    /// Step Out (row SES-05-13).
     ///
-    /// raster_live() = active_ || live_raster_. The render-every-frame hint and
-    /// the per-instruction VideoTiming::advance() walk read it. active_ stays a
-    /// term of both until package Q makes the Qt window a client: today it is
-    /// what the window sets, and it must keep meaning what it meant.
+    /// raster_live() = live_raster_. The render-every-frame hint and the
+    /// per-instruction VideoTiming::advance() walk read it. The retired
+    /// `active_` bit was a term of both until GH #278 WP4c; the Qt window is a
+    /// client now, and switches both on through its attach and its live-raster
+    /// request.
     bool attached() const { return attached_; }
     bool raster_live() const { return raster_live_; }
 
@@ -189,12 +186,13 @@ public:
     class SuspendScope {
     public:
         explicit SuspendScope(DebugState& ds)
-            : ds_(ds), paused_(ds.paused_), active_(ds.active_),
+            : ds_(ds), paused_(ds.paused_), magic_hold_(ds.magic_hold_),
               clients_(ds.clients_attached_), live_raster_(ds.live_raster_),
-              persistent_(ds.persistent_), step_(ds.step_mode_),
-              step_off_(ds.step_off_pending_) {
+              persistent_(ds.persistent_), replay_(ds.replay_armed_),
+              step_(ds.step_mode_), step_off_(ds.step_off_pending_) {
             ds_.paused_     = false;
-            ds_.active_     = false;
+            // GH #278 WP4c — the magic hold, which replaced active_ here.
+            ds_.magic_hold_ = false;
             // GH #276 B3 — EVERY armed_ contributor, not just the two that
             // existed when this scope was written. The comment above promises
             // "disarms breakpoints"; leaving clients_attached_ standing would
@@ -203,20 +201,23 @@ public:
             // `Debugger`. A new contributor to refresh_gates_() belongs here in
             // the same commit.
             ds_.clients_attached_ = false;
-            // And the raster-walk contributor: clearing active_ above has always
-            // switched the walk off for the scope, and a client's live_raster
-            // must not switch it back on under it.
+            // And the raster-walk contributor: the scope has always switched
+            // the walk off, and a client's live_raster must not switch it back
+            // on under it.
             ds_.live_raster_ = false;
             ds_.persistent_ = false;
+            // GH #278 WP3 — and the replay contributor (ReplayArmScope below).
+            ds_.replay_armed_ = false;
             ds_.step_mode_  = StepMode::NONE;
             ds_.refresh_gates_();          // disarms breakpoints
         }
         ~SuspendScope() {
             ds_.paused_     = paused_;
-            ds_.active_     = active_;
+            ds_.magic_hold_ = magic_hold_;
             ds_.clients_attached_ = clients_;
             ds_.live_raster_ = live_raster_;
             ds_.persistent_ = persistent_;
+            ds_.replay_armed_ = replay_;
             ds_.step_mode_  = step_;
             ds_.refresh_gates_();
             ds_.step_off_pending_ = step_off_;   // after refresh_gates_
@@ -227,12 +228,44 @@ public:
     private:
         DebugState& ds_;
         bool        paused_;
-        bool        active_;
+        bool        magic_hold_;
         bool        clients_;
         bool        live_raster_;
         bool        persistent_;
+        bool        replay_;
         StepMode    step_;
         bool        step_off_;
+    };
+
+    /// GH #278 WP3 (B3 obligation 3) — arm the machine for the length of a
+    /// rewind's REPLAY, and no longer.
+    ///
+    /// `Emulator::rewind_to_cycle()` fast-forwards from a snapshot to its target
+    /// with `run_to_cycle()`, and the stop at the target is tested inside
+    /// `run_frame()`'s armed() block: an unarmed replay would never stop. The
+    /// rewind paths used to arm it with `set_active(true)` — the Qt window's
+    /// bit — and never cleared it, so one remote client's step-back left the
+    /// machine armed, and the raster walk and render hint on, for the rest of
+    /// the session, whoever detached. This scope is its own contributor to
+    /// armed() and nothing else (not attached(), not raster_live()), set for
+    /// the replay loop and restored after it: what the machine is armed by
+    /// once the rewind returns is exactly what it was armed by before.
+    class ReplayArmScope {
+    public:
+        explicit ReplayArmScope(DebugState& ds) : ds_(ds), prev_(ds.replay_armed_) {
+            ds_.replay_armed_ = true;
+            ds_.refresh_gates_();
+        }
+        ~ReplayArmScope() {
+            ds_.replay_armed_ = prev_;
+            ds_.refresh_gates_();
+        }
+        ReplayArmScope(const ReplayArmScope&) = delete;
+        ReplayArmScope& operator=(const ReplayArmScope&) = delete;
+
+    private:
+        DebugState& ds_;
+        bool        prev_;
     };
 
     // ── CTL-13 — evidence that survives the stop (GH #276 B2) ───────────
@@ -563,8 +596,10 @@ private:
     void set_guest_access_(bool g) { guest_access_ = g; refresh_gates_(); }
 
     /// Recompute EVERY cached hot-path gate — armed_, wp_live_ and (GH #276 B3)
-    /// attached_ and raster_live_ — from the five inputs that feed them
-    /// (active_, clients_attached_, live_raster_, persistent_, guest_access_).
+    /// attached_ and raster_live_ — from the six inputs that feed them
+    /// (clients_attached_, live_raster_, persistent_, guest_access_, GH #278
+    /// WP3's rewind replay_armed_ and GH #278 WP4c's magic_hold_, which
+    /// replaced the retired active_).
     /// Named for the gates rather than for armed_ alone, which is what it used
     /// to maintain: a name that mentions only part of what a function maintains
     /// is how the next person misses the rest.
@@ -575,9 +610,9 @@ private:
     /// the machine entered or left execution (twice per frame, or twice per
     /// debugger Step). Never from the hot path.
     void refresh_gates_() {
-        armed_ = active_ || clients_attached_ || persistent_;
-        attached_    = active_ || clients_attached_;
-        raster_live_ = active_ || live_raster_;
+        armed_ = clients_attached_ || persistent_ || replay_armed_ || magic_hold_;
+        attached_    = clients_attached_;
+        raster_live_ = live_raster_;
         wp_live_ = armed_ && guest_access_;
         // Disarming breakpoints drops any pending step-off with them. The gate
         // that consumes it does not run while !armed(), so PC moves on freely
@@ -612,13 +647,26 @@ private:
         // all seven pass through — the same argument the GH #221 arm rests on.
         clear_stop_evidence();
         ++resume_gen_;
+        // GH #278 WP4c — a magic stop's hold ends with its pause. Released
+        // AFTER the step-off arm above, so a machine the release leaves
+        // unarmed drops that arm too (refresh_gates_()): the gate that would
+        // consume it does not run on an unarmed machine.
+        if (magic_hold_) {
+            magic_hold_ = false;
+            refresh_gates_();
+        }
     }
 
-    bool active_ = false;
+    // GH #278 WP4c — the magic stop's hold (hold_for_magic_stop()), in the slot
+    // the retired active_ occupied. Read only by refresh_gates_().
+    bool magic_hold_ = false;
     // GH #276 B3 — the third armed_ contributor. APPENDED next to its siblings
     // rather than at the end of the class: all three are read only by
     // refresh_gates_(), never by the hot path (which reads armed_).
     bool clients_attached_ = false;
+    // GH #278 WP3 — the fourth armed_ contributor, held only for a rewind's
+    // replay (ReplayArmScope). Read only by refresh_gates_().
+    bool replay_armed_ = false;
     bool persistent_ = false;
     bool armed_ = false;
     // Kept adjacent to armed_ deliberately: the eight Mmu watchpoint sites

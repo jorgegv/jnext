@@ -1,6 +1,4 @@
 #include "debugger/breakpoint_panel.h"
-#include "core/emulator.h"
-#include "debug/debug_state.h"
 #include "debug/symbol_table.h"
 
 #include <QVBoxLayout>
@@ -21,9 +19,8 @@ static constexpr int COL_TYPE    = 1;
 static constexpr int COL_ADDR    = 2;
 static constexpr int COL_SYMBOL  = 3;
 
-BreakpointPanel::BreakpointPanel(Emulator* emulator, QWidget* parent)
+BreakpointPanel::BreakpointPanel(QWidget* parent)
     : QWidget(parent)
-    , emulator_(emulator)
 {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(4, 4, 4, 4);
@@ -48,20 +45,20 @@ BreakpointPanel::BreakpointPanel(Emulator* emulator, QWidget* parent)
     btn_row->addStretch();
 
     // GH #225 — the MASTER SWITCH. It deletes nothing and clears no
-    // per-breakpoint flag; it decides whether the set's live cache is built
-    // from those flags at all, so unchecking and re-checking it restores
-    // exactly the set that was there. Right-aligned, away from the three
+    // per-breakpoint flag; it decides whether any breakpoint can fire at all
+    // (the backend's master switch, one for every client), so unchecking and
+    // re-checking it restores exactly the set that was there. Right-aligned,
+    // away from the three
     // destructive buttons it must not be mistaken for.
     master_check_ = new QCheckBox(tr("Breakpoints enabled"), this);
-    master_check_->setChecked(
-        emulator_->debug_state().breakpoints().master_enabled());
+    master_check_->setChecked(true);   // the backend's default; set_model() reads it
     master_check_->setToolTip(
         tr("Master switch. Unchecking suspends every breakpoint and watchpoint "
            "without deleting any; re-checking restores each one's own Enabled "
            "state. Step Over, Step Out and Run to Here keep working."));
     connect(master_check_, &QCheckBox::toggled, this, [this](bool on) {
-        if (updating_) return;
-        emulator_->debug_state().breakpoints().set_master_enabled(on);
+        if (updating_ || !model_) return;
+        model_->set_master_enabled(on);
     });
     btn_row->addWidget(master_check_);
 
@@ -101,107 +98,41 @@ BreakpointPanel::BreakpointPanel(Emulator* emulator, QWidget* parent)
     });
 
     layout->addWidget(table_, 1);
-
-    // GH #220 — the list is driven by the set, not by whoever mutated it. Both
-    // change kinds matter here: this table holds Execute AND data breakpoints.
-    observer_ = emulator_->debug_state().breakpoints().add_observer(
-        [this](BreakpointChange) { refresh(); });
 }
 
-BreakpointPanel::~BreakpointPanel()
+void BreakpointPanel::set_model(BreakpointModel* model)
 {
-    emulator_->debug_state().breakpoints().remove_observer(observer_);
-}
-
-QString BreakpointPanel::type_name(int type_index)
-{
-    switch (type_index) {
-        case 0: return "Execute";
-        case 1: return "Read";
-        case 2: return "Write";
-        case 3: return "Read/Write";
-        case 4: return "IO Read";
-        case 5: return "IO Write";
-        default: return "?";
-    }
-}
-
-// The combo index -> WatchType map, in ONE place (GH #222).
-//
-// It used to be spelled out inline at each of the four mutation sites below
-// as `wt = READ; if (idx==2) WRITE; if (idx==3) READ_WRITE;`. Adding the two
-// I/O types would have meant getting the same edit right four times, and the
-// two halves of on_edit() must agree exactly or an edited breakpoint is
-// removed as one type and re-added as another. Index 0 is Execute, which is
-// add_pc() and not a watchpoint at all — every caller tests for it first.
-static WatchType watch_type_for(int type_index)
-{
-    switch (type_index) {
-        case 2:  return WatchType::WRITE;
-        case 3:  return WatchType::READ_WRITE;
-        case 4:  return WatchType::IO_READ;
-        case 5:  return WatchType::IO_WRITE;
-        default: return WatchType::READ;
-    }
+    if (model_) disconnect(model_, nullptr, this, nullptr);
+    model_ = model;
+    // GH #220 — the list is driven by the model, not by whoever mutated it.
+    // Every kind matters here: this table holds Execute AND data breakpoints.
+    // Qt drops the connection when either side is destroyed, which is what
+    // BreakpointSet's remove_observer() in the destructor used to do by hand.
+    if (model_)
+        connect(model_, &BreakpointModel::changed, this, [this](uint32_t) { refresh(); });
+    refresh();
 }
 
 void BreakpointPanel::rebuild_entries()
 {
+    // THE MODEL (GH #225): it carries the disabled breakpoints too, each with
+    // its own flag, which is the whole point — a disabled breakpoint stays in
+    // this list. Already sorted by address (BreakpointModel::rows()).
     entries_.clear();
-    const auto& bps = emulator_->debug_state().breakpoints();
-
-    // Execute (PC) breakpoints. pc_breakpoints() is THE MODEL (GH #225): it
-    // carries the disabled ones too, each with its own flag, which is the
-    // whole point — a disabled breakpoint stays in this list.
-    for (const auto& entry : bps.pc_breakpoints()) {
-        entries_.push_back({entry.first, 0, entry.second});
-    }
-
-    // Data (watchpoint) breakpoints.
-    //
-    // NOTHING MAKES THIS SWITCH EXHAUSTIVE AT COMPILE TIME, and dropping the
-    // `default:` arm does not change that (GH #222 review). The project's one
-    // -Werror=switch is `target_compile_options(jnext PRIVATE ...)` in
-    // CMakeLists.txt:236 — scoped to the `jnext` executable, i.e. main.cpp's
-    // CLI dispatch — and this file is in jnext_debugger; no -Wall is set
-    // anywhere, and -Wswitch needs it. Measured, not assumed: a sixth
-    // WatchType builds jnext_debugger with zero diagnostics.
-    //
-    // So A SIXTH WatchType MUST BE ADDED HERE BY HAND, together with
-    // watch_type_for(), type_name() and the Add dialog's combo.
-    //
-    // The -1 initialiser is the one concession to that: an unhandled type
-    // shows as "?" in the Type column instead of impersonating an Execute
-    // breakpoint (index 0), which on_edit()/on_remove() would then route to
-    // remove_pc(). Wrong and visible beats wrong and destructive.
-    for (const auto& wp : bps.watchpoints()) {
-        int ti = -1;
-        switch (wp.type) {
-            case WatchType::READ:       ti = 1; break;
-            case WatchType::WRITE:      ti = 2; break;
-            case WatchType::READ_WRITE: ti = 3; break;
-            case WatchType::IO_READ:    ti = 4; break;
-            case WatchType::IO_WRITE:   ti = 5; break;
-        }
-        entries_.push_back({wp.addr, ti, wp.enabled});
-    }
-
-    // Sort by address
-    std::sort(entries_.begin(), entries_.end(),
-        [](const BpEntry& a, const BpEntry& b) { return a.addr < b.addr; });
+    if (model_) entries_ = model_->rows();
 }
 
 void BreakpointPanel::refresh()
 {
     // GH #225 — RE-ENTRANCY GUARD, and it is not merely tidiness.
     //
-    // apply_enabled_cell() raises `updating_` across its write to the set,
+    // apply_enabled_cell() raises `updating_` across its write to the model,
     // because that write notifies and the notification lands back here — while
     // Qt is still emitting itemChanged for the very QTableWidgetItem that the
     // rebuild below would delete. Suppressing the rebuild removes that
     // lifetime hazard, and costs nothing: the widget is already showing the
     // state the user just clicked. The OTHER subscriber (the disassembly
-    // gutter) is unaffected — the suppression is this panel's, not the set's.
+    // gutter) is unaffected — the suppression is this panel's, not the model's.
     if (updating_) return;
 
     rebuild_entries();
@@ -212,8 +143,7 @@ void BreakpointPanel::refresh()
     updating_ = true;
 
     if (master_check_)
-        master_check_->setChecked(
-            emulator_->debug_state().breakpoints().master_enabled());
+        master_check_->setChecked(model_ ? model_->master_enabled() : true);
 
     table_->setRowCount(static_cast<int>(entries_.size()));
 
@@ -223,16 +153,20 @@ void BreakpointPanel::refresh()
         // GH #225 — this breakpoint's OWN flag, not whether it can currently
         // fire. The master switch has its own control; echoing it into every
         // row would erase the state a user has to get back when they flip it.
+        //
+        // GH #278 WP4c (REQ-qt-13d) — another client's row shows its flag but
+        // cannot be ticked: it is not this GUI's to change.
         auto* en_item = new QTableWidgetItem();
-        en_item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable |
-                          Qt::ItemIsUserCheckable);
+        en_item->setFlags(e.own ? (Qt::ItemIsEnabled | Qt::ItemIsSelectable |
+                                   Qt::ItemIsUserCheckable)
+                                : (Qt::ItemIsEnabled | Qt::ItemIsSelectable));
         en_item->setCheckState(e.enabled ? Qt::Checked : Qt::Unchecked);
         table_->setItem(i, COL_ENABLED, en_item);
 
-        auto* type_item = new QTableWidgetItem(type_name(e.type_index));
+        auto* type_item = new QTableWidgetItem(e.type_text);
         table_->setItem(i, COL_TYPE, type_item);
 
-        auto* addr_item = new QTableWidgetItem(QString::asprintf("$%04X", e.addr));
+        auto* addr_item = new QTableWidgetItem(e.addr_text);
         table_->setItem(i, COL_ADDR, addr_item);
 
         QString sym;
@@ -250,26 +184,18 @@ void BreakpointPanel::refresh()
 // GH #225 — a click on a row's Enabled checkbox.
 void BreakpointPanel::apply_enabled_cell(int row, bool enabled)
 {
-    if (row < 0 || row >= static_cast<int>(entries_.size())) return;
+    if (row < 0 || row >= static_cast<int>(entries_.size()) || !model_) return;
 
-    // type_index == -1 is the "unknown WatchType" row rebuild_entries()
-    // deliberately shows as "?": there is no type to address the breakpoint
-    // by, so it is left alone rather than guessed at. Same rule as
-    // on_edit()/on_remove().
+    // Only this GUI's own rows are editable (REQ-qt-13d); another client's is
+    // left alone, and its cell is not user-checkable in the first place.
     const auto e = entries_[row];
-    if (e.type_index < 0) return;
-
-    auto& bps = emulator_->debug_state().breakpoints();
+    if (!e.own) return;
 
     // Raised across the write: see refresh()'s head for why the rebuild this
     // notification would otherwise trigger must not happen from inside the
     // itemChanged signal that got us here.
     updating_ = true;
-    if (e.type_index == 0) {
-        bps.set_pc_enabled(e.addr, enabled);
-    } else {
-        bps.set_watchpoint_enabled(e.addr, watch_type_for(e.type_index), enabled);
-    }
+    model_->set_enabled(e.type, e.addr, enabled);
     updating_ = false;
 
     // ... and because there was no rebuild, entries_ is kept truthful here.
@@ -329,55 +255,39 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t& addr, int& 
 
 void BreakpointPanel::on_add()
 {
+    if (!model_) return;
     uint16_t addr = 0;
     int type_index = 0;
     if (!show_bp_dialog(tr("Add Breakpoint"), addr, type_index))
         return;
 
-    auto& bps = emulator_->debug_state().breakpoints();
-    if (type_index == 0) {
-        bps.add_pc(addr);
-    } else {
-        bps.add_watchpoint(addr, watch_type_for(type_index));
-    }
     // No repaint call here: the mutation notified, and it notified the RIGHT
-    // views. This site used to refresh the disassembly whichever type was
-    // added; now only add_pc() reaches it, because a watchpoint changes nothing
-    // the gutter draws. Same pixels, less work.
+    // views — the gutter only for an Execute breakpoint, because a data
+    // breakpoint changes nothing the gutter draws.
+    model_->add(type_index, addr);
 }
 
 void BreakpointPanel::on_edit()
 {
     int row = table_->currentRow();
-    if (row < 0 || row >= static_cast<int>(entries_.size())) return;
+    if (row < 0 || row >= static_cast<int>(entries_.size()) || !model_) return;
 
     auto old = entries_[row];
+    if (!old.own) return;           // another client's: read-only (REQ-qt-13d)
     uint16_t addr = old.addr;
-    int type_index = old.type_index;
+    int type_index = old.type;
 
     if (!show_bp_dialog(tr("Edit Breakpoint"), addr, type_index))
         return;
 
-    // Remove old
-    auto& bps = emulator_->debug_state().breakpoints();
-    if (old.type_index == 0) {
-        bps.remove_pc(old.addr);
-    } else {
-        bps.remove_watchpoint(old.addr, watch_type_for(old.type_index));
-    }
+    model_->remove(old.type, old.addr);
 
     // Add new, carrying the old one's Enabled state across (GH #225). An edit
     // moves a breakpoint; it does not create one, so a disabled breakpoint
-    // whose address the user corrects must come back still disabled. add_*()
+    // whose address the user corrects must come back still disabled. add()
     // always creates enabled, hence the explicit re-apply.
-    if (type_index == 0) {
-        bps.add_pc(addr);
-        bps.set_pc_enabled(addr, old.enabled);
-    } else {
-        const WatchType wt = watch_type_for(type_index);
-        bps.add_watchpoint(addr, wt);
-        bps.set_watchpoint_enabled(addr, wt, old.enabled);
-    }
+    model_->add(type_index, addr);
+    model_->set_enabled(type_index, addr, old.enabled);
     // Each of the mutations above notified; the last one left the table
     // showing the edited breakpoint. Nothing to repaint by hand.
 }
@@ -385,17 +295,12 @@ void BreakpointPanel::on_edit()
 void BreakpointPanel::on_remove()
 {
     int row = table_->currentRow();
-    if (row < 0 || row >= static_cast<int>(entries_.size())) return;
+    if (row < 0 || row >= static_cast<int>(entries_.size()) || !model_) return;
 
     // A COPY, not a reference: the removal below notifies, refresh() rebuilds
     // entries_ from under us, and a reference into it would dangle (GH #220).
     const auto e = entries_[row];
-    auto& bps = emulator_->debug_state().breakpoints();
-
-    if (e.type_index == 0) {
-        bps.remove_pc(e.addr);
-    } else {
-        bps.remove_watchpoint(e.addr, watch_type_for(e.type_index));
-    }
+    if (!e.own) return;             // another client's: read-only (REQ-qt-13d)
+    model_->remove(e.type, e.addr);
     // As in on_add(): the mutation notified the views its kind concerns.
 }

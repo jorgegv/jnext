@@ -1,15 +1,14 @@
 #include "debugger/sprite_panel.h"
-#include "core/emulator.h"
-#include "video/sprites.h"
+#include "debug/debugger.h"
 
 #include <QVBoxLayout>
 #include <QHeaderView>
 #include <QFont>
 #include <QString>
 
-SpritePanel::SpritePanel(Emulator* emulator, QWidget* parent)
+SpritePanel::SpritePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     : QWidget(parent)
-    , emulator_(emulator)
+    , dbg_(dbg)
 {
     create_ui();
 }
@@ -21,7 +20,7 @@ void SpritePanel::create_ui() {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(4, 4, 4, 4);
 
-    table_ = new QTableWidget(SpriteEngine::NUM_SPRITES, 10, this);
+    table_ = new QTableWidget(static_cast<int>(jnext::dbg::SPRITE_COUNT), 10, this);
     table_->setHorizontalHeaderLabels({"#", "X", "Y", "Pat", "Pal", "Vis", "Mir", "Rot", "XS", "YS"});
     table_->setFont(mono);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -43,14 +42,14 @@ void SpritePanel::create_ui() {
     table_->setColumnWidth(9, 30);   // YS
 
     // Pre-populate the index column (static)
-    for (int i = 0; i < SpriteEngine::NUM_SPRITES; ++i) {
+    for (int i = 0; i < static_cast<int>(jnext::dbg::SPRITE_COUNT); ++i) {
         auto* item = new QTableWidgetItem(QString::number(i));
         item->setTextAlignment(Qt::AlignCenter);
         table_->setItem(i, 0, item);
     }
 
     // Create remaining cells
-    for (int i = 0; i < SpriteEngine::NUM_SPRITES; ++i) {
+    for (int i = 0; i < static_cast<int>(jnext::dbg::SPRITE_COUNT); ++i) {
         for (int col = 1; col < 10; ++col) {
             auto* item = new QTableWidgetItem("--");
             item->setTextAlignment(Qt::AlignCenter);
@@ -62,10 +61,12 @@ void SpritePanel::create_ui() {
 }
 
 void SpritePanel::refresh() {
-    if (!emulator_ || !table_) return;
+    if (!dbg_ || !table_) return;
 
-    for (int i = 0; i < SpriteEngine::NUM_SPRITES; ++i) {
-        auto info = emulator_->sprites().get_sprite_info(static_cast<uint8_t>(i));
+    // INS-08 — the decoded records, one per sprite (SPRITE_COUNT of them).
+    const std::vector<jnext::dbg::SpriteInfo> sprites = dbg_->sprites();
+    for (int i = 0; i < static_cast<int>(sprites.size()); ++i) {
+        const auto& info = sprites[i];
 
         table_->item(i, 1)->setText(QString::number(info.x));
         table_->item(i, 2)->setText(QString::number(info.y));

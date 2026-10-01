@@ -163,6 +163,7 @@ BEGIN {
     M["inject_test"]                   = "Raw binary --inject"
     M["profiler_test"]                 = "Profiler"
     M["resume_guard_test"]             = "Resume Guard"
+    M["debug_qt_free_test"]            = "src/debug Qt-free lint (GH #278)"
     M["step_out_test"]                 = "Debugger Step Out"
     M["debugger_backend_test"]         = "Debugger Backend (GH #276)"
     M["persistent_bp_test"]            = "Debugger persistent BPs"

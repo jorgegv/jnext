@@ -29,6 +29,8 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "gui/main_window.h"
+#include <memory>
+#include "debug/debugger.h"
 
 #include <QAction>
 #include <QApplication>
@@ -112,6 +114,9 @@ struct DialogWatcher {
 
 struct Fixture {
     Emulator   emu;
+    // GH #278 WP2 — the loop owner's debugger backend, which set_emulator()
+    // requires in a debugger build; declared before the window, so it outlives it.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     MainWindow win;
     bool       ok = false;
     // What the frontend's cold boot (MainWindow::LoadFileCallback) was asked
@@ -123,6 +128,8 @@ struct Fixture {
         cfg.type                 = MachineType::ZX48K;
         cfg.rewind_buffer_frames = 0;
         if (!emu.init(cfg)) return;
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        win.set_debugger(backend.get());
         win.set_emulator(&emu);
         win.set_load_file_callback(
             [this](const std::string& file, bool) { boots.push_back(file); });

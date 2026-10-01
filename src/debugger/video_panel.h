@@ -4,32 +4,33 @@
 #include <QLabel>
 #include <QImage>
 
+#include "debug/inspect.h"
 #include "debug/raster_state.h"
 
-class Emulator;
+namespace jnext { namespace dbg { class Debugger; } }
 class QTabWidget;
 class QRadioButton;
 
 // ---------------------------------------------------------------------------
-// VideoLayerView — displays a single video layer (320×256) for the debugger.
+// VideoLayerView — displays a single video layer (640×256) for the debugger.
+//
+// GH #278 WP4d: the picture comes from the debugger backend's INS-14
+// `render_layer()`, which draws the view's rows 0..vc with alpha 0 wherever the
+// view is transparent. What stays here is presentation: the QImage, the
+// "not rendered yet" rows and the running placeholder, the checkerboard under
+// every transparent cell, the DPR scaling, the red raster line and the title.
 // ---------------------------------------------------------------------------
 
 class VideoLayerView : public QWidget {
     Q_OBJECT
 public:
-    enum class Layer {
-        COMPOSITE,      ///< All layers, composited exactly as the emulator window
-        ULA_PRIMARY,    ///< ULA standard screen (bank 5, pages 10-11)
-        ULA_SHADOW,     ///< ULA 128K shadow screen (bank 7, page 14) — port 0x7FFD bit 3
-        LAYER2_ACTIVE,  ///< Layer 2 active bank
-        LAYER2_SHADOW,  ///< Layer 2 shadow bank
-        SPRITES,        ///< Sprite layer (transparent background)
-        TILEMAP,        ///< Tilemap layer (transparent background)
-        BACKGROUND,     ///< NR 0x4A fallback colour, per scanline (belongs to no layer)
-    };
+    /// The eight views — the backend's own enum (`debug/inspect.h`), which is
+    /// where the render lives now.
+    using Layer = jnext::dbg::Layer;
 
+    /// @param dbg  the backend to render through; null shows the placeholder.
     VideoLayerView(Layer layer, const char* title,
-                   Emulator* emulator, QWidget* parent = nullptr);
+                   const jnext::dbg::Debugger* dbg, QWidget* parent = nullptr);
 
     /// Switch which layer/screen is displayed and force a re-render.
     void setLayer(Layer layer);
@@ -45,8 +46,11 @@ public:
     void invalidate() { last_vc_ = -2; }
 
     /// The rendered layer image (test seam — see test/debugger/video_panel_test.cpp).
-    /// Width is 640 for every layer under G104; height is NATIVE_H.
+    /// Width is 640 (`jnext::dbg::RENDER_WIDTH`) for every layer; height is NATIVE_H.
     const QImage& image() const { return image_; }
+
+    /// The title painted above the image (test seam, like image()).
+    const QString& title() const { return title_; }
 
     /// Layout constants shared by all VideoLayerView instances.
     static constexpr int NATIVE_W = 320;
@@ -64,11 +68,11 @@ protected:
 private:
     void render_to_image(int vc);
 
-    Layer       layer_;
-    QString     title_;
-    Emulator*   emulator_;
-    QImage      image_;     ///< NATIVE_W × NATIVE_H, ARGB32
-    int         last_vc_ = -2;
+    Layer                        layer_;
+    QString                      title_;
+    const jnext::dbg::Debugger*  dbg_;
+    QImage                       image_;     ///< RENDER_WIDTH × NATIVE_H, ARGB32
+    int                          last_vc_ = -2;
 };
 
 // ---------------------------------------------------------------------------
@@ -77,30 +81,34 @@ private:
 // ---------------------------------------------------------------------------
 
 /// Which layers are enabled (ULA, Layer 2, Tilemap, Sprites) and the NR 0x15 layer
-/// priority, read through the NextREG read handlers rather than the raw register
-/// cache — see the definition for why that distinction is load-bearing (Task 40).
+/// priority, read through the backend's NextREG peek (the read handlers' value,
+/// never the raw register cache) — see the definition for why that distinction
+/// is load-bearing (Task 40).
 /// Exposed so the panel's answer can be tested without a QWidget.
-void video_panel_layer_state(Emulator& emu, bool active_out[4], int& priority_out);
+void video_panel_layer_state(const jnext::dbg::Debugger& dbg, bool active_out[4],
+                             int& priority_out);
 
-/// The raster state the Video panel displays (GH #22).
+/// The raster state the Video panel displays (GH #22): the backend's INS-06
+/// `raster()`.
 ///
 /// Derived from the emulator's PAUSED raster snapshot — `paused_hc()` /
 /// `paused_vc()`, the clock-derived pair — and the live ULA mode registers.
 /// It deliberately does NOT read `VideoTiming::pos()`: those counters are only
 /// advanced when a debugger is attached (emulator.cpp, "Task 27 C10"), so they
 /// are a debug observable rather than the authoritative position.  VideoTiming
-/// is used here only for its per-machine CONSTANTS (line/frame length, the
+/// is used only for its per-machine CONSTANTS (line/frame length, the
 /// active-display origin, the blanking limits and the NR 0x64 copper offset),
 /// which is what keeps this indicator on the emulator's own timing model
 /// instead of a second hand-written table.
 ///
 /// Exposed so the panel's answer can be tested without a QWidget.
-RasterState video_panel_raster_state(Emulator& emu);
+RasterState video_panel_raster_state(const jnext::dbg::Debugger& dbg);
 
 class VideoPanel : public QWidget {
     Q_OBJECT
 public:
-    explicit VideoPanel(Emulator* emulator, QWidget* parent = nullptr);
+    /// @param dbg  the debugger backend every read goes through (GH #278 WP4d).
+    explicit VideoPanel(const jnext::dbg::Debugger* dbg, QWidget* parent = nullptr);
 
     /// Update display with current video state.
     void refresh();
@@ -124,7 +132,7 @@ public:
 private:
     void create_ui();
 
-    Emulator* emulator_;
+    const jnext::dbg::Debugger* dbg_;
 
     // Raster position + ULA fetch indicator (GH #22).  Each line names the
     // VHDL counter it shows: the four have four different origins, and the

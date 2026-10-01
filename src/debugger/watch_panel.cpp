@@ -1,6 +1,5 @@
 #include "debugger/watch_panel.h"
-#include "core/emulator.h"
-#include "memory/mmu.h"
+#include "debug/debugger.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -13,9 +12,8 @@
 #include <QLineEdit>
 #include <QString>
 
-WatchPanel::WatchPanel(Emulator* emulator, QWidget* parent)
+WatchPanel::WatchPanel(QWidget* parent)
     : QWidget(parent)
-    , emulator_(emulator)
 {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(4, 4, 4, 4);
@@ -58,7 +56,16 @@ WatchPanel::WatchPanel(Emulator* emulator, QWidget* parent)
 }
 
 void WatchPanel::refresh() {
-    if (!emulator_) return;
+    if (!dbg_) return;
+
+    // CAP-INS-02 — peek(Cpu) wraps at 0xFFFF exactly as the 16-bit address
+    // arithmetic of the CPU does, so a Word or Long at the top of memory reads
+    // on from 0x0000, as it always did.
+    auto peek = [this](uint16_t a) -> uint8_t {
+        uint8_t b = 0;
+        dbg_->peek(jnext::dbg::MemSpace::cpu(), a, 1, &b);
+        return b;
+    };
 
     for (int i = 0; i < static_cast<int>(watches_.size()); ++i) {
         const auto& w = watches_[i];
@@ -66,13 +73,13 @@ void WatchPanel::refresh() {
 
         switch (w.type) {
             case BYTE: {
-                uint8_t val = emulator_->mmu().read(w.addr);
+                uint8_t val = peek(w.addr);
                 value_str = QString::asprintf("$%02X", val);
                 break;
             }
             case WORD: {
-                uint8_t lo = emulator_->mmu().read(w.addr);
-                uint8_t hi = emulator_->mmu().read(static_cast<uint16_t>(w.addr + 1));
+                uint8_t lo = peek(w.addr);
+                uint8_t hi = peek(static_cast<uint16_t>(w.addr + 1));
                 uint16_t val = static_cast<uint16_t>(lo | (hi << 8));
                 value_str = QString::asprintf("$%04X", val);
                 break;
@@ -80,7 +87,7 @@ void WatchPanel::refresh() {
             case LONG: {
                 uint32_t val = 0;
                 for (int b = 0; b < 4; ++b) {
-                    uint8_t byte = emulator_->mmu().read(static_cast<uint16_t>(w.addr + b));
+                    uint8_t byte = peek(static_cast<uint16_t>(w.addr + b));
                     val |= static_cast<uint32_t>(byte) << (b * 8);
                 }
                 value_str = QString::asprintf("$%08X", val);

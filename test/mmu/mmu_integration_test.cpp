@@ -19,6 +19,11 @@
 #include "core/sna_saver.h"
 #include "core/nex_saver.h"
 #include "memory/contention.h"
+// G12-TAG (GH #278 WP4d round 1) — the non-CPU writers of an attribute byte.
+#include "core/tap_loader.h"
+#include "debug/debugger.h"
+#include "memory/mmu.h"
+#include "peripheral/dma.h"
 
 #include <algorithm>
 #include <cstdarg>
@@ -2381,6 +2386,250 @@ static void test_g33_tapesave_trap() {
 }
 
 
+// ── G12-TAG: an attribute write is tagged with ITS OWN beam position ────
+//
+// GH #278 WP4d review round 1. The attribute mux (G12, Nirvana class) tags
+// every write to the attribute plane with the beam line and column it landed
+// at, so the ULA shows the new byte from the right scanline. A CPU write states
+// its exact position (fuse_z80_writebyte -> Mmu::attr_mux_set_write_pos) and
+// every other writer — the DMA, a tape loader's trap, the debugger's poke —
+// takes the coarse one, the line Emulator::on_scanline() is on, at column 0.
+//
+// THE DEFECT these rows pin: the CPU's position used to outlive its write. It
+// was cleared only by the NEXT write that reached the attribute plane, so after
+// a CPU write anywhere else the next NON-CPU attribute write was tagged with that
+// CPU write's line and column instead of its own: a DMA transfer at line 150,
+// after a CALL's push at line 20, recoloured the cell from line 21.
+//
+// The scene: a CPU write to 0x9000 late in raw line vblank_top+20 (so both its
+// line and its column are wrong for anything later), the machine paused at line
+// 150, and then the writer under test puts NEW into attribute byte 448 (column 0
+// of character row 14 = framebuffer rows 144..151). The row reads the mux back:
+// the first framebuffer row whose column-0 fetch sees NEW must be 150.
+// G12-TAG-04/05 are the IDENTITY half: a CPU write still carries its own line
+// and its own column.
+
+namespace {
+
+constexpr uint16_t G12TAG_OFF  = 14 * 32;   // column 0, character row 14
+constexpr uint8_t  G12TAG_BASE = 0x38;
+constexpr uint8_t  G12TAG_NEW  = 0x07;
+constexpr int      G12TAG_ROW  = 150;
+
+// Returns false if the machine did not pause where the scene needs it.
+bool g12tag_scene(Emulator& emu) {
+    build_next_emulator(emu);
+    // 8000: JR $          — the parked loop.
+    // 8100: LD A,0x55 ; LD (0x9000),A ; JR $   — one CPU write, not an attribute.
+    const uint8_t park[] = {0x18, 0xFE};
+    const uint8_t cpuw[] = {0x3E, 0x55, 0x32, 0x00, 0x90, 0x18, 0xFE};
+    for (size_t i = 0; i < sizeof(park); ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), park[i]);
+    for (size_t i = 0; i < sizeof(cpuw); ++i) emu.mmu().write(static_cast<uint16_t>(0x8100 + i), cpuw[i]);
+    emu.mmu().write(0x5800 + G12TAG_OFF, G12TAG_BASE);
+    auto regs = emu.cpu().get_registers();
+    regs.PC = 0x8000; regs.SP = 0xFF00; regs.IFF1 = 0; regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+    emu.run_frame();                                        // settle
+
+    const uint64_t fs  = emu.current_frame_cycle();
+    const uint64_t mcl = emu.timing().master_cycles_per_line;
+    const int      vbt = emu.video_timing().vblank_top();
+    // GH #278 WP4c retired DebugState::active(); the window's arm is now a
+    // client's arm plus its live raster (as WP4c re-pinned every such row).
+    emu.debug_state().set_clients_attached(true);
+    emu.debug_state().set_live_raster(true);
+    // Late in raw line vbt+20: the CPU write lands at about 3/4 of the line.
+    emu.debug_state().run_to_cycle(fs + static_cast<uint64_t>(vbt + 20) * mcl + mcl * 3 / 4);
+    emu.run_frame();
+    regs = emu.cpu().get_registers();
+    regs.PC = 0x8100;
+    emu.cpu().set_registers(regs);
+    emu.debug_state().run_to_cycle(fs + static_cast<uint64_t>(vbt + G12TAG_ROW) * mcl + 300);
+    emu.run_frame();
+    emu.snapshot_raster();
+    return emu.debug_state().paused() &&
+           static_cast<int>(emu.paused_vc()) - vbt == G12TAG_ROW &&
+           emu.mmu().read(0x9000) == 0x55;
+}
+
+// The first framebuffer row whose column-0 fetch resolves attribute byte
+// G12TAG_OFF to `value` (the renderer's own rewind/apply walk), or -1.
+int g12tag_first_row(Emulator& emu, uint8_t value) {
+    Mmu& mmu = emu.mmu();
+    mmu.attr_mux_rewind_to_baseline();
+    int found = -1;
+    for (int row = 0; row < 256 && found < 0; ++row) {
+        mmu.attr_mux_apply_line(row);
+        if (mmu.attr_mux5().current(G12TAG_OFF) == value) found = row;
+    }
+    mmu.attr_mux_flush_remaining();
+    return found;
+}
+
+}  // namespace
+
+static void test_g12_attribute_write_tags() {
+    set_group("G12-TAG");
+
+    // G12-TAG-01 — the DMA (dma_.write_memory -> Mmu::write), programmed
+    // through its register protocol exactly as dma_test's G23 rows do.
+    {
+        Emulator emu;
+        const bool scene = g12tag_scene(emu);
+        emu.mmu().write(0x9100, G12TAG_NEW);                // the DMA's source byte
+        Dma& d = emu.dma();
+        auto w = [&](uint8_t v) { d.write(v, false); };
+        const uint16_t dst = 0x5800 + G12TAG_OFF;
+        w(0x7D); w(0x00); w(0x91); w(0x01); w(0x00);        // R0: A=0x9100, len 1
+        w(0x14); w(0x10);                                   // R1/R2: memory, increment
+        w(0xAD); w(dst & 0xFF); w(dst >> 8);                // R4: continuous, B=dst
+        w(0xCF); w(0x87);                                   // LOAD, ENABLE
+        emu.execute_single_instruction();
+        const int row = g12tag_first_row(emu, G12TAG_NEW);
+        check("G12-TAG-01",
+              "a DMA write to an attribute, after a CPU write elsewhere in the frame, "
+              "is tagged with the DMA's own line (visible from row 150, not 21)",
+              scene && emu.mmu().read(dst) == G12TAG_NEW && row == G12TAG_ROW,
+              fmt("scene=%d byte=0x%02X first row=%d (want %d)", int(scene),
+                  emu.mmu().read(dst), row, G12TAG_ROW));
+    }
+
+    // G12-TAG-02 — the debugger backend's poke(Cpu) (Mmu::write, §4.2a).
+    {
+        Emulator emu;
+        const bool scene = g12tag_scene(emu);
+        jnext::dbg::Debugger dbg(emu);
+        const uint8_t v = G12TAG_NEW;
+        const auto r = dbg.poke(1, jnext::dbg::MemSpace::cpu(), 0x5800 + G12TAG_OFF, 1, &v);
+        const int row = g12tag_first_row(emu, G12TAG_NEW);
+        check("G12-TAG-02",
+              "the debugger's poke(Cpu) to an attribute is tagged with the current line",
+              scene && r.status == jnext::dbg::Result::Ok && row == G12TAG_ROW,
+              fmt("scene=%d first row=%d (want %d)", int(scene), row, G12TAG_ROW));
+    }
+
+    // G12-TAG-03 — a tape loader: the LD-BYTES fast-load trap
+    // (TapLoader::handle_ld_bytes_trap -> Mmu::write), loading one data byte.
+    {
+        Emulator emu;
+        const bool scene = g12tag_scene(emu);
+        char path[] = "/tmp/jnext_g12tag_XXXXXX";
+        const int fd = mkstemp(path);
+        bool loaded = false, trapped = false;
+        if (fd >= 0) {
+            const uint8_t tap[] = {0x03, 0x00, 0xFF, G12TAG_NEW,
+                                   static_cast<uint8_t>(0xFF ^ G12TAG_NEW)};
+            loaded = write(fd, tap, sizeof(tap)) == static_cast<ssize_t>(sizeof(tap));
+            close(fd);
+            TapLoader tl;
+            loaded = loaded && tl.load(path);
+            emu.mmu().write(0xFF00, 0x00);                  // the trap's return address
+            emu.mmu().write(0xFF01, 0x80);
+            auto regs = emu.cpu().get_registers();
+            regs.AF = static_cast<uint16_t>((0xFF << 8) | 0x01);   // A = flag, carry = LOAD
+            regs.IX = 0x5800 + G12TAG_OFF;
+            regs.DE = 1;
+            regs.SP = 0xFF00;
+            emu.cpu().set_registers(regs);
+            trapped = loaded && tl.handle_ld_bytes_trap(emu);
+            std::remove(path);
+        }
+        const int row = g12tag_first_row(emu, G12TAG_NEW);
+        check("G12-TAG-03",
+              "a tape loader's LD-BYTES trap writing an attribute is tagged with the "
+              "current line",
+              scene && trapped && emu.mmu().read(0x5800 + G12TAG_OFF) == G12TAG_NEW &&
+                  row == G12TAG_ROW,
+              fmt("scene=%d trapped=%d first row=%d (want %d)", int(scene), int(trapped),
+                  row, G12TAG_ROW));
+    }
+
+    // G12-TAG-04 — IDENTITY: a CPU write is still tagged with its OWN position.
+    // The instruction starts in raw line vbt+149 and its write lands just past
+    // the start of line vbt+150, so the coarse tag (on_scanline, still 149 when
+    // the instruction began) and the true one differ by a line: a CPU write that
+    // lost its position would show from row 149.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        const uint8_t park[] = {0x18, 0xFE};
+        const uint16_t dst = 0x5800 + G12TAG_OFF;
+        const uint8_t ld[] = {0x32, static_cast<uint8_t>(dst & 0xFF),
+                              static_cast<uint8_t>(dst >> 8), 0x18, 0xFE};  // LD (dst),A
+        for (size_t i = 0; i < sizeof(park); ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), park[i]);
+        for (size_t i = 0; i < sizeof(ld); ++i) emu.mmu().write(static_cast<uint16_t>(0x8200 + i), ld[i]);
+        emu.mmu().write(dst, G12TAG_BASE);
+        auto regs = emu.cpu().get_registers();
+        regs.PC = 0x8000; regs.SP = 0xFF00; regs.IFF1 = 0; regs.IFF2 = 0;
+        regs.AF = static_cast<uint16_t>(G12TAG_NEW << 8);
+        emu.cpu().set_registers(regs);
+        emu.run_frame();
+        const uint64_t fs  = emu.current_frame_cycle();
+        const uint64_t mcl = emu.timing().master_cycles_per_line;
+        const int      vbt = emu.video_timing().vblank_top();
+        const uint64_t line_start = fs + static_cast<uint64_t>(vbt + G12TAG_ROW) * mcl;
+        emu.debug_state().set_clients_attached(true);   // was set_active(true): WP4c
+        emu.debug_state().set_live_raster(true);
+        emu.debug_state().run_to_cycle(line_start - 100);
+        emu.run_frame();
+        const uint64_t at = emu.clock().get();
+        regs = emu.cpu().get_registers();
+        regs.PC = 0x8200;
+        emu.cpu().set_registers(regs);
+        emu.execute_single_instruction();                   // LD (dst),A: 13 T = 104 cycles
+        const int row = g12tag_first_row(emu, G12TAG_NEW);
+        check("G12-TAG-04",
+              "a CPU attribute write that straddles a line start is tagged with the line "
+              "it LANDED on, not the line its instruction began in",
+              at < line_start && at + 104 > line_start && emu.mmu().read(dst) == G12TAG_NEW &&
+                  row == G12TAG_ROW,
+              fmt("start %lld cycles before the line, first row=%d (want %d)",
+                  static_cast<long long>(line_start) - static_cast<long long>(at), row,
+                  G12TAG_ROW));
+    }
+
+    // G12-TAG-05 — IDENTITY, the column half: a CPU write late in line 150
+    // (after column 0's fetch at c_min_hactive, attribute_mux.h) keeps its OWN
+    // column, so column 0 only sees it from the NEXT line, 151. A CPU write
+    // that lost its column (the coarse hc 0) would show from 150.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        const uint8_t park[] = {0x18, 0xFE};
+        const uint16_t dst = 0x5800 + G12TAG_OFF;
+        const uint8_t ld[] = {0x32, static_cast<uint8_t>(dst & 0xFF),
+                              static_cast<uint8_t>(dst >> 8), 0x18, 0xFE};  // LD (dst),A
+        for (size_t i = 0; i < sizeof(park); ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), park[i]);
+        for (size_t i = 0; i < sizeof(ld); ++i) emu.mmu().write(static_cast<uint16_t>(0x8200 + i), ld[i]);
+        emu.mmu().write(dst, G12TAG_BASE);
+        auto regs = emu.cpu().get_registers();
+        regs.PC = 0x8000; regs.SP = 0xFF00; regs.IFF1 = 0; regs.IFF2 = 0;
+        regs.AF = static_cast<uint16_t>(G12TAG_NEW << 8);
+        emu.cpu().set_registers(regs);
+        emu.run_frame();
+        const uint64_t fs  = emu.current_frame_cycle();
+        const uint64_t mcl = emu.timing().master_cycles_per_line;
+        const int      vbt = emu.video_timing().vblank_top();
+        const uint64_t line_start = fs + static_cast<uint64_t>(vbt + G12TAG_ROW) * mcl;
+        emu.debug_state().set_clients_attached(true);   // was set_active(true): WP4c
+        emu.debug_state().set_live_raster(true);
+        emu.debug_state().run_to_cycle(line_start + mcl * 3 / 4);
+        emu.run_frame();
+        const uint64_t at = emu.clock().get();
+        regs = emu.cpu().get_registers();
+        regs.PC = 0x8200;
+        emu.cpu().set_registers(regs);
+        emu.execute_single_instruction();
+        const int row = g12tag_first_row(emu, G12TAG_NEW);
+        check("G12-TAG-05",
+              "a CPU attribute write late in a line keeps its own column: column 0, "
+              "already fetched on that line, shows it from the next line",
+              at + 104 < line_start + mcl && emu.mmu().read(dst) == G12TAG_NEW &&
+                  row == G12TAG_ROW + 1,
+              fmt("first row=%d (want %d)", row, G12TAG_ROW + 1));
+    }
+}
+
 int main() {
     std::printf("MMU Integration Tests (full-Emulator + port-dispatch)\n");
     std::printf("====================================================\n\n");
@@ -2439,6 +2688,9 @@ int main() {
 
     test_g33_tapesave_trap();
     std::printf("  Group: G33-TAPESAVE-TRAP (Task 57 SA-BYTES SAVE trap + gate) — done\n");
+
+    test_g12_attribute_write_tags();
+    std::printf("  Group: G12-TAG (GH #278 WP4d: attribute writes carry their own position) — done\n");
 
     // Last: several groups above never call set_group(), so their rows land
     // in whatever bucket was current. Running this one at the end keeps the

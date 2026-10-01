@@ -67,6 +67,20 @@ public:
     ///   bit 0 = collision detected (sticky, cleared on read)
     uint8_t read_status();
 
+    /// The two sticky bits read_status() returns, WITHOUT its clear, and their
+    /// restore. Drawing sprites latches both (render_scanline — the live
+    /// compositor's legitimate path), so a DEBUGGER render that runs the engine
+    /// saves them first and puts them back after, or a paused panel refresh
+    /// would hand the guest a collision it never had yet (GH #278 WP4d,
+    /// `jnext::dbg::Debugger::render_layer`).
+    uint8_t peek_status() const {
+        return static_cast<uint8_t>((max_sprites_ ? 0x02 : 0x00) | (collision_ ? 0x01 : 0x00));
+    }
+    void restore_status(uint8_t status) {
+        max_sprites_ = (status & 0x02) != 0;
+        collision_   = (status & 0x01) != 0;
+    }
+
     /// Port 0x57 write: auto-incrementing sprite attribute upload.
     /// Writes 4 or 5 bytes per sprite depending on byte 3 bit 6 (extended).
     void write_attribute(uint8_t val);

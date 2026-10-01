@@ -130,6 +130,9 @@ bool build_next_emulator(Emulator& emu) {
 
 struct Fixture {
     Emulator         emu;
+    // GH #278 WP2 — the loop owner's backend (QtApp::debugger()), built
+    // after init() and declared before the window, so it outlives the manager.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     QMainWindow      win;
     DebuggerManager* mgr = nullptr;
     DebuggerWindow*  dbg = nullptr;
@@ -137,7 +140,8 @@ struct Fixture {
 
     Fixture() {
         if (!build_next_emulator(emu)) return;
-        mgr = new DebuggerManager(&win, &emu, &win);   // parented → auto-freed
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        mgr = new DebuggerManager(&win, *backend, &win);   // parented → auto-freed
         mgr->set_enabled(true);                        // creates + shows the window
         dbg = mgr->debugger_window_ptr();
         ok  = (dbg != nullptr);

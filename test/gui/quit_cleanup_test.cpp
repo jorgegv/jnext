@@ -118,6 +118,7 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "gui/main_window.h"
+#include "debug/debugger.h"
 #include "../row_id.h"
 
 namespace fs = std::filesystem;
@@ -184,6 +185,9 @@ bool install_ffmpeg_stub() {
 // creates the DebuggerManager (main_window.cpp set_emulator()).
 struct Fixture {
     Emulator    emu;
+    // GH #278 WP2 — the loop owner's backend, handed to the window before
+    // set_emulator() (QtApp's order); declared before it, so it outlives it.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     MainWindow  win;
     bool        ok = false;
 
@@ -192,6 +196,8 @@ struct Fixture {
         cfg.type                 = MachineType::ZXN_ISSUE2;
         cfg.rewind_buffer_frames = 0;
         if (!emu.init(cfg)) return;
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        win.set_debugger(backend.get());
         win.set_emulator(&emu);
         QApplication::processEvents();
         ok = win.debugger_manager() != nullptr;

@@ -1,6 +1,6 @@
 #include "gui/host_chords.h"
 
-#include "debug/debug_keymap_qt.h"
+#include "qt/debug_keymap_qt.h"
 
 #include <QAction>
 #include <QKeySequence>

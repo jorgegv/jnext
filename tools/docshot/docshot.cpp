@@ -119,6 +119,7 @@
 #include "core/sdcard_provisioner.h"
 #include "debug/breakpoints.h"
 #include "debug/debug_state.h"
+#include "debug/debugger.h"
 #include "debug/raster_state.h"
 #include "debugger/cpu_panel.h"
 #include "debugger/debugger_manager.h"
@@ -532,7 +533,7 @@ bool wanted(const Options& o, const char* name) {
 /// bar in this one picture would then disagree with the machine every other
 /// image here is taken from. The only thing it would otherwise set that shows
 /// in the picture, the window scale, is already MainWindow's own default (1x).
-void capture_gui_shots(Emulator& emu, const Options& opt) {
+void capture_gui_shots(Emulator& emu, jnext::dbg::Debugger& backend, const Options& opt) {
     const auto path = [&](const char* name) {
         return opt.out_dir + QStringLiteral("/") + QString::fromLatin1(name) +
                QStringLiteral(".png");
@@ -542,7 +543,9 @@ void capture_gui_shots(Emulator& emu, const Options& opt) {
         MainWindow win;
         // set_emulator() is what the frontend calls, and it is what creates the
         // DebuggerManager (hence the Debug toolbar button) and syncs the
-        // machine name into the status bar.
+        // machine name into the status bar — over the backend QtApp hands it
+        // first (set_debugger()).
+        win.set_debugger(&backend);
         win.set_emulator(&emu);
         win.show();
         settle();
@@ -722,6 +725,9 @@ int main(int argc, char** argv)
         std::fprintf(stderr, "docshot: emulator init failed (bad SD image?)\n");
         return 1;
     }
+    // GH #278 WP2 — the backend QtApp hosts right after init() (QtApp::debugger()),
+    // which both the main window's and the debugger host's DebuggerManager adapt.
+    jnext::dbg::Debugger backend(emu);
     for (int i = 0; i < kBootFrames; ++i) emu.run_frame();
 
     // ── The two non-debugger Qt widgets (GH #275) ─────────────────────
@@ -730,12 +736,12 @@ int main(int argc, char** argv)
     // machine. See capture_gui_shots() for why both halves of that matter.
     if (wanted(opt, "gui-main-window") || wanted(opt, "preferences-startup")) {
         note("capturing (main window / Preferences):\n");
-        capture_gui_shots(emu, opt);
+        capture_gui_shots(emu, backend, opt);
     }
 
     // ── Debugger, through the production path ─────────────────────────
     QMainWindow host;
-    auto* mgr = new DebuggerManager(&host, &emu, &host);
+    auto* mgr = new DebuggerManager(&host, backend, &emu, &host);
     mgr->set_enabled(true);                 // == Alt+D
     DebuggerWindow* dbg = mgr->debugger_window_ptr();
     if (!dbg) {

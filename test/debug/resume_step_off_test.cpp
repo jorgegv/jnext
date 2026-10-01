@@ -208,7 +208,8 @@ int main() {
     // stayed true would go deaf to every later breakpoint.
     {
         DebugState ds;
-        ds.set_active(true);
+        ds.set_clients_attached(true);
+        ds.set_live_raster(true);
         ds.pause();
         ds.resume();
         const bool first  = ds.consume_step_off();
@@ -237,7 +238,8 @@ int main() {
         std::string missing;
         for (const auto& c : cases) {
             DebugState ds;
-            ds.set_active(true);
+            ds.set_clients_attached(true);
+            ds.set_live_raster(true);
             ds.pause();
             c.arm(ds);
             const bool armed = ds.consume_step_off();
@@ -252,7 +254,8 @@ int main() {
     // through for free.
     {
         DebugState ds;
-        ds.set_active(true);
+        ds.set_clients_attached(true);
+        ds.set_live_raster(true);
         ds.pause();
         check("RSOP-04", "pause() does not arm a step-off",
               !ds.consume_step_off());
@@ -291,7 +294,8 @@ int main() {
         std::string armed_anyway;
         for (const auto& c : cases) {
             DebugState ds;
-            ds.set_active(true);
+            ds.set_clients_attached(true);
+            ds.set_live_raster(true);
             ds.pause();
             ds.resume();                 // the real edge
             (void)ds.consume_step_off(); // ...spent by the first gate test
@@ -315,19 +319,24 @@ int main() {
     // that is what RSOW-09 exercises end to end.
     {
         DebugState off;
-        off.set_active(true);
+        off.set_clients_attached(true);
+        off.set_live_raster(true);
         off.pause();
         off.resume();
-        off.set_active(false);          // armed() -> false: drop it
-        off.set_active(true);
+        off.set_clients_attached(false);          // armed() -> false: drop it
+        off.set_live_raster(false);
+        off.set_clients_attached(true);
+        off.set_live_raster(true);
         const bool dropped = !off.consume_step_off();
 
         DebugState keep;
         keep.set_persistent_breakpoints(true);
-        keep.set_active(true);
+        keep.set_clients_attached(true);
+        keep.set_live_raster(true);
         keep.pause();
         keep.resume();
-        keep.set_active(false);         // armed() stays true: keep it
+        keep.set_clients_attached(false);         // armed() stays true: keep it
+        keep.set_live_raster(false);
         const bool kept = keep.armed() && keep.consume_step_off();
 
         check("RSOP-05", "disarming breakpoints drops the arm; persistence "
@@ -344,7 +353,8 @@ int main() {
     {
         Emulator emu;
         build_linear(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_pc(LIN_BP);
         run_until_paused(emu);
         const bool stopped = emu.debug_state().paused() && pc(emu) == LIN_BP;
@@ -369,7 +379,8 @@ int main() {
     {
         Emulator emu;
         build_linear(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_pc(LIN_BP);
         emu.debug_state().breakpoints().add_pc(LIN_NEXT);
         run_until_paused(emu);
@@ -393,7 +404,8 @@ int main() {
     {
         Emulator emu;
         build_loop(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_pc(LOOP_TOP);
         run_until_paused(emu);
         const bool first  = emu.debug_state().paused() && pc(emu) == LOOP_TOP;
@@ -426,7 +438,8 @@ int main() {
     {
         Emulator emu;
         build_loop(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_pc(LOOP_TOP);
         run_until_paused(emu);
         const bool first = emu.debug_state().paused() && pc(emu) == LOOP_TOP;
@@ -454,7 +467,8 @@ int main() {
     {
         Emulator emu;
         build_linear(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_pc(LIN_BP);
         run_until_paused(emu);
         const bool first = emu.debug_state().paused() && pc(emu) == LIN_BP;
@@ -480,7 +494,8 @@ int main() {
     {
         Emulator emu;
         build_call(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_pc(SUB_ENTRY);
         run_until_paused(emu);
         const bool first = emu.debug_state().paused() && pc(emu) == SUB_ENTRY;
@@ -502,7 +517,8 @@ int main() {
     {
         Emulator emu;
         build_linear(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_pc(LIN_BP);
         run_until_paused(emu);
         const bool first = emu.debug_state().paused() && pc(emu) == LIN_BP;
@@ -530,7 +546,8 @@ int main() {
     {
         Emulator emu;
         build_linear(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_watchpoint(DATA, WatchType::READ);
         emu.debug_state().breakpoints().add_pc(LIN_WR);
         run_until_paused(emu);
@@ -550,31 +567,34 @@ int main() {
     // RSOW-09 — the #219 consequence named in the issue. With
     // --persistent-breakpoints, closing the debugger window while stopped ON a
     // breakpoint runs DebuggerManager::set_enabled(false)'s exact sequence —
-    // resume(), then set_active(false) — and armed() deliberately survives it.
-    // Before #221 the resume landed straight back on the live breakpoint, which
-    // fired and reopened the window the user had just closed. The arm must
-    // survive the set_active(false) for this to work, which is the half of
-    // RSOP-05 that keeps it.
+    // resume(), then the window's client detaches (its arm and live raster
+    // drop; GH #278 WP4c: they were the retired active() bit) — and armed()
+    // deliberately survives it. Before #221 the resume landed straight back on
+    // the live breakpoint, which fired and reopened the window the user had
+    // just closed. The arm must survive the detach for this to work, which is
+    // the half of RSOP-05 that keeps it.
     {
         Emulator emu;
         build_linear(emu, /*persistent=*/true);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_pc(LIN_BP);
         run_until_paused(emu);
         const bool stopped = emu.debug_state().paused() && pc(emu) == LIN_BP;
 
         emu.debug_state().resume();
-        emu.debug_state().set_active(false);
+        emu.debug_state().set_clients_attached(false);
+        emu.debug_state().set_live_raster(false);
         run_until_paused(emu);
 
         check("RSOW-09", "closing the debugger window at a hit does not "
               "immediately re-fire it (breakpoints still armed)",
               stopped && emu.debug_state().armed() &&
-              !emu.debug_state().active() && !emu.debug_state().paused() &&
+              !emu.debug_state().attached() && !emu.debug_state().paused() &&
               pc(emu) == LIN_PARK,
-              fmt("stopped=%d armed=%d active=%d paused=%d PC=$%04X (want $%04X)",
+              fmt("stopped=%d armed=%d attached=%d paused=%d PC=$%04X (want $%04X)",
                   stopped ? 1 : 0, emu.debug_state().armed() ? 1 : 0,
-                  emu.debug_state().active() ? 1 : 0,
+                  emu.debug_state().attached() ? 1 : 0,
                   emu.debug_state().paused() ? 1 : 0, pc(emu), LIN_PARK));
     }
 
@@ -586,14 +606,17 @@ int main() {
     {
         Emulator emu;
         build_linear(emu, /*persistent=*/false);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_pc(LIN_BP);
         run_until_paused(emu);
         const bool stopped = emu.debug_state().paused() && pc(emu) == LIN_BP;
 
         emu.debug_state().resume();
-        emu.debug_state().set_active(false);   // breakpoints go dead: arm dropped
-        emu.debug_state().set_active(true);    // window back, still at LIN_BP
+        emu.debug_state().set_clients_attached(false);   // breakpoints go dead: arm dropped
+        emu.debug_state().set_live_raster(false);
+        emu.debug_state().set_clients_attached(true);    // window back, still at LIN_BP
+        emu.debug_state().set_live_raster(true);
         run_until_paused(emu);
 
         check("RSOW-10", "reopening the debugger re-arms the breakpoint under "
@@ -611,7 +634,8 @@ int main() {
     {
         Emulator emu;
         build_linear(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().pause();
         // Walk to the breakpoint address with nothing armed, so the machine
         // arrives there by stepping rather than by a hit.
@@ -653,7 +677,8 @@ int main() {
     {
         Emulator emu;
         build_linear(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_pc(LIN_BP);
         run_until_paused(emu);
         const bool stopped = emu.debug_state().paused() && pc(emu) == LIN_BP;
@@ -692,7 +717,8 @@ int main() {
     {
         Emulator emu;
         build_linear(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_pc(LIN_BP);
         run_until_paused(emu);
         const bool stopped = emu.debug_state().paused() && pc(emu) == LIN_BP;

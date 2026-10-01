@@ -50,7 +50,8 @@ static void check(const char* id, const char* desc, bool cond) {
 // A DebugState with Step Out armed at `sp`.
 static DebugState armed_at(uint16_t sp) {
     DebugState ds;
-    ds.set_active(true);
+    ds.set_clients_attached(true);
+    ds.set_live_raster(true);
     ds.pause();
     ds.step_out(sp);
     return ds;
@@ -103,7 +104,8 @@ static void build(Emulator& emu,
 // exactly what DebuggerManager::on_step_out() does (pause, then step_out(SP)).
 static void enter_sub_and_arm(Emulator& emu) {
     emu.execute_single_instruction();          // CALL SUB
-    emu.debug_state().set_active(true);
+    emu.debug_state().set_clients_attached(true);
+    emu.debug_state().set_live_raster(true);
     emu.debug_state().pause();
     emu.debug_state().step_out(emu.cpu().get_registers().SP);
 }
@@ -259,7 +261,8 @@ int main() {
     // STPOUT-P14 — inert unless StepMode::OUT is the live mode.
     {
         DebugState ds;
-        ds.set_active(true);
+        ds.set_clients_attached(true);
+        ds.set_live_raster(true);
         check("STPOUT-P14a", "mode NONE: predicate is inert",
               !ret_from(ds, 0xFF00, 0xC9));
         ds.step_into();

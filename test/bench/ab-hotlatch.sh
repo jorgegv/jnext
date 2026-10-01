@@ -37,8 +37,17 @@
 #   B    the baseline binary, nothing armed
 #   U    this tree, nothing armed              -> the NO-SUBSCRIBER cost
 #   P    this tree, --persistent-breakpoints only, no subscription
+#   C    this tree, one client ATTACHED, nothing subscribed (GH #278 Q WP2:
+#        what a process-lifetime attach of the Qt adapter costs with its
+#        window closed) -> C − U
 #   A1   this tree, Mem[0x0000,0x3FFF] Write   -> §11 item 3's named case
 #   A2   this tree, Mem[0x0000,0xFFFF] Write   -> EVERY write; the upper bound
+#
+# AB_SET=attach (GH #278 Q WP2) swaps the variant sets for the question a
+# process-lifetime attach of the Qt adapter raises — what does being ARMED BY
+# AN ATTACHED CLIENT cost with nothing subscribed? — and runs B U P C on all four
+# workloads, writing test/bench/attach-<sha>.txt instead. The default set is
+# unchanged.
 #
 # P exists because §6.3's armed rows conflated the latch cost with the
 # pre-existing `--persistent-breakpoints` per-instruction `should_break()`
@@ -80,11 +89,20 @@ CORE=$(for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq; do
        done | sort -rn | head -1 | awk '{print $2}')
 
 SHA=$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)
-OUT="$SCRIPT_DIR/hotlatch-$SHA.txt"
+AB_SET="${AB_SET:-hotlatch}"
+case "$AB_SET" in
+    hotlatch|attach) ;;
+    *) die "AB_SET must be 'hotlatch' or 'attach', got '$AB_SET'" ;;
+esac
+OUT="$SCRIPT_DIR/$AB_SET-$SHA.txt"
 : > "$OUT"
 emit() { printf '%s\n' "$*" | tee -a "$OUT"; }
 
-emit "# GH #276 §11 item 3 — hot-latch interleaved A/B"
+if [[ "$AB_SET" == attach ]]; then
+    emit "# GH #278 Q WP2 — the cost of an attached client, interleaved A/B"
+else
+    emit "# GH #276 §11 item 3 — hot-latch interleaved A/B"
+fi
 emit "# sha=$SHA core=$CORE pairs=$PAIRS load1_start=$(cut -d' ' -f1 /proc/loadavg)"
 emit "# baseline=$BASE_BIN"
 emit "# new=$NEW_BIN"
@@ -94,6 +112,7 @@ declare -A VBIN VENV
 VBIN[B]="$BASE_BIN";  VENV[B]=""
 VBIN[U]="$NEW_BIN";   VENV[U]=""
 VBIN[P]="$NEW_BIN";   VENV[P]="JNEXT_BENCH_WATCH=p"
+VBIN[C]="$NEW_BIN";   VENV[C]="JNEXT_BENCH_WATCH=c"
 VBIN[A1]="$NEW_BIN";  VENV[A1]="JNEXT_BENCH_WATCH=0000-3fff"
 VBIN[A2]="$NEW_BIN";  VENV[A2]="JNEXT_BENCH_WATCH=0000-ffff"
 
@@ -158,10 +177,17 @@ workload() {   # $1 name  $2 machine  $3 frames  $4 load  $5.. variants
 }
 
 NEX="$PROJECT_DIR/test/00regression/nex"
-workload boot-nextzxos next 400 ""                  B U P A1 A2
-workload copper-demo   next 400 "$NEX/copper_demo.nex" B U
-workload beast         next 400 "$NEX/beast.nex"       B U
-workload boot-48k      48k  600 ""                  B U
+if [[ "$AB_SET" == attach ]]; then
+    workload boot-nextzxos next 400 ""                     B U P C
+    workload copper-demo   next 400 "$NEX/copper_demo.nex" B U P C
+    workload beast         next 400 "$NEX/beast.nex"       B U P C
+    workload boot-48k      48k  600 ""                     B U P C
+else
+    workload boot-nextzxos next 400 ""                  B U P A1 A2
+    workload copper-demo   next 400 "$NEX/copper_demo.nex" B U
+    workload beast         next 400 "$NEX/beast.nex"       B U
+    workload boot-48k      48k  600 ""                  B U
+fi
 
 emit "# load1_end=$(cut -d' ' -f1 /proc/loadavg)"
 emit "# result file: $OUT"

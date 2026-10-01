@@ -65,8 +65,9 @@ public:
     /// Access entry by index (0 = oldest, size()-1 = newest).
     const TraceEntry& at(size_t index) const;
 
-    /// Export all entries to a text file.
-    /// Format per line: CYCLE  PC  AF BC DE HL SP  BYTES
+    /// Export all entries to a text file, one line per instruction:
+    /// CYCLE  $PC  AF= BC= DE= HL=  AF'= BC'= DE'= HL'=  IX= IY= SP=
+    /// (SP)= I= R= IMn IFF1= IFF2=  MMU=p0 .. p7  [FLAGS]  BYTES
     bool export_to_file(const std::string& path) const;
 
 private:

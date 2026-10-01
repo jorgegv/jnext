@@ -1065,6 +1065,9 @@ my %NO_MATRIX_SECTION = (
     'window_attach_test'        => 'host window-attach geometry (GH #39 contract, no VHDL oracle)',
     'quit_cleanup_test'         => 'host shutdown ordering (GUI lifecycle)',
     'resume_guard_test'         => 'debugger resume-confirmation policy (jnext-internal)',
+    # GH #278 WP1 — a structural lint of the SOURCE TREE (src/debug/ Qt-free by
+    # directory, src/qt/ header-only): it asserts nothing about the machine.
+    'debug_qt_free_test'        => 'source-tree layout lint (GH #278 WP1: no Qt under src/debug/), no hardware behaviour',
     # GH #276 B1 — the jnext::dbg::Debugger FACADE: the control verbs, the
     # inspection/mutation surface and the two fixes F1/F2. Tombstoned for the
     # same reason as every other debugger suite: the T80N core has no debugger,

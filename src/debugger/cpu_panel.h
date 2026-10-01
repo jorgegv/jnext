@@ -3,13 +3,15 @@
 #include <QWidget>
 #include <QLabel>
 
-class Emulator;
+namespace jnext { namespace dbg { class Debugger; } }
 
 /// CPU registers, flags, and MMU panel.
 class CpuPanel : public QWidget {
     Q_OBJECT
 public:
-    explicit CpuPanel(Emulator* emulator, QWidget* parent = nullptr);
+    /// @param dbg  the debugger backend every read goes through (GH #278 WP4a);
+    ///             null shows nothing.
+    explicit CpuPanel(const jnext::dbg::Debugger* dbg, QWidget* parent = nullptr);
 
     /// Update display with current CPU state and MMU.
     void refresh();
@@ -23,7 +25,7 @@ protected:
 private:
     void create_ui();
 
-    Emulator* emulator_;
+    const jnext::dbg::Debugger* dbg_;
     bool paused_ = false;
 
     // Register value labels (hex display)
