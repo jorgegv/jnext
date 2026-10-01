@@ -172,7 +172,9 @@ There are three verdicts:
   pauses; headless and SDL request exit 3. The engine logs `SCRIPT STOP:
   <reason> at PC=… FRAME=… CYCLE=…`. **The rest of the body still runs**, so a
   span script's `unsnap` keeps its stack balanced.
-- **`exit n`** is recorded (`take_exit()`) and returns `Stop` too, so the
+- **`exit n`** (0..255; any other value is a run-time error, since a process
+  status is 8 bits and `exit 256` would read as 0) is recorded (`take_exit()`)
+  and returns `Stop` too, so the
   machine pauses. It is handed to `EngineHost::exit` only at that pause, in
   `on_paused()` (`hand_over_exit()`), when every stop of the boundary is known.
   While an exit is pending, `ScriptHost`'s listener leaves the backend's own

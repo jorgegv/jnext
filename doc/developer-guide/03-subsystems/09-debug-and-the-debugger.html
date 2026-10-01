@@ -2078,7 +2078,9 @@ facade's (CAP-SYM) and the Magic Breakpoint item arms it through CTL-14. Since
 WP7 nothing in <code>src/debugger/</code> holds an <code>Emulator</code> at all: the last reach, the
 raster snapshot the manager took before a paused refresh, is the backend's —
 <code>raster()</code> and <code>time()</code> take a paused machine's snapshot at the query, for every
-client.</p>
+client. Running, they report the live beam from the clock and leave that
+snapshot alone (GH #26 WP9: a script's <code>CVC</code> in a <code>scanline</code> rule used to read
+the last pause's value).</p>
 <h3 id="the-event-pipeline-b2">The event pipeline (B2)<a class="headerlink" href="#the-event-pipeline-b2" title="Permanent link">&para;</a></h3>
 <p>Today's event vocabulary is "a PC breakpoint, a watchpoint, one one-shot, and
 nothing is conditional". B2 replaces it with the fourteen kinds of §4.3 of the

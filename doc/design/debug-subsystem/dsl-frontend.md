@@ -43,7 +43,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP6** | the recorder — **this is #20**, after its re-scope: recorder + `compare_scr` + INS-16 + the two parked DAPR rows — as built: Appendix L | **done** |
 | **WP7** | demos + the `script-*-func` rows — delivered together with WP10, as built: Appendix M | in review |
 | **WP8** | developer-guide pages — developer guide 3.12, `script-pipeline` figure, FEATURES.md (§9 WP8b; its man-page part was WP4/WP6) | in review |
-| **WP9** | **an exhaustive User Guide chapter for the DSL** (`src/doc/user-guide`, `docs-userguide-check`-gated) — the owner's words: the most powerful feature of jnext | todo |
+| **WP9** | **an exhaustive User Guide chapter for the DSL** (`src/doc/user-guide`, `docs-userguide-check`-gated) — the owner's words: the most powerful feature of jnext — as built: Appendix N | in review |
 | **WP10** | **a demo program + script suite** under `demo/dsl_demo/` exercising every event kind and action, with ten `script-*-func` rows — the same deliverable as WP7, done as one package (Appendix M) | in review |
 
 Depends on: B0 (landed), B; WP5 on Q. design-dsl owns WP9 and WP10.
@@ -2199,3 +2199,58 @@ with it they are §9's ten.
 - The recording half uses the SDL frontend under Xvfb with xdotool, as
   `sdl-keypress-func` does. It SKIPS, and never fails, when the X server
   delivers no key — the recording then holds no press.
+
+## Appendix N — WP9 (§9's WP8a) as built: the user-guide chapter (2026-10-02)
+
+`src/doc/user-guide/06-debugger/scripting/`, fourteen pages, rendered into the
+committed `doc/user-guide/` and linked from the debugger chapter's index, the
+Script panel and function pages, and the generated option page (whose
+SCRIPTING link now points at the chapter instead of the man page). Pages: an
+index; a first-script tour; the language; events (filter, delivery point,
+payload for every kind); reading the machine; actions; snapshots and span
+checks; keys, joysticks and host keys; changing the machine (the §2.7
+visibility rule); running scripts (CLI, GUI, exit codes and the
+exit-after-failure rule, the watchdog, CI); recording and replaying (recorded
+in the Qt GUI under Xvfb, replayed headless, the "inexact" warnings);
+catching memory-corruption bugs (#279's three cases and MemPoint and the host
+keys, as a ChaseTheBug user's path); the nine demo scripts with their output;
+a quick reference. Every example was run against the product and its output
+pasted (time stamps and `[client N]` trimmed).
+
+### N.1 Product defects found while writing it, fixed in-branch with rows
+
+- **The raster names read a constant while running.** `Debugger::raster()` /
+  `time()` returned the LAST PAUSE's snapshot unless the machine was paused,
+  so `RAW_VC`, `CVC`, `HC_ULA` … in a `scanline` or `execute` rule never
+  moved (`on scanline 100` printed `CVC=247 RAW_VC=0` on every frame). They are
+  now derived from the clock at the query; the paused snapshot is still left
+  alone. INS-06-04 re-pinned (its "raster() returns the kept snapshot while
+  running" clause was the defect), SCRIPT-EV-RASTER-LIVE added. In a `scanline
+  N` rule the live `CVC` reads N-1: the rule runs as the raw line begins and
+  CVC steps a few pixels into it — exactly what NR 0x1E/0x1F read then (GH
+  #257); the guide says so.
+- **`exit 256` reached the shell as 0.** An `exit` outside 0..255 is now a
+  run-time error (exit 1). SCRIPT-EV-EXIT-RANGE.
+- **The joystick and sprite-pattern `MUTATE` lines printed decimal after
+  `0x`** (`joystick 1 0x10` logged `= 0x16`). MUT-HEX-01.
+- **The man page's `# REMOTE DEBUGGING (ZRCP)` heading had no blank line
+  before it**, so pandoc swallowed the whole ZRCP section into SCRIPTING (a
+  literal `# REMOTE…` line in the roff).
+
+### N.2 Found, documented, not changed (owner's call)
+
+- `page[s]` (and the `PAGE` payload, and the `page` filters) give a ROM slot its
+  ROM page number, 0..7 — the same numbers as RAM pages 0..7, so `on execute
+  page 0` also matches ROM code. Documented, with `mmu[s] != 0xFF` as the RAM
+  test.
+- The backend logs `STOP under StopPolicy::ExitNonZero — requesting exit 3`
+  for every headless stop, a script `exit 0`'s included; the verdict is the
+  host's `script requested exit N` line. Documented.
+- `save_snapshot` (like `--delayed-snapshot`) writes `.sna` data for any
+  extension but `.jns`/`.szx`/`.nex`, `.z80` included. Documented.
+- `screenshot` / `save_snapshot` and an `exit` in the same frame rule: the run
+  exits 1 (§2.6, fail loud), unlike `compare_scr`, which the exit waits for.
+  Documented, with the one-frame-later idiom.
+- A `log "PASS …"` after a failed `assert` in the same body is still printed
+  (the body runs to the end, §6.3); the status is right. Documented.
+

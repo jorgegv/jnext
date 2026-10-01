@@ -180,7 +180,9 @@ facade's (CAP-SYM) and the Magic Breakpoint item arms it through CTL-14. Since
 WP7 nothing in `src/debugger/` holds an `Emulator` at all: the last reach, the
 raster snapshot the manager took before a paused refresh, is the backend's —
 `raster()` and `time()` take a paused machine's snapshot at the query, for every
-client.
+client. Running, they report the live beam from the clock and leave that
+snapshot alone (GH #26 WP9: a script's `CVC` in a `scanline` rule used to read
+the last pause's value).
 
 ### The event pipeline (B2)
 

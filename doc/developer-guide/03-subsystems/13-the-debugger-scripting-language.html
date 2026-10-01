@@ -2234,7 +2234,9 @@ active, the first mutation logs a warning.</p>
   pauses; headless and SDL request exit 3. The engine logs <code>SCRIPT STOP:
   &lt;reason&gt; at PC=… FRAME=… CYCLE=…</code>. <strong>The rest of the body still runs</strong>, so a
   span script's <code>unsnap</code> keeps its stack balanced.</li>
-<li><strong><code>exit n</code></strong> is recorded (<code>take_exit()</code>) and returns <code>Stop</code> too, so the
+<li><strong><code>exit n</code></strong> (0..255; any other value is a run-time error, since a process
+  status is 8 bits and <code>exit 256</code> would read as 0) is recorded (<code>take_exit()</code>)
+  and returns <code>Stop</code> too, so the
   machine pauses. It is handed to <code>EngineHost::exit</code> only at that pause, in
   <code>on_paused()</code> (<code>hand_over_exit()</code>), when every stop of the boundary is known.
   While an exit is pending, <code>ScriptHost</code>'s listener leaves the backend's own
