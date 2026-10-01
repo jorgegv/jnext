@@ -956,6 +956,50 @@ void test_debugger_menu_focus() {
 
 } // namespace
 
+
+// ── DKSK: the script host keys in the debugger window (GH #26 WP5) ────────
+
+void test_script_keys() {
+    {
+        DebuggerFixture fx;
+        if (!fx.ok) {
+            check("DKSK-01", "Alt+1 / Alt+8 in the focused debugger window raise script1 / script8",
+                  false, "fixture failed");
+        } else {
+            jnext::dbg::ClientInfo ci;
+            ci.name = "keymap_test";
+            const auto cid = fx.backend->attach(ci).value;
+            std::vector<std::string> raised;
+            jnext::dbg::Subscription sub;
+            sub.kind   = jnext::dbg::EventKind::Host;
+            sub.action = jnext::dbg::Action::Continue;
+            sub.handler = [&raised](const jnext::dbg::Event& e, jnext::dbg::Debugger&) {
+                raised.emplace_back(e.host_name);
+                return jnext::dbg::Action::Continue;
+            };
+            fx.backend->subscribe(cid, sub);
+            press_shortcut(fx.dbg, parsed("Alt+1"));
+            press_shortcut(fx.dbg, parsed("Alt+8"));
+            press_shortcut(fx.dbg, parsed("Alt+9"));
+            std::string got;
+            for (const auto& r : raised) got += r + " ";
+            check("DKSK-01", "Alt+1 / Alt+8 in the focused debugger window raise script1 / script8 "
+                             "(through the real shortcut map), and Alt+9 raises nothing",
+                  got == "script1 script8 ", got);
+            fx.backend->detach(cid);
+        }
+    }
+    {
+        Combo c1 = parsed("Alt+1"), c8 = parsed("Alt+8"), c9 = parsed("Alt+9");
+        std::string w1, w8, w9;
+        const bool r1 = validate_combo(c1, w1), r8 = validate_combo(c8, w8), r9 = validate_combo(c9, w9);
+        check("DKSK-02", "the keymap refuses Alt+1 and Alt+8 by name (script host keys) and accepts Alt+9",
+              c1.bound() && c8.bound() && !r1 && !r8 && r9 &&
+                  w1.find("script host keys") != std::string::npos,
+              "Alt+1: " + w1 + " | Alt+8: " + w8 + " | Alt+9: " + (r9 ? "ok" : w9));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
 
@@ -984,6 +1028,7 @@ int main(int argc, char** argv) {
     test_main_window_pushes_keymap();
     test_keymap_survives_a_late_window();
     test_debugger_menu_focus();
+    test_script_keys();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);

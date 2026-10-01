@@ -1078,6 +1078,94 @@ void test_stranded_alt() {
 
 } // namespace
 
+
+// ---------------------------------------------------------------------------
+// GH #26 WP5 — Alt+1..Alt+8 are the script host keys (dsl-frontend.md §6.4,
+// qt-frontend.md §5.3). The emulator window with NO debugger: real QKeyEvents
+// into a real MainWindow, its key callback into the real key Router (the one
+// QtApp wires), the Router's script keys through the real wire_script_keys()
+// into a real backend, and the guest matrix read back.
+// ---------------------------------------------------------------------------
+
+struct ScriptKeyRow { Qt::Key key; int row, col; const char* id; };
+const ScriptKeyRow SCRIPT_KEYS[] = {
+    {Qt::Key_1, 3, 0, "H-SCRIPT-01"}, {Qt::Key_2, 3, 1, "H-SCRIPT-02"},
+    {Qt::Key_3, 3, 2, "H-SCRIPT-03"}, {Qt::Key_4, 3, 3, "H-SCRIPT-04"},
+    {Qt::Key_5, 3, 4, "H-SCRIPT-05"}, {Qt::Key_6, 4, 4, "H-SCRIPT-06"},
+    {Qt::Key_7, 4, 3, "H-SCRIPT-07"}, {Qt::Key_8, 4, 2, "H-SCRIPT-08"},
+};
+
+void test_script_keys(MainWindow& w) {
+    Emulator emu;
+    EmulatorConfig cfg;
+    emu.init(cfg);
+    jnext::dbg::Debugger backend(emu);
+    jnext::dbg::ClientInfo ci;
+    ci.name = "host_hotkey_test";
+    const jnext::dbg::ClientId cid = backend.attach(ci).value;
+    std::vector<std::string> raised;
+    jnext::dbg::Subscription sub;
+    sub.kind   = jnext::dbg::EventKind::Host;
+    sub.action = jnext::dbg::Action::Continue;
+    sub.handler = [&raised](const jnext::dbg::Event& e, jnext::dbg::Debugger&) {
+        raised.emplace_back(e.host_name);
+        return jnext::dbg::Action::Continue;
+    };
+    backend.subscribe(cid, sub);
+
+    Keyboard kb;
+    kb.reset();
+    host_key_latch::Router<Keyboard, SDL_Scancode> router;
+    router.attach(kb);
+    wire_host_keys(w, router);
+    wire_script_keys(router, backend);
+
+    for (const ScriptKeyRow& k : SCRIPT_KEYS) {
+        raised.clear();
+        const int n = int(k.key - Qt::Key_0);
+        send(w, Qt::Key_Alt, Qt::NoModifier, true);
+        send(w, k.key, Qt::AltModifier, true);
+        const bool down_on_press = key_down(kb, k.row, k.col);
+        router.on_tick_end(1);
+        send(w, k.key, Qt::AltModifier, false);
+        send(w, Qt::Key_Alt, Qt::AltModifier, false);
+        router.on_tick_end(1);
+        const std::string want = "script" + std::to_string(n);
+        char desc[160];
+        std::snprintf(desc, sizeof(desc),
+                      "Alt+%d with the debugger closed raises Host{%s} and the guest's %d stays "
+                      "released, press and release", n, want.c_str(), n);
+        check(k.id, desc,
+              raised.size() == 1 && raised[0] == want && !down_on_press && !key_down(kb, k.row, k.col),
+              "raised=" + std::to_string(raised.size()) + (raised.empty() ? "" : " " + raised[0]) +
+                  (down_on_press ? " digit reached the guest" : ""));
+    }
+
+    // H-SCRIPT-09 — the reservation is exactly 1..8: Alt+9 and Alt+0 still
+    // type their digit into the guest, and raise nothing.
+    raised.clear();
+    send(w, Qt::Key_Alt, Qt::NoModifier, true);
+    send(w, Qt::Key_9, Qt::AltModifier, true);
+    const bool nine = key_down(kb, 4, 1);
+    router.on_tick_end(1);
+    send(w, Qt::Key_9, Qt::AltModifier, false);
+    router.on_tick_end(1);
+    send(w, Qt::Key_0, Qt::AltModifier, true);
+    const bool zero = key_down(kb, 4, 0);
+    router.on_tick_end(1);
+    send(w, Qt::Key_0, Qt::AltModifier, false);
+    send(w, Qt::Key_Alt, Qt::AltModifier, false);
+    router.on_tick_end(1);
+    check("H-SCRIPT-09", "Alt+9 and Alt+0 still reach the guest as 9 and 0 and raise no host event",
+          nine && zero && raised.empty() && !key_down(kb, 4, 1) && !key_down(kb, 4, 0),
+          "nine=" + std::to_string(nine) + " zero=" + std::to_string(zero) +
+              " raised=" + std::to_string(raised.size()));
+
+    w.set_key_callback(nullptr);
+    w.set_keyboard_lost_callback(nullptr);
+    backend.detach(cid);
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QApplication app(argc, argv);
@@ -1102,6 +1190,7 @@ int main(int argc, char** argv) {
     test_alt_namespace(w);
     test_menu_focus(w);
     test_stranded_alt();
+    test_script_keys(w);
 
     // Group 5 needs a SECOND window, with an emulator attached: the bug-button
     // whose tooltip regressed lives on the debug toolbar, and MainWindow only

@@ -2135,6 +2135,72 @@ static void host_round1_rows() {
     }
 }
 
+static void host_gui_rows() {
+    {
+        // The GUI's path: start() with nothing, then load from the menu.
+        HostRig g(kLoop);
+        ScriptHostOptions o;
+        o.exits = false;
+        const bool started = g.start(o);
+        const bool armed0 = g.dbg->armed();
+        const LoadResult r = g.host->load_file(tmp_file("gui1.jds", "on frame 1 do log \"G1\" end\n"));
+        const LoadResult bad = g.host->load_file(tmp_file("gui2.jds", "on frame 1 do\n  log +\nend\n"));
+        g.run(3);
+        const auto lines = g.host->log_since(0);
+        bool tagged = false, g1 = false, loaded = false, err = false;
+        for (const auto& l : lines) {
+            if (l.find("[client") != std::string::npos) tagged = true;
+            if (l.find("] G1") != std::string::npos) g1 = true;
+            if (l.find("loaded at FRAME") != std::string::npos) loaded = true;
+            if (l.find("SCRIPT ERROR") != std::string::npos && l.find("gui2.jds:2:") != std::string::npos) err = true;
+        }
+        check("SCRIPT-HOST-GUI-LOAD", "a script loaded at run time (the menu) registers and runs; one with "
+                                      "an error is refused and the first stays; the log carries the engine's "
+                                      "lines without the backend's client tag, the load note and the error",
+              started && !armed0 && r.ok() && !bad.ok() && g.host->files().size() == 1 && g.dbg->armed() &&
+                  g1 && loaded && err && !tagged,
+              "files=" + std::to_string(g.host->files().size()) + " lines=" + std::to_string(lines.size()));
+    }
+    {
+        HostRig g(kLoop);
+        ScriptHostOptions o;
+        o.exits = false;
+        g.start(o);
+        const std::string a = tmp_file("gui3.jds", "on write 0x9000 once do log \"A\" end\n");
+        g.host->load_file(a);
+        g.run(1);
+        const uint64_t hits = g.host->engine()->rules()[0].hits;
+        const auto again = g.host->reload();
+        const bool reloaded = again.size() == 1 && again[0].ok() && g.host->files() == std::vector<std::string>{a} &&
+                              g.host->engine()->rules()[0].hits == 0;
+        g.host->unload_all();
+        check("SCRIPT-HOST-GUI-UNLOAD", "reload() reloads the same files (rules start over); unload_all() "
+                                        "drops every script AND the engine, so nothing stays armed",
+              hits == 1 && reloaded && g.host->files().empty() && g.host->engine() == nullptr &&
+                  !g.dbg->armed() && g.engine_subs() == 0,
+              "hits=" + std::to_string(hits) + " armed=" + std::to_string(g.dbg->armed()));
+    }
+    {
+        // The log is a ring of MAX_LOG_LINES; log_since() returns what is
+        // still held after a sequence number, never past the end.
+        HostRig g(kLoop);
+        ScriptHostOptions o;
+        o.exits = false;
+        g.start(o);
+        g.host->load_file(tmp_file("gui4.jds", "on write 0x9000 do log \"L ${VALUE}\" end\n"));
+        g.run(1);
+        const uint64_t seq = g.host->log_seq();
+        const auto all = g.host->log_since(0);
+        const auto none = g.host->log_since(seq);
+        const auto last2 = g.host->log_since(seq - 2);
+        check("SCRIPT-HOST-GUI-LOG", "the script log keeps the last MAX_LOG_LINES lines: log_since(0) is "
+                                     "the whole ring, log_since(seq) is empty, log_since(seq-2) the newest two",
+              seq > ScriptHost::MAX_LOG_LINES && all.size() == ScriptHost::MAX_LOG_LINES && none.empty() &&
+                  last2.size() == 2 && last2[1] == all.back(),
+              "seq=" + std::to_string(seq) + " all=" + std::to_string(all.size()));
+    }
+}
+
 int main() {
     std::printf("script_events_test — the debugger DSL engine on a real machine (GH #26 WP3)\n");
 
@@ -2160,6 +2226,7 @@ int main() {
     run_group("host", host_rows);
     run_group("host_deferred", host_deferred_rows);
     run_group("host_round1", host_round1_rows);
+    run_group("host_gui", host_gui_rows);
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);
