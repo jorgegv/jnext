@@ -30,7 +30,7 @@ mentions them, so a test can no longer be absent from this document.
 | Copper                                     |   100 |  100 |    0 |    0 |       0 |          0 |
 | Compositor                                 |   284 |  284 |    0 |    0 |       0 |          0 |
 | Audio                                      |   221 |  221 |    0 |    0 |       0 |          0 |
-| DMA                                        |   160 |  160 |    0 |    0 |       0 |          0 |
+| DMA                                        |   167 |  167 |    0 |    0 |       0 |          0 |
 | DivMMC+SPI                                 |   162 |  162 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    57 |   57 |    0 |    0 |       0 |          0 |
 | CTC+Interrupts                             |   203 |  203 |    0 |    0 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    30 |   24 |    0 |    6 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5402 | 5391 |    0 |   11 |       0 |          0 |
+| **Total**                                  |  5409 | 5398 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **5402**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5087**. Rows the 124 suites declared in `test/unit-tests.conf` run live: **11307**.
+Rows the sections above carry: **5409**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5094**. Rows the 124 suites declared in `test/unit-tests.conf` run live: **11314**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -1801,166 +1801,173 @@ Notes and rationale: [DMA-TEST-PLAN-DESIGN.md](DMA-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| 1.1 | Write 0x6B latches ZXN mode: counter=0 on LOAD | dma.vhd:664-665 | pass | test/dma/dma_test.cpp:177 |
-| 1.2 | Write 0x0B latches Z80 mode: counter=0xFFFF on LOAD | dma.vhd:666-667 | pass | test/dma/dma_test.cpp:187 |
-| 1.3 | Subsequent 0x6B access latches ZXN: CONTINUE counter=0 | dma.vhd:673-674 | pass | test/dma/dma_test.cpp:201 |
-| 1.4 | Subsequent 0x0B access latches Z80: CONTINUE counter=0xFFFF | dma.vhd:675-676 | pass | test/dma/dma_test.cpp:212 |
-| 1.6 | Mode re-latched on each port access | dma.vhd:664-668 | pass | test/dma/dma_test.cpp:238 |
-| 2.1 | R0 bit2=1 dir A->B: src=portA, dst=portB | dma.vhd:656-658 | pass | test/dma/dma_test.cpp:266 |
-| 2.2 | R0 bit2=0 dir B->A: src=portB, dst=portA | dma.vhd:659-662 | pass | test/dma/dma_test.cpp:282 |
-| 2.3 | R0 addr LO sub-byte only | dma.vhd:739 | pass | test/dma/dma_test.cpp:295 |
-| 2.4 | R0 addr HI sub-byte | dma.vhd:752 | pass | test/dma/dma_test.cpp:308 |
-| 2.5 | R0 full 16-bit port A address | dma.vhd:739,752 | pass | test/dma/dma_test.cpp:322 |
-| 2.6 | R0 block length LO sub-byte | dma.vhd:763 | pass | test/dma/dma_test.cpp:334 |
-| 2.7 | R0 block length HI sub-byte | dma.vhd:772 | pass | test/dma/dma_test.cpp:347 |
-| 2.8 | R0 selective re-program: only addr LO updated | dma.vhd:518-538 | pass | test/dma/dma_test.cpp:363 |
-| 3.1 | R1 bit3=0: portA reads memory | dma.vhd:542 | pass | test/dma/dma_test.cpp:392 |
-| 3.2 | R1 bit3=1: portA reads I/O | dma.vhd:542 | pass | test/dma/dma_test.cpp:411 |
-| 3.3 | R1 addr mode 01 = increment | dma.vhd:543 | pass | test/dma/dma_test.cpp:421 |
-| 3.4 | R1 addr mode 00 = decrement | dma.vhd:543 | pass | test/dma/dma_test.cpp:430 |
-| 3.5 | R1 addr mode 10 = fixed | dma.vhd:543 | pass | test/dma/dma_test.cpp:439 |
-| 3.6 | R1 timing byte stored (00/01/10/11) | dma.vhd:776 | pass | test/dma/dma_test.cpp:452 |
-| 4.1 | R2 bit3=0: portB writes memory | dma.vhd:559 | pass | test/dma/dma_test.cpp:477 |
-| 4.2 | R2 bit3=1: portB writes I/O | dma.vhd:559 | pass | test/dma/dma_test.cpp:496 |
-| 4.3 | R2 addr mode 01 = increment | dma.vhd:560 | pass | test/dma/dma_test.cpp:506 |
-| 4.4 | R2 addr mode 00 = decrement | dma.vhd:560 | pass | test/dma/dma_test.cpp:515 |
-| 4.5 | R2 addr mode 10 = fixed | dma.vhd:560 | pass | test/dma/dma_test.cpp:524 |
-| 4.6 | R2 timing byte stored (00/01/10/11) | dma.vhd:790 | pass | test/dma/dma_test.cpp:537 |
-| 4.7 | R2 prescaler sub-byte consumed; sequencer returns to IDLE | dma.vhd:799 | pass | test/dma/dma_test.cpp:559 |
-| 4.8 | Prescaler=0 default: full block in one burst (no wait) | dma.vhd:424 | pass | test/dma/dma_test.cpp:573 |
-| 5.1 | R3 bit6=1 -> TRANSFERRING | dma.vhd:576-579 | pass | test/dma/dma_test.cpp:595 |
-| 5.2 | R3 bit6=0 -> IDLE | dma.vhd:576 | pass | test/dma/dma_test.cpp:604 |
-| 5.3 | R3 mask sub-byte consumed; subsequent R0 still parsed | dma.vhd:576-582 | pass | test/dma/dma_test.cpp:618 |
-| 5.4 | R3 match sub-byte consumed; subsequent R0 still parsed | dma.vhd:576-582 | pass | test/dma/dma_test.cpp:633 |
-| 6.1 | R4 mode 00 = byte | dma.vhd:601 | pass | test/dma/dma_test.cpp:656 |
-| 6.2 | R4 mode 01 = continuous | dma.vhd:601 | pass | test/dma/dma_test.cpp:665 |
-| 6.3 | R4 mode 10 = burst | dma.vhd:601 | pass | test/dma/dma_test.cpp:674 |
-| 6.4 | Reset default R4 mode = continuous | dma.vhd:236 | pass | test/dma/dma_test.cpp:683 |
-| 6.5 | R4 portB addr LO sub-byte | dma.vhd:816 | pass | test/dma/dma_test.cpp:698 |
-| 6.6 | R4 portB addr HI sub-byte | dma.vhd:827 | pass | test/dma/dma_test.cpp:714 |
-| 6.7 | R4 full 16-bit port B address | dma.vhd:816,827 | pass | test/dma/dma_test.cpp:728 |
-| 6.8 | R4 mode 11 stored as raw value 3 (no VHDL special case) | dma.vhd:601 | pass | test/dma/dma_test.cpp:744 |
-| 7.1 | R5 auto-restart: state=TRANSFERRING and addrs reloaded | dma.vhd:473-491 | pass | test/dma/dma_test.cpp:772 |
-| 7.2 | R5 auto-restart off (default): state=IDLE after block | dma.vhd:238,494 | pass | test/dma/dma_test.cpp:786 |
-| 8.1 | 0xC3 RESET: state=IDLE | dma.vhd:638 | pass | test/dma/dma_test.cpp:825 |
-| 8.2 | 0xC7 resets port A timing to 01 | dma.vhd:648 | pass | test/dma/dma_test.cpp:835 |
-| 8.3 | 0xCB resets port B timing to 01 | dma.vhd:651 | pass | test/dma/dma_test.cpp:846 |
-| 8.4 | LOAD clears status_endofblock_n (bit5=1) | dma.vhd:654 | pass | test/dma/dma_test.cpp:861 |
-| 8.5 | LOAD A->B: src=0x1234, dst=0x5678 | dma.vhd:656-658 | pass | test/dma/dma_test.cpp:875 |
-| 8.6 | LOAD B->A: src=0x5678, dst=0x1234 | dma.vhd:660-662 | pass | test/dma/dma_test.cpp:890 |
-| 8.7 | LOAD ZXN: counter=0 | dma.vhd:664-665 | pass | test/dma/dma_test.cpp:901 |
-| 8.8 | LOAD Z80: counter=0xFFFF | dma.vhd:666-667 | pass | test/dma/dma_test.cpp:911 |
-| 8.9 | CONTINUE: counter reset, addrs preserved | dma.vhd:670-676 | pass | test/dma/dma_test.cpp:925 |
-| 8.10 | CONTINUE ZXN: counter=0 | dma.vhd:673-674 | pass | test/dma/dma_test.cpp:937 |
-| 8.11 | CONTINUE Z80: counter=0xFFFF | dma.vhd:675-676 | pass | test/dma/dma_test.cpp:947 |
-| 8.12 | ENABLE -> TRANSFERRING | dma.vhd:725 | pass | test/dma/dma_test.cpp:956 |
-| 8.13 | DISABLE -> IDLE | dma.vhd:728 | pass | test/dma/dma_test.cpp:966 |
-| 8.14 | 0x8B status reinit: byte = 0x3A | dma.vhd:691-692,902 | pass | test/dma/dma_test.cpp:983 |
-| 8.15 | 0xBB mask=0x01: read sequence locked to status | dma.vhd:731,859-860 | pass | test/dma/dma_test.cpp:999 |
-| 8.16 | 0xBF forces next read = status byte | dma.vhd:696-699 | pass | test/dma/dma_test.cpp:1015 |
-| 9.1 | A->B inc both, 4 bytes copied in order | dma.vhd:379-391 | pass | test/dma/dma_test.cpp:1038 |
-| 9.2 | B->A inc both, 4 bytes copied portB->portA | dma.vhd:660-662,389-391 | pass | test/dma/dma_test.cpp:1058 |
-| 9.3 | A->B src decrement: reads walk backwards | dma.vhd:384-387 | pass | test/dma/dma_test.cpp:1079 |
-| 9.4 | A->B fixed src: identical bytes written N times | dma.vhd:379-396 | pass | test/dma/dma_test.cpp:1100 |
-| 9.5 | A->B fixed dst: last byte remains in single slot | dma.vhd:389-396 | pass | test/dma/dma_test.cpp:1119 |
-| 9.6 | Block length = 1 transfers 1 byte (ZXN) | dma.vhd:426 | pass | test/dma/dma_test.cpp:1133 |
-| 9.7 | Block length = 256 transfers 256 bytes | dma.vhd:426 | pass | test/dma/dma_test.cpp:1147 |
-| 9.8 | Block length = 0 transfers 1 byte (ZXN) | dma.vhd:361,426 | pass | test/dma/dma_test.cpp:1164 |
-| 10.1 | Mem->IO A inc, B fixed: last byte at fixed IO port | dma.vhd:559 | pass | test/dma/dma_test.cpp:1195 |
-| 10.2 | Mem->IO A inc, B inc: 3 consecutive IO ports written | dma.vhd:559,389-391 | pass | test/dma/dma_test.cpp:1214 |
-| 10.3 | Mem->IO: read phase asserts MREQ (mem callback), write phase asserts IORQ (io callback) | dma.vhd:186-190,290-296 | pass | test/dma/dma_test.cpp:1245 |
-| 10.4 | IO->Mem: byte arrives from IO to memory | dma.vhd:542 | pass | test/dma/dma_test.cpp:1268 |
-| 10.5 | IO->IO: single byte arrives at destination IO port | dma.vhd:542,559 | pass | test/dma/dma_test.cpp:1287 |
-| 10.6 | IO port B delivered with full 16-bit address | dma.vhd:36 | pass | test/dma/dma_test.cpp:1307 |
-| 11.1 | Both inc A->B: src=0x8004 dst=0x9004 after 4 bytes | dma.vhd:379-391 | pass | test/dma/dma_test.cpp:1329 |
-| 11.2 | Both dec A->B: src=0x7FFF dst=0x8FFF after 4 bytes | dma.vhd:384-396 | pass | test/dma/dma_test.cpp:1348 |
-| 11.3 | Src inc, dst dec: dst walks backwards while src ascends | dma.vhd:379-396 | pass | test/dma/dma_test.cpp:1367 |
-| 11.4 | Src dec, dst fixed: dst=0x9000 holds last source byte (0x20) | dma.vhd:384-396 | pass | test/dma/dma_test.cpp:1387 |
-| 11.5 | Both fixed: addresses unchanged after transfer | dma.vhd:379-396 | pass | test/dma/dma_test.cpp:1407 |
-| 11.6 | Src wraps 0xFFFF -> 0x0000 (16-bit address) | dma.vhd:36,381 | pass | test/dma/dma_test.cpp:1428 |
-| 12.1 | Continuous: whole block in one execute_burst | dma.vhd:426-430,601 | pass | test/dma/dma_test.cpp:1454 |
-| 12.2 | Burst prescaler=0: 1 byte per execute_burst | dma.vhd:424 | pass | test/dma/dma_test.cpp:1477 |
-| 12.3 | Burst prescaler>0: is_active() false during wait | dma.vhd:424-425 | pass | test/dma/dma_test.cpp:1499 |
-| 12.4 | Burst WAITING_CYCLES: cpu_busreq_n deasserted (bus released) | dma.vhd:445 | pass | test/dma/dma_test.cpp:1522 |
-| 12.5 | After prescaler expires: cpu_busreq_n re-asserted | dma.vhd:451-460 | pass | test/dma/dma_test.cpp:1547 |
-| 12.6 | R4 mode=00 transfers full block_len bytes (VHDL dma.vhd:426 block-length check is mode-agnostic) | dma.vhd:426 | pass | test/dma/dma_test.cpp:1574 |
-| 12.7 | Continuous+prescaler: one byte then wait (TRANSFERRING) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1606 |
-| 12.8 | Prescaler vs timer scales with turbo_i (8x clocks at 28MHz) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1625 |
-| 13.1 | Prescaler=0: no WAITING_CYCLES (runs to IDLE) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1657 |
-| 13.2 | turbo=00 (3.5MHz): timer += 8 per clock | dma.vhd:251 | pass | test/dma/dma_test.cpp:1669 |
-| 13.3 | turbo=01 (7MHz): timer += 4 per clock | dma.vhd:252 | pass | test/dma/dma_test.cpp:1680 |
-| 13.4 | turbo=10 (14MHz): timer += 2 per clock | dma.vhd:253 | pass | test/dma/dma_test.cpp:1691 |
-| 13.5 | turbo=11 (28MHz): timer += 1 per clock | dma.vhd:254 | pass | test/dma/dma_test.cpp:1702 |
-| 13.6 | Prescaler comparison uses timer bits(13:5) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1716 |
-| 14.1 | ZXN LOAD: counter=0 | dma.vhd:664-665 | pass | test/dma/dma_test.cpp:1774 |
-| 14.2 | Z80 LOAD: counter=0xFFFF | dma.vhd:666-667 | pass | test/dma/dma_test.cpp:1783 |
-| 14.3 | ZXN: counter=N after N-byte block | dma.vhd:361 | pass | test/dma/dma_test.cpp:1795 |
-| 14.4 | ZXN block_len=5: 5 bytes transferred | dma.vhd:426 | pass | test/dma/dma_test.cpp:1807 |
-| 14.5 | Z80 block_len=5: 6 bytes (block_len+1) | dma.vhd:426,666-667 | pass | test/dma/dma_test.cpp:1822 |
-| 14.6 | ZXN block_len=0: 1 byte transferred | dma.vhd:361,426 | pass | test/dma/dma_test.cpp:1837 |
-| 14.7 | Z80 block_len=0: 1 byte transferred | dma.vhd:361,426,667 | pass | test/dma/dma_test.cpp:1849 |
-| 14.8 | Counter readback = 5 after 5-byte block | dma.vhd:933-947 | pass | test/dma/dma_test.cpp:1867 |
-| 15.1 | TRANSFER: cpu_busreq_n asserted (false) | dma.vhd:278 | pass | test/dma/dma_test.cpp:1890 |
-| 15.2 | WAITING_ACK gates transfer on cpu_bai_n | dma.vhd:296 | pass | test/dma/dma_test.cpp:1906 |
-| 15.3 | IDLE: cpu_busreq_n deasserted (true) | dma.vhd:225,262 | pass | test/dma/dma_test.cpp:1915 |
-| 15.4 | bus_busreq_n=0 at START_DMA: DMA defers | dma.vhd:269 | pass | test/dma/dma_test.cpp:1929 |
-| 15.5 | daisy_busy=true at START_DMA: DMA defers | dma.vhd:269 | pass | test/dma/dma_test.cpp:1943 |
-| 15.6 | dma_delay=1 at START_DMA: DMA defers | dma.vhd:269 | pass | test/dma/dma_test.cpp:1956 |
-| 15.7 | dma_holds_bus=true while transferring | zxnext.vhd | pass | test/dma/dma_test.cpp:1969 |
-| 16.1 | Auto-restart: src/dst reloaded to 0x8000/0x9000 | dma.vhd:473-481 | pass | test/dma/dma_test.cpp:1998 |
-| 16.2 | Auto-restart ZXN: counter reloaded to 0 | dma.vhd:482-486 | pass | test/dma/dma_test.cpp:2011 |
-| 16.3 | Auto-restart A->B reload uses R0 as src, R4 as dst | dma.vhd:474-476 | pass | test/dma/dma_test.cpp:2024 |
-| 16.4 | Auto-restart B->A reload: src=portB, dst=portA | dma.vhd:478-479 | pass | test/dma/dma_test.cpp:2043 |
-| 16.5 | CONTINUE preserves src/dst | dma.vhd:670-676 | pass | test/dma/dma_test.cpp:2057 |
-| 16.6 | LOAD restores start addrs; CONTINUE keeps current addrs | dma.vhd:656-662 | pass | test/dma/dma_test.cpp:2077 |
-| 17.1 | Status bits [4:1] = 1101 | dma.vhd:902 | pass | test/dma/dma_test.cpp:2101 |
-| 17.2 | Initial endofblock_n = 1 (bit5 set) | dma.vhd:242 | pass | test/dma/dma_test.cpp:2112 |
-| 17.3 | After block: endofblock_n = 0 (bit5 clear) | dma.vhd:471 | pass | test/dma/dma_test.cpp:2125 |
-| 17.4 | After 1 byte: atleastone = 1 (bit0 set) | dma.vhd:412 | pass | test/dma/dma_test.cpp:2138 |
-| 17.5 | 0x8B reinit: status = 0x3A | dma.vhd:691-692 | pass | test/dma/dma_test.cpp:2152 |
-| 17.6 | 0xC3 reset: status = 0x3A | dma.vhd:638-641 | pass | test/dma/dma_test.cpp:2166 |
-| 17.7 | Default mask 0x7F: 7-field cycle then wrap | dma.vhd:239 | pass | test/dma/dma_test.cpp:2190 |
-| 17.8 | Read sequence advances mask bits 0..6 in order | dma.vhd:902-922 | pass | test/dma/dma_test.cpp:2209 |
-| 17.9 | Mask 0x07: 3 fields (status, cnt LO/HI) then wrap | dma.vhd:696-717 | pass | test/dma/dma_test.cpp:2227 |
-| 17.10 | Mask with two bits: wraps after last enabled field | dma.vhd:919-922 | pass | test/dma/dma_test.cpp:2248 |
-| 18.1 | Read field: status byte | dma.vhd:902 | pass | test/dma/dma_test.cpp:2286 |
-| 18.2 | Read field: counter LO = 0x00 (ZXN just LOADed) | dma.vhd:933 | pass | test/dma/dma_test.cpp:2296 |
-| 18.3 | Read field: counter HI = 0x00 (ZXN just LOADed) | dma.vhd:935 | pass | test/dma/dma_test.cpp:2306 |
-| 18.4 | Read field: portA LO = src LO (0x34) under A->B | dma.vhd:910-912 | pass | test/dma/dma_test.cpp:2317 |
-| 18.5 | Read field: portA HI = src HI (0x12) under A->B | dma.vhd:913-915 | pass | test/dma/dma_test.cpp:2327 |
-| 18.6 | Read field: portB LO = dst LO (0x78) under A->B | dma.vhd:916-918 | pass | test/dma/dma_test.cpp:2337 |
-| 18.7 | Read field: portB HI = dst HI (0x56) under A->B | dma.vhd:919-921 | pass | test/dma/dma_test.cpp:2347 |
-| 18.8 | B->A: portA reads dst, portB reads src | dma.vhd:910-921 | pass | test/dma/dma_test.cpp:2362 |
-| 19.1 | Hardware reset defaults | dma.vhd:213-242 | pass | test/dma/dma_test.cpp:2390 |
-| 19.2 | 0xC3 soft reset: state=IDLE and status=0x3A | dma.vhd:638-641 | pass | test/dma/dma_test.cpp:2408 |
-| 19.3 | 0xC3 preserves R0 and R4 start addresses | dma.vhd:638-645 | pass | test/dma/dma_test.cpp:2426 |
-| 19.4 | 0xC3 resets both port timings to 01 | dma.vhd:641-642 | pass | test/dma/dma_test.cpp:2438 |
-| 19.5 | 0xC3 resets prescaler: transfer runs to IDLE in one burst | dma.vhd:643 | pass | test/dma/dma_test.cpp:2455 |
-| 19.6 | 0xC3 clears auto-restart: transfer ends at IDLE | dma.vhd:645 | pass | test/dma/dma_test.cpp:2469 |
-| 20.1 | dma_delay=1 blocks START_DMA; deasserting proceeds | dma.vhd:269 | pass | test/dma/dma_test.cpp:2495 |
-| 20.2 | dma_delay mid-transfer: cpu_busreq_n released | dma.vhd:427-428 | pass | test/dma/dma_test.cpp:2511 |
-| 21.1 | Timing 00 -> 4 cycles | dma.vhd:313 | pass | test/dma/dma_test.cpp:2546 |
-| 21.2 | Timing 01 -> 3 cycles | dma.vhd:314 | pass | test/dma/dma_test.cpp:2554 |
-| 21.3 | Timing 10 -> 2 cycles | dma.vhd:315 | pass | test/dma/dma_test.cpp:2562 |
-| 21.4 | Timing 11 -> 4 cycles (when others) | dma.vhd:316 | pass | test/dma/dma_test.cpp:2570 |
-| 21.5 | Read timing selects R1 (A->B) vs R2 (B->A) | dma.vhd:311 | pass | test/dma/dma_test.cpp:2586 |
-| 21.6 | Write timing selects R2 (A->B) vs R1 (B->A) | dma.vhd:371 | pass | test/dma/dma_test.cpp:2600 |
-| 22.1 | DISABLE mid-transfer -> IDLE | dma.vhd:728 | pass | test/dma/dma_test.cpp:2622 |
-| 22.2 | ENABLE without LOAD: state=TRANSFERRING | dma.vhd:725 | pass | test/dma/dma_test.cpp:2633 |
-| 22.3 | Multiple LOADs: last values used | dma.vhd:656-668 | pass | test/dma/dma_test.cpp:2652 |
-| 22.4 | CONTINUE during auto-restart: counter reset, addrs kept | dma.vhd:670-676 | pass | test/dma/dma_test.cpp:2670 |
-| 22.5 | R1 base byte does not update R0 direction | dma.vhd:542 | pass | test/dma/dma_test.cpp:2688 |
-| 22.6 | 0x00 matches R2 (dec), not R0 | dma.vhd:518-520,559 | pass | test/dma/dma_test.cpp:2701 |
-| 23.1 | Emulator::init failed (Next machine) | zxnext.vhd:1828-1835,1839,1844 | pass | test/dma/dma_test.cpp:2791 |
-| 23.2 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/dma/dma_test.cpp:2823 |
-| 23.3 | Emulator::init failed (Next machine) | zxnext.vhd | pass | test/dma/dma_test.cpp:2857 |
-| 23.4 | Wait hook: one call per source memory READ at the stepped source address; accumulator = 8 for an 8-byte mem->mem block — writes never wait (zxnext.vhd:3175 cpu_rd_n='0') | zxnext.vhd:3175, zxnext.vhd:3171-3181 | pass | test/dma/dma_test.cpp:2883 |
-| 23.5 | I/O-source block: the wait hook is never consulted — I/O reads assert IORQ, not MREQ; sram_memcycle needs cpu_mreq_n='0' (zxnext.vhd:3144) | zxnext.vhd:3144 | pass | test/dma/dma_test.cpp:2914 |
-| 23.6 | mem->I/O block: all 8 source memory reads wait; the I/O destination write is irrelevant to the read-side wait (zxnext.vhd:3144,3175) | zxnext.vhd:3144,3175 | pass | test/dma/dma_test.cpp:2946 |
-| 23.7 | Emulator::init failed (Next machine) | dma.vhd:267-269, zxnext.vhd:2001-2010 | pass | test/dma/dma_test.cpp:3005 |
-| GH230-08 | write_io still alive when Emulator::init() would reassign it mid-burst | — | pass | test/dma/dma_test.cpp:3172 |
-| GH230-09 | executing write_io reads its own capture after the reassignment | — | pass | test/dma/dma_test.cpp:3179 |
-| GH230-10 | the burst still delivered the byte to the I/O destination | — | pass | test/dma/dma_test.cpp:3184 |
+| 1.1 | Write 0x6B latches ZXN mode: counter=0 on LOAD | dma.vhd:664-665 | pass | test/dma/dma_test.cpp:182 |
+| 1.2 | Write 0x0B latches Z80 mode: counter=0xFFFF on LOAD | dma.vhd:666-667 | pass | test/dma/dma_test.cpp:192 |
+| 1.3 | Subsequent 0x6B access latches ZXN: CONTINUE counter=0 | dma.vhd:673-674 | pass | test/dma/dma_test.cpp:206 |
+| 1.4 | Subsequent 0x0B access latches Z80: CONTINUE counter=0xFFFF | dma.vhd:675-676 | pass | test/dma/dma_test.cpp:217 |
+| 1.6 | Mode re-latched on each port access | dma.vhd:664-668 | pass | test/dma/dma_test.cpp:243 |
+| 2.1 | R0 bit2=1 dir A->B: src=portA, dst=portB | dma.vhd:656-658 | pass | test/dma/dma_test.cpp:271 |
+| 2.2 | R0 bit2=0 dir B->A: src=portB, dst=portA | dma.vhd:659-662 | pass | test/dma/dma_test.cpp:287 |
+| 2.3 | R0 addr LO sub-byte only | dma.vhd:739 | pass | test/dma/dma_test.cpp:300 |
+| 2.4 | R0 addr HI sub-byte | dma.vhd:752 | pass | test/dma/dma_test.cpp:313 |
+| 2.5 | R0 full 16-bit port A address | dma.vhd:739,752 | pass | test/dma/dma_test.cpp:327 |
+| 2.6 | R0 block length LO sub-byte | dma.vhd:763 | pass | test/dma/dma_test.cpp:339 |
+| 2.7 | R0 block length HI sub-byte | dma.vhd:772 | pass | test/dma/dma_test.cpp:352 |
+| 2.8 | R0 selective re-program: only addr LO updated | dma.vhd:518-538 | pass | test/dma/dma_test.cpp:368 |
+| 3.1 | R1 bit3=0: portA reads memory | dma.vhd:542 | pass | test/dma/dma_test.cpp:397 |
+| 3.2 | R1 bit3=1: portA reads I/O | dma.vhd:542 | pass | test/dma/dma_test.cpp:416 |
+| 3.3 | R1 addr mode 01 = increment | dma.vhd:543 | pass | test/dma/dma_test.cpp:426 |
+| 3.4 | R1 addr mode 00 = decrement | dma.vhd:543 | pass | test/dma/dma_test.cpp:435 |
+| 3.5 | R1 addr mode 10 = fixed | dma.vhd:543 | pass | test/dma/dma_test.cpp:444 |
+| 3.6 | R1 timing byte stored (00/01/10/11) | dma.vhd:776 | pass | test/dma/dma_test.cpp:457 |
+| 4.1 | R2 bit3=0: portB writes memory | dma.vhd:559 | pass | test/dma/dma_test.cpp:482 |
+| 4.2 | R2 bit3=1: portB writes I/O | dma.vhd:559 | pass | test/dma/dma_test.cpp:501 |
+| 4.3 | R2 addr mode 01 = increment | dma.vhd:560 | pass | test/dma/dma_test.cpp:511 |
+| 4.4 | R2 addr mode 00 = decrement | dma.vhd:560 | pass | test/dma/dma_test.cpp:520 |
+| 4.5 | R2 addr mode 10 = fixed | dma.vhd:560 | pass | test/dma/dma_test.cpp:529 |
+| 4.6 | R2 timing byte stored (00/01/10/11) | dma.vhd:790 | pass | test/dma/dma_test.cpp:542 |
+| 4.7 | R2 prescaler sub-byte consumed; sequencer returns to IDLE | dma.vhd:799 | pass | test/dma/dma_test.cpp:564 |
+| 4.8 | Prescaler=0 default: full block in one burst (no wait) | dma.vhd:424 | pass | test/dma/dma_test.cpp:578 |
+| 5.1 | R3 bit6=1 -> TRANSFERRING | dma.vhd:576-579 | pass | test/dma/dma_test.cpp:600 |
+| 5.2 | R3 bit6=0 -> IDLE | dma.vhd:576 | pass | test/dma/dma_test.cpp:609 |
+| 5.3 | R3 mask sub-byte consumed; subsequent R0 still parsed | dma.vhd:576-582 | pass | test/dma/dma_test.cpp:623 |
+| 5.4 | R3 match sub-byte consumed; subsequent R0 still parsed | dma.vhd:576-582 | pass | test/dma/dma_test.cpp:638 |
+| 6.1 | R4 mode 00 = byte | dma.vhd:601 | pass | test/dma/dma_test.cpp:661 |
+| 6.2 | R4 mode 01 = continuous | dma.vhd:601 | pass | test/dma/dma_test.cpp:670 |
+| 6.3 | R4 mode 10 = burst | dma.vhd:601 | pass | test/dma/dma_test.cpp:679 |
+| 6.4 | Reset default R4 mode = continuous | dma.vhd:236 | pass | test/dma/dma_test.cpp:688 |
+| 6.5 | R4 portB addr LO sub-byte | dma.vhd:816 | pass | test/dma/dma_test.cpp:703 |
+| 6.6 | R4 portB addr HI sub-byte | dma.vhd:827 | pass | test/dma/dma_test.cpp:719 |
+| 6.7 | R4 full 16-bit port B address | dma.vhd:816,827 | pass | test/dma/dma_test.cpp:733 |
+| 6.8 | R4 mode 11 stored as raw value 3 (no VHDL special case) | dma.vhd:601 | pass | test/dma/dma_test.cpp:749 |
+| 7.1 | R5 auto-restart: state=TRANSFERRING and addrs reloaded | dma.vhd:473-491 | pass | test/dma/dma_test.cpp:777 |
+| 7.2 | R5 auto-restart off (default): state=IDLE after block | dma.vhd:238,494 | pass | test/dma/dma_test.cpp:791 |
+| 8.1 | 0xC3 RESET: state=IDLE | dma.vhd:638 | pass | test/dma/dma_test.cpp:830 |
+| 8.2 | 0xC7 resets port A timing to 01 | dma.vhd:648 | pass | test/dma/dma_test.cpp:840 |
+| 8.3 | 0xCB resets port B timing to 01 | dma.vhd:651 | pass | test/dma/dma_test.cpp:851 |
+| 8.4 | LOAD clears status_endofblock_n (bit5=1) | dma.vhd:654 | pass | test/dma/dma_test.cpp:866 |
+| 8.5 | LOAD A->B: src=0x1234, dst=0x5678 | dma.vhd:656-658 | pass | test/dma/dma_test.cpp:880 |
+| 8.6 | LOAD B->A: src=0x5678, dst=0x1234 | dma.vhd:660-662 | pass | test/dma/dma_test.cpp:895 |
+| 8.7 | LOAD ZXN: counter=0 | dma.vhd:664-665 | pass | test/dma/dma_test.cpp:906 |
+| 8.8 | LOAD Z80: counter=0xFFFF | dma.vhd:666-667 | pass | test/dma/dma_test.cpp:916 |
+| 8.9 | CONTINUE: counter reset, addrs preserved | dma.vhd:670-676 | pass | test/dma/dma_test.cpp:930 |
+| 8.10 | CONTINUE ZXN: counter=0 | dma.vhd:673-674 | pass | test/dma/dma_test.cpp:942 |
+| 8.11 | CONTINUE Z80: counter=0xFFFF | dma.vhd:675-676 | pass | test/dma/dma_test.cpp:952 |
+| 8.12 | ENABLE -> TRANSFERRING | dma.vhd:725 | pass | test/dma/dma_test.cpp:961 |
+| 8.13 | DISABLE -> IDLE | dma.vhd:728 | pass | test/dma/dma_test.cpp:971 |
+| 8.14 | 0x8B status reinit: byte = 0x3A | dma.vhd:691-692,902 | pass | test/dma/dma_test.cpp:988 |
+| 8.15 | 0xBB mask=0x01: read sequence locked to status | dma.vhd:731,859-860 | pass | test/dma/dma_test.cpp:1004 |
+| 8.16 | 0xBF forces next read = status byte | dma.vhd:696-699 | pass | test/dma/dma_test.cpp:1020 |
+| 9.1 | A->B inc both, 4 bytes copied in order | dma.vhd:379-391 | pass | test/dma/dma_test.cpp:1043 |
+| 9.2 | B->A inc both, 4 bytes copied portB->portA | dma.vhd:660-662,389-391 | pass | test/dma/dma_test.cpp:1063 |
+| 9.3 | A->B src decrement: reads walk backwards | dma.vhd:384-387 | pass | test/dma/dma_test.cpp:1084 |
+| 9.4 | A->B fixed src: identical bytes written N times | dma.vhd:379-396 | pass | test/dma/dma_test.cpp:1105 |
+| 9.5 | A->B fixed dst: last byte remains in single slot | dma.vhd:389-396 | pass | test/dma/dma_test.cpp:1124 |
+| 9.6 | Block length = 1 transfers 1 byte (ZXN) | dma.vhd:426 | pass | test/dma/dma_test.cpp:1138 |
+| 9.7 | Block length = 256 transfers 256 bytes | dma.vhd:426 | pass | test/dma/dma_test.cpp:1152 |
+| 9.8 | Block length = 0 transfers 1 byte (ZXN) | dma.vhd:361,426 | pass | test/dma/dma_test.cpp:1169 |
+| 10.1 | Mem->IO A inc, B fixed: last byte at fixed IO port | dma.vhd:559 | pass | test/dma/dma_test.cpp:1200 |
+| 10.2 | Mem->IO A inc, B inc: 3 consecutive IO ports written | dma.vhd:559,389-391 | pass | test/dma/dma_test.cpp:1219 |
+| 10.3 | Mem->IO: read phase asserts MREQ (mem callback), write phase asserts IORQ (io callback) | dma.vhd:186-190,290-296 | pass | test/dma/dma_test.cpp:1250 |
+| 10.4 | IO->Mem: byte arrives from IO to memory | dma.vhd:542 | pass | test/dma/dma_test.cpp:1273 |
+| 10.5 | IO->IO: single byte arrives at destination IO port | dma.vhd:542,559 | pass | test/dma/dma_test.cpp:1292 |
+| 10.6 | IO port B delivered with full 16-bit address | dma.vhd:36 | pass | test/dma/dma_test.cpp:1312 |
+| 11.1 | Both inc A->B: src=0x8004 dst=0x9004 after 4 bytes | dma.vhd:379-391 | pass | test/dma/dma_test.cpp:1334 |
+| 11.2 | Both dec A->B: src=0x7FFF dst=0x8FFF after 4 bytes | dma.vhd:384-396 | pass | test/dma/dma_test.cpp:1353 |
+| 11.3 | Src inc, dst dec: dst walks backwards while src ascends | dma.vhd:379-396 | pass | test/dma/dma_test.cpp:1372 |
+| 11.4 | Src dec, dst fixed: dst=0x9000 holds last source byte (0x20) | dma.vhd:384-396 | pass | test/dma/dma_test.cpp:1392 |
+| 11.5 | Both fixed: addresses unchanged after transfer | dma.vhd:379-396 | pass | test/dma/dma_test.cpp:1412 |
+| 11.6 | Src wraps 0xFFFF -> 0x0000 (16-bit address) | dma.vhd:36,381 | pass | test/dma/dma_test.cpp:1433 |
+| 12.1 | Continuous: whole block in one execute_burst | dma.vhd:426-430,601 | pass | test/dma/dma_test.cpp:1459 |
+| 12.2 | Burst prescaler=0: 1 byte per execute_burst | dma.vhd:424 | pass | test/dma/dma_test.cpp:1482 |
+| 12.3 | Burst prescaler>0: is_active() false during wait | dma.vhd:424-425 | pass | test/dma/dma_test.cpp:1504 |
+| 12.4 | Burst WAITING_CYCLES: cpu_busreq_n deasserted (bus released) | dma.vhd:445 | pass | test/dma/dma_test.cpp:1527 |
+| 12.5 | After prescaler expires: cpu_busreq_n re-asserted | dma.vhd:451-460 | pass | test/dma/dma_test.cpp:1552 |
+| 12.6 | R4 mode=00 transfers full block_len bytes (VHDL dma.vhd:426 block-length check is mode-agnostic) | dma.vhd:426 | pass | test/dma/dma_test.cpp:1579 |
+| 12.7 | Continuous+prescaler: one byte then wait (TRANSFERRING) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1611 |
+| 12.8 | Prescaler vs timer scales with turbo_i (8x clocks at 28MHz) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1630 |
+| 13.1 | Prescaler=0: no WAITING_CYCLES (runs to IDLE) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1662 |
+| 13.2 | turbo=00 (3.5MHz): timer += 8 per clock | dma.vhd:251 | pass | test/dma/dma_test.cpp:1674 |
+| 13.3 | turbo=01 (7MHz): timer += 4 per clock | dma.vhd:252 | pass | test/dma/dma_test.cpp:1685 |
+| 13.4 | turbo=10 (14MHz): timer += 2 per clock | dma.vhd:253 | pass | test/dma/dma_test.cpp:1696 |
+| 13.5 | turbo=11 (28MHz): timer += 1 per clock | dma.vhd:254 | pass | test/dma/dma_test.cpp:1707 |
+| 13.6 | Prescaler comparison uses timer bits(13:5) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1721 |
+| 14.1 | ZXN LOAD: counter=0 | dma.vhd:664-665 | pass | test/dma/dma_test.cpp:1779 |
+| 14.2 | Z80 LOAD: counter=0xFFFF | dma.vhd:666-667 | pass | test/dma/dma_test.cpp:1788 |
+| 14.3 | ZXN: counter=N after N-byte block | dma.vhd:361 | pass | test/dma/dma_test.cpp:1800 |
+| 14.4 | ZXN block_len=5: 5 bytes transferred | dma.vhd:426 | pass | test/dma/dma_test.cpp:1812 |
+| 14.5 | Z80 block_len=5: 6 bytes (block_len+1) | dma.vhd:426,666-667 | pass | test/dma/dma_test.cpp:1827 |
+| 14.6 | ZXN block_len=0: 1 byte transferred | dma.vhd:361,426 | pass | test/dma/dma_test.cpp:1842 |
+| 14.7 | Z80 block_len=0: 1 byte transferred | dma.vhd:361,426,667 | pass | test/dma/dma_test.cpp:1854 |
+| 14.8 | Counter readback = 5 after 5-byte block | dma.vhd:933-947 | pass | test/dma/dma_test.cpp:1872 |
+| 15.1 | TRANSFER: cpu_busreq_n asserted (false) | dma.vhd:278 | pass | test/dma/dma_test.cpp:1895 |
+| 15.2 | WAITING_ACK gates transfer on cpu_bai_n | dma.vhd:296 | pass | test/dma/dma_test.cpp:1911 |
+| 15.3 | IDLE: cpu_busreq_n deasserted (true) | dma.vhd:225,262 | pass | test/dma/dma_test.cpp:1920 |
+| 15.4 | bus_busreq_n=0 at START_DMA: DMA defers | dma.vhd:269 | pass | test/dma/dma_test.cpp:1934 |
+| 15.5 | daisy_busy=true at START_DMA: DMA defers | dma.vhd:269 | pass | test/dma/dma_test.cpp:1948 |
+| 15.6 | dma_delay=1 at START_DMA: DMA defers | dma.vhd:269 | pass | test/dma/dma_test.cpp:1961 |
+| 15.7 | dma_holds_bus=true while transferring | zxnext.vhd | pass | test/dma/dma_test.cpp:1974 |
+| 16.1 | Auto-restart: src/dst reloaded to 0x8000/0x9000 | dma.vhd:473-481 | pass | test/dma/dma_test.cpp:2003 |
+| 16.2 | Auto-restart ZXN: counter reloaded to 0 | dma.vhd:482-486 | pass | test/dma/dma_test.cpp:2016 |
+| 16.3 | Auto-restart A->B reload uses R0 as src, R4 as dst | dma.vhd:474-476 | pass | test/dma/dma_test.cpp:2029 |
+| 16.4 | Auto-restart B->A reload: src=portB, dst=portA | dma.vhd:478-479 | pass | test/dma/dma_test.cpp:2048 |
+| 16.5 | CONTINUE preserves src/dst | dma.vhd:670-676 | pass | test/dma/dma_test.cpp:2062 |
+| 16.6 | LOAD restores start addrs; CONTINUE keeps current addrs | dma.vhd:656-662 | pass | test/dma/dma_test.cpp:2082 |
+| 17.1 | Status bits [4:1] = 1101 | dma.vhd:902 | pass | test/dma/dma_test.cpp:2106 |
+| 17.2 | Initial endofblock_n = 1 (bit5 set) | dma.vhd:242 | pass | test/dma/dma_test.cpp:2117 |
+| 17.3 | After block: endofblock_n = 0 (bit5 clear) | dma.vhd:471 | pass | test/dma/dma_test.cpp:2130 |
+| 17.4 | After 1 byte: atleastone = 1 (bit0 set) | dma.vhd:412 | pass | test/dma/dma_test.cpp:2143 |
+| 17.5 | 0x8B reinit: status = 0x3A | dma.vhd:691-692 | pass | test/dma/dma_test.cpp:2157 |
+| 17.6 | 0xC3 reset: status = 0x3A | dma.vhd:638-641 | pass | test/dma/dma_test.cpp:2171 |
+| 17.7 | Default mask 0x7F: 7-field cycle then wrap | dma.vhd:239 | pass | test/dma/dma_test.cpp:2195 |
+| 17.8 | Read sequence advances mask bits 0..6 in order | dma.vhd:902-922 | pass | test/dma/dma_test.cpp:2214 |
+| 17.9 | Mask 0x07: 3 fields (status, cnt LO/HI) then wrap | dma.vhd:696-717 | pass | test/dma/dma_test.cpp:2232 |
+| 17.10 | Mask with two bits: wraps after last enabled field | dma.vhd:919-922 | pass | test/dma/dma_test.cpp:2253 |
+| 18.1 | Read field: status byte | dma.vhd:902 | pass | test/dma/dma_test.cpp:2291 |
+| 18.2 | Read field: counter LO = 0x00 (ZXN just LOADed) | dma.vhd:933 | pass | test/dma/dma_test.cpp:2301 |
+| 18.3 | Read field: counter HI = 0x00 (ZXN just LOADed) | dma.vhd:935 | pass | test/dma/dma_test.cpp:2311 |
+| 18.4 | Read field: portA LO = src LO (0x34) under A->B | dma.vhd:910-912 | pass | test/dma/dma_test.cpp:2322 |
+| 18.5 | Read field: portA HI = src HI (0x12) under A->B | dma.vhd:913-915 | pass | test/dma/dma_test.cpp:2332 |
+| 18.6 | Read field: portB LO = dst LO (0x78) under A->B | dma.vhd:916-918 | pass | test/dma/dma_test.cpp:2342 |
+| 18.7 | Read field: portB HI = dst HI (0x56) under A->B | dma.vhd:919-921 | pass | test/dma/dma_test.cpp:2352 |
+| 18.8 | B->A: portA reads dst, portB reads src | dma.vhd:910-921 | pass | test/dma/dma_test.cpp:2367 |
+| 19.1 | Hardware reset defaults | dma.vhd:213-242 | pass | test/dma/dma_test.cpp:2395 |
+| 19.2 | 0xC3 soft reset: state=IDLE and status=0x3A | dma.vhd:638-641 | pass | test/dma/dma_test.cpp:2413 |
+| 19.3 | 0xC3 preserves R0 and R4 start addresses | dma.vhd:638-645 | pass | test/dma/dma_test.cpp:2431 |
+| 19.4 | 0xC3 resets both port timings to 01 | dma.vhd:641-642 | pass | test/dma/dma_test.cpp:2443 |
+| 19.5 | 0xC3 resets prescaler: transfer runs to IDLE in one burst | dma.vhd:643 | pass | test/dma/dma_test.cpp:2460 |
+| 19.6 | 0xC3 clears auto-restart: transfer ends at IDLE | dma.vhd:645 | pass | test/dma/dma_test.cpp:2474 |
+| 20.1 | dma_delay=1 blocks START_DMA; deasserting proceeds | dma.vhd:269 | pass | test/dma/dma_test.cpp:2500 |
+| 20.2 | dma_delay mid-transfer: cpu_busreq_n released | dma.vhd:427-428 | pass | test/dma/dma_test.cpp:2516 |
+| 21.1 | Timing 00 -> 4 cycles | dma.vhd:313 | pass | test/dma/dma_test.cpp:2551 |
+| 21.2 | Timing 01 -> 3 cycles | dma.vhd:314 | pass | test/dma/dma_test.cpp:2559 |
+| 21.3 | Timing 10 -> 2 cycles | dma.vhd:315 | pass | test/dma/dma_test.cpp:2567 |
+| 21.4 | Timing 11 -> 4 cycles (when others) | dma.vhd:316 | pass | test/dma/dma_test.cpp:2575 |
+| 21.5 | Read timing selects R1 (A->B) vs R2 (B->A) | dma.vhd:311 | pass | test/dma/dma_test.cpp:2591 |
+| 21.6 | Write timing selects R2 (A->B) vs R1 (B->A) | dma.vhd:371 | pass | test/dma/dma_test.cpp:2605 |
+| 22.1 | DISABLE mid-transfer -> IDLE | dma.vhd:728 | pass | test/dma/dma_test.cpp:2627 |
+| 22.2 | ENABLE without LOAD: state=TRANSFERRING | dma.vhd:725 | pass | test/dma/dma_test.cpp:2638 |
+| 22.3 | Multiple LOADs: last values used | dma.vhd:656-668 | pass | test/dma/dma_test.cpp:2657 |
+| 22.4 | CONTINUE during auto-restart: counter reset, addrs kept | dma.vhd:670-676 | pass | test/dma/dma_test.cpp:2675 |
+| 22.5 | R1 base byte does not update R0 direction | dma.vhd:542 | pass | test/dma/dma_test.cpp:2693 |
+| 22.6 | 0x00 matches R2 (dec), not R0 | dma.vhd:518-520,559 | pass | test/dma/dma_test.cpp:2706 |
+| 23.1 | Emulator::init failed (Next machine) | zxnext.vhd:1828-1835,1839,1844 | pass | test/dma/dma_test.cpp:2796 |
+| 23.2 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/dma/dma_test.cpp:2828 |
+| 23.3 | Emulator::init failed (Next machine) | zxnext.vhd | pass | test/dma/dma_test.cpp:2862 |
+| 23.4 | Wait hook: one call per source memory READ at the stepped source address; accumulator = 8 for an 8-byte mem->mem block — writes never wait (zxnext.vhd:3175 cpu_rd_n='0') | zxnext.vhd:3175, zxnext.vhd:3171-3181 | pass | test/dma/dma_test.cpp:2888 |
+| 23.5 | I/O-source block: the wait hook is never consulted — I/O reads assert IORQ, not MREQ; sram_memcycle needs cpu_mreq_n='0' (zxnext.vhd:3144) | zxnext.vhd:3144 | pass | test/dma/dma_test.cpp:2919 |
+| 23.6 | mem->I/O block: all 8 source memory reads wait; the I/O destination write is irrelevant to the read-side wait (zxnext.vhd:3144,3175) | zxnext.vhd:3144,3175 | pass | test/dma/dma_test.cpp:2951 |
+| 23.7 | Emulator::init failed (Next machine) | dma.vhd:267-269, zxnext.vhd:2001-2010 | pass | test/dma/dma_test.cpp:3010 |
+| GH283-01 | Emulator::init failed (48K) | zxnext.vhd:2405,2643 | pass | test/dma/dma_test.cpp:3267 |
+| GH283-02 | under RZX recording every DMA port read is captured, in order, with the value the DMA delivered | — | pass | test/dma/dma_test.cpp:3273 |
+| GH283-03 | a recorded DMA port read keeps the DMA's timing: 4-byte burst = 8 T, and the T-state counter moves by those 8 T only | — | pass | test/dma/dma_test.cpp:3282 |
+| GH283-04 | Emulator::init failed (48K) | — | pass | test/dma/dma_test.cpp:3296 |
+| GH283-05 | and the live port is not read: a replay never consults the hardware the recording was made against | — | pass | test/dma/dma_test.cpp:3321 |
+| GH283-06 | Emulator::init failed (48K) | — | pass | test/dma/dma_test.cpp:3333 |
+| GH283-07 | the debugger's port_in() during a recording dispatches but is not recorded; the CPU's IN after it is | — | pass | test/dma/dma_test.cpp:3346 |
+| GH230-08 | write_io still alive when Emulator::init() would reassign it mid-burst | — | pass | test/dma/dma_test.cpp:3177 |
+| GH230-09 | executing write_io reads its own capture after the reassignment | — | pass | test/dma/dma_test.cpp:3184 |
+| GH230-10 | the burst still delivered the byte to the I/O destination | — | pass | test/dma/dma_test.cpp:3189 |
 
 ## DivMMC+SPI — `test/divmmc/divmmc_test.cpp`
 
