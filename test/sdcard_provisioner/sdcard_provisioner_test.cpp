@@ -75,6 +75,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -1123,5 +1124,9 @@ int main() {
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total + g_skip, g_pass, g_fail, g_skip);
+    // The mkdtemp $HOME is this run's alone: remove it, or every run leaves one
+    // behind in /tmp (a RAM tmpfs on the dev host).
+    std::error_code ec;
+    std::filesystem::remove_all(g_tmpdir, ec);
     return g_fail ? 1 : 0;
 }

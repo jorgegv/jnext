@@ -195,16 +195,17 @@ def selftest():
     return ok
 
 def out_dir():
-    """Where the two .tsv reports go: argv[1], else $TMPDIR (GH #204).
+    """Where the two .tsv reports go: argv[1], else a fresh dir in $TMPDIR (GH #204).
 
     This used to be one machine's home directory, hardcoded, so the run died
-    on the final write for anyone else.
+    on the final write for anyone else. The default is a new directory per run,
+    not $TMPDIR itself: fixed report names there are shared by concurrent runs.
     """
     if len(sys.argv) > 1:
         d = sys.argv[1]
         os.makedirs(d, exist_ok=True)
         return d
-    return tempfile.gettempdir()
+    return tempfile.mkdtemp(prefix='jnext-gh196-')
 
 
 def main():

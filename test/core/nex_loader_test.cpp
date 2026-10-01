@@ -2119,7 +2119,8 @@ int main() {
     for (const VersionCase& c : kVersionCases) {
         const std::string path =
             (std::filesystem::temp_directory_path() /
-             (std::string("jnext_nexver_") + c.tag + ".nex")).string();
+             (std::string("jnext_nexver_") + c.tag + "_" +
+              std::to_string(::getpid()) + ".nex")).string();
         // Header-only NEX: no screen, no banks, so a well-formed file is
         // exactly 512 bytes and nothing but the version gate can reject it.
         if (!write_nex_fixture(path, 0x00, 0)) {

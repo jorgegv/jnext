@@ -33,10 +33,12 @@
 #include <cctype>
 #include <cstdarg>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
 #include <vector>
+#include <unistd.h>
 #include "../row_id.h"
 
 namespace {
@@ -371,8 +373,13 @@ int main()
         // be. A merely absent directory is NOT unopenable: spdlog's file_helper
         // calls create_dir() on the parent first, so `no_such_dir/jnext.log`
         // succeeds and would have made this row pass vacuously.
-        const char* blocker = "log_test_blocker.tmp";
-        const char* blocked = "log_test_blocker.tmp/jnext.log";
+        // PID-qualified in the temp dir, not a fixed name in the working
+        // directory: concurrent runs share both.
+        const std::string blocker_s = (std::filesystem::temp_directory_path() /
+            ("log_test_blocker_" + std::to_string(::getpid()) + ".tmp")).string();
+        const std::string blocked_s = blocker_s + "/jnext.log";
+        const char* blocker = blocker_s.c_str();
+        const char* blocked = blocked_s.c_str();
         { std::ofstream mk(blocker); mk << "not a directory\n"; }
 
         auto  logger      = Log::emulator();
@@ -397,7 +404,9 @@ int main()
     // leave that static pointing at the old one), and a logger created LATER
     // must be built on the new sink by make().
     {
-        const char* path = "log_test_sink.tmp.log";
+        const std::string path_s = (std::filesystem::temp_directory_path() /
+            ("log_test_sink_" + std::to_string(::getpid()) + ".tmp.log")).string();
+        const char* path = path_s.c_str();
         std::remove(path);
         const Log::SinkResult r = Log::apply_sink_policy(decide(path, nullptr));
 

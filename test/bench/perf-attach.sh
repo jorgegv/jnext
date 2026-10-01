@@ -44,10 +44,20 @@ command -v perf >/dev/null || die "perf is not installed"
 
 SD_MASTER="${JNEXT_TEST_SD_IMAGE:-$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img}"
 [[ -f "$SD_MASTER" ]] || die "SD image missing: $SD_MASTER"
-# The same private clone ab-hotlatch.sh uses, and for the same reasons.
-CLONE="$HOME/tmp/jnext-ab-hotlatch.img"
+# A private clone, as in ab-hotlatch.sh and for the same reasons.
+CLONE="$HOME/tmp/jnext-perf-attach-$$.img"
 mkdir -p "$HOME/tmp"
-[[ -f "$CLONE" ]] || cp --reflink=auto "$SD_MASTER" "$CLONE"
+bench_cleanup() {
+    [[ -n "${CLONE:-}" ]] && rm -f "$CLONE"
+    return 0
+}
+# INT/TERM exit explicitly, as in bench.sh: an EXIT-only trap misses a signal
+# death, and a handler that only cleans up RESUMES against a deleted clone.
+# HS-40..42 in test/harness-selftest.sh scan this file.
+trap 'bench_cleanup' EXIT
+trap 'bench_cleanup; exit 130' INT
+trap 'bench_cleanup; exit 143' TERM
+cp --reflink=auto "$SD_MASTER" "$CLONE" || die "cannot clone $SD_MASTER"
 
 declare -A VBIN VENV
 VBIN[B]="$BASE_BIN"; VENV[B]=""
