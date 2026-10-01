@@ -652,6 +652,41 @@ int main() {
                   "other STATE is refused without writing through",
                   bad.empty(), join(bad));
         }
+        {
+            // GH #26 WP4 — --script-key FRAME N (dsl-frontend.md §6.6).
+            std::vector<std::string> bad;
+            const struct { const char* f; const char* k; uint32_t wf; int wk; } good[] = {
+                {"0", "1", 0, 1}, {"7", "3", 7, 3}, {"2147483647", "8", 2147483647u, 8},
+            };
+            for (const auto& c : good) {
+                uint32_t f = 99;
+                int k = 99;
+                if (!cli::parse_script_key(c.f, c.k, f, k) || f != c.wf || k != c.wk)
+                    bad.push_back(std::string(c.f) + " " + c.k);
+            }
+            check("CLI-SKEY-01", "--script-key accepts FRAME 0..2^31-1 and N 1..8, bounds included, and "
+                                 "returns exactly them", bad.empty(), join(bad));
+        }
+        {
+            std::vector<std::string> bad;
+            const char* cases[][2] = {
+                {"7", "0"}, {"7", "9"}, {"7", "-1"}, {"-1", "3"}, {"7x", "3"}, {"7", "3x"},
+                {"", "3"}, {"7", ""}, {"2147483648", "3"}, {"0x10", "3"},
+            };
+            for (const auto& c : cases) {
+                uint32_t f = 99;
+                int k = 99;
+                if (cli::parse_script_key(c[0], c[1], f, k) || f != 99 || k != 99)
+                    bad.push_back(std::string("\"") + c[0] + "\" \"" + c[1] + "\"");
+            }
+            uint32_t f = 99;
+            int k = 99;
+            if (cli::parse_script_key(nullptr, "3", f, k) || cli::parse_script_key("7", nullptr, f, k))
+                bad.push_back("null");
+            check("CLI-SKEY-02", "--script-key refuses a key outside 1..8, a negative or too large frame, "
+                                 "trailing junk, an empty value and a hex spelling, leaving the outputs "
+                                 "untouched", bad.empty(), join(bad));
+        }
     }
 
     {

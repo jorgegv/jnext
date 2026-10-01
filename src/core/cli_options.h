@@ -26,7 +26,10 @@
 #define JNEXT_CORE_CLI_OPTIONS_H
 
 #include <array>
+#include <cerrno>
 #include <cstddef>
+#include <cstdint>
+#include <cstdlib>
 #include <cstring>
 
 namespace cli {
@@ -806,6 +809,26 @@ inline bool parse_snapshot_compression(const char* state, bool& uncompressed) {
     if (std::strcmp(state, "on")  == 0) { uncompressed = false; return true; }
     if (std::strcmp(state, "off") == 0) { uncompressed = true;  return true; }
     return false;
+}
+
+/// GH #26 WP4 — `--script-key FRAME N` (dsl-frontend.md §6.6). FRAME a whole
+/// number 0..2^31-1, N a host key 1..8, both in full: `7x` is not 7. A key
+/// that silently became another, or a frame that became 0, would fire a
+/// different rule at a different time than the one asked. Returns false and
+/// leaves the outputs UNTOUCHED on any malformed value.
+inline bool parse_script_key(const char* frame_s, const char* key_s, uint32_t& frame, int& key) {
+    if (frame_s == nullptr || key_s == nullptr) return false;
+    char* end = nullptr;
+    errno = 0;
+    const long f = std::strtol(frame_s, &end, 10);
+    if (errno != 0 || end == frame_s || *end != '\0' || f < 0 || f > 0x7FFFFFFFL) return false;
+    end = nullptr;
+    errno = 0;
+    const long k = std::strtol(key_s, &end, 10);
+    if (errno != 0 || end == key_s || *end != '\0' || k < 1 || k > 8) return false;
+    frame = static_cast<uint32_t>(f);
+    key   = static_cast<int>(k);
+    return true;
 }
 
 // The one option that also accepts an inline value (`--log-level=warn`). It

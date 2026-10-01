@@ -25,6 +25,7 @@
 
 #include "script/evaluator.h"
 #include "script/script_engine.h"
+#include "script/script_host.h"
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
@@ -1850,6 +1851,224 @@ static void bounds_rows() {
     }
 }
 
+// =========================================================================
+// THE SCRIPT HOST — what the loop owners run `--script` through (WP4)
+// =========================================================================
+
+/// A machine, its Debugger, a log listener on a client of its own, and a
+/// ScriptHost: what HeadlessApp / SdlApp / QtApp hold.
+struct HostRig {
+    Emulator                  emu;
+    std::unique_ptr<Debugger> dbg;
+    Sink                      sink;
+    ClientId                  tc = jnext::dbg::CLIENT_NONE;
+    std::unique_ptr<ScriptHost> host;
+    explicit HostRig(const std::vector<uint8_t>& prog = kPark) {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        emu.init(cfg);
+        for (size_t i = 0; i < prog.size(); ++i) emu.mmu().write(static_cast<uint16_t>(PROG + i), prog[i]);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = PROG; r.SP = 0xFF00; r.IFF1 = 0; r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+        dbg = std::make_unique<Debugger>(emu);
+        dbg->set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero);
+        jnext::dbg::ClientInfo ci;
+        ci.name = "log";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        ci.observer = true;   // listens, arms nothing
+        tc = dbg->attach(ci).value;
+        dbg->set_listener(tc, &sink);
+        host = std::make_unique<ScriptHost>();
+        dbg->pump(jnext::dbg::PumpBudget{});
+    }
+    ~HostRig() {
+        host.reset();
+        dbg->set_listener(tc, nullptr);
+        dbg->detach(tc);
+        dbg.reset();
+    }
+    bool start(const ScriptHostOptions& o) { return host->start(*dbg, o); }
+    /// The loop owner's tick: a frame, a pump, then the exit check.
+    int run(int frames) {
+        for (int i = 0; i < frames; ++i) {
+            emu.run_frame();
+            dbg->pump(jnext::dbg::PumpBudget{});
+            if (host->exit_requested()) return i;
+        }
+        return -1;
+    }
+    size_t engine_subs() const {
+        size_t n = 0;
+        for (const auto& x : dbg->subscriptions(true))
+            if (x.owner != tc) ++n;
+        return n;
+    }
+};
+
+static std::string tmp_file(const std::string& name, const std::string& text) {
+    const std::string path = "/tmp/jnext_sev_host_" + name;
+    write_file(path, text);
+    return path;
+}
+
+static void host_rows() {
+    {
+        HostRig g;
+        ScriptHostOptions o;
+        const bool ok = g.start(o);
+        check("SCRIPT-HOST-NONE", "with no --script and no --map the host loads nothing, attaches nothing "
+                                  "and arms nothing: a run without scripts is the run it always was",
+              ok && !g.host->active() && !g.dbg->armed() && g.engine_subs() == 0 &&
+                  !g.host->exit_requested() && g.host->unreached_verdicts() == 0,
+              "armed=" + std::to_string(g.dbg->armed()));
+    }
+    {
+        HostRig g;
+        const std::string map = tmp_file("ok.map", "_main_loop                      = $8000 ; addr, local, , main, , main.c:12\n");
+        ScriptHostOptions o;
+        o.map_file = map;
+        o.scripts  = {tmp_file("a.jds", "on execute @_main_loop once do log \"A\" end\n"),
+                      tmp_file("b.jds", "on frame 0 do log \"B\" end\n")};
+        const bool ok = g.start(o);
+        g.run(1);
+        const auto r = g.host->engine() ? g.host->engine()->rules() : std::vector<ScriptEngine::RuleView>{};
+        check("SCRIPT-HOST-LOAD", "--map loads into the backend's symbol table before the scripts, so "
+                                  "`@symbol` resolves; every --script loads in order, and they run",
+              ok && g.host->active() && g.dbg->lookup_name("_main_loop") == std::optional<uint16_t>(0x8000) &&
+                  r.size() == 2 && r[0].file == o.scripts[0] && r[1].file == o.scripts[1] &&
+                  g.sink.count("] A") == 1 && g.sink.count("] B") == 1 &&
+                  g.sink.count("--map " + map + ": 1 symbols") == 1,
+              g.sink.tail(4));
+    }
+    {
+        HostRig g;
+        ScriptHostOptions o;
+        o.scripts = {tmp_file("good.jds", "on frame 0 do log \"G\" end\n"),
+                     tmp_file("bad.jds", "on frame 0 do\n  log \"x\" +\nend\n")};
+        const bool ok = g.start(o);
+        check("SCRIPT-HOST-LOAD-ERROR", "a script with an error fails the start, reported as "
+                                        "`SCRIPT ERROR file:line:column: message`, and NOTHING of any "
+                                        "script stays registered — the good one included",
+              !ok && !g.host->active() && g.engine_subs() == 0 &&
+                  g.sink.count("SCRIPT ERROR " + o.scripts[1] + ":2:11: ") == 1 &&
+                  g.sink.count("--script " + o.scripts[1] + ": not loaded (1 error)") == 1,
+              g.sink.tail(3));
+    }
+    {
+        HostRig g;
+        ScriptHostOptions o;
+        o.scripts = {"/nonexistent/x.jds"};
+        const bool a = g.start(o);
+        HostRig h;
+        ScriptHostOptions p;
+        p.map_file = "/nonexistent/x.map";
+        p.scripts  = {tmp_file("c.jds", "on frame 0 do log \"C\" end\n")};
+        const bool b = h.start(p);
+        HostRig k;
+        ScriptHostOptions q;
+        q.map_file = tmp_file("empty.map", "; nothing here\n");
+        const bool c = k.start(q);
+        HostRig m;
+        ScriptHostOptions w;
+        w.keys = {{5, 1}};
+        const bool d = m.start(w);
+        check("SCRIPT-HOST-START-ERRORS", "each is a failed start with its reason: an unreadable --script, "
+                                          "an unloadable --map, a --map with no symbols, a --script-key with "
+                                          "no --script",
+              !a && g.sink.count("--script /nonexistent/x.jds: cannot be read") == 1 && !b &&
+                  h.sink.count("--map /nonexistent/x.map: cannot be loaded") == 1 && !h.host->active() &&
+                  !c && k.sink.count("no symbols found") == 1 && !d &&
+                  m.sink.count("--script-key needs a --script") == 1,
+              g.sink.tail(1) + h.sink.tail(1) + k.sink.tail(1) + m.sink.tail(1));
+    }
+    {
+        // §6.3: the FIRST code wins — `exit 5` at frame 2, a stop at frame 4.
+        HostRig g;
+        ScriptHostOptions o;
+        o.scripts = {tmp_file("e.jds", "on frame 2 do exit 5 end\non frame 4 do stop end\n")};
+        const bool ok = g.start(o);
+        const int at = g.run(8);
+        HostRig h;
+        ScriptHostOptions p;
+        p.scripts = {tmp_file("s.jds", "on frame 1 do stop \"halt\" end\n")};
+        const bool ok2 = h.start(p);
+        const int at2 = h.run(8);
+        HostRig k;
+        ScriptHostOptions q;
+        q.scripts = {tmp_file("r.jds", "on frame 1 do log \"${1 / 0}\" end\n")};
+        const bool ok3 = k.start(q);
+        const int at3 = k.run(8);
+        check("SCRIPT-HOST-EXIT", "the loop owner's exit code: `exit 5` gives 5 (and the stop it causes "
+                                  "does not replace it); a `stop` under ExitNonZero gives 3, heard by the "
+                                  "host's own listener; a run-time error at frame 1's edge gives 1 at the next edge",
+              ok && at == 2 && g.host->exit_code() == 5 && ok2 && at2 == 1 && h.host->exit_code() == 3 &&
+                  ok3 && at3 == 2 && k.host->exit_code() == 1,
+              "at=" + std::to_string(at) + "/" + std::to_string(at2) + "/" + std::to_string(at3) + " codes=" +
+                  std::to_string(g.host->exit_code()) + "/" + std::to_string(h.host->exit_code()) + "/" +
+                  std::to_string(k.host->exit_code()));
+    }
+    {
+        // The Qt GUI: a script never ends the program.
+        HostRig g;
+        g.dbg->set_stop_policy(jnext::dbg::StopPolicy::Pause);
+        ScriptHostOptions o;
+        o.exits   = false;
+        o.scripts = {tmp_file("gui.jds", "on frame 1 do exit 4 end\n")};
+        const bool ok = g.start(o);
+        const int at = g.run(4);
+        check("SCRIPT-HOST-GUI", "with `exits = false` (the Qt GUI) `exit 4` pauses the machine and "
+                                 "requests no exit",
+              ok && at == -1 && !g.host->exit_requested() && g.dbg->state().paused &&
+                  g.sink.count("SCRIPT EXIT 4") == 1,
+              "at=" + std::to_string(at));
+    }
+    {
+        // --script-key FRAME N: the hostkey rule runs at the edge of frame
+        // FRAME (where `on frame FRAME` runs), not before.
+        HostRig g;
+        ScriptHostOptions o;
+        o.scripts = {tmp_file("k.jds", "on hostkey 3 do log \"K${KEY} F${FRAME}\" end\n"
+                                       "on frame 7 do log \"E7\" end\n"
+                                       "on hostkey 2 do log \"Z${KEY} F${FRAME}\" end\n")};
+        o.keys = {{7, 3}, {0, 2}};
+        const bool ok = g.start(o);
+        g.run(7);
+        const size_t before = g.sink.count("K3 F7");
+        g.run(1);
+        size_t e7 = 0, k3 = 0;
+        for (size_t i = 0; i < g.sink.lines.size(); ++i) {
+            if (g.sink.lines[i].find("] E7") != std::string::npos) e7 = i + 1;
+            if (g.sink.lines[i].find("K3 F7") != std::string::npos) k3 = i + 1;
+        }
+        check("SCRIPT-HOST-KEY", "`--script-key 7 3` runs `on hostkey 3` once, at the end of frame 7 "
+                                 "(FRAME == 7, beside `on frame 7`) and not during frames 0..6; a key for "
+                                 "frame 0 runs at the end of frame 0",
+              ok && before == 0 && g.sink.count("K3 F7") == 1 && e7 != 0 && k3 != 0 &&
+                  g.sink.count("Z2 F0") == 1 && g.host->unreached_verdicts() == 0,
+              g.sink.tail(4));
+    }
+    {
+        // §7.3: the verdicts a run never reached.
+        HostRig g;
+        ScriptHostOptions o;
+        o.scripts = {tmp_file("v.jds", "on frame 1 do exit 0 end\n"
+                                       "on frame 300 do if 1 then compare_scr \"/nonexistent\" \"m\" end end\n"
+                                       "on frame 0 do log \"no verdict\" end\n")};
+        o.keys = {{400, 1}};
+        const bool ok = g.start(o);
+        const size_t at_start = g.host->unreached_verdicts();
+        g.run(1);
+        const size_t after_frame0 = g.host->unreached_verdicts();
+        check("SCRIPT-HOST-UNREACHED", "the unreached verdicts are the rules holding `exit` / `compare_scr` "
+                                       "(an `if` branch included) that have not fired, plus scheduled keys "
+                                       "not yet delivered — and a rule with no verdict never counts",
+              ok && at_start == 3 && after_frame0 == 3 && g.run(2) == 0 && g.host->unreached_verdicts() == 2,
+              "start=" + std::to_string(at_start) + " f0=" + std::to_string(after_frame0) + " end=" +
+                  std::to_string(g.host->unreached_verdicts()));
+    }
+}
+
 int main() {
     std::printf("script_events_test — the debugger DSL engine on a real machine (GH #26 WP3)\n");
 
@@ -1872,6 +2091,7 @@ int main() {
     run_group("device", device_rows);
     run_group("work", work_rows);
     run_group("bounds", bounds_rows);
+    run_group("host", host_rows);
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);

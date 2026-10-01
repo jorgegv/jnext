@@ -863,8 +863,7 @@ The debugger scripting language (`.jds`, GH #26) lives in **`src/script/`**
 (target `jnext_script`). Like `src/remote/` it has no toolkit dependency and is
 built in every configuration; it reads the machine only through the published
 `jnext::dbg::Debugger` facade, never through `Emulator`. It is a front end, a
-library and an engine; nothing in the shipped binary instantiates the engine
-yet (the CLI that loads scripts is a later work package).
+library, an engine, and the host the loop owners run `--script` through.
 
 It is layered, each stage consuming only the one before it:
 
@@ -920,16 +919,31 @@ It is layered, each stage consuming only the one before it:
   rules run in `on_paused()`. A run-time error disables the rule's
   subscriptions and asks the loop owner (`EngineHost::exit`) for exit 1 at the
   next frame edge.
+- `script_host.*` — `ScriptHost`, what `HeadlessApp`, `SdlApp` and `QtApp` hold
+  beside their `DebugServers` (and declare after `debugger_`, so it is
+  destroyed first). `start()` loads `--map` into the backend's one symbol
+  table, then every `--script` in order, and schedules `--script-key`; any
+  failure is logged `file:line:column: message` and fails the start, so the
+  loop owner exits 1 before the machine runs. It hears the exit code from the
+  engine (`exit n`, a run-time error) and, through a NON-ARMING listener
+  client, from the backend (`ExitRequested` 3 after a stop under
+  `StopPolicy::ExitNonZero`); the first code wins, and the headless and SDL
+  loops read it after each pump. The Qt GUI starts it with `exits = false`: a
+  script there pauses, never exits. At the `--delayed-automatic-exit*` bound
+  the loops ask it for `unreached_verdicts()` and exit 3 if a declared verdict
+  never ran.
 
 `script_parse_test` (`gate: none`) pins the grammar, every error class with its
 position, precedence, the per-kind payload table, the evaluation of every name
 against a real `Debugger`, and that every worked script of the design parses;
 `script_eval_test` pins the value model, the snapshot stacks and interpolation;
 `script_events_test` (`gate: none`) drives the engine on real 48K and Next
-machines — what each rule registers as, what it does when delivered, and every
-worked script of the design. The choices made where the design is silent are
-its "as built" appendices (G, H, I). The CLI, the GUI and the recorder are
-later work packages of the same branch.
+machines — what each rule registers as, what it does when delivered, every
+worked script of the design, and the `ScriptHost`. The `script-*-func`
+regression rows run scripts through the real binary in all three frontends.
+The choices made where the design is silent are its "as built" appendices
+(G, H, I, J). The GUI Script tab and the recorder are later work packages of
+the same branch.
 
 ## What `ENABLE_DEBUGGER=OFF` removes
 

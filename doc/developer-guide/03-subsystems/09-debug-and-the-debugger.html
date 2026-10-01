@@ -2673,8 +2673,7 @@ to bind; it is refused unless a server port (<code>--dzrp-port</code> or <code>-
 (target <code>jnext_script</code>). Like <code>src/remote/</code> it has no toolkit dependency and is
 built in every configuration; it reads the machine only through the published
 <code>jnext::dbg::Debugger</code> facade, never through <code>Emulator</code>. It is a front end, a
-library and an engine; nothing in the shipped binary instantiates the engine
-yet (the CLI that loads scripts is a later work package).</p>
+library, an engine, and the host the loop owners run <code>--script</code> through.</p>
 <p>It is layered, each stage consuming only the one before it:</p>
 <ul>
 <li><code>lexer.*</code> — tokens. Comments are <code>;</code>, <code>//</code> and <code>#</code>; the bracketed
@@ -2729,16 +2728,31 @@ yet (the CLI that loads scripts is a later work package).</p>
   rules run in <code>on_paused()</code>. A run-time error disables the rule's
   subscriptions and asks the loop owner (<code>EngineHost::exit</code>) for exit 1 at the
   next frame edge.</li>
+<li><code>script_host.*</code> — <code>ScriptHost</code>, what <code>HeadlessApp</code>, <code>SdlApp</code> and <code>QtApp</code> hold
+  beside their <code>DebugServers</code> (and declare after <code>debugger_</code>, so it is
+  destroyed first). <code>start()</code> loads <code>--map</code> into the backend's one symbol
+  table, then every <code>--script</code> in order, and schedules <code>--script-key</code>; any
+  failure is logged <code>file:line:column: message</code> and fails the start, so the
+  loop owner exits 1 before the machine runs. It hears the exit code from the
+  engine (<code>exit n</code>, a run-time error) and, through a NON-ARMING listener
+  client, from the backend (<code>ExitRequested</code> 3 after a stop under
+  <code>StopPolicy::ExitNonZero</code>); the first code wins, and the headless and SDL
+  loops read it after each pump. The Qt GUI starts it with <code>exits = false</code>: a
+  script there pauses, never exits. At the <code>--delayed-automatic-exit*</code> bound
+  the loops ask it for <code>unreached_verdicts()</code> and exit 3 if a declared verdict
+  never ran.</li>
 </ul>
 <p><code>script_parse_test</code> (<code>gate: none</code>) pins the grammar, every error class with its
 position, precedence, the per-kind payload table, the evaluation of every name
 against a real <code>Debugger</code>, and that every worked script of the design parses;
 <code>script_eval_test</code> pins the value model, the snapshot stacks and interpolation;
 <code>script_events_test</code> (<code>gate: none</code>) drives the engine on real 48K and Next
-machines — what each rule registers as, what it does when delivered, and every
-worked script of the design. The choices made where the design is silent are
-its "as built" appendices (G, H, I). The CLI, the GUI and the recorder are
-later work packages of the same branch.</p>
+machines — what each rule registers as, what it does when delivered, every
+worked script of the design, and the <code>ScriptHost</code>. The <code>script-*-func</code>
+regression rows run scripts through the real binary in all three frontends.
+The choices made where the design is silent are its "as built" appendices
+(G, H, I, J). The GUI Script tab and the recorder are later work packages of
+the same branch.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
 <p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
 <code>jnext_debugger</code> is neither compiled nor linked and every use site in

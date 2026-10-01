@@ -108,6 +108,7 @@ bool ScriptHost::start(dbg::Debugger& dbg, const ScriptHostOptions& opt) {
     }
     if (!ok) {
         engine_.reset();  // nothing of any script stays registered
+        error("--script: not starting; no script is loaded (exit 1)");
         return false;
     }
     for (const auto& k : opt.keys) engine_->queue_host_key(k.first, k.second);

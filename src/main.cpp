@@ -557,26 +557,17 @@ int main(int argc, char* argv[]) {
                 script_files.emplace_back(v[0]);
                 break;
             case cli::OptId::ScriptKey: {
-                // GH #26 WP4 (§6.6). Both whole numbers, checked here: a key
-                // that silently became another, or a frame that became 0, would
-                // fire a different rule at a different time than the one asked.
-                char* end = nullptr;
-                errno = 0;
-                const long frame = std::strtol(v[0], &end, 10);
-                const bool frame_ok = errno == 0 && end != v[0] && *end == '\0' && frame >= 0 &&
-                                      frame <= 0x7FFFFFFFL;
-                end = nullptr;
-                errno = 0;
-                const long key = std::strtol(v[1], &end, 10);
-                const bool key_ok = errno == 0 && end != v[1] && *end == '\0' && key >= 1 && key <= 8;
-                if (!frame_ok || !key_ok) {
+                // GH #26 WP4 (§6.6) — both whole numbers (cli::parse_script_key).
+                uint32_t frame = 0;
+                int      key   = 0;
+                if (!cli::parse_script_key(v[0], v[1], frame, key)) {
                     fprintf(stderr,
                             "--script-key: FRAME must be a whole number from 0 and N a key from 1 "
                             "to 8, not \"%s\" \"%s\".\n",
                             v[0], v[1]);
                     return 1;
                 }
-                script_keys.emplace_back(static_cast<uint32_t>(frame), static_cast<int>(key));
+                script_keys.emplace_back(frame, key);
                 break;
             }
             case cli::OptId::Map:

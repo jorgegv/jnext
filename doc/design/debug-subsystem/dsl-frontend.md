@@ -1752,3 +1752,69 @@ value. `FRAME` stays live.
   RAM and drive the engine directly, as the CLI is WP4.
 - The per-kind registration rows §8.1 assigns to `script_parse_test` are
   `script_events_test`'s SCRIPT-EV-REG-* (F5).
+
+## Appendix J — WP4 as built (2026-10-01)
+
+The CLI rows of §6.6, the loop owners' script host, the man page. Suites:
+`script_events_test` (SCRIPT-HOST-*), `cli_options_test` (CLI-SKEY-01/02), and
+six regression rows `script-{pass,assert,stop,load-error,key,frontends}-func`.
+
+### J.1 The options
+
+| Flag | As built |
+|---|---|
+| `--script FILE` | repeatable, loaded in the order given into ONE engine (one backend client) |
+| `--script-key FRAME N` | FRAME 0..2^31-1, N 1..8, both whole (`cli::parse_script_key`); `--headless` only — the windowed frontends refuse it at startup as they refuse `--delayed-keypress`; needs a `--script` |
+| `--map FILE` | a z88dk `.map` into the backend's one symbol table (CAP-SYM), loaded BEFORE the scripts so `@symbol` resolves; a file that cannot be loaded or holds no symbols is a startup error |
+
+### J.2 `ScriptHost` (`src/script/script_host.*`)
+
+- **Where it lives.** In `src/script`, not `src/platform`: it needs only the
+  `Debugger` and the engine, so its rows run in `script_events_test` with no
+  frontend. Each loop owner holds one beside its `DebugServers`, declared after
+  `debugger_`, and starts it right after the servers.
+- **Startup.** Any failure — an unreadable file, a load-time error in any
+  script (§6.5), a bad `--map`, `--script-key` with no `--script` — is logged
+  (`SCRIPT ERROR file:line:column: message`, then `--script FILE: not loaded`
+  and `--script: not starting; no script is loaded (exit 1)`) and fails the
+  start; the loop owner exits 1 before the machine runs. Nothing of any script
+  stays registered, a good one loaded before the bad one included.
+- **No scripts, no client.** With nothing to load it attaches nothing and arms
+  nothing (row SCRIPT-HOST-NONE).
+- **The exit code (§6.3).** The FIRST code a run reaches is kept: the engine's
+  `exit n` and run-time-error 1 through `EngineHost::exit`, and the backend's
+  `ExitRequested` 3 through the host's own listener — a NON-ARMING client
+  (`ClientInfo::observer`), because the listener only listens. The headless and
+  SDL loops check it after every pump; a 0 never replaces an earlier failure.
+- **Qt.** Started with `exits = false`: no exit hook and no listener, so
+  `exit` and `stop` pause (the stop policy there is `Pause`). A load error is
+  still a startup failure, logged; the dialog §6.5 describes is WP5's.
+
+### J.3 `--script-key` timing
+
+A scheduled key is raised at the EDGE of frame FRAME (`E_FRAME`, where
+`on frame FRAME` fires), from the engine's own frame-edge subscription, BEFORE
+the edge's deferred queue, so a `hostkey` rule runs with `FRAME == FRAME` and
+what it queues for the edge lands at that same edge. Raising it from the loop
+between frames was rejected: `Debugger::time().frame` there is the frame just
+completed, so the rule would have seen FRAME − 1, and the timing would have
+depended on which loop owner raised it.
+
+### J.4 The watchdog (§7.3)
+
+At the `--delayed-automatic-exit*` bound the headless and SDL loops ask
+`unreached_verdicts()`: rules holding `exit` or `compare_scr` (in any `if`
+branch) that never fired, deferred actions still queued, and scheduled keys
+not yet delivered. A non-zero count logs `SCRIPT: N deferred actions never ran`
+and exits 3 unless the run had already failed. A rule with no verdict (a guard)
+never counts: a guard that never trips is a pass.
+
+### J.5 Deviations
+
+- The man page's SCRIPTING section does NOT state the Alt+1..Alt+8 keyboard
+  change §6.6 names: that change is WP5's and is not in the product yet. It
+  lands with WP5.
+- The user guide links the man page's SCRIPTING section until WP8a writes the
+  guide's own chapter (`tools/gen-userguide-cli.pl`).
+- The GH #26 ChangeLog line is reworded now that scripts load from the CLI; it
+  is to be checked again at the final merge.
