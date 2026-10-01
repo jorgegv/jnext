@@ -4033,6 +4033,99 @@ static void wp5_history_rows() {
                   negi == reply_of("ERROR: index beyond total elements (2)", true),
               esc(neg) + " / " + esc(negi));
     }
+    {
+        // R2-1 (M3 review round 2): a cold boot restarts the clock, so the
+        // clear base (a cycle) is dropped; the new machine's steps are shown.
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0x18, 0xFE});
+        jnext::dbg::LoopDriver drv;
+        drv.cold_boot = [&rig]() {
+            // As the loop owner's: a reconstructed machine, a fresh trace.
+            EmulatorConfig cfg = rig.emu.config();
+            rig.emu.init(cfg);
+            rig.emu.trace_log().clear();
+            return true;
+        };
+        rig.dbg->set_loop_driver(drv);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        c.cmd("cpu-history enabled yes");
+        for (int k = 0; k < 5; ++k) c.cmd("cpu-step");
+        c.cmd("cpu-history clear");
+        c.cmd("hard-reset-cpu");
+        for (int k = 0; k < 5; ++k) c.cmd("cpu-step");
+        const std::string n5 = c.cmd("cpu-history get-size");
+        check("ZRCP-HIS-14", "clear, hard-reset-cpu, five steps from the fresh machine's PC 0: "
+                             "the history shows those five (the reviewer's repro showed 0)",
+              n5 == reply_of("5", true), esc(n5));
+    }
+    {
+        // R2-2 / U01: a base that has left the trace (here another client's
+        // Clear Trace) means every entry is newer than the clear.
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0xFE});
+        rig.dbg->set_trace_enabled(true);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        c.cmd("cpu-history enabled yes");
+        c.cmd("cpu-step");
+        c.cmd("cpu-step");
+        c.cmd("cpu-history clear");
+        rig.dbg->trace_clear();                   // the machine's trace: the base is gone
+        c.cmd("cpu-step");
+        c.cmd("cpu-step");
+        c.cmd("cpu-step");
+        const std::string n = c.cmd("cpu-history get-size");
+        const std::string pcs = c.cmd("cpu-history get-pc 0 3");
+        check("ZRCP-HIS-15", "after the clear's base entry has left the machine's trace (another "
+                             "client cleared it), the three later steps are all shown",
+              n == reply_of("3", true) && pcs == reply_of("8004 8003 8002 ", true),
+              esc(n) + " / " + esc(pcs));
+    }
+    {
+        // R2-2 / U05: the base is the session's: the next session sees the
+        // trace whole.
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0x18, 0xFE});
+        rig.dbg->set_trace_enabled(true);
+        {
+            Zc c(rig);
+            c.cmd("enter-cpu-step");
+            c.cmd("cpu-history enabled yes");
+            c.cmd("cpu-step");
+            c.cmd("cpu-step");
+            c.cmd("cpu-history clear");
+            c.p->send("quit\n");
+            c.wait(4);
+        }
+        Zc c2(rig);
+        c2.cmd("cpu-history enabled yes");
+        const std::string n = c2.cmd("cpu-history get-size");
+        check("ZRCP-HIS-16", "a session's clear ends with it: the next session's history holds "
+                             "the two steps the first one cleared from its own view",
+              n == reply_of("2"), esc(n));
+    }
+    {
+        // A restored snapshot moves the clock back, and the re-run steps
+        // repeat the cleared base's cycle: the base is dropped, not matched.
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0xFE});
+        Zc c(rig);
+        c.cmd("enter-cpu-step");                  // a frame boundary
+        c.cmd("snapshot-save s");
+        c.cmd("cpu-history enabled yes");
+        c.cmd("cpu-step");
+        c.cmd("cpu-step");
+        c.cmd("cpu-history clear");               // base: the second step's cycle
+        c.cmd("snapshot-load s");                 // the clock back to before both
+        c.cmd("cpu-step");
+        c.cmd("cpu-step");
+        c.cmd("cpu-step");                        // the second repeats the base's cycle
+        const std::string pcs = c.cmd("cpu-history get-pc 0 3");
+        check("ZRCP-HIS-17", "after snapshot-load moves the clock back, the three re-run steps "
+                             "are all shown although one repeats the clear base's cycle",
+              pcs == reply_of("8002 8001 8000 ", true), esc(pcs));
+    }
 }
 
 static void wp5_stack_coverage_rows() {
@@ -4195,14 +4288,19 @@ static void wp5_load_rows() {
         }
         const auto after = peek(rig, 0x9000, 2);
         const std::string dir = c.cmd("load-binary /tmp 36864 0");
+        const auto rom_before = peek(rig, 0x0000, 2);
+        const std::string rom = c.cmd("load-binary " + bin + " 0 0");
+        const auto rom_after = peek(rig, 0x0000, 2);
         std::remove(bin.c_str());
         check("ZRCP-LOAD-05", "during an RZX session load-binary is refused like write-memory, "
                               "naming the reason and what landed (0 bytes), and memory is "
-                              "unchanged; a directory answers \"ERROR loading file\"",
+                              "unchanged; a directory answers \"ERROR loading file\"; a load "
+                              "into ROM lands nowhere and is silent, as in ZEsarUX",
               starts_with(refused, "Error. load-binary refused: ") &&
                   refused.find("(0 bytes loaded)") != std::string::npos &&
                   starts_with(wm, "Error. write-memory refused: ") && before == after &&
-                  dir == reply_of("ERROR loading file"),
+                  dir == reply_of("ERROR loading file") && rom == reply_of("") &&
+                  rom_before == rom_after,
               esc(refused) + " / " + esc(wm) + " / " + esc(dir));
     }
     {

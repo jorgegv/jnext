@@ -376,6 +376,12 @@ private:
     /// The machine's trace is never cleared.
     bool           hist_has_base_ = false;
     std::uint64_t  hist_base_cycle_ = 0;
+    /// The master cycle last seen at a callback. The base is a cycle, so it is
+    /// dropped whenever the clock goes BACKWARDS — a cold boot, a load, a
+    /// restored snapshot or a rewind restart or move the timeline, and a later
+    /// entry could carry the base's cycle again.
+    std::uint64_t  hist_clock_seen_ = 0;
+    void           hist_watch_clock();
     std::uint64_t  hist_gen_     = 0;       // bumped by clear / resize / enable / a filter
     std::array<std::uint64_t, 3> hist_key_{{~0ull, ~0ull, ~0ull}};
     std::vector<::TraceEntry> hist_view_;

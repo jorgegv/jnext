@@ -655,6 +655,7 @@ ServiceStep ZrcpServer::on_service(Connection& c) {
     } reset{conn_};
 
     if (cid_ == CLIENT_NONE) return ServiceStep::Idle;  // the attach was refused
+    hist_watch_clock();
     flush_logs();
     pull_input(c);
 
@@ -693,6 +694,7 @@ ServiceStep ZrcpServer::on_service(Connection& c) {
 // answered in this tick.
 void ZrcpServer::on_notify(Connection& c) {
     conn_ = &c;
+    hist_watch_clock();
     flush_logs();
     if (in_run_ != RunKind::None &&
         (reset_stop_owed_ ||
@@ -732,6 +734,7 @@ void ZrcpServer::end_session() {
     hist_started_ = ign_halt_ = ign_ldxr_ = false;
     hist_max_     = 10000;
     hist_has_base_ = false;
+    hist_clock_seen_ = 0;
     ++hist_gen_;
     hist_view_.clear();
     // WP-4 — the detach above removed every subscription; the session's map of
@@ -767,8 +770,11 @@ void ZrcpServer::on_resumed(jnext::dbg::ClientId /*by*/) {}
 // cpu-step-over target of the replaced machine outside the backend's fan-out.
 void ZrcpServer::on_reset(jnext::dbg::ResetKind kind) {
     if (kind != jnext::dbg::ResetKind::Hard) return;
-    // The fresh machine counts T-states from 0 again.
-    tstates_base_ = 0;
+    // The fresh machine counts T-states from 0 again, and its cycles restart:
+    // a history `clear` base (a cycle) means nothing in it.
+    tstates_base_  = 0;
+    hist_has_base_ = false;
+    ++hist_gen_;
     if (in_run_ != RunKind::None) reset_stop_owed_ = true;
 }
 
@@ -2272,6 +2278,15 @@ constexpr std::uint32_t kHistoryMax = 1000000;
 constexpr std::size_t   kLoadMax    = 4u * 1024 * 1024;  // `load_binary_file`'s 4 MB
 
 }  // namespace
+
+void ZrcpServer::hist_watch_clock() {
+    const std::uint64_t now = dbg_.time().master_cycle;
+    if (now < hist_clock_seen_ && hist_has_base_) {
+        hist_has_base_ = false;
+        ++hist_gen_;
+    }
+    hist_clock_seen_ = now;
+}
 
 const std::vector<::TraceEntry>& ZrcpServer::history_view() {
     const auto t = dbg_.time();
