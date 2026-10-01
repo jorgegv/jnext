@@ -11,28 +11,28 @@
       
       
       
-        <link rel="prev" href="../04-configuration/03-what-wins-the-command-line.html">
+        <link rel="prev" href="11-debugging-with-z88dk-gdb.html">
       
       
-        <link rel="next" href="01-choosing-a-machine.html">
+        <link rel="next" href="../../07-automation-and-ci/index.html">
       
       
         
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
     
     
       
-        <title>5. Running programs - JNEXT User Guide</title>
+        <title>Remote debugging over ZRCP - JNEXT User Guide</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -51,7 +51,7 @@
       
     
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#5-running-programs" class="md-skip">
+        <a href="#remote-debugging-over-zrcp" class="md-skip">
           Skip to content
         </a>
       
@@ -92,7 +92,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../index.html" title="JNEXT User Guide" class="md-header__button md-logo" aria-label="JNEXT User Guide" data-md-component="logo">
+    <a href="../../index.html" title="JNEXT User Guide" class="md-header__button md-logo" aria-label="JNEXT User Guide" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -112,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              5. Running programs
+              Remote debugging over ZRCP
             
           </span>
         </div>
@@ -263,7 +263,7 @@
 
 <nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../index.html" title="JNEXT User Guide" class="md-nav__button md-logo" aria-label="JNEXT User Guide" data-md-component="logo">
+    <a href="../../index.html" title="JNEXT User Guide" class="md-nav__button md-logo" aria-label="JNEXT User Guide" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -326,7 +326,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../index.html" class="md-nav__link">
+      <a href="../../index.html" class="md-nav__link">
         
   
   
@@ -379,7 +379,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../01-introduction/index.html" class="md-nav__link ">
+            <a href="../../01-introduction/index.html" class="md-nav__link ">
               
   
   
@@ -423,7 +423,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../01-introduction/01-what-it-emulates.html" class="md-nav__link">
+      <a href="../../01-introduction/01-what-it-emulates.html" class="md-nav__link">
         
   
   
@@ -451,7 +451,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../01-introduction/02-how-faithful-it-is.html" class="md-nav__link">
+      <a href="../../01-introduction/02-how-faithful-it-is.html" class="md-nav__link">
         
   
   
@@ -479,7 +479,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../01-introduction/03-machines-at-a-glance.html" class="md-nav__link">
+      <a href="../../01-introduction/03-machines-at-a-glance.html" class="md-nav__link">
         
   
   
@@ -507,7 +507,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../01-introduction/04-getting-help-and-reporting-bugs.html" class="md-nav__link">
+      <a href="../../01-introduction/04-getting-help-and-reporting-bugs.html" class="md-nav__link">
         
   
   
@@ -572,7 +572,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../02-installing/index.html" class="md-nav__link ">
+            <a href="../../02-installing/index.html" class="md-nav__link ">
               
   
   
@@ -616,7 +616,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../02-installing/01-linux.html" class="md-nav__link">
+      <a href="../../02-installing/01-linux.html" class="md-nav__link">
         
   
   
@@ -644,7 +644,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../02-installing/02-windows.html" class="md-nav__link">
+      <a href="../../02-installing/02-windows.html" class="md-nav__link">
         
   
   
@@ -672,7 +672,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../02-installing/03-macos.html" class="md-nav__link">
+      <a href="../../02-installing/03-macos.html" class="md-nav__link">
         
   
   
@@ -700,7 +700,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../02-installing/04-optional-video-recording.html" class="md-nav__link">
+      <a href="../../02-installing/04-optional-video-recording.html" class="md-nav__link">
         
   
   
@@ -728,7 +728,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../02-installing/05-checking-it-worked.html" class="md-nav__link">
+      <a href="../../02-installing/05-checking-it-worked.html" class="md-nav__link">
         
   
   
@@ -756,7 +756,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../02-installing/06-building-from-source.html" class="md-nav__link">
+      <a href="../../02-installing/06-building-from-source.html" class="md-nav__link">
         
   
   
@@ -821,7 +821,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../03-first-run/index.html" class="md-nav__link ">
+            <a href="../../03-first-run/index.html" class="md-nav__link ">
               
   
   
@@ -865,7 +865,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html" class="md-nav__link">
+      <a href="../../03-first-run/01-why-jnext-needs-an-sd-card-image.html" class="md-nav__link">
         
   
   
@@ -893,7 +893,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-first-run/02-letting-jnext-fetch-one.html" class="md-nav__link">
+      <a href="../../03-first-run/02-letting-jnext-fetch-one.html" class="md-nav__link">
         
   
   
@@ -921,7 +921,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-first-run/03-using-your-own-image.html" class="md-nav__link">
+      <a href="../../03-first-run/03-using-your-own-image.html" class="md-nav__link">
         
   
   
@@ -949,7 +949,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-first-run/04-the-first-boot.html" class="md-nav__link">
+      <a href="../../03-first-run/04-the-first-boot.html" class="md-nav__link">
         
   
   
@@ -977,7 +977,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-first-run/05-running-a-program.html" class="md-nav__link">
+      <a href="../../03-first-run/05-running-a-program.html" class="md-nav__link">
         
   
   
@@ -1005,7 +1005,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03-first-run/06-if-something-goes-wrong.html" class="md-nav__link">
+      <a href="../../03-first-run/06-if-something-goes-wrong.html" class="md-nav__link">
         
   
   
@@ -1064,7 +1064,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../04-configuration/index.html" class="md-nav__link ">
+            <a href="../../04-configuration/index.html" class="md-nav__link ">
               
   
   
@@ -1108,7 +1108,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../04-configuration/01-preferences.html" class="md-nav__link">
+      <a href="../../04-configuration/01-preferences.html" class="md-nav__link">
         
   
   
@@ -1136,7 +1136,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../04-configuration/02-the-configuration-file.html" class="md-nav__link">
+      <a href="../../04-configuration/02-the-configuration-file.html" class="md-nav__link">
         
   
   
@@ -1164,7 +1164,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../04-configuration/03-what-wins-the-command-line.html" class="md-nav__link">
+      <a href="../../04-configuration/03-what-wins-the-command-line.html" class="md-nav__link">
         
   
   
@@ -1196,8 +1196,6 @@
       
   
   
-    
-  
   
   
     
@@ -1229,15 +1227,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="index.html" class="md-nav__link md-nav__link--active">
+            <a href="../../05-running-programs/index.html" class="md-nav__link ">
               
   
   
@@ -1255,13 +1253,13 @@
             </a>
             
               
-              <label class="md-nav__link md-nav__link--active" for="__nav_6" id="__nav_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1281,7 +1279,7 @@
   
   
     <li class="md-nav__item">
-      <a href="01-choosing-a-machine.html" class="md-nav__link">
+      <a href="../../05-running-programs/01-choosing-a-machine.html" class="md-nav__link">
         
   
   
@@ -1309,7 +1307,7 @@
   
   
     <li class="md-nav__item">
-      <a href="02-input.html" class="md-nav__link">
+      <a href="../../05-running-programs/02-input.html" class="md-nav__link">
         
   
   
@@ -1337,7 +1335,7 @@
   
   
     <li class="md-nav__item">
-      <a href="03-display.html" class="md-nav__link">
+      <a href="../../05-running-programs/03-display.html" class="md-nav__link">
         
   
   
@@ -1365,7 +1363,7 @@
   
   
     <li class="md-nav__item">
-      <a href="04-sound.html" class="md-nav__link">
+      <a href="../../05-running-programs/04-sound.html" class="md-nav__link">
         
   
   
@@ -1393,7 +1391,7 @@
   
   
     <li class="md-nav__item">
-      <a href="05-recording-and-playback.html" class="md-nav__link">
+      <a href="../../05-running-programs/05-recording-and-playback.html" class="md-nav__link">
         
   
   
@@ -1421,7 +1419,7 @@
   
   
     <li class="md-nav__item">
-      <a href="06-networking.html" class="md-nav__link">
+      <a href="../../05-running-programs/06-networking.html" class="md-nav__link">
         
   
   
@@ -1449,7 +1447,7 @@
   
   
     <li class="md-nav__item">
-      <a href="07-the-joystick-port-serial-cable.html" class="md-nav__link">
+      <a href="../../05-running-programs/07-the-joystick-port-serial-cable.html" class="md-nav__link">
         
   
   
@@ -1477,7 +1475,7 @@
   
   
     <li class="md-nav__item">
-      <a href="08-host-files-for-a-loaded-program.html" class="md-nav__link">
+      <a href="../../05-running-programs/08-host-files-for-a-loaded-program.html" class="md-nav__link">
         
   
   
@@ -1505,7 +1503,7 @@
   
   
     <li class="md-nav__item">
-      <a href="09-snapshots.html" class="md-nav__link">
+      <a href="../../05-running-programs/09-snapshots.html" class="md-nav__link">
         
   
   
@@ -1537,6 +1535,8 @@
       
   
   
+    
+  
   
   
     
@@ -1554,15 +1554,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../06-debugger/index.html" class="md-nav__link ">
+            <a href="../index.html" class="md-nav__link ">
               
   
   
@@ -1586,7 +1586,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1650,7 +1650,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../06-debugger/panels/index.html" class="md-nav__link ">
+            <a href="../panels/index.html" class="md-nav__link ">
               
   
   
@@ -1694,7 +1694,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/01-cpu-registers.html" class="md-nav__link">
+      <a href="../panels/01-cpu-registers.html" class="md-nav__link">
         
   
   
@@ -1722,7 +1722,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/02-mmu.html" class="md-nav__link">
+      <a href="../panels/02-mmu.html" class="md-nav__link">
         
   
   
@@ -1750,7 +1750,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/03-disassembly.html" class="md-nav__link">
+      <a href="../panels/03-disassembly.html" class="md-nav__link">
         
   
   
@@ -1778,7 +1778,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/04-memory.html" class="md-nav__link">
+      <a href="../panels/04-memory.html" class="md-nav__link">
         
   
   
@@ -1806,7 +1806,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/05-stack.html" class="md-nav__link">
+      <a href="../panels/05-stack.html" class="md-nav__link">
         
   
   
@@ -1834,7 +1834,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/06-call-stack.html" class="md-nav__link">
+      <a href="../panels/06-call-stack.html" class="md-nav__link">
         
   
   
@@ -1862,7 +1862,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/07-watches.html" class="md-nav__link">
+      <a href="../panels/07-watches.html" class="md-nav__link">
         
   
   
@@ -1890,7 +1890,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/08-breakpoints.html" class="md-nav__link">
+      <a href="../panels/08-breakpoints.html" class="md-nav__link">
         
   
   
@@ -1918,7 +1918,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/09-video.html" class="md-nav__link">
+      <a href="../panels/09-video.html" class="md-nav__link">
         
   
   
@@ -1946,7 +1946,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/10-sprites.html" class="md-nav__link">
+      <a href="../panels/10-sprites.html" class="md-nav__link">
         
   
   
@@ -1974,7 +1974,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/11-copper.html" class="md-nav__link">
+      <a href="../panels/11-copper.html" class="md-nav__link">
         
   
   
@@ -2002,7 +2002,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/12-nextreg.html" class="md-nav__link">
+      <a href="../panels/12-nextreg.html" class="md-nav__link">
         
   
   
@@ -2030,7 +2030,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/panels/13-audio.html" class="md-nav__link">
+      <a href="../panels/13-audio.html" class="md-nav__link">
         
   
   
@@ -2063,6 +2063,8 @@
                 
   
   
+    
+  
   
   
     
@@ -2100,15 +2102,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_3" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../06-debugger/functions/index.html" class="md-nav__link ">
+            <a href="index.html" class="md-nav__link ">
               
   
   
@@ -2132,7 +2134,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_7_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2152,7 +2154,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/01-run-pause-and-the-step-family.html" class="md-nav__link">
+      <a href="01-run-pause-and-the-step-family.html" class="md-nav__link">
         
   
   
@@ -2180,7 +2182,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/02-run-to-cursor-run-to-end-of-frame-run-to-end-of-scanline.html" class="md-nav__link">
+      <a href="02-run-to-cursor-run-to-end-of-frame-run-to-end-of-scanline.html" class="md-nav__link">
         
   
   
@@ -2208,7 +2210,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/03-breakpoints-execute-read-write.html" class="md-nav__link">
+      <a href="03-breakpoints-execute-read-write.html" class="md-nav__link">
         
   
   
@@ -2236,7 +2238,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/04-watches-and-watch-sizes.html" class="md-nav__link">
+      <a href="04-watches-and-watch-sizes.html" class="md-nav__link">
         
   
   
@@ -2264,7 +2266,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/05-symbols-from-z88dk-map-files.html" class="md-nav__link">
+      <a href="05-symbols-from-z88dk-map-files.html" class="md-nav__link">
         
   
   
@@ -2292,7 +2294,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/06-the-trace-log.html" class="md-nav__link">
+      <a href="06-the-trace-log.html" class="md-nav__link">
         
   
   
@@ -2320,7 +2322,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/07-backward-execution-rewind.html" class="md-nav__link">
+      <a href="07-backward-execution-rewind.html" class="md-nav__link">
         
   
   
@@ -2348,7 +2350,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/08-the-magic-breakpoint-and-the-magic-port.html" class="md-nav__link">
+      <a href="08-the-magic-breakpoint-and-the-magic-port.html" class="md-nav__link">
         
   
   
@@ -2376,7 +2378,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/09-changing-the-keys.html" class="md-nav__link">
+      <a href="09-changing-the-keys.html" class="md-nav__link">
         
   
   
@@ -2404,7 +2406,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/10-remote-debugging-with-dezog.html" class="md-nav__link">
+      <a href="10-remote-debugging-with-dezog.html" class="md-nav__link">
         
   
   
@@ -2432,7 +2434,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../06-debugger/functions/11-debugging-with-z88dk-gdb.html" class="md-nav__link">
+      <a href="11-debugging-with-z88dk-gdb.html" class="md-nav__link">
         
   
   
@@ -2457,10 +2459,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../06-debugger/functions/12-remote-debugging-over-zrcp.html" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote debugging over ZRCP
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="12-remote-debugging-over-zrcp.html" class="md-nav__link md-nav__link--active">
         
   
   
@@ -2476,6 +2505,70 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#start-jnext-with-a-zrcp-port" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Start JNEXT with a ZRCP port
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dezog" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DeZog
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#by-hand" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        By hand
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-to-expect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What to expect
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2531,7 +2624,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../07-automation-and-ci/index.html" class="md-nav__link ">
+            <a href="../../07-automation-and-ci/index.html" class="md-nav__link ">
               
   
   
@@ -2575,7 +2668,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../07-automation-and-ci/01-headless-mode.html" class="md-nav__link">
+      <a href="../../07-automation-and-ci/01-headless-mode.html" class="md-nav__link">
         
   
   
@@ -2603,7 +2696,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../07-automation-and-ci/02-determinism.html" class="md-nav__link">
+      <a href="../../07-automation-and-ci/02-determinism.html" class="md-nav__link">
         
   
   
@@ -2631,7 +2724,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../07-automation-and-ci/03-exit-codes-and-the-capture-that-was-never-taken.html" class="md-nav__link">
+      <a href="../../07-automation-and-ci/03-exit-codes-and-the-capture-that-was-never-taken.html" class="md-nav__link">
         
   
   
@@ -2659,7 +2752,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../07-automation-and-ci/04-a-worked-example.html" class="md-nav__link">
+      <a href="../../07-automation-and-ci/04-a-worked-example.html" class="md-nav__link">
         
   
   
@@ -2687,7 +2780,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../07-automation-and-ci/05-beyond-screenshots.html" class="md-nav__link">
+      <a href="../../07-automation-and-ci/05-beyond-screenshots.html" class="md-nav__link">
         
   
   
@@ -2722,7 +2815,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../08-known-issues/index.html" class="md-nav__link">
+      <a href="../../08-known-issues/index.html" class="md-nav__link">
         
   
   
@@ -2775,7 +2868,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../09-reference/index.html" class="md-nav__link ">
+            <a href="../../09-reference/index.html" class="md-nav__link ">
               
   
   
@@ -2819,7 +2912,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../09-reference/01-command-line-options.html" class="md-nav__link">
+      <a href="../../09-reference/01-command-line-options.html" class="md-nav__link">
         
   
   
@@ -2847,7 +2940,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../09-reference/02-files-and-directories.html" class="md-nav__link">
+      <a href="../../09-reference/02-files-and-directories.html" class="md-nav__link">
         
   
   
@@ -2875,7 +2968,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../09-reference/03-zx-spectrum-next-hardware-documentation.html" class="md-nav__link">
+      <a href="../../09-reference/03-zx-spectrum-next-hardware-documentation.html" class="md-nav__link">
         
   
   
@@ -2903,7 +2996,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../09-reference/04-the-project.html" class="md-nav__link">
+      <a href="../../09-reference/04-the-project.html" class="md-nav__link">
         
   
   
@@ -2951,143 +3044,64 @@
   
 
 
-<h1 id="5-running-programs">5. Running programs<a class="headerlink" href="#5-running-programs" title="Permanent link">&para;</a></h1>
-<p>The short version: give JNEXT a file.</p>
-<pre><code>jnext game.nex
-jnext game.tap
-jnext game.sna
+<h1 id="remote-debugging-over-zrcp">Remote debugging over ZRCP<a class="headerlink" href="#remote-debugging-over-zrcp" title="Permanent link">&para;</a></h1>
+<p>ZRCP is the text protocol the ZEsarUX emulator offers for remote control. DeZog
+can debug through it (its <code>zrcp</code> remote type), and because every command is a
+line of text you can also drive it by hand with <code>telnet</code>. JNEXT speaks ZRCP as
+ZEsarUX 12.0 does.</p>
+<h2 id="start-jnext-with-a-zrcp-port">Start JNEXT with a ZRCP port<a class="headerlink" href="#start-jnext-with-a-zrcp-port" title="Permanent link">&para;</a></h2>
+<pre><code class="language-console">$ jnext --zrcp-port 10000
 </code></pre>
-<p>The format is recognised from the extension — <code>.nex</code>, <code>.jns</code>, <code>.sna</code>, <code>.szx</code>,
-<code>.z80</code>, <code>.tap</code>, <code>.tzx</code>, <code>.wav</code> and <code>.rzx</code> are all understood. (<code>.jns</code> is
-JNEXT's own whole-machine snapshot; see <a href="09-snapshots.html">5.9 Snapshots</a>.) A bare filename is
-exactly the same as <code>--load FILE</code>; you cannot use both at once.</p>
-<p>A NEX <strong>V1.3</strong> file can declare a buffer for an argument line, and <code>--nex-args</code>
-fills it:</p>
-<pre><code>jnext --load game.nex --nex-args &quot;level 3&quot;
+<p>The log confirms it:</p>
+<pre><code>[13:10:21.837] [debugger] [info] zrcp: listening on 127.0.0.1:10000
 </code></pre>
-<p>The program finds that text zero-terminated at the address the file declares,
-exactly as it would when launched with arguments from NextZXOS; <code>DE</code> then holds
-that address plus the buffer's size, which is where the Next's V1.3 loader
-leaves it (not the address itself, as the format's notes say). A line longer than the
-buffer the file declares is truncated to fit. Only V1.3 files have the buffer,
-so with anything else the option warns and is ignored.</p>
-<p>Note that NEX <strong>V1.3</strong> is an experimental format and is not supported in any
-way. Loading a V1.3 file needs an explicit opt-in: on the command line, add
-<code>--experimental-nex-v1.3</code> (without it the load is refused with an error); in
-the window, JNEXT shows a warning dialog and only proceeds if you confirm.
-V1.0–V1.2 files load normally, no opt-in involved.</p>
-<p>Some NEX files are larger than the program their header describes. When the
-header asks for the file to stay open, the program can read the extra data
-from its own file, and JNEXT lets it. When it does not, JNEXT does what the
-Next's own loader does: it loads the declared part, ignores the rest and runs
-the program. More than 16 KB of ignored data is reported with a warning.</p>
-<p>In the window, <strong>File &gt; Load NEX File…</strong> (Alt+O) opens the same loader and
-accepts every one of those formats despite its name. Tapes have their own
-entry, <strong>Tape &gt; Open Tape File…</strong> (Alt+T), covered in
-<a href="05-recording-and-playback.html">5.5</a>. A file that cannot be loaded — missing,
-truncated, or not the format its extension says — gets a warning dialog naming
-it, from either menu and from <strong>File &gt; Play RZX Recording…</strong>; the log says
-what was wrong with it.</p>
-<p><img alt="JNEXT running, with NextZXOS booted" src="../img/gui-main-window.png" /></p>
-<p>The status bar along the bottom tracks the session: frame rate, the emulated
-CPU clock, the emulator speed, tape state, and the current machine.</p>
-<p>Everything else in this chapter is about shaping that session.</p>
-<h2 id="programs-that-need-nextzxos">Programs that need NextZXOS<a class="headerlink" href="#programs-that-need-nextzxos" title="Permanent link">&para;</a></h2>
-<p>Loading a file directly (with <code>--load</code>, a bare file name, or <strong>File &gt; Load NEX
-File…</strong>) skips NextZXOS's <em>loader</em>: nothing navigates a menu, and NextZXOS is
-not the thing that starts your program. (The machine underneath it is still one
-NextZXOS booted, for a NEX file — see <a href="#the-machine-a-nex-file-starts-on">the section below</a>.)
-That is all most games and demos need. On a real Next, though, every
-NEX program is started by NextZXOS, and some programs also use it while they
-run: to ask which drive they are on, to save a high score, or to read their
-levels, music or settings from files next to them.</p>
-<p>For a NEX file loaded directly, JNEXT stands in for the NextZXOS services such
-programs most often ask for:</p>
+<p><code>10000</code> is ZEsarUX's own default, and the one DeZog expects. <code>--zrcp-port 0</code>
+lets the system pick a free port and prints it. The server is off unless you
+give the option, and it works in every frontend: the Qt window, the SDL build
+and <code>--headless</code>. It can run together with the DeZog (<code>--dzrp-port</code>) and
+<code>z88dk-gdb</code> (<code>--gdb-port</code>) servers; each has its own port and one client.</p>
+<h2 id="dezog">DeZog<a class="headerlink" href="#dezog" title="Permanent link">&para;</a></h2>
+<p>In your <code>launch.json</code>, use the <code>zrcp</code> remote:</p>
+<pre><code class="language-json">&quot;remoteType&quot;: &quot;zrcp&quot;,
+&quot;zrcp&quot;: { &quot;port&quot;: 10000 },
+&quot;load&quot;: &quot;mygame.nex&quot;
+</code></pre>
+<p>DeZog resets the machine, loads your program with <code>smartload</code>, and then you
+have breakpoints (with conditions), stepping, step over and step out, the
+call stack, reverse debugging over the CPU history, code coverage, and its
+<code>-state save</code> / <code>-state restore</code>.</p>
+<h2 id="by-hand">By hand<a class="headerlink" href="#by-hand" title="Permanent link">&para;</a></h2>
+<pre><code class="language-console">$ telnet localhost 10000
+Welcome to ZEsarUX remote command protocol (ZRCP)
+Write help for available commands
+
+command&gt; enter-cpu-step
+command@cpu-step&gt; get-registers
+</code></pre>
+<p><code>help</code> lists every command JNEXT serves; <code>help</code> <em>command</em> describes one, and
+says where JNEXT behaves differently from ZEsarUX.</p>
+<h2 id="what-to-expect">What to expect<a class="headerlink" href="#what-to-expect" title="Permanent link">&para;</a></h2>
 <ul>
-<li>the current drive, which is always <code>C:</code>;</li>
-<li>one small file kept in memory, so a high score or a settings file can be
-  saved and read back during the session (it is not written to disk, and it is
-  gone when JNEXT closes);</li>
-<li><code>run</code> of another NEX file in the same folder, for programs that come in
-  several parts.</li>
+<li><strong>Connecting does not stop the machine</strong>; <code>enter-cpu-step</code> does. Leaving
+  (or <code>quit</code>) resumes it if the stop was the client's own and nothing else is
+  attached; with JNEXT's debugger window open, or another remote debugger
+  connected, it stays paused and the pause becomes theirs.</li>
+<li><strong>Breakpoints are the session's.</strong> They start disabled, as in ZEsarUX
+  (<code>enable-breakpoints</code> turns them on), and they are removed when the client
+  leaves. Conditions are ZEsarUX's (<code>PC=8000H</code>, <code>SP&gt;=65280</code>,
+  <code>A&lt;&gt;0 AND (HL&amp;FFH)=5</code>, ...).</li>
+<li><strong>The history, the coverage and the call tracking are the machine's.</strong> A
+  client that turns one on turns it off again when it leaves; one that was
+  already on — the trace you enabled in the debugger window — stays on.</li>
+<li><strong><code>snapshot-save</code> / <code>snapshot-load</code> keep the snapshot in memory</strong>, for that
+  session only; nothing is written to disk. Save it with the machine paused
+  while it runs, not stopped at a breakpoint (a breakpoint stops it
+  mid-frame). To keep a snapshot on disk, save a <code>.jns</code> file from JNEXT's File
+  menu.</li>
+<li><strong><code>smartload</code>, <code>load-binary</code> and <code>save-binary</code> read and write files on the
+  computer running JNEXT</strong>, like ZEsarUX. Keep the server on <code>127.0.0.1</code> (the
+  default) unless you trust the network: ZRCP has no authentication.</li>
 </ul>
-<p>Everything else is refused with an error. In practice:</p>
-<ul>
-<li>A program that only checks its drive or saves a high score runs normally.</li>
-<li>A program that needs data files from disk (levels, music, a configuration
-  file) stops with its own error message, or runs with parts missing. NXtel,
-  for example, says it cannot read <code>NXTEL.CFG</code>.</li>
-</ul>
-<p>There are two ways round that. The first is
-<a href="08-host-files-for-a-loaded-program.html"><code>--esxdos-stub-root</code></a>, which hands a
-directly loaded program a real directory on your computer to read its files
-from — the quickest route while you are developing one. The second is to do
-what a real Next does: boot NextZXOS from the SD card image and start the
-program from the <strong>Browser</strong>, with its files next to it on the card. Many
-programs, games included, are already on the image JNEXT uses by default. To
-add your own, copy each file in with JNEXT itself:</p>
-<pre><code>jnext --sdcard-file-add game.nex --sdcard-file-dest /DEMOS/game.nex
-</code></pre>
-<p>That copies one host file into the card and exits without starting the
-machine, creating any missing directories on the way; <code>--sdcard-file-force</code>
-lets it replace a file that is already there. For a whole directory at once,
-any tool that writes FAT32 disk images — <code>mcopy</code> from mtools, say — still
-works.</p>
-<p>(A NEX file whose header asks to keep its own file open can also read that
-file, and read files next to it, when loaded directly. It cannot write them.)</p>
-<h2 id="the-machine-a-nex-file-starts-on">The machine a NEX file starts on<a class="headerlink" href="#the-machine-a-nex-file-starts-on" title="Permanent link">&para;</a></h2>
-<p>Loading a NEX file directly still starts it on a Next that the firmware made.
-There is no option for this and nothing to turn on:</p>
-<pre><code>jnext game.nex
-</code></pre>
-<p>The first time you load a NEX file with a given SD card image, JNEXT cold-boots
-that image the way it does with no arguments — the FPGA boot ROM, then
-<code>TBBLUE.FW</code>, then NextZXOS — and saves the resulting machine under
-<code>~/.jnext/warm-start/</code>. That takes about three and a half seconds, and JNEXT
-prints a line saying it is doing it and another when it is done. Every load
-after that restores the saved machine instead of booting.</p>
-<p>What your program gets is a Next with NextZXOS resident and its ROM paged in —
-the environment a NEX file is written for, because on real hardware every NEX
-file is launched by NextZXOS. The alternative, which is what JNEXT did before
-version 1.0.11, is a machine JNEXT assembles: its settings are JNEXT's idea of
-what the firmware would have left rather than what it actually left, and some
-of them are states real hardware never reaches.</p>
-<p>This does not replace booting NextZXOS from the card. The program still starts
-directly, so the section above still applies: files next to it on your computer
-are not visible to it. What changes is the machine underneath.</p>
-<h3 id="when-it-cannot-be-done">When it cannot be done<a class="headerlink" href="#when-it-cannot-be-done" title="Permanent link">&para;</a></h3>
-<p>JNEXT never falls back quietly. If it cannot record or restore the machine it
-prints an error naming the reason and starts the program on the assembled
-machine instead. The reasons are:</p>
-<ul>
-<li>no SD card image is mounted, so there is no firmware to boot;</li>
-<li>the card has no firmware on it, or the boot does not end with NextZXOS
-  resident;</li>
-<li>the saved machine will not load back, or is not NextZXOS-resident once it
-  has been through a file.</li>
-</ul>
-<p>The 48K, 128K and +3 are not one of those cases: they run no firmware at all,
-so there is nothing to record and nothing is reported. The same goes for tapes
-and snapshots, which are loaded by mechanisms a NextZXOS-resident machine does
-not have — a snapshot replaces the whole machine, and a tape is read through a
-48K ROM routine that is not paged in. Those load exactly as they always have.</p>
-<h3 id="where-it-is-kept-and-refreshing-it">Where it is kept, and refreshing it<a class="headerlink" href="#where-it-is-kept-and-refreshing-it" title="Permanent link">&para;</a></h3>
-<p>The saved machine is recorded from <em>your</em> image, on your computer, and is never
-shipped with JNEXT: it contains NextZXOS's own ROM, and JNEXT does not
-redistribute firmware — which is also why it downloads the SD card image rather
-than including one.</p>
-<p>It is one file per machine type, a little over 100 KB, keyed by the contents of
-the SD card image, the machine type and the save format. Change any of those —
-replace the image, switch machine, install a JNEXT update that changes the
-format — and it re-records itself on the next load. Checking that key means
-reading the whole card image each time a NEX file is loaded, which costs about
-half a second on a 1 GB image; it is what stops a recording of one card being
-served to another.</p>
-<p>If you update <code>TBBLUE.FW</code> or NextZXOS on the card in a way you want re-recorded
-straight away, <code>--warm-start-regenerate</code> forces it:</p>
-<pre><code>jnext --warm-start-regenerate game.nex
-</code></pre>
-<hr />
 
 
 
@@ -3137,10 +3151,10 @@ straight away, <code>--warm-start-regenerate</code> forces it:</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.indexes", "toc.integrate", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.indexes", "toc.integrate", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>

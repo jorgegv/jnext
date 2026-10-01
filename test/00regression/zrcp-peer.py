@@ -330,8 +330,109 @@ def sc_m2(port):
             "SP>=65280 step-over and PEEKW step-out at 8003")
 
 
+def make_sna48(path, program, at=0x8000, sp=0xFF00):
+    """A 48K .sna (27-byte header + 48 KB of RAM) whose PC, popped from the
+    stack by the loader, is `at`, with `program` there, interrupts off."""
+    ram = bytearray(48 * 1024)
+    ram[at - 0x4000:at - 0x4000 + len(program)] = program
+    sp_saved = sp - 2
+    ram[sp_saved - 0x4000] = at & 0xFF
+    ram[sp_saved - 0x4000 + 1] = at >> 8
+    header = struct.pack("<BHHHHHHHHHBBHHBB", 0x3F, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                         0x00, 0, 0xFFFF, sp_saved, 1, 7)
+    with open(path, "wb") as f:
+        f.write(header + bytes(ram))
+
+
+def sc_m3(port, tmpdir):
+    """§6.2 item 7 and WP-5 live: smartload of a .sna, cpu-history (get 0 after
+    three steps), coverage, extended-stack, load-binary / save-binary, and a
+    snapshot-save / snapshot-load round trip."""
+    import os
+    z = Zrcp(port)
+    check(z.reply() == WELCOME, "the welcome is not ZEsarUX's, byte for byte")
+    check(z.cmd("enter-cpu-step") == b"\n" + PROMPT_STEP, "enter-cpu-step")
+
+    # smartload a .sna: 8000 CALL 8010 / LD A,5 / NOP / JR $ ; 8010 NOP / RET
+    sna = os.path.join(tmpdir, "zrcp-m3.sna")
+    prog = bytes([0xCD, 0x10, 0x80, 0x3E, 0x05, 0x00, 0x18, 0xFE]) + bytes(8) + bytes([0x00, 0xC9])
+    make_sna48(sna, prog)
+    check(z.cmd('smartload "%s"' % sna) == b"\n" + PROMPT_STEP, "smartload of a .sna")
+    r = z.cmd("get-registers")
+    regs = dezog_regs(r[:-len(b"\n" + PROMPT_STEP)])
+    check(regs["PC="] == 0x8000 and regs["SP="] == 0xFF00,
+          "after smartload PC=%04x SP=%04x, wanted 8000 / ff00" % (regs["PC="], regs["SP="]))
+
+    # DeZog's initAfterLoad.
+    check(z.cmd("cpu-code-coverage enabled yes") == b"\n" + PROMPT_STEP, "coverage on")
+    check(z.cmd("cpu-code-coverage clear") == b"\n" + PROMPT_STEP, "coverage clear")
+    for line in ("cpu-history enabled yes", "cpu-history set-max-size 10000", "cpu-history clear",
+                 "cpu-history started yes", "cpu-history ignrephalt yes",
+                 "cpu-history ignrepldxr yes"):
+        check(z.cmd(line) == b"\n" + PROMPT_STEP, "%s did not answer empty" % line)
+    check(z.cmd("extended-stack enabled no") == b"Error. Already disabled\n" + PROMPT_STEP,
+          "extended-stack enabled no (DeZog's first, error suppressed)")
+    check(z.cmd("extended-stack enabled yes") == b"\n" + PROMPT_STEP, "extended-stack on")
+
+    # Step CALL / NOP / RET; the call is typed on the stack after the first.
+    stop_shape(z.cmd("cpu-step"), 0x8010)
+    check(z.cmd("extended-stack get 1") == b"8003H call\n\n" + PROMPT_STEP,
+          "extended-stack get 1 after the CALL is not the typed return address")
+    stop_shape(z.cmd("cpu-step"), 0x8011)
+    stop_shape(z.cmd("cpu-step"), 0x8003)
+
+    # 7. cpu-history get 0 is the third step (RET at 8011), as DeZog reads it.
+    h = z.cmd("cpu-history get 0")
+    check(h.endswith(b" \n" + PROMPT_STEP), "cpu-history get 0: no trailing space: %r" % h[-40:])
+    line = h[:-len(b"\n" + PROMPT_STEP)].decode("latin1")
+    check(line.startswith("PC=8011 "), "cpu-history get 0 is not the newest step: %r" % line[:40])
+    check(re.search(r" \(PC\)=c9[0-9a-f]{6} ", line) is not None, "(PC)= not RET's bytes: %r" % line)
+    check(" (SP)=8003 " in line, "(SP)= not the return address: %r" % line)
+    check(re.search(r" MMU=[0-9a-f]{32} $", line) is not None, "no MMU= field: %r" % line)
+    check(z.cmd("cpu-history get 3") == b"ERROR: index out of range\n" + PROMPT_STEP,
+          "cpu-history get 3 past the end")
+
+    # Coverage: the three executed addresses, ascending, then clear.
+    check(z.cmd("cpu-code-coverage get") == b"8000 8010 8011 \n" + PROMPT_STEP,
+          "cpu-code-coverage get is not the three executed addresses")
+
+    # load-binary / save-binary through files on the host.
+    src = os.path.join(tmpdir, "zrcp-m3-in.bin")
+    out = os.path.join(tmpdir, "zrcp-m3-out.bin")
+    with open(src, "wb") as f:
+        f.write(bytes([0x12, 0x34, 0x56]))
+    check(z.cmd('load-binary "%s" 36864 0' % src) == b"\n" + PROMPT_STEP, "load-binary")
+    check(z.cmd("read-memory 36864 3") == b"123456\n" + PROMPT_STEP, "load-binary landed wrong")
+    check(z.cmd('save-binary "%s" 36864 3' % out) == b"\n" + PROMPT_STEP, "save-binary")
+    with open(out, "rb") as f:
+        check(f.read() == bytes([0x12, 0x34, 0x56]), "save-binary wrote the wrong bytes")
+
+    # snapshot-save at a frame boundary (a pause while running lands on one),
+    # a step, then snapshot-load brings PC back.
+    check(z.cmd("exit-cpu-step") == b"\n" + PROMPT, "exit-cpu-step")
+    time.sleep(0.2)
+    check(z.cmd("enter-cpu-step") == b"\n" + PROMPT_STEP, "enter-cpu-step again")
+    pc0 = dezog_regs(z.cmd("get-registers")[:-len(b"\n" + PROMPT_STEP)])["PC="]
+    saved = z.cmd("snapshot-save state.zsf")
+    check(saved == b"\n" + PROMPT_STEP, "snapshot-save at a pause: %r" % saved)
+    z.cmd("set-register PC=8010H")
+    check(z.cmd("snapshot-load state.zsf") == b"\n" + PROMPT_STEP, "snapshot-load")
+    pc1 = dezog_regs(z.cmd("get-registers")[:-len(b"\n" + PROMPT_STEP)])["PC="]
+    check(pc1 == pc0, "snapshot-load: PC %04x, saved at %04x" % (pc1, pc0))
+
+    # DeZog's disconnect.
+    for l in ("cpu-history enabled no", "cpu-code-coverage enabled no", "extended-stack enabled no"):
+        check(z.cmd(l) == b"\n" + PROMPT_STEP, "%s" % l)
+    z.s.sendall(b"quit\n")
+    check(z.goodbye() == b"Sayonara baby\n", "quit did not say goodbye")
+    z.close()
+    return ("smartload .sna at 8000, history get 0 = RET at 8011 with (SP)=8003, coverage "
+            "8000 8010 8011, CALL typed, load/save-binary, snapshot round trip at %04x" % pc0)
+
+
 SCENARIOS = {
     "m1": sc_m1,
+    "m3": sc_m3,
     "m2": sc_m2,
     "smoke": sc_smoke,
 }

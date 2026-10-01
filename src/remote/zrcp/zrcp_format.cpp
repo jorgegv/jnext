@@ -69,6 +69,45 @@ std::string register_line(const Z80Registers& r,
     return out;
 }
 
+std::string history_line(const ::TraceEntry& e, const std::array<std::uint16_t, 8>& mmu) {
+    char buf[320];
+    std::snprintf(buf, sizeof(buf),
+                  "PC=%04x SP=%04x AF=%04x BC=%04x HL=%04x DE=%04x IX=%04x IY=%04x "
+                  "AF'=%04x BC'=%04x HL'=%04x DE'=%04x I=%02x R=%02x IM%u IFF%c%c "
+                  "(PC)=%02x%02x%02x%02x (SP)=%04x "
+                  "MMU=%04x%04x%04x%04x%04x%04x%04x%04x ",
+                  e.pc, e.sp, e.af, e.bc, e.hl, e.de, e.ix, e.iy, e.af2, e.bc2, e.hl2, e.de2,
+                  e.i, e.r, static_cast<unsigned>(e.im), e.iff1 ? '1' : '-', e.iff2 ? '2' : '-',
+                  e.opcode_bytes[0], e.opcode_bytes[1], e.opcode_bytes[2], e.opcode_bytes[3],
+                  e.sp_word, mmu[0], mmu[1], mmu[2], mmu[3], mmu[4], mmu[5], mmu[6], mmu[7]);
+    return buf;
+}
+
+std::vector<std::string> split_quoted_args(const std::string& text) {
+    std::vector<std::string> out;
+    std::size_t at = 0;
+    while (at < text.size()) {
+        const std::size_t start = at;
+        bool in_quotes = false, quoted = false, escaped = false;
+        while (at < text.size() && (text[at] != ' ' || in_quotes)) {
+            if (text[at] == '"' && !escaped) {
+                in_quotes = !in_quotes;
+                quoted    = true;
+            }
+            escaped = text[at] == '\\';
+            ++at;
+        }
+        std::string arg = text.substr(start, at - start);
+        if (quoted && !arg.empty()) {
+            arg.erase(0, 1);
+            if (!arg.empty()) arg.pop_back();
+        }
+        out.push_back(arg);
+        if (at < text.size()) ++at;  // the separating space
+    }
+    return out;
+}
+
 std::string strip_dollar(const std::string& mnemonic) {
     std::string out;
     out.reserve(mnemonic.size());

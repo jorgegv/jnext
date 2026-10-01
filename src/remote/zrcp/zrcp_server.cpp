@@ -252,6 +252,23 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
      "Close all open menus. jnext has no menu a remote client could have opened, so it does "
      "nothing",
      CommandClass::Served, &ZrcpServer::cmd_empty},
+    {"cpu-code-coverage", nullptr, "action [parameter]",
+     "Sets cpu code coverage parameters: enabled yes|no, clear, get (the executed addresses "
+     "since the last clear, %04X and a space each, ascending). The coverage is the machine's: "
+     "it starts with the first client that enables it and this session turns off only what it "
+     "turned on",
+     CommandClass::Served, &ZrcpServer::cmd_cpu_code_coverage},
+    {"cpu-history", nullptr, "action [parameter]",
+     "Runs cpu history actions: enabled yes|no, is-enabled, started yes|no, is-started, "
+     "set-max-size n (1 to 1000000; ZEsarUX allows 10000000, a jnext entry is 56 bytes), "
+     "get-max-size, get-size, clear, get i (0 = the newest), get-pc start n, ignrephalt "
+     "yes|no, ignrepldxr yes|no. The history is jnext's trace log: started is recorded but "
+     "the history records while it is enabled; ignrephalt / ignrepldxr filter the view (a "
+     "run of HALTs or LDIR / LDDR shows its first entry), so they apply to entries already "
+     "recorded too; MMU is the get-registers projection, a ROM slot recognised by the "
+     "current mapping. Declined in jnext: get-extended (jnext records no paging-port "
+     "values) and restore (use the jnext debugger's Step Back)",
+     CommandClass::Served, &ZrcpServer::cmd_cpu_history},
     U("cpu-panic", nullptr),
     {"cpu-step", "|cs", nullptr,
      "Run single opcode cpu step. Needs cpu-step mode. The reply is the register line with "
@@ -296,6 +313,14 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
     {"exit-emulator", nullptr, nullptr,
      "Declined in jnext: a remote client must not be able to end the user's emulator session",
      CommandClass::Declined, nullptr},
+    {"extended-stack", nullptr, "action [parameter]",
+     "Sets extended stack parameters: enabled yes|no, clear, get n [index] (n stack words "
+     "from SP, or from index, as %04XH and its type). The type is call, rst, "
+     "maskable_interrupt or non_maskable_interrupt for a return address jnext's call "
+     "tracking pushed there, default for anything else (jnext does not tell push from "
+     "default). clear does nothing in jnext: tracking forgets a frame when its return pops "
+     "it",
+     CommandClass::Served, &ZrcpServer::cmd_extended_stack},
     U("find-label", nullptr),
     {"generate-nmi", nullptr, nullptr,
      "Generates a NMI: presses the Multiface NMI button (what jnext's F9 does)",
@@ -386,6 +411,11 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
     U("hexdump-internal", nullptr),
     U("ifrom-press-button", nullptr),
     U("kartusho-press-button", nullptr),
+    {"load-binary", nullptr, "file address length",
+     "Load binary file \"file\" at address with length, into the CPU view (a write to ROM is "
+     "ignored, an address past FFFFH wraps). length 0 loads the whole file (4 MB at most). "
+     "The file is on the host running jnext",
+     CommandClass::Served, &ZrcpServer::cmd_load_binary},
     U("load-source-code", "|lsc"),
     {"ls", nullptr, nullptr, "Minimal command list", CommandClass::Served, &ZrcpServer::cmd_ls},
     U("mmc-reload", nullptr),
@@ -414,6 +444,10 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
      "Declined in jnext: verbose, no-stop-on-data (it makes the connection unusable) and "
      "update-immediately",
      CommandClass::Served, &ZrcpServer::cmd_run},
+    {"save-binary", nullptr, "file address length",
+     "Save binary file \"file\" from address with length, from the CPU view. length 0 saves "
+     "64 KB. The file is on the host running jnext",
+     CommandClass::Served, &ZrcpServer::cmd_save_binary},
     U("save-binary-internal", nullptr),
     U("save-screen", nullptr),
     U("send-keys-ascii", nullptr),
@@ -469,8 +503,24 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
     U("set-ui-io-ports", nullptr),
     U("set-verbose-level", nullptr),
     U("set-window-zoom", nullptr),
+    {"smartload", "|sl", "file",
+     "Smart-loads a .nex, .sna, .szx, .z80, .jns, .tap, .tzx, .wav or .rzx file into the "
+     "machine, as jnext's --load does. A paused machine stays paused, at the program's start. "
+     "The file is on the host running jnext",
+     CommandClass::Served, &ZrcpServer::cmd_smartload},
     U("snapshot-inram-get-index", nullptr),
     U("snapshot-inram-load", nullptr),
+    {"snapshot-load", nullptr, "name",
+     "Restores the snapshot this session saved under name. Divergence from ZEsarUX: a "
+     "snapshot is an in-memory bookmark of this session (name is only a key, nothing is read "
+     "from disk) and it is gone when the session ends",
+     CommandClass::Served, &ZrcpServer::cmd_snapshot_load},
+    {"snapshot-save", nullptr, "name",
+     "Saves the machine as an in-memory snapshot of this session under name (at most 8; a "
+     "name saved again is replaced). Divergence from ZEsarUX: nothing is written to disk (the "
+     "jnext GUI saves .jns files), and the machine must be stopped at a frame boundary — "
+     "pause it while running; a stop at a breakpoint is mid-frame",
+     CommandClass::Served, &ZrcpServer::cmd_snapshot_save},
     U("speech-empty-fifo", nullptr),
     U("speech-send", nullptr),
     {"tbblue-get-clipwindow", nullptr, "ula|layer2|sprite|tilemap",
@@ -670,6 +720,16 @@ void ZrcpServer::end_session() {
     run_limit_               = 0;
     run_remaining_           = 0;
     run_landed_slot_         = -1;
+    // WP-5 — the machine-wide switches this session turned on go off with it;
+    // one that was already on when it asked stays on. The view state goes too.
+    if (hist_.owned) dbg_.set_trace_enabled(false);
+    if (xstack_.owned) dbg_.set_call_stack_enabled(false);
+    if (cov_.owned) dbg_.coverage_enable(false);
+    hist_ = xstack_ = cov_ = Owned{};
+    hist_started_ = ign_halt_ = ign_ldxr_ = false;
+    hist_max_     = 10000;
+    ++hist_gen_;
+    hist_view_.clear();
     // WP-4 — the detach above removed every subscription; the session's map of
     // them goes too, so a next client starts as ZEsarUX does: breakpoints off,
     // every slot empty, no memory breakpoint.
@@ -2192,6 +2252,342 @@ void ZrcpServer::cmd_clear_membreakpoints(const Cmd&) {
     std::fill(mem_types_.begin(), mem_types_.end(), std::uint8_t{0});
     sync_mem_ranges();
     reply("");
+}
+
+// ---------------------------------------------------------------------------
+// WP-5 — history, extended stack, coverage, load (§2.2-2.3, §4.1)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// `remote_eval_yes_no`: "yes", case-insensitively, and nothing else.
+bool is_yes(const std::string& v) { return iequals(v, "yes"); }
+
+constexpr char kNotEnabledNl[] = "Error. It's not enabled\n";  // ZEsarUX's own text, newline included
+constexpr std::uint32_t kHistoryMax = 1000000;
+constexpr std::size_t   kLoadMax    = 4u * 1024 * 1024;  // `load_binary_file`'s 4 MB
+
+}  // namespace
+
+const std::vector<::TraceEntry>& ZrcpServer::history_view() {
+    const auto t = dbg_.time();
+    const std::array<std::uint64_t, 3> key{{t.master_cycle, t.tstates_total,
+                                            hist_gen_ * 4u + (ign_halt_ ? 2u : 0u) +
+                                                (ign_ldxr_ ? 1u : 0u)}};
+    if (key == hist_key_) return hist_view_;
+    hist_key_ = key;
+    hist_view_.clear();
+    const auto all = dbg_.trace_entries();
+    if (!all) return hist_view_;
+    // `cpu_history_add_element`'s rule, as a view: of a run of consecutive HALTs
+    // (or LDIR / LDDR) only the first is kept.
+    int halts = 0, ldxrs = 0;
+    for (const auto& e : all.value) {
+        const bool halt = e.opcode_bytes[0] == 0x76;
+        const bool ldxr = e.opcode_bytes[0] == 0xED &&
+                          (e.opcode_bytes[1] == 0xB0 || e.opcode_bytes[1] == 0xB8);
+        halts = halt ? std::min(halts + 1, 2) : 0;
+        ldxrs = ldxr ? std::min(ldxrs + 1, 2) : 0;
+        if ((ign_halt_ && halts > 1) || (ign_ldxr_ && ldxrs > 1)) continue;
+        hist_view_.push_back(e);
+    }
+    return hist_view_;
+}
+
+// The entry's eight `MMU=` values in the get-registers projection. The entry
+// records each slot's effective page but not whether it was ROM, so a slot is
+// taken as ROM when it is ROM NOW and still holds the same page (§11.9).
+std::array<std::uint16_t, 8> ZrcpServer::history_mmu(const ::TraceEntry& e) const {
+    const auto cur  = dbg_.mmu_slots();
+    const auto type = dbg_.machine().type;
+    std::array<jnext::dbg::SlotInfo, 8> s{};
+    for (std::size_t i = 0; i < 8; ++i) {
+        s[i].effective_page = e.mmu[i];
+        s[i].is_rom         = cur[i].is_rom && cur[i].effective_page == e.mmu[i];
+    }
+    std::array<std::uint16_t, 8> out{};
+    for (int i = 0; i < 8; ++i) out[static_cast<std::size_t>(i)] = mapped_page(s, i, type);
+    return out;
+}
+
+// `cpu-history` (`remote_cpu_history`): ZEsarUX's sub-commands, texts and index
+// rule (`get i`: 0 is the newest), over the trace log (CAP-INS-13).
+void ZrcpServer::cmd_cpu_history(const Cmd& c) {
+    if (c.args.empty()) return reply("ERROR. Needs at least one parameter");
+    const std::string& p     = c.args[0];
+    const std::string  value = c.args.size() > 1 ? c.args[1] : std::string();
+    if (iequals(p, "enabled")) {
+        std::string out;
+        if (is_yes(value)) {
+            if (hist_.on) out = "Error. Already enabled";
+            else {
+                hist_.on = true;
+                if (!dbg_.trace_enabled()) {
+                    dbg_.set_trace_enabled(true);
+                    hist_.owned = true;
+                }
+                ++hist_gen_;
+            }
+        } else {
+            if (!hist_.on) out = "Error. Already disabled";
+            hist_.on = false;
+            if (hist_.owned) dbg_.set_trace_enabled(false);
+            hist_.owned = false;
+            ++hist_gen_;
+        }
+        return reply(out);
+    }
+    if (iequals(p, "ignrephalt")) { ign_halt_ = is_yes(value); return reply(""); }
+    if (iequals(p, "ignrepldxr")) { ign_ldxr_ = is_yes(value); return reply(""); }
+    if (iequals(p, "is-enabled")) return reply(hist_.on ? "1" : "0");
+    if (iequals(p, "is-started")) return reply(hist_started_ ? "1" : "0");
+    if (iequals(p, "restore") || iequals(p, "get-extended")) {
+        if (!hist_.on) return reply(kNotEnabledNl);
+        return reply(iequals(p, "restore")
+                         ? "Error. Unsupported in jnext: cpu-history restore — use the jnext "
+                           "debugger's Step Back"
+                         : "Error. Unsupported in jnext: cpu-history get-extended — jnext "
+                           "records no paging-port values");
+    }
+    const bool known = iequals(p, "started") || iequals(p, "set-max-size") ||
+                       iequals(p, "clear") || iequals(p, "get") || iequals(p, "get-size") ||
+                       iequals(p, "get-max-size") || iequals(p, "get-pc");
+    if (!known) return reply("Error. Unknown parameter");
+    if (!hist_.on) return reply(kNotEnabledNl);
+    if (iequals(p, "started")) {
+        hist_started_ = is_yes(value);
+        return reply("");
+    }
+    if (iequals(p, "set-max-size")) {
+        std::uint32_t n = 0;
+        if (!parse_number(value, n) || n < 1 || n > kHistoryMax)
+            return reply("ERROR: Value out of range");
+        dbg_.trace_resize(n);
+        hist_max_ = n;
+        ++hist_gen_;
+        return reply("");
+    }
+    if (iequals(p, "clear")) {
+        dbg_.trace_clear();
+        ++hist_gen_;
+        return reply("");
+    }
+    if (iequals(p, "get-max-size")) return reply(std::to_string(hist_max_));
+    const auto& view  = history_view();
+    const long  total = static_cast<long>(view.size());
+    if (iequals(p, "get-size")) return reply(std::to_string(total));
+    // `cpu_history_get_*_element`'s three answers for an index.
+    const auto element = [&](long idx, bool pc_only, std::string& out) {
+        if (idx < 0) {
+            out = pc_only ? "ERROR: index can't be negative" : "ERROR: index out of range";
+            return;
+        }
+        if (idx >= total) {
+            out = "ERROR: index beyond total elements (" + std::to_string(total) + ")";
+            return;
+        }
+        const auto& e = view[static_cast<std::size_t>(idx)];
+        if (pc_only) {
+            char buf[8];
+            std::snprintf(buf, sizeof(buf), "%04x", e.pc);
+            out = buf;
+        } else {
+            out = history_line(e, history_mmu(e));
+        }
+    };
+    std::uint32_t i = 0;
+    if (!parse_number(value, i)) i = 0;  // ZEsarUX reads garbage as 0
+    if (iequals(p, "get")) {
+        std::string out;
+        element(total - static_cast<long>(i) - 1, false, out);
+        return reply(out);
+    }
+    // get-pc start n: n PCs from `start` towards the oldest, each "%04x ".
+    std::uint32_t n = 0;
+    if (c.args.size() > 2 && !parse_number(c.args[2], n)) n = 0;
+    long count = std::min<long>(static_cast<long>(n), total);
+    long idx   = total - static_cast<long>(i) - 1;
+    std::string out;
+    for (; count > 0; --count, --idx) {
+        std::string one;
+        element(idx, true, one);
+        out += one + " ";
+    }
+    reply(out);
+}
+
+// `extended-stack` (`remote_extended_stack`): `get n [index]` lists n stack
+// words from SP (or index), each typed by jnext's call tracking (CAP-INS-12):
+// a frame whose return address sits at that word names the push.
+void ZrcpServer::cmd_extended_stack(const Cmd& c) {
+    if (c.args.empty()) return reply("ERROR. Needs at least one parameter");
+    const std::string& p     = c.args[0];
+    const std::string  value = c.args.size() > 1 ? c.args[1] : std::string();
+    if (iequals(p, "enabled")) {
+        std::string out;
+        if (is_yes(value)) {
+            if (xstack_.on) out = "Error. Already enabled";
+            else {
+                xstack_.on = true;
+                if (!dbg_.call_stack_enabled()) {
+                    dbg_.set_call_stack_enabled(true);
+                    xstack_.owned = true;
+                }
+            }
+        } else {
+            if (!xstack_.on) out = "Error. Already disabled";
+            xstack_.on = false;
+            if (xstack_.owned) dbg_.set_call_stack_enabled(false);
+            xstack_.owned = false;
+        }
+        return reply(out);
+    }
+    if (iequals(p, "clear")) return reply("");
+    if (!iequals(p, "get")) return reply("Error. Unknown parameter");
+    if (!xstack_.on) return reply("Error. It's not enabled");
+    std::uint32_t items = 0, from = dbg_.registers().SP;
+    if (!parse_number(value, items)) items = 0;
+    if (items > 0x8000) return reply("Error. Too many items (max 32768)");
+    if (c.args.size() > 2 && !parse_number(c.args[2], from)) from = 0;
+    const auto& frames = dbg_.call_stack();
+    std::string out;
+    char        buf[48];
+    for (std::uint32_t k = 0; k < items; ++k) {
+        const std::uint16_t at = static_cast<std::uint16_t>(from + 2 * k);
+        const auto w = read_cpu(at, 2);
+        const char* type = "default";
+        for (const auto& f : frames)
+            if (f.sp_at_call == at) {
+                switch (f.type) {
+                    case ::CallType::CALL: type = "call"; break;
+                    case ::CallType::RST:  type = "rst"; break;
+                    case ::CallType::INT:  type = "maskable_interrupt"; break;
+                    case ::CallType::NMI:  type = "non_maskable_interrupt"; break;
+                }
+                break;
+            }
+        std::snprintf(buf, sizeof(buf), "%04XH %s\n", static_cast<unsigned>(w[0] | (w[1] << 8)),
+                      type);
+        out += buf;
+    }
+    reply(out);
+}
+
+// `cpu-code-coverage` (`remote_cpu_code_coverage`) over CAP-INS-20.
+void ZrcpServer::cmd_cpu_code_coverage(const Cmd& c) {
+    if (c.args.empty()) return reply("ERROR. Needs at least one parameter");
+    const std::string& p     = c.args[0];
+    const std::string  value = c.args.size() > 1 ? c.args[1] : std::string();
+    if (iequals(p, "enabled")) {
+        std::string out;
+        if (is_yes(value)) {
+            if (cov_.on) out = "Error. Already enabled";
+            else {
+                cov_.on = true;
+                if (!dbg_.coverage_enabled()) {
+                    dbg_.coverage_enable(true);
+                    cov_.owned = true;
+                }
+            }
+        } else {
+            if (!cov_.on) out = "Error. Already disabled";
+            cov_.on = false;
+            if (cov_.owned) dbg_.coverage_enable(false);
+            cov_.owned = false;
+        }
+        return reply(out);
+    }
+    if (iequals(p, "clear")) {
+        dbg_.coverage_clear();
+        return reply("");
+    }
+    if (!iequals(p, "get")) return reply("Error. Unknown parameter");
+    if (!cov_.on) return reply("Error. It's not enabled");
+    const auto& bits = dbg_.coverage();
+    std::string out;
+    char        buf[8];
+    for (std::size_t a = 0; a < bits.size(); ++a)
+        if (bits[a]) {
+            std::snprintf(buf, sizeof(buf), "%04X ", static_cast<unsigned>(a));
+            out += buf;
+        }
+    reply(out);
+}
+
+// `load-binary "file" address length` (`load_binary_file`).
+void ZrcpServer::cmd_load_binary(const Cmd& c) {
+    const auto a = split_quoted_args(c.params);
+    if (a.size() < 3) return reply("ERROR. Needs three parameters");
+    std::uint32_t addr = 0, len = 0;
+    if (!parse_addr(a[1], addr)) return reply("Error. Invalid address: " + a[1]);
+    if (!parse_number(a[2], len)) return reply("Error. Invalid length: " + a[2]);
+    std::FILE* f = std::fopen(a[0].c_str(), "rb");
+    if (!f) return reply("ERROR loading file");
+    if (len == 0 || len > kLoadMax) len = kLoadMax;
+    std::vector<std::uint8_t> bytes(len);
+    const std::size_t got = std::fread(bytes.data(), 1, bytes.size(), f);
+    std::fclose(f);
+    bytes.resize(got);
+    // The CPU view wraps at FFFFH; a write to ROM lands nowhere (as ZEsarUX).
+    for (std::size_t off = 0; off < bytes.size(); off += 0x10000) {
+        const std::size_t n = std::min<std::size_t>(0x10000, bytes.size() - off);
+        dbg_.poke(cid_, MemSpace::cpu(), static_cast<std::uint16_t>(addr + off), n, bytes.data() + off);
+    }
+    reply("");
+}
+
+// `save-binary "file" address length` (`save_binary_file`). ZEsarUX answers a
+// failure "ERROR loading file" here too; so does jnext.
+void ZrcpServer::cmd_save_binary(const Cmd& c) {
+    const auto a = split_quoted_args(c.params);
+    if (a.size() < 3) return reply("ERROR. Needs three parameters");
+    std::uint32_t addr = 0, len = 0;
+    if (!parse_addr(a[1], addr)) return reply("Error. Invalid address: " + a[1]);
+    if (!parse_number(a[2], len)) return reply("Error. Invalid length: " + a[2]);
+    if (len == 0) len = 0x10000;
+    if (len > kMaxMemLen) return reply("Error. Invalid length: " + a[2]);
+    const auto bytes = read_cpu(addr, len);
+    std::FILE* f     = std::fopen(a[0].c_str(), "wb");
+    if (!f) return reply("ERROR loading file");
+    const bool ok = std::fwrite(bytes.data(), 1, bytes.size(), f) == bytes.size();
+    const bool closed = std::fclose(f) == 0;
+    reply(ok && closed ? "" : "ERROR loading file");
+}
+
+// `smartload "file"` — CAP-CTL-15, the --load path (REQ-zrcp-12).
+void ZrcpServer::cmd_smartload(const Cmd& c) {
+    const auto a = split_quoted_args(c.params);
+    if (a.empty() || a[0].empty()) return reply("ERROR. No parameter set");
+    const Result r = dbg_.load(cid_, a[0]);
+    if (r == Result::Ok) return reply("");
+    if (r == Result::RefusedCorrupt) return reply(kCorrupt);
+    Log::debugger()->warn("zrcp: smartload \"{}\": {}", a[0], result_name(r));
+    reply("Error. Unknown file format");
+}
+
+// `snapshot-save name` / `snapshot-load name` — this session's in-memory
+// bookmarks (CAP-CAP-03, REQ-zrcp-13 DECIDED). Only at a frame boundary, for
+// DZRP's reason: DeZog does not re-read the registers after a save, so the
+// advance to one would leave its cached PC behind the machine.
+void ZrcpServer::cmd_snapshot_save(const Cmd& c) {
+    if (c.params.empty()) return reply("ERROR. No parameter set");
+    const Result r = dbg_.bookmark_save(cid_, c.params, jnext::dbg::SaveStateMode::RefuseMidFrame);
+    if (r == Result::Ok) return reply("");
+    if (r == Result::NotAtFrameBoundary)
+        return reply("Error. The machine is stopped mid-frame: a snapshot can be saved at a frame "
+                     "boundary (pause it while it runs)");
+    if (r == Result::RefusedUnavailable && dbg_.bookmarks(cid_).size() >= 8)
+        return reply("Error. Too many snapshots in this session (8)");
+    reply(refusal_text(r, "snapshot-save"));
+}
+
+void ZrcpServer::cmd_snapshot_load(const Cmd& c) {
+    if (c.params.empty()) return reply("ERROR. No parameter set");
+    const auto held = dbg_.bookmarks(cid_);
+    if (std::find(held.begin(), held.end(), c.params) == held.end())
+        return reply("Error. No snapshot saved under that name in this session");
+    const Result r = dbg_.bookmark_restore(cid_, c.params);
+    reply(r == Result::Ok ? std::string() : refusal_text(r, "snapshot-load"));
 }
 
 }  // namespace zrcp

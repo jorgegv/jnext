@@ -255,6 +255,27 @@ private:
     void cmd_set_breakpoint(const Cmd& c);
     void cmd_set_breakpointaction(const Cmd& c);
     void cmd_set_membreakpoint(const Cmd& c);
+    // WP-5 — history, stack, coverage, load (§2.2-2.3, §4.1).
+    void cmd_cpu_code_coverage(const Cmd& c);
+    void cmd_cpu_history(const Cmd& c);
+    void cmd_extended_stack(const Cmd& c);
+    void cmd_load_binary(const Cmd& c);
+    void cmd_save_binary(const Cmd& c);
+    void cmd_smartload(const Cmd& c);
+    void cmd_snapshot_load(const Cmd& c);
+    void cmd_snapshot_save(const Cmd& c);
+
+    /// `cpu-history`'s view of the trace: oldest first, with the session's
+    /// `ignrephalt` / `ignrepldxr` filters applied. Rebuilt only when the
+    /// machine has moved or the trace or a filter changed (`hist_key_`).
+    const std::vector<::TraceEntry>& history_view();
+    std::array<std::uint16_t, 8> history_mmu(const ::TraceEntry& e) const;
+    /// What a session switch owns of a machine-wide one: turned on by this
+    /// session, so its `enabled no` / end turns it off; on already, it is left.
+    struct Owned {
+        bool on    = false;  ///< this session's view: enabled
+        bool owned = false;  ///< this session switched the backend on
+    };
 
     /// ZEsarUX's "On Change" (`debug_breakpoints_conditions_saltado`) for a
     /// PC-free slot: its condition's value at the last boundary it was
@@ -341,6 +362,18 @@ private:
     std::vector<MemRange>               mem_ranges_;
     /// Lines a print action produced at a boundary, sent at the next callback.
     std::vector<std::string>            pending_logs_;
+
+    // §4.1 — history, extended stack, coverage (WP-5).
+    Owned          hist_;
+    bool           hist_started_ = false;
+    bool           ign_halt_     = false;
+    bool           ign_ldxr_     = false;
+    std::uint32_t  hist_max_     = 10000;   // the TraceLog's own default capacity
+    std::uint64_t  hist_gen_     = 0;       // bumped by clear / resize / enable / a filter
+    std::array<std::uint64_t, 3> hist_key_{{~0ull, ~0ull, ~0ull}};
+    std::vector<::TraceEntry> hist_view_;
+    Owned          xstack_;
+    Owned          cov_;
 };
 
 }  // namespace zrcp

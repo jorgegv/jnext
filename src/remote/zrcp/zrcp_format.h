@@ -62,6 +62,19 @@ std::uint16_t mapped_page(const std::array<jnext::dbg::SlotInfo, 8>& slots, int 
 std::string register_line(const Z80Registers& r,
                           const std::array<jnext::dbg::SlotInfo, 8>& slots, MachineType type);
 
+/// `cpu-history get i` (ZEsarUX `cpu_history_legacy_regs_bin_to_string`): one
+/// entry, byte for byte — lower-case hex, `HL` before `DE`, `IM%d IFF%c%c`,
+/// `(PC)=` the four opcode bytes in fetch order, `(SP)=` the word at SP, the
+/// eight `mmu` values, and the trailing space ZEsarUX leaves where its
+/// memory-access list would be (jnext records none). No newline.
+std::string history_line(const ::TraceEntry& e, const std::array<std::uint16_t, 8>& mmu);
+
+/// The quoted argument split ZEsarUX's file commands use
+/// (`util_parse_commands_argvc_comillas`): spaces separate arguments except
+/// inside double quotes, and an argument that contained a quote loses its
+/// first and last character (`"my file.nex"` -> `my file.nex`).
+std::vector<std::string> split_quoted_args(const std::string& text);
+
 /// A disassembly mnemonic in ZEsarUX's spelling: jnext's `$XXXX` operands lose
 /// their `$` (`JR $0136` -> `JR 0136`), and nothing else changes.
 std::string strip_dollar(const std::string& mnemonic);

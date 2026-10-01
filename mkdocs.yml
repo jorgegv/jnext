@@ -104,6 +104,7 @@ nav:
           - Changing the keys: 06-debugger/functions/09-changing-the-keys.md
           - Remote debugging with DeZog: 06-debugger/functions/10-remote-debugging-with-dezog.md
           - Debugging with z88dk-gdb: 06-debugger/functions/11-debugging-with-z88dk-gdb.md
+          - Remote debugging over ZRCP: 06-debugger/functions/12-remote-debugging-over-zrcp.md
   - 7. Automation and CI:
       - 07-automation-and-ci/index.md
       - 7.1 Headless mode: 07-automation-and-ci/01-headless-mode.md

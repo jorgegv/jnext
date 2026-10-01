@@ -75,7 +75,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP-2** | formatters | **done** |
 | **WP-3** | control / run | **done** |
 | **WP-4** | breakpoints + conditions — **needs S's WP1**, the DSL's `compile_expr` exported as a library. §11 item 8: whether that library covers ZRCP's honoured condition subset without a fallback parser is measured here (answer: §11.8) | **done** |
-| **WP-5** | history / coverage / load | todo |
+| **WP-5** | history / coverage / load (record: §11.9) | in review |
 | **WP-6** | fixtures + docs | todo |
 
 WP-2..WP-5 may run in parallel after WP-1. Depends on: B0 (landed), B, T; WP-4 also on S WP1.
@@ -964,12 +964,9 @@ Suite: `zrcp_adapter_test` (111 rows after review round 1, `gate: none`). Regres
 - **WP-3 (8):** `enter-cpu-step|encs`, `exit-cpu-step|ecs`, `cpu-step|cs`,
   `cpu-step-over|cso`, `run|r` (+ *n*), `hard-reset-cpu`, `reset-cpu`,
   `generate-nmi`.
-- **Pending (8, WP-5):** `extended-stack`, `cpu-history`,
-  `cpu-code-coverage`, `smartload`, `load-binary`, `save-binary`,
-  `snapshot-save/-load`. They answer `Unknown command` until their package
-  adds their rows; row `ZRCP-TAB-01` pins the list against ZEsarUX's 125
-  names, so it can only shrink. (Milestone 2 served WP-4's twelve — §11.7 —
-  and the list went from 20 to 8.)
+- **Pending: none.** Milestone 2 served WP-4's twelve (§11.7) and milestone 3
+  WP-5's eight (§11.9): all of §2's 67. Row `ZRCP-TAB-01` pins the table
+  against ZEsarUX's 125 names.
 
 ### 11.2 The run state machine as built
 
@@ -1306,4 +1303,72 @@ at the PC's own slot (`EVT-PROBE-14`). Review round 1 found the first, interim c
   other clients wherever a slot of this session covered the PC — which a
   PC-free slot does everywhere — and could not evaluate their conditions; both
   are gone.
+
+### 11.9 Milestone 3 — WP-5, history / stack / coverage / load
+
+**Served (8):** `cpu-history`, `cpu-code-coverage`, `extended-stack`,
+`smartload|sl`, `load-binary`, `save-binary`, `snapshot-save`,
+`snapshot-load`. 67 served, 1 declined, 57 unsupported (`ZRCP-TAB-01`).
+Oracles: ZEsarUX 12.0's `remote.c` (`remote_cpu_history`,
+`remote_extended_stack`, `remote_cpu_code_coverage`, the file and snapshot
+handlers), `debug.c` (`cpu_history_legacy_regs_bin_to_string`, the index rule,
+`push_value_types_strings`, the repeated-HALT/LDxR rule), `utils.c`
+(`load_binary_file`, `save_binary_file`, `util_parse_commands_argvc_comillas`);
+DeZog's `zesaruxremote.ts` / `zesaruxcpuhistory.ts` (init, every-step `get`,
+`extended-stack get` typing, coverage `get` + `clear`, `smartload "…"`,
+`load-binary "…" <decimal> 0`, `snapshot-save <path>.zsf`).
+
+**Deviations and precisions:**
+
+1. **The history is jnext's trace log** (CAP-INS-13). `get i` (0 = newest),
+   `get-pc`, `get-size`, the index errors and the line are ZEsarUX's, byte for
+   byte, with the memory-access list empty (jnext records none — the trailing
+   space stays). `started` is recorded but the history records while it is
+   `enabled`. `set-max-size` takes 1..1000000 (ZEsarUX 10000000; a jnext
+   entry is 56 bytes). `ignrephalt` / `ignrepldxr` are a VIEW over the
+   recorded entries, ZEsarUX's rule (the first of a run of HALTs / LDIR /
+   LDDR is kept) applied when read, so they also apply to entries recorded
+   before they were set. `get-max-size` is the size this session set (the
+   trace log's own default, 10000, before).
+2. **`MMU=` in a history entry** is the get-registers projection
+   (`mapped_page`), built from the entry's eight effective pages. The entry
+   does not record whether a slot was ROM (`TraceEntry` has no such field),
+   so a slot is taken as ROM when it is ROM now and still holds the same page
+   — exact unless the program switched a slot between ROM and RAM since the
+   entry. **Frozen-header need, reported, not made:** a per-slot ROM flag (a
+   byte mask) in `TraceEntry`, filled by the recorder.
+3. **Declined:** `cpu-history get-extended` (it adds paging-port values the
+   entry does not hold — the same header need) and `restore` (use the jnext
+   debugger's Step Back), each by name with the reason.
+4. **Machine-wide switches.** The trace, the coverage and call tracking are
+   the machine's, not the session's. A session's `enabled yes` switches the
+   backend on only if it was off, and its `enabled no` — or its end — turns off
+   only what it turned on; `Already enabled` / `Already disabled` follow the
+   session's own state (`ZRCP-HIS-09`, `ZRCP-XST-02`).
+5. **`extended-stack get`** reads each word from memory now and types it from
+   jnext's call tracking: a frame whose return address is at that word gives
+   `call`, `rst`, `maskable_interrupt` or `non_maskable_interrupt`; anything
+   else is `default` (jnext does not tell `push` from `default`; DeZog keys
+   only on the other four). `clear` answers empty and does nothing: the
+   tracker forgets a frame when its return pops it, and the backend publishes
+   no call-stack clear.
+6. **`snapshot-save` / `snapshot-load`** are this session's in-memory
+   bookmarks (CAP-CAP-03, REQ-zrcp-13 DECIDED): the name is only a key, at
+   most 8, gone with the session. `snapshot-save` refuses mid-frame
+   (`RefuseMidFrame`), for DZRP's reason: DeZog does not re-read the
+   registers after a save, so an advance would leave its cached PC behind.
+   A stop at a breakpoint is mid-frame; a pause while running is not.
+7. **`smartload`** is CAP-CTL-15 `load()`, jnext's `--load` table (`.nex`,
+   `.sna`, `.szx`, `.z80`, `.jns`, `.tap`, `.tzx`, `.wav`, `.rzx`); a paused
+   machine stays paused at the new PC. Any refusal answers ZEsarUX's one
+   text, `Error. Unknown file format` (the reason is logged).
+8. **`load-binary` / `save-binary`** work on the CPU view (writes to ROM land
+   nowhere; addresses wrap at FFFFH); `save-binary` length 0 is 64 KB; an
+   address must fit 16 bits (milestone 1's rule). `save-binary` answers a
+   failure `ERROR loading file`, ZEsarUX's own text.
+
+Rows: `ZRCP-HIS-01..09`, `ZRCP-XST-01/02`, `ZRCP-COV-01`, `ZRCP-LOAD-01..04`,
+`ZRCP-SNAP-01..03`; the regression row `zrcp-hist-func` (§6.2 item 7 and the
+rest of WP-5 against a live jnext: a `.sna` smartloaded, history, coverage,
+extended stack, load/save-binary, a snapshot round trip).
 

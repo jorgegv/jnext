@@ -1697,7 +1697,10 @@ Try it by hand with `telnet localhost PORT` and `help`.
   condition slots of `set-breakpoint`, `set-breakpointaction`,
   `enable-breakpoint`, `disable-breakpoint`, `enable-breakpoints`,
   `disable-breakpoints`, `get-breakpoints`, and the memory breakpoints of
-  `set-membreakpoint`, `get-membreakpoints`, `clear-membreakpoints`). `help` *command* describes each one, with
+  `set-membreakpoint`, `get-membreakpoints`, `clear-membreakpoints`), and
+  history, coverage and loading (`cpu-history`, `cpu-code-coverage`,
+  `extended-stack`, `smartload`, `load-binary`, `save-binary`,
+  `snapshot-save`, `snapshot-load`). `help` *command* describes each one, with
   the divergences from ZEsarUX that a client can see in its replies. Numbers
   are decimal or hexadecimal with an `H` suffix (`8000H`); a malformed or
   out-of-range value is refused rather than read as something else.
@@ -1714,6 +1717,12 @@ Try it by hand with `telnet localhost PORT` and `help`.
   except at the address a run resumes from.
   Breakpoints belong to the session: they start disabled, as in ZEsarUX, and
   are removed when the client disconnects.
+- **History, coverage and call tracking are the machine's**: a client turns
+  off only what it turned on. **`snapshot-save` / `snapshot-load` are
+  in-memory snapshots of the session** (nothing is written to disk), saved
+  with the machine paused while running, not at a breakpoint.
+  **`smartload`, `load-binary` and `save-binary` read and write files on the
+  host running jnext**, as ZEsarUX's do.
 - **Declined**: `exit-emulator`, and the `run` options `verbose`,
   `no-stop-on-data` and `update-immediately`. ZEsarUX commands jnext does not
   serve answer `Error. Unsupported command in jnext:` and the name.

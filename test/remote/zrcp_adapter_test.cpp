@@ -60,6 +60,8 @@
 #include <string>
 #include <vector>
 
+#include <unistd.h>
+
 #include "../row_id.h"
 
 using jnext::dbg::ClientKind;
@@ -376,19 +378,16 @@ static const char* const kZesaruxLs[] = {
     "zeng-is-master", "zeng-online", "zxevo-get-nvram",
 };
 
-/// Served by the design (§2) and not yet by this build: history / stack /
-/// coverage / load / bookmarks (WP-5). They answer `Unknown command` until
-/// their package adds their rows; this list shrinks to nothing as WP-5 lands.
-/// (WP-4's twelve breakpoint commands left it with WP-4.)
-static const char* const kPendingWp45[] = {
-    "cpu-code-coverage", "cpu-history", "extended-stack", "load-binary",
-    "save-binary",       "smartload",   "snapshot-load",  "snapshot-save",
-};
+/// Served by the design (§2) and not yet by this build. Empty since WP-5: all
+/// of §2's 67 are served. Kept so a row the table loses is still reported.
+static const char* const kPendingWp45[] = {""};
 
 static void table_rows() {
     const auto table = ZrcpServer::command_table();
     std::set<std::string> ls(std::begin(kZesaruxLs), std::end(kZesaruxLs));
-    std::set<std::string> pending(std::begin(kPendingWp45), std::end(kPendingWp45));
+    std::set<std::string> pending;
+    for (const char* n : kPendingWp45)
+        if (*n) pending.insert(n);
     std::set<std::string> rows;
     int served = 0, declined = 0, unsupported = 0;
     std::string stray;
@@ -406,11 +405,10 @@ static void table_rows() {
     for (const auto& n : pending)
         if (rows.count(n) || !ls.count(n)) both += " " + n;
     check("ZRCP-TAB-01", "census against ZEsarUX 12.0's ls (125 names): every name is a table "
-                         "row or one of the 8 WP-5 names, no row is foreign; 59 served, 1 "
-                         "declined (exit-emulator), 57 unsupported — §2's 67 / 1 / 57 less the "
-                         "8 pending",
-              ls.size() == 125 && pending.size() == 8 && missing.empty() && stray.empty() &&
-                  both.empty() && served == 59 && declined == 1 && unsupported == 57,
+                         "row, no row is foreign, none pending; 67 served, 1 declined "
+                         "(exit-emulator), 57 unsupported — §2's 67 / 1 / 57",
+              ls.size() == 125 && pending.empty() && missing.empty() && stray.empty() &&
+                  both.empty() && served == 67 && declined == 1 && unsupported == 57,
               "missing:" + missing + " stray:" + stray + " both:" + both + " served=" +
                   std::to_string(served) + " unsupported=" + std::to_string(unsupported));
 
@@ -418,10 +416,10 @@ static void table_rows() {
     Zc  c(rig);
     const std::string u     = c.cmd("get-io-ports");
     const std::string ua    = c.cmd("a 8000H NOP");
-    const std::string pend  = c.cmd("extended-stack get 5");
+    const std::string pend  = c.cmd("set-breakpointpasscount 1 2");
     check("ZRCP-TAB-02", "an unsupported ZEsarUX command — by name or by ZEsarUX's alias — "
-                         "answers \"Error. Unsupported command in jnext: <name>\"; a pending "
-                         "WP-5 command is still unknown",
+                         "answers \"Error. Unsupported command in jnext: <name>\"; a name "
+                         "ZEsarUX 12.0 lacks (set-breakpointpasscount) is unknown, as there",
               u == "Error. Unsupported command in jnext: get-io-ports\ncommand> " &&
                   ua == "Error. Unsupported command in jnext: assemble\ncommand> " &&
                   pend == "Unknown command\ncommand> ",
@@ -3735,6 +3733,418 @@ static void wp4_mem_rows() {
     }
 }
 
+// ===========================================================================
+// WP-5 — history, extended stack, coverage, load (§1.7, §2.2-2.3, §4.1)
+// ===========================================================================
+
+/// A scratch file in /tmp unique to this process (concurrent runs from other
+/// worktrees share /tmp).
+static std::string zrcp_tmp(const char* stem, const char* ext) {
+    return std::string("/tmp/jnext_zrcp_") + stem + "_" + std::to_string(::getpid()) + ext;
+}
+
+static void wp5_history_rows() {
+    {
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string none  = c.cmd("cpu-history");
+        const std::string get   = c.cmd("cpu-history get 0");
+        const std::string size  = c.cmd("cpu-history get-size");
+        const std::string is    = c.cmd("cpu-history is-enabled");
+        const std::string off   = c.cmd("cpu-history enabled no");
+        const std::string bogus = c.cmd("cpu-history frobnicate");
+        check("ZRCP-HIS-01", "cpu-history off: get / get-size answer ZEsarUX's \"Error. It's not "
+                             "enabled\\n\" (its newline included), is-enabled 0, enabled no "
+                             "\"Error. Already disabled\", an unknown action and no action their "
+                             "errors",
+              none == reply_of("ERROR. Needs at least one parameter", true) &&
+                  get == reply_of("Error. It's not enabled\n", true) &&
+                  size == reply_of("Error. It's not enabled\n", true) &&
+                  is == reply_of("0", true) && off == reply_of("Error. Already disabled", true) &&
+                  bogus == reply_of("Error. Unknown parameter", true),
+              esc(get) + " / " + esc(off));
+    }
+    {
+        // Three steps: 8000 LD A,5 / 8002 LD B,7 / 8004 NOP.
+        Rig rig;
+        rig.load({0x3E, 0x05, 0x06, 0x07, 0x00, 0x18, 0xFE});
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string on  = c.cmd("cpu-history enabled yes");
+        const std::string on2 = c.cmd("cpu-history enabled yes");
+        c.cmd("cpu-step");
+        c.cmd("cpu-step");
+        c.cmd("cpu-step");
+        const std::string size = c.cmd("cpu-history get-size");
+        const std::string g0   = c.cmd("cpu-history get 0");
+        const std::string g2   = c.cmd("cpu-history get 2");
+        const std::string g3   = c.cmd("cpu-history get 3");
+        check("ZRCP-HIS-02", "after three steps: get-size 3, get 0 is the NEWEST entry (8004) and "
+                             "get 2 the oldest (8000); get 3 \"ERROR: index out of range\"; a "
+                             "second enabled yes \"Error. Already enabled\"",
+              on == reply_of("", true) && on2 == reply_of("Error. Already enabled", true) &&
+                  size == reply_of("3", true) && starts_with(g0, "PC=8004 ") &&
+                  starts_with(g2, "PC=8000 ") &&
+                  g3 == reply_of("ERROR: index out of range", true),
+              esc(g0, 60) + " / " + esc(g2, 60) + " / " + esc(g3));
+
+        // The entry's fields where DeZog reads them.
+        const std::string regs = c.cmd("get-registers");
+        const auto mmu_at = regs.find("MMU=");
+        const std::string mmu = mmu_at == std::string::npos ? "" : regs.substr(mmu_at, 36);
+        const std::string body = g0.substr(0, g0.size() - std::strlen(PROMPT_STEP) - 1);
+        check("ZRCP-HIS-03", "get 0 as DeZog reads it: registers BEFORE the instruction (A=05, "
+                             "B=07 after the two loads), (PC)= its four fetched bytes 0018FE.., "
+                             "(SP)= the word at SP, the get-registers MMU= projection, and the "
+                             "trailing space ZEsarUX leaves",
+              starts_with(body, "PC=8004 SP=ff00 AF=05") && body.find(" BC=07") != std::string::npos &&
+                  body.find(" (PC)=0018fe") != std::string::npos &&
+                  body.find(" (SP)=") != std::string::npos && !mmu.empty() &&
+                  body.find(" " + mmu + " ") != std::string::npos && ends_with(body, " ") &&
+                  body.find('\n') == std::string::npos,
+              esc(body, 220) + " / " + esc(mmu));
+
+        const std::string pcs   = c.cmd("cpu-history get-pc 0 3");
+        const std::string clamp = c.cmd("cpu-history get-pc 1 9");
+        const std::string neg   = c.cmd("cpu-history get-pc 2 2");
+        check("ZRCP-HIS-04", "get-pc start n: PCs from start towards the oldest, \"%04x \" each; n "
+                             "clamped to the history's size (not to what is left of it: ZEsarUX's "
+                             "rule), and past the oldest its per-element error",
+              pcs == reply_of("8004 8002 8000 ", true) &&
+                  clamp == reply_of("8002 8000 ERROR: index can't be negative ", true) &&
+                  neg == reply_of("8000 ERROR: index can't be negative ", true),
+              esc(pcs) + " / " + esc(clamp) + " / " + esc(neg));
+
+        const std::string bad0 = c.cmd("cpu-history set-max-size 0");
+        const std::string big  = c.cmd("cpu-history set-max-size 1000001");
+        const std::string two  = c.cmd("cpu-history set-max-size 2");
+        const std::string max  = c.cmd("cpu-history get-max-size");
+        c.cmd("cpu-step");
+        c.cmd("cpu-step");
+        c.cmd("cpu-step");
+        const std::string after = c.cmd("cpu-history get-size");
+        const std::string clr   = c.cmd("cpu-history clear");
+        const std::string empty = c.cmd("cpu-history get-size");
+        check("ZRCP-HIS-05", "set-max-size 1..1000000 (else \"ERROR: Value out of range\"), "
+                             "get-max-size reads it back, the history then holds at most that "
+                             "many; clear empties it",
+              bad0 == reply_of("ERROR: Value out of range", true) &&
+                  big == reply_of("ERROR: Value out of range", true) && two == reply_of("", true) &&
+                  max == reply_of("2", true) && after == reply_of("2", true) &&
+                  clr == reply_of("", true) && empty == reply_of("0", true),
+              esc(max) + " / " + esc(after) + " / " + esc(empty));
+
+        const std::string st  = c.cmd("cpu-history started yes");
+        const std::string ist = c.cmd("cpu-history is-started");
+        const std::string rs  = c.cmd("cpu-history restore 0");
+        const std::string ge  = c.cmd("cpu-history get-extended 0");
+        check("ZRCP-HIS-06", "started yes / is-started 1; restore and get-extended are declined "
+                             "by name with the reason",
+              st == reply_of("", true) && ist == reply_of("1", true) &&
+                  starts_with(rs, "Error. Unsupported in jnext: cpu-history restore") &&
+                  starts_with(ge, "Error. Unsupported in jnext: cpu-history get-extended"),
+              esc(rs) + " / " + esc(ge));
+    }
+    {
+        // ignrepldxr: a run of LDIR iterations shows its first entry only.
+        // 8000 LD BC,3 / LD HL,9000 / LD DE,9100 / LDIR / NOP / JR $
+        Rig rig;
+        rig.load({0x01, 0x03, 0x00, 0x21, 0x00, 0x90, 0x11, 0x00, 0x91, 0xED, 0xB0, 0x00,
+                  0x18, 0xFE});
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        c.cmd("cpu-history enabled yes");
+        c.cmd("run 7", 32);  // 3 loads, 3 LDIR iterations, NOP
+        const std::string all = c.cmd("cpu-history get-size");
+        c.cmd("cpu-history ignrepldxr yes");
+        const std::string one = c.cmd("cpu-history get-size");
+        const std::string pcs = c.cmd("cpu-history get-pc 0 3");
+        c.cmd("cpu-history ignrepldxr no");
+        const std::string back = c.cmd("cpu-history get-size");
+        check("ZRCP-HIS-07", "ignrepldxr yes: of three consecutive LDIR entries only the first is "
+                             "listed (7 -> 5, the newest three are NOP, LDIR, LD DE); no shows "
+                             "them all again",
+              all == reply_of("7", true) && one == reply_of("5", true) &&
+                  pcs == reply_of("800b 8009 8006 ", true) && back == reply_of("7", true),
+              esc(all) + " / " + esc(one) + " / " + esc(pcs));
+    }
+    {
+        // ignrephalt: consecutive HALT entries collapse to the first.
+        Rig rig;
+        rig.load({0x00, 0x76});  // NOP / HALT, interrupts off
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        c.cmd("cpu-history enabled yes");
+        c.cmd("cpu-history set-max-size 100000");  // one frame of HALTs fits
+        c.cmd("exit-cpu-step");
+        rig.tick();
+        c.cmd("enter-cpu-step");
+        const std::string many = c.cmd("cpu-history get-size");
+        c.cmd("cpu-history ignrephalt yes");
+        const std::string few  = c.cmd("cpu-history get-size");
+        const std::string pcs  = c.cmd("cpu-history get-pc 0 3");
+        auto n = [](const std::string& r) { return std::atoi(r.c_str()); };
+        check("ZRCP-HIS-08", "ignrephalt yes: a HALT recorded again and again is listed once: "
+                             "the history is the NOP and the first HALT",
+              n(many) > 2 && few == reply_of("2", true) &&
+                  pcs == reply_of("8001 8000 ", true),
+              esc(many) + " / " + esc(few) + " / " + esc(pcs));
+    }
+    {
+        // The trace is the machine's: what the session did not turn on, it
+        // does not turn off; what it turned on goes off with it.
+        Rig rig;
+        rig.dbg->set_trace_enabled(true);
+        {
+            Zc c(rig);
+            c.cmd("cpu-history enabled yes");
+            c.cmd("cpu-history enabled no");
+            c.p->send("quit\n");
+            c.wait(4);
+        }
+        const bool kept = rig.dbg->trace_enabled();
+        rig.dbg->set_trace_enabled(false);
+        bool on_mid = false;
+        {
+            Zc c(rig);
+            c.cmd("cpu-history enabled yes");
+            on_mid = rig.dbg->trace_enabled();
+            c.p->send("quit\n");
+            c.wait(4);
+        }
+        check("ZRCP-HIS-09", "a trace another client had on stays on through enabled yes / no; "
+                             "one this session turned on goes off when it quits",
+              kept && on_mid && !rig.dbg->trace_enabled());
+    }
+}
+
+static void wp5_stack_coverage_rows() {
+    {
+        // 8000 CALL 8010 / 8003 NOP / JR $ ; 8010 RST 08 ; 0008 is ROM.
+        Rig rig;
+        rig.load({0xCD, 0x10, 0x80, 0x00, 0x18, 0xFE});
+        rig.load({0xCF}, 0x8010);
+        rig.load({0xCD, 0x10, 0x80, 0x00, 0x18, 0xFE});
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string off  = c.cmd("extended-stack get 2");
+        const std::string on   = c.cmd("extended-stack enabled yes");
+        c.cmd("cpu-step");                       // CALL 8010
+        c.cmd("cpu-step");                       // RST 08
+        const std::string two  = c.cmd("extended-stack get 3");
+        const std::string at   = c.cmd("extended-stack get 1 FEFEH");
+        const std::string clr  = c.cmd("extended-stack clear");
+        const std::string none = c.cmd("extended-stack");
+        const std::string bad  = c.cmd("extended-stack frob");
+        check("ZRCP-XST-01", "extended-stack: off -> \"Error. It's not enabled\"; get n lists n "
+                             "words from SP as %04XH and its type — the RST's return address "
+                             "rst, the CALL's call, anything else default; get n index starts "
+                             "at index; clear answers empty; ZEsarUX's errors",
+              off == reply_of("Error. It's not enabled", true) && on == reply_of("", true) &&
+                  two == "8011H rst\n8003H call\n0000H default\n\ncommand@cpu-step> " &&
+                  at == "8003H call\n\ncommand@cpu-step> " && clr == reply_of("", true) &&
+                  none == reply_of("ERROR. Needs at least one parameter", true) &&
+                  bad == reply_of("Error. Unknown parameter", true),
+              esc(two) + " / " + esc(at));
+    }
+    {
+        Rig rig;
+        rig.dbg->set_call_stack_enabled(true);
+        {
+            Zc c(rig);
+            const std::string a = c.cmd("extended-stack enabled no");
+            c.cmd("extended-stack enabled yes");
+            c.cmd("extended-stack enabled no");
+            check("ZRCP-XST-02", "call tracking another client had on stays on through this "
+                                 "session's enabled yes / no (DeZog sends no first: \"Error. "
+                                 "Already disabled\")",
+                  a == reply_of("Error. Already disabled") && rig.dbg->call_stack_enabled());
+        }
+    }
+    {
+        // 8000 JP 8ABC ; 8ABC NOP / JR $
+        Rig rig;
+        rig.load({0x00, 0x18, 0xFE}, 0x8ABC);
+        rig.load({0xC3, 0xBC, 0x8A});
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string off = c.cmd("cpu-code-coverage get");
+        const std::string on  = c.cmd("cpu-code-coverage enabled yes");
+        const std::string on2 = c.cmd("cpu-code-coverage enabled yes");
+        c.cmd("cpu-step");
+        c.cmd("cpu-step");
+        const std::string got = c.cmd("cpu-code-coverage get");
+        const std::string clr = c.cmd("cpu-code-coverage clear");
+        const std::string emp = c.cmd("cpu-code-coverage get");
+        const std::string no  = c.cmd("cpu-code-coverage enabled no");
+        const std::string no2 = c.cmd("cpu-code-coverage enabled no");
+        check("ZRCP-COV-01", "cpu-code-coverage: off -> \"Error. It's not enabled\"; the executed "
+                             "addresses since clear as upper-case %04X and a space, ascending "
+                             "(8000 8ABC); clear empties it; Already enabled / disabled",
+              off == reply_of("Error. It's not enabled", true) && on == reply_of("", true) &&
+                  on2 == reply_of("Error. Already enabled", true) &&
+                  got == reply_of("8000 8ABC ", true) && clr == reply_of("", true) &&
+                  emp == reply_of("", true) && no == reply_of("", true) &&
+                  no2 == reply_of("Error. Already disabled", true) &&
+                  !rig.dbg->coverage_enabled(),
+              esc(got) + " / " + esc(emp));
+    }
+}
+
+static void wp5_load_rows() {
+    {
+        const std::string bin = zrcp_tmp("load", ".bin");
+        {
+            std::FILE* f = std::fopen(bin.c_str(), "wb");
+            const std::uint8_t b[] = {0xDE, 0xAD, 0xBE, 0xEF};
+            std::fwrite(b, 1, 4, f);
+            std::fclose(f);
+        }
+        Rig rig;
+        Zc  c(rig);
+        const std::string all  = c.cmd("load-binary \"" + bin + "\" 36864 0");
+        const std::string two  = c.cmd("load-binary " + bin + " 9100H 2");
+        const std::string few  = c.cmd("load-binary " + bin + " 9000H");
+        const std::string miss = c.cmd("load-binary /nonexistent/zrcp.bin 36864 0");
+        const std::string addr = c.cmd("load-binary " + bin + " 10000H 0");
+        const std::string got  = c.cmd("read-memory 36864 4");
+        const std::string got2 = c.cmd("read-memory 37120 3");
+        std::remove(bin.c_str());
+        check("ZRCP-LOAD-01", "load-binary \"file\" address length: length 0 loads the whole file "
+                              "(DeZog's form, decimal address), n loads n bytes; fewer than three "
+                              "parameters, a missing file and an address past FFFFH are refused",
+              all == reply_of("") && two == reply_of("") && got == reply_of("DEADBEEF") &&
+                  got2 == reply_of("DEAD00") &&
+                  few == reply_of("ERROR. Needs three parameters") &&
+                  miss == reply_of("ERROR loading file") &&
+                  addr == reply_of("Error. Invalid address: 10000H"),
+              esc(got) + " / " + esc(got2) + " / " + esc(miss));
+    }
+    {
+        const std::string out = zrcp_tmp("save", ".bin");
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("write-memory-raw 36864 0102030405");
+        const std::string ok   = c.cmd("save-binary \"" + out + "\" 9000H 3");
+        std::vector<std::uint8_t> got(16, 0);
+        std::size_t n = 0;
+        if (std::FILE* f = std::fopen(out.c_str(), "rb")) {
+            n = std::fread(got.data(), 1, got.size(), f);
+            std::fclose(f);
+        }
+        const std::string full = c.cmd("save-binary " + out + " 0 0");
+        long size = -1;
+        if (std::FILE* f = std::fopen(out.c_str(), "rb")) {
+            std::fseek(f, 0, SEEK_END);
+            size = std::ftell(f);
+            std::fclose(f);
+        }
+        std::remove(out.c_str());
+        const std::string bad = c.cmd("save-binary /nonexistent/dir/zrcp.bin 0 1");
+        check("ZRCP-LOAD-02", "save-binary \"file\" address length writes those bytes of the CPU "
+                              "view; length 0 is 64 KB; an unwritable path gets ZEsarUX's own "
+                              "\"ERROR loading file\"",
+              ok == reply_of("") && n == 3 && got[0] == 1 && got[1] == 2 && got[2] == 3 &&
+                  full == reply_of("") && size == 65536 && bad == reply_of("ERROR loading file"),
+              esc(ok) + " n=" + std::to_string(n) + " size=" + std::to_string(size));
+    }
+    {
+        // smartload through CAP-CTL-15: the loop owner's driver gets the path
+        // with its quotes stripped; a paused machine stays paused.
+        Rig rig;
+        std::string seen;
+        bool        succeed = true;
+        jnext::dbg::LoopDriver d;
+        d.load = [&](const std::string& path) {
+            seen = path;
+            if (!succeed) return false;
+            Z80Registers r = rig.emu.cpu().get_registers();
+            r.PC = 0x6000;
+            rig.emu.cpu().set_registers(r);
+            return true;
+        };
+        rig.dbg->set_loop_driver(d);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string ok  = c.cmd("smartload \"/some dir/my game.nex\"");
+        const bool paused     = rig.dbg->state().paused;
+        const auto pc         = rig.pc();
+        const std::string sl  = c.cmd("sl plain.tap");
+        const std::string seen2 = seen;
+        succeed = false;
+        const std::string bad = c.cmd("smartload broken.nex");
+        const std::string no  = c.cmd("smartload");
+        check("ZRCP-LOAD-03", "smartload \"file\": the path, quotes stripped and spaces kept, goes "
+                              "to the loop owner's load; a paused machine stays paused at the new "
+                              "PC; the alias sl; a failed load \"Error. Unknown file format\"; no "
+                              "file \"ERROR. No parameter set\"",
+              ok == reply_of("", true) && paused && pc == 0x6000 && sl == reply_of("", true) &&
+                  seen2 == "plain.tap" && bad == reply_of("Error. Unknown file format", true) &&
+                  no == reply_of("ERROR. No parameter set", true),
+              esc(ok) + " seen=" + seen + " pc=" + std::to_string(pc));
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        const std::string none = c.cmd("smartload x.nex");
+        check("ZRCP-LOAD-04", "with no loop-owner load driver (a bare harness) smartload is "
+                              "refused, never a silent success",
+              none == reply_of("Error. Unknown file format"), esc(none));
+    }
+}
+
+static void wp5_snapshot_rows() {
+    {
+        Rig rig;
+        rig.load({0x3E, 0x05, 0x00, 0x18, 0xFE});
+        Zc c(rig);
+        c.cmd("enter-cpu-step");                         // paused at a frame boundary
+        const std::string save = c.cmd("snapshot-save proj/.tmp/state.zsf");
+        c.cmd("cpu-step");                               // LD A,5 — now mid-frame
+        const std::string mid  = c.cmd("snapshot-save other.zsf");
+        const std::string load = c.cmd("snapshot-load proj/.tmp/state.zsf");
+        const auto        pc   = rig.pc();
+        const std::string unk  = c.cmd("snapshot-load never-saved.zsf");
+        const std::string no   = c.cmd("snapshot-save");
+        check("ZRCP-SNAP-01", "snapshot-save name at a frame boundary keeps an in-memory "
+                              "bookmark under name; mid-frame it is refused with the reason; "
+                              "snapshot-load name restores it (PC back at 8000); an unknown name "
+                              "and no name are refused",
+              save == reply_of("", true) &&
+                  starts_with(mid, "Error. The machine is stopped mid-frame") &&
+                  load == reply_of("", true) && pc == PROG &&
+                  unk == reply_of("Error. No snapshot saved under that name in this session",
+                                  true) &&
+                  no == reply_of("ERROR. No parameter set", true),
+              esc(save) + " / " + esc(mid) + " / " + esc(load));
+    }
+    {
+        Rig rig;
+        std::string ninth;
+        {
+            Zc c(rig);
+            c.cmd("enter-cpu-step");
+            for (int i = 1; i <= 8; ++i) c.cmd("snapshot-save s" + std::to_string(i));
+            const std::string again = c.cmd("snapshot-save s3");
+            ninth = c.cmd("snapshot-save s9");
+            check("ZRCP-SNAP-02", "8 snapshots per session; saving a held name again replaces "
+                                  "it; a ninth name is refused",
+                  again == reply_of("", true) &&
+                      ninth == reply_of("Error. Too many snapshots in this session (8)", true),
+                  esc(ninth));
+            c.p->send("quit\n");
+            c.wait(4);
+        }
+        Zc c2(rig);
+        const std::string gone = c2.cmd("snapshot-load s1");
+        check("ZRCP-SNAP-03", "a session's snapshots end with it: the next client cannot load "
+                              "them",
+              gone == reply_of("Error. No snapshot saved under that name in this session"),
+              esc(gone));
+    }
+}
+
 int main() {
     std::printf("zrcp_adapter_test — the ZRCP adapter over T's fake transport (GH #280)\n");
     framing_rows();
@@ -3763,6 +4173,10 @@ int main() {
     wp4_condition_rows();
     wp4_slot_rows();
     wp4_mem_rows();
+    wp5_history_rows();
+    wp5_stack_coverage_rows();
+    wp5_load_rows();
+    wp5_snapshot_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass,
