@@ -2344,6 +2344,92 @@ static void edge_rows() {
     }
 }
 
+// ===========================================================================
+// Review round 2 — the legacy MMU= in the stop/step reply; the strict-range
+// rule enumerated over every sibling verb and every register name
+// ===========================================================================
+
+static void round2_rows() {
+    {
+        // The stop and step replies carry the register line too: on the 128K
+        // they must be in ZEsarUX's legacy form, as get-registers is.
+        Rig rig(MachineType::ZX128K);
+        load_nops(rig, 8);
+        Zc c(rig);
+        c.cmd("enter-cpu-step");
+        const std::string step = c.cmd("cpu-step");
+        const std::string run  = c.cmd("run 2");
+        const std::string want = "MMU=80000005000200000000000000000000 TSTATES: ";
+        check("ZRCP-REG-09", "on the 128K, the cpu-step reply and the run n stop reply carry the "
+                             "legacy MMU= (DeZog's 128K decoder reads [ROM0,5,2,0] from both)",
+              step.find(want) != std::string::npos && run.find(want) != std::string::npos &&
+                  dezog_128k(step) == std::vector<int>({8, 5, 2, 0}) &&
+                  dezog_128k(run) == std::vector<int>({8, 5, 2, 0}),
+              esc(step) + " / " + esc(run));
+    }
+    {
+        // §11.3 item 9 over EVERY address-taking verb: 10000H is refused, and
+        // nothing in the address space changes.
+        static const struct { const char* cmd; const char* reply; } kVerbs[] = {
+            {"read-memory 10000H 4", "Error. Invalid address: 10000H"},
+            {"write-memory 10000H 171", "Error. Invalid address: 10000H"},
+            {"write-memory-raw 10000H AB", "Error. Invalid address: 10000H"},
+            {"hexdump 10000H 16", "Error. Invalid address or length"},
+            {"get-crc32 10000H 16", "Error. Invalid address or length"},
+            {"disassemble 10000H 2", "Error. Invalid address: 10000H"},
+        };
+        Rig rig;
+        Zc  c(rig);
+        const auto before = peek(rig, 0, 0x10000);
+        std::string bad;
+        for (const auto& v : kVerbs)
+            if (c.cmd(v.cmd) != reply_of(v.reply)) bad += std::string(" [") + v.cmd + "]";
+        const bool same = peek(rig, 0, 0x10000) == before;
+        check("ZRCP-MEM-07", "an address of 10000H is refused by every address-taking verb "
+                             "(read-memory, write-memory, write-memory-raw, hexdump, get-crc32, "
+                             "disassemble), and the 64 KB address space is unchanged",
+              bad.empty() && same, "not refused:" + bad + (same ? "" : " memory changed"));
+    }
+    {
+        // §11.3 item 9 over EVERY set-register name: the widest legal value is
+        // set, that value + 1 is refused and changes nothing.
+        static const struct { const char* name; std::uint32_t max; } kRegs[] = {
+            {"PC", 0xFFFF},  {"SP", 0xFFFF},  {"IX", 0xFFFF},  {"IY", 0xFFFF},
+            {"AF", 0xFFFF},  {"BC", 0xFFFF},  {"DE", 0xFFFF},  {"HL", 0xFFFF},
+            {"AF'", 0xFFFF}, {"BC'", 0xFFFF}, {"DE'", 0xFFFF}, {"HL'", 0xFFFF},
+            {"A", 0xFF},     {"B", 0xFF},     {"C", 0xFF},     {"D", 0xFF},
+            {"E", 0xFF},     {"F", 0xFF},     {"H", 0xFF},     {"L", 0xFF},
+            {"A'", 0xFF},    {"B'", 0xFF},    {"C'", 0xFF},    {"D'", 0xFF},
+            {"E'", 0xFF},    {"F'", 0xFF},    {"H'", 0xFF},    {"L'", 0xFF},
+            {"I", 0xFF},     {"R", 0xFF},     {"IM", 2},       {"IFF1", 1},
+            {"IFF2", 1},
+        };
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        std::string bad;
+        for (const auto& k : kRegs) {
+            Z80Registers z{};
+            z.PC = PROG;
+            z.SP = 0xFF00;
+            rig.emu.cpu().set_registers(z);
+            const std::string ok = c.cmd(std::string("set-register ") + k.name + "=" +
+                                         std::to_string(k.max));
+            const Z80Registers after_ok = rig.emu.cpu().get_registers();
+            const std::string over = c.cmd(std::string("set-register ") + k.name + "=" +
+                                           std::to_string(k.max + 1));
+            const Z80Registers after_over = rig.emu.cpu().get_registers();
+            const bool set = std::memcmp(&after_ok, &z, sizeof z) != 0;
+            const bool kept = std::memcmp(&after_over, &after_ok, sizeof z) == 0;
+            if (!starts_with(ok, "PC=") || !set || over != "Error changing register\ncommand@cpu-step> " || !kept)
+                bad += std::string(" ") + k.name;
+        }
+        check("ZRCP-REG-10", "every set-register name takes its widest legal value (FFFFH, FFH, "
+                             "IM 2, IFF 1) and refuses that value + 1 without changing anything",
+              bad.empty(), "wrong:" + bad);
+    }
+}
+
 int main() {
     std::printf("zrcp_adapter_test — the ZRCP adapter over T's fake transport (GH #280)\n");
     framing_rows();
@@ -2368,6 +2454,7 @@ int main() {
     step_over_set_rows();
     tbblue_name_rows();
     edge_rows();
+    round2_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass,
