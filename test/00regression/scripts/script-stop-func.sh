@@ -12,7 +12,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   2. a run-time error (division by zero) exits 1;
 #   3. the watchdog (--delayed-automatic-exit-frames) firing before a verdict
 #      the script declared exits 3 with `SCRIPT: N deferred actions never ran`;
-#   4. a script with no verdict to reach lets the watchdog exit 0.
+#   4. a script with no verdict to reach lets the watchdog exit 0;
+#   5. a script's `exit 0` never hides an earlier failure (a failed --load).
 if want script-stop-func; then
     begin_func script-stop-func
     fails=()
@@ -38,8 +39,16 @@ if want script-stop-func; then
     if [[ $rc -ne 0 ]]; then
         fails+=("a guard that never trips: exit $rc")
     fi
+    # 5. a script's `exit 0` never hides an earlier failure (a --load that failed)
+    printf 'on frame 200 do exit 0 end\n' > "$TMP_DIR/script-stop-hide.jds"
+    out=$(LANG=C timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --machine 48k \
+        "${SD_CARD_ARGS[@]}" --load "$TMP_DIR/script-stop-missing.tap" \
+        --script "$TMP_DIR/script-stop-hide.jds" --delayed-automatic-exit-frames 400 2>&1) && rc=0 || rc=$?
+    if [[ $rc -ne 1 ]] || ! grep -q "script requested exit 0" <<<"$out"; then
+        fails+=("exit 0 after a failed --load: exit $rc")
+    fi
     if [[ ${#fails[@]} -eq 0 ]]; then
-        pass_row " (stop = 3, run-time error = 1, verdict not reached = 3, nothing to reach = 0)"
+        pass_row " (stop = 3, run-time error = 1, verdict not reached = 3, nothing to reach = 0, exit 0 keeps an earlier 1)"
     else
         fail_row " (${fails[*]})"
     fi
