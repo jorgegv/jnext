@@ -55,6 +55,14 @@
 #
 # CANNOT CATCH (EXAMPLES, not an exhaustive list — two "exhaustive" lists in
 # this tree's lints have already been proved incomplete):
+#   * an ANSI-C `$'...'` string holding an escaped apostrophe (`\'`). The
+#     scanner reads it as a plain single-quoted string that the `\'` closes,
+#     so the next apostrophe opens a quote that runs to the end of the logical
+#     line and hides any pipe after it: `x=$'it\'s'; echo "$o" | grep -q y` is
+#     NOT flagged. Bounded to that one logical line, since quote state is reset
+#     at every line end. (With the parity the other way the rest of the line
+#     is read as code instead; two self-test lines in this file are marked for
+#     that.)
 #   * Other early-exit consumers: `| head`, `| grep -m N`, `| sed q`. In this
 #     tree they capture a VALUE (`x=$(cmd | head -1) || true`), where the
 #     value head saw is right whatever the producer's status; the two that
@@ -82,10 +90,6 @@
 #     fails the safe way: a fixture line that pipes into `grep -q` is flagged,
 #     and is MARKED, never skipped by inference. No line in the tree needs it
 #     today.
-#   * an ANSI-C `$'...'` string holding an escaped apostrophe (`\'`): the
-#     scanner reads it as a plain single-quoted string, which the `\'` closes,
-#     so the rest of the line is read as code. Two self-test fixture lines in
-#     this file are marked for exactly that.
 #   * a quoted string that spans physical lines WITHOUT backslash
 #     continuations (a multi-line message, an inline awk or python program):
 #     the quote state is reset at every line end, so its later lines are read
@@ -324,6 +328,7 @@ selftest() {
         1 'quiet option after the pattern'  'echo "$o" | grep -e x -q'
         1 'quiet after a bare pattern'      'echo "$o" | grep x -q'
         1 'three-stage, quiet last'         'sed -n p "$f" | tr a b | grep -q x'
+        1 'single-quoted arg before the pipe' "echo 'x' | grep -q y"
         1 '|& into grep -q'                 'run_thing |& grep -q "x"'
         1 'file ends inside a continuation' $'echo "$o" | grep -q y \\'
         0 'here-string'                     'grep -q "x" <<<"$out"'

@@ -129,7 +129,7 @@ verdict on the real tree is trusted at all:
   comment stripper changed nothing, because every comment fixture was inert for
   a second reason as well. The two cases that close it exist because of the
   mutation, not because anyone thought of them first.
-- `test/lint-pipe-grepq.sh` carries **41 pinned cases: 24 that must flag, 15
+- `test/lint-pipe-grepq.sh` carries **42 pinned cases: 25 that must flag, 15
   that must not, and 2 that pin its coverage check**. They include both scope
   rules — the same `echo "$o" | grep -q` line is flagged in a file that sets
   `pipefail` (anywhere in the file, including after the line), flagged in a
