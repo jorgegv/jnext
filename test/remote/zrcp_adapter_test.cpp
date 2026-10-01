@@ -2790,6 +2790,9 @@ static void wp4_condition_rows() {
             {"SP>=65280", 0x0000, 0xFFFF, true},
             {"PC=8002H OR A=0", 0x0000, 0xFFFF, true},
             {"PC=70000", 0x0000, 0xFFFF, true},
+            {"PC=-1", 0x0000, 0xFFFF, true},
+            {"PC>8002H", 0x0000, 0xFFFF, true},
+            {"PC=8002H+1", 0x0000, 0xFFFF, true},
             {"PC=PEEKW(SP-2) AND SP>=65280", 0x0000, 0xFFFF, true},
         };
         std::string bad;
@@ -2809,9 +2812,43 @@ static void wp4_condition_rows() {
                              "Execute[0,FFFF] with the whole condition",
               bad.empty(), bad);
     }
+    {
+        Rig rig;
+        Zc  c(rig);  // 48K: SEG3 is 0
+        static const struct { const char* e; const char* v; } kChain[] = {
+            {"SEG3=0 AND 0", "0"}, {"SEG3=1 AND 1", "0"}, {"SEG3=0 AND 1", "1"},
+            {"SEG3<>0 AND 1", "0"}, {"SEG3<1 AND 2", "1"}, {"SEG3>=1 AND 1", "0"},
+            {"FF", "Error parsing"}, {"PEEK(0)PEEK(1)", "Error parsing"},
+        };
+        std::string bad;
+        for (const auto& k : kChain) {
+            const std::string r = ev(c, k.e);
+            if (r != k.v) bad += std::string(" [") + k.e + "=" + r + "]";
+        }
+        check("ZRCP-CND-14", "evaluate over a chain with a native term is 1 only when every "
+                             "conjunct holds, native or not, each comparison as written; a "
+                             "letter-only hex number without H, and two operands, do not "
+                             "tokenise",
+              bad.empty(), bad);
+    }
 }
 
 static void wp4_slot_rows() {
+    {
+        // A native term in a live breakpoint: the Next, DeZog's long address.
+        Rig rig(MachineType::ZXN_ISSUE2);
+        rig.load({0x00, 0x00, 0x00, 0x00, 0x18, 0xFE});
+        const auto seg4 = mapped_page(rig.dbg->mmu_slots(), 4, MachineType::ZXN_ISSUE2);
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 PC=8002H AND SEG4=" + std::to_string(seg4 + 1));
+        c.cmd("set-breakpoint 2 PC=8003H AND SEG4=" + std::to_string(seg4));
+        const std::string r = run_to_stop(c);
+        check("ZRCP-BP-18", "PC=… AND SEGn=… (DeZog's long address on the Next): the slot whose "
+                            "SEG4 is the page mapped there fires at 8003; the one naming another "
+                            "page never fires at 8002",
+              fired_stop(r, 0x8003, "PC=8003H AND SEG4=" + std::to_string(seg4)), esc(r));
+    }
     {
         Rig rig;
         Zc  c(rig);
