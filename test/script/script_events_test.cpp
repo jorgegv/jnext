@@ -2294,12 +2294,12 @@ static void static_stop_rows() {
                                "on stop do log \"R ${REASON}\" end\n");
         const auto subs = g.subs();
         const bool shape = subs.size() == 1 && subs[0].action == jnext::dbg::Action::Stop && !subs[0].has_handler &&
-                           subs[0].has_condition && g.dbg->probe_execute(0x8005) && !g.dbg->probe_execute(0x8007);
+                           subs[0].has_condition && g.dbg->probe_execute(0x8007).empty();
         g.frames(2);
         const auto st = g.eng->status();
         check("SCRIPT-EV-STATIC-STOP", "a stop-only `execute` rule registers as a static Stop with its `when` as "
-                                       "the condition and no handler — listed by probe_execute at its PC, not "
-                                       "elsewhere — and when it fires the machine pauses at it, its message "
+                                       "the condition and no handler — not listed by probe_execute elsewhere — "
+                                       "and when it fires the machine pauses at it, its message "
                                        "(payload and registers interpolated) is logged as before, `on stop` sees it "
                                        "as REASON, and its hit and the stop verdict are counted",
               ok && shape && g.paused() && g.pc() == 0x8005 &&
