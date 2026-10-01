@@ -528,15 +528,31 @@ static void snapshot_if_paused(Emulator& emu) {
     if (emu.debug_state().paused()) emu.snapshot_raster();
 }
 
+// GH #26 WP9 — where the beam is NOW, from the clock: the arithmetic of
+// `Emulator::snapshot_raster()`, without storing it. Every caller of raster()
+// and time() runs on the emulation thread between instructions (a delivery, a
+// pump, a Qt tick), so the clock is always at a boundary and this is exact.
+// Running, raster() used to return the LAST PAUSE's snapshot, so a script's
+// RAW_VC / CVC / HC_ULA in a `scanline` or `execute` rule read a constant.
+// The snapshot itself is still left alone while running (the Qt video panel
+// shows it only when paused).
+static void live_counters(Emulator& emu, int& vc, int& hc) {
+    const uint64_t elapsed = emu.clock().get() - emu.current_frame_cycle();
+    const uint64_t mcl     = emu.timing().master_cycles_per_line;
+    vc = static_cast<int>(elapsed / mcl);
+    hc = static_cast<int>((elapsed % mcl) / 4);
+}
+
 RasterState Debugger::raster() const {
     snapshot_if_paused(impl_->emu);
-    // The same four arguments `video_panel_raster_state()` passes, and for the
-    // same reasons: paused_hc/paused_vc rather than VideoTiming::pos() (the
-    // latter only advances while a debugger is attached, the former is derived
-    // from the master clock like every other raster consumer), and the LIVE ULA
-    // mode registers, because they decide WHAT is being fetched.
-    return raster_state_at(impl_->emu.video_timing(),
-                           impl_->emu.paused_hc(), impl_->emu.paused_vc(),
+    // The clock-derived counters rather than VideoTiming::pos() (the latter
+    // only advances while a debugger is attached; the clock is what every other
+    // raster consumer uses — paused, they equal the paused_hc/paused_vc
+    // snapshot), and the LIVE ULA mode registers, because they decide WHAT is
+    // being fetched.
+    int vc = 0, hc = 0;
+    live_counters(impl_->emu, vc, hc);
+    return raster_state_at(impl_->emu.video_timing(), hc, vc,
                            impl_->emu.ula().get_screen_mode_reg(),
                            impl_->emu.ula().get_shadow_screen_en());
 }
@@ -548,8 +564,10 @@ Time Debugger::time() const {
     t.tstates_total  = impl_->emu.monotonic_tstates();
     t.frame          = frame_tag(impl_->emu);          // F2
     t.cycle_in_frame = t.master_cycle - impl_->emu.current_frame_cycle();
-    t.vc_raw         = static_cast<int16_t>(impl_->emu.paused_vc());
-    t.hc_raw         = static_cast<int16_t>(impl_->emu.paused_hc());
+    int vc = 0, hc = 0;
+    live_counters(impl_->emu, vc, hc);
+    t.vc_raw         = static_cast<int16_t>(vc);
+    t.hc_raw         = static_cast<int16_t>(hc);
     return t;
 }
 

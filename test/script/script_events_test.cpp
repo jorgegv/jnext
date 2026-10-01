@@ -1162,6 +1162,21 @@ static void input_rows() {
 
 static void boundary_rows() {
     {
+        // The raster names are LIVE (§2.3): read in a `scanline N` rule they
+        // say line N. They used to read the last pause's snapshot (a constant
+        // on a machine that never paused) — found writing the user guide.
+        Rig g(kPark);
+        const bool ok = g.load("on scanline 100 do log \"S100 ${CVC} ${VC_ULA} ${RAW_VC}\" end\n"
+                               "on scanline 150 do log \"S150 ${CVC} ${VC_ULA} ${RAW_VC}\" end\n");
+        g.frames(2);
+        check("SCRIPT-EV-RASTER-LIVE", "CVC, VC_ULA and RAW_VC read in a `scanline N` rule are where the beam "
+                                       "is now, every frame: raw line 164 / 214 on the 48K, and CVC (what NR "
+                                       "0x1E/0x1F read) still N-1, 99 / 149 — the rule runs as its raw line "
+                                       "begins and CVC steps a few pixels into it (GH #257)",
+              ok && g.sink.count("] S100 99 99 164") == 2 && g.sink.count("] S150 149 149 214") == 2,
+              g.sink.tail(4));
+    }
+    {
         // GH #222 for RANGES: ports 0x00..0xFF decode on the low byte, so the
         // high byte (A for OUT (n),A; A for IN A,(n)) does not matter.
         //   LD A,0x12 ; OUT (0x15),A ; OUT (0x21),A ; OUT (0x10),A ;

@@ -5410,7 +5410,9 @@ static void q_wp7_raster_rows() {
     }
     {
         // And RUNNING, the query leaves the last pause's snapshot alone, as the
-        // Qt refresh (which took it only while paused) always did.
+        // Qt refresh (which took it only while paused) always did — but it
+        // REPORTS where the beam is now, from the clock (GH #26 WP9: a script's
+        // RAW_VC / CVC in a `scanline` rule read the last pause's constant).
         Emulator emu; build(emu);
         Debugger dbg(emu);
         emu.run_frame();
@@ -5418,15 +5420,21 @@ static void q_wp7_raster_rows() {
         emu.snapshot_raster();                        // "the last pause"
         const int kept_vc = emu.paused_vc(), kept_hc = emu.paused_hc();
         for (int i = 0; i < 400; ++i) emu.execute_single_instruction();
+        const uint64_t elapsed = emu.clock().get() - emu.current_frame_cycle();
+        const uint64_t mcl     = emu.timing().master_cycles_per_line;
+        const int now_vc = static_cast<int>(elapsed / mcl);
+        const int now_hc = static_cast<int>((elapsed % mcl) / 4);
         const auto ras = dbg.raster();
-        (void)dbg.time();
-        check("INS-06-04", "while running, raster() and time() do not move the last "
-                           "pause's snapshot",
-              !emu.debug_state().paused() && ras.raw_vc == kept_vc &&
-                  ras.raw_hc == kept_hc && emu.paused_vc() == kept_vc &&
-                  emu.paused_hc() == kept_hc,
-              "kept " + std::to_string(kept_vc) + "/" + std::to_string(kept_hc) + " raster " +
-                  std::to_string(ras.raw_vc) + "/" + std::to_string(ras.raw_hc));
+        const auto t   = dbg.time();
+        check("INS-06-04", "while running, raster() and time() report the live position "
+                           "from the clock and do not move the last pause's snapshot",
+              !emu.debug_state().paused() && (now_vc != kept_vc || now_hc != kept_hc) &&
+                  ras.raw_vc == now_vc && ras.raw_hc == now_hc && t.vc_raw == now_vc &&
+                  t.hc_raw == now_hc && emu.paused_vc() == kept_vc && emu.paused_hc() == kept_hc,
+              "kept " + std::to_string(kept_vc) + "/" + std::to_string(kept_hc) + " now " +
+                  std::to_string(now_vc) + "/" + std::to_string(now_hc) + " raster " +
+                  std::to_string(ras.raw_vc) + "/" + std::to_string(ras.raw_hc) + " time " +
+                  std::to_string(t.vc_raw) + "/" + std::to_string(t.hc_raw));
     }
 }
 

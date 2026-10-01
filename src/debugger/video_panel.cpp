@@ -234,11 +234,12 @@ static void restore_checker_where_transparent(uint32_t* dst, int row, int width)
 // debugger has its own read, and this is it.)
 // GH #22 — the raster/ULA-fetch answer the panel shows, without a QWidget.
 //
-// Deliberately sourced from Emulator::paused_hc()/paused_vc(), NOT from
+// Deliberately derived from the master clock (Debugger::raster(), which equals
+// Emulator::paused_hc()/paused_vc() while paused), NOT from
 // VideoTiming::pos(): the latter's counters are only advanced when a debugger
 // is attached (emulator.cpp, "Task 27 C10 ... purely the debug observable"),
-// while the paused pair is derived from the master clock, which is what every
-// other raster consumer (NR 0x1E/0x1F, the Copper, contention) also uses.
+// while the clock is what every other raster consumer (NR 0x1E/0x1F, the
+// Copper, contention) also uses.
 //
 // The ULA mode inputs are the live registers, because they decide WHAT is
 // being fetched: port 0xFF bits 2:0 select the Timex modes whose "attribute"
