@@ -31,6 +31,7 @@
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
 #include "platform/emulator_boot.h"
+#include "platform/recording_info.h"
 
 #include <SDL3/SDL.h>
 
@@ -813,6 +814,29 @@ static void host_rows() {
     }
 }
 
+static void info_rows() {
+    // What the loop owners hand the recorder: the CURRENT boot's program, the
+    // fixed RTC, the SD image. No card here, so no identity.
+    Emulator emu;
+    EmulatorConfig cfg;
+    cfg.type      = MachineType::ZX48K;
+    cfg.load_file = "prog.tap";
+    cfg.rtc_fixed = true;
+    parse_rtc_datetime("2026-03-04 05:06:07", cfg.rtc_fixed_tm);
+    emu.init(cfg);
+    const RecordingInfo i = recording_info_of(emu);
+    Emulator plain;
+    EmulatorConfig pc;
+    pc.type = MachineType::ZX48K;
+    plain.init(pc);
+    const RecordingInfo j = recording_info_of(plain);
+    check("REC-HOST-INFO", "recording_info_of(): the booted machine's program and fixed RTC; a live clock and "
+                           "no program read as empty",
+          i.load_file == "prog.tap" && i.rtc == "2026-03-04 05:06:07" && i.sd_image.empty() && i.sd_id.empty() &&
+              j.load_file.empty() && j.rtc.empty(),
+          i.load_file + " | " + i.rtc + " | " + j.rtc);
+}
+
 static void key_rows() {
     {
         Rig g;
@@ -866,6 +890,7 @@ int main() {
     run_group("life", life_rows);
     run_group("roundtrip", roundtrip_rows);
     run_group("host", host_rows);
+    run_group("info", info_rows);
     run_group("keys", key_rows);
 
     std::error_code ec;
