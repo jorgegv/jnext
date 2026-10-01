@@ -209,6 +209,7 @@ void ScriptPanel::refresh() {
     std::vector<ScriptEngine::RuleView> rules;
     if (have && host_->engine()) rules = host_->engine()->rules();
     table_->setRowCount(static_cast<int>(rules.size()));
+    QString shape;   // the texts that decide the column widths
     for (int i = 0; i < static_cast<int>(rules.size()); ++i) {
         const auto& r = rules[static_cast<size_t>(i)];
         const QString file = QString::fromStdString(r.file).section('/', -1);
@@ -229,7 +230,16 @@ void ScriptPanel::refresh() {
                 table_->setItem(i, c, it);
             }
             it->setText(cells[c]);
+            if (c != 4) shape += cells[c] + QLatin1Char('\t');
         }
+    }
+    // Every column but Hits sized to what it holds, whenever that changes (not
+    // on every refresh, so a column the user widened stays widened until the
+    // text does): the Event and State cells used to be elided to `write …`
+    // and `armed, …` at the window's default width (found writing the guide).
+    if (shape != sized_for_) {
+        sized_for_ = shape;
+        for (int c = 0; c < 4; ++c) table_->resizeColumnToContents(c);
     }
 
     // The verdict line.

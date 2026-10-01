@@ -2702,6 +2702,32 @@ static void test_script_panel() {
               s(after));
     }
     {
+        // GH #26 WP9 — the Event and State cells were elided (`write …`,
+        // `armed, …`) at the window's default width: every column but Hits is
+        // sized to its text.
+        ScriptFixture fx;
+        const bool ok = fx.ok && fx.panel.load_path(QString::fromStdString(scr_file(
+                                     "w.jds", "disabled code_guard: on write 0x8000..0xBFFF do stop end\n"
+                                              "on frame 100000 do exit 0 end\n")));
+        fx.panel.refresh();
+        QTableWidget* t = fx.panel.rule_table();
+        const QFontMetrics fm(t->font());
+        bool fits = ok && t->rowCount() == 2;
+        QString worst;
+        for (int r = 0; fits && r < t->rowCount(); ++r)
+            for (int c = 0; c < 4; ++c) {
+                const QString text = fx.cell(r, c);
+                if (t->columnWidth(c) < fm.horizontalAdvance(text)) {
+                    fits = false;
+                    worst = text + " in " + QString::number(t->columnWidth(c)) + "px";
+                }
+            }
+        check("QSCR-14", "the rule table sizes File, Rule, Event and State to their text: `write 8000..BFFF` "
+                         "and `armed, verdict not reached` are shown whole, not elided",
+              fits && fx.cell(0, 2) == "write 8000..BFFF" && fx.cell(1, 3) == "armed, verdict not reached",
+              s(worst) + " | " + s(fx.cell(0, 2)) + " | " + s(fx.cell(1, 3)));
+    }
+    {
         // The menu's three, enabled by state when the menu opens; Capture and
         // Stop act (Record opens a file dialog).
         WindowFixture fx;

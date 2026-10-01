@@ -88,6 +88,7 @@ private:
     QLabel*         record_      = nullptr;
     QLabel*         verdict_    = nullptr;
     QTableWidget*   table_      = nullptr;
+    QString         sized_for_;   ///< the cell texts the columns were last sized to
     QPlainTextEdit* log_        = nullptr;
     uint64_t        log_seq_    = 0;
 };
