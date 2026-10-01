@@ -1099,7 +1099,7 @@ docs-screenshots: unit-test-build
 	@# SKIP rather than fail when the renderer differs. Here there is no
 	@# renderer fingerprint to compare, so the check could only cry wolf.
 	@#
-	@# COVERS every picture of a Qt widget in the guide: the 12 debugger images
+	@# COVERS every picture of a Qt widget in the guide: the 13 debugger images
 	@# and, since GH #275, gui-main-window.png and preferences-startup.png. The
 	@# two used to be excluded for reasons that did not hold — MainWindow needs
 	@# no audio device (QtApp owns that path), and the Preferences capture is
