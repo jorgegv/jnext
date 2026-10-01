@@ -100,6 +100,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <unistd.h>
 #include "../row_id.h"
 
 namespace {
@@ -769,8 +770,11 @@ int main() {
             // The temp files live beside the binary rather than in /tmp: the
             // path is unique per build tree, so concurrent runs from different
             // worktrees on one host cannot collide, and `make clean` takes them.
-            const std::string out_path = bin + ".gh216.out";
-            const std::string err_path = bin + ".gh216.err";
+            // PID-qualified too: `make cli-check` and `make unit-test` both run
+            // this suite against the same build tree.
+            const std::string tag = ".gh216." + std::to_string(::getpid());
+            const std::string out_path = bin + tag + ".out";
+            const std::string err_path = bin + tag + ".err";
             auto run_split = [&](const std::string& args) {
                 std::remove(out_path.c_str());
                 std::remove(err_path.c_str());

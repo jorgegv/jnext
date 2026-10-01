@@ -1022,6 +1022,8 @@ check "HS-30" "no suite source reintroduces 'printf ... | grep -q' membership" 0
 # by the same review.
 CLEANUP_SCRIPTS=("$HARNESS"
                  "$PROJECT_DIR/test/bench/bench.sh"
+                 "$PROJECT_DIR/test/bench/ab-hotlatch.sh"
+                 "$PROJECT_DIR/test/bench/perf-attach.sh"
                  "$PROJECT_DIR/test/00regression/test-functions.inc")
 
 # (a) each script handles INT and TERM at all.
