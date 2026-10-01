@@ -3751,7 +3751,9 @@ where. <strong>Run</strong> carries on; the rules stay armed.</p>
 </tbody>
 </table>
 <p>A status of 2 never comes from a script. <strong>The first status a run reaches is
-kept</strong>, and a success never hides an earlier failure.</p>
+kept</strong>, and a success never hides an earlier failure. An <code>exit</code> inside an
+<a href="03-events.html#stop"><code>on stop</code></a> rule therefore never changes it: the pause that
+ran the rule has already decided the status.</p>
 <h3 id="a-failure-wins-over-a-success-at-the-same-moment">A failure wins over a success at the same moment<a class="headerlink" href="#a-failure-wins-over-a-success-at-the-same-moment" title="Permanent link">&para;</a></h3>
 <p>When a <code>stop</code>, a failed <code>assert</code> or <code>compare_scr</code>, or a run-time error happens
 at the <strong>same event</strong> as an <code>exit 0</code> — in the same rule or in another, before

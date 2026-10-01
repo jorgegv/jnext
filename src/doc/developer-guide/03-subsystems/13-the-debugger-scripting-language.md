@@ -64,7 +64,9 @@ one symbol table (CAP-SYM, filled by `--map` or **Map > Load MAP**). A z88dk
 map's `; addr` lines name addresses; its `; const` lines (sizes, and section
 bounds such as `__data_crt_head`) are kept in a separate name-only table, so
 `@__data_crt_head` resolves while the disassembler and `lookup(addr)` never
-name an address after a constant (`SymbolTable::lookup_name()`).
+name an address after a constant (`SymbolTable::lookup_name()`). A name defined
+twice resolves to its first definition, a constant as an address; a name that
+is both is the address (row SYM-13).
 
 ## Values, state and the snapshot stacks
 
@@ -197,8 +199,10 @@ does not matter which rule failed, or whether before or after the exit. The
 first failure of the boundary names it, and of two exits at one boundary the
 first is taken. A non-zero `exit n` is kept: it already reports a failure. A
 stop at an EARLIER boundary (paused and resumed under `StopPolicy::Pause`)
-does not take a later `exit 0` away. Other clients' breakpoints are not script
-failures.
+does not take a later `exit 0` away. An `exit` inside an `on stop` rule never
+changes the status: the pause that ran it already decided it (a stop's 3, an
+`exit`'s own code; SCRIPT-EV-EXIT-IN-ON-STOP). Other clients' breakpoints are
+not script failures.
 
 **An exit waits for a pending `compare_scr`.** An `exit` issued while any
 `compare_scr` waits for its frame edge is queued behind it

@@ -2118,7 +2118,9 @@ one symbol table (CAP-SYM, filled by <code>--map</code> or <strong>Map &gt; Load
 map's <code>; addr</code> lines name addresses; its <code>; const</code> lines (sizes, and section
 bounds such as <code>__data_crt_head</code>) are kept in a separate name-only table, so
 <code>@__data_crt_head</code> resolves while the disassembler and <code>lookup(addr)</code> never
-name an address after a constant (<code>SymbolTable::lookup_name()</code>).</p>
+name an address after a constant (<code>SymbolTable::lookup_name()</code>). A name defined
+twice resolves to its first definition, a constant as an address; a name that
+is both is the address (row SYM-13).</p>
 <h2 id="values-state-and-the-snapshot-stacks">Values, state and the snapshot stacks<a class="headerlink" href="#values-state-and-the-snapshot-stacks" title="Permanent link">&para;</a></h2>
 <p>Integers are 32-bit signed and wrap. Comparisons, <code>and</code>, <code>or</code> and <code>not</code> yield
 1 or 0, and <code>and</code>/<code>or</code> short-circuit.</p>
@@ -2259,8 +2261,10 @@ does not matter which rule failed, or whether before or after the exit. The
 first failure of the boundary names it, and of two exits at one boundary the
 first is taken. A non-zero <code>exit n</code> is kept: it already reports a failure. A
 stop at an EARLIER boundary (paused and resumed under <code>StopPolicy::Pause</code>)
-does not take a later <code>exit 0</code> away. Other clients' breakpoints are not script
-failures.</p>
+does not take a later <code>exit 0</code> away. An <code>exit</code> inside an <code>on stop</code> rule never
+changes the status: the pause that ran it already decided it (a stop's 3, an
+<code>exit</code>'s own code; SCRIPT-EV-EXIT-IN-ON-STOP). Other clients' breakpoints are
+not script failures.</p>
 <p><strong>An exit waits for a pending <code>compare_scr</code>.</strong> An <code>exit</code> issued while any
 <code>compare_scr</code> waits for its frame edge is queued behind it
 (<code>Deferred::Kind::Exit</code>) and taken at that edge, after the compare. So

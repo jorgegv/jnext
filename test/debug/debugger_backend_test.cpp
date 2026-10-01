@@ -7294,6 +7294,34 @@ int main() {
               dis[0].mnemonic);
         std::remove(map_path.c_str());
     }
+    {
+        // GH #26 WP7 review round 2 (C5) — a name defined twice. The rule is
+        // the one `; addr` symbols already followed: the FIRST definition wins,
+        // for a const as for an address; and a name that is both is the
+        // address (lookup_name() consults the addresses first).
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const std::string map_path = tmp_file("c5_dup", ".map");
+        {
+            std::ofstream f(map_path);
+            f << "dup_const                       = $1000 ; const, public, def, , ,\n"
+                 "dup_const                       = $2000 ; const, public, def, , ,\n"
+                 "dup_addr                        = $8100 ; addr, public, , m, code_user, m.asm:1\n"
+                 "dup_addr                        = $8200 ; addr, public, , m, code_user, m.asm:2\n"
+                 "both                            = $4000 ; const, public, def, , ,\n"
+                 "both                            = $8300 ; addr, public, , m, code_user, m.asm:3\n";
+        }
+        (void)dbg.load_map(map_path, jnext::dbg::MapFormat::Z88dk);
+        const auto c = dbg.lookup_name("dup_const");
+        const auto a = dbg.lookup_name("dup_addr");
+        const auto b = dbg.lookup_name("both");
+        check("SYM-13", "a name a MAP defines twice resolves to its FIRST definition, a `; const` as an "
+                        "`; addr` (0x1000, 0x8100); a name that is both a const and an address is the address",
+              c && *c == 0x1000 && a && *a == 0x8100 && b && *b == 0x8300,
+              (c ? std::to_string(*c) : std::string("-")) + " " + (a ? std::to_string(*a) : std::string("-")) +
+                  " " + (b ? std::to_string(*b) : std::string("-")));
+        std::remove(map_path.c_str());
+    }
 
     // =======================================================================
     // PEND — the verbs a later sub-package owns refuse, they do not misbehave

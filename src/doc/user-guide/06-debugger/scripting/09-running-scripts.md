@@ -114,7 +114,9 @@ In `--headless` and the SDL-only build, the script decides the exit status:
 | **1** | a script that does not load; a run-time error; a `screenshot` or `save_snapshot` that was not written; `exit` outside 0 to 255 |
 
 A status of 2 never comes from a script. **The first status a run reaches is
-kept**, and a success never hides an earlier failure.
+kept**, and a success never hides an earlier failure. An `exit` inside an
+[`on stop`](03-events.md#stop) rule therefore never changes it: the pause that
+ran the rule has already decided the status.
 
 ### A failure wins over a success at the same moment
 

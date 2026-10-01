@@ -349,7 +349,7 @@ the nesting expressible without loops or data structures.
 | `log [indent n] "…"` | one line to the script log, prefixed `[jds F:<FRAME> C:<CYCLE>]`, `n` spaces after the prefix. Headless: stderr through the `script` spdlog channel. |
 | `stop ["reason"]` | request a pause **at the offending instruction** (§6.3). Headless: log + exit 3 at the end of the current instruction. |
 | `assert expr "msg"` | if false: `log "ASSERT FAILED: msg"`, then behaves as `stop "msg"`. |
-| `exit n` | headless: exit with code n after the current instruction. GUI: log + pause (a GUI never exits from a script). **A failure at the same boundary wins over `exit 0`** (WP7 review 1, Appendix M.2): a `stop`, a failed `assert` or `compare_scr`, a static stop, or a run-time error at the same event — in this rule or another, before or after the `exit` — makes the run exit 3 (1 for the run-time error), logged `SCRIPT EXIT 0 not taken`; a non-zero `exit n` is kept. An `exit` issued while a `compare_scr` waits for its frame edge waits too, and is taken at that edge after the compare. |
+| `exit n` | headless: exit with code n after the current instruction. GUI: log + pause (a GUI never exits from a script). **A failure at the same boundary wins over `exit 0`** (WP7 review 1, Appendix M.2): a `stop`, a failed `assert` or `compare_scr`, a static stop, or a run-time error at the same event — in this rule or another, before or after the `exit` — makes the run exit 3 (1 for the run-time error), logged `SCRIPT EXIT 0 not taken`; a non-zero `exit n` is kept. An `exit` issued while a `compare_scr` waits for its frame edge waits too, and is taken at that edge after the compare. An `exit` inside an `on stop` rule never changes the status: the pause that ran the rule already decided it (a stop's 3, an `exit`'s own code — row SCRIPT-EV-EXIT-IN-ON-STOP). |
 | `dump_regs`, `dump_mmu`, `dump_mem a len` | to the log; `dump_mem` ≤ 4096 bytes, 16 per line. |
 | `screenshot "f"` | queued for the **next frame boundary** through `save_screenshot` (`screenshot.h:60`): `.scr` = ULA memory (`Ula::screen_dump`), else PNG. Same path `--delayed-screenshot` uses. Its outcome is the backend's `flush_captures(cid)` (added in B4): the engine calls it before `exit`, and `NoFrame` (a capture still pending) or `RefusedUnavailable` (one that failed to write) makes the run's exit non-zero. |
 | `compare_scr "f" "msg"` | at the next frame boundary, `Ula::screen_dump()` byte-compared to file; first differing offset logged; mismatch behaves as `assert` failure. |
@@ -1706,7 +1706,9 @@ logged as `SCRIPT WARNING file:L:C: …`; the script still loads.
   (Appendix M.2):** the `exit` is no longer handed over during the delivery but
   at the pause, in `on_paused()`, once every stop of the boundary is known, and
   the loop owner's listener leaves the backend's 3 to that hand-over while an
-  exit is pending. A failure at the same boundary turns `exit 0` into its code. Before that it calls
+  exit is pending. A failure at the same boundary turns `exit 0` into its code. An `exit`
+  inside an `on stop` rule never changes the status: the pause that ran it already
+  decided it (a stop's 3, an `exit`'s own code; SCRIPT-EV-EXIT-IN-ON-STOP). Before that it calls
   `flush_captures()`: a screenshot still pending or failed, or a
   `save_snapshot` still queued, turns `exit 0` into exit 1, logged.
 - **`REASON`** is the rule's own text for the engine's own stop (the backend
@@ -2173,7 +2175,9 @@ with it they are §9's ten.
   in a separate NAME-ONLY table that `lookup_name()` consults after the
   addresses — so `@__data_crt_head`, ZRCP and GDB names resolve — and that
   `lookup()`, `symbols()` and the disassembler never see, so a size or a bound
-  never names an address (rows SYM-11, SYM-12). `range_watch.jds` and
+  never names an address (rows SYM-11, SYM-12). A name defined twice resolves to
+  its FIRST definition, a const as an address already did; a name that is both
+  is the address (review round 2, C5; SYM-13). `range_watch.jds` and
   `hostkey.jds` now guard `0x8000..(@__data_crt_head - 1)`, as §3(a) and
   ChaseTheBug do.
 - **A script must arm after the program is loaded.** Before the NEX loads,

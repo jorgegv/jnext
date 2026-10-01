@@ -2081,6 +2081,16 @@ static void exit_rows() {
               std::to_string(big) + "/" + std::to_string(neg) + "/" + std::to_string(top) + " " + lb.substr(0, 200));
     }
     {
+        int a = -1, b = -1;
+        std::string la, lb;
+        const bool ok1 = run(kWriter, "on write 0x9000 do stop \"s\" end\non stop do exit 7 end\n", a, la);
+        const bool ok2 = run(kWriter, "on write 0x9000 do exit 0 end\non stop do exit 7 end\n", b, lb);
+        check("SCRIPT-EV-EXIT-IN-ON-STOP", "an `exit` inside an `on stop` rule never changes the status: the pause "
+                                           "that ran it already decided it — a stop's 3 (not 7), an exit's 0 (not 7)",
+              ok1 && ok2 && a == 3 && b == 0 && la.find("SCRIPT EXIT 7") != std::string::npos,
+              std::to_string(a) + "/" + std::to_string(b) + " " + la.substr(0, 200));
+    }
+    {
         // The loop's FIRST tick: the backend's first pump only takes its
         // baseline and pushes no Paused, so an exit handed over at the pause
         // needs the host to have taken that baseline at start.

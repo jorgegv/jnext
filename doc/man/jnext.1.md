@@ -1840,7 +1840,9 @@ script. A failure wins over a success at the same moment: when a `stop`, a
 failed `assert` or `compare_scr`, or a run-time error happens at the same
 event as an `exit 0` - in the same rule or in another one, before it or
 after it - the run exits `3` (or `1` for the run-time error), and the log
-says `SCRIPT EXIT 0 not taken`. A non-zero `exit` *N* is kept. An `exit`
+says `SCRIPT EXIT 0 not taken`. A non-zero `exit` *N* is kept. An `exit` in an
+`on stop` rule never changes the status: the pause that ran it already decided
+it (a stop's `3`). An `exit`
 that comes while a `compare_scr` is still waiting for its frame edge waits
 with it, so `on write` *A* `do compare_scr` *F* *M* `exit 0 end` reports a
 mismatch rather than exiting first.

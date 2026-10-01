@@ -4134,7 +4134,20 @@ event that caused it has run. Headless, the run then ends; the <code>on stop</co
 run first, so they can log the state the run ended in.</p>
 <p>Payload: <code>REASON</code>, a string — a script stop's own message, otherwise the kind
 of pause (<code>user</code>, <code>breakpoint</code>, …) — and <code>PC</code>, where the machine is paused.</p>
-<p>A <code>stop</code> inside an <code>on stop</code> rule only logs: the machine is already stopped.</p>
+<p>A <code>stop</code> inside an <code>on stop</code> rule only logs: the machine is already stopped.
+And an <code>exit</code> there never changes the status — the pause that ran the rule has
+already decided it:</p>
+<pre><code>on frame 20 do stop &quot;x&quot; end
+on stop do
+    log &quot;on stop runs, then exit 7&quot;
+    exit 7
+end
+</code></pre>
+<pre><code>[debugger] [warning] SCRIPT STOP: x at PC=11E0 FRAME=20 CYCLE=11741208
+[debugger] [info] [jds F:20 C:11741208] on stop runs, then exit 7
+[debugger] [info] [jds F:20 C:11741208] SCRIPT EXIT 7
+[platform] [info] script requested exit 3
+</code></pre>
 <pre><code>on frame 20 do stop &quot;boom&quot; end
 on stop when REASON == &quot;boom&quot; do
     log &quot;caught my own stop: ${REASON}, PC ${PC:x4}, loaded at FRAME ${loaded_at}&quot;

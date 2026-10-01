@@ -2430,6 +2430,9 @@ or a run\-time error happens at the same event as an \f[CR]exit 0\f[R]
 exits \f[CR]3\f[R] (or \f[CR]1\f[R] for the run\-time error), and the
 log says \f[CR]SCRIPT EXIT 0 not taken\f[R].
 A non\-zero \f[CR]exit\f[R] \f[I]N\f[R] is kept.
+An \f[CR]exit\f[R] in an \f[CR]on stop\f[R] rule never changes the
+status: the pause that ran it already decided it (a stop\(cqs
+\f[CR]3\f[R]).
 An \f[CR]exit\f[R] that comes while a \f[CR]compare_scr\f[R] is still
 waiting for its frame edge waits with it, so \f[CR]on write\f[R]
 \f[I]A\f[R] \f[CR]do compare_scr\f[R] \f[I]F\f[R] \f[I]M\f[R]

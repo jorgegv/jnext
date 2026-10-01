@@ -145,7 +145,9 @@ unknown one is an error then, never a 0 at run time.
 Both kinds of z88dk MAP entry can be named: `; addr` entries (labels) and `;
 const` entries — compile-time constants such as the section bounds
 `__data_crt_head` and `__code_user_tail`. A constant is a value with a name: it
-resolves as `@name` but never names an address in the disassembly.
+resolves as `@name` but never names an address in the disassembly. A name the
+MAP defines twice takes its first definition, and a name that is both a label
+and a constant is the label.
 
 The name after `@` can be any identifier, keywords included (`@start`).
 

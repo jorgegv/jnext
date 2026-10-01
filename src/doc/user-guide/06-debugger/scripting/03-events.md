@@ -370,6 +370,23 @@ Payload: `REASON`, a string — a script stop's own message, otherwise the kind
 of pause (`user`, `breakpoint`, …) — and `PC`, where the machine is paused.
 
 A `stop` inside an `on stop` rule only logs: the machine is already stopped.
+And an `exit` there never changes the status — the pause that ran the rule has
+already decided it:
+
+```
+on frame 20 do stop "x" end
+on stop do
+    log "on stop runs, then exit 7"
+    exit 7
+end
+```
+
+```
+[debugger] [warning] SCRIPT STOP: x at PC=11E0 FRAME=20 CYCLE=11741208
+[debugger] [info] [jds F:20 C:11741208] on stop runs, then exit 7
+[debugger] [info] [jds F:20 C:11741208] SCRIPT EXIT 7
+[platform] [info] script requested exit 3
+```
 
 ```
 on frame 20 do stop "boom" end

@@ -3761,6 +3761,9 @@ script never ends JNEXT: <code>exit</code> pauses the machine and the Script tab
   <code>exit n</code> is kept.</li>
 <li><strong>An <code>exit</code> waits for a <code>compare_scr</code> still pending</strong> (see below), and is
   taken after it.</li>
+<li><strong>An <code>exit</code> inside an <code>on stop</code> rule never changes the status.</strong> The pause
+  that ran the rule has already decided it: after a <code>stop</code> the run exits 3,
+  whatever the <code>on stop</code> rule's <code>exit</code> says (it is logged, and ignored).</li>
 <li><strong>An <code>exit</code> does not wait for a <code>screenshot</code> or a <code>save_snapshot</code>.</strong> Both
   happen at the next frame edge; an <code>exit</code> in the same frame ends the run
   before it, and the run exits <strong>1</strong> rather than pretend it saved:</li>

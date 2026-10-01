@@ -3837,7 +3837,9 @@ unknown one is an error then, never a 0 at run time.</p>
 <p>Both kinds of z88dk MAP entry can be named: <code>; addr</code> entries (labels) and <code>;
 const</code> entries — compile-time constants such as the section bounds
 <code>__data_crt_head</code> and <code>__code_user_tail</code>. A constant is a value with a name: it
-resolves as <code>@name</code> but never names an address in the disassembly.</p>
+resolves as <code>@name</code> but never names an address in the disassembly. A name the
+MAP defines twice takes its first definition, and a name that is both a label
+and a constant is the label.</p>
 <p>The name after <code>@</code> can be any identifier, keywords included (<code>@start</code>).</p>
 <h2 id="reading-something-that-is-not-there">Reading something that is not there<a class="headerlink" href="#reading-something-that-is-not-there" title="Permanent link">&para;</a></h2>
 <p>An accessor out of range is a run-time error, which switches the rule off:</p>

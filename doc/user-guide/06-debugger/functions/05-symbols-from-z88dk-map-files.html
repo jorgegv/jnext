@@ -3492,7 +3492,9 @@
   Entries marked <code>; addr</code> are addresses. Entries marked <code>; const</code> are
   compile-time constants, such as the section bound <code>__data_crt_head</code>: they
   are kept by name only, so a script's <code>@__data_crt_head</code> resolves, but they
-  never name an address in the views below.</li>
+  never name an address in the views below. A name the file defines twice
+  takes its first definition; a name that is both an address and a constant
+  is the address.</li>
 <li><strong>Simple Format (48K ROM)…</strong> — plain <code>NAME = $ADDR</code> lines, one per line,
   <code>;</code> for comments.</li>
 </ul>

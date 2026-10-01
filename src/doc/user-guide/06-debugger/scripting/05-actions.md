@@ -98,6 +98,9 @@ script never ends JNEXT: `exit` pauses the machine and the Script tab shows
   `exit n` is kept.
 - **An `exit` waits for a `compare_scr` still pending** (see below), and is
   taken after it.
+- **An `exit` inside an `on stop` rule never changes the status.** The pause
+  that ran the rule has already decided it: after a `stop` the run exits 3,
+  whatever the `on stop` rule's `exit` says (it is logged, and ignored).
 - **An `exit` does not wait for a `screenshot` or a `save_snapshot`.** Both
   happen at the next frame edge; an `exit` in the same frame ends the run
   before it, and the run exits **1** rather than pretend it saved:

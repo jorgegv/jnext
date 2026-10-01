@@ -6,7 +6,9 @@ Load a symbol table with **Map ▸ Load MAP File**, which offers two formats:
   Entries marked `; addr` are addresses. Entries marked `; const` are
   compile-time constants, such as the section bound `__data_crt_head`: they
   are kept by name only, so a script's `@__data_crt_head` resolves, but they
-  never name an address in the views below.
+  never name an address in the views below. A name the file defines twice
+  takes its first definition; a name that is both an address and a constant
+  is the address.
 - **Simple Format (48K ROM)…** — plain `NAME = $ADDR` lines, one per line,
   `;` for comments.
 
