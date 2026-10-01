@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.61</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.62</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.61</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.62</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -932,6 +932,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using your own image
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="03-using-your-own-image.html" class="md-nav__link md-nav__link--active">
         
   
@@ -948,6 +966,36 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#changing-the-card-while-jnext-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changing the card while JNEXT runs
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -2936,9 +2984,8 @@
 <pre><code class="language-sh">jnext --sdcard /path/to/my-image.img
 </code></pre>
 <p>An explicit <code>--sdcard</code> always wins: it is used as-is, and no download is ever
-offered or performed. In the graphical version you can also mount one from
-<strong>File &gt; Mount SD Card Image</strong>, and set a permanent default in Preferences
-(chapter 4).</p>
+offered or performed. In the graphical version you can set a permanent default
+in Preferences (chapter 4), and change the card while JNEXT runs (below).</p>
 <p>The image is opened <strong>read-write</strong>, and whatever the emulated machine writes to
 the card is kept. Booting is not one of those things: reaching the NextZXOS
 welcome screen and the menu writes nothing at all, and leaves the image
@@ -2949,6 +2996,29 @@ exactly as they would on a real card, so two runs sharing one image are not
 independent once one of them has written.</p>
 <p>Add <code>--sdcard-readonly</code> when a run must not disturb the image: the emulated
 machine then sees a write-protected card and the host file is never touched.</p>
+<h2 id="changing-the-card-while-jnext-runs">Changing the card while JNEXT runs<a class="headerlink" href="#changing-the-card-while-jnext-runs" title="Permanent link">&para;</a></h2>
+<p><strong>File &gt; Insert SD Card Image</strong> puts a different card in the running machine,
+and <strong>File &gt; Eject SD Card</strong> takes it out. Nothing is reset, so you keep what
+you were doing — a RAMdisk, say, while you copy files from one card to another.</p>
+<p>The Next has no way to notice a card being pulled, so NextZXOS has to be told:
+type <strong>REMOUNT</strong>. It answers <em>Remove/insert SD and press Y</em>; change the card from
+the File menu, then press Y. NextZXOS reads the new card and lists its drives
+again.</p>
+<p>A few things to know:</p>
+<ul>
+<li>The inserted card is write-protected if JNEXT was started with
+  <code>--sdcard-readonly</code>, like the first one. It does not become your saved
+  default; that is Preferences' job.</li>
+<li>The machine keeps the ROMs it started with — a real Next loads them once, at
+  power-on. A <strong>hard reset</strong>, or loading a program, reads them from the card that
+  is in. After an <strong>eject</strong>, those put the last inserted card back, since JNEXT
+  cannot start a machine without one.</li>
+<li>The card cannot be changed while an RZX recording is being made or played, or
+  while a directly loaded <code>.nex</code> keeps its own file open. JNEXT says why.</li>
+<li>Changing the card clears the debugger's rewind history.</li>
+<li>A <code>.jns</code> snapshot saved with one card refuses to load once a <em>different</em> card
+  is in (chapter 5, Snapshots). A copy of the same card is the same card to it.</li>
+</ul>
 
 
 

@@ -115,7 +115,9 @@ holds NextZXOS, which is not ours to redistribute. It records the card's
   volume serial — is **refused**. Restoring a Next mid-way through reading a
   file, against a card where that file is somewhere else, is the kind of wrong
   that looks like a crash an hour later. `--snapshot-mode force` overrides
-  it, and says what it is overriding.
+  it, and says what it is overriding. That includes a card you put in with
+  **File > Insert SD Card Image** after saving: insert the original again to
+  restore.
 - **The same card, changed since** — which happens constantly, because JNEXT
   writes guest changes back to the card — **restores with one warning line**.
   That is normal, and usually irrelevant.

@@ -602,14 +602,18 @@ void MainWindow::create_menus() {
     load_nex->setShortcut(QKeySequence(Qt::ALT | Qt::Key_O));
     connect(load_nex, &QAction::triggered, this, &MainWindow::on_load_nex);
 
-    QAction* mount_sd = file_menu->addAction(tr("&Mount SD Card Image..."));
-    connect(mount_sd, &QAction::triggered, this, &MainWindow::on_mount_sd);
+    // GH #93 — a live card change, for NextZXOS's REMOUNT ("Remove/insert SD
+    // and press Y"). I and E are free in this popup.
+    QAction* insert_sd = file_menu->addAction(tr("&Insert SD Card Image..."));
+    connect(insert_sd, &QAction::triggered, this, &MainWindow::on_insert_sd);
+    QAction* eject_sd = file_menu->addAction(tr("&Eject SD Card"));
+    connect(eject_sd, &QAction::triggered, this, [this]() { handle_sd_card_path(QString()); });
 
     file_menu->addSeparator();
 
-    // #217: this and "&Mount SD Card Image..." both claimed M. Mount keeps it —
-    // M is the first letter of the word a user reaches for, whereas nobody
-    // hunts for video recording under "MPEG4". Every letter of "Record MPEG4
+    // #217: this and the old "&Mount SD Card Image..." both claimed M. Mount kept
+    // it (GH #93 renamed it Insert) — nobody hunts for video recording under
+    // "MPEG4". Every letter of "Record MPEG4
     // Video" that is free everywhere else is either already used in this popup
     // (P is "Sto&p MPEG4 Recording") or is the digit; V would read better but
     // Alt+V is the View menu. So the 4 of MPEG4, underlined in place.
@@ -1325,23 +1329,43 @@ void MainWindow::report_load_failure(const QString& path) {
            "file of its type; the log has the details.").arg(path));
 }
 
-void MainWindow::on_mount_sd() {
-    QString start_dir = QFileInfo(app_config_.data().sd_card_path).absolutePath();
+void MainWindow::on_insert_sd() {
+    // Start where the card in use lives. Only the directory is offered: the
+    // saved default card is Preferences' to change, not a session swap's.
+    QString current = emulator_ ? QString::fromStdString(emulator_->config().sd_card_image)
+                                : QString();
+    if (current.isEmpty()) current = app_config_.data().sd_card_path;
     QString path = QFileDialog::getOpenFileName(
-        this, tr("Mount SD Card Image"), start_dir,
+        this, tr("Insert SD Card Image"), QFileInfo(current).absolutePath(),
         tr("Disk Images (*.img *.bin);;All Files (*)"));
-    if (!path.isEmpty()) {
-        // SD card mounting requires restart; just store and inform user.
-        // Task 66 — also remember it as the default --sdcard for future
-        // launches that don't pass --sdcard explicitly.
-        app_config_.data().sd_card_path = path;
-        app_config_.save();
-        QMessageBox::information(this, tr("SD Card"),
-            tr("SD card image selected:\n%1\n\n"
-               "Restart the emulator with --sdcard to use this image "
-               "(or just restart — it is now the default).").arg(path));
-        emit sd_card_selected(path);
+    if (!path.isEmpty()) handle_sd_card_path(path);
+}
+
+void MainWindow::handle_sd_card_path(const QString& path) {
+    if (!emulator_) return;
+    // --sdcard-readonly is a property of the session, not of one card: an
+    // inserted card is write-protected exactly when the launch card was.
+    const std::string why = emulator_->request_sd_card_change(
+        {path.toStdString(), emulator_->config().sd_card_readonly});
+    if (why.empty()) return;
+    QMessageBox::warning(this, tr("SD Card"),
+        tr("The SD card cannot be changed now: %1.").arg(QString::fromStdString(why)));
+}
+
+void MainWindow::sd_card_change_finished(const QString& image, const QString& error) {
+    if (error.isEmpty()) {
+        const QString msg = image.isEmpty() ? tr("SD card ejected")
+                                            : tr("SD card inserted: %1").arg(image);
+        statusBar()->showMessage(msg, 5000);
+        Log::platform()->info("status bar: {}", msg.toStdString());   // sdcard-swap-func reads it
+        return;
     }
+    statusBar()->showMessage(tr("SD card change failed: %1").arg(error), 5000);
+    if (unattended_) return;   // logged by the emulator; nobody to answer a dialog
+    QTimer::singleShot(0, this, [this, error]() {
+        QMessageBox::warning(this, tr("SD Card"),
+            tr("The SD card could not be changed: %1.").arg(error));
+    });
 }
 
 void MainWindow::on_reset() {

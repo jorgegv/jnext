@@ -19,6 +19,10 @@
 // offscreen MainWindow and answer the real QMessageBox through a polling
 // timer, the idiom of nex_v13_dialog_test / quit_gate_test.
 //
+// LE-19..LE-23 (GH #93) drive File > Insert SD Card Image…'s post-picker half,
+// the real File > Eject SD Card action, and the report the frontend hands back
+// once it has performed the change between frames.
+//
 // Run: ./build/test/load_error_test
 
 #include "core/emulator.h"
@@ -28,6 +32,7 @@
 #include "debug/debugger.h"
 
 #include <QAbstractButton>
+#include <QAction>
 #include <QApplication>
 #include <QElapsedTimer>
 #include <QLabel>
@@ -178,10 +183,11 @@ struct Fixture {
     int        callbacks = 0;
     bool       ok = false;
 
-    Fixture() {
+    explicit Fixture(bool sd_readonly = false) {
         EmulatorConfig cfg;
         cfg.type                 = MachineType::ZXN_ISSUE2;
         cfg.rewind_buffer_frames = 0;
+        cfg.sd_card_readonly     = sd_readonly;   // GH #93, LE-19
         if (!emu.init(cfg)) return;
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
         win.set_debugger(backend.get());
@@ -409,6 +415,88 @@ int main(int argc, char** argv) {
               "naming it",
               f.ok && w.seen == 1 && w.text.contains("bad.rzx"),
               fmt("seen=%d text=%s", w.seen, q(w.text).c_str()));
+    }
+
+    // ── GH #93 — File > Insert SD Card Image… / Eject SD Card ──────────
+    //
+    // The window only REQUESTS the change; the frontend performs it between
+    // frames (emulator_service_sd_card_change(), emulator_boot_test EB-53..61)
+    // and reports back through sd_card_change_finished().
+    const QString card_path = QString::fromStdString(write_file("card.img", Bytes(4096, 0xB2)));
+    // LE-19 — the picked card is requested with the SESSION's read-only flag.
+    {
+        Fixture f(/*sd_readonly=*/true);
+        DialogWatcher w;
+        f.win.handle_sd_card_path(card_path);
+        w.pump(50);
+        w.stop();
+        const auto req = f.emu.take_sd_card_change_request();
+        check("LE-19",
+              "Insert SD Card Image requests the picked card, write-protected exactly "
+              "when the session is (--sdcard-readonly), and asks nothing",
+              f.ok && req && req->image == card_path.toStdString() && req->read_only &&
+                  w.seen == 0,
+              fmt("req=%d image=%s ro=%d seen=%d", req ? 1 : 0,
+                  req ? req->image.c_str() : "", req && req->read_only ? 1 : 0, w.seen));
+    }
+    // LE-20 — the real File > Eject SD Card action requests an eject.
+    {
+        Fixture f;
+        QAction* eject = nullptr;
+        for (QAction* a : f.win.findChildren<QAction*>())
+            if (a->text() == "&Eject SD Card") eject = a;
+        if (eject) eject->trigger();
+        const auto req = f.emu.take_sd_card_change_request();
+        check("LE-20", "File > Eject SD Card requests an eject (an empty image)",
+              f.ok && eject && req && req->image.empty(),
+              fmt("action=%d req=%d", eject ? 1 : 0, req ? 1 : 0));
+    }
+    // LE-21 — a refusal is reported at once, naming why, and nothing is queued.
+    {
+        Fixture f;
+        f.emu.sd_card().set_read_overlay(0x100000, 1, [](uint32_t, uint8_t*) { return true; });
+        DialogWatcher w;
+        f.win.handle_sd_card_path(card_path);
+        w.stop();
+        const bool queued = f.emu.take_sd_card_change_request().has_value();
+        check("LE-21",
+              "a refused card change shows one warning saying why, and queues nothing",
+              f.ok && w.seen == 1 && w.text.contains("keeps its own file open") && !queued,
+              fmt("seen=%d text=%s queued=%d", w.seen, q(w.text).c_str(), queued ? 1 : 0));
+    }
+    // LE-22 — a performed change is confirmed on the status bar, no dialog.
+    {
+        Fixture f;
+        DialogWatcher w;
+        f.win.sd_card_change_finished(card_path, QString());
+        const QString in = f.win.statusBar()->currentMessage();
+        f.win.sd_card_change_finished(QString(), QString());
+        const QString out = f.win.statusBar()->currentMessage();
+        w.pump(50);
+        w.stop();
+        check("LE-22",
+              "a performed insert or eject is confirmed on the status bar, with no dialog",
+              f.ok && in.contains("SD card inserted") && in.contains("card.img") &&
+                  out.contains("SD card ejected") && w.seen == 0,
+              fmt("in=%s out=%s seen=%d", q(in).c_str(), q(out).c_str(), w.seen));
+    }
+    // LE-23 — a failed one says why: status bar, and a dialog posted to the
+    // event loop (the frontend calls this from inside a frame tick).
+    {
+        Fixture f;
+        DialogWatcher w;
+        f.win.sd_card_change_finished(card_path, "cannot open 'card.img'");
+        const int during = w.seen;
+        const QString st = f.win.statusBar()->currentMessage();
+        w.pump(200);
+        w.stop();
+        check("LE-23",
+              "a failed card change says why on the status bar and in ONE deferred "
+              "warning",
+              f.ok && st.contains("failed") && st.contains("cannot open") && during == 0 &&
+                  w.seen == 1 && w.text.contains("cannot open"),
+              fmt("status=%s during=%d seen=%d text=%s", q(st).c_str(), during, w.seen,
+                  q(w.text).c_str()));
     }
 
     // ── GH #27 S8 — the `.jns` file-dialog FILTERS ──────────────────────

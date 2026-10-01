@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.61</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.62</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.61</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.62</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1988,6 +1988,23 @@ from inside <code>run_frame()</code> — you cannot destroy the object whose cod
 currently executing. So the emulator only <em>records</em> the request, and the
 frontend polls <code>take_hard_reset_request()</code> after each frame returns and
 performs the reconstruction from there.</p>
+<p>A live SD-card change (File &gt; Insert SD Card Image / Eject SD Card, and the
+headless <code>--delayed-sdcard-insert-frames</code>, GH #93) borrows the same shape
+although it comes from the host, not the guest: <code>request_sd_card_change()</code>
+records it (one at a time: a second request while one is pending is refused),
+and the loop owner performs it at the end of its tick — after its frames, or at
+the paused instruction boundary when the debugger holds the machine, where a
+hard reset lands too — with <code>emulator_service_sd_card_change()</code>
+(<code>src/platform/emulator_boot.h</code>), BEFORE the cold-boot polls so a reset in the
+same tick boots the new card. A reconstruct from anywhere else (a debugger
+client's reset in the pump) carries a still-pending change to the rebuilt
+machine, which makes it after the boot, rather than destroying it. The card lives in
+two configs and that helper updates both: the emulator's (an in-place <code>init()</code>,
+which every program load does, remounts from it) and the frontend's own (every
+cold boot rebuilds from it). <code>HeadlessApp</code> and <code>QtApp</code> poll it. <code>SdlApp</code> does
+not: it has no menu or dialog that could raise one (only the test fixture
+<code>JNEXT_HOST_PROBE=sdcard:</code> can, and in an SDL build that request is never
+performed).</p>
 
 
 

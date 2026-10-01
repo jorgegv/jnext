@@ -79,7 +79,9 @@ while a loader was streaming a CMD18 multi-block read restored a card that was
 no longer streaming, and the replayed frames then received a fresh idle card's
 R1/token framing where sector bytes belonged. On a Next that is most loaders.
 Only the *protocol* state travels; the mounted image is an external resource
-shared by every slot in the ring, exactly as the esxDOS host handles are.
+shared by every slot in the ring, exactly as the esxDOS host handles are. That is
+why a live SD-card change empties the ring (`RewindBuffer::clear()`): every slot
+would restore one card's state machine against another card's contents.
 
 The subsystems do not each hand-write that serialisation any more either.
 Every one of them — and the emulator's own scalars — declares its fields
