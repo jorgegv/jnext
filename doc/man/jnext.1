@@ -768,6 +768,19 @@ override of it: both forms queue into the same list, so giving both
 schedules two presses.
 Requires \f[B]\-\-headless\f[R].
 .TP
+\f[B]\-\-delayed\-sdcard\-insert\-frames\f[R] \f[I]N\f[R] \f[I]FILE\f[R]
+Insert SD\-card image \f[I]FILE\f[R] after \f[I]N\f[R] emulated frames,
+exactly as \f[B]File > Insert SD Card Image\f[R] does (see \f[B]SD CARD
+AND ROMS\f[R]).
+The card keeps \f[B]\-\-sdcard\-readonly\f[R].
+The run exits non\-zero if the insert is refused \- while an RZX
+recording is made or played, while a directly loaded NEX keeps its own
+file open, when \f[I]FILE\f[R] is not a readable file, or when another
+insert is due in the same frame \- or if the automatic exit comes first.
+An empty \f[I]FILE\f[R] is rejected.
+Repeatable.
+Requires \f[B]\-\-headless\f[R].
+.TP
 \f[B]\-\-compositor\-trace\f[R] \f[I]FILE\f[R]
 Dump a per\-pixel compositor trace (CSV) for one frame.
 .TP
@@ -951,6 +964,29 @@ costs no space on a copy\-on\-write filesystem).
 .PP
 The mounted image is also the SD card the emulated machine sees at
 runtime, through the SPI/DivMMC path: NextZXOS reads its files from it.
+.SS CHANGING THE CARD WHILE RUNNING
+\f[B]File > Insert SD Card Image\&...\f[R] swaps the card in the running
+machine, and \f[B]File > Eject SD Card\f[R] takes it out; nothing is
+reset.
+The Next has no card\-detect line, so the guest is not told: use
+NextZXOS\(cqs \f[B]REMOUNT\f[R], which asks you to \f[I]Remove/insert SD
+and press Y\f[R] \- change the card, then press Y.
+.IP \(bu 2
+The ROMs are not re\-read: they were loaded at power\-on, as on
+hardware.
+A later hard reset, or loading a program, reads them from the inserted
+card.
+After an eject, those put the last inserted card back.
+.IP \(bu 2
+Refused while an RZX recording is made or played, and while a directly
+loaded NEX keeps its own file open.
+The rewind history is discarded.
+.IP \(bu 2
+A \f[CR].jns\f[R] snapshot records the card it was taken on.
+Once a \f[I]different\f[R] card is in (another FAT32 volume, partition
+table or size; a copy of the same card is the same card) it refuses to
+load: insert the original card again, or pass
+\f[B]\-\-snapshot\-mode\f[R] \f[CR]force\f[R].
 .SS PUTTING A FILE ON THE CARD
 \f[B]\-\-sdcard\-file\-add\f[R] copies a host file into the image and
 exits.
@@ -1689,8 +1725,9 @@ the Spectrum\(cqs Symbol Shift, so a Ctrl shortcut would eat a key the
 guest needs (see \f[B]THE KEYBOARD\f[R] below).
 .TP
 \f[B]File\f[R]
-Load a program (Alt+O \- NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX), Mount SD
-Card Image, Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX /
+Load a program (Alt+O \- NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX), Insert SD
+Card Image / Eject SD Card (see \f[B]CHANGING THE CARD WHILE
+RUNNING\f[R]), Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX /
 Record RZX / Stop RZX, Save Screenshot (Alt+S), Quick Screenshot
 (Alt+K), Save Snapshot (Alt+Shift+S), Quit (Alt+Q).
 .RS

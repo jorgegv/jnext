@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.60</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.62</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.60</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.62</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1944,7 +1944,9 @@ while a loader was streaming a CMD18 multi-block read restored a card that was
 no longer streaming, and the replayed frames then received a fresh idle card's
 R1/token framing where sector bytes belonged. On a Next that is most loaders.
 Only the <em>protocol</em> state travels; the mounted image is an external resource
-shared by every slot in the ring, exactly as the esxDOS host handles are.</p>
+shared by every slot in the ring, exactly as the esxDOS host handles are. That is
+why a live SD-card change empties the ring (<code>RewindBuffer::clear()</code>): every slot
+would restore one card's state machine against another card's contents.</p>
 <p>The subsystems do not each hand-write that serialisation any more either.
 Every one of them — and the emulator's own scalars — declares its fields
 <strong>once, by name</strong>, in a <code>describe_state(StateDesc&amp;)</code> method, and

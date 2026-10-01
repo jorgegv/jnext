@@ -112,6 +112,7 @@ enum class OptId {
     DelayedKeypressFrames,
     DelayedNmi,
     DelayedNmiFrames,
+    DelayedSdcardInsertFrames,
     RewindBufferSize,
     Trace,
     CompositorTrace,
@@ -610,6 +611,15 @@ inline constexpr Option OPTIONS[] = {
       "N BUTTON",
       "Press BUTTON after N emulated frames (frames-unit spelling\n"
       "of --delayed-nmi; both forms queue, not override)" },
+    // GH #93 — the headless trigger for a live SD-card change, so NextZXOS's
+    // REMOUNT can be driven end to end. Frames only: the swap has to land in
+    // the window the guest opens ("Remove/insert SD and press Y").
+    { "--delayed-sdcard-insert-frames", 2, Doc::Documented, OptId::DelayedSdcardInsertFrames,
+      "N FILE",
+      "Insert SD-card image FILE after N emulated frames, as\n"
+      "File > Insert SD Card Image does (headless only,\n"
+      "repeatable). Keeps --sdcard-readonly. Refused while an\n"
+      "RZX records or plays; a refusal fails the run" },
     { "--compositor-trace", 1, Doc::Documented, OptId::CompositorTrace,
       "FILE",
       "Dump per-pixel compositor trace (CSV) for one frame to FILE" },

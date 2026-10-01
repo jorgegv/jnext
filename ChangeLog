@@ -2,6 +2,9 @@
 
 ## Unreleased (2026-09-29)
 
+### User Features
+- Change the SD card while running (File > Insert/Eject SD Card), so NextZXOS's REMOUNT works
+
 ### Developer Features
 - Debug programs from z88dk-gdb: `--gdb-port` serves the GDB remote protocol, with Next state via `monitor`
 - Debug programs from DeZog's ZEsarUX remote: `--zrcp-port` serves ZRCP stepping, breakpoints, history, coverage and loading

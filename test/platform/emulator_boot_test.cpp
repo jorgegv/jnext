@@ -29,6 +29,13 @@
 // command-line RZX requests, emulator_start_rzx() / emulator_finish_rzx()
 // (src/platform/rzx_startup.h).
 //
+// EB-53..EB-64 cover the live SD-card change (GH #93): the request the GUI's
+// File > Insert / Eject and the headless --delayed-sdcard-insert-frames raise,
+// and emulator_service_sd_card_change(), which a loop owner polls between
+// frames. Its contract is the doc comment there and on
+// Emulator::change_sd_card(); the card each row sees is read back through the
+// card's own SPI protocol, never inferred from the config.
+//
 // Run: ./build/test/emulator_boot_test
 
 #include "platform/emulator_boot.h"
@@ -39,6 +46,7 @@
 #include "peripheral/esp_host_policy.h"
 #include "peripheral/uart.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -175,6 +183,74 @@ bool write_rzx(const std::string& path, std::vector<uint8_t> snapshot, const std
     rec.frames.resize(2);
     for (auto& fr : rec.frames) fr.instruction_count = 1;
     return rzx::write(path, rec);
+}
+
+/// A small card image whose every byte is `fill`, so sector 0 says which card
+/// it is.
+bool write_card(const std::string& path, uint8_t fill)
+{
+    return write_bytes(path, std::vector<uint8_t>(64 * 1024, fill));
+}
+
+/// The first byte of sector 0 as the GUEST would read it — CMD0/8/55/41/58 then
+/// CMD17 through the card's SPI byte interface — or -1 when no data block comes
+/// back (no card in the slot). Leaves the card deselected.
+int card_sector0(SdCardDevice& sd)
+{
+    auto cmd = [&sd](uint8_t c, uint32_t arg) {
+        const uint8_t bytes[6] = {static_cast<uint8_t>(0x40 | c), static_cast<uint8_t>(arg >> 24),
+                                  static_cast<uint8_t>(arg >> 16), static_cast<uint8_t>(arg >> 8),
+                                  static_cast<uint8_t>(arg), 0x95};
+        for (uint8_t b : bytes) (void)sd.receive(b);
+        for (int i = 0; i < 16; ++i) {
+            const uint8_t r = sd.send();
+            if (r != 0xFF) return r;
+        }
+        return uint8_t{0xFF};
+    };
+    sd.reset();
+    cmd(0, 0); cmd(8, 0x1AA); cmd(55, 0); cmd(41, 0x40000000); cmd(58, 0);
+    int first = -1;
+    if (cmd(17, 0) == 0x00) {
+        for (int i = 0; i < 16; ++i) {
+            if (sd.send() == 0xFE) { first = sd.send(); break; }
+        }
+    }
+    sd.deselect();
+    return first;
+}
+
+/// The card's data-response token to a CMD24 write of sector 1: 0x05 accepted,
+/// 0x0D rejected (a write-protected card, SD spec 7.3.3.3). Leaves the card
+/// deselected.
+int card_write_response(SdCardDevice& sd)
+{
+    auto cmd = [&sd](uint8_t c, uint32_t arg) {
+        const uint8_t bytes[6] = {static_cast<uint8_t>(0x40 | c), static_cast<uint8_t>(arg >> 24),
+                                  static_cast<uint8_t>(arg >> 16), static_cast<uint8_t>(arg >> 8),
+                                  static_cast<uint8_t>(arg), 0x95};
+        for (uint8_t b : bytes) (void)sd.receive(b);
+        for (int i = 0; i < 16; ++i) {
+            const uint8_t r = sd.send();
+            if (r != 0xFF) return r;
+        }
+        return uint8_t{0xFF};
+    };
+    sd.reset();
+    cmd(0, 0); cmd(8, 0x1AA); cmd(55, 0); cmd(41, 0x40000000); cmd(58, 0);
+    int resp = -1;
+    if (cmd(24, 1) == 0x00) {
+        (void)sd.receive(0xFE);
+        for (int i = 0; i < 512; ++i) (void)sd.receive(0x5A);
+        (void)sd.receive(0xFF);
+        (void)sd.receive(0xFF);
+        for (int i = 0; i < 32; ++i) {
+            const uint8_t b = sd.send();
+            if (b != 0xFF) { resp = b; break; }
+        }
+    }
+    sd.deselect();
+    return resp;
 }
 
 }  // namespace
@@ -1382,6 +1458,223 @@ int main()
                       std::to_string(reset_48k) + " chose_next=" + std::to_string(chose_next));
             std::remove(path.c_str());
         }
+    }
+
+    // --- EB-53..EB-61: the live SD-card change (GH #93) ----------------------
+    {
+        const auto stamp = std::to_string(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        const auto tmp = std::filesystem::temp_directory_path();
+        const std::string card_a = (tmp / ("jnext-eb-card-a-" + stamp + ".img")).string();
+        const std::string card_b = (tmp / ("jnext-eb-card-b-" + stamp + ".img")).string();
+        const bool made = write_card(card_a, 0xA1) && write_card(card_b, 0xB2);
+        EmulatorConfig with_a = base_config();
+        with_a.sd_card_image = card_a;
+
+        // EB-53/54: a request is only a request; the frontend's service call
+        // performs it, and BOTH configs follow the card (read-only included).
+        {
+            Emulator emu;
+            emu.init(with_a);
+            EmulatorConfig frontend = with_a;
+            bool frontend_set = false;
+            const std::string refused = emu.request_sd_card_change({card_b, true});
+            const int before = card_sector0(emu.sd_card());
+            check("EB-53", "a card-change request changes nothing until the frontend services it",
+                  made && refused.empty() && before == 0xA1 &&
+                      emu.config().sd_card_image == card_a,
+                  "refused='" + refused + "' sector0=" + std::to_string(before));
+
+            const auto outcome = emulator_service_sd_card_change(emu, frontend, frontend_set);
+            const int after = card_sector0(emu.sd_card());
+            const int write = card_write_response(emu.sd_card());   // 0x0D: write-protected
+            const bool again = !emulator_service_sd_card_change(emu, frontend, frontend_set);
+            check("EB-54", "the serviced insert mounts the new card write-protected as asked, "
+                           "and the emulator's AND the frontend's config follow it, read-only "
+                           "flag included",
+                  outcome && outcome->error.empty() && after == 0xB2 && write == 0x0D &&
+                      emu.config().sd_card_image == card_b && emu.config().sd_card_readonly &&
+                      frontend.sd_card_image == card_b && frontend.sd_card_readonly &&
+                      frontend_set && again,
+                  "sector0=" + std::to_string(after) + " write=" + std::to_string(write) +
+                      " emu='" + emu.config().sd_card_image +
+                      "' frontend='" + frontend.sd_card_image + "'");
+
+            // EB-55: the frontend's config is what a hard reset (F1, NR 0x02,
+            // Reset) rebuilds the machine from, so the NEW card must survive it.
+            emulator_frontend_cold_boot(emu, frontend, "", ColdBootHooks{});
+            const int reset = card_sector0(emu.sd_card());
+            check("EB-55", "a hard reset after the insert boots the NEW card",
+                  reset == 0xB2 && emu.config().sd_card_image == card_b,
+                  "sector0=" + std::to_string(reset));
+        }
+
+        // EB-56: a program load re-inits in place from the EMULATOR's config
+        // (load_nex -> init_for_load_from_file -> init(config())), so it too
+        // must keep the new card.
+        {
+            Emulator emu;
+            emu.init(with_a);
+            const std::string why = emu.change_sd_card({card_b, false});
+            emu.init(emu.config());
+            const int s0 = card_sector0(emu.sd_card());
+            check("EB-56", "an in-place re-init (a program load) after the insert keeps the NEW card",
+                  why.empty() && s0 == 0xB2, "why='" + why + "' sector0=" + std::to_string(s0));
+        }
+
+        // EB-57: eject empties the slot and changes neither config: the card
+        // there is the one jnext powers on with (its ROMs come from it), so a
+        // hard reset puts it back.
+        {
+            Emulator emu;
+            emu.init(with_a);
+            EmulatorConfig frontend = with_a;
+            bool frontend_set = false;
+            emu.request_sd_card_change({"", false});
+            const auto outcome = emulator_service_sd_card_change(emu, frontend, frontend_set);
+            const int ejected = card_sector0(emu.sd_card());
+            const bool kept = emu.config().sd_card_image == card_a &&
+                              frontend.sd_card_image == card_a && !frontend_set;
+            emulator_frontend_cold_boot(emu, frontend, "", ColdBootHooks{});
+            const int reset = card_sector0(emu.sd_card());
+            check("EB-57", "eject empties the slot, leaves both configs alone, and a hard "
+                           "reset re-inserts the configured card",
+                  outcome && outcome->error.empty() && ejected == -1 && kept && reset == 0xA1,
+                  "ejected=" + std::to_string(ejected) + " kept=" + std::to_string(kept) +
+                      " reset=" + std::to_string(reset));
+        }
+
+        // EB-58/59: refused while an RZX recording is made or played — it
+        // replays one continuous run on one card. Refused at request time
+        // (nothing is queued) and again at service time.
+        {
+            const std::string rec = (tmp / ("jnext-eb-sd-rzx-" + stamp + ".rzx")).string();
+            Emulator emu;
+            emu.init(with_a);
+            const bool started = emu.start_rzx_recording(rec);
+            const std::string refused = emu.request_sd_card_change({card_b, false});
+            const bool queued = emu.take_sd_card_change_request().has_value();
+            const std::string direct = emu.change_sd_card({card_b, false});
+            const int s0 = card_sector0(emu.sd_card());
+            emulator_finish_rzx(emu, rec);
+            check("EB-58", "refused while an RZX recording is made: nothing is queued, a direct "
+                           "change is refused too, and the card stays",
+                  started && !refused.empty() && !queued && !direct.empty() && s0 == 0xA1 &&
+                      emu.config().sd_card_image == card_a,
+                  "refused='" + refused + "' queued=" + std::to_string(queued) +
+                      " sector0=" + std::to_string(s0));
+            std::remove(rec.c_str());
+
+            const bool written = write_rzx(rec, z80_v1_image(0x1234, 0x8800, 0x5A), "z80");
+            Emulator player;
+            player.init(with_a);
+            const bool plays = written && player.load_rzx(rec);
+            const std::string refused_play = player.request_sd_card_change({card_b, false});
+            const std::string direct_play  = player.change_sd_card({card_b, false});
+            const int p0 = card_sector0(player.sd_card());
+            check("EB-59", "refused while an RZX recording plays, and the card stays",
+                  plays && player.rzx_player().is_playing() && !refused_play.empty() &&
+                      !direct_play.empty() && p0 == 0xA1,
+                  "plays=" + std::to_string(plays) + " refused='" + refused_play +
+                      "' sector0=" + std::to_string(p0));
+            std::remove(rec.c_str());
+        }
+
+        // EB-60: refused while a directly loaded NEX keeps its own file open —
+        // unmount() would drop the read overlay serving that file mid-read.
+        // The overlay is installed as load_nex() installs it for such a NEX.
+        {
+            Emulator emu;
+            emu.init(with_a);
+            emu.sd_card().set_read_overlay(0x100000, 1,
+                                           [](uint32_t, uint8_t* out) {
+                                               std::fill(out, out + 512, uint8_t{0});
+                                               return true;
+                                           });
+            const std::string refused = emu.request_sd_card_change({card_b, false});
+            const std::string direct  = emu.change_sd_card({card_b, false});
+            check("EB-60", "refused while a loaded NEX keeps its file open: the overlay and "
+                           "the card both stay",
+                  !refused.empty() && !direct.empty() && emu.sd_card().has_read_overlay() &&
+                      card_sector0(emu.sd_card()) == 0xA1,
+                  "refused='" + refused + "'");
+        }
+
+        // EB-61: the rewind ring holds the old card's SD state machine but not
+        // its contents, so a change empties it; the ring keeps working after.
+        // An unreadable image is refused BEFORE the card in the slot is
+        // touched, and leaves the ring and BOTH configs alone.
+        {
+            EmulatorConfig rw = with_a;
+            rw.rewind_buffer_frames = 8;
+            Emulator emu;
+            emu.init(rw);
+            EmulatorConfig frontend = rw;
+            bool frontend_set = false;
+            for (int i = 0; i < 3; ++i) emu.run_frame();
+            const std::size_t held = emu.rewind_buffer()->depth();
+            emu.request_sd_card_change({card_b + ".missing", false});
+            const auto bad = emulator_service_sd_card_change(emu, frontend, frontend_set);
+            const std::size_t after_bad = emu.rewind_buffer()->depth();
+            const int s_bad = card_sector0(emu.sd_card());
+            const bool configs_kept = emu.config().sd_card_image == card_a &&
+                                      frontend.sd_card_image == card_a && !frontend_set;
+            const std::string good = emu.change_sd_card({card_b, false});
+            const std::size_t after_good = emu.rewind_buffer()->depth();
+            emu.run_frame();
+            const std::size_t next = emu.rewind_buffer()->depth();
+            check("EB-61", "an unreadable image is refused with the card, both configs and the "
+                           "rewind ring untouched; a real change empties the ring, which then "
+                           "refills",
+                  held == 3 && bad && !bad->error.empty() && after_bad == 3 && s_bad == 0xA1 &&
+                      configs_kept && good.empty() && after_good == 0 && next == 1,
+                  "held=" + std::to_string(held) + " after_bad=" + std::to_string(after_bad) +
+                      " kept=" + std::to_string(configs_kept) + " after_good=" +
+                      std::to_string(after_good) + " next=" + std::to_string(next));
+        }
+
+        // EB-62: one change at a time — a second request while one is pending
+        // is refused, and the FIRST is the one performed (it used to be
+        // silently replaced).
+        {
+            Emulator emu;
+            emu.init(with_a);
+            const std::string first  = emu.request_sd_card_change({card_b, false});
+            const std::string second = emu.request_sd_card_change({"", false});
+            const auto taken = emu.take_sd_card_change_request();
+            check("EB-62", "a second request while one is pending is refused; the first stays",
+                  first.empty() && !second.empty() && taken && taken->image == card_b,
+                  "second='" + second + "' taken='" + (taken ? taken->image : "-") + "'");
+        }
+
+        // EB-63: a cold boot from elsewhere (a debugger client's reset in the
+        // pump) with a change still pending carries it to the rebuilt machine
+        // instead of destroying it with the old one.
+        {
+            Emulator emu;
+            emu.init(with_a);
+            emu.request_sd_card_change({card_b, false});
+            emulator_cold_boot(emu, with_a);
+            const auto carried = emu.take_sd_card_change_request();
+            check("EB-63", "a change pending across a cold boot is carried to the new machine",
+                  carried && carried->image == card_b,
+                  "carried='" + (carried ? carried->image : std::string("-")) + "'");
+        }
+
+        // EB-64: a directory is not a card, although an ifstream opens one on
+        // Linux; the card in the slot stays.
+        {
+            Emulator emu;
+            emu.init(with_a);
+            const std::string why = emu.change_sd_card({tmp.string(), false});
+            check("EB-64", "a directory is refused as a card, and the card in the slot stays",
+                  !why.empty() && card_sector0(emu.sd_card()) == 0xA1 &&
+                      emu.config().sd_card_image == card_a,
+                  "why='" + why + "'");
+        }
+
+        std::remove(card_a.c_str());
+        std::remove(card_b.c_str());
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

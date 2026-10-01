@@ -24,6 +24,7 @@ the two can never disagree. For building jnext from source, see
   - [Misc](#misc)
 - [MACHINES](#machines)
 - [SD CARD AND ROMS](#sd-card-and-roms)
+  - [CHANGING THE CARD WHILE RUNNING](#changing-the-card-while-running)
   - [PUTTING A FILE ON THE CARD](#putting-a-file-on-the-card)
 - [LOADING PROGRAMS](#loading-programs)
   - [esxDOS calls from a directly loaded
@@ -731,6 +732,16 @@ spelling of **--delayed-nmi**, not an override of it: both forms queue
 into the same list, so giving both schedules two presses. Requires
 **--headless**.
 
+**--delayed-sdcard-insert-frames** *N* *FILE*  
+Insert SD-card image *FILE* after *N* emulated frames, exactly as **File
+\> Insert SD Card Image** does (see **SD CARD AND ROMS**). The card
+keeps **--sdcard-readonly**. The run exits non-zero if the insert is
+refused - while an RZX recording is made or played, while a directly
+loaded NEX keeps its own file open, when *FILE* is not a readable file,
+or when another insert is due in the same frame - or if the automatic
+exit comes first. An empty *FILE* is rejected. Repeatable. Requires
+**--headless**.
+
 **--compositor-trace** *FILE*  
 Dump a per-pixel compositor trace (CSV) for one frame.
 
@@ -890,6 +901,25 @@ filesystem).
 
 The mounted image is also the SD card the emulated machine sees at
 runtime, through the SPI/DivMMC path: NextZXOS reads its files from it.
+
+### CHANGING THE CARD WHILE RUNNING
+
+**File \> Insert SD Card Image…** swaps the card in the running machine,
+and **File \> Eject SD Card** takes it out; nothing is reset. The Next
+has no card-detect line, so the guest is not told: use NextZXOS’s
+**REMOUNT**, which asks you to *Remove/insert SD and press Y* - change
+the card, then press Y.
+
+- The ROMs are not re-read: they were loaded at power-on, as on
+  hardware. A later hard reset, or loading a program, reads them from
+  the inserted card. After an eject, those put the last inserted card
+  back.
+- Refused while an RZX recording is made or played, and while a directly
+  loaded NEX keeps its own file open. The rewind history is discarded.
+- A `.jns` snapshot records the card it was taken on. Once a *different*
+  card is in (another FAT32 volume, partition table or size; a copy of
+  the same card is the same card) it refuses to load: insert the
+  original card again, or pass **--snapshot-mode** `force`.
 
 ### PUTTING A FILE ON THE CARD
 
@@ -1490,10 +1520,11 @@ Symbol Shift, so a Ctrl shortcut would eat a key the guest needs (see
 **THE KEYBOARD** below).
 
 **File**  
-Load a program (Alt+O - NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX), Mount SD
-Card Image, Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX /
-Record RZX / Stop RZX, Save Screenshot (Alt+S), Quick Screenshot
-(Alt+K), Save Snapshot (Alt+Shift+S), Quit (Alt+Q).
+Load a program (Alt+O - NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX), Insert SD
+Card Image / Eject SD Card (see **CHANGING THE CARD WHILE RUNNING**),
+Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record RZX /
+Stop RZX, Save Screenshot (Alt+S), Quick Screenshot (Alt+K), Save
+Snapshot (Alt+Shift+S), Quit (Alt+Q).
 
 **Save Screenshot…** asks for a name; the extension chooses the format
 (**SCREENSHOT FORMATS** above). **Quick Screenshot** asks nothing: it
