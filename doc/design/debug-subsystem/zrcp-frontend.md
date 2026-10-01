@@ -1275,7 +1275,8 @@ instruction after the session's permission policy refused it to the author)
 returns the id of every live `Execute` subscription covering the PC whose
 condition holds now, evaluated against the `Execute` event `execute_gate()`
 would build, under an `InspectionScope`, recording nothing; a legacy
-`BreakpointSet` PC breakpoint adds an `EVENT_NONE` entry (`EVT-PROBE-08..12`).
+`BreakpointSet` PC breakpoint adds an `EVENT_NONE` entry; another kind, and a
+spent `once` re-enabled, are not listed (`EVT-PROBE-08..13`).
 `run n`'s landing check is the only place a breakpoint is evaluated inside a
 `run n` (each step's own `Execute` match is skipped by the GH #221 step-off),
 and it asks:
@@ -1287,7 +1288,7 @@ and it asks:
 - `probe_execute`, for everyone else: an `EVENT_NONE` entry (a legacy PC
   breakpoint), or another client's subscription that stops or has a handler
   that might, ends the run; this session's own ids are left to the slots
-  (`ZRCP-BP-21/25/28`). Review round 1 found the first, interim cut skipped
+  (`ZRCP-BP-21/25/28/29`). Review round 1 found the first, interim cut skipped
   other clients wherever a slot of this session covered the PC — which a
   PC-free slot does everywhere — and could not evaluate their conditions; both
   are gone.
