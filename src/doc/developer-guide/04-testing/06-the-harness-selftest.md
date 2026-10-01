@@ -129,9 +129,12 @@ verdict on the real tree is trusted at all:
   comment stripper changed nothing, because every comment fixture was inert for
   a second reason as well. The two cases that close it exist because of the
   mutation, not because anyone thought of them first.
-- `test/lint-pipe-grepq.sh` carries **26 pinned cases: 13 that must flag and
-  13 that must not**, including its scope rule: the same `echo "$o" | grep -q`
-  line is flagged in a file that sets `pipefail` and not in one that does not.
+- `test/lint-pipe-grepq.sh` carries **34 pinned cases: 18 that must flag and
+  16 that must not**, including both scope rules — the same `echo "$o" | grep -q`
+  line is flagged in a file that sets `pipefail`, flagged in a file under
+  `test/00regression/` with no `pipefail` line (the harness sources it into its
+  own), and not flagged elsewhere — and the heredoc rule: a body with a
+  non-sourcing consumer is skipped, a body fed to `source` is scanned.
 
 Both directions matter, and not equally. A false negative merely fails to help,
 whereas a false positive blocks a correct row — and that is the one that costs.

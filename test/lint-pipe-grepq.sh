@@ -44,25 +44,51 @@
 # test/packaging/packaging-test.sh leaves pipefail off for exactly this reason
 # and says so in its header.
 #
-# What is flagged: a pipe `|` (not `||`, not `|&`) whose next command is grep
+# What is flagged: a pipe `|` or `|&` (not `||`) whose next command is grep
 # with a quiet option — a short cluster containing q (`-q`, `-qE`, `-Fq`), or
-# `--quiet` / `--silent` — on a logical line (backslash continuations joined).
+# `--quiet` / `--silent`, before or after the pattern (GNU grep permutes) — on
+# a logical line (backslash continuations joined). `|&` is covered because it
+# is the same pipe with stderr added: the writer dies of the same SIGPIPE.
 #
-# NOT flagged, deliberately (EXAMPLES, not an exhaustive list):
+# CANNOT CATCH (EXAMPLES, not an exhaustive list — two "exhaustive" lists in
+# this tree's lints have already been proved incomplete):
 #   * Other early-exit consumers: `| head`, `| grep -m N`, `| sed q`. In this
 #     tree they capture a VALUE (`x=$(cmd | head -1) || true`), where the
 #     value head saw is right whatever the producer's status; the two that
 #     were not masked were fixed by hand. A status-only consumer is what flips
 #     a verdict, and grep -q is that consumer.
 #   * A pipeline assembled at run time (eval, a command in a variable), or
-#     split across a line in a way the continuation join does not see.
+#     split across lines in a way the continuation join does not see (a
+#     newline straight after the `|`).
 #   * A quiet grep reached by any other spelling (a function named grep, an
-#     alias, `command grep`).
-# A line can opt out with a trailing `# lint-pipe-grepq: allow (<why>)` — used
-# once, by harness-selftest.sh, whose membership probe builds the hazard on
-# purpose to prove the in-shell lookup that replaced it.
+#     alias, `command grep`, `env grep`, `egrep`), or one the walk does not
+#     reach as the pipe's next command: `cmd | (grep -q y)`,
+#     `cmd | { grep -q y; }`, and any pipe inside a DOUBLE-QUOTED `"$( … )"`,
+#     which the skeleton collapses to one inert word.
+#   * Text that only LOOKS like a heredoc start (`<<WORD` inside a quoted
+#     string outside any heredoc): the lines after it are read as a body and
+#     skipped, up to a line that is just WORD.
 #
-# Env (TEST ONLY — set by harness-selftest HS-66a/HS-66b to prove this lint is
+# MAY WRONGLY FLAG — the direction that COSTS, because a false positive blocks
+# a correct row. Each is accepted as the safe direction:
+#   * a quiet grep whose status is thrown away anyway (`… | grep -q x || true`)
+#     or that runs after `set +o pipefail` in the same file: harmless, flagged,
+#     because the lint does not follow status use or option changes. Rewrite it
+#     with a here-string, or opt the line out.
+#   * a heredoc body fed to `source`, `.` or `eval`: it runs in THIS shell, so
+#     it is scanned as code on purpose, even when the text is only data there.
+# The escape for a deliberate case is a trailing
+# `# lint-pipe-grepq: allow (<why>)` on the line (the first line of a
+# continued one) — used once, by harness-selftest.sh, whose membership probe
+# builds the hazard on purpose to prove the in-shell lookup that replaced it.
+#
+# ALSO NOT SEEN (deliberate, these are the legitimate shapes): comments; a `|`
+# or `grep -q` inside a quoted string; and heredoc bodies whose consumer is NOT
+# source/./eval — the child-script pattern (`cat > child.sh <<'X'`,
+# `bash <<X`, `python3 - <<'PY'`), whose body is data or runs in another shell.
+# Same rule, and same detection on the comment-stripped line, as lint-traps.sh.
+#
+# Env (TEST ONLY — set by harness-selftest HS-67a/HS-67b to prove this lint is
 # wired into the regression preflight; regression.sh never sets it):
 #   JNEXT_LINT_PIPE_GREPQ_DIR   scan <dir>/*.sh, all treated as in scope
 #
@@ -84,9 +110,10 @@ scan_files() {
         # analyse(l) — the three-state quote scanner from lint-traps.sh /
         # lint-timeouts.sh (see lint-traps.sh for its derivation). SKEL is the
         # line with every quoted string collapsed to the inert word X and any
-        # comment removed, so a | or a grep inside quotes is not syntax.
+        # comment removed, so a | or a grep inside quotes is not syntax. CODE
+        # is the line with only the comment removed (for the heredoc head).
         function analyse(l,   i, n, c, nxt) {
-            SKEL = ""
+            SKEL = ""; CODE = l
             n = length(l)
             for (i = 1; i <= n; i++) {
                 c = substr(l, i, 1)
@@ -100,7 +127,10 @@ scan_files() {
                     }
                     if (c == "\047") { qst = 1; qcontent = ""; continue }
                     if (c == "\"")   { qst = 2; qcontent = ""; continue }
-                    if (c == "#" && (i == 1 || substr(l, i-1, 1) ~ /[ \t]/)) return
+                    if (c == "#" && (i == 1 || substr(l, i-1, 1) ~ /[ \t]/)) {
+                        CODE = substr(l, 1, i - 1)
+                        return
+                    }
                     SKEL = SKEL c
                     continue
                 }
@@ -139,7 +169,7 @@ scan_files() {
         # for the text "-q").
         function quiet_grep_after_pipe(s,   rest, p, toks, nt, j, t) {
             gsub(/\|\|/, " OR ", s)            # || is not a pipe
-            gsub(/\|&/, " PIPEAMP ", s)        # neither is |& for this lint
+            gsub(/\|&/, "|", s)                # |& is: stdout+stderr into grep
             rest = s
             while ((p = index(rest, "|")) > 0) {
                 rest = substr(rest, p + 1)
@@ -152,7 +182,7 @@ scan_files() {
                 for (j = j + 1; j <= nt; j++) {
                     t = toks[j]
                     if (t == "") continue
-                    if (t == "SEP" || t == "OR" || t == "PIPEAMP" || t == "--") break
+                    if (t == "SEP" || t == "OR" || t == "--") break
                     if (t == "--quiet" || t == "--silent") return 1
                     if (t ~ /^--/) continue
                     if (t ~ /^-[efmABCdD]$/) { j++; continue }   # option + its argument
@@ -164,11 +194,17 @@ scan_files() {
 
         FNR == 1 {
             inscope = force
-            qst = 0; qcontent = ""; logical = ""; start = 0; allow = 0
+            qst = 0; qcontent = ""; logical = ""; start = 0; allow = 0; in_hd = 0
             path = FILENAME
             if (!force && path ~ /\/test\/00regression\//) inscope = 1
             # Otherwise in scope from its `set ... pipefail` line on: the
             # files that set it do so in their first lines.
+        }
+        # A heredoc body with a non-sourcing consumer is data or another
+        # shell: skipped up to its terminator.
+        in_hd {
+            if ($0 ~ hd_term) in_hd = 0
+            next
         }
         {
             raw = $0
@@ -177,11 +213,25 @@ scan_files() {
             if (raw ~ /#[ \t]*lint-pipe-grepq:[ \t]*allow/) allow = 1
             if (raw ~ /\\$/) { logical = logical substr(raw, 1, length(raw) - 1) " "; next }
             logical = logical raw
-            if (inscope && !allow) {
-                analyse(logical)
-                if (quiet_grep_after_pipe(SKEL)) {
-                    t = logical; gsub(/^[ \t]+/, "", t)
-                    print FILENAME ":" start ": " substr(t, 1, 160)
+            analyse(logical)
+            if (inscope && !allow && quiet_grep_after_pipe(SKEL)) {
+                t = logical; gsub(/^[ \t]+/, "", t)
+                print FILENAME ":" start ": " substr(t, 1, 160)
+            }
+            # Arm the heredoc skip for the lines AFTER this one. Detected on
+            # CODE, as lint-traps.sh does: the delimiter word is data that must
+            # survive, and a heredoc inside "$( ... )" is invisible to SKEL.
+            # "<<<" is a here-string and arms nothing. A body fed to source,
+            # . or eval runs in this shell, so it is NOT skipped.
+            if (CODE !~ /<<</ && match(CODE, /<<-?[ \t]*[\047"]?[A-Za-z_][A-Za-z0-9_]*/)) {
+                head = substr(CODE, 1, RSTART - 1)
+                w = substr(CODE, RSTART, RLENGTH)
+                sub(/^<<-?[ \t]*/, "", w)
+                gsub(/[\047"]/, "", w)
+                if (head !~ /(^|[^A-Za-z0-9_])(source|eval)([^A-Za-z0-9_]|$)/ \
+                    && head !~ /(^|[;&|(){}])[ \t]*\.[ \t]/) {
+                    hd_term = "^[ \t]*" w "[ \t]*$"
+                    in_hd = 1
                 }
             }
             logical = ""
@@ -221,6 +271,13 @@ selftest() {
         0 'quiet grep in the NEXT command'  'echo "$o" | sort; grep -q x "$f"'
         0 'opted out'                       'echo "$o" | grep -q x  # lint-pipe-grepq: allow (demo)'
         0 'grep -q on a file'               'grep -q "x" "$log" || fails+=(y)'
+        1 '|& into grep -q'                 'run_thing |& grep -q "x"'
+        0 'heredoc body is data'            $'cat > child.sh <<X\necho "$o" | grep -q y\nX'
+        0 'quoted-delimiter heredoc body'   $'bash <<\'PY\'\necho "$o" | grep -q y\nPY'
+        0 '<<- body, tab-indented end'      $'cat <<-X\n\techo "$o" | grep -q y\n\tX'
+        1 'code after the heredoc ends'     $'cat <<X\nbody\nX\necho "$o" | grep -q y'
+        1 'heredoc fed to source runs here' $'source /dev/stdin <<X\necho "$o" | grep -q y\nX'
+        1 'pipe on the heredoc head line'   $'cat <<X | grep -q y\nbody\nX'
     )
     local i=0
     while (( i < ${#cases[@]} )); do
@@ -236,14 +293,20 @@ selftest() {
             echo "[lint-pipe-grepq] SELFTEST FAIL: $desc (want $want, got $got): $text" >&2
         fi
     done
-    # Scope: the same offending line in a file with no pipefail and outside
-    # test/00regression/ is NOT reported; with `set -o pipefail` it is.
+    # Scope, both rules. The same offending line in a file with no pipefail
+    # and outside test/00regression/ is NOT reported; with `set -o pipefail`
+    # it is; and with no pipefail line but under test/00regression/ (where
+    # the harness sources it into its own pipefail shell) it is too.
     printf '%s\n' '#!/usr/bin/env bash' 'echo "$o" | grep -q x' > "$d/nopf.sh"
     printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail' 'echo "$o" | grep -q x' > "$d/pf.sh"
     if [[ -z "$(FORCE=0 scan_files "$d/nopf.sh")" ]]; then pass=$((pass + 1))
     else fail=$((fail + 1)); echo "[lint-pipe-grepq] SELFTEST FAIL: a file without pipefail was flagged" >&2; fi
     if [[ -n "$(FORCE=0 scan_files "$d/pf.sh")" ]]; then pass=$((pass + 1))
     else fail=$((fail + 1)); echo "[lint-pipe-grepq] SELFTEST FAIL: a file with set -euo pipefail was not flagged" >&2; fi
+    mkdir -p "$d/test/00regression"
+    printf '%s\n' '#!/usr/bin/env bash' 'echo "$o" | grep -q x' > "$d/test/00regression/row.inc"
+    if [[ -n "$(FORCE=0 scan_files "$d/test/00regression/row.inc")" ]]; then pass=$((pass + 1))
+    else fail=$((fail + 1)); echo "[lint-pipe-grepq] SELFTEST FAIL: a test/00regression/ file with no pipefail line was not flagged" >&2; fi
     rm -rf "$d"
     if (( fail > 0 )); then
         echo "[lint-pipe-grepq] self-test: $pass passed, $fail FAILED" >&2
