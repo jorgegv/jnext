@@ -32,6 +32,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <unistd.h>
 #include <functional>
 #include <memory>
 #include <string>
@@ -3354,8 +3355,10 @@ void group25_gh283_rzx() {
             check("GH283-07", "Emulator::init failed (48K)", false, "init returned false");
         } else {
             // A real recording: port_in() asks the recorder, not the hook.
+            // Per-process name: several worktrees run this suite at once.
             const std::string path =
-                (std::filesystem::temp_directory_path() / "jnext-gh283-07.rzx").string();
+                (std::filesystem::temp_directory_path() /
+                 ("jnext-gh283-07-" + std::to_string(::getpid()) + ".rzx")).string();
             const bool rec = emu.start_rzx_recording(path);
             int dispatched = 0;
             emu.port().add_io_observer([&dispatched](uint16_t p, bool is_read) {
