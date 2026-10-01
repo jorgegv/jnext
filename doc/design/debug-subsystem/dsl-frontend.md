@@ -1924,7 +1924,7 @@ ran past every script breakpoint.
   author who wants a breakpoint another client honours writes it stop-only and
   puts the condition in `when`. Mem / Port stops need no probe: they are
   delivered after the instruction, which no stepping loop pre-empts.
-- Rows: SCRIPT-EV-STATIC-STOP, -WHEN, -ONCE, -PAGES, SCRIPT-HOST-STATIC-EXIT3.
+- Rows: SCRIPT-EV-STATIC-STOP, -WHEN, -ONCE, -PAGES, -TWO, -MIXED, SCRIPT-HOST-STATIC-EXIT3.
   `probe_execute` is still the `bool` form on this branch (it ignores
   conditions); the condition-evaluating `std::vector<EventId>` form arrives
   with Z, whose `other_breakpoint_at()` already reads `action == Stop &&
