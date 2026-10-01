@@ -4050,14 +4050,16 @@ static void wp5_history_rows() {
         Zc c(rig);
         c.cmd("enter-cpu-step");
         c.cmd("cpu-history enabled yes");
-        for (int k = 0; k < 5; ++k) c.cmd("cpu-step");
-        c.cmd("cpu-history clear");
         c.cmd("hard-reset-cpu");
         for (int k = 0; k < 5; ++k) c.cmd("cpu-step");
-        const std::string n5 = c.cmd("cpu-history get-size");
-        check("ZRCP-HIS-14", "clear, hard-reset-cpu, five steps from the fresh machine's PC 0: "
-                             "the history shows those five (the reviewer's repro showed 0)",
-              n5 == reply_of("5", true), esc(n5));
+        c.cmd("cpu-history clear");                // base: the 5th step from a cold boot
+        c.cmd("hard-reset-cpu");
+        for (int k = 0; k < 8; ++k) c.cmd("cpu-step");  // the 5th repeats the base's cycle
+        const std::string n8 = c.cmd("cpu-history get-size");
+        check("ZRCP-HIS-14", "the reviewer's repro: hard-reset-cpu, 5 steps, clear, hard-reset-cpu, "
+                             "8 steps — the cold boot replays the same cycles, yet the history "
+                             "shows all 8 (it showed 3)",
+              n8 == reply_of("8", true), esc(n8));
     }
     {
         // R2-2 / U01: a base that has left the trace (here another client's
