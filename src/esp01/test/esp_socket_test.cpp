@@ -77,6 +77,7 @@
 #include <cstring>
 #include <ctime>
 #include <functional>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -252,27 +253,6 @@ private:
     int           fd_   = -1;
     std::uint16_t port_ = 0;
 };
-
-/// A UDP port below the ephemeral range (32768-60999 by default) that is free
-/// right now, or 0. Not one fixed number: concurrent runs on one host would
-/// both ask for it and the second bind would fail. Starts at a per-process
-/// offset in 20000-29999 and takes the first port a probe socket can bind.
-std::uint16_t free_low_udp_port() {
-    const unsigned start = static_cast<unsigned>(::getpid()) % 10000u;
-    for (unsigned i = 0; i < 10000u; ++i) {
-        const auto port = static_cast<std::uint16_t>(20000u + (start + i) % 10000u);
-        const int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
-        if (fd < 0) return 0;
-        sockaddr_in sa{};
-        sa.sin_family      = AF_INET;
-        sa.sin_addr.s_addr = htonl(INADDR_ANY);  // what the transport binds
-        sa.sin_port        = htons(port);
-        const bool ok = ::bind(fd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) == 0;
-        ::close(fd);
-        if (ok) return port;
-    }
-    return 0;
-}
 
 /// An in-process UDP peer on 127.0.0.1, the datagram twin of `Listener`
 /// (GH #198). It is a peer rather than a listener because UDP has nothing to
@@ -1340,11 +1320,25 @@ int main() {
         if (peer.start()) {
             // A high port: unprivileged, and outside the ephemeral range Linux
             // picks from (32768-60999 by default), so an OS-assigned port
-            // cannot land on it by chance and fake a pass.
-            const std::uint16_t want = free_low_udp_port();
-            auto t = make_socket_transport(loopback_ok());
-            bool bound = t->begin_connect("127.0.0.1", peer.port(), Protocol::Udp, want) &&
-                         pump_until(*t, TransportState::Connected);
+            // cannot land on it by chance and fake a pass. Not one fixed
+            // number: a concurrent run would hold it and this bind would fail.
+            // The transport's own bind is the probe — no probe-close-rebind gap
+            // for another process to fall into: from a per-process start in
+            // 20000-29999, take the first port it actually binds. If none
+            // binds, `want` stays 0 and the row FAILS.
+            std::uint16_t want = 0;
+            std::unique_ptr<EspTransport> t;
+            const unsigned first = static_cast<unsigned>(::getpid()) % 10000u;
+            for (unsigned i = 0; i < 10000u && want == 0; ++i) {
+                const auto port = static_cast<std::uint16_t>(20000u + (first + i) % 10000u);
+                auto c = make_socket_transport(loopback_ok());
+                if (c->begin_connect("127.0.0.1", peer.port(), Protocol::Udp, port) &&
+                    pump_until(*c, TransportState::Connected)) {
+                    want = port;
+                    t    = std::move(c);
+                }
+            }
+            bool bound = want != 0;
             if (bound) {
                 const char ping[] = "P";
                 t->send(reinterpret_cast<const std::uint8_t*>(ping), 1);
