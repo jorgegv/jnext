@@ -261,6 +261,12 @@ struct MountedCard {
     FATFS fs{};
     bool  attached = false;
     bool  mounted  = false;
+    // Set before the first call that may MODIFY the volume (f_mkdir, f_open
+    // to create or replace, f_unlink). Only then is it flushed at unmount: a
+    // copy refused before that point must leave the card byte-identical, and
+    // a flush is not a no-op — f_getfree() alone can leave FSInfo pending
+    // (GH #292 review round 4).
+    bool  dirty    = false;
 
     FileAddStatus mount(const std::string& image_path, std::string& err) {
         PartitionInfo part;
@@ -288,17 +294,17 @@ struct MountedCard {
         return FileAddStatus::Ok;
     }
 
-    // Flush, THEN unmount. A failed FatFs call can leave a change in its
-    // memory that no later call writes out — a failed f_mkdir frees its
-    // cluster only there — and f_mount(nullptr) discards it, leaving a lost
-    // cluster on the card (GH #292 review round 3). f_syncvol() is a jnext
-    // addition to the vendored FatFs (see ff.c); on a volume with nothing
-    // pending it writes nothing. Its result is not reported: every path that
-    // reaches here after a failure already returns an error, and a successful
-    // copy has synced at its own last call.
+    // After a modification: flush, THEN unmount. A failed FatFs call can
+    // leave a change in its memory that no later call writes out — a failed
+    // f_mkdir frees its cluster only there — and f_mount(nullptr) discards
+    // it, leaving a lost cluster on the card (GH #292 review round 3).
+    // f_syncvol() is a jnext addition to the vendored FatFs (see ff.c). Its
+    // result is not reported: every path that reaches here after a failure
+    // already returns an error, and a successful copy has synced at its own
+    // last call. Without a modification nothing is written at all.
     ~MountedCard() {
         if (mounted) {
-            f_syncvol("0:");
+            if (dirty) f_syncvol("0:");
             f_mount(nullptr, "0:", 0);
         }
         if (attached) fatfs_glue::detach(kDrive);
@@ -339,31 +345,35 @@ FileAddStatus card_free_space(const std::string& image_path,
 // Make sure the directory `fat_dir` exists on the card, creating it when it
 // does not. `name` is its last component and `dest_display` the user's whole
 // destination, both for messages. `created` says whether this call made it.
-FileAddStatus ensure_card_dir(const std::string& fat_dir,
+FileAddStatus ensure_card_dir(MountedCard& card,
+                              const std::string& fat_dir,
                               const std::string& name,
                               const std::string& dest_display,
                               bool& created, std::string& err) {
     created = false;
-    const FRESULT mk = f_mkdir(fat_dir.c_str());
-    if (mk == FR_OK) {
-        created = true;
-        return FileAddStatus::Ok;
-    }
-    if (mk == FR_EXIST) {
+    // Asked BEFORE f_mkdir, so an existing directory costs a read and leaves
+    // the volume unmodified (and unflushed) — the clash refusal of a file in
+    // an existing directory has to stay byte-identical.
+    FILINFO fno{};
+    const FRESULT st = f_stat(fat_dir.c_str(), &fno);
+    if (st == FR_OK) {
         // Something is already there — it has to be a DIRECTORY, or the rest
-        // of the path cannot exist. f_mkdir reports FR_EXIST for an existing
-        // file just the same, so ask.
-        FILINFO fno{};
-        const FRESULT st = f_stat(fat_dir.c_str(), &fno);
-        if (st != FR_OK) {
-            err = "cannot inspect '" + name + "' on the card (" + fr_str(st) + ")";
-            return FileAddStatus::DestInvalid;
-        }
+        // of the path cannot exist.
         if ((fno.fattrib & AM_DIR) == 0) {
             err = "'" + name + "' already exists on the card as a file, so '" +
                   dest_display + "' cannot be a path through it";
             return FileAddStatus::DestInvalid;
         }
+        return FileAddStatus::Ok;
+    }
+    if (st != FR_NO_FILE) {
+        err = "cannot inspect '" + name + "' on the card (" + fr_str(st) + ")";
+        return FileAddStatus::DestInvalid;
+    }
+    card.dirty = true;
+    const FRESULT mk = f_mkdir(fat_dir.c_str());
+    if (mk == FR_OK) {
+        created = true;
         return FileAddStatus::Ok;
     }
     if (mk == FR_DENIED) {
@@ -378,7 +388,8 @@ FileAddStatus ensure_card_dir(const std::string& fat_dir,
 // Write `src_size` bytes of `src` to the card file `fat_path`, whose parent
 // directory exists. `replaced` (passed in false) is set when a file was
 // already there.
-FileAddStatus write_card_file(const std::string& image_path,
+FileAddStatus write_card_file(MountedCard& card,
+                              const std::string& image_path,
                               const std::string& fat_path,
                               const std::string& dest_path,
                               const std::string& host_file,
@@ -420,6 +431,9 @@ FileAddStatus write_card_file(const std::string& image_path,
     // was given. Silently replacing DRV-A.DSK would destroy a disk image.
     // FA_CREATE_NEW is what enforces it: the file is never opened for writing
     // at all, so nothing can go wrong between the decision and the truncation.
+    // A refusal (an existing file, no overwrite) modifies nothing: f_open
+    // reports FR_EXIST before it writes. Anything else may write.
+    if (overwrite || !replaced) card.dirty = true;
     FIL fp{};
     FRESULT fr = f_open(&fp, fat_path.c_str(),
                         FA_WRITE | (overwrite ? FA_CREATE_ALWAYS : FA_CREATE_NEW));
@@ -779,7 +793,7 @@ FileAddStatus add_dir_to_image(const std::string& image_path,
         const std::string fat_path  = "0:" + card_path;
         if (n.is_dir) {
             bool made = false;
-            st = ensure_card_dir(fat_path, n.rel.back(), card_path, made, err);
+            st = ensure_card_dir(card, fat_path, n.rel.back(), card_path, made, err);
             if (st != FileAddStatus::Ok) return rollback(st);
             if (made) { created.push_back(fat_path); ++dirs_created; }
             continue;
@@ -790,7 +804,7 @@ FileAddStatus add_dir_to_image(const std::string& image_path,
             return rollback(FileAddStatus::SourceUnreadable);
         }
         bool replaced = false;
-        st = write_card_file(image_path, fat_path, card_path, n.host.u8string(),
+        st = write_card_file(card, image_path, fat_path, card_path, n.host.u8string(),
                              src, n.size, overwrite, replaced, err);
         if (st != FileAddStatus::Ok) {
             // write_card_file already removed its own partial file; a file it
@@ -920,7 +934,7 @@ FileAddStatus add_file_to_image(const std::string& image_path,
             prefix += "/";
             prefix += parts[i];
             bool created = false;
-            st = ensure_card_dir(prefix, parts[i], dest_path, created, err);
+            st = ensure_card_dir(card, prefix, parts[i], dest_path, created, err);
             if (st != FileAddStatus::Ok) return unmake(st);
             if (created) made.push_back(prefix);
         }
@@ -928,7 +942,7 @@ FileAddStatus add_file_to_image(const std::string& image_path,
 
     // ---- 6 + 7. what is already there, and the copy -------------------------
     bool replaced = false;
-    st = write_card_file(image_path, fat_path, dest_path, host_file, src,
+    st = write_card_file(card, image_path, fat_path, dest_path, host_file, src,
                          src_size, overwrite, replaced, err);
     return st == FileAddStatus::Ok ? st : unmake(st);
 }

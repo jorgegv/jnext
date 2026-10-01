@@ -4225,11 +4225,6 @@ FRESULT f_sync (
 	LEAVE_FF(fs, res);
 }
 
-#endif /* !FF_FS_READONLY */
-
-
-
-
 /*-----------------------------------------------------------------------*/
 /* jnext local change (GH #292): flush the whole volume                  */
 /*-----------------------------------------------------------------------*/
@@ -4248,9 +4243,12 @@ FRESULT f_sync (
    allocation to disk), dir_register() then fails, and the remove_chain()
    that frees the cluster again only touches the in-memory window and FSInfo
    count. Unmounting drops that, leaving a lost cluster fsck.vfat reclaims.
-   jnext calls this before every unmount (sdcard_file_add.cpp, MountedCard),
-   so every path, found or not, ends with the volume on disk matching
-   FatFs's own view of it. On a clean volume it writes nothing. */
+   jnext calls this before unmounting a volume it has tried to MODIFY
+   (sdcard_file_add.cpp, MountedCard; fatfs_format.cpp), so every such path,
+   found or not, ends with the volume on disk matching FatFs's own view of it.
+   It is not a no-op on an unmodified volume: f_getfree() sets fsi_flag when
+   it has to count the free clusters itself, and sync_fs() then rewrites the
+   FSInfo sector. So a caller that only read must not call it. */
 FRESULT f_syncvol (
 	const TCHAR* path	/* Logical drive number */
 )
@@ -4265,6 +4263,11 @@ FRESULT f_syncvol (
 	}
 	LEAVE_FF(fs, res);
 }
+
+
+
+
+#endif /* !FF_FS_READONLY */
 
 
 

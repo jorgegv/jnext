@@ -1797,6 +1797,94 @@ void second_mkdir_runs_out(const char* id, bool tree) {
           "; " + err + why);
 }
 
+// FSInfo's free count set to 0xFFFFFFFF, "unknown" — which FAT32 allows. A
+// mount then has to COUNT the free clusters, and f_getfree() marks FSInfo to
+// be rewritten: a flush after a mere read would change the card.
+bool set_fsinfo_unknown(const fs::path& image) {
+    std::fstream f(image, std::ios::in | std::ios::out | std::ios::binary);
+    if (!f) return false;
+    uint8_t bpb[kSectorSize];
+    f.seekg(static_cast<std::streamoff>(static_cast<uint64_t>(kPartLba) * kSectorSize));
+    f.read(reinterpret_cast<char*>(bpb), kSectorSize);
+    if (!f.good()) return false;
+    const uint16_t fsinfo_sec = static_cast<uint16_t>(bpb[48] | (bpb[49] << 8));
+    f.seekp(static_cast<std::streamoff>(
+        (static_cast<uint64_t>(kPartLba) + fsinfo_sec) * kSectorSize + 488));
+    const char ff[4] = {'\xFF', '\xFF', '\xFF', '\xFF'};
+    f.write(ff, 4);
+    return f.good();
+}
+
+// GH #292 review round 4 — a REFUSED copy writes nothing, even where the
+// free-space check had to count clusters itself; a copy that MODIFIES the card
+// still has FSInfo written to match the FAT.
+void test_unknown_fsinfo() {
+    std::string why, err;
+    std::error_code ec;
+    const fs::path img = g_scratch / "fsinfo-unknown.img";
+    if (!make_fixture(img, why) || !set_fsinfo_unknown(img)) {
+        std::printf("FATAL: cannot build the unknown-FSInfo fixture (%s)\n", why.c_str());
+        std::exit(2);
+    }
+    const bool unknown = fsinfo_free_count(img) == 0xFFFFFFFFu;
+    const fs::path f = g_scratch / "u.bin";
+    write_host_file(f, payload(100, 160));
+
+    // A clash in a directory that already exists: neither the directory nor
+    // the file is touched, so nothing is flushed.
+    uint64_t before = file_digest(img);
+    FileAddStatus st = sdcard::add_to_image(img.string(), f.string(),
+                                            "/NEXTZXOS/KEEPME.BIN", false, err);
+    check("SDFA-W68", "a clash refusal on a card with FSInfo unknown is byte-identical",
+          unknown && st == FileAddStatus::DestExists && file_digest(img) == before, err);
+
+    const fs::path big = g_scratch / "u-big.bin";
+    { std::ofstream c(big, std::ios::binary); }
+    fs::resize_file(big, 64ull * 1024 * 1024, ec);
+    before = file_digest(img);
+    st = sdcard::add_to_image(img.string(), big.string(), "/NEW/BIG.BIN", false, err);
+    check("SDFA-W69", "a space refusal of a file on a card with FSInfo unknown is byte-identical",
+          st == FileAddStatus::ImageFull && file_digest(img) == before, err);
+
+    const fs::path t = g_scratch / "u-tree";
+    fs::remove_all(t, ec);
+    fs::create_directories(t, ec);
+    fs::resize_file(big, 64ull * 1024 * 1024, ec);
+    fs::rename(big, t / "big.bin", ec);
+    before = file_digest(img);
+    st = sdcard::add_to_image(img.string(), t.string(), "/UT", false, err);
+    check("SDFA-T53", "a space refusal of a tree on a card with FSInfo unknown is byte-identical",
+          st == FileAddStatus::ImageFull && file_digest(img) == before, err);
+
+    // A copy that does modify the card leaves FSInfo KNOWN and right.
+    st = sdcard::add_to_image(img.string(), f.string(), "/UOK.BIN", false, err);
+    check("SDFA-W70", "a copy on a card with FSInfo unknown leaves it matching the FAT",
+          st == FileAddStatus::Ok && free_counts_agree(img) && fats_agree(img, why),
+          err + why + " FSInfo " + std::to_string(fsinfo_free_count(img)) +
+          " scan " + std::to_string(fat_scan_free(img)));
+}
+
+// A create whose name needs more directory entries than one new cluster of
+// its (full) directory holds: the directory grows once, then cannot grow
+// again, and f_open fails having allocated a cluster that only a flush
+// accounts for in FSInfo. Nothing else in the run modifies the card.
+void test_create_grows_then_fails() {
+    std::string err, why;
+    uint32_t f = 0;
+    const fs::path img = full_parent_fixture("grow-fail.img", 1, f);
+    const fs::path z = g_scratch / "z-grow.bin";
+    write_host_file(z, {});
+    // 204 characters: 16 LFN entries + 1 short entry = 17 > the 16 a 512-byte
+    // cluster holds.
+    const std::string dest = "/P/" + std::string(200, 'n') + ".txt";
+    const FileAddStatus st = sdcard::add_to_image(img.string(), z.string(), dest, false, err);
+    check("SDFA-W71", "a create that grows its directory and then fails keeps FSInfo true",
+          f == 1 && st == FileAddStatus::ImageFull && !card_has(img, dest) &&
+          free_counts_agree(img) && fats_agree(img, why),
+          "free " + std::to_string(f) + " -> FSInfo " + std::to_string(fsinfo_free_count(img)) +
+          " scan " + std::to_string(fat_scan_free(img)) + "; " + err + why);
+}
+
 void test_multi_level() {
     multi_level("SDFA-W60", "SDFA-W63", false, 1);
     multi_level("SDFA-W61", "SDFA-W64", false, 2);
@@ -1885,6 +1973,8 @@ int main() {
     test_tree_replace_lost();
     test_file_new_dirs();
     test_multi_level();
+    test_unknown_fsinfo();
+    test_create_grows_then_fails();
 
     fs::remove_all(g_scratch, ec);
 
