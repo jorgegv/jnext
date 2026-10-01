@@ -2,7 +2,9 @@
 
 The trace log records the machine state *before* every instruction executed: the
 master cycle count, `PC`, all main and alternate registers, `IX`, `IY`, `SP`,
-the decoded flags and the raw opcode bytes. It is a ring buffer of 10 000
+the word on top of the stack, `I`, `R`, the interrupt mode and both interrupt
+flip-flops, the memory page mapped in each of the eight slots, the decoded flags
+and the raw opcode bytes. It is a ring buffer of 10 000
 entries, so it always holds the last 10 000 instructions.
 
 - **F2**, the toolbar `F2: Trace` button (its indicator turns green), or

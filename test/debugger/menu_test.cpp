@@ -102,6 +102,7 @@
 #include "core/emulator_config.h"
 #include "debug/breakpoints.h"
 #include "debug/debug_state.h"
+#include "debugger/breakpoint_model.h"
 #include "debugger/breakpoint_panel.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
@@ -111,6 +112,7 @@
 #include "memory/mmu.h"
 #include "platform/emulator_boot.h"
 
+#include <stdexcept>
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
@@ -133,6 +135,7 @@
 
 #include <algorithm>
 #include <cstdarg>
+#include <map>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -593,6 +596,9 @@ bool build_next_emulator(Emulator& emu) {
 /// DebuggerManager exactly as the product does.
 struct DebuggerFixture {
     Emulator         emu;
+    // GH #278 WP2 — the loop owner's backend (QtApp::debugger()), built
+    // after init() and declared before the window, so it outlives the manager.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     QMainWindow      win;
     DebuggerManager* mgr = nullptr;
     DebuggerWindow*  dbg = nullptr;
@@ -600,7 +606,8 @@ struct DebuggerFixture {
 
     DebuggerFixture() {
         if (!build_next_emulator(emu)) return;
-        mgr = new DebuggerManager(&win, &emu, &win);   // parented → auto-freed
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        mgr = new DebuggerManager(&win, *backend, &win);   // parented → auto-freed
         mgr->set_enabled(true);                        // creates + shows the window
         dbg = mgr->debugger_window_ptr();
         ok  = (dbg != nullptr);
@@ -615,11 +622,16 @@ struct DebuggerFixture {
 /// DebuggerManager and therefore the Debug/View menu wiring under test.
 struct MainWindowFixture {
     Emulator   emu;
+    // GH #278 WP2 — the loop owner's backend, handed to the window before
+    // set_emulator() (QtApp's order); declared before it, so it outlives it.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     MainWindow win;
     bool       ok = false;
 
     MainWindowFixture() {
         if (!build_next_emulator(emu)) return;
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        win.set_debugger(backend.get());
         win.set_emulator(&emu);
         QApplication::processEvents();
         ok = win.debugger_manager() != nullptr;
@@ -628,6 +640,101 @@ struct MainWindowFixture {
         if (win.debugger_manager())
             win.debugger_manager()->set_enabled(false, /*prompt_on_corrupt=*/false);
     }
+};
+
+/// GH #278 WP4c — the GUI's breakpoints are no longer the core's
+/// `BreakpointSet`: they are debugger-backend subscriptions, owned by the GUI's
+/// observer client and edited through `BreakpointModel` (the one model the
+/// panel, the gutter and the menu share). The rows below were written against
+/// `BreakpointSet`'s API; this adapter gives them the SAME questions over the
+/// new model, so each row's assertion is unchanged and only where it reads its
+/// answer from moved. Every read goes to the model, which reads the backend's
+/// listing — `live` is the backend's own "can it fire" (enabled ∧ master ∧
+/// client), the flag the hot loop's gate obeys, as `has_pc()` was. Every write
+/// is a model mutator, which notifies the views itself — so a "bare" mutation
+/// here is exactly the unannounced GUI call site GH #220 is about.
+struct GuiBps {
+    BreakpointModel& m;
+
+    static int type_of(WatchType t) {
+        switch (t) {
+            case WatchType::READ:       return BreakpointModel::Read;
+            case WatchType::WRITE:      return BreakpointModel::Write;
+            case WatchType::READ_WRITE: return BreakpointModel::ReadWrite;
+            case WatchType::IO_READ:    return BreakpointModel::IoRead;
+            case WatchType::IO_WRITE:   return BreakpointModel::IoWrite;
+        }
+        return -1;
+    }
+    const BreakpointModel::Row* own(int type, uint16_t addr) const {
+        for (const auto& r : m.rows())
+            if (r.own && r.type == type && r.addr == addr) return &r;
+        return nullptr;
+    }
+
+    void add_pc(uint16_t a)    { m.add(BreakpointModel::Execute, a); }
+    void remove_pc(uint16_t a) { m.remove(BreakpointModel::Execute, a); }
+    void add_watchpoint(uint16_t a, WatchType t)    { m.add(type_of(t), a); }
+    void remove_watchpoint(uint16_t a, WatchType t) { m.remove(type_of(t), a); }
+    void clear_all_pc() {
+        std::vector<uint16_t> v;
+        for (const auto& r : m.rows())
+            if (r.own && r.type == BreakpointModel::Execute) v.push_back(r.addr);
+        for (uint16_t a : v) m.remove(BreakpointModel::Execute, a);
+    }
+    void clear_all_watchpoints() {
+        std::vector<std::pair<int, uint16_t>> v;
+        for (const auto& r : m.rows())
+            if (r.own && r.type != BreakpointModel::Execute) v.emplace_back(r.type, r.addr);
+        for (const auto& e : v) m.remove(e.first, e.second);
+    }
+
+    bool pc_exists(uint16_t a) const { return own(BreakpointModel::Execute, a) != nullptr; }
+    bool has_pc(uint16_t a) const {
+        const auto* r = own(BreakpointModel::Execute, a);
+        return r && r->live;
+    }
+    bool pc_enabled(uint16_t a) const {
+        const auto* r = own(BreakpointModel::Execute, a);
+        return r && r->enabled;
+    }
+    void set_pc_enabled(uint16_t a, bool e) { m.set_enabled(BreakpointModel::Execute, a, e); }
+
+    bool watchpoint_exists(uint16_t a, WatchType t) const { return own(type_of(t), a) != nullptr; }
+    bool watchpoint_enabled(uint16_t a, WatchType t) const {
+        const auto* r = own(type_of(t), a);
+        return r && r->enabled;
+    }
+    void set_watchpoint_enabled(uint16_t a, WatchType t, bool e) { m.set_enabled(type_of(t), a, e); }
+    /// LIVE, and READ_WRITE matches READ and WRITE — `BreakpointSet`'s rule.
+    bool has_watchpoint(uint16_t a, WatchType t) const {
+        const auto* r = own(type_of(t), a);
+        if (r && r->live) return true;
+        if (t == WatchType::READ || t == WatchType::WRITE) {
+            const auto* rw = own(BreakpointModel::ReadWrite, a);
+            return rw && rw->live;
+        }
+        return false;
+    }
+
+    bool master_enabled() const { return m.master_enabled(); }
+    void set_master_enabled(bool e) { m.set_master_enabled(e); }
+
+    /// THE MODEL, BreakpointSet-shaped: every Execute breakpoint, addr -> enabled.
+    std::map<uint16_t, bool> pc_breakpoints() const {
+        std::map<uint16_t, bool> out;
+        for (const auto& r : m.rows())
+            if (r.own && r.type == BreakpointModel::Execute) out[r.addr] = r.enabled;
+        return out;
+    }
+    /// ... and every data breakpoint.
+    std::vector<BreakpointModel::Row> watchpoints() const {
+        std::vector<BreakpointModel::Row> out;
+        for (const auto& r : m.rows())
+            if (r.own && r.type != BreakpointModel::Execute) out.push_back(r);
+        return out;
+    }
+    bool empty() const { return m.rows().empty(); }
 };
 
 } // namespace
@@ -663,7 +770,7 @@ static void test_breakpoints_menu()
                       : "no menu titled \"Breakpoints\" on the debugger menu bar");
     }
 
-    BreakpointSet& bps = fx.emu.debug_state().breakpoints();
+    GuiBps bps{fx.mgr->breakpoints()};
     bps.clear_all_pc();
     bps.clear_all_watchpoints();
 
@@ -755,7 +862,7 @@ static void test_breakpoint_panel_refresh()
     }
 
     QMenu* bp_menu = menu_named(fx.dbg->menuBar(), QStringLiteral("Breakpoints"));
-    BreakpointSet& bps = fx.emu.debug_state().breakpoints();
+    GuiBps bps{fx.mgr->breakpoints()};
 
     // GH218-01/02/03 — THE reported defect, once per data type. Each type is
     // its own row because each is its own menu entry passing its own WatchType,
@@ -842,7 +949,7 @@ static void test_disasm_data_breakpoints()
     }
 
     DisasmPanel* disasm = fx.dbg->disasm_panel();
-    BreakpointSet& bps  = fx.emu.debug_state().breakpoints();
+    GuiBps bps{fx.mgr->breakpoints()};
 
     for (const Case& c : cases) {
         bps.clear_all_pc();
@@ -901,7 +1008,7 @@ static void test_observer_notifies()
         return;
     }
 
-    BreakpointSet& bps = fx.emu.debug_state().breakpoints();
+    GuiBps bps{fx.mgr->breakpoints()};
 
     // GH220-01 — THE point of the exercise, Execute half.
     {
@@ -994,12 +1101,18 @@ static void test_observer_notifies()
                   armed ? 1 : 0, at_3byte, after_watch, after_pc));
     }
 
-    // GH220-05 — one-shots stay invisible. rebuild_entries() reads
-    // pc_breakpoints() + watchpoints() only, and every path that sets a one-shot
-    // (resume / step_over / run_to) immediately resumes — so a set that notified
-    // on set_oneshot()/clear_oneshot() would fire on every resume, for something
-    // no panel draws. Both surfaces are checked: no new list row, no re-read of
-    // memory by the disassembly.
+    // GH220-05 — one-shots stay invisible. rebuild_entries() reads the model's
+    // LISTED rows only, and every path that sets a one-shot (Step Over, Run to
+    // Here) immediately resumes — so a model that notified on them would fire
+    // on every resume, for something no panel draws. Both surfaces are checked:
+    // no new list row, no re-read of memory by the disassembly.
+    //
+    // GH #278 WP4c — the one-shot is the backend's TRANSIENT subscription now
+    // (`run_to()` arms one, the next stop — here an explicit `pause()` — drops
+    // it), and it changes the backend's subscription revision, so the backend
+    // DOES push SubscriptionsChanged for it. The row therefore also pumps and
+    // lets the model sync after each half: the push must find no listed change
+    // and notify nothing.
     {
         bps.clear_all_pc();
         bps.clear_all_watchpoints();
@@ -1009,12 +1122,21 @@ static void test_observer_notifies()
         const bool     armed    = (at_3byte != 0);
         poke_nops(fx.emu, 0x8000);
 
-        fx.emu.debug_state().run_to(0x9000);        // set_oneshot()
-        const bool         armed_oneshot = bps.has_oneshot();
+        BreakpointModel& model = fx.mgr->breakpoints();
+        auto push = [&]() {                          // QtApp's pump, then the tick
+            fx.backend->pump(jnext::dbg::PumpBudget{});
+            model.sync();
+        };
+        push();                                      // settle anything pending
+        fx.backend->run_to(model.client(), 0x9000);  // a transient Execute
+        const bool         armed_oneshot = fx.backend->subscriptions(true).size() == 1 &&
+                                           fx.backend->subscriptions(false).empty();
+        push();
         const QStringList  rows_set      = panel_rows(fx.dbg);
         const uint16_t     after_set     = disasm ? disasm->selected_address() : 0;
 
-        fx.emu.debug_state().resume();              // clear_oneshot()
+        fx.backend->pause(model.client());           // the stop drops it
+        push();
         const QStringList rows_clear  = panel_rows(fx.dbg);
         const uint16_t    after_clear = disasm ? disasm->selected_address() : 0;
 
@@ -1068,16 +1190,23 @@ static void test_observer_lifetime()
         return;
     }
 
-    // GH220-06
+    // GH220-06 — GH #278 WP4c: the panels follow the GUI's BreakpointModel,
+    // which lives outside the Emulator and holds the backend client that owns
+    // the breakpoints, so the reconstruct cannot take the subscription with it.
+    // Driven the way QtApp drives a cold boot: the backend's begin, the
+    // frontend cold boot, the backend's done.
     {
-        fx.emu.debug_state().breakpoints().clear_all_pc();
-        fx.emu.debug_state().breakpoints().clear_all_watchpoints();
+        GuiBps bps{fx.mgr->breakpoints()};
+        bps.clear_all_pc();
+        bps.clear_all_watchpoints();
         fx.dbg->breakpoint_panel()->refresh();
 
+        fx.backend->on_cold_boot_begin();
         emulator_cold_boot(fx.emu, next_config());
+        fx.backend->on_cold_boot_done();
 
-        // A different BreakpointSet object now, restored from the saved copy.
-        fx.emu.debug_state().breakpoints().add_pc(0x2000);
+        // A different machine now; the same model and the same client.
+        bps.add_pc(0x2000);
 
         const QStringList rows = panel_rows(fx.dbg);
         check("GH220-06", "the panel keeps observing across a cold boot",
@@ -1086,18 +1215,20 @@ static void test_observer_lifetime()
                   rows.join(QStringLiteral(", ")).toUtf8().constData()));
     }
 
-    // GH220-07 — a second, throwaway BreakpointPanel subscribes on construction
-    // and must unsubscribe on destruction. What is asserted is the SURVIVOR:
-    // remove_observer() taking out the wrong entry (or all of them) leaves the
+    // GH220-07 — a second, throwaway BreakpointPanel subscribes to the model and
+    // must unsubscribe on destruction. What is asserted is the SURVIVOR: a
+    // teardown taking out the wrong connection (or all of them) leaves the
     // window's own panel deaf, which this row catches directly. The dangling
-    // half — remove_observer() doing nothing, so the freed panel keeps being
-    // called — is caught here only under a sanitiser, and is not claimed
-    // otherwise.
+    // half — the freed panel still being called — is caught here only under a
+    // sanitiser, and is not claimed otherwise. (GH #278 WP4c: Qt drops a
+    // destroyed receiver's connections, where BreakpointSet needed a
+    // remove_observer() in the destructor.)
     {
-        auto* extra = new BreakpointPanel(&fx.emu);
+        auto* extra = new BreakpointPanel();
+        extra->set_model(&fx.mgr->breakpoints());
         delete extra;
 
-        BreakpointSet& bps = fx.emu.debug_state().breakpoints();
+        GuiBps bps{fx.mgr->breakpoints()};
         bps.clear_all_pc();
         bps.clear_all_watchpoints();
         fx.dbg->breakpoint_panel()->refresh();
@@ -1156,7 +1287,7 @@ static void test_panel_io_breakpoints()
         return;
     }
 
-    BreakpointSet& bps = fx.emu.debug_state().breakpoints();
+    GuiBps bps{fx.mgr->breakpoints()};
     QPushButton* add_btn = panel_button(fx.dbg, QStringLiteral("Add"));
 
     // GH222-01 — index 4, "IO Read". FE is the partial-decode form: any port
@@ -1277,7 +1408,7 @@ static void test_breakpoint_enable()
         return;
     }
 
-    BreakpointSet& bps = fx.emu.debug_state().breakpoints();
+    GuiBps bps{fx.mgr->breakpoints()};
     QMenu* bp_menu = menu_named(fx.dbg->menuBar(), QStringLiteral("Breakpoints"));
     DisasmPanel* disasm = fx.dbg->disasm_panel();
 
@@ -1687,7 +1818,212 @@ static void test_breakpoint_enable()
                   built_rows.join(QStringLiteral(", ")).toUtf8().constData()));
     }
 
+    // BPEP-18 — GH #278 WP4c: at ONE address the rows list as BreakpointSet's
+    // panel listed them — the Execute breakpoint first, then the data
+    // breakpoints in the order they were created.
+    {
+        reset_set();
+        bps.add_watchpoint(0x9000, WatchType::WRITE);
+        bps.add_pc(0x9000);
+        bps.add_watchpoint(0x9000, WatchType::READ);
+        const QStringList rows = panel_rows(fx.dbg);
+        check("BPEP-18", "at one address the Execute row lists first, then the data "
+              "rows in creation order",
+              rows == QStringList{QStringLiteral("Execute $9000"),
+                                  QStringLiteral("Write $9000"),
+                                  QStringLiteral("Read $9000")},
+              fmt("rows=[%s]", rows.join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+
     reset_set();
+}
+
+// ── BPOW: every owner's subscriptions, and whose are editable ─────────
+//
+// GH #278 WP4c, REQ-qt-13d. The Breakpoints panel lists the BACKEND's
+// subscriptions, and not only the GUI's: a script or a remote debugger that
+// subscribed is listed too, marked with its client, READ-ONLY — the GUI cannot
+// untick, edit, remove or clear another client's breakpoint. Another client's
+// change reaches the panel through the backend's SubscriptionsChanged push,
+// which the GUI's listener only RECORDS (REQ-qt-15b): the panel shows it at the
+// next tick — the pump, then check_breakpoint_hit() — and not before.
+
+static void test_breakpoint_owners()
+{
+    set_group("BPOW");
+
+    DebuggerFixture fx;
+    if (!fx.ok) {
+        check("BPOW-01", "another client's subscription reaches the panel at the next tick", false, "fixture failed");
+        check("BPOW-02", "another client's row is read-only in the panel", false, "fixture failed");
+        check("BPOW-03", "a master switch flipped outside the panel reaches its control", false, "fixture failed");
+        check("BPOW-04", "another client's Execute breakpoint draws no gutter dot", false, "fixture failed");
+        check("BPOW-05", "Edit on another client's row is refused", false, "fixture failed");
+        return;
+    }
+    GuiBps bps{fx.mgr->breakpoints()};
+    bps.clear_all_pc();
+    bps.clear_all_watchpoints();
+    fx.dbg->breakpoint_panel()->refresh();
+
+    const jnext::dbg::ClientId remote =
+        fx.backend->attach(jnext::dbg::ClientInfo{"remote", jnext::dbg::ClientKind::Dzrp}).value;
+    auto tick = [&]() {                              // QtApp: the pump, then the tick
+        fx.backend->pump(jnext::dbg::PumpBudget{});
+        fx.mgr->check_breakpoint_hit();
+        QApplication::processEvents();
+    };
+    tick();                                          // settle the attach
+    const QString expect = QStringLiteral("Execute (client %1) $7000").arg(remote);
+
+    // BPOW-01 — listed, marked with its owner, at the tick and not before; and
+    // its removal reaches the panel the same way.
+    {
+        jnext::dbg::Subscription s;
+        s.kind = jnext::dbg::EventKind::Execute;
+        s.action = jnext::dbg::Action::Stop;
+        s.filter.lo = s.filter.hi = 0x7000;
+        const jnext::dbg::EventId id = fx.backend->subscribe(remote, s).value;
+        const QStringList before_tick = panel_rows(fx.dbg);
+        tick();
+        const QStringList after_tick = panel_rows(fx.dbg);
+        fx.backend->unsubscribe(remote, id);
+        tick();
+        const QStringList after_remove = panel_rows(fx.dbg);
+        check("BPOW-01", "another client's subscription reaches the panel at the next "
+              "tick — marked with its client — and its removal does too",
+              before_tick.isEmpty() && after_tick == QStringList{expect} &&
+                  after_remove.isEmpty(),
+              fmt("before tick [%s] after [%s] (want \"%s\") after remove [%s]",
+                  before_tick.join(QStringLiteral(", ")).toUtf8().constData(),
+                  after_tick.join(QStringLiteral(", ")).toUtf8().constData(),
+                  expect.toUtf8().constData(),
+                  after_remove.join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+
+    // BPOW-02 — read-only: its On cell is not user-checkable, and neither the
+    // panel's Remove nor the menu's Clear All removes it — while the GUI's own
+    // row beside it IS removed by Clear All.
+    {
+        jnext::dbg::Subscription s;
+        s.kind = jnext::dbg::EventKind::Execute;
+        s.action = jnext::dbg::Action::Stop;
+        s.filter.lo = s.filter.hi = 0x7000;
+        fx.backend->subscribe(remote, s);
+        tick();
+        bps.add_pc(0x7100);                          // the GUI's own
+        const QString checks = panel_checks(fx.dbg); // want "x1": foreign, own
+        const int row = panel_row_of(fx.dbg, 0x7000);
+        select_panel_row(fx.dbg, row);
+        if (QPushButton* rm = panel_button(fx.dbg, QStringLiteral("Remove"))) {
+            rm->click();
+            QApplication::processEvents();
+        }
+        const QStringList after_remove = panel_rows(fx.dbg);
+        QMenu* bp_menu = menu_named(fx.dbg->menuBar(), QStringLiteral("Breakpoints"));
+        if (QAction* clear = item_named(bp_menu, QStringLiteral("Clear All Breakpoints"))) {
+            clear->trigger();
+            QApplication::processEvents();
+        }
+        const QStringList after_clear = panel_rows(fx.dbg);
+        check("BPOW-02", "another client's row is read-only: not tickable, and "
+              "neither Remove nor Clear All deletes it (Clear All takes only the "
+              "GUI's own)",
+              row == 0 && checks == QStringLiteral("x1") &&
+                  after_remove == QStringList{expect, QStringLiteral("Execute $7100")} &&
+                  after_clear == QStringList{expect},
+              fmt("row=%d checks=[%s] after Remove [%s] after Clear All [%s]", row,
+                  checks.toUtf8().constData(),
+                  after_remove.join(QStringLiteral(", ")).toUtf8().constData(),
+                  after_clear.join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+    // BPOW-03 — the MASTER SWITCH flipped from outside the panel (it is one
+    // switch for every client, and any client may flip it) reaches the panel's
+    // control at the next tick even with NOTHING listed: the model notifies a
+    // master flip by itself, not only through the rows it changes.
+    {
+        bps.clear_all_pc();
+        bps.clear_all_watchpoints();
+        for (const auto& si : fx.backend->subscriptions(false))   // the remote's too
+            fx.backend->unsubscribe(si.owner, si.id);
+        tick();
+        QCheckBox* master = master_switch(fx.dbg);
+        const bool empty_on = panel_rows(fx.dbg).isEmpty() && master && master->isChecked();
+        fx.backend->set_master_enabled(false);
+        const bool before_tick = master && master->isChecked();
+        tick();
+        const bool off = master && !master->isChecked();
+        fx.backend->set_master_enabled(true);
+        tick();
+        check("BPOW-03", "a master switch flipped outside the panel reaches its "
+              "control at the next tick, with no breakpoint listed",
+              empty_on && before_tick && off && master->isChecked(),
+              fmt("empty+on=%d still on before tick=%d off after tick=%d on again=%d",
+                  empty_on, before_tick, off, master && master->isChecked()));
+    }
+    // BPOW-04 — the GUTTER draws and toggles only this GUI's Execute
+    // breakpoints. Another client's Execute subscription at a line draws no
+    // dot, and a gutter click there ADDS the GUI's own — it does not try to
+    // remove the other client's (which the backend would refuse, leaving the
+    // click doing nothing).
+    {
+        DisasmPanel* disasm = fx.dbg->disasm_panel();
+        bps.clear_all_pc();
+        bps.clear_all_watchpoints();
+        jnext::dbg::Subscription s;
+        s.kind = jnext::dbg::EventKind::Execute;
+        s.action = jnext::dbg::Action::Stop;
+        s.filter.lo = s.filter.hi = 0x8003;          // line 1 of the view below
+        fx.backend->subscribe(remote, s);
+        tick();
+        const bool armed = point_disasm_at(fx.emu, disasm, 0x8000);
+        const GutterMark before = gutter_mark(render_disasm(disasm));
+        gutter_click(disasm, 1);
+        const bool own_added = bps.pc_exists(0x8003) && bps.has_pc(0x8003);
+        const GutterMark after = gutter_mark(render_disasm(disasm));
+        const QStringList rows = panel_rows(fx.dbg);
+        check("BPOW-04", "another client's Execute breakpoint draws no gutter dot, and "
+              "a gutter click there adds the GUI's own",
+              armed && before.red == 0 && own_added && after.red > 0 &&
+                  rows == QStringList{QStringLiteral("Execute (client %1) $8003").arg(remote),
+                                      QStringLiteral("Execute $8003")},
+              fmt("armed=%d red before=%d own added=%d red after=%d rows=[%s]", armed,
+                  before.red, own_added, after.red,
+                  rows.join(QStringLiteral(", ")).toUtf8().constData()));
+        bps.clear_all_pc();
+    }
+    // BPOW-05 — the panel's Edit refuses another client's row (WP4c review,
+    // M22): no dialog opens, and the row is not copied. Without the refusal the
+    // edit's remove() is a no-op on a row the GUI does not own, and its add()
+    // makes the GUI an OWN copy at the answered address.
+    {
+        for (const auto& si : fx.backend->subscriptions(false))
+            fx.backend->unsubscribe(si.owner, si.id);
+        jnext::dbg::Subscription s;
+        s.kind = jnext::dbg::EventKind::Execute;
+        s.action = jnext::dbg::Action::Stop;
+        s.filter.lo = s.filter.hi = 0x7000;
+        fx.backend->subscribe(remote, s);
+        tick();
+        const QStringList before = panel_rows(fx.dbg);
+        select_panel_row(fx.dbg, 0);
+        QPushButton* edit_btn = panel_button(fx.dbg, QStringLiteral("Edit"));
+        PanelAnswer ans;
+        ans.typed       = QStringLiteral("7000");
+        ans.combo_index = 0;
+        click_and_answer(edit_btn, ans);
+        tick();
+        const QStringList after = panel_rows(fx.dbg);
+        check("BPOW-05", "Edit on another client's row is refused: no dialog, and no "
+              "own copy of it is made",
+              edit_btn && before == QStringList{expect} && !ans.seen &&
+                  after == QStringList{expect},
+              fmt("button=%d before [%s] dialog=%d after [%s] (want only \"%s\")",
+                  edit_btn != nullptr, before.join(QStringLiteral(", ")).toUtf8().constData(),
+                  ans.seen, after.join(QStringLiteral(", ")).toUtf8().constData(),
+                  expect.toUtf8().constData()));
+    }
+    fx.backend->detach(remote);
 }
 
 // ── DBG: the main window's Debug menu is not a dead end ───────────────
@@ -1903,6 +2239,9 @@ struct RunGuardFixture {
     static constexpr uint16_t PARK = 0x800E;
 
     Emulator         emu;
+    // GH #278 WP2 — the loop owner's backend (QtApp::debugger()), built
+    // after init() and declared before the window, so it outlives the manager.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     QMainWindow      win;
     DebuggerManager* mgr = nullptr;
     bool             ok  = false;
@@ -1933,8 +2272,9 @@ struct RunGuardFixture {
             emu.mmu().write(static_cast<uint16_t>(PROG + i), prog[i]);
         emu.mmu().write(0x9000, 0x00);
 
-        mgr = new DebuggerManager(&win, &emu, &win);   // parented → auto-freed
-        ok  = mgr->set_enabled(true);                  // also set_active(true)
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        mgr = new DebuggerManager(&win, *backend, &win);   // parented → auto-freed
+        ok  = mgr->set_enabled(true);                  // attaches: arms the machine
     }
     ~RunGuardFixture() {
         if (mgr) mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
@@ -1964,11 +2304,11 @@ static void test_run_guard()
             check("GH223-01", "Run on a PAUSED machine still resumes it",
                   false, "fixture failed");
         } else {
-            fx.emu.debug_state().breakpoints().add_pc(RunGuardFixture::BP);
+            fx.mgr->breakpoints().add(BreakpointModel::Execute, RunGuardFixture::BP);
             fx.run_until_paused();
             const bool stopped = fx.paused() && fx.pc() == RunGuardFixture::BP;
 
-            fx.emu.debug_state().breakpoints().remove_pc(RunGuardFixture::BP);
+            fx.mgr->breakpoints().remove(BreakpointModel::Execute, RunGuardFixture::BP);
             fx.mgr->on_run();
             const bool released = !fx.paused();
 
@@ -1991,22 +2331,25 @@ static void test_run_guard()
     // machine sailed past 0x800B to the park at 0x800E without ever pausing —
     // so PC=$800E with paused=0 is precisely the failure this row names.
     //
-    // The Run to Here is issued through DebugState::run_to(), which is exactly
-    // what DebuggerManager's run_to_requested handler does. That handler is
-    // deliberately NOT guarded (a fresh one-shot is sensible on a running
-    // machine); on_run() is the one that had no business touching it.
+    // The Run to Here is issued down the disassembly's run_to_requested signal,
+    // i.e. DebuggerManager's own handler (since GH #278 WP2 the backend's
+    // run_to(), a transient Execute). That handler is deliberately NOT guarded
+    // (a fresh target is sensible on a running machine); on_run() is the one
+    // that had no business touching it.
     {
         RunGuardFixture fx;
         if (!fx.ok) {
             check("GH223-02", "Run on a RUNNING machine leaves a pending "
                   "Run-to-Here one-shot alone", false, "fixture failed");
         } else {
-            fx.emu.debug_state().breakpoints().add_pc(RunGuardFixture::BP);
+            fx.mgr->breakpoints().add(BreakpointModel::Execute, RunGuardFixture::BP);
             fx.run_until_paused();
             const bool stopped = fx.paused() && fx.pc() == RunGuardFixture::BP;
 
-            fx.emu.debug_state().breakpoints().remove_pc(RunGuardFixture::BP);
-            fx.emu.debug_state().run_to(RunGuardFixture::TGT);   // Run to Here
+            fx.mgr->breakpoints().remove(BreakpointModel::Execute, RunGuardFixture::BP);
+            // Run to Here, down the disassembly's own wire to the manager.
+            emit fx.mgr->debugger_window_ptr()->disasm_panel()->run_to_requested(
+                RunGuardFixture::TGT);
             const bool running = !fx.paused();
 
             fx.mgr->on_run();          // the habitual, redundant F5
@@ -2133,6 +2476,7 @@ static void test_magic_breakpoint_menu()
               false, "fixture failed");
         check("MBP-02", "unticking Magic Breakpoint disarms it, again without a re-init",
               false, "fixture failed");
+        check("MBP-03", "the item shows the bound machine's arm", false, "fixture failed");
         return;
     }
 
@@ -2175,6 +2519,78 @@ static void test_magic_breakpoint_menu()
               "NR07=%u (want 3)",
               (item && item->isChecked()) ? 1 : 0, armed_after_untick ? 1 : 0,
               fx.emu.config().magic_breakpoint ? 1 : 0, ram_untick, nr07_untick));
+
+    // MBP-03 — GH #278 WP6: the item shows whether the BOUND machine's magic
+    // breakpoint is armed (CTL-14) — --magic-breakpoint arms it before the
+    // window exists. The old read sat in create_menus(), which runs in the
+    // constructor with no machine bound, so the item always opened UNCHECKED
+    // over an armed machine (measured on the pre-WP6 tree). Re-read on every
+    // bind: a cold boot binds a rebuilt machine.
+    {
+        Emulator emu;
+        const bool built = build_next_emulator(emu);
+        emu.set_magic_breakpoint(true);                  // as --magic-breakpoint does
+        jnext::dbg::Debugger backend(emu);
+        MainWindow win;
+        win.set_debugger(&backend);
+        win.set_emulator(&emu);
+        QApplication::processEvents();
+        QAction* it = item_named(menu_named(win.menuBar(), QStringLiteral("Debug")),
+                                 QStringLiteral("Magic Breakpoint"));
+        const bool armed_shows = it && it->isChecked();
+        emu.set_magic_breakpoint(false);                 // the rebuilt machine's state
+        win.set_emulator(&emu);                          // what a cold boot does
+        const bool rebind_shows = it && !it->isChecked();
+        if (win.debugger_manager())
+            win.debugger_manager()->set_enabled(false, /*prompt_on_corrupt=*/false);
+        check("MBP-03",
+              "over a machine whose magic breakpoint is armed the item opens checked, "
+              "and a bind of an unarmed machine unchecks it",
+              built && armed_shows && rebind_shows,
+              fmt("item=%d checked over armed=%d unchecked after rebind=%d", it != nullptr,
+                  armed_shows, rebind_shows));
+    }
+}
+
+// ── MWD: the main window's debugger is never quietly missing ─────────
+//
+// GH #278 WP2 review round 1. MainWindow builds its DebuggerManager in
+// set_emulator(), over the backend set_debugger() supplied. A caller that
+// forgot set_debugger() used to get a window with NO debugger — no Debug
+// button, View > Debugger dead, the debugger keys unforwarded — and nothing
+// said so (six suites' fixtures were in exactly that state). Now it is a
+// wiring error, refused loudly before anything is bound.
+
+static void test_main_window_debugger_wiring()
+{
+    set_group("MWD");
+
+    Emulator emu;
+    const bool ok = build_next_emulator(emu);
+    jnext::dbg::Debugger backend(emu);
+    MainWindow win;
+
+    bool        threw = false;
+    std::string what;
+    try {
+        win.set_emulator(&emu);                 // no set_debugger() first
+    } catch (const std::logic_error& e) {
+        threw = true;
+        what  = e.what();
+    }
+    const bool refused_unbuilt = threw && win.debugger_manager() == nullptr &&
+                                 what.find("set_debugger") != std::string::npos;
+
+    win.set_debugger(&backend);                  // the control: wired, it builds
+    win.set_emulator(&emu);
+    const bool built = win.debugger_manager() != nullptr;
+    if (built) win.debugger_manager()->set_enabled(false, /*prompt_on_corrupt=*/false);
+
+    check("MWD-01", "set_emulator() with no debugger backend throws (naming "
+          "set_debugger()) and builds no manager; after set_debugger() it builds one",
+          ok && refused_unbuilt && built,
+          fmt("threw=%d what='%s' manager after refusal=%d manager when wired=%d",
+              threw, what.c_str(), refused_unbuilt, built));
 }
 
 int main(int argc, char** argv)
@@ -2210,12 +2626,16 @@ int main(int argc, char** argv)
     std::printf("  Group: BPI            — done\n");
     test_breakpoint_enable();
     std::printf("  Group: BPEP           — done\n");
+    test_breakpoint_owners();
+    std::printf("  Group: BPOW           — done\n");
     test_debug_menu();
     std::printf("  Group: DBG            — done\n");
     test_run_guard();
     std::printf("  Group: F5R            — done\n");
     test_magic_breakpoint_menu();
     std::printf("  Group: MBP            — done\n");
+    test_main_window_debugger_wiring();
+    std::printf("  Group: MWD            — done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

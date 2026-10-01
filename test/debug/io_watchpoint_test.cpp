@@ -412,7 +412,8 @@ int main() {
     {
         Emulator emu;
         build(emu, /*persistent=*/false);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_watchpoint(0x00FE, WatchType::IO_READ);
         run_until_paused(emu);
         check("IOWW-10", "with the debugger window open, an IO_READ watchpoint "

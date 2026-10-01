@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.56</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.56</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1986,6 +1986,10 @@ profiler — surround the emulation rather than being part of it.</p>
 <td>The Qt 6 frontend: <code>QtApp</code>, <code>MainWindow</code>, <code>EmulatorWidget</code>, the preferences dialog and the saved-configuration store.</td>
 </tr>
 <tr>
+<td><code>qt/</code></td>
+<td>Header-only Qt code that both Qt libraries need — the debugger keymap's Qt conversions and the menu-bar Alt-navigation style. No library target, no <code>Emulator</code>; it exists so that <code>jnext_gui</code> and <code>jnext_debugger</code> can share it without depending on each other, and so that <code>src/debug/</code> stays free of Qt (<code>debug_qt_free_test</code> fails if a Qt include or a <code>*_qt.h</code> reappears there).</td>
+</tr>
+<tr>
 <td><code>debugger/</code></td>
 <td>The Qt 6 debugger window and its panels — CPU, disassembly, memory, MMU, stack, call stack, watches, breakpoints, video, sprites, copper, NextREG, audio. Compiled only when <code>ENABLE_DEBUGGER=ON</code>.</td>
 </tr>
@@ -2050,7 +2054,7 @@ no <code>#include</code> of either — only prose comments naming them. That is 
 what makes the same <code>Emulator</code> object usable from an SDL window, from a Qt
 widget and from a headless loop with no display at all, and therefore what
 makes the unit suites and the regression suite possible.</p>
-<p>Qt is confined to <code>src/gui</code> and <code>src/debugger</code>. SDL is owned by <code>src/platform</code>
+<p>Qt is confined to <code>src/gui</code>, <code>src/debugger</code> and the header-only <code>src/qt</code>. SDL is owned by <code>src/platform</code>
 — and, to be honest about it, by four headers in <code>src/input</code>: <code>keyboard.h</code>,
 <code>gamepad_host.h</code>, <code>joystick_dispatcher.h</code> and <code>mouse_dispatcher.h</code> all include
 <code>&lt;SDL3/SDL.h&gt;</code>. The keyboard case is structural rather than accidental.

@@ -166,7 +166,13 @@ from `--machine`. `MachineTimingMode` (`Timing48`, `Timing128`, `TimingPlus3`,
 
 `AttributeMux` models the mid-line attribute-write multiplexing that
 Nirvana-class multicolour routines depend on, tagged with the raw frame
-`(hc, vc)` at the instant the byte lands on the bus. `Mmu` separately keeps the
+`(hc, vc)` at the instant the byte lands on the bus. A CPU write states that
+position for its one write: `fuse_z80_writebyte` calls
+`Mmu::attr_mux_set_write_pos()` before the write and `attr_mux_end_write()`
+after it. Every other writer — the DMA, the tape traps, the debugger's `poke` —
+is tagged with the line `Emulator::on_scanline()` last set, at column 0. Until
+GH #278 the CPU's position outlived its write, and the next non-CPU attribute
+write took it over (`mmu_integration_test` G12-TAG). `Mmu` separately keeps the
 +3 floating-bus latch `p3_floating_bus_dat_`, updated on every read that
 `mem_contend_for_(addr)` says is contended — a per-page decode, not the older
 per-16 KB mirror.

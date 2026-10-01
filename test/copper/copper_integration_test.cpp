@@ -1408,7 +1408,8 @@ static void test_gh290_wait_uses_reloaded_cvc() {
     program_word(emu, 0, enc_wait(0, 150));
     program_word(emu, 1, enc_move(0x14, 0x5A));
     program_word(emu, 2, enc_wait(0, 511));     // HALT
-    emu.debug_state().set_active(true);
+    emu.debug_state().set_clients_attached(true);   // was set_active(true): GH #278 WP4c
+    emu.debug_state().set_live_raster(true);
     emu.run_frame();                             // later frames carry their reload
 
     const uint64_t f1 = emu.current_frame_cycle();
@@ -1479,7 +1480,8 @@ static void test_gh290_move_at_reload_edge() {
         program_word(emu, 0, enc_wait(55, 310));
         program_word(emu, static_cast<uint16_t>(1 + nops), enc_move(0x64, 20));
         program_word(emu, static_cast<uint16_t>(2 + nops), enc_wait(0, 511));   // HALT
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);   // was set_active(true): GH #278 WP4c
+        emu.debug_state().set_live_raster(true);
         emu.run_frame();
         const uint64_t f1 = emu.current_frame_cycle();
         bool ok = gh290_run_to(emu, gh290_at(emu, f1, 10, 200));
@@ -1576,7 +1578,8 @@ static void test_gh290_copper_line_int_target() {
         program_word(emu, 0, enc_wait(30, 86));
         program_word(emu, static_cast<uint16_t>(1 + nops), enc_move(0x23, 87));
         program_word(emu, static_cast<uint16_t>(2 + nops), enc_wait(0, 511));   // HALT
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);   // was set_active(true): GH #278 WP4c
+        emu.debug_state().set_live_raster(true);
         emu.run_frame();
         const uint64_t f1 = emu.current_frame_cycle();
         const uint64_t f2 = f1 + emu.timing().master_cycles_per_frame;

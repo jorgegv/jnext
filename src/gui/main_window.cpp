@@ -14,16 +14,18 @@
 #include "platform/emulator_boot.h"   // GH #228 — emulator_load_routes_to_nex
 #include "core/rzx.h"                 // rzx::playable, before a cold boot plays a file
 #include "core/log.h"
+#include <stdexcept>
 #include "core/screenshot.h"
 #include "peripheral/esp_host_policy.h"
 #include "input/mouse_dispatcher.h"
 #include "platform/pointer_capture.h"
 #include "platform/speed_report.h"
-#include "debug/menu_bar_alt_nav_qt.h"   // GH #268
+#include "qt/menu_bar_alt_nav_qt.h"   // GH #268
+#include "debug/debugger.h"            // GH #278 WP6 — the Magic Breakpoint item (CTL-14)
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
-#include "debug/debug_keymap_qt.h"
+#include "qt/debug_keymap_qt.h"
 #endif
 #include <ctime>
 
@@ -316,6 +318,19 @@ MainWindow::MainWindow(QWidget* parent)
 MainWindow::~MainWindow() = default;
 
 void MainWindow::set_emulator(Emulator* emu) {
+#ifdef ENABLE_DEBUGGER
+    // GH #278 WP2 — the DebuggerManager built below adapts the loop owner's
+    // debugger backend, which set_debugger() must have supplied first. Without
+    // it this window would come up with NO debugger at all — no Debug toolbar
+    // button, View > Debugger dead, the debugger keys unforwarded — and nothing
+    // would say so. That is a wiring error in the caller (QtApp, a test
+    // fixture, docshot), so it is REFUSED here, loudly and before anything is
+    // bound, rather than tolerated as a debugger-less window.
+    if (emu && !debugger_mgr_ && !debugger_)
+        throw std::logic_error(
+            "MainWindow::set_emulator(): no debugger backend — call "
+            "set_debugger() with the loop owner's jnext::dbg::Debugger first");
+#endif
     emulator_ = emu;
     // Construct the Kempston mouse host adapter once the emulator (and its
     // KempstonMouse) is bound. Mirrors SdlApp::init() — same ownership
@@ -333,9 +348,16 @@ void MainWindow::set_emulator(Emulator* emu) {
         mouse_dispatcher_.reset();
     }
     sync_machine_type_display();
+    // GH #278 WP6 — the Magic Breakpoint item shows whether the magic
+    // breakpoint is armed (CTL-14), e.g. by --magic-breakpoint, on every
+    // machine bound here (a cold boot binds a new one). Its old read of the
+    // config sat in create_menus(), which runs before any machine exists, so
+    // the item always opened unchecked.
+    if (magic_bp_action_ && debugger_ && emu)
+        magic_bp_action_->setChecked(debugger_->magic_breakpoint());
 #ifdef ENABLE_DEBUGGER
     if (!debugger_mgr_ && emu) {
-        debugger_mgr_ = new DebuggerManager(this, emu, this);
+        debugger_mgr_ = new DebuggerManager(this, *debugger_, this);
         // Debugger starts disabled — main window stays fixed-size.
         // GH #1 — hand it the user's key bindings straight away: the window is
         // built now, and a keymap pushed only when it is first SHOWN would
@@ -927,13 +949,15 @@ void MainWindow::create_menus() {
     magic_bp_action_ = debug_menu->addAction(tr("Magic &Breakpoint"));
     magic_bp_action_->setCheckable(true);
     magic_bp_action_->setToolTip(tr("Enable magic breakpoints (ED FF / DD 01)"));
-    if (emulator_) magic_bp_action_->setChecked(emulator_->config().magic_breakpoint);
+    // Its checked state is the machine's, synced by set_emulator(): this runs
+    // in the constructor, before any machine is bound (GH #278 WP6).
     connect(magic_bp_action_, &QAction::triggered, this, [this](bool checked) {
-        if (!emulator_) return;
-        // Arm/disarm on the running machine. This used to re-run init() with
-        // the flag changed, which re-initialised a booted NextZXOS machine
-        // into 48K BASIC and never disarmed the hook (GH #239).
-        emulator_->set_magic_breakpoint(checked);
+        if (!debugger_) return;
+        // Arm/disarm on the running machine, through the backend (CTL-14). This
+        // used to re-run init() with the flag changed, which re-initialised a
+        // booted NextZXOS machine into 48K BASIC and never disarmed the hook
+        // (GH #239).
+        debugger_->set_magic_breakpoint(checked);
     });
 
     // --- View menu ---

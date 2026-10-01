@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.56</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.56</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2936,7 +2936,9 @@
 <h1 id="the-trace-log">The trace log<a class="headerlink" href="#the-trace-log" title="Permanent link">&para;</a></h1>
 <p>The trace log records the machine state <em>before</em> every instruction executed: the
 master cycle count, <code>PC</code>, all main and alternate registers, <code>IX</code>, <code>IY</code>, <code>SP</code>,
-the decoded flags and the raw opcode bytes. It is a ring buffer of 10 000
+the word on top of the stack, <code>I</code>, <code>R</code>, the interrupt mode and both interrupt
+flip-flops, the memory page mapped in each of the eight slots, the decoded flags
+and the raw opcode bytes. It is a ring buffer of 10 000
 entries, so it always holds the last 10 000 instructions.</p>
 <ul>
 <li><strong>F2</strong>, the toolbar <code>F2: Trace</code> button (its indicator turns green), or

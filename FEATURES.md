@@ -114,6 +114,7 @@
 ## Debugger (Qt 6)
 - Separate debugger window with full panel layout
 - Panels: CPU registers, disassembly, memory hex editor, MMU, stack, call stack
+- Memory panel physical-page view: `Slot 0-7` show the page (or ROM) mapped in the slot itself, with no DivMMC, Multiface or Layer 2 overlay leaking in, and `Page...` shows any NR page, mapped or not; hex edits write the same place (a ROM slot stays read-only)
 - Panels: video layers (All layers / ULA / Layer2 / Sprites / Tilemap / Background per-scanline view), sprites, copper, NextREG, audio, watches, breakpoints
 - Video panel "All layers" view: the real composite (same image as the emulator window) — renders through the live compositor, so NR 0x15 priority, blend modes and the NR 0x4A fallback colour (which belongs to no layer) are all visible
 - Video panel "Background" view: the NR 0x4A fallback colour the compositor emits where every layer is transparent, shown per scanline (Copper gradients appear as bands)

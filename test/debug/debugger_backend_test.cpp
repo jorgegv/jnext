@@ -67,6 +67,10 @@
 #include "peripheral/dma.h"
 #include "video/palette.h"
 #include "video/sprites.h"
+// GH #278 WP4d — the INS-14 render_layer rows.
+#include "core/saveable.h"
+#include "memory/ram.h"
+#include "video/layer2.h"
 // GH #276 B3 — CTL-12's reconstruct rows drive the REAL
 // `emulator_frontend_cold_boot()`, not a stand-in: the whole point of the
 // contract is what `~Emulator()` + placement-new does to a surviving
@@ -74,6 +78,7 @@
 #include "platform/emulator_boot.h"
 // GH #276 B4 — CAP-04's rows compare the file with what the format's saver
 // produces for the same machine.
+#include "core/rzx_player.h"
 #include "core/sna_saver.h"
 #include "core/szx_saver.h"
 // GH #276 B4 M2 — the HOST rows drive the real loop owner.
@@ -186,10 +191,13 @@ static void build(Emulator& emu, MachineType type = MachineType::ZX48K) {
     emu.cpu().set_registers(r);
 }
 
-// The debugger has to be "driving" for the step machinery to be live — that is
-// `DebugState::active()`, which B3 turns into the client count.
+// The debugger has to be "driving" for the step machinery to be live — an
+// attached client and its live raster, set directly on `DebugState` for the rows
+// that have no `Debugger` client to attach (GH #278 WP4c: until then the Qt
+// window's `active()` bit, which set both).
 static void attach_and_pause(Emulator& emu) {
-    emu.debug_state().set_active(true);
+    emu.debug_state().set_clients_attached(true);
+    emu.debug_state().set_live_raster(true);
     emu.debug_state().pause();
 }
 
@@ -304,17 +312,18 @@ static void build_armed(Emulator& emu, const std::vector<uint8_t>& bytes,
     r.IFF1 = 0;
     r.IFF2 = 0;
     emu.cpu().set_registers(r);
-    emu.debug_state().set_active(true);
+    emu.debug_state().set_clients_attached(true);
+    emu.debug_state().set_live_raster(true);
 }
 
 // ── GH #276 B3 helpers (§4.8 CAP-SES) ──────────────────────────────────────
 
 /// Write `bytes` at PROG and point PC/SP at it, WITHOUT init() and WITHOUT
-/// set_active(). Two reasons it is not `build_armed`:
+/// arming. Two reasons it is not `build_armed`:
 ///
 ///   * B3's rows arm the machine by ATTACHING A CLIENT, which is the thing under
-///     test — `set_active(true)` would arm it by the other contributor and make
-///     every `attached()` / `armed()` row pass whatever `attach()` did.
+///     test — `build_armed`'s direct arm would make every `attached()` /
+///     `armed()` row pass whatever `attach()` did.
 ///   * after a cold boot the RAM is wiped, so the program has to be reloaded
 ///     into the RECONSTRUCTED machine without re-running init().
 static void load_prog(Emulator& emu, const std::vector<uint8_t>& bytes) {
@@ -2615,8 +2624,8 @@ struct B5KindCase {
 
 /// A 48K machine with `bytes` at PROG, PC/SP set and interrupts off — and NOT
 /// armed: every B5 machine is armed the way §9 says, THROUGH THE FACADE, by the
-/// client it attaches. `build_armed()`'s `set_active(true)` is the Qt window's
-/// contributor, which no remote client has.
+/// client it attaches. `build_armed()` arms `DebugState` directly, which no
+/// remote client can.
 static void b5_build(Emulator& emu, const std::vector<uint8_t>& bytes,
                      MachineType type = MachineType::ZX48K) {
     EmulatorConfig cfg;
@@ -4104,6 +4113,940 @@ static void b5_host_probe_rows() {
           ok && !armed_off && guest && reset_ok && end_two, seen);
 }
 
+// ── HOST-08 — JNEXT_HOST_PROBE=order (GH #278 WP2), through the real
+//    HeadlessApp: the probe's ORDER script reads right on a loop owner already
+//    known to poll the guest hard reset before its pump (HeadlessApp::run()).
+//    The regression row qt-host-order-func runs the same script in QtApp, whose
+//    poll WP2 moved there; this row is what makes its "guest-before-client=1"
+//    and "resets=2" mean what that row takes them to mean.
+static void q_wp2_host_order_rows() {
+    auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(512);
+    Log::platform()->sinks().push_back(ring);
+    ::setenv("JNEXT_HOST_PROBE", "order", 1);
+    bool ok = false;
+    {
+        EmulatorConfig cfg; cfg.type = MachineType::ZX48K;
+        HeadlessApp app;
+        app.set_config(cfg);
+        ok = app.init(0, nullptr);
+        app.set_delayed_exit(80);
+        app.run();
+        app.shutdown();
+    }
+    ::unsetenv("JNEXT_HOST_PROBE");
+    bool armed = false, first = false, total = false;
+    std::string seen;
+    for (const auto& l : ring->last_formatted()) {
+        if (l.find("HOSTPROBE") == std::string::npos) continue;
+        seen += "|" + l.substr(l.find("HOSTPROBE"));
+        if (l.find(", order)") != std::string::npos) armed = true;
+        if (l.find("HOSTPROBE order: guest-before-client=1 client=ok") != std::string::npos)
+            first = true;
+        if (l.find("HOSTPROBE order: resets=2") != std::string::npos) total = true;
+    }
+    Log::platform()->sinks().pop_back();
+    check("HOST-08", "JNEXT_HOST_PROBE=order through the real HeadlessApp: a guest hard "
+                     "reset raised inside the frames is performed before the pump, so "
+                     "the client's reset(Hard) in that pump comes second — two resets, "
+                     "guest first",
+          ok && armed && first && total, seen);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GH #278 WP3 — the rewind verbs as the Qt window drives them (CTL-09/10,
+// ST-03), B3 obligation 3, and the trace export (INS-13). A contiguous block,
+// kept apart from the parallel WP4d work in this file.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// A 48K machine with an `frames`-slot rewind ring and the trace on, running a
+/// counter loop (8000 INC HL / 8001 JR 8000) so every frame's snapshot holds a
+/// different machine.
+static void q_wp3_ring_machine(Emulator& emu, int frames) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZX48K;
+    cfg.rewind_buffer_frames = frames;
+    emu.init(cfg);
+    load_prog(emu, { 0x23, 0x18, 0xFD });
+    Z80Registers r = emu.cpu().get_registers();
+    r.HL = 0;
+    emu.cpu().set_registers(r);
+    emu.trace_log().set_enabled(true);
+}
+
+/// Flip the 'mmu' sentinel (ordinal 2) in ring slot `i` — rewind_test's
+/// SENT-CHAIN idiom: a restore of that slot tears the machine at 'mmu'.
+static bool q_wp3_tear_slot(Emulator& emu, size_t i) {
+    RewindBuffer* rb = emu.rewind_buffer();
+    const uint32_t want = Emulator::kStateSentinelMagic ^ 2u;
+    uint8_t* d = rb->slot_data_for_test(i);
+    for (size_t off = 0; off + 4 <= rb->snapshot_bytes(); ++off) {
+        uint32_t v;
+        std::memcpy(&v, d + off, 4);
+        if (v == want) { d[off] ^= 0xFF; return true; }
+    }
+    return false;
+}
+
+static void q_wp3_rewind_rows() {
+    // ── The classification: RefusedCorrupt only when a restore tore the
+    //    machine, RefusedUnavailable for every benign refusal ────────────────
+    {
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        for (int i = 0; i < 4; ++i) emu.run_frame();
+        dbg.pause(a);
+        emu.trace_log().set_enabled(false);
+        const uint64_t gen = emu.state_error_generation();
+        const Result r = dbg.step_back(a, 1);
+        check("CTL-09-02", "step_back() with the trace OFF is the benign "
+                           "RefusedUnavailable, not RefusedCorrupt, and latches nothing",
+              r == Result::RefusedUnavailable && emu.state_error_generation() == gen &&
+                  !dbg.resume_blocked_by_corruption().has_value(),
+              std::string("rc=") + jnext::dbg::result_name(r));
+        emu.trace_log().set_enabled(true);
+        dbg.trace_clear();
+        const Result r2 = dbg.step_back(a, 1);   // an empty trace, the same class
+        check("CTL-09-03", "and with the trace ON but EMPTY, the same",
+              r2 == Result::RefusedUnavailable,
+              std::string("rc=") + jnext::dbg::result_name(r2));
+    }
+    {
+        // A ring with a GAP: snapshotting paused for two frames, so frames
+        // inside [oldest, newest] exist that have no slot. The Emulator returns
+        // the same `false` for "no such slot" as for a torn restore.
+        Emulator emu;
+        q_wp3_ring_machine(emu, 20);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        dbg.set_rewind_enabled(false);
+        for (int i = 0; i < 2; ++i) emu.run_frame();
+        dbg.set_rewind_enabled(true);
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        dbg.pause(a);
+        const auto rr = dbg.rewind_range();
+        const uint32_t hole = rr.oldest_frame + 3;
+        const uint64_t gen = emu.state_error_generation();
+        const uint64_t at  = dbg.time().master_cycle;
+        const Result r = dbg.rewind_to_frame(a, hole);
+        check("CTL-10-05", "rewind_to_frame() to a frame INSIDE the ring's range with "
+                           "no slot (a gap) is RefusedUnavailable, not RefusedCorrupt, "
+                           "and leaves the machine where it was",
+              rr.depth == 6 && r == Result::RefusedUnavailable &&
+                  emu.state_error_generation() == gen && dbg.time().master_cycle == at,
+              "depth=" + std::to_string(rr.depth) + " frames " +
+                  std::to_string(rr.oldest_frame) + ".." + std::to_string(rr.newest_frame) +
+                  " rc=" + jnext::dbg::result_name(r));
+    }
+    {
+        // A TORN restore IS RefusedCorrupt — for both verbs — and latches the
+        // incident the Qt window's "Rewind Failed" modal names. The newest slot
+        // stays intact: Emulator::rewind_to_frame() restores it first.
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        for (int i = 0; i < 5; ++i) emu.run_frame();
+        dbg.pause(a);
+        RewindBuffer* rb = emu.rewind_buffer();
+        bool torn = true;
+        for (size_t i = 0; i + 1 < rb->depth(); ++i) torn = q_wp3_tear_slot(emu, i) && torn;
+        const auto rr = dbg.rewind_range();
+        const Result r = dbg.rewind_to_frame(a, rr.oldest_frame);
+        const auto inc = dbg.resume_blocked_by_corruption();
+        check("CTL-10-06", "a TORN restore in rewind_to_frame() is RefusedCorrupt, "
+                           "with the incident naming the subsystem",
+              torn && r == Result::RefusedCorrupt && inc.has_value() &&
+                  inc->subsystem == "mmu",
+              std::string("rc=") + jnext::dbg::result_name(r));
+
+        // RECOVERY: the machine is corrupt and nothing acknowledged it — a
+        // rewind to the INTACT newest slot is not gated on that (CTL-11 is for
+        // executing a torn machine; a rewind replaces it), it succeeds, and the
+        // successful restore clears the corruption.
+        const Result back = dbg.rewind_to_frame(a, rr.newest_frame);
+        check("CTL-10-07", "a rewind from a CORRUPT machine to an intact frame is not "
+                           "refused: it succeeds and the corruption is gone",
+              back == Result::Ok && !dbg.resume_blocked_by_corruption().has_value() &&
+                  emu.last_state_error().empty() && dbg.time().frame == rr.newest_frame,
+              std::string("rc=") + jnext::dbg::result_name(back) + " err='" +
+                  emu.last_state_error() + "'");
+    }
+    {
+        // The same recovery through step_back(): the machine is torn by a
+        // failed rewind, and a step back — whose target lies in the newest,
+        // intact frame — is not refused for it and heals it.
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        for (int i = 0; i < 5; ++i) emu.run_frame();
+        dbg.pause(a);
+        RewindBuffer* rb = emu.rewind_buffer();
+        bool torn = true;
+        for (size_t i = 0; i + 1 < rb->depth(); ++i) torn = q_wp3_tear_slot(emu, i) && torn;
+        const Result failed = dbg.rewind_to_frame(a, dbg.rewind_range().oldest_frame);
+        const bool corrupt = dbg.resume_blocked_by_corruption().has_value();
+        const Result back = dbg.step_back(a, 1);
+        check("CTL-09-05", "a step_back() from a CORRUPT machine is not refused: it "
+                           "restores the intact newest frame and the corruption is gone",
+              torn && failed == Result::RefusedCorrupt && corrupt && back == Result::Ok &&
+                  !dbg.resume_blocked_by_corruption().has_value() &&
+                  emu.last_state_error().empty(),
+              std::string("rc=") + jnext::dbg::result_name(back));
+    }
+    {
+        // REQ-qt-09d — RewindRange::at_restored_frame_start (owner approval
+        // 2026-09-29): true only on a frame start a ring restore landed on.
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        for (int i = 0; i < 4; ++i) emu.run_frame();
+        const bool ordinary = !dbg.rewind_range().at_restored_frame_start &&
+                              dbg.at_frame_boundary();
+        check("ST-03-15", "at an ordinary frame boundary it is false",
+              ordinary);
+        dbg.pause(a);
+        const auto rr = dbg.rewind_range();
+        const Result r = dbg.rewind_to_frame(a, rr.oldest_frame + 1);
+        const bool landed = r == Result::Ok && dbg.rewind_range().at_restored_frame_start &&
+                            dbg.at_frame_boundary() &&
+                            dbg.time().frame == rr.oldest_frame + 1;
+        check("ST-03-11", "right after rewind_to_frame() lands on a frame start it is "
+                          "TRUE",
+              landed, std::string("rc=") + jnext::dbg::result_name(r));
+        dbg.step_into(a);                          // the frame begins running
+        check("ST-03-12", "and false once the machine runs on (one instruction)",
+              !dbg.rewind_range().at_restored_frame_start);
+        dbg.rewind_to_frame(a, rr.oldest_frame + 1);
+        const bool again = dbg.rewind_range().at_restored_frame_start;
+        const Result sb = dbg.step_back(a, 1);
+        check("ST-03-13", "false after step_back(): its replay begins the frame it "
+                          "restores",
+              again && sb == Result::Ok && !dbg.rewind_range().at_restored_frame_start,
+              std::string("rc=") + jnext::dbg::result_name(sb));
+        // A plain state load of a snapshot SAVED at an ordinary boundary.
+        dbg.run(a);
+        emu.run_frame();
+        const auto bytes = dbg.save_state_bytes(a, jnext::dbg::SaveStateMode::AdvanceToBoundary);
+        dbg.pause(a);
+        dbg.rewind_to_frame(a, dbg.rewind_range().oldest_frame);
+        const bool before_load = dbg.rewind_range().at_restored_frame_start;
+        const Result lr = bytes.status == Result::Ok
+                              ? dbg.load_state_bytes(a, bytes.value.data(), bytes.value.size())
+                              : bytes.status;
+        check("ST-03-14", "and false after a plain load_state_bytes(), even from a "
+                          "restored frame start",
+              before_load && lr == Result::Ok &&
+                  !dbg.rewind_range().at_restored_frame_start,
+              std::string("rc=") + jnext::dbg::result_name(lr));
+    }
+    {
+        // A torn NEWEST slot is only that frame's problem: rewinding to another
+        // frame restores that frame alone (it used to restore the newest first,
+        // unconditionally, and fail every rewind on it).
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        for (int i = 0; i < 4; ++i) emu.run_frame();
+        dbg.pause(a);
+        RewindBuffer* rb = emu.rewind_buffer();
+        const bool torn = q_wp3_tear_slot(emu, rb->depth() - 1);
+        const auto rr = dbg.rewind_range();
+        const Result r = dbg.rewind_to_frame(a, rr.oldest_frame);
+        check("CTL-10-08", "with only the NEWEST slot torn, rewind_to_frame() to the "
+                           "oldest succeeds and latches no corruption",
+              torn && r == Result::Ok && dbg.time().frame == rr.oldest_frame &&
+                  !dbg.resume_blocked_by_corruption().has_value(),
+              std::string("rc=") + jnext::dbg::result_name(r));
+    }
+    {
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        for (int i = 0; i < 4; ++i) emu.run_frame();
+        dbg.pause(a);
+        RewindBuffer* rb = emu.rewind_buffer();
+        bool torn = true;
+        for (size_t i = 0; i < rb->depth(); ++i) torn = q_wp3_tear_slot(emu, i) && torn;
+        const Result r = dbg.step_back(a, 1);
+        const auto inc = dbg.resume_blocked_by_corruption();
+        check("CTL-09-04", "a TORN restore in step_back() is RefusedCorrupt, with the "
+                           "incident naming the subsystem",
+              torn && r == Result::RefusedCorrupt && inc.has_value() &&
+                  inc->subsystem == "mmu",
+              std::string("rc=") + jnext::dbg::result_name(r));
+    }
+    {
+        // WP3 review item 1 — an RZX refusal is REFUSED, AND SAID. The backend
+        // decides it before `Emulator::step_back()` / `rewind_to_frame()` run, so
+        // their own logged refusal (`Emulator::rzx_blocks_rewind()`) is never
+        // reached; the verbs must log it themselves, with the same words, for
+        // every client. Read off the live `emulator` logger: a claim that
+        // something is logged is only worth what reading the log proves.
+        auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(512);
+        Log::emulator()->sinks().push_back(ring);
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        for (int i = 0; i < 4; ++i) emu.run_frame();
+        dbg.pause(a);
+        emu.rzx_player().start(RzxRecording{});
+        auto said = [&](const std::string& what) {
+            for (const auto& l : ring->last_formatted())
+                if (l.find(what + ": not while an RZX recording is playing (stop it first)") !=
+                    std::string::npos)
+                    return true;
+            return false;
+        };
+        // The GREYING query asks the same question on every tick and must stay
+        // quiet: only a refused VERB is an event worth a line.
+        const size_t lines_before = ring->last_formatted().size();
+        const auto blocked = dbg.rewind_blocked();
+        const bool quiet_query = blocked.has_value() && *blocked == Result::RefusedRzx &&
+                                 ring->last_formatted().size() == lines_before &&
+                                 lines_before < 512;
+        const Result rs = dbg.step_back(a, 1);
+        check("CTL-09-06", "step_back() refused for an RZX playback is RefusedRzx AND "
+                           "logs why, at error level, as the Emulator always did — "
+                           "while the rewind_blocked() greying query stays silent",
+              quiet_query && rs == Result::RefusedRzx && said("step_back"),
+              std::string("rc=") + jnext::dbg::result_name(rs));
+        const Result rf = dbg.rewind_to_frame(a, dbg.rewind_range().oldest_frame);
+        check("CTL-10-09", "and rewind_to_frame() the same",
+              rf == Result::RefusedRzx && said("rewind_to_frame"),
+              std::string("rc=") + jnext::dbg::result_name(rf));
+        emu.rzx_player().stop();
+        auto& sinks = Log::emulator()->sinks();
+        sinks.erase(std::remove(sinks.begin(), sinks.end(), ring), sinks.end());
+    }
+    {
+        // ST-03 — 0 frees an EXISTING ring; a later non-zero resize creates a
+        // fresh one.
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        const bool had = dbg.rewind_range().depth == 3;
+        const Result r0 = dbg.resize_rewind_buffer(0);
+        const auto freed = dbg.rewind_range();
+        const bool blocked = dbg.rewind_blocked().has_value() &&
+                             *dbg.rewind_blocked() == Result::RefusedUnavailable;
+        check("ST-03-09", "resize_rewind_buffer(0) FREES an existing ring: capacity "
+                          "and depth 0, rewinds refused as unavailable",
+              had && r0 == Result::Ok && freed.capacity == 0 && freed.depth == 0 &&
+                  !dbg.rewind_enabled() && blocked);
+        const Result r5 = dbg.resize_rewind_buffer(5);
+        for (int i = 0; i < 2; ++i) emu.run_frame();
+        const auto again = dbg.rewind_range();
+        check("ST-03-10", "and a later non-zero resize creates a fresh ring that "
+                          "records again",
+              r5 == Result::Ok && again.capacity == 5 && again.depth == 2 &&
+                  dbg.rewind_enabled() && !dbg.rewind_blocked().has_value(),
+              "capacity=" + std::to_string(again.capacity) +
+                  " depth=" + std::to_string(again.depth));
+    }
+
+    // ── B3 obligation 3: a client's rewind leaves nothing armed behind it ──
+    {
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("remote", jnext::dbg::ClientKind::Dzrp)).value;
+        for (int i = 0; i < 4; ++i) emu.run_frame();
+        dbg.pause(a);
+        const Result r = dbg.step_back(a, 1);
+        const bool stepped = r == Result::Ok && dbg.state().paused;
+        dbg.detach(a);
+        check("OBL3-01", "a remote client's step_back(), then its detach: the machine "
+                         "is neither armed nor attached, the raster walk is off, and "
+                         "it runs (the pause was the client's)",
+              stepped && !dbg.armed() && !dbg.attached() && !dbg.live_raster() &&
+                  !emu.debug_state().raster_live() && !dbg.state().paused,
+              std::string("rc=") + jnext::dbg::result_name(r) +
+                  " armed=" + (dbg.armed() ? "1" : "0"));
+    }
+    {
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("remote", jnext::dbg::ClientKind::Dzrp)).value;
+        for (int i = 0; i < 4; ++i) emu.run_frame();
+        dbg.pause(a);
+        const Result r = dbg.rewind_to_frame(a, dbg.rewind_range().oldest_frame);
+        const bool rewound = r == Result::Ok && dbg.state().paused;
+        dbg.detach(a);
+        check("OBL3-02", "and the same for rewind_to_frame()",
+              rewound && !dbg.armed() && !dbg.attached() &&
+                  !emu.debug_state().raster_live() && !dbg.state().paused,
+              std::string("rc=") + jnext::dbg::result_name(r) +
+                  " armed=" + (dbg.armed() ? "1" : "0"));
+    }
+    {
+        // The replay still STOPS at its target with nothing attached at all:
+        // it is armed for the replay loop alone (DebugState::ReplayArmScope) —
+        // the arm it used to borrow from the Qt window's bit and keep.
+        Emulator emu;
+        q_wp3_ring_machine(emu, 10);
+        emu.run_frame();
+        emu.run_frame();
+        const uint64_t mid = emu.current_frame_cycle() +
+                             emu.timing().master_cycles_per_frame / 3;
+        while (emu.clock().get() < mid) emu.execute_single_instruction();
+        const size_t n = emu.trace_log().size();
+        // step_back(1) undoes the LAST instruction: it lands on trace[size-1].
+        const uint64_t want = n >= 1 ? emu.trace_log().at(n - 1).cycle : 0;
+        const uint16_t want_pc = n >= 1 ? emu.trace_log().at(n - 1).pc : 0;
+        const bool unarmed_before = !emu.debug_state().armed();
+        const bool ok = emu.step_back(1);
+        check("OBL3-03", "with NOTHING attached, step_back() still lands on its target "
+                         "instruction, and leaves the machine unarmed",
+              unarmed_before && ok && emu.clock().get() == want && pc_of(emu) == want_pc &&
+                  !emu.debug_state().armed() && !emu.debug_state().attached(),
+              "cycle " + std::to_string(emu.clock().get()) + " want " +
+                  std::to_string(want) + " pc " + hex(pc_of(emu)) + " want " + hex(want_pc));
+    }
+}
+
+/// INS-13 — the export writes EVERY field of the entry (GH #278 WP3): the ones
+/// GH #276 B4 added (I, R, IM, IFF1/IFF2, the word at SP, the eight MMU pages)
+/// were recorded and never written.
+static void q_wp3_trace_export_rows() {
+    Emulator emu;
+    build(emu);
+    Debugger dbg(emu);
+    Z80Registers r = emu.cpu().get_registers();
+    r.AF = 0x12D5; r.BC = 0x3456; r.DE = 0x789A; r.HL = 0xBCDE;
+    r.AF2 = 0x1111; r.BC2 = 0x2222; r.DE2 = 0x3333; r.HL2 = 0x4444;
+    r.IX = 0x5555; r.IY = 0x6666;
+    r.I = 0x3F; r.R = 0x05; r.IM = 1; r.IFF1 = 0; r.IFF2 = 1;   // no INT taken
+    emu.cpu().set_registers(r);
+    emu.mmu().write(TEST_SP, 0xCD);
+    emu.mmu().write(TEST_SP + 1, 0xAB);
+    dbg.set_trace_enabled(true);
+    dbg.trace_clear();
+    emu.execute_single_instruction();              // 8000 NOP
+    const TraceEntry e = emu.trace_log().at(0);
+    const std::string path = "/tmp/jnext_q_wp3_trace_" + std::to_string(::getpid()) + ".txt";
+    const Result rc = dbg.trace_export(path);
+    std::string line;
+    {
+        std::ifstream f(path);
+        std::getline(f, line);
+    }
+    std::remove(path.c_str());
+    char want[320];
+    std::snprintf(want, sizeof(want),
+        "%012llu  $8000  AF=12D5 BC=3456 DE=789A HL=BCDE"
+        "  AF'=1111 BC'=2222 DE'=3333 HL'=4444"
+        "  IX=5555 IY=6666 SP=FF00"
+        "  (SP)=ABCD I=3F R=%02X IM1 IFF1=0 IFF2=1"
+        "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X  [SZ-H-P-C]  00",
+        static_cast<unsigned long long>(e.cycle), e.r,
+        e.mmu[0], e.mmu[1], e.mmu[2], e.mmu[3], e.mmu[4], e.mmu[5], e.mmu[6], e.mmu[7]);
+    check("INS-13-14", "trace_export() writes every TraceEntry field — the word at SP, "
+                       "I, R, IM, IFF1, IFF2 and the eight MMU pages included — in "
+                       "the documented column order",
+          rc == Result::Ok && e.sp_word == 0xABCD && e.i == 0x3F && line == want,
+          "got  '" + line + "'\nwant '" + want + "'");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GH #278 WP4c — REQ-qt-32's non-arming OBSERVER client, the master switch's
+// legacy mirror across a cold boot, and the magic-breakpoint hold that replaced
+// `DebugState::active()`. A contiguous block, kept apart from the parallel WP4d
+// work in this file.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// A program with no CALL: six NOPs, then JR $ at PARK. It needs nothing but
+/// PROG.., so it survives being reloaded into a rebuilt machine whose RAM the
+/// reconstruct wiped.
+static const std::vector<uint8_t> kQ4cNops = { 0, 0, 0, 0, 0, 0, 0x18, 0xFE };
+
+static jnext::dbg::ClientInfo q4c_observer(const char* name) {
+    jnext::dbg::ClientInfo ci = client(name, jnext::dbg::ClientKind::Gui);
+    ci.observer = true;
+    return ci;
+}
+
+static Subscription q4c_exec_at(uint16_t addr) {
+    Subscription s;
+    s.kind      = EventKind::Execute;
+    s.filter.lo = addr;
+    s.filter.hi = addr;
+    s.action    = Action::Stop;
+    return s;
+}
+
+/// PC back to PROG, SP back to TEST_SP, interrupts off — the machine re-runs the
+/// program from its start.
+static void q4c_restart(Emulator& emu) {
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC   = PROG;
+    r.SP   = TEST_SP;
+    r.IFF1 = 0;
+    r.IFF2 = 0;
+    emu.cpu().set_registers(r);
+}
+
+static void q4c_observer_rows() {
+    // OBS-01 — the flag's whole meaning: it counts toward no arm bit.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        const bool alone = !dbg.armed() && !dbg.attached() &&
+                           !emu.debug_state().clients_attached() &&
+                           !emu.debug_state().armed();
+        const ClientId w =
+            dbg.attach(client("window", jnext::dbg::ClientKind::Gui)).value;
+        const bool with_w = dbg.armed() && dbg.attached();
+        dbg.detach(w);
+        const bool after_w = !dbg.armed() && !dbg.attached();
+        check("OBS-01", "an observer attach counts in neither armed() nor attached() — "
+                        "alone, next to an arming client, and after that client leaves",
+              o != jnext::dbg::CLIENT_NONE && alone && with_w && after_w,
+              "alone=" + std::to_string(alone) + " with_w=" + std::to_string(with_w) +
+                  " after_w=" + std::to_string(after_w));
+    }
+
+    // OBS-02..04 — its subscriptions fire ONLY while something else arms the
+    // machine: not at all alone, by another client's attach, by
+    // --persistent-breakpoints alone. The stop is the observer's.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        const auto id = dbg.subscribe(o, q4c_exec_at(AFTER_CALL));
+        emu.run_frame();
+        check("OBS-02", "an observer's Execute subscription on an otherwise unarmed "
+                        "machine does not fire: the machine runs past it to the park",
+              id.status == Result::Ok && !emu.debug_state().paused() &&
+                  pc_of(emu) == PARK,
+              "pc=" + hex(pc_of(emu)));
+
+        q4c_restart(emu);
+        const ClientId w =
+            dbg.attach(client("window", jnext::dbg::ClientKind::Gui)).value;
+        run_until_paused(emu);
+        const RunState st = dbg.state();
+        check("OBS-03", "armed by ANOTHER client's attach, it stops the machine on its "
+                        "address, and the stop is the observer's",
+              st.paused && pc_of(emu) == AFTER_CALL &&
+                  st.pause_reason.kind == PauseReason::Kind::Breakpoint &&
+                  st.pause_reason.id == id.value && st.pause_reason.by == o,
+              "pc=" + hex(pc_of(emu)) + " by=" + std::to_string(st.pause_reason.by));
+
+        q4c_restart(emu);
+        dbg.set_persistent_breakpoints(true);
+        dbg.detach(w);                         // not w's pause: it stays paused
+        const bool armed_by_flag_only = dbg.armed() && !dbg.attached();
+        dbg.run(o);
+        run_until_paused(emu);
+        check("OBS-04", "armed by --persistent-breakpoints ALONE (no arming client), it "
+                        "stops the machine on its address",
+              armed_by_flag_only && dbg.state().paused && pc_of(emu) == AFTER_CALL &&
+                  dbg.state().pause_reason.id == id.value,
+              "pc=" + hex(pc_of(emu)));
+    }
+
+    // OBS-05 — its detach removes its subscriptions (SES-01).
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        dbg.subscribe(o, q4c_exec_at(AFTER_CALL));
+        dbg.attach(client("window", jnext::dbg::ClientKind::Gui));
+        dbg.detach(o);
+        const bool gone = dbg.subscriptions(true).empty();
+        emu.run_frame();
+        check("OBS-05", "the observer's detach removes its subscriptions: none listed, "
+                        "and the armed machine runs past the address to the park",
+              gone && !emu.debug_state().paused() && pc_of(emu) == PARK,
+              "gone=" + std::to_string(gone) + " pc=" + hex(pc_of(emu)));
+    }
+
+    // OBS-06 — its subscriptions survive a cold boot via CTL-12 rule 2: the
+    // observer is a live client, so the backend keeps and re-applies them.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        const auto id = dbg.subscribe(o, q4c_exec_at(PROG + 3));
+        const ClientId w =
+            dbg.attach(client("window", jnext::dbg::ClientKind::Gui)).value;
+        jnext::dbg::LoopDriver d;
+        d.cold_boot = [&]() {
+            emulator_frontend_cold_boot(emu, emu.config(), std::string(),
+                                        ColdBootHooks{});
+            return true;
+        };
+        dbg.set_loop_driver(d);
+        const bool booted = dbg.reset(w, ResetKind::Hard) == Result::Ok;
+        load_prog(emu, kQ4cNops);
+        const auto subs   = dbg.subscriptions(false);
+        const bool listed = subs.size() == 1 && subs[0].id == id.value &&
+                            subs[0].owner == o && subs[0].live;
+        const bool armed_by_w = dbg.armed() && dbg.attached();   // w alone arms
+        run_until_paused(emu);
+        check("OBS-06", "an observer's subscription survives a hard reset (rule 2): "
+                        "still listed as its own and live, and it stops the rebuilt "
+                        "machine on its address",
+              booted && listed && armed_by_w && dbg.state().paused &&
+                  pc_of(emu) == PROG + 3 && dbg.state().pause_reason.id == id.value,
+              "booted=" + std::to_string(booted) + " listed=" + std::to_string(listed) +
+                  " pc=" + hex(pc_of(emu)));
+    }
+
+    // OBS-07/08 — SES-01's own-pause rule applies to it like any client: its
+    // detach releases ONLY a pause that is its own.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        const ClientId w =
+            dbg.attach(client("window", jnext::dbg::ClientKind::Gui)).value;
+        dbg.pause(w);
+        dbg.detach(o);
+        check("OBS-07", "another client's pause survives the observer's detach",
+              dbg.state().paused && dbg.state().pause_reason.by == w);
+    }
+    {
+        // (a) a stop on ITS subscription, (b) its OWN pause() verb.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        dbg.subscribe(o, q4c_exec_at(AFTER_CALL));
+        dbg.attach(client("window", jnext::dbg::ClientKind::Gui));
+        run_until_paused(emu);
+        const bool stopped_by_o = dbg.state().paused && dbg.state().pause_reason.by == o;
+        dbg.detach(o);
+        const bool released_a = !dbg.state().paused;
+
+        o = dbg.attach(q4c_observer("Qt GUI")).value;
+        dbg.pause(o);
+        const bool paused_by_o = dbg.state().paused && dbg.state().pause_reason.by == o;
+        dbg.detach(o);
+        const bool released_b = !dbg.state().paused;
+        check("OBS-08", "the observer's detach releases a pause that IS its own — a stop "
+                        "on its subscription, and its own pause()",
+              stopped_by_o && released_a && paused_by_o && released_b,
+              "a=" + std::to_string(stopped_by_o) + std::to_string(released_a) +
+                  " b=" + std::to_string(paused_by_o) + std::to_string(released_b));
+    }
+
+    // OBS-09 — its live-raster request is honoured (a render hint, not an arm).
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        dbg.set_live_raster(o, true);
+        check("OBS-09", "an observer's live-raster request is honoured, and still arms "
+                        "nothing",
+              dbg.live_raster() && emu.debug_state().raster_live() && !dbg.armed() &&
+                  !dbg.attached());
+    }
+}
+
+static void q4c_magic_hold_rows() {
+    // MAGIC-HOLD-01 — the hold, through the facade: a magic stop on a machine
+    // nothing arms is armed by the hold ALONE — not attached, no raster walk —
+    // and reported as the magic stop, unowned.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        dbg.set_magic_breakpoint(true);
+        emu.mmu().write(PROG, 0xED);
+        emu.mmu().write(PROG + 1, 0xFF);
+        const bool unarmed_before = !dbg.armed();
+        run_until_paused(emu);
+        const RunState st = dbg.state();
+        check("MAGIC-HOLD-01", "a magic stop on an unarmed machine holds it at the "
+                               "next boundary: armed() by the hold alone, not "
+                               "attached, no raster walk, reason Magic, unowned",
+              unarmed_before && st.paused && pc_of(emu) == PROG + 2 &&
+                  st.pause_reason.kind == PauseReason::Kind::Magic &&
+                  st.pause_reason.by == jnext::dbg::CLIENT_NONE && dbg.armed() &&
+                  !dbg.attached() && !dbg.live_raster() &&
+                  !emu.debug_state().raster_live(),
+              "pc=" + hex(pc_of(emu)));
+    }
+    // MAGIC-HOLD-02 — the leak the retired `active()` bit had: a REMOTE client
+    // attached, a magic stop, the remote's run() and detach. The machine must be
+    // left as nothing arms it — unarmed, the step machinery and raster walk off —
+    // so a breakpoint the GUI left behind no longer fires. With `active()` the
+    // hook's write outlived the stop for the rest of the session.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        dbg.subscribe(o, q4c_exec_at(AFTER_CALL));
+        const ClientId r =
+            dbg.attach(client("remote", jnext::dbg::ClientKind::Dzrp)).value;
+        dbg.set_magic_breakpoint(true);
+        emu.mmu().write(PROG, 0xED);
+        emu.mmu().write(PROG + 1, 0xFF);
+        run_until_paused(emu);
+        const bool magic = dbg.state().paused &&
+                           dbg.state().pause_reason.kind == PauseReason::Kind::Magic;
+        const Result rr = dbg.run(r);
+        dbg.detach(r);
+        const bool unarmed = !dbg.armed() && !dbg.attached() &&
+                             !emu.debug_state().raster_live() &&
+                             !emu.debug_state().magic_hold();
+        emu.run_frame();
+        check("MAGIC-HOLD-02", "a remote client's run() of a magic stop, then its "
+                               "detach: the machine is unarmed, and runs past the "
+                               "GUI's breakpoint to the park",
+              magic && rr == Result::Ok && unarmed && !dbg.state().paused &&
+                  pc_of(emu) == PARK,
+              "pc=" + hex(pc_of(emu)) + " armed=" + std::to_string(dbg.armed()));
+    }
+}
+
+static void q4c_master_mirror_rows() {
+    // MASTER-01/02 — the master switch across a cold boot. It is the backend's
+    // (the table lives on `Impl`), so it survives; the rebuilt `BreakpointSet`
+    // starts at `true`, and since the platform restore that carried it retired
+    // (B3 obligation 1) only the re-application brings the two back into step.
+    Emulator emu; build(emu);
+    Debugger dbg(emu);
+    const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+    const auto id = dbg.subscribe(o, q4c_exec_at(PROG + 3));
+    const ClientId w = dbg.attach(client("window", jnext::dbg::ClientKind::Gui)).value;
+    dbg.set_master_enabled(false);
+    jnext::dbg::LoopDriver d;
+    d.cold_boot = [&]() {
+        emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+        return true;
+    };
+    dbg.set_loop_driver(d);
+    dbg.reset(w, ResetKind::Hard);
+    load_prog(emu, kQ4cNops);
+    const auto subs = dbg.subscriptions(false);
+    const bool suspended = subs.size() == 1 && subs[0].id == id.value &&
+                           subs[0].enabled && !subs[0].live;
+    const bool reported_off = !dbg.master_enabled();
+    emu.run_frame();
+    check("MASTER-01", "a master switch left OFF survives a hard reset: reported off, the "
+                       "subscription listed enabled-but-suspended, and the armed machine "
+                       "runs past it",
+          reported_off && suspended && !emu.debug_state().paused() && pc_of(emu) == PARK,
+          "off=" + std::to_string(reported_off) + " suspended=" +
+              std::to_string(suspended) + " pc=" + hex(pc_of(emu)));
+    // A legacy PC breakpoint on the rebuilt machine is suspended by the same
+    // switch: the mirror, not the fresh `true`.
+    q4c_restart(emu);
+    emu.debug_state().breakpoints().add_pc(PROG + 4);
+    emu.run_frame();
+    check("MASTER-02", "and the rebuilt machine's legacy BreakpointSet is re-mirrored OFF "
+                       "by the re-application: a PC breakpoint added after the boot does "
+                       "not stop it",
+          !emu.debug_state().breakpoints().master_enabled() &&
+              !emu.debug_state().paused() && pc_of(emu) == PARK,
+          "pc=" + hex(pc_of(emu)));
+}
+
+// GH #278 WP4d — the INS-14-08/10 scene: a Next paused MID-FRAME with every
+// engine the eight render_layer views drive holding something that could stick
+// (see the comment at INS-14-08). Returns the framebuffer row the raster is
+// paused on; `guest_read` is what the guest's port 0x303B read returned just
+// before (both status bits, as frame 1's render latched them). `ula_on` false
+// turns the ULA and LoRes off, so the tilemap is what the composite shows in
+// the display area — INS-14-10 needs its per-line scroll split to be VISIBLE.
+static int wp4d_paused_scene(Emulator& emu, uint8_t& guest_read, bool ula_on = true) {
+    build(emu, MachineType::ZXN_ISSUE2);
+    auto nr = [&emu](uint8_t reg, uint8_t val) {
+        emu.port().out(0x243B, reg);
+        emu.port().out(0x253B, val);
+    };
+    emu.port().out(0x303B, 0x00);                          // pattern 0
+    for (int i = 0; i < 256; ++i) emu.port().out(0x5B, 0x77);
+    emu.port().out(0x303B, 0x00);                          // sprite 0..127
+    for (int i = 0; i < 128; ++i) {
+        emu.port().out(0x57, static_cast<uint8_t>(i * 2)); // X: overlapping
+        emu.port().out(0x57, 150);                         // Y: one line
+        emu.port().out(0x57, 0x00);
+        emu.port().out(0x57, 0x80);                        // visible, pattern 0
+    }
+    nr(0x15, ula_on ? 0x81 : 0x01);        // sprites visible (+ LoRes)
+    if (!ula_on) nr(0x68, 0x80);           // ULA off
+    nr(0x69, 0x80);        // Layer 2 on
+    nr(0x6B, 0x80);        // tilemap on
+    nr(0x14, 0x00);        // NR 0x14 = black: Layer 2's zeroed bank is transparent
+    // Varied bank-5 bytes, so the ULA / LoRes screen and the tilemap's tiles
+    // (map and definitions both default into bank 5) are not uniform and a
+    // scroll split is visible (INS-14-10).
+    for (uint16_t a = 0x4000; a < 0x5B00; ++a)
+        emu.mmu().write(a, static_cast<uint8_t>((a * 37u) >> 3));
+    // …and a tilemap palette that is not all one colour (its reset content is).
+    nr(0x43, 0x30);                        // write-select the tilemap first palette
+    nr(0x40, 0x00);
+    for (int i = 0; i < 256; ++i) nr(0x41, static_cast<uint8_t>(i));
+    nr(0x43, 0x00);
+    nr(0x61, 0x00);
+    nr(0x62, 0x00);
+    // Each value is set at the top of every frame and changed on line 60, so
+    // the paused frame really carries a split (a value written once would be
+    // the baseline of every later frame, and no split at all).
+    const uint16_t prog[] = {
+        uint16_t(0x8000u | 0u),
+        uint16_t((0x4Au << 8) | 0xE3u),     // NR 0x4A, top of frame
+        uint16_t((0x30u << 8) | 0x00u),     // tilemap scroll X, top of frame
+        uint16_t(0x8000u | 60u),
+        uint16_t((0x4Au << 8) | 0xE0u),     // NR 0x4A
+        uint16_t((0x16u << 8) | 0x10u),     // Layer 2 scroll X
+        uint16_t((0x40u << 8) | 0x05u),     // palette index
+        uint16_t((0x41u << 8) | 0x1Cu),     // palette value
+        uint16_t((0x30u << 8) | 0x03u),     // tilemap scroll X (per-line snapshot);
+                                            // 3, not a whole number of 8-px tiles
+        uint16_t(0x8000u | 511u),
+    };
+    for (uint16_t insn : prog) {
+        nr(0x60, static_cast<uint8_t>(insn >> 8));
+        nr(0x60, static_cast<uint8_t>(insn & 0xFF));
+    }
+    nr(0x62, 0xC0);
+    emu.run_frame();
+    emu.debug_state().set_clients_attached(true);   // was set_active(true): WP4c
+    emu.debug_state().set_live_raster(true);
+    const int vbt = emu.video_timing().vblank_top();
+    emu.debug_state().run_to_cycle(emu.current_frame_cycle() +
+                                   static_cast<uint64_t>(vbt + 200) *
+                                       emu.timing().master_cycles_per_line + 300);
+    emu.run_frame();
+    emu.snapshot_raster();
+    constexpr int VBLANK_LINE = 300;
+    emu.palette().set_current_line(VBLANK_LINE);
+    emu.palette().write_control(0x10);
+    emu.palette().set_index(0x66);
+    emu.palette().write_8bit(0x77);
+    emu.layer2().set_current_line(VBLANK_LINE);
+    emu.layer2().set_scroll_y(123);
+    guest_read = emu.port().in(0x303B);                    // clears both bits
+    return static_cast<int>(emu.paused_vc()) - vbt;
+}
+
+
+// ── GH #278 WP4d review round 1 — helpers for INS-14-11..20 ─────────────────
+//
+// The per-scanline replay rows need three things per change log: a frame whose
+// BASELINE is value A (so the rows above the write must show A), a write of B
+// tagged at a visible row (so the rows from there on must show B — the split),
+// and a write of C tagged in the bottom VBLANK (which only the replay's final
+// flush reaches, so after a render the live register must be C again, the
+// DVP-16c class). A, B and C are chosen so that A and C also DRAW differently,
+// which is what makes a replay that skips its rewind show a wrong top half.
+
+constexpr int WP4D_SPLIT  = 100;   // framebuffer row of the mid-frame write
+constexpr int WP4D_VBLANK = 300;   // a row past the visible 256
+
+// Run a built machine into the bottom VBLANK of a fresh frame and pause there:
+// begin_new_frame() has baselined every change log from the state set up
+// before the call, and every visible row's per-line snapshots are taken.
+static void wp4d_pause_in_vblank(Emulator& emu) {
+    emu.run_frame();                          // settle
+    emu.debug_state().set_clients_attached(true);   // was set_active(true): WP4c
+    emu.debug_state().set_live_raster(true);
+    const int vbt = emu.video_timing().vblank_top();
+    emu.debug_state().run_to_cycle(emu.current_frame_cycle() +
+                                   static_cast<uint64_t>(vbt + 266) *
+                                       emu.timing().master_cycles_per_line);
+    emu.run_frame();
+    emu.snapshot_raster();
+}
+
+// Tag the next writes to EVERY per-scanline change log with framebuffer row
+// `row`, exactly the nine calls Emulator::on_scanline() makes (plus hc 0 for
+// the attribute mux, so a write lands before every column's fetch).
+static void wp4d_tag_row(Emulator& emu, int row) {
+    emu.palette().set_current_line(row);
+    emu.layer2().set_current_line(row);
+    emu.sprites().set_current_line(row);
+    emu.ula().set_current_line(row);
+    emu.ula().set_current_scroll_line(row);
+    emu.ula().set_palsel_current_line(row);
+    emu.tilemap().set_current_nr6b_line(row);
+    emu.mmu().attr_mux_set_current_line(row);
+    emu.mmu().attr_mux_set_current_hc(0);
+    emu.renderer().set_current_line_nr15(row);
+}
+
+static void wp4d_nr(Emulator& emu, uint8_t reg, uint8_t val) {
+    emu.port().out(0x243B, reg);
+    emu.port().out(0x253B, val);
+}
+
+// Sprite 0 = pattern 0, all `colour`, at (x, y), visible.
+static void wp4d_sprite0(Emulator& emu, uint8_t colour, uint8_t x, uint8_t y) {
+    emu.port().out(0x303B, 0x00);
+    for (int i = 0; i < 256; ++i) emu.port().out(0x5B, colour);
+    emu.port().out(0x303B, 0x00);
+    emu.port().out(0x57, x);
+    emu.port().out(0x57, y);
+    emu.port().out(0x57, 0x00);
+    emu.port().out(0x57, 0x80);
+}
+
+// The port 0x303B scenes of INS-14-18..20: `kind` 0 latches BOTH status bits,
+// 1 collision only (two overlapping opaque sprites), 2 max-sprites only (128
+// sprites on one line past the per-line budget, pattern all transparent, so
+// nothing is drawn and nothing collides). A frame runs to completion — its
+// render latches the bits and no guest read clears them — and the machine
+// pauses mid-frame below the sprite line. With `render`, the Sprites and
+// Composite views are drawn there (`rendered` says both really drew). Returns
+// the guest's port 0x303B read; `again` is a second read, which must find the
+// bits cleared by the first.
+static uint8_t wp4d_status_scene(int kind, bool render, uint8_t& again,
+                                 bool& rendered) {
+    Emulator emu;
+    build(emu, MachineType::ZXN_ISSUE2);
+    Debugger dbg(emu);
+    const uint8_t colour = (kind == 2) ? 0xE3 : 0x77;   // 0xE3 = NR 0x4B default
+    emu.port().out(0x303B, 0x00);
+    for (int i = 0; i < 256; ++i) emu.port().out(0x5B, colour);
+    const int count = (kind == 1) ? 2 : 128;
+    emu.port().out(0x303B, 0x00);
+    for (int i = 0; i < count; ++i) {
+        emu.port().out(0x57, static_cast<uint8_t>(100 + i * 2));
+        emu.port().out(0x57, 150);
+        emu.port().out(0x57, 0x00);
+        emu.port().out(0x57, 0x80);
+    }
+    wp4d_nr(emu, 0x15, 0x01);                 // sprites visible
+    emu.run_frame();
+    emu.run_frame();                          // this frame's render latches the bits
+    emu.debug_state().set_clients_attached(true);   // was set_active(true): WP4c
+    emu.debug_state().set_live_raster(true);
+    const int vbt = emu.video_timing().vblank_top();
+    emu.debug_state().run_to_cycle(emu.current_frame_cycle() +
+                                   static_cast<uint64_t>(vbt + 200) *
+                                       emu.timing().master_cycles_per_line);
+    emu.run_frame();
+    emu.snapshot_raster();
+    rendered = !render;                       // nothing to draw counts as done
+    if (render) {
+        std::vector<uint32_t> buf(jnext::dbg::RENDER_WIDTH * 256);
+        const int fb_row = static_cast<int>(emu.paused_vc()) - vbt;
+        // Both views must really draw the sprite line (row 150 < fb_row), or
+        // the row would pass on a render that never ran.
+        rendered = fb_row > 150 &&
+                   dbg.render_layer(jnext::dbg::Layer::Sprites, fb_row, buf.data(),
+                                    jnext::dbg::RENDER_WIDTH) == Result::Ok &&
+                   dbg.render_layer(jnext::dbg::Layer::Composite, fb_row, buf.data(),
+                                    jnext::dbg::RENDER_WIDTH) == Result::Ok;
+    }
+    const uint8_t first = emu.port().in(0x303B);
+    again = emu.port().in(0x303B);
+    return first;
+}
+
 // ===========================================================================
 // GH #12 (epic #276 package D, DZRP) — BACKEND ROWS FOR PACKAGE D'S CHANGES.
 //
@@ -4303,6 +5246,68 @@ static void dzrp_d_rows() {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// GH #278 WP7 — a PAUSED machine's raster is taken by the backend at the query.
+// Until WP7 only the Qt debugger's refresh took `Emulator::snapshot_raster()`
+// (through its `Emulator*`), so raster() / time() of a machine a script or a
+// remote client had paused reported whatever the last Qt refresh left — on a
+// machine with no Qt window, the power-on zeros. No client calls
+// snapshot_raster() in these rows.
+// ═══════════════════════════════════════════════════════════════════════════
+static void q_wp7_raster_rows() {
+    {
+        // Each query on a machine of its OWN, so neither can ride on a
+        // snapshot the other took.
+        struct Paused { int want_vc = 0, want_hc = 0; };
+        auto pause_mid_frame = [](Emulator& emu, Debugger& dbg) {
+            const ClientId a = dbg.attach(client("A")).value;
+            emu.run_frame();
+            for (int i = 0; i < 400; ++i) emu.execute_single_instruction();   // mid-frame
+            dbg.pause(a);
+            const uint64_t elapsed = emu.clock().get() - emu.current_frame_cycle();
+            const uint64_t mcl     = emu.timing().master_cycles_per_line;
+            return Paused{static_cast<int>(elapsed / mcl),
+                          static_cast<int>((elapsed % mcl) / 4)};
+        };
+        Emulator e1; build(e1);
+        Debugger d1(e1);
+        const Paused p1 = pause_mid_frame(e1, d1);
+        const auto ras = d1.raster();
+        Emulator e2; build(e2);
+        Debugger d2(e2);
+        const Paused p2 = pause_mid_frame(e2, d2);
+        const auto t = d2.time();
+        check("INS-06-03", "raster() and time() of a paused machine report where it "
+                           "stopped, with no snapshot_raster() call by anyone",
+              p1.want_vc > 0 && ras.raw_vc == p1.want_vc && ras.raw_hc == p1.want_hc &&
+                  t.vc_raw == p2.want_vc && t.hc_raw == p2.want_hc,
+              "want vc/hc=" + std::to_string(p1.want_vc) + "/" + std::to_string(p1.want_hc) +
+                  " raster=" + std::to_string(ras.raw_vc) + "/" + std::to_string(ras.raw_hc) +
+                  " time=" + std::to_string(t.vc_raw) + "/" + std::to_string(t.hc_raw) +
+                  " (want " + std::to_string(p2.want_vc) + "/" + std::to_string(p2.want_hc) + ")");
+    }
+    {
+        // And RUNNING, the query leaves the last pause's snapshot alone, as the
+        // Qt refresh (which took it only while paused) always did.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        emu.run_frame();
+        for (int i = 0; i < 400; ++i) emu.execute_single_instruction();
+        emu.snapshot_raster();                        // "the last pause"
+        const int kept_vc = emu.paused_vc(), kept_hc = emu.paused_hc();
+        for (int i = 0; i < 400; ++i) emu.execute_single_instruction();
+        const auto ras = dbg.raster();
+        (void)dbg.time();
+        check("INS-06-04", "while running, raster() and time() do not move the last "
+                           "pause's snapshot",
+              !emu.debug_state().paused() && ras.raw_vc == kept_vc &&
+                  ras.raw_hc == kept_hc && emu.paused_vc() == kept_vc &&
+                  emu.paused_hc() == kept_hc,
+              "kept " + std::to_string(kept_vc) + "/" + std::to_string(kept_hc) + " raster " +
+                  std::to_string(ras.raw_vc) + "/" + std::to_string(ras.raw_hc));
+    }
+}
+
 int main() {
     std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
 
@@ -4312,7 +5317,8 @@ int main() {
     {
         Emulator emu; build(emu);
         Debugger dbg(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
 
         const Result r = dbg.pause(7);
         emu.run_frame();                      // must execute nothing
@@ -4689,7 +5695,9 @@ int main() {
               dbg.set_persistent_breakpoints(true) == Result::Ok &&
               dbg.persistent_breakpoints() && dbg.armed());
         dbg.set_persistent_breakpoints(false);
-        emu.debug_state().set_active(true);
+        // GH #278 WP4c — a frontend arms the machine by ATTACHING (the Qt
+        // window's `active()` bit this row set until then is retired).
+        dbg.attach(client("frontend", jnext::dbg::ClientKind::Gui));
         check("ARM-03", "an attached frontend arms it too",
               dbg.armed() && dbg.attached());
     }
@@ -4700,7 +5708,8 @@ int main() {
     {
         Emulator emu; build(emu);
         Debugger dbg(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_pc(AFTER_CALL);
         run_until_paused(emu);
         check("CTL-13-01", "a PC breakpoint stops the machine at its address",
@@ -4766,7 +5775,8 @@ int main() {
         // in — the contract is the verb's, not the caller's.
         Emulator emu; build(emu);
         Debugger dbg(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_watchpoint(0x4321, WatchType::READ);
         uint8_t b = 0;
         dbg.peek(MemSpace::cpu(), 0x4321, 1, &b);
@@ -5387,6 +6397,595 @@ int main() {
         check("INS-15-10", "rrrgggbb_to_argb() forwards to the renderer's expansion",
               jnext::dbg::rrrgggbb_to_argb(0xE3) == Renderer::rrrgggbb_to_argb(0xE3) &&
               jnext::dbg::rrrgggbb_to_argb(0x00) == Renderer::rrrgggbb_to_argb(0x00));
+
+        // GH #278 WP4d — REQ-qt-27c, owner-approved: the published RGB333
+        // expansion. All 512 inputs against the palette code's own function,
+        // and bits above the ninth ignored.
+        int bad333 = -1;
+        for (uint16_t v = 0; v < 512 && bad333 < 0; ++v) {
+            const uint32_t want = rgb333_to_argb8888(static_cast<uint8_t>((v >> 6) & 7),
+                                                     static_cast<uint8_t>((v >> 3) & 7),
+                                                     static_cast<uint8_t>(v & 7));
+            if (jnext::dbg::rgb333_to_argb(v) != want ||
+                jnext::dbg::rgb333_to_argb(static_cast<uint16_t>(v | 0xFE00)) != want)
+                bad333 = v;
+        }
+        check("INS-15-20", "rgb333_to_argb() is the palette's own expansion for all 512 "
+                           "RGB333 values, and reads only the low 9 bits",
+              bad333 < 0 && jnext::dbg::rgb333_to_argb(0x005) == 0xFF0000B6u &&
+                  jnext::dbg::rrrgggbb_to_argb(0x02) == 0xFF0000AAu,
+              "first mismatch at " + std::to_string(bad333));
+        // …and it is the colour the palette's ARGB cache shows for an entry:
+        // a whole bank written through set_palette(), read back as drawn.
+        int bad_entry = -1;
+        for (int i = 0; i < 256; ++i)
+            dbg.set_palette(1, PaletteId::TilemapSecond, static_cast<uint8_t>(i),
+                            static_cast<uint16_t>((i * 37 + 11) & 0x1FF));
+        const auto bank = dbg.palette(PaletteId::TilemapSecond);
+        for (int i = 0; i < 256 && bad_entry < 0; ++i)
+            if (emu.palette().tilemap_colour(true, static_cast<uint8_t>(i)) !=
+                jnext::dbg::rgb333_to_argb(bank[static_cast<size_t>(i)]))
+                bad_entry = i;
+        check("INS-15-21", "rgb333_to_argb() of each palette() entry is the colour the "
+                           "palette draws that entry in (a whole bank)",
+              bank.size() == 256 && bad_entry < 0,
+              "first mismatch at entry " + std::to_string(bad_entry));
+    }
+
+    // =======================================================================
+    // INS-14 — render_layer (GH #278 package Q, WP4d)
+    //
+    // The eight layer views of the Qt Video panel, moved out of
+    // `src/debugger/video_panel.cpp` into the Qt-free backend. The panel's own
+    // suite (`debugger_video_panel_test`, the DVP rows) pins every view's
+    // PICTURE through the widget; these rows pin the VERB'S CONTRACT (design-qt
+    // §3.7) where the SDL-only configuration also runs them — the refusals,
+    // the 0x00000000 fill, "rows > vc untouched", the stride — and the
+    // guarantee the verb makes on its own: rendering a view changes nothing in
+    // the machine.
+    // =======================================================================
+    {
+        using jnext::dbg::Layer;
+        using jnext::dbg::RENDER_WIDTH;
+        constexpr uint32_t SENT = 0xDEADBEEFu;
+        constexpr size_t   ROWS = 256;
+
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        std::vector<uint32_t> buf(RENDER_WIDTH * ROWS, SENT);
+        auto untouched = [&] {
+            return std::all_of(buf.begin(), buf.end(),
+                               [](uint32_t v) { return v == SENT; });
+        };
+
+        const Result neg  = dbg.render_layer(Layer::Composite, -1,  buf.data(), RENDER_WIDTH);
+        const Result past = dbg.render_layer(Layer::Composite, 256, buf.data(), RENDER_WIDTH);
+        const bool clean = untouched();
+        const Result first = dbg.render_layer(Layer::Background, 0,   buf.data(), RENDER_WIDTH);
+        const Result last  = dbg.render_layer(Layer::Background, 255, buf.data(), RENDER_WIDTH);
+        check("INS-14-02", "render_layer() refuses a vc outside 0..255 (RefusedUnavailable, "
+                           "nothing written) and draws at both ends of the range",
+              neg == Result::RefusedUnavailable && past == Result::RefusedUnavailable &&
+                  clean && first == Result::Ok && last == Result::Ok,
+              std::string(jnext::dbg::result_name(neg)) + "/" +
+                  jnext::dbg::result_name(past) + " untouched=" + std::to_string(clean) +
+                  " 0:" + jnext::dbg::result_name(first) + " 255:" +
+                  jnext::dbg::result_name(last));
+
+        check("INS-14-03", "it refuses a null destination (RefusedUnavailable)",
+              dbg.render_layer(Layer::Composite, 100, nullptr, RENDER_WIDTH) ==
+                  Result::RefusedUnavailable);
+
+        std::fill(buf.begin(), buf.end(), SENT);
+        const Result narrow = dbg.render_layer(Layer::Composite, 100, buf.data(),
+                                               RENDER_WIDTH - 1);
+        const bool narrow_clean = untouched();
+        const Result exact = dbg.render_layer(Layer::Composite, 100, buf.data(),
+                                              RENDER_WIDTH);
+        check("INS-14-04", "it refuses a stride below RENDER_WIDTH (RefusedUnavailable, "
+                           "nothing written) and accepts exactly RENDER_WIDTH",
+              narrow == Result::RefusedUnavailable && narrow_clean && exact == Result::Ok,
+              std::string(jnext::dbg::result_name(narrow)) + " untouched=" +
+                  std::to_string(narrow_clean));
+
+        std::fill(buf.begin(), buf.end(), SENT);
+        const Result bogus = dbg.render_layer(Layer::Count, 100, buf.data(), RENDER_WIDTH);
+        check("INS-14-05", "a Layer outside the eight views is Unsupported, nothing written",
+              bogus == Result::Unsupported && untouched(),
+              jnext::dbg::result_name(bogus));
+
+        // The contract: over a wider stride, the sprite view of a machine with no
+        // sprite visible is all TRANSPARENT (0x00000000) in rows 0..vc, and the
+        // bytes it does not own — rows past vc, and each row's columns past 640 —
+        // keep whatever the caller had there.
+        constexpr size_t WIDE = RENDER_WIDTH + 17;
+        constexpr int    VC   = 100;
+        std::vector<uint32_t> wide(WIDE * ROWS, SENT);
+        const Result drawn = dbg.render_layer(Layer::Sprites, VC, wide.data(), WIDE);
+        bool zero_fill = true, rows_kept = true, pad_kept = true;
+        for (size_t y = 0; y < ROWS; ++y) {
+            for (size_t x = 0; x < WIDE; ++x) {
+                const uint32_t v = wide[y * WIDE + x];
+                if (y > static_cast<size_t>(VC))      rows_kept &= (v == SENT);
+                else if (x >= RENDER_WIDTH)           pad_kept  &= (v == SENT);
+                else                                  zero_fill &= (v == 0x00000000u);
+            }
+        }
+        check("INS-14-06", "rows 0..vc are drawn over a 0x00000000 fill (alpha 0 = "
+                           "transparent); rows past vc and the stride padding are not touched",
+              drawn == Result::Ok && zero_fill && rows_kept && pad_kept,
+              std::string("zero_fill=") + std::to_string(zero_fill) + " rows_kept=" +
+                  std::to_string(rows_kept) + " pad_kept=" + std::to_string(pad_kept));
+    }
+    {
+        // The composite view IS the picture: after a real frame, render_layer's
+        // Composite at vc 255 equals the emulator's own framebuffer, cell for
+        // cell and in all 32 bits — and it is opaque everywhere, since the
+        // compositor emits the NR 0x4A fallback wherever every layer is
+        // transparent. A mid-frame Copper MOVE to NR 0x4A makes the per-line
+        // replay part of what has to agree.
+        using jnext::dbg::Layer;
+        using jnext::dbg::RENDER_WIDTH;
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        auto nr = [&emu](uint8_t reg, uint8_t val) {
+            emu.port().out(0x243B, reg);
+            emu.port().out(0x253B, val);
+        };
+        nr(0x68, 0x80);        // ULA off: the fallback is the whole picture
+        nr(0x4A, 0x13);
+        nr(0x61, 0x00);
+        nr(0x62, 0x00);
+        for (uint16_t insn : {uint16_t(0x8000u | 100u), uint16_t((0x4Au << 8) | 0xE0u),
+                              uint16_t(0x8000u | 511u)}) {
+            nr(0x60, static_cast<uint8_t>(insn >> 8));
+            nr(0x60, static_cast<uint8_t>(insn & 0xFF));
+        }
+        nr(0x62, 0xC0);
+        emu.run_frame();
+        std::vector<uint32_t> comp(RENDER_WIDTH * 256, 0xDEADBEEFu);
+        const Result r = dbg.render_layer(Layer::Composite, 255, comp.data(), RENDER_WIDTH);
+        const auto fb = dbg.framebuffer();
+        size_t diffs = 0, transparent = 0;
+        for (size_t i = 0; i < comp.size() && i < fb.size; ++i) {
+            if (comp[i] != fb.data[i]) ++diffs;
+            if ((comp[i] & 0xFF000000u) != 0xFF000000u) ++transparent;
+        }
+        const bool split = fb.data[131 * RENDER_WIDTH] != fb.data[182 * RENDER_WIDTH];
+        check("INS-14-07", "render_layer(Composite, 255) after a frame is the emulator's own "
+                           "framebuffer in every bit, opaque everywhere, Copper split included",
+              r == Result::Ok && fb.size == comp.size() && diffs == 0 && transparent == 0 &&
+                  split,
+              std::to_string(diffs) + " differ, " + std::to_string(transparent) +
+                  " not opaque, split=" + std::to_string(split));
+    }
+    {
+        // STATE PRESERVATION — the verb's own guarantee (design-qt §3.7, §4),
+        // measured the robust way: the machine's whole serialised state before
+        // and after rendering each of the eight views is byte-identical.
+        //
+        // The scene is built to make every engine the views drive do something
+        // that could stick: a Next paused MID-FRAME (raw line vblank_top+200)
+        // by a Copper program that has already written NR 0x4A, the Layer 2
+        // scroll, a palette entry and the tilemap scroll on earlier lines
+        // (non-empty per-line logs for the replay to walk, and a per-line
+        // snapshot split); VBLANK-tagged palette and Layer 2 writes,
+        // which only the replay's final flush restores (the DVP-16c class);
+        // Layer 2, the tilemap, LoRes and 128 sprites all on — the sprites
+        // overlapping on one line past the per-line budget, so drawing them
+        // latches BOTH port 0x303B status bits; and those bits cleared by a
+        // guest read first, so a render that re-latched them would show.
+        using jnext::dbg::Layer;
+        using jnext::dbg::RENDER_WIDTH;
+        Emulator emu;
+        uint8_t guest_read = 0;
+        const int fb_row = wp4d_paused_scene(emu, guest_read);
+        Debugger dbg(emu);
+
+        auto state_bytes = [&emu] {
+            StateWriter measure;
+            emu.save_state(measure);
+            std::vector<uint8_t> out(measure.position());
+            StateWriter w(out.data(), out.size());
+            emu.save_state(w);
+            return out;
+        };
+        // Each view against the state IMMEDIATELY before it, so a change is
+        // attributed to the view that made it rather than to every view after.
+        std::vector<uint32_t> buf(RENDER_WIDTH * 256);
+        std::string moved;
+        bool all_ok = true;
+        for (Layer l : {Layer::Composite, Layer::UlaPrimary, Layer::UlaShadow,
+                        Layer::Layer2Active, Layer::Layer2Shadow, Layer::Sprites,
+                        Layer::Tilemap, Layer::Background}) {
+            (void)emu.port().in(0x303B);   // the guest clears the status bits again
+            const std::vector<uint8_t> before = state_bytes();
+            all_ok &= dbg.render_layer(l, fb_row, buf.data(), RENDER_WIDTH) == Result::Ok;
+            const std::vector<uint8_t> after = state_bytes();
+            if (after != before) {
+                size_t at = 0;
+                while (at < after.size() && at < before.size() && after[at] == before[at]) ++at;
+                moved += " view" + std::to_string(static_cast<int>(l)) + "@" +
+                         std::to_string(at);
+            }
+        }
+        check("INS-14-08", "rendering each of the eight views mid-frame leaves the machine's "
+                           "serialised state byte-identical (sprite status bits, per-line "
+                           "logs, vblank-tagged writes)",
+              emu.debug_state().paused() && fb_row > 150 && fb_row < 256 && all_ok &&
+                  (guest_read & 0x03) == 0x03 && moved.empty(),
+              "paused=" + std::to_string(emu.debug_state().paused()) + " fb_row=" +
+                  std::to_string(fb_row) + " guest_read=" + hex(guest_read) +
+                  " changed:" + (moved.empty() ? std::string(" none") : moved));
+        // The same bits read the way the guest reads them, for the two views
+        // that run the sprite engine.
+        uint8_t seen[2] = {};
+        int n = 0;
+        for (Layer l : {Layer::Sprites, Layer::Composite}) {
+            (void)emu.port().in(0x303B);
+            (void)dbg.render_layer(l, fb_row, buf.data(), RENDER_WIDTH);
+            seen[n++] = emu.port().in(0x303B);
+        }
+        check("INS-14-09", "…and after the Sprites or Composite view drew 128 overlapping "
+                           "sprites, the guest's next port 0x303B read sees both status bits clear",
+              (seen[0] & 0x03) == 0 && (seen[1] & 0x03) == 0,
+              "sprites=" + hex(seen[0]) + " composite=" + hex(seen[1]));
+    }
+    {
+        // …and what is NOT serialised cannot leak into the future either: the
+        // change-log render cursors, the per-row scratch the compositor keeps.
+        // Two machines built alike; one renders all eight views while paused,
+        // the other does not; both then resume and run on. The frame they were
+        // paused in and the next one come out identical, as does the state.
+        using jnext::dbg::Layer;
+        using jnext::dbg::RENDER_WIDTH;
+        auto run_twin = [](bool render, std::vector<uint32_t>& fb_out,
+                           std::vector<uint8_t>& state_out) {
+            Emulator emu;
+            uint8_t guest_read = 0;
+            const int fb_row = wp4d_paused_scene(emu, guest_read, /*ula_on=*/false);
+            Debugger dbg(emu);
+            if (render) {
+                std::vector<uint32_t> buf(RENDER_WIDTH * 256);
+                for (Layer l : {Layer::Composite, Layer::UlaPrimary, Layer::UlaShadow,
+                                Layer::Layer2Active, Layer::Layer2Shadow, Layer::Sprites,
+                                Layer::Tilemap, Layer::Background})
+                    (void)dbg.render_layer(l, fb_row, buf.data(), RENDER_WIDTH);
+            }
+            // Both frames are kept: the paused frame is where a leaked per-line
+            // snapshot would show, and the next one is where a leak into the
+            // following frame's baseline would.
+            emu.debug_state().resume();
+            emu.run_frame();              // the rest of the paused frame
+            const auto fb = dbg.framebuffer();
+            fb_out.assign(fb.data, fb.data + fb.size);
+            emu.run_frame();              // and one more
+            fb_out.insert(fb_out.end(), fb.data, fb.data + fb.size);
+            StateWriter measure;
+            emu.save_state(measure);
+            state_out.assign(measure.position(), 0);
+            StateWriter w(state_out.data(), state_out.size());
+            emu.save_state(w);
+        };
+        std::vector<uint32_t> fb_plain, fb_rendered, fb_again;
+        std::vector<uint8_t>  st_plain, st_rendered, st_again;
+        run_twin(false, fb_plain, st_plain);
+        run_twin(false, fb_again, st_again);      // the twins' own determinism
+        run_twin(true,  fb_rendered, st_rendered);
+        const bool deterministic = fb_plain == fb_again && st_plain == st_again;
+        check("INS-14-10", "a machine that rendered all eight views while paused runs on "
+                           "exactly like its twin that did not: same next frames, same state",
+              deterministic && !fb_plain.empty() && fb_rendered == fb_plain &&
+                  st_rendered == st_plain,
+              std::string("twins deterministic=") + std::to_string(deterministic) +
+                  " fb_same=" + std::to_string(fb_rendered == fb_plain) +
+                  " state_same=" + std::to_string(st_rendered == st_plain));
+    }
+
+    // =======================================================================
+    // GH #278 WP4d review round 1 — INS-14-11..17 and 21: every per-scanline
+    // change log the replay walks, one row each, through the view that shows
+    // it (the palette log is DVP-05's and DVP-16c's).
+    // Each row asserts the SPLIT (rows above WP4D_SPLIT show the baseline A,
+    // the row the write landed on shows B — the replay's rewind and apply)
+    // AND the DRAIN (after the render the live register is the VBLANK value
+    // C — the replay's flush). The review found removing six of these calls
+    // survived every row; each row below is red for its log's three.
+    // =======================================================================
+    {
+        using jnext::dbg::Layer;
+        using jnext::dbg::RENDER_WIDTH;
+        constexpr int S = WP4D_SPLIT;
+        auto px = [](const std::vector<uint32_t>& b, int x, int y) {
+            return b[static_cast<size_t>(y) * RENDER_WIDTH + static_cast<size_t>(x)];
+        };
+        // TWICE, as the panel does on every paused tick, and the picture the
+        // rows check is the SECOND one. A render that skips a log's rewind can
+        // still draw the first picture right — the frame start zeroes each
+        // log's cursor — but the second starts from the cursor the first left
+        // at the end of the log. Both renders must agree, bit for bit.
+        auto render = [](Debugger& d, Layer l) {
+            std::vector<uint32_t> first(RENDER_WIDTH * 256, 0xDEADBEEFu);
+            std::vector<uint32_t> b(RENDER_WIDTH * 256, 0xDEADBEEFu);
+            const bool ok = d.render_layer(l, 255, first.data(), RENDER_WIDTH) == Result::Ok &&
+                            d.render_layer(l, 255, b.data(), RENDER_WIDTH) == Result::Ok &&
+                            first == b;
+            if (!ok) b.assign(b.size(), 0xDEADBEEFu);
+            return b;
+        };
+
+        // ── INS-14-11: NR 0x15 (Renderer's sprite-enable / priority log) ──
+        {
+            Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+            Debugger dbg(emu);
+            wp4d_nr(emu, 0x68, 0x80);                     // ULA off: fallback shows
+            wp4d_sprite0(emu, 0x77, 100, S - 8);          // cells 200..231, rows 92..107
+            wp4d_nr(emu, 0x15, 0x02);                     // A: sprites off
+            wp4d_pause_in_vblank(emu);
+            wp4d_tag_row(emu, S);          wp4d_nr(emu, 0x15, 0x03);   // B: on
+            wp4d_tag_row(emu, WP4D_VBLANK); wp4d_nr(emu, 0x15, 0x07);  // C: on, LSU
+            const auto b = render(dbg, Layer::Composite);
+            const uint32_t fallback = Renderer::rrrgggbb_to_argb(0xE3);
+            const uint32_t sprite   = emu.palette().sprite_colour(0x77);
+            check("INS-14-11", "NR 0x15 log: the Composite view shows no sprite above the "
+                               "row NR 0x15 enabled it on and the sprite from that row; "
+                               "after the render the live NR 0x15 is its VBLANK value",
+                  sprite != fallback && px(b, 210, S - 1) == fallback &&
+                      px(b, 210, S) == sprite && emu.renderer().sprite_en() &&
+                      emu.renderer().layer_priority() == 1,
+                  "row" + std::to_string(S - 1) + "=" + hex(px(b, 210, S - 1)) + " row" +
+                      std::to_string(S) + "=" + hex(px(b, 210, S)) + " fallback=" +
+                      hex(fallback) + " sprite=" + hex(sprite) + " live prio=" +
+                      std::to_string(emu.renderer().layer_priority()));
+        }
+
+        // ── INS-14-12: NR 0x6B (Tilemap's control log) ────────────────────
+        {
+            Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+            Debugger dbg(emu);
+            wp4d_nr(emu, 0x6E, 0x20);                     // map at bank-5 0x2000
+            wp4d_nr(emu, 0x6F, 0x30);                     // tiles at bank-5 0x3000
+            uint8_t* b5 = emu.mmu().bank5_vram();
+            std::fill(b5 + 0x2000, b5 + 0x2000 + 80 * 32 * 2, 0x00);   // tile 0, attr 0
+            std::fill(b5 + 0x3000, b5 + 0x3000 + 32, 0xFF);
+            // Standard mode: every pixel is nibble 0xF = the NR 0x4C index, so
+            // transparent. Text mode: every pixel is bit 1, palette entry 1, opaque.
+            wp4d_nr(emu, 0x6B, 0x80);                     // A: standard
+            wp4d_pause_in_vblank(emu);
+            wp4d_tag_row(emu, S);           wp4d_nr(emu, 0x6B, 0x88);  // B: text
+            wp4d_tag_row(emu, WP4D_VBLANK); wp4d_nr(emu, 0x6B, 0xC8);  // C: text, 80-col
+            const auto b = render(dbg, Layer::Tilemap);
+            check("INS-14-12", "NR 0x6B log: the Tilemap view is transparent above the row "
+                               "text mode was switched on and opaque from it; after the "
+                               "render the live NR 0x6B is its VBLANK value",
+                  px(b, 40, S - 1) == 0x00000000u && (px(b, 40, S) >> 24) == 0xFF &&
+                      dbg.nextreg_peek(0x6B) == 0xC8,
+                  "row" + std::to_string(S - 1) + "=" + hex(px(b, 40, S - 1)) + " row" +
+                      std::to_string(S) + "=" + hex(px(b, 40, S)) + " live=" +
+                      hex(dbg.nextreg_peek(0x6B)));
+        }
+
+        // ── INS-14-13: the attribute mux (Mmu, G12 Nirvana class) ─────────
+        //
+        // One attribute byte, character row 8 = framebuffer rows 96..103,
+        // rewritten on row 100: the cell changes colour half-way down. The
+        // mux's resolved value is scratch the live renderer also re-derives
+        // (it rewinds before every read), so the drain is asserted on the
+        // mux itself — the one place removing its flush can be seen.
+        //
+        // Each write states its beam position with attr_mux_set_write_pos(),
+        // as a CPU write does (fuse_z80_writebyte), so the row pins the replay
+        // and nothing else. (Writing it found the defect where a non-CPU write
+        // inherited the machine's last CPU write's position — fixed in the same
+        // round, mmu_integration_test G12-TAG-01..05.)
+        {
+            Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+            Debugger dbg(emu);
+            uint8_t* b5 = emu.mmu().bank5_vram();
+            std::fill(b5, b5 + 0x1800, 0x00);             // all paper
+            std::fill(b5 + 0x1800, b5 + 0x1B00, 0x00);
+            constexpr uint16_t OFF = 8 * 32 + 10;         // char row 8, column 10
+            emu.mmu().write(0x5800 + OFF, 0x08);          // A: paper 1
+            wp4d_pause_in_vblank(emu);
+            const int vbt = emu.video_timing().vblank_top();
+            wp4d_tag_row(emu, S);
+            emu.mmu().attr_mux_set_write_pos(vbt + S, 0);
+            emu.mmu().write(0x5800 + OFF, 0x10);                                  // B: paper 2
+            wp4d_tag_row(emu, WP4D_VBLANK);
+            emu.mmu().attr_mux_set_write_pos(vbt + WP4D_VBLANK, 0);
+            emu.mmu().write(0x5800 + OFF, 0x20);                                  // C: paper 4
+            const auto b = render(dbg, Layer::UlaPrimary);
+            const int x = 64 + 2 * (8 * 10) + 4;
+            const uint32_t pa = emu.palette().ula_colour(false, 0x11);
+            const uint32_t pb = emu.palette().ula_colour(false, 0x12);
+            check("INS-14-13", "attribute mux: one cell shows its baseline attribute above "
+                               "the row it was rewritten on and the new one from it; after "
+                               "the render the mux resolves the byte to its VBLANK write",
+                  pa != pb && px(b, x, S - 1) == pa && px(b, x, S) == pb &&
+                      emu.mmu().attr_mux5().current(OFF) == 0x20,
+                  "row" + std::to_string(S - 1) + "=" + hex(px(b, x, S - 1)) + " row" +
+                      std::to_string(S) + "=" + hex(px(b, x, S)) + " want " + hex(pa) +
+                      "/" + hex(pb) + " mux=" + hex(emu.mmu().attr_mux5().current(OFF)));
+        }
+
+        // ── INS-14-14: ULA scroll (NR 0x26) ────────────────────────────────
+        {
+            Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+            Debugger dbg(emu);
+            uint8_t* b5 = emu.mmu().bank5_vram();
+            for (int i = 0; i < 0x1800; ++i)              // even columns ink, odd paper
+                b5[i] = (i & 1) ? 0x00 : 0xFF;
+            std::fill(b5 + 0x1800, b5 + 0x1B00, 0x0A);    // ink 2, paper 1
+            wp4d_nr(emu, 0x26, 0);                        // A: column 10 shows column 10
+            wp4d_pause_in_vblank(emu);
+            wp4d_tag_row(emu, S);           wp4d_nr(emu, 0x26, 8);    // B: one column on
+            wp4d_tag_row(emu, WP4D_VBLANK); wp4d_nr(emu, 0x26, 24);   // C: three on
+            const auto b = render(dbg, Layer::UlaPrimary);
+            const int x = 64 + 2 * (8 * 10 + 4);
+            const uint32_t ink   = emu.palette().ula_colour(false, 0x02);
+            const uint32_t paper = emu.palette().ula_colour(false, 0x11);
+            check("INS-14-14", "ULA scroll log: an even column shows ink above the row the "
+                               "X scroll moved one column and paper from it; after the "
+                               "render the live NR 0x26 is its VBLANK value",
+                  ink != paper && px(b, x, S - 1) == ink && px(b, x, S) == paper &&
+                      emu.ula().get_ula_scroll_x_coarse() == 24,
+                  "row" + std::to_string(S - 1) + "=" + hex(px(b, x, S - 1)) + " row" +
+                      std::to_string(S) + "=" + hex(px(b, x, S)) + " live=" +
+                      std::to_string(emu.ula().get_ula_scroll_x_coarse()));
+        }
+
+        // ── INS-14-15: the palette-select log (NR 0x43 b1-3, NR 0x6B b4) ──
+        //
+        // The ULA lane in the picture (DVP-PALSEL pins the Layer 2, sprite and
+        // tilemap lanes); C also flips the Layer 2 lane, so the drain is
+        // visible although the ULA bit is the same in B and C.
+        {
+            Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+            Debugger dbg(emu);
+            uint8_t* b5 = emu.mmu().bank5_vram();
+            std::fill(b5, b5 + 0x1800, 0x00);             // all paper
+            std::fill(b5 + 0x1800, b5 + 0x1B00, 0x08);    // paper 1 = index 0x11
+            wp4d_nr(emu, 0x43, 0x40);                     // write-select ULA second
+            wp4d_nr(emu, 0x40, 0x11);
+            wp4d_nr(emu, 0x41, 0xE0);                     // bank 1 entry 0x11 = red
+            wp4d_nr(emu, 0x43, 0x00);                     // A: ULA first, Layer 2 first
+            wp4d_pause_in_vblank(emu);
+            wp4d_tag_row(emu, S);           wp4d_nr(emu, 0x43, 0x02);  // B: ULA second
+            wp4d_tag_row(emu, WP4D_VBLANK); wp4d_nr(emu, 0x43, 0x06);  // C: + Layer 2 second
+            const auto b = render(dbg, Layer::UlaPrimary);
+            const uint32_t first  = emu.palette().ula_colour(false, 0x11);
+            const uint32_t second = emu.palette().ula_colour(true, 0x11);
+            check("INS-14-15", "palette-select log: the ULA view is in the first palette "
+                               "above the row NR 0x43 selected the second and in the second "
+                               "from it; after the render the live selectors are the "
+                               "VBLANK value's",
+                  first != second && px(b, 300, S - 1) == first &&
+                      px(b, 300, S) == second && emu.ula().get_active_ula_palette() &&
+                      emu.ula().get_active_layer2_palette(),
+                  "row" + std::to_string(S - 1) + "=" + hex(px(b, 300, S - 1)) + " row" +
+                      std::to_string(S) + "=" + hex(px(b, 300, S)) + " want " +
+                      hex(first) + "/" + hex(second) + " live l2=" +
+                      std::to_string(emu.ula().get_active_layer2_palette()));
+        }
+
+        // ── INS-14-16: the sprite attribute log (multiplexing) ────────────
+        {
+            Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+            Debugger dbg(emu);
+            wp4d_sprite0(emu, 0x77, 40, S - 8);           // A: cells 80..111
+            wp4d_nr(emu, 0x15, 0x03);
+            wp4d_pause_in_vblank(emu);
+            auto move = [&emu](uint8_t x) {
+                emu.port().out(0x303B, 0x00);
+                emu.port().out(0x57, x);
+                emu.port().out(0x57, S - 8);
+                emu.port().out(0x57, 0x00);
+                emu.port().out(0x57, 0x80);
+            };
+            wp4d_tag_row(emu, S);           move(120);    // B: cells 240..271
+            wp4d_tag_row(emu, WP4D_VBLANK); move(200);    // C: cells 400..431
+            const auto b = render(dbg, Layer::Sprites);
+            auto opaque = [&](int x, int y) { return (px(b, x, y) >> 24) != 0; };
+            check("INS-14-16", "sprite attribute log: the Sprites view has sprite 0 at its "
+                               "old X above the row it was moved on and at the new X from "
+                               "it; after the render the live X is its VBLANK value",
+                  opaque(90, S - 1) && !opaque(250, S - 1) && !opaque(90, S) &&
+                      opaque(250, S) && dbg.sprites()[0].x == 200,
+                  "row" + std::to_string(S - 1) + " old/new=" +
+                      std::to_string(opaque(90, S - 1)) + std::to_string(opaque(250, S - 1)) +
+                      " row" + std::to_string(S) + " old/new=" + std::to_string(opaque(90, S)) +
+                      std::to_string(opaque(250, S)) + " live x=" +
+                      std::to_string(dbg.sprites()[0].x));
+        }
+
+        // ── INS-14-17: the Timex screen-mode log (port 0xFF, via NR 0x69) ─
+        {
+            Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+            Debugger dbg(emu);
+            uint8_t* b5 = emu.mmu().bank5_vram();
+            std::fill(b5, b5 + 0x1800, 0xFF);             // screen 0: all ink
+            std::fill(b5 + 0x1800, b5 + 0x1B00, 0x0A);    // ink 2, paper 1
+            std::fill(b5 + 0x2000, b5 + 0x3800, 0x00);    // screen 1: all paper
+            std::fill(b5 + 0x3800, b5 + 0x3B00, 0x0A);
+            wp4d_nr(emu, 0x69, 0x00);                     // A: standard, screen 0
+            wp4d_pause_in_vblank(emu);
+            wp4d_tag_row(emu, S);           wp4d_nr(emu, 0x69, 0x01);  // B: screen 1
+            wp4d_tag_row(emu, WP4D_VBLANK); wp4d_nr(emu, 0x69, 0x02);  // C: hi-colour
+            const auto b = render(dbg, Layer::UlaPrimary);
+            const uint32_t ink   = emu.palette().ula_colour(false, 0x02);
+            const uint32_t paper = emu.palette().ula_colour(false, 0x11);
+            check("INS-14-17", "Timex screen-mode log: the ULA view shows screen 0 above the "
+                               "row the mode switched to screen 1 and screen 1 from it; "
+                               "after the render the live mode is its VBLANK value",
+                  ink != paper && px(b, 300, S - 1) == ink && px(b, 300, S) == paper &&
+                      emu.ula().get_screen_mode_reg() == 0x02,
+                  "row" + std::to_string(S - 1) + "=" + hex(px(b, 300, S - 1)) + " row" +
+                      std::to_string(S) + "=" + hex(px(b, 300, S)) + " live mode=" +
+                      hex(emu.ula().get_screen_mode_reg()));
+        }
+
+        // ── INS-14-21: the Layer 2 log (bank, scroll — beast.nex's parallax) ──
+        {
+            Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+            Debugger dbg(emu);
+            // 256x192, bank 9, every pixel's index = its column; the default
+            // Layer 2 palette maps index i to RRRGGGBB i, so every column is its
+            // own colour (NR 0x14 = 0xE3 makes only column 0xE3 transparent).
+            // Physical bank 9 + 16: the Next's ROM-in-SRAM shift (layer2.vhd:172).
+            constexpr uint32_t BANK_BASE = (9u + 16u) * 16384u;
+            for (uint32_t y = 0; y < 192; ++y)
+                for (uint32_t x = 0; x < 256; ++x)
+                    emu.ram().write(BANK_BASE + y * 256u + x, static_cast<uint8_t>(x));
+            wp4d_nr(emu, 0x12, 9);
+            wp4d_nr(emu, 0x69, 0x80);                     // Layer 2 on
+            wp4d_nr(emu, 0x16, 0);                        // A: X scroll 0
+            wp4d_pause_in_vblank(emu);
+            wp4d_tag_row(emu, S);           wp4d_nr(emu, 0x16, 8);    // B
+            wp4d_tag_row(emu, WP4D_VBLANK); wp4d_nr(emu, 0x16, 24);   // C
+            const auto b = render(dbg, Layer::Layer2Active);
+            const int x = 64 + 2 * 20;                    // source column 20
+            const uint32_t col20 = emu.palette().layer2_colour(20);
+            const uint32_t col28 = emu.palette().layer2_colour(28);
+            check("INS-14-21", "Layer 2 log: column 20 shows its own pixel above the row "
+                               "the X scroll moved 8 and column 28's from it; after the "
+                               "render the live NR 0x16 is its VBLANK value",
+                  col20 != col28 && px(b, x, S - 1) == col20 && px(b, x, S) == col28 &&
+                      emu.layer2().scroll_x() == 24,
+                  "row" + std::to_string(S - 1) + "=" + hex(px(b, x, S - 1)) + " row" +
+                      std::to_string(S) + "=" + hex(px(b, x, S)) + " want " + hex(col20) +
+                      "/" + hex(col28) + " live=" + std::to_string(emu.layer2().scroll_x()));
+        }
+    }
+
+    // =======================================================================
+    // GH #278 WP4d review round 1 — INS-14-18..20: the port 0x303B bits the
+    // GUEST's own frame latched survive a render. INS-14-08/09 only rendered
+    // from all-clear, so a restore of 0 and a save that dropped a bit both
+    // passed them. Each scene is run twice, without a render (the premise:
+    // what the guest reads) and with the Sprites and Composite views drawn.
+    // =======================================================================
+    {
+        auto status_row = [](const char* id, const char* desc, int kind, uint8_t want) {
+            uint8_t plain_again = 0, drawn_again = 0;
+            bool unused = false, rendered = false;
+            const uint8_t plain = wp4d_status_scene(kind, /*render=*/false, plain_again, unused);
+            const uint8_t drawn = wp4d_status_scene(kind, /*render=*/true, drawn_again, rendered);
+            check(id, desc,
+                  rendered && plain == want && drawn == want && plain_again == 0 &&
+                      drawn_again == 0,
+                  "rendered=" + std::to_string(rendered) + " without render " + hex(plain) +
+                      " then " + hex(plain_again) + ", with render " + hex(drawn) +
+                      " then " + hex(drawn_again) + ", want " + hex(want) + " then 0");
+        };
+        status_row("INS-14-18", "both port 0x303B bits the guest's frame latched are still "
+                                "set after the Sprites and Composite views, and read-clear",
+                   0, 0x03);
+        status_row("INS-14-19", "a latched COLLISION bit alone survives the views, and "
+                                "read-clears",
+                   1, 0x01);
+        status_row("INS-14-20", "a latched MAX-SPRITES bit alone survives the views, and "
+                                "read-clears",
+                   2, 0x02);
     }
 
     // =======================================================================
@@ -5529,9 +7128,9 @@ int main() {
         // PEND-B4-02 (coverage off and all-zero) retired by B4: coverage is
         // implemented, and INS-20-01 asserts the same fresh-backend answer.
         // PEND-B4-03 (screenshot refuses) retired by B4: CAP-01-01..09 pin it.
-        check("PEND-14-01", "render_layer() (unassigned, see the B1 report) refuses",
-              dbg.render_layer(jnext::dbg::Layer::Composite, 0, nullptr, 640) ==
-                  Result::Unsupported);
+        // PEND-14-01 (render_layer refuses Unsupported) retired by package Q
+        // WP4d: the verb is implemented (`debugger_render.cpp`), and
+        // INS-14-02..09 pin what it now does, refusals included.
         // probe_execute over the LEGACY model only — the subscription half is
         // EVT-PROBE-* below. Kept here because it is the one thing in this block
         // that was already answered for real rather than refused.
@@ -6048,8 +7647,15 @@ int main() {
               !dbg.rewind_enabled());
         check("ST-03-06", "set_rewind_enabled(true) round-trips",
               dbg.set_rewind_enabled(true) == Result::Ok && dbg.rewind_enabled());
-        check("ST-03-07", "resize_rewind_buffer(0) is refused",
-              dbg.resize_rewind_buffer(0) == Result::RefusedUnavailable);
+        // GH #278 WP3 (manager decision 2026-09-29) — 0 FREES the ring, as the
+        // Emulator accessor CAP-ST-03 names does; B1 refused it, which left the
+        // Qt window's Rewind Buffer Size… = 0 with no published way to free.
+        // (Expected value flipped from RefusedUnavailable; ST-03-09 pins the
+        // free on a ring that exists.)
+        check("ST-03-07", "resize_rewind_buffer(0) with no ring is accepted and "
+                          "leaves none",
+              dbg.resize_rewind_buffer(0) == Result::Ok &&
+              dbg.rewind_range().capacity == 0);
         check("ST-03-08", "resize_rewind_buffer(n) sets the capacity to n",
               dbg.resize_rewind_buffer(16) == Result::Ok &&
               dbg.rewind_range().capacity == 16,
@@ -6113,7 +7719,8 @@ int main() {
         // what reaches it.
         Emulator emu; build(emu);
         Debugger dbg(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().pause();
         emu.debug_state().run_to_cycle(emu.clock().get() + 5000);
         emu.run_frame();                       // stops part-way through frame 0
@@ -6132,7 +7739,8 @@ int main() {
         // gained a `by`. Mid-frame, so the advance actually runs.
         Emulator emu; build(emu);
         Debugger dbg(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().pause();
         emu.debug_state().run_to_cycle(emu.clock().get() + 5000);
         emu.run_frame();                             // stops mid-frame
@@ -7800,7 +9408,8 @@ int main() {
         s.action = Action::Continue; s.handler = recorder(rec);
         dbg.subscribe(1, s);
         emu.soft_reset();
-        emu.debug_state().set_active(true);      // init() does not clear it, but be explicit
+        emu.debug_state().set_clients_attached(true);      // init() does not clear it, but be explicit
+        emu.debug_state().set_live_raster(true);
         emu.execute_single_instruction();
         check("EVT-RESET-20", "Emulator::soft_reset() really raises Reset{Soft}",
               rec.evs.size() == 1 && rec.evs[0].reset_kind == ResetKind::Soft,
@@ -8886,7 +10495,8 @@ int main() {
         // verb still outranks both.
         Emulator emu; build(emu);
         Debugger dbg(emu);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.debug_state().breakpoints().add_pc(AFTER_CALL);
         emu.run_frame();
         check("REASON-20", "a legacy PC breakpoint stops the machine",
@@ -9194,7 +10804,8 @@ int main() {
         // subscription in place. That is §4.1's formula, and §6's premise.
         Emulator emu;
         build_armed(emu, { 0x3E, 0x5A, 0x32, 0x00, 0x90, 0x18, 0xFE });
-        emu.debug_state().set_active(false);
+        emu.debug_state().set_clients_attached(false);
+        emu.debug_state().set_live_raster(false);
         Debugger dbg(emu);
         Rec rec;
         Subscription s;
@@ -9439,7 +11050,8 @@ int main() {
     {
         Emulator emu;
         build_armed(emu, { 0x00, 0x18, 0xFD });
-        emu.debug_state().set_active(false);          // UNARMED
+        emu.debug_state().set_clients_attached(false);          // UNARMED
+        emu.debug_state().set_live_raster(false);
         Debugger dbg(emu);
         Rec rec;
         Subscription s;
@@ -9463,7 +11075,8 @@ int main() {
 
         // Now arm it. The point of the row: what arrives is THIS frame's events,
         // not a 512-entry dump of the three frames nobody was watching.
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.run_frame();
         check("EVT-GATE-24", "arming it delivers exactly the armed frame's events",
               rec.evs.size() == 1, "n=" + std::to_string(rec.evs.size()));
@@ -9479,7 +11092,8 @@ int main() {
         // term at the site as well as in the funnel (cost, not correctness).
         Emulator emu;
         build_armed(emu, { 0x00, 0x18, 0xFD });
-        emu.debug_state().set_active(false);
+        emu.debug_state().set_clients_attached(false);
+        emu.debug_state().set_live_raster(false);
         Debugger dbg(emu);
         Rec rec;
         Subscription s;
@@ -10396,7 +12010,8 @@ int main() {
             r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 0; r.IFF2 = 0;
             emu.cpu().set_registers(r);
         }
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         Debugger dbg(emu);
         emu.run_frame();
         emu.run_frame();
@@ -10481,7 +12096,8 @@ int main() {
                 r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 0; r.IFF2 = 0;
                 emu.cpu().set_registers(r);
             }
-            emu.debug_state().set_active(true);
+            emu.debug_state().set_clients_attached(true);
+            emu.debug_state().set_live_raster(true);
             Debugger dbg(emu);
 
             // A snapshot of the machine BEFORE the write, for the two verbs that
@@ -10559,7 +12175,8 @@ int main() {
         emu.mmu().write(PROG, 0x00);
         emu.mmu().write(PROG + 1, 0x18);
         emu.mmu().write(PROG + 2, 0xFD);
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         Debugger dbg(emu);
         Subscription s;
         s.kind = EventKind::Mem; s.access = Access::Write;
@@ -10619,7 +12236,8 @@ int main() {
         dbg.subscribe(1, s);
         emu.run_frame();
         emu.soft_reset();
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         emu.execute_single_instruction();
         check("EVT-LAND-20", "a soft reset's own Reset event survives the "
                              "reconciliation that same reset triggers",
@@ -10695,7 +12313,8 @@ int main() {
             r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 0; r.IFF2 = 0;
             emu.cpu().set_registers(r);
         }
-        emu.debug_state().set_active(true);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
         Debugger dbg(emu);
 
         // The CTL-11-03 recipe: right length, wrong content past the half-way
@@ -11744,38 +13363,46 @@ int main() {
         dbg.detach(a);
     }
     {
-        // `attached()` is the OR OF TWO CONTRIBUTORS for the duration of the
-        // transition — the client list and `DebugState::active()`, which is what
-        // the Qt debugger window and the magic-breakpoint hook set. Both arms
-        // get a row, and so does the identity `armed() == attached() ||
-        // persistent()` over all four combinations, because that identity is the
-        // only thing that keeps the backend's gate and the hot loop's gate from
-        // disagreeing.
+        // `attached()` is the ARMING client list — since GH #278 WP4c retired
+        // the Qt window's `DebugState::active()`, which was its second
+        // contributor during the transition (the window is a client now). Each
+        // arm contributor keeps its OWN bit, and a row pins that a client's
+        // attach and detach leave another one alone; and the identity
+        // `armed() == attached() || persistent()` over all four combinations,
+        // because that identity is the only thing that keeps the backend's gate
+        // and the hot loop's gate from disagreeing.
         Emulator emu; build(emu);
         Debugger dbg(emu);
-        check("SES-05-06", "attached() is false with no client and no active flag",
+        check("SES-05-06", "attached() is false with no client",
               !dbg.attached() && !dbg.armed());
 
         const ClientId a = dbg.attach(client("A")).value;
         check("SES-05-07", "a CLIENT alone makes it attached and armed",
-              dbg.attached() && dbg.armed() && !emu.debug_state().active());
+              dbg.attached() && dbg.armed());
         dbg.detach(a);
 
-        emu.debug_state().set_active(true);
-        check("SES-05-08", "and DebugState::active() alone does too — the Qt window "
-                           "is not a client until package Q",
-              dbg.attached() && dbg.armed());
+        jnext::dbg::ClientInfo obs = client("observer", jnext::dbg::ClientKind::Gui);
+        obs.observer = true;
+        const ClientId o = dbg.attach(obs).value;
+        check("SES-05-08", "an OBSERVER client (REQ-qt-32) alone does NOT — the Qt "
+                           "GUI's breakpoint owner is one, and a closed window "
+                           "must leave the machine unarmed",
+              !dbg.attached() && !dbg.armed());
+        dbg.detach(o);
 
         // THE DIVERGENCE THIS DESIGN EXISTS TO PREVENT: a client attaching and
-        // detaching must not clear the flag the Qt window owns. Writing
-        // `set_active()` from `attach`/`detach` would do exactly that, and
-        // nothing in `DebugState` can tell the two owners apart.
+        // detaching must not clear an arm another contributor owns — here the
+        // magic breakpoint's hold (GH #278 WP4c), which is what the retired
+        // `active()` bit was when the magic hook set it. A shared bit would be
+        // cleared by the detach; nothing in `DebugState` could tell the owners
+        // apart.
+        emu.debug_state().hold_for_magic_stop();
         const ClientId b = dbg.attach(client("B")).value;
         dbg.detach(b);
-        check("SES-05-09", "a client's attach+detach leaves DebugState::active() "
-                           "ALONE — two owners, two bits",
-              emu.debug_state().active() && dbg.attached() && dbg.armed());
-        emu.debug_state().set_active(false);
+        check("SES-05-09", "a client's attach+detach leaves another arm contributor "
+                           "(the magic hold) ALONE — two owners, two bits",
+              emu.debug_state().magic_hold() && dbg.armed() && !dbg.attached());
+        emu.debug_state().resume();                    // releases the hold
 
         bool identity = true;
         std::string idetail;
@@ -11799,10 +13426,9 @@ int main() {
     }
     {
         // §4.1: "`attached` (≥1 client) gates the step machinery" — Step Out,
-        // Step Back and Run-Back-to-Cycle, which today's tree gates on
-        // `DebugState::active()`. A remote client is NOT `active()` (that is the
-        // Qt window's bit), so a machine driven ONLY by a client must still finish
-        // a Step Out: armed by attaching, never by `set_active()`.
+        // Step Back and Run-Back-to-Cycle, which the tree before B3 gated on
+        // the Qt window's `DebugState::active()` (retired by GH #278 WP4c). A
+        // machine driven ONLY by a remote client must still finish a Step Out.
         Emulator emu; build(emu);
         Debugger dbg(emu);
         const ClientId a = dbg.attach(client("Remote", jnext::dbg::ClientKind::Dzrp)).value;
@@ -11813,9 +13439,9 @@ int main() {
         dbg.pause(a);
         const Result r = dbg.step_out(a);
         run_until_paused(emu);
-        check("SES-05-13", "a CLIENT alone drives Step Out to completion — attached, "
-                           "not DebugState::active(), gates the step machinery",
-              in_sub && r == Result::Ok && !emu.debug_state().active() &&
+        check("SES-05-13", "a CLIENT alone drives Step Out to completion — attached "
+                           "gates the step machinery",
+              in_sub && r == Result::Ok &&
               dbg.state().paused && pc_of(emu) == AFTER_CALL,
               "PC=" + hex(pc_of(emu)) + std::string(" paused=") +
                   (dbg.state().paused ? "1" : "0"));
@@ -11833,24 +13459,25 @@ int main() {
         emu.run_frame();
         emu.run_frame();
         const uint64_t before = emu.clock().get();
-        // Read BEFORE the frame: the rewind itself sets `active()` on its way
-        // out (`Emulator::rewind_to_cycle()`, pre-existing), so afterwards it
-        // cannot show which gate let the step mode through.
-        const bool active_before = emu.debug_state().active();
+        // Read BEFORE the frame: the ONLY thing driving the machine is the
+        // client (no hold, no live raster), so it is what lets the step mode
+        // through.
+        const bool client_only = emu.debug_state().attached() &&
+                                 !emu.debug_state().magic_hold() &&
+                                 !emu.debug_state().raster_live();
         emu.debug_state().step_back(1);
         emu.run_frame();
         const uint64_t after = emu.clock().get();
         check("SES-05-17", "a CLIENT alone lets the STEP_BACK step mode run — the "
                            "clock goes backwards, not forwards",
-              !active_before && after < before,
+              client_only && after < before,
               "before=" + std::to_string(before) + " after=" + std::to_string(after));
         dbg.detach(a);
     }
     {
         // §4.1 / SES-05: `live_raster` (per client, ORed) gates the
         // per-instruction `VideoTiming::advance()` walk — observed on the counter
-        // it moves. BOTH directions and the OR, with `active()` false throughout
-        // so the Qt term cannot be what switches it on.
+        // it moves. BOTH directions and the OR.
         Emulator emu; build(emu);
         Debugger dbg(emu);
         const ClientId a = dbg.attach(client("A")).value;
@@ -11871,20 +13498,22 @@ int main() {
         const bool off1 = !walked();
         check("SES-05-14", "the raster walk runs iff SOME client asked for "
                            "live_raster — off, on for A, on for B alone, off again",
-              !emu.debug_state().active() && off0 && on_a && on_b && off1,
+              off0 && on_a && on_b && off1,
               std::string("off0=") + (off0 ? "1" : "0") + " a=" + (on_a ? "1" : "0") +
                   " b=" + (on_b ? "1" : "0") + " off1=" + (off1 ? "1" : "0"));
-        // The Qt window's term still switches it on by itself (pre-Q behaviour),
-        // and `Debugger::live_raster()` still answers what the CLIENTS asked for,
-        // not the gate — read while `active()` is TRUE, or it cannot tell.
-        emu.debug_state().set_active(true);
-        const bool on_active       = walked();
-        const bool verb_while_on   = dbg.live_raster();
-        emu.debug_state().set_active(false);
-        check("SES-05-18", "and DebugState::active() alone still walks — the Qt "
-                           "window is not a client until package Q — while "
-                           "live_raster() stays the clients' OR (false)",
-              on_active && !verb_while_on);
+        // GH #278 WP4c — an OBSERVER client's request walks too: the live
+        // raster is a render hint, not an arm (REQ-qt-32), and `live_raster()`
+        // reports it while the machine stays unarmed by that client.
+        jnext::dbg::ClientInfo obs = client("observer", jnext::dbg::ClientKind::Gui);
+        obs.observer = true;
+        const ClientId o = dbg.attach(obs).value;
+        dbg.set_live_raster(o, true);
+        const bool on_observer   = walked();
+        const bool verb_while_on = dbg.live_raster();
+        dbg.detach(o);
+        check("SES-05-18", "and an OBSERVER client's live-raster request walks too, "
+                           "reported by live_raster() — a render hint, not an arm",
+              on_observer && verb_while_on && !walked());
         dbg.detach(a);
         dbg.detach(b);
     }
@@ -11908,7 +13537,7 @@ int main() {
         const uint32_t px_on = emu.get_framebuffer()[0];
         check("SES-05-15", "a frame the frontend would skip is rendered iff a client "
                            "asked for live_raster — stale without it, fresh with it",
-              !emu.debug_state().active() && px_off == px0 && px_on != px0,
+              px_off == px0 && px_on != px0,
               "px0=" + hex(px0) + " off=" + hex(px_off) + " on=" + hex(px_on));
         dbg.detach(a);
     }
@@ -12140,10 +13769,19 @@ int main() {
         check("CTL-12-11", "a Mem subscription fires before the cold boot",
               hits_before > 0, "hits=" + std::to_string(hits_before));
 
-        // A stale latch in the ring, and a legacy PC breakpoint + `active()`, so
-        // the platform-side restore's behaviour can be asserted too.
-        emu.debug_state().breakpoints().add_pc(0xBEEF);
-        emu.debug_state().set_active(true);
+        // A stale latch in the ring; and the Qt GUI's shape (GH #278 WP4c): an
+        // OBSERVER client (REQ-qt-32) owning a PC breakpoint, next to the arming
+        // client A — so the retirement of the platform-side restore, and the
+        // client model that replaced it, can be asserted too.
+        jnext::dbg::ClientInfo gui = client("Qt GUI", jnext::dbg::ClientKind::Gui);
+        gui.observer = true;
+        const ClientId g = dbg.attach(gui).value;
+        {
+            Subscription bp;
+            bp.kind = EventKind::Execute; bp.action = Action::Stop;
+            bp.filter.lo = 0xBEEF; bp.filter.hi = 0xBEEF;
+            dbg.subscribe(g, bp);
+        }
         const uint8_t stale_mask = emu.debug_state().breakpoints().watch_slot_mask_wr();
 
         int boots = 0;
@@ -12186,18 +13824,28 @@ int main() {
                            "armed again",
               emu.debug_state().clients_attached() && dbg.attached() && dbg.armed());
 
-        // The PLATFORM-SIDE restore is deliberately NOT retired in B3, and this
-        // is the row that says so: the legacy breakpoints and `active()` survive
-        // because `emulator_boot.h` still saves and restores them, and the
-        // backend's re-application does not clobber either. See that file's
-        // "WHY THE TWO RESTORES ABOVE ARE *NOT* RETIRED" for the three Qt
-        // regressions retiring them would be.
-        check("CTL-12-16", "the Qt panels' legacy breakpoint model survived the boot "
-                           "(emulator_boot.h's restore, NOT retired in B3)",
-              emu.debug_state().breakpoints().has_pc(0xBEEF));
-        check("CTL-12-17", "and DebugState::active() survived it, unclobbered by the "
-                           "backend's own re-application",
-              emu.debug_state().active());
+        // B3 left the PLATFORM-SIDE restore standing because it was the only
+        // owner of the Qt panels' breakpoints and of the window's `active()`;
+        // GH #278 WP4c retired it (B3 obligation 1), and these two rows re-pin
+        // the same two facts against the client model that replaced it: the
+        // GUI's breakpoint survives as the OBSERVER's subscription (rule 2) —
+        // with the platform carrying nothing, its legacy set rebuilt empty —
+        // and the observer is still no arm contributor on the rebuilt machine.
+        bool gui_bp = false;
+        for (const auto& si : dbg.subscriptions(false))
+            if (si.owner == g && si.kind == EventKind::Execute &&
+                si.filter.lo == 0xBEEF && si.live)
+                gui_bp = true;
+        check("CTL-12-16", "the Qt GUI's breakpoint — an observer client's "
+                           "subscription — survived the boot by the backend's "
+                           "re-application, and the platform carried nothing: the "
+                           "rebuilt legacy BreakpointSet is empty",
+              gui_bp && emu.debug_state().breakpoints().empty());
+        dbg.detach(a);
+        check("CTL-12-17", "and on the rebuilt machine the observer still arms "
+                           "nothing: with the arming client gone the machine is "
+                           "unarmed, the breakpoint still listed",
+              !dbg.armed() && !dbg.attached() && dbg.subscriptions(false).size() == 1);
     }
     {
         // RULE 3 OVER THE *REAL* BOOT, both arms. A fake driver cannot test this:
@@ -12281,8 +13929,10 @@ int main() {
         // breakpoint during a free run — nobody's verb — and then resets.
         //
         // The discriminator is a legacy PC breakpoint at the address the boot
-        // lands on. It survives the boot via `emulator_boot.h`'s restore (see
-        // CTL-12-16), so it is there to be found.
+        // lands on. GH #278 WP4c: `emulator_boot.h` no longer carries the legacy
+        // set across the boot (B3 obligation 1; CTL-12-16), so it is set on the
+        // REBUILT machine, before `state()` is asked — the question is still how
+        // the re-applied pause reads there.
         Emulator emu; build(emu);
         Debugger dbg(emu);
         const ClientId a = dbg.attach(client("A")).value;
@@ -12298,8 +13948,8 @@ int main() {
         run_until_paused(emu, 3);
         const RunState pre = dbg.state();
         const uint16_t landing = 0x0000;        // a cold boot starts at 0x0000
-        emu.debug_state().breakpoints().add_pc(landing);
         dbg.reset(a, ResetKind::Hard);
+        emu.debug_state().breakpoints().add_pc(landing);
         check("CTL-12-27", "an UNOWNED pause is re-applied as Kind::None, so a landing "
                            "on a legacy PC breakpoint reports Breakpoint — Kind::User "
                            "would have swallowed it",
@@ -12483,12 +14133,13 @@ int main() {
                   std::to_string(static_cast<int>(delivered_kind)));
     }
     {
-        // THE SINGLE-OWNER RULE, for the one part of the platform restore that
-        // was the BACKEND's state: the event-mask half of `BreakpointSet`'s
-        // hot-path gate. `emulator_cold_boot()` copies the whole set across; it
-        // now drops that half from the copy, so the rebuilt machine's event gate
-        // is CLOSED until the backend's `gates_changed()` re-opens it — and the
-        // Qt panels' half (a legacy watchpoint's slot bit) is still carried.
+        // THE SINGLE-OWNER RULE, whole (GH #278 WP4c). B3 retired the BACKEND's
+        // part of the platform restore — the event-mask half of `BreakpointSet`'s
+        // hot-path gate — and left the Qt panels' half (a legacy watchpoint's slot
+        // bit) carried; WP4c retired that too (B3 obligation 1). So a bare cold
+        // boot now leaves BOTH halves closed, and only the backend's
+        // re-application re-opens the gate, from the live subscription table — the
+        // single owner of what the machine watches.
         //
         // Driven WITHOUT the backend's re-application first — a bare cold boot
         // with the `Debugger` alive but not told — because that is the only
@@ -12513,35 +14164,35 @@ int main() {
         emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
         const uint8_t bare = emu.debug_state().breakpoints().watch_slot_mask_wr();
         check("CTL-12-32", "a cold boot the backend has NOT re-applied yet leaves the "
-                           "event half of the gate CLOSED and the Qt half (a legacy "
-                           "watchpoint) carried — the platform no longer owns the "
-                           "backend's bytes",
-              before == (ev_bit | wp_bit) && bare == wp_bit,
+                           "whole gate CLOSED — the event half and the legacy half "
+                           "(a legacy watchpoint) alike: the platform carries "
+                           "nothing of the debugger's",
+              before == (ev_bit | wp_bit) && bare == 0,
               "before=" + hex(before) + " bare=" + hex(bare));
 
         dbg.on_cold_boot_done();
         const uint8_t after = emu.debug_state().breakpoints().watch_slot_mask_wr();
         check("CTL-12-33", "and the backend's re-application is what re-opens it, "
-                           "from the live subscription table",
-              after == (ev_bit | wp_bit), "after=" + hex(after));
+                           "from the live subscription table alone",
+              after == ev_bit, "after=" + hex(after));
     }
     {
-        // THE OBSERVERS, both directions. `BreakpointSet`'s copy carries its
-        // observers, and that is the only reason the Qt Breakpoints and
-        // Disassembly panels stay subscribed across a cold boot (each registers
-        // ONCE, in its constructor) — which is why B3 does NOT retire the
-        // platform-side restore until package Q moves those panels onto a
-        // `Debugger`. So: an observer registered before a backend `reset(Hard)`
-        // is notified by a change AFTER it (the restore carried it, and the
-        // backend's re-application did not disturb it), and its `ObserverId`
-        // still names it, so the panel destructor's `remove_observer()` really
-        // does unsubscribe it rather than silently matching nothing.
+        // THE OBSERVER'S TWO LIFETIME EDGES across a cold boot (GH #278 WP4c —
+        // re-pinned from `BreakpointSet`'s observers, which travelled on the
+        // platform restore's copy and are retired with it). The Qt panels now
+        // follow a `SubscriptionsChanged` push to an observer client, so: an
+        // observer client and its listener installed before a backend
+        // `reset(Hard)` are notified of a subscription change AFTER it, and its
+        // detach after the boot really ends that — the `ClientId` still names it.
         Emulator emu; build(emu);
         Debugger dbg(emu);
         const ClientId a = dbg.attach(client("A")).value;
-        int notified = 0;
-        const auto obs = emu.debug_state().breakpoints().add_observer(
-            [&notified](BreakpointChange) { ++notified; });
+        jnext::dbg::ClientInfo gui = client("Qt GUI", jnext::dbg::ClientKind::Gui);
+        gui.observer = true;
+        const ClientId g = dbg.attach(gui).value;
+        RecListener l;
+        dbg.set_listener(g, &l);
+        dbg.pump(jnext::dbg::PumpBudget{});             // prime the edge detector
         jnext::dbg::LoopDriver d;
         d.cold_boot = [&]() {
             emulator_frontend_cold_boot(emu, emu.config(), std::string(),
@@ -12550,16 +14201,27 @@ int main() {
         };
         dbg.set_loop_driver(d);
         dbg.reset(a, ResetKind::Hard);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        const size_t n0 = l.subs.size();
 
-        emu.debug_state().breakpoints().add_pc(0x1234);
-        check("CTL-12-34", "a BreakpointSet observer registered before the cold boot "
-                           "is notified by a change after it",
-              notified == 1, "notified=" + std::to_string(notified));
-        emu.debug_state().breakpoints().remove_observer(obs);
-        emu.debug_state().breakpoints().add_pc(0x2345);
-        check("CTL-12-35", "and its pre-boot ObserverId still names it — removing it "
-                           "after the boot really unsubscribes it",
-              notified == 1, "notified=" + std::to_string(notified));
+        Subscription bp;
+        bp.kind = EventKind::Execute; bp.action = Action::Stop;
+        bp.filter.lo = 0x1234; bp.filter.hi = 0x1234;
+        dbg.subscribe(g, bp);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("CTL-12-34", "an observer client's listener installed before the cold "
+                           "boot is notified of a subscription change after it",
+              l.subs.size() == n0 + 1, l.trail());
+        const bool detached = dbg.detach(g) == Result::Ok;
+        bp.filter.lo = 0x2345; bp.filter.hi = 0x2345;
+        dbg.subscribe(a, bp);
+        dbg.pump(jnext::dbg::PumpBudget{});
+        check("CTL-12-35", "and its pre-boot ClientId still names it — detaching it "
+                           "after the boot really ends the notifications and takes "
+                           "its subscription",
+              detached && l.subs.size() == n0 + 1 &&
+                  dbg.subscriptions(false).size() == 1,
+              l.trail());
     }
     {
         // RULE 5 — the GUEST-initiated path. It needs NO registered driver: the
@@ -14069,9 +15731,16 @@ int main() {
     b5_payload_rows();
     b5_detach_rows();
     b5_host_probe_rows();
+    q_wp2_host_order_rows();
+    q_wp3_rewind_rows();          // GH #278 WP3
+    q_wp3_trace_export_rows();    // GH #278 WP3
+    q4c_observer_rows();          // GH #278 WP4c
+    q4c_master_mirror_rows();     // GH #278 WP4c
+    q4c_magic_hold_rows();        // GH #278 WP4c
 
     // GH #12 (package D) — one contiguous block, see dzrp_d_rows().
     dzrp_d_rows();
+    q_wp7_raster_rows();          // GH #278 WP7
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

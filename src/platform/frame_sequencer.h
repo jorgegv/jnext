@@ -273,14 +273,16 @@ public:
             //
             // BOTH pause re-checks are load-bearing, and for a reason that is
             // easy to lose: a breakpoint can fire INSIDE the burst. An
-            // ordinary breakpoint has debug_state_.active() set beforehand, so
-            // run_frame() composites those frames regardless of the hint; but
-            // --magic-breakpoint sets active only AT the hit, so pre-hit burst
-            // frames skip compositing and the paused framebuffer can lag until
-            // the first step/resume. --persistent-breakpoints (GH #219) puts an
-            // ordinary breakpoint in that second bucket too: it can fire with
-            // the debugger window closed, i.e. with active() still false, and
-            // the frontend only enables it on the next tick. Either way the
+            // ordinary breakpoint set with the debugger window open has
+            // debug_state_.raster_live() on beforehand (the window's live
+            // raster), so run_frame() composites those frames regardless of the
+            // hint; but --magic-breakpoint arms nothing until the hit (and then
+            // only holds the stop), so pre-hit burst frames skip compositing
+            // and the paused framebuffer can lag until the first step/resume.
+            // --persistent-breakpoints (GH #219) puts an ordinary breakpoint in
+            // that second bucket too: it can fire with the debugger window
+            // closed, i.e. with raster_live() still false, and the frontend
+            // only enables it on the next tick. Either way the
             // burst MUST stop on the
             // tick the pause happens — continuing to sprint through a paused
             // machine would run hundreds of frames past the breakpoint the

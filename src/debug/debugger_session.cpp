@@ -105,7 +105,11 @@ void Debugger::Impl::clients_changed() {
     size_t live     = 0;
     for (const auto& c : clients) {
         if (c.detached) continue;
-        ++live;
+        // REQ-qt-32 — an OBSERVER counts toward no arm bit, and that is the
+        // whole of its difference from any other client (GH #278 WP4c). Its
+        // live-raster request is still honoured below: that is a render hint,
+        // not an arm, and it is asked for explicitly.
+        if (!c.info.observer) ++live;
         any_raster = any_raster || c.live_raster;
     }
     // SES-05 — "per client, ORed", published into `DebugState`, where the
@@ -114,8 +118,8 @@ void Debugger::Impl::clients_changed() {
     // beside the machine's.
     ds().set_live_raster(any_raster);
     // SES-05 / §5 — the `attached` half of `armed()`. Its OWN bit on
-    // `DebugState`, never `set_active()`: see `DebugState::clients_attached()`
-    // for why writing `active_` here would disarm the Qt debugger window.
+    // `DebugState`: see `DebugState::clients_attached()` for why each armed()
+    // contributor keeps one.
     ds().set_clients_attached(live > 0);
 }
 
@@ -135,7 +139,8 @@ Expected<ClientId> Debugger::attach(const ClientInfo& info) {
     // policy puts at `info`: one line per user action.
     impl_->self->log(CLIENT_NONE, LogLevel::Info,
                      "ATTACH client " + std::to_string(c.id) + " \"" + info.name +
-                         "\" kind=" + std::to_string(static_cast<unsigned>(info.kind)));
+                         "\" kind=" + std::to_string(static_cast<unsigned>(info.kind)) +
+                         (info.observer ? " observer" : ""));
     return make_ok<ClientId>(c.id);
 }
 
@@ -532,31 +537,22 @@ Result Debugger::set_live_raster(ClientId cid, bool enabled) {
     return Result::Ok;
 }
 
-// The CLIENTS' OR — not `raster_live()`, which also has the Qt window's
-// `active()` as a term: this verb answers what the clients asked for.
+// The CLIENTS' OR. Since GH #278 WP4c retired `DebugState::active()` it is
+// also exactly `raster_live()`, which had that bit as a second term.
 bool Debugger::live_raster() const { return impl_->ds().live_raster(); }
 
-// §5's `attached`, and it is the OR OF TWO CONTRIBUTORS for the duration of the
-// transition, not the client count alone.
+// §5's `attached`: is any ARMING client attached (an observer, REQ-qt-32, is
+// not counted — `clients_changed()`)?
 //
-// `DebugState::active()` is what "a frontend is driving this machine" means on
-// today's tree: the Qt debugger window sets it when it opens and the
-// magic-breakpoint hook sets it when the opcode executes. Neither is a
-// `Debugger` client yet — the Qt frontend becomes one in package Q — and until
-// it is, a `Debugger::attached()` that reported only its own client list would
-// say "nothing is attached" of a machine with the debugger window open, and
-// `armed()` (which §4.1 defines as `attached || persistent_breakpoints`) would
-// then disagree with `DebugState::armed()`, the gate the hot loop actually
-// obeys.
-//
-// So the two are ORed — by `DebugState::refresh_gates_()`, into the SAME
-// precomputed `attached_` bit the step machinery reads (GH #276 B3), and read
-// back here rather than re-derived: one formula, so the verb a client asks and
-// the gate the hot loop obeys cannot disagree, and the identity
-// `armed() == attached() || persistent()` holds whichever contributor is set.
-// `clients_changed()` keeps the client half equal to the list (row SES-01-02).
-// When Q makes the Qt frontend a client, `active_` loses its writers and that
-// term goes with them.
+// Read back from `DebugState::attached()`, the SAME precomputed bit the step
+// machinery reads (GH #276 B3), rather than re-derived: one formula, so the verb
+// a client asks and the gate the hot loop obeys cannot disagree. Until GH #278
+// WP4c that bit was ORed with the Qt window's `active()`, the transition's second
+// contributor; the window is a client now and the bit is retired, so `attached`
+// is the client half alone, which `clients_changed()` keeps equal to the list
+// (row SES-01-02). `armed() == attached() || persistent()` holds except while a
+// HOLD arms the machine (a rewind's replay, a magic stop), neither of which is
+// anyone driving it.
 bool Debugger::attached() const { return impl_->ds().attached(); }
 
 }  // namespace dbg

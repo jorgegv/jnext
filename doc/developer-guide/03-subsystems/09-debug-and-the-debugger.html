@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.56</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.56</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1865,8 +1865,9 @@
 look at everything inside it, change some of it, start it again — and, when
 rewind is on, run it backwards. It is not a separate program talking to the
 emulator over a wire. It lives in the same process and the same thread as the
-emulation, so a panel reads machine state by calling straight into <code>Emulator</code>
-rather than marshalling it across a boundary, and the run loop consults the
+emulation, so a panel reads machine state by a direct call — through the
+debugger backend, <code>jnext::dbg::Debugger</code>, since GH #278 — rather than
+marshalling it across a boundary, and the run loop consults the
 debugger's state once per instruction, before the fetch. That single
 consultation point is what makes stepping exact and breakpoints cheap.</p>
 <p>The dependency runs one way and stops halfway. The emulator core owns and
@@ -1877,8 +1878,17 @@ build — while the Qt <em>UI</em> sits above both and can be compiled out entir
 breakpoint and watchpoint sets, execution-control state, instruction trace log,
 call-stack tracker, symbol table, rewind ring buffer, and the raster-state
 derivation (<code>raster_state.*</code>) behind the Video panel's beam/fetch indicator. It
-has <strong>no Qt dependency at all</strong>. <strong><code>src/debugger/</code></strong> (target <code>jnext_debugger</code>) is the Qt 6 UI and
-nothing else — panels, menus, the debugger window.</p>
+has <strong>no Qt dependency at all</strong>, and that is gated rather than stated:
+<code>debug_qt_free_test</code> fails every <code>make unit-test</code> if a Qt include directive or a
+<code>*_qt.*</code> file appears under <code>src/debug/</code>. The Qt code both Qt libraries share —
+the debugger keymap's Qt conversions, the menu-bar Alt-navigation style — lives in
+the header-only <code>src/qt/</code> instead. <strong><code>src/debugger/</code></strong> (target <code>jnext_debugger</code>) is the Qt 6 UI and
+nothing else — panels, menus, the debugger window — and it reaches the machine
+only through the backend: since GH #278 WP7 no file there includes a header of
+the core layers (<code>core/</code>, <code>cpu/</code>, <code>memory/</code>, <code>video/</code>, <code>audio/</code>,
+<code>peripheral/</code>, <code>port/</code>) or names <code>Emulator</code> in code, and <code>debug_qt_free_test</code>
+(QTF-09..11) fails the run if one does. <code>DebuggerManager</code> and
+<code>DebuggerWindow</code> are constructed on the <code>Debugger</code> alone.</p>
 <p>Three things fall out of that. The backend is testable without a GUI:
 <code>rewind_test</code> and <code>resume_guard_test</code> link it with no Qt anywhere, while the
 <code>debugger_*</code> suites are the ones that need a Qt build. The emulator can own
@@ -1972,25 +1982,43 @@ incremented as an argument of <code>take_snapshot()</code>, so without
 <em>post</em>-incremented, so during frame K it reads K+1: the backend reports
 <code>frame_num() - 1</code>, which is the tag the rewind slot for that frame carries and
 the frame <code>--delayed-keypress-frames N</code> lands on. A rewind lands on a frame
-start the ring has already counted (<code>Emulator::at_restored_frame_start()</code>), so
-<code>run_to_frame()</code> takes its base from that flag too, and the session's
+start the ring has already counted (<code>Emulator::at_restored_frame_start()</code>,
+published as <code>RewindRange::at_restored_frame_start</code> for a frontend's Frame Back),
+so <code>run_to_frame()</code> takes its base from that flag too, and the session's
 <code>FrameEnded</code> detector watches the frame's <em>start cycle</em> rather than the
 counter: the first frame run again after a rewind ends without the counter
 moving (GH #278).</p>
-<p>A verb whose machinery belongs to a later package is defined in ONE file,
-<code>debugger_pending.cpp</code>, and returns <code>Result::Unsupported</code> — never a silent
-no-op. Keeping them together means "what is not implemented yet" is something you
-can count rather than a claim in a comment; the file's banner lists them by
-owning package. Since B4 it holds one: <code>render_layer</code> (INS-14), whose move out
-of the Qt video panel is package Q's.</p>
+<p>While epic #276 was being built, a verb whose machinery belonged to a later
+package was defined in ONE file, <code>debugger_pending.cpp</code>, and returned
+<code>Result::Unsupported</code> — never a silent no-op — so "what is not implemented yet"
+was something you could count rather than a claim in a comment. GH #278 WP4d
+moved the last one, <code>render_layer</code> (INS-14), out of the Qt video panel into
+<code>debugger_render.cpp</code>, and the empty file was deleted: every verb the published
+header declares is implemented.</p>
 <p><code>debugger_backend_test</code> is the backend's suite, headless and Qt-free: a wiring
 row per control verb (arm it through the facade, run, assert the machine stopped
 where the verb promises — PC, cycle, pause reason), a <em>control</em> row per verb that
 the same program runs straight past, and the non-perturbation and frame-counter
 rows above.</p>
-<p>Everything else the rest of this chapter describes — <code>DebugState</code> consulted per
-instruction, <code>BreakpointSet</code>, <code>DebuggerManager</code> driving the panels — is still how
-the debugger works today; the frontends have not been moved onto the facade yet.</p>
+<p>The Qt debugger's control verbs go through the facade (GH #278 WP2):
+<code>DebuggerManager</code> is an adapter whose slots call <code>run()</code>, <code>pause()</code>, the three
+steps, <code>run_to()</code> and the two end-of-* verbs, asks the corruption modal's
+question through <code>resume_blocked_by_corruption()</code>, and reads the pause state
+from <code>state()</code> on every tick — see "The Qt adapter" below. Since WP3 the rewind,
+trace and corruption controls are the facade's too, and since WP4c the GUI's
+breakpoints are backend subscriptions. What the rest of this chapter describes
+as <code>BreakpointSet</code> is the core's legacy breakpoint store, which the hot loop
+still obeys (and the core suites still drive) but no frontend writes any more.
+Since WP4a/b the CPU, MMU, Stack, Call Stack, Sprites, Copper, NextREG and
+Audio panels read — and the NextREG and Audio panels write — through the
+facade as well, since WP4d so does the Video panel, and since WP5 the
+Disassembly and Memory panels (the Memory panel writes through it too): no
+panel reads the <code>Emulator</code> any more. Since WP6 the symbol table is the
+facade's (CAP-SYM) and the Magic Breakpoint item arms it through CTL-14. Since
+WP7 nothing in <code>src/debugger/</code> holds an <code>Emulator</code> at all: the last reach, the
+raster snapshot the manager took before a paused refresh, is the backend's —
+<code>raster()</code> and <code>time()</code> take a paused machine's snapshot at the query, for every
+client.</p>
 <h3 id="the-event-pipeline-b2">The event pipeline (B2)<a class="headerlink" href="#the-event-pipeline-b2" title="Permanent link">&para;</a></h3>
 <p>Today's event vocabulary is "a PC breakpoint, a watchpoint, one one-shot, and
 nothing is conditional". B2 replaces it with the fourteen kinds of §4.3 of the
@@ -2031,12 +2059,12 @@ design puts them, and the reason is lifetime rather than taste. They have TWO
 contributors — that class's own live watchpoints and the <code>EventTable</code>'s <code>Mem</code>
 subscriptions — so the two have to be pre-ORed somewhere; and putting them on
 <code>DebugState</code> means <code>DebugState</code> has to learn about every mutation of the
-breakpoint set, i.e. register a <code>BreakpointSet</code> observer. <code>BreakpointSet</code> is
-copied out and moved back by <code>emulator_cold_boot()</code>, and it carries its
-observers with it, so such an observer would come back pointing at the destroyed
-<code>Emulator</code>'s <code>DebugState</code>. Where they are, the legacy half is recomputed by
-<code>rebuild_live_()</code> — which every mutator already calls — so there is no
-notification to forget.</p>
+breakpoint set, i.e. register a <code>BreakpointSet</code> observer. When B2 placed them,
+<code>emulator_cold_boot()</code> copied <code>BreakpointSet</code> out and moved it back with its
+observers, so such an observer would have come back pointing at the destroyed
+<code>Emulator</code>'s <code>DebugState</code> (that copy is retired since GH #278 WP4c). Where they
+are, the legacy half is recomputed by <code>rebuild_live_()</code> — which every mutator
+already calls — so there is no notification to forget.</p>
 <p>The mask is strictly NARROWER than the bool it replaced: an I/O watchpoint
 contributes to a separate <code>port_watch_armed()</code> flag and to no memory slot at
 all, where before it opened the memory gate on every access and then failed the
@@ -2224,34 +2252,41 @@ ids are never reused, so anything left behind would be kept for ever) — and,
 <strong>iff the machine is paused by this client</strong>, resumes it. A pause by another client survives, and an
 <em>unowned</em> pause is never released by any detach however many clients come and
 go: <code>PauseReason::Magic</code> and <code>PauseReason::Corrupt</code> carry <code>by == CLIENT_NONE</code>
-because neither is anyone's verb. There is no "last client" rule — the Qt
-adapter is attached for the process lifetime, so a remote is never the last one,
-and the point of the rule is that a crashed DeZog must not leave the machine
-hung.</p>
-<p><strong><code>attached()</code> is the OR of two contributors, for now.</strong> <code>DebugState::active()</code>
-is what "a frontend is driving this machine" means on today's tree: the Qt
-debugger window sets it when it opens, and the magic-breakpoint hook sets it when
-the opcode executes. Neither is a backend client yet. So <code>attached()</code> is
-<code>live_clients &gt; 0 || DebugState::active()</code>, and the client term is its <strong>own
-bit</strong> on <code>DebugState</code> (<code>clients_attached_</code>) rather than a second writer of
-<code>active_</code> — because a <code>detach()</code> of the last client would otherwise clear a flag
-the Qt window owns, and nothing in <code>DebugState</code> can tell the two owners apart.
-<code>refresh_gates_()</code> ORs the three (<code>active_ || clients_attached_ ||
-persistent_</code>), so the identity <code>armed() == attached() || persistent()</code> holds
-whichever contributor is set, and <code>SuspendScope</code> clears all three — its promise
-is "disarms breakpoints", and that is only true if it clears every contributor.</p>
-<p><strong>The two flags that replace <code>active()</code> in the hot path.</strong> §4.1 splits what
+because neither is anyone's verb. There is no "last client" rule — the point of
+the rule is that a crashed DeZog must not leave the machine hung, whoever else
+is or is not attached. (The design once attached the Qt adapter for the process
+lifetime; as built it is attached only while its window is open, because an
+attach ARMS the machine — see "The Qt adapter" below.)</p>
+<p><strong><code>attached()</code> is the ARMING client list.</strong> <code>DebugState::active()</code> was the
+legacy "a frontend is driving this machine" bit: the Qt debugger window set it
+until GH #278 WP2 made the window a backend client, the rewind paths until WP3,
+and the magic-breakpoint hook until WP4c retired the bit. So <code>attached()</code> is
+<code>live arming clients &gt; 0</code> — an OBSERVER client (<code>ClientInfo::observer</code>,
+REQ-qt-32) counts toward no arm bit — and the client term is its <strong>own bit</strong> on
+<code>DebugState</code> (<code>clients_attached_</code>), published by <code>clients_changed()</code> from the
+list. Each <code>armed()</code> contributor keeps its own bit, because a shared one would
+let one owner's release clear another's arm, and nothing in <code>DebugState</code> can
+tell owners apart. <code>refresh_gates_()</code> ORs them — <code>clients_attached_ ||
+persistent_ || replay_armed_ || magic_hold_</code> — where <code>replay_armed_</code> is
+<code>DebugState::ReplayArmScope</code>'s, set for the length of a rewind's replay loop
+alone (the replay's stop at its target is tested in <code>run_frame()</code>'s armed
+block), and <code>magic_hold_</code> is the magic breakpoint's, set by the hook and
+released by the resume that ends its stop (see "Magic breakpoint and magic
+port" below). So
+the identity <code>armed() == attached() || persistent()</code> holds outside the two
+holds, and <code>SuspendScope</code> clears every contributor — its promise is "disarms
+breakpoints", and that is only true if it clears them all.</p>
+<p><strong>The two flags that replaced <code>active()</code> in the hot path.</strong> §4.1 splits what
 <code>active()</code> used to switch on: <code>attached</code> gates the <em>step machinery</em> (Step Out's
 per-instruction test, the <code>STEP_BACK</code> / <code>RUN_BACK_TO_CYCLE</code> step modes), and
 <code>live_raster</code> — per client, ORed — gates only the <em>render-every-frame hint</em> and
 the per-instruction <code>VideoTiming::advance()</code> walk. <code>refresh_gates_()</code>
-precomputes both into <code>DebugState</code> bits (<code>attached_ = active_ ||
-clients_attached_</code>, <code>raster_live_ = active_ || live_raster_</code>), so each hot-path
-reader still pays one bool load, and <code>active_</code> stays a term of both until the Qt
-window becomes a client. Before the split a machine driven only by a remote
-client never finished a Step Out. <code>Debugger::attached()</code> and <code>live_raster()</code> read
-those same bits back rather than re-deriving them, so the answer a client gets
-and the gate the hot loop obeys cannot disagree.</p>
+precomputes both into <code>DebugState</code> bits (<code>attached_ = clients_attached_</code>,
+<code>raster_live_ = live_raster_</code>), so each hot-path reader still pays one bool
+load. Before the split a machine driven only by a remote client never finished
+a Step Out. <code>Debugger::attached()</code> and <code>live_raster()</code> read those same bits back
+rather than re-deriving them, so the answer a client gets and the gate the hot
+loop obeys cannot disagree.</p>
 <p><strong>Listeners.</strong> Seven pushes, all pure virtual (a silently ignored notification is
 what a default empty override invites): <code>Paused</code>, <code>Resumed</code>, <code>Reset</code>,
 <code>FrameEnded</code>, <code>SubscriptionsChanged</code>, <code>ExitRequested</code>, <code>Log</code>. They are
@@ -2319,9 +2354,11 @@ after a guest NR 0x02 reset:</p>
    null, so every <code>rebuild_ptr()</code> during the new <code>init()</code> was discarded, which
    makes a page-qualified <code>Mem</code> filter wrong in <em>both</em> directions;</li>
 <li><code>gates_changed()</code>, the only writer of the event-mask half of the hot-path
-   gate across the boot — the platform's <code>BreakpointSet</code> copy drops that half
-   before it is restored, so the rebuilt machine's event gate stays closed until
-   the backend re-opens it from the live subscription table;</li>
+   gate across the boot — the platform carries no <code>BreakpointSet</code> copy any more,
+   so the rebuilt machine's gate stays closed until the backend re-opens it from
+   the live subscription table — and, before it, the master switch's mirror into
+   the rebuilt <code>BreakpointSet</code>, whose fresh <code>true</code> would otherwise contradict a
+   switch the user left off;</li>
 <li>the latch ring — it lives on <code>Debugger::Impl</code>, so it <em>survives</em> the
    reconstruct while everything in it describes a machine that is gone;</li>
 <li><code>arm(Kind::None)</code>, because <code>init()</code> fired
@@ -2416,19 +2453,18 @@ machine's own state, unowned; a second <code>begin</code> replaces the first; a
 <code>reset(Hard)</code> or <code>load()</code> in between discards a pending capture; a detach of the
 capture's owner releases the pause it recorded; and neither call needs a driver
 or refuses on a corrupt machine.</p>
-<p><strong>The single-owner rule, split.</strong> §4.1 CTL-12 says the platform-side
-<code>BreakpointSet</code> / <code>active()</code> save-and-restore in <code>emulator_cold_boot()</code> becomes
-"a second owner of the same state" once the backend re-applies subscriptions.
-Measured, only one part of what it carries is backend state — the event-mask
-half of the hot-path gate — and B3 retired that half: <code>emulator_cold_boot()</code>
-zeroes it on its copy, and the backend's <code>gates_changed()</code> is its single owner.
-The rest — the <em>Qt panels'</em> breakpoint model, the observers that travel on its
-copy (the only reason <code>BreakpointPanel</code> and <code>DisasmPanel</code> stay subscribed; each
-registers once in its constructor), and <code>saved_active</code>, which keeps an open
-debugger window armed — has no other owner before package Q, so retiring it now
-would lose a user's breakpoints on every hard reset, unsubscribe two panels and
-leave an open window unarmed. Package Q retires it when the panels become
-clients. The reasoning is recorded at the site.</p>
+<p><strong>The single-owner rule.</strong> §4.1 CTL-12 says the platform-side <code>BreakpointSet</code>
+/ <code>active()</code> save-and-restore in <code>emulator_cold_boot()</code> becomes "a second owner
+of the same state" once the backend re-applies subscriptions. B3 retired the
+half that was backend state — the event-mask half of the hot-path gate — and
+kept the rest, because before package Q it was the only owner of the Qt panels'
+breakpoints, of the observers that kept those panels subscribed, and of the bit
+that kept an open window armed. GH #278 WP4c retired the rest: the GUI's
+breakpoints are an observer client's subscriptions, the panels follow
+<code>BreakpointModel</code> (which lives outside the <code>Emulator</code>), the open window is a
+client whose arm <code>clients_changed()</code> re-derives, and <code>active()</code> is gone.
+<code>emulator_cold_boot()</code> now carries nothing of the debugger's.
+The reasoning is recorded at the site.</p>
 <h3 id="input-capture-bookmarks-and-coverage-b4">Input, capture, bookmarks and coverage (B4)<a class="headerlink" href="#input-capture-bookmarks-and-coverage-b4" title="Permanent link">&para;</a></h3>
 <p><strong>Pulses append.</strong> <code>press_key(name | matrix position, hold_frames)</code> (IN-01)
 queues a pulse on <code>Keyboard</code>'s auto-type queue, and <code>queue_auto_type()</code> itself
@@ -2461,11 +2497,14 @@ one <code>Debugger</code> in <code>init()</code> and keep it for the process: th
 <code>LoopDriver</code> (a client's <code>reset(Hard)</code> runs the loop owner's own boot; <code>load()</code>
 its load dispatch), bracket every cold boot THEY decide on — a guest NR 0x02
 hard reset, a NEX load request, F1, a menu load — with <code>on_cold_boot_begin()</code> /
-<code>on_cold_boot_done()</code>, and call <code>pump()</code> once per tick after the frames (and,
-in SDL and headless, after the cold-boot polls; Qt pumps in <code>post_frames</code>). With
-no client attached this arms nothing, so a run with it is bit-identical to a run
+<code>on_cold_boot_done()</code>, and call <code>pump()</code> once per tick after the frames and
+after the cold-boot polls (Qt in <code>post_frames()</code>, since GH #278 WP2 — it used to
+poll in <code>pre_frames()</code>, i.e. next tick, so a client <code>reset(Hard)</code> in this tick's
+pump destroyed the machine with the guest's request still pending). With no
+client attached this arms nothing, so a run with it is bit-identical to a run
 without it (rows HOST-01..05, the last three through the real <code>HeadlessApp</code>).
-<code>QtApp::debugger()</code> is the instance package Q's <code>DebuggerManager</code> is to use.</p>
+<code>QtApp::debugger()</code> is the instance the Qt <code>DebuggerManager</code> adapts
+(<code>MainWindow::set_debugger()</code>).</p>
 <p>Because none of those calls changes an unattached run, nothing a normal run does
 can show one missing. The <code>JNEXT_HOST_PROBE</code> fixture (<code>src/platform/host_probe.h</code>,
 env-gated, zero-cost unset, deliberately not a CLI flag) makes them observable:
@@ -2474,7 +2513,12 @@ guest hard-reset request, reports whether the loop owner's cold boot came back
 with <code>Reset{Hard}</code> pushed and the pause still its own, resumes, and then asks for
 <code>reset(Hard)</code> through the registered driver — one <code>HOSTPROBE</code> log line each. The
 regression rows <code>sdl-host-probe-func</code> and <code>qt-host-probe-func</code> read those lines
-for <code>SdlApp</code> and <code>QtApp</code>; row HOST-07 runs the same probe through <code>HeadlessApp</code>.</p>
+for <code>SdlApp</code> and <code>QtApp</code>; row HOST-07 runs the same probe through <code>HeadlessApp</code>.
+<code>JNEXT_HOST_PROBE=order</code> runs a second script for the POLL ORDER: a <code>Frame</code>
+handler raises the guest hard-reset request from inside the frames, and in the
+next pump the probe issues its own <code>reset(Hard)</code> — a loop owner that polls before
+it pumps boots twice, guest first; one that pumps first boots once
+(<code>qt-host-order-func</code> for <code>QtApp</code>, HOST-08 for <code>HeadlessApp</code>).</p>
 <p><strong>The CLI <code>--delayed-*</code> flags keep their own countdowns.</strong> Each loop owner counts
 LOOP TICKS for every <code>--delayed-*</code> flag, as before — a tick count survives a
 cold boot and keeps counting while the machine is paused, which is what keeps
@@ -2517,6 +2561,69 @@ the opcode at PC (an NMI or INT acknowledge does not run it). Switched off it is
 one pointer test per instruction. Each trace entry now carries I, R, IM, IFF1,
 IFF2, the word at SP (read with <code>peek()</code>, so the trace moves no watch and no +3
 floating-bus latch) and the eight MMU pages.</p>
+<h3 id="the-qt-adapter-gh-278-wp2-wp4a-c-wp7">The Qt adapter (GH #278 WP2, WP4a-c, WP7)<a class="headerlink" href="#the-qt-adapter-gh-278-wp2-wp4a-c-wp7" title="Permanent link">&para;</a></h3>
+<p><code>DebuggerManager</code> holds the loop owner's <code>Debugger</code> — handed over by
+<code>MainWindow::set_debugger()</code>, without which <code>set_emulator()</code> throws rather than
+build a window with no debugger — and is TWO clients of it.</p>
+<p>The <strong>window's client</strong> is attached <strong>exactly while the debugger window is
+open</strong>: <code>set_enabled(true)</code> attaches and requests the live raster,
+<code>set_enabled(false)</code> resumes a paused machine — whoever paused it, as closing
+the debugger always has — and detaches. Every verb is attributed to it. Not for
+the process lifetime, which is what the design first said: an attach arms the
+machine (<code>armed = attached || persistent</code>), and a window that armed breakpoints
+while closed would make <code>--persistent-breakpoints</code> the default
+(<code>debugger_persistent_bp_test</code> PBPUI-03 pins the opposite).</p>
+<p>The <strong>breakpoints' owner</strong> is a non-arming OBSERVER client
+(<code>ClientInfo::observer</code>, REQ-qt-32), attached by <code>BreakpointModel</code>
+(<code>src/debugger/breakpoint_model.*</code>) for the manager's lifetime. The GUI's
+breakpoints are its backend subscriptions — single-address <code>Execute</code>, <code>Mem</code> and
+<code>Port</code> subscriptions with no condition, <code>once = false</code>, action <code>Stop</code>; READ /
+WRITE / READ_WRITE is one <code>Mem</code> row with an access mask, and an I/O address
+<code>00-FF</code> is a low-byte match (<code>port_mask 0x00FF</code>) while <code>0100</code> and up is exact
+(GH #222). Because the observer never detaches while the GUI exists and arms
+nothing, a breakpoint survives closing the window, fires with the window shut
+exactly when something else arms the machine (<code>--persistent-breakpoints</code>, a
+remote client), and costs a closed window nothing. The Breakpoints panel, the
+disassembly gutter and context menu and the window's Breakpoints menu all edit
+this one model; the panel lists every client's subscriptions, another client's
+read-only and named by its client id.</p>
+<p>A pause the window did not cause still opens it, because the pause state is
+PULLED: <code>check_breakpoint_hit()</code> reads <code>state()</code> once per tick, after the pump,
+and brings the window to it in both directions — a pause it has not shown gets
+the pause-edge sequence (opening the window first if it is closed: a breakpoint,
+a magic breakpoint, a persistent breakpoint, another client's pause), a resume it
+did not cause gets the running one. What the window last showed is the one piece
+of state the adapter keeps for this, and it is presentation state, not a copy of
+the machine's. The eleven copies of the four panels' <code>set_paused()</code> sequence
+are one <code>apply_pause_state(bool)</code>. The same tick first lets the model publish a
+breakpoint change another client made (below).</p>
+<p>The Watches panel stays a GUI-side list — a watch is a peek, not an event — and
+reads its values through <code>peek(MemSpace::cpu())</code>, so it moves neither a
+watchpoint nor the +3 floating-bus latch. The Stack, Memory and Disassembly
+panels read guest memory the same way (the Memory panel a row per peek, the
+disassembly through <code>memory_reader()</code>).</p>
+<p>The register panels (WP4a/b) are projections of the facade's inspection calls:
+<code>registers()</code>, <code>mmu_slots()</code> and <code>paging_ports()</code>, <code>ula_screen_regs()</code>,
+<code>call_stack()</code>, <code>sprites()</code>, <code>copper()</code>, <code>nextreg_peek()</code>, <code>ay_registers()</code> and
+the three live audio signals. Three panels write, and a write is a mutation the
+backend logs as one line, <code>MUTATE &lt;what&gt; &lt;old&gt; -&gt; &lt;new&gt; by &lt;client&gt;</code>, attributed
+like a verb to the window's client (to no client while the window is closed —
+<code>DebuggerManager::set_panels_client()</code> keeps all three told). A NextREG edit
+is <code>nextreg_write()</code>, so the register's own handler runs exactly as for
+<code>NEXTREG nn,n</code>; a Memory hex edit is <code>poke(MemSpace::cpu())</code>, i.e.
+<code>Mmu::write</code> through the live map (ROM ignored, overlays honoured, no watch).
+Both are refused while an RZX records or plays, since a write the recording
+does not contain would make its replay diverge; the NextREG cell shows the
+register's value again at the next refresh, the Memory byte simply does not
+change. The Audio panel's mute boxes are <code>set_audio_mute_mask()</code>. The Memory
+panel's slot view (WP8, owner decision Q7) reads and writes the slot's PHYSICAL
+backing store in the space <code>mmu_slots()</code> names — <code>Page{nr_page}</code> for a RAM
+slot, <code>Rom{...}</code> for a ROM slot, whose <code>poke</code> is <code>RefusedReadOnly</code> — at
+<code>space_offset + (addr &amp; 0x1FFF)</code>; the panel never composes a space from
+<code>effective_page</code> and <code>is_rom</code> (a ROM slot's effective page is SRAM-physical,
+outside <code>Page{}</code>'s numbering). So an overlay over the slot (DivMMC, Multiface,
+Layer 2) no longer shows in it, and its "Page..." item reads any <code>Page{p}</code>,
+mapped in a slot or not.</p>
 <h3 id="the-shared-socket-transport-package-t">The shared socket transport (package T)<a class="headerlink" href="#the-shared-socket-transport-package-t" title="Permanent link">&para;</a></h3>
 <p>The three protocol servers the epic plans — DZRP, ZRCP and GDB RSP — share one
 transport, in <strong><code>src/remote/</code></strong> (target <code>jnext_remote</code>). It has no toolkit
@@ -2612,28 +2719,32 @@ the CLI and the recorder are later work packages of the same branch.</p>
 <code>src/gui/</code> sits inside an <code>#ifdef</code>. <code>jnext_debug</code> is linked unconditionally,
 and <code>Emulator::debug_state_</code> is an ordinary member either way.</p>
 <p>That is deliberate, because the hot loop's cost is not "is the debugger
-compiled in" but "is it <em>active</em>". <code>DebugState::active_</code> starts false and turns
-true only when the UI enables the debugger or a magic breakpoint fires.</p>
-<p>There are <strong>two</strong> booleans, and the split is load-bearing (GH #219).
-<code>active_</code> means <em>the debugger is driving the machine</em>: it gates the step modes
-(<code>OUT</code>, <code>STEP_BACK</code>, <code>RUN_BACK_TO_CYCLE</code>), the "render every frame" hint that
-keeps the panels showing a live framebuffer, and <code>video_timing_.advance()</code>,
-which maintains raster counters nothing but a human inspector ever reads.
-<code>armed_</code> — <code>active_ || persistent_</code> — is the narrower <em>are breakpoints live</em>,
-and it is what the per-instruction breakpoint test hangs off. <code>persistent_</code>
-comes from <code>--persistent-breakpoints</code> via <code>EmulatorConfig</code>, and is what lets
-breakpoints survive closing the debugger window without switching the rest of
-that machinery back on. The call-stack pre/post hooks sit behind their own
-<code>enabled()</code> flag.</p>
-<p><code>armed_</code> is a cached bool recomputed by the two setters rather than an
-expression, so the default configuration executes exactly the load-and-branch
-the single <code>active()</code> gate used to.</p>
+compiled in" but "is it <em>armed</em>". Nothing is armed until the debugger window
+opens (its backend client), a remote client attaches, <code>--persistent-breakpoints</code>
+is given, or a magic breakpoint fires (which holds only its own stop).</p>
+<p>The split between <em>driving</em> and <em>armed</em> is load-bearing (GH #219). The
+debugger <em>driving the machine</em> — an arming client attached, plus the live
+raster it asks for — gates the step modes (<code>OUT</code>, <code>STEP_BACK</code>,
+<code>RUN_BACK_TO_CYCLE</code>), the "render every frame" hint that keeps the panels
+showing a live framebuffer, and <code>video_timing_.advance()</code>, which maintains
+raster counters nothing but a human inspector ever reads. <code>armed_</code> is the
+narrower <em>are breakpoints live</em>, and it is what the per-instruction breakpoint
+test hangs off. <code>persistent_</code> comes from <code>--persistent-breakpoints</code> via
+<code>EmulatorConfig</code>, and is what lets breakpoints survive closing the debugger
+window without switching the rest of that machinery back on. The call-stack
+pre/post hooks sit behind their own <code>enabled()</code> flag. (Until GH #278 WP4c one
+<code>active()</code> bit meant "driving" and fed all three; it was the Qt window's, and
+the window is a client now.)</p>
+<p><code>armed_</code> is a cached bool recomputed by the setters rather than an expression,
+so the default configuration executes exactly the load-and-branch the single
+<code>active()</code> gate used to.</p>
 <p>So "the debugger costs nothing when closed" is a claim about a predictable
 branch, not about conditional compilation.</p>
 <h3 id="a-debugger-read-is-not-a-guest-access">A debugger read is not a guest access<a class="headerlink" href="#a-debugger-read-is-not-a-guest-access" title="Permanent link">&para;</a></h3>
 <p>There is a <strong>third</strong> boolean, and it exists because <code>Mmu::read()</code> is not the
 CPU's read. The Watches, Memory, Stack and Disassembly panels all
-inspect guest memory through the same <code>Mmu::read()</code> the CPU uses, so before
+inspected guest memory through the same <code>Mmu::read()</code> the CPU uses (all four
+peek since GH #278 WP4c-WP5), so before
 this gate existed a READ watchpoint on any address a panel happened to display
 was latched by the panel's own refresh — at roughly 4 Hz while the machine ran
 — and the next Run or Step stopped one instruction later at an unrelated
@@ -2719,7 +2830,9 @@ consults it once per instruction, before the fetch:</p>
 <h3 id="enabling-and-disabling-breakpoints">Enabling and disabling breakpoints<a class="headerlink" href="#enabling-and-disabling-breakpoints" title="Permanent link">&para;</a></h3>
 <p><code>BreakpointSet</code> keeps two things, not one. The <strong>model</strong> — <code>pc_all_</code>
 (<code>addr -&gt; enabled</code>) and <code>wp_all_</code> (each <code>Watchpoint</code> carrying its own
-<code>enabled</code>) — is what the Breakpoints panel lists. The <strong>live cache</strong> —
+<code>enabled</code>) — is what the Breakpoints panel listed until GH #278 WP4c moved the
+GUI's breakpoints to backend subscriptions, whose <code>EventTable</code> keeps the same
+own-flag / live split (<code>SubscriptionInfo::enabled</code> / <code>live</code>). The <strong>live cache</strong> —
 <code>pc_live_</code> and <code>wp_live_</code>, the same container types the class had before any of
 this existed — holds only what can actually fire, and is what <code>has_pc()</code>,
 <code>has_watchpoint()</code>, <code>has_io_watchpoint()</code> and <code>has_any_watchpoints()</code> read.
@@ -2768,13 +2881,13 @@ with no enable gating, and <code>MainWindow</code> forwards the Run binding to <
 whenever the debugger is enabled, regardless of whether the machine is paused. The arm is also dropped by <code>refresh_gates_()</code> when
 breakpoints go dead, because the consumer stops running there while PC does
 not.</p>
-<p>Step Over is not a special CPU mode. <code>DebuggerManager::on_step_over()</code> asks the
-disassembler whether the current instruction <code>is_call_like()</code> — <code>CALL nn</code>,
-<code>CALL cc,nn</code>, <code>RST n</code>, <code>DJNZ</code> — and if it is, sets a one-shot breakpoint at
-<code>PC + instruction_length()</code> and resumes; otherwise it degrades to Step Into.
-Run to Cursor is the same one-shot mechanism with a user-chosen address, and
-Run to End of Frame and End of Scanline are <code>run_to_cycle()</code> with a computed
-target.</p>
+<p>Step Over is not a special CPU mode. The backend's <code>step_over()</code> (CTL-04, which
+the Qt debugger's Step Over calls) asks the disassembler whether the current
+instruction <code>is_call_like()</code> — <code>CALL nn</code>, <code>CALL cc,nn</code>, <code>RST n</code>, <code>DJNZ</code> — and if
+it is, arms a transient <code>Execute</code> subscription at <code>PC + instruction_length()</code> and
+resumes; otherwise it is a Step Into. Run to Cursor is the same transient with a
+user-chosen address, and Run to End of Frame and End of Scanline are
+<code>run_to_cycle()</code> with a computed target.</p>
 <p>Step Out is the one mode whose termination is decided <em>after</em> the instruction
 rather than before it. <code>step_out()</code> records SP at the moment F8 was pressed;
 <code>check_step_out()</code> is then called from the shared per-instruction body once per
@@ -2817,8 +2930,8 @@ Stepping must <em>observe</em> the emulation and never alter it — see
 <a href="../02-architecture/02-the-emulator-core.html">2.2 The emulator core</a> for why
 <code>run_frame()</code> refuses to re-begin a frame that is already in progress.</p>
 <p>That function is the <em>raw</em> one-slot primitive, though, and the debugger does
-not use it directly: <code>DebuggerManager::on_step_into()</code> calls
-<code>Emulator::debugger_step()</code>. The difference is the frame boundary, which is
+not use it directly: the backend's <code>step_into()</code>, which the Qt debugger's Step
+Into calls, runs <code>Emulator::debugger_step()</code>. The difference is the frame boundary, which is
 easy to overlook — while the debugger holds the machine the frontends stop
 calling <code>run_frame()</code> altogether, so a step is the machine's only driver and
 inherits its frame loop as well as its inner one. <code>step_frame_slot()</code> begins a
@@ -2860,7 +2973,8 @@ debugger-less build, or <code>PreferencesDialog::collect()</code> — which rebu
 pressed OK. And not in <code>src/gui/</code> either, because <code>ENABLE_QT_UI=OFF</code> with
 <code>ENABLE_DEBUGGER=ON</code> is a real build-matrix combination in which <code>jnext_gui</code>
 does not exist. The Qt conversions sit in the header-only
-<code>src/debug/debug_keymap_qt.h</code>, which <code>jnext_debug</code> itself never compiles.</p>
+<code>src/qt/debug_keymap_qt.h</code>, beside the model's other Qt-only consumers rather
+than inside the Qt-free library's directory.</p>
 <p><strong>The vocabulary is bounded.</strong> <code>Key</code> is an enum of function keys, letters,
 digits and sixteen named keys, not a mirror of <code>Qt::Key</code>. That is what makes
 <code>parse_combo()</code> able to refuse a value <em>by name</em>, makes <code>render_combo()</code>
@@ -2915,11 +3029,11 @@ introspects:</p>
 </tr>
 <tr>
 <td>Disassembly</td>
-<td><code>src/debug/disasm.*</code> over <code>Mmu::read</code>, with symbol substitution, a breakpoint gutter, and a selection you can copy as assembly</td>
+<td><code>src/debug/disasm.*</code> over the backend's <code>memory_reader()</code> (a peek), with symbol substitution, a breakpoint gutter, and a selection you can copy as assembly</td>
 </tr>
 <tr>
 <td>Memory</td>
-<td>raw bytes, either through the CPU's address space or a chosen MMU slot</td>
+<td>raw bytes through the CPU's address space, or the physical page of a chosen MMU slot or of any NR page</td>
 </tr>
 <tr>
 <td>Stack</td>
@@ -2935,7 +3049,7 @@ introspects:</p>
 </tr>
 <tr>
 <td>Breakpoints</td>
-<td>the contents of <code>BreakpointSet</code></td>
+<td>the backend's subscriptions (<code>BreakpointModel</code>): the GUI's own, editable, and any other client's, read-only</td>
 </tr>
 <tr>
 <td>Video</td>
@@ -2962,6 +3076,24 @@ introspects:</p>
 <p>For what these look like and how to drive them, see chapter 6 of the <strong>user
 guide</strong>, <em>The debugger</em> — a UI reference written against the running product,
 and not repeated here.</p>
+<p>The Video panel's layer views are drawn by the backend, not by the panel. The
+backend verb is <code>Debugger::render_layer()</code> (INS-14, <code>src/debug/debugger_render.cpp</code>,
+Qt-free). It fills rows 0..vc of a 640-wide buffer with <code>0x00000000</code>, so alpha 0
+means transparent, and then renders the view. It does this after rewinding and
+replaying every per-scanline change log exactly as <code>Renderer::render_frame</code>
+does, so a raster split shows as it does on screen. Rows past the raster are
+left alone. The panel keeps the presentation:</p>
+<ul>
+<li>the <code>QImage</code>;</li>
+<li>the dark "not yet rendered" rows;</li>
+<li>the checkerboard under every alpha-0 cell, the same rule for all eight views;</li>
+<li>the scaling, the red raster line and the titles.</li>
+</ul>
+<p>The render is state-preserving. The replay walks each log to its end, which
+puts every live register back. The port 0x303B sprite status bits, which
+drawing sprites latches, are saved and restored explicitly.
+<code>debugger_backend_test</code> INS-14-08 compares the whole serialised machine state
+around each view.</p>
 <p>The Video panel's raster block is worth a note, because it is the one place a
 user sees <code>hc</code>/<code>vc</code>, <code>hc_ula</code>/<code>vc_ula</code>, <code>cvc</code> and <code>phc</code> side by side. Every
 number is labelled with the VHDL signal it mirrors, and <code>cvc</code> is labelled as
@@ -2975,26 +3107,33 @@ deliberately no second table of raster constants in <code>src/debugger/</code>.<
 That is a performance decision as much as a legibility one: reading the
 register file every frame while the machine runs produces a blur, at real cost.</p>
 <p>Everything else refreshes on <code>DebuggerManager</code>'s timer — with one exception.
-The <strong>two views of the breakpoint set</strong> (the Breakpoints list and the
-disassembly gutter) also <strong>observe it</strong>: <code>BreakpointSet::add_observer()</code> takes a
-<code>std::function&lt;void(BreakpointChange)&gt;</code> — a plain callback, because <code>src/debug/</code>
-is Qt-free — and every mutator calls it, so a breakpoint appears the instant it
-is set rather than on the next tick. The two subscribers differ, deliberately:
-the list acts on both change kinds, the gutter only on <code>PcBreakpoints</code>, since it
-paints the PC half and nothing else. One-shot breakpoints notify nobody — they
-are transient, are set on every resume, and no panel draws them. The enable
-setters notify the half they change; the master switch notifies <strong>both</strong>, since
-it changes every checkbox in the list and every dot in the gutter at once.</p>
-<p>The point is where the notification comes <em>from</em>. A dozen call sites mutate that
-set, and each one used to be responsible for repainting the views itself; twice
-a site was added that did not, and the panels lied until the next tick. Emitting
-from the mutator means a new call site cannot get it wrong.</p>
+The <strong>two views of the breakpoints</strong> (the Breakpoints list and the disassembly
+gutter) follow <code>BreakpointModel::changed(kinds)</code> (GH #220; GH #278 WP4c), so a
+breakpoint appears the instant it is set rather than on the next tick. <code>kinds</code>
+is the set of event kinds whose LISTED state changed, found by diffing the
+backend's <code>subscriptions()</code> listing against the last one the model published:
+the list acts on any kind, the gutter only on <code>Execute</code>, since it paints
+Execute breakpoints and nothing else. A transient subscription (Step Over, Run
+to Here) is not listed, so it changes nothing drawn and notifies nobody; a
+master-switch flip notifies all three GUI kinds, since it changes every
+checkbox in the list and every dot in the gutter at once.</p>
+<p>The point is where the notification comes <em>from</em>. A dozen call sites mutate the
+breakpoints, and each one used to be responsible for repainting the views
+itself; twice a site was added that did not, and the panels lied until the next
+tick. So every model mutator publishes before it returns, and a new call site
+cannot get it wrong. A change ANOTHER client makes arrives as the backend's
+<code>SubscriptionsChanged</code> push, which the observer's listener only records — a
+listener runs inside <code>pump()</code> and does no UI work (REQ-qt-15b) — and the tick
+publishes it. The backend's push carries the LIVE kind set, not the changed one,
+which is why the model diffs rather than trusting the payload.</p>
 <h2 id="symbols">Symbols<a class="headerlink" href="#symbols" title="Permanent link">&para;</a></h2>
 <p><code>src/debug/symbol_table.*</code> is a bidirectional address↔name map with two
 readers: <code>load_z88dk_map()</code> for z88dk linker output, and <code>load_simple_map()</code>
-for a plain <code>SYMBOL = $ADDR</code> list. <code>DebuggerManager</code> owns the table, and the
-disassembly, breakpoint and watch panels all consume it — which is why a
-breakpoint set on a symbol keeps its name in the breakpoint list.</p>
+for a plain <code>SYMBOL = $ADDR</code> list. The debugger backend owns the ONE table
+(CAP-SYM, since GH #278 WP6): the Map menu loads into it with <code>load_map()</code>, and
+the disassembly, call stack and breakpoint panels read <code>symbols()</code> — which is
+why a breakpoint set on a symbol keeps its name in the breakpoint list, and why
+a symbol any other client loads shows in the panels too.</p>
 <h2 id="copying-out-of-a-custom-painted-panel">Copying out of a custom-painted panel<a class="headerlink" href="#copying-out-of-a-custom-painted-panel" title="Permanent link">&para;</a></h2>
 <p>The disassembly panel paints itself, so there is no Qt text widget to inherit a
 selection from — it has to be built against the panel's own line model. Two
@@ -3066,8 +3205,17 @@ program is busy drawing.</p>
 executes. jnext intercepts it in <code>src/cpu/z80_cpu.cpp</code> before the FUSE core
 sees it, and recognises both community conventions: <code>ED FF</code>
 (ZEsarUX/Spectaculator) and <code>DD 01</code> (CSpect). With <code>--magic-breakpoint</code> set,
-<code>Emulator::init</code> installs an <code>on_magic_breakpoint</code> callback that activates and
-pauses <code>DebugState</code>; the opcode then advances PC by two and costs 8 T-states.
+<code>Emulator::init</code> installs an <code>on_magic_breakpoint</code> callback that pauses
+<code>DebugState</code> and HOLDS the stop (<code>hold_for_magic_stop()</code>); the opcode then
+advances PC by two and costs 8 T-states. The hold is there because the hook
+fires on a machine nothing may arm (headless, SDL, a closed debugger window),
+and the hot loop honours a pause only inside its armed block: without it the
+machine would run on to the end of the frame past the opcode. It arms nothing
+else — not the step machinery, not the raster walk — and the resume that ends
+the stop releases it, so the machine is then armed by exactly what armed it
+before. (Until GH #278 WP4c the hook set the Qt window's <code>active()</code> bit
+instead, which only the window's close cleared: a remote client's <code>run()</code> of a
+magic stop left the machine armed for the rest of the session.)
 With the flag unset the callback is null and both sequences fall straight
 through to normal Z80 decoding — which is the point, because it means the hook
 can be left in shipped source instead of being conditionally assembled out.</p>

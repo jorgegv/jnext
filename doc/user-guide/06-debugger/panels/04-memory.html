@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.56</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.56</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2941,16 +2941,24 @@ eight, and the ASCII rendering.</p>
 <li>The <strong>Addr</strong> box takes a hex address (<code>5800</code>, <code>$5800</code> or <code>0x5800</code>) and centres
   the view on it.</li>
 <li>The <strong>page selector</strong> chooses the window. <code>CPU View</code> shows the whole 64K as
-  the CPU sees it; <code>Slot 0</code>–<code>Slot 7</code> restrict the view to one 8K slot and name
-  the page currently mapped there, which updates as the program pages.</li>
+  the CPU sees it — paged-in DivMMC, Multiface or Layer 2 memory included.
+  <code>Slot 0</code>–<code>Slot 7</code> show the 8K <strong>page</strong> mapped in that slot (its label names
+  it, and follows the program's paging) — the page itself, so a DivMMC,
+  Multiface or Layer 2 overlay switched on over the slot does not show there;
+  a ROM slot shows the ROM. <code>Page...</code> asks for a page number (hex, <code>00</code>–<code>DF</code>,
+  the numbering of <code>NEXTREG $50</code>–<code>$57</code>) and shows that page whether any slot
+  maps it or not.</li>
 <li>In <code>CPU View</code>, rows are colour-coded: the row containing <code>SP</code> in orange,
   pixel VRAM <code>$4000</code>–<code>$57FF</code> in cyan, and attributes <code>$5800</code>–<code>$5AFF</code> in yellow.</li>
 </ul>
 <p>To edit, click a byte and type two hex digits — the write happens on the second
 digit and the selection advances to the next byte. Arrow keys move the
 selection, <strong>Page Up/Down</strong>, <strong>Home</strong> and <strong>End</strong> scroll, and <strong>Esc</strong> clears
-the selection. Writes go through the MMU exactly as a <code>LD (nn),A</code> would, so
-ROM stays read-only.</p>
+the selection. In <code>CPU View</code> writes go through the MMU exactly as a <code>LD (nn),A</code>
+would, so ROM stays read-only; in a slot or <code>Page...</code> view they write the page
+itself, where an overlay does not see them, and a ROM slot stays read-only. While an RZX recording or playback is running an edit is
+refused — a write the recording does not contain would make its replay go
+wrong — and the byte keeps its value.</p>
 
 
 

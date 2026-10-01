@@ -509,7 +509,20 @@ Result Debugger::port_out(ClientId by, uint16_t port, uint8_t value) {
 // INS-06 / INS-07 / INS-19 — raster, time, machine
 // ---------------------------------------------------------------------------
 
+// GH #278 WP7 — a PAUSED machine's raster position is taken HERE, at the
+// query, for every client. `Emulator::snapshot_raster()` (the clock-derived
+// paused_hc/paused_vc) used to be taken only by the Qt debugger's own refresh,
+// through its `Emulator*`, so a script or a remote client asking a machine it
+// had paused read whatever the last Qt refresh left behind. While paused the
+// snapshot is a pure function of the clock and the frame start, neither of
+// which moves, so taking it on every query is idempotent; while RUNNING it is
+// left alone, exactly as before (the value of the last pause).
+static void snapshot_if_paused(Emulator& emu) {
+    if (emu.debug_state().paused()) emu.snapshot_raster();
+}
+
 RasterState Debugger::raster() const {
+    snapshot_if_paused(impl_->emu);
     // The same four arguments `video_panel_raster_state()` passes, and for the
     // same reasons: paused_hc/paused_vc rather than VideoTiming::pos() (the
     // latter only advances while a debugger is attached, the former is derived
@@ -522,6 +535,7 @@ RasterState Debugger::raster() const {
 }
 
 Time Debugger::time() const {
+    snapshot_if_paused(impl_->emu);
     Time t;
     t.master_cycle   = impl_->emu.clock().get();
     t.tstates_total  = impl_->emu.monotonic_tstates();

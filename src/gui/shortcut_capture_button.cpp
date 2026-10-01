@@ -1,6 +1,6 @@
 #include "gui/shortcut_capture_button.h"
 
-#include "debug/debug_keymap_qt.h"
+#include "qt/debug_keymap_qt.h"
 
 #include <QEvent>
 #include <QFocusEvent>

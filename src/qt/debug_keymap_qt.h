@@ -2,12 +2,15 @@
 
 // GH #1 — the Qt bridge for the Qt-free model in debug_keymap.h.
 //
-// HEADER-ONLY, and deliberately so: it sits in src/debug/ next to the model it
-// converts, but jnext_debug (a Qt-free static library, linked into builds with
-// no Qt at all) never compiles it. Only Qt translation units include it, and
+// HEADER-ONLY, and deliberately so. Only Qt translation units include it, and
 // both jnext_gui and jnext_debugger do — which is why it cannot live in either
 // of those two directories without creating a link edge between them that the
-// ENABLE_QT_UI x ENABLE_DEBUGGER build matrix forbids.
+// ENABLE_QT_UI x ENABLE_DEBUGGER build matrix forbids. It lives in src/qt/, the
+// header-only home of the Qt code the two share: no library target, Qt only,
+// no Emulator (GH #278 WP1). It used to sit in src/debug/ next to the model it
+// converts, which put Qt inside the directory of the Qt-free jnext_debug; the
+// unit suite debug_qt_free_test now fails if a *_qt.h or a Qt include ever
+// comes back there.
 
 #include "debug/debug_keymap.h"
 
