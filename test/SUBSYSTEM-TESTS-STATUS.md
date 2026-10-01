@@ -35,7 +35,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Multiface (core)      |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card               |       87 |       87 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD ROM Extractor      |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD File Add (GH #269) |       72 |       72 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD File Add (GH #269) |      164 |      164 |      0 |       0 |    100% | 🟢 All tests pass. |
 | FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |       82 |       82 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Warm start (GH #234)  |       41 |       41 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -132,6 +132,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       61 |       61 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       61 |       61 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **11738**| **11738**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **11830**| **11830**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

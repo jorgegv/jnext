@@ -180,21 +180,24 @@ the SD write-error token rather than silently discarded. Use it when a
 run must not disturb an image other runs share.
 
 **--sdcard-file-add** *FILE*  
-Copy host *FILE* into the SD-card image and **exit without starting
-emulation**. Requires **--sdcard-file-dest**. The image written is the
-one **--sdcard** names, or the default-location image when **--sdcard**
-is omitted — in which case a loud warning says so, because that image is
-shared with every other run. See **PUTTING A FILE ON THE CARD**.
+Copy host *FILE* — a file, or a directory with everything in it — into
+the SD-card image and **exit without starting emulation**. Without
+**--sdcard-file-dest** it lands in the root of the card under its own
+name. Give it once per run. The image written is the one **--sdcard**
+names, or the default-location image when **--sdcard** is omitted — in
+which case a loud warning says so, because that image is shared with
+every other run. See **PUTTING A FILE ON THE CARD**.
 
 **--sdcard-file-dest** *PATH*  
-Where **--sdcard-file-add** puts the file, as a path from the root of
-the card (`/NEXTZXOS/DRV-A.DSK`). The leading `/` is optional,
-directories are separated with `/`, and any missing directory in the
-path is created.
+Optional. The path on the card that **--sdcard-file-add**’s *FILE*
+becomes, from the root of the card (`/NEXTZXOS/DRV-A.DSK`). The leading
+`/` is optional, directories are separated with `/`, and any missing
+directory in the path is created. For a directory, `/` copies its
+contents straight into the root of the card.
 
 **--sdcard-file-force**  
-Let **--sdcard-file-add** replace a file that is already there. Without
-it an existing destination is refused and left untouched.
+Let **--sdcard-file-add** replace files that are already there. Without
+it an existing destination file is refused and nothing is written.
 
 **--warm-start-regenerate**  
 Discard the cached warm-start recording and take a fresh one on the next
@@ -923,24 +926,64 @@ the card, then press Y.
 
 ### PUTTING A FILE ON THE CARD
 
-**--sdcard-file-add** copies a host file into the image and exits. No
-emulator starts, nothing boots; it is a file-copy command that happens
-to live in the emulator binary, so getting a program onto the card needs
-no `mtools` and no loopback mount.
+**--sdcard-file-add** copies a host file, or a whole directory, into the
+image and exits. No emulator starts, nothing boots; it is a file-copy
+command that happens to live in the emulator binary, so getting programs
+onto the card needs no `mtools` and no loopback mount.
 
     jnext --sdcard-file-add game.dsk --sdcard-file-dest /NEXTZXOS/DRV-A.DSK
     jnext --sdcard-file-add demo.nex --sdcard-file-dest /DEMOS/demo.nex
+    jnext --sdcard-file-add demo.nex
+    jnext --sdcard-file-add mygames
+    jnext --sdcard-file-add mygames --sdcard-file-dest /GAMES/MINE
 
-The destination is a path from the root of the card. Missing directories
-along it are created, so the second example works on a card with no
-`/DEMOS`. Names may be long: an 8.3-clean uppercase name such as
-`DRV-A.DSK` is written as a plain short entry, and anything else gets
-VFAT long-name entries plus a generated short name, exactly as any other
-FAT32 driver would write it.
+**--sdcard-file-dest** is the path on the card that the source
+*becomes*. It is optional: without it the source goes into the root of
+the card under its own name, so the third example writes `/demo.nex` and
+the fourth `/mygames`. A directory given with **--sdcard-file-dest** `/`
+has its contents copied straight into the root instead. Missing
+directories along the path are created, so the second example works on a
+card with no `/DEMOS`. Names may be long: an 8.3-clean uppercase name
+such as `DRV-A.DSK` is written as a plain short entry, and anything else
+gets VFAT long-name entries plus a generated short name, exactly as any
+other FAT32 driver would write it.
 
-A destination that already exists is **refused**, and the file on the
-card is left alone — overwriting `DRV-A.DSK` would destroy a disk image.
-Pass **--sdcard-file-force** to replace it deliberately.
+One run copies one source, so the pairing is never in doubt: giving
+**--sdcard-file-add** or **--sdcard-file-dest** twice is refused (exit
+1), and the two may come in either order. To copy several things at
+once, put them in a directory and add that.
+
+A destination file that already exists is **refused**, and the file on
+the card is left alone — overwriting `DRV-A.DSK` would destroy a disk
+image. Pass **--sdcard-file-force** to replace it deliberately.
+
+A directory is copied recursively, in name order:
+
+- A directory that already exists on the card is **merged into**, never
+  replaced; the files in it follow the rule above, each one.
+- **Symbolic links are followed**: FAT has no links, so the card gets
+  what a link points at. A link that leads back into its own parent
+  directories is refused, as is a link to nothing.
+- **Empty directories** are created.
+- Refused, before anything is written: a device, FIFO or socket; a file
+  or directory that cannot be read; a file of 4 GiB or more; a name FAT
+  cannot hold (non-ASCII, or one of `" * : < > ? \ |`, or ending in a
+  dot or a space); and two names in one directory that differ only in
+  case, which FAT would make one file. Nothing is renamed or silently
+  skipped — hidden files included.
+
+A file or a directory, the copy is **all or nothing**. Every refusal is
+decided before the first byte is written, so a refused copy — including
+one that does not fit, counting the directories it would have to make —
+leaves the card exactly as it was. If the copy fails part-way — the card
+fills up, or a file shrinks while it is read — everything this run
+created, files and directories, is removed again before jnext exits with
+an error. Two things cannot be undone: a file **--sdcard-file-force**
+had already replaced (the message says how many), and the extra cluster
+an existing directory grew by to hold a new entry, since FAT never
+shrinks a directory. The free-space check counts a file that
+**--sdcard-file-force** will replace at its full size, so a forced copy
+onto a nearly full card can be refused even though it would just fit.
 
 The copy goes into the image **--sdcard** names. With no **--sdcard** it
 goes into the default-location image, which every other run also boots
@@ -2038,23 +2081,29 @@ is reported when **jnext** exits.
 which failure happened rather than a single non-zero status:
 
 0  
-The file was copied onto the card.
+The file or directory was copied onto the card.
 
 1  
-Command-line usage error — one half of the pair given without the other,
-or combined with **--sdcard-readonly** or **--load**.
+Command-line usage error — **--sdcard-file-dest** or
+**--sdcard-file-force** without **--sdcard-file-add**, either of the
+first two given twice or with an empty value, or combined with
+**--sdcard-readonly** or **--load**.
 
 2  
 The host file is missing, unreadable, shrank while being copied, or is 4
-GiB or larger (which FAT32 cannot store).
+GiB or larger (which FAT32 cannot store); or, inside a directory, a
+device, FIFO or socket, an unreadable directory, a dangling symbolic
+link, or one that loops back.
 
 3  
 The destination path is unusable: malformed or non-ASCII, a name FAT
 forbids, a component that already exists as a file, or a destination
-that already exists as a directory.
+that already exists as a directory (for a file) or as a file (for a
+directory). For a directory this includes a host name inside it that FAT
+cannot hold, and two names that differ only in case.
 
 4  
-The destination file already exists and **--sdcard-file-force** was not
+A destination file already exists and **--sdcard-file-force** was not
 given. Nothing was written.
 
 5  

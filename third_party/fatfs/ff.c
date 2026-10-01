@@ -4225,6 +4225,48 @@ FRESULT f_sync (
 	LEAVE_FF(fs, res);
 }
 
+/*-----------------------------------------------------------------------*/
+/* jnext local change (GH #292): flush the whole volume                  */
+/*-----------------------------------------------------------------------*/
+/* NOT part of upstream FatFs R0.15b.
+
+   Writes back the dirty sector window (FAT entries, mirrored into every FAT
+   copy) and the FSInfo sector, exactly as every successful modifying call
+   already does at its end via the static sync_fs(). Upstream has no public
+   way to ask for that on its own: f_sync() only acts on a modified FIL, and
+   f_chmod()/f_utime()/f_setlabel() are compiled out here and would each have
+   to rewrite some directory entry to get there.
+
+   Needed because some FAILURE paths change the FAT in memory and return
+   without syncing. f_mkdir() is the one that bit: create_chain() allocates
+   the new directory's cluster, dir_clear() writes it out (flushing the
+   allocation to disk), dir_register() then fails, and the remove_chain()
+   that frees the cluster again only touches the in-memory window and FSInfo
+   count. Unmounting drops that, leaving a lost cluster fsck.vfat reclaims.
+   jnext calls this before unmounting a volume it has tried to MODIFY
+   (sdcard_file_add.cpp, MountedCard; fatfs_format.cpp), so every such path,
+   found or not, ends with the volume on disk matching FatFs's own view of it.
+   It is not a no-op on an unmodified volume: f_getfree() sets fsi_flag when
+   it has to count the free clusters itself, and sync_fs() then rewrites the
+   FSInfo sector. So a caller that only read must not call it. */
+FRESULT f_syncvol (
+	const TCHAR* path	/* Logical drive number */
+)
+{
+	FRESULT res;
+	FATFS *fs;
+
+
+	res = mount_volume(&path, &fs, FA_WRITE);
+	if (res == FR_OK) {
+		res = sync_fs(fs);
+	}
+	LEAVE_FF(fs, res);
+}
+
+
+
+
 #endif /* !FF_FS_READONLY */
 
 

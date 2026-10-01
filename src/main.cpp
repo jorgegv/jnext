@@ -212,8 +212,10 @@ int main(int argc, char* argv[]) {
     bool        warm_start_regenerate = false;
     bool        sdcard_download_force   = false;
     // GH #269 — the copy-and-exit SD-card mode.
-    std::string sdcard_file_add;       // host file to copy onto the card
-    std::string sdcard_file_dest;      // where it lands on the card
+    std::string sdcard_file_add;       // host file or directory to copy onto the card
+    std::string sdcard_file_dest;      // where it lands on the card ("" = root, GH #292)
+    int         sdcard_file_add_count  = 0;  // occurrences, so a repeat is refused
+    int         sdcard_file_dest_count = 0;
     bool        sdcard_file_force = false;  // permit replacing an existing file
     std::string screenshot_file;
     int         screenshot_delay = 10;        // seconds (used unless screenshot_delay_frames is set)
@@ -405,9 +407,11 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::SdcardFileAdd:
                 sdcard_file_add = v[0];
+                ++sdcard_file_add_count;
                 break;
             case cli::OptId::SdcardFileDest:
                 sdcard_file_dest = v[0];
+                ++sdcard_file_dest_count;
                 break;
             case cli::OptId::SdcardFileForce:
                 sdcard_file_force = true;
@@ -1090,15 +1094,6 @@ int main(int argc, char* argv[]) {
               "--profile" },
             { magic_port_mode_set,          "--magic-port-mode",           magic_port_enabled,
               "--magic-port PORT" },
-            // GH #269 — the copy-and-exit SD mode needs both halves. Named in
-            // both directions so either half alone is an error, not a flag
-            // that was accepted and did nothing.
-            { !sdcard_file_add.empty(),     "--sdcard-file-add",           !sdcard_file_dest.empty(),
-              "--sdcard-file-dest PATH" },
-            { !sdcard_file_dest.empty(),    "--sdcard-file-dest",          !sdcard_file_add.empty(),
-              "--sdcard-file-add FILE" },
-            { sdcard_file_force,            "--sdcard-file-force",         !sdcard_file_add.empty(),
-              "--sdcard-file-add FILE" },
         };
         for (const Needs& n : needs) {
             if (n.given && !n.base) {
@@ -1107,12 +1102,23 @@ int main(int argc, char* argv[]) {
             }
         }
     }
+    // GH #269 / #292 — how --sdcard-file-add, -dest and -force combine: one
+    // source per run, dest optional, either order (see file_add_usage_error).
+    {
+        const std::string usage = sdcard::file_add_usage_error(
+            sdcard_file_add_count, sdcard_file_dest_count,
+            sdcard_file_dest.empty(), sdcard_file_force);
+        if (!usage.empty()) {
+            fprintf(stderr, "%s\n", usage.c_str());
+            return 1;
+        }
+    }
     // GH #269 — --sdcard-file-add is a copy-and-exit mode, so anything that
     // says "and then run this" contradicts it, and --sdcard-readonly says
     // "never write the image" to a mode whose whole job is writing it. Both
     // used to be the #138 failure shape: accepted, and one of them silently
     // ignored.
-    if (!sdcard_file_add.empty()) {
+    if (sdcard_file_add_count > 0) {
         if (sdcard_readonly) {
             fprintf(stderr,
                     "--sdcard-file-add cannot be combined with --sdcard-readonly: "
@@ -1224,7 +1230,7 @@ int main(int argc, char* argv[]) {
         // session, so it provisions through the CLI prompts even in a Qt
         // build: popping a modal dialog out of `jnext --sdcard-file-add ...`
         // in a script would hang it with nothing to click.
-        if (!headless && sdcard_file_add.empty()) {
+        if (!headless && sdcard_file_add_count == 0) {
             opts.confirm  = [&](const std::string& m) { return gui_prov.confirm(m); };
             opts.progress = [&](uint64_t d, uint64_t t) { return gui_prov.progress(d, t); };
             opts.busy     = [&](const std::string& p, const std::function<bool()>& w) {
@@ -1265,7 +1271,7 @@ int main(int argc, char* argv[]) {
     // ~/.jnext/sdcard/cspect-next-1gb-fixed.img (provisioning it first if it
     // is not there yet — a card is needed either way).
     // ---------------------------------------------------------------------
-    if (!sdcard_file_add.empty()) {
+    if (sdcard_file_add_count > 0) {
         // Writing the DEFAULT image is not wrong, but it is shared: every
         // other jnext session and the whole regression suite resolve from it.
         // Said loudly, once, and never repaired behind the user's back — a
@@ -1284,17 +1290,30 @@ int main(int argc, char* argv[]) {
                 "         instead ('cp --reflink=auto' makes one instantly).\n",
                 sd_card_image.c_str());
         }
+        // A file or a directory (GH #292); no --sdcard-file-dest = the card
+        // root under the source's own name.
         std::string add_err;
-        const sdcard::FileAddStatus st = sdcard::add_file_to_image(
+        sdcard::AddSummary summary;
+        const sdcard::FileAddStatus st = sdcard::add_to_image(
             sd_card_image, sdcard_file_add, sdcard_file_dest,
-            sdcard_file_force, add_err);
+            sdcard_file_force, add_err, &summary);
         if (st != sdcard::FileAddStatus::Ok) {
             std::fprintf(stderr, "error: --sdcard-file-add: %s\n", add_err.c_str());
             return static_cast<int>(st);
         }
-        std::fprintf(stdout, "Copied '%s' to '%s' in %s\n",
-                     sdcard_file_add.c_str(), sdcard_file_dest.c_str(),
-                     sd_card_image.c_str());
+        if (summary.is_dir) {
+            std::fprintf(stdout,
+                         "Copied directory '%s' to '%s' in %s (%u file(s), "
+                         "%u new director%s)\n",
+                         sdcard_file_add.c_str(), summary.dest.c_str(),
+                         sd_card_image.c_str(), summary.files,
+                         summary.dirs_created,
+                         summary.dirs_created == 1 ? "y" : "ies");
+        } else {
+            std::fprintf(stdout, "Copied '%s' to '%s' in %s\n",
+                         sdcard_file_add.c_str(), summary.dest.c_str(),
+                         sd_card_image.c_str());
+        }
         return 0;
     }
 
