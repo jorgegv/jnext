@@ -2559,10 +2559,12 @@ static void test_script_panel() {
                         }
                     }
         check("QSCR-01", "the debugger window has a Script tab holding the Script panel, and a &Script "
-                         "menu with Load Script…, Reload Scripts and Unload Scripts (the last two act); "
+                         "menu with Load Script…, Reload Scripts and Unload Scripts (the last two act) and, "
+                         "after a separator, the recorder's three (WP6); "
                          "the panel drives the manager's script host",
               started && tabs && tabs->widget(script_tab) == w->script_panel() &&
-                  items == QStringList({"&Load Script...", "&Reload Scripts", "&Unload Scripts"}) && loads &&
+                  items == QStringList({"&Load Script...", "&Reload Scripts", "&Unload Scripts", "",
+                                        "Re&cord Script...", "Capture &Screen", "S&top Recording"}) && loads &&
                   after_reload == 1 && after_unload == 0,
               fmt("tab=%d items=%s reload=%zu unload=%zu", script_tab, s(items.join('|')).c_str(),
                   after_reload, after_unload));
@@ -2661,6 +2663,90 @@ static void test_script_panel() {
                          "disables Load",
               !loads && !load_enabled && bare.verdict_text() == "Scripting is not available.",
               s(bare.verdict_text()));
+    }
+    // ── GH #26 WP6 (#20): the recorder in the Script tab and menu ──────────
+    {
+        ScriptFixture fx;
+        const bool idle = fx.ok && fx.panel.record_text() == "Not recording." && button(fx.panel, "Record...") &&
+                          !button(fx.panel, "Capture") && !button(fx.panel, "Stop Recording") &&
+                          !fx.panel.recording();
+        const std::string path = (g_tmp->path() + "/panel-rec.jds").toStdString();
+        const bool started = fx.panel.record_to(QString::fromStdString(path));
+        const QString during = fx.panel.record_text();
+        const bool buttons_rec = !button(fx.panel, "Record...") && button(fx.panel, "Capture") &&
+                                 button(fx.panel, "Stop Recording") && fx.panel.recording();
+        QString why;
+        const bool again = fx.panel.record_to(QString::fromStdString(path + "2"), &why);
+        check("QSCR-11", "Record… starts a recording on the panel's host: Record is then disabled, Capture and "
+                         "Stop Recording enabled, the line says where it records and that Alt+8 captures; a "
+                         "second Record is refused with the reason",
+              idle && started && buttons_rec &&
+                  during == QString::fromStdString("Recording to " + path +
+                                                   ": 0 input edge(s), 0 capture(s) (Alt+8 captures).") &&
+                  !again && why.contains("already recording to"),
+              s(during) + " || " + s(why));
+        const bool cap = fx.panel.capture();
+        fx.frames(2);
+        const bool stopped = fx.panel.stop_recording();
+        const QString after = fx.panel.record_text();
+        QFile f(QString::fromStdString(path));
+        const bool written = f.open(QIODevice::ReadOnly) && f.readAll().contains("compare_scr \"panel-rec-0001.scr\"");
+        check("QSCR-12", "Capture asks for one at the next frame edge and Stop Recording writes the script; "
+                         "the buttons go back, the line says what the last recording was, and the log has "
+                         "the RECORD lines",
+              cap && stopped && written && button(fx.panel, "Record...") && !button(fx.panel, "Capture") &&
+                  !button(fx.panel, "Stop Recording") &&
+                  after == QString::fromStdString("Last recording: " + path + ": 0 input edge(s), 1 capture(s).") &&
+                  fx.log_has("RECORD: capture 1") && fx.log_has("RECORD: wrote") &&
+                  !fx.panel.capture() && !fx.panel.stop_recording(),
+              s(after));
+    }
+    {
+        // The menu's three, enabled by state when the menu opens; Capture and
+        // Stop act (Record opens a file dialog).
+        WindowFixture fx;
+        jnext::script::ScriptHost host;
+        jnext::script::ScriptHostOptions o;
+        o.exits = false;
+        const bool started = fx.ok && host.start(*fx.backend, o);
+        if (fx.ok) fx.mgr->set_script_host(&host);
+        DebuggerWindow* w = fx.ok ? fx.dbg() : nullptr;
+        QMenu* menu = nullptr;
+        if (w)
+            for (QAction* m : w->menuBar()->actions())
+                if (m->text() == QStringLiteral("&Script")) menu = m->menu();
+        auto act = [menu](const char* text) -> QAction* {
+            if (menu)
+                for (QAction* a : menu->actions())
+                    if (a->text() == QString::fromUtf8(text)) return a;
+            return nullptr;
+        };
+        QAction* rec = act("Re&cord Script...");
+        QAction* cap = act("Capture &Screen");
+        QAction* stp = act("S&top Recording");
+        auto states = [&]() {
+            if (menu) emit menu->aboutToShow();
+            return QString("%1%2%3").arg(rec && rec->isEnabled()).arg(cap && cap->isEnabled()).arg(stp && stp->isEnabled());
+        };
+        const QString idle = states();
+        const bool rec_on = host.start_recording((g_tmp->path() + "/menu-rec.jds").toStdString());
+        const QString during = states();
+        if (cap) cap->trigger();
+        fx.backend->run(jnext::dbg::CLIENT_NONE);
+        for (int i = 0; i < 2; ++i) {
+            fx.emu.run_frame();
+            fx.backend->pump(jnext::dbg::PumpBudget{});
+        }
+        const unsigned caps = host.recorder() ? host.recorder()->captures() : 99;
+        if (stp) stp->trigger();
+        const QString after = states();
+        check("QSCR-13", "the Script menu's Record Script… / Capture Screen / Stop Recording are enabled by "
+                         "state when it opens (idle: Record only; recording: Capture and Stop), and Capture and "
+                         "Stop act",
+              started && rec && cap && stp && idle == "100" && rec_on && during == "011" && caps == 1 &&
+                  !host.recording() && after == "100",
+              s(idle) + " " + s(during) + " " + s(after) + fmt(" caps=%u", caps));
+        if (fx.ok) fx.mgr->set_script_host(nullptr);
     }
 }
 

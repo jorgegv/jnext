@@ -325,9 +325,11 @@ static void test_accelerators(Fixture& fx)
         // GH #26 WP5: + the &Script menu (one menu, one popup, its title and
         // three items' mnemonics) and the eight Alt+1..Alt+8 script host-key
         // actions (window-wide shortcuts, not menu items).
+        // GH #26 WP6: + the recorder's three &Script items (Re&cord Script...,
+        // Capture &Screen, S&top Recording) — three more mnemonics.
         const bool as_expected = top == 6
                               && popup_scopes.size() == 9
-                              && menu_accels.size() == 35
+                              && menu_accels.size() == 38
                               && shortcuts == 19;
         // Described as what it is — a comparison against pinned sizes — not as
         // "the walk covers the whole tree", which would claim a completeness
@@ -335,7 +337,7 @@ static void test_accelerators(Fixture& fx)
         // and the counts still agree).
         check("DACC-05", "the harvest matches the pinned shape of the menu tree",
               as_expected,
-              fmt("menus=%zu (want 6), popups=%zu (want 9), mnemonics=%zu (want 35), "
+              fmt("menus=%zu (want 6), popups=%zu (want 9), mnemonics=%zu (want 38), "
                   "shortcuts=%zu (want 19)",
                   top, popup_scopes.size(), menu_accels.size(), shortcuts));
     }

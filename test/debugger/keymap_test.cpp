@@ -50,6 +50,7 @@
 #include <QString>
 #include <QStringList>
 #include <QEventLoop>
+#include <QFile>
 #include <QTemporaryDir>
 #include <QLineEdit>
 #include <QMenuBar>
@@ -78,6 +79,7 @@
 #include "peripheral/nmi_source.h"
 #include "gui/preferences_dialog.h"
 #include "gui/shortcut_capture_button.h"
+#include "script/recorder.h"
 #include "../row_id.h"
 
 using namespace jnext::dbgkeys;
@@ -1069,6 +1071,47 @@ void test_script_keys() {
             fx.win.set_key_callback(nullptr);
             fx.win.set_keyboard_lost_callback(nullptr);
             fx.backend->detach(cid);
+        }
+    }
+    {
+        // GH #26 WP6 (#20): while recording, Alt+8 in the EMULATOR window is the
+        // recorder's capture — the key Router raises host key 8, the recorder
+        // hears it and captures at the next frame edge; Alt+7 does not.
+        MainWindowFixture fx;
+        QTemporaryDir dir;
+        if (!fx.ok || !dir.isValid()) {
+            check("DKSK-05", "Alt+8 in the emulator window captures while recording", false, "fixture failed");
+        } else {
+            host_key_latch::Router<Keyboard, SDL_Scancode> router;
+            router.attach(fx.emu.keyboard());
+            wire_host_keys(fx.win, router);
+            wire_script_keys(router, *fx.backend);
+            jnext::script::Recorder rec(*fx.backend);
+            std::string why;
+            const bool started = rec.start((dir.path() + "/k.jds").toStdString(), nullptr, why);
+            fx.win.show();
+            fx.win.activateWindow();
+            settle(150);
+            auto frames = [&fx](int n) {
+                for (int i = 0; i < n; ++i) {
+                    fx.emu.run_frame();
+                    fx.backend->pump(jnext::dbg::PumpBudget{});
+                }
+            };
+            press_shortcut(&fx.win, parsed("Alt+7"));
+            frames(2);
+            const unsigned after7 = rec.captures();
+            press_shortcut(&fx.win, parsed("Alt+8"));
+            frames(2);
+            const unsigned after8 = rec.captures();
+            rec.stop(why);
+            check("DKSK-05", "while recording, Alt+8 in the emulator window (the key Router -> host key 8) "
+                             "takes a capture at the next frame edge, and Alt+7 does not",
+                  started && after7 == 0 && after8 == 1 &&
+                      QFile::exists(dir.path() + "/k-0001.scr"),
+                  "after7=" + std::to_string(after7) + " after8=" + std::to_string(after8));
+            fx.win.set_key_callback(nullptr);
+            fx.win.set_keyboard_lost_callback(nullptr);
         }
     }
     {
