@@ -640,6 +640,12 @@ static void delivery_rows() {
 static void stop_rows() {
     {
         Rig g(kWriter);
+        uint64_t wc = 0;
+        Subscription s;
+        s.kind = EventKind::Mem; s.access = Access::Write; s.filter.lo = s.filter.hi = 0x9001;
+        s.action = jnext::dbg::Action::Continue;
+        s.handler = [&](const DbgEvent& e, Debugger&) { wc = e.cycle; return jnext::dbg::Action::Continue; };
+        g.dbg->subscribe(g.tc, s);
         const bool ok = g.load("on write 0x9001 do stop \"caught ${VALUE:x2}\" end\n"
                                "on stop do log \"ON-STOP ${REASON} pc ${PC:x4}\" end\n");
         g.frames(2);
@@ -647,9 +653,10 @@ static void stop_rows() {
         char want[64];
         std::snprintf(want, sizeof want, "ON-STOP caught 77 pc %04X", g.sink.paused.empty() ? 0u : g.sink.paused[0].pc);
         check("SCRIPT-EV-STOP", "`stop` on a write pauses at the end of the writing instruction (PC 0x800A), "
-                                "logs `SCRIPT STOP: <reason> at PC=<writer>`, requests no exit under the Pause "
+                                "logs `SCRIPT STOP: <reason> at PC=<writer> FRAME= CYCLE=<the write's>`, requests no exit under the Pause "
                                 "policy, and an `on stop` rule sees the rule's REASON and the paused PC (F6)",
-              ok && st.paused && g.pc() == 0x800A && g.sink.count("SCRIPT STOP: caught 77 at PC=8007") == 1 &&
+              ok && st.paused && g.pc() == 0x800A && wc != 0 &&
+                  g.sink.count("SCRIPT STOP: caught 77 at PC=8007 FRAME=0 CYCLE=" + std::to_string(wc) + " ") == 1 &&
                   g.sink.exits.empty() && g.host_exits.empty() && g.sink.paused.size() == 1 &&
                   g.sink.count(want) == 1,
               "pc=" + hex(g.pc()) + " " + g.sink.tail());
@@ -731,31 +738,58 @@ static void stop_rows() {
             return jnext::dbg::Action::Continue;
         };
         g.dbg->subscribe(g.tc, s);
-        g.frames(1);
+        g.frames(2);
         const auto r = g.eng->rules();
-        check("SCRIPT-EV-RUNTIME", "a run-time error disables its rule (the next write does not enter it), "
-                                   "logs `SCRIPT ERROR file:L:C: … — rule … disabled`, and exits 1 at the "
-                                   "frame edge, not at the failing delivery",
+        const auto sub = g.subs();
+        check("SCRIPT-EV-RUNTIME", "a run-time error disables its rule's subscription (the next write does "
+                                   "not enter it), logs `SCRIPT ERROR file:L:C: … — rule … disabled`, and "
+                                   "exits 1 ONCE, at the frame edge, not at the failing delivery",
               ok && r.size() == 1 && r[0].dead && r[0].hits == 1 && g.eng->runtime_errors() == 1 &&
+                  !sub.empty() && !sub[0].enabled &&
                   g.sink.count("SCRIPT ERROR rt.jds:2:39: division by zero — rule at 2:1 disabled") == 1 &&
                   exits_at_second_write == 0 && g.host_exits == std::vector<int>{1} && !g.paused(),
               "at2=" + std::to_string(exits_at_second_write) + " " + g.sink.tail());
     }
     {
+        // A rule a run-time error disabled stays disabled: `enable` does not
+        // revive it.
+        Rig g(kLoop);
+        const bool ok = g.load("bad: on write 0x9000 do log \"${1 / 0}\" end\n"
+                               "on hostkey 1 do enable bad end\n");
+        g.frames(1);
+        g.dbg->raise_host_event(g.tc, "script1");
+        g.frames(2);
+        const auto r = g.eng->rules();
+        const auto sub = g.subs();
+        check("SCRIPT-EV-RUNTIME-STAYS", "`enable` on a rule a run-time error disabled leaves it dead: one entry, "
+                                         "its subscription still off",
+              ok && r.size() == 2 && r[0].dead && r[0].hits == 1 && !sub.empty() && !sub[0].enabled &&
+                  g.eng->runtime_errors() == 1,
+              "hits=" + std::to_string(r.empty() ? 0 : r[0].hits));
+    }
+    {
         // F6: an `on stop` rule for a stop the script did not cause.
         Rig g(kPark);
         const bool ok = g.load("on stop when REASON == \"user\" do log \"U pc ${PC:x4} r ${REASON}\" end\n"
-                               "on stop when REASON != \"user\" do log \"OTHER\" end\n");
+                               "on stop when REASON != \"user\" do log \"OTHER\" end\n"
+                               "on stop once do log \"ONCE\" end\n"
+                               "disabled q: on stop do log \"DIS\" end\n");
         g.frames(1);
         g.dbg->pause(g.tc);
         g.dbg->pump(jnext::dbg::PumpBudget{});
         const auto st = g.dbg->state();
+        g.dbg->run(g.tc);
+        g.dbg->pump(jnext::dbg::PumpBudget{});
+        g.frames(1);
+        g.dbg->pause(g.tc);
+        g.dbg->pump(jnext::dbg::PumpBudget{});
         char want[48];
         std::snprintf(want, sizeof want, "U pc %04X r user", st.pc);
-        check("SCRIPT-EV-ONSTOP", "`on stop` runs on ANY pause (here a client's `pause`): REASON names it, "
-                                  "PC is the paused PC, and its `when` selects (F6)",
-              ok && st.paused && g.sink.count(want) == 1 && g.sink.count("OTHER") == 0 && g.hits(0) == 1 &&
-                  g.hits(1) == 0,
+        check("SCRIPT-EV-ONSTOP", "`on stop` runs on ANY pause (here a client's `pause`, twice): REASON names "
+                                  "it, PC is the paused PC, its `when` selects, `once` fires once and a "
+                                  "`disabled` one never (F6)",
+              ok && st.paused && g.sink.count(want) == 2 && g.sink.count("OTHER") == 0 && g.hits(0) == 2 &&
+                  g.hits(1) == 0 && g.sink.count("ONCE") == 1 && g.sink.count("DIS") == 0,
               std::string(want) + " " + g.sink.tail());
     }
     {
@@ -951,14 +985,16 @@ static void input_rows() {
     {
         Rig g(kKeyPoll);
         const bool ok = g.load("on frame 0 do press \"nosuchkey\" end\n"
-                               "on frame 0 do press \"1,3\" end\n");
+                               "on frame 0 do press \"1,3\" press \"caps+e\" end\n");
         g.frames(2);
         const auto in = g.dbg->input_state();
         check("SCRIPT-EV-KEYS", "an unknown key name is a run-time error naming it; `row,col` presses that "
-                                "matrix bit",
+                                "matrix bit; a compound name presses both of its keys",
               ok && g.eng->runtime_errors() == 1 && g.sink.count("unknown key `nosuchkey`") == 1 &&
-                  !(in.matrix[1] & (1 << 3)),
-              "row1=" + hex(in.matrix[1]) + " " + g.sink.tail());
+                  !(in.matrix[1] & (1 << 3)) && !(in.matrix[0] & 1) && !(in.matrix[2] & (1 << 2)) &&
+                  (in.matrix[1] & 0x17) == 0x17,
+              "row0=" + hex(in.matrix[0]) + " row1=" + hex(in.matrix[1]) + " row2=" + hex(in.matrix[2]) +
+                  " " + g.sink.tail());
     }
     {
         // A joystick issued mid-frame waits for the edge.
@@ -1021,15 +1057,59 @@ static void input_rows() {
         std::remove(scr.c_str());
         std::remove(sna.c_str());
         const bool ok = g.load("on frame 0 do screenshot \"" + scr + "\" save_snapshot \"" + sna + "\" end\n"
+                               "on frame 1 do save_snapshot \"/nonexistent/x.sna\" end\n"
                                "on frame 2 do compare_scr \"/nonexistent/x.scr\" \"m\" end\n");
-        g.frames(3);
+        g.frames(4);
         const auto f = read_file(scr);
         check("SCRIPT-EV-CAPTURE", "`screenshot \"*.scr\"` writes the 6912-byte ULA image at the next frame; "
-                                   "`save_snapshot` writes its file; an unreadable `compare_scr` file is a "
-                                   "run-time error",
+                                   "`save_snapshot` writes its file at the next boundary; an unwritable "
+                                   "snapshot and an unreadable `compare_scr` file are run-time errors",
               ok && f.size() == 6912 && f == g.dbg->ula_screen_dump() && !read_file(sna).empty() &&
-                  g.eng->runtime_errors() == 1 && g.sink.count("cannot read") == 1,
+                  g.eng->runtime_errors() == 2 && g.sink.count("cannot read") == 1 &&
+                  g.sink.count("`save_snapshot` \"/nonexistent/x.sna\" was not written") == 1,
               "scr=" + std::to_string(f.size()) + " " + g.sink.tail());
+    }
+}
+
+static void boundary_rows() {
+    {
+        // A save issued mid-frame by a rule that also stops: the pump that
+        // follows finds the machine paused INSIDE the frame and leaves the save
+        // queued — running the frame out would move the user's machine — and
+        // the save happens at the next frame boundary after the resume.
+        Rig g(kWriter);
+        const std::string sna = "/tmp/jnext_sev_mid.sna";
+        std::remove(sna.c_str());
+        const bool ok = g.load("on write 0x9001 do save_snapshot \"" + sna + "\" stop end\n");
+        g.frames(1);
+        const uint64_t clk = g.emu.clock().get();
+        g.dbg->pump(jnext::dbg::PumpBudget{});
+        const bool held = g.paused() && read_file(sna).empty() && g.emu.clock().get() == clk &&
+                          g.sink.count("advanced to the frame boundary") == 0;
+        g.dbg->run(g.tc);
+        g.frames(2);
+        check("SCRIPT-EV-SNAPSHOT-BOUNDARY", "a `save_snapshot` queued mid-frame is not written while the machine "
+                                             "is paused inside the frame (nothing advances it), and is written at the "
+                                             "next frame boundary after the resume",
+              ok && held && !read_file(sna).empty() && g.eng->runtime_errors() == 0,
+              "held=" + std::to_string(held) + " " + g.sink.tail(3));
+    }
+    {
+        // OUT (n),A puts A on the high byte: A = 0x12.
+        //   LD A,0x12 ; OUT (0x20),A ; OUT (0x21),A ; OUT (0x0F),A ; OUT (0xFE),A ; JR $
+        Rig g({0x3E, 0x12, 0xD3, 0x20, 0xD3, 0x21, 0xD3, 0x0F, 0xD3, 0xFE, 0x18, 0xFE});
+        const bool ok = g.load("on io_write 0x1220..0x1221 do log \"R ${PORT:x4}\" end\n"
+                               "on io_write 0x1220 do log \"X ${PORT:x4}\" end\n"
+                               "on io_write 0xFE do log \"L ${PORT:x4} ${VALUE:x2}\" end\n");
+        g.frames(1);
+        check("SCRIPT-EV-IO-RANGE", "an io range matches its ports inclusively and no others; a port above "
+                                    "0xFF matches all 16 bits; a port <= 0xFF matches its low byte whatever the "
+                                    "high byte (GH #222)",
+              ok && g.hits(0) == 2 && g.sink.count("R 1220") == 1 && g.sink.count("R 1221") == 1 &&
+                  g.hits(1) == 1 && g.sink.count("X 1220") == 1 && g.hits(2) == 1 &&
+                  g.sink.count("L 12FE 12") == 1,
+              "hits=" + std::to_string(g.hits(0)) + "/" + std::to_string(g.hits(1)) + "/" +
+                  std::to_string(g.hits(2)) + " " + g.sink.tail(4));
     }
 }
 
@@ -1556,6 +1636,7 @@ int main() {
     run_group("stop", stop_rows);
     run_group("mutation", mutation_rows);
     run_group("input", input_rows);
+    run_group("boundary", boundary_rows);
     run_group("device", device_rows);
     run_group("work", work_rows);
 

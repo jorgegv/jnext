@@ -283,12 +283,12 @@ std::vector<Subscription> ScriptEngine::subscriptions_for(Unit& u, RuleRec& rec,
 
     // A condition exists iff the rule has a `when` or the engine refines the
     // filter (§8: "a non-null predicate iff `when` was written" — plus the two
-    // refinements Appendix I names). A rule a run-time error disabled is caught
-    // by its disabled subscriptions and, belt and braces, by `run_rule`.
+    // refinements Appendix I names). A rule a run-time error disabled is
+    // stopped by its disabled subscriptions (`runtime_error`), and a delivery
+    // of the same boundary already under way by `run_rule`.
     auto finish = [&](Subscription s) {
         if (when || extra) {
-            s.condition = [self, when, extra](const Event& e, const dbg::Debugger& d) {
-                if (self->dead) return false;
+            s.condition = [when, extra](const Event& e, const dbg::Debugger& d) {
                 if (extra && !extra(e)) return false;
                 return !when || when(e, d);
             };
