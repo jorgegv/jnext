@@ -20,6 +20,11 @@
 #include "memory/contention.h"
 #include "memory/mmu.h"
 
+// Group 25 (GH #283) drives the RZX hooks and the debugger backend.
+#include "debug/debugger.h"
+#include "input/keyboard.h"
+#include "port/port_dispatch.h"
+
 #include <array>
 #include <cstdarg>
 #include <cstdint>
@@ -3190,6 +3195,164 @@ void group24_gh230_write_io_lifetime() {
     g230_token.reset();
 }
 
+
+// ══ Group 25 — GH #283: the DMA's port reads go through the RZX hooks ══
+//
+// NO VHDL ORACLE for the hooks themselves: RZX is a host file format, not a
+// hardware behaviour. What the rows pin is which reads are the MACHINE's and
+// therefore belong in an RZX — the CPU's IN and the DMA's I/O-source read
+// (PortDispatch::guest_read()) — and which are a tool's and must stay out
+// (PortDispatch::read(), which the debugger's port_in uses).
+//
+// The hardware facts the rows stand on are cited where they are used: the
+// zxnDMA port decode has no machine-type term (zxnext.vhd:2405, 2440, 2643),
+// so the rows run on a 48K — the machine an RZX can be recorded on (GH #274).
+//
+// Every row drives the PRODUCTION wiring: a real 48K Emulator, the DMA
+// programmed through port 0x6B like a guest would, and Emulator::init()'s
+// dma_.read_io lambda doing the read.
+
+// Program the production Dma through port 0x6B: port A = I/O `port`, fixed;
+// port B = memory `dst`, incrementing; continuous; `len` bytes; LOAD; ENABLE.
+// The same descriptor demo/rzx_dma_demo writes with OTIR.
+void g283_program(Emulator& emu, uint16_t port, uint16_t dst, uint16_t len) {
+    const uint8_t prog[] = {
+        0x83,                                          // WR6 DISABLE
+        0x7D, static_cast<uint8_t>(port & 0xFF), static_cast<uint8_t>(port >> 8),
+              static_cast<uint8_t>(len & 0xFF),  static_cast<uint8_t>(len >> 8),
+        0x2C,                                          // WR1 port A I/O, fixed
+        0x10,                                          // WR2 port B memory, inc
+        0xAD, static_cast<uint8_t>(dst & 0xFF), static_cast<uint8_t>(dst >> 8),
+        0x82,                                          // WR5 stop at end
+        0xCF, 0x87,                                    // LOAD, ENABLE
+    };
+    for (uint8_t b : prog) emu.port().out(0x006B, b);
+}
+
+bool g283_build_48k(Emulator& emu) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZX48K;
+    cfg.rewind_buffer_frames = 0;
+    return emu.init(cfg);
+}
+
+void group25_gh283_rzx() {
+    set_group("G25 GH283 DMA RZX");
+
+    // SPACE on the B-SPACE half-row (row 7, column 0): the ULA answers port
+    // 0x7FFE with bit 0 clear. The DMA reads that port 4 times.
+    constexpr uint16_t kPort = 0x7FFE;
+    constexpr uint16_t kDst  = 0x9000;
+
+    // 25.1 — the zxnDMA works on a 48K, and under an RZX recording each of its
+    // port reads is captured, in order, with the value that reached memory.
+    {
+        Emulator emu;
+        if (!g283_build_48k(emu)) {
+            check("GH283-01", "Emulator::init failed (48K)", false, "init returned false");
+        } else {
+            emu.keyboard().set_matrix_bit(7, 0, true);
+            const uint8_t live = emu.port().read(kPort);
+            std::vector<uint8_t> log;
+            emu.port().rzx_in_record = [&log](uint8_t v) { log.push_back(v); };
+            g283_program(emu, kPort, kDst, 4);
+            const uint32_t ts0 = *fuse_z80_tstates_ptr();
+            const int t = emu.execute_single_instruction();
+            const uint32_t ts1 = *fuse_z80_tstates_ptr();
+            bool mem_ok = true;
+            for (int i = 0; i < 4; ++i)
+                mem_ok = mem_ok && emu.mmu().read(static_cast<uint16_t>(kDst + i)) == live;
+            const bool log_ok = log.size() == 4 &&
+                log[0] == live && log[1] == live && log[2] == live && log[3] == live;
+            check("GH283-01",
+                  "48K: a zxnDMA I/O->memory block (port 0x6B, decode has no "
+                  "machine-type term, zxnext.vhd:2405,2643) lands the port's "
+                  "value in memory",
+                  (live & 0x01) == 0 && mem_ok,
+                  fmt("live=0x%02X mem[0]=0x%02X", live, emu.mmu().read(kDst)));
+            check("GH283-02",
+                  "under RZX recording every DMA port read is captured, in order, "
+                  "with the value the DMA delivered",
+                  log_ok, fmt("captured=%zu (want 4) first=0x%02X live=0x%02X",
+                              log.size(), log.empty() ? 0 : log[0], live));
+            // 4 bytes x 2 T (step_one_instruction's DMA charge), and the T-state
+            // counter advances by exactly that. The CPU's own bus cycle
+            // (fuse_z80_readport: contention + 4 T per read on that same
+            // counter) must not ride along with the hooks.
+            check("GH283-03",
+                  "a recorded DMA port read keeps the DMA's timing: 4-byte burst "
+                  "= 8 T, and the T-state counter moves by those 8 T only",
+                  t == 8 && ts1 - ts0 == 8,
+                  fmt("t=%d (want 8) tstates %u -> %u (want +8)", t, ts0, ts1));
+        }
+    }
+
+    // 25.2 — under RZX playback each DMA port read is answered from the
+    // recording, in order, and the live port is NOT dispatched (no handler, no
+    // observer), exactly like the CPU's IN.
+    {
+        Emulator emu;
+        if (!g283_build_48k(emu)) {
+            check("GH283-04", "Emulator::init failed (48K)", false, "init returned false");
+        } else {
+            const uint8_t script[4] = {0x11, 0x22, 0x33, 0x44};
+            size_t served = 0;
+            int live_reads = 0;
+            emu.port().add_io_observer([&live_reads](uint16_t p, bool is_read) {
+                if (is_read && p == kPort) ++live_reads;
+            });
+            g283_program(emu, kPort, kDst, 4);
+            emu.port().rzx_in_override = [&](uint16_t) -> uint8_t {
+                return served < 4 ? script[served++] : 0xFF;
+            };
+            emu.execute_single_instruction();
+            emu.port().rzx_in_override = nullptr;
+            bool mem_ok = true;
+            for (int i = 0; i < 4; ++i)
+                mem_ok = mem_ok &&
+                    emu.mmu().read(static_cast<uint16_t>(kDst + i)) == script[i];
+            check("GH283-04",
+                  "under RZX playback the DMA's port reads take the recorded "
+                  "values, in order",
+                  served == 4 && mem_ok,
+                  fmt("served=%zu mem=%02X %02X %02X %02X", served,
+                      emu.mmu().read(kDst), emu.mmu().read(kDst + 1),
+                      emu.mmu().read(kDst + 2), emu.mmu().read(kDst + 3)));
+            check("GH283-05",
+                  "and the live port is not read: a replay never consults the "
+                  "hardware the recording was made against",
+                  live_reads == 0, fmt("live reads of 0x7FFE=%d (want 0)", live_reads));
+        }
+    }
+
+    // 25.3 — a TOOL's port read is not machine input: neither read() nor the
+    // debugger's port_in() reaches the recording.
+    {
+        Emulator emu;
+        if (!g283_build_48k(emu)) {
+            check("GH283-06", "Emulator::init failed (48K)", false, "init returned false");
+        } else {
+            std::vector<uint8_t> log;
+            emu.port().rzx_in_record = [&log](uint8_t v) { log.push_back(v); };
+            (void)emu.port().read(kPort);
+            const size_t after_read = log.size();
+            jnext::dbg::Debugger dbg(emu);
+            const auto r = dbg.port_in(1, kPort);
+            const size_t after_dbg = log.size();
+            (void)emu.port().in(kPort);
+            check("GH283-06",
+                  "PortDispatch::read() is not recorded (it is every tool's read)",
+                  after_read == 0, fmt("captured=%zu (want 0)", after_read));
+            check("GH283-07",
+                  "the debugger's port_in() during a recording dispatches but is "
+                  "not recorded; the CPU's IN after it is",
+                  r.status == jnext::dbg::Result::Ok && after_dbg == 0 && log.size() == 1,
+                  fmt("status=%d after_dbg=%zu after_in=%zu (want 0 / 1)",
+                      static_cast<int>(r.status), after_dbg, log.size()));
+        }
+    }
+}
+
 }  // namespace
 
 // ══════════════════════════════════════════════════════════════════════
@@ -3223,6 +3386,7 @@ int main() {
     group23_sram_read_wait28();    std::printf("  G23 SW28 DMA Wait        done\n");
     group24_gh230_write_io_lifetime();
                                    std::printf("  G24 GH230 write_io life  done\n");
+    group25_gh283_rzx();           std::printf("  G25 GH283 DMA RZX        done\n");
 
     std::printf("\n================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
