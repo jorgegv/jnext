@@ -32,6 +32,7 @@
 #include "debug/debugger.h"
 #include "platform/emulator_boot.h"
 #include "platform/recording_info.h"
+#include "input/keyboard.h"
 
 #include <SDL3/SDL.h>
 
@@ -168,9 +169,11 @@ struct Rig {
     /// the NEXT frame on.
     std::vector<std::pair<uint32_t, InputState>> trace;
 
-    explicit Rig(const std::vector<uint8_t>& p = kPark, MachineType type = MachineType::ZX48K) : prog(p) {
+    explicit Rig(const std::vector<uint8_t>& p = kPark, MachineType type = MachineType::ZX48K, int rewind = 0)
+        : prog(p) {
         EmulatorConfig cfg;
-        cfg.type = type;
+        cfg.type                 = type;
+        cfg.rewind_buffer_frames = rewind;
         emu.init(cfg);
         install();
         dbg = std::make_unique<Debugger>(emu);
@@ -274,6 +277,46 @@ static void names_rows() {
     }
 }
 
+// Every `ext:` name, pressed by name in a script, sets exactly the
+// `Keyboard::ExtKey` bit it names — the keyboard's own numbering, not the
+// recorder's table read back.
+static void ext_key_rows() {
+    using EK = Keyboard::ExtKey;
+    struct K { const char* name; EK id; };
+    const K keys[] = {{"right", EK::RIGHT},         {"left", EK::LEFT},           {"down", EK::DOWN},
+                      {"up", EK::UP},               {"dot", EK::DOT},             {"comma", EK::COMMA},
+                      {"quote", EK::QUOTE},         {"semicolon", EK::SEMICOLON}, {"extend", EK::EXTEND},
+                      {"capslock", EK::CAPS_LOCK},  {"graph", EK::GRAPH},         {"truevideo", EK::TRUE_VIDEO},
+                      {"invvideo", EK::INV_VIDEO},  {"break", EK::BREAK},         {"edit", EK::EDIT},
+                      {"delete", EK::DELETE}};
+    Rig g;
+    EngineHost h;
+    ScriptEngine eng(*g.dbg, h);
+    std::string src;
+    for (int i = 0; i < 16; ++i) {
+        src += "on frame " + std::to_string(2 * i + 1) + " do press \"ext:" + keys[i].name + "\" end\n";
+        src += "on frame " + std::to_string(2 * i + 2) + " do release \"ext:" + keys[i].name + "\" end\n";
+    }
+    const bool ok = eng.load(src, "ext16.jds").ok();
+    g.frames(36);
+    // Pressed at E_2i+1, so the edge sample at E_2i+2 sees it down, alone.
+    int bad = 0;
+    std::string detail;
+    for (int i = 0; i < 16; ++i) {
+        const uint16_t want = static_cast<uint16_t>(1u << static_cast<int>(keys[i].id));
+        uint16_t got = 0xFFFF;
+        for (const auto& [f, st] : g.trace)
+            if (f == static_cast<uint32_t>(2 * i + 2)) got = st.ext_keys;
+        if (got != want) {
+            ++bad;
+            detail += std::string(keys[i].name) + "=" + std::to_string(got) + " ";
+        }
+    }
+    check("REC-NAMES-EXT-KEYS", "each of the 16 `ext:` names, pressed by name, sets exactly the "
+                                "Keyboard::ExtKey bit of that key (NR 0xB0/0xB1) — RIGHT 0 .. DELETE 15",
+          ok && bad == 0, detail);
+}
+
 // =========================================================================
 // EDGES
 // =========================================================================
@@ -299,6 +342,68 @@ static void edge_rows() {
                                 "the first one that saw it, its release ONE `release` the same way, and an "
                                 "unchanged frame writes nothing",
               started && has(s, want) && count(s, "press") == 1 && count(s, "release") == 1 && rec.edges() == 2,
+              s);
+    }
+    {
+        // Every one of the 40 matrix bits, all rows and all columns — row 7
+        // (SPACE, SYMBOL SHIFT, M, N, B), column 4 (V, G, T, 5, 6, Y, H, B) and
+        // CAPS SHIFT — each written under its own name.
+        Rig g;
+        Recorder rec(*g.dbg);
+        std::string why;
+        rec.start(g_dir + "all40.jds", nullptr, why);
+        g.frames(2);
+        const uint32_t a = g.next();
+        for (int r = 0; r < 8; ++r)
+            for (int c = 0; c < 5; ++c) g.emu.keyboard().set_matrix_bit(r, c, true);
+        g.frames(2);
+        const uint32_t b = g.next();
+        for (int r = 0; r < 8; ++r)
+            for (int c = 0; c < 5; ++c) g.emu.keyboard().set_matrix_bit(r, c, false);
+        g.frames(2);
+        const std::string s = rules_of(rec.script());
+        int missing = 0;
+        std::string detail;
+        for (int r = 0; r < 8; ++r)
+            for (int c = 0; c < 5; ++c) {
+                const std::string n = matrix_bit_name(r, c);
+                if (!has(s, "on frame " + std::to_string(a - 1) + " do press \"" + n + "\" end|") ||
+                    !has(s, "on frame " + std::to_string(b - 1) + " do release \"" + n + "\" end|")) {
+                    ++missing;
+                    detail += n + " ";
+                }
+            }
+        const std::string pa = "on frame " + std::to_string(a - 1) + " do press ";
+        check("REC-EDGE-ALLKEYS", "every one of the 40 matrix bits is recorded, press and release — row 7 "
+                                  "(`space`, `7,1` for SYMBOL SHIFT, `m`, `n`, `b`), column 4 (`v`, `g`, `t`, "
+                                  "`5`, `6`, `y`, `h`, `b`) and CAPS SHIFT (`0,0`)",
+              missing == 0 && count(s, "do press ") == 40 && count(s, "do release ") == 40 &&
+                  has(s, pa + "\"space\"") && has(s, pa + "\"7,1\"") && has(s, pa + "\"0,0\"") &&
+                  has(s, pa + "\"v\"") && has(s, pa + "\"b\"") && has(s, pa + "\"6\""),
+              detail);
+    }
+    {
+        // The MD pad's upper buttons (bits 8..11: X, Y, Z, MODE) on each
+        // connector: the whole 12-bit state is written.
+        Rig g;
+        Recorder rec(*g.dbg);
+        std::string why;
+        rec.start(g_dir + "joyhi.jds", nullptr, why);
+        g.frames(2);
+        const uint32_t a = g.next();
+        g.emu.joystick().set_joy_left(0xF01);
+        g.emu.joystick().set_joy_right(0x900);
+        g.frames(2);
+        const uint32_t b = g.next();
+        g.emu.joystick().set_joy_left(0x100);
+        g.emu.joystick().set_joy_right(0x000);
+        g.frames(2);
+        const std::string s = rules_of(rec.script());
+        auto f = [](uint32_t n) { return "on frame " + std::to_string(n - 1) + " do "; };
+        check("REC-EDGE-JOY-HIGH", "a connector state with bits above 0xFF (X Y Z MODE) is written whole, on "
+                                   "both connectors: 0xF01 / 0x900, then 0x100 / 0x000",
+              has(s, f(a) + "joystick 1 0xF01 end|") && has(s, f(a) + "joystick 2 0x900 end|") &&
+                  has(s, f(b) + "joystick 1 0x100 end|") && has(s, f(b) + "joystick 2 0x000 end|"),
               s);
     }
     {
@@ -562,6 +667,48 @@ static void warn_rows() {
                   !has(t, "paused mid-frame at FRAME " + std::to_string(clean)) &&
                   count(t, "# WARNING:") == 1,
               t);
+    }
+}
+
+static void warn2_rows() {
+    {
+        // A key down before the first frame runs: first seen at E_0, and
+        // there is no frame -1 to apply it at.
+        Rig g;
+        Recorder rec(*g.dbg);
+        std::string why;
+        rec.start(g_dir + "f0.jds", nullptr, why);
+        g.key(SDL_SCANCODE_Q, true);
+        g.frames(3);
+        const std::string t = rec.script();
+        check("REC-WARN-FRAME0", "input changed before FRAME 0 ran is applied at the end of FRAME 0, and a "
+                                 "WARNING says so",
+              has(t, "on frame 0 do press \"q\" end") &&
+                  has(t, "# WARNING: input changed before FRAME 0 ran; the replay applies it at the end of FRAME 0"),
+              t);
+    }
+    {
+        // A rewind to the start of the frame just recorded: the SAME frame
+        // tag comes round again.
+        Rig g(kPark, MachineType::ZX48K, 20);
+        Recorder rec(*g.dbg);
+        std::string why;
+        rec.start(g_dir + "rw.jds", nullptr, why);
+        g.frames(8);
+        const uint32_t last = g.next() - 1;
+        const jnext::dbg::Result r = g.dbg->rewind_to_frame(g.tc, last);
+        g.dbg->pump(jnext::dbg::PumpBudget{});
+        if (g.dbg->state().paused) {
+            g.dbg->run(g.tc);
+            g.dbg->pump(jnext::dbg::PumpBudget{});
+        }
+        g.frames(1);
+        const std::string t  = rec.script();
+        const std::string w  = "FRAME went back from " + std::to_string(last) + " to " + std::to_string(last);
+        check("REC-WARN-REPEAT", "a frame tag that comes round again (a rewind to the start of the frame just "
+                                 "recorded) is a WARNING too, not only one that goes lower",
+              r == jnext::dbg::Result::Ok && has(t, "# WARNING: " + w),
+              std::string(jnext::dbg::result_name(r)) + " " + t.substr(0, 600));
     }
 }
 
@@ -908,10 +1055,12 @@ int main() {
         }
     };
     run_group("names", names_rows);
+    run_group("ext_keys", ext_key_rows);
     run_group("edges", edge_rows);
     run_group("captures", capture_rows);
     run_group("header", header_rows);
     run_group("warn", warn_rows);
+    run_group("warn2", warn2_rows);
     run_group("life", life_rows);
     run_group("roundtrip", roundtrip_rows);
     run_group("host", host_rows);

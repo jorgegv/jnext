@@ -1911,6 +1911,17 @@ script loaded from the menu registers at once, and `FRAME` (and
 In the GUI a script never ends the program: `stop`, a failed `assert`
 and `exit` pause the machine and open the debugger.
 
+**Keys.** `press` *KEY* holds a key down until `release` *KEY* (`press`
+*KEY* `for` *N* is a pulse of *N* frames). *KEY* is a name
+**--delayed-keypress** takes, a single matrix position `row,col` (`0,0`
+is CAPS SHIFT, `7,1` SYMBOL SHIFT), or one of the Next’s extended keys
+as `ext:`*name* - `ext:right`, `ext:left`, `ext:down`, `ext:up`,
+`ext:dot`, `ext:comma`, `ext:quote`, `ext:semicolon`, `ext:extend`,
+`ext:capslock`, `ext:graph`, `ext:truevideo`, `ext:invvideo`,
+`ext:break`, `ext:edit`, `ext:delete` (the keys NR 0xB0 / 0xB1 read; the
+PC’s arrows, Backspace and Esc are among them). An extended key has no
+`for` pulse.
+
 **Recording a session.** **Script \> Record Script…** in the debugger
 window (or the Script tab’s **Record…**, or **--record-script** *FILE*)
 records what you do into a replay script: every change of the keyboard,

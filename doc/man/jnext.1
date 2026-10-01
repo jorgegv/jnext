@@ -2338,6 +2338,22 @@ In the GUI a script never ends the program: \f[CR]stop\f[R], a failed
 \f[CR]assert\f[R] and \f[CR]exit\f[R] pause the machine and open the
 debugger.
 .PP
+\f[B]Keys.\f[R] \f[CR]press\f[R] \f[I]KEY\f[R] holds a key down until
+\f[CR]release\f[R] \f[I]KEY\f[R] (\f[CR]press\f[R] \f[I]KEY\f[R]
+\f[CR]for\f[R] \f[I]N\f[R] is a pulse of \f[I]N\f[R] frames).
+\f[I]KEY\f[R] is a name \f[B]\-\-delayed\-keypress\f[R] takes, a single
+matrix position \f[CR]row,col\f[R] (\f[CR]0,0\f[R] is CAPS SHIFT,
+\f[CR]7,1\f[R] SYMBOL SHIFT), or one of the Next\(cqs extended keys as
+\f[CR]ext:\f[R]\f[I]name\f[R] \- \f[CR]ext:right\f[R],
+\f[CR]ext:left\f[R], \f[CR]ext:down\f[R], \f[CR]ext:up\f[R],
+\f[CR]ext:dot\f[R], \f[CR]ext:comma\f[R], \f[CR]ext:quote\f[R],
+\f[CR]ext:semicolon\f[R], \f[CR]ext:extend\f[R],
+\f[CR]ext:capslock\f[R], \f[CR]ext:graph\f[R], \f[CR]ext:truevideo\f[R],
+\f[CR]ext:invvideo\f[R], \f[CR]ext:break\f[R], \f[CR]ext:edit\f[R],
+\f[CR]ext:delete\f[R] (the keys NR 0xB0 / 0xB1 read; the PC\(cqs arrows,
+Backspace and Esc are among them).
+An extended key has no \f[CR]for\f[R] pulse.
+.PP
 \f[B]Recording a session.\f[R] \f[B]Script > Record Script\&...\f[R] in
 the debugger window (or the Script tab\(cqs \f[B]Record\&...\f[R], or
 \f[B]\-\-record\-script\f[R] \f[I]FILE\f[R]) records what you do into a

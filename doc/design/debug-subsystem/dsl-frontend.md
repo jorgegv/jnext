@@ -192,7 +192,13 @@ expr        ::= literal | IDENT | builtin | "@" IDENT | "(" expr ")"   # builtin
 literal     ::= INT (dec, 0x hex, $ hex, 0b bin) | "true" | "false" | string
               | "CPU" | "DMA" | "COPPER"           # the SOURCE constants (integers 0, 1, 2)
 string      ::= '"' { char | "${" expr [ ":" fmt ] "}" } '"'      # fmt: x2 x4 d
-key_spec    ::= string                             # same vocabulary as --delayed-keypress
+key_spec    ::= string                             # the --delayed-keypress vocabulary, plus
+                                                   # "row,col" (one matrix bit, e.g. "0,0" CAPS
+                                                   # SHIFT, "7,1" SYMBOL SHIFT) and "ext:<name>",
+                                                   # a Next extended key (WP6, Appendix L.2):
+                                                   # right left down up dot comma quote semicolon
+                                                   # extend capslock graph truevideo invvideo
+                                                   # break edit delete; any case
 ```
 
 Operators, by precedence (low to high): `or`; `and`; `not`; `== != < > <= >=`;
@@ -348,9 +354,9 @@ the nesting expressible without loops or data structures.
 | `screenshot "f"` | queued for the **next frame boundary** through `save_screenshot` (`screenshot.h:60`): `.scr` = ULA memory (`Ula::screen_dump`), else PNG. Same path `--delayed-screenshot` uses. Its outcome is the backend's `flush_captures(cid)` (added in B4): the engine calls it before `exit`, and `NoFrame` (a capture still pending) or `RefusedUnavailable` (one that failed to write) makes the run's exit non-zero. |
 | `compare_scr "f" "msg"` | at the next frame boundary, `Ula::screen_dump()` byte-compared to file; first differing offset logged; mismatch behaves as `assert` failure. |
 | `save_snapshot "f"` | queued for the next frame boundary through the existing savers (the GH #27 `--delayed-snapshot` route). |
-| `press "KEY"` | **level**: KEY goes down at the next frame edge and stays down until `release` (backend CAP-IN-02 `set_key`, `Keyboard::set_matrix_bit`, `keyboard.h:185`). Vocabulary of `--delayed-keypress`. This is what the recorder emits (§7.2). |
-| `release "KEY"` | **level**: KEY goes up at the next frame edge. Releasing a key that is not down is a no-op. |
-| `press "KEY" for n` | **pulse**: down for n frames then up, with the auto-type 4-frame all-released gap after it (backend CAP-IN-01 over `Keyboard::queue_auto_type`, `keyboard.cpp:541-590`). Today `queue_auto_type` REPLACES the queue, so a second pulse while one is in flight strands the first key down (review R-1); REQ-dsl-18 is ACCEPTED as **append**: CAP-IN-01 queues behind an in-flight pulse (4-frame released gap kept), two pulses due in one frame both happen, and `--delayed-keypress-frames` inherits the fix. `set_matrix_bit` (`keyboard.h:185`, private today) gains a public entry for CAP-IN-02. `--delayed-keypress-frames N KEY` ≡ `on frame N do press "KEY" for 5 end`. |
+| `press "KEY"` | **level**: KEY goes down at the next frame edge and stays down until `release` (backend CAP-IN-02 `set_key`, `Keyboard::set_matrix_bit`, `keyboard.h:185`). Vocabulary of `--delayed-keypress`, plus `row,col` for one matrix bit and `ext:<name>` for one of the 16 Next extended keys (NR 0xB0/0xB1, IN-02 `set_extended_key`; the names are in §2.1's `key_spec`, WP6 / Appendix L.2). This is what the recorder emits (§7.2). |
+| `release "KEY"` | **level**: KEY goes up at the next frame edge, `row,col` and `ext:<name>` included. Releasing a key that is not down is a no-op. |
+| `press "KEY" for n` | **pulse**: down for n frames then up, with the auto-type 4-frame all-released gap after it (backend CAP-IN-01 over `Keyboard::queue_auto_type`, `keyboard.cpp:541-590`). Today `queue_auto_type` REPLACES the queue, so a second pulse while one is in flight strands the first key down (review R-1); REQ-dsl-18 is ACCEPTED as **append**: CAP-IN-01 queues behind an in-flight pulse (4-frame released gap kept), two pulses due in one frame both happen, and `--delayed-keypress-frames` inherits the fix. `set_matrix_bit` (`keyboard.h:185`, private today) gains a public entry for CAP-IN-02. `--delayed-keypress-frames N KEY` ≡ `on frame N do press "KEY" for 5 end`. An `ext:<name>` key has no pulse form: `press "ext:…" for n` is a run-time error (WP6). |
 | `joystick n bits` | set MD6 12-bit state of port n (1\|2) at the next frame boundary (`Joystick::set_joy_left/right`, `joystick.h:116-117`). |
 | `enable NAME`, `disable NAME` | arm / disarm a labelled rule. |
 | `set v = expr` | assign a `var`. |
@@ -2003,7 +2009,8 @@ QSCR-11..13, DKSK-05, and the functional rows `script-replay-keyb-func`,
   that ignored them would drop real input silently. The language gained the
   key names `ext:right … ext:delete` for `press` / `release` (backend IN-02's
   `set_extended_key`, already there); `press "ext:…" for n` is a run-time
-  error (there is no extended-key pulse). The names live in
+  error (there is no extended-key pulse). §2.1's `key_spec` and §2.6's
+  `press` / `release` rows carry the names. The names live in
   `src/script/key_names.*`, with the inverse matrix table (§7.2's "`row,col`
   for a bit with no single-key name" — CAPS SHIFT `0,0`, SYMBOL SHIFT `7,1`).
 - **Keys jnext types by itself are input like any other.** A tape `--load`'s
