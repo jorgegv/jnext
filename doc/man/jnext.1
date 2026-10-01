@@ -2410,10 +2410,11 @@ without the options that typed them.
 .PP
 \f[B]Exit status\f[R] in \f[B]\-\-headless\f[R] (and the SDL\-only
 build): \f[CR]0\f[R] for a clean run or \f[CR]exit 0\f[R]; \f[I]N\f[R]
-for \f[CR]exit\f[R] \f[I]N\f[R]; \f[CR]3\f[R] for a \f[CR]stop\f[R] or a
-failed \f[CR]assert\f[R]; \f[CR]1\f[R] for a script that does not load
-or a run\-time error (division by zero, say \- the rule is disabled and
-the run ends at the next frame).
+for \f[CR]exit\f[R] \f[I]N\f[R] (0 to 255: any other value is a
+run\-time error); \f[CR]3\f[R] for a \f[CR]stop\f[R] or a failed
+\f[CR]assert\f[R]; \f[CR]1\f[R] for a script that does not load or a
+run\-time error (division by zero, say \- the rule is disabled and the
+run ends at the next frame).
 The first status a run reaches is kept.
 When \f[B]\-\-delayed\-automatic\-exit\f[R] or
 \f[B]\-\-delayed\-automatic\-exit\-frames\f[R] ends a run before a
@@ -2433,8 +2434,11 @@ An \f[CR]exit\f[R] that comes while a \f[CR]compare_scr\f[R] is still
 waiting for its frame edge waits with it, so \f[CR]on write\f[R]
 \f[I]A\f[R] \f[CR]do compare_scr\f[R] \f[I]F\f[R] \f[I]M\f[R]
 \f[CR]exit 0 end\f[R] reports a mismatch rather than exiting first.
-# REMOTE DEBUGGING (ZRCP)
 .PP
+The user guide\(cqs \f[B]Debugger scripting\f[R] chapter is the full
+reference: every event with its payload, every action, the state names,
+and worked examples.
+.SH REMOTE DEBUGGING (ZRCP)
 With \f[B]\-\-zrcp\-port\f[R] \f[I]PORT\f[R], jnext serves the text
 protocol ZEsarUX offers on its \f[CR]\-\-remoteprotocol\-port\f[R]
 (ZRCP), speaking as ZEsarUX 12.0 does: a welcome, then one command per

@@ -2,9 +2,9 @@
 
 The debugger scripts you have loaded, what their rules are doing, and what
 they have concluded. A debugger script (`.jds`) is a list of rules, each an
-event and the actions to run when it happens; the **SCRIPTING** section of the
-man page describes the language, and [Debugger scripts](../functions/13-debugger-scripts.md)
-how to load them.
+event and the actions to run when it happens; [Debugger
+scripting](../scripting/index.md) describes the language, and [Debugger
+scripts](../functions/13-debugger-scripts.md) how to load them.
 
 At the top, three buttons:
 
@@ -14,7 +14,7 @@ At the top, three buttons:
 - **Unload All** — remove every script.
 
 Under them, the **recorder**, which writes what you do into a replay script
-(the **SCRIPTING** section of the man page, "Recording a session"):
+([Recording and replaying a session](../scripting/10-recording-and-replaying.md)):
 
 - **Record...** — choose a file and start recording (the same as
   **Script > Record Script...**).

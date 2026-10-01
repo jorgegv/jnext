@@ -57,6 +57,7 @@ the two can never disagree. For building jnext from source, see
 - [REMOTE DEBUGGING (DEZOG)](#remote-debugging-dezog)
 - [REMOTE DEBUGGING (Z88DK-GDB)](#remote-debugging-z88dk-gdb)
 - [SCRIPTING](#scripting)
+- [REMOTE DEBUGGING (ZRCP)](#remote-debugging-zrcp)
 - [MAGIC BREAKPOINT AND MAGIC PORT](#magic-breakpoint-and-magic-port)
 - [EXAMPLES](#examples)
 - [FILES](#files)
@@ -1967,23 +1968,29 @@ are recorded like any others, so replay without the options that typed
 them.
 
 **Exit status** in **--headless** (and the SDL-only build): `0` for a
-clean run or `exit 0`; *N* for `exit` *N*; `3` for a `stop` or a failed
-`assert`; `1` for a script that does not load or a run-time error
-(division by zero, say - the rule is disabled and the run ends at the
-next frame). The first status a run reaches is kept. When
-**--delayed-automatic-exit** or **--delayed-automatic-exit-frames** ends
-a run before a script reached a verdict it declared - a rule holding
-`exit` or `compare_scr` that never ran, or a **--script-key** not yet
-delivered - the run exits `3` (`SCRIPT: N deferred actions never ran`).
-A status `2` never comes from a script. A failure wins over a success at
-the same moment: when a `stop`, a failed `assert` or `compare_scr`, or a
-run-time error happens at the same event as an `exit 0` - in the same
-rule or in another one, before it or after it - the run exits `3` (or
-`1` for the run-time error), and the log says `SCRIPT EXIT 0 not taken`.
-A non-zero `exit` *N* is kept. An `exit` that comes while a
-`compare_scr` is still waiting for its frame edge waits with it, so
-`on write` *A* `do compare_scr` *F* *M* `exit 0 end` reports a mismatch
-rather than exiting first. \# REMOTE DEBUGGING (ZRCP)
+clean run or `exit 0`; *N* for `exit` *N* (0 to 255: any other value is
+a run-time error); `3` for a `stop` or a failed `assert`; `1` for a
+script that does not load or a run-time error (division by zero, say -
+the rule is disabled and the run ends at the next frame). The first
+status a run reaches is kept. When **--delayed-automatic-exit** or
+**--delayed-automatic-exit-frames** ends a run before a script reached a
+verdict it declared - a rule holding `exit` or `compare_scr` that never
+ran, or a **--script-key** not yet delivered - the run exits `3`
+(`SCRIPT: N deferred actions never ran`). A status `2` never comes from
+a script. A failure wins over a success at the same moment: when a
+`stop`, a failed `assert` or `compare_scr`, or a run-time error happens
+at the same event as an `exit 0` - in the same rule or in another one,
+before it or after it - the run exits `3` (or `1` for the run-time
+error), and the log says `SCRIPT EXIT 0 not taken`. A non-zero `exit`
+*N* is kept. An `exit` that comes while a `compare_scr` is still waiting
+for its frame edge waits with it, so `on write` *A* `do compare_scr` *F*
+*M* `exit 0 end` reports a mismatch rather than exiting first.
+
+The user guide’s **Debugger scripting** chapter is the full reference:
+every event with its payload, every action, the state names, and worked
+examples.
+
+## REMOTE DEBUGGING (ZRCP)
 
 With **--zrcp-port** *PORT*, jnext serves the text protocol ZEsarUX
 offers on its `--remoteprotocol-port` (ZRCP), speaking as ZEsarUX 12.0

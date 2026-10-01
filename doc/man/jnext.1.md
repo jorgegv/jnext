@@ -1827,7 +1827,8 @@ before the recording began, a rewind. Keys jnext types by itself (a tape's
 without the options that typed them.
 
 **Exit status** in **\--headless** (and the SDL-only build): `0` for a clean run
-or `exit 0`; *N* for `exit` *N*; `3` for a `stop` or a failed `assert`; `1`
+or `exit 0`; *N* for `exit` *N* (0 to 255: any other value is a run-time
+error); `3` for a `stop` or a failed `assert`; `1`
 for a script that does not load or a run-time error (division by zero, say -
 the rule is disabled and the run ends at the next frame). The first status a
 run reaches is kept. When **\--delayed-automatic-exit** or
@@ -1843,6 +1844,10 @@ says `SCRIPT EXIT 0 not taken`. A non-zero `exit` *N* is kept. An `exit`
 that comes while a `compare_scr` is still waiting for its frame edge waits
 with it, so `on write` *A* `do compare_scr` *F* *M* `exit 0 end` reports a
 mismatch rather than exiting first.
+
+The user guide's **Debugger scripting** chapter is the full reference: every
+event with its payload, every action, the state names, and worked examples.
+
 # REMOTE DEBUGGING (ZRCP)
 
 With **\--zrcp-port** *PORT*, jnext serves the text protocol ZEsarUX offers on

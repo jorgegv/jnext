@@ -2,8 +2,10 @@
 
 A debugger script (`.jds`) watches the running machine and acts on what it
 sees: stop when a range of memory is written, log every NextREG write, check
-an invariant at the end of every frame, press a key at a given frame. The
-language is described in the **SCRIPTING** section of the man page.
+an invariant at the end of every frame, press a key at a given frame.
+[Debugger scripting](../scripting/index.md) is the full guide: the language,
+every event and action, recording sessions, and checks for memory-corruption
+bugs. This page is the short version of loading and running them.
 
 ## Loading scripts
 
@@ -48,5 +50,5 @@ on hostkey 2 do disable guard log "guard disarmed" end
 A `stop`, a failed `assert` or an `exit` pauses the machine and the debugger
 window shows where; JNEXT itself never exits because of a script while it has
 a window. In `--headless` (and the SDL-only build) the same script ends the
-run instead, and its exit status is the verdict — see
-[Automation and CI](../../07-automation-and-ci/index.md).
+run instead, and its exit status is the verdict — see [Running
+scripts](../scripting/09-running-scripts.md#exit-codes).

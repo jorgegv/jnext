@@ -765,17 +765,16 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     all off would configure nothing.
 
 **--script** *FILE*
-:   Load a debugger script (`.jds`); see [the SCRIPTING section of the
-    man
-    page](https://github.com/jorgegv/jnext/blob/main/USAGE.md#scripting).
-    Repeatable: the scripts load, and their rules run, in the order
-    given. A script that cannot be read, or that has any error, is
-    reported as *file*:*line*:*column*: *message* and jnext exits 1
-    before the machine runs - nothing of it runs partially. In
-    **--headless** and the SDL-only build a script decides the exit
-    status: `exit` *N* exits *N*, a `stop` or a failed `assert` exits 3,
-    a run-time error exits 1. In the Qt GUI a script never ends the
-    program: `stop` and `exit` pause the machine instead.
+:   Load a debugger script (`.jds`); see [Debugger
+    scripting](../06-debugger/scripting/index.md). Repeatable: the
+    scripts load, and their rules run, in the order given. A script that
+    cannot be read, or that has any error, is reported as
+    *file*:*line*:*column*: *message* and jnext exits 1 before the
+    machine runs - nothing of it runs partially. In **--headless** and
+    the SDL-only build a script decides the exit status: `exit` *N*
+    exits *N*, a `stop` or a failed `assert` exits 3, a run-time error
+    exits 1. In the Qt GUI a script never ends the program: `stop` and
+    `exit` pause the machine instead.
 
 **--script-key** *FRAME* *N*
 :   Deliver script host key *N* (`1` to `8`) at emulated frame *FRAME*
@@ -786,11 +785,10 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
 
 **--record-script** *FILE*
 :   Record the session as a replay script; see **Recording a session**
-    under [the SCRIPTING section of the man
-    page](https://github.com/jorgegv/jnext/blob/main/USAGE.md#scripting).
-    Every input change is written as the frame it landed on, each Alt +
-    8 (or **--script-key** *FRAME* `8`) captures the screen, and *FILE*
-    is written when jnext exits. Works in every frontend.
+    under [Debugger scripting](../06-debugger/scripting/index.md). Every
+    input change is written as the frame it landed on, each Alt + 8 (or
+    **--script-key** *FRAME* `8`) captures the screen, and *FILE* is
+    written when jnext exits. Works in every frontend.
 
 **--map** *FILE*
 :   Load a z88dk `.map` symbol table, so a script can name an address as

@@ -107,6 +107,21 @@ nav:
           - Debugging with z88dk-gdb: 06-debugger/functions/11-debugging-with-z88dk-gdb.md
           - Remote debugging over ZRCP: 06-debugger/functions/12-remote-debugging-over-zrcp.md
           - Debugger scripts: 06-debugger/functions/13-debugger-scripts.md
+      - Scripting:
+          - 06-debugger/scripting/index.md
+          - Your first script: 06-debugger/scripting/01-your-first-script.md
+          - The language: 06-debugger/scripting/02-the-language.md
+          - Events: 06-debugger/scripting/03-events.md
+          - Reading the machine: 06-debugger/scripting/04-reading-the-machine.md
+          - Actions: 06-debugger/scripting/05-actions.md
+          - Snapshots and span checks: 06-debugger/scripting/06-snapshots-and-span-checks.md
+          - Keys, joysticks and host keys: 06-debugger/scripting/07-keys-joysticks-and-host-keys.md
+          - Changing the machine: 06-debugger/scripting/08-changing-the-machine.md
+          - Running scripts: 06-debugger/scripting/09-running-scripts.md
+          - Recording and replaying a session: 06-debugger/scripting/10-recording-and-replaying.md
+          - Catching memory-corruption bugs: 06-debugger/scripting/11-catching-memory-corruption-bugs.md
+          - The demo scripts: 06-debugger/scripting/12-the-demo-scripts.md
+          - Quick reference: 06-debugger/scripting/13-quick-reference.md
   - 7. Automation and CI:
       - 07-automation-and-ci/index.md
       - 7.1 Headless mode: 07-automation-and-ci/01-headless-mode.md

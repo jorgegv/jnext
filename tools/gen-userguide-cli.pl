@@ -60,11 +60,8 @@ my %SECTION_LINK = (
     'LOGGING' =>
         '[the LOGGING section of the man page]'
         . '(https://github.com/jorgegv/jnext/blob/main/USAGE.md#logging)',
-    # GH #26 — the guide's scripting chapter is WP8a of the same issue; until it
-    # exists the reference is the man page's own section.
     'SCRIPTING' =>
-        '[the SCRIPTING section of the man page]'
-        . '(https://github.com/jorgegv/jnext/blob/main/USAGE.md#scripting)',
+        '[Debugger scripting](../06-debugger/scripting/index.md)',
 );
 
 sub fail { die "gen-userguide-cli: $_[0]\n" }
