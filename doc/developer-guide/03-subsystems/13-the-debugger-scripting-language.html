@@ -2114,9 +2114,11 @@ depends on the scope:</p>
 </ul>
 <p>Types are fixed here too. Strings only compare and interpolate; they never go
 into arithmetic or a condition. <code>@symbol</code>s are resolved against the backend's
-one symbol table (CAP-SYM, filled by <code>--map</code> or <strong>Map &gt; Load MAP</strong>). That table
-keeps only the <code>; addr</code> lines of a z88dk map: a <code>; const</code> such as a crt section
-bound is not a symbol.</p>
+one symbol table (CAP-SYM, filled by <code>--map</code> or <strong>Map &gt; Load MAP</strong>). A z88dk
+map's <code>; addr</code> lines name addresses; its <code>; const</code> lines (sizes, and section
+bounds such as <code>__data_crt_head</code>) are kept in a separate name-only table, so
+<code>@__data_crt_head</code> resolves while the disassembler and <code>lookup(addr)</code> never
+name an address after a constant (<code>SymbolTable::lookup_name()</code>).</p>
 <h2 id="values-state-and-the-snapshot-stacks">Values, state and the snapshot stacks<a class="headerlink" href="#values-state-and-the-snapshot-stacks" title="Permanent link">&para;</a></h2>
 <p>Integers are 32-bit signed and wrap. Comparisons, <code>and</code>, <code>or</code> and <code>not</code> yield
 1 or 0, and <code>and</code>/<code>or</code> short-circuit.</p>
@@ -2159,7 +2161,7 @@ own <code>Listener</code>. <code>load(text, file)</code> does four things, in th
 <ol>
 <li>parses and checks the text;</li>
 <li>runs the <code>var</code> initializers;</li>
-<li>evaluates every filter bound (<code>@code_end - 1</code> and the like);</li>
+<li>evaluates every filter bound (<code>@__data_crt_head - 1</code> and the like);</li>
 <li>only then registers each rule (<code>subscriptions_for()</code>).</li>
 </ol>
 <p>A script with any error registers nothing.</p>
@@ -2226,30 +2228,46 @@ active, the first mutation logs a warning.</p>
 <h2 id="stop-exit-and-the-exit-code">Stop, exit and the exit code<a class="headerlink" href="#stop-exit-and-the-exit-code" title="Permanent link">&para;</a></h2>
 <p>There are three verdicts:</p>
 <ul>
-<li><strong><code>stop</code>, and a failed <code>assert</code></strong>, return <code>Verdict::Stop</code>. The backend pauses
-  at the boundary — the end of the offending instruction for a write — and
-  applies the loop owner's stop policy (<code>StopPolicy</code>): Qt pauses; headless and
-  SDL request exit 3. The engine logs <code>SCRIPT STOP: &lt;reason&gt; at PC=… FRAME=…
-  CYCLE=…</code>. <strong>The rest of the body still runs</strong>, so a span script's <code>unsnap</code>
-  keeps its stack balanced.</li>
-<li><strong><code>exit n</code></strong> calls <code>EngineHost::exit(n)</code> during the delivery, BEFORE the
-  backend's stop asks for 3. The loop owner keeps the first code it is given,
-  so <code>exit 7</code> exits 7. The exception: an <code>exit</code> that follows a <code>stop</code> or a
-  failed <code>assert</code> <strong>in the same rule body</strong> is not taken. It is logged
-  <code>SCRIPT EXIT n not taken: the rule stopped first (reason)</code>, and the stop's 3
-  stands (<code>body_stopped_</code>, row SCRIPT-EV-ASSERT-EXIT). Without that,
-  <code>assert … exit 0</code> passed a failed assert. Before handing a code over, <code>exit</code>
-  calls <code>flush_captures()</code>: a screenshot still pending or failed, or a
+<li><strong><code>stop</code>, and a failed <code>assert</code> or <code>compare_scr</code></strong>, return <code>Verdict::Stop</code>.
+  The backend pauses at the boundary — the end of the offending instruction
+  for a write — and applies the loop owner's stop policy (<code>StopPolicy</code>): Qt
+  pauses; headless and SDL request exit 3. The engine logs <code>SCRIPT STOP:
+  &lt;reason&gt; at PC=… FRAME=… CYCLE=…</code>. <strong>The rest of the body still runs</strong>, so a
+  span script's <code>unsnap</code> keeps its stack balanced.</li>
+<li><strong><code>exit n</code></strong> is recorded (<code>take_exit()</code>) and returns <code>Stop</code> too, so the
+  machine pauses. It is handed to <code>EngineHost::exit</code> only at that pause, in
+  <code>on_paused()</code> (<code>hand_over_exit()</code>), when every stop of the boundary is known.
+  While an exit is pending, <code>ScriptHost</code>'s listener leaves the backend's own
+  ExitRequested(3) to that hand-over. The backend's first <code>pump()</code> only takes
+  its baseline and pushes no pause, so <code>ScriptHost::start()</code> pumps once before
+  the loop's first tick: an <code>exit</code> at frame 0 still reaches <code>on_paused()</code>.
+  Before the hand-over, <code>take_exit()</code> calls
+  <code>flush_captures()</code>: a screenshot still pending or failed, or a
   <code>save_snapshot</code> still queued, turns <code>exit 0</code> into 1.</li>
 <li><strong>A run-time error</strong> disables the rule and asks for exit 1 at the next frame
   edge.</li>
 </ul>
+<p><strong>A failure wins over a success at the same boundary.</strong> Every failure marks the
+boundary by master cycle (<code>mark_failure()</code>): a <code>stop</code>, a failed <code>assert</code> or
+<code>compare_scr</code>, a static stop (counted in <code>account_static_stops()</code>), and a
+run-time error (code 1). At the hand-over, an <code>exit 0</code> at a failed boundary
+becomes the failure's code. It is logged
+<code>SCRIPT EXIT 0 not taken: "reason" failed at the same boundary (exit 3)</code>. It
+does not matter which rule failed, or whether before or after the exit. A
+non-zero <code>exit n</code> is kept: it already reports a failure. Other clients'
+breakpoints are not script failures.</p>
+<p><strong>An exit waits for a pending <code>compare_scr</code>.</strong> An <code>exit</code> issued while any
+<code>compare_scr</code> waits for its frame edge is queued behind it
+(<code>Deferred::Kind::Exit</code>) and taken at that edge, after the compare. So
+<code>on write … do compare_scr … exit 0 end</code> reports a mismatch instead of exiting
+first.</p>
 <p><code>unreached_verdicts()</code> counts what a run never got to: rules holding <code>exit</code> or
 <code>compare_scr</code> that never fired, deferred actions still pending, and
 <code>--script-key</code>s not yet delivered. The headless and SDL loops ask for it at the
 <code>--delayed-automatic-exit*</code> bound and exit 3 when it is non-zero.</p>
-<p><code>status()</code> gives the first exit code, the stop count with the last reason, the
-run-time errors and the unreached count. It is the Script tab's verdict line.</p>
+<p><code>status()</code> gives the first exit code actually taken, the stop count with the
+last reason, the run-time errors and the unreached count. It is the Script
+tab's verdict line.</p>
 <h2 id="the-host-scripthost">The host: <code>ScriptHost</code><a class="headerlink" href="#the-host-scripthost" title="Permanent link">&para;</a></h2>
 <p><code>HeadlessApp</code>, <code>SdlApp</code> and <code>QtApp</code> each hold a <code>ScriptHost</code> beside their
 <code>DebugServers</code>. It is declared after <code>debugger_</code>, so it is destroyed first.</p>

@@ -349,7 +349,7 @@ the nesting expressible without loops or data structures.
 | `log [indent n] "…"` | one line to the script log, prefixed `[jds F:<FRAME> C:<CYCLE>]`, `n` spaces after the prefix. Headless: stderr through the `script` spdlog channel. |
 | `stop ["reason"]` | request a pause **at the offending instruction** (§6.3). Headless: log + exit 3 at the end of the current instruction. |
 | `assert expr "msg"` | if false: `log "ASSERT FAILED: msg"`, then behaves as `stop "msg"`. |
-| `exit n` | headless: exit with code n after the current instruction. GUI: log + pause (a GUI never exits from a script). After a `stop` or a failed `assert` earlier in the same rule body the `exit` is not taken — logged as `SCRIPT EXIT n not taken` — so the stop's 3 stands (WP7 finding, Appendix M.2). |
+| `exit n` | headless: exit with code n after the current instruction. GUI: log + pause (a GUI never exits from a script). **A failure at the same boundary wins over `exit 0`** (WP7 review 1, Appendix M.2): a `stop`, a failed `assert` or `compare_scr`, a static stop, or a run-time error at the same event — in this rule or another, before or after the `exit` — makes the run exit 3 (1 for the run-time error), logged `SCRIPT EXIT 0 not taken`; a non-zero `exit n` is kept. An `exit` issued while a `compare_scr` waits for its frame edge waits too, and is taken at that edge after the compare. |
 | `dump_regs`, `dump_mmu`, `dump_mem a len` | to the log; `dump_mem` ≤ 4096 bytes, 16 per line. |
 | `screenshot "f"` | queued for the **next frame boundary** through `save_screenshot` (`screenshot.h:60`): `.scr` = ULA memory (`Ula::screen_dump`), else PNG. Same path `--delayed-screenshot` uses. Its outcome is the backend's `flush_captures(cid)` (added in B4): the engine calls it before `exit`, and `NoFrame` (a capture still pending) or `RefusedUnavailable` (one that failed to write) makes the run's exit non-zero. |
 | `compare_scr "f" "msg"` | at the next frame boundary, `Ula::screen_dump()` byte-compared to file; first differing offset logged; mismatch behaves as `assert` failure. |
@@ -1702,9 +1702,11 @@ logged as `SCRIPT WARNING file:L:C: …`; the script still loads.
   PC> FRAME=… CYCLE=<the event's cycle>`.
 - **`exit n`** calls `EngineHost::exit(n)` during the delivery, BEFORE the
   backend's stop requests 3 — the loop owner keeps the first code it is given
-  (row SCRIPT-EV-EXIT pins the order). **Unless a `stop` or a failed `assert`
-  came first in the same rule body** (WP7, Appendix M.2): that `exit` is not
-  taken, and the stop's 3 is the run's code (row SCRIPT-EV-ASSERT-EXIT). Before that it calls
+  (row SCRIPT-EV-EXIT pins the order). **Superseded by WP7 review 1
+  (Appendix M.2):** the `exit` is no longer handed over during the delivery but
+  at the pause, in `on_paused()`, once every stop of the boundary is known, and
+  the loop owner's listener leaves the backend's 3 to that hand-over while an
+  exit is pending. A failure at the same boundary turns `exit 0` into its code. Before that it calls
   `flush_captures()`: a screenshot still pending or failed, or a
   `save_snapshot` still queued, turns `exit 0` into exit 1, logged.
 - **`REASON`** is the rule's own text for the engine's own stop (the backend
@@ -2105,13 +2107,18 @@ with it they are §9's ten.
   | `mempoint_addr` | written, never 0xB7 | 0xB7 at its frame 20 |
   | `patch_byte` → `patch_copy` | copied | same |
   | `trap_insn` | runs | runs, plus a second, unskipped write after it |
-  | Stray write | none | one into `code_canary`, the last byte of the code range |
+  | Stray write | none | one into `__data_crt_head - 1`, the last byte of the guarded range |
   | MMU0/MMU1 paging (every 8 frames) | `page_in_level` / `page_in_level_mmu1` | MMU1 = 0x24 |
   | DMA sprite-pattern upload to port 0x5B (every 16 frames) | 256 bytes | 128 bytes |
 
-  The IM 2 handler (`isr` .. `isr_exit`) counts `frames`. In the `BUGGY` build
-  it returns with IY incremented: a constant clobber would be invisible after
-  the first entry. The Copper runs `MOVE NR 0x43,0x00; WAIT 95;
+  The IM 2 handler (`isr` .. `isr_exit`) counts `frames`. It carries five
+  faults, one per invariant of the interrupt-exit audit, picked by the byte
+  `isr_fault`: 0 in the good build, 1 in the `BUGGY` one, any other value set by
+  a script (WP7 review 1). 1 returns IY incremented (a constant clobber would
+  be invisible after the first entry); 2 leaves MMU slot 7 on page 0x0F; 3
+  rewrites the return address; 4 returns without EI; 5 leaves SP two bytes
+  deeper. The stack and the IM 2 table live in slot 5, so slot 7 is free for
+  fault 2. The Copper runs `MOVE NR 0x43,0x00; WAIT 95;
   MOVE NR 0x43,0x02; HALT`; in the `BUGGY` build the WAIT is for line 96.
 - **`test/scripts/dsl/`** holds the nine scripts. Each header gives the exact
   command line, the exit code and the log line. The rows are thin
@@ -2120,10 +2127,10 @@ with it they are §9's ten.
 
   | Script | Row | Red twin |
   |---|---|---|
-  | `range_watch.jds` | `script-guard-func` — **#279** code-area guard | buggy build: exit 3, PC 0x816D |
+  | `range_watch.jds` | `script-guard-func` — **#279** code-area guard, `0x8000..(@__data_crt_head - 1)` as ChaseTheBug | buggy build: exit 3, the write into 0x8317 from PC 0x8172 |
   | `value_predicate.jds` | `script-mempoint-func` | buggy build: exit 3 |
-  | `nextreg.jds` | `script-mmu-func` — **#279** MMU0/MMU1 | buggy build: exit 3, PC 0x8186. Also the good build with a script fault upstream of the watched write (3), and the two "must stay green" variants (watched register, one instruction early; both 0) |
-  | `span_invariants.jds` | `script-isr-func` — **#279** interrupt-exit audit | buggy build: exit 3, IY named |
+  | `nextreg.jds` | `script-mmu-func` — **#279** MMU0/MMU1 | buggy build: exit 3, PC 0x818B. Also the good build with a script fault upstream of the watched write (3), and the two "must stay green" variants (watched register, one instruction early; both 0) |
+  | `span_invariants.jds` | `script-isr-func` — **#279** interrupt-exit audit | each of the five handler faults: exit 3 with its own line — IY named; MMU7 named and "isr changed an MMU slot"; "top of stack modified"; "isr exit with interrupts disabled"; SP named |
   | `copper.jds` | `script-copper-func` | buggy build: exit 3, split on line 96 |
   | `dma.jds` | `script-dma-func` | buggy build: exit 3, a 128-byte upload |
   | `mutation.jds` | `script-mutation-func` (requires the MUTATE lines) | buggy build: exit 3, its `exit 0` not taken |
@@ -2135,17 +2142,40 @@ with it they are §9's ten.
 - **A defect: `assert …; exit 0` passed a failed assert.** `exit` handed its
   code to the loop owner during the delivery, before the backend's stop asked
   for 3, so the first code — 0 — won. §3(f)'s own `palette_init.jds` would have
-  gone green on a failed assert. Fixed in `ScriptEngine`: an `exit` after a
-  `stop` or a failed `assert` in the same rule body is **not taken** (logged
-  `SCRIPT EXIT n not taken: the rule stopped first (reason)`), so the stop's
-  3 stands. The rest of the body still runs, so a span script's `unsnap` after
-  a `stop` keeps its stack balanced. Pinned by SCRIPT-EV-ASSERT-EXIT, and
-  observed end to end in `script-mutation-func`'s red twin. §2.6's `exit` row,
-  I.4 and the man page say so.
-- **`@__data_crt_head` is not a symbol.** jnext's MAP loader keeps only the
-  `; addr` lines of a z88dk map. The crt's section bounds are `; const`, so
-  §3(a)'s `0x8000..(@__data_crt_head - 1)` cannot resolve. The demo exports
-  its own `code_end`, and `range_watch.jds` guards `0x8000..(@code_end - 1)`.
+  gone green on a failed assert. The same held for `compare_scr …; exit 0`, for
+  a stop in ANOTHER rule at the same event, and, in an event rule, a deferred
+  `compare_scr` was never made because the `exit` came first (review round 1).
+  Fixed by class in `ScriptEngine`:
+  - an `exit` is no longer handed over during its delivery: it is recorded
+    (`take_exit`), the machine pauses, and `on_paused()` hands it over once
+    every stop of the boundary is known (`hand_over_exit`), the loop owner's
+    listener leaving the backend's 3 to it while an exit is pending. The
+    backend's first `pump()` only takes a baseline and pushes no pause, so
+    `ScriptHost::start()` pumps once before the loop's first tick, or an
+    `exit` at frame 0 would never be handed over (SCRIPT-EV-EXIT-FIRST-TICK);
+  - every failure marks the boundary (`mark_failure`, by master cycle): a
+    `stop`, a failed `assert` or `compare_scr`, a static stop (counted in
+    `account_static_stops`), and a run-time error (code 1). At the hand-over
+    an `exit 0` at a failed boundary becomes the failure's code, logged
+    `SCRIPT EXIT 0 not taken: "reason" failed at the same boundary (exit 3)`;
+    a non-zero `exit n` is kept. The rest of a body still runs, so a span
+    script's `unsnap` after a `stop` keeps its stack balanced;
+  - an `exit` issued while any `compare_scr` waits for its frame edge waits too
+    (`Deferred::Kind::Exit`), and is taken at that edge after the compare.
+  Pinned by SCRIPT-EV-ASSERT-EXIT, -EXIT-COMPARE-FRAME, -EXIT-COMPARE-HELD,
+  -EXIT-OTHER-RULE (both orders, a static stop, `exit 7` kept), -EXIT-RUNTIME,
+  -EXIT-FIRST-TICK, and end to end by `script-mutation-func`'s red twin. §2.6's `exit` row, I.4
+  and the man page say so. Other clients' breakpoints at the same boundary are
+  not script failures and do not count.
+- **`@__data_crt_head` did not resolve** (review round 1, blocking for #279):
+  jnext's MAP loader kept only the `; addr` lines of a z88dk map, and the crt's
+  section bounds are `; const`. Fixed in `SymbolTable`: `; const` lines are kept
+  in a separate NAME-ONLY table that `lookup_name()` consults after the
+  addresses — so `@__data_crt_head`, ZRCP and GDB names resolve — and that
+  `lookup()`, `symbols()` and the disassembler never see, so a size or a bound
+  never names an address (rows SYM-11, SYM-12). `range_watch.jds` and
+  `hostkey.jds` now guard `0x8000..(@__data_crt_head - 1)`, as §3(a) and
+  ChaseTheBug do.
 - **A script must arm after the program is loaded.** Before the NEX loads,
   NextZXOS and the loader run code at these same addresses, and the loader
   writes the code range. Every script therefore arms its watches at the first

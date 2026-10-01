@@ -60,9 +60,11 @@ depends on the scope:
 
 Types are fixed here too. Strings only compare and interpolate; they never go
 into arithmetic or a condition. `@symbol`s are resolved against the backend's
-one symbol table (CAP-SYM, filled by `--map` or **Map > Load MAP**). That table
-keeps only the `; addr` lines of a z88dk map: a `; const` such as a crt section
-bound is not a symbol.
+one symbol table (CAP-SYM, filled by `--map` or **Map > Load MAP**). A z88dk
+map's `; addr` lines name addresses; its `; const` lines (sizes, and section
+bounds such as `__data_crt_head`) are kept in a separate name-only table, so
+`@__data_crt_head` resolves while the disassembler and `lookup(addr)` never
+name an address after a constant (`SymbolTable::lookup_name()`).
 
 ## Values, state and the snapshot stacks
 
@@ -114,7 +116,7 @@ own `Listener`. `load(text, file)` does four things, in this order:
 
 1. parses and checks the text;
 2. runs the `var` initializers;
-3. evaluates every filter bound (`@code_end - 1` and the like);
+3. evaluates every filter bound (`@__data_crt_head - 1` and the like);
 4. only then registers each rule (`subscriptions_for()`).
 
 A script with any error registers nothing.
@@ -164,31 +166,49 @@ Every engine log line is stamped `[jds F:frame C:cycle]`.
 
 There are three verdicts:
 
-- **`stop`, and a failed `assert`**, return `Verdict::Stop`. The backend pauses
-  at the boundary — the end of the offending instruction for a write — and
-  applies the loop owner's stop policy (`StopPolicy`): Qt pauses; headless and
-  SDL request exit 3. The engine logs `SCRIPT STOP: <reason> at PC=… FRAME=…
-  CYCLE=…`. **The rest of the body still runs**, so a span script's `unsnap`
-  keeps its stack balanced.
-- **`exit n`** calls `EngineHost::exit(n)` during the delivery, BEFORE the
-  backend's stop asks for 3. The loop owner keeps the first code it is given,
-  so `exit 7` exits 7. The exception: an `exit` that follows a `stop` or a
-  failed `assert` **in the same rule body** is not taken. It is logged
-  `SCRIPT EXIT n not taken: the rule stopped first (reason)`, and the stop's 3
-  stands (`body_stopped_`, row SCRIPT-EV-ASSERT-EXIT). Without that,
-  `assert … exit 0` passed a failed assert. Before handing a code over, `exit`
-  calls `flush_captures()`: a screenshot still pending or failed, or a
+- **`stop`, and a failed `assert` or `compare_scr`**, return `Verdict::Stop`.
+  The backend pauses at the boundary — the end of the offending instruction
+  for a write — and applies the loop owner's stop policy (`StopPolicy`): Qt
+  pauses; headless and SDL request exit 3. The engine logs `SCRIPT STOP:
+  <reason> at PC=… FRAME=… CYCLE=…`. **The rest of the body still runs**, so a
+  span script's `unsnap` keeps its stack balanced.
+- **`exit n`** is recorded (`take_exit()`) and returns `Stop` too, so the
+  machine pauses. It is handed to `EngineHost::exit` only at that pause, in
+  `on_paused()` (`hand_over_exit()`), when every stop of the boundary is known.
+  While an exit is pending, `ScriptHost`'s listener leaves the backend's own
+  ExitRequested(3) to that hand-over. The backend's first `pump()` only takes
+  its baseline and pushes no pause, so `ScriptHost::start()` pumps once before
+  the loop's first tick: an `exit` at frame 0 still reaches `on_paused()`.
+  Before the hand-over, `take_exit()` calls
+  `flush_captures()`: a screenshot still pending or failed, or a
   `save_snapshot` still queued, turns `exit 0` into 1.
 - **A run-time error** disables the rule and asks for exit 1 at the next frame
   edge.
+
+**A failure wins over a success at the same boundary.** Every failure marks the
+boundary by master cycle (`mark_failure()`): a `stop`, a failed `assert` or
+`compare_scr`, a static stop (counted in `account_static_stops()`), and a
+run-time error (code 1). At the hand-over, an `exit 0` at a failed boundary
+becomes the failure's code. It is logged
+`SCRIPT EXIT 0 not taken: "reason" failed at the same boundary (exit 3)`. It
+does not matter which rule failed, or whether before or after the exit. A
+non-zero `exit n` is kept: it already reports a failure. Other clients'
+breakpoints are not script failures.
+
+**An exit waits for a pending `compare_scr`.** An `exit` issued while any
+`compare_scr` waits for its frame edge is queued behind it
+(`Deferred::Kind::Exit`) and taken at that edge, after the compare. So
+`on write … do compare_scr … exit 0 end` reports a mismatch instead of exiting
+first.
 
 `unreached_verdicts()` counts what a run never got to: rules holding `exit` or
 `compare_scr` that never fired, deferred actions still pending, and
 `--script-key`s not yet delivered. The headless and SDL loops ask for it at the
 `--delayed-automatic-exit*` bound and exit 3 when it is non-zero.
 
-`status()` gives the first exit code, the stop count with the last reason, the
-run-time errors and the unreached count. It is the Script tab's verdict line.
+`status()` gives the first exit code actually taken, the stop count with the
+last reason, the run-time errors and the unreached count. It is the Script
+tab's verdict line.
 
 ## The host: `ScriptHost`
 

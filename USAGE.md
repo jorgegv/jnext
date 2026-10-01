@@ -1975,10 +1975,15 @@ next frame). The first status a run reaches is kept. When
 a run before a script reached a verdict it declared - a rule holding
 `exit` or `compare_scr` that never ran, or a **--script-key** not yet
 delivered - the run exits `3` (`SCRIPT: N deferred actions never ran`).
-A status `2` never comes from a script. An `exit` that follows a `stop`
-or a failed `assert` in the same rule is not taken: `assert` *cond*
-`"msg"` `exit 0` exits `3` when the condition is false. \# REMOTE
-DEBUGGING (ZRCP)
+A status `2` never comes from a script. A failure wins over a success at
+the same moment: when a `stop`, a failed `assert` or `compare_scr`, or a
+run-time error happens at the same event as an `exit 0` - in the same
+rule or in another one, before it or after it - the run exits `3` (or
+`1` for the run-time error), and the log says `SCRIPT EXIT 0 not taken`.
+A non-zero `exit` *N* is kept. An `exit` that comes while a
+`compare_scr` is still waiting for its frame edge waits with it, so
+`on write` *A* `do compare_scr` *F* *M* `exit 0 end` reports a mismatch
+rather than exiting first. \# REMOTE DEBUGGING (ZRCP)
 
 With **--zrcp-port** *PORT*, jnext serves the text protocol ZEsarUX
 offers on its `--remoteprotocol-port` (ZRCP), speaking as ZEsarUX 12.0

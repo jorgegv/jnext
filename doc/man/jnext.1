@@ -2422,10 +2422,17 @@ or \f[CR]compare_scr\f[R] that never ran, or a \f[B]\-\-script\-key\f[R]
 not yet delivered \- the run exits \f[CR]3\f[R]
 (\f[CR]SCRIPT: N deferred actions never ran\f[R]).
 A status \f[CR]2\f[R] never comes from a script.
-An \f[CR]exit\f[R] that follows a \f[CR]stop\f[R] or a failed
-\f[CR]assert\f[R] in the same rule is not taken: \f[CR]assert\f[R]
-\f[I]cond\f[R] \f[CR]\(dqmsg\(dq\f[R] \f[CR]exit 0\f[R] exits
-\f[CR]3\f[R] when the condition is false.
+A failure wins over a success at the same moment: when a
+\f[CR]stop\f[R], a failed \f[CR]assert\f[R] or \f[CR]compare_scr\f[R],
+or a run\-time error happens at the same event as an \f[CR]exit 0\f[R]
+\- in the same rule or in another one, before it or after it \- the run
+exits \f[CR]3\f[R] (or \f[CR]1\f[R] for the run\-time error), and the
+log says \f[CR]SCRIPT EXIT 0 not taken\f[R].
+A non\-zero \f[CR]exit\f[R] \f[I]N\f[R] is kept.
+An \f[CR]exit\f[R] that comes while a \f[CR]compare_scr\f[R] is still
+waiting for its frame edge waits with it, so \f[CR]on write\f[R]
+\f[I]A\f[R] \f[CR]do compare_scr\f[R] \f[I]F\f[R] \f[I]M\f[R]
+\f[CR]exit 0 end\f[R] reports a mismatch rather than exiting first.
 # REMOTE DEBUGGING (ZRCP)
 .PP
 With \f[B]\-\-zrcp\-port\f[R] \f[I]PORT\f[R], jnext serves the text
