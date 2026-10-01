@@ -23,7 +23,11 @@
 //                        rule, which already runs at the edge (§2.6's edge
 //                        rule). `press`/`release` go straight to the backend's
 //                        IN-01/IN-02, which queue for the edge themselves;
-//                        `screenshot`/`save_snapshot` likewise (CAP-01/04).
+//                        `screenshot` likewise (CAP-01);
+//   * `save_snapshot`  — from `on_frame_ended()`, i.e. the next `pump()` that
+//                        finds the machine at a frame boundary: the backend
+//                        refuses a save inside a delivery that would have to
+//                        run the frame out.
 //
 // VERDICTS. A rule body returns `Stop` when it ran `stop`, a failed `assert` or
 // `exit`; the backend then pauses at the boundary and applies the loop owner's
@@ -117,7 +121,7 @@ public:
     void on_paused(const dbg::PausedInfo& info) override;
     void on_resumed(dbg::ClientId) override {}
     void on_reset(dbg::ResetKind) override {}
-    void on_frame_ended(uint32_t) override {}
+    void on_frame_ended(uint32_t frame) override;
     void on_subscriptions_changed(dbg::EventKindMask) override {}
     void on_exit_requested(int) override {}
     void on_log(dbg::LogLevel, const std::string&) override {}
@@ -126,6 +130,10 @@ private:
     struct Unit;
     struct RuleRec;
     struct Deferred;
+    struct PendingSave {
+        RuleRec*    rule = nullptr;
+        std::string file;
+    };
 
     dbg::Action run_rule(RuleRec& r, const dbg::Event& ev, dbg::Debugger& dbg);
     void exec(RuleRec& r, const std::vector<Action>& body, const dbg::Event& ev,
@@ -148,12 +156,15 @@ private:
     dbg::ClientId  cid_ = dbg::CLIENT_NONE;
     std::vector<std::unique_ptr<Unit>> units_;
     std::vector<Deferred> deferred_;
+    std::vector<PendingSave> saves_;    ///< `save_snapshot`s for the next boundary
+    std::optional<uint64_t> cur_cycle_; ///< the running delivery's CYCLE
     dbg::EventId   edge_ = dbg::EVENT_NONE;
     bool           error_exit_pending_ = false;
     bool           rewind_warned_ = false;
     uint64_t       overflow_logged_cycle_ = UINT64_MAX;
     size_t         runtime_errors_ = 0;
-    std::string    last_stop_reason_;
+    std::string    stop_reason_;       ///< the reason of the engine's own pending stop
+    std::string    last_stop_reason_;  ///< `REASON` for the `on stop` rules running now
     bool           in_frame_delivery_ = false;
 };
 

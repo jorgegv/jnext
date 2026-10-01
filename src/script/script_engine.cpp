@@ -152,13 +152,17 @@ void ScriptEngine::unload_all() {
     if (edge_ != dbg::EVENT_NONE) dbg_.unsubscribe(cid_, edge_);
     edge_ = dbg::EVENT_NONE;
     deferred_.clear();
+    saves_.clear();
 }
 
 void ScriptEngine::log(dbg::LogLevel level, const std::string& text) { dbg_.log(cid_, level, text); }
 
 std::string ScriptEngine::stamp() const {
+    // `C:` is the `CYCLE` the running rule reads: the event's own cycle inside
+    // a delivery (Appendix I), the live clock otherwise.
     const dbg::Time t = dbg_.time();
-    return "[jds F:" + std::to_string(t.frame) + " C:" + std::to_string(t.master_cycle) + "]";
+    const uint64_t c  = cur_cycle_ ? *cur_cycle_ : t.master_cycle;
+    return "[jds F:" + std::to_string(t.frame) + " C:" + std::to_string(c) + "]";
 }
 
 // ---------------------------------------------------------------------------
@@ -484,13 +488,16 @@ Verdict ScriptEngine::run_rule(RuleRec& r, const Event& ev, dbg::Debugger& d) {
     if (r.rule->once) r.fired = true;
     Verdict verdict = Verdict::Continue;
     const bool was = in_frame_delivery_;
+    const auto was_cycle = cur_cycle_;
     in_frame_delivery_ = ev.kind == EventKind::Frame;
+    cur_cycle_         = ev.cycle;
     try {
         exec(r, r.rule->body, ev, d, verdict);
     } catch (const EvalError& e) {
         runtime_error(r, e.d);
     }
     in_frame_delivery_ = was;
+    cur_cycle_         = was_cycle;
     return verdict;
 }
 
@@ -522,10 +529,11 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
         if (res != Result::Ok) fail(p, what + " was refused (" + dbg::result_name(res) + ")");
     };
     auto stop_with = [&](const std::string& why) {
-        last_stop_reason_ = why;
+        stop_reason_ = why;
+        // PC and CYCLE are the event's (the causing instruction, §6.3).
         log(dbg::LogLevel::Warn, "SCRIPT STOP: " + why + " at PC=" + hex(ev.pc, 4) + " FRAME=" +
                                      std::to_string(d.time().frame) + " CYCLE=" +
-                                     std::to_string(d.time().master_cycle));
+                                     std::to_string(ev.cycle));
         verdict = Verdict::Stop;
     };
 
@@ -550,10 +558,27 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
                 }
                 break;
             case ActionKind::Exit: {
-                const int32_t code = eval_int(*a.e1, ctx);
+                int32_t code = eval_int(*a.e1, ctx);
                 log(dbg::LogLevel::Info, stamp() + " SCRIPT EXIT " + std::to_string(code));
-                if (host_.exit) host_.exit(code);
-                last_stop_reason_ = "exit " + std::to_string(code);
+                if (host_.exit) {
+                    // §2.6: a capture this script queued that is still pending
+                    // (NoFrame — dropped) or failed to write makes the exit
+                    // non-zero; an explicit non-zero code is kept.
+                    const Result fc = d.flush_captures(cid_);
+                    if (fc != Result::Ok) {
+                        log(dbg::LogLevel::Error, stamp() + " SCRIPT: a screenshot was not written (" +
+                                                      dbg::result_name(fc) + ")");
+                        if (code == 0) code = 1;
+                    }
+                    if (!saves_.empty()) {
+                        log(dbg::LogLevel::Error, stamp() + " SCRIPT: " + std::to_string(saves_.size()) +
+                                                      " save_snapshot(s) never written");
+                        saves_.clear();
+                        if (code == 0) code = 1;
+                    }
+                    host_.exit(code);
+                }
+                stop_reason_ = "exit " + std::to_string(code);
                 verdict = Verdict::Stop;
                 break;
             }
@@ -617,7 +642,11 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
                 break;
             }
             case ActionKind::SaveSnapshot:
-                refused(a.pos, "`save_snapshot`", d.save_snapshot(cid_, interpolate(*a.s1, ctx)));
+                // §2.6: at the next frame BOUNDARY. A rule body runs inside a
+                // delivery, where the backend refuses a save that would have to
+                // run the frame out, so the engine writes it from the next
+                // `pump()` that finds the machine at a boundary.
+                saves_.push_back(PendingSave{&r, interpolate(*a.s1, ctx)});
                 break;
             case ActionKind::CompareScr: {
                 const std::string f = interpolate(*a.s1, ctx);
@@ -704,12 +733,14 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
                     const uint8_t b[2] = {static_cast<uint8_t>(v & 0xFF), static_cast<uint8_t>((v >> 8) & 0xFF)};
                     const size_t n = t.kind == ExprKind::Mem ? 1 : 2;
                     const auto res = d.poke(cid_, dbg::MemSpace::cpu(), static_cast<uint32_t>(addr), n, b);
-                    refused(a.pos, "`set mem`", res.status);
-                    // A poke that did not land (ROM) is not a silent success (§2.7).
-                    if (res.value < n)
+                    // A byte dropped on ROM is not a silent success (§2.7): the
+                    // backend counts what LANDED (GH #281) and the rest of the
+                    // write did not happen, so the script is told how much did.
+                    if (res.status == Result::RefusedReadOnly)
                         fail(a.pos, "`set` at " + hex(static_cast<unsigned>(addr), 4) + ": " +
                                         std::to_string(res.value) + " of " + std::to_string(n) +
-                                        " byte(s) landed");
+                                        " byte(s) landed (the rest is read-only)");
+                    refused(a.pos, "`set mem`", res.status);
                     break;
                 }
                 if (t.kind == ExprKind::Phys) {
@@ -788,7 +819,13 @@ void ScriptEngine::ensure_edge() {
     s.kind         = EventKind::Frame;
     s.filter.frame = dbg::FRAME_EVERY;
     s.action       = Verdict::Continue;
-    s.handler      = [this](const Event&, dbg::Debugger&) { return run_edge(); };
+    s.handler      = [this](const Event& e, dbg::Debugger&) {
+        const auto was = cur_cycle_;
+        cur_cycle_     = e.cycle;
+        const Verdict v = run_edge();
+        cur_cycle_     = was;
+        return v;
+    };
     const auto id  = dbg_.subscribe(cid_, s);
     if (id) edge_ = id.value;
 }
@@ -832,8 +869,28 @@ Verdict ScriptEngine::compare_scr_now(RuleRec* r, const std::string& file, const
         log(dbg::LogLevel::Warn, stamp() + " compare_scr " + file + ": size " + std::to_string(want.size()) +
                                      " != screen " + std::to_string(have.size()));
     log(dbg::LogLevel::Warn, stamp() + " ASSERT FAILED: " + msg);
-    last_stop_reason_ = msg;
+    stop_reason_ = msg;
     return Verdict::Stop;
+}
+
+// ---------------------------------------------------------------------------
+// `save_snapshot` — from `pump()`, at a frame boundary
+// ---------------------------------------------------------------------------
+
+void ScriptEngine::on_frame_ended(uint32_t) {
+    // Pushed from `pump()`, outside every delivery. Mid-frame (a stop paused
+    // the machine inside a frame) the save waits for a later boundary rather
+    // than run the frame out under the user.
+    if (saves_.empty() || !dbg_.at_frame_boundary()) return;
+    std::vector<PendingSave> q;
+    q.swap(saves_);
+    for (const PendingSave& p : q) {
+        const Result res = dbg_.save_snapshot(cid_, p.file);
+        if (res != Result::Ok && p.rule)
+            runtime_error(*p.rule, Diagnostic{p.rule->rule->pos, "`save_snapshot` \"" + p.file +
+                                                                     "\" was not written (" +
+                                                                     dbg::result_name(res) + ")"});
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -842,8 +899,10 @@ Verdict ScriptEngine::compare_scr_now(RuleRec* r, const std::string& file, const
 
 std::string ScriptEngine::pause_reason_text(const dbg::PausedInfo& info) const {
     using K = dbg::PauseReason::Kind;
-    if (info.reason.kind == K::Script && info.reason.by == cid_ && !last_stop_reason_.empty())
-        return last_stop_reason_;
+    // The engine's own stop: the backend names it by the event kind
+    // (Breakpoint for an execute rule, Watch for a mem/port rule, Script for
+    // the rest) with an empty `text`, so the reason is the one the rule gave.
+    if (info.reason.by == cid_ && !stop_reason_.empty()) return stop_reason_;
     const char* k = "none";
     switch (info.reason.kind) {
         case K::None:       k = "none"; break;
@@ -861,6 +920,7 @@ std::string ScriptEngine::pause_reason_text(const dbg::PausedInfo& info) const {
 
 void ScriptEngine::on_paused(const dbg::PausedInfo& info) {
     const std::string reason = pause_reason_text(info);
+    stop_reason_.clear();
     last_stop_reason_ = reason;
     // A stop is not a backend event: the rule's payload PC is the paused PC
     // (Appendix I, WP1 finding F6), carried on a synthetic Event.
@@ -868,6 +928,7 @@ void ScriptEngine::on_paused(const dbg::PausedInfo& info) {
     ev.kind  = EventKind::Execute;
     ev.pc    = info.pc;
     ev.cycle = info.cycle;
+    cur_cycle_ = info.cycle;
     for (auto& u : units_) {
         for (auto& r : u->rules) {
             if (r->rule->event.type != EventType::Stop || r->dead || !r->enabled) continue;
@@ -890,6 +951,8 @@ void ScriptEngine::on_paused(const dbg::PausedInfo& info) {
             last_stop_reason_ = reason;
         }
     }
+    stop_reason_.clear();  // a `stop` in an `on stop` body only logged
+    cur_cycle_.reset();
 }
 
 // ---------------------------------------------------------------------------

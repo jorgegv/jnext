@@ -163,7 +163,9 @@ int32_t read_builtin(const Expr& e, const EvalContext& ctx) {
         case Builtin::IM:     return ctx.dbg.registers().IM;
         case Builtin::HALTED: return ctx.dbg.registers().halted ? 1 : 0;
         case Builtin::FRAME:  return wrap(uint64_t{ctx.dbg.time().frame});
-        case Builtin::CYCLE:  return wrap(ctx.dbg.time().master_cycle);
+        // In an event rule, the event's own cycle — captured at the hook, so
+        // exact for an event delivered at a later boundary (§2.2; Appendix I).
+        case Builtin::CYCLE:  return wrap(ctx.ev ? ctx.ev->cycle : ctx.dbg.time().master_cycle);
         case Builtin::TFRAME: return wrap(ctx.dbg.time().cycle_in_frame);
         case Builtin::RAW_HC: return ctx.dbg.raster().raw_hc;
         case Builtin::RAW_VC: return ctx.dbg.raster().raw_vc;
