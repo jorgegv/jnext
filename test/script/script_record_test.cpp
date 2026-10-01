@@ -342,13 +342,16 @@ static void edge_rows() {
         g.frames(3);
         const uint32_t b = g.next();
         g.key(SDL_SCANCODE_UP, false);
+        g.emu.keyboard().set_extended_key(15, true);   // DELETE, the last id (NR 0xB1 bit 7)
         g.frames(3);
         const std::string s = rules_of(rec.script());
         check("REC-EDGE-EXT", "the host's Up arrow drives the extended key UP (NR 0xB0 bit 3): recorded as "
-                              "`press \"ext:up\"` / `release \"ext:up\"` at its frames, no matrix bit",
+                              "`press \"ext:up\"` / `release \"ext:up\"` at its frames, no matrix bit; the last "
+                              "extended key (DELETE, NR 0xB1 bit 7) is seen too",
               has(s, "on frame " + std::to_string(a - 1) + " do press \"ext:up\" end|") &&
                   has(s, "on frame " + std::to_string(b - 1) + " do release \"ext:up\" end|") &&
-                  count(s, "press") == 1,
+                  has(s, "on frame " + std::to_string(b - 1) + " do press \"ext:delete\" end|") &&
+                  count(s, "press") == 2,
               s);
     }
     {
@@ -460,6 +463,7 @@ static void capture_rows() {
 static void header_rows() {
     {
         Rig g(kPark, MachineType::ZXN_ISSUE2);
+        g.frames(3);   // recording from FRAME 3, not from power-on
         Recorder rec(*g.dbg);
         std::string why;
         rec.start(g_dir + "hdr.jds", test_info, why);
@@ -482,10 +486,10 @@ static void header_rows() {
                          "hdr.jds --delayed-automatic-exit-frames " + std::to_string(last + 2 + 50)) &&
                   !has(t, "/some/where"),
               t);
-        check("REC-HDR-ASSERTS", "the preconditions are asserts at the first recorded frame — MACHINE (4 on a "
-                                 "Next) and NR 0x05 as read — and the script ends with `exit 0` two frames "
-                                 "after the last recorded one",
-              has(t, at + "assert MACHINE == 4 \"recorded on MACHINE 4\" end\n") &&
+        check("REC-HDR-ASSERTS", "the preconditions are asserts at the first recorded frame (here 3, not 0) — "
+                                 "MACHINE (4 on a Next) and NR 0x05 as read — and the script ends with `exit 0` "
+                                 "two frames after the last recorded one",
+              first == 3 && has(t, at + "assert MACHINE == 4 \"recorded on MACHINE 4\" end\n") &&
                   has(t, at + "assert nextreg[0x05] == " + nr + " \"joystick mode NR 0x05 = " + nr +
                              ", as recorded\" end\n") &&
                   has(t, "on frame " + std::to_string(last + 2) + " do exit 0 end\n"),
@@ -591,6 +595,27 @@ static void life_rows() {
         check("REC-LIFE-UNWRITABLE", "a script that cannot be written: stop() is false, says which file, and "
                                      "the recording has ended anyway",
               !ok && why == "cannot write " + g_dir + "no/such/dir/x.jds" && !rec.recording(), why);
+    }
+    {
+        // A PNG is written one rendered frame after the edge that asked for it
+        // (CAP-01); a stop in between drops it — and its line.
+        Rig g(kPark, MachineType::ZXN_ISSUE2);
+        Recorder rec(*g.dbg);
+        std::string why;
+        rec.start(g_dir + "pend.jds", nullptr, why);
+        g.dbg->nextreg_write(g.tc, 0x15, 0x01);   // sprites on: a PNG capture
+        g.frames(2);
+        rec.capture();
+        g.frames(1);                                // taken (asked of the backend) at this edge
+        const bool asked = has(rec.script(), "screenshot \"pend-0001-replay.png\"");
+        const bool ok    = rec.stop(why);
+        const std::string t = read_text(g_dir + "pend.jds");
+        check("REC-LIFE-PENDING", "a PNG capture still pending at the stop (no frame rendered since) is "
+                                  "dropped: its `screenshot` line goes, and a WARNING says so",
+              asked && ok && !has(t, "pend-0001-replay.png\" end") &&
+                  has(t, "# WARNING: the last PNG capture (pend-0001) was still pending") &&
+                  !std::filesystem::exists(g_dir + "pend-0001.png"),
+              t);
     }
     {
         // A cold boot restarts the frame numbering and the recording with it;
@@ -728,7 +753,7 @@ static void roundtrip_rows() {
         // The control: one byte of one capture changed, and the replay fails
         // on it — the compare_scr lines are live.
         std::vector<uint8_t> b = read_bytes(g_dir + "rt-0002.scr");
-        b[2] ^= 0xFF;
+        if (b.size() > 2) b[2] ^= 0xFF;
         {
             std::ofstream out(g_dir + "rt-0002.scr", std::ios::binary);
             out.write(reinterpret_cast<const char*>(b.data()), static_cast<std::streamsize>(b.size()));

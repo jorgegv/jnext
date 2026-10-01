@@ -29,8 +29,7 @@ struct ScriptHost::HostListener : dbg::Listener {
 ScriptHost::ScriptHost() = default;
 
 ScriptHost::~ScriptHost() {
-    if (recording()) stop_recording();   // the session ends: write what was recorded
-    recorder_.reset();
+    recorder_.reset();   // a recording in progress is written: ~Recorder stops it
     engine_.reset();
     if (dbg_ && listener_cid_ != dbg::CLIENT_NONE) {
         dbg_->set_listener(listener_cid_, nullptr);
