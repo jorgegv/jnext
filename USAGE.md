@@ -960,13 +960,18 @@ A directory is copied recursively, in name order:
   case, which FAT would make one file. Nothing is renamed or silently
   skipped — hidden files included.
 
-It is **all or nothing**. Every refusal is decided before the first byte
-is written, so a refused copy leaves the card exactly as it was. If the
-copy fails part-way — the card fills up, or a file shrinks while it is
-read — everything this run created is removed again before jnext exits
-with an error. The only thing that cannot be undone is a file
-**--sdcard-file-force** had already replaced, and the message says how
-many there were.
+A file or a directory, the copy is **all or nothing**. Every refusal is
+decided before the first byte is written, so a refused copy — including
+one that does not fit, counting the directories it would have to make —
+leaves the card exactly as it was. If the copy fails part-way — the card
+fills up, or a file shrinks while it is read — everything this run
+created, files and directories, is removed again before jnext exits with
+an error. Two things cannot be undone: a file **--sdcard-file-force**
+had already replaced (the message says how many), and the extra cluster
+an existing directory grew by to hold a new entry, since FAT never
+shrinks a directory. The free-space check counts a file that
+**--sdcard-file-force** will replace at its full size, so a forced copy
+onto a nearly full card can be refused even though it would just fit.
 
 The copy goes into the image **--sdcard** names. With no **--sdcard** it
 goes into the default-location image, which every other run also boots

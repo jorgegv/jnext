@@ -69,6 +69,41 @@ bool is_forbidden_name_char(char c) {
     return std::strchr("\"*:<>?\\|", c) != nullptr;
 }
 
+// Can `c` be stored as one FAT name exactly as given? `subject` names it in
+// a message ("name 'x' in the destination path", "host name 'x'") and
+// `container` says where a bad character was found.
+bool check_fat_name(const std::string& c, const std::string& subject,
+                    const std::string& container, std::string& err) {
+    // FF_MAX_LFN is 255; a longer component cannot be stored at all.
+    if (c.size() > FF_MAX_LFN) {
+        err = subject + " is longer than " +
+              std::to_string(static_cast<int>(FF_MAX_LFN)) + " characters";
+        return false;
+    }
+    for (char ch : c) {
+        const unsigned char u = static_cast<unsigned char>(ch);
+        if (u < 0x20 || u > 0x7E) {
+            err = subject + " is not printable ASCII; jnext writes ASCII names only";
+            return false;
+        }
+        if (is_forbidden_name_char(ch)) {
+            err = std::string("character '") + ch + "' in " + container +
+                  " is not allowed in a FAT name" +
+                  (ch == '\\' ? " (use '/' to separate directories)" : "");
+            return false;
+        }
+    }
+    // FAT silently strips trailing dots and spaces, so a name that ends in
+    // one is not the name that would appear on the card. Refuse instead of
+    // writing something else than was asked for.
+    if (c.back() == '.' || c.back() == ' ') {
+        err = subject + " ends in a '.' or a space, which FAT strips; the "
+              "file would not have the name asked for";
+        return false;
+    }
+    return true;
+}
+
 // Split on '/', dropping empty components so "/a/b", "a/b" and "a//b" agree.
 std::vector<std::string> split_slash(const std::string& p) {
     std::vector<std::string> out;
@@ -207,36 +242,9 @@ bool normalize_dest_path(const std::string& dest_path,
                   "' contains '" + c + "'; give the full path from the card root";
             return false;
         }
-        // FF_MAX_LFN is 255; a longer component cannot be stored at all.
-        if (c.size() > FF_MAX_LFN) {
-            err = "name '" + c + "' in the destination path is longer than " +
-                  std::to_string(static_cast<int>(FF_MAX_LFN)) + " characters";
+        if (!check_fat_name(c, "name '" + c + "' in the destination path",
+                            "the destination path", err))
             return false;
-        }
-        for (char ch : c) {
-            const unsigned char u = static_cast<unsigned char>(ch);
-            if (u < 0x20 || u > 0x7E) {
-                err = "name '" + c +
-                      "' in the destination path is not printable ASCII; "
-                      "jnext writes ASCII names only";
-                return false;
-            }
-            if (is_forbidden_name_char(ch)) {
-                err = std::string("character '") + ch + "' in the destination "
-                      "path is not allowed in a FAT name"
-                      + (ch == '\\' ? " (use '/' to separate directories)" : "");
-                return false;
-            }
-        }
-        // FAT silently strips trailing dots and spaces, so a name that ends in
-        // one is not the name that would appear on the card. Refuse instead of
-        // writing something else than was asked for.
-        if (c.back() == '.' || c.back() == ' ') {
-            err = "name '" + c +
-                  "' in the destination path ends in a '.' or a space, which "
-                  "FAT strips; the file would not have the name asked for";
-            return false;
-        }
         out += "/";
         out += c;
     }
@@ -398,10 +406,10 @@ FileAddStatus write_card_file(const std::string& image_path,
     }
     if (fr == FR_DENIED) {
         // FatFs reports FR_DENIED on create when the volume or the directory
-        // table is full. Free space was already checked, so this is the
-        // directory-slot case.
+        // table is full. The free-space pre-check is a lower bound (a
+        // directory that has to grow is not in it), so it can be either.
         err = "cannot create '" + dest_path +
-              "' on the card: its directory has no free slots left";
+              "' on the card: no free space or no free directory slots left";
         return FileAddStatus::ImageFull;
     }
     if (fr != FR_OK) {
@@ -554,9 +562,9 @@ FileAddStatus scan_host_dir(const std::filesystem::path& dir,
     ancestors.push_back(canon);
     for (const fs::path& p : entries) {
         const std::string name = p.filename().u8string();
-        std::string fat_unused, why;
-        if (!normalize_dest_path("/" + name, fat_unused, why)) {
-            err = "'" + p.u8string() + "' cannot be copied: " + why;
+        std::string why;
+        if (!check_fat_name(name, "its name", "its name", why)) {
+            err = "'" + p.u8string() + "' cannot be copied to the card: " + why;
             return FileAddStatus::DestInvalid;
         }
         rel.push_back(name);
@@ -830,12 +838,27 @@ FileAddStatus add_file_to_image(const std::string& image_path,
 
     // ---- 4. free space -----------------------------------------------------
     // Asked BEFORE anything is created, so a too-big file is refused with the
-    // card untouched instead of leaving a half-written entry behind.
+    // card untouched instead of leaving a half-written entry behind. Every
+    // directory still to be made on the way costs a cluster too (GH #292):
+    // counting only the data let a file that fitted on its own create its
+    // directory and then run out, leaving that directory behind.
+    const std::vector<std::string> parts = split_slash(dest_path);
+    uint64_t new_dirs = 0;
+    {
+        std::string prefix = "0:";
+        for (std::size_t i = 0; i + 1 < parts.size(); ++i) {
+            prefix += "/";
+            prefix += parts[i];
+            FILINFO fno{};
+            const FRESULT fs_st = f_stat(prefix.c_str(), &fno);
+            if (fs_st == FR_NO_FILE || fs_st == FR_NO_PATH) ++new_dirs;
+        }
+    }
     uint64_t free_clusters = 0, cluster_bytes = 0;
     st = card_free_space(image_path, free_clusters, cluster_bytes, err);
     if (st != FileAddStatus::Ok) return st;
     const uint64_t need_clusters =
-        (src_size + cluster_bytes - 1) / cluster_bytes;
+        (src_size + cluster_bytes - 1) / cluster_bytes + new_dirs;
     if (need_clusters > free_clusters) {
         err = "'" + image_path + "' has " +
               std::to_string(free_clusters * cluster_bytes / 1024) +
@@ -847,22 +870,35 @@ FileAddStatus add_file_to_image(const std::string& image_path,
     // ---- 5. intermediate directories ---------------------------------------
     // Decision: missing directories are CREATED. `--sdcard-file-dest
     // /DEMOS/x.nex` on a card with no /DEMOS must work without a second step.
+    // The ones this call makes are remembered: a failure after them removes
+    // them again, so a failed add leaves no empty directory behind.
+    std::vector<std::string> made;
+    auto unmake = [&](FileAddStatus s) {
+        for (auto r = made.rbegin(); r != made.rend(); ++r)
+            f_unlink(r->c_str());
+        if (!made.empty())
+            err += "; the " + std::to_string(made.size()) +
+                   " new director" + (made.size() == 1 ? "y" : "ies") +
+                   " made for it were removed too";
+        return s;
+    };
     {
-        const std::vector<std::string> parts = split_slash(dest_path);
         std::string prefix = "0:";
         for (std::size_t i = 0; i + 1 < parts.size(); ++i) {
             prefix += "/";
             prefix += parts[i];
             bool created = false;
             st = ensure_card_dir(prefix, parts[i], dest_path, created, err);
-            if (st != FileAddStatus::Ok) return st;
+            if (st != FileAddStatus::Ok) return unmake(st);
+            if (created) made.push_back(prefix);
         }
     }
 
     // ---- 6 + 7. what is already there, and the copy -------------------------
     bool replaced = false;
-    return write_card_file(image_path, fat_path, dest_path, host_file, src,
-                           src_size, overwrite, replaced, err);
+    st = write_card_file(image_path, fat_path, dest_path, host_file, src,
+                         src_size, overwrite, replaced, err);
+    return st == FileAddStatus::Ok ? st : unmake(st);
 }
 
 std::string file_add_usage_error(int add_count, int dest_count,
@@ -911,8 +947,8 @@ bool default_dest_path(const std::string& host_path,
               "'; give --sdcard-file-dest PATH";
         return false;
     }
-    std::string fat_path, why;
-    if (!normalize_dest_path("/" + name, fat_path, why)) {
+    std::string why;
+    if (!check_fat_name(name, "'" + name + "'", "'" + name + "'", why)) {
         err = "the card name taken from '" + host_path + "' is unusable (" +
               why + "); give --sdcard-file-dest PATH";
         return false;

@@ -1040,15 +1040,21 @@ ending in a dot or a space); and two names in one directory that differ
 only in case, which FAT would make one file.
 Nothing is renamed or silently skipped \(em hidden files included.
 .PP
-It is \f[B]all or nothing\f[R].
+A file or a directory, the copy is \f[B]all or nothing\f[R].
 Every refusal is decided before the first byte is written, so a refused
-copy leaves the card exactly as it was.
+copy \(em including one that does not fit, counting the directories it
+would have to make \(em leaves the card exactly as it was.
 If the copy fails part\-way \(em the card fills up, or a file shrinks
-while it is read \(em everything this run created is removed again
-before jnext exits with an error.
-The only thing that cannot be undone is a file
-\f[B]\-\-sdcard\-file\-force\f[R] had already replaced, and the message
-says how many there were.
+while it is read \(em everything this run created, files and
+directories, is removed again before jnext exits with an error.
+Two things cannot be undone: a file \f[B]\-\-sdcard\-file\-force\f[R]
+had already replaced (the message says how many), and the extra cluster
+an existing directory grew by to hold a new entry, since FAT never
+shrinks a directory.
+The free\-space check counts a file that
+\f[B]\-\-sdcard\-file\-force\f[R] will replace at its full size, so a
+forced copy onto a nearly full card can be refused even though it would
+just fit.
 .PP
 The copy goes into the image \f[B]\-\-sdcard\f[R] names.
 With no \f[B]\-\-sdcard\f[R] it goes into the default\-location image,

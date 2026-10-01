@@ -1085,11 +1085,6 @@ int main(int argc, char* argv[]) {
             }
         }
     }
-    // GH #269 — --sdcard-file-add is a copy-and-exit mode, so anything that
-    // says "and then run this" contradicts it, and --sdcard-readonly says
-    // "never write the image" to a mode whose whole job is writing it. Both
-    // used to be the #138 failure shape: accepted, and one of them silently
-    // ignored.
     // GH #269 / #292 — how --sdcard-file-add, -dest and -force combine: one
     // source per run, dest optional, either order (see file_add_usage_error).
     {
@@ -1101,6 +1096,11 @@ int main(int argc, char* argv[]) {
             return 1;
         }
     }
+    // GH #269 — --sdcard-file-add is a copy-and-exit mode, so anything that
+    // says "and then run this" contradicts it, and --sdcard-readonly says
+    // "never write the image" to a mode whose whole job is writing it. Both
+    // used to be the #138 failure shape: accepted, and one of them silently
+    // ignored.
     if (sdcard_file_add_count > 0) {
         if (sdcard_readonly) {
             fprintf(stderr,

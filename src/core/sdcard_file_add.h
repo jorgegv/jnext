@@ -109,8 +109,10 @@ bool same_image_file(const std::string& a, const std::string& b);
 /// existing destination with FileAddStatus::DestExists and leaves it untouched.
 /// With `overwrite` true the destination is replaced.
 ///
-/// On any failure after the destination file was created, the partial file is
-/// removed: a truncated `DRV-A.DSK` is worse than no `DRV-A.DSK`.
+/// The free-space check counts the directories still to be made as well as
+/// the data. On any failure after the destination file was created, the
+/// partial file is removed — a truncated `DRV-A.DSK` is worse than no
+/// `DRV-A.DSK` — and so are the directories this call made for it.
 ///
 /// `err` always receives a one-sentence explanation on failure.
 FileAddStatus add_file_to_image(const std::string& image_path,
@@ -195,10 +197,11 @@ struct AddSummary {
 /// for writing or, for clashes on the card, before the first byte is written,
 /// so a refused copy leaves the card byte-for-byte untouched. A failure in the
 /// middle of the copy (out of space, an I/O error, a source that shrank) ROLLS
-/// BACK: every file and directory this run created is removed again. The one
-/// thing that cannot be undone is a file `overwrite` already replaced; the
-/// message says how many there were. A partial copy is never reported as
-/// success.
+/// BACK: every file and directory this run created is removed again. Not
+/// undone: a file `overwrite` already replaced (the message says how many),
+/// and the cluster an existing directory grew by (FAT never shrinks one). A
+/// partial copy is never reported as success. A single file has the same
+/// contract (add_file_to_image()).
 ///
 /// `summary` (optional) is filled on success.
 FileAddStatus add_to_image(const std::string& image_path,

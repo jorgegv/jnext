@@ -110,8 +110,10 @@ if want sdcard-file-add-tree-func; then
     add_tree jnext "$W/tree"
     boot_ls jnext
 
-    # The same tree through mtools, one entry at a time in the same order, at
-    # jnext's fixed FatFs date.
+    # The same tree through mtools, one entry at a time in jnext's order (byte
+    # order: uppercase first, a directory before its contents), at jnext's
+    # fixed FatFs date. `.ls` sorts its listing anyway; matching the order
+    # keeps the two cards' directories alike entry for entry.
     card=$(new_card mtools)
     part_lba=$(od -An -tu4 -j $((0x1BE + 8)) -N4 "$card" | tr -d ' ')
     img="$card@@$((part_lba * 512))"
@@ -119,10 +121,10 @@ if want sdcard-file-add-tree-func; then
             set -e
             mmd   -i "$1" ::/GH292 ::/GH292/sub
             mcopy -i "$1" "$2/sub/A Long Name.txt" ::/GH292/sub/
+            mcopy -i "$1" "$2/sub/SHORT.BIN" ::/GH292/sub/
             mmd   -i "$1" ::/GH292/sub/deeper
             mcopy -i "$1" "$2/sub/deeper/x.bin" ::/GH292/sub/deeper/
             mmd   -i "$1" ::/GH292/sub/empty
-            mcopy -i "$1" "$2/sub/SHORT.BIN" ::/GH292/sub/
         ' _ "$img" "$W/tree" > "$W/mtools.log" 2>&1; then
         faults+=("mtools could not write the reference tree: $(head -1 "$W/mtools.log")")
     fi

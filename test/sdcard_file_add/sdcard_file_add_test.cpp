@@ -48,8 +48,11 @@
 //     covered, by the tree rollback rows SDFA-T32..T36.)
 //   * In a tree, a file that shrinks or an f_write that fails part-way. Both
 //     end in the same rollback as the out-of-room case SDFA-T32..T36 drives.
-//   * SDFA-T29/T30 (unreadable file / directory) cannot be built as root,
-//     which reads through permission bits; they SKIP there, as SD-28 does.
+//   * SDFA-T29/T30 (unreadable file / directory) need root to honour
+//     permission bits. As root (CI's container) the suite first clears
+//     CAP_DAC_OVERRIDE and CAP_DAC_READ_SEARCH from its EFFECTIVE set, which
+//     makes root obey mode 0 like anyone else; only if that capset is refused
+//     do the two rows SKIP.
 //   * The COPY CHUNK SIZE. Shrinking it from 256 KB to 1 KB changes no row,
 //     and must not: it is the one mutation here whose survival is the correct
 //     answer, and it is also what says the multi-chunk loop works at all
@@ -68,8 +71,10 @@ extern "C" {
 #include "third_party/fatfs/ff.h"
 }
 
+#include <linux/capability.h>  // CAP_DAC_* (root-built unreadable fixtures)
 #include <sys/stat.h>   // mkfifo, chmod (GH #292 tree rows)
-#include <unistd.h>     // geteuid
+#include <sys/syscall.h>
+#include <unistd.h>     // geteuid, syscall
 
 #include <algorithm>
 #include <cstdint>
@@ -103,6 +108,30 @@ void check(const char* id, const char* desc, bool cond,
         std::printf("\n");
     }
 }
+
+// Root reads through permission bits by way of two capabilities. Clearing
+// them from the EFFECTIVE set makes root honour mode 0 like anyone else; they
+// stay in the permitted set, so the destructor raises them again. Raw
+// syscalls, so there is no libcap dependency.
+struct DacCapsDropped {
+    __user_cap_header_struct hdr{_LINUX_CAPABILITY_VERSION_3, 0};
+    __user_cap_data_struct   saved[2]{};
+    bool                     active = false;
+
+    bool drop() {
+        if (::syscall(SYS_capget, &hdr, saved) != 0) return false;
+        __user_cap_data_struct d[2];
+        std::memcpy(d, saved, sizeof d);
+        for (int cap : {CAP_DAC_OVERRIDE, CAP_DAC_READ_SEARCH})
+            d[cap / 32].effective &= ~(1u << (cap % 32));
+        if (::syscall(SYS_capset, &hdr, d) != 0) return false;
+        active = true;
+        return true;
+    }
+    ~DacCapsDropped() {
+        if (active) ::syscall(SYS_capset, &hdr, saved);
+    }
+};
 
 void skip(const char* id, const char* desc, const std::string& why) {
     report_row_id(id);
@@ -1022,6 +1051,12 @@ void test_defaults() {
           err.find("FIFO") != std::string::npos && file_digest(img) == before,
           made ? err : "mkfifo failed");
     fs::remove(fifo, ec);
+    // A device is refused the same way: /dev/null would otherwise be read as
+    // an empty file.
+    st = sdcard::add_to_image(img.string(), "/dev/null", "/NULL.BIN", false, err);
+    check("SDFA-D15", "a device given as the source is refused, card untouched",
+          st == FileAddStatus::SourceUnreadable &&
+          err.find("device") != std::string::npos && file_digest(img) == before, err);
     check("SDFA-D13", "the fixture tree and both FATs survived the default-dest copies",
           fixture_tree_intact(img) && fats_agree(img, why), why);
 }
@@ -1240,6 +1275,43 @@ void test_tree_refusals() {
         check("SDFA-T21", "a symlink to a directory is followed: the card gets its tree",
               !e2 && card_file_is(img, "/LINKS/dirlink/far.bin", payload(77, 111)), err);
     }
+    // A link to a directory ALREADY copied — a sibling, not an ancestor — is
+    // not a loop: `cp -rL` copies it twice, and so does this. The loop check
+    // must forget a directory once its scan is finished.
+    {
+        const fs::path d = g_scratch / "dag";
+        fs::remove_all(d, ec);
+        fs::create_directories(d / "a-shared", ec);
+        fs::create_directories(d / "b", ec);
+        write_host_file(d / "a-shared" / "s.bin", payload(44, 117));
+        std::error_code e1;
+        fs::create_directory_symlink(d / "a-shared", d / "b" / "again", e1);
+        const FileAddStatus st =
+            sdcard::add_to_image(img.string(), d.string(), "/DAG", false, err);
+        check("SDFA-T41", "a link to an already-copied sibling directory is copied, not refused",
+              !e1 && st == FileAddStatus::Ok &&
+              card_file_is(img, "/DAG/a-shared/s.bin", payload(44, 117)) &&
+              card_file_is(img, "/DAG/b/again/s.bin", payload(44, 117)), err);
+    }
+    // The SOURCE itself a link to a directory: copied as that directory's
+    // tree, under the LINK's name.
+    {
+        const fs::path real = g_scratch / "realdir";
+        const fs::path link = g_scratch / "linkdir";
+        fs::remove_all(real, ec);
+        fs::create_directories(real, ec);
+        write_host_file(real / "f.bin", payload(55, 118));
+        fs::remove(link, ec);
+        std::error_code e1;
+        fs::create_directory_symlink(real, link, e1);
+        sdcard::AddSummary sum;
+        const FileAddStatus st =
+            sdcard::add_to_image(img.string(), link.string(), "", false, err, &sum);
+        check("SDFA-T42", "a source that is a link to a directory is copied as a tree, by the link's name",
+              !e1 && st == FileAddStatus::Ok && sum.is_dir &&
+              card_file_is(img, "/linkdir/f.bin", payload(55, 118)) &&
+              !card_has(img, "/realdir"), err);
+    }
     const uint64_t base = file_digest(img);
 
     auto refused = [&](const char* id, const char* desc, FileAddStatus want,
@@ -1291,6 +1363,12 @@ void test_tree_refusals() {
         fs::resize_file(d / "sub" / "huge.bin", 0x100000000ull, ec);
         refused("SDFA-T27", "a 4 GiB file inside the tree is refused, card untouched",
                 FileAddStatus::SourceUnreadable, d, "4 GiB");
+        // ...and one byte less is the largest FAT32 file: it is not refused
+        // for its size, only (on this 34 MB card) for want of space.
+        fs::resize_file(d / "sub" / "huge.bin", 0xFFFFFFFFull, ec);
+        refused("SDFA-T43", "a file of exactly 4 GiB - 1 is not refused for its size",
+                FileAddStatus::ImageFull, d, "KB free");
+        fs::remove(d / "sub" / "huge.bin", ec);
     }
     {
         // Bigger than the whole 34 MB volume, so the pre-check refuses it.
@@ -1300,14 +1378,15 @@ void test_tree_refusals() {
         refused("SDFA-T28", "a tree larger than the free space is refused, card untouched",
                 FileAddStatus::ImageFull, d, "KB free");
     }
-    // Unreadable: root reads through any permission bits, so these two cannot
-    // be constructed as root (CI runs in a container as root) — the same
-    // reason, and the same handling, as sdcard_test's SD-28.
-    if (::geteuid() == 0) {
+    // Unreadable. Root reads through permission bits (CI runs in a container
+    // as root), so as root the two DAC capabilities are dropped from the
+    // effective set for these rows; see DacCapsDropped.
+    DacCapsDropped caps;
+    if (::geteuid() == 0 && !caps.drop()) {
         skip("SDFA-T29", "an unreadable file in the tree is refused, card untouched",
-             "running as root; cannot construct an unreadable file");
+             "running as root and capset refused dropping CAP_DAC_OVERRIDE");
         skip("SDFA-T30", "an unreadable directory in the tree is refused, card untouched",
-             "running as root; cannot construct an unreadable directory");
+             "running as root and capset refused dropping CAP_DAC_OVERRIDE");
     } else {
         const fs::path d = fresh("unread");
         write_host_file(d / "sub" / "secret.bin", payload(3, 116));
@@ -1410,6 +1489,122 @@ void test_tree_rollback() {
         sdcard::add_to_image(img.string(), edge.string(), "/", false, err);
     check("SDFA-T39", "a tree one byte past the free space is refused, card untouched",
           st3 == FileAddStatus::ImageFull && file_digest(img) == before, err);
+
+    // A rollback removes what THIS run created and nothing else — not even a
+    // directory it merged into that happens to be empty, which an unlink
+    // would succeed on.
+    const fs::path emptyd = g_scratch / "emptyd";
+    fs::remove_all(emptyd, ec);
+    fs::create_directories(emptyd, ec);
+    const FileAddStatus mk =
+        sdcard::add_to_image(img.string(), emptyd.string(), "/EMPTYDST", false, err);
+    const fs::path into = g_scratch / "into";
+    fs::remove_all(into, ec);
+    fs::create_directories(into / "lots", ec);
+    for (int i = 0; i < 40; ++i) {
+        char name[64];
+        std::snprintf(name, sizeof name, "a rather long file name %02d.txt", i);
+        write_host_file(into / "lots" / name, {});
+    }
+    const FileAddStatus st4 =
+        sdcard::add_to_image(img.string(), into.string(), "/EMPTYDST", false, err);
+    check("SDFA-T44", "a rollback keeps an empty directory it only merged into",
+          mk == FileAddStatus::Ok && st4 == FileAddStatus::ImageFull &&
+          card_has(img, "/EMPTYDST") && !card_has(img, "/EMPTYDST/lots") &&
+          err.find("could not be removed") == std::string::npos, err);
+}
+
+// A card whose /P directory holds exactly one FULL 512-byte cluster of
+// entries (".", ".." and 14 empty 8.3 files), with `leave` clusters free.
+// Anything new in /P makes /P grow by a cluster — which no free-space
+// pre-check counts, so it is how a copy runs out AFTER it has started.
+fs::path full_parent_fixture(const char* name, uint32_t leave, uint32_t& free_out) {
+    const fs::path img = g_scratch / name;
+    std::string why, err;
+    if (!make_fixture(img, why)) {
+        std::printf("FATAL: cannot build fixture image (%s)\n", why.c_str());
+        std::exit(2);
+    }
+    std::error_code ec;
+    const fs::path zero = g_scratch / "zero-entry.bin";
+    write_host_file(zero, {});
+    for (int i = 0; i < 14; ++i) {
+        char dest[32];
+        std::snprintf(dest, sizeof dest, "/P/F%02d.BIN", i);
+        sdcard::add_file_to_image(img.string(), zero.string(), dest, false, err);
+    }
+    const fs::path filler = g_scratch / "filler-p.bin";
+    { std::ofstream c(filler, std::ios::binary); }
+    fs::resize_file(filler,
+                    static_cast<std::uintmax_t>(fsinfo_free_count(img) - leave) *
+                    kClusterBytes, ec);
+    sdcard::add_file_to_image(img.string(), filler.string(), "/FILLER.BIN", false, err);
+    fs::remove(filler, ec);
+    free_out = fsinfo_free_count(img);
+    return img;
+}
+
+// GH #292 review — a single FILE into directories that do not exist yet.
+void test_file_new_dirs() {
+    std::string err;
+    std::error_code ec;
+    const fs::path two = g_scratch / "two-clusters.bin";
+    write_host_file(two, payload(2 * kClusterBytes, 140));
+
+    // The pre-check counts the directory to be made: 2 data + 1 directory
+    // cannot fit in 2, and that is known before anything is written.
+    uint32_t free0 = 0;
+    fs::path img = full_parent_fixture("newdir-refuse.img", 2, free0);
+    uint64_t before = file_digest(img);
+    FileAddStatus st = sdcard::add_file_to_image(img.string(), two.string(),
+                                                 "/P/NEWDIR/x.bin", false, err);
+    check("SDFA-W56", "a file whose new directory does not fit is refused, card untouched",
+          free0 == 2 && st == FileAddStatus::ImageFull && file_digest(img) == before,
+          "free=" + std::to_string(free0) + "; " + err);
+
+    // 3 free passes the pre-check, but /P has to grow to hold NEWDIR, so the
+    // write runs out. The directory made for the file goes with it.
+    uint32_t free1 = 0;
+    img = full_parent_fixture("newdir-rollback.img", 3, free1);
+    st = sdcard::add_file_to_image(img.string(), two.string(),
+                                   "/P/NEWDIR/x.bin", false, err);
+    std::string why;
+    check("SDFA-W57", "a file that runs out after making its directory removes that directory",
+          free1 == 3 && st == FileAddStatus::ImageFull &&
+          !card_has(img, "/P/NEWDIR") &&
+          err.find("new directory made for it were removed too") != std::string::npos,
+          "free=" + std::to_string(free1) + "; " + err);
+    // Everything it made is given back. /P keeps the cluster it grew by —
+    // FAT never shrinks a directory — and that is the only residue.
+    check("SDFA-W58", "...every cluster it made is given back but /P's growth; FATs agree",
+          fsinfo_free_count(img) == free1 - 1 && fixture_tree_intact(img) &&
+          fats_agree(img, why),
+          std::to_string(free1) + " -> " + std::to_string(fsinfo_free_count(img)) + why);
+
+    // The largest file FAT32 can hold is 4 GiB - 1: refused only for space.
+    {
+        const fs::path big = g_scratch / "max.bin";
+        { std::ofstream c(big, std::ios::binary); }
+        fs::resize_file(big, 0xFFFFFFFFull, ec);
+        before = file_digest(img);
+        st = sdcard::add_file_to_image(img.string(), big.string(), "/MAX.BIN", false, err);
+        check("SDFA-W59", "a file of exactly 4 GiB - 1 is not refused for its size",
+              !ec && st == FileAddStatus::ImageFull && file_digest(img) == before, err);
+        fs::remove(big, ec);
+    }
+
+    // In a tree, a directory that cannot be made for want of room is
+    // image-full (6), not an unusable destination (3): one free cluster
+    // passes the pre-check for one new directory, but /P must grow too.
+    uint32_t free2 = 0;
+    img = full_parent_fixture("mkdir-full.img", 1, free2);
+    const fs::path t = g_scratch / "onedir";
+    fs::remove_all(t, ec);
+    fs::create_directories(t / "D1", ec);
+    st = sdcard::add_to_image(img.string(), t.string(), "/P", false, err);
+    check("SDFA-T45", "a directory that runs out of room mid-tree is image-full",
+          free2 == 1 && st == FileAddStatus::ImageFull && !card_has(img, "/P/D1"),
+          "free=" + std::to_string(free2) + "; " + err);
 }
 
 // The card fills while a file is being REPLACED: that file is gone (it was
@@ -1486,6 +1681,7 @@ int main() {
     test_tree_refusals();
     test_tree_rollback();
     test_tree_replace_lost();
+    test_file_new_dirs();
 
     fs::remove_all(g_scratch, ec);
 
