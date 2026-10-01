@@ -1819,7 +1819,8 @@ run reaches is kept. When **\--delayed-automatic-exit** or
 verdict it declared - a rule holding `exit` or `compare_scr` that never ran, or
 a **\--script-key** not yet delivered - the run exits `3`
 (`SCRIPT: N deferred actions never ran`). A status `2` never comes from a
-script.
+script. An `exit` that follows a `stop` or a failed `assert` in the same rule
+is not taken: `assert` *cond* `"msg"` `exit 0` exits `3` when the condition is false.
 
 # MAGIC BREAKPOINT AND MAGIC PORT
 

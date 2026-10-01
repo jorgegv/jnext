@@ -40,11 +40,11 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP3** | engine over subscriptions, stop / exit policy. Headless script `stop` with no explicit `exit` is code **3** (never 2, a harness fault) — as built: Appendix I | **done** |
 | **WP4** | CLI + man page (`--script`, `--script-key`) — as built: Appendix J | **done** |
 | **WP5** | GUI — Script tab, **Alt+1..Alt+8** as the DSL host-key namespace in both windows. **Needs Q** — as built: Appendix K | **done** |
-| **WP6** | the recorder — **this is #20**, after its re-scope: recorder + `compare_scr` + INS-16 + the two parked DAPR rows — as built: Appendix L | in review |
-| **WP7** | demos + the `script-*-func` rows | todo |
+| **WP6** | the recorder — **this is #20**, after its re-scope: recorder + `compare_scr` + INS-16 + the two parked DAPR rows — as built: Appendix L | **done** |
+| **WP7** | demos + the `script-*-func` rows — delivered together with WP10, as built: Appendix M | in review |
 | **WP8** | developer-guide pages | todo |
 | **WP9** | **an exhaustive User Guide chapter for the DSL** (`src/doc/user-guide`, `docs-userguide-check`-gated) — the owner's words: the most powerful feature of jnext | todo |
-| **WP10** | **a demo program + script suite** under `demo/dsl_demo/` exercising every event kind and action, with ten `script-*-func` rows | todo |
+| **WP10** | **a demo program + script suite** under `demo/dsl_demo/` exercising every event kind and action, with ten `script-*-func` rows — the same deliverable as WP7, done as one package (Appendix M) | in review |
 
 Depends on: B0 (landed), B; WP5 on Q. design-dsl owns WP9 and WP10.
 
@@ -349,7 +349,7 @@ the nesting expressible without loops or data structures.
 | `log [indent n] "…"` | one line to the script log, prefixed `[jds F:<FRAME> C:<CYCLE>]`, `n` spaces after the prefix. Headless: stderr through the `script` spdlog channel. |
 | `stop ["reason"]` | request a pause **at the offending instruction** (§6.3). Headless: log + exit 3 at the end of the current instruction. |
 | `assert expr "msg"` | if false: `log "ASSERT FAILED: msg"`, then behaves as `stop "msg"`. |
-| `exit n` | headless: exit with code n after the current instruction. GUI: log + pause (a GUI never exits from a script). |
+| `exit n` | headless: exit with code n after the current instruction. GUI: log + pause (a GUI never exits from a script). After a `stop` or a failed `assert` earlier in the same rule body the `exit` is not taken — logged as `SCRIPT EXIT n not taken` — so the stop's 3 stands (WP7 finding, Appendix M.2). |
 | `dump_regs`, `dump_mmu`, `dump_mem a len` | to the log; `dump_mem` ≤ 4096 bytes, 16 per line. |
 | `screenshot "f"` | queued for the **next frame boundary** through `save_screenshot` (`screenshot.h:60`): `.scr` = ULA memory (`Ula::screen_dump`), else PNG. Same path `--delayed-screenshot` uses. Its outcome is the backend's `flush_captures(cid)` (added in B4): the engine calls it before `exit`, and `NoFrame` (a capture still pending) or `RefusedUnavailable` (one that failed to write) makes the run's exit non-zero. |
 | `compare_scr "f" "msg"` | at the next frame boundary, `Ula::screen_dump()` byte-compared to file; first differing offset logged; mismatch behaves as `assert` failure. |
@@ -1702,7 +1702,9 @@ logged as `SCRIPT WARNING file:L:C: …`; the script still loads.
   PC> FRAME=… CYCLE=<the event's cycle>`.
 - **`exit n`** calls `EngineHost::exit(n)` during the delivery, BEFORE the
   backend's stop requests 3 — the loop owner keeps the first code it is given
-  (row SCRIPT-EV-EXIT pins the order). Before that it calls
+  (row SCRIPT-EV-EXIT pins the order). **Unless a `stop` or a failed `assert`
+  came first in the same rule body** (WP7, Appendix M.2): that `exit` is not
+  taken, and the stop's 3 is the run's code (row SCRIPT-EV-ASSERT-EXIT). Before that it calls
   `flush_captures()`: a screenshot still pending or failed, or a
   `save_snapshot` still queued, turns `exit 0` into exit 1, logged.
 - **`REASON`** is the rule's own text for the engine's own stop (the backend
@@ -2078,3 +2080,92 @@ QSCR-11..13, DKSK-05, and the functional rows `script-replay-keyb-func`,
   here by `REC-EDGE-*` (exact frame numbers) and by the round trip
   `REC-RT-GUEST`, whose guest counts loop passes before Q is first seen down —
   a number that moves with the frame the press lands on.
+
+## Appendix M — WP7 (and WP10) as built: the DSL demo and script suite (2026-10-01)
+
+WP7 (§9) and the overview's WP10 are one deliverable, built as one package.
+`script-replay-keyb-func` is WP6's (L.4), so WP7 has **nine** rows; together
+with it they are §9's ten.
+
+### M.1 What was built
+
+- **`demo/dsl_demo/dsl_demo.asm`** — one z88dk `+zxn` NEX, written in
+  assembly so every address a script names is a MAP label. `make` builds
+  `dsl_demo.nex`, `dsl_demo_buggy.nex` (the same source with `BUGGY`) and
+  `dsl_demo.map`. `make install` copies the three to `test/00regression/nex/`.
+  **One MAP serves both builds:** each `BUGGY` difference is an operand of the
+  same size, or an instruction of the same length writing a different target.
+  The Makefile refuses to build if the two maps disagree on any `addr` line.
+  Every frame, under IM 2, the program:
+
+  | Feature | Good build | `BUGGY` build |
+  |---|---|---|
+  | Keyboard poll | latches the frame counter at the first Q (`first_key`) | same |
+  | Data area | writes `data_area` | same |
+  | `mempoint_addr` | written, never 0xB7 | 0xB7 at its frame 20 |
+  | `patch_byte` → `patch_copy` | copied | same |
+  | `trap_insn` | runs | runs, plus a second, unskipped write after it |
+  | Stray write | none | one into `code_canary`, the last byte of the code range |
+  | MMU0/MMU1 paging (every 8 frames) | `page_in_level` / `page_in_level_mmu1` | MMU1 = 0x24 |
+  | DMA sprite-pattern upload to port 0x5B (every 16 frames) | 256 bytes | 128 bytes |
+
+  The IM 2 handler (`isr` .. `isr_exit`) counts `frames`. In the `BUGGY` build
+  it returns with IY incremented: a constant clobber would be invisible after
+  the first entry. The Copper runs `MOVE NR 0x43,0x00; WAIT 95;
+  MOVE NR 0x43,0x02; HALT`; in the `BUGGY` build the WAIT is for line 96.
+- **`test/scripts/dsl/`** holds the nine scripts. Each header gives the exact
+  command line, the exit code and the log line. The rows are thin
+  `test/00regression/scripts/script-*-func.sh` wrappers. They take the §8 names
+  (the mutation table's), not `script-<script name>-func`:
+
+  | Script | Row | Red twin |
+  |---|---|---|
+  | `range_watch.jds` | `script-guard-func` — **#279** code-area guard | buggy build: exit 3, PC 0x816D |
+  | `value_predicate.jds` | `script-mempoint-func` | buggy build: exit 3 |
+  | `nextreg.jds` | `script-mmu-func` — **#279** MMU0/MMU1 | buggy build: exit 3, PC 0x8186. Also the good build with a script fault upstream of the watched write (3), and the two "must stay green" variants (watched register, one instruction early; both 0) |
+  | `span_invariants.jds` | `script-isr-func` — **#279** interrupt-exit audit | buggy build: exit 3, IY named |
+  | `copper.jds` | `script-copper-func` | buggy build: exit 3, split on line 96 |
+  | `dma.jds` | `script-dma-func` | buggy build: exit 3, a 128-byte upload |
+  | `mutation.jds` | `script-mutation-func` (requires the MUTATE lines) | buggy build: exit 3, its `exit 0` not taken |
+  | `hostkey.jds` | `script-hostkey-func` (`--script-key 560 1`) | buggy with the key: 3; buggy with no key: 0 (nothing armed); good with the key: 0 |
+  | `replay_edge.jds` | `script-replay-edge-func` | script: Q pressed in the program's frame 30 is first seen in 31. A real SDL window under Xvfb records a held Q (through the key Router, xdotool); the recording must press it at F-1 (F = the FRAME the program latched it in) and replay to the same latch. Control: the press a frame later latches a frame later |
+
+### M.2 Findings
+
+- **A defect: `assert …; exit 0` passed a failed assert.** `exit` handed its
+  code to the loop owner during the delivery, before the backend's stop asked
+  for 3, so the first code — 0 — won. §3(f)'s own `palette_init.jds` would have
+  gone green on a failed assert. Fixed in `ScriptEngine`: an `exit` after a
+  `stop` or a failed `assert` in the same rule body is **not taken** (logged
+  `SCRIPT EXIT n not taken: the rule stopped first (reason)`), so the stop's
+  3 stands. The rest of the body still runs, so a span script's `unsnap` after
+  a `stop` keeps its stack balanced. Pinned by SCRIPT-EV-ASSERT-EXIT, and
+  observed end to end in `script-mutation-func`'s red twin. §2.6's `exit` row,
+  I.4 and the man page say so.
+- **`@__data_crt_head` is not a symbol.** jnext's MAP loader keeps only the
+  `; addr` lines of a z88dk map. The crt's section bounds are `; const`, so
+  §3(a)'s `0x8000..(@__data_crt_head - 1)` cannot resolve. The demo exports
+  its own `code_end`, and `range_watch.jds` guards `0x8000..(@code_end - 1)`.
+- **A script must arm after the program is loaded.** Before the NEX loads,
+  NextZXOS and the loader run code at these same addresses, and the loader
+  writes the code range. Every script therefore arms its watches at the first
+  `main_loop` where the program's `magic` word reads 0xD5D5 (`once when
+  mem16[@magic] == 0xD5D5`). §3's sketches assumed watches live from power-on.
+- **The keyboard poll is in the main loop, not the handler**, after
+  `main_loop`, where the script presses. This way "applied at once" (seen in
+  the same frame) and "a frame late" (two frames on) both differ from the
+  frame-edge rule (seen in the next frame), and both of §8's replay mutations
+  are visible.
+- **Absolute frames**: `--script-key 560 1` and the recording half rely on the
+  NEX running from about FRAME 500, as with a warm start. The DAPR recordings
+  (L.4) rely on the same thing. The verdicts themselves count the program's own
+  frames.
+
+### M.3 Deviations
+
+- `replay_edge.jds` presses at the program's frame 30 and expects 31, rather
+  than §8's absolute FRAME 120 and 121: the program's start frame depends on
+  the boot path.
+- The recording half uses the SDL frontend under Xvfb with xdotool, as
+  `sdl-keypress-func` does. It SKIPS, and never fails, when the X server
+  delivers no key — the recording then holds no press.

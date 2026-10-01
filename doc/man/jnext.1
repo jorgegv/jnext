@@ -2404,6 +2404,10 @@ or \f[CR]compare_scr\f[R] that never ran, or a \f[B]\-\-script\-key\f[R]
 not yet delivered \- the run exits \f[CR]3\f[R]
 (\f[CR]SCRIPT: N deferred actions never ran\f[R]).
 A status \f[CR]2\f[R] never comes from a script.
+An \f[CR]exit\f[R] that follows a \f[CR]stop\f[R] or a failed
+\f[CR]assert\f[R] in the same rule is not taken: \f[CR]assert\f[R]
+\f[I]cond\f[R] \f[CR]\(dqmsg\(dq\f[R] \f[CR]exit 0\f[R] exits
+\f[CR]3\f[R] when the condition is false.
 .SH MAGIC BREAKPOINT AND MAGIC PORT
 The magic breakpoint uses the \f[CR]ED FF\f[R] (ZEsarUX) and
 \f[CR]DD 01\f[R] (CSpect) opcodes to pause the debugger when enabled;
