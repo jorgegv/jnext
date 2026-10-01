@@ -3,6 +3,7 @@
 #include "platform/emulator_boot.h"
 #include "platform/cli_capture.h"
 #include "platform/auto_exit.h"
+#include "platform/recording_info.h"   // GH #26 WP6
 #include "platform/rzx_startup.h"
 #include "platform/frame_sequencer.h"   // RENDER_INTERVAL_MS, shared with QtApp
 #include "platform/render_policy.h"
@@ -205,7 +206,9 @@ bool SdlApp::init(int argc, char* argv[]) {
         so.map_file = config_.map_file;
         so.scripts  = config_.script_files;
         so.keys     = config_.script_keys;
+        so.record_file = config_.record_script_file;   // GH #26 WP6
         so.exits    = true;
+        script_host_.set_recording_info([this]() { return recording_info_of(emulator_); });
         if (!script_host_.start(*debugger_, so)) return false;
     }
 

@@ -87,6 +87,7 @@ enum class OptId {
     DebugListenAddress,
     Script,
     ScriptKey,
+    RecordScript,
     Map,
     EsxdosStub,
     EsxdosStubRoot,
@@ -694,6 +695,13 @@ inline constexpr Option OPTIONS[] = {
       "Deliver script host key N (1-8) at emulated frame FRAME\n"
       "(headless only, repeatable): a `hostkey N` rule runs at\n"
       "the end of frame FRAME." },
+    // GH #26 WP6 / #20 — the recorder (dsl-frontend.md §7, Appendix L).
+    { "--record-script", 1, Doc::Documented, OptId::RecordScript,
+      "FILE",
+      "Record the session as a replay script: input edges per\n"
+      "frame, and a screen capture at each Alt+8 (or --script-key\n"
+      "FRAME 8). FILE is written when jnext exits; replay it\n"
+      "with --headless --script FILE." },
     { "--map", 1, Doc::Documented, OptId::Map,
       "FILE",
       "Load a z88dk .map symbol table, for `@symbol` in scripts\n"

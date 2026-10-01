@@ -223,6 +223,9 @@ struct EmulatorConfig {
     std::vector<std::string>                   script_files;
     std::vector<std::pair<uint32_t, int>>      script_keys;
     std::string                                map_file;
+    // GH #26 WP6 / #20 — `--record-script FILE`: record the session as a
+    // replay script (any frontend). Empty = not recording.
+    std::string                                record_script_file;
 
     // Host-side esxDOS compatibility for directly loaded NEX programs.
     // Provides one in-memory file and `run sibling.nex` chaining.
