@@ -88,8 +88,18 @@ one mid-recording — plays up to the second snapshot, and JNEXT says so.
 
 Because it stores input rather than pixels, an RZX is tiny compared with a
 video — but it only replays correctly in an emulator that models the machine the
-same way. It also only replays what its snapshot holds, which on the 128K and +3
-is the whole machine.
+same way. It also only replays what its snapshot holds: the memory and the paging
+of the 48K, 128K or +3. The Next hardware a program on those machines can still
+reach — on JNEXT as on a real Next — is not in it: the NextREGs, the DMA, and the
+sprite, palette and Copper memory.
+
+Port reads the DMA makes are input like any other and are recorded and replayed
+with the program's own; earlier JNEXT versions missed them, so a program that
+read a port through the DMA replayed out of step. The DMA's *settings* are still
+not in the snapshot. A program that set the DMA up before the recording started
+replays its transfers from a DMA that was never set up, and goes out of step;
+one that sets it up after the recording starts, or for every transfer, replays
+faithfully.
 
 ## Recording is not available on a Next
 

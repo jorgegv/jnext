@@ -78,9 +78,12 @@ Three details are worth knowing before adding a handler:
 An unmatched read returns `0xFF` via the default-read callback, matching
 `zxnext.vhd:1868-1878`. The floating bus is **not** the default: it is the
 registered read handler of port `0xFF` alone, because the VHDL mux that produces
-it is scoped to the `port_ff_rd` decode. `PortDispatch::in()` and `out()` also
-carry the RZX hooks — a playback override that substitutes recorded `IN` values,
-and a recording tap.
+it is scoped to the `port_ff_rd` decode. The RZX hooks — a playback override
+that substitutes recorded values, and a recording tap — are in
+`PortDispatch::guest_read()`, the read the emulated machine makes: the CPU's
+`in()` forwards to it and the DMA's I/O read calls it. `read()` has no hooks,
+because tools (the debugger's `port_in()`) use it too, and `out()` is plain
+`write()`: an RZX records no `OUT`s.
 
 ## How a subsystem gets a port
 
