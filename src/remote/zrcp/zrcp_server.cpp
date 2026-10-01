@@ -1839,7 +1839,6 @@ void ZrcpServer::arm_slot(int index) {
         const auto inner = sl.predicate;
         const auto edge  = sl.edge;
         sub.condition = [inner, edge](const jnext::dbg::Event& ev, const jnext::dbg::Debugger& d) {
-            if (ev.cycle == edge->cycle) return edge->fired;  // this boundary, again
             return edge->step(ev.cycle, !inner || inner(ev, d));
         };
     }
@@ -1881,9 +1880,7 @@ bool ZrcpServer::slot_fires_at(int index, std::uint16_t pc) const {
 bool ZrcpServer::slot_edge_at(int index, std::uint16_t pc) {
     Slot& sl = slots_[static_cast<std::size_t>(index)];
     if (!sl.edge) return slot_fires_at(index, pc);
-    const std::uint64_t at = dbg_.time().master_cycle;
-    if (at == sl.edge->cycle) return sl.edge->fired;
-    return sl.edge->step(at, slot_fires_at(index, pc));
+    return sl.edge->step(dbg_.time().master_cycle, slot_fires_at(index, pc));
 }
 
 // Would another client's breakpoint — or a legacy `BreakpointSet` PC
