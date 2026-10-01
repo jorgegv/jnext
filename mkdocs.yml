@@ -105,7 +105,8 @@ nav:
           - Changing the keys: 06-debugger/functions/09-changing-the-keys.md
           - Remote debugging with DeZog: 06-debugger/functions/10-remote-debugging-with-dezog.md
           - Debugging with z88dk-gdb: 06-debugger/functions/11-debugging-with-z88dk-gdb.md
-          - Debugger scripts: 06-debugger/functions/12-debugger-scripts.md
+          - Remote debugging over ZRCP: 06-debugger/functions/12-remote-debugging-over-zrcp.md
+          - Debugger scripts: 06-debugger/functions/13-debugger-scripts.md
   - 7. Automation and CI:
       - 07-automation-and-ci/index.md
       - 7.1 Headless mode: 07-automation-and-ci/01-headless-mode.md
@@ -146,7 +147,7 @@ validation:
 # and docs-userguide-check byte-diffs a fresh render — so config and rendered
 # output must move together, which is exactly what sync-version.sh guarantees.
 extra:
-  doc_release: v1.0.63
+  doc_release: v1.0.64
 
 markdown_extensions:
   - admonition

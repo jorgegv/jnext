@@ -73,8 +73,10 @@ Press **Ctrl-C** while the program runs to stop it.
 - **Your breakpoints are your session's.** They stop the machine whether
   JNEXT's debugger window is open or closed, and they are removed when
   `z88dk-gdb` disconnects — a crashed client cannot leave the machine stopped
-  on one of them. `quit` resumes the machine if the stop was the client's own;
-  a pause you made in JNEXT's debugger window stays.
+  on one of them. `quit` resumes the machine if the stop was the client's own
+  and nothing else is attached; with JNEXT's debugger window open, or another
+  remote debugger connected, it stays paused and the pause becomes theirs. A
+  pause you made in JNEXT's debugger window stays.
 - **Both can drive the machine.** JNEXT's debugger window and `z88dk-gdb`
   control the same machine, and whichever acted last wins. If something else
   stops the machine while `z88dk-gdb` has it running, the client is told it

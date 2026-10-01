@@ -1102,6 +1102,10 @@ my %NO_MATRIX_SECTION = (
     'script_eval_test'          => 'debugger scripting language evaluator (GH #26, jnext-internal); the T80N core has no debugger',
     'script_events_test'        => 'debugger scripting language engine (GH #26, jnext-internal); the T80N core has no debugger',
     'script_record_test'        => 'debugger session recorder (GH #20 / #26 WP6, jnext-internal); the T80N core has no debugger',
+    # GH #280 — the ZRCP adapter. Its oracle is ZEsarUX 12.0's own replies (the
+    # design's transcripts) and DeZog's ZEsarUX client, not the FPGA; the
+    # hardware each command reads or writes is traced in its own section.
+    'zrcp_adapter_test'         => 'ZRCP remote-debugger adapter (GH #280; ZEsarUX 12.0 transcripts, jnext-internal); the T80N core has no debugger',
     'debugger_persistent_bp_test' => 'debugger window raise-on-hit (host GUI lifecycle, GH #219)',
     'debugger_inspect_watchpoint_test' => 'debugger INSPECTION reads vs watchpoints (jnext-internal); the T80N core has no panels reading its bus',
     'debugger_video_panel_test' => 'debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build)',

@@ -226,6 +226,11 @@ struct EmulatorConfig {
     // GH #26 WP6 / #20 — `--record-script FILE`: record the session as a
     // replay script (any frontend). Empty = not recording.
     std::string                                record_script_file;
+    // GH #280 (--zrcp-port): the TCP port the ZEsarUX remote command protocol
+    // server listens on. The same port rule as `dzrp_port`: -1 = off (the
+    // default), 0 = an OS-chosen port logged as `zrcp: listening on
+    // <addr>:<port>`, any other value is that port. CLI-only.
+    int zrcp_port = -1;
 
     // Host-side esxDOS compatibility for directly loaded NEX programs.
     // Provides one in-memory file and `run sibling.nex` chaining.

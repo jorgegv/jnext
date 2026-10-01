@@ -3,7 +3,7 @@
 The debugger scripts you have loaded, what their rules are doing, and what
 they have concluded. A debugger script (`.jds`) is a list of rules, each an
 event and the actions to run when it happens; the **SCRIPTING** section of the
-man page describes the language, and [Debugger scripts](../functions/12-debugger-scripts.md)
+man page describes the language, and [Debugger scripts](../functions/13-debugger-scripts.md)
 how to load them.
 
 At the top, three buttons:

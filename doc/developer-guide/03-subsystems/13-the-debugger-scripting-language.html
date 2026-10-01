@@ -11,7 +11,7 @@
       
       
       
-        <link rel="prev" href="11-the-gdb-rsp-server.html">
+        <link rel="prev" href="12-the-zrcp-server.html">
       
       
         <link rel="next" href="../04-testing/index.html">
@@ -25,7 +25,7 @@
     
     
       
-        <title>3.12 The debugger scripting language - JNEXT Developer Guide</title>
+        <title>3.13 The debugger scripting language - JNEXT Developer Guide</title>
       
     
     
@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#312-the-debugger-scripting-language" class="md-skip">
+        <a href="#313-the-debugger-scripting-language" class="md-skip">
           Skip to content
         </a>
       
@@ -114,7 +114,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              3.12 The debugger scripting language
+              3.13 The debugger scripting language
             
           </span>
         </div>
@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.63</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.64</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.63</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.64</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -765,6 +765,8 @@
       
         
       
+        
+      
     
     
     
@@ -1126,6 +1128,34 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="12-the-zrcp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.12 The ZRCP server (ZEsarUX's protocol)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -1145,7 +1175,7 @@
   <span class="md-ellipsis">
     
   
-    3.12 The debugger scripting language
+    3.13 The debugger scripting language
   
 
     
@@ -1156,14 +1186,14 @@
           <span class="md-nav__icon md-icon"></span>
         </label>
       
-      <a href="12-the-debugger-scripting-language.html" class="md-nav__link md-nav__link--active">
+      <a href="13-the-debugger-scripting-language.html" class="md-nav__link md-nav__link--active">
         
   
   
   <span class="md-ellipsis">
     
   
-    3.12 The debugger scripting language
+    3.13 The debugger scripting language
   
 
     
@@ -1983,7 +2013,7 @@
   
 
 
-<h1 id="312-the-debugger-scripting-language">3.12 The debugger scripting language<a class="headerlink" href="#312-the-debugger-scripting-language" title="Permanent link">&para;</a></h1>
+<h1 id="313-the-debugger-scripting-language">3.13 The debugger scripting language<a class="headerlink" href="#313-the-debugger-scripting-language" title="Permanent link">&para;</a></h1>
 <p>A debugger script (<code>.jds</code>, GH #26, carrying #279's use cases) is a list of
 rules. Each rule is an event and the actions to run when it happens. The
 language lives in <strong><code>src/script/</code></strong> (CMake target <code>jnext_script</code>). It has no
@@ -2117,10 +2147,12 @@ AST type:</p>
 <li><code>eval_expr(text, debugger)</code> evaluates once, in the no-event scope.</li>
 </ul>
 <p>The engine compiles every <code>when</code> through the same code, via <code>make_condition()</code>
-in the evaluator. The ZRCP adapter (package Z) is designed to translate
-ZEsarUX's expression dialect into this grammar and call these two functions
-instead of owning a second parser. On <code>gh26-dsl</code> nothing outside <code>src/script/</code>
-calls them yet; the ZRCP server lands from its own branch.</p>
+in the evaluator. The ZRCP server (<a href="12-the-zrcp-server.html">3.12</a>) is the other
+caller: <code>src/remote/zrcp/zrcp_condition.*</code> translates ZEsarUX's breakpoint
+dialect into this grammar — tokenising and grouping as ZEsarUX does, emitting a
+fully bracketed expression — and compiles it here, so it owns no evaluator. The
+one thing the language cannot read is whether a slot holds ROM, so ZEsarUX's
+<code>SEGn</code> / <code>ROM</code> / <code>RAM</code> are evaluated by the adapter.</p>
 <h2 id="the-engine-rules-as-backend-subscriptions">The engine: rules as backend subscriptions<a class="headerlink" href="#the-engine-rules-as-backend-subscriptions" title="Permanent link">&para;</a></h2>
 <p><code>ScriptEngine</code> is ONE backend client (<code>ClientKind::Script</code>), and it is also its
 own <code>Listener</code>. <code>load(text, file)</code> does four things, in this order:</p>
@@ -2144,7 +2176,8 @@ with the machine at an instruction boundary, and returns the verdict.</p>
 registered as a static <code>Stop</code> with no handler. That is the shape every frontend
 breakpoint has, so other clients see it:</p>
 <ul>
-<li><code>probe_execute()</code> lists it;</li>
+<li><code>probe_execute(pc)</code> lists it whenever its <code>when</code> holds at <code>pc</code> (the backend
+  evaluates the condition), which is how a ZRCP <code>run</code> stops on it;</li>
 <li><code>subscriptions()</code> reports <code>action Stop</code>, no handler.</li>
 </ul>
 <p>Its bookkeeping happens in <code>on_paused()</code> from <code>PausedInfo::matched</code> (see

@@ -783,6 +783,47 @@ static void b4_trace_rows() {
               mmu_ok && distinct);
     }
     {
+        // GH #280 (owner decision 2026-10-01): each entry records which slots
+        // held ROM, as Mmu::is_slot_rom() said at that instruction. Slot 0 is
+        // switched ROM -> RAM -> ROM between three traced steps, so a mask
+        // written once, from one slot, or from the current mapping at read
+        // time differs from the truth in at least one entry.
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        const ClientId c = dbg.attach(client("trace-rom", jnext::dbg::ClientKind::Gui)).value;
+        auto live_mask = [&emu]() {
+            uint8_t m = 0;
+            for (int s = 0; s < 8; ++s)
+                m |= static_cast<uint8_t>(emu.mmu().is_slot_rom(s) ? 1u << s : 0u);
+            return m;
+        };
+        dbg.set_trace_enabled(true);
+        dbg.trace_clear();
+        std::array<uint8_t, 3> want{};
+        want[0] = live_mask();
+        emu.execute_single_instruction();          // slot 0 ROM
+        dbg.set_mmu_slot(c, 0, 4);                 // slot 0 = RAM page 4
+        want[1] = live_mask();
+        emu.execute_single_instruction();
+        dbg.set_mmu_slot(c, 0, 0xFF);              // slot 0 = ROM again
+        want[2] = live_mask();
+        emu.execute_single_instruction();
+        const auto got = dbg.trace_entries();
+        const std::vector<TraceEntry>& es = got.value;
+        bool ok = es.size() == 3 && (want[0] & 1u) && !(want[1] & 1u) && (want[2] & 1u) &&
+                  want[0] != 0xFF && want[0] != 0;
+        std::string seen;
+        for (std::size_t i = 0; i < es.size() && i < 3; ++i) {
+            if (es[i].rom_slots != want[i]) ok = false;
+            seen += hex(es[i].rom_slots) + "/" + hex(want[i]) + " ";
+        }
+        check("INS-13-15", "an entry records rom_slots, bit n = slot n held ROM at that "
+                           "instruction: slot 0 ROM, RAM, ROM again across three steps, "
+                           "the other slots as mapped; TraceEntry stays 56 bytes",
+              ok && sizeof(TraceEntry) == 56,
+              "got/want " + seen + "size " + std::to_string(sizeof(TraceEntry)));
+    }
+    {
         // The (SP) read must not PERTURB. +3 mode: SP in contended bank 5, PC in
         // uncontended bank 2, so the CPU's own opcode fetch never touches the
         // floating-bus latch and a `read()` of (SP) would leave it moved.
@@ -4588,7 +4629,7 @@ static void q_wp3_rewind_rows() {
 
 /// INS-13 — the export writes EVERY field of the entry (GH #278 WP3): the ones
 /// GH #276 B4 added (I, R, IM, IFF1/IFF2, the word at SP, the eight MMU pages)
-/// were recorded and never written.
+/// were recorded and never written; GH #280 adds the ROM-slot mask (ROM=).
 static void q_wp3_trace_export_rows() {
     Emulator emu;
     build(emu);
@@ -4619,13 +4660,17 @@ static void q_wp3_trace_export_rows() {
         "  AF'=1111 BC'=2222 DE'=3333 HL'=4444"
         "  IX=5555 IY=6666 SP=FF00"
         "  (SP)=ABCD I=3F R=%02X IM1 IFF1=0 IFF2=1"
-        "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X  [SZ-H-P-C]  00",
+        "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X ROM=03  [SZ-H-P-C]  00",
         static_cast<unsigned long long>(e.cycle), e.r,
         e.mmu[0], e.mmu[1], e.mmu[2], e.mmu[3], e.mmu[4], e.mmu[5], e.mmu[6], e.mmu[7]);
+    // ROM= is a literal, not read back from the entry: a 48K maps ROM in
+    // slots 0 and 1 only, so the mask is 03 — a column written from another
+    // field (or from the live mapping) shows up as a different line.
     check("INS-13-14", "trace_export() writes every TraceEntry field — the word at SP, "
-                       "I, R, IM, IFF1, IFF2 and the eight MMU pages included — in "
-                       "the documented column order",
-          rc == Result::Ok && e.sp_word == 0xABCD && e.i == 0x3F && line == want,
+                       "I, R, IM, IFF1, IFF2, the eight MMU pages and the ROM-slot mask "
+                       "(ROM=03 on a 48K) included — in the documented column order",
+          rc == Result::Ok && e.sp_word == 0xABCD && e.i == 0x3F && e.rom_slots == 0x03 &&
+              line == want,
           "got  '" + line + "'\nwant '" + want + "'");
 }
 
@@ -4777,7 +4822,10 @@ static void q4c_observer_rows() {
     }
 
     // OBS-07/08 — SES-01's own-pause rule applies to it like any client: its
-    // detach releases ONLY a pause that is its own.
+    // detach touches ONLY a pause that is its own — and, GH #280 N1, passes
+    // that pause to a remaining arming client, releasing it only when none
+    // remains (OBS-08 was rewritten for N1; it used to assert a release with
+    // the window still attached).
     {
         Emulator emu; build(emu);
         Debugger dbg(emu);
@@ -4795,22 +4843,24 @@ static void q4c_observer_rows() {
         Debugger dbg(emu);
         ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
         dbg.subscribe(o, q4c_exec_at(AFTER_CALL));
-        dbg.attach(client("window", jnext::dbg::ClientKind::Gui));
+        const ClientId w =
+            dbg.attach(client("window", jnext::dbg::ClientKind::Gui)).value;
         run_until_paused(emu);
         const bool stopped_by_o = dbg.state().paused && dbg.state().pause_reason.by == o;
         dbg.detach(o);
-        const bool released_a = !dbg.state().paused;
+        const bool passed_a = dbg.state().paused && dbg.state().pause_reason.by == w;
 
         o = dbg.attach(q4c_observer("Qt GUI")).value;
         dbg.pause(o);
         const bool paused_by_o = dbg.state().paused && dbg.state().pause_reason.by == o;
         dbg.detach(o);
-        const bool released_b = !dbg.state().paused;
-        check("OBS-08", "the observer's detach releases a pause that IS its own — a stop "
-                        "on its subscription, and its own pause()",
-              stopped_by_o && released_a && paused_by_o && released_b,
-              "a=" + std::to_string(stopped_by_o) + std::to_string(released_a) +
-                  " b=" + std::to_string(paused_by_o) + std::to_string(released_b));
+        const bool passed_b = dbg.state().paused && dbg.state().pause_reason.by == w;
+        check("OBS-08", "the observer's detach passes a pause that IS its own to the "
+                        "remaining arming client — a stop on its subscription, and its "
+                        "own pause()",
+              stopped_by_o && passed_a && paused_by_o && passed_b,
+              "a=" + std::to_string(stopped_by_o) + std::to_string(passed_a) +
+                  " b=" + std::to_string(paused_by_o) + std::to_string(passed_b));
     }
 
     // OBS-09 — its live-raster request is honoured (a render hint, not an arm).
@@ -5380,6 +5430,12 @@ static void q_wp7_raster_rows() {
     }
 }
 
+/// GH #280 N1 rows' failure detail: is the machine paused, and whose is it.
+static std::string n1_owner(const RunState& st) {
+    return std::string("paused=") + (st.paused ? "1" : "0") +
+           " by=" + std::to_string(st.pause_reason.by);
+}
+
 int main() {
     std::printf("=== jnext::dbg::Debugger backend tests (GH #276 B1) ===\n\n");
 
@@ -5468,6 +5524,73 @@ int main() {
         dbg.step_into(1);
         check("CTL-03-03", "a second step_into() lands on the CALL",
               pc_of(emu) == PROG + 2, "PC=" + hex(pc_of(emu)));
+
+        // REQ-zrcp-05 (GH #280): an event the STEPPED instruction raises is
+        // the step's reason. `step_into()` used to arm `Step` after the step,
+        // which cleared the very latch the step's boundary had just written.
+        {
+            Emulator emu2;
+            build_armed(emu2, {0x3E, 0x07, 0x32, 0x00, 0x90, 0xED, 0xFF, 0x00});
+            Debugger   dbg2(emu2);
+            const auto a = dbg2.attach(client("A")).value;
+            jnext::dbg::Subscription w;
+            w.kind      = jnext::dbg::EventKind::Mem;
+            w.filter.lo = w.filter.hi = 0x9000;
+            w.access    = jnext::dbg::Access::Write;
+            w.action    = jnext::dbg::Action::Stop;
+            const auto wid = dbg2.subscribe(a, w).value;
+            dbg2.pause(a);
+            dbg2.step_into(a);                  // LD A,7: nothing watched
+            const auto plain = dbg2.state().pause_reason;
+            dbg2.step_into(a);                  // LD (9000),A: the watch
+            const auto hit = dbg2.state().pause_reason;
+            check("CTL-03-04", "REQ-zrcp-05: a step whose instruction hits a Stop watch reports "
+                               "that Watch (id, write, 0x9000) — and a step that hits nothing "
+                               "still reports Step",
+                  plain.kind == PauseReason::Kind::Step &&
+                      hit.kind == PauseReason::Kind::Watch && hit.id == wid &&
+                      hit.addr == 0x9000 && jnext::dbg::has_write(hit.access) &&
+                      pc_of(emu2) == PROG + 5,
+                  "hit kind=" + std::to_string(static_cast<int>(hit.kind)));
+            dbg2.set_magic_breakpoint(true);
+            dbg2.step_into(a);                  // ED FF
+            const auto magic = dbg2.state().pause_reason;
+            dbg2.step_into(a);                  // NOP after it
+            const auto after = dbg2.state().pause_reason;
+            check("CTL-03-05", "REQ-zrcp-05: a step over the magic opcode reports Magic "
+                               "(unowned), and the next step leaves that stop: Step again",
+                  magic.kind == PauseReason::Kind::Magic && magic.by == jnext::dbg::CLIENT_NONE &&
+                      after.kind == PauseReason::Kind::Step && pc_of(emu2) == PROG + 8,
+                  "magic kind=" + std::to_string(static_cast<int>(magic.kind)) + " after=" +
+                      std::to_string(static_cast<int>(after.kind)));
+        }
+
+        // REQ-zrcp-05, the third arm: a LEGACY `BreakpointSet` watchpoint (the
+        // Qt panels' model until package Q) hit by the stepped instruction is
+        // the step's reason too, with its address; the next step is Step again.
+        {
+            Emulator emu3;
+            build_armed(emu3, {0x3E, 0x07, 0x32, 0x00, 0x90, 0x00, 0x00});
+            Debugger   dbg3(emu3);
+            const auto a = dbg3.attach(client("A")).value;
+            emu3.debug_state().breakpoints().add_watchpoint(0x9000, WatchType::WRITE);
+            dbg3.pause(a);
+            dbg3.step_into(a);                  // LD A,7: nothing watched
+            const auto plain = dbg3.state().pause_reason;
+            dbg3.step_into(a);                  // LD (9000),A: the legacy watch
+            const auto hit = dbg3.state().pause_reason;
+            dbg3.step_into(a);                  // NOP
+            const auto after = dbg3.state().pause_reason;
+            check("CTL-03-06", "REQ-zrcp-05: a step whose instruction hits a legacy write "
+                               "watchpoint reports Watch at 0x9000 (write); the steps around "
+                               "it report Step",
+                  plain.kind == PauseReason::Kind::Step &&
+                      hit.kind == PauseReason::Kind::Watch && hit.addr == 0x9000 &&
+                      jnext::dbg::has_write(hit.access) &&
+                      after.kind == PauseReason::Kind::Step && pc_of(emu3) == PROG + 6,
+                  "hit kind=" + std::to_string(static_cast<int>(hit.kind)) + " addr=" +
+                      hex(hit.addr) + " after=" + std::to_string(static_cast<int>(after.kind)));
+        }
 
         // Now at the CALL: step_over must not enter SUB.
         check("CTL-04-01", "step_over() at a CALL is accepted",
@@ -7141,7 +7264,7 @@ int main() {
         // that was already answered for real rather than refused.
         emu.debug_state().breakpoints().add_pc(0x1234);
         check("PEND-B2-02", "probe_execute() answers over today's breakpoint set",
-              dbg.probe_execute(0x1234) && !dbg.probe_execute(0x1235));
+              !dbg.probe_execute(0x1234).empty() && dbg.probe_execute(0x1235).empty());
     }
 
     // =======================================================================
@@ -9233,34 +9356,186 @@ int main() {
         build_armed(emu, { 0x00, 0x18, 0xFD });
         Debugger dbg(emu);
         check("EVT-PROBE-01", "nothing armed -> false everywhere",
-              !dbg.probe_execute(0x8000) && !dbg.probe_execute(0x0000));
+              dbg.probe_execute(0x8000).empty() && dbg.probe_execute(0x0000).empty());
         Subscription s;
         s.kind = EventKind::Execute; s.filter.lo = 0x1000; s.filter.hi = 0x1FFF;
         const auto sub = dbg.subscribe(1, s);
         check("EVT-PROBE-02", "an Execute RANGE answers true across the whole range",
-              dbg.probe_execute(0x1000) && dbg.probe_execute(0x17FF) &&
-              dbg.probe_execute(0x1FFF));
+              !dbg.probe_execute(0x1000).empty() && !dbg.probe_execute(0x17FF).empty() &&
+              !dbg.probe_execute(0x1FFF).empty());
         check("EVT-PROBE-03", "and false outside it",
-              !dbg.probe_execute(0x0FFF) && !dbg.probe_execute(0x2000));
+              dbg.probe_execute(0x0FFF).empty() && dbg.probe_execute(0x2000).empty());
         check("EVT-PROBE-04", "a disabled subscription answers false",
               dbg.set_enabled(1, sub.value, false) == Result::Ok &&
-              !dbg.probe_execute(0x1000));
+              dbg.probe_execute(0x1000).empty());
         dbg.set_enabled(1, sub.value, true);
         Subscription tr;
         tr.kind = EventKind::Execute; tr.filter.lo = 0x5000; tr.filter.hi = 0x5000;
         tr.transient = true;
         dbg.subscribe(1, tr);
         check("EVT-PROBE-05", "a TRANSIENT subscription counts — the step-off arm needs it",
-              dbg.probe_execute(0x5000));
+              !dbg.probe_execute(0x5000).empty());
         emu.debug_state().breakpoints().add_pc(0x7000);
         check("EVT-PROBE-06", "and the legacy PC-breakpoint model still counts too",
-              dbg.probe_execute(0x7000));
+              !dbg.probe_execute(0x7000).empty());
         Subscription pg;
         pg.kind = EventKind::Execute; pg.filter.lo = 0x9000; pg.filter.hi = 0x9000;
         pg.filter.page = 0xFE;      // a page no slot holds
         dbg.subscribe(1, pg);
         check("EVT-PROBE-07", "a page qualifier that no slot satisfies answers false",
-              !dbg.probe_execute(0x9000));
+              dbg.probe_execute(0x9000).empty());
+    }
+    {
+        // GH #280 WP-4 (owner decision 2026-09-29): the ids, with conditions
+        // evaluated against the Execute event the backend would build there.
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        Subscription a;
+        a.kind = EventKind::Execute; a.filter.lo = 0x1000; a.filter.hi = 0x1FFF;
+        const auto ida = dbg.subscribe(1, a).value;
+        Subscription b = a;
+        b.filter.lo = b.filter.hi = 0x1234;
+        b.transient = true;
+        const auto idb = dbg.subscribe(1, b).value;
+        const auto both = dbg.probe_execute(0x1234);
+        const auto one  = dbg.probe_execute(0x1000);
+        check("EVT-PROBE-08", "probe_execute lists the id of every live Execute subscription "
+                              "covering the PC, transient included, and only those",
+              both.size() == 2 && std::count(both.begin(), both.end(), ida) == 1 &&
+                  std::count(both.begin(), both.end(), idb) == 1 && one.size() == 1 &&
+                  one[0] == ida,
+              "n=" + std::to_string(both.size()) + "/" + std::to_string(one.size()));
+
+        // A condition on A: listed only while it holds.
+        Subscription c;
+        c.kind = EventKind::Execute; c.filter.lo = c.filter.hi = 0x3000;
+        c.condition = [](const jnext::dbg::Event&, const Debugger& d) {
+            return d.registers().AF >> 8 == 0x42;
+        };
+        const auto idc = dbg.subscribe(1, c).value;
+        Z80Registers r = emu.cpu().get_registers();
+        r.AF = 0x0000;
+        emu.cpu().set_registers(r);
+        const bool off = dbg.probe_execute(0x3000).empty();
+        r.AF = 0x4200;
+        emu.cpu().set_registers(r);
+        const auto on = dbg.probe_execute(0x3000);
+        check("EVT-PROBE-09", "a subscription whose condition is false at the PC is not listed; "
+                              "the same one is listed once the condition holds",
+              off && on.size() == 1 && on[0] == idc);
+
+        // What the condition is shown: the Execute event for the probed PC.
+        jnext::dbg::Event seen;
+        int calls = 0;
+        Subscription d;
+        d.kind = EventKind::Execute; d.filter.lo = d.filter.hi = 0x4000;
+        d.condition = [&](const jnext::dbg::Event& ev, const Debugger&) {
+            seen = ev;
+            ++calls;
+            return true;
+        };
+        const auto idd = dbg.subscribe(1, d).value;
+        dbg.probe_execute(0x4000);
+        check("EVT-PROBE-10", "the condition sees the Execute event the backend would build at "
+                              "the probed PC: its kind, PC, id and owner",
+              calls == 1 && seen.kind == EventKind::Execute && seen.pc == 0x4000 &&
+                  seen.id == idd && seen.owner == 1,
+              "calls=" + std::to_string(calls) + " pc=" + hex(seen.pc));
+
+        emu.debug_state().breakpoints().add_pc(0x5000);
+        const auto legacy = dbg.probe_execute(0x5000);
+        check("EVT-PROBE-11", "a legacy BreakpointSet PC breakpoint adds exactly one EVENT_NONE "
+                              "entry (it has no id)",
+              legacy.size() == 1 && legacy[0] == jnext::dbg::EVENT_NONE);
+
+        // Pure: a once subscription survives being probed; nothing fired.
+        Subscription o;
+        o.kind = EventKind::Execute; o.filter.lo = o.filter.hi = 0x6000;
+        o.once = true;
+        const auto ido = dbg.subscribe(1, o).value;
+        dbg.probe_execute(0x6000);
+        dbg.probe_execute(0x6000);
+        const auto still = dbg.probe_execute(0x6000);
+        bool live = false;
+        for (const auto& si : dbg.subscriptions(false))
+            if (si.id == ido) live = si.live;
+        check("EVT-PROBE-12", "probing is pure: a once subscription probed three times is still "
+                              "listed and still live, and the machine was not stopped",
+              still.size() == 1 && still[0] == ido && live && !dbg.state().paused);
+    }
+    {
+        // Only what COULD fire: not a subscription of another kind whose range
+        // covers the PC, and not a spent once re-enabled (delivery skips it).
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });  // 8000 NOP; 8001 JR 8000
+        Debugger dbg(emu);
+        Subscription o;
+        o.kind = EventKind::Execute; o.filter.lo = o.filter.hi = PROG + 1;
+        o.once = true;
+        const auto ido = dbg.subscribe(1, o).value;
+        run_until_paused(emu);
+        const bool fired = dbg.state().paused && pc_of(emu) == PROG + 1 &&
+                           dbg.state().pause_reason.id == ido;
+        dbg.set_enabled(1, ido, true);
+        Subscription m;  // after the run, so it cannot be what stopped it
+        m.kind = EventKind::Mem; m.filter.lo = 0x8000; m.filter.hi = 0x8FFF;
+        dbg.subscribe(1, m);
+        bool live = false;
+        for (const auto& si : dbg.subscriptions(false))
+            if (si.id == ido) live = si.live;
+        check("EVT-PROBE-13", "probe_execute lists no Mem subscription covering the PC, and no "
+                              "spent once subscription its owner re-enabled (live again, but "
+                              "delivery skips it)",
+              fired && live && dbg.probe_execute(PROG + 1).empty() &&
+                  dbg.probe_execute(PROG).empty(),
+              std::string("fired=") + (fired ? "1" : "0") + " live=" + (live ? "1" : "0"));
+    }
+    {
+        // R2-1 (M2 review round 2): a page qualifier that DOES match. The page
+        // is the one mapped at the PC's OWN slot.
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        const uint16_t own   = emu.mmu().get_effective_page(PROG >> 13);
+        const uint16_t other = emu.mmu().get_effective_page(((PROG >> 13) + 1) & 7);
+        Subscription in;
+        in.kind = EventKind::Execute; in.filter.lo = in.filter.hi = PROG;
+        in.filter.page = own;
+        const auto idin = dbg.subscribe(1, in).value;
+        Subscription out = in;
+        out.filter.page = other;
+        dbg.subscribe(1, out);
+        const auto got = dbg.probe_execute(PROG);
+        check("EVT-PROBE-14", "a page-qualified subscription is listed when its page is the one "
+                              "mapped at the PC's slot, and the same one naming the next slot's "
+                              "page is not",
+              own != other && got.size() == 1 && got[0] == idin,
+              "own=" + hex(own) + " other=" + hex(other) + " n=" + std::to_string(got.size()));
+    }
+    {
+        // The condition contract: a predicate runs only when !replay_mode, and
+        // in replay nothing is delivered — so a probe lists nothing either.
+        Emulator emu;
+        build_armed(emu, { 0x00, 0x18, 0xFD });
+        Debugger dbg(emu);
+        int calls = 0;
+        Subscription c;
+        c.kind = EventKind::Execute; c.filter.lo = c.filter.hi = PROG;
+        c.condition = [&](const jnext::dbg::Event&, const Debugger&) { ++calls; return true; };
+        dbg.subscribe(1, c);
+        emu.debug_state().breakpoints().add_pc(PROG);
+        emu.set_replay_mode(true);
+        const bool empty_in_replay = dbg.probe_execute(PROG).empty();
+        const int  calls_in_replay = calls;
+        emu.set_replay_mode(false);
+        const auto live = dbg.probe_execute(PROG);
+        check("EVT-PROBE-15", "in replay mode probe_execute lists nothing and runs no condition "
+                              "(as delivery); out of it, the same subscription and the legacy "
+                              "breakpoint are listed",
+              empty_in_replay && calls_in_replay == 0 && live.size() == 2 && calls == 1,
+              "calls=" + std::to_string(calls_in_replay) + "/" + std::to_string(calls) +
+                  " n=" + std::to_string(live.size()));
     }
 
     // ── EVT-TIME — Frame, Scanline, Cycle ────────────────────────────────
@@ -12487,17 +12762,24 @@ int main() {
               dbg.subscriptions(true)[0].live && sa.value != sb.value);
     }
     {
-        // SES-01's one rule, and its THREE arms. A pause this client owns is
-        // released; a pause ANOTHER client owns survives; an UNOWNED pause
-        // (`CLIENT_NONE`) survives every detach there will ever be.
+        // SES-01's one rule, and its THREE arms. A pause this client owns
+        // passes to a remaining client (GH #280 N1) and is released only by
+        // the last one out (SES-01-17, N1-03); a pause ANOTHER client owns
+        // survives; an UNOWNED pause (`CLIENT_NONE`) survives every detach
+        // there will ever be.
+        //
+        // REWRITTEN BY GH #280 N1 (owner decision 2026-10-01, "the pause should
+        // belong to the one remaining"): this row used to assert that A's
+        // detach RESUMED the machine with B still attached.
         Emulator emu; build(emu);
         Debugger dbg(emu);
         const ClientId a = dbg.attach(client("A")).value;
         const ClientId b = dbg.attach(client("B")).value;
         dbg.pause(a);
-        check("SES-01-12", "detach of the client that paused resumes the machine",
+        check("SES-01-12", "detach of the client that paused, with another client "
+                           "attached, passes the pause to it: still paused, now B's",
               dbg.state().paused && dbg.detach(a) == Result::Ok &&
-              !dbg.state().paused);
+              dbg.state().paused && dbg.state().pause_reason.by == b);
 
         const ClientId a2 = dbg.attach(client("A2")).value;
         dbg.pause(b);
@@ -12505,6 +12787,273 @@ int main() {
               dbg.state().paused && dbg.detach(a2) == Result::Ok &&
               dbg.state().paused);
         dbg.detach(b);
+    }
+    // ── GH #280 N1 — WHO INHERITS A PAUSE (owner decision 2026-10-01: "the
+    // pause should belong to the one remaining"). A detaching client never
+    // releases its pause while an arming client remains; the pause passes to
+    // the client the machine was paused by before the leaver stepped it, if
+    // still attached, else to the earliest-attached remaining client. The last
+    // arming client out releases it. Each case attaches an EARLIER bystander C
+    // so "the original pauser" and "the earliest client" are different answers.
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId c = dbg.attach(client("C")).value;
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.pause(a);
+        dbg.step_into(b);
+        const bool b_owns = dbg.state().pause_reason.by == b;
+        dbg.detach(b);
+        const RunState st = dbg.state();
+        check("N1-01", "A pauses, B steps (B now owns the Step stop), B detaches: the "
+                       "machine stays paused and A owns it — the original pauser, not "
+                       "the earliest client C",
+              b_owns && st.paused && st.pause_reason.by == a, n1_owner(st));
+        dbg.detach(a);
+        const RunState st2 = dbg.state();
+        check("N1-02", "and A, now the owner, passes it on in turn: its detach leaves the "
+                       "machine paused and owned by C",
+              st2.paused && st2.pause_reason.by == c, n1_owner(st2));
+        dbg.detach(c);
+        check("N1-03", "and C, the last client out, releases it: the machine runs",
+              !dbg.state().paused);
+    }
+    {
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId c = dbg.attach(client("C")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.pause(b);
+        dbg.detach(b);
+        const RunState st = dbg.state();
+        check("N1-04", "B pauses alone, A and C attached and idle, B detaches: paused, "
+                       "owned by A, the earliest-attached remaining client",
+              st.paused && st.pause_reason.by == a, n1_owner(st));
+        dbg.detach(a);
+        dbg.detach(c);
+    }
+    {
+        // SEVERAL steps keep the origin: the second step must not record the
+        // first stepper as the pauser.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId c = dbg.attach(client("C")).value;
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.pause(a);
+        dbg.step_into(b);
+        dbg.step_into(b);
+        dbg.step_into(b);
+        dbg.detach(b);
+        const RunState st = dbg.state();
+        check("N1-05", "A pauses, B steps three times, B detaches: A still owns it",
+              st.paused && st.pause_reason.by == a, n1_owner(st));
+        dbg.detach(a);
+        dbg.detach(c);
+    }
+    {
+        // A RUN ends the stretch: after B runs and pauses the machine itself,
+        // A is no longer "the client that paused it".
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId c = dbg.attach(client("C")).value;
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.pause(a);
+        dbg.step_into(b);
+        dbg.run(b);
+        dbg.pause(b);
+        dbg.detach(b);
+        const RunState st = dbg.state();
+        check("N1-06", "A pauses, B steps, B runs, B pauses, B detaches: the pause is "
+                       "B's own, so it goes to the earliest client C, not to A",
+              st.paused && st.pause_reason.by == c, n1_owner(st));
+        dbg.detach(a);
+        dbg.detach(c);
+    }
+    {
+        // The ORIGIN LEFT FIRST: A pauses, B steps, A leaves (B's pause, so A's
+        // detach changes nothing), then B leaves — A is gone, so the earliest
+        // remaining client C inherits.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId c = dbg.attach(client("C")).value;
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.pause(a);
+        dbg.step_into(b);
+        dbg.detach(a);
+        const bool still_b = dbg.state().paused && dbg.state().pause_reason.by == b;
+        dbg.detach(b);
+        const RunState st = dbg.state();
+        check("N1-07", "A pauses, B steps, A detaches (nothing of A's to pass), B "
+                       "detaches: C, the earliest remaining client, owns it",
+              still_b && st.paused && st.pause_reason.by == c, n1_owner(st));
+        dbg.detach(c);
+    }
+    {
+        // A SUBSCRIPTION's Stop is owned through the event-stop latch, not the
+        // armed verb — the second place `state()` reads an owner from.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        Subscription s;
+        s.kind      = EventKind::Execute;
+        s.filter.lo = AFTER_CALL; s.filter.hi = AFTER_CALL;
+        s.action    = Action::Stop;
+        dbg.subscribe(b, s);
+        run_until_paused(emu, 3);
+        const bool b_stop = dbg.state().paused && dbg.state().pause_reason.by == b;
+        dbg.detach(b);
+        const RunState st = dbg.state();
+        check("N1-08", "a stop on B's subscription, B detaches with A attached: still "
+                       "paused, owned by A, although the subscription is gone",
+              b_stop && st.paused && st.pause_reason.by == a, n1_owner(st));
+        dbg.detach(a);
+        check("N1-09", "and A's detach then releases it — the inherited pause is really "
+                       "A's", !dbg.state().paused);
+    }
+    {
+        // A RESUME THAT IS NO BACKEND VERB (`DebugState::resume()` — the hot
+        // loop's and the legacy panels' own path, which never reaches `arm()`)
+        // still ends the stretch for a step that then PAUSES the running
+        // machine: that step starts a stretch of its own, with no origin.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId d = dbg.attach(client("D")).value;
+        const ClientId a = dbg.attach(client("A")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        const ClientId c = dbg.attach(client("C")).value;
+        dbg.pause(a);
+        dbg.step_into(b);                       // origin: A
+        emu.debug_state().resume();             // running, no verb
+        const bool running = !dbg.state().paused;
+        dbg.step_into(c);                       // pauses the running machine
+        dbg.detach(c);
+        const RunState st = dbg.state();
+        check("N1-11", "A pauses, B steps, the machine is resumed outside the backend, C "
+                       "steps it (pausing it) and detaches: the pause goes to the earliest "
+                       "client D — A's old pause is not C's origin",
+              running && st.paused && st.pause_reason.by == d, n1_owner(st));
+        dbg.detach(a);
+        dbg.detach(b);
+        dbg.detach(d);
+    }
+    {
+        // AN OBSERVER ORIGIN does not inherit either: the observer paused, an
+        // arming client stepped and left, and the earliest ARMING client takes it.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        const ClientId c = dbg.attach(client("C")).value;
+        const ClientId b = dbg.attach(client("B")).value;
+        dbg.pause(o);
+        dbg.step_into(b);
+        dbg.detach(b);
+        const RunState st = dbg.state();
+        check("N1-12", "an observer pauses, B steps and detaches: the pause goes to C, the "
+                       "earliest ARMING client, not back to the observer",
+              st.paused && st.pause_reason.by == c, n1_owner(st));
+        dbg.detach(c);
+        dbg.detach(o);
+    }
+    {
+        // A DETACH INSIDE A FAN-OUT (GH #280 N1, review round 3). While a push is
+        // being delivered, `compact_clients()` is deferred, so a client another
+        // listener has already detached is still a TOMBSTONED row in `clients`.
+        // The heir must be a LIVE client: a tombstone that inherited the pause
+        // would never detach again, and the machine would stay paused with no
+        // client able to release it. Two shapes: the earliest row is the
+        // tombstone (N1-13), and the original pauser is (N1-14).
+        struct Churn : jnext::dbg::Listener {
+            Debugger* dbg   = nullptr;
+            bool      armed = false;
+            int       fired = 0;
+            std::vector<ClientId> leave;   // detached in this order, once
+            void churn() {
+                if (!armed) return;
+                armed = false;
+                ++fired;
+                for (ClientId id : leave) dbg->detach(id);
+            }
+            void on_paused(const jnext::dbg::PausedInfo&) override { churn(); }
+            void on_resumed(ClientId) override {}
+            void on_reset(ResetKind) override {}
+            void on_frame_ended(uint32_t) override {}
+            void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
+            void on_exit_requested(int) override {}
+            void on_log(jnext::dbg::LogLevel, const std::string&) override { churn(); }
+        };
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            Churn churn;
+            churn.dbg = &dbg;
+            const ClientId v = dbg.attach(client("V")).value;
+            const ClientId a = dbg.attach(client("A")).value;
+            const ClientId k = dbg.attach(client("K")).value;
+            dbg.set_listener(k, &churn);
+            dbg.pump(jnext::dbg::PumpBudget{});        // prime, running
+            churn.leave = {v, a};                      // V first: a tombstone by A's turn
+            churn.armed = true;
+            dbg.pause(a);
+            dbg.pump(jnext::dbg::PumpBudget{});        // K's listener: detach V, then A
+            const RunState mid = dbg.state();
+            dbg.detach(k);
+            check("N1-13", "a detach inside a fan-out, after another listener detached the "
+                           "EARLIEST client: A's pause passes to K, the live client, not to "
+                           "V's tombstone — and K's own detach then releases it",
+                  churn.fired == 1 && mid.paused && mid.pause_reason.by == k &&
+                      !dbg.state().paused,
+                  "fired=" + std::to_string(churn.fired) + " mid." + n1_owner(mid) +
+                      " released=" + (dbg.state().paused ? "0" : "1"));
+        }
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            Churn churn;
+            churn.dbg = &dbg;
+            const ClientId a = dbg.attach(client("A")).value;
+            const ClientId b = dbg.attach(client("B")).value;
+            const ClientId k = dbg.attach(client("K")).value;
+            dbg.set_listener(k, &churn);
+            dbg.pump(jnext::dbg::PumpBudget{});        // prime, running
+            dbg.pause(a);
+            dbg.pump(jnext::dbg::PumpBudget{});
+            dbg.step_into(b);                          // B owns the Step stop; origin A
+            churn.leave = {a, b};                      // the origin first: a tombstone
+            churn.armed = true;
+            // A step leaves the machine paused, so it pushes no new `Paused`;
+            // an SES-06 log line is the fan-out that delivers the churn here.
+            dbg.log(k, jnext::dbg::LogLevel::Info, "churn");
+            const RunState mid = dbg.state();
+            dbg.detach(k);
+            check("N1-14", "and after another listener detached the ORIGINAL PAUSER: B's "
+                           "pause passes to K, not to A's tombstone; K's detach releases it",
+                  churn.fired == 1 && mid.paused && mid.pause_reason.by == k &&
+                      !dbg.state().paused,
+                  "fired=" + std::to_string(churn.fired) + " mid." + n1_owner(mid) +
+                      " released=" + (dbg.state().paused ? "0" : "1"));
+        }
+    }
+    {
+        // ONLY AN OBSERVER REMAINS: it arms nothing and inherits nothing, so
+        // the last ARMING client's detach releases the pause — a crashed DeZog
+        // in a Qt GUI session (whose observer lives as long as the GUI) must not
+        // leave the machine hung.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId o = dbg.attach(q4c_observer("Qt GUI")).value;
+        const ClientId a = dbg.attach(client("A")).value;
+        dbg.pause(a);
+        dbg.detach(a);
+        check("N1-10", "A pauses with only an observer attached besides it; A's detach "
+                       "releases the pause — an observer never inherits one",
+              !dbg.state().paused);
+        dbg.detach(o);
     }
     {
         // SES-01's rule names TWO ways a pause can be a client's: "its `pause()`,
@@ -12654,11 +13203,15 @@ int main() {
         // would tell every other client the backend resumed the machine on its
         // own initiative. The departing client has no listener any more, so it is
         // the OTHER client that sees the `Resumed{by}`.
+        //
+        // GH #280 N1: a release happens only when no ARMING client remains, so
+        // the client that watches it is an OBSERVER (REQ-qt-32) — the Qt GUI's
+        // shape, and the one population that sees a release and inherits nothing.
         Emulator emu; build(emu);
         Debugger dbg(emu);
         RecListener lb;
         const ClientId a = dbg.attach(client("A")).value;
-        const ClientId b = dbg.attach(client("B")).value;
+        const ClientId b = dbg.attach(q4c_observer("B")).value;
         dbg.set_listener(b, &lb);
         dbg.pump(jnext::dbg::PumpBudget{});            // prime, running
         dbg.pause(a);
@@ -14392,8 +14945,10 @@ int main() {
                       running_after_verb && !dbg.state().paused, reason(dbg.state()));
             }
         }
-        {   // A detach of the pending capture's OWNER releases the pause it
-            // recorded; a detach of ANOTHER client does not.
+        {   // A detach of the pending capture's OWNER passes the pause it recorded
+            // to the remaining client (GH #280 N1; this row used to assert the
+            // release); a detach of ANOTHER client does not touch it. The last
+            // client out releases it: CTL-12-47c below.
             for (int owner_leaves = 0; owner_leaves < 2; ++owner_leaves) {
                 Emulator emu; build(emu);
                 Debugger dbg(emu);
@@ -14407,15 +14962,30 @@ int main() {
                 const RunState st = dbg.state();
                 check(owner_leaves ? "CTL-12-47" : "CTL-12-47b",
                       owner_leaves
-                          ? "a detach of the capture's OWNER between begin and done "
-                            "releases the pause it recorded — SES-01 for a pause "
-                            "waiting out a boot"
+                          ? "a detach of the capture's OWNER between begin and done, "
+                            "with another client attached, passes the pause it "
+                            "recorded to that client — SES-01 for a pause waiting "
+                            "out a boot"
                           : "and a detach of ANOTHER client leaves it: still paused, "
                             "still A's",
-                      owner_leaves ? !st.paused
+                      owner_leaves ? (st.paused && st.pause_reason.by == b)
                                    : (st.paused && st.pause_reason.by == a),
                       reason(st));
             }
+        }
+        {   // The LAST client out releases the captured pause (GH #280 N1).
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("A")).value;
+            dbg.attach(q4c_observer("Qt GUI"));     // an observer inherits nothing
+            dbg.pause(a);
+            dbg.on_cold_boot_begin();
+            dbg.detach(a);
+            boot(emu);
+            dbg.on_cold_boot_done();
+            check("CTL-12-47c", "a detach of the capture's owner when no other arming "
+                                "client remains releases the pause it recorded",
+                  !dbg.state().paused, reason(dbg.state()));
         }
         {   // begin with NO driver, on a CORRUPT paused machine: a notification,
             // it never refuses. The unowned pause comes back unowned, and the
@@ -15536,7 +16106,9 @@ int main() {
             Emulator emu; build(emu);
             Debugger dbg(emu);
             const ClientId a = dbg.attach(client("A")).value;
-            const ClientId b = dbg.attach(client("B")).value;
+            // An OBSERVER, so A's departure leaves no arming client and SES-01
+            // releases A's pause (GH #280 N1: with an arming B it would pass).
+            const ClientId b = dbg.attach(q4c_observer("B")).value;
             Result from_detach = Result::Unsupported;
             Subscription h;
             h.kind   = EventKind::Host;

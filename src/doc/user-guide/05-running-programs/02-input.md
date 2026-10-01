@@ -45,7 +45,7 @@ Three things catch people out:
 - **Alt is a host modifier, never a Spectrum key.** Only the four Alt
   combinations above are used, because the menu bar and the menu shortcuts
   claim the rest — and **Alt+1 to Alt+8** are the
-  [script host keys](../06-debugger/functions/12-debugger-scripts.md#host-keys-alt1-to-alt8):
+  [script host keys](../06-debugger/functions/13-debugger-scripts.md#host-keys-alt1-to-alt8):
   they do not type their digit (Alt+9 and Alt+0 still do).
 
 **Ctrl belongs to the program you are running.** No Ctrl+letter chord of any

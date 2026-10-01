@@ -1,4 +1,4 @@
-# 3.12 The debugger scripting language
+# 3.13 The debugger scripting language
 
 A debugger script (`.jds`, GH #26, carrying #279's use cases) is a list of
 rules. Each rule is an event and the actions to run when it happens. The
@@ -100,10 +100,12 @@ AST type:
 - `eval_expr(text, debugger)` evaluates once, in the no-event scope.
 
 The engine compiles every `when` through the same code, via `make_condition()`
-in the evaluator. The ZRCP adapter (package Z) is designed to translate
-ZEsarUX's expression dialect into this grammar and call these two functions
-instead of owning a second parser. On `gh26-dsl` nothing outside `src/script/`
-calls them yet; the ZRCP server lands from its own branch.
+in the evaluator. The ZRCP server ([3.12](12-the-zrcp-server.md)) is the other
+caller: `src/remote/zrcp/zrcp_condition.*` translates ZEsarUX's breakpoint
+dialect into this grammar — tokenising and grouping as ZEsarUX does, emitting a
+fully bracketed expression — and compiles it here, so it owns no evaluator. The
+one thing the language cannot read is whether a slot holds ROM, so ZEsarUX's
+`SEGn` / `ROM` / `RAM` are evaluated by the adapter.
 
 ## The engine: rules as backend subscriptions
 
@@ -132,7 +134,8 @@ with the machine at an instruction boundary, and returns the verdict.
 registered as a static `Stop` with no handler. That is the shape every frontend
 breakpoint has, so other clients see it:
 
-- `probe_execute()` lists it;
+- `probe_execute(pc)` lists it whenever its `when` holds at `pc` (the backend
+  evaluates the condition), which is how a ZRCP `run` stops on it;
 - `subscriptions()` reports `action Stop`, no handler.
 
 Its bookkeeping happens in `on_paused()` from `PausedInfo::matched` (see

@@ -249,6 +249,7 @@ int main(int argc, char* argv[]) {
     // user did not say", which leaves EmulatorConfig's loopback default.
     std::string debug_listen_address;
     int         dzrp_port = -1;
+    int         zrcp_port = -1;
     int         gdb_port  = -1;
     std::vector<std::string>              script_files;   // GH #26 WP4
     std::vector<std::pair<uint32_t, int>> script_keys;
@@ -579,6 +580,22 @@ int main(int argc, char* argv[]) {
             case cli::OptId::RecordScript:
                 record_script_file = v[0];
                 break;
+            case cli::OptId::ZrcpPort: {
+                // GH #280 — the same port rule and the same strictness as
+                // --dzrp-port: `10000x` is not 10000.
+                char* end = nullptr;
+                errno = 0;
+                const long n = std::strtol(v[0], &end, 10);
+                if (errno != 0 || end == v[0] || *end != '\0' || n < 0 || n > 65535) {
+                    fprintf(stderr,
+                            "--zrcp-port: PORT must be a number from 0 to 65535, not \"%s\" "
+                            "(0 binds an OS-chosen port and logs it).\n",
+                            v[0]);
+                    return 1;
+                }
+                zrcp_port = static_cast<int>(n);
+                break;
+            }
             case cli::OptId::DebugListenAddress: {
                 // Validated HERE, as --esp-listen-address is and for the same
                 // reason: a typo in the one control that decides who may reach
@@ -1375,6 +1392,7 @@ int main(int argc, char* argv[]) {
         // reading the command they ran.
         if (!debug_listen_address.empty()) cfg.debug_listen_address = debug_listen_address;
         cfg.dzrp_port = dzrp_port;
+        cfg.zrcp_port = zrcp_port;
         cfg.gdb_port = gdb_port;
         cfg.script_files = script_files;   // GH #26 WP4
         cfg.script_keys  = script_keys;
@@ -1495,9 +1513,10 @@ int main(int argc, char* argv[]) {
         }
         // GH #12 (owner decision), the same reasoning for the debugger: an
         // address for protocol servers that are all off configures nothing.
-        if (!debug_listen_address.empty() && cfg.dzrp_port < 0 && cfg.gdb_port < 0) {
+        if (!debug_listen_address.empty() && cfg.dzrp_port < 0 && cfg.zrcp_port < 0 &&
+            cfg.gdb_port < 0) {
             fprintf(stderr, "--debug-listen-address requires a debugger server port "
-                            "(--dzrp-port or --gdb-port).\n");
+                            "(--dzrp-port, --zrcp-port or --gdb-port).\n");
             return 1;
         }
         // GH #246, and the same reasoning a third time: a scheduled outage for

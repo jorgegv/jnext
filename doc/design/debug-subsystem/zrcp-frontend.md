@@ -31,6 +31,11 @@
 >   is connected — `zrcp-func`'s dependency settled; Q8 ports explicit, off
 >   unless `--zrcp-port` given. §9 moved to settled. Noted: DSL scripts may
 >   mutate the machine; DZRP moves to 2.2.0 — neither touches this adapter.
+> - v3.3 (2026-09-29, milestone 1 — WP-1 + WP-2 + WP-3 implemented, branch
+>   `gh280-zrcp`): §11 records what was built, every deviation from this
+>   design with its reason, the backend defect fixed on the branch
+>   (REQ-zrcp-05) and the design findings. Sections 0-10 are unchanged: where
+>   the implementation differs, §11 says so and why.
 
 Every claim carries one of three kinds of evidence:
 
@@ -66,12 +71,12 @@ whole, so `done` here means the sub-item is approved, not merged.
 
 | WP | Branch `gh280-zrcp` (issue #280) | Status |
 |---|---|---|
-| **WP-1** | session skeleton over the shared transport (T) | todo |
-| **WP-2** | formatters | todo |
-| **WP-3** | control / run | todo |
-| **WP-4** | breakpoints + conditions — **needs S's WP1**, the DSL's `compile_expr` exported as a library. §11 item 8: whether that library covers ZRCP's honoured condition subset without a fallback parser is measured here | todo |
-| **WP-5** | history / coverage / load | todo |
-| **WP-6** | fixtures + docs | todo |
+| **WP-1** | session skeleton over the shared transport (T) | **done** |
+| **WP-2** | formatters | **done** |
+| **WP-3** | control / run | **done** |
+| **WP-4** | breakpoints + conditions — **needs S's WP1**, the DSL's `compile_expr` exported as a library. §11 item 8: whether that library covers ZRCP's honoured condition subset without a fallback parser is measured here (answer: §11.8) | **done** |
+| **WP-5** | history / coverage / load (record: §11.9) | **done** |
+| **WP-6** | fixtures + docs (record: §11.10; validation: §6.4) | in review |
 
 WP-2..WP-5 may run in parallel after WP-1. Depends on: B0 (landed), B, T; WP-4 also on S WP1.
 
@@ -569,9 +574,10 @@ are the same values.
 
 Socket close, `quit`, or a fatal parse: `CAP-SES-01 detach(cid)` — the
 backend removes this client's subscriptions and, if the machine is paused *by
-this client*, resumes it (owner question 2 in `backend.md` §13; this adapter
-wants the proposed default: a crashed DeZog must not leave the machine hung).
-`step_mode` dies with the session.
+this client*, passes that pause to a remaining client, or resumes the machine
+when no other arming client remains (owner question 2 in `backend.md` §13, as
+refined by the owner's N1 decision of 2026-10-01 — §11.6; a crashed DeZog must
+not leave the machine hung). `step_mode` dies with the session.
 
 ### 4.6 What a session observes across a hard reset (cold boot) — REQ-zrcp-15
 
@@ -808,7 +814,63 @@ declined option of §2.5 (`set-debug-settings` bit 5) named.
 
 ### 6.4 Validation record
 
-_(empty until WP-5 runs)_
+Recorded at WP-6 (2026-10-01), on the branch tip with v1.0.62 merged. **The
+DeZog GUI itself was not run** — there is no VS Code on the build host — so the
+§6.3 scenario was replayed at the protocol level instead, and what that does
+not cover is said below.
+
+1. **Byte layout against ZEsarUX 12.0, re-measured.** The real ZEsarUX 12.0
+   binary (the [T] build, `--machine 48k`, and `TBBlue` for the `tbblue`
+   scene) and jnext `--headless --machine 48k` were each driven through the
+   same nine scenes, one fresh server per scene. All 103 exchanges and the 9
+   welcomes are byte-identical. They are the committed fixture
+   `test/fixtures/zrcp/zesarux-12.0-exchanges.txt` (§11.10), so this check now
+   runs in every `make unit-test` (`ZRCP-FIX-*`) and every regression run
+   (`zrcp-func`). The [T1]/[T2]/[T4]/[T5] batches were also replayed whole
+   against jnext: every difference is either machine state (ZEsarUX ran a
+   TBBlue, jnext a 48K, so registers, ROM bytes and T-states differ) or one
+   of the deliberate divergences of §10 / §11.3 (`about`, `get-version`,
+   `get-cpu-core-name`, `help` text, `set-cr` as CRLF, the unsupported
+   commands, `set-debug-settings 32`, `MWA` declined, the history view).
+2. **DeZog 3.7.4's launch, replayed command by command** from
+   `zesaruxremote.ts:195-322` / `:1588-1600` / `zesaruxcpuhistory.ts:93-98`
+   against `jnext --headless --machine next` with `demo/magic_bp_demo.nex`:
+   `close-all-menus`, `about`, `get-version` (`12.0-jnext-1.0.62`, coerces to
+   12.0), `set-debug-settings 0`, `hard-reset-cpu` (a full cold boot,
+   answered empty in 10 ms), `enter-cpu-step`, `smartload "<abs path>"`
+   (empty; PC=8000 of the NEX afterwards), `get-current-machine` (`ZX Spectrum
+   Next`, DeZog's TBBlue branch), `clear-membreakpoints`,
+   `enable-breakpoints`, `get-memory-pages`, the coverage pair, `extended-stack
+   enabled no` (DeZog suppresses its error) then `yes`, the six `cpu-history`
+   init commands — every reply as DeZog parses it. Then two `cpu-step`s and a
+   `cpu-step-over` (column 7 holds the mnemonic), `cpu-history get-pc 0 3` =
+   `8003 8001 8000`, `cpu-history get 0` with `(PC)=`, `(SP)=`, `MMU=`,
+   coverage `8000 8001 8003`, `extended-stack get`, `get-stack-backtrace`,
+   a `SP>=65280` slot listed back in canonical form, `quit` →
+   `Sayonara baby`, and jnext still running after the disconnect. With
+   `skipInterrupt: true` the one difference is `set-debug-settings 32` →
+   `Error. Unsupported in jnext: step-over-interrupt (bit 5)`, after which the
+   same sequence completes — §2.5's single declined DeZog command.
+3. **Every command the user guide, the man page and the developer guide name**
+   was sent live (Next and 48K): the telnet example of the user guide
+   byte-for-byte (a `PC=8005H` slot on the NEX fires as `Breakpoint fired:
+   PC=8005H` at 8005), the served / declined / unsupported examples, malformed
+   numbers refused, the busy reply to a second client, breakpoints surviving
+   `hard-reset-cpu` and `reset-cpu` (in and out of cpu-step mode, PC=0000
+   after either while stopped), the debug-settings byte surviving
+   `hard-reset-cpu`, `save-binary` → `load-binary` round trip, and a snapshot
+   saved while running and restored.
+4. **Already automated before WP-6:** the step-over (`SP>=`) and step-out
+   (`PC=PEEKW(SP-2) AND SP>=`) runs, the long-address `SEG` condition, a WPMEM
+   range (`zrcp-bp-func`); `smartload` of a `.sna`, history, coverage, the
+   typed extended stack and a snapshot round trip (`zrcp-hist-func`); the
+   Qt and SDL loop owners (`zrcp-qt-func`, `zrcp-sdl-func`).
+
+**Not validated here:** DeZog's own UI over these replies — source-line
+mapping, its disassembly alignment with `(PC)=` during reverse stepping, and
+its `-state save` / `-state restore` console commands. Those are DeZog's
+parsing of replies whose bytes are checked above; a run in VS Code remains the
+one manual step, for the owner.
 
 ### 6.5 Reviewer mutations — pre-diff hypotheses, not the list
 
@@ -914,16 +976,563 @@ version 2.2.0 (DZRP-only).
 
 ---
 
-## 10. Deliberate divergences from ZEsarUX 12.0 (all stated in `help`)
+## 10. Deliberate divergences from ZEsarUX 12.0
+
+The complete list of what a ZRCP client sees jnext do differently from ZEsarUX
+12.0, milestone by milestone (WP-6 review round 1 completed it; until then it
+held milestone 1's rows only). Most are also stated in `help <command>`; the
+detail and the reason for each is in the section named. A ZEsarUX command
+jnext does not serve at all (57 of them) answers `Error. Unsupported command
+in jnext: <name>` and is not listed row by row.
 
 | ZEsarUX | jnext ZRCP | Why |
 |---|---|---|
 | `cpu-step-over` on `JR $` never returns | interruptible by socket data | a hung connection is a worse failure than a different stop |
-| condition text canonicalised on echo (`PC=38H`) | echoed as given, trimmed | cosmetic; no client parses it; ZEsarUX's pretty-printer is not worth reproducing |
 | `set-register IM=n` → `Error changing register` | works | jnext can |
 | `MMU=0000` for ROM slots on the Next | `8000h+k` (§2.3.1) | DeZog's decoder expects it; ZEsarUX's value is its own bug |
 | a bad condition leaves the slot `None` | slot unchanged | a typo must not silently delete a working breakpoint |
 | `run verbose`, `no-stop-on-data`, `update-immediately` | declined | §2.2 |
 | `hard-reset-cpu` is instantaneous | is a cold boot, completed synchronously inside the reply (§4.6) | Task 70 semantics; REQ-zrcp-15 |
 | stray `\r` in the "not in cpu-step mode" error | plain `\n` | ZEsarUX artefact |
-| multiple simultaneous clients (unprobed) | one | nobody needs more; arbitration lives in the backend anyway |
+| multiple simultaneous clients (unprobed) | one; a second is told `Error. Another ZRCP client is connected` and closed | nobody needs more; arbitration lives in the backend anyway |
+| `about`, `get-version`, `get-buildnumber`, `get-cpu-core-name` name ZEsarUX | name jnext (`get-version` = `12.0-jnext-<ver>`, still ≥ 10.3 for DeZog) | §1.3 items 17-18, §11.3 item 4 |
+| `set-cr`: `\n\r`, some writes only, process-global | CRLF on every write, this session only | §11.3 item 1 |
+| `atoi()`-style numbers (`0x38` or a typo read as 0, values truncated) | decimal or `H` hex, in range, else an error | §11.3 item 9 |
+| produces any size asked for | bounds on line length, dumps, `disassemble`, `run n` … each answered with an error | §11.3 item 10 |
+| a malformed write is truncated or written as 0 | refused before the first byte lands | §11.3 item 11 |
+| `tbblue-*` → `ERROR. Machine is not TBBlue` off TBBlue | served on every machine (jnext is always the Next core) | §11.3 item 12 |
+| `tbblue-set-sprite` cannot write the fifth byte | writes 1-5 bytes from byte 0 | §11.3 item 13 |
+| `get-tstates-partial` survives a reset | restarts at a hard reset | §11.3 item 14 |
+| `cpu-step-over` on `JP NZ`, `JP (IX)`, `JP (IY)`, RETI, RETN runs to the address after it (missing from `si_cpu_step_over_jpret()`) | a plain step: none of them has a next instruction to run to | §11.3 item 8 |
+| `help` of a command it does not serve | answers the unsupported error | §11.3 item 16 |
+| `set-debug-settings` bit 5 (step over interrupt) | refused (`Error. Unsupported in jnext: step-over-interrupt (bit 5)`); bits 0-4 stored, change no reply | §2.5 — DeZog shows it once, with `skipInterrupt: true` only |
+| condition terms `MRA MRV MWA MWV PRA PRV PWA PWV`, `TSTATES*`, `SCANLINE`, `*FIRED`, `ENTERROM`/`EXITROM`, `HILOWMAPPED`, `PD765PCN`, `USP`, `EPC`, `COPPERPC`, 68000/TSConf registers, `FPEEK IN ABS BYTE WORD OPM*` | refused by `set-breakpoint` and `evaluate` | §11.7 item 6 |
+| breakpoint actions other than empty / `menu` / `break` / `prints` / `printregs` / `printe` / `printc` | refused by `set-breakpointaction` | §11.7 item 5 |
+| print actions write to ZEsarUX's console | sent to the session as a `log> …` line | §11.7 item 5 |
+| a `PC=` breakpoint on `JR $` fires once (On Change) | fires on every pass after the run's first step | §11.7 item 2 |
+| `cpu-history` starts empty and records after `started yes` | is a view of jnext's trace: `enabled yes` shows what the trace already holds (up to 10000 entries), `clear` starts the view afresh, `started` is stored but changes nothing | §11.9 item 1; pinned by `ZRCP-HIS-16` |
+| `cpu-history clear` / `set-max-size` clear / resize the history (up to 10000000) | move this session's view only (1..1000000); the machine's trace, which jnext's Step Back reads, is never touched | §11.9 item 1 |
+| `cpu-history get-extended`, `restore` | declined | §11.9 item 3 |
+| history, coverage and call tracking are the session's | the machine's: a session turns off only what it turned on | §11.9 item 4 |
+| `extended-stack get` types `push` | `default` (jnext does not tell them apart); `clear` does nothing | §11.9 item 5 |
+| `snapshot-save` / `snapshot-load` write / read a file | in-memory bookmarks of the session, at most 8; `snapshot-save` refuses mid-frame (at a breakpoint) | §11.9 item 6 |
+| `smartload` errors | any refusal answers `Error. Unknown file format`, the reason goes to jnext's log; the formats are jnext's `--load` table | §11.9 item 7 |
+| `load-binary` writes whatever it can | a write the backend refuses (an RZX session) is said, with the count loaded | §11.9 item 8 |
+
+ZEsarUX's canonical condition echo (`PC=38H` for `PC=0038H`) was listed here
+as a divergence until milestone 2, which reproduces it (§11.7); it is no
+longer one.
+
+---
+
+## 11. Implementation record — milestone 1 (WP-1 session, WP-2 formatters, WP-3 control / run)
+
+Code: `src/remote/zrcp/zrcp_server.{h,cpp}` (the session, THE command table, the
+run state machine) and `src/remote/zrcp/zrcp_format.{h,cpp}` (pure formatters:
+register line, `MMU=` projection, flags, disassembly line, hexdump, CRC-32,
+memory pages, machine name, numbers). Registered by `DebugServers::start`
+(`src/platform/debug_servers.*`) in all three loop owners, beside DZRP;
+`--zrcp-port` in `cli_options.h` / `main.cpp` / `EmulatorConfig::zrcp_port`.
+Suite: `zrcp_adapter_test` (111 rows after review round 1, `gate: none`). Regression: `zrcp-func`
+(§6.2 items 1-4 + DZRP beside it, headless), `zrcp-sdl-func`, `zrcp-qt-func`
+(the other two loop owners), and `debug-listen-address-func` extended.
+
+### 11.1 Served in milestone 1 — 47 of §2's 67
+
+- **WP-1 (13):** `about`, `close-all-menus`, `get-buildnumber`,
+  `get-cpu-core-name`, `get-debug-settings|gds`, `get-os`, `get-version`,
+  `help|?`, `ls`, `noop`, `quit|exit|logout`, `set-cr`, `set-debug-settings|sds`.
+  Declined: `exit-emulator`. Unsupported, each by name (57): every other name of
+  ZEsarUX 12.0's `ls`, ZEsarUX's aliases included (`a`, `zo`, …).
+- **WP-2 (26):** `get-registers|gr`, `set-register|sr`, `read-memory`,
+  `write-memory|wm`, `write-memory-raw`, `hexdump|h`, `get-crc32`,
+  `disassemble|d`, `get-memory-pages|gmp`, `get-stack-backtrace`, `get-tstates`,
+  `get-tstates-partial`, `reset-tstates-partial`, `get-cpu-frequency`,
+  `get-current-machine|gcm`, `tbblue-get-{register,sprite,pattern,palette,clipwindow}`,
+  `tbblue-set-{register,sprite,pattern,palette,clipwindow}`, `write-port`.
+- **WP-3 (8):** `enter-cpu-step|encs`, `exit-cpu-step|ecs`, `cpu-step|cs`,
+  `cpu-step-over|cso`, `run|r` (+ *n*), `hard-reset-cpu`, `reset-cpu`,
+  `generate-nmi`.
+- **Pending: none.** Milestone 2 served WP-4's twelve (§11.7) and milestone 3
+  WP-5's eight (§11.9): all of §2's 67. Row `ZRCP-TAB-01` pins the table
+  against ZEsarUX's 125 names.
+
+### 11.2 The run state machine as built
+
+`in_run` ∈ {None, Run, RunLimit, StepOver}. While it is not None no line is
+executed: any received byte stops the machine (`pause()` if it is still
+running) and the line it belongs to is discarded up to its newline — also when
+the rest of that line arrives later. The stop reply is **level-triggered** on
+`state().paused`, checked at the top of `on_service` (a stop in the frames
+before this pump) and in `on_notify` (a stop caused inside this pump's drain,
+e.g. another client's pause): `[Breakpoint fired: …\n]` + register line +
+` TSTATES: n` + `\n` + the disassembly at PC + the prompt. `fired` is named for
+`Magic` and `Corrupt` in this milestone (a slot's breakpoint and memory
+breakpoint are WP-4's); a step, a run-to target, data sent, another client's
+pause or breakpoint have none. `run n` is a loop of `step_into`, sliced by the
+adapter's clock (2 ms) and returning `Serviced` after each slice, so the pump's
+drain budget decides how many slices a tick runs; it ends at the count
+(`Returning after n opcodes`), on a step whose own event stopped it
+(`pause_reason` is then not `Step` — REQ-zrcp-05, fixed in the backend, §11.4),
+on landing at a PC `probe_execute` says is armed, or on data. `cpu-step-over`
+is `run_to(pc + len)` (asynchronous) except for a RET or JP, which is a plain
+step. A `Reset{Hard}` while in flight makes the reply OWED (plain stop, the
+fresh machine's registers, the machine not paused): it goes out at the next
+callback — this pump's `on_notify` at the latest — through the same finish
+path as any stop, so a line sent before it is an interrupt, a parked `run n`
+steps the new machine no further, and this session's transients are removed
+outside the backend's fan-out. `quit`, a hang-up or a reset of the connection
+detach (SES-01).
+
+### 11.3 Deviations and precisions, each with its reason
+
+1. **`set-cr` adds the CR *before* each LF (CRLF), per session**, as §1.1 and
+   §4.1 say. ZEsarUX actually adds it *after* (`\n\r`,
+   `escribir_socket_add_cr()` in `network.c`), only on some of its writes (not
+   the prompt), and as a process-global flag that outlives the connection.
+   CRLF is what a Windows telnet wants; the transcripts' form is an artefact
+   (finding 1).
+2. **The corruption refusal text** is `Error. Machine state is corrupt after a
+   failed rewind; acknowledge it in the jnext debugger`, not §2.2's "…
+   acknowledge in the GUI or send hard-reset-cpu": CTL-12 `Hard` passes the
+   same CTL-11 gate (`reset_hard()` → `execute_gate()`), so the second half of
+   the advice would itself be refused (finding 2).
+3. **`tbblue-set-*` and `write-port` are served with WP-2.** §2 classes them S,
+   but §8 gives them to no work package; they are the write halves of WP-2's
+   formatters, as `set-register` and `write-memory` are (finding 4).
+4. **`get-buildnumber` answers the jnext version**: the tree generates no build
+   id (`version.h` carries the version alone), and a build-time stamp would
+   make builds non-reproducible.
+5. **`get-current-machine` never answers `Pentagon`**: jnext has no Pentagon
+   machine type (`MachineType` is Next / 48K / 128K / +3; `--machine` offers the
+   same four).
+6. **`§6.2` item 3 in `zrcp-func` uses the magic breakpoint**, a §2.4 named
+   stop (`Breakpoint fired: Magic breakpoint`), because `set-breakpoint` is
+   WP-4, gated on S's `compile_expr`. The slot form of item 3 lands with WP-4.
+7. **`run n` slices by the adapter's own clock** (2 ms, injectable for tests)
+   and returns `Serviced` per slice: a `Service` never sees `PumpBudget`, so
+   "until the pump's `budget_ms` is spent" is realised as "the pump keeps
+   calling while its budget lasts".
+8. **`cpu-step-over`'s plain-step set** is ZEsarUX's `si_cpu_step_over_jpret()`
+   list plus `JP NZ` (C2, which that list forgets), `JP (IX)`/`JP (IY)`, and
+   RETI/RETN (through `is_ret_like()`, as §2.2 says): none has a next
+   instruction to run to.
+9. **Numbers are strict:** decimal or `H`-suffixed hex, and (review round 1)
+   in range: an address past FFFFH and a register value wider than its
+   register (`PC=10000H`, `A=100H`, `IFF1=2`, `IM=3`) are refused, never
+   truncated as ZEsarUX does. ZEsarUX's `atoi()`
+   reads `0x38` or a typo as 0; jnext answers `Error. Invalid number: <tok>`
+   (or the command's own ZEsarUX error where it has one). Labels are not
+   resolved, and `set-register`'s value is a number, not an expression, until
+   WP-4 brings the expression compiler.
+10. **Bounds:** a command line ≤ 512 KiB (`Error. Command line too long`, then
+    discarded to its newline); `read-memory` / `hexdump` / `get-crc32` ≤ 1 MiB;
+    `disassemble` ≤ 65536 lines; `get-stack-backtrace` ≤ 32768 words;
+    `tbblue-get-*` items ≤ one bank's worth; `run n` ≤ 1 000 000 (§2.2). Each
+    over-bound request answers an error; ZEsarUX would try to produce it.
+11. **Malformed writes write nothing:** a byte > 255, an odd or non-hex
+    `write-memory-raw` string, a 10-bit colour, six sprite bytes are refused
+    before the first byte lands (ZEsarUX truncates, or writes garbage as 0).
+12. **`tbblue-*` are served on every machine type** — jnext's hardware is always
+    the Next core; ZEsarUX answers `ERROR. Machine is not TBBlue` off TBBlue.
+13. **`tbblue-set-sprite i b0 … [b4]`** writes 1-5 bytes from byte 0 and keeps
+    the rest (ZEsarUX wraps its index at 4 and can never write a fifth byte).
+14. **`get-tstates-partial` restarts at a hard reset** — the new machine's
+    monotonic T-state counter restarts (ZEsarUX's partial counter survives its
+    reset). Stated in `help get-tstates-partial`.
+15. **`get-debug-settings` starts at 1**, ZEsarUX's own initial value ([T1]); §4.1
+    does not say.
+16. **`help <cmd>`** of an unsupported command answers the unsupported error;
+    of an unknown one ZEsarUX's `No help for that command`.
+17. **Decision, review round 1 — `MMU=` and `get-memory-pages` per machine.**
+    §2.3.1 designed only the Next's eight 8 K slots, but `get-current-machine`
+    answers `ZX Spectrum 128k` on a 128K session, and DeZog then decodes `MMU=`
+    with its 128K decoder: the FIRST FOUR fields as 16 K slots
+    (`decodezesaruxdata.ts`, `>= 0x8000` -> ROM `8 + (v & 1)`). So on the 48K,
+    128K and +3 jnext now emits ZEsarUX's own legacy projection
+    (`mem128.c`, `debug_paginas_memoria_mapeadas[0..3]`): four 16 K segments,
+    `0x8000 + ROM image` or the RAM bank, then four `0000` where ZEsarUX leaves
+    its array unset; and `get-memory-pages` spells ZEsarUX's legacy segments
+    (`RO<rom> RA<bank>` on 128K/+3, `ROM RAM` on 48K). A segment is read from
+    its first 8 K slot. The Next keeps §2.3.1. Rows FMT-11/12, REG-01/06/07,
+    PG-01.
+18. **`hard-reset-cpu` whose boot fails** answers the same
+    `Error. Unsupported in jnext: hard-reset-cpu` as the no-driver case: the
+    backend returns `RefusedUnavailable` for both.
+
+### 11.4 Backend defect found and fixed on this branch (with its rows)
+
+**REQ-zrcp-05 was not honoured by `step_into()`.** It armed `Step` *after* the
+step, and `arm()` clears the event-stop latch — so a watch the stepped
+instruction hit, or the magic opcode it executed, was reported as a plain
+`Step` (and the magic / legacy-watch latches of the stop being left survived
+the step). `step_into()` now arms before the step, clears the previous stop's
+evidence, and lets the step's own event be the reason
+(`src/debug/debugger_control.cpp`). No header change. Rows: `CTL-03-04/05`
+(backend suite, 1287 → 1289) and `ZRCP-RUN-13/14`.
+
+### 11.5 Findings
+
+1. §1.1's `set-cr` direction (deviation 1), and the "stray `\r`" of [T2]'s
+   `run` error is that same flag carried across connections — transcripts 1
+   and 2 were one ZEsarUX process — not an artefact of that message.
+2. §2.2's corruption advice (deviation 2).
+3. **For WP-4:** `probe_execute(pc)` ignores conditions, and the frozen header
+   returns `bool` where backend.md §4.3 says `vector<EventId>`. A PC-free
+   condition breakpoint (`Execute[0,FFFF]` + predicate) will therefore end
+   every `run n` after one step, and the loop cannot tell WHICH subscription
+   it landed on (a slot's `fired` text needs it). It also ignores the
+   subscription's ACTION: a `Log`-only `Execute` subscription (a DSL logger)
+   ends a `run n` exactly as a `Stop` would. WP-4 has to evaluate its own
+   conditions and actions in the loop or ask for the header change.
+   **Resolved in WP-4** (§11.8): the header change landed, conditions are
+   evaluated, and the adapter judges the action.
+4. §8 assigns no WP to `tbblue-set-*` / `write-port` (deviation 3).
+5. The census holds: ZEsarUX 12.0's `ls` is 125 names, §2's 67 S + 1 D + 57 U
+   (`ZRCP-TAB-01`).
+6. Under DeZog's `set-debug-settings 0`, ZEsarUX's own `cpu-step` prints only
+   the disassembly line (debug-settings bit 0); jnext always prints the
+   register line too, which §2.1's "bits 0-4 change nothing" already implies.
+   DeZog re-reads the registers after a step, so nothing depends on it.
+7. **Review round 1.** (a) §2.3.1 covered only the Next projection; the
+   legacy one is decision 17 above. (b) Package G's `poke(Cpu)` contract ("what
+   landed; `RefusedReadOnly` if none") is on `main` now; the adapter's
+   all-ROM write is still ZEsarUX's silent success, and row MEM-03 now pins it
+   (mutant R34 caught after the merge). (c) For the owner (backend contract,
+   not adapter): `step_into` attributes the pause to the stepping client, so a
+   ZRCP client that steps a machine another client paused, then quits or
+   crashes, releases that pause on its detach (CAP-SES-01 as written). DeZog's
+   own disconnect sends `exit-cpu-step` first; a telnet or crashed client does
+   not. **Decided by the owner (N1, 2026-10-01) and implemented on this branch
+   — §11.6.**
+
+### 11.6 Pause ownership on detach (owner decision N1, 2026-10-01)
+
+The owner's words: "The pause should belong to the one remaining." Implemented
+in the backend (`src/debug/debugger_session.cpp` `detach()`,
+`debugger_control.cpp` `step_into()`, a private `Impl::pause_origin`), so it
+holds for every client — ZRCP, DZRP, GDB RSP and Qt alike, since each adapter
+only calls `detach()`. No public header changed; the frozen `debugger.h`
+comment on `detach()` ("there is no 'last client' condition") is now stale and
+is reported for the owner rather than edited. The rule (`backend.md`
+CAP-SES-01):
+
+- A detaching client's own pause is **released only when no other arming
+  client remains**. Otherwise it passes, and the machine stays paused.
+- **The heir** is the client the machine was paused by before the leaver
+  stepped it, if that client is still attached; `step_into()` on a paused
+  machine keeps that origin across any number of steps, and every other
+  control verb ends it. Failing that, the **earliest-attached** remaining
+  client (lowest id).
+- **Observers do not count** (REQ-qt-32): the Qt GUI keeps one for its whole
+  life, and counting it would make every GUI-session detach keep the machine
+  paused — the hung machine the release exists to prevent.
+- A pending cold-boot capture owned by the leaver follows the same rule.
+- Internal step / run targets are still dropped (they are subscriptions).
+- The Qt window's close resumes the machine itself before its detach
+  (`DebuggerManager::detach_backend()`), a user action this rule does not
+  touch.
+
+Rows: backend `N1-01..14` and `CTL-12-47c` (new); `SES-01-12`, `SES-01-22`,
+`CTL-12-47`, `REENT-24` and `OBS-08` **rewritten**, because each asserted the
+old release with another arming client attached (`REENT-24` and `SES-01-22`
+now use an observer bystander, which keeps what they pin: the release itself);
+ZRCP `ZRCP-SES-09/10` through the real adapter.
+
+**Owner-confirmed (2026-10-01), all four points of the hand-back:** (1) an
+observer never inherits a pause and never holds one back from release; (2) the
+fallback heir is the earliest-attached remaining arming client; (3) only
+`step_into` keeps the original pauser — so a client that single-steps an
+UNOWNED pause (the magic breakpoint; `Corrupt` refuses the step anyway) takes
+ownership of it, and its detach then hands it on or releases it like any pause
+of its own; (4) the comment-only fix to the frozen `debugger.h` `detach()`
+text is approved — **not applied in this build**: the edit was refused by the
+session's permission policy for a shared frozen header, and is reported for the
+owner to apply or re-authorise (z-m2-report.md).
+
+### 11.7 Milestone 2 — WP-4, breakpoints and conditions
+
+**Served (12):** `set-breakpoint|sb`, `set-breakpointaction|sba`,
+`enable-breakpoint|eb`, `disable-breakpoint|db`, `enable-breakpoints`,
+`disable-breakpoints`, `get-breakpoints|gb`, `get-breakpointsactions|gba`,
+`set-membreakpoint`, `get-membreakpoints`, `clear-membreakpoints`,
+`evaluate|e`. 59 served, 1 declined, 57 unsupported, 8 pending (`ZRCP-TAB-01`).
+
+**How a condition becomes a predicate** (`src/remote/zrcp/zrcp_condition.*`):
+the text is tokenised exactly as ZEsarUX 12.0's `exp_par_exp_to_tokens` does
+(operand / operator alternation, signs, `H` / `%` / `'c'` numbers, `( [ {`
+brackets, case-insensitive names); the canonical text `get-breakpoints` lists
+and `Breakpoint fired:` echoes is ZEsarUX's `exp_par_tokens_to_exp` over those
+tokens; the tokens are then split the way `exp_par_evaluate_token` evaluates
+them and every split is emitted as a fully bracketed DSL expression, which
+`script::compile_expr` compiles in the `Execute` scope. Nothing in the adapter
+evaluates an expression except the native terms below.
+
+**Deviations and precisions (milestone 2):**
+
+1. **ZEsarUX's grouping, not a precedence table.** §3.2 said the adapter
+   "parenthesises every binary term it emits, so the DSL's precedence table is
+   the only one in play". The source says otherwise: ZEsarUX splits at the
+   FIRST top-level logical operator, then comparison, then `+ -`, then the
+   other arithmetic, right-nested — `9-3-1` is 7, `2*3&1` is 2, `0 AND 0 OR 1`
+   is 0 (`ZRCP-CND-04`). The translation reproduces that grouping.
+2. **"On Change", as ZEsarUX's default — for PC-free conditions.** ZEsarUX
+   fires a condition only on a false→true transition
+   (`debug_breakpoints_cond_behaviour` = 1, `debug.c`
+   `cpu_core_loop_debug_check_breakpoints`; `--brkp-always` turns it off). A
+   PC-free slot does the same: its predicate keeps the value of its last
+   evaluation, is evaluated at every boundary of a free run, and in a `run n` —
+   where the GH #221 step-off means the backend evaluates nothing — by the
+   landing check (`slot_edge_at`); (re)arming starts it false, as
+   `debug_set_breakpoint` does. A fast-path (`PC=<n> …`) slot fires at every
+   arrival: the `PC=` term was false at the previous instruction, so On Change
+   and Always agree, except for an instruction that jumps to itself (`JR $`),
+   where ZEsarUX fires once and jnext on every pass after the step-off — the
+   one residual difference, stated in `help set-breakpoint`. (Milestone 2 first
+   shipped "Always" for both; review round 1 rejected it: a PC-free condition
+   that stays true stopped every `run` after one instruction, and a print
+   action on one sent ~10^6 lines a second. Rows `ZRCP-BP-22..24`, `-26/27`.)
+3. **The master switch is the adapter's.** §2.4 mapped `enable-/disable-
+   breakpoints` to CAP-EVT `set_client_enabled`. That switch also suspends the
+   client's TRANSIENT subscriptions (`event_table.cpp`: live = enabled ∧
+   (transient ∨ master) ∧ client), so with breakpoints off `cpu-step-over`
+   could never end. Instead a slot's subscription exists exactly while
+   breakpoints are on, the slot is enabled and it has a condition, and the
+   memory-breakpoint ranges likewise (`ZRCP-BP-10`, `ZRCP-MBP-07`).
+4. **`set-breakpoint` enables the slot**, as `debug_set_breakpoint` does
+   (DeZog's `enable-breakpoint` after it is then a no-op). A refused condition
+   leaves the slot as it was (§2.4's divergence, `ZRCP-BP-06`).
+5. **Actions.** Empty / `menu` / `break` stop; `prints`, `printregs`,
+   `printe`, `printc` do not stop and send their output to the session as a
+   `log> …` line (ZEsarUX prints it on its own console); everything else is
+   refused at `set-breakpointaction` with `Error. Unsupported breakpoint action
+   in jnext: <word>` (`ZRCP-BP-13/14`).
+6. **Declined names** are refused at `set-breakpoint` (and by `evaluate`):
+   the last-access variables, `TSTATES*`, `SCANLINE`, the stateful `*FIRED` /
+   `ENTERROM` / `EXITROM`, `HILOWMAPPED`, `PD765PCN`, `USP`, `EPC`,
+   `COPPERPC`, the 68000 / TSConf registers, and the functions `FPEEK IN ABS
+   BYTE WORD OPM*` (`ZRCP-CND-09`). Binary (`101%`) and character (`'A'`)
+   literals, which §3.2 did not list, are honoured: they cost nothing.
+7. **The fired line names this session's breakpoint** even when another
+   client's breakpoint was the backend's first `Stop` on the same instruction
+   (`ZRCP-BP-11`, `ZRCP-MBP-08`) — a PC-free slot only if it fired (its edge)
+   at that instruction (`ZRCP-BP-26`); another client's breakpoint alone gives
+   a plain stop (`ZRCP-BP-12`).
+8. **Indexes and addresses** keep milestone 1's strict number rule
+   (`parse_number`) where ZEsarUX uses `atoi` / `parse_string_to_number`.
+
+### 11.8 The DSL library and ZRCP's condition subset (§11 item 8, measured)
+
+**Answer: the library covers the honoured subset with no fallback parser
+(no second evaluator), except for `SEG0..7`, `ROM` and `RAM`, which it cannot
+express and the adapter evaluates natively.**
+
+Evidence, every row driving `compile_expr` / `eval_expr` through `evaluate`
+or a breakpoint:
+
+- registers, the alternates (8-bit ones as `(AF2 >> 8) & 255` …), the flags
+  (`FS…FC` → `SF ZF PF PF HF NF CF`), `IFF1/2` — `ZRCP-CND-05`;
+- every operator both ways, `XOR` as `((a)!=0) != ((b)!=0)`, ZEsarUX's x/0 =
+  65535 as `((b)==0)*65535 + ((b)!=0)*((a)/((b)+((b)==0)))` — `ZRCP-CND-06`;
+- `PEEK` / `PEEKW` / `OPCODE1..4` as `mem[…]` with the address mod 64K —
+  `ZRCP-CND-07`; numbers — `ZRCP-CND-08`; grouping — `ZRCP-CND-04`;
+- DeZog's conditions end to end — `ZRCP-BP-04/07/09`, `ZRCP-MBP-01/02`, and
+  the regression row `zrcp-bp-func` against a live jnext.
+
+What the library could not do, and what was done instead:
+
+- **Is a slot ROM?** `SEGn` / `ROM` / `RAM` are ZEsarUX's
+  `debug_paginas_memoria_mapeadas[]`, the `MMU=` projection, whose ROM
+  encoding depends on `SlotInfo.is_rom`. The DSL has `mmu[n]` (the raw NextREG,
+  `0xFF` sentinel) and `page[n]` (the effective page); neither says ROM — the
+  sentinel is not the rule (`mmu.cpp`: a verbatim `0xE0..0xFE` write also maps
+  ROM). So they are NATIVE terms: honoured as `<var><op><number>` in the
+  top-level AND chain (DeZog's `PC=… AND SEGn=…`, `… AND ROM=…`, `… AND
+  RAM=…`), evaluated from the same `mapped_page()` the register line prints,
+  and refused anywhere else (`ZRCP-CND-11/12`). A DSL builtin for "slot is
+  ROM", or for the projection itself, would remove them — a request for
+  package S, not made here.
+- **ZEsarUX's grouping** is reproduced by the translation (deviation 1); the
+  DSL needs only its brackets.
+
+**`probe_execute -> vector<EventId>` (owner-approved 2026-09-29, landed in
+review round 1).** The frozen-header change (`530dd22d3`, applied on the owner's
+instruction after the session's permission policy refused it to the author)
+returns the id of every live `Execute` subscription covering the PC whose
+condition holds now, evaluated against the `Execute` event `execute_gate()`
+would build, under an `InspectionScope`, recording nothing; a legacy
+`BreakpointSet` PC breakpoint adds an `EVENT_NONE` entry; another kind, and a
+spent `once` re-enabled, are not listed (`EVT-PROBE-08..13`).
+`run n`'s landing check is the only place a breakpoint is evaluated inside a
+`run n` (each step's own `Execute` match is skipped by the GH #221 step-off),
+and it asks:
+
+- this session's slots, with their own predicates — On Change for a PC-free
+  one, which a stateless probe cannot judge: a stop slot ends the run with its
+  fired line, a print slot prints and the run steps on
+  (`ZRCP-BP-15/16/19/24`);
+- `probe_execute`, for everyone else: an `EVENT_NONE` entry (a legacy PC
+  breakpoint), or another client's static-`Stop` subscription with no handler,
+  ends the run; this session's own ids are left to the slots
+  (`ZRCP-BP-21/25/28/29/30`). A `Log` / `Continue` one would not stop a free
+  `run`, so it does not end a `run n`; a HANDLER's verdict overrides the static
+  action (`events.h` `Handler`) and is known only by running it, which a pure
+  probe may not, so a handler subscription is not counted either (review round
+  2). Every jnext frontend's breakpoint — DZRP, GDB, the Qt GUI — is a static
+  `Stop`; the residual is a handler (a future DSL rule) that would return `Stop`
+  at the landing PC, which a `run n` passes.
+
+The On-Change state is keyed to the boundary (the event's master cycle): a
+second evaluation of the same slot's condition at the same cycle — a
+`probe_execute`, the landing check — returns the cached result and advances
+nothing (`ZRCP-BP-31`). `probe_execute` honours the condition contract's
+`!replay_mode` rule as delivery does: in replay it lists nothing and runs no
+condition (`EVT-PROBE-15`); a page qualifier is matched against the page mapped
+at the PC's own slot (`EVT-PROBE-14`). Review round 1 found the first, interim cut skipped
+  other clients wherever a slot of this session covered the PC — which a
+  PC-free slot does everywhere — and could not evaluate their conditions; both
+  are gone.
+
+### 11.9 Milestone 3 — WP-5, history / stack / coverage / load
+
+**Served (8):** `cpu-history`, `cpu-code-coverage`, `extended-stack`,
+`smartload|sl`, `load-binary`, `save-binary`, `snapshot-save`,
+`snapshot-load`. 67 served, 1 declined, 57 unsupported (`ZRCP-TAB-01`).
+`get-pc` with a negative count answers ZEsarUX's `Error. Can't be negative`,
+and a negative index is honoured as ZEsarUX's `parse_string_to_number` does.
+Oracles: ZEsarUX 12.0's `remote.c` (`remote_cpu_history`,
+`remote_extended_stack`, `remote_cpu_code_coverage`, the file and snapshot
+handlers), `debug.c` (`cpu_history_legacy_regs_bin_to_string`, the index rule,
+`push_value_types_strings`, the repeated-HALT/LDxR rule), `utils.c`
+(`load_binary_file`, `save_binary_file`, `util_parse_commands_argvc_comillas`);
+DeZog's `zesaruxremote.ts` / `zesaruxcpuhistory.ts` (init, every-step `get`,
+`extended-stack get` typing, coverage `get` + `clear`, `smartload "…"`,
+`load-binary "…" <decimal> 0`, `snapshot-save <path>.zsf`).
+
+**Deviations and precisions:**
+
+1. **The history is jnext's trace log** (CAP-INS-13). `get i` (0 = newest),
+   `get-pc`, `get-size`, the index errors and the line are ZEsarUX's, byte for
+   byte, with the memory-access list empty (jnext records none — the trailing
+   space stays). `started` is recorded but the history records while it is
+   `enabled`. **`clear` and `set-max-size` act on the session's VIEW, never on
+   the machine's trace** (review round 1): that trace is the one jnext's Step
+   Back and rewind read, and DeZog sends both on every launch, so clearing or
+   resizing it would cut another user's Step Back for the rest of the
+   process. `clear` records the newest trace entry's master cycle as the
+   view's base (only later entries are shown; if the base has left the ring,
+   every entry is newer). Because the base is a cycle, it is dropped on every
+   cold boot (`on_reset(Hard)`, synchronously — a loop owner's deferred cold
+   boot runs the new machine's frames before the next callback, review round
+   3) and whenever a callback finds the clock moved backwards (an in-place
+   load, a restored snapshot or `.jns`, a Step Back, a rewind), so the history
+   then shows the whole trace rather than hiding entries behind a repeated
+   cycle (`ZRCP-HIS-14..18`); `set-max-size` (1..1000000) caps the view at the newest n. So the
+   history holds at most what the machine's trace holds — 10000 entries by
+   default — whatever `set-max-size` says; `get-max-size` reports the size
+   set. `ignrephalt` / `ignrepldxr` are also a VIEW, ZEsarUX's rule (the
+   first of a run of HALTs / LDIR / LDDR is kept) applied when read, so they
+   also apply to entries recorded before they were set.
+2. **`MMU=` in a history entry** is the get-registers projection
+   (`mapped_page`), built from the entry's eight effective pages and its
+   `rom_slots` mask (bit n: slot n held ROM), both recorded with the entry, so
+   it is exact whatever the program has mapped since. (Milestone 3 shipped an
+   approximation — a slot counted as ROM when it was ROM *now* and held the
+   same page — and reported the missing field as a frozen-header need; the
+   owner approved the one-byte mask on 2026-10-01. `ZRCP-HIS-19` pins the two
+   cases the approximation got wrong, backend row `INS-13-15` the recording.)
+3. **Declined:** `cpu-history get-extended` (it adds the 7FFD / 1FFD
+   paging-port values, which the entry does not hold and, by the same owner
+   decision, will not) and `restore` (use the jnext debugger's Step Back),
+   each by name with the reason.
+4. **Machine-wide switches.** The trace, the coverage and call tracking are
+   the machine's, not the session's. A session's `enabled yes` switches the
+   backend on only if it was off, and its `enabled no` — or its end — turns off
+   only what it turned on; `Already enabled` / `Already disabled` follow the
+   session's own state (`ZRCP-HIS-09`, `ZRCP-XST-02`).
+5. **`extended-stack get`** reads each word from memory now and types it from
+   jnext's call tracking: a frame whose return address is at that word gives
+   `call`, `rst`, `maskable_interrupt` or `non_maskable_interrupt`; anything
+   else is `default` (jnext does not tell `push` from `default`; DeZog keys
+   only on the other four). `clear` answers empty and does nothing: the
+   tracker forgets a frame when its return pops it, and the backend publishes
+   no call-stack clear.
+6. **`snapshot-save` / `snapshot-load`** are this session's in-memory
+   bookmarks (CAP-CAP-03, REQ-zrcp-13 DECIDED): the name is only a key, at
+   most 8, gone with the session. `snapshot-save` refuses mid-frame
+   (`RefuseMidFrame`), for DZRP's reason: DeZog does not re-read the
+   registers after a save, so an advance would leave its cached PC behind.
+   A stop at a breakpoint is mid-frame; a pause while running is not.
+7. **`smartload`** is CAP-CTL-15 `load()`, jnext's `--load` table (`.nex`,
+   `.sna`, `.szx`, `.z80`, `.jns`, `.tap`, `.tzx`, `.wav`, `.rzx`); a paused
+   machine stays paused at the new PC. Any refusal answers ZEsarUX's one
+   text, `Error. Unknown file format` (the reason is logged).
+8. **`load-binary` / `save-binary`** work on the CPU view (writes to ROM land
+   nowhere; addresses wrap at FFFFH); `save-binary` length 0 is 64 KB; an
+   address must fit 16 bits (milestone 1's rule). `save-binary` answers a
+   failure `ERROR loading file`, ZEsarUX's own text, and so does a
+   `load-binary` of something that is not a readable file (a directory). A
+   write the backend REFUSES — an RZX session, a corrupt machine — is said,
+   as `write-memory` says it: `Error. load-binary refused: <reason> (<n>
+   bytes loaded)` (review round 1; a write to ROM stays silent).
+
+Rows: `ZRCP-FMT-14`, `ZRCP-HIS-01..18`, `ZRCP-XST-01..04`, `ZRCP-COV-01`,
+`ZRCP-LOAD-01..05`, `ZRCP-SNAP-01..03`; the regression row `zrcp-hist-func` (§6.2 item 7 and the
+rest of WP-5 against a live jnext: a `.sna` smartloaded, history, coverage,
+extended stack, load/save-binary, a snapshot round trip).
+
+### 11.10 WP-6 — the fixture and the documentation
+
+**The fixture is a re-recording, not a cut of [T].** The [T] transcripts were
+recorded on a TBBlue and their sessions carry state from command to command,
+so a trimmed subset of them would not replay: the replies around a removed
+command, or any that read a register or a ROM byte, change. Instead the
+state-independent exchanges of [T1]..[T5] — chosen by replaying those batches
+against jnext and keeping what matched — were regrouped into nine scenes
+(`session`, `memory`, `evaluate`, `breakpoints-off`, `breakpoints`,
+`membreakpoints`, `tbblue`, `cpu-step`, `run`) and recorded again from the
+same ZEsarUX 12.0 binary, one fresh server per scene, on `48k` (`TBBlue` for
+`tbblue`, which ZEsarUX refuses off TBBlue and jnext serves on every machine,
+§11.3). The two exchanges that turned out to read untouched RAM (`read-memory
+32768 4` after a 3-byte write) were cut to 3 bytes, and `hard-reset-cpu` was
+left out of `cpu-step`, since the unit rig registers no cold-boot driver.
+Every reply in the file is ZEsarUX's byte for byte and jnext's byte for byte
+(§6.4 item 1). Licence: ZEsarUX is GPL-3.0-or-later, the file quotes its
+protocol replies as interface data; it holds no ROM bytes and no host paths.
+
+**Format and consumers.** `@scene` / `> "command"` / `< "reply part"`, with
+four escapes, so prompts keep their trailing space without trailing
+whitespace in the file. `zrcp_adapter_test` reads it at run time
+(`JNEXT_ZRCP_FIXTURE`, baked by CMake): `ZRCP-FIX-01` pins the scene list,
+`ZRCP-FIX-02..10` replay one scene each on a fresh rig. `zrcp-peer.py` reads its
+welcome and `run` constants from it and its `fixture` scenario replays every
+scene against the live binary at the start of `zrcp-func`, each on its own
+connection (retrying, bounded, while the last one's hang-up is processed).
+Mutations: a changed fixture byte, a dropped scene, one scene's welcome
+altered, and a server reply changed (`Unknown command`) — each caught, by the
+unit rows and by the live row; NULL control clean.
+
+**Docs.** The user guide page now carries a full `launch.json` and the two
+DeZog settings that matter (`resetOnLaunch`: a cold boot; `skipInterrupt`:
+keep it false — one warning, then stepping enters interrupt routines), a
+telnet example taken from a live session, the busy reply, reset behaviour,
+headless and security. The man page gained the one-client rule and the DeZog
+paragraph; the developer guide gained 3.12, *The ZRCP server*, beside 3.10 /
+3.11. Every command they name was tried live (§6.4 item 3).
+
+Rows: `ZRCP-FIX-01..10` (zrcp_adapter_test 201 → 211); `zrcp-func` gains the
+fixture replay (row count unchanged).
+
+**Review round 1 (REJECT, three fixes).** §10 claimed to be the complete
+divergence list but held milestone 1's rows only: it now lists every
+client-visible divergence of all three milestones and §2.5 (and drops the
+canonical-echo row milestone 2 made obsolete). The history-at-enable behaviour
+— `enabled yes` shows what the trace already holds, where ZEsarUX starts
+empty — stays as designed (`ZRCP-HIS-16` pins it) and is now said in a §10
+row, in `help cpu-history` and in the user guide. The fixture's size is
+pinned: `ZRCP-FIX-01` checks each scene's exchange count (103 in all) and
+`zrcp-peer.py`'s `fixture` scenario checks the same list and that it replayed
+all 103, so deleting an exchange or replaying fewer scenes fails (the
+reviewer's F06 / P03 mutants, now caught). `ZRCP-FIX-09`'s text no longer
+claims a hard reset its scene does not have.
+

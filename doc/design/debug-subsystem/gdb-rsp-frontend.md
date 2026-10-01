@@ -271,7 +271,7 @@ at the door — **not validated**, see §7.4.
 | 16 | `s` (no addr) | S | `T05thread:1;` | CAP-CTL-03 | Synchronous in the backend; reply in the same `pump`. |
 | 17 | `i<decimal-len>` | S (non-standard) | stop reply, later | CAP-CTL-06 `run_to(pc+len)` | RSP's `i` means "cycle step"; z88dk-gdb means "run to PC+len" (§1.1). Served as z88dk defines it. `i` with no number, or `i<addr>,<n>` → `E01` (we do not cycle-step). |
 | 18 | `0x03` (raw byte) | S | `T02thread:1;` once paused | CAP-CTL-01 | Signal 2 = SIGINT, the RSP convention for an interrupt; both client versions treat any `T` as "stopped" (§1.2). |
-| 19 | `D` | S | `OK` | CAP-SES-01 `detach(cid)` | Removes this client's subscriptions; per CAP-SES-01, resumes the machine iff it was paused *by this client*. Socket closed after the reply is flushed. |
+| 19 | `D` | S | `OK` | CAP-SES-01 `detach(cid)` | Removes this client's subscriptions; per CAP-SES-01, resumes the machine iff it was paused *by this client* and no other arming client remains (otherwise the pause passes to one — GH #280 N1). Socket closed after the reply is flushed. |
 | 20 | `k` | S (generic) | none (socket closed) | CAP-SES-01 | Same as `D` — jnext does **not** exit on `k`; "the exact effect is not specified" by RSP and killing the emulator from a debugger is not a feature anyone asked for. |
 | 21 | `qRcmd,<hex>` | S | `O<hex>`… then `OK` / `E01` | CAP-INS-03/04/05/02(Page)/07, CAP-SYM, CAP-CTL-12 | Monitor vocabulary in §4.3. Unknown command → **`OK` with an `O` line "unknown monitor command; try help"**, not empty (empty would mean "qRcmd unsupported" and upstream would print nothing). |
 | 22 | `H<op><tid>` | S (generic) | `OK` | — | Single thread; any tid accepted. |

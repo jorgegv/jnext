@@ -259,7 +259,8 @@ void GdbServer::on_notify(Connection& c) {
 
 void GdbServer::on_disconnect() {
     // A dropped socket is a `D` (§6.3): SES-01's detach removes this client's
-    // subscriptions and releases its own pause.
+    // subscriptions and releases its own pause (or, while another client
+    // remains, passes it to that client — GH #280 N1).
     end_session();
     parser_.reset();
     conn_ = nullptr;

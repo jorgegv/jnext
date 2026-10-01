@@ -73,7 +73,8 @@ nav:
       - 3.9 Debug and the debugger: 03-subsystems/09-debug-and-the-debugger.md
       - 3.10 The DZRP server (DeZog): 03-subsystems/10-the-dzrp-server.md
       - 3.11 The GDB RSP server (z88dk-gdb): 03-subsystems/11-the-gdb-rsp-server.md
-      - 3.12 The debugger scripting language: 03-subsystems/12-the-debugger-scripting-language.md
+      - 3.12 The ZRCP server (ZEsarUX's protocol): 03-subsystems/12-the-zrcp-server.md
+      - 3.13 The debugger scripting language: 03-subsystems/13-the-debugger-scripting-language.md
   - 4. Testing:
       - 04-testing/index.md
       - 4.1 The test triplet: 04-testing/01-the-test-triplet.md
@@ -118,7 +119,7 @@ validation:
 # every page at render time and docs-devguide-check byte-diffs a fresh render —
 # so config and rendered output must move together.
 extra:
-  doc_release: v1.0.63
+  doc_release: v1.0.64
 
 markdown_extensions:
   - admonition
