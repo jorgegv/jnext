@@ -75,7 +75,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP-2** | formatters | **done** |
 | **WP-3** | control / run | **done** |
 | **WP-4** | breakpoints + conditions — **needs S's WP1**, the DSL's `compile_expr` exported as a library. §11 item 8: whether that library covers ZRCP's honoured condition subset without a fallback parser is measured here (answer: §11.8) | **done** |
-| **WP-5** | history / coverage / load (record: §11.9) | in review |
+| **WP-5** | history / coverage / load (record: §11.9) | **done** |
 | **WP-6** | fixtures + docs | todo |
 
 WP-2..WP-5 may run in parallel after WP-1. Depends on: B0 (landed), B, T; WP-4 also on S WP1.
