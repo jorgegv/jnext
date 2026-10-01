@@ -1,0 +1,26 @@
+# value_predicate.jds — #279's MemPoint=addr,value: stop only when one value
+# is written to one address (dsl-frontend.md §3(d)). The backend evaluates
+# `VALUE == 0xB7`; the rule body runs only on a hit.
+#
+# Run from the repository root:
+#   build/jnext --headless --machine next --load test/00regression/nex/dsl_demo.nex \
+#       --map test/00regression/nex/dsl_demo.map --script test/scripts/dsl/value_predicate.jds \
+#       --delayed-automatic-exit-frames 900
+#   exit 0, log line:  PASS value_predicate: 0xB7 never written in 64 frames
+# Against dsl_demo_buggy.nex (0xB7 written at the program's frame 20):
+#   exit 3, log lines: MemPoint hit at 840B: forbidden value B7 from PC 815C
+#                      SCRIPT STOP: MemPoint at PC=815C ...
+
+disabled mempoint: on write @mempoint_addr when VALUE == 0xB7 do
+    log "MemPoint hit at ${ADDR:x4}: forbidden value ${VALUE:x2} from PC ${PC:x4}"
+    stop "MemPoint"
+end
+
+on execute @main_loop once when mem16[@magic] == 0xD5D5 do
+    enable mempoint
+end
+
+on execute @main_loop once when mem16[@magic] == 0xD5D5 and mem[@frames] >= 64 do
+    log "PASS value_predicate: 0xB7 never written in 64 frames"
+    exit 0
+end

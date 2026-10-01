@@ -1,0 +1,63 @@
+# hostkey.jds — arm and disarm watches from host keys (dsl-frontend.md §3(e);
+# ChaseTheBug's Ctrl+G / Ctrl+H): Alt+1 in the GUI, `--script-key FRAME 1`
+# headless. The watches are those of range_watch / value_predicate / nextreg,
+# all disabled until key 1 enables them; key 2 disables them again.
+#
+# Run from the repository root (FRAME 560: the program runs from FRAME ~500):
+#   build/jnext --headless --machine next --load test/00regression/nex/dsl_demo_buggy.nex \
+#       --map test/00regression/nex/dsl_demo.map --script test/scripts/dsl/hostkey.jds \
+#       --script-key 560 1 --delayed-automatic-exit-frames 900
+#   exit 3, log lines: MemWatch enabled
+#                      SCRIPT STOP: ... (the first watch the buggy program trips)
+# The same without --script-key: nothing is armed, so the bugs go unseen:
+#   exit 0, log line:  PASS hostkey: never armed
+# Against dsl_demo.nex with --script-key 560 1:
+#   exit 0, log line:  PASS hostkey: armed 40 frames, nothing tripped
+
+var armed = 0
+var armed_at = 0
+
+disabled rom_guard: on write 0x0000..0x3FFF do
+    stop "write into MMU0/1 code area"
+end
+
+disabled main_guard: on write 0x8000..(@code_end - 1) do
+    stop "write into main code area at ${ADDR:x4}"
+end
+
+disabled mmu_guard: on nextreg 0x51 when not ((nextreg[0x50] + 1 == VALUE) or (nextreg[0x50] == 0xFF and VALUE == 0xFF)) do
+    stop "MMU1 inconsistent with MMU0"
+end
+
+disabled mempoint: on write @mempoint_addr when VALUE == 0xB7 do
+    stop "MemPoint"
+end
+
+on hostkey 1 do
+    enable rom_guard
+    enable main_guard
+    enable mmu_guard
+    enable mempoint
+    set armed = 1
+    set armed_at = mem[@frames]
+    log "MemWatch enabled"
+end
+
+on hostkey 2 do
+    disable rom_guard
+    disable main_guard
+    disable mmu_guard
+    disable mempoint
+    set armed = 0
+    log "MemWatch disabled"
+end
+
+on execute @main_loop once when armed == 1 and mem[@frames] == ((armed_at + 40) & 0xFF) do
+    log "PASS hostkey: armed 40 frames, nothing tripped"
+    exit 0
+end
+
+on execute @main_loop once when armed == 0 and mem16[@magic] == 0xD5D5 and mem[@frames] >= 120 do
+    log "PASS hostkey: never armed"
+    exit 0
+end

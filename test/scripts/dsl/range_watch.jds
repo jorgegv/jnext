@@ -1,0 +1,38 @@
+# range_watch.jds — code-area write protection: #279 / ChaseTheBug's MemWatch
+# (dsl-frontend.md §3(a)). Two ranges: the ROM / banked-code slots MMU0/MMU1
+# and the program's own code, 0x8000 up to the MAP's `code_end`.
+#
+# Run from the repository root:
+#   build/jnext --headless --machine next --load test/00regression/nex/dsl_demo.nex \
+#       --map test/00regression/nex/dsl_demo.map --script test/scripts/dsl/range_watch.jds \
+#       --delayed-automatic-exit-frames 900
+#   exit 0, log line:  PASS range_watch: no write into code in 64 frames
+# Against test/00regression/nex/dsl_demo_buggy.nex (a stray write into
+# `code_canary`, the LAST byte of the code range, from the instruction at 0x816D):
+#   exit 3, log lines: write to main code 82E6 <- EE from PC 816D
+#                      SCRIPT STOP: write into main code area at PC=816D ...
+#
+# The guards are armed when the program's own main loop first runs (`magic`
+# set): before the NEX is loaded, other code runs at these addresses and the
+# loader itself writes the code range.
+
+disabled rom_guard: on write 0x0000..0x3FFF do
+    log "write to code area ${ADDR:x4} (page ${PAGE:x2}) <- ${VALUE:x2} from PC ${PC:x4} src ${SOURCE}"
+    stop "write into MMU0/1 code area"
+end
+
+disabled main_guard: on write 0x8000..(@code_end - 1) do
+    log "write to main code ${ADDR:x4} <- ${VALUE:x2} from PC ${PC:x4}"
+    stop "write into main code area"
+end
+
+on execute @main_loop once when mem16[@magic] == 0xD5D5 do
+    enable rom_guard
+    enable main_guard
+    log "range_watch armed at FRAME ${FRAME}"
+end
+
+on execute @main_loop once when mem16[@magic] == 0xD5D5 and mem[@frames] >= 64 do
+    log "PASS range_watch: no write into code in 64 frames"
+    exit 0
+end

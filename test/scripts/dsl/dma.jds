@@ -1,0 +1,38 @@
+# dma.jds — the DMA side of the sprite-pattern upload (dsl-frontend.md §3(f)):
+# every transfer goes to the pattern port, never into memory below 0x4000, and
+# moves exactly 256 bytes.
+#
+# Run from the repository root:
+#   build/jnext --headless --machine next --load test/00regression/nex/dsl_demo.nex \
+#       --map test/00regression/nex/dsl_demo.map --script test/scripts/dsl/dma.jds \
+#       --delayed-automatic-exit-frames 900
+#   exit 0, log line:  PASS dma: 3 uploads of 256 bytes to the pattern port
+# Against dsl_demo_buggy.nex (128-byte uploads):
+#   exit 3, log lines: DMA 81E6 -> 005B len 128 mode 1 (io dst 1)
+#                      ASSERT FAILED: sprite upload must move exactly 256 bytes
+
+var armed = 0
+var uploads = 0
+
+on dma start when armed == 1 do
+    log "DMA ${SRC:x4} -> ${DST:x4} len ${LEN} mode ${DMA_MODE} (io dst ${IO_DST})"
+end
+
+on dma byte when armed == 1 and not IO_DST and (DST < 0x4000) do
+    stop "DMA wrote into ROM/banked code at ${DST:x4} from ${SRC:x4}"
+end
+
+on dma end when armed == 1 do
+    assert LEN == 256 "sprite upload must move exactly 256 bytes"
+    set uploads = uploads + 1
+end
+
+on execute @main_loop once when mem16[@magic] == 0xD5D5 do
+    set armed = 1
+end
+
+on execute @main_loop once when mem16[@magic] == 0xD5D5 and mem[@frames] >= 64 do
+    assert uploads == 3 "an upload every 16 frames (16, 32, 48)"
+    log "PASS dma: ${uploads} uploads of 256 bytes to the pattern port"
+    exit 0
+end
