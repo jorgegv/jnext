@@ -1818,9 +1818,10 @@ QString MainWindow::rzx_record_refusal() const {
 }
 
 QString MainWindow::rzx_tape_save_refusal() const {
-    return tr("Tape saving is on, and it cannot be combined with RZX recording or "
-              "playback: its SAVE trap skips the ROM routine, which a recording cannot "
-              "replay.\n\nStop it first (Tape > Stop Saving).");
+    return tr("Tape saving is on (--tape-save, or Tape > Start Saving), and it cannot be "
+              "combined with RZX recording or playback: its SAVE trap skips the ROM "
+              "routine, which a recording cannot replay.\n\nStop it first (Tape > Stop "
+              "Saving).");
 }
 
 void MainWindow::handle_rzx_record_path(const QString& path) {
