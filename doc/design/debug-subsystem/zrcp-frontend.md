@@ -943,7 +943,7 @@ register line, `MMU=` projection, flags, disassembly line, hexdump, CRC-32,
 memory pages, machine name, numbers). Registered by `DebugServers::start`
 (`src/platform/debug_servers.*`) in all three loop owners, beside DZRP;
 `--zrcp-port` in `cli_options.h` / `main.cpp` / `EmulatorConfig::zrcp_port`.
-Suite: `zrcp_adapter_test` (94 rows, `gate: none`). Regression: `zrcp-func`
+Suite: `zrcp_adapter_test` (111 rows after review round 1, `gate: none`). Regression: `zrcp-func`
 (§6.2 items 1-4 + DZRP beside it, headless), `zrcp-sdl-func`, `zrcp-qt-func`
 (the other two loop owners), and `debug-listen-address-func` extended.
 
@@ -1029,7 +1029,10 @@ detach (SES-01).
    list plus `JP NZ` (C2, which that list forgets), `JP (IX)`/`JP (IY)`, and
    RETI/RETN (through `is_ret_like()`, as §2.2 says): none has a next
    instruction to run to.
-9. **Numbers are strict:** decimal or `H`-suffixed hex. ZEsarUX's `atoi()`
+9. **Numbers are strict:** decimal or `H`-suffixed hex, and (review round 1)
+   in range: an address past FFFFH and a register value wider than its
+   register (`PC=10000H`, `A=100H`, `IFF1=2`, `IM=3`) are refused, never
+   truncated as ZEsarUX does. ZEsarUX's `atoi()`
    reads `0x38` or a typo as 0; jnext answers `Error. Invalid number: <tok>`
    (or the command's own ZEsarUX error where it has one). Labels are not
    resolved, and `set-register`'s value is a number, not an expression, until
@@ -1053,7 +1056,19 @@ detach (SES-01).
     does not say.
 16. **`help <cmd>`** of an unsupported command answers the unsupported error;
     of an unknown one ZEsarUX's `No help for that command`.
-17. **`hard-reset-cpu` whose boot fails** answers the same
+17. **Decision, review round 1 — `MMU=` and `get-memory-pages` per machine.**
+    §2.3.1 designed only the Next's eight 8 K slots, but `get-current-machine`
+    answers `ZX Spectrum 128k` on a 128K session, and DeZog then decodes `MMU=`
+    with its 128K decoder: the FIRST FOUR fields as 16 K slots
+    (`decodezesaruxdata.ts`, `>= 0x8000` -> ROM `8 + (v & 1)`). So on the 48K,
+    128K and +3 jnext now emits ZEsarUX's own legacy projection
+    (`mem128.c`, `debug_paginas_memoria_mapeadas[0..3]`): four 16 K segments,
+    `0x8000 + ROM image` or the RAM bank, then four `0000` where ZEsarUX leaves
+    its array unset; and `get-memory-pages` spells ZEsarUX's legacy segments
+    (`RO<rom> RA<bank>` on 128K/+3, `ROM RAM` on 48K). A segment is read from
+    its first 8 K slot. The Next keeps §2.3.1. Rows FMT-11/12, REG-01/06/07,
+    PG-01.
+18. **`hard-reset-cpu` whose boot fails** answers the same
     `Error. Unsupported in jnext: hard-reset-cpu` as the no-driver case: the
     backend returns `RefusedUnavailable` for both.
 
@@ -1078,8 +1093,10 @@ evidence, and lets the step's own event be the reason
    returns `bool` where backend.md §4.3 says `vector<EventId>`. A PC-free
    condition breakpoint (`Execute[0,FFFF]` + predicate) will therefore end
    every `run n` after one step, and the loop cannot tell WHICH subscription
-   it landed on (a slot's `fired` text needs it). WP-4 has to evaluate its own
-   conditions in the loop or ask for the header change.
+   it landed on (a slot's `fired` text needs it). It also ignores the
+   subscription's ACTION: a `Log`-only `Execute` subscription (a DSL logger)
+   ends a `run n` exactly as a `Stop` would. WP-4 has to evaluate its own
+   conditions and actions in the loop or ask for the header change.
 4. §8 assigns no WP to `tbblue-set-*` / `write-port` (deviation 3).
 5. The census holds: ZEsarUX 12.0's `ls` is 125 names, §2's 67 S + 1 D + 57 U
    (`ZRCP-TAB-01`).
@@ -1087,3 +1104,13 @@ evidence, and lets the step's own event be the reason
    the disassembly line (debug-settings bit 0); jnext always prints the
    register line too, which §2.1's "bits 0-4 change nothing" already implies.
    DeZog re-reads the registers after a step, so nothing depends on it.
+7. **Review round 1.** (a) §2.3.1 covered only the Next projection; the
+   legacy one is decision 17 above. (b) Package G's `poke(Cpu)` contract ("what
+   landed; `RefusedReadOnly` if none") is on `main` now; the adapter's
+   all-ROM write is still ZEsarUX's silent success, and row MEM-03 now pins it
+   (mutant R34 caught after the merge). (c) For the owner (backend contract,
+   not adapter): `step_into` attributes the pause to the stepping client, so a
+   ZRCP client that steps a machine another client paused, then quits or
+   crashes, releases that pause on its detach (CAP-SES-01 as written). DeZog's
+   own disconnect sends `exit-cpu-step` first; a telnet or crashed client does
+   not.
