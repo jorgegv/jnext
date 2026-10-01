@@ -950,6 +950,7 @@ void test_defaults() {
     }
     check("SDFA-D04", "the host root has no name to take, and says to give a dest",
           !sdcard::default_dest_path("/", dest, err) &&
+          err.find("cannot take a card name from '/'") != std::string::npos &&
           err.find("--sdcard-file-dest") != std::string::npos, err);
     check("SDFA-D05", "a host name FAT cannot hold is refused, not renamed",
           !sdcard::default_dest_path("dir/caf\xC3\xA9.nex", dest, err) &&
@@ -1189,6 +1190,14 @@ void test_tree() {
           patched && st == FileAddStatus::DestInvalid &&
           err.find("read-only") != std::string::npos && file_digest(img) == before,
           patched ? err : "could not build the read-only fixture");
+    // The destination of a DIRECTORY is validated like a file's: FAT would
+    // strip the trailing dot and create "NAME", which is not what was asked.
+    before = file_digest(img);
+    st = sdcard::add_to_image(img.string(), more.string(), "/NAME.", false, err);
+    check("SDFA-T38", "a directory's malformed destination is refused, card untouched",
+          st == FileAddStatus::DestInvalid &&
+          err.find("ends in a '.' or a space") != std::string::npos &&
+          file_digest(img) == before, err);
     check("SDFA-T19", "after all of it the fixture files and both FATs are intact",
           fixture_tree_intact(img) && fats_agree(img, why), why);
 }
@@ -1389,6 +1398,62 @@ void test_tree_rollback() {
     check("SDFA-T37", "directories that cannot possibly fit are refused, card untouched",
           fsinfo_free_count(img) == leave && st2 == FileAddStatus::ImageFull &&
           file_digest(img) == before, err);
+
+    // Data is counted in WHOLE clusters: one byte past the three free
+    // clusters needs a fourth. Rounding down would pass the pre-check and
+    // then run out while writing.
+    const fs::path edge = g_scratch / "edge";
+    fs::remove_all(edge, ec);
+    fs::create_directories(edge, ec);
+    write_host_file(edge / "EDGE.BIN", payload(leave * kClusterBytes + 1, 122));
+    const FileAddStatus st3 =
+        sdcard::add_to_image(img.string(), edge.string(), "/", false, err);
+    check("SDFA-T39", "a tree one byte past the free space is refused, card untouched",
+          st3 == FileAddStatus::ImageFull && file_digest(img) == before, err);
+}
+
+// The card fills while a file is being REPLACED: that file is gone (it was
+// truncated to be rewritten), and the message has to say so rather than
+// claim the card is as it was. A directory of many long names, sorted ahead
+// of the replaced file, eats the clusters the pre-check set aside for it.
+void test_tree_replace_lost() {
+    const fs::path img = g_scratch / "lost.img";
+    std::string why, err;
+    if (!make_fixture(img, why)) {
+        std::printf("FATAL: cannot build fixture image (%s)\n", why.c_str());
+        std::exit(2);
+    }
+    std::error_code ec;
+    const fs::path small = g_scratch / "small.bin";
+    write_host_file(small, payload(100, 130));              // one cluster
+    sdcard::add_file_to_image(img.string(), small.string(), "/RL/ZZZ.BIN", false, err);
+
+    // Leave exactly what the pre-check will ask for: 1 (new dir) + 20 (data).
+    const uint32_t leave = 21;
+    const fs::path filler = g_scratch / "filler2.bin";
+    { std::ofstream c(filler, std::ios::binary); }
+    fs::resize_file(filler,
+                    static_cast<std::uintmax_t>(fsinfo_free_count(img) - leave) *
+                    kClusterBytes, ec);
+    sdcard::add_file_to_image(img.string(), filler.string(), "/FILLER.BIN", false, err);
+    fs::remove(filler, ec);
+
+    const fs::path t = g_scratch / "lost";
+    fs::remove_all(t, ec);
+    fs::create_directories(t / "lots", ec);
+    for (int i = 0; i < 40; ++i) {
+        char name[64];
+        std::snprintf(name, sizeof name, "a rather long file name %02d.txt", i);
+        write_host_file(t / "lots" / name, {});
+    }
+    write_host_file(t / "ZZZ.BIN", payload(20 * kClusterBytes, 131));
+    const uint32_t free_before = fsinfo_free_count(img);
+    const FileAddStatus st =
+        sdcard::add_to_image(img.string(), t.string(), "/RL", true, err);
+    check("SDFA-T40", "a file lost while being replaced is reported as lost",
+          free_before == leave && st == FileAddStatus::ImageFull &&
+          err.find("1 existing file(s) had already been replaced") != std::string::npos,
+          "fixture free=" + std::to_string(free_before) + "; " + err);
 }
 
 }  // namespace
@@ -1416,6 +1481,7 @@ int main() {
     test_tree();
     test_tree_refusals();
     test_tree_rollback();
+    test_tree_replace_lost();
 
     fs::remove_all(g_scratch, ec);
 

@@ -343,7 +343,8 @@ FileAddStatus ensure_card_dir(const std::string& fat_dir,
 }
 
 // Write `src_size` bytes of `src` to the card file `fat_path`, whose parent
-// directory exists. `replaced` says whether a file was already there.
+// directory exists. `replaced` (passed in false) is set when a file was
+// already there.
 FileAddStatus write_card_file(const std::string& image_path,
                               const std::string& fat_path,
                               const std::string& dest_path,
@@ -351,7 +352,6 @@ FileAddStatus write_card_file(const std::string& image_path,
                               std::ifstream& src, uint64_t src_size,
                               bool overwrite, bool& replaced,
                               std::string& err) {
-    replaced = false;
     // ---- what is already at the destination ---------------------------------
     // Only the two things f_open cannot answer are decided here — whether the
     // destination is a directory, and whether it is marked read-only. Whether
@@ -899,9 +899,8 @@ bool default_dest_path(const std::string& host_path,
     // Lexical only: the name is the one the user TYPED. Resolving symlinks
     // here would land `latest.nex -> v3.nex` as /v3.nex.
     fs::path p = fs::path(host_path).lexically_normal();
-    strip_trailing_separator(p);
-    // `.`, `..` and an empty path have no name of their own; the directory
-    // they mean does.
+    // `.`, `..`, an empty path and a trailing separator ("games/") leave no
+    // name of their own; the directory they mean has one.
     const std::string bare = p.filename().u8string();
     if (bare.empty() || bare == "." || bare == "..") {
         // On error absolute() returns an empty path, which has no name.
