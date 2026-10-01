@@ -37,7 +37,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 |---|---|---|
 | **WP1** | lexer / parser / `compile_expr` **exported as a library** (Z WP-4 consumes it) — as built: Appendix G | **done** |
 | **WP2** | evaluator + the snapshot stacks (`snap` / `unsnap` / `changed()`, which is how #279's span invariants are served with no new event kind) — as built: Appendix H | **done** |
-| **WP3** | engine over subscriptions, stop / exit policy. Headless script `stop` with no explicit `exit` is code **3** (never 2, a harness fault) | in progress |
+| **WP3** | engine over subscriptions, stop / exit policy. Headless script `stop` with no explicit `exit` is code **3** (never 2, a harness fault) — as built: Appendix I | in review |
 | **WP4** | CLI + man page (`--script`, `--script-key`) | todo |
 | **WP5** | GUI — Script tab, **Alt+1..Alt+8** as the DSL host-key namespace in both windows. **Needs Q** | todo |
 | **WP6** | the recorder — **this is #20**, after its re-scope: recorder + `compare_scr` + INS-16 + the two parked DAPR rows | todo |
@@ -1603,3 +1603,147 @@ language.
 
 - §8 plans `script_eval_test` "against a fake inspection surface". `Debugger` is a concrete class in the frozen backend headers, so the suite runs a real `Debugger` over a 48K machine instead.
 - "Division by zero disabling the rule" is the engine's behaviour (WP3). WP2 pins that the error is raised and reported, positioned.
+
+## Appendix I — WP3 as built (2026-10-01)
+
+`src/script/script_engine.*` (`ScriptEngine`, `EngineHost`, `LoadResult`), one
+evaluator change (I.5), two backend fixes (I.4 F1, F8). Suite
+`script_events_test` (`gate: none`, both configurations), which drives the
+engine directly on real 48K and Next machines; the CLI that loads scripts is
+WP4.
+
+### I.1 The engine
+
+- **One engine is one backend client** (`ClientKind::Script`) and is its own
+  `Listener`. Every loaded script is a unit with its own variables, labels and
+  snapshot stacks; scripts load in order, and rules on one event run in file
+  order, then across files in load order (§2.2).
+- **`load()` is atomic** (§6.5): parse, check (symbols from the backend's
+  table), run the `var` initializers, evaluate every filter bound — a bound may
+  use a `var` or an `@symbol` and is range-checked here — and only then
+  subscribe. Any error, including a backend refusal, registers nothing.
+- **A rule is ONE subscription** (F5), carrying the rule's `once` and enable
+  flag, a `Handler` that runs the body and returns the verdict, and a
+  `Condition` exactly when the rule has a `when` or the engine refines the
+  filter (I.2). The one exception is F3's page range.
+- **What runs where**: event rules in the backend's delivery (machine stopped
+  at the boundary, under its `InspectionScope`); `on stop` rules in
+  `on_paused()`, i.e. from `pump()`; deferred actions per I.3.
+- **`EngineHost::exit`** is the loop owner's: `exit n` and the run-time-error
+  exit 1 go there. Empty means the GUI, where `exit` logs and pauses.
+- **The log sink is `Debugger::log`** — the debugger channel plus every
+  listener's `on_log` (§2.6 names a `script` spdlog channel; the backend appends
+  ` [client N]`). WP4 may route it.
+
+### I.2 Registration
+
+| Rule | Subscription |
+|---|---|
+| `execute A..B [page P]` | `Execute`, `lo..hi`, optional `page` |
+| `execute page P1..P2` | **one `Execute` per page** over 0..0xFFFF, at most 16 (F3) |
+| `read` / `write A..B [page P]` | `Mem`, access Read / Write, range, optional `page` (the AND form) |
+| `read` / `write page P1..P2` | ONE `Mem` whose page SET is P1..P2 — the backend's filter, never a `PAGE ==` predicate |
+| `io_read` / `io_write P` | `Port`: mask `0x00FF` for P ≤ 0xFF (GH #222), else `0xFFFF` |
+| `io_* mask M value V` | `Port`, as written |
+| `io_* P1..P2` | `Port` matching every port, plus the engine's inclusive range condition |
+| `nextreg R1..R2` | `NextRegWrite`, register set |
+| `frame [N]` / `scanline N` / `cycle N` | `Frame` (N or every) / `Scanline` (0..1023) / `Cycle` |
+| `interrupt` / `nmi` / `reset` | `IntAck` / `Nmi` / `Reset{Any}` |
+| `hostkey N` | `Host`, name `scriptN` |
+| `copper move [R1..R2] / wait / halt [at A..B]` | `Copper`, one sub-kind, register set, Copper-PC range 0..1023 |
+| `dma start / byte [A..B] / end` | `Dma`, one sub-kind; a `byte` range pre-selects in the backend (either endpoint) and the engine's condition keeps the DESTINATION (F2); `dma byte … page` is a load error (no page filter) |
+| `stop` | none |
+
+The §3(a) warning (F4) is raised here, where the bounds are resolved: a `PAGE ==`
+or `PAGE !=` test in the `when` of a `read`/`write` range that spans more than
+one 8K slot and has no page qualifier. It is positioned at the comparison and
+logged as `SCRIPT WARNING file:L:C: …`; the script still loads.
+
+### I.3 Actions
+
+- **The frame edge (§2.6).** `press` / `release` / `press … for` go straight to
+  the backend (IN-01/IN-02), which queues them for the edge itself; `screenshot`
+  is the backend's (CAP-01, next rendered frame). `joystick` (IN-03 is
+  immediate) and `compare_scr` are **queued by the engine** and applied by its
+  own `Frame` subscription, made on first need — or at once when issued from a
+  `frame` rule, which already runs at the edge. `compare_scr` logs the first
+  differing offset (or the size), then `ASSERT FAILED: msg`, and stops.
+- **`save_snapshot` waits for `on_frame_ended()`**: the backend refuses a save
+  inside a delivery that would have to run the frame out, so the engine writes
+  it from the first `pump()` that finds the machine AT a frame boundary — not
+  while a stop holds it inside a frame, which would move the user's machine. A
+  failed write is a run-time error.
+- **`press … for n`** is the backend's auto-type pulse, the one
+  `--delayed-keypress-frames` uses: pressed by the tick at the issuing edge,
+  released by the n-th tick, so the guest sees it for n−1 frames (backend row
+  IN-01-07 pins the same span). §2.6's "down for n frames" counts ticks.
+- **`log indent n`** clamps n to 0..255. **`dump_mem`** refuses a length over
+  4096 at run time.
+- **`enable`** re-arms a spent `once` by registering the rule afresh — the
+  backend never re-arms one (EVT-EXEC-32). A rule a run-time error disabled
+  stays disabled; `enable` does not revive it.
+
+### I.4 Stop, exit, errors
+
+- `stop` / failed `assert` return `Stop`; the backend pauses at the boundary and
+  applies the loop owner's SES-04 policy, so headless is exit **3** with no
+  engine involvement. The engine logs `SCRIPT STOP: <reason> at PC=<the event's
+  PC> FRAME=… CYCLE=<the event's cycle>`.
+- **`exit n`** calls `EngineHost::exit(n)` during the delivery, BEFORE the
+  backend's stop requests 3 — the loop owner keeps the first code it is given
+  (row SCRIPT-EV-EXIT pins the order). Before that it calls
+  `flush_captures()`: a screenshot still pending or failed, or a
+  `save_snapshot` still queued, turns `exit 0` into exit 1, logged.
+- **`REASON`** is the rule's own text for the engine's own stop (the backend
+  names it Breakpoint / Watch / Script by event kind, with empty text), and
+  `user`, `breakpoint`, … plus the backend's text otherwise. An `on stop`
+  rule's `PC` is the paused PC (F6), carried on a synthetic `Event`.
+- **Run-time errors** disable the rule's subscriptions, log `SCRIPT ERROR
+  file:L:C: msg — rule X disabled`, and call `EngineHost::exit(1)` once, at the
+  next frame edge.
+- A mutation that does not wholly land is a run-time error, never silent:
+  `poke(Cpu)` returns `RefusedReadOnly` with the count that landed (GH #281),
+  reported as `N of M byte(s) landed`; the bytes that did land stay.
+- The ring overflow (§2.2) is logged once per boundary.
+
+### I.5 Name binding — supersedes G.3 for `CYCLE`
+
+**`CYCLE` in an event rule is the event's own cycle**, captured at the hook;
+outside one (a `var` initializer) it is the live clock. G.3 made it always
+live, and the §3(f) `latency.jds` acceptance script then always printed 0: the
+IntAck and the `execute 0x0038` it measures are delivered at the same
+boundary. With the payload cycle it prints the acknowledge's 104 master cycles
+(13 T at 3.5 MHz), and the design already says so (§2.2 "the payload carries
+the exact cycle", §5.1 rows 1 and 6). The `[jds F: C:]` log stamp uses the same
+value. `FRAME` stays live.
+
+### I.6 Findings
+
+| # | Finding | Resolution |
+|---|---|---|
+| F1 | §2.3's `IO_SRC`/`IO_DST` on `dma start` had no backend payload. | **Fixed in the backend** (manager decision): `Dma::latch_start_` sets both flags in the block's direction. Rows PL-DMA-IO-01..03, SCRIPT-EV-DMA-START-IO. `events.h` still documents the flags as `Dma{Byte}` only — a frozen-header comment, reported, not edited. |
+| F2 | The `dma byte` filter is the destination (§2.1); the backend's matches either endpoint. | The design is the contract: the engine ANDs a destination condition (row SCRIPT-EV-DMA-DST); `dma byte page` is a load error. |
+| F3 | `execute page P1..P2` against a one-page Execute filter. | One subscription per page, at most 16, all owned by the one rule. |
+| F4 | The §3(a) warning needs resolved bounds. | Raised at registration (I.2). |
+| F5 | One subscription per rule, pinned per kind. | The SCRIPT-EV-REG-* rows, in `script_events_test` rather than `script_parse_test` (registration needs a backend). |
+| F6 | `on stop`'s `PC`. | The paused PC (I.4). |
+| F7 | §3(f) `copper.jds` asserts `CVC == 96` for a WAIT on line 95. A WAIT is satisfied when the Copper's OWN line counter equals its vpos (`copper.vhd:94`), so its payload `CVC` is 95 by construction; GH #181's "the following line" is the RAW line. The script as written always stops. | Not edited here (§3 is the acceptance text); row SCRIPT-EV-WORK-COPPER pins both the stop and the corrected `assert CVC == 95 and HC_ULA >= WAIT_H`, which passes. WP7's `copper.jds` should carry the corrected line. |
+| F8 | The `NextRegWrite` a Copper MOVE fans out to had `prev` = 0 (the site never peeked), so §8's post-commit contract failed for the Copper. | **Fixed in the backend**: the Copper site peeks the register before the write and the drain carries it. Rows PL-NR-COPPER-PREV, SCRIPT-EV-COPPER. |
+| F9 | `CYCLE` always live (G.3) defeats `latency.jds`. | I.5. |
+| F10 | §2.7's MUTATE line reads `by script:<rule>`; the backend writes `by <client id>` and knows no rule. | Reported to the backend owner; the engine does not re-log mutations. |
+
+### I.7 For WP4
+
+- The loop owner implements `EngineHost::exit`, keeping the FIRST code.
+- §7.3's "a headless run whose scripts declared a `compare_scr`/`exit` that
+  never fired exits 3 with `SCRIPT: N deferred actions never ran`" is the loop
+  owner's check at the `--delayed-automatic-exit*` bound.
+- A menu-loaded script (§6.4) registers from the next frame boundary; `load()`
+  itself registers at once.
+
+### I.8 Deviations from the §8 test plan
+
+- §8.3 plans the program "through the `--inject` route"; the rows write it into
+  RAM and drive the engine directly, as the CLI is WP4.
+- The per-kind registration rows §8.1 assigns to `script_parse_test` are
+  `script_events_test`'s SCRIPT-EV-REG-* (F5).

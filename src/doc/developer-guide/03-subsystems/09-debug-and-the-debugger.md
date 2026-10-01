@@ -748,9 +748,9 @@ to bind; it is refused unless a server port (`--dzrp-port` or `--gdb-port`) is g
 The debugger scripting language (`.jds`, GH #26) lives in **`src/script/`**
 (target `jnext_script`). Like `src/remote/` it has no toolkit dependency and is
 built in every configuration; it reads the machine only through the published
-`jnext::dbg::Debugger` facade, never through `Emulator`. As of its first work
-package it is a front end and a library: no script engine exists yet, and
-nothing in the shipped binary instantiates it.
+`jnext::dbg::Debugger` facade, never through `Emulator`. It is a front end, a
+library and an engine; nothing in the shipped binary instantiates the engine
+yet (the CLI that loads scripts is a later work package).
 
 It is layered, each stage consuming only the one before it:
 
@@ -788,14 +788,34 @@ It is layered, each stage consuming only the one before it:
   (`dbg::Condition`) and `eval_expr(text, debugger)` evaluates once. The ZRCP
   adapter (package Z, not yet written) is designed to translate its dialect into
   this grammar rather than own a second parser.
+- `script_engine.*` — `ScriptEngine`, ONE backend client (`ClientKind::Script`)
+  that is also its own `Listener`. `load()` parses, checks, runs the `var`
+  initializers, evaluates every filter bound, and only then registers each rule
+  as backend subscription(s) — a script with any error registers nothing. A
+  rule is one subscription, except `on execute page P1..P2`, which is one per
+  page (the Execute filter takes a single page; at most 16). The subscription's
+  `Condition` is the compiled `when` (plus two engine refinements the filter
+  cannot express: a port range, and the destination of a `dma byte` range), so a
+  non-matching hit never reaches a rule body; its `Handler` runs the body at the
+  delivery and returns the verdict. Mutations go through the debugger write
+  paths (`set_register`, `poke`, `nextreg_write`, `port_out`,
+  `set_audio_mute_mask`). `joystick` and `compare_scr` issued outside a frame
+  rule wait for the engine's own frame-edge subscription; `save_snapshot` waits
+  for `on_frame_ended()`, the first `pump()` that finds the machine at a frame
+  boundary, because the backend refuses a save inside a delivery. `on stop`
+  rules run in `on_paused()`. A run-time error disables the rule's
+  subscriptions and asks the loop owner (`EngineHost::exit`) for exit 1 at the
+  next frame edge.
 
 `script_parse_test` (`gate: none`) pins the grammar, every error class with its
 position, precedence, the per-kind payload table, the evaluation of every name
 against a real `Debugger`, and that every worked script of the design parses;
-`script_eval_test` pins the value model, the snapshot stacks and interpolation.
-The choices made where the grammar is silent are the design document's
-"WP1 as built" appendix. This section covers the front end only; the engine,
-the CLI and the recorder are later work packages of the same branch.
+`script_eval_test` pins the value model, the snapshot stacks and interpolation;
+`script_events_test` (`gate: none`) drives the engine on real 48K and Next
+machines — what each rule registers as, what it does when delivered, and every
+worked script of the design. The choices made where the design is silent are
+its "as built" appendices (G, H, I). The CLI, the GUI and the recorder are
+later work packages of the same branch.
 
 ## What `ENABLE_DEBUGGER=OFF` removes
 

@@ -2565,9 +2565,9 @@ to bind; it is refused unless a server port (<code>--dzrp-port</code> or <code>-
 <p>The debugger scripting language (<code>.jds</code>, GH #26) lives in <strong><code>src/script/</code></strong>
 (target <code>jnext_script</code>). Like <code>src/remote/</code> it has no toolkit dependency and is
 built in every configuration; it reads the machine only through the published
-<code>jnext::dbg::Debugger</code> facade, never through <code>Emulator</code>. As of its first work
-package it is a front end and a library: no script engine exists yet, and
-nothing in the shipped binary instantiates it.</p>
+<code>jnext::dbg::Debugger</code> facade, never through <code>Emulator</code>. It is a front end, a
+library and an engine; nothing in the shipped binary instantiates the engine
+yet (the CLI that loads scripts is a later work package).</p>
 <p>It is layered, each stage consuming only the one before it:</p>
 <ul>
 <li><code>lexer.*</code> — tokens. Comments are <code>;</code>, <code>//</code> and <code>#</code>; the bracketed
@@ -2604,14 +2604,34 @@ nothing in the shipped binary instantiates it.</p>
   (<code>dbg::Condition</code>) and <code>eval_expr(text, debugger)</code> evaluates once. The ZRCP
   adapter (package Z, not yet written) is designed to translate its dialect into
   this grammar rather than own a second parser.</li>
+<li><code>script_engine.*</code> — <code>ScriptEngine</code>, ONE backend client (<code>ClientKind::Script</code>)
+  that is also its own <code>Listener</code>. <code>load()</code> parses, checks, runs the <code>var</code>
+  initializers, evaluates every filter bound, and only then registers each rule
+  as backend subscription(s) — a script with any error registers nothing. A
+  rule is one subscription, except <code>on execute page P1..P2</code>, which is one per
+  page (the Execute filter takes a single page; at most 16). The subscription's
+  <code>Condition</code> is the compiled <code>when</code> (plus two engine refinements the filter
+  cannot express: a port range, and the destination of a <code>dma byte</code> range), so a
+  non-matching hit never reaches a rule body; its <code>Handler</code> runs the body at the
+  delivery and returns the verdict. Mutations go through the debugger write
+  paths (<code>set_register</code>, <code>poke</code>, <code>nextreg_write</code>, <code>port_out</code>,
+  <code>set_audio_mute_mask</code>). <code>joystick</code> and <code>compare_scr</code> issued outside a frame
+  rule wait for the engine's own frame-edge subscription; <code>save_snapshot</code> waits
+  for <code>on_frame_ended()</code>, the first <code>pump()</code> that finds the machine at a frame
+  boundary, because the backend refuses a save inside a delivery. <code>on stop</code>
+  rules run in <code>on_paused()</code>. A run-time error disables the rule's
+  subscriptions and asks the loop owner (<code>EngineHost::exit</code>) for exit 1 at the
+  next frame edge.</li>
 </ul>
 <p><code>script_parse_test</code> (<code>gate: none</code>) pins the grammar, every error class with its
 position, precedence, the per-kind payload table, the evaluation of every name
 against a real <code>Debugger</code>, and that every worked script of the design parses;
-<code>script_eval_test</code> pins the value model, the snapshot stacks and interpolation.
-The choices made where the grammar is silent are the design document's
-"WP1 as built" appendix. This section covers the front end only; the engine,
-the CLI and the recorder are later work packages of the same branch.</p>
+<code>script_eval_test</code> pins the value model, the snapshot stacks and interpolation;
+<code>script_events_test</code> (<code>gate: none</code>) drives the engine on real 48K and Next
+machines — what each rule registers as, what it does when delivered, and every
+worked script of the design. The choices made where the design is silent are
+its "as built" appendices (G, H, I). The CLI, the GUI and the recorder are
+later work packages of the same branch.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
 <p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
 <code>jnext_debugger</code> is neither compiled nor linked and every use site in
