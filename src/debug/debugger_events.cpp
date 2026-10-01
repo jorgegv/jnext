@@ -652,9 +652,13 @@ void Debugger::Impl::apply_stop(bool from_event) {
     // no frontend's behaviour.
     if (effective_stop_policy() != StopPolicy::ExitNonZero) return;
 
-    self->log(CLIENT_NONE, LogLevel::Warn,
-              "STOP under StopPolicy::ExitNonZero — requesting exit " +
-                  std::to_string(kStopExitCode));
+    // NEUTRAL, at info: the backend does not know which exit the loop owner
+    // will take — a script's own `exit n` stops the machine too, and its code
+    // wins (GH #26). The listener that does decide logs the warning when the
+    // exit it takes is this stop's (`ScriptHost`'s, "requesting exit 3"), so a
+    // passing run no longer prints a warning contradicting its verdict.
+    self->log(CLIENT_NONE, LogLevel::Info,
+              "STOP under StopPolicy::ExitNonZero — asking the loop owner to exit");
     notify_exit_requested(kStopExitCode);
 }
 

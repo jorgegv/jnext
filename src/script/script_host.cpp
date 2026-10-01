@@ -25,7 +25,13 @@ struct ScriptHost::HostListener : dbg::Listener {
         // the pause, once every stop of the boundary is known (it may turn an
         // `exit 0` into this 3): leave it to that.
         if (host.engine_ && host.engine_->exit_pending()) return;
-        if (host.exits_) host.request(code);
+        if (!host.exits_) return;
+        // The exit taken IS this stop's: say so, as a warning (the backend's
+        // own line is neutral, since it cannot know — GH #26 WP9).
+        if (host.dbg_ && !host.requested_)
+            host.dbg_->log(dbg::CLIENT_NONE, dbg::LogLevel::Warn,
+                           "STOP under StopPolicy::ExitNonZero — requesting exit " + std::to_string(code));
+        host.request(code);
     }
     void on_log(dbg::LogLevel, const std::string& text) override { host.capture(text); }
 };

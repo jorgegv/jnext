@@ -2091,6 +2091,36 @@ static void exit_rows() {
               std::to_string(a) + "/" + std::to_string(b) + " " + la.substr(0, 200));
     }
     {
+        // GH #26 WP9 — the exit-3 WARNING is logged only when the exit taken is
+        // the stop's: a script's own `exit` run (which stops the machine too)
+        // no longer prints a warning contradicting its verdict.
+        const std::string warn = "STOP under StopPolicy::ExitNonZero — requesting exit 3";
+        const std::string info = "STOP under StopPolicy::ExitNonZero — asking the loop owner to exit";
+        struct Got { int code = -1; size_t warns = 0, infos = 0; bool ok = false; };
+        auto go = [&](const char* text) {
+            Got r;
+            HostRig g(kWriter);
+            ScriptHostOptions o;
+            o.scripts = {tmp_file("warn.jds", text)};
+            r.ok = g.start(o);
+            g.run(8);
+            r.code  = g.host->exit_requested() ? g.host->exit_code() : -1;
+            r.warns = g.sink.count(warn);
+            r.infos = g.sink.count(info);
+            return r;
+        };
+        const Got p = go("on write 0x9000 do exit 0 end\n");
+        const Got e = go("on write 0x9000 do exit 7 end\n");
+        const Got t = go("on write 0x9000 do stop \"s\" end\n");
+        check("SCRIPT-HOST-STOP-WARNING", "a script `exit 0` or `exit 7` run logs no `requesting exit 3` warning "
+                                          "(only the backend's neutral line); a real `stop` still logs it, once",
+              p.ok && e.ok && t.ok && p.code == 0 && e.code == 7 && t.code == 3 && p.warns == 0 && e.warns == 0 &&
+                  p.infos == 1 && t.warns == 1 && t.infos == 1,
+              std::to_string(p.code) + "/" + std::to_string(e.code) + "/" + std::to_string(t.code) + " warns " +
+                  std::to_string(p.warns) + "/" + std::to_string(e.warns) + "/" + std::to_string(t.warns) +
+                  " infos " + std::to_string(p.infos) + "/" + std::to_string(t.infos));
+    }
+    {
         // The loop's FIRST tick: the backend's first pump only takes its
         // baseline and pushes no Paused, so an exit handed over at the pause
         // needs the host to have taken that baseline at start.
