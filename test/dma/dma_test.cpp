@@ -24,12 +24,14 @@
 #include "debug/debugger.h"
 #include "input/keyboard.h"
 #include "port/port_dispatch.h"
+#include "debug/debug_state.h"
 
 #include <array>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
@@ -3325,8 +3327,10 @@ void group25_gh283_rzx() {
         }
     }
 
-    // 25.3 — a TOOL's port read is not machine input: neither read() nor the
-    // debugger's port_in() reaches the recording.
+    // 25.3 — a TOOL's port read is not machine input: read() never reaches
+    // the recording, and the debugger's port_in() is refused while one runs,
+    // as port_out() is — it would dispatch the live handler, side effects
+    // included, and a recording cannot replay that.
     {
         Emulator emu;
         if (!g283_build_48k(emu)) {
@@ -3336,20 +3340,176 @@ void group25_gh283_rzx() {
             emu.port().rzx_in_record = [&log](uint8_t v) { log.push_back(v); };
             (void)emu.port().read(kPort);
             const size_t after_read = log.size();
-            jnext::dbg::Debugger dbg(emu);
-            const auto r = dbg.port_in(1, kPort);
-            const size_t after_dbg = log.size();
             (void)emu.port().in(kPort);
             check("GH283-06",
-                  "PortDispatch::read() is not recorded (it is every tool's read)",
-                  after_read == 0, fmt("captured=%zu (want 0)", after_read));
-            check("GH283-07",
-                  "the debugger's port_in() during a recording dispatches but is "
-                  "not recorded; the CPU's IN after it is",
-                  r.status == jnext::dbg::Result::Ok && after_dbg == 0 && log.size() == 1,
-                  fmt("status=%d after_dbg=%zu after_in=%zu (want 0 / 1)",
-                      static_cast<int>(r.status), after_dbg, log.size()));
+                  "PortDispatch::read() is not recorded (it is every tool's read); "
+                  "the CPU's in() after it is",
+                  after_read == 0 && log.size() == 1,
+                  fmt("after read=%zu after in=%zu (want 0 / 1)", after_read, log.size()));
         }
+    }
+    {
+        Emulator emu;
+        if (!g283_build_48k(emu)) {
+            check("GH283-07", "Emulator::init failed (48K)", false, "init returned false");
+        } else {
+            // A real recording: port_in() asks the recorder, not the hook.
+            const std::string path =
+                (std::filesystem::temp_directory_path() / "jnext-gh283-07.rzx").string();
+            const bool rec = emu.start_rzx_recording(path);
+            int dispatched = 0;
+            emu.port().add_io_observer([&dispatched](uint16_t p, bool is_read) {
+                if (is_read && p == kPort) ++dispatched;
+            });
+            jnext::dbg::Debugger dbg(emu);
+            const auto r = dbg.port_in(1, kPort);
+            emu.stop_rzx_recording();
+            std::remove(path.c_str());
+            check("GH283-07",
+                  "the debugger's port_in() is refused (RefusedRzx) while an RZX "
+                  "records, and the live port is not dispatched",
+                  rec && r.status == jnext::dbg::Result::RefusedRzx && dispatched == 0,
+                  fmt("recording=%d status=%d dispatched=%d (want 1 / RefusedRzx / 0)",
+                      (int)rec, static_cast<int>(r.status), dispatched));
+        }
+    }
+
+    // 25.4 — the PLAYBACK branch of guest_read() keeps the debugger's view of
+    // the read: an I/O watchpoint on the port still stops the machine, and a
+    // CAP-EVT Port subscription still sees the read — with the REPLAYED value,
+    // which differs from what the live port would give. For the DMA's read and
+    // for the CPU's IN.
+    constexpr uint8_t kRepDma = 0x5A;   // first replayed value: the DMA's read
+    constexpr uint8_t kRepCpu = 0xA5;   // second: the CPU's IN
+    // 8000 01 FE 7F  LD BC,$7FFE | 8003 ED 78  IN A,(C) | 8005 00  NOP |
+    // 8006 18 FE  JR $  (park). PARK alone (no IN) for the DMA-only rows.
+    const uint8_t prog_in[] = {0x01, 0xFE, 0x7F, 0xED, 0x78, 0x00, 0x18, 0xFE};
+    const uint8_t prog_park[] = {0x18, 0xFE};
+    auto g283_load = [](Emulator& emu, const uint8_t* b, size_t n, bool persistent) {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        cfg.rewind_buffer_frames = 0;
+        cfg.persistent_breakpoints = persistent;
+        emu.init(cfg);
+        for (size_t i = 0; i < n; ++i)
+            emu.mmu().write(static_cast<uint16_t>(0x8000 + i), b[i]);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = 0; r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+    };
+    // Program a 1-byte DMA read of kPort into kDst directly on the Dma (no
+    // port access of its own to watch or latch).
+    auto g283_dma1 = [](Emulator& emu) {
+        Dma& d = emu.dma();
+        auto w = [&](uint8_t v) { d.write(v, false); };
+        w(0x7D); w(kPort & 0xFF); w(kPort >> 8); w(0x01); w(0x00);
+        w(0x2C); w(0x10); w(0xAD); w(kDst & 0xFF); w(kDst >> 8);
+        w(0xCF); w(0x87);
+    };
+    auto g283_replay = [kRepDma, kRepCpu](Emulator& emu, bool dma_first) {
+        auto n = std::make_shared<int>(0);
+        emu.port().rzx_in_override = [n, kRepDma, kRepCpu, dma_first](uint16_t) -> uint8_t {
+            const int i = (*n)++;
+            if (!dma_first) return i == 0 ? kRepCpu : 0xFF;
+            return i == 0 ? kRepDma : (i == 1 ? kRepCpu : 0xFF);
+        };
+    };
+    auto run_until_paused = [](Emulator& emu) {
+        for (int i = 0; i < 4 && !emu.debug_state().paused(); ++i) emu.run_frame();
+    };
+    {
+        Emulator emu;
+        g283_load(emu, prog_park, sizeof(prog_park), true);
+        const uint8_t live = emu.port().read(kPort);
+        emu.debug_state().breakpoints().add_watchpoint(kPort, WatchType::IO_READ);
+        g283_dma1(emu);
+        g283_replay(emu, true);
+        run_until_paused(emu);
+        check("GH283-08",
+              "RZX playback: an IO_READ watchpoint stops the machine on the DMA's "
+              "replayed read of the watched port",
+              emu.debug_state().paused() && emu.debug_state().watch_stop() &&
+                  emu.debug_state().watch_stop_addr() == kPort &&
+                  !emu.debug_state().watch_stop_is_write() &&
+                  emu.mmu().read(kDst) == kRepDma && live != kRepDma,
+              fmt("paused=%d stop=%d addr=0x%04X mem=0x%02X live=0x%02X",
+                  (int)emu.debug_state().paused(), (int)emu.debug_state().watch_stop(),
+                  emu.debug_state().watch_stop_addr(), emu.mmu().read(kDst), live));
+    }
+    {
+        Emulator emu;
+        g283_load(emu, prog_in, sizeof(prog_in), true);
+        emu.debug_state().breakpoints().add_watchpoint(kPort, WatchType::IO_READ);
+        g283_replay(emu, false);
+        run_until_paused(emu);
+        const Z80Registers r = emu.cpu().get_registers();
+        check("GH283-09",
+              "RZX playback: an IO_READ watchpoint stops the machine after the "
+              "CPU's replayed IN of the watched port",
+              emu.debug_state().paused() && r.PC == 0x8005 &&
+                  emu.debug_state().watch_stop_addr() == kPort &&
+                  ((r.AF >> 8) & 0xFF) == kRepCpu,
+              fmt("paused=%d pc=0x%04X addr=0x%04X A=0x%02X",
+                  (int)emu.debug_state().paused(), r.PC,
+                  emu.debug_state().watch_stop_addr(), (r.AF >> 8) & 0xFF));
+    }
+    {
+        Emulator emu;
+        g283_load(emu, prog_in, sizeof(prog_in), true);
+        emu.debug_state().breakpoints().add_watchpoint(0xFBFE, WatchType::IO_READ);
+        g283_dma1(emu);
+        g283_replay(emu, true);
+        run_until_paused(emu);
+        const Z80Registers r = emu.cpu().get_registers();
+        check("GH283-10",
+              "and a watchpoint on another port does not stop either replayed read",
+              !emu.debug_state().paused() && r.PC == 0x8006 &&
+                  emu.mmu().read(kDst) == kRepDma && ((r.AF >> 8) & 0xFF) == kRepCpu,
+              fmt("paused=%d pc=0x%04X mem=0x%02X A=0x%02X",
+                  (int)emu.debug_state().paused(), r.PC, emu.mmu().read(kDst),
+                  (r.AF >> 8) & 0xFF));
+    }
+    // CAP-EVT Port subscriptions: one on the read port, one on another port.
+    {
+        Emulator emu;
+        g283_load(emu, prog_in, sizeof(prog_in), false);
+        emu.debug_state().set_clients_attached(true);
+        const uint8_t live = emu.port().read(kPort);
+        jnext::dbg::Debugger dbg(emu);
+        std::vector<jnext::dbg::Event> hit, other;
+        auto sub = [&dbg](uint16_t port, std::vector<jnext::dbg::Event>& out) {
+            jnext::dbg::Subscription s;
+            s.kind = jnext::dbg::EventKind::Port;
+            s.access = jnext::dbg::Access::Read;
+            s.filter.port_mask = 0xFFFF; s.filter.port_value = port;
+            s.action = jnext::dbg::Action::Continue;
+            s.handler = [&out](const jnext::dbg::Event& ev, jnext::dbg::Debugger&) {
+                out.push_back(ev);
+                return jnext::dbg::Action::Continue;
+            };
+            dbg.subscribe(1, s);
+        };
+        sub(kPort, hit);
+        sub(0xFBFE, other);
+        g283_dma1(emu);
+        g283_replay(emu, true);
+        emu.run_frame();
+        const bool two = hit.size() == 2;
+        check("GH283-11",
+              "RZX playback: a Port subscription sees the DMA's read and then the "
+              "CPU's, each carrying the REPLAYED value, not the live one",
+              two && live != kRepDma && live != kRepCpu &&
+                  hit[0].source == jnext::dbg::EventSource::Dma &&
+                  hit[0].port == kPort && hit[0].value == kRepDma &&
+                  hit[1].source == jnext::dbg::EventSource::Cpu &&
+                  hit[1].port == kPort && hit[1].value == kRepCpu,
+              two ? fmt("src %d/%d value 0x%02X/0x%02X live=0x%02X",
+                        static_cast<int>(hit[0].source), static_cast<int>(hit[1].source),
+                        hit[0].value, hit[1].value, live)
+                  : fmt("deliveries=%zu (want 2)", hit.size()));
+        check("GH283-12",
+              "and a subscription on another port sees neither",
+              other.empty(), fmt("deliveries=%zu (want 0)", other.size()));
     }
 }
 

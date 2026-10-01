@@ -2575,7 +2575,12 @@ wired to <code>port_.read()</code>, which has no RZX hook, so a DMA port read wa
 recorded nor replayed. GH #283 moved it to <code>PortDispatch::guest_read()</code>, the
 RZX-aware read the CPU's <code>IN</code> also takes (<code>in()</code> forwards to it). <code>read()</code> stays
 hook-free on purpose: it is also every tool's read — the debugger's <code>port_in()</code>
-— and a tool's read is not input. The DMA keeps its own timing; the CPU's bus
+— and a tool's read is not input. <code>port_in()</code> is refused (<code>RefusedRzx</code>) while an
+RZX records or plays, as <code>port_out()</code> is: it dispatches the live handler, and a
+port read's side effects (a UART RX pop, the SPI shift, a Multiface strobe) are
+a change to the machine no recording can carry. On the playback branch
+<code>guest_read()</code> still raises the I/O watchpoint and latches the CAP-EVT <code>Port</code>
+event, with the replayed value, for the CPU's read and the DMA's alike. The DMA keeps its own timing; the CPU's bus
 cycle (<code>fuse_z80_readport()</code>) is around <code>in()</code>, not in <code>guest_read()</code>.</p>
 <p>Replay then agrees with the recording only while the DMA makes the same reads in
 the same order, and it does, given the same machine: whether a slot is a DMA
@@ -2589,7 +2594,7 @@ happened in on both sides. The gap is the snapshot: SNA and SZX hold no DMA
 registers and no NextREGs, and playback's <code>init()</code> resets the DMA. A transfer
 programmed before the recording started therefore replays from a reset DMA and
 goes out of step — documented for users in the RZX section of the user guide.
-<code>rzx-dma-func</code> (fixture <code>demo/rzx_dma_demo</code>) and <code>dma_test</code> GH283-* pin it.</p>
+<code>rzx-dma-func</code> (fixture <code>demo/rzx_dma_demo</code>) and <code>dma_test</code> GH283-01..12 pin it.</p>
 <p>Playing a Next recording an older jnext wrote is NOT refused: <code>load_rzx()</code> warns,
 names what the embedded snapshot cannot restore, and plays. The file is a fait
 accompli and there is something to see — a program living in the 48K view replays

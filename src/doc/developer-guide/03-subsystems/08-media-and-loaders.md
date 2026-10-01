@@ -598,7 +598,12 @@ wired to `port_.read()`, which has no RZX hook, so a DMA port read was neither
 recorded nor replayed. GH #283 moved it to `PortDispatch::guest_read()`, the
 RZX-aware read the CPU's `IN` also takes (`in()` forwards to it). `read()` stays
 hook-free on purpose: it is also every tool's read — the debugger's `port_in()`
-— and a tool's read is not input. The DMA keeps its own timing; the CPU's bus
+— and a tool's read is not input. `port_in()` is refused (`RefusedRzx`) while an
+RZX records or plays, as `port_out()` is: it dispatches the live handler, and a
+port read's side effects (a UART RX pop, the SPI shift, a Multiface strobe) are
+a change to the machine no recording can carry. On the playback branch
+`guest_read()` still raises the I/O watchpoint and latches the CAP-EVT `Port`
+event, with the replayed value, for the CPU's read and the DMA's alike. The DMA keeps its own timing; the CPU's bus
 cycle (`fuse_z80_readport()`) is around `in()`, not in `guest_read()`.
 
 Replay then agrees with the recording only while the DMA makes the same reads in
@@ -613,7 +618,7 @@ happened in on both sides. The gap is the snapshot: SNA and SZX hold no DMA
 registers and no NextREGs, and playback's `init()` resets the DMA. A transfer
 programmed before the recording started therefore replays from a reset DMA and
 goes out of step — documented for users in the RZX section of the user guide.
-`rzx-dma-func` (fixture `demo/rzx_dma_demo`) and `dma_test` GH283-* pin it.
+`rzx-dma-func` (fixture `demo/rzx_dma_demo`) and `dma_test` GH283-01..12 pin it.
 
 Playing a Next recording an older jnext wrote is NOT refused: `load_rzx()` warns,
 names what the embedded snapshot cannot restore, and plays. The file is a fait

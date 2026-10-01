@@ -90,7 +90,8 @@ Because it stores input rather than pixels, an RZX is tiny compared with a
 video — but it only replays correctly in an emulator that models the machine the
 same way. It also only replays what its snapshot holds: the memory and the paging
 of the 48K, 128K or +3. The Next hardware a program on those machines can still
-reach — on JNEXT as on a real Next — is not in it: the NextREGs and the DMA.
+reach — on JNEXT as on a real Next — is not in it: the NextREGs, the DMA, and the
+sprite, palette and Copper memory.
 
 Port reads the DMA makes are input like any other and are recorded and replayed
 with the program's own; earlier JNEXT versions missed them, so a program that
