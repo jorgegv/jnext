@@ -6,6 +6,8 @@ event and the actions to run when it happens; [Debugger
 scripting](../scripting/index.md) describes the language, and [Debugger
 scripts](../functions/13-debugger-scripts.md) how to load them.
 
+![The Script tab](../../img/debugger-script.png)
+
 At the top, three buttons:
 
 - **Load...** — load one more script (the same as **Script > Load Script...**).

@@ -61,11 +61,12 @@ bookkeeping right (a span check's `unsnap` after a `stop` still happens), but
 it also means a `log "PASS …"` after a failed check is still printed: see
 [`mutation.jds`](12-the-demo-scripts.md#mutationjds-changing-the-machine).
 
-A `stop` that is nothing but `stop` in an `execute` rule is a **breakpoint**:
-other debugger clients see it too. DeZog stepping through your program, or a
-ZRCP `run`, stops there as it would at its own breakpoint. If the condition
-matters, put it in `when` — `on execute @f when A == 0 do stop end` — rather
-than in an `if` inside the body, which only the script can evaluate.
+A rule whose body is nothing but `stop` in an `execute` rule is a
+**breakpoint** other debugger clients can see: a remote debugger that runs the
+machine with its own stepping loop — ZRCP's `run`, for one — stops there as it
+would at its own breakpoint. If the condition matters, put it in `when` — `on
+execute @f when A == 0 do stop end` — rather than in an `if` inside the body,
+which only the script can evaluate.
 
 ## `assert`
 

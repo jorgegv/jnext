@@ -81,6 +81,8 @@ so: `SCRIPT … loaded at FRAME n (FRAME and `on frame N` count the machine's
 frames)`. A rule that wants "50 frames after I loaded it" captures `FRAME` in a
 variable from a `once` rule.
 
+![The Script tab, with a script loaded on a booted Next](../../img/debugger-script.png)
+
 The **Script** tab, in the debugger window's top-left group, shows what is
 loaded and what it has concluded — see [the Script panel](../panels/14-script.md)
 for every field:

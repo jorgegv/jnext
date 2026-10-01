@@ -3733,11 +3733,12 @@ event: a <code>stop</code> takes effect when they have all finished. That keeps 
 bookkeeping right (a span check's <code>unsnap</code> after a <code>stop</code> still happens), but
 it also means a <code>log "PASS …"</code> after a failed check is still printed: see
 <a href="12-the-demo-scripts.html#mutationjds-changing-the-machine"><code>mutation.jds</code></a>.</p>
-<p>A <code>stop</code> that is nothing but <code>stop</code> in an <code>execute</code> rule is a <strong>breakpoint</strong>:
-other debugger clients see it too. DeZog stepping through your program, or a
-ZRCP <code>run</code>, stops there as it would at its own breakpoint. If the condition
-matters, put it in <code>when</code> — <code>on execute @f when A == 0 do stop end</code> — rather
-than in an <code>if</code> inside the body, which only the script can evaluate.</p>
+<p>A rule whose body is nothing but <code>stop</code> in an <code>execute</code> rule is a
+<strong>breakpoint</strong> other debugger clients can see: a remote debugger that runs the
+machine with its own stepping loop — ZRCP's <code>run</code>, for one — stops there as it
+would at its own breakpoint. If the condition matters, put it in <code>when</code> — <code>on
+execute @f when A == 0 do stop end</code> — rather than in an <code>if</code> inside the body,
+which only the script can evaluate.</p>
 <h2 id="assert"><code>assert</code><a class="headerlink" href="#assert" title="Permanent link">&para;</a></h2>
 <pre><code>assert mem[@trap_target] == 0 &quot;the trapped write never happened&quot;
 </code></pre>
