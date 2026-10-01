@@ -5,13 +5,15 @@
 #include <QLabel>
 #include <QTableWidget>
 
-class Emulator;
+namespace jnext { namespace dbg { class Debugger; } }
 
 /// Debugger panel showing decoded copper instructions and current PC.
 class CopperPanel : public QWidget {
     Q_OBJECT
 public:
-    explicit CopperPanel(Emulator* emulator, QWidget* parent = nullptr);
+    /// @param dbg  the debugger backend every read goes through (GH #278 WP4b);
+    ///             null shows nothing.
+    explicit CopperPanel(const jnext::dbg::Debugger* dbg, QWidget* parent = nullptr);
 
     /// Update display with current copper state.
     void refresh();
@@ -21,7 +23,7 @@ public:
 private:
     void create_ui();
 
-    Emulator* emulator_;
+    const jnext::dbg::Debugger* dbg_;
     QCheckBox* enable_check_ = nullptr;
     QLabel* pc_label_ = nullptr;
     QTableWidget* table_ = nullptr;

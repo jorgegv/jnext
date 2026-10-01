@@ -54,9 +54,13 @@
 #include "debug/breakpoints.h"
 #include "debug/debug_state.h"
 #include "debug/disasm_text.h"
+#include "debug/debugger.h"
 #include "debug/symbol_table.h"
+#include "debugger/breakpoint_model.h"
 #include "debugger/disasm_panel.h"
 #include "memory/mmu.h"
+
+#include <memory>
 
 #include <QApplication>
 #include <QClipboard>
@@ -64,7 +68,9 @@
 #include <QKeyEvent>
 #include <QMenu>
 #include <QMouseEvent>
+#include <QLineEdit>
 #include <QScrollBar>
+#include <QWheelEvent>
 #include <QTimer>
 #include <QMainWindow>
 #include <QtTest/QtTest>
@@ -185,6 +191,12 @@ const char* const ADDR_3LINE =
 
 struct Fixture {
     Emulator     emu;
+    // GH #278 WP4c — the gutter draws the GUI's breakpoints, which are debugger
+    // backend subscriptions behind a BreakpointModel. Declared before the
+    // window: the panel lets go of the model first, the model of its client
+    // before the backend goes, the backend before the machine.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
+    std::unique_ptr<BreakpointModel>      bps;
     SymbolTable  symbols;
     QMainWindow  win;
     DisasmPanel* panel = nullptr;
@@ -195,6 +207,8 @@ struct Fixture {
         cfg.type                 = MachineType::ZXN_ISSUE2;
         cfg.rewind_buffer_frames = 0;
         if (!emu.init(cfg)) return;
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        bps     = std::make_unique<BreakpointModel>(*backend);
 
         // The panel lives in a real top-level window, as it does in the
         // product. That is not decoration: Ctrl+C and Ctrl+A are
@@ -202,7 +216,8 @@ struct Fixture {
         // delivers those to a focused widget inside the ACTIVE window. A
         // parentless widget would make the two chord rows untestable through
         // the chord — which is exactly the part worth testing.
-        panel = new DisasmPanel(&emu);
+        panel = new DisasmPanel(backend.get());   // GH #278 WP5: reads through it
+        panel->set_breakpoint_model(bps.get());
         win.setCentralWidget(panel);
         win.resize(700, PAINT_Y + VIS_LINES * LINE_H);
         win.show();
@@ -475,7 +490,7 @@ void test_copy_text() {
 
     // The gutter is not text at all. Setting a breakpoint on a selected line
     // changes what the panel PAINTS and must change nothing that is copied.
-    fx.emu.debug_state().breakpoints().add_pc(0x8003);
+    fx.bps->add(BreakpointModel::Execute, 0x8003);
     QApplication::processEvents();
     // The observer re-disassembled; re-select the same lines.
     drag_lines(fx.panel, 0, 2);
@@ -486,7 +501,7 @@ void test_copy_text() {
           bp_asm == QString::fromLatin1(ASM_3LINE) &&
               bp_addr == QString::fromLatin1(ADDR_3LINE),
           shown(bp_asm) + " / " + shown(bp_addr));
-    fx.emu.debug_state().breakpoints().remove_pc(0x8003);
+    fx.bps->remove(BreakpointModel::Execute, 0x8003);
 }
 
 // ── Group CLP — the clipboard, and the routes that reach it ──────────
@@ -724,7 +739,7 @@ void test_selection_painting() {
     Z80Registers regs = fx.emu.cpu().get_registers();
     regs.PC = 0x8004;
     fx.emu.cpu().set_registers(regs);
-    fx.emu.debug_state().breakpoints().add_pc(0x8003);
+    fx.bps->add(BreakpointModel::Execute, 0x8003);
     fx.point_view_at(BASE);
     fx.panel->refresh();
     QApplication::processEvents();
@@ -770,7 +785,7 @@ void test_selection_painting() {
               row_bg(after, 2), row_bg(after, 0), row_bg(before, 2),
               gutter_bg(after, 0), gutter_bg(before, 0), gutter_dot(after, 1)));
 
-    fx.emu.debug_state().breakpoints().remove_pc(0x8003);
+    fx.bps->remove(BreakpointModel::Execute, 0x8003);
 }
 
 // ── Group SYM — the painter and the clipboard are ONE implementation ──
@@ -978,6 +993,118 @@ void test_drag_and_caret() {
     }
 }
 
+// ── NAV: the panel's walks over real instruction lengths ──────────────
+//
+// GH #278 WP5 moved every one of the panel's memory reads onto the backend's
+// memory_reader() (a peek). Five of those reads feed NAVIGATION — the address
+// box, Go to PC, the wheel, Down at the last line, Page Down — which walk
+// forward instruction by instruction, and no row read where they land: each
+// read could return zeros (every byte a 1-byte NOP) and the suite stayed green
+// (mutants D1/D3/D5/D6/D7 of the WP5 pass). These rows lay a run of 3-byte
+// instructions and assert each walk steps 3 bytes a line. The top line is the
+// scrollbar's value, which disassemble_from() syncs to view_addr_. Plus the
+// caret's fallback, the PC (D10).
+
+// $9E02..: LD HL,$1234 (3 bytes) repeated, so every instruction boundary is
+// $9E02 + 3k — $A000 is one (510 = 3 x 170).
+constexpr uint16_t NAV_RUN  = 0x9E02;
+constexpr uint16_t NAV_HERE = 0xA000;
+
+bool lay_nav_run(Emulator& emu) {
+    for (uint16_t a = NAV_RUN; a < 0xA200; a = static_cast<uint16_t>(a + 3)) {
+        emu.mmu().write(a, 0x21);
+        emu.mmu().write(static_cast<uint16_t>(a + 1), 0x34);
+        emu.mmu().write(static_cast<uint16_t>(a + 2), 0x12);
+    }
+    return emu.mmu().read(NAV_HERE) == 0x21 && emu.mmu().read(NAV_HERE + 3) == 0x21;
+}
+
+int top_of(DisasmPanel* p) {
+    auto* sb = p->findChild<QScrollBar*>();
+    return sb ? sb->value() : -1;
+}
+
+void test_navigation() {
+    set_group("NAV");
+    Fixture fx;
+    const bool laid = fx.ok && lay_nav_run(fx.emu);
+    if (!laid) {
+        for (const char* id : {"QDN-01", "QDN-02", "QDN-03", "QDN-04", "QDN-05", "QDN-06"})
+            check(id, "fixture came up", false, "emulator or memory setup failed");
+        return;
+    }
+    constexpr int HALF = VIS_LINES / 2;
+
+    // QDN-01 — the address box CENTRES the address: half a window of 3-byte
+    // lines above it (zeros would put it half a window of 1-byte lines above).
+    {
+        auto* edit = fx.panel->findChild<QLineEdit*>();
+        if (edit) {
+            edit->setText(QStringLiteral("A000"));
+            send_key(edit, Qt::Key_Return);
+        }
+        const int top = top_of(fx.panel);
+        check("QDN-01", "the address box centres $A000 with 3-byte lines above it",
+              edit && top == NAV_HERE - 3 * HALF,
+              fmt("top=%04X (want %04X)", top, NAV_HERE - 3 * HALF));
+    }
+    // QDN-02 — Go to PC centres the PC the same way.
+    {
+        Z80Registers r = fx.emu.cpu().get_registers();
+        r.PC = NAV_HERE;
+        fx.emu.cpu().set_registers(r);
+        fx.point_view_at(0x8000);
+        fx.panel->activate_follow_pc();
+        const int top = top_of(fx.panel);
+        check("QDN-02", "Go to PC centres PC=$A000 with 3-byte lines above it",
+              top == NAV_HERE - 3 * HALF,
+              fmt("top=%04X (want %04X)", top, NAV_HERE - 3 * HALF));
+    }
+    // QDN-03 — the wheel scrolls three LINES down: three instructions, 9 bytes.
+    {
+        fx.point_view_at(NAV_HERE);
+        const QPointF pos(TEXT_X, y_of(2));
+        QWheelEvent wheel(pos, fx.panel->mapToGlobal(pos.toPoint()), QPoint(0, 0),
+                          QPoint(0, -120), Qt::NoButton, Qt::NoModifier,
+                          Qt::NoScrollPhase, false);
+        QApplication::sendEvent(fx.panel, &wheel);
+        const int top = top_of(fx.panel);
+        check("QDN-03", "a wheel step down scrolls three 3-byte lines ($A000 -> $A009)",
+              top == NAV_HERE + 9, fmt("top=%04X (want %04X)", top, NAV_HERE + 9));
+    }
+    // QDN-04 — Down on the LAST line scrolls one instruction: 3 bytes.
+    {
+        fx.point_view_at(NAV_HERE);
+        press_line(fx.panel, VIS_LINES - 1);
+        release_mouse(fx.panel, VIS_LINES - 1);
+        send_key(fx.panel, Qt::Key_Down);
+        const int top = top_of(fx.panel);
+        check("QDN-04", "Down on the last line scrolls one 3-byte instruction ($A000 -> "
+              "$A003)", top == NAV_HERE + 3, fmt("top=%04X (want %04X)", top, NAV_HERE + 3));
+    }
+    // QDN-05 — Page Down scrolls a window of instructions: 20 x 3 bytes.
+    {
+        fx.point_view_at(NAV_HERE);
+        send_key(fx.panel, Qt::Key_PageDown);
+        const int top = top_of(fx.panel);
+        check("QDN-05", "Page Down scrolls a window of 3-byte lines ($A000 -> $A03C)",
+              top == NAV_HERE + 3 * VIS_LINES,
+              fmt("top=%04X (want %04X)", top, NAV_HERE + 3 * VIS_LINES));
+    }
+    // QDN-06 — with no caret, the caret's address is the PC (what Run to Cursor
+    // runs to), not another register.
+    {
+        Fixture fresh;
+        Z80Registers r = fresh.emu.cpu().get_registers();
+        r.PC = NAV_HERE; r.SP = 0xFF00; r.HL = 0x1234;
+        fresh.emu.cpu().set_registers(r);
+        const uint16_t caret = fresh.ok ? fresh.panel->selected_address() : 0;
+        check("QDN-06", "with no caret line, the caret address is the PC",
+              fresh.ok && caret == NAV_HERE, fmt("caret=%04X (want %04X)", caret, NAV_HERE));
+    }
+}
+
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1021,6 +1148,8 @@ int main(int argc, char** argv)
     std::printf("  Group: EDGE           — done\n");
     test_drag_and_caret();
     std::printf("  Group: DRAG           — done\n");
+    test_navigation();
+    std::printf("  Group: NAV            — done\n");
 
     QFile::remove(map_path);
 

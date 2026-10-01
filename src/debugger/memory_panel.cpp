@@ -1,7 +1,5 @@
 #include "debugger/memory_panel.h"
-#include "core/emulator.h"
-#include "cpu/z80_cpu.h"
-#include "memory/mmu.h"
+#include "debug/debugger.h"
 
 #include <QHBoxLayout>
 #include <QVBoxLayout>
@@ -13,14 +11,16 @@
 #include <QWheelEvent>
 #include <QResizeEvent>
 #include <QPaintEvent>
+#include <QInputDialog>
+#include <QSignalBlocker>
 
 // ---------------------------------------------------------------------------
 // Construction
 // ---------------------------------------------------------------------------
 
-MemoryPanel::MemoryPanel(Emulator* emulator, QWidget* parent)
+MemoryPanel::MemoryPanel(jnext::dbg::Debugger* dbg, QWidget* parent)
     : QWidget(parent)
-    , emulator_(emulator)
+    , dbg_(dbg)
 {
     create_ui();
     setFocusPolicy(Qt::StrongFocus);
@@ -61,14 +61,27 @@ void MemoryPanel::create_ui() {
     for (int i = 0; i < 8; ++i) {
         page_selector_->addItem(QString("Slot %1 (page --)").arg(i));
     }
+    // GH #278 WP8 — any physical page, mapped in a slot or not.
+    page_selector_->addItem(tr("Page..."));
     top_bar->addWidget(page_selector_);
 
     connect(page_selector_, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this](int) {
+            this, [this](int idx) {
+        if (idx == PAGE_ITEM && !choose_page()) {
+            // Cancelled or not a page: back to where the user was.
+            const QSignalBlocker block(page_selector_);
+            page_selector_->setCurrentIndex(prev_mode_);
+            return;
+        }
+        prev_mode_ = idx;
         scroll_offset_ = 0;
         selected_addr_ = -1;
         edit_nibble_ = 0;
         update_scroll_bar();
+        // The new view starts at its top: the scroll bar still held the old
+        // view's position, and its valueChanged put scroll_offset_ back there —
+        // a Slot view opened from CPU View at $2010 showed its last rows.
+        scroll_bar_->setValue(0);
         update();
     });
 
@@ -119,39 +132,52 @@ QSize MemoryPanel::sizeHint() const {
 // Memory access helpers
 // ---------------------------------------------------------------------------
 
-uint8_t MemoryPanel::read_byte(uint16_t addr) const {
-    if (!emulator_) return 0;
-
+MemoryPanel::Where MemoryPanel::locate(uint16_t addr) const {
     int mode = page_selector_ ? page_selector_->currentIndex() : 0;
-    if (mode == 0) {
-        // CPU view: read through the MMU as the CPU sees it.
-        return emulator_->mmu().read(addr);
-    } else {
-        // Slot view: read the specific 8K page in that slot.
-        // addr is 0x0000..0x1FFF within the page.
-        int slot = mode - 1;
-        // Read directly from RAM at page offset.
-        uint16_t phys = static_cast<uint16_t>(addr & 0x1FFF);
-        // Pages 0xFF and below are RAM pages; ROM pages are special.
-        // For simplicity, use the MMU slot mapping: temporarily compute
-        // the address as if reading from that slot's range.
-        uint16_t cpu_addr = static_cast<uint16_t>((slot << 13) | phys);
-        return emulator_->mmu().read(cpu_addr);
-    }
+    if (mode == 0)                                   // CPU view: as the CPU sees it
+        return {jnext::dbg::MemSpace::cpu(), addr};
+    const uint32_t off = addr & 0x1FFF;              // within the 8K view
+    if (mode == PAGE_ITEM)                           // the NR page the user picked
+        return {jnext::dbg::MemSpace::page(static_cast<uint16_t>(page_)), off};
+    // A slot: its physical backing store, exactly as the backend names it.
+    const jnext::dbg::SlotInfo slot = dbg_->mmu_slots()[mode - 1];
+    return {slot.space, slot.space_offset + off};
+}
+
+void MemoryPanel::read_bytes(uint16_t addr, uint8_t* out, size_t n) const {
+    if (!dbg_) return;
+    // INS-02 — a peek: the live CPU map in the CPU view, the physical space in
+    // a slot or Page view. A row never crosses an 8K view (16 bytes,
+    // 16-aligned), so one peek per row holds in every view.
+    const Where w = locate(addr);
+    dbg_->peek(w.space, w.addr, n, out);
 }
 
 void MemoryPanel::write_byte(uint16_t addr, uint8_t val) {
-    if (!emulator_) return;
+    if (!dbg_) return;
+    // INS-02 / §4.2a — the CPU view writes through the live map (`Mmu::write`:
+    // ROM ignored, overlays honoured, no watch); a slot or Page view writes the
+    // physical page, which no overlay sees. A ROM slot is `RefusedReadOnly`.
+    // Logged as this client's MUTATE; refused while an RZX records or plays.
+    const Where w = locate(addr);
+    dbg_->poke(client_, w.space, w.addr, 1, &val);
+}
 
-    int mode = page_selector_ ? page_selector_->currentIndex() : 0;
-    if (mode == 0) {
-        emulator_->mmu().write(addr, val);
-    } else {
-        int slot = mode - 1;
-        uint16_t phys = static_cast<uint16_t>(addr & 0x1FFF);
-        uint16_t cpu_addr = static_cast<uint16_t>((slot << 13) | phys);
-        emulator_->mmu().write(cpu_addr, val);
-    }
+bool MemoryPanel::choose_page() {
+    bool ok = false;
+    QString text = QInputDialog::getText(
+        this, tr("Physical Page"), tr("NR page number (hex, 00-DF):"), QLineEdit::Normal,
+        page_ >= 0 ? QString::asprintf("%02X", page_) : QString(), &ok).trimmed();
+    if (!ok) return false;
+    if (text.startsWith('$')) text = text.mid(1);
+    // No "0x" strip: QString::toUInt(base 16) accepts the prefix itself
+    // (QMP-15 types 0x47), so a strip line here was dead (review R11).
+    bool num = false;
+    const unsigned v = text.toUInt(&num, 16);
+    if (!num || v > 0xDF) return false;          // 0xE0.. has no backing store
+    page_ = static_cast<int>(v);
+    page_selector_->setItemText(PAGE_ITEM, QString::asprintf("Page %02X", page_));
+    return true;
 }
 
 int MemoryPanel::total_rows() const {
@@ -190,12 +216,13 @@ void MemoryPanel::navigate_to_address(uint16_t addr) {
 }
 
 void MemoryPanel::update_page_selector() {
-    if (!emulator_ || !page_selector_) return;
+    if (!dbg_ || !page_selector_) return;
 
+    const auto slot_info = dbg_->mmu_slots();   // INS-03
     for (int i = 0; i < 8; ++i) {
-        // get_effective_page: physical page in use (explicit NR 0x50-0x57 or
-        // derived legacy page). get_page() would show 0xFF for legacy ROM slots.
-        uint8_t page = emulator_->mmu().get_effective_page(i);
+        // effective_page: physical page in use (explicit NR 0x50-0x57 or
+        // derived legacy page). nr_page would show 0xFF for legacy ROM slots.
+        uint8_t page = slot_info[i].effective_page;
         // The HEX is upper case, the words are not (GH #278 WP0): this used to
         // upper-case the whole label, "SLOT 3 (PAGE 0B)" beside "CPU View".
         page_selector_->setItemText(i + 1,
@@ -301,10 +328,10 @@ void MemoryPanel::paintEvent(QPaintEvent*) {
     int y0 = header_height();
     int vis = visible_rows();
 
-    if (!emulator_ || vis <= 0) return;
+    if (!dbg_ || vis <= 0) return;
 
     bool cpu_view = (page_selector_ ? page_selector_->currentIndex() : 0) == 0;
-    uint16_t sp = emulator_->cpu().get_registers().SP;
+    uint16_t sp = dbg_->registers().SP;
 
     for (int vrow = 0; vrow < vis; ++vrow) {
         int abs_row = scroll_offset_ + vrow;
@@ -344,13 +371,15 @@ void MemoryPanel::paintEvent(QPaintEvent*) {
         QString addr_str = QString("$%1").arg(base_addr & 0xFFFF, 4, 16, QChar('0')).toUpper();
         p.drawText(2, y + fm.ascent(), addr_str);
 
-        // Hex bytes
+        // Hex bytes — the row's sixteen in one bulk read.
         int hex_x = hex_area_left();
         char ascii_buf[BYTES_PER_ROW + 1];
+        uint8_t row_bytes[BYTES_PER_ROW] = {};
+        read_bytes(static_cast<uint16_t>(base_addr), row_bytes, BYTES_PER_ROW);
 
         for (int col = 0; col < BYTES_PER_ROW; ++col) {
             uint16_t addr = static_cast<uint16_t>(base_addr + col);
-            uint8_t byte = read_byte(addr);
+            uint8_t byte = row_bytes[col];
 
             // Calculate x position with group separator
             int x_pos;

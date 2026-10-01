@@ -2942,6 +2942,9 @@ register exactly as <code>NEXTREG nn,n</code> would write it, with all the side 
 that implies. The values shown are the <em>live</em> values composed by the hardware,
 not merely the last byte written — so a Layer 2 enable set through port
 <code>0x123B</code> correctly shows up in NR <code>0x69</code>.</p>
+<p>While an RZX recording or playback is running, an edit is refused: a register
+write the recording does not contain would make its replay go wrong. The cell
+shows the register's real value again at the next refresh.</p>
 
 
 

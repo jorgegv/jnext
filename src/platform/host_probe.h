@@ -30,6 +30,24 @@
 //   3. after 10 more frames asks for `reset(Hard)` through the backend, which is
 //      `RefusedUnavailable` unless the loop owner registered its driver.
 //
+// `JNEXT_HOST_PROBE=order` runs a different script instead (GH #278 WP2, the
+// B3 obligation): it pins that the loop owner performs a GUEST hard reset
+// raised inside a tick's frames BEFORE that tick's pump — so a client
+// `reset(Hard)` issued from the pump comes second and reboots the freshly booted
+// machine, CAP-CTL-12's ordering paragraph. The guest request is raised from
+// INSIDE the frames by a `Frame` subscription whose handler calls
+// `request_hard_reset()` (the flag NR 0x02 bit 1 and F1 set) — no guest code,
+// any machine type. In the next pump the probe records how many `Reset{Hard}`
+// pushes the guest boot has produced so far, issues its own `reset(Hard)`, and
+// ten frames later reports the total:
+//
+//   order: guest-before-client=1 ...   the guest boot ran before this pump
+//   order: resets=2                    ... and the client's reboot followed it
+//
+// A loop owner that pumps BEFORE it polls reports `guest-before-client=0` and
+// `resets=1`: its client reset destroyed the machine with the guest's request
+// still pending on it, and the guest reset never happened.
+//
 // Env-gated in the `JNEXT_G46B_*` / `JNEXT_BENCH_WATCH` style and zero-cost
 // unset: the loop owner constructs nothing, registers no service, attaches no
 // client. Deliberately NOT a CLI flag — a test fixture, not a feature — so no
@@ -38,6 +56,7 @@
 
 #include <cstdlib>
 #include <memory>
+#include <string>
 
 #include "core/emulator.h"
 #include "core/log.h"
@@ -45,11 +64,13 @@
 
 class HostProbe final : public jnext::dbg::Service, public jnext::dbg::Listener {
 public:
-    /// Null unless `JNEXT_HOST_PROBE` is set (to anything non-empty).
+    /// Null unless `JNEXT_HOST_PROBE` is set (to anything non-empty). The
+    /// value `order` selects the ordering script; anything else the default.
     static std::unique_ptr<HostProbe> from_env(Emulator& emu, jnext::dbg::Debugger& dbg) {
         const char* v = std::getenv("JNEXT_HOST_PROBE");
         if (!v || !*v) return nullptr;
-        return std::unique_ptr<HostProbe>(new HostProbe(emu, dbg));
+        const bool order = std::string(v) == "order";
+        return std::unique_ptr<HostProbe>(new HostProbe(emu, dbg, order));
     }
 
     ~HostProbe() override {
@@ -65,6 +86,10 @@ public:
     // ── Service: runs inside the loop owner's pump() ──────────────────────────
     jnext::dbg::ServiceStep service_once(int /*wait_ms*/) override {
         ++pumps_;
+        if (order_) {
+            order_step();
+            return jnext::dbg::ServiceStep::Idle;
+        }
         switch (phase_) {
             case 0:
                 if (frames_ >= 10) {
@@ -118,12 +143,75 @@ public:
     void on_log(jnext::dbg::LogLevel, const std::string&) override {}
 
 private:
-    HostProbe(Emulator& emu, jnext::dbg::Debugger& dbg) : emu_(emu), dbg_(dbg) {
+    HostProbe(Emulator& emu, jnext::dbg::Debugger& dbg, bool order)
+        : emu_(emu), dbg_(dbg), order_(order) {
         id_ = dbg_.attach(jnext::dbg::ClientInfo{"hostprobe", jnext::dbg::ClientKind::Test})
                   .value;
         dbg_.set_listener(id_, this);
         dbg_.add_service(*this);
-        Log::platform()->info("HOSTPROBE armed (client {})", id_);
+        if (order_) {
+            // The guest-side trigger: at the edge of the first frame after the
+            // probe arms it, raise the GUEST hard-reset request from inside the
+            // frames (a handler may not drive the machine through the backend,
+            // §5, but the request flag is the guest's own path — NR 0x02 bit 1).
+            // `Continue`: the machine is never stopped by it. It survives the
+            // cold boots (CTL-12 rule 2), and fires once per arming.
+            jnext::dbg::Subscription fs;
+            fs.kind    = jnext::dbg::EventKind::Frame;
+            fs.action  = jnext::dbg::Action::Continue;
+            fs.handler = [this](const jnext::dbg::Event&, jnext::dbg::Debugger&) {
+                if (order_armed_) {
+                    order_armed_ = false;
+                    order_fired_ = true;
+                    emu_.request_hard_reset();
+                }
+                return jnext::dbg::Action::Continue;
+            };
+            dbg_.subscribe(id_, fs);
+        }
+        Log::platform()->info("HOSTPROBE armed (client {}{})", id_, order_ ? ", order" : "");
+    }
+
+    /// The `order` script, one step per pump. Bounded: each wait gives up after
+    /// 200 pumps and says so.
+    void order_step() {
+        switch (phase_) {
+            case 0:
+                if (frames_ >= 10) {
+                    resets_at_request_ = resets_;
+                    order_armed_       = true;
+                    phase_             = 1;
+                }
+                break;
+            case 1:
+                if (order_fired_) {
+                    // The guest's request was raised in THIS tick's frames. A
+                    // loop owner that polls before it pumps has already booted.
+                    const int guest_before = resets_ - resets_at_request_;
+                    const jnext::dbg::Result r = dbg_.reset(id_, jnext::dbg::ResetKind::Hard);
+                    Log::platform()->info("HOSTPROBE order: guest-before-client={} client={}",
+                                          guest_before, jnext::dbg::result_name(r));
+                    frames_mark_ = frames_;
+                    waited_      = 0;
+                    phase_       = 2;
+                } else if (++waited_ > 200) {
+                    Log::platform()->info("HOSTPROBE order: the Frame handler never fired "
+                                          "within 200 pumps");
+                    phase_ = 3;
+                }
+                break;
+            case 2:
+                // Ten more frames: a guest request that survived the client's
+                // reboot would boot again here, and be counted.
+                if (frames_ >= frames_mark_ + 10 || ++waited_ > 200) {
+                    Log::platform()->info("HOSTPROBE order: resets={}",
+                                          resets_ - resets_at_request_);
+                    phase_ = 3;
+                }
+                break;
+            default:
+                break;
+        }
     }
 
     void finish_guest_phase() {
@@ -134,6 +222,9 @@ private:
 
     Emulator&             emu_;
     jnext::dbg::Debugger& dbg_;
+    const bool            order_       = false;   ///< `JNEXT_HOST_PROBE=order`
+    bool                  order_armed_ = false;
+    bool                  order_fired_ = false;
     jnext::dbg::ClientId  id_ = jnext::dbg::CLIENT_NONE;
     int                   phase_             = 0;
     int                   pumps_             = 0;

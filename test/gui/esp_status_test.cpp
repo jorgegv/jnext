@@ -34,6 +34,8 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "gui/main_window.h"
+#include <memory>
+#include "debug/debugger.h"
 #include "peripheral/esp_host_policy.h"
 #include "peripheral/uart.h"
 #include "platform/emulator_boot.h"
@@ -72,6 +74,9 @@ QLabel* esp_cell(MainWindow& win) {
 /// no SD image; the ESP hangs off UART 0 regardless of machine type.
 struct Fixture {
     Emulator   emu;
+    // GH #278 WP2 — the loop owner's debugger backend, which set_emulator()
+    // requires in a debugger build; declared before the window, so it outlives it.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     MainWindow win;
 
     explicit Fixture(bool esp_enabled, std::vector<std::string> allow = {}) {
@@ -81,6 +86,8 @@ struct Fixture {
         cfg.esp_enabled       = esp_enabled;
         cfg.esp_allowed_hosts = std::move(allow);
         emu.init(cfg);
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        win.set_debugger(backend.get());
         win.set_emulator(&emu);
     }
 

@@ -1962,7 +1962,8 @@ static bool build(Emulator& emu, int rewind_frames = 0) {
     cfg.rewind_buffer_frames = rewind_frames;
     if (!emu.init(cfg)) return false;
     g163::install_jr_self_loop(emu);
-    emu.debug_state().set_active(true);
+    emu.debug_state().set_clients_attached(true);   // was set_active(true): GH #278 WP4c
+    emu.debug_state().set_live_raster(true);
     emu.run_frame();   // one whole frame: every later one is begun by run_frame()
     return true;
 }

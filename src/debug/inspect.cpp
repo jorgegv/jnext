@@ -1,8 +1,9 @@
 // ---------------------------------------------------------------------------
 // jnext::dbg — the two free functions `inspect.h` declares.
 //
-// `key_name_to_matrix()` (IN-01/IN-02) and `rrrgggbb_to_argb()` (INS-15) of
-// doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md §4, for work package B1 (§10.1).
+// `key_name_to_matrix()` (IN-01/IN-02), `rrrgggbb_to_argb()` and
+// `rgb333_to_argb()` (INS-15) of doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md §4,
+// for work package B1 (§10.1); the last for GH #278 WP4d (REQ-qt-27c).
 //
 // Nothing here touches an `Emulator`: this file is the value-type half of the
 // backend, and it is what lets `--delayed-keypress`, both GUI frontends and the
@@ -13,6 +14,7 @@
 
 #include <cctype>
 
+#include "video/palette.h"    // rgb333_to_argb8888 — the palette's expansion
 #include "video/renderer.h"   // Renderer::rrrgggbb_to_argb — the one expansion
 
 namespace jnext {
@@ -32,6 +34,22 @@ namespace dbg {
 
 uint32_t rrrgggbb_to_argb(uint8_t rrrgggbb) {
     return Renderer::rrrgggbb_to_argb(rrrgggbb);
+}
+
+// ---------------------------------------------------------------------------
+// INS-15 — the published RGB333 -> ARGB8888 expansion (REQ-qt-27c).
+//
+// A FORWARDER for the same reason as the one above: `rgb333_to_argb8888()` is
+// what `PaletteManager` fills every layer's ARGB cache with, so the colour a
+// frontend shows for a palette entry is the colour the picture uses for it.
+// The backend suite pins all 512 inputs against it, and a whole bank against
+// the palette's own cache.
+// ---------------------------------------------------------------------------
+
+uint32_t rgb333_to_argb(uint16_t rgb333) {
+    return rgb333_to_argb8888(static_cast<uint8_t>((rgb333 >> 6) & 0x07),
+                              static_cast<uint8_t>((rgb333 >> 3) & 0x07),
+                              static_cast<uint8_t>( rgb333       & 0x07));
 }
 
 // ---------------------------------------------------------------------------

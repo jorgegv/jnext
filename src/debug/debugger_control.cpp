@@ -360,22 +360,60 @@ Result Debugger::run_to_end_of_scanline(ClientId by) {
 // CTL-09 / CTL-10 — reverse execution
 //
 // SYNCHRONOUS, and the three refusals are distinguished (§4.1): `RefusedRzx`,
-// `RefusedUnavailable` (nothing to rewind to, or a frame outside the ring) and
-// `RefusedCorrupt` (the restore itself failed and left the machine torn — which
-// is the case DebuggerManager surfaces with warn_state_corrupt()).
+// `RefusedUnavailable` (nothing to rewind to, a frame outside the ring, or no
+// trace to find the instruction in) and `RefusedCorrupt` (the restore itself
+// failed and left the machine torn — the case DebuggerManager surfaces with
+// warn_state_corrupt()).
+//
+// GH #278 WP3 — WHICH FAILURE IT WAS IS READ OFF THE CORRUPTION COUNTER, not
+// guessed from the `false`. `Emulator::step_back()` / `rewind_to_frame()`
+// return the same `false` for a benign refusal (the trace is off or empty, the
+// frame has no snapshot) as for a torn restore, and these verbs used to call
+// every one of them `RefusedCorrupt` — so a client was told the machine was
+// corrupt when nothing had been touched, and the Qt window would have shown its
+// "Rewind Failed" modal for a trace that was merely switched off (QRW-14). A
+// torn restore is exactly the event that bumps `state_error_generation()`
+// (`Emulator::load_state()`), so a counter that moved during the call is the
+// one answer that means corrupt.
+//
+// NOT GATED ON AN EARLIER CORRUPTION (GH #278 WP3). CTL-11 stops a torn machine
+// from EXECUTING; a rewind does not execute it, it REPLACES it — and a restore
+// that succeeds clears `last_state_error()` (`load_state()` starts by clearing
+// it), so rewinding is how a user gets OUT of a corrupt state short of a reset.
+// The Qt window has always allowed it, without a prompt. Gating it here would
+// have refused the one way back with a "could not restore" that never tried.
 // ---------------------------------------------------------------------------
+
+namespace {
+
+/// The result of a rewind the Emulator reported as failed: `RefusedCorrupt`
+/// iff a restore tore the machine (the corruption counter moved), else the
+/// benign `RefusedUnavailable`.
+Result rewind_failure(const Emulator& emu, uint64_t gen_before) {
+    return emu.state_error_generation() != gen_before ? Result::RefusedCorrupt
+                                                      : Result::RefusedUnavailable;
+}
+
+}  // namespace
 
 Result Debugger::step_back(ClientId by, uint32_t n) {
     if (const Result nested = impl_->refuse_inside_delivery("step_back"); nested != Result::Ok)
         return nested;
     const Result refusal = impl_->rewind_refusal();
-    if (refusal != Result::Ok) return refusal;
+    if (refusal != Result::Ok) {
+        // REFUSED, AND SAID (fail loud). The refusal is decided before
+        // `Emulator::step_back()` runs, so that function's own RZX refusal —
+        // which logs it — is never reached: log it through the same function,
+        // with the same words, as it always was (WP3 review item 1; row
+        // CTL-09-06). NOT inside `rewind_refusal()`, which `rewind_blocked()`
+        // also calls on every greying tick.
+        if (refusal == Result::RefusedRzx) impl_->emu.rzx_blocks_rewind("step_back");
+        return refusal;
+    }
 
-    const Result gate = impl_->execute_gate();
-    if (gate != Result::Ok) return gate;
-
+    const uint64_t gen = impl_->emu.state_error_generation();
     if (!impl_->emu.step_back(static_cast<int>(n == 0 ? 1 : n)))
-        return Result::RefusedCorrupt;
+        return rewind_failure(impl_->emu, gen);
 
     impl_->arm(PauseReason::Kind::Step, by);
     return Result::Ok;
@@ -385,10 +423,11 @@ Result Debugger::rewind_to_frame(ClientId by, uint32_t frame) {
     if (const Result nested = impl_->refuse_inside_delivery("rewind_to_frame"); nested != Result::Ok)
         return nested;
     const Result refusal = impl_->rewind_refusal();
-    if (refusal != Result::Ok) return refusal;
-
-    const Result gate = impl_->execute_gate();
-    if (gate != Result::Ok) return gate;
+    if (refusal != Result::Ok) {
+        // Refused, and said — as step_back() above (row CTL-10-09).
+        if (refusal == Result::RefusedRzx) impl_->emu.rzx_blocks_rewind("rewind_to_frame");
+        return refusal;
+    }
 
     // A frame outside the ring is BENIGN (§4 `RefusedUnavailable`), not a
     // corruption: Emulator::rewind_to_frame() range-checks it and returns false
@@ -399,7 +438,8 @@ Result Debugger::rewind_to_frame(ClientId by, uint32_t frame) {
     if (frame < rb->oldest_frame_num() || frame > rb->newest_frame_num())
         return Result::RefusedUnavailable;
 
-    if (!impl_->emu.rewind_to_frame(frame)) return Result::RefusedCorrupt;
+    const uint64_t gen = impl_->emu.state_error_generation();
+    if (!impl_->emu.rewind_to_frame(frame)) return rewind_failure(impl_->emu, gen);
 
     impl_->arm(PauseReason::Kind::Step, by);
     return Result::Ok;
@@ -507,10 +547,10 @@ Result Debugger::set_magic_breakpoint(bool enabled) {
 // ---------------------------------------------------------------------------
 // §4.1 — the armed gate
 //
-// `armed()` is §5's formula `attached || persistent_breakpoints`, and
-// `DebugState::armed()` IS that formula over the three flags that feed it
-// (`active_ || clients_attached_ || persistent_`, GH #276 B3 — `attached()` is
-// the OR of the first two, see there). It is read rather than recomputed here
+// `armed()` is §5's formula `attached || persistent_breakpoints` plus the two
+// holds (a rewind's replay, a magic stop), and `DebugState::armed()` IS that
+// formula over the flags that feed it (`clients_attached_ || persistent_ ||
+// replay_armed_ || magic_hold_`, GH #278 WP4c). It is read rather than recomputed here
 // precisely so there is one gate: the hot loop consults `DebugState::armed()` on
 // every instruction, and a second copy of the formula in the backend could
 // disagree with the one the machine actually obeys.

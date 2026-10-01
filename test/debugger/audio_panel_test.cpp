@@ -32,6 +32,7 @@
 #include "audio/mixer.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "debug/debugger.h"
 #include "debugger/audio_panel.h"
 #include "platform/emulator_boot.h"
 
@@ -39,6 +40,7 @@
 #include <QCheckBox>
 #include <QLabel>
 #include <QString>
+#include <QTableWidget>
 
 #include <cstdarg>
 #include <cstdint>
@@ -194,7 +196,8 @@ static void test_stereo_mode(Emulator& emu) {
     {
         if (!build_next_emulator(emu)) { check("DAP-01", "emulator init", false); return; }
         nr_write(emu, 0x08, 0x00);
-        AudioPanel panel(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+        AudioPanel panel(&dbg);
         panel.refresh();
         const QString got = label_text(panel, "Stereo:");
         check("DAP-01", "NR 0x08 = 0x00 (bit5=0) shows Stereo: ABC "
@@ -207,7 +210,8 @@ static void test_stereo_mode(Emulator& emu) {
     {
         if (!build_next_emulator(emu)) { check("DAP-02", "emulator init", false); return; }
         nr_write(emu, 0x08, 0x20);
-        AudioPanel panel(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+        AudioPanel panel(&dbg);
         panel.refresh();
         const QString got = label_text(panel, "Stereo:");
         check("DAP-02", "NR 0x08 = 0x20 (bit5=1) shows Stereo: ACB "
@@ -224,7 +228,8 @@ static void test_stereo_mode(Emulator& emu) {
     {
         if (!build_next_emulator(emu)) { check("DAP-03", "emulator init", false); return; }
         nr_write(emu, 0x08, 0x10);   // bit4=1 (speaker), bit5=0 (stereo=ABC)
-        AudioPanel panel(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+        AudioPanel panel(&dbg);
         panel.refresh();
         const QString got = label_text(panel, "Stereo:");
         check("DAP-03", "NR 0x08 bit 4 (internal speaker) does not affect the "
@@ -244,7 +249,8 @@ static void test_ay_ym_mode(Emulator& emu) {
     {
         if (!build_next_emulator(emu)) { check("DAP-04", "emulator init", false); return; }
         nr_write(emu, 0x06, 0x01);
-        AudioPanel panel(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+        AudioPanel panel(&dbg);
         panel.refresh();
         const QString got = label_text(panel, "Mode:");
         check("DAP-04", "NR 0x06 = 0x01 (psg_mode bit0=1) shows Mode: AY "
@@ -257,7 +263,8 @@ static void test_ay_ym_mode(Emulator& emu) {
     {
         if (!build_next_emulator(emu)) { check("DAP-05", "emulator init", false); return; }
         nr_write(emu, 0x06, 0x00);
-        AudioPanel panel(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+        AudioPanel panel(&dbg);
         panel.refresh();
         const QString got = label_text(panel, "Mode:");
         check("DAP-05", "NR 0x06 = 0x00 (psg_mode bit0=0) shows Mode: YM "
@@ -273,7 +280,8 @@ static void test_ay_ym_mode(Emulator& emu) {
     {
         if (!build_next_emulator(emu)) { check("DAP-06", "emulator init", false); return; }
         nr_write(emu, 0x06, 0x10);   // bit4=1 (drive-button NMI en), psg_mode=00 (YM)
-        AudioPanel panel(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+        AudioPanel panel(&dbg);
         panel.refresh();
         const QString got = label_text(panel, "Mode:");
         check("DAP-06", "NR 0x06 bit 4 (drive-button NMI enable) does not "
@@ -318,7 +326,8 @@ static void test_source_mutes(Emulator& emu) {
         if (!fresh.init(cfg)) { check("DAP-07", "emulator init", false); return; }
         Emulator& emu = fresh;
 
-        AudioPanel panel(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+        AudioPanel panel(&dbg);
         const bool all_checked =
             source_box(panel, "AY #0")->isChecked() &&
             source_box(panel, "AY #1")->isChecked() &&
@@ -336,7 +345,8 @@ static void test_source_mutes(Emulator& emu) {
         if (!build_next_emulator(emu)) { check("DAP-08", "emulator init", false); return; }
         nr_write(emu, 0x08, 0x02);           // turbosound_en (b1) — all 3 chips live
         program_ay_dc(emu, 1);               // AY#1 sounds; AY#0/#2 stay at volume 0
-        AudioPanel panel(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+        AudioPanel panel(&dbg);
 
         const uint32_t before = ay_level(emu);
         source_box(panel, "AY #1")->click();   // a real user click
@@ -355,7 +365,8 @@ static void test_source_mutes(Emulator& emu) {
         if (!build_next_emulator(emu)) { check("DAP-09", "emulator init", false); return; }
         nr_write(emu, 0x08, 0x02);
         program_ay_dc(emu, 1);
-        AudioPanel panel(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+        AudioPanel panel(&dbg);
 
         const uint32_t before = ay_level(emu);
         source_box(panel, "AY #1")->click();   // a real user click
@@ -378,7 +389,8 @@ static void test_source_mutes(Emulator& emu) {
         program_ay_dc(emu, 1);
         const uint32_t both = ay_level(emu);       // AY#0 + AY#1
 
-        AudioPanel panel(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+        AudioPanel panel(&dbg);
         source_box(panel, "AY #1")->click();   // a real user click
         const uint32_t ay1_muted = ay_level(emu);
 
@@ -404,7 +416,8 @@ static void test_source_mutes(Emulator& emu) {
         mixer_sample(emu, sL, sR);
         const int16_t loud_L = sL;
 
-        AudioPanel panel(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+        AudioPanel panel(&dbg);
         source_box(panel, "Beeper")->click();   // a real user click
         mixer_sample(emu, sL, sR);
         const int16_t muted_L = sL;
@@ -434,7 +447,8 @@ static void test_source_mutes(Emulator& emu) {
         mixer_sample(emu, sL, sR);
         const int16_t loud_L = sL;
 
-        AudioPanel panel(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+        AudioPanel panel(&dbg);
         source_box(panel, "DAC")->click();      // a real user click
         mixer_sample(emu, sL, sR);
         const int16_t muted_L = sL;
@@ -461,7 +475,8 @@ static void test_mute_is_not_machine_state(Emulator& emu) {
         nr_write(emu, 0x08, 0x02);
         program_ay_dc(emu, 1);                   // leaves AY#1 selected
 
-        AudioPanel panel(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+        AudioPanel panel(&dbg);
         const uint32_t audible = ay_level(emu);
         source_box(panel, "AY #1")->click();   // a real user click
         const uint32_t silenced = ay_level(emu);
@@ -494,7 +509,8 @@ static void test_mute_is_not_machine_state(Emulator& emu) {
         nr_write(emu, 0x08, 0x02);
         program_ay_dc(emu, 1);
 
-        AudioPanel panel(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+        AudioPanel panel(&dbg);
         source_box(panel, "AY #1")->click();   // a real user click
         const uint8_t before = emu.audio_mute_mask();
 
@@ -517,7 +533,8 @@ static void test_mute_is_not_machine_state(Emulator& emu) {
         if (!build_next_emulator(emu)) { check("DAP-15", "emulator init", false); return; }
         emu.set_audio_mute_mask(AudioMute::AY1 | AudioMute::BEEPER);
 
-        AudioPanel panel(&emu);
+        jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+        AudioPanel panel(&dbg);
         check("DAP-15", "a freshly-created panel reflects the machine's existing "
               "mute mask instead of claiming everything is audible",
               source_box(panel, "AY #0")->isChecked() &&
@@ -534,6 +551,74 @@ static void test_mute_is_not_machine_state(Emulator& emu) {
     }
 }
 
+// ── DAP-REGS: the AY register table ────────────────────────────────────
+//
+// GH #278 WP4b — the table is the one read of this panel no row pinned
+// (qt-frontend.md §1.8 row 19), and WP4b moved it onto the backend's
+// ay_registers(chip). Every one of the 48 cells gets its own value, written
+// through the guest's ports: chip c, register r holds 0x80 + 0x10*c + r, so a
+// row, a column or a chip read from the wrong place shows a different number,
+// and chip 2's A0..AF check the upper-case hex.
+
+static void test_ay_register_table(Emulator& emu) {
+    set_group("DAP-REGS");
+
+    if (!build_next_emulator(emu)) { check("DAP-16", "emulator init", false); return; }
+    nr_write(emu, 0x08, 0x02);                  // turbosound_en: all three chips
+    static const uint8_t kSelect[3] = {0xFF, 0xFE, 0xFD};
+    for (int chip = 0; chip < 3; ++chip) {
+        emu.port().out(0xFFFD, kSelect[chip]);
+        for (uint8_t reg = 0; reg < 16; ++reg) {
+            emu.port().out(0xFFFD, reg);
+            emu.port().out(0xBFFD, static_cast<uint8_t>(0x80 + 0x10 * chip + reg));
+        }
+    }
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+    AudioPanel panel(&dbg);
+    panel.refresh();
+
+    auto* table = panel.findChild<QTableWidget*>();
+    std::string bad;
+    for (int chip = 0; chip < 3; ++chip)
+        for (int reg = 0; reg < 16; ++reg) {
+            const QString want = QString::asprintf("%02X", 0x80 + 0x10 * chip + reg);
+            QTableWidgetItem* it = table ? table->item(reg, chip) : nullptr;
+            const QString got = it ? it->text() : QStringLiteral("<no cell>");
+            if (got != want)
+                bad += fmt("AY#%d R%d '%s'(want %s) ", chip, reg,
+                           got.toUtf8().constData(), want.toUtf8().constData());
+        }
+    check("DAP-16", "the AY table shows chip N's register R in row R, column N, as "
+          "two upper-case hex digits",
+          table && bad.empty(), bad);
+}
+
+// ── DAP-TS: the TurboSound line ────────────────────────────────────────
+//
+// GH #278 WP4b — "TurboSound: Yes/No" is the third live signal of the Info box
+// (`nr_08_psg_turbosound_en`, NR 0x08 bit 1, zxnext.vhd — TurboSound::enabled()),
+// now the backend's turbosound_enabled(). No row read it: a label printing the
+// signal inverted survived every other row (measured).
+
+static void test_turbosound_label(Emulator& emu) {
+    set_group("DAP-TS");
+
+    if (!build_next_emulator(emu)) { check("DAP-17", "emulator init", false); return; }
+    nr_write(emu, 0x08, 0x00);
+    jnext::dbg::Debugger dbg(emu);   // GH #278 WP4b: the panel reads through it
+    AudioPanel panel(&dbg);
+    panel.refresh();
+    const QString off = label_text(panel, "TurboSound:");
+    nr_write(emu, 0x08, 0x02);                  // bit 1: turbosound_en
+    panel.refresh();
+    const QString on = label_text(panel, "TurboSound:");
+    check("DAP-17", "NR 0x08 bit 1 clear shows TurboSound: No, set shows "
+          "TurboSound: Yes (the live enable)",
+          off == "TurboSound: No" && on == "TurboSound: Yes",
+          fmt("clear=\"%s\" set=\"%s\"", off.toUtf8().constData(),
+              on.toUtf8().constData()));
+}
+
 int main(int argc, char** argv) {
     // A QWidget needs a QApplication, but not a display.
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -548,6 +633,10 @@ int main(int argc, char** argv) {
     std::printf("  Group: DAP-MUTE       — done\n");
     test_mute_is_not_machine_state(emu);
     std::printf("  Group: DAP-INVIS      — done\n");
+    test_ay_register_table(emu);
+    std::printf("  Group: DAP-REGS       — done\n");
+    test_turbosound_label(emu);
+    std::printf("  Group: DAP-TS         — done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

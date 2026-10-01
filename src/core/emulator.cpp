@@ -1137,8 +1137,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // GH #219 — --persistent-breakpoints. Latched here, once, from the config:
     // it is a run-long property of the machine, not a UI state the debugger
-    // toggles. DebugState::armed() (the hot-path breakpoint gate) becomes
-    // active() || this, so closing the debugger window no longer disarms.
+    // toggles. It is one term of DebugState::armed() (the hot-path breakpoint
+    // gate), so closing the debugger window no longer disarms.
     debug_state_.set_persistent_breakpoints(cfg.persistent_breakpoints);
 
     // Magic breakpoint: ED FF (ZEsarUX) / DD 01 (CSpect) trigger debugger pause.
@@ -7944,7 +7944,13 @@ void Emulator::set_magic_breakpoint(bool enabled)
     }
     cpu_.on_magic_breakpoint = [this](uint16_t pc) -> bool {
         Log::emulator()->info("Magic breakpoint hit at PC={:#06x}", pc);
-        debug_state_.set_active(true);
+        // GH #278 WP4c — HOLD the stop, on a machine nothing else may arm (no
+        // client, no window, no flag): the hot loop honours a pause only inside
+        // its armed() block. The hold ends with this pause — the next resume
+        // releases it — so the machine is armed afterwards by exactly what
+        // armed it before (DebugState::hold_for_magic_stop()). It replaced
+        // set_active(true), which nothing but the Qt window's close cleared.
+        debug_state_.hold_for_magic_stop();
         debug_state_.pause();
         // CTL-13's evidence, latched UNCONDITIONALLY — not behind a
         // subscription gate, because `state()` must report
@@ -9392,11 +9398,12 @@ void Emulator::run_frame()
     while (clock_.get() < frame_end) {
         // Debugger breakpoint check — before executing the next instruction.
         //
-        // GH #219: armed(), not active(). armed() is active() OR
-        // --persistent-breakpoints, so breakpoints survive closing the
-        // debugger window; the other active() readers below (render hint,
-        // per-instruction VideoTiming walk, the rewind step modes) stay on
-        // active() so nothing but the check itself is switched on.
+        // GH #219: armed() — a client attached (the debugger window's among
+        // them) OR --persistent-breakpoints OR a hold (a rewind's replay, a
+        // magic stop), so breakpoints survive closing the debugger window;
+        // the render hint, the per-instruction VideoTiming walk and the rewind
+        // step modes read raster_live() / attached() instead, so nothing but
+        // the check itself is switched on by the flag.
         if (debug_state_.armed()) {
             // Check if an external trigger (e.g. magic breakpoint) already
             // paused the emulator during the previous instruction's execute().
@@ -13207,7 +13214,10 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
         Log::emulator()->error(
             "rewind_to_cycle: snapshot restore failed — rewind aborted, "
             "machine paused in a non-trustworthy state");
-        debug_state_.set_active(true);
+        // GH #278 WP3 (B3 obligation 3) — paused, NOT armed here: the caller's
+        // arm (its debugger client, the window, --persistent-breakpoints) is
+        // what holds a pause, and this used to set the Qt window's
+        // `active()` bit instead, which nothing ever cleared.
         debug_state_.pause();
         return UINT64_MAX;
     }
@@ -13226,16 +13236,23 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
     // replay_mode_ suppresses audio mixing and video rendering.
     // The debug state runs to the target cycle, then pauses automatically.
     replay_mode_ = true;
-    debug_state_.set_active(true);
-    debug_state_.run_to_cycle(target_cycle);
-
-    // Run frames until the debugger pauses (target cycle reached) or we
-    // somehow overshoot (should not happen, but guard against infinite loop).
-    constexpr int MAX_REPLAY_FRAMES = 100000;
     int frames = 0;
-    while (!debug_state_.paused() && frames < MAX_REPLAY_FRAMES) {
-        run_frame();
-        ++frames;
+    {
+        // GH #278 WP3 (B3 obligation 3) — the replay's stop at the target is
+        // tested in run_frame()'s armed() block, so the replay must be armed;
+        // ReplayArmScope arms it for THIS loop only. It used to be
+        // `set_active(true)` — the Qt window's bit, left set for the rest of
+        // the session by any client's step-back.
+        DebugState::ReplayArmScope replay_arm(debug_state_);
+        debug_state_.run_to_cycle(target_cycle);
+
+        // Run frames until the debugger pauses (target cycle reached) or we
+        // somehow overshoot (should not happen, but guard against infinite loop).
+        constexpr int MAX_REPLAY_FRAMES = 100000;
+        while (!debug_state_.paused() && frames < MAX_REPLAY_FRAMES) {
+            run_frame();
+            ++frames;
+        }
     }
 
     replay_mode_ = false;
@@ -13329,34 +13346,15 @@ bool Emulator::rewind_to_frame(uint32_t target_frame_num)
 
     // A frame snapshot's frame_cycle is the cycle at which that frame *started*.
     // Find the snapshot whose frame_num matches and use its frame_cycle as target.
-    // restore_nearest will land us at the start of that frame.
-    uint64_t snap_cycle = rewind_buffer_->restore_nearest(
-        rewind_buffer_->newest_frame_cycle(), *this);
-    // Task 60b: propagate a failed restore (pre-fix the result was
-    // discarded and the function returned true regardless).
-    if (snap_cycle == UINT64_MAX) {
-        Log::emulator()->error(
-            "rewind_to_frame: snapshot restore failed — rewind aborted, "
-            "machine paused in a non-trustworthy state");
-        debug_state_.set_active(true);
-        debug_state_.pause();
-        return false;
-    }
-
-    // We need the exact frame_cycle for frame target_frame_num.
-    // Use restore_nearest with a cycle one frame before the target to find it.
-    // Actually: since we want to land at the start of target_frame_num, and
-    // frame snapshots are taken at frame_cycle_ before the frame runs, we can
-    // use restore_nearest with any cycle >= target_frame_num's frame_cycle.
-    // The simplest approach: restore_nearest finds the latest snapshot <=
-    // target_cycle. We want exactly frame target_frame_num — search for it.
-    // Re-restore using the oldest_frame_cycle as sentinel.
-    (void)snap_cycle;
-
-    // Restore: find the cycle of target_frame_num by doing a targeted restore.
-    // restore_nearest(oldest_frame_cycle + target_frame * CYCLES_PER_FRAME)
-    // is an approximation — instead use the actual frame_cycle from the buffer.
-    uint64_t target_cycle = rewind_buffer_->frame_cycle_for(target_frame_num);
+    //
+    // GH #278 WP3 — found BEFORE anything is restored. This used to restore the
+    // NEWEST snapshot first, unconditionally, and only then look the target up:
+    // a frame inside [oldest, newest] with no slot (a gap left while
+    // snapshotting was paused) then returned the benign "not found" with the
+    // machine already moved to the newest frame's start, and a torn newest slot
+    // made every rewind fail whatever frame it asked for. The first restore did
+    // nothing the targeted one below does not.
+    const uint64_t target_cycle = rewind_buffer_->frame_cycle_for(target_frame_num);
     if (target_cycle == UINT64_MAX) {
         Log::emulator()->warn("rewind_to_frame: frame {} not found in buffer", target_frame_num);
         return false;
@@ -13371,8 +13369,7 @@ bool Emulator::rewind_to_frame(uint32_t target_frame_num)
         Log::emulator()->error(
             "rewind_to_frame: snapshot restore failed — rewind aborted, "
             "machine paused in a non-trustworthy state");
-        debug_state_.set_active(true);
-        debug_state_.pause();
+        debug_state_.pause();   // GH #278 WP3: paused, not armed (see rewind_to_cycle)
         return false;
     }
     restored_frame_start_ = true;   // GH #278: sits on a counted frame start
@@ -13381,8 +13378,9 @@ bool Emulator::rewind_to_frame(uint32_t target_frame_num)
     renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
                            layer2_, &sprites_, &tilemap_);
 
-    // Pause the debugger at the current position.
-    debug_state_.set_active(true);
+    // Pause the debugger at the current position. GH #278 WP3 (B3 obligation
+    // 3): NOT `set_active(true)` any more — the caller's arm holds the pause.
+    // The window's bit this used to set outlived every client that rewound.
     debug_state_.pause();
     return true;
 }

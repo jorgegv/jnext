@@ -72,6 +72,8 @@
 #include "core/emulator_config.h"
 #include "gui/app_config.h"
 #include "gui/main_window.h"
+#include <memory>
+#include "debug/debugger.h"
 #include "gui/preferences_dialog.h"
 #include "../row_id.h"
 
@@ -109,6 +111,9 @@ const char* type_name(MachineType t)
 /// init and needs no SD image.
 struct Fixture {
     Emulator   emu;
+    // GH #278 WP2 — the loop owner's debugger backend, which set_emulator()
+    // requires in a debugger build; declared before the window, so it outlives it.
+    std::unique_ptr<jnext::dbg::Debugger> backend;
     MainWindow win;
 
     std::vector<MachineType> reboots;      // every reboot the window requested
@@ -124,6 +129,8 @@ struct Fixture {
         EmulatorConfig cfg;
         cfg.type = type;
         emu.init(cfg);
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        win.set_debugger(backend.get());
         win.set_emulator(&emu);
         win.set_reboot_callback([this](MachineType t) {
             reboots.push_back(t);

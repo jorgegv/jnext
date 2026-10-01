@@ -24,14 +24,14 @@ whole, so `done` here means the sub-item is approved, not merged.
 | WP | Branch `gh278-qt` (issue #278) | Status |
 |---|---|---|
 | **WP0** | close the identity gaps on the **current** tree, so the suites are green on both trees by construction — as built: §6.2a | **done** — reviewed + APPROVED (rows, then the fix round); landed on `main` alone |
-| **WP1** | the `src/qt/` header move + `make build-matrix`. **Q is the single owner of this move**, and it lands with the rest of Q on Q's one branch | todo |
-| **WP2** | `DebuggerManager` verbs onto the backend facade | todo |
-| **WP3** | rewind / trace / corruption | todo |
-| **WP4a-d** | the panels (parallel-able). **WP4d also owns the `render_layer` MOVE itself**, not only its 106 DVP validation rows — owner decision 2026-09-27, closing a gap §10.1 left unassigned | todo |
-| **WP5** | memory panel | todo |
-| **WP6** | symbols / magic | todo |
-| **WP7** | reach-around grep = 0 (`grep -l 'core/emulator.h' src/debugger/*.cpp` empty) | todo |
-| **WP8** | **Memory panel physical-page view** — `MemSpace::Page` reads *and* writes (owner decision §1.3 item 15). **Last**, after the identity rows are green, with its own pinned rows | todo |
+| **WP1** | the `src/qt/` header move + `make build-matrix`. **Q is the single owner of this move**, and it lands with the rest of Q on Q's one branch — as built: §6.2b | **done** |
+| **WP2** | `DebuggerManager` verbs onto the backend facade — as built: §4.1, §6.2b | **done** |
+| **WP3** | rewind / trace / corruption — as built: §6.2c | **done** — reviewed, REJECTED once (three items, §6.2c "review round 1"), then APPROVED on re-review |
+| **WP4a-d** | the panels (parallel-able). **WP4d also owns the `render_layer` MOVE itself**, not only its 106 DVP validation rows — owner decision 2026-09-27, closing a gap §10.1 left unassigned. **WP4c** (breakpoints and watches, B3 obligation 1, `active()` retired, REQ-qt-32) — as built: §4.1b, §6.2d | WP4c: **done** — reviewed + APPROVED; WP4a/b: **done** — reviewed, REJECTED once (one gap, §6.2e QWIN), then APPROVED on re-review (as built: §6.2e); WP4d: **done** — reviewed + APPROVED, merged (as built: §3.7a, §6.2f) |
+| **WP5** | memory panel (and the Disassembly panel's reads, the +3 latch fix) — as built: §6.2g | **done** — reviewed + APPROVED |
+| **WP6** | symbols / magic — as built: §6.2g | **done** — reviewed + APPROVED |
+| **WP7** | reach-around grep = 0 (`grep -l 'core/emulator.h' src/debugger/*.cpp` empty) — as built: §6.2h | **done** — reviewed, REJECTED once (the lint's durability), then APPROVED on re-review |
+| **WP8** | **Memory panel physical-page view** — `MemSpace::Page` reads *and* writes (owner decision §1.3 item 15). **Last**, after the identity rows are green, with its own pinned rows — as built: §6.2i | **done** — reviewed, REJECTED once (one row; R4 confirmed equivalent), then APPROVED on re-review |
 
 Depends on: B0 (landed), B. Q is the epic's **sufficiency proof** — any
 insufficiency it finds is a finding against the architecture document, not a
@@ -403,7 +403,7 @@ accessor):
 
 | Rows | Need | CAP (backend.md v1) | +REQ / notes |
 |---|---|---|---|
-| 71-72, 89 | attach/detach; the "active" render hint; call-stack tracking on while attached | CAP-SES-01, CAP-SES-05, CAP-INS-12 (`set_enabled`) | **REQ-qt-01b**: per-client `set_live_raster(cid, bool)` — the Qt adapter stays attached for the process lifetime (§4) and toggles this when the window shows/hides; **REQ-qt-01c (finding)**: `DebugState::active()` also gates the STEP machinery (`OUT`, `STEP_BACK`, `RUN_BACK_TO_CYCLE` — `debug_state.h:17`, `emulator.cpp:9251,9916`), so CAP-SES-05 must not tie those to `live_raster` |
+| 71-72, 89 | attach/detach; the "active" render hint; call-stack tracking on while attached | CAP-SES-01, CAP-SES-05, CAP-INS-12 (`set_enabled`) | **REQ-qt-01b**: per-client `set_live_raster(cid, bool)` — the Qt adapter stays attached for the process lifetime (§4) and toggles this when the window shows/hides (**as built, WP2: attached only while the window is open**, because an attach arms the machine — §4.1; REQ-qt-32, landed by WP4c, is the lifetime non-arming client that owns the GUI's breakpoints — §4.1b); **REQ-qt-01c (finding)**: `DebugState::active()` also gates the STEP machinery (`OUT`, `STEP_BACK`, `RUN_BACK_TO_CYCLE` — `debug_state.h:17`, `emulator.cpp:9251,9916`), so CAP-SES-05 must not tie those to `live_raster` |
 | 73, 67, 49 | `paused()` | CAP-CTL-13 `state().paused` | — |
 | 74 | resume with GH #221 step-off and GH #223 no-op | CAP-CTL-02 | — |
 | 75 | pause | CAP-CTL-01 | — |
@@ -541,6 +541,118 @@ cache set alpha FF, but this must be proved by running the 106 DVP rows
 against the moved function before the widget is touched (WP4d). If any row
 moves, the contract is wrong and the per-layer checker stays in the widget.
 
+### 3.7a As built (WP4d, 2026-09-29) — the contract held, with one display fix
+
+**The prototype.** `render_to_image`'s render body, the three `replay_*`
+helpers and `rom_in_sram` moved verbatim into `Debugger::render_layer()`, in a
+new Qt-free `src/debug/debugger_render.cpp`. `debugger_pending.cpp` was left
+with no definition, and was then deleted (owner decision 2026-09-29). Before the widget changed, the OLD widget ran with a
+shadow A/B: after drawing its own image with the per-layer checkerboard, it
+called the moved function, applied the uniform "alpha 0 → checkerboard" rule
+and compared all 640 × 256 pixels in all 32 bits. Results:
+
+- the DVP suite: 53 renders, 0 differing pixels, 108/108;
+- the 34 regression NEX programs, each paused at four raster rows, all eight
+  views: 1088 renders, 0 differing pixels, no row past `vc` touched;
+- the comparator itself was proved on a known answer: a flipped pixel was
+  reported.
+
+Then the widget switched. With the uniform rule, all 108 DVP rows stayed green,
+and **no DVP expectation changed.**
+
+**The one place the two rules differ** was found by reading every write the
+eight views make, not by a row. `Tilemap::render_scanline` writes
+`0x00000000` into every cell its NR 0x1B clip window removes: the Y-clip row
+fill and the per-pixel X-clip. The old widget let that write overwrite its
+checkerboard pre-fill, so a clipped-away tilemap area was drawn see-through,
+showing the tab background. Meanwhile:
+
+- an index-transparent tile showed the checkerboard;
+- so did the ULA clip (made so on purpose, DVP-12), the Layer 2 clip and the
+  sprite clip, which skip the cell;
+- in VHDL a clipped tilemap pixel is exactly as transparent as an
+  index-transparent one: `pixel_en_s` gates both (`tilemap.vhd:415-429`).
+
+The per-layer rule could not be kept anyway. After the backend's 0-fill,
+nothing tells a clipped cell from an untouched one without a second model of
+the clip. **So the contract is uniform, and the tilemap clip now shows the
+checkerboard.** This is the ONE deliberate display change of WP4d, agreed by
+the manager 2026-09-29, and pinned by DVP-23. That row fails against the
+pre-WP4d widget, which had its cell at `0x00000000`. The user guide already
+said transparent pixels are a checkerboard; it now says so of clipped areas
+too.
+
+**A second defect, fixed.** The Sprites and Composite views run the sprite
+engine, which latches the guest-visible port 0x303B status bits (collision,
+max-sprites-per-line) as it draws. So a paused refresh handed the guest a
+collision the debugger had drawn, and the round trip was not state-preserving.
+`render_layer()` now saves the two bits and puts them back, through
+`SpriteEngine::peek_status()` / `restore_status()`. This is a core accessor
+pair, not a published header. INS-14-08/09 pin it.
+
+**The hazard sweep** covered every engine and path the verb drives. Nothing
+else needed a fix, and INS-14-08 is the witness: the serialised machine state
+is byte-identical around each of the eight views, on a mid-frame Next with
+every engine active. The sweep found:
+
+- **ULA** (`render_scanline_in_bank`): restores the border, the ULA+/ULAnext
+  controls, the bank, the mode and the alt file. `render_scanline_bank` also
+  restores the `select_bgnd` scratch.
+- **Layer 2** debug render: restores enable, bank and the GH #270 segment
+  count.
+- **Tilemap** debug render: restores enable; the render itself is `const`.
+- **Sprites**: restores `sprites_visible_`. The two status bits were the one
+  gap, fixed above.
+- **Compositor row** (`render_row`): writes only per-row scratch, the ULA's
+  `select_bgnd` scratch (which the live path re-pushes before every use) and
+  the trace row.
+- **LoRes** (`apply_lores`): reads only.
+- **Replay**: restores every live register.
+
+What is not serialised cannot leak forward either. INS-14-10 runs two identical
+machines, one of which renders all eight views while paused; both run on
+identically.
+
+**The widget now** allocates one 640 × 256 `QImage`, fills it with the
+"not rendered" colour, and calls `render_layer()`. It then paints the
+checkerboard under every alpha-0 cell of rows ≤ vc, and draws the placeholder,
+DPR scaling and red raster line as before. `VideoLayerView::Layer` is an
+alias of `jnext::dbg::Layer`, so there is one enum.
+
+The rest of the panel reads through the backend too:
+
+- the raster block through CAP-INS-06 `raster()`;
+- the frame diagram through INS-19 `machine()`;
+- the paused test through CTL-13 `state()`;
+- the layer flags and NR 0x15 priority through `nextreg_peek`;
+- the swatch through INS-15 `palette(UlaActive)` and `rgb333_to_argb()`;
+- the titles through `nextreg_peek(0x4A)` and `ula_screen_regs()`.
+
+`video_panel.*` holds no `Emulator*` and includes no core header at all. The
+first cut still included `video/palette.h` for `rgb333_to_argb8888()`. The
+swatch shows the palette's 9-bit RGB333 entries, and the backend then published
+only the 8-bit `rrrgggbb_to_argb()`, a different expansion: blue `10` is `0xAA`
+one way and `0xB6` the other, and DVP-PAL-01 fails on it. REQ-qt-27c (§8) asked
+for the 9-bit one; the owner approved it (2026-09-29), and review round 1 added
+`rgb333_to_argb()` to `inspect.h`. That is the only declaration WP4d adds to a
+frozen header. It is pinned by `debugger_backend_test` INS-15-20 (all 512
+inputs against the palette's own expansion) and INS-15-21 (a whole bank against
+the palette's ARGB cache).
+
+The window gained the one line of wiring the panel needs:
+`DebuggerWindow(Emulator*, jnext::dbg::Debugger&, QWidget*)`, passed by
+`DebuggerManager::ensure_window()`.
+
+**Hot path: none.** Measured from the call graph:
+
+- `render_layer()` has two callers, `VideoLayerView::render_to_image()` and
+  the test suites;
+- the widget renders only when `refresh(vc)` has `vc ≥ 0`, which
+  `VideoPanel::refresh()` passes only while `state().paused`;
+- it renders only the visible tab;
+- nothing in `Emulator::run_frame()` / `execute_single_instruction()` reaches
+  it (`grep -rn render_layer src/`).
+
 ### 3.6 Symbol table ownership
 
 Today the Qt manager owns it (`debugger_manager.h:131`). Every other frontend
@@ -591,6 +703,204 @@ the Qt thread between frames. A remote frontend that needs a thread is the
 backend's problem to solve without changing this (that is `design-dzrp`'s
 brief, not this file's).
 
+### 4.1 As built (WP2, 2026-09-29) — two corrections to the text above
+
+**1. There is no `pause_epoch()`.** The frozen `debugger.h` never grew one, and
+none is needed. The published routes are SES-02's listener (`Paused` /
+`Resumed`, pushed only from `pump()`) and CTL-13's `state()`. WP2 uses
+`state()`, PULLED once per tick in `check_breakpoint_hit()` — which QtApp calls
+after its pump, so any other client's transition inside that pump is already
+visible. The adapter compares `state().paused` with what the window last SHOWED
+(`DebuggerManager::shown_paused_`, the window's own presentation state — not a
+copy of the machine's) and applies the machine's state when they differ.
+The listener was weighed and adds nothing for this adapter: its own verbs apply
+their UI synchronously (QSI-04, QPE-05 pin "at once, no tick"), so a listener
+design would still need the window's shown state to tell "the push for the
+pause I already showed" from a new one — and with that state in hand, the pull
+is exact in every reachable case. It also keeps the Qt fixtures free of a pump.
+The one case a pull cannot see — a stop and a resume both inside one pump,
+with no frame between them — ends running, and showing a pause that is already
+over is not wanted either. `resume_generation()` stays internal.
+
+The pull also shows a RESUME the window did not cause (another client's
+`run()`): the window used to learn of resumes only from its own verbs, and a
+remote resume would have left it in the paused shape — frozen panels on a
+running machine, deaf to its next pause edge (QPE-07; QPE-08 is the pause twin).
+
+**2. The adapter is attached while the window is OPEN, not for the process
+lifetime** (manager decision, 2026-09-29). A client attach ARMS the machine:
+`armed = active || clients_attached || persistent` (`debug_state.h`, §5's
+`attached || persistent`). A lifetime attach therefore keeps the legacy PC
+breakpoints (`should_break()`) and the watchpoints (`wp_live = armed &&
+guest_access`) live with the window shut — `--persistent-breakpoints` (GH #219)
+turned on by default. `debugger_persistent_bp_test` PBPUI-03 pins the opposite
+("default: a closed window disarms, the machine runs past the breakpoint";
+it asserts `!armed()`), so a lifetime attach fails an identity row: a
+behavioural finding, not only a cost one. It is also a cost: with the window
+closed a lifetime attach runs the GUI armed, +1.3-3.0 % instructions (§4.2).
+So `set_enabled(true)` attaches (`attach_backend()`) and requests the live
+raster; `set_enabled(false)` resumes a paused machine as it always has
+(whoever paused it) and detaches (`detach_backend()`). The policy is those two
+functions and nothing else, so a later decision to flip it is one change.
+Nothing the lifetime attach was for is lost: a magic, persistent or remote
+pause opens a closed window because the pause is pulled, not pushed
+(PBPUI-06..08; GH #219 and owner Q5 unchanged).
+
+**The general form of the finding: "attach" conflates LISTEN with ARM.** SES-01
+has one way to become a client, and it arms the machine. A frontend that only
+wants to HEAR the session — a window that must learn of a pause while it is
+closed, a loop owner that must learn of an `ExitRequested` — cannot do so
+without also switching the hot path on, which is the same class as B4's O5 (a
+loop owner has no non-arming way to hear `ExitRequested`). A non-arming
+observer attach (a `ClientInfo` flag, or an `observe()` verb, that installs a
+listener and counts toward no arm bit) would let a lifetime attach coexist with
+PBPUI-03. That is a change to the frozen `debugger.h`: it is REQ-qt-32 (§8),
+OWNER-APPROVED 2026-09-29, to land "when first needed". WP4c needed it, and
+landed it: the GUI's breakpoints are owned by an observer client (§4.1b).
+
+**`active()` is retired (WP4c).** WP2 stopped the window setting the legacy
+`DebugState::active()` bit — the attach and the live raster replaced it — and
+WP3 retired its two rewind writers (B3 obligation 3: the replay is armed by
+`DebugState::ReplayArmScope` for its own loop only). Its last writer, the
+magic-breakpoint hook, now raises the MAGIC HOLD instead (§4.1b); the window's
+clear on close and `emulator_cold_boot()`'s copy went with the bit.
+
+**Closing the window while a magic breakpoint holds the machine — SETTLED by
+the owner, 2026-09-29 ("ctl-13: agree").** Architecture §4.1 CTL-13 (owner
+decision 2026-09-27) said closing the Qt debugger window must NOT resume a
+`Magic` pause. The window has always resumed ANY pause on close, and applied
+literally the CTL-13 text would leave a magic-paused machine paused with the
+window shut — which the next tick's GH #219 auto-open reopens at once, so the
+window could not be closed at all. The review of this milestone put the
+conflict to the owner, whose ruling is: **closing the window resumes, whoever
+paused, `Magic` included, as it always has; the design text is amended.** The
+no-owner rule for `Magic` / `Corrupt` binds SES-01's `detach()` (a client's
+departure never releases an unowned pause) and nothing else; the Qt window's
+close is a user's Run, not a detach. CTL-13 is amended accordingly (arch §4.1).
+No row pins a close while magic-paused (PBPUI-09 resumes first); the behaviour
+is `set_enabled(false)`'s, unchanged by WP2.
+
+### 4.1b As built (WP4c, 2026-09-29) — the breakpoints' owner, and why the design needed REQ-qt-32
+
+**The conflict.** WP2 made the adapter a backend client only while the window is
+open (§4.1 item 2). WP4c makes the GUI's breakpoints backend subscriptions
+(REQ-qt-13d), and SES-01's `detach()` removes a client's subscriptions. So if
+the window's client owned them, closing the window would delete every user
+breakpoint — today they survive close and reopen — and with
+`--persistent-breakpoints` (GH #219) they must FIRE with the window shut, which a
+detached client cannot own.
+
+**Candidate A (the WP4c brief's): attach when the window is open OR the flag is
+set, and keep the GUI's model in the adapter while detached, re-subscribing on
+attach.** Rejected, on four measured counts:
+
+1. **PBPUI-07 flips.** It pins "armed only by `--persistent-breakpoints`, no
+   client attached" with the window closed (`armed() && !attached()`); a
+   lifetime attach in persistent mode makes `attached()` true.
+2. **PBPUI-01 flips the same way.** "Closing the debugger leaves breakpoints
+   armed but the debugger inactive" — with `active()` retired, "inactive" is
+   `!attached() && !raster_live()`, and the persistent-mode attach keeps
+   `attached()` on.
+3. **It is not free in persistent mode.** The attach also switches the step
+   machinery on (`attached()`: the per-instruction Step Out test, the per-frame
+   STEP_BACK test). §4.2's C vs P columns measure exactly that difference:
+   +0.06 % instructions on boot-48k, +0.8 % on boot-nextzxos.
+4. **A remote client with the window closed.** Today a GUI breakpoint fires
+   whenever SOMETHING arms the machine — a remote client's attach included, and
+   the hit opens the window (owner Q5). Under A the breakpoint sits
+   unsubscribed in the adapter and does not fire.
+
+It would also make the adapter a second owner of the user's breakpoints while
+the window is closed — the class B3's obligation 1 exists to remove.
+
+**Chosen: B — two clients, one of them a non-arming OBSERVER (REQ-qt-32).**
+`BreakpointModel` (`src/debugger/breakpoint_model.*`, owned by the manager)
+attaches a client with `ClientInfo::observer = true` for the manager's
+lifetime. It owns the GUI's subscriptions and carries the listener. The
+window keeps WP2's arm-on-open client, unchanged; every verb is still
+attributed to it. The observer counts toward no arm bit, so:
+
+| Case | Today (`BreakpointSet`) | B |
+|---|---|---|
+| window open | armed by the window; breakpoints fire | same (the window's client arms) |
+| window closed, no flag | unarmed (PBPUI-03, the bench's U) | unarmed: the observer arms nothing |
+| window closed, flag | armed by the flag alone, not attached (PBPUI-07) | same |
+| window closed, a remote client attached | armed by the remote; GUI breakpoints fire and open the window | same (PBPUI-13) |
+| close + reopen | breakpoints kept | kept: the observer never detaches (PBPUI-12) |
+| cold boot | the platform restore carried them | the backend re-applies the observer's subscriptions (rule 2); the restore is deleted (B3 obligation 1) |
+
+REQ-qt-32 is therefore landed here, as the text of §8 said it would be "when
+first needed": it is the one declaration change of WP4c (`bool observer =
+false;` in `ClientInfo`), with backend rows OBS-01..09 pinning its contract.
+
+**The notification.** The views follow `BreakpointModel::changed(kinds)`. Its
+kinds are those whose LISTED state changed, computed by diffing the backend's
+`subscriptions()` against the last published listing, so the gutter still
+re-disassembles on Execute changes only (REQ-qt-13b; GH #220-04), a transient
+(Step Over, Run to Here) changes nothing listed and notifies nothing (GH220-05),
+and a master-switch flip notifies all three GUI kinds. Two routes feed it:
+every model mutator, synchronously (GH #220's contract — no GUI route can
+forget); and the backend's `SubscriptionsChanged` push for another client's
+change, which the observer's listener only records and `check_breakpoint_hit()`
+publishes on the next tick (REQ-qt-15b). The push that echoes the GUI's own
+change finds nothing new. The backend push's `kinds` payload is the LIVE kind
+set (SES-02-11 pins it), not the changed set, which is why the model diffs
+rather than trusting it.
+
+**The magic breakpoint without `active()`.** The hook used to set `active()` so
+that a hit on an unarmed machine (headless, SDL, a closed window) was honoured
+at the next instruction boundary — the hot loop checks a pause only inside its
+armed block — and nothing but the window's close cleared it. It now raises
+`DebugState`'s MAGIC HOLD: an `armed()` contributor only (not `attached()`, not
+`raster_live()`), released by `unpause_()`, i.e. by whatever resumes the stop.
+The window still opens on the pause (pulled); after the resume the machine is
+armed by exactly what armed it before. That also fixes the leak `active()` had:
+a remote client's `run()` of a magic stop used to leave the machine armed, and
+the step machinery and raster walk on, for the rest of the session
+(MAGIC-HOLD-02, PBPM-02).
+
+### 4.2 The hot-path cost of an attached client (interleaved A/B, WP2)
+
+What a process-lifetime attach would cost the GUI with its window CLOSED:
+- U is this tree with nothing armed (the attach-on-enable GUI, window closed —
+  what ships).
+- C is one client attached with nothing subscribed (`JNEXT_BENCH_WATCH=c`) —
+  what a lifetime attach would run.
+- P is `--persistent-breakpoints` alone, for comparison.
+
+B is `main` @ `85135a744`. Every run is headless `--benchmark`, interleaved,
+Release.
+
+| Workload | instructions:u, C vs U | wall T/s, C vs U (spread U / C) | instructions:u, P vs U |
+|---|---|---|---|
+| boot-48k (600 frames) | **+1.29 %** | −1.6 % (4.4 / 3.3 %) | +1.23 % |
+| boot-nextzxos (400) | **+2.98 %** | −3.9 % (5.3 / 5.3 %) | +2.18 % |
+| beast.nex (400) | **+2.49 %** | −1.4 % (4.9 / 4.9 %) | void (the load re-latches the flag) |
+| copper_demo.nex (400) | **+2.72 %** | void (spread 8-11 %) | void |
+
+Source files:
+- instructions: `test/bench/perf-attach.sh` →
+  `test/bench/attach-perf-aa02eaf51.txt`, three interleaved rounds;
+  deterministic to ~0.01 % run to run;
+- wall clock: `AB_SET=attach test/bench/ab-hotlatch.sh` →
+  `test/bench/attach-aa02eaf51.txt`, five pairs, host load 3.7 → 2.5. An earlier
+  run at load 8-15 was void and is not committed.
+
+B ≡ U to within 0.00-0.02 % in instructions, and within noise in T/s: with
+the window closed, WP2 costs nothing.
+
+**A lifetime attach would cost 1.3-3.0 % more work on every instruction the
+guest runs, permanently, and 1.4-3.9 % in wall-clock throughput where the
+measurement holds.** The costs, per emulated instruction:
+- the armed block (`paused()`, the step-off consume, `should_break()` — an
+  out-of-line `unordered_set` lookup — the `Execute` gate, the step-mode tests);
+- the post-instruction `events_pending()` / `data_bp_hit()` tests;
+- the second stage of the eight MMU watch sites;
+- on top of P's cost, the `attached()` Step Out test.
+
+That is the behavioural finding's price (PBPUI-03 above) and the argument for
+REQ-qt-32.
+
 ---
 
 ## 5. Where the Qt headers move; what `DebuggerManager` becomes
@@ -622,15 +932,15 @@ rename buys nothing and costs every fixture. What changes is inside:
 
 | Today | After |
 |---|---|
-| ctor takes `Emulator*` (`:23`) | ctor takes the backend session (`DebugSession&` or whatever `backend.md` names it) |
+| ctor takes `Emulator*` (`:23`) | ctor takes the backend session (`DebugSession&` or whatever `backend.md` names it) — **as built (WP2):** `DebuggerManager(QMainWindow*, jnext::dbg::Debugger&, Emulator*, QObject*)`: QtApp's one backend, handed over by `MainWindow::set_debugger()`; the `Emulator*` stays for the panels (WP4/WP7), the rewind verbs (WP3), the raster snapshot (WP4d) and the legacy `active()` clear (§4.1) |
 | `emulator()` accessor (`:64`) | removed — no caller in `src/` (measured: `grep -rn '->emulator()' src/` finds none from the debugger) |
-| eleven copies of the four `set_paused()` calls | one `apply_pause_state(bool)` driven by the epoch |
+| eleven copies of the four `set_paused()` calls | one `apply_pause_state(bool)` driven by the epoch — **as built:** driven by the tick's `state()` pull (§4.1); the enable seed keeps its own four-panel call (`set_panels_paused()`), because it deliberately does not count as the pause edge |
 | `on_step_over` disassembles | `session.step_over()` |
 | `on_run_to_eof/eosl` compute cycles | `session.run_to_end_of_frame()/…scanline()` |
 | `refresh_panels` calls `snapshot_raster()` | nothing — backend keeps it current |
-| `check_breakpoint_hit` compares `paused()` with `was_paused_` | compares `pause_epoch()` with the last seen epoch; the GH #219 auto-enable branch is unchanged |
+| `check_breakpoint_hit` compares `paused()` with `was_paused_` | compares `pause_epoch()` with the last seen epoch; the GH #219 auto-enable branch is unchanged — **as built:** compares `state().paused` with the window's shown state, both directions (§4.1) |
 | owns `SymbolTable` | takes it from the session; `on_load_map_*` keep the QFileDialog/QMessageBox and call `session.symbols().load_*` |
-| `ResumeGuard` + modal | unchanged (the modal is Qt; the policy is already pure) — reads `session.state_error()` / `state_error_generation()` |
+| `ResumeGuard` + modal | unchanged (the modal is Qt; the policy is already pure) — reads `session.state_error()` / `state_error_generation()` — **as built:** `resume_blocked_by_corruption()` / `acknowledge_corruption()` (CTL-11); the manager's own `ResumeGuard` is gone, so the modal and the backend's verbs gate on one acknowledgment; the app-quit path acknowledges without asking (QG-06) |
 | `resumed()` / `paused()` / `enabled_changed()` Qt signals | unchanged; emitted from the adapter, never from a backend callback |
 
 `DebuggerWindow` and the 13 panels take the same session reference instead of
@@ -837,6 +1147,439 @@ pin the FIXED behaviour):
 restored frame from the ordinary boundary AFTER a frame, which have the same
 counter. The backend does not publish it; recorded as REQ-qt-09d in §8.
 
+### 6.2b WP1 and WP2 as built (2026-09-29)
+
+No WP0 row and no §6.1 suite changed an expected value. The fixtures that
+construct a `DebuggerManager`, or a `MainWindow` whose manager a row uses, now
+build the backend QtApp hosts (a `jnext::dbg::Debugger` on the fixture's
+`Emulator`, declared before the window so it outlives the manager) and hand it
+over — fixture code only.
+
+| Rows | Suite | Pins |
+|---|---|---|
+| QTF-01..08 | `debug_qt_free_test` (new, gate none — both configurations) | WP1's lint row: no Qt include directive and no `*_qt.*` under `src/debug/`, the scan read the real directory, `src/qt/` header-only with the two headers and no `Emulator`; 06..08 prove the scanner on a planted tree (both detectors fire — the name detector on a `*_qt.h` AND a `*_qt.cpp`, review round 1; prose, a commented-out include and a string do not). §6.3 mutation 10 turns 01, 02 and 04 red |
+| PBPUI-06..08 | `debugger_persistent_bp_test` | with the window closed and the adapter detached, a pause from each source still opens it on the next tick: the magic breakpoint (nothing armed until it fires), a persistent breakpoint (armed by the flag, no client), another client's `pause()` — which stays that client's pause (owner Q5) |
+| PBPUI-09 | `debugger_persistent_bp_test` | closing the window after a magic breakpoint opened it DISARMS the machine (the §4.1 transitional clear of the legacy bit); the user resumes first, so the row does not pin what a close does to a machine still paused by the magic breakpoint — see the CTL-13 note in §4.1 |
+| QPE-07, QPE-08 | `debugger_verbs_test` | another client's `run()` reaches the window as a resume (defect: it used to stay in the paused shape), and its `pause()` as a full pause edge |
+| QPE-09 | `debugger_verbs_test` | the pause edge is an EDGE: paused ticks refresh but never re-centre the Disassembly, so a user who scrolled it keeps the view (added after a mutation that re-applied the edge on every paused tick survived the first run) |
+| QEN-03 | `debugger_verbs_test` | with the window open a hard reset keeps it armed (a breakpoint at 0000 stops the rebuilt machine), the live raster on, and call-stack tracking on (a CALL stepped into on the rebuilt machine is listed) — the last a defect fix: the window used to switch tracking on directly on the `Emulator`, which a cold boot reconstructs with it off, so the Call Stack stayed empty until the window was reopened; through the backend's INS-12 it is re-applied (CTL-12 rule 2) |
+| QG-06 | `debugger_quit_gate_test` | the app-quit disable still resumes a corrupt machine, now through the backend's `run()` (which refuses an unacknowledged corruption; the quit path acknowledges it itself) |
+| QG-07 | `debugger_quit_gate_test` | Yes to the resume modal RESUMES — the Yes acknowledges the incident in the backend, whose `run()` would otherwise refuse — and the same incident is not asked about again |
+| QG-08 | `debugger_quit_gate_test` | a corrupt but RUNNING machine (a snapshot load that failed while it ran) is asked nothing by Run / Run to EOF / Run to EOSL, each a no-op there (GH #223's ordering: never ask about a resume that will not happen) |
+| PBPUI-10, PBPUI-11 | `debugger_persistent_bp_test` | (review round 1) closing the window, and a manager DESTROYED with its window still open (its parent torn down, no close), each leave the surviving backend unarmed and detached with the live raster and call-stack tracking off — the two lines of `detach_backend()` / `~DebuggerManager()` that make a closed window cost nothing, which no row saw before |
+| MWD-01 | `debugger_menu_test` | (review round 1) `MainWindow::set_emulator()` without `set_debugger()` throws `std::logic_error` and builds no manager; wired, it builds one. Six Qt fixtures (`audio_gain_preferences`, `esp_status`, `load_error`, `nex_v13_dialog`, `preferences_apply`, `rzx_menu`) had silently lost their manager to the old quiet skip; they now hand over a backend. Swapping `QtApp::init()`'s `set_debugger()` / `set_emulator()` order now fails every Qt regression row at startup |
+| HOST-08 | `debugger_backend_test` | `JNEXT_HOST_PROBE=order` through the real HeadlessApp: a guest hard reset raised inside the frames runs before the pump, and the client's `reset(Hard)` in that pump comes second |
+| `qt-host-order-func` | regression (functional) | the same script through QtApp — B3 obligation 2: QtApp now polls the guest hard reset (and the NEX `.run` request, the same deferred-reconstruct class) in `post_frames()` BEFORE the pump, as SdlApp and HeadlessApp do; polled in `pre_frames()` it ran next tick, and a client `reset(Hard)` in this tick's pump destroyed the machine with the guest's request still pending |
+
+### 6.2c WP3 as built (2026-09-29)
+
+The verbs and the window's rewind, trace and corruption controls drive the
+backend: `on_step_back()` / `on_rewind_to_frame()` call CTL-09/10 and warn only
+on `RefusedCorrupt` (a benign `RefusedRzx` / `RefusedUnavailable` is silent, as
+it was); the toolbar, the Rewind menu, Enable Rewind's three branches, the
+Buffer Size dialog and the status line read ST-03 `rewind_range()`; greying is
+`rewind_blocked()` — the SAME predicate the two rewind verbs refuse on — plus
+`trace_enabled()`; the trace ball, Enable Trace, Clear Trace and both Export
+routes are INS-13; `rewind_position()` is INS-07 `time().frame`. The window
+reaches the backend through `DebuggerManager::backend()`, and REQ-qt-09d's
+"restored frame start" through `RewindRange::at_restored_frame_start` (owner
+approval, §8). What still reads the `Emulator` in `debugger_window.cpp`: the
+breakpoint menu (WP4c).
+
+No WP0 row and no `rewind_test` row changed an expected value. Backend changes
+(manager decisions 2026-09-29, recorded in `backend.md` CAP-CTL-09/10 and
+CAP-ST-03; the owner approved the one header field, REQ-qt-09d): the rewind
+verbs are not gated on CTL-11; their `RefusedCorrupt`
+means a restore tore the machine (the corruption generation moved), every benign
+refusal is `RefusedUnavailable`; `resize_rewind_buffer(0)` frees the ring
+(ST-03-07's expected value flipped).
+
+| Rows | Suite | Pins |
+|---|---|---|
+| CTL-09-02..04, CTL-10-05..08 | `debugger_backend_test` | the classification: trace off / empty and a frame with no slot (a gap) are benign `RefusedUnavailable` and move nothing; a torn restore is `RefusedCorrupt` with the incident naming the subsystem; a rewind from a corrupt machine to an intact frame succeeds and clears the corruption; a torn NEWEST slot no longer fails rewinds to other frames |
+| ST-03-07 (flipped), ST-03-09/10 | `debugger_backend_test` | `resize_rewind_buffer(0)` frees the ring (capacity and depth 0, rewinds refused as unavailable); a later non-zero resize creates a fresh ring that records |
+| OBL3-01..03 | `debugger_backend_test` | B3 obligation 3: a remote client's `step_back()` / `rewind_to_frame()` then its detach leave the machine unarmed, unattached, the raster walk off and running; a replay with nothing attached still lands on its target and leaves nothing armed |
+| CTL-09-05 | `debugger_backend_test` | a `step_back()` from a corrupt machine is not refused either: it restores the intact newest frame and heals (added after the mutation "gate `step_back()` on CTL-11" survived) |
+| ST-03-11..15 | `debugger_backend_test` | REQ-qt-09d: `RewindRange::at_restored_frame_start` is true right after `rewind_to_frame()` lands on a frame start; false once the machine runs on, after `step_back()` (its replay begins the frame), after a plain `load_state_bytes()`, and at an ordinary boundary |
+| INS-13-14 | `debugger_backend_test` | the trace export writes every `TraceEntry` field, B4's `(SP)`, I, R, IM, IFF1, IFF2 and MMU pages included, in the documented column order |
+| QRW-20 | `debugger_verbs_test` | through the window: after a torn rewind (the "Rewind Failed" modal), a rewind to an intact frame succeeds with no modal and the corruption is gone |
+| QTR-05 | `debugger_verbs_test` | a behaviour change, stated: the trace switched on from the window now survives a hard reset (INS-13 is client intent the backend re-applies, CTL-12 rule 2); it used to be reconstructed off |
+
+Defects fixed with those rows: the benign-as-corrupt classification (CTL-09-02/03,
+CTL-10-05); `Emulator::rewind_to_frame()` restored the NEWEST snapshot before
+looking the target up, so a gap moved the machine on a "benign" refusal and a
+torn newest slot failed every rewind (CTL-10-05, CTL-10-08); the export dropped
+B4's fields (INS-13-14); the stuck `active()` bit after a client's rewind
+(OBL3-01/02).
+
+**Review round 1 (`scratchpad/q-wp3-review.md`, REJECT).** Three items, fixed as
+their own commits:
+1. *Fail loud.* The backend refuses a rewind during an RZX recording or
+   playback BEFORE `Emulator::step_back()` / `rewind_to_frame()` run, so their
+   logged refusal (`Emulator::rzx_blocks_rewind()`) was never reached and every
+   client lost the log line. The two verbs now log it through that same
+   function, with the same words; the `rewind_blocked()` greying query, which
+   shares the predicate and runs on every tick, stays silent. Rows CTL-09-06,
+   CTL-10-09.
+2. *The Enable Rewind menu's construction-time checked state.* The mutant that
+   forced it false survived because the line was DEAD, not unpinned:
+   `set_debugger_manager()` reaches `update_rewind_ui()` through
+   `apply_keymap()` before it returns, on every path, and that sync overwrites
+   the value. No row can catch an equivalent mutant, so the line was deleted;
+   the checked state a user sees on open is the sync's, which QRW-12/17/18 pin
+   (forcing the sync false turns all three red).
+3. *The Buffer Size dialog pre-fill.* It opens on the ring's depth (the frames
+   it holds), not its capacity — row QRW-21, with a partly filled ring (the
+   capacity mutant is caught).
+
+### 6.2d WP4c as built (2026-09-29)
+
+The GUI's breakpoints are backend subscriptions behind `BreakpointModel`
+(§4.1b): the Breakpoints panel (list, Add/Edit/Remove with its six types,
+the per-row Enabled flags, the master switch), the disassembly gutter's Execute
+toggle and its context menu's Break on Read/Write (immediate or `(rr)`), and the
+window's Breakpoints menu (Add Execute/Read/Write/Read-Write, Clear All) all
+edit that one model; nothing in `src/debugger/` touches `BreakpointSet` any
+more. The Watches panel keeps its own list and reads through `peek(Cpu)`.
+B3 obligation 1 is done (§7) and `active()` is retired (§4.1).
+
+**Fixtures, not expected values.** Rows that SET a breakpoint through
+`BreakpointSet` to exercise a GUI view now set it through the model:
+`debugger_menu_test` (every BPM/BPR/BPC/BPO/BPX/BPI/BPEP row reads and writes
+through a `GuiBps` adapter that asks the model the questions `BreakpointSet`
+answered — `live` is the backend's own "can it fire"; GH220-05's one-shot is now
+the backend's transient, pumped so the push is proven to notify nothing; GH220-06
+cold-boots through the backend's begin/done; GH220-07 wires its throwaway panel
+to the model), `debugger_persistent_bp_test` (the fixture's breakpoint),
+`debugger_verbs_test` QSI-03 / QPE-02 / QEN-03 / QMAP-03 and GH223-01/02 (the
+Run to Here now goes down the disassembly's own signal),
+`debugger_disasm_copy_test` GH21-14/27, `debugger_panels_test` QWP-01..04
+(a standalone Watches panel on a `Debugger`). The rows that pinned `active()`
+itself were re-expressed on what replaced it — a client's arm plus its live
+raster (`set_clients_attached` + `set_live_raster` where a core suite has no
+client to attach): `persistent_bp_test` PBPS/PBPW, `resume_step_off_test`
+RSOW-09, `rewind_test` S6-P7-DEBUG-INTACT, PBPUI-01/09, and backend SES-05-06..09,
+13, 17, 18 (SES-05-08 now pins that an OBSERVER alone arms nothing; SES-05-09
+that a client's attach and detach leave the magic hold alone). The re-pins of
+obligation 1: backend CTL-12-16/17, CTL-12-32..35, CTL-12-27's landing
+breakpoint, and `nextreg_integration_test` CB-BP-01 (the host cold boot keeps
+the debugger's breakpoints and the window's arm — through the backend now).
+
+| Rows | Suite | Pins |
+|---|---|---|
+| OBS-01..09 | `debugger_backend_test` | REQ-qt-32: an observer counts in neither `armed()` nor `attached()`; its subscriptions fire only when something else arms (another client, the flag alone), the stop is its own; its detach takes them; they survive a hard reset; SES-01's own-pause rule applies to it both ways; its live raster is honoured |
+| MASTER-01/02 | `debugger_backend_test` | the master switch survives a hard reset, and the rebuilt legacy set is re-mirrored off |
+| MAGIC-HOLD-01/02, PBPM-01..04 | `debugger_backend_test`, `persistent_bp_test` | the magic hold: a hit on an unarmed machine holds at the next boundary, armed by the hold alone; the resume releases it (a leftover breakpoint no longer fires); it is its own contributor; `SuspendScope` clears and restores it; a remote client's `run()` of a magic stop leaves the machine unarmed |
+| CTL-09-06, CTL-10-09 | `debugger_backend_test` | (WP3 review) an RZX refusal is logged |
+| PBPUI-12..14 | `debugger_persistent_bp_test` | the breakpoints survive close and reopen (unarmed while closed); a remote client attached with the window closed arms them and their hit opens it; a destroyed manager takes the observer and its subscriptions with it |
+| BPOW-01..04 | `debugger_menu_test` | REQ-qt-13d: another client's subscription reaches the panel at the next tick, marked with its client; it is read-only (not tickable; Remove and Clear All leave it); a master flip from outside the panel reaches its control with nothing listed; the gutter draws and toggles only the GUI's own Execute breakpoints (another client's draws no dot, and a click there adds the GUI's own) |
+| QIO-01/02 | `debugger_verbs_test` | an I/O breakpoint from the GUI stops a guest IN/OUT by GH #222's rule — `00FE` catches `IN` from `7FFE`, `243B` lets an `OUT` to `253B` pass and stops the one to `243B` (added after the "every port exact" mutant survived) |
+| BPEP-18 | `debugger_menu_test` | at one address the Execute row lists first, then the data rows in creation order — `BreakpointSet`'s order |
+| QWP-08 | `debugger_panels_test` | a watch is a peek: it does not move the +3 floating-bus latch (control: `Mmu::read()` does) |
+| QSO-07 | `debugger_verbs_test` | a breakpoint stop inside a stepped-over CALL drops the stale Step Over target, so the next Run runs on |
+| QRW-22 | `debugger_verbs_test` | a breakpoint on the replayed span no longer cuts a Step Back short |
+
+**Defects fixed, each with its row and a measured before:**
+- a GUI breakpoint inside a rewind's replayed span stopped the replay there, so
+  Step Back landed on the breakpoint's first pass instead of the previous
+  instruction (legacy `should_break()` has no replay check; the backend consults
+  no subscription while replaying) — QRW-22, which fails with a legacy breakpoint
+  (cycle 1118352, want 1677216);
+- since WP2 a GUI breakpoint was a stop the backend did not see, so it did not
+  drop a pending Step Over target and the next Run stopped at it (before Q,
+  `resume()` cleared the one-shot) — QSO-07, which fails with a legacy breakpoint
+  (stops at 8003);
+- the Watches panel read through `Mmu::read()` and moved the +3 floating-bus
+  latch — QWP-08;
+- the magic hook's `active()` outlived its stop — MAGIC-HOLD-02, PBPM-02;
+- a hard reset reset the legacy set's master switch while the table's survived —
+  MASTER-02 (reachable once the platform restore retired; fixed in the same WP).
+
+### 6.2e WP4a and WP4b as built (2026-09-29)
+
+The eight register panels read through the backend and hold no `Emulator*`;
+none includes `core/emulator.h` (WP7's grep, applied early to these files).
+Each takes the `Debugger` in its constructor, as WP4d's Video panel does, and
+`DebuggerWindow` takes it too (`DebuggerWindow(Emulator*, Debugger&, QWidget*)`,
+the same signature WP4d gives it).
+
+| Panel | Was | Is |
+|---|---|---|
+| CPU | `cpu().get_registers()`; `mmu().port_7ffd()` bit 3; `renderer().ula().get_screen_mode_reg()` bits 2:0 | `registers()` (INS-01); `paging_ports().port_7ffd` bit 3 (INS-03 — the byte this label always read; `ula_screen_regs().active_bank` is the ULA's copy of the bit); `ula_screen_regs().port_ff` bits 2:0 (INS-15), decoded by a local copy of `Ula::set_screen_mode`'s table instead of through `TimexScreenMode` |
+| MMU | `mmu().get_effective_page(s)`, `is_slot_rom(s)`, `port_7ffd()` | `mmu_slots()[s].effective_page`, `.is_rom`; `paging_ports().port_7ffd` (INS-03) |
+| Stack | `cpu().get_registers().SP`; `mmu().read(addr)` ×2 per row | `registers().SP`; `peek(MemSpace::cpu(), addr, 2)` (INS-02) — **a defect fix**, below |
+| Call Stack | `call_stack().frames()` | `call_stack()` (INS-12) |
+| Sprites | `sprites().get_sprite_info(i)` ×128 | `sprites()` (INS-08, the same `SpriteInfo` records) |
+| Copper | `copper().is_running()`, `pc()`, `mode()`, `instruction(a)` ×64 | `copper()`: `.running`, `.pc`, `.mode`, `.program.data[a]` (INS-09) |
+| NextREG | `nextreg().peek(i)` ×256; edit `nextreg().write(r, v)` | `nextreg_peek(i)`; edit `nextreg_write(client, r, v)` (INS-04) — the register's handler runs as before, the write is logged as the window client's `MUTATE`, and it is **refused during an RZX recording or playback**, below |
+| Audio | `turbosound().ay(c).read_register(r)`, `.enabled()`, `.ay_mode()`, `.stereo_mode()`; `audio_mute_mask()` / `set_audio_mute_mask(m)` | `ay_registers(c)`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()` (INS-10, the same live signals); `audio_mute_mask()` / `set_audio_mute_mask(client, m)`, logged as the window client's `MUTATE` |
+
+**Attribution.** The two writing panels are told whose writes they make by
+`DebuggerManager::set_panels_client()`: the window's client on every attach
+and when the window is built, `CLIENT_NONE` on every detach — the same client
+every verb is attributed to (§4.1). Not the observer: it is the breakpoints'
+owner, not the user at the window.
+
+**WP0's rows keep their expected values.** QPN-CPU/MMU/STK/CS/SPR/COP, QNR-01..03,
+DVP-PEEK-01..03 and DAP-01..15 changed only their fixture — the panel is built
+on a `Debugger` over the same `Emulator` — and pass unchanged. The new gap rows
+(DAP-16/17, QPN-SPR-06, QPN-COP-05) pass on the pre-WP4a tree as well, measured.
+
+| Rows | Suite | Pins |
+|---|---|---|
+| QPN-STK-03 | `debugger_panels_test` | the Stack panel's words are peeked: a refresh does not move the +3 floating-bus latch (control: `Mmu::read()` does) |
+| QNR-04 | `debugger_panels_test` | during an RZX playback a NextREG edit is refused and the next refresh shows the register's value again; after it the same edit lands |
+| QATR-01/02 | `debugger_panels_test` | a NextREG edit and an Audio mute toggle are logged as the window's client's `MUTATE`; while the window is closed as no client's; after a reopen as the new client's |
+| DAP-16 | `debugger_audio_panel_test` | the AY register table — the one read of the panel no WP0 row pinned (§1.8 row 19) — shows chip N's register R at row R, column N, in upper-case hex |
+| QPN-SPR-06, QPN-COP-05, DAP-17 | `debugger_panels_test`, `debugger_audio_panel_test` | added for the three mutants of the move that survived: the Sprites table's first and last rows are refreshed; the Copper's Mode is the 2-bit NR 0x62 mode, not the running flag (they agree on modes 0/1); the TurboSound: Yes/No line follows NR 0x08 bit 1 |
+| QWIN-01..03 | `debugger_panels_test` | (review round 1, REJECT on this gap) the REAL window's MMU, Sprites and Copper panels show the machine — slot 2's page, sprite 0's X, the parked Copper PC — after a real pause edge: `DebuggerWindow::create_panels()` handing any of the three `nullptr` (review mutants N21/W1/W2) survived every suite before |
+| QIO-03/04, BPOW-05 | `debugger_verbs_test`, `debugger_menu_test` | (WP4c review M9, M22) both sides of the `00FF`/`0100` port boundary; the panel's Edit refuses another client's row |
+
+**Defect fixed:** the Stack panel read its 48 bytes through `Mmu::read()`, which
+moves the +3 floating-bus latch on a contended address, so a paused refresh with
+SP in banks 4-7 changed what the guest's next floating-bus read returns (F1; the
+same defect QWP-08 fixed in the Watches). QPN-STK-03 fails on the pre-WP4a tree
+(latch `00`, want `3C`).
+
+**Behaviour changes, both inherited from the backend's published write path:**
+a NextREG edit during an RZX recording or playback is refused (the direct
+`NextReg::write` let it through and diverged the recording) — the user guide's
+NextREG page says so; and every panel write now logs one `MUTATE` info line
+(§4.2a, SES-06), on the `debugger` channel and to every listener.
+### 6.2f WP4d as built (2026-09-29)
+
+No existing DVP or backend row changed its expected value. There are two
+kinds of change:
+
+- **Fixture code.** The DVP fixtures build a `jnext::dbg::Debugger` on their
+  `Emulator` and hand it to the panel. They spell the views by the backend's
+  enumerator names (`Layer::Layer2Active`, …). `host_hotkey_test` passes its
+  existing backend to the `DebuggerWindow` it builds.
+- **One retired row.** `PEND-14-01` asserted INS-14's `Unsupported` refusal.
+  The verb now exists, so the row is retired, not inverted. The rows below pin
+  what the verb does now.
+
+| Rows | Suite | Pins |
+|---|---|---|
+| INS-14-02..05 | `debugger_backend_test` | the refusals, each writing nothing: vc outside 0..255 (both ends accepted); a null destination; a stride below 640 (exactly 640 accepted) — all `RefusedUnavailable`; a `Layer` outside the eight is `Unsupported` |
+| INS-14-06 | `debugger_backend_test` | the contract over a WIDER stride: rows 0..vc are `0x00000000` where the view is transparent; rows past vc and the stride padding are untouched |
+| INS-14-07 | `debugger_backend_test` | `render_layer(Composite, 255)` after a frame equals `framebuffer()` in every bit, is opaque everywhere, and carries a Copper NR 0x4A split. This is the Qt-free witness that also runs in the SDL-only configuration |
+| INS-14-08 | `debugger_backend_test` | STATE PRESERVATION on a mid-frame Next with every engine active. The Copper has already written earlier lines, there are vblank-tagged writes, 128 overlapping sprites are past the line budget, and LoRes is on. Each of the eight views leaves the serialised machine state byte-identical. Red without the sprite-status fix (Composite and Sprites) |
+| INS-14-09 | `debugger_backend_test` | the same bits read as the guest reads them: after the Sprites or Composite view, port 0x303B reads both bits clear |
+| INS-14-10 | `debugger_backend_test` | twin machines, one rendering all eight views while paused, run on identically (framebuffer and state): the non-serialised state (render cursors, row scratch) leaks nothing forward. It checks both the rest of the paused frame and the next frame. The scene carries a visible tilemap scroll split, so the row is red for the DVP-06 bug class re-introduced into the Tilemap view, a per-line snapshot overwrite. INS-14-08 cannot see that class, because those snapshots are not serialised |
+| DVP-23a, DVP-23 | `debugger_video_panel_test` | the tilemap view shows its clipped-away cells, a Y-clipped row and an X-clipped column, as the checkerboard (§3.7a). **Fails on the pre-WP4d widget** |
+| DVP-PAL-01 | `debugger_video_panel_test` | the ULA swatch is the ACTIVE (NR 0x43 bit 1) bank's 32 entries in the palette's own ARGB, written through the NR handlers into the second bank only. Identity row: passes on both widgets |
+| DVP-TITLE-01/02 | `debugger_video_panel_test` | the ULA view titles name the bank the ULA reads, both ways round, through the real port 0x7FFD; the Background title names NR 0x4A. Identity rows: pass on both widgets |
+| DVP-02b | `debugger_video_panel_test` | the Layer 2 SHADOW view shows the shadow bank (NR 0x13), and the active view the active bank. DVP-01/02 plant the same index in both banks, so a Shadow view drawing the active bank survived them: mutation M23 |
+| DVP-RAS-15 | `debugger_video_panel_test` | the paused panel draws its visible view down to fb row = raw vc − `vblank_top` (from `machine()`) and not one row further. DVP-08 pins `fb_row_for_vc()` itself, and nothing pinned the panel's use of it: M16 survived |
+
+The new DVP rows were run against the pre-WP4d tree, in a throwaway worktree at
+`abdaf5a1a`. There they need only the `title()` seam and the swatch's object
+name added. DVP-23 FAILS there (115 rows, 114 pass). DVP-23a, DVP-PAL-01,
+DVP-TITLE-01/02, DVP-02b and DVP-RAS-15 pass.
+
+§6.3 mutation 4 (`render_layer(UlaPrimary)` follows the live bank) turns DVP-03
+red, as designed.
+
+**Review round 1 (2026-09-29).** The review found coverage gaps, not defects in
+the move. Removing six logs' rewind, apply or flush survived every row, and so
+did a status restore of 0, a dropped status bit, and the Layer2Shadow view
+ignoring the per-row NR 0x14. Rows added:
+
+| Rows | Suite | Pins |
+|---|---|---|
+| INS-14-11..17, 21 | `debugger_backend_test` | one row per per-scanline change log the replay walks: NR 0x15 (Composite), NR 0x6B (Tilemap), the attribute mux, ULA scroll, palette select, Timex mode (ULA view), sprite attributes (Sprites), Layer 2 (Layer2Active). Each has a baseline A, a write of B tagged at row 100 and a write of C tagged in VBLANK. The view must show A above row 100 and B from it, over two renders that agree bit for bit (a render that skips its rewind draws the SECOND picture wrong). After the render the live register must be C (the flush). The palette log is DVP-05/16c's |
+| INS-14-18..20 | `debugger_backend_test` | the port 0x303B bits the guest's own frame latched — both, collision alone, max-sprites alone — still read back after the Sprites and Composite views, then read-clear. Each scene is also run without a render, as the premise |
+| DVP-21c | `debugger_video_panel_test` | the Layer 2 SHADOW view reads the per-row NR 0x14 snapshot |
+| INS-15-20, INS-15-21 | `debugger_backend_test` | `rgb333_to_argb()` (REQ-qt-27c, above) |
+| G12-TAG-01..05 | `mmu_integration_test` | the attribute-mux tagging defect below, and a CPU write's own line and column |
+
+The mutation sweep covered every replay call (9 logs × rewind / apply / flush),
+the status save and restore, and the Layer2Shadow NR 0x14. All 34 are now
+caught.
+
+**A defect found by writing INS-14-13, fixed in its own commit.** The
+attribute mux tags each attribute write with its beam position.
+`fuse_z80_writebyte` set that position on EVERY CPU write, but only the next
+write that reached the attribute plane cleared it. So after a CPU write
+anywhere else — a CALL's push, say — the next NON-CPU attribute write was
+tagged with that CPU write's line and column instead of its own. That affects
+DMA, the tape-trap loaders and the debugger's `poke`: a DMA transfer at line
+150 recoloured the cell from line 21.
+
+The fix:
+- the CPU now ends the position right after its write (`attr_mux_end_write()`);
+- the CPU's column is kept in a field of its own, so the coarse tag of every
+  other writer stays line + column 0.
+
+G12-TAG-01..03 (DMA, poke, LD-BYTES trap) fail on the old tree, all at "row
+21, want 150". G12-TAG-04/05 are identity rows: a CPU write keeps its own line
+across a line start, and its own column late in a line. The five mutations of
+the fix are all caught.
+
+The hazard sweep of the other per-access tags the CPU bus callbacks set found
+no other leak:
+- `ContentionModel::mem_active_page_` is set immediately before each of its
+  consumers, in the same callback;
+- the I/O-cycle start behind `io_read_sample_cycle()` is gated on the CPU
+  executing (`executing_`);
+- `sram_read_wait28` is computed per read;
+- the floating bus and the Layer 2 write-over carry no per-write tag.
+
+The watchpoint latch is guest-scope by design (`GuestExecutionScope`).
+
+**The cost of the fix.** It adds one store per CPU memory write. It was
+measured by an interleaved A/B of `gui-release`: B at `2bcbd3f11` against N
+with the fix, 5 rounds, `perf stat` retired `instructions:u`, and a load gate
+that waits up to 2 minutes for the 1-minute load to fall below `nproc`.
+
+| Workload | instructions:u, median N − B |
+|---|---|
+| boot-48k (600 frames) | +2.17 M (**+0.015 %**) |
+| boot-nextzxos (400) | +3.91 M (**+0.016 %**) |
+| bifrost.tap (48K, 600) — the attribute-write-heavy one | +3.90 M (**+0.027 %**) |
+| nirvana.tap (48K, 600) | +3.47 M (**+0.023 %**) |
+
+- The run-to-run spread of B is ≤ 15 k instructions, so the delta is real, but
+  it is two to three ten-thousandths of the work.
+- `cycles:u` is void: the host load was 9-15 on 12 CPUs throughout (the gate
+  timed out), and cycles moved by up to ±18 % between identical binaries.
+- Script and raw numbers: the WP4d report.
+
+### 6.2g WP5 and WP6 as built (2026-09-29)
+
+**WP5.** The Memory panel takes the backend (`MemoryPanel(Debugger*)`, plus
+`set_client()`, pushed by `DebuggerManager::set_panels_client()` like the
+NextREG and Audio panels). Its paint reads each row with ONE `peek(Cpu)` of 16
+bytes; a hex edit is `poke(client, Cpu, …)`; the page selector reads
+`mmu_slots()`, the SP row `registers()`. The slot view still reads and writes
+through the CPU map at `(slot << 13) | offset` — identity until WP8. The
+Disassembly panel takes the backend too (`DisasmPanel(const Debugger*)`): every
+read is `memory_reader()` (a peek), every register read `registers()`. The
+write path ignores `poke`'s count, so package G's change to that count (bytes
+that actually landed) cannot change what the panel does.
+
+**WP6.** `DebuggerManager` owns no `SymbolTable`: the Map menu's two loaders are
+`load_map(path, MapFormat::Z88dk / Simple)` — success is the verb's `Ok`, never
+the count (the WP0 int-as-bool fix, QMAP-04) — and the message reports
+`symbols().size()`; the disassembly, call stack and breakpoint panels are handed
+`&symbols()` (their `set_symbol_table()` takes a `const SymbolTable*` now). The
+Magic Breakpoint item (`MainWindow`, Debug menu) arms through
+`set_magic_breakpoint()` (CTL-14) and shows `magic_breakpoint()` on every
+`set_emulator()`. `MainWindow`'s key forwarding is unchanged.
+
+**End state (WP7's input).** `grep -l 'core/emulator.h' src/debugger/*.cpp`:
+`debugger_manager.cpp`, `debugger_window.cpp`. No panel reads the `Emulator`.
+What is left: `DebuggerManager` holds `Emulator*` for `snapshot_raster()` in
+`refresh_panels()` (row 85) and to hand it to the window; `DebuggerWindow`
+holds `Emulator*` and uses it nowhere, and still includes `core/emulator.h`,
+`core/rzx_player.h`, `debug/debug_state.h` and `debug/rewind_buffer.h`;
+`debugger_manager.cpp` includes `core/emulator.h` and `debug/debug_state.h`.
+
+**Fixtures, not expected values.** QMP-01..05, the QMAP rows, QWP-05..07, the
+GH21 rows and every other WP0 row keep their values; the Memory and Disassembly
+panels are built on a `Debugger`, and the rows that loaded symbols through the
+manager load them through `load_map()`. One row's NON-VACUITY half had to be
+re-expressed, and it is argued here: **INSPW-06** proved that the Memory panel's
+paint reads the watched address by painting it inside a `GuestExecutionScope`,
+where the panel's own `Mmu::read()` latched the watch. A peek latches nothing in
+any scope (backend F1-04/05), so that proof can no longer fire. It now paints the
+address with two different values and requires the two pictures to differ — the
+paint SHOWS the byte, so it read it — at a RAM address (`$9210`, navigated to)
+instead of ROM `$0010`; the row's claim (a paint fires no READ watch) and its
+assertion are unchanged, and the re-expressed row passes on the pre-WP5 tree too
+(measured).
+
+| Rows | Suite | Pins |
+|---|---|---|
+| QMP-10 | `debugger_panels_test` | the Memory panel's paint does not move the +3 floating-bus latch (control: `Mmu::read()` does) — **fails on the pre-WP5 tree** (latch 00) |
+| QDIS-01 | `debugger_panels_test` | the Disassembly panel's follow-PC decode does not move it either — **fails on the pre-WP5 tree** (latch A5) |
+| QMP-11 | `debugger_panels_test` | a hex edit is refused during an RZX playback; it lands after (a behaviour change, inherited from `poke`; fails on the pre-WP5 tree) |
+| QATR-03 | `debugger_panels_test` | a Memory panel edit is logged as the window client's `MUTATE mem cpu:0x9000 …`; no client while closed; the new client after a reopen |
+| QDN-01..06 | `debugger_disasm_copy_test` | the address box, Go to PC, the wheel, Down at the last line and Page Down walk REAL instruction lengths (3-byte lines), and the caret falls back to the PC — each a surviving mutant of the moved reads |
+| MBP-03 | `debugger_menu_test` | the Magic Breakpoint item opens ticked over an armed machine (`--magic-breakpoint`) and a bind of an unarmed machine unticks it — **fails on the pre-WP6 tree** |
+
+**Defects fixed:** the Memory and Disassembly panels moved the +3 floating-bus
+latch (QMP-10, QDIS-01); the Magic Breakpoint item always opened unticked — its
+read of the config sat in `create_menus()`, which runs in `MainWindow`'s
+constructor before any machine is bound (MBP-03). **Behaviour change:** a Memory
+edit during an RZX recording or playback is refused (QMP-11; user guide's Memory
+page), and every Memory edit logs one `MUTATE` line.
+
+### 6.2h WP7 as built (2026-09-29)
+
+**First, main merged in** (v1.0.53: T, #284, package D — then v1.0.54: S WP1).
+Counters recounted by hand, generated files regenerated: `debugger_backend_test`
+1331 + 12 (D) = 1343; functional `expect` 89 + 1 + 19 = 109; the suite pin
+moved 122 → 123 on BOTH sides in the second merge and the auto-merge kept 123 —
+recounted 124 (`debug_qt_free_test` here, `script_parse_test` there);
+`CLAUDE.md` 124 / 96 (the SDL run includes `debug_qt_free_test`). `qt_app.cpp`:
+the cold-boot polls stay before the pump (WP2) and the pump takes D's
+`DebugServers::frame_loop_budget()`.
+
+**The reach-around count is 0, and gated.** `grep -l 'core/emulator.h'
+src/debugger/*` is empty and no file in `src/debugger/` names `Emulator` in
+code. `DebuggerManager(QMainWindow*, Debugger&, QObject*)` and
+`DebuggerWindow(Debugger&, QWidget*)` take only the backend. What was left and
+where it went:
+
+| Was | Is |
+|---|---|
+| `DebuggerManager::refresh_panels()`: `emulator_->snapshot_raster()` before a paused refresh | the backend's `raster()` / `time()` take a PAUSED machine's snapshot at the query (`debugger_inspect.cpp`, `snapshot_if_paused`); running, they leave the last pause's alone, as the manager's call (paused only) did. An implementation change, no header change. It also fixes every other client: a script or remote client that paused a machine read the stale snapshot (power-on zeros with no Qt window) — INS-06-03 |
+| `DebuggerManager`: `Emulator*` passed to the window | gone |
+| `DebuggerWindow`: `Emulator*` stored, used nowhere; `core/emulator.h`, `core/rzx_player.h`, `debug/debug_state.h`, `debug/rewind_buffer.h` | gone (all four unused) |
+| `debugger_manager.cpp`: `core/emulator.h`, `debug/debug_state.h` | gone |
+| `audio_panel.cpp`: `audio/audio_mute.h` | `AudioMute::*` through `debug/debugger.h` → `inspect.h`, which publishes it |
+
+No published route was missing; no header changed.
+
+| Rows | Suite | Pins |
+|---|---|---|
+| QTF-09 | `debug_qt_free_test` | no `src/debugger/` file has an include directive of a core-layer header — the layer directory ANYWHERE in the path, so `"../core/emulator.h"` counts (review round 1) |
+| QTF-10 | `debug_qt_free_test` | no `src/debugger/` file names the `Emulator` type in code (comments and string / char literals stripped; a `'` inside a number is a C++14 digit separator, not a literal — review round 1) |
+| QTF-11 | `debug_qt_free_test` | anti-vacuity: the scan read the real `src/debugger/` |
+| QTF-12/13 | `debug_qt_free_test` | both detectors on a planted tree, one plant per branch (review round 1): an include of each of the seven layers, a spaced-out one and a relative `../core/` one flagged — `debug/`, `qt/`, `debugger/memory_panel.h`, `libcore/`, a commented include and a string not; a forward declaration, a pointer parameter and code after `1'000` flagged — a multi-line block comment, a string with escaped quotes, `'"'` and `L'"'` char literals, and `EmulatorWidget` not |
+| INS-06-03/04 | `debugger_backend_test` | a paused machine's `raster()` / `time()` report where it stopped with no `snapshot_raster()` call by anyone (fails without the backend change); a running one's is not moved |
+
+### 6.2i WP8 as built (2026-09-30)
+
+**The one deliberate behaviour change of #278 (owner decision Q7, review R-3).**
+`MemoryPanel::locate()` names where a view offset lives: the CPU view is
+`MemSpace::cpu()` at the address; a slot view is the slot's own
+`SlotInfo::space` at `space_offset + (addr & 0x1FFF)` — `Page{nr_page}` for a
+RAM slot, `Rom{effective_page >> 1}` (offset `(effective_page & 1) * 0x2000`)
+for a ROM slot, exactly as CAP-INS-03 hands them over (REQ-qt-31); the panel
+composes no space itself. The paint reads a row per `peek` there, and a hex edit
+`poke`s there: a RAM slot's edit lands in the physical page, which an overlay
+over the slot does not see; a ROM slot's is `RefusedReadOnly` and the byte
+paints unchanged. For QMP-07 ("an unmapped page is readable through the
+selector") the selector gained a tenth item, **Page...**: it asks for an NR page
+number (hex, 00-DF; a cancel or a number with no backing store leaves the view
+as it was) and shows `Page{p}` — the one space the panel does compose, from the
+number the user typed. The slot labels (CAP-INS-03) are unchanged.
+
+**Expected values changed, both by this decision:**
+- **QMP-04 retired.** It pinned that a slot view reads through the CPU map with
+  an overlay showing in it — now the opposite; QMP-06a/06b/09 pin the new
+  behaviour for a DivMMC, a Multiface and a Layer 2 overlay. Its first half (a
+  slot view with no overlay shows the page mapped there) is implied by every
+  new row.
+- **QMP-03**: the selector has 10 items, the last `Page...` (was 9).
+- QMP-04b (a slot edit lands where the CPU sees it) is unchanged and still true:
+  with no overlay the physical page IS the CPU's view of the slot.
+
+| Rows | Suite | Pins |
+|---|---|---|
+| QMP-06a | `debugger_panels_test` | a ROM slot under DivMMC's conmem ROM: CPU view = DivMMC's bytes, Slot 0 = the ROM's (`Rom{…}`); `Page{}` at the ROM's own page number is planted with a THIRD set, so the R-3 mistake shows as a failure |
+| QMP-06b | `debugger_panels_test` | a RAM slot under the Multiface's RAM (NR 0x51 = $30): CPU view = MF RAM, Slot 1 = page $30 |
+| QMP-07 | `debugger_panels_test` | `Page...` shows page $47, which is in no slot, and an edit writes it; cancel or `E0` leave the view |
+| QMP-08 | `debugger_panels_test` | a Slot 1 edit lands in page $30, unseen by the CPU view under the overlay; a Slot 0 (ROM) edit is refused and paints unchanged |
+| QMP-09 | `debugger_panels_test` | a Layer 2 write-over (port 0x123B) in slot 0 does not leak into the Slot 0 view |
+| QMP-12 | `debugger_panels_test` | an offset past $1000: reads $1A30 and writes $1A40 of the page, not $1000 below (the `& 0x0FFF` survivor `q-wp56-review` noted) |
+| QMP-13 | `debugger_panels_test` | a view change starts at the top — **defect found writing QMP-06b**: the scroll bar kept the old view's position and `valueChanged` put it straight back, so a Slot view opened from CPU View at $8000 showed its last rows |
+| QMP-14 | `debugger_panels_test` | (review round 1) legacy-paged 48K/128K slots: 48K Slot 3 = what the CPU sees at $6010, Slot 0 = the legacy ROM image (`Rom{…}`, not SRAM) at $0010, 128K Slot 6 = the 0x7FFD bank — retired QMP-04's no-overlay half, restored |
+| QMP-15 | `debugger_panels_test` | (review round 1) `Page...` accepts DF, the last page, and `$47` / `0x47` as page 47 |
+
 ### 6.3 Mutation checks for the #278 reviewer
 
 Each mutation is applied to the REFACTORED tree, in its own build dir, and
@@ -845,11 +1588,11 @@ prove the harness sees a known mutation first):
 
 1. `step_over()` in the backend: drop the DJNZ case → `QSO-05` (the §6.2 order puts RST at 04; corrected by WP0).
 2. `run_to_end_of_frame()`: target `FB_HEIGHT-1` without `vblank_top` → DVP-11.
-3. Pause epoch: increment on resume as well → `QPE-*` (panels refresh while running).
+3. Pause epoch: increment on resume as well → `QPE-*` (panels refresh while running). **As built there is no epoch (§4.1):** the equivalent mutation applies the PAUSE edge whenever the pulled state differs from the shown one — i.e. on a resume too → QPE-07.
 4. `render_layer(ULA_PRIMARY)`: follow the live bank instead of forcing it → DVP-03.
 5. `nextreg_peek` → `read` → DVP-PEEK-02 (NR 0x2D latch); `nextreg_peek` → the raw cache → `QNR-02` (WP0: the latch half was already DVP-PEEK-02's).
 6. `read_memory` inside a guest scope → INSPW-01.
-7. Observer notification dropped from `add_pc` → GH220-*.
+7. Observer notification dropped from `add_pc` → GH220-*. **As built (WP4c):** the model's own publish dropped from its `add()` of an Execute breakpoint → GH220-01/04/05.
 8. `rewind_to_frame` outcome collapsed to bool → `QRW-13..15`.
 9. Detach while paused stops resuming → QG-02 / PBPUI.
 10. Move `debug_keymap_qt.h` back under `src/debug/` → the lint row.
@@ -915,6 +1658,28 @@ construction). Then, in dependency order:
    those on too — the same things `active()` gated directly before B3, now
    reached through the two bits that replaced it in the hot path.
 
+**Status of the three (WP2, WP3 and WP4c, 2026-09-29):**
+
+1. **Done in WP4c.** The GUI's breakpoints are an observer client's
+   subscriptions, which the backend re-applies across a cold boot (rule 2), and
+   the views follow `BreakpointModel`, outside the `Emulator`; `active()` is
+   retired. So `emulator_cold_boot()`'s `BreakpointSet` / `active()`
+   save-and-restore is DELETED — it carries nothing of the debugger's — and the
+   re-application mirrors the master switch into the rebuilt legacy set. Re-pinned:
+   backend CTL-12-16/17 and CTL-12-32..35 against the client model,
+   `nextreg_integration_test` CB-BP-01 through the backend, and CTL-12-27's
+   landing breakpoint set on the rebuilt machine (§6.2d).
+2. **Done in WP2** — both deferred reconstructs (hard reset, NEX `.run`) are
+   polled in `post_frames()` before `pump()`; rows HOST-08 and
+   `qt-host-order-func` (§6.2b).
+3. **Done in WP3.** `Emulator::rewind_to_cycle()` / `rewind_to_frame()` no
+   longer call `set_active(true)` on any path: a restore only pauses, and the
+   replay is armed by `DebugState::ReplayArmScope` for its own loop, restoring
+   whatever armed the machine before. A client's `step_back()` /
+   `rewind_to_frame()` followed by its detach leaves the machine unarmed and
+   running (OBL3-01/02); a replay with nothing attached still stops on its
+   target (OBL3-03).
+
 **Branch discipline (review R-7; owner rule 2026-09-24, arch §10.3):** #278
 is one multi-stage issue and lives on **one** branch, `gh278-qt` (arch
 §10.1). WP1..WP7 are commit series or short-lived sub-branches OF `gh278-qt`
@@ -936,7 +1701,7 @@ Sent as `REQ-qt-<n>: <capability> — <why> — <site>`; answers recorded here.
 | REQ | Capability | Status vs backend.md v1 |
 |---|---|---|
 | 01 | attach()/detach() — `debugger_manager.cpp:92-93,149-150` | served: CAP-SES-01/05, CAP-INS-12 |
-| **01b** | per-client `set_live_raster(cid, bool)` — the adapter stays attached; window show/hide toggles the render hint — `:90-99, :152-155` | **ACCEPTED** → CAP-SES-05 per-client, OR'd into the render hint + raster walk |
+| **01b** | per-client `set_live_raster(cid, bool)` — the adapter stays attached; window show/hide toggles the render hint — `:90-99, :152-155` | **ACCEPTED** → CAP-SES-05 per-client, OR'd into the render hint + raster walk. As built (WP2): the adapter attaches and requests the live raster while its window is open (§4.1) |
 | **01c** | finding: `active()` gates the step machinery too (`debug_state.h:17`, `emulator.cpp:9251, 9916`); CAP-SES-05 must not make step-out / step-back depend on `live_raster` | **ACCEPTED** → two flags: `attached` gates the step machinery, `live_raster` only the render hint/raster walk |
 | 02 | paused()/pause()/resume() — `:326-375` | served: CAP-CTL-01/02/13 |
 | 03 | step_into() = `debugger_step()` — `:391` | served: CAP-CTL-03 |
@@ -949,18 +1714,18 @@ Sent as `REQ-qt-<n>: <capability> — <why> — <site>`; answers recorded here.
 | 09 | rewind buffer control/range, frame number — `debugger_window.cpp:580-614, 774-890` | served: CAP-ST-03, CAP-INS-07 |
 | **09b** | `snapshot_bytes()` — `:816, :850` | **ACCEPTED** → `rewind_range()` = {oldest, newest, depth, capacity_frames, snapshot_bytes} |
 | **09c** | `rewind_blocked()` pre-query for greying — `:709-714` | **ACCEPTED** → `rewind_blocked() -> optional<string reason>` |
-| **09d** | "does the machine sit on a restored frame start?" (`Emulator::at_restored_frame_start()`, WP0 fix round) — Frame Back's target and the "Rewound" status need it (`debugger_window.cpp` `frame_back()`, `update_rewind_ui()`); the backend's own `run_to_frame()` already reads it | **OPEN** — raised by the WP0 fix round, for WP3; e.g. a flag in `Time` or `RewindRange` |
+| **09d** | "does the machine sit on a restored frame start?" (`Emulator::at_restored_frame_start()`, WP0 fix round) — Frame Back's target and the "Rewound" status need it (`debugger_window.cpp` `frame_back()`, `update_rewind_ui()`); the backend's own `run_to_frame()` already reads it | **OWNER-APPROVED 2026-09-29, DONE in WP3** — `bool at_restored_frame_start = false;` added to `RewindRange` (ST-03), the one declaration change WP3 makes to the frozen headers, filled from `Emulator::at_restored_frame_start()`; rows ST-03-11..15. It was not derivable from the rest of the published API: a restored start of frame K and the ordinary boundary after K are identical in `time()`, `state()` and `at_frame_boundary()` except for `master_cycle`, and the start of K could only be computed from `rewind_range()`'s newest snapshot by assuming a fixed frame length, which an NR 0x03 timing or NR 0x05 50/60 Hz switch inside the ring's span breaks. `frame_back()` and `update_rewind_ui()` read the field; the reach-around is gone |
 | 10 | trace enable/export — `:214-244, 542-574` | served: CAP-INS-13 |
 | **10b** | `trace_enabled()` query + `trace_clear()` — `:218, 558, 755` | **ACCEPTED** → CAP-INS-13 |
 | 11 | corruption observables — `debugger_manager.cpp:279-303` | served: CAP-CTL-11 |
 | **12** | `magic_breakpoint()` / `set_magic_breakpoint(b)` — `main_window.cpp:930-936`, MBP-01/02 | **ACCEPTED** → new CAP-CTL-14 |
 | 13 | breakpoint model + mutators + observer — §3.5 | served: CAP-EVT, CAP-INS-17, CAP-SES-02 |
-| **13b** | `SubscriptionsChanged` carries the kind (PC vs data) — `disasm_panel.cpp:143-147`, GH #220 | **ACCEPTED** → `SubscriptionsChanged{kinds: bitmask}` |
+| **13b** | `SubscriptionsChanged` carries the kind (PC vs data) — `disasm_panel.cpp:143-147`, GH #220 | **ACCEPTED** → `SubscriptionsChanged{kinds: bitmask}`. As built the payload is the LIVE kind set (SES-02-11 pins it), not the changed set, so `BreakpointModel` diffs the listing to find the changed kinds (§4.1b) |
 | **13c** | READ_WRITE as one listable/editable row — kind bitmask or adapter pairing | **ACCEPTED** → memory subscriptions carry an `access` bitmask {Read, Write}; one row |
 | **13d** | GUI subscriptions: `owner = client`, no condition, `once=false`, `Stop`; panel lists all owners | **CONFIRMED**; a client edits only its own rows — script/remote rows are read-only in the panel (settles §9.2 as design) |
 | 14 | symbol table in the backend — `debugger_manager.h:131` | served: CAP-SYM |
 | 15 | pause/resume transitions — `:682-720` | served: CAP-SES-02 + CAP-CTL-13 |
-| **15b** | listener contract: the Qt listener records only; UI work deferred to the tick (§4) — no backend change, recorded so the backend does not assume UI-in-callback | note |
+| **15b** | listener contract: the Qt listener records only; UI work deferred to the tick (§4) — no backend change, recorded so the backend does not assume UI-in-callback | note — **as built (WP2): no listener for the pause; the tick pulls `state()` (§4.1). WP4c: the breakpoints' observer client has a listener that RECORDS a `SubscriptionsChanged` and the tick publishes it (§4.1b)** |
 | 16 | registers() — `cpu_panel.cpp:199` | served: CAP-INS-01 |
 | 17 | memory peek (non-perturbing, F1) / poke — `memory_panel.cpp:128-153` | served: CAP-INS-02 |
 | **17b** | confirm `poke(Cpu)` ≡ `Mmu::write` minus watchpoints | **CONFIRMED** (outside `GuestExecutionScope`; returns count + `RefusedReadOnly`, which the GUI ignores) |
@@ -977,15 +1742,17 @@ Sent as `REQ-qt-<n>: <capability> — <why> — <site>`; answers recorded here.
 | 26 | layer_state() | adapter-side from CAP-INS-04 — no REQ |
 | 27 | ULA palette — `:1060-1062` | served: CAP-INS-15 |
 | **27b** | active ULA palette bank + one RGB333→ARGB function | **ACCEPTED** → `PaletteId::UlaActive`, `active_ula_palette_bank()`, `rrrgggbb_to_argb` re-exported from `inspect.h` |
-| 28 | render_layer — `:394-630` | served: CAP-INS-14; split per §3.7 **NEEDS-PROTOTYPE** (agreed: verbatim move, re-run DVP first — WP4d step 1) |
+| 28 | render_layer — `:394-630` | served: CAP-INS-14; split per §3.7 **NEEDS-PROTOTYPE** (agreed: verbatim move, re-run DVP first — WP4d step 1). **Implemented (WP4d, §3.7a):** the uniform alpha-0 contract held for every DVP render and 1088 renders of 34 programs; the one difference, the tilemap clip, was a presentation defect, fixed |
+| **27c** | a published RGB333 (9-bit) → ARGB expansion beside `rrrgggbb_to_argb()` — the ULA swatch shows `palette(UlaActive)`'s RGB333 entries, and the only published expansion was the 8-bit one, which gives different colours (blue `10`: `0xAA` vs `0xB6`; DVP-PAL-01 fails on it) | **OWNER-APPROVED 2026-09-29; DONE in WP4d review round 1**: `rgb333_to_argb()` in `inspect.h` (the only declaration WP4d adds to a frozen header; the stale `Layer` doc comment beside it corrected), forwarding to `rgb333_to_argb8888()`; INS-15-20/21; `video_panel.cpp` has no core include left (§3.7a) |
 | **30** | WP8 contract on CAP-INS-02: `peek(Page{p})` returns the NR page's bytes regardless of any DivMMC/Multiface/L2 overlay over the slot; `poke(Page{p})` writes it, invisible to an overlay. **Reworded (review R-3):** `Page{p}` is used for RAM slots only; a ROM slot's bytes come from `MemSpace::Rom{…}` and its `poke` is `RefusedReadOnly` (panel renders "unchanged") — `memory_panel.cpp:123-154`, owner Q7 | **CONFIRMED** (backend CAP-INS-02 / §4.2a; matrix: Qt 39 used / 16 declined, INS-02 Page = S via Q WP8). The backend also logs every mutation as one SES-06 line `MUTATE <what> <old> -> <new> by <client>` — no panel change needed |
 | **31** | `SlotInfo` should carry the `MemSpace` that reads the slot's backing store (`space ∈ {Page{nr_page}, Rom{index}, bank7-BRAM…}`) so the Memory panel — and every other client — never composes a `MemSpace` from `effective_page` + `is_rom` (that composition is exactly what R-3 caught: `get_effective_page()` is SRAM-physical for ROM slots, `mmu.h:74-77`). Alternatively: settle the `Rom` enumeration (backend §11 item 1) and state the rule "ROM slot ⇒ `Rom{effective_page}`" explicitly. WP8 depends on one of the two | **ACCEPTED** (verified by the backend): CAP-INS-03 `SlotInfo.space` = `Page{nr_page}` for a RAM slot, `Rom{effective_page}` for a ROM slot; backend §11 item 1 closed from the code (`Rom{i}` = 8 KB ROM page index: SRAM pages 0..7 in Next mode, the `Rom` object's pages on 48K/128K/+3; `poke(Rom)` = `RefusedReadOnly`). WP8 branches on `SlotInfo.space` directly; the `is_rom` split is equivalent. **Refinement (backend, after the protocols review):** `Rom{index}` is a 16 KB ROM image (index 0..3, addresses 0..0x3FFF; SRAM pages 2i/2i+1 on the Next, the `Rom` object's image on classic machines), and `SlotInfo` carries `space` + `space_offset` (ROM slot → `Rom{effective_page >> 1}`, offset `(effective_page & 1)·0x2000`; RAM slot → `Page{nr_page}`, offset 0). WP8's read is `peek(space, space_offset + addr_in_slot, …)`; the 8 KB slot view and the QMP-06a/06b/07/08/09 rows are unaffected (they address bytes within the slot, never the image) |
+| **32** | a NON-ARMING observer attach — a client that installs a listener and counts toward no arm bit (a `ClientInfo` flag, or an `observe()` verb). SES-01's attach is the only way to become a client and it ARMS the machine (§5), so the Qt adapter cannot be a client for the process lifetime without changing GH #219's default (PBPUI-03, §4.1); B4's O5 is the same class for a loop owner and `ExitRequested` | **OWNER-APPROVED 2026-09-29, DONE in WP4c** — WP4c needed it: the GUI's breakpoints must outlive the window (a closed window keeps them; `--persistent-breakpoints` fires them with it shut) without arming a closed one, and the only other design (a window client attached "while open OR flagged") failed four identity counts (§4.1b). `bool observer = false;` in `ClientInfo` — the one declaration change WP4c makes; `clients_changed()` does not count an observer toward `clients_attached_`. Rows OBS-01..09 (backend), PBPUI-12..14 (Qt) |
 | **29** | CAP-CTL-15 `load(path)` must preserve every client's subscriptions, the master switch and the attached/live_raster state across the destroy/reconstruct, exactly as `emulator_cold_boot()` does for `BreakpointSet` + `active()` today — `src/platform/emulator_boot.h:133-146` (review N-10) | **ACCEPTED** (verified by design-backend): CAP-CTL-15 `load()` and CAP-CTL-12 `reset(Hard)` share the reconstruct contract — subscriptions, enable flags, master/per-client switches, attached/live_raster and the symbol table are kept outside `Emulator` and the hooks re-installed after the placement-new; a backend row pins it |
 
 MAPPED against backend.md v3 + the owner review of 2026-09-27 + round 4:
 **40 CAP ids used (35 of v1, +3 additions CAP-CTL-14 / CAP-INS-19 / per-client
 CAP-SES-05, + CAP-INS-02 `MemSpace::Page` and `MemSpace::Rom` per Q7/R-3), 15
-declined (§3.3), 0 REQs open, 0 reach-arounds (backend v7).** (Since then the WP0 fix round opened REQ-qt-09d.) All 14
+declined (§3.3), 0 REQs open, 0 reach-arounds (backend v7).** (Since then the WP0 fix round opened REQ-qt-09d — owner-approved and done in WP3 — and WP2 raised REQ-qt-32, owner-approved 2026-09-29.) All 14
 sub-REQs ACCEPTED/CONFIRMED; REQ-qt-28 is NEEDS-PROTOTYPE by agreement
 (§3.7). To be re-confirmed as "MAPPED" against v2 when broadcast (additions
 only expected).
@@ -995,6 +1762,14 @@ only expected).
 ## 9. Open questions for the owner
 
 None open.
+
+Settled by the owner (2026-09-29, GH #278 milestone-1 review):
+* **CTL-13 — closing the Qt debugger window while a `Magic` pause holds the
+  machine: it resumes, as it always has ("ctl-13: agree").** The window's close
+  resumes whoever paused; the no-owner rule for `Magic`/`Corrupt` binds only
+  SES-01's `detach()`. Architecture §4.1 CTL-13 amended to say so (§4.1 above).
+* **REQ-qt-32 — a non-arming observer attach: approved**, to land "when first
+  needed" — which was WP4c, whose breakpoints' owner it is (§4.1b, §8).
 
 Settled by the owner (review 2026-09-27):
 * **Q7 — Memory panel "slot view" becomes a TRUE physical-page read.**

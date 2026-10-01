@@ -1956,7 +1956,7 @@ three is an easy mistake to make.</p>
 </tr>
 <tr>
 <td>Cold boot</td>
-<td><code>emu.~Emulator(); new (&amp;emu) Emulator();</code> at the same address, followed by <code>init(cfg)</code> — <code>emulator_cold_boot()</code> in <code>src/platform/emulator_boot.h</code>. This is what the reset button, F1 and NR 0x02 bit 1 actually do: the hardware reloads the FPGA, so nothing survives. Only host-side state is carried across: <code>emulator_cold_boot()</code> keeps the breakpoints and the debugger's active flag, the per-source audio mute mask and the esxDOS stub's in-memory file, and <code>emulator_frontend_cold_boot()</code> puts the live joystick sources, output gains and magic-breakpoint toggle into the boot config.</td>
+<td><code>emu.~Emulator(); new (&amp;emu) Emulator();</code> at the same address, followed by <code>init(cfg)</code> — <code>emulator_cold_boot()</code> in <code>src/platform/emulator_boot.h</code>. This is what the reset button, F1 and NR 0x02 bit 1 actually do: the hardware reloads the FPGA, so nothing survives. Only host-side state is carried across: <code>emulator_cold_boot()</code> keeps the per-source audio mute mask and the esxDOS stub's in-memory file (the debugger's breakpoints are backend subscriptions outside the <code>Emulator</code>, re-applied by the debugger backend after the reconstruct), and <code>emulator_frontend_cold_boot()</code> puts the live joystick sources, output gains and magic-breakpoint toggle into the boot config.</td>
 <td>frontend, after <code>take_hard_reset_request()</code></td>
 </tr>
 <tr>
@@ -1976,8 +1976,9 @@ reset, and it was removed (GH #239).</p>
 host code that is holding <code>&amp;emu</code>, or a reference to something inside it, stays
 valid across a cold boot. What lives <em>inside</em> the object does not survive it,
 so <code>emulator_cold_boot()</code> carries across what belongs to the host — the
-debugger's breakpoints, the esxDOS stub's file, the record of RZX files that
-failed to write — and first ends an RZX recording by writing it
+esxDOS stub's file, the record of RZX files that failed to write, the audio
+mute mask; the debugger's breakpoints live outside the object, in the debugger
+backend, which re-applies them after the reconstruct — and first ends an RZX recording by writing it
 (<code>Emulator::end_rzx_at_reset()</code>), which would otherwise be destroyed unwritten. The same trick is why a live worker thread inside the
 object would be a silent-corruption hazard rather than an obvious crash, and it
 is why the emulated ESP is owned here rather than by a frontend.</p>

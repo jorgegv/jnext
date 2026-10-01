@@ -2026,7 +2026,13 @@ from <code>--machine</code>. <code>MachineTimingMode</code> (<code>Timing48</cod
 <code>--machine pentagon</code>; guest software reaches it by writing NR 0x03.</p>
 <p><code>AttributeMux</code> models the mid-line attribute-write multiplexing that
 Nirvana-class multicolour routines depend on, tagged with the raw frame
-<code>(hc, vc)</code> at the instant the byte lands on the bus. <code>Mmu</code> separately keeps the
+<code>(hc, vc)</code> at the instant the byte lands on the bus. A CPU write states that
+position for its one write: <code>fuse_z80_writebyte</code> calls
+<code>Mmu::attr_mux_set_write_pos()</code> before the write and <code>attr_mux_end_write()</code>
+after it. Every other writer — the DMA, the tape traps, the debugger's <code>poke</code> —
+is tagged with the line <code>Emulator::on_scanline()</code> last set, at column 0. Until
+GH #278 the CPU's position outlived its write, and the next non-CPU attribute
+write took it over (<code>mmu_integration_test</code> G12-TAG). <code>Mmu</code> separately keeps the
 +3 floating-bus latch <code>p3_floating_bus_dat_</code>, updated on every read that
 <code>mem_contend_for_(addr)</code> says is contended — a per-page decode, not the older
 per-16 KB mirror.</p>
