@@ -2072,6 +2072,29 @@ static void host_rows() {
     }
 }
 
+static void host_deferred_rows() {
+    // A deferred action still queued counts as unreached: the machine is
+    // stopped mid-frame by the rule that queued it, before the edge.
+    HostRig g;
+    g.dbg->set_stop_policy(jnext::dbg::StopPolicy::Pause);
+    ScriptHostOptions o;
+    o.exits   = false;
+    o.scripts = {tmp_file("d.jds", "on scanline 100 once do joystick 1 0x01 stop \"mid\" end\n")};
+    const bool ok = g.start(o);
+    g.run(1);
+    const bool mid = g.dbg->state().paused;
+    const size_t pending = g.host->unreached_verdicts();
+    g.dbg->run(g.tc);
+    g.run(1);
+    check("SCRIPT-HOST-UNREACHED-DEFERRED", "a deferred action still queued (a joystick issued mid-frame, the "
+                                            "machine stopped before the edge) counts as unreached, and no "
+                                            "longer once the edge has applied it",
+          ok && mid && pending == 1 && g.host->unreached_verdicts() == 0 &&
+              g.dbg->input_state().joy_left12 == 0x01,
+          "mid=" + std::to_string(mid) + " pending=" + std::to_string(pending) + " after=" +
+              std::to_string(g.host->unreached_verdicts()));
+}
+
 int main() {
     std::printf("script_events_test — the debugger DSL engine on a real machine (GH #26 WP3)\n");
 
@@ -2095,6 +2118,7 @@ int main() {
     run_group("work", work_rows);
     run_group("bounds", bounds_rows);
     run_group("host", host_rows);
+    run_group("host_deferred", host_deferred_rows);
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);
