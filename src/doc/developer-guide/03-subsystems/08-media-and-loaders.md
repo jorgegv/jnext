@@ -593,10 +593,32 @@ demonstrates them any more.** First, a `.jns` restore is faithful enough to RUN
 and not bit-exact enough to REPLAY: at the first `run_frame` the CPU state
 matched the recording exactly and the same snapshot animates correctly under
 `--load`, yet from that identical PC the first port read differed. Do not assume
-`.jns` is replay-grade. Second, `dma_.read_io` is wired to `port_.read()` — the
-pre-override path — so a DMA port read is neither recorded nor replayed, on any
-machine and for any snapshot type; that is a pre-existing RZX limitation and
-still true.
+`.jns` is replay-grade. Second, the DMA was outside the log: `dma_.read_io` was
+wired to `port_.read()`, which has no RZX hook, so a DMA port read was neither
+recorded nor replayed. GH #283 moved it to `PortDispatch::guest_read()`, the
+RZX-aware read the CPU's `IN` also takes (`in()` forwards to it). `read()` stays
+hook-free on purpose: it is also every tool's read — the debugger's `port_in()`
+— and a tool's read is not input. `port_in()` is refused (`RefusedRzx`) while an
+RZX records or plays, as `port_out()` is: it dispatches the live handler, and a
+port read's side effects (a UART RX pop, the SPI shift, a Multiface strobe) are
+a change to the machine no recording can carry. On the playback branch
+`guest_read()` still raises the I/O watchpoint and latches the CAP-EVT `Port`
+event, with the replayed value, for the CPU's read and the DMA's alike. The DMA keeps its own timing; the CPU's bus
+cycle (`fuse_z80_readport()`) is around `in()`, not in `guest_read()`.
+
+Replay then agrees with the recording only while the DMA makes the same reads in
+the same order, and it does, given the same machine: whether a slot is a DMA
+burst or a CPU instruction (`step_one_instruction()`), how many bytes a burst
+moves (`Dma::execute_burst()`: block length, prescaler, `dma_delay`, the bus
+handshake) and which port each read hits are all functions of emulated state,
+which the replay rebuilds from the snapshot and the logged values. jnext's
+player delimits frames by emulator frame, not by the fetch counter, and the
+counter counts only CPU instructions, so DMA reads land in the frame they
+happened in on both sides. The gap is the snapshot: SNA and SZX hold no DMA
+registers and no NextREGs, and playback's `init()` resets the DMA. A transfer
+programmed before the recording started therefore replays from a reset DMA and
+goes out of step — documented for users in the RZX section of the user guide.
+`rzx-dma-func` (fixture `demo/rzx_dma_demo`) and `dma_test` GH283-01..12 pin it.
 
 Playing a Next recording an older jnext wrote is NOT refused: `load_rzx()` warns,
 names what the embedded snapshot cannot restore, and plays. The file is a fait

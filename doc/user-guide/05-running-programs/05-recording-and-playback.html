@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.58</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.57</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.58</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3083,8 +3083,17 @@ machine actually did.</p>
 one mid-recording — plays up to the second snapshot, and JNEXT says so.</p>
 <p>Because it stores input rather than pixels, an RZX is tiny compared with a
 video — but it only replays correctly in an emulator that models the machine the
-same way. It also only replays what its snapshot holds, which on the 128K and +3
-is the whole machine.</p>
+same way. It also only replays what its snapshot holds: the memory and the paging
+of the 48K, 128K or +3. The Next hardware a program on those machines can still
+reach — on JNEXT as on a real Next — is not in it: the NextREGs, the DMA, and the
+sprite, palette and Copper memory.</p>
+<p>Port reads the DMA makes are input like any other and are recorded and replayed
+with the program's own; earlier JNEXT versions missed them, so a program that
+read a port through the DMA replayed out of step. The DMA's <em>settings</em> are still
+not in the snapshot. A program that set the DMA up before the recording started
+replays its transfers from a DMA that was never set up, and goes out of step;
+one that sets it up after the recording starts, or for every transfer, replays
+faithfully.</p>
 <h2 id="recording-is-not-available-on-a-next">Recording is not available on a Next<a class="headerlink" href="#recording-is-not-available-on-a-next" title="Permanent link">&para;</a></h2>
 <p>JNEXT records an RZX on a <strong>48K, 128K or +3</strong> only. The Next is JNEXT's default
 machine, so recording needs <code>--machine 48k</code>, <code>128k</code> or <code>plus3</code> — or, in the GUI,

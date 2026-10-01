@@ -30,6 +30,20 @@ public:
     uint8_t read(uint16_t port) const;
     void    write(uint16_t port, uint8_t val);
 
+    /// A port read made BY THE EMULATED MACHINE: the CPU's `IN` (in() forwards
+    /// here) and the DMA's I/O-source read (Emulator's `dma_.read_io`). This is
+    /// read() plus the RZX hooks below — a playback answers the read from the
+    /// recording, a recording captures its value — and nothing else, so the DMA
+    /// takes none of the CPU's bus cycle: that is in z80_cpu.cpp's
+    /// fuse_z80_readport(), around the call to in().
+    ///
+    /// read() itself stays hook-free, because it is also every tool's read — the
+    /// debugger's port_in() and the tests — and an RZX holds only what the
+    /// machine read (GH #283: the DMA used to call read() and so was neither
+    /// recorded nor replayed). Writes need no twin: an RZX records no OUTs, so
+    /// out() is write() and the DMA's `write_io` already takes the same path.
+    uint8_t guest_read(uint16_t port);
+
     /// Set a default read callback for unmatched ports (e.g. floating bus).
     /// If not set, unmatched reads return 0xFF.
     void set_default_read(std::function<uint8_t(uint16_t)> cb) { default_read_ = std::move(cb); }
@@ -92,11 +106,11 @@ public:
         else IoInterface::nextreg_opcode_write(reg, val);
     }
 
-    /// RZX playback: if set, all IN reads return values from this callback
-    /// instead of normal port dispatch.
+    /// RZX playback: if set, every guest_read() — the CPU's IN and the DMA's
+    /// port read — returns the value from this callback instead of dispatching.
     std::function<uint8_t(uint16_t)> rzx_in_override;
 
-    /// RZX recording: if set, called after each IN with the returned value.
+    /// RZX recording: if set, called after each guest_read() with its value.
     std::function<void(uint8_t)> rzx_in_record;
 
 private:

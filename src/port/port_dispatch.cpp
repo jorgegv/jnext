@@ -21,10 +21,10 @@ void PortDispatch::register_handler(uint16_t mask, uint16_t value,
 //
 // Placed in read()/write() rather than in()/out(): those two are the ONE
 // choke point every bus access reaches. `in`/`out` are only the CPU's
-// IN/OUT; the DMA's own port transfers call read()/write() directly
-// (emulator.cpp's dma_.read_io / dma_.write_io), and so does a handler that
-// nests a port write. Watching a port and missing the DMA's accesses to it
-// would be the wrong answer for a debugger.
+// IN/OUT; the DMA's own port transfers reach read()/write() without them
+// (emulator.cpp's dma_.read_io, through guest_read(), and dma_.write_io), and
+// so does a handler that nests a port write. Watching a port and missing the
+// DMA's accesses to it would be the wrong answer for a debugger.
 void PortDispatch::check_io_watchpoint_(uint16_t port, WatchType type) const {
     // watchpoints_live(), not armed() — armed() AND the access being the
     // emulated machine's rather than the debugger's own, so a panel or a tool
@@ -229,12 +229,21 @@ void PortDispatch::write(uint16_t port, uint8_t val) {
     }
 }
 
-// IoInterface implementation
+// IoInterface implementation — the CPU's IN. Everything it shares with the
+// DMA's port read is in guest_read(); anything only the CPU does belongs here,
+// not there.
 uint8_t PortDispatch::in(uint16_t port) {
-    // RZX playback: override all IN reads with recorded values.
+    return guest_read(port);
+}
+
+uint8_t PortDispatch::guest_read(uint16_t port) {
+    // RZX playback: override every read the machine makes with the recorded
+    // value — the CPU's IN and the DMA's port read alike (GH #283). An RZX
+    // stores values, not ports, so the two sides agree only while the guest
+    // makes the same reads in the same order; the DMA is part of that order.
     //
     // The only bus access that does NOT reach read(), so it carries its own
-    // watchpoint check (GH #222). The CPU really did execute `IN A,(n)`; only
+    // watchpoint check (GH #222). The machine really did make the read; only
     // the VALUE comes from the recording, and a user single-stepping a replay
     // still expects a watched port to stop the machine.
     if (rzx_in_override) {
@@ -248,7 +257,7 @@ uint8_t PortDispatch::in(uint16_t port) {
 
     uint8_t val = read(port);
 
-    // RZX recording: capture every IN value.
+    // RZX recording: capture every value the machine reads.
     if (rzx_in_record) rzx_in_record(val);
 
     return val;
