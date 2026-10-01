@@ -35,6 +35,11 @@ struct ScriptEngine::RuleRec {
     bool     enabled = true;
     bool     dead    = false;
     bool     fired   = false;  ///< a `once` rule that fired (backend: spent)
+    /// An `execute` rule whose body is only `stop ["msg"]`: registered as a
+    /// static `Stop` with no handler, so a client's stepping loop sees it
+    /// through `probe_execute` / `subscriptions()` (Appendix K). Its log line,
+    /// hit count and stop bookkeeping run in `on_paused()`.
+    bool     static_stop = false;
     uint64_t hits    = 0;
 };
 
@@ -276,6 +281,17 @@ std::vector<Subscription> ScriptEngine::subscriptions_for(Unit& u, RuleRec& rec,
     base.enabled = rec.enabled;
     RuleRec* self = &rec;
     base.handler = [this, self](const Event& e, dbg::Debugger& d) { return run_rule(*self, e, d); };
+    // A stop-only `execute` rule is a BREAKPOINT another client can see: a
+    // static `Stop`, its `when` as the condition, no handler (a probe may not
+    // run a handler — it could mutate — so a handler's verdict is invisible to
+    // every stepping loop but the backend's own). Its message is interpolated
+    // at the pause, where the machine is still at the same boundary.
+    rec.static_stop = ev.type == EventType::Execute && r.body.size() == 1 &&
+                      r.body[0].kind == ActionKind::Stop;
+    if (rec.static_stop) {
+        base.action  = Verdict::Stop;
+        base.handler = nullptr;
+    }
     dbg::Condition when;
     if (r.when)
         when = make_condition(r.when, u.state, [this, self](const Diagnostic& d) { runtime_error(*self, d); });
@@ -1065,7 +1081,55 @@ std::string ScriptEngine::pause_reason_text(const dbg::PausedInfo& info) const {
     return info.reason.text.empty() ? std::string(k) : std::string(k) + ": " + info.reason.text;
 }
 
+// The static-stop rules (see RuleRec::static_stop) that stopped at this pause:
+// their hit, their `once`, their log line and the stop verdict — exactly what
+// `run_rule` and `stop` do for a handler rule, done here because the backend
+// ran no handler. The message is interpolated on an Execute event at the
+// paused PC, which is the boundary the rule fired at.
+void ScriptEngine::account_static_stops(const dbg::PausedInfo& info) {
+    for (const dbg::Hit& h : info.matched) {
+        for (auto& u : units_) {
+            for (auto& r : u->rules) {
+                if (!r->static_stop || r->dead) continue;
+                bool mine = false;
+                for (dbg::EventId id : r->subs) mine = mine || id == h.event_id;
+                if (!mine) continue;
+                ++r->hits;
+                if (r->rule->once && !r->fired) {
+                    r->fired = true;
+                    for (dbg::EventId id : r->subs) dbg_.set_enabled(cid_, id, false);
+                }
+                Event ev;
+                ev.kind  = EventKind::Execute;
+                ev.pc    = info.pc;
+                ev.cycle = info.cycle;
+                ev.id    = h.event_id;
+                const auto slots = dbg_.mmu_slots();
+                ev.phys_page = slots[info.pc >> 13].effective_page;
+                const Action& a = r->rule->body[0];
+                std::string why = "stop";
+                try {
+                    if (a.s1) {
+                        const EvalContext ctx{dbg_, &ev, u->state.get(), nullptr};
+                        why = interpolate(*a.s1, ctx);
+                    }
+                } catch (const EvalError& e) {
+                    runtime_error(*r, e.d);
+                    continue;
+                }
+                log(dbg::LogLevel::Warn, "SCRIPT STOP: " + why + " at PC=" + hex(info.pc, 4) + " FRAME=" +
+                                             std::to_string(dbg_.time().frame) + " CYCLE=" +
+                                             std::to_string(info.cycle));
+                ++stops_;
+                last_stop_ = why;
+                if (h.event_id == info.reason.id) stop_reason_ = why;
+            }
+        }
+    }
+}
+
 void ScriptEngine::on_paused(const dbg::PausedInfo& info) {
+    account_static_stops(info);   // matched[] lists every stop of the boundary, whoever's was first
     const std::string reason = pause_reason_text(info);
     stop_reason_.clear();
     last_stop_reason_ = reason;

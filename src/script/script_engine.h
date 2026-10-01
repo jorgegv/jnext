@@ -176,6 +176,7 @@ private:
     void log(dbg::LogLevel level, const std::string& text);
     std::string stamp() const;
     std::string pause_reason_text(const dbg::PausedInfo& info) const;
+    void account_static_stops(const dbg::PausedInfo& info);
 
     dbg::Debugger& dbg_;
     EngineHost     host_;

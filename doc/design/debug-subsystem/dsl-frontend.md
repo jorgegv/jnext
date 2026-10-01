@@ -1896,3 +1896,36 @@ pinned menu shape (`debugger_accel_test`).
 - **No regression row for the GUI path**: §8's `script-hostkey-func` is WP7's,
   headless. The GUI path is pinned in the Qt unit suites above (offscreen,
   real windows, the real key Router and the real backend).
+
+### K.4 Breakpoints other clients can see (Z review finding, 2026-10-01)
+
+Every rule used to be registered as a static `Continue` plus a handler, the
+handler deciding `stop`. A client's own stepping loop — ZRCP `run n`, or any
+like it — asks which subscriptions would stop at a PC (`probe_execute` +
+`subscriptions()`), and a probe cannot run a handler (it might mutate), so it
+ran past every script breakpoint.
+
+- **A stop-only `execute` rule** (body exactly `stop ["msg"]`) is now
+  registered as a static `Stop`, its `when` as the subscription's condition,
+  no handler — the shape every frontend breakpoint has. `probe_execute` lists
+  it and `subscriptions()` reports `action Stop`, no handler.
+- **Its bookkeeping moved to `on_paused()`**, driven by `PausedInfo::matched`
+  (every stop of the boundary, whoever's was first): the hit, `once` (every
+  subscription of the rule spent — a page range has several), the
+  `SCRIPT STOP: <msg> at PC=… FRAME=… CYCLE=…` line, the stop count and last
+  reason (`status()`), and `REASON` for the `on stop` rules. The message is
+  interpolated on an Execute event at the paused PC — the boundary the rule
+  fired at, nothing executed since — so it reads what the handler read.
+  Exit 3 under `StopPolicy::ExitNonZero` is the backend's, unchanged.
+- **Still invisible to a probe**: every rule that does more than `stop` (a
+  `log` before the stop, a mutation, `snap`, a conditional `stop` inside
+  `if`, `assert`, `exit`, `compare_scr`) and every non-`execute` rule. Those
+  keep a handler, because only running the body knows the verdict. A script
+  author who wants a breakpoint another client honours writes it stop-only and
+  puts the condition in `when`. Mem / Port stops need no probe: they are
+  delivered after the instruction, which no stepping loop pre-empts.
+- Rows: SCRIPT-EV-STATIC-STOP, -WHEN, -ONCE, -PAGES, SCRIPT-HOST-STATIC-EXIT3.
+  `probe_execute` is still the `bool` form on this branch (it ignores
+  conditions); the condition-evaluating `std::vector<EventId>` form arrives
+  with Z, whose `other_breakpoint_at()` already reads `action == Stop &&
+  !has_handler` — the shape these rows pin.

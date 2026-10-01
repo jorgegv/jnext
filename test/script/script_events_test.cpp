@@ -2137,6 +2137,18 @@ static void host_round1_rows() {
 
 static void host_gui_rows() {
     {
+        // A static stop under ExitNonZero: the loop owner's exit code is 3.
+        HostRig g;
+        ScriptHostOptions o;
+        o.scripts = {tmp_file("ss.jds", "on execute 0x8000 do stop \"here\" end\n")};
+        const bool ok = g.start(o);
+        const int at = g.run(2);
+        check("SCRIPT-HOST-STATIC-EXIT3", "a stop-only `execute` rule (a static Stop) under the headless policy "
+                                          "still gives the loop owner exit 3, its stop logged",
+              ok && at == 0 && g.host->exit_code() == 3 && g.sink.count("SCRIPT STOP: here at PC=8000") == 1,
+              "at=" + std::to_string(at) + " code=" + std::to_string(g.host->exit_code()));
+    }
+    {
         // The Script tab's Event column: the filter as REGISTERED.
         Rig g(kPark);
         const std::string map = tmp_file("d.map", "SYM = $9100 ; const\n");
@@ -2246,6 +2258,83 @@ static void host_gui_rows() {
     }
 }
 
+// ── STATIC STOPS — a stop-only `execute` rule is a breakpoint other clients
+//    can see (a static `Stop`, no handler); its bookkeeping runs at the pause ──
+
+static void static_stop_rows() {
+    {
+        Rig g(kWriter);
+        const bool ok = g.load("on execute 0x8005 when A == 0x5A do stop \"five ${PC:x4} A=${A:x2}\" end\n"
+                               "on stop do log \"R ${REASON}\" end\n");
+        const auto subs = g.subs();
+        const bool shape = subs.size() == 1 && subs[0].action == jnext::dbg::Action::Stop && !subs[0].has_handler &&
+                           subs[0].has_condition && g.dbg->probe_execute(0x8005) && !g.dbg->probe_execute(0x8007);
+        g.frames(2);
+        const auto st = g.eng->status();
+        check("SCRIPT-EV-STATIC-STOP", "a stop-only `execute` rule registers as a static Stop with its `when` as "
+                                       "the condition and no handler — listed by probe_execute at its PC, not "
+                                       "elsewhere — and when it fires the machine pauses at it, its message "
+                                       "(payload and registers interpolated) is logged as before, `on stop` sees it "
+                                       "as REASON, and its hit and the stop verdict are counted",
+              ok && shape && g.paused() && g.pc() == 0x8005 &&
+                  g.sink.count("SCRIPT STOP: five 8005 A=5A at PC=8005 FRAME=0 CYCLE=") == 1 &&
+                  g.sink.count("R five 8005 A=5A") == 1 && g.hits(0) == 1 && st.stops == 1 &&
+                  st.last_stop == "five 8005 A=5A",
+              show(subs) + " " + g.sink.tail(3));
+    }
+    {
+        Rig g(kWriter);
+        const bool ok = g.load("on execute 0x8005 when A == 0x11 do stop \"never\" end\n");
+        g.frames(2);
+        check("SCRIPT-EV-STATIC-STOP-WHEN", "a static stop whose condition does not hold neither stops nor counts",
+              ok && !g.paused() && g.hits(0) == 0 && g.sink.count("SCRIPT STOP") == 0 &&
+                  g.eng->status().stops == 0,
+              g.sink.tail(2));
+    }
+    {
+        // `once`, `enable` re-arm, and unload, for a static stop.
+        Rig g(kLoop);
+        const bool ok = g.load("w: on execute 0x8003 once do stop \"loop\" end\n"
+                               "on hostkey 1 do enable w end\n");
+        g.frames(1);
+        const bool first = g.paused() && g.hits(0) == 1;
+        g.dbg->run(g.tc);
+        g.dbg->pump(jnext::dbg::PumpBudget{});
+        g.frames(2);
+        const bool spent = !g.paused() && g.hits(0) == 1 && !g.subs()[0].enabled;
+        g.dbg->raise_host_event(g.tc, "script1");
+        g.frames(1);
+        const bool rearmed = g.paused() && g.hits(0) == 2;
+        g.eng->unload_all();
+        check("SCRIPT-EV-STATIC-STOP-ONCE", "a static stop with `once` stops once and is spent, `enable` re-arms "
+                                            "it for exactly one more, and unload removes it",
+              ok && first && spent && rearmed && g.subs().empty() && g.sink.count("SCRIPT STOP: loop") == 2,
+              "first=" + std::to_string(first) + " spent=" + std::to_string(spent) + " rearmed=" +
+                  std::to_string(rearmed) + " " + g.sink.tail(2));
+    }
+    {
+        // A page range: one static stop per page; `once` spends them all.
+        Rig g({0xC3, 0x00, 0xA0});
+        g.emu.mmu().write(0xA000, 0xC3);
+        g.emu.mmu().write(0xA001, 0x00);
+        g.emu.mmu().write(0xA002, 0x80);
+        const unsigned p4 = g.emu.mmu().get_effective_page(4);
+        const bool ok = g.load("on execute page " + std::to_string(p4) + ".." + std::to_string(p4 + 1) +
+                               " once do stop \"pg\" end\n");
+        g.frames(1);
+        const bool first = g.paused() && g.hits(0) == 1;
+        g.dbg->run(g.tc);
+        g.dbg->pump(jnext::dbg::PumpBudget{});
+        g.frames(2);
+        size_t live = 0;
+        for (const auto& x : g.subs()) if (x.enabled) ++live;
+        check("SCRIPT-EV-STATIC-STOP-PAGES", "a stop-only page range is a static stop per page, and its `once` "
+                                             "spends every page's subscription at the first stop",
+              ok && first && !g.paused() && g.hits(0) == 1 && live == 0 && g.subs().size() == 2,
+              "live=" + std::to_string(live) + " hits=" + std::to_string(g.hits(0)));
+    }
+}
+
 int main() {
     std::printf("script_events_test — the debugger DSL engine on a real machine (GH #26 WP3)\n");
 
@@ -2272,6 +2361,7 @@ int main() {
     run_group("host_deferred", host_deferred_rows);
     run_group("host_round1", host_round1_rows);
     run_group("host_gui", host_gui_rows);
+    run_group("static_stop", static_stop_rows);
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);
