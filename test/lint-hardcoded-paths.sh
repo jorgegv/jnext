@@ -125,8 +125,8 @@ selftest() {
     # want=1 -> must be reported; want=0 -> must NOT be reported.
     t() {
         local want="$1" desc="$2" text="$3" got=0
-        if printf '%s\n' "$text" | grep -qE "$PATTERN" \
-           && printf '%s\n' "$text" | filter_placeholders | grep -q .; then
+        if grep -qE "$PATTERN" <<<"$text" \
+           && grep -q . <<<"$(filter_placeholders <<<"$text")"; then
             got=1
         fi
         if [ "$got" = "$want" ]; then

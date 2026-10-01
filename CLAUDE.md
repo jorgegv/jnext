@@ -372,7 +372,7 @@ run stayed green, which is the same silent shrinking the manifest exists to forb
 **`test/00regression/regression_tests.conf`** (screenshots) + **`functional_tests.conf`**
 (functional). At the end of a full run, `regression.sh` asserts every declared functional
 test reported exactly one row, no undeclared row appeared, and the total equals
-`5 lint + 1 sdcard-provision + screenshots + functional`. Screenshots additionally get an
+`6 lint + 1 sdcard-provision + screenshots + functional`. Screenshots additionally get an
 *independent* witness: every checked-in `img/<name>-reference.png` must have a conf entry, so
 truncating the conf cannot silently shrink the suite. Any mismatch is a **harness fault** (exit 2).
 
@@ -411,6 +411,13 @@ spawns a process tree. `test/lint-timeouts.sh`, row 3 of the preflight, enforces
 every tracked `*.sh` under `test/` — a wider scope than `lint-traps.sh`, since the hazard has
 nothing to do with being sourced. There is no exception list: whether a program handles
 SIGTERM is not statically decidable.
+
+**No pipeline in a test script may end in a quiet grep** (`producer | grep -q`). Under
+`pipefail` grep exits on its match, the producer dies of SIGPIPE, and 141 becomes the
+pipeline's status, so a line that IS there reads as missing (load-dependent; it made
+`warm-start-func` flap). Ask grep alone: `grep -q P <<<"$out"`, or `<<<"$(producer)"`.
+`test/lint-pipe-grepq.sh`, row 6 of the preflight, enforces it in every tracked test
+script that runs under pipefail.
 
 **The harness is itself under test.** `make harness-selftest` (also run every regression as
 `harness-selftest-func`) injects each fault against stub suites and asserts the refusal. It

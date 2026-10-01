@@ -118,10 +118,11 @@ PY
         "${SD_CARD_ARGS[@]}" --machine next --load "$nex" \
         --magic-port 0xCAFE --magic-port-mode line \
         --delayed-automatic-exit-frames 20 2>&1) || true
-    if echo "$out" | grep -qF "PAY!|Next|Next"; then
+    if grep -qF "PAY!|Next|Next" <<<"$out"; then
         pass_row " (file API + API/raw block streams returned host bytes)"
     else
         fail_row " (expected magic-port line 'PAY!|Next|Next')"
+        show_output "jnext" "$out"
     fi
 fi
 

@@ -14,10 +14,11 @@ if want magic-port-func; then
         --magic-port 0xCAFE --magic-port-mode line \
         --load "$PROJECT_DIR/test/00regression/nex/magic_port_demo.nex" \
         --delayed-automatic-exit 3 2>&1) || true
-    if echo "$port_output" | grep -q "Hello from ZX Next!"; then
+    if grep -q "Hello from ZX Next!" <<<"$port_output"; then
         pass_row " (magic port output verified)"
     else
         fail_row " (expected 'Hello from ZX Next!' in magic port output)"
+        show_output "jnext" "$port_output"
     fi
 fi
 

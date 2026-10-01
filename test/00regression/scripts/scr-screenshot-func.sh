@@ -91,12 +91,13 @@ PY
        && [[ "$cmp_out" == *"attrs=[56]" ]] \
        && [[ "$png_rc" -eq 0 ]] && [[ "$png_magic" == "89504e47" ]] \
        && [[ "$layers_rc" -ne 0 ]] \
-       && echo "$out" | grep -q "cannot be used with a .scr screenshot" \
+       && grep -q "cannot be used with a .scr screenshot" <<<"$out" \
        && [[ ! -f "$TMP_DIR/never.scr" ]] \
        && [[ "$qt_rc" -eq 0 ]] && [[ "$qt_size" -eq 6912 ]]; then
         pass_row " (.scr == SNA bank-5 screen, 6912 B; .png still PNG; layers refused; Qt writes .scr)"
     else
         fail_row " (scr_rc=$scr_rc scr_size=$scr_size $cmp_out png_rc=$png_rc png_magic=$png_magic layers_rc=$layers_rc qt_rc=$qt_rc qt_size=$qt_size)"
+        show_output "--layers run" "$out"
     fi
 fi
 

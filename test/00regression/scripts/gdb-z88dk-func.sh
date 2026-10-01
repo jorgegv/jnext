@@ -91,7 +91,7 @@ if want gdb-z88dk-func; then
         # only with the D answered OK and that line printed after it.
         if [[ $rc -ne 0 ]] && ! { [[ $rc -eq 1 ]] &&
                 grep -qF 'Connection to remote closed.' "$clog" &&
-                sed -n '/w: D$/,$p' "$clog" | grep -qF 'r: $OK#9a'; }; then
+                grep -qF 'r: $OK#9a' <<<"$(sed -n '/w: D$/,$p' "$clog")"; }; then
             fails+=("z88dk-gdb exited $rc")
         fi
         grep -qF "Registers:  af bc de hl af' bc' de' hl' ix iy sp pc clockl clockh" "$clog" ||
