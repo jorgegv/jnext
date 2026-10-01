@@ -22,6 +22,32 @@ loading, the block position. A new tape replaces the one that was in, whatever
 its format; a file that is not a valid tape is refused with a warning, and the
 tape that was in stays in.
 
+## Saving to tape
+
+**Tape > Start Saving…** (or `--tape-save FILE`) sends what the machine saves to
+a file, until **Tape > Stop Saving** (or until JNEXT exits). The file's
+extension picks the format:
+
+- **`.tzx`** records the tape output, like a cassette recorder plugged into
+  the MIC jack, so anything a program saves is captured: BASIC `SAVE`, and also
+  games and tools with their own saving routines. Standard blocks are stored as
+  standard TZX blocks, faster or slower ones with their own timings, and
+  anything else as the exact pulses.
+- **`.wav`** records the same signal as sound (8-bit mono, 44100 Hz), for other
+  emulators or for a real Spectrum through an audio cable.
+- **`.tap`** (or any other name) keeps only what is saved through the ROM's own
+  routine, which is what BASIC `SAVE` uses.
+
+`SAVE` through the ROM is instant whatever the format: JNEXT takes the block
+without making you wait for the routine. Other savers take as long as they take
+on a real machine. Saving adds to the end of an existing file, so a session can
+fill one tape; a `.tzx` or `.wav` that is not of the same kind is refused.
+
+What the tape output carries, the file gets. A program that clicks the MIC line
+while you play leaves those clicks on the tape, and a tape playing in real time
+is copied to the output, as on a real Next. Start saving just before the save
+and stop just after it to keep the file clean.
+
 ## Video
 
 **File > Record MPEG4 Video…** (Ctrl+F5) starts recording video with audio to
@@ -75,8 +101,9 @@ play an RZX saves the recording at that point and stops it, with a note on the
 status bar: a recording replays your input, and a reset is not input, so it
 could not be replayed. Start a new recording afterwards if you want the rest.
 
-RZX and `--tape-save` do not mix: started with `--tape-save`, JNEXT refuses to
-record or play an RZX — from the command line and from the File menu alike —
+RZX and tape saving do not mix: while saving to tape (`--tape-save`, or **Tape >
+Start Saving…**), JNEXT refuses to record or play an RZX — from the command line
+and from the File menu alike — and while an RZX runs, saving cannot start,
 because the SAVE capture skips the ROM routine a recording would have to replay.
 
 While a recording runs, tapes load in real time, at their true speed: a fast

@@ -353,6 +353,31 @@ void decoder_rows() {
         check("TSAVE-18", "pulses jittered by 0-6 T-states (port 0xFE contention) still decode "
               "to the ROM's 0x10", got == want, hex(got));
     }
+    {
+        // The ROM's timings, but 12 bits: block 0x10 has no used-bits field.
+        const Bytes data = {0xFF, 0xA0};
+        auto p = block_pulses(2168, 3223, 667, 735, 855, 1710, data, 12);
+        p.push_back(855);
+        const auto e = edges_of(p);
+        const Bytes want = {0x11, 0x78, 0x08, 0x9B, 0x02, 0xDF, 0x02, 0x57, 0x03, 0xAE, 0x06,
+                            0x97, 0x0C, 0x04, 0xE8, 0x03, 0x02, 0x00, 0x00, 0xFF, 0xA0};
+        const Bytes got = TR::decode_segment(e, e.back() + SEC);
+        check("TSAVE-19", "the ROM's timings with 12 bits -> 0x11 (4 used bits): block 0x10 can "
+              "only replay whole bytes", got == want, hex(got));
+    }
+    {
+        // 11% slow: pilot 2400, sync 740/815, bits 950/1900 — a saver a little
+        // off the ROM's timings, beyond the 1/16 that counts as the ROM's.
+        const Bytes data = {0x00, 0x5A};
+        auto p = block_pulses(2400, 8063, 740, 815, 950, 1900, data, 16);
+        p.push_back(950);
+        const auto e = edges_of(p);
+        const Bytes want = {0x11, 0x60, 0x09, 0xE4, 0x02, 0x2F, 0x03, 0xB6, 0x03, 0x6C, 0x07,
+                            0x7F, 0x1F, 0x08, 0xE8, 0x03, 0x02, 0x00, 0x00, 0x00, 0x5A};
+        const Bytes got = TR::decode_segment(e, e.back() + SEC);
+        check("TSAVE-29", "timings 11% off the ROM's (pilot 2400, sync 740/815, bits 950/1900) "
+              "are not the ROM's: 0x11 with the measured values, not 0x10", got == want, hex(got));
+    }
 }
 
 void recorder_rows() {
@@ -783,6 +808,22 @@ void emulator_rows() {
               "leaves the file and config().tape_save_file untouched",
               !ok && !emu->tape_save_active() && after.size() == 9 &&
                   emu->config().tape_save_file.empty());
+    }
+    {
+        // A .tap save stopped: the trap no longer appends, RZX is allowed again.
+        auto emu = next_machine();
+        const std::string path = tmp("stopped.tap");
+        std::filesystem::remove(path);
+        const bool armed = emu->start_tape_save(path) && emu->tap_saver().active();
+        emu->stop_tape_save();
+        with_rom(*emu);
+        emu->run_frame();
+        const Bytes f = read_file(path);
+        check("TSAVE-40", "stopping a .tap save disarms the TAP saver: a SAVE after it appends "
+              "nothing, and RZX is no longer refused",
+              armed && !emu->tape_save_active() && f.empty() &&
+                  !emu->rzx_refused_by_tape_save("record"),
+              "size=" + std::to_string(f.size()));
     }
 }
 

@@ -88,6 +88,8 @@ Fast loading intercepts `LD-BYTES` at `0x0556` for both TAP and TZX, and
 `--tape-save` intercepts `SA-BYTES` at `0x04C2`. The save trap additionally
 checks the ROM's identity, because other ROMs have perfectly ordinary code at
 that address. When a trap fires it charges a small cycle cost and `continue`s.
+A `.tzx` or `.wav` save also samples the tape-out level at the end of every
+slot (`Emulator::tape_out_level()`); see [3.8](../03-subsystems/08-media-and-loaders.md).
 
 **Then `step_one_instruction()`** (`:7594`), the one shared per-instruction
 body. It picks exactly one of four things to do:

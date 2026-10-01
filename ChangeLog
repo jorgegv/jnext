@@ -5,6 +5,7 @@
 ### User Features
 - Change the SD card while running (File > Insert/Eject SD Card), so NextZXOS's REMOUNT works
 - `--sdcard-file-add` copies whole directories too, and without `--sdcard-file-dest` puts them in the card root
+- Save to TZX or WAV (`--tape-save`, Tape > Start Saving), capturing programs' own savers too
 
 ### Developer Features
 - Debug programs from z88dk-gdb: `--gdb-port` serves the GDB remote protocol, with Next state via `monitor`

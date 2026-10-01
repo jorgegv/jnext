@@ -273,11 +273,17 @@ debugger ones.
     load.
 
 **\--tape-save** *FILE*
-:   Append blocks SAVEd through the 48K ROM SA-BYTES routine to *FILE* (`.tap`).
-    Trap-based: it fires when the ROM save routine at 0x04C2 runs with ROM
-    paged at slot 0. Without this option no SAVE capture happens. Cannot be
-    combined with RZX recording or playback: the trap skips the ROM routine,
-    which a recording cannot replay.
+:   Save to tape, appending to *FILE*; its extension picks the format. A
+    `.tzx` or `.wav` records the machine's tape output (the MIC jack), so a
+    program's own saver is captured as well as BASIC `SAVE`: a `.tzx` holds it
+    as standard (0x10), turbo (0x11) or raw pulse (0x13) blocks, a `.wav` as
+    8-bit mono 44100 Hz audio. Any other name (`.tap`) captures only blocks
+    SAVEd through the 48K ROM routine. ROM saves are instant in all three: a
+    trap at 0x04C2 (with the 48K ROM paged at slot 0) takes the block without
+    running the routine. An existing file must be of the same format. Also
+    **Tape > Start Saving...** in the window. Cannot be combined with RZX
+    recording or playback: the trap skips the ROM routine, which a recording
+    cannot replay.
 
 **\--esxdos-stub**
 :   Answer a few `RST $08` esxDOS calls for any program, for the whole session:
@@ -1466,7 +1472,9 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
     the Kempston mouse can move freely (Ctrl+Alt releases it).
 
 **Tape**
-:   Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle).
+:   Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle); Start Saving...,
+    which saves to a TAP, TZX or WAV file as **\--tape-save** does, and Stop
+    Saving.
 
 **Debug**
 :   Magic Breakpoint (toggle), Debugger (Alt+D - the same entry as in

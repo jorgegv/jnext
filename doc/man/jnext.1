@@ -322,11 +322,19 @@ Real\-time tape loading, at the speed of an actual tape, instead of fast
 load.
 .TP
 \f[B]\-\-tape\-save\f[R] \f[I]FILE\f[R]
-Append blocks SAVEd through the 48K ROM SA\-BYTES routine to
-\f[I]FILE\f[R] (\f[CR].tap\f[R]).
-Trap\-based: it fires when the ROM save routine at 0x04C2 runs with ROM
-paged at slot 0.
-Without this option no SAVE capture happens.
+Save to tape, appending to \f[I]FILE\f[R]; its extension picks the
+format.
+A \f[CR].tzx\f[R] or \f[CR].wav\f[R] records the machine\(cqs tape
+output (the MIC jack), so a program\(cqs own saver is captured as well
+as BASIC \f[CR]SAVE\f[R]: a \f[CR].tzx\f[R] holds it as standard (0x10),
+turbo (0x11) or raw pulse (0x13) blocks, a \f[CR].wav\f[R] as 8\-bit
+mono 44100 Hz audio.
+Any other name (\f[CR].tap\f[R]) captures only blocks SAVEd through the
+48K ROM routine.
+ROM saves are instant in all three: a trap at 0x04C2 (with the 48K ROM
+paged at slot 0) takes the block without running the routine.
+An existing file must be of the same format.
+Also \f[B]Tape > Start Saving\&...\f[R] in the window.
 Cannot be combined with RZX recording or playback: the trap skips the
 ROM routine, which a recording cannot replay.
 .TP
@@ -1820,7 +1828,9 @@ what drives that connector; Capture Mouse, which confines the host
 pointer so the Kempston mouse can move freely (Ctrl+Alt releases it).
 .TP
 \f[B]Tape\f[R]
-Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle).
+Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle); Start
+Saving\&..., which saves to a TAP, TZX or WAV file as
+\f[B]\-\-tape\-save\f[R] does, and Stop Saving.
 .TP
 \f[B]Debug\f[R]
 Magic Breakpoint (toggle), Debugger (Alt+D \- the same entry as in
