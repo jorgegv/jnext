@@ -700,6 +700,28 @@ debugger ones.
     is given too: an address for servers that are all off would configure
     nothing.
 
+**\--script** *FILE*
+:   Load a debugger script (`.jds`); see **SCRIPTING**. Repeatable: the
+    scripts load, and their rules run, in the order given. A script that
+    cannot be read, or that has any error, is reported as
+    *file*:*line*:*column*: *message* and jnext exits 1 before the machine
+    runs - nothing of it runs partially. In **\--headless** and the SDL-only
+    build a script decides the exit status: `exit` *N* exits *N*, a `stop` or
+    a failed `assert` exits 3, a run-time error exits 1. In the Qt GUI a script
+    never ends the program: `stop` and `exit` pause the machine instead.
+
+**\--script-key** *FRAME* *N*
+:   Deliver script host key *N* (`1` to `8`) at emulated frame *FRAME*
+    (**\--headless** only; repeatable): the script's `on hostkey` *N* rules run
+    at the end of frame *FRAME*, where `on frame` *FRAME* runs. Needs a
+    **\--script**.
+
+**\--map** *FILE*
+:   Load a z88dk `.map` symbol table, so a script can name an address as
+    `@symbol`, and the debugger shows the names (the same table **Map > Load
+    MAP** fills). A file that cannot be loaded, or holds no symbols, is a
+    startup error.
+
 **\--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, for example `0x00FF`).
 
@@ -1662,6 +1684,49 @@ z88dk-gdb -h 127.0.0.1 -p 3333 -x mygame.map
 In **\--headless** mode a client holding the machine stopped holds its frames
 too, exactly as described for DeZog above. The GDB protocol has no
 authentication either.
+
+# SCRIPTING
+
+A debugger script (`.jds`, loaded with **\--script**) is a list of rules,
+each an event and the actions to run when it happens:
+
+```
+# palette.jds - CI assertion: the exit status is the verdict
+on execute @palette_init_done once do
+    assert mem[0x9000] == 0xAA "sentinel missing in palette buffer"
+    log "PASS palette init"
+    exit 0
+end
+on write 0x4000..0x5AFF when VALUE == 0xB7 do
+    stop "forbidden value ${VALUE:x2} written by ${PC:x4}"
+end
+```
+
+```
+jnext --headless --map game.map --script palette.jds --load game.nex \
+      --delayed-automatic-exit-frames 600
+```
+
+The events are an instruction about to execute, a memory read or write, a
+port read or write, a NextREG write, a frame, a scanline, a master-clock
+cycle, an accepted interrupt, an NMI, a reset, a host key, a Copper
+`MOVE`/`WAIT`/`HALT`, a DMA transfer's start, bytes and end, and any pause of
+the machine. A rule's `when` condition is checked by the debugger itself, so a
+rule body runs only for the accesses that match. A script observes the machine
+without disturbing it; it changes the machine only through `set` and `out`,
+and each such write is logged as a `MUTATE` line. Script output goes to the log
+as `[jds F:`*frame* `C:`*cycle*`]` lines.
+
+**Exit status** in **\--headless** (and the SDL-only build): `0` for a clean run
+or `exit 0`; *N* for `exit` *N*; `3` for a `stop` or a failed `assert`; `1`
+for a script that does not load or a run-time error (division by zero, say -
+the rule is disabled and the run ends at the next frame). The first status a
+run reaches is kept. When **\--delayed-automatic-exit** or
+**\--delayed-automatic-exit-frames** ends a run before a script reached a
+verdict it declared - a rule holding `exit` or `compare_scr` that never ran, or
+a **\--script-key** not yet delivered - the run exits `3`
+(`SCRIPT: N deferred actions never ran`). A status `2` never comes from a
+script.
 
 # MAGIC BREAKPOINT AND MAGIC PORT
 

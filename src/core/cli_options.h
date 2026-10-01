@@ -82,6 +82,9 @@ enum class OptId {
     DzrpPort,
     GdbPort,
     DebugListenAddress,
+    Script,
+    ScriptKey,
+    Map,
     EsxdosStub,
     EsxdosStubRoot,
     EsxdosStubWritable,
@@ -666,6 +669,22 @@ inline constexpr Option OPTIONS[] = {
       "IP, never a name. A non-loopback address exposes the\n"
       "debugger to the network: none of its protocols has any\n"
       "authentication. Refused unless a server port is given." },
+    // GH #26 WP4 — the debugger scripting language (dsl-frontend.md §6.6).
+    // Accepted by every build: the engine has no toolkit dependency.
+    { "--script", 1, Doc::Documented, OptId::Script,
+      "FILE",
+      "Load a debugger script (.jds); repeatable, runs in the\n"
+      "order given. In --headless a script `stop` or failed\n"
+      "`assert` exits 3, `exit N` exits N, an error exits 1." },
+    { "--script-key", 2, Doc::Documented, OptId::ScriptKey,
+      "FRAME N",
+      "Deliver script host key N (1-8) at emulated frame FRAME\n"
+      "(headless only, repeatable): a `hostkey N` rule runs at\n"
+      "the end of frame FRAME." },
+    { "--map", 1, Doc::Documented, OptId::Map,
+      "FILE",
+      "Load a z88dk .map symbol table, for `@symbol` in scripts\n"
+      "and for the debugger (the same table Map > Load MAP fills)." },
     { "--magic-port", 1, Doc::Documented, OptId::MagicPort,
       "PORT",
       "Enable magic debug port at PORT (hex, e.g. 0x00FF)" },

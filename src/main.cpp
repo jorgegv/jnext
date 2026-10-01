@@ -250,6 +250,9 @@ int main(int argc, char* argv[]) {
     std::string debug_listen_address;
     int         dzrp_port = -1;
     int         gdb_port  = -1;
+    std::vector<std::string>              script_files;   // GH #26 WP4
+    std::vector<std::pair<uint32_t, int>> script_keys;
+    std::string                           map_file;
     bool        esxdos_stub = false;
     std::string esxdos_stub_root;
     bool        esxdos_stub_writable = false;
@@ -550,6 +553,35 @@ int main(int argc, char* argv[]) {
                 gdb_port = static_cast<int>(n);
                 break;
             }
+            case cli::OptId::Script:
+                script_files.emplace_back(v[0]);
+                break;
+            case cli::OptId::ScriptKey: {
+                // GH #26 WP4 (§6.6). Both whole numbers, checked here: a key
+                // that silently became another, or a frame that became 0, would
+                // fire a different rule at a different time than the one asked.
+                char* end = nullptr;
+                errno = 0;
+                const long frame = std::strtol(v[0], &end, 10);
+                const bool frame_ok = errno == 0 && end != v[0] && *end == '\0' && frame >= 0 &&
+                                      frame <= 0x7FFFFFFFL;
+                end = nullptr;
+                errno = 0;
+                const long key = std::strtol(v[1], &end, 10);
+                const bool key_ok = errno == 0 && end != v[1] && *end == '\0' && key >= 1 && key <= 8;
+                if (!frame_ok || !key_ok) {
+                    fprintf(stderr,
+                            "--script-key: FRAME must be a whole number from 0 and N a key from 1 "
+                            "to 8, not \"%s\" \"%s\".\n",
+                            v[0], v[1]);
+                    return 1;
+                }
+                script_keys.emplace_back(static_cast<uint32_t>(frame), static_cast<int>(key));
+                break;
+            }
+            case cli::OptId::Map:
+                map_file = v[0];
+                break;
             case cli::OptId::DebugListenAddress: {
                 // Validated HERE, as --esp-listen-address is and for the same
                 // reason: a typo in the one control that decides who may reach
@@ -1099,6 +1131,7 @@ int main(int argc, char* argv[]) {
         const char* headless_only = !delayed_keys.empty()  ? "--delayed-keypress"
                                   : !delayed_nmis.empty()  ? "--delayed-nmi"
                                   : !snapshot_file.empty() ? "--delayed-snapshot"
+                                  : !script_keys.empty()   ? "--script-key"
                                   : nullptr;
         if (headless_only) {
             fprintf(stderr, "%s requires --headless (it is a headless automation option).\n",
@@ -1323,6 +1356,9 @@ int main(int argc, char* argv[]) {
         if (!debug_listen_address.empty()) cfg.debug_listen_address = debug_listen_address;
         cfg.dzrp_port = dzrp_port;
         cfg.gdb_port = gdb_port;
+        cfg.script_files = script_files;   // GH #26 WP4
+        cfg.script_keys  = script_keys;
+        cfg.map_file     = map_file;
         cfg.esxdos_stub = esxdos_stub;
         cfg.esxdos_stub_root = esxdos_stub_root;
         cfg.esxdos_stub_writable = esxdos_stub_writable;

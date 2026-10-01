@@ -195,6 +195,16 @@ bool SdlApp::init(int argc, char* argv[]) {
     host_probe_ = HostProbe::from_env(emulator_, *debugger_);   // GH #276 B5
     // GH #12 (WP-5) — the socket debugger servers, on this loop's pump.
     if (!debug_servers_.start(*debugger_, config_)) return false;
+    // GH #26 WP4 — the scripts, after the servers and before the machine runs:
+    // a script that does not load is a startup failure (exit 1, §6.5).
+    {
+        jnext::script::ScriptHostOptions so;
+        so.map_file = config_.map_file;
+        so.scripts  = config_.script_files;
+        so.keys     = config_.script_keys;
+        so.exits    = true;
+        if (!script_host_.start(*debugger_, so)) return false;
+    }
 
     running_ = true;
     return true;
@@ -458,6 +468,16 @@ void SdlApp::run() {
         pump_hint_ = debugger_->pump(
             DebugServers::frame_loop_budget(debugger_->state().paused, pump_hint_));
 
+        // GH #26 WP4 — a script's verdict (§6.3), as HeadlessApp: the SDL
+        // frontend has no pause, so a script stop is an exit (3).
+        if (script_host_.exit_requested()) {
+            const int code = script_host_.exit_code();
+            Log::platform()->info("script requested exit {}", code);
+            if (code != 0 || exit_code_ == 0) exit_code_ = code;
+            running_ = false;
+            continue;
+        }
+
         // Task 19 fastload follow-up — when the phantom typist is
         // armed or a fast-load tape is in flight, skip pushing audio
         // samples to SDL. The emulator still synthesizes audio into
@@ -528,6 +548,10 @@ void SdlApp::run() {
                      !rzx_record_file_.empty() && !rzx_record_started_},
                 }))
                 exit_code_ = 1;
+            if (const std::size_t n = script_host_.unreached_verdicts()) {   // GH #26 WP4 (§7.3)
+                Log::platform()->error("SCRIPT: {} deferred actions never ran — exiting 3", n);
+                if (exit_code_ == 0) exit_code_ = 3;
+            }
             running_ = false;
         } else if (exit_countdown_ > 0) {
             --exit_countdown_;

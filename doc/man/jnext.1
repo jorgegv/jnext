@@ -838,6 +838,33 @@ and none of the debugger protocols has any authentication.
 Refused unless a server port is given too: an address for servers that
 are all off would configure nothing.
 .TP
+\f[B]\-\-script\f[R] \f[I]FILE\f[R]
+Load a debugger script (\f[CR].jds\f[R]); see \f[B]SCRIPTING\f[R].
+Repeatable: the scripts load, and their rules run, in the order given.
+A script that cannot be read, or that has any error, is reported as
+\f[I]file\f[R]:\f[I]line\f[R]:\f[I]column\f[R]: \f[I]message\f[R] and
+jnext exits 1 before the machine runs \- nothing of it runs partially.
+In \f[B]\-\-headless\f[R] and the SDL\-only build a script decides the
+exit status: \f[CR]exit\f[R] \f[I]N\f[R] exits \f[I]N\f[R], a
+\f[CR]stop\f[R] or a failed \f[CR]assert\f[R] exits 3, a run\-time error
+exits 1.
+In the Qt GUI a script never ends the program: \f[CR]stop\f[R] and
+\f[CR]exit\f[R] pause the machine instead.
+.TP
+\f[B]\-\-script\-key\f[R] \f[I]FRAME\f[R] \f[I]N\f[R]
+Deliver script host key \f[I]N\f[R] (\f[CR]1\f[R] to \f[CR]8\f[R]) at
+emulated frame \f[I]FRAME\f[R] (\f[B]\-\-headless\f[R] only;
+repeatable): the script\(cqs \f[CR]on hostkey\f[R] \f[I]N\f[R] rules run
+at the end of frame \f[I]FRAME\f[R], where \f[CR]on frame\f[R]
+\f[I]FRAME\f[R] runs.
+Needs a \f[B]\-\-script\f[R].
+.TP
+\f[B]\-\-map\f[R] \f[I]FILE\f[R]
+Load a z88dk \f[CR].map\f[R] symbol table, so a script can name an
+address as \f[CR]\(atsymbol\f[R], and the debugger shows the names (the
+same table \f[B]Map > Load MAP\f[R] fills).
+A file that cannot be loaded, or holds no symbols, is a startup error.
+.TP
 \f[B]\-\-magic\-port\f[R] \f[I]PORT\f[R]
 Enable the magic debug port at \f[I]PORT\f[R] (hex, for example
 \f[CR]0x00FF\f[R]).
@@ -2198,6 +2225,54 @@ has it running.
 In \f[B]\-\-headless\f[R] mode a client holding the machine stopped
 holds its frames too, exactly as described for DeZog above.
 The GDB protocol has no authentication either.
+.SH SCRIPTING
+A debugger script (\f[CR].jds\f[R], loaded with \f[B]\-\-script\f[R]) is
+a list of rules, each an event and the actions to run when it happens:
+.IP
+.EX
+# palette.jds \- CI assertion: the exit status is the verdict
+on execute \(atpalette_init_done once do
+    assert mem[0x9000] == 0xAA \(dqsentinel missing in palette buffer\(dq
+    log \(dqPASS palette init\(dq
+    exit 0
+end
+on write 0x4000..0x5AFF when VALUE == 0xB7 do
+    stop \(dqforbidden value ${VALUE:x2} written by ${PC:x4}\(dq
+end
+.EE
+.IP
+.EX
+jnext \-\-headless \-\-map game.map \-\-script palette.jds \-\-load game.nex \(rs
+      \-\-delayed\-automatic\-exit\-frames 600
+.EE
+.PP
+The events are an instruction about to execute, a memory read or write,
+a port read or write, a NextREG write, a frame, a scanline, a
+master\-clock cycle, an accepted interrupt, an NMI, a reset, a host key,
+a Copper \f[CR]MOVE\f[R]/\f[CR]WAIT\f[R]/\f[CR]HALT\f[R], a DMA
+transfer\(cqs start, bytes and end, and any pause of the machine.
+A rule\(cqs \f[CR]when\f[R] condition is checked by the debugger itself,
+so a rule body runs only for the accesses that match.
+A script observes the machine without disturbing it; it changes the
+machine only through \f[CR]set\f[R] and \f[CR]out\f[R], and each such
+write is logged as a \f[CR]MUTATE\f[R] line.
+Script output goes to the log as \f[CR][jds F:\f[R]\f[I]frame\f[R]
+\f[CR]C:\f[R]\f[I]cycle\f[R]\f[CR]]\f[R] lines.
+.PP
+\f[B]Exit status\f[R] in \f[B]\-\-headless\f[R] (and the SDL\-only
+build): \f[CR]0\f[R] for a clean run or \f[CR]exit 0\f[R]; \f[I]N\f[R]
+for \f[CR]exit\f[R] \f[I]N\f[R]; \f[CR]3\f[R] for a \f[CR]stop\f[R] or a
+failed \f[CR]assert\f[R]; \f[CR]1\f[R] for a script that does not load
+or a run\-time error (division by zero, say \- the rule is disabled and
+the run ends at the next frame).
+The first status a run reaches is kept.
+When \f[B]\-\-delayed\-automatic\-exit\f[R] or
+\f[B]\-\-delayed\-automatic\-exit\-frames\f[R] ends a run before a
+script reached a verdict it declared \- a rule holding \f[CR]exit\f[R]
+or \f[CR]compare_scr\f[R] that never ran, or a \f[B]\-\-script\-key\f[R]
+not yet delivered \- the run exits \f[CR]3\f[R]
+(\f[CR]SCRIPT: N deferred actions never ran\f[R]).
+A status \f[CR]2\f[R] never comes from a script.
 .SH MAGIC BREAKPOINT AND MAGIC PORT
 The magic breakpoint uses the \f[CR]ED FF\f[R] (ZEsarUX) and
 \f[CR]DD 01\f[R] (CSpect) opcodes to pause the debugger when enabled;

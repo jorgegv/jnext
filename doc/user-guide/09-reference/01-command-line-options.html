@@ -3680,6 +3680,28 @@ address (<code>0.0.0.0</code>) exposes it to your network, and none of the
 debugger protocols has any authentication. Refused unless a server
 port is given too: an address for servers that are all off would
 configure nothing.</dd>
+<dt><strong>--script</strong> <em>FILE</em></dt>
+<dd>Load a debugger script (<code>.jds</code>); see <a href="https://github.com/jorgegv/jnext/blob/main/USAGE.md#scripting">the SCRIPTING section of the
+man
+page</a>.
+Repeatable: the scripts load, and their rules run, in the order
+given. A script that cannot be read, or that has any error, is
+reported as <em>file</em>:<em>line</em>:<em>column</em>: <em>message</em> and jnext exits 1
+before the machine runs - nothing of it runs partially. In
+<strong>--headless</strong> and the SDL-only build a script decides the exit
+status: <code>exit</code> <em>N</em> exits <em>N</em>, a <code>stop</code> or a failed <code>assert</code> exits 3,
+a run-time error exits 1. In the Qt GUI a script never ends the
+program: <code>stop</code> and <code>exit</code> pause the machine instead.</dd>
+<dt><strong>--script-key</strong> <em>FRAME</em> <em>N</em></dt>
+<dd>Deliver script host key <em>N</em> (<code>1</code> to <code>8</code>) at emulated frame <em>FRAME</em>
+(<strong>--headless</strong> only; repeatable): the script’s <code>on hostkey</code> <em>N</em>
+rules run at the end of frame <em>FRAME</em>, where <code>on frame</code> <em>FRAME</em>
+runs. Needs a <strong>--script</strong>.</dd>
+<dt><strong>--map</strong> <em>FILE</em></dt>
+<dd>Load a z88dk <code>.map</code> symbol table, so a script can name an address as
+<code>@symbol</code>, and the debugger shows the names (the same table <strong>Map &gt;
+Load MAP</strong> fills). A file that cannot be loaded, or holds no
+symbols, is a startup error.</dd>
 <dt><strong>--magic-port</strong> <em>PORT</em></dt>
 <dd>Enable the magic debug port at <em>PORT</em> (hex, for example <code>0x00FF</code>).</dd>
 <dt><strong>--magic-port-mode</strong> <em>MODE</em></dt>

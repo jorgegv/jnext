@@ -20,6 +20,8 @@ find_package(SDL3 REQUIRED)
 target_link_libraries(jnext_platform PUBLIC ${JNEXT_SDL3_TARGET} spdlog::spdlog jnext_input jnext_core jnext_debug)
 # GH #12 — the debugger protocol servers the loop owners host (debug_servers.h).
 target_link_libraries(jnext_platform PUBLIC jnext_remote)
+# GH #26 WP4 — the script host the loop owners run `--script` through.
+target_link_libraries(jnext_platform PUBLIC jnext_script)
 target_include_directories(jnext_platform PUBLIC ${CMAKE_SOURCE_DIR}/src)
 # Bake the build type into the --benchmark BENCH line (Task 27 T1), so a
 # benchmark result always states which optimisation level produced it.

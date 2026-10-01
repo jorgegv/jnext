@@ -5,6 +5,7 @@
 #include <ctime>
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 // MachineType is the canonical shared enum; defined once in contention.h.
@@ -215,6 +216,13 @@ struct EmulatorConfig {
     // default; 0 = an OS-chosen port, logged as `gdb: listening on
     // <addr>:<port>`; any other value is that port. CLI-only.
     int gdb_port = -1;
+
+    // GH #26 WP4 — the debugger scripting language (dsl-frontend.md §6.6):
+    // `--script` files in the order given, `--script-key FRAME N` pairs
+    // (headless only), and the `--map` symbol table. Empty = none.
+    std::vector<std::string>                   script_files;
+    std::vector<std::pair<uint32_t, int>>      script_keys;
+    std::string                                map_file;
 
     // Host-side esxDOS compatibility for directly loaded NEX programs.
     // Provides one in-memory file and `run sibling.nex` chaining.

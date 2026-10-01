@@ -48,6 +48,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "debug/debugger.h"
@@ -117,6 +118,18 @@ public:
     /// Run-time errors reported so far.
     size_t runtime_errors() const { return runtime_errors_; }
 
+    /// `--script-key FRAME N` (§6.6): raise host key N (`scriptN`) at the
+    /// edge of frame FRAME — E_FRAME, where `on frame FRAME` fires — so a
+    /// `hostkey N` rule runs with `FRAME == FRAME`. A frame already past is
+    /// delivered at the next edge.
+    void queue_host_key(uint32_t frame, int key);
+
+    /// The verdicts a run never reached (§7.3): rules whose body holds an
+    /// `exit` or a `compare_scr` and never fired, plus deferred actions and
+    /// scheduled host keys still pending. The headless watchdog
+    /// (`--delayed-automatic-exit*`) turns a non-zero count into exit 3.
+    size_t unreached_verdicts() const;
+
     // ── dbg::Listener ───────────────────────────────────────────────────────
     void on_paused(const dbg::PausedInfo& info) override;
     void on_resumed(dbg::ClientId) override {}
@@ -145,7 +158,7 @@ private:
     void set_rule_enabled(RuleRec& r, bool on);
     RuleRec* find_label(Unit& u, const std::string& label);
     void ensure_edge();
-    dbg::Action run_edge();
+    dbg::Action run_edge(uint32_t frame);
     dbg::Action compare_scr_now(RuleRec* r, const std::string& file, const std::string& msg);
     void log(dbg::LogLevel level, const std::string& text);
     std::string stamp() const;
@@ -157,6 +170,7 @@ private:
     std::vector<std::unique_ptr<Unit>> units_;
     std::vector<Deferred> deferred_;
     std::vector<PendingSave> saves_;    ///< `save_snapshot`s for the next boundary
+    std::vector<std::pair<uint32_t, int>> host_keys_;  ///< (frame, key) still to raise
     std::optional<uint64_t> cur_cycle_; ///< the running delivery's CYCLE
     dbg::EventId   edge_ = dbg::EVENT_NONE;
     bool           error_exit_pending_ = false;

@@ -288,6 +288,16 @@ bool QtApp::init(int argc, char* argv[]) {
     // (post_frames() below). platform/debug_servers.h.
     if (!debug_servers_.start(*debugger_, config_)) return false;
     // ── end GH #12 ──────────────────────────────────────────────────────────
+    // GH #26 WP4 — the scripts, after the servers and before the machine runs:
+    // a script that does not load is a startup failure (exit 1, §6.5).
+    {
+        jnext::script::ScriptHostOptions so;
+        so.map_file = config_.map_file;
+        so.scripts  = config_.script_files;
+        so.keys     = config_.script_keys;
+        so.exits    = false;  // the GUI pauses; it never exits from a script (§6.3)
+        if (!script_host_.start(*debugger_, so)) return false;
+    }
 
     // Create the main window.
     main_window_ = new MainWindow();

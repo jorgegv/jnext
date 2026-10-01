@@ -153,6 +153,7 @@ void ScriptEngine::unload_all() {
     edge_ = dbg::EVENT_NONE;
     deferred_.clear();
     saves_.clear();
+    host_keys_.clear();
 }
 
 void ScriptEngine::log(dbg::LogLevel level, const std::string& text) { dbg_.log(cid_, level, text); }
@@ -839,7 +840,7 @@ void ScriptEngine::ensure_edge() {
     s.handler      = [this](const Event& e, dbg::Debugger&) {
         const auto was = cur_cycle_;
         cur_cycle_     = e.cycle;
-        const Verdict v = run_edge();
+        const Verdict v = run_edge(e.frame);
         cur_cycle_     = was;
         return v;
     };
@@ -847,8 +848,20 @@ void ScriptEngine::ensure_edge() {
     if (id) edge_ = id.value;
 }
 
-Verdict ScriptEngine::run_edge() {
+Verdict ScriptEngine::run_edge(uint32_t frame) {
     Verdict verdict = Verdict::Continue;
+    // Host keys due at this edge FIRST (`--script-key FRAME N`): a `hostkey`
+    // rule then runs at E_FRAME with FRAME == FRAME, like `on frame FRAME`,
+    // and what it queues for the edge lands at this one.
+    for (size_t k = 0; k < host_keys_.size();) {
+        if (host_keys_[k].first <= frame) {
+            const int key = host_keys_[k].second;
+            host_keys_.erase(host_keys_.begin() + static_cast<std::ptrdiff_t>(k));
+            dbg_.raise_host_event(cid_, "script" + std::to_string(key));
+        } else {
+            ++k;
+        }
+    }
     std::vector<Deferred> q;
     q.swap(deferred_);
     for (const Deferred& d : q) {
@@ -888,6 +901,35 @@ Verdict ScriptEngine::compare_scr_now(RuleRec* r, const std::string& file, const
     log(dbg::LogLevel::Warn, stamp() + " ASSERT FAILED: " + msg);
     stop_reason_ = msg;
     return Verdict::Stop;
+}
+
+// ---------------------------------------------------------------------------
+// Host keys on a schedule, and the verdicts a run never reached (WP4)
+// ---------------------------------------------------------------------------
+
+void ScriptEngine::queue_host_key(uint32_t frame, int key) {
+    host_keys_.emplace_back(frame, key);
+    ensure_edge();
+}
+
+namespace {
+
+bool has_verdict(const std::vector<Action>& body) {
+    for (const Action& a : body) {
+        if (a.kind == ActionKind::Exit || a.kind == ActionKind::CompareScr) return true;
+        if (a.kind == ActionKind::If && (has_verdict(a.then_body) || has_verdict(a.else_body))) return true;
+    }
+    return false;
+}
+
+}  // namespace
+
+size_t ScriptEngine::unreached_verdicts() const {
+    size_t n = deferred_.size() + host_keys_.size();
+    for (const auto& u : units_)
+        for (const auto& r : u->rules)
+            if (r->hits == 0 && has_verdict(r->rule->body)) ++n;
+    return n;
 }
 
 // ---------------------------------------------------------------------------
