@@ -21,6 +21,10 @@ struct ScriptHost::HostListener : dbg::Listener {
     void on_frame_ended(uint32_t) override {}
     void on_subscriptions_changed(dbg::EventKindMask) override {}
     void on_exit_requested(int code) override {
+        // A script `exit` at this boundary is the engine's to hand over, at
+        // the pause, once every stop of the boundary is known (it may turn an
+        // `exit 0` into this 3): leave it to that.
+        if (host.engine_ && host.engine_->exit_pending()) return;
         if (host.exits_) host.request(code);
     }
     void on_log(dbg::LogLevel, const std::string& text) override { host.capture(text); }
@@ -131,6 +135,12 @@ LoadResult ScriptHost::load_one(const std::string& file, const char* origin) {
 bool ScriptHost::start(dbg::Debugger& dbg, const ScriptHostOptions& opt) {
     dbg_   = &dbg;
     exits_ = opt.exits;
+    // The backend's FIRST pump only adopts the machine's state as its baseline
+    // and pushes nothing, so a stop in the loop's first tick (`on frame 0 do
+    // exit 0`) would never reach `on_paused()`, where a script's `exit` is
+    // handed over: the run would not exit at all. The loop owners call this
+    // before their first tick; pumping here takes that baseline now.
+    dbg.pump(dbg::PumpBudget{});
 
     if (!opt.map_file.empty()) {
         const auto n = dbg.load_map(opt.map_file, dbg::MapFormat::Z88dk);

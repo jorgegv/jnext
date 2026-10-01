@@ -723,10 +723,11 @@ static void stop_rows() {
         g.dbg->set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero);
         const bool ok = g.load("on write 0x9000 do exit 7 end\n");
         g.frames(2);
-        check("SCRIPT-EV-EXIT", "`exit 7` hands 7 to the loop owner BEFORE the backend's stop asks for 3 — "
-                                "the owner keeps the first — and pauses after the instruction",
+        check("SCRIPT-EV-EXIT", "`exit 7` pauses after the instruction and hands 7 to the loop owner at the "
+                                "pause, AFTER the backend's stop asked for 3 — the loop owner's listener leaves "
+                                "that 3 to the engine while an exit is pending (WP7 review 1)",
               ok && g.paused() && g.pc() == 0x8005 && g.host_exits == std::vector<int>{7} &&
-                  g.order.size() == 2 && g.order[0] == "host7" && g.order[1] == "notify3" &&
+                  g.order.size() == 2 && g.order[0] == "notify3" && g.order[1] == "host7" &&
                   g.sink.count("SCRIPT EXIT 7") == 1,
               "pc=" + hex(g.pc()) + " order=" + (g.order.empty() ? "" : g.order[0]) + " " + g.sink.tail());
     }
@@ -745,10 +746,10 @@ static void stop_rows() {
         const bool ok2 = h.load("on write 0x9000 do assert VALUE == 0x5A \"boom\" exit 0 end\n");
         h.frames(2);
         check("SCRIPT-EV-ASSERT-EXIT", "a failed `assert` before `exit 0` in the same body: the exit is not taken "
-                                       "(logged), the stop's 3 is the run's code, status() has no exit; with the "
-                                       "assert holding, `exit 0` is taken",
-              ok && g.paused() && g.host_exits.empty() && g.sink.exits == std::vector<int>{3} &&
-                  g.sink.count("SCRIPT EXIT 0 not taken: the rule stopped first (boom)") == 1 &&
+                                       "(logged) and the loop owner is handed the failure's 3; status() has no "
+                                       "exit; with the assert holding, `exit 0` is taken",
+              ok && g.paused() && g.host_exits == std::vector<int>{3} && g.sink.exits == std::vector<int>{3} &&
+                  g.sink.count("SCRIPT EXIT 0 not taken: \"boom\" failed at the same boundary (exit 3)") == 1 &&
                   g.sink.count("] after") == 1 && !st.exit_code && st.stops == 1 &&
                   ok2 && h.host_exits == std::vector<int>{0},
               g.sink.tail() + " | " + h.sink.tail());
@@ -1889,7 +1890,9 @@ struct HostRig {
     Sink                      sink;
     ClientId                  tc = jnext::dbg::CLIENT_NONE;
     std::unique_ptr<ScriptHost> host;
-    explicit HostRig(const std::vector<uint8_t>& prog = kPark) {
+    /// `prime` false leaves the backend unpumped, as a loop owner's is before
+    /// its first tick.
+    explicit HostRig(const std::vector<uint8_t>& prog = kPark, bool prime = true) {
         EmulatorConfig cfg;
         cfg.type = MachineType::ZX48K;
         emu.init(cfg);
@@ -1906,7 +1909,7 @@ struct HostRig {
         tc = dbg->attach(ci).value;
         dbg->set_listener(tc, &sink);
         host = std::make_unique<ScriptHost>();
-        dbg->pump(jnext::dbg::PumpBudget{});
+        if (prime) dbg->pump(jnext::dbg::PumpBudget{});
     }
     ~HostRig() {
         host.reset();
@@ -1936,6 +1939,102 @@ static std::string tmp_file(const std::string& name, const std::string& text) {
     const std::string path = "/tmp/jnext_sev_host_" + name;
     write_file(path, text);
     return path;
+}
+
+// ── THE EXIT CODE OF A BOUNDARY (WP7 review 1): a stop, a failed assert or
+//    compare_scr, or a run-time error at the same boundary wins over `exit 0`,
+//    whichever rule ran it; an exit behind a pending compare_scr waits for it ──
+
+static void exit_rows() {
+    // A screen, and one byte off it, as `compare_scr` files.
+    std::string same, diff;
+    {
+        HostRig g;
+        std::vector<uint8_t> scr = g.dbg->ula_screen_dump();
+        same = tmp_file("x_same.scr", std::string(scr.begin(), scr.end()));
+        scr[7] ^= 0xFF;
+        diff = tmp_file("x_diff.scr", std::string(scr.begin(), scr.end()));
+    }
+    auto run = [](const std::vector<uint8_t>& prog, const std::string& text, int& code, std::string& log) {
+        HostRig g(prog);
+        ScriptHostOptions o;
+        o.scripts = {tmp_file("x.jds", text)};
+        const bool ok = g.start(o);
+        g.run(8);
+        code = g.host->exit_requested() ? g.host->exit_code() : -1;
+        log  = g.sink.tail(8);
+        for (const auto& l : g.sink.lines) log += "|" + l;
+        return ok;
+    };
+    {
+        int bad = -1, good = -1;
+        std::string lb, lg;
+        const bool ok1 = run(kPark, "on frame 1 do compare_scr \"" + diff + "\" \"differs\" exit 0 end\n", bad, lb);
+        const bool ok2 = run(kPark, "on frame 1 do compare_scr \"" + same + "\" \"differs\" exit 0 end\n", good, lg);
+        check("SCRIPT-EV-EXIT-COMPARE-FRAME", "in a frame rule, `compare_scr` that differs then `exit 0`: exit 3, the "
+                                              "exit logged as not taken; a compare that matches lets `exit 0` exit 0",
+              ok1 && ok2 && bad == 3 && lb.find("ASSERT FAILED: differs") != std::string::npos &&
+                  lb.find("SCRIPT EXIT 0 not taken: \"differs\" failed at the same boundary") != std::string::npos &&
+                  good == 0,
+              std::to_string(bad) + "/" + std::to_string(good) + " " + lb.substr(0, 300));
+    }
+    {
+        int bad = -1, good = -1;
+        std::string lb, lg;
+        const bool ok1 = run(kWriter, "on write 0x9000 do compare_scr \"" + diff + "\" \"differs\" exit 0 end\n", bad, lb);
+        const bool ok2 = run(kWriter, "on write 0x9000 do compare_scr \"" + same + "\" \"differs\" exit 0 end\n", good, lg);
+        check("SCRIPT-EV-EXIT-COMPARE-HELD", "in an event rule the compare waits for the frame edge, and so does the "
+                                             "`exit 0` after it: the mismatch is reported and the run exits 3; with a "
+                                             "match the held exit is taken at that edge, exit 0",
+              ok1 && ok2 && bad == 3 && lb.find("held until the pending compare_scr is made") != std::string::npos &&
+                  lb.find("compare_scr " + diff + ": first difference at offset 7") != std::string::npos &&
+                  lb.find("not taken") != std::string::npos && good == 0 &&
+                  lg.find("held until the pending compare_scr is made") != std::string::npos,
+              std::to_string(bad) + "/" + std::to_string(good) + " " + lb.substr(0, 300));
+    }
+    {
+        int a = -1, b = -1, c = -1, d = -1;
+        std::string la, lb, lc, ld;
+        const bool ok1 = run(kWriter, "on write 0x9000 do stop \"first\" end\non write 0x9000 do exit 0 end\n", a, la);
+        const bool ok2 = run(kWriter, "on write 0x9000 do exit 0 end\non write 0x9000 do stop \"second\" end\n", b, lb);
+        const bool ok3 = run(kWriter, "on execute 0x8002 do stop \"static\" end\non execute 0x8002 do exit 0 end\n", c, lc);
+        const bool ok4 = run(kWriter, "on write 0x9000 do stop \"s\" end\non write 0x9000 do exit 7 end\n", d, ld);
+        check("SCRIPT-EV-EXIT-OTHER-RULE", "a stop in ANOTHER rule at the same event wins over `exit 0`, whichever "
+                                           "runs first and also when it is a static (stop-only execute) rule: exit 3; "
+                                           "a non-zero `exit 7` is kept",
+              ok1 && ok2 && ok3 && ok4 && a == 3 && b == 3 && c == 3 && d == 7 &&
+                  lc.find("\"static\" failed at the same boundary") != std::string::npos,
+              std::to_string(a) + "/" + std::to_string(b) + "/" + std::to_string(c) + "/" + std::to_string(d) + " " +
+                  lc.substr(0, 300));
+    }
+    {
+        int code = -1;
+        std::string l;
+        const bool ok = run(kWriter, "var z = 0\non write 0x9000 do log \"${1 / z}\" end\non write 0x9000 do exit 0 end\n",
+                            code, l);
+        check("SCRIPT-EV-EXIT-RUNTIME", "a run-time error at the same event as `exit 0` (in another rule): exit 1",
+              ok && code == 1 && l.find("SCRIPT ERROR") != std::string::npos, std::to_string(code));
+    }
+    {
+        // The loop's FIRST tick: the backend's first pump only takes its
+        // baseline and pushes no Paused, so an exit handed over at the pause
+        // needs the host to have taken that baseline at start.
+        int at[2] = {-2, -2}, code[2] = {-1, -1};
+        const char* text[2] = {"on frame 0 do exit 0 end\n", "on frame 0 do exit 0 end\non frame 0 do stop \"s\" end\n"};
+        for (int i = 0; i < 2; ++i) {
+            HostRig g(kPark, /*prime=*/false);
+            ScriptHostOptions o;
+            o.scripts = {tmp_file("first" + std::to_string(i) + ".jds", text[i])};
+            if (!g.start(o)) continue;
+            at[i] = g.run(3);
+            if (g.host->exit_requested()) code[i] = g.host->exit_code();
+        }
+        check("SCRIPT-EV-EXIT-FIRST-TICK", "an `exit 0` at frame 0, before the loop has ever pumped, exits in that "
+                                           "first tick (0); with a `stop` at the same frame, 3",
+              at[0] == 0 && code[0] == 0 && at[1] == 0 && code[1] == 3,
+              std::to_string(at[0]) + "/" + std::to_string(code[0]) + " " + std::to_string(at[1]) + "/" +
+                  std::to_string(code[1]));
+    }
 }
 
 static void host_rows() {
@@ -2436,6 +2535,7 @@ int main() {
     run_group("host_round1", host_round1_rows);
     run_group("host_gui", host_gui_rows);
     run_group("static_stop", static_stop_rows);
+    run_group("exit", exit_rows);
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);

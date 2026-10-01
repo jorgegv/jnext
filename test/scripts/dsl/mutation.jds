@@ -15,7 +15,7 @@
 #                      PASS mutation: trap skipped, patch copied
 # Against dsl_demo_buggy.nex (a second LD (trap_target),A right after the trap):
 #   exit 3, log lines: ASSERT FAILED: the trapped write never happened
-#                      SCRIPT EXIT 0 not taken: the rule stopped first (...)
+#                      SCRIPT EXIT 0 not taken: "the trapped write never happened" failed at the same boundary (exit 3)
 
 on execute @trap_insn when mem16[@magic] == 0xD5D5 do
     set PC = PC + 3

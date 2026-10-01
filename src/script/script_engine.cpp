@@ -52,12 +52,13 @@ struct ScriptEngine::Unit {
 };
 
 struct ScriptEngine::Deferred {
-    enum class Kind : uint8_t { Joystick, CompareScr } kind = Kind::Joystick;
+    enum class Kind : uint8_t { Joystick, CompareScr, Exit } kind = Kind::Joystick;
     RuleRec*    rule = nullptr;
     int         port = 1;
     uint16_t    bits = 0;
     std::string file;
     std::string msg;
+    int         code = 0;   ///< Exit: held behind a pending compare_scr
 };
 
 namespace {
@@ -524,10 +525,8 @@ Verdict ScriptEngine::run_rule(RuleRec& r, const Event& ev, dbg::Debugger& d) {
     Verdict verdict = Verdict::Continue;
     const bool was = in_frame_delivery_;
     const auto was_cycle = cur_cycle_;
-    const bool was_stopped = body_stopped_;
     in_frame_delivery_ = ev.kind == EventKind::Frame;
     cur_cycle_         = ev.cycle;
-    body_stopped_      = false;
     try {
         exec(r, r.rule->body, ev, d, verdict);
     } catch (const EvalError& e) {
@@ -535,7 +534,6 @@ Verdict ScriptEngine::run_rule(RuleRec& r, const Event& ev, dbg::Debugger& d) {
     }
     in_frame_delivery_ = was;
     cur_cycle_         = was_cycle;
-    body_stopped_      = was_stopped;
     return verdict;
 }
 
@@ -546,6 +544,7 @@ void ScriptEngine::runtime_error(RuleRec& r, const Diagnostic& d) {
     for (dbg::EventId id : r.subs) dbg_.set_enabled(cid_, id, false);
     log(dbg::LogLevel::Error, "SCRIPT ERROR " + r.unit->file + ":" + d.to_string() + " — rule " +
                                   rule_name(*r.rule) + " disabled");
+    mark_failure(1, "a run-time error in " + rule_name(*r.rule));
     error_exit_pending_ = true;
     ensure_edge();
 }
@@ -571,13 +570,13 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
         if (reason == nullptr) {   // a `stop` in an `on stop` body only logs
             ++stops_;
             last_stop_ = why;
+            mark_failure(3, why);
         }
         // PC and CYCLE are the event's (the causing instruction, §6.3).
         log(dbg::LogLevel::Warn, "SCRIPT STOP: " + why + " at PC=" + hex(ev.pc, 4) + " FRAME=" +
                                      std::to_string(d.time().frame) + " CYCLE=" +
                                      std::to_string(ev.cycle));
-        verdict       = Verdict::Stop;
-        body_stopped_ = true;
+        verdict = Verdict::Stop;
     };
 
     for (const Action& a : body) {
@@ -601,37 +600,22 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
                 }
                 break;
             case ActionKind::Exit: {
-                int32_t code = eval_int(*a.e1, ctx);
-                // A `stop` or a failed `assert` earlier in this same rule body
-                // is its verdict (WP7 finding, Appendix M): `assert …; exit 0`
-                // must not exit 0 past the failed assert, and the exit code a
-                // stop means (3, headless) is the backend's, after the delivery.
-                if (body_stopped_) {
-                    log(dbg::LogLevel::Warn, stamp() + " SCRIPT EXIT " + std::to_string(code) +
-                                                 " not taken: the rule stopped first (" + stop_reason_ + ")");
+                const int32_t code = eval_int(*a.e1, ctx);
+                // A compare_scr still waiting for its frame edge is a verdict
+                // not yet reached: the exit waits for it (WP7 review 1), so a
+                // mismatch is never skipped by an exit taken first.
+                if (compare_pending()) {
+                    Deferred q;
+                    q.kind = Deferred::Kind::Exit;
+                    q.rule = &r;
+                    q.code = code;
+                    deferred_.push_back(q);
+                    ensure_edge();
+                    log(dbg::LogLevel::Info, stamp() + " SCRIPT EXIT " + std::to_string(code) +
+                                                 " held until the pending compare_scr is made");
                     break;
                 }
-                log(dbg::LogLevel::Info, stamp() + " SCRIPT EXIT " + std::to_string(code));
-                if (!first_exit_) first_exit_ = code;
-                if (host_.exit) {
-                    // §2.6: a capture this script queued that is still pending
-                    // (NoFrame — dropped) or failed to write makes the exit
-                    // non-zero; an explicit non-zero code is kept.
-                    const Result fc = d.flush_captures(cid_);
-                    if (fc != Result::Ok) {
-                        log(dbg::LogLevel::Error, stamp() + " SCRIPT: a screenshot was not written (" +
-                                                      dbg::result_name(fc) + ")");
-                        if (code == 0) code = 1;
-                    }
-                    if (!saves_.empty()) {
-                        log(dbg::LogLevel::Error, stamp() + " SCRIPT: " + std::to_string(saves_.size()) +
-                                                      " save_snapshot(s) never written");
-                        saves_.clear();
-                        if (code == 0) code = 1;
-                    }
-                    host_.exit(code);
-                }
-                stop_reason_ = "exit " + std::to_string(code);
+                take_exit(code);
                 verdict = Verdict::Stop;
                 break;
             }
@@ -911,6 +895,9 @@ Verdict ScriptEngine::run_edge(uint32_t frame) {
     for (const Deferred& d : q) {
         if (d.kind == Deferred::Kind::Joystick) {
             dbg_.set_joystick(cid_, d.port == 1 ? dbg::JoystickSide::Left : dbg::JoystickSide::Right, d.bits);
+        } else if (d.kind == Deferred::Kind::Exit) {
+            take_exit(d.code);   // after the compare_scr queued before it
+            verdict = Verdict::Stop;
         } else if (compare_scr_now(d.rule, d.file, d.msg) == Verdict::Stop) {
             verdict = Verdict::Stop;
         }
@@ -946,7 +933,74 @@ Verdict ScriptEngine::compare_scr_now(RuleRec* r, const std::string& file, const
     stop_reason_ = msg;
     ++stops_;
     last_stop_ = msg;
+    mark_failure(3, msg);
     return Verdict::Stop;
+}
+
+// ---------------------------------------------------------------------------
+// The exit code (§6.3; WP7 review 1, Appendix M.2)
+//
+// An `exit n` is NOT handed to the loop owner during its delivery: other rules
+// of the same event, and the backend's static stops, may still fail the run at
+// that boundary. It is recorded, the machine pauses (the exit's own `Stop`),
+// and `on_paused()` — where every stop of the boundary is known — hands it
+// over: `exit 0` becomes the failure's code (3, or 1 for a run-time error)
+// when a stop, a failed `assert` or `compare_scr`, or a run-time error happened
+// at the same boundary; a non-zero `exit n` is kept, being a failure already.
+// ---------------------------------------------------------------------------
+
+void ScriptEngine::mark_failure(int code, const std::string& why) {
+    const uint64_t now = dbg_.time().master_cycle;
+    if (fail_code_ && fail_cycle_ == now) return;   // the first failure of the boundary names it
+    fail_code_   = code;
+    fail_cycle_  = now;
+    fail_reason_ = why;
+}
+
+bool ScriptEngine::compare_pending() const {
+    for (const Deferred& d : deferred_)
+        if (d.kind == Deferred::Kind::CompareScr) return true;
+    return false;
+}
+
+void ScriptEngine::take_exit(int code) {
+    log(dbg::LogLevel::Info, stamp() + " SCRIPT EXIT " + std::to_string(code));
+    if (host_.exit) {
+        // §2.6: a capture this script queued that is still pending (NoFrame —
+        // dropped) or failed to write makes the exit non-zero; an explicit
+        // non-zero code is kept.
+        const Result fc = dbg_.flush_captures(cid_);
+        if (fc != Result::Ok) {
+            log(dbg::LogLevel::Error, stamp() + " SCRIPT: a screenshot was not written (" +
+                                          dbg::result_name(fc) + ")");
+            if (code == 0) code = 1;
+        }
+        if (!saves_.empty()) {
+            log(dbg::LogLevel::Error, stamp() + " SCRIPT: " + std::to_string(saves_.size()) +
+                                          " save_snapshot(s) never written");
+            saves_.clear();
+            if (code == 0) code = 1;
+        }
+    }
+    if (!pending_exit_) {   // the first `exit` of the boundary
+        pending_exit_ = code;
+        exit_cycle_   = dbg_.time().master_cycle;
+    }
+    stop_reason_ = "exit " + std::to_string(code);
+}
+
+void ScriptEngine::hand_over_exit() {
+    if (!pending_exit_) return;
+    int code = *pending_exit_;
+    pending_exit_.reset();
+    if (code == 0 && fail_code_ && fail_cycle_ == exit_cycle_) {
+        log(dbg::LogLevel::Warn, "SCRIPT EXIT 0 not taken: \"" + fail_reason_ +
+                                     "\" failed at the same boundary (exit " + std::to_string(*fail_code_) + ")");
+        code = *fail_code_;
+    } else if (!first_exit_) {
+        first_exit_ = code;
+    }
+    if (host_.exit) host_.exit(code);
 }
 
 // ---------------------------------------------------------------------------
@@ -1145,6 +1199,7 @@ void ScriptEngine::account_static_stops(const dbg::PausedInfo& info) {
                                              std::to_string(info.cycle));
                 ++stops_;
                 last_stop_ = why;
+                mark_failure(3, why);
                 if (h.event_id == info.reason.id) stop_reason_ = why;
             }
         }
@@ -1153,6 +1208,7 @@ void ScriptEngine::account_static_stops(const dbg::PausedInfo& info) {
 
 void ScriptEngine::on_paused(const dbg::PausedInfo& info) {
     account_static_stops(info);   // matched[] lists every stop of the boundary, whoever's was first
+    hand_over_exit();             // after every stop of the boundary is known
     const std::string reason = pause_reason_text(info);
     stop_reason_.clear();
     last_stop_reason_ = reason;
@@ -1177,18 +1233,17 @@ void ScriptEngine::on_paused(const dbg::PausedInfo& info) {
             ++r->hits;
             if (r->rule->once) r->fired = true;
             Verdict verdict = Verdict::Continue;  // already paused: a `stop` here only logs
-            body_stopped_   = false;
             try {
                 exec(*r, r->rule->body, ev, dbg_, verdict);
             } catch (const EvalError& e) {
                 runtime_error(*r, e.d);
             }
-            body_stopped_ = false;
             last_stop_reason_ = reason;
         }
     }
     stop_reason_.clear();  // a `stop` in an `on stop` body only logged
     cur_cycle_.reset();
+    hand_over_exit();      // an `exit` an `on stop` rule ran
 }
 
 // ---------------------------------------------------------------------------

@@ -143,6 +143,13 @@ public:
     /// (`--delayed-automatic-exit*`) turns a non-zero count into exit 3.
     size_t unreached_verdicts() const;
 
+    /// An `exit` was taken at the boundary just delivered and will be handed
+    /// to `EngineHost::exit` at the pause — with a failure at the same boundary
+    /// turning `exit 0` into that failure's code. The loop owner's listener
+    /// leaves the backend's ExitRequested(3) to that hand-over while this is
+    /// true (ScriptHost).
+    bool exit_pending() const { return pending_exit_.has_value(); }
+
     // ── dbg::Listener ───────────────────────────────────────────────────────
     void on_paused(const dbg::PausedInfo& info) override;
     void on_resumed(dbg::ClientId) override {}
@@ -192,7 +199,16 @@ private:
     uint64_t       overflow_logged_cycle_ = UINT64_MAX;
     size_t         runtime_errors_ = 0;
     std::string    stop_reason_;       ///< the reason of the engine's own pending stop
-    bool           body_stopped_ = false;  ///< a `stop` / failed `assert` ran in the body running now
+    // The exit code of a boundary (WP7 review 1; see script_engine.cpp).
+    std::optional<int> pending_exit_;  ///< an `exit` taken, handed over at the pause
+    uint64_t       exit_cycle_ = 0;
+    std::optional<int> fail_code_;     ///< 3: a stop / failed assert or compare_scr; 1: a run-time error
+    uint64_t       fail_cycle_ = 0;
+    std::string    fail_reason_;
+    void mark_failure(int code, const std::string& why);
+    bool compare_pending() const;
+    void take_exit(int code);
+    void hand_over_exit();
     std::optional<int> first_exit_;    ///< status(): the first `exit n`
     std::size_t    stops_ = 0;         ///< status(): stop verdicts so far
     std::string    last_stop_;         ///< status(): the latest stop's reason
