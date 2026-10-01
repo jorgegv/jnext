@@ -3745,6 +3745,30 @@ static std::string zrcp_tmp(const char* stem, const char* ext) {
 
 static void wp5_history_rows() {
     {
+        // history_line, byte for byte, from a synthetic entry (every field
+        // distinct, so a swapped pair or byte shows).
+        ::TraceEntry e{};
+        e.pc = 0x1234; e.sp = 0x5678; e.af = 0x9ABC; e.bc = 0xDEF0; e.hl = 0x1357;
+        e.de = 0x2468; e.ix = 0xA1B2; e.iy = 0xC3D4; e.af2 = 0xE5F6; e.bc2 = 0x0718;
+        e.hl2 = 0x293A; e.de2 = 0x4B5C; e.i = 0x6D; e.r = 0x7E; e.im = 2; e.iff1 = 1;
+        e.iff2 = 0; e.opcode_bytes[0] = 0xED; e.opcode_bytes[1] = 0xB0;
+        e.opcode_bytes[2] = 0x01; e.opcode_bytes[3] = 0x02; e.sp_word = 0xBEEF;
+        const std::array<std::uint16_t, 8> mmu{{0x8000, 0x8001, 0x000a, 0x000b,
+                                                0x0004, 0x0005, 0x0000, 0x0001}};
+        const std::string l = history_line(e, mmu);
+        e.iff1 = 0; e.iff2 = 1;
+        const std::string l2 = history_line(e, mmu);
+        check("ZRCP-FMT-14", "a cpu-history line byte for byte (ZEsarUX's "
+                             "cpu_history_legacy_regs_bin_to_string): HL before DE, IM%d IFF%c%c, "
+                             "(PC)= the opcode bytes in fetch order, (SP)= the word, eight MMU "
+                             "values, a trailing space",
+              l == "PC=1234 SP=5678 AF=9abc BC=def0 HL=1357 DE=2468 IX=a1b2 IY=c3d4 AF'=e5f6 "
+                   "BC'=0718 HL'=293a DE'=4b5c I=6d R=7e IM2 IFF1- (PC)=edb00102 (SP)=beef "
+                   "MMU=80008001000a000b0004000500000001 " &&
+                  l2.find(" IFF-2 ") != std::string::npos,
+              esc(l, 300));
+    }
+    {
         Rig rig;
         Zc  c(rig);
         c.cmd("enter-cpu-step");
