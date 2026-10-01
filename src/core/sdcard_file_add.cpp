@@ -294,6 +294,20 @@ struct MountedCard {
     }
 };
 
+// "has 3 KB free (6 clusters); 'x' needs 4 KB (7 clusters)". Free space is
+// rounded DOWN and the need UP, and both are also given in clusters, so a
+// refusal never reads as "has 3 KB, needs 3 KB".
+std::string space_message(const std::string& image_path, uint64_t free_clusters,
+                          const std::string& what, const char* needs,
+                          uint64_t need_clusters, uint64_t cluster_bytes) {
+    return "'" + image_path + "' has " +
+           std::to_string(free_clusters * cluster_bytes / 1024) + " KB free (" +
+           std::to_string(free_clusters) + " clusters of " +
+           std::to_string(cluster_bytes) + " bytes); '" + what + "' " + needs +
+           " " + std::to_string((need_clusters * cluster_bytes + 1023) / 1024) +
+           " KB (" + std::to_string(need_clusters) + " clusters)";
+}
+
 // Free clusters on the mounted card, and the cluster size.
 FileAddStatus card_free_space(const std::string& image_path,
                               uint64_t& free_clusters, uint64_t& cluster_bytes,
@@ -721,10 +735,8 @@ FileAddStatus add_dir_to_image(const std::string& image_path,
             need += (nodes[i].size + cluster_bytes - 1) / cluster_bytes;
     }
     if (need > free_clusters) {
-        err = "'" + image_path + "' has " +
-              std::to_string(free_clusters * cluster_bytes / 1024) +
-              " KB free; '" + host_dir + "' needs at least " +
-              std::to_string(need * cluster_bytes / 1024) + " KB";
+        err = space_message(image_path, free_clusters, host_dir,
+                            "needs at least", need, cluster_bytes);
         return FileAddStatus::ImageFull;
     }
 
@@ -736,7 +748,11 @@ FileAddStatus add_dir_to_image(const std::string& image_path,
         std::size_t left = 0;
         for (auto r = created.rbegin(); r != created.rend(); ++r)
             if (f_unlink(r->c_str()) != FR_OK) ++left;
-        err += "; the copy was rolled back";
+        const std::size_t made_files = created.size() - dirs_created;
+        err += "; the copy was rolled back, removing the " +
+               std::to_string(made_files) + (made_files == 1 ? " file" : " files") +
+               " and " + std::to_string(dirs_created) +
+               (dirs_created == 1 ? " directory" : " directories") + " it had made";
         if (left > 0)
             err += ", but " + std::to_string(left) +
                    " of the entries it created could not be removed";
@@ -860,10 +876,8 @@ FileAddStatus add_file_to_image(const std::string& image_path,
     const uint64_t need_clusters =
         (src_size + cluster_bytes - 1) / cluster_bytes + new_dirs;
     if (need_clusters > free_clusters) {
-        err = "'" + image_path + "' has " +
-              std::to_string(free_clusters * cluster_bytes / 1024) +
-              " KB free; '" + host_file + "' needs " +
-              std::to_string(need_clusters * cluster_bytes / 1024) + " KB";
+        err = space_message(image_path, free_clusters, host_file, "needs",
+                            need_clusters, cluster_bytes);
         return FileAddStatus::ImageFull;
     }
 
@@ -872,14 +886,21 @@ FileAddStatus add_file_to_image(const std::string& image_path,
     // /DEMOS/x.nex` on a card with no /DEMOS must work without a second step.
     // The ones this call makes are remembered: a failure after them removes
     // them again, so a failed add leaves no empty directory behind.
+    // Removed DEEPEST FIRST: a directory can only be unlinked once it is
+    // empty, and each one made here holds the next. An unlink that fails is
+    // counted and said, never claimed as done.
     std::vector<std::string> made;
     auto unmake = [&](FileAddStatus s) {
+        std::size_t left = 0;
         for (auto r = made.rbegin(); r != made.rend(); ++r)
-            f_unlink(r->c_str());
+            if (f_unlink(r->c_str()) != FR_OK) ++left;
         if (!made.empty())
-            err += "; the " + std::to_string(made.size()) +
-                   " new director" + (made.size() == 1 ? "y" : "ies") +
-                   " made for it were removed too";
+            err += made.size() == 1
+                ? std::string("; the 1 new directory made for it was removed too")
+                : "; the " + std::to_string(made.size()) +
+                  " new directories made for it were removed too";
+        if (left > 0)
+            err += ", but " + std::to_string(left) + " of them could not be removed";
         return s;
     };
     {

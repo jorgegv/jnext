@@ -354,6 +354,44 @@ uint32_t fsinfo_free_count(const fs::path& image) {
            (static_cast<uint32_t>(sec[491]) << 24);
 }
 
+// Free clusters counted in FAT #1 itself, not taken from FSInfo. FSInfo is a
+// HINT FatFs keeps; a cluster allocated and never freed again (a leak) would
+// show as a FAT entry still in use, whatever the hint says.
+uint32_t fat_scan_free(const fs::path& image) {
+    std::ifstream f(image, std::ios::binary);
+    if (!f) return 0xFFFFFFFFu;
+    uint8_t bpb[kSectorSize];
+    f.seekg(static_cast<std::streamoff>(static_cast<uint64_t>(kPartLba) * kSectorSize));
+    f.read(reinterpret_cast<char*>(bpb), kSectorSize);
+    if (!f.good()) return 0xFFFFFFFFu;
+    auto u32 = [&](int o) {
+        return static_cast<uint32_t>(bpb[o]) | (static_cast<uint32_t>(bpb[o + 1]) << 8) |
+               (static_cast<uint32_t>(bpb[o + 2]) << 16) |
+               (static_cast<uint32_t>(bpb[o + 3]) << 24);
+    };
+    const uint32_t spc      = bpb[13];
+    const uint32_t reserved = static_cast<uint32_t>(bpb[14] | (bpb[15] << 8));
+    const uint32_t n_fats   = bpb[16];
+    const uint32_t total    = u32(32);
+    const uint32_t fat_sz   = u32(36);
+    if (spc == 0) return 0xFFFFFFFFu;
+    const uint32_t clusters = (total - reserved - n_fats * fat_sz) / spc;
+    std::vector<uint8_t> fat(static_cast<std::size_t>(clusters + 2) * 4);
+    f.seekg(static_cast<std::streamoff>(
+        (static_cast<uint64_t>(kPartLba) + reserved) * kSectorSize));
+    f.read(reinterpret_cast<char*>(fat.data()), static_cast<std::streamsize>(fat.size()));
+    if (!f.good()) return 0xFFFFFFFFu;
+    uint32_t n = 0;
+    for (uint32_t c = 2; c < clusters + 2; ++c) {
+        const uint8_t* e = fat.data() + c * 4;
+        const uint32_t v = (static_cast<uint32_t>(e[0]) | (static_cast<uint32_t>(e[1]) << 8) |
+                            (static_cast<uint32_t>(e[2]) << 16) |
+                            (static_cast<uint32_t>(e[3]) << 24)) & 0x0FFFFFFFu;
+        if (v == 0) ++n;
+    }
+    return n;
+}
+
 // Does `long_name` appear in the directory `dir` of the image, with `size`
 // bytes? Uses fat32_read_tree, which reconstructs VFAT long names — the short
 // name reader (extract_sd_rom) cannot see them at all.
@@ -420,6 +458,36 @@ bool card_has(const fs::path& image, const std::string& path) {
     Fat32Tree tree;
     if (!read_tree(image, tree)) return false;
     return find_node(tree, path) != nullptr;
+}
+
+// The LOGICAL content of the whole card — every name, its kind and its bytes,
+// in directory order — read by the independent fat32 reader. A copy that fails
+// part-way cannot leave the card BYTE-identical (FAT marks a deleted entry
+// 0xE5 and never shrinks a directory that grew), but it must leave this
+// identical: nothing it made may remain.
+void digest_nodes(const std::vector<Fat32Node>& nodes, uint64_t& h) {
+    auto mix = [&h](const void* p, std::size_t n) {
+        const uint8_t* b = static_cast<const uint8_t*>(p);
+        for (std::size_t i = 0; i < n; ++i) { h ^= b[i]; h *= 1099511628211ull; }
+    };
+    for (const Fat32Node& n : nodes) {
+        mix(n.is_dir ? "D" : "F", 1);
+        mix(n.name.data(), n.name.size());
+        const uint64_t sz = n.data.size();
+        mix(&sz, sizeof sz);
+        if (!n.data.empty()) mix(n.data.data(), n.data.size());
+        mix("{", 1);
+        digest_nodes(n.children, h);
+        mix("}", 1);
+    }
+}
+
+uint64_t tree_digest(const fs::path& image) {
+    Fat32Tree tree;
+    if (!read_tree(image, tree)) return 0;
+    uint64_t h = 1469598103934665603ull;
+    digest_nodes(tree.root, h);
+    return h;
 }
 
 // ---------------------------------------------------------------------------
@@ -1559,7 +1627,9 @@ void test_file_new_dirs() {
     FileAddStatus st = sdcard::add_file_to_image(img.string(), two.string(),
                                                  "/P/NEWDIR/x.bin", false, err);
     check("SDFA-W56", "a file whose new directory does not fit is refused, card untouched",
-          free0 == 2 && st == FileAddStatus::ImageFull && file_digest(img) == before,
+          free0 == 2 && st == FileAddStatus::ImageFull && file_digest(img) == before &&
+          err.find("(2 clusters of 512 bytes)") != std::string::npos &&
+          err.find("needs 2 KB (3 clusters)") != std::string::npos,
           "free=" + std::to_string(free0) + "; " + err);
 
     // 3 free passes the pre-check, but /P has to grow to hold NEWDIR, so the
@@ -1572,7 +1642,8 @@ void test_file_new_dirs() {
     check("SDFA-W57", "a file that runs out after making its directory removes that directory",
           free1 == 3 && st == FileAddStatus::ImageFull &&
           !card_has(img, "/P/NEWDIR") &&
-          err.find("new directory made for it were removed too") != std::string::npos,
+          err.find("the 1 new directory made for it was removed too") != std::string::npos &&
+          err.find("could not be removed") == std::string::npos,
           "free=" + std::to_string(free1) + "; " + err);
     // Everything it made is given back. /P keeps the cluster it grew by —
     // FAT never shrinks a directory — and that is the only residue.
@@ -1605,6 +1676,103 @@ void test_file_new_dirs() {
     check("SDFA-T45", "a directory that runs out of room mid-tree is image-full",
           free2 == 1 && st == FileAddStatus::ImageFull && !card_has(img, "/P/D1"),
           "free=" + std::to_string(free2) + "; " + err);
+}
+
+// GH #292 review round 2 — EVERY directory an add makes, at any depth, for a
+// file and for a tree alike, is counted up front and removed on failure.
+//
+// Each scenario puts a 2-cluster file under N new directories below /P (one
+// full cluster of entries, so /P must grow to take the first new one — the
+// cluster no pre-check counts). The pre-check needs N + 2:
+//   * with N + 1 free it refuses, and the card is BYTE-identical;
+//   * with N + 2 free it passes, every directory is made, and the very LAST
+//     step — the file's data — runs out. All N directories go again: the
+//     card's logical content is identical and only /P's growth cluster stays.
+// `levels` is 1..3. `tree` copies a directory holding the file to the N-deep
+// destination instead of the file itself.
+void multi_level(const char* refuse_id, const char* fail_id, bool tree, int levels) {
+    static const char* const kFile[] = {"/P/A/x.bin", "/P/A/B/x.bin", "/P/A/B/C/x.bin"};
+    static const char* const kTree[] = {"/P/A", "/P/A/B", "/P/A/B/C"};
+    std::string err, why;
+    std::error_code ec;
+    const fs::path src = g_scratch / "lvl";
+    fs::remove_all(src, ec);
+    fs::create_directories(src, ec);
+    write_host_file(src / "x.bin", payload(2 * kClusterBytes, 150));
+    auto add = [&](const fs::path& img) {
+        return tree ? sdcard::add_to_image(img.string(), src.string(),
+                                           kTree[levels - 1], false, err)
+                    : sdcard::add_to_image(img.string(), (src / "x.bin").string(),
+                                           kFile[levels - 1], false, err);
+    };
+    const uint32_t need = static_cast<uint32_t>(levels) + 2;
+    const std::string tag = std::string(tree ? "tree" : "file") + std::to_string(levels);
+
+    uint32_t f0 = 0;
+    fs::path img = full_parent_fixture(("lvl-ref-" + tag + ".img").c_str(), need - 1, f0);
+    const uint64_t bytes_before = file_digest(img);
+    FileAddStatus st = add(img);
+    check(refuse_id, "a copy whose new directories do not fit is refused, card byte-identical",
+          f0 == need - 1 && st == FileAddStatus::ImageFull &&
+          file_digest(img) == bytes_before, tag + " free=" + std::to_string(f0) + "; " + err);
+
+    uint32_t f1 = 0;
+    img = full_parent_fixture(("lvl-fail-" + tag + ".img").c_str(), need, f1);
+    const uint64_t tree_before = tree_digest(img);
+    st = add(img);
+    check(fail_id, "a copy failing at its last step leaves none of its new directories",
+          f1 == need && st == FileAddStatus::ImageFull && !card_has(img, "/P/A") &&
+          err.find("ran out of space") != std::string::npos &&    // the data: last
+          err.find(tree ? (levels == 1 ? "removing the 0 files and 1 directory it had made"
+                                       : "removing the 0 files and " +
+                                         std::to_string(levels) + " directories it had made")
+                        : (levels == 1 ? std::string("the 1 new directory made for it was removed")
+                                       : "the " + std::to_string(levels) +
+                                         " new directories made for it were removed")) !=
+              std::string::npos &&
+          tree_digest(img) == tree_before && fsinfo_free_count(img) == f1 - 1 &&
+          fat_scan_free(img) == f1 - 1 &&
+          err.find("could not be removed") == std::string::npos &&
+          fats_agree(img, why),
+          tag + " free " + std::to_string(f1) + " -> " +
+          std::to_string(fsinfo_free_count(img)) + "; " + err + why);
+}
+
+// The second of two new directories cannot be made: /P's growth took the
+// room. The first one, already made, must go again — for a file and a tree.
+void second_mkdir_runs_out(const char* id, bool tree) {
+    std::string err, why;
+    std::error_code ec;
+    uint32_t f = 0;
+    const fs::path img = full_parent_fixture(tree ? "mk2-tree.img" : "mk2-file.img", 2, f);
+    const fs::path src = g_scratch / "mk2";
+    fs::remove_all(src, ec);
+    fs::create_directories(src, ec);
+    write_host_file(src / "z.bin", {});
+    const uint64_t tree_before = tree_digest(img);
+    const FileAddStatus st = tree
+        ? sdcard::add_to_image(img.string(), (src).string(), "/P/A/B", false, err)
+        : sdcard::add_to_image(img.string(), (src / "z.bin").string(),
+                               "/P/A/B/z.bin", false, err);
+    check(id, "when the second new directory cannot be made, the first goes too",
+          f == 2 && st == FileAddStatus::ImageFull && !card_has(img, "/P/A") &&
+          tree_digest(img) == tree_before && fsinfo_free_count(img) == f - 1 &&
+          fat_scan_free(img) == f - 1 &&
+          err.find("could not be removed") == std::string::npos &&
+          fats_agree(img, why),
+          "free " + std::to_string(f) + " -> " + std::to_string(fsinfo_free_count(img)) +
+          "; " + err + why);
+}
+
+void test_multi_level() {
+    multi_level("SDFA-W60", "SDFA-W63", false, 1);
+    multi_level("SDFA-W61", "SDFA-W64", false, 2);
+    multi_level("SDFA-W62", "SDFA-W65", false, 3);
+    multi_level("SDFA-T46", "SDFA-T49", true, 1);
+    multi_level("SDFA-T47", "SDFA-T50", true, 2);
+    multi_level("SDFA-T48", "SDFA-T51", true, 3);
+    second_mkdir_runs_out("SDFA-W66", false);
+    second_mkdir_runs_out("SDFA-T52", true);
 }
 
 // The card fills while a file is being REPLACED: that file is gone (it was
@@ -1682,6 +1850,7 @@ int main() {
     test_tree_rollback();
     test_tree_replace_lost();
     test_file_new_dirs();
+    test_multi_level();
 
     fs::remove_all(g_scratch, ec);
 
