@@ -29,6 +29,8 @@ struct ScriptHost::HostListener : dbg::Listener {
 ScriptHost::ScriptHost() = default;
 
 ScriptHost::~ScriptHost() {
+    if (recording()) stop_recording();   // the session ends: write what was recorded
+    recorder_.reset();
     engine_.reset();
     if (dbg_ && listener_cid_ != dbg::CLIENT_NONE) {
         dbg_->set_listener(listener_cid_, nullptr);
@@ -49,10 +51,14 @@ std::size_t ScriptHost::unreached_verdicts() const {
 // The engine's own lines carry the backend's ` [client N]` suffix for the
 // engine's client; they are kept (without it) for the Script tab.
 void ScriptHost::capture(const std::string& text) {
-    if (!engine_) return;
-    const std::string tag = " [client " + std::to_string(engine_->client()) + "]";
-    if (text.size() < tag.size() || text.compare(text.size() - tag.size(), tag.size(), tag) != 0) return;
-    remember(text.substr(0, text.size() - tag.size()));
+    for (const dbg::ClientId c : {engine_ ? engine_->client() : dbg::CLIENT_NONE,
+                                  recorder_ ? recorder_->client() : dbg::CLIENT_NONE}) {
+        if (c == dbg::CLIENT_NONE) continue;
+        const std::string tag = " [client " + std::to_string(c) + "]";
+        if (text.size() < tag.size() || text.compare(text.size() - tag.size(), tag.size(), tag) != 0) continue;
+        remember(text.substr(0, text.size() - tag.size()));
+        return;
+    }
 }
 
 void ScriptHost::remember(const std::string& line) {
@@ -75,22 +81,29 @@ void ScriptHost::error(const std::string& text) {
     remember(text);
 }
 
+// The host's own non-arming listener: hears the backend's ExitRequested push
+// and every log line (kept for the Script tab when the engine's or the
+// recorder's).
+bool ScriptHost::ensure_listener() {
+    if (listener_cid_ != dbg::CLIENT_NONE) return true;
+    dbg::ClientInfo ci;
+    ci.name     = "script host";
+    ci.kind     = dbg::ClientKind::Script;
+    ci.observer = true;
+    const auto c = dbg_->attach(ci);
+    if (!c) {
+        error("scripts: the script host could not attach to the debugger");
+        return false;
+    }
+    listener_cid_ = c.value;
+    listener_     = std::make_unique<HostListener>(*this);
+    dbg_->set_listener(listener_cid_, listener_.get());
+    return true;
+}
+
 bool ScriptHost::ensure_engine() {
     if (engine_) return true;
-    if (listener_cid_ == dbg::CLIENT_NONE) {
-        dbg::ClientInfo ci;
-        ci.name     = "script host";
-        ci.kind     = dbg::ClientKind::Script;
-        ci.observer = true;
-        const auto c = dbg_->attach(ci);
-        if (!c) {
-            error("scripts: the script host could not attach to the debugger");
-            return false;
-        }
-        listener_cid_ = c.value;
-        listener_     = std::make_unique<HostListener>(*this);
-        dbg_->set_listener(listener_cid_, listener_.get());
-    }
+    if (!ensure_listener()) return false;
     EngineHost host;
     if (exits_) host.exit = [this](int code) { request(code); };
     engine_ = std::make_unique<ScriptEngine>(*dbg_, host);
@@ -133,13 +146,14 @@ bool ScriptHost::start(dbg::Debugger& dbg, const ScriptHostOptions& opt) {
         dbg.log(dbg::CLIENT_NONE, dbg::LogLevel::Info,
                 "--map " + opt.map_file + ": " + std::to_string(n.value) + " symbols");
     }
-    if (opt.scripts.empty()) {
-        if (!opt.keys.empty()) {
-            error("--script-key needs a --script to deliver the key to");
-            return false;
-        }
-        return true;
+    // `--script-key` reaches the recorder too (key 8 is its capture), so with
+    // `--record-script` a key needs no script to be delivered to.
+    if (opt.scripts.empty() && !opt.keys.empty() && opt.record_file.empty()) {
+        error("--script-key needs a --script (or --record-script) to deliver the key to");
+        return false;
     }
+    if (!opt.record_file.empty() && !start_recording(opt.record_file)) return false;
+    if (opt.scripts.empty() && opt.keys.empty()) return true;
     if (!ensure_engine()) return false;
 
     bool ok = true;
@@ -200,6 +214,44 @@ std::vector<LoadResult> ScriptHost::reload() {
     std::vector<LoadResult> out;
     for (const std::string& f : files) out.push_back(load_file(f));
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// The recorder (WP6)
+// ---------------------------------------------------------------------------
+
+bool ScriptHost::start_recording(const std::string& file) {
+    if (!dbg_) {
+        remember("RECORD: no debugger to record from");
+        return false;
+    }
+    if (!ensure_listener()) return false;
+    if (!recorder_) recorder_ = std::make_unique<Recorder>(*dbg_);
+    std::string why;
+    if (!recorder_->start(file, recording_info_, why)) {
+        error("RECORD " + file + ": " + why);
+        return false;
+    }
+    return true;
+}
+
+bool ScriptHost::capture_screen() {
+    return recorder_ && recorder_->capture();
+}
+
+bool ScriptHost::stop_recording() {
+    if (!recorder_) {
+        remember("RECORD: not recording");
+        return false;
+    }
+    std::string why;
+    if (!recorder_->stop(why)) {
+        error("RECORD: " + why);
+        return false;
+    }
+    remember("RECORD: wrote " + recorder_->path() + " — " + std::to_string(recorder_->edges()) +
+             " input edges, " + std::to_string(recorder_->captures()) + " captures");
+    return true;
 }
 
 }  // namespace script

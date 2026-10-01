@@ -35,19 +35,6 @@ int32_t wrap(int64_t v) { return wrap(static_cast<uint64_t>(v)); }
 
 int32_t flag(uint16_t af, int bit) { return (af >> bit) & 1; }
 
-// The MACHINE constants of §2.3: 0=48K 1=128K 2=+3 3=Pentagon 4=Next. jnext
-// has no standalone Pentagon machine type any more (emulator.cpp: "the
-// standalone Pentagon machine type was dropped"), so 3 is never produced.
-int32_t machine_code(MachineType t) {
-    switch (t) {
-        case MachineType::ZX48K:      return 0;
-        case MachineType::ZX128K:     return 1;
-        case MachineType::ZX_PLUS3:   return 2;
-        case MachineType::ZXN_ISSUE2: return 4;
-    }
-    return -1;
-}
-
 // The SOURCE constants of §2.1 (CPU 0, DMA 1, COPPER 2) — NOT the backend's
 // `EventSource` order (Cpu 0, Copper 1, Dma 2).
 int32_t source_code(dbg::EventSource s) {
@@ -271,6 +258,19 @@ int32_t binary(const Expr& e, const EvalContext& ctx) {
 }
 
 }  // namespace
+
+// The MACHINE constants of §2.3: 0=48K 1=128K 2=+3 3=Pentagon 4=Next. jnext
+// has no standalone Pentagon machine type any more (emulator.cpp: "the
+// standalone Pentagon machine type was dropped"), so 3 is never produced.
+int32_t machine_code(MachineType t) {
+    switch (t) {
+        case MachineType::ZX48K:      return 0;
+        case MachineType::ZX128K:     return 1;
+        case MachineType::ZX_PLUS3:   return 2;
+        case MachineType::ZXN_ISSUE2: return 4;
+    }
+    return -1;
+}
 
 int32_t eval_int(const Expr& e, const EvalContext& ctx) {
     switch (e.kind) {

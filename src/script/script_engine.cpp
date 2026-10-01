@@ -10,6 +10,7 @@
 #include "script/check.h"
 #include "script/evaluator.h"
 #include "script/expr_compiler.h"
+#include "script/key_names.h"
 #include "script/names.h"
 #include "script/parser.h"
 
@@ -706,6 +707,15 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
             case ActionKind::Press:
             case ActionKind::Release: {
                 const std::string name = interpolate(*a.s1, ctx);
+                // An extended key (NR 0xB0/0xB1, `ext:<name>`) — the host's
+                // arrows, Backspace, Esc; level only (WP6, Appendix L).
+                if (const int ext = ext_key_id(name); ext >= 0) {
+                    if (a.kind == ActionKind::Press && a.e1)
+                        fail(a.e1->pos, "`press … for` takes a matrix key, not `" + name + "`");
+                    refused(a.pos, "`press`/`release`",
+                            d.set_extended_key(cid_, ext, a.kind == ActionKind::Press));
+                    break;
+                }
                 dbg::MatrixKey k;
                 if (!key_of(name, k)) fail(a.s1->pos, "unknown key `" + name + "`");
                 if (a.kind == ActionKind::Press && a.e1) {

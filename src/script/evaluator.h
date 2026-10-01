@@ -45,6 +45,8 @@
 #include "script/expr_compiler.h"
 #include "script/value.h"
 
+enum class MachineType;   // memory/contention.h — forward-declared as cpu/z80_cpu.h does
+
 namespace jnext {
 namespace dbg {
 class Debugger;
@@ -71,6 +73,10 @@ struct EvalContext {
 };
 
 /// Evaluate an integer-typed expression. Throws `EvalError`.
+/// The MACHINE constant of §2.3 for `t` (0=48K 1=128K 2=+3 4=Next) — what
+/// `MACHINE` reads, and what the recorder's header asserts (WP6).
+int32_t machine_code(MachineType t);
+
 int32_t eval_int(const Expr& e, const EvalContext& ctx);
 
 /// Evaluate a string-typed expression (a string literal, `REASON`). Throws
