@@ -2030,10 +2030,12 @@ static void host_rows() {
         ScriptHostOptions o;
         o.scripts = {tmp_file("k.jds", "on hostkey 3 do log \"K${KEY} F${FRAME}\" end\n"
                                        "on frame 7 do log \"E7\" end\n"
-                                       "on hostkey 2 do log \"Z${KEY} F${FRAME}\" end\n")};
+                                       "on hostkey 2 do log \"Z${KEY} F${FRAME}\" joystick 1 0x10 end\n")};
         o.keys = {{7, 3}, {0, 2}};
         const bool ok = g.start(o);
-        g.run(7);
+        g.run(1);
+        const uint16_t joy0 = g.dbg->input_state().joy_left12;
+        g.run(6);
         const size_t before = g.sink.count("K3 F7");
         g.run(1);
         size_t e7 = 0, k3 = 0;
@@ -2043,8 +2045,9 @@ static void host_rows() {
         }
         check("SCRIPT-HOST-KEY", "`--script-key 7 3` runs `on hostkey 3` once, at the end of frame 7 "
                                  "(FRAME == 7, beside `on frame 7`) and not during frames 0..6; a key for "
-                                 "frame 0 runs at the end of frame 0",
-              ok && before == 0 && g.sink.count("K3 F7") == 1 && e7 != 0 && k3 != 0 &&
+                                 "frame 0 runs at the end of frame 0, and what its rule queues for the edge "
+                                 "(a joystick) lands at that same edge",
+              ok && before == 0 && g.sink.count("K3 F7") == 1 && e7 != 0 && k3 != 0 && joy0 == 0x10 &&
                   g.sink.count("Z2 F0") == 1 && g.host->unreached_verdicts() == 0,
               g.sink.tail(4));
     }
