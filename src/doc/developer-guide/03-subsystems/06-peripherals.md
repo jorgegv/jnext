@@ -43,8 +43,11 @@ timing) is never reached, so such a `WAIT` stalls until the next restart.
 Mode 11 restarts the program at `cvc` 0 / `hc_ula` 0 and nowhere else
 (`copper.vhd:80`); that is `c_min_vactive` lines into the raw frame, not its
 top. jnext also rewound it at the raw frame start, cutting every whole-frame
-program off 64 lines early (GH #293). An NR 0x62 write that leaves the mode
-bits unchanged does nothing to the Copper: only a mode change resets its PC.
+program off `c_min_vactive` lines early: 64 at 50 Hz, 80 on Pentagon, 40 at
+60 Hz (GH #293). An NR 0x62 write that leaves the mode bits unchanged does
+nothing to the Copper: only a mode change resets its PC. A stopped Copper is
+not stepped, except to latch a pending mode write, so that a stop and a
+restart (`00` then `01`/`11`) is still seen as a mode change.
 
 ## DMA
 

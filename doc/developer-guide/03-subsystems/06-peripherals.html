@@ -1997,8 +1997,11 @@ timing) is never reached, so such a <code>WAIT</code> stalls until the next rest
 <p>Mode 11 restarts the program at <code>cvc</code> 0 / <code>hc_ula</code> 0 and nowhere else
 (<code>copper.vhd:80</code>); that is <code>c_min_vactive</code> lines into the raw frame, not its
 top. jnext also rewound it at the raw frame start, cutting every whole-frame
-program off 64 lines early (GH #293). An NR 0x62 write that leaves the mode
-bits unchanged does nothing to the Copper: only a mode change resets its PC.</p>
+program off <code>c_min_vactive</code> lines early: 64 at 50 Hz, 80 on Pentagon, 40 at
+60 Hz (GH #293). An NR 0x62 write that leaves the mode bits unchanged does
+nothing to the Copper: only a mode change resets its PC. A stopped Copper is
+not stepped, except to latch a pending mode write, so that a stop and a
+restart (<code>00</code> then <code>01</code>/<code>11</code>) is still seen as a mode change.</p>
 <h2 id="dma">DMA<a class="headerlink" href="#dma" title="Permanent link">&para;</a></h2>
 <p>A DMA controller copies blocks of bytes — memory to memory, or memory to and
 from an I/O port — without the CPU touching each one. On a Next this is how

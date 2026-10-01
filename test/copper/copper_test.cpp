@@ -953,10 +953,9 @@ void group4_modes() {
     }
 
     // CTL-05: Mode 11 loops at (cvc=0, hc=0). One MOVE fires once per
-    // on_vsync restart. We simulate multiple "frames" by driving
-    // execute(0,0,...) after each frame's work — but because C++
-    // execute()'s mode-11 restart branch checks (vc==0 && hc==0), each
-    // execute(0,0,...) call acts as a vsync reset.
+    // restart. We simulate multiple "frames" by driving execute(0,0,...)
+    // after each frame's work: execute()'s mode-11 restart branch checks
+    // (cvc==0 && hc==0), so each execute(0,0,...) call is a frame restart.
     {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);

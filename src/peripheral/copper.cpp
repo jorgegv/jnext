@@ -144,8 +144,10 @@ void Copper::execute(int hc, int vc, NextReg& nextreg, uint8_t cvc_offset) {
     // at ula_min_vactive (zxula_timing.vhd:457-462, GH #290).
     //
     // This is the ONLY mode-11 restart. There is none at the raw frame start
-    // (vc=0): jnext used to rewind the PC there too, at cvc = c_max_vc - 63,
-    // which cut every per-line program off 64 lines before its end (GH #293).
+    // (vc=0): jnext used to rewind the PC there too — in the hc_ula tail of
+    // cvc c_max_vc - c_min_vactive + offset, c_min_vactive lines before this
+    // restart — so every program running to the end of the frame lost its
+    // last c_min_vactive lines (64 at 50 Hz on 48K/128K/+3/Next) (GH #293).
     int cvc_restart = (vc + static_cast<int>(cvc_offset)) % (c_max_vc_ + 1);
     if (mode_ == 3 && cvc_restart == 0 && hc == 0) {
         pc_ = 0;

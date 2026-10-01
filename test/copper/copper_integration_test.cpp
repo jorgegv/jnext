@@ -1617,8 +1617,9 @@ static void test_gh290_copper_line_int_target() {
 // copper.vhd:80 restarts a mode-11 program only at vcount_i = 0 and
 // hcount_i = 0, i.e. cvc 0 / hc_ula 0 (zxnext.vhd:3949-3950). jnext also
 // rewound it at the raw frame start (Copper::on_vsync), which at Next 50 Hz
-// is cvc (0 - 64) mod 311 = 247: a program covering the whole frame stalled
-// for its last 64 lines and the DAC held its last value.
+// with NR 0x64 = 0 is cvc 246 at hc_ula 331, 64 lines before cvc 0: a
+// program covering the whole frame stalled for its last 64 lines and the
+// DAC held its last value.
 //
 // ZXN_ISSUE2, Next timing 50 Hz, CPU parked in `DI; JR $`, DAC enabled.
 // Program (NEXTEST's audio shape): for v = 0..310, WAIT(v, 0) then
@@ -1633,7 +1634,10 @@ struct Gh293Probe {
 };
 }
 
-static void gh293_build(Emulator& emu, Gh293Probe& probe) {
+// `mode` is NR 0x62 bits 7:6 (entered from 00), `offset` is NR 0x64, and
+// `settle` the frames run before the caller looks.
+static void gh293_build(Emulator& emu, Gh293Probe& probe, uint8_t mode = 3,
+                        uint8_t offset = 0, int settle = 2) {
     probe.emu = &emu;
     EmulatorConfig cfg;
     cfg.type = MachineType::ZXN_ISSUE2;
@@ -1664,10 +1668,24 @@ static void gh293_build(Emulator& emu, Gh293Probe& probe) {
                      enc_move(0x2D, static_cast<uint8_t>(v & 0xFF)));
     }
     program_word(emu, 622, enc_wait(0, 511));   // HALT
+    nr_write(emu, 0x64, offset);
     set_copper_mode(emu, 0);
-    set_copper_mode(emu, 3);
-    emu.run_frame();
-    emu.run_frame();
+    set_copper_mode(emu, mode);
+    for (int i = 0; i < settle; ++i) emu.run_frame();
+}
+
+// Stop and restart the Copper at (line, px) of the frame starting at `f`:
+// NR 0x62 = 0x00, 40 px later `restart`, 40 px later the PC is sampled.
+static bool gh293_stop_start(Emulator& emu, uint64_t f, int line, int px,
+                             uint8_t restart, uint16_t& pc_before, uint16_t& pc_after) {
+    bool ok = gh290_run_to(emu, gh290_at(emu, f, line, px));
+    pc_before = emu.copper().pc();
+    nr_write(emu, 0x62, 0x00);
+    ok = ok && gh290_run_to(emu, gh290_at(emu, f, line, px + 40));
+    nr_write(emu, 0x62, restart);
+    ok = ok && gh290_run_to(emu, gh290_at(emu, f, line, px + 80));
+    pc_after = emu.copper().pc();
+    return ok;
 }
 
 static void test_gh293_no_frame_start_restart() {
@@ -1739,6 +1757,97 @@ static void test_gh293_no_frame_start_restart() {
               "pc " + std::to_string(pc_before) + " -> " + std::to_string(pc_after) +
                   " (want 274 -> 274), writes to frame end=" + std::to_string(total) +
                   " (want 174)");
+    }
+
+    // COP-GH293-05/06 — a stop then a start through mode 00 is a mode CHANGE
+    // on each write: copper.vhd:70-72 latches 00 on the next clock, so the
+    // restart is a 00 -> 11 / 00 -> 01 edge and resets the PC (:74-76).
+    {
+        Emulator emu;
+        Gh293Probe probe;
+        gh293_build(emu, probe);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
+        uint16_t before = 0, after = 0;
+        const bool ok = gh293_stop_start(emu, emu.current_frame_cycle(), 200, 300, 0xC0,
+                                         before, after);
+        check("COP-GH293-05",
+              "mode 11 stopped (NR 0x62 = 0x00) and restarted (0xC0) mid-frame resets "
+              "the Copper PC: 00 is latched while stopped (copper.vhd:70-76)",
+              ok && before == 274 && after == 0,
+              "pc " + std::to_string(before) + " -> " + std::to_string(after) +
+                  " (want 274 -> 0)");
+    }
+    {
+        Emulator emu;
+        Gh293Probe probe;
+        gh293_build(emu, probe, 1, 0, 1);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
+        uint16_t before = 0, after = 0;
+        const bool ok = gh293_stop_start(emu, emu.current_frame_cycle(), 30, 300, 0x40,
+                                         before, after);
+        check("COP-GH293-06",
+              "the same for mode 01 (0x00 then 0x40): the PC resets, it does not run on "
+              "from where it stopped (copper.vhd:70-76)",
+              ok && before == 556 && after == 0,
+              "pc " + std::to_string(before) + " -> " + std::to_string(after) +
+                  " (want 556 -> 0)");
+    }
+
+    // COP-GH293-07/08 — modes 01 and 10 have no frame restart at all
+    // (copper.vhd:80 is mode 11 only). Started from PC 0 before frame 0, the
+    // program runs cvc 0..245 in frame 0 and goes on across the raw frame
+    // start: at raw line 30 of frame 1 (cvc 277) it is at WAIT(278).
+    {
+        Emulator emu;
+        Gh293Probe probe;
+        gh293_build(emu, probe, 1, 0, 1);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
+        const bool ok = gh290_run_to(emu, gh290_at(emu, emu.current_frame_cycle(), 30, 300));
+        const uint16_t pc = emu.copper().pc();
+        check("COP-GH293-07",
+              "mode 01 runs on across the raw frame start: no frame restart "
+              "(copper.vhd:80-85)",
+              ok && pc == 556,
+              "pc=" + std::to_string(pc) + " (want 556; 0 = rewound at the frame start)");
+    }
+    {
+        Emulator emu;
+        Gh293Probe probe;
+        gh293_build(emu, probe, 2, 0, 1);
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
+        const bool ok = gh290_run_to(emu, gh290_at(emu, emu.current_frame_cycle(), 30, 300));
+        const uint16_t pc = emu.copper().pc();
+        check("COP-GH293-08",
+              "the same for mode 10 (copper.vhd:80-85)",
+              ok && pc == 556,
+              "pc=" + std::to_string(pc) + " (want 556; 0 = rewound at the frame start)");
+    }
+
+    // COP-GH293-09 — the restart follows cvc, not the raw frame: with NR 0x64
+    // = 32, cvc 0 is raw line 64 - 32 = 32 (zxula_timing.vhd:457-466), and the
+    // program still runs all 311 lines every frame.
+    {
+        Emulator emu;
+        Gh293Probe probe;
+        gh293_build(emu, probe, 3, 32, 2);
+        probe.dac_a_writes = 0;
+        emu.run_frame();
+        const int writes = probe.dac_a_writes;
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
+        const bool ok = gh290_run_to(emu, gh290_at(emu, emu.current_frame_cycle(), 40, 300));
+        const uint16_t pc = emu.copper().pc();
+        check("COP-GH293-09",
+              "with NR 0x64 = 32 the mode-11 restart is at cvc 0 = raw line 32: 311 "
+              "writes per frame, and at raw line 40 (cvc 8) the PC is at WAIT(9) "
+              "(copper.vhd:80; zxula_timing.vhd:457-466)",
+              ok && writes == 311 && pc == 18,
+              "writes=" + std::to_string(writes) + " (want 311) pc=" + std::to_string(pc) +
+                  " (want 18)");
     }
 }
 

@@ -37,7 +37,8 @@ That guard is load-bearing, and the reason is the debugger. When the debugger
 pauses, it does so by returning from inside the loop below, part-way through a
 frame; the next call to `run_frame()` must therefore **resume** that frame
 rather than start a fresh one. Calling `begin_new_frame()` in the middle of a
-frame would re-baseline the per-scanline change logs the compositor replays. The visible symptom is a frame that renders flat.
+frame would re-baseline the per-scanline change logs the compositor replays.
+The visible symptom is a frame that renders flat.
 
 `begin_new_frame()` (`:6917`) does the following, in order:
 

@@ -11906,8 +11906,11 @@ void Emulator::advance_copper_across_row_boundaries(uint64_t master_cycles)
 void Emulator::tick_copper_for_master_cycles(uint64_t begin, uint64_t master_cycles)
 {
     // Hot-path early-out — most of every frame the Copper is in mode 0
-    // (stopped) and the loop body would be pure overhead.
-    if (!copper_.is_running()) return;
+    // (stopped) and the loop body would be pure overhead. Not while a mode
+    // write is unlatched: copper.vhd:70 latches 00 on the next clock, and a
+    // Copper that never saw 00 sees no edge on a later 00 -> 01/11 restart
+    // and keeps its old PC (GH #293 review).
+    if (!copper_.is_running() && !copper_.mode_edge_pending()) return;
     if (master_cycles == 0) return;
 
     // The Copper steps fire at master cycles

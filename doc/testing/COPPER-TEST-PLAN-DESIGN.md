@@ -747,29 +747,49 @@ The real defect was a second mode-11 restart. In hardware the only one is
 `copper.vhd:80`: `copper_en_i = "11"` and `vcount_i = 0` and `hcount_i = 0`,
 where `vcount_i` is `cvc` and `hcount_i` is `hc_ula` (`zxnext.vhd:3949-3950`).
 jnext had that one in `Copper::execute()` and ALSO rewound the PC from
-`Copper::on_vsync()` at the raw frame start (raw vc 0). At Next 50 Hz with
-offset 0 that is `cvc = (0 - 64) mod 311 = 247`, so a program covering the
-whole frame (one WAIT/MOVE per line, NEXTEST's audio player) was rewound to
-its first WAIT 64 lines before its end and stalled until cvc 0: the DAC held
-its last value for 64 of 311 lines. `on_vsync()` is removed.
+`Copper::on_vsync()` at the raw frame start (raw vc 0). Raw (0, 0) lies in
+the `hc_ula` tail of `cvc = c_max_vc - c_min_vactive + offset` (the `cvc`
+line boundary is at raw hc `c_min_hactive - 11`, GH #181): at Next 50 Hz
+with NR 0x64 = 0 that is `cvc` 246 at `hc_ula` 331, `c_min_vactive` = 64
+lines before `cvc` 0 (80 on Pentagon, 40 at 60 Hz). So a program covering
+the whole frame (one WAIT/MOVE per line, NEXTEST's audio player) was rewound
+to its first WAIT that many lines before its end and stalled until `cvc` 0:
+at Next 50 Hz the DAC held its last value for 64 of 311 lines.
+`on_vsync()` is removed.
+
+The review of the fix found a second defect in the same mode logic:
+`Emulator::tick_copper_for_master_cycles()` skipped `execute()` while the
+mode was `00`, so `last_mode_` never latched `00` and a stop followed by a
+start (`00` -> `01`/`11`) was no edge: the PC was not reset (`copper.vhd:70-76`
+latches `00` on the next clock whatever the mode). The early-out now waits
+until a pending mode write is latched (`Copper::mode_edge_pending()`).
 
 Fixture: `copper_integration_test`, Next timing at 50 Hz, CPU parked in
 `DI; JR $`, DAC enabled (NR 0x08 bit 3). Program (NEXTEST's shape): for
 `v = 0..310`, `WAIT(v, h=0)` then `MOVE NR 0x2D <- v & 0xFF` (channels A and
-D); HALT after. The Copper starts in mode 11 and two frames settle it.
+D); HALT after. Unless a row says otherwise the Copper starts in mode 11,
+NR 0x64 = 0, and two frames settle it.
 
 | ID | Test | Expected | VHDL file:line |
 |----|------|----------|----------------|
 | COP-GH293-01 | DAC channel-A writes over one steady-state frame | 311, one per `cvc` line; pre-fix 247 | copper.vhd:80-110; zxula_timing.vhd:457-470 |
 | COP-GH293-02 | Copper PC at raw line 30 (`cvc` 277), hc_ula 175 | 556: past `MOVE` 277, waiting on `WAIT(278)`; pre-fix 0, rewound at raw line 0 | copper.vhd:80-83; zxnext.vhd:3949-3950 |
-| COP-GH293-03 | Distinct mixer LEFT levels emitted during raw lines 1..62 (`cvc` 248..309) | ≥ 60: the 62-line DAC ramp reaches the mixer; pre-fix 1, the held value | copper.vhd:80; soundrive.vhd:85-89; audio_mixer.vhd |
-| COP-GH293-04 | Mid-frame CPU `NR 0x61 <- 0x00`, `NR 0x62 <- 0xC1` (mode 11 kept, upload index changed, as the reporter's per-frame DMA re-upload does) at raw line 200 | Copper PC unchanged, and the frame still delivers its 311 writes | copper.vhd:70; zxnext.vhd:5426-5431 |
+| COP-GH293-03 | Distinct mixer LEFT levels emitted during raw lines 1..62 (`cvc` ≈ 247..309) | ≥ 60: the 62-line DAC ramp reaches the mixer; pre-fix 1, the held value | copper.vhd:80; soundrive.vhd:85-89; audio_mixer.vhd |
+| COP-GH293-04 | Mid-frame CPU `NR 0x61 <- 0x00`, `NR 0x62 <- 0xC1` (mode 11 kept, upload index changed, as the reporter's per-frame DMA re-upload does) at raw line 200 (`cvc` 136) | Copper PC unchanged (274), and the 174 writes for `cvc` 137..310 all land by `cvc` 0 | copper.vhd:70; zxnext.vhd:5426-5431 |
+| COP-GH293-05 | Mid-frame stop/start, mode 11: `NR 0x62 <- 0x00`, 40 px later `0xC0`, at raw line 200 | PC 274 -> 0 (`00` latched while stopped, then a `00` -> `11` edge); pre-fix 274 | copper.vhd:70-76 |
+| COP-GH293-06 | The same in mode 01 (`0x00` then `0x40`) at raw line 30 of frame 1, one settle frame | PC 556 -> 0; pre-fix 556, running on from where it stopped | copper.vhd:70-76 |
+| COP-GH293-07 | Mode 01 started from PC 0 before frame 0, one settle frame: PC at raw line 30 of frame 1 (`cvc` 277) | 556: the program runs on across the raw frame start, mode 01 has no frame restart | copper.vhd:80-85 |
+| COP-GH293-08 | The same in mode 10 | 556 | copper.vhd:80-85 |
+| COP-GH293-09 | NR 0x64 = 32: writes over one steady-state frame, then the PC at raw line 40 (`cvc` 8) | 311 writes, PC 18 (`WAIT(9)`): the restart is at `cvc` 0 = raw line 64 - 32 = 32 | copper.vhd:80; zxula_timing.vhd:457-466 |
 
 `CTL-08b` and the PC half of `COP-GH293-04` are the oracle for the reporter's
 hypothesis, not for the fix: a mutant that makes a mode-11 NR 0x62 rewrite
 reset the PC fails exactly those two rows (`CTL-08` is mode 01 and misses it).
 With the fix reverted, `01`-`03` fail at the predicted 247 / 0 / 1, and `04`
-fails through its write count (110: cvc 137..246, then rewound).
+fails through its write count (110: cvc 137..246, then rewound). `05`/`06`
+fail with the stopped-mode early-out restored (PC unchanged). `07`/`08` fail
+for a frame-start rewind added in mode 01 / 10, and `09` for a restart that
+ignores a non-zero `cvc` offset.
 
 The reporter's own program (`zxnext-copper-samples`) also stalls in every
 frame, for a reason in the PROGRAM: its 29th tick is `WAIT(v=40, h=56)`,
