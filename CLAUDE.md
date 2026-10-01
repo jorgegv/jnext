@@ -348,8 +348,8 @@ in `ENABLE_QT_UI=ON / ENABLE_DEBUGGER=OFF` and nothing noticed.
 
 | target | configuration | build dir | suites |
 |--------|---------------|-----------|--------|
-| `make unit-test`     | Qt + debugger (the shipped one) | `build/`              | 126 |
-| `make unit-test-sdl` | SDL-only, no Qt, no debugger    | `build/sdl-unit-test` |  98 |
+| `make unit-test`     | Qt + debugger (the shipped one) | `build/`              | 127 |
+| `make unit-test-sdl` | SDL-only, no Qt, no debugger    | `build/sdl-unit-test` |  99 |
 
 The other two (Qt without the debugger; SDL with it) are not used in practice and
 stay **build-only**. CI runs both targets — the same two commands a human types —
