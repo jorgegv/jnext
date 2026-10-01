@@ -703,6 +703,34 @@ End-to-end witness: `show512.nex` at frame 300 differs between the
 pre-fix and fixed builds on exactly **one framebuffer row (127)**, full
 width — the anomaly filed in GH #181, healed.
 
+## GH #290 append (2026-09-29) — the WAIT compares the RELOADED `cvc`
+
+The Copper's `vcount_i` is `cvc` (`zxnext.vhd:3950`), and `cvc` samples NR 0x64
+(`i_cu_offset`, `:6723`) only at the reload quoted above
+(`zxula_timing.vhd:457-462`); on every other line it just increments
+(`:463-466`). jnext's `Copper::execute()` added the NR 0x64 REGISTER to its line
+count, so a mid-frame NR 0x64 write moved every later WAIT, and the mode-11
+restart, at once. The Emulator now passes the offset of the last reload into
+`execute()` (the four-argument form); the register stays in `Copper::offset()`
+for the readback. The three-argument form, for a caller with no timing model,
+still uses the register — the unit rows `OFS-02`/`OFS-03` above are that
+stand-alone case and are unchanged.
+
+Fixture: `copper_integration_test`, Next timing at 50 Hz, CPU parked in `JR $`,
+frames run by `run_frame()` (the reload is a per-frame event), positions
+reached with the debugger's run-to-cycle. `WAIT(v=150, h=0)` + `MOVE NR 0x14 ←
+0x5A` + HALT: satisfied on raw line `64 + 150 - off`.
+
+| ID | Test | Expected | VHDL file:line |
+|----|------|----------|----------------|
+| COP-GH290-01 | NR 0x64 = 20 at raw line 100 (after the frame's reload), then the Copper started (mode 01) | NR 0x14 still 0x00 at line 204, 0x5A by line 220 — the WAIT lands on raw 214 (offset 0), not 194; pre-fix 0x5A by line 204 | zxnext.vhd:3950; zxula_timing.vhd:457-466 |
+| COP-GH290-02 | Restarted (mode 01 → 11) at the next frame's line 10, before its reload | 0x00 at line 190, 0x5A by line 200 — raw 194, counting from the reloaded 20 | zxula_timing.vhd:457-462 |
+| COP-GH290-03 | `WAIT(v=310, h=55)` (satisfied at hc_ula 452, 16 cycles before the reload), 14 NOPs (one cycle each), `MOVE NR 0x64 ← 20` — issued on the cycle BEFORE the reload | loaded by it: line 100 reads 56 | zxula_timing.vhd:457-462; copper.vhd:94 |
+| COP-GH290-04 | The same with 15 NOPs: the MOVE on the reload's own cycle | not loaded: line 100 reads 36, NR 0x64 reads 20 — pins the reload event to the master cycle | zxula_timing.vhd:457-462; zxnext.vhd:5442,6090 |
+| COP-GH290-05 | No frame events (no reload ever runs): NR 0x64 = 20, `WAIT(v=20)` + `MOVE NR 0x14 ← 0x5A` | 0x00 at line 63, 0x5A by line 70 — the lines from the reload's position on count from the register, as the readback and the line interrupt do there (VT-GH290-19/22) | zxula_timing.vhd:457-462; zxnext.vhd:3950 |
+| COP-GH290-06 | Line int enabled with a passed target; `WAIT(v=86, h=30)` (satisfied 12 cycles before target 87's compare at raw line 150, hc_ula 255), 10 NOPs, `MOVE NR 0x23 ← 87` — issued on the cycle before the compare | fires this frame: a Copper write lands on the cycle it is issued on, not at the end of the CPU instruction window; pre-fix not until the next frame | zxula_timing.vhd:563-583 |
+| COP-GH290-07 | The same with 11 NOPs: the MOVE on the compare's own cycle | no fire this frame (the target reaches `int_line_num` one pixel late), one the next | zxula_timing.vhd:563-572 |
+
 ## Coverage notes (moved from the traceability matrix, GH #196)
 
 The matrix is a generated artifact now and carries no prose of its own; it

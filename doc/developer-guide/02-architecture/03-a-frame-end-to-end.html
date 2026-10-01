@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.52</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.55</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.52</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.55</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -861,6 +861,8 @@
       
         
       
+        
+      
     
     
     
@@ -1149,6 +1151,34 @@
     
   
     3.9 Debug and the debugger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/10-the-dzrp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10 The DZRP server (DeZog)
   
 
     
@@ -1871,8 +1901,9 @@ logs the compositor replays. The visible symptom is a frame that renders flat.</
    Layer 2 scroll and bank, sprite attributes, ULA scroll, palette-select,
    Timex mode and border, tilemap scroll and fetch state and NR 0x6B, the
    attribute mux, NR 0x15, NR 0x68, NR 0x14, NR 0x4A, NR 0x1A and LoRes.</li>
-<li>Call <code>schedule_frame_events()</code>, which queues one <code>SCANLINE</code> event per line
-   plus a single <code>VSYNC</code>.</li>
+<li>Call <code>schedule_frame_events()</code>, which queues one <code>SCANLINE</code> event per line,
+   the frame's <code>CVC_RELOAD</code> (where <code>cvc</code> takes NR 0x64, GH #290) and a single
+   <code>VSYNC</code>.</li>
 </ol>
 <h2 id="the-inner-loop">The inner loop<a class="headerlink" href="#the-inner-loop" title="Permanent link">&para;</a></h2>
 <pre><code class="language-cpp">while (clock_.get() &lt; frame_end) { … }

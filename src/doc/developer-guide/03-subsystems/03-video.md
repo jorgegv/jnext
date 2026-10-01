@@ -79,6 +79,27 @@ read where the VHDL latches it: for port 0x253B, the CLK_CPU falling edge of the
 I/O cycle's third clock (GH #265). A read made outside an instruction (a test, the debugger) samples at
 `clock_` itself. The floating bus below uses the same helper.
 
+`cvc`'s offset is NR 0x64, but not *live*. The counter loads the register once
+per frame, at `hc_ula == 0` of the `c_min_vactive` line
+(`zxula_timing.vhd:457-462`), and only increments everywhere else, so a
+mid-frame NR 0x64 write reaches the readback, the line interrupt and the Copper
+at the next frame's reload (GH #290). `VideoTiming::cu_offset()` is that
+reloaded value, not the register, which `Copper::offset()` holds for the
+readback. `Emulator::reload_cvc_offset_()` performs the reload as a scheduler
+event at `VideoTiming::cvc_reload_master_cycle_offset()` and re-derives the
+line-interrupt schedule there. A frame whose reload changes the value counts
+from two offsets, one either side of it, so a `cvc` line can occur twice in it
+or not at all. The reloaded value is saved state (`cvc_offset_delta`, stored
+relative to NR 0x64).
+
+A write to the line-interrupt registers is timed the same way.
+`reschedule_line_interrupt()` takes the cycle the write lands on — a CPU
+write's commit edge, a Copper MOVE's own cycle — because the compare at
+`hc_ula == 255` reads the enable as it stands at the end of its pixel but the
+target as it stood before it (`zxula_timing.vhd:563-583`). A change landing
+inside that pixel still fires the old target, and a compare earlier in the
+same instruction window keeps its event.
+
 The other conversion that matters everywhere is
 `framebuffer_row = vc - VideoTiming::vblank_top()`. `vblank_top` is
 `min_vactive - 32` and it is **per-machine** — 32 for the Next family, 48 for

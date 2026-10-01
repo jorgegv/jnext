@@ -8,6 +8,7 @@
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
 #include "platform/host_probe.h"
+#include "platform/debug_servers.h"
 #include "video/renderer.h"
 
 /// Headless application shell — no display, no audio, no input.
@@ -143,6 +144,12 @@ private:
     // null unless the variable is set. Declared AFTER debugger_ so it is
     // destroyed FIRST — it detaches its client and removes its service.
     std::unique_ptr<HostProbe> host_probe_;
+    // GH #12 (WP-5) — the debugger protocol servers (DZRP today) on this loop's
+    // pump, and the last pump's hint (it alone reports `remote_attached`).
+    // Declared AFTER debugger_ so it is destroyed FIRST: each server
+    // unregisters from the Debugger it was started on (platform/debug_servers.h).
+    DebugServers              debug_servers_;
+    jnext::dbg::ServiceHint   pump_hint_;
 
     /// The cold boot itself (reconstruct + init, platform/emulator_boot.h) and
     /// the loop's pending-work reset — what `LoopDriver::cold_boot` runs for a

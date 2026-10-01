@@ -671,14 +671,24 @@ debugger ones.
     in builds without the debugger, since only the debugger can set a
     breakpoint.
 
+**\--dzrp-port** *PORT*
+:   Serve the DeZog Remote Protocol (DZRP) on TCP *PORT*, so DeZog - or any
+    other DZRP client - can debug the running machine; see **REMOTE DEBUGGING
+    (DEZOG)**. Off unless given. *PORT* `0` binds a free port the system
+    chooses, and the log says which (`dzrp: listening on 127.0.0.1:40123`).
+    One client at a time: a second connection is closed at once. A port that
+    cannot be bound (already in use, say) is a startup error. Works in every
+    frontend, **\--headless** included.
+
 **\--debug-listen-address** *ADDR*
-:   Bind address for the debugger protocol servers, default `127.0.0.1`.
-    *ADDR* is a numeric IP address, never a name - an address resolved through
-    DNS could change under you - and anything else is refused at startup. The
-    default means only this machine can reach the debugger; a non-loopback
-    address (`0.0.0.0`) exposes it to your network, and none of the debugger
-    protocols has any authentication. No protocol server is available in this
-    version yet, so the address is checked and nothing listens.
+:   Bind address for the debugger protocol servers (**\--dzrp-port**), default
+    `127.0.0.1`. *ADDR* is a numeric IP address, never a name - an address
+    resolved through DNS could change under you - and anything else is refused
+    at startup. The default means only this machine can reach the debugger; a
+    non-loopback address (`0.0.0.0`) exposes it to your network, and none of
+    the debugger protocols has any authentication. Refused unless a server port
+    is given too: an address for servers that are all off would configure
+    nothing.
 
 **\--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, for example `0x00FF`).
@@ -1554,6 +1564,57 @@ scrolls rather than clipping, and the control toolbar along the bottom stays
 visible, with any buttons that no longer fit reachable from its overflow menu.
 Its size is remembered between sessions and clamped to the screen it reopens
 on.
+
+# REMOTE DEBUGGING (DEZOG)
+
+With **\--dzrp-port** *PORT*, jnext serves the DeZog Remote Protocol (DZRP,
+version 2.2.0), the protocol DeZog - the Z80 debugger for Visual Studio Code -
+uses to drive CSpect and real hardware. DeZog then debugs the program running
+in jnext from your editor: source-level breakpoints, stepping, registers,
+memory, the MMU slots, NextREGs and sprites.
+
+In DeZog's `launch.json`, point a `cspect` remote at jnext's port:
+
+```
+"remoteType": "cspect",
+"cspect": { "hostname": "localhost", "port": 11000 }
+```
+
+and start jnext with the same port, for example
+`jnext --dzrp-port 11000 --load mygame.nex`. DeZog releases that have a
+`dzrp` remote type can use it instead, with the same port.
+
+- **Connecting pauses the machine**, and DeZog shows where it stopped.
+  Disconnecting resumes it if the pause was DeZog's own; a pause made from
+  jnext's debugger window stays.
+- **Breakpoints and watchpoints set from DeZog belong to that session**:
+  they are separate from the ones set in jnext's debugger window, they stop
+  the machine whether that window is open or not, and they are removed when
+  DeZog disconnects - a DeZog that crashes cannot leave the machine stopped
+  on them.
+- **Either side may pause or resume.** jnext's debugger window and DeZog
+  drive the same machine and whoever acted last wins. When something other
+  than DeZog stops the machine while DeZog has it running - the debugger
+  window, a magic breakpoint - DeZog is told it stopped, and why.
+- **Saving and restoring the state** (DeZog's `-state save` / `-state
+  restore`) keeps the state inside jnext for this session only; DeZog's
+  file holds a reference to it. A state can only be saved at a frame
+  boundary, so after a breakpoint hit the save is refused - pause the
+  machine by hand first.
+- **Not served**: the commands a hardware stub needs to patch breakpoints
+  into memory (`CMD_SET_BREAKPOINTS`, `CMD_RESTORE_MEM`) and `CMD_EXEC_ASM`.
+  They are answered empty, with a warning in the log, so the client never
+  waits.
+
+In **\--headless** mode a client that holds the machine paused holds its
+frames too: nothing is emulated and jnext waits for the next command without
+using the CPU. The automatic exit (**\--delayed-automatic-exit** and its
+**-frames** form) is still a hard bound: while a client holds the machine
+paused it is counted in wall time, one frame per 20 ms.
+
+The server listens on `127.0.0.1` unless **\--debug-listen-address** says
+otherwise. DZRP has no authentication: anyone who can reach the port controls
+the machine and can read and write all of its memory.
 
 # MAGIC BREAKPOINT AND MAGIC PORT
 

@@ -248,6 +248,7 @@ int main(int argc, char* argv[]) {
     // GH #287 — the debugger protocol servers' bind address. Empty means "the
     // user did not say", which leaves EmulatorConfig's loopback default.
     std::string debug_listen_address;
+    int         dzrp_port = -1;
     bool        esxdos_stub = false;
     std::string esxdos_stub_root;
     bool        esxdos_stub_writable = false;
@@ -516,6 +517,23 @@ int main(int argc, char* argv[]) {
             case cli::OptId::PersistentBreakpoints:
                 persistent_breakpoints = true;
                 break;
+            case cli::OptId::DzrpPort: {
+                // A port that silently became another one would be a server
+                // the user cannot find, so anything but 0..65535, whole, is a
+                // usage error — `11000x` is not 11000.
+                char* end = nullptr;
+                errno = 0;
+                const long n = std::strtol(v[0], &end, 10);
+                if (errno != 0 || end == v[0] || *end != '\0' || n < 0 || n > 65535) {
+                    fprintf(stderr,
+                            "--dzrp-port: PORT must be a number from 0 to 65535, not \"%s\" "
+                            "(0 binds an OS-chosen port and logs it).\n",
+                            v[0]);
+                    return 1;
+                }
+                dzrp_port = static_cast<int>(n);
+                break;
+            }
             case cli::OptId::DebugListenAddress: {
                 // Validated HERE, as --esp-listen-address is and for the same
                 // reason: a typo in the one control that decides who may reach
@@ -1287,6 +1305,7 @@ int main(int argc, char* argv[]) {
         // could arrive from a config file is one the user cannot audit by
         // reading the command they ran.
         if (!debug_listen_address.empty()) cfg.debug_listen_address = debug_listen_address;
+        cfg.dzrp_port = dzrp_port;
         cfg.esxdos_stub = esxdos_stub;
         cfg.esxdos_stub_root = esxdos_stub_root;
         cfg.esxdos_stub_writable = esxdos_stub_writable;
@@ -1398,6 +1417,13 @@ int main(int argc, char* argv[]) {
         // as "I have configured where it listens" when nothing will listen.
         if (!esp_listen_address.empty() && !cfg.esp_enabled) {
             fprintf(stderr, "--esp-listen-address requires the ESP to be enabled (--esp).\n");
+            return 1;
+        }
+        // GH #12 (owner decision), the same reasoning for the debugger: an
+        // address for protocol servers that are all off configures nothing.
+        if (!debug_listen_address.empty() && cfg.dzrp_port < 0) {
+            fprintf(stderr,
+                    "--debug-listen-address requires a debugger server port (--dzrp-port).\n");
             return 1;
         }
         // GH #246, and the same reasoning a third time: a scheduled outage for

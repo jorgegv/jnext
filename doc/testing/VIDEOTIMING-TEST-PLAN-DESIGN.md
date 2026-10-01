@@ -952,6 +952,90 @@ a contended page under 48K/128K timing), where a stretch delays the edge as
 it delays CLK_CPU (`zxula.vhd:587-595`). That stretch-inclusion is the same
 function the floating bus uses and is pinned there (FB-FUSE-128-CONT).
 
+## GH #290 append — `cvc` reloads from NR 0x64 once per frame
+
+`cvc` (`o_vc_cu`) is loaded from `i_cu_offset` only on the `ula_max_hc` pulse
+of the `ula_min_vactive` line, and merely increments (wrapping at `c_max_vc`)
+at every other line boundary (`zxula_timing.vhd:423-425,457-470`).
+`i_cu_offset` is the NR 0x64 register itself (`zxnext.vhd:6723`), which a write
+updates at once and whose readback is last-write-wins (`:5442`, `:6090`). So a
+mid-frame NR 0x64 write reaches `cvc` — and with it the NR 0x1E/0x1F readback
+(`:5982-5986`), the line-interrupt compare (`zxula_timing.vhd:577`) and the
+Copper (`zxnext.vhd:3950`) — at the next frame's reload, raw
+(`c_min_vactive`, `c_min_hactive - 11`). jnext applied the register to all
+three at once. VT-25 set the offset before any line ran, so it could not see
+either side.
+
+A frame whose reload loads a different value counts from TWO offsets: the lines
+before the reload from the previous frame's, the rest from the new one. A cvc
+value can then occur twice in the frame (the line interrupt fires twice, `:577`
+being evaluated every pixel) or not at all.
+
+Fixture: Next timing at 50 Hz (`c_min_vactive` 64, `c_max_vc` 310,
+`c_min_hactive` 136 — `zxula_timing.vhd:195,203,204` — so the reload is at raw
+(64, 125)), CPU parked in `JR $` with interrupts off, frames run by `run_frame()`
+(the reload is a per-frame event), positions reached with the debugger's
+run-to-cycle. `cvc(line, off) = (line - 64 + off) mod 311` for the part of a
+raw line from raw hc 125 on.
+
+| ID | Test | Expected | VHDL file:line |
+|----|------|----------|----------------|
+| VT-GH290-01 | NR 0x64 = 20 at raw line 100 (after the reload); NR 0x1E/0x1F at once and at line 150 | 36 and 86 — still counting from 0; pre-fix 56 and 106 | zxula_timing.vhd:457-466; zxnext.vhd:5982-5986 |
+| VT-GH290-02 | …the next frame at line 10, and on line 64 at raw hc 60 (before hc_ula 0) | 257 and 310 — still 0; pre-fix 277 and 19 | zxula_timing.vhd:423-425,457-470 |
+| VT-GH290-03 | …line 64 at raw hc 160, and line 100 | 20 and 56 — the reload loaded 20 | zxula_timing.vhd:457-462 |
+| VT-GH290-04 | NR 0x64 read right after the write | 20 — the register is last-write-wins while `cvc` has not taken it | zxnext.vhd:5442,6090 |
+| VT-GH290-05 | NR 0x64 = 20 at raw line 10 (before the reload); readback at line 10 and line 100 | 257 (old), then 56 (same frame's reload loaded 20); pre-fix 277 at line 10 | zxula_timing.vhd:457-462 |
+| VT-GH290-06 | NR 0x64 = 20 at line 100, then NR 0x23 = 150 / NR 0x22 = 0x02 (int_line_num 149) | no fire by line 200, one by line 220 — raw 213 (offset 0), not 193; pre-fix fired at 193 | zxula_timing.vhd:462,566-570,577 |
+| VT-GH290-07 | …the next frame | fires at raw 193 and not also at 213 (2 by line 200, still 2 by line 220) | zxula_timing.vhd:457-462,577 |
+| VT-GH290-08 | Line int (target 150) armed in F1 with offset 0; NR 0x64 = 20 at F2 line 10, before F2's reload | F2 fires at raw 193 only: the reload re-derives the schedule the frame began with; pre-fix fired at the stale 213 | zxula_timing.vhd:457-462,577 |
+| VT-GH290-09 | F1 reloads 10, NR 0x64 = 0 after it; target 6 (int_line_num 5) | F2 fires at raw 59 (cvc 5 counting from 10) AND raw 69 (counting from 0), and nowhere else; pre-fix once | zxula_timing.vhd:457-466,577 |
+| VT-GH290-10 | Offset 0, NR 0x64 = 10 at F1 line 100; target 6 | no fire in F2 (cvc 247..310, then 10..256), then F3 raw 59; pre-fix F2 raw 59 | zxula_timing.vhd:457-466,577 |
+| VT-GH290-11 | At a frame boundary with `cvc` counting from 10 and NR 0x64 = 20: `save_state` into a fresh machine | NR 0x64 = 20; line 10 reads 267 (from 10), line 100 reads 56 (reload loads 20); the stream re-saves byte-identical | zxula_timing.vhd:457-466 |
+| VT-GH290-12 | The same through `save_jns` / `load_jns` | as VT-GH290-11 | zxula_timing.vhd:457-466 |
+| VT-GH290-13 | The same machine with a rewind ring, run to F2 line 150 (counting from 20), `rewind_to_cycle` F2 line 10 | 106 before the rewind, 267 after it (10 restored), 56 after the replayed reload | zxula_timing.vhd:457-466 |
+| VT-GH290-14 | `describe_tail()` read from a JSON tail block without `cvc_offset_delta` (a pre-#290 `.jns`) | not refused; `cvc` counts from NR 0x64 (20) — what that jnext's did | NEXT-SNAPSHOT-FORMAT.md §12.2 |
+| VT-GH290-15 | An in-place hard `init()` of a machine counting from 10 with NR 0x64 = 20; §12.2's `DefaultCheckDesc` over the tail block | no mismatch, one defaulted field, offset 0 | zxnext.vhd:5024 |
+| VT-GH290-16 | `soft_reset()` at line 100 with `cvc` counting from 10 and NR 0x64 = 20 | NR 0x64 = 0; line 150 still reads 96 (from 10); next frame's line 100 reads 36 (reload loaded the cleared 0); pre-fix 106 and 56 | zxnext.vhd:5024; zxula_timing.vhd:457-466 (no reset input) |
+| VT-GH290-17 | `VideoTiming::cvc_reload_master_cycle_offset()` on 48K, 128K, +3, Pentagon, 48K 60 Hz, 128K 60 Hz | `(c_min_vactive * (c_max_hc + 1) + c_min_hactive - 11) * 4` with the VHDL constants | zxula_timing.vhd:159-167,195-204,229-238,261-270,289-298,423-425,457-462 |
+| VT-GH290-18 | Next at 60 Hz (`c_min_vactive` 40, `c_max_vc` 263): NR 0x64 = 20 mid-frame, the next frame's line 40 at raw hc 60 and 160 | 263 (old), then 20 — the reload follows the timing's `c_min_vactive` | zxula_timing.vhd:237-238,457-462 |
+| VT-GH290-19 | Section 14's fixture (no frames run), NR 0x64 = 20 written first: `IN A,(C)` of NR 0x1F sampling cycle P − 1, and one sampling P + 7 (P = 64·1824 + 500) | 0x36 (line 63 counting from 0), then 0x14 (the value the reload loads, read inside the instruction whose end would run the reload); pre-fix 0x13 at P − 1 | zxula_timing.vhd:423-425,457-462; zxnext.vhd:5871-5876 |
+| VT-GH290-20 | Running frame: `OUT (C),A` writing NR 0x64 = 20, started at P − 76 so its commit edge (io_request_edge + 2 = start + 74) is P − 2 | loaded by the reload: line 100 reads 56 | zxula_timing.vhd:457-462; zxnext.vhd:4739-4777,5442 |
+| VT-GH290-21 | The same started at P − 68: commit edge P + 6 | not loaded: line 100 reads 36, NR 0x64 reads 20; pre-fix 56 | zxula_timing.vhd:457-462; zxnext.vhd:4739-4777,5442,6090 |
+| VT-GH290-22 | No frame events (Section 8's harness, so no reload ever runs): NR 0x64 = 20, then NR 0x23 = 150 / NR 0x22 = 0x02 | fires by line 200 (raw 193): the lines from the reload's position on count from NR 0x64, the rule the readback follows (VT-GH290-19) | zxula_timing.vhd:457-462,566-570,577 |
+| VT-GH290-23 | No frame events: NR 0x64 = 20, target 6 (int_line_num 5) | no fire in the first frame (raw 69 lies after the reload's position, raw 49 before it); rolls into the next frame's lines before that position, counting from NR 0x64: raw 49 | zxula_timing.vhd:457-466,577 |
+| VT-GH290-24 | Running frame, the SECOND one run: NR 0x64 = 20 at line 10, `IN A,(C)` of NR 0x1F sampling P + 7 | 0x14 — "this frame's reload has run" is cleared at every frame end, so the IN reads the value the reload is about to load, not the previous frame's 0 | zxula_timing.vhd:457-462; zxnext.vhd:5871-5876 |
+| VT-GH290-25 | `load_state` of VT-GH290-11's stream into a machine paused PAST its own reload, then the same IN | 0x14, not 0x0A — a restore sits before the frame's reload whatever the machine was doing | zxula_timing.vhd:457-462 |
+| VT-GH290-26 | No frame events, NR 0x64 = 20: `IN A,(C)` of NR 0x1F started at P − 83, so it samples P itself | 0x14 — `cvc` loads on the edge that starts P, so P is the first cycle carrying the new value | zxula_timing.vhd:457-462; zxnext.vhd:5871-5876 |
+| VT-GH290-27 | The same in a running frame (NR 0x64 = 20 at line 10), the IN run through the per-instruction path | 0x14, read inside the instruction whose end runs the reload event | zxula_timing.vhd:457-462 |
+| VT-GH290-28 | Line int enabled with a passed target; clock moved to exactly the compare cycle c of target 87 (raw line 150, raw hc 380), then NR 0x23 = 87 written | no fire this frame, one the next: `int_line_num` loads on the edge that starts pixel c, so a target landing on c is one pixel late | zxula_timing.vhd:563-572,574-583 |
+| VT-GH290-29 | The same written at c − 1 | fires this frame (and again the next) | zxula_timing.vhd:563-572,574-583 |
+| VT-GH290-30 | No frame events: NR 0x64 = 20, target 150 written at line 200, after its line (raw 193) has passed | rolls into the next frame at raw 193 (counting from NR 0x64), not 213 | zxula_timing.vhd:457-466,577 |
+| VT-GH290-31 | Target 87 with the line int DISABLED; NR 0x22 = 0x02 (enable) written with the clock at c + 3 | fires this frame: the compare takes `i_inten_line` as it stands in its last cycle; pre-fix not until the next frame | zxula_timing.vhd:574-583; zxnext.vhd:6752 |
+| VT-GH290-32 | The same enable written at c + 4 | no fire this frame (the compare was registered on the edge the write lands on), one the next | zxula_timing.vhd:574-583 |
+| VT-GH290-33 | Target 87 enabled and armed; NR 0x22 = 0x02 rewritten unchanged at c + 2 | still fires this frame; pre-fix the rewrite superseded it | zxula_timing.vhd:563-583 |
+| VT-GH290-34 | Target 87 enabled and armed; NR 0x23 = 100 written at c (on the compare cycle) | the OLD target still fires at raw 150 (`int_line_num` was loaded on the edge that started the pixel), then 100 at raw 163; pre-fix only 163 | zxula_timing.vhd:563-572,574-583 |
+| VT-GH290-35 | The same NR 0x23 = 100 written at c − 1 | no fire at raw 150, one at raw 163 | zxula_timing.vhd:563-572 |
+| VT-GH290-36 | NR 0x23 = 87 (from a passed target) by `OUT (C),A` started at c − 80: commit edge c − 6, instruction end c + 16 | fires this frame — the write lands on its commit edge, not at the instruction's end; pre-fix missed | zxnext.vhd:4739-4777; zxula_timing.vhd:563-583 |
+| VT-GH290-37 | Target 87 armed; NR 0x23 = 100 by `OUT (C),A` started at c − 64: commit edge c + 10 | the compare at c (registered at c + 4) fires on the old target, then 100 at raw 163; pre-fix the flush superseded it | zxnext.vhd:4739-4777; zxula_timing.vhd:563-583 |
+| VT-GH290-38 | Target 87 enabled and armed; NR 0x22 = 0x00 (disable) at c + 3 | no fire — in time for the compare's enable | zxula_timing.vhd:574-583; zxnext.vhd:6752 |
+| VT-GH290-39 | The same disable at c + 4 | fires — the compare was registered on that edge with the old enable, so its scheduled event survives the reschedule; pre-fix dropped | zxula_timing.vhd:574-583 |
+| VT-GH290-40 | Machine b arms target 87, then `load_state` of a stream (line int off, clock past b's compare); one instruction, then a whole frame | no fire at all — a restore drops the replaced machine's live events (b's `irq_scheduler_` is not state) | — (jnext model: `line_int_pending_` hygiene) |
+| VT-GH290-41 | A machine with target 87 armed is re-initialised in place (hard), stepped without frames past that compare, then writes NR 0x22 = 0 | nothing fires — a hard init leaves no live event to keep | — (jnext model: `line_int_pending_` hygiene) |
+| VT-GH290-42 | Target 300 (int_line_num 299, compare at raw 52 of F2, before the reload) enabled; NR 0x22 = 0x02 (clears the target MSB → 44, raw 107) written 1 cycle into that compare pixel | target 300 still fires at raw 52, then 44 at raw 107 — NR 0x22 bit 0 is a TARGET change and the pixel's compare reads the old one | zxula_timing.vhd:563-572,574-583 |
+| VT-GH290-43 | The same written the cycle before the pixel | only raw 107 fires | zxula_timing.vhd:563-572 |
+| VT-GH290-44 | Target 87 disabled; `OUT (C),A` NR 0x22 = 0x02 started at c − 80 (commits c − 6, instruction ends c + 16) | fires this frame — the enable lands on its commit edge, not at the instruction end | zxnext.vhd:4739-4777,6752; zxula_timing.vhd:574-583 |
+| VT-GH290-45 | Target 87 armed; `OUT (C),A` NR 0x22 = 0x00 started at c − 72 (commits c + 2, ends c + 24) | no fire — the disable lands inside the pixel, before the enable is sampled in c + 3 | zxnext.vhd:4739-4777,6752; zxula_timing.vhd:574-583 |
+| VT-GH290-46 | As VT-GH290-44 through NR 0xC4 = 0x03 (bit 1 is the same flip-flop) | fires this frame | zxnext.vhd:5607-5610; zxula_timing.vhd:574-583 |
+| VT-GH290-47 | As VT-GH290-45 through NR 0xC4 = 0x01 | no fire | zxnext.vhd:5607-5610; zxula_timing.vhd:574-583 |
+
+Fixture for 31-37: as VT-GH290-28/29 — target 87 compares at c = raw line 150, raw hc 380; the line int is configured at line 100; a write outside an instruction lands at the clock, which is moved to exactly c + delta. The three regions, for a change visible from cycle e: a compare at c ≤ e − 4 reads old enable and old target (an event already scheduled for it survives the reschedule); e − 3 ≤ c ≤ e reads the NEW enable with the OLD target; c ≥ e + 1 reads both new. The Copper side is COP-GH290-06/07.
+
+`DVP-RAS-04` (debugger_video_panel_test) was re-pinned by the same change: it
+asserted that a mid-frame NR 0x64 write moved the panel's `cvc` at once, which
+is the live read this fix removes. It now asserts the write moves neither `cvc`
+nor `vc_ula`, and fails on the pre-fix tree. The Copper side is
+`COP-GH290-01/02` in COPPER-TEST-PLAN-DESIGN.md.
+
 ## Planned rows carried over from the traceability matrix (GH #196)
 
 These rows were recorded only in `TRACEABILITY-MATRIX.md`, which is now a

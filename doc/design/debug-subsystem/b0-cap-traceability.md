@@ -46,7 +46,7 @@
 |---|---|---|
 | INS-01 | `Z80Registers registers() const`, `Result set_register(ClientId by, RegId reg, uint16_t value)`; `enum class RegId` (12 pairs, 20 eight-bit halves, I/R/IFF1/IFF2/IM — `REG_ID_COUNT == 37`) | debugger.h, inspect.h |
 | INS-02 | `Expected<size_t> peek(MemSpace, uint32_t addr, size_t n, uint8_t* buf) const`, `Expected<size_t> poke(ClientId by, MemSpace, uint32_t addr, size_t n, const uint8_t* buf)`; `struct MemSpace` with `Kind{Cpu, Page, Rom}` + `index`, the factories `cpu()`/`page(p)`/`rom(i)`, `PAGE_SENTINEL_ROM_LO/HI` | debugger.h, inspect.h |
-| INS-03 | `std::array<SlotInfo, 8> mmu_slots() const`, `Result set_mmu_slot(ClientId by, int slot, uint8_t page)`, `PagingPorts paging_ports() const`; `struct SlotInfo{nr_page, effective_page, is_rom, space, space_offset}`, `struct PagingPorts` | debugger.h, inspect.h |
+| INS-03 | `std::array<SlotInfo, 8> mmu_slots() const`, `Result set_mmu_slot(ClientId by, int slot, uint8_t page)`, `PagingPorts paging_ports() const`, `MemSpace rom_select() const` (added by package D, GH #12, owner-approved 2026-09-29); `struct SlotInfo{nr_page, effective_page, is_rom, space, space_offset}`, `struct PagingPorts` | debugger.h, inspect.h |
 | INS-04 | `uint8_t nextreg_peek(uint8_t reg) const`, `Result nextreg_write(ClientId by, uint8_t reg, uint8_t value)`, `uint8_t nextreg_selected() const`; the `Debugger` source value is `EventSource::Debugger` | debugger.h, events.h |
 | INS-05 | `Expected<uint8_t> port_in(ClientId by, uint16_t port)`, `Result port_out(ClientId by, uint16_t port, uint8_t value)` | debugger.h |
 | INS-06 | `RasterState raster() const` (`RasterState` reused from `debug/raster_state.h`) | debugger.h |

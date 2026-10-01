@@ -5,6 +5,21 @@
 **Commit reviewed**: 4f0c9b2
 **Verdict**: APPROVE-WITH-NITS
 
+> **Status (2026-09-29, GH #12):** H1, H2 and H3 are FIXED in `cspect_dzrp.py`,
+> each with a test in `test_cspect_dzrp.py` (`test_h1_*`, `test_h2_*`,
+> `test_h3_*`) that fails with its fix reverted. `init()` now also sends the
+> client's version and name, which jnext's DZRP server requires. The suite runs
+> in the regression as `cspect-dzrp-selftest-func`. MEDIUM and NIT items are
+> unchanged. The text below is the review as written.
+>
+> **H2 refined (GH #12 milestone 4):** holding the lock for the WHOLE wait (the
+> first fix) blocked another thread's `pause()` — the usual way a wait on a
+> running machine ends. The wait now polls readiness without the lock and
+> takes it only to read a frame; a stray response is an error. Tests:
+> `test_wait_for_pause_does_not_block_a_pause_from_another_thread`,
+> `test_a_stray_response_during_wait_for_pause_is_an_error`, and the reworked
+> `test_h2_*`.
+
 ## Summary
 
 The DZRP client is small, focused, well-documented, and matches the upstream DeZogPlugin

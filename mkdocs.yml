@@ -102,6 +102,7 @@ nav:
           - Backward execution (rewind): 06-debugger/functions/07-backward-execution-rewind.md
           - The magic breakpoint and the magic port: 06-debugger/functions/08-the-magic-breakpoint-and-the-magic-port.md
           - Changing the keys: 06-debugger/functions/09-changing-the-keys.md
+          - Remote debugging with DeZog: 06-debugger/functions/10-remote-debugging-with-dezog.md
   - 7. Automation and CI:
       - 07-automation-and-ci/index.md
       - 7.1 Headless mode: 07-automation-and-ci/01-headless-mode.md
@@ -142,7 +143,7 @@ validation:
 # and docs-userguide-check byte-diffs a fresh render — so config and rendered
 # output must move together, which is exactly what sync-version.sh guarantees.
 extra:
-  doc_release: v1.0.52
+  doc_release: v1.0.55
 
 markdown_extensions:
   - admonition
