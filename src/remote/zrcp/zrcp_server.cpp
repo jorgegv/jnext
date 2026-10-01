@@ -2289,7 +2289,7 @@ const std::vector<::TraceEntry>& ZrcpServer::history_view() {
     std::size_t from = 0;
     if (hist_has_base_)
         for (std::size_t k = all.value.size(); k-- > 0;)
-            if (all.value[k].cycle == hist_base_cycle_ && all.value[k].pc == hist_base_pc_) {
+            if (all.value[k].cycle == hist_base_cycle_) {
                 from = k + 1;
                 break;
             }
@@ -2393,7 +2393,6 @@ void ZrcpServer::cmd_cpu_history(const Cmd& c) {
         if (all && !all.value.empty()) {
             hist_has_base_   = true;
             hist_base_cycle_ = all.value.back().cycle;
-            hist_base_pc_    = all.value.back().pc;
         }
         ++hist_gen_;
         return reply("");
