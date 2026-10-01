@@ -131,7 +131,8 @@ public:
 
     /// GH #93 — --delayed-sdcard-insert-frames: after N frames, insert the
     /// card `image` as File > Insert SD Card Image… does (requested, then
-    /// performed between frames). A refused or failed change fails the run.
+    /// performed after the tick's frame). A refused or failed change fails the
+    /// run, as does a second insert due in the same tick.
     /// Repeatable: each call queues one independent change.
     void set_delayed_sdcard_insert(const std::string& image, int delay_frames);
 

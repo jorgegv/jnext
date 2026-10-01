@@ -252,7 +252,7 @@ public:
     //
     // File > Insert SD Card Image… / Eject SD Card and the headless
     // --delayed-sdcard-insert-frames. Raised by the host, recorded here and
-    // performed by the frontend between frames, as a hard reset is.
+    // performed by the frontend at the end of its tick, as a hard reset is.
     //
     // There is no card-detect line on the Next (the SD port is five pins,
     // zxnext_top_issue2.vhd:60-64), so the guest is never told: NextZXOS's
@@ -275,14 +275,21 @@ public:
     /// drops the read overlay that serves that file).
     std::string sd_card_change_refusal() const;
 
-    /// Record a change for the frontend to perform between frames. Returns the
-    /// refusal (and records nothing) or empty. A later request replaces an
-    /// earlier one not yet taken.
+    /// Record a change for the frontend to perform at the end of its tick (after
+    /// its frames, or at the paused instruction boundary when the debugger
+    /// holds the machine — where a hard reset is performed too). Returns the
+    /// refusal (and records nothing) or empty. A second request while one is
+    /// still pending is refused.
     std::string request_sd_card_change(SdCardChange change);
     std::optional<SdCardChange> take_sd_card_change_request();
 
-    /// Perform a change now. Re-checks the refusals; an unreadable image is
-    /// refused before the current card is touched. On success the config
+    /// Re-queue a change that was still pending when the machine was rebuilt
+    /// (emulator_cold_boot()), saying so: it is made after the reset instead
+    /// of being destroyed with the old machine.
+    void carry_sd_card_change(SdCardChange change);
+
+    /// Perform a change now. Re-checks the refusals; an image that is not a
+    /// readable regular file is refused before the current card is touched. On success the config
     /// follows the card (an insert only), the warm-start recording is dropped
     /// and the rewind ring is emptied. Returns empty on success, else why
     /// (logged).

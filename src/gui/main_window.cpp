@@ -1354,9 +1354,10 @@ void MainWindow::handle_sd_card_path(const QString& path) {
 
 void MainWindow::sd_card_change_finished(const QString& image, const QString& error) {
     if (error.isEmpty()) {
-        statusBar()->showMessage(image.isEmpty() ? tr("SD card ejected")
-                                                 : tr("SD card inserted: %1").arg(image),
-                                 5000);
+        const QString msg = image.isEmpty() ? tr("SD card ejected")
+                                            : tr("SD card inserted: %1").arg(image);
+        statusBar()->showMessage(msg, 5000);
+        Log::platform()->info("status bar: {}", msg.toStdString());   // sdcard-swap-func reads it
         return;
     }
     statusBar()->showMessage(tr("SD card change failed: %1").arg(error), 5000);

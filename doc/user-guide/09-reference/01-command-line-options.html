@@ -3633,9 +3633,12 @@ Requires <strong>--headless</strong>.</dd>
 <strong>File &gt; Insert SD Card Image</strong> does (see <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs an
 SD-card
 image</a>). The
-card keeps <strong>--sdcard-readonly</strong>. Refused - and the run then exits
-non-zero - while an RZX recording is made or played, or when <em>FILE</em>
-cannot be opened. Repeatable. Requires <strong>--headless</strong>.</dd>
+card keeps <strong>--sdcard-readonly</strong>. The run exits non-zero if the
+insert is refused - while an RZX recording is made or played, while
+a directly loaded NEX keeps its own file open, when <em>FILE</em> is not a
+readable file, or when another insert is due in the same frame - or
+if the automatic exit comes first. An empty <em>FILE</em> is rejected.
+Repeatable. Requires <strong>--headless</strong>.</dd>
 <dt><strong>--compositor-trace</strong> <em>FILE</em></dt>
 <dd>Dump a per-pixel compositor trace (CSV) for one frame.</dd>
 <dt><strong>--compositor-trace-frame</strong> <em>N</em></dt>

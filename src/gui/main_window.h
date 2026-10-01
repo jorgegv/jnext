@@ -190,8 +190,8 @@ public:
     // GH #93 — the post-picker half of File > Insert SD Card Image…, and File >
     // Eject SD Card (`path` empty), split out like handle_tape_path() so a
     // suite can drive them without a file dialog. They REQUEST the change
-    // (Emulator::request_sd_card_change()); the frontend performs it between
-    // frames. A refusal is reported at once, in a dialog.
+    // (Emulator::request_sd_card_change()); the frontend performs it at the end
+    // of its tick. A refusal is reported at once, in a dialog.
     void handle_sd_card_path(const QString& path);
 
     /// The frontend performed the change (`image` empty = eject; `error` empty

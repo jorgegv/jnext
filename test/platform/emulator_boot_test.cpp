@@ -29,7 +29,7 @@
 // command-line RZX requests, emulator_start_rzx() / emulator_finish_rzx()
 // (src/platform/rzx_startup.h).
 //
-// EB-53..EB-61 cover the live SD-card change (GH #93): the request the GUI's
+// EB-53..EB-64 cover the live SD-card change (GH #93): the request the GUI's
 // File > Insert / Eject and the headless --delayed-sdcard-insert-frames raise,
 // and emulator_service_sd_card_change(), which a loop owner polls between
 // frames. Its contract is the doc comment there and on
@@ -1631,6 +1631,46 @@ int main()
                   "held=" + std::to_string(held) + " after_bad=" + std::to_string(after_bad) +
                       " kept=" + std::to_string(configs_kept) + " after_good=" +
                       std::to_string(after_good) + " next=" + std::to_string(next));
+        }
+
+        // EB-62: one change at a time — a second request while one is pending
+        // is refused, and the FIRST is the one performed (it used to be
+        // silently replaced).
+        {
+            Emulator emu;
+            emu.init(with_a);
+            const std::string first  = emu.request_sd_card_change({card_b, false});
+            const std::string second = emu.request_sd_card_change({"", false});
+            const auto taken = emu.take_sd_card_change_request();
+            check("EB-62", "a second request while one is pending is refused; the first stays",
+                  first.empty() && !second.empty() && taken && taken->image == card_b,
+                  "second='" + second + "' taken='" + (taken ? taken->image : "-") + "'");
+        }
+
+        // EB-63: a cold boot from elsewhere (a debugger client's reset in the
+        // pump) with a change still pending carries it to the rebuilt machine
+        // instead of destroying it with the old one.
+        {
+            Emulator emu;
+            emu.init(with_a);
+            emu.request_sd_card_change({card_b, false});
+            emulator_cold_boot(emu, with_a);
+            const auto carried = emu.take_sd_card_change_request();
+            check("EB-63", "a change pending across a cold boot is carried to the new machine",
+                  carried && carried->image == card_b,
+                  "carried='" + (carried ? carried->image : std::string("-")) + "'");
+        }
+
+        // EB-64: a directory is not a card, although an ifstream opens one on
+        // Linux; the card in the slot stays.
+        {
+            Emulator emu;
+            emu.init(with_a);
+            const std::string why = emu.change_sd_card({tmp.string(), false});
+            check("EB-64", "a directory is refused as a card, and the card in the slot stays",
+                  !why.empty() && card_sector0(emu.sd_card()) == 0xA1 &&
+                      emu.config().sd_card_image == card_a,
+                  "why='" + why + "'");
         }
 
         std::remove(card_a.c_str());

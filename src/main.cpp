@@ -867,11 +867,28 @@ int main(int argc, char* argv[]) {
                 delayed_nmis.push_back({dn_n, v[1], in_frames});
                 break;
             }
-            case cli::OptId::DelayedSdcardInsertFrames:
+            case cli::OptId::DelayedSdcardInsertFrames: {
                 // GH #93. The image is checked when the change is performed,
-                // which refuses an unreadable one and fails the run.
-                delayed_sd_inserts.push_back({std::stoi(v[0]), v[1]});
+                // which refuses an unreadable one and fails the run. Two things
+                // are refused HERE, because each would otherwise run on and
+                // exit 0: an empty FILE is an EJECT to the emulator (a script
+                // with an unset variable would pull the card), and a bad N.
+                char* end = nullptr;
+                errno = 0;
+                const long n = std::strtol(v[0], &end, 10);
+                if (errno != 0 || end == v[0] || *end != '\0' || n < 0 || n > INT_MAX) {
+                    fprintf(stderr, "--delayed-sdcard-insert-frames: N must be a "
+                                    "non-negative frame number, not \"%s\".\n", v[0]);
+                    return 1;
+                }
+                if (*v[1] == '\0') {
+                    fprintf(stderr, "--delayed-sdcard-insert-frames: FILE is empty. "
+                                    "It names the SD-card image to insert.\n");
+                    return 1;
+                }
+                delayed_sd_inserts.push_back({static_cast<int>(n), v[1]});
                 break;
+            }
             case cli::OptId::RewindBufferSize:
                 rewind_buffer_frames = std::stoi(v[0]);
                 if (rewind_buffer_frames < 0) rewind_buffer_frames = 0;

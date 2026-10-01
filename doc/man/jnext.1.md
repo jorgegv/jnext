@@ -646,9 +646,12 @@ debugger ones.
 **\--delayed-sdcard-insert-frames** *N* *FILE*
 :   Insert SD-card image *FILE* after *N* emulated frames, exactly as
     **File > Insert SD Card Image** does (see **SD CARD AND ROMS**). The
-    card keeps **\--sdcard-readonly**. Refused - and
-    the run then exits non-zero - while an RZX recording is made or played, or
-    when *FILE* cannot be opened. Repeatable. Requires **\--headless**.
+    card keeps **\--sdcard-readonly**. The run exits non-zero if the insert
+    is refused - while an RZX recording is made or played, while a directly
+    loaded NEX keeps its own file open, when *FILE* is not a readable file, or
+    when another insert is due in the same frame - or if the automatic exit
+    comes first. An empty *FILE* is rejected. Repeatable. Requires
+    **\--headless**.
 
 **\--compositor-trace** *FILE*
 :   Dump a per-pixel compositor trace (CSV) for one frame.

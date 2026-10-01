@@ -49,14 +49,18 @@
 // still pending on it, and the guest reset never happened.
 //
 // `JNEXT_HOST_PROBE=sdcard:<image>` pins the loop owner's SD-card change poll
-// (GH #93): ten frames in, the probe REQUESTS the card change File > Insert SD
-// Card Image… requests, and reports once the loop owner has performed it; then
-// it raises the guest hard-reset request and reports which card the rebuilt
-// machine has. The second line is the frontend's OWN config: a loop owner that
-// changed only the emulator's copy boots the old card again.
+// (GH #93). Ten frames in, IN ONE PUMP, the probe requests the card change File
+// > Insert SD Card Image… requests AND raises the guest hard-reset request
+// (NR 0x02 bit 1 / F1). The next tick's post-frames step must perform the card
+// change BEFORE the cold boot, and the cold boot must build from the frontend's
+// OWN config. When the reset has come back the probe reports which card the
+// rebuilt machine has:
 //
-//   sdcard: inserted=1           the poll performed the change
-//   sdcard: after-reset=1        ... and the hard reset kept the new card
+//   sdcard: same-tick-reset card=new   the change was made, then the reset
+//                                      booted the new card
+//   sdcard: same-tick-reset card=old   the poll is missing, runs after the
+//                                      cold boot, or left the frontend's
+//                                      config on the old card
 //
 // Env-gated in the `JNEXT_G46B_*` / `JNEXT_BENCH_WATCH` style and zero-cost
 // unset: the loop owner constructs nothing, registers no service, attaches no
@@ -231,39 +235,29 @@ private:
         }
     }
 
-    /// The `sdcard:<image>` script, one step per pump; each wait is bounded.
+    /// The `sdcard:<image>` script, one step per pump; the wait is bounded.
     void sdcard_step() {
         switch (phase_) {
             case 0:
                 if (frames_ >= 10) {
                     const std::string why = emu_.request_sd_card_change(
                         {card_, emu_.config().sd_card_readonly});
-                    Log::platform()->info("HOSTPROBE sdcard: requested{}",
-                                          why.empty() ? std::string() : " but refused: " + why);
+                    resets_at_request_ = resets_;
+                    waited_            = 0;
+                    emu_.request_hard_reset();   // the guest path, same pump
+                    Log::platform()->info("HOSTPROBE sdcard: change and hard reset requested{}",
+                                          why.empty() ? std::string() : ", change refused: " + why);
                     phase_ = 1;
                 }
                 break;
             case 1:
-                if (emu_.config().sd_card_image == card_) {
-                    Log::platform()->info("HOSTPROBE sdcard: inserted=1");
-                    resets_at_request_ = resets_;
-                    waited_            = 0;
-                    emu_.request_hard_reset();   // the guest path: NR 0x02 / F1
+                if (resets_ > resets_at_request_) {
+                    Log::platform()->info("HOSTPROBE sdcard: same-tick-reset card={}",
+                                          emu_.config().sd_card_image == card_ ? "new" : "old");
                     phase_ = 2;
                 } else if (++waited_ > 200) {
-                    Log::platform()->info("HOSTPROBE sdcard: inserted=0 (not performed "
-                                          "within 200 pumps)");
-                    phase_ = 3;
-                }
-                break;
-            case 2:
-                if (resets_ > resets_at_request_) {
-                    Log::platform()->info("HOSTPROBE sdcard: after-reset={}",
-                                          emu_.config().sd_card_image == card_ ? 1 : 0);
-                    phase_ = 3;
-                } else if (++waited_ > 200) {
                     Log::platform()->info("HOSTPROBE sdcard: the hard reset never came");
-                    phase_ = 3;
+                    phase_ = 2;
                 }
                 break;
             default:

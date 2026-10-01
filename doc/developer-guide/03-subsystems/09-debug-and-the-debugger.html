@@ -2520,9 +2520,9 @@ next pump the probe issues its own <code>reset(Hard)</code> — a loop owner tha
 it pumps boots twice, guest first; one that pumps first boots once
 (<code>qt-host-order-func</code> for <code>QtApp</code>, HOST-08 for <code>HeadlessApp</code>).
 <code>JNEXT_HOST_PROBE=sdcard:&lt;image&gt;</code> runs a third, for the SD-card change poll
-(GH #93): it requests a card change, reports when the loop owner has performed
-it, then raises a guest hard reset and reports whether the rebuilt machine still
-has the new card — i.e. whether the loop owner updated its own config too
+(GH #93): it requests a card change AND a guest hard reset in one pump, and
+reports which card the rebuilt machine has — the new one only if the loop owner
+performed the change before its cold boot and updated its own config too
 (<code>sdcard-swap-func</code> for <code>QtApp</code>).</p>
 <p><strong>The CLI <code>--delayed-*</code> flags keep their own countdowns.</strong> Each loop owner counts
 LOOP TICKS for every <code>--delayed-*</code> flag, as before — a tick count survives a

@@ -995,7 +995,7 @@ carries COVERED-AT comments.
 > (`test/sdcard/sdcard_test.cpp`) and both pass; the oracle is the SD SPI
 > protocol, not hardware. The live swap itself (File > Insert SD Card
 > Image… / Eject SD Card, `--delayed-sdcard-insert-frames`) is covered by
-> `emulator_boot_test` EB-53..EB-61, `warm_start_test` WSR-SWAP-01/02 and
+> `emulator_boot_test` EB-53..EB-64, `warm_start_test` WSR-SWAP-01/02 and
 > the `sdcard-swap-func` regression row (REMOUNT end to end).
 
 | ID        | Test                                  | Setup                                                                | Expected                                                                                    |

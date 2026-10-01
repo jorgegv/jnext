@@ -134,6 +134,11 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
 
     const uint8_t saved_mute   = emu.audio_mute_mask();
     auto saved_esxdos_state    = emu.esxdos_stub_state();
+    // GH #93 — a card change still pending dies with the machine unless it is
+    // carried. The loop owners service it BEFORE their cold-boot polls, so this
+    // only catches a reconstruct from elsewhere (a debugger client's reset in
+    // the pump): the change is then made right after the boot, not lost.
+    auto pending_sd_change     = emu.take_sd_card_change_request();
 
     EmulatorConfig boot_cfg = cfg;
     boot_cfg.type = emulator_boot_machine(cfg.load_file, cfg.type);
@@ -222,6 +227,7 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     emu.set_audio_mute_mask(saved_mute);
     emu.restore_esxdos_stub_state(std::move(saved_esxdos_state));
     emu.restore_rzx_failed_outputs(std::move(saved_rzx_failed));
+    if (pending_sd_change) emu.carry_sd_card_change(std::move(*pending_sd_change));
 }
 
 // ---------------------------------------------------------------------------
@@ -322,7 +328,7 @@ inline void emulator_frontend_cold_boot(Emulator& emu, EmulatorConfig base_cfg,
 }
 
 // ---------------------------------------------------------------------------
-// GH #93 — a live SD-card change, performed between frames.
+// GH #93 — a live SD-card change, performed at the end of a loop tick.
 // ---------------------------------------------------------------------------
 
 /// What a serviced card change did: the request, and why it failed (empty on

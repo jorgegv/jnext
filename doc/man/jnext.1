@@ -773,8 +773,11 @@ Insert SD\-card image \f[I]FILE\f[R] after \f[I]N\f[R] emulated frames,
 exactly as \f[B]File > Insert SD Card Image\f[R] does (see \f[B]SD CARD
 AND ROMS\f[R]).
 The card keeps \f[B]\-\-sdcard\-readonly\f[R].
-Refused \- and the run then exits non\-zero \- while an RZX recording is
-made or played, or when \f[I]FILE\f[R] cannot be opened.
+The run exits non\-zero if the insert is refused \- while an RZX
+recording is made or played, while a directly loaded NEX keeps its own
+file open, when \f[I]FILE\f[R] is not a readable file, or when another
+insert is due in the same frame \- or if the automatic exit comes first.
+An empty \f[I]FILE\f[R] is rejected.
 Repeatable.
 Requires \f[B]\-\-headless\f[R].
 .TP

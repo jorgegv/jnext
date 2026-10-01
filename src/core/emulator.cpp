@@ -7925,6 +7925,10 @@ std::string Emulator::sd_card_change_refusal() const
 std::string Emulator::request_sd_card_change(SdCardChange change)
 {
     std::string why = sd_card_change_refusal();
+    // One change at a time: a second request in the same tick used to REPLACE
+    // the first, so the card asked for first silently never went in.
+    if (why.empty() && sd_card_change_request_)
+        why = "another SD card change is already pending";
     if (!why.empty()) {
         Log::emulator()->error("SD card change refused: {}", why);
         return why;
@@ -7940,12 +7944,26 @@ std::optional<Emulator::SdCardChange> Emulator::take_sd_card_change_request()
     return request;
 }
 
+void Emulator::carry_sd_card_change(SdCardChange change)
+{
+    Log::emulator()->warn("a pending SD card change outlived a reset; it is made after "
+                          "the reset instead");
+    request_sd_card_change(std::move(change));
+}
+
 std::string Emulator::change_sd_card(const SdCardChange& change)
 {
     std::string why = sd_card_change_refusal();
-    if (why.empty() && !change.image.empty() &&
-        !std::ifstream(change.image, std::ios::binary).is_open())
-        why = "cannot open '" + change.image + "'";
+    if (why.empty() && !change.image.empty()) {
+        // A directory opens as an ifstream on some platforms, so ask the
+        // filesystem what it is first.
+        std::error_code ec;
+        if (std::filesystem::exists(change.image, ec) &&
+            !std::filesystem::is_regular_file(change.image, ec))
+            why = "'" + change.image + "' is not a file";
+        else if (!std::ifstream(change.image, std::ios::binary).is_open())
+            why = "cannot open '" + change.image + "'";
+    }
     if (!why.empty()) {
         Log::emulator()->error("SD card change refused: {}", why);
         return why;

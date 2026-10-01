@@ -24,13 +24,17 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #
 #   refused  a headless insert that cannot happen fails the run (exit != 0),
 #            as a failed --load does, and says why: a missing image, an RZX
-#            recording, an insert cut off by the automatic exit, and the flag
-#            without --headless.
-#   qt       QtApp's own poll, through JNEXT_HOST_PROBE=sdcard:<image>
-#            (src/platform/host_probe.h): the probe requests the change File >
-#            Insert SD Card Image requests, QtApp performs it between frames,
-#            and a hard reset afterwards still has the NEW card — which is the
-#            frontend's own config, the one every cold boot rebuilds from.
+#            recording, an insert cut off by the automatic exit, the flag
+#            without --headless, an empty FILE, a bad N, a directory, and two
+#            inserts in one tick.
+#   readonly an insert keeps --sdcard-readonly and is mounted read-only.
+#   reset    JNEXT_DELAYED_RESET_FRAMES fires a hard reset in the SAME tick as
+#            the insert: the change must be made BEFORE the cold boot, which
+#            then boots the new card (it would otherwise die with the machine).
+#   qt       the same for QtApp, through JNEXT_HOST_PROBE=sdcard:<image>
+#            (src/platform/host_probe.h): change and hard reset requested in one
+#            pump; the reset must boot the NEW card from the frontend's own
+#            config, and the window must be told.
 #
 # Every card is a private reflink clone under $RUN_DIR, the shape the screenshot
 # suite's `@private-sd` sentinel uses; the harness's EXIT trap removes them. This
@@ -121,10 +125,62 @@ if want sdcard-swap-func; then
     short_run cutoff "--delayed-sdcard-insert-frames" \
         --headless --machine 48k --rewind-buffer-size 0 \
         --delayed-sdcard-insert-frames 100 "$CARD_B" --delayed-automatic-exit-frames 20
+    # Offscreen: if the parse-time check ever regressed, no real window opens.
+    QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy \
     short_run windowed "--delayed-sdcard-insert-frames requires --headless" \
         --delayed-sdcard-insert-frames 5 "$CARD_B"
+    # An empty FILE would be an EJECT to the emulator: an unset variable in a
+    # script must not pull the card and exit 0.
+    short_run empty "FILE is empty" \
+        --headless --machine 48k --rewind-buffer-size 0 \
+        --delayed-sdcard-insert-frames 5 "" --delayed-automatic-exit-frames 20
+    short_run badn "N must be a non-negative frame number" \
+        --headless --machine 48k --delayed-sdcard-insert-frames 5x "$CARD_B"
+    short_run dir "is not a file" \
+        --headless --machine 48k --rewind-buffer-size 0 \
+        --delayed-sdcard-insert-frames 5 "$W" --delayed-automatic-exit-frames 20
+    # Two inserts due in the same tick: the second is refused, never silently
+    # swapped for the first.
+    short_run twice "another SD card change is already pending" \
+        --headless --machine 48k --rewind-buffer-size 0 \
+        --delayed-sdcard-insert-frames 5 "$CARD_B" \
+        --delayed-sdcard-insert-frames 5 "$BASE/refused/sdcard/cspect-next-1gb-fixed.img" \
+        --delayed-automatic-exit-frames 20
+    grep -qF "SD card inserted: '$CARD_B'" "$W/twice.log" \
+        || faults+=("twice: the FIRST insert did not go in")
 
-    # qt: QtApp's poll and its own config. Offscreen, as qt-host-order-func.
+    # The parts below must succeed.
+    ok_run() {   # ok_run <label> [env...] -- [jnext args...]
+        local label=$1 rc=0; shift
+        local envs=()
+        while [[ $1 != -- ]]; do envs+=("$1"); shift; done; shift
+        env JNEXT_CONFIG_DIR="$BASE/refused" "${envs[@]}" \
+            timeout --foreground --kill-after=5s 120s \
+            "$JNEXT" "$@" > "$W/$label.log" 2>&1 || rc=$?
+        [[ $rc -eq 0 ]] || faults+=("$label: exited $rc")
+    }
+    # readonly: an insert keeps the session's --sdcard-readonly — the card is
+    # MOUNTED read-only (the device's own line), not merely labelled so.
+    ok_run readonly -- --headless --machine 48k --rewind-buffer-size 0 --sdcard-readonly \
+        --delayed-sdcard-insert-frames 5 "$CARD_B" --delayed-automatic-exit-frames 20
+    grep -qF "SD card inserted: '$CARD_B' (read-only)" "$W/readonly.log" \
+        || faults+=("readonly: the inserted card is not read-only")
+    grep -qF "SD image opened read-only by request: $CARD_B" "$W/readonly.log" \
+        || faults+=("readonly: the inserted card was not OPENED read-only")
+    # reset: a hard reset raised in the SAME tick as the insert boots the NEW
+    # card — the loop owner performs the change BEFORE its cold-boot poll. The
+    # boot's own mount line names the card it booted.
+    ok_run reset JNEXT_DELAYED_RESET_FRAMES=5 -- --headless --machine 48k \
+        --rewind-buffer-size 0 --delayed-sdcard-insert-frames 5 "$CARD_B" \
+        --delayed-automatic-exit-frames 30
+    grep -qF "SD card image mounted: '$CARD_B'" "$W/reset.log" \
+        || faults+=("reset: the same-tick hard reset did not boot the new card")
+    grep -qF "outlived a reset" "$W/reset.log" \
+        && faults+=("reset: the change was serviced after the cold boot, not before")
+
+    # qt: QtApp's poll, its order against the cold boot, its own config, and its
+    # report to the window — through the probe, which requests the change and a
+    # hard reset in ONE pump. Offscreen, as qt-host-order-func.
     rc=0
     JNEXT_CONFIG_DIR="$BASE/qt" JNEXT_HOST_PROBE="sdcard:$CARD_B" \
     QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy \
@@ -132,10 +188,14 @@ if want sdcard-swap-func; then
         "$JNEXT" --silent --machine 48k --rewind-buffer-size 0 \
                  --delayed-automatic-exit-frames 150 > "$W/qt.log" 2>&1 || rc=$?
     [[ $rc -eq 0 ]] || faults+=("qt: the run exited $rc")
-    grep -qF "HOSTPROBE sdcard: inserted=1" "$W/qt.log" \
-        || faults+=("qt: QtApp did not perform the requested card change")
-    grep -qF "HOSTPROBE sdcard: after-reset=1" "$W/qt.log" \
-        || faults+=("qt: a hard reset after the change did not keep the new card")
+    grep -qF "HOSTPROBE sdcard: same-tick-reset card=new" "$W/qt.log" \
+        || faults+=("qt: the hard reset did not keep the new card (no poll, or its own config not updated)")
+    grep -qF "SD card image mounted: '$CARD_B'" "$W/qt.log" \
+        || faults+=("qt: the same-tick hard reset did not boot the new card")
+    grep -qF "outlived a reset" "$W/qt.log" \
+        && faults+=("qt: the change was serviced after the cold boot, not before")
+    grep -qF "status bar: SD card inserted: $CARD_B" "$W/qt.log" \
+        || faults+=("qt: the window was not told the change was made")
 
     if [[ ${#faults[@]} -eq 0 ]]; then
         pass_row " (REMOUNT read the inserted card; control did not; refusal and Qt poll pinned)"
