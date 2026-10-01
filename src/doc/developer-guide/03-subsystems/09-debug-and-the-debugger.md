@@ -400,14 +400,22 @@ reconstruct.
 `detach(cid)` removes that client's subscriptions — and every other record
 keyed by its id (its per-client event switch, its unflushed capture failures:
 ids are never reused, so anything left behind would be kept for ever) — and,
-**iff the machine is paused by this client**, resumes it. A pause by another client survives, and an
-*unowned* pause is never released by any detach however many clients come and
-go: `PauseReason::Magic` and `PauseReason::Corrupt` carry `by == CLIENT_NONE`
-because neither is anyone's verb. There is no "last client" rule — the point of
-the rule is that a crashed DeZog must not leave the machine hung, whoever else
-is or is not attached. (The design once attached the Qt adapter for the process
-lifetime; as built it is attached only while its window is open, because an
-attach ARMS the machine — see "The Qt adapter" below.)
+**iff the machine is paused by this client**, hands that pause on. While another
+*arming* client remains the machine stays paused and the pause becomes that
+client's (`pause_reason.by` is rewritten, nothing is pushed): the client the
+machine was paused by before the leaver single-stepped it, if it is still
+attached (`step_into()` on a paused machine keeps that origin in
+`Impl::pause_origin`; every other control verb clears it), otherwise the
+earliest-attached remaining client. Only the last arming client out releases
+it, which is what keeps a crashed DeZog from leaving the machine hung (owner
+decision, GH #280 N1). An observer (REQ-qt-32) neither inherits a pause nor
+holds one back from release — the Qt GUI keeps one for its whole life. A pause
+by another client survives, and an *unowned* pause is never released by any
+detach however many clients come and go: `PauseReason::Magic` and
+`PauseReason::Corrupt` carry `by == CLIENT_NONE` because neither is anyone's
+verb. (The design once attached the Qt adapter for the process lifetime; as
+built it is attached only while its window is open, because an attach ARMS the
+machine — see "The Qt adapter" below.)
 
 **`attached()` is the ARMING client list.** `DebugState::active()` was the
 legacy "a frontend is driving this machine" bit: the Qt debugger window set it
@@ -740,7 +748,10 @@ which a Step never passes through — and only for a slot that actually fetched
 the opcode at PC (an NMI or INT acknowledge does not run it). Switched off it is
 one pointer test per instruction. Each trace entry now carries I, R, IM, IFF1,
 IFF2, the word at SP (read with `peek()`, so the trace moves no watch and no +3
-floating-bus latch) and the eight MMU pages.
+floating-bus latch), the eight MMU pages and `rom_slots`, a bit per slot that
+held ROM (GH #280; it fills the struct's tail padding, so an entry stays 56
+bytes). `trace_export()` writes every one of them; the mask is the `ROM=` column
+after the pages.
 
 ### The Qt adapter (GH #278 WP2, WP4a-c, WP7)
 
@@ -817,9 +828,10 @@ mapped in a slot or not.
 The three protocol servers the epic plans — DZRP, ZRCP and GDB RSP — share one
 transport, in **`src/remote/`** (target `jnext_remote`). It has no toolkit
 dependency and is built in every configuration. It carries no protocol: it
-never parses a byte. The servers on it are DZRP (`--dzrp-port`, 3.10) and GDB
-RSP (`--gdb-port`, `src/remote/gdb/`); each is its own listener with its own
-backend client, so both may run at once. The loop owners open them through
+never parses a byte. The servers on it are DZRP (`--dzrp-port`, 3.10), GDB
+RSP (`--gdb-port`, `src/remote/gdb/`) and ZRCP (`--zrcp-port`, 3.12,
+`src/remote/zrcp/`); each is its own listener with its own backend
+client, so all may run at once. The loop owners open them through
 `src/platform/debug_servers.*`.
 
 `remote::Server` is a `jnext::dbg::Service`, so `pump()` drives it: each
@@ -859,7 +871,8 @@ real socket on `127.0.0.1` port 0, and through `pump()`.
 
 `--debug-listen-address ADDR` (numeric only, default `127.0.0.1`) is validated
 in `main.cpp` and held in `EmulatorConfig::debug_listen_address` for the servers
-to bind; it is refused unless a server port (`--dzrp-port` or `--gdb-port`) is given too. The design, and the reason behind each rule above, is
+to bind; it is refused unless a server port (`--dzrp-port`, `--gdb-port` or
+`--zrcp-port`) is given too. The design, and the reason behind each rule above, is
 `doc/design/debug-subsystem/transport.md`.
 
 ### The scripting language front end (package S)
@@ -898,8 +911,11 @@ It is layered, each stage consuming only the one before it:
 - `expr_compiler.h` — the stable public header other frontends call:
   `compile_expr(text, scope)` returns the backend's CAP-EVT predicate
   (`dbg::Condition`) and `eval_expr(text, debugger)` evaluates once. The ZRCP
-  adapter (package Z, not yet written) is designed to translate its dialect into
-  this grammar rather than own a second parser.
+  adapter (`src/remote/zrcp/zrcp_condition.*`, GH #280 WP-4) translates
+  ZEsarUX's breakpoint dialect into this grammar — tokenising and grouping as
+  ZEsarUX does, emitting a fully bracketed expression — and compiles it here,
+  so it owns no evaluator. The one thing the DSL cannot read is whether a slot
+  is ROM, so ZEsarUX's `SEGn` / `ROM` / `RAM` are evaluated by the adapter.
 
 `script_parse_test` (`gate: none`) pins the grammar, every error class with its
 position, precedence, the per-kind payload table, the evaluation of every name

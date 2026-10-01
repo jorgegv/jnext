@@ -26,6 +26,11 @@ struct TraceEntry {
     uint8_t  i, r;
     uint8_t  im, iff1, iff2;
     uint8_t  mmu[8];          // Mmu::get_effective_page(slot) for slots 0..7
+    // GH #280 (owner decision 2026-10-01): bit n set when slot n held ROM
+    // (Mmu::is_slot_rom(n)) — what `mmu[n]` alone cannot say, so a reader
+    // never has to guess from today's mapping. Fills the tail padding byte:
+    // the struct stays 56 bytes.
+    uint8_t  rom_slots;
 };
 
 /// Determine the byte length of a Z80/Z80N instruction starting at `addr`.
@@ -67,7 +72,7 @@ public:
 
     /// Export all entries to a text file, one line per instruction:
     /// CYCLE  $PC  AF= BC= DE= HL=  AF'= BC'= DE'= HL'=  IX= IY= SP=
-    /// (SP)= I= R= IMn IFF1= IFF2=  MMU=p0 .. p7  [FLAGS]  BYTES
+    /// (SP)= I= R= IMn IFF1= IFF2=  MMU=p0 .. p7 ROM=mask  [FLAGS]  BYTES
     bool export_to_file(const std::string& path) const;
 
 private:

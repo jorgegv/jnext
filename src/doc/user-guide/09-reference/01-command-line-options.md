@@ -746,16 +746,27 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     port and its own client. Works in every frontend, **--headless**
     included.
 
+**--zrcp-port** *PORT*
+:   Serve the ZEsarUX remote command protocol (ZRCP) on TCP *PORT*, so
+    DeZog (its `zrcp` remote) - or `telnet`, or any other ZRCP client -
+    can debug the running machine; see **REMOTE DEBUGGING (ZRCP)**. Off
+    unless given; `10000` is the port those clients assume. *PORT* `0`
+    binds a free port the system chooses, and the log says which
+    (`zrcp: listening on 127.0.0.1:40123`). One client at a time: a
+    second connection is told so and closed. A port that cannot be bound
+    is a startup error. Works in every frontend, **--headless**
+    included, and alongside **--dzrp-port** and **--gdb-port**.
+
 **--debug-listen-address** *ADDR*
 :   Bind address for the debugger protocol servers (**--dzrp-port**,
-    **--gdb-port**), default `127.0.0.1`. *ADDR* is a numeric IP
-    address, never a name - an address resolved through DNS could change
-    under you - and anything else is refused at startup. The default
-    means only this machine can reach the debugger; a non-loopback
-    address (`0.0.0.0`) exposes it to your network, and none of the
-    debugger protocols has any authentication. Refused unless a server
-    port is given too: an address for servers that are all off would
-    configure nothing.
+    **--gdb-port**, **--zrcp-port**), default `127.0.0.1`. *ADDR* is a
+    numeric IP address, never a name - an address resolved through DNS
+    could change under you - and anything else is refused at startup.
+    The default means only this machine can reach the debugger; a
+    non-loopback address (`0.0.0.0`) exposes it to your network, and
+    none of the debugger protocols has any authentication. Refused
+    unless a server port is given too: an address for servers that are
+    all off would configure nothing.
 
 **--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, for example `0x00FF`).

@@ -25,7 +25,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      0.0.0.0 and ::1 bind what was asked for, each logged with the bound
 #      port. ::1 on a host with no IPv6 loopback is the one tolerated outcome
 #      other than a bind: the documented startup error for that address,
-#      naming it, with a non-zero exit — never a silent fallback to IPv4.
+#      naming it, with a non-zero exit — never a silent fallback to IPv4;
+#   5. (GH #280) --zrcp-port alone is a server port too: the address is
+#      accepted with it and reaches the ZRCP listener.
 if want debug-listen-address-func; then
     begin_func debug-listen-address-func
     fails=()
@@ -54,7 +56,7 @@ if want debug-listen-address-func; then
     noport_out=$(dla_run --debug-listen-address 127.0.0.1) && noport_rc=0 || noport_rc=$?
     if [[ $noport_rc -eq 0 ]]; then
         fails+=("a valid address with no server port was accepted")
-    elif ! grep -q -- "--debug-listen-address requires a debugger server port (--dzrp-port or --gdb-port)" <<<"$noport_out"; then
+    elif ! grep -q -- "--debug-listen-address requires a debugger server port (--dzrp-port, --zrcp-port or --gdb-port)" <<<"$noport_out"; then
         fails+=("a valid address with no server port was refused for the wrong reason")
     elif grep -q ": listening on " <<<"$noport_out"; then
         fails+=("something listened with no server port")
@@ -82,8 +84,13 @@ if want debug-listen-address-func; then
         fi
     done
 
+    zrcp_out=$(dla_run --zrcp-port 0 --debug-listen-address 0.0.0.0) && zrcp_rc=0 || zrcp_rc=$?
+    if [[ $zrcp_rc -ne 0 ]] || ! grep -qE "zrcp: listening on 0\.0\.0\.0:[1-9][0-9]*$" <<<"$zrcp_out"; then
+        fails+=("--debug-listen-address 0.0.0.0 with only --zrcp-port did not reach the ZRCP listener (exit $zrcp_rc)")
+    fi
+
     if (( ${#fails[@]} == 0 )); then
-        pass_row " (bad values and names refused; an address without a server port refused; 127.0.0.1 default, 0.0.0.0 and ::1 reach the DZRP listener)"
+        pass_row " (bad values and names refused; an address without a server port refused; 127.0.0.1 default, 0.0.0.0 and ::1 reach the DZRP listener; 0.0.0.0 reaches the ZRCP one)"
     else
         fail_row " (${fails[*]})"
     fi

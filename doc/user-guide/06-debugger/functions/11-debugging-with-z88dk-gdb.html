@@ -14,7 +14,7 @@
         <link rel="prev" href="10-remote-debugging-with-dezog.html">
       
       
-        <link rel="next" href="../../07-automation-and-ci/index.html">
+        <link rel="next" href="12-remote-debugging-over-zrcp.html">
       
       
         
@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.63</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.64</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.63</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.64</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2096,6 +2096,8 @@
       
         
       
+        
+      
     
     
     
@@ -2572,6 +2574,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="12-remote-debugging-over-zrcp.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote debugging over ZRCP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -3099,8 +3129,10 @@ Hit breakpoint 1: @8412 (_update_player)
 <li><strong>Your breakpoints are your session's.</strong> They stop the machine whether
   JNEXT's debugger window is open or closed, and they are removed when
   <code>z88dk-gdb</code> disconnects — a crashed client cannot leave the machine stopped
-  on one of them. <code>quit</code> resumes the machine if the stop was the client's own;
-  a pause you made in JNEXT's debugger window stays.</li>
+  on one of them. <code>quit</code> resumes the machine if the stop was the client's own
+  and nothing else is attached; with JNEXT's debugger window open, or another
+  remote debugger connected, it stays paused and the pause becomes theirs. A
+  pause you made in JNEXT's debugger window stays.</li>
 <li><strong>Both can drive the machine.</strong> JNEXT's debugger window and <code>z88dk-gdb</code>
   control the same machine, and whichever acted last wins. If something else
   stops the machine while <code>z88dk-gdb</code> has it running, the client is told it

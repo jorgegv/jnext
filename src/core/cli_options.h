@@ -81,6 +81,7 @@ enum class OptId {
     PersistentBreakpoints,
     DzrpPort,
     GdbPort,
+    ZrcpPort,
     DebugListenAddress,
     EsxdosStub,
     EsxdosStubRoot,
@@ -662,6 +663,17 @@ inline constexpr Option OPTIONS[] = {
       "Serve the GDB remote protocol (z88dk-gdb) on TCP PORT.\n"
       "Off unless given; PORT 0 binds an OS-chosen port and logs\n"
       "it. One client at a time." },
+    // GH #280 — the ZEsarUX remote command protocol server (zrcp-frontend.md
+    // §5.6): the same port rule as --dzrp-port. 10000 is what DeZog's
+    // `zrcp` remote and ZEsarUX's own `--remoteprotocol-port` assume, but it
+    // is named in the help, never defaulted to.
+    { "--zrcp-port", 1, Doc::Documented, OptId::ZrcpPort,
+      "PORT",
+      "Serve the ZEsarUX remote command protocol (ZRCP) on TCP\n"
+      "PORT so ZRCP clients such as DeZog (remoteType \"zrcp\")\n"
+      "can drive the debugger. 10000 is the port those clients\n"
+      "assume. Off unless given; PORT 0 binds an OS-chosen port\n"
+      "and logs it. One client at a time." },
     // GH #287 — the bind address of the debugger protocol servers (DZRP #12,
     // ZRCP #280, GDB RSP #281), shared by all three and landed with their
     // common transport. Numeric only and loopback by default, on the same
@@ -674,8 +686,8 @@ inline constexpr Option OPTIONS[] = {
     { "--debug-listen-address", 1, Doc::Documented, OptId::DebugListenAddress,
       "ADDR",
       "Bind address for the debugger protocol servers\n"
-      "(--dzrp-port, --gdb-port), default 127.0.0.1. A numeric\n"
-      "IP, never a name. A non-loopback address exposes the\n"
+      "(--dzrp-port, --gdb-port, --zrcp-port), default 127.0.0.1.\n"
+      "A numeric IP, never a name. A non-loopback address exposes the\n"
       "debugger to the network: none of its protocols has any\n"
       "authentication. Refused unless a server port is given." },
     { "--magic-port", 1, Doc::Documented, OptId::MagicPort,

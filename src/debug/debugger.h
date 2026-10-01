@@ -727,10 +727,18 @@ public:
     bool   client_enabled(ClientId cid) const;
     Result set_client_enabled(ClientId cid, bool enabled);
 
-    /// CAP-EVT — "would an `Execute` subscription match here?" A PURE query for
-    /// step loops: the GH #221 step-off arm skips exactly the address it landed
-    /// on, and needs to know whether one is there without arming anything.
-    bool probe_execute(uint16_t pc) const;
+    /// CAP-EVT — "which `Execute` subscriptions would fire here?" A PURE query
+    /// for step loops: the GH #221 step-off arm skips exactly the address it
+    /// landed on, and needs to know what is there without arming anything.
+    /// Returns the ids of every live `Execute` subscription whose filter (range
+    /// and page) covers `pc` AND whose condition, evaluated now against the
+    /// `Execute` event the backend would build there, holds — transient ones
+    /// included. A legacy `BreakpointSet` PC breakpoint at `pc` adds one
+    /// `EVENT_NONE` entry (it has no id). The caller decides what an entry
+    /// means: the subscription's action and handler are not consulted. Owner
+    /// decision 2026-09-29 (Z WP-4, REQ-zrcp-05): this replaced a `bool` that
+    /// ignored conditions. Empty = nothing would fire.
+    std::vector<EventId> probe_execute(uint16_t pc) const;
 
     /// CAP-EVT `Host` — raise a named host event: a bound host key,
     /// `script1`..`script8`. `Unsupported` for a name longer than
@@ -902,11 +910,16 @@ public:
     /// SES-01 — attach a client. Every other verb's `ClientId` comes from here.
     Expected<ClientId> attach(const ClientInfo& info);
 
-    /// SES-01 — detach. Removes this client's subscriptions and its bookmarks,
-    /// and — IFF the machine is paused BY THIS CLIENT (its `pause()`, or a
-    /// `Stop` on one of its subscriptions) — resumes it. A pause by another
-    /// client SURVIVES. There is no "last client" condition; the rule exists so
-    /// a crashed DeZog cannot leave the machine hung.
+    /// SES-01 — detach. Removes this client's subscriptions and its bookmarks.
+    /// A pause that is THIS CLIENT'S (its `pause()`, a `Stop` on one of its
+    /// subscriptions, or a `step_into()` it made) passes to a remaining ARMING
+    /// client — the client the machine was paused by before this one stepped
+    /// it, if that client is still attached, else the earliest-attached one —
+    /// and the machine stays paused. Only when no arming client remains is it
+    /// resumed, so a crashed DeZog cannot leave the machine hung. An observer
+    /// (`ClientInfo::observer`) neither inherits a pause nor holds one back. A
+    /// pause by another client SURVIVES (GH #280 N1, owner decision 2026-10-01;
+    /// `backend.md` CAP-SES-01).
     ///
     /// AN UNOWNED PAUSE IS NEVER RESUMED BY A DETACH: `PauseReason::Magic` and
     /// `PauseReason::Corrupt` carry `by == CLIENT_NONE` because neither is any
