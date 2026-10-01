@@ -39,8 +39,8 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP2** | evaluator + the snapshot stacks (`snap` / `unsnap` / `changed()`, which is how #279's span invariants are served with no new event kind) — as built: Appendix H | **done** |
 | **WP3** | engine over subscriptions, stop / exit policy. Headless script `stop` with no explicit `exit` is code **3** (never 2, a harness fault) — as built: Appendix I | **done** |
 | **WP4** | CLI + man page (`--script`, `--script-key`) — as built: Appendix J | **done** |
-| **WP5** | GUI — Script tab, **Alt+1..Alt+8** as the DSL host-key namespace in both windows. **Needs Q** — as built: Appendix K | in review |
-| **WP6** | the recorder — **this is #20**, after its re-scope: recorder + `compare_scr` + INS-16 + the two parked DAPR rows | todo |
+| **WP5** | GUI — Script tab, **Alt+1..Alt+8** as the DSL host-key namespace in both windows. **Needs Q** — as built: Appendix K | **done** |
+| **WP6** | the recorder — **this is #20**, after its re-scope: recorder + `compare_scr` + INS-16 + the two parked DAPR rows | in progress |
 | **WP7** | demos + the `script-*-func` rows | todo |
 | **WP8** | developer-guide pages | todo |
 | **WP9** | **an exhaustive User Guide chapter for the DSL** (`src/doc/user-guide`, `docs-userguide-check`-gated) — the owner's words: the most powerful feature of jnext | todo |
