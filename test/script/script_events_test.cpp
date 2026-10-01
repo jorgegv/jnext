@@ -2264,7 +2264,7 @@ static void host_gui_rows() {
 static void static_stop_rows() {
     {
         Rig g(kWriter);
-        const bool ok = g.load("on execute 0x8005 when A == 0x5A do stop \"five ${PC:x4} A=${A:x2}\" end\n"
+        const bool ok = g.load("on execute 0x8005 when A == 0x5A do stop \"five ${PC:x4} A=${A:x2} P${PAGE}\" end\n"
                                "on stop do log \"R ${REASON}\" end\n");
         const auto subs = g.subs();
         const bool shape = subs.size() == 1 && subs[0].action == jnext::dbg::Action::Stop && !subs[0].has_handler &&
@@ -2277,10 +2277,38 @@ static void static_stop_rows() {
                                        "(payload and registers interpolated) is logged as before, `on stop` sees it "
                                        "as REASON, and its hit and the stop verdict are counted",
               ok && shape && g.paused() && g.pc() == 0x8005 &&
-                  g.sink.count("SCRIPT STOP: five 8005 A=5A at PC=8005 FRAME=0 CYCLE=") == 1 &&
-                  g.sink.count("R five 8005 A=5A") == 1 && g.hits(0) == 1 && st.stops == 1 &&
-                  st.last_stop == "five 8005 A=5A",
+                  g.sink.count("SCRIPT STOP: five 8005 A=5A P" + std::to_string(g.emu.mmu().get_effective_page(4)) +
+                               " at PC=8005 FRAME=0 CYCLE=") == 1 &&
+                  g.sink.count("R five 8005 A=5A P") == 1 && g.hits(0) == 1 && st.stops == 1 &&
+                  st.last_stop.rfind("five 8005 A=5A P", 0) == 0,
               show(subs) + " " + g.sink.tail(3));
+    }
+    {
+        // Two static stops at one PC: both are counted and logged, and REASON
+        // is the FIRST's — the one the backend stopped on.
+        Rig g(kWriter);
+        const bool ok = g.load("on execute 0x8005 do stop \"first\" end\n"
+                               "on execute 0x8005 do stop \"second\" end\n"
+                               "on stop do log \"R ${REASON}\" end\n");
+        g.frames(1);
+        check("SCRIPT-EV-STATIC-STOP-TWO", "two static stops at one PC are both counted and logged, and `on stop` "
+                                           "sees the first one's message as REASON",
+              ok && g.paused() && g.hits(0) == 1 && g.hits(1) == 1 && g.eng->status().stops == 2 &&
+                  g.sink.count("R first") == 1 && g.sink.count("SCRIPT STOP: second") == 1,
+              g.sink.tail(4));
+    }
+    {
+        // A rule that does more than stop keeps its handler: the actions after
+        // the `stop` still run, and the subscription is not a static Stop.
+        Rig g(kWriter);
+        const bool ok = g.load("on execute 0x8005 do stop \"s\" log \"after\" end\n");
+        const auto subs = g.subs();
+        g.frames(1);
+        check("SCRIPT-EV-STATIC-STOP-MIXED", "a rule whose body is more than `stop` stays a handler subscription "
+                                             "(Continue + handler) and runs every action",
+              ok && subs.size() == 1 && subs[0].has_handler && subs[0].action == jnext::dbg::Action::Continue &&
+                  g.paused() && g.sink.count("] after") == 1,
+              show(subs));
     }
     {
         Rig g(kWriter);
