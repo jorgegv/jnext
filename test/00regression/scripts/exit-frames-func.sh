@@ -50,12 +50,14 @@ if want exit-frames-func; then
 
     if [[ "$at_rc" -eq 0 ]] && [[ -s "$at_n" ]] \
        && [[ "$past_rc" -ne 0 ]] && [[ ! -f "$past_n" ]] \
-       && echo "$past_out" | grep -q "NO screenshot was written" \
+       && grep -q "NO screenshot was written" <<<"$past_out" \
        && [[ "$ovr_rc" -ne 0 ]] && [[ ! -f "$ovr" ]] \
-       && echo "$ovr_out" | grep -q "NO screenshot was written"; then
+       && grep -q "NO screenshot was written" <<<"$ovr_out"; then
         pass_row " (exit at frame $N exactly; -frames overrides seconds)"
     else
         fail_row " (at_rc=$at_rc at_png=$([[ -s "$at_n" ]] && echo y || echo n) past_rc=$past_rc past_png=$([[ -f "$past_n" ]] && echo y || echo n) override_rc=$ovr_rc override_png=$([[ -f "$ovr" ]] && echo y || echo n))"
+        show_output "past-bound run" "$past_out"
+        show_output "override run" "$ovr_out"
     fi
 fi
 

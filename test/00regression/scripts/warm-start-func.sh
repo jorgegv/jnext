@@ -71,6 +71,8 @@ if want warm-start-func; then
     begin_func warm-start-func
 
     ws_faults=()
+    # Every part's output is kept, so a failing part can be read from the log.
+    ws_a="" ws_b="" ws_c="" ws_f=""
     ws_cache_dir="${JNEXT_CONFIG_DIR:-$HOME/.jnext}/warm-start"
     ws_nex="test/00regression/nex/tilemap_demo.nex"
     ws_ref="test/00regression/img/tilemap-demo-reference.png"
@@ -81,11 +83,11 @@ if want warm-start-func; then
     ws_a=$(timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine next \
         "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" --load "$ws_nex" \
         --delayed-automatic-exit-frames 10 2>&1 || true)
-    echo "$ws_a" | grep -q "cold-booting the firmware" \
+    grep -q "cold-booting the firmware" <<<"$ws_a" \
         || ws_faults+=("A: a cold cache did not boot the firmware")
-    echo "$ws_a" | grep -q "recorded a NextZXOS-resident machine" \
+    grep -q "recorded a NextZXOS-resident machine" <<<"$ws_a" \
         || ws_faults+=("A: the boot did not produce a NextZXOS-resident machine")
-    echo "$ws_a" | grep -q "NextZXOS is resident; the program is applied on top of it" \
+    grep -q "NextZXOS is resident; the program is applied on top of it" <<<"$ws_a" \
         || ws_faults+=("A: the restored machine failed the residency re-check")
 
     ws_file=$(ls "$ws_cache_dir"/*.jwss 2>/dev/null | head -1 || true)
@@ -118,9 +120,9 @@ if want warm-start-func; then
             "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" --load "$ws_nex" \
             --delayed-screenshot "$ws_shot" --delayed-screenshot-frames 150 \
             --delayed-automatic-exit-frames 160 2>&1 || true)
-        echo "$ws_b" | grep -q "restored a recorded NextZXOS machine" \
+        grep -q "restored a recorded NextZXOS machine" <<<"$ws_b" \
             || ws_faults+=("B: the second run did not restore the cached state")
-        echo "$ws_b" | grep -q "cold-booting the firmware" \
+        grep -q "cold-booting the firmware" <<<"$ws_b" \
             && ws_faults+=("B: the second run booted again although a cache was present")
 
         # D — the render, against the committed reference.
@@ -139,9 +141,9 @@ if want warm-start-func; then
         ws_c=$(timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine next \
             "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" --load "$ws_nex" \
             --delayed-automatic-exit-frames 10 2>&1 || true)
-        echo "$ws_c" | grep -q "recorded from a different SD image" \
+        grep -q "recorded from a different SD image" <<<"$ws_c" \
             || ws_faults+=("C: a cache with the wrong SD digest was NOT refused")
-        echo "$ws_c" | grep -q "recorded a NextZXOS-resident machine" \
+        grep -q "recorded a NextZXOS-resident machine" <<<"$ws_c" \
             || ws_faults+=("C: the refused cache was not replaced by a fresh recording")
     fi
 
@@ -178,7 +180,7 @@ if want warm-start-func; then
     ws_f=$(JNEXT_CONFIG_DIR="$ws_junk_cfg" timeout --foreground --kill-after=5s 120s \
         "$JNEXT" --headless --machine next --sdcard "$ws_junk" --rtc "$NEXTZXOS_RTC" \
         --load "$ws_nex" --delayed-automatic-exit-frames 10 2>&1) || ws_f_rc=$?
-    echo "$ws_f" | grep -q "Not recording; this load falls back to the synthetic machine" \
+    grep -q "Not recording; this load falls back to the synthetic machine" <<<"$ws_f" \
         || ws_faults+=("F: a card with no firmware fell back to the synthetic machine SILENTLY")
     [[ "$ws_f_rc" == "0" ]] \
         || ws_faults+=("F: the fallback run exited $ws_f_rc — a decline must not fail the run")
@@ -193,6 +195,13 @@ if want warm-start-func; then
         pass_row " (record, restore, digest invalidation, deflated payload, ROM-3 handover, loud fallback, and the warm render matches its reference)"
     else
         fail_row " ($(IFS='; '; echo "${ws_faults[*]}"))"
+        # What each run said about the warm start. ws_ere picks the lines the
+        # parts assert on, plus anything that went wrong.
+        ws_ere='warm start|\[error\]|\[warning\]|cannot|NextZXOS'
+        show_output "A: cold-cache run" "$ws_a" "$ws_ere"
+        show_output "B: warm-cache run" "$ws_b" "$ws_ere"
+        show_output "C: wrong-digest run" "$ws_c" "$ws_ere"
+        show_output "F: no-firmware run" "$ws_f" "$ws_ere"
     fi
 fi
 

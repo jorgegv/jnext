@@ -56,13 +56,13 @@ if want esp-cli-func; then
     # The one info line setup_esp() emits when it brings the module up.
     banner='ESP-01 enabled on UART 0'
 
-    if esp_run | grep -q "$banner"; then
+    if grep -q "$banner" <<<"$(esp_run)"; then
         fails+=("the ESP came up with no --esp flag")
     fi
-    if ! esp_run --esp | grep -q "$banner"; then
+    if ! grep -q "$banner" <<<"$(esp_run --esp)"; then
         fails+=("--esp did not bring the ESP up")
     fi
-    if esp_run --esp --no-esp | grep -q "$banner"; then
+    if grep -q "$banner" <<<"$(esp_run --esp --no-esp)"; then
         fails+=("--no-esp did not override an earlier --esp")
     fi
 
@@ -94,10 +94,10 @@ if want esp-cli-func; then
     # the flag would satisfy neither).
     bind_banner='ESP-01 server mode binds'
 
-    if ! esp_run --esp | grep -q "$bind_banner 127.0.0.1 "; then
+    if ! grep -q "$bind_banner 127.0.0.1 " <<<"$(esp_run --esp)"; then
         fails+=("the default bind address is not 127.0.0.1")
     fi
-    if ! esp_run --esp --esp-listen-address 0.0.0.0 | grep -q "$bind_banner 0.0.0.0 "; then
+    if ! grep -q "$bind_banner 0.0.0.0 " <<<"$(esp_run --esp --esp-listen-address 0.0.0.0)"; then
         fails+=("--esp-listen-address 0.0.0.0 did not reach the emulator")
     fi
 
@@ -135,10 +135,10 @@ if want esp-cli-func; then
     # names the requested value together prove the flag reached the emulator.
     ip_banner='ESP-01 reports station address'
 
-    if ! esp_run --esp | grep -q "$ip_banner 192.168.1.50 "; then
+    if ! grep -q "$ip_banner 192.168.1.50 " <<<"$(esp_run --esp)"; then
         fails+=("the default reported station address is not 192.168.1.50")
     fi
-    if ! esp_run --esp --esp-ip-address 10.0.0.42 | grep -q "$ip_banner 10.0.0.42 "; then
+    if ! grep -q "$ip_banner 10.0.0.42 " <<<"$(esp_run --esp --esp-ip-address 10.0.0.42)"; then
         fails+=("--esp-ip-address did not reach the emulator")
     fi
 
@@ -261,7 +261,7 @@ if want esp-cli-func; then
     fi
     # And the run that asks for nothing must produce neither edge, or the two
     # assertions above prove only that jnext logs unconditionally.
-    if esp_run --esp | grep -qE 'association (LOST|REGAINED)'; then
+    if grep -qE 'association (LOST|REGAINED)' <<<"$(esp_run --esp)"; then
         fails+=("an unscheduled run reported an association change")
     fi
 

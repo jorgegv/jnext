@@ -43,6 +43,25 @@ fail_row() {
 }
 skip_row() { echo -e "${YELLOW}SKIP${RESET}${1-}"; skip=$((skip + 1)); }
 
+# show_output <label> <text> [ERE] — call after a fail_row: print what a run
+# said, indented under the verdict, so a failure can be diagnosed from the log
+# alone ($TMP_DIR, where a row might have kept it, is gone by then). With an
+# ERE, the matching lines (at most 20); without, the last 15. The size is
+# printed too: whether a line is "missing" can depend on how much came before
+# it. Writes to stdout, like the verdict, and never fails.
+show_output() {
+    local label=$1 text=$2 sel
+    if [[ -n "${3-}" ]]; then
+        sel=$(grep -E -- "$3" <<<"$text" || true)
+        sel=$(head -n 20 <<<"$sel")
+    else
+        sel=$(tail -n 15 <<<"$text")
+    fi
+    echo "        --- $label (${#text} bytes) ---"
+    [[ -n "$sel" ]] && sed -E 's/^/        | /' <<<"$sel"
+    return 0
+}
+
 # ── Host load (GH #245) ──────────────────────────────────────────────────
 #
 # Under concurrent load some rows fail spuriously, and the class is wider than

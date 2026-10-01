@@ -33,12 +33,13 @@ if want screenshot-io-func; then
     then ioctrl_rc=0; else ioctrl_rc=1; fi
 
     if [[ "$io_rc" -ne 0 ]] && [[ ! -f "$bad_png" ]] \
-       && echo "$out" | grep -q "FAILED to write" \
-       && echo "$out" | grep -q "No such file or directory" \
+       && grep -q "FAILED to write" <<<"$out" \
+       && grep -q "No such file or directory" <<<"$out" \
        && [[ "$ioctrl_rc" -eq 0 ]] && [[ -s "$png_ok" ]]; then
         pass_row " (unwritable path: error+reason, exit!=0, no PNG; control writes one)"
     else
         fail_row " (io_rc=$io_rc png_exists=$([[ -f "$bad_png" ]] && echo y || echo n) control_rc=$ioctrl_rc)"
+        show_output "jnext" "$out"
     fi
 fi
 

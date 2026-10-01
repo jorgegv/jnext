@@ -42,11 +42,12 @@ if want screenshot-pending-func; then
     then ctrl_rc=0; else ctrl_rc=1; fi
 
     if [[ "$pend_rc" -ne 0 ]] && [[ ! -f "$png" ]] \
-       && echo "$out" | grep -q "NO screenshot was written" \
+       && grep -q "NO screenshot was written" <<<"$out" \
        && [[ "$ctrl_rc" -eq 0 ]] && [[ -s "$png_ok" ]]; then
         pass_row " (pending capture: error + exit!=0, no PNG; control writes one)"
     else
         fail_row " (pending_rc=$pend_rc png_exists=$([[ -f "$png" ]] && echo y || echo n) control_rc=$ctrl_rc)"
+        show_output "jnext" "$out"
     fi
 fi
 

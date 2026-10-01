@@ -179,7 +179,7 @@ if want rzx-play-route-func; then
                 pr_faults+=("next: could not record the bare-boot 128K fixture (rc=$rc)")
             fi
             cp "$pr_next_src" "$pr_next" 2>/dev/null || true
-            pr_off=$(grep -abo "machine=128k" "$pr_next" 2>/dev/null | head -1 | cut -d: -f1)
+            pr_off=$(grep -abo "machine=128k" "$pr_next" 2>/dev/null | head -1 | cut -d: -f1 || true)
             if [[ -z "$pr_off" ]]; then
                 pr_faults+=("next: no machine=128k marker to patch — has the marker format changed?")
             else
