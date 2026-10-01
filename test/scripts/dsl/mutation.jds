@@ -10,8 +10,8 @@
 #   build/jnext --headless --machine next --load test/00regression/nex/dsl_demo.nex \
 #       --map test/00regression/nex/dsl_demo.map --script test/scripts/dsl/mutation.jds \
 #       --delayed-automatic-exit-frames 900
-#   exit 0, log lines: MUTATE mem cpu:0x840C 0x0 -> 0x5A by 2
-#                      MUTATE reg PC 0x8167 -> 0x816A by 2   (once a frame)
+#   exit 0, log lines: MUTATE mem cpu:0x843C 0x0 -> 0x5A by 2
+#                      MUTATE reg PC 0x816C -> 0x816F by 2   (once a frame)
 #                      PASS mutation: trap skipped, patch copied
 # Against dsl_demo_buggy.nex (a second LD (trap_target),A right after the trap):
 #   exit 3, log lines: ASSERT FAILED: the trapped write never happened

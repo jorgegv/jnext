@@ -9,9 +9,9 @@
 #       --delayed-automatic-exit-frames 900
 #   exit 0, log line:  PASS nextreg: MMU1 followed MMU0 on every NR 0x51 write
 # Against dsl_demo_buggy.nex (MMU1 = 0x24 after MMU0 = 0x22, at @page_in_level_mmu1):
-#   exit 3, log lines: MMU0 is 22 whereas MMU1 write is 24 (src 0, PC 8186)
-#                      SCRIPT STOP: MMU1 inconsistent with MMU0 at PC=8186 ...
-# 0x8186 is @page_in_level_mmu1, the NEXTREG 0x51 instruction itself. The row
+#   exit 3, log lines: MMU0 is 22 whereas MMU1 write is 24 (src 0, PC 818B)
+#                      SCRIPT STOP: MMU1 inconsistent with MMU0 at PC=818B ...
+# 0x818B is @page_in_level_mmu1, the NEXTREG 0x51 instruction itself. The row
 # (script-mmu-func) also injects the fault into the GOOD build with a script
 # mutation upstream of the watched write; see its header.
 

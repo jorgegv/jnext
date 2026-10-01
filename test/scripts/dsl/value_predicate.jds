@@ -8,8 +8,8 @@
 #       --delayed-automatic-exit-frames 900
 #   exit 0, log line:  PASS value_predicate: 0xB7 never written in 64 frames
 # Against dsl_demo_buggy.nex (0xB7 written at the program's frame 20):
-#   exit 3, log lines: MemPoint hit at 840B: forbidden value B7 from PC 815C
-#                      SCRIPT STOP: MemPoint at PC=815C ...
+#   exit 3, log lines: MemPoint hit at 843B: forbidden value B7 from PC 8161
+#                      SCRIPT STOP: MemPoint at PC=8161 ...
 
 disabled mempoint: on write @mempoint_addr when VALUE == 0xB7 do
     log "MemPoint hit at ${ADDR:x4}: forbidden value ${VALUE:x2} from PC ${PC:x4}"

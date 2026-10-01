@@ -21,7 +21,7 @@ if want script-dma-func; then
     out=$(script_dma_func_run dsl_demo --script "$PROJECT_DIR/test/scripts/dsl/dma.jds") && rc=0 || rc=$?
     bad=$(script_dma_func_run dsl_demo_buggy --script "$PROJECT_DIR/test/scripts/dsl/dma.jds") && brc=0 || brc=$?
     if [[ $rc -eq 0 && $brc -eq 3 ]] && grep -qF "PASS dma: 3 uploads of 256 bytes to the pattern port" <<<"$out" &&
-       grep -qF "DMA 81E6 -> 005B len 128" <<<"$bad" && grep -qF "ASSERT FAILED: sprite upload must move exactly 256 bytes" <<<"$bad"; then
+       grep -qF "DMA 8217 -> 005B len 128" <<<"$bad" && grep -qF "ASSERT FAILED: sprite upload must move exactly 256 bytes" <<<"$bad"; then
         pass_row " (good: exit 0, 3 uploads of 256; buggy: exit 3 on a 128-byte upload)"
     else
         fail_row " (good exit $rc, buggy exit $brc: $(grep -E 'PASS|STOP|ASSERT|SCRIPT ERROR|never ran' <<<"$out$bad" | tail -n 3 | tr '\n' ' '))"

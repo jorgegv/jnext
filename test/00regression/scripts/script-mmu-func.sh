@@ -10,7 +10,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # test/scripts/dsl/nextreg.jds against the dsl_demo NEX, five ways (§8):
 #   1. good build: every NR 0x51 write follows MMU0 — exit 0;
 #   2. buggy build: MMU1 = 0x24 after MMU0 = 0x22 — exit 3, the logged PC is
-#      0x8186, @page_in_level_mmu1, the NEXTREG 0x51 instruction itself;
+#      0x818B, @page_in_level_mmu1, the NEXTREG 0x51 instruction itself;
 #   3. good build + a script fault injected UPSTREAM of the watched write:
 #      `set nextreg[0x50] = 0xFF` at @page_in_level_mmu1 (MMU0 already
 #      committed, MMU1 not yet written) — the guest's own NEXTREG 0x51,0x23
@@ -41,12 +41,12 @@ if want script-mmu-func; then
     ear=$(script_mmu_func_run dsl_demo --script "$s" --script "$TMP_DIR/mmu-early.jds") && erc=0 || erc=$?
     if [[ $rc -eq 0 && $brc -eq 3 && $irc -eq 3 && $wrc -eq 0 && $erc -eq 0 ]] &&
        grep -qF "PASS nextreg: MMU1 followed MMU0 on every NR 0x51 write" <<<"$out" &&
-       grep -qF "MMU0 is 22 whereas MMU1 write is 24 (src 0, PC 8186)" <<<"$bad" &&
-       grep -qF "SCRIPT STOP: MMU1 inconsistent with MMU0 at PC=8186" <<<"$bad" &&
-       grep -qF "MMU0 is FF whereas MMU1 write is 23 (src 0, PC 8186)" <<<"$inj" &&
+       grep -qF "MMU0 is 22 whereas MMU1 write is 24 (src 0, PC 818B)" <<<"$bad" &&
+       grep -qF "SCRIPT STOP: MMU1 inconsistent with MMU0 at PC=818B" <<<"$bad" &&
+       grep -qF "MMU0 is FF whereas MMU1 write is 23 (src 0, PC 818B)" <<<"$inj" &&
        grep -qF "MUTATE" <<<"$inj" &&
        grep -qF "PASS nextreg" <<<"$wat" && grep -qF "PASS nextreg" <<<"$ear"; then
-        pass_row " (good 0; buggy 3 at PC 8186; injected upstream 3; at the watched register 0; one instruction early 0)"
+        pass_row " (good 0; buggy 3 at PC 818B; injected upstream 3; at the watched register 0; one instruction early 0)"
     else
         fail_row " (exits good $rc buggy $brc upstream $irc watched $wrc early $erc: $(grep -E 'MMU0 is|STOP|ASSERT|SCRIPT ERROR' <<<"$out$bad$inj$wat$ear" | tail -n 3 | tr '\n' ' '))"
     fi

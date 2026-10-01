@@ -23,7 +23,8 @@
 ;   2. copies `patch_byte` to `patch_copy` (a script pokes `patch_byte`);
 ;   3. runs `trap_insn`, an `LD (trap_target),A` with A = 0xEE that a script
 ;      skips by setting PC (BUGGY: a second, unskipped copy right after);
-;   4. BUGGY only: a stray write into the CODE area (`code_canary`);
+;   4. BUGGY only: a stray write into the CODE area — its last byte,
+;      `__data_crt_head - 1`, the top of the range #279's guard watches;
 ;   5. every 8 frames pages "level" pages into MMU0/MMU1 — NEXTREG 0x50,0x22
 ;      at `page_in_level`, NEXTREG 0x51,0x23 at `page_in_level_mmu1` — reads
 ;      them and pages the ROM back (0x50 then 0x51, both 0xFF)
@@ -32,7 +33,16 @@
 ;      to port 0x5B (BUGGY: 128 bytes).
 ;
 ; The IM 2 handler (`isr` .. `isr_exit`) saves and restores every register it
-; uses and counts frames in `frames` (BUGGY: it returns with IY one higher than it found it).
+; uses and counts frames in `frames`. It carries five FAULTS, selected by the
+; byte `isr_fault` — 0 in the good build, 1 in the BUGGY one; a script may set
+; it to pick another — each breaking ONE invariant of #279's interrupt-exit
+; audit (span_invariants.jds):
+;   1  IY returned one higher (a register the handler did not save);
+;   2  MMU slot 7 left on page 0x0F (an MMU slot changed);
+;   3  the return address rewritten to `main_wait` (the top of the stack);
+;   4  the return made without EI (interrupts left disabled);
+;   5  AF pushed once more than popped (SP two bytes deeper at the exit).
+; Slot 7 is free for fault 2: the stack and the IM 2 table live in slot 5.
 ;
 ; The Copper runs a palette split every frame: MOVE NR 0x43 = 0x00 (first ULA
 ; palette), WAIT line 95, MOVE NR 0x43 = 0x02 (second ULA palette, set up with
@@ -46,11 +56,11 @@
 
         PUBLIC  _main, main_wait, main_loop, isr, isr_exit
         PUBLIC  page_in_level, page_in_level_mmu1, trap_insn, dma_upload
-        PUBLIC  code_canary, code_end
+        EXTERN  __data_crt_head
 
-IM2_TABLE   equ $FE00           ; 257 bytes of $FD: any vector -> $FDFD
-IM2_JP      equ $FDFD           ; JP isr
-STACK       equ $FD00
+IM2_TABLE   equ $BE00           ; 257 bytes of $BD: any vector -> $BDBD
+IM2_JP      equ $BDBD           ; JP isr
+STACK       equ $BD00           ; slot 5: slot 7 is fault 2's
 DMA_PORT    equ $6B             ; zxnDMA (ZXN mode)
 KEYS_QWERT  equ $FBFE           ; Q W E R T, Q = bit 0
 
@@ -59,11 +69,13 @@ MMU1_PAGE   equ $24             ; MMU1 != MMU0 + 1
 WAIT_LINE   equ 96              ; the split one line late
 DMA_LEN     equ 128             ; half the patterns
 MP_VALUE    equ $B7             ; the forbidden MemPoint value
+FAULT_DEFAULT equ 1             ; the handler's fault: IY clobbered
 ELSE
 MMU1_PAGE   equ $23
 WAIT_LINE   equ 95
 DMA_LEN     equ 256
 MP_VALUE    equ $37             ; an allowed one
+FAULT_DEFAULT equ 0             ; no fault
 ENDIF
 
 _main:
@@ -76,6 +88,8 @@ _main:
         ld   (patch_byte), a
         ld   (patch_copy), a
         ld   (trap_target), a
+        ld   a, FAULT_DEFAULT
+        ld   (isr_fault), a
         ld   hl, $4000          ; bitmap: vertical stripes
         ld   de, $4001
         ld   bc, 6143
@@ -101,7 +115,7 @@ pal:    nextreg $41, a
         ld   hl, IM2_TABLE
         ld   de, IM2_TABLE + 1
         ld   bc, 256
-        ld   (hl), $FD
+        ld   (hl), IM2_JP / 256
         ldir
         ld   a, $C3
         ld   (IM2_JP), a
@@ -150,7 +164,7 @@ trap_insn:
 IF BUGGY
         ld   (trap_target), a   ; a second, unskipped write
         ; 4. a stray write into the code area
-        ld   (code_canary), a
+        ld   (__data_crt_head - 1), a
 ELSE
         ld   (trap_sink), a     ; the same instructions, harmless targets
         ld   (data_sink), a
@@ -226,34 +240,45 @@ isr:
         push hl
         ld   hl, frames
         inc  (hl)
+        ld   a, (isr_fault)
+        cp   1
+        jr   nz, isr_f2
+        inc  iy                 ; 1: a register the handler did not save
+isr_f2: cp   2
+        jr   nz, isr_f3
+        nextreg $57, $0F        ; 2: MMU slot 7 left on another page
+isr_f3: cp   3
+        jr   nz, isr_f4
+        ld   hl, 6              ; 3: the return address rewritten
+        add  hl, sp
+        ld   (hl), main_wait & $FF
+        inc  hl
+        ld   (hl), main_wait / 256
+isr_f4: cp   4                  ; the flags survive the two POPs
         pop  hl
         pop  bc
+        jr   z, isr_di          ; 4: return with interrupts disabled
+        cp   5                  ; A is still the fault
+        jr   z, isr_sp
         pop  af
-IF BUGGY
-        inc  iy                 ; a register the handler did not save
-        nop
-        nop
-ELSE
-        nop                     ; the same size, IY untouched
-        nop
-        nop
-        nop
-ENDIF
         ei
 isr_exit:
         reti
+isr_di: pop  af
+        jp   isr_exit
+isr_sp: pop  af
+        push af                 ; 5: SP two bytes deeper at the exit
+        ei
+        jp   isr_exit
 
 sprite_patterns:
         defs 256, $E3           ; transparent-index pattern bytes
 
-code_canary:
-        defb 0                  ; the LAST byte of the code area; nothing writes it
-code_end:
 
         SECTION bss_user
 
         PUBLIC  frames, first_key, magic, data_area, mempoint_addr
-        PUBLIC  patch_byte, patch_copy, trap_target
+        PUBLIC  patch_byte, patch_copy, trap_target, isr_fault
 
 frames:         defs 1
 first_key:      defs 1
@@ -263,5 +288,6 @@ mempoint_addr:  defs 1
 patch_byte:     defs 1
 patch_copy:     defs 1
 trap_target:    defs 1
+isr_fault:      defs 1
 trap_sink:      defs 1
 data_sink:      defs 1

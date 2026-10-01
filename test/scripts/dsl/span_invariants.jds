@@ -8,10 +8,18 @@
 #       --map test/00regression/nex/dsl_demo.map --script test/scripts/dsl/span_invariants.jds \
 #       --delayed-automatic-exit-frames 900
 #   exit 0, log line:  PASS span_invariants: 64 frames of clean handler exits
-# Against dsl_demo_buggy.nex (the handler returns with IY incremented):
+# Against dsl_demo_buggy.nex (fault 1 by default: IY returned one higher):
 #   exit 3, log lines: Warning: registers differ on exit from isr
 #                      dump_diff isr: IY 5C3B -> 5C3C
-#                      SCRIPT STOP: isr clobbered registers at PC=81E4 ...
+#                      SCRIPT STOP: isr clobbered registers at PC=820B ...
+# The buggy handler's other faults are picked by setting its `isr_fault` byte
+# from a second script, `on execute @main_loop once when mem16[@magic] ==
+# 0xD5D5 do set mem[@isr_fault] = N end`, each breaking one invariant:
+#   2: dump_diff isr: MMU7 01 -> 0F        SCRIPT STOP: isr changed an MMU slot
+#   3: Warning: top of stack modified 8139 vs 8138
+#                                         SCRIPT STOP: isr modified return address
+#   4:                                     SCRIPT STOP: isr exit with interrupts disabled
+#   5: dump_diff isr: SP BCFE -> BCFC      SCRIPT STOP: isr clobbered registers
 
 disabled isr_in: on execute @isr do
     snap isr

@@ -21,7 +21,7 @@ disabled rom_guard: on write 0x0000..0x3FFF do
     stop "write into MMU0/1 code area"
 end
 
-disabled main_guard: on write 0x8000..(@code_end - 1) do
+disabled main_guard: on write 0x8000..(@__data_crt_head - 1) do
     stop "write into main code area at ${ADDR:x4}"
 end
 

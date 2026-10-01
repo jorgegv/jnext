@@ -1,6 +1,8 @@
 # range_watch.jds — code-area write protection: #279 / ChaseTheBug's MemWatch
 # (dsl-frontend.md §3(a)). Two ranges: the ROM / banked-code slots MMU0/MMU1
-# and the program's own code, 0x8000 up to the MAP's `code_end`.
+# and the program's own code and read-only data, 0x8000 up to the crt's
+# `__data_crt_head` — ChaseTheBug's own range (a `; const` of the z88dk MAP,
+# which `@name` resolves).
 #
 # Run from the repository root:
 #   build/jnext --headless --machine next --load test/00regression/nex/dsl_demo.nex \
@@ -8,9 +10,9 @@
 #       --delayed-automatic-exit-frames 900
 #   exit 0, log line:  PASS range_watch: no write into code in 64 frames
 # Against test/00regression/nex/dsl_demo_buggy.nex (a stray write into
-# `code_canary`, the LAST byte of the code range, from the instruction at 0x816D):
-#   exit 3, log lines: write to main code 82E6 <- EE from PC 816D
-#                      SCRIPT STOP: write into main code area at PC=816D ...
+# `__data_crt_head - 1`, the LAST byte of the guarded range, from the instruction at 0x8172):
+#   exit 3, log lines: write to main code 8317 <- EE from PC 8172
+#                      SCRIPT STOP: write into main code area at PC=8172 ...
 #
 # The guards are armed when the program's own main loop first runs (`magic`
 # set): before the NEX is loaded, other code runs at these addresses and the
@@ -21,7 +23,7 @@ disabled rom_guard: on write 0x0000..0x3FFF do
     stop "write into MMU0/1 code area"
 end
 
-disabled main_guard: on write 0x8000..(@code_end - 1) do
+disabled main_guard: on write 0x8000..(@__data_crt_head - 1) do
     log "write to main code ${ADDR:x4} <- ${VALUE:x2} from PC ${PC:x4}"
     stop "write into main code area"
 end

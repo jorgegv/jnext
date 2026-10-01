@@ -21,8 +21,8 @@ if want script-mempoint-func; then
     out=$(script_mempoint_func_run dsl_demo --script "$PROJECT_DIR/test/scripts/dsl/value_predicate.jds") && rc=0 || rc=$?
     bad=$(script_mempoint_func_run dsl_demo_buggy --script "$PROJECT_DIR/test/scripts/dsl/value_predicate.jds") && brc=0 || brc=$?
     if [[ $rc -eq 0 && $brc -eq 3 ]] && grep -qF "PASS value_predicate: 0xB7 never written in 64 frames" <<<"$out" &&
-       grep -qF "MemPoint hit at 840B: forbidden value B7 from PC 815C" <<<"$bad" && grep -qF "SCRIPT STOP: MemPoint at PC=815C" <<<"$bad"; then
-        pass_row " (good: exit 0; buggy: exit 3 on 0xB7 into 840B from PC 815C)"
+       grep -qF "MemPoint hit at 843B: forbidden value B7 from PC 8161" <<<"$bad" && grep -qF "SCRIPT STOP: MemPoint at PC=8161" <<<"$bad"; then
+        pass_row " (good: exit 0; buggy: exit 3 on 0xB7 into 843B from PC 8161)"
     else
         fail_row " (good exit $rc, buggy exit $brc: $(grep -E 'PASS|STOP|ASSERT|SCRIPT ERROR|never ran' <<<"$out$bad" | tail -n 3 | tr '\n' ' '))"
     fi

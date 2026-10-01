@@ -8,7 +8,7 @@
 #       --delayed-automatic-exit-frames 900
 #   exit 0, log line:  PASS dma: 3 uploads of 256 bytes to the pattern port
 # Against dsl_demo_buggy.nex (128-byte uploads):
-#   exit 3, log lines: DMA 81E6 -> 005B len 128 mode 1 (io dst 1)
+#   exit 3, log lines: DMA 8217 -> 005B len 128 mode 1 (io dst 1)
 #                      ASSERT FAILED: sprite upload must move exactly 256 bytes
 
 var armed = 0
