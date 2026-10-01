@@ -117,16 +117,6 @@ void Copper::reset() {
     // via set_c_max_vc() and it persists across soft resets.
 }
 
-void Copper::on_vsync() {
-    // Mode 11: reset PC at frame start (vc=0, hc=0)
-    if (mode_ == 3) {
-        pc_ = 0;
-        move_pending_ = false;
-        halt_stalling_ = false;
-        Log::copper()->trace("on_vsync: mode=11, PC reset to 0");
-    }
-}
-
 void Copper::execute(int hc, int vc, NextReg& nextreg, uint8_t cvc_offset) {
     // Check for mode change (edge detection, matching VHDL last_state_s)
     if (last_mode_ != mode_) {
@@ -152,6 +142,12 @@ void Copper::execute(int hc, int vc, NextReg& nextreg, uint8_t cvc_offset) {
     // along with cvc — matching the VHDL behaviour, not raw vc.
     // `cvc_offset`, not the NR 0x64 register: cvc samples the register only
     // at ula_min_vactive (zxula_timing.vhd:457-462, GH #290).
+    //
+    // This is the ONLY mode-11 restart. There is none at the raw frame start
+    // (vc=0): jnext used to rewind the PC there too — in the hc_ula tail of
+    // cvc c_max_vc - c_min_vactive + offset, c_min_vactive lines before this
+    // restart — so every program running to the end of the frame lost its
+    // last c_min_vactive lines (64 at 50 Hz on 48K/128K/+3/Next) (GH #293).
     int cvc_restart = (vc + static_cast<int>(cvc_offset)) % (c_max_vc_ + 1);
     if (mode_ == 3 && cvc_restart == 0 && hc == 0) {
         pc_ = 0;

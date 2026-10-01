@@ -11,90 +11,90 @@
 <!-- tick -->
 <g id="node1" class="node">
 <title>tick</title>
-<path fill="#f3e3e6" stroke="#8c6b70" d="M355.16,-1115.6C355.16,-1115.6 217.38,-1115.6 217.38,-1115.6 211.38,-1115.6 205.38,-1109.6 205.38,-1103.6 205.38,-1103.6 205.38,-1091.6 205.38,-1091.6 205.38,-1085.6 211.38,-1079.6 217.38,-1079.6 217.38,-1079.6 355.16,-1079.6 355.16,-1079.6 361.16,-1079.6 367.16,-1085.6 367.16,-1091.6 367.16,-1091.6 367.16,-1103.6 367.16,-1103.6 367.16,-1109.6 361.16,-1115.6 355.16,-1115.6"/>
-<text xml:space="preserve" text-anchor="middle" x="286.27" y="-1100.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">frontend tick</text>
-<text xml:space="preserve" text-anchor="middle" x="286.27" y="-1088.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">(Qt timer / SDL loop / headless)</text>
+<path fill="#f3e3e6" stroke="#8c6b70" d="M354.16,-1115.6C354.16,-1115.6 216.38,-1115.6 216.38,-1115.6 210.38,-1115.6 204.38,-1109.6 204.38,-1103.6 204.38,-1103.6 204.38,-1091.6 204.38,-1091.6 204.38,-1085.6 210.38,-1079.6 216.38,-1079.6 216.38,-1079.6 354.16,-1079.6 354.16,-1079.6 360.16,-1079.6 366.16,-1085.6 366.16,-1091.6 366.16,-1091.6 366.16,-1103.6 366.16,-1103.6 366.16,-1109.6 360.16,-1115.6 354.16,-1115.6"/>
+<text xml:space="preserve" text-anchor="middle" x="285.27" y="-1100.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">frontend tick</text>
+<text xml:space="preserve" text-anchor="middle" x="285.27" y="-1088.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">(Qt timer / SDL loop / headless)</text>
 </g>
 <!-- call -->
 <g id="node2" class="node">
 <title>call</title>
-<path fill="#e9d3d6" stroke="#8c6b70" d="M333.04,-1043.6C333.04,-1043.6 239.5,-1043.6 239.5,-1043.6 233.5,-1043.6 227.5,-1037.6 227.5,-1031.6 227.5,-1031.6 227.5,-1019.6 227.5,-1019.6 227.5,-1013.6 233.5,-1007.6 239.5,-1007.6 239.5,-1007.6 333.04,-1007.6 333.04,-1007.6 339.04,-1007.6 345.04,-1013.6 345.04,-1019.6 345.04,-1019.6 345.04,-1031.6 345.04,-1031.6 345.04,-1037.6 339.04,-1043.6 333.04,-1043.6"/>
-<text xml:space="preserve" text-anchor="middle" x="286.27" y="-1022.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">Emulator::run_frame()</text>
+<path fill="#e9d3d6" stroke="#8c6b70" d="M332.04,-1043.6C332.04,-1043.6 238.5,-1043.6 238.5,-1043.6 232.5,-1043.6 226.5,-1037.6 226.5,-1031.6 226.5,-1031.6 226.5,-1019.6 226.5,-1019.6 226.5,-1013.6 232.5,-1007.6 238.5,-1007.6 238.5,-1007.6 332.04,-1007.6 332.04,-1007.6 338.04,-1007.6 344.04,-1013.6 344.04,-1019.6 344.04,-1019.6 344.04,-1031.6 344.04,-1031.6 344.04,-1037.6 338.04,-1043.6 332.04,-1043.6"/>
+<text xml:space="preserve" text-anchor="middle" x="285.27" y="-1022.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">Emulator::run_frame()</text>
 </g>
 <!-- tick&#45;&gt;call -->
 <g id="edge1" class="edge">
 <title>tick&#45;&gt;call</title>
-<path fill="none" stroke="#8c6b70" d="M286.27,-1079.43C286.27,-1079.43 286.27,-1055.53 286.27,-1055.53"/>
-<polygon fill="#8c6b70" stroke="#8c6b70" points="289.77,-1055.53 286.27,-1045.53 282.77,-1055.53 289.77,-1055.53"/>
+<path fill="none" stroke="#8c6b70" d="M285.27,-1079.43C285.27,-1079.43 285.27,-1055.53 285.27,-1055.53"/>
+<polygon fill="#8c6b70" stroke="#8c6b70" points="288.77,-1055.53 285.27,-1045.53 281.77,-1055.53 288.77,-1055.53"/>
 </g>
 <!-- esp -->
 <g id="node3" class="node">
 <title>esp</title>
-<path fill="#f7eef0" stroke="#8c6b70" d="M361.16,-971.6C361.16,-971.6 211.38,-971.6 211.38,-971.6 205.38,-971.6 199.38,-965.6 199.38,-959.6 199.38,-959.6 199.38,-947.6 199.38,-947.6 199.38,-941.6 205.38,-935.6 211.38,-935.6 211.38,-935.6 361.16,-935.6 361.16,-935.6 367.16,-935.6 373.16,-941.6 373.16,-947.6 373.16,-947.6 373.16,-959.6 373.16,-959.6 373.16,-965.6 367.16,-971.6 361.16,-971.6"/>
-<text xml:space="preserve" text-anchor="middle" x="286.27" y="-956.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">service_esp_frame()</text>
-<text xml:space="preserve" text-anchor="middle" x="286.27" y="-944.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">network I/O, before any instruction</text>
+<path fill="#f7eef0" stroke="#8c6b70" d="M360.16,-971.6C360.16,-971.6 210.38,-971.6 210.38,-971.6 204.38,-971.6 198.38,-965.6 198.38,-959.6 198.38,-959.6 198.38,-947.6 198.38,-947.6 198.38,-941.6 204.38,-935.6 210.38,-935.6 210.38,-935.6 360.16,-935.6 360.16,-935.6 366.16,-935.6 372.16,-941.6 372.16,-947.6 372.16,-947.6 372.16,-959.6 372.16,-959.6 372.16,-965.6 366.16,-971.6 360.16,-971.6"/>
+<text xml:space="preserve" text-anchor="middle" x="285.27" y="-956.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">service_esp_frame()</text>
+<text xml:space="preserve" text-anchor="middle" x="285.27" y="-944.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">network I/O, before any instruction</text>
 </g>
 <!-- call&#45;&gt;esp -->
 <g id="edge2" class="edge">
 <title>call&#45;&gt;esp</title>
-<path fill="none" stroke="#8c6b70" d="M286.27,-1007.43C286.27,-1007.43 286.27,-983.53 286.27,-983.53"/>
-<polygon fill="#8c6b70" stroke="#8c6b70" points="289.77,-983.53 286.27,-973.53 282.77,-983.53 289.77,-983.53"/>
+<path fill="none" stroke="#8c6b70" d="M285.27,-1007.43C285.27,-1007.43 285.27,-983.53 285.27,-983.53"/>
+<polygon fill="#8c6b70" stroke="#8c6b70" points="288.77,-983.53 285.27,-973.53 281.77,-983.53 288.77,-983.53"/>
 </g>
 <!-- rew -->
 <g id="node4" class="node">
 <title>rew</title>
-<polygon fill="#f5dfe2" stroke="#8c6b70" points="286.27,-899.6 233.14,-872.72 286.27,-845.84 339.4,-872.72 286.27,-899.6"/>
-<text xml:space="preserve" text-anchor="middle" x="286.27" y="-875.22" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">rewind step</text>
-<text xml:space="preserve" text-anchor="middle" x="286.27" y="-863.22" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">requested?</text>
+<polygon fill="#f5dfe2" stroke="#8c6b70" points="285.27,-899.6 232.14,-872.72 285.27,-845.84 338.4,-872.72 285.27,-899.6"/>
+<text xml:space="preserve" text-anchor="middle" x="285.27" y="-875.22" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">rewind step</text>
+<text xml:space="preserve" text-anchor="middle" x="285.27" y="-863.22" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">requested?</text>
 </g>
 <!-- esp&#45;&gt;rew -->
 <g id="edge3" class="edge">
 <title>esp&#45;&gt;rew</title>
-<path fill="none" stroke="#8c6b70" d="M286.27,-935.25C286.27,-935.25 286.27,-911.42 286.27,-911.42"/>
-<polygon fill="#8c6b70" stroke="#8c6b70" points="289.77,-911.42 286.27,-901.42 282.77,-911.42 289.77,-911.42"/>
+<path fill="none" stroke="#8c6b70" d="M285.27,-935.25C285.27,-935.25 285.27,-911.42 285.27,-911.42"/>
+<polygon fill="#8c6b70" stroke="#8c6b70" points="288.77,-911.42 285.27,-901.42 281.77,-911.42 288.77,-911.42"/>
 </g>
 <!-- rewd -->
 <g id="node5" class="node">
 <title>rewd</title>
-<path fill="#f7eef0" stroke="#8c6b70" d="M271.04,-800.96C271.04,-800.96 147.5,-800.96 147.5,-800.96 141.5,-800.96 135.5,-794.96 135.5,-788.96 135.5,-788.96 135.5,-776.96 135.5,-776.96 135.5,-770.96 141.5,-764.96 147.5,-764.96 147.5,-764.96 271.04,-764.96 271.04,-764.96 277.04,-764.96 283.04,-770.96 283.04,-776.96 283.04,-776.96 283.04,-788.96 283.04,-788.96 283.04,-794.96 277.04,-800.96 271.04,-800.96"/>
-<text xml:space="preserve" text-anchor="middle" x="209.27" y="-785.46" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">step_back / rewind_to_cycle</text>
-<text xml:space="preserve" text-anchor="middle" x="209.27" y="-773.46" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">return — no frame runs</text>
+<path fill="#f7eef0" stroke="#8c6b70" d="M270.04,-800.96C270.04,-800.96 146.5,-800.96 146.5,-800.96 140.5,-800.96 134.5,-794.96 134.5,-788.96 134.5,-788.96 134.5,-776.96 134.5,-776.96 134.5,-770.96 140.5,-764.96 146.5,-764.96 146.5,-764.96 270.04,-764.96 270.04,-764.96 276.04,-764.96 282.04,-770.96 282.04,-776.96 282.04,-776.96 282.04,-788.96 282.04,-788.96 282.04,-794.96 276.04,-800.96 270.04,-800.96"/>
+<text xml:space="preserve" text-anchor="middle" x="208.27" y="-785.46" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">step_back / rewind_to_cycle</text>
+<text xml:space="preserve" text-anchor="middle" x="208.27" y="-773.46" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">return — no frame runs</text>
 </g>
 <!-- rew&#45;&gt;rewd -->
 <g id="edge4" class="edge">
 <title>rew&#45;&gt;rewd</title>
-<path fill="none" stroke="#8c6b70" d="M258.09,-859.86C258.09,-859.86 258.09,-812.92 258.09,-812.92"/>
-<polygon fill="#8c6b70" stroke="#8c6b70" points="261.59,-812.92 258.09,-802.92 254.59,-812.92 261.59,-812.92"/>
-<text xml:space="preserve" text-anchor="middle" x="248.71" y="-827.84" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5c4247"> &#160;yes</text>
+<path fill="none" stroke="#8c6b70" d="M257.09,-859.86C257.09,-859.86 257.09,-812.92 257.09,-812.92"/>
+<polygon fill="#8c6b70" stroke="#8c6b70" points="260.59,-812.92 257.09,-802.92 253.59,-812.92 260.59,-812.92"/>
+<text xml:space="preserve" text-anchor="middle" x="247.71" y="-827.84" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5c4247"> &#160;yes</text>
 </g>
 <!-- inpr -->
 <g id="node6" class="node">
 <title>inpr</title>
-<polygon fill="#f5dfe2" stroke="#8c6b70" points="363.27,-809.84 301.14,-782.96 363.27,-756.08 425.4,-782.96 363.27,-809.84"/>
-<text xml:space="preserve" text-anchor="middle" x="363.27" y="-785.46" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">frame already</text>
-<text xml:space="preserve" text-anchor="middle" x="363.27" y="-773.46" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">in flight?</text>
+<polygon fill="#f5dfe2" stroke="#8c6b70" points="362.27,-809.84 300.14,-782.96 362.27,-756.08 424.4,-782.96 362.27,-809.84"/>
+<text xml:space="preserve" text-anchor="middle" x="362.27" y="-785.46" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">frame already</text>
+<text xml:space="preserve" text-anchor="middle" x="362.27" y="-773.46" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">in flight?</text>
 </g>
 <!-- rew&#45;&gt;inpr -->
 <g id="edge5" class="edge">
 <title>rew&#45;&gt;inpr</title>
-<path fill="none" stroke="#8c6b70" d="M320.27,-862.77C320.27,-862.77 320.27,-803.13 320.27,-803.13"/>
-<polygon fill="#8c6b70" stroke="#8c6b70" points="323.77,-803.13 320.27,-793.13 316.77,-803.13 323.77,-803.13"/>
-<text xml:space="preserve" text-anchor="middle" x="312.77" y="-834.9" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5c4247"> &#160;no</text>
+<path fill="none" stroke="#8c6b70" d="M319.27,-862.77C319.27,-862.77 319.27,-803.13 319.27,-803.13"/>
+<polygon fill="#8c6b70" stroke="#8c6b70" points="322.77,-803.13 319.27,-793.13 315.77,-803.13 322.77,-803.13"/>
+<text xml:space="preserve" text-anchor="middle" x="311.77" y="-834.9" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5c4247"> &#160;no</text>
 </g>
 <!-- begin -->
 <g id="node7" class="node">
 <title>begin</title>
-<path fill="#ecdfe0" stroke="#8c6b70" d="M393.04,-720.08C393.04,-720.08 191.5,-720.08 191.5,-720.08 185.5,-720.08 179.5,-714.08 179.5,-708.08 179.5,-708.08 179.5,-684.56 179.5,-684.56 179.5,-678.56 185.5,-672.56 191.5,-672.56 191.5,-672.56 393.04,-672.56 393.04,-672.56 399.04,-672.56 405.04,-678.56 405.04,-684.56 405.04,-684.56 405.04,-708.08 405.04,-708.08 405.04,-714.08 399.04,-720.08 393.04,-720.08"/>
-<text xml:space="preserve" text-anchor="middle" x="292.27" y="-704.82" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">begin_new_frame()</text>
-<text xml:space="preserve" text-anchor="middle" x="292.27" y="-692.82" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">Copper PC rewind, per&#45;scanline change logs</text>
-<text xml:space="preserve" text-anchor="middle" x="292.27" y="-680.82" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">cleared, interrupts scheduled, rewind snapshot</text>
+<path fill="#ecdfe0" stroke="#8c6b70" d="M383.29,-720.08C383.29,-720.08 219.25,-720.08 219.25,-720.08 213.25,-720.08 207.25,-714.08 207.25,-708.08 207.25,-708.08 207.25,-684.56 207.25,-684.56 207.25,-678.56 213.25,-672.56 219.25,-672.56 219.25,-672.56 383.29,-672.56 383.29,-672.56 389.29,-672.56 395.29,-678.56 395.29,-684.56 395.29,-684.56 395.29,-708.08 395.29,-708.08 395.29,-714.08 389.29,-720.08 383.29,-720.08"/>
+<text xml:space="preserve" text-anchor="middle" x="301.27" y="-704.82" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">begin_new_frame()</text>
+<text xml:space="preserve" text-anchor="middle" x="301.27" y="-692.82" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">per&#45;scanline change logs cleared,</text>
+<text xml:space="preserve" text-anchor="middle" x="301.27" y="-680.82" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">interrupts scheduled, rewind snapshot</text>
 </g>
 <!-- inpr&#45;&gt;begin -->
 <g id="edge6" class="edge">
 <title>inpr&#45;&gt;begin</title>
-<path fill="none" stroke="#8c6b70" d="M353.09,-760.2C353.09,-760.2 353.09,-731.96 353.09,-731.96"/>
-<polygon fill="#8c6b70" stroke="#8c6b70" points="356.59,-731.96 353.09,-721.96 349.59,-731.96 356.59,-731.96"/>
-<text xml:space="preserve" text-anchor="middle" x="345.59" y="-737.53" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5c4247"> &#160;no</text>
+<path fill="none" stroke="#8c6b70" d="M347.71,-761.99C347.71,-761.99 347.71,-731.99 347.71,-731.99"/>
+<polygon fill="#8c6b70" stroke="#8c6b70" points="351.22,-731.99 347.72,-721.99 344.22,-731.99 351.22,-731.99"/>
+<text xml:space="preserve" text-anchor="middle" x="340.21" y="-738.44" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5c4247"> &#160;no</text>
 </g>
 <!-- loop -->
 <g id="node8" class="node">
@@ -105,15 +105,15 @@
 <!-- inpr&#45;&gt;loop -->
 <g id="edge7" class="edge">
 <title>inpr&#45;&gt;loop</title>
-<path fill="none" stroke="#8c6b70" d="M415.22,-778.22C415.22,-778.22 415.22,-642.5 415.22,-642.5"/>
-<polygon fill="#8c6b70" stroke="#8c6b70" points="418.72,-642.5 415.22,-632.5 411.72,-642.5 418.72,-642.5"/>
-<text xml:space="preserve" text-anchor="middle" x="444.09" y="-712.31" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5c4247"> &#160;yes (resume)</text>
+<path fill="none" stroke="#8c6b70" d="M409.84,-776.31C409.84,-776.31 409.84,-645.19 409.84,-645.19"/>
+<polygon fill="#8c6b70" stroke="#8c6b70" points="413.35,-645.19 409.85,-635.19 406.35,-645.19 413.35,-645.19"/>
+<text xml:space="preserve" text-anchor="middle" x="438.72" y="-712.7" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5c4247"> &#160;yes (resume)</text>
 </g>
 <!-- begin&#45;&gt;loop -->
 <g id="edge8" class="edge">
 <title>begin&#45;&gt;loop</title>
-<path fill="none" stroke="#8c6b70" d="M343.53,-672.14C343.53,-672.14 343.53,-648.55 343.53,-648.55"/>
-<polygon fill="#8c6b70" stroke="#8c6b70" points="347.03,-648.55 343.53,-638.55 340.03,-648.55 347.03,-648.55"/>
+<path fill="none" stroke="#8c6b70" d="M338.66,-672.14C338.66,-672.14 338.66,-648.55 338.66,-648.55"/>
+<polygon fill="#8c6b70" stroke="#8c6b70" points="342.16,-648.55 338.66,-638.55 335.16,-648.55 342.16,-648.55"/>
 </g>
 <!-- brk -->
 <g id="node9" class="node">
@@ -154,9 +154,9 @@
 <!-- brk&#45;&gt;pause -->
 <g id="edge11" class="edge">
 <title>brk&#45;&gt;pause</title>
-<path fill="none" stroke="#8c6b70" d="M216.47,-452C185.07,-452 155.83,-452 155.83,-452 155.83,-452 155.83,-379.68 155.83,-379.68"/>
-<polygon fill="#8c6b70" stroke="#8c6b70" points="159.33,-379.68 155.83,-369.68 152.33,-379.68 159.33,-379.68"/>
-<text xml:space="preserve" text-anchor="middle" x="148.71" y="-448.11" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5c4247"> &#160;hit</text>
+<path fill="none" stroke="#8c6b70" d="M216.19,-452C184.67,-452 155.33,-452 155.33,-452 155.33,-452 155.33,-379.68 155.33,-379.68"/>
+<polygon fill="#8c6b70" stroke="#8c6b70" points="158.83,-379.68 155.33,-369.68 151.83,-379.68 158.83,-379.68"/>
+<text xml:space="preserve" text-anchor="middle" x="148.21" y="-448.22" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5c4247"> &#160;hit</text>
 </g>
 <!-- trap -->
 <g id="node11" class="node">
