@@ -176,6 +176,7 @@ BEGIN {
     M["script_parse_test"]             = "Debugger DSL front end (GH #26)"
     M["script_eval_test"]              = "Debugger DSL evaluator (GH #26)"
     M["script_events_test"]            = "Debugger DSL engine (GH #26)"
+    M["script_record_test"]            = "Debugger session recorder (GH #20)"
     M["zrcp_adapter_test"]             = "ZRCP remote debugger adapter (GH #280)"
     M["raster_state_test"]             = "Raster State (beam + ULA fetch)"
     M["app_config_test"]               = "GUI Preferences (AppConfig)"
