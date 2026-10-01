@@ -41,6 +41,13 @@ std::string mmu_field_legacy(const std::array<jnext::dbg::SlotInfo, 8>& slots) {
     return out + "0000000000000000";
 }
 
+std::uint16_t mapped_page(const std::array<jnext::dbg::SlotInfo, 8>& slots, int i,
+                          MachineType type) {
+    if (i < 0 || i > 7) return 0;
+    if (type == MachineType::ZXN_ISSUE2) return mmu_value(slots[static_cast<std::size_t>(i)], i);
+    return i < 4 ? legacy_segment(slots, i) : 0;
+}
+
 std::string register_line(const Z80Registers& r,
                           const std::array<jnext::dbg::SlotInfo, 8>& slots, MachineType type) {
     // ZEsarUX's print_registers() format string (debug.c), field for field.

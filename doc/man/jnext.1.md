@@ -1606,8 +1606,10 @@ and start jnext with the same port, for example
 `dzrp` remote type can use it instead, with the same port.
 
 - **Connecting pauses the machine**, and DeZog shows where it stopped.
-  Disconnecting resumes it if the pause was DeZog's own; a pause made from
-  jnext's debugger window stays.
+  Disconnecting resumes it if the pause was DeZog's own and no other client -
+  jnext's open debugger window, another remote debugger - is attached; if one
+  is, the machine stays paused and the pause becomes that client's. A pause
+  made from jnext's debugger window stays.
 - **Breakpoints and watchpoints set from DeZog belong to that session**:
   they are separate from the ones set in jnext's debugger window, they stop
   the machine whether that window is open or not, and they are removed when
@@ -1650,7 +1652,10 @@ z88dk-gdb -h 127.0.0.1 -p 3333 -x mygame.map
 ```
 
 - **Connecting stops the machine**, and `quit` resumes it if the stop was
-  the client's own; a pause made from jnext's debugger window stays.
+  the client's own and no other client (jnext's open debugger window, another
+  remote debugger) is attached - if one is, the machine stays paused and the
+  pause becomes that client's; a pause made from jnext's debugger window
+  stays.
 - **Served**: registers (AF BC DE HL, the alternate set, IX IY SP PC, and a
   T-state clock the client's profiler reads), memory as the Z80 sees it now
   (the 64 KB CPU view - a write that touches ROM is refused), breakpoints,
@@ -1685,10 +1690,14 @@ Try it by hand with `telnet localhost PORT` and `help`.
 - **Served**: the session and information commands (`about`, `get-version`,
   `get-current-machine`, `help`, `ls`, `set-cr`, `quit` ...), inspection
   (`get-registers`, `set-register`, `read-memory`, `write-memory`, `hexdump`,
-  `disassemble`, `get-memory-pages`, `get-tstates`, the `tbblue-*` registers,
-  sprites, patterns, palettes and clip windows) and control (`enter-cpu-step`,
-  `cpu-step`, `cpu-step-over`, `run`, `run` *n*, `hard-reset-cpu`,
-  `reset-cpu`, `generate-nmi`). `help` *command* describes each one, with
+  `disassemble`, `get-memory-pages`, `get-tstates`, `evaluate`, the `tbblue-*`
+  registers, sprites, patterns, palettes and clip windows), control
+  (`enter-cpu-step`, `cpu-step`, `cpu-step-over`, `run`, `run` *n*,
+  `hard-reset-cpu`, `reset-cpu`, `generate-nmi`) and breakpoints (the 100
+  condition slots of `set-breakpoint`, `set-breakpointaction`,
+  `enable-breakpoint`, `disable-breakpoint`, `enable-breakpoints`,
+  `disable-breakpoints`, `get-breakpoints`, and the memory breakpoints of
+  `set-membreakpoint`, `get-membreakpoints`, `clear-membreakpoints`). `help` *command* describes each one, with
   the divergences from ZEsarUX that a client can see in its replies. Numbers
   are decimal or hexadecimal with an `H` suffix (`8000H`); a malformed or
   out-of-range value is refused rather than read as something else.
@@ -1696,12 +1705,21 @@ Try it by hand with `telnet localhost PORT` and `help`.
   stops the machine and is discarded, not executed.
 - **`hard-reset-cpu` is a cold boot** of the whole machine, complete before
   the reply; a paused machine stays paused.
+- **Breakpoint conditions are ZEsarUX's** (`PC=8000H`, `SP>=65280`,
+  `PC=PEEKW(SP-2) AND SP>=65280`, `A<>0 AND (HL&FFH)=5` ...), grouped the
+  way ZEsarUX groups them; `help set-breakpoint` lists what is honoured and
+  what is declined. A breakpoint fires every time its condition is true
+  (ZEsarUX's `--brkp-always`), except at the address a run resumes from.
+  Breakpoints belong to the session: they start disabled, as in ZEsarUX, and
+  are removed when the client disconnects.
 - **Declined**: `exit-emulator`, and the `run` options `verbose`,
   `no-stop-on-data` and `update-immediately`. ZEsarUX commands jnext does not
   serve answer `Error. Unsupported command in jnext:` and the name.
 
 Connecting does not pause the machine; `enter-cpu-step` does. Disconnecting
-(or `quit`) resumes it if the pause was the client's own. In **\--headless**
+(or `quit`) resumes it if the pause was the client's own and no other client
+is attached; if one is, the machine stays paused and the pause becomes that
+client's. In **\--headless**
 mode a client that holds the machine paused holds its frames too, exactly as
 for DZRP. ZRCP has no authentication either: the server listens on `127.0.0.1`
 unless **\--debug-listen-address** says otherwise.

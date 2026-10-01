@@ -19,6 +19,8 @@ target_include_directories(jnext_remote PUBLIC ${CMAKE_SOURCE_DIR}/src)
 # jnext_debug: `Server` IS a `jnext::dbg::Service`, and logs on the backend's
 # `debugger` channel (core/log.h, spdlog — which jnext_debug links PUBLIC).
 # esp01: the listener and transport interfaces, and the real socket twins.
-target_link_libraries(jnext_remote PUBLIC jnext_debug esp01 spdlog::spdlog)
+# jnext_script: ZRCP's breakpoint conditions and `evaluate` compile through the
+# DSL's expression library (`script/expr_compiler.h`, GH #280 WP-4).
+target_link_libraries(jnext_remote PUBLIC jnext_debug jnext_script esp01 spdlog::spdlog)
 # The generated version.h: DZRP's CMD_INIT answers "jnext v<version>".
 target_include_directories(jnext_remote PRIVATE "${CMAKE_BINARY_DIR}/generated")

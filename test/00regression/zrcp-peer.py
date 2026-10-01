@@ -246,8 +246,93 @@ def sc_smoke(port):
     return "welcome, enter-cpu-step, cpu-step to 8001, exit-cpu-step, quit"
 
 
+def put(z, addr, hexbytes):
+    check(z.cmd("write-memory-raw %d %s" % (addr, hexbytes)) == b"\n" + PROMPT_STEP,
+          "write-memory-raw %04x did not answer empty" % addr)
+
+
+def regs_set(z, **kv):
+    for k, v in kv.items():
+        r = z.cmd("set-register %s=%XH" % (k, v))
+        check(r.endswith(b"\n" + PROMPT_STEP), "set-register %s: %r" % (k, r[-80:]))
+
+
+def run_fired(z, pc, fired):
+    z.s.sendall(b"run\n")
+    stop = z.reply()
+    check(stop.startswith(RUNNING), "run's first line is not ZEsarUX's: %r" % stop[:100])
+    stop_shape(stop[len(RUNNING):], pc, fired=fired)
+
+
+def sc_m2(port):
+    """§6.2 items 3, 5 and 6 (WP-4): DeZog's breakpoint sequence, a condition
+    hit, a memory breakpoint, and DeZog's step-over / step-out conditions."""
+    z = Zrcp(port)
+    check(z.reply() == WELCOME, "the welcome is not ZEsarUX's, byte for byte")
+    check(z.cmd("enter-cpu-step") == b"\n" + PROMPT_STEP, "enter-cpu-step: not the step prompt")
+    # DeZog's init: clear-membreakpoints, enable-breakpoints.
+    check(z.cmd("clear-membreakpoints") == b"\n" + PROMPT_STEP, "clear-membreakpoints")
+    check(z.cmd("enable-breakpoints") == b"\n" + PROMPT_STEP, "enable-breakpoints")
+    check(z.cmd("enable-breakpoints") == b"Error. Already enabled\n" + PROMPT_STEP,
+          "a second enable-breakpoints is not ZEsarUX's error")
+    # ZEsarUX's own grouping, through the DSL's evaluator.
+    check(z.cmd("evaluate 9-3-1") == b"7\n" + PROMPT_STEP, "evaluate 9-3-1 is not 9-(3-1)")
+
+    # 3. A plain source breakpoint, set as DeZog sets it (three commands).
+    put(z, 0x8000, "00000000" + "18FE")          # NOP x4; JR $
+    regs_set(z, PC=0x8000, SP=0xFF00, IFF1=0, IFF2=0)
+    for line in ("set-breakpointaction 1", "set-breakpoint 1 PC=08002h", "enable-breakpoint 1"):
+        check(z.cmd(line) == b"\n" + PROMPT_STEP, "%s did not answer empty" % line)
+    run_fired(z, 0x8002, b"PC=8002H")
+    check(z.cmd("get-breakpoints 1") == b"Breakpoints: On\nEnabled 1: PC=8002H\n\n" + PROMPT_STEP,
+          "get-breakpoints 1 does not list the slot as ZEsarUX re-prints it")
+    check(z.cmd("disable-breakpoint 1") == b"\n" + PROMPT_STEP, "disable-breakpoint 1")
+
+    # A condition hit: PC=<n> AND <condition> stops only where it holds.
+    put(z, 0x8000, "3E05" + "00" + "3E07" + "00" + "18FE")  # LD A,5; NOP; LD A,7; NOP; JR $
+    regs_set(z, PC=0x8000)
+    check(z.cmd("set-breakpoint 2 PC=8005H AND A=5") == b"\n" + PROMPT_STEP, "slot 2")
+    check(z.cmd("set-breakpoint 3 PC=8002H AND A=5") == b"\n" + PROMPT_STEP, "slot 3")
+    run_fired(z, 0x8002, b"PC=8002H AND A=5")
+    check(z.cmd("disable-breakpoint 2") == b"\n" + PROMPT_STEP, "disable 2")
+    check(z.cmd("disable-breakpoint 3") == b"\n" + PROMPT_STEP, "disable 3")
+
+    # 5. A memory breakpoint on the address the program writes.
+    put(z, 0x8000, "3EAA" + "320190" + "18FE")   # LD A,AAH; LD (9001H),A; JR $
+    regs_set(z, PC=0x8000)
+    check(z.cmd("set-membreakpoint 9000h 2 2") == b"\n" + PROMPT_STEP, "set-membreakpoint")
+    run_fired(z, 0x8005, b"Memory Breakpoint Write Address: 9001H")
+    check(z.cmd("set-membreakpoint 9000h 0 2") == b"\n" + PROMPT_STEP, "membreakpoint removal")
+
+    # 6. DeZog's step-over (SP>=, decimal) across a CALL, then its step-out.
+    put(z, 0x8000, "CD1080" + "00" + "18FE")     # CALL 8010H; NOP; JR $
+    put(z, 0x8010, "0000C9")                     # NOP; NOP; RET
+    regs_set(z, PC=0x8000, SP=0xFF00)
+    check(z.cmd("set-breakpointaction 100") == b"\n" + PROMPT_STEP, "action 100")
+    check(z.cmd("set-breakpoint 100 SP>=65280") == b"\n" + PROMPT_STEP, "slot 100")
+    check(z.cmd("enable-breakpoint 100") == b"\n" + PROMPT_STEP, "enable 100")
+    run_fired(z, 0x8003, b"SP>=65280")
+    check(z.cmd("disable-breakpoint 100") == b"\n" + PROMPT_STEP, "disable 100")
+    put(z, 0xFEFE, "0380")                       # the return address the CALL pushed
+    regs_set(z, PC=0x8010, SP=0xFEFE)
+    check(z.cmd("set-breakpoint 100 PC=PEEKW(SP-2) AND SP>=65280") == b"\n" + PROMPT_STEP,
+          "step-out slot")
+    run_fired(z, 0x8003, b"PC=PEEKW(SP-2) AND SP>=65280")
+
+    # DeZog's disconnect.
+    check(z.cmd("clear-membreakpoints") == b"\n" + PROMPT_STEP, "clear-membreakpoints")
+    check(z.cmd("disable-breakpoints") == b"\n" + PROMPT_STEP, "disable-breakpoints")
+    check(z.cmd("exit-cpu-step") == b"\n" + PROMPT, "exit-cpu-step: not the plain prompt")
+    z.s.sendall(b"quit\n")
+    check(z.goodbye() == b"Sayonara baby\n", "quit did not say goodbye")
+    z.close()
+    return ("breakpoint at 8002, PC=8002H AND A=5 hit, write at 9001H, "
+            "SP>=65280 step-over and PEEKW step-out at 8003")
+
+
 SCENARIOS = {
     "m1": sc_m1,
+    "m2": sc_m2,
     "smoke": sc_smoke,
 }
 

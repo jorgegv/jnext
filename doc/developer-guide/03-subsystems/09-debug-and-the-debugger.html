@@ -2712,8 +2712,11 @@ nothing in the shipped binary instantiates it.</p>
 <li><code>expr_compiler.h</code> — the stable public header other frontends call:
   <code>compile_expr(text, scope)</code> returns the backend's CAP-EVT predicate
   (<code>dbg::Condition</code>) and <code>eval_expr(text, debugger)</code> evaluates once. The ZRCP
-  adapter (package Z, not yet written) is designed to translate its dialect into
-  this grammar rather than own a second parser.</li>
+  adapter (<code>src/remote/zrcp/zrcp_condition.*</code>, GH #280 WP-4) translates
+  ZEsarUX's breakpoint dialect into this grammar — tokenising and grouping as
+  ZEsarUX does, emitting a fully bracketed expression — and compiles it here,
+  so it owns no evaluator. The one thing the DSL cannot read is whether a slot
+  is ROM, so ZEsarUX's <code>SEGn</code> / <code>ROM</code> / <code>RAM</code> are evaluated by the adapter.</li>
 </ul>
 <p><code>script_parse_test</code> (<code>gate: none</code>) pins the grammar, every error class with its
 position, precedence, the per-kind payload table, the evaluation of every name

@@ -74,7 +74,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP-1** | session skeleton over the shared transport (T) | **done** |
 | **WP-2** | formatters | **done** |
 | **WP-3** | control / run | **done** |
-| **WP-4** | breakpoints + conditions — **needs S's WP1**, the DSL's `compile_expr` exported as a library. §11 item 8: whether that library covers ZRCP's honoured condition subset without a fallback parser is measured here | todo |
+| **WP-4** | breakpoints + conditions — **needs S's WP1**, the DSL's `compile_expr` exported as a library. §11 item 8: whether that library covers ZRCP's honoured condition subset without a fallback parser is measured here (answer: §11.8) | in review |
 | **WP-5** | history / coverage / load | todo |
 | **WP-6** | fixtures + docs | todo |
 
@@ -964,11 +964,12 @@ Suite: `zrcp_adapter_test` (111 rows after review round 1, `gate: none`). Regres
 - **WP-3 (8):** `enter-cpu-step|encs`, `exit-cpu-step|ecs`, `cpu-step|cs`,
   `cpu-step-over|cso`, `run|r` (+ *n*), `hard-reset-cpu`, `reset-cpu`,
   `generate-nmi`.
-- **Pending (20, WP-4/WP-5):** the breakpoint commands, `evaluate`,
-  `extended-stack`, `cpu-history`, `cpu-code-coverage`, `smartload`,
-  `load-binary`, `save-binary`, `snapshot-save/-load`. They answer
-  `Unknown command` until their package adds their rows; row `ZRCP-TAB-01`
-  pins the list against ZEsarUX's 125 names, so it can only shrink.
+- **Pending (8, WP-5):** `extended-stack`, `cpu-history`,
+  `cpu-code-coverage`, `smartload`, `load-binary`, `save-binary`,
+  `snapshot-save/-load`. They answer `Unknown command` until their package
+  adds their rows; row `ZRCP-TAB-01` pins the list against ZEsarUX's 125
+  names, so it can only shrink. (Milestone 2 served WP-4's twelve — §11.7 —
+  and the list went from 20 to 8.)
 
 ### 11.2 The run state machine as built
 
@@ -1144,8 +1145,127 @@ CAP-SES-01):
   (`DebuggerManager::detach_backend()`), a user action this rule does not
   touch.
 
-Rows: backend `N1-01..10` and `CTL-12-47c` (new); `SES-01-12`, `SES-01-22`,
+Rows: backend `N1-01..14` and `CTL-12-47c` (new); `SES-01-12`, `SES-01-22`,
 `CTL-12-47`, `REENT-24` and `OBS-08` **rewritten**, because each asserted the
 old release with another arming client attached (`REENT-24` and `SES-01-22`
 now use an observer bystander, which keeps what they pin: the release itself);
 ZRCP `ZRCP-SES-09/10` through the real adapter.
+
+**Owner-confirmed (2026-10-01), all four points of the hand-back:** (1) an
+observer never inherits a pause and never holds one back from release; (2) the
+fallback heir is the earliest-attached remaining arming client; (3) only
+`step_into` keeps the original pauser — so a client that single-steps an
+UNOWNED pause (the magic breakpoint; `Corrupt` refuses the step anyway) takes
+ownership of it, and its detach then hands it on or releases it like any pause
+of its own; (4) the comment-only fix to the frozen `debugger.h` `detach()`
+text is approved — **not applied in this build**: the edit was refused by the
+session's permission policy for a shared frozen header, and is reported for the
+owner to apply or re-authorise (z-m2-report.md).
+
+### 11.7 Milestone 2 — WP-4, breakpoints and conditions
+
+**Served (12):** `set-breakpoint|sb`, `set-breakpointaction|sba`,
+`enable-breakpoint|eb`, `disable-breakpoint|db`, `enable-breakpoints`,
+`disable-breakpoints`, `get-breakpoints|gb`, `get-breakpointsactions|gba`,
+`set-membreakpoint`, `get-membreakpoints`, `clear-membreakpoints`,
+`evaluate|e`. 59 served, 1 declined, 57 unsupported, 8 pending (`ZRCP-TAB-01`).
+
+**How a condition becomes a predicate** (`src/remote/zrcp/zrcp_condition.*`):
+the text is tokenised exactly as ZEsarUX 12.0's `exp_par_exp_to_tokens` does
+(operand / operator alternation, signs, `H` / `%` / `'c'` numbers, `( [ {`
+brackets, case-insensitive names); the canonical text `get-breakpoints` lists
+and `Breakpoint fired:` echoes is ZEsarUX's `exp_par_tokens_to_exp` over those
+tokens; the tokens are then split the way `exp_par_evaluate_token` evaluates
+them and every split is emitted as a fully bracketed DSL expression, which
+`script::compile_expr` compiles in the `Execute` scope. Nothing in the adapter
+evaluates an expression except the native terms below.
+
+**Deviations and precisions (milestone 2):**
+
+1. **ZEsarUX's grouping, not a precedence table.** §3.2 said the adapter
+   "parenthesises every binary term it emits, so the DSL's precedence table is
+   the only one in play". The source says otherwise: ZEsarUX splits at the
+   FIRST top-level logical operator, then comparison, then `+ -`, then the
+   other arithmetic, right-nested — `9-3-1` is 7, `2*3&1` is 2, `0 AND 0 OR 1`
+   is 0 (`ZRCP-CND-04`). The translation reproduces that grouping.
+2. **"Always", not "On Change".** ZEsarUX's default fires a condition only on
+   a false→true transition (`debug_breakpoints_cond_behaviour`, `--brkp-always`
+   turns it off). jnext fires every time it is true: the fast path is only
+   evaluated at its address, so "was it true at the previous instruction" is
+   not known there, and one rule for both paths is simpler to state. The GH #221
+   step-off gives the On-Change behaviour exactly where DeZog needs it — at the
+   address a run resumes from. Visible difference: a PC-free condition such as
+   `A=5` stops again after a resume while it stays true; a `JR $` breakpoint
+   stops on every pass. Stated in `help set-breakpoint`.
+3. **The master switch is the adapter's.** §2.4 mapped `enable-/disable-
+   breakpoints` to CAP-EVT `set_client_enabled`. That switch also suspends the
+   client's TRANSIENT subscriptions (`event_table.cpp`: live = enabled ∧
+   (transient ∨ master) ∧ client), so with breakpoints off `cpu-step-over`
+   could never end. Instead a slot's subscription exists exactly while
+   breakpoints are on, the slot is enabled and it has a condition, and the
+   memory-breakpoint ranges likewise (`ZRCP-BP-10`, `ZRCP-MBP-07`).
+4. **`set-breakpoint` enables the slot**, as `debug_set_breakpoint` does
+   (DeZog's `enable-breakpoint` after it is then a no-op). A refused condition
+   leaves the slot as it was (§2.4's divergence, `ZRCP-BP-06`).
+5. **Actions.** Empty / `menu` / `break` stop; `prints`, `printregs`,
+   `printe`, `printc` do not stop and send their output to the session as a
+   `log> …` line (ZEsarUX prints it on its own console); everything else is
+   refused at `set-breakpointaction` with `Error. Unsupported breakpoint action
+   in jnext: <word>` (`ZRCP-BP-13/14`).
+6. **Declined names** are refused at `set-breakpoint` (and by `evaluate`):
+   the last-access variables, `TSTATES*`, `SCANLINE`, the stateful `*FIRED` /
+   `ENTERROM` / `EXITROM`, `HILOWMAPPED`, `PD765PCN`, `USP`, `EPC`,
+   `COPPERPC`, the 68000 / TSConf registers, and the functions `FPEEK IN ABS
+   BYTE WORD OPM*` (`ZRCP-CND-09`). Binary (`101%`) and character (`'A'`)
+   literals, which §3.2 did not list, are honoured: they cost nothing.
+7. **The fired line names this session's breakpoint** even when another
+   client's breakpoint was the backend's first `Stop` on the same instruction
+   (`ZRCP-BP-11`, `ZRCP-MBP-08`); another client's breakpoint alone gives a
+   plain stop (`ZRCP-BP-12`).
+8. **Indexes and addresses** keep milestone 1's strict number rule
+   (`parse_number`) where ZEsarUX uses `atoi` / `parse_string_to_number`.
+
+### 11.8 The DSL library and ZRCP's condition subset (§11 item 8, measured)
+
+**Answer: the library covers the honoured subset with no fallback parser
+(no second evaluator), except for `SEG0..7`, `ROM` and `RAM`, which it cannot
+express and the adapter evaluates natively.**
+
+Evidence, every row driving `compile_expr` / `eval_expr` through `evaluate`
+or a breakpoint:
+
+- registers, the alternates (8-bit ones as `(AF2 >> 8) & 255` …), the flags
+  (`FS…FC` → `SF ZF PF PF HF NF CF`), `IFF1/2` — `ZRCP-CND-05`;
+- every operator both ways, `XOR` as `((a)!=0) != ((b)!=0)`, ZEsarUX's x/0 =
+  65535 as `((b)==0)*65535 + ((b)!=0)*((a)/((b)+((b)==0)))` — `ZRCP-CND-06`;
+- `PEEK` / `PEEKW` / `OPCODE1..4` as `mem[…]` with the address mod 64K —
+  `ZRCP-CND-07`; numbers — `ZRCP-CND-08`; grouping — `ZRCP-CND-04`;
+- DeZog's conditions end to end — `ZRCP-BP-04/07/09`, `ZRCP-MBP-01/02`, and
+  the regression row `zrcp-bp-func` against a live jnext.
+
+What the library could not do, and what was done instead:
+
+- **Is a slot ROM?** `SEGn` / `ROM` / `RAM` are ZEsarUX's
+  `debug_paginas_memoria_mapeadas[]`, the `MMU=` projection, whose ROM
+  encoding depends on `SlotInfo.is_rom`. The DSL has `mmu[n]` (the raw NextREG,
+  `0xFF` sentinel) and `page[n]` (the effective page); neither says ROM — the
+  sentinel is not the rule (`mmu.cpp`: a verbatim `0xE0..0xFE` write also maps
+  ROM). So they are NATIVE terms: honoured as `<var><op><number>` in the
+  top-level AND chain (DeZog's `PC=… AND SEGn=…`, `… AND ROM=…`, `… AND
+  RAM=…`), evaluated from the same `mapped_page()` the register line prints,
+  and refused anywhere else (`ZRCP-CND-11/12`). A DSL builtin for "slot is
+  ROM", or for the projection itself, would remove them — a request for
+  package S, not made here.
+- **ZEsarUX's grouping** is reproduced by the translation (deviation 1); the
+  DSL needs only its brackets.
+
+**`probe_execute -> vector<EventId>` (owner-approved, NOT in this build).** The
+frozen-header change was refused by the session's permission policy (the same
+refusal as the `detach()` comment). Until it lands, `run n`'s landing check
+asks this session's slots with their own predicates and asks `probe_execute`
+only where no slot of this session covers the PC: a slot whose condition is
+false no longer ends a `run n` (`ZRCP-BP-15/16`), but another client's
+CONDITIONAL `Execute` subscription at the landing PC still ends it even when
+its condition is false (the §11.5 item 3 finding, unchanged). The backend
+change and its rows are the remaining WP-4 item.
+

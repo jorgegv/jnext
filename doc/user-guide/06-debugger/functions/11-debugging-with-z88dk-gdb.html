@@ -3099,8 +3099,10 @@ Hit breakpoint 1: @8412 (_update_player)
 <li><strong>Your breakpoints are your session's.</strong> They stop the machine whether
   JNEXT's debugger window is open or closed, and they are removed when
   <code>z88dk-gdb</code> disconnects — a crashed client cannot leave the machine stopped
-  on one of them. <code>quit</code> resumes the machine if the stop was the client's own;
-  a pause you made in JNEXT's debugger window stays.</li>
+  on one of them. <code>quit</code> resumes the machine if the stop was the client's own
+  and nothing else is attached; with JNEXT's debugger window open, or another
+  remote debugger connected, it stays paused and the pause becomes theirs. A
+  pause you made in JNEXT's debugger window stays.</li>
 <li><strong>Both can drive the machine.</strong> JNEXT's debugger window and <code>z88dk-gdb</code>
   control the same machine, and whichever acted last wins. If something else
   stops the machine while <code>z88dk-gdb</code> has it running, the client is told it

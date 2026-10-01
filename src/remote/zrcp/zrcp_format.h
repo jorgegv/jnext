@@ -46,6 +46,14 @@ std::uint16_t mmu_value(const jnext::dbg::SlotInfo& slot, int index);
 /// segment's value is read from its first 8 K slot.
 std::string mmu_field_legacy(const std::array<jnext::dbg::SlotInfo, 8>& slots);
 
+/// The `i`-th of the eight `MMU=` values `register_line` prints — ZEsarUX's
+/// `debug_paginas_memoria_mapeadas[i]` — on this machine: `mmu_value` on the
+/// Next, the legacy segment for `i` < 4 elsewhere and 0 above. ONE source for
+/// the register line and for the `SEGn` / `ROM` / `RAM` breakpoint variables
+/// (`zrcp_condition.h`), which read the same array in ZEsarUX.
+std::uint16_t mapped_page(const std::array<jnext::dbg::SlotInfo, 8>& slots, int i,
+                          MachineType type);
+
 /// `get-registers` / `set-register`: the register line, byte for byte as §1.4:
 /// lower-case hex, `HL` before `DE`, two spaces before `F=`, `IM%d`, `IFF%c%c`,
 /// `VPS: 0`, eight `MMU=` values with no separator — the Next's 8 x 8 K slots

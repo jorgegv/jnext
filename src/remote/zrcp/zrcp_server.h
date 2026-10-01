@@ -48,6 +48,7 @@
 // time slices so a large `n` never holds one pump (§2.2).
 // ---------------------------------------------------------------------------
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -56,6 +57,7 @@
 
 #include "debug/debugger.h"
 #include "remote/transport.h"
+#include "remote/zrcp/zrcp_condition.h"
 
 namespace jnext {
 namespace remote {
@@ -83,6 +85,13 @@ constexpr char RUNNING_UNTIL[] =
 
 /// The largest `run n` served (§2.2).
 constexpr std::uint32_t RUN_LIMIT_MAX = 1000000;
+
+/// ZEsarUX's `MAX_BREAKPOINTS_CONDITIONS`: slots 1..100 (§1.5).
+constexpr int BREAKPOINT_SLOTS = 100;
+
+/// ZEsarUX's `MAX_BREAKPOINT_CONDITION_LENGTH`: the longest condition or
+/// breakpoint action accepted.
+constexpr std::size_t BREAKPOINT_TEXT_MAX = 256;
 
 /// How a command is answered (§2).
 enum class CommandClass : std::uint8_t {
@@ -232,6 +241,42 @@ private:
     void cmd_hard_reset_cpu(const Cmd& c);
     void cmd_reset_cpu(const Cmd& c);
     void cmd_generate_nmi(const Cmd& c);
+    // WP-4 — breakpoints and conditions (§2.4, §3, §4.1-4.2).
+    void cmd_clear_membreakpoints(const Cmd& c);
+    void cmd_disable_breakpoint(const Cmd& c);
+    void cmd_disable_breakpoints(const Cmd& c);
+    void cmd_enable_breakpoint(const Cmd& c);
+    void cmd_enable_breakpoints(const Cmd& c);
+    void cmd_evaluate(const Cmd& c);
+    void cmd_get_breakpoints(const Cmd& c);
+    void cmd_get_breakpointsactions(const Cmd& c);
+    void cmd_get_membreakpoints(const Cmd& c);
+    void cmd_set_breakpoint(const Cmd& c);
+    void cmd_set_breakpointaction(const Cmd& c);
+    void cmd_set_membreakpoint(const Cmd& c);
+
+    /// One condition slot (§4.1 `slots[1..100]`).
+    struct Slot {
+        Translation            cond;          ///< `cond.canonical` is what is listed and echoed
+        jnext::dbg::Condition  predicate;     ///< compiled from `cond`; empty = always true
+        bool                   has_cond = false;
+        bool                   enabled  = false;
+        std::string            action;        ///< as set; empty / menu / break = Stop
+        jnext::dbg::EventId    sub = jnext::dbg::EVENT_NONE;
+    };
+    /// One run of equal non-zero memory-breakpoint type (§4.2).
+    struct MemRange {
+        std::uint16_t       lo = 0, hi = 0;
+        std::uint8_t        type = 0;
+        jnext::dbg::EventId sub  = jnext::dbg::EVENT_NONE;
+    };
+
+    void arm_slot(int index);
+    void sync_mem_ranges();
+    bool slot_fires_at(int index, std::uint16_t pc) const;
+    std::string evaluate_text(const std::string& expr) const;
+    void queue_action_log(int index);
+    void flush_logs();
 
     // Helpers.
     std::vector<std::uint8_t> read_cpu(std::uint32_t addr, std::size_t n) const;
@@ -260,6 +305,17 @@ private:
     /// §4.6 rule 4 — a Reset{Hard} answered the run in flight; its plain stop
     /// reply is owed at the next callback.
     bool          reset_stop_owed_ = false;
+    /// `run n` stopped on landing where one of this session's slots fires:
+    /// that slot, 0-based, for the `fired` line; -1 = none.
+    int           run_landed_slot_ = -1;
+
+    // §4.1 — breakpoints (WP-4).
+    bool                                bp_master_ = false;
+    std::array<Slot, BREAKPOINT_SLOTS>  slots_{};
+    std::vector<std::uint8_t>           mem_types_ = std::vector<std::uint8_t>(65536, 0);
+    std::vector<MemRange>               mem_ranges_;
+    /// Lines a print action produced at a boundary, sent at the next callback.
+    std::vector<std::string>            pending_logs_;
 };
 
 }  // namespace zrcp

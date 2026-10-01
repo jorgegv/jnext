@@ -37,6 +37,7 @@
 #include "remote/dzrp/dzrp_server.h"
 #include "remote/fake_transport.h"
 #include "remote/transport.h"
+#include "remote/zrcp/zrcp_condition.h"
 #include "remote/zrcp/zrcp_format.h"
 #include "remote/zrcp/zrcp_server.h"
 
@@ -375,16 +376,13 @@ static const char* const kZesaruxLs[] = {
     "zeng-is-master", "zeng-online", "zxevo-get-nvram",
 };
 
-/// Served by the design (§2) and not yet by this build: breakpoints and
-/// conditions (WP-4), history / stack / coverage / load / bookmarks (WP-5).
-/// They answer `Unknown command` until their package adds their rows; this
-/// list shrinks to nothing as WP-4/WP-5 land.
+/// Served by the design (§2) and not yet by this build: history / stack /
+/// coverage / load / bookmarks (WP-5). They answer `Unknown command` until
+/// their package adds their rows; this list shrinks to nothing as WP-5 lands.
+/// (WP-4's twelve breakpoint commands left it with WP-4.)
 static const char* const kPendingWp45[] = {
-    "clear-membreakpoints", "cpu-code-coverage", "cpu-history", "disable-breakpoint",
-    "disable-breakpoints", "enable-breakpoint", "enable-breakpoints", "evaluate",
-    "extended-stack", "get-breakpoints", "get-breakpointsactions", "get-membreakpoints",
-    "load-binary", "save-binary", "set-breakpoint", "set-breakpointaction",
-    "set-membreakpoint", "smartload", "snapshot-load", "snapshot-save",
+    "cpu-code-coverage", "cpu-history", "extended-stack", "load-binary",
+    "save-binary",       "smartload",   "snapshot-load",  "snapshot-save",
 };
 
 static void table_rows() {
@@ -408,11 +406,11 @@ static void table_rows() {
     for (const auto& n : pending)
         if (rows.count(n) || !ls.count(n)) both += " " + n;
     check("ZRCP-TAB-01", "census against ZEsarUX 12.0's ls (125 names): every name is a table "
-                         "row or one of the 20 WP-4/5 names, no row is foreign; 47 served, 1 "
+                         "row or one of the 8 WP-5 names, no row is foreign; 59 served, 1 "
                          "declined (exit-emulator), 57 unsupported — §2's 67 / 1 / 57 less the "
-                         "20 pending",
-              ls.size() == 125 && pending.size() == 20 && missing.empty() && stray.empty() &&
-                  both.empty() && served == 47 && declined == 1 && unsupported == 57,
+                         "8 pending",
+              ls.size() == 125 && pending.size() == 8 && missing.empty() && stray.empty() &&
+                  both.empty() && served == 59 && declined == 1 && unsupported == 57,
               "missing:" + missing + " stray:" + stray + " both:" + both + " served=" +
                   std::to_string(served) + " unsupported=" + std::to_string(unsupported));
 
@@ -420,10 +418,10 @@ static void table_rows() {
     Zc  c(rig);
     const std::string u     = c.cmd("get-io-ports");
     const std::string ua    = c.cmd("a 8000H NOP");
-    const std::string pend  = c.cmd("set-breakpoint 1 PC=0");
+    const std::string pend  = c.cmd("extended-stack get 5");
     check("ZRCP-TAB-02", "an unsupported ZEsarUX command — by name or by ZEsarUX's alias — "
                          "answers \"Error. Unsupported command in jnext: <name>\"; a pending "
-                         "WP-4 command is still unknown",
+                         "WP-5 command is still unknown",
               u == "Error. Unsupported command in jnext: get-io-ports\ncommand> " &&
                   ua == "Error. Unsupported command in jnext: assemble\ncommand> " &&
                   pend == "Unknown command\ncommand> ",
@@ -473,7 +471,7 @@ static void table_rows() {
               starts_with(row1, "about") && row1.find("close-all-menus") != std::string::npos &&
                   ls_out.find("get-io-ports") == std::string::npos &&
                   ls_out.find("exit-emulator") != std::string::npos &&
-                  row1.size() == 4 * (std::string("tbblue-get-clipwindow").size() + 2),
+                  row1.size() == 4 * (std::string("get-breakpointsactions").size() + 2),
               esc(row1));
 }
 
@@ -2476,6 +2474,856 @@ static void round2_rows() {
     }
 }
 
+// ===========================================================================
+// WP-4 — breakpoints and conditions (§1.5, §1.6, §2.4, §3, §4.2)
+// ===========================================================================
+
+/// `run` from step mode until the stop reply (or `max` ticks): the
+/// "Running until…" line, then everything up to the prompt.
+static std::string run_to_stop(Zc& c, int max = 12) {
+    const std::string first = c.send_once("run\n");
+    return first + c.wait_ticks(max);
+}
+
+/// Was the reply `Running until…` + a stop at `pc` whose fired line is `fired`?
+static bool fired_stop(const std::string& r, std::uint16_t pc, const std::string& fired) {
+    char head[16];
+    std::snprintf(head, sizeof(head), "PC=%04x ", pc);
+    const std::string want = kRunning + "Breakpoint fired: " + fired + "\n" + head;
+    return starts_with(r, want) && ends_with(r, PROMPT_STEP);
+}
+
+/// A session with breakpoints enabled, in cpu-step mode.
+static void bp_on(Zc& c) {
+    c.cmd("enter-cpu-step");
+    c.cmd("enable-breakpoints");
+}
+
+static std::string ev(Zc& c, const std::string& expr) {
+    const std::string r = c.cmd("evaluate " + expr);
+    return ends_with(r, "\n" + std::string(PROMPT)) ? r.substr(0, r.size() - 1 - std::strlen(PROMPT))
+                                                    : r;
+}
+
+static void wp4_condition_rows() {
+    // ── the tokeniser and ZEsarUX's re-printing (get-breakpoints) ────────
+    {
+        static const struct { const char* in; const char* canon; } kCanon[] = {
+            {"a<>0 and (hl & 0ffh) = 5", "A<>0 AND (HL&FFH)=5"},  // [T2]
+            {"PC=0038H", "PC=38H"},                               // [T2]
+            {"PC=0abcdh and SEG3=0005h", "PC=ABCDH AND SEG3=5H"}, // DeZog's long address
+            {"SP>=65280", "SP>=65280"},                           // DeZog's step-over
+            {"PC=PEEKW(SP-2) AND SP>=65280", "PC=PEEKW(SP-2) AND SP>=65280"},
+            {"A>-3", "A>-3"},
+            {"B='A' or C=101%", "B='A' OR C=101%"},
+            {"[1+2]*{3}", "(1+2)*(3)"},
+            {"D=-1H", "D=FFFFFFFFH"},
+            {"af'=bc' xor not(hl')", "AF'=BC' XOR NOT(HL')"},
+        };
+        std::string bad;
+        for (const auto& k : kCanon) {
+            const Translation t = translate_condition(k.in, true);
+            if (!t.ok || t.canonical != k.canon)
+                bad += std::string(" [") + k.in + " -> " + t.canonical + (t.ok ? "" : " !ok") + "]";
+        }
+        check("ZRCP-CND-01", "the tokeniser and ZEsarUX's re-printing (exp_par_tokens_to_exp): "
+                             "upper case, no spaces but around AND/OR/XOR, hex as %XH, binary "
+                             "and ASCII kept, brackets as ()",
+              bad.empty(), bad);
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 PC=0038H");
+        c.cmd("set-breakpoint 3 a<>0 and (hl & 0ffh) = 5");
+        const std::string all = c.cmd("get-breakpoints 1 3");
+        check("ZRCP-CND-02", "get-breakpoints lists a condition as ZEsarUX re-prints it ([T2]: "
+                             "PC=0038H -> PC=38H; A<>0 and (HL & 0FFH) = 5 -> A<>0 AND "
+                             "(HL&FFH)=5) and an empty slot as None",
+              all == "Breakpoints: On\nEnabled 1: PC=38H\nDisabled 2: None\nEnabled 3: A<>0 AND "
+                     "(HL&FFH)=5\n\ncommand@cpu-step> ",
+              esc(all));
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        bp_on(c);
+        static const char* const kBad[] = {"this is garbage", "PC=0 && A==1", "PC=0x38",
+                                           "PC=", "(A=1", "A B", "PC==1", "!A", "A||B"};
+        std::string bad;
+        for (const char* b : kBad) {
+            const std::string r = c.cmd(std::string("set-breakpoint 2 ") + b);
+            if (r != reply_of("Error. Error setting breakpoint", true)) bad += std::string(" [") + b + "]";
+        }
+        check("ZRCP-CND-03", "what ZEsarUX cannot tokenise or evaluate is refused with its own "
+                             "text: garbage, C operators, 0x literals ([T2]), a missing operand, "
+                             "an unclosed bracket, two operands",
+              bad.empty(), "accepted:" + bad);
+    }
+    {
+        // ZEsarUX splits at the FIRST top-level operator of the lowest class
+        // present, so these differ from any precedence-table reading.
+        Rig rig;
+        Zc  c(rig);
+        static const struct { const char* e; const char* v; } kGroup[] = {
+            {"9-3-1", "7"},          // 9-(3-1); a table would say 5
+            {"2*3&1", "2"},          // 2*(3&1); a table would say 0
+            {"8/4/2", "4"},          // 8/(4/2); a table would say 1
+            {"0 AND 0 OR 1", "0"},   // 0 AND (0 OR 1); a table would say 1
+            {"1 OR 1 AND 0", "1"},   // 1 OR (1 AND 0)
+            {"1+2*3", "7"},          // + splits first: 1+(2*3)
+            {"2*3+1", "7"},          // (2*3)+1
+            {"1=1=0", "0"},          // 1=(1=0)
+            {"[1+2]*{3}", "9"},      // ( [ { all group
+            {"(9-3)-1", "5"},
+        };
+        std::string bad;
+        for (const auto& g : kGroup) {
+            const std::string r = ev(c, g.e);
+            if (r != g.v) bad += std::string(" [") + g.e + "=" + r + "]";
+        }
+        check("ZRCP-CND-04", "grouping is ZEsarUX's (exp_par_evaluate_token): the first logical "
+                             "operator, then the first comparison, then the first + or -, then "
+                             "the first other operator, right-nested — never a precedence table",
+              bad.empty(), bad);
+    }
+    {
+        // Every honoured register and flag name reads its register.
+        Rig rig;
+        Z80Registers z = rig.emu.cpu().get_registers();
+        z.AF = 0x12D7; z.BC = 0x3456; z.DE = 0x789A; z.HL = 0xBCDE;
+        z.IX = 0x1357; z.IY = 0x2468; z.SP = 0xFEDC; z.PC = 0x8000;
+        z.I = 0x3F; z.R = 0x5A; z.IFF1 = 1; z.IFF2 = 0;
+        z.AF2 = 0x9A65; z.BC2 = 0x1122; z.DE2 = 0x3344; z.HL2 = 0x5566;
+        rig.emu.cpu().set_registers(z);
+        Zc c(rig);
+        static const struct { const char* n; int v; } kRegs[] = {
+            {"A", 0x12},   {"F", 0xD7},    {"B", 0x34},    {"C", 0x56},   {"D", 0x78},
+            {"E", 0x9A},   {"H", 0xBC},    {"L", 0xDE},    {"I", 0x3F},   {"R", 0x5A},
+            {"AF", 0x12D7}, {"BC", 0x3456}, {"DE", 0x789A}, {"HL", 0xBCDE}, {"IX", 0x1357},
+            {"IY", 0x2468}, {"SP", 0xFEDC}, {"PC", 0x8000}, {"AF'", 0x9A65}, {"BC'", 0x1122},
+            {"DE'", 0x3344}, {"HL'", 0x5566}, {"A'", 0x9A},  {"F'", 0x65},   {"B'", 0x11},
+            {"C'", 0x22},  {"D'", 0x33},   {"E'", 0x44},   {"H'", 0x55},  {"L'", 0x66},
+            {"FS", 1},     {"FZ", 1},      {"FH", 1},      {"FP", 1},     {"FV", 1},
+            {"FN", 1},     {"FC", 1},      {"IFF1", 1},    {"IFF2", 0},   {"hl", 0xBCDE},
+        };
+        std::string bad;
+        for (const auto& k : kRegs) {
+            const std::string r = ev(c, k.n);
+            if (r != std::to_string(k.v)) bad += std::string(" [") + k.n + "=" + r + "]";
+        }
+        z.AF = 0x1228;  // F: only bits 5 and 3 — every flag reads 0
+        rig.emu.cpu().set_registers(z);
+        for (const char* f : {"FS", "FZ", "FH", "FP", "FV", "FN", "FC"}) {
+            const std::string r = ev(c, f);
+            if (r != "0") bad += std::string(" [") + f + "=" + r + " with F=28]";
+        }
+        check("ZRCP-CND-05", "every honoured register name reads its register (the 8-bit "
+                             "alternates from AF'..HL', FV as FP), each flag 1 when set and 0 "
+                             "when clear, IFF1/IFF2, case-insensitively",
+              bad.empty(), bad);
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        static const struct { const char* e; const char* v; } kOps[] = {
+            {"3=5", "0"},   {"5=5", "1"},   {"3<>5", "1"},  {"5<>5", "0"},  {"3<5", "1"},
+            {"5<3", "0"},   {"3>5", "0"},   {"5>3", "1"},   {"3<=5", "1"},  {"5<=5", "1"},
+            {"6<=5", "0"},  {"3>=5", "0"},  {"5>=5", "1"},  {"7+3", "10"},  {"7-3", "4"},
+            {"3-7", "-4"},  {"7*3", "21"},  {"7/2", "3"},   {"7/0", "65535"}, {"12&10", "8"},
+            {"12|10", "14"}, {"12^10", "6"}, {"1 AND 0", "0"}, {"1 AND 2", "1"}, {"0 OR 0", "0"},
+            {"0 OR 3", "1"}, {"1 XOR 1", "0"}, {"1 XOR 0", "1"}, {"0 XOR 2", "1"}, {"0 XOR 0", "0"},
+            {"NOT(0)", "1"}, {"NOT(5)", "0"}, {"1 and 1", "1"}, {"5 or 0", "1"},
+        };
+        std::string bad;
+        for (const auto& o : kOps) {
+            const std::string r = ev(c, o.e);
+            if (r != o.v) bad += std::string(" [") + o.e + "=" + r + "]";
+        }
+        check("ZRCP-CND-06", "every operator in both directions (true and false, both operand "
+                             "orders): = <> < > <= >= yield 1/0, + - * / & | ^, x/0 = 65535 "
+                             "(exp_par_calculate_operador), AND OR XOR on truth, NOT()",
+              bad.empty(), bad);
+    }
+    {
+        Rig rig;
+        rig.load({0x3E, 0x05, 0xC9, 0xED}, PROG);
+        Zc c(rig);
+        c.cmd("write-memory 65535 171");    // FFFF = AB
+        c.cmd("write-memory 0 205");        // 0000 is ROM on the 48K: stays what it was
+        const std::string rom0 = ev(c, "PEEK(0)");
+        static const struct { const char* e; std::string v; } kMem[] = {
+            {"PEEK(8000H)", "62"},             {"PEEKW(8000H)", std::to_string(0x053E)},
+            {"PEEK(PC+1)", "5"},               {"PEEKW(FFFFH)", std::to_string(0xAB + 256 * std::stoi(rom0))},
+            {"PEEK(-1)", "171"},               {"PEEK(1FFFFH)", "171"},
+            {"OPCODE1", "62"},                 {"OPCODE2", std::to_string(0x3E05)},
+            {"OPCODE3", std::to_string(0x3E05C9)}, {"OPCODE4", std::to_string(0x3E05C9ED)},
+        };
+        std::string bad;
+        for (const auto& m : kMem) {
+            const std::string r = ev(c, m.e);
+            if (r != m.v) bad += std::string(" [") + m.e + "=" + r + " want " + m.v + "]";
+        }
+        check("ZRCP-CND-07", "PEEK / PEEKW read the CPU view at the address mod 64K (PEEKW "
+                             "little-endian, wrapping at FFFFH), OPCODE1..4 the bytes at PC "
+                             "most significant first",
+              bad.empty(), bad);
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        static const struct { const char* e; const char* v; } kNum[] = {
+            {"0FFH", "255"}, {"FFH", "255"}, {"38h", "56"}, {"101%", "5"}, {"'A'", "65"},
+            {"-3", "-3"},    {"70000", "70000"}, {"FFFFFFFFH", "-1"}, {"0", "0"},
+        };
+        std::string bad;
+        for (const auto& n : kNum) {
+            const std::string r = ev(c, n.e);
+            if (r != n.v) bad += std::string(" [") + n.e + "=" + r + "]";
+        }
+        check("ZRCP-CND-08", "numbers as ZEsarUX reads them: decimal, hexadecimal with an H "
+                             "suffix (no leading 0 needed), binary with %, 'c', a sign, 32-bit "
+                             "signed",
+              bad.empty(), bad);
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        bp_on(c);
+        static const char* const kDeclined[] = {
+            "MRA=1",     "MWV=2",       "PRA=3",     "PWV=4",      "TSTATES>0",
+            "TSTATESL=1", "TSTATESP=1", "SCANLINE=1", "OUTFIRED=1", "INFIRED=1",
+            "INTFIRED=1", "ENTERROM=1", "EXITROM=1", "HILOWMAPPED=1", "PD765PCN=1",
+            "USP=1",     "EPC=1",       "COPPERPC=1", "D0=1",       "A7=1",
+            "AC=1",      "SR=1",        "P1=1",      "FPEEK(1)=1", "IN(254)=1",
+            "ABS(1)=1",  "BYTE(1)=1",   "WORD(1)=1", "OPMWA(1)=1",
+        };
+        std::string bad;
+        for (const char* d : kDeclined) {
+            const std::string r = c.cmd(std::string("set-breakpoint 4 ") + d);
+            const std::string e = c.cmd(std::string("evaluate ") + d);
+            if (r != reply_of("Error. Error setting breakpoint", true) ||
+                !starts_with(e, "Error evaluating parsed string: "))
+                bad += std::string(" [") + d + "]";
+        }
+        const std::string slot = c.cmd("get-breakpoints 4");
+        check("ZRCP-CND-09", "every declined name and function (help set-breakpoint lists them) "
+                             "is refused by set-breakpoint and by evaluate, and the slot keeps "
+                             "what it had",
+              bad.empty() && slot == "Breakpoints: On\nDisabled 4: None\n\ncommand@cpu-step> ",
+              "not refused:" + bad + " / " + esc(slot));
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        const std::string none  = c.cmd("evaluate");
+        const std::string parse = c.cmd("evaluate 0x10");
+        const std::string eval  = c.cmd("evaluate PC=");
+        const std::string ok    = c.cmd("e 2+2");
+        check("ZRCP-CND-10", "evaluate: no expression, \"Error parsing\" for what does not "
+                             "tokenise ([T4]: 0x10), \"Error evaluating parsed string: <it>\" for "
+                             "what cannot be evaluated, the alias e, a decimal result",
+              none == reply_of("Error. No expression") && parse == reply_of("Error parsing") &&
+                  eval == reply_of("Error evaluating parsed string: PC=") && ok == reply_of("4"),
+              esc(none) + " / " + esc(parse) + " / " + esc(eval) + " / " + esc(ok));
+    }
+    {
+        // SEGn / ROM / RAM — the MMU projection get-registers prints.
+        Rig nx(MachineType::ZXN_ISSUE2);
+        Zc  c(nx);
+        std::string bad;
+        const auto slots = nx.dbg->mmu_slots();
+        for (int i = 0; i < 8; ++i) {
+            const std::string r = ev(c, "SEG" + std::to_string(i));
+            const std::string w = std::to_string(mapped_page(slots, i, MachineType::ZXN_ISSUE2));
+            if (r != w) bad += " [SEG" + std::to_string(i) + "=" + r + " want " + w + "]";
+        }
+        const std::string rom = ev(c, "ROM"), ram = ev(c, "RAM");
+        Rig r128(MachineType::ZX128K);
+        Zc  c128(r128);
+        c128.cmd("write-port 32765 19");  // ROM 1, bank 3 at C000 (as REG-06)
+        const std::string rom128 = ev(c128, "ROM"), ram128 = ev(c128, "RAM"),
+                          seg128 = ev(c128, "SEG3");
+        Rig r48;
+        Zc  c48(r48);
+        const std::string rom48 = ev(c48, "ROM"), seg48 = ev(c48, "SEG0");
+        check("ZRCP-CND-11", "SEG0..7 on the Next are get-registers' eight MMU= values; ROM and "
+                             "RAM on the 128K the ROM image and the bank at C000; everything "
+                             "else 0, as ZEsarUX 12.0",
+              bad.empty() && rom == "0" && ram == "0" && rom128 == "1" && ram128 == "3" &&
+                  seg128 == "0" && rom48 == "0" && seg48 == "0",
+              bad + " next ROM/RAM=" + rom + "/" + ram + " 128K ROM/RAM/SEG3=" + rom128 + "/" +
+                  ram128 + "/" + seg128 + " 48K ROM/SEG0=" + rom48 + "/" + seg48);
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        bp_on(c);
+        static const char* const kBadNative[] = {"SEG3=5 OR A=1", "(SEG3=5)", "SEG3+1=5",
+                                                 "A=1 OR SEG3=5", "5=SEG3", "SEG3=A"};
+        std::string bad;
+        for (const char* b : kBadNative)
+            if (c.cmd(std::string("set-breakpoint 5 ") + b) !=
+                reply_of("Error. Error setting breakpoint", true))
+                bad += std::string(" [") + b + "]";
+        const std::string ok1 = c.cmd("set-breakpoint 5 PC=8000H AND SEG3=5");
+        const std::string ok2 = c.cmd("set-breakpoint 6 SEG3<>5 AND ROM=0 AND RAM>=0");
+        const std::string evv = c.cmd("evaluate SEG3=0 AND ROM=0");
+        check("ZRCP-CND-12", "SEGn / ROM / RAM are honoured as <var><op><number> in the "
+                             "top-level AND chain (DeZog's form) and refused anywhere else; "
+                             "evaluate gives such a chain 1 or 0",
+              bad.empty() && ok1 == reply_of("", true) && ok2 == reply_of("", true) &&
+                  evv == reply_of("1", true),
+              "accepted:" + bad + " / " + esc(ok1) + " / " + esc(evv));
+    }
+    {
+        // §3.3 — the fast path, seen as the subscription's PC range.
+        Rig rig;
+        Zc  c(rig);
+        bp_on(c);
+        static const struct { const char* cond; int lo, hi; bool has_cond; } kFast[] = {
+            {"PC=8002H", 0x8002, 0x8002, false},
+            {"PC=8002H AND A=0", 0x8002, 0x8002, true},
+            {"pc = 32770", 0x8002, 0x8002, false},
+            {"A=0 AND PC=8002H", 0x0000, 0xFFFF, true},
+            {"SP>=65280", 0x0000, 0xFFFF, true},
+            {"PC=8002H OR A=0", 0x0000, 0xFFFF, true},
+            {"PC=70000", 0x0000, 0xFFFF, true},
+            {"PC=PEEKW(SP-2) AND SP>=65280", 0x0000, 0xFFFF, true},
+        };
+        std::string bad;
+        for (const auto& f : kFast) {
+            c.cmd(std::string("set-breakpoint 7 ") + f.cond);
+            int n = 0;
+            bool match = false;
+            for (const auto& s : rig.dbg->subscriptions(false)) {
+                if (s.kind != jnext::dbg::EventKind::Execute) continue;
+                ++n;
+                match = s.filter.lo == f.lo && s.filter.hi == f.hi && s.has_condition == f.has_cond;
+            }
+            if (n != 1 || !match) bad += std::string(" [") + f.cond + "]";
+        }
+        check("ZRCP-CND-13", "§3.3: a leading PC=<16-bit number> conjunct becomes Execute[n,n] "
+                             "(with the rest, if any, as its condition); anything else "
+                             "Execute[0,FFFF] with the whole condition",
+              bad.empty(), bad);
+    }
+}
+
+static void wp4_slot_rows() {
+    {
+        Rig rig;
+        Zc  c(rig);
+        c.cmd("enter-cpu-step");
+        static const char* const kGated[] = {
+            "set-breakpoint 1 PC=0", "set-breakpoint 0 PC=0", "enable-breakpoint 1",
+            "disable-breakpoint 1",  "set-breakpointaction 1", "set-membreakpoint 4000h 1",
+            "sb 101 PC=0",
+        };
+        std::string bad;
+        for (const char* g : kGated)
+            if (c.cmd(g) != reply_of("Error. You must enable breakpoints first", true))
+                bad += std::string(" [") + g + "]";
+        const std::string off1 = c.cmd("disable-breakpoints");
+        const std::string on1  = c.cmd("enable-breakpoints");
+        const std::string on2  = c.cmd("enable-breakpoints");
+        const std::string off2 = c.cmd("disable-breakpoints");
+        check("ZRCP-BP-01", "the master switch: off at connect, every slot and membreakpoint "
+                            "setter refused first with ZEsarUX's text (before the range check: "
+                            "slot 0 too), Already enabled / Already disabled",
+              bad.empty() && off1 == reply_of("Error. Already disabled", true) &&
+                  on1 == reply_of("", true) && on2 == reply_of("Error. Already enabled", true) &&
+                  off2 == reply_of("", true),
+              "not gated:" + bad + " / " + esc(off1) + " / " + esc(on2));
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        bp_on(c);
+        static const char* const kVerbs[] = {"set-breakpoint %d PC=0", "enable-breakpoint %d",
+                                             "disable-breakpoint %d", "set-breakpointaction %d"};
+        std::string bad;
+        for (const char* v : kVerbs)
+            for (int n : {0, 1, 100, 101}) {
+                char line[64];
+                std::snprintf(line, sizeof(line), v, n);
+                const std::string r = c.cmd(line);
+                const bool in = n >= 1 && n <= 100;
+                if ((r == reply_of("Error. Index out of range", true)) == in)
+                    bad += std::string(" [") + line + "]";
+            }
+        const std::string g0   = c.cmd("get-breakpoints 0");
+        const std::string g101 = c.cmd("gb 101");
+        const std::string a0   = c.cmd("gba 0");
+        const std::string noix = c.cmd("enable-breakpoint");
+        const std::string nop  = c.cmd("set-breakpoint");
+        check("ZRCP-BP-02", "slot bounds 0 / 1 / 100 / 101 on every slot verb ([T2]: Index out "
+                            "of range), get-breakpoints / -actions likewise (ERROR. Index out of "
+                            "range), and no index at all",
+              bad.empty() && g0 == reply_of("ERROR. Index out of range", true) &&
+                  g101 == reply_of("ERROR. Index out of range", true) &&
+                  a0 == reply_of("ERROR. Index out of range", true) &&
+                  noix == reply_of("Error. No index set", true) &&
+                  nop == reply_of("Error. No parameters set", true),
+              bad + " / " + esc(g0) + " / " + esc(noix) + " / " + esc(nop));
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 2 PC=1");
+        c.cmd("disable-breakpoint 2");
+        c.cmd("set-breakpoint 4");
+        const std::string one  = c.cmd("get-breakpoints 2");
+        const std::string four = c.cmd("get-breakpoints 2 3");
+        const std::string all  = c.cmd("get-breakpoints");
+        c.cmd("disable-breakpoints");
+        const std::string off  = c.cmd("get-breakpoints 4 1");
+        check("ZRCP-BP-03", "get-breakpoints [index] [items]: the On/Off header, Enabled / "
+                            "Disabled per slot (all Disabled while breakpoints are off), None for "
+                            "no condition; set-breakpoint N alone empties and enables the slot "
+                            "([T2])",
+              one == "Breakpoints: On\nDisabled 2: PC=1\n\ncommand@cpu-step> " &&
+                  four == "Breakpoints: On\nDisabled 2: PC=1\nDisabled 3: None\nEnabled 4: "
+                          "None\n\ncommand@cpu-step> " &&
+                  std::count(all.begin(), all.end(), '\n') == 102 &&
+                  off == "Breakpoints: Off\nDisabled 4: None\n\ncommand@cpu-step> ",
+              esc(one) + " / " + esc(four) + " / " + esc(off));
+    }
+    {
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0x18, 0xFE});
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpointaction 1");
+        c.cmd("set-breakpoint 1 PC=8002H");
+        c.cmd("enable-breakpoint 1");
+        const std::string r = run_to_stop(c);
+        const auto st = rig.dbg->state();
+        check("ZRCP-BP-04", "DeZog's three commands then run: Running until… first, then "
+                            "\"Breakpoint fired: PC=8002H\\n\" and the stop at 8002, the machine "
+                            "paused there (§6.2 item 3)",
+              fired_stop(r, 0x8002, "PC=8002H") && st.paused && rig.pc() == 0x8002 &&
+                  st.pause_reason.kind == PauseReason::Kind::Breakpoint,
+              esc(r));
+
+        // Resuming from the breakpoint does not stop at once (GH #221 step-off);
+        // the machine runs on to JR $, where data stops it.
+        c.send_once("run\n");
+        rig.tick();
+        rig.tick();
+        const bool running = !rig.dbg->state().paused;
+        const std::string stop = c.send_once("\n") + c.wait(8);
+        check("ZRCP-BP-05", "run from the breakpoint's own address runs on (it is not hit "
+                            "again there) until data stops it at JR $",
+              running && is_stop_shape(stop, 0x8003), esc(stop));
+    }
+    {
+        // A failed set leaves the slot as it was (divergence §2.4).
+        Rig rig;
+        Zc  c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 9 PC=1234H");
+        c.cmd("disable-breakpoint 9");
+        const std::string bad = c.cmd("set-breakpoint 9 garbage here");
+        const std::string kept = c.cmd("get-breakpoints 9");
+        int execs = 0;
+        for (const auto& s : rig.dbg->subscriptions(false))
+            execs += s.kind == jnext::dbg::EventKind::Execute;
+        check("ZRCP-BP-06", "a condition that does not compile is refused and the slot keeps "
+                            "its condition and its disabled state (ZEsarUX would empty it), and "
+                            "nothing is armed",
+              bad == reply_of("Error. Error setting breakpoint", true) &&
+                  kept == "Breakpoints: On\nDisabled 9: PC=1234H\n\ncommand@cpu-step> " &&
+                  execs == 0,
+              esc(kept));
+    }
+    {
+        // A condition on the fast path: fires only where its rest holds.
+        Rig rig;
+        rig.load({0x00, 0x3E, 0x05, 0x00, 0x00, 0x3E, 0x07, 0x00, 0x18, 0xFE});
+        //        8000 NOP  8001 LD A,5   8003 NOP 8004 NOP 8005 LD A,7  8007 NOP 8008 JR $
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 PC=8007H AND A=5");
+        c.cmd("set-breakpoint 2 PC=8004H AND A=5");
+        const std::string r = run_to_stop(c);
+        check("ZRCP-BP-07", "PC=<n> AND <condition>: stops at n only when the condition holds "
+                            "there — 8004 with A=5, never 8007 (A=7) — and echoes the slot that "
+                            "fired",
+              fired_stop(r, 0x8004, "PC=8004H AND A=5") && rig.pc() == 0x8004, esc(r));
+        c.cmd("disable-breakpoint 2");
+        c.send_once("run\n");
+        for (int i = 0; i < 4; ++i) rig.tick();
+        const bool running = !rig.dbg->state().paused;
+        const std::string stop = c.send_once("\n") + c.wait(8);
+        check("ZRCP-BP-08", "with that slot disabled the run passes 8007 (A=7 there) and runs "
+                            "on to JR $",
+              running && is_stop_shape(stop, 0x8008), esc(stop));
+    }
+    {
+        // DeZog's step-over (SP>=) and step-out (PC=PEEKW(SP-2) AND SP>=), §6.2 item 6.
+        Rig rig;
+        rig.load({0xCD, 0x10, 0x80, 0x00, 0x18, 0xFE});  // CALL 8010; NOP; JR $
+        rig.load({0x00, 0x00, 0xC9}, 0x8010);              // NOP; NOP; RET
+        rig.load({0xCD, 0x10, 0x80, 0x00, 0x18, 0xFE});    // PC back at 8000, SP FF00
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpointaction 100");
+        c.cmd("set-breakpoint 100 SP>=65280");
+        c.cmd("enable-breakpoint 100");
+        const std::string over = run_to_stop(c);
+        const auto        sp1  = rig.emu.cpu().get_registers().SP;
+        c.cmd("disable-breakpoint 100");
+
+        Z80Registers z = rig.emu.cpu().get_registers();
+        z.PC = 0x8010;
+        z.SP = 0xFEFE;
+        rig.emu.cpu().set_registers(z);
+        rig.emu.mmu().write(0xFEFE, 0x03);
+        rig.emu.mmu().write(0xFEFF, 0x80);
+        c.cmd("set-breakpoint 100 PC=PEEKW(SP-2) AND SP>=65280");
+        const std::string out = run_to_stop(c);
+        check("ZRCP-BP-09", "DeZog's step-over (SP>=65280 run across a CALL) stops after the "
+                            "RET at 8003 with SP back at FF00, and its step-out (PC=PEEKW(SP-2) "
+                            "AND SP>=65280 run from inside the routine) stops at the return "
+                            "address — both general (Execute[0,FFFF]) conditions",
+              fired_stop(over, 0x8003, "SP>=65280") && sp1 == 0xFF00 &&
+                  fired_stop(out, 0x8003, "PC=PEEKW(SP-2) AND SP>=65280"),
+              esc(over) + " / " + esc(out));
+    }
+    {
+        // disable-breakpoints suspends; enable-breakpoints restores, flags kept.
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0x18, 0xFE});
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 PC=8002H");
+        c.cmd("set-breakpoint 2 PC=8001H");
+        c.cmd("disable-breakpoint 2");
+        c.cmd("disable-breakpoints");
+        const auto armed_off = rig.dbg->subscriptions(false).size();
+        c.send_once("run\n");
+        for (int i = 0; i < 4; ++i) rig.tick();
+        const bool ran = !rig.dbg->state().paused;
+        c.send_once("\n");
+        c.wait(8);
+        // Back to 8000 for the second leg.
+        Z80Registers z = rig.emu.cpu().get_registers();
+        z.PC = PROG;
+        rig.emu.cpu().set_registers(z);
+        c.cmd("enable-breakpoints");
+        const auto armed_on = rig.dbg->subscriptions(false).size();
+        const std::string r = run_to_stop(c);
+        check("ZRCP-BP-10", "disable-breakpoints disarms every slot (nothing fires, nothing "
+                            "subscribed); enable-breakpoints re-arms exactly the enabled ones "
+                            "(slot 1, not the disabled slot 2)",
+              armed_off == 0 && ran && armed_on == 1 && fired_stop(r, 0x8002, "PC=8002H"),
+              "armed " + std::to_string(armed_off) + "/" + std::to_string(armed_on) + " " + esc(r));
+    }
+    {
+        // Another client's breakpoint is not this session's to name.
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0x18, 0xFE});
+        const auto other = rig.dbg->attach({"gui", ClientKind::Test}).value;
+        jnext::dbg::Subscription s;
+        s.kind      = jnext::dbg::EventKind::Execute;
+        s.filter.lo = s.filter.hi = 0x8002;
+        rig.dbg->subscribe(other, s);
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 PC=8002H");
+        const std::string r = run_to_stop(c);
+        check("ZRCP-BP-11", "another client's breakpoint, subscribed first, and this session's "
+                            "slot match the same instruction: the backend names the other's, "
+                            "and the stop still echoes this session's slot",
+              rig.dbg->state().pause_reason.by == other && fired_stop(r, 0x8002, "PC=8002H"),
+              esc(r));
+        c.cmd("disable-breakpoint 1");
+        Z80Registers z = rig.emu.cpu().get_registers();
+        z.PC = PROG;
+        rig.emu.cpu().set_registers(z);
+        const std::string r2 = run_to_stop(c);
+        check("ZRCP-BP-12", "another client's breakpoint alone: a plain stop, no fired line",
+              starts_with(r2, kRunning) && is_stop_shape(r2.substr(kRunning.size()), 0x8002),
+              esc(r2));
+        rig.dbg->detach(other);
+    }
+    {
+        // Print actions: they do not stop the machine and their line reaches
+        // this session.
+        Rig rig;
+        rig.load({0x3E, 0x2A, 0x00, 0x00, 0x00, 0x18, 0xFE});
+        //        8000 LD A,2AH  8002 NOP 8003 NOP 8004 NOP 8005 JR $
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpointaction 1 prints hello world");
+        c.cmd("set-breakpoint 1 PC=8002H");
+        c.cmd("set-breakpointaction 2 printe A+1");
+        c.cmd("set-breakpoint 2 PC=8003H");
+        c.cmd("set-breakpointaction 3 printc 65");
+        c.cmd("set-breakpoint 3 PC=8004H");
+        c.cmd("set-breakpointaction 4 printregs");
+        c.cmd("set-breakpoint 4 PC=8004H");
+        std::string got = c.send_once("run\n");
+        for (int i = 0; i < 4; ++i) {
+            rig.tick();
+            got += c.p->take();
+        }
+        const bool running = !rig.dbg->state().paused;
+        const std::string stop = c.send_once("\n") + c.wait(8);
+        check("ZRCP-BP-13", "prints / printe / printc / printregs actions do not stop the run; "
+                            "each sends its line once as \"log> …\" (text, 43, A, the register "
+                            "line at 8004) and data stops the run at JR $",
+              running && starts_with(got, kRunning) &&
+                  got.find("log> hello world\n") != std::string::npos &&
+                  got.find("log> 43\n") != std::string::npos &&
+                  got.find("log> A\n") != std::string::npos &&
+                  got.find("log> PC=8004 ") != std::string::npos &&
+                  std::count(got.begin(), got.end(), '\n') == 5 && is_stop_shape(stop, 0x8005),
+              esc(got) + " / " + esc(stop));
+        const std::string acts = c.cmd("get-breakpointsactions 1 5");
+        const std::string bad  = c.cmd("set-breakpointaction 5 call 8000H");
+        const std::string back = c.cmd("set-breakpointaction 1 break");
+        const std::string act1 = c.cmd("gba 1");
+        check("ZRCP-BP-14", "get-breakpointsactions lists menu for a stopping slot and the "
+                            "action as set otherwise; an action jnext does not serve is refused "
+                            "by name; break makes it a stop again",
+              acts == "1: prints hello world\n2: printe A+1\n3: printc 65\n4: printregs\n5: "
+                      "menu\n\ncommand@cpu-step> " &&
+                  bad == reply_of("Error. Unsupported breakpoint action in jnext: call", true) &&
+                  back == reply_of("", true) && act1 == "1: menu\n\ncommand@cpu-step> ",
+              esc(acts) + " / " + esc(bad));
+    }
+    {
+        // run n: landing on this session's slot stops it with the slot's fired
+        // line; a general slot whose condition is false does not end it early.
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0xFE});
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 PC=8003H");
+        c.cmd("set-breakpoint 2 A=99");
+        const std::string r = c.cmd("run 10", 32);
+        check("ZRCP-BP-15", "run n landing where a slot fires (8003) ends there with that slot's "
+                            "fired line and no Returning line; the general slot A=99, false "
+                            "throughout, does not end it at 8001",
+              rig.pc() == 0x8003 &&
+                  r.find(" 10 opcodes run, or other event\nBreakpoint fired: PC=8003H\nPC=8003 ") !=
+                      std::string::npos &&
+                  r.find("Returning after") == std::string::npos && ends_with(r, PROMPT_STEP),
+              esc(r));
+        c.cmd("disable-breakpoint 1");
+        Z80Registers z = rig.emu.cpu().get_registers();
+        z.PC = PROG;
+        rig.emu.cpu().set_registers(z);
+        const std::string r2 = c.cmd("run 3", 32);
+        check("ZRCP-BP-16", "with only the false general slot armed, run 3 runs its three "
+                            "opcodes and says so",
+              rig.pc() == 0x8003 &&
+                  r2.find(" 3 opcodes run, or other event\nReturning after 3 opcodes\nPC=8003 ") !=
+                      std::string::npos &&
+                  r2.find("Breakpoint fired") == std::string::npos,
+              esc(r2));
+    }
+    {
+        // The session's breakpoints die with it; the next client starts clean.
+        Rig rig;
+        {
+            Zc c(rig);
+            bp_on(c);
+            c.cmd("set-breakpoint 1 PC=8000H");
+            c.cmd("set-membreakpoint 9000h 3 4");
+            c.cmd("set-breakpointaction 2 prints x");
+            c.p->send("quit\n");
+            c.wait(4);
+        }
+        Zc c2(rig);
+        c2.cmd("enter-cpu-step");
+        const std::string gb = c2.cmd("get-breakpoints 1 2");
+        const std::string gm = c2.cmd("get-membreakpoints");
+        const std::string ga = c2.cmd("gba 2");
+        check("ZRCP-BP-17", "quit drops the session's breakpoints: the next client finds "
+                            "breakpoints off, every slot None, no memory breakpoint, no action, "
+                            "and the backend holds no subscription",
+              gb == "Breakpoints: Off\nDisabled 1: None\nDisabled 2: None\n\ncommand@cpu-step> " &&
+                  gm == "Breakpoints: Off\n\ncommand@cpu-step> " &&
+                  ga == "2: menu\n\ncommand@cpu-step> " && rig.dbg->subscriptions(true).empty(),
+              esc(gb) + " / " + esc(gm));
+    }
+}
+
+static void wp4_mem_rows() {
+    {
+        // Another client's watch, subscribed first, on the same write.
+        Rig rig;
+        rig.load({0x3E, 0xAA, 0x32, 0x01, 0x90, 0x18, 0xFE});  // LD A,AAH; LD (9001H),A; JR $
+        const auto other = rig.dbg->attach({"gui", ClientKind::Test}).value;
+        jnext::dbg::Subscription w;
+        w.kind      = jnext::dbg::EventKind::Mem;
+        w.filter.lo = w.filter.hi = 0x9001;
+        w.access    = jnext::dbg::Access::Write;
+        rig.dbg->subscribe(other, w);
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-membreakpoint 9000h 3 4");
+        const std::string r = run_to_stop(c);
+        const auto by = rig.dbg->state().pause_reason.by;
+        rig.dbg->detach(other);
+        c.cmd("clear-membreakpoints");
+        Rig rig2;
+        rig2.load({0x3E, 0xAA, 0x32, 0x01, 0x90, 0x18, 0xFE});
+        const auto other2 = rig2.dbg->attach({"gui", ClientKind::Test}).value;
+        rig2.dbg->subscribe(other2, w);
+        Zc c2(rig2);
+        bp_on(c2);
+        c2.cmd("set-membreakpoint 9000h 1 4");  // reads only: not this write
+        const std::string r2 = run_to_stop(c2);
+        check("ZRCP-MBP-08", "another client's watch, first, on the same write: the stop still "
+                             "names this session's covering range; a range of this session for "
+                             "reads only does not claim a write",
+              by == other && fired_stop(r, 0x8005, "Memory Breakpoint Write Address: 9001H") &&
+                  starts_with(r2, kRunning) && is_stop_shape(r2.substr(kRunning.size()), 0x8005),
+              esc(r) + " / " + esc(r2));
+        rig2.dbg->detach(other2);
+    }
+    {
+        Rig rig;
+        rig.load({0x3E, 0xAA, 0x32, 0x01, 0x90, 0x18, 0xFE});  // LD A,AAH; LD (9001H),A; JR $
+        Zc c(rig);
+        bp_on(c);
+        const std::string set = c.cmd("set-membreakpoint 9000h 2 2");
+        const std::string r   = run_to_stop(c);
+        check("ZRCP-MBP-01", "set-membreakpoint <addr>h 2 2 then run: \"Breakpoint fired: Memory "
+                             "Breakpoint Write Address: 9001H\" with the address written (§6.2 "
+                             "item 5)",
+              set == reply_of("", true) &&
+                  fired_stop(r, 0x8005, "Memory Breakpoint Write Address: 9001H"),
+              esc(r));
+    }
+    {
+        Rig rig;
+        rig.load({0x3A, 0x00, 0x90, 0x00, 0x18, 0xFE});  // LD A,(9000H); NOP; JR $
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-membreakpoint 9000H 1");
+        const std::string r = run_to_stop(c);
+        check("ZRCP-MBP-02", "type 1 fires on a read: Memory Breakpoint Read Address: 9000H",
+              fired_stop(r, 0x8003, "Memory Breakpoint Read Address: 9000H"), esc(r));
+    }
+    {
+        Rig rig;
+        rig.load({0x3E, 0xAA, 0x32, 0x00, 0x90, 0x3A, 0x00, 0x90, 0x00, 0x18, 0xFE});
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-membreakpoint 9000H 4");  // neither read nor write: listed, never fires
+        const std::string listed = c.cmd("get-membreakpoints 9000H");
+        c.send_once("run\n");
+        for (int i = 0; i < 4; ++i) rig.tick();
+        const bool running = !rig.dbg->state().paused;
+        c.send_once("\n");
+        c.wait(8);
+        check("ZRCP-MBP-03", "a type with neither bit (4) is stored and listed, and fires on "
+                             "nothing",
+              listed == "Breakpoints: On\n9000H : 4\n\ncommand@cpu-step> " && running,
+              esc(listed));
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        bp_on(c);
+        c.cmd("set-membreakpoint 4000h 3 3");
+        c.cmd("set-membreakpoint 5000h 1");
+        const std::string all  = c.cmd("get-membreakpoints");
+        const std::string one  = c.cmd("get-membreakpoints 4001H");
+        const std::string zero = c.cmd("get-membreakpoints 4100H");
+        const std::string two  = c.cmd("get-membreakpoints 4001H 2");
+        const std::string bad1 = c.cmd("get-membreakpoints 10000H");
+        const std::string bad2 = c.cmd("get-membreakpoints 0 65537");
+        check("ZRCP-MBP-04", "get-membreakpoints [address] [items]: every non-zero address as "
+                             "\"%04XH : type\"; an address alone gives that one, 0 included; with "
+                             "items that many non-zero ones from it; ZEsarUX's range errors",
+              all == "Breakpoints: On\n4000H : 3\n4001H : 3\n4002H : 3\n5000H : 1\n\n"
+                     "command@cpu-step> " &&
+                  one == "Breakpoints: On\n4001H : 3\n\ncommand@cpu-step> " &&
+                  zero == "Breakpoints: On\n4100H : 0\n\ncommand@cpu-step> " &&
+                  two == "Breakpoints: On\n4001H : 3\n4002H : 3\n\ncommand@cpu-step> " &&
+                  bad1 == reply_of("ERROR. Address out of range", true) &&
+                  bad2 == reply_of("ERROR. Items out of range", true),
+              esc(all) + " / " + esc(two));
+    }
+    {
+        // §4.2 — the range diff: adjacent runs, a removal in the middle, a
+        // run that did not change keeps its subscription.
+        Rig rig;
+        Zc  c(rig);
+        bp_on(c);
+        const auto mems = [&]() {
+            std::vector<jnext::dbg::SubscriptionInfo> out;
+            for (const auto& s : rig.dbg->subscriptions(false))
+                if (s.kind == jnext::dbg::EventKind::Mem) out.push_back(s);
+            std::sort(out.begin(), out.end(),
+                      [](const auto& a, const auto& b) { return a.filter.lo < b.filter.lo; });
+            return out;
+        };
+        c.cmd("set-membreakpoint 9000H 1 2");
+        c.cmd("set-membreakpoint 9002H 2 2");   // adjacent, a different type: two runs
+        c.cmd("set-membreakpoint A000H 3 1");
+        const auto m1 = mems();
+        c.cmd("set-membreakpoint 9001H 0 2");   // overlaps both runs
+        const auto m2 = mems();
+        const bool shape1 = m1.size() == 3 && m1[0].filter.lo == 0x9000 && m1[0].filter.hi == 0x9001 &&
+                            m1[0].access == jnext::dbg::Access::Read && m1[1].filter.lo == 0x9002 &&
+                            m1[1].filter.hi == 0x9003 && m1[1].access == jnext::dbg::Access::Write &&
+                            m1[2].filter.lo == 0xA000 && m1[2].access == jnext::dbg::Access::ReadWrite;
+        const bool shape2 = m2.size() == 3 && m2[0].filter.lo == 0x9000 && m2[0].filter.hi == 0x9000 &&
+                            m2[1].filter.lo == 0x9003 && m2[1].filter.hi == 0x9003 &&
+                            m2[2].filter.lo == 0xA000 && m2[2].id == m1[2].id &&
+                            m2[0].id != m1[0].id;
+        check("ZRCP-MBP-05", "§4.2: maximal runs of equal type become one Mem subscription each "
+                             "(read / write / both), adjacent runs of different type stay apart, "
+                             "a type-0 removal across two runs trims both, and an unchanged run "
+                             "keeps its subscription",
+              shape1 && shape2,
+              "m1=" + std::to_string(m1.size()) + " m2=" + std::to_string(m2.size()));
+        c.cmd("set-membreakpoint FFFFH 2 2");
+        const std::string wrap = c.cmd("get-membreakpoints 0 1");
+        const std::string w2   = c.cmd("get-membreakpoints FFFFH");
+        c.cmd("clear-membreakpoints");
+        const std::string cleared = c.cmd("get-membreakpoints");
+        check("ZRCP-MBP-06", "the address wraps at FFFFH (FFFF and 0000 set); "
+                             "clear-membreakpoints empties the map and the backend",
+              wrap == "Breakpoints: On\n0000H : 2\n\ncommand@cpu-step> " &&
+                  w2 == "Breakpoints: On\nFFFFH : 2\n\ncommand@cpu-step> " &&
+                  cleared == "Breakpoints: On\n\ncommand@cpu-step> " && mems().empty(),
+              esc(wrap) + " / " + esc(cleared));
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        bp_on(c);
+        const std::string few  = c.cmd("set-membreakpoint 9000H");
+        const std::string addr = c.cmd("set-membreakpoint 10001H 1");
+        const std::string max  = c.cmd("set-membreakpoint 10000H 1");
+        const std::string type = c.cmd("set-membreakpoint 9000H 256");
+        const std::string at0  = c.cmd("get-membreakpoints 0");
+        c.cmd("disable-breakpoints");
+        int mems = 0;
+        for (const auto& s : rig.dbg->subscriptions(false)) mems += s.kind == jnext::dbg::EventKind::Mem;
+        const std::string kept = c.cmd("get-membreakpoints");
+        check("ZRCP-MBP-07", "set-membreakpoint's errors are ZEsarUX's (two parameters, address "
+                             "0..10000H — 10000H is 0000 —, type 0..255); disable-breakpoints "
+                             "disarms the memory breakpoints and keeps the map",
+              few == reply_of("ERROR. Needs two parameters minimum", true) &&
+                  addr == reply_of("ERROR. Address out of range", true) &&
+                  max == reply_of("", true) && type == reply_of("ERROR. Type out of range", true) &&
+                  at0 == "Breakpoints: On\n0000H : 1\n\ncommand@cpu-step> " && mems == 0 &&
+                  kept == "Breakpoints: Off\n0000H : 1\n\ncommand@cpu-step> ",
+              esc(few) + " / " + esc(addr) + " / " + esc(kept));
+    }
+}
+
 int main() {
     std::printf("zrcp_adapter_test — the ZRCP adapter over T's fake transport (GH #280)\n");
     framing_rows();
@@ -2501,6 +3349,9 @@ int main() {
     tbblue_name_rows();
     edge_rows();
     round2_rows();
+    wp4_condition_rows();
+    wp4_slot_rows();
+    wp4_mem_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass,

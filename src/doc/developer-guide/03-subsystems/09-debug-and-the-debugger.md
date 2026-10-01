@@ -903,8 +903,11 @@ It is layered, each stage consuming only the one before it:
 - `expr_compiler.h` — the stable public header other frontends call:
   `compile_expr(text, scope)` returns the backend's CAP-EVT predicate
   (`dbg::Condition`) and `eval_expr(text, debugger)` evaluates once. The ZRCP
-  adapter (package Z, not yet written) is designed to translate its dialect into
-  this grammar rather than own a second parser.
+  adapter (`src/remote/zrcp/zrcp_condition.*`, GH #280 WP-4) translates
+  ZEsarUX's breakpoint dialect into this grammar — tokenising and grouping as
+  ZEsarUX does, emitting a fully bracketed expression — and compiles it here,
+  so it owns no evaluator. The one thing the DSL cannot read is whether a slot
+  is ROM, so ZEsarUX's `SEGn` / `ROM` / `RAM` are evaluated by the adapter.
 
 `script_parse_test` (`gate: none`) pins the grammar, every error class with its
 position, precedence, the per-kind payload table, the evaluation of every name

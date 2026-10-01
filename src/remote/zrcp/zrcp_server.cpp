@@ -8,13 +8,16 @@
 
 #include "core/log.h"
 #include "debug/disasm.h"
+#include "remote/zrcp/zrcp_condition.h"
 #include "remote/zrcp/zrcp_format.h"
+#include "script/expr_compiler.h"
 #include "version.h"
 
 namespace jnext {
 namespace remote {
 namespace zrcp {
 
+using jnext::dbg::Action;
 using jnext::dbg::ClientInfo;
 using jnext::dbg::ClientKind;
 using jnext::dbg::CLIENT_NONE;
@@ -25,6 +28,7 @@ using jnext::dbg::Result;
 using jnext::dbg::result_name;
 using jnext::dbg::RunState;
 using jnext::dbg::ServiceStep;
+using jnext::dbg::Subscription;
 
 namespace {
 
@@ -132,6 +136,60 @@ std::uint32_t register_max(RegId id) {
     }
 }
 
+/// A translated condition (zrcp_condition.h) → the CAP-EVT predicate a slot's
+/// `Execute` subscription carries. The DSL part is compiled by the DSL's own
+/// library (`compile_expr`, the `Execute` scope, so `PC` is the instruction's);
+/// the native `SEGn` / `ROM` / `RAM` terms are evaluated here from the backend's
+/// `SlotInfo`. Empty = no condition at all (the slot is a bare `PC=nnnn`).
+/// False with `error` set = the DSL refused the translation.
+bool compile_condition(const Translation& t, jnext::dbg::Condition& out, std::string& error) {
+    out = {};
+    jnext::dbg::Condition dsl;
+    if (!t.dsl.empty()) {
+        jnext::script::CompileOptions opts;
+        opts.on_runtime_error = [](const jnext::script::Diagnostic& d) {
+            Log::debugger()->warn("zrcp: breakpoint condition: {}", d.to_string());
+        };
+        auto c = jnext::script::compile_expr(
+            t.dsl, jnext::script::PayloadScope(jnext::dbg::EventKind::Execute), opts);
+        if (!c) {
+            error = c.errors.empty() ? std::string("the DSL refused it") : c.errors[0].to_string();
+            return false;
+        }
+        dsl = c.predicate;
+    }
+    const std::vector<NativeTerm>    natives = t.natives;
+    const std::optional<NativeTerm>  bare    = t.bare_native;
+    if (!dsl && natives.empty() && !bare) return true;
+    out = [dsl, natives, bare](const jnext::dbg::Event& ev, const jnext::dbg::Debugger& d) {
+        if (bare || !natives.empty()) {
+            const auto slots = d.mmu_slots();
+            const auto type  = d.machine().type;
+            if (bare && native_value(bare->var, bare->n, slots, type) == 0) return false;
+            for (const auto& n : natives)
+                if (!native_holds(n, slots, type)) return false;
+        }
+        return !dsl || dsl(ev, d);
+    };
+    return true;
+}
+
+/// The first word of a breakpoint action.
+std::string action_word(const std::string& action) {
+    return action.substr(0, action.find(' '));
+}
+
+/// `debug_if_breakpoint_action_menu`: the actions that stop the machine.
+bool action_stops(const std::string& action) {
+    return action.empty() || action == "menu" || action == "break";
+}
+
+/// The actions jnext serves without stopping (§2.4): they print.
+bool action_prints(const std::string& action) {
+    const std::string w = action_word(action);
+    return w == "prints" || w == "printregs" || w == "printe" || w == "printc";
+}
+
 bool palette_id(const std::string& name, const std::string& which, jnext::dbg::PaletteId& out) {
     using jnext::dbg::PaletteId;
     bool second;
@@ -188,6 +246,8 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
      &ZrcpServer::cmd_about},
     U("assemble", "|a"),
     U("ayplayer", "|ayp"),
+    {"clear-membreakpoints", nullptr, nullptr, "Clear all memory breakpoints",
+     CommandClass::Served, &ZrcpServer::cmd_clear_membreakpoints},
     {"close-all-menus", nullptr, nullptr,
      "Close all open menus. jnext has no menu a remote client could have opened, so it does "
      "nothing",
@@ -205,17 +265,32 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
      CommandClass::Served, &ZrcpServer::cmd_cpu_step_over},
     U("cpu-transaction-log", nullptr),
     U("debug-analyze-command", nullptr),
+    {"disable-breakpoint", "|db", "index", "Disable specific breakpoint", CommandClass::Served,
+     &ZrcpServer::cmd_disable_breakpoint},
+    {"disable-breakpoints", nullptr, nullptr,
+     "Disable all breakpoints of this session. Another client's breakpoints (the jnext "
+     "debugger's included) keep working",
+     CommandClass::Served, &ZrcpServer::cmd_disable_breakpoints},
     {"disassemble", "|d", "[address] [lines]",
      "Disassemble at address. If no address specified, disassemble from PC register. If no "
      "lines specified, disassembles one line. Operands are hexadecimal without suffix",
      CommandClass::Served, &ZrcpServer::cmd_disassemble},
     U("dump-nested-functions", nullptr),
     U("dump-scanline-buffer", nullptr),
+    {"enable-breakpoint", "|eb", "index", "Enable specific breakpoint", CommandClass::Served,
+     &ZrcpServer::cmd_enable_breakpoint},
+    {"enable-breakpoints", nullptr, nullptr,
+     "Enable breakpoints for this session. They start disabled, as in ZEsarUX",
+     CommandClass::Served, &ZrcpServer::cmd_enable_breakpoints},
     {"enter-cpu-step", "|encs", nullptr,
      "Enter cpu step to step mode: the machine pauses (unless it already is) and the prompt "
      "becomes command@cpu-step>",
      CommandClass::Served, &ZrcpServer::cmd_enter_cpu_step},
     U("esxdoshandler-get-open-files", "|esxgof"),
+    {"evaluate", "|e", "expression",
+     "Evaluate expression. It's the same parser as breakpoint conditions (see help "
+     "set-breakpoint); the result is decimal",
+     CommandClass::Served, &ZrcpServer::cmd_evaluate},
     {"exit-cpu-step", "|ecs", nullptr, "Exit cpu step to step mode: the machine resumes",
      CommandClass::Served, &ZrcpServer::cmd_exit_cpu_step},
     {"exit-emulator", nullptr, nullptr,
@@ -226,6 +301,15 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
      "Generates a NMI: presses the Multiface NMI button (what jnext's F9 does)",
      CommandClass::Served, &ZrcpServer::cmd_generate_nmi},
     U("get-audio-buffer-info", nullptr),
+    {"get-breakpoints", "|gb", "[index] [items]",
+     "Get breakpoints list. If set index, returns item at index. If set items, returns number "
+     "of items list starting from index parameter. Conditions are listed as ZEsarUX re-prints "
+     "them",
+     CommandClass::Served, &ZrcpServer::cmd_get_breakpoints},
+    {"get-breakpointsactions", "|gba", "[index] [items]",
+     "Get breakpoints actions list. If set first, returns item at index. If set items, returns "
+     "number of items list starting from index parameter",
+     CommandClass::Served, &ZrcpServer::cmd_get_breakpointsactions},
     U("get-breakpoints-optimized", nullptr),
     {"get-buildnumber", nullptr, nullptr, "Shows the jnext version (jnext has no build number)",
      CommandClass::Served, &ZrcpServer::cmd_get_buildnumber},
@@ -249,6 +333,10 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
      CommandClass::Served, &ZrcpServer::cmd_get_debug_settings},
     U("get-io-ports", nullptr),
     U("get-machines", nullptr),
+    {"get-membreakpoints", nullptr, "[address] [items]",
+     "Get memory breakpoints list. If set address, returns item at address. If set items, "
+     "returns number of enabled items list starting from address parameter",
+     CommandClass::Served, &ZrcpServer::cmd_get_membreakpoints},
     {"get-memory-pages", "|gmp", "[verbose]",
      "Returns current state of memory pages: on the Next RO for a ROM slot, A<page> for a RAM "
      "slot (the 8K page); on the 128K and +3 the four 16K segments RO<rom> / RA<bank>; on the "
@@ -331,6 +419,31 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
     U("send-keys-ascii", nullptr),
     U("send-keys-event", nullptr),
     U("send-keys-string", nullptr),
+    {"set-breakpoint", "|sb", "index [condition]",
+     "Sets a breakpoint at desired index entry with condition, and enables it. If no condition"
+     " set, breakpoint will be handled as disabled. A condition jnext cannot compile is "
+     "refused and the slot keeps what it had. Conditions are ZEsarUX's: registers (A..L, "
+     "AF..HL, IX, IY, SP, PC, I, R, the alternates A'..L' and AF'..HL'), the flags FS FZ FP FV"
+     " FH FN FC, IFF1, IFF2, OPCODE1..4, PEEK(), PEEKW(), NOT(), = <> < > <= >=, AND OR XOR, +"
+     " - * / & | ^, brackets, and numbers in decimal, hexadecimal with an H suffix, binary "
+     "with %, or 'c'. Grouping is ZEsarUX's own: an expression splits at its first logical "
+     "operator, then its first comparison, then its first + or -, then its first other "
+     "operator. Integers are 32-bit signed. SEG0..SEG7 (Next), ROM and RAM (128K, +3) are "
+     "honoured as a comparison with a number that is part of the top-level AND chain, the form"
+     " DeZog sends. Declined in jnext: MRA MRV MWA MWV PRA PRV PWA PWV TSTATES TSTATESL "
+     "TSTATESP SCANLINE OUTFIRED INFIRED INTFIRED ENTERROM EXITROM HILOWMAPPED PD765PCN USP "
+     "EPC COPPERPC D0..D7 A0..A7 AC ER SR P1..P3, and FPEEK IN ABS BYTE WORD OPMWA OPMRA OPMWV"
+     " OPMRV. A condition whose first term is PC=<number> is checked only at that address; any"
+     " other is checked at every instruction. Divergence from ZEsarUX's default: a breakpoint "
+     "fires every time its condition is true (ZEsarUX's --brkp-always), except at the address "
+     "the run resumes from",
+     CommandClass::Served, &ZrcpServer::cmd_set_breakpoint},
+    {"set-breakpointaction", "|sba", "index [action]",
+     "Sets a breakpoint action at desired index entry. Empty, menu or break stop the machine; "
+     "prints <text>, printregs, printe <expression> and printc <expression> do not stop it "
+     "and send their output to this session as a log> line. Declined in jnext: every other "
+     "action",
+     CommandClass::Served, &ZrcpServer::cmd_set_breakpointaction},
     {"set-cr", nullptr, nullptr,
      "Sends carriage return before every line feed of this session's output, useful on "
      "Windows environments",
@@ -341,6 +454,12 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
      "(step over interrupt) is declined in jnext",
      CommandClass::Served, &ZrcpServer::cmd_set_debug_settings},
     U("set-machine", "|sm"),
+    {"set-membreakpoint", nullptr, "address type [items]",
+     "Sets a memory breakpoint starting at desired address entry for type. If items parameter "
+     "is not set, the default is 1. type can be: 0: Disabled, 1: Fired when reading memory, 2: "
+     "Fired when writing memory, 3: Fired when reading or writing memory. The address wraps at "
+     "FFFFH",
+     CommandClass::Served, &ZrcpServer::cmd_set_membreakpoint},
     U("set-memory-zone", "|smz"),
     {"set-register", "|sr", "register=value",
      "Changes register value. Example: set-register DE=3344H. Divergence from ZEsarUX 12.0: IM "
@@ -483,6 +602,7 @@ ServiceStep ZrcpServer::on_service(Connection& c) {
     } reset{conn_};
 
     if (cid_ == CLIENT_NONE) return ServiceStep::Idle;  // the attach was refused
+    flush_logs();
     pull_input(c);
 
     if (in_run_ != RunKind::None) return service_run();
@@ -520,6 +640,7 @@ ServiceStep ZrcpServer::on_service(Connection& c) {
 // answered in this tick.
 void ZrcpServer::on_notify(Connection& c) {
     conn_ = &c;
+    flush_logs();
     if (in_run_ != RunKind::None &&
         (reset_stop_owed_ ||
          ((in_run_ == RunKind::Run || in_run_ == RunKind::StepOver) && dbg_.state().paused)))
@@ -548,6 +669,15 @@ void ZrcpServer::end_session() {
     in_run_                  = RunKind::None;
     run_limit_               = 0;
     run_remaining_           = 0;
+    run_landed_slot_         = -1;
+    // WP-4 — the detach above removed every subscription; the session's map of
+    // them goes too, so a next client starts as ZEsarUX does: breakpoints off,
+    // every slot empty, no memory breakpoint.
+    bp_master_ = false;
+    for (auto& sl : slots_) sl = Slot{};
+    std::fill(mem_types_.begin(), mem_types_.end(), std::uint8_t{0});
+    mem_ranges_.clear();
+    pending_logs_.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -709,7 +839,31 @@ void ZrcpServer::run_slice() {
         }
         --run_remaining_;
         const RunState st = dbg_.state();
-        if (st.pause_reason.kind != PauseReason::Kind::Step || dbg_.probe_execute(st.pc)) {
+        if (st.pause_reason.kind != PauseReason::Kind::Step) {
+            finish_run(run_remaining_ == 0);
+            return;
+        }
+        // Landed where a breakpoint would fire on the next resume — which the
+        // GH #221 step-off would skip. This session's own slots are asked with
+        // their own predicate (`slot_fires_at`); `probe_execute` answers for
+        // everyone else's, but it cannot evaluate a condition and it counts this
+        // session's slots too, so it is asked only where no slot of this session
+        // covers the PC (zrcp-frontend.md §11.8: the owner-approved
+        // `probe_execute -> vector<EventId>` that evaluates predicates is the
+        // fix, and is not in this build).
+        bool covered = false;
+        for (int i = 0; i < BREAKPOINT_SLOTS; ++i) {
+            const Slot& sl = slots_[static_cast<std::size_t>(i)];
+            if (sl.sub == jnext::dbg::EVENT_NONE) continue;
+            if (sl.cond.fast_pc && *sl.cond.fast_pc != st.pc) continue;
+            covered = true;
+            if (action_stops(sl.action) && slot_fires_at(i, st.pc)) {
+                run_landed_slot_ = i;
+                finish_run(run_remaining_ == 0);
+                return;
+            }
+        }
+        if (!covered && dbg_.probe_execute(st.pc)) {
             finish_run(run_remaining_ == 0);
             return;
         }
@@ -725,8 +879,11 @@ void ZrcpServer::finish_run(bool limit_reached) {
         reset_stop_owed_ = false;
     } else {
         if (limit_reached) out += "Returning after " + std::to_string(run_limit_) + " opcodes\n";
-        out += stop_reply(fired_text(dbg_.state()));
+        out += stop_reply(run_landed_slot_ >= 0
+                              ? slots_[static_cast<std::size_t>(run_landed_slot_)].cond.canonical
+                              : fired_text(dbg_.state()));
     }
+    run_landed_slot_ = -1;
     in_run_        = RunKind::None;
     run_limit_     = 0;
     run_remaining_ = 0;
@@ -747,14 +904,48 @@ std::string ZrcpServer::stop_reply(const std::string& fired) const {
     return out;
 }
 
-// The `fired` line for the stops this milestone can name (§2.4). A slot's
-// breakpoint or memory breakpoint is WP-4's; a stop by another client, a user
-// pause, a step, a run-to target or data sent has no `fired` line.
+// The `fired` line (§2.4): a slot of this session echoes its condition as
+// ZEsarUX re-prints it; a memory breakpoint of this session names the access
+// and the address, as ZEsarUX's `cpu_core_loop_debug_check_mem_breakpoints`
+// does; the magic opcode and a corrupt machine say so. A stop by another
+// client's breakpoint, a user pause, a step, a run-to target or data sent has
+// no `fired` line.
 std::string ZrcpServer::fired_text(const RunState& st) const {
-    switch (st.pause_reason.kind) {
+    const auto& r = st.pause_reason;
+    switch (r.kind) {
         case PauseReason::Kind::Magic:   return "Magic breakpoint";
         case PauseReason::Kind::Corrupt: return "Machine corrupt after failed rewind";
-        default:                         return "";
+        case PauseReason::Kind::Breakpoint:
+            for (const Slot& sl : slots_)
+                if (sl.sub != jnext::dbg::EVENT_NONE && sl.sub == r.id) return sl.cond.canonical;
+            // The backend names the FIRST `Stop` of the boundary; when another
+            // client's breakpoint came first, a slot of this session that fires
+            // on the same instruction is still this session's reason.
+            for (int i = 0; i < BREAKPOINT_SLOTS; ++i) {
+                const Slot& sl = slots_[static_cast<std::size_t>(i)];
+                if (sl.sub != jnext::dbg::EVENT_NONE && action_stops(sl.action) &&
+                    slot_fires_at(i, st.pc))
+                    return sl.cond.canonical;
+            }
+            return "";
+        case PauseReason::Kind::Watch: {
+            // This session's range by id, or — when another client's watch was
+            // the first `Stop` — one of its ranges covering the same access.
+            const bool write = jnext::dbg::has_write(r.access);
+            for (const MemRange& m : mem_ranges_) {
+                if (m.sub == jnext::dbg::EVENT_NONE) continue;
+                const bool covers = r.addr >= m.lo && r.addr <= m.hi &&
+                                    (m.type & (write ? 2 : 1)) != 0;
+                if (m.sub != r.id && !covers) continue;
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "Memory Breakpoint %s Address: %04XH",
+                              write ? "Write" : "Read", static_cast<unsigned>(r.addr));
+                return buf;
+            }
+            return "";
+        }
+        default:
+            return "";
     }
 }
 
@@ -1588,6 +1779,367 @@ void ZrcpServer::cmd_reset_cpu(const Cmd&) {
 void ZrcpServer::cmd_generate_nmi(const Cmd&) {
     const Result r = dbg_.press_nmi(cid_, jnext::dbg::NmiButton::Mf);
     reply(r == Result::Ok ? std::string() : refusal_text(r, "generate-nmi"));
+}
+
+// ---------------------------------------------------------------------------
+// WP-4 — breakpoints and conditions (§2.4, §3, §4.1-4.2)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+constexpr char kEnableFirst[] = "Error. You must enable breakpoints first";
+
+/// ZEsarUX's `atoi` on a slot index, through the adapter's strict number rule:
+/// a 1-based slot, or 0 for anything unparsable (which is out of range).
+int slot_index(const std::string& params) {
+    std::uint32_t v = 0;
+    if (!parse_number(params.substr(0, params.find(' ')), v) || v > 0x7FFFFFFFu) return 0;
+    return static_cast<int>(v);
+}
+
+/// Everything after the first space — a condition or an action is the rest of
+/// the line, spaces included (`remote_set_breakpoint`).
+std::string after_index(const std::string& params) {
+    const std::size_t sp = params.find(' ');
+    return sp == std::string::npos ? std::string() : params.substr(sp + 1);
+}
+
+}  // namespace
+
+// A slot's subscription exists exactly while breakpoints are on, the slot is
+// enabled and it has a condition: every change re-creates it, so the
+// subscription always carries the slot's current condition and action, and
+// `enable-/disable-breakpoints` never touches the backend's switches — the
+// per-client switch would suspend this session's cpu-step-over target too
+// (§11.8).
+void ZrcpServer::arm_slot(int index) {
+    Slot& sl = slots_[static_cast<std::size_t>(index)];
+    if (sl.sub != jnext::dbg::EVENT_NONE) {
+        dbg_.unsubscribe(cid_, sl.sub);
+        sl.sub = jnext::dbg::EVENT_NONE;
+    }
+    if (!bp_master_ || !sl.enabled || !sl.has_cond) return;
+    Subscription sub;
+    sub.kind      = jnext::dbg::EventKind::Execute;
+    sub.filter.lo = sl.cond.fast_pc ? *sl.cond.fast_pc : 0x0000;
+    sub.filter.hi = sl.cond.fast_pc ? *sl.cond.fast_pc : 0xFFFF;
+    sub.condition = sl.predicate;
+    if (action_stops(sl.action)) {
+        sub.action = Action::Stop;
+    } else {
+        sub.action  = Action::Continue;
+        sub.handler = [this, index](const jnext::dbg::Event&, jnext::dbg::Debugger&) {
+            queue_action_log(index);
+            return Action::Continue;
+        };
+    }
+    const auto r = dbg_.subscribe(cid_, sub);
+    if (r) sl.sub = r.value;
+    else
+        Log::debugger()->warn("zrcp: breakpoint {} not armed: {}", index + 1, result_name(r.status));
+}
+
+// Would slot `index` fire at `pc` now? Its own predicate, with the `Execute`
+// event the backend would build there.
+bool ZrcpServer::slot_fires_at(int index, std::uint16_t pc) const {
+    const Slot& sl = slots_[static_cast<std::size_t>(index)];
+    if (!sl.has_cond) return false;
+    if (sl.cond.fast_pc && *sl.cond.fast_pc != pc) return false;
+    if (!sl.predicate) return true;
+    jnext::dbg::Event ev;
+    ev.kind  = jnext::dbg::EventKind::Execute;
+    ev.pc    = pc;
+    ev.id    = sl.sub;
+    ev.owner = cid_;
+    return sl.predicate(ev, dbg_);
+}
+
+// §4.2 — the maximal runs of equal non-zero type, diffed against the armed
+// ones: an unchanged run keeps its subscription, a gone one is removed, a new
+// one subscribed. With breakpoints off nothing is armed; the map stays.
+void ZrcpServer::sync_mem_ranges() {
+    std::vector<MemRange> want;
+    if (bp_master_) {
+        std::uint32_t a = 0;
+        while (a < 0x10000) {
+            const std::uint8_t t = mem_types_[a];
+            if (t == 0) {
+                ++a;
+                continue;
+            }
+            std::uint32_t b = a;
+            while (b + 1 < 0x10000 && mem_types_[b + 1] == t) ++b;
+            MemRange m;
+            m.lo   = static_cast<std::uint16_t>(a);
+            m.hi   = static_cast<std::uint16_t>(b);
+            m.type = t;
+            want.push_back(m);
+            a = b + 1;
+        }
+    }
+    for (const MemRange& old : mem_ranges_) {
+        bool kept = false;
+        for (MemRange& w : want)
+            if (w.lo == old.lo && w.hi == old.hi && w.type == old.type) {
+                w.sub = old.sub;
+                kept  = true;
+            }
+        if (!kept && old.sub != jnext::dbg::EVENT_NONE) dbg_.unsubscribe(cid_, old.sub);
+    }
+    for (MemRange& w : want) {
+        if (w.sub != jnext::dbg::EVENT_NONE) continue;
+        // `cpu_core_loop_debug_check_mem_breakpoints`: bit 0 reads, bit 1
+        // writes; a type with neither is listed and never fires.
+        jnext::dbg::Access acc = jnext::dbg::Access::None;
+        if (w.type & 1) acc = acc | jnext::dbg::Access::Read;
+        if (w.type & 2) acc = acc | jnext::dbg::Access::Write;
+        if (acc == jnext::dbg::Access::None) continue;
+        Subscription sub;
+        sub.kind      = jnext::dbg::EventKind::Mem;
+        sub.filter.lo = w.lo;
+        sub.filter.hi = w.hi;
+        sub.access    = acc;
+        sub.action    = Action::Stop;
+        const auto r  = dbg_.subscribe(cid_, sub);
+        if (r) w.sub = r.value;
+        else
+            Log::debugger()->warn("zrcp: memory breakpoint {:04X}-{:04X} not armed: {}", w.lo,
+                                  w.hi, result_name(r.status));
+    }
+    mem_ranges_ = std::move(want);
+}
+
+// `evaluate`'s text, also `printe`'s (`exp_par_evaluate_expression`): the value
+// in decimal, `Error parsing` when it does not tokenise, `Error evaluating
+// parsed string: <canonical>` when it cannot be evaluated.
+std::string ZrcpServer::evaluate_text(const std::string& expr) const {
+    const Translation t = translate_condition(expr, /*fast_path=*/false);
+    if (t.parse_error) return "Error parsing";
+    const std::string bad = "Error evaluating parsed string: " + t.canonical;
+    if (!t.ok || t.empty) return bad;
+    const auto slots = dbg_.mmu_slots();
+    const auto type  = dbg_.machine().type;
+    if (t.bare_native) return std::to_string(native_value(t.bare_native->var, t.bare_native->n, slots, type));
+    std::int32_t dsl_value = 1;
+    if (!t.dsl.empty()) {
+        const auto r = jnext::script::eval_expr(t.dsl, dbg_);
+        if (!r.ok) return bad;
+        dsl_value = r.value;
+    }
+    if (t.natives.empty()) return std::to_string(dsl_value);
+    // An AND chain with native terms: ZEsarUX's AND yields 1 or 0.
+    bool all = dsl_value != 0;
+    for (const auto& n : t.natives) all = all && native_holds(n, slots, type);
+    return all ? "1" : "0";
+}
+
+// A print action's output (ZEsarUX `debug_run_action_breakpoint` prints it on
+// its own console; jnext sends it to the session that set it).
+void ZrcpServer::queue_action_log(int index) {
+    const std::string& a = slots_[static_cast<std::size_t>(index)].action;
+    const std::string  w = action_word(a);
+    const std::string  p = a.size() > w.size() ? a.substr(w.size() + 1) : std::string();
+    std::string line;
+    if (w == "prints") {
+        line = p;
+    } else if (w == "printregs") {
+        line = register_line(dbg_.registers(), dbg_.mmu_slots(), dbg_.machine().type);
+    } else if (w == "printe") {
+        line = evaluate_text(p);
+    } else if (w == "printc") {
+        const std::string v = evaluate_text(p);
+        char* end = nullptr;
+        const long n = std::strtol(v.c_str(), &end, 10);
+        line = (end && *end == 0 && !v.empty()) ? std::string(1, static_cast<char>(n)) : v;
+    }
+    pending_logs_.push_back(line);
+}
+
+void ZrcpServer::flush_logs() {
+    if (pending_logs_.empty() || !conn_) return;
+    for (const std::string& l : pending_logs_) send("log> " + l + "\n");
+    pending_logs_.clear();
+}
+
+void ZrcpServer::cmd_enable_breakpoints(const Cmd&) {
+    if (bp_master_) {
+        reply("Error. Already enabled");
+        return;
+    }
+    bp_master_ = true;
+    for (int i = 0; i < BREAKPOINT_SLOTS; ++i) arm_slot(i);
+    sync_mem_ranges();
+    reply("");
+}
+
+void ZrcpServer::cmd_disable_breakpoints(const Cmd&) {
+    if (!bp_master_) {
+        reply("Error. Already disabled");
+        return;
+    }
+    bp_master_ = false;
+    for (int i = 0; i < BREAKPOINT_SLOTS; ++i) arm_slot(i);
+    sync_mem_ranges();
+    reply("");
+}
+
+void ZrcpServer::cmd_enable_breakpoint(const Cmd& c) {
+    if (!bp_master_) return reply(kEnableFirst);
+    if (c.params.empty()) return reply("Error. No index set");
+    const int n = slot_index(c.params);
+    if (n < 1 || n > BREAKPOINT_SLOTS) return reply("Error. Index out of range");
+    slots_[static_cast<std::size_t>(n - 1)].enabled = true;
+    arm_slot(n - 1);
+    reply("");
+}
+
+void ZrcpServer::cmd_disable_breakpoint(const Cmd& c) {
+    if (!bp_master_) return reply(kEnableFirst);
+    if (c.params.empty()) return reply("Error. No index set");
+    const int n = slot_index(c.params);
+    if (n < 1 || n > BREAKPOINT_SLOTS) return reply("Error. Index out of range");
+    slots_[static_cast<std::size_t>(n - 1)].enabled = false;
+    arm_slot(n - 1);
+    reply("");
+}
+
+// `remote_set_breakpoint` + `debug_set_breakpoint`: the checks in ZEsarUX's
+// order, then the slot takes the condition AND is enabled. Divergence (§2.4):
+// a condition that does not compile leaves the slot as it was; ZEsarUX
+// empties it.
+void ZrcpServer::cmd_set_breakpoint(const Cmd& c) {
+    if (!bp_master_) return reply(kEnableFirst);
+    if (c.params.empty()) return reply("Error. No parameters set");
+    const int n = slot_index(c.params);
+    if (n < 1 || n > BREAKPOINT_SLOTS) return reply("Error. Index out of range");
+    const std::string text = after_index(c.params);
+    if (text.size() > BREAKPOINT_TEXT_MAX) return reply("Error. Condition too long");
+    Translation t = translate_condition(text, /*fast_path=*/true);
+    jnext::dbg::Condition pred;
+    std::string           why = t.error;
+    if (!t.ok || !compile_condition(t, pred, why)) {
+        Log::debugger()->info("zrcp: breakpoint {} \"{}\" refused: {}", n, text, why);
+        return reply("Error. Error setting breakpoint");
+    }
+    Slot& sl     = slots_[static_cast<std::size_t>(n - 1)];
+    sl.has_cond  = !t.empty;
+    sl.cond      = std::move(t);
+    sl.predicate = std::move(pred);
+    sl.enabled   = true;
+    arm_slot(n - 1);
+    reply("");
+}
+
+void ZrcpServer::cmd_set_breakpointaction(const Cmd& c) {
+    if (!bp_master_) return reply(kEnableFirst);
+    if (c.params.empty()) return reply("Error. No parameters set");
+    const int n = slot_index(c.params);
+    if (n < 1 || n > BREAKPOINT_SLOTS) return reply("Error. Index out of range");
+    const std::string action = after_index(c.params);
+    if (action.size() > BREAKPOINT_TEXT_MAX) return reply("Error. Action too long");
+    if (!action_stops(action) && !action_prints(action))
+        return reply("Error. Unsupported breakpoint action in jnext: " + action_word(action));
+    slots_[static_cast<std::size_t>(n - 1)].action = action;
+    arm_slot(n - 1);
+    reply("");
+}
+
+// `get-breakpoints [index] [items]` (`remote_get_breakpoints`).
+void ZrcpServer::cmd_get_breakpoints(const Cmd& c) {
+    int start = 1, items = BREAKPOINT_SLOTS;
+    if (!c.args.empty()) {
+        std::uint32_t v = 0;
+        if (!parse_number(c.args[0], v) || v < 1 || v > static_cast<std::uint32_t>(BREAKPOINT_SLOTS))
+            return reply("ERROR. Index out of range");
+        start = static_cast<int>(v);
+        items = 1;
+    }
+    if (c.args.size() > 1) {
+        std::uint32_t v = 0;
+        items = parse_number(c.args[1], v) && v <= 0x7FFFFFFFu ? static_cast<int>(v) : 0;
+    }
+    std::string out = std::string("Breakpoints: ") + (bp_master_ ? "On" : "Off") + "\n";
+    for (int i = start - 1; i < BREAKPOINT_SLOTS && i < start - 1 + items; ++i) {
+        const Slot& sl = slots_[static_cast<std::size_t>(i)];
+        out += (sl.enabled && bp_master_ ? "Enabled " : "Disabled ") + std::to_string(i + 1) + ": " +
+               (sl.has_cond ? sl.cond.canonical : std::string("None")) + "\n";
+    }
+    reply(out);
+}
+
+void ZrcpServer::cmd_get_breakpointsactions(const Cmd& c) {
+    int start = 1, items = BREAKPOINT_SLOTS;
+    if (!c.args.empty()) {
+        std::uint32_t v = 0;
+        if (!parse_number(c.args[0], v) || v < 1 || v > static_cast<std::uint32_t>(BREAKPOINT_SLOTS))
+            return reply("ERROR. Index out of range");
+        start = static_cast<int>(v);
+        items = 1;
+    }
+    if (c.args.size() > 1) {
+        std::uint32_t v = 0;
+        items = parse_number(c.args[1], v) && v <= 0x7FFFFFFFu ? static_cast<int>(v) : 0;
+    }
+    std::string out;
+    for (int i = start - 1; i < BREAKPOINT_SLOTS && i < start - 1 + items; ++i) {
+        const std::string& a = slots_[static_cast<std::size_t>(i)].action;
+        out += std::to_string(i + 1) + ": " + (action_stops(a) ? std::string("menu") : a) + "\n";
+    }
+    reply(out);
+}
+
+void ZrcpServer::cmd_evaluate(const Cmd& c) {
+    if (c.params.empty()) return reply("Error. No expression");
+    reply(evaluate_text(c.params));
+}
+
+// `set-membreakpoint address type [items]`: ZEsarUX's checks and texts; the
+// address wraps at FFFFH as `debug_set_mem_breakpoint`'s z80_int does.
+void ZrcpServer::cmd_set_membreakpoint(const Cmd& c) {
+    if (!bp_master_) return reply(kEnableFirst);
+    if (c.args.size() < 2) return reply("ERROR. Needs two parameters minimum");
+    std::uint32_t addr = 0, type = 0, items = 1;
+    if (!parse_number(c.args[0], addr) || addr > 0x10000) return reply("ERROR. Address out of range");
+    if (!parse_number(c.args[1], type) || type > 255) return reply("ERROR. Type out of range");
+    if (c.args.size() >= 3 && !parse_number(c.args[2], items)) items = 0;
+    for (std::uint32_t k = 0; k < items && k < 0x10000; ++k)
+        mem_types_[(addr + k) & 0xFFFF] = static_cast<std::uint8_t>(type);
+    sync_mem_ranges();
+    reply("");
+}
+
+// `get-membreakpoints [address] [items]` (`remote_get_membreakpoints`): with
+// an address alone, that address's type even if 0; with items, that many
+// non-zero entries from the address.
+void ZrcpServer::cmd_get_membreakpoints(const Cmd& c) {
+    std::uint32_t start = 0, items = 65536;
+    if (!c.args.empty()) {
+        if (!parse_number(c.args[0], start) || start > 65535) return reply("ERROR. Address out of range");
+        items = 0;
+    }
+    if (c.args.size() > 1) {
+        if (!parse_number(c.args[1], items) || items > 65536) return reply("ERROR. Items out of range");
+    }
+    std::string out = std::string("Breakpoints: ") + (bp_master_ ? "On" : "Off") + "\n";
+    char buf[32];
+    if (items == 0) {
+        std::snprintf(buf, sizeof(buf), "%04XH : %u\n", start, mem_types_[start]);
+        return reply(out + buf);
+    }
+    std::uint32_t listed = 0;
+    for (std::uint32_t a = start; a < 65536 && listed < items; ++a) {
+        if (mem_types_[a] == 0) continue;
+        std::snprintf(buf, sizeof(buf), "%04XH : %u\n", a, mem_types_[a]);
+        out += buf;
+        ++listed;
+    }
+    reply(out);
+}
+
+void ZrcpServer::cmd_clear_membreakpoints(const Cmd&) {
+    std::fill(mem_types_.begin(), mem_types_.end(), std::uint8_t{0});
+    sync_mem_ranges();
+    reply("");
 }
 
 }  // namespace zrcp
