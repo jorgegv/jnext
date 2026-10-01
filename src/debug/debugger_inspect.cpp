@@ -290,6 +290,16 @@ Expected<size_t> Debugger::poke(ClientId by, MemSpace space, uint32_t addr,
         // no latch, no event. Exactly the Memory panel's path, because it is the
         // same function the Memory panel calls.
         //
+        // GH #281 (F1) — AND IT COUNTS WHAT LANDED. Each byte goes through
+        // `Mmu::write_landed()`, which IS `Mmu::write` returning its own routing
+        // decision, so a byte an overlay takes (Layer 2 write-over, DivMMC or
+        // Multiface RAM) counts and a byte dropped on ROM does not — decided by
+        // the one copy of the rules, never re-derived here. Every byte is still
+        // offered, as the CPU's own write would be: a range straddling ROM and
+        // RAM lands its RAM bytes (DZRP relies on that). `value` is the count
+        // that landed; `Ok` iff all of them did, `RefusedReadOnly` otherwise —
+        // with 0 when none did (CAP-INS-02, REQ-gdb-6).
+        //
         // GH #276 B2 — UNDER `InspectionScope`, and that is the write half of
         // what `Mmu::peek()` does for reads (B1's F1). "Outside any
         // GuestExecutionScope" is true of a `pump()` command and FALSE of the
@@ -314,8 +324,21 @@ Expected<size_t> Debugger::poke(ClientId by, MemSpace space, uint32_t addr,
         // scope, which is the one that is load-bearing, through `port_out()`,
         // which carries none of its own.
         DebugState::InspectionScope scope(emu.debug_state());
+        size_t landed = 0;
         for (; done < n; ++done)
-            emu.mmu().write(static_cast<uint16_t>((addr + done) & 0xFFFF), buf[done]);
+            if (emu.mmu().write_landed(static_cast<uint16_t>((addr + done) & 0xFFFF), buf[done]))
+                ++landed;
+        // A MUTATE line only for what changed: a byte dropped on ROM mutated
+        // nothing, and the line would say it had.
+        if (landed == n && n == 1)
+            impl_->log_mutate(by, space_name(space, addr), old_first, buf[0]);
+        else if (landed > 0)
+            impl_->log_mutate_range(by, space_name(space, addr),
+                                    landed == n ? std::to_string(n) + " bytes"
+                                                : std::to_string(landed) + " of " +
+                                                      std::to_string(n) +
+                                                      " bytes (the rest read-only)");
+        return Expected<size_t>{landed == n ? Result::Ok : Result::RefusedReadOnly, landed};
     } else {
         // Same two guards as the peek path, in the same order and for the same
         // reasons; the sentinel check that precedes them is the one that is

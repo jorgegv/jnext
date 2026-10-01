@@ -133,6 +133,7 @@
 - Magic breakpoint: `ED FF` (ZEsarUX) / `DD 01` (CSpect) triggers debugger pause
 - Magic debug port: configurable 16-bit port logs writes as hex/dec/ascii
 - **Remote debugging over DZRP (DeZog)**: `--dzrp-port N` serves the DeZog Remote Protocol 2.2.0 in every frontend (Qt, SDL, `--headless`) for DeZog's `cspect` and `dzrp` remote types — breakpoints (banked too), watchpoints, stepping, registers, memory and banks, NextREGs, sprites, state save/restore — alongside the Qt debugger, loopback-only unless `--debug-listen-address` says otherwise; checked by two independent DZRP clients (jnext's own and the dezogif_ng conformance suite)
+- **Remote debugging with z88dk-gdb**: `--gdb-port N` serves the GDB Remote Serial Protocol in every frontend (Qt, SDL, `--headless`), alongside DZRP if both are asked for — registers (I/R/IFF/IM through `monitor`), the live 64 KB CPU view, breakpoints and read/write/access watchpoints, `stepi`/`nexti`/`cont`, Ctrl-C, detach, and `monitor` for the MMU, NextREGs, physical pages, ports, symbols, time and resets; checked against the real z88dk-gdb 2.4 and upstream clients
 
 ## CLI
 - `--machine`, `--load`, `--headless`, `--tape-realtime`, `--tape-save`, `--esxdos-stub`

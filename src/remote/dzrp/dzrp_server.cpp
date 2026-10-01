@@ -585,28 +585,25 @@ void DzrpServer::cmd_read_mem(const Command& cmd) {
 }
 
 // CMD_WRITE_MEM (9): reserved(1), addr u16, data. As the CPU would write it:
-// ROM-mapped bytes are dropped, Layer-2 write-over applies. DZRP has no error
-// field here, so what did not land is said in the log.
+// ROM-mapped bytes are dropped, overlays (Layer-2 write-over, DivMMC and
+// Multiface RAM) take theirs. DZRP has no error field here, so what did not
+// land is said in the log — counted by the backend (`poke(Cpu)` returns the
+// bytes that landed, GH #281 F1). This used to read the range back and count
+// differences, which also counted a Layer 2 write-over byte (it lands in the
+// Layer 2 page, and reads come from the normal map) as not written.
 void DzrpServer::cmd_write_mem(const Command& cmd) {
     const std::uint16_t addr = le16(cmd.payload, 1);
     const std::size_t   n    = cmd.payload.size() - 3;
     if (n > 0) {
         const std::uint8_t* data = cmd.payload.data() + 3;
         const auto          w    = dbg_.poke(cid_, MemSpace::cpu(), addr, n, data);
-        if (w.status != Result::Ok) {
+        if (w.status == Result::RefusedReadOnly) {
+            Log::debugger()->debug("dzrp: CMD_WRITE_MEM at 0x{:04X}: {} of {} bytes did not "
+                                   "land (read-only memory)",
+                                   addr, n - w.value, n);
+        } else if (w.status != Result::Ok) {
             Log::debugger()->warn("dzrp: CMD_WRITE_MEM of {} bytes at 0x{:04X} refused: {}", n,
                                   addr, result_name(w.status));
-        } else {
-            // Read back to count what did not land: ROM, or a write-only
-            // overlay (Layer 2 write-over) that routes writes elsewhere.
-            std::vector<std::uint8_t> back(n);
-            dbg_.peek(MemSpace::cpu(), addr, n, back.data());
-            std::size_t differ = 0;
-            for (std::size_t i = 0; i < n; ++i) differ += back[i] != data[i];
-            if (differ > 0)
-                Log::debugger()->debug("dzrp: CMD_WRITE_MEM at 0x{:04X}: {} of {} bytes do not "
-                                       "read back as written (ROM, or a write-only overlay)",
-                                       addr, differ, n);
         }
     }
     reply(cmd.seq);

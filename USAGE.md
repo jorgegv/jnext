@@ -54,6 +54,7 @@ the two can never disagree. For building jnext from source, see
 - [KEYBOARD MAPPING](#keyboard-mapping)
 - [THE DEBUGGER](#the-debugger)
 - [REMOTE DEBUGGING (DEZOG)](#remote-debugging-dezog)
+- [REMOTE DEBUGGING (Z88DK-GDB)](#remote-debugging-z88dk-gdb)
 - [MAGIC BREAKPOINT AND MAGIC PORT](#magic-breakpoint-and-magic-port)
 - [EXAMPLES](#examples)
 - [FILES](#files)
@@ -767,15 +768,24 @@ connection is closed at once. A port that cannot be bound (already in
 use, say) is a startup error. Works in every frontend, **--headless**
 included.
 
+**--gdb-port** *PORT*  
+Serve the GDB remote serial protocol on TCP *PORT*, so `z88dk-gdb` can
+debug the running machine; see **REMOTE DEBUGGING (Z88DK-GDB)**. Off
+unless given. *PORT* `0` binds a free port the system chooses, and the
+log says which (`gdb: listening on 127.0.0.1:40125`). One client at a
+time. A port that cannot be bound is a startup error. May be given
+together with **--dzrp-port**: each server has its own port and its own
+client. Works in every frontend, **--headless** included.
+
 **--debug-listen-address** *ADDR*  
-Bind address for the debugger protocol servers (**--dzrp-port**),
-default `127.0.0.1`. *ADDR* is a numeric IP address, never a name - an
-address resolved through DNS could change under you - and anything else
-is refused at startup. The default means only this machine can reach the
-debugger; a non-loopback address (`0.0.0.0`) exposes it to your network,
-and none of the debugger protocols has any authentication. Refused
-unless a server port is given too: an address for servers that are all
-off would configure nothing.
+Bind address for the debugger protocol servers (**--dzrp-port**,
+**--gdb-port**), default `127.0.0.1`. *ADDR* is a numeric IP address,
+never a name - an address resolved through DNS could change under you -
+and anything else is refused at startup. The default means only this
+machine can reach the debugger; a non-loopback address (`0.0.0.0`)
+exposes it to your network, and none of the debugger protocols has any
+authentication. Refused unless a server port is given too: an address
+for servers that are all off would configure nothing.
 
 **--magic-port** *PORT*  
 Enable the magic debug port at *PORT* (hex, for example `0x00FF`).
@@ -1749,6 +1759,42 @@ the machine paused it is counted in wall time, one frame per 20 ms.
 The server listens on `127.0.0.1` unless **--debug-listen-address** says
 otherwise. DZRP has no authentication: anyone who can reach the port
 controls the machine and can read and write all of its memory.
+
+## REMOTE DEBUGGING (Z88DK-GDB)
+
+With **--gdb-port** *PORT*, jnext serves the GDB remote serial protocol
+to `z88dk-gdb`, z88dk’s command-line debugger - a distribution’s own gdb
+has no Z80 support. Build the program with a map file (`-m` on the `zcc`
+line) and connect to jnext’s port:
+
+    jnext --gdb-port 3333 --load mygame.nex
+    z88dk-gdb -h 127.0.0.1 -p 3333 -x mygame.map
+
+- **Connecting stops the machine**, and `quit` resumes it if the stop
+  was the client’s own; a pause made from jnext’s debugger window stays.
+- **Served**: registers (AF BC DE HL, the alternate set, IX IY SP PC,
+  and a T-state clock the client’s profiler reads), memory as the Z80
+  sees it now (the 64 KB CPU view - a write that touches ROM is
+  refused), breakpoints, `stepi`, `nexti`, `cont`, Ctrl-C and `quit`.
+  Breakpoints belong to the session: they stop the machine whether
+  jnext’s debugger window is open or not, and they are removed when the
+  client disconnects.
+- **I, R, IFF1/IFF2 and IM are not in the register set** on purpose: the
+  client’s `set` writes the whole set at once, and zeroes every register
+  it does not know. Read and write them with `monitor regs` and
+  `monitor set`.
+- **`monitor` commands** (z88dk-gdb versions that have `monitor`) reach
+  the Next-specific state: `mmu`, `nextreg`, `page` (a physical 8 KB
+  page), `in`/`out` (a real port access, which can change the device’s
+  state), `sym`, `time`, `reset soft`/`reset hard` and `bp`.
+  `monitor help` lists them.
+- **Either side may pause or resume**, as with DeZog: the client is told
+  the machine stopped when something else stops it while the client has
+  it running.
+
+In **--headless** mode a client holding the machine stopped holds its
+frames too, exactly as described for DeZog above. The GDB protocol has
+no authentication either.
 
 ## MAGIC BREAKPOINT AND MAGIC PORT
 

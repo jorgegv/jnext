@@ -7094,6 +7094,162 @@ int main() {
         check("MUTLOG-02", "a refused poke(Rom) transfers no bytes",
               dbg.poke(1, MemSpace::rom(0), 0, 2, src).value == 0);
     }
+    // =======================================================================
+    // INS-02 / GH #281 F1 — poke(Cpu) COUNTS WHAT LANDED (CAP-INS-02,
+    // REQ-gdb-6). Every byte is offered as the CPU's write would be; `value` is
+    // the number `Mmu::write` actually stored — an overlay's RAM counts, ROM
+    // does not — and the status is `Ok` iff all of them landed,
+    // `RefusedReadOnly` otherwise.
+    // =======================================================================
+    {
+        auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(16);
+        Log::debugger()->sinks().push_back(ring);
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const uint8_t src[2] = { 0x5A, 0xA5 };
+        uint8_t before[2] = {};
+        dbg.peek(MemSpace::cpu(), 0x0000, 2, before);
+        const auto w = dbg.poke(1, MemSpace::cpu(), 0x0000, 2, src);
+        // And the ONE-byte form — what a one-byte RSP `M` or a Memory-panel
+        // edit sends, and the case with its own MUTATE line (old -> new).
+        const uint8_t rom5 = emu.mmu().peek(0x0005);
+        const uint8_t v5   = static_cast<uint8_t>(rom5 ^ 0xFF);
+        const auto    w1   = dbg.poke(1, MemSpace::cpu(), 0x0005, 1, &v5);
+        uint8_t after[2] = {};
+        dbg.peek(MemSpace::cpu(), 0x0000, 2, after);
+        int mutates = 0;
+        for (const auto& l : ring->last_formatted())
+            if (l.find("MUTATE") != std::string::npos) ++mutates;
+        auto& sinks = Log::debugger()->sinks();
+        sinks.erase(std::remove(sinks.begin(), sinks.end(), ring), sinks.end());
+        check("INS-02-22", "poke(Cpu) wholly onto ROM (a 48K's 0x0000, 2 bytes, and 0x0005, 1 "
+                           "byte) is RefusedReadOnly with a count of 0, ROM is unchanged, and no "
+                           "MUTATE line claims a write",
+              w.status == Result::RefusedReadOnly && w.value == 0 && before[0] == after[0] &&
+                  before[1] == after[1] && w1.status == Result::RefusedReadOnly &&
+                  w1.value == 0 && emu.mmu().peek(0x0005) == rom5 && mutates == 0,
+              std::string(jnext::dbg::result_name(w.status)) + " " + std::to_string(w.value) +
+                  " mutates=" + std::to_string(mutates));
+    }
+    {
+        // The plain ROM/RAM straddle (48K 0x3FFE-0x4001): the RAM half lands.
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const uint8_t rom0 = emu.mmu().peek(0x3FFE), rom1 = emu.mmu().peek(0x3FFF);
+        const uint8_t src[4] = { static_cast<uint8_t>(rom0 ^ 0xFF),
+                                 static_cast<uint8_t>(rom1 ^ 0xFF), 0x5A, 0x6B };
+        const auto w = dbg.poke(1, MemSpace::cpu(), 0x3FFE, 4, src);
+        check("INS-02-23", "poke(Cpu) straddling ROM and RAM lands the RAM bytes and reports "
+                           "them: RefusedReadOnly with a count of 2, ROM unchanged",
+              w.status == Result::RefusedReadOnly && w.value == 2 &&
+                  emu.mmu().peek(0x3FFE) == rom0 && emu.mmu().peek(0x3FFF) == rom1 &&
+                  emu.mmu().peek(0x4000) == 0x5A && emu.mmu().peek(0x4001) == 0x6B,
+              std::string(jnext::dbg::result_name(w.status)) + " " + std::to_string(w.value));
+    }
+    {
+        // Layer 2 write-over (port 0x123B bit 0) over a ROM slot: the byte goes
+        // to the Layer 2 page, reads there still come from ROM.
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        emu.port().out(0x123B, 0x01);
+        const uint8_t  rom  = emu.mmu().peek(0x0010);
+        const uint16_t page = static_cast<uint16_t>(dbg.nextreg_peek(0x12) * 2);
+        const uint8_t  v    = static_cast<uint8_t>(rom ^ 0xFF);
+        const auto     w    = dbg.poke(1, MemSpace::cpu(), 0x0010, 1, &v);
+        uint8_t l2 = 0;
+        dbg.peek(MemSpace::page(page), 0x0010, 1, &l2);
+        check("INS-02-24", "poke(Cpu) under Layer 2 write-over at 0x0010 LANDS — Ok, count 1, "
+                           "the byte in the Layer 2 page — while the CPU view there still "
+                           "reads ROM",
+              dbg.mmu_slots()[0].is_rom && w.status == Result::Ok && w.value == 1 && l2 == v &&
+                  emu.mmu().peek(0x0010) == rom,
+              std::string(jnext::dbg::result_name(w.status)) + " l2=" + hex(l2));
+    }
+    {
+        // DivMMC paged in (port 0xE3 conmem): 0x0000-0x1FFF is its ROM
+        // (read-only), 0x2000-0x3FFF its RAM bank 0 — over a ROM slot.
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        emu.port().out(0x00E3, 0x80);
+        const uint8_t src[2] = { 0x3C, 0xC3 };
+        const auto    w = dbg.poke(1, MemSpace::cpu(), 0x2000, 2, src);
+        check("INS-02-25", "poke(Cpu) into DivMMC RAM (conmem, 0x2000) over a ROM slot LANDS — "
+                           "Ok, count 2 — and reads back through the CPU view",
+              dbg.mmu_slots()[1].is_rom && w.status == Result::Ok && w.value == 2 &&
+                  emu.mmu().peek(0x2000) == 0x3C && emu.mmu().peek(0x2001) == 0xC3,
+              std::string(jnext::dbg::result_name(w.status)) + " " + std::to_string(w.value));
+
+        const uint8_t d0 = emu.mmu().peek(0x1FFE), d1 = emu.mmu().peek(0x1FFF);
+        const uint8_t mix[4] = { static_cast<uint8_t>(d0 ^ 0xFF), static_cast<uint8_t>(d1 ^ 0xFF),
+                                 0x11, 0x22 };
+        const auto m = dbg.poke(1, MemSpace::cpu(), 0x1FFE, 4, mix);
+        check("INS-02-26", "a range straddling DivMMC ROM and DivMMC RAM reports the partial "
+                           "count: RefusedReadOnly, 2 — the RAM half landed, the ROM half did not",
+              m.status == Result::RefusedReadOnly && m.value == 2 &&
+                  emu.mmu().peek(0x1FFE) == d0 && emu.mmu().peek(0x1FFF) == d1 &&
+                  emu.mmu().peek(0x2000) == 0x11 && emu.mmu().peek(0x2001) == 0x22,
+              std::string(jnext::dbg::result_name(m.status)) + " " + std::to_string(m.value));
+
+        // mapram (port 0xE3 bit 6) makes DivMMC RAM bank 3 read-only at
+        // 0x2000-0x3FFF: the same write is now dropped.
+        // Its 0x0000-0x1FFF half (DivMMC ROM, reached here through the
+        // mapram path rather than the conmem-only one) stays read-only too.
+        emu.port().out(0x00E3, 0xC3);
+        const uint8_t r3 = emu.mmu().peek(0x2100);
+        const uint8_t v3 = static_cast<uint8_t>(r3 ^ 0xFF);
+        const auto    b3 = dbg.poke(1, MemSpace::cpu(), 0x2100, 1, &v3);
+        const uint8_t r0 = emu.mmu().peek(0x0100);
+        const uint8_t v0 = static_cast<uint8_t>(r0 ^ 0xFF);
+        const auto    b0 = dbg.poke(1, MemSpace::cpu(), 0x0100, 1, &v0);
+        check("INS-02-29", "under mapram DivMMC RAM bank 3 at 0x2000-0x3FFF and the 0x0000 half "
+                           "are read-only: RefusedReadOnly, 0, unchanged, for both",
+              b3.status == Result::RefusedReadOnly && b3.value == 0 &&
+                  emu.mmu().peek(0x2100) == r3 && b0.status == Result::RefusedReadOnly &&
+                  b0.value == 0 && emu.mmu().peek(0x0100) == r0,
+              std::string(jnext::dbg::result_name(b3.status)) + " " + std::to_string(b3.value) +
+                  " / " + jnext::dbg::result_name(b0.status) + " " + std::to_string(b0.value));
+    }
+    {
+        // The Multiface overlay (NMI + the M1 fetch at 0x0066 latch mf_enable):
+        // 0x0000-0x1FFF is its ROM half (read-only), 0x2000-0x3FFF its RAM.
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        emu.multiface().set_enabled(true);
+        emu.multiface().button_press();
+        emu.multiface().on_m1(0x0066, /*mreq_low=*/true);
+        const uint8_t rom = emu.mmu().peek(0x1FFF);
+        const uint8_t src[2] = { static_cast<uint8_t>(rom ^ 0xFF), 0x77 };
+        const auto    w = dbg.poke(1, MemSpace::cpu(), 0x1FFF, 2, src);
+        check("INS-02-27", "under the Multiface overlay a range across its ROM and RAM halves "
+                           "counts 1: the RAM byte (0x2000) landed, the ROM byte did not",
+              emu.multiface().is_mem_active() && w.status == Result::RefusedReadOnly &&
+                  w.value == 1 && emu.mmu().peek(0x1FFF) == rom && emu.mmu().peek(0x2000) == 0x77,
+              std::string(jnext::dbg::result_name(w.status)) + " " + std::to_string(w.value));
+    }
+    {
+        // The alt-ROM write-over (NR 0x8C bits 7+6, config mode off): a ROM-slot
+        // write lands in the alt-ROM SRAM while reads stay on the normal ROM.
+        // And config mode (tbblue.fw's ROM loader): a ROM-slot write lands in
+        // SRAM. Both are writes the CPU makes, so both count.
+        Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+        Debugger dbg(emu);
+        emu.mmu().set_config_mode(false);
+        dbg.nextreg_write(1, 0x8C, 0xC0);
+        const uint8_t v   = 0x42;
+        const auto    alt = dbg.poke(1, MemSpace::cpu(), 0x0010, 1, &v);
+        dbg.nextreg_write(1, 0x8C, 0x00);
+        emu.mmu().set_config_mode(true);
+        const auto cfg = dbg.poke(1, MemSpace::cpu(), 0x0010, 1, &v);
+        emu.mmu().set_config_mode(false);
+        const auto rom = dbg.poke(1, MemSpace::cpu(), 0x0010, 1, &v);
+        check("INS-02-28", "a ROM-slot write the alt-ROM write-over or config mode takes counts "
+                           "as landed (Ok, 1); the same write with neither is RefusedReadOnly, 0",
+              dbg.mmu_slots()[0].is_rom && alt.status == Result::Ok && alt.value == 1 &&
+                  cfg.status == Result::Ok && cfg.value == 1 &&
+                  rom.status == Result::RefusedReadOnly && rom.value == 0,
+              std::string(jnext::dbg::result_name(alt.status)) + "/" +
+                  jnext::dbg::result_name(cfg.status) + "/" + jnext::dbg::result_name(rom.status));
+    }
     {
         // §4.2a: the BACKEND emits `MUTATE <what> <old> -> <new> by <client>`
         // for every client's write. Captured off the live logger, because a
