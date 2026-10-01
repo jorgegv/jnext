@@ -1330,9 +1330,13 @@ DeZog's `zesaruxremote.ts` / `zesaruxcpuhistory.ts` (init, every-step `get`,
    the machine's trace** (review round 1): that trace is the one jnext's Step
    Back and rewind read, and DeZog sends both on every launch, so clearing or
    resizing it would cut another user's Step Back for the rest of the
-   process. `clear` records the newest trace entry as the view's base (only
-   later entries are shown; if the base has left the ring, every entry is
-   newer); `set-max-size` (1..1000000) caps the view at the newest n. So the
+   process. `clear` records the newest trace entry's master cycle as the
+   view's base (only later entries are shown; if the base has left the ring,
+   every entry is newer). Because the base is a cycle, it is dropped whenever
+   the clock goes backwards — a cold boot replays the same cycles, and a load,
+   a restored snapshot or a rewind moves them back — so the history then shows
+   the whole trace rather than hiding entries behind a repeated cycle (review
+   round 2: `ZRCP-HIS-14..17`); `set-max-size` (1..1000000) caps the view at the newest n. So the
    history holds at most what the machine's trace holds — 10000 entries by
    default — whatever `set-max-size` says; `get-max-size` reports the size
    set. `ignrephalt` / `ignrepldxr` are also a VIEW, ZEsarUX's rule (the
@@ -1379,7 +1383,7 @@ DeZog's `zesaruxremote.ts` / `zesaruxcpuhistory.ts` (init, every-step `get`,
    as `write-memory` says it: `Error. load-binary refused: <reason> (<n>
    bytes loaded)` (review round 1; a write to ROM stays silent).
 
-Rows: `ZRCP-FMT-14`, `ZRCP-HIS-01..13`, `ZRCP-XST-01..04`, `ZRCP-COV-01`,
+Rows: `ZRCP-FMT-14`, `ZRCP-HIS-01..17`, `ZRCP-XST-01..04`, `ZRCP-COV-01`,
 `ZRCP-LOAD-01..05`, `ZRCP-SNAP-01..03`; the regression row `zrcp-hist-func` (§6.2 item 7 and the
 rest of WP-5 against a live jnext: a `.sna` smartloaded, history, coverage,
 extended stack, load/save-binary, a snapshot round trip).
