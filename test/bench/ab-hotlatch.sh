@@ -77,9 +77,14 @@ SD_MASTER="${JNEXT_TEST_SD_IMAGE:-$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img}
 # A PRIVATE clone: jnext opens the image read-write and boot-nextzxos mutates it,
 # and a benchmark must not alter the input the next run measures. $HOME, not
 # /tmp: reflink cannot cross a filesystem and /tmp is a RAM tmpfs here.
-CLONE="$HOME/tmp/jnext-ab-hotlatch.img"
+# PID-qualified and removed on exit: a fixed name was shared by concurrent runs.
+CLONE="$HOME/tmp/jnext-ab-hotlatch-$$.img"
 mkdir -p "$HOME/tmp"
-[[ -f "$CLONE" ]] || cp --reflink=auto "$SD_MASTER" "$CLONE"
+# INT/TERM exit explicitly, as in bench.sh: an EXIT-only trap misses a signal death.
+trap 'rm -f "$CLONE"' EXIT
+trap 'rm -f "$CLONE"; exit 130' INT
+trap 'rm -f "$CLONE"; exit 143' TERM
+cp --reflink=auto "$SD_MASTER" "$CLONE"
 
 # The fastest core, derived at runtime exactly as bench.sh derives it — never
 # hardcoded, because hybrid P/E boxes differ ~40% between core classes.
