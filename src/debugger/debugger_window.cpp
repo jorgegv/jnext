@@ -600,6 +600,27 @@ void DebuggerWindow::create_menus() {
     connect(unload_scripts, &QAction::triggered, this, [this]() {
         if (script_panel_) script_panel_->on_unload_clicked();
     });
+    // GH #26 WP6 (#20) — the recorder, as the Script tab offers it.
+    script_menu->addSeparator();
+    QAction* record_script = script_menu->addAction(tr("Re&cord Script..."));
+    connect(record_script, &QAction::triggered, this, [this]() {
+        if (script_panel_) script_panel_->on_record_clicked();
+    });
+    QAction* capture_screen = script_menu->addAction(tr("Capture &Screen"));
+    connect(capture_screen, &QAction::triggered, this, [this]() {
+        if (script_panel_) script_panel_->on_capture_clicked();
+    });
+    QAction* stop_record = script_menu->addAction(tr("S&top Recording"));
+    connect(stop_record, &QAction::triggered, this, [this]() {
+        if (script_panel_) script_panel_->on_stop_record_clicked();
+    });
+    connect(script_menu, &QMenu::aboutToShow, this, [this, record_script, capture_screen, stop_record]() {
+        const bool have = script_panel_ && script_panel_->host();
+        const bool rec  = script_panel_ && script_panel_->recording();
+        record_script->setEnabled(have && !rec);
+        capture_screen->setEnabled(rec);
+        stop_record->setEnabled(rec);
+    });
 
     // GH #26 WP5 — Alt+1..Alt+8, the script host keys, in THIS window too
     // (qt-frontend.md §5.3): eight window-wide QActions, not menu items. The

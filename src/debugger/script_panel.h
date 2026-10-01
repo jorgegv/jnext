@@ -21,6 +21,10 @@ namespace jnext { namespace script { class ScriptHost; } }
 /// script log. Load / Reload / Unload act on the loop owner's `ScriptHost`,
 /// the same one `--script` loads into; the panel reaches the machine through
 /// nothing else (the script engine is a backend client).
+///
+/// GH #26 WP6 (#20) — the RECORDER sits on the same host and in the same tab:
+/// Record… / Capture / Stop Recording, and a line saying what is being
+/// recorded (or what was, last). The Script menu offers the same three.
 class ScriptPanel : public QWidget {
     Q_OBJECT
 public:
@@ -37,6 +41,19 @@ public:
     QString reload_all();
     /// Unload every script.
     void unload_all();
+
+    /// Start recording into `path`; false, with `why`, when it did not start.
+    bool record_to(const QString& path, QString* why = nullptr);
+    /// Ask for a screen capture at the next frame edge; false when not
+    /// recording.
+    bool capture();
+    /// Stop and write the recording; false when there was none, or the file
+    /// could not be written.
+    bool stop_recording();
+    /// Whether the host is recording.
+    bool recording() const;
+    /// The recorder line as shown (rows).
+    QString record_text() const;
 
     /// Bring the table, the verdict line and the log up to date.
     void refresh();
@@ -55,12 +72,20 @@ public slots:
     void on_load_clicked();
     void on_reload_clicked();
     void on_unload_clicked();
+    /// Record… : a save dialog, then record_to(); a failure in a message box.
+    void on_record_clicked();
+    void on_capture_clicked();
+    void on_stop_record_clicked();
 
 private:
     jnext::script::ScriptHost* host_ = nullptr;
     QPushButton*    load_btn_   = nullptr;
     QPushButton*    reload_btn_ = nullptr;
     QPushButton*    unload_btn_ = nullptr;
+    QPushButton*    record_btn_  = nullptr;
+    QPushButton*    capture_btn_ = nullptr;
+    QPushButton*    stop_btn_    = nullptr;
+    QLabel*         record_      = nullptr;
     QLabel*         verdict_    = nullptr;
     QTableWidget*   table_      = nullptr;
     QPlainTextEdit* log_        = nullptr;

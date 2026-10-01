@@ -49,6 +49,24 @@ ScriptPanel::ScriptPanel(QWidget* parent) : QWidget(parent) {
     connect(reload_btn_, &QPushButton::clicked, this, &ScriptPanel::on_reload_clicked);
     connect(unload_btn_, &QPushButton::clicked, this, &ScriptPanel::on_unload_clicked);
 
+    // GH #26 WP6 — the recorder, beside the scripts it writes.
+    auto* rec_buttons = new QHBoxLayout();
+    record_btn_  = new QPushButton(tr("Record..."), this);
+    capture_btn_ = new QPushButton(tr("Capture"), this);
+    stop_btn_    = new QPushButton(tr("Stop Recording"), this);
+    capture_btn_->setToolTip(tr("Capture the screen at the next frame (Alt+8 does the same while recording)"));
+    rec_buttons->addWidget(record_btn_);
+    rec_buttons->addWidget(capture_btn_);
+    rec_buttons->addWidget(stop_btn_);
+    rec_buttons->addStretch();
+    main_layout->addLayout(rec_buttons);
+    connect(record_btn_, &QPushButton::clicked, this, &ScriptPanel::on_record_clicked);
+    connect(capture_btn_, &QPushButton::clicked, this, &ScriptPanel::on_capture_clicked);
+    connect(stop_btn_, &QPushButton::clicked, this, &ScriptPanel::on_stop_record_clicked);
+    record_ = new QLabel(this);
+    record_->setWordWrap(true);
+    main_layout->addWidget(record_);
+
     verdict_ = new QLabel(this);
     verdict_->setWordWrap(true);
     main_layout->addWidget(verdict_);
@@ -122,6 +140,55 @@ void ScriptPanel::on_reload_clicked() {
 
 void ScriptPanel::on_unload_clicked() { unload_all(); }
 
+bool ScriptPanel::record_to(const QString& path, QString* why) {
+    if (!host_) {
+        if (why) *why = tr("scripting is not available in this window");
+        return false;
+    }
+    const bool ok = host_->start_recording(path.toStdString());
+    refresh();
+    if (!ok && why) {
+        // The host logged the reason; the last line it kept is it.
+        const auto lines = host_->log_since(host_->log_seq() > 0 ? host_->log_seq() - 1 : 0);
+        *why = lines.empty() ? tr("the recording did not start") : QString::fromStdString(lines.back());
+    }
+    return ok;
+}
+
+bool ScriptPanel::capture() {
+    const bool ok = host_ && host_->capture_screen();
+    refresh();
+    return ok;
+}
+
+bool ScriptPanel::stop_recording() {
+    const bool ok = host_ && host_->recording() && host_->stop_recording();
+    refresh();
+    return ok;
+}
+
+void ScriptPanel::on_record_clicked() {
+    const QString path = QFileDialog::getSaveFileName(this, tr("Record Script"), QString(),
+                                                      tr("Debugger scripts (*.jds);;All files (*)"));
+    if (path.isEmpty()) return;
+    QString why;
+    if (!record_to(path, &why))
+        QMessageBox::warning(this, tr("Not Recording"), tr("Could not record to %1:\n\n%2").arg(path, why));
+}
+
+void ScriptPanel::on_capture_clicked() { capture(); }
+
+void ScriptPanel::on_stop_record_clicked() {
+    if (!stop_recording() && host_ && host_->recorder())
+        QMessageBox::warning(this, tr("Recording Not Written"),
+                             tr("%1 could not be written; see the script log.")
+                                 .arg(QString::fromStdString(host_->recorder()->path())));
+}
+
+bool ScriptPanel::recording() const { return host_ && host_->recording(); }
+
+QString ScriptPanel::record_text() const { return record_->text(); }
+
 QString ScriptPanel::verdict_text() const { return verdict_->text(); }
 
 QStringList ScriptPanel::log_lines() const {
@@ -187,6 +254,22 @@ void ScriptPanel::refresh() {
         v = tr("%n script(s): ", "", static_cast<int>(host_->files().size())) + parts.join(QStringLiteral("; "));
     }
     verdict_->setText(v);
+
+    // The recorder.
+    const jnext::script::Recorder* rec = have ? host_->recorder() : nullptr;
+    const bool recording = have && host_->recording();
+    record_btn_->setEnabled(have && !recording);
+    capture_btn_->setEnabled(recording);
+    stop_btn_->setEnabled(recording);
+    if (!rec) {
+        record_->setText(tr("Not recording."));
+    } else {
+        const QString what = tr("%1: %n input edge(s), ", "", static_cast<int>(rec->edges()))
+                                 .arg(QString::fromStdString(rec->path())) +
+                             tr("%n capture(s)", "", static_cast<int>(rec->captures()));
+        record_->setText(recording ? tr("Recording to %1 (Alt+8 captures).").arg(what)
+                                   : tr("Last recording: %1.").arg(what));
+    }
 
     // The log, incrementally.
     if (have) {
