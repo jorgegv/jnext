@@ -2204,7 +2204,7 @@ and <code>REASON</code>.</p>
 </tr>
 <tr>
 <td><code>joystick</code>, <code>compare_scr</code> issued outside a <code>frame</code> rule</td>
-<td>the engine's own every-frame subscription (<code>ensure_edge()</code> / <code>run_edge()</code>); issued inside a <code>frame</code> rule, at once — that rule already runs at the edge</td>
+<td>the engine's own every-frame subscription (<code>ensure_edge()</code> / <code>run_edge()</code>); issued inside a <code>frame</code> rule, at once — that rule already runs at the edge. An <code>exit</code> issued while a <code>compare_scr</code> is pending is queued behind it and taken at the same edge</td>
 </tr>
 <tr>
 <td><code>screenshot</code></td>
@@ -2253,9 +2253,12 @@ boundary by master cycle (<code>mark_failure()</code>): a <code>stop</code>, a f
 run-time error (code 1). At the hand-over, an <code>exit 0</code> at a failed boundary
 becomes the failure's code. It is logged
 <code>SCRIPT EXIT 0 not taken: "reason" failed at the same boundary (exit 3)</code>. It
-does not matter which rule failed, or whether before or after the exit. A
-non-zero <code>exit n</code> is kept: it already reports a failure. Other clients'
-breakpoints are not script failures.</p>
+does not matter which rule failed, or whether before or after the exit. The
+first failure of the boundary names it, and of two exits at one boundary the
+first is taken. A non-zero <code>exit n</code> is kept: it already reports a failure. A
+stop at an EARLIER boundary (paused and resumed under <code>StopPolicy::Pause</code>)
+does not take a later <code>exit 0</code> away. Other clients' breakpoints are not script
+failures.</p>
 <p><strong>An exit waits for a pending <code>compare_scr</code>.</strong> An <code>exit</code> issued while any
 <code>compare_scr</code> waits for its frame edge is queued behind it
 (<code>Deferred::Kind::Exit</code>) and taken at that edge, after the compare. So
@@ -2349,13 +2352,17 @@ A file that cannot be read is a run-time error.</p>
    <code>set</code> it, add it to <code>is_assignable()</code> too.</li>
 <li><strong><code>check.cpp</code></strong>: for a payload name, admit it in <code>payload_legal()</code> for
    exactly the events whose <code>dbg::Event</code> carries it.</li>
-<li><strong><code>evaluator.cpp</code></strong>: read it in <code>eval_int()</code>'s switch. The library is built
-   with <code>-Werror=switch</code> over the published enums, so a missing arm in a
-   switch without a <code>default</code> fails the build. For <code>set</code>, add the write path
-   in <code>ScriptEngine::exec()</code>'s <code>ActionKind::Set</code> case, through a debugger verb.</li>
+<li><strong><code>evaluator.cpp</code></strong>: read it in <code>read_builtin()</code>'s switch. That switch has
+   a <code>default</code>, so a missing arm is NOT a build failure: the name parses, and
+   reading it fails at run time with <code>internal: unbound name</code>. Only a row that
+   reads the name finds it (step 5). For <code>set</code>, add the write path in
+   <code>ScriptEngine::exec()</code>'s <code>ActionKind::Set</code> case, through a debugger verb.</li>
 <li><strong>Tests</strong>:</li>
-<li><code>script_parse_test</code> evaluates every name against a real <code>Debugger</code> and pins
-     the payload table both ways;</li>
+<li>add the name to <code>script_parse_test</code>'s <code>EVAL-*</code> state-name rows, which read
+     each name against a real <code>Debugger</code>'s own answer, and to
+     <code>script_eval_test</code>'s <code>SEV-BUILTINS</code>; these are the rows that catch a
+     missing <code>read_builtin()</code> arm. <code>script_parse_test</code> also pins the payload
+     table both ways;</li>
 <li><code>script_eval_test</code> covers the value model;</li>
 <li><code>script_events_test</code> covers a payload as delivered.</li>
 </ol>

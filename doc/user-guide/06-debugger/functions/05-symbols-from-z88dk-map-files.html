@@ -3026,9 +3026,11 @@
 <h1 id="symbols-from-z88dk-map-files">Symbols from Z88DK MAP files<a class="headerlink" href="#symbols-from-z88dk-map-files" title="Permanent link">&para;</a></h1>
 <p>Load a symbol table with <strong>Map ▸ Load MAP File</strong>, which offers two formats:</p>
 <ul>
-<li><strong>Z88DK Format…</strong> — the <code>.map</code> file <code>zcc</code> writes next to your binary. Only
-  entries marked <code>; addr</code> are used; <code>; const</code> entries are compile-time
-  constants and are skipped, since they are not addresses.</li>
+<li><strong>Z88DK Format…</strong> — the <code>.map</code> file <code>zcc</code> writes next to your binary.
+  Entries marked <code>; addr</code> are addresses. Entries marked <code>; const</code> are
+  compile-time constants, such as the section bound <code>__data_crt_head</code>: they
+  are kept by name only, so a script's <code>@__data_crt_head</code> resolves, but they
+  never name an address in the views below.</li>
 <li><strong>Simple Format (48K ROM)…</strong> — plain <code>NAME = $ADDR</code> lines, one per line,
   <code>;</code> for comments.</li>
 </ul>

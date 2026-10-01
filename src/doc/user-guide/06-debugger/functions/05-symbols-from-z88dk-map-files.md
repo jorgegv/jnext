@@ -2,9 +2,11 @@
 
 Load a symbol table with **Map ▸ Load MAP File**, which offers two formats:
 
-- **Z88DK Format…** — the `.map` file `zcc` writes next to your binary. Only
-  entries marked `; addr` are used; `; const` entries are compile-time
-  constants and are skipped, since they are not addresses.
+- **Z88DK Format…** — the `.map` file `zcc` writes next to your binary.
+  Entries marked `; addr` are addresses. Entries marked `; const` are
+  compile-time constants, such as the section bound `__data_crt_head`: they
+  are kept by name only, so a script's `@__data_crt_head` resolves, but they
+  never name an address in the views below.
 - **Simple Format (48K ROM)…** — plain `NAME = $ADDR` lines, one per line,
   `;` for comments.
 
