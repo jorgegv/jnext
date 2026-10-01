@@ -102,7 +102,7 @@ if want esp-server-lan-func; then
 
         # The guest's own view, in the magic-port trace: non-bracketed lines are
         # the wire (every spdlog line starts with its `[timestamp]`).
-        grep -av '^\[' "$run_log" | grep -q '^1,CONNECT$' \
+        grep -q '^1,CONNECT$' <<<"$(grep -av '^\[' "$run_log")" \
             || fails+=("the guest never saw 1,CONNECT")
 
         if [[ ${#fails[@]} -eq 0 ]]; then

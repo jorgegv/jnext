@@ -132,18 +132,22 @@ if want snapshot-save-func; then
        && [[ "$reload_rc" -eq 0 ]] && [[ -s "$reloaded_png" ]] \
        && [[ "$content_ok" -eq 1 ]] \
        && [[ "$pend_rc" -ne 0 ]] && [[ ! -f "$pending" ]] \
-       && echo "$out" | grep -q "NO snapshot was written" \
+       && grep -q "NO snapshot was written" <<<"$out" \
        && [[ "$refuse_rc" -ne 0 ]] && [[ ! -f "$refused" ]] \
-       && echo "$out_next" | grep -qi "cannot represent this machine" \
+       && grep -qi "cannot represent this machine" <<<"$out_next" \
        && [[ "$refuse_sna_rc" -ne 0 ]] && [[ ! -f "$refused_sna" ]] \
-       && echo "$out_next_sna" | grep -qi "cannot represent a ZX Spectrum Next" \
+       && grep -qi "cannot represent a ZX Spectrum Next" <<<"$out_next_sna" \
        && [[ "$ok_sna_rc" -eq 0 ]] && [[ "$ok_sna_size" -eq 49179 ]] \
        && [[ "$ok_128_rc" -eq 0 ]] && [[ "$ok_128_size" -eq 131103 ]] \
        && [[ "$p3_rc" -ne 0 ]] && [[ ! -f "$p3_special" ]] \
-       && echo "$out_p3" | grep -qi "SPECIAL PAGING"; then
+       && grep -qi "SPECIAL PAGING" <<<"$out_p3"; then
         pass_row " (reload pixel-identical to pre-save screen; pending-never-written: error+exit!=0, no file; --machine next refused for BOTH .szx and .sna: error+exit!=0, no file; .sna writes 49179 on 48K and 131103 on 128K; a +3 in special paging refused: error+exit!=0, no file)"
     else
         fail_row " (save_rc=$save_rc szx_exists=$([[ -s "$szx" ]] && echo y || echo n) reload_rc=$reload_rc png_exists=$([[ -s "$reloaded_png" ]] && echo y || echo n) content_ok=$content_ok diff_pixels=$diff_pixels pend_rc=$pend_rc pending_exists=$([[ -f "$pending" ]] && echo y || echo n) refuse_rc=$refuse_rc refused_exists=$([[ -f "$refused" ]] && echo y || echo n) refuse_sna_rc=$refuse_sna_rc refused_sna_exists=$([[ -f "$refused_sna" ]] && echo y || echo n) ok_sna_rc=$ok_sna_rc ok_sna_size=$ok_sna_size ok_128_rc=$ok_128_rc ok_128_size=$ok_128_size p3_rc=$p3_rc p3_exists=$([[ -f "$p3_special" ]] && echo y || echo n))"
+        show_output "pending run" "$out"
+        show_output "next .szx run" "$out_next"
+        show_output "next .sna run" "$out_next_sna"
+        show_output "+3 run" "$out_p3"
     fi
 fi
 

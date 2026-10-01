@@ -23,8 +23,9 @@ if want wav-record-func; then
         --delayed-automatic-exit-frames 220 2>&1) || true
     chained=$(echo "$out" | grep -cE "NEX: loaded '.*red\.nex'" || true)
     if [[ "$reject_status" -eq 0 ]] ||
-       ! echo "$reject_out" | grep -q -- "--wav-record cannot be combined with --silent"; then
+       ! grep -q -- "--wav-record cannot be combined with --silent" <<<"$reject_out"; then
         fail_row " (--silent conflict was not rejected clearly)"
+        show_output "--silent run" "$reject_out"
     elif [[ "$chained" -lt 1 ]]; then
         fail_row " (selector did not chain-load red.nex)"
     elif ! command -v python3 &>/dev/null; then

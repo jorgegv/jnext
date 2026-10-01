@@ -29,10 +29,11 @@ if want cold-boot-load-rzx-func; then
             "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" \
             --delayed-automatic-exit-frames 520 2>&1 || true)
     fi
-    if echo "$cb_out" | grep -q "RZX: playback started"; then
+    if grep -q "RZX: playback started" <<<"$cb_out"; then
         pass_row " (cold-boot .rzx load routed to RZX playback via shared dispatch)"
     else
         fail_row " (cold-boot .rzx misrouted — shared load dispatch dropped .rzx? [Task 70 review])"
+        show_output "jnext" "$cb_out"
     fi
 fi
 

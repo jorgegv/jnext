@@ -54,42 +54,42 @@ if want joy-uart-func; then
     lost='joystick serial source exhausted with all'
 
     # Fact 1 — and its control.
-    if joy_run | grep -q "$banner"; then
+    if grep -q "$banner" <<<"$(joy_run)"; then
         fails+=("a source was attached with no --joy-uart-rx flag")
     fi
-    if ! joy_run --joy-uart-rx "$src" | grep -q "$banner"; then
+    if ! grep -q "$banner" <<<"$(joy_run --joy-uart-rx "$src")"; then
         fails+=("--joy-uart-rx did not reach the emulator")
     fi
-    if ! joy_run --joy-uart-rx "$src" | grep -q "3 byte(s) from"; then
+    if ! grep -q "3 byte(s) from" <<<"$(joy_run --joy-uart-rx "$src")"; then
         fails+=("the attached source's byte count did not reach the emulator")
     fi
 
     # Fact 2 — default joy 2, overridden to joy 1.
-    if ! joy_run --joy-uart-rx "$src" | grep -q "$banner 2 "; then
+    if ! grep -q "$banner 2 " <<<"$(joy_run --joy-uart-rx "$src")"; then
         fails+=("the default --joy-uart-connector is not joy 2")
     fi
-    if ! joy_run --joy-uart-rx "$src" --joy-uart-connector 1 | grep -q "$banner 1 "; then
+    if ! grep -q "$banner 1 " <<<"$(joy_run --joy-uart-rx "$src" --joy-uart-connector 1)"; then
         fails+=("--joy-uart-connector 1 did not reach the emulator")
     fi
 
     # Fact 3 — the delay, named on the posture line.
-    if ! joy_run --joy-uart-rx "$src" | grep -q 'starting after 0 frame(s)'; then
+    if ! grep -q 'starting after 0 frame(s)' <<<"$(joy_run --joy-uart-rx "$src")"; then
         fails+=("the default --joy-uart-rx-delay-frames is not 0")
     fi
-    if ! joy_run --joy-uart-rx "$src" --joy-uart-rx-delay-frames 7 \
-        | grep -q 'starting after 7 frame(s)'; then
+    if ! grep -q 'starting after 7 frame(s)' \
+        <<<"$(joy_run --joy-uart-rx "$src" --joy-uart-rx-delay-frames 7)"; then
         fails+=("--joy-uart-rx-delay-frames did not reach the emulator")
     fi
 
     # Fact 4 — the stream really is clocked out and really is dropped. The boot
     # firmware never puts NR 0x0B into a UART mode, so all 3 bytes are lost.
-    if ! joy_run --joy-uart-rx "$src" | grep -q "$lost 3 byte(s) LOST"; then
+    if ! grep -q "$lost 3 byte(s) LOST" <<<"$(joy_run --joy-uart-rx "$src")"; then
         fails+=("an unheard stream did not report its bytes as lost")
     fi
 
     # Fact 5 — held past the end of the run, nothing is sent, so nothing is lost.
-    if joy_run --joy-uart-rx "$src" --joy-uart-rx-delay-frames 10000 \
-        | grep -q "$lost"; then
+    if grep -q "$lost" \
+        <<<"$(joy_run --joy-uart-rx "$src" --joy-uart-rx-delay-frames 10000)"; then
         fails+=("a stream still inside its start delay reported bytes as lost")
     fi
 

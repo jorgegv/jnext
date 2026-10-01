@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.62</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.63</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.62</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.63</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1963,7 +1963,7 @@ host-load bookkeeping (GH #245): the real suite library, sourced against a fake
 FAIL on an idle one, must name every failed row at the end, must never change
 the count — and the driver must still call it.</p>
 <h2 id="it-pins-its-own-count">It pins its own count<a class="headerlink" href="#it-pins-its-own-count" title="Permanent link">&para;</a></h2>
-<p><code>EXPECTED_TOTAL = 73</code> sits in the script, right next to the rows it counts, and
+<p><code>EXPECTED_TOTAL = 75</code> sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is
@@ -1996,7 +1996,7 @@ produced <code>regression-doc-check</code>, which wired up a screenshot-document
 checker that had existed, had been correct, and had been invoked by nothing for
 long enough to rot into failing on 18 rows.</p>
 <h2 id="the-lint-self-tests">The lint self-tests<a class="headerlink" href="#the-lint-self-tests" title="Permanent link">&para;</a></h2>
-<p>Three of the lints verify themselves on <strong>every invocation</strong>, before their
+<p>Four of the lints verify themselves on <strong>every invocation</strong>, before their
 verdict on the real tree is trusted at all:</p>
 <ul>
 <li><code>test/lint-assertions.sh</code> writes a fixture containing one instance of each
@@ -2017,6 +2017,17 @@ verdict on the real tree is trusted at all:</p>
   comment stripper changed nothing, because every comment fixture was inert for
   a second reason as well. The two cases that close it exist because of the
   mutation, not because anyone thought of them first.</li>
+<li><code>test/lint-pipe-grepq.sh</code> carries <strong>42 pinned cases: 25 that must flag, 15
+  that must not, and 2 that pin its coverage check</strong>. They include both scope
+  rules — the same <code>echo "$o" | grep -q</code> line is flagged in a file that sets
+  <code>pipefail</code> (anywhere in the file, including after the line), flagged in a
+  file under <code>test/00regression/</code> with no <code>pipefail</code> line (the harness sources
+  it into its own), and not flagged elsewhere — the quote rule (quote state is
+  reset at every line end, so a stray apostrophe cannot hide what follows), and
+  the heredoc rule: a body is scanned like code and a fixture line is marked,
+  because an earlier version that guessed where heredocs end hid 555 lines.
+  The lint also counts the lines that reached its matcher and refuses the run
+  unless that is every line of every in-scope file.</li>
 </ul>
 <p>Both directions matter, and not equally. A false negative merely fails to help,
 whereas a false positive blocks a correct row — and that is the one that costs.</p>

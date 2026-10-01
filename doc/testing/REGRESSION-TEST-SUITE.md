@@ -477,7 +477,7 @@ Load-bearing rationale that used to live as long comments inside
   invalid bash, so a looser match would only claim reach the shell has not.
   Every other word in the set was checked and takes none. `harness-selftest`
   HS-49a/HS-49b prove the call is still reached from `00-preflight-lint.sh` and that
-  its verdict still turns the row red; the `5 lint + 1 sdcard-provision + …`
+  its verdict still turns the row red; the `6 lint + 1 sdcard-provision + …`
   row-count witness is the second, independent check that the row exists at all.
 - **Why the published debug headers get an include-graph row** (GH #276 B0,
   `test/lint-debug-headers.sh`, row 5 of the preflight). Epic #276's defining
@@ -519,6 +519,19 @@ Load-bearing rationale that used to live as long comments inside
   a present name reports as absent. The measured capacity-vs-scheduling
   analysis lives in the Task 88 write-up (`.prompts/2026-07-18.md`); the idiom
   is also textually banned by harness-selftest HS-30.
+- **Why a quiet grep never ends a pipe** (`test/lint-pipe-grepq.sh`, row 6 of
+  the preflight). HS-30 banned the `printf … | grep -q` spelling only, and the
+  same hazard survived in 47 lines across 23 scripts as `echo "$out" | grep -q`
+  and `producer | grep -q` — the form every row used to read jnext's output.
+  It made `warm-start-func` fail under load and pass solo; a traced failing run
+  showed grep exiting 0 (it had found the line) and the `echo` subshell killed
+  by SIGPIPE. Every site now asks grep alone, with a here-string
+  (`grep -q P <<<"$out"`, or `<<<"$(producer)"` for a command), and the lint
+  rejects the pipe form in every tracked test script that runs under pipefail.
+  Its header states the scope and what it does not catch (`| head`,
+  `| grep -m`, run-time pipelines). harness-selftest HS-67a/HS-67b prove the
+  call is reached from `00-preflight-lint.sh` and that its verdict turns the
+  row red.
 - **render-skip engagement upper bound (590).** An early throttle bug (an
   INT64_MIN sentinel overflow in the now-last subtraction) skipped every
   single frame — 601 skips in 601 frames, frozen display. The `<= 590` bound

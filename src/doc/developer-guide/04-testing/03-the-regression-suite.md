@@ -63,7 +63,7 @@ the manifest.
 At the end of a full run — that is, one not in `--update` mode — the driver
 proves three things: that every declared functional test reported **exactly
 one** row, that no undeclared row appeared, and that the grand total equals
-`5 lint + 1 sdcard-provision + screenshots + functional`. Any mismatch is
+`6 lint + 1 sdcard-provision + screenshots + functional`. Any mismatch is
 reported as a **harness fault**, exit 2, and is explicitly not a pass.
 
 Build artifacts that rows depend on — `rewind_test` and the SDL-only `jnext` —
