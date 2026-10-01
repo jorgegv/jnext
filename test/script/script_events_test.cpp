@@ -2289,6 +2289,26 @@ static void host_gui_rows() {
 
 static void static_stop_rows() {
     {
+        // Cross-package (main v1.0.64, Z's condition-aware probe): a script's
+        // stop rule is what another client's step loop sees at that PC — but
+        // ONLY while its `when` holds there (probe_execute evaluates it).
+        Rig g(kPark);
+        const bool ok = g.load("on execute 0x8005 when A == 0x5A do stop \"five\" end\n");
+        const auto subs = g.subs();
+        auto with_a = [&g](uint8_t a) {
+            g.dbg->set_register(g.tc, jnext::dbg::RegId::A, a);
+            return g.dbg->probe_execute(0x8005);
+        };
+        const auto off = with_a(0x00);
+        const auto on  = with_a(0x5A);
+        const auto elsewhere = g.dbg->probe_execute(0x8006);
+        check("SCRIPT-EV-STATIC-STOP-PROBE", "probe_execute(pc) lists a script's stop rule at its PC exactly when "
+                                             "its `when` holds there (A == 0x5A), and not when it does not, nor "
+                                             "at another PC",
+              ok && subs.size() == 1 && off.empty() && on.size() == 1 && on[0] == subs[0].id && elsewhere.empty(),
+              "off=" + std::to_string(off.size()) + " on=" + std::to_string(on.size()));
+    }
+    {
         Rig g(kWriter);
         const bool ok = g.load("on execute 0x8005 when A == 0x5A do stop \"five ${PC:x4} A=${A:x2} P${PAGE}\" end\n"
                                "on stop do log \"R ${REASON}\" end\n");
