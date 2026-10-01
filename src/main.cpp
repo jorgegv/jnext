@@ -250,6 +250,7 @@ int main(int argc, char* argv[]) {
     std::string debug_listen_address;
     int         dzrp_port = -1;
     int         zrcp_port = -1;
+    int         gdb_port  = -1;
     bool        esxdos_stub = false;
     std::string esxdos_stub_root;
     bool        esxdos_stub_writable = false;
@@ -533,6 +534,21 @@ int main(int argc, char* argv[]) {
                     return 1;
                 }
                 dzrp_port = static_cast<int>(n);
+                break;
+            }
+            case cli::OptId::GdbPort: {
+                // GH #281 — the same rule, for the same reason, as --dzrp-port.
+                char* end = nullptr;
+                errno = 0;
+                const long n = std::strtol(v[0], &end, 10);
+                if (errno != 0 || end == v[0] || *end != '\0' || n < 0 || n > 65535) {
+                    fprintf(stderr,
+                            "--gdb-port: PORT must be a number from 0 to 65535, not \"%s\" "
+                            "(0 binds an OS-chosen port and logs it).\n",
+                            v[0]);
+                    return 1;
+                }
+                gdb_port = static_cast<int>(n);
                 break;
             }
             case cli::OptId::ZrcpPort: {
@@ -1324,6 +1340,7 @@ int main(int argc, char* argv[]) {
         if (!debug_listen_address.empty()) cfg.debug_listen_address = debug_listen_address;
         cfg.dzrp_port = dzrp_port;
         cfg.zrcp_port = zrcp_port;
+        cfg.gdb_port = gdb_port;
         cfg.esxdos_stub = esxdos_stub;
         cfg.esxdos_stub_root = esxdos_stub_root;
         cfg.esxdos_stub_writable = esxdos_stub_writable;
@@ -1439,10 +1456,10 @@ int main(int argc, char* argv[]) {
         }
         // GH #12 (owner decision), the same reasoning for the debugger: an
         // address for protocol servers that are all off configures nothing.
-        if (!debug_listen_address.empty() && cfg.dzrp_port < 0 && cfg.zrcp_port < 0) {
-            fprintf(stderr,
-                    "--debug-listen-address requires a debugger server port (--dzrp-port "
-                    "or --zrcp-port).\n");
+        if (!debug_listen_address.empty() && cfg.dzrp_port < 0 && cfg.zrcp_port < 0 &&
+            cfg.gdb_port < 0) {
+            fprintf(stderr, "--debug-listen-address requires a debugger server port "
+                            "(--dzrp-port, --zrcp-port or --gdb-port).\n");
             return 1;
         }
         // GH #246, and the same reasoning a third time: a scheduled outage for

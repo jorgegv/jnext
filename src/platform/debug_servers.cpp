@@ -2,6 +2,7 @@
 
 #include "core/log.h"
 #include "remote/dzrp/dzrp_server.h"
+#include "remote/gdb/rsp_server.h"
 #include "remote/zrcp/zrcp_server.h"
 
 using jnext::dbg::PumpBudget;
@@ -28,6 +29,21 @@ bool DebugServers::start(jnext::dbg::Debugger& dbg, const EmulatorConfig& cfg) {
         }
         dbg.add_service(s->server());
         dzrp_ = std::move(s);
+    }
+    if (cfg.gdb_port >= 0) {
+        auto s = std::make_unique<jnext::remote::gdb::GdbServer>(dbg);
+        // `gdb: listening on <addr>:<port>` — the line a `--gdb-port 0` user
+        // (and the regression rows) read the bound port from.
+        if (!s->server().open(cfg.debug_listen_address,
+                              static_cast<std::uint16_t>(cfg.gdb_port))) {
+            Log::platform()->error("--gdb-port {}: the GDB RSP server cannot listen on {} ({}) — "
+                                   "exiting",
+                                   cfg.gdb_port, cfg.debug_listen_address,
+                                   s->server().last_error());
+            return false;
+        }
+        dbg.add_service(s->server());
+        gdb_ = std::move(s);
     }
     if (cfg.zrcp_port >= 0) {
         // GH #280 — the same shape, the same port rule. `zrcp: listening on

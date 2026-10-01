@@ -306,6 +306,10 @@ add_subdirectory(src/esp01)
 # `jnext_remote`). Over esp01's public socket seam and the jnext_debug backend;
 # no toolkit, so it is built in every configuration (arch §3.2).
 add_subdirectory(src/remote)
+# GH #26 — the debugger scripting language (arch §3.1, `jnext_script`): lexer,
+# parser, load-time checks and the expression compiler library. Over the
+# jnext_debug facade only; no toolkit, so built in every configuration (§3.2).
+add_subdirectory(src/script)
 add_subdirectory(src/peripheral)
 add_subdirectory(src/platform)
 add_subdirectory(src/save)

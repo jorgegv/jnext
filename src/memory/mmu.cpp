@@ -1149,9 +1149,9 @@ bool Mmu::divmmc_read(uint16_t addr, uint8_t& val) const {
     return true;
 }
 
-bool Mmu::divmmc_write(uint16_t addr, uint8_t val) {
+bool Mmu::divmmc_write(uint16_t addr, uint8_t val, bool& landed) {
     if (!divmmc_->is_active()) return false;
-    divmmc_->write(addr, val);
+    landed = divmmc_->write(addr, val);
     return true;
 }
 

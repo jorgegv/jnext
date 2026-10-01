@@ -1810,6 +1810,18 @@ private:
     /// Master cycle counter at which the current frame started.
     uint64_t frame_cycle_ = 0;
 
+    /// GH #290 — whether THIS frame's `cvc` reload (reload_cvc_offset_(), at
+    /// VideoTiming::cvc_reload_master_cycle_offset()) has run. Until it has,
+    /// the lines from the reload on will count from the NR 0x64 register as it
+    /// then stands, not from `video_timing_.cu_offset()`.
+    ///
+    /// Derived, NOT saved: it is false at every point a snapshot can be taken
+    /// (the frame boundary), so the restore sets it false. Tied to
+    /// `frame_cycle_` — cleared where that advances (end_of_frame(), a hard
+    /// init, load_state()) — so between frames it already names the frame
+    /// `frame_cycle_` does. A soft reset keeps it with the frame it lands in.
+    bool cvc_reload_done_ = false;
+
     /// G163 — generation counter bumped on every line-interrupt
     /// (re)schedule. The scheduled `EventType::CPU_INT` lambda captures
     /// this counter by-value; at fire time it no-ops if the captured
@@ -1822,6 +1834,17 @@ private:
     /// non-superseded line-int callback. Public accessor
     /// `line_int_fire_count()` is used by VT-G163-* rows.
     uint64_t line_int_fire_count_ = 0;
+
+    /// GH #290 — the compare positions (master cycles) of the live line-int
+    /// events of the current generation, so a reschedule can keep the ones a
+    /// change landed too late to reach (see reschedule_line_interrupt()).
+    /// Host bookkeeping of irq_scheduler_'s contents, which are not saved
+    /// either: cleared with them (hard init) and at every restore.
+    std::vector<uint64_t> line_int_pending_;
+
+    /// GH #290 — the master cycle of the Copper step being executed, for
+    /// nr_write_lands_at_(). Valid only while Copper::active_move_hc() >= 0.
+    uint64_t copper_step_cycle_ = 0;
 
     /// Task 60b — subsystem name of the sentinel that failed in the last
     /// load_state (empty when the last load succeeded). Not serialised.
@@ -2240,14 +2263,33 @@ private:
     // Private helpers
     // -----------------------------------------------------------------------
 
-    /// Schedule a full frame's worth of SCANLINE events into the scheduler.
+    /// Schedule a full frame's worth of SCANLINE events into the scheduler,
+    /// plus the frame's `cvc` reload (GH #290) and its VSYNC.
     void schedule_frame_events();
+
+    /// GH #290 — the `cvc` reload, zxula_timing.vhd:457-462: on the
+    /// `ula_max_hc` pulse of line `ula_min_vactive`, `cvc <= '0' &
+    /// i_cu_offset`, and `i_cu_offset` is the NR 0x64 register itself
+    /// (zxnext.vhd:6723). Scheduled once per frame by schedule_frame_events()
+    /// at VideoTiming::cvc_reload_master_cycle_offset(). Nowhere else does
+    /// an NR 0x64 write reach `cvc`.
+    void reload_cvc_offset_();
+
+    /// GH #290 — the offset the lines from THIS frame's `cvc` reload on
+    /// count from: what the reload loaded once it has run, and until then the
+    /// NR 0x64 register — the value it will load, as far as anything can know
+    /// before it happens. Lines before the reload count from
+    /// `video_timing_.cu_offset()`.
+    uint8_t cvc_offset_after_reload_() const {
+        return cvc_reload_done_ ? video_timing_.cu_offset() : copper_.offset();
+    }
 
     /// The VHDL `cvc` counter (o_vc_cu) during master cycle @p master_cycle
     /// (clock_'s timeline, same frame as frame_cycle_): the copper-offset
     /// raster line, origin = first paper line, wrapping at c_max_vc, shifted
-    /// by NR 0x64 cu_offset (zxula_timing.vhd:455-472). Read back by NR
-    /// 0x1E/0x1F at io_read_sample_cycle() (GH #265).
+    /// by the NR 0x64 value it was last reloaded from (zxula_timing.vhd:455-472;
+    /// GH #290 — not the live register). Read back by NR 0x1E/0x1F at
+    /// io_read_sample_cycle() (GH #265).
     int cvc_at(uint64_t master_cycle) const;
 
     /// GH #265 — the master cycle whose value a port read sees, when the
@@ -2487,5 +2529,36 @@ private:
     /// and no-ops at fire time if a later (re)schedule has bumped the
     /// counter — strict superset of "compare target at fire time"
     /// because it correctly handles same-target rewrites too.
-    void reschedule_line_interrupt();
+    ///
+    /// GH #290 — WHEN a change lands decides which compares it reaches. The
+    /// compare at pixel c (hc_ula 255) is registered on the edge that ENDS the
+    /// pixel (zxula_timing.vhd:574-583): it takes `i_inten_line` as it stands
+    /// in cycle c+3, directly (zxnext.vhd:6752), but `int_line_num`, a CLK_7
+    /// register loaded on the edge that STARTS the pixel (:563-572), i.e. the
+    /// target as it stood in cycle c-1. So for a change visible from cycle
+    /// @p lands_at (= e):
+    ///   * c <= e-4 — enable and target both sampled before it: a compare
+    ///     already scheduled there fires as scheduled;
+    ///   * e-3 <= c <= e — the NEW enable with the OLD target (@p old_target);
+    ///   * c >= e+1 — both new.
+    /// Every live event is tracked in `line_int_pending_`, so the first class
+    /// survives the generation bump.
+    void reschedule_line_interrupt(uint64_t lands_at, uint16_t old_target);
+
+    /// A change that lands now and leaves the target as it is: frame start,
+    /// the cvc reload.
+    void reschedule_line_interrupt() {
+        reschedule_line_interrupt(clock_.get(),
+                                  video_timing_.line_interrupt_target());
+    }
+
+    /// Schedule the line-interrupt request of the compare at master cycle
+    /// @p compare in the current generation, and track it as live.
+    void arm_line_interrupt_(uint64_t compare);
+
+    /// GH #290 — the cycle an NR write being applied right now lands on: a
+    /// deferred CPU write's commit edge (nr_write_edge_, GH #265), a Copper
+    /// MOVE's own cycle (copper_step_cycle_), else the clock (the debugger, a
+    /// test harness).
+    uint64_t nr_write_lands_at_() const;
 };

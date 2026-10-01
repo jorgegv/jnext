@@ -258,6 +258,15 @@ that is not optional. A delivery happens inside `run_frame()`'s
 pokes an address it is watching would latch a watch on itself. `poke(Cpu)` takes
 a second scope of its own, so the property holds for any caller on any path.
 
+**`poke(Cpu)` reports what landed.** Every byte goes through
+`Mmu::write_landed()` — `Mmu::write` itself, returning its routing decision —
+so a byte an overlay takes (Layer 2 write-over, DivMMC or Multiface RAM, the
+alt-ROM write-over, config-mode SRAM) counts, and a byte dropped on ROM does
+not. The result is `Ok` only when every byte landed; otherwise
+`RefusedReadOnly`, carrying how many did (GH #281). Nothing is refused up
+front: a range across ROM and RAM still lands its RAM bytes, as the CPU's own
+write would.
+
 **`Mmu::write` latches before the overlay arbitration.** The watch check is at the
 TOP of the function, before the Multiface / DivMMC / Layer 2 / alt-ROM /
 config-mode cascade and before the `read_only_` drop, so a guest write into ROM
@@ -689,9 +698,11 @@ floating-bus latch) and the eight MMU pages.
 The three protocol servers the epic plans — DZRP, ZRCP and GDB RSP — share one
 transport, in **`src/remote/`** (target `jnext_remote`). It has no toolkit
 dependency and is built in every configuration. It carries no protocol: it
-never parses a byte. The first server on it is DZRP (`--dzrp-port`, 3.10), the
-second ZRCP (`--zrcp-port`, `src/remote/zrcp/`, GH #280); the loop owners open
-them through `src/platform/debug_servers.*`.
+never parses a byte. The servers on it are DZRP (`--dzrp-port`, 3.10), GDB
+RSP (`--gdb-port`, `src/remote/gdb/`) and ZRCP (`--zrcp-port`,
+`src/remote/zrcp/`, GH #280); each is its own listener with its own backend
+client, so all may run at once. The loop owners open them through
+`src/platform/debug_servers.*`.
 
 `remote::Server` is a `jnext::dbg::Service`, so `pump()` drives it: each
 `service_once(wait_ms)` accepts, reads, asks the adapter's `Protocol` to execute
@@ -730,9 +741,55 @@ real socket on `127.0.0.1` port 0, and through `pump()`.
 
 `--debug-listen-address ADDR` (numeric only, default `127.0.0.1`) is validated
 in `main.cpp` and held in `EmulatorConfig::debug_listen_address` for the servers
-to bind; it is refused unless a server port (`--dzrp-port` or `--zrcp-port`) is
-given too. The design, and the reason behind each rule above, is
+to bind; it is refused unless a server port (`--dzrp-port`, `--gdb-port` or
+`--zrcp-port`) is given too. The design, and the reason behind each rule above, is
 `doc/design/debug-subsystem/transport.md`.
+
+### The scripting language front end (package S)
+
+The debugger scripting language (`.jds`, GH #26) lives in **`src/script/`**
+(target `jnext_script`). Like `src/remote/` it has no toolkit dependency and is
+built in every configuration; it reads the machine only through the published
+`jnext::dbg::Debugger` facade, never through `Emulator`. As of its first work
+package it is a front end and a library: no script engine exists yet, and
+nothing in the shipped binary instantiates it.
+
+It is layered, each stage consuming only the one before it:
+
+- `lexer.*` — tokens. Comments are `;`, `//` and `#`; the bracketed
+  accessors (`mem[`, `page[`, `changed(`, …) are single tokens spelled with
+  their bracket, which is what tells the accessor `page[s]` from the `page`
+  of an address filter.
+- `parser.*` over `ast.h` — recursive descent over the grammar of record
+  (`doc/design/debug-subsystem/dsl-frontend.md` §2.1). It stops at the first
+  syntax error and reports it as `line:column: message`. It is also where
+  nesting is bounded: an expression tree at most 200 levels tall, `if`s nested
+  at most 64 deep, refused with a positioned error past that. A chain of
+  operators counts one level per operator, parentheses or not (the tree is
+  left-deep), so `a or b or …` stops at 200 terms. Every later pass
+  recurses over those trees and nothing else, so the bound made here is what
+  keeps a pathological script or ZRCP expression from overflowing the stack.
+- `check.*`, with `names.*` as the one table of reserved words, built-in state
+  names and payload names — the load-time checks, and BINDING: each upper-case
+  name is resolved to what it reads in its scope (`PC` is the causing
+  instruction's PC in an event rule and the CPU's PC elsewhere; `CPC` is legal
+  only in a `copper` rule). The per-kind payload table admits a name only where
+  the backend's `Event` actually carries it.
+- `evaluator.*` — the integer evaluator over a bound tree, reading through the
+  facade's const inspection surface (32-bit wrapping arithmetic; run-time
+  failures such as division by zero are reported, not thrown past the library).
+- `expr_compiler.h` — the stable public header other frontends call:
+  `compile_expr(text, scope)` returns the backend's CAP-EVT predicate
+  (`dbg::Condition`) and `eval_expr(text, debugger)` evaluates once. The ZRCP
+  adapter (package Z, not yet written) is designed to translate its dialect into
+  this grammar rather than own a second parser.
+
+`script_parse_test` (`gate: none`) pins the grammar, every error class with its
+position, precedence, the per-kind payload table, the evaluation of every name
+against a real `Debugger`, and that every worked script of the design parses.
+The choices made where the grammar is silent are the design document's
+"WP1 as built" appendix. This section covers the front end only; the engine,
+the CLI and the recorder are later work packages of the same branch.
 
 ## What `ENABLE_DEBUGGER=OFF` removes
 

@@ -35,7 +35,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 
 | WP | Branch `gh26-dsl` (issue #26, carrying #279) | Status |
 |---|---|---|
-| **WP1** | lexer / parser / `compile_expr` **exported as a library** (Z WP-4 consumes it) | todo |
+| **WP1** | lexer / parser / `compile_expr` **exported as a library** (Z WP-4 consumes it) — as built: Appendix G | in review |
 | **WP2** | evaluator + the snapshot stacks (`snap` / `unsnap` / `changed()`, which is how #279's span invariants are served with no new event kind) | todo |
 | **WP3** | engine over subscriptions, stop / exit policy. Headless script `stop` with no explicit `exit` is code **3** (never 2, a harness fault) | todo |
 | **WP4** | CLI + man page (`--script`, `--script-key`) | todo |
@@ -1477,3 +1477,58 @@ CONTESTED: none.
 | N5-1 "existing `GuestExecutionScope` gating covers the sites" is wrong at a delivery | `debug_state.h:275` | FIXED: §2.7 states the whole rule body runs under one `InspectionScope` (`debug_state.h:104-115`), the same `guest_access()` gate B2 adds to the `NextReg::write` hook; design-backend aligned §4.2a in both docs (confirmed 2026-09-27) |
 
 CONTESTED: none.
+
+## Appendix G — WP1 as built (2026-09-29)
+
+`src/script/` (target `jnext_script`): `lexer.*`, `parser.*` over `ast.h`,
+`names.*` (the one table of reserved words, state names and payload names),
+`check.*` (load-time checks and name binding), `evaluator.*`, and the public
+`expr_compiler.h`. Suite `script_parse_test` (`gate: none`). Every decision
+below is one §2.1 left open; none extends the language.
+
+### G.1 Grammar decisions
+
+| # | Decision | Why |
+|---|---|---|
+| G1 | **Line ends are whitespace.** §2.1's `NEWLINE` alternative is satisfied by treating every line end as a blank. | No construct needs one: §3 puts several actions on one line (`on frame 0 once do set AUDIO_MUTE = 0b00111 end`) and one action per line elsewhere, and no action or top-level item begins with a token that could continue an expression, so a line end never decides a parse. |
+| G2 | **The bracketed accessors are single tokens, spelled as §2.1 quotes them** — `mem[` `mem16[` `phys[` `nextreg[` `mmu[` `page[` `stack[` `changed(` `depth(` — with no space before the bracket. | It is what separates the `addr_spec` keyword `page` from the accessor `page[s]`, and the event `nextreg` from `nextreg[r]`: `on execute page[3]` is an address, `on execute page 3` a page filter. `mem [x]` is a name followed by a bracket, an error. |
+| G3 | **Every lower-case word of §2.1 is reserved** (plus the accessor stems): it, the upper-case built-in and payload names, and `CPU`/`DMA`/`COPPER` can be no variable, rule label or snapshot name. `@name` accepts any identifier, keywords included. | Case already separates built-ins from user names (§2); reserving the grammar words keeps `on io_write mask m value v` and friends unambiguous. A MAP symbol is not a keyword. |
+| G4 | **All binary operators are left-associative, comparisons included** (`a < b < c` is `(a < b) < c`, not a chain). `not` sits below the comparisons, `&` above them — exactly §2.1's list — so `x & 0x70 == 0x10` is `(x & 0x70) == 0x10`, unlike C. | §2.1 gives levels, not associativity; left is the only reading that makes `10 - 3 - 2` equal 5. §3(f) `line.jds` relies on the `&`/`==` order. |
+| G5 | **Juxtaposed expressions** (`dump_mem a n`, `out p v`, `joystick N e`, `log indent n "…"`, `assert e "…"`): the first ends at the first token that cannot continue it. `dump_mem a -1` is therefore `dump_mem (a - 1)` with its length missing; write `dump_mem a (-1)`. | The grammar puts two `expr`s side by side; only a leading `-` can be read both ways, and the greedy binary reading is the conventional one. |
+| G6 | **Integer literals**: the prefixes are lower case as §2.1 writes them (`0x`, `0b`, `$`); at most 32 bits, the value being the 32-bit pattern (`0xFFFFFFFF` is -1); a literal running into a letter or digit it cannot use (`0X10`, `0b102`) is an error, not two tokens. | §2.1: integers are 32-bit signed. |
+| G7 | **Strings have no escape sequences**: a backslash, a `$` not before `{` and a lone `}` are ordinary characters (a Windows path is written as it is); so a string cannot contain `"`. Inside `${…}` a `"` is an error, and so are `;` and `#` — §2 says no comment form is a comment inside a string. `fmt` is exactly `x2`, `x4` or `d`. | §2.1 says `char` and nothing more; escapes would be an extension. |
+| G8 | `hostkey` and `joystick` take an integer **literal** (§2.1 writes `INT`), range-checked at parse time: 1..8 and 1 or 2. | |
+| G9 | **Arithmetic**: 32-bit wrapping `+ - * << -x`; `/` truncates toward zero and `%` takes the dividend's sign (INT_MIN / -1 wraps, `%` gives 0); a shift uses the low five bits of its count; `>>` is arithmetic; `and`/`or`/`not` and comparisons yield 1 or 0, `and`/`or` short-circuit. | §2.1 fixes the width and the wrap, not these. |
+| G10 | **Snapshot fields** are the §2.5 record: `A B C D E H L F I R AF BC DE HL IX IY SP PC AF2 BC2 DE2 HL2 IFF1 IFF2 IM STACK0 MMU[n] FRAME CYCLE`. Flags and `HALTED` are not fields (not in the record). | §2.5 lists the record and a few examples ending in "…". |
+| G11 | **Errors**: `line:column: message`, both 1-based, the column counting characters (UTF-8 code points; a tab is one). The parser stops at the first syntax error; `check_script` reports every load-time error. The loader prefixes the file name. | §6.5 rejects a script with any load-time error whole. |
+| G12 | `check_script` checks **one text**. How several `--script` files share labels, variables and snapshot names is WP3's; it can check a merged tree. A snapshot name is not checked against a `snap`: an unsnapped stack is empty at run time (§2.5). | |
+| G13 | **Nesting is bounded, and refused past the bound** (review round 1, B1): an expression tree at most **200** nodes tall and the parser's own recursion at most 200 levels (`(`, index, interpolation, `not`, unary), `if` nesting at most **64**. Enforced at parse time by the only producer of trees (`parser.h` `MAX_EXPR_DEPTH`, `MAX_IF_DEPTH`), so the binder, the checker, the evaluator and the destructors — the only recursive passes — are bounded by construction. Past a bound the input is refused, positioned at the operator / `if` / opening token: "expression too long or too deeply nested (limit 200 levels; each chained operator, bracket or nesting counts one)", or "`if` nested too deeply (limit 64)". Siblings are not nesting: a flat script, many rules, many actions and `if`s in a row are unaffected. **A chain of operators is not a list of siblings**: the tree is left-deep, so every chained operator is one level, parentheses or not, and `a or b or …` stops at 199 operators (200 terms) — split a longer condition across rules. (Review round 2 corrected this sentence, which first claimed the opposite.) | Without it a 100 KB `1+1+…+1` (a loop in the parser but a left-deep tree) or 20000 nested `if`s overflowed the stack. Measured cost of the deepest accepted shapes: ~300 KB of stack at -O2, ~450 KB at -O0 (the precedence cascade is ~12 frames per parenthesis level); row DEPTH-STACK runs them all on a 1 MB thread stack. The engine runs on the emulation (main) thread: 8 MB on Linux/macOS, 16 MB reserved on Windows. |
+
+### G.2 The library as built (§5.4)
+
+- `compile_expr(text, PayloadScope, CompileOptions)` → `{dbg::Condition predicate, errors}`. `PayloadScope` converts implicitly from `dbg::EventKind` — §5.4's spelling compiles as written — and defaults to `None`; it refines by the access of a `Mem`/`Port` rule and the sub-kind of a `Copper`/`Dma` rule. A bare kind admits only the names **every** event of that kind carries (a bare `Mem` scope refuses `PREV`, which a read does not carry).
+- `eval_expr(text, const Debugger&)` — §5.4 writes `eval_expr(text)`; it needs the facade to read anything.
+- `@symbol` resolves **once, at compile time**, through `CompileOptions::symbols` (`eval_expr` uses the backend's table); with no resolver every `@symbol` is refused. §6.5 makes an unknown symbol a load-time error, which a lazy lookup could not be.
+- A run-time failure (division by zero, an accessor out of range, a refused `phys[]` page) makes the predicate **false** and is reported to `CompileOptions::on_runtime_error` with the failing node's position; WP3 passes a handler that disables the rule and logs it (§6.5).
+- Strings and the script-only forms (a `var`, `NAME.field`, `changed()`, `depth()`) are compile errors in `compile_expr`: a condition is an integer expression. WP2/WP3 compile `when` clauses that read interpreter state with that state in scope.
+- The `stop` scope exists for the script checker only; `compile_expr` refuses it (a stop is not a backend event).
+
+### G.3 Name binding
+
+- `PC` is the payload PC in every event rule (the causing instruction, REQ-dsl-12) and the CPU's PC with no event; a `set PC` target is always the register. `HC_ULA`/`CVC` are the Copper step's in `copper` rules only (§2.3) and live elsewhere, a `scanline` rule included. `FRAME` and `CYCLE` are always live.
+- Filter bounds and `var` initializers bind with **no event** — they are evaluated at registration — so a payload name there is an error.
+- `SOURCE`: the backend's `EventSource` order is Cpu, Copper, Dma; §2.1's constants are CPU 0, DMA 1, COPPER 2. Mapped explicitly (row PAYV-SOURCE).
+- `KEY` is N of the host name `scriptN`. `LEN` is the programmed length on `dma start` and the bytes moved on `dma end`. `WAIT_H` is the threshold `(hpos << 3) + 12` the backend carries, as §2.3 says ("hpos threshold") — so §3(f)'s `WAIT(95,${WAIT_H})` prints 428 for `hpos` 52.
+- `MACHINE` is 0/1/2/4 for 48K/128K/+3/Next; 3 (Pentagon) is never produced — jnext has no Pentagon machine type any more, and `MachineInfo` carries no timing variant.
+- `CYCLE`, `TFRAME`, `FRAME` wrap to 32 bits like every value: `CYCLE` passes 2^31 after about 76.7 s of emulated time (~3800 frames). A difference (`CYCLE - t_int`) stays right across the wrap; an ordered comparison with an absolute `CYCLE` does not. The `on cycle N` filter itself is 64-bit.
+
+### G.4 Findings against the design (not worked around)
+
+| # | Finding | Consequence in WP1 | Resolution needed |
+|---|---|---|---|
+| F1 | §2.3 lists `SRC DST LEN DMA_MODE IO_SRC IO_DST` for "dma start/byte/end", but the backend fills `dma_is_io_src/dst` on **Byte only** (`Dma::latch_start_` / `latch_end_` set no I/O flag; REQ-dsl-23's Start payload is `{src, dst, len, mode, dir}`), and the Byte payload has no length or mode. | Each name is admitted only where the backend carries it (§5.4: a predicate "can never read a missing payload"). §3(f) `dma.jds`'s `on dma start … ${IO_DST}` therefore **parses but fails the load-time check**; row WORK-3F-DMA pins that exactly this one error is reported. | Either the backend latches the I/O flags on `Start` (a REQ to design-backend), or §3(f) and §2.3 drop `IO_DST` from `dma start`. |
+| F2 | §2.1 says the `dma byte` filter is the **destination** range; the backend's `Dma{Byte}` filter matches **either** endpoint (`events.h`, `EventFilter::lo`). The Dma filter also has no page qualifier, though `addr_spec` lets `on dma byte page P` parse. | None (registration is WP3). | WP3: AND a `DST` range condition into the rule's predicate; refuse `dma byte … page` at load time. |
+| F3 | The page-only `addr_spec` allows a page **range** (`on execute page 0x20..0x23`), but the backend's `Execute` filter has one `page` qualifier; only `Mem` has a page set. | None. | WP3: refuse a multi-page `execute` filter at load time (one rule stays one subscription). |
+| F4 | §3(a): "the parser warns on a `when PAGE ==` over a range wider than one slot". The range is known only after `@symbol` resolution. | WP1 does not warn. | WP3, at registration, where the resolved range is known. |
+| F5 | §8.1 asks `script_parse_test` for "one row per event kind proving the rule became exactly one subscription". | Registration is WP3; those rows land with it. | WP3. |
+| F6 | An `on stop` rule's `PC` binds to the payload PC, but a stop is not an `Event`. | None. | WP3 supplies it from `PausedInfo`. |

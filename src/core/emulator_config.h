@@ -210,6 +210,12 @@ struct EmulatorConfig {
     // value is that port. CLI-only, like the address.
     int dzrp_port = -1;
 
+    // GH #281 (--gdb-port): the TCP port the GDB Remote Serial Protocol server
+    // (z88dk-gdb) listens on. The same rule as `dzrp_port`: -1 = off, the
+    // default; 0 = an OS-chosen port, logged as `gdb: listening on
+    // <addr>:<port>`; any other value is that port. CLI-only.
+    int gdb_port = -1;
+
     // GH #280 (--zrcp-port): the TCP port the ZEsarUX remote command protocol
     // server listens on. The same port rule as `dzrp_port`: -1 = off (the
     // default), 0 = an OS-chosen port logged as `zrcp: listening on

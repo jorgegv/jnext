@@ -56,7 +56,7 @@ if want debug-listen-address-func; then
     noport_out=$(dla_run --debug-listen-address 127.0.0.1) && noport_rc=0 || noport_rc=$?
     if [[ $noport_rc -eq 0 ]]; then
         fails+=("a valid address with no server port was accepted")
-    elif ! grep -q -- "--debug-listen-address requires a debugger server port (--dzrp-port or --zrcp-port)" <<<"$noport_out"; then
+    elif ! grep -q -- "--debug-listen-address requires a debugger server port (--dzrp-port, --zrcp-port or --gdb-port)" <<<"$noport_out"; then
         fails+=("a valid address with no server port was refused for the wrong reason")
     elif grep -q ": listening on " <<<"$noport_out"; then
         fails+=("something listened with no server port")
