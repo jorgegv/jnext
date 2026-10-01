@@ -1947,9 +1947,12 @@ hand-maintain a priority list.</p>
 <p>An unmatched read returns <code>0xFF</code> via the default-read callback, matching
 <code>zxnext.vhd:1868-1878</code>. The floating bus is <strong>not</strong> the default: it is the
 registered read handler of port <code>0xFF</code> alone, because the VHDL mux that produces
-it is scoped to the <code>port_ff_rd</code> decode. <code>PortDispatch::in()</code> and <code>out()</code> also
-carry the RZX hooks — a playback override that substitutes recorded <code>IN</code> values,
-and a recording tap.</p>
+it is scoped to the <code>port_ff_rd</code> decode. The RZX hooks — a playback override
+that substitutes recorded values, and a recording tap — are in
+<code>PortDispatch::guest_read()</code>, the read the emulated machine makes: the CPU's
+<code>in()</code> forwards to it and the DMA's I/O read calls it. <code>read()</code> has no hooks,
+because tools (the debugger's <code>port_in()</code>) use it too, and <code>out()</code> is plain
+<code>write()</code>: an RZX records no <code>OUT</code>s.</p>
 <h2 id="how-a-subsystem-gets-a-port">How a subsystem gets a port<a class="headerlink" href="#how-a-subsystem-gets-a-port" title="Permanent link">&para;</a></h2>
 <p>It does not register itself. Every handler is a lambda in <code>Emulator::init()</code>
 capturing <code>this</code>, and that is deliberate rather than lazy: nearly every real
