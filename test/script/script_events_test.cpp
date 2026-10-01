@@ -804,8 +804,8 @@ static void stop_rows() {
                                 "bytes; a length over 4096 is a run-time error",
               ok && g.sink.count(" regs AF=") == 1 && g.sink.count("PC=8000") == 1 && g.sink.count(" mmu 0:") == 1 &&
                   m0.find(" 9000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 [") != std::string::npos &&
-                  m1.find(" 9010: 00 00 00 AB [") != std::string::npos && g.eng->runtime_errors() == 1 &&
-                  g.sink.count("0..4096") == 1,
+                  m1.find(" 9010: 00 00 00 AB [") != std::string::npos && g.sink.count("] 90") == 2 &&
+                  g.eng->runtime_errors() == 1 && g.sink.count("0..4096") == 1,
               g.sink.tail(6));
     }
     {
@@ -1014,10 +1014,18 @@ static void input_rows() {
         const uint16_t after = g.dbg->input_state().joy_left12;
         g.frames(1);
         const uint16_t right = g.dbg->input_state().joy_right12;
+        // A frame rule with no deferred action before it: the engine's own
+        // edge subscription does not exist yet, so only "at once" lands it in
+        // this frame (one made during the delivery is not visited by it).
+        Rig h(kPark);
+        const bool ok2 = h.load("on frame 1 do joystick 2 0x04 end\n");
+        h.frames(2);
+        const uint16_t first = h.dbg->input_state().joy_right12;
         check("SCRIPT-EV-JOYSTICK", "`joystick 1` from a scanline rule is applied at the frame edge (still 0 "
-                                    "later in the same frame, 0x21 after it); from a frame rule at once",
-              ok && mid == 0 && after == 0x21 && right == 0x02,
-              "mid=" + hex(mid) + " after=" + hex(after) + " right=" + hex(right));
+                                    "later in the same frame, 0x21 after it); from a frame rule at once, even "
+                                    "as the script's first deferred-class action",
+              ok && mid == 0 && after == 0x21 && right == 0x02 && ok2 && first == 0x04,
+              "mid=" + hex(mid) + " after=" + hex(after) + " right=" + hex(right) + " first=" + hex(first));
     }
     {
         Rig g(kPark);
@@ -1029,6 +1037,10 @@ static void input_rows() {
         write_file(diff, std::string(scr.begin(), scr.end()));
         const std::string shrt = "/tmp/jnext_sev_short.scr";
         write_file(shrt, std::string(scr.begin(), scr.begin() + 100));
+        scr[100] ^= 0xFF;
+        scr[0] ^= 0xFF;
+        const std::string zero = "/tmp/jnext_sev_zero.scr";
+        write_file(zero, std::string(scr.begin(), scr.end()));
         size_t fails_mid = 99;
         Subscription s;
         s.kind = EventKind::Scanline; s.filter.scanline = 200;
@@ -1039,7 +1051,8 @@ static void input_rows() {
         };
         const bool ok = g.load("on scanline 50 once do compare_scr \"" + same + "\" \"same\" "
                                "compare_scr \"" + diff + "\" \"differs\" "
-                               "compare_scr \"" + shrt + "\" \"short\" end\n");
+                               "compare_scr \"" + shrt + "\" \"short\" "
+                               "compare_scr \"" + zero + "\" \"zero\" end\n");
         g.dbg->subscribe(g.tc, s);
         g.frames(3);
         check("SCRIPT-EV-COMPARE-SCR", "`compare_scr` runs at the frame edge (nothing failed later in the "
@@ -1048,7 +1061,8 @@ static void input_rows() {
               ok && fails_mid == 0 && g.paused() && g.sink.count("ASSERT FAILED: same") == 0 &&
                   g.sink.count("ASSERT FAILED: differs") == 1 &&
                   g.sink.count("first difference at offset 100") == 1 &&
-                  g.sink.count("size 100 != screen 6912") == 1 && g.sink.count("ASSERT FAILED: short") == 1,
+                  g.sink.count("size 100 != screen 6912") == 1 && g.sink.count("ASSERT FAILED: short") == 1 &&
+                  g.sink.count("first difference at offset 0 ") == 1 && g.sink.count("ASSERT FAILED: zero") == 1,
               "mid=" + std::to_string(fails_mid) + " " + g.sink.tail());
     }
     {
@@ -1073,18 +1087,36 @@ static void input_rows() {
 
 static void boundary_rows() {
     {
-        // A save issued mid-frame by a rule that also stops: the pump that
-        // follows finds the machine paused INSIDE the frame and leaves the save
-        // queued — running the frame out would move the user's machine — and
-        // the save happens at the next frame boundary after the resume.
-        Rig g(kWriter);
+        // Two writes at ONE boundary (LD (nn),HL): the first fails, and the
+        // second — already in the same drain — must not enter the dead rule.
+        //   LD HL,0x1234 ; LD (0x9000),HL ; JR $
+        Rig g({0x21, 0x34, 0x12, 0x22, 0x00, 0x90, 0x18, 0xFE});
+        const bool ok = g.load("on write 0x9000..0x9001 do log \"q ${1 / (VALUE - 0x34)}\" end\n");
+        g.frames(1);
+        const auto r = g.eng->rules();
+        check("SCRIPT-EV-RUNTIME-SAME-BOUNDARY", "a rule that fails on the first of two writes delivered at one "
+                                                 "boundary is not entered for the second",
+              ok && r.size() == 1 && r[0].dead && r[0].hits == 1 && g.sink.count("] q ") == 0,
+              "hits=" + std::to_string(r.empty() ? 0 : r[0].hits) + " " + g.sink.tail(3));
+    }
+    {
+        // A save issued mid-frame by a rule that also stops: a pump that finds
+        // the machine paused INSIDE a frame leaves the save queued — running
+        // the frame out would move the user's machine — and the save happens
+        // at the next frame boundary after the resume.
+        Rig g(kLoop);
         const std::string sna = "/tmp/jnext_sev_mid.sna";
         std::remove(sna.c_str());
-        const bool ok = g.load("on write 0x9001 do save_snapshot \"" + sna + "\" stop end\n");
-        g.frames(1);
+        const bool ok = g.load("on write 0x9000 once when FRAME == 1 do save_snapshot \"" + sna + "\" stop end\n");
+        // Two frames in ONE tick, as a fast-forwarding loop owner runs them:
+        // the pump then sees frame 0 ended AND the machine stopped inside
+        // frame 1, which is when `on_frame_ended()` reaches the engine mid-frame.
+        g.emu.run_frame();
+        g.emu.run_frame();
         const uint64_t clk = g.emu.clock().get();
         g.dbg->pump(jnext::dbg::PumpBudget{});
-        const bool held = g.paused() && read_file(sna).empty() && g.emu.clock().get() == clk &&
+        const bool held = g.paused() && g.dbg->time().frame == 1 && g.dbg->time().cycle_in_frame > 0 &&
+                          read_file(sna).empty() && g.emu.clock().get() == clk &&
                           g.sink.count("advanced to the frame boundary") == 0;
         g.dbg->run(g.tc);
         g.frames(2);
@@ -1166,14 +1198,15 @@ static void device_rows() {
     {
         Rig g(kLoop);
         const bool ok = g.load("on write 0x9000 do log \"w\" end\non scanline 10 do joystick 1 1 end\n");
-        g.frames(1);
+        g.frames(3);
         const size_t before = g.subs().size();
         const uint64_t hits = g.hits(0);
         g.eng->unload_all();
         const size_t lines = g.sink.lines.size();
         g.frames(1);
-        check("SCRIPT-EV-UNLOAD", "`unload_all` removes every subscription the engine made — the rules' and "
-                                  "its frame-edge one — and nothing fires after it",
+        check("SCRIPT-EV-UNLOAD", "the engine keeps ONE frame-edge subscription however many deferred "
+                                  "actions it queues (three frames, three joysticks); `unload_all` removes "
+                                  "every subscription it made and nothing fires after it",
               ok && before == 3 && hits > 0 && g.subs().empty() && g.eng->rules().empty() &&
                   g.sink.lines.size() == lines,
               "before=" + std::to_string(before) + " after=" + std::to_string(g.subs().size()));

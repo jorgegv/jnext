@@ -284,8 +284,9 @@ std::vector<Subscription> ScriptEngine::subscriptions_for(Unit& u, RuleRec& rec,
     // A condition exists iff the rule has a `when` or the engine refines the
     // filter (§8: "a non-null predicate iff `when` was written" — plus the two
     // refinements Appendix I names). A rule a run-time error disabled is
-    // stopped by its disabled subscriptions (`runtime_error`), and a delivery
-    // of the same boundary already under way by `run_rule`.
+    // stopped by its disabled subscriptions (`runtime_error`) — the backend
+    // skips a subscription disabled earlier in the same drain too (row
+    // SCRIPT-EV-RUNTIME-SAME-BOUNDARY).
     auto finish = [&](Subscription s) {
         if (when || extra) {
             s.condition = [when, extra](const Event& e, const dbg::Debugger& d) {
@@ -478,7 +479,6 @@ std::vector<Subscription> ScriptEngine::subscriptions_for(Unit& u, RuleRec& rec,
 // ---------------------------------------------------------------------------
 
 Verdict ScriptEngine::run_rule(RuleRec& r, const Event& ev, dbg::Debugger& d) {
-    if (r.dead) return Verdict::Continue;
     if (ev.overflowed && ev.cycle != overflow_logged_cycle_) {
         overflow_logged_cycle_ = ev.cycle;
         log(dbg::LogLevel::Warn, "SCRIPT: event ring overflowed at CYCLE " + std::to_string(ev.cycle) +
