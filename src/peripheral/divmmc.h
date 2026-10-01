@@ -210,8 +210,9 @@ public:
     uint8_t read(uint16_t addr) const;
 
     /// Write a byte to the DivMMC overlay (addr 0x0000-0x3FFF).
-    /// Writes to read-only regions are silently ignored.
-    void write(uint16_t addr, uint8_t val);
+    /// Writes to read-only regions are silently ignored. Returns whether the
+    /// byte was stored (GH #281 F1: `Mmu::write_landed` reports it upward).
+    bool write(uint16_t addr, uint8_t val);
 
     /// Clear the mapram OR-latch (bit 6 of port 0xE3).
     /// VHDL zxnext.vhd:4184-4185 — writing NR 0x09 with bit 3 set

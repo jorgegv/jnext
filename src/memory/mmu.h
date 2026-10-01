@@ -443,7 +443,18 @@ public:
         return val;
     }
 
-    inline void write(uint16_t addr, uint8_t val) override {
+    inline void write(uint16_t addr, uint8_t val) override { (void)write_landed(addr, val); }
+
+    // GH #281 (F1) — `write()` itself, reporting its own routing decision:
+    // true when the byte LANDED somewhere the CPU's write reaches — plain RAM,
+    // an overlay's RAM (Multiface, DivMMC, Layer 2 write-over), the alt-ROM or
+    // config-mode SRAM — and false when it was DROPPED as read-only (ROM, the
+    // Multiface / DivMMC ROM halves, an inactive Layer 2 SRAM page, an unmapped
+    // slot). The ONE copy of the routing: `write()` is this with the answer
+    // discarded, and the debugger's `poke(Cpu)` counts what landed from it
+    // rather than re-deriving the overlay rules. Forced inline so the guest's
+    // hot write path is exactly the code it was.
+    [[gnu::always_inline]] inline bool write_landed(uint16_t addr, uint8_t val) {
         // Check data breakpoints (only when breakpoints are armed and watchpoints exist)
         if (debug_state_ && debug_state_->watchpoints_live() &&
             debug_state_->wr_watch_armed(addr)) {
@@ -458,15 +469,17 @@ public:
         if (multiface_ && addr < 0x4000 && mf_overlay_active_()) {
             if (addr >= 0x2000) {
                 mf_ram_write_(addr, val);
+                return true;
             }
             // else: ROM area — VHDL sram_pre_rdonly=1 → write ignored.
-            return;
+            return false;
         }
         // DivMMC overlay: intercept writes to 0x0000-0x3FFF when active.
         // Arbiter (zxnext.vhd:3084) puts DivMMC above the config_mode SRAM
         // routing, so DivMMC is checked before the config-mode fallthrough.
         if (divmmc_ && addr < 0x4000) {
-            if (divmmc_write(addr, val)) return;
+            bool landed = false;
+            if (divmmc_write(addr, val, landed)) return landed;
         }
         // Layer 2 write-over: redirect writes to L2 RAM banks. Arbiter line
         // 3100 places Layer 2 above the config_mode path too.
@@ -495,13 +508,13 @@ public:
             // is VHDL-faithful and cheap.
             const uint8_t sum = static_cast<uint8_t>(bank + bofs);
             if ((sum & 0x70) == 0x70) {
-                return;  // SRAM inactive — write dropped per VHDL :3102
+                return false;  // SRAM inactive — write dropped per VHDL :3102
             }
             uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
             uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page | ((addr >> 13) & 1)));
             uint8_t* p = ram_.page_ptr(phys_page);
             if (p) p[addr & 0x1FFF] = val;
-            return;
+            return p != nullptr;
         }
         int slot = addr >> 13;
         // Alt-ROM write override (VHDL zxnext.vhd:3056, 3078, 3116-3123).
@@ -517,7 +530,7 @@ public:
             !config_mode_ && addr < 0x4000 && read_only_[slot]) {
             uint8_t* p = ram_.page_ptr(altrom_sram_page_(addr));
             if (p) p[addr & 0x1FFF] = val;
-            return;
+            return p != nullptr;
         }
         // Config-mode routing (VHDL zxnext.vhd:3044-3050, sram_pre_rdonly<='0'):
         // writes to 0x0000-0x3FFF on ROM-mapped slots route to SRAM at bank
@@ -526,11 +539,11 @@ public:
         if (config_mode_ && addr < 0x4000 && read_only_[slot]) {
             uint8_t* p = ram_.page_ptr((static_cast<uint16_t>(nr_04_romram_bank_) << 1) | slot);
             if (p) p[addr & 0x1FFF] = val;
-            return;
+            return p != nullptr;
         }
-        if (read_only_[slot]) return;
+        if (read_only_[slot]) return false;
         uint8_t* ptr = write_ptr_[slot];
-        if (!ptr) return;
+        if (!ptr) return false;
         ptr[addr & 0x1FFF] = val;
         // VHDL zxnext.vhd:4498-4509 — p3_floating_bus_dat captures cpu_do
         // on every contended memory write. Verify9-memory class-(c) →
@@ -591,6 +604,7 @@ public:
                 }
             }
         }
+        return true;
     }
 
     // ── G12 — Nirvana-class attribute-mux public API ───────────────────
@@ -1934,7 +1948,9 @@ private:
 
     // Out-of-line DivMMC helpers (defined in mmu.cpp to avoid circular include)
     bool divmmc_read(uint16_t addr, uint8_t& val) const;
-    bool divmmc_write(uint16_t addr, uint8_t val);
+    /// True when DivMMC's overlay took the write (the byte is then DivMMC's,
+    /// landed or not); `landed` says whether it was stored (GH #281 F1).
+    bool divmmc_write(uint16_t addr, uint8_t val, bool& landed);
 
     // Out-of-line Multiface overlay helpers — defined in mmu.cpp so
     // multiface.h does not need to be pulled into mmu.h's transitive

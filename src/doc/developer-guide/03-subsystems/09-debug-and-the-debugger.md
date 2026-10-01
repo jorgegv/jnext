@@ -258,6 +258,15 @@ that is not optional. A delivery happens inside `run_frame()`'s
 pokes an address it is watching would latch a watch on itself. `poke(Cpu)` takes
 a second scope of its own, so the property holds for any caller on any path.
 
+**`poke(Cpu)` reports what landed.** Every byte goes through
+`Mmu::write_landed()` — `Mmu::write` itself, returning its routing decision —
+so a byte an overlay takes (Layer 2 write-over, DivMMC or Multiface RAM, the
+alt-ROM write-over, config-mode SRAM) counts, and a byte dropped on ROM does
+not. The result is `Ok` only when every byte landed; otherwise
+`RefusedReadOnly`, carrying how many did (GH #281). Nothing is refused up
+front: a range across ROM and RAM still lands its RAM bytes, as the CPU's own
+write would.
+
 **`Mmu::write` latches before the overlay arbitration.** The watch check is at the
 TOP of the function, before the Multiface / DivMMC / Layer 2 / alt-ROM /
 config-mode cascade and before the `read_only_` drop, so a guest write into ROM
@@ -689,8 +698,10 @@ floating-bus latch) and the eight MMU pages.
 The three protocol servers the epic plans — DZRP, ZRCP and GDB RSP — share one
 transport, in **`src/remote/`** (target `jnext_remote`). It has no toolkit
 dependency and is built in every configuration. It carries no protocol: it
-never parses a byte. The first server on it is DZRP (`--dzrp-port`, 3.10); the
-loop owners open it through `src/platform/debug_servers.*`.
+never parses a byte. The servers on it are DZRP (`--dzrp-port`, 3.10) and GDB
+RSP (`--gdb-port`, `src/remote/gdb/`); each is its own listener with its own
+backend client, so both may run at once. The loop owners open them through
+`src/platform/debug_servers.*`.
 
 `remote::Server` is a `jnext::dbg::Service`, so `pump()` drives it: each
 `service_once(wait_ms)` accepts, reads, asks the adapter's `Protocol` to execute
@@ -729,7 +740,7 @@ real socket on `127.0.0.1` port 0, and through `pump()`.
 
 `--debug-listen-address ADDR` (numeric only, default `127.0.0.1`) is validated
 in `main.cpp` and held in `EmulatorConfig::debug_listen_address` for the servers
-to bind; it is refused unless a server port (`--dzrp-port`) is given too. The design, and the reason behind each rule above, is
+to bind; it is refused unless a server port (`--dzrp-port` or `--gdb-port`) is given too. The design, and the reason behind each rule above, is
 `doc/design/debug-subsystem/transport.md`.
 
 ### The scripting language front end (package S)
