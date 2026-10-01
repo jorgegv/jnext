@@ -3348,6 +3348,81 @@ static void wp4_slot_rows() {
               esc(r1, 100) + " / " + esc(r2, 100));
     }
     {
+        // What does NOT count as another client's breakpoint in run n: a
+        // disabled one, and a Log-only subscription.
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0xFE});
+        const auto other = rig.dbg->attach({"gdb", ClientKind::Test}).value;
+        jnext::dbg::Subscription off;
+        off.kind      = jnext::dbg::EventKind::Execute;
+        off.filter.lo = off.filter.hi = 0x8003;
+        off.enabled   = false;
+        rig.dbg->subscribe(other, off);
+        jnext::dbg::Subscription log = off;
+        log.filter.lo = log.filter.hi = 0x8004;
+        log.enabled   = true;
+        log.action    = jnext::dbg::Action::Log;
+        rig.dbg->subscribe(other, log);
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 A=99");
+        const std::string r = c.cmd("run 6", 32);
+        check("ZRCP-BP-25", "run n with a PC-free slot armed runs past another client's DISABLED "
+                            "breakpoint (8003) and its Log-only subscription (8004): all 6 "
+                            "opcodes",
+              rig.pc() == 0x8006 && r.find("Returning after 6 opcodes\n") != std::string::npos,
+              esc(r, 160));
+        rig.dbg->detach(other);
+    }
+    {
+        // The fired-line fallback names a PC-free slot only when it fired at
+        // this boundary (its edge), not merely because it is true there.
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0xFE});
+        Z80Registers z = rig.emu.cpu().get_registers();
+        z.AF = 0x0000;
+        rig.emu.cpu().set_registers(z);
+        const auto other = rig.dbg->attach({"gdb", ClientKind::Test}).value;
+        jnext::dbg::Subscription s3;
+        s3.kind      = jnext::dbg::EventKind::Execute;
+        s3.filter.lo = s3.filter.hi = 0x8003;
+        rig.dbg->subscribe(other, s3);
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 A=0");
+        const std::string first  = run_to_stop(c);   // the edge, at 8001
+        const std::string second = run_to_stop(c);   // A=0 still: the other's, at 8003
+        check("ZRCP-BP-26", "a PC-free slot that fired once and is still true is not named when "
+                            "another client's breakpoint stops the machine (8003): plain stop",
+              fired_stop(first, 0x8001, "A=0") && rig.pc() == 0x8003 &&
+                  second.find("Breakpoint fired") == std::string::npos &&
+                  ends_with(second, PROMPT_STEP),
+              esc(first, 80) + " / " + esc(second, 120));
+        rig.dbg->detach(other);
+    }
+    {
+        // A slot re-set from a PC-free condition to a fast-path one starts
+        // fresh: no On-Change state of the old condition survives.
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0xFE});
+        Z80Registers z = rig.emu.cpu().get_registers();
+        z.AF = 0x0000;
+        rig.emu.cpu().set_registers(z);
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 A=0");
+        c.cmd("run 2", 32);                          // the edge: its state is now "true"
+        c.cmd("set-breakpoint 1 PC=8003H");
+        z = rig.emu.cpu().get_registers();
+        z.PC = PROG;
+        rig.emu.cpu().set_registers(z);
+        const std::string r = c.cmd("run 6", 32);
+        check("ZRCP-BP-27", "re-set from A=0 (fired) to PC=8003H, run n stops at 8003 with the "
+                            "new condition's fired line",
+              rig.pc() == 0x8003 && r.find("Breakpoint fired: PC=8003H\n") != std::string::npos,
+              esc(r, 160));
+    }
+    {
         // A bare native variable is a condition on its value: SEG3 is 0 on
         // the 48K, so it never fires.
         Rig rig;
