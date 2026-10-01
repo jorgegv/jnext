@@ -50,6 +50,7 @@
 
 #include <array>
 #include <chrono>
+#include <memory>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -255,6 +256,14 @@ private:
     void cmd_set_breakpointaction(const Cmd& c);
     void cmd_set_membreakpoint(const Cmd& c);
 
+    /// ZEsarUX's "On Change" (`debug_breakpoints_conditions_saltado`) for a
+    /// PC-free slot: its condition's value at the last boundary it was
+    /// evaluated at, and whether that evaluation was a false→true edge.
+    struct Edge {
+        bool prev  = false;
+        bool fired = false;
+    };
+
     /// One condition slot (§4.1 `slots[1..100]`).
     struct Slot {
         Translation            cond;          ///< `cond.canonical` is what is listed and echoed
@@ -263,6 +272,9 @@ private:
         bool                   enabled  = false;
         std::string            action;        ///< as set; empty / menu / break = Stop
         jnext::dbg::EventId    sub = jnext::dbg::EVENT_NONE;
+        /// Set while armed, for a PC-free slot only (fast-path slots fire on
+        /// every arrival — the PC term is false at the instruction before).
+        std::shared_ptr<Edge>  edge;
     };
     /// One run of equal non-zero memory-breakpoint type (§4.2).
     struct MemRange {
@@ -274,6 +286,8 @@ private:
     void arm_slot(int index);
     void sync_mem_ranges();
     bool slot_fires_at(int index, std::uint16_t pc) const;
+    bool slot_edge_at(int index, std::uint16_t pc);
+    bool other_breakpoint_at(std::uint16_t pc) const;
     std::string evaluate_text(const std::string& expr) const;
     void queue_action_log(int index);
     void flush_logs();

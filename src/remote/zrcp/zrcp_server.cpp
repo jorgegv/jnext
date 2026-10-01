@@ -843,27 +843,35 @@ void ZrcpServer::run_slice() {
             finish_run(run_remaining_ == 0);
             return;
         }
-        // Landed where a breakpoint would fire on the next resume — which the
-        // GH #221 step-off would skip. This session's own slots are asked with
-        // their own predicate (`slot_fires_at`); `probe_execute` answers for
-        // everyone else's, but it cannot evaluate a condition and it counts this
-        // session's slots too, so it is asked only where no slot of this session
-        // covers the PC (zrcp-frontend.md §11.8: the owner-approved
-        // `probe_execute -> vector<EventId>` that evaluates predicates is the
-        // fix, and is not in this build).
+        // The landing check. `run n` steps with the GH #221 step-off, which
+        // skips the `Execute` match of each stepped instruction, so no
+        // breakpoint is evaluated by the backend inside a `run n`: this is the
+        // one evaluation of the boundary the machine has landed on.
+        //   * This session's slots: their own predicate (a PC-free one through
+        //     its On-Change state). A stop slot ends the run; a print slot
+        //     prints and the run steps on, as ZEsarUX runs actions inside a run.
+        //   * Every other client's live `Execute` breakpoint at this PC (its
+        //     condition cannot be asked); and `probe_execute`, the only view of
+        //     a legacy `BreakpointSet` PC breakpoint, where no slot of this
+        //     session covers the PC — it counts this session's slots too.
+        // The owner-approved `probe_execute -> vector<EventId>` that evaluates
+        // predicates replaces the last two; it is not in this build (§11.8).
         bool covered = false;
+        bool stop    = false;
         for (int i = 0; i < BREAKPOINT_SLOTS; ++i) {
             const Slot& sl = slots_[static_cast<std::size_t>(i)];
             if (sl.sub == jnext::dbg::EVENT_NONE) continue;
             if (sl.cond.fast_pc && *sl.cond.fast_pc != st.pc) continue;
             covered = true;
-            if (action_stops(sl.action) && slot_fires_at(i, st.pc)) {
+            if (!slot_edge_at(i, st.pc)) continue;
+            if (!action_stops(sl.action)) {
+                queue_action_log(i);
+            } else if (!stop) {
                 run_landed_slot_ = i;
-                finish_run(run_remaining_ == 0);
-                return;
+                stop             = true;
             }
         }
-        if (!covered && dbg_.probe_execute(st.pc)) {
+        if (stop || other_breakpoint_at(st.pc) || (!covered && dbg_.probe_execute(st.pc))) {
             finish_run(run_remaining_ == 0);
             return;
         }
@@ -872,6 +880,7 @@ void ZrcpServer::run_slice() {
 }
 
 void ZrcpServer::finish_run(bool limit_reached) {
+    flush_logs();  // a print slot's line from this run goes before its reply
     std::string out;
     if (reset_stop_owed_) {
         // The reset answered it: the plain shape, never a `fired` line.
@@ -923,9 +932,8 @@ std::string ZrcpServer::fired_text(const RunState& st) const {
             // on the same instruction is still this session's reason.
             for (int i = 0; i < BREAKPOINT_SLOTS; ++i) {
                 const Slot& sl = slots_[static_cast<std::size_t>(i)];
-                if (sl.sub != jnext::dbg::EVENT_NONE && action_stops(sl.action) &&
-                    slot_fires_at(i, st.pc))
-                    return sl.cond.canonical;
+                if (sl.sub == jnext::dbg::EVENT_NONE || !action_stops(sl.action)) continue;
+                if (sl.edge ? sl.edge->fired : slot_fires_at(i, st.pc)) return sl.cond.canonical;
             }
             return "";
         case PauseReason::Kind::Watch: {
@@ -1818,12 +1826,30 @@ void ZrcpServer::arm_slot(int index) {
         dbg_.unsubscribe(cid_, sl.sub);
         sl.sub = jnext::dbg::EVENT_NONE;
     }
+    sl.edge.reset();
     if (!bp_master_ || !sl.enabled || !sl.has_cond) return;
     Subscription sub;
     sub.kind      = jnext::dbg::EventKind::Execute;
     sub.filter.lo = sl.cond.fast_pc ? *sl.cond.fast_pc : 0x0000;
     sub.filter.hi = sl.cond.fast_pc ? *sl.cond.fast_pc : 0xFFFF;
     sub.condition = sl.predicate;
+    if (!sl.cond.fast_pc) {
+        // ZEsarUX's default, "On Change" (`debug.c` cpu_core_loop_debug_check_
+        // breakpoints, `debug_breakpoints_cond_behaviour` = 1): a PC-free
+        // condition fires on a false→true edge only, so one that stays true
+        // stops (or prints) once, not at every instruction. Evaluated at every
+        // boundary, so the previous value is known; re-arming starts it false,
+        // as `debug_set_breakpoint` does.
+        sl.edge = std::make_shared<Edge>();
+        const auto inner = sl.predicate;
+        const auto edge  = sl.edge;
+        sub.condition = [inner, edge](const jnext::dbg::Event& ev, const jnext::dbg::Debugger& d) {
+            const bool v = !inner || inner(ev, d);
+            edge->fired  = v && !edge->prev;
+            edge->prev   = v;
+            return edge->fired;
+        };
+    }
     if (action_stops(sl.action)) {
         sub.action = Action::Stop;
     } else {
@@ -1852,6 +1878,35 @@ bool ZrcpServer::slot_fires_at(int index, std::uint16_t pc) const {
     ev.id    = sl.sub;
     ev.owner = cid_;
     return sl.predicate(ev, dbg_);
+}
+
+// The landing check of `run n` for slot `index` at `pc`: a fast-path slot as
+// `slot_fires_at`; a PC-free one through its On-Change state, which this
+// evaluation advances — `run n` steps with the GH #221 step-off, so the backend
+// never evaluates a slot there and this is its one evaluation per boundary.
+bool ZrcpServer::slot_edge_at(int index, std::uint16_t pc) {
+    Slot& sl = slots_[static_cast<std::size_t>(index)];
+    if (!sl.edge) return slot_fires_at(index, pc);
+    const bool v = slot_fires_at(index, pc);
+    sl.edge->fired = v && !sl.edge->prev;
+    sl.edge->prev  = v;
+    return sl.edge->fired;
+}
+
+// Another client's live `Execute` breakpoint covering `pc` (its filter and page;
+// its condition, if any, cannot be asked — §11.8). A subscription whose static
+// verdict neither stops nor has a handler that could is not a breakpoint.
+bool ZrcpServer::other_breakpoint_at(std::uint16_t pc) const {
+    const auto slots = dbg_.mmu_slots();
+    for (const auto& s : dbg_.subscriptions(true)) {
+        if (s.owner == cid_ || !s.live || s.kind != jnext::dbg::EventKind::Execute) continue;
+        if (pc < s.filter.lo || pc > s.filter.hi) continue;
+        if (s.filter.page != jnext::dbg::PAGE_ANY &&
+            s.filter.page != slots[static_cast<std::size_t>(pc >> 13)].effective_page)
+            continue;
+        if (s.action == Action::Stop || s.has_handler) return true;
+    }
+    return false;
 }
 
 // §4.2 — the maximal runs of equal non-zero type, diffed against the armed

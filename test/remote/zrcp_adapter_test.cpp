@@ -2642,6 +2642,7 @@ static void wp4_condition_rows() {
             {"12|10", "14"}, {"12^10", "6"}, {"1 AND 0", "0"}, {"1 AND 2", "1"}, {"0 OR 0", "0"},
             {"0 OR 3", "1"}, {"1 XOR 1", "0"}, {"1 XOR 0", "1"}, {"0 XOR 2", "1"}, {"0 XOR 0", "0"},
             {"NOT(0)", "1"}, {"NOT(5)", "0"}, {"1 and 1", "1"}, {"5 or 0", "1"},
+            {"5 XOR 3", "0"}, {"5 XOR 0", "1"}, {"0 XOR 7", "1"}, {"-1 XOR 2", "0"},
         };
         std::string bad;
         for (const auto& o : kOps) {
@@ -2650,7 +2651,8 @@ static void wp4_condition_rows() {
         }
         check("ZRCP-CND-06", "every operator in both directions (true and false, both operand "
                              "orders): = <> < > <= >= yield 1/0, + - * / & | ^, x/0 = 65535 "
-                             "(exp_par_calculate_operador), AND OR XOR on truth, NOT()",
+                             "(exp_par_calculate_operador), AND OR XOR on truth (5 XOR 3 is 0), "
+                             "NOT()",
               bad.empty(), bad);
     }
     {
@@ -3133,14 +3135,26 @@ static void wp4_slot_rows() {
         const std::string bad  = c.cmd("set-breakpointaction 5 call 8000H");
         const std::string back = c.cmd("set-breakpointaction 1 break");
         const std::string act1 = c.cmd("gba 1");
+        const std::string menu = c.cmd("set-breakpointaction 2 menu");
+        const std::string act2 = c.cmd("gba 2");
+        int stops = 0, handlers = 0;
+        for (const auto& si : rig.dbg->subscriptions(false)) {
+            if (si.filter.lo != 0x8002 && si.filter.lo != 0x8003) continue;
+            stops += si.action == jnext::dbg::Action::Stop;
+            handlers += si.has_handler;
+        }
         check("ZRCP-BP-14", "get-breakpointsactions lists menu for a stopping slot and the "
                             "action as set otherwise; an action jnext does not serve is refused "
-                            "by name; break makes it a stop again",
+                            "by name; break and menu make a slot a stop again (a Stop, no "
+                            "handler)",
               acts == "1: prints hello world\n2: printe A+1\n3: printc 65\n4: printregs\n5: "
                       "menu\n\ncommand@cpu-step> " &&
                   bad == reply_of("Error. Unsupported breakpoint action in jnext: call", true) &&
-                  back == reply_of("", true) && act1 == "1: menu\n\ncommand@cpu-step> ",
-              esc(acts) + " / " + esc(bad));
+                  back == reply_of("", true) && act1 == "1: menu\n\ncommand@cpu-step> " &&
+                  menu == reply_of("", true) && act2 == "2: menu\n\ncommand@cpu-step> " &&
+                  stops == 2 && handlers == 0,
+              esc(acts) + " / " + esc(bad) + " / " + esc(menu) + " stops=" +
+                  std::to_string(stops) + " handlers=" + std::to_string(handlers));
     }
     {
         // run n: landing on this session's slot stops it with the slot's fired
@@ -3207,11 +3221,131 @@ static void wp4_slot_rows() {
         c.cmd("set-breakpointaction 1 prints here");
         c.cmd("set-breakpoint 1 PC=8001H");
         const std::string r = c.cmd("run 3", 32);
-        check("ZRCP-BP-19", "run n over a print-action slot's address does not stop there: it "
-                            "runs its 3 opcodes",
+        check("ZRCP-BP-19", "run n over a print-action slot's address does not stop there, and "
+                            "the action runs: one log> line, sent before the reply, then the 3 "
+                            "opcodes' reply",
               rig.pc() == 0x8003 && r.find("Returning after 3 opcodes\n") != std::string::npos &&
-                  r.find("Breakpoint fired") == std::string::npos,
+                  r.find("Breakpoint fired") == std::string::npos &&
+                  r.find("log> here\n") != std::string::npos &&
+                  r.find("log> here\n") < r.find("Returning after") &&
+                  r.find("log> here\n", r.find("log> here\n") + 1) == std::string::npos,
               esc(r));
+    }
+    {
+        // B1 (M2 review): with a PC-free slot of this session armed, run n still
+        // stops on ANOTHER client's breakpoint — and so it does with a false slot
+        // of this session at the same address.
+        Rig rig;
+        rig.load({0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0xFE});
+        const auto other = rig.dbg->attach({"gdb", ClientKind::Test}).value;
+        jnext::dbg::Subscription s;
+        s.kind      = jnext::dbg::EventKind::Execute;
+        s.filter.lo = s.filter.hi = 0x8003;
+        rig.dbg->subscribe(other, s);
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 A=99");
+        const std::string r1 = c.cmd("run 6", 32);
+        const auto pc1 = rig.pc();
+        c.cmd("disable-breakpoint 1");
+        c.cmd("set-breakpoint 2 PC=8003H AND A=99");
+        Z80Registers z = rig.emu.cpu().get_registers();
+        z.PC = PROG;
+        rig.emu.cpu().set_registers(z);
+        const std::string r2 = c.cmd("run 6", 32);
+        const auto pc2 = rig.pc();
+        check("ZRCP-BP-21", "run n with a PC-free slot of this session armed (A=99, false) stops "
+                            "at another client's breakpoint (8003, no fired line), and so does "
+                            "run n with a false slot of this session at that very address",
+              pc1 == 0x8003 && r1.find("Returning after") == std::string::npos &&
+                  r1.find("Breakpoint fired") == std::string::npos && pc2 == 0x8003 &&
+                  r2.find("Returning after") == std::string::npos &&
+                  r2.find("Breakpoint fired") == std::string::npos,
+              esc(r1) + " / " + esc(r2));
+        rig.dbg->detach(other);
+    }
+    {
+        // B2 (M2 review): ZEsarUX's "On Change" for a PC-free condition. A=0
+        // stays true in a NOP / JR loop: the first run fires once, the next one
+        // runs on; a false stretch re-arms it.
+        Rig rig;
+        rig.load({0x00, 0x18, 0xFD});  // 8000 NOP; 8001 JR 8000
+        Z80Registers z = rig.emu.cpu().get_registers();
+        z.AF = 0x0000;
+        rig.emu.cpu().set_registers(z);
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 A=0");
+        const std::string first = run_to_stop(c);
+        c.send_once("run\n");
+        for (int i = 0; i < 3; ++i) rig.tick();
+        const bool ran_on = !rig.dbg->state().paused;
+        const std::string plain = c.send_once("\n") + c.wait(8);
+        c.cmd("set-register A=1");
+        c.send_once("run\n");
+        for (int i = 0; i < 2; ++i) rig.tick();
+        const std::string quiet = c.send_once("\n") + c.wait(8);   // A=1 throughout: no edge
+        c.cmd("set-register A=0");
+        const std::string again = run_to_stop(c);
+        check("ZRCP-BP-22", "On Change: a PC-free condition that stays true fires once (the first "
+                            "run stops on A=0) and the next run runs on while it stays true; "
+                            "after a stretch where it was false, it fires again",
+              first.find("Breakpoint fired: A=0\n") != std::string::npos && ran_on &&
+                  plain.find("Breakpoint fired") == std::string::npos &&
+                  quiet.find("Breakpoint fired") == std::string::npos &&
+                  again.find("Breakpoint fired: A=0\n") != std::string::npos,
+              esc(first, 80) + " / " + esc(plain, 80) + " / " + esc(again, 80));
+    }
+    {
+        // B2: a print action on a condition that stays true prints ONCE, not
+        // at every instruction (the review measured 984 255 lines in 3 s).
+        Rig rig;
+        rig.load({0x00, 0x18, 0xFD});
+        Z80Registers z = rig.emu.cpu().get_registers();
+        z.AF = 0x0000;
+        rig.emu.cpu().set_registers(z);
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpointaction 1 prints hello");
+        c.cmd("set-breakpoint 1 A=0");
+        std::string got = c.send_once("run\n");
+        for (int i = 0; i < 6; ++i) {
+            rig.tick();
+            got += c.p->take();
+        }
+        const std::string stop = c.send_once("\n") + c.wait(8);
+        std::size_t lines = 0;
+        for (std::size_t at = got.find("log> hello\n"); at != std::string::npos;
+             at = got.find("log> hello\n", at + 1))
+            ++lines;
+        check("ZRCP-BP-23", "a print action on a PC-free condition that stays true for six "
+                            "frames prints exactly once (On Change), and the run goes on until "
+                            "data stops it",
+              lines == 1 && starts_with(got, kRunning) && ends_with(stop, PROMPT_STEP) &&
+                  stop.find("Breakpoint fired") == std::string::npos,
+              "lines=" + std::to_string(lines) + " " + esc(got, 120));
+    }
+    {
+        // On Change inside run n too: the landing check is the slot's one
+        // evaluation per boundary there.
+        Rig rig;
+        rig.load({0x00, 0x18, 0xFD});
+        Z80Registers z = rig.emu.cpu().get_registers();
+        z.AF = 0x0000;
+        rig.emu.cpu().set_registers(z);
+        Zc c(rig);
+        bp_on(c);
+        c.cmd("set-breakpoint 1 A=0");
+        const std::string r1 = c.cmd("run 10", 32);
+        const std::string r2 = c.cmd("run 10", 32);
+        check("ZRCP-BP-24", "run n: a PC-free condition that becomes true ends the first run n "
+                            "after one opcode with its fired line; while it stays true the next "
+                            "run n runs all 10",
+              r1.find("Breakpoint fired: A=0\n") != std::string::npos &&
+                  r1.find("Returning after") == std::string::npos &&
+                  r2.find("Returning after 10 opcodes\n") != std::string::npos &&
+                  r2.find("Breakpoint fired") == std::string::npos,
+              esc(r1, 100) + " / " + esc(r2, 100));
     }
     {
         // A bare native variable is a condition on its value: SEG3 is 0 on
