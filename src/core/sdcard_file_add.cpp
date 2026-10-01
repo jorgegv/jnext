@@ -455,9 +455,9 @@ FileAddStatus write_card_file(const std::string& image_path,
     return FileAddStatus::Ok;
 }
 
-// "dir/" -> "dir", leaving a root ("/", "C:\") alone.
+// "dir/" -> "dir". A root ("/") is its own parent and stays nameless.
 void strip_trailing_separator(std::filesystem::path& p) {
-    if (!p.has_filename() && p.has_parent_path() && p != p.root_path())
+    if (!p.has_filename() && p.has_parent_path())
         p = p.parent_path();
 }
 
@@ -748,7 +748,6 @@ FileAddStatus add_dir_to_image(const std::string& image_path,
         const std::string card_path = join_card(n.rel);
         const std::string fat_path  = "0:" + card_path;
         if (n.is_dir) {
-            if (exists[i]) continue;
             bool made = false;
             st = ensure_card_dir(fat_path, n.rel.back(), card_path, made, err);
             if (st != FileAddStatus::Ok) return rollback(st);
@@ -905,13 +904,15 @@ bool default_dest_path(const std::string& host_path,
     // they mean does.
     const std::string bare = p.filename().u8string();
     if (bare.empty() || bare == "." || bare == "..") {
+        // On error absolute() returns an empty path, which has no name.
         std::error_code ec;
         p = fs::absolute(fs::path(host_path), ec).lexically_normal();
-        if (ec) p.clear();
         strip_trailing_separator(p);
     }
+    // After lexically_normal() an absolute path cannot end in "." or "..";
+    // only the host root is left without a name.
     const std::string name = p.filename().u8string();
-    if (name.empty() || name == "." || name == "..") {
+    if (name.empty()) {
         err = "cannot take a card name from '" + host_path +
               "'; give --sdcard-file-dest PATH";
         return false;

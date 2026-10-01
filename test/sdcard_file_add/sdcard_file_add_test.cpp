@@ -938,6 +938,15 @@ void test_defaults() {
             fs::current_path(cwd, back);
         }
         check("SDFA-D03", "'.' takes the name of the current directory", ok, dest + err);
+        fs::create_directories(named / "child", ec);
+        ok = false;
+        if (!ec) {
+            fs::current_path(named / "child", ec);
+            if (!ec) ok = sdcard::default_dest_path("..", dest, err) && dest == "/cwdname";
+            std::error_code back;
+            fs::current_path(cwd, back);
+        }
+        check("SDFA-D14", "'..' takes the name of the parent directory", ok, dest + err);
     }
     check("SDFA-D04", "the host root has no name to take, and says to give a dest",
           !sdcard::default_dest_path("/", dest, err) &&
@@ -1125,15 +1134,24 @@ void test_tree() {
     check("SDFA-T15", "...and a file only the card had is left alone",
           card_file_is(img, "/TREE/sub/extra.bin", payload(64, 106)));
 
+    // A host DIRECTORY where the card has a FILE. A new file sorts ahead of
+    // it, so a writer that found the clash only while writing would already
+    // have written (and then rolled back) that file, moving bytes.
+    const fs::path onfile = g_scratch / "onfile";
+    fs::create_directories(onfile / "README.TXT");
+    write_host_file(onfile / "README.TXT" / "in.bin", payload(5, 110));
+    write_host_file(onfile / "AFIRST.BIN", payload(5, 111));
     before = file_digest(img);
-    st = sdcard::add_to_image(img.string(), more.string(), "/README.TXT", false, err);
+    st = sdcard::add_to_image(img.string(), onfile.string(), "/", false, err);
     check("SDFA-T16", "a directory onto an existing FILE is refused, card untouched",
           st == FileAddStatus::DestInvalid &&
           err.find("already exists on the card as a file") != std::string::npos &&
           file_digest(img) == before, err);
-    // A host FILE where the card has a DIRECTORY: `NEXTZXOS` merged into root.
+    // A host FILE where the card has a DIRECTORY: `NEXTZXOS` merged into root,
+    // again behind a new file.
     const fs::path clash = g_scratch / "clash";
     fs::create_directories(clash);
+    write_host_file(clash / "AFIRST.BIN", payload(5, 112));
     write_host_file(clash / "NEXTZXOS", payload(5, 108));
     st = sdcard::add_to_image(img.string(), clash.string(), "/", false, err);
     check("SDFA-T17", "a file onto an existing DIRECTORY is refused, card untouched",
@@ -1145,8 +1163,12 @@ void test_tree() {
     // SDFA-W27 the attribute is patched straight into the directory entry.
     const fs::path ro = g_scratch / "ro";
     fs::create_directories(ro);
+    write_host_file(ro / "AAFIRST.BIN", payload(20, 113));
     write_host_file(ro / "ZQXTREEO.BIN", payload(20, 109));
     st = sdcard::add_to_image(img.string(), ro.string(), "/", false, err);
+    // New bytes for the file that sorts first: replacing it before reaching
+    // the read-only one would change the card.
+    write_host_file(ro / "AAFIRST.BIN", payload(20, 114));
     bool patched = false;
     if (st == FileAddStatus::Ok) {
         std::fstream f(img, std::ios::in | std::ios::out | std::ios::binary);
@@ -1353,6 +1375,20 @@ void test_tree_rollback() {
           std::to_string(free_before) + " -> " + std::to_string(fsinfo_free_count(img)));
     check("SDFA-T36", "...and the volume consistent: fixture intact, FATs agree",
           fixture_tree_intact(img) && fats_agree(img, why), why);
+
+    // One cluster per new directory is the pre-check's floor: four empty
+    // directories cannot fit in three clusters, and that is known before
+    // anything is written.
+    const fs::path dirs = g_scratch / "dirs";
+    fs::remove_all(dirs, ec);
+    for (const char* d : {"D1", "D2", "D3", "D4"})
+        fs::create_directories(dirs / d, ec);
+    const uint64_t before = file_digest(img);
+    const FileAddStatus st2 =
+        sdcard::add_to_image(img.string(), dirs.string(), "/", false, err);
+    check("SDFA-T37", "directories that cannot possibly fit are refused, card untouched",
+          fsinfo_free_count(img) == leave && st2 == FileAddStatus::ImageFull &&
+          file_digest(img) == before, err);
 }
 
 }  // namespace
