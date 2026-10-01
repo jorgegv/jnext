@@ -93,13 +93,14 @@ struct Sink : jnext::dbg::Listener {
     std::vector<std::string>             lines;
     std::vector<int>                     exits;
     std::vector<jnext::dbg::PausedInfo>  paused;
+    size_t                               subs_changed = 0;
     std::vector<std::string>*            order = nullptr;
 
     void on_paused(const jnext::dbg::PausedInfo& i) override { paused.push_back(i); }
     void on_resumed(ClientId) override {}
     void on_reset(jnext::dbg::ResetKind) override {}
     void on_frame_ended(uint32_t) override {}
-    void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
+    void on_subscriptions_changed(jnext::dbg::EventKindMask) override { ++subs_changed; }
     void on_exit_requested(int code) override {
         exits.push_back(code);
         if (order) order->push_back("notify" + std::to_string(code));
@@ -453,13 +454,18 @@ static void reg_rows() {
     {
         // §6.5: "nothing runs partially" — two good rules and one bad.
         Rig g(kPark);
+        g.dbg->pump(jnext::dbg::PumpBudget{});
+        const size_t changed0 = g.sink.subs_changed;
         const bool ok = g.load("on write 0x9000 do log \"a\" end\n"
                                "on frame do log \"b\" end\n"
                                "on io_write 0x10000 do log \"c\" end\n");
-        check("SCRIPT-EV-REG-ATOMIC", "a script with one bad rule registers NONE of its rules",
+        g.dbg->pump(jnext::dbg::PumpBudget{});
+        check("SCRIPT-EV-REG-ATOMIC", "a script with one bad rule registers NONE of its rules — not even "
+                                      "transiently: the backend's subscription model never changed",
               !ok && g.last.errors.size() == 1 && g.last.errors[0].pos.line == 3 && g.subs().empty() &&
-                  g.eng->rules().empty(),
-              dstr(g.last.errors) + " " + show(g.subs()));
+                  g.eng->rules().empty() && g.sink.subs_changed == changed0,
+              dstr(g.last.errors) + " " + show(g.subs()) + " changed=" +
+                  std::to_string(g.sink.subs_changed - changed0));
     }
     {
         // Bounds are evaluated with the script's own variables and symbols.
