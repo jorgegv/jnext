@@ -125,10 +125,13 @@ sd_clone_for_run() {
 
     if [[ "$SD_CLONE_MODE" == failed ]]; then
         # Do not silently fall back to the shared master — say so, so the
-        # suite reads it knowingly rather than by accident.
+        # suite reads it knowingly rather than by accident. Named explicitly:
+        # the suites run with their own $HOME (TEST_HOME below), where the
+        # default location holds no image.
         rm -rf "$UNIT_RUN_DIR"; UNIT_RUN_DIR=""
         printf "  WARNING: could not clone the SD master; suites needing it will read %s directly\n" \
                "$sd_master" >&2
+        export JNEXT_TEST_SD_IMAGE="$sd_master"
     else
         export JNEXT_TEST_SD_IMAGE="$sd_clone"
     fi
@@ -423,6 +426,19 @@ trap 'rm -rf "$TMPDIR_RUN"; unit_cleanup' EXIT
 trap 'rm -rf "$TMPDIR_RUN"; unit_cleanup; exit 130' INT
 trap 'rm -rf "$TMPDIR_RUN"; unit_cleanup; exit 143' TERM
 
+# --- The suites' own $HOME --------------------------------------------------
+# Every suite runs with $HOME at an empty directory of this run, the XDG base
+# directories inside it, and JNEXT_CONFIG_DIR unset, so no suite can read the
+# user's configuration: jnext's own (~/.jnext/jnext.conf, Debugger.conf) or
+# what Qt and its libraries read (~/.config/QtProject/qtlogging.ini,
+# QtProject.conf, fontconfig, ibus, the MIME database). Before this, twelve Qt
+# suites read jnext.conf or Debugger.conf, so a user's saved preferences could
+# change a test result. A suite that needs a config directory makes its own.
+# The harness keeps the real $HOME: the SD clone is made from the real master,
+# and suites reach it through JNEXT_TEST_SD_IMAGE, never through $HOME.
+TEST_HOME="$TMPDIR_RUN/home"
+mkdir -p "$TEST_HOME"
+
 # Preflight has passed and suites are about to run — now the clone is worth
 # making.
 sd_clone_for_run
@@ -453,6 +469,10 @@ for name in "${RUNNABLE[@]}"; do
         # process truncate another's rows (self-test HS-62). $TMPDIR_RUN is fresh,
         # so the file holds exactly this run's IDs either way.
         : >"$TMPDIR_RUN/$name.ids"
+        unset JNEXT_CONFIG_DIR
+        export HOME="$TEST_HOME" XDG_CONFIG_HOME="$TEST_HOME/.config" \
+               XDG_DATA_HOME="$TEST_HOME/.local/share" XDG_CACHE_HOME="$TEST_HOME/.cache" \
+               XDG_STATE_HOME="$TEST_HOME/.local/state"
         JNEXT_TEST_ROW_IDS="$TMPDIR_RUN/$name.ids" timeout --kill-after=5s "${SUITE_TIMEOUT}s" \
             "$BUILD/test/$name" ${ARGS["$name"]} >"$TMPDIR_RUN/$name.out" 2>&1 || rc=$?
         echo "$rc" >"$TMPDIR_RUN/$name.rc"

@@ -2024,7 +2024,11 @@ to depend on the code rather than on who ran it. Finally, the harness clones the
 machine-wide SD master into a private per-run directory and points
 <code>JNEXT_TEST_SD_IMAGE</code> at the copy, so that a concurrent manual <code>jnext</code> session
 writing back to the card cannot turn <code>sd_rom_extractor_test</code> red for reasons
-that have nothing to do with the code under test.</p>
+that have nothing to do with the code under test. For the same reason the
+suites never see the user's own <code>$HOME</code>: each runs with <code>HOME</code> and the XDG base
+directories pointing at an empty per-run directory, and <code>JNEXT_CONFIG_DIR</code>
+unset, so a saved <code>~/.jnext/jnext.conf</code>, <code>Debugger.conf</code> or Qt setting cannot
+change a result.</p>
 
 
 
