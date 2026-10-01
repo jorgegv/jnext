@@ -2,6 +2,9 @@
 
 ## Unreleased (2026-09-29)
 
+### User Features
+- Change the SD card while running (File > Insert/Eject SD Card), so NextZXOS's REMOUNT works
+
 ### Developer Features
 - Debug programs from z88dk-gdb: `--gdb-port` serves the GDB remote protocol, with Next state via `monitor`
 - Debugger scripts: `--script` runs `.jds` rules on CPU, memory, port, NextREG, Copper and DMA events; exit status is the verdict

@@ -6,6 +6,7 @@ namespace jnext { namespace save { class StateDesc; } }
 #include <cstdio>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -246,6 +247,53 @@ public:
 
     /// Consume a sibling-NEX request raised by the esxDOS callback.
     std::string take_nex_load_request();
+
+    // ── Live SD-card change (GH #93) ──────────────────────────────────────
+    //
+    // File > Insert SD Card Image… / Eject SD Card and the headless
+    // --delayed-sdcard-insert-frames. Raised by the host, recorded here and
+    // performed by the frontend at the end of its tick, as a hard reset is.
+    //
+    // There is no card-detect line on the Next (the SD port is five pins,
+    // zxnext_top_issue2.vhd:60-64), so the guest is never told: NextZXOS's
+    // REMOUNT asks the user to swap the card and press Y, and re-reads it.
+    //
+    // ROMs are NOT re-extracted: hardware loads them once at power-on, and a
+    // card swap does not reload them there either. The next hard reset (or
+    // program load, which re-inits the machine) reads them from the card in
+    // config().sd_card_image, which an insert updates and an eject does not.
+
+    /// The change to make. `image` empty means eject.
+    struct SdCardChange {
+        std::string image;
+        bool        read_only = false;
+    };
+
+    /// Why a card change would be refused right now, or empty when it would
+    /// not: an RZX recording or playback (it replays one continuous run on one
+    /// card), and a directly loaded NEX holding its own file open (unmounting
+    /// drops the read overlay that serves that file).
+    std::string sd_card_change_refusal() const;
+
+    /// Record a change for the frontend to perform at the end of its tick (after
+    /// its frames, or at the paused instruction boundary when the debugger
+    /// holds the machine — where a hard reset is performed too). Returns the
+    /// refusal (and records nothing) or empty. A second request while one is
+    /// still pending is refused.
+    std::string request_sd_card_change(SdCardChange change);
+    std::optional<SdCardChange> take_sd_card_change_request();
+
+    /// Re-queue a change that was still pending when the machine was rebuilt
+    /// (emulator_cold_boot()), saying so: it is made after the reset instead
+    /// of being destroyed with the old machine.
+    void carry_sd_card_change(SdCardChange change);
+
+    /// Perform a change now. Re-checks the refusals; an image that is not a
+    /// readable regular file is refused before the current card is touched. On success the config
+    /// follows the card (an insert only), the warm-start recording is dropped
+    /// and the rewind ring is emptied. Returns empty on success, else why
+    /// (logged).
+    std::string change_sd_card(const SdCardChange& change);
 
     /// Preserve the stub's in-memory file across a frontend cold boot.
     EsxdosStubState esxdos_stub_state() const;
@@ -1324,6 +1372,7 @@ private:
     EmulatorConfig config_;
     // Host-side state used by --esxdos-stub and direct extended-NEX loading.
     std::string nex_load_request_;
+    std::optional<SdCardChange> sd_card_change_request_;   // GH #93
     std::string active_nex_path_;
     std::string esxdos_stub_filename_;
     std::vector<uint8_t> esxdos_stub_file_;
@@ -1791,7 +1840,7 @@ private:
     /// produce a NextZXOS — no firmware on it, a non-NextZXOS distro — would
     /// pay a 500-frame boot on every single load and report the same failure
     /// each time. Keyed on the path rather than a plain bool so that mounting
-    /// a DIFFERENT image (GUI File > Mount SD image) gets its own chance; the
+    /// a DIFFERENT image (File > Insert SD Card Image) gets its own chance; the
     /// verdict belongs to the card, not to the run.
     std::string warm_start_failed_image_;
 

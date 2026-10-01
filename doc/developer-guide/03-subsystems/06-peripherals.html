@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.60</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.62</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.60</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.62</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2061,6 +2061,12 @@ it read-only, and the card then answers CMD24 with the write-error token exactly
 as a write-protected card would. This runtime path is entirely separate from the
 host-side FAT32 reader in <code>src/core/sd_rom_extractor.{h,cpp}</code>, which pulls the
 ROM images out of the same file at startup.</p>
+<p>The card can be changed while the machine runs (<code>Emulator::change_sd_card()</code>,
+GH #93): <code>mount()</code> is a full <code>reset()</code> of the protocol state, so the guest has to
+initialise the new card from CMD0, which is what NextZXOS's REMOUNT does after
+its "press Y". There is no card-detect line to model — the Next's SD port is five
+pins (<code>zxnext_top_issue2.vhd:60-64</code>). The ROMs are not re-extracted on a change;
+the next power-on reads them from the new card.</p>
 <p>The card serves <strong>both SD capacity classes</strong>, and which one it is is decided by
 the host, not by the image. ACMD41's HCS bit is latched during init, CMD58
 reports it straight back as the OCR's CCS bit, and everything downstream follows

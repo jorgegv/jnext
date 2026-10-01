@@ -72,11 +72,17 @@
 //   WSR-LATCH-02  …and on every later load
 //   WSR-DEF-01    a .nex load takes the warm-start path WITH NO FLAG — the
 //                 feature is the behaviour, not an option
+//   WSR-SWAP-01   a live SD-card change (GH #93) drops the recorded machine:
+//                 it was booted off the card that just left
+//   WSR-SWAP-02   …and lifts the per-image failure latch, so the card now in
+//                 the slot is asked again rather than refused unasked
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include "core/warm_start_cache.h"
+#include "core/saveable.h"
+#include "core/sdcard_provisioner.h"   // sdcard::sha256_file (WSR-SWAP-01)
 
 #include <spdlog/sinks/ringbuffer_sink.h>
 
@@ -877,6 +883,21 @@ int main()
               "…and on every later load, not only the first one after the verdict",
               third && tap.count(kWhyLatched) == 2,
               det("latched=%d over three calls", tap.count(kWhyLatched)));
+
+        // GH #93 — a card change lifts the latch. Re-inserting the SAME path is
+        // the case that discriminates: the latch is keyed on the path, so a
+        // different path would be re-asked whether or not it was cleared. The
+        // user may have rewritten that file (say, copied a NextZXOS onto it);
+        // the card in the slot gets asked again, which costs this one boot.
+        const std::string swap_why = emuf.change_sd_card({fake_sd, false});
+        const bool fourth = !emuf.ensure_warm_start_state();
+        check("WSR-SWAP-02",
+              "a card change lifts the per-image latch: the same card re-inserted "
+              "is BOOTED again, not refused unasked",
+              swap_why.empty() && fourth && tap.count(kWhyNotRecorded) == 2 &&
+                  tap.count(kWhyLatched) == 2,
+              det("why='%s' not-recorded=%d latched=%d", swap_why.c_str(),
+                  tap.count(kWhyNotRecorded), tap.count(kWhyLatched)));
     }
 
     // ── The feature is the BEHAVIOUR, not an option ──────────────────
@@ -910,6 +931,54 @@ int main()
               built && loaded && tap.count(kWhyNoSdImage) == 1,
               det("built=%d loaded=%d no-sd=%d", built ? 1 : 0, loaded ? 1 : 0,
                   tap.count(kWhyNoSdImage)));
+    }
+
+    // ── GH #93: a live card change drops the recorded machine ────────
+    //
+    // The recording is a machine booted off ONE card and is kept for the
+    // session; served after a swap, the next .nex load would restore the old
+    // card's NextZXOS on top of the new card. A cache entry is planted for
+    // card A (its real digest, this machine's real stream length) so
+    // ensure_warm_start_state() HOLDS a state without booting firmware, which
+    // is what makes the drop observable offline.
+    {
+        auto blob = [](const std::string& path, uint8_t fill) {
+            std::vector<uint8_t> bytes(64 * 1024, fill);
+            std::ofstream f(path, std::ios::binary | std::ios::trunc);
+            f.write(reinterpret_cast<const char*>(bytes.data()),
+                    static_cast<std::streamsize>(bytes.size()));
+        };
+        const std::string card_a = g_dir + "/swap-a.img";
+        const std::string card_b = g_dir + "/swap-b.img";
+        blob(card_a, 0x41);
+        blob(card_b, 0x42);
+        std::filesystem::remove_all(warm_start::cache_dir(), ec);
+
+        Emulator emus;
+        EmulatorConfig cs;
+        cs.type = MachineType::ZXN_ISSUE2;
+        cs.rewind_buffer_frames = 0;
+        cs.sd_card_image = card_a;
+        emus.init(cs);
+
+        StateWriter measure;
+        emus.save_state(measure);
+        std::vector<uint8_t> state(measure.position());
+        StateWriter w(state.data(), state.size());
+        emus.save_state(w);
+        std::string why;
+        const bool stored = warm_start::store(
+            make_id(sdcard::sha256_file(card_a),
+                    static_cast<uint8_t>(MachineType::ZXN_ISSUE2), state.size()),
+            state, why);
+        const bool held = emus.ensure_warm_start_state() && !emus.warm_start_state().empty();
+        const std::string swap_why = emus.change_sd_card({card_b, false});
+        check("WSR-SWAP-01",
+              "a live SD-card change drops the recorded machine — it was booted "
+              "off the card that just left",
+              stored && held && swap_why.empty() && emus.warm_start_state().empty(),
+              det("stored=%d held=%d why='%s' size-after=%zu", stored ? 1 : 0,
+                  held ? 1 : 0, swap_why.c_str(), emus.warm_start_state().size()));
     }
 
     std::filesystem::remove_all(g_dir, ec);

@@ -192,6 +192,18 @@ public:
     // Fast Load toggle shows, and reports a file the loader refuses.
     void handle_tape_path(const QString& path);
 
+    // GH #93 — the post-picker half of File > Insert SD Card Image…, and File >
+    // Eject SD Card (`path` empty), split out like handle_tape_path() so a
+    // suite can drive them without a file dialog. They REQUEST the change
+    // (Emulator::request_sd_card_change()); the frontend performs it at the end
+    // of its tick. A refusal is reported at once, in a dialog.
+    void handle_sd_card_path(const QString& path);
+
+    /// The frontend performed the change (`image` empty = eject; `error` empty
+    /// = success): say so on the status bar, and in a dialog — posted to the
+    /// event loop, as this is called from inside a frame tick — when it failed.
+    void sd_card_change_finished(const QString& image, const QString& error);
+
     // A load that failed: one warning dialog naming the file (the loader's
     // log line says why). Shown now — callers inside the frame tick use
     // load_finished(), which defers it.
@@ -279,9 +291,6 @@ signals:
     /// Emitted when a NEX file should be loaded.
     void load_nex_requested(const QString& path);
 
-    /// Emitted when an SD card image path is selected (informational; requires restart).
-    void sd_card_selected(const QString& path);
-
 protected:
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
@@ -311,7 +320,7 @@ private:
 
     // Menu action slots
     void on_load_nex();
-    void on_mount_sd();
+    void on_insert_sd();
     void on_reset();
     void on_soft_reset();
     void on_machine_type(MachineType type);
@@ -497,7 +506,7 @@ private:
     // Task 66 — persisted GUI preferences (~/.jnext/jnext.conf).
     // Loaded in the constructor; saved whenever the Preferences dialog is
     // applied, and write-through updated by file dialogs that remember a
-    // directory (Load Program, Open Tape, Save Screenshot, Mount SD Card).
+    // directory (Load Program, Open Tape, Save Screenshot).
     AppConfig app_config_;
 
     // GH #1 — the debugger key bindings that are IN EFFECT, which is not

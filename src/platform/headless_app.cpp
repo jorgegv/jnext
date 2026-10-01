@@ -332,6 +332,12 @@ bool HeadlessApp::set_delayed_nmi_seconds(const std::string& button, int delay_s
     return true;
 }
 
+void HeadlessApp::set_delayed_sdcard_insert(const std::string& image, int delay_frames) {
+    delayed_sd_inserts_.push_back({image, delay_frames});
+    Log::platform()->info("delayed-sdcard-insert: will insert '{}' after {} frame(s)",
+                          image, delay_frames);
+}
+
 void HeadlessApp::run() {
     // Convert any seconds-form delayed keypresses to frames now that the
     // emulator is fully initialized and the machine framerate is known.
@@ -667,6 +673,21 @@ void HeadlessApp::run() {
             }
         }
 
+        // GH #93 — delayed SD-card inserts: REQUESTED here, as the GUI's File >
+        // Insert SD Card Image… does, and performed after this tick's frame by
+        // the same service call. A refusal fails the run, like a failed load.
+        for (auto it = delayed_sd_inserts_.begin(); it != delayed_sd_inserts_.end(); ) {
+            if (it->countdown <= 0) {
+                if (!emulator_.request_sd_card_change(
+                        {it->image, emulator_.config().sd_card_readonly}).empty())
+                    exit_code_ = 1;
+                it = delayed_sd_inserts_.erase(it);
+            } else {
+                --it->countdown;
+                ++it;
+            }
+        }
+
         // --delayed-screenshot: when the countdown comes due, hand the capture
         // to the backend (GH #276 B4, O2; platform/cli_capture.h). It arms the
         // --delayed-screenshot-layers mask on the renderer NOW, for the frame
@@ -767,6 +788,12 @@ void HeadlessApp::run() {
             std::fflush(g46b_pctrace_file);
         }
         ++g46b_frame_no;
+
+        // GH #93 — the card change requested above, before the cold-boot polls
+        // so a reset raised in this frame boots the new card.
+        if (auto sd = emulator_service_sd_card_change(emulator_, config_, config_set_);
+            sd && !sd->error.empty())
+            exit_code_ = 1;
 
         if (std::string load_file = emulator_.take_nex_load_request(); !load_file.empty()) {
             guest_cold_boot(load_file);
@@ -925,6 +952,8 @@ void HeadlessApp::run() {
             std::string keys, nmis;
             for (const auto& k : delayed_keys_) keys += (keys.empty() ? "" : ", ") + k.name;
             for (const auto& n : delayed_nmis_) nmis += (nmis.empty() ? "" : ", ") + n.name;
+            std::string cards;
+            for (const auto& c : delayed_sd_inserts_) cards += (cards.empty() ? "" : ", ") + c.image;
             if (!auto_exit_finds_no_deferred_work(emulator_, {
                     {"--load", load_file_, load_countdown_ >= 0},
                     {"--inject", inject_file_, inject_countdown_ >= 0},
@@ -932,6 +961,7 @@ void HeadlessApp::run() {
                      !rzx_record_file_.empty() && !rzx_record_started_},
                     {"--delayed-keypress", keys, !delayed_keys_.empty()},
                     {"--delayed-nmi", nmis, !delayed_nmis_.empty()},
+                    {"--delayed-sdcard-insert-frames", cards, !delayed_sd_inserts_.empty()},
                 }))
                 exit_code_ = 1;
             // GH #26 WP4 (§7.3) — the watchdog fired before a script reached

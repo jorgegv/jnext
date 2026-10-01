@@ -38,7 +38,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD File Add (GH #269) |       72 |       72 |      0 |       0 |    100% | 🟢 All tests pass. |
 | FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |       82 |       82 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Warm start (GH #234)  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Warm start (GH #234)  |       41 |       41 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot container + descriptor (.jns, GH #27) |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot SD identity (.jns, GH #27 S7) |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Sprites               |      212 |      212 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -61,7 +61,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Present cadence       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Render-skip policy    |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Screenshot output (PNG/.SCR) |       24 |       24 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Emulator Boot         |       68 |       68 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Emulator Boot         |       80 |       80 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply Policy) |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Attach |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Pointer Capture       |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -69,7 +69,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Frame-tick sequencer (wiring) |      112 |      112 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tick-delivery stats   |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Achieved-speed report |       36 |       36 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Host key minimum-hold latch |      127 |      127 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Host key minimum-hold latch |      128 |      128 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging               |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CLI options / docs    |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -112,7 +112,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ESP-01 status cell (GUI) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX V1.3 GUI warning dialog |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | RZX Menus             |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI load-failure dialogs |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI load-failure dialogs |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Esc/BREAK + fullscreen routing |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Host hotkeys on Alt (Ctrl to guest) |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Main-window menu mnemonics |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -128,11 +128,11 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Sizing |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Key Bindings |       36 |       36 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Key Bindings |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       53 |       53 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Panels (GH #278) |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Panels (GH #278) |       71 |       71 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       61 |       61 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **11680**| **11680**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **11704**| **11704**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
