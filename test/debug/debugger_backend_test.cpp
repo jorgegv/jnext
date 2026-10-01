@@ -7233,6 +7233,39 @@ int main() {
                   std::to_string(zero.value));
         std::remove(consts.c_str());
     }
+    {
+        // GH #26 WP7 / #279 — ChaseTheBug's code range ends at the crt's
+        // `__data_crt_head`, which a z88dk MAP writes as a `; const`. The
+        // lines below are verbatim from a real map (dsl_demo.map).
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const std::string map_path = tmp_file("wp7_crt", ".map");
+        {
+            std::ofstream f(map_path);
+            f << "__data_crt_head                 = $82E8 ; const, public, def, , ,\n"
+                 "__code_user_size                = $9000 ; const, public, def, , ,\n"
+                 "main_loop                       = $8134 ; addr, public, , dsl_demo_asm, code_user, dsl_demo.asm:116\n";
+        }
+        const auto loaded = dbg.load_map(map_path, jnext::dbg::MapFormat::Z88dk);
+        const auto head   = dbg.lookup_name("__data_crt_head");
+        check("SYM-11", "a z88dk `; const` symbol (`__data_crt_head = $82E8 ; const, …`) resolves BY NAME "
+                        "— what a script's `@__data_crt_head` reads — while load_map() counts only the "
+                        "`; addr` ones",
+              loaded.status == Result::Ok && loaded.value == 1 && head && *head == 0x82E8 &&
+                  dbg.lookup_name("main_loop") && *dbg.lookup_name("main_loop") == 0x8134,
+              std::to_string(loaded.value));
+        // 0x8002 is `CALL 0x9000`: 0x9000 is a const's VALUE (a size), not an address.
+        const auto dis = dbg.disassemble(PROG + 2, 1, &dbg.symbols());
+        check("SYM-12", "and a const never names an ADDRESS: lookup() of its value finds nothing, "
+                        "symbols() holds only the `; addr` symbol, the disassembler leaves CALL 0x9000 "
+                        "alone; clear_symbols() forgets it",
+              !dbg.lookup(0x82E8) && !dbg.lookup(0x9000) && dbg.symbols().size() == 1 &&
+                  std::string(dis[0].mnemonic).find("__code_user_size") == std::string::npos &&
+                  std::string(dis[0].mnemonic).find("9000") != std::string::npos &&
+                  dbg.clear_symbols() == Result::Ok && !dbg.lookup_name("__data_crt_head"),
+              dis[0].mnemonic);
+        std::remove(map_path.c_str());
+    }
 
     // =======================================================================
     // PEND — the verbs a later sub-package owns refuse, they do not misbehave
