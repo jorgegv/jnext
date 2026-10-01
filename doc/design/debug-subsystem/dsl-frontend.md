@@ -150,7 +150,10 @@ addr_spec   ::= expr [ ".." expr ] [ "page" expr ]   # inclusive 16-bit logical 
               | "page" expr [ ".." expr ]          #   qualified by / replaced with a PHYSICAL 8K page
                                                    #   (set) — the backend's first-class page filter
 port_spec   ::= expr [ ".." expr ]                 # GH #222 semantics: 0x00xx = low-byte decode,
-              | "mask" expr "value" expr           #   else exact; or explicit mask/value
+              | "mask" expr "value" expr           #   else exact; or explicit mask/value. A range
+                                                   #   decodes like a single port, so it lies wholly
+                                                   #   in 0x00..0xFF or wholly above it: a range across
+                                                   #   0xFF is a load error (Appendix I.2)
 reg_spec    ::= expr [ ".." expr ]                 # NextREG number(s)
 
 action      ::= "log" [ "indent" expr ] string

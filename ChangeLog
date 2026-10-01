@@ -4,6 +4,7 @@
 
 ### Developer Features
 - Debug programs from z88dk-gdb: `--gdb-port` serves the GDB remote protocol, with Next state via `monitor`
+- Debugger scripting engine: `.jds` rules on CPU, memory, port, NextREG, Copper and DMA events (CLI loading to come)
 - Debugger Memory panel shows a slot's real page, with no DivMMC/Multiface/Layer 2 overlay, and any page via Page...
 
 ### Bug Fixes

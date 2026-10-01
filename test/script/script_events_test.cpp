@@ -1719,6 +1719,137 @@ static void work_rows() {
     }
 }
 
+
+// =========================================================================
+// BOUNDS — each limit pinned on both sides (review round 2)
+// =========================================================================
+
+static void bounds_rows() {
+    {
+        // A flag `set` to the state it already has keeps it (set is an OR, not
+        // a toggle), and the other bits of F stay.
+        Rig g(kPark);
+        Z80Registers r0 = g.emu.cpu().get_registers();
+        r0.AF = 0x0040;  // ZF set, CF clear
+        g.emu.cpu().set_registers(r0);
+        const bool ok = g.load("on execute 0x8000 once do set ZF = 1 set CF = 0 set SF = 1 end\n");
+        g.frames(1);
+        const uint16_t f = g.emu.cpu().get_registers().AF & 0xFF;
+        check("SCRIPT-EV-MUT-FLAGS-SAME", "`set ZF = 1` on a set ZF keeps it set, `set CF = 0` on a clear CF keeps "
+                                          "it clear, `set SF = 1` sets SF, and no other bit of F moves",
+              ok && f == 0xC0, "F=" + hex(f));
+    }
+    {
+        Rig g(kPark);
+        const bool ok = g.load("on dma byte 0x8000..0x9FFF page 3 do log \"x\" end\n");
+        check("SCRIPT-EV-REG-DMA-RANGE-PAGE", "`dma byte A..B page P` is a load error at the page (the DMA has no "
+                                              "page filter, F2) — never a range rule that silently drops the page — "
+                                              "and registers nothing",
+              !ok && g.last.errors.size() == 1 && g.last.errors[0].pos.line == 1 &&
+                  g.last.errors[0].pos.column == 33 &&
+                  g.last.errors[0].message.find("no page filter") != std::string::npos && g.subs().empty() &&
+                  g.eng->rules().empty(),
+              dstr(g.last.errors) + " " + show(g.subs()));
+    }
+    {
+        // The backend refuses a Port subscription whose filter is its trap
+        // default (mask 0xFFFF, value 0): the second rule is refused AFTER the
+        // first has subscribed, and the first must be rolled back.
+        Rig g(kPark);
+        g.dbg->pump(jnext::dbg::PumpBudget{});
+        const bool ok = g.load("on write 0x9000 do log \"a\" end\n"
+                               "on io_write mask 0xFFFF value 0x0000 do log \"b\" end\n");
+        check("SCRIPT-EV-REG-ROLLBACK", "a backend refusal of a later rule's subscription is a load error at "
+                                        "that rule, and the rules already subscribed are unsubscribed — the "
+                                        "script registers nothing",
+              !ok && g.last.errors.size() == 1 && g.last.errors[0].pos.line == 2 &&
+                  g.last.errors[0].message.find("refused") != std::string::npos && g.subs().empty() &&
+                  g.eng->rules().empty(),
+              dstr(g.last.errors) + " " + show(g.subs()));
+    }
+    {
+        Rig g(kPark);
+        const bool ok  = g.load("on copper wait at 1000..1023 do log \"x\" end\n", "a.jds");
+        const auto s0  = g.subs();
+        const bool bad = g.load("on copper wait at 1000..1024 do log \"x\" end\n", "b.jds");
+        check("SCRIPT-EV-REG-COPPER-AT-MAX", "a `copper … at` range reaches the last Copper PC, 1023, and no "
+                                             "further",
+              ok && s0.size() == 1 && s0[0].filter.lo == 1000 && s0[0].filter.hi == 1023 && !bad &&
+                  g.last.errors.size() == 1 &&
+                  g.last.errors[0].message.find("outside 0..1023") != std::string::npos,
+              dstr(g.last.errors) + " " + show(s0));
+    }
+    {
+        Rig g(kWriter);
+        const bool ok = g.load("on write 0x9000 do log indent 300 \"deep\" end\n"
+                               "on write 0x9001 do log indent 255 \"edge\" end\n");
+        g.frames(1);
+        const std::string d = g.sink.first("deep"), e = g.sink.first("edge");
+        const std::string pad = "] " + std::string(255, ' ');
+        check("SCRIPT-EV-LOG-INDENT-MAX", "`log indent` is clamped at 255: 300 indents 255 spaces, 255 indents "
+                                          "255",
+              ok && d.find(pad + "deep") != std::string::npos && d.find(pad + " deep") == std::string::npos &&
+                  e.find(pad + "edge") != std::string::npos && e.find(pad + " edge") == std::string::npos,
+              "deep=" + std::to_string(d.size()) + " edge=" + std::to_string(e.size()));
+    }
+    {
+        Rig g(kPark);
+        const bool ok = g.load("on frame 0 do dump_mem 0x8000 4096 end\n");
+        g.frames(1);
+        check("SCRIPT-EV-DUMP-MAX", "`dump_mem a 4096` (the bound itself) is legal: 256 lines, no error",
+              ok && g.eng->runtime_errors() == 0 && g.sink.count(" 8000: ") == 1 && g.sink.count(" 8FF0: ") == 1 &&
+                  g.sink.count(" 9000: ") == 0,
+              "errors=" + std::to_string(g.eng->runtime_errors()) + " " + g.sink.tail(2));
+    }
+    {
+        Rig g(kPark);
+        const bool ok = g.load("on frame 0 do press \"0,4\" end\non frame 0 do press \"0,5\" end\n");
+        g.frames(2);
+        const auto in = g.dbg->input_state();
+        check("SCRIPT-EV-KEY-COLUMN", "a `row,col` key has five columns: `0,4` presses row 0 column 4, `0,5` is "
+                                      "an unknown key",
+              ok && !(in.matrix[0] & (1 << 4)) && g.eng->runtime_errors() == 1 &&
+                  g.sink.count("unknown key `0,5`") == 1,
+              "row0=" + hex(in.matrix[0]) + " " + g.sink.tail(2));
+    }
+    {
+        Rig g(kPark);
+        const bool ok = g.load("on frame 0 do press \"a\" for 0 end\non frame 0 do press \"s\" for 1 end\n");
+        g.frames(2);
+        check("SCRIPT-EV-PRESS-FOR-ZERO", "`press … for 0` is a run-time error naming the bound; `for 1` is legal",
+              ok && g.eng->runtime_errors() == 1 &&
+                  g.sink.count("`press … for` needs at least 1 frame") == 1 && !g.eng->rules()[1].dead,
+              g.sink.tail(2));
+    }
+    {
+        Rig g(kWriter);
+        const bool ok = g.load("on write 0x9000 do set phys[0x10, 0x1FFF] = 0x5A end\n"
+                               "on write 0x9001 do set phys[0x10, 0x2000] = 0x5B end\n");
+        g.frames(1);
+        uint8_t last = 0;
+        g.dbg->peek(jnext::dbg::MemSpace::page(0x10), 0x1FFF, 1, &last);
+        check("SCRIPT-EV-PHYS-OFFSET", "`set phys[p, 0x1FFF]` writes a page's last byte; offset 0x2000 is a "
+                                       "run-time error naming the page bound",
+              ok && last == 0x5A && g.eng->runtime_errors() == 1 &&
+                  g.sink.count("`set phys[]` outside a page's 0..0x1FFF") == 1,
+              "last=" + hex(last) + " " + g.sink.tail(2));
+    }
+    {
+        // A rule that has already died must not be reported (or counted) again:
+        // its body queues a `compare_scr` of a missing file, then fails; the
+        // queued compare fails again at the edge, against the dead rule.
+        Rig g(kPark);
+        const bool ok = g.load("on scanline 10 once do compare_scr \"/nonexistent/x.scr\" \"m\" log \"${1 / 0}\" end\n",
+                               "d.jds");
+        g.frames(2);
+        check("SCRIPT-EV-RUNTIME-ONCE-ONLY", "a second run-time error against a rule already disabled by one is "
+                                             "neither counted nor logged again, and the exit stays a single 1",
+              ok && g.eng->runtime_errors() == 1 && g.sink.count("SCRIPT ERROR d.jds:") == 1 &&
+                  g.host_exits == std::vector<int>{1},
+              g.sink.tail(4));
+    }
+}
+
 int main() {
     std::printf("script_events_test — the debugger DSL engine on a real machine (GH #26 WP3)\n");
 
@@ -1740,6 +1871,7 @@ int main() {
     run_group("boundary", boundary_rows);
     run_group("device", device_rows);
     run_group("work", work_rows);
+    run_group("bounds", bounds_rows);
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);
