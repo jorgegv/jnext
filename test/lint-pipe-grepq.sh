@@ -38,8 +38,11 @@
 #
 # Files: tracked `*.sh` and `*.inc` under test/, recursively, that run under
 # pipefail. "Under pipefail" means the file has a `set` command naming
-# pipefail, or it lives under test/00regression/ — the harness sources every
-# row there into its own `set -euo pipefail` shell. A file that does NOT run
+# pipefail anywhere, or it lives under test/00regression/ — the harness sources
+# every row there into its own `set -euo pipefail` shell. Decided per WHOLE
+# file, and a file in scope is scanned from its first line to its last: the
+# lint counts the lines that reached the matcher and REFUSES the run (exit 2)
+# if that is not every line of every in-scope file. A file that does NOT run
 # under pipefail is out of scope, because the hazard does not exist there:
 # test/packaging/packaging-test.sh leaves pipefail off for exactly this reason
 # and says so in its header.
@@ -65,9 +68,6 @@
 #     reach as the pipe's next command: `cmd | (grep -q y)`,
 #     `cmd | { grep -q y; }`, and any pipe inside a DOUBLE-QUOTED `"$( … )"`,
 #     which the skeleton collapses to one inert word.
-#   * Text that only LOOKS like a heredoc start (`<<WORD` inside a quoted
-#     string outside any heredoc): the lines after it are read as a body and
-#     skipped, up to a line that is just WORD.
 #
 # MAY WRONGLY FLAG — the direction that COSTS, because a false positive blocks
 # a correct row. Each is accepted as the safe direction:
@@ -75,45 +75,59 @@
 #     or that runs after `set +o pipefail` in the same file: harmless, flagged,
 #     because the lint does not follow status use or option changes. Rewrite it
 #     with a here-string, or opt the line out.
-#   * a heredoc body fed to `source`, `.` or `eval`: it runs in THIS shell, so
-#     it is scanned as code on purpose, even when the text is only data there.
+#   * heredoc bodies, and any other text written out as a fixture: they are
+#     scanned like code, because telling where a heredoc ends needs a bash
+#     parser — an earlier version guessed, and a guess that never closed hid
+#     555 lines of three files while reporting "0 offenders". Scanning them
+#     fails the safe way: a fixture line that pipes into `grep -q` is flagged,
+#     and is MARKED, never skipped by inference. No line in the tree needs it
+#     today.
 # The escape for a deliberate case is a trailing
-# `# lint-pipe-grepq: allow (<why>)` on the line (the first line of a
+# `# lint-pipe-grepq: allow (<why>)` on the line (any physical line of a
 # continued one) — used once, by harness-selftest.sh, whose membership probe
 # builds the hazard on purpose to prove the in-shell lookup that replaced it.
 #
-# ALSO NOT SEEN (deliberate, these are the legitimate shapes): comments; a `|`
-# or `grep -q` inside a quoted string; and heredoc bodies whose consumer is NOT
-# source/./eval — the child-script pattern (`cat > child.sh <<'X'`,
-# `bash <<X`, `python3 - <<'PY'`), whose body is data or runs in another shell.
-# Same rule, and same detection on the comment-stripped line, as lint-traps.sh.
+# ALSO NOT SEEN (deliberate, these are the legitimate shapes): comments, and a
+# `|` or `grep -q` inside a quoted string on the same logical line.
 #
 # Env (TEST ONLY — set by harness-selftest HS-67a/HS-67b to prove this lint is
 # wired into the regression preflight; regression.sh never sets it):
 #   JNEXT_LINT_PIPE_GREPQ_DIR   scan <dir>/*.sh, all treated as in scope
 #
-# Exit: 0 clean, 1 offenders found, 2 the lint's own self-test failed or the
-# file list could not be read.
+# Exit: 0 clean, 1 offenders found, 2 the lint's own self-test failed, the
+# file list could not be read, or an in-scope file was not scanned whole.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# scan_files <path>... — prints "<path>:<line>: <text>" per offender. With
-# FORCE=1 in the environment every file is in scope (the fixture mode).
-scan_files() {
-    [[ $# -gt 0 ]] || return 0
-    FORCE="${FORCE:-0}" awk '
-        BEGIN { force = ENVIRON["FORCE"] + 0 }
+# in_scope <path> — succeeds if the file runs under pipefail: FORCE=1 (the
+# fixture mode), a path under test/00regression/ (the harness sources those
+# into its own `set -euo pipefail` shell), or a `set` command naming pipefail
+# anywhere in the file. Decided per WHOLE file, before the scan, so a file in
+# scope is scanned from its first line to its last.
+in_scope() {
+    [[ "${FORCE:-0}" == 1 ]] && return 0
+    [[ "$1" == */test/00regression/* ]] && return 0
+    grep -qE '^[[:space:]]*set[[:space:]][^#]*pipefail' "$1"
+}
 
+# scan_awk <path>... — every path given is in scope. Prints one
+# "OFFENDER<TAB><path>:<line>: <text>" per offending logical line and one
+# "CHECKED<TAB><path><TAB><n>" per file: the physical lines that reached the
+# matcher. Nothing is skipped — a heredoc body is scanned like code (see MAY
+# WRONGLY FLAG) — so n must equal the file's line count, and verify_coverage
+# refuses the run if it does not.
+scan_awk() {
+    [[ $# -gt 0 ]] || return 0
+    awk '
         # analyse(l) — the three-state quote scanner from lint-traps.sh /
         # lint-timeouts.sh (see lint-traps.sh for its derivation). SKEL is the
         # line with every quoted string collapsed to the inert word X and any
-        # comment removed, so a | or a grep inside quotes is not syntax. CODE
-        # is the line with only the comment removed (for the heredoc head).
+        # comment removed, so a | or a grep inside quotes is not syntax.
         function analyse(l,   i, n, c, nxt) {
-            SKEL = ""; CODE = l
+            SKEL = ""
             n = length(l)
             for (i = 1; i <= n; i++) {
                 c = substr(l, i, 1)
@@ -127,10 +141,7 @@ scan_files() {
                     }
                     if (c == "\047") { qst = 1; qcontent = ""; continue }
                     if (c == "\"")   { qst = 2; qcontent = ""; continue }
-                    if (c == "#" && (i == 1 || substr(l, i-1, 1) ~ /[ \t]/)) {
-                        CODE = substr(l, 1, i - 1)
-                        return
-                    }
+                    if (c == "#" && (i == 1 || substr(l, i-1, 1) ~ /[ \t]/)) return
                     SKEL = SKEL c
                     continue
                 }
@@ -192,51 +203,83 @@ scan_files() {
             return 0
         }
 
-        FNR == 1 {
-            inscope = force
-            qst = 0; qcontent = ""; logical = ""; start = 0; allow = 0; in_hd = 0
-            path = FILENAME
-            if (!force && path ~ /\/test\/00regression\//) inscope = 1
-            # Otherwise in scope from its `set ... pipefail` line on: the
-            # files that set it do so in their first lines.
+        # check(): the matcher on the logical line now complete, and the count
+        # of physical lines it covered.
+        function check(   t) {
+            analyse(logical)
+            if (!allow && quiet_grep_after_pipe(SKEL)) {
+                t = logical; gsub(/^[ \t]+/, "", t)
+                print "OFFENDER\t" path ":" start ": " substr(t, 1, 160)
+            }
+            checked += FNR_end - start + 1
+            logical = ""
         }
-        # A heredoc body with a non-sourcing consumer is data or another
-        # shell: skipped up to its terminator.
-        in_hd {
-            if ($0 ~ hd_term) in_hd = 0
-            next
+        # finish(): end of a file. A logical line still open (the file ends
+        # in a backslash continuation) is checked too, never dropped.
+        function finish() {
+            if (logical != "") check()
+            print "CHECKED\t" path "\t" checked
+        }
+        FNR == 1 {
+            if (NR > 1) finish()
+            path = FILENAME; checked = 0
+            qst = 0; qcontent = ""; logical = ""; start = 0; allow = 0
         }
         {
             raw = $0
-            if (!inscope && raw ~ /^[ \t]*set[ \t][^#]*pipefail/) inscope = 1
+            FNR_end = FNR
             if (logical == "") { start = FNR; allow = 0 }
             if (raw ~ /#[ \t]*lint-pipe-grepq:[ \t]*allow/) allow = 1
             if (raw ~ /\\$/) { logical = logical substr(raw, 1, length(raw) - 1) " "; next }
             logical = logical raw
-            analyse(logical)
-            if (inscope && !allow && quiet_grep_after_pipe(SKEL)) {
-                t = logical; gsub(/^[ \t]+/, "", t)
-                print FILENAME ":" start ": " substr(t, 1, 160)
-            }
-            # Arm the heredoc skip for the lines AFTER this one. Detected on
-            # CODE, as lint-traps.sh does: the delimiter word is data that must
-            # survive, and a heredoc inside "$( ... )" is invisible to SKEL.
-            # "<<<" is a here-string and arms nothing. A body fed to source,
-            # . or eval runs in this shell, so it is NOT skipped.
-            if (CODE !~ /<<</ && match(CODE, /<<-?[ \t]*[\047"]?[A-Za-z_][A-Za-z0-9_]*/)) {
-                head = substr(CODE, 1, RSTART - 1)
-                w = substr(CODE, RSTART, RLENGTH)
-                sub(/^<<-?[ \t]*/, "", w)
-                gsub(/[\047"]/, "", w)
-                if (head !~ /(^|[^A-Za-z0-9_])(source|eval)([^A-Za-z0-9_]|$)/ \
-                    && head !~ /(^|[;&|(){}])[ \t]*\.[ \t]/) {
-                    hd_term = "^[ \t]*" w "[ \t]*$"
-                    in_hd = 1
-                }
-            }
-            logical = ""
+            check()
         }
+        END { if (NR > 0) finish() }
     ' "$@"
+}
+
+# file_lines <path> — the number of lines awk reads from it: newlines, plus
+# one for a last line with no newline.
+file_lines() {
+    local n
+    n=$(wc -l < "$1")
+    [[ -s "$1" && -n "$(tail -c 1 "$1")" ]] && n=$((n + 1))
+    echo "$n"
+}
+
+# verify_coverage <awk-output> <path>... — fails loud, naming the file, if any
+# in-scope file was not scanned to its last line. A lint that stops early on
+# some construct and then reports "0 offenders" is the failure this guards:
+# an earlier version skipped heredoc bodies and lost 555 lines that way.
+verify_coverage() {
+    local out=$1 f want got bad=0
+    shift
+    declare -A seen=()
+    while IFS=$'\t' read -r tag p n; do
+        [[ "$tag" == CHECKED ]] && seen["$p"]=$n
+    done <<<"$out"
+    for f in "$@"; do
+        want=$(file_lines "$f")
+        got=${seen[$f]:-0}
+        if [[ "$got" != "$want" ]]; then
+            echo "[lint-pipe-grepq] COVERAGE LOSS: $f — $got of $want lines checked" >&2
+            bad=1
+        fi
+    done
+    return "$bad"
+}
+
+# scan_files <path>... — the in-scope files among <path>..., scanned whole and
+# verified whole. Prints "<path>:<line>: <text>" per offender; exits 2 (via
+# the caller) on any coverage loss.
+scan_files() {
+    local f out
+    local -a mine=()
+    for f in "$@"; do in_scope "$f" && mine+=("$f"); done
+    [[ ${#mine[@]} -gt 0 ]] || return 0
+    out=$(scan_awk "${mine[@]}")
+    verify_coverage "$out" "${mine[@]}" || return 2
+    sed -n 's/^OFFENDER\t//p' <<<"$out"
 }
 
 # ------------------------------------------------------------- self-test
@@ -259,6 +302,8 @@ selftest() {
         1 'quiet option after the pattern'  'echo "$o" | grep -e x -q'
         1 'quiet after a bare pattern'      'echo "$o" | grep x -q'
         1 'three-stage, quiet last'         'sed -n p "$f" | tr a b | grep -q x'
+        1 '|& into grep -q'                 'run_thing |& grep -q "x"'
+        1 'file ends inside a continuation' $'echo "$o" | grep -q y \\'
         0 'here-string'                     'grep -q "x" <<<"$out"'
         0 'here-string of a capture'        'grep -q "x" <<<"$(run_thing)"'
         0 'grep -c reads to EOF'            'n=$(echo "$o" | grep -c "x" || true)'
@@ -270,27 +315,30 @@ selftest() {
         0 'q is the pattern, not an option' 'echo "$o" | grep -e -q'
         0 'quiet grep in the NEXT command'  'echo "$o" | sort; grep -q x "$f"'
         0 'opted out'                       'echo "$o" | grep -q x  # lint-pipe-grepq: allow (demo)'
+        0 'opted out, continued line'       $'echo "$o" \\\n    | grep -q x  # lint-pipe-grepq: allow (demo)'
         0 'grep -q on a file'               'grep -q "x" "$log" || fails+=(y)'
-        1 '|& into grep -q'                 'run_thing |& grep -q "x"'
-        0 'heredoc body is data'            $'cat > child.sh <<X\necho "$o" | grep -q y\nX'
-        0 'quoted-delimiter heredoc body'   $'bash <<\'PY\'\necho "$o" | grep -q y\nPY'
-        0 '<<- body, tab-indented end'      $'cat <<-X\n\techo "$o" | grep -q y\n\tX'
-        1 'code after the heredoc ends'     $'cat <<X\nbody\nX\necho "$o" | grep -q y'
-        1 'heredoc fed to source runs here' $'source /dev/stdin <<X\necho "$o" | grep -q y\nX'
-        1 'pipe on the heredoc head line'   $'cat <<X | grep -q y\nbody\nX'
+        # Heredoc bodies are SCANNED (the safe direction): fixture text is
+        # marked, never skipped by guessing where a heredoc ends.
+        1 'heredoc body is scanned'         $'cat > child.sh <<X\necho "$o" | grep -q y\nX'
+        0 'heredoc body line, marked'       $'cat > child.sh <<X\necho "$o" | grep -q y  # lint-pipe-grepq: allow (fixture)\nX'
+        1 'offender after <<EOF-X'          $'cat <<EOF-X\nbody\nEOF-X\necho "$o" | grep -q y'
+        1 'offender after $(( a << b ))'    $'x=$(( a << b ))\necho "$o" | grep -q y'
+        1 'offender after a <<< line'       $'grep -q x <<<"$o"\necho "$o" | grep -q y'
+        1 'offender after a quoted <<X'     $'echo "see <<X"\necho "$o" | grep -q y'
     )
-    local i=0
+    local i=0 rc
     while (( i < ${#cases[@]} )); do
         want=${cases[i]}; desc=${cases[i+1]}; text=${cases[i+2]}
         i=$((i + 3))
         printf '%s\n' "$text" > "$d/case.sh"
-        got=0
-        [[ -n "$(FORCE=1 scan_files "$d/case.sh")" ]] && got=1
-        if [[ "$got" == "$want" ]]; then
+        got=0; rc=0
+        out=$(FORCE=1 scan_files "$d/case.sh") || rc=$?
+        [[ -n "$out" ]] && got=1
+        if [[ "$rc" == 0 && "$got" == "$want" ]]; then
             pass=$((pass + 1))
         else
             fail=$((fail + 1))
-            echo "[lint-pipe-grepq] SELFTEST FAIL: $desc (want $want, got $got): $text" >&2
+            echo "[lint-pipe-grepq] SELFTEST FAIL: $desc (want $want, got $got, rc $rc): $text" >&2
         fi
     done
     # Scope, both rules. The same offending line in a file with no pipefail
@@ -307,6 +355,13 @@ selftest() {
     printf '%s\n' '#!/usr/bin/env bash' 'echo "$o" | grep -q x' > "$d/test/00regression/row.inc"
     if [[ -n "$(FORCE=0 scan_files "$d/test/00regression/row.inc")" ]]; then pass=$((pass + 1))
     else fail=$((fail + 1)); echo "[lint-pipe-grepq] SELFTEST FAIL: a test/00regression/ file with no pipefail line was not flagged" >&2; fi
+    # The coverage check itself: a scan that reports fewer lines than the
+    # file has must be refused, and a full one accepted.
+    printf '%s\n' 'a' 'b' 'c' > "$d/three.sh"
+    if ! verify_coverage $'CHECKED\t'"$d/three.sh"$'\t2' "$d/three.sh" 2>/dev/null; then pass=$((pass + 1))
+    else fail=$((fail + 1)); echo "[lint-pipe-grepq] SELFTEST FAIL: a 2-of-3-lines scan was accepted" >&2; fi
+    if verify_coverage $'CHECKED\t'"$d/three.sh"$'\t3' "$d/three.sh"; then pass=$((pass + 1))
+    else fail=$((fail + 1)); echo "[lint-pipe-grepq] SELFTEST FAIL: a full scan was refused" >&2; fi
     rm -rf "$d"
     if (( fail > 0 )); then
         echo "[lint-pipe-grepq] self-test: $pass passed, $fail FAILED" >&2
@@ -326,7 +381,7 @@ if [[ -n "${JNEXT_LINT_PIPE_GREPQ_DIR:-}" ]]; then
     for f in "$JNEXT_LINT_PIPE_GREPQ_DIR"/*.sh; do
         [[ -e "$f" ]] && FILES+=("$f")
     done
-    OFFENDERS=$(FORCE=1 scan_files "${FILES[@]+"${FILES[@]}"}")
+    export FORCE=1
 else
     mapfile -t FILES < <(git -C "$PROJECT_DIR" ls-files -- 'test/*.sh' 'test/*.inc' \
                          | sed "s#^#$PROJECT_DIR/#")
@@ -334,18 +389,27 @@ else
         echo "ERROR: no tracked test/*.sh found — is this a git checkout?" >&2
         exit 2
     }
-    OFFENDERS=$(FORCE=0 scan_files "${FILES[@]}")
+    export FORCE=0
 fi
+rc=0
+OFFENDERS=$(scan_files "${FILES[@]+"${FILES[@]}"}") || rc=$?
+if [[ "$rc" != 0 ]]; then
+    echo "[lint-pipe-grepq] REFUSED: an in-scope file was not scanned to its last line (see above)" >&2
+    exit 2
+fi
+# scan_files ran in a subshell; count the in-scope files again here.
+INSCOPE=0
+for f in "${FILES[@]+"${FILES[@]}"}"; do in_scope "$f" && INSCOPE=$((INSCOPE + 1)); done
 
 if [[ -z "$OFFENDERS" ]]; then
-    echo "[lint-pipe-grepq] scanned: ${#FILES[@]} shell scripts  offenders: 0  (self-test ${SELFTEST_PASSED} cases)"
+    echo "[lint-pipe-grepq] scanned: ${#FILES[@]} shell scripts, ${INSCOPE} under pipefail, each to its last line  offenders: 0  (self-test ${SELFTEST_PASSED} cases)"
     exit 0
 fi
 
-echo "[lint-pipe-grepq] scanned: ${#FILES[@]} shell scripts  offenders: $(printf '%s\n' "$OFFENDERS" | wc -l | tr -d ' ')"
+echo "[lint-pipe-grepq] scanned: ${#FILES[@]} shell scripts, ${INSCOPE} under pipefail, each to its last line  offenders: $(wc -l <<<"$OFFENDERS" | tr -d ' ')"
 {
     echo "[lint-pipe-grepq] a pipeline ends in a quiet grep under pipefail:"
-    printf '%s\n' "$OFFENDERS" | sed "s#^$PROJECT_DIR/##;s/^/  /"
+    sed "s#^$PROJECT_DIR/##;s/^/  /" <<<"$OFFENDERS"
     echo ""
     echo "grep -q exits on its first match; the writer then dies of SIGPIPE (141) and"
     echo "pipefail makes that the pipeline's status, so a line that IS there reads as"
@@ -353,5 +417,8 @@ echo "[lint-pipe-grepq] scanned: ${#FILES[@]} shell scripts  offenders: $(printf
     echo ""
     echo "    grep -q PATTERN <<<\"\$var\"          # a string you already have"
     echo "    grep -q PATTERN <<<\"\$(producer)\"   # a command: capture first"
+    echo ""
+    echo "Fixture TEXT (a heredoc body, a string written to a file) is scanned too;"
+    echo "mark such a line with a trailing  # lint-pipe-grepq: allow (<why>)"
 } >&2
 exit 1
