@@ -696,7 +696,7 @@ static void test_debug_keys_bad_entries(QTemporaryDir& dir) {
     check("DK-63", "every bad entry is REPORTED, none swallowed",
           issues.size() == 4, std::to_string(issues.size()) + " issues");
 
-    // GH #26 WP5 — the file-level twin of debugger_keymap_test DKSK-02: a
+    // GH #26 WP5 — the file-level twin of debugger_keymap_test DKSK-02 (DK-68): a
     // config that binds an action to a script host key is reported and the
     // action keeps its default.
     {
@@ -713,7 +713,7 @@ static void test_debug_keys_bad_entries(QTemporaryDir& dir) {
         const auto& iss = c2.debug_key_issues();
         const bool named = iss.size() == 1 && iss[0].action_id == "step_into" &&
                            iss[0].reason.find("script host keys") != std::string::npos;
-        check("DK-67", "a saved binding on Alt+1 (a script host key) is reported by name and the action "
+        check("DK-68", "a saved binding on Alt+1 (a script host key) is reported by name and the action "
                        "keeps its default",
               named && c2.data().debug_keys.is_default(Action::StepInto),
               std::to_string(iss.size()) + " issues" + (iss.empty() ? "" : ": " + iss[0].reason));

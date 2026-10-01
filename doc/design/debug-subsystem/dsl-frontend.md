@@ -1824,7 +1824,7 @@ never counts: a guard that never trips is a pass.
 The GUI half of §6.4 and qt-frontend.md §5.3: the Script tab and menu, and
 Alt+1..Alt+8 as the script host keys in both windows. Rows: QSCR-01..07
 (`debugger_panels_test`), H-SCRIPT-01..09 (`host_hotkey_test`), DKSK-01/02
-(`debugger_keymap_test`), DK-32..35 and DK-67 (`app_config_test`), HKL-SK-01..04
+(`debugger_keymap_test`), DK-32..35 and DK-68 (`app_config_test`), HKL-SK-01..04
 (`host_key_latch_test`), SCRIPT-HOST-GUI-* (`script_events_test`), and DACC-05's
 pinned menu shape (`debugger_accel_test`).
 
