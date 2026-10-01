@@ -11,8 +11,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | CPU INT pulse         |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU/Z80N IM2 regr.    |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Rewind                |      308 |      308 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Copper                |       82 |       82 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Copper (integration)  |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Copper                |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Copper (integration)  |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      259 |      259 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU (int)      |       94 |       94 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -104,7 +104,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | GDB RSP remote debugger adapter (GH #281) |       97 |       97 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger DSL front end (GH #26) |      257 |      257 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger DSL evaluator (GH #26) |       60 |       60 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger DSL engine (GH #26) |       89 |       89 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger DSL engine (GH #26) |       92 |       92 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (AppConfig) |      116 |      116 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain configuration |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain Preferences |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -133,6 +133,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       61 |       61 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       61 |       61 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **11625**| **11625**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **11638**| **11638**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
