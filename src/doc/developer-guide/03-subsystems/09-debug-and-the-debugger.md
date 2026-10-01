@@ -941,9 +941,14 @@ against a real `Debugger`, and that every worked script of the design parses;
 machines — what each rule registers as, what it does when delivered, every
 worked script of the design, and the `ScriptHost`. The `script-*-func`
 regression rows run scripts through the real binary in all three frontends.
-The choices made where the design is silent are its "as built" appendices
-(G, H, I, J). The GUI Script tab and the recorder are later work packages of
-the same branch.
+The Qt side is `debugger/script_panel.*`, the debugger window's **Script**
+tab and **Script** menu: load / reload / unload through the loop owner's
+`ScriptHost` (handed down `QtApp` → `MainWindow` → `DebuggerManager`), the
+rules with their state and hits, `ScriptEngine::status()` as the verdict line,
+and the host's log ring — the engine's lines, as the backend's listener push
+delivers them. Rows QSCR-* (`debugger_panels_test`). The choices made where
+the design is silent are its "as built" appendices (G to K). The recorder is
+a later work package of the same branch.
 
 ## What `ENABLE_DEBUGGER=OFF` removes
 

@@ -1772,7 +1772,7 @@ changes how fast the emulator runs relative to real time.
 .PP
 .TS
 tab(@);
-l l.
+lw(27.3n) lw(42.7n).
 T{
 PC key
 T}@T{
@@ -1860,6 +1860,12 @@ T}@T{
 Caps Lock (Caps Shift + 2)
 T}
 T{
+Alt + 1 \&...
+Alt + 8
+T}@T{
+nothing \- script host keys 1\-8 (see \f[B]SCRIPTING\f[R])
+T}
+T{
 \f[CR]\(aq\f[R]
 T}@T{
 \f[CR]\(dq\f[R] (Symbol Shift + P)
@@ -1935,10 +1941,12 @@ and stop video recording), and function keys have no Spectrum meaning to
 lose.
 .PP
 Alt is the opposite: it is a host modifier, never a Spectrum key.
-jnext claims Alt + Q/O/S/K/R/T/D/P and Alt+Shift+S (menu shortcuts) plus
-Alt + F/M/I/A/B/V/N/H (menu bar), which leaves the guest only Alt +
-E/G/C (EDIT, GRAPH, CAPS LOCK) and Alt + the key left of \f[CR]1\f[R]
-(INV VIDEO).
+jnext claims Alt + Q/O/S/K/R/T/D/P and Alt+Shift+S (menu shortcuts), Alt
++ F/M/I/A/B/V/N/H (menu bar) and Alt + 1 to Alt + 8 (the script host
+keys), which leaves the guest only Alt + E/G/C (EDIT, GRAPH, CAPS LOCK)
+and Alt + the key left of \f[CR]1\f[R] (INV VIDEO).
+Alt + 1 to Alt + 8 no longer type their digit into the program (earlier
+releases let them through as plain 1\-8); Alt + 9 and Alt + 0 still do.
 Real Next hardware instead maps Left Alt to EXTEND MODE and Right Alt to
 GRAPH; jnext deliberately does not, following the FUSE/ZEsarUX
 convention that puts EXTEND MODE on Tab.
@@ -2258,6 +2266,31 @@ machine only through \f[CR]set\f[R] and \f[CR]out\f[R], and each such
 write is logged as a \f[CR]MUTATE\f[R] line.
 Script output goes to the log as \f[CR][jds F:\f[R]\f[I]frame\f[R]
 \f[CR]C:\f[R]\f[I]cycle\f[R]\f[CR]]\f[R] lines.
+.PP
+\f[B]Host keys.\f[R] In the emulator window (Qt or SDL) and in the
+debugger window, Alt + 1 to Alt + 8 are the script host keys: Alt +
+\f[I]N\f[R] runs the loaded scripts\(cq \f[CR]on hostkey\f[R]
+\f[I]N\f[R] rules, with or without the debugger window open.
+The digit never reaches the guest, even when no script is loaded, so
+what Alt + 1 does never depends on what is loaded.
+\f[B]\-\-script\-key\f[R] is the same key in \f[B]\-\-headless\f[R].
+A debugger key binding can never use them.
+.PP
+\f[B]The Script tab.\f[R] In the Qt GUI the debugger window\(cqs Script
+tab lists the loaded scripts\(cq rules (the event with its filter, its
+state, its hit count), the run\(cqs verdict (a stop or failed assert, an
+\f[CR]exit\f[R], a run\-time error, the verdicts not reached yet) and
+the script log.
+\f[B]Script > Load Script\&...\f[R] loads one more script while the
+machine runs, \f[B]Reload Scripts\f[R] loads the same files again and
+\f[B]Unload Scripts\f[R] removes them all; scripts given with
+\f[B]\-\-script\f[R] appear there too.
+A script loaded from the menu registers at once, and \f[CR]FRAME\f[R]
+(and \f[CR]on frame\f[R] \f[I]N\f[R]) count the machine\(cqs frames, not
+frames since the load.
+In the GUI a script never ends the program: \f[CR]stop\f[R], a failed
+\f[CR]assert\f[R] and \f[CR]exit\f[R] pause the machine and open the
+debugger.
 .PP
 \f[B]Exit status\f[R] in \f[B]\-\-headless\f[R] (and the SDL\-only
 build): \f[CR]0\f[R] for a clean run or \f[CR]exit 0\f[R]; \f[I]N\f[R]

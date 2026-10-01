@@ -1818,3 +1818,81 @@ never counts: a guard that never trips is a pass.
   guide's own chapter (`tools/gen-userguide-cli.pl`).
 - The GH #26 ChangeLog line is reworded now that scripts load from the CLI; it
   is to be checked again at the final merge.
+
+## Appendix K — WP5 as built (2026-10-01)
+
+The GUI half of §6.4 and qt-frontend.md §5.3: the Script tab and menu, and
+Alt+1..Alt+8 as the script host keys in both windows. Rows: QSCR-01..07
+(`debugger_panels_test`), H-SCRIPT-01..09 (`host_hotkey_test`), DKSK-01/02
+(`debugger_keymap_test`), DK-32..35 and DK-67 (`app_config_test`), HKL-SK-01..04
+(`host_key_latch_test`), SCRIPT-HOST-GUI-* (`script_events_test`), and DACC-05's
+pinned menu shape (`debugger_accel_test`).
+
+### K.1 The host keys
+
+- **One implementation for both windowed frontends: the key `Router`**
+  (`host_key_latch.h`), which the Qt emulator window and the SDL window both
+  feed. §5.3 placed the Qt half in `MainWindow::keyPressEvent` and the SDL
+  half in the Router; the Router alone serves both, with the same properties —
+  independent of the debugger being open (the Router is upstream of nothing
+  the debugger gates), swallowed press AND release, consumed with no script
+  loaded — and the two frontends cannot drift. `wire_script_keys()`
+  (`host_key_wiring.h`) binds it to `Debugger::raise_host_event("scriptN")`
+  in `QtApp` and `SdlApp`, one spelling of the name.
+- **The chord is exact**: Alt (left or right) and no Ctrl / Shift / GUI held.
+  Ctrl+Alt+N, Shift+Alt+N, Alt+9, Alt+0 and the bare digits are unchanged.
+  The digit's release is swallowed even if Alt went up first; an autorepeat of
+  a held chord raises nothing; `release_all()` forgets a chord whose key-up
+  went to another window.
+- **The debugger window**: eight `Qt::WindowShortcut` `QAction`s, not menu
+  items, each raising the same event; `validate_combo` refuses `Alt+1..Alt+8`
+  by name ("Alt+1..Alt+8 are the script host keys"), so a saved binding there
+  is a `LoadIssue` and keeps its default.
+- **SDL parity**: full — the SDL window's key callback forwards Alt+digit to
+  the same Router (it filters only F-keys and the pointer release).
+
+### K.2 The Script tab and menu
+
+- `ScriptPanel` (`src/debugger/script_panel.*`) drives the loop owner's
+  `ScriptHost` (`QtApp` → `MainWindow::set_script_host` →
+  `DebuggerManager::set_script_host`) — the one `--script` loads into, so CLI
+  scripts are listed too. It includes no core header (QTF-09..13 stay green).
+- **Script menu** (Alt+S on the debugger window's menu bar): Load Script…,
+  Reload Scripts, Unload Scripts. §6.4 named "Load Script…, Unload Scripts"
+  in a Debug menu; a menu of its own keeps the Debug menu's mnemonics as they
+  are, and Reload was asked for by the WP5 brief.
+- **What it shows**: per rule — file, label (or `line:column`), the event with
+  the filter as registered, the state (`armed` / `disabled` / `spent (once)` /
+  `error (disabled)`, plus `verdict not reached`), hits; the verdict line from
+  `ScriptEngine::status()` — `PASS: exit 0` / `FAIL: exit n` (the machine
+  paused, the GUI never exits), stops with the last reason, run-time errors,
+  verdicts not reached; and the script log, the last 2000 lines the engine's
+  client logged (the backend's `[client N]` tag removed), the `MUTATE` lines
+  included, plus the host's own load errors.
+- **ScriptHost gained a GUI API**: `load_file()` (registered at once; a
+  script with an error registers nothing and the loaded ones stay),
+  `unload_all()` (which destroys the engine: its client arms the machine, and
+  a GUI with nothing loaded must not keep every instruction paying for it),
+  `reload()`, `files()`, `log_since()`. Its listener client (non-arming) now
+  exists in the GUI too, to collect the log.
+- **`ScriptEngine`** gained `status()` and three `RuleView` fields (`spent`,
+  `verdict`, `event`).
+
+### K.3 Deviations
+
+- **FRAME stays absolute for a menu-loaded script.** §6.4 says a menu-loaded
+  script's `FRAME` 0 is "the first full frame after loading"; §2.4 says the
+  same for any script ("Frame 0 is the first frame executed after the script
+  is loaded"). WP3 made `FRAME` the backend's frame number (Appendix I), which
+  for a CLI script at power-on is the same thing. Making it relative per load
+  would split `FRAME`, `on frame N`, `--script-key`, the recorder's stamps and
+  the `[jds F:]` log stamp across two origins, so it stays the machine's frame
+  number, and the load note says so (`SCRIPT … loaded at FRAME n (FRAME and
+  \`on frame N\` count the machine's frames)`), as do the man page and the
+  user guide. A script that wants a relative frame captures `FRAME` into a
+  `var` in a `once` rule.
+- **Registered at once, not "from the next frame boundary".** The Qt tick
+  loads between frames (or with the machine paused), which is a boundary.
+- **No regression row for the GUI path**: §8's `script-hostkey-func` is WP7's,
+  headless. The GUI path is pinned in the Qt unit suites above (offscreen,
+  real windows, the real key Router and the real backend).

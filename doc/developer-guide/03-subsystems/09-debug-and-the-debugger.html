@@ -2750,9 +2750,14 @@ against a real <code>Debugger</code>, and that every worked script of the design
 machines — what each rule registers as, what it does when delivered, every
 worked script of the design, and the <code>ScriptHost</code>. The <code>script-*-func</code>
 regression rows run scripts through the real binary in all three frontends.
-The choices made where the design is silent are its "as built" appendices
-(G, H, I, J). The GUI Script tab and the recorder are later work packages of
-the same branch.</p>
+The Qt side is <code>debugger/script_panel.*</code>, the debugger window's <strong>Script</strong>
+tab and <strong>Script</strong> menu: load / reload / unload through the loop owner's
+<code>ScriptHost</code> (handed down <code>QtApp</code> → <code>MainWindow</code> → <code>DebuggerManager</code>), the
+rules with their state and hits, <code>ScriptEngine::status()</code> as the verdict line,
+and the host's log ring — the engine's lines, as the backend's listener push
+delivers them. Rows QSCR-* (<code>debugger_panels_test</code>). The choices made where
+the design is silent are its "as built" appendices (G to K). The recorder is
+a later work package of the same branch.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
 <p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
 <code>jnext_debugger</code> is neither compiled nor linked and every use site in

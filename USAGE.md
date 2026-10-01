@@ -1563,31 +1563,32 @@ changes how fast the emulator runs relative to real time.
 
 ## KEYBOARD MAPPING
 
-| PC key                | Spectrum key                            |
-|-----------------------|-----------------------------------------|
-| Letter/number keys    | The corresponding key                   |
-| Shift (left/right)    | Caps Shift                              |
-| Ctrl (left/right)     | Symbol Shift                            |
-| Backspace             | Delete (Caps Shift + 0)                 |
-| Arrow keys            | Cursor keys (Caps Shift + 5/6/7/8)      |
-| Enter                 | Enter                                   |
-| Space                 | Space                                   |
-| Esc                   | Break (Caps Shift + Space)              |
-| Tab                   | Extend Mode (Caps Shift + Symbol Shift) |
-| Caps Lock             | Caps Lock (Caps Shift + 2)              |
-| Key left of `1`       | True Video (Caps Shift + 3)             |
-| `\`                   | Inverse Video (Caps Shift + 4)          |
-| Alt + key left of `1` | Inverse Video (Caps Shift + 4)          |
-| Alt + E               | Edit (Caps Shift + 1)                   |
-| Alt + G               | Graph (Caps Shift + 9)                  |
-| Alt + C               | Caps Lock (Caps Shift + 2)              |
-| `'`                   | `"` (Symbol Shift + P)                  |
-| `;`                   | `;` (Symbol Shift + O)                  |
-| `.`                   | `.` (Symbol Shift + M)                  |
-| `,`                   | `,` (Symbol Shift + N)                  |
-| `/`                   | `/` (Symbol Shift + V)                  |
-| `-`                   | `-` (Symbol Shift + J)                  |
-| `=`                   | `=` (Symbol Shift + L)                  |
+| PC key                | Spectrum key                                       |
+|-----------------------|----------------------------------------------------|
+| Letter/number keys    | The corresponding key                              |
+| Shift (left/right)    | Caps Shift                                         |
+| Ctrl (left/right)     | Symbol Shift                                       |
+| Backspace             | Delete (Caps Shift + 0)                            |
+| Arrow keys            | Cursor keys (Caps Shift + 5/6/7/8)                 |
+| Enter                 | Enter                                              |
+| Space                 | Space                                              |
+| Esc                   | Break (Caps Shift + Space)                         |
+| Tab                   | Extend Mode (Caps Shift + Symbol Shift)            |
+| Caps Lock             | Caps Lock (Caps Shift + 2)                         |
+| Key left of `1`       | True Video (Caps Shift + 3)                        |
+| `\`                   | Inverse Video (Caps Shift + 4)                     |
+| Alt + key left of `1` | Inverse Video (Caps Shift + 4)                     |
+| Alt + E               | Edit (Caps Shift + 1)                              |
+| Alt + G               | Graph (Caps Shift + 9)                             |
+| Alt + C               | Caps Lock (Caps Shift + 2)                         |
+| Alt + 1 … Alt + 8     | nothing - script host keys 1-8 (see **SCRIPTING**) |
+| `'`                   | `"` (Symbol Shift + P)                             |
+| `;`                   | `;` (Symbol Shift + O)                             |
+| `.`                   | `.` (Symbol Shift + M)                             |
+| `,`                   | `,` (Symbol Shift + N)                             |
+| `/`                   | `/` (Symbol Shift + V)                             |
+| `-`                   | `-` (Symbol Shift + J)                             |
+| `=`                   | `=` (Symbol Shift + L)                             |
 
 Shift is Caps Shift and Ctrl is Symbol Shift, matching a real Spectrum
 Next with a PC keyboard attached. Earlier releases had the two swapped.
@@ -1621,12 +1622,15 @@ Ctrl+F6 (start and stop video recording), and function keys have no
 Spectrum meaning to lose.
 
 Alt is the opposite: it is a host modifier, never a Spectrum key. jnext
-claims Alt + Q/O/S/K/R/T/D/P and Alt+Shift+S (menu shortcuts) plus Alt +
-F/M/I/A/B/V/N/H (menu bar), which leaves the guest only Alt + E/G/C
-(EDIT, GRAPH, CAPS LOCK) and Alt + the key left of `1` (INV VIDEO). Real
-Next hardware instead maps Left Alt to EXTEND MODE and Right Alt to
-GRAPH; jnext deliberately does not, following the FUSE/ZEsarUX
-convention that puts EXTEND MODE on Tab.
+claims Alt + Q/O/S/K/R/T/D/P and Alt+Shift+S (menu shortcuts), Alt +
+F/M/I/A/B/V/N/H (menu bar) and Alt + 1 to Alt + 8 (the script host
+keys), which leaves the guest only Alt + E/G/C (EDIT, GRAPH, CAPS LOCK)
+and Alt + the key left of `1` (INV VIDEO). Alt + 1 to Alt + 8 no longer
+type their digit into the program (earlier releases let them through as
+plain 1-8); Alt + 9 and Alt + 0 still do. Real Next hardware instead
+maps Left Alt to EXTEND MODE and Right Alt to GRAPH; jnext deliberately
+does not, following the FUSE/ZEsarUX convention that puts EXTEND MODE on
+Tab.
 
 Up to two USB gamepads are picked up automatically (hot-plug) and mapped
 to the Next’s two joystick ports; the joystick mode (Kempston / Sinclair
@@ -1848,6 +1852,26 @@ match. A script observes the machine without disturbing it; it changes
 the machine only through `set` and `out`, and each such write is logged
 as a `MUTATE` line. Script output goes to the log as `[jds F:`*frame*
 `C:`*cycle*`]` lines.
+
+**Host keys.** In the emulator window (Qt or SDL) and in the debugger
+window, Alt + 1 to Alt + 8 are the script host keys: Alt + *N* runs the
+loaded scripts’ `on hostkey` *N* rules, with or without the debugger
+window open. The digit never reaches the guest, even when no script is
+loaded, so what Alt + 1 does never depends on what is loaded.
+**--script-key** is the same key in **--headless**. A debugger key
+binding can never use them.
+
+**The Script tab.** In the Qt GUI the debugger window’s Script tab lists
+the loaded scripts’ rules (the event with its filter, its state, its hit
+count), the run’s verdict (a stop or failed assert, an `exit`, a
+run-time error, the verdicts not reached yet) and the script log.
+**Script \> Load Script…** loads one more script while the machine runs,
+**Reload Scripts** loads the same files again and **Unload Scripts**
+removes them all; scripts given with **--script** appear there too. A
+script loaded from the menu registers at once, and `FRAME` (and
+`on frame` *N*) count the machine’s frames, not frames since the load.
+In the GUI a script never ends the program: `stop`, a failed `assert`
+and `exit` pause the machine and open the debugger.
 
 **Exit status** in **--headless** (and the SDL-only build): `0` for a
 clean run or `exit 0`; *N* for `exit` *N*; `3` for a `stop` or a failed

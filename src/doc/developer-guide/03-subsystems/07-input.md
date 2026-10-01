@@ -199,6 +199,13 @@ in the machine-side class, plus a stated policy.
   The price is stated rather than hidden — a press not yet shown to a frame is
   dropped instead of held, which is correct, because the user has moved to a
   menu (GH #268).
+  The Router is also where the **script host keys** live (GH #26): Alt+1..Alt+8
+  with no other modifier held call the callback `wire_script_keys()`
+  (`host_key_wiring.h`) installs — the backend's `Host{scriptN}` — and the
+  digit's press *and* release are swallowed, script loaded or not. Alt+9/Alt+0
+  and every other key are unchanged. One place for both the Qt and the SDL
+  window, so they cannot disagree; the debugger window has its own eight
+  `QAction`s on the same chords, and the debugger keymap refuses them.
 
 - **`phantom_typist.{h,cpp}`** types `LOAD ""` for you. Loading a tape on a
   real Spectrum starts with the user typing it and pressing ENTER — or, on a
