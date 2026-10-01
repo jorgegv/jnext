@@ -2438,8 +2438,68 @@ struct ScriptFixture {
     }
 };
 
+static bool button(const ScriptPanel& p, const char* text) {
+    for (QPushButton* b : p.findChildren<QPushButton*>())
+        if (b->text() == QString::fromUtf8(text)) return b->isEnabled();
+    return false;
+}
+
 static void test_script_panel() {
     set_group("QSCR");
+    {
+        // A script given with --script is listed — QtApp starts the host
+        // with the command line's files — and Reload / Unload act on it; a
+        // second host replaces the first's log.
+        ScriptFixture fx;   // started with no scripts; its host is replaced below
+        jnext::script::ScriptHost cli;
+        jnext::script::ScriptHostOptions o;
+        o.exits   = false;
+        o.scripts = {scr_file("cli.jds", "on frame 0 do log \"CLI\" end\n")};
+        const bool started = fx.ok && cli.start(*fx.backend, o);
+        fx.panel.load_path(QString::fromStdString(scr_file("other.jds", "on frame 0 do log \"O\" end\n")));
+        const bool had_log = !fx.panel.log_lines().isEmpty();
+        fx.panel.set_host(&cli);
+        const bool log_cleared = fx.panel.log_lines().isEmpty() ||
+                                 !fx.panel.log_lines().join('|').contains("other.jds");
+        const bool listed = fx.panel.rule_table()->rowCount() == 1 && fx.cell(0, 0) == "cli.jds" &&
+                            !fx.panel.verdict_text().startsWith("No script") &&
+                            button(fx.panel, "Reload") && button(fx.panel, "Unload All");
+        const size_t cli_files = cli.files().size();
+        fx.panel.unload_all();
+        fx.panel.set_host(&fx.host);
+        check("QSCR-09", "a script loaded with --script is listed in the Script tab with Reload and Unload "
+                         "enabled, and handing the panel another host clears the previous host's log",
+              started && cli_files == 1 && listed && had_log && log_cleared && cli.files().empty(),
+              fmt("started=%d files=%zu listed=%d log_cleared=%d", started, cli_files, listed, log_cleared));
+    }
+    {
+        // The window refreshes the Script tab with its other panels: a verdict
+        // reached while running shows after refresh_panels(), no button pressed.
+        WindowFixture fx;
+        jnext::script::ScriptHost host;
+        jnext::script::ScriptHostOptions o;
+        o.exits = false;
+        const bool started = fx.ok && host.start(*fx.backend, o);
+        DebuggerWindow* w = fx.ok ? fx.dbg() : nullptr;
+        bool shows = false;
+        QString before, after;
+        if (w && started) {
+            fx.mgr->set_script_host(&host);
+            w->script_panel()->load_path(QString::fromStdString(scr_file("rp.jds", "on frame 0 do exit 0 end\n")));
+            before = w->script_panel()->verdict_text();
+            fx.backend->run(jnext::dbg::CLIENT_NONE);
+            fx.emu.run_frame();
+            fx.backend->pump(jnext::dbg::PumpBudget{});
+            w->refresh_panels();
+            after = w->script_panel()->verdict_text();
+            shows = !before.contains("PASS") && after.contains("PASS: exit 0");
+            fx.mgr->set_script_host(nullptr);
+        }
+        host.unload_all();
+        check("QSCR-10", "the debugger window's refresh_panels() refreshes the Script tab: an `exit 0` reached "
+                         "while running shows as PASS without any panel action",
+              shows, s(before) + " || " + s(after));
+    }
     {
         // QtApp's order: the host is handed to the manager BEFORE the window
         // exists (it is built when the debugger is first opened).
@@ -2548,10 +2608,11 @@ static void test_script_panel() {
         const bool reload_reports = gone_err.contains(QString::fromStdString(gone)) &&
                                     gone_err.contains("cannot be read");
         fx.panel.unload_all();
-        check("QSCR-04", "Reload loads the same files again (hits start over, `once` re-armed); Unload All empties the table "
-                         "and the verdict says nothing is loaded",
+        check("QSCR-04", "Reload loads the same files again (hits start over, `once` re-armed); Unload All empties the table, "
+                         "the verdict says nothing is loaded, and Reload / Unload All are disabled (Load is not)",
               reloaded && reload_reports && fx.panel.rule_table()->rowCount() == 0 &&
-                  fx.panel.verdict_text() == "No script loaded." && fx.host.engine() == nullptr,
+                  fx.panel.verdict_text() == "No script loaded." && fx.host.engine() == nullptr &&
+                  !button(fx.panel, "Reload") && !button(fx.panel, "Unload All") && button(fx.panel, "Load..."),
               fmt("reloaded=%d rows=%d verdict=%s", reloaded, fx.panel.rule_table()->rowCount(),
                   s(fx.panel.verdict_text()).c_str()));
     }
@@ -2581,11 +2642,12 @@ static void test_script_panel() {
         fx.backend->run(jnext::dbg::CLIENT_NONE);
         fx.frames(2);
         const QString err = fx.panel.verdict_text();
-        check("QSCR-06", "`exit 0` reads PASS and pauses (the GUI never exits); a run-time error reads ERROR "
-                         "and its rule's state says it was disabled",
+        check("QSCR-06", "`exit 0` reads PASS and pauses (the GUI never exits) and its rule, having run, no "
+                         "longer says `verdict not reached`; a run-time error reads ERROR and its rule's state "
+                         "says it was disabled",
               ok && pass.contains("PASS: exit 0") && pass.contains("never exits") &&
                   err.contains("ERROR: 1 rule(s) disabled by a run-time error") &&
-                  fx.cell(1, 3) == "error (disabled)",
+                  fx.cell(1, 3) == "error (disabled)" && fx.cell(0, 3) == "armed",
               s(pass) + " || " + s(err) + " || " + s(fx.cell(1, 3)));
     }
     {

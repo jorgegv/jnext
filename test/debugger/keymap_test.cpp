@@ -63,6 +63,9 @@
 #include <string>
 #include <vector>
 
+#include "input/keyboard.h"
+#include "platform/host_key_wiring.h"
+#include "platform/host_key_latch.h"
 #include "core/emulator.h"
 #include "debug/debug_keymap.h"
 #include "qt/debug_keymap_qt.h"
@@ -986,6 +989,47 @@ void test_script_keys() {
             check("DKSK-01", "Alt+1 / Alt+8 in the focused debugger window raise script1 / script8 "
                              "(through the real shortcut map), and Alt+9 raises nothing",
                   got == "script1 script8 ", got);
+            fx.backend->detach(cid);
+        }
+    }
+    {
+        // With the EMULATOR window focused (the debugger open beside it), one
+        // Alt+3 raises script3 exactly once: the key Router does it, and the
+        // debugger window's own QActions are window-scoped, so they do not
+        // fire too.
+        MainWindowFixture fx;
+        DebuggerManager* mgr = fx.ok ? fx.win.debugger_manager() : nullptr;
+        if (!mgr) {
+            check("DKSK-03", "Alt+3 in the emulator window raises script3 exactly once", false, "fixture failed");
+        } else {
+            mgr->set_enabled(true);
+            host_key_latch::Router<Keyboard, SDL_Scancode> router;
+            router.attach(fx.emu.keyboard());
+            wire_host_keys(fx.win, router);
+            wire_script_keys(router, *fx.backend);
+            jnext::dbg::ClientInfo ci;
+            ci.name = "keymap_test";
+            const auto cid = fx.backend->attach(ci).value;
+            std::vector<std::string> raised;
+            jnext::dbg::Subscription sub;
+            sub.kind   = jnext::dbg::EventKind::Host;
+            sub.action = jnext::dbg::Action::Continue;
+            sub.handler = [&raised](const jnext::dbg::Event& e, jnext::dbg::Debugger&) {
+                raised.emplace_back(e.host_name);
+                return jnext::dbg::Action::Continue;
+            };
+            fx.backend->subscribe(cid, sub);
+            fx.win.show();
+            fx.win.activateWindow();
+            settle(150);
+            press_shortcut(&fx.win, parsed("Alt+3"));
+            std::string got;
+            for (const auto& r : raised) got += r + " ";
+            check("DKSK-03", "with the emulator window focused and the debugger window open, Alt+3 raises "
+                             "script3 exactly once (the debugger window's actions are window-scoped)",
+                  got == "script3 ", got);
+            fx.win.set_key_callback(nullptr);
+            fx.win.set_keyboard_lost_callback(nullptr);
             fx.backend->detach(cid);
         }
     }

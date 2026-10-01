@@ -1105,13 +1105,16 @@ static void input_rows() {
         g.frames(3);
         check("SCRIPT-EV-COMPARE-SCR", "`compare_scr` runs at the frame edge (nothing failed later in the "
                                        "frame it was issued in): an equal file passes, a different one logs the "
-                                       "first differing offset (or the size) and `ASSERT FAILED: msg` and stops",
+                                       "first differing offset (or the size) and `ASSERT FAILED: msg` and stops, "
+                                       "and each failure is a stop in status()",
               ok && fails_mid == 0 && g.paused() && g.sink.count("ASSERT FAILED: same") == 0 &&
                   g.sink.count("ASSERT FAILED: differs") == 1 &&
                   g.sink.count("first difference at offset 100") == 1 &&
                   g.sink.count("size 100 != screen 6912") == 1 && g.sink.count("ASSERT FAILED: short") == 1 &&
-                  g.sink.count("first difference at offset 0 ") == 1 && g.sink.count("ASSERT FAILED: zero") == 1,
-              "mid=" + std::to_string(fails_mid) + " " + g.sink.tail());
+                  g.sink.count("first difference at offset 0 ") == 1 && g.sink.count("ASSERT FAILED: zero") == 1 &&
+                  g.eng->status().stops == 3 && g.eng->status().last_stop == "zero",
+              "mid=" + std::to_string(fails_mid) + " stops=" + std::to_string(g.eng->status().stops) + " " +
+                  g.sink.tail());
     }
     {
         Rig g(kPark);

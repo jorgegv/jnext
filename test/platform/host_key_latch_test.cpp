@@ -1662,6 +1662,33 @@ int main()
                   step1 && keys == std::vector<int>{4, 5, 5} && kb.count(digit(5), true) == 0,
                   got(keys) + " " + got(kb));
         }
+        // HKL-SK-06: the RIGHT-hand Ctrl, Shift and GUI keys make a different
+        // chord exactly as the left-hand ones do.
+        {
+            FakeKeyboard kb;
+            TestRouter r;
+            r.attach(kb);
+            std::vector<int> keys;
+            r.set_script_key_callback([&keys](int n) { keys.push_back(n); });
+            const int RCTRL = SC_RCTRL, RSHIFT = SC_RSHIFT, RGUI = SC_RGUI, LGUI = SC_LGUI;
+            int n = 3;
+            for (int mod : {RCTRL, RSHIFT, RGUI, LGUI}) {
+                r.on_host_key(mod, true);
+                r.on_host_key(LALT, true);
+                r.on_host_key(digit(n), true);
+                r.on_tick_end(1);
+                r.on_host_key(digit(n), false);
+                r.on_host_key(LALT, false);
+                r.on_host_key(mod, false);
+                r.on_tick_end(1);
+                ++n;
+            }
+            check("HKL-SK-06", "Right-Ctrl+Alt+3, Right-Shift+Alt+4, Right-GUI+Alt+5 and Left-GUI+Alt+6 are not "
+                               "script keys: each digit reaches the guest and nothing is raised",
+                  keys.empty() && kb.count(digit(3), true) == 1 && kb.count(digit(4), true) == 1 &&
+                      kb.count(digit(5), true) == 1 && kb.count(digit(6), true) == 1,
+                  got(keys) + " " + got(kb));
+        }
         // HKL-SK-05: attach() (a cold boot rebinding the sink) forgets a chord
         // held across it, so the next Alt+N raises again.
         {
