@@ -1367,8 +1367,8 @@ DeZog's `zesaruxremote.ts` / `zesaruxcpuhistory.ts` (init, every-step `get`,
    address must fit 16 bits (milestone 1's rule). `save-binary` answers a
    failure `ERROR loading file`, ZEsarUX's own text.
 
-Rows: `ZRCP-HIS-01..09`, `ZRCP-XST-01/02`, `ZRCP-COV-01`, `ZRCP-LOAD-01..04`,
-`ZRCP-SNAP-01..03`; the regression row `zrcp-hist-func` (§6.2 item 7 and the
+Rows: `ZRCP-FMT-14`, `ZRCP-HIS-01..10`, `ZRCP-XST-01..03`, `ZRCP-COV-01`,
+`ZRCP-LOAD-01..04`, `ZRCP-SNAP-01..03`; the regression row `zrcp-hist-func` (§6.2 item 7 and the
 rest of WP-5 against a live jnext: a `.sna` smartloaded, history, coverage,
 extended stack, load/save-binary, a snapshot round trip).
 
