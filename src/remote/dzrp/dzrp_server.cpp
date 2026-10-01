@@ -343,8 +343,9 @@ void DzrpServer::on_log(jnext::dbg::LogLevel /*level*/, const std::string& /*tex
 
 void DzrpServer::on_disconnect() {
     // A dropped socket is a CMD_CLOSE (design §2 row 2, §4.1): SES-01's detach
-    // releases this client's own pause, so a crashed DeZog cannot leave the
-    // machine hung.
+    // releases this client's own pause when no other client remains (else it
+    // passes to one, GH #280 N1), so a crashed DeZog cannot leave the machine
+    // hung.
     end_session();
     parser_.reset();
     conn_ = nullptr;

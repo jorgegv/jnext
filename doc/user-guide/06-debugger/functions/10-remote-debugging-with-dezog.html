@@ -2096,6 +2096,8 @@
       
         
       
+        
+      
     
     
     
@@ -2542,6 +2544,34 @@
     
   
     Debugging with z88dk-gdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="12-remote-debugging-over-zrcp.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote debugging over ZRCP
   
 
     
@@ -3068,8 +3098,10 @@ where it stopped.</p>
   machine whether that window is open or closed, and they are removed when
   DeZog disconnects. A DeZog session that crashes cannot leave the machine
   stopped on one of them.</li>
-<li><strong>Disconnecting resumes the machine</strong> if the pause was DeZog's own. A pause
-  you made yourself in JNEXT's debugger window stays.</li>
+<li><strong>Disconnecting resumes the machine</strong> if the pause was DeZog's own and
+  nothing else is attached. If JNEXT's debugger window is open, or another
+  remote debugger is connected, the machine stays paused and the pause becomes
+  theirs. A pause you made yourself in JNEXT's debugger window stays.</li>
 <li><strong>Both can drive the machine.</strong> JNEXT's debugger window and DeZog control the
   same machine, and whichever acted last wins. If something other than DeZog
   stops the machine while DeZog has it running — you press Pause in the

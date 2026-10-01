@@ -172,14 +172,50 @@ Result Debugger::detach(ClientId cid) {
     const RunState st         = impl_->self->state();
     const bool     mine       = st.paused && st.pause_reason.by == cid;
 
+    // WHO INHERITS IT (GH #280 N1, owner decision 2026-10-01: "the pause should
+    // belong to the one remaining"). A pause this client owns is RELEASED only
+    // when no other client remains; otherwise it passes, and the machine stays
+    // paused. The heir is the client the machine was paused by before this one
+    // stepped it (`pause_origin`), if that client is still here, and otherwise
+    // the EARLIEST-ATTACHED remaining client (the lowest id: ids are handed out
+    // in attach order and never reused, and `clients` is in that order).
+    //
+    // "REMAINING" MEANS AN ARMING CLIENT — the population `attached()` counts.
+    // An OBSERVER (REQ-qt-32) arms nothing and the Qt GUI keeps one for its
+    // whole life, so counting it would make a detach in a GUI session never
+    // release anything, and a crashed DeZog would leave the machine hung —
+    // the case SES-01's release exists for. So an observer neither inherits a
+    // pause nor stops the last arming client's detach from releasing one.
+    const auto heir_of = [&](ClientId leaving) -> ClientId {
+        const Impl::Client* origin = impl_->find_client(impl_->pause_origin);
+        if (origin && origin->id != leaving && !origin->info.observer) return origin->id;
+        for (const auto& o : impl_->clients)
+            if (!o.detached && o.id != leaving && !o.info.observer) return o.id;
+        return CLIENT_NONE;
+    };
+    const ClientId heir = mine ? heir_of(cid) : CLIENT_NONE;
+    if (heir != CLIENT_NONE) {
+        // The owner `state()` reports comes from one of two places — the armed
+        // verb (`User`, `Step`, `RunTo` at its target) or the event-stop latch
+        // (a subscription's `Stop`) — and only `state()`'s precedence knows
+        // which answered. Both are re-attributed: the one that did not answer
+        // is not read for this stop, and rewriting it changes nothing.
+        impl_->armed_by = heir;
+        if (impl_->event_stop_latched) impl_->event_stop.by = heir;
+    }
+
     // THE SAME RULE FOR A PAUSE THAT IS WAITING OUT A GUEST COLD BOOT: an
     // `on_cold_boot_begin()` capture that recorded THIS client's pause would
     // otherwise re-apply it at `on_cold_boot_done()` for a client that is gone,
     // with an owner no detach can ever match again. So it is released here,
     // exactly as the live one is below (row CTL-12-46).
+    //
+    // N1 applies here as well: while another client remains, the captured pause
+    // passes to the same heir instead of being dropped.
     if (impl_->pending_boot && impl_->pending_boot->owner == cid) {
-        impl_->pending_boot->paused = false;
-        impl_->pending_boot->owner  = CLIENT_NONE;
+        const ClientId boot_heir = heir_of(cid);
+        if (boot_heir == CLIENT_NONE) impl_->pending_boot->paused = false;
+        impl_->pending_boot->owner = boot_heir;
     }
 
     // THE TOMBSTONE IS THE ONE GUARD. The listener pointer is deliberately
@@ -231,9 +267,12 @@ Result Debugger::detach(ClientId cid) {
 
     impl_->self->log(CLIENT_NONE, LogLevel::Info,
                      "DETACH client " + std::to_string(cid) +
-                         (mine ? " (released its pause)" : ""));
+                         (!mine                 ? ""
+                          : heir != CLIENT_NONE ? " (its pause passes to client " +
+                                                      std::to_string(heir) + ")"
+                                                : " (released its pause)"));
 
-    if (mine) {
+    if (mine && heir == CLIENT_NONE) {
         // Through the facade's own verb, so the corruption gate, the armed
         // reason and the transient rules are the ones every other resume gets.
         // Attributed to the DEPARTING client: it is its pause that is being

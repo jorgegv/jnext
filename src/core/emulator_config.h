@@ -216,6 +216,12 @@ struct EmulatorConfig {
     // <addr>:<port>`; any other value is that port. CLI-only.
     int gdb_port = -1;
 
+    // GH #280 (--zrcp-port): the TCP port the ZEsarUX remote command protocol
+    // server listens on. The same port rule as `dzrp_port`: -1 = off (the
+    // default), 0 = an OS-chosen port logged as `zrcp: listening on
+    // <addr>:<port>`, any other value is that port. CLI-only.
+    int zrcp_port = -1;
+
     // Host-side esxDOS compatibility for directly loaded NEX programs.
     // Provides one in-memory file and `run sibling.nex` chaining.
     bool esxdos_stub = false;

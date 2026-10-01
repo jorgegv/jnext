@@ -2092,6 +2092,8 @@
       
         
       
+        
+      
     
     
     
@@ -2436,6 +2438,34 @@
     
   
     Debugging with z88dk-gdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-debugger/functions/12-remote-debugging-over-zrcp.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote debugging over ZRCP
   
 
     
@@ -3681,16 +3711,26 @@ client at a time. A port that cannot be bound is a startup error.
 May be given together with <strong>--dzrp-port</strong>: each server has its own
 port and its own client. Works in every frontend, <strong>--headless</strong>
 included.</dd>
+<dt><strong>--zrcp-port</strong> <em>PORT</em></dt>
+<dd>Serve the ZEsarUX remote command protocol (ZRCP) on TCP <em>PORT</em>, so
+DeZog (its <code>zrcp</code> remote) - or <code>telnet</code>, or any other ZRCP client -
+can debug the running machine; see <strong>REMOTE DEBUGGING (ZRCP)</strong>. Off
+unless given; <code>10000</code> is the port those clients assume. <em>PORT</em> <code>0</code>
+binds a free port the system chooses, and the log says which
+(<code>zrcp: listening on 127.0.0.1:40123</code>). One client at a time: a
+second connection is told so and closed. A port that cannot be bound
+is a startup error. Works in every frontend, <strong>--headless</strong>
+included, and alongside <strong>--dzrp-port</strong> and <strong>--gdb-port</strong>.</dd>
 <dt><strong>--debug-listen-address</strong> <em>ADDR</em></dt>
 <dd>Bind address for the debugger protocol servers (<strong>--dzrp-port</strong>,
-<strong>--gdb-port</strong>), default <code>127.0.0.1</code>. <em>ADDR</em> is a numeric IP
-address, never a name - an address resolved through DNS could change
-under you - and anything else is refused at startup. The default
-means only this machine can reach the debugger; a non-loopback
-address (<code>0.0.0.0</code>) exposes it to your network, and none of the
-debugger protocols has any authentication. Refused unless a server
-port is given too: an address for servers that are all off would
-configure nothing.</dd>
+<strong>--gdb-port</strong>, <strong>--zrcp-port</strong>), default <code>127.0.0.1</code>. <em>ADDR</em> is a
+numeric IP address, never a name - an address resolved through DNS
+could change under you - and anything else is refused at startup.
+The default means only this machine can reach the debugger; a
+non-loopback address (<code>0.0.0.0</code>) exposes it to your network, and
+none of the debugger protocols has any authentication. Refused
+unless a server port is given too: an address for servers that are
+all off would configure nothing.</dd>
 <dt><strong>--magic-port</strong> <em>PORT</em></dt>
 <dd>Enable the magic debug port at <em>PORT</em> (hex, for example <code>0x00FF</code>).</dd>
 <dt><strong>--magic-port-mode</strong> <em>MODE</em></dt>

@@ -699,9 +699,20 @@ debugger ones.
     **\--dzrp-port**: each server has its own port and its own client. Works
     in every frontend, **\--headless** included.
 
+**\--zrcp-port** *PORT*
+:   Serve the ZEsarUX remote command protocol (ZRCP) on TCP *PORT*, so DeZog
+    (its `zrcp` remote) - or `telnet`, or any other ZRCP client - can debug the
+    running machine; see **REMOTE DEBUGGING (ZRCP)**. Off unless given; `10000`
+    is the port those clients assume. *PORT* `0` binds a free port the system
+    chooses, and the log says which (`zrcp: listening on 127.0.0.1:40123`).
+    One client at a time: a second connection is told so and closed. A port
+    that cannot be bound is a startup error. Works in every frontend,
+    **\--headless** included, and alongside **\--dzrp-port** and
+    **\--gdb-port**.
+
 **\--debug-listen-address** *ADDR*
 :   Bind address for the debugger protocol servers (**\--dzrp-port**,
-    **\--gdb-port**), default
+    **\--gdb-port**, **\--zrcp-port**), default
     `127.0.0.1`. *ADDR* is a numeric IP address, never a name - an address
     resolved through DNS could change under you - and anything else is refused
     at startup. The default means only this machine can reach the debugger; a
@@ -1622,8 +1633,10 @@ and start jnext with the same port, for example
 `dzrp` remote type can use it instead, with the same port.
 
 - **Connecting pauses the machine**, and DeZog shows where it stopped.
-  Disconnecting resumes it if the pause was DeZog's own; a pause made from
-  jnext's debugger window stays.
+  Disconnecting resumes it if the pause was DeZog's own and no other client -
+  jnext's open debugger window, another remote debugger - is attached; if one
+  is, the machine stays paused and the pause becomes that client's. A pause
+  made from jnext's debugger window stays.
 - **Breakpoints and watchpoints set from DeZog belong to that session**:
   they are separate from the ones set in jnext's debugger window, they stop
   the machine whether that window is open or not, and they are removed when
@@ -1666,7 +1679,10 @@ z88dk-gdb -h 127.0.0.1 -p 3333 -x mygame.map
 ```
 
 - **Connecting stops the machine**, and `quit` resumes it if the stop was
-  the client's own; a pause made from jnext's debugger window stays.
+  the client's own and no other client (jnext's open debugger window, another
+  remote debugger) is attached - if one is, the machine stays paused and the
+  pause becomes that client's; a pause made from jnext's debugger window
+  stays.
 - **Served**: registers (AF BC DE HL, the alternate set, IX IY SP PC, and a
   T-state clock the client's profiler reads), memory as the Z80 sees it now
   (the 64 KB CPU view - a write that touches ROM is refused), breakpoints,
@@ -1689,6 +1705,72 @@ z88dk-gdb -h 127.0.0.1 -p 3333 -x mygame.map
 In **\--headless** mode a client holding the machine stopped holds its frames
 too, exactly as described for DeZog above. The GDB protocol has no
 authentication either.
+
+# REMOTE DEBUGGING (ZRCP)
+
+With **\--zrcp-port** *PORT*, jnext serves the text protocol ZEsarUX offers on
+its `--remoteprotocol-port` (ZRCP), speaking as ZEsarUX 12.0 does: a welcome,
+then one command per line, each answered by its reply and a prompt -
+`command> `, or `command@cpu-step> ` while the machine is held in cpu-step mode.
+Try it by hand with `telnet localhost PORT` and `help`.
+
+- **Served**: the session and information commands (`about`, `get-version`,
+  `get-current-machine`, `help`, `ls`, `set-cr`, `quit` ...), inspection
+  (`get-registers`, `set-register`, `read-memory`, `write-memory`, `hexdump`,
+  `disassemble`, `get-memory-pages`, `get-tstates`, `evaluate`, the `tbblue-*`
+  registers, sprites, patterns, palettes and clip windows), control
+  (`enter-cpu-step`, `cpu-step`, `cpu-step-over`, `run`, `run` *n*,
+  `hard-reset-cpu`, `reset-cpu`, `generate-nmi`) and breakpoints (the 100
+  condition slots of `set-breakpoint`, `set-breakpointaction`,
+  `enable-breakpoint`, `disable-breakpoint`, `enable-breakpoints`,
+  `disable-breakpoints`, `get-breakpoints`, and the memory breakpoints of
+  `set-membreakpoint`, `get-membreakpoints`, `clear-membreakpoints`), and
+  history, coverage and loading (`cpu-history`, `cpu-code-coverage`,
+  `extended-stack`, `smartload`, `load-binary`, `save-binary`,
+  `snapshot-save`, `snapshot-load`). `help` *command* describes each one, with
+  the divergences from ZEsarUX that a client can see in its replies. Numbers
+  are decimal or hexadecimal with an `H` suffix (`8000H`); a malformed or
+  out-of-range value is refused rather than read as something else.
+- **`run` stops on any data sent**: while it runs, any line the client sends
+  stops the machine and is discarded, not executed.
+- **`hard-reset-cpu` is a cold boot** of the whole machine, complete before
+  the reply; a paused machine stays paused.
+- **Breakpoint conditions are ZEsarUX's** (`PC=8000H`, `SP>=65280`,
+  `PC=PEEKW(SP-2) AND SP>=65280`, `A<>0 AND (HL&FFH)=5` ...), grouped the
+  way ZEsarUX groups them; `help set-breakpoint` lists what is honoured and
+  what is declined. A condition with no `PC=` first term fires only when it
+  turns from false to true, as in ZEsarUX: one that stays true stops (or
+  prints) once. A `PC=` breakpoint fires at every arrival at its address,
+  except at the address a run resumes from.
+  Breakpoints belong to the session: they start disabled, as in ZEsarUX, and
+  are removed when the client disconnects.
+- **History, coverage and call tracking are the machine's**: a client turns
+  off only what it turned on, and its `cpu-history clear` / `set-max-size`
+  change only its own view, never the trace jnext's Step Back reads.
+- **`snapshot-save` / `snapshot-load` are in-memory snapshots of the
+  session** (nothing is written to disk), saved with the machine paused while
+  running, not at a breakpoint. **`smartload`, `load-binary` and
+  `save-binary` read and write files on the host running jnext**, as
+  ZEsarUX's do.
+- **Declined**: `exit-emulator`, and the `run` options `verbose`,
+  `no-stop-on-data` and `update-immediately`. ZEsarUX commands jnext does not
+  serve answer `Error. Unsupported command in jnext:` and the name.
+
+Connecting does not pause the machine; `enter-cpu-step` does. Disconnecting
+(or `quit`) resumes it if the pause was the client's own and no other client
+is attached; if one is, the machine stays paused and the pause becomes that
+client's. One client at a time: a second connection is answered
+`Error. Another ZRCP client is connected` and closed. In **\--headless** mode
+a client that holds the machine paused holds its frames too, exactly as for
+DZRP. ZRCP has no authentication either: the server listens on `127.0.0.1`
+unless **\--debug-listen-address** says otherwise.
+
+DeZog connects with its `zrcp` remote (`"remoteType": "zrcp"`,
+`"zrcp": {"port": PORT}` in `launch.json`). Its default `resetOnLaunch: true`
+starts each session with `hard-reset-cpu`, the cold boot above; keep
+`skipInterrupt` at its default `false`, since jnext does not step over
+interrupt routines (`set-debug-settings` bit 5 is refused, and DeZog shows
+that once as a warning).
 
 # MAGIC BREAKPOINT AND MAGIC PORT
 

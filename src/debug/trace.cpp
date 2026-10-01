@@ -275,12 +275,15 @@ bool TraceLog::export_to_file(const std::string& path) const
         // MMU pages. They were recorded and never written. APPENDED to the
         // register block, before the flags and the opcode bytes, so every
         // column a reader already knew keeps its place in the line.
+        // GH #280: ROM= is the entry's rom_slots mask (bit n: slot n held
+        // ROM), two hex digits like I= and R=, right after the pages it
+        // qualifies and still before the flags and the opcode bytes.
         std::snprintf(line, sizeof(line),
             "%012llu  $%04X  AF=%04X BC=%04X DE=%04X HL=%04X"
             "  AF'=%04X BC'=%04X DE'=%04X HL'=%04X"
             "  IX=%04X IY=%04X SP=%04X"
             "  (SP)=%04X I=%02X R=%02X IM%u IFF1=%u IFF2=%u"
-            "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X  [%s]  %s\n",
+            "  MMU=%02X %02X %02X %02X %02X %02X %02X %02X ROM=%02X  [%s]  %s\n",
             static_cast<unsigned long long>(e.cycle),
             e.pc, e.af, e.bc, e.de, e.hl,
             e.af2, e.bc2, e.de2, e.hl2,
@@ -288,7 +291,7 @@ bool TraceLog::export_to_file(const std::string& path) const
             e.sp_word, e.i, e.r, static_cast<unsigned>(e.im),
             static_cast<unsigned>(e.iff1), static_cast<unsigned>(e.iff2),
             e.mmu[0], e.mmu[1], e.mmu[2], e.mmu[3],
-            e.mmu[4], e.mmu[5], e.mmu[6], e.mmu[7], flags, bytes_str);
+            e.mmu[4], e.mmu[5], e.mmu[6], e.mmu[7], e.rom_slots, flags, bytes_str);
 
         ofs << line;
     }

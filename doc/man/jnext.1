@@ -838,10 +838,23 @@ May be given together with \f[B]\-\-dzrp\-port\f[R]: each server has its
 own port and its own client.
 Works in every frontend, \f[B]\-\-headless\f[R] included.
 .TP
+\f[B]\-\-zrcp\-port\f[R] \f[I]PORT\f[R]
+Serve the ZEsarUX remote command protocol (ZRCP) on TCP \f[I]PORT\f[R],
+so DeZog (its \f[CR]zrcp\f[R] remote) \- or \f[CR]telnet\f[R], or any
+other ZRCP client \- can debug the running machine; see \f[B]REMOTE
+DEBUGGING (ZRCP)\f[R].
+Off unless given; \f[CR]10000\f[R] is the port those clients assume.
+\f[I]PORT\f[R] \f[CR]0\f[R] binds a free port the system chooses, and
+the log says which (\f[CR]zrcp: listening on 127.0.0.1:40123\f[R]).
+One client at a time: a second connection is told so and closed.
+A port that cannot be bound is a startup error.
+Works in every frontend, \f[B]\-\-headless\f[R] included, and alongside
+\f[B]\-\-dzrp\-port\f[R] and \f[B]\-\-gdb\-port\f[R].
+.TP
 \f[B]\-\-debug\-listen\-address\f[R] \f[I]ADDR\f[R]
 Bind address for the debugger protocol servers
-(\f[B]\-\-dzrp\-port\f[R], \f[B]\-\-gdb\-port\f[R]), default
-\f[CR]127.0.0.1\f[R].
+(\f[B]\-\-dzrp\-port\f[R], \f[B]\-\-gdb\-port\f[R],
+\f[B]\-\-zrcp\-port\f[R]), default \f[CR]127.0.0.1\f[R].
 \f[I]ADDR\f[R] is a numeric IP address, never a name \- an address
 resolved through DNS could change under you \- and anything else is
 refused at startup.
@@ -2150,8 +2163,11 @@ instead, with the same port.
 .IP \(bu 2
 \f[B]Connecting pauses the machine\f[R], and DeZog shows where it
 stopped.
-Disconnecting resumes it if the pause was DeZog\(cqs own; a pause made
-from jnext\(cqs debugger window stays.
+Disconnecting resumes it if the pause was DeZog\(cqs own and no other
+client \- jnext\(cqs open debugger window, another remote debugger \- is
+attached; if one is, the machine stays paused and the pause becomes that
+client\(cqs.
+A pause made from jnext\(cqs debugger window stays.
 .IP \(bu 2
 \f[B]Breakpoints and watchpoints set from DeZog belong to that
 session\f[R]: they are separate from the ones set in jnext\(cqs debugger
@@ -2202,8 +2218,10 @@ z88dk\-gdb \-h 127.0.0.1 \-p 3333 \-x mygame.map
 .EE
 .IP \(bu 2
 \f[B]Connecting stops the machine\f[R], and \f[CR]quit\f[R] resumes it
-if the stop was the client\(cqs own; a pause made from jnext\(cqs
-debugger window stays.
+if the stop was the client\(cqs own and no other client (jnext\(cqs open
+debugger window, another remote debugger) is attached \- if one is, the
+machine stays paused and the pause becomes that client\(cqs; a pause
+made from jnext\(cqs debugger window stays.
 .IP \(bu 2
 \f[B]Served\f[R]: registers (AF BC DE HL, the alternate set, IX IY SP
 PC, and a T\-state clock the client\(cqs profiler reads), memory as the
@@ -2235,6 +2253,103 @@ has it running.
 In \f[B]\-\-headless\f[R] mode a client holding the machine stopped
 holds its frames too, exactly as described for DeZog above.
 The GDB protocol has no authentication either.
+.SH REMOTE DEBUGGING (ZRCP)
+With \f[B]\-\-zrcp\-port\f[R] \f[I]PORT\f[R], jnext serves the text
+protocol ZEsarUX offers on its \f[CR]\-\-remoteprotocol\-port\f[R]
+(ZRCP), speaking as ZEsarUX 12.0 does: a welcome, then one command per
+line, each answered by its reply and a prompt \- \f[CR]command>\f[R], or
+\f[CR]command\(atcpu\-step>\f[R] while the machine is held in cpu\-step
+mode.
+Try it by hand with \f[CR]telnet localhost PORT\f[R] and
+\f[CR]help\f[R].
+.IP \(bu 2
+\f[B]Served\f[R]: the session and information commands
+(\f[CR]about\f[R], \f[CR]get\-version\f[R],
+\f[CR]get\-current\-machine\f[R], \f[CR]help\f[R], \f[CR]ls\f[R],
+\f[CR]set\-cr\f[R], \f[CR]quit\f[R] \&...), inspection
+(\f[CR]get\-registers\f[R], \f[CR]set\-register\f[R],
+\f[CR]read\-memory\f[R], \f[CR]write\-memory\f[R], \f[CR]hexdump\f[R],
+\f[CR]disassemble\f[R], \f[CR]get\-memory\-pages\f[R],
+\f[CR]get\-tstates\f[R], \f[CR]evaluate\f[R], the \f[CR]tbblue\-*\f[R]
+registers, sprites, patterns, palettes and clip windows), control
+(\f[CR]enter\-cpu\-step\f[R], \f[CR]cpu\-step\f[R],
+\f[CR]cpu\-step\-over\f[R], \f[CR]run\f[R], \f[CR]run\f[R] \f[I]n\f[R],
+\f[CR]hard\-reset\-cpu\f[R], \f[CR]reset\-cpu\f[R],
+\f[CR]generate\-nmi\f[R]) and breakpoints (the 100 condition slots of
+\f[CR]set\-breakpoint\f[R], \f[CR]set\-breakpointaction\f[R],
+\f[CR]enable\-breakpoint\f[R], \f[CR]disable\-breakpoint\f[R],
+\f[CR]enable\-breakpoints\f[R], \f[CR]disable\-breakpoints\f[R],
+\f[CR]get\-breakpoints\f[R], and the memory breakpoints of
+\f[CR]set\-membreakpoint\f[R], \f[CR]get\-membreakpoints\f[R],
+\f[CR]clear\-membreakpoints\f[R]), and history, coverage and loading
+(\f[CR]cpu\-history\f[R], \f[CR]cpu\-code\-coverage\f[R],
+\f[CR]extended\-stack\f[R], \f[CR]smartload\f[R],
+\f[CR]load\-binary\f[R], \f[CR]save\-binary\f[R],
+\f[CR]snapshot\-save\f[R], \f[CR]snapshot\-load\f[R]).
+\f[CR]help\f[R] \f[I]command\f[R] describes each one, with the
+divergences from ZEsarUX that a client can see in its replies.
+Numbers are decimal or hexadecimal with an \f[CR]H\f[R] suffix
+(\f[CR]8000H\f[R]); a malformed or out\-of\-range value is refused
+rather than read as something else.
+.IP \(bu 2
+\f[B]\f[CB]run\f[B] stops on any data sent\f[R]: while it runs, any line
+the client sends stops the machine and is discarded, not executed.
+.IP \(bu 2
+\f[B]\f[CB]hard\-reset\-cpu\f[B] is a cold boot\f[R] of the whole
+machine, complete before the reply; a paused machine stays paused.
+.IP \(bu 2
+\f[B]Breakpoint conditions are ZEsarUX\(cqs\f[R] (\f[CR]PC=8000H\f[R],
+\f[CR]SP>=65280\f[R], \f[CR]PC=PEEKW(SP\-2) AND SP>=65280\f[R],
+\f[CR]A<>0 AND (HL&FFH)=5\f[R] \&...), grouped the way ZEsarUX groups
+them; \f[CR]help set\-breakpoint\f[R] lists what is honoured and what is
+declined.
+A condition with no \f[CR]PC=\f[R] first term fires only when it turns
+from false to true, as in ZEsarUX: one that stays true stops (or prints)
+once.
+A \f[CR]PC=\f[R] breakpoint fires at every arrival at its address,
+except at the address a run resumes from.
+Breakpoints belong to the session: they start disabled, as in ZEsarUX,
+and are removed when the client disconnects.
+.IP \(bu 2
+\f[B]History, coverage and call tracking are the machine\(cqs\f[R]: a
+client turns off only what it turned on, and its
+\f[CR]cpu\-history clear\f[R] / \f[CR]set\-max\-size\f[R] change only
+its own view, never the trace jnext\(cqs Step Back reads.
+.IP \(bu 2
+\f[B]\f[CB]snapshot\-save\f[B] / \f[CB]snapshot\-load\f[B] are
+in\-memory snapshots of the session\f[R] (nothing is written to disk),
+saved with the machine paused while running, not at a breakpoint.
+\f[B]\f[CB]smartload\f[B], \f[CB]load\-binary\f[B] and
+\f[CB]save\-binary\f[B] read and write files on the host running
+jnext\f[R], as ZEsarUX\(cqs do.
+.IP \(bu 2
+\f[B]Declined\f[R]: \f[CR]exit\-emulator\f[R], and the \f[CR]run\f[R]
+options \f[CR]verbose\f[R], \f[CR]no\-stop\-on\-data\f[R] and
+\f[CR]update\-immediately\f[R].
+ZEsarUX commands jnext does not serve answer
+\f[CR]Error. Unsupported command in jnext:\f[R] and the name.
+.PP
+Connecting does not pause the machine; \f[CR]enter\-cpu\-step\f[R] does.
+Disconnecting (or \f[CR]quit\f[R]) resumes it if the pause was the
+client\(cqs own and no other client is attached; if one is, the machine
+stays paused and the pause becomes that client\(cqs.
+One client at a time: a second connection is answered
+\f[CR]Error. Another ZRCP client is connected\f[R] and closed.
+In \f[B]\-\-headless\f[R] mode a client that holds the machine paused
+holds its frames too, exactly as for DZRP.
+ZRCP has no authentication either: the server listens on
+\f[CR]127.0.0.1\f[R] unless \f[B]\-\-debug\-listen\-address\f[R] says
+otherwise.
+.PP
+DeZog connects with its \f[CR]zrcp\f[R] remote
+(\f[CR]\(dqremoteType\(dq: \(dqzrcp\(dq\f[R],
+\f[CR]\(dqzrcp\(dq: {\(dqport\(dq: PORT}\f[R] in
+\f[CR]launch.json\f[R]).
+Its default \f[CR]resetOnLaunch: true\f[R] starts each session with
+\f[CR]hard\-reset\-cpu\f[R], the cold boot above; keep
+\f[CR]skipInterrupt\f[R] at its default \f[CR]false\f[R], since jnext
+does not step over interrupt routines (\f[CR]set\-debug\-settings\f[R]
+bit 5 is refused, and DeZog shows that once as a warning).
 .SH MAGIC BREAKPOINT AND MAGIC PORT
 The magic breakpoint uses the \f[CR]ED FF\f[R] (ZEsarUX) and
 \f[CR]DD 01\f[R] (CSpect) opcodes to pause the debugger when enabled;
