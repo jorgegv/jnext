@@ -2315,6 +2315,7 @@ and are removed when the client disconnects.
 client turns off only what it turned on, and its
 \f[CR]cpu\-history clear\f[R] / \f[CR]set\-max\-size\f[R] change only
 its own view, never the trace jnext\(cqs Step Back reads.
+.IP \(bu 2
 \f[B]\f[CB]snapshot\-save\f[B] / \f[CB]snapshot\-load\f[B] are
 in\-memory snapshots of the session\f[R] (nothing is written to disk),
 saved with the machine paused while running, not at a breakpoint.
@@ -2332,11 +2333,23 @@ Connecting does not pause the machine; \f[CR]enter\-cpu\-step\f[R] does.
 Disconnecting (or \f[CR]quit\f[R]) resumes it if the pause was the
 client\(cqs own and no other client is attached; if one is, the machine
 stays paused and the pause becomes that client\(cqs.
+One client at a time: a second connection is answered
+\f[CR]Error. Another ZRCP client is connected\f[R] and closed.
 In \f[B]\-\-headless\f[R] mode a client that holds the machine paused
 holds its frames too, exactly as for DZRP.
 ZRCP has no authentication either: the server listens on
 \f[CR]127.0.0.1\f[R] unless \f[B]\-\-debug\-listen\-address\f[R] says
 otherwise.
+.PP
+DeZog connects with its \f[CR]zrcp\f[R] remote
+(\f[CR]\(dqremoteType\(dq: \(dqzrcp\(dq\f[R],
+\f[CR]\(dqzrcp\(dq: {\(dqport\(dq: PORT}\f[R] in
+\f[CR]launch.json\f[R]).
+Its default \f[CR]resetOnLaunch: true\f[R] starts each session with
+\f[CR]hard\-reset\-cpu\f[R], the cold boot above; keep
+\f[CR]skipInterrupt\f[R] at its default \f[CR]false\f[R], since jnext
+does not step over interrupt routines (\f[CR]set\-debug\-settings\f[R]
+bit 5 is refused, and DeZog shows that once as a warning).
 .SH MAGIC BREAKPOINT AND MAGIC PORT
 The magic breakpoint uses the \f[CR]ED FF\f[R] (ZEsarUX) and
 \f[CR]DD 01\f[R] (CSpect) opcodes to pause the debugger when enabled;

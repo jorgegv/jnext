@@ -763,6 +763,8 @@
       
         
       
+        
+      
     
     
     
@@ -1193,6 +1195,34 @@
     
   
     3.11 The GDB RSP server (z88dk-gdb)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="12-the-zrcp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.12 The ZRCP server (ZEsarUX's protocol)
   
 
     
@@ -2642,8 +2672,8 @@ mapped in a slot or not.</p>
 transport, in <strong><code>src/remote/</code></strong> (target <code>jnext_remote</code>). It has no toolkit
 dependency and is built in every configuration. It carries no protocol: it
 never parses a byte. The servers on it are DZRP (<code>--dzrp-port</code>, 3.10), GDB
-RSP (<code>--gdb-port</code>, <code>src/remote/gdb/</code>) and ZRCP (<code>--zrcp-port</code>,
-<code>src/remote/zrcp/</code>, GH #280); each is its own listener with its own backend
+RSP (<code>--gdb-port</code>, <code>src/remote/gdb/</code>) and ZRCP (<code>--zrcp-port</code>, 3.12,
+<code>src/remote/zrcp/</code>); each is its own listener with its own backend
 client, so all may run at once. The loop owners open them through
 <code>src/platform/debug_servers.*</code>.</p>
 <p><code>remote::Server</code> is a <code>jnext::dbg::Service</code>, so <code>pump()</code> drives it: each

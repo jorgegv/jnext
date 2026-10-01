@@ -233,9 +233,8 @@ bool clip_layer(const std::string& name, jnext::dbg::ClipLayer& layer, std::uint
 
 // ---------------------------------------------------------------------------
 // THE TABLE — alphabetical, as `help` and `ls` print it. Every name ZEsarUX
-// 12.0's `ls` lists is here except the milestone's pending ones (breakpoints,
-// history, stack, coverage, load — WP-4/WP-5), which answer `Unknown command`
-// until their work package adds their rows.
+// 12.0's `ls` lists is here: 67 served, 1 declined, 57 unsupported
+// (ZRCP-TAB-01).
 // ---------------------------------------------------------------------------
 
 #define U(name, aliases) \

@@ -2565,6 +2565,28 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#headless-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Headless runs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3061,35 +3083,91 @@ give the option, and it works in every frontend: the Qt window, the SDL build
 and <code>--headless</code>. It can run together with the DeZog (<code>--dzrp-port</code>) and
 <code>z88dk-gdb</code> (<code>--gdb-port</code>) servers; each has its own port and one client.</p>
 <h2 id="dezog">DeZog<a class="headerlink" href="#dezog" title="Permanent link">&para;</a></h2>
-<p>In your <code>launch.json</code>, use the <code>zrcp</code> remote:</p>
-<pre><code class="language-json">&quot;remoteType&quot;: &quot;zrcp&quot;,
-&quot;zrcp&quot;: { &quot;port&quot;: 10000 },
-&quot;load&quot;: &quot;mygame.nex&quot;
+<p>In your project's <code>.vscode/launch.json</code>, use DeZog's <code>zrcp</code> remote — the one
+it uses for ZEsarUX — with JNEXT's port:</p>
+<pre><code class="language-json">{
+    &quot;type&quot;: &quot;dezog&quot;,
+    &quot;request&quot;: &quot;launch&quot;,
+    &quot;name&quot;: &quot;JNEXT (ZRCP)&quot;,
+    &quot;remoteType&quot;: &quot;zrcp&quot;,
+    &quot;zrcp&quot;: {
+        &quot;hostname&quot;: &quot;localhost&quot;,
+        &quot;port&quot;: 10000,
+        &quot;resetOnLaunch&quot;: true,
+        &quot;skipInterrupt&quot;: false
+    },
+    &quot;load&quot;: &quot;mygame.nex&quot;,
+    &quot;sjasmplus&quot;: [ { &quot;path&quot;: &quot;mygame.sld&quot; } ],
+    &quot;topOfStack&quot;: &quot;stack_top&quot;
+}
 </code></pre>
-<p>DeZog resets the machine, loads your program with <code>smartload</code>, and then you
-have breakpoints (with conditions), stepping, step over and step out, the
-call stack, reverse debugging over the CPU history, code coverage, and its
-<code>-state save</code> / <code>-state restore</code>.</p>
+<p>The assembler, label and <code>topOfStack</code> settings are DeZog's, not JNEXT's; see
+DeZog's own documentation for them. Two of the <code>zrcp</code> settings matter here:</p>
+<ul>
+<li><strong><code>resetOnLaunch</code></strong> (DeZog's default, <code>true</code>): DeZog starts every session
+  with <code>hard-reset-cpu</code>. In JNEXT that is a <strong>cold boot</strong> of the whole machine,
+  the same as <strong>Machine &gt; Power Reset</strong> (F1), finished before JNEXT answers,
+  so the program is then loaded into a fresh machine. With <code>false</code> the program is
+  loaded into the machine as it is.</li>
+<li><strong><code>skipInterrupt</code></strong>: leave it <code>false</code> (DeZog's default). With <code>true</code>, DeZog
+  asks the emulator to step over interrupt routines, which JNEXT does not do:
+  DeZog shows one warning at launch (<code>Unsupported in jnext:
+  step-over-interrupt (bit 5)</code>), the session carries on, and stepping enters
+  an interrupt routine when one is taken.</li>
+</ul>
+<p>DeZog then holds the machine stopped and loads <code>load</code> with <code>smartload</code>, which
+takes a <code>.nex</code>, <code>.sna</code>, <code>.szx</code>, <code>.z80</code>, <code>.jns</code>, <code>.tap</code>, <code>.tzx</code>, <code>.wav</code> or
+<code>.rzx</code> file. From there you have breakpoints (with conditions) and
+watchpoints, stepping, step over and step out, the call stack, reverse
+debugging over the CPU history, code coverage, and <code>-state save</code> /
+<code>-state restore</code>.</p>
+<p>Run JNEXT as the machine your program needs: <code>--machine next</code>, the default,
+for a <code>.nex</code>.</p>
 <h2 id="by-hand">By hand<a class="headerlink" href="#by-hand" title="Permanent link">&para;</a></h2>
 <pre><code class="language-console">$ telnet localhost 10000
 Welcome to ZEsarUX remote command protocol (ZRCP)
 Write help for available commands
 
 command&gt; enter-cpu-step
-command@cpu-step&gt; get-registers
+
+command@cpu-step&gt; smartload &quot;mygame.nex&quot;
+
+command@cpu-step&gt; disassemble 8000H 3
+  8000 DI
+  8001 PUSH IY
+  8003 EXX
+command@cpu-step&gt; enable-breakpoints
+
+command@cpu-step&gt; set-breakpoint 1 PC=8005H
+
+command@cpu-step&gt; run
+Running until a breakpoint, key press or data sent, menu opening or other event
+Breakpoint fired: PC=8005H
+PC=8005 SP=fdf9 AF=0044 BC=0b00 HL=339b DE=369b IX=8000 IY=5c3a ...
+  8005 LD (8379),SP
+command@cpu-step&gt;
 </code></pre>
-<p><code>help</code> lists every command JNEXT serves; <code>help</code> <em>command</em> describes one, and
-says where JNEXT behaves differently from ZEsarUX.</p>
+<p>Every reply ends with the prompt: <code>command&gt;</code>, or <code>command@cpu-step&gt;</code> while
+the machine is held stopped. <code>help</code> lists every command JNEXT serves; <code>help</code>
+<em>command</em> describes one, and says where JNEXT behaves differently from
+ZEsarUX. Numbers are decimal, or hexadecimal with an <code>H</code> suffix (<code>8000H</code>). A
+command JNEXT does not serve answers <code>Error. Unsupported command in jnext:</code>
+and its name.</p>
+<p>While <code>run</code> runs, <strong>anything you send stops it</strong>, and what you sent is
+discarded, not executed: pressing Enter on an empty line is the way to stop
+the machine by hand.</p>
 <h2 id="what-to-expect">What to expect<a class="headerlink" href="#what-to-expect" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Connecting does not stop the machine</strong>; <code>enter-cpu-step</code> does. Leaving
   (or <code>quit</code>) resumes it if the stop was the client's own and nothing else is
   attached; with JNEXT's debugger window open, or another remote debugger
   connected, it stays paused and the pause becomes theirs.</li>
-<li><strong>Breakpoints are the session's.</strong> They start disabled, as in ZEsarUX
-  (<code>enable-breakpoints</code> turns them on), and they are removed when the client
-  leaves. Conditions are ZEsarUX's (<code>PC=8000H</code>, <code>SP&gt;=65280</code>,
-  <code>A&lt;&gt;0 AND (HL&amp;FFH)=5</code>, ...).</li>
+<li><strong>Breakpoints are the session's.</strong> They start disabled, as in ZEsarUX:
+  until <code>enable-breakpoints</code>, <code>set-breakpoint</code> answers <code>Error. You must
+  enable breakpoints first</code>. They are removed when the client leaves.
+  Conditions are ZEsarUX's (<code>PC=8000H</code>, <code>SP&gt;=65280</code>,
+  <code>PC=PEEKW(SP-2) AND SP&gt;=65280</code>, <code>A&lt;&gt;0 AND (HL&amp;FFH)=5</code>, ...); <code>help
+  set-breakpoint</code> lists the terms JNEXT honours.</li>
 <li><strong>The history, the coverage and the call tracking are the machine's.</strong> A
   client that turns one on turns it off again when it leaves; one that was
   already on — the trace you enabled in the debugger window — stays on. A
@@ -3101,9 +3179,28 @@ says where JNEXT behaves differently from ZEsarUX.</p>
   mid-frame). To keep a snapshot on disk, save a <code>.jns</code> file from JNEXT's File
   menu.</li>
 <li><strong><code>smartload</code>, <code>load-binary</code> and <code>save-binary</code> read and write files on the
-  computer running JNEXT</strong>, like ZEsarUX. Keep the server on <code>127.0.0.1</code> (the
-  default) unless you trust the network: ZRCP has no authentication.</li>
+  computer running JNEXT</strong>, like ZEsarUX.</li>
+<li><strong>One client at a time.</strong> A second connection is answered <code>Error. Another
+  ZRCP client is connected</code> and closed.</li>
+<li><strong><code>hard-reset-cpu</code> and <code>reset-cpu</code> keep the session</strong>: its breakpoints and
+  settings survive the reset, and a machine held in cpu-step mode stays
+  stopped, at the reset address.</li>
 </ul>
+<h2 id="headless-runs">Headless runs<a class="headerlink" href="#headless-runs" title="Permanent link">&para;</a></h2>
+<p>With <code>--headless</code>, a client that holds the machine stopped holds its frames
+too, exactly as described for DeZog in
+<a href="10-remote-debugging-with-dezog.html">Remote debugging with DeZog</a>: nothing is
+emulated while it waits, and <code>--delayed-automatic-exit</code> still ends the run on
+time.</p>
+<h2 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h2>
+<p>The server listens on <code>127.0.0.1</code> only. <code>--debug-listen-address</code> changes that
+for every debug server, and is refused unless a server port is given too.
+<strong>ZRCP has no authentication</strong>: anyone who can reach the port controls the
+machine and can read and write files on your computer through <code>smartload</code>,
+<code>load-binary</code> and <code>save-binary</code>, so widen it only on a network you trust.</p>
+<hr />
+<p>For the full list of command-line options mentioned here, see <strong>jnext</strong>(1) or
+<a href="https://github.com/jorgegv/jnext/blob/main/USAGE.md">USAGE.md</a>.</p>
 
 
 

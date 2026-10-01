@@ -826,8 +826,8 @@ The three protocol servers the epic plans — DZRP, ZRCP and GDB RSP — share o
 transport, in **`src/remote/`** (target `jnext_remote`). It has no toolkit
 dependency and is built in every configuration. It carries no protocol: it
 never parses a byte. The servers on it are DZRP (`--dzrp-port`, 3.10), GDB
-RSP (`--gdb-port`, `src/remote/gdb/`) and ZRCP (`--zrcp-port`,
-`src/remote/zrcp/`, GH #280); each is its own listener with its own backend
+RSP (`--gdb-port`, `src/remote/gdb/`) and ZRCP (`--zrcp-port`, 3.12,
+`src/remote/zrcp/`); each is its own listener with its own backend
 client, so all may run at once. The loop owners open them through
 `src/platform/debug_servers.*`.
 

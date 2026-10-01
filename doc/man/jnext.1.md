@@ -1746,11 +1746,12 @@ Try it by hand with `telnet localhost PORT` and `help`.
   are removed when the client disconnects.
 - **History, coverage and call tracking are the machine's**: a client turns
   off only what it turned on, and its `cpu-history clear` / `set-max-size`
-  change only its own view, never the trace jnext's Step Back reads. **`snapshot-save` / `snapshot-load` are
-  in-memory snapshots of the session** (nothing is written to disk), saved
-  with the machine paused while running, not at a breakpoint.
-  **`smartload`, `load-binary` and `save-binary` read and write files on the
-  host running jnext**, as ZEsarUX's do.
+  change only its own view, never the trace jnext's Step Back reads.
+- **`snapshot-save` / `snapshot-load` are in-memory snapshots of the
+  session** (nothing is written to disk), saved with the machine paused while
+  running, not at a breakpoint. **`smartload`, `load-binary` and
+  `save-binary` read and write files on the host running jnext**, as
+  ZEsarUX's do.
 - **Declined**: `exit-emulator`, and the `run` options `verbose`,
   `no-stop-on-data` and `update-immediately`. ZEsarUX commands jnext does not
   serve answer `Error. Unsupported command in jnext:` and the name.
@@ -1758,10 +1759,18 @@ Try it by hand with `telnet localhost PORT` and `help`.
 Connecting does not pause the machine; `enter-cpu-step` does. Disconnecting
 (or `quit`) resumes it if the pause was the client's own and no other client
 is attached; if one is, the machine stays paused and the pause becomes that
-client's. In **\--headless**
-mode a client that holds the machine paused holds its frames too, exactly as
-for DZRP. ZRCP has no authentication either: the server listens on `127.0.0.1`
+client's. One client at a time: a second connection is answered
+`Error. Another ZRCP client is connected` and closed. In **\--headless** mode
+a client that holds the machine paused holds its frames too, exactly as for
+DZRP. ZRCP has no authentication either: the server listens on `127.0.0.1`
 unless **\--debug-listen-address** says otherwise.
+
+DeZog connects with its `zrcp` remote (`"remoteType": "zrcp"`,
+`"zrcp": {"port": PORT}` in `launch.json`). Its default `resetOnLaunch: true`
+starts each session with `hard-reset-cpu`, the cold boot above; keep
+`skipInterrupt` at its default `false`, since jnext does not step over
+interrupt routines (`set-debug-settings` bit 5 is refused, and DeZog shows
+that once as a warning).
 
 # MAGIC BREAKPOINT AND MAGIC PORT
 
