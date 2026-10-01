@@ -649,8 +649,9 @@ Result Debugger::write_pattern_ram(ClientId by, uint16_t addr,
     for (size_t i = 0; i < n; ++i)
         impl_->emu.sprites().write_pattern_byte_at(
             static_cast<uint16_t>(addr + i), src[i]);
-    impl_->log_mutate_range(by, "sprite pattern 0x" + std::to_string(addr),
-                            std::to_string(n) + " bytes");
+    char what[32];
+    std::snprintf(what, sizeof(what), "sprite pattern 0x%04X", static_cast<unsigned>(addr));
+    impl_->log_mutate_range(by, what, std::to_string(n) + " bytes");
     return Result::Ok;
 }
 

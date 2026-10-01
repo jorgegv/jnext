@@ -898,6 +898,26 @@ static void stop_mid_frame_at_call(Emulator& emu, Debugger& dbg, ClientId a) {
 
 static void b4_capture_state_rows() {
     {
+        // GH #26 WP9 — the joystick and sprite-pattern MUTATE lines printed a
+        // DECIMAL value after "0x" (a joystick 0x10 logged as "0x16").
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        RecListener l;
+        dbg.set_listener(a, &l);
+        const uint8_t pat[2] = {0x11, 0x22};
+        const Result rj = dbg.set_joystick(a, jnext::dbg::JoystickSide::Left, 0x10);
+        const Result rp = dbg.write_pattern_ram(a, 0x100, pat, 2);
+        const auto lines = mutate_lines(l);
+        const std::string by = " by " + std::to_string(a);
+        check("MUT-HEX-01", "the joystick and sprite-pattern MUTATE lines print their values in hex: "
+                            "`joystick left = 0x010`, `sprite pattern 0x0100`",
+              rj == Result::Ok && rp == Result::Ok && lines.size() == 2 &&
+                  lines[0] == "MUTATE joystick left = 0x010" + by &&
+                  lines[1] == "MUTATE sprite pattern 0x0100 2 bytes" + by,
+              lines.empty() ? std::string("no MUTATE line") : lines.front() + " | " + lines.back());
+    }
+    {
         Emulator emu; build(emu);
         Debugger dbg(emu);
         emu.mmu().write(0x4000, 0x81);    // first pixel byte
