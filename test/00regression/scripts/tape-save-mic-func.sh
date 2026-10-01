@@ -54,7 +54,7 @@ if want tape-save-mic-func; then
     for fmt in tzx wav; do
         rc=$(ts_run "save-$fmt" --inject "$ts_bin" --tape-save "$ts_dir/out.$fmt" \
                  --delayed-automatic-exit-frames 1500)
-        [[ "$rc" == 0 ]] && ts_said "save-$fmt" DONE \
+        { [[ "$rc" == 0 ]] && ts_said "save-$fmt" DONE; } \
             || ts_faults+=("save $fmt: rc=$rc or no DONE")
     done
 
@@ -98,9 +98,9 @@ if want tape-save-mic-func; then
                  --delayed-automatic-exit-frames 3500)
         if [[ "$tape" == bad.tzx ]]; then
             ts_said "load-$tape" F4 || ts_faults+=("control: the corrupted tape did not print F4")
-        else
-            [[ "$rc" == 0 ]] && ts_said "load-$tape" OK \
-                || ts_faults+=("load $tape: rc=$rc, verifier said '$(grep -x -E 'OK|F[0-9]' "$ts_dir/load-$tape.log" | head -1)'")
+        elif ! { [[ "$rc" == 0 ]] && ts_said "load-$tape" OK; }; then
+            said=$(grep -x -E 'OK|F[0-9]' "$ts_dir/load-$tape.log" || true)
+            ts_faults+=("load $tape: rc=$rc, verifier said '${said%%$'\n'*}'")
         fi
     done
 
