@@ -731,6 +731,29 @@ static void stop_rows() {
               "pc=" + hex(g.pc()) + " order=" + (g.order.empty() ? "" : g.order[0]) + " " + g.sink.tail());
     }
     {
+        // GH #26 WP7 finding: a failed `assert` (or a `stop`) earlier in the
+        // SAME body is the verdict — the `exit 0` after it is not taken, so
+        // `assert …; exit 0` (§3(f)'s palette_init.jds) cannot pass a failure.
+        // The control: the same body with the assert holding exits 0.
+        Rig g(kWriter);
+        g.dbg->set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero);
+        const bool ok = g.load("on write 0x9000 do assert VALUE == 0 \"boom\" log \"after\" exit 0 end\n");
+        g.frames(2);
+        const auto st = g.eng->status();
+        Rig h(kWriter);
+        h.dbg->set_stop_policy(jnext::dbg::StopPolicy::ExitNonZero);
+        const bool ok2 = h.load("on write 0x9000 do assert VALUE == 0x5A \"boom\" exit 0 end\n");
+        h.frames(2);
+        check("SCRIPT-EV-ASSERT-EXIT", "a failed `assert` before `exit 0` in the same body: the exit is not taken "
+                                       "(logged), the stop's 3 is the run's code, status() has no exit; with the "
+                                       "assert holding, `exit 0` is taken",
+              ok && g.paused() && g.host_exits.empty() && g.sink.exits == std::vector<int>{3} &&
+                  g.sink.count("SCRIPT EXIT 0 not taken: the rule stopped first (boom)") == 1 &&
+                  g.sink.count("] after") == 1 && !st.exit_code && st.stops == 1 &&
+                  ok2 && h.host_exits == std::vector<int>{0},
+              g.sink.tail() + " | " + h.sink.tail());
+    }
+    {
         Rig g(kWriter, MachineType::ZX48K, /*host=*/false);
         const bool ok = g.load("on write 0x9000 do exit 0 end\n");
         g.frames(2);

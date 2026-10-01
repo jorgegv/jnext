@@ -524,8 +524,10 @@ Verdict ScriptEngine::run_rule(RuleRec& r, const Event& ev, dbg::Debugger& d) {
     Verdict verdict = Verdict::Continue;
     const bool was = in_frame_delivery_;
     const auto was_cycle = cur_cycle_;
+    const bool was_stopped = body_stopped_;
     in_frame_delivery_ = ev.kind == EventKind::Frame;
     cur_cycle_         = ev.cycle;
+    body_stopped_      = false;
     try {
         exec(r, r.rule->body, ev, d, verdict);
     } catch (const EvalError& e) {
@@ -533,6 +535,7 @@ Verdict ScriptEngine::run_rule(RuleRec& r, const Event& ev, dbg::Debugger& d) {
     }
     in_frame_delivery_ = was;
     cur_cycle_         = was_cycle;
+    body_stopped_      = was_stopped;
     return verdict;
 }
 
@@ -573,7 +576,8 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
         log(dbg::LogLevel::Warn, "SCRIPT STOP: " + why + " at PC=" + hex(ev.pc, 4) + " FRAME=" +
                                      std::to_string(d.time().frame) + " CYCLE=" +
                                      std::to_string(ev.cycle));
-        verdict = Verdict::Stop;
+        verdict       = Verdict::Stop;
+        body_stopped_ = true;
     };
 
     for (const Action& a : body) {
@@ -598,6 +602,15 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
                 break;
             case ActionKind::Exit: {
                 int32_t code = eval_int(*a.e1, ctx);
+                // A `stop` or a failed `assert` earlier in this same rule body
+                // is its verdict (WP7 finding, Appendix M): `assert …; exit 0`
+                // must not exit 0 past the failed assert, and the exit code a
+                // stop means (3, headless) is the backend's, after the delivery.
+                if (body_stopped_) {
+                    log(dbg::LogLevel::Warn, stamp() + " SCRIPT EXIT " + std::to_string(code) +
+                                                 " not taken: the rule stopped first (" + stop_reason_ + ")");
+                    break;
+                }
                 log(dbg::LogLevel::Info, stamp() + " SCRIPT EXIT " + std::to_string(code));
                 if (!first_exit_) first_exit_ = code;
                 if (host_.exit) {
@@ -1164,11 +1177,13 @@ void ScriptEngine::on_paused(const dbg::PausedInfo& info) {
             ++r->hits;
             if (r->rule->once) r->fired = true;
             Verdict verdict = Verdict::Continue;  // already paused: a `stop` here only logs
+            body_stopped_   = false;
             try {
                 exec(*r, r->rule->body, ev, dbg_, verdict);
             } catch (const EvalError& e) {
                 runtime_error(*r, e.d);
             }
+            body_stopped_ = false;
             last_stop_reason_ = reason;
         }
     }

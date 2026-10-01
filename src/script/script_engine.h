@@ -192,6 +192,7 @@ private:
     uint64_t       overflow_logged_cycle_ = UINT64_MAX;
     size_t         runtime_errors_ = 0;
     std::string    stop_reason_;       ///< the reason of the engine's own pending stop
+    bool           body_stopped_ = false;  ///< a `stop` / failed `assert` ran in the body running now
     std::optional<int> first_exit_;    ///< status(): the first `exit n`
     std::size_t    stops_ = 0;         ///< status(): stop verdicts so far
     std::string    last_stop_;         ///< status(): the latest stop's reason
