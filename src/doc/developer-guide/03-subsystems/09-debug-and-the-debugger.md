@@ -862,98 +862,20 @@ in `main.cpp` and held in `EmulatorConfig::debug_listen_address` for the servers
 to bind; it is refused unless a server port (`--dzrp-port` or `--gdb-port`) is given too. The design, and the reason behind each rule above, is
 `doc/design/debug-subsystem/transport.md`.
 
-### The scripting language front end (package S)
+### The scripting language (package S)
 
 The debugger scripting language (`.jds`, GH #26) lives in **`src/script/`**
-(target `jnext_script`). Like `src/remote/` it has no toolkit dependency and is
-built in every configuration; it reads the machine only through the published
-`jnext::dbg::Debugger` facade, never through `Emulator`. It is a front end, a
-library, an engine, and the host the loop owners run `--script` through.
-
-It is layered, each stage consuming only the one before it:
-
-- `lexer.*` — tokens. Comments are `;`, `//` and `#`; the bracketed
-  accessors (`mem[`, `page[`, `changed(`, …) are single tokens spelled with
-  their bracket, which is what tells the accessor `page[s]` from the `page`
-  of an address filter.
-- `parser.*` over `ast.h` — recursive descent over the grammar of record
-  (`doc/design/debug-subsystem/dsl-frontend.md` §2.1). It stops at the first
-  syntax error and reports it as `line:column: message`. It is also where
-  nesting is bounded: an expression tree at most 200 levels tall, `if`s nested
-  at most 64 deep, refused with a positioned error past that. A chain of
-  operators counts one level per operator, parentheses or not (the tree is
-  left-deep), so `a or b or …` stops at 200 terms. Every later pass
-  recurses over those trees and nothing else, so the bound made here is what
-  keeps a pathological script or ZRCP expression from overflowing the stack.
-- `check.*`, with `names.*` as the one table of reserved words, built-in state
-  names and payload names — the load-time checks, and BINDING: each upper-case
-  name is resolved to what it reads in its scope (`PC` is the causing
-  instruction's PC in an event rule and the CPU's PC elsewhere; `CPC` is legal
-  only in a `copper` rule). The per-kind payload table admits a name only where
-  the backend's `Event` actually carries it.
-- `value.h` and `state.*` — the value model (integers, and strings that only
-  compare and interpolate; types are fixed by the checker at load time) and the
-  interpreter state: the variables and the snapshot stacks (`snap` / `unsnap` /
-  `changed()` / `dump_diff`, 4096 entries per name, a full or empty stack being a
-  run-time error rather than a silent drop).
-- `evaluator.*` — the evaluator over a checked tree, reading through the
-  facade's const inspection surface (32-bit wrapping arithmetic, `${…}`
-  interpolation; run-time failures such as division by zero are reported with a
-  position, never thrown past the library). `make_condition` turns a rule's
-  `when` into the backend's predicate over the script's live state.
-- `expr_compiler.h` — the stable public header other frontends call:
-  `compile_expr(text, scope)` returns the backend's CAP-EVT predicate
-  (`dbg::Condition`) and `eval_expr(text, debugger)` evaluates once. The ZRCP
-  adapter (package Z, not yet written) is designed to translate its dialect into
-  this grammar rather than own a second parser.
-- `script_engine.*` — `ScriptEngine`, ONE backend client (`ClientKind::Script`)
-  that is also its own `Listener`. `load()` parses, checks, runs the `var`
-  initializers, evaluates every filter bound, and only then registers each rule
-  as backend subscription(s) — a script with any error registers nothing. A
-  rule is one subscription, except `on execute page P1..P2`, which is one per
-  page (the Execute filter takes a single page; at most 16). The subscription's
-  `Condition` is the compiled `when` (plus two engine refinements the filter
-  cannot express: a port range, and the destination of a `dma byte` range), so a
-  non-matching hit never reaches a rule body; its `Handler` runs the body at the
-  delivery and returns the verdict. Mutations go through the debugger write
-  paths (`set_register`, `poke`, `nextreg_write`, `port_out`,
-  `set_audio_mute_mask`). `joystick` and `compare_scr` issued outside a frame
-  rule wait for the engine's own frame-edge subscription; `save_snapshot` waits
-  for `on_frame_ended()`, the first `pump()` that finds the machine at a frame
-  boundary, because the backend refuses a save inside a delivery. `on stop`
-  rules run in `on_paused()`. A run-time error disables the rule's
-  subscriptions and asks the loop owner (`EngineHost::exit`) for exit 1 at the
-  next frame edge.
-- `script_host.*` — `ScriptHost`, what `HeadlessApp`, `SdlApp` and `QtApp` hold
-  beside their `DebugServers` (and declare after `debugger_`, so it is
-  destroyed first). `start()` loads `--map` into the backend's one symbol
-  table, then every `--script` in order, and schedules `--script-key`; any
-  failure is logged `file:line:column: message` and fails the start, so the
-  loop owner exits 1 before the machine runs. It hears the exit code from the
-  engine (`exit n`, a run-time error) and, through a NON-ARMING listener
-  client, from the backend (`ExitRequested` 3 after a stop under
-  `StopPolicy::ExitNonZero`); the first code wins, and the headless and SDL
-  loops read it after each pump. The Qt GUI starts it with `exits = false`: a
-  script there pauses, never exits. At the `--delayed-automatic-exit*` bound
-  the loops ask it for `unreached_verdicts()` and exit 3 if a declared verdict
-  never ran.
-
-`script_parse_test` (`gate: none`) pins the grammar, every error class with its
-position, precedence, the per-kind payload table, the evaluation of every name
-against a real `Debugger`, and that every worked script of the design parses;
-`script_eval_test` pins the value model, the snapshot stacks and interpolation;
-`script_events_test` (`gate: none`) drives the engine on real 48K and Next
-machines — what each rule registers as, what it does when delivered, every
-worked script of the design, and the `ScriptHost`. The `script-*-func`
-regression rows run scripts through the real binary in all three frontends.
-The Qt side is `debugger/script_panel.*`, the debugger window's **Script**
-tab and **Script** menu: load / reload / unload through the loop owner's
-`ScriptHost` (handed down `QtApp` → `MainWindow` → `DebuggerManager`), the
-rules with their state and hits, `ScriptEngine::status()` as the verdict line,
-and the host's log ring — the engine's lines, as the backend's listener push
-delivers them. Rows QSCR-* (`debugger_panels_test`). The choices made where
-the design is silent are its "as built" appendices (G to K). The recorder is
-a later work package of the same branch.
+(target `jnext_script`), with no toolkit dependency and reaching the machine
+only through this facade. A loaded script is ONE backend client
+(`ClientKind::Script`): each rule becomes a subscription whose `Condition` is
+the compiled `when` and whose `Handler` runs the body at the delivery, and a
+stop-only `execute` rule is registered as a static `Stop`, so `probe_execute()`
+and `subscriptions()` show it like any breakpoint. The loop owners run it
+through `ScriptHost`, which also carries the GH #20 recorder (a second,
+observing client). Its whole architecture — the front end, the expression
+compiler as a library, the engine, stop and exit, the host keys, the recorder,
+and how to add a name or an event kind — is [3.12 The debugger scripting
+language](12-the-debugger-scripting-language.md).
 
 ## What `ENABLE_DEBUGGER=OFF` removes
 

@@ -763,6 +763,8 @@
       
         
       
+        
+      
     
     
     
@@ -1193,6 +1195,34 @@
     
   
     3.11 The GDB RSP server (z88dk-gdb)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="12-the-debugger-scripting-language.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.12 The debugger scripting language
   
 
     
@@ -2673,96 +2703,19 @@ real socket on <code>127.0.0.1</code> port 0, and through <code>pump()</code>.</
 in <code>main.cpp</code> and held in <code>EmulatorConfig::debug_listen_address</code> for the servers
 to bind; it is refused unless a server port (<code>--dzrp-port</code> or <code>--gdb-port</code>) is given too. The design, and the reason behind each rule above, is
 <code>doc/design/debug-subsystem/transport.md</code>.</p>
-<h3 id="the-scripting-language-front-end-package-s">The scripting language front end (package S)<a class="headerlink" href="#the-scripting-language-front-end-package-s" title="Permanent link">&para;</a></h3>
+<h3 id="the-scripting-language-package-s">The scripting language (package S)<a class="headerlink" href="#the-scripting-language-package-s" title="Permanent link">&para;</a></h3>
 <p>The debugger scripting language (<code>.jds</code>, GH #26) lives in <strong><code>src/script/</code></strong>
-(target <code>jnext_script</code>). Like <code>src/remote/</code> it has no toolkit dependency and is
-built in every configuration; it reads the machine only through the published
-<code>jnext::dbg::Debugger</code> facade, never through <code>Emulator</code>. It is a front end, a
-library, an engine, and the host the loop owners run <code>--script</code> through.</p>
-<p>It is layered, each stage consuming only the one before it:</p>
-<ul>
-<li><code>lexer.*</code> — tokens. Comments are <code>;</code>, <code>//</code> and <code>#</code>; the bracketed
-  accessors (<code>mem[</code>, <code>page[</code>, <code>changed(</code>, …) are single tokens spelled with
-  their bracket, which is what tells the accessor <code>page[s]</code> from the <code>page</code>
-  of an address filter.</li>
-<li><code>parser.*</code> over <code>ast.h</code> — recursive descent over the grammar of record
-  (<code>doc/design/debug-subsystem/dsl-frontend.md</code> §2.1). It stops at the first
-  syntax error and reports it as <code>line:column: message</code>. It is also where
-  nesting is bounded: an expression tree at most 200 levels tall, <code>if</code>s nested
-  at most 64 deep, refused with a positioned error past that. A chain of
-  operators counts one level per operator, parentheses or not (the tree is
-  left-deep), so <code>a or b or …</code> stops at 200 terms. Every later pass
-  recurses over those trees and nothing else, so the bound made here is what
-  keeps a pathological script or ZRCP expression from overflowing the stack.</li>
-<li><code>check.*</code>, with <code>names.*</code> as the one table of reserved words, built-in state
-  names and payload names — the load-time checks, and BINDING: each upper-case
-  name is resolved to what it reads in its scope (<code>PC</code> is the causing
-  instruction's PC in an event rule and the CPU's PC elsewhere; <code>CPC</code> is legal
-  only in a <code>copper</code> rule). The per-kind payload table admits a name only where
-  the backend's <code>Event</code> actually carries it.</li>
-<li><code>value.h</code> and <code>state.*</code> — the value model (integers, and strings that only
-  compare and interpolate; types are fixed by the checker at load time) and the
-  interpreter state: the variables and the snapshot stacks (<code>snap</code> / <code>unsnap</code> /
-  <code>changed()</code> / <code>dump_diff</code>, 4096 entries per name, a full or empty stack being a
-  run-time error rather than a silent drop).</li>
-<li><code>evaluator.*</code> — the evaluator over a checked tree, reading through the
-  facade's const inspection surface (32-bit wrapping arithmetic, <code>${…}</code>
-  interpolation; run-time failures such as division by zero are reported with a
-  position, never thrown past the library). <code>make_condition</code> turns a rule's
-  <code>when</code> into the backend's predicate over the script's live state.</li>
-<li><code>expr_compiler.h</code> — the stable public header other frontends call:
-  <code>compile_expr(text, scope)</code> returns the backend's CAP-EVT predicate
-  (<code>dbg::Condition</code>) and <code>eval_expr(text, debugger)</code> evaluates once. The ZRCP
-  adapter (package Z, not yet written) is designed to translate its dialect into
-  this grammar rather than own a second parser.</li>
-<li><code>script_engine.*</code> — <code>ScriptEngine</code>, ONE backend client (<code>ClientKind::Script</code>)
-  that is also its own <code>Listener</code>. <code>load()</code> parses, checks, runs the <code>var</code>
-  initializers, evaluates every filter bound, and only then registers each rule
-  as backend subscription(s) — a script with any error registers nothing. A
-  rule is one subscription, except <code>on execute page P1..P2</code>, which is one per
-  page (the Execute filter takes a single page; at most 16). The subscription's
-  <code>Condition</code> is the compiled <code>when</code> (plus two engine refinements the filter
-  cannot express: a port range, and the destination of a <code>dma byte</code> range), so a
-  non-matching hit never reaches a rule body; its <code>Handler</code> runs the body at the
-  delivery and returns the verdict. Mutations go through the debugger write
-  paths (<code>set_register</code>, <code>poke</code>, <code>nextreg_write</code>, <code>port_out</code>,
-  <code>set_audio_mute_mask</code>). <code>joystick</code> and <code>compare_scr</code> issued outside a frame
-  rule wait for the engine's own frame-edge subscription; <code>save_snapshot</code> waits
-  for <code>on_frame_ended()</code>, the first <code>pump()</code> that finds the machine at a frame
-  boundary, because the backend refuses a save inside a delivery. <code>on stop</code>
-  rules run in <code>on_paused()</code>. A run-time error disables the rule's
-  subscriptions and asks the loop owner (<code>EngineHost::exit</code>) for exit 1 at the
-  next frame edge.</li>
-<li><code>script_host.*</code> — <code>ScriptHost</code>, what <code>HeadlessApp</code>, <code>SdlApp</code> and <code>QtApp</code> hold
-  beside their <code>DebugServers</code> (and declare after <code>debugger_</code>, so it is
-  destroyed first). <code>start()</code> loads <code>--map</code> into the backend's one symbol
-  table, then every <code>--script</code> in order, and schedules <code>--script-key</code>; any
-  failure is logged <code>file:line:column: message</code> and fails the start, so the
-  loop owner exits 1 before the machine runs. It hears the exit code from the
-  engine (<code>exit n</code>, a run-time error) and, through a NON-ARMING listener
-  client, from the backend (<code>ExitRequested</code> 3 after a stop under
-  <code>StopPolicy::ExitNonZero</code>); the first code wins, and the headless and SDL
-  loops read it after each pump. The Qt GUI starts it with <code>exits = false</code>: a
-  script there pauses, never exits. At the <code>--delayed-automatic-exit*</code> bound
-  the loops ask it for <code>unreached_verdicts()</code> and exit 3 if a declared verdict
-  never ran.</li>
-</ul>
-<p><code>script_parse_test</code> (<code>gate: none</code>) pins the grammar, every error class with its
-position, precedence, the per-kind payload table, the evaluation of every name
-against a real <code>Debugger</code>, and that every worked script of the design parses;
-<code>script_eval_test</code> pins the value model, the snapshot stacks and interpolation;
-<code>script_events_test</code> (<code>gate: none</code>) drives the engine on real 48K and Next
-machines — what each rule registers as, what it does when delivered, every
-worked script of the design, and the <code>ScriptHost</code>. The <code>script-*-func</code>
-regression rows run scripts through the real binary in all three frontends.
-The Qt side is <code>debugger/script_panel.*</code>, the debugger window's <strong>Script</strong>
-tab and <strong>Script</strong> menu: load / reload / unload through the loop owner's
-<code>ScriptHost</code> (handed down <code>QtApp</code> → <code>MainWindow</code> → <code>DebuggerManager</code>), the
-rules with their state and hits, <code>ScriptEngine::status()</code> as the verdict line,
-and the host's log ring — the engine's lines, as the backend's listener push
-delivers them. Rows QSCR-* (<code>debugger_panels_test</code>). The choices made where
-the design is silent are its "as built" appendices (G to K). The recorder is
-a later work package of the same branch.</p>
+(target <code>jnext_script</code>), with no toolkit dependency and reaching the machine
+only through this facade. A loaded script is ONE backend client
+(<code>ClientKind::Script</code>): each rule becomes a subscription whose <code>Condition</code> is
+the compiled <code>when</code> and whose <code>Handler</code> runs the body at the delivery, and a
+stop-only <code>execute</code> rule is registered as a static <code>Stop</code>, so <code>probe_execute()</code>
+and <code>subscriptions()</code> show it like any breakpoint. The loop owners run it
+through <code>ScriptHost</code>, which also carries the GH #20 recorder (a second,
+observing client). Its whole architecture — the front end, the expression
+compiler as a library, the engine, stop and exit, the host keys, the recorder,
+and how to add a name or an event kind — is <a href="12-the-debugger-scripting-language.html">3.12 The debugger scripting
+language</a>.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
 <p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
 <code>jnext_debugger</code> is neither compiled nor linked and every use site in
