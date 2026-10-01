@@ -2286,6 +2286,9 @@ int main(int argc, char** argv) {
     }
     g_tmp = &cfg;
     qputenv("JNEXT_CONFIG_DIR", cfg.path().toUtf8());
+    // QFileDialog saves its history to $XDG_CONFIG_HOME/QtProject.conf, which
+    // is the user's real ~/.config otherwise (and shared by concurrent runs).
+    qputenv("XDG_CONFIG_HOME", cfg.filePath(QStringLiteral("xdg-config")).toUtf8());
     QApplication app(argc, argv);
 
     test_step_over();

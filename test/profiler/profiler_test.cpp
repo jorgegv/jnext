@@ -233,7 +233,10 @@ static void test_uint64_counter_precision() {
 
     // Round-trip through write_to_file() — the format string must
     // emit the full 64-bit decimal value, not a 32-bit truncation.
-    const char* path = "/tmp/profiler_u64_test.dat";
+    // PID-qualified: concurrent runs from other worktrees share /tmp.
+    const std::string path_s =
+        "/tmp/profiler_u64_test_" + std::to_string(::getpid()) + ".dat";
+    const char* path = path_s.c_str();
     ok = p.write_to_file(path);
     check("U64-03", "write_to_file() succeeds for large values", ok);
 

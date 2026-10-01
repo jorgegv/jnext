@@ -124,6 +124,13 @@ using jnext::dbg::Subscription;
 using jnext::dbg::ClientId;
 using jnext::dbg::RunState;
 
+// A scratch file in /tmp, unique to this process: concurrent runs from other
+// worktrees share /tmp, and a fixed name lets one run overwrite or delete the
+// file another is about to read.
+static std::string tmp_file(const char* stem, const char* ext) {
+    return std::string("/tmp/jnext_") + stem + "_" + std::to_string(::getpid()) + ext;
+}
+
 // ── Tiny test harness (matches test/debug/step_out_test.cpp style) ──────────
 
 static int g_total = 0;
@@ -1133,7 +1140,7 @@ static void b4_bookmark_rows() {
         // untouched. Type: the cold boot lands a +3. Width: the same type, but a
         // joystick serial cable attached, which widens the stream
         // (`Emulator::save_state`, "joy_uart").
-        const std::string cable = "/tmp/jnext_b4_joy_uart.bin";
+        const std::string cable = tmp_file("b4_joy_uart", ".bin");
         { std::ofstream f(cable, std::ios::binary); f << "ABCD"; }
         // `from` is the machine the bookmark is taken on; the boot lands `to`
         // (or, with no type change, the same type with the cable attached).
@@ -1628,10 +1635,10 @@ static std::vector<uint8_t> read_file(const std::string& path) {
 }
 
 static void b4_snapshot_rows() {
-    const std::string szx = "/tmp/jnext_b4_snap.szx";
-    const std::string szx_upper = "/tmp/jnext_b4_snap2.SZX";   // the match ignores case
-    const std::string sna = "/tmp/jnext_b4_snap.sna";
-    const std::string jns = "/tmp/jnext_b4_snap.jns";
+    const std::string szx = tmp_file("b4_snap", ".szx");
+    const std::string szx_upper = tmp_file("b4_snap2", ".SZX");   // the match ignores case
+    const std::string sna = tmp_file("b4_snap", ".sna");
+    const std::string jns = tmp_file("b4_snap", ".jns");
     std::remove(szx.c_str()); std::remove(sna.c_str()); std::remove(jns.c_str());
     std::remove(szx_upper.c_str());
     {
@@ -1827,9 +1834,9 @@ static void b4_screenshot_rows() {
     using jnext::dbg::LAYER_MASK_ALL;
     using jnext::dbg::LAYER_MASK_ULA;
     using jnext::dbg::LAYER_MASK_SPRITES;
-    const std::string png  = "/tmp/jnext_b4_shot.png";
-    const std::string png2 = "/tmp/jnext_b4_shot2.png";
-    const std::string scr  = "/tmp/jnext_b4_shot.scr";
+    const std::string png  = tmp_file("b4_shot", ".png");
+    const std::string png2 = tmp_file("b4_shot2", ".png");
+    const std::string scr  = tmp_file("b4_shot", ".scr");
     auto rm = [&]() { std::remove(png.c_str()); std::remove(png2.c_str()); std::remove(scr.c_str()); };
     rm();
     {
@@ -2440,7 +2447,7 @@ static void b4_hosting_rows() {
     {
         // pump() IS CALLED, after the frame batch: a capture queued before run()
         // is written by the loop's own pump once a frame has been rendered.
-        const std::string png = "/tmp/jnext_b4_host.png";
+        const std::string png = tmp_file("b4_host", ".png");
         std::remove(png.c_str());
         HeadlessApp app;
         const bool ok = headless(app, 3);
@@ -2522,8 +2529,8 @@ static void b4_hosting_rows() {
             std::remove(png.c_str());
             return o;
         };
-        const Out p = run(true,  "/tmp/jnext_b4_host_paused.png");
-        const Out c = run(false, "/tmp/jnext_b4_host_running.png");
+        const Out p = run(true,  tmp_file("b4_host_paused", ".png"));
+        const Out c = run(false, tmp_file("b4_host_running", ".png"));
         auto show = [](const Out& o) {
             return std::string("magic_pause=") + (o.paused_magic ? "1" : "0") + " file=" +
                    (o.file ? "1" : "0") + " err=" + (o.no_shot_error ? "1" : "0") +
@@ -7025,7 +7032,7 @@ int main() {
         // GH #278 WP0 — the case the Qt Map menu got wrong (it tested the
         // loader's int as a bool): a readable Z88DK map with no `; addr` line
         // is a successful load of ZERO symbols, not a failure.
-        const std::string consts = "/tmp/jnext_gh278_consts.map";
+        const std::string consts = tmp_file("gh278_consts", ".map");
         {
             std::ofstream f(consts);
             f << "__SIZE = $0010 ; const, public\n";
@@ -7532,7 +7539,7 @@ int main() {
         // have worked and nothing would have said so.
         Emulator emu; build(emu);
         Debugger dbg(emu);
-        const std::string map_path = "/tmp/jnext_b1_syms.map";
+        const std::string map_path = tmp_file("b1_syms", ".map");
         {
             std::ofstream f(map_path);
             f << "MY_TARGET = $9000 ; const\n";
@@ -7595,7 +7602,7 @@ int main() {
               std::to_string(dbg.rewind_range().capacity));
 
         // INS-13 — the trace export.
-        const std::string trace_path = "/tmp/jnext_b1_trace.txt";
+        const std::string trace_path = tmp_file("b1_trace", ".txt");
         dbg.set_trace_enabled(true);
         emu.execute_single_instruction();
         check("INS-13-06", "trace_export() writes the log to a file",
@@ -15268,8 +15275,9 @@ int main() {
             {"REENT-33", "save_snapshot mid-frame", none,
              [](Emulator& e, Debugger& d, ClientId a, Ctx&) {
                  if (!e.frame_in_progress()) e.execute_single_instruction();
-                 const Result r = d.save_snapshot(a, "/tmp/jnext_b4_reent.sna");
-                 std::remove("/tmp/jnext_b4_reent.sna");
+                 const std::string p = tmp_file("b4_reent", ".sna");
+                 const Result r = d.save_snapshot(a, p);
+                 std::remove(p.c_str());
                  return r; }},
         };
 
