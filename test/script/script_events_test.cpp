@@ -2016,6 +2016,43 @@ static void exit_rows() {
               ok && code == 1 && l.find("SCRIPT ERROR") != std::string::npos, std::to_string(code));
     }
     {
+        int code = -1, two = -1;
+        std::string l, l2;
+        const bool ok1 = run(kWriter, "var z = 0\non write 0x9000 do stop \"first\" end\n"
+                                      "on write 0x9000 do log \"${1 / z}\" end\non write 0x9000 do exit 0 end\n",
+                             code, l);
+        const bool ok2 = run(kWriter, "on write 0x9000 do exit 5 end\non write 0x9000 do exit 7 end\n", two, l2);
+        check("SCRIPT-EV-EXIT-FIRST-OF-BOUNDARY", "the FIRST failure of a boundary names it (a stop, then a run-time "
+                                                  "error, then `exit 0`: exit 3, the stop's reason); of two exits at "
+                                                  "one boundary the first is taken (`exit 5` then `exit 7`: 5)",
+              ok1 && ok2 && code == 3 && l.find("\"first\" failed at the same boundary (exit 3)") != std::string::npos &&
+                  two == 5,
+              std::to_string(code) + "/" + std::to_string(two) + " " + l.substr(0, 300));
+    }
+    {
+        // Under StopPolicy::Pause (a remote client attached) a stop pauses and
+        // the run goes on: it is not a failure of a LATER boundary's exit.
+        HostRig g;
+        g.dbg->set_stop_policy(jnext::dbg::StopPolicy::Pause);
+        ScriptHostOptions o;
+        o.scripts = {tmp_file("later.jds", "on frame 1 do stop \"early\" end\non frame 3 do exit 0 end\n")};
+        const bool ok = g.start(o);
+        bool resumed = false;
+        for (int i = 0; ok && i < 8 && !g.host->exit_requested(); ++i) {
+            if (g.dbg->state().paused) {
+                resumed = true;
+                g.dbg->run(jnext::dbg::CLIENT_NONE);
+            }
+            g.emu.run_frame();
+            g.dbg->pump(jnext::dbg::PumpBudget{});
+        }
+        const int code = g.host->exit_requested() ? g.host->exit_code() : -1;
+        check("SCRIPT-EV-EXIT-LATER-BOUNDARY", "a stop at an EARLIER boundary does not take a later `exit 0` away "
+                                               "(StopPolicy::Pause: the stop pauses, the run is resumed): exit 0",
+              ok && resumed && code == 0 && g.sink.count("not taken") == 0,
+              "resumed=" + std::to_string(resumed) + " code=" + std::to_string(code));
+    }
+    {
         // The loop's FIRST tick: the backend's first pump only takes its
         // baseline and pushes no Paused, so an exit handed over at the pause
         // needs the host to have taken that baseline at start.

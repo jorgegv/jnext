@@ -2164,7 +2164,7 @@ with it they are §9's ten.
     (`Deferred::Kind::Exit`), and is taken at that edge after the compare.
   Pinned by SCRIPT-EV-ASSERT-EXIT, -EXIT-COMPARE-FRAME, -EXIT-COMPARE-HELD,
   -EXIT-OTHER-RULE (both orders, a static stop, `exit 7` kept), -EXIT-RUNTIME,
-  -EXIT-FIRST-TICK, and end to end by `script-mutation-func`'s red twin. §2.6's `exit` row, I.4
+  -EXIT-FIRST-TICK, -EXIT-FIRST-OF-BOUNDARY, -EXIT-LATER-BOUNDARY, and end to end by `script-mutation-func`'s red twin. §2.6's `exit` row, I.4
   and the man page say so. Other clients' breakpoints at the same boundary are
   not script failures and do not count.
 - **`@__data_crt_head` did not resolve** (review round 1, blocking for #279):
