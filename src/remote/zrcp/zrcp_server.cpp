@@ -770,11 +770,10 @@ void ZrcpServer::on_resumed(jnext::dbg::ClientId /*by*/) {}
 // cpu-step-over target of the replaced machine outside the backend's fan-out.
 void ZrcpServer::on_reset(jnext::dbg::ResetKind kind) {
     if (kind != jnext::dbg::ResetKind::Hard) return;
-    // The fresh machine counts T-states from 0 again, and its cycles restart:
-    // a history `clear` base (a cycle) means nothing in it.
-    tstates_base_  = 0;
-    hist_has_base_ = false;
-    ++hist_gen_;
+    // The fresh machine counts T-states from 0 again. (Its cycles restart too;
+    // the history `clear` base is dropped by `hist_watch_clock()`, which this
+    // pump's `on_notify` runs before any frame.)
+    tstates_base_ = 0;
     if (in_run_ != RunKind::None) reset_stop_owed_ = true;
 }
 

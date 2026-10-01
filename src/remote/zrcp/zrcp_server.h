@@ -376,9 +376,10 @@ private:
     /// The machine's trace is never cleared.
     bool           hist_has_base_ = false;
     std::uint64_t  hist_base_cycle_ = 0;
-    /// The master cycle last seen at a callback. The base is a cycle, so it is
-    /// dropped whenever the clock goes BACKWARDS — a cold boot, a load, a
-    /// restored snapshot or a rewind restart or move the timeline, and a later
+    /// The master cycle last seen at a callback (`on_service` / `on_notify`).
+    /// The base is a cycle, so it is dropped whenever the clock goes BACKWARDS —
+    /// a cold boot (its `Reset{Hard}` is followed by this pump's `on_notify`
+    /// before any frame), a load, a restored snapshot, a rewind — since a later
     /// entry could carry the base's cycle again.
     std::uint64_t  hist_clock_seen_ = 0;
     void           hist_watch_clock();
