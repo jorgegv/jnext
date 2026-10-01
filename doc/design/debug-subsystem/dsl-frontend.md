@@ -40,7 +40,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP3** | engine over subscriptions, stop / exit policy. Headless script `stop` with no explicit `exit` is code **3** (never 2, a harness fault) — as built: Appendix I | **done** |
 | **WP4** | CLI + man page (`--script`, `--script-key`) — as built: Appendix J | **done** |
 | **WP5** | GUI — Script tab, **Alt+1..Alt+8** as the DSL host-key namespace in both windows. **Needs Q** — as built: Appendix K | **done** |
-| **WP6** | the recorder — **this is #20**, after its re-scope: recorder + `compare_scr` + INS-16 + the two parked DAPR rows | in progress |
+| **WP6** | the recorder — **this is #20**, after its re-scope: recorder + `compare_scr` + INS-16 + the two parked DAPR rows — as built: Appendix L | in review |
 | **WP7** | demos + the `script-*-func` rows | todo |
 | **WP8** | developer-guide pages | todo |
 | **WP9** | **an exhaustive User Guide chapter for the DSL** (`src/doc/user-guide`, `docs-userguide-check`-gated) — the owner's words: the most powerful feature of jnext | todo |
@@ -1930,3 +1930,144 @@ ran past every script breakpoint.
   conditions); the condition-evaluating `std::vector<EventId>` form arrives
   with Z, whose `other_breakpoint_at()` already reads `action == Stop &&
   !has_handler` — the shape these rows pin.
+
+## Appendix L — WP6 as built: the recorder, #20 (2026-10-01)
+
+Where this differs from §7 it says so; §7 is the design, this is the code.
+Code: `src/script/recorder.*`, `src/script/key_names.*`, the recorder half of
+`ScriptHost`, `src/platform/recording_info.h`, `ScriptPanel` /
+`DebuggerWindow`'s Script menu. Rows: `script_record_test` (REC-*),
+QSCR-11..13, DKSK-05, and the functional rows `script-replay-keyb-func`,
+`script-replay-joystick-func`, `script-record-replay-func`.
+
+### L.1 What it records, and when
+
+- **One backend client** (`ClientKind::Script`, arming): a `Frame`
+  subscription (every frame) and a `Host` one (`script8`), plus a listener
+  for `Paused` and `Reset{Hard}`. It only observes: nothing it does changes
+  the machine.
+- **At every frame edge E_K** it reads INS-16 `input_state()` and writes one
+  edge per change since E_K-1 — a matrix bit (`press` / `release`), an
+  extended key (`ext:<name>`, L.2), a connector's 12-bit state (`joystick 1|2
+  0x…`, the whole new state) — stamped **`on frame K-1`**, as §7.2 item 1 says.
+  Level form only; there is no `for`. The sample is taken at E_K rather than
+  at `begin_new_frame(K)`: the two read the same input, because a running
+  machine takes host input only between frames, and E_K is a backend event
+  where `begin_new_frame` is not. E_K's `Frame` delivery comes before the
+  edge's injection drain and `tick_auto_type()` (`emulator.cpp`, B4), so a
+  change applied AT E_K-1 (a script `press`, an auto-type step) is first seen
+  at E_K and stamped K-1 like a host key.
+- **A capture** (host key 8 — Alt+8 in either window, `--script-key F 8` —
+  or `capture()` from the menu / tab) is taken at the NEXT frame edge E_K, and
+  stamped K: a replay's `on frame K` rule runs at that same point, so what is
+  compared is, by construction, what was captured. Taking it at once instead
+  was rejected: between frames, and above all while paused mid-frame, there is
+  no frame a replay could take it at. A capture asked for while the machine is
+  paused at a frame boundary is therefore taken one frame after resuming.
+- **`.scr` or PNG** (§7.4): `.scr` (`ula_screen_dump()` written by the
+  recorder at E_K, and `compare_scr` in the script) when only the ULA is on —
+  NR 0x68 b7 clear, NR 0x15 b0 (sprites) and b7 (LoRes) clear, NR 0x69 b7
+  (Layer 2) clear, NR 0x6B b7 (tilemap) clear, read with `nextreg_peek()`,
+  i.e. the live values. Otherwise a PNG through CAP-01 `screenshot()` (deferred
+  to the next rendered frame, as a replay's `screenshot` is) and, in the
+  script, `screenshot "<base>-NNNN-replay.png"` with a comment naming the
+  reference. The DSL has no PNG comparison (§7.4 puts it in the suite), so a
+  PNG replay's verdict is the caller's: the functional rows `png_diff` them.
+- **The header**: `jds-recorder: 1`, machine, program (`config().load_file`
+  of the CURRENT boot), `--rtc`, the SD image's base name and `.jns` Tier-1
+  identity, NR 0x05, the frame range and counts, and the replay command line.
+  The preconditions are `once` asserts at the first recorded frame: `MACHINE`
+  and `nextreg[0x05]`. The script ends `on frame <last>+2 do exit 0 end` — two
+  frames, so a PNG asked for at the last edge has been rendered and written.
+- **Inexact, said in the script** — a `# WARNING:` comment and the same text
+  as a `log` at the first frame, so a replay prints it: a change sampled at the
+  edge of a frame the machine was paused in mid-frame (§7.2 item 4; flagged
+  per FRAME, from the `Paused` push with `at_frame_boundary()` false — the
+  backend does not say whether the key moved during the pause or before it,
+  so this errs towards warning); input held when recording began; input before
+  frame 0; a frame tag going backwards (a rewind).
+- **A cold boot** (`Reset{Hard}` — a hard reset, a menu load, which is one)
+  restarts the recording at FRAME 0 and re-reads the header's facts: a replay
+  starts at power-on too, so nothing recorded before it could be replayed.
+  This is what makes "Record, then File > Load" work. Not in §7.
+- **`stop()`** calls `flush_captures()`: a PNG still pending (asked for at the
+  last edge before the stop) is dropped by the backend, and its line goes with
+  it, with a warning. The script is written whole at the stop (not streamed),
+  so the warnings can lead it.
+
+### L.2 Findings against the design (not worked around)
+
+- **§7.2 named the matrix and the joysticks but not the 16 Next EXTENDED keys**
+  (NR 0xB0/0xB1, `InputState::ext_keys`). The host's arrows, Backspace, Esc,
+  the Alt-letter keys drive those, not the matrix (issue #33), so a recorder
+  that ignored them would drop real input silently. The language gained the
+  key names `ext:right … ext:delete` for `press` / `release` (backend IN-02's
+  `set_extended_key`, already there); `press "ext:…" for n` is a run-time
+  error (there is no extended-key pulse). The names live in
+  `src/script/key_names.*`, with the inverse matrix table (§7.2's "`row,col`
+  for a bit with no single-key name" — CAPS SHIFT `0,0`, SYMBOL SHIFT `7,1`).
+- **Keys jnext types by itself are input like any other.** A tape `--load`'s
+  `LOAD ""` and `--delayed-keypress` pulses change the matrix, and the
+  recorder records them; a replay given the same options types them twice.
+  INS-16 cannot tell them apart and the backend has no "auto-type active"
+  query, so it is documented (man page) rather than filtered.
+- **Not recorded at all**: the Kempston mouse (not in INS-16), media changes
+  (a tape inserted, an SD card swapped, GH #93), a soft reset from the GUI
+  (`Reset{Soft}` is also what a guest NR 0x02 write raises, so it cannot be
+  warned about without false alarms), and a loaded script's mutations.
+
+### L.3 Where it is reached (deviations)
+
+- **`ScriptHost`** owns the recorder: `start_recording()` /
+  `capture_screen()` / `stop_recording()` / `recording()` / `recorder()`, and
+  `set_recording_info()`, a provider each loop owner sets to
+  `recording_info_of(emulator_)`. The host's destructor stops and writes, so
+  any exit writes the script. Its log lines reach the Script tab like the
+  engine's.
+- **`--record-script FILE`** — NOT in §6.6 or §9. Added because the SDL
+  frontend has no menus, so it is the only way to record there, and because it
+  makes the recorder testable end to end through the binary
+  (`script-record-replay-func`) and from a real GUI session driven by xdotool
+  (`test/scripts/dsl/record-dapr.sh`). With it, `--script-key` no longer needs
+  a `--script` (key 8 is the capture).
+- **The GUI affordance is the Script menu and tab, not the Debug menu** (§9
+  said Debug menu "Record Script…"): Script > Record Script… / Capture Screen /
+  Stop Recording, enabled by state when the menu opens, and the same three as a
+  row of buttons in the Script tab with a status line — beside the Load /
+  Reload / Unload of K.2, which is where a user who records a script looks for
+  it.
+- **Alt+8 is the capture while recording**, as §7.2 says; it is still raised
+  as host key 8, so a loaded `on hostkey 8` rule runs too.
+
+### L.4 The parked DAPR rows, and what else records
+
+- **`06-dapr-keyb` and `07-dapr-joystick`** are recorded once from the Qt GUI
+  under Xvfb with `--record-script`, driven by xdotool
+  (`test/scripts/dsl/record-dapr.sh`, which re-records), and committed as
+  `test/scripts/dsl/dapr-{keyb,joystick}.jds` with their PNG captures. Both
+  programs draw on the tilemap, so the captures are PNGs. The rows
+  `script-replay-keyb-func` / `script-replay-joystick-func` replay them
+  headless and require `exit 0` and every capture pixel-identical. The keyb
+  recording holds W across CAPS SHIFT, presses EDIT (CAPS + 1) and holds E
+  with R (the §8 "press as a pulse" mutation strands or drops one of those);
+  the joystick one uses `--joy1-source keys` (diagonals, fire, a direction held
+  across another's release). `test/interactive/README.md` keeps them listed
+  for a manual run and points at the rows. **`script-replay-keyb-func` is
+  therefore WP6's, not WP7's**: WP7's ten rows become nine plus this one.
+- **RZX** (§7.3) stays as it is: it records the IN *results* and replays them
+  by overriding every IN, inside its own snapshot; the recorder records the
+  input *state* and lets the emulator compute the INs, which is what a test of
+  the input path needs. They can run in the same session; neither replaces the
+  other.
+- **`--tape-save`** records what the guest SAVEs (the ROM's SA-BYTES), not
+  what the user does: a recorded session that SAVEs, replayed with the same
+  `--tape-save`, writes the same `.tap` again — a comparison the caller can
+  make. The recorder neither replaces it nor needs it.
+
+### L.5 Deviations from the §8 test plan
+
+- `script-replay-edge-func` (a demo that latches the FRAME of its first key)
+  needs WP7's `dsl_demo`; it stays WP7's. The K-1 stamping it pins is pinned
+  here by `REC-EDGE-*` (exact frame numbers) and by the round trip
+  `REC-RT-GUEST`, whose guest counts loop passes before Q is first seen down —
+  a number that moves with the frame the press lands on.

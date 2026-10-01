@@ -13,6 +13,17 @@ At the top, three buttons:
   over and a `once` rule is armed again.
 - **Unload All** — remove every script.
 
+Under them, the **recorder**, which writes what you do into a replay script
+(the **SCRIPTING** section of the man page, "Recording a session"):
+
+- **Record...** — choose a file and start recording (the same as
+  **Script > Record Script...**).
+- **Capture** — capture the screen at the next frame (so does **Alt+8** while
+  recording, in either window).
+- **Stop Recording** — write the script.
+
+and a line saying what is being recorded, or what was last.
+
 Below them, the **verdict line**: how many scripts are loaded and what the run
 has reached so far.
 

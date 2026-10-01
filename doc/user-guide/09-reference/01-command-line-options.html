@@ -3767,7 +3767,15 @@ program: <code>stop</code> and <code>exit</code> pause the machine instead.</dd>
 <dd>Deliver script host key <em>N</em> (<code>1</code> to <code>8</code>) at emulated frame <em>FRAME</em>
 (<strong>--headless</strong> only; repeatable): the script’s <code>on hostkey</code> <em>N</em>
 rules run at the end of frame <em>FRAME</em>, where <code>on frame</code> <em>FRAME</em>
-runs. Needs a <strong>--script</strong>.</dd>
+runs. Needs a <strong>--script</strong>, or a <strong>--record-script</strong> (key <code>8</code> is the
+recorder’s capture).</dd>
+<dt><strong>--record-script</strong> <em>FILE</em></dt>
+<dd>Record the session as a replay script; see <strong>Recording a session</strong>
+under <a href="https://github.com/jorgegv/jnext/blob/main/USAGE.md#scripting">the SCRIPTING section of the man
+page</a>.
+Every input change is written as the frame it landed on, each Alt +
+8 (or <strong>--script-key</strong> <em>FRAME</em> <code>8</code>) captures the screen, and <em>FILE</em>
+is written when jnext exits. Works in every frontend.</dd>
 <dt><strong>--map</strong> <em>FILE</em></dt>
 <dd>Load a z88dk <code>.map</code> symbol table, so a script can name an address as
 <code>@symbol</code>, and the debugger shows the names (the same table <strong>Map &gt;
