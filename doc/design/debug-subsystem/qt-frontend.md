@@ -31,7 +31,7 @@ whole, so `done` here means the sub-item is approved, not merged.
 | **WP5** | memory panel (and the Disassembly panel's reads, the +3 latch fix) — as built: §6.2g | **done** — reviewed + APPROVED |
 | **WP6** | symbols / magic — as built: §6.2g | **done** — reviewed + APPROVED |
 | **WP7** | reach-around grep = 0 (`grep -l 'core/emulator.h' src/debugger/*.cpp` empty) — as built: §6.2h | **done** — reviewed, REJECTED once (the lint's durability), then APPROVED on re-review |
-| **WP8** | **Memory panel physical-page view** — `MemSpace::Page` reads *and* writes (owner decision §1.3 item 15). **Last**, after the identity rows are green, with its own pinned rows — as built: §6.2i | **in review** |
+| **WP8** | **Memory panel physical-page view** — `MemSpace::Page` reads *and* writes (owner decision §1.3 item 15). **Last**, after the identity rows are green, with its own pinned rows — as built: §6.2i | **done** — reviewed, REJECTED once (one row; R4 confirmed equivalent), then APPROVED on re-review |
 
 Depends on: B0 (landed), B. Q is the epic's **sufficiency proof** — any
 insufficiency it finds is a finding against the architecture document, not a
