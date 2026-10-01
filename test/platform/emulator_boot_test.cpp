@@ -220,6 +220,39 @@ int card_sector0(SdCardDevice& sd)
     return first;
 }
 
+/// The card's data-response token to a CMD24 write of sector 1: 0x05 accepted,
+/// 0x0D rejected (a write-protected card, SD spec 7.3.3.3). Leaves the card
+/// deselected.
+int card_write_response(SdCardDevice& sd)
+{
+    auto cmd = [&sd](uint8_t c, uint32_t arg) {
+        const uint8_t bytes[6] = {static_cast<uint8_t>(0x40 | c), static_cast<uint8_t>(arg >> 24),
+                                  static_cast<uint8_t>(arg >> 16), static_cast<uint8_t>(arg >> 8),
+                                  static_cast<uint8_t>(arg), 0x95};
+        for (uint8_t b : bytes) (void)sd.receive(b);
+        for (int i = 0; i < 16; ++i) {
+            const uint8_t r = sd.send();
+            if (r != 0xFF) return r;
+        }
+        return uint8_t{0xFF};
+    };
+    sd.reset();
+    cmd(0, 0); cmd(8, 0x1AA); cmd(55, 0); cmd(41, 0x40000000); cmd(58, 0);
+    int resp = -1;
+    if (cmd(24, 1) == 0x00) {
+        (void)sd.receive(0xFE);
+        for (int i = 0; i < 512; ++i) (void)sd.receive(0x5A);
+        (void)sd.receive(0xFF);
+        (void)sd.receive(0xFF);
+        for (int i = 0; i < 32; ++i) {
+            const uint8_t b = sd.send();
+            if (b != 0xFF) { resp = b; break; }
+        }
+    }
+    sd.deselect();
+    return resp;
+}
+
 }  // namespace
 
 int main()
@@ -1454,14 +1487,17 @@ int main()
 
             const auto outcome = emulator_service_sd_card_change(emu, frontend, frontend_set);
             const int after = card_sector0(emu.sd_card());
+            const int write = card_write_response(emu.sd_card());   // 0x0D: write-protected
             const bool again = !emulator_service_sd_card_change(emu, frontend, frontend_set);
-            check("EB-54", "the serviced insert mounts the new card, and the emulator's AND "
-                           "the frontend's config follow it, read-only flag included",
-                  outcome && outcome->error.empty() && after == 0xB2 &&
+            check("EB-54", "the serviced insert mounts the new card write-protected as asked, "
+                           "and the emulator's AND the frontend's config follow it, read-only "
+                           "flag included",
+                  outcome && outcome->error.empty() && after == 0xB2 && write == 0x0D &&
                       emu.config().sd_card_image == card_b && emu.config().sd_card_readonly &&
                       frontend.sd_card_image == card_b && frontend.sd_card_readonly &&
                       frontend_set && again,
-                  "sector0=" + std::to_string(after) + " emu='" + emu.config().sd_card_image +
+                  "sector0=" + std::to_string(after) + " write=" + std::to_string(write) +
+                      " emu='" + emu.config().sd_card_image +
                       "' frontend='" + frontend.sd_card_image + "'");
 
             // EB-55: the frontend's config is what a hard reset (F1, NR 0x02,

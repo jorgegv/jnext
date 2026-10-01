@@ -645,8 +645,8 @@ debugger ones.
 
 **\--delayed-sdcard-insert-frames** *N* *FILE*
 :   Insert SD-card image *FILE* after *N* emulated frames, exactly as
-    **File > Insert SD Card Image** does (see **CHANGING THE CARD WHILE
-    RUNNING** below). The card keeps **\--sdcard-readonly**. Refused - and
+    **File > Insert SD Card Image** does (see **SD CARD AND ROMS**). The
+    card keeps **\--sdcard-readonly**. Refused - and
     the run then exits non-zero - while an RZX recording is made or played, or
     when *FILE* cannot be opened. Repeatable. Requires **\--headless**.
 
