@@ -1845,10 +1845,12 @@ held in cpu-step mode. Try it by hand with `telnet localhost PORT` and
 - **Breakpoint conditions are ZEsarUX’s** (`PC=8000H`, `SP>=65280`,
   `PC=PEEKW(SP-2) AND SP>=65280`, `A<>0 AND (HL&FFH)=5` …), grouped the
   way ZEsarUX groups them; `help set-breakpoint` lists what is honoured
-  and what is declined. A breakpoint fires every time its condition is
-  true (ZEsarUX’s `--brkp-always`), except at the address a run resumes
-  from. Breakpoints belong to the session: they start disabled, as in
-  ZEsarUX, and are removed when the client disconnects.
+  and what is declined. A condition with no `PC=` first term fires only
+  when it turns from false to true, as in ZEsarUX: one that stays true
+  stops (or prints) once. A `PC=` breakpoint fires at every arrival at
+  its address, except at the address a run resumes from. Breakpoints
+  belong to the session: they start disabled, as in ZEsarUX, and are
+  removed when the client disconnects.
 - **Declined**: `exit-emulator`, and the `run` options `verbose`,
   `no-stop-on-data` and `update-immediately`. ZEsarUX commands jnext
   does not serve answer `Error. Unsupported command in jnext:` and the

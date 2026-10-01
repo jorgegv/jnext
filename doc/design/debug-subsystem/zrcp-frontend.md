@@ -1188,15 +1188,22 @@ evaluates an expression except the native terms below.
    FIRST top-level logical operator, then comparison, then `+ -`, then the
    other arithmetic, right-nested — `9-3-1` is 7, `2*3&1` is 2, `0 AND 0 OR 1`
    is 0 (`ZRCP-CND-04`). The translation reproduces that grouping.
-2. **"Always", not "On Change".** ZEsarUX's default fires a condition only on
-   a false→true transition (`debug_breakpoints_cond_behaviour`, `--brkp-always`
-   turns it off). jnext fires every time it is true: the fast path is only
-   evaluated at its address, so "was it true at the previous instruction" is
-   not known there, and one rule for both paths is simpler to state. The GH #221
-   step-off gives the On-Change behaviour exactly where DeZog needs it — at the
-   address a run resumes from. Visible difference: a PC-free condition such as
-   `A=5` stops again after a resume while it stays true; a `JR $` breakpoint
-   stops on every pass. Stated in `help set-breakpoint`.
+2. **"On Change", as ZEsarUX's default — for PC-free conditions.** ZEsarUX
+   fires a condition only on a false→true transition
+   (`debug_breakpoints_cond_behaviour` = 1, `debug.c`
+   `cpu_core_loop_debug_check_breakpoints`; `--brkp-always` turns it off). A
+   PC-free slot does the same: its predicate keeps the value of its last
+   evaluation, is evaluated at every boundary of a free run, and in a `run n` —
+   where the GH #221 step-off means the backend evaluates nothing — by the
+   landing check (`slot_edge_at`); (re)arming starts it false, as
+   `debug_set_breakpoint` does. A fast-path (`PC=<n> …`) slot fires at every
+   arrival: the `PC=` term was false at the previous instruction, so On Change
+   and Always agree, except for an instruction that jumps to itself (`JR $`),
+   where ZEsarUX fires once and jnext on every pass after the step-off — the
+   one residual difference, stated in `help set-breakpoint`. (Milestone 2 first
+   shipped "Always" for both; review round 1 rejected it: a PC-free condition
+   that stays true stopped every `run` after one instruction, and a print
+   action on one sent ~10^6 lines a second. Rows `ZRCP-BP-22..24`, `-26/27`.)
 3. **The master switch is the adapter's.** §2.4 mapped `enable-/disable-
    breakpoints` to CAP-EVT `set_client_enabled`. That switch also suspends the
    client's TRANSIENT subscriptions (`event_table.cpp`: live = enabled ∧
@@ -1220,8 +1227,9 @@ evaluates an expression except the native terms below.
    literals, which §3.2 did not list, are honoured: they cost nothing.
 7. **The fired line names this session's breakpoint** even when another
    client's breakpoint was the backend's first `Stop` on the same instruction
-   (`ZRCP-BP-11`, `ZRCP-MBP-08`); another client's breakpoint alone gives a
-   plain stop (`ZRCP-BP-12`).
+   (`ZRCP-BP-11`, `ZRCP-MBP-08`) — a PC-free slot only if it fired (its edge)
+   at that instruction (`ZRCP-BP-26`); another client's breakpoint alone gives
+   a plain stop (`ZRCP-BP-12`).
 8. **Indexes and addresses** keep milestone 1's strict number rule
    (`parse_number`) where ZEsarUX uses `atoi` / `parse_string_to_number`.
 
@@ -1261,11 +1269,23 @@ What the library could not do, and what was done instead:
 
 **`probe_execute -> vector<EventId>` (owner-approved, NOT in this build).** The
 frozen-header change was refused by the session's permission policy (the same
-refusal as the `detach()` comment). Until it lands, `run n`'s landing check
-asks this session's slots with their own predicates and asks `probe_execute`
-only where no slot of this session covers the PC: a slot whose condition is
-false no longer ends a `run n` (`ZRCP-BP-15/16`), but another client's
-CONDITIONAL `Execute` subscription at the landing PC still ends it even when
-its condition is false (the §11.5 item 3 finding, unchanged). The backend
-change and its rows are the remaining WP-4 item.
+refusal as the `detach()` comment). Until it lands, `run n`'s landing check is
+the only place a breakpoint is evaluated inside a `run n` (each step's own
+`Execute` match is skipped by the GH #221 step-off), and it asks:
+
+- this session's slots, with their own predicates (On Change for a PC-free
+  one): a stop slot ends the run with its fired line, a print slot prints and
+  the run steps on (`ZRCP-BP-15/16/19/24`);
+- every other client's live `Execute` subscription at the PC, from
+  `subscriptions()` (Stop, or a handler that might stop; not a disabled or
+  Log-only one), whatever slots this session has (`ZRCP-BP-21/25`; review round
+  1 found the first cut skipped them wherever a slot of this session covered
+  the PC — which a PC-free slot does everywhere);
+- `probe_execute`, the one view of a legacy `BreakpointSet` PC breakpoint
+  (nothing in `src/` sets one any more), where no slot of this session covers
+  the PC.
+
+Another client's CONDITIONAL breakpoint at the landing PC still ends a `run n`
+when its condition is false (§11.5 item 3). The backend change, its rows, and
+replacing the last two arms with it are the remaining WP-4 item.
 

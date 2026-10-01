@@ -434,9 +434,9 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
      "TSTATESP SCANLINE OUTFIRED INFIRED INTFIRED ENTERROM EXITROM HILOWMAPPED PD765PCN USP "
      "EPC COPPERPC D0..D7 A0..A7 AC ER SR P1..P3, and FPEEK IN ABS BYTE WORD OPMWA OPMRA OPMWV"
      " OPMRV. A condition whose first term is PC=<number> is checked only at that address; any"
-     " other is checked at every instruction. Divergence from ZEsarUX's default: a breakpoint "
-     "fires every time its condition is true (ZEsarUX's --brkp-always), except at the address "
-     "the run resumes from",
+     " other is checked at every instruction and, as ZEsarUX's default, fires only when it "
+     "turns from false to true (one that stays true fires once). A PC=<number> condition fires"
+     " at every arrival at its address, except at the address a run resumes from",
      CommandClass::Served, &ZrcpServer::cmd_set_breakpoint},
     {"set-breakpointaction", "|sba", "index [action]",
      "Sets a breakpoint action at desired index entry. Empty, menu or break stop the machine; "

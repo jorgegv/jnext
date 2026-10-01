@@ -2262,8 +2262,11 @@ machine, complete before the reply; a paused machine stays paused.
 \f[CR]A<>0 AND (HL&FFH)=5\f[R] \&...), grouped the way ZEsarUX groups
 them; \f[CR]help set\-breakpoint\f[R] lists what is honoured and what is
 declined.
-A breakpoint fires every time its condition is true (ZEsarUX\(cqs
-\f[CR]\-\-brkp\-always\f[R]), except at the address a run resumes from.
+A condition with no \f[CR]PC=\f[R] first term fires only when it turns
+from false to true, as in ZEsarUX: one that stays true stops (or prints)
+once.
+A \f[CR]PC=\f[R] breakpoint fires at every arrival at its address,
+except at the address a run resumes from.
 Breakpoints belong to the session: they start disabled, as in ZEsarUX,
 and are removed when the client disconnects.
 .IP \(bu 2
