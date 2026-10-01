@@ -17,7 +17,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../zrcp-functions.inc"
 # `fired` line at the PC it stopped at (the magic breakpoint — slot
 # breakpoints are WP-4's), and `run` + a bare newline as one plain stop with the
 # newline not executed. The same process also serves DZRP (`--dzrp-port 0`),
-# and a DZRP loopback is answered beside the ZRCP session.
+# and a DZRP loopback is answered beside the ZRCP session. First, the
+# `fixture` scenario (WP-6) replays every scene of
+# test/fixtures/zrcp/zesarux-12.0-exchanges.txt — ZEsarUX 12.0's own recorded
+# replies — byte for byte, each scene on its own connection.
 if want zrcp-func; then
     begin_func zrcp-func
     log="$TMP_DIR/zrcp-func.log"
@@ -30,9 +33,12 @@ if want zrcp-func; then
     elif [[ -z "$DZRP_PORT_ALSO" ]]; then
         zrcp_stop
         fail_row " (--dzrp-port 0 beside --zrcp-port 0 logged no 'dzrp: listening on')"
-    elif zrcp_peer m1 "$DZRP_PORT_ALSO"; then
+    elif ! zrcp_peer fixture; then
         zrcp_stop
-        pass_row " (${ZRCP_OUT#PASS })"
+        fail_row " (${ZRCP_OUT#FAIL })"
+    elif fix=${ZRCP_OUT#PASS }; zrcp_peer m1 "$DZRP_PORT_ALSO"; then
+        zrcp_stop
+        pass_row " ($fix; ${ZRCP_OUT#PASS })"
     else
         zrcp_stop
         fail_row " (${ZRCP_OUT#FAIL })"

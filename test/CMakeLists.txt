@@ -1071,6 +1071,9 @@ target_link_libraries(zrcp_adapter_test PRIVATE
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(zrcp_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(zrcp_adapter_test PRIVATE "${CMAKE_BINARY_DIR}/generated")
+# ZRCP-FIX-* replay the committed fixture of ZEsarUX 12.0's recorded bytes (WP-6).
+target_compile_definitions(zrcp_adapter_test PRIVATE
+    JNEXT_ZRCP_FIXTURE="${CMAKE_SOURCE_DIR}/test/fixtures/zrcp/zesarux-12.0-exchanges.txt")
 add_test(NAME zrcp_adapter_tests COMMAND zrcp_adapter_test)
 
 # Task 66 — AppConfig (GUI preferences: QSettings-backed load/save,

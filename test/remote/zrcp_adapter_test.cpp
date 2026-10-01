@@ -23,6 +23,8 @@
 //   ZRCP-TBB-*, ZRCP-PORT-*  WP-2's inspection commands on a live machine.
 //   ZRCP-CTL-*, ZRCP-RUN-*, ZRCP-RST-*  WP-3: cpu-step mode, the steps, the
 //                run state machine (§4.3), resets (§4.6), NMI.
+//   ZRCP-FIX-*   WP-6: every scene of test/fixtures/zrcp/, ZEsarUX 12.0's own
+//                recorded bytes, replayed byte for byte.
 //
 // THE ORACLE. The byte strings quoted as [T1]..[T5] are verbatim replies of
 // ZEsarUX 12.0 recorded by the design's socket client (zrcp-frontend.md, head
@@ -4468,6 +4470,155 @@ static void wp5_snapshot_rows() {
     }
 }
 
+// ===========================================================================
+// ZRCP-FIX — the committed fixture (WP-6): ZEsarUX 12.0's own bytes
+// ===========================================================================
+//
+// test/fixtures/zrcp/zesarux-12.0-exchanges.txt holds scenes recorded from the
+// real ZEsarUX 12.0 server, one fresh server per scene; its header states the
+// format. Each scene replays here on a fresh rig and every reply must match
+// byte for byte. zrcp-func replays the same file against a live jnext.
+
+struct FixScene {
+    std::string                                      name;
+    std::string                                      welcome;
+    std::vector<std::pair<std::string, std::string>> ex;  // command, reply
+};
+
+/// `"..."` with the four escapes \n \r \" \\ — anything else is malformed.
+static bool fix_unquote(const std::string& s, std::string& out) {
+    if (s.size() < 2 || s.front() != '"' || s.back() != '"') return false;
+    out.clear();
+    for (std::size_t i = 1; i + 1 < s.size(); ++i) {
+        char ch = s[i];
+        if (ch == '"') return false;
+        if (ch == '\\') {
+            if (i + 2 >= s.size()) return false;
+            const char e = s[++i];
+            if (e == 'n') ch = '\n';
+            else if (e == 'r') ch = '\r';
+            else if (e == '"' || e == '\\') ch = e;
+            else return false;
+        }
+        out.push_back(ch);
+    }
+    return true;
+}
+
+/// Parse the fixture; an empty result with `err` set when it is malformed.
+static std::vector<FixScene> fix_load(const char* path, std::string& err) {
+    std::vector<FixScene> scenes;
+    std::FILE* f = std::fopen(path, "rb");
+    if (!f) {
+        err = std::string("cannot open ") + path;
+        return {};
+    }
+    std::string text;
+    char buf[4096];
+    std::size_t n;
+    while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) text.append(buf, n);
+    std::fclose(f);
+
+    int lineno = 0;
+    std::size_t pos = 0;
+    while (pos < text.size()) {
+        std::size_t eol = text.find('\n', pos);
+        if (eol == std::string::npos) eol = text.size();
+        const std::string line = text.substr(pos, eol - pos);
+        pos = eol + 1;
+        ++lineno;
+        if (line.empty() || line[0] == '#') continue;
+        const std::string where = "line " + std::to_string(lineno);
+        if (starts_with(line, "@scene ")) {
+            const std::string rest = line.substr(7);
+            scenes.push_back(FixScene{rest.substr(0, rest.find(' ')), {}, {}});
+            continue;
+        }
+        std::string val;
+        if (scenes.empty() || line.size() < 2 || line[1] != ' ' ||
+            (line[0] != '>' && line[0] != '<') || !fix_unquote(line.substr(2), val)) {
+            err = where + ": malformed: " + line;
+            return {};
+        }
+        FixScene& sc = scenes.back();
+        if (line[0] == '>') sc.ex.emplace_back(val, std::string());
+        else if (sc.ex.empty()) sc.welcome += val;
+        else sc.ex.back().second += val;
+    }
+    return scenes;
+}
+
+static void fixture_rows() {
+    std::string                 err;
+    const std::vector<FixScene> scenes = fix_load(JNEXT_ZRCP_FIXTURE, err);
+
+    struct Case {
+        const char* id;
+        const char* scene;
+        const char* desc;
+    };
+    static const Case kCases[] = {
+        {"ZRCP-FIX-02", "session",
+         "fixture scene `session`: the blank line, noop, unknown and exact-name commands, the "
+         "debug-settings byte, quit — ZEsarUX 12.0's bytes"},
+        {"ZRCP-FIX-03", "memory",
+         "fixture scene `memory`: write-memory, write-memory-raw, read-memory round trips and "
+         "an unknown register — ZEsarUX 12.0's bytes"},
+        {"ZRCP-FIX-04", "evaluate",
+         "fixture scene `evaluate`: constant expressions in both number spellings and both "
+         "equality operators — ZEsarUX 12.0's bytes"},
+        {"ZRCP-FIX-05", "breakpoints-off",
+         "fixture scene `breakpoints-off`: the list and the refusal while breakpoints are off "
+         "— ZEsarUX 12.0's bytes"},
+        {"ZRCP-FIX-06", "breakpoints",
+         "fixture scene `breakpoints`: slot set / enable / disable, the canonical condition "
+         "spellings, slot bounds 0 and 101, the global switch — ZEsarUX 12.0's bytes"},
+        {"ZRCP-FIX-07", "membreakpoints",
+         "fixture scene `membreakpoints`: memory breakpoints set, listed, removed, cleared — "
+         "ZEsarUX 12.0's bytes"},
+        {"ZRCP-FIX-08", "tbblue",
+         "fixture scene `tbblue`: NextREG, clip windows, sprites and the ULA palette (ZEsarUX "
+         "on TBBlue) — ZEsarUX 12.0's bytes"},
+        {"ZRCP-FIX-09", "cpu-step",
+         "fixture scene `cpu-step`: the step prompt, hard reset, slots, history / coverage / "
+         "extended-stack switches, exit — ZEsarUX 12.0's bytes"},
+        {"ZRCP-FIX-10", "run",
+         "fixture scene `run`: `run` answers the Running line and nothing else while the "
+         "machine runs — ZEsarUX 12.0's bytes"},
+    };
+
+    std::string names, want;
+    for (const FixScene& sc : scenes) names += sc.name + " ";
+    for (const Case& k : kCases) want += std::string(k.scene) + " ";
+    check("ZRCP-FIX-01", "the fixture parses and holds exactly the scenes this suite replays, in "
+                         "order, each with a welcome and at least one exchange",
+          err.empty() && names == want &&
+              std::all_of(scenes.begin(), scenes.end(),
+                          [](const FixScene& sc) { return !sc.welcome.empty() && !sc.ex.empty(); }),
+          err.empty() ? names : err);
+
+    for (const Case& k : kCases) {
+        const FixScene* sc = nullptr;
+        for (const FixScene& s : scenes)
+            if (s.name == k.scene) sc = &s;
+        if (!sc) {
+            check(k.id, k.desc, false, "scene missing from the fixture");
+            continue;
+        }
+        Rig         rig;
+        Zc          c(rig);
+        std::string bad;
+        if (c.welcome != sc->welcome) bad = "welcome: " + esc(c.welcome);
+        for (std::size_t i = 0; bad.empty() && i < sc->ex.size(); ++i) {
+            const std::string got = c.cmd(sc->ex[i].first);
+            if (got != sc->ex[i].second)
+                bad = "`" + sc->ex[i].first + "`: got " + esc(got) + " want " +
+                      esc(sc->ex[i].second);
+        }
+        check(k.id, k.desc, bad.empty(), bad);
+    }
+}
+
 int main() {
     std::printf("zrcp_adapter_test — the ZRCP adapter over T's fake transport (GH #280)\n");
     framing_rows();
@@ -4500,6 +4651,7 @@ int main() {
     wp5_stack_coverage_rows();
     wp5_load_rows();
     wp5_snapshot_rows();
+    fixture_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass,

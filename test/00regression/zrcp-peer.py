@@ -4,7 +4,10 @@
 zrcp-frontend.md §6.2: a Python client drives a LIVE jnext — started with
 `--zrcp-port 0` — and diffs the replies BYTE-EXACTLY against strings derived
 from the design's [T] transcripts of ZEsarUX 12.0 (the jnext-specific fields,
-the version and the register values, are read rather than guessed). It is an
+the version and the register values, are read rather than guessed). The
+committed fixture test/fixtures/zrcp/zesarux-12.0-exchanges.txt is the source
+of the welcome and `run` bytes, and the `fixture` scenario replays every one of
+its scenes (ZEsarUX 12.0's own recorded replies) byte for byte. It is an
 independent reading of the wire: it knows ZRCP only from the transcripts and
 from DeZog 3.7.4's parser (`zesaruxsocket.ts`: a reply ends at a last line that
 starts with `command` and ends with `> `; `decodezesaruxdata.ts`: fixed widths
@@ -24,6 +27,7 @@ so no row depends on a demo build:
     8005  18 FE      JR $
 """
 
+import os
 import re
 import socket
 import struct
@@ -34,9 +38,11 @@ HOST = "127.0.0.1"
 TIMEOUT = 10.0
 PROMPT = b"command> "
 PROMPT_STEP = b"command@cpu-step> "
-WELCOME = (b"Welcome to ZEsarUX remote command protocol (ZRCP)\n"
-           b"Write help for available commands\n\ncommand> ")
-RUNNING = b"Running until a breakpoint, key press or data sent, menu opening or other event\n"
+FIXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fixtures", "zrcp",
+                       "zesarux-12.0-exchanges.txt")
+WELCOME = None  # both read from FIXTURE by main(): ZEsarUX 12.0's own bytes
+RUNNING = None
+BUSY = b"Error. Another ZRCP client is"
 PROGRAM = "000000EDFF18FE"
 
 # DeZog 3.7.4 decodezesaruxdata.ts: each label is found once, then a fixed
@@ -104,12 +110,72 @@ class Zrcp:
         out, self.buf = self.buf, b""
         return out
 
+    def until_quiet(self, quiet=0.5, cap=TIMEOUT):
+        """Everything that arrives before `quiet` seconds of silence or the
+        server closing (the fixture's rule for a reply with no prompt)."""
+        self.closed = False
+        end = time.time() + cap
+        while not self.closed and time.time() < end:
+            if not self._fill(min(end, time.time() + quiet), closing=True):
+                break
+        out, self.buf = self.buf, b""
+        return out
+
     def cmd(self, line, timeout=TIMEOUT):
         self.s.sendall(line.encode() + b"\n")
         return self.reply(timeout)
 
     def close(self):
         self.s.close()
+
+
+def unquote(text, where):
+    """`"..."` with the four escapes the fixture allows: \\n \\r \\" \\\\."""
+    check(len(text) >= 2 and text[0] == '"' and text[-1] == '"', "%s: not quoted" % where)
+    out, i, body = bytearray(), 0, text[1:-1]
+    while i < len(body):
+        ch = body[i]
+        check(ch != '"', "%s: bare quote" % where)
+        if ch == "\\":
+            i += 1
+            check(i < len(body) and body[i] in 'nr"\\', "%s: bad escape" % where)
+            ch = {"n": "\n", "r": "\r"}.get(body[i], body[i])
+        out += ch.encode("latin1")
+        i += 1
+    return bytes(out)
+
+
+def load_fixture():
+    """[(name, welcome, [(command, reply), ...]), ...] from FIXTURE."""
+    scenes = []
+    with open(FIXTURE, encoding="latin1") as f:
+        for n, line in enumerate(f, 1):
+            line = line.rstrip("\n")
+            if not line or line.startswith("#"):
+                continue
+            where = "%s:%d" % (os.path.basename(FIXTURE), n)
+            if line.startswith("@scene "):
+                scenes.append((line.split()[1], bytearray(), []))
+                continue
+            check(scenes and line[:2] in ("> ", "< "), "%s: malformed" % where)
+            val = unquote(line[2:], where)
+            if line[0] == ">":
+                scenes[-1][2].append((val.decode("latin1"), bytearray()))
+            elif not scenes[-1][2]:
+                scenes[-1][1].extend(val)
+            else:
+                scenes[-1][2][-1][1].extend(val)
+    return [(name, bytes(w), [(c, bytes(r)) for c, r in ex]) for name, w, ex in scenes]
+
+
+def fixture_constants():
+    """The welcome every scene opens with, and what `run` answers first."""
+    scenes = load_fixture()
+    welcomes = {w for _, w, _ in scenes}
+    check(len(welcomes) == 1, "the fixture's scenes disagree on the welcome")
+    runs = [r for _, _, ex in scenes for c, r in ex if c == "run"]
+    check(len(runs) == 1, "the fixture has not exactly one `run` exchange")
+    return welcomes.pop(), runs[0]
 
 
 def dezog_regs(line):
@@ -430,7 +496,38 @@ def sc_m3(port, tmpdir):
             "8000 8010 8011, CALL typed, load/save-binary, snapshot round trip at %04x" % pc0)
 
 
+def sc_fixture(port):
+    """Every scene of FIXTURE, each on a new connection, byte for byte."""
+    scenes = load_fixture()
+    total = 0
+    for name, welcome, ex in scenes:
+        deadline = time.time() + TIMEOUT
+        while True:  # the last scene's hang-up may not be processed yet
+            z = Zrcp(port)
+            while not (z.buf.endswith(PROMPT) or z.closed) and time.time() < deadline:
+                z._fill(deadline, closing=True)
+            first, z.buf = z.buf, b""
+            if not first.startswith(BUSY) or time.time() >= deadline:
+                break
+            z.close()
+            time.sleep(0.1)
+        check(first == welcome, "scene %s: the welcome is %r" % (name, first))
+        for command, want in ex:
+            z.s.sendall(command.encode("latin1") + b"\n")
+            if want.endswith(PROMPT) or want.endswith(PROMPT_STEP):
+                got = z.reply()
+            else:
+                got = z.until_quiet()
+            check(got == want, "scene %s, %r: got %r, want %r" % (name, command, got[:200],
+                                                                  want[:200]))
+            total += 1
+        z.close()
+    return "fixture: %d scenes, %d exchanges byte-identical to ZEsarUX 12.0" % (len(scenes),
+                                                                              total)
+
+
 SCENARIOS = {
+    "fixture": sc_fixture,
     "m1": sc_m1,
     "m3": sc_m3,
     "m2": sc_m2,
@@ -442,7 +539,9 @@ def main():
     if len(sys.argv) < 3 or sys.argv[1] not in SCENARIOS:
         print("usage: zrcp-peer.py {%s} <port> [args...]" % "|".join(SCENARIOS))
         return 2
+    global WELCOME, RUNNING
     try:
+        WELCOME, RUNNING = fixture_constants()
         summary = SCENARIOS[sys.argv[1]](int(sys.argv[2]), *sys.argv[3:])
     except Fail as e:
         print("FAIL %s" % e)
