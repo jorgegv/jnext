@@ -601,6 +601,11 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
                 break;
             case ActionKind::Exit: {
                 const int32_t code = eval_int(*a.e1, ctx);
+                // A process exit status is 8 bits: `exit 256` would reach the
+                // shell as 0, a failure reported as a pass (found writing the
+                // user guide). Outside 0..255 is a run-time error (exit 1).
+                if (code < 0 || code > 255)
+                    fail(a.e1->pos, "`exit` takes a status from 0 to 255, not " + std::to_string(code));
                 // A compare_scr still waiting for its frame edge is a verdict
                 // not yet reached: the exit waits for it (WP7 review 1), so a
                 // mismatch is never skipped by an exit taken first.

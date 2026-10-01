@@ -2068,6 +2068,19 @@ static void exit_rows() {
               "resumed=" + std::to_string(resumed) + " code=" + std::to_string(code));
     }
     {
+        int big = -1, neg = -1, top = -1;
+        std::string lb, ln, lt;
+        const bool ok1 = run(kWriter, "on write 0x9000 do exit 256 end\n", big, lb);
+        const bool ok2 = run(kWriter, "on write 0x9000 do exit -1 end\n", neg, ln);
+        const bool ok3 = run(kWriter, "on write 0x9000 do exit 255 end\n", top, lt);
+        check("SCRIPT-EV-EXIT-RANGE", "`exit` outside 0..255 is a run-time error, exit 1 (`exit 256` would reach "
+                                      "the shell as 0, a pass); `exit 255` is kept",
+              ok1 && ok2 && ok3 && big == 1 && neg == 1 && top == 255 &&
+                  lb.find("`exit` takes a status from 0 to 255, not 256") != std::string::npos &&
+                  ln.find("not -1") != std::string::npos,
+              std::to_string(big) + "/" + std::to_string(neg) + "/" + std::to_string(top) + " " + lb.substr(0, 200));
+    }
+    {
         // The loop's FIRST tick: the backend's first pump only takes its
         // baseline and pushes no Paused, so an exit handed over at the pause
         // needs the host to have taken that baseline at start.
