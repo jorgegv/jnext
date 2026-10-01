@@ -65,6 +65,10 @@ where it stopped.
   debugger window, or a magic breakpoint fires — DeZog is told it stopped, and
   why.
 - **One client at a time.** A second connection is closed straight away.
+- **Hands off during an RZX.** While an RZX recording or playback is running,
+  DeZog cannot read or write a port, or change memory, a register, a memory
+  slot or the border: JNEXT refuses and logs a warning saying why. A recording
+  cannot carry such a change, and a port read can disturb the device it reads.
 - **Saving and restoring the state** (`-state save` and `-state restore` in
   DeZog's debug console) keeps the state inside JNEXT for the current session
   only; the file DeZog writes just refers to it. A state can be saved only at a

@@ -53,7 +53,9 @@ between them is the counter's initial value, not the register protocol.
 
 Memory and I/O access go through four callbacks bound to `Mmu` and
 `PortDispatch`, so a DMA-driven `OUT` re-enters the normal dispatcher — which is
-why `PortDispatch::write()` has to tolerate a nested write. `execute_burst(16)`
+why `PortDispatch::write()` has to tolerate a nested write. A DMA port read goes
+through `PortDispatch::guest_read()`, so an RZX records and replays it like the
+CPU's `IN` (GH #283). `execute_burst(16)`
 runs from the instruction loop, and `dma_holds_bus()` both stalls the CPU and
 silences the DMA ports. In burst mode the CPU is released during the prescaler
 wait; in continuous and byte mode it is not.

@@ -5,7 +5,8 @@
 #include <vector>
 #include "core/rzx.h"
 
-/// Records RZX input data: captures every IN port read per frame.
+/// Records RZX input data: captures every port read the machine makes, per
+/// frame — the CPU's IN and the DMA's I/O read (PortDispatch::guest_read()).
 class RzxRecorder {
 public:
     /// Start recording to the given output file path. Returns false — and
@@ -33,7 +34,7 @@ public:
     /// Call at the beginning of each emulated frame.
     void begin_frame();
 
-    /// Record an IN port read value.
+    /// Record the value of one port read.
     void record_in(uint8_t value);
 
     /// Call at the end of each emulated frame with the instruction count.
