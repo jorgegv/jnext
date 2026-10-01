@@ -1567,29 +1567,34 @@ int main()
         // EB-61: the rewind ring holds the old card's SD state machine but not
         // its contents, so a change empties it; the ring keeps working after.
         // An unreadable image is refused BEFORE the card in the slot is
-        // touched, and leaves the ring alone.
+        // touched, and leaves the ring and BOTH configs alone.
         {
             EmulatorConfig rw = with_a;
             rw.rewind_buffer_frames = 8;
             Emulator emu;
             emu.init(rw);
+            EmulatorConfig frontend = rw;
+            bool frontend_set = false;
             for (int i = 0; i < 3; ++i) emu.run_frame();
             const std::size_t held = emu.rewind_buffer()->depth();
-            const std::string bad = emu.change_sd_card({card_b + ".missing", false});
+            emu.request_sd_card_change({card_b + ".missing", false});
+            const auto bad = emulator_service_sd_card_change(emu, frontend, frontend_set);
             const std::size_t after_bad = emu.rewind_buffer()->depth();
             const int s_bad = card_sector0(emu.sd_card());
+            const bool configs_kept = emu.config().sd_card_image == card_a &&
+                                      frontend.sd_card_image == card_a && !frontend_set;
             const std::string good = emu.change_sd_card({card_b, false});
             const std::size_t after_good = emu.rewind_buffer()->depth();
             emu.run_frame();
             const std::size_t next = emu.rewind_buffer()->depth();
-            check("EB-61", "an unreadable image is refused with the card and the rewind ring "
-                           "untouched; a real change empties the ring, which then refills",
-                  held == 3 && !bad.empty() && after_bad == 3 && s_bad == 0xA1 &&
-                      emu.config().sd_card_image == card_b && good.empty() &&
-                      after_good == 0 && next == 1,
+            check("EB-61", "an unreadable image is refused with the card, both configs and the "
+                           "rewind ring untouched; a real change empties the ring, which then "
+                           "refills",
+                  held == 3 && bad && !bad->error.empty() && after_bad == 3 && s_bad == 0xA1 &&
+                      configs_kept && good.empty() && after_good == 0 && next == 1,
                   "held=" + std::to_string(held) + " after_bad=" + std::to_string(after_bad) +
-                      " after_good=" + std::to_string(after_good) + " next=" +
-                      std::to_string(next));
+                      " kept=" + std::to_string(configs_kept) + " after_good=" +
+                      std::to_string(after_good) + " next=" + std::to_string(next));
         }
 
         std::remove(card_a.c_str());

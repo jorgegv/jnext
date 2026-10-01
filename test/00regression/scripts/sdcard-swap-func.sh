@@ -22,8 +22,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #
 # Two more parts pin the frontends' share:
 #
-#   refused  a headless insert of a missing image fails the run (exit != 0),
-#            as a failed --load does, and names the image.
+#   refused  a headless insert that cannot happen fails the run (exit != 0),
+#            as a failed --load does, and says why: a missing image, an RZX
+#            recording, an insert cut off by the automatic exit, and the flag
+#            without --headless.
 #   qt       QtApp's own poll, through JNEXT_HOST_PROBE=sdcard:<image>
 #            (src/platform/host_probe.h): the probe requests the change File >
 #            Insert SD Card Image requests, QtApp performs it between frames,
@@ -98,15 +100,29 @@ if want sdcard-swap-func; then
     grep -qF "Hello from ZX Next!" "$W/control.log" \
         && faults+=("control: MAGIC.NEX ran from card A, so the swap result proves nothing")
 
-    # refused: a missing image fails the run, and the card stays.
-    rc=0
-    JNEXT_CONFIG_DIR="$BASE/refused" timeout --foreground --kill-after=5s 120s \
-        "$JNEXT" --headless --machine 48k --rewind-buffer-size 0 \
-                 --delayed-sdcard-insert-frames 5 "$BASE/no-such-card.img" \
-                 --delayed-automatic-exit-frames 20 > "$W/refused.log" 2>&1 || rc=$?
-    [[ $rc -ne 0 ]] || faults+=("refused: an insert of a missing image exited 0")
-    grep -qF "cannot open '$BASE/no-such-card.img'" "$W/refused.log" \
-        || faults+=("refused: the failure does not name the image")
+    # refused: every way a headless insert can fail fails the run, saying why —
+    # a missing image (refused when performed), an RZX recording (refused when
+    # requested), an insert the automatic exit cuts off, and the flag without
+    # --headless (rejected at parse time).
+    short_run() {   # short_run <label> <expect-in-log> [jnext args...]
+        local label=$1 want=$2 rc=0; shift 2
+        JNEXT_CONFIG_DIR="$BASE/refused" timeout --foreground --kill-after=5s 120s \
+            "$JNEXT" "$@" > "$W/$label.log" 2>&1 || rc=$?
+        [[ $rc -ne 0 ]] || faults+=("$label: exited 0")
+        grep -qF -- "$want" "$W/$label.log" || faults+=("$label: no '$want' in the log")
+    }
+    short_run missing "cannot open '$BASE/no-such-card.img'" \
+        --headless --machine 48k --rewind-buffer-size 0 \
+        --delayed-sdcard-insert-frames 5 "$BASE/no-such-card.img" \
+        --delayed-automatic-exit-frames 20
+    short_run rzx "SD card change refused: an RZX recording is being made" \
+        --headless --machine 48k --rewind-buffer-size 0 --rzx-record "$W/refused.rzx" \
+        --delayed-sdcard-insert-frames 5 "$CARD_B" --delayed-automatic-exit-frames 20
+    short_run cutoff "--delayed-sdcard-insert-frames" \
+        --headless --machine 48k --rewind-buffer-size 0 \
+        --delayed-sdcard-insert-frames 100 "$CARD_B" --delayed-automatic-exit-frames 20
+    short_run windowed "--delayed-sdcard-insert-frames requires --headless" \
+        --delayed-sdcard-insert-frames 5 "$CARD_B"
 
     # qt: QtApp's poll and its own config. Offscreen, as qt-host-order-func.
     rc=0
