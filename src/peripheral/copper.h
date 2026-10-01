@@ -107,10 +107,6 @@ public:
         execute(hc, vc, nextreg, offset_);
     }
 
-    /// Called at frame start (vc=0, hc=0).
-    /// In mode 11, resets PC to 0.
-    void on_vsync();
-
     // ── NextREG write handlers ──────────────────────────────────────
 
     /// NextREG 0x60 — copper data (8-bit write, auto-increment addr).
@@ -165,6 +161,10 @@ public:
     uint16_t pc() const { return pc_; }
     uint8_t  mode() const { return mode_; }
     bool     is_running() const { return mode_ != 0; }
+    /// A NR 0x62 mode write that execute() has not latched yet
+    /// (copper.vhd:70, last_state_s /= copper_en_i). A stopped Copper must
+    /// still be stepped once to latch mode 00, or a later restart sees no edge.
+    bool     mode_edge_pending() const { return last_mode_ != mode_; }
     uint16_t instruction(uint16_t addr) const { return instructions_[addr & 0x3FF]; }
 
     /// The whole 1K x 16-bit instruction RAM, for a debugger view (GH #276
