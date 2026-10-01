@@ -250,8 +250,17 @@ std::vector<uint16_t> TapeRecorder::standard_pulses(const std::vector<uint8_t>& 
     return p;
 }
 
+uint16_t TapeRecorder::pause_ms(uint64_t gap, bool rest) {
+    if (!rest) return ms_capped(gap);
+    const uint64_t ms = gap / MASTER_PER_MS;
+    const uint64_t r = ms > 1 ? ms - 1 : 1;    // 0 in 0x20 would stop the tape
+    return static_cast<uint16_t>(std::min<uint64_t>(r, MAX_PAUSE_MS));
+}
+
 std::vector<uint8_t> TapeRecorder::decode_segment(const std::vector<uint64_t>& edges,
-                                                  uint64_t next_event) {
+                                                  uint64_t next_event,
+                                                  size_t* tail_pause_at,
+                                                  bool* tail_is_rest) {
     std::vector<uint8_t> out;
     const size_t n = edges.size();
     if (n == 0) return out;
@@ -289,6 +298,10 @@ std::vector<uint8_t> TapeRecorder::decode_segment(const std::vector<uint64_t>& e
         size_t last = blk.last_edge;
         if (last + 2 == n) last = n - 1;             // a lone closing edge
         const uint16_t pause = pause_after(last);
+        if (last == n - 1) {       // this pause is measured to next_event
+            if (tail_pause_at) *tail_pause_at = out.size() + (blk.standard ? 1 : 14);
+            if (tail_is_rest) *tail_is_rest = false;
+        }
         append(out, blk.standard ? tzx_block_10(pause, blk.bytes)
                                  : tzx_block_11(blk.p, pause, blk.bytes));
         i = last + 1;
@@ -301,9 +314,9 @@ std::vector<uint8_t> TapeRecorder::decode_segment(const std::vector<uint64_t>& e
         p.push_back(static_cast<uint16_t>(MASTER_PER_MS / MASTER_PER_T));
         append_pulses(out, p);
         const uint64_t gap = next_event > edges[n - 1] ? next_event - edges[n - 1] : 0;
-        const uint64_t ms = gap / MASTER_PER_MS;
-        const uint64_t rest = ms > 1 ? ms - 1 : 1;    // 0 in 0x20 would stop the tape
-        append(out, tzx_block_20(static_cast<uint16_t>(std::min<uint64_t>(rest, MAX_PAUSE_MS))));
+        if (tail_pause_at) *tail_pause_at = out.size() + 1;
+        if (tail_is_rest) *tail_is_rest = true;
+        append(out, tzx_block_20(pause_ms(gap, true)));
     }
     return out;
 }
@@ -371,6 +384,9 @@ bool TapeRecorder::open(const std::string& path, std::string& error) {
         }
         // The tape position whose sample index is exactly wav_samples_.
         wav_pos_ = (wav_samples_ * MASTER_HZ + WAV_RATE - 1) / WAV_RATE;
+        // The first poll() rewrites the sizes: a file left by a killed run
+        // still carries the sizes of its last refresh.
+        wav_patched_ = ~uint64_t(0);
     }
     file_.clear();
     file_.seekp(0, std::ios::end);
@@ -379,9 +395,8 @@ bool TapeRecorder::open(const std::string& path, std::string& error) {
     format_ = fmt;
     path_ = path;
     ok_ = true;
-    have_level_ = have_event_ = have_pending_rom_ = false;
+    have_level_ = have_event_ = have_pending_ = false;
     seg_.clear();
-    pending_rom_.clear();
     edges_ = 0;
     rom_blocks_ = 0;
     return true;
@@ -411,24 +426,57 @@ void TapeRecorder::write_bytes(const std::vector<uint8_t>& b) {
     if (!file_) ok_ = false;
 }
 
-void TapeRecorder::flush_tzx(uint64_t next_event) {
-    write_bytes(decode_segment(seg_, next_event));
+void TapeRecorder::flush_tzx(uint64_t next, bool final) {
+    size_t tail_at = 0;
+    bool rest = false;
+    const uint64_t at = static_cast<uint64_t>(file_.tellp());
+    const uint64_t from = seg_.back();
+    write_bytes(decode_segment(seg_, next, &tail_at, &rest));
     seg_.clear();
+    have_pending_ = !final;
+    if (!final) {
+        pending_at_ = at + tail_at;
+        pending_from_ = from;
+        pending_rest_ = rest;
+    }
+}
+
+void TapeRecorder::patch_pending(uint64_t now) {
+    if (!have_pending_) return;
+    have_pending_ = false;
+    const uint64_t gap = now < pending_from_ ? BACKWARDS_GAP_MASTER : now - pending_from_;
+    const uint16_t v = pause_ms(gap, pending_rest_);
+    const char b[2] = {static_cast<char>(v & 0xFF), static_cast<char>(v >> 8)};
+    file_.seekp(static_cast<std::streamoff>(pending_at_));
+    file_.write(b, 2);
+    file_.seekp(0, std::ios::end);
+    if (!file_) ok_ = false;
+}
+
+void TapeRecorder::poll(uint64_t now) {
+    if (!active()) return;
+    if (format_ == Format::Tzx) {
+        if (!seg_.empty() && now > seg_.back() &&
+            now - seg_.back() > uint64_t(SEGMENT_GAP_T) * MASTER_PER_T)
+            flush_tzx(now, false);
+    } else if (wav_patched_ != wav_samples_) {
+        wav_patch_header();
+    }
+    file_.flush();
 }
 
 void TapeRecorder::edge(uint64_t now) {
     ++edges_;
     if (format_ == Format::Tzx) {
-        if (have_pending_rom_) {
-            write_bytes(tzx_block_10(ms_capped(gap_since_last(now)), pending_rom_));
-            have_pending_rom_ = false;
-        } else if (!seg_.empty()) {
+        if (!seg_.empty()) {
             const uint64_t prev = seg_.back();
             if (now < prev)
-                flush_tzx(prev + BACKWARDS_GAP_MASTER);
+                flush_tzx(prev + BACKWARDS_GAP_MASTER, true);
             else if (now - prev > uint64_t(SEGMENT_GAP_T) * MASTER_PER_T ||
                      seg_.size() >= MAX_SEGMENT_EDGES)
-                flush_tzx(now);
+                flush_tzx(now, true);
+        } else {
+            patch_pending(now);
         }
         seg_.push_back(now);
     } else {
@@ -443,12 +491,17 @@ void TapeRecorder::edge(uint64_t now) {
 bool TapeRecorder::rom_block(const std::vector<uint8_t>& data, uint64_t now) {
     if (!active()) return false;
     if (format_ == Format::Tzx) {
-        if (have_pending_rom_)
-            write_bytes(tzx_block_10(ms_capped(gap_since_last(now)), pending_rom_));
-        else if (!seg_.empty())
-            flush_tzx(now < seg_.back() ? seg_.back() + BACKWARDS_GAP_MASTER : now);
-        pending_rom_ = data;
-        have_pending_rom_ = true;
+        if (!seg_.empty())
+            flush_tzx(now < seg_.back() ? seg_.back() + BACKWARDS_GAP_MASTER : now, true);
+        else
+            patch_pending(now);
+        // Written at once, its pause provisional (0) until the next event, so
+        // a run that is killed still has the block.
+        pending_at_ = static_cast<uint64_t>(file_.tellp()) + 1;
+        write_bytes(tzx_block_10(0, data));
+        have_pending_ = true;
+        pending_from_ = now;
+        pending_rest_ = false;
     } else {
         wav_pos_ += gap_since_last(now);
         wav_advance(wav_pos_);
@@ -458,6 +511,7 @@ bool TapeRecorder::rom_block(const std::vector<uint8_t>& data, uint64_t now) {
             wav_advance(wav_pos_);
         }
         wav_toggle();                              // closes the last pulse
+        wav_patch_header();
     }
     ++rom_blocks_;
     have_event_ = true;
@@ -493,15 +547,16 @@ void TapeRecorder::wav_patch_header() {
     file_.write(reinterpret_cast<const char*>(h.data()), static_cast<std::streamsize>(h.size()));
     file_.seekp(0, std::ios::end);
     if (!file_) ok_ = false;
+    wav_patched_ = wav_samples_;
 }
 
 void TapeRecorder::close(uint64_t now) {
     if (!active()) return;
     if (format_ == Format::Tzx) {
-        if (have_pending_rom_)
-            write_bytes(tzx_block_10(ms_capped(gap_since_last(now)), pending_rom_));
-        else if (!seg_.empty())
-            flush_tzx(now < seg_.back() ? seg_.back() + BACKWARDS_GAP_MASTER : now);
+        if (!seg_.empty())
+            flush_tzx(now < seg_.back() ? seg_.back() + BACKWARDS_GAP_MASTER : now, true);
+        else
+            patch_pending(now);
     } else {
         if (have_event_) {
             wav_pos_ += gap_since_last(now);
@@ -513,6 +568,5 @@ void TapeRecorder::close(uint64_t now) {
     format_ = Format::None;
     path_.clear();
     seg_.clear();
-    pending_rom_.clear();
-    have_pending_rom_ = have_event_ = have_level_ = false;
+    have_pending_ = have_event_ = have_level_ = false;
 }

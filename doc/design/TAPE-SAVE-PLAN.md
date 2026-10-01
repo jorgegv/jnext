@@ -62,8 +62,11 @@ RZX recording or playback) applies to every format, unchanged.
 
 ## 4. Timing source
 
-Edge times are the emulator's master clock (`Clock::get()`, 28 MHz cycles), sampled at
-the end of every execution slot. It is emulated time, never wall clock, so a run is
+Edge times are the emulator's master clock (`Clock::get()`, 28 MHz cycles). Tape-out is
+sampled only where it can change: at every port 0xFE write, at the write's bus request
+edge (`Emulator::io_request_edge()`, the CLK_28 edge that latches `port_fe_reg`,
+zxnext.vhd:3588-3594), and, while a tape plays in real time, at the end of every
+instruction (the echoed input). It is emulated time, never wall clock, so a run is
 deterministic. Master cycles are independent of the CPU speed (NR 0x07): a CPU T-state
 is 8, 4, 2 or 1 master cycles, so a saver running at 7 MHz writes pulses half as long in
 TZX terms, which is what a tape recorder on the real board would see.
@@ -80,9 +83,16 @@ treated as a 1-second gap, so the stream never contains a negative or zero pulse
 the rewind fast-forward replays frames (`replay_mode()`), neither the trap nor the
 capture records anything: those frames already reached the tape once.
 
-Sampling once per slot quantises an edge to the end of the instruction that made it.
-The offset is the same for every OUT in a saver's loop, so pulse lengths are exact to the
-instruction mix; only the absolute phase shifts by under one instruction.
+**Cost when nothing is saving** (review round 1, B1). Sampling at the end of every slot,
+as first written, cost +0.23 % host instructions on every program. Now the port 0xFE
+write handler tests one precomputed flag (`tape_capture_live_` = recorder armed and no
+replay running, refreshed by start/stop and every replay-mode change), the per-instruction
+sample sits inside the tape players' own `is_playing()` branches, and a TZX / WAV save
+arms the TAP saver's flag too, so the SA-BYTES trap test is the one TAP alone already
+paid. Measured with `perf stat` on a `gui-release` build, nothing armed: host
+instructions equal main's within run-to-run noise (report, round 1). When the flag turns
+on it takes the current level as the baseline, so a change made while it was off is not
+an edge.
 
 ## 5. Segmentation and encoding (TZX)
 
@@ -113,11 +123,17 @@ segment's first edge, a trapped block, or stopping the save), in milliseconds, c
 65535 (the field's maximum). 0x10/0x11 carry it in their own field. An unrecognised run
 that ends a segment has an open last edge: it is written as a 1 ms pulse (TZX's own rule
 for finishing the last edge), followed by a 0x20 pause for the rest (at least 1 ms, since
-0 in 0x20 means "stop the tape"). Because a block's pause is only known when the next
-event arrives, a segment is decoded and written when the next event arrives or saving
-stops; a trapped ROM block likewise waits for the next event. A segment that reaches
-2^20 edges without a pause is decoded at that point, so a saver that never stops cannot
-grow memory without bound.
+0 in 0x20 means "stop the tape").
+
+**What reaches the disk when** (review round 1, B3). A block's last pause is only known
+when the next event arrives, so it is written provisionally and patched in place: a
+trapped ROM block is written at once with pause 0; a segment is written once it has
+been silent for longer than 65535 T (checked once per frame), with its last pause up to
+that moment. The next event (or stopping) rewrites that one WORD. The file is flushed
+every frame. A run that is killed (Ctrl-C, a crash) therefore keeps every trapped block
+and every segment that had gone quiet; it loses only a MIC segment still in progress and
+the true length of the last pause. A segment that reaches 2^20 edges without a pause is
+decoded at that point, so a saver that never stops cannot grow memory without bound.
 
 A trapped ROM block becomes a 0x10 block with the exact bytes; its pause is measured
 the same way (the ROM's own one-second gap between header and data runs outside the trap,
@@ -133,9 +149,12 @@ pulse train (pilot 8063/3223 × 2168, sync 667 + 735, 855/855 or 1710/1710 per b
 first, closing edge), which moves the position forward by its length while emulated time
 stands still. Levels are 0x40 (low) and 0xC0 (high), so any threshold reader splits them
 at the midpoint. Nothing is written before the first event. Stopping writes the held level
-for the time since the last event (same cap) and patches the RIFF and data sizes. A run
-that is killed rather than stopped leaves the sizes of the last stop; the samples are on
-disk.
+for the time since the last event (same cap) and patches the RIFF and data sizes. The
+sizes are also refreshed after every trapped block and, when samples were added, once per
+frame, and the file is flushed, so a killed run leaves a WAV whose header matches its
+samples up to the last edge. The RIFF pad byte for an odd data size is not written: the
+file is appended to in later sessions, and every reader tried (FUSE/libspectrum,
+libaudiofile, sox) accepts it without.
 
 ## 7. GUI and frontends
 
@@ -163,14 +182,18 @@ and the file is finished when the emulator is destroyed at exit.
   are static functions so unit rows test them byte-exact without an emulator.
 - `Emulator` arms `TapSaver` for TAP and `TapeRecorder` for TZX/WAV
   (`start_tape_save()` / `stop_tape_save()` / `tape_save_active()`), samples
-  `tape_out_level()` at the end of each slot, and closes the recorder in the destructor
-  and before re-arming. `emulator_cold_boot()` carries the live `tape_save_file` across a
-  power-on reset, so a save started from the menu survives it.
+  `tape_out_level()` at port 0xFE writes and while a tape plays, polls the recorder once
+  per frame, and closes it in the destructor and before re-arming.
+  `emulator_cold_boot()` carries the live `tape_save_file` across a power-on reset, so a
+  save started from the menu survives it. The warm-start recording machine gets none:
+  `Emulator::warm_start_boot_config()` clears every host output (tape save, compositor
+  trace, magic port, joystick-port cable), so each file has one writer.
 - `TapSaver::handle_sa_bytes_trap` hands the block to the recorder when one is armed.
 
 ## 9. Known limits
 
-- A DMA burst that writes port 0xFE several times inside one slot is sampled once.
+- When a tape playing in real time stops, the echo's last level change is recorded at
+  the next port 0xFE write rather than at the moment it stopped.
 - The level before the first edge, and the absolute polarity, are not recorded; Spectrum
   loaders are edge-triggered.
 - The issue-2 EAR relaxation (`symmetric_relaxation`, ~1.15 ms) is modelled only in its

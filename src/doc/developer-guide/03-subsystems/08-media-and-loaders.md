@@ -86,8 +86,9 @@ during an ordinary NextZXOS boot.
   (port_fe_mic and nr_08_keyboard_issue2) xor port_fe_mic` (`zxnext.vhd:6503`);
   `Emulator::tape_out_level()` computes it from the same `i_AUDIO_EAR` model the
   port 0xFE read uses, so with no tape playing it is port 0xFE bit 3, and a tape
-  playing in real time is echoed. It is sampled at the end of every execution
-  slot against `Clock::get()`: emulated 28 MHz master cycles, so CPU speed
+  playing in real time is echoed. It is sampled at each port 0xFE write (at the
+  write's bus request edge) and, while a tape plays, at the end of every
+  instruction, against `Clock::get()`: emulated 28 MHz master cycles, so CPU speed
   (NR 0x07) changes the pulse lengths exactly as on the board, and a trapped
   block cannot be double-written, because the trap skips the routine whose
   pulses would otherwise reach the line. The TZX writer cuts the stream into
@@ -95,7 +96,12 @@ during an ordinary NextZXOS boot.
   pulses) + sync + two-class bit pairs becomes 0x10 at the ROM's timings and
   0x11 otherwise; everything else becomes exact 0x13 pulses and a 0x20 pause.
   The WAV writer needs no decoding; it synthesises the ROM's pulse train for a
-  trapped block. Nothing is recorded while a rewind replays frames.
+  trapped block. Nothing is recorded while a rewind replays frames. Unarmed, all
+  of this costs one flag test per port 0xFE write and nothing per instruction:
+  a TZX / WAV save arms the TAP saver's flag too, so the trap test is unchanged.
+  The file survives a kill: trapped blocks are written at once and segments once
+  they go quiet, the last pause WORD patched in place later, the WAV header
+  refreshed, and the file flushed every frame.
   `doc/design/TAPE-SAVE-PLAN.md` has the rules and their reasons.
 
 **Real-time playback** (`--tape-realtime`) is the honest one. The loader drives

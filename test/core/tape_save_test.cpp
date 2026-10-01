@@ -825,6 +825,305 @@ void emulator_rows() {
                   !emu->rzx_refused_by_tape_save("record"),
               "size=" + std::to_string(f.size()));
     }
+    // ── GH #89 review round 1 ──────────────────────────────────────────────
+    {
+        // B2/R7: the TAP half of the rewind fix — a replayed frame re-runs the
+        // trap, and the block already reached the file when the frame first ran.
+        auto emu = next_machine();
+        const std::string path = tmp("replay.tap");
+        std::filesystem::remove(path);
+        emu->start_tape_save(path);
+        with_rom(*emu);
+        emu->set_replay_mode(true);
+        emu->run_frame();
+        emu->set_replay_mode(false);
+        const auto regs = emu->cpu().get_registers();
+        const Bytes f = read_file(path);
+        check("TSAVE-41", "a .tap save: a rewind replaying the frame of a SAVE does not append the "
+              "block again, and the trap still takes the ROM's exit",
+              f.empty() && emu->tap_saver().blocks_written() == 0 && regs.PC == 0x801C &&
+                  regs.DE == 0 && (regs.AF & 1) != 0,
+              "size=" + std::to_string(f.size()));
+    }
+    {
+        // B2/R8: the refusal the other way round — saving cannot start while an
+        // RZX records. (RZX recording is refused on a Next, so a 48K.)
+        auto emu = std::make_unique<Emulator>();
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        cfg.rewind_buffer_frames = 0;
+        emu->init(cfg);
+        const std::string rzx = tmp("refuse.rzx");
+        const std::string path = tmp("refuse-rzx.tzx");
+        std::filesystem::remove(path);
+        const bool recording = emu->start_rzx_recording(rzx);
+        const bool started = emu->start_tape_save(path);
+        const bool active = emu->tape_save_active();
+        const bool created = std::filesystem::exists(path);
+        emu->stop_rzx_recording();
+        check("TSAVE-42", "start_tape_save refuses while an RZX records: nothing armed, no file "
+              "created, config().tape_save_file empty",
+              recording && !started && !active && !created &&
+                  emu->config().tape_save_file.empty(),
+              "recording=" + std::to_string(recording) + " started=" + std::to_string(started));
+    }
+    {
+        // B2/R25: the echo for a TZX and a WAV playing in real time, not only a TAP.
+        auto emu = next_machine();
+        Bytes tzx = TZX_HDR;
+        Bytes blk = {0x10, 0xE8, 0x03, 0x04, 0x00, 0xFF, 0x01, 0x02, 0xFC};
+        cat(tzx, blk);
+        const std::string tzx_path = tmp("echo.tzx");
+        write_file(tzx_path, tzx);
+        Bytes wav = TR::wav_header(44100);
+        for (uint32_t i = 0; i < 44100; ++i) wav.push_back((i / 20) % 2 ? 0xC0 : 0x40);
+        const std::string wav_path = tmp("echo.wav");
+        write_file(wav_path, wav);
+        int bad = 0;
+        std::string detail;
+        for (int which = 0; which < 2; ++which) {
+            const bool loaded = which == 0 ? emu->load_tzx(tzx_path, false) : emu->load_wav(wav_path);
+            if (which == 0) emu->tzx_tape().start_playback(emu->monotonic_tstates());
+            const bool playing = which == 0 ? emu->tzx_tape().is_playing() : emu->wav_tape().is_playing();
+            if (!loaded || !playing) { ++bad; detail += which ? " wav-not-playing" : " tzx-not-playing"; }
+            emu->nextreg().write(0x08, 0x10);                       // issue 2 off
+            for (int mic = 0; mic < 2; ++mic)
+                for (int ear = 0; ear < 2; ++ear) {
+                    emu->port().write(0x00FE, static_cast<uint8_t>(mic ? 0x08 : 0x00));
+                    emu->beeper().set_tape_ear(ear != 0);
+                    if (emu->tape_out_level() != ((ear ^ mic) != 0)) {
+                        ++bad;
+                        detail += std::string(which ? " wav" : " tzx") + "m" + std::to_string(mic) +
+                                  "e" + std::to_string(ear);
+                    }
+                }
+        }
+        check("TSAVE-43", "a TZX or WAV playing in real time is echoed to tape-out too "
+              "(i_AUDIO_EAR xor port_fe_mic, zxnext.vhd:6503)", bad == 0, detail);
+    }
+    {
+        // The echo reaches the FILE: with MIC still, a tape playing in real time
+        // gives edges, for each of the three players (each samples in its own
+        // branch of the per-instruction tape tick).
+        const Bytes idle = {0xF3, 0x18, 0xFE};                 // DI / JR $
+        Bytes tap = {0x13, 0x00, 0x00, 3, 'T', 'E', 'S', 'T', ' ', ' ', ' ', ' ', ' ', ' ',
+                     5, 0, 0x00, 0x80, 0x00, 0x80, 0x00};
+        uint8_t sum = 0;
+        for (size_t i = 2; i + 1 < tap.size(); ++i) sum ^= tap[i];
+        tap.back() = sum;
+        const std::string tap_path = tmp("play.tap");
+        write_file(tap_path, tap);
+        uint64_t got[3] = {0, 0, 0};
+        for (int which = 0; which < 3; ++which) {
+            auto emu = next_machine();
+            const std::string out = tmp(which == 0 ? "echo0.tzx" : which == 1 ? "echo1.tzx" : "echo2.tzx");
+            std::filesystem::remove(out);
+            emu->start_tape_save(out);
+            poke(*emu, 0x8000, idle);
+            start_at(*emu, 0x8000);
+            if (which == 0) { emu->load_tap(tap_path, false); emu->tape().start_realtime_playback(); }
+            if (which == 1) { emu->load_tzx(tmp("echo.tzx"), false);
+                              emu->tzx_tape().start_playback(emu->monotonic_tstates()); }
+            if (which == 2) emu->load_wav(tmp("echo.wav"));
+            for (int f = 0; f < 3; ++f) emu->run_frame();
+            got[which] = emu->tape_recorder().edges_recorded();
+            emu->stop_tape_save();
+        }
+        check("TSAVE-44", "with MIC still, a TAP, a TZX and a WAV playing in real time each put "
+              "their edges on the saved tape (3 frames: more than 20 each)",
+              got[0] > 20 && got[1] > 20 && got[2] > 20,
+              "tap=" + std::to_string(got[0]) + " tzx=" + std::to_string(got[1]) +
+                  " wav=" + std::to_string(got[2]));
+    }
+    {
+        // B3: what a killed run leaves. The machine runs one frame with the
+        // trapped SAVE in it and is never stopped; the file is read as it is.
+        auto emu = next_machine();
+        const std::string path = tmp("killed.tzx");
+        std::filesystem::remove(path);
+        emu->start_tape_save(path);
+        with_rom(*emu);
+        emu->run_frame();
+        const TzxView v = view(read_file(path));
+        const Bytes want_data = {0xFF, 0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0xDC};
+        const bool on_disk = v.rom_data.size() == 1 && v.rom_data[0] == want_data;
+        emu->stop_tape_save();
+        check("TSAVE-48", "a run killed after the frame of a trapped SAVE (never stopped) leaves "
+              "the block on disk: written at once, its pause patched later",
+              on_disk, hex(read_file(path), 64));
+    }
+    {
+        // B4: the warm-start recording machine owns no host output.
+        EmulatorConfig live;
+        live.type = MachineType::ZXN_ISSUE2;
+        live.sd_card_image = "card.img";
+        live.load_file = "x.nex";
+        live.tape_save_file = "save.wav";
+        live.compositor_trace_path = "trace.txt";
+        live.magic_port_enabled = true;
+        live.joy_uart_rx_file = "rx.bin";
+        live.joy_uart_fifo = "fifo";
+        live.joy_uart_pty = true;
+        const EmulatorConfig b = Emulator::warm_start_boot_config(live);
+        check("TSAVE-49", "the warm-start recording boot gets no tape save (nor compositor trace, "
+              "magic port, joystick-port cable): one writer per file; the machine itself is kept",
+              b.tape_save_file.empty() && b.compositor_trace_path.empty() && !b.magic_port_enabled &&
+                  b.joy_uart_rx_file.empty() && b.joy_uart_fifo.empty() && !b.joy_uart_pty &&
+                  b.load_file.empty() && b.sd_card_image == "card.img" &&
+                  b.type == MachineType::ZXN_ISSUE2);
+    }
+}
+
+void round1_rows() {
+    const uint64_t MS = 28000;
+    const uint64_t SEC = 28000000;
+    {
+        // B3: a trapped block is on disk at once, pause 0, and the pause WORD
+        // is patched in place when the next event comes.
+        const std::string path = tmp("kill-rom.tzx");
+        std::filesystem::remove(path);
+        TapeRecorder r;
+        std::string why;
+        r.open(path, why);
+        r.rom_block({0xFF, 0x01, 0xFE}, 1000);
+        const Bytes now1 = read_file(path);                 // never closed
+        r.sample(false, 2000);
+        r.sample(true, 1000 + 250 * MS);                    // 250 ms after the trap
+        r.poll(1000 + 250 * MS);
+        const Bytes now2 = read_file(path);
+        Bytes want1 = TZX_HDR;
+        cat(want1, {0x10, 0x00, 0x00, 0x03, 0x00, 0xFF, 0x01, 0xFE});
+        Bytes want2 = TZX_HDR;
+        cat(want2, {0x10, 0xFA, 0x00, 0x03, 0x00, 0xFF, 0x01, 0xFE});
+        check("TSAVE-45", "TZX: a trapped block is written at once with pause 0 (a killed run "
+              "keeps it), and its pause is patched in place to the real gap (250 ms)",
+              now1 == want1 && now2 == want2, hex(now1) + " / " + hex(now2));
+        r.close(1000 + 300 * MS);
+    }
+    {
+        // B3: a MIC segment is written by poll() once it has been silent for
+        // more than 65535 T, its last pause provisional, then patched.
+        const std::string path = tmp("kill-seg.tzx");
+        std::filesystem::remove(path);
+        TapeRecorder r;
+        std::string why;
+        r.open(path, why);
+        r.sample(false, 0);
+        r.sample(true, 1000);
+        r.sample(false, 1000 + 300 * 8);
+        r.poll(1000 + 2400 + 10 * MS);                      // 10 ms: not yet a gap
+        const Bytes early = read_file(path);
+        r.poll(1000 + 2400 + 30 * MS);                      // 30 ms: written
+        const Bytes written = read_file(path);
+        r.sample(true, 1000 + 2400 + 500 * MS);             // the next event, 500 ms on
+        r.poll(1000 + 2400 + 500 * MS);
+        const Bytes patched = read_file(path);
+        Bytes w1 = TZX_HDR;
+        cat(w1, b13({300, 3500}));
+        cat(w1, b20(29));
+        Bytes w2 = TZX_HDR;
+        cat(w2, b13({300, 3500}));
+        cat(w2, b20(499));
+        check("TSAVE-46", "TZX: poll() writes a segment once it is silent past 65535 T (not before), "
+              "its 0x20 provisional, and patches it to the real gap when the next edge comes",
+              early == TZX_HDR && written == w1 && patched == w2,
+              hex(early) + " / " + hex(written) + " / " + hex(patched));
+        r.close(1000 + 2400 + 600 * MS);
+    }
+    {
+        // B3: a WAV's RIFF/data sizes are refreshed by poll() and after a trapped
+        // block, so a killed run leaves a header that matches its data.
+        const std::string path = tmp("kill.wav");
+        std::filesystem::remove(path);
+        TapeRecorder r;
+        std::string why;
+        r.open(path, why);
+        r.sample(false, 0);
+        r.sample(true, 0);
+        r.sample(false, 10 * MS);                          // 441 samples high
+        r.poll(10 * MS);
+        const Bytes a = read_file(path);
+        r.rom_block({0x00}, 20 * MS);
+        const Bytes b = read_file(path);
+        auto data_of = [](const Bytes& f) -> uint32_t {
+            return f.size() < 44 ? 0 : f[40] | f[41] << 8 | f[42] << 16 | uint32_t(f[43]) << 24;
+        };
+        auto riff_of = [](const Bytes& f) -> uint32_t {
+            return f.size() < 44 ? 0 : f[4] | f[5] << 8 | f[6] << 16 | uint32_t(f[7]) << 24;
+        };
+        check("TSAVE-47", "WAV: the header's sizes match the data on disk after poll() and after a "
+              "trapped block, with the file still open",
+              a.size() == 44 + 441 && data_of(a) == 441 && riff_of(a) == 36 + 441 &&
+                  b.size() > a.size() && data_of(b) == b.size() - 44 && riff_of(b) == b.size() - 8,
+              "a=" + std::to_string(a.size()) + "/" + std::to_string(data_of(a)) +
+                  " b=" + std::to_string(b.size()) + "/" + std::to_string(data_of(b)));
+        r.close(30 * MS);
+    }
+    {
+        // N1: inside the ROM-timing tolerance (1/16) is still the ROM's block.
+        const Bytes data = {0xFF, 0x5A};
+        auto p = block_pulses(2268, 3223, 690, 760, 885, 1770, data, 16);
+        p.push_back(885);
+        const auto e = edges_of(p);
+        Bytes want = {0x10, 0xE8, 0x03, 0x02, 0x00, 0xFF, 0x5A};
+        const Bytes got = TR::decode_segment(e, e.back() + SEC);
+        check("TSAVE-50", "timings 3.5-4.6% off the ROM's (pilot 2268, sync 690/760, bits "
+              "885/1770: inside 1/16) are still the ROM's block, 0x10", got == want, hex(got));
+    }
+    {
+        // N1: the pilot count, both sides of 1%.
+        const Bytes data = {0x00, 0x5A};
+        auto p8000 = block_pulses(2168, 8000, 667, 735, 855, 1710, data, 16);
+        p8000.push_back(855);
+        auto p7900 = block_pulses(2168, 7900, 667, 735, 855, 1710, data, 16);
+        p7900.push_back(855);
+        const auto e1 = edges_of(p8000), e2 = edges_of(p7900);
+        const Bytes g1 = TR::decode_segment(e1, e1.back() + SEC);
+        const Bytes g2 = TR::decode_segment(e2, e2.back() + SEC);
+        Bytes w1 = {0x10, 0xE8, 0x03, 0x02, 0x00, 0x00, 0x5A};
+        Bytes w2 = {0x11, 0x78, 0x08, 0x9B, 0x02, 0xDF, 0x02, 0x57, 0x03, 0xAE, 0x06,
+                    0xDC, 0x1E, 0x08, 0xE8, 0x03, 0x02, 0x00, 0x00, 0x00, 0x5A};
+        check("TSAVE-51", "a header pilot of 8000 pulses (0.8% under 8063) is still 0x10; 7900 "
+              "(2% under) is 0x11 with the count kept", g1 == w1 && g2 == w2, hex(g1) + " / " + hex(g2));
+    }
+    {
+        // N1: pulse equality is 1/8 — a pilot whose pulses alternate 5.5% each
+        // side of 2170 is one pilot.
+        const Bytes data = {0xFF, 0x5A};
+        auto p = block_pulses(2168, 3223, 667, 735, 855, 1710, data, 16);
+        for (size_t i = 0; i < 3223; ++i) p[i] = i % 2 ? 2290 : 2050;
+        p.push_back(855);
+        const auto e = edges_of(p);
+        Bytes want = {0x10, 0xE8, 0x03, 0x02, 0x00, 0xFF, 0x5A};
+        const Bytes got = TR::decode_segment(e, e.back() + SEC);
+        check("TSAVE-52", "pilot pulses alternating 2050/2290 T (within 1/8 of each other) are one "
+              "pilot: the ROM's 0x10", got == want, hex(got));
+    }
+    {
+        // N1/R17: a WAV appended to continues at the first position whose
+        // sample index is the existing size (ceil), not one sample earlier.
+        const std::string path = tmp("round.wav");
+        std::filesystem::remove(path);
+        std::string why;
+        {
+            TapeRecorder r;
+            r.open(path, why);
+            r.sample(false, 0);
+            r.sample(true, 0);
+            r.close(MS);                                    // 44 samples
+        }
+        {
+            TapeRecorder r;
+            r.open(path, why);
+            r.sample(false, 0);
+            r.sample(true, 0);
+            r.close(27937);   // 44 * 28e6/44100 = 27936.5 -> 27937; + 27937 = sample 88.0006
+        }
+        const Bytes got = read_file(path);
+        check("TSAVE-53", "WAV append: the tape position resumes at ceil(size * 28 MHz / 44100), so "
+              "a 27937-cycle hold after 44 samples ends at sample 88", got.size() == 44 + 88,
+              "size=" + std::to_string(got.size()));
+    }
 }
 
 } // namespace
@@ -839,6 +1138,7 @@ int main() {
     decoder_rows();
     recorder_rows();
     emulator_rows();
+    round1_rows();
 
     std::filesystem::remove_all(g_root, ec);
 

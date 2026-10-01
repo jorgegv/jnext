@@ -19,7 +19,7 @@
 // offscreen MainWindow and answer the real QMessageBox through a polling
 // timer, the idiom of nex_v13_dialog_test / quit_gate_test.
 //
-// LE-24..LE-26 (GH #89) drive Tape > Start Saving…'s post-picker half and the
+// LE-24..LE-27 (GH #89) drive Tape > Start Saving…'s post-picker half and the
 // Stop Saving action.
 //
 // LE-19..LE-23 (GH #93) drive File > Insert SD Card Image…'s post-picker half,
@@ -609,6 +609,33 @@ int main(int argc, char** argv) {
               f.ok && w.seen == 1 && w.text.contains("notatape.tzx") &&
                   !f.emu.tape_save_active() && start && start->isEnabled(),
               fmt("seen=%d text=%s", w.seen, q(w.text).c_str()));
+    }
+
+    // LE-27 — while an RZX records, Start Saving is refused in a dialog that
+    // says why (the RZX), and nothing is armed. (A 48K: RZX recording is
+    // refused on a Next.)
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        cfg.rewind_buffer_frames = 0;
+        const bool init_ok = emu.init(cfg);
+        auto backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        MainWindow win;
+        win.set_debugger(backend.get());
+        win.set_emulator(&emu);
+        const bool recording = emu.start_rzx_recording((g_root / "le27.rzx").string());
+        DialogWatcher w;
+        win.handle_tape_save_path(QString::fromStdString((g_root / "le27.tzx").string()));
+        w.pump(200);
+        w.stop();
+        emu.stop_rzx_recording();
+        check("LE-27",
+              "Start Saving while an RZX records is refused in a dialog naming the RZX, and "
+              "saving stays off",
+              init_ok && recording && w.seen == 1 && w.text.contains("RZX") &&
+                  !emu.tape_save_active(),
+              fmt("recording=%d seen=%d text=%s", recording ? 1 : 0, w.seen, q(w.text).c_str()));
     }
 
     std::filesystem::remove_all(g_root, ec);

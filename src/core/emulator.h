@@ -1056,7 +1056,7 @@ public:
 
     /// True if replay_mode is active (suppresses audio/video during fast-forward).
     bool replay_mode() const { return replay_mode_; }
-    void set_replay_mode(bool v) { replay_mode_ = v; }
+    void set_replay_mode(bool v) { replay_mode_ = v; refresh_tape_capture_live(); }
 
     /// Task 27 C6 — frontend render hint. When the frontend knows nobody will
     /// consume the framebuffer produced by the NEXT run_frame() (the Qt GUI
@@ -1644,6 +1644,18 @@ private:
     TapSaver        tap_saver_;
     // GH #89 — TZX / WAV tape saving; armed like tap_saver_, by extension.
     TapeRecorder    tape_recorder_;
+    // GH #89 review B1 — tape_recorder_.active() && !replay_mode_, kept up to
+    // date by start/stop_tape_save() and every replay_mode_ change, so the
+    // per-instruction capture costs one flag test when nothing is saving.
+    bool            tape_capture_live_ = false;
+    // Becoming live takes the current level as the baseline: the capture
+    // samples only where the level can change (port 0xFE writes, a playing
+    // tape), so a change made while it was off must not read as an edge.
+    void refresh_tape_capture_live() {
+        const bool live = tape_recorder_.active() && !replay_mode_;
+        if (live && !tape_capture_live_) tape_recorder_.set_level(tape_out_level());
+        tape_capture_live_ = live;
+    }
     TzxLoader       tzx_tape_;
     WavLoader       wav_tape_;
     VideoRecorder   video_recorder_;
@@ -1868,6 +1880,14 @@ private:
     /// Boot the firmware in place and serialise the result. Returns false,
     /// having logged why, when the boot does not land on a NextZXOS.
     bool record_warm_start_state(std::vector<uint8_t>& out);
+public:
+    /// The configuration the warm-start recording boots with: `live` minus
+    /// everything about THIS load and every host OUTPUT (files, sockets,
+    /// pipes, stdout), which belong to the live machine only. GH #89 review
+    /// B4: a second, recording machine with --tape-save armed opened the same
+    /// tape file as a second writer.
+    static EmulatorConfig warm_start_boot_config(const EmulatorConfig& live);
+private:
 
     /// The re-initialisation at the top of a NEX load: the warm-start
     /// restore when one is available for this machine and card, and plain

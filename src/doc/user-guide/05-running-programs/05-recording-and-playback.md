@@ -48,6 +48,13 @@ while you play leaves those clicks on the tape, and a tape playing in real time
 is copied to the output, as on a real Next. Start saving just before the save
 and stop just after it to keep the file clean.
 
+If JNEXT is killed instead of closed (Ctrl-C in a terminal, a crash), the file
+still loads: everything saved up to the last pause is on disk. A `.tzx` keeps
+every block `SAVE` wrote and every block a program's own saver had finished,
+but the pause after the last block may be shorter than it was; a save still in
+progress when JNEXT stopped is lost, as it would be on a cassette. A `.wav` keeps
+the sound up to the last change of level.
+
 ## Video
 
 **File > Record MPEG4 Video…** (Ctrl+F5) starts recording video with audio to

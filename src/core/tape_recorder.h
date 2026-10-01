@@ -77,8 +77,18 @@ public:
     /// Decode one segment. `edges` are master-cycle times, ascending, gaps no
     /// longer than SEGMENT_GAP_T; `next_event` is the time of whatever follows
     /// the segment (it sets the last block's pause). Returns the TZX bytes.
+    /// `tail_pause_at` (if given) receives the offset, in those bytes, of the
+    /// pause WORD that depends on `next_event` (it is measured from the last
+    /// edge), and `tail_is_rest` whether it is a 0x20 written as "the gap less
+    /// the 1 ms closing pulse" rather than a 0x10/0x11 pause.
     static std::vector<uint8_t> decode_segment(const std::vector<uint64_t>& edges,
-                                               uint64_t next_event);
+                                               uint64_t next_event,
+                                               size_t* tail_pause_at = nullptr,
+                                               bool* tail_is_rest = nullptr);
+
+    /// The pause WORD for a gap (master cycles): a block's (ms, capped), or a
+    /// 0x20 after a closing 1 ms pulse (ms - 1, at least 1, capped).
+    static uint16_t pause_ms(uint64_t gap, bool rest);
 
     // ── Recorder ─────────────────────────────────────────────────────────
     TapeRecorder() = default;
@@ -100,8 +110,18 @@ public:
     /// baseline; each later change of level is an edge.
     void sample(bool level, uint64_t now);
 
+    /// Take `level` as the current level without recording an edge.
+    void set_level(bool level) { have_level_ = true; level_ = level; }
+
     /// A block the SA-BYTES trap took at `now` (flag + payload + checksum).
     bool rom_block(const std::vector<uint8_t>& data, uint64_t now);
+
+    /// Once per frame while saving. A TZX segment silent for longer than
+    /// SEGMENT_GAP_T is decoded and written now, its last pause provisional
+    /// (patched in place when the next event comes); a WAV gets its RIFF/data
+    /// sizes refreshed. Then the file is flushed, so a run that is killed
+    /// leaves a valid file holding everything up to the last silence.
+    void poll(uint64_t now);
 
     /// Write everything pending (its pause/hold measured up to `now`), patch
     /// the WAV header, and disarm. Safe when inactive.
@@ -114,7 +134,11 @@ private:
     void edge(uint64_t now);
     /// Time since the last event, with the backwards and cap rules applied.
     uint64_t gap_since_last(uint64_t now) const;
-    void flush_tzx(uint64_t next_event);
+    /// Decode and write the open segment, whose next event is at `next`;
+    /// `final` = that time is real (else the tail pause stays patchable).
+    void flush_tzx(uint64_t next, bool final);
+    /// Settle the provisional pause WORD with the real next event at `now`.
+    void patch_pending(uint64_t now);
     void write_bytes(const std::vector<uint8_t>& b);
     void wav_advance(uint64_t tape_pos);
     void wav_toggle();
@@ -132,13 +156,18 @@ private:
     uint64_t      edges_ = 0;
     size_t        rom_blocks_ = 0;
 
-    // TZX: the open segment, or a ROM block whose pause is not known yet.
+    // TZX: the open segment, and the pause WORD already on disk whose value
+    // waits for the next event (a trapped block's, or a segment's written by
+    // poll()): its file offset, the time it is measured from, its kind.
     std::vector<uint64_t> seg_;
-    std::vector<uint8_t>  pending_rom_;
-    bool                  have_pending_rom_ = false;
+    bool                  have_pending_ = false;
+    uint64_t              pending_at_ = 0;
+    uint64_t              pending_from_ = 0;
+    bool                  pending_rest_ = false;
 
     // WAV: tape position (master cycles) and the samples written so far.
     uint64_t      wav_pos_ = 0;
     uint64_t      wav_samples_ = 0;
+    uint64_t      wav_patched_ = 0;         ///< data size the header says
     bool          wav_level_ = false;
 };
