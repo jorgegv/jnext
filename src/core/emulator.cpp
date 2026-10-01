@@ -8758,8 +8758,9 @@ void Emulator::begin_new_frame()
         rzx_frame_instruction_count_ = 0;
     }
 
-    // Notify copper of frame start (resets PC in mode 11).
-    copper_.on_vsync();
+    // No Copper action here: the mode-11 restart is at cvc 0 / hc_ula 0
+    // (copper.vhd:80), inside Copper::execute(), not at the raw frame start
+    // (GH #293).
 
     // Initialize per-line fallback array to current value.
     // The copper will update individual lines during execution.
@@ -9382,9 +9383,10 @@ void Emulator::run_frame()
     // one of the actions in begin_new_frame() is a FRAME-START action, and re-running
     // them mid-frame corrupts the frame that is still in flight:
     //
-    //   * copper_.on_vsync() rewinds the Copper's PC. A Copper program restarted at
-    //     mid-frame re-executes its WAITs against scanlines that have already gone by,
-    //     so it never matches again and writes NOTHING for the rest of the frame.
+    //   * copper_.on_vsync() rewound the Copper's PC (removed by GH #293: hardware has
+    //     no frame-start restart). A Copper program restarted at mid-frame re-executes
+    //     its WAITs against scanlines that have already gone by, so it never matches
+    //     again and writes NOTHING for the rest of the frame.
     //   * palette_/layer2_/sprites_/ula_/tilemap_.start_frame() CLEAR the per-scanline
     //     change logs and re-baseline them to the mid-frame state. Those logs are what
     //     the compositor (and the debugger's video panels) replay to reproduce raster
@@ -11913,8 +11915,11 @@ void Emulator::advance_copper_across_row_boundaries(uint64_t master_cycles)
 void Emulator::tick_copper_for_master_cycles(uint64_t begin, uint64_t master_cycles)
 {
     // Hot-path early-out — most of every frame the Copper is in mode 0
-    // (stopped) and the loop body would be pure overhead.
-    if (!copper_.is_running()) return;
+    // (stopped) and the loop body would be pure overhead. Not while a mode
+    // write is unlatched: copper.vhd:70 latches 00 on the next clock, and a
+    // Copper that never saw 00 sees no edge on a later 00 -> 01/11 restart
+    // and keeps its old PC (GH #293 review).
+    if (!copper_.is_running() && !copper_.mode_edge_pending()) return;
     if (master_cycles == 0) return;
 
     // The Copper steps fire at master cycles
