@@ -709,7 +709,7 @@ on copper move 0x43 do
 end
 on copper wait when WAIT_V == 95 do
     log "WAIT(95,${WAIT_H}) satisfied at cvc ${CVC} hc_ula ${HC_ULA}"
-    assert CVC == 96 "WAIT for line 95 must be satisfied in the blanking before line 96 (GH #181)"
+    assert CVC == 95 and HC_ULA >= WAIT_H "WAIT for line 95 is satisfied on the Copper's own line 95, at or past its threshold (GH #181)"
 end
 on copper halt once do log "copper HALT at ${CPC}" end
 
@@ -1251,7 +1251,7 @@ Mutations a reviewer must run (each must turn the named row red):
 | mutation | apply a `set PC` at an execute delivery AFTER the instruction instead of before | `script_events_test` SCRIPT-EV-MUT-PRE (the demo's trap instruction must NOT execute) |
 | mutation | drop the backend `MUTATE` log line | `script-mutation-func` (greps the line) |
 | mutation red twin | a script-injected fault UPSTREAM of the watched guest write: `set nextreg[0x50] = 0xFF` at `on execute @page_in_level_mmu1` — the `NEXTREG 0x51` instruction itself, so the guest's preceding `NEXTREG 0x50` has already committed — against the GOOD demo build | `script-mmu-func` second half: exit 3 with the guard's reason — the GUEST's `NEXTREG 0x51, 0x23` trips `mmu_guard` (0xFF + 1 != 0x23). Two mutations of the mutation, both must stay GREEN: (1) inject at the watched register `set nextreg[0x51]` instead (no event, §2.7); (2) hook `@page_in_level` one instruction earlier (the guest's deferred `NEXTREG 0x50, 0x22` overwrites the injection, `emulator.cpp:10221`) |
-| copper | deliver `on copper move` without `CPC` (or with the CPU's raster position instead of the step's `HC_ULA`) | `script-copper-func` (asserts `CPC` and the GH #181 `CVC == 96` line) |
+| copper | deliver `on copper move` without `CPC` (or with the CPU's raster position instead of the step's `HC_ULA`) | `script-copper-func` (asserts `CPC` and the GH #181 `CVC == 95 and HC_ULA >= WAIT_H` line) |
 | dma | fire `on dma byte` only for bytes inside a Mem range subscription | `script-dma-func` (no range subscribed; the byte count must equal `LEN`) |
 | all | remove the `InspectionScope` around script reads | `script_events_test`: a `read` watchpoint on an address the script peeks must NOT fire |
 
@@ -1645,7 +1645,7 @@ WP4.
 | `read` / `write page P1..P2` | ONE `Mem` whose page SET is P1..P2 — the backend's filter, never a `PAGE ==` predicate |
 | `io_read` / `io_write P` | `Port`: mask `0x00FF` for P ≤ 0xFF (GH #222), else `0xFFFF` |
 | `io_* mask M value V` | `Port`, as written |
-| `io_* P1..P2` | `Port` matching every port, plus the engine's inclusive range condition |
+| `io_* P1..P2` | `Port` matching every port, plus the engine's inclusive range condition — on the LOW byte when the range lies in 0x00..0xFF, exactly otherwise, as a single port decodes (GH #222). A range straddling 0xFF is a load error |
 | `nextreg R1..R2` | `NextRegWrite`, register set |
 | `frame [N]` / `scanline N` / `cycle N` | `Frame` (N or every) / `Scanline` (0..1023) / `Cycle` |
 | `interrupt` / `nmi` / `reset` | `IntAck` / `Nmi` / `Reset{Any}` |
@@ -1679,8 +1679,10 @@ logged as `SCRIPT WARNING file:L:C: …`; the script still loads.
   IN-01-07 pins the same span). §2.6's "down for n frames" counts ticks.
 - **`log indent n`** clamps n to 0..255. **`dump_mem`** refuses a length over
   4096 at run time.
-- **`enable`** re-arms a spent `once` by registering the rule afresh — the
-  backend never re-arms one (EVT-EXEC-32). A rule a run-time error disabled
+- **`once` is the rule's**: its first firing spends every subscription of the
+  rule (an execute page range has several). **`enable`** re-arms a spent
+  `once` by registering the rule afresh — the backend never re-arms one
+  (EVT-EXEC-32). A rule a run-time error disabled
   stays disabled; `enable` does not revive it.
 
 ### I.4 Stop, exit, errors
@@ -1727,7 +1729,7 @@ value. `FRAME` stays live.
 | F4 | The §3(a) warning needs resolved bounds. | Raised at registration (I.2). |
 | F5 | One subscription per rule, pinned per kind. | The SCRIPT-EV-REG-* rows, in `script_events_test` rather than `script_parse_test` (registration needs a backend). |
 | F6 | `on stop`'s `PC`. | The paused PC (I.4). |
-| F7 | §3(f) `copper.jds` asserts `CVC == 96` for a WAIT on line 95. A WAIT is satisfied when the Copper's OWN line counter equals its vpos (`copper.vhd:94`), so its payload `CVC` is 95 by construction; GH #181's "the following line" is the RAW line. The script as written always stops. | Not edited here (§3 is the acceptance text); row SCRIPT-EV-WORK-COPPER pins both the stop and the corrected `assert CVC == 95 and HC_ULA >= WAIT_H`, which passes. WP7's `copper.jds` should carry the corrected line. |
+| F7 | §3(f) `copper.jds` asserted `CVC == 96` for a WAIT on line 95. A WAIT is satisfied when the Copper's OWN line counter equals its vpos (`copper.vhd:94`; `Copper::execute`, `copper.cpp:199-201`), so its payload `CVC` is 95 by construction; GH #181's "the following line" is the RAW line. As written the script always stopped. | **§3(f) corrected** (review round 1) to `assert CVC == 95 and HC_ULA >= WAIT_H`; row SCRIPT-EV-WORK-COPPER runs the corrected script verbatim and pins that it passes, and that the old assert would stop. |
 | F8 | The `NextRegWrite` a Copper MOVE fans out to had `prev` = 0 (the site never peeked), so §8's post-commit contract failed for the Copper. | **Fixed in the backend**: the Copper site peeks the register before the write and the drain carries it. Rows PL-NR-COPPER-PREV, SCRIPT-EV-COPPER. |
 | F9 | `CYCLE` always live (G.3) defeats `latency.jds`. | I.5. |
 | F10 | §2.7's MUTATE line reads `by script:<rule>`; the backend writes `by <client id>` and knows no rule. | Reported to the backend owner; the engine does not re-log mutations. |

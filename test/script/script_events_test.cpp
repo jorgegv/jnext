@@ -438,6 +438,19 @@ static void reg_rows() {
               dstr(ea) + dstr(eb) + dstr(ec));
     }
     {
+        Rig g(kPark);
+        const bool a = g.load("on io_write 0xF0..0x110 do log \"x\" end\n", "a.jds");
+        const auto ea = g.last.errors;
+        const bool b = g.load("on io_read 0xF0..0xFF do log \"x\" end\non io_read 0x100..0x110 do log \"x\" end\n",
+                              "b.jds");
+        check("SCRIPT-EV-REG-IO-STRADDLE", "a port range straddling 0xFF is a load error (it would need the "
+                                           "low-byte and the exact decode at once) and registers nothing; the two "
+                                           "halves load",
+              !a && ea.size() == 1 && ea[0].pos.line == 1 && ea[0].pos.column == 13 &&
+                  ea[0].message.find("GH #222") != std::string::npos && b && g.subs().size() == 2,
+              dstr(ea) + " " + show(g.subs()));
+    }
+    {
         // §6.5: "nothing runs partially" — two good rules and one bad.
         Rig g(kPark);
         const bool ok = g.load("on write 0x9000 do log \"a\" end\n"
@@ -547,6 +560,34 @@ static void delivery_rows() {
               ok && h1 == 1 && spent && h2 == 2 && h3 == 2 && g.sink.count("once") == 2,
               "h=" + std::to_string(h1) + "," + std::to_string(h2) + "," + std::to_string(h3) +
                   " spent=" + std::to_string(spent));
+    }
+    {
+        // §2.2: `once` is the RULE's, not each subscription's. A page range is
+        // one subscription per page (F3); the program runs through both pages
+        // every pass:  8000 JP 0xA000 ; A000 JP 0x8000.
+        Rig g({0xC3, 0x00, 0xA0});
+        g.emu.mmu().write(0xA000, 0xC3);
+        g.emu.mmu().write(0xA001, 0x00);
+        g.emu.mmu().write(0xA002, 0x80);
+        const unsigned p4 = g.emu.mmu().get_effective_page(4), p5 = g.emu.mmu().get_effective_page(5);
+        const bool ok = p5 == p4 + 1 &&
+                        g.load("w: on execute page " + std::to_string(p4) + ".." + std::to_string(p5) +
+                               " once do log \"ONCE ${PC:x4}\" end\n"
+                               "on hostkey 1 do enable w end\n");
+        g.frames(2);
+        const uint64_t h1 = g.hits(0);
+        size_t live = 0;
+        for (const auto& s : g.subs())
+            if (s.kind == EventKind::Execute && s.enabled) ++live;
+        g.dbg->raise_host_event(g.tc, "script1");
+        g.frames(2);
+        const uint64_t h2 = g.hits(0);
+        check("SCRIPT-EV-ONCE-PAGES", "`on execute page P..P+1 once` fires ONCE for the whole rule though it "
+                                      "is two subscriptions and the program runs through both pages every pass "
+                                      "(both are spent), and `enable` re-arms the rule for exactly one more",
+              ok && h1 == 1 && live == 0 && h2 == 2 && g.sink.count("] ONCE ") == 2,
+              "h1=" + std::to_string(h1) + " live=" + std::to_string(live) + " h2=" + std::to_string(h2) + " " +
+                  g.sink.tail(3));
     }
     {
         Rig g(kLoop);
@@ -1087,6 +1128,25 @@ static void input_rows() {
 
 static void boundary_rows() {
     {
+        // GH #222 for RANGES: ports 0x00..0xFF decode on the low byte, so the
+        // high byte (A for OUT (n),A; A for IN A,(n)) does not matter.
+        //   LD A,0x12 ; OUT (0x15),A ; OUT (0x21),A ; OUT (0x10),A ;
+        //   LD A,0x34 ; IN A,(0x15) ; IN A,(0x17) ; JR $
+        Rig g({0x3E, 0x12, 0xD3, 0x15, 0xD3, 0x21, 0xD3, 0x10, 0x3E, 0x34, 0xDB, 0x15, 0xDB, 0x17, 0x18, 0xFE});
+        const bool ok = g.load("on io_write 0x10..0x20 do log \"W ${PORT:x4}\" end\n"
+                               "on io_read 0x14..0x16 do log \"R ${PORT:x4}\" end\n"
+                               "on io_write 0x15 do log \"S ${PORT:x4}\" end\n");
+        g.frames(1);
+        check("SCRIPT-EV-IO-RANGE-LOW", "a port range inside 0x00..0xFF decodes on the low byte like a single "
+                                        "port (GH #222): `io_write 0x10..0x20` sees OUT (0x15) and OUT (0x10) with "
+                                        "A = 0x12 in the high byte and not OUT (0x21); `io_read 0x14..0x16` sees "
+                                        "IN A,(0x15) and not (0x17); the single port 0x15 agrees",
+              ok && g.hits(0) == 2 && g.sink.count("W 1215") == 1 && g.sink.count("W 1210") == 1 &&
+                  g.hits(1) == 1 && g.sink.count("R 3415") == 1 && g.hits(2) == 1 && g.sink.count("S 1215") == 1,
+              "hits=" + std::to_string(g.hits(0)) + "/" + std::to_string(g.hits(1)) + "/" +
+                  std::to_string(g.hits(2)) + " " + g.sink.tail(4));
+    }
+    {
         // Two writes at ONE boundary (LD (nn),HL): the first fails, and the
         // second — already in the same drain — must not enter the dead rule.
         //   LD HL,0x1234 ; LD (0x9000),HL ; JR $
@@ -1418,7 +1478,8 @@ static const char* kCopper =
     "end\n"
     "on copper wait when WAIT_V == 95 do\n"
     "    log \"WAIT(95,${WAIT_H}) satisfied at cvc ${CVC} hc_ula ${HC_ULA}\"\n"
-    "    assert CVC == 96 \"WAIT for line 95 must be satisfied in the blanking before line 96 (GH #181)\"\n"
+    "    assert CVC == 95 and HC_ULA >= WAIT_H \"WAIT for line 95 is satisfied on the Copper's own line 95, "
+    "at or past its threshold (GH #181)\"\n"
     "end\n"
     "on copper halt once do log \"copper HALT at ${CPC}\" end\n";
 
@@ -1594,24 +1655,25 @@ static void work_rows() {
               ok && g.hits(0) >= 2 && g.hits(1) == g.hits(0) && n == 104, l);
     }
     {
-        // 3(f) copper: WAIT(52, 95) ; MOVE NR 0x43,0x10 ; HALT. The script's
-        // `assert CVC == 96` cannot hold: a WAIT for line 95 is satisfied when
-        // the Copper's own line counter IS 95 (copper.vhd:94) — GH #181's "the
-        // following raw line" is RAW_VC, not CVC. So the script as written
-        // stops; with the assert corrected (Appendix I, finding F7) it passes.
+        // 3(f) copper: WAIT(52, 95) ; MOVE NR 0x43,0x10 ; HALT. A WAIT for
+        // line 95 is satisfied when the Copper's own line counter IS 95
+        // (copper.vhd:94, copper.cpp:199-201) — GH #181's "the following raw
+        // line" is RAW_VC, not CVC. §3(f) asserted `CVC == 96` and always
+        // stopped (F7); it now asserts `CVC == 95 and HC_ULA >= WAIT_H`. The
+        // script runs verbatim; the old assert, swapped back in, must stop.
         Rig g(kPark, MachineType::ZXN_ISSUE2), fixed(kPark, MachineType::ZXN_ISSUE2);
-        std::string corrected = kCopper;
-        const std::string from = "assert CVC == 96";
-        corrected.replace(corrected.find(from), from.size(), "assert CVC == 95 and HC_ULA >= WAIT_H");
-        const bool ok = g.load(kCopper, "copper.jds") && fixed.load(corrected, "copper_fixed.jds");
+        std::string old = kCopper;
+        const std::string from = "assert CVC == 95 and HC_ULA >= WAIT_H";
+        old.replace(old.find(from), from.size(), "assert CVC == 96");
+        const bool ok = g.load(old, "copper_old.jds") && fixed.load(kCopper, "copper.jds");
         copper_load(g.emu, {wait_word(52, 95), move_word(0x43, 0x10), HALT_WORD});
         copper_load(fixed.emu, {wait_word(52, 95), move_word(0x43, 0x10), HALT_WORD});
         g.frames(3);
         fixed.frames(3);
         check("SCRIPT-EV-WORK-COPPER", "3(f) copper: the WAIT for line 95 is delivered with WAIT_H 428 at the "
-                                       "Copper's cvc 95, hc_ula 428, so the script's `CVC == 96` assert stops it "
-                                       "(F7); corrected, it runs clean with the MOVE logged at copper PC 1 every "
-                                       "frame and the HALT once at PC 2",
+                                       "Copper's cvc 95, hc_ula 428; the script (corrected, F7) runs clean with the "
+                                       "MOVE logged at copper PC 1 every frame and the HALT once at PC 2, and the "
+                                       "old `CVC == 96` assert would stop it",
               ok && g.paused() && g.sink.count("WAIT(95,428) satisfied at cvc 95 hc_ula 428") == 1 &&
                   g.sink.count("ASSERT FAILED: WAIT for line 95") == 1 && !fixed.paused() &&
                   fixed.sink.count("WAIT(95,428) satisfied at cvc 95 hc_ula 428") >= 2 &&

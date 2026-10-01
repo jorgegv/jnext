@@ -359,15 +359,26 @@ std::vector<Subscription> ScriptEngine::subscriptions_for(Unit& u, RuleRec& rec,
             } else {
                 int32_t lo = 0, hi = 0;
                 range(ev.lo, ev.hi, 0xFFFF, "port", lo, hi);
-                if (lo == hi) {
-                    // GH #222: a 0x00xx port decodes on its low byte.
-                    s.filter.port_mask  = lo <= 0xFF ? 0x00FF : 0xFFFF;
+                // GH #222 (§2.1 `port_spec`): a 0x00xx port decodes on its LOW
+                // byte, any other exactly — for a single port and a range
+                // alike. A range straddling 0xFF would need both at once.
+                const bool low = hi <= 0xFF;
+                if (!bad && !low && lo <= 0xFF) {
+                    errors.push_back(Diagnostic{ev.lo->pos,
+                        "a port range lies wholly in 0x00..0xFF (decoded on the low byte, GH #222) or "
+                        "wholly above it"});
+                    bad = true;
+                } else if (lo == hi) {
+                    s.filter.port_mask  = low ? 0x00FF : 0xFFFF;
                     s.filter.port_value = static_cast<uint16_t>(lo);
                 } else {
                     // A range has no mask/value form: match every port, keep the range.
                     s.filter.port_mask  = 0;
                     s.filter.port_value = 0;
-                    extra = [lo, hi](const Event& e) { return e.port >= lo && e.port <= hi; };
+                    extra = [lo, hi, low](const Event& e) {
+                        const int32_t p = low ? (e.port & 0xFF) : e.port;
+                        return p >= lo && p <= hi;
+                    };
                 }
             }
             if (!bad) finish(s);
@@ -485,7 +496,13 @@ Verdict ScriptEngine::run_rule(RuleRec& r, const Event& ev, dbg::Debugger& d) {
                                      ", " + std::to_string(ev.dropped) + " events dropped");
     }
     ++r.hits;
-    if (r.rule->once) r.fired = true;
+    if (r.rule->once && !r.fired) {
+        // §2.2: `once` is the RULE's. The backend spends the subscription
+        // that fired; a rule of several (an execute page range) spends the
+        // others here, and `enable` re-arms them all together.
+        r.fired = true;
+        for (dbg::EventId id : r.subs) dbg_.set_enabled(cid_, id, false);
+    }
     Verdict verdict = Verdict::Continue;
     const bool was = in_frame_delivery_;
     const auto was_cycle = cur_cycle_;

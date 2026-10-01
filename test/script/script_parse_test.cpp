@@ -310,7 +310,7 @@ on copper move 0x43 do
 end
 on copper wait when WAIT_V == 95 do
     log "WAIT(95,${WAIT_H}) satisfied at cvc ${CVC} hc_ula ${HC_ULA}"
-    assert CVC == 96 "WAIT for line 95 must be satisfied in the blanking before line 96 (GH #181)"
+    assert CVC == 95 and HC_ULA >= WAIT_H "WAIT for line 95 is satisfied on the Copper's own line 95, at or past its threshold (GH #181)"
 end
 on copper halt once do log "copper HALT at ${CPC}" end
 )JDS";
