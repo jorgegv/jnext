@@ -1841,25 +1841,32 @@ void test_unknown_fsinfo() {
     const fs::path big = g_scratch / "u-big.bin";
     { std::ofstream c(big, std::ios::binary); }
     fs::resize_file(big, 64ull * 1024 * 1024, ec);
+    // Each refusal starts from "unknown" again: a refusal that wrongly
+    // flushed would otherwise make FSInfo known for the next one.
+    bool reset = set_fsinfo_unknown(img);
     before = file_digest(img);
     st = sdcard::add_to_image(img.string(), big.string(), "/NEW/BIG.BIN", false, err);
     check("SDFA-W69", "a space refusal of a file on a card with FSInfo unknown is byte-identical",
-          st == FileAddStatus::ImageFull && file_digest(img) == before, err);
+          reset && st == FileAddStatus::ImageFull && file_digest(img) == before, err);
 
     const fs::path t = g_scratch / "u-tree";
     fs::remove_all(t, ec);
     fs::create_directories(t, ec);
     fs::resize_file(big, 64ull * 1024 * 1024, ec);
     fs::rename(big, t / "big.bin", ec);
+    reset = set_fsinfo_unknown(img);
     before = file_digest(img);
     st = sdcard::add_to_image(img.string(), t.string(), "/UT", false, err);
     check("SDFA-T53", "a space refusal of a tree on a card with FSInfo unknown is byte-identical",
-          st == FileAddStatus::ImageFull && file_digest(img) == before, err);
+          reset && st == FileAddStatus::ImageFull && file_digest(img) == before, err);
+
+    // ...and a copy that does modify the card starts from "unknown" too.
+    reset = set_fsinfo_unknown(img);
 
     // A copy that does modify the card leaves FSInfo KNOWN and right.
     st = sdcard::add_to_image(img.string(), f.string(), "/UOK.BIN", false, err);
     check("SDFA-W70", "a copy on a card with FSInfo unknown leaves it matching the FAT",
-          st == FileAddStatus::Ok && free_counts_agree(img) && fats_agree(img, why),
+          reset && st == FileAddStatus::Ok && free_counts_agree(img) && fats_agree(img, why),
           err + why + " FSInfo " + std::to_string(fsinfo_free_count(img)) +
           " scan " + std::to_string(fat_scan_free(img)));
 }
