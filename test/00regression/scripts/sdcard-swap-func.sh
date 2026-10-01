@@ -25,7 +25,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   refused  a headless insert that cannot happen fails the run (exit != 0),
 #            as a failed --load does, and says why: a missing image, an RZX
 #            recording, an insert cut off by the automatic exit, the flag
-#            without --headless, an empty FILE, a bad N, a directory, and two
+#            without --headless, an empty FILE, a malformed or negative N, a directory, and two
 #            inserts in one tick.
 #   readonly an insert keeps --sdcard-readonly and is mounted read-only.
 #   reset    JNEXT_DELAYED_RESET_FRAMES fires a hard reset in the SAME tick as
@@ -136,6 +136,8 @@ if want sdcard-swap-func; then
         --delayed-sdcard-insert-frames 5 "" --delayed-automatic-exit-frames 20
     short_run badn "N must be a non-negative frame number" \
         --headless --machine 48k --delayed-sdcard-insert-frames 5x "$CARD_B"
+    short_run negn "N must be a non-negative frame number" \
+        --headless --machine 48k --delayed-sdcard-insert-frames -5 "$CARD_B"
     short_run dir "is not a file" \
         --headless --machine 48k --rewind-buffer-size 0 \
         --delayed-sdcard-insert-frames 5 "$W" --delayed-automatic-exit-frames 20
