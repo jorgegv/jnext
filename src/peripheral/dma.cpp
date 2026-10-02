@@ -706,7 +706,6 @@ int Dma::execute_burst(int max_bytes) {
     // GH #106 — fresh accumulator per call so a caller reading
     // last_burst_read_wait_tstates() after a zero-transfer call sees 0.
     last_burst_read_wait_tstates_ = 0;
-    burst_done_ = 0;
 
     if (state_ != State::TRANSFERRING) return 0;
 
@@ -805,7 +804,6 @@ int Dma::execute_burst(int max_bytes) {
         // Increment counter (counts up, compared against block_len_)
         counter_++;
         transferred++;
-        burst_done_ = static_cast<uint32_t>(transferred);
         status_at_least_one_ = true;
 
         // Adjust source address

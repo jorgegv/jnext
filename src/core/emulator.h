@@ -1651,10 +1651,10 @@ private:
     // date by start/stop_tape_save() and every replay_mode_ change, so the
     // per-instruction capture costs one flag test when nothing is saving.
     bool            tape_capture_live_ = false;
-    // GH #89 round 2 — set around dma_.execute_burst() so a port 0xFE write
-    // made by the DMA is timed by its place in the burst, not the burst start.
+    // GH #89 — set around dma_.execute_burst(), only while capturing, so a
+    // port 0xFE write made by the DMA is timed by its place in the burst.
     bool            in_dma_burst_ = false;
-    uint64_t        dma_burst_start_ = 0;
+    uint16_t        dma_counter_base_ = 0;
     // Becoming live takes the current level as the baseline: the capture
     // samples only where the level can change (port 0xFE writes, a playing
     // tape), so a change made while it was off must not read as an edge.

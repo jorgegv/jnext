@@ -1282,6 +1282,32 @@ void round1_rows() {
         r.close(20);
     }
     {
+        // Round 3 / R3-B2: a segment that cancels to nothing (an even number of
+        // sub-half-T toggles) is written as nothing by poll(), and leaves no
+        // pause to patch: the next event must not write into the file.
+        const std::string path = tmp("cancelled.tzx");
+        std::filesystem::remove(path);
+        TapeRecorder r;
+        std::string why;
+        r.open(path, why);
+        r.sample(false, 0);
+        r.sample(true, 1000);
+        r.sample(false, 1002);                               // 2 master cycles: cancels
+        r.sample(true, 1004);
+        r.sample(false, 1006);                               // and again
+        r.poll(1006 + 30 * MS);                              // silent: the segment is decoded
+        const Bytes after_poll = read_file(path);
+        r.sample(true, 1006 + 700 * MS);                     // the next event
+        r.close(1006 + 710 * MS);
+        Bytes want = TZX_HDR;
+        cat(want, b13({3500}));
+        cat(want, b20(9));
+        const Bytes got = read_file(path);
+        check("TSAVE-61", "a segment that cancels to nothing writes nothing and leaves no pause "
+              "to patch: the file is the header, then only the next event's block",
+              after_poll == TZX_HDR && got == want, hex(after_poll) + " / " + hex(got));
+    }
+    {
         // Round 2: a change no write makes — the machine reset with MIC high
         // (port_fe_reg cleared, zxnext.vhd:3590-3591) — is recorded at the end
         // of that frame.

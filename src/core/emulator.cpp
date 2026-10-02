@@ -8531,10 +8531,13 @@ uint64_t Emulator::port_fe_write_time() const
     // write to port 0xFE latches port_fe_reg too. The burst runs before the
     // clock advances: transfer i lands at burst start + i x the cost the slot
     // is charged per byte (+ the read waits so far), the same timeline the
-    // clock then moves along. A CPU write lands at its bus request edge.
+    // clock then moves along. i is the DMA's own byte counter against its
+    // value when the burst began, so a transfer stores nothing for this.
+    // A CPU write lands at its bus request edge.
     if (in_dma_burst_)
-        return dma_burst_start_ +
-               (static_cast<uint64_t>(dma_.burst_done()) * Dma::CHARGED_TSTATES_PER_BYTE +
+        return clock_.get() +
+               (static_cast<uint64_t>(static_cast<uint16_t>(dma_.counter() - dma_counter_base_)) *
+                    Dma::CHARGED_TSTATES_PER_BYTE +
                 dma_.last_burst_read_wait_tstates()) * clock_.cpu_divisor();
     return io_request_edge();
 }
@@ -10121,10 +10124,16 @@ uint64_t Emulator::step_one_instruction()
         // of whether the bus has actually been granted yet — mirrors real
         // hardware, where BUSRQ can be asserted for multiple cycles before
         // BUSAK is granted.
-        dma_burst_start_ = clock_.get();
-        in_dma_burst_ = true;
+        // GH #89 — only while a tape save samples port 0xFE writes: mark the
+        // burst so a DMA write to port 0xFE is timed at its place in it (see
+        // port_fe_write_time()). Unarmed, a DMA slot pays one flag test.
+        const bool mark_burst = tape_capture_live_;
+        if (mark_burst) {
+            dma_counter_base_ = dma_.counter();
+            in_dma_burst_ = true;
+        }
         int transferred = dma_.execute_burst(16);
-        in_dma_burst_ = false;
+        if (mark_burst) in_dma_burst_ = false;
 
         // GH #102 fix (was: `if (dma_.is_active())` gating the whole
         // branch). VHDL zxnext.vhd `dma_holds_bus <= '1' when
