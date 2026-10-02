@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+# Train the PGO profile for `make gui-release` (GH #297).
+#
+# Usage: tools/pgo-train.sh <instrumented jnext> <profile dir> <compiler>
+#
+# Runs a small, broad training set with the instrumented (-fprofile-generate)
+# jnext, which writes its .gcda files into <profile dir> (the directory was
+# baked into the binary at compile time; the two must agree, which the
+# Makefile guarantees). Then `make gui-release` rebuilds with -fprofile-use.
+#
+# NOT the regression suite: profiles saturate quickly (GH #294 measured +17-20%
+# on titles an 8-workload profile never saw). The set is the GH #294 one —
+# the `make bench` workloads at half their frames plus parallax and
+# trainyard-express — plus the paths those miss: a 128K machine driving the
+# AY, a game with AY music, a real-time tape load, and a short GUI run on Qt's
+# offscreen platform so the frontend's paint/scale path is profiled too.
+# Only fixtures that are in the repository; every run pins --rtc.
+#
+# SKIPPED, exit 0, when nothing that decides the profile changed since the
+# last training: the fingerprint below covers the instrumented binary (which
+# changes with any source compiled into jnext and with any compile flag),
+# the compiler, this script, every training input and the SD master's
+# identity. On a skip <profile dir>/.trained keeps its mtime, which is how the
+# Makefile knows not to rebuild the optimised tree.
+#
+# The SD image: training boots NextZXOS and every machine's ROMs come from
+# it. The master is provisioned the way the regression suite does it (jnext's
+# own download, into ~/.jnext/sdcard); each run then uses a private reflinked
+# clone, deleted afterwards. If there is no image and none can be provisioned
+# this FAILS, pointing at `make gui-release-non-pgo`, which needs none.
+#
+# Env:
+#   JNEXT_PGO_RUNNER  command prefix for every jnext run (e.g. "wine" to train
+#                     a MinGW jnext.exe); word-split on purpose.
+#   JNEXT_PGO_NO_GUI  =1 skips the Qt-offscreen GUI run (e.g. under wine).
+set -euo pipefail
+export LC_ALL=C LANG=C
+
+die() { echo "pgo-train: ERROR: $*" >&2; exit 1; }
+
+[[ $# -eq 3 ]] || die "usage: $0 <instrumented jnext> <profile dir> <compiler>"
+BIN=$1
+PROFILE_DIR=$2
+COMPILER=$3
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PROJECT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
+read -r -a RUNNER <<< "${JNEXT_PGO_RUNNER:-}"
+
+[[ -x "$BIN" ]] || die "instrumented binary not found: $BIN"
+mkdir -p "$PROFILE_DIR"
+PROFILE_DIR=$(cd "$PROFILE_DIR" && pwd)
+
+SD_MASTER_DIR="$HOME/.jnext/sdcard"
+SD_MASTER="$SD_MASTER_DIR/cspect-next-1gb-fixed.img"
+NEX=test/00regression/nex
+TAP=test/00regression/tap
+RTC="2026-07-10T08:55:00"
+
+# name|machine|frames|extra args (word-split)|fixture files (for the fingerprint)
+WORKLOADS=(
+    "boot-48k|48k|300||"
+    "boot-nextzxos|next|200||"
+    "copper-demo|next|200|--load $NEX/copper_demo.nex|$NEX/copper_demo.nex"
+    "beast|next|200|--load $NEX/beast.nex|$NEX/beast.nex"
+    "bifrost|48k|300|--load $TAP/bifrost.tap|$TAP/bifrost.tap"
+    "parallax|next|200|--load $NEX/parallax.nex|$NEX/parallax.nex"
+    "trainyard|next|200|--load $NEX/trainyard-express.nex --esxdos-stub|$NEX/trainyard-express.nex"
+    "dma-48k|48k|150|--inject test/00regression/bin/rzx_dma_demo.bin --delayed-keypress-frames 20 space|test/00regression/bin/rzx_dma_demo.bin"
+    "ay-128k|128k|340|--inject test/00regression/bin/ay_envelope_sweep.bin --inject-org 8000 --inject-pc 8000 --inject-delay 100|test/00regression/bin/ay_envelope_sweep.bin"
+    "beanbros-ay|next|250|--load $NEX/beanbros.nex --esxdos-stub --delayed-keypress-frames 50 ENTER --delayed-keypress-frames 100 ENTER --delayed-keypress-frames 150 ENTER|$NEX/beanbros.nex"
+    "tape-realtime|48k|1300|--load $TAP/beeper_demo.tap --tape-realtime|$TAP/beeper_demo.tap"
+)
+GUI_FRAMES=150
+GUI_ARGS=(--machine next --load "$NEX/parallax.nex")
+
+# --- Fingerprint: everything that decides what training would produce -------
+fingerprint() {
+    {
+        echo "binary $(sha256sum < "$BIN")"
+        echo "compiler $("$COMPILER" --version 2>&1 | head -1) $("$COMPILER" -dumpfullversion 2>&1)"
+        echo "script $(sha256sum < "${BASH_SOURCE[0]}")"
+        echo "runner ${RUNNER[*]:-native} gui=${JNEXT_PGO_NO_GUI:-0}"
+        local spec files f
+        for spec in "${WORKLOADS[@]}"; do
+            IFS='|' read -r _ _ _ _ files <<< "$spec"
+            for f in $files; do echo "input $f $(sha256sum < "$PROJECT_DIR/$f")"; done
+        done
+        echo "input gui $(sha256sum < "$PROJECT_DIR/$NEX/parallax.nex")"
+        echo "sd $(stat -c '%s:%Y' "$SD_MASTER" 2>/dev/null || echo absent)"
+    } | sha256sum | cut -d' ' -f1
+}
+
+cd "$PROJECT_DIR"
+if [[ -f "$SD_MASTER" && -f "$PROFILE_DIR/.trained" ]] &&
+   [[ "$(cat "$PROFILE_DIR/.fingerprint" 2>/dev/null)" == "$(fingerprint)" ]]; then
+    echo "pgo-train: profile up to date ($PROFILE_DIR) — not retraining"
+    exit 0
+fi
+
+# --- The SD master: provision it exactly as the regression suite does -------
+if [[ ! -f "$SD_MASTER" ]]; then
+    echo "pgo-train: no SD image at $SD_MASTER — provisioning it (jnext's own download)"
+    mkdir -p "$SD_MASTER_DIR"
+    {
+        flock 9 2>/dev/null || true
+        [[ -f "$SD_MASTER" ]] || JNEXT_CONFIG_DIR="$HOME/.jnext" \
+            timeout --kill-after=5s 1200s "${RUNNER[@]}" "$BIN" --headless \
+                --sdcard-download-confirm --delayed-automatic-exit 2 >/dev/null 2>&1 || true
+    } 9>"$SD_MASTER_DIR/.provision.lock"
+    if [[ ! -f "$SD_MASTER" ]]; then
+        echo "pgo-train: ERROR: the PGO build needs the NextZXOS SD image to train its profile," >&2
+        echo "pgo-train: ERROR: and it could not be provisioned at $SD_MASTER (network?)." >&2
+        echo "pgo-train: ERROR: Build without PGO instead:  make gui-release-non-pgo" >&2
+        exit 1
+    fi
+fi
+
+# --- A private run directory: SD clone + clean GUI preferences ---------------
+RUN_DIR="$HOME/.jnext/runs/pgo-$$-$RANDOM"
+cleanup() {
+    rm -rf "$RUN_DIR"
+    rmdir "$HOME/.jnext/runs" 2>/dev/null || true
+    return 0
+}
+# INT/TERM exit explicitly: a handler that only cleans up would RESUME the
+# script without the clone it just deleted (see test/bench/bench.sh).
+trap 'cleanup' EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+mkdir -p "$RUN_DIR/sdcard" "$RUN_DIR/xdg"
+cp --reflink=always "$SD_MASTER" "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" 2>/dev/null ||
+    cp --reflink=auto "$SD_MASTER" "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" ||
+    die "cannot clone the SD master $SD_MASTER"
+SD="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+export JNEXT_CONFIG_DIR="$RUN_DIR" XDG_CONFIG_HOME="$RUN_DIR/xdg"
+
+# A stale or partial profile must never survive into a new one: libgcov
+# MERGES into existing .gcda files, so start from an empty directory.
+find "$PROFILE_DIR" -mindepth 1 -delete
+t0=$(date +%s.%N)
+
+elapsed() { awk -v a="$1" -v b="$(date +%s.%N)" 'BEGIN { print b - a }'; }
+
+run() {   # run <name> <timeout s> <jnext args...>
+    local name=$1 limit=$2 rc=0 t
+    shift 2
+    t=$(date +%s.%N)
+    timeout --kill-after=5s "${limit}s" "${RUNNER[@]}" "$BIN" --rtc "$RTC" --sdcard "$SD" "$@" \
+        >"$RUN_DIR/$name.log" 2>&1 || rc=$?
+    if [[ $rc -ne 0 ]]; then
+        tail -20 "$RUN_DIR/$name.log" >&2
+        die "training run '$name' failed (exit $rc): ${RUNNER[*]} $BIN $*"
+    fi
+    printf 'pgo-train:   %-14s %6.1f s\n' "$name" "$(elapsed "$t")"
+}
+
+echo "pgo-train: training $BIN -> $PROFILE_DIR"
+for spec in "${WORKLOADS[@]}"; do
+    IFS='|' read -r name machine frames extra _ <<< "$spec"
+    read -r -a extra_args <<< "$extra"
+    run "$name" 300 --headless --machine "$machine" "${extra_args[@]}" \
+        --delayed-automatic-exit-frames "$frames"
+done
+if [[ "${JNEXT_PGO_NO_GUI:-0}" != 1 ]]; then
+    # 100% speed, real pacing, sound on through SDL's dummy driver, so the
+    # GUI's frame, paint and audio paths run as a user would run them.
+    QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy \
+        run gui-offscreen 120 "${GUI_ARGS[@]}" --delayed-automatic-exit-frames "$GUI_FRAMES"
+fi
+
+n=$(find "$PROFILE_DIR" -name '*.gcda' | wc -l)
+[[ $n -gt 0 ]] || die "training wrote no .gcda files into $PROFILE_DIR — is $BIN instrumented for that directory?"
+# The instrumented link's map goes with the profile: cmake/JnextPgo.cmake
+# reads it to tell the members jnext links (profile REQUIRED) from those it
+# never links (no profile can exist).
+MAP="$(dirname "$BIN")/jnext-pgo.map"
+[[ -s "$MAP" ]] || die "no link map at $MAP — the instrumented build did not write one"
+cp "$MAP" "$PROFILE_DIR/jnext.map"
+fingerprint > "$PROFILE_DIR/.fingerprint"
+touch "$PROFILE_DIR/.trained"
+printf 'pgo-train: %d profiles in %.1f s\n' "$n" "$(elapsed "$t0")"

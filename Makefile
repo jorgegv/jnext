@@ -6,6 +6,11 @@ BUILD_DIR_SDL_DEBUG   := build/sdl-debug
 BUILD_DIR_SDL_RELEASE := build/sdl-release
 BUILD_DIR_GUI_DEBUG   := build/gui-debug
 BUILD_DIR_GUI_RELEASE := build/gui-release
+# GH #297: build/gui-release is the PGO build. Its instrumented twin trains the
+# profile into PGO_PROFILE_DIR; the plain Release build lives in -non-pgo.
+BUILD_DIR_GUI_RELEASE_NON_PGO := build/gui-release-non-pgo
+BUILD_DIR_GUI_PGO_GEN := build/gui-release-pgo-gen
+PGO_PROFILE_DIR       := build/gui-release-pgo-profile
 BUILD_DIR_WIN_RELEASE := build/win-release
 BUILD_DIR_WIN_SDL_RELEASE := build/win-sdl-release
 BUILD_DIR_WIN_QT5_RELEASE := build/win-qt5-release
@@ -24,6 +29,15 @@ CMAKE             := cmake
 JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
 CC                := /usr/bin/gcc
 CXX               := /usr/bin/g++
+# The configure keys/args the three Release GUI trees share (gui-release,
+# gui-release-non-pgo, gui-release-pgo-gen). Each "-Dkey=value" stays ONE quoted
+# shell word, so a compiler path with a space survives (#141, guard self-test
+# phase 6).
+GUI_RELEASE_KEYS  = "CMAKE_BUILD_TYPE=Release" "CMAKE_C_COMPILER=$(CC)" "CMAKE_CXX_COMPILER=$(CXX)" \
+                    "CMAKE_CXX_FLAGS=-O2 -DNDEBUG" "ENABLE_QT_UI=ON" "ENABLE_TESTS=OFF"
+GUI_RELEASE_DEFS  = "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_C_COMPILER=$(CC)" "-DCMAKE_CXX_COMPILER=$(CXX)" \
+                    "-DCMAKE_CXX_FLAGS=-O2 -DNDEBUG" "-DENABLE_QT_UI=ON" "-DENABLE_TESTS=OFF"
+PGO_PROFILE_ABS   = $(CURDIR)/$(PGO_PROFILE_DIR)
 
 # Guard for unit-test-build's build/ dir: does $(1)/CMakeCache.txt hold cache
 # key $(2) with value $(3), regardless of the cache's TYPE tag? A bare
@@ -143,7 +157,7 @@ BADGE_SKIP := $(FG_BLACK)$(BG_SKIP)
 BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
-       gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
+       gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build \
        kloc-count regression unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
@@ -234,8 +248,8 @@ gui-debug-run: gui-debug
 gui-debug-clean:
 	rm -rf $(BUILD_DIR_GUI_DEBUG)
 
-# Configure and build Qt GUI in Release mode
-gui-release:
+# Configure and build Qt GUI in Release mode WITHOUT PGO (performance A/B work between changes)
+gui-release-non-pgo:
 	@# Skip the reconfigure (~7.5s, pure cmake, no compilation) when this dir
 	@# is already configured with exactly these flags (#141). Delegates to
 	@# test/cmake-configure-guard.sh rather than a bare `cmake -B` guarded by
@@ -244,21 +258,69 @@ gui-release:
 	@# script's header) and needs the dir wiped first, which is exactly what
 	@# the script's self-test (cmake-configure-guard-selftest.sh, run by
 	@# `make unit-test`) proves against real cmake/gcc/g++.
-	@bash test/cmake-configure-guard.sh $(BUILD_DIR_GUI_RELEASE) \
-		"CMAKE_BUILD_TYPE=Release" \
-		"CMAKE_C_COMPILER=$(CC)" \
-		"CMAKE_CXX_COMPILER=$(CXX)" \
-		"CMAKE_CXX_FLAGS=-O2 -DNDEBUG" \
-		"ENABLE_QT_UI=ON" \
-		"ENABLE_TESTS=OFF" \
+	@#
+	@# This was `gui-release` until GH #297 made that the PGO build. It needs
+	@# no SD image, and its speed does not depend on a training run, so it is
+	@# the binary to compare two code changes with (`make bench`).
+	@bash test/cmake-configure-guard.sh $(BUILD_DIR_GUI_RELEASE_NON_PGO) \
+		$(GUI_RELEASE_KEYS) \
+		"JNEXT_PGO=OFF" \
 		-- \
-		"-DCMAKE_BUILD_TYPE=Release" \
-		"-DCMAKE_C_COMPILER=$(CC)" \
-		"-DCMAKE_CXX_COMPILER=$(CXX)" \
-		"-DCMAKE_CXX_FLAGS=-O2 -DNDEBUG" \
-		"-DENABLE_QT_UI=ON" \
-		"-DENABLE_TESTS=OFF"
-	$(CMAKE) --build $(BUILD_DIR_GUI_RELEASE) -j$(JOBS)
+		$(GUI_RELEASE_DEFS) \
+		"-DJNEXT_PGO=OFF"
+	$(CMAKE) --build $(BUILD_DIR_GUI_RELEASE_NON_PGO) -j$(JOBS)
+
+# Build the instrumented jnext that trains gui-release's PGO profile (GH #297)
+gui-release-pgo-gen:
+	@bash test/cmake-configure-guard.sh $(BUILD_DIR_GUI_PGO_GEN) \
+		$(GUI_RELEASE_KEYS) \
+		"JNEXT_PGO=GENERATE" \
+		"JNEXT_PGO_DIR=$(PGO_PROFILE_ABS)" \
+		-- \
+		$(GUI_RELEASE_DEFS) \
+		"-DJNEXT_PGO=GENERATE" \
+		"-DJNEXT_PGO_DIR=$(PGO_PROFILE_ABS)"
+	$(CMAKE) --build $(BUILD_DIR_GUI_PGO_GEN) -j$(JOBS) --target jnext
+
+# Configure and build Qt GUI in Release mode with PGO: the shipped, tested binary (needs the SD image)
+gui-release: gui-release-pgo-gen
+	@# GH #297. Three steps, each skipped when it has nothing to do:
+	@#  1. gui-release-pgo-gen: the instrumented build (its own tree, so its
+	@#     objects stay warm and a no-op stays a no-op).
+	@#  2. tools/pgo-train.sh: runs the training set with that binary, writing
+	@#     .gcda files into $(PGO_PROFILE_DIR). It is SKIPPED when the
+	@#     instrumented binary, the compiler, the script and every training
+	@#     input are unchanged since the last training — the instrumented
+	@#     binary changes whenever any source compiled into jnext or any flag
+	@#     does, so it is the fingerprint of "what would be trained".
+	@#     Training needs the NextZXOS SD image (the ROMs come from it); the
+	@#     script provisions it the way the regression suite does and fails,
+	@#     pointing at gui-release-non-pgo, when it cannot.
+	@#  3. the optimised build here, with -fprofile-use. Make knows nothing of
+	@#     .gcda files, so a retrain forces a clean rebuild of this tree
+	@#     (--clean-first) — never a stale object built from the old profile.
+	@#     ccache does not help there: it cannot find gcc's mangled .gcda
+	@#     names and treats every -fprofile-use compile as uncacheable (safe,
+	@#     never stale, never a hit).
+	@# A missing or mismatched profile is a build ERROR (cmake/JnextPgo.cmake).
+	@bash tools/pgo-train.sh $(BUILD_DIR_GUI_PGO_GEN)/jnext $(PGO_PROFILE_DIR) "$(CXX)"
+	@bash test/cmake-configure-guard.sh $(BUILD_DIR_GUI_RELEASE) \
+		$(GUI_RELEASE_KEYS) \
+		"JNEXT_PGO=USE" \
+		"JNEXT_PGO_DIR=$(PGO_PROFILE_ABS)" \
+		-- \
+		$(GUI_RELEASE_DEFS) \
+		"-DJNEXT_PGO=USE" \
+		"-DJNEXT_PGO_DIR=$(PGO_PROFILE_ABS)"
+	@if [ -f $(BUILD_DIR_GUI_RELEASE)/.pgo-applied ] && \
+	    ! [ $(PGO_PROFILE_DIR)/.trained -nt $(BUILD_DIR_GUI_RELEASE)/.pgo-applied ]; then \
+		$(CMAKE) --build $(BUILD_DIR_GUI_RELEASE) -j$(JOBS); \
+	else \
+		rm -f $(BUILD_DIR_GUI_RELEASE)/.pgo-applied; \
+		echo "pgo: new profile — rebuilding $(BUILD_DIR_GUI_RELEASE) from clean"; \
+		$(CMAKE) --build $(BUILD_DIR_GUI_RELEASE) -j$(JOBS) --clean-first; \
+	fi
+	@touch $(BUILD_DIR_GUI_RELEASE)/.pgo-applied
 
 # Cross-compile ONLY the Windows jnext.exe (Fedora MinGW; no packaging)
 win-release:
@@ -399,9 +461,9 @@ win32-qt5-release:
 gui-release-run: gui-release
 	$(BUILD_DIR_GUI_RELEASE)/jnext
 
-# Remove GUI release build directory
+# Remove the GUI release build directories (PGO, its instrumented twin + profile, and non-PGO)
 gui-release-clean:
-	rm -rf $(BUILD_DIR_GUI_RELEASE)
+	rm -rf $(BUILD_DIR_GUI_RELEASE) $(BUILD_DIR_GUI_PGO_GEN) $(PGO_PROFILE_DIR) $(BUILD_DIR_GUI_RELEASE_NON_PGO)
 
 # Remove all GUI build directories
 gui-clean: gui-debug-clean gui-release-clean

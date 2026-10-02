@@ -510,6 +510,12 @@ if(ENABLE_TESTS)
     add_subdirectory(test)
 endif()
 
+# GH #297 — profile-guided optimisation (`make gui-release`). Last of the
+# target definitions on purpose: it walks jnext's link graph and every
+# executable target in the tree.
+include(cmake/JnextPgo.cmake)
+jnext_apply_pgo(jnext)
+
 # --- Packaging (Task 67) ------------------------------------------------
 # install() rules + CPack config. Additive only: does not affect
 # `make gui-release` / `make unit-test` / plain `cmake --build`.
