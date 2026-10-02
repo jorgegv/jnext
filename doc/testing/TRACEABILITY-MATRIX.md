@@ -65,7 +65,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  5438 | 5427 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **5438**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5114**. Rows the 129 suites declared in `test/unit-tests.conf` run live: **12093**.
+Rows the sections above carry: **5438**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5114**. Rows the 130 suites declared in `test/unit-tests.conf` run live: **12222**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -77,7 +77,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 86 suites (7063 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 87 suites (7192 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -119,6 +119,7 @@ These 86 suites (7063 live rows) have no VHDL-derived plan row to map, so they h
 | `extended_nex_test` | 44 | narrative section, ID ranges not per-row IDs |
 | `tap_loader_test` | 11 | TAP container format, libspectrum TAP reader as oracle (host loader), no core counterpart |
 | `tzx_loader_test` | 91 | TZX container format: libspectrum TZX reader + the TZX specification as oracles (host loader), no core counterpart |
+| `tape_save_test` | 59 | TZX / WAV writer (GH #89): the TZX 1.20 and RIFF/WAVE layouts, with FUSE/libspectrum as the foreign reader (host saver); its hardware rows, the tape-out signal (TSAVE-30, TSAVE-43), cite zxnext.vhd:6503 in their own source |
 | `snapshot_im_test` | 4 | snapshot loaders seeding the NR 0xC0 IM latch (host loaders; nextreg.txt NR 0xC0) |
 | `atic_atac_nmi_test` | 4 | narrative section, hand-maintained (feeds protected NR-C0-02) |
 | `inject_test` | 17 | jnext --inject entry state (host debugging aid), no core counterpart |
@@ -126,7 +127,7 @@ These 86 suites (7063 live rows) have no VHDL-derived plan row to map, so they h
 | `resume_guard_test` | 11 | debugger resume-confirmation policy (jnext-internal) |
 | `debug_qt_free_test` | 13 | source-tree layout lint (GH #278 WP1: no Qt under src/debug/), no hardware behaviour |
 | `step_out_test` | 50 | debugger Step Out execution control (jnext-internal); the T80N core has no debugger |
-| `debugger_backend_test` | 1390 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
+| `debugger_backend_test` | 1443 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
 | `persistent_bp_test` | 22 | debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger |
 | `io_watchpoint_test` | 25 | debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger |
 | `bp_enable_test` | 23 | debugger breakpoint enable/disable policy (GH #225, jnext-internal); the T80N core has no debugger |
@@ -136,7 +137,7 @@ These 86 suites (7063 live rows) have no VHDL-derived plan row to map, so they h
 | `gdb_rsp_test` | 97 | GDB RSP remote-debugger adapter (GH #281; GDB remote protocol + z88dk-gdb, jnext-internal); the T80N core has no debugger |
 | `script_parse_test` | 257 | debugger scripting language front end (GH #26, jnext-internal); the T80N core has no debugger |
 | `script_eval_test` | 60 | debugger scripting language evaluator (GH #26, jnext-internal); the T80N core has no debugger |
-| `script_events_test` | 117 | debugger scripting language engine (GH #26, jnext-internal); the T80N core has no debugger |
+| `script_events_test` | 118 | debugger scripting language engine (GH #26, jnext-internal); the T80N core has no debugger |
 | `script_record_test` | 35 | debugger session recorder (GH #20 / #26 WP6, jnext-internal); the T80N core has no debugger |
 | `zrcp_adapter_test` | 213 | ZRCP remote-debugger adapter (GH #280; ZEsarUX 12.0 transcripts, jnext-internal); the T80N core has no debugger |
 | `app_config_test` | 121 | jnext.conf schema/precedence (host settings file) |
@@ -146,7 +147,7 @@ These 86 suites (7063 live rows) have no VHDL-derived plan row to map, so they h
 | `esp_status_test` | 15 | host status-bar ESP indicator (GUI), no core counterpart |
 | `nex_v13_dialog_test` | 4 | experimental NEX V1.3 warning dialog (GUI), no core counterpart |
 | `rzx_menu_test` | 15 | RZX File-menu error dialogs (GUI), no core counterpart |
-| `load_error_test` | 20 | GUI load-failure reporting, the Tape menu, and the file-dialog FILTERS (GUI), no core counterpart |
+| `load_error_test` | 24 | GUI load-failure reporting, the Tape menu, and the file-dialog FILTERS (GUI), no core counterpart |
 | `esc_break_test` | 6 | host ESC->BREAK binding; guest matrix is `## Input` |
 | `host_hotkey_test` | 55 | host hotkey bindings (Alt vs the guest Symbol Shift) |
 | `main_window_accel_test` | 5 | main-window menu mnemonics (host GUI) |
@@ -166,7 +167,7 @@ These 86 suites (7063 live rows) have no VHDL-derived plan row to map, so they h
 | `debugger_menu_test` | 53 | debugger menu reachability (host GUI) |
 | `debugger_disasm_copy_test` | 39 | disassembly-panel selection and clipboard text (host GUI, GH #21); the disassembler it copies is traced in `## Z80N` |
 | `debugger_panels_test` | 75 | debugger panel DISPLAY identity before the GH #278 backend refactor (host GUI); the hardware each panel shows is traced by its own subsystem suite |
-| `debugger_verbs_test` | 61 | debugger verbs, pause edge and rewind/trace/MAP controls identity before the GH #278 backend refactor (host GUI, jnext-internal); the T80N core has no debugger |
+| `debugger_verbs_test` | 73 | debugger verbs, pause edge and rewind/trace/MAP controls identity before the GH #278 backend refactor (host GUI, jnext-internal); the T80N core has no debugger |
 
 The runtime pass/fail view of all declared suites lives in `test/SUBSYSTEM-TESTS-STATUS.md` (`make unit-test-dashboard`), which is its canonical source; this table is the *document's own* view — what the matrix records and what it misses.
 <!-- END GENERATED SUMMARY -->

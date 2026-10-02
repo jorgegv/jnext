@@ -70,6 +70,9 @@ Emulator::Emulator() : mmu_(ram_, rom_), cpu_(mmu_, port_) {
 // ---------------------------------------------------------------------------
 Emulator::~Emulator()
 {
+    // GH #89 — finish a TZX / WAV save (its last block, the WAV header).
+    tape_recorder_.close(clock_.get());
+
     // G46(b) EOD-30i+29: JNEXT_TRACE_DUMP_AT_EXIT=/path/to/file
     //   If set, export the full trace-log ring buffer to a text file at
     //   emulator shutdown. Allows post-mortem grep/awk walks when combined
@@ -158,6 +161,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // re-executes must not end the replay, or the rest of it renders,
         // mixes audio, re-sends ESP traffic and pushes rewind snapshots.
         replay_mode_ = false;
+        refresh_tape_capture_live();
     }
     boot_hold_frames_remaining_ = 0;  // G156
     cpu_parked_ = false;              // GH #164
@@ -4885,6 +4889,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             renderer_.ula().set_border(val & 0x07);
             beeper_.set_ear((val >> 4) & 1);
             beeper_.set_mic((val >> 3) & 1);
+            // GH #89 — a TZX / WAV save samples tape-out where port_fe_mic
+            // changes: at the write's bus request edge, the CLK_28 edge that
+            // latches port_fe_reg (zxnext.vhd:3588-3594). One flag test when
+            // nothing is saving, and none at all on other instructions.
+            if (tape_capture_live_)
+                tape_recorder_.sample(tape_out_level(), port_fe_write_time());
         });
 
     // Timex screen mode — port 0xFF (full 16-bit match).
@@ -6465,15 +6475,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             }
         });
 
-    // --- Tape SAVE (G33 Phase 1) ---
-    if (!cfg.tape_save_file.empty()) {
-        if (tap_saver_.set_output(cfg.tape_save_file)) {
-            Log::emulator()->info("Tape SAVE: appending SAVEd blocks to '{}'",
-                                  cfg.tape_save_file);
-        } else {
-            Log::emulator()->error("Tape SAVE: cannot open '{}' for append — SAVE trap disabled",
-                                   cfg.tape_save_file);
-        }
+    // --- Tape SAVE (G33 Phase 1; GH #89 TZX / WAV) ---
+    // A re-init() (soft reset, re-initialising load) keeps saving to the same
+    // file without closing it; a different or empty file stops the old save.
+    if (cfg.tape_save_file.empty()) {
+        stop_tape_save();
+    } else if (!(tape_save_active() &&
+                 (tap_saver_.active() ? tap_saver_.output_path() : tape_recorder_.path()) ==
+                     cfg.tape_save_file)) {
+        start_tape_save(cfg.tape_save_file);
     }
 
     // --- Magic Port (debug output) ---
@@ -7497,20 +7507,15 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
     //   profile        the recorder is not the run the user is measuring.
     //   capture cbs    audio and DAC callbacks belong to the host's output
     //                  path; the boot is not something the host is playing.
+    //   host outputs   the tape save, compositor trace, magic port and the
+    //                  joystick-port cable belong to the live machine; a second
+    //                  opener would be a second writer (GH #89 review B4).
     //
     // Everything else — the SD image, --rtc, the machine type, audio gains,
     // CPU speed — is left alone on purpose. A boot recorded under a different
     // configuration is a recording of a different machine, and the divergences
     // that would introduce are precisely the class this mechanism removes.
-    EmulatorConfig boot_cfg       = config_;
-    boot_cfg.load_file            = "";
-    boot_cfg.inject_file          = "";
-    boot_cfg.rewind_buffer_frames = 0;
-    boot_cfg.trace                = false;
-    boot_cfg.esp_enabled          = false;
-    boot_cfg.profile              = false;
-    boot_cfg.audio_capture_callback = nullptr;
-    boot_cfg.dac_write_callback     = nullptr;
+    const EmulatorConfig boot_cfg = warm_start_boot_config(config_);
 
     Log::emulator()->info(
         "warm start: no usable cached state — cold-booting the firmware "
@@ -8471,10 +8476,88 @@ bool Emulator::rzx_refused_by_tape_save(const char* verb) const
     // anyway — so the two cannot be combined, from any route: the command
     // line refuses it at parse time, the GUI in a dialog, and this is the
     // backstop that makes both true.
-    if (!tap_saver_.active()) return false;
+    if (!tape_save_active()) return false;
     Log::emulator()->error("RZX: cannot {} while --tape-save is armed: its SAVE trap cannot "
                            "be replayed from a recording", verb);
     return true;
+}
+
+bool Emulator::start_tape_save(const std::string& path)
+{
+    if (rzx_recorder_.is_recording() || rzx_player_.is_playing()) {
+        Log::emulator()->error("Tape SAVE: cannot start while an RZX records or plays: the "
+                               "SAVE trap cannot be replayed from a recording");
+        return false;
+    }
+    stop_tape_save();
+    bool ok = false;
+    if (TapeRecorder::format_for_path(path) != TapeRecorder::Format::None) {
+        std::string why;
+        ok = tape_recorder_.open(path, why);
+        if (ok) {
+            tap_saver_.arm_for_recorder(path);   // arms the trap; blocks go to the recorder
+            Log::emulator()->info("Tape SAVE: recording tape-out and SAVEd blocks to '{}'", path);
+        }
+        else
+            Log::emulator()->error("Tape SAVE: cannot save to '{}': {}", path, why);
+    } else {
+        ok = tap_saver_.set_output(path);
+        if (ok)
+            Log::emulator()->info("Tape SAVE: appending SAVEd blocks to '{}'", path);
+        else
+            Log::emulator()->error("Tape SAVE: cannot open '{}' for append — SAVE trap disabled",
+                                   path);
+    }
+    if (ok) config_.tape_save_file = path;
+    refresh_tape_capture_live();
+    return ok;
+}
+
+void Emulator::stop_tape_save()
+{
+    if (tape_recorder_.active()) {
+        const std::string path = tape_recorder_.path();
+        tape_recorder_.close(clock_.get());
+        Log::emulator()->info("Tape SAVE: finished '{}'", path);
+    }
+    tap_saver_.close();
+    config_.tape_save_file.clear();
+    refresh_tape_capture_live();
+}
+
+uint64_t Emulator::port_fe_write_time() const
+{
+    // A DMA transfer drives the bus itself (zxnext.vhd:1829, :1834), so its
+    // write to port 0xFE latches port_fe_reg too. The burst runs before the
+    // clock advances: transfer i lands at burst start + i x the cost the slot
+    // is charged per byte (+ the read waits so far), the same timeline the
+    // clock then moves along. i is the DMA's own byte counter against its
+    // value when the burst began, so a transfer stores nothing for this.
+    // A CPU write lands at its bus request edge.
+    if (in_dma_burst_)
+        return clock_.get() +
+               (static_cast<uint64_t>(static_cast<uint16_t>(dma_.counter() - dma_counter_base_)) *
+                    Dma::CHARGED_TSTATES_PER_BYTE +
+                dma_.last_burst_read_wait_tstates()) * clock_.cpu_divisor();
+    return io_request_edge();
+}
+
+bool Emulator::tape_out_level() const
+{
+    // The MIC jack carries beep_mic_final (zxnext.vhd:1638 o_AUDIO_MIC;
+    // zxnext_top_issue2.vhd:1402-1408 mic_port_o):
+    //   beep_mic_final = i_AUDIO_EAR xor (port_fe_mic and nr_08_keyboard_issue2)
+    //                    xor port_fe_mic                       (zxnext.vhd:6503)
+    // and (m and i2) xor m = m and not i2. i_AUDIO_EAR is the same model the
+    // port 0xFE read uses: the playing tape's level, else port_fe_mic in
+    // issue-2 keyboard mode, else 0. With no tape playing the result is
+    // port_fe_mic (zxnext.vhd:3599) in both modes; a tape playing in real time
+    // is echoed to the output, as on the board.
+    const bool mic    = beeper_.mic();
+    const bool issue2 = (nr_08_stored_low_ & 0x01) != 0;
+    const bool playing = tape_.is_playing() || tzx_tape_.is_playing() || wav_tape_.is_playing();
+    const bool ear_in = playing ? beeper_.tape_ear() : (issue2 && mic);
+    return ear_in != (mic && !issue2);
 }
 
 bool Emulator::rzx_refused_by_machine() const
@@ -9452,7 +9535,9 @@ void Emulator::run_frame()
     // Qt window closed (§4.1; row SES-05-17).
     if (debug_state_.attached() && !replay_mode_) {
         if (debug_state_.step_mode() == StepMode::STEP_BACK) {
-            step_back(debug_state_.step_back_count());
+            // A refused or failed step back (logged by step_back()) ends the
+            // request: retried every frame it would log forever.
+            if (!step_back(debug_state_.step_back_count())) debug_state_.pause();
             return;
         }
         if (debug_state_.step_mode() == StepMode::RUN_BACK_TO_CYCLE) {
@@ -9599,6 +9684,9 @@ void Emulator::run_frame()
             // Without the identity check this fired 10 times during a plain
             // NextZXOS boot (other ROMs execute at 0x04C2 too), appending
             // garbage blocks and corrupting the boot (Task 57 review).
+            // tap_saver_.active() is the armed flag for EVERY format (GH #89:
+            // a TZX / WAV save arms it too, start_tape_save()), so this test
+            // costs exactly what it did before TZX / WAV existed.
             if (tap_saver_.active() && pc == TapSaver::SA_BYTES_ADDR &&
                 TapSaver::sa_bytes_rom_present(mmu_)) {
                 tap_saver_.handle_sa_bytes_trap(*this);
@@ -9712,6 +9800,17 @@ void Emulator::end_of_frame(uint64_t frame_end)
     // Every early return above (breakpoint, pause, run-to-cycle) leaves this true, so
     // that call resumes this frame instead of restarting it.
     frame_in_progress_ = false;
+
+    // GH #89 — tape-out also changes where nothing samples it: a tape stopped
+    // or ejected between instructions, a reset (zxnext.vhd:3590-3591 clears
+    // port_fe_reg), a snapshot load. One sample per frame records that change
+    // at the frame's end. Then a TZX save writes a segment once it has gone
+    // silent, a WAV refreshes its header, and both flush: a killed run keeps
+    // the file.
+    if (tape_capture_live_) {
+        tape_recorder_.sample(tape_out_level(), clock_.get());
+        tape_recorder_.poll(clock_.get());
+    }
 
     // G156 — one held frame has now completed in full (rendering/audio/
     // scheduler all ran normally above); count it down.
@@ -10027,7 +10126,16 @@ uint64_t Emulator::step_one_instruction()
         // of whether the bus has actually been granted yet — mirrors real
         // hardware, where BUSRQ can be asserted for multiple cycles before
         // BUSAK is granted.
+        // GH #89 — only while a tape save samples port 0xFE writes: mark the
+        // burst so a DMA write to port 0xFE is timed at its place in it (see
+        // port_fe_write_time()). Unarmed, a DMA slot pays one flag test.
+        const bool mark_burst = tape_capture_live_;
+        if (mark_burst) {
+            dma_counter_base_ = dma_.counter();
+            in_dma_burst_ = true;
+        }
         int transferred = dma_.execute_burst(16);
+        if (mark_burst) in_dma_burst_ = false;
 
         // GH #102 fix (was: `if (dma_.is_active())` gating the whole
         // branch). VHDL zxnext.vhd `dma_holds_bus <= '1' when
@@ -10072,7 +10180,7 @@ uint64_t Emulator::step_one_instruction()
             // burst's source memory reads (zxnext.vhd:3171-3181 via the
             // dma_.read_mem_wait_tstates lambda in init(); +1 T-state per
             // waiting read, 0 at cpu_speed != 3).
-            master_cycles = (static_cast<uint64_t>(transferred) * 2
+            master_cycles = (static_cast<uint64_t>(transferred) * Dma::CHARGED_TSTATES_PER_BYTE
                              + dma_.last_burst_read_wait_tstates())
                             * clock_.cpu_divisor();
             if (master_cycles == 0) master_cycles = clock_.cpu_divisor();  // minimum advance
@@ -10431,13 +10539,22 @@ uint64_t Emulator::step_one_instruction()
                     ? tap_sync_ts_ : 0u;
             tape_.tick_realtime(static_cast<uint64_t>(tstates) - done);
             beeper_.set_tape_ear(tape_.tick_realtime(0) != 0);
+            // GH #89 — a playing tape is echoed to tape-out (zxnext.vhd:6503):
+            // a TZX / WAV save samples it at the end of each instruction, and
+            // only while a tape plays, so nothing is paid otherwise.
+            if (tape_capture_live_)
+                tape_recorder_.sample(tape_out_level(), clock_.get() + master_cycles);
         } else if (tzx_tape_.is_playing()) {
             // TZX real-time: ZOT models an absolute tape timeline, so
             // it must see the monotonic clock, not the frame-relative
             // FUSE counter (G36).
             beeper_.set_tape_ear(tzx_tape_.update(monotonic_tstates()) != 0);
+            if (tape_capture_live_)
+                tape_recorder_.sample(tape_out_level(), clock_.get() + master_cycles);
         } else if (wav_tape_.is_playing()) {
             beeper_.set_tape_ear(wav_tape_.get_ear_bit(monotonic_tstates()) != 0);
+            if (tape_capture_live_)
+                tape_recorder_.sample(tape_out_level(), clock_.get() + master_cycles);
         } else {
             beeper_.set_tape_ear(false);
         }
@@ -13302,11 +13419,33 @@ bool Emulator::rzx_blocks_rewind(const char* what) const
     return true;
 }
 
+void Emulator::refuse_rewind_into_mutation_(const char* what, uint64_t target_cycle,
+                                            uint32_t frame)
+{
+    rewind_crossing_frame_ = frame;
+    Log::emulator()->error(
+        "{}: refused — it would undo a change you made from the debugger in frame {} "
+        "(replaying to cycle {} cannot reproduce it). Use Frame Back (or the slider) to "
+        "that frame's start, which undoes the change, or carry on forward. See the user "
+        "guide: Debugger \u25B8 Functions \u25B8 "
+        "Backward execution (rewind)",
+        what, frame, target_cycle);
+}
+
 uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
 {
+    rewind_crossing_frame_.reset();
     if (rzx_blocks_rewind("rewind_to_cycle")) return UINT64_MAX;
     if (!rewind_buffer_ || rewind_buffer_->empty()) {
         Log::emulator()->warn("rewind_to_cycle: rewind buffer is empty or disabled");
+        return UINT64_MAX;
+    }
+
+    // §4.2a's rewind wall — refused BEFORE anything is restored, so the machine
+    // (and any debugger mutation in it) is left exactly as it was.
+    if (uint32_t f = 0; rewind_buffer_->replay_crosses_mutation(target_cycle, &f)) {
+        refuse_rewind_into_mutation_("rewind_to_cycle", target_cycle, f);
+        debug_state_.pause();   // ends a RUN_BACK_TO_CYCLE request; the caller was paused
         return UINT64_MAX;
     }
 
@@ -13343,6 +13482,7 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
     // replay_mode_ suppresses audio mixing and video rendering.
     // The debug state runs to the target cycle, then pauses automatically.
     replay_mode_ = true;
+    refresh_tape_capture_live();
     int frames = 0;
     {
         // GH #278 WP3 (B3 obligation 3) — the replay's stop at the target is
@@ -13363,6 +13503,7 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
     }
 
     replay_mode_ = false;
+    refresh_tape_capture_live();
 
     // Re-render the frame so the main window framebuffer reflects the rewound state.
     renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
@@ -13371,12 +13512,14 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
     uint64_t reached = clock_.get();
     Log::emulator()->debug("rewind_to_cycle: reached cycle {} after {} replay frames",
                             reached, frames);
+    rewind_buffer_->unmark_from(reached);   // §4.2a: changes after the landing are undone
     return reached;
 }
 
 bool Emulator::step_back(int n)
 {
     if (n <= 0) n = 1;
+    rewind_crossing_frame_.reset();
     if (rzx_blocks_rewind("step_back")) return false;
 
     if (!rewind_buffer_ || rewind_buffer_->empty()) {
@@ -13420,6 +13563,13 @@ bool Emulator::step_back(int n)
     uint64_t target_cycle = trace_log_.at(target_idx).cycle;
 
     Log::emulator()->debug("step_back({}): target trace idx={} cycle={}", n, target_idx, target_cycle);
+
+    // §4.2a's rewind wall, checked BEFORE the trace is cleared: a refused step
+    // leaves the trace, the machine and the mutation untouched.
+    if (uint32_t f = 0; rewind_buffer_->replay_crosses_mutation(target_cycle, &f)) {
+        refuse_rewind_into_mutation_("step_back", target_cycle, f);
+        return false;
+    }
 
     // Clear the trace before rewind: entries above target_idx are stale "future" state.
     trace_log_.clear();
@@ -13480,6 +13630,7 @@ bool Emulator::rewind_to_frame(uint32_t target_frame_num)
         return false;
     }
     restored_frame_start_ = true;   // GH #278: sits on a counted frame start
+    rewind_buffer_->unmark_from(snap);   // §4.2a: changes after the landing are undone
 
     // Re-render so the main window framebuffer reflects the restored state.
     renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
@@ -13762,4 +13913,30 @@ void Emulator::debug_latch_magic_(uint16_t pc)
     // write here.
     (void)pc;
     debug_state_.latch_event(e);
+}
+
+EmulatorConfig Emulator::warm_start_boot_config(const EmulatorConfig& live)
+{
+    // See record_warm_start_state() for why each of the first group goes.
+    EmulatorConfig boot_cfg       = live;
+    boot_cfg.load_file            = "";
+    boot_cfg.inject_file          = "";
+    boot_cfg.rewind_buffer_frames = 0;
+    boot_cfg.trace                = false;
+    boot_cfg.esp_enabled          = false;
+    boot_cfg.profile              = false;
+    boot_cfg.audio_capture_callback = nullptr;
+    boot_cfg.dac_write_callback     = nullptr;
+    // Host outputs (GH #89 review B4). Each is a file, pipe or stream the LIVE
+    // machine owns; the recording machine opening it too makes a second
+    // writer (a tape save, the compositor trace, a joystick-port FIFO or pty,
+    // the magic port's stdout) or a second reader (the joystick-port source
+    // file). None of them is machine state, so the recording is unchanged.
+    boot_cfg.tape_save_file.clear();
+    boot_cfg.compositor_trace_path.clear();
+    boot_cfg.magic_port_enabled   = false;
+    boot_cfg.joy_uart_rx_file.clear();
+    boot_cfg.joy_uart_fifo.clear();
+    boot_cfg.joy_uart_pty         = false;
+    return boot_cfg;
 }

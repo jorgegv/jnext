@@ -59,6 +59,7 @@ Result Debugger::set_key(ClientId by, int row, int col, bool pressed) {
                             "[" + std::to_string(row) + "," + std::to_string(col) +
                                 (pressed ? "] pressed" : "] released") +
                                 " at the next frame edge");
+    impl_->note_mutation();
     return Result::Ok;
 }
 
@@ -75,6 +76,7 @@ Result Debugger::set_extended_key(ClientId by, int id, bool pressed) {
     impl_->log_mutate_range(by, "extended key " + std::to_string(id),
                             std::string(pressed ? "pressed" : "released") +
                                 " at the next frame edge");
+    impl_->note_mutation();
     return Result::Ok;
 }
 
@@ -108,6 +110,7 @@ Expected<size_t> Debugger::press_key(ClientId by, const MatrixKey& key, int hold
     if (queued == 0) return Expected<size_t>{Result::RefusedUnavailable, 0};
     impl_->log_mutate_range(by, "key pulse " + what,
                             "for " + std::to_string(hold_frames) + " frames, queued");
+    impl_->note_mutation();
     return make_ok<size_t>(queued);
 }
 
@@ -140,6 +143,7 @@ Result Debugger::set_joystick(ClientId by, JoystickSide side, uint16_t bits12) {
     std::snprintf(val, sizeof(val), "= 0x%03X", static_cast<unsigned>(bits12 & 0x0FFF));
     impl_->log_mutate_range(
         by, side == JoystickSide::Left ? "joystick left" : "joystick right", val);
+    impl_->note_mutation();
     return Result::Ok;
 }
 
@@ -168,6 +172,7 @@ Result Debugger::press_nmi(ClientId by, NmiButton button) {
     else                         impl_->emu.on_hotkey_f10_divmmc_nmi();
     impl_->log_mutate_range(by, "nmi button",
                             button == NmiButton::Mf ? "MF pressed" : "DRIVE pressed");
+    impl_->note_mutation();
     return Result::Ok;
 }
 

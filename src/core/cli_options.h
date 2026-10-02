@@ -343,10 +343,11 @@ inline constexpr Option OPTIONS[] = {
       "Use real-time tape loading (simulates actual loading speed)" },
     { "--tape-save", 1, Doc::Documented, OptId::TapeSave,
       "FILE",
-      "Append blocks SAVEd via the 48K ROM SA-BYTES routine\n"
-      "to FILE (.tap). Trap-based (G33 Phase 1): fires when the\n"
-      "ROM save routine at 0x04C2 runs with ROM paged at slot 0.\n"
-      "Without this option no SAVE capture happens." },
+      "Save to tape, appending to FILE; the extension picks the\n"
+      "format. .tzx / .wav record the tape output (MIC), so a\n"
+      "program's own saver is captured too; any other name (.tap)\n"
+      "takes only blocks SAVEd through the 48K ROM SA-BYTES\n"
+      "routine. ROM saves are instant (trap at 0x04C2)." },
     { "--esxdos-stub", 0, Doc::Documented, OptId::EsxdosStub,
       "",
       "Answer a few RST $08 esxDOS calls (version, one in-memory\n"

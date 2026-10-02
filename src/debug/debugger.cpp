@@ -500,6 +500,7 @@ Result Debugger::load_state_bytes(ClientId by, const uint8_t* data, size_t n) {
     StateReader r(data, n);
     const bool ok_load = impl_->emu.load_state(r);
     impl_->log_mutate_range(by, "state", ok_load ? "loaded" : "load FAILED (machine corrupt)");
+    if (ok_load) impl_->note_mutation();   // in place: the ring's history did not load it
     return ok_load ? Result::Ok : Result::RefusedCorrupt;
 }
 
@@ -529,10 +530,11 @@ RewindRange Debugger::rewind_range() const {
     return rr;
 }
 
-// ST-03 — the same `Result` the verb would return, for PRE-CLICK greying, or
-// empty if it would succeed. One predicate, used by both this and the two rewind
-// verbs (see `Impl::rewind_refusal()` in debugger_control.cpp), so a greyed control
-// and a refused verb can never disagree.
+// ST-03 — the target-independent refusal, for PRE-CLICK greying, or empty. One
+// predicate, used by both this and the two rewind verbs (see
+// `Impl::rewind_refusal()` in debugger_control.cpp); a target-dependent refusal
+// (no trace entry, a replay crossing a debugger change) is known only when the
+// verb runs.
 std::optional<Result> Debugger::rewind_blocked() const {
     const Result r = impl_->rewind_refusal();
     if (r == Result::Ok) return std::nullopt;

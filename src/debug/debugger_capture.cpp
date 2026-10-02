@@ -379,6 +379,7 @@ Result Debugger::save_snapshot(ClientId by, const std::string& path) {
         std::snprintf(what, sizeof(what), "mem cpu:0x%04X..0x%04X (the .sna saver's PC push)",
                       below, static_cast<uint16_t>(below + 1));
         impl_->log_mutate(by, what, stack_before, stack_after);
+        impl_->note_mutation();
     }
 
     if (!wrote) {

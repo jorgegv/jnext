@@ -9,9 +9,9 @@
 // (§10.1). Every declaration carries the CAP id it serves; the full map is
 // doc/design/debug-subsystem/b0-cap-traceability.md.
 //
-// B0 IS THE FROZEN INTERFACE AND NOTHING ELSE. There are no bodies behind these
-// verbs; B1..B5 put them there. A frontend that needs a signature this file
-// lacks files a finding against B0 rather than declaring its own.
+// THIS IS THE FROZEN INTERFACE. Its bodies are in `src/debug/debugger*.cpp`. A
+// frontend that needs a signature this file lacks files a finding against it
+// rather than declaring its own; additions are by owner decision only.
 //
 // ── FIVE RULES THIS FILE IS THE STATEMENT OF ────────────────────────────────
 //
@@ -399,8 +399,9 @@ public:
 
     /// CTL-09 / ST-04 — step back `n` instructions. SYNCHRONOUS.
     /// `RefusedRzx` (an RZX is recording or playing), `RefusedUnavailable`
-    /// (empty buffer, or a target inside a span a debugger mutation touched —
-    /// §4.2a) and `RefusedCorrupt` are distinguished.
+    /// (empty buffer, or a replay to the target that would cross a debugger
+    /// change made after its snapshot — §4.2a) and `RefusedCorrupt` are
+    /// distinguished.
     Result step_back(ClientId by, uint32_t n);
 
     /// CTL-10 / ST-04 — rewind to the start of frame `frame`. SYNCHRONOUS, same
@@ -877,7 +878,9 @@ public:
     RewindRange rewind_range() const;
 
     /// ST-03 — why a rewind would be refused right now, for PRE-CLICK greying:
-    /// the same `Result` the verb would return, or empty if it would succeed.
+    /// RZX or an empty ring, or empty. Not every refusal: one that depends on the
+    /// target (a trace with no entry for it, a replay crossing a debugger change,
+    /// §4.2a) is only known when the verb runs.
     std::optional<Result> rewind_blocked() const;
 
     /// ST-03 — resize the ring, in frames. `0` frees it.
@@ -945,7 +948,8 @@ public:
     /// per `PumpBudget`; `PumpBudget{}` while running never blocks.
     ///
     /// NEVER called from inside `run_frame()`, and never from inside an event
-    /// delivery (asserted).
+    /// delivery (refused, with an error logged — not an assert, which would
+    /// compile away in the build where the bug ships).
     ServiceHint pump(const PumpBudget& budget);
 
     /// SES-04 — what a `Stop` action does here. The LOOP OWNER sets it; an

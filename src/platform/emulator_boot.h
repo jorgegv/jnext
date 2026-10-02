@@ -142,6 +142,11 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
 
     EmulatorConfig boot_cfg = cfg;
     boot_cfg.type = emulator_boot_machine(cfg.load_file, cfg.type);
+    // GH #89 — a tape save survives the power-on reset, like a recorder left
+    // recording: the live setting (the GUI may have started or stopped it
+    // since `cfg` was made). The old machine finishes the file; the new one
+    // appends to it.
+    boot_cfg.tape_save_file = emu.config().tape_save_file;
 
     emu.~Emulator();
     new (&emu) Emulator();
