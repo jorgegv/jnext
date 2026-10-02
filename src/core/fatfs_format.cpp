@@ -137,7 +137,13 @@ bool fat32_format_and_populate(const std::string& image_path, uint32_t part_lba,
         };
     emit(tree.root, "0:");
 
-    f_mount(nullptr, "0:", 0); // unmount + flush
+    // f_mount(nullptr) only unmounts; it does NOT flush. f_syncvol() (a jnext
+    // addition to the vendored FatFs, see ff.c) writes back anything a failed
+    // call left in FatFs's memory first. Unconditional, unlike
+    // sdcard_file_add.cpp's MountedCard: this function has always just run
+    // f_mkfs and written the whole tree, so the volume is always modified.
+    f_syncvol("0:");
+    f_mount(nullptr, "0:", 0);
 
     if (!ok) { err = where; return false; }
     return true;

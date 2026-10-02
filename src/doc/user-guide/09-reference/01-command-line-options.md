@@ -98,22 +98,26 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     when a run must not disturb an image other runs share.
 
 **--sdcard-file-add** *FILE*
-:   Copy host *FILE* into the SD-card image and **exit without starting
-    emulation**. Requires **--sdcard-file-dest**. The image written is
-    the one **--sdcard** names, or the default-location image when
+:   Copy host *FILE* — a file, or a directory with everything in it —
+    into the SD-card image and **exit without starting emulation**.
+    Without **--sdcard-file-dest** it lands in the root of the card
+    under its own name. Give it once per run. The image written is the
+    one **--sdcard** names, or the default-location image when
     **--sdcard** is omitted — in which case a loud warning says so,
     because that image is shared with every other run. See **PUTTING A
     FILE ON THE CARD**.
 
 **--sdcard-file-dest** *PATH*
-:   Where **--sdcard-file-add** puts the file, as a path from the root
-    of the card (`/NEXTZXOS/DRV-A.DSK`). The leading `/` is optional,
-    directories are separated with `/`, and any missing directory in the
-    path is created.
+:   Optional. The path on the card that **--sdcard-file-add**’s *FILE*
+    becomes, from the root of the card (`/NEXTZXOS/DRV-A.DSK`). The
+    leading `/` is optional, directories are separated with `/`, and any
+    missing directory in the path is created. For a directory, `/`
+    copies its contents straight into the root of the card.
 
 **--sdcard-file-force**
-:   Let **--sdcard-file-add** replace a file that is already there.
-    Without it an existing destination is refused and left untouched.
+:   Let **--sdcard-file-add** replace files that are already there.
+    Without it an existing destination file is refused and nothing is
+    written.
 
 **--warm-start-regenerate**
 

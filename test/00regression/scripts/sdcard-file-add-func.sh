@@ -7,7 +7,9 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 
 # GH #269 — `--sdcard-file-add FILE --sdcard-file-dest PATH` copies a host file
-# into the FAT32 partition of the SD image and exits without emulating.
+# into the FAT32 partition of the SD image and exits without emulating. GH #292
+# extended it to whole directories, and made --sdcard-file-dest optional (no
+# dest = the card root).
 #
 # THIS ROW IS THE ACCEPTANCE TEST, and the reason is specific: a filesystem
 # writer validated only by its own reader is worthless. jnext shipped a .szx
@@ -103,8 +105,10 @@ if want sdcard-file-add-func; then
     head -c  12345 /dev/urandom > "$W/replacement.dsk"
 
     ADD_OUT=""
+    ADD_RUNS=0
     run_add() {   # run_add <expected-exit> <label> [jnext args...]
         local want_rc=$1 label=$2 rc=0; shift 2
+        ADD_RUNS=$((ADD_RUNS + 1))
         ADD_OUT=$(JNEXT_CONFIG_DIR="$CFG" timeout --foreground --kill-after=5s 120s \
             "$JNEXT" "$@" 2>&1) || rc=$?
         [[ "$rc" == "$want_rc" ]] \
@@ -175,6 +179,61 @@ if want sdcard-file-add-func; then
     cmp -s "$W/replacement.dsk" "$W/after-force.dsk" \
         || faults+=("--sdcard-file-force did not replace the file's contents")
 
+    # --- 4b. a whole directory tree (GH #292) ---------------------------------
+    # Nested directories, an EMPTY one, long names, a dot-file, a multi-cluster
+    # file. mcopy -s reads the whole tree back with mtools' own FAT driver, and
+    # diff -r compares it with the source — names, nesting and bytes at once.
+    T="$W/tree"
+    mkdir -p "$T/sub/nested" "$T/sub/empty"
+    head -c 70000 /dev/urandom > "$T/sub/nested/A Long Nested Name.bin"
+    head -c  4321 /dev/urandom > "$T/sub/deep.dat"
+    head -c   999 /dev/urandom > "$T/top.bin"
+    head -c    17 /dev/urandom > "$T/.dotfile"
+    : > "$T/zero.bin"
+    run_add 0 "add-tree" --sdcard-file-add "$T" --sdcard-file-dest /JNEXTGH292
+    grep -qF "Copied directory '$T' to '/JNEXTGH292'" <<< "$ADD_OUT" \
+        || faults+=("the tree copy did not report what it copied where")
+    rm -rf "$W/back-tree"
+    mcopy -s -n -i "$CARD@@$OFF" ::/JNEXTGH292 "$W/back-tree" 2>/dev/null \
+        || faults+=("mcopy -s could not read the copied tree back")
+    diff -r "$T" "$W/back-tree" > "$W/tree-diff.txt" 2>&1 \
+        || faults+=("mtools reads back a DIFFERENT tree: $(head -1 "$W/tree-diff.txt")")
+    # A refusal inside a tree leaves nothing behind: the FIFO is found before
+    # anything is written, so the good file sorted ahead of it is not on the
+    # card either.
+    B="$W/badtree"
+    mkdir -p "$B/sub"
+    head -c 100 /dev/urandom > "$B/a-first.bin"
+    mkfifo "$B/sub/pipe"
+    run_add 2 "tree-with-fifo" --sdcard-file-add "$B" --sdcard-file-dest /JNEXTGH292BAD
+    mdir -i "$CARD@@$OFF" ::/JNEXTGH292BAD > /dev/null 2>&1 \
+        && faults+=("a refused tree copy left /JNEXTGH292BAD on the card")
+    rm -f "$B/sub/pipe"
+
+    # --- 4c. no --sdcard-file-dest: the card root (GH #292) ---------------------
+    mkdir -p "$W/jnextgh292root"
+    head -c 555 /dev/urandom > "$W/jnextgh292root/inroot.bin"
+    run_add 0 "dir-no-dest" --sdcard-file-add "$W/jnextgh292root"
+    rm -f "$W/back-inroot.bin"
+    mcopy -n -i "$CARD@@$OFF" ::/jnextgh292root/inroot.bin "$W/back-inroot.bin" 2>/dev/null \
+        || faults+=("a directory with no dest did not land in the card root")
+    cmp -s "$W/jnextgh292root/inroot.bin" "$W/back-inroot.bin" \
+        || faults+=("the directory copied to the root reads back DIFFERENT bytes")
+    head -c 444 /dev/urandom > "$W/gh292file.bin"
+    run_add 0 "file-no-dest" --sdcard-file-add "$W/gh292file.bin"
+    grep -qF "Copied '$W/gh292file.bin' to '/gh292file.bin'" <<< "$ADD_OUT" \
+        || faults+=("a file with no dest did not report landing at /gh292file.bin")
+    rm -f "$W/back-gh292file.bin"
+    mcopy -n -i "$CARD@@$OFF" ::/gh292file.bin "$W/back-gh292file.bin" 2>/dev/null \
+        || faults+=("a file with no dest did not land in the card root")
+    cmp -s "$W/gh292file.bin" "$W/back-gh292file.bin" \
+        || faults+=("the file copied to the root reads back DIFFERENT bytes")
+    # The pair may come in either order.
+    run_add 0 "dest-before-add" --sdcard-file-dest /JNEXTGH292/ORDER.BIN \
+                                --sdcard-file-add "$W/gh292file.bin"
+    mcopy -n -i "$CARD@@$OFF" ::/JNEXTGH292/ORDER.BIN "$W/back-order.bin" 2>/dev/null \
+        || faults+=("--sdcard-file-dest before --sdcard-file-add was not honoured")
+
     # --- 5. still a sound filesystem, and still a NextZXOS card ---------------
     fsck_card after
     mdir -i "$CARD@@$OFF" ::/MACHINES/NEXT > "$W/mdir-machines.txt" 2>&1 \
@@ -193,21 +252,17 @@ if want sdcard-file-add-func; then
                                --sdcard-file-dest /X.BIN
     run_add 3 "bad-dest"       --sdcard-file-add "$W/long.bin" \
                                --sdcard-file-dest '/BAD:NAME'
-    # A DIRECTORY as the source. On a real disk filesystem — the dev host and
-    # the CI container both — a directory OPENS and reports a size, so the copy
-    # starts and the first read comes back short. That is the path that must
-    # clean up after itself, and mtools is the witness that it did: a partial
-    # DIRSRC.BIN left on the card would be readable here.
-    run_add 2 "dir-source"     --sdcard-file-add "$W" \
-                               --sdcard-file-dest /DIRSRC.BIN
-    mcopy -i "$CARD@@$OFF" ::/DIRSRC.BIN "$W/dirsrc.out" 2>/dev/null \
-        && faults+=("a failed copy left a partial file on the card")
     printf 'not an sd image\n' > "$W/junk.img"
     run_add 5 "bad-image"      --sdcard "$W/junk.img" \
                                --sdcard-file-add "$W/long.bin" \
                                --sdcard-file-dest /X.BIN
-    run_add 1 "add-without-dest"  --sdcard-file-add "$W/long.bin"
     run_add 1 "dest-without-add"  --sdcard-file-dest /X.BIN
+    # GH #292 — one source per run: a repeat used to drop the first silently.
+    run_add 1 "add-twice"         --sdcard-file-add "$W/long.bin" \
+                                  --sdcard-file-add "$W/deep.bin"
+    run_add 1 "dest-twice"        --sdcard-file-add "$W/long.bin" \
+                                  --sdcard-file-dest /X.BIN --sdcard-file-dest /Y.BIN
+    run_add 1 "empty-dest"        --sdcard-file-add "$W/long.bin" --sdcard-file-dest ""
     run_add 1 "force-without-add" --sdcard-file-force
     run_add 1 "add-with-readonly" --sdcard-readonly \
                                   --sdcard-file-add "$W/long.bin" \
@@ -268,7 +323,7 @@ if want sdcard-file-add-func; then
     rm -rf "$W"
 
     if [[ ${#faults[@]} -eq 0 ]]; then
-        pass_row " (mcopy byte-identical, mdir names exact, fsck.vfat clean, 13 invocations)"
+        pass_row " (mcopy byte-identical, mdir names exact, fsck.vfat clean, $ADD_RUNS invocations)"
     else
         fail_row " (${#faults[@]} fault(s) writing to the SD image)"
         printf '      %s\n' "${faults[@]}"

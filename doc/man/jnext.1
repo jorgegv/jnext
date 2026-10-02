@@ -109,9 +109,12 @@ with the SD write\-error token rather than silently discarded.
 Use it when a run must not disturb an image other runs share.
 .TP
 \f[B]\-\-sdcard\-file\-add\f[R] \f[I]FILE\f[R]
-Copy host \f[I]FILE\f[R] into the SD\-card image and \f[B]exit without
-starting emulation\f[R].
-Requires \f[B]\-\-sdcard\-file\-dest\f[R].
+Copy host \f[I]FILE\f[R] \(em a file, or a directory with everything in
+it \(em into the SD\-card image and \f[B]exit without starting
+emulation\f[R].
+Without \f[B]\-\-sdcard\-file\-dest\f[R] it lands in the root of the
+card under its own name.
+Give it once per run.
 The image written is the one \f[B]\-\-sdcard\f[R] names, or the
 default\-location image when \f[B]\-\-sdcard\f[R] is omitted \(em in
 which case a loud warning says so, because that image is shared with
@@ -119,15 +122,20 @@ every other run.
 See \f[B]PUTTING A FILE ON THE CARD\f[R].
 .TP
 \f[B]\-\-sdcard\-file\-dest\f[R] \f[I]PATH\f[R]
-Where \f[B]\-\-sdcard\-file\-add\f[R] puts the file, as a path from the
-root of the card (\f[CR]/NEXTZXOS/DRV\-A.DSK\f[R]).
+Optional.
+The path on the card that \f[B]\-\-sdcard\-file\-add\f[R]\(cqs
+\f[I]FILE\f[R] becomes, from the root of the card
+(\f[CR]/NEXTZXOS/DRV\-A.DSK\f[R]).
 The leading \f[CR]/\f[R] is optional, directories are separated with
 \f[CR]/\f[R], and any missing directory in the path is created.
+For a directory, \f[CR]/\f[R] copies its contents straight into the root
+of the card.
 .TP
 \f[B]\-\-sdcard\-file\-force\f[R]
-Let \f[B]\-\-sdcard\-file\-add\f[R] replace a file that is already
+Let \f[B]\-\-sdcard\-file\-add\f[R] replace files that are already
 there.
-Without it an existing destination is refused and left untouched.
+Without it an existing destination file is refused and nothing is
+written.
 .TP
 \f[B]\-\-warm\-start\-regenerate\f[R]
 Discard the cached warm\-start recording and take a fresh one on the
@@ -1024,29 +1032,78 @@ table or size; a copy of the same card is the same card) it refuses to
 load: insert the original card again, or pass
 \f[B]\-\-snapshot\-mode\f[R] \f[CR]force\f[R].
 .SS PUTTING A FILE ON THE CARD
-\f[B]\-\-sdcard\-file\-add\f[R] copies a host file into the image and
-exits.
+\f[B]\-\-sdcard\-file\-add\f[R] copies a host file, or a whole
+directory, into the image and exits.
 No emulator starts, nothing boots; it is a file\-copy command that
-happens to live in the emulator binary, so getting a program onto the
+happens to live in the emulator binary, so getting programs onto the
 card needs no \f[CR]mtools\f[R] and no loopback mount.
 .IP
 .EX
 jnext \-\-sdcard\-file\-add game.dsk \-\-sdcard\-file\-dest /NEXTZXOS/DRV\-A.DSK
 jnext \-\-sdcard\-file\-add demo.nex \-\-sdcard\-file\-dest /DEMOS/demo.nex
+jnext \-\-sdcard\-file\-add demo.nex
+jnext \-\-sdcard\-file\-add mygames
+jnext \-\-sdcard\-file\-add mygames \-\-sdcard\-file\-dest /GAMES/MINE
 .EE
 .PP
-The destination is a path from the root of the card.
-Missing directories along it are created, so the second example works on
-a card with no \f[CR]/DEMOS\f[R].
+\f[B]\-\-sdcard\-file\-dest\f[R] is the path on the card that the source
+\f[I]becomes\f[R].
+It is optional: without it the source goes into the root of the card
+under its own name, so the third example writes \f[CR]/demo.nex\f[R] and
+the fourth \f[CR]/mygames\f[R].
+A directory given with \f[B]\-\-sdcard\-file\-dest\f[R] \f[CR]/\f[R] has
+its contents copied straight into the root instead.
+Missing directories along the path are created, so the second example
+works on a card with no \f[CR]/DEMOS\f[R].
 Names may be long: an 8.3\-clean uppercase name such as
 \f[CR]DRV\-A.DSK\f[R] is written as a plain short entry, and anything
 else gets VFAT long\-name entries plus a generated short name, exactly
 as any other FAT32 driver would write it.
 .PP
-A destination that already exists is \f[B]refused\f[R], and the file on
-the card is left alone \(em overwriting \f[CR]DRV\-A.DSK\f[R] would
-destroy a disk image.
+One run copies one source, so the pairing is never in doubt: giving
+\f[B]\-\-sdcard\-file\-add\f[R] or \f[B]\-\-sdcard\-file\-dest\f[R]
+twice is refused (exit 1), and the two may come in either order.
+To copy several things at once, put them in a directory and add that.
+.PP
+A destination file that already exists is \f[B]refused\f[R], and the
+file on the card is left alone \(em overwriting \f[CR]DRV\-A.DSK\f[R]
+would destroy a disk image.
 Pass \f[B]\-\-sdcard\-file\-force\f[R] to replace it deliberately.
+.PP
+A directory is copied recursively, in name order:
+.IP \(bu 2
+A directory that already exists on the card is \f[B]merged into\f[R],
+never replaced; the files in it follow the rule above, each one.
+.IP \(bu 2
+\f[B]Symbolic links are followed\f[R]: FAT has no links, so the card
+gets what a link points at.
+A link that leads back into its own parent directories is refused, as is
+a link to nothing.
+.IP \(bu 2
+\f[B]Empty directories\f[R] are created.
+.IP \(bu 2
+Refused, before anything is written: a device, FIFO or socket; a file or
+directory that cannot be read; a file of 4 GiB or more; a name FAT
+cannot hold (non\-ASCII, or one of \f[CR]\(dq * : < > ? \(rs |\f[R], or
+ending in a dot or a space); and two names in one directory that differ
+only in case, which FAT would make one file.
+Nothing is renamed or silently skipped \(em hidden files included.
+.PP
+A file or a directory, the copy is \f[B]all or nothing\f[R].
+Every refusal is decided before the first byte is written, so a refused
+copy \(em including one that does not fit, counting the directories it
+would have to make \(em leaves the card exactly as it was.
+If the copy fails part\-way \(em the card fills up, or a file shrinks
+while it is read \(em everything this run created, files and
+directories, is removed again before jnext exits with an error.
+Two things cannot be undone: a file \f[B]\-\-sdcard\-file\-force\f[R]
+had already replaced (the message says how many), and the extra cluster
+an existing directory grew by to hold a new entry, since FAT never
+shrinks a directory.
+The free\-space check counts a file that
+\f[B]\-\-sdcard\-file\-force\f[R] will replace at its full size, so a
+forced copy onto a nearly full card can be refused even though it would
+just fit.
 .PP
 The copy goes into the image \f[B]\-\-sdcard\f[R] names.
 With no \f[B]\-\-sdcard\f[R] it goes into the default\-location image,
@@ -2688,25 +2745,32 @@ the non\-zero status is reported when \f[B]jnext\f[R] exits.
 it reports which failure happened rather than a single non\-zero status:
 .TP
 0
-The file was copied onto the card.
+The file or directory was copied onto the card.
 .TP
 1
-Command\-line usage error \(em one half of the pair given without the
-other, or combined with \f[B]\-\-sdcard\-readonly\f[R] or
+Command\-line usage error \(em \f[B]\-\-sdcard\-file\-dest\f[R] or
+\f[B]\-\-sdcard\-file\-force\f[R] without
+\f[B]\-\-sdcard\-file\-add\f[R], either of the first two given twice or
+with an empty value, or combined with \f[B]\-\-sdcard\-readonly\f[R] or
 \f[B]\-\-load\f[R].
 .TP
 2
 The host file is missing, unreadable, shrank while being copied, or is 4
-GiB or larger (which FAT32 cannot store).
+GiB or larger (which FAT32 cannot store); or, inside a directory, a
+device, FIFO or socket, an unreadable directory, a dangling symbolic
+link, or one that loops back.
 .TP
 3
 The destination path is unusable: malformed or non\-ASCII, a name FAT
 forbids, a component that already exists as a file, or a destination
-that already exists as a directory.
+that already exists as a directory (for a file) or as a file (for a
+directory).
+For a directory this includes a host name inside it that FAT cannot
+hold, and two names that differ only in case.
 .TP
 4
-The destination file already exists and
-\f[B]\-\-sdcard\-file\-force\f[R] was not given.
+A destination file already exists and \f[B]\-\-sdcard\-file\-force\f[R]
+was not given.
 Nothing was written.
 .TP
 5

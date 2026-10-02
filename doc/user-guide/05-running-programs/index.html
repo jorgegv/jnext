@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.64</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.64</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.65</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3547,14 +3547,20 @@ from — the quickest route while you are developing one. The second is to do
 what a real Next does: boot NextZXOS from the SD card image and start the
 program from the <strong>Browser</strong>, with its files next to it on the card. Many
 programs, games included, are already on the image JNEXT uses by default. To
-add your own, copy each file in with JNEXT itself:</p>
+add your own, copy them in with JNEXT itself:</p>
 <pre><code>jnext --sdcard-file-add game.nex --sdcard-file-dest /DEMOS/game.nex
+jnext --sdcard-file-add mygames
 </code></pre>
-<p>That copies one host file into the card and exits without starting the
-machine, creating any missing directories on the way; <code>--sdcard-file-force</code>
-lets it replace a file that is already there. For a whole directory at once,
-any tool that writes FAT32 disk images — <code>mcopy</code> from mtools, say — still
-works.</p>
+<p>The first copies one host file to <code>/DEMOS/game.nex</code>; the second copies the
+whole <code>mygames</code> directory, everything in it included, to <code>/mygames</code>. Either
+way JNEXT copies and exits without starting the machine. <code>--sdcard-file-dest</code>
+is optional: without it the file or directory goes into the root of the card
+under its own name, and with <code>--sdcard-file-dest /</code> a directory's contents go
+straight into the root. Missing directories on the way are created, existing
+ones are merged into, and a file that is already there is refused unless you
+add <code>--sdcard-file-force</code>. A copy that cannot be completed is refused or undone
+as a whole, never left half-done; the <strong>jnext(1)</strong> man page, under PUTTING A
+FILE ON THE CARD, lists exactly what is refused and why.</p>
 <p>(A NEX file whose header asks to keep its own file open can also read that
 file, and read files next to it, when loaded directly. It cannot write them.)</p>
 <h2 id="the-machine-a-nex-file-starts-on">The machine a NEX file starts on<a class="headerlink" href="#the-machine-a-nex-file-starts-on" title="Permanent link">&para;</a></h2>
