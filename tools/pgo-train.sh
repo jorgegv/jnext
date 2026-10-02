@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Train the PGO profile for `make gui-release` (GH #297).
 #
-# Usage: tools/pgo-train.sh <instrumented jnext> <profile dir> <compiler>
+# Usage: tools/pgo-train.sh <instrumented jnext> <profile dir>
 #
 # Runs a small, broad training set with the instrumented (-fprofile-generate)
 # jnext, which writes its .gcda files into <profile dir> (the directory was
@@ -38,15 +38,17 @@ export LC_ALL=C LANG=C
 
 die() { echo "pgo-train: ERROR: $*" >&2; exit 1; }
 
-[[ $# -eq 3 ]] || die "usage: $0 <instrumented jnext> <profile dir> <compiler>"
+[[ $# -eq 2 ]] || die "usage: $0 <instrumented jnext> <profile dir>"
 BIN=$1
 PROFILE_DIR=$2
-COMPILER=$3
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 read -r -a RUNNER <<< "${JNEXT_PGO_RUNNER:-}"
 
 [[ -x "$BIN" ]] || die "instrumented binary not found: $BIN"
+# The compiler that built it, for the fingerprint: from its own build tree.
+COMPILER=$(sed -n 's/^CMAKE_CXX_COMPILER:[A-Z]*=//p' "$(dirname "$BIN")/CMakeCache.txt" 2>/dev/null)
+[[ -n "$COMPILER" ]] || die "no CMAKE_CXX_COMPILER in $(dirname "$BIN")/CMakeCache.txt"
 mkdir -p "$PROFILE_DIR"
 PROFILE_DIR=$(cd "$PROFILE_DIR" && pwd)
 
@@ -116,7 +118,8 @@ if [[ ! -f "$SD_MASTER" ]]; then
 fi
 
 # --- A private run directory: SD clone + clean GUI preferences ---------------
-RUN_DIR="$HOME/.jnext/runs/pgo-$$-$RANDOM"
+mkdir -p "$HOME/.jnext/runs"
+RUN_DIR=$(mktemp -d "$HOME/.jnext/runs/pgo-XXXXXXXX")
 cleanup() {
     rm -rf "$RUN_DIR"
     rmdir "$HOME/.jnext/runs" 2>/dev/null || true
@@ -132,7 +135,26 @@ cp --reflink=always "$SD_MASTER" "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" 2>/
     cp --reflink=auto "$SD_MASTER" "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" ||
     die "cannot clone the SD master $SD_MASTER"
 SD="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
-export JNEXT_CONFIG_DIR="$RUN_DIR" XDG_CONFIG_HOME="$RUN_DIR/xdg"
+# REPRODUCIBILITY. gcc's value profiling records runtime VALUES (pointer
+# alignment, sizes), so stack and heap addresses end up in the .gcda files,
+# and spdlog's formatter re-reads the clock once per wall-clock second, so its
+# call count depends on when messages happen. The headless runs are therefore
+# made deterministic: address-space randomisation off (setarch -R, where the
+# host allows it — docker's default seccomp profile does not), one minimal
+# environment for every run (env -i; the stack layout depends on its size), a
+# fixed-length run directory (argv's size), and logging off. With those, two
+# trainings WITHOUT the GUI run give byte-identical .gcda files and binaries.
+# The GUI run is paced in real time and is NOT reproducible (its counts move
+# by well under 1% between runs); JNEXT_PGO_NO_GUI=1 leaves it out.
+RUN_ENV=(env -i "HOME=$HOME" "PATH=$PATH" LANG=C LC_ALL=C
+         "JNEXT_CONFIG_DIR=$RUN_DIR" "XDG_CONFIG_HOME=$RUN_DIR/xdg")
+for v in WINEPREFIX WINEDEBUG WINEDLLOVERRIDES XDG_RUNTIME_DIR; do
+    [[ -n "${!v:-}" ]] && RUN_ENV+=("$v=${!v}")
+done
+NORAND=()
+if command -v setarch >/dev/null 2>&1 && setarch -R true 2>/dev/null; then
+    NORAND=(setarch -R)
+fi
 
 # A stale or partial profile must never survive into a new one: libgcov
 # MERGES into existing .gcda files, so start from an empty directory.
@@ -145,7 +167,8 @@ run() {   # run <name> <timeout s> <jnext args...>
     local name=$1 limit=$2 rc=0 t
     shift 2
     t=$(date +%s.%N)
-    timeout --kill-after=5s "${limit}s" "${RUNNER[@]}" "$BIN" --rtc "$RTC" --sdcard "$SD" "$@" \
+    timeout --kill-after=5s "${limit}s" "${RUN_ENV[@]}" "${EXTRA_ENV[@]}" "${NORAND[@]}" \
+        "${RUNNER[@]}" "$BIN" --rtc "$RTC" --log-level off --sdcard "$SD" "$@" \
         >"$RUN_DIR/$name.log" 2>&1 || rc=$?
     if [[ $rc -ne 0 ]]; then
         tail -20 "$RUN_DIR/$name.log" >&2
@@ -154,6 +177,7 @@ run() {   # run <name> <timeout s> <jnext args...>
     printf 'pgo-train:   %-14s %6.1f s\n' "$name" "$(elapsed "$t")"
 }
 
+EXTRA_ENV=()
 echo "pgo-train: training $BIN -> $PROFILE_DIR"
 for spec in "${WORKLOADS[@]}"; do
     IFS='|' read -r name machine frames extra _ <<< "$spec"
@@ -164,8 +188,8 @@ done
 if [[ "${JNEXT_PGO_NO_GUI:-0}" != 1 ]]; then
     # 100% speed, real pacing, sound on through SDL's dummy driver, so the
     # GUI's frame, paint and audio paths run as a user would run them.
-    QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy \
-        run gui-offscreen 120 "${GUI_ARGS[@]}" --delayed-automatic-exit-frames "$GUI_FRAMES"
+    EXTRA_ENV=(QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy)
+    run gui-offscreen 120 "${GUI_ARGS[@]}" --delayed-automatic-exit-frames "$GUI_FRAMES"
 fi
 
 n=$(find "$PROFILE_DIR" -name '*.gcda' | wc -l)

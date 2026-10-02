@@ -303,7 +303,7 @@ gui-release: gui-release-pgo-gen
 	@#     names and treats every -fprofile-use compile as uncacheable (safe,
 	@#     never stale, never a hit).
 	@# A missing or mismatched profile is a build ERROR (cmake/JnextPgo.cmake).
-	@bash tools/pgo-train.sh $(BUILD_DIR_GUI_PGO_GEN)/jnext $(PGO_PROFILE_DIR) "$(CXX)"
+	@bash tools/pgo-train.sh $(BUILD_DIR_GUI_PGO_GEN)/jnext $(PGO_PROFILE_DIR)
 	@bash test/cmake-configure-guard.sh $(BUILD_DIR_GUI_RELEASE) \
 		$(GUI_RELEASE_KEYS) \
 		"JNEXT_PGO=USE" \
