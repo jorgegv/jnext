@@ -3758,10 +3758,10 @@ does exactly that.</p>
 <li><strong>Change the machine during an RZX recording or playback</strong>: the recording
   would no longer reproduce. The change is refused.</li>
 <li><strong>Rewind into a span it changed.</strong> The rewind buffer captures the machine but
-  not the script, and a replay would not re-apply the change, so the debugger
-  refuses to step back into a span a script changed (rewinding to a frame
-  boundary is still allowed). A script that changes the machine while
-  <code>--rewind-buffer-size</code> is on logs a warning once.</li>
+  not the script, and a replay does not re-apply the change. Stepping back to a
+  point before the change, in the frame it was made in, replays that frame
+  without it: the change is lost, and nothing refuses the step. A script that
+  changes the machine while <code>--rewind-buffer-size</code> is on logs a warning once.</li>
 <li><strong>Rules do not fire during a rewind's replay.</strong></li>
 </ul>
 <p>And one interaction: an <code>execute</code> rule at A that sets <code>PC</code> to B skips a
