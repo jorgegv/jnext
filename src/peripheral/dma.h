@@ -189,6 +189,11 @@ public:
         return last_burst_read_wait_tstates_;
     }
 
+    /// The T-states the emulator charges a burst per transferred byte (plus
+    /// the read waits above): Emulator::step_one_instruction() advances the
+    /// clock by this, and the tape-out capture times each transfer by it.
+    static constexpr uint32_t CHARGED_TSTATES_PER_BYTE = 2;
+
     // DMA_timer_s — 14-bit prescaler counter.  Exposed for test observation.
     uint16_t dma_timer() const     { return dma_timer_s_; }
 

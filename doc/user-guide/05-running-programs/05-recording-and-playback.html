@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.66</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.67</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.66</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.67</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1457,6 +1457,17 @@
     <span class="md-ellipsis">
       
         Tapes: fast or real time
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#saving-to-tape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Saving to tape
       
     </span>
   </a>
@@ -3581,6 +3592,35 @@ follow. Turn it on with <strong>Tape &gt; Fast Load</strong> (uncheck it) or <co
 loading, the block position. A new tape replaces the one that was in, whatever
 its format; a file that is not a valid tape is refused with a warning, and the
 tape that was in stays in.</p>
+<h2 id="saving-to-tape">Saving to tape<a class="headerlink" href="#saving-to-tape" title="Permanent link">&para;</a></h2>
+<p><strong>Tape &gt; Start Saving…</strong> (or <code>--tape-save FILE</code>) sends what the machine saves to
+a file, until <strong>Tape &gt; Stop Saving</strong> (or until JNEXT exits). The file's
+extension picks the format:</p>
+<ul>
+<li><strong><code>.tzx</code></strong> records the tape output, like a cassette recorder plugged into
+  the MIC jack, so anything a program saves is captured: BASIC <code>SAVE</code>, and also
+  games and tools with their own saving routines. Standard blocks are stored as
+  standard TZX blocks, faster or slower ones with their own timings, and
+  anything else as the exact pulses.</li>
+<li><strong><code>.wav</code></strong> records the same signal as sound (8-bit mono, 44100 Hz), for other
+  emulators or for a real Spectrum through an audio cable.</li>
+<li><strong><code>.tap</code></strong> (or any other name) keeps only what is saved through the ROM's own
+  routine, which is what BASIC <code>SAVE</code> uses.</li>
+</ul>
+<p><code>SAVE</code> through the ROM is instant whatever the format: JNEXT takes the block
+without making you wait for the routine. Other savers take as long as they take
+on a real machine. Saving adds to the end of an existing file, so a session can
+fill one tape; a <code>.tzx</code> or <code>.wav</code> that is not of the same kind is refused.</p>
+<p>What the tape output carries, the file gets. A program that clicks the MIC line
+while you play leaves those clicks on the tape, and a tape playing in real time
+is copied to the output, as on a real Next. Start saving just before the save
+and stop just after it to keep the file clean.</p>
+<p>If JNEXT is killed instead of closed (Ctrl-C in a terminal, a crash), the file
+still loads: everything saved up to the last pause is on disk. A <code>.tzx</code> keeps
+every block <code>SAVE</code> wrote and every block a program's own saver had finished,
+but the pause after the last block may be shorter than it was; a save still in
+progress when JNEXT stopped is lost, as it would be on a cassette. A <code>.wav</code> keeps
+the sound up to the last change of level.</p>
 <h2 id="video">Video<a class="headerlink" href="#video" title="Permanent link">&para;</a></h2>
 <p><strong>File &gt; Record MPEG4 Video…</strong> (Ctrl+F5) starts recording video with audio to
 an MP4; <strong>Stop</strong> (Ctrl+F6) ends it. From the command line, <code>--record FILE</code>.</p>
@@ -3625,8 +3665,9 @@ own), loading another program, changing the machine type, F4, or starting to
 play an RZX saves the recording at that point and stops it, with a note on the
 status bar: a recording replays your input, and a reset is not input, so it
 could not be replayed. Start a new recording afterwards if you want the rest.</p>
-<p>RZX and <code>--tape-save</code> do not mix: started with <code>--tape-save</code>, JNEXT refuses to
-record or play an RZX — from the command line and from the File menu alike —
+<p>RZX and tape saving do not mix: while saving to tape (<code>--tape-save</code>, or <strong>Tape &gt;
+Start Saving…</strong>), JNEXT refuses to record or play an RZX — from the command line
+and from the File menu alike — and while an RZX runs, saving cannot start,
 because the SAVE capture skips the ROM routine a recording would have to replay.</p>
 <p>While a recording runs, tapes load in real time, at their true speed: a fast
 load skips the ROM's own loader, and a recording can only replay what the

@@ -60,6 +60,7 @@ namespace jnext { namespace save { class StateDesc; } }
 #include "debug/debug_state.h"
 #include "core/tap_loader.h"
 #include "core/tap_saver.h"
+#include "core/tape_recorder.h"
 #include "core/tzx_loader.h"
 #include "core/sna_loader.h"
 #include "core/szx_loader.h"
@@ -557,6 +558,27 @@ public:
     TapSaver& tap_saver() { return tap_saver_; }
     const TapSaver& tap_saver() const { return tap_saver_; }
 
+    /// Tape SAVE to TZX / WAV (GH #89): tape-out capture plus trapped ROM blocks.
+    TapeRecorder& tape_recorder() { return tape_recorder_; }
+    const TapeRecorder& tape_recorder() const { return tape_recorder_; }
+
+    /// Arm tape saving to `path`, which is what `--tape-save` does: `.tzx` and
+    /// `.wav` go to the TapeRecorder, anything else to the TAP saver. Stops a
+    /// save to another file first. Refused (false, logged) while an RZX records
+    /// or plays, or when the file cannot be used. Sets config().tape_save_file,
+    /// so a re-init() keeps saving to it.
+    bool start_tape_save(const std::string& path);
+    /// Finish the file being saved to and disarm; clears config().tape_save_file.
+    void stop_tape_save();
+    /// True while either saver is armed.
+    bool tape_save_active() const { return tap_saver_.active() || tape_recorder_.active(); }
+    /// The tape-out (MIC jack) level, zxnext.vhd:6503 `beep_mic_final` — see
+    /// the definition.
+    bool tape_out_level() const;
+    /// When a port 0xFE write lands: a CPU OUT's bus request edge, or a DMA
+    /// transfer's place in its burst (see the definition).
+    uint64_t port_fe_write_time() const;
+
     /// Access the TZX loader.
     TzxLoader& tzx_tape() { return tzx_tape_; }
     const TzxLoader& tzx_tape() const { return tzx_tape_; }
@@ -1038,7 +1060,7 @@ public:
 
     /// True if replay_mode is active (suppresses audio/video during fast-forward).
     bool replay_mode() const { return replay_mode_; }
-    void set_replay_mode(bool v) { replay_mode_ = v; }
+    void set_replay_mode(bool v) { replay_mode_ = v; refresh_tape_capture_live(); }
 
     /// Task 27 C6 — frontend render hint. When the frontend knows nobody will
     /// consume the framebuffer produced by the NEXT run_frame() (the Qt GUI
@@ -1627,6 +1649,24 @@ private:
     // G33 Phase 1 — trap-based SAVE→TAP. Inactive unless --tape-save
     // supplied (EmulatorConfig::tape_save_file); armed via Emulator::init().
     TapSaver        tap_saver_;
+    // GH #89 — TZX / WAV tape saving; armed like tap_saver_, by extension.
+    TapeRecorder    tape_recorder_;
+    // GH #89 review B1 — tape_recorder_.active() && !replay_mode_, kept up to
+    // date by start/stop_tape_save() and every replay_mode_ change, so the
+    // per-instruction capture costs one flag test when nothing is saving.
+    bool            tape_capture_live_ = false;
+    // GH #89 — set around dma_.execute_burst(), only while capturing, so a
+    // port 0xFE write made by the DMA is timed by its place in the burst.
+    bool            in_dma_burst_ = false;
+    uint16_t        dma_counter_base_ = 0;
+    // Becoming live takes the current level as the baseline: the capture
+    // samples only where the level can change (port 0xFE writes, a playing
+    // tape), so a change made while it was off must not read as an edge.
+    void refresh_tape_capture_live() {
+        const bool live = tape_recorder_.active() && !replay_mode_;
+        if (live && !tape_capture_live_) tape_recorder_.set_level(tape_out_level());
+        tape_capture_live_ = live;
+    }
     TzxLoader       tzx_tape_;
     WavLoader       wav_tape_;
     VideoRecorder   video_recorder_;
@@ -1851,6 +1891,14 @@ private:
     /// Boot the firmware in place and serialise the result. Returns false,
     /// having logged why, when the boot does not land on a NextZXOS.
     bool record_warm_start_state(std::vector<uint8_t>& out);
+public:
+    /// The configuration the warm-start recording boots with: `live` minus
+    /// everything about THIS load and every host OUTPUT (files, sockets,
+    /// pipes, stdout), which belong to the live machine only. GH #89 review
+    /// B4: a second, recording machine with --tape-save armed opened the same
+    /// tape file as a second writer.
+    static EmulatorConfig warm_start_boot_config(const EmulatorConfig& live);
+private:
 
     /// The re-initialisation at the top of a NEX load: the warm-start
     /// restore when one is available for this machine and card, and plain

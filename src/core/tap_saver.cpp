@@ -37,12 +37,34 @@ bool TapSaver::handle_sa_bytes_trap(Emulator& emu) {
     for (uint16_t i = 0; i < length; ++i)
         payload[i] = emu.mmu().read(static_cast<uint16_t>(start + i));
 
-    const bool ok = append_block(flag, payload.data(), payload.size());
-    if (ok) {
-        Log::emulator()->info("TAP save: block {} appended to '{}' (flag={:#04x}, {} bytes)",
-                              blocks_written_, path_, flag, length);
+    // A rewind replaying frames re-runs this trap; the block already reached
+    // the file when the frame first ran, so only the ROM's exit is repeated
+    // (the trap still fires, so the replay takes the same path as the run).
+    bool ok = true;
+    if (emu.replay_mode()) {
+        // nothing written
+    } else if (emu.tape_recorder().active()) {
+        // GH #89 — a TZX / WAV save: the recorder gets the block as it would
+        // go to tape (flag, payload, checksum: the TAP block minus its length).
+        std::vector<uint8_t> block = build_block(flag, payload.data(), payload.size());
+        ok = block.size() > 2 &&
+             emu.tape_recorder().rom_block(std::vector<uint8_t>(block.begin() + 2, block.end()),
+                                           emu.clock().get());
+        if (ok)
+            Log::emulator()->info("Tape save: ROM block {} to '{}' (flag={:#04x}, {} bytes)",
+                                  emu.tape_recorder().rom_blocks(),
+                                  emu.tape_recorder().path(), flag, length);
+        else
+            Log::emulator()->error("Tape save: failed to write block to '{}'",
+                                   emu.tape_recorder().path());
     } else {
-        Log::emulator()->error("TAP save: failed to append block to '{}'", path_);
+        ok = append_block(flag, payload.data(), payload.size());
+        if (ok) {
+            Log::emulator()->info("TAP save: block {} appended to '{}' (flag={:#04x}, {} bytes)",
+                                  blocks_written_, path_, flag, length);
+        } else {
+            Log::emulator()->error("TAP save: failed to append block to '{}'", path_);
+        }
     }
 
     // Mirror the LD-BYTES trap return mechanics: advance IX past the

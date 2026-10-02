@@ -6074,6 +6074,66 @@ static void rwm_rows() {
                   " " + b5_state(*m.dbg));
     }
 
+    // ── The tape recorder (GH #89) across the wall ───────────────────────
+    //
+    // The recorder is host-side output. A refused rewind runs nothing and
+    // restores nothing, and the abandoned-future truncation only drops ring
+    // slots — neither may touch the file or the recorder's counts.
+    for (int via = 0; via < 2; ++via) {
+        B5VerbMachine m(/*rewind=*/true);
+        const std::string tzx = tmp_file(via == 0 ? "rwm_tape_a" : "rwm_tape_b", ".tzx");
+        std::remove(tzx.c_str());
+        const bool started = m.emu.start_tape_save(tzx);
+        auto file_size = [&]() {
+            std::ifstream f(tzx, std::ios::binary | std::ios::ate);
+            return f ? static_cast<long long>(f.tellg()) : -1LL;
+        };
+        Result r = Result::Ok;
+        if (via == 0) {
+            rwm_steps(m, 2);
+            m.dbg->port_out(m.a, 0x00FE, 0x08);   // MIC high: a tape-out edge, and a change at C
+            m.dbg->port_out(m.a, 0x00FE, 0x00);
+            m.dbg->step_into(m.a);
+            m.dbg->step_into(m.a);
+        } else {
+            m.dbg->set_trace_enabled(true);
+            m.dbg->pause(m.a);
+            m.dbg->run_to_frame(m.a, 2);
+            run_until_paused(m.emu, 4);
+            m.dbg->port_out(m.a, 0x00FE, 0x08);
+            m.dbg->port_out(m.a, 0x00FE, 0x00);
+            m.dbg->rewind_to_frame(m.a, 1);
+        }
+        const uint64_t    edges  = m.emu.tape_recorder().edges_recorded();
+        const size_t      blocks = m.emu.tape_recorder().rom_blocks();
+        const long long   size   = file_size();
+        const std::string path   = m.emu.tape_recorder().path();
+        if (via == 0) {
+            r = m.dbg->step_back(m.a, 1);                         // refused
+        } else {
+            const uint8_t v = 0x5A;
+            m.dbg->poke(m.a, MemSpace::cpu(), 0xC000, 1, &v);    // truncates frame 2
+        }
+        const bool same = m.emu.tape_recorder().active() &&
+                          m.emu.tape_recorder().edges_recorded() == edges &&
+                          m.emu.tape_recorder().rom_blocks() == blocks &&
+                          m.emu.tape_recorder().path() == path && file_size() == size;
+        if (via == 0)
+            check("RWM-49", "with a TZX tape save running, a refused step_back leaves the "
+                            "recorder exactly as it was: active, same file, edge and block "
+                            "counts, file size",
+                  started && edges > 0 && r == Result::RefusedUnavailable && same,
+                  "edges=" + std::to_string(edges) + rwm_rc(r) + " same=" + std::to_string(same));
+        else
+            check("RWM-50", "with a TZX tape save running, the change that ends the ring's "
+                            "abandoned future leaves the recorder exactly as it was",
+                  started && m.dbg->rewind_range().newest_frame == 1 && same,
+                  "newest=" + std::to_string(m.dbg->rewind_range().newest_frame) +
+                      " same=" + std::to_string(same));
+        m.emu.stop_tape_save();
+        std::remove(tzx.c_str());
+    }
+
     // ── In-place machine replacement ─────────────────────────────────────
     {
         // load_state_bytes() and bookmark_restore() put the machine in a state
