@@ -14,6 +14,7 @@ class MemoryPanel;
 class VideoPanel;
 class SpritePanel;
 class CopperPanel;
+class ScriptPanel;
 class NextRegPanel;
 class AudioPanel;
 class WatchPanel;
@@ -81,6 +82,14 @@ public:
     NextRegPanel* nextreg_panel() { return nextreg_panel_; }
     AudioPanel* audio_panel() { return audio_panel_; }
     MemoryPanel* memory_panel() { return memory_panel_; }
+    /// GH #26 WP5 — the Script tab.
+    ScriptPanel* script_panel() { return script_panel_; }
+    /// GH #26 WP5 — the eight script host-key actions (Alt+1..Alt+8), index
+    /// 0..7 for keys 1..8. Not menu items: window-wide shortcuts, the
+    /// `run_to_cursor_action_` pattern. Null before set_debugger_manager().
+    QAction* script_key_action(int index) const {
+        return index >= 0 && index < 8 ? script_key_actions_[index] : nullptr;
+    }
 
 signals:
     void window_closed();
@@ -160,6 +169,8 @@ private:
     MmuPanel* mmu_panel_ = nullptr;
     StackPanel* stack_panel_ = nullptr;
     CallStackPanel* callstack_panel_ = nullptr;
+    ScriptPanel* script_panel_ = nullptr;   // GH #26 WP5
+    QAction* script_key_actions_[8] = {};    // GH #26 WP5
 
     // Issue #39 — window attachment. `attach_enabled_` is the user's toggle,
     // persisted alongside the window size. `attach_supported_` says whether the

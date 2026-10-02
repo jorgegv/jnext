@@ -5,6 +5,7 @@
 #include "platform/emulator_boot.h"
 #include "platform/cli_capture.h"
 #include "platform/auto_exit.h"
+#include "platform/recording_info.h"   // GH #26 WP6
 #include "platform/rzx_startup.h"
 #include "platform/render_policy.h"
 #include "platform/speed_report.h"
@@ -288,6 +289,18 @@ bool QtApp::init(int argc, char* argv[]) {
     // (post_frames() below). platform/debug_servers.h.
     if (!debug_servers_.start(*debugger_, config_)) return false;
     // ── end GH #12 ──────────────────────────────────────────────────────────
+    // GH #26 WP4 — the scripts, after the servers and before the machine runs:
+    // a script that does not load is a startup failure (exit 1, §6.5).
+    {
+        jnext::script::ScriptHostOptions so;
+        so.map_file = config_.map_file;
+        so.scripts  = config_.script_files;
+        so.keys     = config_.script_keys;
+        so.record_file = config_.record_script_file;   // GH #26 WP6
+        so.exits    = false;  // the GUI pauses; it never exits from a script (§6.3)
+        script_host_.set_recording_info([this]() { return recording_info_of(emulator_); });
+        if (!script_host_.start(*debugger_, so)) return false;
+    }
 
     // Create the main window.
     main_window_ = new MainWindow();
@@ -296,6 +309,7 @@ bool QtApp::init(int argc, char* argv[]) {
     // the DebuggerManager set_emulator() builds adapts THIS loop owner's one
     // Debugger (GH #278 WP2).
     main_window_->set_debugger(debugger_.get());
+    main_window_->set_script_host(&script_host_);   // GH #26 WP5 — the Script tab
     main_window_->set_emulator(&emulator_);
     main_window_->set_unattended(exit_countdown_ >= 0);   // see set_delayed_exit()
 
@@ -314,6 +328,8 @@ bool QtApp::init(int argc, char* argv[]) {
     // live in wire_host_keys() so the suite can drive the real wiring; see the
     // header for why that matters (GH #268).
     wire_host_keys(*main_window_, key_router_);
+    // GH #26 WP5 — Alt+1..Alt+8 are the script host keys (host_key_wiring.h).
+    wire_script_keys(key_router_, *debugger_);
 
     // Task 79 — SDL gamepad host + per-connector input-source wiring.
     wire_gamepad_and_sources(cfg);

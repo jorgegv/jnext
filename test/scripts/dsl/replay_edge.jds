@@ -1,0 +1,29 @@
+# replay_edge.jds — input lands at the FRAME EDGE (dsl-frontend.md §2.6, §8
+# replay_edge): a `press` issued during frame N is seen by the guest from frame
+# N+1, never later in frame N and never at N+2. The program polls Q in its
+# main loop, AFTER `main_loop`, and latches its frame counter at the first Q it
+# sees (`first_key`).
+#
+# The key goes down at `main_loop` of the program's frame 30, before that
+# frame's poll: queued for the edge, the poll of frame 31 is the first to see
+# it. Applied at once, frame 30's own poll would; a frame late, frame 32's.
+#
+# Run from the repository root:
+#   build/jnext --headless --machine next --load test/00regression/nex/dsl_demo.nex \
+#       --map test/00regression/nex/dsl_demo.map --script test/scripts/dsl/replay_edge.jds \
+#       --delayed-automatic-exit-frames 900
+#   exit 0, log line:  PASS replay_edge: pressed in frame 30, first seen in frame 31
+# (The row's second half records Q from a real SDL window and replays it; see
+# test/00regression/scripts/script-replay-edge-func.sh.)
+
+on execute @main_loop once when mem16[@magic] == 0xD5D5 and mem[@frames] == 30 do
+    press "q"
+    log "press q in the program's frame 30 (FRAME ${FRAME})"
+end
+
+on execute @main_loop once when mem16[@magic] == 0xD5D5 and mem[@first_key] != 0 do
+    release "q"
+    assert mem[@first_key] == 31 "Q first seen in the frame after the one it was pressed in"
+    log "PASS replay_edge: pressed in frame 30, first seen in frame ${mem[@first_key]}"
+    exit 0
+end

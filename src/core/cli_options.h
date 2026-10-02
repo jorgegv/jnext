@@ -26,7 +26,10 @@
 #define JNEXT_CORE_CLI_OPTIONS_H
 
 #include <array>
+#include <cerrno>
 #include <cstddef>
+#include <cstdint>
+#include <cstdlib>
 #include <cstring>
 
 namespace cli {
@@ -83,6 +86,10 @@ enum class OptId {
     GdbPort,
     ZrcpPort,
     DebugListenAddress,
+    Script,
+    ScriptKey,
+    RecordScript,
+    Map,
     EsxdosStub,
     EsxdosStubRoot,
     EsxdosStubWritable,
@@ -690,6 +697,29 @@ inline constexpr Option OPTIONS[] = {
       "A numeric IP, never a name. A non-loopback address exposes the\n"
       "debugger to the network: none of its protocols has any\n"
       "authentication. Refused unless a server port is given." },
+    // GH #26 WP4 — the debugger scripting language (dsl-frontend.md §6.6).
+    // Accepted by every build: the engine has no toolkit dependency.
+    { "--script", 1, Doc::Documented, OptId::Script,
+      "FILE",
+      "Load a debugger script (.jds); repeatable, runs in the\n"
+      "order given. In --headless a script `stop` or failed\n"
+      "`assert` exits 3, `exit N` exits N, an error exits 1." },
+    { "--script-key", 2, Doc::Documented, OptId::ScriptKey,
+      "FRAME N",
+      "Deliver script host key N (1-8) at emulated frame FRAME\n"
+      "(headless only, repeatable): a `hostkey N` rule runs at\n"
+      "the end of frame FRAME." },
+    // GH #26 WP6 / #20 — the recorder (dsl-frontend.md §7, Appendix L).
+    { "--record-script", 1, Doc::Documented, OptId::RecordScript,
+      "FILE",
+      "Record the session as a replay script: input edges per\n"
+      "frame, and a screen capture at each Alt+8 (or --script-key\n"
+      "FRAME 8). FILE is written when jnext exits; replay it\n"
+      "with --headless --script FILE." },
+    { "--map", 1, Doc::Documented, OptId::Map,
+      "FILE",
+      "Load a z88dk .map symbol table, for `@symbol` in scripts\n"
+      "and for the debugger (the same table Map > Load MAP fills)." },
     { "--magic-port", 1, Doc::Documented, OptId::MagicPort,
       "PORT",
       "Enable magic debug port at PORT (hex, e.g. 0x00FF)" },
@@ -811,6 +841,26 @@ inline bool parse_snapshot_compression(const char* state, bool& uncompressed) {
     if (std::strcmp(state, "on")  == 0) { uncompressed = false; return true; }
     if (std::strcmp(state, "off") == 0) { uncompressed = true;  return true; }
     return false;
+}
+
+/// GH #26 WP4 — `--script-key FRAME N` (dsl-frontend.md §6.6). FRAME a whole
+/// number 0..2^31-1, N a host key 1..8, both in full: `7x` is not 7. A key
+/// that silently became another, or a frame that became 0, would fire a
+/// different rule at a different time than the one asked. Returns false and
+/// leaves the outputs UNTOUCHED on any malformed value.
+inline bool parse_script_key(const char* frame_s, const char* key_s, uint32_t& frame, int& key) {
+    if (frame_s == nullptr || key_s == nullptr) return false;
+    char* end = nullptr;
+    errno = 0;
+    const long f = std::strtol(frame_s, &end, 10);
+    if (errno != 0 || end == frame_s || *end != '\0' || f < 0 || f > 0x7FFFFFFFL) return false;
+    end = nullptr;
+    errno = 0;
+    const long k = std::strtol(key_s, &end, 10);
+    if (errno != 0 || end == key_s || *end != '\0' || k < 1 || k > 8) return false;
+    frame = static_cast<uint32_t>(f);
+    key   = static_cast<int>(k);
+    return true;
 }
 
 // The one option that also accepts an inline value (`--log-level=warn`). It

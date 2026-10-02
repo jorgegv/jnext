@@ -251,7 +251,7 @@ private:
     /// Out-of-line: latch one of the three sub-kinds. `hc_ula` and `cvc` are
     /// execute()'s own two arguments — the counters the Copper compares
     /// against, NOT the raw frame counters (GH #181).
-    void latch_move_(uint8_t reg, uint8_t val, int hc_ula, int cvc);
+    void latch_move_(uint8_t reg, uint8_t val, uint8_t prev, int hc_ula, int cvc);
     void latch_wait_(int vpos, int hthresh, int hc_ula, int cvc);
     void latch_halt_(int hc_ula, int cvc);
 };

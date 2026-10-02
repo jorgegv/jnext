@@ -898,6 +898,26 @@ static void stop_mid_frame_at_call(Emulator& emu, Debugger& dbg, ClientId a) {
 
 static void b4_capture_state_rows() {
     {
+        // GH #26 WP9 — the joystick and sprite-pattern MUTATE lines printed a
+        // DECIMAL value after "0x" (a joystick 0x10 logged as "0x16").
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("A")).value;
+        RecListener l;
+        dbg.set_listener(a, &l);
+        const uint8_t pat[2] = {0x11, 0x22};
+        const Result rj = dbg.set_joystick(a, jnext::dbg::JoystickSide::Left, 0x10);
+        const Result rp = dbg.write_pattern_ram(a, 0x100, pat, 2);
+        const auto lines = mutate_lines(l);
+        const std::string by = " by " + std::to_string(a);
+        check("MUT-HEX-01", "the joystick and sprite-pattern MUTATE lines print their values in hex: "
+                            "`joystick left = 0x010`, `sprite pattern 0x0100`",
+              rj == Result::Ok && rp == Result::Ok && lines.size() == 2 &&
+                  lines[0] == "MUTATE joystick left = 0x010" + by &&
+                  lines[1] == "MUTATE sprite pattern 0x0100 2 bytes" + by,
+              lines.empty() ? std::string("no MUTATE line") : lines.front() + " | " + lines.back());
+    }
+    {
         Emulator emu; build(emu);
         Debugger dbg(emu);
         emu.mmu().write(0x4000, 0x81);    // first pixel byte
@@ -3894,6 +3914,71 @@ static void b5_payload_rows() {
                   byte.evs[0].value == 0x42,
               "n=" + std::to_string(byte.evs.size()));
     }
+    {
+        // GH #26 WP3 (DSL finding F1): Dma{Start} carries the I/O endpoints too,
+        // in the direction the block runs. The PL-PORT-01 transfer (RAM port A
+        // -> I/O port B), then the same ports run B -> A (R0 bit 2 clear), and a
+        // memory-to-memory block.
+        auto start_io = [](uint8_t r0, uint8_t r2, bool& src, bool& dst, size_t& n) {
+            Emulator emu; b5_build(emu, { 0x18, 0xFE });
+            Debugger dbg(emu);
+            const ClientId a = dbg.attach(client("B5")).value;
+            emu.nextreg().select(0x16);
+            emu.mmu().write(0xA000, 0x42);
+            Rec st;
+            Subscription s;
+            s.kind = EventKind::Dma; s.filter.dma_kind = jnext::dbg::DmaEventKind::Start;
+            s.action = Action::Continue; s.handler = recorder(st);
+            dbg.subscribe(a, s);
+            Dma& d = emu.dma();
+            auto w = [&](uint8_t v) { d.write(v, false); };
+            w(r0); w(0x00); w(0xA0); w(0x01); w(0x00);
+            w(0x14);                         // R1 port A = memory, inc
+            w(r2);                           // R2 port B
+            w(0xAD); w(0x3B); w(0x25);       // R4 mode + port B = 0x253B
+            w(0xCF); w(0x87);                // R6 LOAD, R6 ENABLE
+            emu.run_frame();
+            n   = st.evs.size();
+            src = n ? st.evs[0].dma_is_io_src : false;
+            dst = n ? st.evs[0].dma_is_io_dst : false;
+        };
+        bool src = false, dst = false;
+        size_t n = 0;
+        start_io(0x7D, 0x28, src, dst, n);
+        check("PL-DMA-IO-01", "Dma{Start} of a memory -> I/O block flags the DESTINATION as I/O "
+                              "and not the source (DSL finding F1)",
+              n >= 1 && dst && !src, "n=" + std::to_string(n));
+        start_io(0x79, 0x28, src, dst, n);
+        check("PL-DMA-IO-02", "the same ports run B -> A: the SOURCE is the I/O side",
+              n >= 1 && src && !dst, "n=" + std::to_string(n));
+        start_io(0x7D, 0x10, src, dst, n);
+        check("PL-DMA-IO-03", "a memory -> memory block flags neither",
+              n >= 1 && !src && !dst, "n=" + std::to_string(n));
+    }
+    {
+        // GH #26 WP3: the NextRegWrite a Copper MOVE fans out to carries `prev`,
+        // the register's byte before the MOVE, exactly as a CPU write's does
+        // (the DSL's §8 post-commit contract). It was always 0.
+        Emulator emu; b5_build(emu, { 0x18, 0xFE });
+        Debugger dbg(emu);
+        const ClientId a = dbg.attach(client("B5")).value;
+        emu.nextreg().write(0x7F, 0x3C);
+        Rec nr;
+        Subscription s;
+        s.kind = EventKind::NextRegWrite; s.filter.regs = {0x7F};
+        s.action = Action::Continue; s.handler = recorder(nr);
+        dbg.subscribe(a, s);
+        copper_program(emu, { move_word(0x7F, 0x44), HALT_WORD });
+        copper_start(emu);
+        emu.run_frame();
+        check("PL-NR-COPPER-PREV", "a Copper MOVE's NextRegWrite carries `prev` — the register's "
+                                   "byte before the MOVE — as a CPU write's does",
+              nr.evs.size() == 1 && nr.evs[0].source == EventSource::Copper &&
+                  nr.evs[0].value == 0x44 && nr.evs[0].prev == 0x3C,
+              nr.evs.empty() ? "n=0"
+                             : "n=" + std::to_string(nr.evs.size()) + " value=" +
+                                   hex(nr.evs[0].value) + " prev=" + hex(nr.evs[0].prev));
+    }
     // §4.3 Dma: "`Start`/`End`: src, dst, length, direction, mode, bytes" —
     // direction and mode were never read. R0 bit 2 is the A->B flag and R4 bits
     // 6:5 the transfer mode (00 byte, 01 continuous, 10 burst — dma.vhd's
@@ -5345,7 +5430,9 @@ static void q_wp7_raster_rows() {
     }
     {
         // And RUNNING, the query leaves the last pause's snapshot alone, as the
-        // Qt refresh (which took it only while paused) always did.
+        // Qt refresh (which took it only while paused) always did — but it
+        // REPORTS where the beam is now, from the clock (GH #26 WP9: a script's
+        // RAW_VC / CVC in a `scanline` rule read the last pause's constant).
         Emulator emu; build(emu);
         Debugger dbg(emu);
         emu.run_frame();
@@ -5353,15 +5440,21 @@ static void q_wp7_raster_rows() {
         emu.snapshot_raster();                        // "the last pause"
         const int kept_vc = emu.paused_vc(), kept_hc = emu.paused_hc();
         for (int i = 0; i < 400; ++i) emu.execute_single_instruction();
+        const uint64_t elapsed = emu.clock().get() - emu.current_frame_cycle();
+        const uint64_t mcl     = emu.timing().master_cycles_per_line;
+        const int now_vc = static_cast<int>(elapsed / mcl);
+        const int now_hc = static_cast<int>((elapsed % mcl) / 4);
         const auto ras = dbg.raster();
-        (void)dbg.time();
-        check("INS-06-04", "while running, raster() and time() do not move the last "
-                           "pause's snapshot",
-              !emu.debug_state().paused() && ras.raw_vc == kept_vc &&
-                  ras.raw_hc == kept_hc && emu.paused_vc() == kept_vc &&
-                  emu.paused_hc() == kept_hc,
-              "kept " + std::to_string(kept_vc) + "/" + std::to_string(kept_hc) + " raster " +
-                  std::to_string(ras.raw_vc) + "/" + std::to_string(ras.raw_hc));
+        const auto t   = dbg.time();
+        check("INS-06-04", "while running, raster() and time() report the live position "
+                           "from the clock and do not move the last pause's snapshot",
+              !emu.debug_state().paused() && (now_vc != kept_vc || now_hc != kept_hc) &&
+                  ras.raw_vc == now_vc && ras.raw_hc == now_hc && t.vc_raw == now_vc &&
+                  t.hc_raw == now_hc && emu.paused_vc() == kept_vc && emu.paused_hc() == kept_hc,
+              "kept " + std::to_string(kept_vc) + "/" + std::to_string(kept_hc) + " now " +
+                  std::to_string(now_vc) + "/" + std::to_string(now_hc) + " raster " +
+                  std::to_string(ras.raw_vc) + "/" + std::to_string(ras.raw_hc) + " time " +
+                  std::to_string(t.vc_raw) + "/" + std::to_string(t.hc_raw));
     }
 }
 
@@ -7167,6 +7260,67 @@ int main() {
               std::string(jnext::dbg::result_name(zero.status)) + " " +
                   std::to_string(zero.value));
         std::remove(consts.c_str());
+    }
+    {
+        // GH #26 WP7 / #279 — ChaseTheBug's code range ends at the crt's
+        // `__data_crt_head`, which a z88dk MAP writes as a `; const`. The
+        // lines below are verbatim from a real map (dsl_demo.map).
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const std::string map_path = tmp_file("wp7_crt", ".map");
+        {
+            std::ofstream f(map_path);
+            f << "__data_crt_head                 = $82E8 ; const, public, def, , ,\n"
+                 "__code_user_size                = $9000 ; const, public, def, , ,\n"
+                 "main_loop                       = $8134 ; addr, public, , dsl_demo_asm, code_user, dsl_demo.asm:116\n";
+        }
+        const auto loaded = dbg.load_map(map_path, jnext::dbg::MapFormat::Z88dk);
+        const auto head   = dbg.lookup_name("__data_crt_head");
+        check("SYM-11", "a z88dk `; const` symbol (`__data_crt_head = $82E8 ; const, …`) resolves BY NAME "
+                        "— what a script's `@__data_crt_head` reads — while load_map() counts only the "
+                        "`; addr` ones",
+              loaded.status == Result::Ok && loaded.value == 1 && head && *head == 0x82E8 &&
+                  dbg.lookup_name("main_loop") && *dbg.lookup_name("main_loop") == 0x8134,
+              std::to_string(loaded.value));
+        // 0x8002 is `CALL 0x9000`: 0x9000 is a const's VALUE (a size), not an address.
+        const auto dis = dbg.disassemble(PROG + 2, 1, &dbg.symbols());
+        check("SYM-12", "and a const never names an ADDRESS: lookup() of its value finds nothing, "
+                        "symbols() holds only the `; addr` symbol, the disassembler leaves CALL 0x9000 "
+                        "alone; clear_symbols() forgets it",
+              !dbg.lookup(0x82E8) && !dbg.lookup(0x9000) && dbg.symbols().size() == 1 &&
+                  std::string(dis[0].mnemonic).find("__code_user_size") == std::string::npos &&
+                  std::string(dis[0].mnemonic).find("9000") != std::string::npos &&
+                  dbg.clear_symbols() == Result::Ok && !dbg.lookup_name("__data_crt_head"),
+              dis[0].mnemonic);
+        std::remove(map_path.c_str());
+    }
+    {
+        // GH #26 WP7 review round 2 (C5) — a name defined twice. The rule is
+        // the one `; addr` symbols already followed: the FIRST definition wins,
+        // for a const as for an address; and a name that is both is the
+        // address (lookup_name() consults the addresses first).
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const std::string map_path = tmp_file("c5_dup", ".map");
+        {
+            std::ofstream f(map_path);
+            f << "dup_const                       = $1000 ; const, public, def, , ,\n"
+                 "dup_const                       = $2000 ; const, public, def, , ,\n"
+                 "dup_addr                        = $8100 ; addr, public, , m, code_user, m.asm:1\n"
+                 "dup_addr                        = $8200 ; addr, public, , m, code_user, m.asm:2\n"
+                 "both                            = $4000 ; const, public, def, , ,\n"
+                 "both                            = $8300 ; addr, public, , m, code_user, m.asm:3\n";
+        }
+        (void)dbg.load_map(map_path, jnext::dbg::MapFormat::Z88dk);
+        const auto c = dbg.lookup_name("dup_const");
+        const auto a = dbg.lookup_name("dup_addr");
+        const auto b = dbg.lookup_name("both");
+        check("SYM-13", "a name a MAP defines twice resolves to its FIRST definition, a `; const` as an "
+                        "`; addr` (0x1000, 0x8100); a name that is both a const and an address is the address",
+              c && *c == 0x1000 && a && *a == 0x8100 && b && *b == 0x8300,
+              (c ? std::to_string(*c) : std::string("-")) + " " + (a ? std::to_string(*a) : std::string("-")) +
+                  " " + (b ? std::to_string(*b) : std::string("-")));
+        std::remove(map_path.c_str());
     }
 
     // =======================================================================

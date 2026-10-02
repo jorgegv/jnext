@@ -60,6 +60,8 @@ my %SECTION_LINK = (
     'LOGGING' =>
         '[the LOGGING section of the man page]'
         . '(https://github.com/jorgegv/jnext/blob/main/USAGE.md#logging)',
+    'SCRIPTING' =>
+        '[Debugger scripting](../06-debugger/scripting/index.md)',
 );
 
 sub fail { die "gen-userguide-cli: $_[0]\n" }

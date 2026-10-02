@@ -310,7 +310,7 @@ on copper move 0x43 do
 end
 on copper wait when WAIT_V == 95 do
     log "WAIT(95,${WAIT_H}) satisfied at cvc ${CVC} hc_ula ${HC_ULA}"
-    assert CVC == 96 "WAIT for line 95 must be satisfied in the blanking before line 96 (GH #181)"
+    assert CVC == 95 and HC_ULA >= WAIT_H "WAIT for line 95 is satisfied on the Copper's own line 95, at or past its threshold (GH #181)"
 end
 on copper halt once do log "copper HALT at ${CPC}" end
 )JDS";
@@ -1568,8 +1568,9 @@ static void payload_rows() {
          {"CPC", "WAIT_V", "WAIT_H"}},
         {"PAY-COPPER-HALT", "copper halt: CPC", PayloadScope::copper_sub(CopperEventKind::Halt), {"CPC"}},
         {"PAY-DMA-BARE", "a bare Dma scope: SRC DST", PayloadScope(EventKind::Dma), {"SRC", "DST"}},
-        {"PAY-DMA-START", "dma start: SRC DST LEN DMA_MODE", PayloadScope::dma_sub(DmaEventKind::Start),
-         {"SRC", "DST", "LEN", "DMA_MODE"}},
+        {"PAY-DMA-START", "dma start: SRC DST LEN DMA_MODE IO_SRC IO_DST (F1: the backend fills the I/O "
+         "flags on Start since WP3)", PayloadScope::dma_sub(DmaEventKind::Start),
+         {"SRC", "DST", "LEN", "DMA_MODE", "IO_SRC", "IO_DST"}},
         {"PAY-DMA-BYTE", "dma byte: SRC DST VALUE IO_SRC IO_DST", PayloadScope::dma_sub(DmaEventKind::Byte),
          {"SRC", "DST", "VALUE", "IO_SRC", "IO_DST"}},
         {"PAY-DMA-END", "dma end: SRC DST LEN DMA_MODE", PayloadScope::dma_sub(DmaEventKind::End),
@@ -1920,11 +1921,9 @@ static void work_rows() {
     {
         const ParseResult r = P(S3F_DMA);
         const auto errs = P_check(S3F_DMA);
-        check("WORK-3F-DMA", "§3(f) dma.jds PARSES (start/byte/end); its check reports exactly one error — "
-              "`IO_DST` read in a `dma start` rule, which the backend's Start payload does not carry "
-              "(a design finding, see dsl-frontend.md \"WP1 as built\")",
-              r.ok() && r.script.rules.size() == 3 && r.script.rules[2].event.dma == DmaSub::End &&
-                  one_err_at(errs, 3, 75, "`IO_DST` is event payload and is not available in a `dma start` event"),
+        check("WORK-3F-DMA", "§3(f) dma.jds parses (start/byte/end) and checks: `IO_DST` in the `dma start` rule "
+              "is legal since the backend fills the I/O flags on Start (WP1 finding F1, resolved in WP3)",
+              r.ok() && r.script.rules.size() == 3 && r.script.rules[2].event.dma == DmaSub::End && errs.empty(),
               dstr(r.error) + " " + dstr(errs));
     }
     {

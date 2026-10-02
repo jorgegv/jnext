@@ -42,6 +42,7 @@
 #include "remote/zrcp/zrcp_condition.h"
 #include "remote/zrcp/zrcp_format.h"
 #include "remote/zrcp/zrcp_server.h"
+#include "script/script_engine.h"
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
@@ -1704,6 +1705,36 @@ static void run_limit_rows() {
                   r.find("Returning") == std::string::npos,
               esc(r));
         rig.dbg->detach(other);
+    }
+    {
+        // Cross-package (gh26-dsl x main v1.0.64): a debugger SCRIPT's stop
+        // rule on an execute address is a breakpoint a ZRCP `run n` honours —
+        // when its condition holds there; with the condition false the count
+        // runs out.
+        auto run_with = [](uint8_t a, uint16_t& pc_after) {
+            Rig rig;
+            load_nops(rig, 10);
+            jnext::script::ScriptEngine eng(*rig.dbg);
+            eng.load("on execute 0x8003 when A == 0x42 do stop \"script bp\" end\n", "bp.jds");
+            Z80Registers regs = rig.emu.cpu().get_registers();
+            regs.AF = static_cast<uint16_t>((a << 8) | (regs.AF & 0xFF));
+            rig.emu.cpu().set_registers(regs);
+            Zc c(rig);
+            c.cmd("enter-cpu-step");
+            const std::string r = c.cmd("run 8");
+            pc_after = rig.pc();
+            return r;
+        };
+        uint16_t pc_hit = 0, pc_miss = 0;
+        const std::string hit  = run_with(0x42, pc_hit);
+        const std::string miss = run_with(0x00, pc_miss);
+        check("ZRCP-RUN-SCRIPT", "run 8 stops on landing at 8003 where a debugger script has a stop rule "
+                                 "whose condition holds (A == 0x42), 8003 not yet executed; with the "
+                                 "condition false it runs all 8 opcodes",
+              pc_hit == PROG + 3 && is_stop_shape(hit.substr(hit.find("PC=")), PROG + 3) &&
+                  hit.find("Returning") == std::string::npos && pc_miss == PROG + 8 &&
+                  miss.find("Returning after 8 opcodes") != std::string::npos,
+              esc(hit) + " | " + esc(miss));
     }
 }
 

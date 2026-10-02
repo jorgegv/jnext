@@ -15,7 +15,12 @@
 //   * a `var` declared twice; a variable used or `set` but never declared;
 //   * an unknown snapshot field (`NAME.XYZ`), `MMU` without an index or
 //     another field with one;
-//   * with a resolver in `CheckOptions`, an `@symbol` no loaded MAP defines.
+//   * with a resolver in `CheckOptions`, an `@symbol` no loaded MAP defines;
+//   * a `var` initializer reading a variable declared AFTER it (initializers
+//     run in declaration order at load time — evaluator.h `init_vars`);
+//   * a TYPE error (value.h): a string in arithmetic or in a condition, a
+//     string compared with an integer, a string where the grammar needs a
+//     value, a format on a string interpolation.
 //
 // SCOPE OF ONE CALL: one script text. How several `--script` files share
 // labels, variables and snapshot names is the loader's decision (WP3); it can
@@ -25,10 +30,14 @@
 // the scope it appears in (`Expr::builtin`): `PC` in an event rule is the
 // payload PC, `CVC` in a `copper` rule is the Copper step's line, and so on
 // (§2.3). Filter bounds and `var` initializers bind in the `None` scope — they
-// are evaluated at registration, with no event.
+// are evaluated at registration, with no event. Every expression gets its
+// static type (`Expr::type`), every variable reference its slot, and every
+// snapshot name — in an expression or an action — its stack's slot, the
+// stacks being listed in `Script::snapshots` (state.h).
 // ---------------------------------------------------------------------------
 
-#include <set>
+#include <limits>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -56,14 +65,27 @@ std::vector<Diagnostic> check_script(Script& script, const CheckOptions& opts = 
 /// `scope`. The table §5.4's per-kind check reads.
 bool payload_legal(Builtin payload, const PayloadScope& scope);
 
-/// Bind one expression for `scope` — the building block `check_script` and
-/// `compile_expr` share. `vars` is the script's declared variables, or null
-/// when there is no script (then a variable, a snapshot form or a string is an
-/// error: see expr_compiler.h). With `require_symbols`, an `@symbol` that
+/// The names a script declares, as binding needs them: variables and snapshot
+/// stacks, each with its slot (ast.h `Expr::slot`).
+struct ScriptNames {
+    std::map<std::string, int> vars;   ///< variable -> slot (its index in `Script::vars`)
+    /// A `var` initializer sees only the variables declared before it: slots
+    /// below this. Unlimited everywhere else.
+    int visible_vars = std::numeric_limits<int>::max();
+    std::map<std::string, int> snaps;  ///< snapshot stack -> slot
+    std::vector<std::string>   snap_order;
+    /// The slot of snapshot stack `name`, created on first use.
+    int snapshot_slot(const std::string& name);
+};
+
+/// Bind one expression for `scope` and return its static type — the building
+/// block `check_script` and `compile_expr` share. `names` is the script's, or
+/// null when there is no script (then a variable, a snapshot form or a string
+/// is an error: see expr_compiler.h). With `require_symbols`, an `@symbol` that
 /// `symbols` cannot resolve — or any, when `symbols` is empty — is an error.
-void bind_expr(Expr& e, const PayloadScope& scope, const std::set<std::string>* vars,
-               const SymbolResolver& symbols, bool require_symbols,
-               std::vector<Diagnostic>& errors);
+ValueType bind_expr(Expr& e, const PayloadScope& scope, ScriptNames* names,
+                    const SymbolResolver& symbols, bool require_symbols,
+                    std::vector<Diagnostic>& errors);
 
 }  // namespace script
 }  // namespace jnext

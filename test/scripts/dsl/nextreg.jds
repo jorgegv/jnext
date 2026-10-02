@@ -1,0 +1,37 @@
+# nextreg.jds — #279's MMU0/MMU1 consistency check on every NR 0x51 write
+# (dsl-frontend.md §3(b)): MMU1 must be MMU0 + 1, or both 0xFF (the ROM).
+# `nextreg[0x50]` is read when the 0x51 write is delivered (after its commit,
+# with the previous NEXTREG 0x50 committed too).
+#
+# Run from the repository root:
+#   build/jnext --headless --machine next --load test/00regression/nex/dsl_demo.nex \
+#       --map test/00regression/nex/dsl_demo.map --script test/scripts/dsl/nextreg.jds \
+#       --delayed-automatic-exit-frames 900
+#   exit 0, log line:  PASS nextreg: MMU1 followed MMU0 on every NR 0x51 write
+# Against dsl_demo_buggy.nex (MMU1 = 0x24 after MMU0 = 0x22, at @page_in_level_mmu1):
+#   exit 3, log lines: MMU0 is 22 whereas MMU1 write is 24 (src 0, PC 818B)
+#                      SCRIPT STOP: MMU1 inconsistent with MMU0 at PC=818B ...
+# 0x818B is @page_in_level_mmu1, the NEXTREG 0x51 instruction itself. The row
+# (script-mmu-func) also injects the fault into the GOOD build with a script
+# mutation upstream of the watched write; see its header.
+
+var armed = 0
+
+disabled mmu_guard: on nextreg 0x51 when not ((nextreg[0x50] + 1 == VALUE) or (nextreg[0x50] == 0xFF and VALUE == 0xFF)) do
+    log "MMU0 is ${nextreg[0x50]:x2} whereas MMU1 write is ${VALUE:x2} (src ${SOURCE}, PC ${PC:x4})"
+    stop "MMU1 inconsistent with MMU0"
+end
+
+on nextreg 0x51 when armed == 1 do
+    log "MMU1 write ${VALUE:x2} after MMU0 ${nextreg[0x50]:x2} at PC ${PC:x4}"
+end
+
+on execute @main_loop once when mem16[@magic] == 0xD5D5 do
+    enable mmu_guard
+    set armed = 1
+end
+
+on execute @main_loop once when mem16[@magic] == 0xD5D5 and mem[@frames] >= 64 do
+    log "PASS nextreg: MMU1 followed MMU0 on every NR 0x51 write"
+    exit 0
+end

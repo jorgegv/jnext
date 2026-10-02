@@ -10,6 +10,7 @@
 #include "debug/debugger.h"
 #include "platform/host_probe.h"
 #include "platform/debug_servers.h"
+#include "script/script_host.h"
 #include "input/gamepad_host.h"
 #include "platform/frame_sequencer.h"
 #include "platform/host_key_latch.h"
@@ -190,6 +191,10 @@ private:
     // unregisters from the Debugger it was started on (platform/debug_servers.h).
     DebugServers              debug_servers_;
     jnext::dbg::ServiceHint   pump_hint_;
+    // GH #26 WP4 — `--script` / `--script-key` / `--map` (script/script_host.h).
+    // Declared AFTER debugger_ so it is destroyed FIRST: its engine and its
+    // listener detach from the Debugger they were started on.
+    jnext::script::ScriptHost script_host_;
 
     // QApplication holds a reference to argc (and may write through it), so the
     // storage must outlive it — init()'s own parameters do not.

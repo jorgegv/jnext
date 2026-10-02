@@ -250,7 +250,7 @@ void Copper::execute(int hc, int vc, NextReg& nextreg, uint8_t cvc_offset) {
             // Latched BEFORE the write so `prev` is the byte that was there —
             // the same rule the CPU-side hook follows.
             if (move_events_armed_ && debug_state_->armed())
-                latch_move_(reg, val, hc, cvc_this_cycle);
+                latch_move_(reg, val, nextreg.peek(reg), hc, cvc_this_cycle);
             // UNCONDITIONAL, not gated on events_armed_: the NR-side hook's
             // suppression reads this, and a MOVE that forgot to set it would
             // put a SECOND entry in the ring for the same write.
@@ -446,7 +446,7 @@ void Copper::load_state(StateReader& r)
 // GH #181 and the payload keeps them separate for that reason.
 // ---------------------------------------------------------------------------
 
-void Copper::latch_move_(uint8_t reg, uint8_t val, int hc_ula, int cvc) {
+void Copper::latch_move_(uint8_t reg, uint8_t val, uint8_t prev, int hc_ula, int cvc) {
     jnext::dbg::LatchEntry e;
     e.kind        = jnext::dbg::EventKind::Copper;
     e.sub_kind    = static_cast<uint8_t>(jnext::dbg::CopperEventKind::Move);
@@ -454,6 +454,10 @@ void Copper::latch_move_(uint8_t reg, uint8_t val, int hc_ula, int cvc) {
     e.addr        = pc_;
     e.reg         = reg;
     e.value       = val;
+    // The register's byte BEFORE the MOVE, peeked side-effect-free as the
+    // CPU-side hook does (NextReg::latch_nr_write_), so the fanned-out
+    // `NextRegWrite{source=Copper}` carries `prev` too (GH #26 WP3).
+    e.prev        = prev;
     e.hc_ula      = static_cast<int16_t>(hc_ula);
     e.cvc         = static_cast<int16_t>(cvc);
     debug_state_->latch_event(e);

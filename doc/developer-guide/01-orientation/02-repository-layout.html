@@ -845,6 +845,8 @@
       
         
       
+        
+      
     
     
     
@@ -1217,6 +1219,34 @@
     
   
     3.12 The ZRCP server (ZEsarUX's protocol)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-subsystems/13-the-debugger-scripting-language.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.13 The debugger scripting language
   
 
     
@@ -2033,7 +2063,7 @@ profiler — surround the emulation rather than being part of it.</p>
 </tr>
 <tr>
 <td><code>script/</code></td>
-<td>The debugger scripting language, <code>.jds</code> (<code>jnext_script</code>): lexer, parser, load-time checks, and the expression compiler as a library (<code>compile_expr</code> / <code>eval_expr</code>). Qt-free, over the <code>jnext::dbg::Debugger</code> facade only. Nothing in the shipped binary uses it yet (see 3.9).</td>
+<td>The debugger scripting language, <code>.jds</code> (<code>jnext_script</code>): lexer, parser, load-time checks, the expression compiler as a library (<code>compile_expr</code> / <code>eval_expr</code>), the engine that runs scripts as backend subscriptions, the loop owners' <code>ScriptHost</code> (<code>--script</code>, <code>--script-key</code>, <code>--map</code>, <code>--record-script</code>) and the GH #20 recorder. Qt-free, over the <code>jnext::dbg::Debugger</code> facade only (see 3.13).</td>
 </tr>
 <tr>
 <td><code>esp01/</code></td>

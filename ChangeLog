@@ -8,6 +8,7 @@
 
 ### Developer Features
 - Debug programs from z88dk-gdb: `--gdb-port` serves the GDB remote protocol, with Next state via `monitor`
+- Debugger scripts: `--script` runs `.jds` rules on CPU, memory, port, NextREG, Copper and DMA events; exit status is the verdict
 - Debug programs from DeZog's `zrcp` remote or telnet: `--zrcp-port` speaks ZEsarUX's protocol, with breakpoints, history and coverage
 - Debugger Memory panel shows a slot's real page, with no DivMMC/Multiface/Layer 2 overlay, and any page via Page...
 

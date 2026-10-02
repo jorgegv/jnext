@@ -1,0 +1,33 @@
+# mutation.jds — a script that CHANGES the machine (dsl-frontend.md §2.7): it
+# skips an instruction by moving PC, and patches a byte. Every such write is a
+# backend `MUTATE` line in the log.
+#
+#   * at every `trap_insn` (LD (trap_target),A with A = 0xEE): PC += 3, so the
+#     instruction never runs and `trap_target` stays 0;
+#   * once: `patch_byte` = 0x5A, which the program copies to `patch_copy`.
+#
+# Run from the repository root:
+#   build/jnext --headless --machine next --load test/00regression/nex/dsl_demo.nex \
+#       --map test/00regression/nex/dsl_demo.map --script test/scripts/dsl/mutation.jds \
+#       --delayed-automatic-exit-frames 900
+#   exit 0, log lines: MUTATE mem cpu:0x843C 0x0 -> 0x5A by 2
+#                      MUTATE reg PC 0x816C -> 0x816F by 2   (once a frame)
+#                      PASS mutation: trap skipped, patch copied
+# Against dsl_demo_buggy.nex (a second LD (trap_target),A right after the trap):
+#   exit 3, log lines: ASSERT FAILED: the trapped write never happened
+#                      SCRIPT EXIT 0 not taken: "the trapped write never happened" failed at the same boundary (exit 3)
+
+on execute @trap_insn when mem16[@magic] == 0xD5D5 do
+    set PC = PC + 3
+end
+
+on execute @main_loop once when mem16[@magic] == 0xD5D5 do
+    set mem[@patch_byte] = 0x5A
+end
+
+on execute @main_loop once when mem16[@magic] == 0xD5D5 and mem[@frames] >= 64 do
+    assert mem[@trap_target] == 0 "the trapped write never happened"
+    assert mem[@patch_copy] == 0x5A "the program copied the patched byte"
+    log "PASS mutation: trap skipped, patch copied"
+    exit 0
+end

@@ -32,6 +32,8 @@ namespace jnext { namespace dbg { class Debugger; } }
 /// or F2 key. The EmulatorWidget is always an exact integer multiple of
 /// 640×512 (in-memory 640×256 framebuffer with vertical 2× scaling — square
 /// pixels for 4:3 CRT-faithful geometry, G104 Phase 7).
+namespace jnext { namespace script { class ScriptHost; } }
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
@@ -50,6 +52,9 @@ public:
     /// it throws `std::logic_error` — a window with no debugger is a wiring
     /// error, never a quiet state.
     void set_debugger(jnext::dbg::Debugger* dbg) { debugger_ = dbg; }
+    /// GH #26 WP5 — the loop owner's script host, for the debugger window's
+    /// Script tab. Before or after set_emulator(); null = no scripting.
+    void set_script_host(jnext::script::ScriptHost* host);
 
     /// Set the emulator pointer for direct callbacks.
     /// When ENABLE_DEBUGGER is defined, also creates the DebuggerManager (over
@@ -453,6 +458,7 @@ private:
     DebuggerManager* debugger_mgr_ = nullptr;
 #endif
     jnext::dbg::Debugger* debugger_ = nullptr;   // set_debugger()
+    jnext::script::ScriptHost* script_host_ = nullptr;   // set_script_host(), GH #26 WP5
 
     // Debugger toggle action (in View menu)
     QAction* debugger_action_ = nullptr;

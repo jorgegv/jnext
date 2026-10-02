@@ -765,6 +765,8 @@
       
         
       
+        
+      
     
     
     
@@ -1223,6 +1225,34 @@
     
   
     3.12 The ZRCP server (ZEsarUX's protocol)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="13-the-debugger-scripting-language.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.13 The debugger scripting language
   
 
     
@@ -2048,7 +2078,9 @@ facade's (CAP-SYM) and the Magic Breakpoint item arms it through CTL-14. Since
 WP7 nothing in <code>src/debugger/</code> holds an <code>Emulator</code> at all: the last reach, the
 raster snapshot the manager took before a paused refresh, is the backend's —
 <code>raster()</code> and <code>time()</code> take a paused machine's snapshot at the query, for every
-client.</p>
+client. Running, they report the live beam from the clock and leave that
+snapshot alone (GH #26 WP9: a script's <code>CVC</code> in a <code>scanline</code> rule used to read
+the last pause's value).</p>
 <h3 id="the-event-pipeline-b2">The event pipeline (B2)<a class="headerlink" href="#the-event-pipeline-b2" title="Permanent link">&para;</a></h3>
 <p>Today's event vocabulary is "a PC breakpoint, a watchpoint, one one-shot, and
 nothing is conditional". B2 replaces it with the fourteen kinds of §4.3 of the
@@ -2368,7 +2400,11 @@ something else is a trap for whoever wrote it — and the §4.8 override
 (<code>ExitNonZero</code> becomes <code>Pause</code> while a remote client is <em>connected</em>, so a client
 blocked on <code>run</code> gets its stop reply) lives at the one place the policy is
 consumed. The exit code with no script to name one is <strong>3</strong>: never 2, which both
-harnesses use for a harness fault, and 1 stays "jnext could not run".</p>
+harnesses use for a harness fault, and 1 stays "jnext could not run". The
+backend logs that request at info and neutrally (<code>… — asking the loop owner to
+exit</code>): a script's own <code>exit n</code> stops the machine too, and only the listener
+that decides — <code>ScriptHost</code>'s — knows which code is taken, so it logs the
+<code>requesting exit 3</code> warning when it is the stop's (GH #26 WP9).</p>
 <p>An explicit <code>pause()</code> is a stop that drops the transient subscriptions but is
 <strong>not</strong> an <code>Action::Stop</code>, so it never requests an exit. One function serves both
 with a parameter, so the two arms stay next to each other.</p>
@@ -2716,52 +2752,20 @@ in <code>main.cpp</code> and held in <code>EmulatorConfig::debug_listen_address<
 to bind; it is refused unless a server port (<code>--dzrp-port</code>, <code>--gdb-port</code> or
 <code>--zrcp-port</code>) is given too. The design, and the reason behind each rule above, is
 <code>doc/design/debug-subsystem/transport.md</code>.</p>
-<h3 id="the-scripting-language-front-end-package-s">The scripting language front end (package S)<a class="headerlink" href="#the-scripting-language-front-end-package-s" title="Permanent link">&para;</a></h3>
+<h3 id="the-scripting-language-package-s">The scripting language (package S)<a class="headerlink" href="#the-scripting-language-package-s" title="Permanent link">&para;</a></h3>
 <p>The debugger scripting language (<code>.jds</code>, GH #26) lives in <strong><code>src/script/</code></strong>
-(target <code>jnext_script</code>). Like <code>src/remote/</code> it has no toolkit dependency and is
-built in every configuration; it reads the machine only through the published
-<code>jnext::dbg::Debugger</code> facade, never through <code>Emulator</code>. As of its first work
-package it is a front end and a library: no script engine exists yet, and
-nothing in the shipped binary instantiates it.</p>
-<p>It is layered, each stage consuming only the one before it:</p>
-<ul>
-<li><code>lexer.*</code> — tokens. Comments are <code>;</code>, <code>//</code> and <code>#</code>; the bracketed
-  accessors (<code>mem[</code>, <code>page[</code>, <code>changed(</code>, …) are single tokens spelled with
-  their bracket, which is what tells the accessor <code>page[s]</code> from the <code>page</code>
-  of an address filter.</li>
-<li><code>parser.*</code> over <code>ast.h</code> — recursive descent over the grammar of record
-  (<code>doc/design/debug-subsystem/dsl-frontend.md</code> §2.1). It stops at the first
-  syntax error and reports it as <code>line:column: message</code>. It is also where
-  nesting is bounded: an expression tree at most 200 levels tall, <code>if</code>s nested
-  at most 64 deep, refused with a positioned error past that. A chain of
-  operators counts one level per operator, parentheses or not (the tree is
-  left-deep), so <code>a or b or …</code> stops at 200 terms. Every later pass
-  recurses over those trees and nothing else, so the bound made here is what
-  keeps a pathological script or ZRCP expression from overflowing the stack.</li>
-<li><code>check.*</code>, with <code>names.*</code> as the one table of reserved words, built-in state
-  names and payload names — the load-time checks, and BINDING: each upper-case
-  name is resolved to what it reads in its scope (<code>PC</code> is the causing
-  instruction's PC in an event rule and the CPU's PC elsewhere; <code>CPC</code> is legal
-  only in a <code>copper</code> rule). The per-kind payload table admits a name only where
-  the backend's <code>Event</code> actually carries it.</li>
-<li><code>evaluator.*</code> — the integer evaluator over a bound tree, reading through the
-  facade's const inspection surface (32-bit wrapping arithmetic; run-time
-  failures such as division by zero are reported, not thrown past the library).</li>
-<li><code>expr_compiler.h</code> — the stable public header other frontends call:
-  <code>compile_expr(text, scope)</code> returns the backend's CAP-EVT predicate
-  (<code>dbg::Condition</code>) and <code>eval_expr(text, debugger)</code> evaluates once. The ZRCP
-  adapter (<code>src/remote/zrcp/zrcp_condition.*</code>, GH #280 WP-4) translates
-  ZEsarUX's breakpoint dialect into this grammar — tokenising and grouping as
-  ZEsarUX does, emitting a fully bracketed expression — and compiles it here,
-  so it owns no evaluator. The one thing the DSL cannot read is whether a slot
-  is ROM, so ZEsarUX's <code>SEGn</code> / <code>ROM</code> / <code>RAM</code> are evaluated by the adapter.</li>
-</ul>
-<p><code>script_parse_test</code> (<code>gate: none</code>) pins the grammar, every error class with its
-position, precedence, the per-kind payload table, the evaluation of every name
-against a real <code>Debugger</code>, and that every worked script of the design parses.
-The choices made where the grammar is silent are the design document's
-"WP1 as built" appendix. This section covers the front end only; the engine,
-the CLI and the recorder are later work packages of the same branch.</p>
+(target <code>jnext_script</code>), with no toolkit dependency and reaching the machine
+only through this facade. A loaded script is ONE backend client
+(<code>ClientKind::Script</code>): each rule becomes a subscription whose <code>Condition</code> is
+the compiled <code>when</code> and whose <code>Handler</code> runs the body at the delivery, and a
+stop-only <code>execute</code> rule is registered as a static <code>Stop</code>, so <code>probe_execute()</code>
+and <code>subscriptions()</code> show it like any breakpoint. The loop owners run it
+through <code>ScriptHost</code>, which also carries the GH #20 recorder (a second,
+observing client). Its whole architecture — the front end, the expression
+compiler as a library, the engine, stop and exit, the host keys, the recorder,
+and how to add a name or an event kind — is <a href="13-the-debugger-scripting-language.html">3.13 The debugger scripting
+language</a>. The ZRCP server (<a href="12-the-zrcp-server.html">3.12</a>)
+compiles its breakpoint conditions through the same expression compiler.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
 <p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
 <code>jnext_debugger</code> is neither compiled nor linked and every use site in

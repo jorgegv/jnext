@@ -1,0 +1,55 @@
+// The debugger scripting language (src/script/), from text to the backend and
+// back: chapter 3.12.
+//
+// Rendered by `make docs-devguide-diagrams` into ../img/script-pipeline.svg,
+// which is COMMITTED. Edit this file, never the SVG.
+//
+// Two halves: LOAD time (left column, top to bottom: one pass over the text,
+// nothing registered on any error) and RUN time (the backend delivers, the
+// rule body acts). The loop owners reach the engine and the recorder only
+// through ScriptHost; the engine and the recorder reach the machine only
+// through the Debugger facade.
+//
+// Palette: the page theme's pastel dark red family (see css/theme.css), as the
+// other figures. Light fills, dark labels, transparent canvas.
+digraph script_pipeline {
+    bgcolor="transparent";
+    rankdir=TB;
+    fontname="Helvetica";
+    ranksep=0.45;
+    nodesep=0.40;
+    node [shape=box, style="filled,rounded", fontname="Helvetica", fontsize=10,
+          fillcolor="#f7eef0", color="#8c6b70", fontcolor="#2e1c1f", margin="0.16,0.10"];
+    edge [color="#8c6b70", fontname="Helvetica", fontsize=9, fontcolor="#5a3f43"];
+
+    owners [label="HeadlessApp · SdlApp · QtApp\l--script  --script-key  --map  --record-script\lQt: Script tab and menu (ScriptPanel)\l",
+            fillcolor="#e9d3d6"];
+    host [label="ScriptHost — script_host.{h,cpp}\lexit code (first wins) · log ring · GUI load/unload\l"];
+
+    subgraph cluster_load {
+        label="load time — one pass; any error registers nothing";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        lexer  [label="lexer — tokens, comments, ${…} interpolation"];
+        parser [label="parser — syntax tree (ast.h), nesting bounds"];
+        check  [label="check — names, types, binding,\lpayload_legal(), @symbols\l"];
+        lexer -> parser -> check;
+    }
+
+    engine [label="ScriptEngine — script_engine.{h,cpp}\lone backend client; rules -> subscriptions\lCondition = compiled when · Handler = body\l"];
+    recorder [label="Recorder — recorder.{h,cpp}\lFrame edge: input_state() -> press/release/joystick\lcaptures -> compare_scr / screenshot\l"];
+    library [label="expr_compiler.h\lcompile_expr() · eval_expr()\l(for ZRCP, package Z)\l", style="filled,rounded,dashed"];
+
+    dbg [label="jnext::dbg::Debugger — the facade (3.9)\lsubscribe · deliver at a boundary · verbs (set_key, poke, …)\l",
+         shape=box3d, style="filled", fillcolor="#e9d3d6", margin="0.22,0.12"];
+
+    owners -> host [label=" start()"];
+    host -> lexer [label=" load()"];
+    check -> engine;
+    host -> recorder [label=" start_recording()"];
+    check -> library [style=dashed, arrowhead=none];
+    engine -> dbg [label=" subscribe / verbs"];
+    dbg -> engine [label=" deliveries · Paused"];
+    recorder -> dbg [label=" input_state · ula_screen_dump"];
+    dbg -> host [label=" ExitRequested · log (listener)"];
+}

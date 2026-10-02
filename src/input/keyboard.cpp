@@ -60,6 +60,20 @@ const char* const kAutoKeys[16][5] = {
 // ---------------------------------------------------------------------------
 static_assert(host_key_latch::MAX_KEYS == SDL_SCANCODE_COUNT,
               "host_key_latch::MAX_KEYS must match SDL_SCANCODE_COUNT");
+// GH #26 WP5 — the script host-key chord's scancodes (host_key_latch.h).
+static_assert(host_key_latch::SC_DIGIT_1 == SDL_SCANCODE_1 &&
+              host_key_latch::SC_DIGIT_8 == SDL_SCANCODE_8 &&
+              SDL_SCANCODE_8 - SDL_SCANCODE_1 == 7,
+              "host_key_latch's digit scancodes drifted from SDL's");
+static_assert(host_key_latch::SC_LCTRL == SDL_SCANCODE_LCTRL &&
+              host_key_latch::SC_LSHIFT == SDL_SCANCODE_LSHIFT &&
+              host_key_latch::SC_LALT == SDL_SCANCODE_LALT &&
+              host_key_latch::SC_LGUI == SDL_SCANCODE_LGUI &&
+              host_key_latch::SC_RCTRL == SDL_SCANCODE_RCTRL &&
+              host_key_latch::SC_RSHIFT == SDL_SCANCODE_RSHIFT &&
+              host_key_latch::SC_RALT == SDL_SCANCODE_RALT &&
+              host_key_latch::SC_RGUI == SDL_SCANCODE_RGUI,
+              "host_key_latch's modifier scancodes drifted from SDL's");
 static_assert(host_key_latch::MOD_FIRST == SDL_SCANCODE_LCTRL,
               "host_key_latch modifier block must start at SDL_SCANCODE_LCTRL");
 static_assert(host_key_latch::MOD_LAST == SDL_SCANCODE_RGUI,

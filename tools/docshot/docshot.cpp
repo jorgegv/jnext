@@ -125,6 +125,7 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
+#include "debugger/script_panel.h"
 #include "debugger/stack_panel.h"
 #include "debugger/video_panel.h"
 #include "debugger/watch_panel.h"
@@ -133,6 +134,7 @@
 #include "gui/main_window.h"
 #include "gui/preferences_dialog.h"
 #include "port/nextreg.h"
+#include "script/script_host.h"
 #include "video/sprites.h"
 #include "video/timing.h"
 
@@ -222,7 +224,7 @@ void settle(int ms = 60) {
 /// The row itself is not hard-coded: it is found by asking raster_state_at()
 /// — the panel's own classifier — which is the last line it calls Paper, so
 /// this follows the machine type rather than a table copied beside one.
-bool run_to_last_paper_line(Emulator& emu, DebuggerManager* mgr) {
+bool run_to_last_paper_line(Emulator& emu, const jnext::dbg::Debugger& backend, DebuggerManager* mgr) {
     const VideoTiming& vt = emu.video_timing();
     const auto& t = emu.timing();
     const int hc_mid = static_cast<int>((t.master_cycles_per_line / 2) / 4);
@@ -263,7 +265,7 @@ bool run_to_last_paper_line(Emulator& emu, DebuggerManager* mgr) {
     mgr->on_pause();
     mgr->refresh_panels();
 
-    const RasterState got = video_panel_raster_state(emu);
+    const RasterState got = video_panel_raster_state(backend);
     if (!got.in_paper()) {
         std::fprintf(stderr,
             "docshot: stopped at raw hc %d vc %d, which is not paper — the video\n"
@@ -741,7 +743,7 @@ int main(int argc, char** argv)
 
     // ── Debugger, through the production path ─────────────────────────
     QMainWindow host;
-    auto* mgr = new DebuggerManager(&host, backend, &emu, &host);
+    auto* mgr = new DebuggerManager(&host, backend, &host);
     mgr->set_enabled(true);                 // == Alt+D
     DebuggerWindow* dbg = mgr->debugger_window_ptr();
     if (!dbg) {
@@ -786,7 +788,7 @@ int main(int argc, char** argv)
     note("docshot: debugger window %dx%d\n", dbg->width(), dbg->height());
 
     mgr->on_pause();                        // == F9
-    if (!run_to_last_paper_line(emu, mgr)) return 1;
+    if (!run_to_last_paper_line(emu, backend, mgr)) return 1;
     settle();
 
     // Breakpoints and watches go in AFTER the positioning above, not before:
@@ -901,7 +903,7 @@ int main(int argc, char** argv)
         BreakpointSet& bps = emu.debug_state().breakpoints();
         const bool master_was = bps.master_enabled();
         bps.set_master_enabled(false);
-        const bool ok = run_to_last_paper_line(emu, mgr);
+        const bool ok = run_to_last_paper_line(emu, backend, mgr);
         bps.set_master_enabled(master_was);
         if (!ok) return 1;
         settle();
@@ -909,6 +911,76 @@ int main(int argc, char** argv)
         shoot_tab(left_tabs, "Sprites", "debugger-sprites");
         shoot_tab(left_tabs, "Copper",  "debugger-copper");
         shoot_tab(left_tabs, "Audio",   "debugger-audio");
+    }
+
+    // ── Group 3: the Script tab, with a script loaded (GH #26 WP9) ────
+    //
+    // Last, because it adds a backend client and runs frames. The host is
+    // started as QtApp starts it (exits off: a GUI never exits from a script)
+    // and handed to the manager the way QtApp hands it over; the script is
+    // loaded through the panel's own Load path, and runs for three frames of
+    // the booted machine, with host key 2 pressed in between — so the table,
+    // the verdict line and the log all show real rule states and real output.
+    if (wanted(opt, "debugger-script")) {
+        note("capturing (with a script loaded):\n");
+        jnext::script::ScriptHost scripts;
+        jnext::script::ScriptHostOptions so;
+        so.exits = false;
+        QTemporaryDir sdir;
+        const QString jds = sdir.path() + QStringLiteral("/guards.jds");
+        {
+            QFile f(jds);
+            if (!sdir.isValid() || !f.open(QIODevice::WriteOnly)) {
+                note("  FAIL debugger-script: cannot write the script\n");
+                return 1;
+            }
+            f.write("# guards.jds - a code guard Alt+1 arms; Alt+2 marks the log\n"
+                    "disabled code_guard: on write 0x8000..0xBFFF do\n"
+                    "    stop \"write into code at ${ADDR:x4} from ${PC:x4}\"\n"
+                    "end\n"
+                    "on hostkey 1 do enable code_guard log \"code guard armed\" end\n"
+                    "on hostkey 2 do log \"mark at FRAME ${FRAME}\" end\n"
+                    "on interrupt do\n"
+                    "    log indent 2 \"interrupt at ${PC:x4}, SP=${SP:x4}\"\n"
+                    "end\n"
+                    "on nextreg 0x50..0x57 do\n"
+                    "    log \"MMU NR ${REG:x2} = ${VALUE:x2}\"\n"
+                    "end\n"
+                    "on frame once do log \"first frame seen: FRAME ${FRAME}\" end\n"
+                    "on frame 100000 do exit 0 end\n");
+        }
+        if (!scripts.start(backend, so)) {
+            note("  FAIL debugger-script: the script host did not start\n");
+            return 1;
+        }
+        mgr->set_script_host(&scripts);
+        QString why;
+        ScriptPanel* sp = dbg->script_panel();
+        // Loaded by a RELATIVE name from inside the scratch directory, so the
+        // log line in the picture does not carry a random temporary path.
+        const QString cwd = QDir::currentPath();
+        QDir::setCurrent(sdir.path());
+        const bool loaded = sp && sp->load_path(QStringLiteral("guards.jds"), &why);
+        QDir::setCurrent(cwd);
+        if (!loaded) {
+            note("  FAIL debugger-script: %s\n", qPrintable(why));
+            return 1;
+        }
+        BreakpointSet& bps = emu.debug_state().breakpoints();
+        const bool master_was = bps.master_enabled();
+        bps.set_master_enabled(false);
+        bool ok = run_to_last_paper_line(emu, backend, mgr);
+        backend.pump(jnext::dbg::PumpBudget{});
+        (void)backend.raise_host_event(jnext::dbg::CLIENT_NONE, "script2");
+        for (int k = 0; ok && k < 2; ++k) {
+            ok = run_to_last_paper_line(emu, backend, mgr);
+            backend.pump(jnext::dbg::PumpBudget{});
+        }
+        bps.set_master_enabled(master_was);
+        if (!ok) return 1;
+        settle();
+        shoot_tab(left_tabs, "Script", "debugger-script");
+        mgr->set_script_host(nullptr);
     }
 
     // Leave the machine running, the way closing the debugger does, so nothing

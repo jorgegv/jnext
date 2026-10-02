@@ -768,6 +768,38 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     unless a server port is given too: an address for servers that are
     all off would configure nothing.
 
+**--script** *FILE*
+:   Load a debugger script (`.jds`); see [Debugger
+    scripting](../06-debugger/scripting/index.md). Repeatable: the
+    scripts load, and their rules run, in the order given. A script that
+    cannot be read, or that has any error, is reported as
+    *file*:*line*:*column*: *message* and jnext exits 1 before the
+    machine runs - nothing of it runs partially. In **--headless** and
+    the SDL-only build a script decides the exit status: `exit` *N*
+    exits *N*, a `stop` or a failed `assert` exits 3, a run-time error
+    exits 1. In the Qt GUI a script never ends the program: `stop` and
+    `exit` pause the machine instead.
+
+**--script-key** *FRAME* *N*
+:   Deliver script host key *N* (`1` to `8`) at emulated frame *FRAME*
+    (**--headless** only; repeatable): the script’s `on hostkey` *N*
+    rules run at the end of frame *FRAME*, where `on frame` *FRAME*
+    runs. Needs a **--script**, or a **--record-script** (key `8` is the
+    recorder’s capture).
+
+**--record-script** *FILE*
+:   Record the session as a replay script; see **Recording a session**
+    under [Debugger scripting](../06-debugger/scripting/index.md). Every
+    input change is written as the frame it landed on, each Alt + 8 (or
+    **--script-key** *FRAME* `8`) captures the screen, and *FILE* is
+    written when jnext exits. Works in every frontend.
+
+**--map** *FILE*
+:   Load a z88dk `.map` symbol table, so a script can name an address as
+    `@symbol`, and the debugger shows the names (the same table **Map \>
+    Load MAP** fills). A file that cannot be loaded, or holds no
+    symbols, is a startup error.
+
 **--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, for example `0x00FF`).
 

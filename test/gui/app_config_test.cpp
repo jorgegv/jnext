@@ -528,6 +528,11 @@ static void test_debug_keys_validation() {
         { "DK-28", "Alt+F5",   true,  "Alt + a function key is allowed" },
         { "DK-29", "Ctrl+C",   false, "Ctrl+C is refused — the disassembly panel's Copy" },
         { "DK-30", "Ctrl+A",   false, "Ctrl+A is refused — the disassembly panel's Select All" },
+        // GH #26 WP5 — Alt+1..Alt+8 are the script host keys in both windows.
+        { "DK-32", "Alt+1",    false, "Alt+1 is refused — a script host key" },
+        { "DK-33", "Alt+8",    false, "Alt+8 is refused — a script host key" },
+        { "DK-34", "Alt+9",    true,  "Alt+9 stays bindable — the reservation is 1..8" },
+        { "DK-35", "Alt+Shift+1", true, "Alt+Shift+1 stays bindable — a different chord" },
     };
     for (const Row& r : rows) {
         const V v = V_(r.text);
@@ -690,6 +695,29 @@ static void test_debug_keys_bad_entries(QTemporaryDir& dir) {
 
     check("DK-63", "every bad entry is REPORTED, none swallowed",
           issues.size() == 4, std::to_string(issues.size()) + " issues");
+
+    // GH #26 WP5 — the file-level twin of debugger_keymap_test DKSK-02 (DK-68): a
+    // config that binds an action to a script host key is reported and the
+    // action keeps its default.
+    {
+        const QString sk = fresh_ini_path(dir, "dk_scriptkey");
+        {
+            QSettings raw(sk, QSettings::IniFormat);
+            raw.beginGroup("debugger_keys");
+            raw.setValue("step_into", "Alt+1");
+            raw.endGroup();
+            raw.sync();
+        }
+        AppConfig c2(sk);
+        c2.load();
+        const auto& iss = c2.debug_key_issues();
+        const bool named = iss.size() == 1 && iss[0].action_id == "step_into" &&
+                           iss[0].reason.find("script host keys") != std::string::npos;
+        check("DK-68", "a saved binding on Alt+1 (a script host key) is reported by name and the action "
+                       "keeps its default",
+              named && c2.data().debug_keys.is_default(Action::StepInto),
+              std::to_string(iss.size()) + " issues" + (iss.empty() ? "" : ": " + iss[0].reason));
+    }
 
     bool named_all = true;
     std::string missing;

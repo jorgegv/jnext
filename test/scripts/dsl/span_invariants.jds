@@ -1,0 +1,62 @@
+# span_invariants.jds — #279's interrupt-exit audit (ChaseTheBug Int=isr,isr_exit;
+# dsl-frontend.md §3(c)): at the handler's exit the registers, the return
+# address and the MMU slots are as they were at its entry, and interrupts are
+# enabled again. An indented trace of entries and exits goes to the log.
+#
+# Run from the repository root:
+#   build/jnext --headless --machine next --load test/00regression/nex/dsl_demo.nex \
+#       --map test/00regression/nex/dsl_demo.map --script test/scripts/dsl/span_invariants.jds \
+#       --delayed-automatic-exit-frames 900
+#   exit 0, log line:  PASS span_invariants: 64 frames of clean handler exits
+# Against dsl_demo_buggy.nex (fault 1 by default: IY returned one higher):
+#   exit 3, log lines: Warning: registers differ on exit from isr
+#                      dump_diff isr: IY 5C3B -> 5C3C
+#                      SCRIPT STOP: isr clobbered registers at PC=820B ...
+# The buggy handler's other faults are picked by setting its `isr_fault` byte
+# from a second script, `on execute @main_loop once when mem16[@magic] ==
+# 0xD5D5 do set mem[@isr_fault] = N end`, each breaking one invariant:
+#   2: dump_diff isr: MMU7 01 -> 0F        SCRIPT STOP: isr changed an MMU slot
+#   3: Warning: top of stack modified 8139 vs 8138
+#                                         SCRIPT STOP: isr modified return address
+#   4:                                     SCRIPT STOP: isr exit with interrupts disabled
+#   5: dump_diff isr: SP BCFE -> BCFC      SCRIPT STOP: isr clobbered registers
+
+disabled isr_in: on execute @isr do
+    snap isr
+    log indent (depth(isr) * 2) "==> isr at ${PC:x4}"
+end
+
+disabled isr_out: on execute @isr_exit do
+    log indent (depth(isr) * 2) "<== isr at ${PC:x4}, Ret=${stack[0]:x4}"
+    if depth(isr) == 0 then
+        log "Warning: isr exit with empty entry stack"
+    else
+        if changed(isr, regs) then
+            log "Warning: registers differ on exit from isr"
+            dump_diff isr
+            stop "isr clobbered registers"
+        end
+        if changed(isr, stack0) then
+            log "Warning: top of stack modified ${isr.STACK0:x4} vs ${stack[0]:x4}"
+            stop "isr modified return address"
+        end
+        if not IFF1 then
+            stop "isr exit with interrupts disabled"
+        end
+        if changed(isr, mmu) then
+            dump_diff isr
+            stop "isr changed an MMU slot"
+        end
+        unsnap isr
+    end
+end
+
+on execute @main_loop once when mem16[@magic] == 0xD5D5 do
+    enable isr_in
+    enable isr_out
+end
+
+on execute @main_loop once when mem16[@magic] == 0xD5D5 and mem[@frames] >= 64 do
+    log "PASS span_invariants: 64 frames of clean handler exits"
+    exit 0
+end

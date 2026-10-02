@@ -253,6 +253,10 @@ int main(int argc, char* argv[]) {
     int         dzrp_port = -1;
     int         zrcp_port = -1;
     int         gdb_port  = -1;
+    std::vector<std::string>              script_files;   // GH #26 WP4
+    std::vector<std::pair<uint32_t, int>> script_keys;
+    std::string                           map_file;
+    std::string                           record_script_file;   // GH #26 WP6
     bool        esxdos_stub = false;
     std::string esxdos_stub_root;
     bool        esxdos_stub_writable = false;
@@ -557,6 +561,29 @@ int main(int argc, char* argv[]) {
                 gdb_port = static_cast<int>(n);
                 break;
             }
+            case cli::OptId::Script:
+                script_files.emplace_back(v[0]);
+                break;
+            case cli::OptId::ScriptKey: {
+                // GH #26 WP4 (§6.6) — both whole numbers (cli::parse_script_key).
+                uint32_t frame = 0;
+                int      key   = 0;
+                if (!cli::parse_script_key(v[0], v[1], frame, key)) {
+                    fprintf(stderr,
+                            "--script-key: FRAME must be a whole number from 0 and N a key from 1 "
+                            "to 8, not \"%s\" \"%s\".\n",
+                            v[0], v[1]);
+                    return 1;
+                }
+                script_keys.emplace_back(frame, key);
+                break;
+            }
+            case cli::OptId::Map:
+                map_file = v[0];
+                break;
+            case cli::OptId::RecordScript:
+                record_script_file = v[0];
+                break;
             case cli::OptId::ZrcpPort: {
                 // GH #280 — the same port rule and the same strictness as
                 // --dzrp-port: `10000x` is not 10000.
@@ -1147,6 +1174,7 @@ int main(int argc, char* argv[]) {
                                   : !delayed_nmis.empty()  ? "--delayed-nmi"
                                   : !delayed_sd_inserts.empty() ? "--delayed-sdcard-insert-frames"
                                   : !snapshot_file.empty() ? "--delayed-snapshot"
+                                  : !script_keys.empty()   ? "--script-key"
                                   : nullptr;
         if (headless_only) {
             fprintf(stderr, "%s requires --headless (it is a headless automation option).\n",
@@ -1385,6 +1413,10 @@ int main(int argc, char* argv[]) {
         cfg.dzrp_port = dzrp_port;
         cfg.zrcp_port = zrcp_port;
         cfg.gdb_port = gdb_port;
+        cfg.script_files = script_files;   // GH #26 WP4
+        cfg.script_keys  = script_keys;
+        cfg.map_file     = map_file;
+        cfg.record_script_file = record_script_file;   // GH #26 WP6
         cfg.esxdos_stub = esxdos_stub;
         cfg.esxdos_stub_root = esxdos_stub_root;
         cfg.esxdos_stub_writable = esxdos_stub_writable;

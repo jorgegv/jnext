@@ -1566,6 +1566,160 @@ int main()
         }
     }
 
+    // --- HKL-SK: the script host keys Alt+1..Alt+8 (GH #26 WP5) ------------
+    // The SDL frontend's path, and the Qt window's: both feed this Router.
+    {
+        using namespace host_key_latch;
+        const int LALT = SC_LALT, RALT = SC_RALT, LCTRL = SC_LCTRL, LSHIFT = SC_LSHIFT;
+        auto digit = [](int n) { return n == 0 ? SC_DIGIT_8 + 2 : SC_DIGIT_1 + n - 1; };   // 0 is 39
+        struct FakeBackend {
+            std::vector<std::string> raised;
+            void raise_host_event(int, const std::string& name) { raised.push_back(name); }
+        };
+        auto names = [](const std::vector<std::string>& v) {
+            std::string s;
+            for (const auto& x : v) s += x + " ";
+            return s;
+        };
+
+        // HKL-SK-01: each of Alt+1..Alt+8 (left Alt for the odd keys, right
+        // Alt for the even ones) raises scriptN through wire_script_keys, and
+        // neither the digit's press nor its release reaches the guest.
+        {
+            FakeKeyboard kb;
+            TestRouter r;
+            r.attach(kb);
+            FakeBackend be;
+            wire_script_keys(r, be);
+            bool clean = true;
+            for (int n = 1; n <= 8; ++n) {
+                const int alt = n % 2 ? LALT : RALT;
+                r.on_host_key(alt, true);
+                r.on_host_key(digit(n), true);
+                r.on_host_key(digit(n), false);
+                r.on_host_key(alt, false);
+                r.on_tick_end(1);
+                if (kb.count(digit(n), true) || kb.count(digit(n), false)) clean = false;
+            }
+            check("HKL-SK-01", "Alt+1..Alt+8 each raise `scriptN` once (left or right Alt) and the "
+                               "digit's press and release never reach the guest",
+                  clean && names(be.raised) == "script1 script2 script3 script4 script5 script6 script7 script8 ",
+                  names(be.raised) + got(kb));
+        }
+        // HKL-SK-02: Alt+9, Alt+0, a plain digit, Ctrl+Alt+1 and Shift+Alt+1
+        // are not the chord: they reach the guest and raise nothing.
+        {
+            FakeKeyboard kb;
+            TestRouter r;
+            r.attach(kb);
+            FakeBackend be;
+            wire_script_keys(r, be);
+            auto tap = [&](std::vector<int> mods, int key) {
+                for (int m : mods) r.on_host_key(m, true);
+                r.on_host_key(key, true);
+                r.on_tick_end(1);
+                r.on_host_key(key, false);
+                for (int m : mods) r.on_host_key(m, false);
+                r.on_tick_end(1);
+            };
+            tap({LALT}, digit(9));
+            tap({LALT}, digit(0));
+            tap({}, digit(1));
+            tap({LCTRL, LALT}, digit(2));
+            tap({LSHIFT, LALT}, digit(3));
+            check("HKL-SK-02", "Alt+9, Alt+0, a plain 1, Ctrl+Alt+2 and Shift+Alt+3 are not script keys: "
+                               "each reaches the guest, pressed and released, and nothing is raised",
+                  be.raised.empty() && kb.count(digit(9), true) == 1 && kb.count(digit(9), false) == 1 &&
+                      kb.count(digit(0), true) == 1 && kb.count(digit(1), true) == 1 &&
+                      kb.count(digit(2), true) == 1 && kb.count(digit(3), true) == 1 &&
+                      kb.count(digit(3), false) == 1,
+                  names(be.raised) + got(kb));
+        }
+        // HKL-SK-03: the release is swallowed even when Alt went up first; an
+        // autorepeat of a held chord raises nothing more; release_all() forgets
+        // a chord whose key-up went elsewhere, so the next Alt+N works.
+        {
+            FakeKeyboard kb;
+            TestRouter r;
+            r.attach(kb);
+            std::vector<int> keys;
+            r.set_script_key_callback([&keys](int n) { keys.push_back(n); });
+            r.on_host_key(LALT, true);
+            r.on_host_key(digit(4), true);
+            r.on_host_key(digit(4), true);      // autorepeat
+            r.on_host_key(LALT, false);
+            r.on_host_key(digit(4), false);     // after Alt: still the host's
+            r.on_tick_end(1);
+            const bool step1 = keys == std::vector<int>{4} && kb.count(digit(4), true) == 0 &&
+                               kb.count(digit(4), false) == 0;
+            r.on_host_key(LALT, true);
+            r.on_host_key(digit(5), true);
+            r.release_all();                    // the key-up went to another window
+            r.on_host_key(LALT, true);
+            r.on_host_key(digit(5), true);
+            check("HKL-SK-03", "the digit's release is swallowed even after Alt went up, an autorepeat "
+                               "raises nothing more, and after release_all() the same chord raises again",
+                  step1 && keys == std::vector<int>{4, 5, 5} && kb.count(digit(5), true) == 0,
+                  got(keys) + " " + got(kb));
+        }
+        // HKL-SK-06: the RIGHT-hand Ctrl, Shift and GUI keys make a different
+        // chord exactly as the left-hand ones do.
+        {
+            FakeKeyboard kb;
+            TestRouter r;
+            r.attach(kb);
+            std::vector<int> keys;
+            r.set_script_key_callback([&keys](int n) { keys.push_back(n); });
+            const int RCTRL = SC_RCTRL, RSHIFT = SC_RSHIFT, RGUI = SC_RGUI, LGUI = SC_LGUI;
+            int n = 3;
+            for (int mod : {RCTRL, RSHIFT, RGUI, LGUI}) {
+                r.on_host_key(mod, true);
+                r.on_host_key(LALT, true);
+                r.on_host_key(digit(n), true);
+                r.on_tick_end(1);
+                r.on_host_key(digit(n), false);
+                r.on_host_key(LALT, false);
+                r.on_host_key(mod, false);
+                r.on_tick_end(1);
+                ++n;
+            }
+            check("HKL-SK-06", "Right-Ctrl+Alt+3, Right-Shift+Alt+4, Right-GUI+Alt+5 and Left-GUI+Alt+6 are not "
+                               "script keys: each digit reaches the guest and nothing is raised",
+                  keys.empty() && kb.count(digit(3), true) == 1 && kb.count(digit(4), true) == 1 &&
+                      kb.count(digit(5), true) == 1 && kb.count(digit(6), true) == 1,
+                  got(keys) + " " + got(kb));
+        }
+        // HKL-SK-05: attach() (a cold boot rebinding the sink) forgets a chord
+        // held across it, so the next Alt+N raises again.
+        {
+            FakeKeyboard kb;
+            TestRouter r;
+            r.attach(kb);
+            std::vector<int> keys;
+            r.set_script_key_callback([&keys](int n) { keys.push_back(n); });
+            r.on_host_key(LALT, true);
+            r.on_host_key(digit(6), true);
+            r.attach(kb);
+            r.on_host_key(LALT, true);
+            r.on_host_key(digit(6), true);
+            check("HKL-SK-05", "after attach() (a cold boot) a chord held across it raises again",
+                  keys == std::vector<int>{6, 6}, got(keys));
+        }
+        // HKL-SK-04: with no callback (no backend) the chord is still swallowed.
+        {
+            FakeKeyboard kb;
+            TestRouter r;
+            r.attach(kb);
+            r.on_host_key(LALT, true);
+            r.on_host_key(digit(1), true);
+            r.on_tick_end(1);
+            r.on_host_key(digit(1), false);
+            check("HKL-SK-04", "Alt+1 with no script-key callback is still swallowed: what Alt+1 does "
+                               "never depends on whether anything listens",
+                  kb.count(digit(1), true) == 0 && kb.count(digit(1), false) == 0, got(kb));
+        }
+    }
+
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);
