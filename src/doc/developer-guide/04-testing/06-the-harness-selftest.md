@@ -63,11 +63,15 @@ their own run directory or clone file. Finally `HS-50`..`HS-55` pin the regressi
 host-load bookkeeping (GH #245): the real suite library, sourced against a fake
 `/proc/loadavg`, must flag a FAIL on a loaded host and must not flag the same
 FAIL on an idle one, must name every failed row at the end, must never change
-the count — and the driver must still call it.
+the count — and the driver must still call it. `HS-68a`..`HS-68e` pin the
+sourced-row counter guard: a stub row that clobbers `skip` after an earlier
+SKIP is a harness fault naming that row, a row reporting two results is one
+too, the NULL control and a filtered-out row pass, and the driver wraps every
+functional row in the guard.
 
 ## It pins its own count
 
-`EXPECTED_TOTAL = 75` sits in the script, right next to the rows it counts, and
+`EXPECTED_TOTAL = 80` sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is
